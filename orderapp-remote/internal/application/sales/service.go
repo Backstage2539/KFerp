@@ -841,6 +841,32 @@ type CombinedSalesOrderDocumentFile struct {
 	Filename string
 }
 
+type CombinedSalesOrderImageDocument struct {
+	ID             int64                                  `json:"id"`
+	CombinationKey string                                 `json:"combination_key"`
+	CustomerID     int64                                  `json:"customer_id"`
+	OrderIDs       []int64                                `json:"order_ids"`
+	OrderNos       []string                               `json:"order_nos"`
+	VersionNo      int                                    `json:"version_no"`
+	Snapshot       salesdomain.CombinedSalesOrderSnapshot `json:"snapshot"`
+	ImageAssetID   int64                                  `json:"image_asset_id"`
+	IsLatest       bool                                   `json:"is_latest"`
+	CreatedAt      string                                 `json:"created_at"`
+	CreatedBy      string                                 `json:"created_by"`
+	DownloadURL    string                                 `json:"download_url"`
+}
+
+type GenerateCombinedSalesOrderImageResult struct {
+	Document CombinedSalesOrderImageDocument        `json:"document"`
+	Snapshot salesdomain.CombinedSalesOrderSnapshot `json:"snapshot"`
+}
+
+type CombinedSalesOrderImageFile struct {
+	Document CombinedSalesOrderImageDocument
+	Path     string
+	Filename string
+}
+
 type DeliveryNoteForm struct {
 	OrderID             int64  `json:"order_id"`
 	OrderNo             string `json:"order_no"`
@@ -1066,10 +1092,14 @@ type Repository interface {
 	GenerateSalesOrderImage(ctx context.Context, cmd GenerateSalesOrderImageCommand) (GenerateSalesOrderImageResult, error)
 	LoadSalesOrderDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (SalesOrderDocumentFile, error)
 	LoadSalesOrderImageFile(ctx context.Context, orderID, imageID int64, latest bool) (SalesOrderImageFile, error)
+	ListCombinedSalesOrderDocuments(ctx context.Context, orderIDs []int64) ([]CombinedSalesOrderDocument, error)
+	ListCombinedSalesOrderImageDocuments(ctx context.Context, orderIDs []int64) ([]CombinedSalesOrderImageDocument, error)
 	PreviewCombinedSalesOrderDocument(ctx context.Context, orderIDs []int64) (CombinedSalesOrderPreview, error)
 	PreviewCombinedSalesOrderPDF(ctx context.Context, orderIDs []int64) (CombinedSalesOrderPreviewPDF, error)
 	GenerateCombinedSalesOrderDocument(ctx context.Context, cmd CombinedDocumentCommand) (GenerateCombinedSalesOrderDocumentResult, error)
+	GenerateCombinedSalesOrderImage(ctx context.Context, cmd CombinedDocumentCommand) (GenerateCombinedSalesOrderImageResult, error)
 	LoadCombinedSalesOrderDocumentFile(ctx context.Context, documentID int64) (CombinedSalesOrderDocumentFile, error)
+	LoadCombinedSalesOrderImageFile(ctx context.Context, imageID int64) (CombinedSalesOrderImageFile, error)
 	LoadDeliveryNoteContext(ctx context.Context, orderID int64) (DeliveryNoteContext, error)
 	LoadDeliveryNoteForm(ctx context.Context, orderID int64) (DeliveryNoteForm, error)
 	SaveDeliveryNoteForm(ctx context.Context, cmd SaveDeliveryNoteFormCommand) (DeliveryNoteForm, error)
@@ -1078,6 +1108,7 @@ type Repository interface {
 	PreviewDeliveryNotePDF(ctx context.Context, orderID int64) (DeliveryNotePreviewPDF, error)
 	GenerateDeliveryNoteDocument(ctx context.Context, cmd GenerateDeliveryNoteDocumentCommand) (GenerateDeliveryNoteDocumentResult, error)
 	LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error)
+	ListCombinedDeliveryNoteDocuments(ctx context.Context, orderIDs []int64) ([]CombinedDeliveryNoteDocument, error)
 	PreviewCombinedDeliveryNoteDocument(ctx context.Context, orderIDs []int64) (CombinedDeliveryNotePreview, error)
 	PreviewCombinedDeliveryNotePDF(ctx context.Context, orderIDs []int64) (CombinedDeliveryNotePreviewPDF, error)
 	GenerateCombinedDeliveryNoteDocument(ctx context.Context, cmd CombinedDocumentCommand) (GenerateCombinedDeliveryNoteDocumentResult, error)
@@ -1816,6 +1847,22 @@ func (s *Service) LoadSalesOrderImageFile(ctx context.Context, orderID, imageID 
 	return s.repo.LoadSalesOrderImageFile(ctx, orderID, imageID, latest)
 }
 
+func (s *Service) ListCombinedSalesOrderDocuments(ctx context.Context, orderIDs []int64) ([]CombinedSalesOrderDocument, error) {
+	ids, err := normalizeCombinedDocumentOrderIDs(orderIDs)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListCombinedSalesOrderDocuments(ctx, ids)
+}
+
+func (s *Service) ListCombinedSalesOrderImageDocuments(ctx context.Context, orderIDs []int64) ([]CombinedSalesOrderImageDocument, error) {
+	ids, err := normalizeCombinedDocumentOrderIDs(orderIDs)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListCombinedSalesOrderImageDocuments(ctx, ids)
+}
+
 func (s *Service) PreviewCombinedSalesOrderDocument(ctx context.Context, orderIDs []int64) (CombinedSalesOrderPreview, error) {
 	ids, err := normalizeCombinedDocumentOrderIDs(orderIDs)
 	if err != nil {
@@ -1845,11 +1892,31 @@ func (s *Service) GenerateCombinedSalesOrderDocument(ctx context.Context, cmd Co
 	return s.repo.GenerateCombinedSalesOrderDocument(ctx, cmd)
 }
 
+func (s *Service) GenerateCombinedSalesOrderImage(ctx context.Context, cmd CombinedDocumentCommand) (GenerateCombinedSalesOrderImageResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "sales"
+	}
+	ids, err := normalizeCombinedDocumentOrderIDs(cmd.OrderIDs)
+	if err != nil {
+		return GenerateCombinedSalesOrderImageResult{}, err
+	}
+	cmd.OrderIDs = ids
+	return s.repo.GenerateCombinedSalesOrderImage(ctx, cmd)
+}
+
 func (s *Service) LoadCombinedSalesOrderDocumentFile(ctx context.Context, documentID int64) (CombinedSalesOrderDocumentFile, error) {
 	if documentID <= 0 {
 		return CombinedSalesOrderDocumentFile{}, fmt.Errorf("invalid document id")
 	}
 	return s.repo.LoadCombinedSalesOrderDocumentFile(ctx, documentID)
+}
+
+func (s *Service) LoadCombinedSalesOrderImageFile(ctx context.Context, imageID int64) (CombinedSalesOrderImageFile, error) {
+	if imageID <= 0 {
+		return CombinedSalesOrderImageFile{}, fmt.Errorf("invalid image id")
+	}
+	return s.repo.LoadCombinedSalesOrderImageFile(ctx, imageID)
 }
 
 func (s *Service) LoadDeliveryNoteContext(ctx context.Context, orderID int64) (DeliveryNoteContext, error) {
@@ -1926,6 +1993,14 @@ func (s *Service) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, doc
 		return DeliveryNoteDocumentFile{}, fmt.Errorf("invalid document id")
 	}
 	return s.repo.LoadDeliveryNoteDocumentFile(ctx, orderID, documentID, latest)
+}
+
+func (s *Service) ListCombinedDeliveryNoteDocuments(ctx context.Context, orderIDs []int64) ([]CombinedDeliveryNoteDocument, error) {
+	ids, err := normalizeCombinedDocumentOrderIDs(orderIDs)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListCombinedDeliveryNoteDocuments(ctx, ids)
 }
 
 func (s *Service) PreviewCombinedDeliveryNoteDocument(ctx context.Context, orderIDs []int64) (CombinedDeliveryNotePreview, error) {

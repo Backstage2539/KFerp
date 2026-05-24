@@ -26,8 +26,8 @@ func TestDev350OrdersViewExposesCombinedDocumentSelection(t *testing.T) {
 		"selectedOrdersShareSameCustomer(selectedOrderIDs.value",
 		"openCombinedSalesOrderDrawer",
 		"openCombinedDeliveryNoteDrawer",
-		"CombinedSalesOrderView",
-		"CombinedDeliveryNoteView",
+		`<SalesOrderView :order-ids="activeCombinedSalesOrderIDs"`,
+		`<DeliveryNoteView :order-ids="activeCombinedDeliveryNoteIDs"`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("OrdersView.vue missing combined document marker %q", want)

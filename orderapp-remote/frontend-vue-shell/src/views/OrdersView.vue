@@ -352,13 +352,13 @@
 
     <div v-if="combinedSalesOrderDrawerOpen" class="combined-document-drawer-mask" @click.self="closeCombinedSalesOrderDrawer">
       <aside class="combined-document-drawer" aria-label="组合销售单">
-        <CombinedSalesOrderView :order-ids="activeCombinedSalesOrderIDs" embedded @close="closeCombinedSalesOrderDrawer" />
+        <SalesOrderView :order-ids="activeCombinedSalesOrderIDs" embedded @close="closeCombinedSalesOrderDrawer" />
       </aside>
     </div>
 
     <div v-if="combinedDeliveryNoteDrawerOpen" class="combined-document-drawer-mask" @click.self="closeCombinedDeliveryNoteDrawer">
       <aside class="combined-document-drawer" aria-label="组合出库单">
-        <CombinedDeliveryNoteView :order-ids="activeCombinedDeliveryNoteIDs" embedded @close="closeCombinedDeliveryNoteDrawer" />
+        <DeliveryNoteView :order-ids="activeCombinedDeliveryNoteIDs" embedded @close="closeCombinedDeliveryNoteDrawer" />
       </aside>
     </div>
 
@@ -383,8 +383,6 @@ import { formatTrackingSummary, trackingInputSummary } from '../lib/order-shippi
 import { orderListScopeForRequest } from '../lib/order-scope'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
-import CombinedDeliveryNoteView from './CombinedDeliveryNoteView.vue'
-import CombinedSalesOrderView from './CombinedSalesOrderView.vue'
 import DeliveryNoteView from './DeliveryNoteView.vue'
 import OrderEntryView from './OrderEntryView.vue'
 import OrderInvoiceView from './OrderInvoiceView.vue'

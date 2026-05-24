@@ -2,25 +2,25 @@
   <div class="page" :class="{ 'embedded-page': props.embedded }">
     <section class="panel">
       <div class="panel-head">
-        <h2>销售单</h2>
+        <h2>{{ isCombinedSalesOrder ? '组合销售单' : '销售单' }}</h2>
         <div class="actions">
           <button v-if="props.embedded" class="secondary" type="button" @click="emit('close')">关闭</button>
           <a v-else class="secondary link-button" :href="appURL('/vue-shell?view=orders')">返回订单列表</a>
           <button class="secondary" type="button" @click="openSettingsDrawer">销售单设置</button>
           <button class="secondary" type="button" @click="openCustomerDrawer" :disabled="!customerSummary.id">客户信息</button>
-          <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
-          <a v-if="documents.length" class="secondary link-button" :href="salesOrderDownloadUrl(orderID)" target="_blank" rel="noopener">下载最新版 PDF</a>
-          <a v-if="imageDocuments.length" class="secondary link-button" :href="salesOrderImageDownloadUrl(orderID)" target="_blank" rel="noopener">下载最新版图片</a>
-          <button class="secondary" type="button" @click="shareLatestResource('sales_order_pdf')" :disabled="shareLoading || !orderID || !documents.length">{{ shareLoading === 'sales_order_pdf' ? '分享中' : '分享PDF到微信' }}</button>
-          <button class="secondary" type="button" @click="shareLatestResource('sales_order_image')" :disabled="shareLoading || !orderID || !imageDocuments.length">{{ shareLoading === 'sales_order_image' ? '分享中' : '分享图片到微信' }}</button>
-          <button class="primary" type="button" @click="generate" :disabled="generating || !orderID || !preview">{{ generating ? '生成中' : '确认生成 PDF' }}</button>
-          <button class="primary" type="button" @click="generateImage" :disabled="imageGenerating || !orderID || !preview">{{ imageGenerating ? '生成图片中' : '确认生成图片' }}</button>
+          <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !documentContextReady">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
+          <a v-if="documents.length && latestSalesOrderPDFDownloadURL" class="secondary link-button" :href="latestSalesOrderPDFDownloadURL" target="_blank" rel="noopener">下载最新版 PDF</a>
+          <a v-if="imageDocuments.length && latestSalesOrderImageDownloadURL" class="secondary link-button" :href="latestSalesOrderImageDownloadURL" target="_blank" rel="noopener">下载最新版图片</a>
+          <button class="secondary" type="button" @click="shareLatestResource('sales_order_pdf')" :disabled="shareLoading || !canShareSingleOrder || !documents.length">{{ shareLoading === 'sales_order_pdf' ? '分享中' : '分享PDF到微信' }}</button>
+          <button class="secondary" type="button" @click="shareLatestResource('sales_order_image')" :disabled="shareLoading || !canShareSingleOrder || !imageDocuments.length">{{ shareLoading === 'sales_order_image' ? '分享中' : '分享图片到微信' }}</button>
+          <button class="primary" type="button" @click="generate" :disabled="generating || !documentContextReady || !preview">{{ generating ? '生成中' : '确认生成 PDF' }}</button>
+          <button class="primary" type="button" @click="generateImage" :disabled="imageGenerating || !documentContextReady || !preview">{{ imageGenerating ? '生成图片中' : '确认生成图片' }}</button>
         </div>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="message" class="ok">{{ message }}</div>
       <div class="summary">
-        <span>订单 ID：{{ orderID || '-' }}</span>
+        <span>{{ isCombinedSalesOrder ? `组合订单：${combinedOrderIDs.length}张` : `订单 ID：${orderID || '-'}` }}</span>
         <span>客户：{{ customerSummary.name || '-' }}</span>
         <span>公司：{{ customerSummary.company_name || customerSummary.name || '-' }}</span>
         <span>PDF版本：{{ documents.length }}</span>
@@ -44,15 +44,15 @@
     <section class="panel sales-order-note-panel">
       <div class="panel-head">
         <h3>销售单备注</h3>
-        <button class="secondary" type="button" @click="saveSalesOrderNote" :disabled="noteSaving || !orderID">{{ noteSaving ? '保存中' : '保存备注' }}</button>
+        <button class="secondary" type="button" @click="saveSalesOrderNote" :disabled="noteSaving || isCombinedSalesOrder || !orderID">{{ noteSaving ? '保存中' : '保存备注' }}</button>
       </div>
-      <textarea v-model.trim="salesOrderNote" rows="2" placeholder="只显示在销售单最后一行，不影响订单列表内部备注"></textarea>
+      <textarea v-model.trim="salesOrderNote" rows="2" :disabled="isCombinedSalesOrder" :placeholder="isCombinedSalesOrder ? '组合销售单读取各订单已保存的销售单备注' : '只显示在销售单最后一行，不影响订单列表内部备注'"></textarea>
     </section>
 
     <section class="panel preview-panel">
       <div class="panel-head">
         <h3>销售单预览 <span v-if="preview" class="version-tag">V{{ preview.next_version_no }}</span></h3>
-        <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
+        <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !documentContextReady">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
       </div>
       <div v-if="preview?.snapshot" class="preview-tools">
         <div class="layout-drag-hint">拖动“文字位置和大小”“收款码位置和大小”边框调整位置，拖右下角圆点调整大小。</div>
@@ -186,6 +186,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend, appURL } from '../api/client'
 import { salesOrderDownloadUrl, salesOrderImageDownloadUrl } from '../lib/sales-order'
+import { buildCombinedDocumentQuery } from '../lib/combined-order-documents'
 import {
   pdfPlacementToSalesLayoutBox,
   pdfPlacementToSalesSealMM,
@@ -199,6 +200,7 @@ import SalesOrderSettingsView from './SalesOrderSettingsView.vue'
 
 const props = defineProps({
   orderId: { type: [Number, String], default: 0 },
+  orderIds: { type: Array, default: () => [] },
   embedded: { type: Boolean, default: false },
 })
 
@@ -229,8 +231,28 @@ const employees = ref([])
 const salesOrderNote = ref('')
 
 const orderID = computed(() => Number(props.orderId || new URL(window.location.href).searchParams.get('order_id') || 0))
-const salesOrderPreviewBasePDFUrl = computed(() => orderID.value ? `/api/orders/${orderID.value}/sales-order-preview.pdf` : '')
-const salesOrderPreviewPDFUrl = computed(() => salesOrderPreviewBasePDFUrl.value ? `${salesOrderPreviewBasePDFUrl.value}?v=${previewPDFRefreshKey.value}` : '')
+const combinedOrderIDs = computed(() => uniquePositiveIDs(props.orderIds))
+const combinedDocumentQuery = computed(() => buildCombinedDocumentQuery(combinedOrderIDs.value))
+const isCombinedSalesOrder = computed(() => combinedOrderIDs.value.length >= 2)
+const documentContextReady = computed(() => isCombinedSalesOrder.value || orderID.value > 0)
+const canShareSingleOrder = computed(() => !isCombinedSalesOrder.value && orderID.value > 0)
+const salesOrderPreviewBasePDFUrl = computed(() => {
+  if (isCombinedSalesOrder.value) return combinedDocumentQuery.value ? `/api/orders/combined/sales-order-preview.pdf?${combinedDocumentQuery.value}` : ''
+  return orderID.value ? `/api/orders/${orderID.value}/sales-order-preview.pdf` : ''
+})
+const salesOrderPreviewPDFUrl = computed(() => {
+  if (!salesOrderPreviewBasePDFUrl.value) return ''
+  const separator = salesOrderPreviewBasePDFUrl.value.includes('?') ? '&' : '?'
+  return `${salesOrderPreviewBasePDFUrl.value}${separator}v=${previewPDFRefreshKey.value}`
+})
+const latestSalesOrderPDFDownloadURL = computed(() => {
+  if (isCombinedSalesOrder.value) return latestDocumentURL(documents.value)
+  return orderID.value ? salesOrderDownloadUrl(orderID.value) : ''
+})
+const latestSalesOrderImageDownloadURL = computed(() => {
+  if (isCombinedSalesOrder.value) return latestDocumentURL(imageDocuments.value)
+  return orderID.value ? salesOrderImageDownloadUrl(orderID.value) : ''
+})
 const previewSealUrl = computed(() => assetURL(preview.value?.snapshot?.seal || {}))
 const previewSealWidthMM = computed({
   get() {
@@ -284,11 +306,13 @@ let previewSealAspectToken = 0
 watch(previewSealUrl, loadPreviewSealAspectRatio, { immediate: true })
 
 async function load() {
-  if (!orderID.value) return
+  if (!documentContextReady.value) return
   loading.value = true
   error.value = ''
   try {
-    const data = await apiGet(`/api/orders/${orderID.value}/sales-orders`)
+    const data = await apiGet(isCombinedSalesOrder.value
+      ? `/api/orders/combined/sales-orders?${combinedDocumentQuery.value}`
+      : `/api/orders/${orderID.value}/sales-orders`)
     documents.value = data.rows || []
     imageDocuments.value = data.image_rows || []
     assignCustomer(customerSummary, data.order?.customer || {})
@@ -305,12 +329,16 @@ async function loadPage() {
 }
 
 async function loadPreview() {
-  if (!orderID.value) return
+  if (!documentContextReady.value) return
   previewLoading.value = true
   error.value = ''
   try {
-    preview.value = await apiGet(`/api/orders/${orderID.value}/sales-order-preview`)
-    salesOrderNote.value = preview.value?.snapshot?.sales_order_note || ''
+    preview.value = await apiGet(isCombinedSalesOrder.value
+      ? `/api/orders/combined/sales-order-preview?${combinedDocumentQuery.value}`
+      : `/api/orders/${orderID.value}/sales-order-preview`)
+    salesOrderNote.value = isCombinedSalesOrder.value
+      ? combinedSalesOrderNotes(preview.value?.snapshot?.groups || [])
+      : preview.value?.snapshot?.sales_order_note || ''
     previewPDFRefreshKey.value += 1
   } catch (err) {
     preview.value = null
@@ -321,7 +349,7 @@ async function loadPreview() {
 }
 
 async function saveSalesOrderNote() {
-  if (!orderID.value) return
+  if (!orderID.value || isCombinedSalesOrder.value) return
   noteSaving.value = true
   error.value = ''
   message.value = ''
@@ -341,13 +369,15 @@ async function saveSalesOrderNote() {
 }
 
 async function generate() {
-  if (!orderID.value || !preview.value) return
+  if (!documentContextReady.value || !preview.value) return
   generating.value = true
   error.value = ''
   message.value = ''
   try {
-    const data = await apiSend(`/api/orders/${orderID.value}/sales-orders`)
-    message.value = `已生成 V${data.version_no}`
+    const data = await apiSend(isCombinedSalesOrder.value ? '/api/orders/combined/sales-orders' : `/api/orders/${orderID.value}/sales-orders`, {
+      body: isCombinedSalesOrder.value ? { order_ids: combinedOrderIDs.value } : undefined,
+    })
+    message.value = `${isCombinedSalesOrder.value ? '已生成组合销售单' : '已生成'} V${data.version_no}`
     await load()
     await loadPreview()
   } catch (err) {
@@ -358,13 +388,15 @@ async function generate() {
 }
 
 async function generateImage() {
-  if (!orderID.value || !preview.value) return
+  if (!documentContextReady.value || !preview.value) return
   imageGenerating.value = true
   error.value = ''
   message.value = ''
   try {
-    const data = await apiSend(`/api/orders/${orderID.value}/sales-order-images`)
-    message.value = `已生成图片 V${data.version_no}`
+    const data = await apiSend(isCombinedSalesOrder.value ? '/api/orders/combined/sales-order-images' : `/api/orders/${orderID.value}/sales-order-images`, {
+      body: isCombinedSalesOrder.value ? { order_ids: combinedOrderIDs.value } : undefined,
+    })
+    message.value = `${isCombinedSalesOrder.value ? '已生成组合销售单图片' : '已生成图片'} V${data.version_no}`
     await load()
     await loadPreview()
   } catch (err) {
@@ -375,7 +407,7 @@ async function generateImage() {
 }
 
 async function shareLatestResource(resourceType) {
-  if (!orderID.value || shareLoading.value) return
+  if (!canShareSingleOrder.value || shareLoading.value) return
   shareLoading.value = resourceType
   error.value = ''
   message.value = ''
@@ -415,6 +447,34 @@ function emptyCustomer() {
     responsible_employee_id: 0,
     active: true,
   }
+}
+
+function uniquePositiveIDs(values = []) {
+  const seen = new Set()
+  const out = []
+  for (const raw of values) {
+    const id = Number(raw)
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
+}
+
+function latestDocumentURL(rows = []) {
+  const latest = rows.find((row) => row?.is_latest) || rows[0]
+  return latest?.download_url || ''
+}
+
+function combinedSalesOrderNotes(groups = []) {
+  return groups
+    .map((group) => {
+      const note = String(group?.sales_order_note || '').trim()
+      if (!note) return ''
+      return `${group?.order_no || '订单'}：${note}`
+    })
+    .filter(Boolean)
+    .join('\n')
 }
 
 function assignCustomer(target, data = {}) {

@@ -243,6 +243,14 @@ func (r *fakeRepo) LoadSalesOrderImageFile(ctx context.Context, orderID, imageID
 	return SalesOrderImageFile{Document: SalesOrderImageDocument{ID: imageID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.png", Filename: "SO-TEST-V1.png"}, nil
 }
 
+func (r *fakeRepo) ListCombinedSalesOrderDocuments(ctx context.Context, orderIDs []int64) ([]CombinedSalesOrderDocument, error) {
+	return []CombinedSalesOrderDocument{{ID: 29, OrderIDs: append([]int64(nil), orderIDs...), OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, VersionNo: 1, IsLatest: true}}, nil
+}
+
+func (r *fakeRepo) ListCombinedSalesOrderImageDocuments(ctx context.Context, orderIDs []int64) ([]CombinedSalesOrderImageDocument, error) {
+	return []CombinedSalesOrderImageDocument{{ID: 34, OrderIDs: append([]int64(nil), orderIDs...), OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, VersionNo: 1, IsLatest: true}}, nil
+}
+
 func (r *fakeRepo) PreviewCombinedSalesOrderDocument(ctx context.Context, orderIDs []int64) (CombinedSalesOrderPreview, error) {
 	return CombinedSalesOrderPreview{OrderIDs: append([]int64(nil), orderIDs...), OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, NextVersionNo: 1}, nil
 }
@@ -260,8 +268,17 @@ func (r *fakeRepo) GenerateCombinedSalesOrderDocument(ctx context.Context, cmd C
 	return GenerateCombinedSalesOrderDocumentResult{Document: CombinedSalesOrderDocument{ID: 30, OrderIDs: append([]int64(nil), cmd.OrderIDs...), OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, VersionNo: 1, IsLatest: true}}, nil
 }
 
+func (r *fakeRepo) GenerateCombinedSalesOrderImage(ctx context.Context, cmd CombinedDocumentCommand) (GenerateCombinedSalesOrderImageResult, error) {
+	r.combinedSalesCmd = cmd
+	return GenerateCombinedSalesOrderImageResult{Document: CombinedSalesOrderImageDocument{ID: 35, OrderIDs: append([]int64(nil), cmd.OrderIDs...), OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, VersionNo: 1, IsLatest: true}}, nil
+}
+
 func (r *fakeRepo) LoadCombinedSalesOrderDocumentFile(ctx context.Context, documentID int64) (CombinedSalesOrderDocumentFile, error) {
 	return CombinedSalesOrderDocumentFile{Document: CombinedSalesOrderDocument{ID: documentID, OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, VersionNo: 1}, Path: "/tmp/combined-sales.pdf", Filename: "CSO-TEST-V1.pdf"}, nil
+}
+
+func (r *fakeRepo) LoadCombinedSalesOrderImageFile(ctx context.Context, imageID int64) (CombinedSalesOrderImageFile, error) {
+	return CombinedSalesOrderImageFile{Document: CombinedSalesOrderImageDocument{ID: imageID, OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, VersionNo: 1}, Path: "/tmp/combined-sales.png", Filename: "CSO-TEST-V1.png"}, nil
 }
 
 func (r *fakeRepo) LoadDeliveryNoteContext(ctx context.Context, orderID int64) (DeliveryNoteContext, error) {
@@ -302,6 +319,10 @@ func (r *fakeRepo) GenerateDeliveryNoteDocument(ctx context.Context, cmd Generat
 
 func (r *fakeRepo) LoadDeliveryNoteDocumentFile(ctx context.Context, orderID, documentID int64, latest bool) (DeliveryNoteDocumentFile, error) {
 	return DeliveryNoteDocumentFile{Document: DeliveryNoteDocument{ID: documentID, OrderID: orderID, OrderNo: "SO-TEST", VersionNo: 1}, Path: "/tmp/test.pdf", Filename: "SO-TEST-DN-V1.pdf"}, nil
+}
+
+func (r *fakeRepo) ListCombinedDeliveryNoteDocuments(ctx context.Context, orderIDs []int64) ([]CombinedDeliveryNoteDocument, error) {
+	return []CombinedDeliveryNoteDocument{{ID: 32, OrderIDs: append([]int64(nil), orderIDs...), OrderNos: []string{"SO-TEST-1", "SO-TEST-2"}, VersionNo: 1, IsLatest: true}}, nil
 }
 
 func (r *fakeRepo) PreviewCombinedDeliveryNoteDocument(ctx context.Context, orderIDs []int64) (CombinedDeliveryNotePreview, error) {
