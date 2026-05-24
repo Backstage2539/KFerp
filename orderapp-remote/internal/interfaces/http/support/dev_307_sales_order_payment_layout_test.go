@@ -33,7 +33,7 @@ func TestDev307SalesOrderPaymentLayoutControls(t *testing.T) {
 	for _, want := range []string{
 		"文字位置和大小",
 		"收款码位置和大小",
-		"salesLayoutBoxMMToPDFPlacement",
+		"salesLayoutBoxMMToPDFPreviewPlacement",
 		"pdfPlacementToSalesLayoutBox",
 		"/api/settings/sales-order/payment-layout",
 		"savePDFPreviewLayoutBox",

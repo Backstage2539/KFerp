@@ -40,6 +40,15 @@ test('sales order view supports editing a document-only final note', () => {
   }
 })
 
+test('sales order preview keeps payment layout handles visible on multipage PDFs', () => {
+  const src = fs.readFileSync(new URL('../views/SalesOrderView.vue', import.meta.url), 'utf8')
+  assert.ok(src.includes('salesLayoutBoxMMToPDFPreviewPlacement'), 'SalesOrderView must use the multipage payment layout placement helper')
+  assert.ok(src.includes('salesLayoutBoxMMToPDFPreviewPlacement(snapshot.payment_text_box, previewPDFPages.value'), 'payment text handle should use all preview pages')
+  assert.ok(src.includes('salesLayoutBoxMMToPDFPreviewPlacement(snapshot.payment_code_box, previewPDFPages.value'), 'payment code handle should use all preview pages')
+  assert.ok(!src.includes('salesLayoutBoxMMToPDFPlacement(snapshot.payment_text_box, page'), 'payment text handle must not be locked to the first PDF page')
+  assert.ok(!src.includes('salesLayoutBoxMMToPDFPlacement(snapshot.payment_code_box, page'), 'payment code handle must not be locked to the first PDF page')
+})
+
 test('sales order uses the shared external share payload for pdf and image resources', () => {
   assert.deepEqual(buildShareResourcePayload('sales_order_pdf', 12), {
     resource_type: 'sales_order_pdf',
