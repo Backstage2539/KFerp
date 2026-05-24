@@ -43,6 +43,7 @@ type DeliveryNotePDFRenderer interface {
 type CombinedSalesOrderPDFRenderer interface {
 	RenderCombinedSalesOrder(snapshot salesdomain.CombinedSalesOrderSnapshot) ([]byte, error)
 	RenderCombinedSalesOrderPreview(snapshot salesdomain.CombinedSalesOrderSnapshot) ([]byte, error)
+	RenderCombinedSalesOrderPNG(snapshot salesdomain.CombinedSalesOrderSnapshot) ([]byte, error)
 }
 
 type CombinedDeliveryNotePDFRenderer interface {
