@@ -1656,6 +1656,236 @@ func (r Repository) SaveCustomerPublicUsage(ctx context.Context, cmd catalogapp.
 	return usage, nil
 }
 
+func (r Repository) ListCustomerProductRuleTemplates(ctx context.Context) ([]catalogapp.CustomerProductRuleTemplate, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, COALESCE(customer_id,0), name, active
+		FROM %s.customer_product_rule_templates
+		WHERE active=true
+		ORDER BY COALESCE(customer_id,0), name, id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.CustomerProductRuleTemplate, 0)
+	indexByID := map[int64]int{}
+	for rows.Next() {
+		var row catalogapp.CustomerProductRuleTemplate
+		if err := rows.Scan(&row.ID, &row.CustomerID, &row.Name, &row.Active); err != nil {
+			return nil, err
+		}
+		indexByID[row.ID] = len(out)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+	ids := make([]int64, 0, len(out))
+	for _, row := range out {
+		ids = append(ids, row.ID)
+	}
+	itemRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, template_id, product_subtype_category_id, gradient_template_id, operation_template_id,
+		       COALESCE(price_list_rule_json::text,'{}'), COALESCE(unit_rule_json::text,'{}')
+		FROM %s.customer_product_rule_template_items
+		WHERE active=true AND template_id = ANY($1)
+		ORDER BY template_id, product_subtype_category_id, id
+	`, r.schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	defer itemRows.Close()
+	for itemRows.Next() {
+		var item catalogapp.CustomerProductRuleTemplateItem
+		if err := itemRows.Scan(&item.ID, &item.TemplateID, &item.ProductSubtypeCategoryID, &item.GradientTemplateID, &item.OperationTemplateID, &item.PriceListRuleJSON, &item.UnitRuleJSON); err != nil {
+			return nil, err
+		}
+		if idx, ok := indexByID[item.TemplateID]; ok {
+			out[idx].Items = append(out[idx].Items, item)
+		}
+	}
+	return out, itemRows.Err()
+}
+
+func (r Repository) ListCustomerProductRuleOverrides(ctx context.Context) ([]catalogapp.CustomerProductRuleOverride, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, customer_id, product_subtype_category_id, gradient_template_id, operation_template_id,
+		       COALESCE(price_list_rule_json::text,'{}'), COALESCE(unit_rule_json::text,'{}'), active
+		FROM %s.customer_product_rule_overrides
+		WHERE active=true
+		ORDER BY customer_id, product_subtype_category_id, id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.CustomerProductRuleOverride, 0)
+	for rows.Next() {
+		var row catalogapp.CustomerProductRuleOverride
+		if err := rows.Scan(&row.ID, &row.CustomerID, &row.ProductSubtypeCategoryID, &row.GradientTemplateID, &row.OperationTemplateID, &row.PriceListRuleJSON, &row.UnitRuleJSON, &row.Active); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) ListCustomerProductRuleBindings(ctx context.Context) ([]catalogapp.CustomerProductRuleBinding, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, COALESCE(customer_product_rule_template_id,0)
+		FROM %s.customers
+		WHERE active=true AND COALESCE(customer_product_rule_template_id,0) > 0
+		ORDER BY id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.CustomerProductRuleBinding, 0)
+	for rows.Next() {
+		var row catalogapp.CustomerProductRuleBinding
+		if err := rows.Scan(&row.CustomerID, &row.TemplateID); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveCustomerProductRuleTemplate(ctx context.Context, cmd catalogapp.SaveCustomerProductRuleTemplateCommand) (catalogapp.CustomerProductRuleTemplate, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.CustomerProductRuleTemplate{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.CustomerProductRuleTemplate{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	active := true
+	if cmd.Active != nil {
+		active = *cmd.Active
+	}
+	var id int64
+	if cmd.ID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.customer_product_rule_templates
+			SET customer_id=$2, name=$3, active=$4, updated_at=now()
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.CustomerID, cmd.Name, active).Scan(&id); err != nil {
+			if err == pgx.ErrNoRows {
+				return catalogapp.CustomerProductRuleTemplate{}, fmt.Errorf("customer product rule template not found")
+			}
+			return catalogapp.CustomerProductRuleTemplate{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_product_rule_template_items SET active=false, updated_at=now() WHERE template_id=$1`, r.schema), id); err != nil {
+			return catalogapp.CustomerProductRuleTemplate{}, err
+		}
+	} else {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.customer_product_rule_templates(customer_id, name, active, created_at, updated_at)
+			VALUES($1,$2,$3,now(),now())
+			RETURNING id
+		`, r.schema), cmd.CustomerID, cmd.Name, active).Scan(&id); err != nil {
+			return catalogapp.CustomerProductRuleTemplate{}, err
+		}
+	}
+	for _, item := range cmd.Items {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.customer_product_rule_template_items(template_id, product_subtype_category_id, gradient_template_id, operation_template_id, price_list_rule_json, unit_rule_json, active, created_at, updated_at)
+			VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,true,now(),now())
+		`, r.schema), id, item.ProductSubtypeCategoryID, item.GradientTemplateID, item.OperationTemplateID, item.PriceListRuleJSON, item.UnitRuleJSON); err != nil {
+			return catalogapp.CustomerProductRuleTemplate{}, err
+		}
+	}
+	action := "create"
+	if cmd.ID > 0 {
+		action = "update"
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_product_rule_template", &id, action, postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{
+		"customer_id": cmd.CustomerID,
+		"item_count":  len(cmd.Items),
+		"active":      active,
+	}); err != nil {
+		return catalogapp.CustomerProductRuleTemplate{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.CustomerProductRuleTemplate{}, err
+	}
+	return r.findCustomerProductRuleTemplate(ctx, id)
+}
+
+func (r Repository) findCustomerProductRuleTemplate(ctx context.Context, id int64) (catalogapp.CustomerProductRuleTemplate, error) {
+	rows, err := r.ListCustomerProductRuleTemplates(ctx)
+	if err != nil {
+		return catalogapp.CustomerProductRuleTemplate{}, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, nil
+		}
+	}
+	return catalogapp.CustomerProductRuleTemplate{}, fmt.Errorf("customer product rule template not found")
+}
+
+func (r Repository) SaveCustomerProductRuleOverride(ctx context.Context, cmd catalogapp.SaveCustomerProductRuleOverrideCommand) (catalogapp.CustomerProductRuleOverride, error) {
+	active := true
+	if cmd.Active != nil {
+		active = *cmd.Active
+	}
+	row := catalogapp.CustomerProductRuleOverride{}
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_product_rule_overrides(customer_id, product_subtype_category_id, gradient_template_id, operation_template_id, price_list_rule_json, unit_rule_json, active, created_at, updated_at)
+		VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,now(),now())
+		ON CONFLICT (customer_id, product_subtype_category_id) WHERE active=true DO UPDATE
+		SET gradient_template_id=excluded.gradient_template_id,
+		    operation_template_id=excluded.operation_template_id,
+		    price_list_rule_json=excluded.price_list_rule_json,
+		    unit_rule_json=excluded.unit_rule_json,
+		    active=excluded.active,
+		    updated_at=now()
+		RETURNING id, customer_id, product_subtype_category_id, gradient_template_id, operation_template_id,
+		          COALESCE(price_list_rule_json::text,'{}'), COALESCE(unit_rule_json::text,'{}'), active
+	`, r.schema), cmd.CustomerID, cmd.ProductSubtypeCategoryID, cmd.GradientTemplateID, cmd.OperationTemplateID, cmd.PriceListRuleJSON, cmd.UnitRuleJSON, active).
+		Scan(&row.ID, &row.CustomerID, &row.ProductSubtypeCategoryID, &row.GradientTemplateID, &row.OperationTemplateID, &row.PriceListRuleJSON, &row.UnitRuleJSON, &row.Active)
+	if err != nil {
+		return catalogapp.CustomerProductRuleOverride{}, err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "customer_product_rule_override", &row.ID, "upsert", postgresinfra.StrPtr("product_subtype_category_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", row.ProductSubtypeCategoryID)), postgresinfra.AuditMeta{
+		"customer_id":           row.CustomerID,
+		"gradient_template_id":  row.GradientTemplateID,
+		"operation_template_id": row.OperationTemplateID,
+		"price_list_rule_json":  row.PriceListRuleJSON,
+		"unit_rule_json":        row.UnitRuleJSON,
+	})
+	return row, nil
+}
+
+func (r Repository) BindCustomerProductRuleTemplate(ctx context.Context, cmd catalogapp.CustomerProductRuleTemplateBindingCommand) (catalogapp.CustomerProductRuleBinding, error) {
+	tag, err := r.pool.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customers
+		SET customer_product_rule_template_id=$2
+		WHERE id=$1 AND active=true
+	`, r.schema), cmd.CustomerID, cmd.TemplateID)
+	if err != nil {
+		return catalogapp.CustomerProductRuleBinding{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return catalogapp.CustomerProductRuleBinding{}, fmt.Errorf("customer not found")
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "customer_product_rule_template_binding", &cmd.CustomerID, "update", postgresinfra.StrPtr("customer_product_rule_template_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.TemplateID)), postgresinfra.AuditMeta{
+		"customer_id": cmd.CustomerID,
+		"template_id": cmd.TemplateID,
+	})
+	return catalogapp.CustomerProductRuleBinding{CustomerID: cmd.CustomerID, TemplateID: cmd.TemplateID}, nil
+}
+
 func cleanupLegacyPublicCopiesTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64) error {
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		WITH legacy_products AS (

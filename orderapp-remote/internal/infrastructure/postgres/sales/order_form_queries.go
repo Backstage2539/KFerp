@@ -315,19 +315,31 @@ func (r Repository) fetchOrderCustomerProductUsages(ctx context.Context) ([]sale
 }
 
 func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductOption, error) {
-	sqlstr := fmt.Sprintf(`SELECT id, name, COALESCE(roast_level,''), default_price,
-		COALESCE(retail_price_100g, 0),
-		COALESCE(retail_price_200g, 0),
-		COALESCE(retail_price_227g, default_price, 0),
-		COALESCE(retail_price_250g, 0),
-		COALESCE(customer_id, 0),
-		COALESCE(base_product_id, 0),
-		COALESCE(NULLIF(visibility,''), 'public'),
-		COALESCE(custom_type, ''),
-		COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
-		COALESCE(drip_bag_grams, 0)::float8,
-		COALESCE(drip_box_bag_count, 0)
-		FROM %s.products WHERE active=true ORDER BY name`, r.schema)
+	sqlstr := fmt.Sprintf(`SELECT p.id, p.name, COALESCE(p.roast_level,''), p.default_price,
+		COALESCE(p.retail_price_100g, 0),
+		COALESCE(p.retail_price_200g, 0),
+		COALESCE(p.retail_price_227g, p.default_price, 0),
+		COALESCE(p.retail_price_250g, 0),
+		COALESCE(p.customer_id, 0),
+		COALESCE(p.base_product_id, 0),
+		COALESCE(NULLIF(p.visibility,''), 'public'),
+		COALESCE(p.custom_type, ''),
+		COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'),
+		COALESCE(p.drip_bag_grams, 0)::float8,
+		COALESCE(p.drip_box_bag_count, 0),
+		COALESCE(type_cat.id, 0) AS product_type_category_id,
+		COALESCE(subtype_cat.id, 0) AS product_subtype_category_id,
+		COALESCE(type_cat.name, '') AS product_type_name,
+		COALESCE(subtype_cat.name, '') AS product_subtype_name,
+		COALESCE(NULLIF(subtype_cat.inventory_unit,''), NULLIF(type_cat.inventory_unit,''), 'kg') AS inventory_unit,
+		COALESCE(NULLIF(subtype_cat.quote_unit,''), NULLIF(type_cat.quote_unit,''), 'kg') AS quote_unit,
+		COALESCE(NULLIF(subtype_cat.order_unit,''), NULLIF(type_cat.order_unit,''), 'kg') AS order_unit,
+		COALESCE(NULLIF(p.unit_rule_override_json, '{}'::jsonb), NULLIF(subtype_cat.unit_conversion_json, '{}'::jsonb), NULLIF(type_cat.unit_conversion_json, '{}'::jsonb), '{}'::jsonb)::text AS unit_conversion_json,
+		COALESCE(subtype_cat.integer_unit, type_cat.integer_unit, false) AS integer_unit
+		FROM %[1]s.products p
+		LEFT JOIN %[1]s.product_categories subtype_cat ON subtype_cat.id=p.product_category_id AND subtype_cat.active=true
+		LEFT JOIN %[1]s.product_categories type_cat ON type_cat.id=subtype_cat.parent_id AND type_cat.active=true
+		WHERE p.active=true ORDER BY p.name`, r.schema)
 	rows, err := r.pool.Query(ctx, sqlstr)
 	if err != nil {
 		return nil, err
@@ -337,7 +349,7 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 	out := make([]salesapp.ProductOption, 0)
 	for rows.Next() {
 		var p salesapp.ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.ProductKind, &p.DripBagGrams, &p.DripBoxBagCount); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.ProductKind, &p.DripBagGrams, &p.DripBoxBagCount, &p.ProductTypeCategoryID, &p.ProductSubtypeCategoryID, &p.ProductTypeName, &p.ProductSubtypeName, &p.InventoryUnit, &p.QuoteUnit, &p.OrderUnit, &p.UnitConversionJSON, &p.IntegerUnit); err != nil {
 			return nil, err
 		}
 		if p.ProductKind == "drip_bag" {

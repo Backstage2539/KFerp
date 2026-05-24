@@ -238,24 +238,33 @@ type ProductTierOption struct {
 }
 
 type ProductOption struct {
-	ID              int64               `json:"id"`
-	Name            string              `json:"name"`
-	ProductKind     string              `json:"product_kind"`
-	RoastLevel      string              `json:"roast_level"`
-	DefaultPrice    float64             `json:"default_price"`
-	RetailPrice100G float64             `json:"retail_price_100g"`
-	RetailPrice200G float64             `json:"retail_price_200g"`
-	RetailPrice227G float64             `json:"retail_price_227g"`
-	RetailPrice250G float64             `json:"retail_price_250g"`
-	CustomerID      int64               `json:"customer_id"`
-	BaseProductID   int64               `json:"base_product_id"`
-	Visibility      string              `json:"visibility"`
-	CustomType      string              `json:"custom_type"`
-	DripBagGrams    float64             `json:"drip_bag_grams"`
-	DripBoxBagCount int64               `json:"drip_box_bag_count"`
-	SalesUnits      []string            `json:"sales_units"`
-	RetailSpecs     []int64             `json:"retail_specs"`
-	Tiers           []ProductTierOption `json:"tiers"`
+	ID                       int64               `json:"id"`
+	Name                     string              `json:"name"`
+	ProductKind              string              `json:"product_kind"`
+	RoastLevel               string              `json:"roast_level"`
+	DefaultPrice             float64             `json:"default_price"`
+	RetailPrice100G          float64             `json:"retail_price_100g"`
+	RetailPrice200G          float64             `json:"retail_price_200g"`
+	RetailPrice227G          float64             `json:"retail_price_227g"`
+	RetailPrice250G          float64             `json:"retail_price_250g"`
+	CustomerID               int64               `json:"customer_id"`
+	BaseProductID            int64               `json:"base_product_id"`
+	Visibility               string              `json:"visibility"`
+	CustomType               string              `json:"custom_type"`
+	DripBagGrams             float64             `json:"drip_bag_grams"`
+	DripBoxBagCount          int64               `json:"drip_box_bag_count"`
+	SalesUnits               []string            `json:"sales_units"`
+	RetailSpecs              []int64             `json:"retail_specs"`
+	Tiers                    []ProductTierOption `json:"tiers"`
+	ProductTypeCategoryID    int64               `json:"product_type_category_id,omitempty"`
+	ProductSubtypeCategoryID int64               `json:"product_subtype_category_id,omitempty"`
+	ProductTypeName          string              `json:"product_type_name,omitempty"`
+	ProductSubtypeName       string              `json:"product_subtype_name,omitempty"`
+	InventoryUnit            string              `json:"inventory_unit,omitempty"`
+	QuoteUnit                string              `json:"quote_unit,omitempty"`
+	OrderUnit                string              `json:"order_unit,omitempty"`
+	UnitConversionJSON       string              `json:"unit_conversion_json,omitempty"`
+	IntegerUnit              bool                `json:"integer_unit,omitempty"`
 }
 
 type BeanListVersionOption struct {

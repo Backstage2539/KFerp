@@ -62,6 +62,10 @@ type CalculateResponse struct {
 	Items      []domain.ProductResult `json:"items"`
 }
 
+type BeanListQuery struct {
+	CustomerID int64 `json:"customer_id,omitempty"`
+}
+
 type Run struct {
 	ID           int64                  `json:"id"`
 	Status       string                 `json:"status"`
@@ -182,6 +186,10 @@ type Repository interface {
 	PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
 	SaveBeanListDraft(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
 	WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error
+}
+
+type customerScopedProductInputRepository interface {
+	LoadProductInputsForCustomer(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error)
 }
 
 type Service struct {
@@ -326,7 +334,10 @@ func (s *Service) DeactivateDripPriceTemplate(ctx context.Context, cmd Deactivat
 	return s.repo.DeactivateDripPriceTemplate(ctx, cmd)
 }
 
-func (s *Service) BeanList(ctx context.Context) (*CalculateResponse, error) {
+func (s *Service) BeanList(ctx context.Context, query BeanListQuery) (*CalculateResponse, error) {
+	if query.CustomerID < 0 {
+		return nil, fmt.Errorf("customer_id must be >= 0")
+	}
 	params, err := s.Parameters(ctx)
 	if err != nil {
 		return nil, err
@@ -334,7 +345,16 @@ func (s *Service) BeanList(ctx context.Context) (*CalculateResponse, error) {
 	if s.repo == nil {
 		return &CalculateResponse{Parameters: params}, nil
 	}
-	inputs, err := s.repo.LoadProductInputs(ctx, params)
+	var inputs []domain.ProductInput
+	if query.CustomerID > 0 {
+		if scoped, ok := s.repo.(customerScopedProductInputRepository); ok {
+			inputs, err = scoped.LoadProductInputsForCustomer(ctx, params, query.CustomerID)
+		} else {
+			inputs, err = s.repo.LoadProductInputs(ctx, params)
+		}
+	} else {
+		inputs, err = s.repo.LoadProductInputs(ctx, params)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -383,7 +403,7 @@ func normalizeDripPriceTemplateCommand(cmd SaveDripPriceTemplateCommand) (SaveDr
 }
 
 func (s *Service) CreateRun(ctx context.Context, actor string) (*Run, error) {
-	resp, err := s.BeanList(ctx)
+	resp, err := s.BeanList(ctx, BeanListQuery{})
 	if err != nil {
 		return nil, err
 	}

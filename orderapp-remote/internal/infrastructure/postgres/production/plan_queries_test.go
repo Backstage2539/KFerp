@@ -1,10 +1,35 @@
 package production
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	productionapp "orderapp/internal/application/production"
 )
+
+func TestUnproducedNeedsResolveCustomerProductRuleTemplates(t *testing.T) {
+	b, err := os.ReadFile("unprod_summary.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"customer_product_rule_overrides cpro",
+		"customer_product_rule_template_items cpti",
+		"customer_product_rule_template_id",
+		"p.operation_template_id_override",
+		"effective_operation_template_id",
+		"NULLIF(cpro.operation_template_id,0)",
+		"NULLIF(cpti.operation_template_id,0)",
+		"NULLIF(p.operation_template_id_override,0)",
+		"NULLIF(subtype_pc.operation_template_id,0)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("unproduced summary must resolve customer product rule operation templates; missing %q", want)
+		}
+	}
+}
 
 func TestInstantCoffeeNoBomMaterialsUseInstantCoffeeRawMaterial(t *testing.T) {
 	row := productionapp.UnprodNeedRow{

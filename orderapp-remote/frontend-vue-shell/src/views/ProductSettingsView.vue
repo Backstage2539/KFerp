@@ -281,6 +281,130 @@
         </div>
       </div>
 
+      <div v-if="selectedCustomerSkuCustomerID" class="panel customer-rule-panel">
+        <div class="panel-title">
+          <span>客户产品规则</span>
+          <button class="secondary compact-action" type="button" @click="resetCustomerProductRuleTemplateForm">新建规则模板</button>
+        </div>
+        <div class="customer-rule-binding">
+          <label>
+            <span>当前客户绑定模板</span>
+            <select :value="currentCustomerRuleTemplateID" :disabled="customerRuleSaving" @change="bindCustomerProductRuleTemplate($event.target.value)">
+              <option value="0">不绑定规则模板</option>
+              <option v-for="template in customerProductRuleTemplatesForContext" :key="template.id" :value="template.id">
+                {{ template.name }}
+              </option>
+            </select>
+          </label>
+          <p class="muted">模板用于批量配置客户对子类型的阶梯价、工序和单位规则；专属覆盖优先级高于模板。</p>
+        </div>
+
+        <div class="customer-rule-layout">
+          <form class="customer-rule-editor" @submit.prevent="saveCustomerProductRuleTemplate">
+            <div class="sub-title">客户规则模板</div>
+            <label>
+              <span>模板名称</span>
+              <input v-model.trim="customerRuleTemplateForm.name" placeholder="如 贴牌客户默认规则" />
+            </label>
+            <div class="template-list customer-rule-template-list">
+              <button
+                v-for="template in customerProductRuleTemplatesForContext"
+                :key="template.id"
+                class="template-row-main"
+                type="button"
+                @click="startCustomerProductRuleTemplateEdit(template)">
+                <strong>{{ template.name }}</strong>
+                <small>{{ template.items.length }} 个产品子类型</small>
+              </button>
+              <p v-if="!customerProductRuleTemplatesForContext.length" class="muted">暂无客户规则模板</p>
+            </div>
+            <div class="template-tier-head">
+              <strong>模板明细</strong>
+              <button class="secondary compact-action" type="button" @click="addCustomerProductRuleTemplateItem">新增明细</button>
+            </div>
+            <div class="customer-rule-items">
+              <div v-for="(item, index) in customerRuleTemplateForm.items" :key="`customer-rule-item-${index}`" class="customer-rule-item">
+                <label>
+                  <span>产品子类型</span>
+                  <select v-model.number="item.product_subtype_category_id">
+                    <option value="0">选择子类型</option>
+                    <option v-for="category in productSubtypeRuleOptions" :key="category.id" :value="category.id">{{ categoryRuleLabel(category) }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>阶梯价模板</span>
+                  <select v-model.number="item.gradient_template_id">
+                    <option value="0">继承子类型</option>
+                    <option v-for="template in activeGradientTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>工序模板ID</span>
+                  <input v-model.number="item.operation_template_id" type="number" min="0" step="1" placeholder="0 表示继承" />
+                </label>
+                <label>
+                  <span>价格表规则 JSON</span>
+                  <textarea v-model.trim="item.price_list_rule_json" rows="2" placeholder="{}"></textarea>
+                </label>
+                <label>
+                  <span>单位规则 JSON</span>
+                  <textarea v-model.trim="item.unit_rule_json" rows="2" placeholder='{"order_unit":"盒","integer_unit":true}'></textarea>
+                </label>
+                <button class="text-button danger-text" type="button" @click="removeCustomerProductRuleTemplateItem(index)">删除</button>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="primary" type="submit" :disabled="customerRuleSaving">保存规则模板</button>
+            </div>
+          </form>
+
+          <form class="customer-rule-editor" @submit.prevent="saveCustomerProductRuleOverride">
+            <div class="sub-title">客户专属覆盖</div>
+            <label>
+              <span>产品子类型</span>
+              <select v-model.number="customerRuleOverrideForm.product_subtype_category_id">
+                <option value="0">选择子类型</option>
+                <option v-for="category in productSubtypeRuleOptions" :key="category.id" :value="category.id">{{ categoryRuleLabel(category) }}</option>
+              </select>
+            </label>
+            <label>
+              <span>阶梯价模板</span>
+              <select v-model.number="customerRuleOverrideForm.gradient_template_id">
+                <option value="0">继承模板/子类型</option>
+                <option v-for="template in activeGradientTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+              </select>
+            </label>
+            <label>
+              <span>工序模板ID</span>
+              <input v-model.number="customerRuleOverrideForm.operation_template_id" type="number" min="0" step="1" placeholder="0 表示继承" />
+            </label>
+            <label>
+              <span>价格表规则 JSON</span>
+              <textarea v-model.trim="customerRuleOverrideForm.price_list_rule_json" rows="2" placeholder="{}"></textarea>
+            </label>
+            <label>
+              <span>单位规则 JSON</span>
+              <textarea v-model.trim="customerRuleOverrideForm.unit_rule_json" rows="2" placeholder='{"order_unit":"箱","integer_unit":true}'></textarea>
+            </label>
+            <div class="customer-rule-overrides">
+              <button
+                v-for="row in customerProductRuleOverridesForContext"
+                :key="row.id"
+                class="template-row-main"
+                type="button"
+                @click="startCustomerProductRuleOverrideEdit(row)">
+                <strong>{{ productSubtypeName(row.product_subtype_category_id) }}</strong>
+                <small>模板 {{ row.gradient_template_id || '继承' }} · 工序 {{ row.operation_template_id || '继承' }}</small>
+              </button>
+              <p v-if="!customerProductRuleOverridesForContext.length" class="muted">暂无客户专属覆盖</p>
+            </div>
+            <div class="form-actions">
+              <button class="primary" type="submit" :disabled="customerRuleSaving">保存专属覆盖</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
       <div class="panel category-panel">
         <div class="panel-title">
           <span>商品分类 · {{ selectedSkuContextLabel }}</span>
@@ -639,6 +763,9 @@ import {
 } from '../lib/gradient-templates'
 import {
   buildCustomerPublicUsagePayload,
+  buildCustomerProductRuleBindingPayload,
+  buildCustomerProductRuleOverridePayload,
+  buildCustomerProductRuleTemplatePayload,
   buildCustomProductCreatePayload,
   buildProductBasicsPayload,
   buildProductBomURL,
@@ -680,11 +807,15 @@ const categories = ref([])
 const products = ref([])
 const gradientTemplates = ref([])
 const customerPublicUsages = ref([])
+const customerProductRuleTemplates = ref([])
+const customerProductRuleOverrides = ref([])
+const customerProductRuleBindings = ref([])
 const customers = ref([])
 const loading = ref(false)
 const productSaving = ref(false)
 const customSaving = ref(false)
 const templateSaving = ref(false)
+const customerRuleSaving = ref(false)
 const error = ref('')
 const ok = ref('')
 const newPrimaryName = ref('')
@@ -707,6 +838,8 @@ const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
 const productForm = ref(defaultProductForm())
 const customForm = ref(defaultCustomForm())
 const templateForm = ref(defaultGradientTemplateForm())
+const customerRuleTemplateForm = ref(defaultCustomerProductRuleTemplateForm())
+const customerRuleOverrideForm = ref(defaultCustomerProductRuleOverrideForm())
 
 const skuContextCustomerID = computed(() => Number(selectedCustomerSkuCustomerID.value || 0))
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
@@ -805,6 +938,16 @@ const activeGradientTemplates = computed(() => gradientTemplates.value
     usePublicGradientTemplates: customerUsesPublicGradientTemplates.value,
     customerTemplates: customerGradientTemplatesForContext.value,
   })))
+const customerProductRuleTemplatesForContext = computed(() => customerProductRuleTemplates.value
+  .filter((template) => Number(template.customer_id || 0) === 0 || Number(template.customer_id || 0) === skuContextCustomerID.value)
+  .filter((template) => template.active !== false))
+const customerProductRuleOverridesForContext = computed(() => customerProductRuleOverrides.value
+  .filter((row) => Number(row.customer_id || 0) === skuContextCustomerID.value && row.active !== false))
+const currentCustomerRuleBinding = computed(() => customerProductRuleBindings.value
+  .find((row) => Number(row.customer_id || 0) === skuContextCustomerID.value) || null)
+const currentCustomerRuleTemplateID = computed(() => Number(currentCustomerRuleBinding.value?.template_id || 0))
+const productSubtypeRuleOptions = computed(() => flattenCategoryNodes(categoryTreeForSkuContext.value)
+  .filter((category) => Number(category.level || 0) === 2 || Number(category.parent_id || 0) > 0))
 const selectedTemplateRow = computed(() => gradientTemplates.value.find((template) => Number(template.id || 0) === Number(templateForm.value.id || 0)) || null)
 const canEditCurrentTemplate = computed(() => {
   if (!skuContextCustomerID.value) return true
@@ -888,6 +1031,40 @@ function defaultGradientTemplateForm() {
       { label: '2磅-13磅', min_display_qty: 2, max_display_qty: 13, margin_rate: 0.5421052631578949, position: 1 },
     ],
   })
+}
+
+function defaultCustomerProductRuleTemplateForm() {
+  return {
+    id: 0,
+    customer_id: Number(selectedCustomerSkuCustomerID.value || 0),
+    name: '',
+    active: true,
+    items: [defaultCustomerProductRuleTemplateItem()],
+  }
+}
+
+function defaultCustomerProductRuleTemplateItem() {
+  return {
+    product_subtype_category_id: 0,
+    gradient_template_id: 0,
+    operation_template_id: 0,
+    price_list_rule_json: '{}',
+    unit_rule_json: '{}',
+    active: true,
+  }
+}
+
+function defaultCustomerProductRuleOverrideForm() {
+  return {
+    id: 0,
+    customer_id: Number(selectedCustomerSkuCustomerID.value || 0),
+    product_subtype_category_id: 0,
+    gradient_template_id: 0,
+    operation_template_id: 0,
+    price_list_rule_json: '{}',
+    unit_rule_json: '{}',
+    active: true,
+  }
 }
 
 function productSettingsDraftKey() {
@@ -984,6 +1161,40 @@ function decorateCategory(category) {
   }
 }
 
+function decorateCustomerProductRuleTemplate(template) {
+  return {
+    ...template,
+    id: Number(template.id || 0),
+    customer_id: Number(template.customer_id || 0),
+    active: template.active !== false,
+    items: (template.items || []).map((item) => ({
+      ...defaultCustomerProductRuleTemplateItem(),
+      ...item,
+      product_subtype_category_id: Number(item.product_subtype_category_id || 0),
+      gradient_template_id: Number(item.gradient_template_id || 0),
+      operation_template_id: Number(item.operation_template_id || 0),
+      price_list_rule_json: item.price_list_rule_json || '{}',
+      unit_rule_json: item.unit_rule_json || '{}',
+      active: item.active !== false,
+    })),
+  }
+}
+
+function decorateCustomerProductRuleOverride(row) {
+  return {
+    ...defaultCustomerProductRuleOverrideForm(),
+    ...row,
+    id: Number(row.id || 0),
+    customer_id: Number(row.customer_id || 0),
+    product_subtype_category_id: Number(row.product_subtype_category_id || 0),
+    gradient_template_id: Number(row.gradient_template_id || 0),
+    operation_template_id: Number(row.operation_template_id || 0),
+    price_list_rule_json: row.price_list_rule_json || '{}',
+    unit_rule_json: row.unit_rule_json || '{}',
+    active: row.active !== false,
+  }
+}
+
 async function loadAll() {
   loading.value = true
   error.value = ''
@@ -995,6 +1206,12 @@ async function loadAll() {
     categories.value = (data.categories || []).map(decorateCategory)
     products.value = (data.products || []).map(decorateProduct)
     gradientTemplates.value = (data.gradient_templates || []).map(normalizeGradientTemplate)
+    customerProductRuleTemplates.value = (data.customer_product_rule_templates || []).map(decorateCustomerProductRuleTemplate)
+    customerProductRuleOverrides.value = (data.customer_product_rule_overrides || []).map(decorateCustomerProductRuleOverride)
+    customerProductRuleBindings.value = (data.customer_product_rule_bindings || []).map((row) => ({
+      customer_id: Number(row.customer_id || 0),
+      template_id: Number(row.template_id || 0),
+    }))
     customerPublicUsages.value = (data.customer_public_usages || []).map((row) => ({
       customer_id: Number(row.customer_id || 0),
       use_public_sku: Boolean(row.use_public_sku),
@@ -1160,6 +1377,142 @@ async function deriveGradientTemplateForCustomer(template) {
   } finally {
     templateSaving.value = false
   }
+}
+
+function resetCustomerProductRuleForms() {
+  customerRuleTemplateForm.value = defaultCustomerProductRuleTemplateForm()
+  customerRuleOverrideForm.value = defaultCustomerProductRuleOverrideForm()
+}
+
+function resetCustomerProductRuleTemplateForm() {
+  customerRuleTemplateForm.value = defaultCustomerProductRuleTemplateForm()
+}
+
+function startCustomerProductRuleTemplateEdit(template) {
+  customerRuleTemplateForm.value = {
+    ...defaultCustomerProductRuleTemplateForm(),
+    ...JSON.parse(JSON.stringify(template || {})),
+    customer_id: Number(template?.customer_id || skuContextCustomerID.value || 0),
+    items: (template?.items || []).map((item) => ({ ...defaultCustomerProductRuleTemplateItem(), ...item })),
+  }
+}
+
+function addCustomerProductRuleTemplateItem() {
+  customerRuleTemplateForm.value.items.push(defaultCustomerProductRuleTemplateItem())
+}
+
+function removeCustomerProductRuleTemplateItem(index) {
+  if (customerRuleTemplateForm.value.items.length <= 1) {
+    customerRuleTemplateForm.value.items = [defaultCustomerProductRuleTemplateItem()]
+    return
+  }
+  customerRuleTemplateForm.value.items.splice(index, 1)
+}
+
+function startCustomerProductRuleOverrideEdit(row) {
+  customerRuleOverrideForm.value = {
+    ...defaultCustomerProductRuleOverrideForm(),
+    ...JSON.parse(JSON.stringify(row || {})),
+    customer_id: Number(row?.customer_id || skuContextCustomerID.value || 0),
+  }
+}
+
+function validateCustomerProductRulePayload(payload, requireName = false) {
+  if (Number(payload.customer_id || 0) <= 0) return '请选择履约客户'
+  if (requireName && !String(payload.name || '').trim()) return '请填写规则模板名称'
+  const items = requireName ? payload.items || [] : [payload]
+  if (!items.length) return '至少维护一个产品子类型规则'
+  if (items.some((item) => Number(item.product_subtype_category_id || 0) <= 0)) return '请选择产品子类型'
+  return ''
+}
+
+async function saveCustomerProductRuleTemplate() {
+  const customerID = skuContextCustomerID.value
+  const payload = buildCustomerProductRuleTemplatePayload({
+    ...customerRuleTemplateForm.value,
+    customer_id: customerID,
+  })
+  const validation = validateCustomerProductRulePayload(payload, true)
+  if (validation) {
+    error.value = validation
+    return
+  }
+  customerRuleSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const url = payload.id ? `/api/product-settings/customer-rule-templates/${payload.id}` : '/api/product-settings/customer-rule-templates'
+    const method = payload.id ? 'PUT' : 'POST'
+    await apiSend(url, { method, body: payload })
+    ok.value = '客户产品规则模板已保存'
+    resetCustomerProductRuleTemplateForm()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '保存客户产品规则模板失败'
+  } finally {
+    customerRuleSaving.value = false
+  }
+}
+
+async function saveCustomerProductRuleOverride() {
+  const customerID = skuContextCustomerID.value
+  const payload = buildCustomerProductRuleOverridePayload({
+    ...customerRuleOverrideForm.value,
+    customer_id: customerID,
+  })
+  const validation = validateCustomerProductRulePayload(payload, false)
+  if (validation) {
+    error.value = validation
+    return
+  }
+  customerRuleSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const url = payload.id ? `/api/product-settings/customer-rule-overrides/${payload.id}` : '/api/product-settings/customer-rule-overrides'
+    const method = payload.id ? 'PUT' : 'POST'
+    await apiSend(url, { method, body: payload })
+    ok.value = '客户专属覆盖已保存'
+    customerRuleOverrideForm.value = defaultCustomerProductRuleOverrideForm()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '保存客户专属覆盖失败'
+  } finally {
+    customerRuleSaving.value = false
+  }
+}
+
+async function bindCustomerProductRuleTemplate(templateID) {
+  const customerID = skuContextCustomerID.value
+  if (!customerID) {
+    error.value = '请选择履约客户'
+    return
+  }
+  customerRuleSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/product-settings/customers/${customerID}/rule-template`, {
+      body: buildCustomerProductRuleBindingPayload(customerID, templateID),
+    })
+    ok.value = '客户规则模板绑定已保存'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '绑定客户规则模板失败'
+  } finally {
+    customerRuleSaving.value = false
+  }
+}
+
+function productSubtypeName(id) {
+  const categoryID = Number(id || 0)
+  return productSubtypeRuleOptions.value.find((category) => Number(category.id || 0) === categoryID)?.name || `子类型 #${categoryID || '-'}`
+}
+
+function categoryRuleLabel(category) {
+  const parent = flatPublicCategories.value.find((row) => Number(row.id || 0) === Number(category.parent_id || 0))
+    || flatCustomerCategories.value.find((row) => Number(row.id || 0) === Number(category.parent_id || 0))
+  return parent?.name ? `${parent.name} / ${category.name}` : category.name || ''
 }
 
 function productVisibility(product) {
@@ -1982,6 +2335,7 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
     return
   }
   customForm.value = { ...customForm.value, customer_id: Number(selectedCustomerSkuCustomerID.value || 0), name: '', remark: '' }
+  resetCustomerProductRuleForms()
   skuFilters.value = defaultSkuFilters()
   skuPage.value = 1
   pruneSelectedProducts(displaySkuRows.value)
@@ -2050,6 +2404,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .danger-text { color: #a33; }
 .settings-grid { display: grid; grid-template-columns: minmax(300px, 420px) minmax(0, 1fr); gap: 14px; align-items: start; }
 .sku-context-panel { grid-column: 1 / -1; display: grid; gap: 10px; }
+.customer-rule-panel { grid-column: 1 / -1; }
+.customer-rule-binding { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); align-items: end; gap: 12px; margin-bottom: 12px; }
+.customer-rule-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 14px; align-items: start; }
+.customer-rule-editor { display: grid; gap: 10px; }
+.customer-rule-items, .customer-rule-overrides, .customer-rule-template-list { display: grid; gap: 8px; }
+.customer-rule-item { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(160px, .7fr) minmax(120px, .5fr) minmax(190px, 1fr) minmax(190px, 1fr) auto; gap: 8px; align-items: end; border: 1px solid #eee; border-radius: 8px; padding: 10px; background: #fafafa; }
+.customer-rule-editor label span, .customer-rule-binding label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 .sku-context-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .sku-context-main h3 { margin: 2px 0 4px; font-size: 18px; }
 .context-eyebrow { color: #7a4d1a; font-size: 12px; font-weight: 700; }
@@ -2136,10 +2497,11 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .muted { color: #666; font-size: 12px; }
 @media (max-width: 1100px) {
   .custom-product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .customer-rule-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .settings-grid, .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .template-editor-grid, .template-tier-row, .sku-filters { grid-template-columns: 1fr; }
+  .settings-grid, .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item { grid-template-columns: 1fr; }
   .sku-context-main { display: grid; }
   .sku-context-controls { justify-content: flex-start; min-width: 0; }
   .panel-actions { justify-content: flex-start; }

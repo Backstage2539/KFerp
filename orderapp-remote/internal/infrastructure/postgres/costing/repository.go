@@ -47,6 +47,17 @@ func (r Repository) LoadParameters(ctx context.Context) (domain.Parameters, erro
 }
 
 func (r Repository) LoadProductInputs(ctx context.Context, params domain.Parameters) ([]domain.ProductInput, error) {
+	return r.loadProductInputs(ctx, params, 0)
+}
+
+func (r Repository) LoadProductInputsForCustomer(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error) {
+	if customerID < 0 {
+		customerID = 0
+	}
+	return r.loadProductInputs(ctx, params, customerID)
+}
+
+func (r Repository) loadProductInputs(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error) {
 	q := fmt.Sprintf(`
 		WITH material_valuation AS (
 			SELECT l.material_id,
@@ -103,11 +114,71 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(p.drip_box_bag_count, 10),
 		       COALESCE(p.product_category_id, 0),
 		       COALESCE(p.product_category_position, 0),
+		       CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(parent_pc.id,0) ELSE COALESCE(pc.id,0) END,
+		       CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.id,0) ELSE 0 END,
 		       CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(parent_pc.name,'') ELSE COALESCE(pc.name,'') END,
 		       CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(parent_pc.position,0) ELSE COALESCE(pc.position,0) END,
 		       CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.name,'') ELSE '' END,
 		       CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.position,0) ELSE 0 END,
-		       COALESCE(pc.gradient_template_id, 0),
+		       COALESCE(
+		           NULLIF(cpro.gradient_template_id,0),
+		           NULLIF(cpti.gradient_template_id,0),
+		           NULLIF(p.gradient_template_id_override,0),
+		           NULLIF(pc.gradient_template_id,0),
+		           NULLIF(parent_pc.gradient_template_id,0),
+		           0
+		       ) AS effective_gradient_template_id,
+		       COALESCE(
+		           NULLIF(cpro.operation_template_id,0),
+		           NULLIF(cpti.operation_template_id,0),
+		           NULLIF(p.operation_template_id_override,0),
+		           NULLIF(pc.operation_template_id,0),
+		           NULLIF(parent_pc.operation_template_id,0),
+		           0
+		       ) AS effective_operation_template_id,
+		       COALESCE(
+		           NULLIF(cpro.unit_rule_json->>'inventory_unit',''),
+		           NULLIF(cpti.unit_rule_json->>'inventory_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'inventory_unit',''),
+		           NULLIF(pc.inventory_unit,''),
+		           NULLIF(parent_pc.inventory_unit,''),
+		           'kg'
+		       ),
+		       COALESCE(
+		           NULLIF(cpro.unit_rule_json->>'quote_unit',''),
+		           NULLIF(cpti.unit_rule_json->>'quote_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'quote_unit',''),
+		           NULLIF(pc.quote_unit,''),
+		           NULLIF(parent_pc.quote_unit,''),
+		           'kg'
+		       ),
+		       COALESCE(
+		           NULLIF(cpro.unit_rule_json->>'order_unit',''),
+		           NULLIF(cpti.unit_rule_json->>'order_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'order_unit',''),
+		           NULLIF(pc.order_unit,''),
+		           NULLIF(parent_pc.order_unit,''),
+		           'kg'
+		       ),
+		       COALESCE(
+		           NULLIF(cpro.unit_rule_json->>'unit_conversion_json',''),
+		           NULLIF(cpro.unit_rule_json->>'conversion_json',''),
+		           NULLIF(cpti.unit_rule_json->>'unit_conversion_json',''),
+		           NULLIF(cpti.unit_rule_json->>'conversion_json',''),
+		           NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),
+		           NULLIF(p.unit_rule_override_json->>'conversion_json',''),
+		           NULLIF(pc.unit_conversion_json::text,'{}'),
+		           NULLIF(parent_pc.unit_conversion_json::text,'{}'),
+		           '{}'
+		       ),
+		       COALESCE(
+		           CASE WHEN lower(cpro.unit_rule_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(cpro.unit_rule_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
+		           CASE WHEN lower(cpti.unit_rule_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(cpti.unit_rule_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
+		           CASE WHEN lower(p.unit_rule_override_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(p.unit_rule_override_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
+		           pc.integer_unit,
+		           parent_pc.integer_unit,
+		           false
+		       ),
 		       p.margin_rate_override::float8,
 		       COALESCE(NULLIF(b.yield_rate,0), $1),
 		       CASE
@@ -140,6 +211,15 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		LEFT JOIN %[1]s.products base_p ON base_p.id = p.base_product_id
 		LEFT JOIN %[1]s.product_categories pc ON pc.id = p.product_category_id AND pc.active=true
 		LEFT JOIN %[1]s.product_categories parent_pc ON parent_pc.id = pc.parent_id AND parent_pc.active=true
+		LEFT JOIN %[1]s.customers rule_customer ON rule_customer.id = $2 AND rule_customer.active=true
+		LEFT JOIN %[1]s.customer_product_rule_template_items cpti
+		  ON cpti.active=true
+		 AND cpti.template_id=COALESCE(rule_customer.customer_product_rule_template_id,0)
+		 AND cpti.product_subtype_category_id=CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.id,0) ELSE 0 END
+		LEFT JOIN %[1]s.customer_product_rule_overrides cpro
+		  ON cpro.active=true
+		 AND cpro.customer_id=$2
+		 AND cpro.product_subtype_category_id=CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.id,0) ELSE 0 END
 		LEFT JOIN finished_component_cost fcc ON fcc.product_id = p.id
 		LEFT JOIN LATERAL (
 			SELECT COALESCE(NULLIF(qi.metrics_json->>'factory_flavor_description',''), NULLIF(qi.metrics_json->>'factory_flavor',''), NULLIF(qi.metrics_json->>'工厂风味描述',''), '') AS factory_flavor_description,
@@ -168,10 +248,10 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 			LIMIT 1
 		) qc ON true
 		WHERE p.active = true
-		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, pc.level, pc.name, pc.position, pc.gradient_template_id, parent_pc.name, parent_pc.position, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
+		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, cpti.gradient_template_id, cpti.operation_template_id, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.unit_rule_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
 		ORDER BY p.name
 	`, r.schema)
-	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
+	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate, customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -185,9 +265,11 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		var roastLevel string
 		var fallbackYield float64
 		var gradientTemplateID int64
-		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductKind, &input.DripBagGrams, &input.DripBoxBagCount, &input.ProductCategoryID, &input.ProductCategoryPosition, &input.CategoryPrimaryName, &input.CategoryPrimaryPosition, &input.CategorySecondaryName, &input.CategorySecondaryPosition, &gradientTemplateID, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus, &input.BeanListQuality.FactoryFlavorDescription, &input.BeanListQuality.Moisture, &input.BeanListQuality.Density, &input.BeanListQuality.InspectionCreatedAt, &input.BeanListQuality.InspectionReferenceNo); err != nil {
+		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductKind, &input.DripBagGrams, &input.DripBoxBagCount, &input.ProductCategoryID, &input.ProductCategoryPosition, &input.ProductTypeCategoryID, &input.ProductSubtypeCategoryID, &input.CategoryPrimaryName, &input.CategoryPrimaryPosition, &input.CategorySecondaryName, &input.CategorySecondaryPosition, &gradientTemplateID, &input.OperationTemplateID, &input.InventoryUnit, &input.QuoteUnit, &input.OrderUnit, &input.UnitConversionJSON, &input.IntegerUnit, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus, &input.BeanListQuality.FactoryFlavorDescription, &input.BeanListQuality.Moisture, &input.BeanListQuality.Density, &input.BeanListQuality.InspectionCreatedAt, &input.BeanListQuality.InspectionReferenceNo); err != nil {
 			return nil, err
 		}
+		input.ProductTypeName = input.CategoryPrimaryName
+		input.ProductSubtypeName = input.CategorySecondaryName
 		if gradientTemplateID > 0 {
 			templateIDs[gradientTemplateID] = true
 			templateIDByProduct[input.ProductID] = gradientTemplateID

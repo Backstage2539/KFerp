@@ -37,6 +37,11 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.POST("/api/product-settings/customer-categories/derive", h.deriveProductCategoryAPI)
 	e.POST("/api/product-settings/customer-gradient-templates/derive", h.deriveGradientTemplateAPI)
 	e.POST("/api/product-settings/customer-public-usage", h.saveCustomerPublicUsageAPI)
+	e.POST("/api/product-settings/customer-rule-templates", h.saveCustomerProductRuleTemplateAPI)
+	e.PUT("/api/product-settings/customer-rule-templates/:id", h.saveCustomerProductRuleTemplateAPI)
+	e.POST("/api/product-settings/customer-rule-overrides", h.saveCustomerProductRuleOverrideAPI)
+	e.PUT("/api/product-settings/customer-rule-overrides/:id", h.saveCustomerProductRuleOverrideAPI)
+	e.POST("/api/product-settings/customers/:id/rule-template", h.bindCustomerProductRuleTemplateAPI)
 	e.PUT("/api/product-settings/categories/:id", h.saveProductCategoryAPI)
 	e.DELETE("/api/product-settings/categories/:id", h.deleteProductCategoryAPI)
 	e.POST("/api/product-settings/categories/:id/move", h.moveProductCategoryAPI)
@@ -169,6 +174,27 @@ type customerPublicUsageAPIRequest struct {
 	UsePublicSKU               bool  `json:"use_public_sku"`
 	UsePublicCategories        bool  `json:"use_public_categories"`
 	UsePublicGradientTemplates bool  `json:"use_public_gradient_templates"`
+}
+
+type customerProductRuleTemplateAPIRequest struct {
+	CustomerID int64                                        `json:"customer_id"`
+	Name       string                                       `json:"name"`
+	Active     *bool                                        `json:"active"`
+	Items      []catalogapp.CustomerProductRuleTemplateItem `json:"items"`
+}
+
+type customerProductRuleOverrideAPIRequest struct {
+	CustomerID               int64  `json:"customer_id"`
+	ProductSubtypeCategoryID int64  `json:"product_subtype_category_id"`
+	GradientTemplateID       int64  `json:"gradient_template_id"`
+	OperationTemplateID      int64  `json:"operation_template_id"`
+	PriceListRuleJSON        string `json:"price_list_rule_json"`
+	UnitRuleJSON             string `json:"unit_rule_json"`
+	Active                   *bool  `json:"active"`
+}
+
+type customerProductRuleTemplateBindingAPIRequest struct {
+	TemplateID int64 `json:"template_id"`
 }
 
 type deriveProductCategoryAPIRequest struct {
@@ -733,6 +759,83 @@ func (h productHandler) saveCustomerPublicUsageAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"usage": usage})
+}
+
+func (h productHandler) saveCustomerProductRuleTemplateAPI(c echo.Context) error {
+	var req customerProductRuleTemplateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	var id int64
+	if idText := c.Param("id"); idText != "" {
+		parsed, err := strconv.ParseInt(idText, 10, 64)
+		if err != nil || parsed <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		}
+		id = parsed
+	}
+	template, err := h.catalog.SaveCustomerProductRuleTemplate(c.Request().Context(), catalogapp.SaveCustomerProductRuleTemplateCommand{
+		Actor:      support.ActorOf(c),
+		ID:         id,
+		CustomerID: req.CustomerID,
+		Name:       req.Name,
+		Active:     req.Active,
+		Items:      req.Items,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"template": template})
+}
+
+func (h productHandler) saveCustomerProductRuleOverrideAPI(c echo.Context) error {
+	var req customerProductRuleOverrideAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	var id int64
+	if idText := c.Param("id"); idText != "" {
+		parsed, err := strconv.ParseInt(idText, 10, 64)
+		if err != nil || parsed <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		}
+		id = parsed
+	}
+	override, err := h.catalog.SaveCustomerProductRuleOverride(c.Request().Context(), catalogapp.SaveCustomerProductRuleOverrideCommand{
+		Actor:                    support.ActorOf(c),
+		ID:                       id,
+		CustomerID:               req.CustomerID,
+		ProductSubtypeCategoryID: req.ProductSubtypeCategoryID,
+		GradientTemplateID:       req.GradientTemplateID,
+		OperationTemplateID:      req.OperationTemplateID,
+		PriceListRuleJSON:        req.PriceListRuleJSON,
+		UnitRuleJSON:             req.UnitRuleJSON,
+		Active:                   req.Active,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"override": override})
+}
+
+func (h productHandler) bindCustomerProductRuleTemplateAPI(c echo.Context) error {
+	customerID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || customerID <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid customer id"})
+	}
+	var req customerProductRuleTemplateBindingAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	binding, err := h.catalog.BindCustomerProductRuleTemplate(c.Request().Context(), catalogapp.CustomerProductRuleTemplateBindingCommand{
+		Actor:      support.ActorOf(c),
+		CustomerID: customerID,
+		TemplateID: req.TemplateID,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"binding": binding})
 }
 
 func (h productHandler) moveProductCategoryAPI(c echo.Context) error {

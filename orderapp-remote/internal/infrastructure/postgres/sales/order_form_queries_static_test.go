@@ -14,11 +14,33 @@ func TestOrderFormProductQueryKeepsRoastLevelAndProductKindScanShape(t *testing.
 		t.Fatalf("read order_form_queries.go: %v", err)
 	}
 	text := string(source)
-	if !strings.Contains(text, "SELECT id, name, COALESCE(roast_level,'')") {
+	if !strings.Contains(text, "SELECT p.id, p.name, COALESCE(p.roast_level,'')") {
 		t.Fatalf("order form product query must select roast_level as the third product column before default_price")
 	}
 	if strings.Contains(text, "SELECT id, name, COALESCE(NULLIF(product_kind,''),'roasted')") {
 		t.Fatalf("order form product query must not scan product_kind into ProductOption.RoastLevel")
+	}
+}
+
+func TestOrderFormProductsExposeProductTypeAndUnitRuleFields(t *testing.T) {
+	source, err := os.ReadFile("order_form_queries.go")
+	if err != nil {
+		t.Fatalf("read order_form_queries.go: %v", err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		"LEFT JOIN %[1]s.product_categories subtype_cat",
+		"product_type_category_id",
+		"product_subtype_category_id",
+		"unit_conversion_json",
+		"&p.ProductTypeCategoryID",
+		"&p.ProductSubtypeCategoryID",
+		"&p.UnitConversionJSON",
+		"&p.IntegerUnit",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("order form products must expose product type/subtype and unit rule fields; missing %q", want)
+		}
 	}
 }
 

@@ -188,6 +188,47 @@ export function buildSkuConfigOverridePayload(row = {}) {
   }
 }
 
+export function buildCustomerProductRuleTemplatePayload(form = {}) {
+  return {
+    id: Number(form.id || 0),
+    customer_id: Number(form.customer_id || 0),
+    name: String(form.name || '').trim(),
+    active: form.active === false ? false : true,
+    items: (form.items || []).map(buildCustomerProductRuleTemplateItemPayload),
+  }
+}
+
+export function buildCustomerProductRuleTemplateItemPayload(row = {}) {
+  return {
+    product_subtype_category_id: Number(row.product_subtype_category_id || 0),
+    gradient_template_id: Number(row.gradient_template_id || 0),
+    operation_template_id: Number(row.operation_template_id || 0),
+    price_list_rule_json: normalizeJSONString(row.price_list_rule_json),
+    unit_rule_json: normalizeJSONString(row.unit_rule_json),
+    active: row.active === false ? false : true,
+  }
+}
+
+export function buildCustomerProductRuleOverridePayload(row = {}) {
+  return {
+    id: Number(row.id || 0),
+    customer_id: Number(row.customer_id || 0),
+    product_subtype_category_id: Number(row.product_subtype_category_id || 0),
+    gradient_template_id: Number(row.gradient_template_id || 0),
+    operation_template_id: Number(row.operation_template_id || 0),
+    price_list_rule_json: normalizeJSONString(row.price_list_rule_json),
+    unit_rule_json: normalizeJSONString(row.unit_rule_json),
+    active: row.active === false ? false : true,
+  }
+}
+
+export function buildCustomerProductRuleBindingPayload(customerID, templateID) {
+  return {
+    customer_id: Number(customerID || 0),
+    template_id: Number(templateID || 0),
+  }
+}
+
 export function buildSkuContextCategoryTree(categories = [], context = {}) {
   const customerID = Number(context.customerID || context.customer_id || 0)
   const publicRoots = (categories || []).filter((category) => Number(category.customer_id || 0) === 0)

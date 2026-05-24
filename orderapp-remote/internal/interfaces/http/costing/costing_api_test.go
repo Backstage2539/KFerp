@@ -31,7 +31,7 @@ func (fakeService) ExplainPrice(ctx context.Context, req appcosting.PriceExplana
 	return appcosting.NewService(&fakeRepo{}).ExplainPrice(ctx, req)
 }
 
-func (fakeService) BeanList(context.Context) (*appcosting.CalculateResponse, error) {
+func (fakeService) BeanList(context.Context, appcosting.BeanListQuery) (*appcosting.CalculateResponse, error) {
 	return &appcosting.CalculateResponse{Parameters: domain.DefaultParameters()}, nil
 }
 
@@ -196,6 +196,7 @@ type recordingBeanListService struct {
 	drafted        int
 	generatedPDFs  int
 	lastQuery      appcosting.BeanListPublicationQuery
+	lastBeanList   appcosting.BeanListQuery
 	lastPublish    appcosting.PublishBeanListCommand
 	lastDraft      appcosting.PublishBeanListCommand
 	lastPDFCommand appcosting.BeanListPublicationPDFCommand
@@ -204,6 +205,11 @@ type recordingBeanListService struct {
 func (s *recordingBeanListService) ListBeanListPublications(ctx context.Context, query appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
 	s.lastQuery = query
 	return s.fakeService.ListBeanListPublications(ctx, query)
+}
+
+func (s *recordingBeanListService) BeanList(ctx context.Context, query appcosting.BeanListQuery) (*appcosting.CalculateResponse, error) {
+	s.lastBeanList = query
+	return s.fakeService.BeanList(ctx, query)
 }
 
 func (s *recordingBeanListService) PublishBeanList(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
@@ -1163,6 +1169,23 @@ func TestBeanListPublicationAPIPassesProductTypeCategory(t *testing.T) {
 	}
 	if svc.lastPublish.ProductTypeCategoryID != 12 || svc.lastPublish.ProductTypeName != "生豆" {
 		t.Fatalf("product type publish = %+v", svc.lastPublish)
+	}
+}
+
+func TestBeanListAPIPassesCustomerIDForCustomerProductRules(t *testing.T) {
+	svc := &recordingBeanListService{}
+	e := echo.New()
+	registerCostingAPI(e, svc, &fakeCostingAuthz{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/bean-list?customer_id=42", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/costing/bean-list status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.lastBeanList.CustomerID != 42 {
+		t.Fatalf("bean list query = %+v, want customer_id 42", svc.lastBeanList)
 	}
 }
 

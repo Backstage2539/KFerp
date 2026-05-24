@@ -157,7 +157,11 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 	})
 
 	e.GET("/api/costing/bean-list", func(c echo.Context) error {
-		resp, err := svc.BeanList(c.Request().Context())
+		customerID, err := parseOptionalInt64(c.QueryParam("customer_id"))
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid customer_id"})
+		}
+		resp, err := svc.BeanList(c.Request().Context(), appcosting.BeanListQuery{CustomerID: customerID})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		}

@@ -66,6 +66,40 @@ func TestAPIProductsCarriesTierDisplayUnit(t *testing.T) {
 	}
 }
 
+func TestAPIProductsCarriesProductTypeAndUnitRule(t *testing.T) {
+	products := apiProducts([]ProductOption{{
+		ID:                       515,
+		Name:                     "冻干美式 20杯盒",
+		ProductKind:              "instant_coffee",
+		ProductTypeCategoryID:    12,
+		ProductSubtypeCategoryID: 13,
+		ProductTypeName:          "速溶咖啡",
+		ProductSubtypeName:       "冻干速溶",
+		InventoryUnit:            "kg",
+		QuoteUnit:                "盒",
+		OrderUnit:                "盒",
+		UnitConversionJSON:       `{"盒":{"kg":0.2}}`,
+		IntegerUnit:              true,
+	}})
+
+	got := products[0]
+	for key, want := range map[string]any{
+		"product_type_category_id":    int64(12),
+		"product_subtype_category_id": int64(13),
+		"product_type_name":           "速溶咖啡",
+		"product_subtype_name":        "冻干速溶",
+		"inventory_unit":              "kg",
+		"quote_unit":                  "盒",
+		"order_unit":                  "盒",
+		"unit_conversion_json":        `{"盒":{"kg":0.2}}`,
+		"integer_unit":                true,
+	} {
+		if got[key] != want {
+			t.Fatalf("%s = %#v, want %#v", key, got[key], want)
+		}
+	}
+}
+
 func TestOrderAPIRoutesExposeIrreversibleVoidJSONEndpoints(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "sales", "order_api.go"))
 	if err != nil {

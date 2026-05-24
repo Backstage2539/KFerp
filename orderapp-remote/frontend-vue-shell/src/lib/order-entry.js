@@ -60,6 +60,40 @@ export function formatSpecLabel(specG) {
   return `${spec}g`
 }
 
+function parseUnitConversion(value) {
+  if (!value) return {}
+  if (typeof value === 'object') return value
+  try {
+    const parsed = JSON.parse(String(value))
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+export function productOrderUnit(product) {
+  return String(product?.order_unit || '').trim()
+}
+
+export function productOrderUnitSpecG(product) {
+  const orderUnit = productOrderUnit(product)
+  if (!orderUnit || orderUnit === 'kg') return 0
+  const conversion = parseUnitConversion(product?.unit_conversion_json)
+  const rule = conversion?.[orderUnit] || conversion?.[orderUnit.toLowerCase?.()]
+  const kg = toNumber(rule?.kg ?? rule?.KG)
+  if (kg > 0) return Math.round(kg * 1000)
+  const g = toNumber(rule?.g ?? rule?.G)
+  if (g > 0) return Math.round(g)
+  return 0
+}
+
+function productOrderUnitSpecOption(product) {
+  const unit = productOrderUnit(product)
+  const specG = productOrderUnitSpecG(product)
+  if (!unit || specG <= 0) return null
+  return { label: `${unit}（${formatSpecLabel(specG)}）`, value: String(specG), orderUnit: unit }
+}
+
 export function normalizedProductKind(productOrKind) {
   const raw = typeof productOrKind === 'object'
     ? productOrKind?.product_kind
@@ -93,13 +127,17 @@ export function wholesaleSpecOptions(product) {
     const spec = toInt(tier.spec_g)
     if (spec > 0) specs.add(spec)
   }
+  const orderUnitOption = productOrderUnitSpecOption(product)
   return [
+    ...(orderUnitOption ? [orderUnitOption] : []),
     ...[...specs].sort((a, b) => a - b).map((spec) => ({ label: formatSpecLabel(spec), value: String(spec) })),
     { label: '自定义克数', value: CUSTOM_SPEC_VALUE },
   ]
 }
 
 export function defaultWholesaleSpec(product) {
+  const orderUnitSpec = productOrderUnitSpecG(product)
+  if (orderUnitSpec > 0) return String(orderUnitSpec)
   const tier = (product?.tiers || []).find((item) => toInt(item.spec_g) > 0)
   if (tier) return String(toInt(tier.spec_g))
   return wholesaleSpecOptions(product)[0]?.value || ''

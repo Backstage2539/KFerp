@@ -341,6 +341,18 @@ test('defaultWholesaleSpec uses the product first configured tier spec', () => {
   assert.equal(got, '227')
 })
 
+test('order entry derives default order-unit spec from lightweight unit conversion', () => {
+  const product = {
+    order_unit: '盒',
+    unit_conversion_json: '{"盒":{"kg":0.2}}',
+    tiers: [{ spec_g: 1000 }],
+  }
+
+  const options = wholesaleSpecOptions(product)
+  assert.equal(defaultWholesaleSpec(product), '200')
+  assert.deepEqual(options[0], { label: '盒（200g）', value: '200', orderUnit: '盒' })
+})
+
 test('wholesaleTierPriceRows exposes every configured gradient price', () => {
   const got = wholesaleTierPriceRows({
     tiers: [

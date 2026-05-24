@@ -966,7 +966,12 @@ watch(versionListScope, (scope) => {
   syncPublicationScopeFromPageContext()
   resetPdfSelectionDefaults()
   initializePdfDefaultsIfItemsLoaded()
+  loadBeanList()
   loadBeanListPublications(pdfTheme.value.listType, scope)
+})
+
+watch(activeBeanListCustomerID, () => {
+  loadBeanList()
 })
 
 watch(publicationScope, (scope) => {
@@ -1692,7 +1697,7 @@ async function loadBeanList() {
   error.value = ''
   message.value = ''
   try {
-    const data = await apiGet('/api/costing/bean-list')
+    const data = await apiGet(beanListURLForCustomerRules())
     parameters.value = data.parameters
     items.value = Array.isArray(data.items) ? data.items : []
     initializePdfDefaults()
@@ -1701,6 +1706,14 @@ async function loadBeanList() {
   } finally {
     loading.value = false
   }
+}
+
+function beanListURLForCustomerRules() {
+  const customerID = Number(activeBeanListCustomerID.value || 0)
+  if (customerID <= 0) return '/api/costing/bean-list'
+  const params = new URLSearchParams()
+  params.set('customer_id', String(customerID))
+  return `/api/costing/bean-list?${params.toString()}`
 }
 
 async function loadCustomers() {

@@ -75,7 +75,14 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 				COALESCE(subtype_pc.id,0) AS product_subtype_category_id,
 				COALESCE(type_pc.name,'') AS product_type_name,
 				COALESCE(subtype_pc.name,'') AS product_subtype_name,
-				COALESCE(NULLIF(subtype_pc.operation_template_id,0), type_pc.operation_template_id,0) AS operation_template_id,
+				COALESCE(
+					NULLIF(cpro.operation_template_id,0),
+					NULLIF(cpti.operation_template_id,0),
+					NULLIF(p.operation_template_id_override,0),
+					NULLIF(subtype_pc.operation_template_id,0),
+					type_pc.operation_template_id,
+					0
+				) AS effective_operation_template_id,
 				STRING_AGG(DISTINCT COALESCE(o.order_no,''), ',' ORDER BY COALESCE(o.order_no,'')) AS order_nos,
 				COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g,
 				SUM(COALESCE(oi.qty,0))::bigint AS need_units,
@@ -85,9 +92,18 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			LEFT JOIN %s.products p ON p.id = oi.product_id
 			LEFT JOIN %s.product_categories subtype_pc ON subtype_pc.id=COALESCE(p.product_category_id,0)
 			LEFT JOIN %s.product_categories type_pc ON type_pc.id=COALESCE(subtype_pc.parent_id,0)
+			LEFT JOIN %s.customers rule_customer ON rule_customer.id=o.customer_id AND rule_customer.active=true
+			LEFT JOIN %s.customer_product_rule_template_items cpti
+			  ON cpti.active=true
+			 AND cpti.template_id=COALESCE(rule_customer.customer_product_rule_template_id,0)
+			 AND cpti.product_subtype_category_id=COALESCE(subtype_pc.id,0)
+			LEFT JOIN %s.customer_product_rule_overrides cpro
+			  ON cpro.active=true
+			 AND cpro.customer_id=o.customer_id
+			 AND cpro.product_subtype_category_id=COALESCE(subtype_pc.id,0)
 			LEFT JOIN %s.order_stock_decisions osd ON osd.order_id = o.id
 			%s
-			GROUP BY oi.product_id, p.name, COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted_bean'), type_pc.id, subtype_pc.id, type_pc.name, subtype_pc.name, COALESCE(NULLIF(subtype_pc.operation_template_id,0), type_pc.operation_template_id,0), COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')
+			GROUP BY oi.product_id, p.name, COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted_bean'), type_pc.id, subtype_pc.id, type_pc.name, subtype_pc.name, COALESCE(NULLIF(cpro.operation_template_id,0), NULLIF(cpti.operation_template_id,0), NULLIF(p.operation_template_id_override,0), NULLIF(subtype_pc.operation_template_id,0), type_pc.operation_template_id,0), COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')
 			UNION ALL
 			SELECT
 				d.product_id,
@@ -97,7 +113,14 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 				COALESCE(subtype_pc.id,0) AS product_subtype_category_id,
 				COALESCE(type_pc.name,'') AS product_type_name,
 				COALESCE(subtype_pc.name,'') AS product_subtype_name,
-				COALESCE(NULLIF(subtype_pc.operation_template_id,0), type_pc.operation_template_id,0) AS operation_template_id,
+				COALESCE(
+					NULLIF(cpro.operation_template_id,0),
+					NULLIF(cpti.operation_template_id,0),
+					NULLIF(p.operation_template_id_override,0),
+					NULLIF(subtype_pc.operation_template_id,0),
+					type_pc.operation_template_id,
+					0
+				) AS effective_operation_template_id,
 				STRING_AGG(DISTINCT COALESCE(d.request_no,''), ',' ORDER BY COALESCE(d.request_no,'')) AS order_nos,
 				d.spec_g,
 				SUM(COALESCE(d.target_qty,0))::bigint AS need_units,
@@ -106,8 +129,17 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			LEFT JOIN %s.products p ON p.id=d.product_id
 			LEFT JOIN %s.product_categories subtype_pc ON subtype_pc.id=COALESCE(p.product_category_id,0)
 			LEFT JOIN %s.product_categories type_pc ON type_pc.id=COALESCE(subtype_pc.parent_id,0)
+			LEFT JOIN %s.customers rule_customer ON rule_customer.id=d.customer_id AND rule_customer.active=true
+			LEFT JOIN %s.customer_product_rule_template_items cpti
+			  ON cpti.active=true
+			 AND cpti.template_id=COALESCE(rule_customer.customer_product_rule_template_id,0)
+			 AND cpti.product_subtype_category_id=COALESCE(subtype_pc.id,0)
+			LEFT JOIN %s.customer_product_rule_overrides cpro
+			  ON cpro.active=true
+			 AND cpro.customer_id=d.customer_id
+			 AND cpro.product_subtype_category_id=COALESCE(subtype_pc.id,0)
 			WHERE %s
-			GROUP BY d.product_id, d.product_name, p.name, COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'), type_pc.id, subtype_pc.id, type_pc.name, subtype_pc.name, COALESCE(NULLIF(subtype_pc.operation_template_id,0), type_pc.operation_template_id,0), d.spec_g
+			GROUP BY d.product_id, d.product_name, p.name, COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'), type_pc.id, subtype_pc.id, type_pc.name, subtype_pc.name, COALESCE(NULLIF(cpro.operation_template_id,0), NULLIF(cpti.operation_template_id,0), NULLIF(p.operation_template_id_override,0), NULLIF(subtype_pc.operation_template_id,0), type_pc.operation_template_id,0), d.spec_g
 		)
 		, reserved AS (
 			SELECT
@@ -160,7 +192,7 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			ON reserved.product_id = n.product_id AND reserved.spec_g = n.spec_g
 		WHERE n.spec_g > 0
 		ORDER BY gap_g DESC, n.product, n.spec_g
-		`, schema, schema, schema, schema, schema, schema, where, schema, schema, schema, schema, strings.Join(demandWhere, " AND "), schema, schema, schema)
+		`, schema, schema, schema, schema, schema, schema, schema, schema, schema, where, schema, schema, schema, schema, schema, schema, schema, strings.Join(demandWhere, " AND "), schema, schema, schema)
 
 	rows, err := pool.Query(ctx, q, args...)
 	if err != nil {

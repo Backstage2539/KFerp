@@ -122,10 +122,13 @@ type ProductCategoryNode struct {
 }
 
 type ProductSettingsData struct {
-	Categories           []ProductCategoryNode    `json:"categories"`
-	Products             []ProductSettingsProduct `json:"products"`
-	GradientTemplates    []GradientTemplate       `json:"gradient_templates"`
-	CustomerPublicUsages []CustomerPublicUsage    `json:"customer_public_usages"`
+	Categories                   []ProductCategoryNode         `json:"categories"`
+	Products                     []ProductSettingsProduct      `json:"products"`
+	GradientTemplates            []GradientTemplate            `json:"gradient_templates"`
+	CustomerPublicUsages         []CustomerPublicUsage         `json:"customer_public_usages"`
+	CustomerProductRuleTemplates []CustomerProductRuleTemplate `json:"customer_product_rule_templates"`
+	CustomerProductRuleOverrides []CustomerProductRuleOverride `json:"customer_product_rule_overrides"`
+	CustomerProductRuleBindings  []CustomerProductRuleBinding  `json:"customer_product_rule_bindings"`
 }
 
 type GradientTemplate struct {
@@ -253,6 +256,67 @@ type CustomerPublicUsageCommand struct {
 	UsePublicGradientTemplates bool
 }
 
+type CustomerProductRuleTemplateItem struct {
+	ID                       int64  `json:"id,omitempty"`
+	TemplateID               int64  `json:"template_id,omitempty"`
+	ProductSubtypeCategoryID int64  `json:"product_subtype_category_id"`
+	GradientTemplateID       int64  `json:"gradient_template_id"`
+	OperationTemplateID      int64  `json:"operation_template_id"`
+	PriceListRuleJSON        string `json:"price_list_rule_json"`
+	UnitRuleJSON             string `json:"unit_rule_json"`
+}
+
+type CustomerProductRuleTemplate struct {
+	ID         int64                             `json:"id"`
+	CustomerID int64                             `json:"customer_id"`
+	Name       string                            `json:"name"`
+	Active     bool                              `json:"active"`
+	Items      []CustomerProductRuleTemplateItem `json:"items"`
+}
+
+type CustomerProductRuleOverride struct {
+	ID                       int64  `json:"id"`
+	CustomerID               int64  `json:"customer_id"`
+	ProductSubtypeCategoryID int64  `json:"product_subtype_category_id"`
+	GradientTemplateID       int64  `json:"gradient_template_id"`
+	OperationTemplateID      int64  `json:"operation_template_id"`
+	PriceListRuleJSON        string `json:"price_list_rule_json"`
+	UnitRuleJSON             string `json:"unit_rule_json"`
+	Active                   bool   `json:"active"`
+}
+
+type CustomerProductRuleBinding struct {
+	CustomerID int64 `json:"customer_id"`
+	TemplateID int64 `json:"template_id"`
+}
+
+type SaveCustomerProductRuleTemplateCommand struct {
+	Actor      string
+	ID         int64
+	CustomerID int64
+	Name       string
+	Active     *bool
+	Items      []CustomerProductRuleTemplateItem
+}
+
+type SaveCustomerProductRuleOverrideCommand struct {
+	Actor                    string
+	ID                       int64
+	CustomerID               int64
+	ProductSubtypeCategoryID int64
+	GradientTemplateID       int64
+	OperationTemplateID      int64
+	PriceListRuleJSON        string
+	UnitRuleJSON             string
+	Active                   *bool
+}
+
+type CustomerProductRuleTemplateBindingCommand struct {
+	Actor      string
+	CustomerID int64
+	TemplateID int64
+}
+
 type SaveProductCategoryCommand struct {
 	Actor               string
 	ID                  int64
@@ -367,6 +431,12 @@ type Repository interface {
 	DeriveGradientTemplate(ctx context.Context, cmd DeriveGradientTemplateCommand) (GradientTemplate, error)
 	ListCustomerPublicUsages(ctx context.Context) ([]CustomerPublicUsage, error)
 	SaveCustomerPublicUsage(ctx context.Context, cmd CustomerPublicUsageCommand) (CustomerPublicUsage, error)
+	ListCustomerProductRuleTemplates(ctx context.Context) ([]CustomerProductRuleTemplate, error)
+	ListCustomerProductRuleOverrides(ctx context.Context) ([]CustomerProductRuleOverride, error)
+	ListCustomerProductRuleBindings(ctx context.Context) ([]CustomerProductRuleBinding, error)
+	SaveCustomerProductRuleTemplate(ctx context.Context, cmd SaveCustomerProductRuleTemplateCommand) (CustomerProductRuleTemplate, error)
+	SaveCustomerProductRuleOverride(ctx context.Context, cmd SaveCustomerProductRuleOverrideCommand) (CustomerProductRuleOverride, error)
+	BindCustomerProductRuleTemplate(ctx context.Context, cmd CustomerProductRuleTemplateBindingCommand) (CustomerProductRuleBinding, error)
 }
 
 type Service struct {
@@ -571,9 +641,24 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
+	ruleTemplates, err := s.repo.ListCustomerProductRuleTemplates(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
+	ruleOverrides, err := s.repo.ListCustomerProductRuleOverrides(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
+	ruleBindings, err := s.repo.ListCustomerProductRuleBindings(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
 	data := BuildProductSettings(categories, products)
 	data.GradientTemplates = templates
 	data.CustomerPublicUsages = usages
+	data.CustomerProductRuleTemplates = ruleTemplates
+	data.CustomerProductRuleOverrides = ruleOverrides
+	data.CustomerProductRuleBindings = ruleBindings
 	return data, nil
 }
 
@@ -779,6 +864,104 @@ func (s *Service) SaveCustomerPublicUsage(ctx context.Context, cmd CustomerPubli
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	return s.repo.SaveCustomerPublicUsage(ctx, cmd)
+}
+
+func (s *Service) SaveCustomerProductRuleTemplate(ctx context.Context, cmd SaveCustomerProductRuleTemplateCommand) (CustomerProductRuleTemplate, error) {
+	normalized, err := normalizeCustomerProductRuleTemplateCommand(cmd)
+	if err != nil {
+		return CustomerProductRuleTemplate{}, err
+	}
+	return s.repo.SaveCustomerProductRuleTemplate(ctx, normalized)
+}
+
+func (s *Service) SaveCustomerProductRuleOverride(ctx context.Context, cmd SaveCustomerProductRuleOverrideCommand) (CustomerProductRuleOverride, error) {
+	normalized, err := normalizeCustomerProductRuleOverrideCommand(cmd)
+	if err != nil {
+		return CustomerProductRuleOverride{}, err
+	}
+	return s.repo.SaveCustomerProductRuleOverride(ctx, normalized)
+}
+
+func (s *Service) BindCustomerProductRuleTemplate(ctx context.Context, cmd CustomerProductRuleTemplateBindingCommand) (CustomerProductRuleBinding, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.CustomerID <= 0 {
+		return CustomerProductRuleBinding{}, ValidationError{Message: "customer_id required"}
+	}
+	if cmd.TemplateID < 0 {
+		return CustomerProductRuleBinding{}, ValidationError{Message: "invalid template_id"}
+	}
+	return s.repo.BindCustomerProductRuleTemplate(ctx, cmd)
+}
+
+func normalizeCustomerProductRuleTemplateCommand(cmd SaveCustomerProductRuleTemplateCommand) (SaveCustomerProductRuleTemplateCommand, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.ID < 0 {
+		return SaveCustomerProductRuleTemplateCommand{}, ValidationError{Message: "invalid id"}
+	}
+	if cmd.CustomerID < 0 {
+		return SaveCustomerProductRuleTemplateCommand{}, ValidationError{Message: "invalid customer_id"}
+	}
+	if cmd.Name == "" {
+		return SaveCustomerProductRuleTemplateCommand{}, ValidationError{Message: "name required"}
+	}
+	if len(cmd.Items) == 0 {
+		return SaveCustomerProductRuleTemplateCommand{}, ValidationError{Message: "items required"}
+	}
+	for i := range cmd.Items {
+		item, err := normalizeCustomerProductRuleTemplateItem(cmd.Items[i])
+		if err != nil {
+			return SaveCustomerProductRuleTemplateCommand{}, err
+		}
+		cmd.Items[i] = item
+	}
+	return cmd, nil
+}
+
+func normalizeCustomerProductRuleTemplateItem(item CustomerProductRuleTemplateItem) (CustomerProductRuleTemplateItem, error) {
+	if item.ProductSubtypeCategoryID <= 0 {
+		return CustomerProductRuleTemplateItem{}, ValidationError{Message: "product_subtype_category_id required"}
+	}
+	if item.GradientTemplateID < 0 || item.OperationTemplateID < 0 {
+		return CustomerProductRuleTemplateItem{}, ValidationError{Message: "invalid template id"}
+	}
+	priceRule, err := normalizeJSONText(item.PriceListRuleJSON)
+	if err != nil {
+		return CustomerProductRuleTemplateItem{}, ValidationError{Message: "invalid price_list_rule_json"}
+	}
+	unitRule, err := normalizeJSONText(item.UnitRuleJSON)
+	if err != nil {
+		return CustomerProductRuleTemplateItem{}, ValidationError{Message: "invalid unit_rule_json"}
+	}
+	item.PriceListRuleJSON = priceRule
+	item.UnitRuleJSON = unitRule
+	return item, nil
+}
+
+func normalizeCustomerProductRuleOverrideCommand(cmd SaveCustomerProductRuleOverrideCommand) (SaveCustomerProductRuleOverrideCommand, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ID < 0 {
+		return SaveCustomerProductRuleOverrideCommand{}, ValidationError{Message: "invalid id"}
+	}
+	if cmd.CustomerID <= 0 {
+		return SaveCustomerProductRuleOverrideCommand{}, ValidationError{Message: "customer_id required"}
+	}
+	item, err := normalizeCustomerProductRuleTemplateItem(CustomerProductRuleTemplateItem{
+		ProductSubtypeCategoryID: cmd.ProductSubtypeCategoryID,
+		GradientTemplateID:       cmd.GradientTemplateID,
+		OperationTemplateID:      cmd.OperationTemplateID,
+		PriceListRuleJSON:        cmd.PriceListRuleJSON,
+		UnitRuleJSON:             cmd.UnitRuleJSON,
+	})
+	if err != nil {
+		return SaveCustomerProductRuleOverrideCommand{}, err
+	}
+	cmd.ProductSubtypeCategoryID = item.ProductSubtypeCategoryID
+	cmd.GradientTemplateID = item.GradientTemplateID
+	cmd.OperationTemplateID = item.OperationTemplateID
+	cmd.PriceListRuleJSON = item.PriceListRuleJSON
+	cmd.UnitRuleJSON = item.UnitRuleJSON
+	return cmd, nil
 }
 
 func normalizeGradientTemplateCommand(cmd SaveGradientTemplateCommand) (SaveGradientTemplateCommand, error) {

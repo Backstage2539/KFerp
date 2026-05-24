@@ -52,10 +52,20 @@ type ProductInput struct {
 	CustomType                string                    `json:"custom_type,omitempty"`
 	ProductCategoryID         int64                     `json:"product_category_id,omitempty"`
 	ProductCategoryPosition   int                       `json:"product_category_position,omitempty"`
+	ProductTypeCategoryID     int64                     `json:"product_type_category_id,omitempty"`
+	ProductSubtypeCategoryID  int64                     `json:"product_subtype_category_id,omitempty"`
+	ProductTypeName           string                    `json:"product_type_name,omitempty"`
+	ProductSubtypeName        string                    `json:"product_subtype_name,omitempty"`
 	CategoryPrimaryName       string                    `json:"category_primary_name,omitempty"`
 	CategoryPrimaryPosition   int                       `json:"category_primary_position,omitempty"`
 	CategorySecondaryName     string                    `json:"category_secondary_name,omitempty"`
 	CategorySecondaryPosition int                       `json:"category_secondary_position,omitempty"`
+	OperationTemplateID       int64                     `json:"operation_template_id,omitempty"`
+	InventoryUnit             string                    `json:"inventory_unit,omitempty"`
+	QuoteUnit                 string                    `json:"quote_unit,omitempty"`
+	OrderUnit                 string                    `json:"order_unit,omitempty"`
+	UnitConversionJSON        string                    `json:"unit_conversion_json,omitempty"`
+	IntegerUnit               bool                      `json:"integer_unit,omitempty"`
 	BeanListTemplateName      string                    `json:"bean_list_template_name,omitempty"`
 	Flavor                    string                    `json:"flavor,omitempty"`
 	Origin                    string                    `json:"origin,omitempty"`
@@ -248,10 +258,20 @@ type ProductResult struct {
 	CustomType                     string                    `json:"custom_type,omitempty"`
 	ProductCategoryID              int64                     `json:"product_category_id,omitempty"`
 	ProductCategoryPosition        int                       `json:"product_category_position,omitempty"`
+	ProductTypeCategoryID          int64                     `json:"product_type_category_id,omitempty"`
+	ProductSubtypeCategoryID       int64                     `json:"product_subtype_category_id,omitempty"`
+	ProductTypeName                string                    `json:"product_type_name,omitempty"`
+	ProductSubtypeName             string                    `json:"product_subtype_name,omitempty"`
 	CategoryPrimaryName            string                    `json:"category_primary_name,omitempty"`
 	CategoryPrimaryPosition        int                       `json:"category_primary_position,omitempty"`
 	CategorySecondaryName          string                    `json:"category_secondary_name,omitempty"`
 	CategorySecondaryPosition      int                       `json:"category_secondary_position,omitempty"`
+	OperationTemplateID            int64                     `json:"operation_template_id,omitempty"`
+	InventoryUnit                  string                    `json:"inventory_unit,omitempty"`
+	QuoteUnit                      string                    `json:"quote_unit,omitempty"`
+	OrderUnit                      string                    `json:"order_unit,omitempty"`
+	UnitConversionJSON             string                    `json:"unit_conversion_json,omitempty"`
+	IntegerUnit                    bool                      `json:"integer_unit,omitempty"`
 	MarginRateOverride             *float64                  `json:"margin_rate_override,omitempty"`
 	GradientTemplate               *GradientTemplate         `json:"gradient_template,omitempty"`
 	DripPriceTemplate              *DripPriceTemplate        `json:"drip_price_template,omitempty"`
@@ -335,6 +355,19 @@ func ValidateProductInput(params Parameters, in ProductInput) (ProductInput, err
 	}
 	if in.DripBoxBagCount <= 0 {
 		in.DripBoxBagCount = 10
+	}
+	in.InventoryUnit = normalizeProductUnit(in.InventoryUnit, "kg")
+	in.QuoteUnit = normalizeProductUnit(in.QuoteUnit, in.InventoryUnit)
+	in.OrderUnit = normalizeProductUnit(in.OrderUnit, in.QuoteUnit)
+	in.UnitConversionJSON = strings.TrimSpace(in.UnitConversionJSON)
+	if in.UnitConversionJSON == "" {
+		in.UnitConversionJSON = "{}"
+	}
+	if strings.TrimSpace(in.ProductTypeName) == "" {
+		in.ProductTypeName = strings.TrimSpace(in.CategoryPrimaryName)
+	}
+	if strings.TrimSpace(in.ProductSubtypeName) == "" {
+		in.ProductSubtypeName = strings.TrimSpace(in.CategorySecondaryName)
 	}
 	in = ApplyExcelCommercialPricingProfile(params, in)
 	if len(in.WholesaleKgMarginRates) == 0 {
@@ -435,10 +468,20 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		CustomType:                in.CustomType,
 		ProductCategoryID:         in.ProductCategoryID,
 		ProductCategoryPosition:   in.ProductCategoryPosition,
+		ProductTypeCategoryID:     in.ProductTypeCategoryID,
+		ProductSubtypeCategoryID:  in.ProductSubtypeCategoryID,
+		ProductTypeName:           in.ProductTypeName,
+		ProductSubtypeName:        in.ProductSubtypeName,
 		CategoryPrimaryName:       in.CategoryPrimaryName,
 		CategoryPrimaryPosition:   in.CategoryPrimaryPosition,
 		CategorySecondaryName:     in.CategorySecondaryName,
 		CategorySecondaryPosition: in.CategorySecondaryPosition,
+		OperationTemplateID:       in.OperationTemplateID,
+		InventoryUnit:             in.InventoryUnit,
+		QuoteUnit:                 in.QuoteUnit,
+		OrderUnit:                 in.OrderUnit,
+		UnitConversionJSON:        in.UnitConversionJSON,
+		IntegerUnit:               in.IntegerUnit,
 		MarginRateOverride:        in.MarginRateOverride,
 		GradientTemplate:          in.GradientTemplate,
 		DripPriceTemplate:         in.DripPriceTemplate,
@@ -502,6 +545,19 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 }
 
 func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult {
+	in.InventoryUnit = normalizeProductUnit(in.InventoryUnit, "kg")
+	in.QuoteUnit = normalizeProductUnit(in.QuoteUnit, in.InventoryUnit)
+	in.OrderUnit = normalizeProductUnit(in.OrderUnit, in.QuoteUnit)
+	in.UnitConversionJSON = strings.TrimSpace(in.UnitConversionJSON)
+	if in.UnitConversionJSON == "" {
+		in.UnitConversionJSON = "{}"
+	}
+	if strings.TrimSpace(in.ProductTypeName) == "" {
+		in.ProductTypeName = strings.TrimSpace(in.CategoryPrimaryName)
+	}
+	if strings.TrimSpace(in.ProductSubtypeName) == "" {
+		in.ProductSubtypeName = strings.TrimSpace(in.CategorySecondaryName)
+	}
 	displayName := strings.TrimSpace(in.BeanListTemplateName)
 	if displayName == "" {
 		displayName = strings.TrimSpace(in.Name)
@@ -520,15 +576,30 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		}
 	}
 	return ProductResult{
-		ProductID:         in.ProductID,
-		Name:              in.Name,
-		ProductKind:       "green_bean",
-		CustomerID:        in.CustomerID,
-		BaseProductID:     in.BaseProductID,
-		Visibility:        in.Visibility,
-		CustomType:        in.CustomType,
-		ProductCategoryID: in.ProductCategoryID,
-		BeanListQuality:   in.BeanListQuality,
+		ProductID:                 in.ProductID,
+		Name:                      in.Name,
+		ProductKind:               "green_bean",
+		CustomerID:                in.CustomerID,
+		BaseProductID:             in.BaseProductID,
+		Visibility:                in.Visibility,
+		CustomType:                in.CustomType,
+		ProductCategoryID:         in.ProductCategoryID,
+		ProductCategoryPosition:   in.ProductCategoryPosition,
+		ProductTypeCategoryID:     in.ProductTypeCategoryID,
+		ProductSubtypeCategoryID:  in.ProductSubtypeCategoryID,
+		ProductTypeName:           in.ProductTypeName,
+		ProductSubtypeName:        in.ProductSubtypeName,
+		CategoryPrimaryName:       in.CategoryPrimaryName,
+		CategoryPrimaryPosition:   in.CategoryPrimaryPosition,
+		CategorySecondaryName:     in.CategorySecondaryName,
+		CategorySecondaryPosition: in.CategorySecondaryPosition,
+		OperationTemplateID:       in.OperationTemplateID,
+		InventoryUnit:             in.InventoryUnit,
+		QuoteUnit:                 in.QuoteUnit,
+		OrderUnit:                 in.OrderUnit,
+		UnitConversionJSON:        in.UnitConversionJSON,
+		IntegerUnit:               in.IntegerUnit,
+		BeanListQuality:           in.BeanListQuality,
 		GreenBeanList: BeanListDisplay{
 			Code:           code,
 			Category:       "生豆销售",
@@ -549,6 +620,18 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		BomStatus:          bomStatus,
 		GreenBeanSaleTiers: tiers,
 	}
+}
+
+func normalizeProductUnit(value string, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		return value
+	}
+	fallback = strings.TrimSpace(fallback)
+	if fallback != "" {
+		return fallback
+	}
+	return "kg"
 }
 
 func buildGreenBeanTemplateSaleTiers(params Parameters, in ProductInput) []CommercialWholesaleTier {

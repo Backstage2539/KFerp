@@ -4,6 +4,9 @@ import fs from 'node:fs'
 
 import {
   buildAssignCategoryPayload,
+  buildCustomerProductRuleBindingPayload,
+  buildCustomerProductRuleOverridePayload,
+  buildCustomerProductRuleTemplatePayload,
   buildCustomerPublicUsagePayload,
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
@@ -137,6 +140,58 @@ test('SKU config override payload carries template and unit rule overrides', () 
     gradient_template_id_override: 9,
     operation_template_id_override: 19,
     unit_rule_override_json: '{"order_unit":"盒","integer_unit":true}',
+  })
+})
+
+test('customer product rule payloads carry template items, overrides, and bindings', () => {
+  assert.deepEqual(buildCustomerProductRuleTemplatePayload({
+    id: 3,
+    customer_id: 42,
+    name: '贴牌客户模板',
+    items: [{
+      product_subtype_category_id: 12,
+      gradient_template_id: 9,
+      operation_template_id: 19,
+      price_list_rule_json: '{"generator":"instant"}',
+      unit_rule_json: '{"order_unit":"盒","integer_unit":true}',
+    }],
+  }), {
+    id: 3,
+    customer_id: 42,
+    name: '贴牌客户模板',
+    active: true,
+    items: [{
+      product_subtype_category_id: 12,
+      gradient_template_id: 9,
+      operation_template_id: 19,
+      price_list_rule_json: '{"generator":"instant"}',
+      unit_rule_json: '{"order_unit":"盒","integer_unit":true}',
+      active: true,
+    }],
+  })
+
+  assert.deepEqual(buildCustomerProductRuleOverridePayload({
+    id: 4,
+    customer_id: 42,
+    product_subtype_category_id: 12,
+    gradient_template_id: 10,
+    operation_template_id: 20,
+    price_list_rule_json: '',
+    unit_rule_json: '{"order_unit":"箱"}',
+  }), {
+    id: 4,
+    customer_id: 42,
+    product_subtype_category_id: 12,
+    gradient_template_id: 10,
+    operation_template_id: 20,
+    price_list_rule_json: '{}',
+    unit_rule_json: '{"order_unit":"箱"}',
+    active: true,
+  })
+
+  assert.deepEqual(buildCustomerProductRuleBindingPayload(42, 3), {
+    customer_id: 42,
+    template_id: 3,
   })
 })
 
@@ -667,6 +722,24 @@ test('SKU settings labels category levels as product type and subtype', () => {
   assert.match(source, /产品子类型/)
   assert.doesNotMatch(source, /一级分类/)
   assert.doesNotMatch(source, /二级分类/)
+})
+
+test('SKU settings exposes customer product rule template operations', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+
+  for (const expected of [
+    '客户产品规则',
+    'customerProductRuleTemplates',
+    'customerProductRuleOverrides',
+    'saveCustomerProductRuleTemplate',
+    'saveCustomerProductRuleOverride',
+    'bindCustomerProductRuleTemplate',
+    '/api/product-settings/customer-rule-templates',
+    '/api/product-settings/customer-rule-overrides',
+    '/api/product-settings/customers/${customerID}/rule-template',
+  ]) {
+    assert.ok(source.includes(expected), `missing customer product rule UI behavior: ${expected}`)
+  }
 })
 
 test('SKU settings renders the customer-only SKU form as a full-width workspace', () => {

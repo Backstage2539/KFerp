@@ -265,7 +265,7 @@
           </label>
 
           <label>
-            <span>数量</span>
+            <span>{{ quantityLabel(row) }}</span>
             <input v-model.number="row.qty" type="number" min="1" step="1" @input="syncPrice(row)" />
           </label>
 
@@ -569,6 +569,7 @@ import {
   orderTotalPreview,
   productKindBadgeClass,
   productKindLabel,
+  productOrderUnit,
   requiresOrderPaymentMethod,
   resolveWholesaleTierPrice,
   retailPackagePrice,
@@ -1275,7 +1276,7 @@ function clearProduct(row) {
   row.sales_unit = ''
   row.unit_bag_count = 0
   row.unit_bean_g = ''
-  row.unit = '件'
+  row.unit = productOrderUnit(product) || '件'
 }
 
 function chooseProduct(row, product) {
@@ -1475,6 +1476,11 @@ function autoPriceLabel(row) {
 function priceUnitLabel(row) {
   if (isDripRow(row)) return row.sales_unit === 'box' ? '元/盒' : '元/袋'
   return orderRowPriceUnit(row).label
+}
+
+function quantityLabel(row) {
+  const unit = String(row?.unit || '').trim()
+  return unit ? `数量（${unit}）` : '数量'
 }
 
 function rowTotal(row) {

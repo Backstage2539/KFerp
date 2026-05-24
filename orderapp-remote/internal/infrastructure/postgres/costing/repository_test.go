@@ -90,6 +90,35 @@ func TestLoadProductInputsReadsCategoryGradientTemplates(t *testing.T) {
 	}
 }
 
+func TestLoadProductInputsResolvesCustomerProductRuleTemplates(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"LoadProductInputsForCustomer",
+		"customer_product_rule_overrides cpro",
+		"customer_product_rule_template_items cpti",
+		"customer_product_rule_template_id",
+		"p.gradient_template_id_override",
+		"effective_gradient_template_id",
+		"NULLIF(cpro.gradient_template_id,0)",
+		"NULLIF(cpti.gradient_template_id,0)",
+		"NULLIF(p.gradient_template_id_override,0)",
+		"NULLIF(pc.gradient_template_id,0)",
+		"&input.InventoryUnit",
+		"&input.QuoteUnit",
+		"&input.OrderUnit",
+		"&input.UnitConversionJSON",
+		"&input.IntegerUnit",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must resolve customer product rule templates and unit rules; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsSkuCategoryPathForCustomerBeanLists(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

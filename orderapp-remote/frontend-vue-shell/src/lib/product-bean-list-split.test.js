@@ -63,6 +63,13 @@ test('product bean-list page owns customer context for bean-list previews', () =
   assert.doesNotMatch(costingSource, /<strong>发布归属<\/strong>/)
 })
 
+test('product bean-list live preview loads customer rule scoped prices', () => {
+  assert.match(costingSource, /function beanListURLForCustomerRules/)
+  assert.match(costingSource, /params\.set\('customer_id', String\(customerID\)\)/)
+  assert.match(costingSource, /apiGet\(beanListURLForCustomerRules\(\)\)/)
+  assert.match(costingSource, /watch\(activeBeanListCustomerID/)
+})
+
 test('product bean-list page does not expose pricing trial workspace', () => {
   assert.doesNotMatch(costingSource, /<div class="section-title">价格试算<\/div>/)
   assert.doesNotMatch(costingSource, /pricingCollapsed/)

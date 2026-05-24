@@ -290,7 +290,7 @@ func TestBeanListOrdersItemsByExcelCommercialCode(t *testing.T) {
 	}}
 	svc := NewService(repo)
 
-	resp, err := svc.BeanList(context.Background())
+	resp, err := svc.BeanList(context.Background(), BeanListQuery{})
 	if err != nil {
 		t.Fatalf("BeanList() error = %v", err)
 	}
@@ -333,7 +333,7 @@ func TestBeanListAppliesCategoryGradientTemplateAndLeavesUnboundDefaults(t *test
 	}}
 	svc := NewService(repo)
 
-	resp, err := svc.BeanList(context.Background())
+	resp, err := svc.BeanList(context.Background(), BeanListQuery{})
 	if err != nil {
 		t.Fatalf("BeanList() error = %v", err)
 	}
@@ -369,7 +369,7 @@ func TestBeanListKeepsGreenBeanProductsOnDirectSaleTiers(t *testing.T) {
 	}}}
 	svc := NewService(repo)
 
-	resp, err := svc.BeanList(context.Background())
+	resp, err := svc.BeanList(context.Background(), BeanListQuery{})
 	if err != nil {
 		t.Fatalf("BeanList() error = %v", err)
 	}
@@ -408,7 +408,7 @@ func TestBeanListGreenBeanTemplateTiersDefaultToBomCostWithoutMargin(t *testing.
 	}
 	svc := NewService(&fakeRepo{inputs: []domain.ProductInput{input}})
 
-	resp, err := svc.BeanList(context.Background())
+	resp, err := svc.BeanList(context.Background(), BeanListQuery{})
 	if err != nil {
 		t.Fatalf("BeanList() error = %v", err)
 	}
@@ -439,7 +439,7 @@ func TestBeanListAppliesProductMarginOverrideBeforeCategoryTemplateMargin(t *tes
 	setDomainProductInputFloat64PtrField(t, &input, "MarginRateOverride", 0.30)
 	svc := NewService(&fakeRepo{inputs: []domain.ProductInput{input}})
 
-	resp, err := svc.BeanList(context.Background())
+	resp, err := svc.BeanList(context.Background(), BeanListQuery{})
 	if err != nil {
 		t.Fatalf("BeanList() error = %v", err)
 	}

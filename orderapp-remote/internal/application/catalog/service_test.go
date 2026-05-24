@@ -16,6 +16,9 @@ type fakeRepo struct {
 	assigned        AssignProductCategoryCommand
 	assignResult    AssignProductCategoryResult
 	publicUsage     CustomerPublicUsageCommand
+	ruleTemplate    SaveCustomerProductRuleTemplateCommand
+	ruleOverride    SaveCustomerProductRuleOverrideCommand
+	ruleBinding     CustomerProductRuleTemplateBindingCommand
 	deactivate      DeactivateProductsCommand
 	products        map[int64]Product
 	deactivated     bool
@@ -127,6 +130,42 @@ func (r *fakeRepo) SaveCustomerPublicUsage(ctx context.Context, cmd CustomerPubl
 	return CustomerPublicUsage{CustomerID: cmd.CustomerID, UsePublicSKU: cmd.UsePublicSKU, UsePublicCategories: cmd.UsePublicCategories, UsePublicGradientTemplates: cmd.UsePublicGradientTemplates}, nil
 }
 
+func (r *fakeRepo) ListCustomerProductRuleTemplates(ctx context.Context) ([]CustomerProductRuleTemplate, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) ListCustomerProductRuleOverrides(ctx context.Context) ([]CustomerProductRuleOverride, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) ListCustomerProductRuleBindings(ctx context.Context) ([]CustomerProductRuleBinding, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) SaveCustomerProductRuleTemplate(ctx context.Context, cmd SaveCustomerProductRuleTemplateCommand) (CustomerProductRuleTemplate, error) {
+	r.ruleTemplate = cmd
+	return CustomerProductRuleTemplate{ID: 501, CustomerID: cmd.CustomerID, Name: cmd.Name, Active: true, Items: cmd.Items}, nil
+}
+
+func (r *fakeRepo) SaveCustomerProductRuleOverride(ctx context.Context, cmd SaveCustomerProductRuleOverrideCommand) (CustomerProductRuleOverride, error) {
+	r.ruleOverride = cmd
+	return CustomerProductRuleOverride{
+		ID:                       601,
+		CustomerID:               cmd.CustomerID,
+		ProductSubtypeCategoryID: cmd.ProductSubtypeCategoryID,
+		GradientTemplateID:       cmd.GradientTemplateID,
+		OperationTemplateID:      cmd.OperationTemplateID,
+		PriceListRuleJSON:        cmd.PriceListRuleJSON,
+		UnitRuleJSON:             cmd.UnitRuleJSON,
+		Active:                   true,
+	}, nil
+}
+
+func (r *fakeRepo) BindCustomerProductRuleTemplate(ctx context.Context, cmd CustomerProductRuleTemplateBindingCommand) (CustomerProductRuleBinding, error) {
+	r.ruleBinding = cmd
+	return CustomerProductRuleBinding{CustomerID: cmd.CustomerID, TemplateID: cmd.TemplateID}, nil
+}
+
 func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
@@ -234,6 +273,58 @@ func TestSaveCustomerPublicUsageAllowsIndependentReferenceSwitches(t *testing.T)
 	}
 	if got.CustomerID != 42 || got.UsePublicSKU || !got.UsePublicCategories || !got.UsePublicGradientTemplates {
 		t.Fatalf("public usage result = %+v", got)
+	}
+}
+
+func TestServiceDelegatesCustomerProductRuleConfiguration(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	template, err := svc.SaveCustomerProductRuleTemplate(context.Background(), SaveCustomerProductRuleTemplateCommand{
+		Actor:      "tester",
+		CustomerID: 42,
+		Name:       "贴牌客户规则",
+		Items: []CustomerProductRuleTemplateItem{{
+			ProductSubtypeCategoryID: 7,
+			GradientTemplateID:       8,
+			OperationTemplateID:      9,
+			PriceListRuleJSON:        `{"mode":"by_subtype"}`,
+			UnitRuleJSON:             `{"quote_unit":"元/kg"}`,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SaveCustomerProductRuleTemplate() err=%v", err)
+	}
+	if template.ID != 501 || repo.ruleTemplate.CustomerID != 42 || len(repo.ruleTemplate.Items) != 1 || repo.ruleTemplate.Items[0].ProductSubtypeCategoryID != 7 {
+		t.Fatalf("rule template result=%+v command=%+v", template, repo.ruleTemplate)
+	}
+
+	override, err := svc.SaveCustomerProductRuleOverride(context.Background(), SaveCustomerProductRuleOverrideCommand{
+		Actor:                    "tester",
+		CustomerID:               42,
+		ProductSubtypeCategoryID: 7,
+		GradientTemplateID:       18,
+		OperationTemplateID:      19,
+		PriceListRuleJSON:        `{"mode":"customer"}`,
+		UnitRuleJSON:             `{"order_unit":"kg"}`,
+	})
+	if err != nil {
+		t.Fatalf("SaveCustomerProductRuleOverride() err=%v", err)
+	}
+	if override.ID != 601 || repo.ruleOverride.CustomerID != 42 || repo.ruleOverride.ProductSubtypeCategoryID != 7 || repo.ruleOverride.GradientTemplateID != 18 {
+		t.Fatalf("rule override result=%+v command=%+v", override, repo.ruleOverride)
+	}
+
+	binding, err := svc.BindCustomerProductRuleTemplate(context.Background(), CustomerProductRuleTemplateBindingCommand{
+		Actor:      "tester",
+		CustomerID: 42,
+		TemplateID: 501,
+	})
+	if err != nil {
+		t.Fatalf("BindCustomerProductRuleTemplate() err=%v", err)
+	}
+	if binding.CustomerID != 42 || binding.TemplateID != 501 || repo.ruleBinding.CustomerID != 42 || repo.ruleBinding.TemplateID != 501 {
+		t.Fatalf("rule binding result=%+v command=%+v", binding, repo.ruleBinding)
 	}
 }
 
