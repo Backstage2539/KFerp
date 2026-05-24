@@ -34,23 +34,25 @@ type salesOrderSettingsHandler struct {
 const maxSalesOrderSettingsAssetUploadBytes = 8 << 20
 
 type salesOrderSettingsRequest struct {
-	CompanyName         string  `json:"company_name"`
-	Note                string  `json:"note"`
-	PaymentText         string  `json:"payment_text"`
-	BankAccountName     string  `json:"bank_account_name"`
-	BankName            string  `json:"bank_name"`
-	BankAccountNo       string  `json:"bank_account_no"`
-	SealXMM             float64 `json:"seal_x_mm"`
-	SealYMM             float64 `json:"seal_y_mm"`
-	SealWidthMM         float64 `json:"seal_width_mm"`
-	PaymentTextXMM      float64 `json:"payment_text_x_mm"`
-	PaymentTextYMM      float64 `json:"payment_text_y_mm"`
-	PaymentTextWidthMM  float64 `json:"payment_text_width_mm"`
-	PaymentTextHeightMM float64 `json:"payment_text_height_mm"`
-	PaymentCodeXMM      float64 `json:"payment_code_x_mm"`
-	PaymentCodeYMM      float64 `json:"payment_code_y_mm"`
-	PaymentCodeWidthMM  float64 `json:"payment_code_width_mm"`
-	PaymentCodeHeightMM float64 `json:"payment_code_height_mm"`
+	CompanyName           string  `json:"company_name"`
+	Note                  string  `json:"note"`
+	PaymentText           string  `json:"payment_text"`
+	BankAccountName       string  `json:"bank_account_name"`
+	BankName              string  `json:"bank_name"`
+	BankAccountNo         string  `json:"bank_account_no"`
+	SealXMM               float64 `json:"seal_x_mm"`
+	SealYMM               float64 `json:"seal_y_mm"`
+	SealWidthMM           float64 `json:"seal_width_mm"`
+	PaymentTextXMM        float64 `json:"payment_text_x_mm"`
+	PaymentTextYMM        float64 `json:"payment_text_y_mm"`
+	PaymentTextWidthMM    float64 `json:"payment_text_width_mm"`
+	PaymentTextHeightMM   float64 `json:"payment_text_height_mm"`
+	PaymentTextPageNumber int     `json:"payment_text_page_number"`
+	PaymentCodeXMM        float64 `json:"payment_code_x_mm"`
+	PaymentCodeYMM        float64 `json:"payment_code_y_mm"`
+	PaymentCodeWidthMM    float64 `json:"payment_code_width_mm"`
+	PaymentCodeHeightMM   float64 `json:"payment_code_height_mm"`
+	PaymentCodePageNumber int     `json:"payment_code_page_number"`
 }
 
 type salesOrderPaymentCodeRequest struct {
@@ -105,24 +107,26 @@ func (h salesOrderSettingsHandler) save(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
 	if err := h.sales.SaveSalesOrderSettings(c.Request().Context(), salesapp.SaveSalesOrderSettingsCommand{
-		Actor:               support.ActorOf(c),
-		CompanyName:         req.CompanyName,
-		Note:                req.Note,
-		PaymentText:         req.PaymentText,
-		BankAccountName:     req.BankAccountName,
-		BankName:            req.BankName,
-		BankAccountNo:       req.BankAccountNo,
-		SealXMM:             req.SealXMM,
-		SealYMM:             req.SealYMM,
-		SealWidthMM:         req.SealWidthMM,
-		PaymentTextXMM:      req.PaymentTextXMM,
-		PaymentTextYMM:      req.PaymentTextYMM,
-		PaymentTextWidthMM:  req.PaymentTextWidthMM,
-		PaymentTextHeightMM: req.PaymentTextHeightMM,
-		PaymentCodeXMM:      req.PaymentCodeXMM,
-		PaymentCodeYMM:      req.PaymentCodeYMM,
-		PaymentCodeWidthMM:  req.PaymentCodeWidthMM,
-		PaymentCodeHeightMM: req.PaymentCodeHeightMM,
+		Actor:                 support.ActorOf(c),
+		CompanyName:           req.CompanyName,
+		Note:                  req.Note,
+		PaymentText:           req.PaymentText,
+		BankAccountName:       req.BankAccountName,
+		BankName:              req.BankName,
+		BankAccountNo:         req.BankAccountNo,
+		SealXMM:               req.SealXMM,
+		SealYMM:               req.SealYMM,
+		SealWidthMM:           req.SealWidthMM,
+		PaymentTextXMM:        req.PaymentTextXMM,
+		PaymentTextYMM:        req.PaymentTextYMM,
+		PaymentTextWidthMM:    req.PaymentTextWidthMM,
+		PaymentTextHeightMM:   req.PaymentTextHeightMM,
+		PaymentTextPageNumber: req.PaymentTextPageNumber,
+		PaymentCodeXMM:        req.PaymentCodeXMM,
+		PaymentCodeYMM:        req.PaymentCodeYMM,
+		PaymentCodeWidthMM:    req.PaymentCodeWidthMM,
+		PaymentCodeHeightMM:   req.PaymentCodeHeightMM,
+		PaymentCodePageNumber: req.PaymentCodePageNumber,
 	}); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
@@ -154,6 +158,9 @@ func (h salesOrderSettingsHandler) savePaymentLayout(c echo.Context) error {
 	if req.PaymentTextHeightMM <= 0 {
 		req.PaymentTextHeightMM = settings.PaymentTextHeightMM
 	}
+	if req.PaymentTextPageNumber <= 0 {
+		req.PaymentTextPageNumber = settings.PaymentTextPageNumber
+	}
 	if req.PaymentCodeXMM <= 0 {
 		req.PaymentCodeXMM = settings.PaymentCodeXMM
 	}
@@ -166,25 +173,30 @@ func (h salesOrderSettingsHandler) savePaymentLayout(c echo.Context) error {
 	if req.PaymentCodeHeightMM <= 0 {
 		req.PaymentCodeHeightMM = settings.PaymentCodeHeightMM
 	}
+	if req.PaymentCodePageNumber <= 0 {
+		req.PaymentCodePageNumber = settings.PaymentCodePageNumber
+	}
 	if err := h.sales.SaveSalesOrderSettings(c.Request().Context(), salesapp.SaveSalesOrderSettingsCommand{
-		Actor:               support.ActorOf(c),
-		CompanyName:         settings.CompanyName,
-		Note:                settings.Note,
-		PaymentText:         settings.PaymentText,
-		BankAccountName:     settings.BankAccountName,
-		BankName:            settings.BankName,
-		BankAccountNo:       settings.BankAccountNo,
-		SealXMM:             settings.SealXMM,
-		SealYMM:             settings.SealYMM,
-		SealWidthMM:         settings.SealWidthMM,
-		PaymentTextXMM:      req.PaymentTextXMM,
-		PaymentTextYMM:      req.PaymentTextYMM,
-		PaymentTextWidthMM:  req.PaymentTextWidthMM,
-		PaymentTextHeightMM: req.PaymentTextHeightMM,
-		PaymentCodeXMM:      req.PaymentCodeXMM,
-		PaymentCodeYMM:      req.PaymentCodeYMM,
-		PaymentCodeWidthMM:  req.PaymentCodeWidthMM,
-		PaymentCodeHeightMM: req.PaymentCodeHeightMM,
+		Actor:                 support.ActorOf(c),
+		CompanyName:           settings.CompanyName,
+		Note:                  settings.Note,
+		PaymentText:           settings.PaymentText,
+		BankAccountName:       settings.BankAccountName,
+		BankName:              settings.BankName,
+		BankAccountNo:         settings.BankAccountNo,
+		SealXMM:               settings.SealXMM,
+		SealYMM:               settings.SealYMM,
+		SealWidthMM:           settings.SealWidthMM,
+		PaymentTextXMM:        req.PaymentTextXMM,
+		PaymentTextYMM:        req.PaymentTextYMM,
+		PaymentTextWidthMM:    req.PaymentTextWidthMM,
+		PaymentTextHeightMM:   req.PaymentTextHeightMM,
+		PaymentTextPageNumber: req.PaymentTextPageNumber,
+		PaymentCodeXMM:        req.PaymentCodeXMM,
+		PaymentCodeYMM:        req.PaymentCodeYMM,
+		PaymentCodeWidthMM:    req.PaymentCodeWidthMM,
+		PaymentCodeHeightMM:   req.PaymentCodeHeightMM,
+		PaymentCodePageNumber: req.PaymentCodePageNumber,
 	}); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
@@ -208,24 +220,26 @@ func (h salesOrderSettingsHandler) saveSealPosition(c echo.Context) error {
 		req.SealWidthMM = settings.SealWidthMM
 	}
 	if err := h.sales.SaveSalesOrderSettings(c.Request().Context(), salesapp.SaveSalesOrderSettingsCommand{
-		Actor:               support.ActorOf(c),
-		CompanyName:         settings.CompanyName,
-		Note:                settings.Note,
-		PaymentText:         settings.PaymentText,
-		BankAccountName:     settings.BankAccountName,
-		BankName:            settings.BankName,
-		BankAccountNo:       settings.BankAccountNo,
-		SealXMM:             req.SealXMM,
-		SealYMM:             req.SealYMM,
-		SealWidthMM:         req.SealWidthMM,
-		PaymentTextXMM:      settings.PaymentTextXMM,
-		PaymentTextYMM:      settings.PaymentTextYMM,
-		PaymentTextWidthMM:  settings.PaymentTextWidthMM,
-		PaymentTextHeightMM: settings.PaymentTextHeightMM,
-		PaymentCodeXMM:      settings.PaymentCodeXMM,
-		PaymentCodeYMM:      settings.PaymentCodeYMM,
-		PaymentCodeWidthMM:  settings.PaymentCodeWidthMM,
-		PaymentCodeHeightMM: settings.PaymentCodeHeightMM,
+		Actor:                 support.ActorOf(c),
+		CompanyName:           settings.CompanyName,
+		Note:                  settings.Note,
+		PaymentText:           settings.PaymentText,
+		BankAccountName:       settings.BankAccountName,
+		BankName:              settings.BankName,
+		BankAccountNo:         settings.BankAccountNo,
+		SealXMM:               req.SealXMM,
+		SealYMM:               req.SealYMM,
+		SealWidthMM:           req.SealWidthMM,
+		PaymentTextXMM:        settings.PaymentTextXMM,
+		PaymentTextYMM:        settings.PaymentTextYMM,
+		PaymentTextWidthMM:    settings.PaymentTextWidthMM,
+		PaymentTextHeightMM:   settings.PaymentTextHeightMM,
+		PaymentTextPageNumber: settings.PaymentTextPageNumber,
+		PaymentCodeXMM:        settings.PaymentCodeXMM,
+		PaymentCodeYMM:        settings.PaymentCodeYMM,
+		PaymentCodeWidthMM:    settings.PaymentCodeWidthMM,
+		PaymentCodeHeightMM:   settings.PaymentCodeHeightMM,
+		PaymentCodePageNumber: settings.PaymentCodePageNumber,
 	}); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}

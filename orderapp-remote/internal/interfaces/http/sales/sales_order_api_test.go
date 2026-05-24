@@ -260,7 +260,7 @@ func TestSalesOrderPaymentLayoutAPIOnlyUpdatesPaymentBoxes(t *testing.T) {
 		t.Fatalf("settings status=%d body=%s", settingsRec.Code, settingsRec.Body.String())
 	}
 
-	body := strings.NewReader(`{"payment_text_x_mm":14,"payment_text_y_mm":98,"payment_text_width_mm":86,"payment_text_height_mm":48,"payment_code_x_mm":132,"payment_code_y_mm":92,"payment_code_width_mm":66,"payment_code_height_mm":110}`)
+	body := strings.NewReader(`{"payment_text_x_mm":14,"payment_text_y_mm":98,"payment_text_width_mm":86,"payment_text_height_mm":48,"payment_text_page_number":1,"payment_code_x_mm":132,"payment_code_y_mm":92,"payment_code_width_mm":66,"payment_code_height_mm":110,"payment_code_page_number":2}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/payment-layout", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -278,10 +278,12 @@ func TestSalesOrderPaymentLayoutAPIOnlyUpdatesPaymentBoxes(t *testing.T) {
 		`"payment_text_y_mm":98`,
 		`"payment_text_width_mm":86`,
 		`"payment_text_height_mm":48`,
+		`"payment_text_page_number":1`,
 		`"payment_code_x_mm":132`,
 		`"payment_code_y_mm":92`,
 		`"payment_code_width_mm":66`,
 		`"payment_code_height_mm":110`,
+		`"payment_code_page_number":2`,
 	} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("payment layout response missing %s: %s", want, rec.Body.String())

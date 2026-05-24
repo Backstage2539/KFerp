@@ -19,7 +19,7 @@
         <summary>销售单设置手册</summary>
         <ul>
           <li>公司名称和公账收款信息在“公司设置”里维护；本页只维护销售单说明、收款方式、收款码和公章资产。</li>
-          <li>文字位置和大小、收款码位置和大小请在销售单预览中拖动调整；拖右下角圆点可调整文本框或收款码区域大小。</li>
+          <li>文字位置和大小、收款码位置和大小请在销售单预览中拖动调整；拖右下角圆点可调整文本框或收款码区域大小，多页预览可拖过页顶或页底切换页。</li>
           <li>个性化说明会优先显示在公账收款前面，公账信息太长时优先裁掉后面的公账信息。</li>
           <li>上传公章时会自动裁掉图片白边；旧公章可点击“去除背景”重新生成透明 PNG。</li>
           <li>销售单、出库单和合同盖章共用这一套公章资产；上传后可在各页面选择要使用的公章。</li>
@@ -176,10 +176,12 @@ function preservedSettingsPayload() {
     payment_text_y_mm: Number(data.payment_text_y_mm || 118),
     payment_text_width_mm: Number(data.payment_text_width_mm || 104),
     payment_text_height_mm: Number(data.payment_text_height_mm || 78),
+    payment_text_page_number: Number(data.payment_text_page_number || 0),
     payment_code_x_mm: Number(data.payment_code_x_mm || 126),
     payment_code_y_mm: Number(data.payment_code_y_mm || 106),
     payment_code_width_mm: Number(data.payment_code_width_mm || 72),
     payment_code_height_mm: Number(data.payment_code_height_mm || 122),
+    payment_code_page_number: Number(data.payment_code_page_number || 0),
   }
 }
 

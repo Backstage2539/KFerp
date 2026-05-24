@@ -190,7 +190,7 @@ import { buildCombinedDocumentQuery } from '../lib/combined-order-documents'
 import {
   pdfPlacementToSalesLayoutBox,
   pdfPlacementToSalesSealMM,
-  salesLayoutBoxMMToPDFPlacement,
+  salesLayoutBoxMMToPDFPreviewPlacement,
   salesSealMMToPDFPlacement,
 } from '../lib/document-pdf-stamp'
 import { salesOrderSealMaxWidthMM, salesOrderSealMinWidthMM } from '../lib/sales-order-seal'
@@ -272,20 +272,22 @@ const salesOrderPreviewPlacements = computed(() => {
   if (!snapshot || !page) return []
   const placements = []
   if (snapshot.payment_text_box) {
-    placements.push(salesLayoutBoxMMToPDFPlacement(snapshot.payment_text_box, page, {
+    placements.push(salesLayoutBoxMMToPDFPreviewPlacement(snapshot.payment_text_box, previewPDFPages.value, {
       kind: 'payment_text',
       label: '文字位置和大小',
       resizable: true,
+      cross_page_drag: true,
       use_seal_image: false,
       min_width: 80,
       min_height: 36,
     }))
   }
   if (snapshot.payment_code_box) {
-    placements.push(salesLayoutBoxMMToPDFPlacement(snapshot.payment_code_box, page, {
+    placements.push(salesLayoutBoxMMToPDFPreviewPlacement(snapshot.payment_code_box, previewPDFPages.value, {
       kind: 'payment_code',
       label: '收款码位置和大小',
       resizable: true,
+      cross_page_drag: true,
       use_seal_image: false,
       min_width: 80,
       min_height: 80,
@@ -573,7 +575,11 @@ async function savePDFPreviewLayoutBox(placement) {
   const snapshot = preview.value?.snapshot
   const page = previewPDFPages.value.find((item) => Number(item.pageNumber) === Number(placement?.page_number || 1))
   if (!snapshot || !page || layoutDragSaving.value) return
-  const nextBox = pdfPlacementToSalesLayoutBox(placement, page)
+  const currentPlacements = salesOrderPreviewPlacements.value || []
+  const nextBox = {
+    ...pdfPlacementToSalesLayoutBox(placement, page),
+    page_number: Number(placement.page_number || 1),
+  }
   if (placement.kind === 'payment_text') {
     snapshot.payment_text_box = nextBox
   } else if (placement.kind === 'payment_code') {
@@ -584,17 +590,25 @@ async function savePDFPreviewLayoutBox(placement) {
   layoutDragSaving.value = true
   error.value = ''
   try {
+    const textPlacement = placement.kind === 'payment_text'
+      ? placement
+      : currentPlacements.find((item) => item.kind === 'payment_text')
+    const codePlacement = placement.kind === 'payment_code'
+      ? placement
+      : currentPlacements.find((item) => item.kind === 'payment_code')
     const textBox = normalizeLayoutBox(snapshot.payment_text_box, {
       x_mm: 16,
       y_mm: 118,
       width_mm: 104,
       height_mm: 78,
+      page_number: Number(textPlacement?.page_number || 0),
     })
     const codeBox = normalizeLayoutBox(snapshot.payment_code_box, {
       x_mm: 126,
       y_mm: 106,
       width_mm: 72,
       height_mm: 122,
+      page_number: Number(codePlacement?.page_number || 0),
     })
     await apiSend('/api/settings/sales-order/payment-layout', {
       body: {
@@ -602,10 +616,12 @@ async function savePDFPreviewLayoutBox(placement) {
         payment_text_y_mm: textBox.y_mm,
         payment_text_width_mm: textBox.width_mm,
         payment_text_height_mm: textBox.height_mm,
+        payment_text_page_number: textBox.page_number,
         payment_code_x_mm: codeBox.x_mm,
         payment_code_y_mm: codeBox.y_mm,
         payment_code_width_mm: codeBox.width_mm,
         payment_code_height_mm: codeBox.height_mm,
+        payment_code_page_number: codeBox.page_number,
       },
     })
     previewPDFRefreshKey.value += 1
@@ -647,6 +663,7 @@ function normalizeLayoutBox(box = {}, fallback = {}) {
     y_mm: Math.round(Number(box.y_mm ?? fallback.y_mm ?? 0)),
     width_mm: Math.round(Number(box.width_mm ?? fallback.width_mm ?? 1)),
     height_mm: Math.round(Number(box.height_mm ?? fallback.height_mm ?? 1)),
+    page_number: Math.max(0, Math.round(Number(box.page_number ?? fallback.page_number ?? 0))),
   }
 }
 

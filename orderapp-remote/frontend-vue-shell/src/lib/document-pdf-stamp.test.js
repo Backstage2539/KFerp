@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   movePDFStampPlacement,
+  movePDFStampPlacementAcrossPages,
   pdfPlacementToSalesLayoutBox,
   pdfPlacementToSalesSealMM,
   resizePDFStampPlacement,
   salesLayoutBoxMMToPDFPlacement,
+  salesLayoutBoxMMToPDFPreviewPlacement,
   salesSealMMToPDFPlacement,
   scalePDFStampPlacement,
 } from './document-pdf-stamp.js'
@@ -41,6 +43,32 @@ test('moves PDF stamp placement using display scale', () => {
   assert.deepEqual(got, { page_number: 2, kind: 'payment_text', x: 60, y: 50, width: 120, height: 74.4 })
 })
 
+test('moves PDF stamp placement to the previous page when dragged above the page top', () => {
+  const pages = [
+    { pageNumber: 1, pageWidth: 595.28, pageHeight: 841.89 },
+    { pageNumber: 2, pageWidth: 595.28, pageHeight: 841.89 },
+  ]
+  const got = movePDFStampPlacementAcrossPages(
+    { page_number: 2, kind: 'payment_code', x: 40, y: 20, width: 80, height: 60 },
+    { deltaX: 15, deltaY: -90, displayScale: 1, pages },
+  )
+
+  assert.deepEqual(got, { page_number: 1, kind: 'payment_code', x: 55, y: 771.89, width: 80, height: 60 })
+})
+
+test('moves PDF stamp placement to the next page when dragged below the page bottom', () => {
+  const pages = [
+    { pageNumber: 1, pageWidth: 595.28, pageHeight: 841.89 },
+    { pageNumber: 2, pageWidth: 595.28, pageHeight: 841.89 },
+  ]
+  const got = movePDFStampPlacementAcrossPages(
+    { page_number: 1, kind: 'payment_text', x: 40, y: 800, width: 120, height: 60 },
+    { deltaY: 90, displayScale: 1, pages },
+  )
+
+  assert.deepEqual(got, { page_number: 2, kind: 'payment_text', x: 40, y: 48.11, width: 120, height: 60 })
+})
+
 test('converts sales-order layout boxes between millimeters and PDF points', () => {
   const placement = salesLayoutBoxMMToPDFPlacement(
     { x_mm: 126, y_mm: 106, width_mm: 72, height_mm: 122 },
@@ -63,6 +91,57 @@ test('converts sales-order layout boxes between millimeters and PDF points', () 
     width_mm: 72,
     height_mm: 122,
   })
+})
+
+test('places sales-order payment layout controls on the continuation page when preview PDF has multiple pages', () => {
+  const pages = [
+    { pageNumber: 1, pageWidth: 595.28, pageHeight: 841.89 },
+    { pageNumber: 2, pageWidth: 595.28, pageHeight: 841.89 },
+  ]
+  const placement = salesLayoutBoxMMToPDFPreviewPlacement(
+    { x_mm: 126, y_mm: 260, width_mm: 72, height_mm: 90 },
+    pages,
+    { kind: 'payment_code', label: '收款码位置和大小' },
+  )
+
+  assert.equal(placement.page_number, 2)
+  assert.equal(placement.kind, 'payment_code')
+  assert.equal(placement.label, '收款码位置和大小')
+  assert.equal(placement.x, 357.17)
+  assert.equal(placement.y, 535.75)
+  assert.equal(placement.width, 204.1)
+  assert.equal(placement.height, 255.12)
+})
+
+test('keeps sales-order payment layout controls on the first page when the preview PDF is single-page', () => {
+  const placement = salesLayoutBoxMMToPDFPreviewPlacement(
+    { x_mm: 16, y_mm: 118, width_mm: 104, height_mm: 78 },
+    [{ pageNumber: 1, pageWidth: 595.28, pageHeight: 841.89 }],
+    { kind: 'payment_text' },
+  )
+
+  assert.equal(placement.page_number, 1)
+  assert.equal(placement.x, 45.35)
+  assert.equal(placement.y, 334.49)
+  assert.equal(placement.width, 294.81)
+  assert.equal(placement.height, 221.1)
+})
+
+test('honors explicit sales-order payment layout page when preview PDF has multiple pages', () => {
+  const pages = [
+    { pageNumber: 1, pageWidth: 595.28, pageHeight: 841.89 },
+    { pageNumber: 2, pageWidth: 595.28, pageHeight: 841.89 },
+  ]
+  const placement = salesLayoutBoxMMToPDFPreviewPlacement(
+    { page_number: 1, x_mm: 16, y_mm: 230, width_mm: 80, height_mm: 40 },
+    pages,
+    { kind: 'payment_text' },
+  )
+
+  assert.equal(placement.page_number, 1)
+  assert.equal(placement.x, 45.35)
+  assert.equal(placement.y, 651.97)
+  assert.equal(placement.height, 113.39)
 })
 
 test('resizes PDF layout placements without dropping metadata', () => {

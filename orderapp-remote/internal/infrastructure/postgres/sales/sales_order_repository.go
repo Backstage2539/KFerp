@@ -35,13 +35,15 @@ func (r Repository) LoadSalesOrderSettings(ctx context.Context) (salesapp.SalesO
 			COALESCE(s.bank_account_name,''), COALESCE(s.bank_name,''), COALESCE(s.bank_account_no,''),
 			COALESCE(s.seal_x_mm,32)::float8, COALESCE(s.seal_y_mm,5)::float8, COALESCE(s.seal_width_mm,36)::float8,
 			COALESCE(s.payment_text_x_mm,16)::float8, COALESCE(s.payment_text_y_mm,118)::float8, COALESCE(s.payment_text_width_mm,104)::float8, COALESCE(s.payment_text_height_mm,78)::float8,
+			COALESCE(s.payment_text_page_number,0)::int,
 			COALESCE(s.payment_code_x_mm,126)::float8, COALESCE(s.payment_code_y_mm,106)::float8, COALESCE(s.payment_code_width_mm,72)::float8, COALESCE(s.payment_code_height_mm,122)::float8,
+			COALESCE(s.payment_code_page_number,0)::int,
 			COALESCE(a.id,0), COALESCE(a.kind,''), COALESCE(a.filename,''), COALESCE(a.content_type,''), COALESCE(a.bytes,0), COALESCE(a.sha256,''), COALESCE(a.object_key,''), COALESCE(to_char(a.created_at,'YYYY-MM-DD HH24:MI:SS'),''), COALESCE(a.created_by,'')
 		FROM %s.sales_order_settings s
 		LEFT JOIN %s.sales_order_assets a ON a.id=s.seal_asset_id
 		WHERE s.id=1`, r.schema, r.schema)
 	var seal salesapp.SalesOrderAsset
-	err := r.pool.QueryRow(ctx, q).Scan(&settings.CompanyName, &settings.Note, &settings.PaymentText, &settings.BankAccountName, &settings.BankName, &settings.BankAccountNo, &settings.SealXMM, &settings.SealYMM, &settings.SealWidthMM, &settings.PaymentTextXMM, &settings.PaymentTextYMM, &settings.PaymentTextWidthMM, &settings.PaymentTextHeightMM, &settings.PaymentCodeXMM, &settings.PaymentCodeYMM, &settings.PaymentCodeWidthMM, &settings.PaymentCodeHeightMM, &seal.ID, &seal.Kind, &seal.Filename, &seal.ContentType, &seal.Bytes, &seal.SHA256, &seal.ObjectKey, &seal.CreatedAt, &seal.CreatedBy)
+	err := r.pool.QueryRow(ctx, q).Scan(&settings.CompanyName, &settings.Note, &settings.PaymentText, &settings.BankAccountName, &settings.BankName, &settings.BankAccountNo, &settings.SealXMM, &settings.SealYMM, &settings.SealWidthMM, &settings.PaymentTextXMM, &settings.PaymentTextYMM, &settings.PaymentTextWidthMM, &settings.PaymentTextHeightMM, &settings.PaymentTextPageNumber, &settings.PaymentCodeXMM, &settings.PaymentCodeYMM, &settings.PaymentCodeWidthMM, &settings.PaymentCodeHeightMM, &settings.PaymentCodePageNumber, &seal.ID, &seal.Kind, &seal.Filename, &seal.ContentType, &seal.Bytes, &seal.SHA256, &seal.ObjectKey, &seal.CreatedAt, &seal.CreatedBy)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return salesapp.SalesOrderSettings{}, err
 	}
@@ -58,8 +60,8 @@ func (r Repository) LoadSalesOrderSettings(ctx context.Context) (salesapp.SalesO
 }
 
 func (r Repository) SaveSalesOrderSettings(ctx context.Context, cmd salesapp.SaveSalesOrderSettingsCommand) error {
-	q := fmt.Sprintf(`INSERT INTO %s.sales_order_settings(id, company_name, note, payment_text, bank_account_name, bank_name, bank_account_no, seal_x_mm, seal_y_mm, seal_width_mm, payment_text_x_mm, payment_text_y_mm, payment_text_width_mm, payment_text_height_mm, payment_code_x_mm, payment_code_y_mm, payment_code_width_mm, payment_code_height_mm, updated_at, updated_by)
-		VALUES(1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,now(),$18)
+	q := fmt.Sprintf(`INSERT INTO %s.sales_order_settings(id, company_name, note, payment_text, bank_account_name, bank_name, bank_account_no, seal_x_mm, seal_y_mm, seal_width_mm, payment_text_x_mm, payment_text_y_mm, payment_text_width_mm, payment_text_height_mm, payment_text_page_number, payment_code_x_mm, payment_code_y_mm, payment_code_width_mm, payment_code_height_mm, payment_code_page_number, updated_at, updated_by)
+		VALUES(1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,now(),$20)
 		ON CONFLICT(id) DO UPDATE SET
 			company_name=excluded.company_name,
 			note=excluded.note,
@@ -74,13 +76,15 @@ func (r Repository) SaveSalesOrderSettings(ctx context.Context, cmd salesapp.Sav
 			payment_text_y_mm=excluded.payment_text_y_mm,
 			payment_text_width_mm=excluded.payment_text_width_mm,
 			payment_text_height_mm=excluded.payment_text_height_mm,
+			payment_text_page_number=excluded.payment_text_page_number,
 			payment_code_x_mm=excluded.payment_code_x_mm,
 			payment_code_y_mm=excluded.payment_code_y_mm,
 			payment_code_width_mm=excluded.payment_code_width_mm,
 			payment_code_height_mm=excluded.payment_code_height_mm,
+			payment_code_page_number=excluded.payment_code_page_number,
 			updated_at=now(),
 			updated_by=excluded.updated_by`, r.schema)
-	_, err := r.pool.Exec(ctx, q, cmd.CompanyName, cmd.Note, cmd.PaymentText, cmd.BankAccountName, cmd.BankName, cmd.BankAccountNo, cmd.SealXMM, cmd.SealYMM, cmd.SealWidthMM, cmd.PaymentTextXMM, cmd.PaymentTextYMM, cmd.PaymentTextWidthMM, cmd.PaymentTextHeightMM, cmd.PaymentCodeXMM, cmd.PaymentCodeYMM, cmd.PaymentCodeWidthMM, cmd.PaymentCodeHeightMM, cmd.Actor)
+	_, err := r.pool.Exec(ctx, q, cmd.CompanyName, cmd.Note, cmd.PaymentText, cmd.BankAccountName, cmd.BankName, cmd.BankAccountNo, cmd.SealXMM, cmd.SealYMM, cmd.SealWidthMM, cmd.PaymentTextXMM, cmd.PaymentTextYMM, cmd.PaymentTextWidthMM, cmd.PaymentTextHeightMM, cmd.PaymentTextPageNumber, cmd.PaymentCodeXMM, cmd.PaymentCodeYMM, cmd.PaymentCodeWidthMM, cmd.PaymentCodeHeightMM, cmd.PaymentCodePageNumber, cmd.Actor)
 	if err != nil {
 		return err
 	}
@@ -91,21 +95,23 @@ func (r Repository) SaveSalesOrderSettings(ctx context.Context, cmd salesapp.Sav
 		Field:      postgresinfra.StrPtr("settings"),
 		NewValue:   postgresinfra.StrPtr(cmd.CompanyName),
 		Meta: postgresinfra.AuditMeta{
-			"company_name":           cmd.CompanyName,
-			"bank_account_name":      cmd.BankAccountName,
-			"bank_name":              cmd.BankName,
-			"bank_account_no":        cmd.BankAccountNo,
-			"seal_x_mm":              cmd.SealXMM,
-			"seal_y_mm":              cmd.SealYMM,
-			"seal_width_mm":          cmd.SealWidthMM,
-			"payment_text_x_mm":      cmd.PaymentTextXMM,
-			"payment_text_y_mm":      cmd.PaymentTextYMM,
-			"payment_text_width_mm":  cmd.PaymentTextWidthMM,
-			"payment_text_height_mm": cmd.PaymentTextHeightMM,
-			"payment_code_x_mm":      cmd.PaymentCodeXMM,
-			"payment_code_y_mm":      cmd.PaymentCodeYMM,
-			"payment_code_width_mm":  cmd.PaymentCodeWidthMM,
-			"payment_code_height_mm": cmd.PaymentCodeHeightMM,
+			"company_name":             cmd.CompanyName,
+			"bank_account_name":        cmd.BankAccountName,
+			"bank_name":                cmd.BankName,
+			"bank_account_no":          cmd.BankAccountNo,
+			"seal_x_mm":                cmd.SealXMM,
+			"seal_y_mm":                cmd.SealYMM,
+			"seal_width_mm":            cmd.SealWidthMM,
+			"payment_text_x_mm":        cmd.PaymentTextXMM,
+			"payment_text_y_mm":        cmd.PaymentTextYMM,
+			"payment_text_width_mm":    cmd.PaymentTextWidthMM,
+			"payment_text_height_mm":   cmd.PaymentTextHeightMM,
+			"payment_text_page_number": cmd.PaymentTextPageNumber,
+			"payment_code_x_mm":        cmd.PaymentCodeXMM,
+			"payment_code_y_mm":        cmd.PaymentCodeYMM,
+			"payment_code_width_mm":    cmd.PaymentCodeWidthMM,
+			"payment_code_height_mm":   cmd.PaymentCodeHeightMM,
+			"payment_code_page_number": cmd.PaymentCodePageNumber,
 		},
 	})
 }
@@ -563,8 +569,8 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	snapshot.BankAccountName = firstNonEmpty(companyProfile.BankAccountName, settings.BankAccountName)
 	snapshot.BankName = firstNonEmpty(companyProfile.BankName, settings.BankName)
 	snapshot.BankAccountNo = firstNonEmpty(companyProfile.BankAccountNo, settings.BankAccountNo)
-	snapshot.PaymentTextBox = salesdomain.SalesOrderLayoutBox{XMM: settings.PaymentTextXMM, YMM: settings.PaymentTextYMM, WidthMM: settings.PaymentTextWidthMM, HeightMM: settings.PaymentTextHeightMM}
-	snapshot.PaymentCodeBox = salesdomain.SalesOrderLayoutBox{XMM: settings.PaymentCodeXMM, YMM: settings.PaymentCodeYMM, WidthMM: settings.PaymentCodeWidthMM, HeightMM: settings.PaymentCodeHeightMM}
+	snapshot.PaymentTextBox = salesdomain.SalesOrderLayoutBox{XMM: settings.PaymentTextXMM, YMM: settings.PaymentTextYMM, WidthMM: settings.PaymentTextWidthMM, HeightMM: settings.PaymentTextHeightMM, PageNumber: settings.PaymentTextPageNumber}
+	snapshot.PaymentCodeBox = salesdomain.SalesOrderLayoutBox{XMM: settings.PaymentCodeXMM, YMM: settings.PaymentCodeYMM, WidthMM: settings.PaymentCodeWidthMM, HeightMM: settings.PaymentCodeHeightMM, PageNumber: settings.PaymentCodePageNumber}
 	snapshot.TotalAmount = salesdomain.FormatSalesOrderMoney(total)
 	snapshot.Shipping = salesdomain.FormatSalesOrderMoney(shipping)
 	snapshot.Discount = salesdomain.FormatSalesOrderMoney(discount)

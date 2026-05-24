@@ -2,6 +2,7 @@ package pdf
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -9,6 +10,7 @@ import (
 	salesdomain "orderapp/internal/domain/sales"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -201,6 +203,99 @@ func TestSalesOrderFinancialRowsHideDiscountTotalWhenNoDiscount(t *testing.T) {
 	}
 }
 
+func TestCombinedSalesOrderHeaderMetaRowsShowCustomerDateAndRelatedOrdersOnly(t *testing.T) {
+	snapshot := salesdomain.CombinedSalesOrderSnapshot{
+		CombinedNo:             "CSO-SO-20260509-0004-SO-20260523-0003",
+		CustomerName:           "岩师傅",
+		CustomerCompanyName:    "岩师傅咖啡店",
+		CustomerCompanyPhone:   "13900000000",
+		CustomerCompanyAddress: "上海市徐汇区咖啡路 100 号",
+		OrderNos:               []string{"SO-20260509-0004", "SO-20260523-0003"},
+		CustomerID:             1,
+		CompanyName:            "孟连口加农业科技有限公司",
+		CombinationKey:         "1,2",
+		OrderIDs:               []int64{1, 2},
+		TotalAmount:            "960.00",
+		Shipping:               "20.00",
+		Discount:               "0.00",
+		GrandTotal:             "980.00",
+		Groups: func() []salesdomain.CombinedSalesOrderGroup {
+			groups := testCombinedSalesOrderGroups(2)
+			groups[1].DocumentDate = "2026-05-23"
+			return groups
+		}(),
+	}
+	rows := combinedSalesOrderHeaderMetaRows(snapshot)
+	flat := strings.Join(flattenSalesOrderMetaRows(rows), "\n")
+	for _, want := range []string{
+		"客户：岩师傅",
+		"客户公司：岩师傅咖啡店",
+		"联系电话：13900000000",
+		"单据日期：2026-05-23",
+		"关联订单：SO-20260509-0004、SO-20260523-0003",
+		"公司地址：上海市徐汇区咖啡路 100 号",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Fatalf("combined sales order header missing %q in %#v", want, rows)
+		}
+	}
+	for _, forbidden := range []string{"组合单", "订单数", "订单日期："} {
+		if strings.Contains(flat, forbidden) {
+			t.Fatalf("combined sales order header should not expose %q: %#v", forbidden, rows)
+		}
+	}
+}
+
+func TestCombinedSalesOrderGroupHeaderOmitsRepeatedDates(t *testing.T) {
+	group := salesdomain.CombinedSalesOrderGroup{
+		OrderNo:      "SO-20260509-0004",
+		DocumentDate: "2026-05-09",
+		OrderDate:    "2026-05-07",
+	}
+	got := combinedSalesOrderGroupHeaderText(group)
+	if got != "订单 SO-20260509-0004" {
+		t.Fatalf("combined group header = %q, want only the order number", got)
+	}
+	for _, forbidden := range []string{"单据日期", "订单日期"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("combined group header should not repeat %q: %q", forbidden, got)
+		}
+	}
+}
+
+func TestRenderSalesOrderPDFAddsPaymentContinuationPageWhenPaymentLayoutExceedsPage(t *testing.T) {
+	renderer := SalesOrderRenderer{}
+	b, err := renderer.Render(salesdomain.SalesOrderSnapshot{
+		OrderID:      1,
+		OrderNo:      "SO-20260524-0001",
+		DocumentDate: "2026-05-24",
+		OrderDate:    "2026-05-24",
+		CustomerName: "岩师傅",
+		CompanyName:  "孟连口加农业科技有限公司",
+		PaymentText:  "微信或对公转账",
+		Note:         "请在付款后备注订单号",
+		Items: []salesdomain.SalesOrderSnapshotItem{{
+			Name: "兰卡拼配", Spec: "1000g", Qty: "1", Unit: "件", UnitPrice: "82.00", LineTotal: "82.00",
+		}},
+		TotalAmount: "82.00",
+		Shipping:    "0.00",
+		Discount:    "0.00",
+		GrandTotal:  "82.00",
+		PaymentTextBox: salesdomain.SalesOrderLayoutBox{
+			XMM: 16, YMM: 260, WidthMM: 104, HeightMM: 54,
+		},
+		PaymentCodeBox: salesdomain.SalesOrderLayoutBox{
+			XMM: 126, YMM: 260, WidthMM: 72, HeightMM: 90,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	if got := pdfPageCount(b); got < 2 {
+		t.Fatalf("PDF page count = %d, want a continuation page for out-of-page payment layout", got)
+	}
+}
+
 func TestRenderSalesOrderPNG(t *testing.T) {
 	renderer := SalesOrderRenderer{}
 	b, err := renderer.RenderPNG(salesdomain.SalesOrderSnapshot{
@@ -239,6 +334,77 @@ func TestRenderSalesOrderPNG(t *testing.T) {
 	}
 	if img.Bounds().Dx() < 1000 || img.Bounds().Dy() < 1400 {
 		t.Fatalf("PNG bounds = %v, want A4-like document image", img.Bounds())
+	}
+}
+
+func TestRenderSalesOrderPNGUsesLongImageForLongOrders(t *testing.T) {
+	items := make([]salesdomain.SalesOrderSnapshotItem, 0, 34)
+	for i := 0; i < 34; i++ {
+		items = append(items, salesdomain.SalesOrderSnapshotItem{
+			Name:      "兰卡拼配熟豆长商品名需要在图片中完整展示",
+			Spec:      "1000g",
+			Qty:       "1",
+			Unit:      "件",
+			UnitPrice: "82.00",
+			LineTotal: "82.00",
+			Note:      "第" + strconv.Itoa(i+1) + "行备注",
+		})
+	}
+	renderer := SalesOrderRenderer{}
+	b, err := renderer.RenderPNG(salesdomain.SalesOrderSnapshot{
+		OrderID:      1,
+		OrderNo:      "SO-20260524-0002",
+		DocumentDate: "2026-05-24",
+		OrderDate:    "2026-05-24",
+		CustomerName: "岩师傅",
+		CompanyName:  "孟连口加农业科技有限公司",
+		PaymentText:  "微信或对公转账",
+		Note:         "长图不得分页或裁切说明与收款码",
+		Items:        items,
+		TotalAmount:  "2788.00",
+		Shipping:     "0.00",
+		Discount:     "0.00",
+		GrandTotal:   "2788.00",
+	})
+	if err != nil {
+		t.Fatalf("RenderPNG() error = %v", err)
+	}
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil {
+		t.Fatalf("decode PNG: %v", err)
+	}
+	if img.Bounds().Dy() <= salesOrderPNGHeight {
+		t.Fatalf("PNG height = %d, want long image taller than one A4 design page %d", img.Bounds().Dy(), salesOrderPNGHeight)
+	}
+}
+
+func TestRenderCombinedSalesOrderPNGUsesLongImageForManyGroups(t *testing.T) {
+	renderer := SalesOrderRenderer{}
+	b, err := renderer.RenderCombinedSalesOrderPNG(salesdomain.CombinedSalesOrderSnapshot{
+		CombinationKey: "1,2,3,4,5,6",
+		CombinedNo:     "CSO-20260524-0001",
+		CustomerID:     1,
+		CustomerName:   "岩师傅",
+		CompanyName:    "孟连口加农业科技有限公司",
+		OrderIDs:       []int64{1, 2, 3, 4, 5, 6},
+		OrderNos:       []string{"SO-20260524-0001", "SO-20260524-0002", "SO-20260524-0003", "SO-20260524-0004", "SO-20260524-0005", "SO-20260524-0006"},
+		Groups:         testCombinedSalesOrderGroups(6),
+		TotalAmount:    "492.00",
+		Shipping:       "0.00",
+		Discount:       "0.00",
+		GrandTotal:     "492.00",
+		PaymentText:    "微信或对公转账",
+		Note:           "组合销售单图片用长图承载，不按 PDF 分页",
+	})
+	if err != nil {
+		t.Fatalf("RenderCombinedSalesOrderPNG() error = %v", err)
+	}
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil {
+		t.Fatalf("decode PNG: %v", err)
+	}
+	if img.Bounds().Dy() <= salesOrderPNGHeight {
+		t.Fatalf("combined PNG height = %d, want long image taller than one A4 design page %d", img.Bounds().Dy(), salesOrderPNGHeight)
 	}
 }
 
@@ -598,4 +764,39 @@ func dominantGreenBounds(img image.Image) image.Rectangle {
 		return image.Rectangle{}
 	}
 	return image.Rect(minX, minY, maxX, maxY)
+}
+
+func flattenSalesOrderMetaRows(rows [][]string) []string {
+	out := make([]string, 0, len(rows)*3)
+	for _, row := range rows {
+		out = append(out, row...)
+	}
+	return out
+}
+
+func testCombinedSalesOrderGroups(count int) []salesdomain.CombinedSalesOrderGroup {
+	groups := make([]salesdomain.CombinedSalesOrderGroup, 0, count)
+	for i := 0; i < count; i++ {
+		no := fmt.Sprintf("SO-202605%02d-%04d", 9+i, i+1)
+		groups = append(groups, salesdomain.CombinedSalesOrderGroup{
+			OrderID:      int64(i + 1),
+			OrderNo:      no,
+			DocumentDate: "2026-05-09",
+			OrderDate:    "2026-05-07",
+			Items: []salesdomain.SalesOrderSnapshotItem{{
+				Name:      "兰卡拼配熟豆",
+				Spec:      "1000g",
+				Qty:       "1",
+				Unit:      "件",
+				UnitPrice: "82.00",
+				LineTotal: "82.00",
+				Note:      "独立订单明细备注",
+			}},
+			TotalAmount: "82.00",
+			Shipping:    "0.00",
+			Discount:    "0.00",
+			GrandTotal:  "82.00",
+		})
+	}
+	return groups
 }
