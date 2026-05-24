@@ -246,17 +246,17 @@ func TestCombinedSalesOrderHeaderMetaRowsShowCustomerDateAndRelatedOrdersOnly(t 
 	}
 }
 
-func TestCombinedSalesOrderGroupHeaderOmitsRepeatedDates(t *testing.T) {
+func TestCombinedSalesOrderGroupHeaderShowsOrderDateInsteadOfOrderNo(t *testing.T) {
 	group := salesdomain.CombinedSalesOrderGroup{
 		OrderNo:      "SO-20260509-0004",
 		DocumentDate: "2026-05-09",
 		OrderDate:    "2026-05-07",
 	}
 	got := combinedSalesOrderGroupHeaderText(group)
-	if got != "订单 SO-20260509-0004" {
-		t.Fatalf("combined group header = %q, want only the order number", got)
+	if got != "订单日期 2026-05-07" {
+		t.Fatalf("combined group header = %q, want order date", got)
 	}
-	for _, forbidden := range []string{"单据日期", "订单日期"} {
+	for _, forbidden := range []string{"SO-20260509-0004", "单据日期"} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("combined group header should not repeat %q: %q", forbidden, got)
 		}

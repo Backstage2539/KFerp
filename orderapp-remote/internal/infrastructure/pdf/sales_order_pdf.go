@@ -292,7 +292,7 @@ func combinedSalesOrderDocumentDate(snapshot salesdomain.CombinedSalesOrderSnaps
 }
 
 func combinedSalesOrderGroupHeaderText(group salesdomain.CombinedSalesOrderGroup) string {
-	return "订单 " + group.OrderNo
+	return "订单日期 " + firstNonEmpty(group.OrderDate, group.DocumentDate)
 }
 
 func combinedSalesOrderHasDiscount(snapshot salesdomain.CombinedSalesOrderSnapshot) bool {
