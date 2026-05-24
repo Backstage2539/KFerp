@@ -220,6 +220,12 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		return "订单销售 / 销售单", "生成销售单PDF"
 	case "sales_order_image":
 		return "订单销售 / 销售单", "生成销售单图片"
+	case "delivery_note_document":
+		return "订单销售 / 出库单", "生成出库单PDF"
+	case "combined_sales_order_document":
+		return "订单销售 / 销售单", "生成组合销售单PDF"
+	case "combined_delivery_note_document":
+		return "订单销售 / 出库单", "生成组合出库单PDF"
 	case "material_receipt":
 		return "库存管理 / 采购入库", "提交原料入库"
 	case "material_transfer":
@@ -616,8 +622,15 @@ func auditTargetHint(r *AuditLogRow, rawEntityType string) string {
 		return firstNonEmpty(firstMetaText(meta, "kind", "asset_id"), valueForField(r, "kind"))
 	case "sales_order_payment_code":
 		return firstNonEmpty(firstMetaText(meta, "label", "asset_id"), valueForField(r, "label"))
-	case "sales_order_document", "sales_order_image":
+	case "sales_order_document", "sales_order_image", "delivery_note_document":
 		orderNo := firstMetaText(meta, "order_no", "order_id")
+		version := firstNonEmpty(firstMetaText(meta, "version_no", "version"), valueForField(r, "version_no"))
+		if orderNo != "" && version != "" {
+			return orderNo + " v" + version
+		}
+		return firstNonEmpty(orderNo, version)
+	case "combined_sales_order_document", "combined_delivery_note_document":
+		orderNo := firstMetaText(meta, "order_nos", "order_no", "order_id")
 		version := firstNonEmpty(firstMetaText(meta, "version_no", "version"), valueForField(r, "version_no"))
 		if orderNo != "" && version != "" {
 			return orderNo + " v" + version
@@ -793,6 +806,12 @@ func labelEntityType(t string) string {
 		return "销售单文件"
 	case "sales_order_image":
 		return "销售单图片"
+	case "delivery_note_document":
+		return "出库单文件"
+	case "combined_sales_order_document":
+		return "组合销售单文件"
+	case "combined_delivery_note_document":
+		return "组合出库单文件"
 	case "material_receipt":
 		return "原料入库单"
 	case "material_transfer":
