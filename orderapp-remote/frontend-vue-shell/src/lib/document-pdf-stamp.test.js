@@ -6,6 +6,7 @@ import {
   pdfPlacementToSalesSealMM,
   resizePDFStampPlacement,
   salesLayoutBoxMMToPDFPlacement,
+  salesLayoutBoxMMToPDFPreviewPlacement,
   salesSealMMToPDFPlacement,
   scalePDFStampPlacement,
 } from './document-pdf-stamp.js'
@@ -63,6 +64,40 @@ test('converts sales-order layout boxes between millimeters and PDF points', () 
     width_mm: 72,
     height_mm: 122,
   })
+})
+
+test('places sales-order payment layout controls on the continuation page when preview PDF has multiple pages', () => {
+  const pages = [
+    { pageNumber: 1, pageWidth: 595.28, pageHeight: 841.89 },
+    { pageNumber: 2, pageWidth: 595.28, pageHeight: 841.89 },
+  ]
+  const placement = salesLayoutBoxMMToPDFPreviewPlacement(
+    { x_mm: 126, y_mm: 260, width_mm: 72, height_mm: 90 },
+    pages,
+    { kind: 'payment_code', label: '收款码位置和大小' },
+  )
+
+  assert.equal(placement.page_number, 2)
+  assert.equal(placement.kind, 'payment_code')
+  assert.equal(placement.label, '收款码位置和大小')
+  assert.equal(placement.x, 357.17)
+  assert.equal(placement.y, 535.75)
+  assert.equal(placement.width, 204.1)
+  assert.equal(placement.height, 255.12)
+})
+
+test('keeps sales-order payment layout controls on the first page when the preview PDF is single-page', () => {
+  const placement = salesLayoutBoxMMToPDFPreviewPlacement(
+    { x_mm: 16, y_mm: 118, width_mm: 104, height_mm: 78 },
+    [{ pageNumber: 1, pageWidth: 595.28, pageHeight: 841.89 }],
+    { kind: 'payment_text' },
+  )
+
+  assert.equal(placement.page_number, 1)
+  assert.equal(placement.x, 45.35)
+  assert.equal(placement.y, 334.49)
+  assert.equal(placement.width, 294.81)
+  assert.equal(placement.height, 221.1)
 })
 
 test('resizes PDF layout placements without dropping metadata', () => {

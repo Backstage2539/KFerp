@@ -190,7 +190,7 @@ import { buildCombinedDocumentQuery } from '../lib/combined-order-documents'
 import {
   pdfPlacementToSalesLayoutBox,
   pdfPlacementToSalesSealMM,
-  salesLayoutBoxMMToPDFPlacement,
+  salesLayoutBoxMMToPDFPreviewPlacement,
   salesSealMMToPDFPlacement,
 } from '../lib/document-pdf-stamp'
 import { salesOrderSealMaxWidthMM, salesOrderSealMinWidthMM } from '../lib/sales-order-seal'
@@ -272,7 +272,7 @@ const salesOrderPreviewPlacements = computed(() => {
   if (!snapshot || !page) return []
   const placements = []
   if (snapshot.payment_text_box) {
-    placements.push(salesLayoutBoxMMToPDFPlacement(snapshot.payment_text_box, page, {
+    placements.push(salesLayoutBoxMMToPDFPreviewPlacement(snapshot.payment_text_box, previewPDFPages.value, {
       kind: 'payment_text',
       label: '文字位置和大小',
       resizable: true,
@@ -282,7 +282,7 @@ const salesOrderPreviewPlacements = computed(() => {
     }))
   }
   if (snapshot.payment_code_box) {
-    placements.push(salesLayoutBoxMMToPDFPlacement(snapshot.payment_code_box, page, {
+    placements.push(salesLayoutBoxMMToPDFPreviewPlacement(snapshot.payment_code_box, previewPDFPages.value, {
       kind: 'payment_code',
       label: '收款码位置和大小',
       resizable: true,

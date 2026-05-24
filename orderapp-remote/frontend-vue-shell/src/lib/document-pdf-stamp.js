@@ -1,4 +1,6 @@
 export const salesDocumentPageWidthMM = 210
+export const salesDocumentPageTopMarginMM = 14
+export const salesDocumentPageBottomMarginMM = 18
 export const salesDocumentSealHeightRatio = 1
 
 export function salesSealMMToPDFPlacement(seal = {}, page = {}, options = {}) {
@@ -80,6 +82,36 @@ export function salesLayoutBoxMMToPDFPlacement(box = {}, page = {}, options = {}
     y: round2(nonNegativeNumber(box.y_mm ?? box.YMM, 0) * pointPerMM),
     width: round2(positiveNumber(box.width_mm ?? box.WidthMM, 1) * pointPerMM),
     height: round2(positiveNumber(box.height_mm ?? box.HeightMM, 1) * pointPerMM),
+  }
+}
+
+export function salesLayoutBoxMMToPDFPreviewPlacement(box = {}, pages = [], options = {}) {
+  const page = salesLayoutBoxPreviewPage(pages)
+  const fittedBox = fitSalesLayoutBoxWithinPDFPreviewPage(box, page)
+  return salesLayoutBoxMMToPDFPlacement(fittedBox, page, options)
+}
+
+export function salesLayoutBoxPreviewPage(pages = []) {
+  const validPages = Array.isArray(pages) ? pages.filter(Boolean) : []
+  if (validPages.length === 0) return {}
+  return validPages.length > 1 ? validPages[validPages.length - 1] : validPages[0]
+}
+
+export function fitSalesLayoutBoxWithinPDFPreviewPage(box = {}, page = {}) {
+  const pointPerMM = pdfPointsPerMM(page)
+  const pageHeightMM = positiveNumber(page.pageHeight ?? page.height, 841.89) / pointPerMM
+  const topMarginMM = salesDocumentPageTopMarginMM
+  const maxBottomMM = pageHeightMM - salesDocumentPageBottomMarginMM
+  const maxHeightMM = Math.max(1, maxBottomMM - topMarginMM)
+  const heightMM = Math.min(positiveNumber(box.height_mm ?? box.HeightMM, 1), maxHeightMM)
+  let yMM = nonNegativeNumber(box.y_mm ?? box.YMM, 0)
+  if (yMM + heightMM > maxBottomMM) yMM = maxBottomMM - heightMM
+  if (yMM < topMarginMM) yMM = topMarginMM
+  return {
+    x_mm: nonNegativeNumber(box.x_mm ?? box.XMM, 0),
+    y_mm: round2(yMM),
+    width_mm: positiveNumber(box.width_mm ?? box.WidthMM, 1),
+    height_mm: round2(heightMM),
   }
 }
 
