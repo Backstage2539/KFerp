@@ -66,9 +66,6 @@ DROP INDEX IF EXISTS %[1]s.bean_list_publications_one_published_idx;
 DROP INDEX IF EXISTS %[1]s.bean_list_publications_one_published_owner_idx;
 CREATE INDEX IF NOT EXISTS bean_list_publications_owner_status_idx
 	ON %[1]s.bean_list_publications(owner_type, owner_key, status, published_at DESC, id DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS bean_list_publications_one_published_owner_idx
-	ON %[1]s.bean_list_publications(list_type, owner_type, owner_key)
-	WHERE status = 'published';
 CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publication_assets (
 	id BIGSERIAL PRIMARY KEY,
 	publication_id BIGINT NOT NULL REFERENCES %[1]s.bean_list_publications(id) ON DELETE CASCADE,

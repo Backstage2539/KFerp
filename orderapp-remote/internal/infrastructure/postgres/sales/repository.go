@@ -1612,7 +1612,7 @@ func (r Repository) resolveOrderBeanListPublicationTx(ctx context.Context, tx pg
 		err := tx.QueryRow(ctx, fmt.Sprintf(`
 			SELECT version_no
 			FROM %s.bean_list_publications
-			WHERE id=$1 AND status IN ('published','withdrawn')
+			WHERE id=$1 AND status='published'
 			  AND list_type=$2
 			  AND ((owner_type='customer' AND owner_key=$3) OR owner_type='official')
 		`, r.schema), requestedID, listType, customerKey).Scan(&version)

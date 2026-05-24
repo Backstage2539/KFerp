@@ -730,13 +730,6 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	if err := validateBeanListProductScope(ctx, tx, r.schema, cmd); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.bean_list_publications
-		SET status='withdrawn', withdrawn_at=now(), updated_at=now()
-		WHERE list_type=$1 AND owner_type=$2 AND owner_key=$3 AND status='published'
-	`, r.schema), cmd.ListType, cmd.OwnerType, cmd.OwnerKey); err != nil {
-		return nil, err
-	}
 
 	config, err := json.Marshal(cmd.Config)
 	if err != nil {

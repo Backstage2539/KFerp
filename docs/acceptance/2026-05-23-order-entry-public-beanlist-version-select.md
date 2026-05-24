@@ -8,7 +8,7 @@
 ## 验收证据
 - 单元测试：`node --test src/lib/order-entry.test.js` 覆盖 `beanListVersionOptionsForCustomer` 保留公共兜底版本，并覆盖商品携带多版本梯度时按所选 `bean_list_publication_id` 取价。
 - 静态/API 测试：`go test ./internal/infrastructure/postgres/sales ./internal/infrastructure/postgres/orderbeans -run 'TestOrderFormBeanListVersionOptionsIncludeHistoricalPublishedSnapshots|TestOrderSaveExplicitBeanListPublicationAcceptsHistoricalSnapshots|TestExplicitPublicationSelectionAcceptsHistoricalPublishedSnapshots' -count=1` 覆盖公共/客户历史发布快照参与表单选项和显式保存。
-- 数据库 API 测试：`go test ./internal/interfaces/http/sales -run 'TestOrderAPIFormReturnsHistoricalPublicBeanListVersionsForFallbackCustomer|TestOrderAPISavesHistoricalPublicBeanListPublicationVersion' -count=1` 在有测试数据库时覆盖无专属豆单客户可看到公共历史版本并保存公共历史版本。
+- 数据库 API 测试：`go test ./internal/interfaces/http/sales -run 'TestOrderAPIFormHidesWithdrawnPublicBeanListVersionsForFallbackCustomer|TestOrderAPIRejectsWithdrawnPublicBeanListPublicationVersion' -count=1` 在有测试数据库时覆盖无专属豆单客户只看到仍处于 published 的公共历史版本，并拒绝保存已撤回版本。
 - 手册：`OP_MANUAL_ORDER_SALES.md` 记录无专属豆单客户也可切换公共豆单版本。
 
 ## 验收点
