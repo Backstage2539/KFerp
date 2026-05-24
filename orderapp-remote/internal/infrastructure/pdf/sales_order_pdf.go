@@ -96,10 +96,8 @@ func (r SalesOrderRenderer) render(snapshot salesdomain.SalesOrderSnapshot, prev
 	r.renderSalesOrderHeader(pdf, snapshot)
 	r.renderSalesOrderItemsTable(pdf, snapshot)
 	renderSalesOrderTotals(pdf, snapshot)
-	r.renderSalesOrderPaymentInfoSection(pdf, snapshot)
-	if preview {
-		renderDocumentPreviewLabel(pdf)
-	}
+	r.renderSalesOrderPaymentInfoSectionWithPageBreak(pdf, snapshot)
+	renderSalesOrderDocumentOverlays(pdf, preview)
 
 	if pdf.Error() != nil {
 		return nil, pdf.Error()
@@ -134,10 +132,8 @@ func (r SalesOrderRenderer) renderCombinedSalesOrder(snapshot salesdomain.Combin
 	r.renderCombinedSalesOrderHeader(pdf, snapshot)
 	r.renderCombinedSalesOrderGroups(pdf, snapshot)
 	renderSalesOrderTotals(pdf, combinedSalesOrderTotalsSnapshot(snapshot))
-	r.renderSalesOrderPaymentInfoSection(pdf, combinedSalesOrderTotalsSnapshot(snapshot))
-	if preview {
-		renderDocumentPreviewLabel(pdf)
-	}
+	r.renderSalesOrderPaymentInfoSectionWithPageBreak(pdf, combinedSalesOrderTotalsSnapshot(snapshot))
+	renderSalesOrderDocumentOverlays(pdf, preview)
 	if pdf.Error() != nil {
 		return nil, pdf.Error()
 	}
@@ -157,31 +153,54 @@ func renderDocumentPreviewLabel(pdf *gofpdf.Fpdf) {
 	pdf.SetTextColor(0, 0, 0)
 }
 
+func renderSalesOrderDocumentOverlays(pdf *gofpdf.Fpdf, preview bool) {
+	currentPage := pdf.PageNo()
+	totalPages := currentPage
+	for page := 1; page <= totalPages; page++ {
+		pdf.SetPage(page)
+		if preview {
+			renderDocumentPreviewLabel(pdf)
+		}
+		if totalPages > 1 {
+			renderSalesOrderPageNumber(pdf, page, totalPages)
+		}
+	}
+	if currentPage > 0 {
+		pdf.SetPage(currentPage)
+	}
+}
+
+func renderSalesOrderPageNumber(pdf *gofpdf.Fpdf, page, totalPages int) {
+	pageW, pageH := pdf.GetPageSize()
+	pdf.SetFont("noto", "", 9)
+	pdf.SetTextColor(90, 90, 90)
+	pdf.SetXY(0, pageH-11)
+	pdf.CellFormat(pageW, 5, fmt.Sprintf("第 %d / %d 页", page, totalPages), "", 0, "C", false, 0, "")
+	pdf.SetTextColor(0, 0, 0)
+}
+
 func (r SalesOrderRenderer) renderCombinedSalesOrderHeader(pdf *gofpdf.Fpdf, snapshot salesdomain.CombinedSalesOrderSnapshot) {
 	pdf.SetFont("noto", "", 14)
 	pdf.CellFormat(100, 10, snapshot.CompanyName, "", 0, "L", false, 0, "")
 	pdf.SetFont("noto", "", 12)
-	pdf.CellFormat(0, 10, "组合销售单 COMBINED SALES ORDER", "", 1, "R", false, 0, "")
+	pdf.CellFormat(0, 10, "销售单 SALES ORDER", "", 1, "R", false, 0, "")
 	y := pdf.GetY() + 2
 	left, _, right, _ := pdf.GetMargins()
 	pageW, _ := pdf.GetPageSize()
+	usableW := pageW - left - right
 	pdf.Line(left, y, pageW-right, y)
 	if snapshot.Seal != nil {
 		r.renderSealStamp(pdf, *snapshot.Seal)
 	}
 	pdf.SetY(y + 5)
 	pdf.SetFont("noto", "", 10)
-	colW := (pageW - left - right) / 3
-	rows := [][]string{
-		{"组合单号：" + snapshot.CombinedNo, fmt.Sprintf("订单数：%d", len(snapshot.OrderIDs)), "客户：" + snapshot.CustomerName},
-		{"客户公司：" + firstNonEmpty(snapshot.CustomerCompanyName, snapshot.CustomerName), "联系电话：" + snapshot.CustomerCompanyPhone, ""},
-	}
-	for _, row := range rows {
+	colW := usableW / 3
+	for _, row := range combinedSalesOrderHeaderMetaRows(snapshot) {
+		if len(row) == 1 {
+			writeSalesOrderMetaRow(pdf, []float64{usableW}, row, 6)
+			continue
+		}
 		writeSalesOrderMetaRow(pdf, []float64{colW, colW, colW}, row, 6)
-	}
-	writeSalesOrderMetaRow(pdf, []float64{pageW - left - right}, []string{"关联订单：" + strings.Join(snapshot.OrderNos, "、")}, 6)
-	if addr := strings.TrimSpace(snapshot.CustomerCompanyAddress); addr != "" {
-		writeSalesOrderMetaRow(pdf, []float64{pageW - left - right}, []string{"公司地址：" + addr}, 6)
 	}
 	pdf.Ln(3)
 }
@@ -222,7 +241,7 @@ func (r SalesOrderRenderer) renderCombinedSalesOrderGroups(pdf *gofpdf.Fpdf, sna
 		}
 		pdf.SetFont("noto", "B", 10)
 		pdf.SetFillColor(247, 244, 239)
-		pdf.CellFormat(usableW, 8, fmt.Sprintf("订单 %s    单据日期：%s    订单日期：%s", group.OrderNo, firstNonEmpty(group.DocumentDate, group.OrderDate), group.OrderDate), "1", 1, "L", true, 0, "")
+		pdf.CellFormat(usableW, 8, combinedSalesOrderGroupHeaderText(group), "1", 1, "L", true, 0, "")
 		pdf.SetFont("noto", "", 10)
 		for i, h := range headers {
 			pdf.CellFormat(colWidths[i], 8, h, "B", 0, "L", false, 0, "")
@@ -239,6 +258,41 @@ func (r SalesOrderRenderer) renderCombinedSalesOrderGroups(pdf *gofpdf.Fpdf, sna
 		}
 		pdf.Ln(2)
 	}
+}
+
+func combinedSalesOrderHeaderMetaRows(snapshot salesdomain.CombinedSalesOrderSnapshot) [][]string {
+	rows := [][]string{
+		{
+			"客户：" + snapshot.CustomerName,
+			"客户公司：" + firstNonEmpty(snapshot.CustomerCompanyName, snapshot.CustomerName),
+			"联系电话：" + snapshot.CustomerCompanyPhone,
+		},
+	}
+	if date := combinedSalesOrderDocumentDate(snapshot); date != "" {
+		rows = append(rows, []string{"单据日期：" + date})
+	}
+	if len(snapshot.OrderNos) > 0 {
+		rows = append(rows, []string{"关联订单：" + strings.Join(snapshot.OrderNos, "、")})
+	}
+	if addr := strings.TrimSpace(snapshot.CustomerCompanyAddress); addr != "" {
+		rows = append(rows, []string{"公司地址：" + addr})
+	}
+	return rows
+}
+
+func combinedSalesOrderDocumentDate(snapshot salesdomain.CombinedSalesOrderSnapshot) string {
+	date := ""
+	for _, group := range snapshot.Groups {
+		candidate := firstNonEmpty(group.DocumentDate, group.OrderDate)
+		if candidate > date {
+			date = candidate
+		}
+	}
+	return date
+}
+
+func combinedSalesOrderGroupHeaderText(group salesdomain.CombinedSalesOrderGroup) string {
+	return "订单 " + group.OrderNo
 }
 
 func combinedSalesOrderHasDiscount(snapshot salesdomain.CombinedSalesOrderSnapshot) bool {
@@ -478,6 +532,20 @@ func sumFloat64(values []float64) float64 {
 	return total
 }
 
+func minFloat64(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxFloat64(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 type salesOrderFinancialRow struct {
 	Label string
 	Value string
@@ -617,13 +685,33 @@ func salesOrderDiscountTypeLabel(value string) string {
 	}
 }
 
+func (r SalesOrderRenderer) renderSalesOrderPaymentInfoSectionWithPageBreak(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSnapshot) {
+	if !salesOrderSnapshotHasPaymentInfo(snapshot) {
+		return
+	}
+	targetPage := 1
+	if salesOrderPaymentSectionNeedsNewPage(pdf, snapshot) {
+		pdf.AddPage()
+		targetPage = pdf.PageNo()
+	}
+	r.renderSalesOrderPaymentInfoSectionOnPage(pdf, salesOrderPaymentSnapshotForPDFPage(pdf, snapshot), targetPage)
+}
+
 func (r SalesOrderRenderer) renderSalesOrderPaymentInfoSection(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSnapshot) {
-	if snapshot.PaymentText == "" && snapshot.Note == "" && len(snapshot.PaymentCodes) == 0 && len(renderSalesOrderAccountLines(snapshot)) == 0 {
+	r.renderSalesOrderPaymentInfoSectionOnPage(pdf, snapshot, 1)
+}
+
+func (r SalesOrderRenderer) renderSalesOrderPaymentInfoSectionOnPage(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSnapshot, targetPage int) {
+	if !salesOrderSnapshotHasPaymentInfo(snapshot) {
 		return
 	}
 	currentPage := pdf.PageNo()
 	textBox, codeBox := salesOrderPaymentLayoutBoxes(snapshot)
-	pdf.SetPage(1)
+	if targetPage <= 1 {
+		pdf.SetPage(1)
+	} else {
+		pdf.SetPage(targetPage)
+	}
 	pdf.SetAutoPageBreak(false, 0)
 	renderSalesOrderTextBlocks(pdf, textBox, snapshot)
 	if len(snapshot.PaymentCodes) > 0 {
@@ -633,6 +721,51 @@ func (r SalesOrderRenderer) renderSalesOrderPaymentInfoSection(pdf *gofpdf.Fpdf,
 	if currentPage > 0 {
 		pdf.SetPage(currentPage)
 	}
+}
+
+func salesOrderSnapshotHasPaymentInfo(snapshot salesdomain.SalesOrderSnapshot) bool {
+	return snapshot.PaymentText != "" || snapshot.Note != "" || len(snapshot.PaymentCodes) > 0 || len(renderSalesOrderAccountLines(snapshot)) > 0
+}
+
+func salesOrderPaymentSectionNeedsNewPage(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSnapshot) bool {
+	if !salesOrderSnapshotHasPaymentInfo(snapshot) {
+		return false
+	}
+	if pdf.PageNo() > 1 {
+		return true
+	}
+	textBox, codeBox := salesOrderPaymentLayoutBoxes(snapshot)
+	sectionTop := minFloat64(textBox.YMM, codeBox.YMM)
+	sectionBottom := maxFloat64(textBox.YMM+textBox.HeightMM, codeBox.YMM+codeBox.HeightMM)
+	_, pageH := pdf.GetPageSize()
+	_, _, _, bottomMargin := pdf.GetMargins()
+	if sectionBottom > pageH-bottomMargin {
+		return true
+	}
+	return pdf.GetY()+6 > sectionTop
+}
+
+func salesOrderPaymentSnapshotForPDFPage(pdf *gofpdf.Fpdf, snapshot salesdomain.SalesOrderSnapshot) salesdomain.SalesOrderSnapshot {
+	textBox, codeBox := salesOrderPaymentLayoutBoxes(snapshot)
+	snapshot.PaymentTextBox = fitSalesOrderLayoutBoxWithinPDFPage(pdf, textBox)
+	snapshot.PaymentCodeBox = fitSalesOrderLayoutBoxWithinPDFPage(pdf, codeBox)
+	return snapshot
+}
+
+func fitSalesOrderLayoutBoxWithinPDFPage(pdf *gofpdf.Fpdf, box salesdomain.SalesOrderLayoutBox) salesdomain.SalesOrderLayoutBox {
+	_, pageH := pdf.GetPageSize()
+	_, topMargin, _, bottomMargin := pdf.GetMargins()
+	maxBottom := pageH - bottomMargin
+	if box.HeightMM > maxBottom-topMargin {
+		box.HeightMM = maxBottom - topMargin
+	}
+	if box.YMM+box.HeightMM > maxBottom {
+		box.YMM = maxBottom - box.HeightMM
+	}
+	if box.YMM < topMargin {
+		box.YMM = topMargin
+	}
+	return box
 }
 
 func salesOrderPaymentLayoutBoxes(snapshot salesdomain.SalesOrderSnapshot) (salesdomain.SalesOrderLayoutBox, salesdomain.SalesOrderLayoutBox) {
