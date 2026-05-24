@@ -109,7 +109,7 @@ func fakePublishedBeanListPublication() appcosting.BeanListPublication {
 			"fontColor":       "#171717",
 		},
 		Content: map[string]any{
-			"title":      "棵凡咖啡批发豆单",
+			"title":      "棵凡咖啡批发产品价格表",
 			"subtitle":   "报价不含税、不含运",
 			"totalItems": float64(1),
 			"groups": []any{map[string]any{
@@ -210,12 +210,14 @@ func (s *recordingBeanListService) PublishBeanList(ctx context.Context, cmd appc
 	s.published++
 	s.lastPublish = cmd
 	return &appcosting.BeanListPublication{
-		ID:        8,
-		ListType:  cmd.ListType,
-		Version:   cmd.Version,
-		Status:    "published",
-		OwnerType: cmd.OwnerType,
-		OwnerKey:  cmd.OwnerKey,
+		ID:                    8,
+		ListType:              cmd.ListType,
+		ProductTypeCategoryID: cmd.ProductTypeCategoryID,
+		ProductTypeName:       cmd.ProductTypeName,
+		Version:               cmd.Version,
+		Status:                "published",
+		OwnerType:             cmd.OwnerType,
+		OwnerKey:              cmd.OwnerKey,
 	}, nil
 }
 
@@ -223,12 +225,14 @@ func (s *recordingBeanListService) SaveBeanListDraft(ctx context.Context, cmd ap
 	s.drafted++
 	s.lastDraft = cmd
 	return &appcosting.BeanListPublication{
-		ID:        9,
-		ListType:  cmd.ListType,
-		Version:   cmd.Version,
-		Status:    "draft",
-		OwnerType: cmd.OwnerType,
-		OwnerKey:  cmd.OwnerKey,
+		ID:                    9,
+		ListType:              cmd.ListType,
+		ProductTypeCategoryID: cmd.ProductTypeCategoryID,
+		ProductTypeName:       cmd.ProductTypeName,
+		Version:               cmd.Version,
+		Status:                "draft",
+		OwnerType:             cmd.OwnerType,
+		OwnerKey:              cmd.OwnerKey,
 	}, nil
 }
 
@@ -866,8 +870,8 @@ func TestPublicBeanListPageRendersPublishedSnapshot(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		"<title>棵凡咖啡批发豆单 V3.0.5</title>",
-		"棵凡咖啡批发豆单",
+		"<title>棵凡咖啡批发产品价格表 V3.0.5</title>",
+		"棵凡咖啡批发产品价格表",
 		"报价不含税、不含运",
 		"V3.0.5",
 		"1、工厂量单",
@@ -929,7 +933,7 @@ func TestPublicGreenBeanListPageRendersQualitySnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"棵凡咖啡生豆豆单",
+		"棵凡咖啡生豆产品价格表",
 		"生豆销售报价",
 		"生豆",
 		"工厂风味",
@@ -1127,6 +1131,41 @@ func TestBeanListPublicationAPISupportsCustomerScope(t *testing.T) {
 	}
 }
 
+func TestBeanListPublicationAPIPassesProductTypeCategory(t *testing.T) {
+	svc := &recordingBeanListService{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("basic_auth_admin", true)
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Costing: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/bean-list/publications?product_type_category_id=12&scope=official", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.lastQuery.ProductTypeCategoryID != 12 {
+		t.Fatalf("product type query = %+v, want product_type_category_id 12", svc.lastQuery)
+	}
+
+	body := bytes.NewBufferString(`{"list_type":"green","product_type_category_id":12,"product_type_name":"生豆","version":"V4.0.1","scope":"official","config":{"layoutStyle":"card"},"content":{"totalItems":1},"changelog":"生豆产品价格表"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.lastPublish.ProductTypeCategoryID != 12 || svc.lastPublish.ProductTypeName != "生豆" {
+		t.Fatalf("product type publish = %+v", svc.lastPublish)
+	}
+}
+
 func TestBeanListPublicationPublishAndDraftGenerateStoredPreviewPDF(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
@@ -1150,7 +1189,7 @@ func TestBeanListPublicationPublishAndDraftGenerateStoredPreviewPDF(t *testing.T
 			})
 			RegisterRoutes(e, Dependencies{Costing: svc})
 
-			body := bytes.NewBufferString(`{"list_type":"commercial","version":"V3.0.8","scope":"customer","customer_id":42,"config":{"layoutStyle":"card","backgroundColor":"#f8f1e5"},"content":{"title":"棵凡咖啡批发豆单","groups":[{"category":"1、工厂量单","showCategory":true,"items":[{"code":"1.1","name":"曲奇拼配","prices":[{"label":"25-49kg","price":21,"unit":"kg"}]}]}]},"changelog":"客户 A 豆单"}`)
+			body := bytes.NewBufferString(`{"list_type":"commercial","version":"V3.0.8","scope":"customer","customer_id":42,"config":{"layoutStyle":"card","backgroundColor":"#f8f1e5"},"content":{"title":"棵凡咖啡批发产品价格表","groups":[{"category":"1、工厂量单","showCategory":true,"items":[{"code":"1.1","name":"曲奇拼配","prices":[{"label":"25-49kg","price":21,"unit":"kg"}]}]}]},"changelog":"客户 A 豆单"}`)
 			req := httptest.NewRequest(http.MethodPost, tc.path, body)
 			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			rec := httptest.NewRecorder()

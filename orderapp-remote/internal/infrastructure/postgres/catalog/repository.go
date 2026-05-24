@@ -165,8 +165,9 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
 		SET roast_level=$2, retail_price_100g=$3, retail_price_200g=$4, retail_price_227g=$5, retail_price_250g=$6,
 		    product_kind=$7, drip_bag_grams=$8, margin_rate_override=$9, drip_box_bag_count=$10, allow_fulfillment_order=$11, allow_mall_order=$12,
-		    green_bean_type=$13, green_bean_bom_product_id=$14, remark=$15, name=COALESCE(NULLIF($16,''), name)
-		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.MarginRateOverride, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.Remark, cmd.Name); err != nil {
+		    green_bean_type=$13, green_bean_bom_product_id=$14, remark=$15, name=COALESCE(NULLIF($16,''), name),
+		    gradient_template_id_override=$17, operation_template_id_override=$18, unit_rule_override_json=$19::jsonb
+		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.MarginRateOverride, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.Remark, cmd.Name, cmd.GradientTemplateIDOverride, cmd.OperationTemplateIDOverride, cmd.UnitRuleOverrideJSON); err != nil {
 		return err
 	}
 	if productKind == catalogdomain.ProductKindRoasted {
@@ -180,17 +181,20 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 		return err
 	}
 	meta := postgresinfra.AuditMeta{
-		"product_id":           cmd.ProductID,
-		"product_kind":         productKind,
-		"roast_level":          roastLevel,
-		"yield_rate":           yieldRate,
-		"retail_price_100g":    cmd.RetailPrice100G,
-		"retail_price_200g":    cmd.RetailPrice200G,
-		"retail_price_227g":    cmd.RetailPrice227G,
-		"retail_price_250g":    cmd.RetailPrice250G,
-		"margin_rate_override": cmd.MarginRateOverride,
-		"remark":               cmd.Remark,
-		"name":                 cmd.Name,
+		"product_id":                     cmd.ProductID,
+		"product_kind":                   productKind,
+		"roast_level":                    roastLevel,
+		"yield_rate":                     yieldRate,
+		"retail_price_100g":              cmd.RetailPrice100G,
+		"retail_price_200g":              cmd.RetailPrice200G,
+		"retail_price_227g":              cmd.RetailPrice227G,
+		"retail_price_250g":              cmd.RetailPrice250G,
+		"margin_rate_override":           cmd.MarginRateOverride,
+		"remark":                         cmd.Remark,
+		"name":                           cmd.Name,
+		"gradient_template_id_override":  cmd.GradientTemplateIDOverride,
+		"operation_template_id_override": cmd.OperationTemplateIDOverride,
+		"unit_rule_override_json":        cmd.UnitRuleOverrideJSON,
 	}
 	meta["product_kind"] = cmd.ProductKind
 	meta["drip_bag_grams"] = cmd.DripBagGrams
@@ -365,6 +369,9 @@ func replaceProductPriceTiersTx(ctx context.Context, tx pgx.Tx, schema string, p
 
 func (r Repository) ListProductCategories(ctx context.Context) ([]catalogapp.ProductCategory, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT id, COALESCE(parent_id,0), COALESCE(customer_id,0), COALESCE(source_category_id,0), name, level, position, COALESCE(gradient_template_id,0),
+		       COALESCE(operation_template_id,0), COALESCE(price_list_rule_json::text,'{}'),
+		       COALESCE(inventory_unit,'kg'), COALESCE(quote_unit,'kg'), COALESCE(order_unit,'kg'),
+		       COALESCE(unit_conversion_json::text,'{}'), COALESCE(integer_unit,false),
 		       COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END)
 		FROM %s.product_categories
 		WHERE active=true
@@ -376,7 +383,7 @@ func (r Repository) ListProductCategories(ctx context.Context) ([]catalogapp.Pro
 	out := make([]catalogapp.ProductCategory, 0)
 	for rows.Next() {
 		var row catalogapp.ProductCategory
-		if err := rows.Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.TemplateState); err != nil {
+		if err := rows.Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.OperationTemplateID, &row.PriceListRuleJSON, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.TemplateState); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -608,10 +615,15 @@ func (r Repository) SaveProductCategory(ctx context.Context, cmd catalogapp.Save
 	var row catalogapp.ProductCategory
 	if cmd.ID > 0 {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`UPDATE %s.product_categories
-			SET parent_id=NULLIF($2,0), name=$3, level=$4, position=$5, customer_id=$6, updated_at=now()
+			SET parent_id=NULLIF($2,0), name=$3, level=$4, position=$5, customer_id=$6,
+			    gradient_template_id=$7, operation_template_id=$8, price_list_rule_json=$9::jsonb,
+			    inventory_unit=$10, quote_unit=$11, order_unit=$12, unit_conversion_json=$13::jsonb, integer_unit=$14,
+			    updated_at=now()
 			WHERE id=$1 AND active=true
 			RETURNING id, COALESCE(parent_id,0), COALESCE(customer_id,0), COALESCE(source_category_id,0), name, level, position, COALESCE(gradient_template_id,0),
-			          COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END)`, r.schema), cmd.ID, parentID, cmd.Name, level, position, customerID).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.TemplateState); err != nil {
+			          COALESCE(operation_template_id,0), COALESCE(price_list_rule_json::text,'{}'),
+			          COALESCE(inventory_unit,'kg'), COALESCE(quote_unit,'kg'), COALESCE(order_unit,'kg'), COALESCE(unit_conversion_json::text,'{}'), COALESCE(integer_unit,false),
+			          COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END)`, r.schema), cmd.ID, parentID, cmd.Name, level, position, customerID, cmd.GradientTemplateID, cmd.OperationTemplateID, cmd.PriceListRuleJSON, cmd.InventoryUnit, cmd.QuoteUnit, cmd.OrderUnit, cmd.UnitConversionJSON, cmd.IntegerUnit).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.OperationTemplateID, &row.PriceListRuleJSON, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.TemplateState); err != nil {
 			return catalogapp.ProductCategory{}, err
 		}
 	} else {
@@ -619,9 +631,11 @@ func (r Repository) SaveProductCategory(ctx context.Context, cmd catalogapp.Save
 		if customerID == 0 {
 			templateState = catalogapp.TemplateStatePublic
 		}
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.product_categories(parent_id,customer_id,source_category_id,name,level,position,template_state)
-			VALUES(NULLIF($1,0),$2,0,$3,$4,$5,$6)
-			RETURNING id, COALESCE(parent_id,0), COALESCE(customer_id,0), COALESCE(source_category_id,0), name, level, position, COALESCE(gradient_template_id,0), template_state`, r.schema), parentID, customerID, cmd.Name, level, position, templateState).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.TemplateState); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.product_categories(parent_id,customer_id,source_category_id,name,level,position,gradient_template_id,operation_template_id,price_list_rule_json,inventory_unit,quote_unit,order_unit,unit_conversion_json,integer_unit,template_state)
+			VALUES(NULLIF($1,0),$2,0,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12::jsonb,$13,$14)
+			RETURNING id, COALESCE(parent_id,0), COALESCE(customer_id,0), COALESCE(source_category_id,0), name, level, position, COALESCE(gradient_template_id,0),
+			          COALESCE(operation_template_id,0), COALESCE(price_list_rule_json::text,'{}'),
+			          COALESCE(inventory_unit,'kg'), COALESCE(quote_unit,'kg'), COALESCE(order_unit,'kg'), COALESCE(unit_conversion_json::text,'{}'), COALESCE(integer_unit,false), template_state`, r.schema), parentID, customerID, cmd.Name, level, position, cmd.GradientTemplateID, cmd.OperationTemplateID, cmd.PriceListRuleJSON, cmd.InventoryUnit, cmd.QuoteUnit, cmd.OrderUnit, cmd.UnitConversionJSON, cmd.IntegerUnit, templateState).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.OperationTemplateID, &row.PriceListRuleJSON, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.TemplateState); err != nil {
 			return catalogapp.ProductCategory{}, err
 		}
 	}
@@ -634,7 +648,7 @@ func (r Repository) SaveProductCategory(ctx context.Context, cmd catalogapp.Save
 	if err := tx.Commit(ctx); err != nil {
 		return catalogapp.ProductCategory{}, err
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_category", &row.ID, "update", postgresinfra.StrPtr("category"), nil, postgresinfra.StrPtr(row.Name), postgresinfra.AuditMeta{"parent_id": parentID, "customer_id": customerID, "position": position})
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_category", &row.ID, "update", postgresinfra.StrPtr("category"), nil, postgresinfra.StrPtr(row.Name), postgresinfra.AuditMeta{"parent_id": parentID, "customer_id": customerID, "position": position, "gradient_template_id": cmd.GradientTemplateID, "operation_template_id": cmd.OperationTemplateID, "inventory_unit": cmd.InventoryUnit, "quote_unit": cmd.QuoteUnit, "order_unit": cmd.OrderUnit, "integer_unit": cmd.IntegerUnit})
 	return row, nil
 }
 
@@ -987,10 +1001,13 @@ func fetchProductCategoryTx(ctx context.Context, tx pgx.Tx, schema string, id in
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id, COALESCE(parent_id,0), COALESCE(customer_id,0), COALESCE(source_category_id,0), name, level, position,
 		       COALESCE(gradient_template_id,0),
+		       COALESCE(operation_template_id,0), COALESCE(price_list_rule_json::text,'{}'),
+		       COALESCE(inventory_unit,'kg'), COALESCE(quote_unit,'kg'), COALESCE(order_unit,'kg'),
+		       COALESCE(unit_conversion_json::text,'{}'), COALESCE(integer_unit,false),
 		       COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END)
 		FROM %s.product_categories
 		WHERE id=$1 AND active=true
-	`, schema), id).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.TemplateState); err != nil {
+	`, schema), id).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.OperationTemplateID, &row.PriceListRuleJSON, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.TemplateState); err != nil {
 		return catalogapp.ProductCategory{}, err
 	}
 	return row, nil
@@ -1001,12 +1018,15 @@ func findProductCategoryBySourceTx(ctx context.Context, tx pgx.Tx, schema string
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id, COALESCE(parent_id,0), COALESCE(customer_id,0), COALESCE(source_category_id,0), name, level, position,
 		       COALESCE(gradient_template_id,0),
+		       COALESCE(operation_template_id,0), COALESCE(price_list_rule_json::text,'{}'),
+		       COALESCE(inventory_unit,'kg'), COALESCE(quote_unit,'kg'), COALESCE(order_unit,'kg'),
+		       COALESCE(unit_conversion_json::text,'{}'), COALESCE(integer_unit,false),
 		       COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END)
 		FROM %s.product_categories
 		WHERE active=true AND customer_id=$1 AND source_category_id=$2
 		ORDER BY id
 		LIMIT 1
-	`, schema), customerID, sourceCategoryID).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.TemplateState)
+	`, schema), customerID, sourceCategoryID).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.OperationTemplateID, &row.PriceListRuleJSON, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.TemplateState)
 	if err == pgx.ErrNoRows {
 		return catalogapp.ProductCategory{}, false, nil
 	}
@@ -1021,13 +1041,16 @@ func findProductCategoryByNameTx(ctx context.Context, tx pgx.Tx, schema string, 
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id, COALESCE(parent_id,0), COALESCE(customer_id,0), COALESCE(source_category_id,0), name, level, position,
 		       COALESCE(gradient_template_id,0),
+		       COALESCE(operation_template_id,0), COALESCE(price_list_rule_json::text,'{}'),
+		       COALESCE(inventory_unit,'kg'), COALESCE(quote_unit,'kg'), COALESCE(order_unit,'kg'),
+		       COALESCE(unit_conversion_json::text,'{}'), COALESCE(integer_unit,false),
 		       COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END)
 		FROM %s.product_categories
 		WHERE active=true AND customer_id=$1 AND COALESCE(parent_id,0)=$2 AND lower(name)=lower($3)
 		ORDER BY id
 		LIMIT 1
 		FOR UPDATE
-	`, schema), customerID, parentID, strings.TrimSpace(name)).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.TemplateState)
+	`, schema), customerID, parentID, strings.TrimSpace(name)).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.OperationTemplateID, &row.PriceListRuleJSON, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.TemplateState)
 	if err == pgx.ErrNoRows {
 		return catalogapp.ProductCategory{}, false, nil
 	}
@@ -1071,10 +1094,15 @@ func deriveProductCategoryTx(ctx context.Context, tx pgx.Tx, schema string, cmd 
 	} else if ok {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.product_categories
-			SET source_category_id=$2, template_state='derived_from_public', gradient_template_id=$3, updated_at=now()
+			SET source_category_id=$2, template_state='derived_from_public', gradient_template_id=$3,
+			    operation_template_id=$4, price_list_rule_json=$5::jsonb,
+			    inventory_unit=$6, quote_unit=$7, order_unit=$8, unit_conversion_json=$9::jsonb, integer_unit=$10,
+			    updated_at=now()
 			WHERE id=$1
-			RETURNING id, COALESCE(parent_id,0), COALESCE(customer_id,0), COALESCE(source_category_id,0), name, level, position, COALESCE(gradient_template_id,0), template_state
-		`, schema), row.ID, source.ID, source.GradientTemplateID).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.TemplateState); err != nil {
+			RETURNING id, COALESCE(parent_id,0), COALESCE(customer_id,0), COALESCE(source_category_id,0), name, level, position, COALESCE(gradient_template_id,0),
+			          COALESCE(operation_template_id,0), COALESCE(price_list_rule_json::text,'{}'),
+			          COALESCE(inventory_unit,'kg'), COALESCE(quote_unit,'kg'), COALESCE(order_unit,'kg'), COALESCE(unit_conversion_json::text,'{}'), COALESCE(integer_unit,false), template_state
+		`, schema), row.ID, source.ID, source.GradientTemplateID, source.OperationTemplateID, source.PriceListRuleJSON, source.InventoryUnit, source.QuoteUnit, source.OrderUnit, source.UnitConversionJSON, source.IntegerUnit).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.OperationTemplateID, &row.PriceListRuleJSON, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.TemplateState); err != nil {
 			return catalogapp.ProductCategory{}, err
 		}
 		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, cmd.Actor, "product_category", &row.ID, "derive_public_category", postgresinfra.StrPtr("source_category_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", source.ID)), postgresinfra.AuditMeta{"customer_id": cmd.CustomerID, "source_category_id": source.ID, "parent_id": parentID}); err != nil {
@@ -1084,10 +1112,12 @@ func deriveProductCategoryTx(ctx context.Context, tx pgx.Tx, schema string, cmd 
 	}
 	var row catalogapp.ProductCategory
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_categories(parent_id, customer_id, source_category_id, name, level, position, gradient_template_id, template_state, active)
-		VALUES(NULLIF($1,0), $2, $3, $4, $5, $6, $7, 'derived_from_public', true)
-		RETURNING id, COALESCE(parent_id,0), COALESCE(customer_id,0), COALESCE(source_category_id,0), name, level, position, COALESCE(gradient_template_id,0), template_state
-	`, schema), parentID, cmd.CustomerID, source.ID, source.Name, source.Level, position, source.GradientTemplateID).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.TemplateState); err != nil {
+		INSERT INTO %s.product_categories(parent_id, customer_id, source_category_id, name, level, position, gradient_template_id, operation_template_id, price_list_rule_json, inventory_unit, quote_unit, order_unit, unit_conversion_json, integer_unit, template_state, active)
+		VALUES(NULLIF($1,0), $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13::jsonb, $14, 'derived_from_public', true)
+		RETURNING id, COALESCE(parent_id,0), COALESCE(customer_id,0), COALESCE(source_category_id,0), name, level, position, COALESCE(gradient_template_id,0),
+		          COALESCE(operation_template_id,0), COALESCE(price_list_rule_json::text,'{}'),
+		          COALESCE(inventory_unit,'kg'), COALESCE(quote_unit,'kg'), COALESCE(order_unit,'kg'), COALESCE(unit_conversion_json::text,'{}'), COALESCE(integer_unit,false), template_state
+	`, schema), parentID, cmd.CustomerID, source.ID, source.Name, source.Level, position, source.GradientTemplateID, source.OperationTemplateID, source.PriceListRuleJSON, source.InventoryUnit, source.QuoteUnit, source.OrderUnit, source.UnitConversionJSON, source.IntegerUnit).Scan(&row.ID, &row.ParentID, &row.CustomerID, &row.SourceCategoryID, &row.Name, &row.Level, &row.Position, &row.GradientTemplateID, &row.OperationTemplateID, &row.PriceListRuleJSON, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.TemplateState); err != nil {
 		return catalogapp.ProductCategory{}, err
 	}
 	if err := normalizeCategoryPositions(ctx, tx, schema, parentID, cmd.CustomerID); err != nil {
@@ -1154,9 +1184,12 @@ func fetchCatalogProductByIDTx(ctx context.Context, tx pgx.Tx, schema string, pr
 		COALESCE(customer_id,0), COALESCE(base_product_id,0),
 		COALESCE(NULLIF(visibility,''),'public'), COALESCE(custom_type,''),
 		margin_rate_override::float8,
+		COALESCE(gradient_template_id_override,0),
+		COALESCE(operation_template_id_override,0),
+		COALESCE(unit_rule_override_json::text,'{}'),
 		COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=products.id),0),
 		COALESCE((SELECT NULLIF(status,'') FROM %[1]s.product_bom WHERE product_id=products.id), 'missing')
-		FROM %[1]s.products WHERE id=$1`, schema), productID).Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.BomItemCount, &p.BomStatus)
+		FROM %[1]s.products WHERE id=$1`, schema), productID).Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.BomItemCount, &p.BomStatus)
 	if err != nil {
 		return catalogapp.Product{}, err
 	}
@@ -1699,9 +1732,12 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 		COALESCE(customer_id,0), COALESCE(base_product_id,0),
 		COALESCE(NULLIF(visibility,''),'public'), COALESCE(custom_type,''),
 		margin_rate_override::float8,
+		COALESCE(gradient_template_id_override,0),
+		COALESCE(operation_template_id_override,0),
+		COALESCE(unit_rule_override_json::text,'{}'),
 		COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=products.id),0),
 		COALESCE((SELECT NULLIF(status,'') FROM %[1]s.product_bom WHERE product_id=products.id), 'missing')
-		FROM %[1]s.products WHERE id=$1`, schema), id).Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.BomItemCount, &p.BomStatus)
+		FROM %[1]s.products WHERE id=$1`, schema), id).Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.BomItemCount, &p.BomStatus)
 	if err != nil {
 		return nil, nil
 	}
@@ -1717,7 +1753,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 }
 
 func catalogProductFromOption(p postgresinfra.ProductOption) catalogapp.Product {
-	out := catalogapp.Product{ID: p.ID, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, OrderUsageCount: p.OrderUsageCount}
+	out := catalogapp.Product{ID: p.ID, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, GradientTemplateIDOverride: p.GradientTemplateIDOverride, OperationTemplateIDOverride: p.OperationTemplateIDOverride, UnitRuleOverrideJSON: p.UnitRuleOverrideJSON, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, OrderUsageCount: p.OrderUsageCount}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, SpecG: t.SpecG, MinQty: t.MinQty, MaxQty: t.MaxQty, UnitPrice: t.UnitPrice})

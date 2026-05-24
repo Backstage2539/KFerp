@@ -259,15 +259,17 @@ type ProductOption struct {
 }
 
 type BeanListVersionOption struct {
-	CustomerID      int64  `json:"customer_id"`
-	ListType        string `json:"list_type"`
-	ID              int64  `json:"id"`
-	VersionNo       string `json:"version_no"`
-	Label           string `json:"label"`
-	PublishedAt     string `json:"published_at"`
-	Changelog       string `json:"changelog"`
-	IsCustomerOwned bool   `json:"is_customer_owned"`
-	IsDefault       bool   `json:"is_default"`
+	CustomerID            int64  `json:"customer_id"`
+	ListType              string `json:"list_type"`
+	ProductTypeCategoryID int64  `json:"product_type_category_id,omitempty"`
+	ProductTypeName       string `json:"product_type_name,omitempty"`
+	ID                    int64  `json:"id"`
+	VersionNo             string `json:"version_no"`
+	Label                 string `json:"label"`
+	PublishedAt           string `json:"published_at"`
+	Changelog             string `json:"changelog"`
+	IsCustomerOwned       bool   `json:"is_customer_owned"`
+	IsDefault             bool   `json:"is_default"`
 }
 
 type CustomerPublicUsageOption struct {

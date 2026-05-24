@@ -319,11 +319,11 @@ func buildPublicBeanListTitle(listType, brandName string) string {
 	}
 	switch normalizePublicBeanListType(listType) {
 	case "retail":
-		return brand + "零售豆单"
+		return brand + "零售产品价格表"
 	case "green":
-		return brand + "生豆豆单"
+		return brand + "生豆产品价格表"
 	}
-	return brand + "批发豆单"
+	return brand + "批发产品价格表"
 }
 
 func buildPublicBeanListSubtitle(listType string) string {

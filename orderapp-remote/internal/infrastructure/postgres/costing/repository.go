@@ -548,9 +548,15 @@ func (r Repository) DeactivateDripPriceTemplate(ctx context.Context, cmd appcost
 func (r Repository) ListBeanListPublications(ctx context.Context, query appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
 	whereClause := "WHERE list_type=$1 AND owner_type=$2 AND owner_key=$3"
 	args := []any{strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+	if query.ProductTypeCategoryID > 0 {
+		whereClause = "WHERE product_type_category_id=$1 AND owner_type=$2 AND owner_key=$3"
+		args = []any{query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id,
 		       list_type,
+		       COALESCE(product_type_category_id,0),
+		       COALESCE(product_type_name,''),
 		       version_no,
 		       status,
 		       owner_type,
@@ -584,9 +590,17 @@ func (r Repository) ListBeanListPublications(ctx context.Context, query appcosti
 }
 
 func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error) {
+	whereClause := "list_type=$1 AND owner_type=$2 AND owner_key=$3"
+	args := []any{strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+	if query.ProductTypeCategoryID > 0 {
+		whereClause = "product_type_category_id=$1 AND owner_type=$2 AND owner_key=$3"
+		args = []any{query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+	}
 	row, err := scanBeanListPublication(r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,
 		       list_type,
+		       COALESCE(product_type_category_id,0),
+		       COALESCE(product_type_name,''),
 		       version_no,
 		       status,
 		       owner_type,
@@ -601,10 +615,10 @@ func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.Bean
 		       COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
 		       to_char(created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.bean_list_publications
-		WHERE list_type=$1 AND owner_type=$2 AND owner_key=$3 AND status='published'
+		WHERE %s AND status='published'
 		ORDER BY published_at DESC, id DESC
 		LIMIT 1
-	`, r.schema), strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)))
+	`, r.schema, whereClause), args...))
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -615,9 +629,17 @@ func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.Bean
 }
 
 func (r Repository) LoadBeanListPublication(ctx context.Context, query appcosting.BeanListPublicationQuery, publicationID int64) (*appcosting.BeanListPublication, error) {
+	whereClause := "id=$1 AND list_type=$2 AND owner_type=$3 AND owner_key=$4"
+	args := []any{publicationID, strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+	if query.ProductTypeCategoryID > 0 {
+		whereClause = "id=$1 AND product_type_category_id=$2 AND owner_type=$3 AND owner_key=$4"
+		args = []any{publicationID, query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+	}
 	row, err := scanBeanListPublication(r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,
 		       list_type,
+		       COALESCE(product_type_category_id,0),
+		       COALESCE(product_type_name,''),
 		       version_no,
 		       status,
 		       owner_type,
@@ -632,8 +654,8 @@ func (r Repository) LoadBeanListPublication(ctx context.Context, query appcostin
 		       COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
 		       to_char(created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.bean_list_publications
-		WHERE id=$1 AND list_type=$2 AND owner_type=$3 AND owner_key=$4
-	`, r.schema), publicationID, strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)))
+		WHERE %s
+	`, r.schema, whereClause), args...))
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, appcosting.ErrBeanListPublicationNotFound
@@ -742,15 +764,17 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	var published appcosting.BeanListPublication
 	var configJSON, contentJSON []byte
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.bean_list_publications(list_type, version_no, status, owner_type, owner_key, price_source_publication_id, style_source_publication_id, source_version_no, config_json, content_json, changelog, actor)
-		VALUES($1,$2,'published',$3,$4,NULLIF($5,0),NULLIF($6,0),$7,$8::jsonb,$9::jsonb,$10,$11)
-		RETURNING id, list_type, version_no, status, owner_type, owner_key, COALESCE(price_source_publication_id,0), COALESCE(style_source_publication_id,0), source_version_no, config_json, content_json, changelog,
+		INSERT INTO %s.bean_list_publications(list_type, product_type_category_id, product_type_name, version_no, status, owner_type, owner_key, price_source_publication_id, style_source_publication_id, source_version_no, config_json, content_json, changelog, actor)
+		VALUES($1,$2,$3,$4,'published',$5,$6,NULLIF($7,0),NULLIF($8,0),$9,$10::jsonb,$11::jsonb,$12,$13)
+		RETURNING id, list_type, COALESCE(product_type_category_id,0), COALESCE(product_type_name,''), version_no, status, owner_type, owner_key, COALESCE(price_source_publication_id,0), COALESCE(style_source_publication_id,0), source_version_no, config_json, content_json, changelog,
 		          to_char(published_at,'YYYY-MM-DD HH24:MI'),
 		          COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
 		          to_char(created_at,'YYYY-MM-DD HH24:MI')
-	`, r.schema), cmd.ListType, cmd.Version, cmd.OwnerType, cmd.OwnerKey, cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersion, config, content, cmd.Changelog, cmd.Actor).Scan(
+	`, r.schema), cmd.ListType, cmd.ProductTypeCategoryID, cmd.ProductTypeName, cmd.Version, cmd.OwnerType, cmd.OwnerKey, cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersion, config, content, cmd.Changelog, cmd.Actor).Scan(
 		&published.ID,
 		&published.ListType,
+		&published.ProductTypeCategoryID,
+		&published.ProductTypeName,
 		&published.Version,
 		&published.Status,
 		&published.OwnerType,
@@ -784,6 +808,8 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &published.ID, "publish", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("published"), postgresinfra.AuditMeta{
 		"list_type":                cmd.ListType,
+		"product_type_category_id": cmd.ProductTypeCategoryID,
+		"product_type_name":        cmd.ProductTypeName,
 		"version":                  cmd.Version,
 		"owner_type":               cmd.OwnerType,
 		"owner_key":                cmd.OwnerKey,
@@ -824,15 +850,17 @@ func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.Publis
 	var draft appcosting.BeanListPublication
 	var configJSON, contentJSON []byte
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.bean_list_publications(list_type, version_no, status, owner_type, owner_key, price_source_publication_id, style_source_publication_id, source_version_no, config_json, content_json, changelog, actor)
-		VALUES($1,$2,'draft',$3,$4,NULLIF($5,0),NULLIF($6,0),$7,$8::jsonb,$9::jsonb,$10,$11)
-		RETURNING id, list_type, version_no, status, owner_type, owner_key, COALESCE(price_source_publication_id,0), COALESCE(style_source_publication_id,0), source_version_no, config_json, content_json, changelog,
+		INSERT INTO %s.bean_list_publications(list_type, product_type_category_id, product_type_name, version_no, status, owner_type, owner_key, price_source_publication_id, style_source_publication_id, source_version_no, config_json, content_json, changelog, actor)
+		VALUES($1,$2,$3,$4,'draft',$5,$6,NULLIF($7,0),NULLIF($8,0),$9,$10::jsonb,$11::jsonb,$12,$13)
+		RETURNING id, list_type, COALESCE(product_type_category_id,0), COALESCE(product_type_name,''), version_no, status, owner_type, owner_key, COALESCE(price_source_publication_id,0), COALESCE(style_source_publication_id,0), source_version_no, config_json, content_json, changelog,
 		          to_char(published_at,'YYYY-MM-DD HH24:MI'),
 		          COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
 		          to_char(created_at,'YYYY-MM-DD HH24:MI')
-	`, r.schema), cmd.ListType, cmd.Version, cmd.OwnerType, cmd.OwnerKey, cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersion, config, content, cmd.Changelog, cmd.Actor).Scan(
+	`, r.schema), cmd.ListType, cmd.ProductTypeCategoryID, cmd.ProductTypeName, cmd.Version, cmd.OwnerType, cmd.OwnerKey, cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersion, config, content, cmd.Changelog, cmd.Actor).Scan(
 		&draft.ID,
 		&draft.ListType,
+		&draft.ProductTypeCategoryID,
+		&draft.ProductTypeName,
 		&draft.Version,
 		&draft.Status,
 		&draft.OwnerType,
@@ -866,6 +894,8 @@ func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.Publis
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &draft.ID, "save_draft", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("draft"), postgresinfra.AuditMeta{
 		"list_type":                cmd.ListType,
+		"product_type_category_id": cmd.ProductTypeCategoryID,
+		"product_type_name":        cmd.ProductTypeName,
 		"version":                  cmd.Version,
 		"owner_type":               cmd.OwnerType,
 		"owner_key":                cmd.OwnerKey,
@@ -1137,6 +1167,8 @@ func scanBeanListPublication(row beanListPublicationScanner) (appcosting.BeanLis
 	if err := row.Scan(
 		&out.ID,
 		&out.ListType,
+		&out.ProductTypeCategoryID,
+		&out.ProductTypeName,
 		&out.Version,
 		&out.Status,
 		&out.OwnerType,

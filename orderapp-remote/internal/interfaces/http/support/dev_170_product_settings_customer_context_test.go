@@ -40,7 +40,7 @@ func TestDev170ProductSettingsLayoutUsesTopLevelCustomerContext(t *testing.T) {
 		"skuContextProductFilter",
 		"v-for=\"primary in categoryTreeForSkuContext\"",
 		"customer_id: selectedCustomerSkuCustomerID.value",
-		"豆单生成请进入产品豆单",
+		"豆单生成请进入产品价格表",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("ProductSettingsView.vue missing customer context marker %q", want)

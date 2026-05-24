@@ -29,6 +29,9 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS drip_bag_grams NUMERIC(12,3)
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS drip_box_bag_count INT;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS allow_fulfillment_order BOOLEAN;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS allow_mall_order BOOLEAN;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS gradient_template_id_override BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS operation_template_id_override BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS unit_rule_override_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 UPDATE %[1]s.products SET visibility='public' WHERE COALESCE(visibility,'')='';
 UPDATE %[1]s.products SET product_kind='roasted_bean' WHERE COALESCE(product_kind,'')='';
 UPDATE %[1]s.products SET drip_bag_grams = 10 WHERE drip_bag_grams IS NULL;
@@ -66,6 +69,13 @@ ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS customer_id BIGINT
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS gradient_template_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS source_category_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS template_state TEXT NOT NULL DEFAULT 'customer_owned';
+ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS operation_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS price_list_rule_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS inventory_unit TEXT NOT NULL DEFAULT 'kg';
+ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS quote_unit TEXT NOT NULL DEFAULT 'kg';
+ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS order_unit TEXT NOT NULL DEFAULT 'kg';
+ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS unit_conversion_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS integer_unit BOOLEAN NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS %[1]s.pricing_gradient_templates (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
@@ -185,6 +195,103 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_sku_public_usage (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE %[1]s.customer_sku_public_usage ADD COLUMN IF NOT EXISTS use_public_gradient_templates BOOLEAN NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS %[1]s.customer_product_rule_templates (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	name TEXT NOT NULL,
+	active BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS customer_product_rule_templates_customer_name_active_uniq
+ON %[1]s.customer_product_rule_templates (customer_id, lower(name))
+WHERE active=true;
+CREATE TABLE IF NOT EXISTS %[1]s.customer_product_rule_template_items (
+	id BIGSERIAL PRIMARY KEY,
+	template_id BIGINT NOT NULL REFERENCES %[1]s.customer_product_rule_templates(id) ON DELETE CASCADE,
+	product_subtype_category_id BIGINT NOT NULL DEFAULT 0,
+	gradient_template_id BIGINT NOT NULL DEFAULT 0,
+	operation_template_id BIGINT NOT NULL DEFAULT 0,
+	price_list_rule_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	unit_rule_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	active BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS customer_product_rule_template_items_template_subtype_uniq
+ON %[1]s.customer_product_rule_template_items (template_id, product_subtype_category_id)
+WHERE active=true;
+CREATE TABLE IF NOT EXISTS %[1]s.customer_product_rule_overrides (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	product_subtype_category_id BIGINT NOT NULL DEFAULT 0,
+	gradient_template_id BIGINT NOT NULL DEFAULT 0,
+	operation_template_id BIGINT NOT NULL DEFAULT 0,
+	price_list_rule_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	unit_rule_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	active BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS customer_product_rule_overrides_customer_subtype_uniq
+ON %[1]s.customer_product_rule_overrides (customer_id, product_subtype_category_id)
+WHERE active=true;
+INSERT INTO %[1]s.product_categories(parent_id,customer_id,name,level,position,inventory_unit,quote_unit,order_unit,integer_unit)
+SELECT NULL,0,'熟豆',1,1,'kg','kg','kg',false
+WHERE NOT EXISTS (SELECT 1 FROM %[1]s.product_categories WHERE active=true AND customer_id=0 AND COALESCE(parent_id,0)=0 AND name='熟豆');
+INSERT INTO %[1]s.product_categories(parent_id,customer_id,name,level,position,inventory_unit,quote_unit,order_unit,integer_unit)
+SELECT NULL,0,'生豆',1,2,'kg','kg','kg',false
+WHERE NOT EXISTS (SELECT 1 FROM %[1]s.product_categories WHERE active=true AND customer_id=0 AND COALESCE(parent_id,0)=0 AND name='生豆');
+INSERT INTO %[1]s.product_categories(parent_id,customer_id,name,level,position,inventory_unit,quote_unit,order_unit,integer_unit)
+SELECT NULL,0,'挂耳',1,3,'kg','袋','盒',true
+WHERE NOT EXISTS (SELECT 1 FROM %[1]s.product_categories WHERE active=true AND customer_id=0 AND COALESCE(parent_id,0)=0 AND name='挂耳');
+INSERT INTO %[1]s.product_categories(parent_id,customer_id,name,level,position,inventory_unit,quote_unit,order_unit,integer_unit)
+SELECT NULL,0,'速溶咖啡',1,4,'kg','盒','盒',true
+WHERE NOT EXISTS (SELECT 1 FROM %[1]s.product_categories WHERE active=true AND customer_id=0 AND COALESCE(parent_id,0)=0 AND name='速溶咖啡');
+INSERT INTO %[1]s.product_categories(parent_id,customer_id,name,level,position,inventory_unit,quote_unit,order_unit,integer_unit)
+SELECT p.id,p.customer_id,'默认熟豆',2,1,'kg','kg','kg',false FROM %[1]s.product_categories p
+WHERE p.active=true AND p.customer_id=0 AND COALESCE(p.parent_id,0)=0 AND p.name='熟豆'
+  AND NOT EXISTS (SELECT 1 FROM %[1]s.product_categories c WHERE c.active=true AND c.customer_id=p.customer_id AND c.parent_id=p.id AND c.name='默认熟豆');
+INSERT INTO %[1]s.product_categories(parent_id,customer_id,name,level,position,inventory_unit,quote_unit,order_unit,integer_unit)
+SELECT p.id,p.customer_id,'默认生豆',2,1,'kg','kg','kg',false FROM %[1]s.product_categories p
+WHERE p.active=true AND p.customer_id=0 AND COALESCE(p.parent_id,0)=0 AND p.name='生豆'
+  AND NOT EXISTS (SELECT 1 FROM %[1]s.product_categories c WHERE c.active=true AND c.customer_id=p.customer_id AND c.parent_id=p.id AND c.name='默认生豆');
+INSERT INTO %[1]s.product_categories(parent_id,customer_id,name,level,position,inventory_unit,quote_unit,order_unit,unit_conversion_json,integer_unit)
+SELECT p.id,p.customer_id,'默认挂耳',2,1,'kg','袋','盒','{"袋":1,"盒":10}'::jsonb,true FROM %[1]s.product_categories p
+WHERE p.active=true AND p.customer_id=0 AND COALESCE(p.parent_id,0)=0 AND p.name='挂耳'
+  AND NOT EXISTS (SELECT 1 FROM %[1]s.product_categories c WHERE c.active=true AND c.customer_id=p.customer_id AND c.parent_id=p.id AND c.name='默认挂耳');
+INSERT INTO %[1]s.product_categories(parent_id,customer_id,name,level,position,inventory_unit,quote_unit,order_unit,unit_conversion_json,integer_unit)
+SELECT p.id,p.customer_id,'默认速溶咖啡',2,1,'kg','盒','盒','{"盒":1}'::jsonb,true FROM %[1]s.product_categories p
+WHERE p.active=true AND p.customer_id=0 AND COALESCE(p.parent_id,0)=0 AND p.name='速溶咖啡'
+  AND NOT EXISTS (SELECT 1 FROM %[1]s.product_categories c WHERE c.active=true AND c.customer_id=p.customer_id AND c.parent_id=p.id AND c.name='默认速溶咖啡');
+UPDATE %[1]s.products p
+SET product_category_id = subtype.id
+FROM %[1]s.product_categories type
+JOIN %[1]s.product_categories subtype ON subtype.parent_id=type.id AND subtype.active=true AND subtype.name='默认熟豆'
+WHERE type.active=true AND type.customer_id=0 AND COALESCE(type.parent_id,0)=0 AND type.name='熟豆'
+  AND COALESCE(p.product_category_id,0)=0
+  AND (p.product_kind='roasted_bean' OR p.product_kind='roasted');
+UPDATE %[1]s.products p
+SET product_category_id = subtype.id
+FROM %[1]s.product_categories type
+JOIN %[1]s.product_categories subtype ON subtype.parent_id=type.id AND subtype.active=true AND subtype.name='默认生豆'
+WHERE type.active=true AND type.customer_id=0 AND COALESCE(type.parent_id,0)=0 AND type.name='生豆'
+  AND COALESCE(p.product_category_id,0)=0
+  AND p.product_kind='green_bean';
+UPDATE %[1]s.products p
+SET product_category_id = subtype.id
+FROM %[1]s.product_categories type
+JOIN %[1]s.product_categories subtype ON subtype.parent_id=type.id AND subtype.active=true AND subtype.name='默认挂耳'
+WHERE type.active=true AND type.customer_id=0 AND COALESCE(type.parent_id,0)=0 AND type.name='挂耳'
+  AND COALESCE(p.product_category_id,0)=0
+  AND p.product_kind='drip_bag';
+UPDATE %[1]s.products p
+SET product_category_id = subtype.id
+FROM %[1]s.product_categories type
+JOIN %[1]s.product_categories subtype ON subtype.parent_id=type.id AND subtype.active=true AND subtype.name='默认速溶咖啡'
+WHERE type.active=true AND type.customer_id=0 AND COALESCE(type.parent_id,0)=0 AND type.name='速溶咖啡'
+  AND COALESCE(p.product_category_id,0)=0
+  AND p.product_kind='instant_coffee';
 INSERT INTO %[1]s.product_categories(parent_id,customer_id,name,level,position)
 SELECT NULL,0,'咖啡豆',1,1
 WHERE NOT EXISTS (SELECT 1 FROM %[1]s.product_categories WHERE active=true AND customer_id=0 AND COALESCE(parent_id,0)=0 AND name='咖啡豆');

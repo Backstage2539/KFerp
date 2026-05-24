@@ -86,7 +86,7 @@ func TestDev292ProductMarginOverrideManualsAndAcceptanceUpdated(t *testing.T) {
 			t.Fatalf("read %s: %v", file, err)
 		}
 		text := string(b)
-		for _, want := range []string{"产品级利润率覆盖", "二级分类", "梯度模板"} {
+		for _, want := range []string{"产品级利润率覆盖", "产品子类型", "梯度模板"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%s missing manual/acceptance marker %q", file, want)
 			}

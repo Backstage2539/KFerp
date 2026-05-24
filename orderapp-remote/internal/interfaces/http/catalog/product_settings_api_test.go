@@ -96,6 +96,9 @@ func (r *productSettingsRepo) UpdateProductBasics(ctx context.Context, cmd catal
 			r.products[i].RetailPrice250G = cmd.RetailPrice250G
 			r.products[i].YieldRate = cmd.YieldRate
 			r.products[i].MarginRateOverride = cmd.MarginRateOverride
+			r.products[i].GradientTemplateIDOverride = cmd.GradientTemplateIDOverride
+			r.products[i].OperationTemplateIDOverride = cmd.OperationTemplateIDOverride
+			r.products[i].UnitRuleOverrideJSON = cmd.UnitRuleOverrideJSON
 		}
 	}
 	return nil
@@ -168,7 +171,21 @@ func (r *productSettingsRepo) BindCategoryGradientTemplate(ctx context.Context, 
 func (r *productSettingsRepo) SaveProductCategory(ctx context.Context, cmd catalogapp.SaveProductCategoryCommand) (catalogapp.ProductCategory, error) {
 	r.savedCategory = cmd
 	r.categoryCreated = true
-	return catalogapp.ProductCategory{ID: 99, ParentID: cmd.ParentID, CustomerID: cmd.CustomerID, Name: cmd.Name, Position: cmd.Position}, nil
+	return catalogapp.ProductCategory{
+		ID:                  99,
+		ParentID:            cmd.ParentID,
+		CustomerID:          cmd.CustomerID,
+		Name:                cmd.Name,
+		Position:            cmd.Position,
+		GradientTemplateID:  cmd.GradientTemplateID,
+		OperationTemplateID: cmd.OperationTemplateID,
+		PriceListRuleJSON:   cmd.PriceListRuleJSON,
+		InventoryUnit:       cmd.InventoryUnit,
+		QuoteUnit:           cmd.QuoteUnit,
+		OrderUnit:           cmd.OrderUnit,
+		UnitConversionJSON:  cmd.UnitConversionJSON,
+		IntegerUnit:         cmd.IntegerUnit,
+	}, nil
 }
 
 func (r *productSettingsRepo) MoveProductCategory(ctx context.Context, cmd catalogapp.MoveProductCategoryCommand) error {
@@ -344,6 +361,68 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	}
 	if !repo.productAssigned || repo.assigned.ProductID != 7 || repo.assigned.CategoryID != 2 || repo.assigned.Position != 3 {
 		t.Fatalf("assign product command = %+v assigned=%v", repo.assigned, repo.productAssigned)
+	}
+}
+
+func TestProductSettingsAPIExposesAndSavesSubtypeConfigAndUnitRules(t *testing.T) {
+	repo := &productSettingsRepo{
+		categories: []catalogapp.ProductCategory{
+			{ID: 1, Name: "速溶咖啡", Level: 1, Position: 1, TemplateState: "public_template"},
+			{
+				ID: 2, ParentID: 1, Name: "冻干速溶", Level: 2, Position: 1, GradientTemplateID: 9,
+				OperationTemplateID: 19, PriceListRuleJSON: `{"generator":"instant"}`,
+				InventoryUnit: "kg", QuoteUnit: "盒", OrderUnit: "盒", UnitConversionJSON: `{"盒":{"kg":0.2}}`, IntegerUnit: true,
+				TemplateState: "public_template",
+			},
+		},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"operation_template_id":19`,
+		`"price_list_rule_json":"{\"generator\":\"instant\"}"`,
+		`"inventory_unit":"kg"`,
+		`"quote_unit":"盒"`,
+		`"order_unit":"盒"`,
+		`"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}"`,
+		`"integer_unit":true`,
+	} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("product settings response missing subtype config %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/categories", bytes.NewBufferString(`{
+		"name":"冻干速溶",
+		"parent_id":1,
+		"position":2,
+		"gradient_template_id":9,
+		"operation_template_id":19,
+		"price_list_rule_json":"{\"generator\":\"instant\"}",
+		"inventory_unit":"kg",
+		"quote_unit":"盒",
+		"order_unit":"盒",
+		"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}",
+		"integer_unit":true
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST category config status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.categoryCreated || repo.savedCategory.GradientTemplateID != 9 || repo.savedCategory.OperationTemplateID != 19 || repo.savedCategory.PriceListRuleJSON != `{"generator":"instant"}` {
+		t.Fatalf("category config command = %+v created=%v", repo.savedCategory, repo.categoryCreated)
+	}
+	if repo.savedCategory.InventoryUnit != "kg" || repo.savedCategory.QuoteUnit != "盒" || repo.savedCategory.OrderUnit != "盒" || repo.savedCategory.UnitConversionJSON != `{"盒":{"kg":0.2}}` || !repo.savedCategory.IntegerUnit {
+		t.Fatalf("category unit rule command = %+v", repo.savedCategory)
 	}
 }
 

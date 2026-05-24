@@ -15,6 +15,7 @@ import {
   lineDiscountAmount,
   lineTotal,
   latestBeanListVersionOption,
+  latestProductPriceListVersionOption,
   needsTrailingBlankOrderLine,
   orderRowPriceUnit,
   resolveWholesaleTierPrice,
@@ -513,6 +514,18 @@ test('latestBeanListVersionOption uses the newest published version instead of d
 
   assert.equal(latestBeanListVersionOption(options, 'commercial').id, 33)
   assert.equal(rowUsesStaleBeanListPublication({ product_id: 7, product_kind: 'roasted_bean', bean_list_publication_id: 31 }, options), true)
+})
+
+test('latestProductPriceListVersionOption prefers product type category over legacy list type', () => {
+  const options = [
+    { id: 31, list_type: 'commercial', product_type_category_id: 0, product_type_name: '熟豆', version_no: 'V3.0.9', published_at: '2026-05-22 20:47' },
+    { id: 51, list_type: 'instant', product_type_category_id: 12, product_type_name: '速溶咖啡', version_no: 'V1.0.0', published_at: '2026-05-23 08:00' },
+    { id: 52, list_type: 'instant', product_type_category_id: 12, product_type_name: '速溶咖啡', version_no: 'V1.0.1', published_at: '2026-05-24 08:00' },
+  ]
+
+  assert.equal(latestProductPriceListVersionOption(options, { product_type_category_id: 12 })?.id, 52)
+  assert.equal(latestProductPriceListVersionOption(options, { product_type_name: '速溶咖啡' })?.id, 52)
+  assert.equal(latestProductPriceListVersionOption(options, { product_kind: 'roasted_bean' })?.id, 31)
 })
 
 test('beanListVersionOptionsForCustomer keeps public fallback versions for the selected customer', () => {

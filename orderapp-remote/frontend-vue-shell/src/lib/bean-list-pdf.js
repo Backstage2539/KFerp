@@ -42,9 +42,9 @@ export function sanitizeBeanListPdfTheme(input = {}) {
 export function buildBeanListPdfTitle(listType, brandName = '棵凡咖啡') {
   const brand = String(brandName || '棵凡咖啡').trim() || '棵凡咖啡'
   const normalized = normalizeBeanListType(listType)
-  if (normalized === 'green') return `${brand}生豆豆单`
-  if (normalized === 'drip') return `${brand}挂耳豆单`
-  return normalized === 'retail' ? `${brand}零售豆单` : `${brand}批发豆单`
+  if (normalized === 'green') return `${brand}生豆产品价格表`
+  if (normalized === 'drip') return `${brand}挂耳产品价格表`
+  return normalized === 'retail' ? `${brand}零售产品价格表` : `${brand}批发产品价格表`
 }
 
 export function filterBeanListItemsForScope(items = [], scope = 'official', customerID = 0, options = {}) {

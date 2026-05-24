@@ -163,6 +163,31 @@ export function buildAssignCategoryPayload({ product = {}, category = {}, custom
   return payload
 }
 
+export function buildProductCategoryConfigPayload(category = {}) {
+  return {
+    id: Number(category.id || 0),
+    name: String(category.name || '').trim(),
+    parent_id: Number(category.parent_id || 0),
+    position: Number(category.position || 0),
+    gradient_template_id: Number(category.gradient_template_id || 0),
+    operation_template_id: Number(category.operation_template_id || 0),
+    price_list_rule_json: normalizeJSONString(category.price_list_rule_json),
+    inventory_unit: normalizeUnitText(category.inventory_unit, 'kg'),
+    quote_unit: normalizeUnitText(category.quote_unit, normalizeUnitText(category.inventory_unit, 'kg')),
+    order_unit: normalizeUnitText(category.order_unit, normalizeUnitText(category.quote_unit, normalizeUnitText(category.inventory_unit, 'kg'))),
+    unit_conversion_json: normalizeJSONString(category.unit_conversion_json),
+    integer_unit: Boolean(category.integer_unit),
+  }
+}
+
+export function buildSkuConfigOverridePayload(row = {}) {
+  return {
+    gradient_template_id_override: Number(row.gradient_template_id_override || 0),
+    operation_template_id_override: Number(row.operation_template_id_override || 0),
+    unit_rule_override_json: normalizeJSONString(row.unit_rule_override_json),
+  }
+}
+
 export function buildSkuContextCategoryTree(categories = [], context = {}) {
   const customerID = Number(context.customerID || context.customer_id || 0)
   const publicRoots = (categories || []).filter((category) => Number(category.customer_id || 0) === 0)
@@ -503,4 +528,15 @@ export function buildProductBomURL(currentHref = '', row = {}) {
 function uniqueSorted(values = []) {
   return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)))
     .sort((a, b) => a.localeCompare(b))
+}
+
+function normalizeUnitText(value, fallback = 'kg') {
+  const normalized = String(value || '').trim()
+  if (normalized) return normalized
+  return String(fallback || '').trim() || 'kg'
+}
+
+function normalizeJSONString(value) {
+  const raw = String(value || '').trim()
+  return raw || '{}'
 }

@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.customers (
 	active BOOLEAN NOT NULL DEFAULT true,
 	default_source_id BIGINT,
 	default_order_type_id BIGINT,
+	customer_product_rule_template_id BIGINT NOT NULL DEFAULT 0,
 	responsible_employee_id BIGINT NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -164,6 +165,7 @@ func ensureCoreColumns(ctx context.Context, pool *pgxpool.Pool, schema string) e
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS company_phone TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS default_source_id BIGINT`,
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS default_order_type_id BIGINT`,
+		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS customer_product_rule_template_id BIGINT NOT NULL DEFAULT 0`,
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS responsible_employee_id BIGINT NOT NULL DEFAULT 0`,
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()`,
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`,

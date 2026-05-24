@@ -86,6 +86,8 @@ type UpdateParameterCommand struct {
 type BeanListPublication struct {
 	ID                       int64          `json:"id"`
 	ListType                 string         `json:"list_type"`
+	ProductTypeCategoryID    int64          `json:"product_type_category_id,omitempty"`
+	ProductTypeName          string         `json:"product_type_name,omitempty"`
 	Version                  string         `json:"version"`
 	Status                   string         `json:"status"`
 	OwnerType                string         `json:"owner_type"`
@@ -102,11 +104,12 @@ type BeanListPublication struct {
 }
 
 type BeanListPublicationQuery struct {
-	ListType   string `json:"list_type"`
-	Scope      string `json:"scope,omitempty"`
-	CustomerID int64  `json:"customer_id,omitempty"`
-	OwnerType  string `json:"owner_type,omitempty"`
-	OwnerKey   string `json:"owner_key,omitempty"`
+	ListType              string `json:"list_type"`
+	ProductTypeCategoryID int64  `json:"product_type_category_id,omitempty"`
+	Scope                 string `json:"scope,omitempty"`
+	CustomerID            int64  `json:"customer_id,omitempty"`
+	OwnerType             string `json:"owner_type,omitempty"`
+	OwnerKey              string `json:"owner_key,omitempty"`
 }
 
 type BeanListPublicationAsset struct {
@@ -137,6 +140,8 @@ type BeanListPublicationPDFFile struct {
 
 type PublishBeanListCommand struct {
 	ListType                 string         `json:"list_type"`
+	ProductTypeCategoryID    int64          `json:"product_type_category_id,omitempty"`
+	ProductTypeName          string         `json:"product_type_name,omitempty"`
 	Version                  string         `json:"version"`
 	Scope                    string         `json:"scope,omitempty"`
 	CustomerID               int64          `json:"customer_id,omitempty"`
@@ -517,6 +522,13 @@ func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListComman
 		return PublishBeanListCommand{}, err
 	}
 	cmd.ListType = listType
+	if cmd.ProductTypeCategoryID < 0 {
+		return PublishBeanListCommand{}, fmt.Errorf("product_type_category_id must be >= 0")
+	}
+	cmd.ProductTypeName = strings.TrimSpace(cmd.ProductTypeName)
+	if cmd.ProductTypeName == "" {
+		cmd.ProductTypeName = LegacyBeanListTypeProductTypeName(cmd.ListType)
+	}
 	cmd.Version = strings.TrimSpace(cmd.Version)
 	cmd.Changelog = strings.TrimSpace(cmd.Changelog)
 	cmd.SourceVersion = strings.TrimSpace(cmd.SourceVersion)
@@ -897,10 +909,24 @@ func normalizeBeanListType(listType string) (string, error) {
 	}
 }
 
+func LegacyBeanListTypeProductTypeName(listType string) string {
+	switch strings.TrimSpace(listType) {
+	case "green", "green_bean":
+		return "生豆"
+	case "drip":
+		return "挂耳"
+	default:
+		return "熟豆"
+	}
+}
+
 func normalizeBeanListPublicationQuery(query BeanListPublicationQuery) (BeanListPublicationQuery, error) {
 	listType, err := normalizeBeanListType(query.ListType)
 	if err != nil {
 		return BeanListPublicationQuery{}, err
+	}
+	if query.ProductTypeCategoryID < 0 {
+		return BeanListPublicationQuery{}, fmt.Errorf("product_type_category_id must be >= 0")
 	}
 	ownerType, ownerKey, err := normalizeBeanListOwner(query.OwnerType, query.OwnerKey)
 	if err != nil {

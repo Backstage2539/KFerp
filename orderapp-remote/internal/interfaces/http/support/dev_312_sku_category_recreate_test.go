@@ -30,12 +30,12 @@ func TestDev312SkuCategoryRecreateAfterDelete(t *testing.T) {
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-312-SKU-CATEGORY-RECREATE-AFTER-DELETE",
-			"删除客户自己的一级或二级商品分类后",
+			"删除客户自己的产品类型或产品子类型后",
 			"不得触发 `product_categories_customer_parent_name_uniq`",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-312-SKU-CATEGORY-RECREATE-AFTER-DELETE",
-			"芬纳等客户 SKU 归属下新增一级分类",
+			"芬纳等客户 SKU 归属下新增产品类型",
 			"不拦截软删除历史分类",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {

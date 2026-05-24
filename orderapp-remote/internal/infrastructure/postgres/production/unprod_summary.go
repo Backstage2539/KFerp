@@ -9,17 +9,22 @@ import (
 )
 
 type UnprodNeedRow struct {
-	ProductID      int64  `json:"product_id"`
-	Product        string `json:"product"`
-	OrderNos       string `json:"order_nos"`
-	SpecG          int64  `json:"spec_g"`
-	NeedUnits      int64  `json:"need_units"`
-	NeedG          int64  `json:"need_g"`
-	InvUnits       int64  `json:"inv_units"`
-	InvLooseG      int64  `json:"inv_loose_g"`
-	InvG           int64  `json:"inv_g"`
-	GapG           int64  `json:"gap_g"`
-	ProductionKind string `json:"production_kind,omitempty"`
+	ProductID                int64  `json:"product_id"`
+	Product                  string `json:"product"`
+	OrderNos                 string `json:"order_nos"`
+	SpecG                    int64  `json:"spec_g"`
+	NeedUnits                int64  `json:"need_units"`
+	NeedG                    int64  `json:"need_g"`
+	InvUnits                 int64  `json:"inv_units"`
+	InvLooseG                int64  `json:"inv_loose_g"`
+	InvG                     int64  `json:"inv_g"`
+	GapG                     int64  `json:"gap_g"`
+	ProductionKind           string `json:"production_kind,omitempty"`
+	ProductTypeCategoryID    int64  `json:"product_type_category_id,omitempty"`
+	ProductSubtypeCategoryID int64  `json:"product_subtype_category_id,omitempty"`
+	ProductTypeName          string `json:"product_type_name,omitempty"`
+	ProductSubtypeName       string `json:"product_subtype_name,omitempty"`
+	OperationTemplateID      int64  `json:"operation_template_id,omitempty"`
 }
 
 func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from, to string, customerID int64) ([]UnprodNeedRow, error) {
@@ -66,6 +71,11 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 				oi.product_id,
 				COALESCE(p.name,'') AS product,
 				COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted_bean') AS production_kind,
+				COALESCE(type_pc.id,0) AS product_type_category_id,
+				COALESCE(subtype_pc.id,0) AS product_subtype_category_id,
+				COALESCE(type_pc.name,'') AS product_type_name,
+				COALESCE(subtype_pc.name,'') AS product_subtype_name,
+				COALESCE(NULLIF(subtype_pc.operation_template_id,0), type_pc.operation_template_id,0) AS operation_template_id,
 				STRING_AGG(DISTINCT COALESCE(o.order_no,''), ',' ORDER BY COALESCE(o.order_no,'')) AS order_nos,
 				COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g,
 				SUM(COALESCE(oi.qty,0))::bigint AS need_units,
@@ -73,22 +83,31 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			FROM %s.order_items oi
 			JOIN %s.orders o ON o.id = oi.order_id
 			LEFT JOIN %s.products p ON p.id = oi.product_id
+			LEFT JOIN %s.product_categories subtype_pc ON subtype_pc.id=COALESCE(p.product_category_id,0)
+			LEFT JOIN %s.product_categories type_pc ON type_pc.id=COALESCE(subtype_pc.parent_id,0)
 			LEFT JOIN %s.order_stock_decisions osd ON osd.order_id = o.id
 			%s
-			GROUP BY oi.product_id, p.name, COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted_bean'), COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')
+			GROUP BY oi.product_id, p.name, COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted_bean'), type_pc.id, subtype_pc.id, type_pc.name, subtype_pc.name, COALESCE(NULLIF(subtype_pc.operation_template_id,0), type_pc.operation_template_id,0), COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')
 			UNION ALL
 			SELECT
 				d.product_id,
 				COALESCE(NULLIF(d.product_name,''), p.name, '') AS product,
 				COALESCE(NULLIF(p.product_kind,''), 'roasted_bean') AS production_kind,
+				COALESCE(type_pc.id,0) AS product_type_category_id,
+				COALESCE(subtype_pc.id,0) AS product_subtype_category_id,
+				COALESCE(type_pc.name,'') AS product_type_name,
+				COALESCE(subtype_pc.name,'') AS product_subtype_name,
+				COALESCE(NULLIF(subtype_pc.operation_template_id,0), type_pc.operation_template_id,0) AS operation_template_id,
 				STRING_AGG(DISTINCT COALESCE(d.request_no,''), ',' ORDER BY COALESCE(d.request_no,'')) AS order_nos,
 				d.spec_g,
 				SUM(COALESCE(d.target_qty,0))::bigint AS need_units,
 				SUM(COALESCE(d.target_qty,0))::bigint AS force_produce_units
 			FROM %s.customer_processing_production_demands d
 			LEFT JOIN %s.products p ON p.id=d.product_id
+			LEFT JOIN %s.product_categories subtype_pc ON subtype_pc.id=COALESCE(p.product_category_id,0)
+			LEFT JOIN %s.product_categories type_pc ON type_pc.id=COALESCE(subtype_pc.parent_id,0)
 			WHERE %s
-			GROUP BY d.product_id, d.product_name, p.name, COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'), d.spec_g
+			GROUP BY d.product_id, d.product_name, p.name, COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'), type_pc.id, subtype_pc.id, type_pc.name, subtype_pc.name, COALESCE(NULLIF(subtype_pc.operation_template_id,0), type_pc.operation_template_id,0), d.spec_g
 		)
 		, reserved AS (
 			SELECT
@@ -110,6 +129,11 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			n.product_id,
 			n.product,
 			n.production_kind,
+			n.product_type_category_id,
+			n.product_subtype_category_id,
+			n.product_type_name,
+			n.product_subtype_name,
+			n.operation_template_id,
 			COALESCE(n.order_nos,'') AS order_nos,
 			n.spec_g,
 			n.need_units,
@@ -136,7 +160,7 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			ON reserved.product_id = n.product_id AND reserved.spec_g = n.spec_g
 		WHERE n.spec_g > 0
 		ORDER BY gap_g DESC, n.product, n.spec_g
-	`, schema, schema, schema, schema, where, schema, schema, strings.Join(demandWhere, " AND "), schema, schema, schema)
+		`, schema, schema, schema, schema, schema, schema, where, schema, schema, schema, schema, strings.Join(demandWhere, " AND "), schema, schema, schema)
 
 	rows, err := pool.Query(ctx, q, args...)
 	if err != nil {
@@ -147,7 +171,7 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 	out := make([]UnprodNeedRow, 0)
 	for rows.Next() {
 		var r UnprodNeedRow
-		if err := rows.Scan(&r.ProductID, &r.Product, &r.ProductionKind, &r.OrderNos, &r.SpecG, &r.NeedUnits, &r.NeedG, &r.InvUnits, &r.InvLooseG, &r.InvG, &r.GapG); err != nil {
+		if err := rows.Scan(&r.ProductID, &r.Product, &r.ProductionKind, &r.ProductTypeCategoryID, &r.ProductSubtypeCategoryID, &r.ProductTypeName, &r.ProductSubtypeName, &r.OperationTemplateID, &r.OrderNos, &r.SpecG, &r.NeedUnits, &r.NeedG, &r.InvUnits, &r.InvLooseG, &r.InvG, &r.GapG); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

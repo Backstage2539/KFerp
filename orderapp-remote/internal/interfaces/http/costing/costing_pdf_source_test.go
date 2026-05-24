@@ -19,7 +19,7 @@ func TestCostingViewHasBeanListPDFDrawerAndStoredPreviewPDFWorkflow(t *testing.T
 	src := string(view) + "\n" + string(helper)
 	for _, want := range []string{
 		"pdfDrawerOpen",
-		"生成豆单 PDF",
+		"生成价格表 PDF",
 		"V3.0.5",
 		"backgroundColor",
 		"fontColor",
@@ -159,7 +159,6 @@ func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T)
 		"pricingCollapsed",
 		"价格试算",
 		"保存试算",
-		"发布价格",
 		"试算批次",
 		"redPriceLabels",
 		"标红价格档",
