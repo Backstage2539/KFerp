@@ -41,7 +41,7 @@ import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import { apiFetch } from '../api/client'
 import { contractStampOverlayStyle } from '../lib/contract-stamp'
-import { movePDFStampPlacement, resizePDFStampPlacement } from '../lib/document-pdf-stamp'
+import { movePDFStampPlacement, movePDFStampPlacementAcrossPages, resizePDFStampPlacement } from '../lib/document-pdf-stamp'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker
 
@@ -174,7 +174,9 @@ function moveDrag(event) {
       minHeight: state.original.min_height || 24,
       lockAspectRatio: Boolean(state.original.lock_aspect_ratio),
     })
-    : movePDFStampPlacement(state.original, movement)
+    : state.original.cross_page_drag
+      ? movePDFStampPlacementAcrossPages(state.original, { ...movement, pages: pages.value })
+      : movePDFStampPlacement(state.original, movement)
   localPlacements.value[state.index] = next
   emit('placement-change', next)
 }

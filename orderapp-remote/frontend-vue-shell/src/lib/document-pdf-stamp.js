@@ -40,6 +40,33 @@ export function movePDFStampPlacement(placement = {}, { deltaX = 0, deltaY = 0, 
   }
 }
 
+export function movePDFStampPlacementAcrossPages(placement = {}, { deltaX = 0, deltaY = 0, displayScale = 1, pages = [] } = {}) {
+  const validPages = Array.isArray(pages) ? pages.filter(Boolean) : []
+  if (validPages.length <= 1) return movePDFStampPlacement(placement, { deltaX, deltaY, displayScale })
+  const scale = positiveNumber(displayScale, 1)
+  let pageIndex = validPages.findIndex((page) => Number(page.pageNumber || page.page_number || 1) === Number(placement.page_number || 1))
+  if (pageIndex < 0) pageIndex = 0
+  let y = Number(placement.y || 0) + Number(deltaY || 0) / scale
+  while (y < 0 && pageIndex > 0) {
+    pageIndex -= 1
+    y += pdfPageHeight(validPages[pageIndex])
+  }
+  while (pageIndex < validPages.length - 1 && y + Number(placement.height || 0) > pdfPageHeight(validPages[pageIndex])) {
+    y -= pdfPageHeight(validPages[pageIndex])
+    pageIndex += 1
+  }
+  const pageHeight = pdfPageHeight(validPages[pageIndex])
+  const maxY = Math.max(0, pageHeight - Number(placement.height || 0))
+  return {
+    ...placement,
+    page_number: Number(validPages[pageIndex].pageNumber || validPages[pageIndex].page_number || pageIndex + 1),
+    x: round2(Math.max(0, Number(placement.x || 0) + Number(deltaX || 0) / scale)),
+    y: round2(Math.min(maxY, Math.max(0, y))),
+    width: round2(Number(placement.width || 0)),
+    height: round2(Number(placement.height || 0)),
+  }
+}
+
 export function resizePDFStampPlacement(placement = {}, { deltaX = 0, deltaY = 0, displayScale = 1, minWidth = 24, minHeight = 24, lockAspectRatio = false } = {}) {
   const scale = positiveNumber(displayScale, 1)
   const width = Math.max(positiveNumber(minWidth, 24), Number(placement.width || 0) + Number(deltaX || 0) / scale)
@@ -86,14 +113,16 @@ export function salesLayoutBoxMMToPDFPlacement(box = {}, page = {}, options = {}
 }
 
 export function salesLayoutBoxMMToPDFPreviewPlacement(box = {}, pages = [], options = {}) {
-  const page = salesLayoutBoxPreviewPage(pages)
+  const page = salesLayoutBoxPreviewPage(pages, box.page_number ?? box.pageNumber ?? options.page_number)
   const fittedBox = fitSalesLayoutBoxWithinPDFPreviewPage(box, page)
   return salesLayoutBoxMMToPDFPlacement(fittedBox, page, options)
 }
 
-export function salesLayoutBoxPreviewPage(pages = []) {
+export function salesLayoutBoxPreviewPage(pages = [], preferredPageNumber) {
   const validPages = Array.isArray(pages) ? pages.filter(Boolean) : []
   if (validPages.length === 0) return {}
+  const preferredPage = validPages.find((page) => Number(page.pageNumber || page.page_number || 1) === Number(preferredPageNumber || 0))
+  if (preferredPage) return preferredPage
   return validPages.length > 1 ? validPages[validPages.length - 1] : validPages[0]
 }
 
@@ -127,6 +156,10 @@ export function pdfPlacementToSalesLayoutBox(placement = {}, page = {}) {
 
 export function pdfPointsPerMM(page = {}) {
   return positiveNumber(page.pageWidth ?? page.width, 595.28) / salesDocumentPageWidthMM
+}
+
+function pdfPageHeight(page = {}) {
+  return positiveNumber(page.pageHeight ?? page.height, 841.89)
 }
 
 export function normalizePDFStampAspectRatio(value, fallback = salesDocumentSealHeightRatio) {

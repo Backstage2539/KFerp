@@ -68,10 +68,11 @@ type SalesOrderAssetRef struct {
 }
 
 type SalesOrderLayoutBox struct {
-	XMM      float64 `json:"x_mm"`
-	YMM      float64 `json:"y_mm"`
-	WidthMM  float64 `json:"width_mm"`
-	HeightMM float64 `json:"height_mm"`
+	XMM        float64 `json:"x_mm"`
+	YMM        float64 `json:"y_mm"`
+	WidthMM    float64 `json:"width_mm"`
+	HeightMM   float64 `json:"height_mm"`
+	PageNumber int     `json:"page_number,omitempty"`
 }
 
 func NextSalesOrderVersion(existing []int) int {
