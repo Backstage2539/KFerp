@@ -338,6 +338,7 @@
 - [ ] PR-350-BEAN-LIST-PUBLISH-MANUAL-WITHDRAW：产品豆单连续发布两个版本后，旧版仍保持已发布并可在录单作为历史发布版本选择；手动撤回某版本后，该版本从录单豆单选择器消失，保存订单时不能显式使用该撤回版本。
 - [ ] PR-351-ORDER-ENTRY-PUBLIC-BEANLIST-NO-CUSTOMER：/api/order/form 返回 `customer_id=0` 的公共已发布豆单版本；前端未选客户时使用这些公共版本作为摘要和豆单选择器候选，并对旧接口重复公共兜底数据去重。
 - [ ] PR-352-ORDER-LIST-UNIFIED-SELECTION：表头复选框空状态点击后全选当前页正常订单，再点一次取消全选；手动只选部分条目时表头显示三态横杆。失效和组合单据区域没有“清空”按钮，取消选择通过表头或行复选框完成。
+- [ ] PR-353-ORDER-ENTRY-HISTORICAL-BEANLIST-PRODUCT-TIERS：公共熟豆存在多个已发布版本时，选择历史熟豆豆单后，商品下拉仍显示该历史豆单中的熟豆商品和对应梯度，不会只剩生豆商品；`/api/order/form` 同一商品的阶梯中同时包含多个 published publication 的 `price_source_json.publication_id`。
 - [ ] PR-BEANLIST-VERSION-003：小程序首次按新版豆单下单时弹出更新提示，内容展示新增、下架和调整摘要；确认后写 `customer_bean_list_acknowledgements`，同一客户同一版本后续不重复提示。
 - [ ] PR-BEANLIST-VERSION-004：客户门户配置中，有专属豆单的客户可选择展示最新版本或固定版本；没有专属豆单的客户使用公共豆单且不出现无效固定版本。
 - [ ] 商用批发价格旁可打开“价格来源”，看到模板、当前价格和公式步骤。

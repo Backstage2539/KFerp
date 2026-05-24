@@ -283,3 +283,29 @@ func TestApplyCommercialOrderPublicationTiersReplacesCustomerRoastedTiers(t *tes
 		t.Fatalf("green product tiers changed = %+v", products[1].Tiers)
 	}
 }
+
+func TestMergeOrderPublicationTierMapsKeepsMultiplePublishedVersions(t *testing.T) {
+	first := map[int64][]salesapp.ProductTierOption{
+		7: {{
+			ID:              62,
+			UnitPrice:       61,
+			PriceSourceJSON: `{"publication_id":9902,"list_type":"commercial"}`,
+		}},
+	}
+	second := map[int64][]salesapp.ProductTierOption{
+		7: {{
+			ID:              63,
+			UnitPrice:       64,
+			PriceSourceJSON: `{"publication_id":9903,"list_type":"commercial"}`,
+		}},
+	}
+
+	merged := mergeOrderPublicationTierMaps(first, second)
+
+	if len(merged[7]) != 2 {
+		t.Fatalf("merged tiers = %+v, want both published versions", merged[7])
+	}
+	if merged[7][0].UnitPrice != 61 || merged[7][1].UnitPrice != 64 {
+		t.Fatalf("merged tier order/prices = %+v, want 61 then 64", merged[7])
+	}
+}
