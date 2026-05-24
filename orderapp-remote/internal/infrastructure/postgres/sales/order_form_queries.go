@@ -97,6 +97,17 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 			FROM %[1]s.bean_list_publications b
 			WHERE b.owner_type='official' AND b.status='published' AND b.list_type IN ('commercial','green','drip')
 		),
+		global_public_versions AS (
+			SELECT 0::bigint AS customer_id,
+			       o.list_type,
+			       o.id,
+			       o.version_no,
+			       o.published_at,
+			       o.changelog,
+			       false AS is_customer_owned,
+			       o.is_default
+			FROM official_versions o
+		),
 		public_fallback AS (
 			SELECT c.id AS customer_id,
 			       o.list_type,
@@ -114,6 +125,9 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 		)
 		SELECT customer_id, list_type, id, version_no, published_at, changelog, is_customer_owned, is_default
 		FROM customer_versions
+		UNION ALL
+		SELECT customer_id, list_type, id, version_no, published_at, changelog, is_customer_owned, is_default
+		FROM global_public_versions
 		UNION ALL
 		SELECT customer_id, list_type, id, version_no, published_at, changelog, is_customer_owned, is_default
 		FROM public_fallback

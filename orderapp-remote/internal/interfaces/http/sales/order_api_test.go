@@ -699,6 +699,51 @@ func TestOrderAPIFormHidesWithdrawnPublicBeanListVersionsForFallbackCustomer(t *
 	}
 }
 
+func TestOrderAPIFormReturnsGlobalPublicBeanListVersionsBeforeCustomerSelected(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9921,'commercial','P-1','published','official','','{}'::jsonb,'{}'::jsonb,'公共旧版','codex','2026-05-20 09:00:00+08'),
+			(9922,'commercial','P-2','published','official','','{}'::jsonb,'{}'::jsonb,'公共新版','codex','2026-05-22 09:00:00+08'),
+			(9923,'green','G-1','published','official','','{}'::jsonb,'{}'::jsonb,'公共生豆','codex','2026-05-22 10:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		BeanListVersionOptions []salesapp.BeanListVersionOption `json:"bean_list_version_options"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	defaultByID := map[int64]bool{}
+	for _, option := range resp.BeanListVersionOptions {
+		if option.CustomerID == 0 {
+			defaultByID[option.ID] = option.IsDefault
+			if option.IsCustomerOwned {
+				t.Fatalf("global public option should not be customer owned: %+v", option)
+			}
+		}
+	}
+	for _, id := range []int64{9921, 9922, 9923} {
+		if _, ok := defaultByID[id]; !ok {
+			t.Fatalf("global public bean-list options missing id %d; got %#v", id, defaultByID)
+		}
+	}
+	if defaultByID[9921] || !defaultByID[9922] || !defaultByID[9923] {
+		t.Fatalf("global public default flags = %#v, want commercial latest and green latest defaults", defaultByID)
+	}
+}
+
 func TestOrderAPIRejectsWithdrawnPublicBeanListPublicationVersion(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
