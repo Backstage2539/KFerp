@@ -20,7 +20,13 @@ export function normalizedProductKind(row = {}) {
   const kind = String(row?.product_kind || '').trim()
   if (kind === 'green_bean') return 'green_bean'
   if (kind === 'drip_bag') return 'drip_bag'
+  if (kind === 'instant_coffee' || kind === 'instant') return 'instant_coffee'
   return 'roasted'
+}
+
+export function productKindRequiresRoast(kindOrRow = {}) {
+  const kind = typeof kindOrRow === 'object' ? normalizedProductKind(kindOrRow) : normalizedProductKind({ product_kind: kindOrRow })
+  return kind === 'roasted' || kind === 'drip_bag'
 }
 
 export function normalizedGreenBeanType(value) {
@@ -384,6 +390,9 @@ export function buildProductCreatePayload(form = {}) {
     payload.drip_box_bag_count = Number(form.drip_box_bag_count || 10)
     return payload
   }
+  if (kind === 'instant_coffee') {
+    return payload
+  }
   payload.roast_level = String(form.roast_level || '').trim()
   payload.yield_rate = Number((Number(form.yield_percent || 0) / 100).toFixed(4))
   return payload
@@ -414,6 +423,10 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
     payload.copy_bom = false
     payload.copy_price_tiers = false
   }
+  if (kind === 'instant_coffee') {
+    payload.copy_bom = false
+    return payload
+  }
   payload.roast_level = String(form.roast_level || '').trim()
   if (kind === 'drip_bag') {
     payload.drip_bag_grams = Number(form.drip_bag_grams || 10)
@@ -433,7 +446,7 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(row.green_bean_type)
     payload.green_bean_bom_product_id = Number(row.green_bean_bom_product_id || 0)
-  } else {
+  } else if (productKindRequiresRoast(kind)) {
     payload.roast_level = String(row.roast_level || '').trim()
     payload.yield_rate = Number((Number(row.yield_percent || 0) / 100).toFixed(4))
     if (kind === 'drip_bag') {
