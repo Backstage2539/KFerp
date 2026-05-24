@@ -504,9 +504,11 @@ export function sortProductsByCustomerUsage(products, customerID, usages = []) {
 
 function normalizeBeanListType(value) {
   const type = String(value || '').trim()
+  if (!type) return 'commercial'
+  if (type === 'commercial' || type === 'retail') return 'commercial'
   if (type === 'green') return 'green'
   if (type === 'drip') return 'drip'
-  return 'commercial'
+  return type
 }
 
 export function productBeanListType(product) {
@@ -541,6 +543,23 @@ export function latestBeanListVersionOption(options, listType) {
   const normalized = normalizeBeanListType(listType)
   const rows = (options || []).filter((item) => normalizeBeanListType(item?.list_type) === normalized)
   if (!rows.length) return null
+  return rows.reduce((latest, item) => (
+    compareBeanListVersionOption(item, latest) > 0 ? item : latest
+  ), rows[0])
+}
+
+export function latestProductPriceListVersionOption(options, productOrType) {
+  const productTypeCategoryID = toInt(productOrType?.product_type_category_id || productOrType?.productTypeCategoryID)
+  const productTypeName = String(productOrType?.product_type_name || productOrType?.productTypeName || '').trim()
+  let rows = []
+  if (productTypeCategoryID > 0) {
+    rows = (options || []).filter((item) => toInt(item?.product_type_category_id) === productTypeCategoryID)
+  } else if (productTypeName) {
+    rows = (options || []).filter((item) => String(item?.product_type_name || '').trim() === productTypeName)
+  }
+  if (!rows.length) {
+    return latestBeanListVersionOption(options, productBeanListType(productOrType))
+  }
   return rows.reduce((latest, item) => (
     compareBeanListVersionOption(item, latest) > 0 ? item : latest
   ), rows[0])

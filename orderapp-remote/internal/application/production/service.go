@@ -218,6 +218,11 @@ type UnprodNeedRow struct {
 	InvG                              int64  `json:"inv_g"`
 	GapG                              int64  `json:"gap_g"`
 	ProductionKind                    string `json:"production_kind,omitempty"`
+	ProductTypeCategoryID             int64  `json:"product_type_category_id,omitempty"`
+	ProductSubtypeCategoryID          int64  `json:"product_subtype_category_id,omitempty"`
+	ProductTypeName                   string `json:"product_type_name,omitempty"`
+	ProductSubtypeName                string `json:"product_subtype_name,omitempty"`
+	OperationTemplateID               int64  `json:"operation_template_id,omitempty"`
 	NeedBags                          int64  `json:"need_bags,omitempty"`
 	NeedBoxes                         int64  `json:"need_boxes,omitempty"`
 	UpstreamProductID                 int64  `json:"upstream_product_id,omitempty"`
@@ -257,18 +262,19 @@ type PlanSummaryQuery struct {
 }
 
 type RoastPlanRow struct {
-	Key           string  `json:"key"`
-	ProductID     int64   `json:"product_id"`
-	ProductName   string  `json:"product_name"`
-	SpecG         int64   `json:"spec_g"`
-	Machine       string  `json:"machine"`
-	BatchCount    int64   `json:"batch_count"`
-	BatchG        int64   `json:"batch_g"`
-	FinalInputG   int64   `json:"final_input_g"`
-	NeedG         int64   `json:"need_g"`
-	YieldRate     float64 `json:"yield_rate"`
-	YieldPctStr   string  `json:"yield_pct_str"`
-	FinishedKgStr string  `json:"finished_kg_str"`
+	Key                 string  `json:"key"`
+	ProductID           int64   `json:"product_id"`
+	ProductName         string  `json:"product_name"`
+	SpecG               int64   `json:"spec_g"`
+	Machine             string  `json:"machine"`
+	BatchCount          int64   `json:"batch_count"`
+	BatchG              int64   `json:"batch_g"`
+	FinalInputG         int64   `json:"final_input_g"`
+	NeedG               int64   `json:"need_g"`
+	OperationTemplateID int64   `json:"operation_template_id,omitempty"`
+	YieldRate           float64 `json:"yield_rate"`
+	YieldPctStr         string  `json:"yield_pct_str"`
+	FinishedKgStr       string  `json:"finished_kg_str"`
 }
 
 type RoastPlanMaterialRatio struct {

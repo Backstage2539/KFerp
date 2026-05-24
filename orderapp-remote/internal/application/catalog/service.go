@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -19,35 +20,38 @@ type PriceTier struct {
 }
 
 type Product struct {
-	ID                      int64
-	Name                    string
-	Remark                  string
-	ProductKind             string
-	GreenBeanType           string
-	GreenBeanBomProductID   int64
-	RoastLevel              string
-	DripBagGrams            float64
-	DripBoxBagCount         int
-	AllowFulfillmentOrder   bool
-	AllowMallOrder          bool
-	SalesUnits              []string
-	DefaultPrice            float64
-	RetailPrice100G         float64
-	RetailPrice200G         float64
-	RetailPrice227G         float64
-	RetailPrice250G         float64
-	YieldRate               float64
-	ProductCategoryID       int64
-	ProductCategoryPosition int
-	CustomerID              int64
-	BaseProductID           int64
-	Visibility              string
-	CustomType              string
-	MarginRateOverride      *float64
-	BomItemCount            int
-	BomStatus               string
-	OrderUsageCount         int
-	Tiers                   []PriceTier
+	ID                          int64
+	Name                        string
+	Remark                      string
+	ProductKind                 string
+	GreenBeanType               string
+	GreenBeanBomProductID       int64
+	RoastLevel                  string
+	DripBagGrams                float64
+	DripBoxBagCount             int
+	AllowFulfillmentOrder       bool
+	AllowMallOrder              bool
+	SalesUnits                  []string
+	DefaultPrice                float64
+	RetailPrice100G             float64
+	RetailPrice200G             float64
+	RetailPrice227G             float64
+	RetailPrice250G             float64
+	YieldRate                   float64
+	ProductCategoryID           int64
+	ProductCategoryPosition     int
+	CustomerID                  int64
+	BaseProductID               int64
+	Visibility                  string
+	CustomType                  string
+	MarginRateOverride          *float64
+	GradientTemplateIDOverride  int64
+	OperationTemplateIDOverride int64
+	UnitRuleOverrideJSON        string
+	BomItemCount                int
+	BomStatus                   string
+	OrderUsageCount             int
+	Tiers                       []PriceTier
 }
 
 const (
@@ -57,48 +61,58 @@ const (
 )
 
 type ProductCategory struct {
-	ID                 int64  `json:"id"`
-	ParentID           int64  `json:"parent_id"`
-	CustomerID         int64  `json:"customer_id"`
-	SourceCategoryID   int64  `json:"source_category_id"`
-	Name               string `json:"name"`
-	Level              int    `json:"level"`
-	Position           int    `json:"position"`
-	Number             int    `json:"number"`
-	GradientTemplateID int64  `json:"gradient_template_id"`
-	TemplateState      string `json:"template_state"`
+	ID                  int64  `json:"id"`
+	ParentID            int64  `json:"parent_id"`
+	CustomerID          int64  `json:"customer_id"`
+	SourceCategoryID    int64  `json:"source_category_id"`
+	Name                string `json:"name"`
+	Level               int    `json:"level"`
+	Position            int    `json:"position"`
+	Number              int    `json:"number"`
+	GradientTemplateID  int64  `json:"gradient_template_id"`
+	OperationTemplateID int64  `json:"operation_template_id"`
+	PriceListRuleJSON   string `json:"price_list_rule_json"`
+	InventoryUnit       string `json:"inventory_unit"`
+	QuoteUnit           string `json:"quote_unit"`
+	OrderUnit           string `json:"order_unit"`
+	UnitConversionJSON  string `json:"unit_conversion_json"`
+	IntegerUnit         bool   `json:"integer_unit"`
+	TemplateState       string `json:"template_state"`
 }
 
 type ProductSettingsProduct struct {
-	ID                      int64    `json:"id"`
-	Name                    string   `json:"name"`
-	Remark                  string   `json:"remark"`
-	ProductKind             string   `json:"product_kind"`
-	GreenBeanType           string   `json:"green_bean_type"`
-	GreenBeanBomProductID   int64    `json:"green_bean_bom_product_id"`
-	RoastLevel              string   `json:"roast_level"`
-	DripBagGrams            float64  `json:"drip_bag_grams"`
-	DripBoxBagCount         int      `json:"drip_box_bag_count"`
-	AllowFulfillmentOrder   bool     `json:"allow_fulfillment_order"`
-	AllowMallOrder          bool     `json:"allow_mall_order"`
-	SalesUnits              []string `json:"sales_units"`
-	DefaultPrice            float64  `json:"default_price"`
-	RetailPrice100G         float64  `json:"retail_price_100g"`
-	RetailPrice200G         float64  `json:"retail_price_200g"`
-	RetailPrice227G         float64  `json:"retail_price_227g"`
-	RetailPrice250G         float64  `json:"retail_price_250g"`
-	YieldRate               float64  `json:"yield_rate"`
-	ProductCategoryID       int64    `json:"product_category_id"`
-	ProductCategoryPosition int      `json:"product_category_position"`
-	CustomerID              int64    `json:"customer_id"`
-	BaseProductID           int64    `json:"base_product_id"`
-	Visibility              string   `json:"visibility"`
-	CustomType              string   `json:"custom_type"`
-	MarginRateOverride      *float64 `json:"margin_rate_override"`
-	BomItemCount            int      `json:"bom_item_count"`
-	BomStatus               string   `json:"bom_status"`
-	OrderUsageCount         int      `json:"order_usage_count"`
-	Number                  int      `json:"number"`
+	ID                          int64    `json:"id"`
+	Name                        string   `json:"name"`
+	Remark                      string   `json:"remark"`
+	ProductKind                 string   `json:"product_kind"`
+	GreenBeanType               string   `json:"green_bean_type"`
+	GreenBeanBomProductID       int64    `json:"green_bean_bom_product_id"`
+	RoastLevel                  string   `json:"roast_level"`
+	DripBagGrams                float64  `json:"drip_bag_grams"`
+	DripBoxBagCount             int      `json:"drip_box_bag_count"`
+	AllowFulfillmentOrder       bool     `json:"allow_fulfillment_order"`
+	AllowMallOrder              bool     `json:"allow_mall_order"`
+	SalesUnits                  []string `json:"sales_units"`
+	DefaultPrice                float64  `json:"default_price"`
+	RetailPrice100G             float64  `json:"retail_price_100g"`
+	RetailPrice200G             float64  `json:"retail_price_200g"`
+	RetailPrice227G             float64  `json:"retail_price_227g"`
+	RetailPrice250G             float64  `json:"retail_price_250g"`
+	YieldRate                   float64  `json:"yield_rate"`
+	ProductCategoryID           int64    `json:"product_category_id"`
+	ProductCategoryPosition     int      `json:"product_category_position"`
+	CustomerID                  int64    `json:"customer_id"`
+	BaseProductID               int64    `json:"base_product_id"`
+	Visibility                  string   `json:"visibility"`
+	CustomType                  string   `json:"custom_type"`
+	MarginRateOverride          *float64 `json:"margin_rate_override"`
+	GradientTemplateIDOverride  int64    `json:"gradient_template_id_override"`
+	OperationTemplateIDOverride int64    `json:"operation_template_id_override"`
+	UnitRuleOverrideJSON        string   `json:"unit_rule_override_json"`
+	BomItemCount                int      `json:"bom_item_count"`
+	BomStatus                   string   `json:"bom_status"`
+	OrderUsageCount             int      `json:"order_usage_count"`
+	Number                      int      `json:"number"`
 }
 
 type ProductCategoryNode struct {
@@ -154,26 +168,29 @@ type ReplacePriceTiersCommand struct {
 }
 
 type UpdateProductBasicsCommand struct {
-	Actor                 string
-	ProductID             int64
-	Name                  string
-	ProductKind           string
-	Remark                string
-	GreenBeanType         string
-	GreenBeanBomProductID int64
-	DefaultPrice          float64
-	RoastLevel            string
-	DripBagGrams          float64
-	DripBoxBagCount       int
-	AllowFulfillmentOrder bool
-	AllowMallOrder        bool
-	SalesUnits            []string
-	RetailPrice100G       float64
-	RetailPrice200G       float64
-	RetailPrice227G       float64
-	RetailPrice250G       float64
-	YieldRate             float64
-	MarginRateOverride    *float64
+	Actor                       string
+	ProductID                   int64
+	Name                        string
+	ProductKind                 string
+	Remark                      string
+	GreenBeanType               string
+	GreenBeanBomProductID       int64
+	DefaultPrice                float64
+	RoastLevel                  string
+	DripBagGrams                float64
+	DripBoxBagCount             int
+	AllowFulfillmentOrder       bool
+	AllowMallOrder              bool
+	SalesUnits                  []string
+	RetailPrice100G             float64
+	RetailPrice200G             float64
+	RetailPrice227G             float64
+	RetailPrice250G             float64
+	YieldRate                   float64
+	MarginRateOverride          *float64
+	GradientTemplateIDOverride  int64
+	OperationTemplateIDOverride int64
+	UnitRuleOverrideJSON        string
 }
 
 type CreateProductCommand struct {
@@ -237,12 +254,20 @@ type CustomerPublicUsageCommand struct {
 }
 
 type SaveProductCategoryCommand struct {
-	Actor      string
-	ID         int64
-	ParentID   int64
-	CustomerID int64
-	Name       string
-	Position   int
+	Actor               string
+	ID                  int64
+	ParentID            int64
+	CustomerID          int64
+	Name                string
+	Position            int
+	GradientTemplateID  int64
+	OperationTemplateID int64
+	PriceListRuleJSON   string
+	InventoryUnit       string
+	QuoteUnit           string
+	OrderUnit           string
+	UnitConversionJSON  string
+	IntegerUnit         bool
 }
 
 type MoveProductCategoryCommand struct {
@@ -402,6 +427,14 @@ func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasi
 			return err
 		}
 	}
+	if cmd.GradientTemplateIDOverride < 0 || cmd.OperationTemplateIDOverride < 0 {
+		return ValidationError{Message: "invalid template override"}
+	}
+	unitRuleOverrideJSON, err := normalizeJSONText(cmd.UnitRuleOverrideJSON)
+	if err != nil {
+		return ValidationError{Message: "invalid unit_rule_override_json"}
+	}
+	cmd.UnitRuleOverrideJSON = unitRuleOverrideJSON
 	return s.repo.UpdateProductBasics(ctx, cmd)
 }
 
@@ -574,6 +607,34 @@ func (s *Service) BindCategoryGradientTemplate(ctx context.Context, cmd BindCate
 }
 
 func (s *Service) SaveProductCategory(ctx context.Context, cmd SaveProductCategoryCommand) (ProductCategory, error) {
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.Name == "" {
+		return ProductCategory{}, ValidationError{Message: "name required"}
+	}
+	if cmd.GradientTemplateID < 0 || cmd.OperationTemplateID < 0 {
+		return ProductCategory{}, ValidationError{Message: "invalid template id"}
+	}
+	priceRuleJSON, err := normalizeJSONText(cmd.PriceListRuleJSON)
+	if err != nil {
+		return ProductCategory{}, ValidationError{Message: "invalid price_list_rule_json"}
+	}
+	unitRule := catalogdomain.NormalizeProductUnitRule(catalogdomain.ProductUnitRule{
+		InventoryUnit:  cmd.InventoryUnit,
+		QuoteUnit:      cmd.QuoteUnit,
+		OrderUnit:      cmd.OrderUnit,
+		ConversionJSON: cmd.UnitConversionJSON,
+		IntegerUnit:    cmd.IntegerUnit,
+	})
+	unitConversionJSON, err := normalizeJSONText(unitRule.ConversionJSON)
+	if err != nil {
+		return ProductCategory{}, ValidationError{Message: "invalid unit_conversion_json"}
+	}
+	cmd.PriceListRuleJSON = priceRuleJSON
+	cmd.InventoryUnit = unitRule.InventoryUnit
+	cmd.QuoteUnit = unitRule.QuoteUnit
+	cmd.OrderUnit = unitRule.OrderUnit
+	cmd.UnitConversionJSON = unitConversionJSON
+	cmd.IntegerUnit = unitRule.IntegerUnit
 	return s.repo.SaveProductCategory(ctx, cmd)
 }
 
@@ -777,6 +838,17 @@ func normalizeGradientDisplayUnit(unit string) string {
 	}
 }
 
+func normalizeJSONText(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		raw = "{}"
+	}
+	if !json.Valid([]byte(raw)) {
+		return "", fmt.Errorf("invalid json")
+	}
+	return raw, nil
+}
+
 func normalizeGradientTemplateTierWeights(displayUnit string, tier GradientTemplateTier) GradientTemplateTier {
 	specG := gradientDisplayUnitSpecG(displayUnit)
 	if tier.MinDisplayQty != nil {
@@ -874,35 +946,46 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		p.YieldRate = 0
 	}
 	return ProductSettingsProduct{
-		ID:                      p.ID,
-		Name:                    p.Name,
-		Remark:                  p.Remark,
-		GreenBeanType:           p.GreenBeanType,
-		GreenBeanBomProductID:   p.GreenBeanBomProductID,
-		RoastLevel:              p.RoastLevel,
-		ProductKind:             productKind,
-		DripBagGrams:            dripBagGrams,
-		DripBoxBagCount:         dripBoxBagCount,
-		AllowFulfillmentOrder:   p.AllowFulfillmentOrder,
-		AllowMallOrder:          p.AllowMallOrder,
-		SalesUnits:              salesUnits,
-		DefaultPrice:            p.DefaultPrice,
-		RetailPrice100G:         p.RetailPrice100G,
-		RetailPrice200G:         p.RetailPrice200G,
-		RetailPrice227G:         p.RetailPrice227G,
-		RetailPrice250G:         p.RetailPrice250G,
-		YieldRate:               p.YieldRate,
-		ProductCategoryID:       p.ProductCategoryID,
-		ProductCategoryPosition: p.ProductCategoryPosition,
-		CustomerID:              p.CustomerID,
-		BaseProductID:           p.BaseProductID,
-		Visibility:              productVisibility(p.Visibility, p.CustomerID),
-		CustomType:              p.CustomType,
-		MarginRateOverride:      p.MarginRateOverride,
-		BomItemCount:            p.BomItemCount,
-		BomStatus:               productBomStatus(p.BomStatus, p.BomItemCount),
-		OrderUsageCount:         p.OrderUsageCount,
+		ID:                          p.ID,
+		Name:                        p.Name,
+		Remark:                      p.Remark,
+		GreenBeanType:               p.GreenBeanType,
+		GreenBeanBomProductID:       p.GreenBeanBomProductID,
+		RoastLevel:                  p.RoastLevel,
+		ProductKind:                 productKind,
+		DripBagGrams:                dripBagGrams,
+		DripBoxBagCount:             dripBoxBagCount,
+		AllowFulfillmentOrder:       p.AllowFulfillmentOrder,
+		AllowMallOrder:              p.AllowMallOrder,
+		SalesUnits:                  salesUnits,
+		DefaultPrice:                p.DefaultPrice,
+		RetailPrice100G:             p.RetailPrice100G,
+		RetailPrice200G:             p.RetailPrice200G,
+		RetailPrice227G:             p.RetailPrice227G,
+		RetailPrice250G:             p.RetailPrice250G,
+		YieldRate:                   p.YieldRate,
+		ProductCategoryID:           p.ProductCategoryID,
+		ProductCategoryPosition:     p.ProductCategoryPosition,
+		CustomerID:                  p.CustomerID,
+		BaseProductID:               p.BaseProductID,
+		Visibility:                  productVisibility(p.Visibility, p.CustomerID),
+		CustomType:                  p.CustomType,
+		MarginRateOverride:          p.MarginRateOverride,
+		GradientTemplateIDOverride:  p.GradientTemplateIDOverride,
+		OperationTemplateIDOverride: p.OperationTemplateIDOverride,
+		UnitRuleOverrideJSON:        productJSONOrDefault(p.UnitRuleOverrideJSON),
+		BomItemCount:                p.BomItemCount,
+		BomStatus:                   productBomStatus(p.BomStatus, p.BomItemCount),
+		OrderUsageCount:             p.OrderUsageCount,
 	}
+}
+
+func productJSONOrDefault(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "{}"
+	}
+	return raw
 }
 
 func normalizeProductKindSettings(productKind string, dripBagGrams float64, dripBoxBagCount int) (string, float64, int, []string, error) {

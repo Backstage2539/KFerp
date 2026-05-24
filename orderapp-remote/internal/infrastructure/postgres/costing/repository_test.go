@@ -217,7 +217,8 @@ func TestPublishedBeanListReadsOnlyCurrentPublishedSnapshot(t *testing.T) {
 	}
 	body := src[start:end]
 	for _, want := range []string{
-		"WHERE list_type=$1 AND owner_type=$2 AND owner_key=$3 AND status='published'",
+		`whereClause := "list_type=$1 AND owner_type=$2 AND owner_key=$3"`,
+		"WHERE %s AND status='published'",
 		"ORDER BY published_at DESC, id DESC",
 		"LIMIT 1",
 		"pgx.ErrNoRows",
@@ -249,6 +250,48 @@ func TestBeanListPublicationSchemaSupportsOwnedLockedSnapshots(t *testing.T) {
 	}
 	if strings.Contains(src, "CREATE UNIQUE INDEX IF NOT EXISTS bean_list_publications_one_published_owner_idx") {
 		t.Fatalf("bean list publication schema must not enforce one published snapshot per owner; withdraw is manual only")
+	}
+}
+
+func TestBeanListPublicationSchemaSupportsProductPriceListGeneralization(t *testing.T) {
+	b, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"product_type_category_id BIGINT NOT NULL DEFAULT 0",
+		"product_type_name TEXT NOT NULL DEFAULT ''",
+		"WHEN list_type IN ('commercial','retail') THEN '熟豆'",
+		"WHEN list_type='green' THEN '生豆'",
+		"WHEN list_type='drip' THEN '挂耳'",
+		"bean_list_publications_product_type_owner_status_idx",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("bean list publication schema must support product price list generalization; missing %q", want)
+		}
+	}
+}
+
+func TestBeanListPublicationRepositoryQueriesByProductType(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"product_type_category_id",
+		"product_type_name",
+		"query.ProductTypeCategoryID",
+		"cmd.ProductTypeCategoryID",
+		"cmd.ProductTypeName",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("bean list publication repository must preserve product price list fields; missing %q", want)
+		}
+	}
+	if !strings.Contains(src, "product_type_category_id=$1 AND owner_type=$2 AND owner_key=$3") {
+		t.Fatalf("ListBeanListPublications must allow product_type_category_id lookup while legacy list_type remains available")
 	}
 }
 
@@ -362,7 +405,7 @@ func TestSaveBeanListDraftInsertsCustomerDraftWithoutPublishing(t *testing.T) {
 	}
 	body := src[start:end]
 	for _, want := range []string{
-		"VALUES($1,$2,'draft'",
+		"VALUES($1,$2,$3,$4,'draft'",
 		"owner_type",
 		"owner_key",
 		"price_source_publication_id",

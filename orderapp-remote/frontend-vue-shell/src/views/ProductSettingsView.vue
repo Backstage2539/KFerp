@@ -4,7 +4,7 @@
       <div class="panel-head">
         <div>
           <h2>SKU设置</h2>
-          <p>维护公共 SKU、客户专属 SKU、商品分类和梯度模板；豆单生成请进入产品豆单。</p>
+          <p>维护公共 SKU、客户专属 SKU、商品分类和梯度模板；豆单生成请进入产品价格表。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -297,8 +297,8 @@
           </div>
 
           <form class="inline-form" @submit.prevent="savePrimaryCategory">
-            <input v-model.trim="newPrimaryName" placeholder="新增一级分类，如 咖啡豆" />
-            <button class="secondary" type="submit">新增一级分类</button>
+            <input v-model.trim="newPrimaryName" placeholder="新增产品类型，如 咖啡豆" />
+            <button class="secondary" type="submit">新增产品类型</button>
           </form>
 
           <div class="category-tree">
@@ -310,7 +310,7 @@
               @dragover.prevent="handlePrimaryCategoryDragOver($event, primary)"
               @drop.prevent="dropCategoryOnCurrentTarget(primary)">
               <form v-if="editingCategoryId === primary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(primary)">
-                <input v-model.trim="editingCategoryName" placeholder="一级分类名称" />
+                <input v-model.trim="editingCategoryName" placeholder="产品类型名称" />
                 <button class="secondary" type="submit">保存</button>
               </form>
               <div v-else class="category-head">
@@ -326,7 +326,7 @@
               </div>
 
               <form v-if="addingSecondaryFor === primary.id" class="inline-form sub-form" @submit.prevent="saveSecondaryCategory(primary)">
-                <input v-model.trim="newSecondaryName" placeholder="新增二级分类，如 意式拼配" />
+                <input v-model.trim="newSecondaryName" placeholder="新增产品子类型，如 意式拼配" />
                 <button class="secondary" type="submit">保存</button>
               </form>
 
@@ -348,7 +348,7 @@
                   @dragover.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
                   @drop.prevent.stop="dropCategoryOrProductOnSecondary(primary, index + 1, secondary)">
                   <form v-if="editingCategoryId === secondary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(secondary)">
-                    <input v-model.trim="editingCategoryName" placeholder="二级分类名称" />
+                    <input v-model.trim="editingCategoryName" placeholder="产品子类型名称" />
                     <button class="secondary" type="submit">保存</button>
                   </form>
                   <div v-else class="secondary-head">
@@ -451,16 +451,16 @@
               <input v-model.trim="skuFilters.query" placeholder="搜索商品名称/类型/备注" />
             </label>
             <label>
-              <span>一级分类</span>
+              <span>产品类型</span>
               <select v-model="skuFilters.primaryCategory">
-                <option value="">全部一级分类</option>
+                <option value="">全部产品类型</option>
                 <option v-for="name in skuPrimaryCategoryOptions" :key="name" :value="name">{{ name }}</option>
               </select>
             </label>
             <label>
-              <span>二级分类</span>
+              <span>产品子类型</span>
               <select v-model="skuFilters.secondaryCategory">
-                <option value="">全部二级分类</option>
+                <option value="">全部产品子类型</option>
                 <option v-for="name in skuSecondaryCategoryOptions" :key="name" :value="name">{{ name }}</option>
               </select>
             </label>
@@ -471,8 +471,8 @@
                 <th class="select-col">
                   <input type="checkbox" :checked="allProductRowsSelected" :disabled="!editableDisplaySkuRows.length" @change="toggleAllProductRows($event.target.checked)" />
                 </th>
-                <th>一级分类</th>
-                <th>二级分类</th>
+                <th>产品类型</th>
+                <th>产品子类型</th>
                 <th>商品编号</th>
                 <th>商品</th>
                 <th>形态</th>

@@ -51,10 +51,125 @@ func TestProductMarginOverridePersistsOnProducts(t *testing.T) {
 		{name: "product fetch", src: string(queries), want: "p.margin_rate_override::float8"},
 		{name: "product get fallback", src: string(repository), want: "margin_rate_override::float8"},
 		{name: "product update", src: string(repository), want: "margin_rate_override=$9"},
-		{name: "audit metadata", src: string(repository), want: `"margin_rate_override": cmd.MarginRateOverride`},
+		{name: "audit metadata", src: string(repository), want: `"margin_rate_override":           cmd.MarginRateOverride`},
 	} {
 		if !strings.Contains(tc.src, tc.want) {
 			t.Fatalf("catalog product margin override persistence missing %s marker %q", tc.name, tc.want)
+		}
+	}
+}
+
+func TestProductSubtypeConfigAndUnitRulesPersistOnCategories(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{name: "operation template column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS operation_template_id BIGINT NOT NULL DEFAULT 0"},
+		{name: "price list rule column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS price_list_rule_json JSONB NOT NULL DEFAULT '{}'::jsonb"},
+		{name: "inventory unit column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS inventory_unit TEXT NOT NULL DEFAULT 'kg'"},
+		{name: "quote unit column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS quote_unit TEXT NOT NULL DEFAULT 'kg'"},
+		{name: "order unit column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS order_unit TEXT NOT NULL DEFAULT 'kg'"},
+		{name: "unit conversion column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS unit_conversion_json JSONB NOT NULL DEFAULT '{}'::jsonb"},
+		{name: "integer unit column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS integer_unit BOOLEAN NOT NULL DEFAULT false"},
+		{name: "list categories selects operation template", src: string(repository), want: "COALESCE(operation_template_id,0)"},
+		{name: "list categories selects unit rule", src: string(repository), want: "COALESCE(inventory_unit,'kg')"},
+		{name: "save category writes unit rule", src: string(repository), want: "unit_conversion_json=$13::jsonb"},
+	} {
+		if !strings.Contains(tc.src, tc.want) {
+			t.Fatalf("product subtype config persistence missing %s marker %q", tc.name, tc.want)
+		}
+	}
+}
+
+func TestProductConfigOverridesPersistOnProducts(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{name: "gradient override column", src: string(schema), want: "ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS gradient_template_id_override BIGINT NOT NULL DEFAULT 0"},
+		{name: "operation override column", src: string(schema), want: "ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS operation_template_id_override BIGINT NOT NULL DEFAULT 0"},
+		{name: "unit override column", src: string(schema), want: "ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS unit_rule_override_json JSONB NOT NULL DEFAULT '{}'::jsonb"},
+		{name: "product update writes overrides", src: string(repository), want: "gradient_template_id_override=$17"},
+		{name: "product fetch reads overrides", src: string(repository), want: "unit_rule_override_json::text"},
+	} {
+		if !strings.Contains(tc.src, tc.want) {
+			t.Fatalf("product config override persistence missing %s marker %q", tc.name, tc.want)
+		}
+	}
+}
+
+func TestCustomerProductRuleTemplateSchemaPersistsTemplatesAndOverrides(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(schema)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS %[1]s.customer_product_rule_templates",
+		"CREATE TABLE IF NOT EXISTS %[1]s.customer_product_rule_template_items",
+		"CREATE TABLE IF NOT EXISTS %[1]s.customer_product_rule_overrides",
+		"product_subtype_category_id BIGINT NOT NULL DEFAULT 0",
+		"gradient_template_id BIGINT NOT NULL DEFAULT 0",
+		"operation_template_id BIGINT NOT NULL DEFAULT 0",
+		"unit_rule_json JSONB NOT NULL DEFAULT '{}'::jsonb",
+		"customer_product_rule_overrides_customer_subtype_uniq",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("customer product rule schema missing marker %q", want)
+		}
+	}
+}
+
+func TestLegacyProductKindMigrationBackfillsDefaultProductTypeSubtypes(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(schema)
+	for _, want := range []string{
+		"name='熟豆'",
+		"name='生豆'",
+		"name='挂耳'",
+		"name='速溶咖啡'",
+		"name='默认熟豆'",
+		"name='默认生豆'",
+		"name='默认挂耳'",
+		"name='默认速溶咖啡'",
+		"SET product_category_id = subtype.id",
+		"p.product_kind='roasted_bean'",
+		"p.product_kind='green_bean'",
+		"p.product_kind='drip_bag'",
+		"p.product_kind='instant_coffee'",
+		"COALESCE(p.product_category_id,0)=0",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("legacy product_kind migration missing marker %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"UPDATE %[1]s.order_items",
+		"UPDATE %[1]s.bean_list_publications SET content_json",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("legacy product_kind migration must not rewrite historical snapshots or order items; found %q", forbidden)
 		}
 	}
 }

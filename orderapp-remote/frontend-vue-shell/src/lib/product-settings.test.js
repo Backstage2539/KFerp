@@ -6,9 +6,11 @@ import {
   buildAssignCategoryPayload,
   buildCustomerPublicUsagePayload,
   buildCustomProductCreatePayload,
+  buildProductCategoryConfigPayload,
   buildProductBasicsPayload,
   buildProductBomURL,
   buildProductCreatePayload,
+  buildSkuConfigOverridePayload,
   buildSkuContextCategoryTree,
   categoryBelongsToSkuContext,
   categoryDisplayState,
@@ -93,6 +95,48 @@ test('instant coffee product kind is preserved in SKU payloads without roast set
     custom_type: 'public_sku_alias',
     copy_bom: false,
     copy_price_tiers: true,
+  })
+})
+
+test('product subtype config payload carries templates and lightweight unit rule', () => {
+  assert.deepEqual(buildProductCategoryConfigPayload({
+    id: 2,
+    name: '冻干速溶',
+    parent_id: 1,
+    position: 3,
+    gradient_template_id: 9,
+    operation_template_id: 19,
+    price_list_rule_json: '{"generator":"instant"}',
+    inventory_unit: ' kg ',
+    quote_unit: '盒',
+    order_unit: '盒',
+    unit_conversion_json: '{"盒":{"kg":0.2}}',
+    integer_unit: true,
+  }), {
+    id: 2,
+    name: '冻干速溶',
+    parent_id: 1,
+    position: 3,
+    gradient_template_id: 9,
+    operation_template_id: 19,
+    price_list_rule_json: '{"generator":"instant"}',
+    inventory_unit: 'kg',
+    quote_unit: '盒',
+    order_unit: '盒',
+    unit_conversion_json: '{"盒":{"kg":0.2}}',
+    integer_unit: true,
+  })
+})
+
+test('SKU config override payload carries template and unit rule overrides', () => {
+  assert.deepEqual(buildSkuConfigOverridePayload({
+    gradient_template_id_override: 9,
+    operation_template_id_override: 19,
+    unit_rule_override_json: '{"order_unit":"盒","integer_unit":true}',
+  }), {
+    gradient_template_id_override: 9,
+    operation_template_id_override: 19,
+    unit_rule_override_json: '{"order_unit":"盒","integer_unit":true}',
   })
 })
 
@@ -614,6 +658,15 @@ test('SKU settings exposes an explicit copy action for public gradient templates
   assert.match(source, /复制为客户模板/)
   assert.match(source, /deriveGradientTemplateForCustomer/)
   assert.match(source, /customer-gradient-templates\/derive/)
+})
+
+test('SKU settings labels category levels as product type and subtype', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /产品类型/)
+  assert.match(source, /产品子类型/)
+  assert.doesNotMatch(source, /一级分类/)
+  assert.doesNotMatch(source, /二级分类/)
 })
 
 test('SKU settings renders the customer-only SKU form as a full-width workspace', () => {

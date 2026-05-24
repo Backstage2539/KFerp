@@ -314,9 +314,10 @@ func generateBeanListPublicationPDFAsset(c echo.Context, svc Service, row *appco
 	_, err := svc.GenerateBeanListPublicationPDF(c.Request().Context(), appcosting.BeanListPublicationPDFCommand{
 		PublicationID: row.ID,
 		Query: appcosting.BeanListPublicationQuery{
-			ListType:  row.ListType,
-			OwnerType: row.OwnerType,
-			OwnerKey:  row.OwnerKey,
+			ListType:              row.ListType,
+			ProductTypeCategoryID: row.ProductTypeCategoryID,
+			OwnerType:             row.OwnerType,
+			OwnerKey:              row.OwnerKey,
 		},
 		Actor: support.ActorOf(c),
 	}, renderBeanListPublicationPDF)
@@ -352,6 +353,9 @@ func beanListPublicationPDFDownloadURL(cmd appcosting.BeanListPublicationPDFComm
 	params.Set("scope", scope)
 	if scope == "customer" {
 		params.Set("customer_id", strconv.FormatInt(cmd.Query.CustomerID, 10))
+	}
+	if cmd.Query.ProductTypeCategoryID > 0 {
+		params.Set("product_type_category_id", strconv.FormatInt(cmd.Query.ProductTypeCategoryID, 10))
 	}
 	return fmt.Sprintf("/api/costing/bean-list/publications/%d/pdf?%s", cmd.PublicationID, params.Encode())
 }
@@ -390,17 +394,22 @@ func beanListPublicationQueryFromRequest(c echo.Context) (appcosting.BeanListPub
 	if err != nil {
 		return appcosting.BeanListPublicationQuery{}, fmt.Errorf("invalid customer_id")
 	}
+	productTypeCategoryID, err := parseOptionalInt64(c.QueryParam("product_type_category_id"))
+	if err != nil {
+		return appcosting.BeanListPublicationQuery{}, fmt.Errorf("invalid product_type_category_id")
+	}
 	scope := strings.TrimSpace(c.QueryParam("scope"))
 	ownerType, ownerKey, err := beanListOwnerFromScope(c, scope, customerID)
 	if err != nil {
 		return appcosting.BeanListPublicationQuery{}, err
 	}
 	return appcosting.BeanListPublicationQuery{
-		ListType:   c.QueryParam("list_type"),
-		Scope:      scope,
-		CustomerID: customerID,
-		OwnerType:  ownerType,
-		OwnerKey:   ownerKey,
+		ListType:              c.QueryParam("list_type"),
+		ProductTypeCategoryID: productTypeCategoryID,
+		Scope:                 scope,
+		CustomerID:            customerID,
+		OwnerType:             ownerType,
+		OwnerKey:              ownerKey,
 	}, nil
 }
 

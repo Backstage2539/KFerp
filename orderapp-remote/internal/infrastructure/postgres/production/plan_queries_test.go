@@ -23,6 +23,42 @@ func TestInstantCoffeeNoBomMaterialsUseInstantCoffeeRawMaterial(t *testing.T) {
 	assertNoMaterialNeed(t, got, "豆袋")
 }
 
+func TestNoBomRawMaterialUsesProductTypeNameForInstantCoffee(t *testing.T) {
+	row := productionapp.UnprodNeedRow{
+		ProductID:       89,
+		Product:         "冻干美式",
+		SpecG:           100,
+		GapG:            500,
+		ProductionKind:  "roasted_bean",
+		ProductTypeName: "速溶咖啡",
+	}
+
+	got := calcNoBomProducePlanMaterials(row, defaultPlanParams())
+
+	assertMaterialNeed(t, got, "速溶咖啡", 500, "g")
+	assertMaterialNeed(t, got, "速溶-盒子", 5, "个")
+	assertNoMaterialNeed(t, got, "冻干美式 生豆")
+}
+
+func TestBuildRoastPlanRowsCarriesOperationTemplateID(t *testing.T) {
+	rows := []productionapp.UnprodNeedRow{{
+		ProductID:                89,
+		Product:                  "冻干美式",
+		SpecG:                    100,
+		GapG:                     500,
+		ProductTypeName:          "速溶咖啡",
+		ProductSubtypeName:       "冻干速溶",
+		ProductSubtypeCategoryID: 12,
+		OperationTemplateID:      22,
+	}}
+
+	got := buildRoastPlanRows(rows, nil, map[int64]float64{89: 1})
+
+	if len(got) != 1 || got[0].OperationTemplateID != 22 {
+		t.Fatalf("roast plan operation template = %+v, want 22", got)
+	}
+}
+
 func TestBuildRoastPlanMaterialRatiosUsesInstantCoffeeRawMaterial(t *testing.T) {
 	rows := []productionapp.UnprodNeedRow{{
 		ProductID:      88,

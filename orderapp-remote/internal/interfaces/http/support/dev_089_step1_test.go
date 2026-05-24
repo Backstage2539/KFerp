@@ -351,8 +351,8 @@ func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 		"/api/product-settings",
 		"/api/product-settings/categories",
 		"/api/product-settings/products/",
-		"一级分类",
-		"二级分类",
+		"产品类型",
+		"产品子类型",
 		"商品编号",
 	} {
 		if !strings.Contains(combined, want) {

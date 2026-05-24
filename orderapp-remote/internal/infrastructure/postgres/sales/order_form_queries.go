@@ -76,6 +76,8 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 		customer_versions AS (
 			SELECT c.id AS customer_id,
 			       b.list_type,
+			       COALESCE(b.product_type_category_id,0) AS product_type_category_id,
+			       COALESCE(b.product_type_name,'') AS product_type_name,
 			       b.id,
 			       b.version_no,
 			       COALESCE(to_char(b.published_at, 'YYYY-MM-DD HH24:MI'), '') AS published_at,
@@ -85,21 +87,26 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 			FROM active_customers c
 			JOIN %[1]s.bean_list_publications b
 			  ON b.owner_type='customer' AND b.owner_key=c.id::text AND b.status='published'
-			WHERE b.list_type IN ('commercial','green','drip')
+			WHERE b.list_type IN ('commercial','green','drip') OR COALESCE(b.product_type_category_id,0)>0
 		),
 		official_versions AS (
 			SELECT b.list_type,
+			       COALESCE(b.product_type_category_id,0) AS product_type_category_id,
+			       COALESCE(b.product_type_name,'') AS product_type_name,
 			       b.id,
 			       b.version_no,
 			       COALESCE(to_char(b.published_at, 'YYYY-MM-DD HH24:MI'), '') AS published_at,
 			       COALESCE(b.changelog, '') AS changelog,
 			       row_number() OVER (PARTITION BY b.list_type ORDER BY b.published_at DESC, b.id DESC) = 1 AS is_default
 			FROM %[1]s.bean_list_publications b
-			WHERE b.owner_type='official' AND b.status='published' AND b.list_type IN ('commercial','green','drip')
+			WHERE b.owner_type='official' AND b.status='published'
+			  AND (b.list_type IN ('commercial','green','drip') OR COALESCE(b.product_type_category_id,0)>0)
 		),
 		global_public_versions AS (
 			SELECT 0::bigint AS customer_id,
 			       o.list_type,
+			       o.product_type_category_id,
+			       o.product_type_name,
 			       o.id,
 			       o.version_no,
 			       o.published_at,
@@ -111,6 +118,8 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 		public_fallback AS (
 			SELECT c.id AS customer_id,
 			       o.list_type,
+			       o.product_type_category_id,
+			       o.product_type_name,
 			       o.id,
 			       o.version_no,
 			       o.published_at,
@@ -120,16 +129,19 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 			FROM active_customers c
 			CROSS JOIN official_versions o
 			WHERE NOT EXISTS (
-				SELECT 1 FROM customer_versions cv WHERE cv.customer_id=c.id AND cv.list_type=o.list_type
+				SELECT 1 FROM customer_versions cv
+				WHERE cv.customer_id=c.id
+				  AND cv.list_type=o.list_type
+				  AND COALESCE(cv.product_type_category_id,0)=COALESCE(o.product_type_category_id,0)
 			)
 		)
-		SELECT customer_id, list_type, id, version_no, published_at, changelog, is_customer_owned, is_default
+		SELECT customer_id, list_type, product_type_category_id, product_type_name, id, version_no, published_at, changelog, is_customer_owned, is_default
 		FROM customer_versions
 		UNION ALL
-		SELECT customer_id, list_type, id, version_no, published_at, changelog, is_customer_owned, is_default
+		SELECT customer_id, list_type, product_type_category_id, product_type_name, id, version_no, published_at, changelog, is_customer_owned, is_default
 		FROM global_public_versions
 		UNION ALL
-		SELECT customer_id, list_type, id, version_no, published_at, changelog, is_customer_owned, is_default
+		SELECT customer_id, list_type, product_type_category_id, product_type_name, id, version_no, published_at, changelog, is_customer_owned, is_default
 		FROM public_fallback
 		ORDER BY customer_id, list_type, is_customer_owned DESC, is_default DESC, published_at DESC, id DESC
 	`, r.schema)
@@ -141,7 +153,7 @@ func (r Repository) fetchOrderBeanListVersionOptions(ctx context.Context) ([]sal
 	out := make([]salesapp.BeanListVersionOption, 0)
 	for rows.Next() {
 		var row salesapp.BeanListVersionOption
-		if err := rows.Scan(&row.CustomerID, &row.ListType, &row.ID, &row.VersionNo, &row.PublishedAt, &row.Changelog, &row.IsCustomerOwned, &row.IsDefault); err != nil {
+		if err := rows.Scan(&row.CustomerID, &row.ListType, &row.ProductTypeCategoryID, &row.ProductTypeName, &row.ID, &row.VersionNo, &row.PublishedAt, &row.Changelog, &row.IsCustomerOwned, &row.IsDefault); err != nil {
 			return nil, err
 		}
 		ownerLabel := "公共豆单"

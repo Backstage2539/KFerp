@@ -65,24 +65,27 @@ type productHandler struct {
 }
 
 type productUpdateAPIRequest struct {
-	Name                  *string                   `json:"name"`
-	ProductKind           string                    `json:"product_kind"`
-	Remark                *string                   `json:"remark"`
-	GreenBeanType         string                    `json:"green_bean_type"`
-	GreenBeanBomProductID int64                     `json:"green_bean_bom_product_id"`
-	DefaultPrice          *float64                  `json:"default_price"`
-	RoastLevel            *string                   `json:"roast_level"`
-	DripBagGrams          *float64                  `json:"drip_bag_grams"`
-	DripBoxBagCount       *int                      `json:"drip_box_bag_count"`
-	AllowFulfillmentOrder *bool                     `json:"allow_fulfillment_order"`
-	AllowMallOrder        *bool                     `json:"allow_mall_order"`
-	RetailPrice100G       *float64                  `json:"retail_price_100g"`
-	RetailPrice200G       *float64                  `json:"retail_price_200g"`
-	RetailPrice227G       *float64                  `json:"retail_price_227g"`
-	RetailPrice250G       *float64                  `json:"retail_price_250g"`
-	YieldRate             float64                   `json:"yield_rate"`
-	MarginRateOverride    optionalNullableFloat64   `json:"margin_rate_override"`
-	Tiers                 []productTierAPIUpsertRow `json:"tiers"`
+	Name                        *string                   `json:"name"`
+	ProductKind                 string                    `json:"product_kind"`
+	Remark                      *string                   `json:"remark"`
+	GreenBeanType               string                    `json:"green_bean_type"`
+	GreenBeanBomProductID       int64                     `json:"green_bean_bom_product_id"`
+	DefaultPrice                *float64                  `json:"default_price"`
+	RoastLevel                  *string                   `json:"roast_level"`
+	DripBagGrams                *float64                  `json:"drip_bag_grams"`
+	DripBoxBagCount             *int                      `json:"drip_box_bag_count"`
+	AllowFulfillmentOrder       *bool                     `json:"allow_fulfillment_order"`
+	AllowMallOrder              *bool                     `json:"allow_mall_order"`
+	RetailPrice100G             *float64                  `json:"retail_price_100g"`
+	RetailPrice200G             *float64                  `json:"retail_price_200g"`
+	RetailPrice227G             *float64                  `json:"retail_price_227g"`
+	RetailPrice250G             *float64                  `json:"retail_price_250g"`
+	YieldRate                   float64                   `json:"yield_rate"`
+	MarginRateOverride          optionalNullableFloat64   `json:"margin_rate_override"`
+	GradientTemplateIDOverride  *int64                    `json:"gradient_template_id_override"`
+	OperationTemplateIDOverride *int64                    `json:"operation_template_id_override"`
+	UnitRuleOverrideJSON        *string                   `json:"unit_rule_override_json"`
+	Tiers                       []productTierAPIUpsertRow `json:"tiers"`
 }
 
 type productCreateAPIRequest struct {
@@ -117,11 +120,19 @@ type productTierAPIUpsertRow struct {
 }
 
 type productCategoryAPIRequest struct {
-	ID         int64  `json:"id"`
-	Name       string `json:"name"`
-	ParentID   int64  `json:"parent_id"`
-	CustomerID int64  `json:"customer_id"`
-	Position   int    `json:"position"`
+	ID                  int64  `json:"id"`
+	Name                string `json:"name"`
+	ParentID            int64  `json:"parent_id"`
+	CustomerID          int64  `json:"customer_id"`
+	Position            int    `json:"position"`
+	GradientTemplateID  int64  `json:"gradient_template_id"`
+	OperationTemplateID int64  `json:"operation_template_id"`
+	PriceListRuleJSON   string `json:"price_list_rule_json"`
+	InventoryUnit       string `json:"inventory_unit"`
+	QuoteUnit           string `json:"quote_unit"`
+	OrderUnit           string `json:"order_unit"`
+	UnitConversionJSON  string `json:"unit_conversion_json"`
+	IntegerUnit         bool   `json:"integer_unit"`
 }
 
 type productCategoryMoveAPIRequest struct {
@@ -314,26 +325,41 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	if req.Remark != nil {
 		remark = strings.TrimSpace(*req.Remark)
 	}
+	gradientTemplateIDOverride := existing.GradientTemplateIDOverride
+	if req.GradientTemplateIDOverride != nil {
+		gradientTemplateIDOverride = *req.GradientTemplateIDOverride
+	}
+	operationTemplateIDOverride := existing.OperationTemplateIDOverride
+	if req.OperationTemplateIDOverride != nil {
+		operationTemplateIDOverride = *req.OperationTemplateIDOverride
+	}
+	unitRuleOverrideJSON := existing.UnitRuleOverrideJSON
+	if req.UnitRuleOverrideJSON != nil {
+		unitRuleOverrideJSON = strings.TrimSpace(*req.UnitRuleOverrideJSON)
+	}
 	if err := h.catalog.UpdateProductBasics(c.Request().Context(), catalogapp.UpdateProductBasicsCommand{
-		Actor:                 support.ActorOf(c),
-		ProductID:             id,
-		Name:                  name,
-		Remark:                remark,
-		RoastLevel:            roastLevel,
-		ProductKind:           productKind,
-		GreenBeanType:         greenBeanType,
-		GreenBeanBomProductID: greenBeanBomProductID,
-		DefaultPrice:          defaultPrice,
-		DripBagGrams:          dripBagGrams,
-		DripBoxBagCount:       dripBoxBagCount,
-		AllowFulfillmentOrder: allowFulfillmentOrder,
-		AllowMallOrder:        allowMallOrder,
-		RetailPrice100G:       retailPrice100G,
-		RetailPrice200G:       retailPrice200G,
-		RetailPrice227G:       retailPrice227G,
-		RetailPrice250G:       retailPrice250G,
-		YieldRate:             yieldRate,
-		MarginRateOverride:    marginRateOverride,
+		Actor:                       support.ActorOf(c),
+		ProductID:                   id,
+		Name:                        name,
+		Remark:                      remark,
+		RoastLevel:                  roastLevel,
+		ProductKind:                 productKind,
+		GreenBeanType:               greenBeanType,
+		GreenBeanBomProductID:       greenBeanBomProductID,
+		DefaultPrice:                defaultPrice,
+		DripBagGrams:                dripBagGrams,
+		DripBoxBagCount:             dripBoxBagCount,
+		AllowFulfillmentOrder:       allowFulfillmentOrder,
+		AllowMallOrder:              allowMallOrder,
+		RetailPrice100G:             retailPrice100G,
+		RetailPrice200G:             retailPrice200G,
+		RetailPrice227G:             retailPrice227G,
+		RetailPrice250G:             retailPrice250G,
+		YieldRate:                   yieldRate,
+		MarginRateOverride:          marginRateOverride,
+		GradientTemplateIDOverride:  gradientTemplateIDOverride,
+		OperationTemplateIDOverride: operationTemplateIDOverride,
+		UnitRuleOverrideJSON:        unitRuleOverrideJSON,
 	}); err != nil {
 		if catalogapp.IsValidationError(err) {
 			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
@@ -589,12 +615,20 @@ func (h productHandler) saveProductCategoryAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "name required"})
 	}
 	row, err := h.catalog.SaveProductCategory(c.Request().Context(), catalogapp.SaveProductCategoryCommand{
-		Actor:      support.ActorOf(c),
-		ID:         req.ID,
-		ParentID:   req.ParentID,
-		CustomerID: req.CustomerID,
-		Name:       req.Name,
-		Position:   req.Position,
+		Actor:               support.ActorOf(c),
+		ID:                  req.ID,
+		ParentID:            req.ParentID,
+		CustomerID:          req.CustomerID,
+		Name:                req.Name,
+		Position:            req.Position,
+		GradientTemplateID:  req.GradientTemplateID,
+		OperationTemplateID: req.OperationTemplateID,
+		PriceListRuleJSON:   req.PriceListRuleJSON,
+		InventoryUnit:       req.InventoryUnit,
+		QuoteUnit:           req.QuoteUnit,
+		OrderUnit:           req.OrderUnit,
+		UnitConversionJSON:  req.UnitConversionJSON,
+		IntegerUnit:         req.IntegerUnit,
 	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})

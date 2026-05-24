@@ -94,7 +94,7 @@ func TestGreenBeanSalesWiringAndManuals(t *testing.T) {
 		},
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/lib/bean-list-pdf.js",
-			want: []string{"green_bean_list", "green_bean_sale_tiers", "生豆豆单", "beanListQualityLines"},
+			want: []string{"green_bean_list", "green_bean_sale_tiers", "生豆产品价格表", "beanListQualityLines"},
 		},
 		{
 			path: "orderapp-remote/internal/infrastructure/postgres/stock/schema.go",

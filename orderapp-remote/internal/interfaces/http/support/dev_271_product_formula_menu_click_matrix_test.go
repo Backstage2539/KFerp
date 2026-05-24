@@ -70,7 +70,7 @@ func TestProductFormulaMenuClickMatrixViewsExposeActions(t *testing.T) {
 			"/api/costing/bean-list",
 			"/api/costing/bean-list/publications",
 			"豆单版本列表",
-			"生成豆单",
+			"生成价格表",
 		},
 		filepath.Join("frontend-vue-shell", "src", "components", "CostingSettingsPanel.vue"): {
 			"/api/costing/settings",

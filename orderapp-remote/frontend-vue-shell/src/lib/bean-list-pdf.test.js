@@ -117,8 +117,8 @@ test('PDF bean-list helper builds separate commercial and retail groups from Exc
   assert.equal(retail.length, 2)
   assert.equal(retail[0].items[0].code, '3.2')
   assert.equal(retail[0].items[0].recommendedUse, '手冲/SOE/冷萃')
-  assert.equal(buildBeanListPdfTitle('commercial'), '棵凡咖啡批发豆单')
-  assert.equal(buildBeanListPdfTitle('retail'), '棵凡咖啡零售豆单')
+  assert.equal(buildBeanListPdfTitle('commercial'), '棵凡咖啡批发产品价格表')
+  assert.equal(buildBeanListPdfTitle('retail'), '棵凡咖啡零售产品价格表')
 })
 
 test('PDF bean-list helper builds a green bean list from template tiers and quality data', () => {
@@ -142,7 +142,7 @@ test('PDF bean-list helper builds a green bean list from template tiers and qual
     green_bean_sale_tiers: [{ label: '1kg+', spec_g: 1000, price_per_unit: 128, display_unit: 'kg' }],
   }], 'green')
 
-  assert.equal(buildBeanListPdfTitle('green'), '棵凡咖啡生豆豆单')
+  assert.equal(buildBeanListPdfTitle('green'), '棵凡咖啡生豆产品价格表')
   assert.equal(groups.length, 1)
   assert.equal(groups[0].category, 'G、生豆销售')
   assert.equal(groups[0].categoryCode, 'G')
@@ -318,8 +318,8 @@ test('PDF bean-list helper preserves layout, brand, changelog, badge, and red-hi
   assert.equal(theme.showVersion, false)
   assert.equal(theme.showChangelog, true)
   assert.equal(theme.changelog, 'V3.0.6 调整庄园精品豆')
-  assert.equal(buildBeanListPdfTitle('commercial', theme.brandName), '烘豆实验室批发豆单')
-  assert.equal(buildBeanListPdfTitle('retail', theme.brandName), '烘豆实验室零售豆单')
+  assert.equal(buildBeanListPdfTitle('commercial', theme.brandName), '烘豆实验室批发产品价格表')
+  assert.equal(buildBeanListPdfTitle('retail', theme.brandName), '烘豆实验室零售产品价格表')
 
   const groups = buildBeanListPdfGroups(rows, 'commercial', {
     selectedProductIDs: [30],

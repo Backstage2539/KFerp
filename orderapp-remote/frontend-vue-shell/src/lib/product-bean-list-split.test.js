@@ -17,8 +17,8 @@ function menuItem(key) {
 test('product menu is split into SKU settings and product bean-list pages', () => {
   assert.equal(menuItem('productSettings')?.label, 'SKU设置')
   assert.equal(menuItem('productSettings')?.title, 'SKU设置')
-  assert.equal(menuItem('costing')?.label, '产品豆单')
-  assert.equal(menuItem('costing')?.title, '产品豆单')
+  assert.equal(menuItem('costing')?.label, '产品价格表')
+  assert.equal(menuItem('costing')?.title, '产品价格表')
 })
 
 test('SKU settings no longer embeds the product bean-list workspace', () => {
@@ -50,7 +50,7 @@ test('SKU settings exposes customer context initialization without the public pr
 })
 
 test('product bean-list page owns customer context for bean-list previews', () => {
-  assert.match(costingSource, /<h2>产品豆单<\/h2>/)
+  assert.match(costingSource, /<h2>产品价格表<\/h2>/)
   assert.match(costingSource, /const activeBeanListCustomerID = computed/)
   assert.match(costingSource, /const activeCostingScope = computed/)
   assert.match(costingSource, /const activeCustomerPublicUsage = computed/)
@@ -67,12 +67,12 @@ test('product bean-list page does not expose pricing trial workspace', () => {
   assert.doesNotMatch(costingSource, /<div class="section-title">价格试算<\/div>/)
   assert.doesNotMatch(costingSource, /pricingCollapsed/)
   assert.doesNotMatch(costingSource, /保存试算/)
-  assert.doesNotMatch(costingSource, /发布价格/)
+  assert.doesNotMatch(costingSource, /发布价格(?!表)/)
   assert.doesNotMatch(costingSource, /试算批次/)
   assert.doesNotMatch(costingSource, /function createRun/)
   assert.doesNotMatch(costingSource, /function publishRun/)
   assert.match(costingSource, /豆单版本列表/)
-  assert.match(costingSource, /生成豆单/)
+  assert.match(costingSource, /生成价格表/)
 })
 
 test('product bean-list price source drawer keeps temporary tier trial controls', () => {

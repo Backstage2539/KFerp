@@ -30,11 +30,11 @@ func TestDev321CustomerSkuCategoryToggleFactoryBeanListTitle(t *testing.T) {
 		},
 		"docs/ACCEPTANCE_TESTS.md": {
 			"PR-321-CUSTOMER-SKU-CATEGORY-TOGGLE-FACTORY-BEANLIST-TITLE",
-			"客户自有一级分类“咖啡豆”和二级分类“定制咖啡熟豆”仍保留",
+			"客户自有产品类型“咖啡豆”和产品子类型“定制咖啡熟豆”仍保留",
 			"SKU归属回到公共SKU",
 		},
 		"docs/OP_MANUAL_COSTING.md": {
-			"客户自有一级/二级分类和已挂载的客户 SKU 必须继续显示",
+			"客户自有产品类型/产品子类型和已挂载的客户 SKU 必须继续显示",
 			"“1、定制咖啡熟豆”分组",
 			"schema 修复",
 		},

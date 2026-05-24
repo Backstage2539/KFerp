@@ -2,7 +2,7 @@
   <div class="page">
     <section class="panel">
       <div class="panel-head">
-        <h2>产品豆单</h2>
+        <h2>产品价格表</h2>
         <div class="actions">
           <button class="secondary" type="button" :disabled="loading" @click="loadBeanList">刷新</button>
           <button class="secondary" type="button" @click="settingsOpen = true">参数设置</button>
@@ -10,7 +10,7 @@
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="message" class="ok">{{ message }}</div>
-      <div v-if="inactiveBomWarningCount" class="warning-banner">BOM已失效：{{ inactiveBomWarningCount }} 款产品依赖的 BOM 已失效，发布豆单前请先重新启用 BOM。</div>
+      <div v-if="inactiveBomWarningCount" class="warning-banner">BOM已失效：{{ inactiveBomWarningCount }} 款产品依赖的 BOM 已失效，发布价格表前请先重新启用 BOM。</div>
       <div class="metrics">
         <div>
           <span>商品数</span>
@@ -122,10 +122,10 @@
     <section class="panel">
       <div class="bean-list-generate-bar">
         <div>
-          <div class="section-title">生成豆单</div>
+          <div class="section-title">生成价格表</div>
           <p class="muted">按当前豆单范围生成公共或客户豆单；商用、挂耳、零售、生豆在抽屉中切换。</p>
         </div>
-        <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length" @click="openBeanListDrawer(pdfTheme.listType)">生成豆单</button>
+        <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length" @click="openBeanListDrawer(pdfTheme.listType)">生成价格表</button>
       </div>
     </section>
 
@@ -368,15 +368,15 @@
             <small>{{ step.source }}</small>
           </div>
         </div>
-        <p class="muted">{{ isDripExplanation ? '挂耳价格来源只展示当前公式步骤；交易价格仍需发布豆单后生效。' : '这里的参数只做临时试算；保存请回到快速成本参数或梯度模板，交易价格仍需发布后生效。' }}</p>
+        <p class="muted">{{ isDripExplanation ? '挂耳价格来源只展示当前公式步骤；交易价格仍需发布价格表后生效。' : '这里的参数只做临时试算；保存请回到快速成本参数或梯度模板，交易价格仍需发布后生效。' }}</p>
       </aside>
     </div>
 
     <div v-if="pdfDrawerOpen" class="drawer-backdrop" @click.self="pdfDrawerOpen = false">
-      <aside class="settings-drawer pdf-drawer" aria-label="生成豆单 PDF">
+      <aside class="settings-drawer pdf-drawer" aria-label="生成价格表 PDF">
         <div class="drawer-head">
           <div>
-            <h3>生成豆单</h3>
+            <h3>生成价格表</h3>
             <p>按手机查看宽度预览，发布后保留版本记录，也可在浏览器打印窗口保存为 PDF。</p>
             <p v-if="currentBeanListPublication" class="publish-state">当前已发布：{{ currentBeanListPublication.version }} · {{ currentBeanListPublication.published_at }}</p>
             <p v-else class="publish-state">当前暂无已发布版本</p>
@@ -409,7 +409,7 @@
         <div class="copy-config-box" v-if="(publicationScope === 'mine' || publicationScope === 'customer') && officialPriceSourcePublications.length">
           <div>
             <strong>复制官方价格来源</strong>
-            <p>复制棵凡已发布豆单的报价、风味、特点和出品建议，作为本次客户豆单的锁定内容快照。</p>
+            <p>复制棵凡已发布价格表的报价、风味、特点和出品建议，作为本次客户价格表的锁定内容快照。</p>
           </div>
           <div class="copy-config-actions">
             <select v-model="selectedPriceSourcePublicationID">
@@ -542,7 +542,7 @@
           <span>{{ pdfTotalItems }} 款</span>
           <div class="pdf-actions">
             <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList()">撤回发布</button>
-            <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="publishBeanList">发布豆单</button>
+            <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="publishBeanList">发布价格表</button>
             <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
             <button class="secondary" type="button" :disabled="beanListPdfGenerating || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
           </div>
@@ -1123,7 +1123,7 @@ function itemWarnings(item) {
     return ['未挂到带生豆模板的分类，无法生成生豆价格。请在 SKU设置 里把该生豆 SKU 移到带生豆模板的生豆分类。', ...warnings]
   }
   if (item?.bom_status === 'inactive' && !warnings.some((warning) => String(warning).includes('BOM已失效'))) {
-    return ['BOM已失效：请重新启用 BOM 后再发布豆单', ...warnings]
+    return ['BOM已失效：请重新启用 BOM 后再发布价格表', ...warnings]
   }
   return warnings
 }
@@ -1938,7 +1938,7 @@ async function generateBeanListPdf() {
     await loadBeanListPublications(listType, publicationScope.value)
     await loadBeanListPublications(listType, versionListScope.value)
   } catch (err) {
-    error.value = err.message || '生成豆单 PDF 失败'
+    error.value = err.message || '生成价格表 PDF 失败'
   } finally {
     beanListPdfGenerating.value = false
   }
@@ -1961,7 +1961,7 @@ async function publishBeanList() {
       : `已发布${beanListTypeName(listType)}客户豆单 ${row.version}，内容和价格已锁定为快照`
     await loadBeanListPublications(listType, publicationScope.value)
   } catch (err) {
-    error.value = err.message || '发布豆单失败'
+    error.value = err.message || '发布价格表失败'
   } finally {
     beanListPublishing.value = false
   }
@@ -2002,7 +2002,7 @@ async function saveGreenBeanPriceDraft() {
   message.value = ''
   try {
     const row = await apiSend('/api/costing/bean-list/drafts', { body: beanListPublicationPayload() })
-    message.value = `已保存生豆价格草稿 ${row.version}，可继续在生成豆单中发布`
+    message.value = `已保存生豆价格草稿 ${row.version}，可继续在生成价格表中发布`
     await loadBeanListPublications('green', publicationScope.value)
     await loadBeanListPublications('green', versionListScope.value)
   } catch (err) {

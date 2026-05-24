@@ -118,17 +118,22 @@ func unprodRowsToApp(rows []UnprodNeedRow) []productionapp.UnprodNeedRow {
 	out := make([]productionapp.UnprodNeedRow, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, productionapp.UnprodNeedRow{
-			ProductID:      row.ProductID,
-			Product:        row.Product,
-			OrderNos:       row.OrderNos,
-			SpecG:          row.SpecG,
-			NeedUnits:      row.NeedUnits,
-			NeedG:          row.NeedG,
-			InvUnits:       row.InvUnits,
-			InvLooseG:      row.InvLooseG,
-			InvG:           row.InvG,
-			GapG:           row.GapG,
-			ProductionKind: catalogdomain.NormalizeProductKind(row.ProductionKind),
+			ProductID:                row.ProductID,
+			Product:                  row.Product,
+			OrderNos:                 row.OrderNos,
+			SpecG:                    row.SpecG,
+			NeedUnits:                row.NeedUnits,
+			NeedG:                    row.NeedG,
+			InvUnits:                 row.InvUnits,
+			InvLooseG:                row.InvLooseG,
+			InvG:                     row.InvG,
+			GapG:                     row.GapG,
+			ProductionKind:           catalogdomain.NormalizeProductKind(row.ProductionKind),
+			ProductTypeCategoryID:    row.ProductTypeCategoryID,
+			ProductSubtypeCategoryID: row.ProductSubtypeCategoryID,
+			ProductTypeName:          row.ProductTypeName,
+			ProductSubtypeName:       row.ProductSubtypeName,
+			OperationTemplateID:      row.OperationTemplateID,
 		})
 	}
 	return out
@@ -295,6 +300,8 @@ func defaultPlanParams() planParams {
 func isInstantCoffeePlanRow(row productionapp.UnprodNeedRow) bool {
 	return strings.TrimSpace(row.ProductionKind) == "instant_coffee" ||
 		catalogdomain.NormalizeProductKind(row.ProductionKind) == catalogdomain.ProductKindInstantCoffee ||
+		strings.Contains(strings.TrimSpace(row.ProductTypeName), "速溶") ||
+		strings.Contains(strings.TrimSpace(row.ProductSubtypeName), "速溶") ||
 		strings.Contains(strings.TrimSpace(row.Product), "速溶")
 }
 
@@ -383,18 +390,19 @@ func buildRoastPlanRows(rows []productionapp.UnprodNeedRow, machines []productio
 			batchG = finalInputG
 		}
 		out = append(out, productionapp.RoastPlanRow{
-			Key:           producePlanKey(r.ProductID, r.SpecG),
-			ProductID:     r.ProductID,
-			ProductName:   r.Product,
-			SpecG:         r.SpecG,
-			Machine:       machine.Name,
-			BatchCount:    batchCount,
-			BatchG:        batchG,
-			FinalInputG:   finalInputG,
-			NeedG:         r.GapG,
-			YieldRate:     yieldRate,
-			YieldPctStr:   fmt.Sprintf("%.0f%%", yieldRate*100),
-			FinishedKgStr: formatKg(r.GapG),
+			Key:                 producePlanKey(r.ProductID, r.SpecG),
+			ProductID:           r.ProductID,
+			ProductName:         r.Product,
+			SpecG:               r.SpecG,
+			Machine:             machine.Name,
+			BatchCount:          batchCount,
+			BatchG:              batchG,
+			FinalInputG:         finalInputG,
+			NeedG:               r.GapG,
+			OperationTemplateID: r.OperationTemplateID,
+			YieldRate:           yieldRate,
+			YieldPctStr:         fmt.Sprintf("%.0f%%", yieldRate*100),
+			FinishedKgStr:       formatKg(r.GapG),
 		})
 	}
 	return out
