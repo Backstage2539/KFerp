@@ -1297,7 +1297,9 @@ test('SKU product config template list and price rule controls are visually stru
   }
   assert.doesNotMatch(priceRuleBlock, /<small>默认继承单位模板/)
   assert.match(style, /\.price-rule-grid \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/)
+  assert.match(style, /\.price-rule-grid \.rule-config-field \{[^}]*grid-template-rows: 22px auto/)
   assert.match(style, /\.field-help-tooltip/)
+  assert.match(style, /\.field-help-icon \{[^}]*min-height: 16px/)
   assert.match(style, /\.product-config-row\.active/)
 })
 
