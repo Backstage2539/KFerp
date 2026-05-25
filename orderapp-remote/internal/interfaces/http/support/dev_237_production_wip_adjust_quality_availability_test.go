@@ -9,7 +9,7 @@ import (
 func TestProductionWIPAdjustQualityAvailabilityEvidenceExists(t *testing.T) {
 	apiTest := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "production", "production_flow_api_test.go")))
 	repository := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "production", "wip_reservation.go")))
-	manual := string(readOrderAppFileForTest(t, filepath.Join("..", "OP_MANUAL_PRODUCTION.md")))
+	manual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_PRODUCTION.md")))
 	store := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	acceptance := string(readOrderAppFileForTest(t, filepath.Join("..", "docs", "acceptance", "2026-05-13-three-template-business-audit.md")))
 

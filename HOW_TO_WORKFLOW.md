@@ -20,7 +20,8 @@
 - 操作手册必须同时覆盖：入口路径、适用角色、前置条件、标准操作步骤、结果校验、常见异常/失败处理、关联单据或数据影响。
 - 现有操作手册要持续查缺补漏。每次触碰某个功能时，先检查该功能手册是否缺少新入口、新字段、流程顺序、权限、导入导出或排障说明，再开发/验收。
 - 手册更新是同一个需求的一部分，不是上线后的可选补充。验收证据必须包含手册文件路径或前端手册入口。
-- 手册总索引为 `OPERATION_MANUALS.md`；新大功能手册优先采用 `OP_MANUAL_<FEATURE>.md` 命名。已有 `*-user-manual.md` 或 Vue/Vite 手册页的功能，可沿用既有手册，但必须在总索引登记，并同步到 `orderapp-remote/docs/` 或前端手册入口。
+- 操作手册只维护 orderapp-remote/docs 一份。手册总索引为 `orderapp-remote/docs/OPERATION_MANUALS.md`；新大功能手册优先采用 `orderapp-remote/docs/OP_MANUAL_<FEATURE>.md` 命名。根目录不再保留 `OP_MANUAL_*.md` 或 `OPERATION_MANUALS.md` 副本，避免人工镜像导致漏改。
+- 已有 `*-user-manual.md` 或 Vue/Vite 手册页的功能，可沿用既有手册，但必须在 `orderapp-remote/docs/OPERATION_MANUALS.md` 登记，并接入前端手册入口。
 
 ## 工作流（PR/DEV 进度表 + Superpower 测试证据）
 在系统 UI 中必须维护 PR/DEV，任何时候 Van 打开就能看到当前产品需求和开发进度。UT/API/REV 不再按旧 UI 表流程强制录入，测试和验收证据按 Superpower/TDD 流程保留在测试输出、验收文档和最终说明中。
@@ -52,8 +53,8 @@
 
 ## 证据要求（最低标准）
 - 对于“操作手册类”需求：
-  - `OPERATION_MANUALS.md` 或对应 `OP_MANUAL_<FEATURE>.md` 已更新
-  - `orderapp-remote/docs/` 中的线上展示副本已同步
+  - `orderapp-remote/docs/OPERATION_MANUALS.md` 或对应 `orderapp-remote/docs/OP_MANUAL_<FEATURE>.md` 已更新
+  - 只维护 orderapp-remote/docs 一份，根目录不新增、不恢复手册副本
   - 如影响前端操作入口，Vue/Vite 前端手册入口或相关页面帮助文本已同步
 - 对于“页面/文档类”需求：
   - HTTP 状态码 200（curl 输出）

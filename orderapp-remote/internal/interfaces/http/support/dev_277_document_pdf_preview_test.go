@@ -181,7 +181,7 @@ func TestDev277DocumentPreviewAndContractWorkspaceDocumentation(t *testing.T) {
 	}
 
 	for _, path := range []string{
-		filepath.Join("..", "OP_MANUAL_ORDER_SALES.md"),
+		filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"),
 		filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"),
 	} {
 		doc := string(readOrderAppFileForTest(t, path))

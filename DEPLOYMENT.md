@@ -65,12 +65,9 @@ ssh -i openclaw_jj_ed25519 root@1.12.242.58
 
 ### 2.1 脚本做了什么
 1) 同步 docs（用于 `/app/docs` 页面展示）：
-- `REQUIREMENTS.md`
-- `ACCEPTANCE_TESTS.md`
-- `HOW_TO_WORKFLOW.md`
-- `OPERATION_MANUALS.md`
-- `OP_MANUAL_*.md`
-- `DEPLOYMENT.md`（本教程）
+- `orderapp-remote/docs/` 作为线上 `/app/docs` 的唯一来源，包含操作手册、需求和验收文档
+- 根目录 `REQUIREMENTS.md`、`ACCEPTANCE_TESTS.md`、`HOW_TO_WORKFLOW.md`、`DEPLOYMENT.md` 仅作为构建期治理上下文放入 `docs/workspace/`
+- 根目录不再同步 `OPERATION_MANUALS.md` 或 `OP_MANUAL_*.md`，避免两份手册人工镜像
 
 2) 同步应用源码：
 - 把 `orderapp-remote/*` 拷贝到服务器 `/opt/stacks/erp/orderapp/`
@@ -97,7 +94,9 @@ chmod +x deploy_orderapp.sh
 ### 3.1 同步 docs
 ```bash
 ssh -i openclaw_jj_ed25519 root@1.12.242.58 "mkdir -p /opt/stacks/erp/orderapp/docs"
-scp -i openclaw_jj_ed25519 REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md OPERATION_MANUALS.md OP_MANUAL_*.md DEPLOYMENT.md root@1.12.242.58:/opt/stacks/erp/orderapp/docs/
+COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --exclude='._*' --exclude='*/._*' -C orderapp-remote/docs -cf - . | ssh -i openclaw_jj_ed25519 root@1.12.242.58 "tar -C /opt/stacks/erp/orderapp/docs -xf -"
+ssh -i openclaw_jj_ed25519 root@1.12.242.58 "mkdir -p /opt/stacks/erp/orderapp/docs/workspace"
+scp -i openclaw_jj_ed25519 REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md DEPLOYMENT.md root@1.12.242.58:/opt/stacks/erp/orderapp/docs/workspace/
 ```
 
 ### 3.2 同步源码

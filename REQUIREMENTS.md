@@ -481,13 +481,14 @@
 
 ## 9. 操作手册强制治理（PR-DOCS-001）
 - 开发时只要改变用户操作流程、入口、字段、权限、导入导出或异常处理，必须同步更新操作手册。
-- 单个大功能必须有一个独立操作手册，命名为 `OP_MANUAL_<FEATURE>.md` 或沿用该大功能现有用户手册。
+- 单个大功能必须有一个独立操作手册，命名为 `orderapp-remote/docs/OP_MANUAL_<FEATURE>.md` 或沿用该大功能现有用户手册。
 - 小改动更新所属大功能手册，不能把多个大功能混写在一个长文档里。
 - 每次触碰功能时，要检查现有手册是否缺入口、缺字段、缺步骤、缺权限说明、缺导入导出说明、缺排障说明。
 - 需求审核证据必须包含手册文件路径或前端手册入口。
-- 部署时必须同步 `OPERATION_MANUALS.md` 和 `OP_MANUAL_*.md` 到线上 `/docs`。
+- 操作手册只维护 `orderapp-remote/docs` 一份；根目录不得恢复 `OPERATION_MANUALS.md` 或 `OP_MANUAL_*.md` 副本。
+- 部署时线上 `/docs` 必须来自 `orderapp-remote/docs/`，不再从根目录同步手册副本。
 - 操作手册入口必须直接放入对应大功能菜单，例如订单销售手册放在订单销售，生产手册放在生产管理，不能单独做一个“手册”菜单。
 - 被大功能手册覆盖的旧 `*-user-manual.md` 和旧单独 Vue 手册组件必须删除，避免操作人员看到两套手册。
-- Vue/Vite 手册页必须通过通用手册视图读取对应 `OP_MANUAL_*.md?raw=1`，保证源码 Markdown、部署 docs 和界面内容一致。
-- 所有大功能 `OP_MANUAL_*.md` 必须包含 `## 流程图` 和 Mermaid `flowchart` 图示，不能只写文字步骤。
+- Vue/Vite 手册页必须通过通用手册视图读取对应 `OP_MANUAL_*.md?raw=1`，保证 `orderapp-remote/docs` 源文件、部署 docs 和界面内容一致。
+- 所有大功能 `orderapp-remote/docs/OP_MANUAL_*.md` 必须包含 `## 流程图` 和 Mermaid `flowchart` 图示，不能只写文字步骤。
 - Vue/Vite 手册页必须把 Mermaid 流程图渲染成节点和箭头图示；无法识别的图示代码必须保留为代码块，不能让手册空白。

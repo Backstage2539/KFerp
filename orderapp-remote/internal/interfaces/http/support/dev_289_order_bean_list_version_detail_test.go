@@ -76,7 +76,7 @@ func TestDev289OrderBeanListVersionDisplayedInDetailsAndManuals(t *testing.T) {
 			"豆单版本",
 			"订单明细",
 		},
-		filepath.Join("..", "OP_MANUAL_ORDER_SALES.md"): {
+		filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"): {
 			"豆单版本",
 			"订单明细",
 		},
@@ -84,7 +84,7 @@ func TestDev289OrderBeanListVersionDisplayedInDetailsAndManuals(t *testing.T) {
 			"豆单版本",
 			"订单明细",
 		},
-		filepath.Join("..", "OP_MANUAL_CUSTOMER_PORTAL.md"): {
+		filepath.Join("docs", "OP_MANUAL_CUSTOMER_PORTAL.md"): {
 			"豆单版本",
 			"订单明细",
 		},

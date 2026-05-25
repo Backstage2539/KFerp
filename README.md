@@ -7,7 +7,7 @@
 KFerp 当前包含两部分：
 
 - **业务与交付文档**：需求、验收、流程、部署说明
-- **操作手册**：按大功能维护用户操作说明，入口见 `OPERATION_MANUALS.md`
+- **操作手册**：按大功能维护用户操作说明，唯一来源在 `orderapp-remote/docs/OPERATION_MANUALS.md`
 - **应用代码**：`orderapp-remote`（Go 后端 + 前端页面）
 
 核心能力围绕：录单、订单管理、客户/商品档案、审计留痕、生产相关页面。
@@ -33,7 +33,7 @@ git clone https://github.com/Backstage2539/KFerp.git
 cd KFerp
 
 # 1) 先看核心文档（建议顺序）
-ls REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md OPERATION_MANUALS.md DEPLOYMENT.md
+ls REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md DEPLOYMENT.md orderapp-remote/docs/OPERATION_MANUALS.md
 
 # 2) 进入主应用目录
 cd orderapp-remote
@@ -87,8 +87,8 @@ chmod +x deploy_orderapp.sh
 - `REQUIREMENTS.md`：业务需求定义
 - `ACCEPTANCE_TESTS.md`：验收清单
 - `HOW_TO_WORKFLOW.md`：PR/DEV/UT/API/REV 协作流程
-- `OPERATION_MANUALS.md`：操作手册总索引与维护规则
-- `OP_MANUAL_*.md`：单个大功能的操作手册
+- `orderapp-remote/docs/OPERATION_MANUALS.md`：操作手册总索引与维护规则
+- `orderapp-remote/docs/OP_MANUAL_*.md`：单个大功能的操作手册，根目录不再保留副本
 - `DEPLOYMENT.md`：部署教程与排障
 - `roastery-system/`：相关部署与基础设施目录（独立子系统）
 - `scripts/`：辅助脚本

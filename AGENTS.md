@@ -226,7 +226,7 @@ Canonical reference: `HOW_TO_WORKFLOW.md`. For every requirement, Codex must run
 
 Hard rules:
 - User-triggered business writes must be visible in 操作日志.
-- User workflow changes must update source manuals and the Vue/Vite/manual docs surface.
+- User workflow changes must update the single source manuals under `orderapp-remote/docs` and the Vue/Vite/manual docs surface. Do not restore root `OPERATION_MANUALS.md` or `OP_MANUAL_*.md` copies.
 - Maintain PR/DEV UI tables so Van can see product and development progress.
 - UT/API/REV no longer need old UI-table entry; keep evidence in tests, acceptance docs, and final reports.
 

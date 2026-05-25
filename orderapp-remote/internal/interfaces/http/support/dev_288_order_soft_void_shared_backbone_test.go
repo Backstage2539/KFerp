@@ -99,8 +99,8 @@ func TestDev288OrderSoftVoidSharedBackboneReqAndDocs(t *testing.T) {
 	}
 
 	for _, path := range []string{
-		filepath.Join("..", "OP_MANUAL_ORDER_SALES.md"),
-		filepath.Join("..", "OP_MANUAL_CUSTOMER_PORTAL.md"),
+		filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"),
+		filepath.Join("docs", "OP_MANUAL_CUSTOMER_PORTAL.md"),
 		filepath.Join("..", "REQUIREMENTS.md"),
 		filepath.Join("..", "ACCEPTANCE_TESTS.md"),
 		filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"),

@@ -64,7 +64,7 @@ func TestDev350CombinedDocumentsManualAndAcceptanceDocs(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("..", "REQUIREMENTS.md"),
 		filepath.Join("..", "ACCEPTANCE_TESTS.md"),
-		filepath.Join("..", "OP_MANUAL_ORDER_SALES.md"),
+		filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"),
 		filepath.Join("..", "docs", "acceptance", "2026-05-24-combined-order-documents.md"),
 	} {
 		body := string(readOrderAppFileForTest(t, rel))

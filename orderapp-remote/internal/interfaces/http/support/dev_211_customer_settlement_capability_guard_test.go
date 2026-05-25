@@ -67,7 +67,7 @@ func TestCustomerSettlementCapabilityGuardRequirementSeedsExist(t *testing.T) {
 
 func TestCustomerSettlementCapabilityGuardManualsAndRequirementDocs(t *testing.T) {
 	for _, path := range []string{
-		filepath.Join("..", "OP_MANUAL_CUSTOMER_FULFILLMENT.md"),
+		filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md"),
 		filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md"),
 		filepath.Join("..", "REQUIREMENTS.md"),
 		filepath.Join("docs", "REQUIREMENTS.md"),

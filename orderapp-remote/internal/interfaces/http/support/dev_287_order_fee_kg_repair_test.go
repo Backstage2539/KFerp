@@ -88,7 +88,7 @@ func TestDev287OrderFeeKgRepairManualsAndAcceptanceDocs(t *testing.T) {
 			"履约运营台订单费用的同一结构",
 			"1000g × 25 袋",
 		},
-		filepath.Join("..", "OP_MANUAL_ORDER_SALES.md"): {
+		filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"): {
 			"履约运营台订单费用的同一结构",
 			"1000g × 25 袋",
 		},
@@ -96,7 +96,7 @@ func TestDev287OrderFeeKgRepairManualsAndAcceptanceDocs(t *testing.T) {
 			"1000g × 25 袋",
 			"同一套订单费用结构",
 		},
-		filepath.Join("..", "OP_MANUAL_CUSTOMER_FULFILLMENT.md"): {
+		filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md"): {
 			"1000g × 25 袋",
 			"同一套订单费用结构",
 		},

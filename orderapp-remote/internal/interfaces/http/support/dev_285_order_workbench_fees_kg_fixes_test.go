@@ -69,7 +69,7 @@ func TestDev285OrderWorkbenchFeesKgManualsAndAcceptanceDocs(t *testing.T) {
 			"委外合计",
 			"收件人、电话、地址、公司",
 		},
-		filepath.Join("..", "OP_MANUAL_ORDER_SALES.md"): {
+		filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"): {
 			"按 KG 设梯度",
 			"快递费说明",
 			"委外合计",
@@ -79,7 +79,7 @@ func TestDev285OrderWorkbenchFeesKgManualsAndAcceptanceDocs(t *testing.T) {
 			"不需要 ERP 内部 `orders.write` 权限",
 			"订单详情读取走客户工作台专用详情接口",
 		},
-		filepath.Join("..", "OP_MANUAL_CUSTOMER_FULFILLMENT.md"): {
+		filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md"): {
 			"不需要 ERP 内部 `orders.write` 权限",
 			"订单详情读取走客户工作台专用详情接口",
 		},

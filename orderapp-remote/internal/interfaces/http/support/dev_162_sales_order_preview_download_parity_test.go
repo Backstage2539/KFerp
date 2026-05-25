@@ -1,7 +1,6 @@
 package support
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -26,9 +25,6 @@ func TestDev162SalesOrderPreviewDownloadParityRequirementSeeds(t *testing.T) {
 
 func TestDev162SalesOrderManualDocumentsPreviewDownloadParity(t *testing.T) {
 	rels := []string{"docs/OP_MANUAL_ORDER_SALES.md"}
-	if _, err := os.Stat(filepath.Join(findAncestorForTest(t, "go.mod"), "..", "OP_MANUAL_ORDER_SALES.md")); err == nil {
-		rels = append(rels, filepath.Join("..", "OP_MANUAL_ORDER_SALES.md"))
-	}
 	for _, rel := range rels {
 		manual := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{

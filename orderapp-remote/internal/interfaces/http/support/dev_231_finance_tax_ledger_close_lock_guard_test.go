@@ -10,7 +10,7 @@ func TestFinanceTaxLedgerCloseLockGuardEvidenceExists(t *testing.T) {
 	service := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "finance", "service.go")))
 	serviceTest := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "finance", "service_test.go")))
 	apiTest := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "finance", "finance_api_test.go")))
-	manual := string(readOrderAppFileForTest(t, filepath.Join("..", "OP_MANUAL_FINANCE.md")))
+	manual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_FINANCE.md")))
 	store := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	acceptance := string(readOrderAppFileForTest(t, filepath.Join("..", "docs", "acceptance", "2026-05-13-three-template-business-audit.md")))
 

@@ -68,7 +68,7 @@ func TestDev276CustomerFulfillmentBottomOrderListSourceWiring(t *testing.T) {
 
 func TestDev276CustomerFulfillmentBottomOrderListDocs(t *testing.T) {
 	for _, path := range []string{
-		filepath.Join("..", "OP_MANUAL_CUSTOMER_FULFILLMENT.md"),
+		filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md"),
 		filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md"),
 	} {
 		body, err := os.ReadFile(path)

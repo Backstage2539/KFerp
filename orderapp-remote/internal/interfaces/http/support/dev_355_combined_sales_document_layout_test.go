@@ -72,7 +72,7 @@ func TestDev355SeedsManualAndAcceptanceDocs(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("..", "REQUIREMENTS.md"),
 		filepath.Join("..", "ACCEPTANCE_TESTS.md"),
-		filepath.Join("..", "OP_MANUAL_ORDER_SALES.md"),
+		filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"),
 		filepath.Join("docs", "REQUIREMENTS.md"),
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
 		filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"),

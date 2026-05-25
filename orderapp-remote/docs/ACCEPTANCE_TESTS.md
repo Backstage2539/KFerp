@@ -578,12 +578,12 @@
 - [ ] 手册规则包含“单个大功能一个独立操作手册”和“现有手册查缺补漏”。
 
 ### L2. 手册文件
-- [ ] 存在 `OPERATION_MANUALS.md` 总索引。
-- [ ] 当前主要大功能已有初版 `OP_MANUAL_*.md` 或对应既有用户手册。
-- [ ] `orderapp-remote/docs/` 中存在线上展示副本。
+- [ ] 存在 `orderapp-remote/docs/OPERATION_MANUALS.md` 总索引。
+- [ ] 当前主要大功能已有初版 `orderapp-remote/docs/OP_MANUAL_*.md` 或对应既有用户手册。
+- [ ] 根目录不存在 `OPERATION_MANUALS.md` 或 `OP_MANUAL_*.md` 手册副本，操作手册只维护 `orderapp-remote/docs` 一份。
 
 ### L3. 部署与验证
-- [ ] `deploy_orderapp.sh` 同步 `OPERATION_MANUALS.md` 和 `OP_MANUAL_*.md`。
+- [ ] `deploy_orderapp.sh` 使用 `orderapp-remote/docs/` 作为线上 `/docs` 来源，不从根目录同步手册副本。
 - [ ] docs raw route 能读取 `OPERATION_MANUALS.md`。
 - [ ] PR/DEV 需求种子包含 PR-DOCS-001；测试和验收证据按 Superpower/TDD 流程保留。
 
@@ -591,7 +591,7 @@
 - [ ] ERP 左侧不新增单独“手册”菜单。
 - [ ] 订单销售、生产管理、库存管理、商品与配方、财务管理、设置、需求管理各自菜单内能看到对应操作手册入口。
 - [ ] 客户履约账户仍可从设置菜单和客户履约账户页面顶部进入客户履约手册。
-- [ ] 手册页面读取 `OP_MANUAL_*.md?raw=1`，界面内容与部署 docs 文件一致。
+- [ ] 手册页面读取 `OP_MANUAL_*.md?raw=1`，界面内容与 `orderapp-remote/docs` 源文件一致。
 - [ ] 被合并的旧 `*-user-manual.md` 不再出现在 `orderapp-remote/docs/` 和线上 docs 列表。
 
 ### K5. 客户账户模式隐藏履约运营台（PR-299-CUSTOMER-ACCOUNT-HIDE-FULFILLMENT）
