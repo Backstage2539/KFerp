@@ -1268,6 +1268,39 @@ test('SKU product config uses display unit from unit dictionary instead of fixed
   assert.match(script, /priceListRuleDisplayUnitOptions/)
 })
 
+test('SKU product config template list and price rule controls are visually structured', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const productConfigPane = source.match(/<div v-show="activeConfigTemplateSection === 'product-config'"[\s\S]*?<div v-if="productDrawerOpen"/)?.[0] || ''
+  const priceRuleBlock = productConfigPane.match(/<div class="rule-config-block price-rule-grid"[\s\S]*?<div class="rule-config-block">/)?.[0] || ''
+  const style = source.split('<style scoped>')[1] || ''
+
+  assert.ok(productConfigPane, 'product config pane should exist')
+  for (const expected of [
+    'product-config-row',
+    'product-config-row-title',
+    'template-state-pill',
+    'product-config-row-subtitle',
+    'template-meta-chips',
+    'productConfigUnitChips(config.unit_template_id)',
+  ]) {
+    assert.ok(productConfigPane.includes(expected), `missing product config list marker: ${expected}`)
+  }
+  for (const expected of [
+    'rule-config-block price-rule-grid',
+    'rule-config-field',
+    'field-label-with-help',
+    'field-help-icon',
+    'field-help-tooltip',
+    'role="tooltip"',
+  ]) {
+    assert.ok(priceRuleBlock.includes(expected), `missing price rule layout marker: ${expected}`)
+  }
+  assert.doesNotMatch(priceRuleBlock, /<small>默认继承单位模板/)
+  assert.match(style, /\.price-rule-grid \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/)
+  assert.match(style, /\.field-help-tooltip/)
+  assert.match(style, /\.product-config-row\.active/)
+})
+
 test('SKU unit template save creates or updates without a separate new-template button', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const unitTemplatePane = source.match(/<div v-show="activeConfigTemplateSection === 'unit-template'"[\s\S]*?<div v-show="activeConfigTemplateSection === 'product-config'"/)?.[0] || ''

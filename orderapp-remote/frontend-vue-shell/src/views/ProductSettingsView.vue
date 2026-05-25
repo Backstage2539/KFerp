@@ -692,14 +692,20 @@
             <div
               v-for="config in productConfigTemplatesForContext"
               :key="config.id"
-              class="template-row-main"
+              :class="['template-row', 'product-config-row', { active: Number(config.id || 0) === Number(productConfigTemplateForm.id || 0), inactive: config.active === false }]"
               role="button"
               tabindex="0"
               @click="startProductConfigTemplateEdit(config)"
               @keydown.enter.prevent="startProductConfigTemplateEdit(config)">
-              <span>
-                <strong>{{ config.name }}</strong>
-                <small>{{ productConfigTemplateLabel(config) }} · {{ productUnitTemplateSummary(config.unit_template_id) }}</small>
+              <span class="template-row-main product-config-row-main">
+                <span class="product-config-row-title">
+                  <strong>{{ config.name }}</strong>
+                  <span class="template-state-pill">{{ productConfigTemplateLabel(config) }}</span>
+                </span>
+                <span class="product-config-row-subtitle">{{ productConfigUnitTemplateName(config.unit_template_id) }}</span>
+                <span class="template-meta-chips" aria-label="商品配置单位摘要">
+                  <span v-for="chip in productConfigUnitChips(config.unit_template_id)" :key="chip" class="template-meta-chip">{{ chip }}</span>
+                </span>
               </span>
               <button
                 v-if="canDeriveProductConfigTemplate(config)"
@@ -730,22 +736,27 @@
               <span>工序模板ID</span>
               <input v-model.number="productConfigTemplateForm.operation_template_id" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0" step="1" placeholder="0 表示未绑定" />
             </label>
-            <div class="rule-config-block">
+            <div class="rule-config-block price-rule-grid">
               <div class="field-group-title">价格表生成规则</div>
-              <label>
+              <label class="rule-config-field">
                 <span>计价方式</span>
                 <select v-model="productConfigTemplateForm.price_rule_pricing_mode" :disabled="!canEditCurrentProductConfigTemplate">
                   <option v-for="option in priceListRulePricingModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
               </label>
-              <label>
-                <span>价格表展示单位</span>
+              <label class="rule-config-field">
+                <span class="field-label-with-help">
+                  价格表展示单位
+                  <span class="field-help-wrap">
+                    <span class="field-help-icon" tabindex="0" role="button" aria-label="价格表展示单位说明">!</span>
+                    <span class="field-help-tooltip" role="tooltip">默认继承单位模板的报价单位；盒、箱、kg 等来自全局单位字典。</span>
+                  </span>
+                </span>
                 <select v-model="productConfigTemplateForm.price_rule_display_unit" :disabled="!canEditCurrentProductConfigTemplate">
                   <option v-for="option in priceListRuleDisplayUnitOptions(activeProductUnitDefinitions)" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
-                <small>默认继承单位模板的报价单位；盒、箱、kg 等来自全局单位字典。</small>
               </label>
-              <label>
+              <label class="rule-config-field">
                 <span>取整规则</span>
                 <select v-model="productConfigTemplateForm.price_rule_rounding" :disabled="!canEditCurrentProductConfigTemplate">
                   <option v-for="option in priceListRuleRoundingOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
@@ -2377,6 +2388,23 @@ function productUnitTemplateSummary(idOrTemplate) {
   return `${template.name || '单位模板'} · 成品库存 ${productUnitName(template.inventory_unit)} · 报价 ${productUnitName(template.quote_unit)} · 录单 ${productUnitName(template.order_unit)}${template.integer_unit ? ' · 整数' : ''}`
 }
 
+function productConfigUnitTemplateName(idOrTemplate) {
+  const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
+  return template?.name || '未绑定单位模板'
+}
+
+function productConfigUnitChips(idOrTemplate) {
+  const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
+  if (!template) return ['单位未绑定']
+  const chips = [
+    `成品库存 ${productUnitName(template.inventory_unit)}`,
+    `报价 ${productUnitName(template.quote_unit)}`,
+    `录单 ${productUnitName(template.order_unit)}`,
+  ]
+  if (template.integer_unit) chips.push('整数单位')
+  return chips
+}
+
 function productConfigSummary(templateID) {
   const config = productConfigTemplates.value.find((row) => Number(row.id || 0) === Number(templateID || 0))
   if (!config) return '未绑定商品配置；会继续保留子类型当前默认规则。'
@@ -3405,6 +3433,16 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .unit-impact-help { grid-column: 1 / -1; color: #7b746c; line-height: 1.45; }
 .unit-conversion-row { display: grid; grid-template-columns: minmax(72px, .45fr) minmax(82px, .7fr) auto minmax(72px, .45fr) minmax(82px, .7fr) auto; gap: 6px; align-items: center; min-width: 0; }
 .unit-conversion-row span { color: #666; text-align: center; }
+.price-rule-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; column-gap: 10px; row-gap: 10px; }
+.price-rule-grid .rule-config-field { min-width: 0; align-self: start; }
+.price-rule-grid .rule-config-field select { width: 100%; }
+.price-rule-grid .checkline { grid-column: 1 / -1; min-height: 24px; padding-top: 0; }
+.field-label-with-help { display: inline-flex; align-items: center; gap: 6px; width: fit-content; color: #333; }
+.field-help-wrap { position: relative; display: inline-flex; align-items: center; }
+.field-help-icon { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: #111; color: #fff; font-size: 11px; font-weight: 800; line-height: 1; cursor: help; outline: none; }
+.field-help-icon:focus-visible { box-shadow: 0 0 0 3px rgba(17, 17, 17, .16); }
+.field-help-tooltip { position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); display: none; width: min(240px, 70vw); padding: 8px 10px; border: 1px solid #d8d2ca; border-radius: 6px; background: #fff; color: #3f3328; font-size: 12px; font-weight: 400; line-height: 1.45; box-shadow: 0 8px 22px rgba(35, 28, 20, .16); z-index: 20; }
+.field-help-wrap:hover .field-help-tooltip, .field-help-wrap:focus-within .field-help-tooltip { display: block; }
 .sku-context-main { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .sku-context-main h3 { margin: 0; font-size: 17px; }
 .sku-context-title-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
@@ -3438,6 +3476,16 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .template-row.inactive { opacity: .58; }
 .template-row small { color: #666; font-size: 12px; }
 .template-row-main { min-height: 0; border: 0; background: transparent; padding: 0; color: inherit; text-align: left; display: grid; gap: 3px; }
+.product-config-row { position: relative; cursor: pointer; border-radius: 8px; background: #fff; box-shadow: 0 1px 2px rgba(29, 24, 18, .04); }
+.product-config-row:hover { border-color: #c9beb1; background: #fffdf9; }
+.product-config-row.active { border-color: #111; background: #f7f7f5; box-shadow: inset 4px 0 0 #111; }
+.product-config-row-main { gap: 6px; }
+.product-config-row-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.product-config-row-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.template-state-pill { flex: 0 0 auto; border: 1px solid #ded8cf; border-radius: 999px; background: #fbfaf8; padding: 2px 7px; color: #6b6156; font-size: 11px; font-weight: 700; }
+.product-config-row-subtitle { color: #3f3328; font-size: 12px; font-weight: 600; }
+.template-meta-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.template-meta-chip { border: 1px solid #e4ded6; border-radius: 999px; background: #fbfaf8; color: #5f5a52; padding: 2px 7px; font-size: 11px; line-height: 1.35; }
 .template-copy-action { white-space: nowrap; }
 .template-editor, .product-config-editor { border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; }
 .template-editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 10px; }
