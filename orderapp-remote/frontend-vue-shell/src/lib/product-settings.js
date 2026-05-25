@@ -17,11 +17,23 @@ export const priceListRulePricingModeOptions = [
   { value: 'cost_plus', label: '成本加成' },
 ]
 
-export const priceListRuleDisplayModeOptions = [
-  { value: 'by_quote_unit', label: '按报价单位展示' },
-  { value: 'boxed', label: '盒装/箱装展示' },
-  { value: 'weight', label: '按重量展示' },
-]
+export const PRICE_LIST_RULE_DISPLAY_UNIT_INHERIT = 'inherit_quote_unit'
+
+export function priceListRuleDisplayUnitOptions(unitDefinitions = []) {
+  const rows = Array.isArray(unitDefinitions) ? unitDefinitions : []
+  const unitRows = rows
+    .filter((unit) => unit?.active !== false)
+    .map((unit) => {
+      const value = String(unit?.code || '').trim()
+      if (!value) return null
+      return { value, label: String(unit?.name || value).trim() || value }
+    })
+    .filter(Boolean)
+  return [
+    { value: PRICE_LIST_RULE_DISPLAY_UNIT_INHERIT, label: '继承报价单位' },
+    ...unitRows,
+  ]
+}
 
 export const priceListRuleRoundingOptions = [
   { value: 'none', label: '不取整' },
@@ -691,12 +703,12 @@ function uniqueSorted(values = []) {
 export function priceListRuleFormFromJSON(value = {}) {
 	const rule = parseJSONObject(value)
 	const extra = { ...rule }
-	for (const key of ['enabled', 'include_in_price_list', 'pricing_mode', 'display_mode', 'rounding', 'tax_included']) {
+	for (const key of ['enabled', 'include_in_price_list', 'pricing_mode', 'display_mode', 'display_unit', 'rounding', 'tax_included']) {
     delete extra[key]
 	}
 	return {
 		price_rule_pricing_mode: optionValue(rule.pricing_mode, priceListRulePricingModeOptions, 'inherit_gradient_template'),
-		price_rule_display_mode: optionValue(rule.display_mode, priceListRuleDisplayModeOptions, 'by_quote_unit'),
+		price_rule_display_unit: normalizePriceRuleDisplayUnit(rule.display_unit ?? rule.display_mode),
     price_rule_rounding: optionValue(rule.rounding, priceListRuleRoundingOptions, 'none'),
     price_rule_tax_included: Boolean(rule.tax_included),
     price_rule_extra: extra,
@@ -706,7 +718,7 @@ export function priceListRuleFormFromJSON(value = {}) {
 export function priceListRuleJSONFromForm(form = {}) {
 	const out = sanitizeExtraObject(form.price_rule_extra)
 	out.pricing_mode = optionValue(form.price_rule_pricing_mode, priceListRulePricingModeOptions, 'inherit_gradient_template')
-  out.display_mode = optionValue(form.price_rule_display_mode, priceListRuleDisplayModeOptions, 'by_quote_unit')
+  out.display_unit = normalizePriceRuleDisplayUnit(form.price_rule_display_unit ?? form.price_rule_display_mode)
   out.rounding = optionValue(form.price_rule_rounding, priceListRuleRoundingOptions, 'none')
   out.tax_included = Boolean(form.price_rule_tax_included)
   return JSON.stringify(out)
@@ -837,8 +849,16 @@ function integerUnitModeFromValue(value) {
   return 'inherit'
 }
 
+function normalizePriceRuleDisplayUnit(value) {
+  const normalized = normalizeOptionalUnitText(value)
+  if (!normalized) return PRICE_LIST_RULE_DISPLAY_UNIT_INHERIT
+  if (['by_quote_unit', 'boxed', 'weight'].includes(normalized)) return PRICE_LIST_RULE_DISPLAY_UNIT_INHERIT
+  return normalized
+}
+
 function hasStructuredPriceRuleFields(row = {}) {
 	return Object.prototype.hasOwnProperty.call(row, 'price_rule_pricing_mode')
+		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_display_unit')
 		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_display_mode')
 		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_rounding')
 		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_tax_included')

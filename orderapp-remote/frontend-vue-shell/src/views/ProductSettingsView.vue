@@ -735,10 +735,11 @@
                 </select>
               </label>
               <label>
-                <span>展示方式</span>
-                <select v-model="productConfigTemplateForm.price_rule_display_mode" :disabled="!canEditCurrentProductConfigTemplate">
-                  <option v-for="option in priceListRuleDisplayModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                <span>价格表展示单位</span>
+                <select v-model="productConfigTemplateForm.price_rule_display_unit" :disabled="!canEditCurrentProductConfigTemplate">
+                  <option v-for="option in priceListRuleDisplayUnitOptions(activeProductUnitDefinitions)" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
+                <small>默认继承单位模板的报价单位；盒、箱、kg 等来自全局单位字典。</small>
               </label>
               <label>
                 <span>取整规则</span>
@@ -1036,7 +1037,7 @@ import {
   nextSkuContextCustomerID,
   normalizedProductKind,
   paginatedSkuRows,
-  priceListRuleDisplayModeOptions,
+  priceListRuleDisplayUnitOptions,
   priceListRuleFormFromJSON,
   priceListRulePricingModeOptions,
   priceListRuleRoundingOptions,

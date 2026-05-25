@@ -27,6 +27,7 @@ import {
   nextSkuContextCustomerID,
   normalizedProductKind,
   paginatedSkuRows,
+  priceListRuleDisplayUnitOptions,
   priceListRuleFormFromJSON,
   priceListRuleJSONFromForm,
   greenBeanTypeLabel,
@@ -181,12 +182,17 @@ test('structured price list rule form stores generation rules without price tabl
   const form = priceListRuleFormFromJSON('{"generator":"instant","include_in_price_list":false,"pricing_mode":"fixed_unit_price","display_mode":"boxed","rounding":"yuan","tax_included":true}')
 
   assert.equal(form.price_rule_pricing_mode, 'fixed_unit_price')
-  assert.equal(form.price_rule_display_mode, 'boxed')
+  assert.equal(form.price_rule_display_unit, 'inherit_quote_unit')
   assert.equal(form.price_rule_rounding, 'yuan')
   assert.equal(form.price_rule_tax_included, true)
   assert.deepEqual(form.price_rule_extra, { generator: 'instant' })
-  assert.equal(priceListRuleJSONFromForm(form), '{"generator":"instant","pricing_mode":"fixed_unit_price","display_mode":"boxed","rounding":"yuan","tax_included":true}')
-  assert.equal(priceListRuleJSONFromForm({}), '{"pricing_mode":"inherit_gradient_template","display_mode":"by_quote_unit","rounding":"none","tax_included":false}')
+  assert.equal(priceListRuleJSONFromForm(form), '{"generator":"instant","pricing_mode":"fixed_unit_price","display_unit":"inherit_quote_unit","rounding":"yuan","tax_included":true}')
+  assert.equal(priceListRuleJSONFromForm({}), '{"pricing_mode":"inherit_gradient_template","display_unit":"inherit_quote_unit","rounding":"none","tax_included":false}')
+  assert.deepEqual(priceListRuleDisplayUnitOptions([{ code: 'kg', name: 'kg' }, { code: 'box', name: '盒' }]), [
+    { value: 'inherit_quote_unit', label: '继承报价单位' },
+    { value: 'kg', label: 'kg' },
+    { value: 'box', label: '盒' },
+  ])
 })
 
 test('product config template payload carries template rules and unit settings as one reusable object', () => {
@@ -198,7 +204,7 @@ test('product config template payload carries template rules and unit settings a
     operation_template_id: 9,
     unit_template_id: 12,
     price_rule_pricing_mode: 'fixed_unit_price',
-    price_rule_display_mode: 'boxed',
+    price_rule_display_unit: 'box',
     price_rule_rounding: 'yuan',
     price_rule_tax_included: true,
   }), {
@@ -208,7 +214,7 @@ test('product config template payload carries template rules and unit settings a
     gradient_template_id: 8,
     operation_template_id: 9,
     unit_template_id: 12,
-    price_list_rule_json: '{"pricing_mode":"fixed_unit_price","display_mode":"boxed","rounding":"yuan","tax_included":true}',
+    price_list_rule_json: '{"pricing_mode":"fixed_unit_price","display_unit":"box","rounding":"yuan","tax_included":true}',
     active: true,
   })
 })
@@ -1246,6 +1252,20 @@ test('SKU settings separates global unit templates into a peer configuration tab
   )
   assert.doesNotMatch(template, /<div class="field-group-title">单位规则<\/div>[\s\S]*productConfigTemplateForm\.unit_conversion_rows/)
   assert.match(script, /buildProductConfigTemplatePayload\([\s\S]*unit_template_id/)
+})
+
+test('SKU product config uses display unit from unit dictionary instead of fixed display modes', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const productConfigPane = source.match(/<div v-show="activeConfigTemplateSection === 'product-config'"[\s\S]*?<div v-if="productDrawerOpen"/)?.[0] || ''
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  assert.ok(productConfigPane, 'product config pane should exist')
+  assert.match(productConfigPane, /价格表展示单位/)
+  assert.match(productConfigPane, /price_rule_display_unit/)
+  assert.match(productConfigPane, /priceListRuleDisplayUnitOptions\(activeProductUnitDefinitions\)/)
+  assert.doesNotMatch(productConfigPane, /展示方式/)
+  assert.doesNotMatch(source, /盒装\/箱装展示|按重量展示|priceListRuleDisplayModeOptions|price_rule_display_mode/)
+  assert.match(script, /priceListRuleDisplayUnitOptions/)
 })
 
 test('SKU unit template save creates or updates without a separate new-template button', () => {
