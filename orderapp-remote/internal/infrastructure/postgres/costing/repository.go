@@ -92,6 +92,22 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			WHERE p.active = true
 			GROUP BY p.id
 		),
+		bom_unit_cost AS (
+			SELECT p.id AS product_id,
+			       COALESCE(SUM(CASE
+			         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') = 'g_per_bag'
+			         THEN COALESCE(bi.qty_per_unit,0) / 1000.0 * COALESCE(mv.weighted_unit_cost, m.purchase_price, 0)
+			         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') IN ('unit_per_bag','unit_per_box')
+			         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(m.purchase_price,0), mv.weighted_unit_cost, 0)
+			         ELSE 0
+			       END),0) AS bom_cost_per_unit
+			FROM product_scope p
+			LEFT JOIN %[1]s.product_bom_items bi ON bi.product_id = p.bom_product_id
+				AND COALESCE(NULLIF(bi.component_type,''),'material') = 'material'
+			LEFT JOIN %[1]s.materials m ON m.id = bi.material_id
+			LEFT JOIN material_valuation mv ON mv.material_id = m.id
+			GROUP BY p.id
+		),
 		finished_component_cost AS (
 			SELECT bi.product_id,
 			       SUM(COALESCE(fpc.green_cost_per_kg,0) * COALESCE(NULLIF(bi.qty_per_unit,0), NULLIF(bi.component_spec_g,0), 1))
@@ -136,6 +152,14 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		           NULLIF(parent_pc.operation_template_id,0),
 		           0
 		       ) AS effective_operation_template_id,
+		       COALESCE(
+		           NULLIF(cpro.price_list_rule_json::text,'{}'),
+		           NULLIF(cpti.price_list_rule_json::text,'{}'),
+		           NULLIF(p.unit_rule_override_json->>'price_list_rule_json',''),
+		           NULLIF(pc.price_list_rule_json::text,'{}'),
+		           NULLIF(parent_pc.price_list_rule_json::text,'{}'),
+		           '{}'
+		       ) AS effective_price_list_rule_json,
 		       COALESCE(
 		           NULLIF(cpro.unit_rule_json->>'inventory_unit',''),
 		           NULLIF(cpti.unit_rule_json->>'inventory_unit',''),
@@ -188,6 +212,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		           THEN COALESCE(fcc.finished_green_cost_per_kg,0)
 		           ELSE COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0)
 		       END,
+		       COALESCE(MAX(buc.bom_cost_per_unit),0)::float8,
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.flavor, ''), ' / ') FILTER (WHERE NULLIF(bp.flavor, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.origin, ''), ' / ') FILTER (WHERE NULLIF(bp.origin, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.processing_station, ''), ' / ') FILTER (WHERE NULLIF(bp.processing_station, '') IS NOT NULL), ''),
@@ -221,6 +246,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		 AND cpro.customer_id=$2
 		 AND cpro.product_subtype_category_id=CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.id,0) ELSE 0 END
 		LEFT JOIN finished_component_cost fcc ON fcc.product_id = p.id
+		LEFT JOIN bom_unit_cost buc ON buc.product_id = p.id
 		LEFT JOIN LATERAL (
 			SELECT COALESCE(NULLIF(qi.metrics_json->>'factory_flavor_description',''), NULLIF(qi.metrics_json->>'factory_flavor',''), NULLIF(qi.metrics_json->>'工厂风味描述',''), '') AS factory_flavor_description,
 			       COALESCE(NULLIF(qi.metrics_json->>'moisture',''), NULLIF(qi.metrics_json->>'水分',''), '') AS moisture,
@@ -248,7 +274,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			LIMIT 1
 		) qc ON true
 		WHERE p.active = true
-		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, cpti.gradient_template_id, cpti.operation_template_id, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.unit_rule_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
+		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.price_list_rule_json, cpro.unit_rule_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
 		ORDER BY p.name
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate, customerID)
@@ -265,7 +291,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		var roastLevel string
 		var fallbackYield float64
 		var gradientTemplateID int64
-		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductKind, &input.DripBagGrams, &input.DripBoxBagCount, &input.ProductCategoryID, &input.ProductCategoryPosition, &input.ProductTypeCategoryID, &input.ProductSubtypeCategoryID, &input.CategoryPrimaryName, &input.CategoryPrimaryPosition, &input.CategorySecondaryName, &input.CategorySecondaryPosition, &gradientTemplateID, &input.OperationTemplateID, &input.InventoryUnit, &input.QuoteUnit, &input.OrderUnit, &input.UnitConversionJSON, &input.IntegerUnit, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus, &input.BeanListQuality.FactoryFlavorDescription, &input.BeanListQuality.Moisture, &input.BeanListQuality.Density, &input.BeanListQuality.InspectionCreatedAt, &input.BeanListQuality.InspectionReferenceNo); err != nil {
+		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductKind, &input.DripBagGrams, &input.DripBoxBagCount, &input.ProductCategoryID, &input.ProductCategoryPosition, &input.ProductTypeCategoryID, &input.ProductSubtypeCategoryID, &input.CategoryPrimaryName, &input.CategoryPrimaryPosition, &input.CategorySecondaryName, &input.CategorySecondaryPosition, &gradientTemplateID, &input.OperationTemplateID, &input.PriceListRuleJSON, &input.InventoryUnit, &input.QuoteUnit, &input.OrderUnit, &input.UnitConversionJSON, &input.IntegerUnit, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.BomCostPerUnit, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus, &input.BeanListQuality.FactoryFlavorDescription, &input.BeanListQuality.Moisture, &input.BeanListQuality.Density, &input.BeanListQuality.InspectionCreatedAt, &input.BeanListQuality.InspectionReferenceNo); err != nil {
 			return nil, err
 		}
 		input.ProductTypeName = input.CategoryPrimaryName
@@ -1097,7 +1123,7 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 	deleteTiers := fmt.Sprintf(`DELETE FROM %s.product_price_tiers WHERE product_id=$1`, r.schema)
 	insertTier := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
 		(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active, product_kind, price_basis, sales_unit, unit_bag_count, price_source_json)
-		VALUES($1,$2,$3,$4,$5,$3,$4,$6,true,'roasted_bean','weight','',0,'{}'::jsonb)`, r.schema)
+		VALUES($1,$2,$3,$4,$5,$3,$4,$6,true,$7,'weight','',0,$8::jsonb)`, r.schema)
 	insertDripTier := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
 		(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active, product_kind, price_basis, sales_unit, unit_bag_count, price_source_json)
 		VALUES($1,$2,$3,$4,$5,NULL,NULL,NULL,true,$6,'unit',$7,$8,$9::jsonb)`, r.schema)
@@ -1167,7 +1193,8 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 					pricePerUnit = tier.PricePerLb
 				}
 				pricePerLb := pricePerUnit * 454.0 / float64(specG)
-				if _, err := tx.Exec(ctx, insertTier, item.ProductID, specG, minQty, maxQty, pricePerUnit, pricePerLb); err != nil {
+				source := commercialPriceSourceJSON(tier)
+				if _, err := tx.Exec(ctx, insertTier, item.ProductID, specG, minQty, maxQty, pricePerUnit, pricePerLb, firstNonEmptyString(item.ProductKind, "roasted_bean"), source); err != nil {
 					return err
 				}
 			}
@@ -1198,6 +1225,29 @@ func dripPriceSourceJSON(tier domain.DripWholesaleTier, bagGrams float64, boxBag
 		"tax_rate":             tier.TaxRate,
 	})
 	return string(b)
+}
+
+func commercialPriceSourceJSON(tier domain.CommercialWholesaleTier) string {
+	b, _ := json.Marshal(map[string]any{
+		"template_id":      tier.TemplateID,
+		"template_tier_id": tier.TemplateTierID,
+		"display_unit":     tier.DisplayUnit,
+		"price_unit":       firstNonEmptyString(tier.PriceUnit, tier.DisplayUnit),
+		"price_per_unit":   tier.PricePerUnit,
+		"price_per_kg":     tier.PricePerKg,
+		"price_per_lb":     tier.PricePerLb,
+		"margin_rate":      tier.MarginRate,
+	})
+	return string(b)
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func dripBoxMinQty(minBags int64, boxBagCount int) float64 {

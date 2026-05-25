@@ -11,6 +11,7 @@ import {
   defaultBeanListDraftVersion,
   filterBeanListItemsForScope,
   nextBeanListVersion,
+  priceUnit,
   sanitizeBeanListPdfTheme,
   splitHighlightedText,
 } from './bean-list-pdf.js'
@@ -235,6 +236,19 @@ test('PDF commercial price units follow gradient template display units', () => 
   }], 'commercial')
 
   assert.equal(groups[0].items[0].prices[0].unit, '100g')
+})
+
+test('PDF commercial price units keep custom quote units from product price list snapshots', () => {
+  assert.equal(priceUnit({ display_unit: '盒', spec_g: 100, price_per_unit: 15 }), '盒')
+
+  const groups = buildBeanListPdfGroups([{
+    product_id: 41,
+    name: '速溶盒装',
+    commercial_bean_list: { code: '8.1', category: '8、速溶咖啡', display_name: '速溶盒装' },
+    commercial_wholesale_tiers: [{ label: '10盒起', spec_g: 100, display_unit: '盒', price_per_unit: 15 }],
+  }], 'commercial')
+
+  assert.equal(groups[0].items[0].prices[0].unit, '盒')
 })
 
 test('PDF drip bean-list helper expands live bag tiers to bag and box prices', () => {

@@ -367,6 +367,8 @@ export function priceUnit(tier = {}) {
     default:
       break
   }
+  const displayUnit = String(tier.display_unit || '').trim()
+  if (displayUnit) return displayUnit
   const specG = Number(tier.spec_g || 454)
   if (specG === 1000) return 'kg'
   if (specG === 227) return '227g'

@@ -383,6 +383,18 @@ test('wholesaleTierPriceRows keeps kg ranges while showing published lb unit pri
   ])
 })
 
+test('wholesaleTierPriceRows keeps custom quote units from product price list snapshots', () => {
+  const got = wholesaleTierPriceRows({
+    tiers: [
+      { id: 70, spec_g: 100, min: 10, max: null, unit_price: 15, display_unit: '盒' },
+    ],
+  })
+
+  assert.deepEqual(got, [
+    { id: '70', specG: 100, specLabel: '100g', rangeLabel: '10件+', unitPrice: 15, priceUnit: { label: '元/盒', suffix: '/盒', unitG: 100 } },
+  ])
+})
+
 test('syncWholesaleTierPrice matches tier by selected spec and package quantity', () => {
   const row = { spec_mode: '454', qty: 12, tier_id: 'auto', unit_price: '' }
   const got = syncWholesaleTierPrice({

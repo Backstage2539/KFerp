@@ -194,13 +194,15 @@ function rowQuantityForWholesalePriceUnit(row) {
 }
 
 function normalizeTierDisplayUnit(unit) {
-  const value = String(unit || '').trim().toLowerCase()
+  const raw = String(unit || '').trim()
+  const value = raw.toLowerCase()
   if (['kg', 'lb', 'g100', 'g227', 'g250'].includes(value)) return value
-  return ''
+  return raw
 }
 
-function priceUnitForDisplayUnit(unit) {
-  switch (normalizeTierDisplayUnit(unit)) {
+function priceUnitForDisplayUnit(unit, specG = 0) {
+  const displayUnit = normalizeTierDisplayUnit(unit)
+  switch (displayUnit) {
     case 'kg':
       return { label: '元/kg', suffix: '/kg', unitG: 1000 }
     case 'lb':
@@ -212,17 +214,25 @@ function priceUnitForDisplayUnit(unit) {
     case 'g250':
       return { label: '元/250g', suffix: '/250g', unitG: 250 }
     default:
-      return null
+      if (!displayUnit) return null
+      const unitG = Math.max(1, toInt(specG))
+      return { label: `元/${displayUnit}`, suffix: `/${displayUnit}`, unitG }
   }
 }
 
 function priceUnitForStoredFields(label, suffix, unitG) {
+  const rawLabel = String(label || '').trim()
+  const rawSuffix = String(suffix || '').trim()
   const normalizedUnitG = toNumber(unitG)
-  if (normalizedUnitG === 1000 || label === '元/kg' || suffix === '/kg') return { label: '元/kg', suffix: '/kg', unitG: 1000 }
-  if (normalizedUnitG === 454 || label === '元/磅' || suffix === '/磅') return { label: '元/磅', suffix: '/磅', unitG: 454 }
-  if (normalizedUnitG === 100 || label === '元/100g' || suffix === '/100g') return { label: '元/100g', suffix: '/100g', unitG: 100 }
-  if (normalizedUnitG === 227 || label === '元/227g' || suffix === '/227g') return { label: '元/227g', suffix: '/227g', unitG: 227 }
-  if (normalizedUnitG === 250 || label === '元/250g' || suffix === '/250g') return { label: '元/250g', suffix: '/250g', unitG: 250 }
+  if (normalizedUnitG === 1000 || rawLabel === '元/kg' || rawSuffix === '/kg') return { label: '元/kg', suffix: '/kg', unitG: 1000 }
+  if (normalizedUnitG === 454 || rawLabel === '元/磅' || rawSuffix === '/磅') return { label: '元/磅', suffix: '/磅', unitG: 454 }
+  if (normalizedUnitG === 100 || rawLabel === '元/100g' || rawSuffix === '/100g') return { label: '元/100g', suffix: '/100g', unitG: 100 }
+  if (normalizedUnitG === 227 || rawLabel === '元/227g' || rawSuffix === '/227g') return { label: '元/227g', suffix: '/227g', unitG: 227 }
+  if (normalizedUnitG === 250 || rawLabel === '元/250g' || rawSuffix === '/250g') return { label: '元/250g', suffix: '/250g', unitG: 250 }
+  const customUnit = rawLabel.startsWith('元/') ? rawLabel.slice(2) : rawSuffix.startsWith('/') ? rawSuffix.slice(1) : ''
+  if (customUnit) {
+    return { label: `元/${customUnit}`, suffix: `/${customUnit}`, unitG: Math.max(1, normalizedUnitG || 1) }
+  }
   return null
 }
 
@@ -268,7 +278,7 @@ function wholesaleDisplayUnitPrice(pricePerLb, rowOrSpec) {
 }
 
 function wholesaleTierDisplayUnitPrice(tier, targetUnit) {
-  const sourceUnit = priceUnitForDisplayUnit(tier?.display_unit)
+  const sourceUnit = priceUnitForDisplayUnit(tier?.display_unit, tier?.spec_g)
   if (!sourceUnit) {
     const price = wholesaleTierUnitPriceLb(tier) * targetUnit.unitG / 454
     if (targetUnit.unitG === 1000) return Math.round(price)
@@ -304,7 +314,7 @@ export function wholesaleTierPriceRows(product, row = null) {
   return tiersForSelectedPublication(product, row)
     .filter((tier) => toInt(tier.spec_g) > 0)
     .map((tier) => {
-      const priceUnit = priceUnitForDisplayUnit(tier?.display_unit) || wholesalePriceUnit(toInt(tier.spec_g))
+      const priceUnit = priceUnitForDisplayUnit(tier?.display_unit, tier?.spec_g) || wholesalePriceUnit(toInt(tier.spec_g))
       return {
         id: String(tier.id || ''),
         specG: toInt(tier.spec_g),
@@ -360,7 +370,7 @@ export function resolveWholesaleTierPrice(product, row) {
       belowMinTier: false,
     }
   }
-  const priceUnit = priceUnitForDisplayUnit(tier?.display_unit) || orderRowPriceUnit(row)
+  const priceUnit = priceUnitForDisplayUnit(tier?.display_unit, tier?.spec_g) || orderRowPriceUnit(row)
   const unitPrice = wholesaleTierDisplayUnitPrice(tier, priceUnit) || 0
   const source = tierPriceSource(tier) || {}
   return {
