@@ -11,6 +11,8 @@ import {
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
   buildProductConfigTemplatePayload,
+  buildProductUnitDefinitionPayload,
+  buildProductUnitTemplatePayload,
   buildProductBasicsPayload,
   buildProductBomURL,
   buildProductCreatePayload,
@@ -194,22 +196,49 @@ test('product config template payload carries template rules and unit settings a
     name: '客户盒装商品配置',
     gradient_template_id: 8,
     operation_template_id: 9,
+    unit_template_id: 12,
     price_rule_pricing_mode: 'fixed_unit_price',
     price_rule_display_mode: 'boxed',
     price_rule_rounding: 'yuan',
     price_rule_tax_included: true,
-    inventory_unit: ' kg ',
-    quote_unit: '盒',
-    order_unit: '盒',
-    unit_conversion_rows: [{ from_qty: 1, from_unit: '盒', to_qty: 0.2, to_unit: 'kg' }],
-    integer_unit: true,
   }), {
     id: 301,
     customer_id: 42,
     name: '客户盒装商品配置',
     gradient_template_id: 8,
     operation_template_id: 9,
+    unit_template_id: 12,
     price_list_rule_json: '{"pricing_mode":"fixed_unit_price","display_mode":"boxed","rounding":"yuan","tax_included":true}',
+    active: true,
+  })
+})
+
+test('global unit definitions and unit templates build reusable unit payloads', () => {
+  assert.deepEqual(buildProductUnitDefinitionPayload({
+    code: ' 盒 ',
+    name: ' 盒 ',
+    unit_type: 'package',
+    allow_decimal: false,
+    active: true,
+  }), {
+    code: '盒',
+    name: '盒',
+    unit_type: 'package',
+    allow_decimal: false,
+    active: true,
+  })
+
+  assert.deepEqual(buildProductUnitTemplatePayload({
+    id: 12,
+    name: ' 盒装200g ',
+    inventory_unit: ' kg ',
+    quote_unit: '盒',
+    order_unit: '盒',
+    unit_conversion_rows: [{ from_qty: 1, from_unit: '盒', to_qty: 0.2, to_unit: 'kg' }],
+    integer_unit: true,
+  }), {
+    id: 12,
+    name: '盒装200g',
     inventory_unit: 'kg',
     quote_unit: '盒',
     order_unit: '盒',
@@ -982,7 +1011,7 @@ test('SKU settings groups master data and template configuration into separate w
   assert.match(style, /\.master-data-layout\s*\{\s*grid-template-columns:\s*1fr;\s*\}/)
 })
 
-test('SKU settings keeps category tree and SKU creation behind compact drawers', () => {
+test('SKU settings keeps category tree compact and SKU creation behind a drawer', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const style = source.split('<style scoped>')[1] || ''
@@ -992,11 +1021,8 @@ test('SKU settings keeps category tree and SKU creation behind compact drawers',
     'visibleCategoryTreeForSkuContext',
     'category-search',
     'category-scroll-list',
-    'category-editor-drawer',
     'product-editor-drawer',
-    'openCategoryDrawer',
     'openProductDrawer',
-    '编辑产品类型',
     '新增SKU',
   ]) {
     assert.ok(source.includes(expected), `missing compact SKU settings marker: ${expected}`)
@@ -1007,6 +1033,39 @@ test('SKU settings keeps category tree and SKU creation behind compact drawers',
   assert.match(template, /v-for="primary in visibleCategoryTreeForSkuContext"/)
   assert.match(style, /\.category-scroll-list\s*\{[^}]*max-height:\s*min\(640px,\s*calc\(100vh - 280px\)\);[^}]*overflow:\s*auto;/s)
   assert.match(style, /\.settings-drawer-mask\s*\{[^}]*position:\s*fixed;/s)
+})
+
+test('SKU settings edits product categories inline without a category drawer', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const style = source.split('<style scoped>')[1] || ''
+
+  for (const expected of [
+    'category-inline-toolbar',
+    'createPrimaryCategoryInline',
+    'togglePrimaryDeleteMode',
+    'movePrimaryCategory',
+    'startCategoryEdit(primary)',
+    'createSecondaryCategoryInline(primary)',
+    'toggleSecondaryDeleteMode(primary)',
+    'secondaryDeleteModeFor',
+    'category-sort-buttons',
+    'category-delete-button',
+  ]) {
+    assert.ok(source.includes(expected), `missing inline category editor marker: ${expected}`)
+  }
+
+  assert.doesNotMatch(source, /category-editor-drawer/)
+  assert.doesNotMatch(source, /openCategoryDrawer/)
+  assert.doesNotMatch(template, />编辑产品类型</)
+  assert.doesNotMatch(template, />改名</)
+  assert.match(template, /@click(?:\.stop)?="startCategoryEdit\(primary\)"/)
+  assert.match(template, /@click(?:\.stop)?="startCategoryEdit\(secondary\)"/)
+  assert.match(template, /@keyup\.enter(?:\.prevent)?="saveCategoryName\(primary\)"/)
+  assert.match(template, /@keyup\.enter(?:\.prevent)?="saveCategoryName\(secondary\)"/)
+  assert.match(script, /apiSend\(`\/api\/product-settings\/categories\/\$\{category\.id\}\/move`/)
+  assert.match(style, /\.category-inline-toolbar\s*\{[^}]*display:\s*flex;/s)
 })
 
 test('SKU settings splits product config templates and gradient templates into nested tabs', () => {
@@ -1032,6 +1091,34 @@ test('SKU settings splits product config templates and gradient templates into n
     'product config template tab should be the first, frequent template tab before gradient templates',
   )
   assert.match(style, /\.config-template-tabs\s*\{[^}]*display:\s*inline-flex;/s)
+})
+
+test('SKU settings separates global unit templates into a peer configuration tab', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  for (const expected of [
+    'unit-template-pane',
+    "activeConfigTemplateSection === 'unit-template'",
+    'productUnitDefinitions',
+    'productUnitTemplates',
+    'saveProductUnitDefinition',
+    'saveProductUnitTemplate',
+    'productConfigTemplateForm.unit_template_id',
+    '/api/product-settings/units',
+    '/api/product-settings/unit-templates',
+  ]) {
+    assert.ok(source.includes(expected), `missing global unit template marker: ${expected}`)
+  }
+
+  assert.ok(
+    template.indexOf('商品配置模板') < template.indexOf('单位模板')
+      && template.indexOf('单位模板') < template.indexOf('阶梯价模板'),
+    'unit template tab should sit between product config templates and gradient templates',
+  )
+  assert.doesNotMatch(template, /<div class="field-group-title">单位规则<\/div>[\s\S]*productConfigTemplateForm\.unit_conversion_rows/)
+  assert.match(script, /buildProductConfigTemplatePayload\([\s\S]*unit_template_id/)
 })
 
 test('assign category payload carries customer context for public template derivation', () => {

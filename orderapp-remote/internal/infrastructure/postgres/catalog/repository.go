@@ -396,7 +396,7 @@ func (r Repository) ListProductConfigTemplates(ctx context.Context) ([]catalogap
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, COALESCE(customer_id,0), COALESCE(source_template_id,0),
 		       COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END),
-		       name, COALESCE(gradient_template_id,0), COALESCE(operation_template_id,0),
+		       name, COALESCE(gradient_template_id,0), COALESCE(operation_template_id,0), COALESCE(unit_template_id,0),
 		       COALESCE(price_list_rule_json::text,'{}'),
 		       COALESCE(inventory_unit,'kg'), COALESCE(quote_unit,'kg'), COALESCE(order_unit,'kg'),
 		       COALESCE(unit_conversion_json::text,'{}'), COALESCE(integer_unit,false), active
@@ -410,12 +410,109 @@ func (r Repository) ListProductConfigTemplates(ctx context.Context) ([]catalogap
 	out := make([]catalogapp.ProductConfigTemplate, 0)
 	for rows.Next() {
 		var row catalogapp.ProductConfigTemplate
-		if err := rows.Scan(&row.ID, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.Name, &row.GradientTemplateID, &row.OperationTemplateID, &row.PriceListRuleJSON, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.Active); err != nil {
+		if err := rows.Scan(&row.ID, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.Name, &row.GradientTemplateID, &row.OperationTemplateID, &row.UnitTemplateID, &row.PriceListRuleJSON, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.Active); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func (r Repository) ListProductUnitDefinitions(ctx context.Context) ([]catalogapp.ProductUnitDefinition, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT code, name, unit_type, allow_decimal, active
+		FROM %s.product_unit_definitions
+		ORDER BY active DESC, unit_type, code
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.ProductUnitDefinition, 0)
+	for rows.Next() {
+		var row catalogapp.ProductUnitDefinition
+		if err := rows.Scan(&row.Code, &row.Name, &row.UnitType, &row.AllowDecimal, &row.Active); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) ListProductUnitTemplates(ctx context.Context) ([]catalogapp.ProductUnitTemplate, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, name, inventory_unit, quote_unit, order_unit,
+		       COALESCE(unit_conversion_json::text,'{}'), integer_unit, active
+		FROM %s.product_unit_templates
+		ORDER BY active DESC, name, id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.ProductUnitTemplate, 0)
+	for rows.Next() {
+		var row catalogapp.ProductUnitTemplate
+		if err := rows.Scan(&row.ID, &row.Name, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.Active); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveProductUnitDefinition(ctx context.Context, cmd catalogapp.SaveProductUnitDefinitionCommand) (catalogapp.ProductUnitDefinition, error) {
+	active := true
+	if cmd.Active != nil {
+		active = *cmd.Active
+	}
+	var row catalogapp.ProductUnitDefinition
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_unit_definitions(code,name,unit_type,allow_decimal,active)
+		VALUES($1,$2,$3,$4,$5)
+		ON CONFLICT (code) DO UPDATE
+		SET name=EXCLUDED.name,
+		    unit_type=EXCLUDED.unit_type,
+		    allow_decimal=EXCLUDED.allow_decimal,
+		    active=EXCLUDED.active,
+		    updated_at=now()
+		RETURNING code, name, unit_type, allow_decimal, active
+	`, r.schema), cmd.Code, cmd.Name, cmd.UnitType, cmd.AllowDecimal, active).Scan(&row.Code, &row.Name, &row.UnitType, &row.AllowDecimal, &row.Active); err != nil {
+		return catalogapp.ProductUnitDefinition{}, err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_unit_definition", nil, "upsert", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(row.Code), postgresinfra.AuditMeta{"unit_type": row.UnitType, "allow_decimal": row.AllowDecimal, "active": row.Active})
+	return row, nil
+}
+
+func (r Repository) SaveProductUnitTemplate(ctx context.Context, cmd catalogapp.SaveProductUnitTemplateCommand) (catalogapp.ProductUnitTemplate, error) {
+	active := true
+	if cmd.Active != nil {
+		active = *cmd.Active
+	}
+	var id int64
+	if cmd.ID > 0 {
+		if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.product_unit_templates
+			SET name=$2, inventory_unit=$3, quote_unit=$4, order_unit=$5,
+			    unit_conversion_json=$6::jsonb, integer_unit=$7, active=$8, updated_at=now()
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.Name, cmd.InventoryUnit, cmd.QuoteUnit, cmd.OrderUnit, cmd.UnitConversionJSON, cmd.IntegerUnit, active).Scan(&id); err != nil {
+			return catalogapp.ProductUnitTemplate{}, err
+		}
+	} else if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_unit_templates(name, inventory_unit, quote_unit, order_unit, unit_conversion_json, integer_unit, active)
+		VALUES($1,$2,$3,$4,$5::jsonb,$6,$7)
+		RETURNING id
+	`, r.schema), cmd.Name, cmd.InventoryUnit, cmd.QuoteUnit, cmd.OrderUnit, cmd.UnitConversionJSON, cmd.IntegerUnit, active).Scan(&id); err != nil {
+		return catalogapp.ProductUnitTemplate{}, err
+	}
+	row, err := fetchProductUnitTemplateTx(ctx, r.pool, r.schema, id)
+	if err != nil {
+		return catalogapp.ProductUnitTemplate{}, err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_unit_template", &id, "update", postgresinfra.StrPtr("template"), nil, postgresinfra.StrPtr(row.Name), postgresinfra.AuditMeta{"inventory_unit": row.InventoryUnit, "quote_unit": row.QuoteUnit, "order_unit": row.OrderUnit, "integer_unit": row.IntegerUnit})
+	return row, nil
 }
 
 func (r Repository) SaveProductConfigTemplate(ctx context.Context, cmd catalogapp.SaveProductConfigTemplateCommand) (catalogapp.ProductConfigTemplate, error) {
@@ -442,24 +539,38 @@ func (r Repository) SaveProductConfigTemplate(ctx context.Context, cmd catalogap
 	if customerID == 0 {
 		templateState = catalogapp.TemplateStatePublic
 	}
+	if cmd.UnitTemplateID > 0 {
+		unitTemplate, err := fetchProductUnitTemplateTx(ctx, tx, r.schema, cmd.UnitTemplateID)
+		if err != nil {
+			return catalogapp.ProductConfigTemplate{}, err
+		}
+		if !unitTemplate.Active {
+			return catalogapp.ProductConfigTemplate{}, fmt.Errorf("unit template inactive")
+		}
+		cmd.InventoryUnit = unitTemplate.InventoryUnit
+		cmd.QuoteUnit = unitTemplate.QuoteUnit
+		cmd.OrderUnit = unitTemplate.OrderUnit
+		cmd.UnitConversionJSON = unitTemplate.UnitConversionJSON
+		cmd.IntegerUnit = unitTemplate.IntegerUnit
+	}
 	var id int64
 	if cmd.ID > 0 {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.product_config_templates
 			SET name=$2, gradient_template_id=$3, operation_template_id=$4, price_list_rule_json=$5::jsonb,
 			    inventory_unit=$6, quote_unit=$7, order_unit=$8, unit_conversion_json=$9::jsonb, integer_unit=$10,
-			    active=$11, updated_at=now()
+			    unit_template_id=$11, active=$12, updated_at=now()
 			WHERE id=$1
 			RETURNING id
-		`, r.schema), cmd.ID, cmd.Name, cmd.GradientTemplateID, cmd.OperationTemplateID, cmd.PriceListRuleJSON, cmd.InventoryUnit, cmd.QuoteUnit, cmd.OrderUnit, cmd.UnitConversionJSON, cmd.IntegerUnit, active).Scan(&id); err != nil {
+		`, r.schema), cmd.ID, cmd.Name, cmd.GradientTemplateID, cmd.OperationTemplateID, cmd.PriceListRuleJSON, cmd.InventoryUnit, cmd.QuoteUnit, cmd.OrderUnit, cmd.UnitConversionJSON, cmd.IntegerUnit, cmd.UnitTemplateID, active).Scan(&id); err != nil {
 			return catalogapp.ProductConfigTemplate{}, err
 		}
 	} else {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			INSERT INTO %s.product_config_templates(customer_id, source_template_id, template_state, name, gradient_template_id, operation_template_id, price_list_rule_json, inventory_unit, quote_unit, order_unit, unit_conversion_json, integer_unit, active)
-			VALUES($1,0,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10::jsonb,$11,$12)
+			INSERT INTO %s.product_config_templates(customer_id, source_template_id, template_state, name, gradient_template_id, operation_template_id, unit_template_id, price_list_rule_json, inventory_unit, quote_unit, order_unit, unit_conversion_json, integer_unit, active)
+			VALUES($1,0,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11::jsonb,$12,$13)
 			RETURNING id
-		`, r.schema), customerID, templateState, cmd.Name, cmd.GradientTemplateID, cmd.OperationTemplateID, cmd.PriceListRuleJSON, cmd.InventoryUnit, cmd.QuoteUnit, cmd.OrderUnit, cmd.UnitConversionJSON, cmd.IntegerUnit, active).Scan(&id); err != nil {
+		`, r.schema), customerID, templateState, cmd.Name, cmd.GradientTemplateID, cmd.OperationTemplateID, cmd.UnitTemplateID, cmd.PriceListRuleJSON, cmd.InventoryUnit, cmd.QuoteUnit, cmd.OrderUnit, cmd.UnitConversionJSON, cmd.IntegerUnit, active).Scan(&id); err != nil {
 			return catalogapp.ProductConfigTemplate{}, err
 		}
 	}
@@ -474,6 +585,7 @@ func (r Repository) SaveProductConfigTemplate(ctx context.Context, cmd catalogap
 		"customer_id":             row.CustomerID,
 		"gradient_template_id":    row.GradientTemplateID,
 		"operation_template_id":   row.OperationTemplateID,
+		"unit_template_id":        row.UnitTemplateID,
 		"inventory_unit":          row.InventoryUnit,
 		"quote_unit":              row.QuoteUnit,
 		"order_unit":              row.OrderUnit,
@@ -516,7 +628,7 @@ func (r Repository) ListGradientTemplates(ctx context.Context) ([]catalogapp.Gra
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, name, COALESCE(customer_id,0), COALESCE(source_template_id,0),
 		       COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END),
-		       display_unit, active
+		       display_unit, COALESCE(unit_template_id,0), active
 		FROM %s.pricing_gradient_templates
 		ORDER BY active DESC, COALESCE(customer_id,0), name, id
 	`, r.schema))
@@ -527,7 +639,7 @@ func (r Repository) ListGradientTemplates(ctx context.Context) ([]catalogapp.Gra
 	out := make([]catalogapp.GradientTemplate, 0)
 	for rows.Next() {
 		var row catalogapp.GradientTemplate
-		if err := rows.Scan(&row.ID, &row.Name, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.DisplayUnit, &row.Active); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.DisplayUnit, &row.UnitTemplateID, &row.Active); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -584,11 +696,11 @@ func (r Repository) SaveGradientTemplate(ctx context.Context, cmd catalogapp.Sav
 	if cmd.ID > 0 {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.pricing_gradient_templates
-			SET name=$2, display_unit=$3, active=true, updated_at=now()
+			SET name=$2, display_unit=$3, unit_template_id=$4, active=true, updated_at=now()
 			WHERE id=$1
 			RETURNING id, COALESCE(customer_id,0), COALESCE(source_template_id,0),
 			          COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END)
-		`, r.schema), cmd.ID, cmd.Name, cmd.DisplayUnit).Scan(&id, &customerID, &sourceTemplateID, &templateState); err != nil {
+		`, r.schema), cmd.ID, cmd.Name, cmd.DisplayUnit, cmd.UnitTemplateID).Scan(&id, &customerID, &sourceTemplateID, &templateState); err != nil {
 			return catalogapp.GradientTemplate{}, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.pricing_gradient_template_tiers SET active=false, updated_at=now() WHERE template_id=$1`, r.schema), id); err != nil {
@@ -604,10 +716,10 @@ func (r Repository) SaveGradientTemplate(ctx context.Context, cmd catalogapp.Sav
 			templateState = catalogapp.TemplateStatePublic
 		}
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			INSERT INTO %s.pricing_gradient_templates(name, display_unit, customer_id, source_template_id, template_state, active)
-			VALUES($1,$2,$3,0,$4,true)
+			INSERT INTO %s.pricing_gradient_templates(name, display_unit, unit_template_id, customer_id, source_template_id, template_state, active)
+			VALUES($1,$2,$3,$4,0,$5,true)
 			RETURNING id, COALESCE(customer_id,0), COALESCE(source_template_id,0), template_state
-		`, r.schema), cmd.Name, cmd.DisplayUnit, customerID, templateState).Scan(&id, &customerID, &sourceTemplateID, &templateState); err != nil {
+		`, r.schema), cmd.Name, cmd.DisplayUnit, cmd.UnitTemplateID, customerID, templateState).Scan(&id, &customerID, &sourceTemplateID, &templateState); err != nil {
 			return catalogapp.GradientTemplate{}, err
 		}
 	}
@@ -623,16 +735,17 @@ func (r Repository) SaveGradientTemplate(ctx context.Context, cmd catalogapp.Sav
 		}
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "pricing_gradient_template", &id, "update", postgresinfra.StrPtr("template"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{
-		"customer_id":  customerID,
-		"display_unit": cmd.DisplayUnit,
-		"tier_count":   len(cmd.Tiers),
+		"customer_id":      customerID,
+		"display_unit":     cmd.DisplayUnit,
+		"unit_template_id": cmd.UnitTemplateID,
+		"tier_count":       len(cmd.Tiers),
 	}); err != nil {
 		return catalogapp.GradientTemplate{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return catalogapp.GradientTemplate{}, err
 	}
-	return catalogapp.GradientTemplate{ID: id, Name: cmd.Name, CustomerID: customerID, SourceTemplateID: sourceTemplateID, TemplateState: templateState, DisplayUnit: cmd.DisplayUnit, Active: true, Tiers: cmd.Tiers}, nil
+	return catalogapp.GradientTemplate{ID: id, Name: cmd.Name, CustomerID: customerID, SourceTemplateID: sourceTemplateID, TemplateState: templateState, DisplayUnit: cmd.DisplayUnit, UnitTemplateID: cmd.UnitTemplateID, Active: true, Tiers: cmd.Tiers}, nil
 }
 
 func (r Repository) DeactivateGradientTemplate(ctx context.Context, cmd catalogapp.DeactivateGradientTemplateCommand) error {
@@ -1118,18 +1231,35 @@ func ensureCustomerExistsTx(ctx context.Context, tx pgx.Tx, schema string, custo
 	return nil
 }
 
+type queryRower interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func fetchProductUnitTemplateTx(ctx context.Context, q queryRower, schema string, id int64) (catalogapp.ProductUnitTemplate, error) {
+	var row catalogapp.ProductUnitTemplate
+	if err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, name, inventory_unit, quote_unit, order_unit,
+		       COALESCE(unit_conversion_json::text,'{}'), integer_unit, active
+		FROM %s.product_unit_templates
+		WHERE id=$1
+	`, schema), id).Scan(&row.ID, &row.Name, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.Active); err != nil {
+		return catalogapp.ProductUnitTemplate{}, err
+	}
+	return row, nil
+}
+
 func fetchProductConfigTemplateTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (catalogapp.ProductConfigTemplate, error) {
 	var row catalogapp.ProductConfigTemplate
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id, COALESCE(customer_id,0), COALESCE(source_template_id,0),
 		       COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END),
 		       name, COALESCE(gradient_template_id,0), COALESCE(operation_template_id,0),
-		       COALESCE(price_list_rule_json::text,'{}'),
+		       COALESCE(unit_template_id,0), COALESCE(price_list_rule_json::text,'{}'),
 		       COALESCE(inventory_unit,'kg'), COALESCE(quote_unit,'kg'), COALESCE(order_unit,'kg'),
 		       COALESCE(unit_conversion_json::text,'{}'), COALESCE(integer_unit,false), active
 		FROM %s.product_config_templates
 		WHERE id=$1
-	`, schema), id).Scan(&row.ID, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.Name, &row.GradientTemplateID, &row.OperationTemplateID, &row.PriceListRuleJSON, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.Active); err != nil {
+	`, schema), id).Scan(&row.ID, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.Name, &row.GradientTemplateID, &row.OperationTemplateID, &row.UnitTemplateID, &row.PriceListRuleJSON, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.Active); err != nil {
 		return catalogapp.ProductConfigTemplate{}, err
 	}
 	return row, nil
@@ -1179,10 +1309,10 @@ func deriveProductConfigTemplateTx(ctx context.Context, tx pgx.Tx, schema string
 	}
 	var id int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_config_templates(customer_id, source_template_id, template_state, name, gradient_template_id, operation_template_id, price_list_rule_json, inventory_unit, quote_unit, order_unit, unit_conversion_json, integer_unit, active)
-		VALUES($1,$2,'derived_from_public',$3,$4,$5,$6::jsonb,$7,$8,$9,$10::jsonb,$11,true)
+		INSERT INTO %s.product_config_templates(customer_id, source_template_id, template_state, name, gradient_template_id, operation_template_id, unit_template_id, price_list_rule_json, inventory_unit, quote_unit, order_unit, unit_conversion_json, integer_unit, active)
+		VALUES($1,$2,'derived_from_public',$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11::jsonb,$12,true)
 		RETURNING id
-	`, schema), cmd.CustomerID, source.ID, name, source.GradientTemplateID, source.OperationTemplateID, source.PriceListRuleJSON, source.InventoryUnit, source.QuoteUnit, source.OrderUnit, source.UnitConversionJSON, source.IntegerUnit).Scan(&id); err != nil {
+	`, schema), cmd.CustomerID, source.ID, name, source.GradientTemplateID, source.OperationTemplateID, source.UnitTemplateID, source.PriceListRuleJSON, source.InventoryUnit, source.QuoteUnit, source.OrderUnit, source.UnitConversionJSON, source.IntegerUnit).Scan(&id); err != nil {
 		return catalogapp.ProductConfigTemplate{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, schema, cmd.Actor, "product_config_template", &id, "derive_public_product_config_template", postgresinfra.StrPtr("source_template_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", source.ID)), postgresinfra.AuditMeta{"customer_id": cmd.CustomerID, "source_template_id": source.ID}); err != nil {
@@ -1616,10 +1746,10 @@ func deriveGradientTemplateTx(ctx context.Context, tx pgx.Tx, schema string, cmd
 	}
 	var id int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.pricing_gradient_templates(name, display_unit, customer_id, source_template_id, template_state, active)
-		VALUES($1,$2,$3,$4,'derived_from_public',true)
+		INSERT INTO %s.pricing_gradient_templates(name, display_unit, unit_template_id, customer_id, source_template_id, template_state, active)
+		VALUES($1,$2,$3,$4,$5,'derived_from_public',true)
 		RETURNING id
-	`, schema), name, source.DisplayUnit, cmd.CustomerID, source.ID).Scan(&id); err != nil {
+	`, schema), name, source.DisplayUnit, source.UnitTemplateID, cmd.CustomerID, source.ID).Scan(&id); err != nil {
 		return catalogapp.GradientTemplate{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -1642,10 +1772,10 @@ func fetchGradientTemplateTx(ctx context.Context, tx pgx.Tx, schema string, id i
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id, name, COALESCE(customer_id,0), COALESCE(source_template_id,0),
 		       COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END),
-		       display_unit, active
+		       display_unit, COALESCE(unit_template_id,0), active
 		FROM %s.pricing_gradient_templates
 		WHERE id=$1 AND active=true
-	`, schema), id).Scan(&row.ID, &row.Name, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.DisplayUnit, &row.Active); err != nil {
+	`, schema), id).Scan(&row.ID, &row.Name, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.DisplayUnit, &row.UnitTemplateID, &row.Active); err != nil {
 		return catalogapp.GradientTemplate{}, err
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`

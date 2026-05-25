@@ -127,6 +127,8 @@ type ProductSettingsData struct {
 	Products                     []ProductSettingsProduct      `json:"products"`
 	GradientTemplates            []GradientTemplate            `json:"gradient_templates"`
 	ProductConfigTemplates       []ProductConfigTemplate       `json:"product_config_templates"`
+	ProductUnitDefinitions       []ProductUnitDefinition       `json:"product_unit_definitions"`
+	ProductUnitTemplates         []ProductUnitTemplate         `json:"product_unit_templates"`
 	CustomerPublicUsages         []CustomerPublicUsage         `json:"customer_public_usages"`
 	CustomerProductRuleTemplates []CustomerProductRuleTemplate `json:"customer_product_rule_templates"`
 	CustomerProductRuleOverrides []CustomerProductRuleOverride `json:"customer_product_rule_overrides"`
@@ -141,6 +143,7 @@ type ProductConfigTemplate struct {
 	Name                string `json:"name"`
 	GradientTemplateID  int64  `json:"gradient_template_id"`
 	OperationTemplateID int64  `json:"operation_template_id"`
+	UnitTemplateID      int64  `json:"unit_template_id"`
 	PriceListRuleJSON   string `json:"price_list_rule_json"`
 	InventoryUnit       string `json:"inventory_unit"`
 	QuoteUnit           string `json:"quote_unit"`
@@ -150,6 +153,25 @@ type ProductConfigTemplate struct {
 	Active              bool   `json:"active"`
 }
 
+type ProductUnitDefinition struct {
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	UnitType     string `json:"unit_type"`
+	AllowDecimal bool   `json:"allow_decimal"`
+	Active       bool   `json:"active"`
+}
+
+type ProductUnitTemplate struct {
+	ID                 int64  `json:"id"`
+	Name               string `json:"name"`
+	InventoryUnit      string `json:"inventory_unit"`
+	QuoteUnit          string `json:"quote_unit"`
+	OrderUnit          string `json:"order_unit"`
+	UnitConversionJSON string `json:"unit_conversion_json"`
+	IntegerUnit        bool   `json:"integer_unit"`
+	Active             bool   `json:"active"`
+}
+
 type GradientTemplate struct {
 	ID               int64                  `json:"id"`
 	Name             string                 `json:"name"`
@@ -157,6 +179,7 @@ type GradientTemplate struct {
 	SourceTemplateID int64                  `json:"source_template_id"`
 	TemplateState    string                 `json:"template_state"`
 	DisplayUnit      string                 `json:"display_unit"`
+	UnitTemplateID   int64                  `json:"unit_template_id"`
 	Active           bool                   `json:"active"`
 	Tiers            []GradientTemplateTier `json:"tiers"`
 }
@@ -361,6 +384,7 @@ type SaveProductConfigTemplateCommand struct {
 	Name                string
 	GradientTemplateID  int64
 	OperationTemplateID int64
+	UnitTemplateID      int64
 	PriceListRuleJSON   string
 	InventoryUnit       string
 	QuoteUnit           string
@@ -368,6 +392,27 @@ type SaveProductConfigTemplateCommand struct {
 	UnitConversionJSON  string
 	IntegerUnit         bool
 	Active              *bool
+}
+
+type SaveProductUnitDefinitionCommand struct {
+	Actor        string
+	Code         string
+	Name         string
+	UnitType     string
+	AllowDecimal bool
+	Active       *bool
+}
+
+type SaveProductUnitTemplateCommand struct {
+	Actor              string
+	ID                 int64
+	Name               string
+	InventoryUnit      string
+	QuoteUnit          string
+	OrderUnit          string
+	UnitConversionJSON string
+	IntegerUnit        bool
+	Active             *bool
 }
 
 type DeriveProductConfigTemplateCommand struct {
@@ -433,12 +478,13 @@ type DeriveGradientTemplateCommand struct {
 }
 
 type SaveGradientTemplateCommand struct {
-	Actor       string
-	ID          int64
-	CustomerID  int64
-	Name        string
-	DisplayUnit string
-	Tiers       []GradientTemplateTier
+	Actor          string
+	ID             int64
+	CustomerID     int64
+	Name           string
+	DisplayUnit    string
+	UnitTemplateID int64
+	Tiers          []GradientTemplateTier
 }
 
 type DeactivateGradientTemplateCommand struct {
@@ -462,8 +508,12 @@ type Repository interface {
 	ListProductCategories(ctx context.Context) ([]ProductCategory, error)
 	ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error)
 	ListProductConfigTemplates(ctx context.Context) ([]ProductConfigTemplate, error)
+	ListProductUnitDefinitions(ctx context.Context) ([]ProductUnitDefinition, error)
+	ListProductUnitTemplates(ctx context.Context) ([]ProductUnitTemplate, error)
 	SaveGradientTemplate(ctx context.Context, cmd SaveGradientTemplateCommand) (GradientTemplate, error)
 	SaveProductConfigTemplate(ctx context.Context, cmd SaveProductConfigTemplateCommand) (ProductConfigTemplate, error)
+	SaveProductUnitDefinition(ctx context.Context, cmd SaveProductUnitDefinitionCommand) (ProductUnitDefinition, error)
+	SaveProductUnitTemplate(ctx context.Context, cmd SaveProductUnitTemplateCommand) (ProductUnitTemplate, error)
 	DeriveProductConfigTemplate(ctx context.Context, cmd DeriveProductConfigTemplateCommand) (ProductConfigTemplate, error)
 	DeactivateGradientTemplate(ctx context.Context, cmd DeactivateGradientTemplateCommand) error
 	BindCategoryGradientTemplate(ctx context.Context, cmd BindCategoryGradientTemplateCommand) error
@@ -687,6 +737,14 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
+	unitDefinitions, err := s.repo.ListProductUnitDefinitions(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
+	unitTemplates, err := s.repo.ListProductUnitTemplates(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
 	usages, err := s.repo.ListCustomerPublicUsages(ctx)
 	if err != nil {
 		return ProductSettingsData{}, err
@@ -706,6 +764,8 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	data := BuildProductSettings(categories, products)
 	data.GradientTemplates = templates
 	data.ProductConfigTemplates = configTemplates
+	data.ProductUnitDefinitions = unitDefinitions
+	data.ProductUnitTemplates = unitTemplates
 	data.CustomerPublicUsages = usages
 	data.CustomerProductRuleTemplates = ruleTemplates
 	data.CustomerProductRuleOverrides = ruleOverrides
@@ -719,6 +779,30 @@ func (s *Service) ListGradientTemplates(ctx context.Context) ([]GradientTemplate
 
 func (s *Service) ListProductConfigTemplates(ctx context.Context) ([]ProductConfigTemplate, error) {
 	return s.repo.ListProductConfigTemplates(ctx)
+}
+
+func (s *Service) ListProductUnitDefinitions(ctx context.Context) ([]ProductUnitDefinition, error) {
+	return s.repo.ListProductUnitDefinitions(ctx)
+}
+
+func (s *Service) ListProductUnitTemplates(ctx context.Context) ([]ProductUnitTemplate, error) {
+	return s.repo.ListProductUnitTemplates(ctx)
+}
+
+func (s *Service) SaveProductUnitDefinition(ctx context.Context, cmd SaveProductUnitDefinitionCommand) (ProductUnitDefinition, error) {
+	normalized, err := normalizeProductUnitDefinitionCommand(cmd)
+	if err != nil {
+		return ProductUnitDefinition{}, err
+	}
+	return s.repo.SaveProductUnitDefinition(ctx, normalized)
+}
+
+func (s *Service) SaveProductUnitTemplate(ctx context.Context, cmd SaveProductUnitTemplateCommand) (ProductUnitTemplate, error) {
+	normalized, err := normalizeProductUnitTemplateCommand(cmd)
+	if err != nil {
+		return ProductUnitTemplate{}, err
+	}
+	return s.repo.SaveProductUnitTemplate(ctx, normalized)
 }
 
 func (s *Service) SaveProductConfigTemplate(ctx context.Context, cmd SaveProductConfigTemplateCommand) (ProductConfigTemplate, error) {
@@ -1094,7 +1178,7 @@ func normalizeProductConfigTemplateCommand(cmd SaveProductConfigTemplateCommand)
 	if cmd.Name == "" {
 		return SaveProductConfigTemplateCommand{}, ValidationError{Message: "name required"}
 	}
-	if cmd.GradientTemplateID < 0 || cmd.OperationTemplateID < 0 {
+	if cmd.GradientTemplateID < 0 || cmd.OperationTemplateID < 0 || cmd.UnitTemplateID < 0 {
 		return SaveProductConfigTemplateCommand{}, ValidationError{Message: "invalid template id"}
 	}
 	priceRuleJSON, err := normalizeJSONText(cmd.PriceListRuleJSON)
@@ -1121,8 +1205,54 @@ func normalizeProductConfigTemplateCommand(cmd SaveProductConfigTemplateCommand)
 	return cmd, nil
 }
 
+func normalizeProductUnitDefinitionCommand(cmd SaveProductUnitDefinitionCommand) (SaveProductUnitDefinitionCommand, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Code = strings.TrimSpace(cmd.Code)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.UnitType = strings.TrimSpace(cmd.UnitType)
+	if cmd.Code == "" {
+		return SaveProductUnitDefinitionCommand{}, ValidationError{Message: "unit code required"}
+	}
+	if cmd.Name == "" {
+		cmd.Name = cmd.Code
+	}
+	if cmd.UnitType == "" {
+		cmd.UnitType = "other"
+	}
+	return cmd, nil
+}
+
+func normalizeProductUnitTemplateCommand(cmd SaveProductUnitTemplateCommand) (SaveProductUnitTemplateCommand, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.ID < 0 {
+		return SaveProductUnitTemplateCommand{}, ValidationError{Message: "invalid id"}
+	}
+	if cmd.Name == "" {
+		return SaveProductUnitTemplateCommand{}, ValidationError{Message: "name required"}
+	}
+	unitRule := catalogdomain.NormalizeProductUnitRule(catalogdomain.ProductUnitRule{
+		InventoryUnit:  cmd.InventoryUnit,
+		QuoteUnit:      cmd.QuoteUnit,
+		OrderUnit:      cmd.OrderUnit,
+		ConversionJSON: cmd.UnitConversionJSON,
+		IntegerUnit:    cmd.IntegerUnit,
+	})
+	unitConversionJSON, err := normalizeJSONText(unitRule.ConversionJSON)
+	if err != nil {
+		return SaveProductUnitTemplateCommand{}, ValidationError{Message: "invalid unit_conversion_json"}
+	}
+	cmd.InventoryUnit = unitRule.InventoryUnit
+	cmd.QuoteUnit = unitRule.QuoteUnit
+	cmd.OrderUnit = unitRule.OrderUnit
+	cmd.UnitConversionJSON = unitConversionJSON
+	cmd.IntegerUnit = unitRule.IntegerUnit
+	return cmd, nil
+}
+
 func normalizeGradientDisplayUnit(unit string) string {
-	switch strings.TrimSpace(unit) {
+	trimmed := strings.TrimSpace(unit)
+	switch trimmed {
 	case "kg":
 		return "kg"
 	case "g227":
@@ -1134,6 +1264,9 @@ func normalizeGradientDisplayUnit(unit string) string {
 	case "lb":
 		return "lb"
 	default:
+		if trimmed != "" {
+			return trimmed
+		}
 		return "lb"
 	}
 }
@@ -1172,6 +1305,9 @@ func gradientDisplayUnitSpecG(unit string) int {
 	case "g250":
 		return 250
 	default:
+		if normalizeGradientDisplayUnit(unit) != "lb" {
+			return 1
+		}
 		return 454
 	}
 }

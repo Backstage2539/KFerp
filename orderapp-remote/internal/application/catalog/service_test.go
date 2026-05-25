@@ -21,6 +21,8 @@ type fakeRepo struct {
 	ruleOverride    SaveCustomerProductRuleOverrideCommand
 	ruleBinding     CustomerProductRuleTemplateBindingCommand
 	configTemplate  SaveProductConfigTemplateCommand
+	unitDefinition  SaveProductUnitDefinitionCommand
+	unitTemplate    SaveProductUnitTemplateCommand
 	deactivate      DeactivateProductsCommand
 	products        map[int64]Product
 	deactivated     bool
@@ -77,6 +79,7 @@ func (r *fakeRepo) ListProductConfigTemplates(ctx context.Context) ([]ProductCon
 		Name:                "公共盒装配置",
 		GradientTemplateID:  8,
 		OperationTemplateID: 9,
+		UnitTemplateID:      12,
 		PriceListRuleJSON:   `{"pricing_mode":"inherit_gradient_template"}`,
 		InventoryUnit:       "kg",
 		QuoteUnit:           "盒",
@@ -87,6 +90,14 @@ func (r *fakeRepo) ListProductConfigTemplates(ctx context.Context) ([]ProductCon
 	}}, nil
 }
 
+func (r *fakeRepo) ListProductUnitDefinitions(ctx context.Context) ([]ProductUnitDefinition, error) {
+	return []ProductUnitDefinition{{Code: "kg", Name: "kg", UnitType: "weight", AllowDecimal: true, Active: true}, {Code: "盒", Name: "盒", UnitType: "package", Active: true}}, nil
+}
+
+func (r *fakeRepo) ListProductUnitTemplates(ctx context.Context) ([]ProductUnitTemplate, error) {
+	return []ProductUnitTemplate{{ID: 12, Name: "盒装200g", InventoryUnit: "kg", QuoteUnit: "盒", OrderUnit: "盒", UnitConversionJSON: `{"盒":{"kg":0.2}}`, IntegerUnit: true, Active: true}}, nil
+}
+
 func (r *fakeRepo) SaveProductConfigTemplate(ctx context.Context, cmd SaveProductConfigTemplateCommand) (ProductConfigTemplate, error) {
 	r.configTemplate = cmd
 	return ProductConfigTemplate{
@@ -95,6 +106,7 @@ func (r *fakeRepo) SaveProductConfigTemplate(ctx context.Context, cmd SaveProduc
 		Name:                cmd.Name,
 		GradientTemplateID:  cmd.GradientTemplateID,
 		OperationTemplateID: cmd.OperationTemplateID,
+		UnitTemplateID:      cmd.UnitTemplateID,
 		PriceListRuleJSON:   cmd.PriceListRuleJSON,
 		InventoryUnit:       cmd.InventoryUnit,
 		QuoteUnit:           cmd.QuoteUnit,
@@ -103,6 +115,16 @@ func (r *fakeRepo) SaveProductConfigTemplate(ctx context.Context, cmd SaveProduc
 		IntegerUnit:         cmd.IntegerUnit,
 		Active:              true,
 	}, nil
+}
+
+func (r *fakeRepo) SaveProductUnitDefinition(ctx context.Context, cmd SaveProductUnitDefinitionCommand) (ProductUnitDefinition, error) {
+	r.unitDefinition = cmd
+	return ProductUnitDefinition{Code: cmd.Code, Name: cmd.Name, UnitType: cmd.UnitType, AllowDecimal: cmd.AllowDecimal, Active: true}, nil
+}
+
+func (r *fakeRepo) SaveProductUnitTemplate(ctx context.Context, cmd SaveProductUnitTemplateCommand) (ProductUnitTemplate, error) {
+	r.unitTemplate = cmd
+	return ProductUnitTemplate{ID: 12, Name: cmd.Name, InventoryUnit: cmd.InventoryUnit, QuoteUnit: cmd.QuoteUnit, OrderUnit: cmd.OrderUnit, UnitConversionJSON: cmd.UnitConversionJSON, IntegerUnit: cmd.IntegerUnit, Active: true}, nil
 }
 
 func (r *fakeRepo) DeriveProductConfigTemplate(ctx context.Context, cmd DeriveProductConfigTemplateCommand) (ProductConfigTemplate, error) {

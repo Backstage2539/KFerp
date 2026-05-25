@@ -24,19 +24,22 @@ const gradientDisplayUnitByValue = new Map(gradientDisplayUnitOptions.map((unit)
 
 export function normalizeGradientDisplayUnit(unit) {
   const value = String(unit || '').trim()
-  return gradientDisplayUnitByValue.has(value) ? value : 'lb'
+  return value || 'lb'
 }
 
 export function gradientDisplayUnitLabel(unit) {
-  return gradientDisplayUnitByValue.get(normalizeGradientDisplayUnit(unit))?.label || '元/磅'
+  const normalized = normalizeGradientDisplayUnit(unit)
+  return gradientDisplayUnitByValue.get(normalized)?.label || `元/${normalized}`
 }
 
 export function gradientDisplayQuantityUnitLabel(unit) {
-  return gradientDisplayUnitByValue.get(normalizeGradientDisplayUnit(unit))?.quantityLabel || '磅'
+  const normalized = normalizeGradientDisplayUnit(unit)
+  return gradientDisplayUnitByValue.get(normalized)?.quantityLabel || normalized
 }
 
 export function gradientDisplayUnitSpecG(unit) {
-  return gradientDisplayUnitByValue.get(normalizeGradientDisplayUnit(unit))?.specG || 454
+  const normalized = normalizeGradientDisplayUnit(unit)
+  return gradientDisplayUnitByValue.get(normalized)?.specG || 1
 }
 
 export function gradientDisplayQuantityStep(unit) {
@@ -84,6 +87,7 @@ export function normalizeGradientTemplate(template = {}) {
     source_template_id: Number(template.source_template_id || 0),
     template_state: String(template.template_state || '').trim(),
     display_unit: displayUnit,
+    unit_template_id: Number(template.unit_template_id || 0),
     active: template.active !== false,
     tiers,
   }
@@ -96,6 +100,7 @@ export function buildGradientTemplatePayload(template = {}) {
     customer_id: row.customer_id,
     name: row.name,
     display_unit: row.display_unit,
+    unit_template_id: row.unit_template_id,
     active: row.active,
     tiers: row.tiers.map((tier) => ({
       id: tier.id,

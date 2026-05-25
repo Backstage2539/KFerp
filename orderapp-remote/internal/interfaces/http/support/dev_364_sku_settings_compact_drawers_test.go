@@ -27,7 +27,6 @@ func TestDev364SkuSettingsCompactDrawersUI(t *testing.T) {
 		"categorySearchQuery",
 		"visibleCategoryTreeForSkuContext",
 		"category-scroll-list",
-		"category-editor-drawer",
 		"product-editor-drawer",
 		"activeConfigTemplateSection",
 		"product-config-template-pane",
@@ -59,7 +58,7 @@ func TestDev364SkuSettingsCompactDrawersDocs(t *testing.T) {
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-364-SKU-SETTINGS-COMPACT-DRAWERS",
 			"新增SKU",
-			"编辑产品类型",
+			"固定高度滚动窗",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-25-sku-settings-compact-drawers.md"): {
 			"PR-364",

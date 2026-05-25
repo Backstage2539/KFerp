@@ -20,6 +20,8 @@ type productSettingsRepo struct {
 	categories             []catalogapp.ProductCategory
 	gradientTemplates      []catalogapp.GradientTemplate
 	productConfigTemplates []catalogapp.ProductConfigTemplate
+	productUnitDefinitions []catalogapp.ProductUnitDefinition
+	productUnitTemplates   []catalogapp.ProductUnitTemplate
 	savedCategory          catalogapp.SaveProductCategoryCommand
 	movedCategory          catalogapp.MoveProductCategoryCommand
 	deletedCategory        catalogapp.DeleteProductCategoryCommand
@@ -31,6 +33,8 @@ type productSettingsRepo struct {
 	derivedConfig          catalogapp.DeriveProductConfigTemplateCommand
 	savedTemplate          catalogapp.SaveGradientTemplateCommand
 	savedConfigTemplate    catalogapp.SaveProductConfigTemplateCommand
+	savedUnitDefinition    catalogapp.SaveProductUnitDefinitionCommand
+	savedUnitTemplate      catalogapp.SaveProductUnitTemplateCommand
 	deactivatedTemplate    catalogapp.DeactivateGradientTemplateCommand
 	boundTemplate          catalogapp.BindCategoryGradientTemplateCommand
 	updated                catalogapp.UpdateProductBasicsCommand
@@ -57,6 +61,8 @@ type productSettingsRepo struct {
 	configTemplateDerived  bool
 	templateSaved          bool
 	configTemplateSaved    bool
+	unitDefinitionSaved    bool
+	unitTemplateSaved      bool
 	templateDeactivated    bool
 	templateBound          bool
 	productUpdated         bool
@@ -164,6 +170,14 @@ func (r *productSettingsRepo) ListProductConfigTemplates(ctx context.Context) ([
 	return r.productConfigTemplates, nil
 }
 
+func (r *productSettingsRepo) ListProductUnitDefinitions(ctx context.Context) ([]catalogapp.ProductUnitDefinition, error) {
+	return r.productUnitDefinitions, nil
+}
+
+func (r *productSettingsRepo) ListProductUnitTemplates(ctx context.Context) ([]catalogapp.ProductUnitTemplate, error) {
+	return r.productUnitTemplates, nil
+}
+
 func (r *productSettingsRepo) ListCustomerPublicUsages(ctx context.Context) ([]catalogapp.CustomerPublicUsage, error) {
 	return r.publicUsages, nil
 }
@@ -195,6 +209,7 @@ func (r *productSettingsRepo) SaveProductConfigTemplate(ctx context.Context, cmd
 		Name:                cmd.Name,
 		GradientTemplateID:  cmd.GradientTemplateID,
 		OperationTemplateID: cmd.OperationTemplateID,
+		UnitTemplateID:      cmd.UnitTemplateID,
 		PriceListRuleJSON:   cmd.PriceListRuleJSON,
 		InventoryUnit:       cmd.InventoryUnit,
 		QuoteUnit:           cmd.QuoteUnit,
@@ -202,6 +217,27 @@ func (r *productSettingsRepo) SaveProductConfigTemplate(ctx context.Context, cmd
 		UnitConversionJSON:  cmd.UnitConversionJSON,
 		IntegerUnit:         cmd.IntegerUnit,
 		Active:              true,
+	}, nil
+}
+
+func (r *productSettingsRepo) SaveProductUnitDefinition(ctx context.Context, cmd catalogapp.SaveProductUnitDefinitionCommand) (catalogapp.ProductUnitDefinition, error) {
+	r.savedUnitDefinition = cmd
+	r.unitDefinitionSaved = true
+	return catalogapp.ProductUnitDefinition{Code: cmd.Code, Name: cmd.Name, UnitType: cmd.UnitType, AllowDecimal: cmd.AllowDecimal, Active: true}, nil
+}
+
+func (r *productSettingsRepo) SaveProductUnitTemplate(ctx context.Context, cmd catalogapp.SaveProductUnitTemplateCommand) (catalogapp.ProductUnitTemplate, error) {
+	r.savedUnitTemplate = cmd
+	r.unitTemplateSaved = true
+	return catalogapp.ProductUnitTemplate{
+		ID:                 912,
+		Name:               cmd.Name,
+		InventoryUnit:      cmd.InventoryUnit,
+		QuoteUnit:          cmd.QuoteUnit,
+		OrderUnit:          cmd.OrderUnit,
+		UnitConversionJSON: cmd.UnitConversionJSON,
+		IntegerUnit:        cmd.IntegerUnit,
+		Active:             true,
 	}, nil
 }
 
@@ -831,6 +867,7 @@ func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testi
 			Name:                "公共盒装商品配置",
 			GradientTemplateID:  8,
 			OperationTemplateID: 9,
+			UnitTemplateID:      12,
 			PriceListRuleJSON:   `{"pricing_mode":"inherit_gradient_template"}`,
 			InventoryUnit:       "kg",
 			QuoteUnit:           "盒",
@@ -866,6 +903,7 @@ func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testi
 		`"product_config_templates"`,
 		`"name":"公共盒装商品配置"`,
 		`"product_config_template_id":301`,
+		`"unit_template_id":12`,
 		`"quote_unit":"盒"`,
 	} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
@@ -878,12 +916,9 @@ func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testi
 		"name":"客户盒装商品配置",
 		"gradient_template_id":18,
 		"operation_template_id":19,
+		"unit_template_id":12,
 		"price_list_rule_json":"{\"pricing_mode\":\"fixed_unit_price\"}",
-		"inventory_unit":"kg",
-		"quote_unit":"盒",
-		"order_unit":"盒",
-		"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}",
-		"integer_unit":true
+		"active":true
 	}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
@@ -891,7 +926,7 @@ func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testi
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST product config template status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.configTemplateSaved || repo.savedConfigTemplate.CustomerID != 42 || repo.savedConfigTemplate.Name != "客户盒装商品配置" || repo.savedConfigTemplate.GradientTemplateID != 18 || !repo.savedConfigTemplate.IntegerUnit {
+	if !repo.configTemplateSaved || repo.savedConfigTemplate.CustomerID != 42 || repo.savedConfigTemplate.Name != "客户盒装商品配置" || repo.savedConfigTemplate.GradientTemplateID != 18 || repo.savedConfigTemplate.UnitTemplateID != 12 {
 		t.Fatalf("saved config template = %+v saved=%v", repo.savedConfigTemplate, repo.configTemplateSaved)
 	}
 
@@ -909,6 +944,78 @@ func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testi
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("derive product config response missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.T) {
+	repo := &productSettingsRepo{
+		productUnitDefinitions: []catalogapp.ProductUnitDefinition{{
+			Code:         "盒",
+			Name:         "盒",
+			UnitType:     "package",
+			AllowDecimal: false,
+			Active:       true,
+		}},
+		productUnitTemplates: []catalogapp.ProductUnitTemplate{{
+			ID:                 12,
+			Name:               "盒装200g",
+			InventoryUnit:      "kg",
+			QuoteUnit:          "盒",
+			OrderUnit:          "盒",
+			UnitConversionJSON: `{"盒":{"kg":0.2}}`,
+			IntegerUnit:        true,
+			Active:             true,
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"product_unit_definitions"`,
+		`"code":"盒"`,
+		`"product_unit_templates"`,
+		`"name":"盒装200g"`,
+		`"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}"`,
+	} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/units", bytes.NewBufferString(`{"code":"盒","name":"盒","unit_type":"package","allow_decimal":false,"active":true}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST unit status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.unitDefinitionSaved || repo.savedUnitDefinition.Code != "盒" || repo.savedUnitDefinition.UnitType != "package" || repo.savedUnitDefinition.AllowDecimal {
+		t.Fatalf("saved unit definition = %+v saved=%v", repo.savedUnitDefinition, repo.unitDefinitionSaved)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/unit-templates", bytes.NewBufferString(`{
+		"name":"盒装200g",
+		"inventory_unit":"kg",
+		"quote_unit":"盒",
+		"order_unit":"盒",
+		"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}",
+		"integer_unit":true,
+		"active":true
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST unit template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.unitTemplateSaved || repo.savedUnitTemplate.Name != "盒装200g" || repo.savedUnitTemplate.QuoteUnit != "盒" || repo.savedUnitTemplate.UnitConversionJSON != `{"盒":{"kg":0.2}}` || !repo.savedUnitTemplate.IntegerUnit {
+		t.Fatalf("saved unit template = %+v saved=%v", repo.savedUnitTemplate, repo.unitTemplateSaved)
 	}
 }
 

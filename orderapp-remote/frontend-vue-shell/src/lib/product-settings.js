@@ -236,18 +236,37 @@ export function buildProductConfigTemplatePayload(form = {}) {
 		name: String(form.name || '').trim(),
 		gradient_template_id: Number(form.gradient_template_id || 0),
 		operation_template_id: Number(form.operation_template_id || 0),
+		unit_template_id: Number(form.unit_template_id || 0),
 		price_list_rule_json: hasStructuredPriceRuleFields(form)
 			? priceListRuleJSONFromForm(form)
 			: normalizeJSONString(form.price_list_rule_json),
-		inventory_unit: normalizeUnitText(form.inventory_unit, 'kg'),
-		quote_unit: normalizeUnitText(form.quote_unit, normalizeUnitText(form.inventory_unit, 'kg')),
-		order_unit: normalizeUnitText(form.order_unit, normalizeUnitText(form.quote_unit, normalizeUnitText(form.inventory_unit, 'kg'))),
-		unit_conversion_json: Array.isArray(form.unit_conversion_rows)
-			? unitConversionJSONFromRows(form.unit_conversion_rows)
-			: normalizeJSONString(form.unit_conversion_json),
-		integer_unit: Boolean(form.integer_unit),
 		active: form.active === false ? false : true,
 	}
+}
+
+export function buildProductUnitDefinitionPayload(form = {}) {
+  return {
+    code: String(form.code || '').trim(),
+    name: String(form.name || '').trim(),
+    unit_type: String(form.unit_type || '').trim() || 'other',
+    allow_decimal: Boolean(form.allow_decimal),
+    active: form.active === false ? false : true,
+  }
+}
+
+export function buildProductUnitTemplatePayload(form = {}) {
+  return {
+    id: Number(form.id || 0),
+    name: String(form.name || '').trim(),
+    inventory_unit: normalizeUnitText(form.inventory_unit, 'kg'),
+    quote_unit: normalizeUnitText(form.quote_unit, normalizeUnitText(form.inventory_unit, 'kg')),
+    order_unit: normalizeUnitText(form.order_unit, normalizeUnitText(form.quote_unit, normalizeUnitText(form.inventory_unit, 'kg'))),
+    unit_conversion_json: Array.isArray(form.unit_conversion_rows)
+      ? unitConversionJSONFromRows(form.unit_conversion_rows)
+      : normalizeJSONString(form.unit_conversion_json),
+    integer_unit: Boolean(form.integer_unit),
+    active: form.active === false ? false : true,
+  }
 }
 
 export function buildSkuConfigOverridePayload(row = {}) {

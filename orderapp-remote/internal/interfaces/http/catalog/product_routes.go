@@ -31,6 +31,10 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.POST("/api/product-settings/product-config-templates", h.saveProductConfigTemplateAPI)
 	e.PUT("/api/product-settings/product-config-templates/:id", h.saveProductConfigTemplateAPI)
 	e.POST("/api/product-settings/product-config-templates/derive", h.deriveProductConfigTemplateAPI)
+	e.POST("/api/product-settings/units", h.saveProductUnitDefinitionAPI)
+	e.PUT("/api/product-settings/units/:code", h.saveProductUnitDefinitionAPI)
+	e.POST("/api/product-settings/unit-templates", h.saveProductUnitTemplateAPI)
+	e.PUT("/api/product-settings/unit-templates/:id", h.saveProductUnitTemplateAPI)
 	e.POST("/api/pricing-gradient-templates/:id/deactivate", h.deactivateGradientTemplateAPI)
 	e.POST("/api/product-settings/products", h.createProductAPI)
 	e.POST("/api/product-settings/products/deactivate", h.deactivateProductsAPI)
@@ -229,10 +233,11 @@ type deriveProductConfigTemplateAPIRequest struct {
 }
 
 type gradientTemplateAPIRequest struct {
-	CustomerID  int64                             `json:"customer_id"`
-	Name        string                            `json:"name"`
-	DisplayUnit string                            `json:"display_unit"`
-	Tiers       []catalogapp.GradientTemplateTier `json:"tiers"`
+	CustomerID     int64                             `json:"customer_id"`
+	Name           string                            `json:"name"`
+	DisplayUnit    string                            `json:"display_unit"`
+	UnitTemplateID int64                             `json:"unit_template_id"`
+	Tiers          []catalogapp.GradientTemplateTier `json:"tiers"`
 }
 
 type productConfigTemplateAPIRequest struct {
@@ -240,6 +245,7 @@ type productConfigTemplateAPIRequest struct {
 	Name                string `json:"name"`
 	GradientTemplateID  int64  `json:"gradient_template_id"`
 	OperationTemplateID int64  `json:"operation_template_id"`
+	UnitTemplateID      int64  `json:"unit_template_id"`
 	PriceListRuleJSON   string `json:"price_list_rule_json"`
 	InventoryUnit       string `json:"inventory_unit"`
 	QuoteUnit           string `json:"quote_unit"`
@@ -247,6 +253,24 @@ type productConfigTemplateAPIRequest struct {
 	UnitConversionJSON  string `json:"unit_conversion_json"`
 	IntegerUnit         bool   `json:"integer_unit"`
 	Active              *bool  `json:"active"`
+}
+
+type productUnitDefinitionAPIRequest struct {
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	UnitType     string `json:"unit_type"`
+	AllowDecimal bool   `json:"allow_decimal"`
+	Active       *bool  `json:"active"`
+}
+
+type productUnitTemplateAPIRequest struct {
+	Name               string `json:"name"`
+	InventoryUnit      string `json:"inventory_unit"`
+	QuoteUnit          string `json:"quote_unit"`
+	OrderUnit          string `json:"order_unit"`
+	UnitConversionJSON string `json:"unit_conversion_json"`
+	IntegerUnit        bool   `json:"integer_unit"`
+	Active             *bool  `json:"active"`
 }
 
 type bindCategoryGradientTemplateAPIRequest struct {
@@ -622,12 +646,13 @@ func (h productHandler) saveGradientTemplateAPI(c echo.Context) error {
 		id = parsed
 	}
 	row, err := h.catalog.SaveGradientTemplate(c.Request().Context(), catalogapp.SaveGradientTemplateCommand{
-		Actor:       support.ActorOf(c),
-		ID:          id,
-		CustomerID:  req.CustomerID,
-		Name:        req.Name,
-		DisplayUnit: req.DisplayUnit,
-		Tiers:       req.Tiers,
+		Actor:          support.ActorOf(c),
+		ID:             id,
+		CustomerID:     req.CustomerID,
+		Name:           req.Name,
+		DisplayUnit:    req.DisplayUnit,
+		UnitTemplateID: req.UnitTemplateID,
+		Tiers:          req.Tiers,
 	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
@@ -655,6 +680,7 @@ func (h productHandler) saveProductConfigTemplateAPI(c echo.Context) error {
 		Name:                req.Name,
 		GradientTemplateID:  req.GradientTemplateID,
 		OperationTemplateID: req.OperationTemplateID,
+		UnitTemplateID:      req.UnitTemplateID,
 		PriceListRuleJSON:   req.PriceListRuleJSON,
 		InventoryUnit:       req.InventoryUnit,
 		QuoteUnit:           req.QuoteUnit,
@@ -662,6 +688,58 @@ func (h productHandler) saveProductConfigTemplateAPI(c echo.Context) error {
 		UnitConversionJSON:  req.UnitConversionJSON,
 		IntegerUnit:         req.IntegerUnit,
 		Active:              req.Active,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"template": template})
+}
+
+func (h productHandler) saveProductUnitDefinitionAPI(c echo.Context) error {
+	var req productUnitDefinitionAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	if code := strings.TrimSpace(c.Param("code")); code != "" {
+		req.Code = code
+	}
+	row, err := h.catalog.SaveProductUnitDefinition(c.Request().Context(), catalogapp.SaveProductUnitDefinitionCommand{
+		Actor:        support.ActorOf(c),
+		Code:         req.Code,
+		Name:         req.Name,
+		UnitType:     req.UnitType,
+		AllowDecimal: req.AllowDecimal,
+		Active:       req.Active,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"unit": row})
+}
+
+func (h productHandler) saveProductUnitTemplateAPI(c echo.Context) error {
+	var req productUnitTemplateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	var id int64
+	if idText := c.Param("id"); idText != "" {
+		parsed, err := strconv.ParseInt(idText, 10, 64)
+		if err != nil || parsed <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		}
+		id = parsed
+	}
+	template, err := h.catalog.SaveProductUnitTemplate(c.Request().Context(), catalogapp.SaveProductUnitTemplateCommand{
+		Actor:              support.ActorOf(c),
+		ID:                 id,
+		Name:               req.Name,
+		InventoryUnit:      req.InventoryUnit,
+		QuoteUnit:          req.QuoteUnit,
+		OrderUnit:          req.OrderUnit,
+		UnitConversionJSON: req.UnitConversionJSON,
+		IntegerUnit:        req.IntegerUnit,
+		Active:             req.Active,
 	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})

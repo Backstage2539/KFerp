@@ -64,7 +64,6 @@
         <div class="panel-title">
           <span>商品分类 · {{ selectedSkuContextLabel }}</span>
           <div class="panel-actions">
-            <button class="primary compact-action" type="button" @click="openCategoryDrawer">编辑产品类型</button>
             <button class="toggle-section" type="button" @click="categoryCollapsed = !categoryCollapsed">
               {{ categoryCollapsed ? '展开' : '收起' }}
             </button>
@@ -83,6 +82,19 @@
             <input v-model.trim="categorySearchQuery" placeholder="搜索产品类型、子类型或 SKU" />
           </label>
 
+          <div class="category-inline-toolbar" aria-label="产品类型操作">
+            <button class="icon-action" type="button" title="新增产品类型" :disabled="loading" @click="createPrimaryCategoryInline">+</button>
+            <button
+              class="icon-action"
+              :class="{ active: primaryDeleteMode }"
+              type="button"
+              title="删除产品类型"
+              :disabled="loading || !categoryTreeForSkuContext.length"
+              @click="togglePrimaryDeleteMode">
+              -
+            </button>
+          </div>
+
           <div class="category-scroll-list">
           <div class="category-tree">
             <div
@@ -92,10 +104,43 @@
               :data-primary-id="primary.id"
               @dragover.prevent="handlePrimaryCategoryDragOver($event, primary)"
               @drop.prevent="dropCategoryOnCurrentTarget(primary)">
-              <div class="category-head">
-                <strong>{{ primary.number }}. {{ primary.name }}<small v-if="skuContextCustomerID">（{{ categoryStateLabel(primary) }}）</small></strong>
-                <div v-if="!canEditCategory(primary) && skuContextCustomerID" class="category-actions">
-                  <button class="text-button" type="button" @click="deriveCategoryTemplate(primary)">复制为客户分类</button>
+              <div class="category-head primary-category-head">
+                <div class="primary-left-tools">
+                  <div class="category-sort-buttons" aria-label="产品类型排序">
+                    <button class="icon-action tiny" type="button" title="上移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isFirstPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, -1)">↑</button>
+                    <button class="icon-action tiny" type="button" title="下移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isLastPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, 1)">↓</button>
+                  </div>
+                  <button v-if="primaryDeleteMode && canEditCategory(primary)" class="category-delete-button" type="button" title="删除产品类型" @click.stop="deleteCategory(primary)">-</button>
+                </div>
+                <div class="category-title-stack">
+                  <div class="category-title-row">
+                    <form v-if="editingCategoryId === Number(primary.id)" class="category-name-form" @submit.prevent="saveCategoryName(primary)">
+                      <input
+                        v-model.trim="editingCategoryName"
+                        placeholder="产品类型名称"
+                        @keyup.enter.prevent="saveCategoryName(primary)"
+                        @keyup.esc.prevent="cancelCategoryNameEdit"
+                        @blur="saveCategoryName(primary)" />
+                    </form>
+                    <button v-else class="category-name-button primary-name-button" type="button" :disabled="!canEditCategory(primary)" @click="startCategoryEdit(primary)">
+                      <strong>{{ primary.number }}. {{ primary.name }}<small v-if="skuContextCustomerID">（{{ categoryStateLabel(primary) }}）</small></strong>
+                    </button>
+                    <div v-if="!canEditCategory(primary) && skuContextCustomerID" class="category-actions">
+                      <button class="text-button" type="button" @click="deriveCategoryTemplate(primary)">复制为客户分类</button>
+                    </div>
+                  </div>
+                  <div v-if="canEditCategory(primary)" class="category-child-toolbar" aria-label="产品子类型操作">
+                    <button class="icon-action tiny" type="button" title="新增产品子类型" :disabled="loading" @click="createSecondaryCategoryInline(primary)">+</button>
+                    <button
+                      class="icon-action tiny"
+                      :class="{ active: secondaryDeleteModeFor === Number(primary.id) }"
+                      type="button"
+                      title="删除产品子类型"
+                      :disabled="loading || !primary.children.length"
+                      @click="toggleSecondaryDeleteMode(primary)">
+                      -
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -118,8 +163,19 @@
                   @dragover.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
                   @drop.prevent.stop="dropCategoryOrProductOnSecondary(primary, index + 1, secondary)">
                   <div class="secondary-head">
-                    <span>{{ secondary.number }}</span>
-                    <b>{{ secondary.name }}</b>
+                    <button v-if="secondaryDeleteModeFor === Number(primary.id) && canEditCategory(secondary)" class="category-delete-button" type="button" title="删除产品子类型" @click.stop="deleteCategory(secondary)">-</button>
+                    <form v-if="editingCategoryId === Number(secondary.id)" class="category-name-form secondary-name-form" @submit.prevent="saveCategoryName(secondary)" @pointerdown.stop>
+                      <input
+                        v-model.trim="editingCategoryName"
+                        placeholder="产品子类型名称"
+                        @keyup.enter.prevent="saveCategoryName(secondary)"
+                        @keyup.esc.prevent="cancelCategoryNameEdit"
+                        @blur="saveCategoryName(secondary)" />
+                    </form>
+                    <button v-else class="category-name-button secondary-name-button" type="button" :disabled="!canEditCategory(secondary)" @click.stop="startCategoryEdit(secondary)">
+                      <span>{{ secondary.number }}</span>
+                      <b>{{ secondary.name }}</b>
+                    </button>
                     <small v-if="skuContextCustomerID">{{ categoryStateLabel(secondary) }}</small>
                     <small>{{ secondary.products.length }} 款</small>
                     <select
@@ -426,6 +482,12 @@
             </button>
             <button
               type="button"
+              :class="['config-template-tab', { active: activeConfigTemplateSection === 'unit-template' }]"
+              @click="activeConfigTemplateSection = 'unit-template'">
+              单位模板
+            </button>
+            <button
+              type="button"
               :class="['config-template-tab', { active: activeConfigTemplateSection === 'gradient' }]"
               @click="activeConfigTemplateSection = 'gradient'">
               阶梯价模板
@@ -471,6 +533,13 @@
                 <input v-model.trim="templateForm.name" :disabled="!canEditCurrentTemplate" placeholder="如 工厂量单模板" />
               </label>
               <label>
+                <span>单位模板</span>
+                <select v-model.number="templateForm.unit_template_id" :disabled="!canEditCurrentTemplate" @change="syncGradientDisplayUnitFromUnitTemplate">
+                  <option value="0">未绑定单位模板</option>
+                  <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="unitTemplate.id">{{ productUnitTemplateSummary(unitTemplate) }}</option>
+                </select>
+              </label>
+              <label>
                 <span>展示单位</span>
                 <select v-model="templateForm.display_unit" :disabled="!canEditCurrentTemplate">
                   <option v-for="unit in gradientDisplayUnitOptions" :key="unit.value" :value="unit.value">{{ unit.label }}</option>
@@ -510,6 +579,132 @@
         </div>
       </div>
 
+      <div v-show="activeConfigTemplateSection === 'unit-template'" class="panel unit-template-panel unit-template-pane">
+        <div class="panel-title">
+          <span>单位模板</span>
+          <div class="toolbar-actions">
+            <button class="secondary compact-action" type="button" @click="resetProductUnitDefinitionForm">新建单位</button>
+            <button class="secondary compact-action" type="button" @click="resetProductUnitTemplateForm">新建模板</button>
+          </div>
+        </div>
+        <div class="unit-template-layout">
+          <section class="unit-template-card">
+            <div class="field-group-head">
+              <strong>单位字典</strong>
+              <small>全局单位，供阶梯价、报价、库存、录单共用。</small>
+            </div>
+            <div class="unit-chip-list">
+              <button
+                v-for="unit in productUnitDefinitions"
+                :key="unit.code"
+                :class="['unit-chip', { inactive: unit.active === false }]"
+                type="button"
+                @click="startProductUnitDefinitionEdit(unit)">
+                {{ unit.name || unit.code }} <small>{{ unit.code }}</small>
+              </button>
+              <span v-if="!productUnitDefinitions.length" class="muted">暂无单位</span>
+            </div>
+            <form class="unit-definition-form" @submit.prevent="saveProductUnitDefinition">
+              <label>
+                <span>单位编码</span>
+                <input v-model.trim="productUnitDefinitionForm.code" placeholder="盒" />
+              </label>
+              <label>
+                <span>单位名称</span>
+                <input v-model.trim="productUnitDefinitionForm.name" placeholder="盒" />
+              </label>
+              <label>
+                <span>单位类型</span>
+                <select v-model="productUnitDefinitionForm.unit_type">
+                  <option value="weight">重量</option>
+                  <option value="package">包装</option>
+                  <option value="count">数量</option>
+                  <option value="other">其他</option>
+                </select>
+              </label>
+              <label class="checkline">
+                <input v-model="productUnitDefinitionForm.allow_decimal" type="checkbox" />
+                <span>允许小数</span>
+              </label>
+              <div class="form-actions">
+                <button class="primary" type="submit" :disabled="productUnitSaving">保存单位</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="unit-template-card">
+            <div class="field-group-head">
+              <strong>单位换算模板</strong>
+              <small>一个模板定义库存单位、报价单位、录单单位和换算关系。</small>
+            </div>
+            <div class="template-list compact-template-list">
+              <div
+                v-for="unitTemplate in productUnitTemplates"
+                :key="unitTemplate.id"
+                :class="['template-row', { active: Number(unitTemplate.id) === Number(productUnitTemplateForm.id), inactive: unitTemplate.active === false }]">
+                <button class="template-row-main" type="button" @click="startProductUnitTemplateEdit(unitTemplate)">
+                  <strong>{{ unitTemplate.name }}</strong>
+                  <small>{{ productUnitTemplateSummary(unitTemplate) }}</small>
+                </button>
+              </div>
+              <p v-if="!productUnitTemplates.length" class="muted">暂无单位模板</p>
+            </div>
+            <form class="unit-template-form" @submit.prevent="saveProductUnitTemplate">
+              <label class="wide-field">
+                <span>模板名称</span>
+                <input v-model.trim="productUnitTemplateForm.name" placeholder="盒装200g" />
+              </label>
+              <div class="template-editor-grid">
+                <label>
+                  <span>库存单位</span>
+                  <select v-model="productUnitTemplateForm.inventory_unit">
+                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>报价单位</span>
+                  <select v-model="productUnitTemplateForm.quote_unit">
+                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>录单单位</span>
+                  <select v-model="productUnitTemplateForm.order_unit">
+                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                  </select>
+                </label>
+                <label class="checkline">
+                  <input v-model="productUnitTemplateForm.integer_unit" type="checkbox" />
+                  <span>整数单位（录单）</span>
+                </label>
+              </div>
+              <div class="unit-conversion-editor">
+                <div class="field-group-head">
+                  <span>单位换算</span>
+                  <button class="secondary compact-action" type="button" @click="addUnitConversionRow(productUnitTemplateForm)">新增换算</button>
+                </div>
+                <div v-for="(row, rowIndex) in productUnitTemplateForm.unit_conversion_rows" :key="`unit-template-conversion-${rowIndex}`" class="unit-conversion-row">
+                  <input v-model.number="row.from_qty" type="number" min="0.0001" step="0.0001" />
+                  <select v-model="row.from_unit">
+                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                  </select>
+                  <span>=</span>
+                  <input v-model.number="row.to_qty" type="number" min="0.0001" step="0.0001" />
+                  <select v-model="row.to_unit">
+                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                  </select>
+                  <button class="text-button danger-text" type="button" @click="removeUnitConversionRow(productUnitTemplateForm, rowIndex)">删除</button>
+                </div>
+                <small v-if="!productUnitTemplateForm.unit_conversion_rows.length">例如 1 盒 = 0.2 kg；模板保存后可被商品配置和阶梯价引用。</small>
+              </div>
+              <div class="form-actions">
+                <button class="primary" type="submit" :disabled="productUnitSaving">保存单位模板</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </div>
+
       <div v-show="activeConfigTemplateSection === 'product-config'" class="panel product-config-panel product-config-template-pane">
         <div class="panel-title">
           <span>商品配置模板</span>
@@ -527,7 +722,7 @@
               @keydown.enter.prevent="startProductConfigTemplateEdit(config)">
               <span>
                 <strong>{{ config.name }}</strong>
-                <small>{{ productConfigTemplateLabel(config) }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}</small>
+                <small>{{ productConfigTemplateLabel(config) }} · {{ productUnitTemplateSummary(config.unit_template_id) }}</small>
               </span>
               <button
                 v-if="canDeriveProductConfigTemplate(config)"
@@ -584,38 +779,15 @@
               </label>
             </div>
             <div class="rule-config-block">
-              <div class="field-group-title">单位规则</div>
+              <div class="field-group-title">单位模板</div>
               <label>
-                <span>库存单位</span>
-                <input v-model.trim="productConfigTemplateForm.inventory_unit" :disabled="!canEditCurrentProductConfigTemplate" placeholder="kg" />
+                <span>引用模板</span>
+                <select v-model.number="productConfigTemplateForm.unit_template_id" :disabled="!canEditCurrentProductConfigTemplate">
+                  <option value="0">请选择单位模板</option>
+                  <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="unitTemplate.id">{{ productUnitTemplateSummary(unitTemplate) }}</option>
+                </select>
               </label>
-              <label>
-                <span>报价单位</span>
-                <input v-model.trim="productConfigTemplateForm.quote_unit" :disabled="!canEditCurrentProductConfigTemplate" placeholder="盒" />
-              </label>
-              <label>
-                <span>录单单位</span>
-                <input v-model.trim="productConfigTemplateForm.order_unit" :disabled="!canEditCurrentProductConfigTemplate" placeholder="盒" />
-              </label>
-              <label class="checkline">
-                <input v-model="productConfigTemplateForm.integer_unit" :disabled="!canEditCurrentProductConfigTemplate" type="checkbox" />
-                <span>整数单位</span>
-              </label>
-              <div class="unit-conversion-editor">
-                <div class="field-group-head">
-                  <span>单位换算</span>
-                  <button class="secondary compact-action" type="button" :disabled="!canEditCurrentProductConfigTemplate" @click="addUnitConversionRow(productConfigTemplateForm)">新增换算</button>
-                </div>
-                <div v-for="(row, rowIndex) in productConfigTemplateForm.unit_conversion_rows" :key="`product-config-unit-${rowIndex}`" class="unit-conversion-row">
-                  <input v-model.number="row.from_qty" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0.0001" step="0.0001" />
-                  <input v-model.trim="row.from_unit" placeholder="箱" />
-                  <span>=</span>
-                  <input v-model.number="row.to_qty" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0.0001" step="0.0001" />
-                  <input v-model.trim="row.to_unit" placeholder="盒" />
-                  <button class="text-button danger-text" type="button" :disabled="!canEditCurrentProductConfigTemplate" @click="removeUnitConversionRow(productConfigTemplateForm, rowIndex)">删除</button>
-                </div>
-                <small v-if="!productConfigTemplateForm.unit_conversion_rows.length">例如 1 盒 = 0.2 kg；不配置时录单单位按库存单位处理。</small>
-              </div>
+              <small>{{ productUnitTemplateSummary(selectedProductConfigUnitTemplate) }}</small>
             </div>
             <div class="form-actions">
               <button class="primary" type="submit" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate">保存商品配置</button>
@@ -627,65 +799,6 @@
         </div>
       </div>
     </section>
-
-    <div v-if="categoryDrawerOpen" class="settings-drawer-mask" @click.self="closeCategoryDrawer">
-      <aside class="settings-drawer category-editor-drawer" aria-label="编辑产品类型">
-        <div class="drawer-head">
-          <div>
-            <h3>编辑产品类型</h3>
-            <p>新增或维护产品类型和产品子类型。</p>
-          </div>
-          <button class="secondary compact-action" type="button" @click="closeCategoryDrawer">关闭</button>
-        </div>
-        <div class="drawer-body">
-          <section class="drawer-section">
-            <div class="sub-title">新增产品类型</div>
-            <form class="inline-form" @submit.prevent="savePrimaryCategory">
-              <input v-model.trim="newPrimaryName" placeholder="新增产品类型，如 速溶咖啡" />
-              <button class="secondary" type="submit">新增</button>
-            </form>
-          </section>
-          <section class="drawer-section category-editor-list">
-            <div v-for="primary in categoryTreeForSkuContext" :key="`drawer-primary-${primary.id}`" class="category-editor-item">
-              <form v-if="editingCategoryId === primary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(primary)">
-                <input v-model.trim="editingCategoryName" placeholder="产品类型名称" />
-                <button class="secondary" type="submit">保存</button>
-              </form>
-              <div v-else class="category-editor-row">
-                <strong>{{ primary.number }}. {{ primary.name }}</strong>
-                <div class="category-actions">
-                  <button v-if="canEditCategory(primary)" class="text-button" type="button" @click="startCategoryEdit(primary)">改名</button>
-                  <button v-if="canEditCategory(primary)" class="text-button" type="button" @click="startAddingSecondary(primary)">新增子类型</button>
-                  <button v-if="canEditCategory(primary)" class="text-button danger-text" type="button" @click="deleteCategory(primary)">删除</button>
-                  <button v-if="!canEditCategory(primary) && skuContextCustomerID" class="text-button" type="button" @click="deriveCategoryTemplate(primary)">复制为客户分类</button>
-                </div>
-              </div>
-              <form v-if="addingSecondaryFor === primary.id" class="inline-form sub-form" @submit.prevent="saveSecondaryCategory(primary)">
-                <input v-model.trim="newSecondaryName" placeholder="新增产品子类型，如 冻干速溶" />
-                <button class="secondary" type="submit">保存</button>
-              </form>
-              <div class="category-editor-children">
-                <div v-for="secondary in primary.children" :key="`drawer-secondary-${secondary.id}`" class="category-editor-child">
-                  <form v-if="editingCategoryId === secondary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(secondary)">
-                    <input v-model.trim="editingCategoryName" placeholder="产品子类型名称" />
-                    <button class="secondary" type="submit">保存</button>
-                  </form>
-                  <div v-else class="category-editor-row">
-                    <span>{{ secondary.number }} {{ secondary.name }}</span>
-                    <div class="category-actions">
-                      <button v-if="canEditCategory(secondary)" class="text-button" type="button" @click="startCategoryEdit(secondary)">改名</button>
-                      <button v-if="canEditCategory(secondary)" class="text-button danger-text" type="button" @click="deleteCategory(secondary)">删除</button>
-                      <button v-if="!canEditCategory(secondary) && skuContextCustomerID" class="text-button" type="button" @click="deriveCategoryTemplate(secondary)">复制为客户分类</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <p v-if="!categoryTreeForSkuContext.length" class="muted">暂无商品分类</p>
-          </section>
-        </div>
-      </aside>
-    </div>
 
     <div v-if="productDrawerOpen" class="settings-drawer-mask" @click.self="closeProductDrawer">
       <aside class="settings-drawer product-editor-drawer" aria-label="新增SKU">
@@ -845,7 +958,7 @@ import {
   buildGradientTemplatePayload,
   gradientDisplayQuantityStep,
   gradientDisplayQuantityUnitLabel,
-  gradientDisplayUnitOptions,
+  gradientDisplayUnitOptions as baseGradientDisplayUnitOptions,
   gradientDisplayUnitLabel,
   normalizeGradientTemplate,
   validateGradientTemplate,
@@ -858,6 +971,8 @@ import {
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
   buildProductConfigTemplatePayload,
+  buildProductUnitDefinitionPayload,
+  buildProductUnitTemplatePayload,
   buildProductBasicsPayload,
   buildProductBomURL,
   buildProductCreatePayload,
@@ -908,6 +1023,8 @@ const categories = ref([])
 const products = ref([])
 const gradientTemplates = ref([])
 const productConfigTemplates = ref([])
+const productUnitDefinitions = ref([])
+const productUnitTemplates = ref([])
 const customerPublicUsages = ref([])
 const customerProductRuleTemplates = ref([])
 const customerProductRuleOverrides = ref([])
@@ -918,12 +1035,10 @@ const productSaving = ref(false)
 const customSaving = ref(false)
 const templateSaving = ref(false)
 const productConfigSaving = ref(false)
+const productUnitSaving = ref(false)
 const customerRuleSaving = ref(false)
 const error = ref('')
 const ok = ref('')
-const newPrimaryName = ref('')
-const newSecondaryName = ref('')
-const addingSecondaryFor = ref(0)
 const dragging = ref(null)
 const pointerDrag = ref(null)
 const categoryDropTarget = ref(null)
@@ -935,9 +1050,10 @@ const categoryCollapsed = ref(false)
 const productsCollapsed = ref(false)
 const activeSettingsSection = ref('master')
 const activeConfigTemplateSection = ref('product-config')
-const categoryDrawerOpen = ref(false)
 const productDrawerOpen = ref(false)
 const categorySearchQuery = ref('')
+const primaryDeleteMode = ref(false)
+const secondaryDeleteModeFor = ref(0)
 const selectedCustomerSkuCustomerID = ref(0)
 const selectedProductIds = ref([])
 const skuFilters = ref(defaultSkuFilters())
@@ -948,6 +1064,8 @@ const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
 const productForm = ref(defaultProductForm())
 const customForm = ref(defaultCustomForm())
 const templateForm = ref(defaultGradientTemplateForm())
+const productUnitDefinitionForm = ref(defaultProductUnitDefinitionForm())
+const productUnitTemplateForm = ref(defaultProductUnitTemplateForm())
 const customerRuleTemplateForm = ref(defaultCustomerProductRuleTemplateForm())
 const customerRuleOverrideForm = ref(defaultCustomerProductRuleOverrideForm())
 
@@ -1064,12 +1182,26 @@ const activeGradientTemplates = computed(() => gradientTemplates.value
     usePublicGradientTemplates: customerUsesPublicGradientTemplates.value,
     customerTemplates: customerGradientTemplatesForContext.value,
   })))
+const activeProductUnitDefinitions = computed(() => productUnitDefinitions.value.filter((unit) => unit.active !== false))
+const activeProductUnitTemplates = computed(() => productUnitTemplates.value.filter((template) => template.active !== false))
+const gradientDisplayUnitOptions = computed(() => {
+  const out = baseGradientDisplayUnitOptions.map((unit) => ({ ...unit }))
+  const seen = new Set(out.map((unit) => unit.value))
+  for (const unit of activeProductUnitDefinitions.value) {
+    const code = String(unit.code || '').trim()
+    if (!code || seen.has(code)) continue
+    out.push({ value: code, label: `元/${code}`, quantityLabel: code, specG: 1 })
+    seen.add(code)
+  }
+  return out
+})
 const productConfigTemplatesForContext = computed(() => productConfigTemplates.value
   .filter((template) => template.active !== false)
   .filter((template) => productConfigTemplateBelongsToSkuContext(template, {
     customerID: skuContextCustomerID.value,
     customerTemplates: customerProductConfigTemplatesForContext.value,
   })))
+const selectedProductConfigUnitTemplate = computed(() => findProductUnitTemplate(productConfigTemplateForm.value.unit_template_id))
 const activeProductConfigTemplates = computed(() => productConfigTemplatesForContext.value.filter((template) => template.active !== false))
 const customerProductRuleTemplatesForContext = computed(() => customerProductRuleTemplates.value
   .filter((template) => Number(template.customer_id || 0) === 0 || Number(template.customer_id || 0) === skuContextCustomerID.value)
@@ -1170,6 +1302,7 @@ function defaultGradientTemplateForm() {
   return normalizeGradientTemplate({
     name: '',
     display_unit: 'lb',
+    unit_template_id: 0,
     tiers: [
       { label: '2磅-13磅', min_display_qty: 2, max_display_qty: 13, margin_rate: 0.5421052631578949, position: 1 },
     ],
@@ -1187,8 +1320,35 @@ function defaultProductConfigTemplateForm(template = {}) {
     name: template.name || '',
     gradient_template_id: Number(template.gradient_template_id || 0),
     operation_template_id: Number(template.operation_template_id || 0),
+    unit_template_id: Number(template.unit_template_id || 0),
     price_list_rule_json: template.price_list_rule_json || '{}',
     ...priceListRuleFormFromJSON(template.price_list_rule_json || '{}'),
+    inventory_unit: inventoryUnit,
+    quote_unit: quoteUnit,
+    order_unit: template.order_unit || quoteUnit,
+    unit_conversion_json: template.unit_conversion_json || '{}',
+    unit_conversion_rows: unitConversionRowsFromJSON(template.unit_conversion_json || '{}'),
+    integer_unit: Boolean(template.integer_unit),
+    active: template.active !== false,
+  }
+}
+
+function defaultProductUnitDefinitionForm(unit = {}) {
+  return {
+    code: unit.code || '',
+    name: unit.name || '',
+    unit_type: unit.unit_type || 'package',
+    allow_decimal: Boolean(unit.allow_decimal),
+    active: unit.active !== false,
+  }
+}
+
+function defaultProductUnitTemplateForm(template = {}) {
+  const inventoryUnit = template.inventory_unit || 'kg'
+  const quoteUnit = template.quote_unit || inventoryUnit
+  return {
+    id: Number(template.id || 0),
+    name: template.name || '',
     inventory_unit: inventoryUnit,
     quote_unit: quoteUnit,
     order_unit: template.order_unit || quoteUnit,
@@ -1250,9 +1410,8 @@ function saveProductSettingsDraft() {
     customForm: customForm.value,
     templateForm: templateForm.value,
     productConfigTemplateForm: productConfigTemplateForm.value,
-    newPrimaryName: newPrimaryName.value,
-    newSecondaryName: newSecondaryName.value,
-    addingSecondaryFor: addingSecondaryFor.value,
+    productUnitDefinitionForm: productUnitDefinitionForm.value,
+    productUnitTemplateForm: productUnitTemplateForm.value,
     editingCategoryId: editingCategoryId.value,
     editingCategoryName: editingCategoryName.value,
     editingSubtypeConfigId: editingSubtypeConfigId.value,
@@ -1279,9 +1438,8 @@ async function restoreProductSettingsDraft() {
   customForm.value = { ...defaultCustomForm(), ...(draft.customForm || {}) }
   templateForm.value = normalizeGradientTemplate(draft.templateForm || defaultGradientTemplateForm())
   productConfigTemplateForm.value = defaultProductConfigTemplateForm(draft.productConfigTemplateForm || {})
-  newPrimaryName.value = draft.newPrimaryName || ''
-  newSecondaryName.value = draft.newSecondaryName || ''
-  addingSecondaryFor.value = Number(draft.addingSecondaryFor || 0)
+  productUnitDefinitionForm.value = defaultProductUnitDefinitionForm(draft.productUnitDefinitionForm || {})
+  productUnitTemplateForm.value = defaultProductUnitTemplateForm(draft.productUnitTemplateForm || {})
   editingCategoryId.value = Number(draft.editingCategoryId || 0)
   editingCategoryName.value = draft.editingCategoryName || ''
   editingSubtypeConfigId.value = Number(draft.editingSubtypeConfigId || 0)
@@ -1289,7 +1447,7 @@ async function restoreProductSettingsDraft() {
   categoryCollapsed.value = Boolean(draft.categoryCollapsed)
   productsCollapsed.value = Boolean(draft.productsCollapsed)
   activeSettingsSection.value = ['master', 'templates'].includes(draft.activeSettingsSection) ? draft.activeSettingsSection : 'master'
-  activeConfigTemplateSection.value = ['product-config', 'gradient'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
+  activeConfigTemplateSection.value = ['product-config', 'unit-template', 'gradient'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
   categorySearchQuery.value = draft.categorySearchQuery || ''
   skuFilters.value = { ...defaultSkuFilters(), ...(draft.skuFilters || {}) }
   skuPage.value = Number(draft.skuPage || 1)
@@ -1392,6 +1550,14 @@ function decorateProductConfigTemplate(template) {
   return defaultProductConfigTemplateForm(template)
 }
 
+function decorateProductUnitDefinition(unit) {
+  return defaultProductUnitDefinitionForm(unit)
+}
+
+function decorateProductUnitTemplate(template) {
+  return defaultProductUnitTemplateForm(template)
+}
+
 function decorateCustomerProductRuleItem(item = {}) {
   return {
     ...defaultCustomerProductRuleTemplateItem(),
@@ -1436,6 +1602,8 @@ async function loadAll() {
     products.value = (data.products || []).map(decorateProduct)
     gradientTemplates.value = (data.gradient_templates || []).map(normalizeGradientTemplate)
     productConfigTemplates.value = (data.product_config_templates || []).map(decorateProductConfigTemplate)
+    productUnitDefinitions.value = (data.product_unit_definitions || []).map(decorateProductUnitDefinition)
+    productUnitTemplates.value = (data.product_unit_templates || []).map(decorateProductUnitTemplate)
     customerProductRuleTemplates.value = (data.customer_product_rule_templates || []).map(decorateCustomerProductRuleTemplate)
     customerProductRuleOverrides.value = (data.customer_product_rule_overrides || []).map(decorateCustomerProductRuleOverride)
     customerProductRuleBindings.value = (data.customer_product_rule_bindings || []).map((row) => ({
@@ -1465,6 +1633,12 @@ function resetGradientTemplateForm() {
 
 function startGradientTemplateEdit(template) {
   templateForm.value = normalizeGradientTemplate(JSON.parse(JSON.stringify(template)))
+}
+
+function syncGradientDisplayUnitFromUnitTemplate() {
+  const unitTemplate = findProductUnitTemplate(templateForm.value.unit_template_id)
+  if (!unitTemplate) return
+  templateForm.value.display_unit = unitTemplate.quote_unit || unitTemplate.order_unit || unitTemplate.inventory_unit || templateForm.value.display_unit
 }
 
 function addGradientTemplateTier() {
@@ -1642,6 +1816,7 @@ function startProductConfigTemplateEdit(template) {
 
 function validateProductConfigTemplatePayload(payload) {
   if (!String(payload.name || '').trim()) return '请填写商品配置名称'
+  if (Number(payload.unit_template_id || 0) <= 0) return '请选择单位模板'
   return ''
 }
 
@@ -1650,7 +1825,10 @@ async function saveProductConfigTemplate() {
     error.value = '公共商品配置需复制到客户后修改'
     return
   }
-  const payload = buildProductConfigTemplatePayload(productConfigTemplateForm.value)
+  const payload = buildProductConfigTemplatePayload({
+    ...productConfigTemplateForm.value,
+    unit_template_id: productConfigTemplateForm.value.unit_template_id,
+  })
   if (!payload.id && skuContextCustomerID.value) {
     payload.customer_id = skuContextCustomerID.value
   }
@@ -1682,6 +1860,85 @@ async function deactivateProductConfigTemplate(id) {
   await saveProductConfigTemplate()
 }
 
+function resetProductUnitDefinitionForm() {
+  productUnitDefinitionForm.value = defaultProductUnitDefinitionForm()
+}
+
+function startProductUnitDefinitionEdit(unit) {
+  productUnitDefinitionForm.value = defaultProductUnitDefinitionForm(JSON.parse(JSON.stringify(unit || {})))
+}
+
+function resetProductUnitTemplateForm() {
+  productUnitTemplateForm.value = defaultProductUnitTemplateForm()
+}
+
+function startProductUnitTemplateEdit(template) {
+  productUnitTemplateForm.value = defaultProductUnitTemplateForm(JSON.parse(JSON.stringify(template || {})))
+}
+
+function validateProductUnitDefinitionPayload(payload) {
+  if (!String(payload.code || '').trim()) return '请填写单位编码'
+  if (!String(payload.name || '').trim()) return '请填写单位名称'
+  return ''
+}
+
+function validateProductUnitTemplatePayload(payload) {
+  if (!String(payload.name || '').trim()) return '请填写单位模板名称'
+  if (!String(payload.inventory_unit || '').trim()) return '请选择库存单位'
+  if (!String(payload.quote_unit || '').trim()) return '请选择报价单位'
+  if (!String(payload.order_unit || '').trim()) return '请选择录单单位'
+  return ''
+}
+
+async function saveProductUnitDefinition() {
+  const payload = buildProductUnitDefinitionPayload(productUnitDefinitionForm.value)
+  const validation = validateProductUnitDefinitionPayload(payload)
+  if (validation) {
+    error.value = validation
+    return
+  }
+  productUnitSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const exists = productUnitDefinitions.value.some((unit) => unit.code === payload.code)
+    const url = exists ? `/api/product-settings/units/${encodeURIComponent(payload.code)}` : '/api/product-settings/units'
+    const method = exists ? 'PUT' : 'POST'
+    await apiSend(url, { method, body: payload })
+    ok.value = '单位已保存，可用于单位模板和阶梯价模板'
+    resetProductUnitDefinitionForm()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '保存单位失败'
+  } finally {
+    productUnitSaving.value = false
+  }
+}
+
+async function saveProductUnitTemplate() {
+  const payload = buildProductUnitTemplatePayload(productUnitTemplateForm.value)
+  const validation = validateProductUnitTemplatePayload(payload)
+  if (validation) {
+    error.value = validation
+    return
+  }
+  productUnitSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const url = payload.id ? `/api/product-settings/unit-templates/${payload.id}` : '/api/product-settings/unit-templates'
+    const method = payload.id ? 'PUT' : 'POST'
+    await apiSend(url, { method, body: payload })
+    ok.value = '单位模板已保存，商品配置可直接引用'
+    resetProductUnitTemplateForm()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '保存单位模板失败'
+  } finally {
+    productUnitSaving.value = false
+  }
+}
+
 function canDeriveProductConfigTemplate(template) {
   return skuContextCustomerID.value > 0
     && Number(template?.customer_id || 0) === 0
@@ -1707,7 +1964,7 @@ async function deriveProductConfigTemplateForCustomer(template) {
       },
     })
     const derivedID = Number(response?.template?.id || 0)
-    ok.value = '公共商品配置已复制为客户配置，可改名和调整单位/价格规则'
+    ok.value = '公共商品配置已复制为客户配置，可改名和调整单位模板/价格规则'
     await loadAll()
     const derived = productConfigTemplates.value.find((row) => Number(row.id || 0) === derivedID)
       || productConfigTemplates.value.find((row) => Number(row.customer_id || 0) === customerID && Number(row.source_template_id || 0) === Number(template.id || 0))
@@ -1939,18 +2196,6 @@ function canEditSkuRow(row) {
   return !isPublicReferenceRow(row, { customerID: skuContextCustomerID.value })
 }
 
-function openCategoryDrawer() {
-  categoryDrawerOpen.value = true
-  categoryCollapsed.value = false
-}
-
-function closeCategoryDrawer() {
-  categoryDrawerOpen.value = false
-  addingSecondaryFor.value = 0
-  editingCategoryId.value = 0
-  editingCategoryName.value = ''
-}
-
 function openProductDrawer() {
   ensureProductTypeCategorySelected(productForm.value)
   ensureProductTypeCategorySelected(customForm.value)
@@ -2053,10 +2298,28 @@ function productConfigTemplateLabel(template) {
   return ownerLabel(template)
 }
 
+function productUnitName(code) {
+  const normalized = String(code || '').trim()
+  if (!normalized) return '-'
+  return productUnitDefinitions.value.find((unit) => unit.code === normalized)?.name || normalized
+}
+
+function findProductUnitTemplate(id) {
+  const templateID = Number(id || 0)
+  if (!templateID) return null
+  return productUnitTemplates.value.find((template) => Number(template.id || 0) === templateID) || null
+}
+
+function productUnitTemplateSummary(idOrTemplate) {
+  const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
+  if (!template) return '未绑定单位模板'
+  return `${template.name || '单位模板'} · 库存 ${productUnitName(template.inventory_unit)} · 报价 ${productUnitName(template.quote_unit)} · 录单 ${productUnitName(template.order_unit)}${template.integer_unit ? ' · 整数' : ''}`
+}
+
 function productConfigSummary(templateID) {
   const config = productConfigTemplates.value.find((row) => Number(row.id || 0) === Number(templateID || 0))
   if (!config) return '未绑定商品配置；会继续保留子类型当前默认规则。'
-  return `阶梯价模板 ${config.gradient_template_id || '未绑定'} · 工序 ${config.operation_template_id || '未绑定'} · 库存 ${config.inventory_unit || 'kg'} · 报价 ${config.quote_unit || config.inventory_unit || 'kg'} · 录单 ${config.order_unit || config.quote_unit || 'kg'}${config.integer_unit ? ' · 整数' : ''}`
+  return `阶梯价模板 ${config.gradient_template_id || '未绑定'} · 工序 ${config.operation_template_id || '未绑定'} · ${productUnitTemplateSummary(config.unit_template_id)}`
 }
 
 function bomStatusLabel(value) {
@@ -2379,33 +2642,85 @@ async function saveCustomerPublicUsage(options, successMessage) {
   }
 }
 
-async function savePrimaryCategory() {
-  if (!newPrimaryName.value) return
-  await saveCategory({
-    name: newPrimaryName.value,
+function nextCategoryName(baseName, siblings = []) {
+  const existingNames = new Set((siblings || []).map((category) => String(category?.name || '').trim()))
+  if (!existingNames.has(baseName)) return baseName
+  let index = 2
+  while (existingNames.has(`${baseName} ${index}`)) index += 1
+  return `${baseName} ${index}`
+}
+
+function togglePrimaryDeleteMode() {
+  primaryDeleteMode.value = !primaryDeleteMode.value
+  if (primaryDeleteMode.value) secondaryDeleteModeFor.value = 0
+}
+
+function toggleSecondaryDeleteMode(primary) {
+  const id = Number(primary?.id || 0)
+  if (!id || !canEditCategory(primary)) return
+  secondaryDeleteModeFor.value = secondaryDeleteModeFor.value === id ? 0 : id
+  if (secondaryDeleteModeFor.value) primaryDeleteMode.value = false
+}
+
+function isFirstPrimaryCategory(primary) {
+  return Number(primary?.number || 0) <= 1
+}
+
+function isLastPrimaryCategory(primary) {
+  return Number(primary?.number || 0) >= categoryTreeForSkuContext.value.length
+}
+
+async function createPrimaryCategoryInline() {
+  const name = nextCategoryName('新产品类型', categoryTreeForSkuContext.value)
+  const category = await saveCategory({
+    name,
     parent_id: 0,
     customer_id: selectedCustomerSkuCustomerID.value,
     position: categoryTreeForSkuContext.value.length + 1,
   })
-  newPrimaryName.value = ''
+  const id = Number(category?.id || 0)
+  if (id) {
+    editingCategoryId.value = id
+    editingCategoryName.value = category.name || name
+  }
 }
 
-function startAddingSecondary(primary) {
-  addingSecondaryFor.value = Number(primary.id)
-  newSecondaryName.value = ''
-}
-
-async function saveSecondaryCategory(primary) {
+async function createSecondaryCategoryInline(primary) {
   if (!canEditCategory(primary)) return
-  if (!newSecondaryName.value) return
-  await saveCategory({
-    name: newSecondaryName.value,
+  const name = nextCategoryName('新产品子类型', primary.children || [])
+  const category = await saveCategory({
+    name,
     parent_id: Number(primary.id),
     customer_id: selectedCustomerSkuCustomerID.value,
     position: Number(primary.children?.length || 0) + 1,
   })
-  newSecondaryName.value = ''
-  addingSecondaryFor.value = 0
+  const id = Number(category?.id || 0)
+  if (id) {
+    editingCategoryId.value = id
+    editingCategoryName.value = category.name || name
+  }
+}
+
+async function movePrimaryCategory(category, direction) {
+  if (isCategorySearchActive.value) return
+  if (!canEditCategory(category)) return
+  const currentPosition = Number(category.number || category.position || 0)
+  const position = currentPosition + Number(direction || 0)
+  if (position < 1 || position > categoryTreeForSkuContext.value.length) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/product-settings/categories/${category.id}/move`, {
+      body: { parent_id: 0, position },
+    })
+    ok.value = '产品类型顺序已保存'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '移动产品类型失败'
+  } finally {
+    loading.value = false
+  }
 }
 
 async function saveCategory(body) {
@@ -2413,11 +2728,13 @@ async function saveCategory(body) {
   error.value = ''
   ok.value = ''
   try {
-    await apiSend('/api/product-settings/categories', { body })
+    const result = await apiSend('/api/product-settings/categories', { body })
     ok.value = '分类已保存'
     await loadAll()
+    return result?.category || null
   } catch (err) {
     error.value = err.message || '保存分类失败'
+    return null
   } finally {
     loading.value = false
   }
@@ -2449,6 +2766,11 @@ function startCategoryEdit(category) {
   if (!canEditCategory(category)) return
   editingCategoryId.value = Number(category.id)
   editingCategoryName.value = category.name || ''
+}
+
+function cancelCategoryNameEdit() {
+  editingCategoryId.value = 0
+  editingCategoryName.value = ''
 }
 
 function startProductSubtypeConfigEdit(category) {
@@ -2487,10 +2809,16 @@ async function saveProductSubtypeConfig() {
 
 async function saveCategoryName(category) {
   if (!canEditCategory(category)) return
-  if (!editingCategoryName.value) return
+  if (editingCategoryId.value !== Number(category.id)) return
+  const name = String(editingCategoryName.value || '').trim()
+  if (!name) return
+  if (name === String(category.name || '').trim()) {
+    cancelCategoryNameEdit()
+    return
+  }
   const payload = buildProductCategoryConfigPayload({
     ...category,
-    name: editingCategoryName.value,
+    name,
     parent_id: Number(category.parent_id || 0),
     customer_id: Number(category.customer_id || selectedCustomerSkuCustomerID.value || 0),
     position: Number(category.position || category.number || 1),
@@ -2503,8 +2831,7 @@ async function saveCategoryName(category) {
       method: 'PUT',
       body: payload,
     })
-    editingCategoryId.value = 0
-    editingCategoryName.value = ''
+    cancelCategoryNameEdit()
     ok.value = '分类已保存'
     await loadAll()
   } catch (err) {
@@ -2525,6 +2852,11 @@ async function deleteCategory(category) {
   try {
     await apiSend(`/api/product-settings/categories/${category.id}`, { method: 'DELETE' })
     ok.value = '分类已删除，相关商品已回到未分类'
+    if (Number(category.parent_id || 0) === 0) {
+      primaryDeleteMode.value = false
+    } else {
+      secondaryDeleteModeFor.value = 0
+    }
     await loadAll()
   } catch (err) {
     error.value = err.message || '删除分类失败'
@@ -2988,6 +3320,17 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: span 2; }
 .gradient-template-panel { grid-column: 1 / -1; }
 .gradient-template-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.unit-template-panel { grid-column: 1 / -1; }
+.unit-template-layout { display: grid; grid-template-columns: minmax(260px, .75fr) minmax(0, 1.25fr); gap: 12px; align-items: start; }
+.unit-template-card { display: grid; gap: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; min-width: 0; }
+.unit-chip-list { display: flex; gap: 6px; flex-wrap: wrap; }
+.unit-chip { min-height: 30px; display: inline-flex; align-items: center; gap: 5px; border-color: #d9d2c8; background: #fff; padding: 0 9px; font-size: 12px; }
+.unit-chip small { color: #777; }
+.unit-chip.inactive { opacity: .55; }
+.unit-definition-form, .unit-template-form { display: grid; gap: 10px; }
+.unit-definition-form { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; }
+.unit-definition-form label, .unit-template-form label { display: grid; gap: 5px; font-size: 13px; }
+.compact-template-list { max-height: 220px; overflow: auto; padding-right: 2px; }
 .template-list { display: grid; gap: 8px; }
 .template-row { min-height: 50px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; text-align: left; border: 1px solid #e2ddd6; background: #fbfaf8; padding: 8px 10px; }
 .template-row.active { border-color: #1f4f82; background: #eef6ff; }
@@ -3017,16 +3360,37 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; }
 .sub-form { margin: 8px 0; }
 .category-search { display: grid; gap: 5px; margin-bottom: 10px; font-size: 12px; color: #333; }
+.category-inline-toolbar { display: flex; align-items: center; gap: 6px; margin: -2px 0 10px; }
+.icon-action { width: 32px; height: 32px; display: inline-grid; place-items: center; border: 1px solid #d8d1c8; border-radius: 6px; background: #fff; color: #3f3328; font-size: 18px; font-weight: 700; line-height: 1; cursor: pointer; }
+.icon-action.tiny { width: 26px; height: 26px; font-size: 14px; }
+.icon-action.active { border-color: #b42318; color: #b42318; background: #fff5f4; }
+.icon-action:disabled { cursor: not-allowed; opacity: .42; }
 .category-scroll-list { max-height: min(640px, calc(100vh - 280px)); overflow: auto; display: grid; gap: 10px; padding-right: 2px; }
 .category-tree { display: grid; gap: 10px; min-width: 0; }
 .primary-category { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fbfaf8; min-width: 0; }
 .category-head, .secondary-head, .category-actions { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.primary-category-head { align-items: flex-start; justify-content: flex-start; gap: 10px; }
+.primary-left-tools { flex: 0 0 auto; display: flex; align-items: flex-start; gap: 6px; padding-top: 1px; }
+.category-sort-buttons { display: grid; gap: 4px; }
+.category-delete-button { width: 26px; height: 26px; display: inline-grid; place-items: center; flex: 0 0 auto; border: 1px solid #d92d20; border-radius: 999px; background: #fff1f0; color: #b42318; font-size: 16px; font-weight: 800; line-height: 1; cursor: pointer; }
+.category-title-stack { flex: 1 1 auto; min-width: 0; display: grid; gap: 6px; }
+.category-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-width: 0; }
+.category-name-button { border: 0; background: transparent; color: #3f3328; padding: 3px 0; text-align: left; min-width: 0; max-width: 100%; cursor: pointer; }
+.category-name-button:disabled { color: #6d665f; cursor: default; }
+.primary-name-button strong { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.primary-name-button small { color: #6d665f; font-weight: 400; }
+.category-name-form { flex: 1 1 min(260px, 100%); min-width: min(260px, 100%); max-width: 100%; }
+.category-name-form input { width: 100%; min-height: 32px; box-sizing: border-box; }
+.category-child-toolbar { display: flex; align-items: center; gap: 6px; }
 .secondary-head { flex-wrap: wrap; justify-content: flex-start; }
 .secondary-head b { min-width: 120px; }
 .secondary-category { border: 1px solid #ddd; border-radius: 8px; padding: 9px; background: #fff; cursor: grab; user-select: none; touch-action: none; min-width: 0; overflow: hidden; }
 .secondary-category.dragging { opacity: .45; }
 .secondary-category.pointer-dragging { cursor: grabbing; }
 .secondary-head span { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border: 1px solid #ddd; border-radius: 6px; }
+.secondary-name-button { display: inline-flex; align-items: center; gap: 8px; min-width: min(190px, 100%); }
+.secondary-name-button b { min-width: 0; overflow-wrap: anywhere; }
+.secondary-name-form { flex: 1 1 190px; min-width: min(190px, 100%); }
 .secondary-head small { color: #666; }
 .subtype-config-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; overflow: hidden; margin-top: 10px; padding: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; cursor: default; user-select: text; }
 .subtype-config-title { grid-column: 1 / -1; font-weight: 700; color: #3f3328; }
@@ -3084,11 +3448,6 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .drawer-head p { margin: 0; color: #666; font-size: 12px; }
 .drawer-body { display: grid; gap: 12px; align-content: start; min-width: 0; }
 .drawer-section { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; background: #fbfaf8; }
-.category-editor-list { display: grid; gap: 10px; }
-.category-editor-item { border: 1px solid #e6e0d8; border-radius: 8px; padding: 10px; background: #fff; }
-.category-editor-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.category-editor-children { display: grid; gap: 8px; margin-top: 8px; padding-left: 14px; }
-.category-editor-child { border-left: 3px solid #eee8df; padding-left: 10px; }
 @media (max-width: 1100px) {
   .custom-product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .customer-rule-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -3096,7 +3455,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row { grid-template-columns: 1fr; }
+  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .unit-template-layout, .unit-definition-form, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row { grid-template-columns: 1fr; }
   .sku-context-main { display: grid; }
   .sku-context-controls { justify-content: flex-start; min-width: 0; }
   .sku-workspace-tabs { width: 100%; }
