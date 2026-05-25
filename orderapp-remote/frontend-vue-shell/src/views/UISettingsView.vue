@@ -50,9 +50,16 @@
         </div>
 
         <form class="unit-definition-form" @submit.prevent="saveGlobalUnitDefinition">
+          <div class="unit-form-head">
+            <div>
+              <strong>{{ unitEditingCode ? '编辑基础单位' : '新增基础单位' }}</strong>
+              <small>保存后刷新列表并回到空白表单。</small>
+            </div>
+            <button class="secondary compact-action" type="button" @click="resetGlobalUnitDefinitionForm">新增基础单位</button>
+          </div>
           <label>
             <span>单位编码</span>
-            <input v-model.trim="unitForm.code" placeholder="box" />
+            <input v-model.trim="unitForm.code" :disabled="Boolean(unitEditingCode)" placeholder="box" />
           </label>
           <label>
             <span>单位名称</span>
@@ -77,7 +84,7 @@
           </label>
           <div class="actions unit-actions">
             <button class="primary" type="submit" :disabled="unitSaving || loading">
-              {{ unitSaving ? '保存中' : '保存单位' }}
+              {{ unitSaving ? '保存中' : (unitEditingCode ? '保存' : '新增') }}
             </button>
           </div>
         </form>
@@ -98,6 +105,7 @@ const unitSaving = ref(false)
 const ok = ref('')
 const error = ref('')
 const productUnitDefinitions = ref([])
+const unitEditingCode = ref('')
 const form = reactive({
   hide_customer_account_fulfillment: true,
 })
@@ -133,10 +141,12 @@ function assignGlobalUnitDefinitionForm(unit = {}) {
 
 function resetGlobalUnitDefinitionForm() {
   assignGlobalUnitDefinitionForm()
+  unitEditingCode.value = ''
 }
 
 function startGlobalUnitDefinitionEdit(unit) {
   assignGlobalUnitDefinitionForm(JSON.parse(JSON.stringify(unit || {})))
+  unitEditingCode.value = String(unit?.code || '')
 }
 
 function validateGlobalUnitDefinitionPayload(payload) {
@@ -194,9 +204,9 @@ async function saveGlobalUnitDefinition() {
   error.value = ''
   ok.value = ''
   try {
-    const exists = productUnitDefinitions.value.some((unit) => unit.code === payload.code)
-    const url = exists ? `/api/product-settings/units/${encodeURIComponent(payload.code)}` : '/api/product-settings/units'
-    const method = exists ? 'PUT' : 'POST'
+    const editingCode = unitEditingCode.value
+    const url = editingCode ? `/api/product-settings/units/${encodeURIComponent(editingCode)}` : '/api/product-settings/units'
+    const method = editingCode ? 'PUT' : 'POST'
     await apiSend(url, { method, body: payload })
     ok.value = '全局单位已保存，可在商品配置的单位模板中引用'
     resetGlobalUnitDefinitionForm()
@@ -226,6 +236,8 @@ p { margin: 5px 0 0; color: #666; font-size: 13px; }
 button { border: 1px solid #d7dde6; border-radius: 6px; background: #fff; padding: 8px 12px; cursor: pointer; }
 button.primary { background: #111827; color: #fff; border-color: #111827; }
 button:disabled { opacity: .55; cursor: not-allowed; }
+.secondary { background: #fff; color: #111827; }
+.compact-action { min-height: 30px; padding: 5px 10px; font-size: 12px; }
 .ok { color: #0f766e; font-size: 13px; }
 .error { color: #b91c1c; font-size: 13px; }
 .unit-layout { display: grid; grid-template-columns: minmax(260px, .8fr) minmax(320px, 1.2fr); gap: 14px; align-items: start; }
@@ -234,6 +246,10 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .unit-chip small { color: #666; font-size: 12px; }
 .unit-chip.inactive { opacity: .55; }
 .unit-definition-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; border: 1px solid #e6eaf0; border-radius: 8px; padding: 12px; background: #fbfcfe; }
+.unit-form-head { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.unit-form-head div { display: grid; gap: 2px; }
+.unit-form-head strong { color: #1f2937; }
+.unit-form-head small { color: #667085; font-size: 12px; }
 .unit-definition-form label { display: grid; gap: 5px; font-size: 13px; color: #333; }
 .unit-definition-form input, .unit-definition-form select { min-height: 36px; border: 1px solid #d7dde6; border-radius: 6px; padding: 6px 8px; background: #fff; }
 .checkline { display: flex !important; align-items: center; gap: 8px; min-height: 36px; }

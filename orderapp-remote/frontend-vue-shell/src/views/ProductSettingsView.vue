@@ -1,6 +1,6 @@
 <template>
   <div class="page">
-    <section class="panel">
+    <section class="panel sku-page-summary">
       <div class="panel-head">
         <div>
           <h2>SKU设置</h2>
@@ -13,12 +13,16 @@
     </section>
 
     <section class="settings-workbench">
-      <div class="panel sku-context-panel">
+      <div class="panel sku-context-panel compact-sku-context">
         <div class="sku-context-main">
-          <div>
+          <div class="sku-context-title-line">
             <div class="context-eyebrow">SKU归属</div>
             <h3>{{ selectedSkuContextLabel }}</h3>
-            <p class="muted">产品列表、商品分类和商品配置会按当前归属切换。</p>
+            <div class="context-stats">
+              <span>公共SKU {{ publicSkuRows.length }}</span>
+              <span>当前SKU {{ filteredSkuRows.length }}</span>
+              <span>商品分类 {{ categoryTreeForSkuContext.length }}</span>
+            </div>
           </div>
           <div v-if="!isWorkspaceCustomerLocked" class="sku-context-controls">
             <button class="secondary compact-action" type="button" @click="selectedCustomerSkuCustomerID = 0" :disabled="!selectedCustomerSkuCustomerID">
@@ -35,11 +39,6 @@
               empty-text="暂无履约客户" />
           </div>
           <p v-else class="muted context-lock-note">客户账户模式下由顶部当前客户控制。</p>
-        </div>
-        <div class="context-stats">
-          <span>公共SKU {{ publicSkuRows.length }}</span>
-          <span>当前SKU {{ filteredSkuRows.length }}</span>
-          <span>商品分类 {{ categoryTreeForSkuContext.length }}</span>
         </div>
       </div>
 
@@ -597,7 +596,7 @@
           <span>单位模板</span>
           <button class="secondary compact-action" type="button" @click="openGlobalUnitDictionaryDrawer">全局单位字典</button>
         </div>
-        <p class="muted unit-template-note">基础单位在“全局设置”维护；这里配置库存单位、报价单位、录单单位之间的换算模板。</p>
+        <p class="muted unit-template-note">基础单位在“全局设置”维护；这里配置成品库存单位、报价单位、录单单位之间的换算模板。</p>
         <div class="unit-template-layout">
           <section class="unit-template-card unit-template-list-panel">
             <div class="field-group-head">
@@ -619,8 +618,11 @@
           </section>
           <section class="unit-template-card unit-template-editor-panel">
             <div class="field-group-head">
-              <strong>{{ productUnitTemplateForm.id ? '编辑单位模板' : '新增单位模板' }}</strong>
-              <small>保存后刷新列表并回到空白表单。</small>
+              <div class="field-group-copy">
+                <strong>{{ productUnitTemplateForm.id ? '编辑单位模板' : '新增单位模板' }}</strong>
+                <small>保存后刷新列表并回到空白表单。</small>
+              </div>
+              <button class="secondary compact-action" type="button" @click="resetProductUnitTemplateForm">新增单位模板</button>
             </div>
             <form class="unit-template-form" @submit.prevent="saveProductUnitTemplate">
               <label class="wide-field">
@@ -629,7 +631,7 @@
               </label>
               <div class="template-editor-grid">
                 <label>
-                  <span>库存单位</span>
+                  <span>成品库存单位</span>
                   <select v-model="productUnitTemplateForm.inventory_unit">
                     <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
                   </select>
@@ -671,7 +673,9 @@
                 <small v-if="!productUnitTemplateForm.unit_conversion_rows.length">例如 1 盒 = 0.2 kg；模板保存后可被商品配置和阶梯价引用。</small>
               </div>
               <div class="form-actions">
-                <button class="primary" type="submit" :disabled="productUnitSaving">保存单位模板</button>
+                <button class="primary" type="submit" :disabled="productUnitSaving">
+                  {{ productUnitSaving ? '保存中' : (productUnitTemplateForm.id ? '保存' : '新增') }}
+                </button>
               </div>
             </form>
           </section>
@@ -951,13 +955,16 @@
 
           <section class="unit-template-card global-unit-editor-panel">
             <div class="field-group-head">
-              <strong>{{ globalUnitForm.code ? '编辑基础单位' : '新增基础单位' }}</strong>
-              <small>保存后刷新列表并回到空白表单。</small>
+              <div class="field-group-copy">
+                <strong>{{ globalUnitEditingCode ? '编辑基础单位' : '新增基础单位' }}</strong>
+                <small>保存后刷新列表并回到空白表单。</small>
+              </div>
+              <button class="secondary compact-action" type="button" @click="resetGlobalUnitDefinitionForm">新增基础单位</button>
             </div>
             <form class="unit-definition-form global-unit-definition-form" @submit.prevent="saveGlobalUnitDefinitionFromDrawer">
               <label>
                 <span>单位编码</span>
-                <input v-model.trim="globalUnitForm.code" placeholder="box" />
+                <input v-model.trim="globalUnitForm.code" :disabled="Boolean(globalUnitEditingCode)" placeholder="box" />
               </label>
               <label>
                 <span>单位名称</span>
@@ -982,7 +989,7 @@
               </label>
               <div class="form-actions">
                 <button class="primary" type="submit" :disabled="globalUnitSaving || loading">
-                  {{ globalUnitSaving ? '保存中' : '保存单位' }}
+                  {{ globalUnitSaving ? '保存中' : (globalUnitEditingCode ? '保存' : '新增') }}
                 </button>
               </div>
             </form>
@@ -1115,6 +1122,7 @@ const customForm = ref(defaultCustomForm())
 const templateForm = ref(defaultGradientTemplateForm())
 const productUnitTemplateForm = ref(defaultProductUnitTemplateForm())
 const globalUnitForm = ref(defaultProductUnitDefinitionForm())
+const globalUnitEditingCode = ref('')
 const customerRuleTemplateForm = ref(defaultCustomerProductRuleTemplateForm())
 const customerRuleOverrideForm = ref(defaultCustomerProductRuleOverrideForm())
 
@@ -1903,10 +1911,12 @@ function closeGlobalUnitDictionaryDrawer() {
 
 function resetGlobalUnitDefinitionForm() {
   globalUnitForm.value = defaultProductUnitDefinitionForm()
+  globalUnitEditingCode.value = ''
 }
 
 function startGlobalUnitDefinitionEdit(unit) {
   globalUnitForm.value = defaultProductUnitDefinitionForm(JSON.parse(JSON.stringify(unit || {})))
+  globalUnitEditingCode.value = String(unit?.code || '')
 }
 
 function validateGlobalUnitDefinitionPayload(payload) {
@@ -1926,9 +1936,9 @@ async function saveGlobalUnitDefinitionFromDrawer() {
   error.value = ''
   ok.value = ''
   try {
-    const exists = productUnitDefinitions.value.some((unit) => unit.code === payload.code)
-    const url = exists ? `/api/product-settings/units/${encodeURIComponent(payload.code)}` : '/api/product-settings/units'
-    const method = exists ? 'PUT' : 'POST'
+    const editingCode = globalUnitEditingCode.value
+    const url = editingCode ? `/api/product-settings/units/${encodeURIComponent(editingCode)}` : '/api/product-settings/units'
+    const method = editingCode ? 'PUT' : 'POST'
     await apiSend(url, { method, body: payload })
     ok.value = '全局单位已保存，可在单位模板中引用'
     await loadAll()
@@ -1950,7 +1960,7 @@ function resetProductUnitTemplateForm() {
 
 function validateProductUnitTemplatePayload(payload) {
   if (!String(payload.name || '').trim()) return '请填写单位模板名称'
-  if (!String(payload.inventory_unit || '').trim()) return '请选择库存单位'
+  if (!String(payload.inventory_unit || '').trim()) return '请选择成品库存单位'
   if (!String(payload.quote_unit || '').trim()) return '请选择报价单位'
   if (!String(payload.order_unit || '').trim()) return '请选择录单单位'
   return ''
@@ -2363,7 +2373,7 @@ function findProductUnitTemplate(id) {
 function productUnitTemplateSummary(idOrTemplate) {
   const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
   if (!template) return '未绑定单位模板'
-  return `${template.name || '单位模板'} · 库存 ${productUnitName(template.inventory_unit)} · 报价 ${productUnitName(template.quote_unit)} · 录单 ${productUnitName(template.order_unit)}${template.integer_unit ? ' · 整数' : ''}`
+  return `${template.name || '单位模板'} · 成品库存 ${productUnitName(template.inventory_unit)} · 报价 ${productUnitName(template.quote_unit)} · 录单 ${productUnitName(template.order_unit)}${template.integer_unit ? ' · 整数' : ''}`
 }
 
 function productConfigSummary(templateID) {
@@ -3348,6 +3358,10 @@ onBeforeUnmount(saveProductSettingsDraft)
 .panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .panel-head h2 { margin: 0 0 4px; font-size: 20px; }
 .panel-head p { margin: 0; color: #666; font-size: 13px; }
+.sku-page-summary { padding: 10px 12px; }
+.sku-page-summary .panel-head { align-items: center; }
+.sku-page-summary .panel-head h2 { margin: 0 0 2px; font-size: 18px; }
+.sku-page-summary .ok, .sku-page-summary .error { margin-top: 8px; padding: 7px 10px; font-size: 13px; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 700; margin-bottom: 10px; }
 .panel-actions, .row-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .sub-title { width: 100%; font-weight: 700; font-size: 13px; }
@@ -3362,7 +3376,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .compact-action { min-height: 30px; padding: 0 10px; font-size: 12px; }
 .text-button { border: 0; background: transparent; color: #1f4f82; padding: 0; min-height: 28px; }
 .danger-text { color: #a33; }
-.settings-workbench { display: grid; gap: 14px; align-items: start; }
+.settings-workbench { display: grid; gap: 10px; align-items: start; }
 .sku-workspace-tabs { display: inline-flex; align-items: center; gap: 4px; width: fit-content; border: 1px solid #e6e0d8; border-radius: 8px; background: #fbfaf8; padding: 4px; }
 .workspace-tab { min-height: 32px; border: 0; border-radius: 6px; background: transparent; color: #333; padding: 0 14px; font-weight: 700; }
 .workspace-tab.active { background: #111; color: #fff; }
@@ -3373,6 +3387,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .config-template-tab { min-height: 32px; border: 0; border-radius: 6px; background: transparent; color: #333; padding: 0 14px; font-weight: 700; }
 .config-template-tab.active { background: #111; color: #fff; }
 .sku-context-panel { grid-column: 1 / -1; display: grid; gap: 10px; }
+.compact-sku-context { padding: 10px 12px; }
 .customer-rule-panel { grid-column: 1 / -1; }
 .customer-rule-binding { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); align-items: end; gap: 12px; margin-bottom: 12px; }
 .customer-rule-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 14px; align-items: start; }
@@ -3383,15 +3398,18 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .rule-config-block { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; align-items: end; min-width: 0; border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fff; }
 .field-group-title { grid-column: 1 / -1; color: #3f3328; font-weight: 700; font-size: 13px; }
 .field-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 700; color: #3f3328; }
+.field-group-copy { display: grid; gap: 2px; }
+.field-group-copy small { color: #7b746c; font-weight: 400; }
 .unit-conversion-editor { grid-column: 1 / -1; display: grid; gap: 8px; min-width: 0; }
 .unit-impact-help { grid-column: 1 / -1; color: #7b746c; line-height: 1.45; }
 .unit-conversion-row { display: grid; grid-template-columns: minmax(72px, .45fr) minmax(82px, .7fr) auto minmax(72px, .45fr) minmax(82px, .7fr) auto; gap: 6px; align-items: center; min-width: 0; }
 .unit-conversion-row span { color: #666; text-align: center; }
-.sku-context-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
-.sku-context-main h3 { margin: 2px 0 4px; font-size: 18px; }
+.sku-context-main { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.sku-context-main h3 { margin: 0; font-size: 17px; }
+.sku-context-title-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
 .context-eyebrow { color: #7a4d1a; font-size: 12px; font-weight: 700; }
 .sku-context-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; min-width: min(460px, 100%); }
-.context-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.context-stats { display: flex; flex-wrap: wrap; gap: 6px; }
 .context-stats span { border: 1px solid #e6e0d8; border-radius: 999px; padding: 4px 9px; background: #fbfaf8; color: #333; font-size: 12px; }
 .product-create-form { display: grid; grid-template-columns: repeat(2, minmax(140px, 1fr)); gap: 10px; align-items: end; }
 .custom-product-panel { grid-column: 1 / -1; }
