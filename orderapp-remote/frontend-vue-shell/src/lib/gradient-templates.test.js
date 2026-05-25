@@ -94,5 +94,7 @@ test('gradientDisplayUnitLabel returns operator-facing unit text', () => {
   assert.equal(gradientDisplayUnitLabel('g227'), '元/227g')
   assert.equal(gradientDisplayUnitLabel('g100'), '元/100g')
   assert.equal(gradientDisplayUnitLabel('g250'), '元/250g')
-  assert.equal(gradientDisplayUnitLabel('bad'), '元/磅')
+  assert.equal(gradientDisplayUnitLabel('盒'), '元/盒')
+  assert.equal(gradientDisplayUnitLabel('bad'), '元/bad')
+  assert.equal(gradientDisplayUnitLabel(''), '元/磅')
 })

@@ -6,9 +6,9 @@
 
 ## 场景：速溶咖啡盒装 200g
 
-1. 进入 `SKU设置 → 商品配置 → 单位模板`。
-2. 在单位字典新增单位：`盒`，单位类型选择包装，关闭允许小数。
-3. 新建单位模板 `盒装200g`：
+1. 进入 `设置 → 全局设置 → 全局单位字典`。
+2. 新增单位：盒（编码可用 `box`），单位类型选择包装，关闭允许小数。
+3. 进入 `SKU设置 → 商品配置 → 单位模板`，新建单位模板 `盒装200g`：
    - 库存单位：`kg`
    - 报价单位：`盒`
    - 录单单位：`盒`
@@ -21,7 +21,7 @@
 ## 验收点
 
 - `/api/product-settings` 返回 `product_unit_definitions` 和 `product_unit_templates`。
-- 保存单位调用 `/api/product-settings/units`，保存单位模板调用 `/api/product-settings/unit-templates`。
+- 全局设置保存单位调用 `/api/product-settings/units`，SKU设置保存单位模板调用 `/api/product-settings/unit-templates`。
 - 商品配置模板返回 `unit_template_id`，页面不再要求用户手写单位换算 JSON。
 - 阶梯价模板可使用全局单位字典中的自定义单位，例如 `盒`。
 - 已发布产品价格表快照和历史订单不被回改。

@@ -901,7 +901,7 @@ test('SKU settings exposes product subtype default unit configuration controls',
   for (const expected of [
     '商品配置',
     '复制为客户配置',
-    '更换商品配置',
+    'template-select',
     'productConfigTemplates',
     'saveProductConfigTemplate',
     'deriveProductConfigTemplateForCustomer',
@@ -911,14 +911,15 @@ test('SKU settings exposes product subtype default unit configuration controls',
     '录单单位',
     '新增换算',
     '整数单位',
-    'startProductSubtypeConfigEdit',
-    'saveProductSubtypeConfig',
     'bindProductConfigTemplateToSubtype',
     'buildProductConfigTemplatePayload',
     'buildProductCategoryConfigPayload',
   ]) {
     assert.ok(source.includes(expected), `missing product config UI marker: ${expected}`)
   }
+  assert.doesNotMatch(source, />更换商品配置</)
+  assert.doesNotMatch(source, /startProductSubtypeConfigEdit/)
+  assert.doesNotMatch(source, /saveProductSubtypeConfig/)
   assert.doesNotMatch(source, /价格表规则 JSON/)
   assert.doesNotMatch(source, /单位换算 JSON/)
   assert.doesNotMatch(source, /单位规则 JSON/)
@@ -946,10 +947,11 @@ test('SKU subtype config explains unit impact and stays inside narrow category p
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 
   for (const expected of [
-    '这里给子类型选择商品配置模板',
-    '报价单位影响产品价格表',
+    '商品配置',
+    '单位模板会影响产品价格表展示单位',
+    '录单默认单位和库存/生产折算',
     '已发布价格表和历史订单不会被回改',
-    'subtype-config-help',
+    'unit-impact-help',
     'repeat(auto-fit, minmax',
     'min-width: 0',
     'box-sizing: border-box',
@@ -1100,6 +1102,67 @@ test('SKU settings uses compact category action controls with right-side direct 
   assert.match(style, /\.category-sort-pill\s*\{[^}]*border-radius:\s*999px;/s)
 })
 
+test('SKU settings collapses category levels and focuses newly created categories', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const style = source.split('<style scoped>')[1] || ''
+
+  for (const expected of [
+    'collapsedPrimaryCategoryIds',
+    'collapsedSecondaryCategoryIds',
+    'togglePrimaryCategoryCollapse',
+    'toggleSecondaryCategoryCollapse',
+    'isPrimaryCategoryCollapsed(primary)',
+    'isSecondaryCategoryCollapsed(secondary)',
+    'focusCategoryAfterCreate',
+    'scrollIntoView',
+    'data-secondary-id',
+    'category-collapse-button',
+  ]) {
+    assert.ok(source.includes(expected), `missing category collapse/focus marker: ${expected}`)
+  }
+
+  assert.match(template, /v-if="!isPrimaryCategoryCollapsed\(primary\)"[\s\S]*v-for="\(secondary, index\) in primary\.children"/)
+  assert.match(template, /v-show="!isSecondaryCategoryCollapsed\(secondary\)"[\s\S]*class="product-chip-list"/)
+  assert.match(script, /categorySearchQuery\.value\s*=\s*''[\s\S]*scrollIntoView/)
+  assert.match(style, /\.category-collapse-button\s*\{/)
+})
+
+test('SKU settings binds subtype product config directly without a separate change button', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+
+  assert.match(template, /class="template-select"[\s\S]*@change\.stop="bindProductConfigTemplateToSubtype\(secondary, \$event\.target\.value\)"/)
+  assert.doesNotMatch(template, />更换商品配置</)
+  assert.doesNotMatch(source, /startProductSubtypeConfigEdit/)
+  assert.doesNotMatch(source, /saveProductSubtypeConfig/)
+  assert.doesNotMatch(source, /editingSubtypeConfigId/)
+})
+
+test('global unit dictionary is managed from global settings instead of SKU settings', () => {
+  const productSettings = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const productTemplate = productSettings.split('<script setup>')[0] || productSettings
+  const globalSettings = fs.readFileSync(new URL('../views/UISettingsView.vue', import.meta.url), 'utf8')
+  const menuSource = fs.readFileSync(new URL('../lib/menu-ia.js', import.meta.url), 'utf8')
+
+  for (const expected of [
+    '全局设置',
+    '全局单位字典',
+    'productUnitDefinitions',
+    'saveGlobalUnitDefinition',
+    '/api/product-settings/units',
+    'unit-definition-form',
+  ]) {
+    assert.ok(globalSettings.includes(expected), `missing global unit dictionary marker: ${expected}`)
+  }
+
+  assert.match(menuSource, /key:\s*'uiSettings'[\s\S]*label:\s*'全局设置'/)
+  assert.doesNotMatch(productTemplate, /<strong>单位字典<\/strong>/)
+  assert.doesNotMatch(productTemplate, /@submit\.prevent="saveProductUnitDefinition"/)
+  assert.match(productTemplate, /基础单位在“全局设置”维护/)
+})
+
 test('SKU settings splits product config templates and gradient templates into nested tabs', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
@@ -1127,6 +1190,7 @@ test('SKU settings splits product config templates and gradient templates into n
 
 test('SKU settings separates global unit templates into a peer configuration tab', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const settingsSource = fs.readFileSync(new URL('../views/UISettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
@@ -1135,14 +1199,18 @@ test('SKU settings separates global unit templates into a peer configuration tab
     "activeConfigTemplateSection === 'unit-template'",
     'productUnitDefinitions',
     'productUnitTemplates',
-    'saveProductUnitDefinition',
     'saveProductUnitTemplate',
     'productConfigTemplateForm.unit_template_id',
-    '/api/product-settings/units',
+    '基础单位在“全局设置”维护',
     '/api/product-settings/unit-templates',
   ]) {
     assert.ok(source.includes(expected), `missing global unit template marker: ${expected}`)
   }
+  assert.match(settingsSource, /全局单位字典/)
+  assert.match(settingsSource, /saveGlobalUnitDefinition/)
+  assert.match(settingsSource, /\/api\/product-settings\/units/)
+  assert.doesNotMatch(template, /<strong>单位字典<\/strong>/)
+  assert.doesNotMatch(source, /saveProductUnitDefinition/)
 
   assert.ok(
     template.indexOf('商品配置模板') < template.indexOf('单位模板')

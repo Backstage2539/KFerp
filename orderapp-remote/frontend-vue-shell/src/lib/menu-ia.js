@@ -83,7 +83,7 @@ export const menuGroups = [
       { key: 'logisticsSettings', label: '物流设置', title: '物流设置' },
       { key: 'senderSettings', label: '发货人设置', title: '发货人设置' },
       { key: 'outsourceSettings', label: '代加工模板设置', title: '代加工模板设置' },
-      { key: 'uiSettings', label: '界面设置', title: '界面设置' },
+      { key: 'uiSettings', label: '全局设置', title: '全局设置' },
       { key: 'notificationSettings', label: '通知配置', title: '通知配置' },
       { key: 'notificationManual', label: '通知手册', title: '通知配置手册' },
       { key: 'settingsAuditManual', label: '设置审计手册', title: '设置审计手册' },

@@ -40,16 +40,19 @@ func TestDev355ProductSubtypeConfigUnitRulesWiring(t *testing.T) {
 			"buildProductCategoryConfigPayload",
 			"buildSkuConfigOverridePayload",
 			"customer_id",
-		},
-		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"子类型配置",
-			"库存单位",
-			"报价单位",
-			"录单单位",
-			"新增换算",
-			"整数单位",
-			"saveProductSubtypeConfig",
-		},
+			},
+			filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
+				"商品配置模板",
+				"template-select",
+				"bindProductConfigTemplateToSubtype",
+				"单位模板",
+				"库存单位",
+				"报价单位",
+				"录单单位",
+				"新增换算",
+				"整数单位",
+				"saveProductUnitTemplate",
+			},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range wants {
@@ -71,12 +74,12 @@ func TestDev355ProductSubtypeConfigUnitRulesDocs(t *testing.T) {
 			"PR-355-PRODUCT-SUBTYPE-CONFIG-UNIT-RULES",
 			"冻干速溶",
 			"integer_unit",
-		},
-		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"产品子类型配置",
-			"库存单位",
-			"报价单位",
-			"录单单位",
+			},
+			filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
+				"产品子类型行直接选择商品配置",
+				"库存单位",
+				"报价单位",
+				"录单单位",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-24-product-subtype-config-unit-rules.md"): {
 			"PR-355-PRODUCT-SUBTYPE-CONFIG-UNIT-RULES",

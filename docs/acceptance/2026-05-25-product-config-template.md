@@ -13,7 +13,7 @@
 1. Open SKU设置 and keep SKU归属 as 公共SKU.
 2. In 商品配置, create `盒装速溶配置`.
 3. Select a阶梯价模板, set 工序模板ID as needed, set price generation fields by dropdowns, set 库存单位 `kg`, 报价单位 `盒`, 录单单位 `盒`, add conversion `1 盒 = 0.2 kg`, enable 整数单位, then save.
-4. In 商品分类, create or open `速溶咖啡 / 冻干速溶`, click `更换商品配置`, select `盒装速溶配置`, and save.
+4. In 商品分类, create or open `速溶咖啡 / 冻干速溶`, select `盒装速溶配置` directly from the 商品配置 dropdown on the subtype row.
 5. Select a customer, enable only `是否使用公共商品分类`, keep `是否使用公共SKU` off. The category tree shows public product types/subtypes but no public SKU chips.
 6. Click `复制为客户分类` on `冻干速溶`. The derived customer subtype keeps a bound customer 商品配置 copied from the public template.
 7. Product price table inclusion is controlled on 产品价格表, not by 商品配置.
