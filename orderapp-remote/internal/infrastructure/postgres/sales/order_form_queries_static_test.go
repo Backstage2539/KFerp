@@ -277,6 +277,30 @@ func TestCommercialOrderPublicationTiersParseTemplatePrices(t *testing.T) {
 	}
 }
 
+func TestCommercialOrderPublicationTiersPreserveProductKindAndCustomUnit(t *testing.T) {
+	content := []byte(`{
+		"groups":[{
+			"items":[{
+				"product_id":433,
+				"name":"Codex测试速溶盒装 10条/盒",
+				"product_kind":"instant_coffee",
+				"commercial_wholesale_tiers":[
+					{"label":"10盒起","spec_g":100,"min_qty":10,"max_qty":99,"price_per_unit":15,"price_per_kg":150,"template_id":11,"template_tier_id":77,"display_unit":"盒","price_unit":"盒"}
+				]
+			}]
+		}]
+	}`)
+
+	tiersByProduct := commercialOrderTierMapFromPublicationContent(47, "CODX-速溶盒装-20260525", content)
+	tiers := tiersByProduct[433]
+	if len(tiers) != 1 {
+		t.Fatalf("commercial custom tiers = %+v, want 1 tier", tiers)
+	}
+	if tiers[0].ProductKind != "instant_coffee" || tiers[0].DisplayUnit != "盒" || tiers[0].UnitPrice != 15 {
+		t.Fatalf("commercial custom tier kind/unit/price = %+v", tiers[0])
+	}
+}
+
 func TestApplyCommercialOrderPublicationTiersReplacesCustomerRoastedTiers(t *testing.T) {
 	products := []salesapp.ProductOption{
 		{

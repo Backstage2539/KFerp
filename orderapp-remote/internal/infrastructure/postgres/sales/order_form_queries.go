@@ -724,8 +724,9 @@ func commercialOrderTierMapFromPublicationContent(publicationID int64, versionNo
 			if data, ok := fields["commercial_wholesale_tiers"]; !ok || json.Unmarshal(data, &tiers) != nil {
 				continue
 			}
+			productKind := rawJSONString(fields["product_kind"])
 			for idx, tier := range tiers {
-				option := commercialOrderTierOption(publicationID, versionNo, idx, tier)
+				option := commercialOrderTierOption(publicationID, versionNo, idx, tier, productKind)
 				if option.UnitPrice <= 0 {
 					continue
 				}
@@ -888,7 +889,7 @@ func rawJSONString(raw json.RawMessage) string {
 	return strings.TrimSpace(s)
 }
 
-func commercialOrderTierOption(publicationID int64, versionNo string, idx int, tier orderCommercialPublicationTier) salesapp.ProductTierOption {
+func commercialOrderTierOption(publicationID int64, versionNo string, idx int, tier orderCommercialPublicationTier, productKind string) salesapp.ProductTierOption {
 	specG := tier.SpecG
 	if specG <= 0 {
 		specG = 454
@@ -925,9 +926,17 @@ func commercialOrderTierOption(publicationID int64, versionNo string, idx int, t
 		MaxQty:          tier.MaxQty,
 		UnitPrice:       unitPrice,
 		DisplayUnit:     priceUnit,
-		ProductKind:     "roasted_bean",
+		ProductKind:     orderCommercialPublicationProductKind(productKind),
 		PriceSourceJSON: string(sourceJSON),
 	}
+}
+
+func orderCommercialPublicationProductKind(productKind string) string {
+	productKind = strings.TrimSpace(productKind)
+	if productKind == "" {
+		return "roasted_bean"
+	}
+	return productKind
 }
 
 func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, tier orderGreenBeanPublicationTier) salesapp.ProductTierOption {
