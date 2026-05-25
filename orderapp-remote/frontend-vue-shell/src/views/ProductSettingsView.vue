@@ -82,12 +82,13 @@
             <input v-model.trim="categorySearchQuery" placeholder="搜索产品类型、子类型或 SKU" />
           </label>
 
-          <div class="category-inline-toolbar" aria-label="产品类型操作">
-            <button class="icon-action" type="button" title="新增产品类型" :disabled="loading" @click="createPrimaryCategoryInline">+</button>
+          <div class="category-action-pill category-inline-toolbar" aria-label="产品类型操作">
+            <button class="category-action-button" type="button" aria-label="新增产品类型" title="新增产品类型" :disabled="loading" @click="createPrimaryCategoryInline">+</button>
             <button
-              class="icon-action"
+              class="category-action-button danger-toggle"
               :class="{ active: primaryDeleteMode }"
               type="button"
+              aria-label="切换删除产品类型"
               title="删除产品类型"
               :disabled="loading || !categoryTreeForSkuContext.length"
               @click="togglePrimaryDeleteMode">
@@ -105,13 +106,6 @@
               @dragover.prevent="handlePrimaryCategoryDragOver($event, primary)"
               @drop.prevent="dropCategoryOnCurrentTarget(primary)">
               <div class="category-head primary-category-head">
-                <div class="primary-left-tools">
-                  <div class="category-sort-buttons" aria-label="产品类型排序">
-                    <button class="icon-action tiny" type="button" title="上移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isFirstPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, -1)">↑</button>
-                    <button class="icon-action tiny" type="button" title="下移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isLastPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, 1)">↓</button>
-                  </div>
-                  <button v-if="primaryDeleteMode && canEditCategory(primary)" class="category-delete-button" type="button" title="删除产品类型" @click.stop="deleteCategory(primary)">-</button>
-                </div>
                 <div class="category-title-stack">
                   <div class="category-title-row">
                     <form v-if="editingCategoryId === Number(primary.id)" class="category-name-form" @submit.prevent="saveCategoryName(primary)">
@@ -129,18 +123,26 @@
                       <button class="text-button" type="button" @click="deriveCategoryTemplate(primary)">复制为客户分类</button>
                     </div>
                   </div>
-                  <div v-if="canEditCategory(primary)" class="category-child-toolbar" aria-label="产品子类型操作">
-                    <button class="icon-action tiny" type="button" title="新增产品子类型" :disabled="loading" @click="createSecondaryCategoryInline(primary)">+</button>
+                  <div v-if="canEditCategory(primary)" class="category-action-pill category-child-toolbar" aria-label="产品子类型操作">
+                    <button class="category-action-button compact" type="button" aria-label="新增产品子类型" title="新增产品子类型" :disabled="loading" @click="createSecondaryCategoryInline(primary)">+</button>
                     <button
-                      class="icon-action tiny"
+                      class="category-action-button compact danger-toggle"
                       :class="{ active: secondaryDeleteModeFor === Number(primary.id) }"
                       type="button"
+                      aria-label="切换删除产品子类型"
                       title="删除产品子类型"
                       :disabled="loading || !primary.children.length"
                       @click="toggleSecondaryDeleteMode(primary)">
                       -
                     </button>
                   </div>
+                </div>
+                <div class="category-row-actions">
+                  <div class="category-sort-pill category-sort-buttons" aria-label="产品类型排序">
+                    <button class="category-action-button compact" type="button" aria-label="上移产品类型" title="上移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isFirstPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, -1)">↑</button>
+                    <button class="category-action-button compact" type="button" aria-label="下移产品类型" title="下移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isLastPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, 1)">↓</button>
+                  </div>
+                  <button v-if="primaryDeleteMode && canEditCategory(primary)" class="category-delete-button" type="button" aria-label="删除产品类型" title="删除产品类型" @click.stop="deleteCategory(primary)">-</button>
                 </div>
               </div>
 
@@ -163,7 +165,6 @@
                   @dragover.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
                   @drop.prevent.stop="dropCategoryOrProductOnSecondary(primary, index + 1, secondary)">
                   <div class="secondary-head">
-                    <button v-if="secondaryDeleteModeFor === Number(primary.id) && canEditCategory(secondary)" class="category-delete-button" type="button" title="删除产品子类型" @click.stop="deleteCategory(secondary)">-</button>
                     <form v-if="editingCategoryId === Number(secondary.id)" class="category-name-form secondary-name-form" @submit.prevent="saveCategoryName(secondary)" @pointerdown.stop>
                       <input
                         v-model.trim="editingCategoryName"
@@ -189,8 +190,11 @@
                         {{ config.name }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}
                       </option>
                     </select>
-                    <button v-if="canEditCategory(secondary)" class="text-button" type="button" @click="startProductSubtypeConfigEdit(secondary)">更换商品配置</button>
-                    <button v-if="!canEditCategory(secondary) && skuContextCustomerID" class="text-button" type="button" @click="deriveCategoryTemplate(secondary)">复制为客户分类</button>
+                    <div class="secondary-category-actions">
+                      <button v-if="canEditCategory(secondary)" class="text-button" type="button" @click="startProductSubtypeConfigEdit(secondary)">更换商品配置</button>
+                      <button v-if="!canEditCategory(secondary) && skuContextCustomerID" class="text-button" type="button" @click="deriveCategoryTemplate(secondary)">复制为客户分类</button>
+                      <button v-if="secondaryDeleteModeFor === Number(primary.id) && canEditCategory(secondary)" class="category-delete-button" type="button" aria-label="删除产品子类型" title="删除产品子类型" @click.stop="deleteCategory(secondary)">-</button>
+                    </div>
                   </div>
                   <form
                     v-if="editingSubtypeConfigId === Number(secondary.id)"
@@ -2843,9 +2847,6 @@ async function saveCategoryName(category) {
 
 async function deleteCategory(category) {
   if (!canEditCategory(category)) return
-  const name = category.name || '该分类'
-  const okToDelete = window.confirm(`确认删除「${name}」？删除分类后，分类内商品会回到未分类。`)
-  if (!okToDelete) return
   loading.value = true
   error.value = ''
   ok.value = ''
@@ -3360,19 +3361,22 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; }
 .sub-form { margin: 8px 0; }
 .category-search { display: grid; gap: 5px; margin-bottom: 10px; font-size: 12px; color: #333; }
-.category-inline-toolbar { display: flex; align-items: center; gap: 6px; margin: -2px 0 10px; }
-.icon-action { width: 32px; height: 32px; display: inline-grid; place-items: center; border: 1px solid #d8d1c8; border-radius: 6px; background: #fff; color: #3f3328; font-size: 18px; font-weight: 700; line-height: 1; cursor: pointer; }
-.icon-action.tiny { width: 26px; height: 26px; font-size: 14px; }
-.icon-action.active { border-color: #b42318; color: #b42318; background: #fff5f4; }
-.icon-action:disabled { cursor: not-allowed; opacity: .42; }
+.category-action-pill { display: inline-flex; align-items: center; gap: 2px; width: fit-content; border: 1px solid #e3ddd4; border-radius: 999px; background: #fff; padding: 3px; box-shadow: 0 1px 2px rgba(25, 20, 15, .04); }
+.category-inline-toolbar { display: flex; align-items: center; margin: -2px 0 10px; }
+.category-action-button { width: 28px; height: 28px; min-height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: 999px; background: transparent; color: #4a4037; padding: 0; font-size: 18px; font-weight: 700; line-height: 1; cursor: pointer; }
+.category-action-button.compact { width: 24px; height: 24px; min-height: 24px; font-size: 13px; }
+.category-action-button:hover:not(:disabled) { background: #f4f0ea; }
+.category-action-button.danger-toggle.active { background: #fff1f0; color: #b42318; }
+.category-action-button:disabled { cursor: not-allowed; opacity: .36; }
 .category-scroll-list { max-height: min(640px, calc(100vh - 280px)); overflow: auto; display: grid; gap: 10px; padding-right: 2px; }
 .category-tree { display: grid; gap: 10px; min-width: 0; }
 .primary-category { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fbfaf8; min-width: 0; }
 .category-head, .secondary-head, .category-actions { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
-.primary-category-head { align-items: flex-start; justify-content: flex-start; gap: 10px; }
-.primary-left-tools { flex: 0 0 auto; display: flex; align-items: flex-start; gap: 6px; padding-top: 1px; }
-.category-sort-buttons { display: grid; gap: 4px; }
-.category-delete-button { width: 26px; height: 26px; display: inline-grid; place-items: center; flex: 0 0 auto; border: 1px solid #d92d20; border-radius: 999px; background: #fff1f0; color: #b42318; font-size: 16px; font-weight: 800; line-height: 1; cursor: pointer; }
+.primary-category-head { align-items: flex-start; justify-content: space-between; gap: 10px; }
+.category-row-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; margin-left: auto; padding-top: 1px; }
+.category-sort-pill { display: inline-flex; align-items: center; gap: 2px; border: 1px solid #e3ddd4; border-radius: 999px; background: #fff; padding: 2px; }
+.category-delete-button { width: 24px; height: 24px; min-height: 24px; display: inline-grid; place-items: center; flex: 0 0 auto; border: 1px solid #d92d20; border-radius: 999px; background: #fff1f0; color: #b42318; padding: 0; font-size: 14px; font-weight: 800; line-height: 1; cursor: pointer; }
+.category-delete-button:hover { background: #ffe4e2; }
 .category-title-stack { flex: 1 1 auto; min-width: 0; display: grid; gap: 6px; }
 .category-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-width: 0; }
 .category-name-button { border: 0; background: transparent; color: #3f3328; padding: 3px 0; text-align: left; min-width: 0; max-width: 100%; cursor: pointer; }
@@ -3381,7 +3385,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .primary-name-button small { color: #6d665f; font-weight: 400; }
 .category-name-form { flex: 1 1 min(260px, 100%); min-width: min(260px, 100%); max-width: 100%; }
 .category-name-form input { width: 100%; min-height: 32px; box-sizing: border-box; }
-.category-child-toolbar { display: flex; align-items: center; gap: 6px; }
+.category-child-toolbar { display: inline-flex; align-items: center; }
 .secondary-head { flex-wrap: wrap; justify-content: flex-start; }
 .secondary-head b { min-width: 120px; }
 .secondary-category { border: 1px solid #ddd; border-radius: 8px; padding: 9px; background: #fff; cursor: grab; user-select: none; touch-action: none; min-width: 0; overflow: hidden; }
@@ -3392,6 +3396,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .secondary-name-button b { min-width: 0; overflow-wrap: anywhere; }
 .secondary-name-form { flex: 1 1 190px; min-width: min(190px, 100%); }
 .secondary-head small { color: #666; }
+.secondary-category-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-left: auto; flex-wrap: wrap; }
 .subtype-config-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; overflow: hidden; margin-top: 10px; padding: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; cursor: default; user-select: text; }
 .subtype-config-title { grid-column: 1 / -1; font-weight: 700; color: #3f3328; }
 .subtype-config-help { grid-column: 1 / -1; margin: 0; color: #5f5a52; font-size: 12px; line-height: 1.55; }

@@ -55,7 +55,7 @@ func TestDev365SkuCategoryInlineEditDocs(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-365-SKU-CATEGORY-INLINE-EDIT",
 			"点击产品类型或产品子类型名称直接改名",
-			"大类左侧上下箭头",
+			"大类右侧箭头",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-365-SKU-CATEGORY-INLINE-EDIT",

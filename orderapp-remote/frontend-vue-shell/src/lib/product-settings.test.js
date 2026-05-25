@@ -1068,6 +1068,38 @@ test('SKU settings edits product categories inline without a category drawer', (
   assert.match(style, /\.category-inline-toolbar\s*\{[^}]*display:\s*flex;/s)
 })
 
+test('SKU settings uses compact category action controls with right-side direct delete', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const style = source.split('<style scoped>')[1] || ''
+  const deleteStart = script.indexOf('async function deleteCategory(category)')
+  const deleteEnd = script.indexOf('function flattenCategoryNodes', deleteStart)
+  const deleteFunction = deleteStart >= 0 && deleteEnd > deleteStart ? script.slice(deleteStart, deleteEnd) : ''
+
+  for (const expected of [
+    'category-action-pill',
+    'category-action-button',
+    'category-sort-pill',
+    'category-row-actions',
+    'secondary-category-actions',
+    'aria-label="上移产品类型"',
+    'aria-label="下移产品类型"',
+    'aria-label="删除产品类型"',
+    'aria-label="删除产品子类型"',
+  ]) {
+    assert.ok(source.includes(expected), `missing polished category action marker: ${expected}`)
+  }
+
+  assert.doesNotMatch(template, /class="icon-action/)
+  assert.match(template, /<div class="category-row-actions">[\s\S]*category-delete-button/)
+  assert.match(template, /<div class="secondary-category-actions">[\s\S]*category-delete-button/)
+  assert.doesNotMatch(deleteFunction, /window\.confirm/)
+  assert.doesNotMatch(style, /\.icon-action/)
+  assert.match(style, /\.category-action-pill\s*\{[^}]*border-radius:\s*999px;/s)
+  assert.match(style, /\.category-sort-pill\s*\{[^}]*border-radius:\s*999px;/s)
+})
+
 test('SKU settings splits product config templates and gradient templates into nested tabs', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
