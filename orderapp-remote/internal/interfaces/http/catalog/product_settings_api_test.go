@@ -868,7 +868,7 @@ func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testi
 			GradientTemplateID:  8,
 			OperationTemplateID: 9,
 			UnitTemplateID:      12,
-			PriceListRuleJSON:   `{"pricing_mode":"inherit_gradient_template"}`,
+			PriceListRuleJSON:   `{"pricing_mode":"inherit_gradient_template","display_unit":"inherit_quote_unit"}`,
 			InventoryUnit:       "kg",
 			QuoteUnit:           "盒",
 			OrderUnit:           "盒",
@@ -905,6 +905,7 @@ func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testi
 		`"product_config_template_id":301`,
 		`"unit_template_id":12`,
 		`"quote_unit":"盒"`,
+		`"price_list_rule_json":"{\"pricing_mode\":\"inherit_gradient_template\",\"display_unit\":\"inherit_quote_unit\"}"`,
 	} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
@@ -917,7 +918,7 @@ func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testi
 		"gradient_template_id":18,
 		"operation_template_id":19,
 		"unit_template_id":12,
-		"price_list_rule_json":"{\"pricing_mode\":\"fixed_unit_price\"}",
+		"price_list_rule_json":"{\"pricing_mode\":\"fixed_unit_price\",\"display_unit\":\"盒\"}",
 		"active":true
 	}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -928,6 +929,9 @@ func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testi
 	}
 	if !repo.configTemplateSaved || repo.savedConfigTemplate.CustomerID != 42 || repo.savedConfigTemplate.Name != "客户盒装商品配置" || repo.savedConfigTemplate.GradientTemplateID != 18 || repo.savedConfigTemplate.UnitTemplateID != 12 {
 		t.Fatalf("saved config template = %+v saved=%v", repo.savedConfigTemplate, repo.configTemplateSaved)
+	}
+	if repo.savedConfigTemplate.PriceListRuleJSON != `{"pricing_mode":"fixed_unit_price","display_unit":"盒"}` {
+		t.Fatalf("saved price list rule json = %q", repo.savedConfigTemplate.PriceListRuleJSON)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/product-config-templates/derive", bytes.NewBufferString(`{"customer_id":42,"source_template_id":301,"name":"客户复制盒装商品配置"}`))
