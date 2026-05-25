@@ -579,9 +579,6 @@
       <div v-show="activeConfigTemplateSection === 'unit-template'" class="panel unit-template-panel unit-template-pane">
         <div class="panel-title">
           <span>单位模板</span>
-          <div class="toolbar-actions">
-            <button class="secondary compact-action" type="button" @click="resetProductUnitTemplateForm">新建模板</button>
-          </div>
         </div>
         <p class="muted unit-template-note">基础单位在“全局设置”维护；这里配置库存单位、报价单位、录单单位之间的换算模板。</p>
         <div class="unit-template-layout">
@@ -1787,12 +1784,12 @@ async function deactivateProductConfigTemplate(id) {
   await saveProductConfigTemplate()
 }
 
-function resetProductUnitTemplateForm() {
-  productUnitTemplateForm.value = defaultProductUnitTemplateForm()
-}
-
 function startProductUnitTemplateEdit(template) {
   productUnitTemplateForm.value = defaultProductUnitTemplateForm(JSON.parse(JSON.stringify(template || {})))
+}
+
+function resetProductUnitTemplateForm() {
+  productUnitTemplateForm.value = defaultProductUnitTemplateForm()
 }
 
 function validateProductUnitTemplatePayload(payload) {
@@ -1818,8 +1815,8 @@ async function saveProductUnitTemplate() {
     const method = payload.id ? 'PUT' : 'POST'
     await apiSend(url, { method, body: payload })
     ok.value = '单位模板已保存，商品配置可直接引用'
-    resetProductUnitTemplateForm()
     await loadAll()
+    resetProductUnitTemplateForm()
   } catch (err) {
     error.value = err.message || '保存单位模板失败'
   } finally {

@@ -32,7 +32,6 @@
           <h2>全局单位字典</h2>
           <p>基础单位在这里维护；SKU 设置里的单位模板只引用这些单位并配置换算关系。</p>
         </div>
-        <button class="secondary" type="button" @click="resetGlobalUnitDefinitionForm" :disabled="unitSaving">新建单位</button>
       </div>
 
       <div class="unit-layout">

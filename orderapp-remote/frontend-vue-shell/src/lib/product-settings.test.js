@@ -1158,6 +1158,7 @@ test('global unit dictionary is managed from global settings instead of SKU sett
   }
 
   assert.match(menuSource, /key:\s*'uiSettings'[\s\S]*label:\s*'全局设置'/)
+  assert.doesNotMatch(globalSettings, />新建单位</)
   assert.doesNotMatch(productTemplate, /<strong>单位字典<\/strong>/)
   assert.doesNotMatch(productTemplate, /@submit\.prevent="saveProductUnitDefinition"/)
   assert.match(productTemplate, /基础单位在“全局设置”维护/)
@@ -1219,6 +1220,18 @@ test('SKU settings separates global unit templates into a peer configuration tab
   )
   assert.doesNotMatch(template, /<div class="field-group-title">单位规则<\/div>[\s\S]*productConfigTemplateForm\.unit_conversion_rows/)
   assert.match(script, /buildProductConfigTemplatePayload\([\s\S]*unit_template_id/)
+})
+
+test('SKU unit template save creates or updates without a separate new-template button', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const unitTemplatePane = source.match(/<div v-show="activeConfigTemplateSection === 'unit-template'"[\s\S]*?<div v-show="activeConfigTemplateSection === 'product-config'"/)?.[0] || ''
+
+  assert.ok(unitTemplatePane, 'unit template pane should exist')
+  assert.doesNotMatch(unitTemplatePane, />新建模板</)
+  assert.doesNotMatch(unitTemplatePane, /resetProductUnitTemplateForm/)
+  assert.match(source, /function resetProductUnitTemplateForm\(\)/)
+  assert.match(source, /await apiSend\(url, \{ method, body: payload \}\)/)
+  assert.match(source, /await loadAll\(\)\s+resetProductUnitTemplateForm\(\)/)
 })
 
 test('assign category payload carries customer context for public template derivation', () => {
