@@ -1254,10 +1254,45 @@ test('SKU unit template save creates or updates without a separate new-template 
 
   assert.ok(unitTemplatePane, 'unit template pane should exist')
   assert.doesNotMatch(unitTemplatePane, />新建模板</)
-  assert.doesNotMatch(unitTemplatePane, /resetProductUnitTemplateForm/)
+  assert.match(unitTemplatePane, /@click="resetProductUnitTemplateForm"[\s\S]*新增单位模板/)
   assert.match(source, /function resetProductUnitTemplateForm\(\)/)
   assert.match(source, /await apiSend\(url, \{ method, body: payload \}\)/)
   assert.match(source, /await loadAll\(\)\s+resetProductUnitTemplateForm\(\)/)
+})
+
+test('SKU settings compacts context area and uses create edit labels for unit dictionaries', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const settingsSource = fs.readFileSync(new URL('../views/UISettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const style = source.split('<style scoped>')[1] || ''
+  const unitTemplatePane = source.match(/<div v-show="activeConfigTemplateSection === 'unit-template'"[\s\S]*?<div v-show="activeConfigTemplateSection === 'product-config'"/)?.[0] || ''
+  const globalUnitDrawer = source.match(/<div v-if="globalUnitDrawerOpen"[\s\S]*?<\/aside>\s*<\/div>/)?.[0] || ''
+
+  for (const expected of [
+    'sku-page-summary',
+    'compact-sku-context',
+    'sku-context-title-line',
+  ]) {
+    assert.ok(source.includes(expected), `missing compact SKU context marker: ${expected}`)
+  }
+
+  assert.match(style, /\.sku-page-summary\s*\{[^}]*padding:\s*10px 12px;/s)
+  assert.match(style, /\.compact-sku-context\s*\{[^}]*padding:\s*10px 12px;/s)
+  assert.doesNotMatch(template, /产品列表、商品分类和商品配置会按当前归属切换。/)
+
+  assert.match(unitTemplatePane, /@click="resetProductUnitTemplateForm"[\s\S]*新增单位模板/)
+  assert.match(unitTemplatePane, /productUnitTemplateForm\.id\s*\?\s*'保存'\s*:\s*'新增'/)
+  assert.match(unitTemplatePane, /成品库存单位/)
+  assert.doesNotMatch(unitTemplatePane, />库存单位</)
+
+  assert.match(script, /const globalUnitEditingCode = ref\(''\)/)
+  assert.match(globalUnitDrawer, /@click="resetGlobalUnitDefinitionForm"[\s\S]*新增基础单位/)
+  assert.match(globalUnitDrawer, /globalUnitEditingCode\s*\?\s*'保存'\s*:\s*'新增'/)
+
+  assert.match(settingsSource, /const unitEditingCode = ref\(''\)/)
+  assert.match(settingsSource, /@click="resetGlobalUnitDefinitionForm"[\s\S]*新增基础单位/)
+  assert.match(settingsSource, /unitEditingCode\s*\?\s*'保存'\s*:\s*'新增'/)
 })
 
 test('SKU unit template workspace uses left list right editor and opens global unit dictionary drawer', () => {
