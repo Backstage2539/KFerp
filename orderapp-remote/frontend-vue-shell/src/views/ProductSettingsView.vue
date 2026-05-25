@@ -744,18 +744,18 @@
                   <option v-for="option in priceListRulePricingModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
               </label>
-              <label class="rule-config-field">
-                <span class="field-label-with-help">
-                  价格表展示单位
+              <div class="rule-config-field">
+                <div class="field-label-with-help">
+                  <span>价格表展示单位</span>
                   <span class="field-help-wrap">
-                    <span class="field-help-icon" tabindex="0" role="button" aria-label="价格表展示单位说明">!</span>
+                    <button type="button" class="field-help-icon" aria-label="价格表展示单位说明">!</button>
                     <span class="field-help-tooltip" role="tooltip">默认继承单位模板的报价单位；盒、箱、kg 等来自全局单位字典。</span>
                   </span>
-                </span>
+                </div>
                 <select v-model="productConfigTemplateForm.price_rule_display_unit" :disabled="!canEditCurrentProductConfigTemplate">
                   <option v-for="option in priceListRuleDisplayUnitOptions(activeProductUnitDefinitions)" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
-              </label>
+              </div>
               <label class="rule-config-field">
                 <span>取整规则</span>
                 <select v-model="productConfigTemplateForm.price_rule_rounding" :disabled="!canEditCurrentProductConfigTemplate">
@@ -3439,7 +3439,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .price-rule-grid .checkline { grid-column: 1 / -1; min-height: 24px; padding-top: 0; }
 .field-label-with-help { display: inline-flex; align-items: center; gap: 6px; width: fit-content; color: #333; }
 .field-help-wrap { position: relative; display: inline-flex; align-items: center; }
-.field-help-icon { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: #111; color: #fff; font-size: 11px; font-weight: 800; line-height: 1; cursor: help; outline: none; }
+.field-help-icon { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 999px; padding: 0; background: #111; color: #fff; font-size: 11px; font-weight: 800; line-height: 1; cursor: help; outline: none; }
 .field-help-icon:focus-visible { box-shadow: 0 0 0 3px rgba(17, 17, 17, .16); }
 .field-help-tooltip { position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); display: none; width: min(240px, 70vw); padding: 8px 10px; border: 1px solid #d8d2ca; border-radius: 6px; background: #fff; color: #3f3328; font-size: 12px; font-weight: 400; line-height: 1.45; box-shadow: 0 8px 22px rgba(35, 28, 20, .16); z-index: 20; }
 .field-help-wrap:hover .field-help-tooltip, .field-help-wrap:focus-within .field-help-tooltip { display: block; }

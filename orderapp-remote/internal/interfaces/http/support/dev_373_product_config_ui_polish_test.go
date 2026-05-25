@@ -30,7 +30,7 @@ func TestDev373ProductConfigUIPolishUI(t *testing.T) {
 		"template-meta-chips",
 		"price-rule-grid",
 		"rule-config-field",
-		"field-help-icon",
+		`type="button" class="field-help-icon"`,
 		"field-help-tooltip",
 		`role="tooltip"`,
 		"productConfigUnitChips(config.unit_template_id)",

@@ -1289,7 +1289,7 @@ test('SKU product config template list and price rule controls are visually stru
     'rule-config-block price-rule-grid',
     'rule-config-field',
     'field-label-with-help',
-    'field-help-icon',
+    'type="button" class="field-help-icon"',
     'field-help-tooltip',
     'role="tooltip"',
   ]) {
