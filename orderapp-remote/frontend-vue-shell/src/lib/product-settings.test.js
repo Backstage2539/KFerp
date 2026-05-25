@@ -1000,31 +1000,33 @@ test('SKU settings groups master data and template configuration into separate w
     'master data workspace should be the primary daily-operation workspace before template configuration',
   )
   assert.ok(
-    template.indexOf('class="panel category-panel"') < template.indexOf('class="panel product-panel"'),
-    'category tree should sit before the SKU list inside the master-data workspace',
-  )
-  assert.ok(
     template.indexOf('class="panel product-panel"') < template.indexOf('class="sku-template-workspace"'),
-    'template editors should not interrupt category and SKU list operations',
+    'SKU list should remain in the daily-operation workspace before template configuration',
   )
-  assert.match(style, /\.master-data-layout\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*minmax\(320px,\s*440px\)\s*minmax\(0,\s*1fr\);/)
+  assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openCategorySettingsDrawer"/)
+  assert.doesNotMatch(template, /class="panel category-panel"/)
+  assert.match(style, /\.master-data-layout\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*minmax\(0,\s*1fr\);/)
   assert.match(style, /\.template-workspace-stack\s*\{\s*display:\s*grid;\s*gap:\s*14px;/)
   assert.match(style, /@media\s*\(max-width:\s*1100px\)/)
   assert.match(style, /\.master-data-layout\s*\{\s*grid-template-columns:\s*1fr;\s*\}/)
 })
 
-test('SKU settings keeps category tree compact and SKU creation behind a drawer', () => {
+test('SKU settings opens category settings and SKU creation behind drawers', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
+    'categorySettingsDrawerOpen',
+    'category-settings-drawer',
+    'openCategorySettingsDrawer',
     'categorySearchQuery',
     'visibleCategoryTreeForSkuContext',
     'category-search',
     'category-scroll-list',
     'product-editor-drawer',
     'openProductDrawer',
+    '分类设置',
     '新增SKU',
   ]) {
     assert.ok(source.includes(expected), `missing compact SKU settings marker: ${expected}`)
@@ -1032,12 +1034,15 @@ test('SKU settings keeps category tree compact and SKU creation behind a drawer'
 
   assert.doesNotMatch(template, /class="panel public-product-panel"/)
   assert.doesNotMatch(template, /class="panel custom-product-panel"/)
+  assert.doesNotMatch(template, /class="panel category-panel"/)
+  assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"[\s\S]*@click="openCategorySettingsDrawer"/)
+  assert.match(template, /<aside class="settings-drawer category-settings-drawer"[\s\S]*商品分类 ·/)
   assert.match(template, /v-for="primary in visibleCategoryTreeForSkuContext"/)
   assert.match(style, /\.category-scroll-list\s*\{[^}]*max-height:\s*min\(640px,\s*calc\(100vh - 280px\)\);[^}]*overflow:\s*auto;/s)
   assert.match(style, /\.settings-drawer-mask\s*\{[^}]*position:\s*fixed;/s)
 })
 
-test('SKU settings edits product categories inline without a category drawer', () => {
+test('SKU settings edits product categories inline inside the category settings drawer', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
@@ -1058,6 +1063,7 @@ test('SKU settings edits product categories inline without a category drawer', (
     assert.ok(source.includes(expected), `missing inline category editor marker: ${expected}`)
   }
 
+  assert.match(template, /class="settings-drawer category-settings-drawer"[\s\S]*class="category-panel category-drawer-panel"/)
   assert.doesNotMatch(source, /category-editor-drawer/)
   assert.doesNotMatch(source, /openCategoryDrawer/)
   assert.doesNotMatch(template, />编辑产品类型</)
@@ -1094,12 +1100,32 @@ test('SKU settings uses compact category action controls with right-side direct 
   }
 
   assert.doesNotMatch(template, /class="icon-action/)
-  assert.match(template, /<div class="category-row-actions">[\s\S]*category-delete-button/)
+  assert.match(template, /<div class="category-row-actions[^"]*">[\s\S]*category-delete-button/)
   assert.match(template, /<div class="secondary-category-actions">[\s\S]*category-delete-button/)
   assert.doesNotMatch(deleteFunction, /window\.confirm/)
   assert.doesNotMatch(style, /\.icon-action/)
   assert.match(style, /\.category-action-pill\s*\{[^}]*border-radius:\s*999px;/s)
   assert.match(style, /\.category-sort-pill\s*\{[^}]*border-radius:\s*999px;/s)
+})
+
+test('SKU category primary row keeps title and sorting on the left with collapse on the right', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const style = source.split('<style scoped>')[1] || ''
+
+  for (const expected of [
+    'primary-category-left',
+    'primary-category-right',
+    'category-sort-buttons',
+    'category-collapse-button',
+  ]) {
+    assert.ok(source.includes(expected), `missing primary category layout marker: ${expected}`)
+  }
+
+  assert.match(template, /<div class="primary-category-left">[\s\S]*category-sort-pill[\s\S]*primary-name-button/)
+  assert.match(template, /<div class="category-row-actions primary-category-right">[\s\S]*category-collapse-button[\s\S]*category-delete-button/)
+  assert.match(style, /\.primary-category-left\s*\{[^}]*display:\s*flex;/s)
+  assert.match(style, /\.primary-category-right\s*\{[^}]*justify-content:\s*flex-end;/s)
 })
 
 test('SKU settings collapses category levels and focuses newly created categories', () => {
@@ -1232,6 +1258,34 @@ test('SKU unit template save creates or updates without a separate new-template 
   assert.match(source, /function resetProductUnitTemplateForm\(\)/)
   assert.match(source, /await apiSend\(url, \{ method, body: payload \}\)/)
   assert.match(source, /await loadAll\(\)\s+resetProductUnitTemplateForm\(\)/)
+})
+
+test('SKU unit template workspace uses left list right editor and opens global unit dictionary drawer', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const unitTemplatePane = source.match(/<div v-show="activeConfigTemplateSection === 'unit-template'"[\s\S]*?<div v-show="activeConfigTemplateSection === 'product-config'"/)?.[0] || ''
+  const style = source.split('<style scoped>')[1] || ''
+
+  for (const expected of [
+    'unit-template-list-panel',
+    'unit-template-editor-panel',
+    'globalUnitDrawerOpen',
+    'global-unit-dictionary-drawer',
+    'openGlobalUnitDictionaryDrawer',
+    'saveGlobalUnitDefinitionFromDrawer',
+    'buildProductUnitDefinitionPayload',
+    '全局单位字典',
+  ]) {
+    assert.ok(source.includes(expected), `missing unit template workspace marker: ${expected}`)
+  }
+
+  assert.ok(
+    unitTemplatePane.indexOf('unit-template-list-panel') < unitTemplatePane.indexOf('unit-template-editor-panel'),
+    'unit template list should be left of the editor in source order',
+  )
+  assert.match(unitTemplatePane, /@click="openGlobalUnitDictionaryDrawer"/)
+  assert.match(source, /<aside class="settings-drawer global-unit-dictionary-drawer"/)
+  assert.match(source, /@submit\.prevent="saveGlobalUnitDefinitionFromDrawer"/)
+  assert.match(style, /\.unit-template-layout\s*\{[^}]*grid-template-columns:\s*minmax\(220px,\s*280px\)\s+minmax\(0,\s*1fr\);/s)
 })
 
 test('assign category payload carries customer context for public template derivation', () => {

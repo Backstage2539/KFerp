@@ -60,7 +60,17 @@
 
       <div v-show="activeSettingsSection === 'master'" class="sku-master-workspace">
         <div class="master-data-layout">
-      <div class="panel category-panel">
+      <div v-if="categorySettingsDrawerOpen" class="settings-drawer-mask" @click.self="closeCategorySettingsDrawer">
+        <aside class="settings-drawer category-settings-drawer" aria-label="商品分类设置">
+          <div class="drawer-head">
+            <div>
+              <h3>商品分类 · {{ selectedSkuContextLabel }}</h3>
+              <p>集中维护产品类型、产品子类型、排序、折叠和停车场归类。</p>
+            </div>
+            <button class="secondary compact-action" type="button" @click="closeCategorySettingsDrawer">关闭</button>
+          </div>
+          <div class="drawer-body">
+      <div class="category-panel category-drawer-panel">
         <div class="panel-title">
           <span>商品分类 · {{ selectedSkuContextLabel }}</span>
           <div class="panel-actions">
@@ -106,16 +116,13 @@
               @dragover.prevent="handlePrimaryCategoryDragOver($event, primary)"
               @drop.prevent="dropCategoryOnCurrentTarget(primary)">
               <div class="category-head primary-category-head">
-                <div class="category-title-stack">
+                <div class="primary-category-left">
+                  <div class="category-sort-pill category-sort-buttons" aria-label="产品类型排序">
+                    <button class="category-action-button compact" type="button" aria-label="上移产品类型" title="上移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isFirstPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, -1)">↑</button>
+                    <button class="category-action-button compact" type="button" aria-label="下移产品类型" title="下移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isLastPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, 1)">↓</button>
+                  </div>
+                  <div class="category-title-stack">
                   <div class="category-title-row">
-                    <button
-                      class="category-collapse-button"
-                      type="button"
-                      :aria-expanded="!isPrimaryCategoryCollapsed(primary)"
-                      :title="isPrimaryCategoryCollapsed(primary) ? '展开产品类型' : '折叠产品类型'"
-                      @click.stop="togglePrimaryCategoryCollapse(primary)">
-                      {{ isPrimaryCategoryCollapsed(primary) ? '›' : '⌄' }}
-                    </button>
                     <form v-if="editingCategoryId === Number(primary.id)" class="category-name-form" @submit.prevent="saveCategoryName(primary)">
                       <input
                         v-model.trim="editingCategoryName"
@@ -144,12 +151,17 @@
                       -
                     </button>
                   </div>
-                </div>
-                <div class="category-row-actions">
-                  <div class="category-sort-pill category-sort-buttons" aria-label="产品类型排序">
-                    <button class="category-action-button compact" type="button" aria-label="上移产品类型" title="上移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isFirstPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, -1)">↑</button>
-                    <button class="category-action-button compact" type="button" aria-label="下移产品类型" title="下移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isLastPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, 1)">↓</button>
                   </div>
+                </div>
+                <div class="category-row-actions primary-category-right">
+                  <button
+                    class="category-collapse-button"
+                    type="button"
+                    :aria-expanded="!isPrimaryCategoryCollapsed(primary)"
+                    :title="isPrimaryCategoryCollapsed(primary) ? '展开产品类型' : '折叠产品类型'"
+                    @click.stop="togglePrimaryCategoryCollapse(primary)">
+                    {{ isPrimaryCategoryCollapsed(primary) ? '›' : '⌄' }}
+                  </button>
                   <button v-if="primaryDeleteMode && canEditCategory(primary)" class="category-delete-button" type="button" aria-label="删除产品类型" title="删除产品类型" @click.stop="deleteCategory(primary)">-</button>
                 </div>
               </div>
@@ -255,12 +267,16 @@
           </div>
         </div>
       </div>
+    </div>
+        </aside>
+      </div>
 
       <div class="panel product-panel">
         <div class="panel-title sku-panel-title">
           <span>客户SKU列表 · {{ selectedSkuContextLabel }}</span>
           <div class="panel-actions sku-panel-actions">
             <button class="primary compact-action" type="button" @click="openProductDrawer">新增SKU</button>
+            <button class="secondary compact-action" type="button" @click="openCategorySettingsDrawer">分类设置</button>
             <button class="secondary compact-action" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
               失效选中产品
             </button>
@@ -579,13 +595,14 @@
       <div v-show="activeConfigTemplateSection === 'unit-template'" class="panel unit-template-panel unit-template-pane">
         <div class="panel-title">
           <span>单位模板</span>
+          <button class="secondary compact-action" type="button" @click="openGlobalUnitDictionaryDrawer">全局单位字典</button>
         </div>
         <p class="muted unit-template-note">基础单位在“全局设置”维护；这里配置库存单位、报价单位、录单单位之间的换算模板。</p>
         <div class="unit-template-layout">
-          <section class="unit-template-card">
+          <section class="unit-template-card unit-template-list-panel">
             <div class="field-group-head">
               <strong>单位换算模板</strong>
-              <small>一个模板定义库存单位、报价单位、录单单位和换算关系。</small>
+              <small>点击模板在右侧编辑。</small>
             </div>
             <div class="template-list compact-template-list">
               <div
@@ -598,6 +615,12 @@
                 </button>
               </div>
               <p v-if="!productUnitTemplates.length" class="muted">暂无单位模板</p>
+            </div>
+          </section>
+          <section class="unit-template-card unit-template-editor-panel">
+            <div class="field-group-head">
+              <strong>{{ productUnitTemplateForm.id ? '编辑单位模板' : '新增单位模板' }}</strong>
+              <small>保存后刷新列表并回到空白表单。</small>
             </div>
             <form class="unit-template-form" @submit.prevent="saveProductUnitTemplate">
               <label class="wide-field">
@@ -896,6 +919,78 @@
       </aside>
     </div>
 
+    <div v-if="globalUnitDrawerOpen" class="settings-drawer-mask" @click.self="closeGlobalUnitDictionaryDrawer">
+      <aside class="settings-drawer global-unit-dictionary-drawer" aria-label="全局单位字典设置">
+        <div class="drawer-head">
+          <div>
+            <h3>全局单位字典</h3>
+            <p>维护 kg、盒、箱等基础单位；单位模板引用这些单位配置换算关系。</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeGlobalUnitDictionaryDrawer">关闭</button>
+        </div>
+        <div class="drawer-body global-unit-drawer-body">
+          <section class="unit-template-card global-unit-list-panel">
+            <div class="field-group-head">
+              <strong>基础单位</strong>
+              <small>点击单位后在右侧编辑。</small>
+            </div>
+            <div class="unit-chip-list global-unit-chip-list">
+              <button
+                v-for="unit in productUnitDefinitions"
+                :key="unit.code"
+                class="unit-chip global-unit-chip"
+                :class="{ inactive: unit.active === false }"
+                type="button"
+                @click="startGlobalUnitDefinitionEdit(unit)">
+                <strong>{{ unit.name || unit.code }}</strong>
+                <small>{{ unit.code }} · {{ unitTypeLabel(unit.unit_type) }} · {{ unit.allow_decimal ? '允许小数' : '整数优先' }}</small>
+              </button>
+              <p v-if="!productUnitDefinitions.length" class="muted">暂无单位，直接在右侧表单填写并保存。</p>
+            </div>
+          </section>
+
+          <section class="unit-template-card global-unit-editor-panel">
+            <div class="field-group-head">
+              <strong>{{ globalUnitForm.code ? '编辑基础单位' : '新增基础单位' }}</strong>
+              <small>保存后刷新列表并回到空白表单。</small>
+            </div>
+            <form class="unit-definition-form global-unit-definition-form" @submit.prevent="saveGlobalUnitDefinitionFromDrawer">
+              <label>
+                <span>单位编码</span>
+                <input v-model.trim="globalUnitForm.code" placeholder="box" />
+              </label>
+              <label>
+                <span>单位名称</span>
+                <input v-model.trim="globalUnitForm.name" placeholder="盒" />
+              </label>
+              <label>
+                <span>单位类型</span>
+                <select v-model="globalUnitForm.unit_type">
+                  <option value="weight">重量</option>
+                  <option value="package">包装</option>
+                  <option value="count">数量</option>
+                  <option value="other">其他</option>
+                </select>
+              </label>
+              <label class="checkline">
+                <input v-model="globalUnitForm.allow_decimal" type="checkbox" />
+                <span>允许小数</span>
+              </label>
+              <label class="checkline">
+                <input v-model="globalUnitForm.active" type="checkbox" />
+                <span>启用</span>
+              </label>
+              <div class="form-actions">
+                <button class="primary" type="submit" :disabled="globalUnitSaving || loading">
+                  {{ globalUnitSaving ? '保存中' : '保存单位' }}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </aside>
+    </div>
+
   </div>
 </template>
 
@@ -922,6 +1017,7 @@ import {
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
   buildProductConfigTemplatePayload,
+  buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
   buildProductBasicsPayload,
   buildProductBomURL,
@@ -986,6 +1082,7 @@ const customSaving = ref(false)
 const templateSaving = ref(false)
 const productConfigSaving = ref(false)
 const productUnitSaving = ref(false)
+const globalUnitSaving = ref(false)
 const customerRuleSaving = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -1001,6 +1098,8 @@ const productsCollapsed = ref(false)
 const activeSettingsSection = ref('master')
 const activeConfigTemplateSection = ref('product-config')
 const productDrawerOpen = ref(false)
+const categorySettingsDrawerOpen = ref(false)
+const globalUnitDrawerOpen = ref(false)
 const categorySearchQuery = ref('')
 const primaryDeleteMode = ref(false)
 const secondaryDeleteModeFor = ref(0)
@@ -1015,6 +1114,7 @@ const productForm = ref(defaultProductForm())
 const customForm = ref(defaultCustomForm())
 const templateForm = ref(defaultGradientTemplateForm())
 const productUnitTemplateForm = ref(defaultProductUnitTemplateForm())
+const globalUnitForm = ref(defaultProductUnitDefinitionForm())
 const customerRuleTemplateForm = ref(defaultCustomerProductRuleTemplateForm())
 const customerRuleOverrideForm = ref(defaultCustomerProductRuleOverrideForm())
 
@@ -1290,6 +1390,15 @@ function defaultProductUnitDefinitionForm(unit = {}) {
     allow_decimal: Boolean(unit.allow_decimal),
     active: unit.active !== false,
   }
+}
+
+function unitTypeLabel(value) {
+  return {
+    weight: '重量',
+    package: '包装',
+    count: '数量',
+    other: '其他',
+  }[value] || '其他'
 }
 
 function defaultProductUnitTemplateForm(template = {}) {
@@ -1784,6 +1893,53 @@ async function deactivateProductConfigTemplate(id) {
   await saveProductConfigTemplate()
 }
 
+function openGlobalUnitDictionaryDrawer() {
+  globalUnitDrawerOpen.value = true
+}
+
+function closeGlobalUnitDictionaryDrawer() {
+  globalUnitDrawerOpen.value = false
+}
+
+function resetGlobalUnitDefinitionForm() {
+  globalUnitForm.value = defaultProductUnitDefinitionForm()
+}
+
+function startGlobalUnitDefinitionEdit(unit) {
+  globalUnitForm.value = defaultProductUnitDefinitionForm(JSON.parse(JSON.stringify(unit || {})))
+}
+
+function validateGlobalUnitDefinitionPayload(payload) {
+  if (!String(payload.code || '').trim()) return '请填写单位编码'
+  if (!String(payload.name || '').trim()) return '请填写单位名称'
+  return ''
+}
+
+async function saveGlobalUnitDefinitionFromDrawer() {
+  const payload = buildProductUnitDefinitionPayload(globalUnitForm.value)
+  const validation = validateGlobalUnitDefinitionPayload(payload)
+  if (validation) {
+    error.value = validation
+    return
+  }
+  globalUnitSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const exists = productUnitDefinitions.value.some((unit) => unit.code === payload.code)
+    const url = exists ? `/api/product-settings/units/${encodeURIComponent(payload.code)}` : '/api/product-settings/units'
+    const method = exists ? 'PUT' : 'POST'
+    await apiSend(url, { method, body: payload })
+    ok.value = '全局单位已保存，可在单位模板中引用'
+    await loadAll()
+    resetGlobalUnitDefinitionForm()
+  } catch (err) {
+    error.value = err.message || '保存全局单位失败'
+  } finally {
+    globalUnitSaving.value = false
+  }
+}
+
 function startProductUnitTemplateEdit(template) {
   productUnitTemplateForm.value = defaultProductUnitTemplateForm(JSON.parse(JSON.stringify(template || {})))
 }
@@ -2090,6 +2246,15 @@ function openProductDrawer() {
 
 function closeProductDrawer() {
   productDrawerOpen.value = false
+}
+
+function openCategorySettingsDrawer() {
+  categorySettingsDrawerOpen.value = true
+  categoryCollapsed.value = false
+}
+
+function closeCategorySettingsDrawer() {
+  categorySettingsDrawerOpen.value = false
 }
 
 function isPublicSkuReference(row) {
@@ -3202,7 +3367,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .workspace-tab { min-height: 32px; border: 0; border-radius: 6px; background: transparent; color: #333; padding: 0 14px; font-weight: 700; }
 .workspace-tab.active { background: #111; color: #fff; }
 .sku-master-workspace, .sku-template-workspace { display: grid; gap: 14px; min-width: 0; }
-.master-data-layout { display: grid; grid-template-columns: minmax(320px, 440px) minmax(0, 1fr); gap: 14px; align-items: start; min-width: 0; }
+.master-data-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; min-width: 0; }
 .template-workspace-stack { display: grid; gap: 14px; min-width: 0; }
 .config-template-tabs { display: inline-flex; align-items: center; gap: 4px; width: fit-content; border: 1px solid #e6e0d8; border-radius: 8px; background: #fbfaf8; padding: 4px; }
 .config-template-tab { min-height: 32px; border: 0; border-radius: 6px; background: transparent; color: #333; padding: 0 14px; font-weight: 700; }
@@ -3238,7 +3403,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .gradient-template-panel { grid-column: 1 / -1; }
 .gradient-template-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 12px; align-items: start; }
 .unit-template-panel { grid-column: 1 / -1; }
-.unit-template-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+.unit-template-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 12px; align-items: start; }
 .unit-template-card { display: grid; gap: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; min-width: 0; }
 .unit-chip-list { display: flex; gap: 6px; flex-wrap: wrap; }
 .unit-chip { min-height: 30px; display: inline-flex; align-items: center; gap: 5px; border-color: #d9d2c8; background: #fff; padding: 0 9px; font-size: 12px; }
@@ -3292,6 +3457,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .primary-category { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fbfaf8; min-width: 0; }
 .category-head, .secondary-head, .category-actions { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
 .primary-category-head { align-items: flex-start; justify-content: space-between; gap: 10px; }
+.primary-category-left { display: flex; align-items: flex-start; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.primary-category-right { justify-content: flex-end; padding-top: 2px; }
 .category-row-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; margin-left: auto; padding-top: 1px; }
 .category-sort-pill { display: inline-flex; align-items: center; gap: 2px; border: 1px solid #e3ddd4; border-radius: 999px; background: #fff; padding: 2px; }
 .category-delete-button { width: 24px; height: 24px; min-height: 24px; display: inline-grid; place-items: center; flex: 0 0 auto; border: 1px solid #d92d20; border-radius: 999px; background: #fff1f0; color: #b42318; padding: 0; font-size: 14px; font-weight: 800; line-height: 1; cursor: pointer; }
@@ -3368,10 +3535,15 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .settings-drawer-mask { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .22); }
 .settings-drawer { width: min(760px, 94vw); height: 100%; overflow: auto; background: #fff; box-shadow: -12px 0 32px rgba(0, 0, 0, .16); padding: 16px; display: grid; grid-template-rows: auto 1fr; gap: 12px; }
 .product-editor-drawer { width: min(820px, 94vw); }
+.category-settings-drawer { width: min(920px, 96vw); }
+.global-unit-dictionary-drawer { width: min(760px, 94vw); }
 .drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 1px solid #eee8df; padding-bottom: 12px; }
 .drawer-head h3 { margin: 0 0 4px; font-size: 18px; }
 .drawer-head p { margin: 0; color: #666; font-size: 12px; }
 .drawer-body { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.global-unit-drawer-body { grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); align-items: start; }
+.global-unit-chip-list { display: grid; gap: 8px; }
+.global-unit-chip { min-height: 50px; justify-content: flex-start; text-align: left; }
 .drawer-section { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; background: #fbfaf8; }
 @media (max-width: 1100px) {
   .custom-product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -3380,7 +3552,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .unit-template-layout, .unit-definition-form, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row { grid-template-columns: 1fr; }
+  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row { grid-template-columns: 1fr; }
   .sku-context-main { display: grid; }
   .sku-context-controls { justify-content: flex-start; min-width: 0; }
   .sku-workspace-tabs { width: 100%; }
