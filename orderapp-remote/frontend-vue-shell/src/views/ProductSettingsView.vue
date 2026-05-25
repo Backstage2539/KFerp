@@ -3434,12 +3434,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .unit-conversion-row { display: grid; grid-template-columns: minmax(72px, .45fr) minmax(82px, .7fr) auto minmax(72px, .45fr) minmax(82px, .7fr) auto; gap: 6px; align-items: center; min-width: 0; }
 .unit-conversion-row span { color: #666; text-align: center; }
 .price-rule-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; column-gap: 10px; row-gap: 10px; }
-.price-rule-grid .rule-config-field { min-width: 0; align-self: start; }
+.price-rule-grid .rule-config-field { min-width: 0; align-self: start; display: grid; grid-template-rows: 22px auto; gap: 4px; }
 .price-rule-grid .rule-config-field select { width: 100%; }
 .price-rule-grid .checkline { grid-column: 1 / -1; min-height: 24px; padding-top: 0; }
+.price-rule-grid .rule-config-field > span, .field-label-with-help { min-height: 22px; }
 .field-label-with-help { display: inline-flex; align-items: center; gap: 6px; width: fit-content; color: #333; }
 .field-help-wrap { position: relative; display: inline-flex; align-items: center; }
-.field-help-icon { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 999px; padding: 0; background: #111; color: #fff; font-size: 11px; font-weight: 800; line-height: 1; cursor: help; outline: none; }
+.field-help-icon { width: 16px; min-width: 16px; height: 16px; min-height: 16px; flex: 0 0 16px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 999px; padding: 0; background: #111; color: #fff; font-size: 11px; font-weight: 800; line-height: 1; cursor: help; outline: none; }
 .field-help-icon:focus-visible { box-shadow: 0 0 0 3px rgba(17, 17, 17, .16); }
 .field-help-tooltip { position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); display: none; width: min(240px, 70vw); padding: 8px 10px; border: 1px solid #d8d2ca; border-radius: 6px; background: #fff; color: #3f3328; font-size: 12px; font-weight: 400; line-height: 1.45; box-shadow: 0 8px 22px rgba(35, 28, 20, .16); z-index: 20; }
 .field-help-wrap:hover .field-help-tooltip, .field-help-wrap:focus-within .field-help-tooltip { display: block; }
