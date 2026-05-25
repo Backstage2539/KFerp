@@ -483,7 +483,7 @@ func TestProductSettingsVueSupportsCategoryDelete(t *testing.T) {
 		"async function deleteCategory(category)",
 		"method: 'DELETE'",
 		"`/api/product-settings/categories/${category.id}`",
-		"删除分类后，分类内商品会回到未分类",
+		"分类已删除，相关商品已回到未分类",
 		"danger-text",
 	} {
 		if !strings.Contains(src, want) {
