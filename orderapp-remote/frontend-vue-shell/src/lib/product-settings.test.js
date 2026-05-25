@@ -945,6 +945,42 @@ test('SKU settings renders the customer-only SKU form as a full-width workspace'
   assert.match(source, /@media\s*\(max-width:\s*1100px\)\s*\{[^}]*\.custom-product-form\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s)
 })
 
+test('SKU settings groups master data and template configuration into separate workspaces', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const style = source.split('<style scoped>')[1] || ''
+
+  for (const expected of [
+    'activeSettingsSection',
+    'sku-workspace-tabs',
+    'sku-master-workspace',
+    'sku-template-workspace',
+    'master-data-layout',
+    'template-workspace-stack',
+    '商品资料',
+    '模板配置',
+  ]) {
+    assert.ok(source.includes(expected), `missing SKU workspace layout marker: ${expected}`)
+  }
+
+  assert.ok(
+    template.indexOf('class="sku-master-workspace"') < template.indexOf('class="sku-template-workspace"'),
+    'master data workspace should be the primary daily-operation workspace before template configuration',
+  )
+  assert.ok(
+    template.indexOf('class="panel category-panel"') < template.indexOf('class="panel product-panel"'),
+    'category tree should sit before the SKU list inside the master-data workspace',
+  )
+  assert.ok(
+    template.indexOf('class="panel product-panel"') < template.indexOf('class="sku-template-workspace"'),
+    'template editors should not interrupt category and SKU list operations',
+  )
+  assert.match(style, /\.master-data-layout\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*minmax\(320px,\s*440px\)\s*minmax\(0,\s*1fr\);/)
+  assert.match(style, /\.template-workspace-stack\s*\{\s*display:\s*grid;\s*gap:\s*14px;/)
+  assert.match(style, /@media\s*\(max-width:\s*1100px\)/)
+  assert.match(style, /\.master-data-layout\s*\{\s*grid-template-columns:\s*1fr;\s*\}/)
+})
+
 test('assign category payload carries customer context for public template derivation', () => {
   assert.deepEqual(buildAssignCategoryPayload({
     product: { id: 421, customer_id: 42 },

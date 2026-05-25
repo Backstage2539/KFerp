@@ -12,7 +12,7 @@
       <div v-if="ok" class="ok">{{ ok }}</div>
     </section>
 
-    <section class="settings-grid">
+    <section class="settings-workbench">
       <div class="panel sku-context-panel">
         <div class="sku-context-main">
           <div>
@@ -43,6 +43,22 @@
         </div>
       </div>
 
+      <div class="sku-workspace-tabs" role="tablist" aria-label="SKU设置工作区">
+        <button
+          type="button"
+          :class="['workspace-tab', { active: activeSettingsSection === 'master' }]"
+          @click="activeSettingsSection = 'master'">
+          商品资料
+        </button>
+        <button
+          type="button"
+          :class="['workspace-tab', { active: activeSettingsSection === 'templates' }]"
+          @click="activeSettingsSection = 'templates'">
+          模板配置
+        </button>
+      </div>
+
+      <div v-show="activeSettingsSection === 'master'" class="sku-master-workspace">
       <div v-if="!selectedCustomerSkuCustomerID" class="panel public-product-panel">
         <div class="panel-title">
           <span>新增公共产品</span>
@@ -222,200 +238,7 @@
         </form>
       </div>
 
-      <div class="panel gradient-template-panel">
-        <div class="panel-title">
-          <span>梯度模板</span>
-          <button class="secondary compact-action" type="button" @click="resetGradientTemplateForm">新建模板</button>
-        </div>
-        <div v-if="selectedCustomerSkuCustomerID" class="customer-copy-panel">
-          <label class="checkline switchline">
-            <input :checked="customerUsesPublicGradientTemplates" type="checkbox" :disabled="publicUsageSaving" @change="savePublicGradientTemplateUsageForCustomer" />
-            <span>是否使用公共梯度模板</span>
-          </label>
-        </div>
-        <div class="gradient-template-layout">
-          <div class="template-list">
-            <div
-              v-for="template in gradientTemplates"
-              :key="template.id"
-              :class="['template-row', { active: Number(template.id) === Number(templateForm.id), inactive: template.active === false }]">
-              <button class="template-row-main" type="button" @click="startGradientTemplateEdit(template)">
-                <strong>{{ template.name }}</strong>
-                <small>{{ gradientTemplateLabel(template) }} · {{ gradientDisplayUnitLabel(template.display_unit) }} · {{ template.tiers.length }} 档</small>
-              </button>
-              <button
-                v-if="canDeriveGradientTemplate(template)"
-                class="text-button template-copy-action"
-                type="button"
-                :disabled="templateSaving"
-                @click.stop="deriveGradientTemplateForCustomer(template)">
-                复制为客户模板
-              </button>
-            </div>
-            <p v-if="!gradientTemplates.length" class="muted">暂无梯度模板</p>
-          </div>
-          <form class="template-editor" @submit.prevent="saveGradientTemplate">
-            <p v-if="!canEditCurrentTemplate" class="muted">公共模板需复制到客户后修改。</p>
-            <div class="template-editor-grid">
-              <label>
-                <span>模板名称</span>
-                <input v-model.trim="templateForm.name" :disabled="!canEditCurrentTemplate" placeholder="如 工厂量单模板" />
-              </label>
-              <label>
-                <span>展示单位</span>
-                <select v-model="templateForm.display_unit" :disabled="!canEditCurrentTemplate">
-                  <option v-for="unit in gradientDisplayUnitOptions" :key="unit.value" :value="unit.value">{{ unit.label }}</option>
-                </select>
-              </label>
-            </div>
-            <div class="template-tier-head">
-              <strong>梯度档位</strong>
-              <button class="secondary compact-action" type="button" :disabled="!canEditCurrentTemplate" @click="addGradientTemplateTier">新增档位</button>
-            </div>
-            <div class="template-tier-list">
-              <div v-for="(tier, index) in templateForm.tiers" :key="`tier-${index}`" class="template-tier-row">
-                <label>
-                  <span>区间名</span>
-                  <input v-model.trim="tier.label" :disabled="!canEditCurrentTemplate" placeholder="24-49kg" />
-                </label>
-                <label>
-                  <span>最小数量（{{ gradientDisplayQuantityUnitLabel(templateForm.display_unit) }}）</span>
-                  <input v-model.number="tier.min_display_qty" type="number" min="0" :step="gradientDisplayQuantityStep(templateForm.display_unit)" :disabled="!canEditCurrentTemplate" />
-                </label>
-                <label>
-                  <span>最大数量（{{ gradientDisplayQuantityUnitLabel(templateForm.display_unit) }}）</span>
-                  <input v-model="tier.max_display_qty" type="number" min="0" :step="gradientDisplayQuantityStep(templateForm.display_unit)" :disabled="!canEditCurrentTemplate" placeholder="无上限" />
-                </label>
-                <label>
-                  <span>利润率</span>
-                  <input v-model.number="tier.margin_rate" type="number" min="0" step="0.001" :disabled="!canEditCurrentTemplate" />
-                </label>
-                <button class="text-button danger-text" type="button" :disabled="!canEditCurrentTemplate" @click="removeGradientTemplateTier(index)">删除</button>
-              </div>
-            </div>
-            <div class="form-actions">
-              <button class="primary" type="submit" :disabled="templateSaving || !canEditCurrentTemplate">保存模板</button>
-              <button v-if="templateForm.id" class="secondary" type="button" :disabled="templateSaving || !canEditCurrentTemplate" @click="deactivateGradientTemplate(templateForm.id)">停用模板</button>
-            </div>
-          </form>
-        </div>
-      </div>
-
-      <div class="panel product-config-panel">
-        <div class="panel-title">
-          <span>商品配置</span>
-          <button class="secondary compact-action" type="button" @click="resetProductConfigTemplateForm">新建商品配置</button>
-        </div>
-        <div class="product-config-layout">
-          <div class="template-list product-config-list">
-            <div
-              v-for="config in productConfigTemplatesForContext"
-              :key="config.id"
-              class="template-row-main"
-              role="button"
-              tabindex="0"
-              @click="startProductConfigTemplateEdit(config)"
-              @keydown.enter.prevent="startProductConfigTemplateEdit(config)">
-              <span>
-                <strong>{{ config.name }}</strong>
-                <small>{{ productConfigTemplateLabel(config) }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}</small>
-              </span>
-              <button
-                v-if="canDeriveProductConfigTemplate(config)"
-                class="text-button"
-                type="button"
-                :disabled="productConfigSaving"
-                @click.stop="deriveProductConfigTemplateForCustomer(config)">
-                复制为客户配置
-              </button>
-            </div>
-            <p v-if="!productConfigTemplatesForContext.length" class="muted">暂无商品配置</p>
-          </div>
-
-          <form class="product-config-editor" @submit.prevent="saveProductConfigTemplate">
-            <p v-if="!canEditCurrentProductConfigTemplate" class="muted">公共商品配置需复制到客户后修改。</p>
-            <label>
-              <span>配置名称</span>
-              <input v-model.trim="productConfigTemplateForm.name" :disabled="!canEditCurrentProductConfigTemplate" placeholder="如 盒装速溶配置" />
-            </label>
-            <label>
-              <span>阶梯价模板</span>
-              <select v-model.number="productConfigTemplateForm.gradient_template_id" :disabled="!canEditCurrentProductConfigTemplate">
-                <option value="0">未绑定模板</option>
-                <option v-for="template in activeGradientTemplates" :key="template.id" :value="template.id">{{ template.name }} · {{ gradientDisplayUnitLabel(template.display_unit) }}</option>
-              </select>
-            </label>
-            <label>
-              <span>工序模板ID</span>
-              <input v-model.number="productConfigTemplateForm.operation_template_id" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0" step="1" placeholder="0 表示未绑定" />
-            </label>
-            <div class="rule-config-block">
-              <div class="field-group-title">价格表生成规则</div>
-              <label>
-                <span>计价方式</span>
-                <select v-model="productConfigTemplateForm.price_rule_pricing_mode" :disabled="!canEditCurrentProductConfigTemplate">
-                  <option v-for="option in priceListRulePricingModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                </select>
-              </label>
-              <label>
-                <span>展示方式</span>
-                <select v-model="productConfigTemplateForm.price_rule_display_mode" :disabled="!canEditCurrentProductConfigTemplate">
-                  <option v-for="option in priceListRuleDisplayModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                </select>
-              </label>
-              <label>
-                <span>取整规则</span>
-                <select v-model="productConfigTemplateForm.price_rule_rounding" :disabled="!canEditCurrentProductConfigTemplate">
-                  <option v-for="option in priceListRuleRoundingOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                </select>
-              </label>
-              <label class="checkline">
-                <input v-model="productConfigTemplateForm.price_rule_tax_included" :disabled="!canEditCurrentProductConfigTemplate" type="checkbox" />
-                <span>含税价格</span>
-              </label>
-            </div>
-            <div class="rule-config-block">
-              <div class="field-group-title">单位规则</div>
-              <label>
-                <span>库存单位</span>
-                <input v-model.trim="productConfigTemplateForm.inventory_unit" :disabled="!canEditCurrentProductConfigTemplate" placeholder="kg" />
-              </label>
-              <label>
-                <span>报价单位</span>
-                <input v-model.trim="productConfigTemplateForm.quote_unit" :disabled="!canEditCurrentProductConfigTemplate" placeholder="盒" />
-              </label>
-              <label>
-                <span>录单单位</span>
-                <input v-model.trim="productConfigTemplateForm.order_unit" :disabled="!canEditCurrentProductConfigTemplate" placeholder="盒" />
-              </label>
-              <label class="checkline">
-                <input v-model="productConfigTemplateForm.integer_unit" :disabled="!canEditCurrentProductConfigTemplate" type="checkbox" />
-                <span>整数单位</span>
-              </label>
-              <div class="unit-conversion-editor">
-                <div class="field-group-head">
-                  <span>单位换算</span>
-                  <button class="secondary compact-action" type="button" :disabled="!canEditCurrentProductConfigTemplate" @click="addUnitConversionRow(productConfigTemplateForm)">新增换算</button>
-                </div>
-                <div v-for="(row, rowIndex) in productConfigTemplateForm.unit_conversion_rows" :key="`product-config-unit-${rowIndex}`" class="unit-conversion-row">
-                  <input v-model.number="row.from_qty" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0.0001" step="0.0001" />
-                  <input v-model.trim="row.from_unit" placeholder="箱" />
-                  <span>=</span>
-                  <input v-model.number="row.to_qty" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0.0001" step="0.0001" />
-                  <input v-model.trim="row.to_unit" placeholder="盒" />
-                  <button class="text-button danger-text" type="button" :disabled="!canEditCurrentProductConfigTemplate" @click="removeUnitConversionRow(productConfigTemplateForm, rowIndex)">删除</button>
-                </div>
-                <small v-if="!productConfigTemplateForm.unit_conversion_rows.length">例如 1 盒 = 0.2 kg；不配置时录单单位按库存单位处理。</small>
-              </div>
-            </div>
-            <div class="form-actions">
-              <button class="primary" type="submit" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate">保存商品配置</button>
-              <button v-if="productConfigTemplateForm.id" class="secondary" type="button" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate" @click="deactivateProductConfigTemplate(productConfigTemplateForm.id)">停用配置</button>
-            </div>
-          </form>
-        </div>
-      </div>
-
+        <div class="master-data-layout">
       <div class="panel category-panel">
         <div class="panel-title">
           <span>商品分类 · {{ selectedSkuContextLabel }}</span>
@@ -779,6 +602,206 @@
           @change="handleSkuPaginationChange"
         />
       </div>
+        </div>
+      </div>
+
+      <div v-show="activeSettingsSection === 'templates'" class="sku-template-workspace">
+        <div class="template-workspace-stack">
+      <div class="panel gradient-template-panel">
+        <div class="panel-title">
+          <span>梯度模板</span>
+          <button class="secondary compact-action" type="button" @click="resetGradientTemplateForm">新建模板</button>
+        </div>
+        <div v-if="selectedCustomerSkuCustomerID" class="customer-copy-panel">
+          <label class="checkline switchline">
+            <input :checked="customerUsesPublicGradientTemplates" type="checkbox" :disabled="publicUsageSaving" @change="savePublicGradientTemplateUsageForCustomer" />
+            <span>是否使用公共梯度模板</span>
+          </label>
+        </div>
+        <div class="gradient-template-layout">
+          <div class="template-list">
+            <div
+              v-for="template in gradientTemplates"
+              :key="template.id"
+              :class="['template-row', { active: Number(template.id) === Number(templateForm.id), inactive: template.active === false }]">
+              <button class="template-row-main" type="button" @click="startGradientTemplateEdit(template)">
+                <strong>{{ template.name }}</strong>
+                <small>{{ gradientTemplateLabel(template) }} · {{ gradientDisplayUnitLabel(template.display_unit) }} · {{ template.tiers.length }} 档</small>
+              </button>
+              <button
+                v-if="canDeriveGradientTemplate(template)"
+                class="text-button template-copy-action"
+                type="button"
+                :disabled="templateSaving"
+                @click.stop="deriveGradientTemplateForCustomer(template)">
+                复制为客户模板
+              </button>
+            </div>
+            <p v-if="!gradientTemplates.length" class="muted">暂无梯度模板</p>
+          </div>
+          <form class="template-editor" @submit.prevent="saveGradientTemplate">
+            <p v-if="!canEditCurrentTemplate" class="muted">公共模板需复制到客户后修改。</p>
+            <div class="template-editor-grid">
+              <label>
+                <span>模板名称</span>
+                <input v-model.trim="templateForm.name" :disabled="!canEditCurrentTemplate" placeholder="如 工厂量单模板" />
+              </label>
+              <label>
+                <span>展示单位</span>
+                <select v-model="templateForm.display_unit" :disabled="!canEditCurrentTemplate">
+                  <option v-for="unit in gradientDisplayUnitOptions" :key="unit.value" :value="unit.value">{{ unit.label }}</option>
+                </select>
+              </label>
+            </div>
+            <div class="template-tier-head">
+              <strong>梯度档位</strong>
+              <button class="secondary compact-action" type="button" :disabled="!canEditCurrentTemplate" @click="addGradientTemplateTier">新增档位</button>
+            </div>
+            <div class="template-tier-list">
+              <div v-for="(tier, index) in templateForm.tiers" :key="`tier-${index}`" class="template-tier-row">
+                <label>
+                  <span>区间名</span>
+                  <input v-model.trim="tier.label" :disabled="!canEditCurrentTemplate" placeholder="24-49kg" />
+                </label>
+                <label>
+                  <span>最小数量（{{ gradientDisplayQuantityUnitLabel(templateForm.display_unit) }}）</span>
+                  <input v-model.number="tier.min_display_qty" type="number" min="0" :step="gradientDisplayQuantityStep(templateForm.display_unit)" :disabled="!canEditCurrentTemplate" />
+                </label>
+                <label>
+                  <span>最大数量（{{ gradientDisplayQuantityUnitLabel(templateForm.display_unit) }}）</span>
+                  <input v-model="tier.max_display_qty" type="number" min="0" :step="gradientDisplayQuantityStep(templateForm.display_unit)" :disabled="!canEditCurrentTemplate" placeholder="无上限" />
+                </label>
+                <label>
+                  <span>利润率</span>
+                  <input v-model.number="tier.margin_rate" type="number" min="0" step="0.001" :disabled="!canEditCurrentTemplate" />
+                </label>
+                <button class="text-button danger-text" type="button" :disabled="!canEditCurrentTemplate" @click="removeGradientTemplateTier(index)">删除</button>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="primary" type="submit" :disabled="templateSaving || !canEditCurrentTemplate">保存模板</button>
+              <button v-if="templateForm.id" class="secondary" type="button" :disabled="templateSaving || !canEditCurrentTemplate" @click="deactivateGradientTemplate(templateForm.id)">停用模板</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="panel product-config-panel">
+        <div class="panel-title">
+          <span>商品配置</span>
+          <button class="secondary compact-action" type="button" @click="resetProductConfigTemplateForm">新建商品配置</button>
+        </div>
+        <div class="product-config-layout">
+          <div class="template-list product-config-list">
+            <div
+              v-for="config in productConfigTemplatesForContext"
+              :key="config.id"
+              class="template-row-main"
+              role="button"
+              tabindex="0"
+              @click="startProductConfigTemplateEdit(config)"
+              @keydown.enter.prevent="startProductConfigTemplateEdit(config)">
+              <span>
+                <strong>{{ config.name }}</strong>
+                <small>{{ productConfigTemplateLabel(config) }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}</small>
+              </span>
+              <button
+                v-if="canDeriveProductConfigTemplate(config)"
+                class="text-button"
+                type="button"
+                :disabled="productConfigSaving"
+                @click.stop="deriveProductConfigTemplateForCustomer(config)">
+                复制为客户配置
+              </button>
+            </div>
+            <p v-if="!productConfigTemplatesForContext.length" class="muted">暂无商品配置</p>
+          </div>
+
+          <form class="product-config-editor" @submit.prevent="saveProductConfigTemplate">
+            <p v-if="!canEditCurrentProductConfigTemplate" class="muted">公共商品配置需复制到客户后修改。</p>
+            <label>
+              <span>配置名称</span>
+              <input v-model.trim="productConfigTemplateForm.name" :disabled="!canEditCurrentProductConfigTemplate" placeholder="如 盒装速溶配置" />
+            </label>
+            <label>
+              <span>阶梯价模板</span>
+              <select v-model.number="productConfigTemplateForm.gradient_template_id" :disabled="!canEditCurrentProductConfigTemplate">
+                <option value="0">未绑定模板</option>
+                <option v-for="template in activeGradientTemplates" :key="template.id" :value="template.id">{{ template.name }} · {{ gradientDisplayUnitLabel(template.display_unit) }}</option>
+              </select>
+            </label>
+            <label>
+              <span>工序模板ID</span>
+              <input v-model.number="productConfigTemplateForm.operation_template_id" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0" step="1" placeholder="0 表示未绑定" />
+            </label>
+            <div class="rule-config-block">
+              <div class="field-group-title">价格表生成规则</div>
+              <label>
+                <span>计价方式</span>
+                <select v-model="productConfigTemplateForm.price_rule_pricing_mode" :disabled="!canEditCurrentProductConfigTemplate">
+                  <option v-for="option in priceListRulePricingModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </label>
+              <label>
+                <span>展示方式</span>
+                <select v-model="productConfigTemplateForm.price_rule_display_mode" :disabled="!canEditCurrentProductConfigTemplate">
+                  <option v-for="option in priceListRuleDisplayModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </label>
+              <label>
+                <span>取整规则</span>
+                <select v-model="productConfigTemplateForm.price_rule_rounding" :disabled="!canEditCurrentProductConfigTemplate">
+                  <option v-for="option in priceListRuleRoundingOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </label>
+              <label class="checkline">
+                <input v-model="productConfigTemplateForm.price_rule_tax_included" :disabled="!canEditCurrentProductConfigTemplate" type="checkbox" />
+                <span>含税价格</span>
+              </label>
+            </div>
+            <div class="rule-config-block">
+              <div class="field-group-title">单位规则</div>
+              <label>
+                <span>库存单位</span>
+                <input v-model.trim="productConfigTemplateForm.inventory_unit" :disabled="!canEditCurrentProductConfigTemplate" placeholder="kg" />
+              </label>
+              <label>
+                <span>报价单位</span>
+                <input v-model.trim="productConfigTemplateForm.quote_unit" :disabled="!canEditCurrentProductConfigTemplate" placeholder="盒" />
+              </label>
+              <label>
+                <span>录单单位</span>
+                <input v-model.trim="productConfigTemplateForm.order_unit" :disabled="!canEditCurrentProductConfigTemplate" placeholder="盒" />
+              </label>
+              <label class="checkline">
+                <input v-model="productConfigTemplateForm.integer_unit" :disabled="!canEditCurrentProductConfigTemplate" type="checkbox" />
+                <span>整数单位</span>
+              </label>
+              <div class="unit-conversion-editor">
+                <div class="field-group-head">
+                  <span>单位换算</span>
+                  <button class="secondary compact-action" type="button" :disabled="!canEditCurrentProductConfigTemplate" @click="addUnitConversionRow(productConfigTemplateForm)">新增换算</button>
+                </div>
+                <div v-for="(row, rowIndex) in productConfigTemplateForm.unit_conversion_rows" :key="`product-config-unit-${rowIndex}`" class="unit-conversion-row">
+                  <input v-model.number="row.from_qty" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0.0001" step="0.0001" />
+                  <input v-model.trim="row.from_unit" placeholder="箱" />
+                  <span>=</span>
+                  <input v-model.number="row.to_qty" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0.0001" step="0.0001" />
+                  <input v-model.trim="row.to_unit" placeholder="盒" />
+                  <button class="text-button danger-text" type="button" :disabled="!canEditCurrentProductConfigTemplate" @click="removeUnitConversionRow(productConfigTemplateForm, rowIndex)">删除</button>
+                </div>
+                <small v-if="!productConfigTemplateForm.unit_conversion_rows.length">例如 1 盒 = 0.2 kg；不配置时录单单位按库存单位处理。</small>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="primary" type="submit" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate">保存商品配置</button>
+              <button v-if="productConfigTemplateForm.id" class="secondary" type="button" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate" @click="deactivateProductConfigTemplate(productConfigTemplateForm.id)">停用配置</button>
+            </div>
+          </form>
+        </div>
+      </div>
+        </div>
+      </div>
     </section>
 
   </div>
@@ -882,6 +905,7 @@ const editingSubtypeConfigId = ref(0)
 const subtypeConfigForm = ref(defaultProductSubtypeConfigForm())
 const categoryCollapsed = ref(false)
 const productsCollapsed = ref(false)
+const activeSettingsSection = ref('master')
 const selectedCustomerSkuCustomerID = ref(0)
 const selectedProductIds = ref([])
 const skuFilters = ref(defaultSkuFilters())
@@ -2819,7 +2843,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .compact-action { min-height: 30px; padding: 0 10px; font-size: 12px; }
 .text-button { border: 0; background: transparent; color: #1f4f82; padding: 0; min-height: 28px; }
 .danger-text { color: #a33; }
-.settings-grid { display: grid; grid-template-columns: minmax(300px, 420px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.settings-workbench { display: grid; gap: 14px; align-items: start; }
+.sku-workspace-tabs { display: inline-flex; align-items: center; gap: 4px; width: fit-content; border: 1px solid #e6e0d8; border-radius: 8px; background: #fbfaf8; padding: 4px; }
+.workspace-tab { min-height: 32px; border: 0; border-radius: 6px; background: transparent; color: #333; padding: 0 14px; font-weight: 700; }
+.workspace-tab.active { background: #111; color: #fff; }
+.sku-master-workspace, .sku-template-workspace { display: grid; gap: 14px; min-width: 0; }
+.master-data-layout { display: grid; grid-template-columns: minmax(320px, 440px) minmax(0, 1fr); gap: 14px; align-items: start; min-width: 0; }
+.template-workspace-stack { display: grid; gap: 14px; min-width: 0; }
 .sku-context-panel { grid-column: 1 / -1; display: grid; gap: 10px; }
 .customer-rule-panel { grid-column: 1 / -1; }
 .customer-rule-binding { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); align-items: end; gap: 12px; margin-bottom: 12px; }
@@ -2855,9 +2885,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .template-row small { color: #666; font-size: 12px; }
 .template-row-main { min-height: 0; border: 0; background: transparent; padding: 0; color: inherit; text-align: left; display: grid; gap: 3px; }
 .template-copy-action { white-space: nowrap; }
-.template-editor { border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; }
+.template-editor, .product-config-editor { border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; }
 .template-editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 10px; }
-.template-editor label { display: grid; gap: 5px; font-size: 13px; }
+.template-editor label, .product-config-editor label { display: grid; gap: 5px; font-size: 13px; }
+.product-config-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.product-config-editor { display: grid; gap: 10px; }
 .template-tier-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 12px 0 8px; }
 .template-tier-list { display: grid; gap: 8px; }
 .template-tier-row { display: grid; grid-template-columns: minmax(130px, 1.1fr) minmax(130px, .9fr) minmax(130px, .9fr) minmax(100px, .7fr) auto; gap: 8px; align-items: end; border: 1px solid #e2ddd6; border-radius: 8px; background: #fff; padding: 10px; }
@@ -2935,12 +2967,15 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 @media (max-width: 1100px) {
   .custom-product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .customer-rule-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .master-data-layout { grid-template-columns: 1fr; }
 }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .settings-grid, .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row { grid-template-columns: 1fr; }
+  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row { grid-template-columns: 1fr; }
   .sku-context-main { display: grid; }
   .sku-context-controls { justify-content: flex-start; min-width: 0; }
+  .sku-workspace-tabs { width: 100%; }
+  .workspace-tab { flex: 1; }
   .panel-actions { justify-content: flex-start; }
   .sku-panel-actions { width: 100%; }
   .sku-customer-select { max-width: none; }
