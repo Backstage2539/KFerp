@@ -29,7 +29,7 @@ test('SKU settings no longer embeds the product bean-list workspace', () => {
   assert.doesNotMatch(productSettingsSource, /豆单和价格试算会按当前归属切换/)
 })
 
-test('SKU settings exposes customer context initialization without the public product form', () => {
+test('SKU settings exposes customer context initialization with SKU creation in a drawer', () => {
   for (const expected of [
     'v-if="!selectedCustomerSkuCustomerID"',
     '/api/customer-fulfillment/customers?limit=200',
@@ -41,7 +41,9 @@ test('SKU settings exposes customer context initialization without the public pr
   ]) {
     assert.match(productSettingsSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
-  assert.match(productSettingsSource, /<div v-if="selectedCustomerSkuCustomerID" class="panel custom-product-panel">/)
+  assert.match(productSettingsSource, /class="settings-drawer product-editor-drawer"/)
+  assert.match(productSettingsSource, /<form v-if="!selectedCustomerSkuCustomerID" class="product-create-form product-drawer-form" @submit\.prevent="createProduct">/)
+  assert.match(productSettingsSource, /<form v-else class="custom-product-form product-drawer-form" @submit\.prevent="createCustomProduct">/)
   assert.match(productSettingsSource, /<span>是否使用公共商品分类<\/span>/)
   assert.match(productSettingsSource, /<span>是否使用公共SKU<\/span>/)
   assert.doesNotMatch(productSettingsSource, /<span>是否使用商品分类<\/span>/)

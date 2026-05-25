@@ -940,9 +940,10 @@ test('SKU settings keeps public SKU visibility controlled by the public SKU swit
 test('SKU settings renders the customer-only SKU form as a full-width workspace', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /\.custom-product-panel\s*\{\s*grid-column:\s*1\s*\/\s*-1;\s*\}/)
-  assert.match(source, /\.custom-product-form\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*repeat\(4,\s*minmax\(160px,\s*1fr\)\);/)
-  assert.match(source, /@media\s*\(max-width:\s*1100px\)\s*\{[^}]*\.custom-product-form\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s)
+  assert.match(source, /class="settings-drawer product-editor-drawer"/)
+  assert.match(source, /class="custom-product-form product-drawer-form"/)
+  assert.match(source, /\.product-editor-drawer\s*\{\s*width:\s*min\(820px,\s*94vw\);/)
+  assert.match(source, /\.product-drawer-form\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/)
 })
 
 test('SKU settings groups master data and template configuration into separate workspaces', () => {
@@ -958,7 +959,7 @@ test('SKU settings groups master data and template configuration into separate w
     'master-data-layout',
     'template-workspace-stack',
     '商品资料',
-    '模板配置',
+    '商品配置',
   ]) {
     assert.ok(source.includes(expected), `missing SKU workspace layout marker: ${expected}`)
   }
@@ -979,6 +980,58 @@ test('SKU settings groups master data and template configuration into separate w
   assert.match(style, /\.template-workspace-stack\s*\{\s*display:\s*grid;\s*gap:\s*14px;/)
   assert.match(style, /@media\s*\(max-width:\s*1100px\)/)
   assert.match(style, /\.master-data-layout\s*\{\s*grid-template-columns:\s*1fr;\s*\}/)
+})
+
+test('SKU settings keeps category tree and SKU creation behind compact drawers', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const style = source.split('<style scoped>')[1] || ''
+
+  for (const expected of [
+    'categorySearchQuery',
+    'visibleCategoryTreeForSkuContext',
+    'category-search',
+    'category-scroll-list',
+    'category-editor-drawer',
+    'product-editor-drawer',
+    'openCategoryDrawer',
+    'openProductDrawer',
+    '编辑产品类型',
+    '新增SKU',
+  ]) {
+    assert.ok(source.includes(expected), `missing compact SKU settings marker: ${expected}`)
+  }
+
+  assert.doesNotMatch(template, /class="panel public-product-panel"/)
+  assert.doesNotMatch(template, /class="panel custom-product-panel"/)
+  assert.match(template, /v-for="primary in visibleCategoryTreeForSkuContext"/)
+  assert.match(style, /\.category-scroll-list\s*\{[^}]*max-height:\s*min\(640px,\s*calc\(100vh - 280px\)\);[^}]*overflow:\s*auto;/s)
+  assert.match(style, /\.settings-drawer-mask\s*\{[^}]*position:\s*fixed;/s)
+})
+
+test('SKU settings splits product config templates and gradient templates into nested tabs', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const style = source.split('<style scoped>')[1] || ''
+
+  for (const expected of [
+    'activeConfigTemplateSection',
+    'config-template-tabs',
+    'product-config-template-pane',
+    'gradient-template-pane',
+    '商品配置模板',
+    '阶梯价模板',
+  ]) {
+    assert.ok(source.includes(expected), `missing template tab marker: ${expected}`)
+  }
+
+  assert.match(template, /activeSettingsSection === 'templates'[\s\S]*商品配置/)
+  assert.doesNotMatch(template, />模板配置</)
+  assert.ok(
+    template.indexOf('商品配置模板') < template.indexOf('阶梯价模板'),
+    'product config template tab should be the first, frequent template tab before gradient templates',
+  )
+  assert.match(style, /\.config-template-tabs\s*\{[^}]*display:\s*inline-flex;/s)
 })
 
 test('assign category payload carries customer context for public template derivation', () => {

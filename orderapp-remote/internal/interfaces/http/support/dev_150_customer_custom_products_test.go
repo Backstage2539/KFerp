@@ -63,8 +63,9 @@ func TestCustomerCustomSkuFormUsesSearchableDropdowns(t *testing.T) {
 	for _, want := range []string{
 		"SearchableSelect",
 		"selectedCustomerSkuCustomerID",
+		"product-editor-drawer",
 		"baseProductOptionLabel",
-		`v-if="selectedCustomerSkuCustomerID" class="panel custom-product-panel"`,
+		`v-else class="custom-product-form product-drawer-form"`,
 		"customForm.product_kind",
 		"customForm.green_bean_type",
 		"customForm.green_bean_bom_product_id",

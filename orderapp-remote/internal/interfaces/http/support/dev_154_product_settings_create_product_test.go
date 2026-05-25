@@ -9,7 +9,9 @@ import (
 func TestProductSettingsCanCreatePublicProducts(t *testing.T) {
 	view := string(readDev154File(t, "frontend-vue-shell/src/views/ProductSettingsView.vue"))
 	for _, want := range []string{
-		"新增公共产品",
+		"新增SKU",
+		"新增公共 SKU",
+		"product-editor-drawer",
 		`@submit.prevent="createProduct"`,
 		"productForm",
 		"defaultProductForm",

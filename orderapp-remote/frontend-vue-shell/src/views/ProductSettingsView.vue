@@ -4,7 +4,7 @@
       <div class="panel-head">
         <div>
           <h2>SKU设置</h2>
-          <p>维护公共 SKU、客户专属 SKU、商品分类和梯度模板；豆单生成请进入产品价格表。</p>
+          <p>维护公共 SKU、客户专属 SKU、商品分类和商品配置；豆单生成请进入产品价格表。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -18,7 +18,7 @@
           <div>
             <div class="context-eyebrow">SKU归属</div>
             <h3>{{ selectedSkuContextLabel }}</h3>
-            <p class="muted">产品列表、商品分类和梯度模板会按当前归属切换。</p>
+            <p class="muted">产品列表、商品分类和商品配置会按当前归属切换。</p>
           </div>
           <div v-if="!isWorkspaceCustomerLocked" class="sku-context-controls">
             <button class="secondary compact-action" type="button" @click="selectedCustomerSkuCustomerID = 0" :disabled="!selectedCustomerSkuCustomerID">
@@ -54,197 +54,21 @@
           type="button"
           :class="['workspace-tab', { active: activeSettingsSection === 'templates' }]"
           @click="activeSettingsSection = 'templates'">
-          模板配置
+          商品配置
         </button>
       </div>
 
       <div v-show="activeSettingsSection === 'master'" class="sku-master-workspace">
-      <div v-if="!selectedCustomerSkuCustomerID" class="panel public-product-panel">
-        <div class="panel-title">
-          <span>新增公共产品</span>
-        </div>
-        <form class="product-create-form" @submit.prevent="createProduct">
-          <label class="wide-field">
-            <span>商品名称</span>
-            <input v-model.trim="productForm.name" placeholder="如 花魁 SOE" />
-          </label>
-          <label class="wide-field">
-            <span>备注</span>
-            <textarea v-model.trim="productForm.remark" rows="2" placeholder="如 奶咖主推、仅指定客户使用"></textarea>
-          </label>
-          <label>
-            <span>产品类别</span>
-            <select v-model.number="productForm.product_type_category_id" @change="handleProductTypeCategoryChange(productForm)">
-              <option value="0">选择产品类别</option>
-              <option v-for="category in productTypeCategoryOptions" :key="category.id" :value="category.id">
-                {{ category.name }}
-              </option>
-            </select>
-          </label>
-          <label>
-            <span>产品子类型</span>
-            <select v-model.number="productForm.product_subtype_category_id" @change="syncProductTypeFromProductSubtype(productForm)">
-              <option value="0">不选择，进停车场</option>
-              <option v-for="category in productSubtypeCategoryOptions(productForm.product_type_category_id)" :key="category.id" :value="category.id">
-                {{ category.name }}
-              </option>
-            </select>
-            <small>只有选中产品子类型才会挂入分类；未选会进入停车场。</small>
-          </label>
-          <label v-if="productKindRequiresRoast(productForm.product_kind)">
-            <span>烘焙度</span>
-            <select v-model="productForm.roast_level">
-              <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
-            </select>
-          </label>
-          <label v-if="productKindRequiresRoast(productForm.product_kind)">
-            <span>BOM出品率</span>
-            <div class="yield-editor">
-              <input
-                class="yield-input"
-                v-model.number="productForm.yield_percent"
-                type="number"
-                min="1"
-                max="100"
-                step="0.01" />
-              <span>%</span>
-            </div>
-          </label>
-          <label v-if="productForm.product_kind === 'green_bean'">
-            <span>生豆属性</span>
-            <select v-model="productForm.green_bean_type">
-              <option v-for="option in greenBeanTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-            </select>
-          </label>
-          <label v-if="productForm.product_kind === 'green_bean'" class="wide-field">
-            <span>绑定熟豆</span>
-            <SearchableSelect
-              v-model="productForm.green_bean_bom_product_id"
-              :options="publicRoastedBomProducts"
-              :option-label="baseProductOptionLabel"
-              :option-meta="baseProductOptionMeta"
-              :option-value="optionNumericValue"
-              placeholder="选择对应熟豆"
-              empty-text="暂无熟豆产品" />
-          </label>
-          <label v-if="productForm.product_kind === 'drip_bag'">
-            <span>每袋克重</span>
-            <input v-model.number="productForm.drip_bag_grams" type="number" min="0.01" step="0.01" />
-          </label>
-          <label v-if="productForm.product_kind === 'drip_bag'">
-            <span>每盒袋数</span>
-            <input v-model.number="productForm.drip_box_bag_count" type="number" min="1" step="1" />
-          </label>
-          <div class="form-actions">
-            <button class="primary" type="submit" :disabled="productSaving">创建公共产品</button>
-          </div>
-        </form>
-      </div>
-
-      <div v-if="selectedCustomerSkuCustomerID" class="panel custom-product-panel">
-        <div class="panel-title">
-          <span>客户专属 SKU</span>
-        </div>
-        <form class="custom-product-form" @submit.prevent="createCustomProduct">
-          <label>
-            <span>产品类别</span>
-            <select v-model.number="customForm.product_type_category_id" @change="handleCustomProductTypeCategoryChange">
-              <option value="0">选择产品类别</option>
-              <option v-for="category in productTypeCategoryOptions" :key="category.id" :value="category.id">
-                {{ category.name }}
-              </option>
-            </select>
-          </label>
-          <label>
-            <span>产品子类型</span>
-            <select v-model.number="customForm.product_subtype_category_id" @change="syncProductTypeFromProductSubtype(customForm)">
-              <option value="0">不选择，进停车场</option>
-              <option v-for="category in productSubtypeCategoryOptions(customForm.product_type_category_id)" :key="category.id" :value="category.id">
-                {{ category.name }}
-              </option>
-            </select>
-            <small>未选产品子类型时先进入停车场，后续再拖入子类型。</small>
-          </label>
-          <label v-if="customForm.product_kind !== 'green_bean' && customForm.custom_type !== 'custom_roast'" class="wide-field">
-            <span>基础产品</span>
-            <SearchableSelect
-              v-model="customForm.base_product_id"
-              :options="customBaseProducts"
-              :option-label="baseProductOptionLabel"
-              :option-meta="baseProductOptionMeta"
-              :option-value="optionNumericValue"
-              placeholder="输入产品名"
-              empty-text="没有匹配产品"
-              @select="fillCustomProductName" />
-          </label>
-          <label>
-            <span>定制类型</span>
-            <select v-model="customForm.custom_type">
-              <option value="public_sku_alias">公共 SKU 改名</option>
-              <option value="custom_roast">定制烘焙度</option>
-            </select>
-          </label>
-          <label v-if="productKindRequiresRoast(customForm.product_kind)">
-            <span>烘焙度</span>
-            <select v-model="customForm.roast_level" @change="fillCustomProductName">
-              <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
-            </select>
-          </label>
-          <label v-if="customForm.product_kind === 'green_bean'">
-            <span>生豆属性</span>
-            <select v-model="customForm.green_bean_type">
-              <option v-for="option in greenBeanTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-            </select>
-          </label>
-          <label v-if="customForm.product_kind === 'green_bean'" class="wide-field">
-            <span>绑定熟豆</span>
-            <SearchableSelect
-              v-model="customForm.green_bean_bom_product_id"
-              :options="customRoastedBomProducts"
-              :option-label="baseProductOptionLabel"
-              :option-meta="baseProductOptionMeta"
-              :option-value="optionNumericValue"
-              placeholder="选择对应熟豆"
-              empty-text="暂无熟豆产品"
-              @select="fillCustomProductName" />
-          </label>
-          <label v-if="customForm.product_kind === 'drip_bag'">
-            <span>每袋克重</span>
-            <input v-model.number="customForm.drip_bag_grams" type="number" min="0.01" step="0.01" />
-          </label>
-          <label v-if="customForm.product_kind === 'drip_bag'">
-            <span>每盒袋数</span>
-            <input v-model.number="customForm.drip_box_bag_count" type="number" min="1" step="1" />
-          </label>
-          <label class="wide-field">
-            <span>专属 SKU 名称</span>
-            <input v-model.trim="customForm.name" placeholder="如 客户A-暖阳拼配-中深烘" />
-          </label>
-          <label class="wide-field">
-            <span>备注</span>
-            <textarea v-model.trim="customForm.remark" rows="2" placeholder="如 客户指定口味或包装说明"></textarea>
-          </label>
-          <label v-if="customForm.product_kind === 'roasted' && customForm.custom_type !== 'custom_roast'" class="checkline">
-            <input v-model="customForm.copy_bom" type="checkbox" />
-            <span>复制基础产品 BOM</span>
-          </label>
-          <label v-if="customForm.product_kind !== 'green_bean' && customForm.custom_type !== 'custom_roast'" class="checkline">
-            <input v-model="customForm.copy_price_tiers" type="checkbox" />
-            <span>复制基础产品价格梯度</span>
-          </label>
-          <div class="form-actions">
-            <button class="primary" type="submit" :disabled="customSaving">创建专属 SKU</button>
-          </div>
-        </form>
-      </div>
-
         <div class="master-data-layout">
       <div class="panel category-panel">
         <div class="panel-title">
           <span>商品分类 · {{ selectedSkuContextLabel }}</span>
-          <button class="toggle-section" type="button" @click="categoryCollapsed = !categoryCollapsed">
-            {{ categoryCollapsed ? '展开' : '收起' }}
-          </button>
+          <div class="panel-actions">
+            <button class="primary compact-action" type="button" @click="openCategoryDrawer">编辑产品类型</button>
+            <button class="toggle-section" type="button" @click="categoryCollapsed = !categoryCollapsed">
+              {{ categoryCollapsed ? '展开' : '收起' }}
+            </button>
+          </div>
         </div>
         <div v-show="!categoryCollapsed">
           <div v-if="selectedCustomerSkuCustomerID" class="customer-copy-panel">
@@ -254,41 +78,29 @@
             </label>
           </div>
 
-          <form class="inline-form" @submit.prevent="savePrimaryCategory">
-            <input v-model.trim="newPrimaryName" placeholder="新增产品类型，如 咖啡豆" />
-            <button class="secondary" type="submit">新增产品类型</button>
-          </form>
+          <label class="category-search">
+            <span>搜索商品分类</span>
+            <input v-model.trim="categorySearchQuery" placeholder="搜索产品类型、子类型或 SKU" />
+          </label>
 
+          <div class="category-scroll-list">
           <div class="category-tree">
             <div
-              v-for="primary in categoryTreeForSkuContext"
+              v-for="primary in visibleCategoryTreeForSkuContext"
               :key="primary.id"
               class="primary-category"
               :data-primary-id="primary.id"
               @dragover.prevent="handlePrimaryCategoryDragOver($event, primary)"
               @drop.prevent="dropCategoryOnCurrentTarget(primary)">
-              <form v-if="editingCategoryId === primary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(primary)">
-                <input v-model.trim="editingCategoryName" placeholder="产品类型名称" />
-                <button class="secondary" type="submit">保存</button>
-              </form>
-              <div v-else class="category-head">
+              <div class="category-head">
                 <strong>{{ primary.number }}. {{ primary.name }}<small v-if="skuContextCustomerID">（{{ categoryStateLabel(primary) }}）</small></strong>
-                <div v-if="canEditCategory(primary)" class="category-actions">
-                  <button class="text-button" type="button" @click="startCategoryEdit(primary)">改名</button>
-                  <button class="text-button" type="button" @click="startAddingSecondary(primary)">新增二级</button>
-                  <button class="text-button danger-text" type="button" @click="deleteCategory(primary)">删除</button>
-                </div>
-                <div v-else-if="skuContextCustomerID" class="category-actions">
+                <div v-if="!canEditCategory(primary) && skuContextCustomerID" class="category-actions">
                   <button class="text-button" type="button" @click="deriveCategoryTemplate(primary)">复制为客户分类</button>
                 </div>
               </div>
 
-              <form v-if="addingSecondaryFor === primary.id" class="inline-form sub-form" @submit.prevent="saveSecondaryCategory(primary)">
-                <input v-model.trim="newSecondaryName" placeholder="新增产品子类型，如 意式拼配" />
-                <button class="secondary" type="submit">保存</button>
-              </form>
-
               <div
+                v-if="!isCategorySearchActive"
                 class="category-drop-line"
                 :class="{ active: isCategoryDropTarget(primary, 1) }"
                 @dragover.prevent.stop="setCategoryDropTarget(primary, 1)"
@@ -305,11 +117,7 @@
                   @dragenter.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
                   @dragover.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
                   @drop.prevent.stop="dropCategoryOrProductOnSecondary(primary, index + 1, secondary)">
-                  <form v-if="editingCategoryId === secondary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(secondary)">
-                    <input v-model.trim="editingCategoryName" placeholder="产品子类型名称" />
-                    <button class="secondary" type="submit">保存</button>
-                  </form>
-                  <div v-else class="secondary-head">
+                  <div class="secondary-head">
                     <span>{{ secondary.number }}</span>
                     <b>{{ secondary.name }}</b>
                     <small v-if="skuContextCustomerID">{{ categoryStateLabel(secondary) }}</small>
@@ -325,9 +133,7 @@
                         {{ config.name }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}
                       </option>
                     </select>
-                    <button v-if="canEditCategory(secondary)" class="text-button" type="button" @click="startCategoryEdit(secondary)">改名</button>
                     <button v-if="canEditCategory(secondary)" class="text-button" type="button" @click="startProductSubtypeConfigEdit(secondary)">更换商品配置</button>
-                    <button v-if="canEditCategory(secondary)" class="text-button danger-text" type="button" @click="deleteCategory(secondary)">删除</button>
                     <button v-if="!canEditCategory(secondary) && skuContextCustomerID" class="text-button" type="button" @click="deriveCategoryTemplate(secondary)">复制为客户分类</button>
                   </div>
                   <form
@@ -368,6 +174,7 @@
                   </div>
                 </div>
                 <div
+                  v-if="!isCategorySearchActive"
                   class="category-drop-line"
                   :class="{ active: isCategoryDropTarget(primary, index + 2) }"
                   @dragover.prevent.stop="setCategoryDropTarget(primary, index + 2)"
@@ -376,6 +183,7 @@
               </template>
             </div>
           </div>
+          <p v-if="!visibleCategoryTreeForSkuContext.length" class="muted category-empty">没有匹配的商品分类</p>
 
           <div class="uncategorized" @dragover.prevent @drop="dropProductOnSecondary({ id: 0 })">
             <div class="sub-title">停车场（待归类 SKU）</div>
@@ -391,6 +199,7 @@
             </span>
             <p v-if="!uncategorizedProducts.length" class="muted">停车场暂无 SKU</p>
           </div>
+          </div>
         </div>
       </div>
 
@@ -398,6 +207,7 @@
         <div class="panel-title sku-panel-title">
           <span>客户SKU列表 · {{ selectedSkuContextLabel }}</span>
           <div class="panel-actions sku-panel-actions">
+            <button class="primary compact-action" type="button" @click="openProductDrawer">新增SKU</button>
             <button class="secondary compact-action" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
               失效选中产品
             </button>
@@ -607,9 +417,23 @@
 
       <div v-show="activeSettingsSection === 'templates'" class="sku-template-workspace">
         <div class="template-workspace-stack">
-      <div class="panel gradient-template-panel">
+          <div class="config-template-tabs" role="tablist" aria-label="商品配置模板类型">
+            <button
+              type="button"
+              :class="['config-template-tab', { active: activeConfigTemplateSection === 'product-config' }]"
+              @click="activeConfigTemplateSection = 'product-config'">
+              商品配置模板
+            </button>
+            <button
+              type="button"
+              :class="['config-template-tab', { active: activeConfigTemplateSection === 'gradient' }]"
+              @click="activeConfigTemplateSection = 'gradient'">
+              阶梯价模板
+            </button>
+          </div>
+      <div v-show="activeConfigTemplateSection === 'gradient'" class="panel gradient-template-panel gradient-template-pane">
         <div class="panel-title">
-          <span>梯度模板</span>
+          <span>阶梯价模板</span>
           <button class="secondary compact-action" type="button" @click="resetGradientTemplateForm">新建模板</button>
         </div>
         <div v-if="selectedCustomerSkuCustomerID" class="customer-copy-panel">
@@ -686,9 +510,9 @@
         </div>
       </div>
 
-      <div class="panel product-config-panel">
+      <div v-show="activeConfigTemplateSection === 'product-config'" class="panel product-config-panel product-config-template-pane">
         <div class="panel-title">
-          <span>商品配置</span>
+          <span>商品配置模板</span>
           <button class="secondary compact-action" type="button" @click="resetProductConfigTemplateForm">新建商品配置</button>
         </div>
         <div class="product-config-layout">
@@ -804,6 +628,210 @@
       </div>
     </section>
 
+    <div v-if="categoryDrawerOpen" class="settings-drawer-mask" @click.self="closeCategoryDrawer">
+      <aside class="settings-drawer category-editor-drawer" aria-label="编辑产品类型">
+        <div class="drawer-head">
+          <div>
+            <h3>编辑产品类型</h3>
+            <p>新增或维护产品类型和产品子类型。</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeCategoryDrawer">关闭</button>
+        </div>
+        <div class="drawer-body">
+          <section class="drawer-section">
+            <div class="sub-title">新增产品类型</div>
+            <form class="inline-form" @submit.prevent="savePrimaryCategory">
+              <input v-model.trim="newPrimaryName" placeholder="新增产品类型，如 速溶咖啡" />
+              <button class="secondary" type="submit">新增</button>
+            </form>
+          </section>
+          <section class="drawer-section category-editor-list">
+            <div v-for="primary in categoryTreeForSkuContext" :key="`drawer-primary-${primary.id}`" class="category-editor-item">
+              <form v-if="editingCategoryId === primary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(primary)">
+                <input v-model.trim="editingCategoryName" placeholder="产品类型名称" />
+                <button class="secondary" type="submit">保存</button>
+              </form>
+              <div v-else class="category-editor-row">
+                <strong>{{ primary.number }}. {{ primary.name }}</strong>
+                <div class="category-actions">
+                  <button v-if="canEditCategory(primary)" class="text-button" type="button" @click="startCategoryEdit(primary)">改名</button>
+                  <button v-if="canEditCategory(primary)" class="text-button" type="button" @click="startAddingSecondary(primary)">新增子类型</button>
+                  <button v-if="canEditCategory(primary)" class="text-button danger-text" type="button" @click="deleteCategory(primary)">删除</button>
+                  <button v-if="!canEditCategory(primary) && skuContextCustomerID" class="text-button" type="button" @click="deriveCategoryTemplate(primary)">复制为客户分类</button>
+                </div>
+              </div>
+              <form v-if="addingSecondaryFor === primary.id" class="inline-form sub-form" @submit.prevent="saveSecondaryCategory(primary)">
+                <input v-model.trim="newSecondaryName" placeholder="新增产品子类型，如 冻干速溶" />
+                <button class="secondary" type="submit">保存</button>
+              </form>
+              <div class="category-editor-children">
+                <div v-for="secondary in primary.children" :key="`drawer-secondary-${secondary.id}`" class="category-editor-child">
+                  <form v-if="editingCategoryId === secondary.id" class="inline-form sub-form" @submit.prevent="saveCategoryName(secondary)">
+                    <input v-model.trim="editingCategoryName" placeholder="产品子类型名称" />
+                    <button class="secondary" type="submit">保存</button>
+                  </form>
+                  <div v-else class="category-editor-row">
+                    <span>{{ secondary.number }} {{ secondary.name }}</span>
+                    <div class="category-actions">
+                      <button v-if="canEditCategory(secondary)" class="text-button" type="button" @click="startCategoryEdit(secondary)">改名</button>
+                      <button v-if="canEditCategory(secondary)" class="text-button danger-text" type="button" @click="deleteCategory(secondary)">删除</button>
+                      <button v-if="!canEditCategory(secondary) && skuContextCustomerID" class="text-button" type="button" @click="deriveCategoryTemplate(secondary)">复制为客户分类</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p v-if="!categoryTreeForSkuContext.length" class="muted">暂无商品分类</p>
+          </section>
+        </div>
+      </aside>
+    </div>
+
+    <div v-if="productDrawerOpen" class="settings-drawer-mask" @click.self="closeProductDrawer">
+      <aside class="settings-drawer product-editor-drawer" aria-label="新增SKU">
+        <div class="drawer-head">
+          <div>
+            <h3>{{ selectedCustomerSkuCustomerID ? '新增客户专属 SKU' : '新增公共 SKU' }}</h3>
+            <p>选择产品类别和产品子类型；未选择子类型时先进入停车场。</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeProductDrawer">关闭</button>
+        </div>
+        <div class="drawer-body">
+          <form v-if="!selectedCustomerSkuCustomerID" class="product-create-form product-drawer-form" @submit.prevent="createProduct">
+            <label class="wide-field">
+              <span>商品名称</span>
+              <input v-model.trim="productForm.name" placeholder="如 花魁 SOE" />
+            </label>
+            <label class="wide-field">
+              <span>备注</span>
+              <textarea v-model.trim="productForm.remark" rows="2" placeholder="如 奶咖主推、仅指定客户使用"></textarea>
+            </label>
+            <label>
+              <span>产品类别</span>
+              <select v-model.number="productForm.product_type_category_id" @change="handleProductTypeCategoryChange(productForm)">
+                <option value="0">选择产品类别</option>
+                <option v-for="category in productTypeCategoryOptions" :key="category.id" :value="category.id">{{ category.name }}</option>
+              </select>
+            </label>
+            <label>
+              <span>产品子类型</span>
+              <select v-model.number="productForm.product_subtype_category_id" @change="syncProductTypeFromProductSubtype(productForm)">
+                <option value="0">不选择，进停车场</option>
+                <option v-for="category in productSubtypeCategoryOptions(productForm.product_type_category_id)" :key="category.id" :value="category.id">{{ category.name }}</option>
+              </select>
+              <small>只有选中产品子类型才会挂入分类；未选会进入停车场。</small>
+            </label>
+            <label v-if="productKindRequiresRoast(productForm.product_kind)">
+              <span>烘焙度</span>
+              <select v-model="productForm.roast_level">
+                <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
+              </select>
+            </label>
+            <label v-if="productKindRequiresRoast(productForm.product_kind)">
+              <span>BOM出品率</span>
+              <div class="yield-editor">
+                <input class="yield-input" v-model.number="productForm.yield_percent" type="number" min="1" max="100" step="0.01" />
+                <span>%</span>
+              </div>
+            </label>
+            <label v-if="productForm.product_kind === 'green_bean'">
+              <span>生豆属性</span>
+              <select v-model="productForm.green_bean_type">
+                <option v-for="option in greenBeanTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+            </label>
+            <label v-if="productForm.product_kind === 'green_bean'" class="wide-field">
+              <span>绑定熟豆</span>
+              <SearchableSelect v-model="productForm.green_bean_bom_product_id" :options="publicRoastedBomProducts" :option-label="baseProductOptionLabel" :option-meta="baseProductOptionMeta" :option-value="optionNumericValue" placeholder="选择对应熟豆" empty-text="暂无熟豆产品" />
+            </label>
+            <label v-if="productForm.product_kind === 'drip_bag'">
+              <span>每袋克重</span>
+              <input v-model.number="productForm.drip_bag_grams" type="number" min="0.01" step="0.01" />
+            </label>
+            <label v-if="productForm.product_kind === 'drip_bag'">
+              <span>每盒袋数</span>
+              <input v-model.number="productForm.drip_box_bag_count" type="number" min="1" step="1" />
+            </label>
+            <div class="form-actions">
+              <button class="primary" type="submit" :disabled="productSaving">创建公共 SKU</button>
+            </div>
+          </form>
+
+          <form v-else class="custom-product-form product-drawer-form" @submit.prevent="createCustomProduct">
+            <label>
+              <span>产品类别</span>
+              <select v-model.number="customForm.product_type_category_id" @change="handleCustomProductTypeCategoryChange">
+                <option value="0">选择产品类别</option>
+                <option v-for="category in productTypeCategoryOptions" :key="category.id" :value="category.id">{{ category.name }}</option>
+              </select>
+            </label>
+            <label>
+              <span>产品子类型</span>
+              <select v-model.number="customForm.product_subtype_category_id" @change="syncProductTypeFromProductSubtype(customForm)">
+                <option value="0">不选择，进停车场</option>
+                <option v-for="category in productSubtypeCategoryOptions(customForm.product_type_category_id)" :key="category.id" :value="category.id">{{ category.name }}</option>
+              </select>
+              <small>未选产品子类型时先进入停车场，后续再拖入子类型。</small>
+            </label>
+            <label v-if="customForm.product_kind !== 'green_bean' && customForm.custom_type !== 'custom_roast'" class="wide-field">
+              <span>基础产品</span>
+              <SearchableSelect v-model="customForm.base_product_id" :options="customBaseProducts" :option-label="baseProductOptionLabel" :option-meta="baseProductOptionMeta" :option-value="optionNumericValue" placeholder="输入产品名" empty-text="没有匹配产品" @select="fillCustomProductName" />
+            </label>
+            <label>
+              <span>定制类型</span>
+              <select v-model="customForm.custom_type">
+                <option value="public_sku_alias">公共 SKU 改名</option>
+                <option value="custom_roast">定制烘焙度</option>
+              </select>
+            </label>
+            <label v-if="productKindRequiresRoast(customForm.product_kind)">
+              <span>烘焙度</span>
+              <select v-model="customForm.roast_level" @change="fillCustomProductName">
+                <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
+              </select>
+            </label>
+            <label v-if="customForm.product_kind === 'green_bean'">
+              <span>生豆属性</span>
+              <select v-model="customForm.green_bean_type">
+                <option v-for="option in greenBeanTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+            </label>
+            <label v-if="customForm.product_kind === 'green_bean'" class="wide-field">
+              <span>绑定熟豆</span>
+              <SearchableSelect v-model="customForm.green_bean_bom_product_id" :options="customRoastedBomProducts" :option-label="baseProductOptionLabel" :option-meta="baseProductOptionMeta" :option-value="optionNumericValue" placeholder="选择对应熟豆" empty-text="暂无熟豆产品" @select="fillCustomProductName" />
+            </label>
+            <label v-if="customForm.product_kind === 'drip_bag'">
+              <span>每袋克重</span>
+              <input v-model.number="customForm.drip_bag_grams" type="number" min="0.01" step="0.01" />
+            </label>
+            <label v-if="customForm.product_kind === 'drip_bag'">
+              <span>每盒袋数</span>
+              <input v-model.number="customForm.drip_box_bag_count" type="number" min="1" step="1" />
+            </label>
+            <label class="wide-field">
+              <span>专属 SKU 名称</span>
+              <input v-model.trim="customForm.name" placeholder="如 客户A-暖阳拼配-中深烘" />
+            </label>
+            <label class="wide-field">
+              <span>备注</span>
+              <textarea v-model.trim="customForm.remark" rows="2" placeholder="如 客户指定口味或包装说明"></textarea>
+            </label>
+            <label v-if="customForm.product_kind === 'roasted' && customForm.custom_type !== 'custom_roast'" class="checkline">
+              <input v-model="customForm.copy_bom" type="checkbox" />
+              <span>复制基础产品 BOM</span>
+            </label>
+            <label v-if="customForm.product_kind !== 'green_bean' && customForm.custom_type !== 'custom_roast'" class="checkline">
+              <input v-model="customForm.copy_price_tiers" type="checkbox" />
+              <span>复制基础产品价格梯度</span>
+            </label>
+            <div class="form-actions">
+              <button class="primary" type="submit" :disabled="customSaving">创建专属 SKU</button>
+            </div>
+          </form>
+        </div>
+      </aside>
+    </div>
+
   </div>
 </template>
 
@@ -906,6 +934,10 @@ const subtypeConfigForm = ref(defaultProductSubtypeConfigForm())
 const categoryCollapsed = ref(false)
 const productsCollapsed = ref(false)
 const activeSettingsSection = ref('master')
+const activeConfigTemplateSection = ref('product-config')
+const categoryDrawerOpen = ref(false)
+const productDrawerOpen = ref(false)
+const categorySearchQuery = ref('')
 const selectedCustomerSkuCustomerID = ref(0)
 const selectedProductIds = ref([])
 const skuFilters = ref(defaultSkuFilters())
@@ -961,6 +993,8 @@ const categoryTreeForSkuContext = computed(() => buildSkuContextCategoryTree(cat
   publicProducts: publicProducts.value,
   customerProducts: customerProductsForContext.value,
 }))
+const isCategorySearchActive = computed(() => Boolean(categorySearchQuery.value.trim()))
+const visibleCategoryTreeForSkuContext = computed(() => filterCategoryTreeByQuery(categoryTreeForSkuContext.value, categorySearchQuery.value))
 const productTypeCategoryOptions = computed(() => categoryTreeForSkuContext.value
   .map((category) => ({
     id: Number(category.id || 0),
@@ -1225,6 +1259,9 @@ function saveProductSettingsDraft() {
     subtypeConfigForm: subtypeConfigForm.value,
     categoryCollapsed: categoryCollapsed.value,
     productsCollapsed: productsCollapsed.value,
+    activeSettingsSection: activeSettingsSection.value,
+    activeConfigTemplateSection: activeConfigTemplateSection.value,
+    categorySearchQuery: categorySearchQuery.value,
     skuFilters: skuFilters.value,
     skuPage: skuPage.value,
     skuPageSize: skuPageSize.value,
@@ -1251,6 +1288,9 @@ async function restoreProductSettingsDraft() {
   subtypeConfigForm.value = { ...defaultProductSubtypeConfigForm(), ...(draft.subtypeConfigForm || {}) }
   categoryCollapsed.value = Boolean(draft.categoryCollapsed)
   productsCollapsed.value = Boolean(draft.productsCollapsed)
+  activeSettingsSection.value = ['master', 'templates'].includes(draft.activeSettingsSection) ? draft.activeSettingsSection : 'master'
+  activeConfigTemplateSection.value = ['product-config', 'gradient'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
+  categorySearchQuery.value = draft.categorySearchQuery || ''
   skuFilters.value = { ...defaultSkuFilters(), ...(draft.skuFilters || {}) }
   skuPage.value = Number(draft.skuPage || 1)
   skuPageSize.value = normalizePageSize(draft.skuPageSize)
@@ -1844,6 +1884,34 @@ function flattenCategoryNodes(nodes = []) {
   return out
 }
 
+function normalizedSearch(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function categorySearchText(category = {}) {
+  return [
+    category.name,
+    category.number,
+    category.template_state,
+    ...(category.products || []).flatMap((product) => [product.name, product.number, product.remark]),
+  ].map((value) => String(value || '').toLowerCase()).join(' ')
+}
+
+function filterCategoryTreeByQuery(tree = [], query = '') {
+  const q = normalizedSearch(query)
+  if (!q) return tree
+  return (tree || [])
+    .map((primary) => {
+      const primaryMatches = categorySearchText(primary).includes(q)
+      const children = (primary.children || []).filter((secondary) => (
+        primaryMatches || categorySearchText(secondary).includes(q)
+      ))
+      if (!primaryMatches && !children.length) return null
+      return { ...primary, children }
+    })
+    .filter(Boolean)
+}
+
 function categoryBelongsToCurrentSkuContext(category) {
   return categoryBelongsToContext(category, {
     customerID: skuContextCustomerID.value,
@@ -1869,6 +1937,29 @@ function canEditCategory(category) {
 
 function canEditSkuRow(row) {
   return !isPublicReferenceRow(row, { customerID: skuContextCustomerID.value })
+}
+
+function openCategoryDrawer() {
+  categoryDrawerOpen.value = true
+  categoryCollapsed.value = false
+}
+
+function closeCategoryDrawer() {
+  categoryDrawerOpen.value = false
+  addingSecondaryFor.value = 0
+  editingCategoryId.value = 0
+  editingCategoryName.value = ''
+}
+
+function openProductDrawer() {
+  ensureProductTypeCategorySelected(productForm.value)
+  ensureProductTypeCategorySelected(customForm.value)
+  productDrawerOpen.value = true
+  productsCollapsed.value = false
+}
+
+function closeProductDrawer() {
+  productDrawerOpen.value = false
 }
 
 function isPublicSkuReference(row) {
@@ -2174,6 +2265,7 @@ async function createProduct() {
     const assigned = await assignCreatedSkuToSelectedProductSubtype(result?.product, productForm.value)
     ok.value = assigned ? '公共产品已创建并挂到产品子类型' : '公共产品已创建，未选择产品子类型，已进入停车场'
     productForm.value = defaultProductForm()
+    closeProductDrawer()
     await loadAll()
   } catch (err) {
     error.value = err.message || '创建公共产品失败'
@@ -2227,6 +2319,7 @@ async function createCustomProduct() {
     const assigned = await assignCreatedSkuToSelectedProductSubtype(result?.product, customForm.value)
     ok.value = assigned ? '客户专属 SKU 已创建并挂到产品子类型' : '客户专属 SKU 已创建，未选择产品子类型，已进入停车场'
     customForm.value = { ...defaultCustomForm(), customer_id: customerID }
+    closeProductDrawer()
     await loadAll()
   } catch (err) {
     error.value = err.message || '创建专属 SKU 失败'
@@ -2441,6 +2534,7 @@ async function deleteCategory(category) {
 }
 
 function startCategoryDrag(category) {
+  if (isCategorySearchActive.value) return
   if (!canEditCategory(category)) return
   dragging.value = {
     type: 'category',
@@ -2452,6 +2546,7 @@ function startCategoryDrag(category) {
 }
 
 function startCategoryPointerDrag(event, primary, visualPosition, category) {
+  if (isCategorySearchActive.value) return
   if (!canEditCategory(primary) || !canEditCategory(category)) return
   if (event.button !== 0 || isInteractiveDragSource(event.target)) return
   pointerDrag.value = {
@@ -2570,12 +2665,14 @@ function isPointerDraggingCategory(category) {
 }
 
 function setCategoryDropTarget(primary, position) {
+  if (isCategorySearchActive.value) return
   if (dragging.value?.type !== 'category') return
   if (!canEditCategory(primary)) return
   categoryDropTarget.value = { parentID: Number(primary.id), position: Number(position) }
 }
 
 function handlePrimaryCategoryDragOver(event, primary) {
+  if (isCategorySearchActive.value) return
   if (dragging.value?.type !== 'category') return
   if (!canEditCategory(primary)) return
   const target = resolveCategoryPointerTarget(event.clientX, event.clientY, Number(primary.id))
@@ -2585,6 +2682,7 @@ function handlePrimaryCategoryDragOver(event, primary) {
 }
 
 function handleSecondaryCategoryDragOver(event, primary, visualPosition) {
+  if (isCategorySearchActive.value) return
   if (dragging.value?.type !== 'category') return
   if (!canEditCategory(primary)) return
   const rect = event.currentTarget.getBoundingClientRect()
@@ -2599,6 +2697,10 @@ function isCategoryDropTarget(primary, position) {
 }
 
 async function dropCategoryAtPosition(primary, visualPosition) {
+  if (isCategorySearchActive.value) {
+    clearDrag()
+    return
+  }
   const drag = dragging.value
   if (drag?.type !== 'category') return
   if (!canEditCategory(primary)) {
@@ -2625,6 +2727,10 @@ async function dropCategoryAtPosition(primary, visualPosition) {
 }
 
 async function dropCategoryOnPrimary(primary) {
+  if (isCategorySearchActive.value) {
+    clearDrag()
+    return
+  }
   if (dragging.value?.type !== 'category') return
   await dropCategoryAtPosition(primary, Number(primary.children?.length || 0) + 1)
 }
@@ -2850,6 +2956,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .sku-master-workspace, .sku-template-workspace { display: grid; gap: 14px; min-width: 0; }
 .master-data-layout { display: grid; grid-template-columns: minmax(320px, 440px) minmax(0, 1fr); gap: 14px; align-items: start; min-width: 0; }
 .template-workspace-stack { display: grid; gap: 14px; min-width: 0; }
+.config-template-tabs { display: inline-flex; align-items: center; gap: 4px; width: fit-content; border: 1px solid #e6e0d8; border-radius: 8px; background: #fbfaf8; padding: 4px; }
+.config-template-tab { min-height: 32px; border: 0; border-radius: 6px; background: transparent; color: #333; padding: 0 14px; font-weight: 700; }
+.config-template-tab.active { background: #111; color: #fff; }
 .sku-context-panel { grid-column: 1 / -1; display: grid; gap: 10px; }
 .customer-rule-panel { grid-column: 1 / -1; }
 .customer-rule-binding { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); align-items: end; gap: 12px; margin-bottom: 12px; }
@@ -2873,6 +2982,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .product-create-form { display: grid; grid-template-columns: repeat(2, minmax(140px, 1fr)); gap: 10px; align-items: end; }
 .custom-product-panel { grid-column: 1 / -1; }
 .custom-product-form { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; align-items: end; }
+.product-drawer-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: end; }
 .product-create-form label, .custom-product-form label { display: grid; gap: 5px; font-size: 13px; }
 .product-create-form small, .custom-product-form small { color: #7b746c; line-height: 1.35; }
 .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: span 2; }
@@ -2906,6 +3016,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .form-actions { display: flex; justify-content: flex-end; }
 .inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; }
 .sub-form { margin: 8px 0; }
+.category-search { display: grid; gap: 5px; margin-bottom: 10px; font-size: 12px; color: #333; }
+.category-scroll-list { max-height: min(640px, calc(100vh - 280px)); overflow: auto; display: grid; gap: 10px; padding-right: 2px; }
 .category-tree { display: grid; gap: 10px; min-width: 0; }
 .primary-category { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fbfaf8; min-width: 0; }
 .category-head, .secondary-head, .category-actions { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
@@ -2964,6 +3076,19 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
 .muted { color: #666; font-size: 12px; }
+.settings-drawer-mask { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .22); }
+.settings-drawer { width: min(760px, 94vw); height: 100%; overflow: auto; background: #fff; box-shadow: -12px 0 32px rgba(0, 0, 0, .16); padding: 16px; display: grid; grid-template-rows: auto 1fr; gap: 12px; }
+.product-editor-drawer { width: min(820px, 94vw); }
+.drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 1px solid #eee8df; padding-bottom: 12px; }
+.drawer-head h3 { margin: 0 0 4px; font-size: 18px; }
+.drawer-head p { margin: 0; color: #666; font-size: 12px; }
+.drawer-body { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.drawer-section { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; background: #fbfaf8; }
+.category-editor-list { display: grid; gap: 10px; }
+.category-editor-item { border: 1px solid #e6e0d8; border-radius: 8px; padding: 10px; background: #fff; }
+.category-editor-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.category-editor-children { display: grid; gap: 8px; margin-top: 8px; padding-left: 14px; }
+.category-editor-child { border-left: 3px solid #eee8df; padding-left: 10px; }
 @media (max-width: 1100px) {
   .custom-product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .customer-rule-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }

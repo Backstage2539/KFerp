@@ -30,7 +30,7 @@ func TestDev363SkuSettingsWorkbenchLayoutUI(t *testing.T) {
 		"master-data-layout",
 		"template-workspace-stack",
 		"商品资料",
-		"模板配置",
+		"商品配置",
 		"activeSettingsSection",
 	} {
 		if !strings.Contains(src, want) {
@@ -47,17 +47,17 @@ func TestDev363SkuSettingsWorkbenchLayoutDocs(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-363-SKU-SETTINGS-WORKBENCH-LAYOUT",
 			"商品资料",
-			"模板配置",
+			"商品配置",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-363-SKU-SETTINGS-WORKBENCH-LAYOUT",
 			"商品分类和客户SKU列表在商品资料工作区",
-			"梯度模板和商品配置在模板配置工作区",
+			"阶梯价模板和商品配置在商品配置工作区",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-363-SKU-SETTINGS-WORKBENCH-LAYOUT",
 			"商品资料",
-			"模板配置",
+			"商品配置",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-25-sku-settings-workbench-layout.md"): {
 			"PR-363",

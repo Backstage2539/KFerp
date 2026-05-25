@@ -38,7 +38,7 @@ func TestDev170ProductSettingsLayoutUsesTopLevelCustomerContext(t *testing.T) {
 		"categoryTreeForSkuContext",
 		"contextCategorizedProductIDs",
 		"skuContextProductFilter",
-		"v-for=\"primary in categoryTreeForSkuContext\"",
+		"v-for=\"primary in visibleCategoryTreeForSkuContext\"",
 		"customer_id: selectedCustomerSkuCustomerID.value",
 		"豆单生成请进入产品价格表",
 	} {
@@ -50,7 +50,7 @@ func TestDev170ProductSettingsLayoutUsesTopLevelCustomerContext(t *testing.T) {
 		t.Fatalf("ProductSettingsView.vue must not embed product bean-list workspace after SKU/product bean-list split")
 	}
 	contextPanel := strings.Index(view, "sku-context-panel")
-	publicCreate := strings.Index(view, "新增公共产品")
+	publicCreate := strings.Index(view, "product-editor-drawer")
 	if contextPanel < 0 || publicCreate < 0 || contextPanel > publicCreate {
 		t.Fatalf("SKU customer context panel must appear above product create panels: context=%d create=%d", contextPanel, publicCreate)
 	}

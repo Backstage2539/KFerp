@@ -28,16 +28,16 @@ func TestDev360SkuCategorySubtypeClarityDocs(t *testing.T) {
 			"新增 SKU",
 			"产品类别",
 		},
-		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"PR-360-SKU-CATEGORY-SUBTYPE-CLARITY",
-			"子类型配置",
-			"不会超出",
-		},
-		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-360-SKU-CATEGORY-SUBTYPE-CLARITY",
-			"单位会影响产品价格表、录单和生产计划",
-			"已发布价格表和历史订单不会被回改",
-		},
+			filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
+				"PR-360-SKU-CATEGORY-SUBTYPE-CLARITY",
+				"单位规则维护在“商品配置模板”里",
+				"不会超出",
+			},
+			filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
+				"PR-360-SKU-CATEGORY-SUBTYPE-CLARITY",
+				"单位规则维护在“商品配置模板”里",
+				"已发布价格表和历史订单不会被回改",
+			},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range wants {
