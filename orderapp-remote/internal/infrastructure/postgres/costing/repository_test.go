@@ -119,6 +119,27 @@ func TestLoadProductInputsResolvesCustomerProductRuleTemplates(t *testing.T) {
 	}
 }
 
+func TestLoadProductInputsReadsComposablePriceRulesAndBomUnitCosts(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"bom_unit_cost",
+		"unit_per_box",
+		"unit_per_bag",
+		"g_per_bag",
+		"price_list_rule_json",
+		"&input.BomCostPerUnit",
+		"&input.PriceListRuleJSON",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must load composable price rules and BOM unit costs; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsSkuCategoryPathForCustomerBeanLists(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

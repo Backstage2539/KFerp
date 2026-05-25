@@ -376,6 +376,7 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 		       product_kind,
 		       sales_unit,
 		       unit_bag_count,
+		       display_unit,
 		       price_source_json::text
 		FROM (
 			SELECT id,
@@ -387,6 +388,7 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 			       COALESCE(NULLIF(product_kind,''), 'roasted_bean') AS product_kind,
 			       COALESCE(sales_unit, '') AS sales_unit,
 			       COALESCE(unit_bag_count, 0) AS unit_bag_count,
+			       COALESCE(price_source_json->>'price_unit', price_source_json->>'display_unit', '') AS display_unit,
 			       COALESCE(price_source_json, '{}'::jsonb) AS price_source_json
 			FROM %[1]s.product_price_tiers
 			WHERE active=true
@@ -406,12 +408,12 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 		var min float64
 		var max *float64
 		var price float64
-		var productKind, salesUnit, priceSourceJSON string
+		var productKind, salesUnit, displayUnit, priceSourceJSON string
 		var unitBagCount int64
-		if err := trs.Scan(&tid, &pid, &specG, &min, &max, &price, &productKind, &salesUnit, &unitBagCount, &priceSourceJSON); err != nil {
+		if err := trs.Scan(&tid, &pid, &specG, &min, &max, &price, &productKind, &salesUnit, &unitBagCount, &displayUnit, &priceSourceJSON); err != nil {
 			return nil, err
 		}
-		tierMap[pid] = append(tierMap[pid], salesapp.ProductTierOption{ID: tid, SpecG: specG, MinQty: min, MaxQty: max, UnitPrice: price, ProductKind: productKind, SalesUnit: salesUnit, UnitBagCount: unitBagCount, PriceSourceJSON: priceSourceJSON})
+		tierMap[pid] = append(tierMap[pid], salesapp.ProductTierOption{ID: tid, SpecG: specG, MinQty: min, MaxQty: max, UnitPrice: price, DisplayUnit: displayUnit, ProductKind: productKind, SalesUnit: salesUnit, UnitBagCount: unitBagCount, PriceSourceJSON: priceSourceJSON})
 	}
 	if err := trs.Err(); err != nil {
 		return nil, err
@@ -971,6 +973,23 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 }
 
 func greenBeanOrderTierPrice(tier orderGreenBeanPublicationTier, specG int64, displayUnit string, priceUnit string) float64 {
+	if priceUnit != "kg" && priceUnit != "lb" {
+		unitG := greenBeanOrderPriceUnitG(priceUnit, specG)
+		displayUnitG := greenBeanOrderPriceUnitG(displayUnit, specG)
+		if tier.PricePerUnit > 0 && displayUnit == priceUnit {
+			return roundOrderPrice(tier.PricePerUnit)
+		}
+		if tier.PricePerKg > 0 {
+			return roundOrderPrice(tier.PricePerKg * unitG / 1000.0)
+		}
+		if tier.PricePerLb > 0 {
+			return roundOrderPrice(tier.PricePerLb * unitG / 454.0)
+		}
+		if tier.PricePerUnit > 0 && displayUnitG > 0 {
+			return roundOrderPrice(tier.PricePerUnit * unitG / displayUnitG)
+		}
+		return 0
+	}
 	switch priceUnit {
 	case "kg":
 		if tier.PricePerKg > 0 {
@@ -1034,11 +1053,13 @@ func greenBeanOrderPriceUnit(displayUnit string, explicitUnit string, preferDisp
 }
 
 func normalizeGreenBeanOrderPriceUnit(unit string) string {
-	switch strings.TrimSpace(strings.ToLower(unit)) {
+	value := strings.TrimSpace(unit)
+	lower := strings.ToLower(value)
+	switch lower {
 	case "kg", "lb", "g100", "g227", "g250":
-		return strings.TrimSpace(strings.ToLower(unit))
+		return lower
 	default:
-		return ""
+		return value
 	}
 }
 

@@ -216,6 +216,80 @@ func TestGradientTemplateCommercialTiersMatchByWeightAndUseTemplateUnit(t *testi
 	assertClose(t, "227g price", smallUnit.CommercialWholesaleTiers[0].PricePerUnit, 19)
 }
 
+func TestComposableProductPricingUsesBomUnitCostAndCustomQuoteUnit(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:          8801,
+		Name:               "速溶盒装",
+		ProductKind:        "instant_coffee",
+		InventoryUnit:      "条",
+		QuoteUnit:          "盒",
+		OrderUnit:          "盒",
+		UnitConversionJSON: `{"盒":{"g":100,"条":10},"条":{"g":10}}`,
+		BomCostPerUnit:     12,
+		PriceListRuleJSON:  `{"pricing_mode":"cost_plus","display_unit":"inherit_quote_unit","rounding":"jiao"}`,
+		GradientTemplate: &GradientTemplate{
+			ID:          88,
+			Name:        "速溶盒装模板",
+			DisplayUnit: "盒",
+			Tiers: []GradientTemplateTier{
+				{ID: 881, Label: "10盒起", MinWeightG: 10, MaxWeightG: f64(99), MarginRate: 0.25, Position: 1},
+				{ID: 882, Label: "100盒起", MinWeightG: 100, MarginRate: 0.10, Position: 2},
+			},
+		},
+	})
+
+	if got.ProductKind != "instant_coffee" {
+		t.Fatalf("product kind = %q, want instant_coffee", got.ProductKind)
+	}
+	if got.BomCostPerUnit != 12 {
+		t.Fatalf("bom unit cost = %.2f, want 12", got.BomCostPerUnit)
+	}
+	if len(got.CommercialWholesaleTiers) != 2 {
+		t.Fatalf("tiers = %+v, want 2 custom tiers", got.CommercialWholesaleTiers)
+	}
+	first := got.CommercialWholesaleTiers[0]
+	if first.Label != "10盒起" || first.DisplayUnit != "盒" || first.SpecG != 100 || first.MinQty != 10 {
+		t.Fatalf("custom quote tier = %+v", first)
+	}
+	if first.MaxQty == nil || *first.MaxQty != 99 {
+		t.Fatalf("first max qty = %+v, want 99 boxes", first.MaxQty)
+	}
+	assertClose(t, "10 boxes unit price", first.PricePerUnit, 15)
+	assertClose(t, "10 boxes kg price", first.PricePerKg, 150)
+	assertClose(t, "100 boxes unit price", got.CommercialWholesaleTiers[1].PricePerUnit, 13.2)
+}
+
+func TestCustomGradientDisplayUnitDoesNotFallbackToLb(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:         8802,
+		Name:              "未知计价单位产品",
+		ProductKind:       "instant_coffee",
+		QuoteUnit:         "箱",
+		OrderUnit:         "箱",
+		BomCostPerUnit:    20,
+		PriceListRuleJSON: `{"pricing_mode":"cost_plus","display_unit":"inherit_quote_unit"}`,
+		GradientTemplate: &GradientTemplate{
+			ID:          89,
+			Name:        "箱报价模板",
+			DisplayUnit: "箱",
+			Tiers: []GradientTemplateTier{
+				{ID: 891, Label: "5箱起", MinWeightG: 5, MarginRate: 0.50, Position: 1},
+			},
+		},
+	})
+
+	if len(got.CommercialWholesaleTiers) != 1 {
+		t.Fatalf("tiers = %+v, want one custom tier", got.CommercialWholesaleTiers)
+	}
+	tier := got.CommercialWholesaleTiers[0]
+	if tier.DisplayUnit != "箱" || tier.SpecG != 1 || tier.MinQty != 5 {
+		t.Fatalf("custom unit tier = %+v, want display unit 箱 with count quantities", tier)
+	}
+	assertClose(t, "custom unit price", tier.PricePerUnit, 30)
+}
+
 func TestDripWholesaleTiersUseTemplateAndProductBagConfig(t *testing.T) {
 	params := DefaultParameters()
 	got := CalculateProduct(params, ProductInput{
