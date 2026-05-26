@@ -60,6 +60,27 @@ func TestCustomerPortalAdminRepositoryShowsOnlyEnabledPortalCustomersAndERPBindi
 	}
 }
 
+func TestCustomerPortalAdminRepositoryAuditsPortalProfileFields(t *testing.T) {
+	body, err := os.ReadFile("admin_repository.go")
+	if err != nil {
+		t.Fatalf("read admin_repository.go: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		`auditPortalProfileVisibilityTx(ctx, tx, r.schema, cmd, oldProfile)`,
+		`auditPortalProfileBoolField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "enabled"`,
+		`auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "capability_template_key"`,
+		`auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "display_name"`,
+		`auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "processing_warehouse_code"`,
+		`auditPortalProfileIntField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "default_sender_id"`,
+		`auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "bean_list_version"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("admin repository missing portal profile audit marker %q", want)
+		}
+	}
+}
+
 func TestCustomerPortalAdminRepositoryPersistsMallProducts(t *testing.T) {
 	body, err := os.ReadFile("admin_repository.go")
 	if err != nil {

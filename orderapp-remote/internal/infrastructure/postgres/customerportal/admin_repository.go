@@ -297,6 +297,10 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 	if warehouseCode == "" && capabilityEnabled(cmd.Capabilities, customerportalapp.CapabilityProcessing) {
 		warehouseCode = defaultProcessingWarehouseCode(cmd.CustomerID)
 	}
+	oldProfile, err := portalProfileAuditSnapshotTx(ctx, tx, r.schema, cmd.CustomerID)
+	if err != nil {
+		return customerportalapp.PortalAdminDetail{}, err
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, processing_warehouse_code, default_sender_id, enabled, status, theme_key, miniapp_entry_mode, capability_template_key, bean_list_mode, bean_list_publication_id, updated_at, updated_by)
 		VALUES($1,$2,$3,$4,$5,'active',$6,$7,$8,$9,$10,now(),$11)
@@ -348,11 +352,7 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 			return customerportalapp.PortalAdminDetail{}, err
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, strings.TrimSpace(cmd.UpdatedBy), "customer_portal_profile", &cmd.CustomerID, "update", postgresinfra.StrPtr("bean_list_version"), nil, postgresinfra.StrPtr(fmt.Sprintf("%s:%d", strings.TrimSpace(cmd.BeanListMode), cmd.BeanListPublicationID)), postgresinfra.AuditMeta{
-		"customer_id":              cmd.CustomerID,
-		"bean_list_mode":           strings.TrimSpace(cmd.BeanListMode),
-		"bean_list_publication_id": cmd.BeanListPublicationID,
-	}); err != nil {
+	if err := auditPortalProfileVisibilityTx(ctx, tx, r.schema, cmd, oldProfile); err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -605,6 +605,112 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+type portalProfileAuditSnapshot struct {
+	exists                bool
+	displayName           string
+	processingWarehouse   string
+	defaultSenderID       int64
+	enabled               bool
+	capabilityTemplateKey string
+	beanListMode          string
+	beanListPublicationID int64
+}
+
+func portalProfileAuditSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64) (portalProfileAuditSnapshot, error) {
+	var row portalProfileAuditSnapshot
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(display_name,''),
+		       COALESCE(processing_warehouse_code,''),
+		       COALESCE(default_sender_id,0),
+		       COALESCE(enabled,false),
+		       COALESCE(capability_template_key,''),
+		       COALESCE(bean_list_mode,''),
+		       COALESCE(bean_list_publication_id,0)
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, schema), customerID).Scan(&row.displayName, &row.processingWarehouse, &row.defaultSenderID, &row.enabled, &row.capabilityTemplateKey, &row.beanListMode, &row.beanListPublicationID)
+	if err == pgx.ErrNoRows {
+		return row, nil
+	}
+	if err != nil {
+		return row, err
+	}
+	row.exists = true
+	return row, nil
+}
+
+func auditPortalProfileVisibilityTx(ctx context.Context, tx pgx.Tx, schema string, cmd customerportalapp.UpdatePortalVisibilityCommand, old portalProfileAuditSnapshot) error {
+	warehouseCode := strings.TrimSpace(cmd.ProcessingWarehouseCode)
+	if warehouseCode == "" && capabilityEnabled(cmd.Capabilities, customerportalapp.CapabilityProcessing) {
+		warehouseCode = defaultProcessingWarehouseCode(cmd.CustomerID)
+	}
+	meta := postgresinfra.AuditMeta{"customer_id": cmd.CustomerID}
+	actor := strings.TrimSpace(cmd.UpdatedBy)
+	if err := auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "display_name", old.displayName, strings.TrimSpace(cmd.DisplayName), meta); err != nil {
+		return err
+	}
+	if err := auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "processing_warehouse_code", old.processingWarehouse, warehouseCode, meta); err != nil {
+		return err
+	}
+	if err := auditPortalProfileIntField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "default_sender_id", old.defaultSenderID, cmd.DefaultSenderID, meta); err != nil {
+		return err
+	}
+	if err := auditPortalProfileBoolField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "enabled", old.enabled, cmd.Enabled, meta); err != nil {
+		return err
+	}
+	if err := auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "capability_template_key", old.capabilityTemplateKey, customerportalapp.NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey), meta); err != nil {
+		return err
+	}
+	oldBeanList := fmt.Sprintf("%s:%d", strings.TrimSpace(old.beanListMode), old.beanListPublicationID)
+	newBeanList := fmt.Sprintf("%s:%d", strings.TrimSpace(cmd.BeanListMode), cmd.BeanListPublicationID)
+	return auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "bean_list_version", oldBeanList, newBeanList, postgresinfra.AuditMeta{
+		"customer_id":              cmd.CustomerID,
+		"bean_list_mode":           strings.TrimSpace(cmd.BeanListMode),
+		"bean_list_publication_id": cmd.BeanListPublicationID,
+	})
+}
+
+func auditPortalProfileTextField(ctx context.Context, tx pgx.Tx, schema, actor string, customerID int64, oldExists bool, field, oldValue, newValue string, meta postgresinfra.AuditMeta) error {
+	oldValue = strings.TrimSpace(oldValue)
+	newValue = strings.TrimSpace(newValue)
+	if oldExists && oldValue == newValue {
+		return nil
+	}
+	if !oldExists && newValue == "" {
+		return nil
+	}
+	var oldPtr *string
+	if oldExists {
+		oldPtr = postgresinfra.StrPtr(oldValue)
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer_portal_profile", &customerID, "update", postgresinfra.StrPtr(field), oldPtr, postgresinfra.StrPtr(newValue), meta)
+}
+
+func auditPortalProfileBoolField(ctx context.Context, tx pgx.Tx, schema, actor string, customerID int64, oldExists bool, field string, oldValue, newValue bool, meta postgresinfra.AuditMeta) error {
+	if oldExists && oldValue == newValue {
+		return nil
+	}
+	var oldPtr *string
+	if oldExists {
+		oldPtr = postgresinfra.StrPtr(fmt.Sprintf("%t", oldValue))
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer_portal_profile", &customerID, "update", postgresinfra.StrPtr(field), oldPtr, postgresinfra.StrPtr(fmt.Sprintf("%t", newValue)), meta)
+}
+
+func auditPortalProfileIntField(ctx context.Context, tx pgx.Tx, schema, actor string, customerID int64, oldExists bool, field string, oldValue, newValue int64, meta postgresinfra.AuditMeta) error {
+	if oldExists && oldValue == newValue {
+		return nil
+	}
+	if !oldExists && newValue == 0 {
+		return nil
+	}
+	var oldPtr *string
+	if oldExists {
+		oldPtr = postgresinfra.StrPtr(fmt.Sprintf("%d", oldValue))
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer_portal_profile", &customerID, "update", postgresinfra.StrPtr(field), oldPtr, postgresinfra.StrPtr(fmt.Sprintf("%d", newValue)), meta)
 }
 
 func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (customerportalapp.PortalAdminCustomer, error) {
