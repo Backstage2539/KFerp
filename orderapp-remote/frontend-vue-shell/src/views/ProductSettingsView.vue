@@ -295,7 +295,7 @@
               </select>
             </label>
           </div>
-          <table :key="skuDisplayKey" class="sku-table" data-auto-pagination="off">
+          <table :key="skuTableKey" class="sku-table" data-auto-pagination="off">
             <thead>
               <tr>
                 <th class="select-col">
@@ -445,7 +445,7 @@
           </div>
         </div>
         <PaginationControls
-          :key="skuDisplayKey"
+          :key="skuPaginationKey"
           :page="skuPage"
           :page-size="skuPageSize"
           :total="skuDisplayTotal"
@@ -1265,6 +1265,8 @@ const skuDisplayKey = computed(() => [
   skuFilters.value.primaryCategory || '',
   skuFilters.value.secondaryCategory || '',
 ].join(':'))
+const skuTableKey = computed(() => `${skuDisplayKey.value}:table`)
+const skuPaginationKey = computed(() => `${skuDisplayKey.value}:pagination`)
 const displaySkuRows = computed(() => skuTable.value.rows)
 const editableDisplaySkuRows = computed(() => displaySkuRows.value.filter(canEditSkuRow))
 const allProductRowsSelected = computed(() => editableDisplaySkuRows.value.length > 0 && editableDisplaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
