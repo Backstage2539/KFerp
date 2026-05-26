@@ -10,6 +10,7 @@ import (
 	"net/url"
 	catalogapp "orderapp/internal/application/catalog"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v4"
@@ -41,6 +42,9 @@ type productSettingsRepo struct {
 	updateErr              error
 	deactivated            catalogapp.DeactivateProductsCommand
 	createdPublic          catalogapp.CreateProductCommand
+	createdSKU             catalogapp.CreateSKUCommand
+	copiedSKUs             catalogapp.CopySKUsCommand
+	skuCopyOptionsQuery    catalogapp.SKUCopyOptionsQuery
 	publicUsage            catalogapp.CustomerPublicUsageCommand
 	publicUsages           []catalogapp.CustomerPublicUsage
 	ruleTemplates          []catalogapp.CustomerProductRuleTemplate
@@ -68,6 +72,9 @@ type productSettingsRepo struct {
 	productUpdated         bool
 	productsDeactivated    bool
 	publicCreated          bool
+	skuCreated             bool
+	skusCopied             bool
+	skuCopyOptionsListed   bool
 	productCreated         bool
 	publicUsageSaved       bool
 	ruleTemplateSaved      bool
@@ -156,6 +163,82 @@ func (r *productSettingsRepo) CreateProduct(ctx context.Context, cmd catalogapp.
 		CustomerID:            0,
 		BaseProductID:         0,
 	}, nil
+}
+
+func (r *productSettingsRepo) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUCommand) (catalogapp.Product, error) {
+	r.createdSKU = cmd
+	r.skuCreated = true
+	visibility := "public"
+	if cmd.CustomerID > 0 {
+		visibility = "customer_only"
+	}
+	return catalogapp.Product{
+		ID:                912,
+		Name:              cmd.Name,
+		Remark:            cmd.Remark,
+		CustomerID:        cmd.CustomerID,
+		ProductCategoryID: cmd.ProductSubtypeCategoryID,
+		SpecialAttrsJSON:  cmd.SpecialAttrsJSON,
+		Visibility:        visibility,
+	}, nil
+}
+
+func (r *productSettingsRepo) CopySKUs(ctx context.Context, cmd catalogapp.CopySKUsCommand) (catalogapp.CopySKUsResult, error) {
+	r.copiedSKUs = cmd
+	r.skusCopied = true
+	return catalogapp.CopySKUsResult{CreatedCount: 2, OverwrittenCount: 1, SkippedCount: 0}, nil
+}
+
+func (r *productSettingsRepo) ListSKUCopyOptions(ctx context.Context, query catalogapp.SKUCopyOptionsQuery) (catalogapp.SKUCopyOptions, error) {
+	r.skuCopyOptionsQuery = query
+	r.skuCopyOptionsListed = true
+	sourceProducts := make([]catalogapp.Product, 0)
+	for _, product := range r.products {
+		if product.CustomerID == query.SourceCustomerID {
+			sourceProducts = append(sourceProducts, product)
+		}
+	}
+	categoryByID := map[int64]catalogapp.ProductCategory{}
+	for _, category := range r.categories {
+		categoryByID[category.ID] = category
+	}
+	group := catalogapp.SKUCopyTypeGroup{ID: 1, Name: "速溶咖啡"}
+	subtype := catalogapp.SKUCopySubtypeGroup{ID: 2, Name: "盒装速溶"}
+	for _, product := range sourceProducts {
+		state := "available"
+		if !product.Active {
+			state = "inactive"
+		}
+		sourceSubtype := categoryByID[product.ProductCategoryID]
+		sourceType := categoryByID[sourceSubtype.ParentID]
+		for _, target := range r.products {
+			targetSubtype := categoryByID[target.ProductCategoryID]
+			if target.CustomerID == query.TargetCustomerID && targetSubtype.Name == sourceSubtype.Name && strings.EqualFold(target.Name, product.Name) {
+				state = "will_overwrite"
+			}
+		}
+		if sourceType.ID > 0 {
+			group.ID = sourceType.ID
+			group.Name = sourceType.Name
+		}
+		if sourceSubtype.ID > 0 {
+			subtype.ID = sourceSubtype.ID
+			subtype.Name = sourceSubtype.Name
+		}
+		subtype.Products = append(subtype.Products, catalogapp.SKUCopyOption{
+			ID:                       product.ID,
+			Name:                     product.Name,
+			SourceCustomerID:         query.SourceCustomerID,
+			ProductTypeCategoryID:    group.ID,
+			ProductTypeName:          group.Name,
+			ProductSubtypeCategoryID: subtype.ID,
+			ProductSubtypeName:       subtype.Name,
+			CopyState:                state,
+			Active:                   product.Active,
+		})
+	}
+	group.Children = []catalogapp.SKUCopySubtypeGroup{subtype}
+	return catalogapp.SKUCopyOptions{Title: "选择分类和产品", TargetCustomerID: query.TargetCustomerID, SourceCustomerID: query.SourceCustomerID, TotalCount: len(sourceProducts), Groups: []catalogapp.SKUCopyTypeGroup{group}}, nil
 }
 
 func (r *productSettingsRepo) ListProductCategories(ctx context.Context) ([]catalogapp.ProductCategory, error) {
@@ -1057,6 +1140,80 @@ func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("custom product response missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestProductSettingsAPICreatesUnifiedSKUWithoutLegacyFields(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/skus", bytes.NewBufferString(`{
+		"customer_id":42,
+		"name":"客户盒装速溶",
+		"remark":"10g/条，10条/盒",
+		"product_type_category_id":7,
+		"product_subtype_category_id":17,
+		"product_kind":"instant_coffee",
+		"custom_type":"public_sku_alias",
+		"base_product_id":99,
+		"special_attrs_json":"{\"roast_level\":\"中深烘\"}",
+		"active":true
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/product-settings/skus status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.skuCreated || repo.createdSKU.CustomerID != 42 || repo.createdSKU.ProductTypeCategoryID != 7 || repo.createdSKU.ProductSubtypeCategoryID != 17 {
+		t.Fatalf("created SKU command=%+v created=%v", repo.createdSKU, repo.skuCreated)
+	}
+	if repo.createdSKU.SpecialAttrsJSON != `{"roast_level":"中深烘"}` {
+		t.Fatalf("created SKU special attrs=%q", repo.createdSKU.SpecialAttrsJSON)
+	}
+}
+
+func TestProductSettingsAPISKUCopyOptionsAndCopy(t *testing.T) {
+	repo := &productSettingsRepo{
+		categories: []catalogapp.ProductCategory{
+			{ID: 1, CustomerID: 0, Name: "速溶咖啡", Level: 1, Position: 1},
+			{ID: 2, ParentID: 1, CustomerID: 0, Name: "盒装速溶", Level: 2, Position: 1},
+			{ID: 101, CustomerID: 42, Name: "速溶咖啡", Level: 1, Position: 1, SourceCategoryID: 1},
+			{ID: 102, ParentID: 101, CustomerID: 42, Name: "盒装速溶", Level: 2, Position: 1, SourceCategoryID: 2},
+		},
+		products: []catalogapp.Product{
+			{ID: 7, Name: "速溶10条盒装", CustomerID: 0, ProductCategoryID: 2, Active: true},
+			{ID: 8, Name: "停用速溶", CustomerID: 0, ProductCategoryID: 2, Active: false},
+			{ID: 107, Name: "速溶10条盒装", CustomerID: 42, ProductCategoryID: 102, Active: true},
+		},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings/skus/copy-options?target_customer_id=42&source_customer_id=0", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("copy options status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"copy_state":"will_overwrite"`) || !strings.Contains(rec.Body.String(), `"copy_state":"inactive"`) || !strings.Contains(rec.Body.String(), `"选择分类和产品"`) {
+		t.Fatalf("copy options body missing grouped copy states: %s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/skus/copy", bytes.NewBufferString(`{"target_customer_id":42,"source_customer_id":0,"source_sku_ids":[7,8,7]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("copy status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.skusCopied || repo.copiedSKUs.TargetCustomerID != 42 || len(repo.copiedSKUs.SourceSKUIDs) != 2 {
+		t.Fatalf("copied SKUs command=%+v copied=%v", repo.copiedSKUs, repo.skusCopied)
+	}
+	if !strings.Contains(rec.Body.String(), `"created_count":2`) || !strings.Contains(rec.Body.String(), `"overwritten_count":1`) {
+		t.Fatalf("copy response=%s", rec.Body.String())
 	}
 }
 

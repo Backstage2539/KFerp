@@ -64,9 +64,9 @@ func TestDev318CustomerBeanListPublicCategoryScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"关闭时只展示该客户自己的 SKU",
-		"不混入公共分类或公共 SKU",
-		"开启后才会把公共分类下的公共 SKU",
+		"选择某个履约客户范围时，产品价格表默认只展示该客户自己的 SKU",
+		"不混入公共分类或其他客户 SKU",
+		"需要客户复用公共产品时，先在 SKU设置 的客户视图点击“SKU复制”",
 	} {
 		if !strings.Contains(string(manual), want) {
 			t.Fatalf("manual missing %q", want)

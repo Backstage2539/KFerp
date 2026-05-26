@@ -9,6 +9,8 @@ type fakeRepo struct {
 	replace         ReplacePriceTiersCommand
 	update          UpdateProductBasicsCommand
 	create          CreateProductCommand
+	skuCreate       CreateSKUCommand
+	skuCopy         CopySKUsCommand
 	custom          CreateCustomProductCommand
 	derivedProduct  DeriveCustomerProductCommand
 	derivedCategory DeriveProductCategoryCommand
@@ -28,6 +30,8 @@ type fakeRepo struct {
 	publicUsages    []CustomerPublicUsage
 	deactivated     bool
 	usageSaved      bool
+	skuCreated      bool
+	skusCopied      bool
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
@@ -63,6 +67,26 @@ func (r *fakeRepo) DeactivateProducts(ctx context.Context, cmd DeactivateProduct
 func (r *fakeRepo) CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error) {
 	r.create = cmd
 	return Product{ID: 11, Name: cmd.Name, RoastLevel: cmd.RoastLevel, YieldRate: cmd.YieldRate, Visibility: "public"}, nil
+}
+
+func (r *fakeRepo) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product, error) {
+	r.skuCreate = cmd
+	r.skuCreated = true
+	visibility := "public"
+	if cmd.CustomerID > 0 {
+		visibility = "customer_only"
+	}
+	return Product{ID: 12, Name: cmd.Name, Remark: cmd.Remark, CustomerID: cmd.CustomerID, ProductCategoryID: cmd.ProductSubtypeCategoryID, Visibility: visibility, SpecialAttrsJSON: cmd.SpecialAttrsJSON}, nil
+}
+
+func (r *fakeRepo) CopySKUs(ctx context.Context, cmd CopySKUsCommand) (CopySKUsResult, error) {
+	r.skuCopy = cmd
+	r.skusCopied = true
+	return CopySKUsResult{CreatedCount: 1, OverwrittenCount: len(cmd.SourceSKUIDs) - 1}, nil
+}
+
+func (r *fakeRepo) ListSKUCopyOptions(ctx context.Context, query SKUCopyOptionsQuery) (SKUCopyOptions, error) {
+	return SKUCopyOptions{Title: "选择分类和产品", TargetCustomerID: query.TargetCustomerID, SourceCustomerID: query.SourceCustomerID}, nil
 }
 
 func (r *fakeRepo) ListProductCategories(ctx context.Context) ([]ProductCategory, error) {
@@ -309,6 +333,70 @@ func TestCreateProductKeepsBomParamsOnInstantCoffee(t *testing.T) {
 	}
 	if repo.create.ProductKind != "instant_coffee" || repo.create.RoastLevel != "" || repo.create.YieldRate != 0.96 || repo.create.SpecialAttrsJSON == "{}" {
 		t.Fatalf("create command = %+v, want instant coffee yield and special attrs preserved without legacy roast", repo.create)
+	}
+}
+
+func TestCreateSKUUsesUnifiedPayloadWithoutLegacyProductKindFields(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	got, err := svc.CreateSKU(context.Background(), CreateSKUCommand{
+		Actor:                    "tester",
+		CustomerID:               42,
+		Name:                     "客户盒装速溶",
+		Remark:                   "10g/条，10条/盒",
+		ProductTypeCategoryID:    7,
+		ProductSubtypeCategoryID: 17,
+		SpecialAttrsJSON:         `{"roast_level":"中深烘"}`,
+		Active:                   true,
+	})
+	if err != nil {
+		t.Fatalf("CreateSKU() err=%v", err)
+	}
+	if !repo.skuCreated || repo.skuCreate.CustomerID != 42 || repo.skuCreate.ProductSubtypeCategoryID != 17 || repo.skuCreate.SpecialAttrsJSON != `{"roast_level":"中深烘"}` {
+		t.Fatalf("CreateSKU command=%+v created=%v", repo.skuCreate, repo.skuCreated)
+	}
+	if got.CustomerID != 42 || got.ProductCategoryID != 17 || got.BaseProductID != 0 || got.CustomType != "" {
+		t.Fatalf("created SKU result = %+v", got)
+	}
+}
+
+func TestCopySKUsDedupesSourceIDsAndDelegatesOverwriteResult(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	got, err := svc.CopySKUs(context.Background(), CopySKUsCommand{
+		Actor:            "tester",
+		TargetCustomerID: 42,
+		SourceCustomerID: 0,
+		SourceSKUIDs:     []int64{7, 8, 7, 0},
+	})
+	if err != nil {
+		t.Fatalf("CopySKUs() err=%v", err)
+	}
+	if !repo.skusCopied || len(repo.skuCopy.SourceSKUIDs) != 2 || repo.skuCopy.SourceSKUIDs[0] != 7 || repo.skuCopy.SourceSKUIDs[1] != 8 {
+		t.Fatalf("CopySKUs command=%+v copied=%v", repo.skuCopy, repo.skusCopied)
+	}
+	if got.CreatedCount != 1 || got.OverwrittenCount != 1 {
+		t.Fatalf("CopySKUs result=%+v", got)
+	}
+}
+
+func TestCopySKUsRejectsSameSourceAndTargetOwner(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.CopySKUs(context.Background(), CopySKUsCommand{
+		Actor:            "tester",
+		TargetCustomerID: 42,
+		SourceCustomerID: 42,
+		SourceSKUIDs:     []int64{7},
+	})
+	if !IsValidationError(err) {
+		t.Fatalf("CopySKUs() err=%v, want validation error", err)
+	}
+	if repo.skusCopied {
+		t.Fatalf("CopySKUs delegated to repository for same source and target")
 	}
 }
 

@@ -50,7 +50,7 @@ func TestDev322DocsAndAcceptanceCoverCategoryCleanupAndBomVersion(t *testing.T) 
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{
 			"PR-322",
-			"活跃产品子类型",
+			"产品子类型",
 			"active BOM",
 		} {
 			if !strings.Contains(src, want) {

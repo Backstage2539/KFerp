@@ -617,6 +617,34 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
   return payload
 }
 
+export function buildSkuCreatePayload(customerID, form = {}) {
+  return {
+    customer_id: Number(customerID || form.customer_id || 0),
+    name: String(form.name || '').trim(),
+    remark: String(form.remark || '').trim(),
+    product_type_category_id: Number(form.product_type_category_id || 0),
+    product_subtype_category_id: Number(form.product_subtype_category_id || 0),
+    special_attrs_json: specialAttrValuesJSONFromForm(form.special_attr_values ?? form.special_attrs ?? form.special_attrs_json),
+    active: form.active === false ? false : true,
+  }
+}
+
+export function buildSkuCopyPayload(form = {}) {
+  const sourceIDs = []
+  const seen = new Set()
+  for (const rawID of form.source_sku_ids || form.sourceSkuIDs || []) {
+    const id = Number(rawID || 0)
+    if (!id || seen.has(id)) continue
+    sourceIDs.push(id)
+    seen.add(id)
+  }
+  return {
+    target_customer_id: Number(form.target_customer_id || form.targetCustomerID || 0),
+    source_customer_id: Number(form.source_customer_id || form.sourceCustomerID || 0),
+    source_sku_ids: sourceIDs,
+  }
+}
+
 export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   const kind = normalizedProductKind(row)
   const payload = {

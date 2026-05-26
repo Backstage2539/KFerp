@@ -36,6 +36,9 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.POST("/api/product-settings/unit-templates", h.saveProductUnitTemplateAPI)
 	e.PUT("/api/product-settings/unit-templates/:id", h.saveProductUnitTemplateAPI)
 	e.POST("/api/pricing-gradient-templates/:id/deactivate", h.deactivateGradientTemplateAPI)
+	e.POST("/api/product-settings/skus", h.createSKUAPI)
+	e.GET("/api/product-settings/skus/copy-options", h.skuCopyOptionsAPI)
+	e.POST("/api/product-settings/skus/copy", h.copySKUsAPI)
 	e.POST("/api/product-settings/products", h.createProductAPI)
 	e.POST("/api/product-settings/products/deactivate", h.deactivateProductsAPI)
 	e.POST("/api/product-settings/categories", h.saveProductCategoryAPI)
@@ -120,6 +123,22 @@ type productCreateAPIRequest struct {
 	RetailPrice250G       float64                   `json:"retail_price_250g"`
 	YieldRate             float64                   `json:"yield_rate"`
 	Tiers                 []productTierAPIUpsertRow `json:"tiers"`
+}
+
+type skuCreateAPIRequest struct {
+	CustomerID               int64  `json:"customer_id"`
+	Name                     string `json:"name"`
+	Remark                   string `json:"remark"`
+	ProductTypeCategoryID    int64  `json:"product_type_category_id"`
+	ProductSubtypeCategoryID int64  `json:"product_subtype_category_id"`
+	SpecialAttrsJSON         string `json:"special_attrs_json"`
+	Active                   *bool  `json:"active"`
+}
+
+type skuCopyAPIRequest struct {
+	TargetCustomerID int64   `json:"target_customer_id"`
+	SourceCustomerID int64   `json:"source_customer_id"`
+	SourceSKUIDs     []int64 `json:"source_sku_ids"`
 }
 
 type productDeactivateAPIRequest struct {
@@ -564,6 +583,67 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
+}
+
+func (h productHandler) createSKUAPI(c echo.Context) error {
+	var req skuCreateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	active := true
+	if req.Active != nil {
+		active = *req.Active
+	}
+	product, err := h.catalog.CreateSKU(c.Request().Context(), catalogapp.CreateSKUCommand{
+		Actor:                    support.ActorOf(c),
+		CustomerID:               req.CustomerID,
+		Name:                     req.Name,
+		Remark:                   req.Remark,
+		ProductTypeCategoryID:    req.ProductTypeCategoryID,
+		ProductSubtypeCategoryID: req.ProductSubtypeCategoryID,
+		SpecialAttrsJSON:         req.SpecialAttrsJSON,
+		Active:                   active,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
+}
+
+func (h productHandler) skuCopyOptionsAPI(c echo.Context) error {
+	targetCustomerID, err := strconv.ParseInt(strings.TrimSpace(c.QueryParam("target_customer_id")), 10, 64)
+	if err != nil && strings.TrimSpace(c.QueryParam("target_customer_id")) != "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid target_customer_id"})
+	}
+	sourceCustomerID, err := strconv.ParseInt(strings.TrimSpace(c.QueryParam("source_customer_id")), 10, 64)
+	if err != nil && strings.TrimSpace(c.QueryParam("source_customer_id")) != "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid source_customer_id"})
+	}
+	options, err := h.catalog.ListSKUCopyOptions(c.Request().Context(), catalogapp.SKUCopyOptionsQuery{
+		TargetCustomerID: targetCustomerID,
+		SourceCustomerID: sourceCustomerID,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, options)
+}
+
+func (h productHandler) copySKUsAPI(c echo.Context) error {
+	var req skuCopyAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	result, err := h.catalog.CopySKUs(c.Request().Context(), catalogapp.CopySKUsCommand{
+		Actor:            support.ActorOf(c),
+		TargetCustomerID: req.TargetCustomerID,
+		SourceCustomerID: req.SourceCustomerID,
+		SourceSKUIDs:     req.SourceSKUIDs,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, result)
 }
 
 func (h productHandler) deactivateProductsAPI(c echo.Context) error {

@@ -66,7 +66,10 @@ func TestDev352InstantCoffeeProductKindWiring(t *testing.T) {
 			"速溶咖啡",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			`<option value="instant_coffee">速溶咖啡</option>`,
+			"产品类型",
+			"产品子类型",
+			"inferProductKindFromProductTypeCategory",
+			"速溶咖啡",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "order-entry.js"): {
 			"kind-instant",

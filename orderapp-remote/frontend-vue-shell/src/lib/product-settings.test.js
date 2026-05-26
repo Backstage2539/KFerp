@@ -16,6 +16,8 @@ import {
   buildProductBasicsPayload,
   buildProductBomURL,
   buildProductCreatePayload,
+  buildSkuCopyPayload,
+  buildSkuCreatePayload,
   buildSkuConfigOverridePayload,
   buildSkuContextCategoryTree,
   categoryBelongsToSkuContext,
@@ -132,6 +134,46 @@ test('product category selection infers legacy product kind only as compatibilit
   assert.equal(inferProductKindFromProductTypeCategory({ name: '挂耳' }), 'drip_bag')
   assert.equal(inferProductKindFromProductTypeCategory({ name: '意式拼配' }), 'roasted')
   assert.equal(inferProductKindFromProductTypeCategory(null), 'roasted')
+})
+
+test('unified SKU create payload is owned by current view and carries no legacy product kind fields', () => {
+  const payload = buildSkuCreatePayload(42, {
+    name: '客户盒装速溶',
+    remark: '10g/条，10条/盒',
+    product_type_category_id: 7,
+    product_subtype_category_id: 17,
+    product_kind: 'instant_coffee',
+    custom_type: 'public_sku_alias',
+    base_product_id: 99,
+    copy_bom: true,
+    copy_price_tiers: true,
+    special_attr_values: { roast_level: '中深烘' },
+  })
+
+  assert.deepEqual(payload, {
+    customer_id: 42,
+    name: '客户盒装速溶',
+    remark: '10g/条，10条/盒',
+    product_type_category_id: 7,
+    product_subtype_category_id: 17,
+    special_attrs_json: '{"roast_level":"中深烘"}',
+    active: true,
+  })
+  assert.equal(Object.hasOwn(payload, 'product_kind'), false)
+  assert.equal(Object.hasOwn(payload, 'custom_type'), false)
+  assert.equal(Object.hasOwn(payload, 'base_product_id'), false)
+})
+
+test('SKU copy payload supports all selected SKU ids and same-name overwrite flow', () => {
+  assert.deepEqual(buildSkuCopyPayload({
+    target_customer_id: 42,
+    source_customer_id: 0,
+    source_sku_ids: [7, '8', 0, 7],
+  }), {
+    target_customer_id: 42,
+    source_customer_id: 0,
+    source_sku_ids: [7, 8],
+  })
 })
 
 test('product subtype options are derived from the selected product type only', () => {
@@ -1020,18 +1062,20 @@ test('SKU settings clears special KV dropdown options when the field type is cha
   assert.match(template, /<textarea[\s\S]*v-model\.trim="attr\.options_text"[\s\S]*下拉选项/)
 })
 
-test('copying public product config enables referenced public SKU and category instead of copying SKU rows', () => {
+test('copying public product config stays a template copy and no longer toggles public SKU references', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   for (const expected of [
-    'ensurePublicProductReferenceForCustomer',
-    'use_public_sku: true',
-    'use_public_categories: true',
-    '公共商品配置已复制为客户配置，并已开启公共SKU引用',
+    'deriveProductConfigTemplateForCustomer',
+    '公共商品配置已复制为客户配置',
   ]) {
-    assert.ok(script.includes(expected) || source.includes(expected), `missing public SKU reference behavior: ${expected}`)
+    assert.ok(script.includes(expected) || source.includes(expected), `missing product config copy behavior: ${expected}`)
   }
+  assert.doesNotMatch(script, /ensurePublicProductReferenceForCustomer/)
+  assert.doesNotMatch(script, /use_public_sku:\s*true/)
+  assert.doesNotMatch(script, /use_public_categories:\s*true/)
+  assert.doesNotMatch(script, /公共SKU引用/)
   assert.doesNotMatch(script, /deriveCustomerProductForCustomer[\s\S]*deriveProductConfigTemplateForCustomer/)
 })
 
@@ -1052,24 +1096,56 @@ test('SKU settings labels category levels as product type and subtype', () => {
   assert.doesNotMatch(source, /二级分类/)
 })
 
-test('SKU creation uses product subtype as assignment target and parks SKUs without subtype', () => {
+test('SKU creation uses one unified SKU form without public customer custom split', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   assert.match(source, /产品类别/)
   assert.match(source, /产品子类型/)
   assert.match(source, /productTypeCategoryOptions/)
   assert.match(source, /productSubtypeCategoryOptions/)
-  assert.match(source, /productForm\.product_type_category_id/)
-  assert.match(source, /productForm\.product_subtype_category_id/)
-  assert.match(source, /customForm\.product_type_category_id/)
-  assert.match(source, /customForm\.product_subtype_category_id/)
-  assert.match(source, /syncProductKindFromProductTypeCategory/)
-  assert.match(source, /assignCreatedSkuToSelectedProductSubtype/)
+  assert.match(source, /skuForm\.product_type_category_id/)
+  assert.match(source, /skuForm\.product_subtype_category_id/)
+  assert.match(source, /@submit\.prevent="createSku"/)
+  assert.match(script, /apiSend\('\/api\/product-settings\/skus'/)
   assert.match(source, /停车场/)
+  assert.doesNotMatch(template, /新增公共 SKU/)
+  assert.doesNotMatch(template, /新增客户专属 SKU/)
+  assert.doesNotMatch(template, /基础产品/)
+  assert.doesNotMatch(template, /定制类型/)
+  assert.doesNotMatch(template, /复制基础产品 BOM/)
+  assert.doesNotMatch(template, /创建公共 SKU/)
+  assert.doesNotMatch(template, /创建专属 SKU/)
   assert.doesNotMatch(source, /<span>产品形态<\/span>/)
-  assert.doesNotMatch(source, /v-model="productForm\.product_kind"/)
-  assert.doesNotMatch(source, /v-model="customForm\.product_kind"/)
+  assert.doesNotMatch(source, /v-model="skuForm\.product_kind"/)
   assert.doesNotMatch(source, /const categoryID = Number\(form\?\.product_type_category_id/)
+})
+
+test('SKU settings exposes SKU copy drawer and moves category management under product config', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  for (const expected of [
+    'SKU复制',
+    'sku-copy-drawer',
+    '选择分类和产品',
+    'copySourceCustomerID',
+    'skuCopySourceOptions',
+    'ensureSkuCopySource',
+    'copySkuSelection',
+    '复制SKU',
+    '商品分类管理',
+    "activeConfigTemplateSection === 'category-management'",
+    '/api/product-settings/skus/copy-options',
+    '/api/product-settings/skus/copy',
+  ]) {
+    assert.ok(source.includes(expected), `missing SKU copy/category management marker: ${expected}`)
+  }
+  assert.doesNotMatch(template, />分类设置</)
+  assert.doesNotMatch(script, /derivePublicSku\(/)
+  assert.doesNotMatch(script, /savePublicSkuUsageForCustomer/)
 })
 
 test('SKU settings exposes product subtype default unit configuration controls', () => {
@@ -1138,18 +1214,23 @@ test('SKU subtype config explains unit impact and stays inside narrow category p
   }
 })
 
-test('SKU settings keeps public SKU visibility controlled by the public SKU switch', () => {
+test('SKU settings removes public SKU references from the customer SKU list and uses SKU copy instead', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
 
-  assert.match(source, /usePublicSkuInCategoryTree:\s*customerUsesPublicSku\.value/)
-  assert.doesNotMatch(source, /usePublicSkuInCategoryTree:\s*customerUsesPublicCategories\.value/)
+  assert.match(source, /usePublicSkuInCategoryTree:\s*false/)
+  assert.match(source, /usePublicSku:\s*false/)
+  assert.match(template, /SKU复制/)
+  assert.doesNotMatch(template, /是否使用公共SKU/)
+  assert.doesNotMatch(source, /savePublicSkuUsageForCustomer/)
 })
 
-test('SKU settings renders the customer-only SKU form as a full-width workspace', () => {
+test('SKU settings renders one unified SKU form as a full-width drawer', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 
   assert.match(source, /class="settings-drawer product-editor-drawer"/)
-  assert.match(source, /class="custom-product-form product-drawer-form"/)
+  assert.match(source, /class="sku-create-form product-create-form product-drawer-form"/)
+  assert.match(source, /@submit\.prevent="createSku"/)
   assert.match(source, /\.product-editor-drawer\s*\{\s*width:\s*min\(820px,\s*94vw\);/)
   assert.match(source, /\.product-drawer-form\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/)
 })
@@ -1180,30 +1261,32 @@ test('SKU settings groups master data and template configuration into separate w
     template.indexOf('class="panel product-panel"') < template.indexOf('class="sku-template-workspace"'),
     'SKU list should remain in the daily-operation workspace before template configuration',
   )
-  assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openCategorySettingsDrawer"/)
-  assert.doesNotMatch(template, /class="panel category-panel"/)
+  assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"[\s\S]*@click="openSkuCopyDrawer"/)
+  assert.match(template, /activeConfigTemplateSection === 'category-management'/)
+  assert.match(template, /id="sku-category-management-target"/)
   assert.match(style, /\.master-data-layout\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*minmax\(0,\s*1fr\);/)
   assert.match(style, /\.template-workspace-stack\s*\{\s*display:\s*grid;\s*gap:\s*14px;/)
   assert.match(style, /@media\s*\(max-width:\s*1100px\)/)
   assert.match(style, /\.master-data-layout\s*\{\s*grid-template-columns:\s*1fr;\s*\}/)
 })
 
-test('SKU settings opens category settings and SKU creation behind drawers', () => {
+test('SKU settings opens SKU creation and SKU copy behind drawers while category management is a config tab', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
-    'categorySettingsDrawerOpen',
-    'category-settings-drawer',
-    'openCategorySettingsDrawer',
+    'skuCopyDrawerOpen',
+    'sku-copy-drawer',
+    'openSkuCopyDrawer',
+    '商品分类管理',
     'categorySearchQuery',
     'visibleCategoryTreeForSkuContext',
     'category-search',
     'category-scroll-list',
     'product-editor-drawer',
     'openProductDrawer',
-    '分类设置',
+    'SKU复制',
     '新增SKU',
   ]) {
     assert.ok(source.includes(expected), `missing compact SKU settings marker: ${expected}`)
@@ -1211,15 +1294,15 @@ test('SKU settings opens category settings and SKU creation behind drawers', () 
 
   assert.doesNotMatch(template, /class="panel public-product-panel"/)
   assert.doesNotMatch(template, /class="panel custom-product-panel"/)
-  assert.doesNotMatch(template, /class="panel category-panel"/)
-  assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"[\s\S]*@click="openCategorySettingsDrawer"/)
-  assert.match(template, /<aside class="settings-drawer category-settings-drawer"[\s\S]*商品分类 ·/)
+  assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"[\s\S]*@click="openSkuCopyDrawer"/)
+  assert.doesNotMatch(template, />分类设置</)
   assert.match(template, /v-for="primary in visibleCategoryTreeForSkuContext"/)
+  assert.match(template, /<aside class="settings-drawer sku-copy-drawer"[\s\S]*选择分类和产品/)
   assert.match(style, /\.category-scroll-list\s*\{[^}]*max-height:\s*min\(640px,\s*calc\(100vh - 280px\)\);[^}]*overflow:\s*auto;/s)
   assert.match(style, /\.settings-drawer-mask\s*\{[^}]*position:\s*fixed;/s)
 })
 
-test('SKU settings edits product categories inline inside the category settings drawer', () => {
+test('SKU settings edits product categories inline inside the category management tab', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
@@ -1240,9 +1323,10 @@ test('SKU settings edits product categories inline inside the category settings 
     assert.ok(source.includes(expected), `missing inline category editor marker: ${expected}`)
   }
 
-  assert.match(template, /class="settings-drawer category-settings-drawer"[\s\S]*class="category-panel category-drawer-panel"/)
+  assert.match(template, /activeConfigTemplateSection === 'category-management'[\s\S]*class="category-panel category-drawer-panel/)
   assert.doesNotMatch(source, /category-editor-drawer/)
   assert.doesNotMatch(source, /openCategoryDrawer/)
+  assert.doesNotMatch(source, /openCategorySettingsDrawer/)
   assert.doesNotMatch(template, />编辑产品类型</)
   assert.doesNotMatch(template, />改名</)
   assert.match(template, /@click(?:\.stop)?="startCategoryEdit\(primary\)"/)

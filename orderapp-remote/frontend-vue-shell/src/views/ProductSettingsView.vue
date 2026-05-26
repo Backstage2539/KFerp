@@ -59,17 +59,8 @@
 
       <div v-show="activeSettingsSection === 'master'" class="sku-master-workspace">
         <div class="master-data-layout">
-      <div v-if="categorySettingsDrawerOpen" class="settings-drawer-mask" @click.self="closeCategorySettingsDrawer">
-        <aside class="settings-drawer category-settings-drawer" aria-label="商品分类设置">
-          <div class="drawer-head">
-            <div>
-              <h3>商品分类 · {{ selectedSkuContextLabel }}</h3>
-              <p>集中维护产品类型、产品子类型、排序、折叠和停车场归类。</p>
-            </div>
-            <button class="secondary compact-action" type="button" @click="closeCategorySettingsDrawer">关闭</button>
-          </div>
-          <div class="drawer-body">
-      <div class="category-panel category-drawer-panel">
+      <Teleport to="#sku-category-management-target">
+      <div v-show="activeConfigTemplateSection === 'category-management'" class="category-panel category-drawer-panel category-management-panel">
         <div class="panel-title">
           <span>商品分类 · {{ selectedSkuContextLabel }}</span>
           <div class="panel-actions">
@@ -266,16 +257,14 @@
           </div>
         </div>
       </div>
-    </div>
-        </aside>
-      </div>
+      </Teleport>
 
       <div class="panel product-panel">
         <div class="panel-title sku-panel-title">
           <span>客户SKU列表 · {{ selectedSkuContextLabel }}</span>
           <div class="panel-actions sku-panel-actions">
             <button class="primary compact-action" type="button" @click="openProductDrawer">新增SKU</button>
-            <button class="secondary compact-action" type="button" @click="openCategorySettingsDrawer">分类设置</button>
+            <button class="secondary compact-action" type="button" @click="openSkuCopyDrawer">SKU复制</button>
             <button class="secondary compact-action" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
               失效选中产品
             </button>
@@ -285,30 +274,8 @@
           </div>
         </div>
         <div v-show="!productsCollapsed">
-          <div v-if="selectedCustomerSkuCustomerID" class="customer-copy-panel">
-            <label class="checkline switchline">
-              <input :checked="customerUsesPublicSku" type="checkbox" :disabled="publicUsageSaving" @change="savePublicSkuUsageForCustomer" />
-              <span>是否使用公共SKU</span>
-            </label>
-          </div>
           <div class="table-wrap sku-table-wrap">
           <div class="sku-filters">
-            <label>
-              <span>形态</span>
-              <select v-model="skuFilters.productKind">
-                <option value="all">全部形态</option>
-                <option value="roasted">熟豆</option>
-                <option value="green_bean">生豆</option>
-                <option value="drip_bag">挂耳</option>
-                <option value="instant_coffee">速溶咖啡</option>
-              </select>
-            </label>
-            <label>
-              <span>类型</span>
-              <select v-model="skuFilters.customType">
-                <option v-for="option in skuTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-              </select>
-            </label>
             <label>
               <span>搜索</span>
               <input v-model.trim="skuFilters.query" placeholder="搜索商品名称/类型/备注" />
@@ -338,9 +305,7 @@
                 <th class="sku-col-product-subtype">产品子类型</th>
                 <th>商品编号</th>
                 <th class="sku-name-cell">商品</th>
-                <th>形态</th>
                 <th>归属</th>
-                <th>类型</th>
                 <th class="special-attrs-cell">特殊属性</th>
                 <th>BOM预期产出率</th>
                 <th>利润率覆盖</th>
@@ -366,9 +331,7 @@
                       :disabled="!canEditSkuRow(row)"
                       @change="saveProductBasics(row, 'SKU名称已保存')" />
                   </td>
-                  <td><span class="kind-badge" :class="productKindBadgeClass(row)">{{ productKindLabel(row) }}</span></td>
                   <td>{{ productOwnerLabel(row) }}</td>
-                  <td>{{ skuTypeLabel(row.custom_type) }}</td>
                   <td class="special-attrs-cell">
                     <div v-if="specialAttrSchemaForProduct(row).length" class="special-attr-editor compact">
                       <label v-for="attr in specialAttrSchemaForProduct(row)" :key="`row-attr-${row.id}-${attr.key}`">
@@ -418,8 +381,7 @@
                     <button class="text-button" type="button" :disabled="!canEditSkuRow(row)" @click="openProductBom(row)">维护 BOM</button>
                   </td>
                   <td>
-                    <button v-if="isPublicSkuReference(row)" class="text-button" type="button" @click="derivePublicSku(row)">复制为客户SKU</button>
-                    <button v-else class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row)" @click="deactivateProducts([row.id])">失效</button>
+                    <button class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row)" @click="deactivateProducts([row.id])">停用</button>
                   </td>
                   <td>
                     <textarea
@@ -431,7 +393,7 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'green_bean'" class="green-bean-detail-row">
-                  <td :colspan="15">
+                  <td :colspan="13">
                     <div class="green-bean-detail-fields">
                       <label>
                         <span>生豆属性</span>
@@ -461,7 +423,7 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'drip_bag'" class="green-bean-detail-row">
-                  <td :colspan="15">
+                  <td :colspan="13">
                     <div class="green-bean-detail-fields">
                       <label>
                         <span>每袋克重</span>
@@ -476,7 +438,7 @@
                 </tr>
               </template>
               <tr v-if="!displaySkuRows.length">
-                <td :colspan="15" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
+                <td :colspan="13" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
               </tr>
             </tbody>
           </table>
@@ -514,7 +476,14 @@
               @click="activeConfigTemplateSection = 'gradient'">
               阶梯价模板
             </button>
+            <button
+              type="button"
+              :class="['config-template-tab', { active: activeConfigTemplateSection === 'category-management' }]"
+              @click="activeConfigTemplateSection = 'category-management'">
+              商品分类管理
+            </button>
           </div>
+          <div id="sku-category-management-target" class="category-management-target"></div>
       <div v-show="activeConfigTemplateSection === 'gradient'" class="panel gradient-template-panel gradient-template-pane">
         <div class="panel-title">
           <span>阶梯价模板</span>
@@ -847,160 +816,113 @@
       <aside class="settings-drawer product-editor-drawer" aria-label="新增SKU">
         <div class="drawer-head">
           <div>
-            <h3>{{ selectedCustomerSkuCustomerID ? '新增客户专属 SKU' : '新增公共 SKU' }}</h3>
-            <p>选择产品类别和产品子类型；未选择子类型时先进入停车场。</p>
+            <h3>新增SKU</h3>
+            <p>当前归属：{{ selectedSkuContextLabel }}。只填写名称、备注、产品类别和产品子类型。</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closeProductDrawer">关闭</button>
         </div>
         <div class="drawer-body">
-          <form v-if="!selectedCustomerSkuCustomerID" class="product-create-form product-drawer-form" @submit.prevent="createProduct">
+          <form class="sku-create-form product-create-form product-drawer-form" @submit.prevent="createSku">
             <label class="wide-field">
               <span>商品名称</span>
-              <input v-model.trim="productForm.name" placeholder="如 花魁 SOE" />
+              <input v-model.trim="skuForm.name" placeholder="如 盒装速溶 10条/盒" />
             </label>
             <label class="wide-field">
               <span>备注</span>
-              <textarea v-model.trim="productForm.remark" rows="2" placeholder="如 奶咖主推、仅指定客户使用"></textarea>
+              <textarea v-model.trim="skuForm.remark" rows="2" placeholder="如 原料规格、包装说明或客户要求"></textarea>
             </label>
             <label>
               <span>产品类别</span>
-              <select v-model.number="productForm.product_type_category_id" @change="handleProductTypeCategoryChange(productForm)">
+              <select v-model.number="skuForm.product_type_category_id" @change="handleProductTypeCategoryChange(skuForm)">
                 <option value="0">选择产品类别</option>
                 <option v-for="category in productTypeCategoryOptions" :key="category.id" :value="category.id">{{ category.name }}</option>
               </select>
             </label>
             <label>
               <span>产品子类型</span>
-              <select v-model.number="productForm.product_subtype_category_id" @change="syncProductTypeFromProductSubtype(productForm)">
+              <select v-model.number="skuForm.product_subtype_category_id" @change="syncProductTypeFromProductSubtype(skuForm)">
                 <option value="0">不选择，进停车场</option>
-                <option v-for="category in productSubtypeCategoryOptions(productForm.product_type_category_id)" :key="category.id" :value="category.id">{{ category.name }}</option>
+                <option v-for="category in productSubtypeCategoryOptions(skuForm.product_type_category_id)" :key="category.id" :value="category.id">{{ category.name }}</option>
               </select>
               <small>只有选中产品子类型才会挂入分类；未选会进入停车场。</small>
             </label>
-            <div v-if="specialAttrSchemaForForm(productForm).length" class="wide-field special-attr-editor">
-              <span class="field-group-title">特殊属性</span>
-              <label v-for="attr in specialAttrSchemaForForm(productForm)" :key="`product-form-attr-${attr.key}`">
-                <span>{{ attr.label }}</span>
-                <select v-if="attr.value_type === 'select'" v-model="productForm.special_attr_values[attr.key]">
-                  <option value="">未填写</option>
-                  <option v-for="option in attr.options" :key="`${attr.key}-${option}`" :value="option">{{ option }}</option>
-                </select>
-                <input v-else v-model.trim="productForm.special_attr_values[attr.key]" :type="attr.value_type === 'number' ? 'number' : 'text'" />
-              </label>
-            </div>
-            <label v-if="productKindSupportsBomParams(productForm.product_kind)">
-              <span>BOM预期产出率</span>
-              <div class="yield-editor">
-                <input class="yield-input" v-model.number="productForm.yield_percent" type="number" min="1" max="100" step="0.01" />
-                <span>%</span>
-              </div>
-            </label>
-            <label v-if="productForm.product_kind === 'green_bean'">
-              <span>生豆属性</span>
-              <select v-model="productForm.green_bean_type">
-                <option v-for="option in greenBeanTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-              </select>
-            </label>
-            <label v-if="productForm.product_kind === 'green_bean'" class="wide-field">
-              <span>绑定熟豆</span>
-              <SearchableSelect v-model="productForm.green_bean_bom_product_id" :options="publicRoastedBomProducts" :option-label="baseProductOptionLabel" :option-meta="baseProductOptionMeta" :option-value="optionNumericValue" placeholder="选择对应熟豆" empty-text="暂无熟豆产品" />
-            </label>
-            <label v-if="productForm.product_kind === 'drip_bag'">
-              <span>每袋克重</span>
-              <input v-model.number="productForm.drip_bag_grams" type="number" min="0.01" step="0.01" />
-            </label>
-            <label v-if="productForm.product_kind === 'drip_bag'">
-              <span>每盒袋数</span>
-              <input v-model.number="productForm.drip_box_bag_count" type="number" min="1" step="1" />
-            </label>
             <div class="form-actions">
-              <button class="primary" type="submit" :disabled="productSaving">创建公共 SKU</button>
+              <button class="primary" type="submit" :disabled="skuSaving">新增SKU</button>
             </div>
           </form>
+        </div>
+      </aside>
+    </div>
 
-          <form v-else class="custom-product-form product-drawer-form" @submit.prevent="createCustomProduct">
-            <label>
-              <span>产品类别</span>
-              <select v-model.number="customForm.product_type_category_id" @change="handleCustomProductTypeCategoryChange">
-                <option value="0">选择产品类别</option>
-                <option v-for="category in productTypeCategoryOptions" :key="category.id" :value="category.id">{{ category.name }}</option>
-              </select>
-            </label>
-            <label>
-              <span>产品子类型</span>
-              <select v-model.number="customForm.product_subtype_category_id" @change="syncProductTypeFromProductSubtype(customForm)">
-                <option value="0">不选择，进停车场</option>
-                <option v-for="category in productSubtypeCategoryOptions(customForm.product_type_category_id)" :key="category.id" :value="category.id">{{ category.name }}</option>
-              </select>
-              <small>未选产品子类型时先进入停车场，后续再拖入子类型。</small>
-            </label>
-            <label v-if="customForm.product_kind !== 'green_bean' && customForm.custom_type !== 'custom_roast'" class="wide-field">
-              <span>基础产品</span>
-              <SearchableSelect v-model="customForm.base_product_id" :options="customBaseProducts" :option-label="baseProductOptionLabel" :option-meta="baseProductOptionMeta" :option-value="optionNumericValue" placeholder="输入产品名" empty-text="没有匹配产品" @select="fillCustomProductName" />
-            </label>
-            <label>
-              <span>定制类型</span>
-              <select v-model="customForm.custom_type">
-                <option value="public_sku_alias">公共 SKU 改名</option>
-                <option value="custom_roast">定制烘焙度</option>
-              </select>
-            </label>
-            <div v-if="specialAttrSchemaForForm(customForm).length" class="wide-field special-attr-editor">
-              <span class="field-group-title">特殊属性</span>
-              <label v-for="attr in specialAttrSchemaForForm(customForm)" :key="`custom-form-attr-${attr.key}`">
-                <span>{{ attr.label }}</span>
-                <select v-if="attr.value_type === 'select'" v-model="customForm.special_attr_values[attr.key]" @change="fillCustomProductName">
-                  <option value="">未填写</option>
-                  <option v-for="option in attr.options" :key="`${attr.key}-${option}`" :value="option">{{ option }}</option>
-                </select>
-                <input v-else v-model.trim="customForm.special_attr_values[attr.key]" :type="attr.value_type === 'number' ? 'number' : 'text'" @change="fillCustomProductName" />
+    <div v-if="skuCopyDrawerOpen" class="settings-drawer-mask" @click.self="closeSkuCopyDrawer">
+      <aside class="settings-drawer sku-copy-drawer" aria-label="SKU复制">
+        <div class="drawer-head">
+          <div>
+            <h3>SKU复制</h3>
+            <p>从公共 SKU 或其他客户复制到当前归属；同名 SKU 会覆盖资料但保留目标 SKU ID。</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeSkuCopyDrawer">关闭</button>
+        </div>
+        <div class="drawer-body">
+          <label class="sku-copy-source">
+            <span>复制来源</span>
+            <select v-model.number="copySourceCustomerID" @change="loadSkuCopyOptions">
+              <option
+                v-for="source in skuCopySourceOptions"
+                :key="source.id"
+                :value="source.id">
+                {{ source.name }}
+              </option>
+            </select>
+          </label>
+
+          <section class="pdf-picker productSelection sku-copy-selection">
+            <div class="picker-head">
+              <label class="check-line">
+                <input type="checkbox" :checked="allCopySkusSelected" :disabled="!skuCopyTotalCount" @change="setAllCopySkus($event.target.checked)" />
+                <strong>选择分类和产品</strong>
               </label>
-            </div>
-            <label v-if="customForm.product_kind === 'green_bean'">
-              <span>生豆属性</span>
-              <select v-model="customForm.green_bean_type">
-                <option v-for="option in greenBeanTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-              </select>
-            </label>
-            <label v-if="customForm.product_kind === 'green_bean'" class="wide-field">
-              <span>绑定熟豆</span>
-              <SearchableSelect v-model="customForm.green_bean_bom_product_id" :options="customRoastedBomProducts" :option-label="baseProductOptionLabel" :option-meta="baseProductOptionMeta" :option-value="optionNumericValue" placeholder="选择对应熟豆" empty-text="暂无熟豆产品" @select="fillCustomProductName" />
-            </label>
-            <label v-if="productKindSupportsBomParams(customForm.product_kind)">
-              <span>BOM出品率</span>
-              <div class="yield-editor">
-                <input class="yield-input" v-model.number="customForm.yield_percent" type="number" min="1" max="100" step="0.01" />
-                <span>%</span>
+              <span>{{ copySelectedCount }}/{{ skuCopyTotalCount }} 款</span>
+              <div class="picker-actions">
+                <button class="secondary compact-action" type="button" :disabled="!skuCopyTotalCount" @click="setAllCopySkus(true)">全选</button>
+                <button class="secondary compact-action" type="button" :disabled="!copySelectedCount" @click="setAllCopySkus(false)">清空</button>
               </div>
-            </label>
-            <label v-if="customForm.product_kind === 'drip_bag'">
-              <span>每袋克重</span>
-              <input v-model.number="customForm.drip_bag_grams" type="number" min="0.01" step="0.01" />
-            </label>
-            <label v-if="customForm.product_kind === 'drip_bag'">
-              <span>每盒袋数</span>
-              <input v-model.number="customForm.drip_box_bag_count" type="number" min="1" step="1" />
-            </label>
-            <label class="wide-field">
-              <span>专属 SKU 名称</span>
-              <input v-model.trim="customForm.name" placeholder="如 客户A-暖阳拼配-中深烘" />
-            </label>
-            <label class="wide-field">
-              <span>备注</span>
-              <textarea v-model.trim="customForm.remark" rows="2" placeholder="如 客户指定口味或包装说明"></textarea>
-            </label>
-            <label v-if="customForm.product_kind === 'roasted' && customForm.custom_type !== 'custom_roast'" class="checkline">
-              <input v-model="customForm.copy_bom" type="checkbox" />
-              <span>复制基础产品 BOM</span>
-            </label>
-            <label v-if="customForm.product_kind !== 'green_bean' && customForm.custom_type !== 'custom_roast'" class="checkline">
-              <input v-model="customForm.copy_price_tiers" type="checkbox" />
-              <span>复制基础产品价格梯度</span>
-            </label>
-            <div class="form-actions">
-              <button class="primary" type="submit" :disabled="customSaving">创建专属 SKU</button>
             </div>
-          </form>
+            <div class="product-picker-list">
+              <div v-for="group in skuCopyGroups" :key="`copy-type-${group.id}`" class="product-picker-category">
+                <div class="product-picker-category-head">
+                  <label class="check-line">
+                    <input type="checkbox" :checked="isCopyTypeSelected(group)" @change="toggleCopyType(group, $event.target.checked)" />
+                    <strong>{{ group.name }}</strong>
+                  </label>
+                  <span>{{ selectedCopyCountForType(group) }}/{{ copyCountForType(group) }} 款</span>
+                </div>
+                <div v-for="subtype in group.children" :key="`copy-subtype-${subtype.id}`" class="product-picker-subcategory">
+                  <div class="product-picker-category-head subtype-head">
+                    <label class="check-line">
+                      <input type="checkbox" :checked="isCopySubtypeSelected(subtype)" @change="toggleCopySubtype(subtype, $event.target.checked)" />
+                      <span>{{ subtype.name }}</span>
+                    </label>
+                    <span>{{ selectedCopyCountForSubtype(subtype) }}/{{ copyCountForSubtype(subtype) }} 款</span>
+                  </div>
+                  <label
+                    v-for="sku in subtype.products"
+                    :key="`copy-sku-${sku.id}`"
+                    class="product-picker-row check-line"
+                    :class="{ inactive: sku.copy_state === 'inactive', overwrite: sku.copy_state === 'will_overwrite' }">
+                    <input type="checkbox" :checked="isCopySkuSelected(sku)" :disabled="sku.copy_state === 'inactive'" @change="toggleCopySku(sku, $event.target.checked)" />
+                    <span>{{ sku.name }}</span>
+                    <small>{{ sku.copy_state === 'will_overwrite' ? '覆盖同名' : (sku.copy_state === 'inactive' ? '已停用' : '新增') }}</small>
+                  </label>
+                </div>
+              </div>
+              <p v-if="!skuCopyGroups.length" class="muted">当前来源暂无可复制 SKU。</p>
+            </div>
+          </section>
+        </div>
+        <div class="drawer-footer sku-copy-footer">
+          <span>已选 {{ copySelectedCount }} 款</span>
+          <button class="primary" type="button" :disabled="skuCopySaving || !copySelectedCount" @click="copySelectedSkus">复制SKU</button>
         </div>
       </aside>
     </div>
@@ -1112,6 +1034,8 @@ import {
   buildProductBomURL,
   buildProductCreatePayload,
   buildAssignCategoryPayload,
+  buildSkuCopyPayload,
+  buildSkuCreatePayload,
   buildSkuContextCategoryTree,
   categoryBelongsToSkuContext as categoryBelongsToContext,
   categoryDisplayState,
@@ -1167,8 +1091,11 @@ const customerProductRuleOverrides = ref([])
 const customerProductRuleBindings = ref([])
 const customers = ref([])
 const loading = ref(false)
-const productSaving = ref(false)
-const customSaving = ref(false)
+const skuSaving = ref(false)
+const productSaving = skuSaving
+const customSaving = skuSaving
+const skuCopyLoading = ref(false)
+const skuCopySaving = ref(false)
 const templateSaving = ref(false)
 const productConfigSaving = ref(false)
 const productUnitSaving = ref(false)
@@ -1188,7 +1115,7 @@ const productsCollapsed = ref(false)
 const activeSettingsSection = ref('master')
 const activeConfigTemplateSection = ref('product-config')
 const productDrawerOpen = ref(false)
-const categorySettingsDrawerOpen = ref(false)
+const skuCopyDrawerOpen = ref(false)
 const globalUnitDrawerOpen = ref(false)
 const categorySearchQuery = ref('')
 const primaryDeleteMode = ref(false)
@@ -1199,8 +1126,12 @@ const skuFilters = ref(defaultSkuFilters())
 const skuPage = ref(1)
 const skuPageSize = ref(10)
 const publicUsageSaving = ref(false)
-const productForm = ref(defaultProductForm())
+const skuForm = ref(defaultSkuForm())
+const productForm = skuForm
 const customForm = ref(defaultCustomForm())
+const skuCopyOptions = ref(defaultSkuCopyOptions())
+const copySourceCustomerID = ref(0)
+const copySkuSelection = ref([])
 const templateForm = ref(defaultGradientTemplateForm())
 const productUnitTemplateForm = ref(defaultProductUnitTemplateForm())
 const globalUnitForm = ref(defaultProductUnitDefinitionForm())
@@ -1234,17 +1165,15 @@ const selectedCustomerPublicUsage = computed(() => {
 const customerUsesPublicCategories = computed(() => Boolean(
   selectedCustomerSkuCustomerID.value && selectedCustomerPublicUsage.value.use_public_categories,
 ))
-const customerUsesPublicSku = computed(() => Boolean(
-  selectedCustomerSkuCustomerID.value && selectedCustomerPublicUsage.value.use_public_sku,
-))
+const customerUsesPublicSku = computed(() => false)
 const customerUsesPublicGradientTemplates = computed(() => Boolean(
   selectedCustomerSkuCustomerID.value && selectedCustomerPublicUsage.value.use_public_gradient_templates,
 ))
 const categoryTreeForSkuContext = computed(() => buildSkuContextCategoryTree(categories.value, {
   customerID: skuContextCustomerID.value,
   usePublicCategories: customerUsesPublicCategories.value,
-  usePublicSku: customerUsesPublicSku.value,
-  usePublicSkuInCategoryTree: customerUsesPublicSku.value,
+  usePublicSku: false,
+  usePublicSkuInCategoryTree: false,
   publicCategories: flatPublicCategories.value,
   customerCategories: flatCustomerCategories.value,
   publicProducts: publicProducts.value,
@@ -1302,6 +1231,18 @@ const baseProducts = computed(() => products.value.filter((product) => Number(pr
 const customBaseProducts = computed(() => baseProducts.value.filter((product) => normalizedProductKind(product) === customForm.value.product_kind))
 const publicSkuRows = computed(() => sortRowsForCustomerSkuPriority(productRows.value.filter((product) => Number(product.customer_id || 0) === 0), 0))
 const customerSkuCustomers = computed(() => customerSkuCustomerOptions(customers.value))
+const skuCopySourceCustomers = computed(() => customerSkuCustomers.value.filter((customer) => Number(customer.id || 0) !== skuContextCustomerID.value))
+const skuCopySourceOptions = computed(() => {
+  const targetCustomerID = skuContextCustomerID.value
+  const options = []
+  if (targetCustomerID !== 0) {
+    options.push({ id: 0, name: '公共SKU' })
+  }
+  for (const customer of skuCopySourceCustomers.value) {
+    options.push({ id: Number(customer.id || 0), name: customer.name })
+  }
+  return options
+})
 const customerSkuRows = computed(() => sortRowsForCustomerSkuPriority(
   productRows.value.filter((product) => selectedCustomerSkuCustomerID.value && skuContextProductFilter(product)),
   selectedCustomerSkuCustomerID.value,
@@ -1366,6 +1307,23 @@ const canEditCurrentProductConfigTemplate = computed(() => {
 })
 const skuPrimaryCategoryOptions = computed(() => primaryCategoryOptions(unfilteredDisplaySkuRows.value))
 const skuSecondaryCategoryOptions = computed(() => secondaryCategoryOptions(unfilteredDisplaySkuRows.value, skuFilters.value.primaryCategory))
+const skuCopyGroups = computed(() => skuCopyOptions.value?.groups || [])
+const copyableSkuIDs = computed(() => {
+  const ids = []
+  for (const group of skuCopyGroups.value) {
+    for (const subtype of group.children || []) {
+      for (const sku of subtype.products || []) {
+        if (sku.copy_state === 'inactive') continue
+        const id = Number(sku.id || 0)
+        if (id) ids.push(id)
+      }
+    }
+  }
+  return ids
+})
+const skuCopyTotalCount = computed(() => copyableSkuIDs.value.length)
+const copySelectedCount = computed(() => copySkuSelection.value.length)
+const allCopySkusSelected = computed(() => skuCopyTotalCount.value > 0 && copyableSkuIDs.value.every((id) => copySkuSelection.value.includes(id)))
 const publicRoastedBomProducts = computed(() => roastedBomProductOptions(products.value))
 const customRoastedBomProducts = computed(() => roastedBomProductOptions(products.value, {
   customerID: selectedCustomerSkuCustomerID.value,
@@ -1378,6 +1336,27 @@ function defaultSkuFilters() {
     query: '',
     primaryCategory: '',
     secondaryCategory: '',
+  }
+}
+
+function defaultSkuForm() {
+  return {
+    name: '',
+    remark: '',
+    product_type_category_id: 0,
+    product_subtype_category_id: 0,
+    special_attr_values: {},
+    active: true,
+  }
+}
+
+function defaultSkuCopyOptions() {
+  return {
+    title: '选择分类和产品',
+    target_customer_id: 0,
+    source_customer_id: 0,
+    total_count: 0,
+    groups: [],
   }
 }
 
@@ -1559,8 +1538,7 @@ function productSettingsDraftKey() {
 function saveProductSettingsDraft() {
   saveFormDraft(productSettingsDraftKey(), {
     selectedCustomerSkuCustomerID: selectedCustomerSkuCustomerID.value,
-    productForm: productForm.value,
-    customForm: customForm.value,
+    skuForm: skuForm.value,
     templateForm: templateForm.value,
     productConfigTemplateForm: productConfigTemplateForm.value,
     productUnitTemplateForm: productUnitTemplateForm.value,
@@ -1586,8 +1564,7 @@ async function restoreProductSettingsDraft() {
   selectedCustomerSkuCustomerID.value = Number(draft.selectedCustomerSkuCustomerID || 0)
   syncSelectedCustomerSkuCustomer()
   applyWorkspaceCustomerContext()
-  productForm.value = { ...defaultProductForm(), ...(draft.productForm || {}) }
-  customForm.value = { ...defaultCustomForm(), ...(draft.customForm || {}) }
+  skuForm.value = { ...defaultSkuForm(), ...(draft.skuForm || draft.productForm || {}) }
   templateForm.value = normalizeGradientTemplate(draft.templateForm || defaultGradientTemplateForm())
   productConfigTemplateForm.value = defaultProductConfigTemplateForm(draft.productConfigTemplateForm || {})
   productUnitTemplateForm.value = defaultProductUnitTemplateForm(draft.productUnitTemplateForm || {})
@@ -1598,13 +1575,12 @@ async function restoreProductSettingsDraft() {
   collapsedSecondaryCategoryIds.value = normalizeCategoryIdList(draft.collapsedSecondaryCategoryIds)
   productsCollapsed.value = Boolean(draft.productsCollapsed)
   activeSettingsSection.value = ['master', 'templates'].includes(draft.activeSettingsSection) ? draft.activeSettingsSection : 'master'
-  activeConfigTemplateSection.value = ['product-config', 'unit-template', 'gradient'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
+  activeConfigTemplateSection.value = ['product-config', 'unit-template', 'gradient', 'category-management'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
   categorySearchQuery.value = draft.categorySearchQuery || ''
   skuFilters.value = { ...defaultSkuFilters(), ...(draft.skuFilters || {}) }
   skuPage.value = Number(draft.skuPage || 1)
   skuPageSize.value = normalizePageSize(draft.skuPageSize)
-  ensureProductTypeCategorySelected(productForm.value)
-  ensureProductTypeCategorySelected(customForm.value)
+  ensureProductTypeCategorySelected(skuForm.value)
   await nextTick()
   restoringProductSettingsDraft = false
 }
@@ -2141,8 +2117,7 @@ async function deriveProductConfigTemplateForCustomer(template) {
       },
     })
     const derivedID = Number(response?.template?.id || 0)
-    await ensurePublicProductReferenceForCustomer(customerID)
-    ok.value = '公共商品配置已复制为客户配置，并已开启公共SKU引用；这是引用公共产品，不会复制SKU'
+    ok.value = '公共商品配置已复制为客户配置'
     await loadAll()
     selectedCustomerSkuCustomerID.value = customerID
     activeSettingsSection.value = 'templates'
@@ -2155,20 +2130,6 @@ async function deriveProductConfigTemplateForCustomer(template) {
   } finally {
     productConfigSaving.value = false
   }
-}
-
-async function ensurePublicProductReferenceForCustomer(customerID) {
-  const id = Number(customerID || 0)
-  if (!id) return
-  const current = customerPublicUsages.value.find((row) => Number(row.customer_id || 0) === id) || {}
-  if (current.use_public_sku === true && current.use_public_categories === true) return
-  await apiSend('/api/product-settings/customer-public-usage', {
-    body: buildCustomerPublicUsagePayload(id, {
-      use_public_sku: true,
-      use_public_categories: true,
-      use_public_gradient_templates: Boolean(current.use_public_gradient_templates),
-    }),
-  })
 }
 
 function resetCustomerProductRuleForms() {
@@ -2377,7 +2338,7 @@ function categoryBelongsToCurrentSkuContext(category) {
 function skuContextProductFilter(product) {
   return productBelongsToContext(product, {
     customerID: skuContextCustomerID.value,
-    usePublicSku: customerUsesPublicSku.value,
+    usePublicSku: false,
     publicProducts: publicProducts.value,
     customerProducts: customerProductsForContext.value,
   })
@@ -2392,8 +2353,7 @@ function canEditSkuRow(row) {
 }
 
 function openProductDrawer() {
-  ensureProductTypeCategorySelected(productForm.value)
-  ensureProductTypeCategorySelected(customForm.value)
+  ensureProductTypeCategorySelected(skuForm.value)
   productDrawerOpen.value = true
   productsCollapsed.value = false
 }
@@ -2402,46 +2362,149 @@ function closeProductDrawer() {
   productDrawerOpen.value = false
 }
 
-function openCategorySettingsDrawer() {
-  categorySettingsDrawerOpen.value = true
-  categoryCollapsed.value = false
-}
-
-function closeCategorySettingsDrawer() {
-  categorySettingsDrawerOpen.value = false
-}
-
-function isPublicSkuReference(row) {
-  return isPublicReferenceRow(row, { customerID: skuContextCustomerID.value })
-}
-
 function canDragSkuRow(row) {
   return skuContextProductFilter(row)
 }
 
-async function derivePublicSku(row) {
-  const customerID = skuContextCustomerID.value
-  if (!customerID || Number(row.customer_id || 0) !== 0) return
-  loading.value = true
+async function openSkuCopyDrawer() {
+  ensureSkuCopySource()
+  skuCopyDrawerOpen.value = true
+  await loadSkuCopyOptions()
+}
+
+function closeSkuCopyDrawer() {
+  skuCopyDrawerOpen.value = false
+}
+
+async function loadSkuCopyOptions() {
+  ensureSkuCopySource()
+  skuCopyLoading.value = true
+  error.value = ''
+  try {
+    const params = new URLSearchParams({
+      target_customer_id: String(skuContextCustomerID.value),
+      source_customer_id: String(copySourceCustomerID.value || 0),
+    })
+    skuCopyOptions.value = await apiGet(`/api/product-settings/skus/copy-options?${params.toString()}`)
+    pruneCopySkuSelection()
+  } catch (err) {
+    error.value = err.message || '加载 SKU 复制选项失败'
+    skuCopyOptions.value = defaultSkuCopyOptions()
+  } finally {
+    skuCopyLoading.value = false
+  }
+}
+
+function ensureSkuCopySource() {
+  const options = skuCopySourceOptions.value
+  if (!options.length) {
+    copySourceCustomerID.value = 0
+    return
+  }
+  if (!options.some((source) => Number(source.id || 0) === Number(copySourceCustomerID.value || 0))) {
+    copySourceCustomerID.value = Number(options[0].id || 0)
+  }
+}
+
+function pruneCopySkuSelection() {
+  const valid = new Set(copyableSkuIDs.value)
+  copySkuSelection.value = copySkuSelection.value.filter((id) => valid.has(Number(id)))
+}
+
+function isCopySkuSelected(sku) {
+  return copySkuSelection.value.includes(Number(sku?.id || 0))
+}
+
+function toggleCopySku(sku, checked) {
+  if (sku?.copy_state === 'inactive') return
+  const id = Number(sku?.id || 0)
+  if (!id) return
+  copySkuSelection.value = checked
+    ? Array.from(new Set([...copySkuSelection.value, id]))
+    : copySkuSelection.value.filter((item) => item !== id)
+}
+
+function copyIDsForSubtype(subtype = {}) {
+  return (subtype.products || [])
+    .filter((sku) => sku.copy_state !== 'inactive')
+    .map((sku) => Number(sku.id || 0))
+    .filter(Boolean)
+}
+
+function copyIDsForType(group = {}) {
+  return (group.children || []).flatMap(copyIDsForSubtype)
+}
+
+function copyCountForSubtype(subtype = {}) {
+  return copyIDsForSubtype(subtype).length
+}
+
+function copyCountForType(group = {}) {
+  return copyIDsForType(group).length
+}
+
+function selectedCopyCountForSubtype(subtype = {}) {
+  const selected = new Set(copySkuSelection.value)
+  return copyIDsForSubtype(subtype).filter((id) => selected.has(id)).length
+}
+
+function selectedCopyCountForType(group = {}) {
+  const selected = new Set(copySkuSelection.value)
+  return copyIDsForType(group).filter((id) => selected.has(id)).length
+}
+
+function isCopySubtypeSelected(subtype = {}) {
+  const ids = copyIDsForSubtype(subtype)
+  return ids.length > 0 && ids.every((id) => copySkuSelection.value.includes(id))
+}
+
+function isCopyTypeSelected(group = {}) {
+  const ids = copyIDsForType(group)
+  return ids.length > 0 && ids.every((id) => copySkuSelection.value.includes(id))
+}
+
+function setCopyIDs(ids = [], checked = false) {
+  const target = new Set(copySkuSelection.value)
+  for (const id of ids) {
+    if (checked) target.add(id)
+    else target.delete(id)
+  }
+  copySkuSelection.value = Array.from(target)
+}
+
+function toggleCopySubtype(subtype, checked) {
+  setCopyIDs(copyIDsForSubtype(subtype), checked)
+}
+
+function toggleCopyType(group, checked) {
+  setCopyIDs(copyIDsForType(group), checked)
+}
+
+function setAllCopySkus(checked) {
+  copySkuSelection.value = checked ? copyableSkuIDs.value.slice() : []
+}
+
+async function copySelectedSkus() {
+  if (!copySelectedCount.value) return
+  skuCopySaving.value = true
   error.value = ''
   ok.value = ''
   try {
-    await apiSend('/api/product-settings/customer-products/derive', {
-      body: {
-        customer_id: customerID,
-        base_product_id: Number(row.id || 0),
-        category_id: 0,
-        name: row.name || '',
-        copy_bom: true,
-        copy_price_tiers: true,
-      },
+    const result = await apiSend('/api/product-settings/skus/copy', {
+      body: buildSkuCopyPayload({
+        target_customer_id: skuContextCustomerID.value,
+        source_customer_id: copySourceCustomerID.value,
+        source_sku_ids: copySkuSelection.value,
+      }),
     })
-    ok.value = '公共 SKU 已复制为客户 SKU，可改名、改分类和维护客户梯度'
+    ok.value = `SKU复制完成：新增 ${Number(result?.created_count || 0)} 款，覆盖 ${Number(result?.overwritten_count || 0)} 款`
+    copySkuSelection.value = []
     await loadAll()
+    await loadSkuCopyOptions()
   } catch (err) {
-    error.value = err.message || '复制公共 SKU 失败'
+    error.value = err.message || '复制 SKU 失败'
   } finally {
-    loading.value = false
+    skuCopySaving.value = false
   }
 }
 
@@ -2770,6 +2833,32 @@ function openProductBom(row) {
   window.location.href = buildProductBomURL(window.location.href, row).toString()
 }
 
+async function createSku() {
+  ensureProductTypeCategorySelected(skuForm.value)
+  if (!skuForm.value.name) {
+    error.value = '请填写 SKU 名称'
+    return
+  }
+  skuSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend('/api/product-settings/skus', {
+      body: buildSkuCreatePayload(skuContextCustomerID.value, skuForm.value),
+    })
+    ok.value = Number(skuForm.value.product_subtype_category_id || 0) > 0
+      ? 'SKU已创建并挂到产品子类型'
+      : 'SKU已创建，未选择产品子类型，已进入停车场'
+    skuForm.value = defaultSkuForm()
+    closeProductDrawer()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '新增 SKU 失败'
+  } finally {
+    skuSaving.value = false
+  }
+}
+
 async function createProduct() {
   ensureProductTypeCategorySelected(productForm.value)
   if (!productForm.value.name) {
@@ -2873,15 +2962,6 @@ async function savePublicCategoryUsageForCustomer(event) {
     use_public_sku: customerUsesPublicSku.value,
     use_public_gradient_templates: customerUsesPublicGradientTemplates.value,
   }, checked ? '已开启公共商品分类引用' : '已关闭公共商品分类引用')
-}
-
-async function savePublicSkuUsageForCustomer(event) {
-  const checked = Boolean(event?.target?.checked)
-  await saveCustomerPublicUsage({
-    use_public_sku: checked,
-    use_public_categories: customerUsesPublicCategories.value,
-    use_public_gradient_templates: customerUsesPublicGradientTemplates.value,
-  }, checked ? '已开启公共 SKU 引用' : '已关闭公共 SKU 引用')
 }
 
 async function savePublicGradientTemplateUsageForCustomer(event) {
@@ -3512,7 +3592,9 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
     pruneSelectedProducts(displaySkuRows.value)
     return
   }
-  customForm.value = { ...customForm.value, customer_id: Number(selectedCustomerSkuCustomerID.value || 0), product_type_category_id: 0, product_subtype_category_id: 0, name: '', remark: '' }
+  skuForm.value = defaultSkuForm()
+  copySkuSelection.value = []
+  skuCopyOptions.value = defaultSkuCopyOptions()
   resetProductConfigTemplateForm()
   resetCustomerProductRuleForms()
   skuFilters.value = defaultSkuFilters()
@@ -3526,8 +3608,7 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
 watch(() => [props.workspaceMode, props.customerContextId], applyWorkspaceCustomerContext, { immediate: true })
 
 watch(productTypeCategoryOptions, () => {
-  ensureProductTypeCategorySelected(productForm.value)
-  ensureProductTypeCategorySelected(customForm.value)
+  ensureProductTypeCategorySelected(skuForm.value)
 }, { deep: true })
 
 watch(() => customForm.value.base_product_id, () => {
@@ -3808,12 +3889,28 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .settings-drawer-mask { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .22); }
 .settings-drawer { width: min(760px, 94vw); height: 100%; overflow: auto; background: #fff; box-shadow: -12px 0 32px rgba(0, 0, 0, .16); padding: 16px; display: grid; grid-template-rows: auto 1fr; gap: 12px; }
 .product-editor-drawer { width: min(820px, 94vw); }
+.sku-copy-drawer { width: min(940px, 96vw); grid-template-rows: auto 1fr auto; }
 .category-settings-drawer { width: min(920px, 96vw); }
 .global-unit-dictionary-drawer { width: min(760px, 94vw); }
 .drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 1px solid #eee8df; padding-bottom: 12px; }
 .drawer-head h3 { margin: 0 0 4px; font-size: 18px; }
 .drawer-head p { margin: 0; color: #666; font-size: 12px; }
 .drawer-body { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.drawer-footer { border-top: 1px solid #eee8df; padding-top: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sku-copy-source { display: grid; gap: 5px; font-size: 13px; }
+.sku-copy-selection { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 12px; display: grid; gap: 10px; }
+.picker-head, .product-picker-category-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.picker-actions { display: flex; align-items: center; gap: 8px; }
+.check-line { display: inline-flex; align-items: center; gap: 8px; }
+.check-line input { width: auto; min-height: 0; }
+.product-picker-list { display: grid; gap: 10px; max-height: min(620px, calc(100vh - 260px)); overflow: auto; padding-right: 2px; }
+.product-picker-category, .product-picker-subcategory { border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 10px; display: grid; gap: 8px; }
+.product-picker-subcategory { background: #fff; }
+.subtype-head { font-size: 13px; }
+.product-picker-row { min-height: 38px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; padding: 7px 9px; justify-content: space-between; }
+.product-picker-row small { color: #667085; }
+.product-picker-row.overwrite small { color: #8a4b12; }
+.product-picker-row.inactive { opacity: .5; }
 .global-unit-drawer-body { grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); align-items: start; }
 .global-unit-chip-list { display: grid; gap: 8px; }
 .global-unit-chip { min-height: 50px; justify-content: flex-start; text-align: left; }

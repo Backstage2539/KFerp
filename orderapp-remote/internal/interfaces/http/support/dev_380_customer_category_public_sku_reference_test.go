@@ -25,17 +25,15 @@ func TestDev380CustomerCategoryPublicSKUReferenceSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("internal", "application", "catalog", "service.go"): {
 			"func (s *Service) DeriveProductCategory",
-			"enableCustomerPublicProductReference(ctx, cmd.Actor, cmd.CustomerID)",
+			"func (s *Service) CopySKUs",
 		},
 		filepath.Join("internal", "application", "catalog", "service_test.go"): {
-			"TestDeriveProductCategoryEnablesPublicSKUReference",
-			"UsePublicSKU",
-			"UsePublicCategories",
-			"UsePublicGradientTemplates",
+			"TestCopySKUsDedupesSourceIDsAndDelegatesOverwriteResult",
+			"TestCopySKUsRejectsSameSourceAndTargetOwner",
 		},
 		filepath.Join("internal", "interfaces", "http", "catalog", "product_settings_api_test.go"): {
-			"derive category should enable public SKU/category reference",
-			"publicUsageSaved",
+			"TestProductSettingsAPISKUCopyOptionsAndCopy",
+			"/api/product-settings/skus/copy",
 		},
 	}
 
@@ -53,25 +51,25 @@ func TestDev380CustomerCategoryPublicSKUReferenceDocs(t *testing.T) {
 	docs := map[string][]string{
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-380-CUSTOMER-CATEGORY-PUBLIC-SKU-REFERENCE",
-			"复制为客户分类",
-			"公共 SKU",
-			"不复制公共 SKU 主档",
+			"历史方案",
+			"PR-382",
+			"SKU复制",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-380-CUSTOMER-CATEGORY-PUBLIC-SKU-REFERENCE",
-			"是否使用公共SKU",
-			"只读引用",
+			"历史验收项已由 PR-382 取代",
+			"SKU复制",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"PR-380-CUSTOMER-CATEGORY-PUBLIC-SKU-REFERENCE",
-			"公共商品分类引用",
-			"公共梯度模板引用开关不随这次操作改变",
+			"PR-382-SKU-UNIFIED-CREATE-COPY",
+			"SKU复制",
+			"新增 X 款、覆盖 Y 款、跳过 Z 款",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-26-customer-category-public-sku-reference.md"): {
 			"PR-380",
-			"RED",
-			"GREEN",
-			"浏览器验收",
+			"历史方案",
+			"PR-382",
+			"SKU复制",
 		},
 	}
 

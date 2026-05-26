@@ -24,15 +24,15 @@ func TestDev362ProductConfigTemplateRequirementSeeds(t *testing.T) {
 func TestDev362ProductConfigTemplateUI(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
-			"商品配置",
-			"复制为客户配置",
-			"template-select",
-			"productConfigTemplates",
-			"saveProductConfigTemplate",
-			"deriveProductConfigTemplateForCustomer",
+		"商品配置",
+		"复制为客户配置",
+		"template-select",
+		"productConfigTemplates",
+		"saveProductConfigTemplate",
+		"deriveProductConfigTemplateForCustomer",
 		"bindProductConfigTemplateToSubtype",
 		"/api/product-settings/product-config-templates",
-		"usePublicSkuInCategoryTree: customerUsesPublicSku.value",
+		"usePublicSkuInCategoryTree: false",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("ProductSettingsView.vue missing product config template marker %q", want)

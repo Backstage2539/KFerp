@@ -49,6 +49,7 @@ type Product struct {
 	GradientTemplateIDOverride  int64
 	OperationTemplateIDOverride int64
 	UnitRuleOverrideJSON        string
+	Active                      bool
 	BomItemCount                int
 	BomStatus                   string
 	OrderUsageCount             int
@@ -112,6 +113,7 @@ type ProductSettingsProduct struct {
 	GradientTemplateIDOverride  int64    `json:"gradient_template_id_override"`
 	OperationTemplateIDOverride int64    `json:"operation_template_id_override"`
 	UnitRuleOverrideJSON        string   `json:"unit_rule_override_json"`
+	Active                      bool     `json:"active"`
 	BomItemCount                int      `json:"bom_item_count"`
 	BomStatus                   string   `json:"bom_status"`
 	OrderUsageCount             int      `json:"order_usage_count"`
@@ -269,6 +271,68 @@ type CreateProductCommand struct {
 type DeactivateProductsCommand struct {
 	Actor      string
 	ProductIDs []int64
+}
+
+type CreateSKUCommand struct {
+	Actor                    string
+	CustomerID               int64
+	Name                     string
+	Remark                   string
+	ProductTypeCategoryID    int64
+	ProductSubtypeCategoryID int64
+	SpecialAttrsJSON         string
+	Active                   bool
+}
+
+type SKUCopyOptionsQuery struct {
+	TargetCustomerID int64
+	SourceCustomerID int64
+}
+
+type SKUCopyOption struct {
+	ID                       int64  `json:"id"`
+	Name                     string `json:"name"`
+	Remark                   string `json:"remark"`
+	SourceCustomerID         int64  `json:"source_customer_id"`
+	ProductTypeCategoryID    int64  `json:"product_type_category_id"`
+	ProductTypeName          string `json:"product_type_name"`
+	ProductSubtypeCategoryID int64  `json:"product_subtype_category_id"`
+	ProductSubtypeName       string `json:"product_subtype_name"`
+	CopyState                string `json:"copy_state"`
+	Active                   bool   `json:"active"`
+}
+
+type SKUCopySubtypeGroup struct {
+	ID       int64           `json:"id"`
+	Name     string          `json:"name"`
+	Products []SKUCopyOption `json:"products"`
+}
+
+type SKUCopyTypeGroup struct {
+	ID       int64                 `json:"id"`
+	Name     string                `json:"name"`
+	Children []SKUCopySubtypeGroup `json:"children"`
+}
+
+type SKUCopyOptions struct {
+	Title            string             `json:"title"`
+	TargetCustomerID int64              `json:"target_customer_id"`
+	SourceCustomerID int64              `json:"source_customer_id"`
+	TotalCount       int                `json:"total_count"`
+	Groups           []SKUCopyTypeGroup `json:"groups"`
+}
+
+type CopySKUsCommand struct {
+	Actor            string
+	TargetCustomerID int64
+	SourceCustomerID int64
+	SourceSKUIDs     []int64
+}
+
+type CopySKUsResult struct {
+	CreatedCount     int `json:"created_count"`
+	OverwrittenCount int `json:"overwritten_count"`
+	SkippedCount     int `json:"skipped_count"`
 }
 
 type CreateCustomProductCommand struct {
@@ -513,6 +577,9 @@ type Repository interface {
 	UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error
 	DeactivateProducts(ctx context.Context, cmd DeactivateProductsCommand) error
 	CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error)
+	CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product, error)
+	ListSKUCopyOptions(ctx context.Context, query SKUCopyOptionsQuery) (SKUCopyOptions, error)
+	CopySKUs(ctx context.Context, cmd CopySKUsCommand) (CopySKUsResult, error)
 	ListProductCategories(ctx context.Context) ([]ProductCategory, error)
 	ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error)
 	ListProductConfigTemplates(ctx context.Context) ([]ProductConfigTemplate, error)
@@ -669,6 +736,58 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	}
 	cmd.SpecialAttrsJSON = specialAttrsJSON
 	return s.repo.CreateProduct(ctx, cmd)
+}
+
+func (s *Service) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	if cmd.Name == "" {
+		return Product{}, ValidationError{Message: "name required"}
+	}
+	if cmd.CustomerID < 0 {
+		return Product{}, ValidationError{Message: "invalid customer_id"}
+	}
+	if cmd.ProductTypeCategoryID < 0 || cmd.ProductSubtypeCategoryID < 0 {
+		return Product{}, ValidationError{Message: "invalid category"}
+	}
+	specialAttrsJSON, err := normalizeJSONObjectText(cmd.SpecialAttrsJSON)
+	if err != nil {
+		return Product{}, ValidationError{Message: "invalid special_attrs_json"}
+	}
+	cmd.SpecialAttrsJSON = specialAttrsJSON
+	return s.repo.CreateSKU(ctx, cmd)
+}
+
+func (s *Service) ListSKUCopyOptions(ctx context.Context, query SKUCopyOptionsQuery) (SKUCopyOptions, error) {
+	if query.TargetCustomerID < 0 || query.SourceCustomerID < 0 {
+		return SKUCopyOptions{}, ValidationError{Message: "invalid customer_id"}
+	}
+	return s.repo.ListSKUCopyOptions(ctx, query)
+}
+
+func (s *Service) CopySKUs(ctx context.Context, cmd CopySKUsCommand) (CopySKUsResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.TargetCustomerID < 0 || cmd.SourceCustomerID < 0 {
+		return CopySKUsResult{}, ValidationError{Message: "invalid customer_id"}
+	}
+	if cmd.TargetCustomerID == cmd.SourceCustomerID {
+		return CopySKUsResult{}, ValidationError{Message: "source and target customer cannot be the same"}
+	}
+	seen := map[int64]bool{}
+	ids := make([]int64, 0, len(cmd.SourceSKUIDs))
+	for _, id := range cmd.SourceSKUIDs {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return CopySKUsResult{}, ValidationError{Message: "source_sku_ids required"}
+	}
+	cmd.SourceSKUIDs = ids
+	return s.repo.CopySKUs(ctx, cmd)
 }
 
 func (s *Service) validateGreenBeanBomProduct(ctx context.Context, productID int64) error {
@@ -1599,6 +1718,7 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		GradientTemplateIDOverride:  p.GradientTemplateIDOverride,
 		OperationTemplateIDOverride: p.OperationTemplateIDOverride,
 		UnitRuleOverrideJSON:        productJSONOrDefault(p.UnitRuleOverrideJSON),
+		Active:                      p.Active,
 		BomItemCount:                p.BomItemCount,
 		BomStatus:                   productBomStatus(p.BomStatus, p.BomItemCount),
 		OrderUsageCount:             p.OrderUsageCount,

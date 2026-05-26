@@ -389,6 +389,32 @@ func TestCreateCustomProductCopyBOMPreservesComponentFields(t *testing.T) {
 	}
 }
 
+func TestCopySKUsRewritesCrossCustomerProductReferences(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"type skuCopyPlan struct",
+		"sourceToTarget := map[int64]int64{}",
+		"resolveSKUCopyProductReferenceTx",
+		"updateCopiedSKUGreenBeanReferenceTx",
+		"componentType == \"finished_product\"",
+		"componentProductID, err = resolveSKUCopyProductReferenceTx",
+		"SELECT id, name, COALESCE(customer_id,0), COALESCE(product_category_id,0)",
+		"belongs to customer",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("SKU copy product reference rewrite missing marker %q", want)
+		}
+	}
+	copyBOM := catalogRepositoryFunctionForTest(t, src, "func copyProductBOMTx", "func copyProductPriceTiersTx")
+	if strings.Contains(copyBOM, "SELECT $1,material_id,component_type,component_product_id") {
+		t.Fatalf("copyProductBOMTx must not copy component_product_id verbatim")
+	}
+}
+
 func TestCreateCustomProductInsertDoesNotDuplicateProductKindColumn(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {
@@ -436,6 +462,19 @@ func TestCreateCustomProductAllowsCustomRoastWithoutBaseProduct(t *testing.T) {
 			t.Fatalf("custom roast product without base product missing marker %q", want)
 		}
 	}
+}
+
+func catalogRepositoryFunctionForTest(t *testing.T, src string, startMarker string, endMarker string) string {
+	t.Helper()
+	start := strings.Index(src, startMarker)
+	if start < 0 {
+		t.Fatalf("repository.go missing function marker %q", startMarker)
+	}
+	end := strings.Index(src[start+len(startMarker):], endMarker)
+	if end < 0 {
+		t.Fatalf("repository.go missing next function marker %q", endMarker)
+	}
+	return src[start : start+len(startMarker)+end]
 }
 
 func TestCustomerPublicUsagePersistsReferenceSwitchesAndAudits(t *testing.T) {

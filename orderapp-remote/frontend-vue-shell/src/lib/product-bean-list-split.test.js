@@ -31,24 +31,27 @@ test('SKU settings no longer embeds the product bean-list workspace', () => {
 
 test('SKU settings exposes customer context initialization with SKU creation in a drawer', () => {
   for (const expected of [
-    'v-if="!selectedCustomerSkuCustomerID"',
     '/api/customer-fulfillment/customers?limit=200',
     'customerSkuCustomerOptions(customerData)',
+    'buildSkuCreatePayload',
+    'buildSkuCopyPayload',
     'buildCustomerPublicUsagePayload',
     '/api/product-settings/customer-public-usage',
     'savePublicCategoryUsageForCustomer',
-    'savePublicSkuUsageForCustomer',
+    'SKU复制',
   ]) {
     assert.match(productSettingsSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
   assert.match(productSettingsSource, /class="settings-drawer product-editor-drawer"/)
-  assert.match(productSettingsSource, /<form v-if="!selectedCustomerSkuCustomerID" class="product-create-form product-drawer-form" @submit\.prevent="createProduct">/)
-  assert.match(productSettingsSource, /<form v-else class="custom-product-form product-drawer-form" @submit\.prevent="createCustomProduct">/)
+  assert.match(productSettingsSource, /class="sku-create-form product-create-form product-drawer-form" @submit\.prevent="createSku"/)
+  assert.match(productSettingsSource, /class="settings-drawer sku-copy-drawer"/)
   assert.match(productSettingsSource, /<span>是否使用公共商品分类<\/span>/)
-  assert.match(productSettingsSource, /<span>是否使用公共SKU<\/span>/)
+  assert.doesNotMatch(productSettingsSource, /<span>是否使用公共SKU<\/span>/)
   assert.doesNotMatch(productSettingsSource, /<span>是否使用商品分类<\/span>/)
   assert.doesNotMatch(productSettingsSource, /v-model="customForm\.customer_id"/)
   assert.doesNotMatch(productSettingsSource, /先在顶部选择客户后创建客户专属 SKU/)
+  assert.doesNotMatch(productSettingsSource, /<form v-if="!selectedCustomerSkuCustomerID" class="product-create-form product-drawer-form" @submit\.prevent="createProduct">/)
+  assert.doesNotMatch(productSettingsSource, /<form v-else class="custom-product-form product-drawer-form" @submit\.prevent="createCustomProduct">/)
 })
 
 test('product bean-list page owns customer context for bean-list previews', () => {

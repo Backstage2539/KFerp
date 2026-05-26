@@ -10,13 +10,12 @@ func TestProductSettingsCanCreatePublicProducts(t *testing.T) {
 	view := string(readDev154File(t, "frontend-vue-shell/src/views/ProductSettingsView.vue"))
 	for _, want := range []string{
 		"新增SKU",
-		"新增公共 SKU",
 		"product-editor-drawer",
-		`@submit.prevent="createProduct"`,
-		"productForm",
-		"defaultProductForm",
-		`/api/product-settings/products`,
-		"公共产品已创建",
+		`@submit.prevent="createSku"`,
+		"skuForm",
+		"defaultSkuForm",
+		`/api/product-settings/skus`,
+		"SKU已创建",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("ProductSettingsView.vue missing public product create wiring %q", want)
@@ -25,12 +24,12 @@ func TestProductSettingsCanCreatePublicProducts(t *testing.T) {
 
 	routes := string(readDev154File(t, "internal/interfaces/http/catalog/product_routes.go"))
 	for _, want := range []string{
-		`e.POST("/api/product-settings/products", h.createProductAPI)`,
-		"ProductKind",
-		"DripBagGrams",
-		"DripBoxBagCount",
-		"AllowFulfillmentOrder",
-		"AllowMallOrder",
+		`e.POST("/api/product-settings/skus", h.createSKUAPI)`,
+		`e.GET("/api/product-settings/skus/copy-options", h.skuCopyOptionsAPI)`,
+		`e.POST("/api/product-settings/skus/copy", h.copySKUsAPI)`,
+		"ProductTypeCategoryID",
+		"ProductSubtypeCategoryID",
+		"SpecialAttrsJSON",
 	} {
 		if !strings.Contains(routes, want) {
 			t.Fatalf("product settings routes missing %q", want)

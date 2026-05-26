@@ -23,27 +23,33 @@ func TestDev313CustomerSkuCustomRoastNoBaseProduct(t *testing.T) {
 
 	productSettings := string(readDev313File(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
-		`v-if="customForm.product_kind !== 'green_bean' && customForm.custom_type !== 'custom_roast'" class="wide-field"`,
-		`customForm.value.custom_type !== 'custom_roast'`,
-		`customForm.value.custom_type === 'custom_roast'`,
+		`@submit.prevent="createSku"`,
+		"skuForm.product_type_category_id",
+		"skuForm.product_subtype_category_id",
+		"buildSkuCreatePayload(skuContextCustomerID.value, skuForm.value)",
 	} {
 		if !strings.Contains(productSettings, want) {
-			t.Fatalf("ProductSettingsView.vue missing custom roast no-base wiring %q", want)
+			t.Fatalf("ProductSettingsView.vue missing unified SKU create wiring %q", want)
 		}
 	}
-	if strings.Contains(productSettings, `value="custom_blend">定制拼配 BOM`) {
-		t.Fatalf("ProductSettingsView.vue should not expose custom blend BOM as a creation custom type")
+	for _, forbidden := range []string{
+		`v-else class="custom-product-form product-drawer-form"`,
+		`value="custom_blend">定制拼配 BOM`,
+	} {
+		if strings.Contains(productSettings, forbidden) {
+			t.Fatalf("ProductSettingsView.vue should not expose legacy custom SKU create wiring %q", forbidden)
+		}
 	}
 
 	productSettingsLib := string(readDev313File(t, filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js")))
 	for _, want := range []string{
-		`payload.custom_type === 'custom_roast'`,
-		`payload.base_product_id = 0`,
-		`payload.copy_bom = false`,
-		`payload.copy_price_tiers = false`,
+		"buildSkuCreatePayload",
+		"product_type_category_id",
+		"product_subtype_category_id",
+		"special_attrs_json",
 	} {
 		if !strings.Contains(productSettingsLib, want) {
-			t.Fatalf("product-settings.js missing custom roast payload guard %q", want)
+			t.Fatalf("product-settings.js missing unified SKU payload marker %q", want)
 		}
 	}
 

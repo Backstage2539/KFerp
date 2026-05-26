@@ -34,12 +34,13 @@ func TestCustomerCustomProductsRequirementSeeds(t *testing.T) {
 func TestCustomerCustomProductsFrontendWiring(t *testing.T) {
 	productSettings := string(readDev150File(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
-		"客户专属 SKU",
-		"/api/product-settings/custom-products",
-		"customForm.copy_bom",
-		"customForm.copy_price_tiers",
+		"客户SKU列表",
+		"/api/product-settings/skus",
+		"buildSkuCreatePayload",
+		"buildSkuCopyPayload",
+		"skuCopySourceOptions",
+		"copySelectedSkus",
 		"ownerLabel(row)",
-		"skuTypeLabel(row.custom_type)",
 	} {
 		if !strings.Contains(productSettings, want) {
 			t.Fatalf("ProductSettingsView.vue missing %q", want)
@@ -61,25 +62,27 @@ func TestCustomerCustomProductsFrontendWiring(t *testing.T) {
 func TestCustomerCustomSkuFormUsesSearchableDropdowns(t *testing.T) {
 	productSettings := string(readDev150File(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
-		"SearchableSelect",
 		"selectedCustomerSkuCustomerID",
 		"product-editor-drawer",
-		"baseProductOptionLabel",
-		`v-else class="custom-product-form product-drawer-form"`,
-		"customForm.product_kind",
-		"customForm.green_bean_type",
-		"customForm.green_bean_bom_product_id",
-		"customForm.drip_bag_grams",
-		"customForm.drip_box_bag_count",
-		`v-if="customForm.product_kind !== 'green_bean' && customForm.custom_type !== 'custom_roast'" class="wide-field"`,
-		"customForm.value.product_kind !== 'green_bean' && customForm.value.custom_type !== 'custom_roast' && !customForm.value.base_product_id",
-		"customRoastedBomProducts",
-		"roastedBomProductsForRow(row)",
-		"输入产品名",
-		"没有匹配产品",
+		`class="sku-create-form product-create-form product-drawer-form"`,
+		`@submit.prevent="createSku"`,
+		"skuForm.product_type_category_id",
+		"skuForm.product_subtype_category_id",
+		"skuForm.name",
+		"skuForm.remark",
+		"buildSkuCreatePayload(skuContextCustomerID.value, skuForm.value)",
 	} {
 		if !strings.Contains(productSettings, want) {
-			t.Fatalf("ProductSettingsView.vue missing searchable custom SKU dropdown wiring %q", want)
+			t.Fatalf("ProductSettingsView.vue missing unified SKU create wiring %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`v-else class="custom-product-form product-drawer-form"`,
+		"customForm.copy_bom",
+		"customForm.copy_price_tiers",
+	} {
+		if strings.Contains(productSettings, forbidden) {
+			t.Fatalf("ProductSettingsView.vue should not expose legacy custom SKU create wiring %q", forbidden)
 		}
 	}
 }

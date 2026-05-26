@@ -28,17 +28,17 @@ func TestDev377ProductConfigKVSKUReferenceLayoutSourceMarkers(t *testing.T) {
 			"展示到价格表/PDF",
 			"SKU列表特殊属性列填写具体值",
 			"openSpecialAttrConfigForProduct",
-			"ensurePublicProductReferenceForCustomer",
-			"use_public_sku: true",
-			"use_public_categories: true",
+			"复制为客户配置",
+			"SKU复制",
+			"usePublicSku: false",
+			"usePublicSkuInCategoryTree: false",
 			"sku-table-wrap",
 			"sku-category-cell",
 			"white-space: nowrap",
 		},
 		filepath.Join("internal", "application", "catalog", "service.go"): {
-			"enableCustomerPublicProductReference",
-			"UsePublicSKU:               true",
-			"UsePublicCategories:        true",
+			"func (s *Service) DeriveProductConfigTemplate",
+			"CopySKUs(ctx context.Context, cmd CopySKUsCommand)",
 		},
 	}
 
@@ -57,25 +57,25 @@ func TestDev377ProductConfigKVSKUReferenceLayoutDocs(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-377-PRODUCT-CONFIG-KV-SKU-REFERENCE-LAYOUT",
 			"产品信息字段（特殊属性KV）",
-			"客户看到的是引用公共产品",
+			"客户要复用 SKU 时按 PR-382 的“SKU复制”生成客户自己的 SKU",
 			"产品类型一个字一行",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-377-PRODUCT-CONFIG-KV-SKU-REFERENCE-LAYOUT",
 			"展示到价格表/PDF",
-			"引用的公共产品",
+			"SKU复制",
 			"横向滚动",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-376/377",
 			"配置字段",
-			"公共产品引用",
+			"SKU复制",
 			"左右滑动",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-26-product-config-kv-sku-reference-layout.md"): {
 			"PR-377",
 			"SKU列表特殊属性列填写具体值",
-			"引用公共 SKU",
+			"PR-382 的“SKU复制”",
 			"产品类型一个字一行",
 		},
 	}
