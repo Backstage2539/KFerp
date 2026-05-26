@@ -24,6 +24,7 @@ const (
 const (
 	CapabilityTemplateProcessingFulfillment = "processing_fulfillment"
 	CapabilityTemplatePublicSKUDirectShip   = "public_sku_direct_ship"
+	CapabilityTemplateChannelDirectShip     = "channel_direct_ship"
 	CapabilityTemplateRetailMall            = "retail_mall"
 )
 
@@ -1930,6 +1931,35 @@ func DefaultCapabilityTemplates() []CapabilityTemplate {
 			}),
 		},
 		{
+			Key:              CapabilityTemplateChannelDirectShip,
+			Active:           true,
+			SortOrder:        25,
+			Label:            "渠道代发/现货下单",
+			Description:      "渠道客户使用公共 SKU 或客户专属 SKU 现货下单，收件人为渠道客户的终端收件人，不新增客户档案",
+			ThemeKey:         PortalThemeCleanOps,
+			MiniappEntryMode: MiniappEntryModeServices,
+			ERPRoleCodes:     []string{},
+			ERPPermissions:   []string{"customer_processing.read", "customer_processing.submit"},
+			ERPViewKeys:      []string{"customerProcessingPortal"},
+			Capabilities: capabilityTemplateOptions(map[string]map[string]any{
+				CapabilityProductOrder: {
+					"public_sku_aliases": true,
+				},
+				CapabilityDirectShip: {
+					"public_sku_aliases":  true,
+					"customer_sender":     true,
+					"external_recipients": true,
+					"small_batch_price_rule": map[string]any{
+						"enabled":      true,
+						"threshold_lb": 14,
+						"tier_min_lb":  15,
+						"tier_max_lb":  28,
+					},
+				},
+				CapabilitySettlement: {},
+			}),
+		},
+		{
 			Key:              CapabilityTemplateRetailMall,
 			Active:           true,
 			SortOrder:        30,
@@ -2143,6 +2173,8 @@ func NormalizeCapabilityTemplateKey(value string) string {
 		return CapabilityTemplateProcessingFulfillment
 	case CapabilityTemplatePublicSKUDirectShip:
 		return CapabilityTemplatePublicSKUDirectShip
+	case CapabilityTemplateChannelDirectShip:
+		return CapabilityTemplateChannelDirectShip
 	case CapabilityTemplateRetailMall:
 		return CapabilityTemplateRetailMall
 	}

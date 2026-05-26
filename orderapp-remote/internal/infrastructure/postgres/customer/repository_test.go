@@ -216,7 +216,127 @@ func TestCustomerUpsertRequiresActiveInternalResponsibleEmployeeAndAuditsChanges
 	}
 }
 
-func TestUpsertRetailCustomerDeactivatesLegacyERPWorkbenchBinding(t *testing.T) {
+func TestCustomerUpsertPersistsPortalSwitchTemplateAndAuditLogs(t *testing.T) {
+	ctx := context.Background()
+	pool := newCustomerRepositoryTestPool(t)
+	schema := fmt.Sprintf("customer_portal_switch_%d", time.Now().UnixNano())
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`CREATE SCHEMA %s`, schema)); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), fmt.Sprintf(`DROP SCHEMA IF EXISTS %s CASCADE`, schema))
+	})
+	if err := postgrescore.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("core.EnsureSchema: %v", err)
+	}
+	if err := postgrescompany.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("company.EnsureSchema: %v", err)
+	}
+	if err := postgrescustomerportal.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("customerportal.EnsureSchema: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE %s.audit_logs (
+			id BIGSERIAL PRIMARY KEY,
+			actor TEXT NOT NULL DEFAULT '',
+			entity_type TEXT NOT NULL DEFAULT '',
+			entity_id BIGINT NULL,
+			action TEXT NOT NULL DEFAULT '',
+			field TEXT NULL,
+			old_value TEXT NULL,
+			new_value TEXT NULL,
+			meta JSONB NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)
+	`, schema)); err != nil {
+		t.Fatalf("create audit logs: %v", err)
+	}
+	var ownerID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.company_employees(name, phone, department_id, account_type, active)
+		VALUES('渠道负责人', '13900003001', (SELECT id FROM %s.company_departments WHERE name='销售' LIMIT 1), 'internal_employee', true)
+		RETURNING id
+	`, schema, schema)).Scan(&ownerID); err != nil {
+		t.Fatalf("insert responsible employee: %v", err)
+	}
+
+	repo := NewRepository(pool, schema, t.TempDir())
+	customerID, err := repo.Upsert(ctx, "tester", nil, customerapp.UpsertCommand{
+		Name:                  "渠道客户",
+		CustomerType:          customerapp.CustomerTypeChannel,
+		ResponsibleEmployeeID: fmt.Sprintf("%d", ownerID),
+		Active:                "on",
+	})
+	if err != nil {
+		t.Fatalf("create channel customer: %v", err)
+	}
+	enabled := true
+	if _, err := repo.Upsert(ctx, "tester", &customerID, customerapp.UpsertCommand{
+		Name:                  "渠道客户",
+		CustomerType:          customerapp.CustomerTypeChannel,
+		ResponsibleEmployeeID: fmt.Sprintf("%d", ownerID),
+		PortalEnabled:         &enabled,
+		CapabilityTemplateKey: "channel_direct_ship",
+		Active:                "on",
+	}); err != nil {
+		t.Fatalf("enable portal switch: %v", err)
+	}
+
+	edit, err := repo.Editor(ctx, customerID)
+	if err != nil {
+		t.Fatalf("editor customer: %v", err)
+	}
+	if !edit.Customer.PortalEnabled || edit.Customer.CapabilityTemplateKey != "channel_direct_ship" {
+		t.Fatalf("editor portal fields enabled=%v template=%q", edit.Customer.PortalEnabled, edit.Customer.CapabilityTemplateKey)
+	}
+	list, err := repo.List(ctx, customerapp.ListQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("list customers: %v", err)
+	}
+	if len(list.Rows) != 1 || !list.Rows[0].PortalEnabled || list.Rows[0].CapabilityTemplateKey != "channel_direct_ship" {
+		t.Fatalf("list portal row=%+v", list.Rows)
+	}
+
+	enabled = false
+	if _, err := repo.Upsert(ctx, "tester", &customerID, customerapp.UpsertCommand{
+		Name:                  "渠道客户",
+		CustomerType:          customerapp.CustomerTypeChannel,
+		ResponsibleEmployeeID: fmt.Sprintf("%d", ownerID),
+		PortalEnabled:         &enabled,
+		CapabilityTemplateKey: "channel_direct_ship",
+		Active:                "on",
+	}); err != nil {
+		t.Fatalf("disable portal switch: %v", err)
+	}
+
+	var portalEnabled bool
+	var templateKey string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT enabled, capability_template_key
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, schema), customerID).Scan(&portalEnabled, &templateKey); err != nil {
+		t.Fatalf("load portal profile: %v", err)
+	}
+	if portalEnabled || templateKey != "channel_direct_ship" {
+		t.Fatalf("profile enabled=%v template=%q, want disabled with template retained", portalEnabled, templateKey)
+	}
+	var auditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*)::int
+		FROM %s.audit_logs
+		WHERE entity_type='customer'
+		  AND entity_id=$1
+		  AND field IN ('portal_enabled','capability_template_key')
+	`, schema), customerID).Scan(&auditCount); err != nil {
+		t.Fatalf("count portal audit logs: %v", err)
+	}
+	if auditCount < 3 {
+		t.Fatalf("portal audit count=%d, want enable/template/disable logs", auditCount)
+	}
+}
+
+func TestUpsertRetailCustomerDoesNotAutoRewritePortalTemplate(t *testing.T) {
 	ctx := context.Background()
 	pool := newCustomerRepositoryTestPool(t)
 	schema := fmt.Sprintf("customer_retail_binding_%d", time.Now().UnixNano())
@@ -322,8 +442,8 @@ func TestUpsertRetailCustomerDeactivatesLegacyERPWorkbenchBinding(t *testing.T) 
 	`, schema), customerID).Scan(&templateKey); err != nil {
 		t.Fatalf("load portal profile: %v", err)
 	}
-	if templateKey != "retail_mall" {
-		t.Fatalf("capability_template_key=%q, want retail_mall", templateKey)
+	if templateKey != "processing_fulfillment" {
+		t.Fatalf("capability_template_key=%q, want original processing_fulfillment", templateKey)
 	}
 	var activeBindings int
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
@@ -333,8 +453,8 @@ func TestUpsertRetailCustomerDeactivatesLegacyERPWorkbenchBinding(t *testing.T) 
 	`, schema), customerID).Scan(&activeBindings); err != nil {
 		t.Fatalf("count active bindings: %v", err)
 	}
-	if activeBindings != 0 {
-		t.Fatalf("active ERP workbench bindings=%d, want 0 after retail template switch", activeBindings)
+	if activeBindings != 1 {
+		t.Fatalf("active ERP workbench bindings=%d, want unchanged by customer type alone", activeBindings)
 	}
 }
 

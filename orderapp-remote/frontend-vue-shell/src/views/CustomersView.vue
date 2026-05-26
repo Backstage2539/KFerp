@@ -19,9 +19,7 @@
           <span>客户类型</span>
           <select v-model="customerTypeFilter">
             <option value="">全部类型</option>
-            <option value="retail">零售客户</option>
-            <option value="ecommerce">电商客户</option>
-            <option value="wholesale">批发客户</option>
+            <option v-for="item in customerTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
           </select>
         </label>
         <label>
@@ -54,10 +52,8 @@
         </label>
         <label>
           <span>客户类型</span>
-          <select v-model="form.customer_type" required>
-            <option value="retail">零售客户</option>
-            <option value="ecommerce">电商客户</option>
-            <option value="wholesale">批发客户</option>
+          <select v-model="form.customer_type" required @change="applyRecommendedTemplate">
+            <option v-for="item in customerTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
           </select>
         </label>
         <label>
@@ -98,6 +94,17 @@
         <label class="check">
           <input v-model="form.active" type="checkbox" />
           <span>启用</span>
+        </label>
+        <label class="check">
+          <input v-model="form.portal_enabled" type="checkbox" @change="applyRecommendedTemplate" />
+          <span>开通客户门户/工作台</span>
+        </label>
+        <label v-if="form.portal_enabled">
+          <span>能力模板</span>
+          <select v-model="form.capability_template_key" required>
+            <option value="">选择能力模板</option>
+            <option v-for="template in activeCapabilityTemplates" :key="template.key" :value="template.key">{{ template.label }}</option>
+          </select>
         </label>
         <div class="form-actions">
           <button class="primary" type="submit" :disabled="loading">保存</button>
@@ -165,6 +172,7 @@
               <th>来源</th>
               <th>订单类型</th>
               <th>负责人</th>
+              <th>门户/工作台</th>
               <th>状态</th>
               <th class="sortable" @click="setSort('updated')">
                 更新时间
@@ -188,11 +196,12 @@
               <td>{{ optionName(sources, row.default_source_id) }}</td>
               <td>{{ optionName(orderTypes, row.default_order_type_id) }}</td>
               <td>{{ row.responsible_employee_name || employeeName(row.responsible_employee_id) }}</td>
+              <td>{{ row.portal_enabled ? templateLabel(row.capability_template_key) : '未开通' }}</td>
               <td>{{ row.active ? '启用' : '停用' }}</td>
               <td>{{ row.updated }}</td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="11" class="muted">暂无客户</td>
+              <td colspan="12" class="muted">暂无客户</td>
             </tr>
           </tbody>
         </table>
@@ -209,10 +218,11 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import { parseRecipientText } from '../lib/customer-recipient'
+import { customerTypeLabel, customerTypeOptions, defaultCapabilityTemplateForCustomerType, normalizeCustomerType, validCustomerType } from '../lib/customer-types'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
 
@@ -220,6 +230,7 @@ const rows = ref([])
 const sources = ref([])
 const orderTypes = ref([])
 const employees = ref([])
+const capabilityTemplates = ref([])
 const q = ref('')
 const page = ref(1)
 const pageSize = ref(10)
@@ -241,6 +252,7 @@ const assetKind = ref('label_front')
 const assetInput = ref(null)
 const customerPaste = ref('')
 const form = reactive(emptyForm())
+const activeCapabilityTemplates = computed(() => (capabilityTemplates.value || []).filter((item) => item.active !== false))
 const assetKinds = [
   { value: 'label_front', label: '标签-正面' },
   { value: 'label_back', label: '标签-反面' },
@@ -261,6 +273,8 @@ function emptyForm() {
     default_order_type_id: 0,
     responsible_employee_id: 0,
     active: true,
+    portal_enabled: false,
+    capability_template_key: '',
   }
 }
 
@@ -276,6 +290,8 @@ function assignForm(data) {
     default_order_type_id: Number(data?.default_order_type_id || 0),
     responsible_employee_id: Number(data?.responsible_employee_id || 0),
     active: data?.active !== false,
+    portal_enabled: data?.portal_enabled === true,
+    capability_template_key: data?.capability_template_key || '',
   })
 }
 
@@ -318,22 +334,6 @@ function applyFormDefaults() {
   if (!form.default_order_type_id && orderTypes.value.length) form.default_order_type_id = defaultOrderTypeID()
 }
 
-function normalizeCustomerType(value) {
-  return ['retail', 'ecommerce', 'wholesale'].includes(value) ? value : 'retail'
-}
-
-function validCustomerType(value) {
-  return ['retail', 'ecommerce', 'wholesale'].includes(String(value || '').trim())
-}
-
-function customerTypeLabel(value) {
-  return {
-    retail: '零售客户',
-    ecommerce: '电商客户',
-    wholesale: '批发客户',
-  }[normalizeCustomerType(value)]
-}
-
 function assetKindLabel(kind) {
   return assetKinds.find((item) => item.value === kind)?.label || kind
 }
@@ -359,7 +359,7 @@ function applyUrl() {
 
 function normalizeListCustomerType(value) {
   const v = String(value || '').trim().toLowerCase()
-  if (v === 'retail' || v === 'ecommerce' || v === 'wholesale') return v
+  if (validCustomerType(v)) return v
   return ''
 }
 
@@ -444,6 +444,27 @@ async function load() {
   }
 }
 
+async function loadCapabilityTemplates() {
+  try {
+    const data = await apiGet('/api/customer-portal/admin/capability-templates')
+    capabilityTemplates.value = data.templates || []
+  } catch {
+    capabilityTemplates.value = []
+  }
+}
+
+function templateLabel(key) {
+  const raw = String(key || '').trim()
+  if (!raw) return ''
+  return activeCapabilityTemplates.value.find((item) => item.key === raw)?.label || raw
+}
+
+function applyRecommendedTemplate() {
+  if (!form.portal_enabled) return
+  if (form.capability_template_key) return
+  form.capability_template_key = defaultCapabilityTemplateForCustomerType(form.customer_type)
+}
+
 async function setSort(field) {
   if (sortBy.value !== field) {
     sortBy.value = field
@@ -522,6 +543,7 @@ async function saveCustomer() {
     if (!Number(form.default_source_id || 0)) throw new Error('请选择客户来源')
     if (!Number(form.default_order_type_id || 0)) throw new Error('请选择客户订单类型')
     if (!Number(form.responsible_employee_id || 0)) throw new Error('请选择客户负责人')
+    if (form.portal_enabled && !form.capability_template_key) throw new Error('请选择能力模板')
     const body = {
       name: form.name,
       raw_name: '',
@@ -536,6 +558,8 @@ async function saveCustomer() {
       default_order_type_id: form.default_order_type_id || null,
       responsible_employee_id: form.responsible_employee_id || null,
       active: !!form.active,
+      portal_enabled: !!form.portal_enabled,
+      capability_template_key: form.capability_template_key || '',
     }
     const data = await apiSend(editingId.value ? `/api/customers/${editingId.value}` : '/api/customers', {
       method: editingId.value ? 'PUT' : 'POST',
@@ -603,7 +627,7 @@ onMounted(async () => {
   const params = new URL(window.location.href).searchParams
   const editID = Number(params.get('edit_id') || 0)
   const newMode = params.get('mode') === 'new'
-  await load()
+  await Promise.all([loadCapabilityTemplates(), load()])
   if (editID > 0) await openCustomerDrawer(editID)
   else if (newMode) startNew()
 })

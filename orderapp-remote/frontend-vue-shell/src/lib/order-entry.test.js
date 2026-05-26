@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 
 import * as orderEntry from './order-entry.js'
 import {
+  beanListVersionOptionGroups,
   beanListVersionOptionsForCustomer,
   buildOrderPayload,
   defaultWholesaleSpec,
@@ -552,6 +553,19 @@ test('latestProductPriceListVersionOption prefers product type category over leg
   assert.equal(latestProductPriceListVersionOption(options, { product_kind: 'roasted_bean' })?.id, 31)
 })
 
+test('beanListVersionOptionGroups groups price lists by custom product category before legacy type', () => {
+  const groups = beanListVersionOptionGroups([
+    { id: 1, list_type: 'commercial', product_type_category_id: 9, product_type_name: '冷萃类', version_no: 'v1' },
+    { id: 2, list_type: 'commercial', product_type_category_id: 9, product_type_name: '冷萃类', version_no: 'v2' },
+    { id: 3, list_type: 'green', version_no: 'g1' },
+  ])
+
+  assert.deepEqual(groups.map((group) => [group.key, group.label, group.listType, group.options.map((item) => item.id)]), [
+    ['category:9', '冷萃类', 'commercial', [1, 2]],
+    ['legacy:green', '生豆豆单', 'green', [3]],
+  ])
+})
+
 test('beanListVersionOptionsForCustomer keeps public fallback versions for the selected customer', () => {
   const options = [
     { customer_id: 74, list_type: 'commercial', id: 31, version_no: 'V3.0.6', is_customer_owned: false, is_default: false },
@@ -888,10 +902,15 @@ test('order entry customer drawer requires customer type source and order type f
 
   assert.match(drawerBlock, /客户类型/)
   assert.match(drawerBlock, /v-model="customerForm\.customer_type"/)
+  assert.match(drawerBlock, /开通客户门户\/工作台/)
+  assert.match(drawerBlock, /v-model="customerForm\.portal_enabled"/)
+  assert.match(drawerBlock, /v-model="customerForm\.capability_template_key"/)
+  assert.match(source, /defaultCapabilityTemplateForCustomerType/)
   assert.doesNotMatch(drawerBlock, /<option :value="0">未设置<\/option>/)
   assert.match(source, /请选择客户类型/)
   assert.match(source, /请选择客户来源/)
   assert.match(source, /请选择客户订单类型/)
+  assert.match(source, /请选择能力模板/)
 })
 
 test('order entry moves bean list selection from order information to product details drawer', () => {

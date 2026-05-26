@@ -613,11 +613,42 @@ export function latestProductPriceListVersionOption(options, productOrType) {
   ), rows[0])
 }
 
+export function beanListVersionOptionGroups(options) {
+  const groups = new Map()
+  for (const item of options || []) {
+    const categoryID = toInt(item?.product_type_category_id)
+    const categoryName = String(item?.product_type_name || '').trim()
+    const listType = normalizeBeanListType(item?.list_type)
+    const key = categoryID > 0 ? `category:${categoryID}` : categoryName ? `category-name:${categoryName}` : `legacy:${listType}`
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        label: categoryName || beanListTypeLabel(listType),
+        listType,
+        options: [],
+      })
+    }
+    groups.get(key).options.push(item)
+  }
+  return [...groups.values()]
+}
+
+function beanListTypeLabel(listType) {
+  switch (normalizeBeanListType(listType)) {
+    case 'green':
+      return '生豆豆单'
+    case 'drip':
+      return '挂耳豆单'
+    default:
+      return '熟豆豆单'
+  }
+}
+
 export function rowUsesStaleBeanListPublication(row, options, listType = productBeanListType(row)) {
   if (toInt(row?.product_id) <= 0) return false
   const publicationID = toInt(row?.bean_list_publication_id)
   if (publicationID <= 0) return false
-  const latest = latestBeanListVersionOption(options, listType)
+  const latest = latestProductPriceListVersionOption(options, row) || latestBeanListVersionOption(options, listType)
   const latestID = toInt(latest?.id)
   return latestID > 0 && latestID !== publicationID
 }

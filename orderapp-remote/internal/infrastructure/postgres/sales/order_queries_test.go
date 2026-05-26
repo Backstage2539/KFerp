@@ -62,7 +62,6 @@ func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 	where, args, _ = orderListWhere("test_schema", salesapp.OrderListQuery{Scope: "fulfillment"})
 	joined = strings.Join(where, " AND ")
 	for _, want := range []string{
-		"customer_type",
 		"portal_service_code IN ('direct_ship','processing_ship','product_order')",
 		"test_schema.customer_erp_user_bindings",
 		"test_schema.customer_portal_profiles",
@@ -72,15 +71,20 @@ func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 		"b.status='active'",
 		"e.account_type='channel_customer'",
 		"COALESCE(lp.login_disabled,false)=false",
+		"p.enabled=true",
 		"capability_template_key",
 		"active_template.active=true",
 		"inactive_template.active=false",
 		"processing_fulfillment",
 		"public_sku_direct_ship",
+		"channel_direct_ship",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("fulfillment scope missing %q in %q", want, joined)
 		}
+	}
+	if strings.Contains(joined, "customer_type") {
+		t.Fatalf("fulfillment scope should be capability-driven, not customer_type-driven: %q", joined)
 	}
 	if len(args) != 0 {
 		t.Fatalf("fulfillment scope args = %#v, want none", args)

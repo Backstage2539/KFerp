@@ -101,12 +101,13 @@ func (r Repository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd cus
 		SELECT $1, b.customer_id, COALESCE(NULLIF(b.role,''),'member'), 'approved', 'phone-verify-login'
 		FROM %s.customer_erp_user_bindings b
 		JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		JOIN %s.customer_portal_profiles p ON p.customer_id=b.customer_id AND p.enabled=true
 		WHERE b.employee_id=$2 AND b.status='active'
 		ON CONFLICT(mini_user_id, customer_id) DO UPDATE SET
 			role=EXCLUDED.role,
 			status='approved',
 			approved_by='phone-verify-login'
-	`, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
+	`, r.schema, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -117,9 +118,10 @@ func (r Repository) CreatePhoneVerifiedLoginSession(ctx context.Context, cmd cus
 		    SELECT b.customer_id
 		    FROM %s.customer_erp_user_bindings b
 		    JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		    JOIN %s.customer_portal_profiles p ON p.customer_id=b.customer_id AND p.enabled=true
 		    WHERE b.employee_id=$2 AND b.status='active'
 		  )
-	`, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
+	`, r.schema, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
 	bindings, err := r.listBindingsTx(ctx, tx, miniUserID)
@@ -258,9 +260,10 @@ func (r Repository) CreatePasswordLoginSession(ctx context.Context, cmd customer
 		SELECT b.customer_id
 		FROM %s.customer_erp_user_bindings b
 		JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		JOIN %s.customer_portal_profiles p ON p.customer_id=b.customer_id AND p.enabled=true
 		WHERE b.employee_id=$1 AND b.status='active'
 		ORDER BY b.id
-	`, r.schema, r.schema), employeeID)
+	`, r.schema, r.schema, r.schema), employeeID)
 	if err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
@@ -308,12 +311,13 @@ func (r Repository) CreatePasswordLoginSession(ctx context.Context, cmd customer
 		SELECT $1, b.customer_id, COALESCE(NULLIF(b.role,''),'member'), 'approved', 'erp-password-login'
 		FROM %s.customer_erp_user_bindings b
 		JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		JOIN %s.customer_portal_profiles p ON p.customer_id=b.customer_id AND p.enabled=true
 		WHERE b.employee_id=$2 AND b.status='active'
 		ON CONFLICT(mini_user_id, customer_id) DO UPDATE SET
 			role=EXCLUDED.role,
 			status='approved',
 			approved_by='erp-password-login'
-	`, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
+	`, r.schema, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -324,9 +328,10 @@ func (r Repository) CreatePasswordLoginSession(ctx context.Context, cmd customer
 		    SELECT b.customer_id
 		    FROM %s.customer_erp_user_bindings b
 		    JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		    JOIN %s.customer_portal_profiles p ON p.customer_id=b.customer_id AND p.enabled=true
 		    WHERE b.employee_id=$2 AND b.status='active'
 		  )
-	`, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
+	`, r.schema, r.schema, r.schema, r.schema), miniUserID, employeeID); err != nil {
 		return customerportalapp.LoginResult{}, err
 	}
 
@@ -448,8 +453,9 @@ func (r Repository) SwitchCurrentCustomer(ctx context.Context, token string, cus
 		SELECT 1
 		FROM %s.customer_portal_user_bindings b
 		JOIN %s.customers c ON c.id=b.customer_id AND c.active=true
+		JOIN %s.customer_portal_profiles p ON p.customer_id=b.customer_id AND p.enabled=true
 		WHERE b.mini_user_id=$1 AND b.customer_id=$2 AND b.status='approved'
-	`, r.schema, r.schema), miniUserID, customerID).Scan(&bound); err != nil {
+	`, r.schema, r.schema, r.schema), miniUserID, customerID).Scan(&bound); err != nil {
 		if err == pgx.ErrNoRows {
 			return customerportalapp.CurrentContext{}, customerportalapp.ErrCustomerBindingNotFound
 		}
@@ -481,7 +487,7 @@ func (r Repository) listBindingsTx(ctx context.Context, q txQuerier, miniUserID 
 		SELECT b.customer_id, COALESCE(NULLIF(p.display_name,''), c.name, ''), b.role, b.status
 		FROM %s.customer_portal_user_bindings b
 		JOIN %s.customers c ON c.id=b.customer_id
-		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=b.customer_id
+		JOIN %s.customer_portal_profiles p ON p.customer_id=b.customer_id AND p.enabled=true
 		WHERE b.mini_user_id=$1 AND b.status='approved' AND c.active=true
 		ORDER BY b.id
 	`, r.schema, r.schema, r.schema), miniUserID)
@@ -591,7 +597,7 @@ func (r Repository) capabilityTemplateForCustomerTx(ctx context.Context, q txQue
 	err := q.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(capability_template_key,'')
 		FROM %s.customer_portal_profiles
-		WHERE customer_id=$1
+		WHERE customer_id=$1 AND enabled=true
 	`, r.schema), customerID).Scan(&raw)
 	if err == pgx.ErrNoRows {
 		return customerportalapp.CapabilityTemplate{}, false, nil

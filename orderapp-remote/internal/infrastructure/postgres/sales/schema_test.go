@@ -38,6 +38,8 @@ func TestEnsureSchemaBackfillsERPOrdersForFulfillmentCustomers(t *testing.T) {
 		"customer_erp_user_bindings",
 		"public_sku_direct_ship",
 		"processing_fulfillment",
+		"channel_direct_ship",
+		"p.enabled=true",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("sales schema missing fulfillment backfill marker %q", want)

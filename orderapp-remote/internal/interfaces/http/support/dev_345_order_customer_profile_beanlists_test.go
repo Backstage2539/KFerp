@@ -49,6 +49,9 @@ func TestDev345OrderCustomerProfileBeanListWiring(t *testing.T) {
 		"请选择客户类型",
 		"请选择客户来源",
 		"请选择客户订单类型",
+		"开通客户门户/工作台",
+		"capability_template_key",
+		"defaultCapabilityTemplateForCustomerType",
 	} {
 		if !strings.Contains(orderSrc, want) {
 			t.Fatalf("OrderEntryView.vue missing PR-340 marker %q", want)
@@ -57,12 +60,15 @@ func TestDev345OrderCustomerProfileBeanListWiring(t *testing.T) {
 
 	customerSrc := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomersView.vue")))
 	for _, want := range []string{
-		`<select v-model="form.customer_type" required>`,
+		`v-model="form.customer_type"`,
 		`<select v-model.number="form.default_source_id" required>`,
 		`<select v-model.number="form.default_order_type_id" required>`,
 		"请选择客户类型",
 		"请选择客户来源",
 		"请选择客户订单类型",
+		"开通客户门户/工作台",
+		"capability_template_key",
+		"defaultCapabilityTemplateForCustomerType",
 	} {
 		if !strings.Contains(customerSrc, want) {
 			t.Fatalf("CustomersView.vue missing PR-340 marker %q", want)

@@ -67,6 +67,8 @@ type customerUpsertAPIRequest struct {
 	DefaultSourceID       *int64 `json:"default_source_id"`
 	DefaultOrderTypeID    *int64 `json:"default_order_type_id"`
 	ResponsibleEmployeeID *int64 `json:"responsible_employee_id"`
+	PortalEnabled         *bool  `json:"portal_enabled"`
+	CapabilityTemplateKey string `json:"capability_template_key"`
 	Active                *bool  `json:"active"`
 }
 
@@ -85,6 +87,8 @@ type customerAPIModel struct {
 	DefaultOrderTypeID      *int64 `json:"default_order_type_id"`
 	ResponsibleEmployeeID   *int64 `json:"responsible_employee_id"`
 	ResponsibleEmployeeName string `json:"responsible_employee_name"`
+	PortalEnabled           bool   `json:"portal_enabled"`
+	CapabilityTemplateKey   string `json:"capability_template_key"`
 	Active                  bool   `json:"active"`
 }
 
@@ -225,7 +229,7 @@ func (h customerHandler) createAPI(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
-	id, err := h.customer.Upsert(c.Request().Context(), support.ActorOf(c), nil, customerUpsertCommandFromRequest(req.toFormRequest()))
+	id, err := h.customer.Upsert(c.Request().Context(), support.ActorOf(c), nil, req.toCommand())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
@@ -245,7 +249,7 @@ func (h customerHandler) updateAPI(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
-	if _, err := h.customer.Upsert(c.Request().Context(), support.ActorOf(c), &id, customerUpsertCommandFromRequest(req.toFormRequest())); err != nil {
+	if _, err := h.customer.Upsert(c.Request().Context(), support.ActorOf(c), &id, req.toCommand()); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	payload, err := h.editorPayload(c, id)
@@ -296,6 +300,13 @@ func (req customerUpsertAPIRequest) toFormRequest() CustomerUpsertRequest {
 	}
 }
 
+func (req customerUpsertAPIRequest) toCommand() customerapp.UpsertCommand {
+	cmd := customerUpsertCommandFromRequest(req.toFormRequest())
+	cmd.PortalEnabled = req.PortalEnabled
+	cmd.CapabilityTemplateKey = req.CapabilityTemplateKey
+	return cmd
+}
+
 func optionalIntString(v *int64) string {
 	if v == nil || *v <= 0 {
 		return ""
@@ -327,6 +338,8 @@ func customerAPIModelFromEdit(data *CustomerEditData) customerAPIModel {
 		DefaultOrderTypeID:      parseOptionalCustomerInt64(data.DefaultOrderTypeID),
 		ResponsibleEmployeeID:   parseOptionalCustomerInt64(data.ResponsibleEmployeeID),
 		ResponsibleEmployeeName: data.ResponsibleEmployeeName,
+		PortalEnabled:           data.PortalEnabled,
+		CapabilityTemplateKey:   data.CapabilityTemplateKey,
 		Active:                  data.Active,
 	}
 }
