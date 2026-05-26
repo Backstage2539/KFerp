@@ -1063,6 +1063,7 @@ import {
   secondaryCategoryOptions,
   specialAttrSchemaRowsFromJSON,
   specialAttrValuesFromJSON,
+  skuListRowsFromProducts,
   sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
@@ -1230,7 +1231,10 @@ const uncategorizedProducts = computed(() => products.value
   .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
 const baseProducts = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === 0 && productVisibility(product) === 'public'))
 const customBaseProducts = computed(() => baseProducts.value.filter((product) => normalizedProductKind(product) === customForm.value.product_kind))
-const publicSkuRows = computed(() => sortRowsForCustomerSkuPriority(productRows.value.filter((product) => Number(product.customer_id || 0) === 0), 0))
+const publicSkuRows = computed(() => sortRowsForCustomerSkuPriority(
+  skuListRowsFromProducts(products.value, categoryTreeForSkuContext.value, (product) => Number(product.customer_id || 0) === 0),
+  0,
+))
 const customerSkuCustomers = computed(() => customerSkuCustomerOptions(customers.value))
 const skuCopySourceCustomers = computed(() => customerSkuCustomers.value.filter((customer) => Number(customer.id || 0) !== skuContextCustomerID.value))
 const skuCopySourceOptions = computed(() => {
@@ -1245,7 +1249,7 @@ const skuCopySourceOptions = computed(() => {
   return options
 })
 const customerSkuRows = computed(() => sortRowsForCustomerSkuPriority(
-  productRows.value.filter((product) => selectedCustomerSkuCustomerID.value && skuContextProductFilter(product)),
+  skuListRowsFromProducts(products.value, categoryTreeForSkuContext.value, (product) => selectedCustomerSkuCustomerID.value && skuContextProductFilter(product)),
   selectedCustomerSkuCustomerID.value,
 ))
 const unfilteredDisplaySkuRows = computed(() => selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value)

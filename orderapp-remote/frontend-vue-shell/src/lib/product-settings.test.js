@@ -45,6 +45,7 @@ import {
   specialAttrValuesFromJSON,
   specialAttrValuesJSONFromForm,
   sortRowsForCustomerSkuPriority,
+  skuListRowsFromProducts,
   skuTypeLabel,
   skuTypeOptions,
   unitConversionJSONFromRows,
@@ -555,6 +556,37 @@ test('normalizeVisibleSkuFilters drops hidden legacy SKU filters restored from o
     secondaryCategory: '',
   })
   assert.equal(filterSkuRows(publicRows, staleCategoryFilters).length, 34)
+})
+
+test('skuListRowsFromProducts keeps the SKU table backed by product rows even when category projection is empty', () => {
+  const publicRows = Array.from({ length: 34 }, (_, index) => ({
+    id: index + 1,
+    name: `公共 SKU ${index + 1}`,
+    customer_id: 0,
+  }))
+  assert.equal(skuListRowsFromProducts(publicRows, [], (product) => Number(product.customer_id || 0) === 0).length, 34)
+
+  const categorized = skuListRowsFromProducts(publicRows, [{
+    id: 1,
+    name: '咖啡烘焙豆',
+    products: [],
+    children: [{
+      id: 2,
+      name: '精品意式拼配',
+      products: [{ id: 1, number: 7 }],
+    }],
+  }], () => true)
+  assert.deepEqual({
+    id: categorized[0].id,
+    number: categorized[0].number,
+    primary_name: categorized[0].primary_name,
+    secondary_name: categorized[0].secondary_name,
+  }, {
+    id: 1,
+    number: 7,
+    primary_name: '咖啡烘焙豆',
+    secondary_name: '精品意式拼配',
+  })
 })
 
 test('category filter options are derived from current SKU rows', () => {

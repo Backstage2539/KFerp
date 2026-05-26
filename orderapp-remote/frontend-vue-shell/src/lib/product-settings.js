@@ -123,6 +123,22 @@ export function paginatedSkuRows(rows = [], filters = {}, pagination = {}) {
   return slicePageRows(filterSkuRows(rows, filters), pagination)
 }
 
+export function skuListRowsFromProducts(products = [], categoryTree = [], filterFn = () => true) {
+  const categoryMetaByProductID = categoryProductMetaByID(categoryTree)
+  return (products || [])
+    .filter((product) => {
+      try {
+        return filterFn(product)
+      } catch (_) {
+        return false
+      }
+    })
+    .map((product) => ({
+      ...product,
+      ...(categoryMetaByProductID.get(Number(product?.id || 0)) || {}),
+    }))
+}
+
 export function customerSkuCustomerOptions(customers = []) {
   const rows = Array.isArray(customers)
     ? customers
@@ -478,6 +494,35 @@ function numberProducts(products = [], primaryName = '', secondaryName = '') {
     primary_name: primaryName,
     secondary_name: secondaryName,
   }))
+}
+
+function categoryProductMetaByID(categoryTree = []) {
+  const out = new Map()
+  for (const primary of categoryTree || []) {
+    const primaryName = primary?.name || ''
+    for (const product of primary?.products || []) {
+      const id = Number(product?.id || 0)
+      if (!id) continue
+      out.set(id, {
+        number: product.number || '',
+        primary_name: primaryName,
+        secondary_name: '',
+      })
+    }
+    for (const secondary of primary?.children || []) {
+      const secondaryName = secondary?.name || ''
+      for (const product of secondary?.products || []) {
+        const id = Number(product?.id || 0)
+        if (!id) continue
+        out.set(id, {
+          number: product.number || '',
+          primary_name: primaryName,
+          secondary_name: secondaryName,
+        })
+      }
+    }
+  }
+  return out
 }
 
 function dedupeRowsByID(rows = []) {
