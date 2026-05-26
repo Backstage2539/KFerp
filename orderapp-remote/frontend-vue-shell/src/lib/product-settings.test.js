@@ -542,6 +542,19 @@ test('normalizeVisibleSkuFilters drops hidden legacy SKU filters restored from o
     secondaryCategory: '精品意式拼配',
   })
   assert.equal(filterSkuRows(publicRows, filters).length, 34)
+
+  const staleCategoryFilters = normalizeVisibleSkuFilters({
+    primaryCategory: '已删除产品类型',
+    secondaryCategory: '已删除产品子类型',
+  }, publicRows)
+  assert.deepEqual(staleCategoryFilters, {
+    productKind: 'all',
+    customType: 'all',
+    query: '',
+    primaryCategory: '',
+    secondaryCategory: '',
+  })
+  assert.equal(filterSkuRows(publicRows, staleCategoryFilters).length, 34)
 })
 
 test('category filter options are derived from current SKU rows', () => {

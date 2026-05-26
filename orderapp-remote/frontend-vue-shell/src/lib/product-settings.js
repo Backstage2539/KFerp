@@ -98,14 +98,25 @@ export function filterSkuRows(rows = [], filters = {}) {
   })
 }
 
-export function normalizeVisibleSkuFilters(filters = {}) {
-  return {
+export function normalizeVisibleSkuFilters(filters = {}, rows = null) {
+  const normalized = {
     productKind: PRODUCT_KIND_ALL,
     customType: SKU_CUSTOM_TYPE_ALL,
     query: String(filters.query || '').trim(),
     primaryCategory: String(filters.primaryCategory || '').trim(),
     secondaryCategory: String(filters.secondaryCategory || '').trim(),
   }
+  if (Array.isArray(rows)) {
+    const primaryOptions = primaryCategoryOptions(rows)
+    if (normalized.primaryCategory && !primaryOptions.includes(normalized.primaryCategory)) {
+      normalized.primaryCategory = ''
+    }
+    const secondaryOptions = secondaryCategoryOptions(rows, normalized.primaryCategory)
+    if (normalized.secondaryCategory && !secondaryOptions.includes(normalized.secondaryCategory)) {
+      normalized.secondaryCategory = ''
+    }
+  }
+  return normalized
 }
 
 export function paginatedSkuRows(rows = [], filters = {}, pagination = {}) {

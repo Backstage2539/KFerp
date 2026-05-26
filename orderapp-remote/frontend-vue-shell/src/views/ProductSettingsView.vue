@@ -1348,6 +1348,10 @@ function defaultSkuFilters() {
   return normalizeVisibleSkuFilters()
 }
 
+function normalizeSkuFiltersForCurrentRows(filters = skuFilters.value) {
+  return normalizeVisibleSkuFilters(filters, unfilteredDisplaySkuRows.value)
+}
+
 function defaultSkuForm() {
   return {
     name: '',
@@ -1586,7 +1590,7 @@ async function restoreProductSettingsDraft() {
   activeSettingsSection.value = ['master', 'templates'].includes(draft.activeSettingsSection) ? draft.activeSettingsSection : 'master'
   activeConfigTemplateSection.value = ['product-config', 'unit-template', 'gradient', 'category-management'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
   categorySearchQuery.value = draft.categorySearchQuery || ''
-  skuFilters.value = normalizeVisibleSkuFilters(draft.skuFilters || {})
+  skuFilters.value = normalizeSkuFiltersForCurrentRows(draft.skuFilters || {})
   skuPage.value = Number(draft.skuPage || 1)
   skuPageSize.value = normalizePageSize(draft.skuPageSize)
   ensureProductTypeCategorySelected(skuForm.value)
@@ -3644,6 +3648,13 @@ watch(() => skuFilters.value.primaryCategory, () => {
     skuFilters.value.secondaryCategory = ''
   }
 })
+
+watch(unfilteredDisplaySkuRows, () => {
+  const normalized = normalizeSkuFiltersForCurrentRows()
+  if (JSON.stringify(normalized) !== JSON.stringify(skuFilters.value)) {
+    skuFilters.value = normalized
+  }
+}, { deep: true })
 
 watch(displaySkuRows, (rows) => {
   pruneSelectedProducts(rows)
