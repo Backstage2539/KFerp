@@ -259,7 +259,7 @@
       </div>
       </Teleport>
 
-      <div class="panel product-panel">
+      <div class="panel product-panel" :data-sku-debug="skuTableDebugAttr">
         <div class="panel-title sku-panel-title">
           <span>客户SKU列表 · {{ selectedSkuContextLabel }}</span>
           <div class="panel-actions sku-panel-actions">
@@ -1259,6 +1259,7 @@ const skuDisplayTotal = ref(0)
 const displaySkuRows = ref([])
 const skuPrimaryCategoryOptions = ref([])
 const skuSecondaryCategoryOptions = ref([])
+const skuTableDebugAttr = ref('')
 const skuDisplayKey = computed(() => [
   skuContextCustomerID.value,
   skuDisplayTotal.value,
@@ -1381,7 +1382,7 @@ function syncVisibleSkuTableState() {
   skuPrimaryCategoryOptions.value = primaryCategoryOptions(sourceRows)
   skuSecondaryCategoryOptions.value = secondaryCategoryOptions(sourceRows, filters.primaryCategory)
   if (typeof window !== 'undefined' && window.location.search.includes('debug_sku_table=1')) {
-    window.__kferpSkuTableDebug = {
+    const debugSnapshot = {
       selectedCustomerID: Number(selectedCustomerSkuCustomerID.value || 0),
       sourceRows: sourceRows.length,
       filteredRows: filteredRows.length,
@@ -1393,6 +1394,8 @@ function syncVisibleSkuTableState() {
       firstPageRow: pageState.rows[0] ? { id: pageState.rows[0].id, name: pageState.rows[0].name, primary_name: pageState.rows[0].primary_name, secondary_name: pageState.rows[0].secondary_name } : null,
       filters,
     }
+    window.__kferpSkuTableDebug = debugSnapshot
+    skuTableDebugAttr.value = JSON.stringify(debugSnapshot)
   }
 }
 
