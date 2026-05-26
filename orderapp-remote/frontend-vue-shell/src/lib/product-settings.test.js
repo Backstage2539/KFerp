@@ -1384,7 +1384,7 @@ test('SKU settings groups master data and template configuration into separate w
     'SKU list should remain in the daily-operation workspace before template configuration',
   )
   assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"[\s\S]*@click="openSkuCopyDrawer"/)
-  assert.match(template, /activeConfigTemplateSection === 'category-management'/)
+  assert.match(template, /v-if="activeSettingsSection === 'templates' && activeConfigTemplateSection === 'category-management'"/)
   assert.match(template, /id="sku-category-management-target"/)
   assert.match(style, /\.master-data-layout\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*minmax\(0,\s*1fr\);/)
   assert.match(style, /\.template-workspace-stack\s*\{\s*display:\s*grid;\s*gap:\s*14px;/)
@@ -1450,7 +1450,7 @@ test('SKU settings opens SKU creation and SKU copy behind drawers while category
   assert.match(script, /applyWorkspaceCustomerContext\(\)\s+syncVisibleSkuTableState\(\)\s+pruneSelectedProducts\(displaySkuRows\.value\)/)
   assert.match(script, /await nextTick\(\)\s+syncVisibleSkuTableState\(\)\s+restoringProductSettingsDraft = false/)
   assert.doesNotMatch(script, /const skuTable = computed/)
-  assert.doesNotMatch(source, /debug_sku_table|__kferpSkuTableDebug|skuTableDebugAttr|data-sku-debug/)
+  assert.doesNotMatch(source, /debug_sku_table|__kferpSkuTableDebug|skuTableDebugAttr|data-sku-debug|data-top-|data-sku-instance/)
   assert.match(style, /\.category-scroll-list\s*\{[^}]*max-height:\s*min\(640px,\s*calc\(100vh - 280px\)\);[^}]*overflow:\s*auto;/s)
   assert.match(style, /\.settings-drawer-mask\s*\{[^}]*position:\s*fixed;/s)
 })
@@ -1476,7 +1476,7 @@ test('SKU settings edits product categories inline inside the category managemen
     assert.ok(source.includes(expected), `missing inline category editor marker: ${expected}`)
   }
 
-  assert.match(template, /activeConfigTemplateSection === 'category-management'[\s\S]*class="category-panel category-drawer-panel/)
+  assert.match(template, /v-if="activeSettingsSection === 'templates' && activeConfigTemplateSection === 'category-management'"[\s\S]*class="category-panel category-drawer-panel/)
   assert.doesNotMatch(source, /category-editor-drawer/)
   assert.doesNotMatch(source, /openCategoryDrawer/)
   assert.doesNotMatch(source, /openCategorySettingsDrawer/)

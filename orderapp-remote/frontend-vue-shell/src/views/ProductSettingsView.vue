@@ -60,7 +60,7 @@
       <div v-show="activeSettingsSection === 'master'" class="sku-master-workspace">
         <div class="master-data-layout">
       <Teleport to="#sku-category-management-target">
-      <div v-show="activeConfigTemplateSection === 'category-management'" class="category-panel category-drawer-panel category-management-panel">
+      <div v-if="activeSettingsSection === 'templates' && activeConfigTemplateSection === 'category-management'" class="category-panel category-drawer-panel category-management-panel">
         <div class="panel-title">
           <span>商品分类 · {{ selectedSkuContextLabel }}</span>
           <div class="panel-actions">
