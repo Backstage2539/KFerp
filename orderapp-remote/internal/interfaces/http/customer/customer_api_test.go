@@ -124,7 +124,7 @@ func TestCustomerAPIRoundTripsCustomerType(t *testing.T) {
 	}
 }
 
-func TestCustomerAPISupportsChannelPortalSwitch(t *testing.T) {
+func TestCustomerAPISupportsChannelPortalSwitchWithoutTemplateBinding(t *testing.T) {
 	repo := &fakeCustomerRepo{}
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
@@ -142,34 +142,13 @@ func TestCustomerAPISupportsChannelPortalSwitch(t *testing.T) {
 	for _, want := range []string{
 		`"customer_type":"channel"`,
 		`"portal_enabled":true`,
-		`"capability_template_key":"channel_direct_ship"`,
 	} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("response missing %s: %s", want, rec.Body.String())
 		}
 	}
-}
-
-func TestCustomerAPIRequiresCapabilityTemplateWhenPortalEnabled(t *testing.T) {
-	repo := &fakeCustomerRepo{}
-	e := echo.New()
-	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
-
-	body := strings.NewReader(`{"name":"渠道伙伴","customer_type":"channel","default_source_id":1,"default_order_type_id":2,"portal_enabled":true,"active":true}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/customers", body)
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	rec := httptest.NewRecorder()
-
-	e.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("POST /api/customers status=%d, want 400, body=%s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "能力模板") {
-		t.Fatalf("response missing capability template error: %s", rec.Body.String())
-	}
-	if repo.upsert.Name != "" {
-		t.Fatalf("repo should not be called for missing portal template, got %+v", repo.upsert)
+	if repo.upsert.CapabilityTemplateKey != "" {
+		t.Fatalf("customer API should not bind capability template from customer profile, got %+v", repo.upsert)
 	}
 }
 

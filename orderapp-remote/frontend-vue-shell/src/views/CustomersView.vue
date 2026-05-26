@@ -52,7 +52,7 @@
         </label>
         <label>
           <span>客户类型</span>
-          <select v-model="form.customer_type" required @change="applyRecommendedTemplate">
+          <select v-model="form.customer_type" required>
             <option v-for="item in customerTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
           </select>
         </label>
@@ -96,15 +96,8 @@
           <span>启用</span>
         </label>
         <label class="check">
-          <input v-model="form.portal_enabled" type="checkbox" @change="applyRecommendedTemplate" />
+          <input v-model="form.portal_enabled" type="checkbox" />
           <span>开通客户门户/工作台</span>
-        </label>
-        <label v-if="form.portal_enabled">
-          <span>能力模板</span>
-          <select v-model="form.capability_template_key" required>
-            <option value="">选择能力模板</option>
-            <option v-for="template in activeCapabilityTemplates" :key="template.key" :value="template.key">{{ template.label }}</option>
-          </select>
         </label>
         <div class="form-actions">
           <button class="primary" type="submit" :disabled="loading">保存</button>
@@ -196,7 +189,7 @@
               <td>{{ optionName(sources, row.default_source_id) }}</td>
               <td>{{ optionName(orderTypes, row.default_order_type_id) }}</td>
               <td>{{ row.responsible_employee_name || employeeName(row.responsible_employee_id) }}</td>
-              <td>{{ row.portal_enabled ? templateLabel(row.capability_template_key) : '未开通' }}</td>
+              <td>{{ row.portal_enabled ? '已开通' : '未开通' }}</td>
               <td>{{ row.active ? '启用' : '停用' }}</td>
               <td>{{ row.updated }}</td>
             </tr>
@@ -222,7 +215,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import { parseRecipientText } from '../lib/customer-recipient'
-import { customerTypeLabel, customerTypeOptions, defaultCapabilityTemplateForCustomerType, normalizeCustomerType, validCustomerType } from '../lib/customer-types'
+import { customerTypeLabel, customerTypeOptions, normalizeCustomerType, validCustomerType } from '../lib/customer-types'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
 
@@ -230,7 +223,6 @@ const rows = ref([])
 const sources = ref([])
 const orderTypes = ref([])
 const employees = ref([])
-const capabilityTemplates = ref([])
 const q = ref('')
 const page = ref(1)
 const pageSize = ref(10)
@@ -252,7 +244,6 @@ const assetKind = ref('label_front')
 const assetInput = ref(null)
 const customerPaste = ref('')
 const form = reactive(emptyForm())
-const activeCapabilityTemplates = computed(() => (capabilityTemplates.value || []).filter((item) => item.active !== false))
 const assetKinds = [
   { value: 'label_front', label: '标签-正面' },
   { value: 'label_back', label: '标签-反面' },
@@ -274,7 +265,6 @@ function emptyForm() {
     responsible_employee_id: 0,
     active: true,
     portal_enabled: false,
-    capability_template_key: '',
   }
 }
 
@@ -291,7 +281,6 @@ function assignForm(data) {
     responsible_employee_id: Number(data?.responsible_employee_id || 0),
     active: data?.active !== false,
     portal_enabled: data?.portal_enabled === true,
-    capability_template_key: data?.capability_template_key || '',
   })
 }
 
@@ -444,27 +433,6 @@ async function load() {
   }
 }
 
-async function loadCapabilityTemplates() {
-  try {
-    const data = await apiGet('/api/customer-portal/admin/capability-templates')
-    capabilityTemplates.value = data.templates || []
-  } catch {
-    capabilityTemplates.value = []
-  }
-}
-
-function templateLabel(key) {
-  const raw = String(key || '').trim()
-  if (!raw) return ''
-  return activeCapabilityTemplates.value.find((item) => item.key === raw)?.label || raw
-}
-
-function applyRecommendedTemplate() {
-  if (!form.portal_enabled) return
-  if (form.capability_template_key) return
-  form.capability_template_key = defaultCapabilityTemplateForCustomerType(form.customer_type)
-}
-
 async function setSort(field) {
   if (sortBy.value !== field) {
     sortBy.value = field
@@ -543,7 +511,6 @@ async function saveCustomer() {
     if (!Number(form.default_source_id || 0)) throw new Error('请选择客户来源')
     if (!Number(form.default_order_type_id || 0)) throw new Error('请选择客户订单类型')
     if (!Number(form.responsible_employee_id || 0)) throw new Error('请选择客户负责人')
-    if (form.portal_enabled && !form.capability_template_key) throw new Error('请选择能力模板')
     const body = {
       name: form.name,
       raw_name: '',
@@ -559,7 +526,6 @@ async function saveCustomer() {
       responsible_employee_id: form.responsible_employee_id || null,
       active: !!form.active,
       portal_enabled: !!form.portal_enabled,
-      capability_template_key: form.capability_template_key || '',
     }
     const data = await apiSend(editingId.value ? `/api/customers/${editingId.value}` : '/api/customers', {
       method: editingId.value ? 'PUT' : 'POST',
@@ -627,7 +593,7 @@ onMounted(async () => {
   const params = new URL(window.location.href).searchParams
   const editID = Number(params.get('edit_id') || 0)
   const newMode = params.get('mode') === 'new'
-  await Promise.all([loadCapabilityTemplates(), load()])
+  await load()
   if (editID > 0) await openCustomerDrawer(editID)
   else if (newMode) startNew()
 })

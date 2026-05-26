@@ -50,11 +50,14 @@ func TestDev345OrderCustomerProfileBeanListWiring(t *testing.T) {
 		"请选择客户来源",
 		"请选择客户订单类型",
 		"开通客户门户/工作台",
-		"capability_template_key",
-		"defaultCapabilityTemplateForCustomerType",
 	} {
 		if !strings.Contains(orderSrc, want) {
 			t.Fatalf("OrderEntryView.vue missing PR-340 marker %q", want)
+		}
+	}
+	for _, forbidden := range []string{"capability_template_key", "defaultCapabilityTemplateForCustomerType", "请选择能力模板"} {
+		if strings.Contains(orderSrc, forbidden) {
+			t.Fatalf("OrderEntryView.vue should keep capability template binding out of customer drawer: found %q", forbidden)
 		}
 	}
 
@@ -67,11 +70,14 @@ func TestDev345OrderCustomerProfileBeanListWiring(t *testing.T) {
 		"请选择客户来源",
 		"请选择客户订单类型",
 		"开通客户门户/工作台",
-		"capability_template_key",
-		"defaultCapabilityTemplateForCustomerType",
 	} {
 		if !strings.Contains(customerSrc, want) {
 			t.Fatalf("CustomersView.vue missing PR-340 marker %q", want)
+		}
+	}
+	for _, forbidden := range []string{"capability_template_key", "defaultCapabilityTemplateForCustomerType", "请选择能力模板"} {
+		if strings.Contains(customerSrc, forbidden) {
+			t.Fatalf("CustomersView.vue should keep capability template binding out of customer profile: found %q", forbidden)
 		}
 	}
 	if strings.Contains(customerSrc, `<option :value="0">未设置</option>`) {

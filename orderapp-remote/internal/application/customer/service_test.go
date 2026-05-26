@@ -134,6 +134,29 @@ func TestServiceSupportsChannelCustomerType(t *testing.T) {
 	}
 }
 
+func TestServiceAllowsPortalSwitchWithoutCapabilityTemplate(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	enabled := true
+	_, err := svc.Upsert(context.Background(), "actor", nil, UpsertCommand{
+		Name:                  "渠道客户",
+		CustomerType:          "channel",
+		DefaultSourceID:       "1",
+		DefaultOrderTypeID:    "2",
+		PortalEnabled:         &enabled,
+		CapabilityTemplateKey: "channel_direct_ship",
+	})
+	if err != nil {
+		t.Fatalf("Upsert() error = %v, want portal switch without template accepted", err)
+	}
+	if repo.upsert.PortalEnabled == nil || !*repo.upsert.PortalEnabled {
+		t.Fatalf("portal_enabled not delegated: %+v", repo.upsert)
+	}
+	if repo.upsert.CapabilityTemplateKey != "" {
+		t.Fatalf("capability_template_key=%q, want customer profile not to bind templates", repo.upsert.CapabilityTemplateKey)
+	}
+}
+
 func TestServiceListRespectsExplicitSort(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

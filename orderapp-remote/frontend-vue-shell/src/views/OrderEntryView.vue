@@ -466,7 +466,7 @@
           </label>
           <label>
             <span>客户类型</span>
-            <select v-model="customerForm.customer_type" @change="applyRecommendedCustomerTemplate">
+            <select v-model="customerForm.customer_type">
               <option v-for="item in customerTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
             </select>
           </label>
@@ -498,15 +498,8 @@
             <textarea v-model.trim="customerForm.company_address" rows="3"></textarea>
           </label>
           <label class="check-field">
-            <input v-model="customerForm.portal_enabled" type="checkbox" @change="applyRecommendedCustomerTemplate" />
+            <input v-model="customerForm.portal_enabled" type="checkbox" />
             <span>开通客户门户/工作台</span>
-          </label>
-          <label v-if="customerForm.portal_enabled">
-            <span>能力模板</span>
-            <select v-model="customerForm.capability_template_key">
-              <option value="">选择能力模板</option>
-              <option v-for="template in activeCapabilityTemplates" :key="template.key" :value="template.key">{{ template.label }}</option>
-            </select>
           </label>
         </div>
         <div class="drawer-actions">
@@ -595,7 +588,7 @@ import {
   wholesaleSpecOptions,
 } from '../lib/order-entry'
 import { parseRecipientText } from '../lib/customer-recipient'
-import { customerTypeLabel, customerTypeOptions, defaultCapabilityTemplateForCustomerType, normalizeCustomerType } from '../lib/customer-types'
+import { customerTypeLabel, customerTypeOptions, normalizeCustomerType } from '../lib/customer-types'
 import { dripUnitOptions, isDripProduct } from '../lib/drip-product'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
@@ -624,7 +617,6 @@ const payStatuses = ref([])
 const orderTypes = ref([])
 const products = ref([])
 const employees = ref([])
-const capabilityTemplates = ref([])
 const logisticsCompanies = ref([])
 const beanListVersionOptions = ref([])
 const customerPublicUsages = ref([])
@@ -735,7 +727,6 @@ function emptyCustomerForm() {
     responsible_employee_id: 0,
     active: true,
     portal_enabled: false,
-    capability_template_key: '',
   }
 }
 
@@ -822,7 +813,6 @@ const selectedLogisticsProducts = computed(() => {
 const copyMode = computed(() => Number(props.copyId || effectiveCopyID.value || 0) > 0)
 const canUseBackfillMode = computed(() => !props.embedded && !form.edit_id && !copyMode.value)
 const activeEmployees = computed(() => employees.value.filter((employee) => employee.active !== false))
-const activeCapabilityTemplates = computed(() => (capabilityTemplates.value || []).filter((template) => template.active !== false))
 const selectedCustomer = computed(() => customers.value.find((item) => Number(item.id || 0) === Number(form.customer_id || 0)) || null)
 const selectedCustomerResponsibleLabel = computed(() => selectedCustomer.value?.responsible_employee_name || '')
 const selectedCustomerProfileSummary = computed(() => [
@@ -1190,21 +1180,6 @@ function resetCustomerDrawerForm() {
   customerNotice.value = ''
 }
 
-async function loadCapabilityTemplates() {
-  try {
-    const data = await apiGet('/api/customer-portal/admin/capability-templates')
-    capabilityTemplates.value = data.templates || []
-  } catch {
-    capabilityTemplates.value = []
-  }
-}
-
-function applyRecommendedCustomerTemplate() {
-  if (!customerForm.portal_enabled) return
-  if (customerForm.capability_template_key) return
-  customerForm.capability_template_key = defaultCapabilityTemplateForCustomerType(customerForm.customer_type)
-}
-
 function openCustomerDrawer() {
   customerDrawerMode.value = 'create'
   resetCustomerDrawerForm()
@@ -1228,7 +1203,6 @@ function assignCustomerDrawerForm(customer = {}) {
     responsible_employee_id: Number(customer.responsible_employee_id || 0),
     active: customer.active !== false,
     portal_enabled: customer.portal_enabled === true,
-    capability_template_key: customer.capability_template_key || '',
   })
 }
 
@@ -1279,7 +1253,6 @@ async function saveCustomerFromDrawer() {
     if (!Number(customerForm.default_source_id || 0)) throw new Error('请选择客户来源')
     if (!Number(customerForm.default_order_type_id || 0)) throw new Error('请选择客户订单类型')
     if (!Number(customerForm.responsible_employee_id || 0)) throw new Error('请选择客户负责人')
-    if (customerForm.portal_enabled && !customerForm.capability_template_key) throw new Error('请选择能力模板')
     const customerPayload = {
       name: customerForm.name,
       raw_name: customerForm.raw_name || '',
@@ -1295,7 +1268,6 @@ async function saveCustomerFromDrawer() {
       responsible_employee_id: customerForm.responsible_employee_id || null,
       active: customerForm.active !== false,
       portal_enabled: customerForm.portal_enabled === true,
-      capability_template_key: customerForm.capability_template_key || '',
     }
     if (customerForm.company_phone) customerPayload.company_phone = customerForm.company_phone
     const data = await apiSend(customerDrawerMode.value === 'edit' ? `/api/customers/${customerForm.id}` : '/api/customers', {
@@ -1927,7 +1899,7 @@ function stockBatchConfirmText(preview) {
 }
 
 onMounted(async () => {
-  await Promise.all([loadCapabilityTemplates(), load()])
+  await load()
   restoreOrderEntryDraft()
 })
 

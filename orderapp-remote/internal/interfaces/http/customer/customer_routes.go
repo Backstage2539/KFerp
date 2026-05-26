@@ -303,7 +303,6 @@ func (req customerUpsertAPIRequest) toFormRequest() CustomerUpsertRequest {
 func (req customerUpsertAPIRequest) toCommand() customerapp.UpsertCommand {
 	cmd := customerUpsertCommandFromRequest(req.toFormRequest())
 	cmd.PortalEnabled = req.PortalEnabled
-	cmd.CapabilityTemplateKey = req.CapabilityTemplateKey
 	return cmd
 }
 

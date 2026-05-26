@@ -904,13 +904,13 @@ test('order entry customer drawer requires customer type source and order type f
   assert.match(drawerBlock, /v-model="customerForm\.customer_type"/)
   assert.match(drawerBlock, /开通客户门户\/工作台/)
   assert.match(drawerBlock, /v-model="customerForm\.portal_enabled"/)
-  assert.match(drawerBlock, /v-model="customerForm\.capability_template_key"/)
-  assert.match(source, /defaultCapabilityTemplateForCustomerType/)
+  assert.doesNotMatch(drawerBlock, /v-model="customerForm\.capability_template_key"/)
+  assert.doesNotMatch(source, /defaultCapabilityTemplateForCustomerType/)
   assert.doesNotMatch(drawerBlock, /<option :value="0">未设置<\/option>/)
   assert.match(source, /请选择客户类型/)
   assert.match(source, /请选择客户来源/)
   assert.match(source, /请选择客户订单类型/)
-  assert.match(source, /请选择能力模板/)
+  assert.doesNotMatch(source, /请选择能力模板/)
 })
 
 test('order entry moves bean list selection from order information to product details drawer', () => {

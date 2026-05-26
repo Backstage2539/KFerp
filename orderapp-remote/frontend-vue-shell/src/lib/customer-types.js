@@ -20,17 +20,3 @@ export function customerTypeLabel(value) {
   const normalized = normalizeCustomerType(value)
   return customerTypeOptions.find((item) => item.value === normalized)?.label || ''
 }
-
-export function defaultCapabilityTemplateForCustomerType(value) {
-  switch (normalizeCustomerType(value)) {
-    case 'channel':
-      return 'channel_direct_ship'
-    case 'wholesale':
-      return 'processing_fulfillment'
-    case 'retail':
-    case 'ecommerce':
-      return 'retail_mall'
-    default:
-      return ''
-  }
-}

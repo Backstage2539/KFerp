@@ -216,7 +216,7 @@ func TestCustomerUpsertRequiresActiveInternalResponsibleEmployeeAndAuditsChanges
 	}
 }
 
-func TestCustomerUpsertPersistsPortalSwitchTemplateAndAuditLogs(t *testing.T) {
+func TestCustomerUpsertPersistsPortalSwitchWithoutBindingTemplate(t *testing.T) {
 	ctx := context.Background()
 	pool := newCustomerRepositoryTestPool(t)
 	schema := fmt.Sprintf("customer_portal_switch_%d", time.Now().UnixNano())
@@ -276,7 +276,6 @@ func TestCustomerUpsertPersistsPortalSwitchTemplateAndAuditLogs(t *testing.T) {
 		CustomerType:          customerapp.CustomerTypeChannel,
 		ResponsibleEmployeeID: fmt.Sprintf("%d", ownerID),
 		PortalEnabled:         &enabled,
-		CapabilityTemplateKey: "channel_direct_ship",
 		Active:                "on",
 	}); err != nil {
 		t.Fatalf("enable portal switch: %v", err)
@@ -286,14 +285,14 @@ func TestCustomerUpsertPersistsPortalSwitchTemplateAndAuditLogs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("editor customer: %v", err)
 	}
-	if !edit.Customer.PortalEnabled || edit.Customer.CapabilityTemplateKey != "channel_direct_ship" {
+	if !edit.Customer.PortalEnabled || edit.Customer.CapabilityTemplateKey != "" {
 		t.Fatalf("editor portal fields enabled=%v template=%q", edit.Customer.PortalEnabled, edit.Customer.CapabilityTemplateKey)
 	}
 	list, err := repo.List(ctx, customerapp.ListQuery{Limit: 10})
 	if err != nil {
 		t.Fatalf("list customers: %v", err)
 	}
-	if len(list.Rows) != 1 || !list.Rows[0].PortalEnabled || list.Rows[0].CapabilityTemplateKey != "channel_direct_ship" {
+	if len(list.Rows) != 1 || !list.Rows[0].PortalEnabled || list.Rows[0].CapabilityTemplateKey != "" {
 		t.Fatalf("list portal row=%+v", list.Rows)
 	}
 
@@ -303,7 +302,6 @@ func TestCustomerUpsertPersistsPortalSwitchTemplateAndAuditLogs(t *testing.T) {
 		CustomerType:          customerapp.CustomerTypeChannel,
 		ResponsibleEmployeeID: fmt.Sprintf("%d", ownerID),
 		PortalEnabled:         &enabled,
-		CapabilityTemplateKey: "channel_direct_ship",
 		Active:                "on",
 	}); err != nil {
 		t.Fatalf("disable portal switch: %v", err)
@@ -318,8 +316,8 @@ func TestCustomerUpsertPersistsPortalSwitchTemplateAndAuditLogs(t *testing.T) {
 	`, schema), customerID).Scan(&portalEnabled, &templateKey); err != nil {
 		t.Fatalf("load portal profile: %v", err)
 	}
-	if portalEnabled || templateKey != "channel_direct_ship" {
-		t.Fatalf("profile enabled=%v template=%q, want disabled with template retained", portalEnabled, templateKey)
+	if portalEnabled || templateKey != "" {
+		t.Fatalf("profile enabled=%v template=%q, want disabled without customer-profile template binding", portalEnabled, templateKey)
 	}
 	var auditCount int
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
@@ -327,12 +325,12 @@ func TestCustomerUpsertPersistsPortalSwitchTemplateAndAuditLogs(t *testing.T) {
 		FROM %s.audit_logs
 		WHERE entity_type='customer'
 		  AND entity_id=$1
-		  AND field IN ('portal_enabled','capability_template_key')
+		  AND field='portal_enabled'
 	`, schema), customerID).Scan(&auditCount); err != nil {
 		t.Fatalf("count portal audit logs: %v", err)
 	}
-	if auditCount < 3 {
-		t.Fatalf("portal audit count=%d, want enable/template/disable logs", auditCount)
+	if auditCount != 2 {
+		t.Fatalf("portal audit count=%d, want enable/disable logs only", auditCount)
 	}
 }
 

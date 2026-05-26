@@ -202,10 +202,7 @@ func (s *Service) Upsert(ctx context.Context, actor string, id *int64, cmd Upser
 		return 0, err
 	}
 	cmd.CustomerType = NormalizeCustomerType(cmd.CustomerType)
-	cmd.CapabilityTemplateKey = strings.TrimSpace(cmd.CapabilityTemplateKey)
-	if cmd.PortalEnabled != nil && *cmd.PortalEnabled && cmd.CapabilityTemplateKey == "" {
-		return 0, fmt.Errorf("请维护客户门户/工作台：能力模板")
-	}
+	cmd.CapabilityTemplateKey = ""
 	return s.repo.Upsert(ctx, actor, id, cmd)
 }
 

@@ -30,11 +30,13 @@ func TestDev379ChannelPortalWorkbenchSwitchSourceMarkers(t *testing.T) {
 		`"channel"`,
 		"PortalEnabled",
 		"CapabilityTemplateKey",
-		"请维护客户门户/工作台：能力模板",
 	} {
 		if !strings.Contains(customerService, want) {
 			t.Fatalf("customer service missing PR-376 marker %q", want)
 		}
+	}
+	if strings.Contains(customerService, "请维护客户门户/工作台：能力模板") {
+		t.Fatal("customer profile service should not require capability template when portal switch is enabled")
 	}
 
 	customerRoutes := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "customer", "customer_routes.go")))
@@ -88,19 +90,25 @@ func TestDev379ChannelPortalWorkbenchSwitchSourceMarkers(t *testing.T) {
 	for _, want := range []string{
 		"开通客户门户/工作台",
 		"portal_enabled",
-		"capability_template_key",
-		"defaultCapabilityTemplateForCustomerType",
 	} {
 		if !strings.Contains(customersView, want) {
 			t.Fatalf("CustomersView.vue missing PR-376 marker %q", want)
 		}
 	}
+	for _, forbidden := range []string{"capability_template_key", "defaultCapabilityTemplateForCustomerType", "请选择能力模板"} {
+		if strings.Contains(customersView, forbidden) {
+			t.Fatalf("CustomersView.vue should not bind capability templates in customer profile: found %q", forbidden)
+		}
+	}
 
 	customerTypes := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "customer-types.js")))
-	for _, want := range []string{"channel", "渠道客户", "channel_direct_ship"} {
+	for _, want := range []string{"channel", "渠道客户"} {
 		if !strings.Contains(customerTypes, want) {
 			t.Fatalf("customer-types.js missing PR-376 marker %q", want)
 		}
+	}
+	if strings.Contains(customerTypes, "channel_direct_ship") {
+		t.Fatal("customer-types.js should not map customer type to capability template")
 	}
 
 	orderEntryView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue")))
