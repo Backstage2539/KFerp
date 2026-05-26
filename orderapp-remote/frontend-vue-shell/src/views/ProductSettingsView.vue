@@ -1048,6 +1048,7 @@ import {
   inferProductKindFromProductTypeCategory,
   isPublicReferenceRow,
   nextSkuContextCustomerID,
+  normalizeVisibleSkuFilters,
   normalizedProductKind,
   priceListRuleFormFromJSON,
   priceListRulePricingModeOptions,
@@ -1344,13 +1345,7 @@ const customRoastedBomProducts = computed(() => roastedBomProductOptions(product
 }))
 
 function defaultSkuFilters() {
-  return {
-    productKind: 'all',
-    customType: 'all',
-    query: '',
-    primaryCategory: '',
-    secondaryCategory: '',
-  }
+  return normalizeVisibleSkuFilters()
 }
 
 function defaultSkuForm() {
@@ -1591,7 +1586,7 @@ async function restoreProductSettingsDraft() {
   activeSettingsSection.value = ['master', 'templates'].includes(draft.activeSettingsSection) ? draft.activeSettingsSection : 'master'
   activeConfigTemplateSection.value = ['product-config', 'unit-template', 'gradient', 'category-management'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
   categorySearchQuery.value = draft.categorySearchQuery || ''
-  skuFilters.value = { ...defaultSkuFilters(), ...(draft.skuFilters || {}) }
+  skuFilters.value = normalizeVisibleSkuFilters(draft.skuFilters || {})
   skuPage.value = Number(draft.skuPage || 1)
   skuPageSize.value = normalizePageSize(draft.skuPageSize)
   ensureProductTypeCategorySelected(skuForm.value)

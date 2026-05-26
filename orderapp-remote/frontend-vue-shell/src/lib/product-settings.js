@@ -98,6 +98,16 @@ export function filterSkuRows(rows = [], filters = {}) {
   })
 }
 
+export function normalizeVisibleSkuFilters(filters = {}) {
+  return {
+    productKind: PRODUCT_KIND_ALL,
+    customType: SKU_CUSTOM_TYPE_ALL,
+    query: String(filters.query || '').trim(),
+    primaryCategory: String(filters.primaryCategory || '').trim(),
+    secondaryCategory: String(filters.secondaryCategory || '').trim(),
+  }
+}
+
 export function paginatedSkuRows(rows = [], filters = {}, pagination = {}) {
   return slicePageRows(filterSkuRows(rows, filters), pagination)
 }

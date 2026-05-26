@@ -27,6 +27,7 @@ import {
   gradientTemplateBelongsToSkuContext,
   inferProductKindFromProductTypeCategory,
   nextSkuContextCustomerID,
+  normalizeVisibleSkuFilters,
   normalizedProductKind,
   paginatedSkuRows,
   priceListRuleFormFromJSON,
@@ -513,6 +514,34 @@ test('paginatedSkuRows filters all SKU rows before slicing the current page', ()
     paginatedSkuRows(manyRows, { productKind: 'green_bean' }, { page: 1, pageSize: 10 }).map((row) => row.id),
     [13, 14],
   )
+})
+
+test('normalizeVisibleSkuFilters drops hidden legacy SKU filters restored from old drafts', () => {
+  const publicRows = Array.from({ length: 34 }, (_, index) => ({
+    id: index + 1,
+    name: `公共 SKU ${index + 1}`,
+    product_kind: 'roasted',
+    custom_type: 'standard',
+    customer_id: 0,
+    primary_name: '咖啡烘焙豆',
+    secondary_name: '精品意式拼配',
+  }))
+  const filters = normalizeVisibleSkuFilters({
+    productKind: 'green_bean',
+    customType: 'custom_blend',
+    query: ' ',
+    primaryCategory: '咖啡烘焙豆',
+    secondaryCategory: '精品意式拼配',
+  })
+
+  assert.deepEqual(filters, {
+    productKind: 'all',
+    customType: 'all',
+    query: '',
+    primaryCategory: '咖啡烘焙豆',
+    secondaryCategory: '精品意式拼配',
+  })
+  assert.equal(filterSkuRows(publicRows, filters).length, 34)
 })
 
 test('category filter options are derived from current SKU rows', () => {
