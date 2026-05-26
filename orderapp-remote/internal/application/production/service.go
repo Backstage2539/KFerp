@@ -138,11 +138,12 @@ type StartCommand struct {
 }
 
 type StartNeed struct {
-	ProductID   int64
-	ProductName string
-	SpecG       int64
-	GapG        int64
-	OrderNos    string
+	ProductID           int64
+	ProductName         string
+	SpecG               int64
+	GapG                int64
+	OrderNos            string
+	OperationTemplateID int64
 }
 
 type StartResult struct {

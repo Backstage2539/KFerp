@@ -101,19 +101,20 @@ func (r *fakeRepo) ListProductUnitTemplates(ctx context.Context) ([]ProductUnitT
 func (r *fakeRepo) SaveProductConfigTemplate(ctx context.Context, cmd SaveProductConfigTemplateCommand) (ProductConfigTemplate, error) {
 	r.configTemplate = cmd
 	return ProductConfigTemplate{
-		ID:                  701,
-		CustomerID:          cmd.CustomerID,
-		Name:                cmd.Name,
-		GradientTemplateID:  cmd.GradientTemplateID,
-		OperationTemplateID: cmd.OperationTemplateID,
-		UnitTemplateID:      cmd.UnitTemplateID,
-		PriceListRuleJSON:   cmd.PriceListRuleJSON,
-		InventoryUnit:       cmd.InventoryUnit,
-		QuoteUnit:           cmd.QuoteUnit,
-		OrderUnit:           cmd.OrderUnit,
-		UnitConversionJSON:  cmd.UnitConversionJSON,
-		IntegerUnit:         cmd.IntegerUnit,
-		Active:              true,
+		ID:                     701,
+		CustomerID:             cmd.CustomerID,
+		Name:                   cmd.Name,
+		GradientTemplateID:     cmd.GradientTemplateID,
+		OperationTemplateID:    cmd.OperationTemplateID,
+		UnitTemplateID:         cmd.UnitTemplateID,
+		PriceListRuleJSON:      cmd.PriceListRuleJSON,
+		SpecialAttrsSchemaJSON: cmd.SpecialAttrsSchemaJSON,
+		InventoryUnit:          cmd.InventoryUnit,
+		QuoteUnit:              cmd.QuoteUnit,
+		OrderUnit:              cmd.OrderUnit,
+		UnitConversionJSON:     cmd.UnitConversionJSON,
+		IntegerUnit:            cmd.IntegerUnit,
+		Active:                 true,
 	}, nil
 }
 
@@ -273,6 +274,43 @@ func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	}
 }
 
+func TestProductSettingsKeepsBomParamsOnNonGreenSKU(t *testing.T) {
+	settings := BuildProductSettings(nil, []Product{{
+		ID:          88,
+		Name:        "速溶盒装",
+		ProductKind: "instant_coffee",
+		RoastLevel:  "中烘",
+		YieldRate:   0.96,
+	}})
+
+	if len(settings.Products) != 1 {
+		t.Fatalf("settings products = %+v", settings.Products)
+	}
+	got := settings.Products[0]
+	if got.ProductKind != "instant_coffee" || got.RoastLevel != "中烘" || got.YieldRate != 0.96 {
+		t.Fatalf("instant coffee product settings = %+v, want roast/yield from SKU", got)
+	}
+}
+
+func TestCreateProductKeepsBomParamsOnInstantCoffee(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.CreateProduct(context.Background(), CreateProductCommand{
+		Actor:            "tester",
+		Name:             "速溶盒装",
+		ProductKind:      "instant_coffee",
+		SpecialAttrsJSON: `{"roast_level":"中烘"}`,
+		YieldRate:        0.96,
+	})
+	if err != nil {
+		t.Fatalf("CreateProduct() err=%v", err)
+	}
+	if repo.create.ProductKind != "instant_coffee" || repo.create.RoastLevel != "" || repo.create.YieldRate != 0.96 || repo.create.SpecialAttrsJSON == "{}" {
+		t.Fatalf("create command = %+v, want instant coffee yield and special attrs preserved without legacy roast", repo.create)
+	}
+}
+
 func TestCreateCustomProductAcceptsPublicSKUAliasType(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	got, err := svc.CreateCustomProduct(context.Background(), CreateCustomProductCommand{
@@ -397,23 +435,42 @@ func TestServiceDelegatesProductConfigTemplates(t *testing.T) {
 	svc := NewService(repo)
 
 	template, err := svc.SaveProductConfigTemplate(context.Background(), SaveProductConfigTemplateCommand{
-		Actor:               "tester",
-		CustomerID:          42,
-		Name:                "客户盒装商品配置",
-		GradientTemplateID:  8,
-		OperationTemplateID: 9,
-		PriceListRuleJSON:   `{"pricing_mode":"fixed_unit_price"}`,
-		InventoryUnit:       "kg",
-		QuoteUnit:           "盒",
-		OrderUnit:           "盒",
-		UnitConversionJSON:  `{"盒":{"kg":0.2}}`,
-		IntegerUnit:         true,
+		Actor:                  "tester",
+		CustomerID:             42,
+		Name:                   "客户盒装商品配置",
+		GradientTemplateID:     8,
+		OperationTemplateID:    9,
+		PriceListRuleJSON:      `{"pricing_mode":"fixed_unit_price","fixed_unit_price":15}`,
+		SpecialAttrsSchemaJSON: `[{"key":"roast_level","label":"烘焙度","value_type":"select","options":["浅烘","中烘"],"show_in_price_list":true}]`,
+		InventoryUnit:          "kg",
+		QuoteUnit:              "盒",
+		OrderUnit:              "盒",
+		UnitConversionJSON:     `{"盒":{"kg":0.2}}`,
+		IntegerUnit:            true,
 	})
 	if err != nil {
 		t.Fatalf("SaveProductConfigTemplate() err=%v", err)
 	}
 	if template.ID != 701 || repo.configTemplate.CustomerID != 42 || repo.configTemplate.Name != "客户盒装商品配置" || repo.configTemplate.QuoteUnit != "盒" || !repo.configTemplate.IntegerUnit {
 		t.Fatalf("product config template result=%+v command=%+v", template, repo.configTemplate)
+	}
+	if repo.configTemplate.SpecialAttrsSchemaJSON == "" || repo.configTemplate.SpecialAttrsSchemaJSON == "{}" {
+		t.Fatalf("special attrs schema not carried: %+v", repo.configTemplate)
+	}
+
+	if _, err := svc.SaveProductConfigTemplate(context.Background(), SaveProductConfigTemplateCommand{
+		Name:              "缺固定价",
+		UnitTemplateID:    12,
+		PriceListRuleJSON: `{"pricing_mode":"fixed_unit_price"}`,
+	}); err == nil {
+		t.Fatalf("SaveProductConfigTemplate() must reject fixed_unit_price without fixed_unit_price")
+	}
+	if _, err := svc.SaveProductConfigTemplate(context.Background(), SaveProductConfigTemplateCommand{
+		Name:              "缺加成比例",
+		UnitTemplateID:    12,
+		PriceListRuleJSON: `{"pricing_mode":"cost_plus"}`,
+	}); err == nil {
+		t.Fatalf("SaveProductConfigTemplate() must reject cost_plus without cost_plus_rate")
 	}
 
 	derived, err := svc.DeriveProductConfigTemplate(context.Background(), DeriveProductConfigTemplateCommand{
@@ -537,7 +594,7 @@ func TestCreateProductDefaultsAllowFulfillmentOrderAtServiceBoundary(t *testing.
 	}
 }
 
-func TestCreateProductAcceptsInstantCoffeeWithoutRoastLevel(t *testing.T) {
+func TestCreateProductAcceptsInstantCoffeeWithDefaultBomParams(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 

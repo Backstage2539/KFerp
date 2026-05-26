@@ -341,7 +341,7 @@
                 <th>形态</th>
                 <th>归属</th>
                 <th>类型</th>
-                <th>工艺参数</th>
+                <th>特殊属性</th>
                 <th>BOM预期产出率</th>
                 <th>利润率覆盖</th>
                 <th>BOM状态</th>
@@ -370,13 +370,20 @@
                   <td>{{ productOwnerLabel(row) }}</td>
                   <td>{{ skuTypeLabel(row.custom_type) }}</td>
                   <td>
-                    <select v-if="productKindRequiresRoast(row)" class="roast-select" v-model="row.roast_level" :disabled="!canEditSkuRow(row)" @change="saveProductBasics(row)">
-                      <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
-                    </select>
+                    <div v-if="specialAttrSchemaForProduct(row).length" class="special-attr-editor compact">
+                      <label v-for="attr in specialAttrSchemaForProduct(row)" :key="`row-attr-${row.id}-${attr.key}`">
+                        <span>{{ attr.label }}</span>
+                        <select v-if="attr.value_type === 'select'" v-model="row.special_attr_values[attr.key]" :disabled="!canEditSkuRow(row)" @change="saveProductBasics(row)">
+                          <option value="">未填写</option>
+                          <option v-for="option in attr.options" :key="`${attr.key}-${option}`" :value="option">{{ option }}</option>
+                        </select>
+                        <input v-else v-model.trim="row.special_attr_values[attr.key]" :type="attr.value_type === 'number' ? 'number' : 'text'" :disabled="!canEditSkuRow(row)" @change="saveProductBasics(row)" />
+                      </label>
+                    </div>
                     <span v-else class="muted">-</span>
                   </td>
                   <td>
-                    <div v-if="productKindRequiresRoast(row)" class="yield-editor">
+                    <div v-if="productKindSupportsBomParams(row)" class="yield-editor">
                       <input
                         class="yield-input"
                         v-model.number="row.yield_percent"
@@ -744,18 +751,22 @@
                   <option v-for="option in priceListRulePricingModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
               </label>
-              <div class="rule-config-field">
-                <div class="field-label-with-help">
-                  <span>价格表展示单位</span>
-                  <span class="field-help-wrap">
-                    <button type="button" class="field-help-icon" aria-label="价格表展示单位说明">!</button>
-                    <span class="field-help-tooltip" role="tooltip">默认继承单位模板的报价单位；盒、箱、kg 等来自全局单位字典。</span>
-                  </span>
-                </div>
-                <select v-model="productConfigTemplateForm.price_rule_display_unit" :disabled="!canEditCurrentProductConfigTemplate">
-                  <option v-for="option in priceListRuleDisplayUnitOptions(activeProductUnitDefinitions)" :key="option.value" :value="option.value">{{ option.label }}</option>
-                </select>
-              </div>
+              <label v-if="productConfigTemplateForm.price_rule_pricing_mode === 'fixed_unit_price'" class="rule-config-field">
+                <span class="field-label-with-help">
+                  <span>固定单价</span>
+                  <button type="button" class="field-help-icon" aria-label="固定单价说明">?</button>
+                  <span class="field-help-tooltip" role="tooltip">按阶梯价模板单位填写最终售价。</span>
+                </span>
+                <input v-model.number="productConfigTemplateForm.price_rule_fixed_unit_price" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0" step="0.01" placeholder="按阶梯价模板单位" />
+              </label>
+              <label v-if="productConfigTemplateForm.price_rule_pricing_mode === 'cost_plus'" class="rule-config-field">
+                <span class="field-label-with-help">
+                  <span>成本加成%</span>
+                  <button type="button" class="field-help-icon" aria-label="成本加成说明">?</button>
+                  <span class="field-help-tooltip" role="tooltip">按成本乘以加成比例生成售价。</span>
+                </span>
+                <input v-model.number="productConfigTemplateForm.price_rule_cost_plus_percent" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0" step="0.01" placeholder="如 25" />
+              </label>
               <label class="rule-config-field">
                 <span>取整规则</span>
                 <select v-model="productConfigTemplateForm.price_rule_rounding" :disabled="!canEditCurrentProductConfigTemplate">
@@ -777,7 +788,46 @@
                 </select>
               </label>
               <small>{{ productUnitTemplateSummary(selectedProductConfigUnitTemplate) }}</small>
-              <small class="unit-impact-help">单位模板会影响产品价格表展示单位、录单默认单位和库存/生产折算；已发布价格表和历史订单不会被回改。</small>
+              <small class="unit-impact-help">单位模板会影响产品价格表单位、录单默认单位和库存/生产折算；已发布价格表和历史订单不会被回改。</small>
+            </div>
+            <div class="rule-config-block special-attrs-schema-editor">
+              <div class="field-group-title">
+                <span>特殊KV定义</span>
+                <button class="secondary compact-action" type="button" :disabled="!canEditCurrentProductConfigTemplate" @click="addSpecialAttrSchemaRow">新增KV</button>
+              </div>
+              <p class="muted">把只属于某类商品的关键属性放在这里，例如烘焙度、咖啡因、条装规格；勾选展示后会进入产品价格表和发布快照。</p>
+              <div v-for="(attr, index) in productConfigTemplateForm.special_attrs_schema_rows" :key="`special-attr-${index}`" class="special-attr-schema-row">
+                <label>
+                  <span>Key</span>
+                  <input v-model.trim="attr.key" :disabled="!canEditCurrentProductConfigTemplate" placeholder="如 roast_level" />
+                </label>
+                <label>
+                  <span>名称</span>
+                  <input v-model.trim="attr.label" :disabled="!canEditCurrentProductConfigTemplate" placeholder="如 烘焙度" />
+                </label>
+                <label>
+                  <span>类型</span>
+                  <select v-model="attr.value_type" :disabled="!canEditCurrentProductConfigTemplate">
+                    <option value="text">文本</option>
+                    <option value="select">下拉</option>
+                    <option value="number">数字</option>
+                  </select>
+                </label>
+                <label class="wide-field">
+                  <span>下拉选项</span>
+                  <input v-model.trim="attr.options_text" :disabled="!canEditCurrentProductConfigTemplate || attr.value_type !== 'select'" placeholder="浅烘，中烘，中深烘，深烘" />
+                </label>
+                <label class="checkline">
+                  <input v-model="attr.required" :disabled="!canEditCurrentProductConfigTemplate" type="checkbox" />
+                  <span>必填</span>
+                </label>
+                <label class="checkline">
+                  <input v-model="attr.show_in_price_list" :disabled="!canEditCurrentProductConfigTemplate" type="checkbox" />
+                  <span>产品价格表展示</span>
+                </label>
+                <button class="danger compact-action" type="button" :disabled="!canEditCurrentProductConfigTemplate" @click="removeSpecialAttrSchemaRow(index)">删除</button>
+              </div>
+              <p v-if="!productConfigTemplateForm.special_attrs_schema_rows.length" class="muted">暂无特殊KV。</p>
             </div>
             <div class="form-actions">
               <button class="primary" type="submit" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate">保存商品配置</button>
@@ -824,13 +874,18 @@
               </select>
               <small>只有选中产品子类型才会挂入分类；未选会进入停车场。</small>
             </label>
-            <label v-if="productKindRequiresRoast(productForm.product_kind)">
-              <span>烘焙度</span>
-              <select v-model="productForm.roast_level">
-                <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
-              </select>
-            </label>
-            <label v-if="productKindRequiresRoast(productForm.product_kind)">
+            <div v-if="specialAttrSchemaForForm(productForm).length" class="wide-field special-attr-editor">
+              <span class="field-group-title">特殊属性</span>
+              <label v-for="attr in specialAttrSchemaForForm(productForm)" :key="`product-form-attr-${attr.key}`">
+                <span>{{ attr.label }}</span>
+                <select v-if="attr.value_type === 'select'" v-model="productForm.special_attr_values[attr.key]">
+                  <option value="">未填写</option>
+                  <option v-for="option in attr.options" :key="`${attr.key}-${option}`" :value="option">{{ option }}</option>
+                </select>
+                <input v-else v-model.trim="productForm.special_attr_values[attr.key]" :type="attr.value_type === 'number' ? 'number' : 'text'" />
+              </label>
+            </div>
+            <label v-if="productKindSupportsBomParams(productForm.product_kind)">
               <span>BOM预期产出率</span>
               <div class="yield-editor">
                 <input class="yield-input" v-model.number="productForm.yield_percent" type="number" min="1" max="100" step="0.01" />
@@ -887,12 +942,17 @@
                 <option value="custom_roast">定制烘焙度</option>
               </select>
             </label>
-            <label v-if="productKindRequiresRoast(customForm.product_kind)">
-              <span>烘焙度</span>
-              <select v-model="customForm.roast_level" @change="fillCustomProductName">
-                <option v-for="level in roastLevels" :key="level" :value="level">{{ level }}</option>
-              </select>
-            </label>
+            <div v-if="specialAttrSchemaForForm(customForm).length" class="wide-field special-attr-editor">
+              <span class="field-group-title">特殊属性</span>
+              <label v-for="attr in specialAttrSchemaForForm(customForm)" :key="`custom-form-attr-${attr.key}`">
+                <span>{{ attr.label }}</span>
+                <select v-if="attr.value_type === 'select'" v-model="customForm.special_attr_values[attr.key]" @change="fillCustomProductName">
+                  <option value="">未填写</option>
+                  <option v-for="option in attr.options" :key="`${attr.key}-${option}`" :value="option">{{ option }}</option>
+                </select>
+                <input v-else v-model.trim="customForm.special_attr_values[attr.key]" :type="attr.value_type === 'number' ? 'number' : 'text'" @change="fillCustomProductName" />
+              </label>
+            </div>
             <label v-if="customForm.product_kind === 'green_bean'">
               <span>生豆属性</span>
               <select v-model="customForm.green_bean_type">
@@ -902,6 +962,13 @@
             <label v-if="customForm.product_kind === 'green_bean'" class="wide-field">
               <span>绑定熟豆</span>
               <SearchableSelect v-model="customForm.green_bean_bom_product_id" :options="customRoastedBomProducts" :option-label="baseProductOptionLabel" :option-meta="baseProductOptionMeta" :option-value="optionNumericValue" placeholder="选择对应熟豆" empty-text="暂无熟豆产品" @select="fillCustomProductName" />
+            </label>
+            <label v-if="productKindSupportsBomParams(customForm.product_kind)">
+              <span>BOM出品率</span>
+              <div class="yield-editor">
+                <input class="yield-input" v-model.number="customForm.yield_percent" type="number" min="1" max="100" step="0.01" />
+                <span>%</span>
+              </div>
             </label>
             <label v-if="customForm.product_kind === 'drip_bag'">
               <span>每袋克重</span>
@@ -1055,18 +1122,19 @@ import {
   nextSkuContextCustomerID,
   normalizedProductKind,
   paginatedSkuRows,
-  priceListRuleDisplayUnitOptions,
   priceListRuleFormFromJSON,
   priceListRulePricingModeOptions,
   priceListRuleRoundingOptions,
   productBelongsToSkuContext as productBelongsToContext,
   productConfigTemplateBelongsToSkuContext,
   productDisplayState,
-  productKindRequiresRoast,
+  productKindSupportsBomParams,
   productSubtypeCategoryOptionsForType,
   primaryCategoryOptions,
   roastedBomProductOptions,
   secondaryCategoryOptions,
+  specialAttrSchemaRowsFromJSON,
+  specialAttrValuesFromJSON,
   sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
@@ -1128,7 +1196,6 @@ const skuFilters = ref(defaultSkuFilters())
 const skuPage = ref(1)
 const skuPageSize = ref(10)
 const publicUsageSaving = ref(false)
-const roastLevels = ['浅烘', '中烘', '中深烘', '深烘']
 const productForm = ref(defaultProductForm())
 const customForm = ref(defaultCustomForm())
 const templateForm = ref(defaultGradientTemplateForm())
@@ -1322,7 +1389,7 @@ function defaultProductForm() {
     green_bean_bom_product_id: 0,
     drip_bag_grams: 10,
     drip_box_bag_count: 10,
-    roast_level: '中烘',
+    special_attr_values: {},
     yield_percent: 80,
   }
 }
@@ -1360,7 +1427,8 @@ function defaultCustomForm() {
     green_bean_bom_product_id: 0,
     drip_bag_grams: 10,
     drip_box_bag_count: 10,
-    roast_level: '中烘',
+    special_attr_values: {},
+    yield_percent: 80,
     custom_type: 'public_sku_alias',
     copy_bom: true,
     copy_price_tiers: true,
@@ -1378,12 +1446,14 @@ function defaultGradientTemplateForm() {
   })
 }
 
-function defaultProductConfigTemplateForm(template = {}) {
+function defaultProductConfigTemplateForm(template = {}, options = {}) {
   const inventoryUnit = template.inventory_unit || 'kg'
   const quoteUnit = template.quote_unit || inventoryUnit
+  const hasCustomerID = Object.prototype.hasOwnProperty.call(template, 'customer_id')
+  const defaultCustomerID = Object.prototype.hasOwnProperty.call(options, 'customerID') ? options.customerID : skuContextCustomerID.value
   return {
     id: Number(template.id || 0),
-    customer_id: Number(template.customer_id || skuContextCustomerID.value || 0),
+    customer_id: Number(hasCustomerID ? template.customer_id || 0 : defaultCustomerID || 0),
     source_template_id: Number(template.source_template_id || 0),
     template_state: template.template_state || '',
     name: template.name || '',
@@ -1392,6 +1462,8 @@ function defaultProductConfigTemplateForm(template = {}) {
     unit_template_id: Number(template.unit_template_id || 0),
     price_list_rule_json: template.price_list_rule_json || '{}',
     ...priceListRuleFormFromJSON(template.price_list_rule_json || '{}'),
+    special_attrs_schema_json: template.special_attrs_schema_json || '[]',
+    special_attrs_schema_rows: specialAttrSchemaRowsFromJSON(template.special_attrs_schema_json || '[]'),
     inventory_unit: inventoryUnit,
     quote_unit: quoteUnit,
     order_unit: template.order_unit || quoteUnit,
@@ -1546,9 +1618,14 @@ function decorateProduct(product) {
     green_bean_bom_product_id: Number(product.green_bean_bom_product_id || 0),
     drip_bag_grams: Number(product.drip_bag_grams || 10),
     drip_box_bag_count: Number(product.drip_box_bag_count || 10),
-    roast_level: productKindRequiresRoast(productKind) ? roastLevels.includes(product.roast_level) ? product.roast_level : '中烘' : '',
-    yield_rate: productKindRequiresRoast(productKind) ? yieldRate : 0,
-    yield_percent: productKindRequiresRoast(productKind) ? Number((yieldRate * 100).toFixed(2)) : 0,
+    roast_level: product.roast_level || '',
+    special_attrs_json: product.special_attrs_json || '{}',
+    special_attr_values: {
+      ...(product.roast_level ? { roast_level: product.roast_level } : {}),
+      ...specialAttrValuesFromJSON(product.special_attrs_json || '{}'),
+    },
+    yield_rate: productKindSupportsBomParams(productKind) ? yieldRate : 0,
+    yield_percent: productKindSupportsBomParams(productKind) ? Number((yieldRate * 100).toFixed(2)) : 0,
     default_price: Number(product.default_price || 0),
     margin_rate_override: marginRateOverride,
     margin_rate_override_input: marginRateOverride === null ? '' : marginRateOverride,
@@ -1600,7 +1677,7 @@ function decorateCustomerProductRuleTemplate(template) {
 }
 
 function decorateProductConfigTemplate(template) {
-  return defaultProductConfigTemplateForm(template)
+  return defaultProductConfigTemplateForm(template, { customerID: 0 })
 }
 
 function decorateProductUnitDefinition(unit) {
@@ -1860,17 +1937,45 @@ async function deriveGradientTemplateForCustomer(template) {
 }
 
 function resetProductConfigTemplateForm() {
-  productConfigTemplateForm.value = defaultProductConfigTemplateForm()
+  productConfigTemplateForm.value = defaultProductConfigTemplateForm({}, { customerID: skuContextCustomerID.value })
 }
 
 function startProductConfigTemplateEdit(template) {
   productConfigTemplateForm.value = defaultProductConfigTemplateForm(JSON.parse(JSON.stringify(template || {})))
 }
 
+function addSpecialAttrSchemaRow() {
+  productConfigTemplateForm.value.special_attrs_schema_rows.push({
+    key: '',
+    label: '',
+    value_type: 'text',
+    options_text: '',
+    required: false,
+    show_in_price_list: false,
+    position: productConfigTemplateForm.value.special_attrs_schema_rows.length + 1,
+  })
+}
+
+function removeSpecialAttrSchemaRow(index) {
+  productConfigTemplateForm.value.special_attrs_schema_rows.splice(index, 1)
+}
+
 function validateProductConfigTemplatePayload(payload) {
   if (!String(payload.name || '').trim()) return '请填写商品配置名称'
   if (Number(payload.unit_template_id || 0) <= 0) return '请选择单位模板'
+  const rule = parseJSONSafe(payload.price_list_rule_json)
+  if (rule.pricing_mode === 'fixed_unit_price' && !(Number(rule.fixed_unit_price) > 0)) return '固定单价模式必须填写固定单价'
+  if (rule.pricing_mode === 'cost_plus' && !Object.prototype.hasOwnProperty.call(rule, 'cost_plus_rate')) return '成本加成模式必须填写加成比例'
   return ''
+}
+
+function parseJSONSafe(value) {
+  try {
+    const parsed = JSON.parse(String(value || '{}'))
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
 }
 
 async function saveProductConfigTemplate() {
@@ -2029,6 +2134,9 @@ async function deriveProductConfigTemplateForCustomer(template) {
     const derivedID = Number(response?.template?.id || 0)
     ok.value = '公共商品配置已复制为客户配置，可改名和调整单位模板/价格规则'
     await loadAll()
+    selectedCustomerSkuCustomerID.value = customerID
+    activeSettingsSection.value = 'templates'
+    activeConfigTemplateSection.value = 'product-config'
     const derived = productConfigTemplates.value.find((row) => Number(row.id || 0) === derivedID)
       || productConfigTemplates.value.find((row) => Number(row.customer_id || 0) === customerID && Number(row.source_template_id || 0) === Number(template.id || 0))
     if (derived) startProductConfigTemplateEdit(derived)
@@ -2340,7 +2448,9 @@ function baseProductOptionLabel(product) {
 function baseProductOptionMeta(product) {
   const parts = []
   if (product?.number) parts.push(`编号 ${product.number}`)
-  if (product?.roast_level) parts.push(product.roast_level)
+  for (const value of Object.values(product?.special_attr_values || {})) {
+    if (value) parts.push(value)
+  }
   return parts.join(' / ')
 }
 
@@ -2482,9 +2592,49 @@ function productSubtypeCategoryByID(categoryID) {
   return productSubtypeRuleOptions.value.find((category) => Number(category.id || 0) === id) || null
 }
 
+function productConfigTemplateByID(templateID) {
+  const id = Number(templateID || 0)
+  if (!id) return null
+  return productConfigTemplates.value.find((template) => Number(template.id || 0) === id) || null
+}
+
+function productCategoryByID(categoryID) {
+  const id = Number(categoryID || 0)
+  if (!id) return null
+  return flattenCategoryNodes(categoryTreeForSkuContext.value).find((category) => Number(category.id || 0) === id)
+    || flattenCategoryNodes(categories.value).find((category) => Number(category.id || 0) === id)
+    || null
+}
+
+function specialAttrSchemaForCategory(categoryID) {
+  const category = productCategoryByID(categoryID)
+  const template = productConfigTemplateByID(category?.product_config_template_id)
+  return specialAttrSchemaRowsFromJSON(template?.special_attrs_schema_json || '[]')
+}
+
+function specialAttrSchemaForProduct(row = {}) {
+  return specialAttrSchemaForCategory(row.product_category_id)
+}
+
+function specialAttrSchemaForForm(form = {}) {
+  return specialAttrSchemaForCategory(form.product_subtype_category_id)
+}
+
+function syncSpecialAttrValuesForForm(form = {}) {
+  if (!form.special_attr_values || typeof form.special_attr_values !== 'object') {
+    form.special_attr_values = {}
+  }
+  for (const attr of specialAttrSchemaForForm(form)) {
+    if (!Object.prototype.hasOwnProperty.call(form.special_attr_values, attr.key)) {
+      form.special_attr_values[attr.key] = ''
+    }
+  }
+}
+
 function handleProductTypeCategoryChange(form) {
   if (!form) return
   form.product_subtype_category_id = 0
+  form.special_attr_values = {}
   syncProductKindFromProductTypeCategory(form)
 }
 
@@ -2492,9 +2642,6 @@ function syncProductKindFromProductTypeCategory(form) {
   if (!form) return
   const category = productTypeCategoryByID(form.product_type_category_id)
   form.product_kind = inferProductKindFromProductTypeCategory(category)
-  if (productKindRequiresRoast(form.product_kind) && !form.roast_level) {
-    form.roast_level = '中烘'
-  }
 }
 
 function syncProductTypeFromProductSubtype(form) {
@@ -2504,6 +2651,7 @@ function syncProductTypeFromProductSubtype(form) {
     form.product_type_category_id = Number(subtype.parent_id || 0)
   }
   syncProductKindFromProductTypeCategory(form)
+  syncSpecialAttrValuesForForm(form)
 }
 
 function handleCustomProductTypeCategoryChange() {
@@ -2556,16 +2704,16 @@ function fillCustomProductName() {
     ? products.value.find((product) => Number(product.id) === Number(customForm.value.green_bean_bom_product_id))
     : selectedBaseProduct()
   if (!customer || !base) return
-  customForm.value.name = customForm.value.product_kind === 'roasted'
-    ? `${customer}-${base.name}-${customForm.value.roast_level}`
-    : `${customer}-${base.name}`
+  const attrSuffix = Object.values(customForm.value.special_attr_values || {}).find(Boolean)
+  customForm.value.name = attrSuffix ? `${customer}-${base.name}-${attrSuffix}` : `${customer}-${base.name}`
 }
 
 function syncCustomFormFromBaseProduct(product) {
   if (!product) return
   const kind = normalizedProductKind(product)
   customForm.value.product_kind = kind
-  customForm.value.roast_level = productKindRequiresRoast(kind) ? roastLevels.includes(product.roast_level) ? product.roast_level : customForm.value.roast_level || '中烘' : ''
+  customForm.value.special_attr_values = { ...specialAttrValuesFromJSON(product.special_attrs_json || '{}') }
+  customForm.value.yield_percent = productKindSupportsBomParams(kind) ? Number(((Number(product.yield_rate || 0.8)) * 100).toFixed(2)) : 0
   customForm.value.green_bean_type = product.green_bean_type || 'single_origin'
   customForm.value.green_bean_bom_product_id = Number(product.green_bean_bom_product_id || 0)
   customForm.value.drip_bag_grams = Number(product.drip_bag_grams || 10)
@@ -2591,7 +2739,7 @@ async function createProduct() {
     return
   }
   const yieldPercent = Number(productForm.value.yield_percent || 0)
-  if (productKindRequiresRoast(productForm.value.product_kind) && (yieldPercent <= 0 || yieldPercent > 100)) {
+  if (productKindSupportsBomParams(productForm.value.product_kind) && (yieldPercent <= 0 || yieldPercent > 100)) {
     error.value = 'BOM预期产出率必须在 1% 到 100% 之间'
     return
   }
@@ -3259,7 +3407,7 @@ async function saveProductBasics(row, successMessage = '商品基础信息已保
   }
   const productKind = normalizedProductKind(row)
   const yieldPercent = Number(row.yield_percent || 0)
-  if (productKindRequiresRoast(productKind) && (yieldPercent <= 0 || yieldPercent > 100)) {
+  if (productKindSupportsBomParams(productKind) && (yieldPercent <= 0 || yieldPercent > 100)) {
     error.value = 'BOM预期产出率必须在 1% 到 100% 之间'
     return
   }
@@ -3327,6 +3475,7 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
     return
   }
   customForm.value = { ...customForm.value, customer_id: Number(selectedCustomerSkuCustomerID.value || 0), product_type_category_id: 0, product_subtype_category_id: 0, name: '', remark: '' }
+  resetProductConfigTemplateForm()
   resetCustomerProductRuleForms()
   skuFilters.value = defaultSkuFilters()
   skuPage.value = 1
@@ -3425,6 +3574,15 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .customer-rule-item { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(160px, .7fr) minmax(120px, .5fr) auto; gap: 8px; align-items: end; border: 1px solid #eee; border-radius: 8px; padding: 10px; background: #fafafa; }
 .customer-rule-editor label span, .customer-rule-binding label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 .rule-config-block { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; align-items: end; min-width: 0; border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fff; }
+.special-attrs-schema-editor { gap: 10px; }
+.special-attr-schema-row { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) minmax(96px, .7fr) minmax(180px, 1.2fr) auto auto auto; gap: 8px; align-items: end; padding: 9px; border: 1px solid #eee; border-radius: 8px; background: #fff; }
+.special-attr-schema-row label { min-width: 0; }
+.special-attr-schema-row input, .special-attr-schema-row select { min-width: 0; }
+.special-attr-editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+.special-attr-editor.compact { grid-template-columns: minmax(150px, 1fr); min-width: 180px; }
+.special-attr-editor label { display: grid; gap: 4px; min-width: 0; }
+.special-attr-editor span { font-size: 12px; color: #666; }
+.special-attr-editor input, .special-attr-editor select { min-width: 0; min-height: 32px; border: 1px solid #ddd; border-radius: 7px; padding: 5px 7px; font: inherit; box-sizing: border-box; }
 .field-group-title { grid-column: 1 / -1; color: #3f3328; font-weight: 700; font-size: 13px; }
 .field-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 700; color: #3f3328; }
 .field-group-copy { display: grid; gap: 2px; }
@@ -3616,6 +3774,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 @media (max-width: 1100px) {
   .custom-product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .customer-rule-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .special-attr-schema-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .master-data-layout { grid-template-columns: 1fr; }
 }
 @media (max-width: 900px) {

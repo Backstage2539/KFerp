@@ -290,6 +290,108 @@ func TestCustomGradientDisplayUnitDoesNotFallbackToLb(t *testing.T) {
 	assertClose(t, "custom unit price", tier.PricePerUnit, 30)
 }
 
+func TestComposableProductPricingInheritsDisplayUnitFromGradientTemplate(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:          8803,
+		Name:               "速溶盒装",
+		ProductKind:        "instant_coffee",
+		InventoryUnit:      "条",
+		QuoteUnit:          "kg",
+		OrderUnit:          "kg",
+		UnitConversionJSON: `{"盒":{"g":100,"条":10},"条":{"g":10}}`,
+		BomCostPerUnit:     12,
+		PriceListRuleJSON:  `{"pricing_mode":"cost_plus","rounding":"jiao"}`,
+		GradientTemplate: &GradientTemplate{
+			ID:          88,
+			Name:        "速溶盒装模板",
+			DisplayUnit: "盒",
+			Tiers: []GradientTemplateTier{
+				{ID: 881, Label: "10盒起", MinWeightG: 10, MarginRate: 0.25, Position: 1},
+			},
+		},
+	})
+
+	if len(got.CommercialWholesaleTiers) != 1 {
+		t.Fatalf("tiers = %+v, want one tier", got.CommercialWholesaleTiers)
+	}
+	tier := got.CommercialWholesaleTiers[0]
+	if tier.DisplayUnit != "盒" || tier.SpecG != 100 || tier.MinQty != 10 {
+		t.Fatalf("tier = %+v, want gradient template display unit 盒", tier)
+	}
+	assertClose(t, "box price", tier.PricePerUnit, 15)
+}
+
+func TestComposableProductPricingSupportsFixedPriceAndCostPlusRate(t *testing.T) {
+	params := DefaultParameters()
+	template := &GradientTemplate{
+		ID:          91,
+		Name:        "盒装模板",
+		DisplayUnit: "盒",
+		Tiers: []GradientTemplateTier{
+			{ID: 911, Label: "10盒起", MinWeightG: 10, MarginRate: 0.25, Position: 1},
+		},
+	}
+
+	fixed := CalculateProduct(params, ProductInput{
+		ProductID:          8810,
+		Name:               "固定价盒装",
+		ProductKind:        "instant_coffee",
+		QuoteUnit:          "盒",
+		UnitConversionJSON: `{"盒":{"g":100}}`,
+		BomCostPerUnit:     12,
+		PriceListRuleJSON:  `{"pricing_mode":"fixed_unit_price","fixed_unit_price":18,"rounding":"yuan"}`,
+		GradientTemplate:   template,
+	})
+	assertClose(t, "fixed unit price", fixed.CommercialWholesaleTiers[0].PricePerUnit, 18)
+
+	costPlus := CalculateProduct(params, ProductInput{
+		ProductID:          8811,
+		Name:               "加成盒装",
+		ProductKind:        "instant_coffee",
+		QuoteUnit:          "盒",
+		UnitConversionJSON: `{"盒":{"g":100}}`,
+		BomCostPerUnit:     12,
+		PriceListRuleJSON:  `{"pricing_mode":"cost_plus","cost_plus_rate":0.5,"rounding":"jiao"}`,
+		GradientTemplate:   template,
+	})
+	if tier := costPlus.CommercialWholesaleTiers[0]; tier.MarginRate != 0.5 || tier.PricePerUnit != 18 {
+		t.Fatalf("cost plus tier = %+v, want 50%% markup and price 18", tier)
+	}
+}
+
+func TestProductSpecialAttrsExposeSelectedValuesInPriceListSnapshot(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:              8820,
+		Name:                   "特殊属性盒装",
+		ProductKind:            "instant_coffee",
+		QuoteUnit:              "盒",
+		UnitConversionJSON:     `{"盒":{"g":100}}`,
+		BomCostPerUnit:         12,
+		SpecialAttrsJSON:       `{"roast_level":"中深烘","caffeine":"低因","internal_note":"只内部看"}`,
+		SpecialAttrsSchemaJSON: `[{"key":"roast_level","label":"烘焙度","show_in_price_list":true,"position":1},{"key":"caffeine","label":"咖啡因","show_in_price_list":true,"position":2},{"key":"internal_note","label":"内部备注","show_in_price_list":false,"position":3}]`,
+		GradientTemplate: &GradientTemplate{
+			ID:          92,
+			Name:        "盒装模板",
+			DisplayUnit: "盒",
+			Tiers: []GradientTemplateTier{
+				{ID: 921, Label: "10盒起", MinWeightG: 10, MarginRate: 0.25, Position: 1},
+			},
+		},
+	})
+
+	if len(got.ProductAttributes) != 2 {
+		t.Fatalf("product attributes = %+v, want two visible attrs", got.ProductAttributes)
+	}
+	if got.ProductAttributes[0].Key != "roast_level" || got.ProductAttributes[0].Label != "烘焙度" || got.ProductAttributes[0].Value != "中深烘" {
+		t.Fatalf("first product attribute = %+v", got.ProductAttributes[0])
+	}
+	if got.ProductAttributes[1].Key != "caffeine" || got.ProductAttributes[1].Value != "低因" {
+		t.Fatalf("second product attribute = %+v", got.ProductAttributes[1])
+	}
+}
+
 func TestDripWholesaleTiersUseTemplateAndProductBagConfig(t *testing.T) {
 	params := DefaultParameters()
 	got := CalculateProduct(params, ProductInput{

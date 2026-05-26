@@ -306,9 +306,6 @@ func isInstantCoffeePlanRow(row productionapp.UnprodNeedRow) bool {
 }
 
 func yieldRateForPlanRow(row productionapp.UnprodNeedRow, yieldByProductID map[int64]float64) float64 {
-	if isInstantCoffeePlanRow(row) {
-		return 1
-	}
 	return normalizeYieldRate(yieldByProductID[row.ProductID])
 }
 
@@ -325,7 +322,9 @@ func noBomRawMaterialName(row productionapp.UnprodNeedRow) string {
 
 func (r Repository) loadProductYieldRateMap(ctx context.Context) (map[int64]float64, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT p.id, COALESCE(p.roast_level,''), COALESCE(b.yield_rate,0.8), COALESCE(NULLIF(p.product_kind,''),'roasted_bean')
+		SELECT p.id, COALESCE(p.roast_level,''),
+		       COALESCE(NULLIF(b.yield_rate,0), CASE WHEN COALESCE(NULLIF(p.product_kind,''),'roasted_bean')='instant_coffee' THEN 1 ELSE 0.8 END),
+		       COALESCE(NULLIF(p.product_kind,''),'roasted_bean')
 		FROM `+r.schema+`.products p
 		LEFT JOIN `+r.schema+`.product_bom b ON b.product_id=p.id
 		WHERE p.active=true`)
@@ -342,10 +341,6 @@ func (r Repository) loadProductYieldRateMap(ctx context.Context) (map[int64]floa
 		var productKind string
 		if err := rows.Scan(&productID, &roastLevel, &yieldRate, &productKind); err != nil {
 			return nil, err
-		}
-		if catalogdomain.NormalizeProductKind(productKind) == catalogdomain.ProductKindInstantCoffee {
-			out[productID] = 1
-			continue
 		}
 		out[productID] = catalogdomain.ResolveYieldRate(roastLevel, yieldRate)
 	}
@@ -556,7 +551,7 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 		finalInputG := finalInputByKey[producePlanKey(row.ProductID, row.SpecG)]
 		items := bomMap[row.ProductID]
 		if finalInputG <= 0 {
-			if isInstantCoffeePlanRow(row) {
+			if len(items) == 0 && isInstantCoffeePlanRow(row) {
 				finalInputG = row.GapG
 			}
 			yield := fallbackYield
@@ -831,9 +826,6 @@ func calcRoastSplits(rows []productionapp.UnprodNeedRow, machines []productionap
 			continue
 		}
 		rowYieldRate := yieldRate
-		if isInstantCoffeePlanRow(row) {
-			rowYieldRate = 1
-		}
 		rawG := int64(math.Ceil(float64(row.GapG) / rowYieldRate))
 		pick, batches := pickMachineAndBatches(rawG, machines)
 		yieldPct := fmt.Sprintf("%.0f%%", rowYieldRate*100)

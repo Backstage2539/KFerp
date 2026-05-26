@@ -204,19 +204,20 @@ func (r *productSettingsRepo) SaveProductConfigTemplate(ctx context.Context, cmd
 	r.savedConfigTemplate = cmd
 	r.configTemplateSaved = true
 	return catalogapp.ProductConfigTemplate{
-		ID:                  377,
-		CustomerID:          cmd.CustomerID,
-		Name:                cmd.Name,
-		GradientTemplateID:  cmd.GradientTemplateID,
-		OperationTemplateID: cmd.OperationTemplateID,
-		UnitTemplateID:      cmd.UnitTemplateID,
-		PriceListRuleJSON:   cmd.PriceListRuleJSON,
-		InventoryUnit:       cmd.InventoryUnit,
-		QuoteUnit:           cmd.QuoteUnit,
-		OrderUnit:           cmd.OrderUnit,
-		UnitConversionJSON:  cmd.UnitConversionJSON,
-		IntegerUnit:         cmd.IntegerUnit,
-		Active:              true,
+		ID:                     377,
+		CustomerID:             cmd.CustomerID,
+		Name:                   cmd.Name,
+		GradientTemplateID:     cmd.GradientTemplateID,
+		OperationTemplateID:    cmd.OperationTemplateID,
+		UnitTemplateID:         cmd.UnitTemplateID,
+		PriceListRuleJSON:      cmd.PriceListRuleJSON,
+		SpecialAttrsSchemaJSON: cmd.SpecialAttrsSchemaJSON,
+		InventoryUnit:          cmd.InventoryUnit,
+		QuoteUnit:              cmd.QuoteUnit,
+		OrderUnit:              cmd.OrderUnit,
+		UnitConversionJSON:     cmd.UnitConversionJSON,
+		IntegerUnit:            cmd.IntegerUnit,
+		Active:                 true,
 	}, nil
 }
 
@@ -862,20 +863,21 @@ func TestProductSettingsAPIManagesGradientTemplatesAndCategoryBinding(t *testing
 func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testing.T) {
 	repo := &productSettingsRepo{
 		productConfigTemplates: []catalogapp.ProductConfigTemplate{{
-			ID:                  301,
-			CustomerID:          0,
-			Name:                "公共盒装商品配置",
-			GradientTemplateID:  8,
-			OperationTemplateID: 9,
-			UnitTemplateID:      12,
-			PriceListRuleJSON:   `{"pricing_mode":"inherit_gradient_template","display_unit":"inherit_quote_unit"}`,
-			InventoryUnit:       "kg",
-			QuoteUnit:           "盒",
-			OrderUnit:           "盒",
-			UnitConversionJSON:  `{"盒":{"kg":0.2}}`,
-			IntegerUnit:         true,
-			TemplateState:       "public_template",
-			Active:              true,
+			ID:                     301,
+			CustomerID:             0,
+			Name:                   "公共盒装商品配置",
+			GradientTemplateID:     8,
+			OperationTemplateID:    9,
+			UnitTemplateID:         12,
+			PriceListRuleJSON:      `{"pricing_mode":"inherit_gradient_template","display_unit":"inherit_quote_unit"}`,
+			SpecialAttrsSchemaJSON: `[{"key":"roast_level","label":"烘焙度","show_in_price_list":true}]`,
+			InventoryUnit:          "kg",
+			QuoteUnit:              "盒",
+			OrderUnit:              "盒",
+			UnitConversionJSON:     `{"盒":{"kg":0.2}}`,
+			IntegerUnit:            true,
+			TemplateState:          "public_template",
+			Active:                 true,
 		}},
 		categories: []catalogapp.ProductCategory{{
 			ID:            1,
@@ -906,6 +908,7 @@ func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testi
 		`"unit_template_id":12`,
 		`"quote_unit":"盒"`,
 		`"price_list_rule_json":"{\"pricing_mode\":\"inherit_gradient_template\",\"display_unit\":\"inherit_quote_unit\"}"`,
+		`"special_attrs_schema_json":"[{\"key\":\"roast_level\",\"label\":\"烘焙度\",\"show_in_price_list\":true}]"`,
 	} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
@@ -918,7 +921,8 @@ func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testi
 		"gradient_template_id":18,
 		"operation_template_id":19,
 		"unit_template_id":12,
-		"price_list_rule_json":"{\"pricing_mode\":\"fixed_unit_price\",\"display_unit\":\"盒\"}",
+		"price_list_rule_json":"{\"pricing_mode\":\"fixed_unit_price\",\"fixed_unit_price\":15}",
+		"special_attrs_schema_json":"[{\"key\":\"roast_level\",\"label\":\"烘焙度\",\"show_in_price_list\":true}]",
 		"active":true
 	}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -930,8 +934,11 @@ func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testi
 	if !repo.configTemplateSaved || repo.savedConfigTemplate.CustomerID != 42 || repo.savedConfigTemplate.Name != "客户盒装商品配置" || repo.savedConfigTemplate.GradientTemplateID != 18 || repo.savedConfigTemplate.UnitTemplateID != 12 {
 		t.Fatalf("saved config template = %+v saved=%v", repo.savedConfigTemplate, repo.configTemplateSaved)
 	}
-	if repo.savedConfigTemplate.PriceListRuleJSON != `{"pricing_mode":"fixed_unit_price","display_unit":"盒"}` {
+	if repo.savedConfigTemplate.PriceListRuleJSON != `{"pricing_mode":"fixed_unit_price","fixed_unit_price":15}` {
 		t.Fatalf("saved price list rule json = %q", repo.savedConfigTemplate.PriceListRuleJSON)
+	}
+	if repo.savedConfigTemplate.SpecialAttrsSchemaJSON == "" || repo.savedConfigTemplate.SpecialAttrsSchemaJSON == "[]" {
+		t.Fatalf("saved special attrs schema json = %q", repo.savedConfigTemplate.SpecialAttrsSchemaJSON)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/product-config-templates/derive", bytes.NewBufferString(`{"customer_id":42,"source_template_id":301,"name":"客户复制盒装商品配置"}`))

@@ -84,6 +84,7 @@ type productUpdateAPIRequest struct {
 	GreenBeanBomProductID       int64                     `json:"green_bean_bom_product_id"`
 	DefaultPrice                *float64                  `json:"default_price"`
 	RoastLevel                  *string                   `json:"roast_level"`
+	SpecialAttrsJSON            *string                   `json:"special_attrs_json"`
 	DripBagGrams                *float64                  `json:"drip_bag_grams"`
 	DripBoxBagCount             *int                      `json:"drip_box_bag_count"`
 	AllowFulfillmentOrder       *bool                     `json:"allow_fulfillment_order"`
@@ -107,6 +108,7 @@ type productCreateAPIRequest struct {
 	GreenBeanType         string                    `json:"green_bean_type"`
 	GreenBeanBomProductID int64                     `json:"green_bean_bom_product_id"`
 	RoastLevel            *string                   `json:"roast_level"`
+	SpecialAttrsJSON      string                    `json:"special_attrs_json"`
 	DripBagGrams          *float64                  `json:"drip_bag_grams"`
 	DripBoxBagCount       *int                      `json:"drip_box_bag_count"`
 	AllowFulfillmentOrder *bool                     `json:"allow_fulfillment_order"`
@@ -170,6 +172,8 @@ type customProductAPIRequest struct {
 	GreenBeanType         string  `json:"green_bean_type"`
 	GreenBeanBomProductID int64   `json:"green_bean_bom_product_id"`
 	RoastLevel            string  `json:"roast_level"`
+	SpecialAttrsJSON      string  `json:"special_attrs_json"`
+	YieldRate             float64 `json:"yield_rate"`
 	DripBagGrams          float64 `json:"drip_bag_grams"`
 	DripBoxBagCount       int     `json:"drip_box_bag_count"`
 	CustomType            string  `json:"custom_type"`
@@ -241,18 +245,19 @@ type gradientTemplateAPIRequest struct {
 }
 
 type productConfigTemplateAPIRequest struct {
-	CustomerID          int64  `json:"customer_id"`
-	Name                string `json:"name"`
-	GradientTemplateID  int64  `json:"gradient_template_id"`
-	OperationTemplateID int64  `json:"operation_template_id"`
-	UnitTemplateID      int64  `json:"unit_template_id"`
-	PriceListRuleJSON   string `json:"price_list_rule_json"`
-	InventoryUnit       string `json:"inventory_unit"`
-	QuoteUnit           string `json:"quote_unit"`
-	OrderUnit           string `json:"order_unit"`
-	UnitConversionJSON  string `json:"unit_conversion_json"`
-	IntegerUnit         bool   `json:"integer_unit"`
-	Active              *bool  `json:"active"`
+	CustomerID             int64  `json:"customer_id"`
+	Name                   string `json:"name"`
+	GradientTemplateID     int64  `json:"gradient_template_id"`
+	OperationTemplateID    int64  `json:"operation_template_id"`
+	UnitTemplateID         int64  `json:"unit_template_id"`
+	PriceListRuleJSON      string `json:"price_list_rule_json"`
+	SpecialAttrsSchemaJSON string `json:"special_attrs_schema_json"`
+	InventoryUnit          string `json:"inventory_unit"`
+	QuoteUnit              string `json:"quote_unit"`
+	OrderUnit              string `json:"order_unit"`
+	UnitConversionJSON     string `json:"unit_conversion_json"`
+	IntegerUnit            bool   `json:"integer_unit"`
+	Active                 *bool  `json:"active"`
 }
 
 type productUnitDefinitionAPIRequest struct {
@@ -344,11 +349,11 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		roastLevelInput = *req.RoastLevel
 	}
 	roastLevel := NormalizeRoastLevel(roastLevelInput)
-	if catalogdomain.ProductKindRequiresRoast(productKind) && roastLevel == "" {
+	if strings.TrimSpace(roastLevelInput) != "" && roastLevel == "" {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
 	}
-	if !catalogdomain.ProductKindRequiresRoast(productKind) {
-		roastLevel = ""
+	if catalogdomain.ProductKindRequiresRoast(productKind) && roastLevel == "" {
+		roastLevel = "中烘"
 	}
 	defaultPrice := optionalFloat64(req.DefaultPrice, existing.DefaultPrice)
 	retailPrice100G := optionalFloat64(req.RetailPrice100G, existing.RetailPrice100G)
@@ -378,7 +383,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	yieldRate := normalizeProductYieldRate(req.YieldRate)
-	if catalogdomain.ProductKindRequiresRoast(productKind) && req.YieldRate > 0 && yieldRate <= 0 {
+	if catalogdomain.ProductKindSupportsBomParams(productKind) && req.YieldRate > 0 && yieldRate <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
 	marginRateOverride := existing.MarginRateOverride
@@ -411,6 +416,10 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	if req.UnitRuleOverrideJSON != nil {
 		unitRuleOverrideJSON = strings.TrimSpace(*req.UnitRuleOverrideJSON)
 	}
+	specialAttrsJSON := existing.SpecialAttrsJSON
+	if req.SpecialAttrsJSON != nil {
+		specialAttrsJSON = strings.TrimSpace(*req.SpecialAttrsJSON)
+	}
 	if err := h.catalog.UpdateProductBasics(c.Request().Context(), catalogapp.UpdateProductBasicsCommand{
 		Actor:                       support.ActorOf(c),
 		ProductID:                   id,
@@ -434,6 +443,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		GradientTemplateIDOverride:  gradientTemplateIDOverride,
 		OperationTemplateIDOverride: operationTemplateIDOverride,
 		UnitRuleOverrideJSON:        unitRuleOverrideJSON,
+		SpecialAttrsJSON:            specialAttrsJSON,
 	}); err != nil {
 		if catalogapp.IsValidationError(err) {
 			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
@@ -453,6 +463,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 			RetailPrice200G:       retailPrice200G,
 			RetailPrice227G:       retailPrice227G,
 			RetailPrice250G:       retailPrice250G,
+			YieldRate:             yieldRate,
 			Tiers:                 productTiersFromAPI(req.Tiers),
 		}); err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
@@ -499,13 +510,10 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
 	}
 	if catalogdomain.ProductKindRequiresRoast(productKind) && roastLevel == "" {
-		roastLevel = "深烘"
-	}
-	if !catalogdomain.ProductKindRequiresRoast(productKind) {
-		roastLevel = ""
+		roastLevel = "中烘"
 	}
 	yieldRate := normalizeProductYieldRate(req.YieldRate)
-	if catalogdomain.ProductKindRequiresRoast(productKind) && req.YieldRate > 0 && yieldRate <= 0 {
+	if catalogdomain.ProductKindSupportsBomParams(productKind) && req.YieldRate > 0 && yieldRate <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
 	if err := validateExplicitDripConfig(productKind, req.DripBagGrams, req.DripBoxBagCount); err != nil {
@@ -547,6 +555,7 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		RetailPrice250G:          req.RetailPrice250G,
 		YieldRate:                yieldRate,
 		Tiers:                    productTiersFromAPI(req.Tiers),
+		SpecialAttrsJSON:         req.SpecialAttrsJSON,
 	})
 	if err != nil {
 		if catalogapp.IsValidationError(err) {
@@ -674,20 +683,21 @@ func (h productHandler) saveProductConfigTemplateAPI(c echo.Context) error {
 		id = parsed
 	}
 	template, err := h.catalog.SaveProductConfigTemplate(c.Request().Context(), catalogapp.SaveProductConfigTemplateCommand{
-		Actor:               support.ActorOf(c),
-		ID:                  id,
-		CustomerID:          req.CustomerID,
-		Name:                req.Name,
-		GradientTemplateID:  req.GradientTemplateID,
-		OperationTemplateID: req.OperationTemplateID,
-		UnitTemplateID:      req.UnitTemplateID,
-		PriceListRuleJSON:   req.PriceListRuleJSON,
-		InventoryUnit:       req.InventoryUnit,
-		QuoteUnit:           req.QuoteUnit,
-		OrderUnit:           req.OrderUnit,
-		UnitConversionJSON:  req.UnitConversionJSON,
-		IntegerUnit:         req.IntegerUnit,
-		Active:              req.Active,
+		Actor:                  support.ActorOf(c),
+		ID:                     id,
+		CustomerID:             req.CustomerID,
+		Name:                   req.Name,
+		GradientTemplateID:     req.GradientTemplateID,
+		OperationTemplateID:    req.OperationTemplateID,
+		UnitTemplateID:         req.UnitTemplateID,
+		PriceListRuleJSON:      req.PriceListRuleJSON,
+		SpecialAttrsSchemaJSON: req.SpecialAttrsSchemaJSON,
+		InventoryUnit:          req.InventoryUnit,
+		QuoteUnit:              req.QuoteUnit,
+		OrderUnit:              req.OrderUnit,
+		UnitConversionJSON:     req.UnitConversionJSON,
+		IntegerUnit:            req.IntegerUnit,
+		Active:                 req.Active,
 	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
@@ -814,6 +824,8 @@ func (h productHandler) createCustomProductAPI(c echo.Context) error {
 		GreenBeanType:         req.GreenBeanType,
 		GreenBeanBomProductID: req.GreenBeanBomProductID,
 		RoastLevel:            req.RoastLevel,
+		SpecialAttrsJSON:      req.SpecialAttrsJSON,
+		YieldRate:             normalizeProductYieldRate(req.YieldRate),
 		DripBagGrams:          req.DripBagGrams,
 		DripBoxBagCount:       req.DripBoxBagCount,
 		CustomType:            req.CustomType,

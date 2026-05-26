@@ -312,15 +312,16 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 		inputG := group.InputG
 		plan := runningInventoryPlan(group.SpecG, group.NeedG, inputG, yieldRate)
 		snapshotRun := ProduceRunRow{
-			Product:      group.ProductName,
-			ProductID:    group.ProductID,
-			SpecG:        group.SpecG,
-			NeedG:        group.NeedG,
-			InputG:       inputG,
-			BomYieldRate: yieldRate,
-			PlanUnits:    plan.Units,
-			PlanLooseG:   plan.LooseG,
-			Outputs:      group.Outputs,
+			Product:             group.ProductName,
+			ProductID:           group.ProductID,
+			SpecG:               group.SpecG,
+			NeedG:               group.NeedG,
+			InputG:              inputG,
+			BomYieldRate:        yieldRate,
+			PlanUnits:           plan.Units,
+			PlanLooseG:          plan.LooseG,
+			OperationTemplateID: group.OperationTemplateID,
+			Outputs:             group.Outputs,
 		}
 		materialSnapshot := []byte("[]")
 		var reservationNeeds []materialConsumptionNeed
@@ -347,7 +348,7 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 			}
 		}
 		var runningItemID int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g,material_snapshot) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11,$12) RETURNING id`, r.schema), batchID, group.ProductID, group.ProductName, group.SpecG, group.NeedG, group.OrderNos, cmd.Operator, inputG, yieldRate, plan.Units, plan.LooseG, materialSnapshot).Scan(&runningItemID); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.produce_running_items(batch_id,product_id,product_name,spec_g,need_g,order_nos,status,started_by,started_at,input_g,bom_yield_rate,planned_units,planned_loose_g,material_snapshot,operation_template_id) VALUES($1,$2,$3,$4,$5,$6,'running',$7,now(),$8,$9,$10,$11,$12,$13) RETURNING id`, r.schema), batchID, group.ProductID, group.ProductName, group.SpecG, group.NeedG, group.OrderNos, cmd.Operator, inputG, yieldRate, plan.Units, plan.LooseG, materialSnapshot, group.OperationTemplateID).Scan(&runningItemID); err != nil {
 			return productionapp.StartResult{}, err
 		}
 		if len(group.Outputs) > 1 {
@@ -355,7 +356,7 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 				return productionapp.StartResult{}, err
 			}
 		}
-		workOrderID, err := createWorkOrderForRunningItemTx(ctx, tx, r.schema, runningItemID, batchID, group.ProductID, group.ProductName, group.SpecG, inputG, materialSnapshot, cmd.Operator)
+		workOrderID, err := createWorkOrderForRunningItemTx(ctx, tx, r.schema, runningItemID, batchID, group.ProductID, group.ProductName, group.SpecG, inputG, materialSnapshot, group.OperationTemplateID, cmd.Operator)
 		if err != nil {
 			return productionapp.StartResult{}, err
 		}
@@ -519,7 +520,9 @@ func productionSummaryToApp(items []ProduceBatchSummaryItem) []productionapp.Sum
 
 func loadProductYieldRateMapTx(ctx context.Context, tx pgx.Tx, schema string) (map[int64]float64, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT p.id, COALESCE(p.roast_level,''), COALESCE(b.yield_rate,0.8), COALESCE(NULLIF(p.product_kind,''),'roasted_bean')
+		SELECT p.id, COALESCE(p.roast_level,''),
+		       COALESCE(NULLIF(b.yield_rate,0), CASE WHEN COALESCE(NULLIF(p.product_kind,''),'roasted_bean')='instant_coffee' THEN 1 ELSE 0.8 END),
+		       COALESCE(NULLIF(p.product_kind,''),'roasted_bean')
 		FROM `+schema+`.products p
 		LEFT JOIN `+schema+`.product_bom b ON b.product_id=p.id
 		WHERE p.active=true`)
@@ -536,10 +539,6 @@ func loadProductYieldRateMapTx(ctx context.Context, tx pgx.Tx, schema string) (m
 		var productKind string
 		if err := rows.Scan(&productID, &roastLevel, &yieldRate, &productKind); err != nil {
 			return nil, err
-		}
-		if catalogdomain.NormalizeProductKind(productKind) == catalogdomain.ProductKindInstantCoffee {
-			out[productID] = 1
-			continue
 		}
 		out[productID] = catalogdomain.ResolveYieldRate(roastLevel, yieldRate)
 	}

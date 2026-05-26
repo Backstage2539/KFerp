@@ -17,24 +17,6 @@ export const priceListRulePricingModeOptions = [
   { value: 'cost_plus', label: '成本加成' },
 ]
 
-export const PRICE_LIST_RULE_DISPLAY_UNIT_INHERIT = 'inherit_quote_unit'
-
-export function priceListRuleDisplayUnitOptions(unitDefinitions = []) {
-  const rows = Array.isArray(unitDefinitions) ? unitDefinitions : []
-  const unitRows = rows
-    .filter((unit) => unit?.active !== false)
-    .map((unit) => {
-      const value = String(unit?.code || '').trim()
-      if (!value) return null
-      return { value, label: String(unit?.name || value).trim() || value }
-    })
-    .filter(Boolean)
-  return [
-    { value: PRICE_LIST_RULE_DISPLAY_UNIT_INHERIT, label: '继承报价单位' },
-    ...unitRows,
-  ]
-}
-
 export const priceListRuleRoundingOptions = [
   { value: 'none', label: '不取整' },
   { value: 'jiao', label: '保留到角' },
@@ -71,7 +53,12 @@ export function inferProductKindFromProductTypeCategory(category = {}) {
 
 export function productKindRequiresRoast(kindOrRow = {}) {
   const kind = typeof kindOrRow === 'object' ? normalizedProductKind(kindOrRow) : normalizedProductKind({ product_kind: kindOrRow })
-  return kind === 'roasted' || kind === 'drip_bag'
+  return kind !== 'green_bean'
+}
+
+export function productKindSupportsBomParams(kindOrRow = {}) {
+  const kind = typeof kindOrRow === 'object' ? normalizedProductKind(kindOrRow) : normalizedProductKind({ product_kind: kindOrRow })
+  return kind !== 'green_bean'
 }
 
 export function normalizedGreenBeanType(value) {
@@ -179,7 +166,7 @@ export function productConfigTemplateBelongsToSkuContext(template = {}, context 
 	if (templateCustomerID === customerID) return true
 	if (templateCustomerID !== 0) return false
 	if (context.usePublicProductConfigTemplates === false || context.use_public_product_config_templates === false) return false
-	return !hasCustomerDerivedTemplate(template, context.customerTemplates)
+	return true
 }
 
 export function categoryDisplayState(category = {}, context = {}) {
@@ -252,6 +239,9 @@ export function buildProductConfigTemplatePayload(form = {}) {
 		price_list_rule_json: hasStructuredPriceRuleFields(form)
 			? priceListRuleJSONFromForm(form)
 			: normalizeJSONString(form.price_list_rule_json),
+		special_attrs_schema_json: Array.isArray(form.special_attrs_schema_rows)
+			? specialAttrSchemaJSONFromRows(form.special_attrs_schema_rows)
+			: normalizeJSONArrayString(form.special_attrs_schema_json),
 		active: form.active === false ? false : true,
 	}
 }
@@ -572,24 +562,19 @@ export function buildProductCreatePayload(form = {}) {
     name: String(form.name || '').trim(),
     product_kind: kind,
     remark: String(form.remark || '').trim(),
+    special_attrs_json: specialAttrValuesJSONFromForm(form.special_attr_values ?? form.special_attrs ?? form.special_attrs_json),
   }
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(form.green_bean_type)
     payload.green_bean_bom_product_id = Number(form.green_bean_bom_product_id || 0)
     return payload
   }
+  const yieldRate = normalizedYieldRateFromPercent(form)
+  if (yieldRate !== null) payload.yield_rate = yieldRate
   if (kind === 'drip_bag') {
-    payload.roast_level = String(form.roast_level || '').trim()
-    payload.yield_rate = Number((Number(form.yield_percent || 0) / 100).toFixed(4))
     payload.drip_bag_grams = Number(form.drip_bag_grams || 10)
     payload.drip_box_bag_count = Number(form.drip_box_bag_count || 10)
-    return payload
   }
-  if (kind === 'instant_coffee') {
-    return payload
-  }
-  payload.roast_level = String(form.roast_level || '').trim()
-  payload.yield_rate = Number((Number(form.yield_percent || 0) / 100).toFixed(4))
   return payload
 }
 
@@ -604,6 +589,7 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
     custom_type: String(form.custom_type || '').trim(),
     copy_bom: Boolean(form.copy_bom),
     copy_price_tiers: Boolean(form.copy_price_tiers),
+    special_attrs_json: specialAttrValuesJSONFromForm(form.special_attr_values ?? form.special_attrs ?? form.special_attrs_json),
   }
   if (kind === 'green_bean') {
     payload.base_product_id = 0
@@ -618,11 +604,12 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
     payload.copy_bom = false
     payload.copy_price_tiers = false
   }
+  const yieldRate = normalizedYieldRateFromPercent(form)
+  if (yieldRate !== null) payload.yield_rate = yieldRate
   if (kind === 'instant_coffee') {
     payload.copy_bom = false
     return payload
   }
-  payload.roast_level = String(form.roast_level || '').trim()
   if (kind === 'drip_bag') {
     payload.drip_bag_grams = Number(form.drip_bag_grams || 10)
     payload.drip_box_bag_count = Number(form.drip_box_bag_count || 10)
@@ -635,15 +622,16 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   const payload = {
     product_kind: kind,
     remark: String(row.remark || '').trim(),
+    special_attrs_json: specialAttrValuesJSONFromForm(row.special_attr_values ?? row.special_attrs ?? row.special_attrs_json),
   }
   const name = String(row.name || '').trim()
   if (name) payload.name = name
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(row.green_bean_type)
     payload.green_bean_bom_product_id = Number(row.green_bean_bom_product_id || 0)
-  } else if (productKindRequiresRoast(kind)) {
-    payload.roast_level = String(row.roast_level || '').trim()
-    payload.yield_rate = Number((Number(row.yield_percent || 0) / 100).toFixed(4))
+  } else {
+    const yieldRate = normalizedYieldRateFromPercent(row)
+    if (yieldRate !== null) payload.yield_rate = yieldRate
     if (kind === 'drip_bag') {
       payload.drip_bag_grams = Number(row.drip_bag_grams || 10)
       payload.drip_box_bag_count = Number(row.drip_box_bag_count || 10)
@@ -651,6 +639,13 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   }
   payload.margin_rate_override = marginRateOverride
   return payload
+}
+
+function normalizedYieldRateFromPercent(form = {}) {
+  if (!Object.prototype.hasOwnProperty.call(form, 'yield_percent')) return null
+  const rate = Number(form.yield_percent || 0) / 100
+  if (!Number.isFinite(rate) || rate <= 0) return null
+  return Number(rate.toFixed(4))
 }
 
 function rowCustomerID(row = {}) {
@@ -703,12 +698,15 @@ function uniqueSorted(values = []) {
 export function priceListRuleFormFromJSON(value = {}) {
 	const rule = parseJSONObject(value)
 	const extra = { ...rule }
-	for (const key of ['enabled', 'include_in_price_list', 'pricing_mode', 'display_mode', 'display_unit', 'rounding', 'tax_included']) {
+	for (const key of ['enabled', 'include_in_price_list', 'pricing_mode', 'display_mode', 'display_unit', 'rounding', 'tax_included', 'unit_price', 'price_per_unit', 'fixed_unit_price', 'fixed_price', 'cost_plus_rate', 'markup_rate', 'margin_rate']) {
     delete extra[key]
 	}
+  const fixedUnitPrice = normalizeOptionalNumber(rule.fixed_unit_price ?? rule.unit_price ?? rule.price_per_unit ?? rule.fixed_price)
+  const costPlusRate = normalizeOptionalNumber(rule.cost_plus_rate ?? rule.markup_rate ?? rule.margin_rate)
 	return {
 		price_rule_pricing_mode: optionValue(rule.pricing_mode, priceListRulePricingModeOptions, 'inherit_gradient_template'),
-		price_rule_display_unit: normalizePriceRuleDisplayUnit(rule.display_unit ?? rule.display_mode),
+		price_rule_fixed_unit_price: fixedUnitPrice === null ? '' : fixedUnitPrice,
+		price_rule_cost_plus_percent: costPlusRate === null ? '' : Number((costPlusRate * 100).toFixed(4)),
     price_rule_rounding: optionValue(rule.rounding, priceListRuleRoundingOptions, 'none'),
     price_rule_tax_included: Boolean(rule.tax_included),
     price_rule_extra: extra,
@@ -718,7 +716,14 @@ export function priceListRuleFormFromJSON(value = {}) {
 export function priceListRuleJSONFromForm(form = {}) {
 	const out = sanitizeExtraObject(form.price_rule_extra)
 	out.pricing_mode = optionValue(form.price_rule_pricing_mode, priceListRulePricingModeOptions, 'inherit_gradient_template')
-  out.display_unit = normalizePriceRuleDisplayUnit(form.price_rule_display_unit ?? form.price_rule_display_mode)
+  const fixedUnitPrice = normalizeOptionalNumber(form.price_rule_fixed_unit_price)
+  if (out.pricing_mode === 'fixed_unit_price' && fixedUnitPrice !== null) {
+    out.fixed_unit_price = trimDecimal(fixedUnitPrice)
+  }
+  const costPlusPercent = normalizeOptionalNumber(form.price_rule_cost_plus_percent)
+  if (out.pricing_mode === 'cost_plus' && costPlusPercent !== null) {
+    out.cost_plus_rate = trimDecimal(costPlusPercent / 100)
+  }
   out.rounding = optionValue(form.price_rule_rounding, priceListRuleRoundingOptions, 'none')
   out.tax_included = Boolean(form.price_rule_tax_included)
   return JSON.stringify(out)
@@ -794,6 +799,94 @@ export function unitRuleJSONFromForm(form = {}) {
   return JSON.stringify(out)
 }
 
+export function specialAttrSchemaRowsFromJSON(value = []) {
+  const rows = parseJSONArray(value)
+  return rows
+    .map((row, index) => normalizeSpecialAttrSchemaRow(row, index + 1))
+    .filter((row) => row.key)
+    .sort((a, b) => Number(a.position || 0) - Number(b.position || 0) || a.key.localeCompare(b.key))
+}
+
+export function specialAttrSchemaJSONFromRows(rows = []) {
+  const out = []
+  const seen = new Set()
+  for (const row of rows || []) {
+    const normalized = normalizeSpecialAttrSchemaRow(row, out.length + 1)
+    if (!normalized.key || seen.has(normalized.key)) continue
+    seen.add(normalized.key)
+    out.push({
+      key: normalized.key,
+      label: normalized.label,
+      value_type: normalized.value_type,
+      options: normalized.options,
+      required: normalized.required,
+      show_in_price_list: normalized.show_in_price_list,
+      position: out.length + 1,
+    })
+  }
+  return JSON.stringify(out)
+}
+
+export function specialAttrValuesFromJSON(value = {}) {
+  const parsed = parseJSONObject(value)
+  const out = {}
+  for (const [key, raw] of Object.entries(parsed)) {
+    const normalizedKey = normalizeSpecialAttrKey(key)
+    if (!normalizedKey) continue
+    const normalizedValue = normalizeSpecialAttrValue(raw)
+    if (normalizedValue === '') continue
+    out[normalizedKey] = normalizedValue
+  }
+  return out
+}
+
+export function specialAttrValuesJSONFromForm(value = {}) {
+  const source = typeof value === 'string' ? specialAttrValuesFromJSON(value) : (value && typeof value === 'object' && !Array.isArray(value) ? value : {})
+  const out = {}
+  for (const [key, raw] of Object.entries(source)) {
+    const normalizedKey = normalizeSpecialAttrKey(key)
+    if (!normalizedKey) continue
+    const normalizedValue = normalizeSpecialAttrValue(raw)
+    if (normalizedValue === '') continue
+    out[normalizedKey] = normalizedValue
+  }
+  return JSON.stringify(out)
+}
+
+function normalizeSpecialAttrSchemaRow(row = {}, fallbackPosition = 1) {
+  const key = normalizeSpecialAttrKey(row?.key)
+  const label = String(row?.label || key).trim()
+  const valueType = ['text', 'select', 'number', 'boolean'].includes(String(row?.value_type || '').trim())
+    ? String(row.value_type).trim()
+    : 'text'
+  const options = Array.isArray(row?.options)
+    ? row.options.map((item) => String(item || '').trim()).filter(Boolean)
+    : String(row?.options_text || row?.options || '')
+      .split(/[\n,，]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  return {
+    key,
+    label,
+    value_type: valueType,
+    options,
+    options_text: options.join('\n'),
+    required: Boolean(row?.required),
+    show_in_price_list: Boolean(row?.show_in_price_list ?? row?.showInPriceList),
+    position: Number(row?.position || fallbackPosition || 1),
+  }
+}
+
+function normalizeSpecialAttrKey(value) {
+  return String(value || '').trim().replace(/\s+/g, '_')
+}
+
+function normalizeSpecialAttrValue(value) {
+  if (value === null || typeof value === 'undefined') return ''
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  return String(value).trim()
+}
+
 function normalizeUnitText(value, fallback = 'kg') {
   const normalized = String(value || '').trim()
   if (normalized) return normalized
@@ -809,6 +902,11 @@ function normalizeJSONString(value) {
   return raw || '{}'
 }
 
+function normalizeJSONArrayString(value) {
+  const raw = String(value || '').trim()
+  return raw || '[]'
+}
+
 function parseJSONObject(value) {
   if (!value) return {}
   if (typeof value === 'object' && !Array.isArray(value)) return value
@@ -817,6 +915,17 @@ function parseJSONObject(value) {
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
   } catch {
     return {}
+  }
+}
+
+function parseJSONArray(value) {
+  if (!value) return []
+  if (Array.isArray(value)) return value
+  try {
+    const parsed = JSON.parse(String(value || '[]'))
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
   }
 }
 
@@ -835,6 +944,12 @@ function normalizePositiveNumber(value) {
   return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : 0
 }
 
+function normalizeOptionalNumber(value) {
+  if (value === null || typeof value === 'undefined' || value === '') return null
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : null
+}
+
 function trimDecimal(value) {
   return Number(Number(value).toFixed(8))
 }
@@ -849,17 +964,11 @@ function integerUnitModeFromValue(value) {
   return 'inherit'
 }
 
-function normalizePriceRuleDisplayUnit(value) {
-  const normalized = normalizeOptionalUnitText(value)
-  if (!normalized) return PRICE_LIST_RULE_DISPLAY_UNIT_INHERIT
-  if (['by_quote_unit', 'boxed', 'weight'].includes(normalized)) return PRICE_LIST_RULE_DISPLAY_UNIT_INHERIT
-  return normalized
-}
-
 function hasStructuredPriceRuleFields(row = {}) {
 	return Object.prototype.hasOwnProperty.call(row, 'price_rule_pricing_mode')
-		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_display_unit')
 		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_display_mode')
+		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_fixed_unit_price')
+		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_cost_plus_percent')
 		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_rounding')
 		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_tax_included')
 }

@@ -68,6 +68,8 @@ type ProductInput struct {
 	UnitConversionJSON        string                    `json:"unit_conversion_json,omitempty"`
 	IntegerUnit               bool                      `json:"integer_unit,omitempty"`
 	PriceListRuleJSON         string                    `json:"price_list_rule_json,omitempty"`
+	SpecialAttrsJSON          string                    `json:"special_attrs_json,omitempty"`
+	SpecialAttrsSchemaJSON    string                    `json:"special_attrs_schema_json,omitempty"`
 	BeanListTemplateName      string                    `json:"bean_list_template_name,omitempty"`
 	Flavor                    string                    `json:"flavor,omitempty"`
 	Origin                    string                    `json:"origin,omitempty"`
@@ -81,6 +83,8 @@ type ProductInput struct {
 	Warnings                  []string                  `json:"warnings,omitempty"`
 	GreenBeanCostPerKg        float64                   `json:"green_bean_cost_per_kg"`
 	BomCostPerUnit            float64                   `json:"bom_cost_per_unit,omitempty"`
+	OperationCostPerUnit      float64                   `json:"operation_cost_per_unit,omitempty"`
+	OperationCostPerKg        float64                   `json:"operation_cost_per_kg,omitempty"`
 	YieldRate                 float64                   `json:"yield_rate"`
 	WholesaleTaxAddPerKg      float64                   `json:"wholesale_tax_add_per_kg"`
 	WholesaleTaxAddPerKgTiers []float64                 `json:"wholesale_tax_add_per_kg_tiers"`
@@ -250,6 +254,13 @@ type BeanListQuality struct {
 	InspectionReferenceNo    string `json:"inspection_reference_no,omitempty"`
 }
 
+type ProductAttribute struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Value    string `json:"value"`
+	Position int    `json:"position,omitempty"`
+}
+
 type ProductResult struct {
 	ProductID                      int64                     `json:"product_id"`
 	Name                           string                    `json:"name"`
@@ -277,6 +288,7 @@ type ProductResult struct {
 	UnitConversionJSON             string                    `json:"unit_conversion_json,omitempty"`
 	IntegerUnit                    bool                      `json:"integer_unit,omitempty"`
 	PriceListRuleJSON              string                    `json:"price_list_rule_json,omitempty"`
+	ProductAttributes              []ProductAttribute        `json:"product_attributes,omitempty"`
 	MarginRateOverride             *float64                  `json:"margin_rate_override,omitempty"`
 	GradientTemplate               *GradientTemplate         `json:"gradient_template,omitempty"`
 	DripPriceTemplate              *DripPriceTemplate        `json:"drip_price_template,omitempty"`
@@ -298,6 +310,8 @@ type ProductResult struct {
 	YieldRate                      float64                   `json:"yield_rate"`
 	GreenBeanCostPerKg             float64                   `json:"green_bean_cost_per_kg"`
 	BomCostPerUnit                 float64                   `json:"bom_cost_per_unit,omitempty"`
+	OperationCostPerUnit           float64                   `json:"operation_cost_per_unit,omitempty"`
+	OperationCostPerKg             float64                   `json:"operation_cost_per_kg,omitempty"`
 	RoastedBeanCostPerKg           float64                   `json:"roasted_bean_cost_per_kg"`
 	SmallBatchCostPerKg            float64                   `json:"small_batch_cost_per_kg"`
 	LargeBatchCostPerKg            float64                   `json:"large_batch_cost_per_kg"`
@@ -349,6 +363,9 @@ func ValidateProductInput(params Parameters, in ProductInput) (ProductInput, err
 	if in.BomCostPerUnit < 0 {
 		return in, fmt.Errorf("bom_cost_per_unit must be >= 0")
 	}
+	if in.OperationCostPerUnit < 0 || in.OperationCostPerKg < 0 {
+		return in, fmt.Errorf("operation cost must be >= 0")
+	}
 	if in.YieldRate == 0 {
 		in.YieldRate = params.RoastYieldRate
 	}
@@ -375,6 +392,14 @@ func ValidateProductInput(params Parameters, in ProductInput) (ProductInput, err
 	in.PriceListRuleJSON = strings.TrimSpace(in.PriceListRuleJSON)
 	if in.PriceListRuleJSON == "" {
 		in.PriceListRuleJSON = "{}"
+	}
+	in.SpecialAttrsJSON = strings.TrimSpace(in.SpecialAttrsJSON)
+	if in.SpecialAttrsJSON == "" {
+		in.SpecialAttrsJSON = "{}"
+	}
+	in.SpecialAttrsSchemaJSON = strings.TrimSpace(in.SpecialAttrsSchemaJSON)
+	if in.SpecialAttrsSchemaJSON == "" {
+		in.SpecialAttrsSchemaJSON = "[]"
 	}
 	if strings.TrimSpace(in.ProductTypeName) == "" {
 		in.ProductTypeName = strings.TrimSpace(in.CategoryPrimaryName)
@@ -512,6 +537,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		UnitConversionJSON:        in.UnitConversionJSON,
 		IntegerUnit:               in.IntegerUnit,
 		PriceListRuleJSON:         in.PriceListRuleJSON,
+		ProductAttributes:         productAttributesFromSpecialAttrs(in.SpecialAttrsSchemaJSON, in.SpecialAttrsJSON),
 		MarginRateOverride:        in.MarginRateOverride,
 		GradientTemplate:          in.GradientTemplate,
 		DripPriceTemplate:         in.DripPriceTemplate,
@@ -532,6 +558,8 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		YieldRate:                 in.YieldRate,
 		GreenBeanCostPerKg:        in.GreenBeanCostPerKg,
 		BomCostPerUnit:            in.BomCostPerUnit,
+		OperationCostPerUnit:      in.OperationCostPerUnit,
+		OperationCostPerKg:        in.OperationCostPerKg,
 		RoastedBeanCostPerKg:      roasted,
 		SmallBatchCostPerKg:       small,
 		LargeBatchCostPerKg:       large,
@@ -583,6 +611,14 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 	if in.UnitConversionJSON == "" {
 		in.UnitConversionJSON = "{}"
 	}
+	in.SpecialAttrsJSON = strings.TrimSpace(in.SpecialAttrsJSON)
+	if in.SpecialAttrsJSON == "" {
+		in.SpecialAttrsJSON = "{}"
+	}
+	in.SpecialAttrsSchemaJSON = strings.TrimSpace(in.SpecialAttrsSchemaJSON)
+	if in.SpecialAttrsSchemaJSON == "" {
+		in.SpecialAttrsSchemaJSON = "[]"
+	}
 	if strings.TrimSpace(in.ProductTypeName) == "" {
 		in.ProductTypeName = strings.TrimSpace(in.CategoryPrimaryName)
 	}
@@ -631,6 +667,7 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		UnitConversionJSON:        in.UnitConversionJSON,
 		IntegerUnit:               in.IntegerUnit,
 		PriceListRuleJSON:         in.PriceListRuleJSON,
+		ProductAttributes:         productAttributesFromSpecialAttrs(in.SpecialAttrsSchemaJSON, in.SpecialAttrsJSON),
 		BeanListQuality:           in.BeanListQuality,
 		GreenBeanList: BeanListDisplay{
 			Code:           code,
@@ -640,18 +677,20 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 			Flavor:         in.Flavor,
 			Description:    firstNonEmptyString(in.BeanListNote, in.Origin),
 		},
-		Flavor:             in.Flavor,
-		Origin:             in.Origin,
-		ProcessingStation:  in.ProcessingStation,
-		Variety:            in.Variety,
-		ProcessMethod:      in.ProcessMethod,
-		Grade:              in.Grade,
-		Altitude:           in.Altitude,
-		BeanListNote:       in.BeanListNote,
-		GreenBeanCostPerKg: in.GreenBeanCostPerKg,
-		BomCostPerUnit:     in.BomCostPerUnit,
-		BomStatus:          bomStatus,
-		GreenBeanSaleTiers: tiers,
+		Flavor:               in.Flavor,
+		Origin:               in.Origin,
+		ProcessingStation:    in.ProcessingStation,
+		Variety:              in.Variety,
+		ProcessMethod:        in.ProcessMethod,
+		Grade:                in.Grade,
+		Altitude:             in.Altitude,
+		BeanListNote:         in.BeanListNote,
+		GreenBeanCostPerKg:   in.GreenBeanCostPerKg,
+		BomCostPerUnit:       in.BomCostPerUnit,
+		OperationCostPerUnit: in.OperationCostPerUnit,
+		OperationCostPerKg:   in.OperationCostPerKg,
+		BomStatus:            bomStatus,
+		GreenBeanSaleTiers:   tiers,
 	}
 }
 
@@ -1073,19 +1112,21 @@ type commercialPriceParts struct {
 }
 
 type productPriceRule struct {
-	PricingMode string
-	DisplayUnit string
-	Rounding    string
-	TaxIncluded bool
-	UnitPrice   float64
-	TierPrices  map[string]float64
-	RawRuleJSON string
+	PricingMode     string
+	DisplayUnit     string
+	Rounding        string
+	TaxIncluded     bool
+	UnitPrice       float64
+	CostPlusRate    float64
+	HasCostPlusRate bool
+	TierPrices      map[string]float64
+	RawRuleJSON     string
 }
 
 func parseProductPriceRuleJSON(value string) productPriceRule {
 	rule := productPriceRule{
 		PricingMode: "inherit_gradient_template",
-		DisplayUnit: "inherit_quote_unit",
+		DisplayUnit: "",
 		Rounding:    "none",
 		RawRuleJSON: strings.TrimSpace(value),
 	}
@@ -1098,6 +1139,10 @@ func parseProductPriceRuleJSON(value string) productPriceRule {
 	rule.Rounding = normalizeProductPriceRuleRounding(stringValue(raw["rounding"]))
 	rule.TaxIncluded = boolValue(raw["tax_included"])
 	rule.UnitPrice = firstPositiveFloat(raw, "unit_price", "price_per_unit", "fixed_unit_price", "fixed_price")
+	if rate, ok := firstNonNegativeFloat(raw, "cost_plus_rate", "markup_rate", "margin_rate"); ok {
+		rule.CostPlusRate = rate
+		rule.HasCostPlusRate = true
+	}
 	rule.TierPrices = map[string]float64{}
 	for _, key := range []string{"tier_prices", "fixed_prices", "prices"} {
 		if rows, ok := raw[key].(map[string]any); ok {
@@ -1157,6 +1202,89 @@ func boolValue(value any) bool {
 	}
 }
 
+type specialAttrSchemaRow struct {
+	Key             string   `json:"key"`
+	Label           string   `json:"label"`
+	ValueType       string   `json:"value_type"`
+	Options         []string `json:"options"`
+	Required        bool     `json:"required"`
+	ShowInPriceList bool     `json:"show_in_price_list"`
+	Position        int      `json:"position"`
+}
+
+func productAttributesFromSpecialAttrs(schemaJSON string, valuesJSON string) []ProductAttribute {
+	var schema []specialAttrSchemaRow
+	if err := json.Unmarshal([]byte(strings.TrimSpace(schemaJSON)), &schema); err != nil {
+		return nil
+	}
+	values := map[string]any{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(valuesJSON)), &values); err != nil {
+		return nil
+	}
+	out := make([]ProductAttribute, 0, len(schema))
+	for index, row := range schema {
+		if !row.ShowInPriceList {
+			continue
+		}
+		key := strings.TrimSpace(row.Key)
+		if key == "" {
+			continue
+		}
+		value := specialAttrDisplayValue(values[key])
+		if value == "" {
+			continue
+		}
+		label := strings.TrimSpace(row.Label)
+		if label == "" {
+			label = key
+		}
+		position := row.Position
+		if position <= 0 {
+			position = index + 1
+		}
+		out = append(out, ProductAttribute{
+			Key:      key,
+			Label:    label,
+			Value:    value,
+			Position: position,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Position != out[j].Position {
+			return out[i].Position < out[j].Position
+		}
+		if out[i].Label != out[j].Label {
+			return out[i].Label < out[j].Label
+		}
+		return out[i].Key < out[j].Key
+	})
+	return out
+}
+
+func specialAttrDisplayValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case float64:
+		return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(v, 'f', 6, 64), "0"), ".")
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	case []any:
+		parts := make([]string, 0, len(v))
+		for _, item := range v {
+			if s := specialAttrDisplayValue(item); s != "" {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, "、")
+	default:
+		return ""
+	}
+}
+
 func floatValue(value any) float64 {
 	switch v := value.(type) {
 	case float64:
@@ -1185,6 +1313,20 @@ func firstPositiveFloat(raw map[string]any, keys ...string) float64 {
 	return 0
 }
 
+func firstNonNegativeFloat(raw map[string]any, keys ...string) (float64, bool) {
+	for _, key := range keys {
+		value, ok := raw[key]
+		if !ok {
+			continue
+		}
+		numberValue := floatValue(value)
+		if numberValue >= 0 {
+			return numberValue, true
+		}
+	}
+	return 0, false
+}
+
 func productPriceRuleTierPrice(rule productPriceRule, tier GradientTemplateTier) (float64, bool) {
 	if rule.UnitPrice > 0 {
 		return rule.UnitPrice, true
@@ -1204,7 +1346,7 @@ func productPriceRuleTierPrice(rule productPriceRule, tier GradientTemplateTier)
 }
 
 func shouldUseComposableProductPricing(in ProductInput, rule productPriceRule) bool {
-	if in.BomCostPerUnit > 0 {
+	if in.BomCostPerUnit > 0 || in.OperationCostPerUnit > 0 || in.OperationCostPerKg > 0 {
 		return true
 	}
 	switch rule.PricingMode {
@@ -1217,11 +1359,11 @@ func shouldUseComposableProductPricing(in ProductInput, rule productPriceRule) b
 
 func effectivePriceRuleDisplayUnit(in ProductInput, template GradientTemplate, rule productPriceRule) string {
 	displayUnit := strings.TrimSpace(rule.DisplayUnit)
-	if displayUnit == "" || displayUnit == "inherit_quote_unit" {
-		displayUnit = strings.TrimSpace(in.QuoteUnit)
+	if displayUnit == "" || displayUnit == "inherit_quote_unit" || displayUnit == "inherit_gradient_template" {
+		displayUnit = strings.TrimSpace(template.DisplayUnit)
 	}
 	if displayUnit == "" {
-		displayUnit = strings.TrimSpace(template.DisplayUnit)
+		displayUnit = strings.TrimSpace(in.QuoteUnit)
 	}
 	return normalizeGradientDisplayUnit(displayUnit)
 }
@@ -1253,6 +1395,17 @@ func physicalSpecGForDisplayUnit(unit string, conversionJSON string) int {
 		return int64ToInt(math.Round(grams))
 	}
 	return 1
+}
+
+func composableCostPerDisplayUnit(in ProductInput, displayUnit string) float64 {
+	cost := in.BomCostPerUnit + in.OperationCostPerUnit
+	if in.OperationCostPerKg > 0 {
+		specG := physicalSpecGForDisplayUnit(displayUnit, in.UnitConversionJSON)
+		if specG > 0 {
+			cost += in.OperationCostPerKg * float64(specG) / 1000.0
+		}
+	}
+	return cost
 }
 
 func int64ToInt(v float64) int {
@@ -1377,7 +1530,10 @@ func buildComposableProductCommercialTiers(params Parameters, in ProductInput, t
 		if in.MarginRateOverride != nil {
 			margin = *in.MarginRateOverride
 		}
-		pricePerUnit := in.BomCostPerUnit * (1 + margin)
+		if rule.PricingMode == "cost_plus" && rule.HasCostPlusRate {
+			margin = rule.CostPlusRate
+		}
+		pricePerUnit := composableCostPerDisplayUnit(in, displayUnit) * (1 + margin)
 		if rule.PricingMode == "fixed_unit_price" {
 			if fixedPrice, ok := productPriceRuleTierPrice(rule, tier); ok {
 				pricePerUnit = fixedPrice

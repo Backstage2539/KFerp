@@ -193,7 +193,7 @@ func TestCostingViewPDFSupportsDripBeanListPricing(t *testing.T) {
 		"productPriceListTypeOptions",
 		"priceListRenderTypeForItem",
 		"if (kind === 'drip_bag') return 'drip'",
-		"挂耳豆单",
+		"productPriceListPreviewSections",
 		"sales_unit",
 		"unit_bag_count",
 		"packed_price_per_bag",
@@ -217,14 +217,13 @@ func TestCostingViewHasCollapsibleBeanListPreviewSections(t *testing.T) {
 	for _, want := range []string{
 		"collapsible-bean-section",
 		"beanListPreviewCollapsed",
-		"toggleBeanListPreviewSection('commercial')",
-		"toggleBeanListPreviewSection('drip')",
-		"toggleBeanListPreviewSection('retail')",
-		"toggleBeanListPreviewSection('green')",
-		"greenGroups",
+		"toggleBeanListPreviewSection(section.key)",
+		"section.label",
+		"section.groups",
+		"productGroupsForType",
 		"green_bean_list",
 		"green_bean_sale_tiers",
-		"生豆豆单",
+		"产品价格表",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("CostingView.vue missing collapsible bean-list preview support %q", want)

@@ -15,6 +15,7 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS retail_price_200g NUMERIC(12
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS retail_price_250g NUMERIC(12,2);
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS remark TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS roast_level TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS special_attrs_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_category_id BIGINT;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_category_position INT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0;
@@ -130,6 +131,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_config_templates (
 );
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_config_templates ADD COLUMN IF NOT EXISTS unit_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_config_templates ADD COLUMN IF NOT EXISTS special_attrs_schema_json JSONB NOT NULL DEFAULT '[]'::jsonb;
 CREATE UNIQUE INDEX IF NOT EXISTS product_config_templates_customer_source_active_uniq
 ON %[1]s.product_config_templates (customer_id, source_template_id)
 WHERE active=true AND source_template_id > 0;
@@ -392,6 +394,15 @@ FROM %[1]s.product_bom b
 WHERE b.product_id = p.id
   AND COALESCE(NULLIF(p.roast_level,''), '') = '';
 UPDATE %[1]s.products SET roast_level = '深烘' WHERE COALESCE(NULLIF(roast_level,''), '') = '';
+UPDATE %[1]s.products
+SET special_attrs_json = jsonb_set(COALESCE(special_attrs_json, '{}'::jsonb), '{roast_level}', to_jsonb(roast_level), true)
+WHERE COALESCE(NULLIF(roast_level,''), '') <> ''
+  AND NOT (COALESCE(special_attrs_json, '{}'::jsonb) ? 'roast_level');
+UPDATE %[1]s.product_config_templates
+SET special_attrs_schema_json = '[{"key":"roast_level","label":"烘焙度","value_type":"select","options":["浅烘","中烘","中深烘","深烘"],"required":false,"show_in_price_list":true,"position":1}]'::jsonb
+WHERE active=true
+  AND COALESCE(special_attrs_schema_json, '[]'::jsonb) = '[]'::jsonb
+  AND (name LIKE '%%熟豆%%' OR name LIKE '%%咖啡%%');
 ALTER TABLE %[1]s.products ALTER COLUMN retail_price_100g SET DEFAULT 0;
 ALTER TABLE %[1]s.products ALTER COLUMN retail_price_100g SET NOT NULL;
 ALTER TABLE %[1]s.products ALTER COLUMN retail_price_200g SET DEFAULT 0;

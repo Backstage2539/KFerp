@@ -11,6 +11,7 @@ func productOptionFromCatalog(p catalogapp.Product) ProductOption {
 		GreenBeanType:               p.GreenBeanType,
 		GreenBeanBomProductID:       p.GreenBeanBomProductID,
 		RoastLevel:                  p.RoastLevel,
+		SpecialAttrsJSON:            p.SpecialAttrsJSON,
 		DripBagGrams:                p.DripBagGrams,
 		DripBoxBagCount:             p.DripBoxBagCount,
 		AllowFulfillmentOrder:       p.AllowFulfillmentOrder,

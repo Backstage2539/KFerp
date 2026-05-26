@@ -15,26 +15,27 @@ import (
 )
 
 type ProduceRunRow struct {
-	ID               int64
-	BatchID          string
-	Product          string
-	ProductID        int64
-	SpecG            int64
-	NeedG            int64
-	InputG           int64
-	BomYieldRate     float64
-	PlanUnits        int64
-	PlanLooseG       int64
-	OrderNos         string
-	StartedBy        string
-	StartedAt        string
-	StartedAtTime    time.Time
-	MaterialSnapshot string
-	Outputs          []ProduceRunOutputRow
+	ID                  int64
+	BatchID             string
+	Product             string
+	ProductID           int64
+	SpecG               int64
+	NeedG               int64
+	InputG              int64
+	BomYieldRate        float64
+	PlanUnits           int64
+	PlanLooseG          int64
+	OrderNos            string
+	StartedBy           string
+	StartedAt           string
+	StartedAtTime       time.Time
+	MaterialSnapshot    string
+	OperationTemplateID int64
+	Outputs             []ProduceRunOutputRow
 }
 
 func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([]ProduceRunRow, error) {
-	rows, err := pool.Query(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text FROM %s.produce_running_items WHERE status='running' ORDER BY started_at DESC,id DESC`, schema))
+	rows, err := pool.Query(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0) FROM %s.produce_running_items WHERE status='running' ORDER BY started_at DESC,id DESC`, schema))
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +43,7 @@ func listRunningItems(ctx context.Context, pool *pgxpool.Pool, schema string) ([
 	out := make([]ProduceRunRow, 0)
 	for rows.Next() {
 		var r ProduceRunRow
-		if err := rows.Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot); err != nil {
+		if err := rows.Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID); err != nil {
 			return nil, err
 		}
 		r.BomYieldRate = normalizeYieldRate(r.BomYieldRate)
@@ -74,7 +75,7 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	defer tx.Rollback(ctx)
 
 	var r ProduceRunRow
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text FROM %s.produce_running_items WHERE id=$1 AND status='running' FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0) FROM %s.produce_running_items WHERE id=$1 AND status='running' FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	r.BomYieldRate = normalizeYieldRate(r.BomYieldRate)
@@ -548,7 +549,7 @@ func (repo Repository) Cancel(ctx context.Context, cmd productionapp.CancelComma
 	defer tx.Rollback(ctx)
 
 	var r ProduceRunRow
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text FROM %s.produce_running_items WHERE id=$1 AND status='running' FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id,batch_id,product_name,product_id,spec_g,need_g,COALESCE(input_g,0),COALESCE(bom_yield_rate,0.8),COALESCE(planned_units,0),COALESCE(planned_loose_g,0),order_nos,COALESCE(started_by,''),started_at,to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(material_snapshot,'[]'::jsonb)::text,COALESCE(operation_template_id,0) FROM %s.produce_running_items WHERE id=$1 AND status='running' FOR UPDATE`, schema), id).Scan(&r.ID, &r.BatchID, &r.Product, &r.ProductID, &r.SpecG, &r.NeedG, &r.InputG, &r.BomYieldRate, &r.PlanUnits, &r.PlanLooseG, &r.OrderNos, &r.StartedBy, &r.StartedAtTime, &r.StartedAt, &r.MaterialSnapshot, &r.OperationTemplateID); err != nil {
 		return err
 	}
 	outputs, err := loadRunningOutputsForUpdateTx(ctx, tx, schema, r.ID)
