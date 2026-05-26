@@ -35,15 +35,14 @@ func TestCustomerPortalAdminRepositoryPersistsProfilesCapabilitiesAndBindings(t 
 	}
 }
 
-func TestCustomerPortalAdminRepositoryShowsOnlyWholesaleCustomersAndERPBinding(t *testing.T) {
+func TestCustomerPortalAdminRepositoryShowsOnlyEnabledPortalCustomersAndERPBinding(t *testing.T) {
 	body, err := os.ReadFile("admin_repository.go")
 	if err != nil {
 		t.Fatalf("read admin_repository.go: %v", err)
 	}
 	text := string(body)
 	for _, want := range []string{
-		"customer_type",
-		"'wholesale'",
+		"p.enabled=true",
 		"customer_erp_user_bindings",
 		"company_employees",
 		"account_type='channel_customer'",
@@ -55,6 +54,9 @@ func TestCustomerPortalAdminRepositoryShowsOnlyWholesaleCustomersAndERPBinding(t
 		if !strings.Contains(text, want) {
 			t.Fatalf("admin repository missing wholesale/ERP binding guard %q", want)
 		}
+	}
+	if strings.Contains(text, "COALESCE(NULLIF(c.customer_type,''),'retail')='wholesale'") {
+		t.Fatalf("admin repository should not hardcode portal configuration list to wholesale customers")
 	}
 }
 

@@ -125,6 +125,15 @@ func TestServiceListNormalizesQuery(t *testing.T) {
 	}
 }
 
+func TestServiceSupportsChannelCustomerType(t *testing.T) {
+	if got := NormalizeCustomerType("channel"); got != "channel" {
+		t.Fatalf("NormalizeCustomerType(channel)=%q, want channel", got)
+	}
+	if got := NormalizeCustomerTypeFilter("channel"); got != "channel" {
+		t.Fatalf("NormalizeCustomerTypeFilter(channel)=%q, want channel", got)
+	}
+}
+
 func TestServiceListRespectsExplicitSort(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

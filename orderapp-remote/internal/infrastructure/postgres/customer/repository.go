@@ -40,6 +40,8 @@ type upsertRequest struct {
 	DefaultOrderTypeID    string
 	ResponsibleEmployeeID string
 	Active                string
+	PortalEnabled         *bool
+	CapabilityTemplateKey string
 }
 
 type inlineRequest = upsertRequest
@@ -72,6 +74,8 @@ func (r Repository) Upsert(ctx context.Context, actor string, id *int64, cmd cus
 		DefaultOrderTypeID:    cmd.DefaultOrderTypeID,
 		ResponsibleEmployeeID: cmd.ResponsibleEmployeeID,
 		Active:                cmd.Active,
+		PortalEnabled:         cmd.PortalEnabled,
+		CapabilityTemplateKey: cmd.CapabilityTemplateKey,
 	}
 	return upsertCustomer(ctx, r.pool, r.schema, actor, id, req)
 }
@@ -255,16 +259,25 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 		orderDir = "DESC"
 	}
 
+	portalProfiles := relationExists(ctx, pool, fmt.Sprintf("%s.customer_portal_profiles", schema))
+	portalSelect := "false, ''"
+	portalJoin := ""
+	if portalProfiles {
+		portalSelect = "COALESCE(p.enabled,false), COALESCE(p.capability_template_key,'')"
+		portalJoin = fmt.Sprintf("LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id", schema)
+	}
 	sql := fmt.Sprintf(`
 		SELECT c.id, c.name, COALESCE(NULLIF(c.customer_type,''),'retail'), COALESCE(c.company_name,''), COALESCE(c.company_address,''), COALESCE(c.company_phone,''), c.contact, c.phone, c.address, c.active, c.default_source_id, c.default_order_type_id,
 			NULLIF(COALESCE(c.responsible_employee_id,0),0)::int, COALESCE(e.name,''),
+			%s,
 			to_char(c.updated_at,'YYYY-MM-DD HH24:%%M') AS updated
 		FROM %s.customers c
 		LEFT JOIN %s.company_employees e ON e.id=c.responsible_employee_id
 		%s
+		%s
             ORDER BY %s %s, c.id %s
             LIMIT $%d OFFSET $%d
-        `, schema, schema, where, orderBy, orderDir, orderDir, limitArg, offsetArg)
+        `, portalSelect, schema, schema, portalJoin, where, orderBy, orderDir, orderDir, limitArg, offsetArg)
 
 	dbRows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
@@ -275,7 +288,7 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 	out := make([]customerapp.CustomerRow, 0)
 	for dbRows.Next() {
 		var r customerapp.CustomerRow
-		if err := dbRows.Scan(&r.ID, &r.Name, &r.CustomerType, &r.CompanyName, &r.CompanyAddress, &r.CompanyPhone, &r.Contact, &r.Phone, &r.Address, &r.Active, &r.DefaultSourceID, &r.DefaultOrderTypeID, &r.ResponsibleEmployeeID, &r.ResponsibleEmployeeName, &r.Updated); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.Name, &r.CustomerType, &r.CompanyName, &r.CompanyAddress, &r.CompanyPhone, &r.Contact, &r.Phone, &r.Address, &r.Active, &r.DefaultSourceID, &r.DefaultOrderTypeID, &r.ResponsibleEmployeeID, &r.ResponsibleEmployeeName, &r.PortalEnabled, &r.CapabilityTemplateKey, &r.Updated); err != nil {
 			return nil, 0, false, err
 		}
 		r.CustomerType = customerapp.NormalizeCustomerType(r.CustomerType)
@@ -293,13 +306,21 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 }
 
 func fetchCustomerByID(ctx context.Context, pool *pgxpool.Pool, schema string, id int64) (*customerapp.CustomerEditData, error) {
+	portalProfiles := relationExists(ctx, pool, fmt.Sprintf("%s.customer_portal_profiles", schema))
+	portalSelect := "false, ''"
+	portalJoin := ""
+	if portalProfiles {
+		portalSelect = "COALESCE(p.enabled,false), COALESCE(p.capability_template_key,'')"
+		portalJoin = fmt.Sprintf("LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id", schema)
+	}
 	q := fmt.Sprintf(`SELECT c.id, c.name, COALESCE(c.raw_name,''), COALESCE(NULLIF(c.customer_type,''),'retail'), COALESCE(c.company_name,''), COALESCE(c.company_address,''), COALESCE(c.company_phone,''), COALESCE(c.contact,''), COALESCE(c.phone,''), COALESCE(c.address,''),
-		COALESCE(c.default_source_id::text,''), COALESCE(c.default_order_type_id::text,''), COALESCE(NULLIF(c.responsible_employee_id,0)::text,''), COALESCE(e.name,''), c.active
+		COALESCE(c.default_source_id::text,''), COALESCE(c.default_order_type_id::text,''), COALESCE(NULLIF(c.responsible_employee_id,0)::text,''), COALESCE(e.name,''), %s, c.active
 		FROM %s.customers c
 		LEFT JOIN %s.company_employees e ON e.id=c.responsible_employee_id
-		WHERE c.id=$1`, schema, schema)
+		%s
+		WHERE c.id=$1`, portalSelect, schema, schema, portalJoin)
 	var d customerapp.CustomerEditData
-	err := pool.QueryRow(ctx, q, id).Scan(&d.ID, &d.Name, &d.RawName, &d.CustomerType, &d.CompanyName, &d.CompanyAddress, &d.CompanyPhone, &d.Contact, &d.Phone, &d.Address, &d.DefaultSourceID, &d.DefaultOrderTypeID, &d.ResponsibleEmployeeID, &d.ResponsibleEmployeeName, &d.Active)
+	err := pool.QueryRow(ctx, q, id).Scan(&d.ID, &d.Name, &d.RawName, &d.CustomerType, &d.CompanyName, &d.CompanyAddress, &d.CompanyPhone, &d.Contact, &d.Phone, &d.Address, &d.DefaultSourceID, &d.DefaultOrderTypeID, &d.ResponsibleEmployeeID, &d.ResponsibleEmployeeName, &d.PortalEnabled, &d.CapabilityTemplateKey, &d.Active)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -459,6 +480,9 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 			return 0, err
 		}
 	}
+	if err := syncCustomerPortalProfileTx(ctx, tx, schema, actor, newID, name, req.PortalEnabled, req.CapabilityTemplateKey); err != nil {
+		return 0, err
+	}
 	if err := ensureDefaultRetailPortalTx(ctx, tx, schema, newID, name, actor, customerType, active); err != nil {
 		return 0, err
 	}
@@ -545,68 +569,82 @@ func inlineUpdateCustomer(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	if err := auditCustomerDiffs(ctx, tx, schema, actor, id, old, next); err != nil {
 		return err
 	}
+	if err := syncCustomerPortalProfileTx(ctx, tx, schema, actor, id, next.name, req.PortalEnabled, req.CapabilityTemplateKey); err != nil {
+		return err
+	}
 	if err := ensureDefaultRetailPortalTx(ctx, tx, schema, id, next.name, actor, next.customerType, next.active); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
-func ensureDefaultRetailPortalTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64, customerName, actor, customerType string, active bool) error {
-	if !active {
+func ensureDefaultRetailPortalTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64, _ string, actor, customerType string, active bool) error {
+	return nil
+}
+
+func syncCustomerPortalProfileTx(ctx context.Context, tx pgx.Tx, schema, actor string, customerID int64, customerName string, portalEnabled *bool, templateKey string) error {
+	templateKey = strings.TrimSpace(templateKey)
+	if portalEnabled == nil && templateKey == "" {
 		return nil
 	}
-	customerType = customerapp.NormalizeCustomerType(customerType)
-	if customerType != customerapp.CustomerTypeRetail && customerType != customerapp.CustomerTypeEcommerce {
-		return nil
-	}
-	if err := deactivateRetailERPWorkbenchBindingsTx(ctx, tx, schema, customerID, actor); err != nil {
+	var hasProfiles bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.customer_portal_profiles", schema)).Scan(&hasProfiles); err != nil {
 		return err
 	}
-	var hasProfiles, hasCapabilities bool
-	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL, to_regclass($2) IS NOT NULL`,
-		fmt.Sprintf("%s.customer_portal_profiles", schema),
-		fmt.Sprintf("%s.customer_service_capabilities", schema),
-	).Scan(&hasProfiles, &hasCapabilities); err != nil {
-		return err
-	}
-	if !hasProfiles || !hasCapabilities {
+	if !hasProfiles {
 		return nil
 	}
+
+	oldEnabled := false
+	oldTemplateKey := ""
+	hadProfile := true
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(enabled,false), COALESCE(capability_template_key,'')
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, schema), customerID).Scan(&oldEnabled, &oldTemplateKey)
+	if err == pgx.ErrNoRows {
+		hadProfile = false
+		err = nil
+	}
+	if err != nil {
+		return err
+	}
+
+	nextEnabled := oldEnabled
+	if portalEnabled != nil {
+		nextEnabled = *portalEnabled
+	}
+	nextTemplateKey := templateKey
+	if nextTemplateKey == "" {
+		nextTemplateKey = oldTemplateKey
+	}
+	if !hadProfile && !nextEnabled && nextTemplateKey == "" {
+		return nil
+	}
+
 	displayName := strings.TrimSpace(customerName)
+	updatedBy := strings.TrimSpace(actor)
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, enabled, status, theme_key, miniapp_entry_mode, capability_template_key, updated_at, updated_by)
-		VALUES($1,$2,true,'active','clean_ops','mall','retail_mall',now(),$3)
+		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, enabled, status, capability_template_key, updated_at, updated_by)
+		VALUES($1,$2,$3,'active',$4,now(),$5)
 		ON CONFLICT(customer_id) DO UPDATE SET
 			display_name=COALESCE(NULLIF(%s.customer_portal_profiles.display_name,''), excluded.display_name),
-			enabled=true,
+			enabled=excluded.enabled,
 			status='active',
-			theme_key=excluded.theme_key,
-			miniapp_entry_mode='mall',
-			capability_template_key='retail_mall',
+			capability_template_key=excluded.capability_template_key,
 			updated_at=now(),
 			updated_by=excluded.updated_by
-	`, schema, schema), customerID, displayName, strings.TrimSpace(actor)); err != nil {
+	`, schema, schema), customerID, displayName, nextEnabled, nextTemplateKey, updatedBy); err != nil {
 		return err
 	}
-	for _, capability := range []string{
-		"bean_list",
-		"mall",
-		"product_order",
-		"direct_ship",
-		"processing",
-		"inventory_custody",
-		"settlement",
-		"shipping_query",
-	} {
-		enabled := capability == "mall"
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled, config_json, updated_at)
-			VALUES($1,$2,$3,'{}'::jsonb,now())
-			ON CONFLICT(customer_id, capability_code) DO UPDATE SET
-				enabled=excluded.enabled,
-				config_json=excluded.config_json,
-				updated_at=now()
-		`, schema), customerID, capability, enabled); err != nil {
+	if portalEnabled != nil && oldEnabled != nextEnabled {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer", &customerID, "update", postgresinfra.StrPtr("portal_enabled"), postgresinfra.StrPtr(fmt.Sprintf("%v", oldEnabled)), postgresinfra.StrPtr(fmt.Sprintf("%v", nextEnabled)), nil); err != nil {
+			return err
+		}
+	}
+	if oldTemplateKey != nextTemplateKey {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer", &customerID, "update", postgresinfra.StrPtr("capability_template_key"), postgresinfra.StrPtr(oldTemplateKey), postgresinfra.StrPtr(nextTemplateKey), nil); err != nil {
 			return err
 		}
 	}
@@ -838,6 +876,16 @@ func intPtrString(v *int) string {
 		return ""
 	}
 	return fmt.Sprintf("%d", *v)
+}
+
+func relationExists(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, relation string) bool {
+	var ok bool
+	if err := q.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, relation).Scan(&ok); err != nil {
+		return false
+	}
+	return ok
 }
 
 func nullText(v string) any {

@@ -12,6 +12,7 @@ const (
 	CustomerTypeRetail    = "retail"
 	CustomerTypeEcommerce = "ecommerce"
 	CustomerTypeWholesale = "wholesale"
+	CustomerTypeChannel   = "channel"
 )
 
 type UpsertCommand struct {
@@ -28,6 +29,8 @@ type UpsertCommand struct {
 	DefaultOrderTypeID    string
 	ResponsibleEmployeeID string
 	Active                string
+	PortalEnabled         *bool
+	CapabilityTemplateKey string
 }
 
 type InlineUpdateCommand struct {
@@ -110,6 +113,8 @@ type CustomerRow struct {
 	DefaultOrderTypeID      *int    `json:"default_order_type_id"`
 	ResponsibleEmployeeID   *int    `json:"responsible_employee_id"`
 	ResponsibleEmployeeName string  `json:"responsible_employee_name"`
+	PortalEnabled           bool    `json:"portal_enabled"`
+	CapabilityTemplateKey   string  `json:"capability_template_key"`
 	Updated                 string  `json:"updated"`
 }
 
@@ -128,6 +133,8 @@ type CustomerEditData struct {
 	DefaultOrderTypeID      string
 	ResponsibleEmployeeID   string
 	ResponsibleEmployeeName string
+	PortalEnabled           bool
+	CapabilityTemplateKey   string
 	Active                  bool
 }
 
@@ -195,6 +202,10 @@ func (s *Service) Upsert(ctx context.Context, actor string, id *int64, cmd Upser
 		return 0, err
 	}
 	cmd.CustomerType = NormalizeCustomerType(cmd.CustomerType)
+	cmd.CapabilityTemplateKey = strings.TrimSpace(cmd.CapabilityTemplateKey)
+	if cmd.PortalEnabled != nil && *cmd.PortalEnabled && cmd.CapabilityTemplateKey == "" {
+		return 0, fmt.Errorf("请维护客户门户/工作台：能力模板")
+	}
 	return s.repo.Upsert(ctx, actor, id, cmd)
 }
 
@@ -252,6 +263,8 @@ func NormalizeCustomerType(value string) string {
 		return CustomerTypeWholesale
 	case CustomerTypeEcommerce:
 		return CustomerTypeEcommerce
+	case CustomerTypeChannel:
+		return CustomerTypeChannel
 	default:
 		return CustomerTypeRetail
 	}
@@ -259,7 +272,7 @@ func NormalizeCustomerType(value string) string {
 
 func validRequiredCustomerType(value string) bool {
 	switch strings.TrimSpace(value) {
-	case CustomerTypeRetail, CustomerTypeEcommerce, CustomerTypeWholesale:
+	case CustomerTypeRetail, CustomerTypeEcommerce, CustomerTypeWholesale, CustomerTypeChannel:
 		return true
 	default:
 		return false
@@ -290,7 +303,7 @@ func validateRequiredCustomerProfileDefaults(customerType, sourceID, orderTypeID
 
 func NormalizeCustomerTypeFilter(value string) string {
 	switch strings.TrimSpace(value) {
-	case CustomerTypeWholesale, CustomerTypeEcommerce, CustomerTypeRetail:
+	case CustomerTypeWholesale, CustomerTypeEcommerce, CustomerTypeRetail, CustomerTypeChannel:
 		return strings.TrimSpace(value)
 	default:
 		return ""

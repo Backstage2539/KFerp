@@ -13,6 +13,7 @@
           <input v-model.trim="q" placeholder="客户名/手机号/公司名" @keyup.enter="loadCustomers" />
         </label>
         <button class="primary" type="button" @click="loadCustomers" :disabled="loading">查询</button>
+        <button class="secondary" type="button" @click="openCustomerDossier">去客户档案开通</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">{{ ok }}</div>
@@ -27,7 +28,7 @@
         <span>绑定用户</span>
       </div>
 
-      <div v-if="!portalRows.length && !loading" class="muted empty">暂无客户</div>
+      <div v-if="!portalRows.length && !loading" class="muted empty">暂无已开通客户</div>
 
       <div v-for="row in portalRows" :key="row.customer.id" class="portal-row">
         <div class="customer-cell">
@@ -293,9 +294,17 @@ function senderProfileLabel(profile) {
 function customerTypeLabel(value) {
   return {
     wholesale: '批发客户',
+    channel: '渠道客户',
     retail: '零售客户',
     ecommerce: '电商客户',
   }[value] || '零售客户'
+}
+
+function openCustomerDossier() {
+  const url = new URL(window.location.href)
+  url.searchParams.set('view', 'customers')
+  if (q.value) url.searchParams.set('q', q.value)
+  window.location.href = `${url.pathname}${url.search}${url.hash}`
 }
 
 function createPortalRow(customer) {

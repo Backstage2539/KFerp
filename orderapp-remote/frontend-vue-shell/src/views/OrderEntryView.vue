@@ -466,7 +466,7 @@
           </label>
           <label>
             <span>客户类型</span>
-            <select v-model="customerForm.customer_type">
+            <select v-model="customerForm.customer_type" @change="applyRecommendedCustomerTemplate">
               <option v-for="item in customerTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
             </select>
           </label>
@@ -497,6 +497,17 @@
             <span>公司地址</span>
             <textarea v-model.trim="customerForm.company_address" rows="3"></textarea>
           </label>
+          <label class="check-field">
+            <input v-model="customerForm.portal_enabled" type="checkbox" @change="applyRecommendedCustomerTemplate" />
+            <span>开通客户门户/工作台</span>
+          </label>
+          <label v-if="customerForm.portal_enabled">
+            <span>能力模板</span>
+            <select v-model="customerForm.capability_template_key">
+              <option value="">选择能力模板</option>
+              <option v-for="template in activeCapabilityTemplates" :key="template.key" :value="template.key">{{ template.label }}</option>
+            </select>
+          </label>
         </div>
         <div class="drawer-actions">
           <button class="primary" type="button" @click="saveCustomerFromDrawer" :disabled="customerSaving">
@@ -512,21 +523,21 @@
           <h3>豆单选择</h3>
           <button class="secondary" type="button" @click="closeBeanListDrawer">关闭</button>
         </div>
-        <p class="drawer-help">可分别选择熟豆、生豆、挂耳已发布豆单。客户没有自定义豆单时，系统使用对应公共豆单。</p>
+        <p class="drawer-help">按商品分类选择已发布价格表。客户没有自定义版本时，系统使用同分类公共版本。</p>
         <div class="bean-list-picker-list">
-          <label v-for="item in orderBeanListTypes" :key="item.type">
-            <span>{{ item.label }}</span>
+          <label v-for="group in beanListVersionGroups" :key="group.key">
+            <span>{{ group.label }}</span>
             <select
-              v-if="customerBeanListVersionOptionsByType(item.type).length"
-              :value="form[beanListVersionField(item.type)]"
-              @change="setBeanListVersion(item.type, $event.target.value)"
+              v-if="group.options.length"
+              :value="selectedBeanListPublicationIDs[group.key] || selectedBeanListVersionOptionByGroup(group)?.id || 0"
+              @change="setBeanListVersion(group.key, $event.target.value)"
             >
-              <option v-for="option in customerBeanListVersionOptionsByType(item.type)" :key="option.id" :value="option.id">
+              <option v-for="option in group.options" :key="option.id" :value="option.id">
                 {{ beanListVersionLabel(option) }}
               </option>
             </select>
             <input v-else value="暂无已发布豆单" readonly />
-            <small>{{ beanListDrawerHint(item.type) }}</small>
+            <small>{{ beanListDrawerHint(group) }}</small>
           </label>
         </div>
       </aside>
@@ -552,6 +563,7 @@ import { apiGet, apiSend } from '../api/client'
 import { clearFormDraft, FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
   CUSTOM_SPEC_VALUE,
+  beanListVersionOptionGroups,
   beanListVersionOptionsForCustomer,
   buildOrderPayload,
   defaultWholesaleSpec,
@@ -562,6 +574,7 @@ import {
   filterOptions,
   isOrderTierActive,
   lineTotal,
+  latestProductPriceListVersionOption,
   needsTrailingBlankOrderLine,
   normalizeSpecG,
   orderRowPriceUnit,
@@ -569,7 +582,6 @@ import {
   orderTotalPreview,
   productKindBadgeClass,
   productKindLabel,
-  productOrderUnit,
   requiresOrderPaymentMethod,
   resolveWholesaleTierPrice,
   retailPackagePrice,
@@ -583,6 +595,7 @@ import {
   wholesaleSpecOptions,
 } from '../lib/order-entry'
 import { parseRecipientText } from '../lib/customer-recipient'
+import { customerTypeLabel, customerTypeOptions, defaultCapabilityTemplateForCustomerType, normalizeCustomerType } from '../lib/customer-types'
 import { dripUnitOptions, isDripProduct } from '../lib/drip-product'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
@@ -611,10 +624,12 @@ const payStatuses = ref([])
 const orderTypes = ref([])
 const products = ref([])
 const employees = ref([])
+const capabilityTemplates = ref([])
 const logisticsCompanies = ref([])
 const beanListVersionOptions = ref([])
 const customerPublicUsages = ref([])
 const customerProductUsages = ref([])
+const selectedBeanListPublicationIDs = reactive({})
 const rows = ref([newRow()])
 const paymentVoucher = ref(null)
 const paymentVoucherFile = ref(null)
@@ -634,11 +649,6 @@ const customerForm = reactive(emptyCustomerForm())
 const fieldErrors = reactive({})
 const effectiveCopyID = ref(0)
 const backfillMode = ref(false)
-const customerTypeOptions = [
-  { value: 'retail', label: '零售客户' },
-  { value: 'ecommerce', label: '电商客户' },
-  { value: 'wholesale', label: '批发客户' },
-]
 
 const form = reactive({
   edit_id: 0,
@@ -682,6 +692,8 @@ function newRow() {
     product_id: 0,
     product_name: '',
     product_kind: 'roasted_bean',
+    product_type_category_id: 0,
+    product_type_name: '',
     tier_id: 'auto',
     bean_list_publication_id: 0,
     bean_list_version_no: '',
@@ -722,6 +734,8 @@ function emptyCustomerForm() {
     default_order_type_id: 0,
     responsible_employee_id: 0,
     active: true,
+    portal_enabled: false,
+    capability_template_key: '',
   }
 }
 
@@ -808,6 +822,7 @@ const selectedLogisticsProducts = computed(() => {
 const copyMode = computed(() => Number(props.copyId || effectiveCopyID.value || 0) > 0)
 const canUseBackfillMode = computed(() => !props.embedded && !form.edit_id && !copyMode.value)
 const activeEmployees = computed(() => employees.value.filter((employee) => employee.active !== false))
+const activeCapabilityTemplates = computed(() => (capabilityTemplates.value || []).filter((template) => template.active !== false))
 const selectedCustomer = computed(() => customers.value.find((item) => Number(item.id || 0) === Number(form.customer_id || 0)) || null)
 const selectedCustomerResponsibleLabel = computed(() => selectedCustomer.value?.responsible_employee_name || '')
 const selectedCustomerProfileSummary = computed(() => [
@@ -838,22 +853,19 @@ const orderBeanListTypes = [
 const customerBeanListVersionOptions = computed(() => {
   return beanListVersionOptionsForCustomer(beanListVersionOptions.value, form.customer_id)
 })
+const beanListVersionGroups = computed(() => beanListVersionOptionGroups(customerBeanListVersionOptions.value))
 const canOpenBeanListDrawer = computed(() => {
   return Number(form.customer_id || 0) > 0 || customerBeanListVersionOptions.value.length > 0
 })
-const selectedBeanListSummaryItems = computed(() => orderBeanListTypes
-  .map((item) => {
-    const selected = selectedBeanListVersionOptionByType(item.type)
+const selectedBeanListSummaryItems = computed(() => beanListVersionGroups.value
+  .map((group) => {
+    const selected = selectedBeanListVersionOptionByGroup(group)
     return {
-      type: item.type,
-      label: item.label,
+      type: group.key,
+      label: group.label,
       versionLabel: selected ? beanListVersionLabel(selected) : '暂无',
     }
   }))
-
-function customerTypeLabel(value) {
-  return customerTypeOptions.find((item) => item.value === String(value || '').trim())?.label || ''
-}
 
 function selectedCustomerMissingProfileLabels() {
   if (!selectedCustomer.value) return []
@@ -1047,14 +1059,22 @@ function customerBeanListVersionOptionsByType(listType) {
   return customerBeanListVersionOptions.value.filter((item) => String(item.list_type || 'commercial') === listType)
 }
 
+function beanListGroupKeyForProduct(productOrRow) {
+  const categoryID = Number(productOrRow?.product_type_category_id || 0)
+  const categoryName = String(productOrRow?.product_type_name || '').trim()
+  if (categoryID > 0) return `category:${categoryID}`
+  if (categoryName) return `category-name:${categoryName}`
+  return `legacy:${orderBeanListTypeForProductKind(productOrRow?.product_kind)}`
+}
+
 function selectedBeanListPublicationIDsByType() {
   const out = {}
-  for (const beanListType of orderBeanListTypes) {
-    const item = selectedBeanListVersionOptionByType(beanListType.type)
+  for (const group of beanListVersionGroups.value) {
+    const item = selectedBeanListVersionOptionByGroup(group)
     if (!item) continue
     const id = Number(item.id || 0)
     if (id <= 0) continue
-    const listType = String(item.list_type || beanListType.type || 'commercial')
+    const listType = String(item.list_type || group.listType || 'commercial')
     if (!out[listType]) out[listType] = []
     out[listType].push(id)
   }
@@ -1079,11 +1099,41 @@ function selectedBeanListVersionOptionByType(listType) {
     || rows[0]
 }
 
-function setBeanListVersion(listType, value) {
-  const field = beanListVersionField(listType)
-  form[field] = Number(value || 0)
+function selectedBeanListVersionOptionByGroup(group) {
+  const rows = group?.options || []
+  if (!rows.length) return null
+  const selected = Number(selectedBeanListPublicationIDs[group.key] || 0)
+  return rows.find((item) => Number(item.id) === selected)
+    || rows.find((item) => item.is_default)
+    || rows[0]
+}
+
+function selectedBeanListVersionOptionForProduct(productOrRow) {
+  const product = productOrRow?.product_id ? (productByID(productOrRow.product_id) || productOrRow) : productOrRow
+  const groupKey = beanListGroupKeyForProduct(product)
+  const group = beanListVersionGroups.value.find((item) => item.key === groupKey)
+  if (group) {
+    const selected = selectedBeanListVersionOptionByGroup(group)
+    if (selected) return selected
+  }
+  return latestProductPriceListVersionOption(customerBeanListVersionOptions.value, product)
+}
+
+function setBeanListVersion(groupKey, value) {
+  const group = beanListVersionGroups.value.find((item) => item.key === groupKey)
+  if (!group) return
+  const selectedID = Number(value || 0)
+  selectedBeanListPublicationIDs[group.key] = selectedID
+  const legacyKey = group.key.startsWith('legacy:')
+  const listType = group.listType || 'commercial'
+  if (legacyKey) {
+    const field = beanListVersionField(listType)
+    form[field] = selectedID
+  }
   if (listType === 'commercial') {
-    form.bean_list_publication_id = form[field]
+    const field = beanListVersionField(listType)
+    if (legacyKey) form[field] = selectedID
+    form.bean_list_publication_id = selectedID
   }
   syncRowsForType()
 }
@@ -1100,8 +1150,8 @@ function closeBeanListDrawer() {
   beanListDrawerOpen.value = false
 }
 
-function beanListDrawerHint(listType) {
-  const rows = customerBeanListVersionOptionsByType(listType)
+function beanListDrawerHint(group) {
+  const rows = group?.options || []
   if (!rows.length) return '没有可用的已发布豆单'
   if (rows.some((item) => item.is_customer_owned)) return '可选择客户自定义豆单版本'
   return '当前使用公共豆单'
@@ -1122,6 +1172,12 @@ function syncBeanListVersionForCustomer(options = {}) {
     form[field] = Number(selected?.id || 0)
     if (item.type === 'commercial') form.bean_list_publication_id = form[field]
   }
+  for (const group of beanListVersionGroups.value) {
+    const currentID = Number(selectedBeanListPublicationIDs[group.key] || 0)
+    if (!options.force && group.options.some((row) => Number(row.id) === currentID)) continue
+    const selected = group.options.find((row) => row.is_default) || group.options[0]
+    selectedBeanListPublicationIDs[group.key] = Number(selected?.id || 0)
+  }
 }
 
 function resetCustomerDrawerForm() {
@@ -1132,6 +1188,21 @@ function resetCustomerDrawerForm() {
   customerPaste.value = ''
   customerError.value = ''
   customerNotice.value = ''
+}
+
+async function loadCapabilityTemplates() {
+  try {
+    const data = await apiGet('/api/customer-portal/admin/capability-templates')
+    capabilityTemplates.value = data.templates || []
+  } catch {
+    capabilityTemplates.value = []
+  }
+}
+
+function applyRecommendedCustomerTemplate() {
+  if (!customerForm.portal_enabled) return
+  if (customerForm.capability_template_key) return
+  customerForm.capability_template_key = defaultCapabilityTemplateForCustomerType(customerForm.customer_type)
 }
 
 function openCustomerDrawer() {
@@ -1145,7 +1216,7 @@ function assignCustomerDrawerForm(customer = {}) {
     id: Number(customer.id || 0),
     name: customer.name || '',
     raw_name: customer.raw_name || '',
-    customer_type: customer.customer_type || 'retail',
+    customer_type: normalizeCustomerType(customer.customer_type),
     company_name: customer.company_name || '',
     company_address: customer.company_address || '',
     company_phone: customer.company_phone || customer.phone || '',
@@ -1156,6 +1227,8 @@ function assignCustomerDrawerForm(customer = {}) {
     default_order_type_id: Number(customer.default_order_type_id || defaultOrderTypeID()),
     responsible_employee_id: Number(customer.responsible_employee_id || 0),
     active: customer.active !== false,
+    portal_enabled: customer.portal_enabled === true,
+    capability_template_key: customer.capability_template_key || '',
   })
 }
 
@@ -1206,10 +1279,11 @@ async function saveCustomerFromDrawer() {
     if (!Number(customerForm.default_source_id || 0)) throw new Error('请选择客户来源')
     if (!Number(customerForm.default_order_type_id || 0)) throw new Error('请选择客户订单类型')
     if (!Number(customerForm.responsible_employee_id || 0)) throw new Error('请选择客户负责人')
+    if (customerForm.portal_enabled && !customerForm.capability_template_key) throw new Error('请选择能力模板')
     const customerPayload = {
       name: customerForm.name,
       raw_name: customerForm.raw_name || '',
-      customer_type: customerForm.customer_type,
+      customer_type: normalizeCustomerType(customerForm.customer_type),
       company_name: customerForm.company_name || '',
       company_address: customerForm.company_address || '',
       company_phone: customerForm.phone,
@@ -1220,6 +1294,8 @@ async function saveCustomerFromDrawer() {
       default_order_type_id: customerForm.default_order_type_id || null,
       responsible_employee_id: customerForm.responsible_employee_id || null,
       active: customerForm.active !== false,
+      portal_enabled: customerForm.portal_enabled === true,
+      capability_template_key: customerForm.capability_template_key || '',
     }
     if (customerForm.company_phone) customerPayload.company_phone = customerForm.company_phone
     const data = await apiSend(customerDrawerMode.value === 'edit' ? `/api/customers/${customerForm.id}` : '/api/customers', {
@@ -1264,6 +1340,8 @@ function clearProduct(row) {
   row.product_id = 0
   row.product_name = ''
   row.product_kind = 'roasted_bean'
+  row.product_type_category_id = 0
+  row.product_type_name = ''
   row.tier_id = 'auto'
   row.bean_list_publication_id = 0
   row.bean_list_version_no = ''
@@ -1276,7 +1354,7 @@ function clearProduct(row) {
   row.sales_unit = ''
   row.unit_bag_count = 0
   row.unit_bean_g = ''
-  row.unit = productOrderUnit(product) || '件'
+  row.unit = '件'
 }
 
 function chooseProduct(row, product) {
@@ -1286,6 +1364,8 @@ function chooseProduct(row, product) {
   row.product_open = false
   row.manual_price = false
   row.product_kind = product?.product_kind || 'roasted_bean'
+  row.product_type_category_id = Number(product?.product_type_category_id || 0)
+  row.product_type_name = product?.product_type_name || ''
   if (isDripProduct(product)) {
     row.sales_unit = 'bag'
     row.unit_bean_g = Number(product?.drip_bag_grams || 10)
@@ -1389,8 +1469,7 @@ function applyResolvedWholesalePrice(row, price) {
 }
 
 function ensureRowBeanListVersion(row, price = {}) {
-  const listType = orderBeanListTypeForProductKind(row.product_kind)
-  const selected = selectedBeanListVersionOptionByType(listType)
+  const selected = selectedBeanListVersionOptionForProduct(row)
   const publicationID = Number(price.beanListPublicationID || row.bean_list_publication_id || selected?.id || 0)
   row.bean_list_publication_id = publicationID
   row.bean_list_version_no = String(price.beanListVersionNo || row.bean_list_version_no || selected?.version_no || '').trim()
@@ -1398,16 +1477,14 @@ function ensureRowBeanListVersion(row, price = {}) {
 }
 
 function syncRowBeanListVersionFromSelection(row) {
-  const listType = orderBeanListTypeForProductKind(row.product_kind)
-  const selected = selectedBeanListVersionOptionByType(listType)
+  const selected = selectedBeanListVersionOptionForProduct(row)
   row.bean_list_publication_id = Number(selected?.id || 0)
   row.bean_list_version_no = String(selected?.version_no || '').trim()
   if (!isRowBeanListVersionStale(row)) row.bean_list_version_tip_open = false
 }
 
 function isRowBeanListVersionStale(row) {
-  const listType = orderBeanListTypeForProductKind(row?.product_kind)
-  return rowUsesStaleBeanListPublication(row, customerBeanListVersionOptionsByType(listType), listType)
+  return rowUsesStaleBeanListPublication(row, customerBeanListVersionOptions.value)
 }
 
 function toggleBeanListVersionTip(row) {
@@ -1618,6 +1695,8 @@ function applyEditData(data) {
       product_name: item.product_name || '',
       product_query: item.product_name || '',
       product_kind: productKind,
+      product_type_category_id: Number(product?.product_type_category_id || 0),
+      product_type_name: product?.product_type_name || '',
       tier_id: item.tier_id || 'auto',
       bean_list_publication_id: Number(item.bean_list_publication_id || 0),
       bean_list_version_no: item.bean_list_version_no || '',
@@ -1848,7 +1927,7 @@ function stockBatchConfirmText(preview) {
 }
 
 onMounted(async () => {
-  await load()
+  await Promise.all([loadCapabilityTemplates(), load()])
   restoreOrderEntryDraft()
 })
 
@@ -2055,6 +2134,8 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .drawer-head h3 { margin: 0; font-size: 18px; }
 .drawer-grid { display: grid; gap: 12px; margin-top: 12px; }
 .wide-field textarea, .drawer-grid input, .drawer-grid select { width: 100%; }
+.check-field { display: flex; align-items: center; gap: 8px; }
+.check-field input { width: auto; }
 .parse-button { margin-top: 8px; }
 .drawer-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
 .drawer-help { margin: 0 0 14px; color: #667085; font-size: 13px; }

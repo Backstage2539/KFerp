@@ -28,7 +28,7 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 		       COALESCE(p.display_name,''),
 		       COALESCE(p.processing_warehouse_code,''),
 		       COALESCE(p.default_sender_id,0),
-		       COALESCE(p.enabled,true),
+		       COALESCE(p.enabled,false),
 		       COALESCE(p.status,'active'),
 		       COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
 		       COALESCE(NULLIF(p.miniapp_entry_mode,''),'services'),
@@ -44,7 +44,7 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 		       eb.updated_by,
 		       eb.updated_at
 		FROM %s.customers c
-		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
+		JOIN %s.customer_portal_profiles p ON p.customer_id=c.id AND p.enabled=true
 		LEFT JOIN LATERAL (
 			SELECT b.employee_id,
 			       COALESCE(e.name,'') AS employee_name,
@@ -65,7 +65,6 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 			LIMIT 1
 		) eb ON true
 		WHERE c.active=true
-		  AND COALESCE(NULLIF(c.customer_type,''),'retail')='wholesale'
 		  AND ($1='' OR c.name ILIKE '%%' || $1 || '%%' OR c.phone ILIKE '%%' || $1 || '%%' OR c.company_name ILIKE '%%' || $1 || '%%')
 		ORDER BY c.name, c.id
 		LIMIT $2
@@ -621,7 +620,7 @@ func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (
 		       COALESCE(p.display_name,''),
 		       COALESCE(p.processing_warehouse_code,''),
 		       COALESCE(p.default_sender_id,0),
-		       COALESCE(p.enabled,true),
+		       COALESCE(p.enabled,false),
 		       COALESCE(p.status,'active'),
 		       COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
 		       COALESCE(NULLIF(p.miniapp_entry_mode,''),'services'),

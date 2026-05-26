@@ -43,14 +43,15 @@ func (a api) listCustomers(c echo.Context) error {
 	}
 	rows := make([]customerapp.CustomerRow, 0, len(result.Rows))
 	for _, row := range result.Rows {
-		if row.Active && row.CustomerType == "wholesale" {
-			bound, err := a.hasActiveERPBinding(c, row.ID)
-			if err != nil {
-				return customerFulfillmentError(c, http.StatusInternalServerError, err)
-			}
-			if bound {
-				rows = append(rows, row)
-			}
+		if !row.Active {
+			continue
+		}
+		available, err := a.svc.CustomerERPWorkbenchAvailable(c.Request().Context(), row.ID)
+		if err != nil {
+			return customerFulfillmentError(c, http.StatusInternalServerError, err)
+		}
+		if available {
+			rows = append(rows, row)
 		}
 	}
 	return c.JSON(http.StatusOK, map[string]any{

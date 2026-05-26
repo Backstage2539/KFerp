@@ -32,15 +32,17 @@ func (r *fakeCustomerRepo) List(ctx context.Context, query customerapp.ListQuery
 func (r *fakeCustomerRepo) Editor(ctx context.Context, id int64) (*customerapp.EditorData, error) {
 	return &customerapp.EditorData{
 		Customer: customerapp.CustomerEditData{
-			ID:                 id,
-			Name:               r.upsert.Name,
-			CustomerType:       r.upsert.CustomerType,
-			CompanyName:        r.upsert.CompanyName,
-			CompanyAddress:     r.upsert.CompanyAddress,
-			CompanyPhone:       r.upsert.CompanyPhone,
-			DefaultSourceID:    r.upsert.DefaultSourceID,
-			DefaultOrderTypeID: r.upsert.DefaultOrderTypeID,
-			Active:             true,
+			ID:                    id,
+			Name:                  r.upsert.Name,
+			CustomerType:          r.upsert.CustomerType,
+			CompanyName:           r.upsert.CompanyName,
+			CompanyAddress:        r.upsert.CompanyAddress,
+			CompanyPhone:          r.upsert.CompanyPhone,
+			DefaultSourceID:       r.upsert.DefaultSourceID,
+			DefaultOrderTypeID:    r.upsert.DefaultOrderTypeID,
+			PortalEnabled:         r.upsert.PortalEnabled != nil && *r.upsert.PortalEnabled,
+			CapabilityTemplateKey: r.upsert.CapabilityTemplateKey,
+			Active:                true,
 		},
 	}, nil
 }
@@ -119,6 +121,55 @@ func TestCustomerAPIRoundTripsCustomerType(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"customer_type":"wholesale"`) {
 		t.Fatalf("response missing customer_type: %s", rec.Body.String())
+	}
+}
+
+func TestCustomerAPISupportsChannelPortalSwitch(t *testing.T) {
+	repo := &fakeCustomerRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
+
+	body := strings.NewReader(`{"name":"渠道伙伴","customer_type":"channel","default_source_id":1,"default_order_type_id":2,"portal_enabled":true,"capability_template_key":"channel_direct_ship","active":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/customers", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/customers status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"customer_type":"channel"`,
+		`"portal_enabled":true`,
+		`"capability_template_key":"channel_direct_ship"`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestCustomerAPIRequiresCapabilityTemplateWhenPortalEnabled(t *testing.T) {
+	repo := &fakeCustomerRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
+
+	body := strings.NewReader(`{"name":"渠道伙伴","customer_type":"channel","default_source_id":1,"default_order_type_id":2,"portal_enabled":true,"active":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/customers", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/customers status=%d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "能力模板") {
+		t.Fatalf("response missing capability template error: %s", rec.Body.String())
+	}
+	if repo.upsert.Name != "" {
+		t.Fatalf("repo should not be called for missing portal template, got %+v", repo.upsert)
 	}
 }
 
