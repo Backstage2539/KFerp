@@ -6,22 +6,22 @@ import (
 	"testing"
 )
 
-func TestDev380CustomerPortalTemplateBoundaryRequirementSeeds(t *testing.T) {
+func TestDev381CustomerPortalTemplateBoundaryRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-380-CUSTOMER-PORTAL-TEMPLATE-BOUNDARY",
-		"DEV-380-CUSTOMER-PROFILE-PORTAL-SWITCH-ONLY",
-		"UT-380-CUSTOMER-PORTAL-TEMPLATE-BOUNDARY",
-		"API-380-CUSTOMER-PORTAL-TEMPLATE-BOUNDARY",
-		"REV-380-CUSTOMER-PORTAL-TEMPLATE-BOUNDARY",
+		"PR-381-CUSTOMER-PORTAL-TEMPLATE-BOUNDARY",
+		"DEV-381-CUSTOMER-PROFILE-PORTAL-SWITCH-ONLY",
+		"UT-381-CUSTOMER-PORTAL-TEMPLATE-BOUNDARY",
+		"API-381-CUSTOMER-PORTAL-TEMPLATE-BOUNDARY",
+		"REV-381-CUSTOMER-PORTAL-TEMPLATE-BOUNDARY",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("PR-380 requirement seed missing %q", want)
+			t.Fatalf("PR-381 requirement seed missing %q", want)
 		}
 	}
 }
 
-func TestDev380CustomerProfileDoesNotBindCapabilityTemplate(t *testing.T) {
+func TestDev381CustomerProfileDoesNotBindCapabilityTemplate(t *testing.T) {
 	customerService := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "customer", "service.go")))
 	if strings.Contains(customerService, "请维护客户门户/工作台：能力模板") {
 		t.Fatal("customer profile service should not require capability template when portal switch is enabled")
@@ -67,7 +67,7 @@ func TestDev380CustomerProfileDoesNotBindCapabilityTemplate(t *testing.T) {
 	}
 }
 
-func TestDev380CustomerPortalTemplateBoundaryDocs(t *testing.T) {
+func TestDev381CustomerPortalTemplateBoundaryDocs(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("docs", "REQUIREMENTS.md"),
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
@@ -77,13 +77,13 @@ func TestDev380CustomerPortalTemplateBoundaryDocs(t *testing.T) {
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{
-			"PR-380-CUSTOMER-PORTAL-TEMPLATE-BOUNDARY",
+			"PR-381-CUSTOMER-PORTAL-TEMPLATE-BOUNDARY",
 			"客户档案",
 			"门户客户配置",
 			"能力模板",
 		} {
 			if !strings.Contains(src, want) {
-				t.Fatalf("%s missing PR-380 documentation marker %q", rel, want)
+				t.Fatalf("%s missing PR-381 documentation marker %q", rel, want)
 			}
 		}
 	}
