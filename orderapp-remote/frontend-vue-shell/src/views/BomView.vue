@@ -106,6 +106,12 @@
           <div><span>预期产出率</span><strong>{{ pct(expectedYield(detail)) }}</strong></div>
           <div><span>状态</span><strong :class="{ warn: detail.status === 'inactive' }">{{ bomStatusLabel(detail.status) }}</strong></div>
           <div><span>合计比例</span><strong :class="{ warn: detail.total_ratio > 100 }">{{ ratio(detail.total_ratio) }}</strong></div>
+          <div><span>关联工艺</span><strong>{{ linkedProcessTemplates.length ? `${linkedProcessTemplates.length} 个模板` : '-' }}</strong></div>
+        </div>
+        <div v-if="detail && linkedProcessTemplates.length" class="linked-processes">
+          <span v-for="template in linkedProcessTemplates" :key="template.id" :class="['status-pill', template.status === 'inactive' ? 'inactive' : '']">
+            {{ template.name }} · {{ processStatusLabel(template.status) }}
+          </span>
         </div>
         <div v-if="detail?.status === 'inactive'" class="warning-banner">当前 BOM 已失效，历史配方明细会保留；重新保存或启用版本后可恢复为有效 BOM。</div>
         <div v-if="!detail" class="muted empty">请选择商品</div>
@@ -290,6 +296,7 @@ const customers = ref([])
 const materials = ref([])
 const mappings = ref([])
 const versions = ref([])
+const processTemplates = ref([])
 const detail = ref(null)
 const selectedProductId = ref(0)
 const selectedBomCustomerSkuCustomerID = ref(0)
@@ -328,6 +335,7 @@ const bomContextProducts = computed(() => filterBomContextProducts(products.valu
 const allBomContextRows = computed(() => filterBomContextProducts(rows.value, bomContextCustomerID.value))
 const bomContextRows = computed(() => filterBomRowsByProductFocus(allBomContextRows.value, bomFilterProductId.value))
 const isBomProductFilterActive = computed(() => Number(bomFilterProductId.value || 0) > 0)
+const linkedProcessTemplates = computed(() => processTemplates.value.filter((template) => Number(template.product_id || 0) === Number(selectedProductId.value || 0)))
 const selectedProduct = computed(() => productByID(selectedProductId.value))
 const canEditCurrentBomProduct = computed(() => {
   if (!selectedProductId.value) return true
@@ -596,18 +604,20 @@ async function loadAll() {
   error.value = ''
   ok.value = ''
   try {
-    const [listData, productData, materialData, mappingData, customerData] = await Promise.all([
+    const [listData, productData, materialData, mappingData, customerData, processData] = await Promise.all([
       apiGet('/api/bom/list'),
       apiGet('/api/bom/products'),
       apiGet('/api/bom/materials'),
       apiGet('/api/bom/bag-spec-mappings'),
       apiGet('/api/customers?limit=200'),
+      apiGet('/api/process-templates'),
     ])
     rows.value = (listData || []).map(normalizeBomRow)
     products.value = (productData || []).map(normalizeBomProduct)
     materials.value = materialData || []
     mappings.value = mappingData || []
     customers.value = (customerData.rows || []).filter((row) => row.active !== false)
+    processTemplates.value = processData.rows || []
     syncBomContextFromUrlProduct()
     applyWorkspaceCustomerContext()
     syncSelectedBomCustomerSkuCustomer()
@@ -685,6 +695,13 @@ function bomStatusLabel(status) {
   if (status === 'inactive') return '已失效'
   if (status === 'missing') return '未维护'
   return '有效'
+}
+
+function processStatusLabel(status) {
+  if (status === 'draft') return '草稿'
+  if (status === 'active') return '已发布'
+  if (status === 'inactive') return '已停用'
+  return status || '-'
 }
 
 async function deleteBom() {
@@ -845,6 +862,7 @@ tbody tr.active { background: #f3f7fb; }
 .summary { align-items: stretch; margin-bottom: 12px; }
 .summary div { min-width: 120px; border: 1px solid #eee8df; border-radius: 6px; padding: 9px; }
 .summary strong { font-size: 16px; }
+.linked-processes { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; }
 .warning-banner { border: 1px solid #e8c28f; border-radius: 6px; background: #fff8eb; color: #8a4b00; padding: 9px; margin-bottom: 12px; }
 .inline-form { margin: 12px 0; }
 .muted { color: #666; text-align: center; }

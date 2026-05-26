@@ -26,6 +26,7 @@
           <tr>
             <th>ID</th>
             <th>工单</th>
+            <th>顺序</th>
             <th>工序</th>
             <th>工位</th>
             <th>状态</th>
@@ -44,7 +45,8 @@
           <tr v-for="row in rows" :key="row.id">
             <td>#{{ row.id }}</td>
             <td>#{{ row.work_order_id }}</td>
-            <td>{{ operationLabel(row.operation) }}</td>
+            <td>{{ row.sequence_no || 1 }}</td>
+            <td>{{ operationLabel(row.operation) }}<small v-if="row.records_loss">记录损耗</small></td>
             <td>{{ row.workstation }}</td>
             <td>{{ row.status }}</td>
             <td><input v-model.number="draftFor(row).planned_input_qty" type="number" min="0" step="0.001" /></td>
@@ -60,7 +62,7 @@
             <td>{{ row.operator }}</td>
             <td><button class="secondary compact" @click="saveActuals(row)" :disabled="loading">保存实际</button></td>
           </tr>
-          <tr v-if="!rows.length"><td colspan="14" class="muted">暂无工序卡</td></tr>
+          <tr v-if="!rows.length"><td colspan="15" class="muted">暂无工序卡</td></tr>
         </tbody>
       </table>
     </section>
