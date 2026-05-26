@@ -94,6 +94,9 @@ func (r *fakeFlowRepo) ListWorkOrders(ctx context.Context, query WorkOrderQuery)
 func (r *fakeFlowRepo) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCardRow, error) {
 	return nil, nil
 }
+func (r *fakeFlowRepo) UpdateJobCardActuals(ctx context.Context, cmd JobCardActualsCommand) error {
+	return nil
+}
 func (r *fakeFlowRepo) ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error) {
 	return nil, nil
 }

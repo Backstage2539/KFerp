@@ -50,7 +50,11 @@
           <span>已过滤到当前 SKU BOM</span>
           <button class="text-button" type="button" @click="clearBomProductFilter">显示全部 BOM</button>
         </div>
-        <button class="primary" type="button" @click="saveBom" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct">同步出品率</button>
+        <label>
+          <span>预期损耗率 %</span>
+          <input v-model.number="expectedLossRateInput" type="number" min="0" max="99.99" step="0.01" :disabled="!selectedProductId || !canEditCurrentBomProduct" />
+        </label>
+        <button class="primary" type="button" @click="saveBom" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct">保存预期损耗率</button>
         <button class="secondary danger-outline" type="button" @click="deleteBom" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct">失效当前 BOM</button>
       </div>
     </section>
@@ -63,8 +67,9 @@
             <thead>
               <tr>
                 <th>商品</th>
-                <th>烘焙度</th>
-                <th>出品率</th>
+                <th>工艺参数</th>
+                <th>预期损耗率</th>
+                <th>预期产出率</th>
                 <th>状态</th>
                 <th>物料数</th>
                 <th>更新时间</th>
@@ -78,13 +83,14 @@
                 @click="selectProduct(row.product_id)">
                 <td>{{ row.product }}</td>
                 <td>{{ row.roast_level || '-' }}</td>
-                <td>{{ pct(row.yield_rate) }}</td>
+                <td>{{ pct(expectedLoss(row)) }}</td>
+                <td>{{ pct(expectedYield(row)) }}</td>
                 <td><span :class="['status-pill', row.status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.status) }}</span></td>
                 <td>{{ row.item_count }}</td>
                 <td>{{ row.updated_at }}</td>
               </tr>
               <tr v-if="!bomContextRows.length">
-                <td colspan="6" class="muted">{{ selectedBomCustomerSkuCustomerID ? '暂无客户SKU BOM' : '暂无公共SKU BOM' }}</td>
+                <td colspan="7" class="muted">{{ selectedBomCustomerSkuCustomerID ? '暂无客户SKU BOM' : '暂无公共SKU BOM' }}</td>
               </tr>
             </tbody>
           </table>
@@ -95,8 +101,9 @@
         <div class="panel-title">配方明细</div>
         <div v-if="detail" class="summary">
           <div><span>商品</span><strong>{{ detail.product_name }}</strong></div>
-          <div><span>烘焙度</span><strong>{{ detail.roast_level || '-' }}</strong></div>
-          <div><span>出品率</span><strong>{{ pct(detail.yield_rate) }}</strong></div>
+          <div><span>工艺参数</span><strong>{{ detail.roast_level || '-' }}</strong></div>
+          <div><span>预期损耗率</span><strong>{{ pct(expectedLoss(detail)) }}</strong></div>
+          <div><span>预期产出率</span><strong>{{ pct(expectedYield(detail)) }}</strong></div>
           <div><span>状态</span><strong :class="{ warn: detail.status === 'inactive' }">{{ bomStatusLabel(detail.status) }}</strong></div>
           <div><span>合计比例</span><strong :class="{ warn: detail.total_ratio > 100 }">{{ ratio(detail.total_ratio) }}</strong></div>
         </div>
@@ -191,7 +198,8 @@
             <tr>
               <th>版本</th>
               <th>状态</th>
-              <th>出品率</th>
+              <th>预期损耗率</th>
+              <th>预期产出率</th>
               <th>物料数</th>
               <th>备注</th>
               <th>创建时间</th>
@@ -202,14 +210,15 @@
             <tr v-for="version in versions" :key="version.id">
               <td>{{ version.version_no }}</td>
               <td>{{ version.status }}</td>
-              <td>{{ pct(version.yield_rate) }}</td>
+              <td>{{ pct(expectedLoss(version)) }}</td>
+              <td>{{ pct(expectedYield(version)) }}</td>
               <td>{{ version.item_count }}</td>
               <td>{{ version.note }}</td>
               <td>{{ version.created_at }}</td>
               <td><button class="text-button" type="button" @click="activateVersion(version.id)" :disabled="version.status === 'active' || !canEditCurrentBomProduct">启用</button></td>
             </tr>
             <tr v-if="!versions.length">
-              <td colspan="7" class="muted">暂无版本</td>
+              <td colspan="8" class="muted">暂无版本</td>
             </tr>
           </tbody>
         </table>
@@ -264,6 +273,7 @@ import SearchableSelect from '../components/SearchableSelect.vue'
 import { bomContextCustomerIDs, filterBomContextProducts, filterBomRowsByProductFocus } from '../lib/bom'
 import { componentTypeLabel, isDripProduct } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
+import { expectedLossRate, formatPercent } from '../lib/manufacturing-loss'
 import { replaceHistoryURL } from '../lib/url-state'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
@@ -299,6 +309,7 @@ const itemForm = reactive({
 })
 const mappingForm = reactive({ spec_g: 227, material_id: 0 })
 const versionNote = ref('')
+const expectedLossRateInput = ref('')
 
 const detailItems = computed(() => detail.value?.items || [])
 const bomContextCustomerID = computed(() => Number(selectedBomCustomerSkuCustomerID.value || 0))
@@ -341,8 +352,7 @@ const currentConsumeUnitOptions = computed(() => itemForm.component_type === 'fi
   : materialConsumeUnitOptions)
 
 function pct(value) {
-  const n = Number(value || 0) * 100
-  return n ? `${n.toFixed(1)}%` : '-'
+  return formatPercent(value)
 }
 
 function ratio(value) {
@@ -379,13 +389,14 @@ function bomFormDraftKey() {
 }
 
 function saveBomFormDraft() {
-  saveFormDraft(bomFormDraftKey(), {
-    selectedBomCustomerSkuCustomerID: selectedBomCustomerSkuCustomerID.value,
-    selectedProductId: selectedProductId.value,
-    itemForm: { ...itemForm },
-    mappingForm: { ...mappingForm },
-    versionNote: versionNote.value,
-  })
+	saveFormDraft(bomFormDraftKey(), {
+		selectedBomCustomerSkuCustomerID: selectedBomCustomerSkuCustomerID.value,
+		selectedProductId: selectedProductId.value,
+		itemForm: { ...itemForm },
+		mappingForm: { ...mappingForm },
+		versionNote: versionNote.value,
+		expectedLossRateInput: expectedLossRateInput.value,
+	})
 }
 
 async function restoreBomFormDraft() {
@@ -404,9 +415,10 @@ async function restoreBomFormDraft() {
     qty_per_unit: '',
     ratio_pct: '',
   }, draft.itemForm || {})
-  Object.assign(mappingForm, { spec_g: 227, material_id: 0 }, draft.mappingForm || {})
-  versionNote.value = draft.versionNote || ''
-  if (syncSelectedProductToBomContext()) {
+	Object.assign(mappingForm, { spec_g: 227, material_id: 0 }, draft.mappingForm || {})
+	versionNote.value = draft.versionNote || ''
+	expectedLossRateInput.value = draft.expectedLossRateInput ?? expectedLossRateInput.value
+	if (syncSelectedProductToBomContext()) {
     await loadDetail(selectedProductId.value)
   }
 }
@@ -464,6 +476,25 @@ function componentItemName(item) {
 function itemQuantityDisplay(item) {
   if ((item?.consume_unit || 'ratio_pct') === 'ratio_pct') return ratio(item.ratio_pct)
   return `${qty(item.qty_per_unit)} ${consumeUnitLabel(item.consume_unit)}`
+}
+
+function expectedYield(row) {
+  return Number(row?.expected_yield_rate || row?.yield_rate || 0)
+}
+
+function expectedLoss(row) {
+  if (row && Object.prototype.hasOwnProperty.call(row, 'expected_loss_rate')) {
+    return Number(row.expected_loss_rate || 0)
+  }
+  return expectedLossRate(expectedYield(row))
+}
+
+function syncExpectedLossInput(row) {
+  if (!row) {
+    expectedLossRateInput.value = ''
+    return
+  }
+  expectedLossRateInput.value = Number((expectedLoss(row) * 100).toFixed(2))
 }
 
 function syncComponentTypeDefaults() {
@@ -525,10 +556,11 @@ function notifyWorkspaceCustomerChanged(customerID) {
 
 function clearSelectedProduct() {
   selectedProductId.value = 0
-  bomFilterProductId.value = 0
-  detail.value = null
-  versions.value = []
-  updateUrl()
+	bomFilterProductId.value = 0
+	detail.value = null
+	versions.value = []
+	syncExpectedLossInput(null)
+	updateUrl()
 }
 
 function syncSelectedProductToBomContext() {
@@ -588,14 +620,16 @@ async function loadAll() {
 }
 
 async function loadDetail(productId) {
-  if (!productId) {
-    detail.value = null
-    updateUrl()
-    return
-  }
-  detail.value = await apiGet(`/api/bom/detail/${productId}`)
-  await loadVersions(productId)
-  updateUrl()
+	if (!productId) {
+		detail.value = null
+		syncExpectedLossInput(null)
+		updateUrl()
+		return
+	}
+	detail.value = await apiGet(`/api/bom/detail/${productId}`)
+	syncExpectedLossInput(detail.value)
+	await loadVersions(productId)
+	updateUrl()
 }
 
 async function loadVersions(productId) {
@@ -633,13 +667,18 @@ function clearBomProductFilter() {
 }
 
 async function saveBom() {
-  if (!selectedProductId.value) return
-  if (!canEditCurrentBomProduct.value) return
-  await mutate(async () => {
-    await apiSend('/api/bom/save', { body: { product_id: selectedProductId.value } })
-    ok.value = '已同步'
-    await loadAll()
-  })
+	if (!selectedProductId.value) return
+	if (!canEditCurrentBomProduct.value) return
+	const lossPercent = Number(expectedLossRateInput.value)
+	if (Number.isNaN(lossPercent) || lossPercent < 0 || lossPercent >= 100) {
+		error.value = '预期损耗率必须大于等于 0 且小于 100%'
+		return
+	}
+	await mutate(async () => {
+		await apiSend('/api/bom/save', { body: { product_id: selectedProductId.value, expected_loss_rate: lossPercent / 100 } })
+		ok.value = '已保存预期损耗率'
+		await loadAll()
+	})
 }
 
 function bomStatusLabel(status) {

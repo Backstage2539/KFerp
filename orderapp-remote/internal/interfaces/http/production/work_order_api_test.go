@@ -12,7 +12,9 @@ import (
 )
 
 type workOrderAPIRepo struct {
-	rows []productionapp.WorkOrderRow
+	rows          []productionapp.WorkOrderRow
+	jobCards      []productionapp.JobCardRow
+	jobCardActual productionapp.JobCardActualsCommand
 }
 
 func (r *workOrderAPIRepo) CreateBatch(ctx context.Context, cmd productionapp.CreateBatchCommand) (productionapp.CreateBatchResult, error) {
@@ -61,7 +63,11 @@ func (r *workOrderAPIRepo) ListWorkOrders(ctx context.Context, query productiona
 	return r.rows, nil
 }
 func (r *workOrderAPIRepo) ListJobCards(ctx context.Context, query productionapp.JobCardQuery) ([]productionapp.JobCardRow, error) {
-	return nil, nil
+	return r.jobCards, nil
+}
+func (r *workOrderAPIRepo) UpdateJobCardActuals(ctx context.Context, cmd productionapp.JobCardActualsCommand) error {
+	r.jobCardActual = cmd
+	return nil
 }
 func (r *workOrderAPIRepo) ListBatchCosts(ctx context.Context, query productionapp.BatchCostQuery) ([]productionapp.BatchCostRow, error) {
 	return nil, nil
@@ -128,5 +134,88 @@ func TestWorkOrderAPIIncludesRoastAdvice(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("response missing %s: %s", want, body)
 		}
+	}
+}
+
+func TestWorkOrderAPIIncludesExpectedLossAndOperationSummary(t *testing.T) {
+	e := echo.New()
+	registerWorkOrderAPI(e, productionapp.NewService(&workOrderAPIRepo{rows: []productionapp.WorkOrderRow{{
+		WorkOrderNo:          "WO-0000000020",
+		YieldRate:            0.82,
+		ExpectedYieldRate:    0.82,
+		ExpectedLossRate:     0.18,
+		OperationSummaryJSON: `{"actual_loss_qty":185,"actual_loss_rate":0.185}`,
+	}}}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/work-orders", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"expected_yield_rate":0.82`, `"expected_loss_rate":0.18`, `"operation_summary_json":"{\"actual_loss_qty\":185,\"actual_loss_rate\":0.185}"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("response missing %s: %s", want, body)
+		}
+	}
+}
+
+func TestJobCardAPIIncludesActualLossFields(t *testing.T) {
+	e := echo.New()
+	registerWorkOrderAPI(e, productionapp.NewService(&workOrderAPIRepo{jobCards: []productionapp.JobCardRow{{
+		ID:              9,
+		WorkOrderID:     20,
+		Operation:       "cutting",
+		PlannedInputQty: 1000,
+		ActualInputQty:  1000,
+		ActualOutputQty: 815,
+		ActualLossQty:   185,
+		ActualLossRate:  0.185,
+		ExceptionReason: "裁剪边角料",
+		MetricsJSON:     `{"fabric":"cotton"}`,
+	}}}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/job-cards", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"planned_input_qty":1000`, `"actual_input_qty":1000`, `"actual_output_qty":815`, `"actual_loss_qty":185`, `"actual_loss_rate":0.185`, `"exception_reason":"裁剪边角料"`, `"metrics_json":"{\"fabric\":\"cotton\"}"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("response missing %s: %s", want, body)
+		}
+	}
+}
+
+func TestJobCardAPIUpdatesActualLossFields(t *testing.T) {
+	repo := &workOrderAPIRepo{}
+	e := echo.New()
+	registerWorkOrderAPI(e, productionapp.NewService(repo))
+
+	body := `{"actual_input_qty":1000,"actual_output_qty":815,"exception_reason":"裁剪边角料","metrics_json":{"fabric":"cotton"}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/job-cards/9/actuals", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.jobCardActual.ID != 9 {
+		t.Fatalf("job card id = %d, want 9", repo.jobCardActual.ID)
+	}
+	if repo.jobCardActual.ActualLossQty != 185 || repo.jobCardActual.ActualLossRate != 0.185 {
+		t.Fatalf("actual loss = %.3f %.4f, want 185 and 0.185", repo.jobCardActual.ActualLossQty, repo.jobCardActual.ActualLossRate)
+	}
+	if repo.jobCardActual.ExceptionReason != "裁剪边角料" {
+		t.Fatalf("exception reason = %q", repo.jobCardActual.ExceptionReason)
+	}
+	if !strings.Contains(repo.jobCardActual.MetricsJSON, `"fabric":"cotton"`) {
+		t.Fatalf("metrics json = %s", repo.jobCardActual.MetricsJSON)
 	}
 }

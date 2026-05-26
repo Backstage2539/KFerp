@@ -35,7 +35,10 @@ backend() {
 
 frontend_tests() {
   cd "$ROOT/orderapp-remote/frontend-vue-shell"
-  mapfile -t tests < <(find src -name '*.test.js' -type f | sort)
+  tests=()
+  while IFS= read -r test_file; do
+    tests+=("$test_file")
+  done < <(find src -name '*.test.js' -type f | sort)
   if [ "${#tests[@]}" -eq 0 ]; then
     echo "no frontend test files found" >&2
     return 1

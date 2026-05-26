@@ -936,6 +936,10 @@ func (s *threeTemplateWalkthroughStore) ListJobCards(context.Context, production
 	return nil, nil
 }
 
+func (s *threeTemplateWalkthroughStore) UpdateJobCardActuals(context.Context, productionapp.JobCardActualsCommand) error {
+	return nil
+}
+
 func (s *threeTemplateWalkthroughStore) ListBatchCosts(context.Context, productionapp.BatchCostQuery) ([]productionapp.BatchCostRow, error) {
 	return nil, nil
 }

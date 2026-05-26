@@ -1535,7 +1535,7 @@ func ExplainCommercialPrice(params Parameters, in ProductInput, req PriceExplana
 		PreviewFinalPrice: preview.FinalPricePerUnit,
 		Steps: []PriceExplanationStep{
 			{Key: "green_bean_cost_per_kg", Label: "生豆成本", Source: "product", Value: previewInput.GreenBeanCostPerKg, Unit: "元/kg", Changed: req.Overrides.GreenBeanCostPerKg != nil},
-			{Key: "yield_rate", Label: "出成率", Source: "product_bom", Value: previewInput.YieldRate, Unit: "ratio", Changed: req.Overrides.YieldRate != nil},
+			{Key: "yield_rate", Label: "预期产出率", Source: "product_bom", Value: previewInput.YieldRate, Unit: "ratio", Changed: req.Overrides.YieldRate != nil},
 			{Key: "roasted_bean_cost_per_kg", Label: "熟豆成本", Source: "formula", Value: preview.RoastedCostPerKg, Unit: "元/kg", Changed: req.Overrides.GreenBeanCostPerKg != nil || req.Overrides.YieldRate != nil},
 			{Key: preview.ProductionKey, Label: "生产成本", Source: "cost_parameter", Value: preview.ProductionCostPerKg, Unit: "元/kg"},
 			{Key: "wholesale_package_cost_per_kg", Label: "批发包装成本", Source: "cost_parameter", Value: params.WholesalePackageCostPerKg, Unit: "元/kg"},
@@ -1603,7 +1603,7 @@ func ExplainDripPrice(params Parameters, in ProductInput, req PriceExplanationRe
 		PackedPricePerBox: packedBox,
 		Steps: []PriceExplanationStep{
 			{Key: "green_bean_cost_per_kg", Label: "生豆成本", Source: "product", Value: validated.GreenBeanCostPerKg, Unit: "元/kg"},
-			{Key: "yield_rate", Label: "出成率", Source: "product_bom", Value: validated.YieldRate, Unit: "ratio"},
+			{Key: "yield_rate", Label: "预期产出率", Source: "product_bom", Value: validated.YieldRate, Unit: "ratio"},
 			{Key: "roasted_bean_cost_per_kg", Label: "熟豆成本", Source: "formula", Value: roasted, Unit: "元/kg"},
 			{Key: "small_batch_production_cost_per_kg", Label: "小批量生产成本", Source: "cost_parameter", Value: params.SmallBatchProductionCostPerKg, Unit: "元/kg"},
 			{Key: "bag_grams", Label: "单袋熟豆克重", Source: "product_or_template", Value: tier.BagGrams, Unit: "g"},

@@ -420,7 +420,7 @@ func TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource(t *testing.T) {
 		"scheduleClearDrag",
 		"@dragend=\"scheduleClearDrag\"",
 		"dropCategoryOrProductOnSecondary",
-		"BOM出品率",
+		"BOM预期产出率",
 		"buildProductCreatePayload(productForm.value)",
 		"buildProductBasicsPayload(row, marginOverride.value)",
 	} {

@@ -60,7 +60,7 @@ func TestManufacturingPlanningQualityVueWiring(t *testing.T) {
 		"qualityInspections",
 		"生产质检",
 		"物料需求汇总",
-		"烘焙建议",
+		"生产建议",
 		"部分完工",
 		"部分完工（保留剩余）",
 		"formatActualYield",

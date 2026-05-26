@@ -9,6 +9,13 @@ import (
 
 type Quantity = inventorydomain.Quantity
 
+type JobCardActual struct {
+	ActualInputQty  float64
+	ActualOutputQty float64
+	ActualLossQty   float64
+	ActualLossRate  float64
+}
+
 func NormalizeYieldRate(rate float64) float64 {
 	if rate <= 0 || rate > 1 {
 		return 0.8
@@ -37,6 +44,50 @@ func ActualYieldRate(specG, units, looseG, inputG int64) (float64, error) {
 	total := FinishedTotalGrams(specG, units, looseG)
 	rate := float64(total) / float64(inputG)
 	return math.Round(rate*10000) / 10000, nil
+}
+
+func ExpectedLossRate(yieldRate float64) float64 {
+	rate := NormalizeYieldRate(yieldRate)
+	return math.Round((1-rate)*10000) / 10000
+}
+
+func YieldRateFromExpectedLossRate(lossRate float64) (float64, error) {
+	if lossRate < 0 || lossRate >= 1 {
+		return 0, fmt.Errorf("expected_loss_rate must be >= 0 and < 1")
+	}
+	return math.Round((1-lossRate)*10000) / 10000, nil
+}
+
+func ActualLossMetrics(inputQty, outputQty float64) (float64, float64, error) {
+	if inputQty <= 0 {
+		return 0, 0, fmt.Errorf("actual_input_qty must be greater than 0")
+	}
+	if outputQty < 0 {
+		return 0, 0, fmt.Errorf("actual_output_qty cannot be negative")
+	}
+	lossQty := inputQty - outputQty
+	if lossQty < 0 {
+		lossQty = 0
+	}
+	lossQty = math.Round(lossQty*1000) / 1000
+	lossRate := math.Round((lossQty/inputQty)*10000) / 10000
+	return lossQty, lossRate, nil
+}
+
+func AggregateJobCardActuals(rows []JobCardActual) JobCardActual {
+	out := JobCardActual{}
+	for _, row := range rows {
+		out.ActualInputQty += row.ActualInputQty
+		out.ActualOutputQty += row.ActualOutputQty
+		out.ActualLossQty += row.ActualLossQty
+	}
+	out.ActualInputQty = math.Round(out.ActualInputQty*1000) / 1000
+	out.ActualOutputQty = math.Round(out.ActualOutputQty*1000) / 1000
+	out.ActualLossQty = math.Round(out.ActualLossQty*1000) / 1000
+	if out.ActualInputQty > 0 {
+		out.ActualLossRate = math.Round((out.ActualLossQty/out.ActualInputQty)*10000) / 10000
+	}
+	return out
 }
 
 func PlannedFinishedInventoryAddition(specG, needG int64) Quantity {

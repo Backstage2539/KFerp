@@ -341,8 +341,8 @@
                 <th>形态</th>
                 <th>归属</th>
                 <th>类型</th>
-                <th>烘焙度</th>
-                <th>BOM出品率</th>
+                <th>工艺参数</th>
+                <th>BOM预期产出率</th>
                 <th>利润率覆盖</th>
                 <th>BOM状态</th>
                 <th>BOM</th>
@@ -831,7 +831,7 @@
               </select>
             </label>
             <label v-if="productKindRequiresRoast(productForm.product_kind)">
-              <span>BOM出品率</span>
+              <span>BOM预期产出率</span>
               <div class="yield-editor">
                 <input class="yield-input" v-model.number="productForm.yield_percent" type="number" min="1" max="100" step="0.01" />
                 <span>%</span>
@@ -2592,7 +2592,7 @@ async function createProduct() {
   }
   const yieldPercent = Number(productForm.value.yield_percent || 0)
   if (productKindRequiresRoast(productForm.value.product_kind) && (yieldPercent <= 0 || yieldPercent > 100)) {
-    error.value = 'BOM出品率必须在 1% 到 100% 之间'
+    error.value = 'BOM预期产出率必须在 1% 到 100% 之间'
     return
   }
   if (productForm.value.product_kind === 'green_bean' && Number(productForm.value.green_bean_bom_product_id || 0) <= 0) {
@@ -3260,7 +3260,7 @@ async function saveProductBasics(row, successMessage = '商品基础信息已保
   const productKind = normalizedProductKind(row)
   const yieldPercent = Number(row.yield_percent || 0)
   if (productKindRequiresRoast(productKind) && (yieldPercent <= 0 || yieldPercent > 100)) {
-    error.value = 'BOM出品率必须在 1% 到 100% 之间'
+    error.value = 'BOM预期产出率必须在 1% 到 100% 之间'
     return
   }
   if (productKind === 'green_bean' && Number(row.green_bean_bom_product_id || 0) <= 0) {
