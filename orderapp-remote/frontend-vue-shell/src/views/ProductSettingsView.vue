@@ -316,7 +316,7 @@
               </tr>
             </thead>
             <tbody>
-              <template v-for="row in skuRenderRows" :key="row.id">
+              <template v-for="row in displaySkuRows" :key="row.id">
                 <tr>
                   <td class="select-col">
                     <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row)" @change="toggleProductSelection(row, $event.target.checked)" />
@@ -437,7 +437,7 @@
                   </td>
                 </tr>
               </template>
-              <tr v-if="!skuRenderRows.length">
+              <tr v-if="!displaySkuRows.length">
                 <td :colspan="13" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
               </tr>
             </tbody>
@@ -448,7 +448,7 @@
           :key="skuPaginationKey"
           :page="skuPage"
           :page-size="skuPageSize"
-          :total="skuRenderTotal"
+          :total="skuDisplayTotal"
           :disabled="loading"
           @change="handleSkuPaginationChange"
         />
@@ -1320,11 +1320,9 @@ const hasActiveSkuFilters = computed(() => Boolean(
     || normalizedSkuFilters.value.primaryCategory
     || normalizedSkuFilters.value.secondaryCategory,
 ))
-const skuRenderRows = computed(() => skuVisibleTableState.value.rows)
-const skuRenderTotal = computed(() => skuVisibleTableState.value.total)
 const skuDisplayKey = computed(() => [
   skuContextCustomerID.value,
-  skuRenderTotal.value,
+  skuDisplayTotal.value,
   skuPage.value,
   skuPageSize.value,
   normalizedSkuFilters.value.query || '',
@@ -1333,7 +1331,7 @@ const skuDisplayKey = computed(() => [
 ].join(':'))
 const skuTableKey = computed(() => `${skuDisplayKey.value}:table`)
 const skuPaginationKey = computed(() => `${skuDisplayKey.value}:pagination`)
-const editableDisplaySkuRows = computed(() => skuRenderRows.value.filter(canEditSkuRow))
+const editableDisplaySkuRows = computed(() => displaySkuRows.value.filter(canEditSkuRow))
 const allProductRowsSelected = computed(() => editableDisplaySkuRows.value.length > 0 && editableDisplaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
 const activeGradientTemplates = computed(() => gradientTemplates.value
   .filter((template) => template.active !== false)
