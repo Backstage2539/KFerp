@@ -192,6 +192,20 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 			return "商品与配方 / 产品设置", "删除产品分类"
 		}
 		return "商品与配方 / 产品设置", "调整产品分类"
+	case "process_template":
+		switch action {
+		case "publish":
+			return "商品与配方 / 工艺模板", "发布工艺模板"
+		case "deactivate":
+			return "商品与配方 / 工艺模板", "停用工艺模板"
+		default:
+			return "商品与配方 / 工艺模板", "维护工艺模板"
+		}
+	case "industry_field_template":
+		if action == "deactivate" {
+			return "商品与配方 / 行业字段模板", "停用行业字段模板"
+		}
+		return "商品与配方 / 行业字段模板", "维护行业字段模板"
 	case "material":
 		return "库存管理 / 物料档案", "编辑物料档案"
 	case "customer", "customer_asset":
@@ -370,6 +384,25 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 		return "商品与配方 / 产品设置", "维护产品分类"
 	case strings.HasPrefix(target, "/api/product-settings"):
 		return "商品与配方 / 产品设置", "查看产品设置"
+	case strings.HasPrefix(target, "/api/process-templates"):
+		if strings.Contains(target, "/publish") {
+			return "商品与配方 / 工艺模板", "发布工艺模板"
+		}
+		if strings.Contains(target, "/deactivate") {
+			return "商品与配方 / 工艺模板", "停用工艺模板"
+		}
+		if method == "POST" {
+			return "商品与配方 / 工艺模板", "保存工艺模板"
+		}
+		return "商品与配方 / 工艺模板", "查看工艺模板"
+	case strings.HasPrefix(target, "/api/industry-field-templates"):
+		if strings.Contains(target, "/deactivate") {
+			return "商品与配方 / 行业字段模板", "停用行业字段模板"
+		}
+		if method == "POST" {
+			return "商品与配方 / 行业字段模板", "保存行业字段模板"
+		}
+		return "商品与配方 / 行业字段模板", "查看行业字段模板"
 	case strings.HasPrefix(target, "/api/products") || strings.Contains(target, "/products"):
 		return "商品与配方 / 产品设置", "维护产品设置"
 	case strings.Contains(target, "/bom"):
@@ -672,6 +705,10 @@ func auditTargetHint(r *AuditLogRow, rawEntityType string) string {
 		return firstMetaText(meta, "work_order_no", "note", "running_item_id", "material_id")
 	case "product_category":
 		return firstNonEmpty(firstMetaText(meta, "name", "category"), valueForField(r, "category"))
+	case "process_template":
+		return firstNonEmpty(valueForField(r, "template"), firstMetaText(meta, "name", "product_id"))
+	case "industry_field_template":
+		return firstNonEmpty(valueForField(r, "template"), firstMetaText(meta, "name", "industry_key"))
 	case "auth_account":
 		return firstMetaText(meta, "employee_id")
 	}
@@ -790,6 +827,10 @@ func labelEntityType(t string) string {
 		return "产品"
 	case "product_category":
 		return "产品分类"
+	case "process_template":
+		return "工艺模板"
+	case "industry_field_template":
+		return "行业字段模板"
 	case "material":
 		return "物料"
 	case "customer":
@@ -966,6 +1007,8 @@ func labelField(f string) string {
 		return "启用状态"
 	case "settings":
 		return "设置"
+	case "template":
+		return "模板"
 	case "asset_id":
 		return "素材ID"
 	case "seal_asset_id":
