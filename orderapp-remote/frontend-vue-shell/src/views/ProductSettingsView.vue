@@ -1380,6 +1380,20 @@ function syncVisibleSkuTableState() {
   displaySkuRows.value = pageState.rows
   skuPrimaryCategoryOptions.value = primaryCategoryOptions(sourceRows)
   skuSecondaryCategoryOptions.value = secondaryCategoryOptions(sourceRows, filters.primaryCategory)
+  if (typeof window !== 'undefined' && window.location.search.includes('debug_sku_table=1')) {
+    window.__kferpSkuTableDebug = {
+      selectedCustomerID: Number(selectedCustomerSkuCustomerID.value || 0),
+      sourceRows: sourceRows.length,
+      filteredRows: filteredRows.length,
+      pageRows: pageState.rows.length,
+      requestedPage: Number(skuPage.value || 1),
+      page: pageState.page,
+      pageSize: normalizePageSize(skuPageSize.value),
+      firstSource: sourceRows[0] ? { id: sourceRows[0].id, name: sourceRows[0].name, primary_name: sourceRows[0].primary_name, secondary_name: sourceRows[0].secondary_name } : null,
+      firstPageRow: pageState.rows[0] ? { id: pageState.rows[0].id, name: pageState.rows[0].name, primary_name: pageState.rows[0].primary_name, secondary_name: pageState.rows[0].secondary_name } : null,
+      filters,
+    }
+  }
 }
 
 function defaultSkuForm() {
