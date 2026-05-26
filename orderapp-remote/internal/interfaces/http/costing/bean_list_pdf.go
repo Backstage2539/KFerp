@@ -52,6 +52,7 @@ func beanListPublicationPDFDocument(row appcosting.BeanListPublication) pdfinfra
 				RecommendedUse: mapString(itemMap, "recommendedUse", ""),
 				Flavor:         mapString(itemMap, "flavor", ""),
 				Description:    mapString(itemMap, "description", ""),
+				AttributeLines: beanListPublicationPDFAttributeLines(itemMap),
 				QualityLines:   beanListPublicationPDFQualityLines(itemMap),
 				Prices:         make([]pdfinfra.BeanListPrice, 0),
 			}
@@ -81,6 +82,36 @@ func beanListPublicationPDFDocument(row appcosting.BeanListPublication) pdfinfra
 		}
 	}
 	return doc
+}
+
+func beanListPublicationPDFAttributeLines(item map[string]any) []string {
+	lines := publicStringList(item["attributeLines"])
+	if len(lines) == 0 {
+		lines = publicStringList(item["attribute_lines"])
+	}
+	if len(lines) > 0 {
+		return lines
+	}
+	for _, attr := range publicMapsFromAny(item["productAttributes"]) {
+		label := mapString(attr, "label", "")
+		value := mapString(attr, "value", "")
+		if strings.TrimSpace(label) == "" || strings.TrimSpace(value) == "" {
+			continue
+		}
+		lines = append(lines, strings.TrimSpace(label)+"："+strings.TrimSpace(value))
+	}
+	if len(lines) > 0 {
+		return lines
+	}
+	for _, attr := range publicMapsFromAny(item["product_attributes"]) {
+		label := mapString(attr, "label", "")
+		value := mapString(attr, "value", "")
+		if strings.TrimSpace(label) == "" || strings.TrimSpace(value) == "" {
+			continue
+		}
+		lines = append(lines, strings.TrimSpace(label)+"："+strings.TrimSpace(value))
+	}
+	return lines
 }
 
 func beanListPublicationPDFQualityLines(item map[string]any) []pdfinfra.BeanListQualityLine {

@@ -128,175 +128,81 @@
       </div>
     </section>
 
-    <section class="panel collapsible-bean-section">
+    <section v-for="section in productPriceListPreviewSections" :key="section.key" class="panel collapsible-bean-section">
       <div class="collapsible-bean-head">
-        <button class="section-toggle" type="button" :aria-expanded="!beanListPreviewCollapsed.commercial" @click="toggleBeanListPreviewSection('commercial')">
+        <button class="section-toggle" type="button" :aria-expanded="!section.collapsed" @click="toggleBeanListPreviewSection(section.key)">
           <span>
-            <b>商用批发豆单</b>
-            <small>{{ commercialGroups.length }} 类 · {{ commercialPreviewItemCount }} 款</small>
+            <b>{{ section.label }}产品价格表</b>
+            <small>{{ section.groups.length }} 类 · {{ section.itemCount }} 款</small>
           </span>
-          <span>{{ beanListPreviewCollapsed.commercial ? '展开' : '收起' }}</span>
+          <span>{{ section.collapsed ? '展开' : '收起' }}</span>
         </button>
       </div>
-      <div v-show="!beanListPreviewCollapsed.commercial" class="bean-groups">
-        <section v-for="group in commercialGroups" :key="group.category" class="bean-group">
-          <h3>{{ group.category }}</h3>
-          <div class="bean-grid">
-            <article v-for="item in group.items" :key="item.product_id || item.name">
-              <div class="bean-heading">
-                <span class="bean-code">{{ beanMeta(item, 'commercial_bean_list').code }}</span>
-                <div>
-                  <div class="bean-title">{{ beanName(item, 'commercial_bean_list') }}</div>
-                  <div v-if="beanMeta(item, 'commercial_bean_list').recommended_use" class="bean-use">
-                    {{ beanMeta(item, 'commercial_bean_list').recommended_use }}
-                  </div>
-                </div>
-              </div>
-              <div v-if="itemWarnings(item).length" class="bean-warning-list">
-                <span v-for="warning in itemWarnings(item)" :key="`commercial-warning-${item.product_id || item.name}-${warning}`" class="warning-chip">{{ warning }}</span>
-              </div>
-              <div v-if="beanFlavor(item, 'commercial_bean_list')" class="bean-note">{{ beanFlavor(item, 'commercial_bean_list') }}</div>
-              <div v-if="beanDescription(item, 'commercial_bean_list')" class="bean-desc">{{ beanDescription(item, 'commercial_bean_list') }}</div>
-              <div class="bean-row" v-for="tier in item.commercial_wholesale_tiers || []" :key="tier.label">
-                <span>{{ tier.label }}</span>
-                <strong>
-                  {{ price(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}
-                  <button v-if="item.gradient_template" class="source-button" type="button" @click="openPriceExplanation(item, tier)">来源</button>
-                </strong>
-              </div>
-            </article>
-          </div>
-        </section>
-        <div v-if="!commercialGroups.length" class="muted empty-card">暂无豆单数据</div>
-      </div>
-    </section>
-
-    <section class="panel collapsible-bean-section">
-      <div class="collapsible-bean-head">
-        <button class="section-toggle" type="button" :aria-expanded="!beanListPreviewCollapsed.drip" @click="toggleBeanListPreviewSection('drip')">
-          <span>
-            <b>挂耳豆单</b>
-            <small>{{ dripGroups.length }} 类 · {{ dripPreviewItemCount }} 款</small>
-          </span>
-          <span>{{ beanListPreviewCollapsed.drip ? '展开' : '收起' }}</span>
-        </button>
-      </div>
-      <div v-show="!beanListPreviewCollapsed.drip" class="bean-groups">
-        <section v-for="group in dripGroups" :key="`drip-${group.category}`" class="bean-group">
-          <h3>{{ group.category }}</h3>
-          <div class="bean-grid">
-            <article v-for="item in group.items" :key="`drip-${item.product_id || item.name}`">
-              <div class="bean-heading">
-                <span class="bean-code">{{ beanMeta(item, 'drip_bean_list').code }}</span>
-                <div>
-                  <div class="bean-title">{{ beanName(item, 'drip_bean_list') }}</div>
-                  <div v-if="beanMeta(item, 'drip_bean_list').recommended_use" class="bean-use">
-                    {{ beanMeta(item, 'drip_bean_list').recommended_use }}
-                  </div>
-                </div>
-              </div>
-              <div v-if="beanFlavor(item, 'drip_bean_list')" class="bean-note">{{ beanFlavor(item, 'drip_bean_list') }}</div>
-              <div v-if="beanDescription(item, 'drip_bean_list')" class="bean-desc">{{ beanDescription(item, 'drip_bean_list') }}</div>
-              <div class="bean-row" v-for="tier in dripDisplayTiers(item)" :key="`drip-tier-${tier.label}-${tier.sales_unit}`">
-                <span>{{ tier.label }} / {{ dripTierUnit(tier) }}</span>
-                <strong>
-                  {{ price(tier.price_per_unit) }}
-                  <button v-if="item.drip_price_template" class="source-button" type="button" @click="openDripPriceExplanation(item, tier)">来源</button>
-                </strong>
-              </div>
-            </article>
-          </div>
-        </section>
-        <div v-if="!dripGroups.length" class="muted empty-card">暂无挂耳豆单数据</div>
-      </div>
-    </section>
-
-    <section class="panel collapsible-bean-section">
-      <div class="collapsible-bean-head">
-        <button class="section-toggle" type="button" :aria-expanded="!beanListPreviewCollapsed.retail" @click="toggleBeanListPreviewSection('retail')">
-          <span>
-            <b>零售豆单</b>
-            <small>{{ retailGroups.length }} 类 · {{ retailPreviewItemCount }} 款</small>
-          </span>
-          <span>{{ beanListPreviewCollapsed.retail ? '展开' : '收起' }}</span>
-        </button>
-      </div>
-      <div v-show="!beanListPreviewCollapsed.retail" class="bean-groups">
-        <section v-for="group in retailGroups" :key="group.category" class="bean-group">
-          <h3>{{ group.category }}</h3>
-          <div class="bean-grid">
-            <article v-for="item in group.items" :key="`retail-${item.product_id || item.name}`">
-              <div class="bean-heading">
-                <span class="bean-code">{{ beanMeta(item, 'retail_bean_list').code }}</span>
-                <div>
-                  <div class="bean-title">{{ beanName(item, 'retail_bean_list') }}</div>
-                  <div v-if="beanMeta(item, 'retail_bean_list').recommended_use" class="bean-use">
-                    {{ beanMeta(item, 'retail_bean_list').recommended_use }}
-                  </div>
-                </div>
-              </div>
-              <div v-if="itemWarnings(item).length" class="bean-warning-list">
-                <span v-for="warning in itemWarnings(item)" :key="`retail-warning-${item.product_id || item.name}-${warning}`" class="warning-chip">{{ warning }}</span>
-              </div>
-              <div v-if="beanFlavor(item, 'retail_bean_list')" class="bean-note">{{ beanFlavor(item, 'retail_bean_list') }}</div>
-              <div v-if="beanDescription(item, 'retail_bean_list')" class="bean-desc">{{ beanDescription(item, 'retail_bean_list') }}</div>
-              <div class="bean-row" v-for="tier in item.retail_bean_tiers || []" :key="`retail-tier-${tier.label}`">
-                <span>{{ tier.label }}</span><strong>{{ price(tier.price_per_unit) }}</strong>
-              </div>
-              <div class="bean-row"><span>挂耳10袋</span><strong>{{ price(item.retail_drip_10_bag_price) }}</strong></div>
-            </article>
-          </div>
-        </section>
-        <div v-if="!retailGroups.length" class="muted empty-card">暂无豆单数据</div>
-      </div>
-    </section>
-
-    <section class="panel collapsible-bean-section">
-      <div class="collapsible-bean-head">
-        <button class="section-toggle" type="button" :aria-expanded="!beanListPreviewCollapsed.green" @click="toggleBeanListPreviewSection('green')">
-          <span>
-            <b>生豆豆单</b>
-            <small>{{ greenGroups.length }} 类 · {{ greenPreviewItemCount }} 款</small>
-          </span>
-          <span>{{ beanListPreviewCollapsed.green ? '展开' : '收起' }}</span>
-        </button>
-      </div>
-      <div v-show="!beanListPreviewCollapsed.green" class="green-price-save-bar">
+      <div v-show="!section.collapsed && section.listType === 'green'" class="green-price-save-bar">
         <p class="muted">梯度按 KG，单价按元/KG；这里修改的是草稿价，生成并发布新版豆单后，录单才会使用新价格。</p>
-        <button class="secondary compact" type="button" :disabled="beanListPublishing || !greenGroups.length || !customerScopeReady" @click="saveGreenBeanPriceDraft">
+        <button class="secondary compact" type="button" :disabled="beanListPublishing || !section.groups.length || !customerScopeReady" @click="saveGreenBeanPriceDraftForSection(section)">
           {{ beanListPublishing ? '保存中' : '保存生豆价格' }}
         </button>
       </div>
-      <div v-show="!beanListPreviewCollapsed.green" class="bean-groups">
-        <section v-for="group in greenGroups" :key="`green-${group.category}`" class="bean-group">
+      <div v-show="!section.collapsed" class="bean-groups">
+        <section v-for="group in section.groups" :key="`${section.key}-${group.category}`" class="bean-group">
           <h3>{{ group.category }}</h3>
           <div class="bean-grid">
-            <article v-for="item in group.items" :key="`green-${item.product_id || item.name}`">
+            <article v-for="item in group.items" :key="`${section.key}-${item.product_id || item.name}`">
               <div class="bean-heading">
-                <span class="bean-code">{{ beanMeta(item, 'green_bean_list').code }}</span>
+                <span class="bean-code">{{ beanMeta(item, section.metaKey).code }}</span>
                 <div>
-                  <div class="bean-title">{{ beanName(item, 'green_bean_list') }}</div>
-                  <div v-if="beanMeta(item, 'green_bean_list').recommended_use" class="bean-use">
-                    {{ beanMeta(item, 'green_bean_list').recommended_use }}
+                  <div class="bean-title">{{ beanName(item, section.metaKey) }}</div>
+                  <div v-if="beanMeta(item, section.metaKey).recommended_use" class="bean-use">
+                    {{ beanMeta(item, section.metaKey).recommended_use }}
                   </div>
                 </div>
               </div>
               <div v-if="itemWarnings(item).length" class="bean-warning-list">
-                <span v-for="warning in itemWarnings(item)" :key="`green-warning-${item.product_id || item.name}-${warning}`" class="warning-chip">{{ warning }}</span>
+                <span v-for="warning in itemWarnings(item)" :key="`${section.key}-warning-${item.product_id || item.name}-${warning}`" class="warning-chip">{{ warning }}</span>
               </div>
-              <div v-if="beanFlavor(item, 'green_bean_list')" class="bean-note">{{ beanFlavor(item, 'green_bean_list') }}</div>
-              <div v-if="beanDescription(item, 'green_bean_list')" class="bean-desc">{{ beanDescription(item, 'green_bean_list') }}</div>
-              <div class="bean-row green-inline-price-editor" v-for="tier in greenTierPriceRows(item)" :key="`green-tier-${greenTierOverrideKey(tier)}`">
-                <span>{{ tier.label }}</span>
-                <label>
-                  <input type="number" min="0" step="0.01" :value="greenTierPriceValue(itemProductID(item), tier)" @input="setGreenBeanTierPrice(itemProductID(item), tier, $event.target.value)" />
-                  <small>/{{ greenTierPriceUnit(tier) }}</small>
-                </label>
+              <div v-if="itemProductAttributeLines(item).length" class="bean-attrs">
+                <span v-for="line in itemProductAttributeLines(item)" :key="`${section.key}-attr-${item.product_id || item.name}-${line}`">{{ line }}</span>
               </div>
+              <div v-if="beanFlavor(item, section.metaKey)" class="bean-note">{{ beanFlavor(item, section.metaKey) }}</div>
+              <div v-if="beanDescription(item, section.metaKey)" class="bean-desc">{{ beanDescription(item, section.metaKey) }}</div>
+              <template v-if="section.listType === 'drip'">
+                <div class="bean-row" v-for="tier in dripDisplayTiers(item)" :key="`drip-tier-${tier.label}-${tier.sales_unit}`">
+                  <span>{{ tier.label }} / {{ dripTierUnit(tier) }}</span>
+                  <strong>
+                    {{ price(tier.price_per_unit) }}
+                    <button v-if="item.drip_price_template" class="source-button" type="button" @click="openDripPriceExplanation(item, tier)">来源</button>
+                  </strong>
+                </div>
+              </template>
+              <template v-else-if="section.listType === 'retail'">
+                <div class="bean-row" v-for="tier in item.retail_bean_tiers || []" :key="`retail-tier-${tier.label}`">
+                  <span>{{ tier.label }}</span><strong>{{ price(tier.price_per_unit) }}</strong>
+                </div>
+                <div class="bean-row"><span>挂耳10袋</span><strong>{{ price(item.retail_drip_10_bag_price) }}</strong></div>
+              </template>
+              <template v-else-if="section.listType === 'green'">
+                <div class="bean-row green-inline-price-editor" v-for="tier in greenTierPriceRows(item)" :key="`green-tier-${greenTierOverrideKey(tier)}`">
+                  <span>{{ tier.label }}</span>
+                  <label>
+                    <input type="number" min="0" step="0.01" :value="greenTierPriceValue(itemProductID(item), tier)" @input="setGreenBeanTierPrice(itemProductID(item), tier, $event.target.value)" />
+                    <small>/{{ greenTierPriceUnit(tier) }}</small>
+                  </label>
+                </div>
+              </template>
+              <template v-else>
+                <div class="bean-row" v-for="tier in item.commercial_wholesale_tiers || []" :key="tier.label">
+                  <span>{{ tier.label }}</span>
+                  <strong>
+                    {{ price(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}
+                    <button v-if="item.gradient_template" class="source-button" type="button" @click="openPriceExplanation(item, tier)">来源</button>
+                  </strong>
+                </div>
+              </template>
             </article>
           </div>
         </section>
-        <div v-if="!greenGroups.length" class="muted empty-card">暂无生豆豆单数据</div>
+        <div v-if="!section.groups.length" class="muted empty-card">暂无产品价格表数据</div>
       </div>
     </section>
 
@@ -575,6 +481,7 @@
                     <div v-if="item.description" class="pdf-table-line">
                       <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`pd-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
                     </div>
+                    <div v-for="line in item.attributeLines || []" :key="`pa-${item.code}-${line}`" class="pdf-table-line"><b>属性</b> {{ line }}</div>
                     <div v-if="item.recommendedUse" class="pdf-table-line">
                       <b>出品</b>
                       <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`pu-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
@@ -622,6 +529,7 @@
                       <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`cd-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
                     </span>
                   </p>
+                  <p v-for="line in item.attributeLines || []" :key="`preview-attr-${item.code}-${line}`" class="pdf-meta-line"><b>属性</b><span>{{ line }}</span></p>
                   <div class="pdf-price-block">
                     <div class="pdf-section-label">报价</div>
                     <div class="pdf-price-list">
@@ -684,6 +592,7 @@
                   <div v-if="item.description" class="pdf-table-line">
                     <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`pd-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
                   </div>
+                  <div v-for="line in item.attributeLines || []" :key="`pa-print-${item.code}-${line}`" class="pdf-table-line"><b>属性</b> {{ line }}</div>
                   <div v-if="item.recommendedUse" class="pdf-table-line">
                     <b>出品</b>
                     <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`pu-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
@@ -731,6 +640,7 @@
                     <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`cd-print-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
                   </span>
                 </p>
+                <p v-for="line in item.attributeLines || []" :key="`pdf-attr-${item.code}-${line}`" class="pdf-meta-line"><b>属性</b><span>{{ line }}</span></p>
                 <div class="pdf-price-block">
                   <div class="pdf-section-label">报价</div>
                   <div class="pdf-price-list">
@@ -764,7 +674,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchCurrentActor } from '../api/auth'
 import { apiFetch, apiGet, apiSend } from '../api/client'
 import CostingSettingsPanel from '../components/CostingSettingsPanel.vue'
@@ -886,14 +796,24 @@ const selectedProductPriceListType = computed(() => {
 const activeProductTypeCategoryID = computed(() => Number(selectedProductPriceListType.value?.id || selectedProductTypeCategoryID.value || 0))
 const selectedProductPriceListLabel = computed(() => selectedProductPriceListType.value?.label || beanListTypeLabel(pdfTheme.value.listType))
 const activePriceListTypeKey = computed(() => productPriceListTypeKey(selectedProductPriceListType.value, pdfTheme.value.listType))
-const commercialGroups = computed(() => groupBeanItems('commercial_bean_list'))
-const dripGroups = computed(() => groupBeanItems('drip_bean_list'))
-const retailGroups = computed(() => groupBeanItems('retail_bean_list'))
-const greenGroups = computed(() => groupBeanItems('green_bean_list'))
-const commercialPreviewItemCount = computed(() => beanListGroupItemCount(commercialGroups.value))
-const dripPreviewItemCount = computed(() => beanListGroupItemCount(dripGroups.value))
-const retailPreviewItemCount = computed(() => beanListGroupItemCount(retailGroups.value))
-const greenPreviewItemCount = computed(() => beanListGroupItemCount(greenGroups.value))
+const productPriceListPreviewSections = computed(() => productPriceListTypeOptions.value.map((type, index) => {
+  const listType = normalizeBeanListType(type.listType)
+  const key = productPriceListTypeKey(type, listType)
+  const groups = productGroupsForType(listType, type.id)
+  const collapsed = Object.prototype.hasOwnProperty.call(beanListPreviewCollapsed.value, key)
+    ? Boolean(beanListPreviewCollapsed.value[key])
+    : index > 0
+  return {
+    key,
+    id: Number(type.id || 0),
+    label: type.label || beanListTypeLabel(listType),
+    listType,
+    metaKey: metaKeyForListType(listType),
+    groups,
+    itemCount: beanListGroupItemCount(groups),
+    collapsed,
+  }
+}))
 const pdfTheme = computed(() => sanitizeBeanListPdfTheme(pdfOptions.value))
 const pdfAvailableItems = computed(() => beanListItemsForType(pdfTheme.value.listType, activeProductTypeCategoryID.value))
 const pdfCategoryOptions = computed(() => beanListCategoryOptions(pdfTheme.value.listType, activeProductTypeCategoryID.value))
@@ -1274,6 +1194,20 @@ function itemWarnings(item) {
     return ['BOM已失效：请重新启用 BOM 后再发布价格表', ...warnings]
   }
   return warnings
+}
+
+function itemProductAttributeLines(item) {
+  const rows = Array.isArray(item?.product_attributes)
+    ? item.product_attributes
+    : (Array.isArray(item?.productAttributes) ? item.productAttributes : [])
+  return rows
+    .map((row) => {
+      const label = String(row?.label || row?.key || '').trim()
+      const value = String(row?.value || '').trim()
+      if (!label || !value) return ''
+      return `${label}：${value}`
+    })
+    .filter(Boolean)
 }
 
 function itemProductID(item) {
@@ -1836,23 +1770,6 @@ function badgeClass(badge) {
   return badge ? `pdf-product-badge badge-${badge}` : 'pdf-product-badge'
 }
 
-function groupBeanItems(key) {
-  const groups = new Map()
-  visibleCostingItems.value
-    .filter((item) => beanMeta(item, key).code)
-    .slice()
-    .sort((a, b) => compareBeanCodes(beanMeta(a, key).code, beanMeta(b, key).code))
-    .forEach((item) => {
-      const meta = beanMeta(item, key)
-      const category = meta.category || '未分类'
-      if (!groups.has(category)) {
-        groups.set(category, { category, items: [] })
-      }
-      groups.get(category).items.push(item)
-    })
-  return Array.from(groups.values())
-}
-
 function compareBeanCodes(a, b) {
   const aa = String(a || '').split('.').map((v) => Number(v) || 0)
   const bb = String(b || '').split('.').map((v) => Number(v) || 0)
@@ -2193,8 +2110,6 @@ async function saveBeanListDraft() {
 
 async function saveGreenBeanPriceDraft() {
   syncPublicationScopeFromPageContext()
-  const greenType = productPriceListTypeOptions.value.find((type) => type.listType === 'green')
-  if (greenType) selectedProductTypeCategoryID.value = Number(greenType.id || 0)
   pdfOptions.value = { ...pdfOptions.value, listType: 'green', version: defaultBeanListVersionForScope('green', activeProductTypeCategoryID.value) }
   initializePdfDefaultsForType('green', activeProductTypeCategoryID.value)
   if (!pdfGroups.value.length) return
@@ -2215,6 +2130,12 @@ async function saveGreenBeanPriceDraft() {
   } finally {
     beanListPublishing.value = false
   }
+}
+
+async function saveGreenBeanPriceDraftForSection(section) {
+  selectedProductTypeCategoryID.value = Number(section?.id || 0)
+  await nextTick()
+  await saveGreenBeanPriceDraft()
 }
 
 function beanListPublicationPayload() {
@@ -2493,6 +2414,8 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
 .bean-code { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 28px; border: 1px solid #ddd; border-radius: 8px; background: #fff; font-size: 12px; font-weight: 700; color: #333; }
 .bean-title { font-weight: 700; line-height: 1.25; }
 .bean-use { color: #111; font-size: 12px; line-height: 1.35; margin-top: 3px; white-space: pre-line; }
+.bean-attrs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.bean-attrs span { border: 1px solid #e7dfd5; border-radius: 999px; background: #fff; color: #5f554b; font-size: 12px; line-height: 1.3; padding: 4px 8px; }
 .bean-note { color: #555; font-size: 12px; min-height: 18px; margin: 0 0 8px; line-height: 1.45; }
 .bean-desc { color: #777; font-size: 12px; line-height: 1.45; margin: 0 0 8px; }
 .bean-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid #eee; padding: 7px 0; }

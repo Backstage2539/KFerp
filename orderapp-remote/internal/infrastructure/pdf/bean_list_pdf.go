@@ -46,6 +46,7 @@ type BeanListItem struct {
 	RecommendedUse string
 	Flavor         string
 	Description    string
+	AttributeLines []string
 	QualityLines   []BeanListQualityLine
 	Prices         []BeanListPrice
 }
@@ -494,6 +495,10 @@ func (s *beanListPreviewState) estimateCardHeight(item BeanListItem, width float
 		lines := limitPreviewLines(s.splitPreviewText(item.Description, innerW-12, density.bodyFontSize()), density.maxDescLines)
 		height += float64(len(lines))*density.bodyLineHeight + density.detailGap
 	}
+	if attrs := strings.TrimSpace(strings.Join(item.AttributeLines, " / ")); attrs != "" {
+		lines := limitPreviewLines(s.splitPreviewText(attrs, innerW-12, density.bodyFontSize()), density.maxDescLines)
+		height += float64(len(lines))*density.bodyLineHeight + density.detailGap
+	}
 	height += density.detailGap + s.estimatePriceBlockHeight(item.Prices, rowColumns, density) + density.bottomPad
 	return math.Max(height, density.minHeight)
 }
@@ -539,6 +544,9 @@ func (s *beanListPreviewState) renderCard(item BeanListItem, x, y, w, h float64,
 	}
 	if desc := strings.TrimSpace(item.Description); desc != "" {
 		bodyY = s.renderBlockDetail(innerX, bodyY, innerW, "特点", desc, false, density, density.maxDescLines, bodyLimitY)
+	}
+	if attrs := strings.TrimSpace(strings.Join(item.AttributeLines, " / ")); attrs != "" {
+		bodyY = s.renderBlockDetail(innerX, bodyY, innerW, "属性", attrs, false, density, density.maxDescLines, bodyLimitY)
 	}
 	s.renderPriceBlock(item.Prices, innerX, priceY, innerW, rowColumns, density)
 }
@@ -656,7 +664,7 @@ func (s *beanListPreviewState) renderTableItems(items []BeanListItem) {
 		s.pdf.SetXY(x+15, s.y+3)
 		s.pdf.CellFormat(s.contentW-44, 5, item.Name, "", 0, "L", false, 0, "")
 		lineY := s.y + 9
-		for _, value := range nonEmptyStrings(item.RecommendedUse, item.Flavor, item.Description) {
+		for _, value := range nonEmptyStrings(item.RecommendedUse, item.Flavor, item.Description, strings.Join(item.AttributeLines, " / ")) {
 			for _, line := range s.splitPreviewText(value, s.contentW-45, 6.5) {
 				s.pdf.SetXY(x+15, lineY)
 				s.pdf.CellFormat(s.contentW-45, 4, line, "", 0, "L", false, 0, "")
@@ -829,6 +837,7 @@ func renderBeanListItem(pdf *gofpdf.Fpdf, item BeanListItem) {
 		{"出品建议", item.RecommendedUse},
 		{"风味", item.Flavor},
 		{"特点", item.Description},
+		{"属性", strings.Join(item.AttributeLines, " / ")},
 	} {
 		if value := strings.TrimSpace(line.value); value != "" {
 			pdf.MultiCell(0, 5, line.label+"："+value, "", "L", false)

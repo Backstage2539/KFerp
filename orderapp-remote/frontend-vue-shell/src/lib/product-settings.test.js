@@ -27,7 +27,6 @@ import {
   nextSkuContextCustomerID,
   normalizedProductKind,
   paginatedSkuRows,
-  priceListRuleDisplayUnitOptions,
   priceListRuleFormFromJSON,
   priceListRuleJSONFromForm,
   greenBeanTypeLabel,
@@ -38,6 +37,10 @@ import {
   primaryCategoryOptions,
   roastedBomProductOptions,
   secondaryCategoryOptions,
+  specialAttrSchemaJSONFromRows,
+  specialAttrSchemaRowsFromJSON,
+  specialAttrValuesFromJSON,
+  specialAttrValuesJSONFromForm,
   sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
@@ -67,31 +70,35 @@ test('filterSkuRows supports product kind, name, primary category, and secondary
   ], { productKind: 'instant_coffee' }).map((row) => row.id), [5])
 })
 
-test('instant coffee product kind is preserved in SKU payloads without roast settings', () => {
+test('instant coffee product kind carries SKU-owned BOM yield and special KV settings', () => {
   assert.equal(normalizedProductKind({ product_kind: 'instant_coffee' }), 'instant_coffee')
 
   assert.deepEqual(buildProductCreatePayload({
     name: '冻干速溶咖啡',
     product_kind: 'instant_coffee',
-    roast_level: '深烘',
+    special_attr_values: { roast_level: '深烘' },
     yield_percent: 80,
     remark: '原料为速溶咖啡',
   }), {
     name: '冻干速溶咖啡',
     product_kind: 'instant_coffee',
     remark: '原料为速溶咖啡',
+    special_attrs_json: '{"roast_level":"深烘"}',
+    yield_rate: 0.8,
   })
 
   assert.deepEqual(buildProductBasicsPayload({
     name: '冻干速溶咖啡',
     product_kind: 'instant_coffee',
-    roast_level: '中烘',
+    special_attr_values: { roast_level: '中烘' },
     yield_percent: 80,
     remark: '原料为速溶咖啡',
   }, null), {
     name: '冻干速溶咖啡',
     product_kind: 'instant_coffee',
     remark: '原料为速溶咖啡',
+    special_attrs_json: '{"roast_level":"中烘"}',
+    yield_rate: 0.8,
     margin_rate_override: null,
   })
 
@@ -99,6 +106,8 @@ test('instant coffee product kind is preserved in SKU payloads without roast set
     base_product_id: 8,
     name: '客户A-速溶咖啡',
     product_kind: 'instant_coffee',
+    special_attr_values: { roast_level: '中烘' },
+    yield_percent: 100,
     custom_type: 'public_sku_alias',
     copy_bom: true,
     copy_price_tiers: true,
@@ -108,6 +117,8 @@ test('instant coffee product kind is preserved in SKU payloads without roast set
     name: '客户A-速溶咖啡',
     remark: '',
     product_kind: 'instant_coffee',
+    special_attrs_json: '{"roast_level":"中烘"}',
+    yield_rate: 1,
     custom_type: 'public_sku_alias',
     copy_bom: false,
     copy_price_tiers: true,
@@ -179,20 +190,19 @@ test('product subtype config payload carries templates and lightweight unit rule
 })
 
 test('structured price list rule form stores generation rules without price table inclusion flags', () => {
-  const form = priceListRuleFormFromJSON('{"generator":"instant","include_in_price_list":false,"pricing_mode":"fixed_unit_price","display_mode":"boxed","rounding":"yuan","tax_included":true}')
+  const form = priceListRuleFormFromJSON('{"generator":"instant","include_in_price_list":false,"pricing_mode":"fixed_unit_price","display_unit":"盒","fixed_unit_price":15,"rounding":"yuan","tax_included":true}')
 
   assert.equal(form.price_rule_pricing_mode, 'fixed_unit_price')
-  assert.equal(form.price_rule_display_unit, 'inherit_quote_unit')
+  assert.equal(form.price_rule_fixed_unit_price, 15)
   assert.equal(form.price_rule_rounding, 'yuan')
   assert.equal(form.price_rule_tax_included, true)
   assert.deepEqual(form.price_rule_extra, { generator: 'instant' })
-  assert.equal(priceListRuleJSONFromForm(form), '{"generator":"instant","pricing_mode":"fixed_unit_price","display_unit":"inherit_quote_unit","rounding":"yuan","tax_included":true}')
-  assert.equal(priceListRuleJSONFromForm({}), '{"pricing_mode":"inherit_gradient_template","display_unit":"inherit_quote_unit","rounding":"none","tax_included":false}')
-  assert.deepEqual(priceListRuleDisplayUnitOptions([{ code: 'kg', name: 'kg' }, { code: 'box', name: '盒' }]), [
-    { value: 'inherit_quote_unit', label: '继承报价单位' },
-    { value: 'kg', label: 'kg' },
-    { value: 'box', label: '盒' },
-  ])
+  assert.equal(priceListRuleJSONFromForm(form), '{"generator":"instant","pricing_mode":"fixed_unit_price","fixed_unit_price":15,"rounding":"yuan","tax_included":true}')
+  assert.equal(priceListRuleJSONFromForm({}), '{"pricing_mode":"inherit_gradient_template","rounding":"none","tax_included":false}')
+
+  const costPlusForm = priceListRuleFormFromJSON('{"pricing_mode":"cost_plus","cost_plus_rate":0.28}')
+  assert.equal(costPlusForm.price_rule_cost_plus_percent, 28)
+  assert.equal(priceListRuleJSONFromForm(costPlusForm), '{"pricing_mode":"cost_plus","cost_plus_rate":0.28,"rounding":"none","tax_included":false}')
 })
 
 test('product config template payload carries template rules and unit settings as one reusable object', () => {
@@ -204,9 +214,17 @@ test('product config template payload carries template rules and unit settings a
     operation_template_id: 9,
     unit_template_id: 12,
     price_rule_pricing_mode: 'fixed_unit_price',
-    price_rule_display_unit: 'box',
+    price_rule_fixed_unit_price: 15,
     price_rule_rounding: 'yuan',
     price_rule_tax_included: true,
+    special_attrs_schema_rows: [{
+      key: 'roast_level',
+      label: '烘焙度',
+      value_type: 'select',
+      options_text: '浅烘\n中烘\n中深烘\n深烘',
+      required: true,
+      show_in_price_list: true,
+    }],
   }), {
     id: 301,
     customer_id: 42,
@@ -214,8 +232,93 @@ test('product config template payload carries template rules and unit settings a
     gradient_template_id: 8,
     operation_template_id: 9,
     unit_template_id: 12,
-    price_list_rule_json: '{"pricing_mode":"fixed_unit_price","display_unit":"box","rounding":"yuan","tax_included":true}',
+    price_list_rule_json: '{"pricing_mode":"fixed_unit_price","fixed_unit_price":15,"rounding":"yuan","tax_included":true}',
+    special_attrs_schema_json: '[{"key":"roast_level","label":"烘焙度","value_type":"select","options":["浅烘","中烘","中深烘","深烘"],"required":true,"show_in_price_list":true,"position":1}]',
     active: true,
+  })
+})
+
+test('special KV schema and SKU values round trip through structured helpers', () => {
+  const schemaJSON = specialAttrSchemaJSONFromRows([
+    { key: ' roast_level ', label: ' 烘焙度 ', value_type: 'select', options_text: '浅烘，中烘\n中深烘', required: true, show_in_price_list: true },
+    { key: ' caffeine ', label: '咖啡因', value_type: 'text', options_text: '', required: false, show_in_price_list: false },
+  ])
+
+  assert.equal(schemaJSON, '[{"key":"roast_level","label":"烘焙度","value_type":"select","options":["浅烘","中烘","中深烘"],"required":true,"show_in_price_list":true,"position":1},{"key":"caffeine","label":"咖啡因","value_type":"text","options":[],"required":false,"show_in_price_list":false,"position":2}]')
+  assert.deepEqual(specialAttrSchemaRowsFromJSON(schemaJSON).map((row) => ({
+    key: row.key,
+    label: row.label,
+    value_type: row.value_type,
+    options_text: row.options_text,
+    required: row.required,
+    show_in_price_list: row.show_in_price_list,
+    position: row.position,
+  })), [{
+    key: 'roast_level',
+    label: '烘焙度',
+    value_type: 'select',
+    options_text: '浅烘\n中烘\n中深烘',
+    required: true,
+    show_in_price_list: true,
+    position: 1,
+  }, {
+    key: 'caffeine',
+    label: '咖啡因',
+    value_type: 'text',
+    options_text: '',
+    required: false,
+    show_in_price_list: false,
+    position: 2,
+  }])
+  assert.deepEqual(specialAttrValuesFromJSON('{"roast_level":"中深烘","caffeine":"低因"}'), { roast_level: '中深烘', caffeine: '低因' })
+  assert.equal(specialAttrValuesJSONFromForm({ roast_level: '中深烘', caffeine: '' }), '{"roast_level":"中深烘"}')
+})
+
+test('special KV schema saves edited select options and clears stale options when type changes', () => {
+  assert.equal(specialAttrSchemaJSONFromRows([{
+    key: 'roast_level',
+    label: '烘焙度',
+    value_type: 'select',
+    options: ['浅烘', '中烘'],
+    options_text: '浅烘，深烘\n意式',
+    show_in_price_list: true,
+  }]), '[{"key":"roast_level","label":"烘焙度","value_type":"select","options":["浅烘","深烘","意式"],"required":false,"show_in_price_list":true,"position":1}]')
+
+  assert.equal(specialAttrSchemaJSONFromRows([{
+    key: 'roast_level',
+    label: '烘焙度',
+    value_type: 'text',
+    options: ['浅烘', '中烘'],
+    options_text: '浅烘，深烘',
+    show_in_price_list: true,
+  }]), '[{"key":"roast_level","label":"烘焙度","value_type":"text","options":[],"required":false,"show_in_price_list":true,"position":1}]')
+})
+
+test('instant coffee SKU payload carries SKU-owned BOM yield and special KV settings', () => {
+  assert.deepEqual(buildProductCreatePayload({
+    name: '速溶盒装',
+    product_kind: 'instant_coffee',
+    special_attr_values: { roast_level: '中烘' },
+    yield_percent: 96,
+  }), {
+    name: '速溶盒装',
+    product_kind: 'instant_coffee',
+    remark: '',
+    special_attrs_json: '{"roast_level":"中烘"}',
+    yield_rate: 0.96,
+  })
+
+  assert.deepEqual(buildProductBasicsPayload({
+    product_kind: 'instant_coffee',
+    remark: '条装原料',
+    special_attr_values: { roast_level: '中烘' },
+    yield_percent: 98,
+  }), {
+    product_kind: 'instant_coffee',
+    remark: '条装原料',
+    special_attrs_json: '{"roast_level":"中烘"}',
+    yield_rate: 0.98,
+    margin_rate_override: null,
   })
 })
 
@@ -381,7 +484,7 @@ test('product create payload carries SKU remark without direct green bean prices
     name: '暖阳拼配',
     product_kind: 'roasted',
     remark: '奶咖主推',
-    roast_level: '中烘',
+    special_attrs_json: '{}',
     yield_rate: 0.82,
   })
 
@@ -397,6 +500,7 @@ test('product create payload carries SKU remark without direct green bean prices
     name: '巴拿马生豆',
     product_kind: 'green_bean',
     remark: '新季生豆',
+    special_attrs_json: '{}',
     green_bean_type: 'blend',
     green_bean_bom_product_id: 7,
   })
@@ -416,6 +520,7 @@ test('product basics payload preserves remark, green bean type, and BOM binding 
   assert.deepEqual(payload, {
     product_kind: 'green_bean',
     remark: '仅作生豆销售',
+    special_attrs_json: '{}',
     green_bean_type: 'single_origin',
     green_bean_bom_product_id: 7,
     margin_rate_override: null,
@@ -434,7 +539,7 @@ test('product basics payload carries customer SKU margin override', () => {
   }, 0.33)
 
   assert.equal(payload.product_kind, 'roasted')
-  assert.equal(payload.roast_level, '深烘')
+  assert.equal(payload.special_attrs_json, '{}')
   assert.equal(payload.yield_rate, 0.8)
   assert.equal(payload.margin_rate_override, 0.33)
   assert.equal(payload.remark, '客户定制烘焙')
@@ -479,6 +584,7 @@ test('customer custom SKU payload supports green bean and drip bag product setti
     name: '客户A-巴拿马生豆',
     remark: '客户生豆',
     product_kind: 'green_bean',
+    special_attrs_json: '{}',
     green_bean_type: 'blend',
     green_bean_bom_product_id: 9,
     custom_type: 'public_sku_alias',
@@ -491,6 +597,7 @@ test('customer custom SKU payload supports green bean and drip bag product setti
     name: '客户A-巴拿马生豆',
     remark: '客户生豆',
     product_kind: 'green_bean',
+    special_attrs_json: '{}',
     green_bean_type: 'blend',
     green_bean_bom_product_id: 9,
     custom_type: 'public_sku_alias',
@@ -514,7 +621,7 @@ test('customer custom SKU payload supports green bean and drip bag product setti
     product_kind: 'drip_bag',
     drip_bag_grams: 12,
     drip_box_bag_count: 8,
-    roast_level: '中深烘',
+    special_attrs_json: '{}',
     custom_type: 'custom_roast',
     copy_bom: false,
     copy_price_tiers: false,
@@ -526,7 +633,7 @@ test('customer custom roast SKU payload does not carry base product or copy flag
     base_product_id: '8',
     name: '客户A-专属深烘',
     product_kind: 'roasted',
-    roast_level: '深烘',
+    special_attr_values: { roast_level: '深烘' },
     custom_type: 'custom_roast',
     copy_bom: true,
     copy_price_tiers: true,
@@ -536,7 +643,7 @@ test('customer custom roast SKU payload does not carry base product or copy flag
     name: '客户A-专属深烘',
     remark: '',
     product_kind: 'roasted',
-    roast_level: '深烘',
+    special_attrs_json: '{"roast_level":"深烘"}',
     custom_type: 'custom_roast',
     copy_bom: false,
     copy_price_tiers: false,
@@ -860,8 +967,72 @@ test('customer context filters product config templates while allowing public te
   const customerTemplate = { id: 401, name: '岩师傅 - 盒装商品配置', customer_id: 42, source_template_id: 301, template_state: 'derived_from_public' }
 
   assert.equal(productConfigTemplateBelongsToSkuContext(publicTemplate, { customerID: 42, customerTemplates: [] }), true)
-  assert.equal(productConfigTemplateBelongsToSkuContext(publicTemplate, { customerID: 42, customerTemplates: [customerTemplate] }), false)
+  assert.equal(productConfigTemplateBelongsToSkuContext(publicTemplate, { customerID: 42, customerTemplates: [customerTemplate] }), true)
   assert.equal(productConfigTemplateBelongsToSkuContext(customerTemplate, { customerID: 42 }), true)
+})
+
+test('SKU settings renders special KV template definitions and SKU value editors instead of hardcoded roast selectors', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+
+  for (const expected of [
+    '特殊KV定义',
+    'special_attrs_schema_rows',
+    'specialAttrSchemaForProduct',
+    'specialAttrSchemaForForm',
+    'special_attr_values',
+    'show_in_price_list',
+  ]) {
+    assert.ok(source.includes(expected), `missing special KV UI marker: ${expected}`)
+  }
+  assert.doesNotMatch(template, /v-model="row\.roast_level"/)
+  assert.doesNotMatch(template, /v-model="productForm\.roast_level"/)
+  assert.doesNotMatch(template, /v-model="customForm\.roast_level"/)
+})
+
+test('SKU settings makes special KV configuration discoverable from SKU rows and template editor', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  for (const expected of [
+    '产品信息字段（特殊属性KV）',
+    '展示到价格表/PDF',
+    'SKU列表特殊属性列填写具体值',
+    '价格表页面、发布快照和 PDF 均展示',
+    '未配置字段',
+    '配置字段',
+    'openSpecialAttrConfigForProduct',
+  ]) {
+    assert.ok(source.includes(expected), `missing discoverable special KV copy: ${expected}`)
+  }
+  assert.match(template, /class="[^"]*sku-empty-special-attrs[^"]*"/)
+  assert.match(script, /activeSettingsSection\.value = 'templates'[\s\S]*activeConfigTemplateSection\.value = 'product-config'/)
+})
+
+test('SKU settings clears special KV dropdown options when the field type is changed away from select', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  assert.ok(script.includes('handleSpecialAttrSchemaTypeChange'), 'missing special KV type-change handler')
+  assert.match(template, /@change="handleSpecialAttrSchemaTypeChange\(attr\)"/)
+  assert.match(template, /<textarea[\s\S]*v-model\.trim="attr\.options_text"[\s\S]*下拉选项/)
+})
+
+test('copying public product config enables referenced public SKU and category instead of copying SKU rows', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  for (const expected of [
+    'ensurePublicProductReferenceForCustomer',
+    'use_public_sku: true',
+    'use_public_categories: true',
+    '公共商品配置已复制为客户配置，并已开启公共SKU引用',
+  ]) {
+    assert.ok(script.includes(expected) || source.includes(expected), `missing public SKU reference behavior: ${expected}`)
+  }
+  assert.doesNotMatch(script, /deriveCustomerProductForCustomer[\s\S]*deriveProductConfigTemplateForCustomer/)
 })
 
 test('SKU settings exposes an explicit copy action for public gradient templates', () => {
@@ -954,7 +1125,7 @@ test('SKU subtype config explains unit impact and stays inside narrow category p
 
   for (const expected of [
     '商品配置',
-    '单位模板会影响产品价格表展示单位',
+    '单位模板会影响产品价格表单位',
     '录单默认单位和库存/生产折算',
     '已发布价格表和历史订单不会被回改',
     'unit-impact-help',
@@ -1134,6 +1305,27 @@ test('SKU category primary row keeps title and sorting on the left with collapse
   assert.match(style, /\.primary-category-right\s*\{[^}]*justify-content:\s*flex-end;/s)
 })
 
+test('SKU table keeps product type columns on one line and relies on horizontal scroll', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const style = source.split('<style scoped>')[1] || ''
+
+  for (const expected of [
+    'sku-table-wrap',
+    'class="sku-table"',
+    'sku-category-cell',
+    'sku-name-cell',
+    'special-attrs-cell',
+  ]) {
+    assert.ok(source.includes(expected), `missing SKU table layout marker: ${expected}`)
+  }
+  assert.match(template, /<th class="sku-col-product-type">产品类型<\/th>/)
+  assert.match(style, /\.sku-table-wrap\s*\{[^}]*overflow-x:\s*auto;/s)
+  assert.match(style, /\.sku-table\s*\{[^}]*width:\s*max-content;[^}]*min-width:\s*1600px;/s)
+  assert.match(style, /\.sku-table th,\s*\.sku-table td\s*\{[^}]*white-space:\s*nowrap;/s)
+  assert.match(style, /\.sku-category-cell\s*\{[^}]*white-space:\s*nowrap;/s)
+})
+
 test('SKU settings collapses category levels and focuses newly created categories', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
@@ -1260,12 +1452,15 @@ test('SKU product config uses display unit from unit dictionary instead of fixed
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   assert.ok(productConfigPane, 'product config pane should exist')
-  assert.match(productConfigPane, /价格表展示单位/)
-  assert.match(productConfigPane, /price_rule_display_unit/)
-  assert.match(productConfigPane, /priceListRuleDisplayUnitOptions\(activeProductUnitDefinitions\)/)
+  assert.doesNotMatch(productConfigPane, /价格表展示单位/)
+  assert.doesNotMatch(productConfigPane, /price_rule_display_unit/)
+  assert.doesNotMatch(productConfigPane, /priceListRuleDisplayUnitOptions/)
+  assert.match(productConfigPane, /固定单价/)
+  assert.match(productConfigPane, /成本加成/)
   assert.doesNotMatch(productConfigPane, /展示方式/)
   assert.doesNotMatch(source, /盒装\/箱装展示|按重量展示|priceListRuleDisplayModeOptions|price_rule_display_mode/)
-  assert.match(script, /priceListRuleDisplayUnitOptions/)
+  assert.doesNotMatch(script, /priceListRuleDisplayUnitOptions/)
+  assert.match(script, /Object\.prototype\.hasOwnProperty\.call\(template,\s*'customer_id'\)/)
 })
 
 test('SKU product config template list and price rule controls are visually structured', () => {

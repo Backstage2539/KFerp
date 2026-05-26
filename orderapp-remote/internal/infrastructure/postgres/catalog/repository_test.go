@@ -169,6 +169,40 @@ func TestProductConfigTemplateSchemaPersistsIndependentTemplates(t *testing.T) {
 	}
 }
 
+func TestProductConfigSpecialAttrsPersistAndCopyIdempotently(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries, err := os.ReadFile("../catalog_queries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{name: "product special attrs column", src: string(schema), want: "ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS special_attrs_json JSONB NOT NULL DEFAULT '{}'::jsonb"},
+		{name: "template special schema column", src: string(schema), want: "ALTER TABLE %[1]s.product_config_templates ADD COLUMN IF NOT EXISTS special_attrs_schema_json JSONB NOT NULL DEFAULT '[]'::jsonb"},
+		{name: "legacy roast migration to special attrs", src: string(schema), want: "jsonb_set(COALESCE(special_attrs_json"},
+		{name: "product list query reads special attrs", src: string(queries), want: "COALESCE(p.special_attrs_json::text,'{}')"},
+		{name: "template list reads special attrs schema", src: string(repository), want: "COALESCE(special_attrs_schema_json::text,'[]')"},
+		{name: "product update writes special attrs", src: string(repository), want: "special_attrs_json=$20::jsonb"},
+		{name: "template save writes special attrs schema", src: string(repository), want: "special_attrs_schema_json=$13::jsonb"},
+		{name: "derived config copies special attrs schema", src: string(repository), want: "source.SpecialAttrsSchemaJSON"},
+		{name: "derived config returns existing copy", src: string(repository), want: "findProductConfigTemplateBySourceTx"},
+	} {
+		if !strings.Contains(tc.src, tc.want) {
+			t.Fatalf("product config special attrs persistence missing %s marker %q", tc.name, tc.want)
+		}
+	}
+}
+
 func TestLegacyProductKindMigrationBackfillsDefaultProductTypeSubtypes(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

@@ -17,21 +17,75 @@ func workOrderNo(runningItemID int64) string {
 	return fmt.Sprintf("WO-%010d", runningItemID)
 }
 
-func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operator string) (int64, error) {
+type operationTemplateStepRow struct {
+	ID          int64
+	Operation   string
+	Workstation string
+	CostType    string
+	CostRate    float64
+}
+
+func loadOperationTemplateStepsTx(ctx context.Context, tx pgx.Tx, schema string, operationTemplateID int64) ([]operationTemplateStepRow, error) {
+	if operationTemplateID <= 0 {
+		return nil, nil
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id, COALESCE(NULLIF(operation,''),'production'), COALESCE(workstation,''), COALESCE(cost_type,''), COALESCE(cost_rate,0)::float8
+		FROM %s.operation_template_steps
+		WHERE template_id=$1 AND active=true
+		ORDER BY position,id
+	`, schema), operationTemplateID)
+	if err != nil {
+		if strings.Contains(err.Error(), "operation_template_steps") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]operationTemplateStepRow, 0)
+	for rows.Next() {
+		var row operationTemplateStepRow
+		if err := rows.Scan(&row.ID, &row.Operation, &row.Workstation, &row.CostType, &row.CostRate); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func defaultOperationTemplateSteps() []operationTemplateStepRow {
+	return []operationTemplateStepRow{{Operation: "production", Workstation: "workstation"}}
+}
+
+func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operationTemplateID int64, operator string) (int64, error) {
 	var workOrderID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.work_orders(work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,material_snapshot,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,now())
-		ON CONFLICT (running_item_id) DO UPDATE SET status='running', material_snapshot=excluded.material_snapshot
+		INSERT INTO %s.work_orders(work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,material_snapshot,operation_template_id,created_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,$9,now())
+		ON CONFLICT (running_item_id) DO UPDATE SET status='running', material_snapshot=excluded.material_snapshot, operation_template_id=excluded.operation_template_id
 		RETURNING id
-	`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG, materialSnapshot).Scan(&workOrderID); err != nil {
+	`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG, materialSnapshot, operationTemplateID).Scan(&workOrderID); err != nil {
 		return 0, err
 	}
-	_, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.job_cards(work_order_id,operation,workstation,status,started_at,operator,planned_input_qty)
-		VALUES($1,'roast','roaster','running',now(),$2,$3)
-	`, schema), workOrderID, operator, plannedG)
-	return workOrderID, err
+	steps, err := loadOperationTemplateStepsTx(ctx, tx, schema, operationTemplateID)
+	if err != nil {
+		return 0, err
+	}
+	if len(steps) == 0 {
+		steps = defaultOperationTemplateSteps()
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.job_cards WHERE work_order_id=$1`, schema), workOrderID); err != nil {
+		return 0, err
+	}
+	for _, step := range steps {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.job_cards(work_order_id,operation,workstation,status,started_at,operator,planned_input_qty,operation_template_step_id,cost_type,cost_rate)
+			VALUES($1,$2,$3,'running',now(),$4,$5,$6,$7,$8)
+		`, schema), workOrderID, step.Operation, step.Workstation, operator, plannedG, step.ID, step.CostType, step.CostRate); err != nil {
+			return 0, err
+		}
+	}
+	return workOrderID, nil
 }
 
 func completeWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, actualCost float64, actualInputQty int64, actualOutputQty int64, operator string) error {
@@ -127,7 +181,24 @@ func recordBatchCostForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 	if err != nil {
 		return 0, err
 	}
-	operationCost := 0.0
+	var operationCost float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(SUM(CASE
+			WHEN COALESCE(NULLIF(jc.cost_type,''),'fixed') IN ('per_kg_input','per_input_kg')
+				THEN COALESCE(jc.cost_rate,0) * COALESCE(NULLIF(ri.input_g,0), $2)::numeric / 1000.0
+			WHEN COALESCE(NULLIF(jc.cost_type,''),'fixed') IN ('per_kg_output','per_finished_kg','per_kg')
+				THEN COALESCE(jc.cost_rate,0) * $2::numeric / 1000.0
+			WHEN COALESCE(NULLIF(jc.cost_type,''),'fixed') IN ('fixed','per_unit','per_quote_unit')
+				THEN COALESCE(jc.cost_rate,0)
+			ELSE 0
+		END),0)::float8
+		FROM %s.work_orders wo
+		JOIN %s.job_cards jc ON jc.work_order_id=wo.id
+		LEFT JOIN %s.produce_running_items ri ON ri.id=wo.running_item_id
+		WHERE wo.running_item_id=$1
+	`, schema, schema, schema), r.ID, finishedTotalG).Scan(&operationCost); err != nil {
+		return 0, err
+	}
 	totalCost := materialCost + operationCost
 	unitCost := 0.0
 	if finishedTotalG > 0 {

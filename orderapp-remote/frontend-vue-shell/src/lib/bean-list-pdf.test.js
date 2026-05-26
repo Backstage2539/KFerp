@@ -94,6 +94,25 @@ test('PDF bean-list helper defaults to V3.0.5 and keeps mobile print theme setti
   assert.equal(theme.backgroundImage, 'data:image/png;base64,abc')
 })
 
+test('PDF bean-list helper carries selected product special KV attributes into snapshot items', () => {
+  const groups = buildBeanListPdfGroups([{
+    product_id: 8801,
+    name: '速溶盒装',
+    commercial_bean_list: { code: '8.1', category: '8、速溶咖啡', display_name: '速溶盒装' },
+    product_attributes: [
+      { key: 'roast_level', label: '烘焙度', value: '中深烘' },
+      { key: 'caffeine', label: '咖啡因', value: '低因' },
+    ],
+    commercial_wholesale_tiers: [{ label: '10盒起', display_unit: '盒', price_per_unit: 15 }],
+  }], 'commercial')
+
+  assert.deepEqual(groups[0].items[0].productAttributes, [
+    { key: 'roast_level', label: '烘焙度', value: '中深烘' },
+    { key: 'caffeine', label: '咖啡因', value: '低因' },
+  ])
+  assert.deepEqual(groups[0].items[0].attributeLines, ['烘焙度：中深烘', '咖啡因：低因'])
+})
+
 test('PDF bean-list helper increments customer draft versions by the next 0.01-style suffix', () => {
   assert.equal(nextBeanListVersion('V1'), 'V1.01')
   assert.equal(nextBeanListVersion('V1.01'), 'V1.02')

@@ -46,3 +46,7 @@ func ProductKindRequiresRoast(value string) bool {
 		return false
 	}
 }
+
+func ProductKindSupportsBomParams(value string) bool {
+	return NormalizeProductKind(value) != ProductKindGreenBean
+}

@@ -26,13 +26,14 @@ type ProduceRunOutputRow struct {
 }
 
 type startRunGroup struct {
-	ProductID   int64
-	ProductName string
-	SpecG       int64
-	NeedG       int64
-	InputG      int64
-	OrderNos    string
-	Outputs     []ProduceRunOutputRow
+	ProductID           int64
+	ProductName         string
+	SpecG               int64
+	NeedG               int64
+	InputG              int64
+	OrderNos            string
+	OperationTemplateID int64
+	Outputs             []ProduceRunOutputRow
 }
 
 func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[string]int64, yieldByProductID map[int64]float64) []startRunGroup {
@@ -56,6 +57,9 @@ func groupStartNeedsForRuns(needs []productionapp.StartNeed, inputByKey map[stri
 		}
 		if group.ProductName == "" {
 			group.ProductName = strings.TrimSpace(need.ProductName)
+		}
+		if group.OperationTemplateID <= 0 && need.OperationTemplateID > 0 {
+			group.OperationTemplateID = need.OperationTemplateID
 		}
 		group.NeedG += need.GapG
 		group.InputG += inputByKey[producePlanKey(need.ProductID, need.SpecG)]

@@ -140,6 +140,25 @@ func TestLoadProductInputsReadsComposablePriceRulesAndBomUnitCosts(t *testing.T)
 	}
 }
 
+func TestLoadProductInputsReadsOperationTemplateCosts(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"operation_template_steps",
+		"operation_unit_cost",
+		"effective_operation_template_id",
+		"&input.OperationCostPerUnit",
+		"&input.OperationCostPerKg",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must load operation template cost into product inputs; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsSkuCategoryPathForCustomerBeanLists(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

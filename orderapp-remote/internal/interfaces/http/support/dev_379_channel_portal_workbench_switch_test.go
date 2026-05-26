@@ -6,16 +6,16 @@ import (
 	"testing"
 )
 
-func TestDev376ChannelPortalWorkbenchSwitchRequirementSeeds(t *testing.T) {
+func TestDev379ChannelPortalWorkbenchSwitchRequirementSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-376-CHANNEL-PORTAL-WORKBENCH-SWITCH",
-		"DEV-376-CUSTOMER-PORTAL-SWITCH",
-		"DEV-376-CHANNEL-FULFILLMENT-CUSTOMER",
-		"DEV-376-ORDER-ENTRY-CATEGORY-PRICELIST",
-		"UT-376-CHANNEL-PORTAL-WORKBENCH-SWITCH",
-		"API-376-CHANNEL-PORTAL-WORKBENCH-SWITCH",
-		"REV-376-CHANNEL-PORTAL-WORKBENCH-SWITCH",
+		"PR-379-CHANNEL-PORTAL-WORKBENCH-SWITCH",
+		"DEV-379-CUSTOMER-PORTAL-SWITCH",
+		"DEV-379-CHANNEL-FULFILLMENT-CUSTOMER",
+		"DEV-379-ORDER-ENTRY-CATEGORY-PRICELIST",
+		"UT-379-CHANNEL-PORTAL-WORKBENCH-SWITCH",
+		"API-379-CHANNEL-PORTAL-WORKBENCH-SWITCH",
+		"REV-379-CHANNEL-PORTAL-WORKBENCH-SWITCH",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("PR-376 requirement seed missing %q", want)
@@ -23,7 +23,7 @@ func TestDev376ChannelPortalWorkbenchSwitchRequirementSeeds(t *testing.T) {
 	}
 }
 
-func TestDev376ChannelPortalWorkbenchSwitchSourceMarkers(t *testing.T) {
+func TestDev379ChannelPortalWorkbenchSwitchSourceMarkers(t *testing.T) {
 	customerService := string(readOrderAppFileForTest(t, filepath.Join("internal", "application", "customer", "service.go")))
 	for _, want := range []string{
 		"CustomerTypeChannel",
@@ -133,7 +133,7 @@ func TestDev376ChannelPortalWorkbenchSwitchSourceMarkers(t *testing.T) {
 	}
 }
 
-func TestDev376ChannelPortalWorkbenchSwitchDocs(t *testing.T) {
+func TestDev379ChannelPortalWorkbenchSwitchDocs(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("docs", "REQUIREMENTS.md"),
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
@@ -144,7 +144,7 @@ func TestDev376ChannelPortalWorkbenchSwitchDocs(t *testing.T) {
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{
-			"PR-376-CHANNEL-PORTAL-WORKBENCH-SWITCH",
+			"PR-379-CHANNEL-PORTAL-WORKBENCH-SWITCH",
 			"开通客户门户/工作台",
 			"渠道客户",
 			"能力模板",

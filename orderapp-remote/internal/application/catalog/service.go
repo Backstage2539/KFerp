@@ -27,6 +27,7 @@ type Product struct {
 	GreenBeanType               string
 	GreenBeanBomProductID       int64
 	RoastLevel                  string
+	SpecialAttrsJSON            string
 	DripBagGrams                float64
 	DripBoxBagCount             int
 	AllowFulfillmentOrder       bool
@@ -89,6 +90,7 @@ type ProductSettingsProduct struct {
 	GreenBeanType               string   `json:"green_bean_type"`
 	GreenBeanBomProductID       int64    `json:"green_bean_bom_product_id"`
 	RoastLevel                  string   `json:"roast_level"`
+	SpecialAttrsJSON            string   `json:"special_attrs_json"`
 	DripBagGrams                float64  `json:"drip_bag_grams"`
 	DripBoxBagCount             int      `json:"drip_box_bag_count"`
 	AllowFulfillmentOrder       bool     `json:"allow_fulfillment_order"`
@@ -136,21 +138,22 @@ type ProductSettingsData struct {
 }
 
 type ProductConfigTemplate struct {
-	ID                  int64  `json:"id"`
-	CustomerID          int64  `json:"customer_id"`
-	SourceTemplateID    int64  `json:"source_template_id"`
-	TemplateState       string `json:"template_state"`
-	Name                string `json:"name"`
-	GradientTemplateID  int64  `json:"gradient_template_id"`
-	OperationTemplateID int64  `json:"operation_template_id"`
-	UnitTemplateID      int64  `json:"unit_template_id"`
-	PriceListRuleJSON   string `json:"price_list_rule_json"`
-	InventoryUnit       string `json:"inventory_unit"`
-	QuoteUnit           string `json:"quote_unit"`
-	OrderUnit           string `json:"order_unit"`
-	UnitConversionJSON  string `json:"unit_conversion_json"`
-	IntegerUnit         bool   `json:"integer_unit"`
-	Active              bool   `json:"active"`
+	ID                     int64  `json:"id"`
+	CustomerID             int64  `json:"customer_id"`
+	SourceTemplateID       int64  `json:"source_template_id"`
+	TemplateState          string `json:"template_state"`
+	Name                   string `json:"name"`
+	GradientTemplateID     int64  `json:"gradient_template_id"`
+	OperationTemplateID    int64  `json:"operation_template_id"`
+	UnitTemplateID         int64  `json:"unit_template_id"`
+	PriceListRuleJSON      string `json:"price_list_rule_json"`
+	SpecialAttrsSchemaJSON string `json:"special_attrs_schema_json"`
+	InventoryUnit          string `json:"inventory_unit"`
+	QuoteUnit              string `json:"quote_unit"`
+	OrderUnit              string `json:"order_unit"`
+	UnitConversionJSON     string `json:"unit_conversion_json"`
+	IntegerUnit            bool   `json:"integer_unit"`
+	Active                 bool   `json:"active"`
 }
 
 type ProductUnitDefinition struct {
@@ -222,6 +225,7 @@ type UpdateProductBasicsCommand struct {
 	GreenBeanBomProductID       int64
 	DefaultPrice                float64
 	RoastLevel                  string
+	SpecialAttrsJSON            string
 	DripBagGrams                float64
 	DripBoxBagCount             int
 	AllowFulfillmentOrder       bool
@@ -246,6 +250,7 @@ type CreateProductCommand struct {
 	GreenBeanType            string
 	GreenBeanBomProductID    int64
 	RoastLevel               string
+	SpecialAttrsJSON         string
 	DripBagGrams             float64
 	DripBoxBagCount          int
 	AllowFulfillmentOrder    bool
@@ -276,6 +281,8 @@ type CreateCustomProductCommand struct {
 	GreenBeanType         string
 	GreenBeanBomProductID int64
 	RoastLevel            string
+	SpecialAttrsJSON      string
+	YieldRate             float64
 	DripBagGrams          float64
 	DripBoxBagCount       int
 	CustomType            string
@@ -378,20 +385,21 @@ type SaveProductCategoryCommand struct {
 }
 
 type SaveProductConfigTemplateCommand struct {
-	Actor               string
-	ID                  int64
-	CustomerID          int64
-	Name                string
-	GradientTemplateID  int64
-	OperationTemplateID int64
-	UnitTemplateID      int64
-	PriceListRuleJSON   string
-	InventoryUnit       string
-	QuoteUnit           string
-	OrderUnit           string
-	UnitConversionJSON  string
-	IntegerUnit         bool
-	Active              *bool
+	Actor                  string
+	ID                     int64
+	CustomerID             int64
+	Name                   string
+	GradientTemplateID     int64
+	OperationTemplateID    int64
+	UnitTemplateID         int64
+	PriceListRuleJSON      string
+	SpecialAttrsSchemaJSON string
+	InventoryUnit          string
+	QuoteUnit              string
+	OrderUnit              string
+	UnitConversionJSON     string
+	IntegerUnit            bool
+	Active                 *bool
 }
 
 type SaveProductUnitDefinitionCommand struct {
@@ -601,6 +609,11 @@ func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasi
 		return ValidationError{Message: "invalid unit_rule_override_json"}
 	}
 	cmd.UnitRuleOverrideJSON = unitRuleOverrideJSON
+	specialAttrsJSON, err := normalizeJSONObjectText(cmd.SpecialAttrsJSON)
+	if err != nil {
+		return ValidationError{Message: "invalid special_attrs_json"}
+	}
+	cmd.SpecialAttrsJSON = specialAttrsJSON
 	return s.repo.UpdateProductBasics(ctx, cmd)
 }
 
@@ -642,27 +655,19 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	if cmd.RetailPrice227G <= 0 && cmd.DefaultPrice > 0 {
 		cmd.RetailPrice227G = cmd.DefaultPrice
 	}
+	if err := normalizeProductSalesShape(&cmd.ProductKind, &cmd.GreenBeanType, &cmd.GreenBeanBomProductID, &cmd.RoastLevel, &cmd.DefaultPrice, &cmd.RetailPrice100G, &cmd.RetailPrice200G, &cmd.RetailPrice227G, &cmd.RetailPrice250G, &cmd.YieldRate, &cmd.Tiers); err != nil {
+		return Product{}, err
+	}
 	if cmd.ProductKind == catalogdomain.ProductKindGreenBean {
-		if err := normalizeProductSalesShape(&cmd.ProductKind, &cmd.GreenBeanType, &cmd.GreenBeanBomProductID, &cmd.RoastLevel, &cmd.DefaultPrice, &cmd.RetailPrice100G, &cmd.RetailPrice200G, &cmd.RetailPrice227G, &cmd.RetailPrice250G, &cmd.YieldRate, &cmd.Tiers); err != nil {
-			return Product{}, err
-		}
 		if err := s.validateGreenBeanBomProduct(ctx, cmd.GreenBeanBomProductID); err != nil {
 			return Product{}, err
 		}
-	} else if catalogdomain.ProductKindRequiresRoast(cmd.ProductKind) {
-		cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
-		if cmd.RoastLevel == "" {
-			return Product{}, ValidationError{Message: "invalid roast_level"}
-		}
-		if cmd.YieldRate <= 0 {
-			cmd.YieldRate = catalogdomain.ResolveYieldRate(cmd.RoastLevel, 0.8)
-		}
-		if cmd.YieldRate <= 0 || cmd.YieldRate > 1 {
-			return Product{}, ValidationError{Message: "invalid yield_rate"}
-		}
-	} else if err := normalizeProductSalesShape(&cmd.ProductKind, &cmd.GreenBeanType, &cmd.GreenBeanBomProductID, &cmd.RoastLevel, &cmd.DefaultPrice, &cmd.RetailPrice100G, &cmd.RetailPrice200G, &cmd.RetailPrice227G, &cmd.RetailPrice250G, &cmd.YieldRate, &cmd.Tiers); err != nil {
-		return Product{}, err
 	}
+	specialAttrsJSON, err := normalizeJSONObjectText(cmd.SpecialAttrsJSON)
+	if err != nil {
+		return Product{}, ValidationError{Message: "invalid special_attrs_json"}
+	}
+	cmd.SpecialAttrsJSON = specialAttrsJSON
 	return s.repo.CreateProduct(ctx, cmd)
 }
 
@@ -686,9 +691,30 @@ func normalizeProductSalesShape(productKind *string, greenBeanType *string, gree
 	if kind != catalogdomain.ProductKindGreenBean {
 		*greenBeanType = ""
 		*greenBeanBomProductID = 0
-		if !catalogdomain.ProductKindRequiresRoast(kind) {
-			*roastLevel = ""
+		inputRoast := strings.TrimSpace(*roastLevel)
+		normalizedRoast := catalogdomain.NormalizeRoastLevel(inputRoast)
+		if inputRoast != "" && normalizedRoast == "" {
+			return ValidationError{Message: "invalid roast_level"}
+		}
+		if catalogdomain.ProductKindRequiresRoast(kind) {
+			if normalizedRoast == "" {
+				normalizedRoast = "中烘"
+			}
+			*roastLevel = normalizedRoast
+			if *yieldRate <= 0 {
+				*yieldRate = catalogdomain.ResolveYieldRate(*roastLevel, 0.8)
+			}
+			if *yieldRate <= 0 || *yieldRate > 1 {
+				return ValidationError{Message: "invalid yield_rate"}
+			}
+			return nil
+		}
+		*roastLevel = ""
+		if *yieldRate <= 0 {
 			*yieldRate = 0
+		}
+		if *yieldRate > 1 {
+			return ValidationError{Message: "invalid yield_rate"}
 		}
 		return nil
 	}
@@ -822,7 +848,39 @@ func (s *Service) DeriveProductConfigTemplate(ctx context.Context, cmd DerivePro
 	if cmd.SourceTemplateID <= 0 {
 		return ProductConfigTemplate{}, ValidationError{Message: "source_template_id required"}
 	}
-	return s.repo.DeriveProductConfigTemplate(ctx, cmd)
+	template, err := s.repo.DeriveProductConfigTemplate(ctx, cmd)
+	if err != nil {
+		return ProductConfigTemplate{}, err
+	}
+	if err := s.enableCustomerPublicProductReference(ctx, cmd.Actor, cmd.CustomerID); err != nil {
+		return ProductConfigTemplate{}, err
+	}
+	return template, nil
+}
+
+func (s *Service) enableCustomerPublicProductReference(ctx context.Context, actor string, customerID int64) error {
+	usages, err := s.repo.ListCustomerPublicUsages(ctx)
+	if err != nil {
+		return err
+	}
+	current := CustomerPublicUsage{CustomerID: customerID}
+	for _, usage := range usages {
+		if usage.CustomerID == customerID {
+			current = usage
+			break
+		}
+	}
+	if current.UsePublicSKU && current.UsePublicCategories {
+		return nil
+	}
+	_, err = s.repo.SaveCustomerPublicUsage(ctx, CustomerPublicUsageCommand{
+		Actor:                      actor,
+		CustomerID:                 customerID,
+		UsePublicSKU:               true,
+		UsePublicCategories:        true,
+		UsePublicGradientTemplates: current.UsePublicGradientTemplates,
+	})
+	return err
 }
 
 func (s *Service) SaveGradientTemplate(ctx context.Context, cmd SaveGradientTemplateCommand) (GradientTemplate, error) {
@@ -954,10 +1012,31 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 		}
 		cmd.CopyBOM = false
 		cmd.CopyPriceTiers = false
-	} else if catalogdomain.ProductKindRequiresRoast(cmd.ProductKind) {
-		cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
-		if cmd.RoastLevel == "" {
-			return Product{}, fmt.Errorf("invalid roast_level")
+	} else if catalogdomain.ProductKindSupportsBomParams(cmd.ProductKind) {
+		if catalogdomain.ProductKindRequiresRoast(cmd.ProductKind) {
+			cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(cmd.RoastLevel)
+			if cmd.RoastLevel == "" {
+				if base != nil {
+					cmd.RoastLevel = catalogdomain.NormalizeRoastLevel(base.RoastLevel)
+				}
+				if cmd.RoastLevel == "" {
+					cmd.RoastLevel = "中烘"
+				}
+			}
+			if cmd.YieldRate <= 0 && base != nil {
+				cmd.YieldRate = base.YieldRate
+			}
+			if cmd.YieldRate <= 0 {
+				cmd.YieldRate = catalogdomain.ResolveYieldRate(cmd.RoastLevel, 0.8)
+			}
+		} else {
+			cmd.RoastLevel = ""
+			if cmd.YieldRate <= 0 {
+				cmd.YieldRate = 0
+			}
+		}
+		if cmd.YieldRate > 1 {
+			return Product{}, ValidationError{Message: "invalid yield_rate"}
 		}
 		cmd.GreenBeanType = ""
 		cmd.GreenBeanBomProductID = 0
@@ -982,6 +1061,11 @@ func (s *Service) CreateCustomProduct(ctx context.Context, cmd CreateCustomProdu
 		_ = salesUnits
 		cmd.CopyBOM = false
 	}
+	specialAttrsJSON, err := normalizeJSONObjectText(cmd.SpecialAttrsJSON)
+	if err != nil {
+		return Product{}, ValidationError{Message: "invalid special_attrs_json"}
+	}
+	cmd.SpecialAttrsJSON = specialAttrsJSON
 	return s.repo.CreateCustomProduct(ctx, cmd)
 }
 
@@ -1185,6 +1269,13 @@ func normalizeProductConfigTemplateCommand(cmd SaveProductConfigTemplateCommand)
 	if err != nil {
 		return SaveProductConfigTemplateCommand{}, ValidationError{Message: "invalid price_list_rule_json"}
 	}
+	if err := validateProductConfigPriceRule(priceRuleJSON); err != nil {
+		return SaveProductConfigTemplateCommand{}, err
+	}
+	specialAttrsSchemaJSON, err := normalizeJSONArrayText(cmd.SpecialAttrsSchemaJSON)
+	if err != nil {
+		return SaveProductConfigTemplateCommand{}, ValidationError{Message: "invalid special_attrs_schema_json"}
+	}
 	unitRule := catalogdomain.NormalizeProductUnitRule(catalogdomain.ProductUnitRule{
 		InventoryUnit:  cmd.InventoryUnit,
 		QuoteUnit:      cmd.QuoteUnit,
@@ -1197,6 +1288,7 @@ func normalizeProductConfigTemplateCommand(cmd SaveProductConfigTemplateCommand)
 		return SaveProductConfigTemplateCommand{}, ValidationError{Message: "invalid unit_conversion_json"}
 	}
 	cmd.PriceListRuleJSON = priceRuleJSON
+	cmd.SpecialAttrsSchemaJSON = specialAttrsSchemaJSON
 	cmd.InventoryUnit = unitRule.InventoryUnit
 	cmd.QuoteUnit = unitRule.QuoteUnit
 	cmd.OrderUnit = unitRule.OrderUnit
@@ -1280,6 +1372,95 @@ func normalizeJSONText(raw string) (string, error) {
 		return "", fmt.Errorf("invalid json")
 	}
 	return raw, nil
+}
+
+func normalizeJSONObjectText(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		raw = "{}"
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(parsed)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
+func normalizeJSONArrayText(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		raw = "[]"
+	}
+	var parsed []any
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(parsed)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
+func validateProductConfigPriceRule(raw string) error {
+	var rule map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &rule); err != nil {
+		return ValidationError{Message: "invalid price_list_rule_json"}
+	}
+	mode := strings.TrimSpace(fmt.Sprint(rule["pricing_mode"]))
+	switch mode {
+	case "fixed_unit_price":
+		if numberFromJSON(rule["fixed_unit_price"], rule["unit_price"], rule["price_per_unit"], rule["fixed_price"]) <= 0 {
+			return ValidationError{Message: "fixed_unit_price required"}
+		}
+	case "cost_plus":
+		if !hasJSONNumber(rule, "cost_plus_rate", "markup_rate", "margin_rate") {
+			return ValidationError{Message: "cost_plus_rate required"}
+		}
+	}
+	return nil
+}
+
+func hasJSONNumber(rule map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if _, ok := jsonNumber(rule[key]); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func numberFromJSON(values ...any) float64 {
+	for _, value := range values {
+		if n, ok := jsonNumber(value); ok {
+			return n
+		}
+	}
+	return 0
+}
+
+func jsonNumber(value any) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case json.Number:
+		n, err := v.Float64()
+		return n, err == nil
+	case string:
+		var n float64
+		if _, err := fmt.Sscanf(strings.TrimSpace(v), "%f", &n); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
 }
 
 func normalizeGradientTemplateTierWeights(displayUnit string, tier GradientTemplateTier) GradientTemplateTier {
@@ -1377,7 +1558,7 @@ func BuildProductSettings(categories []ProductCategory, products []Product) Prod
 
 func productSettingsProduct(p Product) ProductSettingsProduct {
 	productKind, dripBagGrams, dripBoxBagCount, salesUnits, _ := normalizeProductKindSettings(p.ProductKind, p.DripBagGrams, p.DripBoxBagCount)
-	if !catalogdomain.ProductKindRequiresRoast(productKind) {
+	if !catalogdomain.ProductKindSupportsBomParams(productKind) {
 		p.RoastLevel = ""
 		p.YieldRate = 0
 	}
@@ -1388,6 +1569,7 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		GreenBeanType:               p.GreenBeanType,
 		GreenBeanBomProductID:       p.GreenBeanBomProductID,
 		RoastLevel:                  p.RoastLevel,
+		SpecialAttrsJSON:            productJSONOrDefault(p.SpecialAttrsJSON),
 		ProductKind:                 productKind,
 		DripBagGrams:                dripBagGrams,
 		DripBoxBagCount:             dripBoxBagCount,

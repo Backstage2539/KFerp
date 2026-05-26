@@ -128,6 +128,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
   const highlightTerms = normalizeStringList(customizer.highlightTerms)
   const badge = normalizeBadge(customizer.badge)
   const beanListQuality = normalizeBeanListQuality(item.bean_list_quality || item.beanListQuality)
+  const productAttributes = normalizeProductAttributes(item.product_attributes || item.productAttributes)
   const tierSnapshots = pdfTierSnapshots(item, tierKey, listType, customizer)
   return {
     productId: item.product_id || item.productID || item.id || null,
@@ -137,6 +138,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
     recommendedUse: meta.recommended_use || '',
     flavor: meta.flavor || item.flavor || '',
     description: meta.description || item.bean_list_note || '',
+    ...(productAttributes.length ? { productAttributes, attributeLines: productAttributes.map((attr) => `${attr.label}：${attr.value}`) } : {}),
     badge,
     badgeLabel: badgeLabel(badge),
     highlightTerms,
@@ -144,6 +146,15 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
     ...(tierSnapshots.length ? { [tierKey]: tierSnapshots } : {}),
     prices: pdfPriceRows(item, tierKey, listType, customizer)
   }
+}
+
+function normalizeProductAttributes(value = []) {
+  if (!Array.isArray(value)) return []
+  return value.map((row) => ({
+    key: String(row?.key || '').trim(),
+    label: String(row?.label || row?.key || '').trim(),
+    value: String(row?.value || '').trim(),
+  })).filter((row) => row.key && row.label && row.value)
 }
 
 function pdfTierSnapshots(item, tierKey, listType, customizer = {}) {

@@ -132,18 +132,20 @@ test('product bean-list version scope selector lists public and each fulfillment
   assert.match(viewSource, /function syncPublicationScopeFromPageContext/)
 })
 
-test('product bean-list generate area uses collapsible bean-list sections including green beans', () => {
+test('product bean-list generate area uses dynamic collapsible product-type sections including green beans', () => {
   for (const expected of [
     'collapsible-bean-section',
     "beanListPreviewCollapsed",
-    "toggleBeanListPreviewSection('commercial')",
-    "toggleBeanListPreviewSection('drip')",
-    "toggleBeanListPreviewSection('retail')",
-    "toggleBeanListPreviewSection('green')",
-    "greenGroups",
+    'productPriceListPreviewSections',
+    'buildProductPriceListTypeOptions',
+    'priceListRenderTypeForItem',
+    'productPriceListTypeKey',
+    'toggleBeanListPreviewSection(section.key)',
+    "section.listType === 'green'",
+    "greenTierPriceRows",
     "green_bean_list",
     "green_bean_sale_tiers",
-    "生豆豆单",
+    "beanListTypeLabel(listType)",
   ]) {
     assert.ok(viewSource.includes(expected), `missing collapsible bean-list preview behavior: ${expected}`)
   }

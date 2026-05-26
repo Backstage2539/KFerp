@@ -50,7 +50,7 @@ func TestDev169ProductSettingsShowsUnifiedSkuList(t *testing.T) {
 			t.Fatalf("ProductSettingsView.vue missing unified SKU list marker %q", want)
 		}
 	}
-	remarkHeader := strings.Index(view, "<th>备注</th>")
+	remarkHeader := strings.Index(view, ">备注</th>")
 	actionHeader := strings.Index(view, "<th>处理</th>")
 	remarkInput := strings.Index(view, "class=\"remark-input\"")
 	deactivateAction := strings.Index(view, "deactivateProducts([row.id])")

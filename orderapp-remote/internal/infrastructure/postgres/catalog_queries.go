@@ -31,6 +31,7 @@ type ProductOption struct {
 	GreenBeanType               string
 	GreenBeanBomProductID       int64
 	RoastLevel                  string
+	SpecialAttrsJSON            string
 	DripBagGrams                float64
 	DripBoxBagCount             int
 	AllowFulfillmentOrder       bool
@@ -78,7 +79,7 @@ func FetchOptions(ctx context.Context, pool *pgxpool.Pool, sqlstr string) ([]Opt
 }
 
 func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]ProductOption, error) {
-	sqlstr := fmt.Sprintf(`SELECT p.id, p.name, COALESCE(p.remark,''), COALESCE(p.roast_level,''), p.default_price,
+	sqlstr := fmt.Sprintf(`SELECT p.id, p.name, COALESCE(p.remark,''), COALESCE(p.roast_level,''), COALESCE(p.special_attrs_json::text,'{}'), p.default_price,
 		COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'),
 		COALESCE(p.green_bean_type, ''),
 		COALESCE(p.green_bean_bom_product_id, 0),
@@ -121,14 +122,14 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 	out := make([]ProductOption, 0)
 	for rows.Next() {
 		var p ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.BomItemCount, &p.BomStatus, &p.OrderUsageCount); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.BomItemCount, &p.BomStatus, &p.OrderUsageCount); err != nil {
 			return nil, err
 		}
 		p.ProductKind = catalogdomain.NormalizeProductKind(p.ProductKind)
 		if p.ProductKind == catalogdomain.ProductKindDripBag {
 			p.SalesUnits = []string{"bag", "box"}
 		}
-		if !catalogdomain.ProductKindRequiresRoast(p.ProductKind) {
+		if !catalogdomain.ProductKindSupportsBomParams(p.ProductKind) {
 			p.RoastLevel = ""
 			p.YieldRate = 0
 		}
