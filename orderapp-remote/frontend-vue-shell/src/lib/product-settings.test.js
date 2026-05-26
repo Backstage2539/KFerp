@@ -1438,6 +1438,8 @@ test('SKU settings opens SKU creation and SKU copy behind drawers while category
   assert.match(script, /function syncVisibleSkuTableState\(\)/)
   assert.match(script, /displaySkuRows\.value = pageState\.rows/)
   assert.match(script, /watch\(\[\s*publicSkuRows,\s*customerSkuRows,\s*skuFilters,\s*skuPage,\s*skuPageSize,\s*selectedCustomerSkuCustomerID,\s*\], syncVisibleSkuTableState, \{ deep: true, immediate: true \}\)/)
+  assert.match(script, /applyWorkspaceCustomerContext\(\)\s+syncVisibleSkuTableState\(\)\s+pruneSelectedProducts\(displaySkuRows\.value\)/)
+  assert.match(script, /await nextTick\(\)\s+syncVisibleSkuTableState\(\)\s+restoringProductSettingsDraft = false/)
   assert.doesNotMatch(script, /const skuTable = computed/)
   assert.match(style, /\.category-scroll-list\s*\{[^}]*max-height:\s*min\(640px,\s*calc\(100vh - 280px\)\);[^}]*overflow:\s*auto;/s)
   assert.match(style, /\.settings-drawer-mask\s*\{[^}]*position:\s*fixed;/s)

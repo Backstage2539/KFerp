@@ -1634,6 +1634,7 @@ async function restoreProductSettingsDraft() {
   skuPageSize.value = normalizePageSize(draft.skuPageSize)
   ensureProductTypeCategorySelected(skuForm.value)
   await nextTick()
+  syncVisibleSkuTableState()
   restoringProductSettingsDraft = false
 }
 
@@ -1780,6 +1781,7 @@ async function loadAll() {
     customers.value = customerSkuCustomerOptions(customerData)
     syncSelectedCustomerSkuCustomer()
     applyWorkspaceCustomerContext()
+    syncVisibleSkuTableState()
     pruneSelectedProducts(displaySkuRows.value)
   } catch (err) {
     error.value = err.message || '加载失败'
