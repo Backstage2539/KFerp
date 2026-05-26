@@ -4,7 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	catalogdomain "orderapp/internal/domain/catalog"
+	productiondomain "orderapp/internal/domain/production"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"strings"
 
 	productionapp "orderapp/internal/application/production"
@@ -27,13 +28,13 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 		return 0, err
 	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.job_cards(work_order_id,operation,workstation,status,started_at,operator)
-		VALUES($1,'roast','roaster','running',now(),$2)
-	`, schema), workOrderID, operator)
+		INSERT INTO %s.job_cards(work_order_id,operation,workstation,status,started_at,operator,planned_input_qty)
+		VALUES($1,'roast','roaster','running',now(),$2,$3)
+	`, schema), workOrderID, operator, plannedG)
 	return workOrderID, err
 }
 
-func completeWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, actualCost float64, operator string) error {
+func completeWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, actualCost float64, actualInputQty int64, actualOutputQty int64, operator string) error {
 	var workOrderID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE %s.work_orders
@@ -46,11 +47,27 @@ func completeWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema st
 		}
 		return err
 	}
+	actualLossQty := 0.0
+	actualLossRate := 0.0
+	if actualInputQty > 0 {
+		lossQty, lossRate, err := productiondomain.ActualLossMetrics(float64(actualInputQty), float64(actualOutputQty))
+		if err != nil {
+			return err
+		}
+		actualLossQty = lossQty
+		actualLossRate = lossRate
+	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.job_cards
-		SET status='completed', completed_at=now(), operator=COALESCE(NULLIF(operator,''),$2)
+		SET status='completed',
+		    completed_at=now(),
+		    operator=COALESCE(NULLIF(operator,''),$2),
+		    actual_input_qty=$3,
+		    actual_output_qty=$4,
+		    actual_loss_qty=$5,
+		    actual_loss_rate=$6
 		WHERE work_order_id=$1 AND status <> 'completed'
-	`, schema), workOrderID, operator)
+	`, schema), workOrderID, operator, actualInputQty, actualOutputQty, actualLossQty, actualLossRate)
 	return err
 }
 
@@ -173,7 +190,20 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		           FROM %s.product_bom_items bi
 		           LEFT JOIN %s.materials m ON m.id=bi.material_id
 		           WHERE bi.product_id=wo.product_id
-		       ), '')
+		       ), ''),
+		       COALESCE((
+		           SELECT jsonb_build_object(
+		               'planned_input_qty', COALESCE(SUM(jc.planned_input_qty),0),
+		               'actual_input_qty', COALESCE(SUM(jc.actual_input_qty),0),
+		               'actual_output_qty', COALESCE(SUM(jc.actual_output_qty),0),
+		               'actual_loss_qty', COALESCE(SUM(jc.actual_loss_qty),0),
+		               'actual_loss_rate', CASE WHEN COALESCE(SUM(jc.actual_input_qty),0) > 0 THEN ROUND((COALESCE(SUM(jc.actual_loss_qty),0) / NULLIF(SUM(jc.actual_input_qty),0))::numeric, 4) ELSE 0 END,
+		               'completed_cards', COALESCE(COUNT(*) FILTER (WHERE jc.status='completed'),0),
+		               'total_cards', COALESCE(COUNT(*),0)
+		           )::text
+		           FROM %s.job_cards jc
+		           WHERE jc.work_order_id=wo.id
+		       ), '{}')
 		FROM %s.work_orders wo
 		LEFT JOIN %s.produce_running_items ri ON ri.id=wo.running_item_id
 		LEFT JOIN %s.products p ON p.id=wo.product_id
@@ -181,7 +211,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		WHERE %s
 		ORDER BY wo.created_at DESC, wo.id DESC
 		LIMIT $%d
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +222,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		var snapshotText, fallbackMaterialSummary string
 		if err := rows.Scan(
 			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
-			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG, &fallbackMaterialSummary,
+			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG, &fallbackMaterialSummary, &row.OperationSummaryJSON,
 		); err != nil {
 			return nil, err
 		}
@@ -200,7 +230,9 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		if row.MaterialSummary == "" {
 			row.MaterialSummary = fallbackMaterialSummary
 		}
-		row.YieldRate = catalogdomain.ResolveYieldRate(row.RoastLevel, row.YieldRate)
+		row.ExpectedYieldRate = productiondomain.NormalizeYieldRate(row.YieldRate)
+		row.ExpectedLossRate = productiondomain.ExpectedLossRate(row.ExpectedYieldRate)
+		row.YieldRate = row.ExpectedYieldRate
 		if row.SuggestedInputG <= 0 {
 			row.SuggestedInputG = row.PlannedG
 		}
@@ -290,7 +322,14 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 	limitArg := len(args)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id,work_order_id,operation,workstation,status,
-		       to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),operator
+		       to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),operator,
+		       COALESCE(planned_input_qty,0)::float8,
+		       COALESCE(actual_input_qty,0)::float8,
+		       COALESCE(actual_output_qty,0)::float8,
+		       COALESCE(actual_loss_qty,0)::float8,
+		       COALESCE(actual_loss_rate,0)::float8,
+		       COALESCE(exception_reason,''),
+		       COALESCE(metrics_json,'{}'::jsonb)::text
 		FROM %s.job_cards
 		WHERE %s
 		ORDER BY started_at DESC, id DESC
@@ -303,12 +342,33 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 	out := make([]productionapp.JobCardRow, 0)
 	for rows.Next() {
 		var row productionapp.JobCardRow
-		if err := rows.Scan(&row.ID, &row.WorkOrderID, &row.Operation, &row.Workstation, &row.Status, &row.StartedAt, &row.CompletedAt, &row.Operator); err != nil {
+		if err := rows.Scan(&row.ID, &row.WorkOrderID, &row.Operation, &row.Workstation, &row.Status, &row.StartedAt, &row.CompletedAt, &row.Operator, &row.PlannedInputQty, &row.ActualInputQty, &row.ActualOutputQty, &row.ActualLossQty, &row.ActualLossRate, &row.ExceptionReason, &row.MetricsJSON); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func (r Repository) UpdateJobCardActuals(ctx context.Context, cmd productionapp.JobCardActualsCommand) error {
+	tag, err := r.pool.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.job_cards
+		SET planned_input_qty=$2,
+		    actual_input_qty=$3,
+		    actual_output_qty=$4,
+		    actual_loss_qty=$5,
+		    actual_loss_rate=$6,
+		    exception_reason=$7,
+		    metrics_json=$8::jsonb
+		WHERE id=$1
+	`, r.schema), cmd.ID, cmd.PlannedInputQty, cmd.ActualInputQty, cmd.ActualOutputQty, cmd.ActualLossQty, cmd.ActualLossRate, cmd.ExceptionReason, cmd.MetricsJSON)
+	if err == nil && tag.RowsAffected() == 0 {
+		return fmt.Errorf("job card not found")
+	}
+	if err == nil {
+		postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "job_card", &cmd.ID, "update_actuals", postgresinfra.StrPtr("actual_loss_rate"), nil, postgresinfra.StrPtr(fmt.Sprintf("%.4f", cmd.ActualLossRate)), postgresinfra.AuditMeta{"job_card_id": cmd.ID, "planned_input_qty": cmd.PlannedInputQty, "actual_input_qty": cmd.ActualInputQty, "actual_output_qty": cmd.ActualOutputQty, "actual_loss_qty": cmd.ActualLossQty, "actual_loss_rate": cmd.ActualLossRate, "exception_reason": cmd.ExceptionReason})
+	}
+	return err
 }
 
 func (r Repository) ListBatchCosts(ctx context.Context, query productionapp.BatchCostQuery) ([]productionapp.BatchCostRow, error) {

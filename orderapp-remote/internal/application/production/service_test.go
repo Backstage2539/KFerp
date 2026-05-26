@@ -71,6 +71,9 @@ func (r *fakeRepo) ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]
 func (r *fakeRepo) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCardRow, error) {
 	return nil, nil
 }
+func (r *fakeRepo) UpdateJobCardActuals(ctx context.Context, cmd JobCardActualsCommand) error {
+	return nil
+}
 func (r *fakeRepo) ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error) {
 	return nil, nil
 }

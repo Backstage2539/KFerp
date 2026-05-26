@@ -28,6 +28,7 @@
 - [ ] PR-339-CUSTOMER-BEAN-LIST-UNCATEGORIZED-SKU：岩师傅“曲奇拼配2.0”这类客户 SKU 未挂分类时，产品价格表客户范围显示在“未分类”，不显示“精品意式拼配”；挂入客户分类后才按客户分类标题展示。
 - [ ] PR-321-CUSTOMER-SKU-CATEGORY-TOGGLE-FACTORY-BEANLIST-TITLE：芬纳咖啡在 SKU设置 勾选再取消“是否使用公共商品分类”后，客户自有产品类型“咖啡豆”和产品子类型“定制咖啡熟豆”仍保留且仍挂载 `芬纳定制-红酒日晒-中深烘`；点击“工厂总览”后 SKU设置 的 SKU归属回到公共SKU；客户产品价格表商用批发豆单显示 `1、定制咖啡熟豆`，并包含该 SKU。
 - [ ] PR-322-CUSTOMER-SKU-CATEGORY-CLEANUP-BOM-VERSION-DEACTIVATE：芬纳咖啡保存“是否使用公共商品分类”开关后，客户自有产品类型只要仍有活跃产品子类型就不能被清理隐藏；在 SKU设置 失效一个有 active BOM 版本的 SKU 后，当前 BOM 显示已失效，该 SKU 的 active BOM 版本同步变为 disabled，历史版本和明细仍可追溯。
+- [ ] PR-375-PROCESS-BOM-WORKORDER-SKU-MODEL：BOM 可维护预期损耗率并显示预期产出率；BOM API 同时返回 `expected_loss_rate`、`expected_yield_rate` 和兼容 `yield_rate`；工序卡可记录实际投入、实际产出、实际损耗、实际损耗率和异常原因；工单展示冻结的预期损耗、计划投料、预计产出和工序实际损耗汇总；SKU/BOM/成本/生产页面不再只表达咖啡“出品率”。
 
 ## A. 录单（/app/order）
 

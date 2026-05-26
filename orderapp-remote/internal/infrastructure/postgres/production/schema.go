@@ -90,7 +90,14 @@ CREATE TABLE IF NOT EXISTS %s.job_cards (
 	status TEXT NOT NULL DEFAULT 'running',
 	started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	completed_at TIMESTAMPTZ,
-	operator TEXT NOT NULL DEFAULT ''
+	operator TEXT NOT NULL DEFAULT '',
+	planned_input_qty NUMERIC(14,3) NOT NULL DEFAULT 0,
+	actual_input_qty NUMERIC(14,3) NOT NULL DEFAULT 0,
+	actual_output_qty NUMERIC(14,3) NOT NULL DEFAULT 0,
+	actual_loss_qty NUMERIC(14,3) NOT NULL DEFAULT 0,
+	actual_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
+	exception_reason TEXT NOT NULL DEFAULT '',
+	metrics_json JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE INDEX IF NOT EXISTS job_cards_work_order_idx ON %s.job_cards(work_order_id, id);
 CREATE INDEX IF NOT EXISTS job_cards_status_idx ON %s.job_cards(status, started_at DESC);
@@ -135,6 +142,18 @@ CREATE INDEX IF NOT EXISTS work_order_material_reservations_material_idx ON %s.w
 		return err
 	}
 	_, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`, schema))
+	if err != nil {
+		return err
+	}
+	_, err = pool.Exec(ctx, fmt.Sprintf(`
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS planned_input_qty NUMERIC(14,3) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS actual_input_qty NUMERIC(14,3) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS actual_output_qty NUMERIC(14,3) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS actual_loss_qty NUMERIC(14,3) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS actual_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS exception_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS metrics_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+`, schema))
 	return err
 }
 

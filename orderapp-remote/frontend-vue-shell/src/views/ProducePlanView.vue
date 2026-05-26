@@ -132,7 +132,7 @@
               <th>需求(g)</th>
               <th>库存(g)</th>
               <th>缺口(g)</th>
-              <th>BOM出品率</th>
+              <th>BOM预期产出率</th>
               <th>投料数(g)</th>
             </tr>
           </thead>
@@ -186,7 +186,7 @@
     </section>
 
     <section class="panel">
-      <div class="section-title">烘焙建议</div>
+      <div class="section-title">生产建议</div>
       <div v-if="!planReady" class="muted">请先选择产品并点击“生成计划”。</div>
       <div v-else class="table-wrap">
         <table>

@@ -8,6 +8,7 @@ import (
 	bomapp "orderapp/internal/application/bom"
 	bomdomain "orderapp/internal/domain/bom"
 	catalogdomain "orderapp/internal/domain/catalog"
+	productiondomain "orderapp/internal/domain/production"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 
 	"github.com/jackc/pgx/v5"
@@ -31,7 +32,7 @@ func (r Repository) List(ctx context.Context) ([]bomapp.ListItem, error) {
 			p.name,
 			COALESCE(p.roast_level, ''),
 			COALESCE(NULLIF(p.product_kind,''),'roasted_bean'),
-			COALESCE(b.yield_rate, 0.8),
+			COALESCE(NULLIF(b.yield_rate,0), 0),
 			COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END),
 			COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id = p.id), 0),
 			COALESCE((
@@ -59,7 +60,7 @@ func (r Repository) List(ctx context.Context) ([]bomapp.ListItem, error) {
 		if err := rows.Scan(&item.ProductID, &item.CustomerID, &item.Product, &item.RoastLevel, &item.ProductKind, &fallback, &item.Status, &item.ItemCount, &item.OrderUsageCount, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
-		item.YieldRate = catalogdomain.ResolveYieldRate(item.RoastLevel, fallback)
+		item.YieldRate = resolveBomYieldRate(item.RoastLevel, fallback)
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -72,7 +73,7 @@ func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail,
 	var status string
 	var updatedAt string
 	err := r.pool.QueryRow(ctx,
-		"SELECT COALESCE(p.name,''), COALESCE(p.roast_level,''), COALESCE(b.yield_rate,0.8), COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END), COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'),'-') "+
+		"SELECT COALESCE(p.name,''), COALESCE(p.roast_level,''), COALESCE(NULLIF(b.yield_rate,0),0), COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END), COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'),'-') "+
 			"FROM "+r.schema+".products p LEFT JOIN "+r.schema+".product_bom b ON b.product_id=p.id "+
 			"WHERE p.id=$1", productID).Scan(&productName, &roastLevel, &yieldRate, &status, &updatedAt)
 	if err != nil {
@@ -87,7 +88,7 @@ func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail,
 		ProductID:   productID,
 		ProductName: productName,
 		RoastLevel:  roastLevel,
-		YieldRate:   catalogdomain.ResolveYieldRate(roastLevel, yieldRate),
+		YieldRate:   resolveBomYieldRate(roastLevel, yieldRate),
 		Status:      status,
 		Items:       bomItemsToApp(items),
 		TotalRatio:  total,
@@ -141,11 +142,19 @@ func (r Repository) SyncProductYield(ctx context.Context, cmd bomapp.SyncProduct
 	if err := r.pool.QueryRow(ctx, "SELECT COALESCE(roast_level,'') FROM "+r.schema+".products WHERE id=$1", cmd.ProductID).Scan(&roastLevel); err != nil {
 		return fmt.Errorf("product not found")
 	}
-	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
+	yieldRate := cmd.ExpectedYieldRate
+	if yieldRate <= 0 {
+		yieldRate = catalogdomain.ResolveYieldRate(roastLevel, 0.8)
+	}
+	yieldRate = productiondomain.NormalizeYieldRate(yieldRate)
 	q := "INSERT INTO " + r.schema + ".product_bom(product_id,yield_rate,status,updated_at) VALUES($1,$2,'active',now()) ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status='active', updated_at=now()"
 	_, err := r.pool.Exec(ctx, q, cmd.ProductID, yieldRate)
 	if err == nil {
-		postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_bom", &cmd.ProductID, "sync_yield", postgresinfra.StrPtr("yield_rate"), nil, postgresinfra.StrPtr(fmt.Sprintf("%.4f", yieldRate)), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "status": "active"})
+		action := "sync_yield"
+		if cmd.ExpectedLossRate != nil {
+			action = "save_expected_loss_rate"
+		}
+		postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_bom", &cmd.ProductID, action, postgresinfra.StrPtr("expected_loss_rate"), nil, postgresinfra.StrPtr(fmt.Sprintf("%.4f", productiondomain.ExpectedLossRate(yieldRate))), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "status": "active", "yield_rate": yieldRate, "expected_loss_rate": productiondomain.ExpectedLossRate(yieldRate)})
 	}
 	return err
 }
@@ -505,4 +514,11 @@ func bomOptionsToApp(opts []postgresinfra.Option) []bomapp.Option {
 		out = append(out, bomapp.Option{ID: opt.ID, Name: opt.Name})
 	}
 	return out
+}
+
+func resolveBomYieldRate(roastLevel string, storedYieldRate float64) float64 {
+	if storedYieldRate > 0 && storedYieldRate <= 1 {
+		return productiondomain.NormalizeYieldRate(storedYieldRate)
+	}
+	return catalogdomain.ResolveYieldRate(roastLevel, 0.8)
 }

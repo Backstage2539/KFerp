@@ -12,7 +12,7 @@ const categoryOrder = ['base', 'production', 'commercialBeans', 'retailBeans', '
 const settingMeta = {
   roast_yield_rate: {
     category: 'base',
-    description: '默认生豆到熟豆的出成率；物料没有单独设置时用它计算熟豆成本。',
+    description: '默认生产预期产出率；物料没有单独设置时用它计算成品成本。',
     order: 10,
   },
   kg_to_lb_factor: {

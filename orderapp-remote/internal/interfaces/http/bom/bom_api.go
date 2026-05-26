@@ -13,7 +13,8 @@ import (
 )
 
 type SaveBomRequest struct {
-	ProductID int64 `json:"product_id"`
+	ProductID        int64    `json:"product_id"`
+	ExpectedLossRate *float64 `json:"expected_loss_rate"`
 }
 
 type SaveBomItemRequest struct {
@@ -138,7 +139,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		if err := bomSvc.SyncProductYield(c.Request().Context(), bomapp.SyncProductYieldCommand{ProductID: req.ProductID, Actor: support.ActorOf(c)}); err != nil {
+		if err := bomSvc.SyncProductYield(c.Request().Context(), bomapp.SyncProductYieldCommand{ProductID: req.ProductID, ExpectedLossRate: req.ExpectedLossRate, Actor: support.ActorOf(c)}); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.NoContent(http.StatusOK)

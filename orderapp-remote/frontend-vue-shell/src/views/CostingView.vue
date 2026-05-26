@@ -351,7 +351,7 @@
             <input v-model="explanationOverrides.green_bean_cost_per_kg" type="number" step="0.01" placeholder="不填则沿用当前" />
           </label>
           <label>
-            <span>临时出成率</span>
+            <span>临时预期产出率</span>
             <input v-model="explanationOverrides.yield_rate" type="number" step="0.001" placeholder="如 0.82" />
           </label>
           <label>

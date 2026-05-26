@@ -6,6 +6,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-375-PROCESS-BOM-WORKORDER-SKU-MODEL
+- Branch: codex/process-bom-workorder-sku-model
+- Owner/session: Codex / 2026-05-26
+- Status: implementing
+- Scope: 通用制造模型一期，BOM 预期损耗率优先并兼容 yield_rate；工序卡记录实际投入、实际产出、实际损耗；工单展示冻结预期损耗和工序实际损耗汇总。
+- Verifier:
+  - Unit: go test ./internal/domain/production ./internal/application/bom -count=1
+  - API: go test ./internal/interfaces/http/bom ./internal/interfaces/http/production ./internal/interfaces/http/support -count=1
+  - Frontend/build: npm --prefix orderapp-remote/frontend-vue-shell run build
+  - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OP_MANUAL_COSTING.md
+  - Review/acceptance: docs/superpowers/specs/2026-05-26-process-bom-workorder-sku-model-design.md; docs/superpowers/plans/2026-05-26-process-bom-workorder-sku-model.md; docs/acceptance/2026-05-26-process-bom-workorder-sku-model.md
+- Deployment: pending
+- Last update: 2026-05-26 00:00 Asia/Shanghai
+- Notes: reserve_req_id.sh --claim hit the existing awk multiline bug after indicating PR-375; continuing with manual PR-375 seed/update. Van requires browser flow verification after implementation.
+
 ### PR-372-PRODUCT-CONFIG-DISPLAY-UNIT
 - Branch: codex/product-config-display-unit-20260525
 - Owner/session: Codex / 2026-05-25
