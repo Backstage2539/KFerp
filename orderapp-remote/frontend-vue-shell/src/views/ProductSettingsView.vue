@@ -1070,7 +1070,7 @@ import {
   unitConversionRowsFromJSON,
   unitRuleFormFromJSON,
 } from '../lib/product-settings'
-import { normalizePageSize, slicePageRows } from '../lib/pagination'
+import { normalizePageSize } from '../lib/pagination'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
@@ -1252,10 +1252,13 @@ const customerSkuRows = computed(() => sortRowsForCustomerSkuPriority(
   skuListRowsFromProducts(products.value, categoryTreeForSkuContext.value, (product) => selectedCustomerSkuCustomerID.value && skuContextProductFilter(product)),
   selectedCustomerSkuCustomerID.value,
 ))
-const unfilteredDisplaySkuRows = computed(() => selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value)
-const normalizedSkuFilters = computed(() => normalizeVisibleSkuFilters(skuFilters.value, unfilteredDisplaySkuRows.value))
-const filteredDisplaySkuRows = computed(() => filterSkuRows(unfilteredDisplaySkuRows.value, normalizedSkuFilters.value))
-const skuDisplayTotal = computed(() => filteredDisplaySkuRows.value.length)
+const unfilteredDisplaySkuRows = ref([])
+const normalizedSkuFilters = ref(normalizeVisibleSkuFilters(skuFilters.value, []))
+const filteredDisplaySkuRows = ref([])
+const skuDisplayTotal = ref(0)
+const displaySkuRows = ref([])
+const skuPrimaryCategoryOptions = ref([])
+const skuSecondaryCategoryOptions = ref([])
 const skuDisplayKey = computed(() => [
   skuContextCustomerID.value,
   skuDisplayTotal.value,
@@ -1267,10 +1270,6 @@ const skuDisplayKey = computed(() => [
 ].join(':'))
 const skuTableKey = computed(() => `${skuDisplayKey.value}:table`)
 const skuPaginationKey = computed(() => `${skuDisplayKey.value}:pagination`)
-const displaySkuRows = computed(() => slicePageRows(filteredDisplaySkuRows.value, {
-  page: skuPage.value,
-  pageSize: skuPageSize.value,
-}))
 const editableDisplaySkuRows = computed(() => displaySkuRows.value.filter(canEditSkuRow))
 const allProductRowsSelected = computed(() => editableDisplaySkuRows.value.length > 0 && editableDisplaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
 const activeGradientTemplates = computed(() => gradientTemplates.value
@@ -1323,8 +1322,6 @@ const canEditCurrentProductConfigTemplate = computed(() => {
   if (!productConfigTemplateForm.value.id) return true
   return Number(selectedProductConfigTemplateRow.value?.customer_id || 0) === skuContextCustomerID.value
 })
-const skuPrimaryCategoryOptions = computed(() => primaryCategoryOptions(unfilteredDisplaySkuRows.value))
-const skuSecondaryCategoryOptions = computed(() => secondaryCategoryOptions(unfilteredDisplaySkuRows.value, normalizedSkuFilters.value.primaryCategory))
 const skuCopyGroups = computed(() => skuCopyOptions.value?.groups || [])
 const copyableSkuIDs = computed(() => {
   const ids = []
@@ -1353,6 +1350,36 @@ function defaultSkuFilters() {
 
 function normalizeSkuFiltersForCurrentRows(filters = skuFilters.value) {
   return normalizeVisibleSkuFilters(filters, unfilteredDisplaySkuRows.value)
+}
+
+function sliceVisibleSkuRows(rows = [], page = 1, pageSize = 10) {
+  const source = Array.isArray(rows) ? rows : Array.from(rows || [])
+  const size = normalizePageSize(pageSize)
+  const totalPages = Math.max(1, Math.ceil(source.length / size))
+  const requestedPage = Number.parseInt(String(page || 1), 10) || 1
+  const currentPage = Math.min(Math.max(requestedPage, 1), totalPages)
+  const start = (currentPage - 1) * size
+  return {
+    page: currentPage,
+    rows: source.slice(start, start + size),
+  }
+}
+
+function syncVisibleSkuTableState() {
+  const sourceRows = (selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value).slice()
+  const filters = normalizeVisibleSkuFilters(skuFilters.value, sourceRows)
+  const filteredRows = filterSkuRows(sourceRows, filters)
+  const pageState = sliceVisibleSkuRows(filteredRows, skuPage.value, skuPageSize.value)
+  if (Number(skuPage.value || 1) !== pageState.page) {
+    skuPage.value = pageState.page
+  }
+  unfilteredDisplaySkuRows.value = sourceRows
+  normalizedSkuFilters.value = filters
+  filteredDisplaySkuRows.value = filteredRows
+  skuDisplayTotal.value = filteredRows.length
+  displaySkuRows.value = pageState.rows
+  skuPrimaryCategoryOptions.value = primaryCategoryOptions(sourceRows)
+  skuSecondaryCategoryOptions.value = secondaryCategoryOptions(sourceRows, filters.primaryCategory)
 }
 
 function defaultSkuForm() {
@@ -1572,6 +1599,15 @@ function saveProductSettingsDraft() {
     skuPageSize: skuPageSize.value,
   })
 }
+
+watch([
+  publicSkuRows,
+  customerSkuRows,
+  skuFilters,
+  skuPage,
+  skuPageSize,
+  selectedCustomerSkuCustomerID,
+], syncVisibleSkuTableState, { deep: true, immediate: true })
 
 async function restoreProductSettingsDraft() {
   const draft = readFormDraft(productSettingsDraftKey())
