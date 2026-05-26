@@ -30,6 +30,7 @@
             <th>规格</th>
             <th>计划投料</th>
             <th>工艺建议</th>
+            <th>工艺快照</th>
             <th>原料参考</th>
             <th>损耗汇总</th>
             <th>WIP占用</th>
@@ -52,11 +53,16 @@
               <small>{{ row.suggested_machine || '未匹配设备' }} · {{ row.suggested_batch_plan || '-' }}</small>
               <small>预计 {{ row.planned_units || 0 }} 袋 + {{ row.planned_loose_g || 0 }}g</small>
             </td>
+            <td class="summary">
+              <strong>{{ row.process_template_name || '默认工序' }}</strong>
+              <small v-if="row.process_template_id">模板 #{{ row.process_template_id }}</small>
+              <small>{{ operationSummaryText(row) }}</small>
+            </td>
             <td class="summary">{{ row.material_summary || '-' }}</td>
             <td class="summary">
-              <strong>{{ formatQty(operationSummary(row).actual_loss_qty) }}</strong>
-              <small>实际损耗率 {{ percent(operationSummary(row).actual_loss_rate) }}</small>
-              <small>实际产出 {{ formatQty(operationSummary(row).actual_output_qty) }}</small>
+              <strong>{{ formatQty(operationActualSummary(row).actual_loss_qty) }}</strong>
+              <small>实际损耗率 {{ percent(operationActualSummary(row).actual_loss_rate) }}</small>
+              <small>实际产出 {{ formatQty(operationActualSummary(row).actual_output_qty) }}</small>
             </td>
             <td>
               <strong>{{ formatG(row.remaining_reserved_g) }}</strong>
@@ -68,7 +74,7 @@
             <td><small>建 {{ row.created_at }}</small><small>完 {{ row.completed_at || '-' }}</small></td>
             <td><button class="secondary compact" @click="printWorkOrder(row)">打印</button></td>
           </tr>
-          <tr v-if="!rows.length"><td colspan="13" class="muted">暂无工单</td></tr>
+          <tr v-if="!rows.length"><td colspan="14" class="muted">暂无工单</td></tr>
         </tbody>
       </table>
     </section>
@@ -90,9 +96,10 @@
         <div><span>计划投料</span><strong>{{ formatG(printRow.suggested_input_g || printRow.planned_g) }}</strong></div>
         <div><span>预期损耗率</span><strong>{{ percent(expectedLoss(printRow)) }}</strong></div>
         <div><span>预期产出率</span><strong>{{ percent(expectedYield(printRow)) }}</strong></div>
+        <div><span>工艺模板</span><strong>{{ printRow.process_template_name || '默认工序' }}</strong></div>
         <div><span>WIP剩余占用</span><strong>{{ formatG(printRow.remaining_reserved_g) }}</strong></div>
         <div><span>预计产出</span><strong>{{ printRow.planned_units || 0 }} 袋 + {{ printRow.planned_loose_g || 0 }}g</strong></div>
-        <div><span>实际损耗</span><strong>{{ formatQty(operationSummary(printRow).actual_loss_qty) }}</strong></div>
+        <div><span>实际损耗</span><strong>{{ formatQty(operationActualSummary(printRow).actual_loss_qty) }}</strong></div>
         <div><span>创建时间</span><strong>{{ printRow.created_at }}</strong></div>
         <div><span>完成时间</span><strong>{{ printRow.completed_at || '-' }}</strong></div>
       </div>
@@ -136,13 +143,34 @@ const expectedLoss = (row) => {
   return expectedLossRate(expectedYield(row))
 }
 
-function operationSummary(row) {
-  if (!row?.operation_summary_json) return {}
+function operationSummaryRows(row) {
+  if (!row?.operation_summary_json) return []
   try {
-    return JSON.parse(row.operation_summary_json) || {}
+    const parsed = JSON.parse(row.operation_summary_json)
+    if (Array.isArray(parsed)) return parsed
+    if (parsed && typeof parsed === 'object') return [parsed]
+    return []
   } catch {
-    return {}
+    return []
   }
+}
+
+function operationActualSummary(row) {
+  const items = operationSummaryRows(row)
+  const summary = { actual_input_qty: 0, actual_output_qty: 0, actual_loss_qty: 0, actual_loss_rate: 0 }
+  for (const item of items) {
+    summary.actual_input_qty += Number(item.actual_input_qty || 0)
+    summary.actual_output_qty += Number(item.actual_output_qty || 0)
+    summary.actual_loss_qty += Number(item.actual_loss_qty || 0)
+  }
+  if (summary.actual_input_qty > 0) summary.actual_loss_rate = summary.actual_loss_qty / summary.actual_input_qty
+  return summary
+}
+
+function operationSummaryText(row) {
+  const items = operationSummaryRows(row)
+  if (!items.length) return '-'
+  return items.map((item) => `${item.operation || '-'} ${item.status || '-'}`).join(' / ')
 }
 
 async function load() {

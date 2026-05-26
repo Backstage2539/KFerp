@@ -394,6 +394,7 @@ type WorkOrderRow struct {
 	WIPRemainingReservedG int64   `json:"remaining_reserved_g"`
 	BomVersionID          int64   `json:"bom_version_id"`
 	ProcessTemplateID     int64   `json:"process_template_id"`
+	ProcessTemplateName   string  `json:"process_template_name"`
 	ProcessSnapshotJSON   string  `json:"process_snapshot_json"`
 	OperationSummaryJSON  string  `json:"operation_summary_json"`
 }
@@ -404,21 +405,24 @@ type JobCardQuery struct {
 }
 
 type JobCardRow struct {
-	ID              int64   `json:"id"`
-	WorkOrderID     int64   `json:"work_order_id"`
-	Operation       string  `json:"operation"`
-	Workstation     string  `json:"workstation"`
-	Status          string  `json:"status"`
-	StartedAt       string  `json:"started_at"`
-	CompletedAt     string  `json:"completed_at"`
-	Operator        string  `json:"operator"`
-	PlannedInputQty float64 `json:"planned_input_qty"`
-	ActualInputQty  float64 `json:"actual_input_qty"`
-	ActualOutputQty float64 `json:"actual_output_qty"`
-	ActualLossQty   float64 `json:"actual_loss_qty"`
-	ActualLossRate  float64 `json:"actual_loss_rate"`
-	ExceptionReason string  `json:"exception_reason"`
-	MetricsJSON     string  `json:"metrics_json"`
+	ID                  int64   `json:"id"`
+	WorkOrderID         int64   `json:"work_order_id"`
+	SequenceNo          int     `json:"sequence_no"`
+	Operation           string  `json:"operation"`
+	Workstation         string  `json:"workstation"`
+	Status              string  `json:"status"`
+	StartedAt           string  `json:"started_at"`
+	CompletedAt         string  `json:"completed_at"`
+	Operator            string  `json:"operator"`
+	PlannedInputQty     float64 `json:"planned_input_qty"`
+	ActualInputQty      float64 `json:"actual_input_qty"`
+	ActualOutputQty     float64 `json:"actual_output_qty"`
+	ActualLossQty       float64 `json:"actual_loss_qty"`
+	ActualLossRate      float64 `json:"actual_loss_rate"`
+	RecordsLoss         bool    `json:"records_loss"`
+	ExceptionReason     string  `json:"exception_reason"`
+	MetricsJSON         string  `json:"metrics_json"`
+	ParameterSchemaJSON string  `json:"parameter_schema_json"`
 }
 
 type JobCardActualsCommand struct {
@@ -737,6 +741,9 @@ func (s *Service) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCa
 func (s *Service) UpdateJobCardActuals(ctx context.Context, cmd JobCardActualsCommand) error {
 	if cmd.ID <= 0 {
 		return fmt.Errorf("job_card_id required")
+	}
+	if cmd.PlannedInputQty < 0 || cmd.ActualInputQty < 0 || cmd.ActualOutputQty < 0 || cmd.ActualLossQty < 0 {
+		return fmt.Errorf("quantity must be >= 0")
 	}
 	if cmd.ActualInputQty > 0 {
 		lossQty, lossRate, err := productiondomain.ActualLossMetrics(cmd.ActualInputQty, cmd.ActualOutputQty)

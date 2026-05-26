@@ -120,6 +120,7 @@ import FinanceReportView from './views/FinanceReportView.vue'
 import FinanceSettingsView from './views/FinanceSettingsView.vue'
 import FinanceTaxLedgerView from './views/FinanceTaxLedgerView.vue'
 import InventoryView from './views/InventoryView.vue'
+import IndustryFieldTemplatesView from './views/IndustryFieldTemplatesView.vue'
 import JobCardsView from './views/JobCardsView.vue'
 import LogisticsSettingsView from './views/LogisticsSettingsView.vue'
 import MachinesView from './views/MachinesView.vue'
@@ -138,6 +139,7 @@ import ProduceRunningView from './views/ProduceRunningView.vue'
 import ProductionAcceptanceView from './views/ProductionAcceptanceView.vue'
 import ProductionCostsView from './views/ProductionCostsView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
+import ProcessTemplatesView from './views/ProcessTemplatesView.vue'
 import ProductSettingsView from './views/ProductSettingsView.vue'
 import PurchaseView from './views/PurchaseView.vue'
 import QualityInspectionsView from './views/QualityInspectionsView.vue'
@@ -244,6 +246,8 @@ const internalViews = {
   stockOutboundLogs: StockOutboundLogsView,
   inventoryMaterialsManual: OperationManualView,
   bom: BomView,
+  processTemplates: ProcessTemplatesView,
+  industryFieldTemplates: IndustryFieldTemplatesView,
   productSettings: ProductSettingsView,
   mallSettings: MallSettingsView,
   costing: CostingView,

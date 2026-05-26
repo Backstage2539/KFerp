@@ -109,13 +109,18 @@ CREATE TABLE IF NOT EXISTS %s.work_orders (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	completed_at TIMESTAMPTZ,
 	material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
-	operation_template_id BIGINT NOT NULL DEFAULT 0
+	operation_template_id BIGINT NOT NULL DEFAULT 0,
+	process_template_id BIGINT NOT NULL DEFAULT 0,
+	process_template_name TEXT NOT NULL DEFAULT '',
+	process_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 CREATE INDEX IF NOT EXISTS work_orders_status_idx ON %s.work_orders(status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS %s.job_cards (
 	id BIGSERIAL PRIMARY KEY,
 	work_order_id BIGINT NOT NULL,
+	sequence_no INT NOT NULL DEFAULT 1,
 	operation TEXT NOT NULL DEFAULT '',
 	workstation TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'running',
@@ -127,8 +132,10 @@ CREATE TABLE IF NOT EXISTS %s.job_cards (
 	actual_output_qty NUMERIC(14,3) NOT NULL DEFAULT 0,
 	actual_loss_qty NUMERIC(14,3) NOT NULL DEFAULT 0,
 	actual_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
+	records_loss BOOLEAN NOT NULL DEFAULT false,
 	exception_reason TEXT NOT NULL DEFAULT '',
 	metrics_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	parameter_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	operation_template_step_id BIGINT NOT NULL DEFAULT 0,
 	cost_type TEXT NOT NULL DEFAULT '',
 	cost_rate NUMERIC(12,4) NOT NULL DEFAULT 0
@@ -178,13 +185,20 @@ CREATE INDEX IF NOT EXISTS work_order_material_reservations_material_idx ON %s.w
 	for _, stmt := range []string{
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS operation_template_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS process_template_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS process_template_name TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS process_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS sequence_no INT NOT NULL DEFAULT 1`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS planned_input_qty NUMERIC(14,3) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS actual_input_qty NUMERIC(14,3) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS actual_output_qty NUMERIC(14,3) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS actual_loss_qty NUMERIC(14,3) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS actual_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS records_loss BOOLEAN NOT NULL DEFAULT false`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS exception_reason TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS metrics_json JSONB NOT NULL DEFAULT '{}'::jsonb`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS parameter_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS operation_template_step_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS cost_type TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS cost_rate NUMERIC(12,4) NOT NULL DEFAULT 0`, schema),
