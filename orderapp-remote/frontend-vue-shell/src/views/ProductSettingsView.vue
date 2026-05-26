@@ -295,7 +295,7 @@
               </select>
             </label>
           </div>
-          <table class="sku-table" data-auto-pagination="off">
+          <table :key="skuDisplayKey" class="sku-table" data-auto-pagination="off">
             <thead>
               <tr>
                 <th class="select-col">
@@ -445,6 +445,7 @@
           </div>
         </div>
         <PaginationControls
+          :key="skuDisplayKey"
           :page="skuPage"
           :page-size="skuPageSize"
           :total="skuDisplayTotal"
@@ -1249,8 +1250,18 @@ const customerSkuRows = computed(() => sortRowsForCustomerSkuPriority(
 const unfilteredDisplaySkuRows = computed(() => selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value)
 const filteredSkuRows = computed(() => filterSkuRows(unfilteredDisplaySkuRows.value, skuFilters.value))
 const skuDisplayTotal = computed(() => filteredSkuRows.value.length)
+const skuDisplayKey = computed(() => [
+  skuContextCustomerID.value,
+  skuDisplayTotal.value,
+  skuPage.value,
+  skuPageSize.value,
+  skuFilters.value.query || '',
+  skuFilters.value.primaryCategory || '',
+  skuFilters.value.secondaryCategory || '',
+].join(':'))
 const displaySkuRows = computed(() => {
-  const pageSize = normalizePageSize(skuPageSize.value)
+  const parsedPageSize = Number.parseInt(String(skuPageSize.value || 10), 10)
+  const pageSize = [10, 20, 50, 100].includes(parsedPageSize) ? parsedPageSize : 10
   const totalPages = Math.max(1, Math.ceil(skuDisplayTotal.value / pageSize))
   const page = Math.min(Math.max(Number.parseInt(String(skuPage.value || 1), 10) || 1, 1), totalPages)
   const start = (page - 1) * pageSize
