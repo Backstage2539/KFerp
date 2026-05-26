@@ -970,6 +970,41 @@ test('SKU settings renders special KV template definitions and SKU value editors
   assert.doesNotMatch(template, /v-model="customForm\.roast_level"/)
 })
 
+test('SKU settings makes special KV configuration discoverable from SKU rows and template editor', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  for (const expected of [
+    '产品信息字段（特殊属性KV）',
+    '展示到价格表/PDF',
+    'SKU列表特殊属性列填写具体值',
+    '价格表页面、发布快照和 PDF 均展示',
+    '未配置字段',
+    '配置字段',
+    'openSpecialAttrConfigForProduct',
+  ]) {
+    assert.ok(source.includes(expected), `missing discoverable special KV copy: ${expected}`)
+  }
+  assert.match(template, /class="[^"]*sku-empty-special-attrs[^"]*"/)
+  assert.match(script, /activeSettingsSection\.value = 'templates'[\s\S]*activeConfigTemplateSection\.value = 'product-config'/)
+})
+
+test('copying public product config enables referenced public SKU and category instead of copying SKU rows', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  for (const expected of [
+    'ensurePublicProductReferenceForCustomer',
+    'use_public_sku: true',
+    'use_public_categories: true',
+    '公共商品配置已复制为客户配置，并已开启公共SKU引用',
+  ]) {
+    assert.ok(script.includes(expected) || source.includes(expected), `missing public SKU reference behavior: ${expected}`)
+  }
+  assert.doesNotMatch(script, /deriveCustomerProductForCustomer[\s\S]*deriveProductConfigTemplateForCustomer/)
+})
+
 test('SKU settings exposes an explicit copy action for public gradient templates', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 
@@ -1238,6 +1273,27 @@ test('SKU category primary row keeps title and sorting on the left with collapse
   assert.match(template, /<div class="category-row-actions primary-category-right">[\s\S]*category-collapse-button[\s\S]*category-delete-button/)
   assert.match(style, /\.primary-category-left\s*\{[^}]*display:\s*flex;/s)
   assert.match(style, /\.primary-category-right\s*\{[^}]*justify-content:\s*flex-end;/s)
+})
+
+test('SKU table keeps product type columns on one line and relies on horizontal scroll', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const style = source.split('<style scoped>')[1] || ''
+
+  for (const expected of [
+    'sku-table-wrap',
+    'class="sku-table"',
+    'sku-category-cell',
+    'sku-name-cell',
+    'special-attrs-cell',
+  ]) {
+    assert.ok(source.includes(expected), `missing SKU table layout marker: ${expected}`)
+  }
+  assert.match(template, /<th class="sku-col-product-type">产品类型<\/th>/)
+  assert.match(style, /\.sku-table-wrap\s*\{[^}]*overflow-x:\s*auto;/s)
+  assert.match(style, /\.sku-table\s*\{[^}]*width:\s*max-content;[^}]*min-width:\s*1600px;/s)
+  assert.match(style, /\.sku-table th,\s*\.sku-table td\s*\{[^}]*white-space:\s*nowrap;/s)
+  assert.match(style, /\.sku-category-cell\s*\{[^}]*white-space:\s*nowrap;/s)
 })
 
 test('SKU settings collapses category levels and focuses newly created categories', () => {

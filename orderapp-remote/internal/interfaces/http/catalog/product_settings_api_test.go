@@ -951,6 +951,9 @@ func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testi
 	if !repo.configTemplateDerived || repo.derivedConfig.CustomerID != 42 || repo.derivedConfig.SourceTemplateID != 301 || repo.derivedConfig.Name != "客户复制盒装商品配置" {
 		t.Fatalf("derived config template = %+v derived=%v", repo.derivedConfig, repo.configTemplateDerived)
 	}
+	if !repo.publicUsageSaved || repo.publicUsage.CustomerID != 42 || !repo.publicUsage.UsePublicSKU || !repo.publicUsage.UsePublicCategories {
+		t.Fatalf("derive product config should enable public SKU/category reference, usage=%+v saved=%v", repo.publicUsage, repo.publicUsageSaved)
+	}
 	for _, want := range []string{`"template"`, `"id":388`, `"customer_id":42`, `"source_template_id":301`, `"template_state":"derived_from_public"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("derive product config response missing %s: %s", want, rec.Body.String())

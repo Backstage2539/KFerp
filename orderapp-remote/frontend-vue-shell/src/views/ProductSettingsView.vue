@@ -291,7 +291,7 @@
               <span>是否使用公共SKU</span>
             </label>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap sku-table-wrap">
           <div class="sku-filters">
             <label>
               <span>形态</span>
@@ -328,26 +328,26 @@
               </select>
             </label>
           </div>
-          <table data-auto-pagination="off">
+          <table class="sku-table" data-auto-pagination="off">
             <thead>
               <tr>
                 <th class="select-col">
                   <input type="checkbox" :checked="allProductRowsSelected" :disabled="!editableDisplaySkuRows.length" @change="toggleAllProductRows($event.target.checked)" />
                 </th>
-                <th>产品类型</th>
-                <th>产品子类型</th>
+                <th class="sku-col-product-type">产品类型</th>
+                <th class="sku-col-product-subtype">产品子类型</th>
                 <th>商品编号</th>
-                <th>商品</th>
+                <th class="sku-name-cell">商品</th>
                 <th>形态</th>
                 <th>归属</th>
                 <th>类型</th>
-                <th>特殊属性</th>
+                <th class="special-attrs-cell">特殊属性</th>
                 <th>BOM预期产出率</th>
                 <th>利润率覆盖</th>
                 <th>BOM状态</th>
                 <th>BOM</th>
                 <th>处理</th>
-                <th>备注</th>
+                <th class="remark-cell">备注</th>
               </tr>
             </thead>
             <tbody>
@@ -356,10 +356,10 @@
                   <td class="select-col">
                     <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row)" @change="toggleProductSelection(row, $event.target.checked)" />
                   </td>
-                  <td>{{ categoryLabel(row, 1) }}</td>
-                  <td>{{ categoryLabel(row, 2) }}</td>
+                  <td class="sku-category-cell">{{ categoryLabel(row, 1) }}</td>
+                  <td class="sku-category-cell">{{ categoryLabel(row, 2) }}</td>
                   <td>{{ row.number || '' }}</td>
-                  <td>
+                  <td class="sku-name-cell">
                     <input
                       class="sku-name-input"
                       v-model.trim="row.name"
@@ -369,7 +369,7 @@
                   <td><span class="kind-badge" :class="productKindBadgeClass(row)">{{ productKindLabel(row) }}</span></td>
                   <td>{{ productOwnerLabel(row) }}</td>
                   <td>{{ skuTypeLabel(row.custom_type) }}</td>
-                  <td>
+                  <td class="special-attrs-cell">
                     <div v-if="specialAttrSchemaForProduct(row).length" class="special-attr-editor compact">
                       <label v-for="attr in specialAttrSchemaForProduct(row)" :key="`row-attr-${row.id}-${attr.key}`">
                         <span>{{ attr.label }}</span>
@@ -380,7 +380,10 @@
                         <input v-else v-model.trim="row.special_attr_values[attr.key]" :type="attr.value_type === 'number' ? 'number' : 'text'" :disabled="!canEditSkuRow(row)" @change="saveProductBasics(row)" />
                       </label>
                     </div>
-                    <span v-else class="muted">-</span>
+                    <div v-else class="sku-empty-special-attrs">
+                      <span class="muted">未配置字段</span>
+                      <button class="text-button" type="button" @click="openSpecialAttrConfigForProduct(row)">配置字段</button>
+                    </div>
                   </td>
                   <td>
                     <div v-if="productKindSupportsBomParams(row)" class="yield-editor">
@@ -792,10 +795,10 @@
             </div>
             <div class="rule-config-block special-attrs-schema-editor">
               <div class="field-group-title">
-                <span>特殊KV定义</span>
+                <span title="特殊KV定义">产品信息字段（特殊属性KV）</span>
                 <button class="secondary compact-action" type="button" :disabled="!canEditCurrentProductConfigTemplate" @click="addSpecialAttrSchemaRow">新增KV</button>
               </div>
-              <p class="muted">把只属于某类商品的关键属性放在这里，例如烘焙度、咖啡因、条装规格；勾选展示后会进入产品价格表和发布快照。</p>
+              <p class="muted special-attrs-config-guide">配置入口：商品配置 → 商品配置模板 → 产品信息字段。这里定义字段，SKU列表特殊属性列填写具体值；勾选展示到价格表/PDF后，价格表页面、发布快照和 PDF 均展示。</p>
               <div v-for="(attr, index) in productConfigTemplateForm.special_attrs_schema_rows" :key="`special-attr-${index}`" class="special-attr-schema-row">
                 <label>
                   <span>Key</span>
@@ -823,7 +826,7 @@
                 </label>
                 <label class="checkline">
                   <input v-model="attr.show_in_price_list" :disabled="!canEditCurrentProductConfigTemplate" type="checkbox" />
-                  <span>产品价格表展示</span>
+                  <span>展示到价格表/PDF</span>
                 </label>
                 <button class="danger compact-action" type="button" :disabled="!canEditCurrentProductConfigTemplate" @click="removeSpecialAttrSchemaRow(index)">删除</button>
               </div>
@@ -2132,7 +2135,8 @@ async function deriveProductConfigTemplateForCustomer(template) {
       },
     })
     const derivedID = Number(response?.template?.id || 0)
-    ok.value = '公共商品配置已复制为客户配置，可改名和调整单位模板/价格规则'
+    await ensurePublicProductReferenceForCustomer(customerID)
+    ok.value = '公共商品配置已复制为客户配置，并已开启公共SKU引用；这是引用公共产品，不会复制SKU'
     await loadAll()
     selectedCustomerSkuCustomerID.value = customerID
     activeSettingsSection.value = 'templates'
@@ -2145,6 +2149,20 @@ async function deriveProductConfigTemplateForCustomer(template) {
   } finally {
     productConfigSaving.value = false
   }
+}
+
+async function ensurePublicProductReferenceForCustomer(customerID) {
+  const id = Number(customerID || 0)
+  if (!id) return
+  const current = customerPublicUsages.value.find((row) => Number(row.customer_id || 0) === id) || {}
+  if (current.use_public_sku === true && current.use_public_categories === true) return
+  await apiSend('/api/product-settings/customer-public-usage', {
+    body: buildCustomerPublicUsagePayload(id, {
+      use_public_sku: true,
+      use_public_categories: true,
+      use_public_gradient_templates: Boolean(current.use_public_gradient_templates),
+    }),
+  })
 }
 
 function resetCustomerProductRuleForms() {
@@ -2614,6 +2632,20 @@ function specialAttrSchemaForCategory(categoryID) {
 
 function specialAttrSchemaForProduct(row = {}) {
   return specialAttrSchemaForCategory(row.product_category_id)
+}
+
+function openSpecialAttrConfigForProduct(row = {}) {
+  error.value = ''
+  activeSettingsSection.value = 'templates'
+  activeConfigTemplateSection.value = 'product-config'
+  const category = productCategoryByID(row.product_category_id)
+  const template = productConfigTemplateByID(category?.product_config_template_id)
+  if (template) {
+    startProductConfigTemplateEdit(template)
+  } else {
+    resetProductConfigTemplateForm()
+  }
+  ok.value = '特殊属性字段在商品配置模板中定义；SKU列表特殊属性列填写具体值，勾选展示到价格表/PDF后，价格表页面、发布快照和 PDF 均展示'
 }
 
 function specialAttrSchemaForForm(form = {}) {
@@ -3728,12 +3760,19 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .uncategorized .muted { width: 100%; margin: 0; }
 .product-chip { border: 1px solid #ddd; border-radius: 8px; padding: 5px 8px; background: #fff; font-size: 12px; cursor: grab; }
 .table-wrap { overflow: auto; }
+.sku-table-wrap { width: 100%; overflow-x: auto; overflow-y: visible; -webkit-overflow-scrolling: touch; }
 table { width: 100%; min-width: 1400px; border-collapse: collapse; }
+.sku-table { width: max-content; min-width: 1600px; table-layout: auto; }
 .compact-table table { min-width: 760px; }
 th, td { border-bottom: 1px solid #eee8df; padding: 8px; text-align: left; font-size: 13px; vertical-align: middle; }
+.sku-table th, .sku-table td { white-space: nowrap; }
 th { background: #fbfaf8; position: sticky; top: 0; }
 .select-col { width: 42px; text-align: center; }
 .select-col input { width: 16px; min-height: 16px; }
+.sku-category-cell { min-width: 112px; max-width: 220px; white-space: nowrap; }
+.sku-name-cell { min-width: 300px; }
+.special-attrs-cell { min-width: 220px; }
+.remark-cell { min-width: 220px; }
 .roast-select { min-width: 92px; }
 .green-type-select { min-width: 92px; }
 .bom-product-select { min-width: 220px; }
@@ -3751,6 +3790,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .kind-instant { color: #6b3f16; background: #f5efe6; border: 1px solid #cba77d; }
 .margin-input { width: 150px; }
 .sku-name-input { min-width: 240px; }
+.sku-table .sku-name-input { min-width: 300px; }
+.sku-empty-special-attrs { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .remark-input { width: 180px; min-height: 46px; resize: vertical; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }

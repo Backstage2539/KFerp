@@ -848,7 +848,39 @@ func (s *Service) DeriveProductConfigTemplate(ctx context.Context, cmd DerivePro
 	if cmd.SourceTemplateID <= 0 {
 		return ProductConfigTemplate{}, ValidationError{Message: "source_template_id required"}
 	}
-	return s.repo.DeriveProductConfigTemplate(ctx, cmd)
+	template, err := s.repo.DeriveProductConfigTemplate(ctx, cmd)
+	if err != nil {
+		return ProductConfigTemplate{}, err
+	}
+	if err := s.enableCustomerPublicProductReference(ctx, cmd.Actor, cmd.CustomerID); err != nil {
+		return ProductConfigTemplate{}, err
+	}
+	return template, nil
+}
+
+func (s *Service) enableCustomerPublicProductReference(ctx context.Context, actor string, customerID int64) error {
+	usages, err := s.repo.ListCustomerPublicUsages(ctx)
+	if err != nil {
+		return err
+	}
+	current := CustomerPublicUsage{CustomerID: customerID}
+	for _, usage := range usages {
+		if usage.CustomerID == customerID {
+			current = usage
+			break
+		}
+	}
+	if current.UsePublicSKU && current.UsePublicCategories {
+		return nil
+	}
+	_, err = s.repo.SaveCustomerPublicUsage(ctx, CustomerPublicUsageCommand{
+		Actor:                      actor,
+		CustomerID:                 customerID,
+		UsePublicSKU:               true,
+		UsePublicCategories:        true,
+		UsePublicGradientTemplates: current.UsePublicGradientTemplates,
+	})
+	return err
 }
 
 func (s *Service) SaveGradientTemplate(ctx context.Context, cmd SaveGradientTemplateCommand) (GradientTemplate, error) {

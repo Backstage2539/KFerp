@@ -25,6 +25,7 @@ type fakeRepo struct {
 	unitTemplate    SaveProductUnitTemplateCommand
 	deactivate      DeactivateProductsCommand
 	products        map[int64]Product
+	publicUsages    []CustomerPublicUsage
 	deactivated     bool
 	usageSaved      bool
 }
@@ -186,7 +187,7 @@ func (r *fakeRepo) DeriveGradientTemplate(ctx context.Context, cmd DeriveGradien
 }
 
 func (r *fakeRepo) ListCustomerPublicUsages(ctx context.Context) ([]CustomerPublicUsage, error) {
-	return nil, nil
+	return r.publicUsages, nil
 }
 
 func (r *fakeRepo) SaveCustomerPublicUsage(ctx context.Context, cmd CustomerPublicUsageCommand) (CustomerPublicUsage, error) {
@@ -484,6 +485,37 @@ func TestServiceDelegatesProductConfigTemplates(t *testing.T) {
 	}
 	if derived.ID != 702 || repo.derivedConfig.CustomerID != 42 || repo.derivedConfig.SourceTemplateID != 301 || repo.derivedConfig.Name != "客户复制盒装配置" {
 		t.Fatalf("derived product config template=%+v command=%+v", derived, repo.derivedConfig)
+	}
+}
+
+func TestDeriveProductConfigTemplateEnablesPublicSKUReference(t *testing.T) {
+	repo := &fakeRepo{
+		publicUsages: []CustomerPublicUsage{{
+			CustomerID:                 42,
+			UsePublicSKU:               false,
+			UsePublicCategories:        false,
+			UsePublicGradientTemplates: true,
+		}},
+	}
+	svc := NewService(repo)
+
+	if _, err := svc.DeriveProductConfigTemplate(context.Background(), DeriveProductConfigTemplateCommand{
+		Actor:            "tester",
+		CustomerID:       42,
+		SourceTemplateID: 301,
+		Name:             "客户复制盒装配置",
+	}); err != nil {
+		t.Fatalf("DeriveProductConfigTemplate() err=%v", err)
+	}
+
+	if !repo.usageSaved {
+		t.Fatalf("DeriveProductConfigTemplate() should save public SKU reference usage")
+	}
+	if repo.publicUsage.CustomerID != 42 || !repo.publicUsage.UsePublicSKU || !repo.publicUsage.UsePublicCategories {
+		t.Fatalf("public usage should reference public SKU and categories, got %+v", repo.publicUsage)
+	}
+	if !repo.publicUsage.UsePublicGradientTemplates {
+		t.Fatalf("public gradient template switch should be preserved, got %+v", repo.publicUsage)
 	}
 }
 
