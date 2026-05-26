@@ -1306,7 +1306,7 @@ const customerSkuRows = computed(() => {
 const currentSkuSourceRows = computed(() => (
   skuContextCustomerID.value > 0 ? customerSkuRows.value : publicSkuRows.value
 ).slice())
-const skuVisibleTableState = ref(skuTableState([], skuFilters.value, {
+const skuVisibleTableState = computed(() => skuTableState(currentSkuSourceRows.value, skuFilters.value, {
   page: skuPage.value,
   pageSize: skuPageSize.value,
 }))
@@ -1416,16 +1416,11 @@ function normalizeSkuFiltersForCurrentRows(filters = skuFilters.value) {
 }
 
 function syncVisibleSkuTableState() {
-  const sourceRows = currentSkuSourceRows.value
-  const normalizedFilters = normalizeVisibleSkuFilters(skuFilters.value, sourceRows)
-  const tableState = skuTableState(sourceRows, normalizedFilters, {
-    page: skuPage.value,
-    pageSize: skuPageSize.value,
-  })
-  skuVisibleTableState.value = tableState
+  const normalizedFilters = normalizeSkuFiltersForCurrentRows()
   if (JSON.stringify(normalizedFilters) !== JSON.stringify(skuFilters.value)) {
     skuFilters.value = normalizedFilters
   }
+  const tableState = skuVisibleTableState.value
   if (Number(skuPage.value || 1) !== tableState.page) {
     skuPage.value = tableState.page
   }
