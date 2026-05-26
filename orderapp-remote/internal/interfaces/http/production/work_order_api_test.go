@@ -219,3 +219,36 @@ func TestJobCardAPIUpdatesActualLossFields(t *testing.T) {
 		t.Fatalf("metrics json = %s", repo.jobCardActual.MetricsJSON)
 	}
 }
+
+func TestJobCardMetricsAliasAcceptsStringMetricsAndReturnsRow(t *testing.T) {
+	repo := &workOrderAPIRepo{jobCards: []productionapp.JobCardRow{{
+		ID:                  9,
+		WorkOrderID:         20,
+		SequenceNo:          2,
+		Operation:           "裁剪",
+		RecordsLoss:         true,
+		ParameterSchemaJSON: `{"fabric":"text"}`,
+		ActualLossQty:       185,
+		ActualLossRate:      0.185,
+	}}}
+	e := echo.New()
+	registerWorkOrderAPI(e, productionapp.NewService(repo))
+
+	body := `{"actual_input_qty":1000,"actual_output_qty":815,"exception_reason":"裁剪边角料","metrics_json":"{\"fabric\":\"cotton\"}"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/job-cards/9/metrics", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.jobCardActual.MetricsJSON != `{"fabric":"cotton"}` {
+		t.Fatalf("metrics json = %s", repo.jobCardActual.MetricsJSON)
+	}
+	for _, want := range []string{`"sequence_no":2`, `"records_loss":true`, `"parameter_schema_json":"{\"fabric\":\"text\"}"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
