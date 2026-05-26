@@ -259,7 +259,7 @@
       </div>
       </Teleport>
 
-      <div class="panel product-panel" :data-sku-debug="skuTableDebugAttr">
+      <div class="panel product-panel">
         <div class="panel-title sku-panel-title">
           <span>客户SKU列表 · {{ selectedSkuContextLabel }}</span>
           <div class="panel-actions sku-panel-actions">
@@ -1252,14 +1252,22 @@ const customerSkuRows = computed(() => sortRowsForCustomerSkuPriority(
   skuListRowsFromProducts(products.value, categoryTreeForSkuContext.value, (product) => selectedCustomerSkuCustomerID.value && skuContextProductFilter(product)),
   selectedCustomerSkuCustomerID.value,
 ))
-const unfilteredDisplaySkuRows = ref([])
-const normalizedSkuFilters = ref(normalizeVisibleSkuFilters(skuFilters.value, []))
-const filteredDisplaySkuRows = ref([])
-const skuDisplayTotal = ref(0)
-const displaySkuRows = ref([])
-const skuPrimaryCategoryOptions = ref([])
-const skuSecondaryCategoryOptions = ref([])
-const skuTableDebugAttr = ref('')
+const currentSkuSourceRows = computed(() => (
+  selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value
+).slice())
+const normalizedSkuFilters = computed(() => normalizeVisibleSkuFilters(skuFilters.value, currentSkuSourceRows.value))
+const filteredDisplaySkuRows = computed(() => filterSkuRows(currentSkuSourceRows.value, normalizedSkuFilters.value))
+const skuDisplayTotal = computed(() => filteredDisplaySkuRows.value.length)
+const displaySkuRows = computed(() => sliceVisibleSkuRows(
+  filteredDisplaySkuRows.value,
+  skuPage.value,
+  skuPageSize.value,
+).rows)
+const skuPrimaryCategoryOptions = computed(() => primaryCategoryOptions(currentSkuSourceRows.value))
+const skuSecondaryCategoryOptions = computed(() => secondaryCategoryOptions(
+  currentSkuSourceRows.value,
+  normalizedSkuFilters.value.primaryCategory,
+))
 const skuDisplayKey = computed(() => [
   skuContextCustomerID.value,
   skuDisplayTotal.value,
@@ -1350,7 +1358,7 @@ function defaultSkuFilters() {
 }
 
 function normalizeSkuFiltersForCurrentRows(filters = skuFilters.value) {
-  return normalizeVisibleSkuFilters(filters, unfilteredDisplaySkuRows.value)
+  return normalizeVisibleSkuFilters(filters, currentSkuSourceRows.value)
 }
 
 function sliceVisibleSkuRows(rows = [], page = 1, pageSize = 10) {
@@ -1367,35 +1375,13 @@ function sliceVisibleSkuRows(rows = [], page = 1, pageSize = 10) {
 }
 
 function syncVisibleSkuTableState() {
-  const sourceRows = (selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value).slice()
-  const filters = normalizeVisibleSkuFilters(skuFilters.value, sourceRows)
-  const filteredRows = filterSkuRows(sourceRows, filters)
-  const pageState = sliceVisibleSkuRows(filteredRows, skuPage.value, skuPageSize.value)
+  const normalizedFilters = normalizeSkuFiltersForCurrentRows()
+  if (JSON.stringify(normalizedFilters) !== JSON.stringify(skuFilters.value)) {
+    skuFilters.value = normalizedFilters
+  }
+  const pageState = sliceVisibleSkuRows(filteredDisplaySkuRows.value, skuPage.value, skuPageSize.value)
   if (Number(skuPage.value || 1) !== pageState.page) {
     skuPage.value = pageState.page
-  }
-  unfilteredDisplaySkuRows.value = sourceRows
-  normalizedSkuFilters.value = filters
-  filteredDisplaySkuRows.value = filteredRows
-  skuDisplayTotal.value = filteredRows.length
-  displaySkuRows.value = pageState.rows
-  skuPrimaryCategoryOptions.value = primaryCategoryOptions(sourceRows)
-  skuSecondaryCategoryOptions.value = secondaryCategoryOptions(sourceRows, filters.primaryCategory)
-  if (typeof window !== 'undefined' && window.location.search.includes('debug_sku_table=1')) {
-    const debugSnapshot = {
-      selectedCustomerID: Number(selectedCustomerSkuCustomerID.value || 0),
-      sourceRows: sourceRows.length,
-      filteredRows: filteredRows.length,
-      pageRows: pageState.rows.length,
-      requestedPage: Number(skuPage.value || 1),
-      page: pageState.page,
-      pageSize: normalizePageSize(skuPageSize.value),
-      firstSource: sourceRows[0] ? { id: sourceRows[0].id, name: sourceRows[0].name, primary_name: sourceRows[0].primary_name, secondary_name: sourceRows[0].secondary_name } : null,
-      firstPageRow: pageState.rows[0] ? { id: pageState.rows[0].id, name: pageState.rows[0].name, primary_name: pageState.rows[0].primary_name, secondary_name: pageState.rows[0].secondary_name } : null,
-      filters,
-    }
-    window.__kferpSkuTableDebug = debugSnapshot
-    skuTableDebugAttr.value = JSON.stringify(debugSnapshot)
   }
 }
 
@@ -3707,7 +3693,7 @@ watch(() => skuFilters.value.primaryCategory, () => {
   }
 })
 
-watch(unfilteredDisplaySkuRows, () => {
+watch(currentSkuSourceRows, () => {
   const normalized = normalizeSkuFiltersForCurrentRows()
   if (JSON.stringify(normalized) !== JSON.stringify(skuFilters.value)) {
     skuFilters.value = normalized
