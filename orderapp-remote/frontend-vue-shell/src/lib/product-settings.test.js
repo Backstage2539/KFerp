@@ -46,6 +46,7 @@ import {
   specialAttrValuesJSONFromForm,
   sortRowsForCustomerSkuPriority,
   skuListRowsFromProducts,
+  skuTableState,
   skuTypeLabel,
   skuTypeOptions,
   unitConversionJSONFromRows,
@@ -563,6 +564,7 @@ test('skuListRowsFromProducts keeps the SKU table backed by product rows even wh
     id: index + 1,
     name: `公共 SKU ${index + 1}`,
     customer_id: 0,
+    product_category_id: index === 0 ? 2 : 0,
   }))
   assert.equal(skuListRowsFromProducts(publicRows, [], (product) => Number(product.customer_id || 0) === 0).length, 34)
 
@@ -586,6 +588,52 @@ test('skuListRowsFromProducts keeps the SKU table backed by product rows even wh
     number: 7,
     primary_name: '咖啡烘焙豆',
     secondary_name: '精品意式拼配',
+  })
+
+  const rowsFromCategoryID = skuListRowsFromProducts(publicRows, [{
+    id: 1,
+    name: '咖啡烘焙豆',
+    products: [],
+    children: [{
+      id: 2,
+      name: '精品意式拼配',
+      products: [],
+    }],
+  }], () => true)
+  assert.deepEqual({
+    id: rowsFromCategoryID[0].id,
+    primary_name: rowsFromCategoryID[0].primary_name,
+    secondary_name: rowsFromCategoryID[0].secondary_name,
+  }, {
+    id: 1,
+    primary_name: '咖啡烘焙豆',
+    secondary_name: '精品意式拼配',
+  })
+})
+
+test('skuTableState keeps visible rows, total, and category filters in one consistent calculation', () => {
+  const rows = Array.from({ length: 34 }, (_, index) => ({
+    id: index + 1,
+    name: `公共 SKU ${index + 1}`,
+    customer_id: 0,
+    primary_name: index < 20 ? '咖啡烘焙豆' : '速溶咖啡',
+    secondary_name: index < 20 ? '精品意式拼配' : '盒装',
+  }))
+
+  assert.deepEqual(skuTableState(rows, { primaryCategory: '不存在的旧分类' }, { page: 1, pageSize: 10 }), {
+    filters: {
+      productKind: 'all',
+      customType: 'all',
+      query: '',
+      primaryCategory: '',
+      secondaryCategory: '',
+    },
+    primaryOptions: ['咖啡烘焙豆', '速溶咖啡'],
+    secondaryOptions: ['盒装', '精品意式拼配'],
+    total: 34,
+    page: 1,
+    pageSize: 10,
+    rows: rows.slice(0, 10),
   })
 })
 
@@ -1376,9 +1424,10 @@ test('SKU settings opens SKU creation and SKU copy behind drawers while category
   assert.match(template, /当前SKU \{\{ skuDisplayTotal \}\}/)
   assert.match(template, /:total="skuDisplayTotal"/)
   assert.match(template, /:key="skuDisplayKey"/)
-  assert.match(script, /const skuDisplayTotal = computed\(\(\) => filteredSkuRows\.value\.length\)/)
+  assert.match(script, /const skuTable = computed\(\(\) => skuTableState\(unfilteredDisplaySkuRows\.value, skuFilters\.value/)
+  assert.match(script, /const skuDisplayTotal = computed\(\(\) => skuTable\.value\.total\)/)
   assert.match(script, /const skuDisplayKey = computed/)
-  assert.match(script, /return filteredSkuRows\.value\.slice\(start, start \+ pageSize\)/)
+  assert.match(script, /const displaySkuRows = computed\(\(\) => skuTable\.value\.rows\)/)
   assert.match(style, /\.category-scroll-list\s*\{[^}]*max-height:\s*min\(640px,\s*calc\(100vh - 280px\)\);[^}]*overflow:\s*auto;/s)
   assert.match(style, /\.settings-drawer-mask\s*\{[^}]*position:\s*fixed;/s)
 })

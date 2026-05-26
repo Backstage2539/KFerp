@@ -1,4 +1,4 @@
-import { slicePageRows } from './pagination.js'
+import { clampPage, normalizePageSize, slicePageRows } from './pagination.js'
 
 export const PRODUCT_KIND_ALL = 'all'
 export const SKU_CUSTOM_TYPE_ALL = 'all'
@@ -123,8 +123,27 @@ export function paginatedSkuRows(rows = [], filters = {}, pagination = {}) {
   return slicePageRows(filterSkuRows(rows, filters), pagination)
 }
 
+export function skuTableState(rows = [], filters = {}, pagination = {}) {
+  const sourceRows = Array.isArray(rows) ? rows : []
+  const normalizedFilters = normalizeVisibleSkuFilters(filters, sourceRows)
+  const filteredRows = filterSkuRows(sourceRows, normalizedFilters)
+  const pageSize = normalizePageSize(pagination.pageSize)
+  const page = clampPage(pagination.page, filteredRows.length, pageSize)
+  const start = (page - 1) * pageSize
+  return {
+    filters: normalizedFilters,
+    primaryOptions: primaryCategoryOptions(sourceRows),
+    secondaryOptions: secondaryCategoryOptions(sourceRows, normalizedFilters.primaryCategory),
+    total: filteredRows.length,
+    page,
+    pageSize,
+    rows: filteredRows.slice(start, start + pageSize),
+  }
+}
+
 export function skuListRowsFromProducts(products = [], categoryTree = [], filterFn = () => true) {
   const categoryMetaByProductID = categoryProductMetaByID(categoryTree)
+  const categoryMetaByCategoryID = categoryPathMetaByID(categoryTree)
   return (products || [])
     .filter((product) => {
       try {
@@ -135,7 +154,9 @@ export function skuListRowsFromProducts(products = [], categoryTree = [], filter
     })
     .map((product) => ({
       ...product,
-      ...(categoryMetaByProductID.get(Number(product?.id || 0)) || {}),
+      ...(categoryMetaByProductID.get(Number(product?.id || 0))
+        || categoryMetaByCategoryID.get(Number(product?.product_category_id || 0))
+        || {}),
     }))
 }
 
@@ -521,6 +542,27 @@ function categoryProductMetaByID(categoryTree = []) {
         })
       }
     }
+  }
+  return out
+}
+
+function categoryPathMetaByID(categoryTree = []) {
+  const out = new Map()
+  function visit(category = {}, primaryName = '', secondaryName = '') {
+    const id = Number(category?.id || 0)
+    if (id) {
+      out.set(id, {
+        primary_name: primaryName || category?.name || '',
+        secondary_name: secondaryName,
+      })
+    }
+    const nextPrimaryName = primaryName || category?.name || ''
+    for (const child of category?.children || []) {
+      visit(child, nextPrimaryName, child?.name || '')
+    }
+  }
+  for (const primary of categoryTree || []) {
+    visit(primary, primary?.name || '', '')
   }
   return out
 }

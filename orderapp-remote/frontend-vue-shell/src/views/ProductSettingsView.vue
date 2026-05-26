@@ -1041,7 +1041,6 @@ import {
   categoryBelongsToSkuContext as categoryBelongsToContext,
   categoryDisplayState,
   customerSkuCustomerOptions,
-  filterSkuRows,
   gradientTemplateBelongsToSkuContext,
   greenBeanTypeOptions,
   integerUnitModeOptions,
@@ -1058,12 +1057,11 @@ import {
   productDisplayState,
   productKindSupportsBomParams,
   productSubtypeCategoryOptionsForType,
-  primaryCategoryOptions,
   roastedBomProductOptions,
-  secondaryCategoryOptions,
   specialAttrSchemaRowsFromJSON,
   specialAttrValuesFromJSON,
   skuListRowsFromProducts,
+  skuTableState,
   sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
@@ -1253,8 +1251,11 @@ const customerSkuRows = computed(() => sortRowsForCustomerSkuPriority(
   selectedCustomerSkuCustomerID.value,
 ))
 const unfilteredDisplaySkuRows = computed(() => selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value)
-const filteredSkuRows = computed(() => filterSkuRows(unfilteredDisplaySkuRows.value, skuFilters.value))
-const skuDisplayTotal = computed(() => filteredSkuRows.value.length)
+const skuTable = computed(() => skuTableState(unfilteredDisplaySkuRows.value, skuFilters.value, {
+  page: skuPage.value,
+  pageSize: skuPageSize.value,
+}))
+const skuDisplayTotal = computed(() => skuTable.value.total)
 const skuDisplayKey = computed(() => [
   skuContextCustomerID.value,
   skuDisplayTotal.value,
@@ -1264,14 +1265,7 @@ const skuDisplayKey = computed(() => [
   skuFilters.value.primaryCategory || '',
   skuFilters.value.secondaryCategory || '',
 ].join(':'))
-const displaySkuRows = computed(() => {
-  const parsedPageSize = Number.parseInt(String(skuPageSize.value || 10), 10)
-  const pageSize = [10, 20, 50, 100].includes(parsedPageSize) ? parsedPageSize : 10
-  const totalPages = Math.max(1, Math.ceil(skuDisplayTotal.value / pageSize))
-  const page = Math.min(Math.max(Number.parseInt(String(skuPage.value || 1), 10) || 1, 1), totalPages)
-  const start = (page - 1) * pageSize
-  return filteredSkuRows.value.slice(start, start + pageSize)
-})
+const displaySkuRows = computed(() => skuTable.value.rows)
 const editableDisplaySkuRows = computed(() => displaySkuRows.value.filter(canEditSkuRow))
 const allProductRowsSelected = computed(() => editableDisplaySkuRows.value.length > 0 && editableDisplaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
 const activeGradientTemplates = computed(() => gradientTemplates.value
@@ -1324,8 +1318,8 @@ const canEditCurrentProductConfigTemplate = computed(() => {
   if (!productConfigTemplateForm.value.id) return true
   return Number(selectedProductConfigTemplateRow.value?.customer_id || 0) === skuContextCustomerID.value
 })
-const skuPrimaryCategoryOptions = computed(() => primaryCategoryOptions(unfilteredDisplaySkuRows.value))
-const skuSecondaryCategoryOptions = computed(() => secondaryCategoryOptions(unfilteredDisplaySkuRows.value, skuFilters.value.primaryCategory))
+const skuPrimaryCategoryOptions = computed(() => skuTable.value.primaryOptions)
+const skuSecondaryCategoryOptions = computed(() => skuTable.value.secondaryOptions)
 const skuCopyGroups = computed(() => skuCopyOptions.value?.groups || [])
 const copyableSkuIDs = computed(() => {
   const ids = []
