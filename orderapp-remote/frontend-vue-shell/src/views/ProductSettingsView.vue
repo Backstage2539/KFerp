@@ -1041,7 +1041,6 @@ import {
   categoryBelongsToSkuContext as categoryBelongsToContext,
   categoryDisplayState,
   customerSkuCustomerOptions,
-  filterSkuRows,
   gradientTemplateBelongsToSkuContext,
   greenBeanTypeOptions,
   integerUnitModeOptions,
@@ -1058,12 +1057,10 @@ import {
   productDisplayState,
   productKindSupportsBomParams,
   productSubtypeCategoryOptionsForType,
-  primaryCategoryOptions,
   roastedBomProductOptions,
-  secondaryCategoryOptions,
   specialAttrSchemaRowsFromJSON,
   specialAttrValuesFromJSON,
-  skuListRowsFromProducts,
+  skuTableState,
   sortRowsForCustomerSkuPriority,
   skuTypeLabel,
   skuTypeOptions,
@@ -1306,35 +1303,22 @@ const customerSkuRows = computed(() => sortRowsForCustomerSkuPriority(
 const currentSkuSourceRows = computed(() => (
   selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value
 ).slice())
-const normalizedSkuFilters = computed(() => normalizeVisibleSkuFilters(skuFilters.value, currentSkuSourceRows.value))
-const filteredDisplaySkuRows = computed(() => filterSkuRows(currentSkuSourceRows.value, normalizedSkuFilters.value))
-const skuDisplayTotal = computed(() => filteredDisplaySkuRows.value.length)
-const displaySkuRows = computed(() => sliceVisibleSkuRows(
-  filteredDisplaySkuRows.value,
-  skuPage.value,
-  skuPageSize.value,
-).rows)
-const skuPrimaryCategoryOptions = computed(() => primaryCategoryOptions(currentSkuSourceRows.value))
-const skuSecondaryCategoryOptions = computed(() => secondaryCategoryOptions(
-  currentSkuSourceRows.value,
-  normalizedSkuFilters.value.primaryCategory,
-))
+const skuVisibleTableState = computed(() => skuTableState(currentSkuSourceRows.value, skuFilters.value, {
+  page: skuPage.value,
+  pageSize: skuPageSize.value,
+}))
+const normalizedSkuFilters = computed(() => skuVisibleTableState.value.filters)
+const skuDisplayTotal = computed(() => skuVisibleTableState.value.total)
+const displaySkuRows = computed(() => skuVisibleTableState.value.rows)
+const skuPrimaryCategoryOptions = computed(() => skuVisibleTableState.value.primaryOptions)
+const skuSecondaryCategoryOptions = computed(() => skuVisibleTableState.value.secondaryOptions)
 const hasActiveSkuFilters = computed(() => Boolean(
   normalizedSkuFilters.value.query
     || normalizedSkuFilters.value.primaryCategory
     || normalizedSkuFilters.value.secondaryCategory,
 ))
-const skuRenderRows = computed(() => {
-  if (displaySkuRows.value.length || hasActiveSkuFilters.value || !currentSkuSourceRows.value.length) {
-    return displaySkuRows.value
-  }
-  const source = filteredDisplaySkuRows.value.length ? filteredDisplaySkuRows.value : currentSkuSourceRows.value
-  return sliceVisibleSkuRows(source, skuPage.value, skuPageSize.value).rows
-})
-const skuRenderTotal = computed(() => {
-  if (skuDisplayTotal.value > 0 || hasActiveSkuFilters.value) return skuDisplayTotal.value
-  return currentSkuSourceRows.value.length
-})
+const skuRenderRows = computed(() => skuVisibleTableState.value.rows)
+const skuRenderTotal = computed(() => skuVisibleTableState.value.total)
 const skuDisplayKey = computed(() => [
   skuContextCustomerID.value,
   skuRenderTotal.value,
@@ -1428,27 +1412,14 @@ function normalizeSkuFiltersForCurrentRows(filters = skuFilters.value) {
   return normalizeVisibleSkuFilters(filters, currentSkuSourceRows.value)
 }
 
-function sliceVisibleSkuRows(rows = [], page = 1, pageSize = 10) {
-  const source = Array.isArray(rows) ? rows : Array.from(rows || [])
-  const size = normalizePageSize(pageSize)
-  const totalPages = Math.max(1, Math.ceil(source.length / size))
-  const requestedPage = Number.parseInt(String(page || 1), 10) || 1
-  const currentPage = Math.min(Math.max(requestedPage, 1), totalPages)
-  const start = (currentPage - 1) * size
-  return {
-    page: currentPage,
-    rows: source.slice(start, start + size),
-  }
-}
-
 function syncVisibleSkuTableState() {
   const normalizedFilters = normalizeSkuFiltersForCurrentRows()
   if (JSON.stringify(normalizedFilters) !== JSON.stringify(skuFilters.value)) {
     skuFilters.value = normalizedFilters
   }
-  const pageState = sliceVisibleSkuRows(filteredDisplaySkuRows.value, skuPage.value, skuPageSize.value)
-  if (Number(skuPage.value || 1) !== pageState.page) {
-    skuPage.value = pageState.page
+  const tableState = skuVisibleTableState.value
+  if (Number(skuPage.value || 1) !== tableState.page) {
+    skuPage.value = tableState.page
   }
 }
 
