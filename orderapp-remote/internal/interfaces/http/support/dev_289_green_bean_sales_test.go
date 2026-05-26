@@ -78,7 +78,7 @@ func TestGreenBeanSalesWiringAndManuals(t *testing.T) {
 		},
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/views/ProductSettingsView.vue",
-			want: []string{"skuFilters", "skuTableState", "displaySkuRows", "skuDisplayTotal", "data-auto-pagination=\"off\"", "PaginationControls", "green_bean_type", "green_bean_bom_product_id"},
+			want: []string{"skuFilters", "filteredDisplaySkuRows", "displaySkuRows", "skuDisplayTotal", "data-auto-pagination=\"off\"", "PaginationControls", "green_bean_type", "green_bean_bom_product_id"},
 		},
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/views/OrderEntryView.vue",
