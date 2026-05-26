@@ -859,12 +859,7 @@ function normalizeSpecialAttrSchemaRow(row = {}, fallbackPosition = 1) {
   const valueType = ['text', 'select', 'number', 'boolean'].includes(String(row?.value_type || '').trim())
     ? String(row.value_type).trim()
     : 'text'
-  const options = Array.isArray(row?.options)
-    ? row.options.map((item) => String(item || '').trim()).filter(Boolean)
-    : String(row?.options_text || row?.options || '')
-      .split(/[\n,，]/)
-      .map((item) => item.trim())
-      .filter(Boolean)
+  const options = valueType === 'select' ? normalizeSpecialAttrOptions(row) : []
   return {
     key,
     label,
@@ -875,6 +870,19 @@ function normalizeSpecialAttrSchemaRow(row = {}, fallbackPosition = 1) {
     show_in_price_list: Boolean(row?.show_in_price_list ?? row?.showInPriceList),
     position: Number(row?.position || fallbackPosition || 1),
   }
+}
+
+function normalizeSpecialAttrOptions(row = {}) {
+  const source = Object.prototype.hasOwnProperty.call(row, 'options_text')
+    ? row.options_text
+    : row?.options
+  if (Array.isArray(source)) {
+    return source.map((item) => String(item || '').trim()).filter(Boolean)
+  }
+  return String(source || '')
+    .split(/[\n,，;；]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 function normalizeSpecialAttrKey(value) {

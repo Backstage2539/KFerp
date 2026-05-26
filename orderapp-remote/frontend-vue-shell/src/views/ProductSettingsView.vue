@@ -810,7 +810,7 @@
                 </label>
                 <label>
                   <span>类型</span>
-                  <select v-model="attr.value_type" :disabled="!canEditCurrentProductConfigTemplate">
+                  <select v-model="attr.value_type" :disabled="!canEditCurrentProductConfigTemplate" @change="handleSpecialAttrSchemaTypeChange(attr)">
                     <option value="text">文本</option>
                     <option value="select">下拉</option>
                     <option value="number">数字</option>
@@ -818,7 +818,7 @@
                 </label>
                 <label class="wide-field">
                   <span>下拉选项</span>
-                  <input v-model.trim="attr.options_text" :disabled="!canEditCurrentProductConfigTemplate || attr.value_type !== 'select'" placeholder="浅烘，中烘，中深烘，深烘" />
+                  <textarea v-model.trim="attr.options_text" aria-label="下拉选项" :disabled="!canEditCurrentProductConfigTemplate || attr.value_type !== 'select'" placeholder="每行一个选项，也支持用逗号分隔，例如：浅烘，中烘，中深烘，深烘"></textarea>
                 </label>
                 <label class="checkline">
                   <input v-model="attr.required" :disabled="!canEditCurrentProductConfigTemplate" type="checkbox" />
@@ -1961,6 +1961,12 @@ function addSpecialAttrSchemaRow() {
 
 function removeSpecialAttrSchemaRow(index) {
   productConfigTemplateForm.value.special_attrs_schema_rows.splice(index, 1)
+}
+
+function handleSpecialAttrSchemaTypeChange(attr) {
+  if (!attr || attr.value_type === 'select') return
+  attr.options = []
+  attr.options_text = ''
 }
 
 function validateProductConfigTemplatePayload(payload) {

@@ -274,6 +274,26 @@ test('special KV schema and SKU values round trip through structured helpers', (
   assert.equal(specialAttrValuesJSONFromForm({ roast_level: '中深烘', caffeine: '' }), '{"roast_level":"中深烘"}')
 })
 
+test('special KV schema saves edited select options and clears stale options when type changes', () => {
+  assert.equal(specialAttrSchemaJSONFromRows([{
+    key: 'roast_level',
+    label: '烘焙度',
+    value_type: 'select',
+    options: ['浅烘', '中烘'],
+    options_text: '浅烘，深烘\n意式',
+    show_in_price_list: true,
+  }]), '[{"key":"roast_level","label":"烘焙度","value_type":"select","options":["浅烘","深烘","意式"],"required":false,"show_in_price_list":true,"position":1}]')
+
+  assert.equal(specialAttrSchemaJSONFromRows([{
+    key: 'roast_level',
+    label: '烘焙度',
+    value_type: 'text',
+    options: ['浅烘', '中烘'],
+    options_text: '浅烘，深烘',
+    show_in_price_list: true,
+  }]), '[{"key":"roast_level","label":"烘焙度","value_type":"text","options":[],"required":false,"show_in_price_list":true,"position":1}]')
+})
+
 test('instant coffee SKU payload carries SKU-owned BOM yield and special KV settings', () => {
   assert.deepEqual(buildProductCreatePayload({
     name: '速溶盒装',
@@ -988,6 +1008,16 @@ test('SKU settings makes special KV configuration discoverable from SKU rows and
   }
   assert.match(template, /class="[^"]*sku-empty-special-attrs[^"]*"/)
   assert.match(script, /activeSettingsSection\.value = 'templates'[\s\S]*activeConfigTemplateSection\.value = 'product-config'/)
+})
+
+test('SKU settings clears special KV dropdown options when the field type is changed away from select', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  assert.ok(script.includes('handleSpecialAttrSchemaTypeChange'), 'missing special KV type-change handler')
+  assert.match(template, /@change="handleSpecialAttrSchemaTypeChange\(attr\)"/)
+  assert.match(template, /<textarea[\s\S]*v-model\.trim="attr\.options_text"[\s\S]*下拉选项/)
 })
 
 test('copying public product config enables referenced public SKU and category instead of copying SKU rows', () => {
