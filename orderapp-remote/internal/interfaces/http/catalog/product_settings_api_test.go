@@ -1128,6 +1128,9 @@ func TestProductSettingsAPIDerivesPublicCategoryAndProductTemplates(t *testing.T
 	if !repo.categoryDerived || repo.derivedCategory.CustomerID != 42 || repo.derivedCategory.SourceCategoryID != 17 {
 		t.Fatalf("derive category command = %+v derived=%v", repo.derivedCategory, repo.categoryDerived)
 	}
+	if !repo.publicUsageSaved || repo.publicUsage.CustomerID != 42 || !repo.publicUsage.UsePublicSKU || !repo.publicUsage.UsePublicCategories {
+		t.Fatalf("derive category should enable public SKU/category reference, usage=%+v saved=%v", repo.publicUsage, repo.publicUsageSaved)
+	}
 	for _, want := range []string{`"category"`, `"id":199`, `"customer_id":42`, `"source_category_id":17`, `"template_state":"derived_from_public"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("derive category response missing %s: %s", want, rec.Body.String())

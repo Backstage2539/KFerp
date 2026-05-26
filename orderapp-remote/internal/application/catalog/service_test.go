@@ -542,6 +542,36 @@ func TestDeriveProductCategoryRequiresCustomerAndSource(t *testing.T) {
 	}
 }
 
+func TestDeriveProductCategoryEnablesPublicSKUReference(t *testing.T) {
+	repo := &fakeRepo{
+		publicUsages: []CustomerPublicUsage{{
+			CustomerID:                 42,
+			UsePublicSKU:               false,
+			UsePublicCategories:        false,
+			UsePublicGradientTemplates: true,
+		}},
+	}
+	svc := NewService(repo)
+
+	if _, err := svc.DeriveProductCategory(context.Background(), DeriveProductCategoryCommand{
+		Actor:            "tester",
+		CustomerID:       42,
+		SourceCategoryID: 17,
+	}); err != nil {
+		t.Fatalf("DeriveProductCategory() err=%v", err)
+	}
+
+	if !repo.usageSaved {
+		t.Fatalf("DeriveProductCategory() should save public SKU reference usage")
+	}
+	if repo.publicUsage.CustomerID != 42 || !repo.publicUsage.UsePublicSKU || !repo.publicUsage.UsePublicCategories {
+		t.Fatalf("public usage should reference public SKU and categories, got %+v", repo.publicUsage)
+	}
+	if !repo.publicUsage.UsePublicGradientTemplates {
+		t.Fatalf("public gradient template switch should be preserved, got %+v", repo.publicUsage)
+	}
+}
+
 func TestAssignProductCategoryCarriesCustomerDerivationContext(t *testing.T) {
 	repo := &fakeRepo{assignResult: AssignProductCategoryResult{
 		ProductID:          420,

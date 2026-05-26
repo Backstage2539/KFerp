@@ -1077,7 +1077,14 @@ func (s *Service) DeriveProductCategory(ctx context.Context, cmd DeriveProductCa
 		return ProductCategory{}, fmt.Errorf("source_category_id required")
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
-	return s.repo.DeriveProductCategory(ctx, cmd)
+	category, err := s.repo.DeriveProductCategory(ctx, cmd)
+	if err != nil {
+		return ProductCategory{}, err
+	}
+	if err := s.enableCustomerPublicProductReference(ctx, cmd.Actor, cmd.CustomerID); err != nil {
+		return ProductCategory{}, err
+	}
+	return category, nil
 }
 
 func (s *Service) DeriveCustomerProduct(ctx context.Context, cmd DeriveCustomerProductCommand) (Product, error) {
