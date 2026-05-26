@@ -259,7 +259,14 @@
       </div>
       </Teleport>
 
-      <div class="panel product-panel">
+      <div
+        class="panel product-panel"
+        :data-sku-public-count="publicSkuRows.length"
+        :data-sku-source-count="currentSkuSourceRows.length"
+        :data-sku-filtered-count="filteredDisplaySkuRows.length"
+        :data-sku-render-count="skuRenderRows.length"
+        :data-sku-render-total="skuRenderTotal"
+        :data-sku-active-filter="hasActiveSkuFilters">
         <div class="panel-title sku-panel-title">
           <span>客户SKU列表 · {{ selectedSkuContextLabel }}</span>
           <div class="panel-actions sku-panel-actions">
