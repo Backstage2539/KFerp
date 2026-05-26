@@ -259,14 +259,7 @@
       </div>
       </Teleport>
 
-      <div
-        class="panel product-panel"
-        :data-sku-public-count="publicSkuRows.length"
-        :data-sku-source-count="currentSkuSourceRows.length"
-        :data-sku-filtered-count="filteredDisplaySkuRows.length"
-        :data-sku-render-count="skuRenderRows.length"
-        :data-sku-render-total="skuRenderTotal"
-        :data-sku-active-filter="hasActiveSkuFilters">
+      <div class="panel product-panel">
         <div class="panel-title sku-panel-title">
           <span>客户SKU列表 · {{ selectedSkuContextLabel }}</span>
           <div class="panel-actions sku-panel-actions">
@@ -1236,10 +1229,61 @@ const uncategorizedProducts = computed(() => products.value
   .filter((product) => !contextCategorizedProductIDs.value.has(Number(product.id)))
   .slice()
   .sort((a, b) => ownerLabel(a).localeCompare(ownerLabel(b)) || a.name.localeCompare(b.name)))
+
+function skuTableCategoryMeta(categoriesForTable = []) {
+  const byProductID = new Map()
+  const byCategoryID = new Map()
+  function visit(nodes = [], primaryName = '', parentNumber = '') {
+    for (const [index, category] of (nodes || []).entries()) {
+      const categoryID = Number(category?.id || 0)
+      const categoryNumber = parentNumber ? `${parentNumber}.${index + 1}` : String(index + 1)
+      const nextPrimaryName = primaryName || category?.name || ''
+      const secondaryName = primaryName ? category?.name || '' : ''
+      const categoryMeta = {
+        number: categoryNumber,
+        product_category_position: Number(category?.position || index + 1),
+        primary_name: nextPrimaryName,
+        secondary_name: secondaryName,
+      }
+      if (categoryID) byCategoryID.set(categoryID, categoryMeta)
+      for (const [productIndex, product] of (category?.products || []).entries()) {
+        const productID = Number(product?.id || 0)
+        if (!productID) continue
+        byProductID.set(productID, {
+          ...categoryMeta,
+          number: product?.number || productIndex + 1,
+          product_category_position: Number(product?.product_category_position || productIndex + 1),
+        })
+      }
+      visit(category?.children || [], nextPrimaryName, categoryNumber)
+    }
+  }
+  visit(categoriesForTable)
+  return { byProductID, byCategoryID }
+}
+
+function skuTableRowsFromFlatProducts(sourceProducts = [], sourceCategories = [], filterFn = () => true) {
+  const { byProductID, byCategoryID } = skuTableCategoryMeta(sourceCategories)
+  return (sourceProducts || [])
+    .filter((product) => {
+      try {
+        return filterFn(product)
+      } catch (_) {
+        return false
+      }
+    })
+    .map((product, index) => ({
+      ...product,
+      ...(byProductID.get(Number(product?.id || 0))
+        || byCategoryID.get(Number(product?.product_category_id || 0))
+        || { number: index + 1, primary_name: '', secondary_name: '' }),
+    }))
+}
+
 const baseProducts = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === 0 && productVisibility(product) === 'public'))
 const customBaseProducts = computed(() => baseProducts.value.filter((product) => normalizedProductKind(product) === customForm.value.product_kind))
 const publicSkuRows = computed(() => sortRowsForCustomerSkuPriority(
-  skuListRowsFromProducts(products.value, categoryTreeForSkuContext.value, (product) => Number(product.customer_id || 0) === 0),
+  skuTableRowsFromFlatProducts(products.value, categories.value, (product) => Number(product.customer_id || 0) === 0),
   0,
 ))
 const customerSkuCustomers = computed(() => customerSkuCustomerOptions(customers.value))
@@ -1256,7 +1300,7 @@ const skuCopySourceOptions = computed(() => {
   return options
 })
 const customerSkuRows = computed(() => sortRowsForCustomerSkuPriority(
-  skuListRowsFromProducts(products.value, categoryTreeForSkuContext.value, (product) => selectedCustomerSkuCustomerID.value && skuContextProductFilter(product)),
+  skuTableRowsFromFlatProducts(products.value, categories.value, (product) => selectedCustomerSkuCustomerID.value && skuContextProductFilter(product)),
   selectedCustomerSkuCustomerID.value,
 ))
 const currentSkuSourceRows = computed(() => (
