@@ -1296,12 +1296,15 @@ const skuCopySourceOptions = computed(() => {
   }
   return options
 })
-const customerSkuRows = computed(() => sortRowsForCustomerSkuPriority(
-  skuTableRowsFromFlatProducts(products.value, categories.value, (product) => selectedCustomerSkuCustomerID.value && skuContextProductFilter(product)),
-  selectedCustomerSkuCustomerID.value,
-))
+const customerSkuRows = computed(() => {
+  const customerID = skuContextCustomerID.value
+  return sortRowsForCustomerSkuPriority(
+    skuTableRowsFromFlatProducts(products.value, categories.value, (product) => customerID > 0 && skuContextProductFilter(product)),
+    customerID,
+  )
+})
 const currentSkuSourceRows = computed(() => (
-  selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value
+  skuContextCustomerID.value > 0 ? customerSkuRows.value : publicSkuRows.value
 ).slice())
 const skuVisibleTableState = ref(skuTableState([], skuFilters.value, {
   page: skuPage.value,
