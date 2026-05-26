@@ -1273,6 +1273,7 @@ test('SKU settings groups master data and template configuration into separate w
 test('SKU settings opens SKU creation and SKU copy behind drawers while category management is a config tab', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
@@ -1298,6 +1299,10 @@ test('SKU settings opens SKU creation and SKU copy behind drawers while category
   assert.doesNotMatch(template, />分类设置</)
   assert.match(template, /v-for="primary in visibleCategoryTreeForSkuContext"/)
   assert.match(template, /<aside class="settings-drawer sku-copy-drawer"[\s\S]*选择分类和产品/)
+  assert.match(template, /当前SKU \{\{ skuDisplayTotal \}\}/)
+  assert.match(template, /:total="skuDisplayTotal"/)
+  assert.match(script, /const skuDisplayTotal = computed\(\(\) => filteredSkuRows\.value\.length\)/)
+  assert.match(script, /return filteredSkuRows\.value\.slice\(start, start \+ pageSize\)/)
   assert.match(style, /\.category-scroll-list\s*\{[^}]*max-height:\s*min\(640px,\s*calc\(100vh - 280px\)\);[^}]*overflow:\s*auto;/s)
   assert.match(style, /\.settings-drawer-mask\s*\{[^}]*position:\s*fixed;/s)
 })

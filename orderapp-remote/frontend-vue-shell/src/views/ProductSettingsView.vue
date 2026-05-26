@@ -20,7 +20,7 @@
             <h3>{{ selectedSkuContextLabel }}</h3>
             <div class="context-stats">
               <span>公共SKU {{ publicSkuRows.length }}</span>
-              <span>当前SKU {{ filteredSkuRows.length }}</span>
+              <span>当前SKU {{ skuDisplayTotal }}</span>
               <span>商品分类 {{ categoryTreeForSkuContext.length }}</span>
             </div>
           </div>
@@ -447,7 +447,7 @@
         <PaginationControls
           :page="skuPage"
           :page-size="skuPageSize"
-          :total="filteredSkuRows.length"
+          :total="skuDisplayTotal"
           :disabled="loading"
           @change="handleSkuPaginationChange"
         />
@@ -1048,7 +1048,6 @@ import {
   isPublicReferenceRow,
   nextSkuContextCustomerID,
   normalizedProductKind,
-  paginatedSkuRows,
   priceListRuleFormFromJSON,
   priceListRulePricingModeOptions,
   priceListRuleRoundingOptions,
@@ -1249,10 +1248,14 @@ const customerSkuRows = computed(() => sortRowsForCustomerSkuPriority(
 ))
 const unfilteredDisplaySkuRows = computed(() => selectedCustomerSkuCustomerID.value ? customerSkuRows.value : publicSkuRows.value)
 const filteredSkuRows = computed(() => filterSkuRows(unfilteredDisplaySkuRows.value, skuFilters.value))
-const displaySkuRows = computed(() => paginatedSkuRows(unfilteredDisplaySkuRows.value, skuFilters.value, {
-  page: skuPage.value,
-  pageSize: skuPageSize.value,
-}))
+const skuDisplayTotal = computed(() => filteredSkuRows.value.length)
+const displaySkuRows = computed(() => {
+  const pageSize = normalizePageSize(skuPageSize.value)
+  const totalPages = Math.max(1, Math.ceil(skuDisplayTotal.value / pageSize))
+  const page = Math.min(Math.max(Number.parseInt(String(skuPage.value || 1), 10) || 1, 1), totalPages)
+  const start = (page - 1) * pageSize
+  return filteredSkuRows.value.slice(start, start + pageSize)
+})
 const editableDisplaySkuRows = computed(() => displaySkuRows.value.filter(canEditSkuRow))
 const allProductRowsSelected = computed(() => editableDisplaySkuRows.value.length > 0 && editableDisplaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
 const activeGradientTemplates = computed(() => gradientTemplates.value
