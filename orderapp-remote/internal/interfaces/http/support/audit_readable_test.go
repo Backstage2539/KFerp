@@ -198,7 +198,7 @@ func TestDecorateAuditLogRowScannedEntitiesUseReadableLabels(t *testing.T) {
 			action:      "create",
 			field:       "template",
 			meta:        `{"status":"draft","product_id":433,"operation_count":1}`,
-			wantMenu:    "商品与配方 / 工艺模板",
+			wantMenu:    "生产管理 / 工艺模板",
 			wantFeature: "维护工艺模板",
 			wantEntity:  "工艺模板",
 			wantAction:  "新增",
@@ -323,8 +323,8 @@ func TestDecorateAuditLogRowScannedOperationRoutesUseCurrentMenuIA(t *testing.T)
 		{"sales order shared seal select", "POST", "/api/settings/sales-order/seal/select", "/api/settings/sales-order/seal/select", "设置 / 销售单设置", "选择共享公章"},
 		{"sales order settings view", "GET", "/api/settings/sales-order", "/api/settings/sales-order", "设置 / 销售单设置", "查看销售单设置"},
 		{"product category move", "POST", "/api/product-settings/products/:id/category", "/api/product-settings/products/15/category", "商品与配方 / 产品设置", "调整产品分类"},
-		{"process template save", "POST", "/api/process-templates", "/api/process-templates", "商品与配方 / 工艺模板", "保存工艺模板"},
-		{"process template publish", "POST", "/api/process-templates/:id/publish", "/api/process-templates/1/publish", "商品与配方 / 工艺模板", "发布工艺模板"},
+		{"process template save", "POST", "/api/process-templates", "/api/process-templates", "生产管理 / 工艺模板", "保存工艺模板"},
+		{"process template publish", "POST", "/api/process-templates/:id/publish", "/api/process-templates/1/publish", "生产管理 / 工艺模板", "发布工艺模板"},
 		{"industry field template save", "POST", "/api/industry-field-templates", "/api/industry-field-templates", "商品与配方 / 行业字段模板", "保存行业字段模板"},
 	}
 

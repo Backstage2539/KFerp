@@ -195,11 +195,11 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 	case "process_template":
 		switch action {
 		case "publish":
-			return "商品与配方 / 工艺模板", "发布工艺模板"
+			return "生产管理 / 工艺模板", "发布工艺模板"
 		case "deactivate":
-			return "商品与配方 / 工艺模板", "停用工艺模板"
+			return "生产管理 / 工艺模板", "停用工艺模板"
 		default:
-			return "商品与配方 / 工艺模板", "维护工艺模板"
+			return "生产管理 / 工艺模板", "维护工艺模板"
 		}
 	case "industry_field_template":
 		if action == "deactivate" {
@@ -386,15 +386,15 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 		return "商品与配方 / 产品设置", "查看产品设置"
 	case strings.HasPrefix(target, "/api/process-templates"):
 		if strings.Contains(target, "/publish") {
-			return "商品与配方 / 工艺模板", "发布工艺模板"
+			return "生产管理 / 工艺模板", "发布工艺模板"
 		}
 		if strings.Contains(target, "/deactivate") {
-			return "商品与配方 / 工艺模板", "停用工艺模板"
+			return "生产管理 / 工艺模板", "停用工艺模板"
 		}
 		if method == "POST" {
-			return "商品与配方 / 工艺模板", "保存工艺模板"
+			return "生产管理 / 工艺模板", "保存工艺模板"
 		}
-		return "商品与配方 / 工艺模板", "查看工艺模板"
+		return "生产管理 / 工艺模板", "查看工艺模板"
 	case strings.HasPrefix(target, "/api/industry-field-templates"):
 		if strings.Contains(target, "/deactivate") {
 			return "商品与配方 / 行业字段模板", "停用行业字段模板"
