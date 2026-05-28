@@ -59,206 +59,6 @@
 
       <div v-show="activeSettingsSection === 'master'" class="sku-master-workspace">
         <div class="master-data-layout">
-      <Teleport to="#sku-category-management-target">
-      <div v-if="activeSettingsSection === 'templates' && activeConfigTemplateSection === 'category-management'" class="category-panel category-drawer-panel category-management-panel">
-        <div class="panel-title">
-          <span>商品分类 · {{ selectedSkuContextLabel }}</span>
-          <div class="panel-actions">
-            <button class="toggle-section" type="button" @click="categoryCollapsed = !categoryCollapsed">
-              {{ categoryCollapsed ? '展开' : '收起' }}
-            </button>
-          </div>
-        </div>
-        <div v-show="!categoryCollapsed">
-          <div v-if="selectedCustomerSkuCustomerID" class="customer-copy-panel">
-            <label class="checkline switchline">
-              <input :checked="customerUsesPublicCategories" type="checkbox" :disabled="publicUsageSaving" @change="savePublicCategoryUsageForCustomer" />
-              <span>是否使用公共商品分类</span>
-            </label>
-          </div>
-
-          <label class="category-search">
-            <span>搜索商品分类</span>
-            <input v-model.trim="categorySearchQuery" placeholder="搜索产品类型、子类型或 SKU" />
-          </label>
-
-          <div class="category-action-pill category-inline-toolbar" aria-label="产品类型操作">
-            <button class="category-action-button" type="button" aria-label="新增产品类型" title="新增产品类型" :disabled="loading" @click="createPrimaryCategoryInline">+</button>
-            <button
-              class="category-action-button danger-toggle"
-              :class="{ active: primaryDeleteMode }"
-              type="button"
-              aria-label="切换删除产品类型"
-              title="删除产品类型"
-              :disabled="loading || !categoryTreeForSkuContext.length"
-              @click="togglePrimaryDeleteMode">
-              -
-            </button>
-          </div>
-
-          <div class="category-scroll-list">
-          <div class="category-tree">
-            <div
-              v-for="primary in visibleCategoryTreeForSkuContext"
-              :key="primary.id"
-              class="primary-category"
-              :data-primary-id="primary.id"
-              @dragover.prevent="handlePrimaryCategoryDragOver($event, primary)"
-              @drop.prevent="dropCategoryOnCurrentTarget(primary)">
-              <div class="category-head primary-category-head">
-                <div class="primary-category-left">
-                  <div class="category-sort-pill category-sort-buttons" aria-label="产品类型排序">
-                    <button class="category-action-button compact" type="button" aria-label="上移产品类型" title="上移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isFirstPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, -1)">↑</button>
-                    <button class="category-action-button compact" type="button" aria-label="下移产品类型" title="下移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isLastPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, 1)">↓</button>
-                  </div>
-                  <div class="category-title-stack">
-                  <div class="category-title-row">
-                    <form v-if="editingCategoryId === Number(primary.id)" class="category-name-form" @submit.prevent="saveCategoryName(primary)">
-                      <input
-                        v-model.trim="editingCategoryName"
-                        placeholder="产品类型名称"
-                        @keyup.enter.prevent="saveCategoryName(primary)"
-                        @keyup.esc.prevent="cancelCategoryNameEdit"
-                        @blur="saveCategoryName(primary)" />
-                    </form>
-                    <button v-else class="category-name-button primary-name-button" type="button" :disabled="!canEditCategory(primary)" @click="startCategoryEdit(primary)">
-                      <strong>{{ primary.number }}. {{ primary.name }}<small v-if="skuContextCustomerID">（{{ categoryStateLabel(primary) }}）</small></strong>
-                    </button>
-                    <div v-if="!canEditCategory(primary) && skuContextCustomerID" class="category-actions">
-                      <button class="text-button" type="button" @click="deriveCategoryTemplate(primary)">复制为客户分类</button>
-                    </div>
-                  </div>
-                  <div v-if="canEditCategory(primary)" class="category-action-pill category-child-toolbar" aria-label="产品子类型操作">
-                    <button class="category-action-button compact" type="button" aria-label="新增产品子类型" title="新增产品子类型" :disabled="loading" @click="createSecondaryCategoryInline(primary)">+</button>
-                    <button
-                      class="category-action-button compact danger-toggle"
-                      :class="{ active: secondaryDeleteModeFor === Number(primary.id) }"
-                      type="button"
-                      aria-label="切换删除产品子类型"
-                      title="删除产品子类型"
-                      :disabled="loading || !primary.children.length"
-                      @click="toggleSecondaryDeleteMode(primary)">
-                      -
-                    </button>
-                  </div>
-                  </div>
-                </div>
-                <div class="category-row-actions primary-category-right">
-                  <button
-                    class="category-collapse-button"
-                    type="button"
-                    :aria-expanded="!isPrimaryCategoryCollapsed(primary)"
-                    :title="isPrimaryCategoryCollapsed(primary) ? '展开产品类型' : '折叠产品类型'"
-                    @click.stop="togglePrimaryCategoryCollapse(primary)">
-                    {{ isPrimaryCategoryCollapsed(primary) ? '›' : '⌄' }}
-                  </button>
-                  <button v-if="primaryDeleteMode && canEditCategory(primary)" class="category-delete-button" type="button" aria-label="删除产品类型" title="删除产品类型" @click.stop="deleteCategory(primary)">-</button>
-                </div>
-              </div>
-
-              <template v-if="!isPrimaryCategoryCollapsed(primary)">
-                <div
-                  v-if="!isCategorySearchActive"
-                  class="category-drop-line"
-                  :class="{ active: isCategoryDropTarget(primary, 1) }"
-                  @dragover.prevent.stop="setCategoryDropTarget(primary, 1)"
-                  @drop.prevent.stop="dropCategoryAtPosition(primary, 1)">
-                </div>
-
-                <template v-for="(secondary, index) in primary.children" :key="secondary.id">
-                  <div
-                    class="secondary-category"
-                    :class="{ dragging: isDraggingCategory(secondary), 'pointer-dragging': isPointerDraggingCategory(secondary) }"
-                    :data-secondary-id="secondary.id"
-                    :data-secondary-position="index + 1"
-                    @pointerdown="startCategoryPointerDrag($event, primary, index + 1, secondary)"
-                    @dragenter.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
-                    @dragover.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
-                    @drop.prevent.stop="dropCategoryOrProductOnSecondary(primary, index + 1, secondary)">
-                    <div class="secondary-head">
-                      <button
-                        class="category-collapse-button secondary-collapse"
-                        type="button"
-                        :aria-expanded="!isSecondaryCategoryCollapsed(secondary)"
-                        :title="isSecondaryCategoryCollapsed(secondary) ? '展开产品子类型' : '折叠产品子类型'"
-                        @pointerdown.stop
-                        @click.stop="toggleSecondaryCategoryCollapse(secondary)">
-                        {{ isSecondaryCategoryCollapsed(secondary) ? '›' : '⌄' }}
-                      </button>
-                      <form v-if="editingCategoryId === Number(secondary.id)" class="category-name-form secondary-name-form" @submit.prevent="saveCategoryName(secondary)" @pointerdown.stop>
-                        <input
-                          v-model.trim="editingCategoryName"
-                          placeholder="产品子类型名称"
-                          @keyup.enter.prevent="saveCategoryName(secondary)"
-                          @keyup.esc.prevent="cancelCategoryNameEdit"
-                          @blur="saveCategoryName(secondary)" />
-                      </form>
-                      <button v-else class="category-name-button secondary-name-button" type="button" :disabled="!canEditCategory(secondary)" @click.stop="startCategoryEdit(secondary)">
-                        <span>{{ secondary.number }}</span>
-                        <b>{{ secondary.name }}</b>
-                      </button>
-                      <small v-if="skuContextCustomerID">{{ categoryStateLabel(secondary) }}</small>
-                      <small>{{ secondary.products.length }} 款</small>
-                      <select
-                        class="template-select"
-                        :value="secondary.product_config_template_id || 0"
-                        :disabled="!canEditCategory(secondary)"
-                        @pointerdown.stop
-                        @change.stop="bindProductConfigTemplateToSubtype(secondary, $event.target.value)">
-                        <option value="0">未绑定商品配置</option>
-                        <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">
-                          {{ config.name }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}
-                        </option>
-                      </select>
-                      <div class="secondary-category-actions">
-                        <button v-if="!canEditCategory(secondary) && skuContextCustomerID" class="text-button" type="button" @click="deriveCategoryTemplate(secondary)">复制为客户分类</button>
-                        <button v-if="secondaryDeleteModeFor === Number(primary.id) && canEditCategory(secondary)" class="category-delete-button" type="button" aria-label="删除产品子类型" title="删除产品子类型" @click.stop="deleteCategory(secondary)">-</button>
-                      </div>
-                    </div>
-                    <div v-show="!isSecondaryCategoryCollapsed(secondary)" class="product-chip-list">
-                      <span
-                        v-for="product in secondary.products"
-                        :key="product.id"
-                        class="product-chip"
-                        :draggable="canDragSkuRow(product)"
-                        @dragstart.stop="startProductDrag(product)"
-                        @dragend="scheduleClearDrag">
-                        {{ product.number }}. {{ product.name }}
-                      </span>
-                    </div>
-                  </div>
-                  <div
-                    v-if="!isCategorySearchActive"
-                    class="category-drop-line"
-                    :class="{ active: isCategoryDropTarget(primary, index + 2) }"
-                    @dragover.prevent.stop="setCategoryDropTarget(primary, index + 2)"
-                    @drop.prevent.stop="dropCategoryAtPosition(primary, index + 2)">
-                  </div>
-                </template>
-              </template>
-            </div>
-          </div>
-          <p v-if="!visibleCategoryTreeForSkuContext.length" class="muted category-empty">没有匹配的商品分类</p>
-
-          <div class="uncategorized" @dragover.prevent @drop="dropProductOnSecondary({ id: 0 })">
-            <div class="sub-title">停车场（待归类 SKU）</div>
-            <p class="muted">未选择产品子类型创建的 SKU 会先进入停车场；拖入产品子类型后才参与产品价格表生成。</p>
-            <span
-              v-for="product in uncategorizedProducts"
-              :key="product.id"
-              class="product-chip"
-              :draggable="canDragSkuRow(product)"
-              @dragstart="startProductDrag(product)"
-              @dragend="scheduleClearDrag">
-              {{ product.name }}
-            </span>
-            <p v-if="!uncategorizedProducts.length" class="muted">停车场暂无 SKU</p>
-          </div>
-          </div>
-        </div>
-      </div>
-      </Teleport>
-
       <div class="panel product-panel">
         <div class="panel-title sku-panel-title">
           <span>客户SKU列表 · {{ selectedSkuContextLabel }}</span>
@@ -484,7 +284,203 @@
               商品分类管理
             </button>
           </div>
-          <div id="sku-category-management-target" class="category-management-target"></div>
+      <div v-if="activeSettingsSection === 'templates' && activeConfigTemplateSection === 'category-management'" class="category-panel category-drawer-panel category-management-panel">
+        <div class="panel-title">
+          <span>商品分类 · {{ selectedSkuContextLabel }}</span>
+          <div class="panel-actions">
+            <button class="toggle-section" type="button" @click="categoryCollapsed = !categoryCollapsed">
+              {{ categoryCollapsed ? '展开' : '收起' }}
+            </button>
+          </div>
+        </div>
+        <div v-show="!categoryCollapsed">
+          <div v-if="selectedCustomerSkuCustomerID" class="customer-copy-panel">
+            <label class="checkline switchline">
+              <input :checked="customerUsesPublicCategories" type="checkbox" :disabled="publicUsageSaving" @change="savePublicCategoryUsageForCustomer" />
+              <span>是否使用公共商品分类</span>
+            </label>
+          </div>
+
+          <label class="category-search">
+            <span>搜索商品分类</span>
+            <input v-model.trim="categorySearchQuery" placeholder="搜索产品类型、子类型或 SKU" />
+          </label>
+
+          <div class="category-action-pill category-inline-toolbar" aria-label="产品类型操作">
+            <button class="category-action-button" type="button" aria-label="新增产品类型" title="新增产品类型" :disabled="loading" @click="createPrimaryCategoryInline">+</button>
+            <button
+              class="category-action-button danger-toggle"
+              :class="{ active: primaryDeleteMode }"
+              type="button"
+              aria-label="切换删除产品类型"
+              title="删除产品类型"
+              :disabled="loading || !categoryTreeForSkuContext.length"
+              @click="togglePrimaryDeleteMode">
+              -
+            </button>
+          </div>
+
+          <div class="category-scroll-list">
+          <div class="category-tree">
+            <div
+              v-for="primary in visibleCategoryTreeForSkuContext"
+              :key="primary.id"
+              class="primary-category"
+              :data-primary-id="primary.id"
+              @dragover.prevent="handlePrimaryCategoryDragOver($event, primary)"
+              @drop.prevent="dropCategoryOnCurrentTarget(primary)">
+              <div class="category-head primary-category-head">
+                <div class="primary-category-left">
+                  <div class="category-sort-pill category-sort-buttons" aria-label="产品类型排序">
+                    <button class="category-action-button compact" type="button" aria-label="上移产品类型" title="上移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isFirstPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, -1)">↑</button>
+                    <button class="category-action-button compact" type="button" aria-label="下移产品类型" title="下移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isLastPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, 1)">↓</button>
+                  </div>
+                  <div class="category-title-stack">
+                  <div class="category-title-row">
+                    <form v-if="editingCategoryId === Number(primary.id)" class="category-name-form" @submit.prevent="saveCategoryName(primary)">
+                      <input
+                        v-model.trim="editingCategoryName"
+                        placeholder="产品类型名称"
+                        @keyup.enter.prevent="saveCategoryName(primary)"
+                        @keyup.esc.prevent="cancelCategoryNameEdit"
+                        @blur="saveCategoryName(primary)" />
+                    </form>
+                    <button v-else class="category-name-button primary-name-button" type="button" :disabled="!canEditCategory(primary)" @click="startCategoryEdit(primary)">
+                      <strong>{{ primary.number }}. {{ primary.name }}<small v-if="skuContextCustomerID">（{{ categoryStateLabel(primary) }}）</small></strong>
+                    </button>
+                    <div v-if="!canEditCategory(primary) && skuContextCustomerID" class="category-actions">
+                      <button class="text-button" type="button" @click="deriveCategoryTemplate(primary)">复制为客户分类</button>
+                    </div>
+                  </div>
+                  <div v-if="canEditCategory(primary)" class="category-action-pill category-child-toolbar" aria-label="产品子类型操作">
+                    <button class="category-action-button compact" type="button" aria-label="新增产品子类型" title="新增产品子类型" :disabled="loading" @click="createSecondaryCategoryInline(primary)">+</button>
+                    <button
+                      class="category-action-button compact danger-toggle"
+                      :class="{ active: secondaryDeleteModeFor === Number(primary.id) }"
+                      type="button"
+                      aria-label="切换删除产品子类型"
+                      title="删除产品子类型"
+                      :disabled="loading || !primary.children.length"
+                      @click="toggleSecondaryDeleteMode(primary)">
+                      -
+                    </button>
+                  </div>
+                  </div>
+                </div>
+                <div class="category-row-actions primary-category-right">
+                  <button
+                    class="category-collapse-button"
+                    type="button"
+                    :aria-expanded="!isPrimaryCategoryCollapsed(primary)"
+                    :title="isPrimaryCategoryCollapsed(primary) ? '展开产品类型' : '折叠产品类型'"
+                    @click.stop="togglePrimaryCategoryCollapse(primary)">
+                    {{ isPrimaryCategoryCollapsed(primary) ? '›' : '⌄' }}
+                  </button>
+                  <button v-if="primaryDeleteMode && canEditCategory(primary)" class="category-delete-button" type="button" aria-label="删除产品类型" title="删除产品类型" @click.stop="deleteCategory(primary)">-</button>
+                </div>
+              </div>
+
+              <template v-if="!isPrimaryCategoryCollapsed(primary)">
+                <div
+                  v-if="!isCategorySearchActive"
+                  class="category-drop-line"
+                  :class="{ active: isCategoryDropTarget(primary, 1) }"
+                  @dragover.prevent.stop="setCategoryDropTarget(primary, 1)"
+                  @drop.prevent.stop="dropCategoryAtPosition(primary, 1)">
+                </div>
+
+                <template v-for="(secondary, index) in primary.children" :key="secondary.id">
+                  <div
+                    class="secondary-category"
+                    :class="{ dragging: isDraggingCategory(secondary), 'pointer-dragging': isPointerDraggingCategory(secondary) }"
+                    :data-secondary-id="secondary.id"
+                    :data-secondary-position="index + 1"
+                    @pointerdown="startCategoryPointerDrag($event, primary, index + 1, secondary)"
+                    @dragenter.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
+                    @dragover.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
+                    @drop.prevent.stop="dropCategoryOrProductOnSecondary(primary, index + 1, secondary)">
+                    <div class="secondary-head">
+                      <button
+                        class="category-collapse-button secondary-collapse"
+                        type="button"
+                        :aria-expanded="!isSecondaryCategoryCollapsed(secondary)"
+                        :title="isSecondaryCategoryCollapsed(secondary) ? '展开产品子类型' : '折叠产品子类型'"
+                        @pointerdown.stop
+                        @click.stop="toggleSecondaryCategoryCollapse(secondary)">
+                        {{ isSecondaryCategoryCollapsed(secondary) ? '›' : '⌄' }}
+                      </button>
+                      <form v-if="editingCategoryId === Number(secondary.id)" class="category-name-form secondary-name-form" @submit.prevent="saveCategoryName(secondary)" @pointerdown.stop>
+                        <input
+                          v-model.trim="editingCategoryName"
+                          placeholder="产品子类型名称"
+                          @keyup.enter.prevent="saveCategoryName(secondary)"
+                          @keyup.esc.prevent="cancelCategoryNameEdit"
+                          @blur="saveCategoryName(secondary)" />
+                      </form>
+                      <button v-else class="category-name-button secondary-name-button" type="button" :disabled="!canEditCategory(secondary)" @click.stop="startCategoryEdit(secondary)">
+                        <span>{{ secondary.number }}</span>
+                        <b>{{ secondary.name }}</b>
+                      </button>
+                      <small v-if="skuContextCustomerID">{{ categoryStateLabel(secondary) }}</small>
+                      <small>{{ secondary.products.length }} 款</small>
+                      <select
+                        class="template-select"
+                        :value="secondary.product_config_template_id || 0"
+                        :disabled="!canEditCategory(secondary)"
+                        @pointerdown.stop
+                        @change.stop="bindProductConfigTemplateToSubtype(secondary, $event.target.value)">
+                        <option value="0">未绑定商品配置</option>
+                        <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">
+                          {{ config.name }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}
+                        </option>
+                      </select>
+                      <div class="secondary-category-actions">
+                        <button v-if="!canEditCategory(secondary) && skuContextCustomerID" class="text-button" type="button" @click="deriveCategoryTemplate(secondary)">复制为客户分类</button>
+                        <button v-if="secondaryDeleteModeFor === Number(primary.id) && canEditCategory(secondary)" class="category-delete-button" type="button" aria-label="删除产品子类型" title="删除产品子类型" @click.stop="deleteCategory(secondary)">-</button>
+                      </div>
+                    </div>
+                    <div v-show="!isSecondaryCategoryCollapsed(secondary)" class="product-chip-list">
+                      <span
+                        v-for="product in secondary.products"
+                        :key="product.id"
+                        class="product-chip"
+                        :draggable="canDragSkuRow(product)"
+                        @dragstart.stop="startProductDrag(product)"
+                        @dragend="scheduleClearDrag">
+                        {{ product.number }}. {{ product.name }}
+                      </span>
+                    </div>
+                  </div>
+                  <div
+                    v-if="!isCategorySearchActive"
+                    class="category-drop-line"
+                    :class="{ active: isCategoryDropTarget(primary, index + 2) }"
+                    @dragover.prevent.stop="setCategoryDropTarget(primary, index + 2)"
+                    @drop.prevent.stop="dropCategoryAtPosition(primary, index + 2)">
+                  </div>
+                </template>
+              </template>
+            </div>
+          </div>
+          <p v-if="!visibleCategoryTreeForSkuContext.length" class="muted category-empty">没有匹配的商品分类</p>
+
+          <div class="uncategorized" @dragover.prevent @drop="dropProductOnSecondary({ id: 0 })">
+            <div class="sub-title">停车场（待归类 SKU）</div>
+            <p class="muted">未选择产品子类型创建的 SKU 会先进入停车场；拖入产品子类型后才参与产品价格表生成。</p>
+            <span
+              v-for="product in uncategorizedProducts"
+              :key="product.id"
+              class="product-chip"
+              :draggable="canDragSkuRow(product)"
+              @dragstart="startProductDrag(product)"
+              @dragend="scheduleClearDrag">
+              {{ product.name }}
+            </span>
+            <p v-if="!uncategorizedProducts.length" class="muted">停车场暂无 SKU</p>
+          </div>
+          </div>
+        </div>
+      </div>
       <div v-show="activeConfigTemplateSection === 'gradient'" class="panel gradient-template-panel gradient-template-pane">
         <div class="panel-title">
           <span>阶梯价模板</span>

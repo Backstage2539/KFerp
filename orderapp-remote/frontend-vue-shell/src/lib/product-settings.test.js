@@ -1385,7 +1385,6 @@ test('SKU settings groups master data and template configuration into separate w
   )
   assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"[\s\S]*@click="openSkuCopyDrawer"/)
   assert.match(template, /v-if="activeSettingsSection === 'templates' && activeConfigTemplateSection === 'category-management'"/)
-  assert.match(template, /id="sku-category-management-target"/)
   assert.match(style, /\.master-data-layout\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*minmax\(0,\s*1fr\);/)
   assert.match(style, /\.template-workspace-stack\s*\{\s*display:\s*grid;\s*gap:\s*14px;/)
   assert.match(style, /@media\s*\(max-width:\s*1100px\)/)
@@ -1453,6 +1452,19 @@ test('SKU settings opens SKU creation and SKU copy behind drawers while category
   assert.doesNotMatch(source, /debug_sku_table|__kferpSkuTableDebug|skuTableDebugAttr|data-sku-debug|data-top-|data-sku-instance/)
   assert.match(style, /\.category-scroll-list\s*\{[^}]*max-height:\s*min\(640px,\s*calc\(100vh - 280px\)\);[^}]*overflow:\s*auto;/s)
   assert.match(style, /\.settings-drawer-mask\s*\{[^}]*position:\s*fixed;/s)
+})
+
+test('SKU category management renders inline instead of teleporting into its own component target', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+
+  assert.doesNotMatch(template, /<Teleport\s+to="#sku-category-management-target"/)
+  assert.doesNotMatch(template, /id="sku-category-management-target"/)
+  assert.match(template, /activeConfigTemplateSection === 'category-management'[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
+  assert.ok(
+    template.indexOf('class="config-template-tabs"') < template.indexOf('class="category-panel category-drawer-panel category-management-panel"'),
+    'category management panel should render inside the template workspace after its tab buttons',
+  )
 })
 
 test('SKU settings edits product categories inline inside the category management tab', () => {
