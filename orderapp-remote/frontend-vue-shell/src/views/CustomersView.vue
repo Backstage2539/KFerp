@@ -19,7 +19,7 @@
           <span>客户类型</span>
           <select v-model="customerTypeFilter">
             <option value="">全部类型</option>
-            <option v-for="item in customerTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            <option v-for="item in customerTypeOptionsForSelect" :key="item.value" :value="item.value">{{ item.label }}</option>
           </select>
         </label>
         <label>
@@ -52,9 +52,12 @@
         </label>
         <label>
           <span>客户类型</span>
-          <select v-model="form.customer_type" required>
-            <option v-for="item in customerTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-          </select>
+          <div class="select-with-add">
+            <select v-model="form.customer_type" required>
+              <option v-for="item in customerTypeOptionsForSelect" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+            <button class="icon-button" type="button" title="新增客户类型" aria-label="新增客户类型" @click="createCustomerTypeOption">+</button>
+          </div>
         </label>
         <label>
           <span>公司名称</span>
@@ -76,9 +79,12 @@
         </label>
         <label>
           <span>订单类型</span>
-          <select v-model.number="form.default_order_type_id" required>
-            <option v-for="item in orderTypes" :key="item.id" :value="item.id">{{ item.name }}</option>
-          </select>
+          <div class="select-with-add">
+            <select v-model.number="form.default_order_type_id" required>
+              <option v-for="item in orderTypes" :key="item.id" :value="item.id">{{ item.name }}</option>
+            </select>
+            <button class="icon-button" type="button" title="新增订单类型" aria-label="新增订单类型" @click="createOrderTypeOption">+</button>
+          </div>
         </label>
         <label>
           <span>负责人</span>
@@ -181,7 +187,7 @@
               <td>
                 <button class="name-button" type="button" @click="openCustomerDrawer(row.id)">{{ row.name }}</button>
               </td>
-              <td>{{ customerTypeLabel(row.customer_type) }}</td>
+              <td>{{ displayCustomerTypeLabel(row.customer_type) }}</td>
               <td>{{ row.company_name || row.name }}</td>
               <td>{{ row.company_phone || '' }}</td>
               <td>{{ row.contact || '' }}</td>
@@ -215,13 +221,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import { parseRecipientText } from '../lib/customer-recipient'
-import { customerTypeLabel, customerTypeOptions, normalizeCustomerType, validCustomerType } from '../lib/customer-types'
+import { customerTypeLabel, customerTypeOptions, mergeCustomerTypeOptions, normalizeCustomerType, validCustomerType } from '../lib/customer-types'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
 
 const rows = ref([])
 const sources = ref([])
 const orderTypes = ref([])
+const customerTypeOptionsForSelect = ref(mergeCustomerTypeOptions(customerTypeOptions))
 const employees = ref([])
 const q = ref('')
 const page = ref(1)
@@ -271,7 +278,7 @@ function emptyForm() {
 function assignForm(data) {
   Object.assign(form, {
     name: data?.name || '',
-    customer_type: normalizeCustomerType(data?.customer_type),
+    customer_type: normalizeCustomerType(data?.customer_type, customerTypeOptionsForSelect.value),
     company_name: data?.company_name || '',
     company_phone: data?.company_phone || '',
     contact: data?.contact || '',
@@ -298,6 +305,14 @@ function assignDashboard(data = {}) {
 function optionName(options, id) {
   const item = options.find((x) => Number(x.id) === Number(id))
   return item?.name || ''
+}
+
+function assignCustomerTypeOptions(data = {}) {
+  customerTypeOptionsForSelect.value = mergeCustomerTypeOptions(data.customer_type_options || customerTypeOptionsForSelect.value)
+}
+
+function displayCustomerTypeLabel(value) {
+  return customerTypeLabel(value, customerTypeOptionsForSelect.value)
 }
 
 function employeeName(id) {
@@ -348,8 +363,7 @@ function applyUrl() {
 
 function normalizeListCustomerType(value) {
   const v = String(value || '').trim().toLowerCase()
-  if (validCustomerType(v)) return v
-  return ''
+  return v
 }
 
 function normalizeActiveFilter(value) {
@@ -414,6 +428,7 @@ async function load() {
     url.searchParams.set('page', String(page.value))
     url.searchParams.set('limit', String(pageSize.value))
     const data = await apiGet(url)
+    assignCustomerTypeOptions(data)
     rows.value = data.rows || []
     sources.value = data.sources || []
     orderTypes.value = data.order_types || []
@@ -474,10 +489,11 @@ async function openCustomerDrawer(id) {
     const data = await apiGet(`/api/customers/${id}`)
     customerDrawerOpen.value = true
     editingId.value = Number(data.customer.id)
-    assignForm(data.customer)
+    assignCustomerTypeOptions(data)
     sources.value = data.sources || sources.value
     orderTypes.value = data.order_types || orderTypes.value
     employees.value = data.employees || employees.value
+    assignForm(data.customer)
     assets.value = data.assets || []
     assignDashboard(data.dashboard)
     customerPaste.value = ''
@@ -507,14 +523,14 @@ async function saveCustomer() {
   ok.value = ''
   try {
     if (!form.name && form.contact) form.name = form.contact
-    if (!validCustomerType(form.customer_type)) throw new Error('请选择客户类型')
+    if (!validCustomerType(form.customer_type, customerTypeOptionsForSelect.value)) throw new Error('请选择客户类型')
     if (!Number(form.default_source_id || 0)) throw new Error('请选择客户来源')
     if (!Number(form.default_order_type_id || 0)) throw new Error('请选择客户订单类型')
     if (!Number(form.responsible_employee_id || 0)) throw new Error('请选择客户负责人')
     const body = {
       name: form.name,
       raw_name: '',
-      customer_type: normalizeCustomerType(form.customer_type),
+      customer_type: normalizeCustomerType(form.customer_type, customerTypeOptionsForSelect.value),
       company_name: form.company_name,
       company_address: '',
       company_phone: form.company_phone,
@@ -541,6 +557,48 @@ async function saveCustomer() {
     updateUrl({ edit_id: editingId.value })
   } catch (err) {
     error.value = err.message || '保存失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function createCustomerTypeOption() {
+  const label = String(window.prompt('新增客户类型') || '').trim()
+  if (!label) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const option = await apiSend('/api/customers/customer-types', {
+      body: { label },
+    })
+    customerTypeOptionsForSelect.value = mergeCustomerTypeOptions([...customerTypeOptionsForSelect.value, option])
+    form.customer_type = option.value
+    ok.value = `已新增客户类型：${option.label || label}`
+  } catch (err) {
+    error.value = err.message || '新增客户类型失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function createOrderTypeOption() {
+  const name = String(window.prompt('新增订单类型') || '').trim()
+  if (!name) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const option = await apiSend('/api/customers/order-types', {
+      body: { name },
+    })
+    if (!orderTypes.value.some((item) => Number(item.id) === Number(option.id))) {
+      orderTypes.value = [...orderTypes.value, option]
+    }
+    form.default_order_type_id = Number(option.id || 0)
+    ok.value = `已新增订单类型：${option.name || name}`
+  } catch (err) {
+    error.value = err.message || '新增订单类型失败'
   } finally {
     loading.value = false
   }
@@ -614,6 +672,8 @@ onMounted(async () => {
 .customer-drawer { width: min(760px, 100vw); height: 100vh; overflow: auto; background: #fff; padding: 18px; box-shadow: -18px 0 38px rgba(20, 20, 20, .18); }
 .drawer-head { position: sticky; top: 0; z-index: 2; justify-content: space-between; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid #eee8df; background: #fff; }
 .customer-drawer input, .customer-drawer select, .customer-drawer textarea { width: 100%; }
+.select-with-add { display: grid; grid-template-columns: minmax(0, 1fr) 38px; gap: 6px; align-items: center; }
+.icon-button { width: 38px; padding: 0; font-size: 18px; line-height: 1; font-weight: 700; }
 h2, h3 { margin: 0; font-size: 20px; }
 h3 { font-size: 18px; }
 label span, .stats span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }

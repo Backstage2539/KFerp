@@ -23,7 +23,7 @@ test('factory workspace keeps the existing primary ERP menu layout', () => {
   assert.equal(keys.includes('customerFulfillment'), false)
   assert.equal(keys.includes('customerPortalSettings'), true)
   assert.equal(keys.includes('customerCapabilityTemplates'), true)
-  assert.equal(defaultWorkspaceEntryKey(groups), 'customerPortalSettings')
+  assert.equal(defaultWorkspaceEntryKey(groups), 'customers')
 })
 
 test('customer workspace keeps only customer-facing operations and finance', () => {

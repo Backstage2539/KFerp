@@ -100,11 +100,31 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 	})
 
 	e.GET("/api/stock/warehouses", func(c echo.Context) error {
-		rows, err := stockSvc.ListWarehouses(c.Request().Context())
+		rows, err := stockSvc.ListWarehouses(c.Request().Context(), stockapp.WarehouseListQuery{
+			CustomerID: int64(support.IntParam(c, "customer_id", 0)),
+		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.PUT("/api/stock/warehouses/:code/customer", func(c echo.Context) error {
+		var req struct {
+			CustomerID int64 `json:"customer_id"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: "invalid request"})
+		}
+		row, err := stockSvc.BindWarehouseCustomer(c.Request().Context(), stockapp.BindWarehouseCustomerCommand{
+			WarehouseCode: strings.TrimSpace(c.Param("code")),
+			CustomerID:    req.CustomerID,
+			Actor:         support.ActorOf(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
 	})
 
 	e.GET("/api/stock/material-batch-locations", func(c echo.Context) error {

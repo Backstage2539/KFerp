@@ -84,6 +84,7 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 		row.ERPBinding = nullableERPBinding(row.ID, employeeID, employeeName, employeePhone, role, status, updatedBy, updatedAt)
 		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
 		row.MiniappEntryMode = customerportalapp.NormalizeMiniappEntryMode(row.MiniappEntryMode)
+		row.Warehouses = r.portalCustomerWarehouses(ctx, row.ID)
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -293,14 +294,11 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 		}
 		return customerportalapp.PortalAdminDetail{}, err
 	}
-	warehouseCode := strings.TrimSpace(cmd.ProcessingWarehouseCode)
-	if warehouseCode == "" && capabilityEnabled(cmd.Capabilities, customerportalapp.CapabilityProcessing) {
-		warehouseCode = defaultProcessingWarehouseCode(cmd.CustomerID)
-	}
 	oldProfile, err := portalProfileAuditSnapshotTx(ctx, tx, r.schema, cmd.CustomerID)
 	if err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
 	}
+	warehouseCode := portalProfileWarehouseFromCommand(cmd, oldProfile)
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, processing_warehouse_code, default_sender_id, enabled, status, theme_key, miniapp_entry_mode, capability_template_key, bean_list_mode, bean_list_publication_id, updated_at, updated_by)
 		VALUES($1,$2,$3,$4,$5,'active',$6,$7,$8,$9,$10,now(),$11)
@@ -320,7 +318,7 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 	`, r.schema), cmd.CustomerID, strings.TrimSpace(cmd.DisplayName), warehouseCode, cmd.DefaultSenderID, cmd.Enabled, customerportalapp.NormalizePortalThemeKey(cmd.ThemeKey), customerportalapp.NormalizeMiniappEntryMode(cmd.MiniappEntryMode), customerportalapp.NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey), strings.TrimSpace(cmd.BeanListMode), cmd.BeanListPublicationID, strings.TrimSpace(cmd.UpdatedBy)); err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
 	}
-	if warehouseCode != "" {
+	if strings.TrimSpace(cmd.ProcessingWarehouseCode) != "" {
 		if err := r.ensureProcessingWarehouseTx(ctx, tx, warehouseCode, firstNonEmpty(strings.TrimSpace(cmd.DisplayName), customerName)); err != nil {
 			return customerportalapp.PortalAdminDetail{}, err
 		}
@@ -385,9 +383,6 @@ func (r Repository) ApplyCapabilityTemplate(ctx context.Context, cmd customerpor
 		return customerportalapp.PortalAdminDetail{}, err
 	}
 
-	if warehouseCode == "" && capabilityEnabled(cmd.Template.Capabilities, customerportalapp.CapabilityProcessing) {
-		warehouseCode = defaultProcessingWarehouseCode(cmd.CustomerID)
-	}
 	displayName = firstNonEmpty(displayName, customerName)
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, processing_warehouse_code, default_sender_id, enabled, status, theme_key, miniapp_entry_mode, capability_template_key, updated_at, updated_by)
@@ -642,10 +637,7 @@ func portalProfileAuditSnapshotTx(ctx context.Context, tx pgx.Tx, schema string,
 }
 
 func auditPortalProfileVisibilityTx(ctx context.Context, tx pgx.Tx, schema string, cmd customerportalapp.UpdatePortalVisibilityCommand, old portalProfileAuditSnapshot) error {
-	warehouseCode := strings.TrimSpace(cmd.ProcessingWarehouseCode)
-	if warehouseCode == "" && capabilityEnabled(cmd.Capabilities, customerportalapp.CapabilityProcessing) {
-		warehouseCode = defaultProcessingWarehouseCode(cmd.CustomerID)
-	}
+	warehouseCode := portalProfileWarehouseFromCommand(cmd, old)
 	meta := postgresinfra.AuditMeta{"customer_id": cmd.CustomerID}
 	actor := strings.TrimSpace(cmd.UpdatedBy)
 	if err := auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "display_name", old.displayName, strings.TrimSpace(cmd.DisplayName), meta); err != nil {
@@ -713,6 +705,14 @@ func auditPortalProfileIntField(ctx context.Context, tx pgx.Tx, schema, actor st
 	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer_portal_profile", &customerID, "update", postgresinfra.StrPtr(field), oldPtr, postgresinfra.StrPtr(fmt.Sprintf("%d", newValue)), meta)
 }
 
+func portalProfileWarehouseFromCommand(cmd customerportalapp.UpdatePortalVisibilityCommand, old portalProfileAuditSnapshot) string {
+	warehouseCode := strings.TrimSpace(cmd.ProcessingWarehouseCode)
+	if warehouseCode == "" && old.exists {
+		return strings.TrimSpace(old.processingWarehouse)
+	}
+	return warehouseCode
+}
+
 func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (customerportalapp.PortalAdminCustomer, error) {
 	var row customerportalapp.PortalAdminCustomer
 	var employeeID sql.NullInt64
@@ -768,11 +768,39 @@ func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (
 		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
 		row.MiniappEntryMode = customerportalapp.NormalizeMiniappEntryMode(row.MiniappEntryMode)
 		row.ERPBinding = nullableERPBinding(row.ID, employeeID, employeeName, employeePhone, role, status, updatedBy, updatedAt)
+		row.Warehouses = r.portalCustomerWarehouses(ctx, row.ID)
 	}
 	if err == pgx.ErrNoRows {
 		return customerportalapp.PortalAdminCustomer{}, customerportalapp.ErrPortalCustomerNotFound
 	}
 	return row, err
+}
+
+func (r Repository) portalCustomerWarehouses(ctx context.Context, customerID int64) []customerportalapp.CustomerWarehouse {
+	if customerID <= 0 {
+		return nil
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT code,
+		       name,
+		       kind
+		FROM %s.warehouses
+		WHERE active=true AND customer_id=$1
+		ORDER BY sort_order, code
+	`, r.schema), customerID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := make([]customerportalapp.CustomerWarehouse, 0)
+	for rows.Next() {
+		var row customerportalapp.CustomerWarehouse
+		if err := rows.Scan(&row.Code, &row.Name, &row.Kind); err != nil {
+			return nil
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 func (r Repository) portalBeanListVersionOptions(ctx context.Context, customerID int64) []customerportalapp.BeanListVersionOption {

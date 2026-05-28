@@ -22,7 +22,7 @@
 - `OP_MANUAL_FINANCE.md`：财务首页、费用管理、月度结账、经营报告、票税台账、财务设置。
 - `OP_MANUAL_SETTINGS_AUDIT.md`：设备产能、发货人、代加工模板、部门员工、操作日志。
 - `OP_MANUAL_NOTIFICATIONS.md`：通知规则、ERP 站内通知和外部 IM 扩展框架。
-- `OP_MANUAL_CUSTOMER_FULFILLMENT.md`：客户履约全流程，合并工作台模式、客户门户、客户履约账户；覆盖角色权限、客户开通、能力模板、外部用户、客户账户模式、小程序商城、Excel 导入、托管库存、代发/代加工、费用和月结。
+- `OP_MANUAL_CUSTOMER_FULFILLMENT.md`：客户管理与客户履约全流程，覆盖客户档案、门户客户配置、客户门户能力模板、客户履约手册入口、角色权限、客户开通、外部用户、客户账户模式、小程序商城、Excel 导入、托管库存、代发/代加工、费用和月结。
 
 ## 手册维护流程图
 ```mermaid

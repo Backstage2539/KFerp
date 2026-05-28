@@ -678,23 +678,30 @@ type PortalAdminCustomerQuery struct {
 }
 
 type PortalAdminCustomer struct {
-	ID                      int64             `json:"id"`
-	Name                    string            `json:"name"`
-	CustomerType            string            `json:"customer_type"`
-	Phone                   string            `json:"phone"`
-	CompanyName             string            `json:"company_name"`
-	DisplayName             string            `json:"display_name"`
-	ProcessingWarehouseCode string            `json:"processing_warehouse_code"`
-	DefaultSenderID         int64             `json:"default_sender_id"`
-	PortalEnabled           bool              `json:"portal_enabled"`
-	PortalStatus            string            `json:"portal_status"`
-	ThemeKey                string            `json:"theme_key"`
-	MiniappEntryMode        string            `json:"miniapp_entry_mode"`
-	CapabilityTemplateKey   string            `json:"capability_template_key"`
-	BeanListMode            string            `json:"bean_list_mode"`
-	BeanListPublicationID   int64             `json:"bean_list_publication_id"`
-	BindingCount            int               `json:"binding_count"`
-	ERPBinding              *PortalERPBinding `json:"erp_binding,omitempty"`
+	ID                      int64               `json:"id"`
+	Name                    string              `json:"name"`
+	CustomerType            string              `json:"customer_type"`
+	Phone                   string              `json:"phone"`
+	CompanyName             string              `json:"company_name"`
+	DisplayName             string              `json:"display_name"`
+	ProcessingWarehouseCode string              `json:"processing_warehouse_code"`
+	DefaultSenderID         int64               `json:"default_sender_id"`
+	PortalEnabled           bool                `json:"portal_enabled"`
+	PortalStatus            string              `json:"portal_status"`
+	ThemeKey                string              `json:"theme_key"`
+	MiniappEntryMode        string              `json:"miniapp_entry_mode"`
+	CapabilityTemplateKey   string              `json:"capability_template_key"`
+	BeanListMode            string              `json:"bean_list_mode"`
+	BeanListPublicationID   int64               `json:"bean_list_publication_id"`
+	BindingCount            int                 `json:"binding_count"`
+	ERPBinding              *PortalERPBinding   `json:"erp_binding,omitempty"`
+	Warehouses              []CustomerWarehouse `json:"warehouses,omitempty"`
+}
+
+type CustomerWarehouse struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
 }
 
 type PortalERPBinding struct {

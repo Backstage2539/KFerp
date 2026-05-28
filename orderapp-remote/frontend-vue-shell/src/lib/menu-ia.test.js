@@ -72,7 +72,7 @@ test('operation manuals live inside their functional menu groups', () => {
     ['greenBeanSalesManual', 'product'],
     ['settingsAuditManual', 'settings'],
     ['notificationManual', 'settings'],
-    ['customerFulfillmentManual', 'customerFulfillment'],
+    ['customerFulfillmentManual', 'customerManagement'],
     ['requirementsManual', 'requirements'],
   ]
   const keys = primaryMenuKeys(menuGroups)
@@ -102,19 +102,22 @@ test('sales menu no longer exposes the removed quote export page', () => {
   assert.equal(JSON.stringify(menuGroups).includes('报价导出'), false)
 })
 
-test('customer fulfillment menu consolidates operator, portal, templates and one combined manual', () => {
+test('customer management menu consolidates customer dossier, portal settings, templates and manual', () => {
   const keys = primaryMenuKeys(menuGroups)
-  for (const key of ['customerFulfillment', 'customerPortalSettings', 'customerCapabilityTemplates', 'customerFulfillmentManual']) {
+  for (const key of ['customers', 'customerPortalSettings', 'customerCapabilityTemplates', 'customerFulfillmentManual']) {
     assert.ok(keys.includes(key))
-    assert.equal(groupForView(menuGroups, key)?.id, 'customerFulfillment')
+    assert.equal(groupForView(menuGroups, key)?.id, 'customerManagement')
   }
+  assert.equal(groupForView(menuGroups, 'customers')?.id, 'customerManagement')
+  assert.notEqual(groupForView(menuGroups, 'customers')?.id, 'sales')
+  assert.equal(menuGroups.find((group) => group.id === 'customerManagement')?.name, '客户管理')
+  assert.equal(menuGroups.find((group) => group.id === 'customerManagement')?.items.find((item) => item.key === 'customerCapabilityTemplates')?.label, '客户门户能力模板')
   assert.equal(keys.includes('workspaceModeManual'), false)
   assert.equal(keys.includes('customerPortalManual'), false)
   assert.equal(menuMap.workspaceModeManual?.title, '客户履约手册')
   assert.equal(menuMap.customerPortalManual?.title, '客户履约手册')
   assert.equal(keys.includes('customerProcessingPortal'), false)
   assert.equal(groupForView(menuGroups, 'customerProcessingPortal'), null)
-  assert.equal(menuGroups.find((group) => group.id === 'customerFulfillment')?.name, '客户履约')
 })
 
 test('system menu merges user permissions into employee maintenance', () => {

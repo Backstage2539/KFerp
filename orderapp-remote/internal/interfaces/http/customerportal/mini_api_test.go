@@ -921,7 +921,10 @@ func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T
 		saveCmd:   &saveCmd,
 		customers: []customerportalapp.PortalAdminCustomer{{ID: 147, Name: "13800138075", PortalEnabled: true, BindingCount: 1, ThemeKey: customerportalapp.PortalThemeCoffeeFactory, MiniappEntryMode: customerportalapp.MiniappEntryModeServices}},
 		detail: customerportalapp.PortalAdminDetail{
-			Customer: customerportalapp.PortalAdminCustomer{ID: 147, Name: "13800138075", DisplayName: "测试客户", PortalEnabled: true, ThemeKey: customerportalapp.PortalThemePremiumPartner, MiniappEntryMode: customerportalapp.MiniappEntryModeMall},
+			Customer: customerportalapp.PortalAdminCustomer{
+				ID: 147, Name: "13800138075", DisplayName: "测试客户", PortalEnabled: true, ThemeKey: customerportalapp.PortalThemePremiumPartner, MiniappEntryMode: customerportalapp.MiniappEntryModeMall,
+				Warehouses: []customerportalapp.CustomerWarehouse{{Code: "finished_shop", Name: "渠道成品仓", Kind: "finished"}},
+			},
 			Bindings: []customerportalapp.PortalUserBinding{{MiniUserID: 1, Phone: "13800138075", Role: "owner", Status: "approved"}},
 			Capabilities: []customerportalapp.CapabilityOption{
 				{Code: customerportalapp.CapabilityBeanList, Label: "我的豆单", Enabled: true},
@@ -948,6 +951,8 @@ func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T
 	if detailRec.Code != http.StatusOK ||
 		!strings.Contains(detailRec.Body.String(), `"theme_key":"premium_partner"`) ||
 		!strings.Contains(detailRec.Body.String(), `"miniapp_entry_mode":"mall"`) ||
+		!strings.Contains(detailRec.Body.String(), `"warehouses":[`) ||
+		!strings.Contains(detailRec.Body.String(), `"code":"finished_shop"`) ||
 		!strings.Contains(detailRec.Body.String(), `"bindings":[`) ||
 		!strings.Contains(detailRec.Body.String(), `"capabilities":[`) {
 		t.Fatalf("detail status=%d body=%s", detailRec.Code, detailRec.Body.String())

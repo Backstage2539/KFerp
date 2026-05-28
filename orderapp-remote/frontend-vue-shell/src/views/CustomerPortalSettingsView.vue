@@ -37,16 +37,19 @@
           <span>{{ row.customer.phone || '未填手机号' }}</span>
           <span>{{ customerTypeLabel(row.customer.customer_type) }}</span>
           <span>{{ row.customer.binding_count || 0 }} 个绑定用户</span>
+          <div class="customer-warehouses">
+            <b>客户仓库</b>
+            <span v-if="!(row.customer.warehouses || []).length">未绑定仓库</span>
+            <i v-for="warehouse in row.customer.warehouses || []" :key="`${row.customer.id}-${warehouse.code}`">
+              {{ warehouse.name || warehouse.code }} · {{ kindLabel(warehouse.kind) }}
+            </i>
+          </div>
         </div>
 
         <div class="config-cell">
           <label>
             <span>小程序显示名</span>
             <input v-model.trim="row.form.display_name" placeholder="默认使用客户名" />
-          </label>
-          <label>
-            <span>代加工仓库</span>
-            <input v-model.trim="row.form.processing_warehouse_code" placeholder="默认 cust_ID_processing" />
           </label>
           <label>
             <span>默认寄件人</span>
@@ -59,7 +62,7 @@
           </label>
           <div class="template-picker">
             <label>
-              <span>能力模板</span>
+              <span>客户门户能力模板</span>
               <select v-model="row.form.capability_template_key">
                 <option value="">请选择模板</option>
                 <option v-if="unknownTemplateKey(row)" :value="unknownTemplateKey(row)">
@@ -74,25 +77,6 @@
               </select>
             </label>
           </div>
-          <div class="bean-list-picker">
-            <span>豆单展示版本</span>
-            <label class="check">
-              <input v-model="row.form.bean_list_mode" type="radio" value="latest" />
-              <span>{{ row.beanListVersionOptions.length ? '展示客户最新版本' : '使用公共豆单' }}</span>
-            </label>
-            <label v-if="row.beanListVersionOptions.length" class="check">
-              <input v-model="row.form.bean_list_mode" type="radio" value="fixed" />
-              <span>固定指定版本</span>
-            </label>
-            <select
-              v-if="row.beanListVersionOptions.length && row.form.bean_list_mode === 'fixed'"
-              v-model.number="row.form.bean_list_publication_id"
-            >
-              <option v-for="item in row.beanListVersionOptions" :key="item.id" :value="item.id">
-                {{ beanListVersionLabel(item) }}
-              </option>
-            </select>
-          </div>
           <label class="check">
             <input v-model="row.form.enabled" type="checkbox" />
             <span>{{ row.form.enabled ? '门户启用' : '门户停用' }}</span>
@@ -104,12 +88,12 @@
 
         <div class="template-summary">
           <template v-if="unknownTemplateKey(row)">
-            <strong>未知能力模板</strong>
+            <strong>未知客户门户能力模板</strong>
             <span>当前模板 key 无法识别，请重新选择系统模板；如果要停用门户并清空模板，请先选择“请选择模板”。</span>
           </template>
           <template v-else-if="inactiveTemplateKey(row)">
             <strong>模板已失效</strong>
-            <span>当前客户引用的能力模板已经失效，请重新选择一个启用中的模板后保存。</span>
+            <span>当前客户引用的客户门户能力模板已经失效，请重新选择一个启用中的模板后保存。</span>
           </template>
           <template v-else-if="selectedTemplate(row)">
             <strong>{{ selectedTemplate(row).label }}</strong>
@@ -149,7 +133,7 @@
               </div>
             </div>
           </template>
-          <span v-else class="muted">请选择能力模板；客户的门户能力、规则和客户侧 ERP 页面都从模板继承。</span>
+          <span v-else class="muted">请选择客户门户能力模板；客户的门户能力、规则和客户侧 ERP 页面都从模板继承。</span>
           <span v-if="row.loading" class="muted">加载模板中...</span>
         </div>
 
@@ -297,7 +281,7 @@ function customerTypeLabel(value) {
     channel: '渠道客户',
     retail: '零售客户',
     ecommerce: '电商客户',
-  }[value] || '零售客户'
+  }[value] || value || '零售客户'
 }
 
 function openCustomerDossier() {
@@ -312,16 +296,12 @@ function createPortalRow(customer) {
     customer,
     form: {
       display_name: customer.display_name || '',
-      processing_warehouse_code: customer.processing_warehouse_code || '',
       default_sender_id: Number(customer.default_sender_id || 0),
       enabled: customer.portal_enabled !== false,
       capability_template_key: trimTemplateKey(customer.capability_template_key),
-      bean_list_mode: normalizeBeanListMode(customer.bean_list_mode),
-      bean_list_publication_id: Number(customer.bean_list_publication_id || 0),
     },
     capabilities: [],
     bindings: [],
-    beanListVersionOptions: [],
     externalUsers: [],
     externalUserForm: {
       name: '',
@@ -348,15 +328,10 @@ async function loadRowDetail(row) {
 function assignRowDetail(row, data) {
   row.customer = data?.customer || row.customer
   row.form.display_name = row.customer.display_name || ''
-  row.form.processing_warehouse_code = row.customer.processing_warehouse_code || ''
   row.form.default_sender_id = Number(row.customer.default_sender_id || 0)
   row.form.enabled = row.customer.portal_enabled !== false
   row.form.capability_template_key = trimTemplateKey(row.customer.capability_template_key)
-  row.form.bean_list_mode = normalizeBeanListMode(row.customer.bean_list_mode)
-  row.form.bean_list_publication_id = Number(row.customer.bean_list_publication_id || 0)
   row.bindings = data?.bindings || []
-  row.beanListVersionOptions = data?.bean_list_version_options || []
-  syncRowBeanListVersion(row)
   row.capabilities = (data?.capabilities || []).map((item) => ({
     code: item.code,
     label: item.label || capabilityLabels[item.code] || item.code,
@@ -382,7 +357,6 @@ async function loadRowExternalUsers(row) {
 
 async function saveVisibility(row) {
   if (!row?.customer?.id) return
-  syncRowBeanListVersion(row)
   row.saving = true
   error.value = ''
   ok.value = ''
@@ -391,12 +365,9 @@ async function saveVisibility(row) {
       method: 'PUT',
       body: {
         display_name: row.form.display_name,
-        processing_warehouse_code: row.form.processing_warehouse_code,
         default_sender_id: Number(row.form.default_sender_id || 0),
         enabled: !!row.form.enabled,
         capability_template_key: trimTemplateKey(row.form.capability_template_key),
-        bean_list_mode: row.form.bean_list_mode,
-        bean_list_publication_id: Number(row.form.bean_list_publication_id || 0),
       },
     })
     assignRowDetail(row, data)
@@ -420,31 +391,6 @@ function selectedTemplate(row) {
 
 function trimTemplateKey(value) {
   return String(value || '').trim()
-}
-
-function normalizeBeanListMode(value) {
-  return String(value || '').trim() === 'fixed' ? 'fixed' : 'latest'
-}
-
-function beanListVersionLabel(item) {
-  const version = item?.version_no || `#${item?.id || ''}`
-  const time = item?.published_at ? ` · ${item.published_at}` : ''
-  return `${version}${time}`
-}
-
-function syncRowBeanListVersion(row) {
-  if (!row?.beanListVersionOptions?.length) {
-    row.form.bean_list_mode = 'latest'
-    row.form.bean_list_publication_id = 0
-    return
-  }
-  if (row.form.bean_list_mode !== 'fixed') {
-    row.form.bean_list_publication_id = 0
-    return
-  }
-  const currentID = Number(row.form.bean_list_publication_id || 0)
-  if (row.beanListVersionOptions.some((item) => Number(item.id) === currentID)) return
-  row.form.bean_list_publication_id = Number(row.beanListVersionOptions[0]?.id || 0)
 }
 
 function unknownTemplateKey(row) {
@@ -489,6 +435,17 @@ function entryModeLabel(value) {
 
 function themeLabel(value) {
   return `小程序主题：${themeLabels[value] || themeLabels.coffee_factory}`
+}
+
+function kindLabel(kind) {
+  return {
+    raw: '原料仓',
+    packaging: '包材仓',
+    wip: 'WIP仓',
+    finished: '成品仓',
+    customer_processing: '客户仓',
+    loss: '损耗仓',
+  }[kind] || '仓库'
 }
 
 function openCustomerProfile(row) {
@@ -608,10 +565,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .customer-cell, .config-cell, .binding-list, .external-user-cell { display: flex; flex-direction: column; gap: 8px; }
 .customer-cell strong { font-size: 15px; }
 .customer-cell span, .binding-row span { color: #666; font-size: 13px; line-height: 1.4; }
+.customer-warehouses { display: grid; gap: 5px; border: 1px solid #e4e7ec; border-radius: 8px; padding: 8px; background: #f8fafc; }
+.customer-warehouses b { font-size: 12px; color: #555; }
+.customer-warehouses i { font-style: normal; color: #333; font-size: 12px; line-height: 1.35; }
 .config-cell input, .config-cell select { width: 100%; }
 .template-picker { display: grid; gap: 8px; align-items: end; }
-.bean-list-picker { display: grid; gap: 7px; border: 1px solid #e4e7ec; border-radius: 8px; padding: 8px; background: #f8fafc; }
-.bean-list-picker > span { color: #555; font-size: 12px; margin: 0; }
 .check { display: inline-flex; align-items: center; gap: 8px; }
 .check input { width: auto; height: auto; }
 .check span { margin: 0; color: #333; font-size: 13px; }

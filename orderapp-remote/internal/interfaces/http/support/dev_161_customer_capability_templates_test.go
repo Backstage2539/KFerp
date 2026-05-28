@@ -23,8 +23,8 @@ func TestCustomerCapabilityTemplatesPageWired(t *testing.T) {
 	}
 	for _, want := range []string{
 		"customerCapabilityTemplates",
-		"客户能力模板",
-		"客户履约",
+		"客户门户能力模板",
+		"客户管理",
 		"门户客户配置",
 		"履约运营台",
 	} {

@@ -241,11 +241,21 @@ CREATE TABLE IF NOT EXISTS %s.warehouses (
 	is_default BOOLEAN NOT NULL DEFAULT false,
 	active BOOLEAN NOT NULL DEFAULT true,
 	description TEXT NOT NULL DEFAULT '',
-	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 `, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE %[1]s.warehouses ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.warehouses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`,
+	} {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(stmt, schema)); err != nil {
+			return err
+		}
 	}
 	_, err := pool.Exec(ctx, fmt.Sprintf(`
 INSERT INTO %s.warehouses(code,name,kind,parent_code,sort_order,is_default,active,description)
