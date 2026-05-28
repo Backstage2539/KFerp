@@ -34,10 +34,8 @@ func TestDev318CustomerBeanListPublicCategoryScope(t *testing.T) {
 	for _, want := range []string{
 		"const customerPublicUsages = ref([])",
 		"const activeCustomerPublicUsage = computed",
-		"const activeBeanListScopeOptions = computed",
-		"apiGet('/api/product-settings')",
-		"use_public_categories: Boolean(row.use_public_categories)",
-		"filterBeanListItemsForScope(items.value, activeCostingScope.value, activeBeanListCustomerID.value, activeBeanListScopeOptions.value)",
+		"filterBeanListItemsForPriceTableScope(items.value, activeCostingScope.value, activeBeanListCustomerID.value)",
+		"filterBeanListItemsForPriceTableScope",
 	} {
 		if !strings.Contains(costingText, want) {
 			t.Fatalf("CostingView missing %q", want)

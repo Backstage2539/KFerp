@@ -22,10 +22,12 @@ export function defaultBeanListDraftVersion(publications = [], sourcePublication
 
 export function sanitizeBeanListPdfTheme(input = {}) {
   const listType = normalizeBeanListType(input.listType)
+  const rawBrand = input.brandName
+  const hasBrand = Object.prototype.hasOwnProperty.call(input, 'brandName') && String(input.brandName ?? '').trim() !== ''
   return {
     listType,
     version: String(input.version || DEFAULT_BEAN_LIST_PDF_VERSION).trim() || DEFAULT_BEAN_LIST_PDF_VERSION,
-    brandName: String(input.brandName || '棵凡咖啡').trim() || '棵凡咖啡',
+    brandName: hasBrand ? String(rawBrand || '').trim() : '棵凡咖啡',
     backgroundColor: normalizeColor(input.backgroundColor, '#f8f1e5'),
     fontColor: normalizeColor(input.fontColor, '#171717'),
     backgroundImage: String(input.backgroundImage || '').trim(),
@@ -40,11 +42,12 @@ export function sanitizeBeanListPdfTheme(input = {}) {
 }
 
 export function buildBeanListPdfTitle(listType, brandName = '棵凡咖啡') {
-  const brand = String(brandName || '棵凡咖啡').trim() || '棵凡咖啡'
+  const brand = String(brandName ?? '').trim()
+  const displayBrand = brand || '棵凡咖啡'
   const normalized = normalizeBeanListType(listType)
-  if (normalized === 'green') return `${brand}生豆产品价格表`
-  if (normalized === 'drip') return `${brand}挂耳产品价格表`
-  return normalized === 'retail' ? `${brand}零售产品价格表` : `${brand}批发产品价格表`
+  if (normalized === 'green') return brand ? `${brand}生豆产品价格表` : '生豆产品价格表'
+  if (normalized === 'drip') return brand ? `${brand}挂耳产品价格表` : '挂耳产品价格表'
+  return normalized === 'retail' ? (brand ? `${brand}零售产品价格表` : '零售产品价格表') : (brand ? `${brand}批发产品价格表` : '批发产品价格表')
 }
 
 export function filterBeanListItemsForScope(items = [], scope = 'official', customerID = 0, options = {}) {
@@ -55,6 +58,17 @@ export function filterBeanListItemsForScope(items = [], scope = 'official', cust
     if (scope === 'customer') {
       if (itemCustomerID <= 0) return Boolean(usePublicCategories)
       return selectedCustomerID > 0 && itemCustomerID === selectedCustomerID
+    }
+    return itemCustomerID <= 0
+  })
+}
+
+export function filterBeanListItemsForPriceTableScope(items = [], scope = 'official', customerID = 0) {
+  const selectedCustomerID = Number(customerID || 0)
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    const itemCustomerID = Number(item?.customer_id ?? item?.customerID ?? 0)
+    if (scope === 'customer') {
+      return itemCustomerID > 0 && itemCustomerID === selectedCustomerID
     }
     return itemCustomerID <= 0
   })

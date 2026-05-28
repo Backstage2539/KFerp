@@ -16,14 +16,6 @@
           <span>商品数</span>
           <strong>{{ customerScopedSkuCount }}</strong>
         </div>
-        <div>
-          <span>烘焙率</span>
-          <strong>{{ percent(parameters?.roast_yield_rate) }}</strong>
-        </div>
-        <div>
-          <span>kg/lb</span>
-          <strong>{{ fixed(parameters?.kg_to_lb_factor, 3) }}</strong>
-        </div>
       </div>
       <div class="bean-list-global-scope">
         <div>
@@ -45,8 +37,8 @@
     <section class="panel bean-list-version-panel">
       <div class="section-bar bean-list-version-head">
         <div>
-          <div class="section-title">豆单版本列表</div>
-          <p class="muted">查看当前豆单范围下的版本、生成新版和撤回。</p>
+          <div class="section-title">已发布价格表</div>
+          <p class="muted">查看当前范围下的已发布价格表、生成新版和撤回。</p>
         </div>
         <div class="actions">
           <button class="secondary compact" type="button" :disabled="beanListVersionListLoading" @click="refreshBeanListVersionList">刷新版本</button>
@@ -342,7 +334,7 @@
           </label>
           <label>
             <span>品牌名字</span>
-            <input v-model.trim="pdfOptions.brandName" placeholder="棵凡咖啡" />
+            <input v-model.trim="pdfOptions.brandName" :placeholder="activeCostingScope === 'customer' ? '' : '棵凡咖啡'" />
           </label>
           <label>
             <span>豆单样式</span>
@@ -686,6 +678,7 @@ import {
   buildBeanListPdfTitle,
   copyBeanListPublicationContentGroups,
   defaultBeanListDraftVersion,
+  filterBeanListItemsForPriceTableScope,
   filterBeanListItemsForScope,
   sanitizeBeanListPdfTheme,
   splitHighlightedText,
@@ -784,10 +777,7 @@ const activeCustomerPublicUsage = computed(() => {
     use_public_categories: false,
   }
 })
-const activeBeanListScopeOptions = computed(() => ({
-  usePublicCategories: activeCostingScope.value !== 'customer' || activeCustomerPublicUsage.value.use_public_categories,
-}))
-const visibleCostingItems = computed(() => filterBeanListItemsForScope(items.value, activeCostingScope.value, activeBeanListCustomerID.value, activeBeanListScopeOptions.value))
+const visibleCostingItems = computed(() => filterBeanListItemsForPriceTableScope(items.value, activeCostingScope.value, activeBeanListCustomerID.value))
 const customerScopedSkuCount = computed(() => {
   const customerID = Number(activeBeanListCustomerID.value || 0)
   if (!customerID || activeCostingScope.value !== 'customer') return visibleCostingItems.value.length
@@ -1260,10 +1250,7 @@ function matchesProductTypeCategory(item, productTypeCategoryID = activeProductT
 function scopedBeanListItems(scope, listType) {
   void listType
   const customerID = selectedBeanListCustomerID.value
-  const usage = customerPublicUsages.value.find((row) => Number(row.customer_id || 0) === Number(customerID || 0))
-  return filterBeanListItemsForScope(items.value, scope, customerID, {
-    usePublicCategories: scope !== 'customer' || Boolean(usage?.use_public_categories),
-  })
+  return filterBeanListItemsForPriceTableScope(items.value, scope, customerID)
 }
 
 function beanListCategoryOptions(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
@@ -1339,7 +1326,13 @@ function openBeanListDrawer(listType = selectedProductPriceListType.value?.listT
   syncPublicationScopeFromPageContext()
   const selected = selectedProductPriceListType.value
   const resolvedListType = selected?.listType || normalizeBeanListType(listType)
-  pdfOptions.value = { ...pdfOptions.value, listType: resolvedListType, version: defaultBeanListVersionForScope(resolvedListType, activeProductTypeCategoryID.value) }
+  const isCustomerScope = activeCostingScope.value === 'customer'
+  pdfOptions.value = {
+    ...pdfOptions.value,
+    listType: resolvedListType,
+    version: defaultBeanListVersionForScope(resolvedListType, activeProductTypeCategoryID.value),
+    brandName: isCustomerScope ? '' : '棵凡咖啡',
+  }
   initializePdfDefaultsForType(resolvedListType, activeProductTypeCategoryID.value)
   loadBeanListPublications(resolvedListType, 'official', activeProductTypeCategoryID.value)
   loadBeanListPublications(resolvedListType, 'mine', activeProductTypeCategoryID.value)

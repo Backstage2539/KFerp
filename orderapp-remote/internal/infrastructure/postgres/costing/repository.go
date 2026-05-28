@@ -1465,6 +1465,9 @@ func validateBeanListProductScope(ctx context.Context, tx pgx.Tx, schema string,
 		if ownerType == "customer" && productCustomerID > 0 && productCustomerID != customerID {
 			return fmt.Errorf("customer bean list cannot include another customer's SKU")
 		}
+		if ownerType == "customer" && productCustomerID <= 0 {
+			return fmt.Errorf("customer bean list cannot include public SKU")
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
