@@ -14,7 +14,7 @@
       <div class="metrics">
         <div>
           <span>商品数</span>
-          <strong>{{ visibleCostingItems.length }}</strong>
+          <strong>{{ customerScopedSkuCount }}</strong>
         </div>
         <div>
           <span>烘焙率</span>
@@ -788,6 +788,13 @@ const activeBeanListScopeOptions = computed(() => ({
   usePublicCategories: activeCostingScope.value !== 'customer' || activeCustomerPublicUsage.value.use_public_categories,
 }))
 const visibleCostingItems = computed(() => filterBeanListItemsForScope(items.value, activeCostingScope.value, activeBeanListCustomerID.value, activeBeanListScopeOptions.value))
+const customerScopedSkuCount = computed(() => {
+  const customerID = Number(activeBeanListCustomerID.value || 0)
+  if (!customerID || activeCostingScope.value !== 'customer') return visibleCostingItems.value.length
+  return (Array.isArray(items.value) ? items.value : []).filter((item) => {
+    return Number(item?.customer_id ?? item?.customerID ?? 0) === customerID
+  }).length
+})
 const productPriceListTypeOptions = computed(() => buildProductPriceListTypeOptions(visibleCostingItems.value))
 const selectedProductPriceListType = computed(() => {
   const selectedID = Number(selectedProductTypeCategoryID.value || 0)
