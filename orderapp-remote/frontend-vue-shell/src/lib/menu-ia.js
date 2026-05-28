@@ -26,6 +26,7 @@ export const menuGroups = [
     items: [
       { key: 'productionManual', label: '生产手册', title: '生产手册' },
       { key: 'productionAcceptance', label: '生产验收', title: '生产验收' },
+      { key: 'processTemplates', label: '工艺模板', title: '工艺模板' },
       { key: 'producePlan', label: '生产计划/开始生产', title: '生产计划/开始生产' },
       { key: 'produceRunning', label: '生产中', title: '生产中' },
       { key: 'workOrders', label: '生产工单', title: '生产工单' },
@@ -55,7 +56,6 @@ export const menuGroups = [
       { key: 'mallSettings', label: '商城管理', title: '商城管理' },
       { key: 'costing', label: '产品价格表', title: '产品价格表' },
       { key: 'bom', label: 'BOM配方维护', title: 'BOM配方维护' },
-      { key: 'processTemplates', label: '工艺模板', title: '工艺模板' },
       { key: 'industryFieldTemplates', label: '行业字段模板', title: '行业字段模板' },
       { key: 'costingManual', label: '成本核价手册', title: '成本核价手册' },
       { key: 'greenBeanSalesManual', label: '生豆销售手册', title: '生豆销售手册' },

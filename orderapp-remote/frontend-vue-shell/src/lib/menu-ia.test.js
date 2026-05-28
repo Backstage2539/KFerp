@@ -56,6 +56,13 @@ test('production menu exposes the production flow manual as a primary page', () 
   assert.equal(groupForView(menuGroups, 'productionManual')?.id, 'production')
 })
 
+test('process templates live in the production menu for discoverability', () => {
+  const keys = primaryMenuKeys(menuGroups)
+  assert.ok(keys.includes('processTemplates'))
+  assert.equal(groupForView(menuGroups, 'processTemplates')?.id, 'production')
+  assert.equal(groupForView(menuGroups, 'industryFieldTemplates')?.id, 'product')
+})
+
 test('operation manuals live inside their functional menu groups', () => {
   const expectations = [
     ['orderSalesManual', 'sales'],
