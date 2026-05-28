@@ -99,7 +99,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import AllocationLogsView from './views/AllocationLogsView.vue'
 import AuditView from './views/AuditView.vue'
 import BomView from './views/BomView.vue'
@@ -302,6 +302,16 @@ const internalViews = {
   reqReview: RequirementsView,
   requirementsManual: OperationManualView,
 }
+
+function resolveInternalView(key) {
+  return markRaw(internalViews[key] || OrdersView)
+}
+
+const currentInternalView = shallowRef(resolveInternalView(currentKey.value))
+
+watch(currentKey, (key) => {
+  currentInternalView.value = resolveInternalView(key)
+}, { flush: 'sync' })
 
 const customerAccountActorMenuGroups = [
   {
@@ -748,7 +758,6 @@ const toggleLabel = computed(() => {
 const title = computed(() => menuMap[currentKey.value]?.title || '')
 const actorName = computed(() => currentActor.value?.name || '')
 const isCurrentAllowed = computed(() => menuMap[currentKey.value] && isViewAllowed(currentKey.value, allowedViewKeys.value))
-const currentInternalView = computed(() => internalViews[currentKey.value] || OrdersView)
 const currentViewIdentity = computed(() => `${currentKey.value}:${workspaceMode.value}:${workspaceCustomerContextId.value || 0}`)
 const visibleNotifications = computed(() => dedupeNotifications(notifications.value).slice(0, 3))
 const notificationStackStyle = computed(() => ({
