@@ -85,7 +85,7 @@
       <component
         v-else
         :key="currentViewIdentity"
-        :is="currentInternalView"
+        :is="resolveInternalView(currentKey)"
         class="internal-view"
         :title="title"
         :view-key="currentKey"
@@ -99,7 +99,7 @@
 </template>
 
 <script setup>
-import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AllocationLogsView from './views/AllocationLogsView.vue'
 import AuditView from './views/AuditView.vue'
 import BomView from './views/BomView.vue'
@@ -306,12 +306,6 @@ const internalViews = {
 function resolveInternalView(key) {
   return markRaw(internalViews[key] || OrdersView)
 }
-
-const currentInternalView = shallowRef(resolveInternalView(currentKey.value))
-
-watch(currentKey, (key) => {
-  currentInternalView.value = resolveInternalView(key)
-}, { flush: 'sync' })
 
 const customerAccountActorMenuGroups = [
   {
