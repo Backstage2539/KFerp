@@ -12,7 +12,9 @@ function source(rel) {
 test('vue shell remounts page components when switching menu views after SKU settings', () => {
   const app = source('App.vue')
   assert.match(app, /:key="currentViewIdentity"/)
-  assert.match(app, /currentViewIdentity\s*=\s*computed/)
+  assert.match(app, /shallowRef\(resolveInternalView\(currentKey\.value\)\)/)
+  assert.match(app, /markRaw\(internalViews\[key\] \|\| OrdersView\)/)
+  assert.match(app, /watch\(currentKey,[\s\S]*flush: 'sync'/)
 })
 
 test('customer portal settings removed bean list version and processing warehouse editors', () => {
