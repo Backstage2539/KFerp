@@ -415,6 +415,50 @@ func TestCopySKUsRewritesCrossCustomerProductReferences(t *testing.T) {
 	}
 }
 
+func TestListSKUCopyOptionsBuffersRowsBeforeTargetLookups(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fn := catalogRepositoryFunctionForTest(t, string(repository), "func (r Repository) ListSKUCopyOptions", "func (r Repository) CopySKUs")
+	if strings.Contains(fn, "defer rows.Close()") {
+		t.Fatalf("ListSKUCopyOptions must close source rows before running target lookups on the same transaction")
+	}
+	rowsErr := strings.Index(fn, "if err := rows.Err(); err != nil")
+	targetLookup := strings.Index(fn, "findEquivalentCategoryForTargetTx")
+	if rowsErr < 0 || targetLookup < 0 {
+		t.Fatalf("ListSKUCopyOptions missing rows.Err or target lookup markers")
+	}
+	if targetLookup < rowsErr {
+		t.Fatalf("ListSKUCopyOptions runs target lookups before source rows are fully consumed; this can trigger pgx conn busy")
+	}
+	if !strings.Contains(fn, "sourceOptions := make([]catalogapp.SKUCopyOption, 0)") {
+		t.Fatalf("ListSKUCopyOptions should buffer source SKU rows before annotating overwrite state")
+	}
+}
+
+func TestCopyProductBOMBuffersRowsBeforeReferenceLookups(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fn := catalogRepositoryFunctionForTest(t, string(repository), "func copyProductBOMTx", "func copyProductPriceTiersTx")
+	if strings.Contains(fn, "defer rows.Close()") {
+		t.Fatalf("copyProductBOMTx must close source rows before resolving copied product references on the same transaction")
+	}
+	rowsErr := strings.Index(fn, "if err := rows.Err(); err != nil")
+	referenceLookup := strings.Index(fn, "resolveSKUCopyProductReferenceTx")
+	if rowsErr < 0 || referenceLookup < 0 {
+		t.Fatalf("copyProductBOMTx missing rows.Err or reference lookup markers")
+	}
+	if referenceLookup < rowsErr {
+		t.Fatalf("copyProductBOMTx resolves product references before source rows are fully consumed; this can trigger pgx conn busy")
+	}
+	if !strings.Contains(fn, "bomItems := make([]skuCopyBOMItem, 0)") {
+		t.Fatalf("copyProductBOMTx should buffer BOM item rows before copying them")
+	}
+}
+
 func TestCreateCustomProductInsertDoesNotDuplicateProductKindColumn(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {

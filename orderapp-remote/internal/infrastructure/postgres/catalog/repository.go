@@ -25,6 +25,17 @@ type skuCopyPlan struct {
 	existingID       int64
 }
 
+type skuCopyBOMItem struct {
+	materialID         int64
+	componentType      string
+	componentProductID int64
+	componentSpecG     int64
+	consumeUnit        string
+	qtyPerUnit         float64
+	ratioPct           float64
+	unitCostSnapshot   float64
+}
+
 func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 	return Repository{pool: pool, schema: schema}
 }
@@ -451,7 +462,6 @@ func (r Repository) ListSKUCopyOptions(ctx context.Context, query catalogapp.SKU
 	if err != nil {
 		return catalogapp.SKUCopyOptions{}, err
 	}
-	defer rows.Close()
 
 	out := catalogapp.SKUCopyOptions{
 		Title:            "选择分类和产品",
@@ -461,23 +471,38 @@ func (r Repository) ListSKUCopyOptions(ctx context.Context, query catalogapp.SKU
 	}
 	typeIndex := map[int64]int{}
 	subtypeIndex := map[string]int{}
+	sourceOptions := make([]catalogapp.SKUCopyOption, 0)
 	for rows.Next() {
 		var option catalogapp.SKUCopyOption
 		if err := rows.Scan(&option.ID, &option.Name, &option.Remark, &option.SourceCustomerID, &option.ProductSubtypeCategoryID, &option.Active, &option.ProductSubtypeCategoryID, &option.ProductSubtypeName, &option.ProductTypeCategoryID, &option.ProductTypeName); err != nil {
+			rows.Close()
 			return catalogapp.SKUCopyOptions{}, err
 		}
 		option.CopyState = "available"
 		if !option.Active {
 			option.CopyState = "inactive"
-		} else if targetSubtypeID, err := findEquivalentCategoryForTargetTx(ctx, tx, r.schema, query.TargetCustomerID, option.ProductSubtypeCategoryID); err != nil {
-			return catalogapp.SKUCopyOptions{}, err
-		} else if targetSubtypeID >= 0 {
-			existingID, err := findTargetSKUByNameTx(ctx, tx, r.schema, query.TargetCustomerID, targetSubtypeID, option.Name)
+		}
+		sourceOptions = append(sourceOptions, option)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return catalogapp.SKUCopyOptions{}, err
+	}
+
+	for _, option := range sourceOptions {
+		if option.Active {
+			targetSubtypeID, err := findEquivalentCategoryForTargetTx(ctx, tx, r.schema, query.TargetCustomerID, option.ProductSubtypeCategoryID)
 			if err != nil {
 				return catalogapp.SKUCopyOptions{}, err
 			}
-			if existingID > 0 {
-				option.CopyState = "will_overwrite"
+			if targetSubtypeID >= 0 {
+				existingID, err := findTargetSKUByNameTx(ctx, tx, r.schema, query.TargetCustomerID, targetSubtypeID, option.Name)
+				if err != nil {
+					return catalogapp.SKUCopyOptions{}, err
+				}
+				if existingID > 0 {
+					option.CopyState = "will_overwrite"
+				}
 			}
 		}
 		out.TotalCount++
@@ -499,9 +524,6 @@ func (r Repository) ListSKUCopyOptions(ctx context.Context, query catalogapp.SKU
 			subtypeIndex[subtypeKey] = childIdx
 		}
 		out.Groups[idx].Children[childIdx].Products = append(out.Groups[idx].Children[childIdx].Products, option)
-	}
-	if err := rows.Err(); err != nil {
-		return catalogapp.SKUCopyOptions{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return catalogapp.SKUCopyOptions{}, err
@@ -2396,28 +2418,32 @@ func copyProductBOMTx(ctx context.Context, tx pgx.Tx, schema string, actor strin
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	bomItems := make([]skuCopyBOMItem, 0)
+	for rows.Next() {
+		var item skuCopyBOMItem
+		if err := rows.Scan(&item.materialID, &item.componentType, &item.componentProductID, &item.componentSpecG, &item.consumeUnit, &item.qtyPerUnit, &item.ratioPct, &item.unitCostSnapshot); err != nil {
+			rows.Close()
+			return err
+		}
+		bomItems = append(bomItems, item)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	insertSQL := fmt.Sprintf(`
 		INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,unit_cost_snapshot,updated_at)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
 	`, schema)
-	for rows.Next() {
-		var materialID int64
-		var componentType string
-		var componentProductID int64
-		var componentSpecG int64
-		var consumeUnit string
-		var qtyPerUnit float64
-		var ratioPct float64
-		var unitCostSnapshot float64
-		if err := rows.Scan(&materialID, &componentType, &componentProductID, &componentSpecG, &consumeUnit, &qtyPerUnit, &ratioPct, &unitCostSnapshot); err != nil {
-			return err
-		}
-		componentType = strings.TrimSpace(componentType)
+	for _, item := range bomItems {
+		componentType := strings.TrimSpace(item.componentType)
 		if componentType == "" {
 			componentType = "material"
 		}
+		componentProductID := item.componentProductID
+		materialID := item.materialID
 		if componentType == "finished_product" && componentProductID > 0 {
+			var err error
 			componentProductID, err = resolveSKUCopyProductReferenceTx(ctx, tx, schema, actor, targetCustomerID, componentProductID, sourceToTarget)
 			if err != nil {
 				return err
@@ -2426,11 +2452,11 @@ func copyProductBOMTx(ctx context.Context, tx pgx.Tx, schema string, actor strin
 		} else if componentType != "finished_product" {
 			componentProductID = 0
 		}
-		if _, err := tx.Exec(ctx, insertSQL, targetProductID, materialID, componentType, componentProductID, componentSpecG, consumeUnit, qtyPerUnit, ratioPct, unitCostSnapshot); err != nil {
+		if _, err := tx.Exec(ctx, insertSQL, targetProductID, materialID, componentType, componentProductID, item.componentSpecG, item.consumeUnit, item.qtyPerUnit, item.ratioPct, item.unitCostSnapshot); err != nil {
 			return err
 		}
 	}
-	return rows.Err()
+	return nil
 }
 
 func copyProductPriceTiersTx(ctx context.Context, tx pgx.Tx, schema string, sourceProductID int64, targetProductID int64) error {
