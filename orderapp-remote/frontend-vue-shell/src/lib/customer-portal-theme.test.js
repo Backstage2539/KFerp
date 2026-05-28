@@ -46,7 +46,7 @@ test('customer capability template view configures the miniapp theme', () => {
 
 test('customer portal settings view only references capability templates', () => {
   const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerPortalSettingsView.vue'), 'utf8')
-  assert.match(source, /<span>能力模板<\/span>/)
+  assert.match(source, /<span>客户门户能力模板<\/span>/)
   assert.match(source, /保存并应用模板/)
   assert.match(source, /selectedTemplate\(row\)/)
   assert.doesNotMatch(source, /customerPortalThemeOptions/)
@@ -86,7 +86,7 @@ test('customer fulfillment view no longer hosts external user management', () =>
 test('customer portal settings preserves unknown template keys for correction', () => {
   const source = fs.readFileSync(path.join(currentDir, '..', 'views', 'CustomerPortalSettingsView.vue'), 'utf8')
   assert.match(source, /function\s+unknownTemplateKey\(row\)/)
-  assert.match(source, /未知能力模板/)
+  assert.match(source, /未知客户门户能力模板/)
   assert.match(source, /capability_template_key:\s*trimTemplateKey\(row\.form\.capability_template_key\)/)
   assert.doesNotMatch(source, /capability_template_key:\s*normalizeTemplateKey\(row\.form\.capability_template_key\)/)
   assert.match(source, /!unknownTemplateKey\(row\)/)

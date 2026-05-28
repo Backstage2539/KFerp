@@ -90,12 +90,13 @@ type ListQuery struct {
 }
 
 type ListResult struct {
-	Rows       []CustomerRow
-	Sources    []Option
-	OrderTypes []Option
-	Employees  []Option
-	Total      int
-	HasNext    bool
+	Rows                []CustomerRow
+	Sources             []Option
+	OrderTypes          []Option
+	Employees           []Option
+	CustomerTypeOptions []CustomerTypeOption
+	Total               int
+	HasNext             bool
 }
 
 type CustomerRow struct {
@@ -163,13 +164,28 @@ type Option struct {
 	Name string
 }
 
+type CustomerTypeOption struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+type CreateCustomerTypeCommand struct {
+	Label string
+	Value string
+}
+
+type CreateOrderTypeCommand struct {
+	Name string
+}
+
 type EditorData struct {
-	Customer   CustomerEditData
-	Sources    []Option
-	OrderTypes []Option
-	Employees  []Option
-	Assets     []CustomerAsset
-	Dashboard  CustomerDashboard
+	Customer            CustomerEditData
+	Sources             []Option
+	OrderTypes          []Option
+	Employees           []Option
+	CustomerTypeOptions []CustomerTypeOption
+	Assets              []CustomerAsset
+	Dashboard           CustomerDashboard
 }
 
 type AssetObject struct {
@@ -187,6 +203,9 @@ type Repository interface {
 	DeleteAsset(ctx context.Context, actor string, assetID int64) (DeleteAssetResult, error)
 	InlineUpdate(ctx context.Context, actor string, id int64, cmd InlineUpdateCommand) error
 	Delete(ctx context.Context, actor string, id int64) error
+	ListCustomerTypeOptions(ctx context.Context) ([]CustomerTypeOption, error)
+	CreateCustomerTypeOption(ctx context.Context, actor string, cmd CreateCustomerTypeCommand) (CustomerTypeOption, error)
+	CreateOrderTypeOption(ctx context.Context, actor string, cmd CreateOrderTypeCommand) (Option, error)
 }
 
 type Service struct {
@@ -254,26 +273,42 @@ func (s *Service) Delete(ctx context.Context, actor string, id int64) error {
 	return s.repo.Delete(ctx, actor, id)
 }
 
-func NormalizeCustomerType(value string) string {
-	switch strings.TrimSpace(value) {
-	case CustomerTypeWholesale:
-		return CustomerTypeWholesale
-	case CustomerTypeEcommerce:
-		return CustomerTypeEcommerce
-	case CustomerTypeChannel:
-		return CustomerTypeChannel
-	default:
-		return CustomerTypeRetail
+func (s *Service) CreateCustomerTypeOption(ctx context.Context, actor string, cmd CreateCustomerTypeCommand) (CustomerTypeOption, error) {
+	cmd.Label = strings.TrimSpace(cmd.Label)
+	cmd.Value = strings.TrimSpace(cmd.Value)
+	if cmd.Label == "" {
+		return CustomerTypeOption{}, fmt.Errorf("label required")
+	}
+	return s.repo.CreateCustomerTypeOption(ctx, actor, cmd)
+}
+
+func (s *Service) CreateOrderTypeOption(ctx context.Context, actor string, cmd CreateOrderTypeCommand) (Option, error) {
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.Name == "" {
+		return Option{}, fmt.Errorf("name required")
+	}
+	return s.repo.CreateOrderTypeOption(ctx, actor, cmd)
+}
+
+func DefaultCustomerTypeOptions() []CustomerTypeOption {
+	return []CustomerTypeOption{
+		{Value: CustomerTypeRetail, Label: "零售客户"},
+		{Value: CustomerTypeEcommerce, Label: "电商客户"},
+		{Value: CustomerTypeWholesale, Label: "批发客户"},
+		{Value: CustomerTypeChannel, Label: "渠道客户"},
 	}
 }
 
-func validRequiredCustomerType(value string) bool {
-	switch strings.TrimSpace(value) {
-	case CustomerTypeRetail, CustomerTypeEcommerce, CustomerTypeWholesale, CustomerTypeChannel:
-		return true
-	default:
-		return false
+func NormalizeCustomerType(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return CustomerTypeRetail
 	}
+	return value
+}
+
+func validRequiredCustomerType(value string) bool {
+	return strings.TrimSpace(value) != ""
 }
 
 func positiveIDString(value string) bool {
@@ -299,12 +334,7 @@ func validateRequiredCustomerProfileDefaults(customerType, sourceID, orderTypeID
 }
 
 func NormalizeCustomerTypeFilter(value string) string {
-	switch strings.TrimSpace(value) {
-	case CustomerTypeWholesale, CustomerTypeEcommerce, CustomerTypeRetail, CustomerTypeChannel:
-		return strings.TrimSpace(value)
-	default:
-		return ""
-	}
+	return strings.TrimSpace(value)
 }
 
 func NormalizeCustomerSortBy(value string) string {

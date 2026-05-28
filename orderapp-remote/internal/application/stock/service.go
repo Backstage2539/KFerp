@@ -125,14 +125,20 @@ type MaterialBatchResult struct {
 }
 
 type WarehouseRow struct {
-	Code        string `json:"code"`
-	Name        string `json:"name"`
-	Kind        string `json:"kind"`
-	ParentCode  string `json:"parent_code"`
-	SortOrder   int    `json:"sort_order"`
-	IsDefault   bool   `json:"is_default"`
-	Active      bool   `json:"active"`
-	Description string `json:"description"`
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	Kind         string `json:"kind"`
+	ParentCode   string `json:"parent_code"`
+	SortOrder    int    `json:"sort_order"`
+	IsDefault    bool   `json:"is_default"`
+	Active       bool   `json:"active"`
+	Description  string `json:"description"`
+	CustomerID   int64  `json:"customer_id"`
+	CustomerName string `json:"customer_name"`
+}
+
+type WarehouseListQuery struct {
+	CustomerID int64
 }
 
 type MaterialBatchLocationQuery struct {
@@ -387,11 +393,17 @@ type StockAdjustmentResult struct {
 	AdjustmentID int64 `json:"adjustment_id"`
 }
 
+type BindWarehouseCustomerCommand struct {
+	WarehouseCode string
+	CustomerID    int64
+	Actor         string
+}
+
 type Repository interface {
 	ListLedger(ctx context.Context, query LedgerQuery) (LedgerResult, error)
 	ListBatches(ctx context.Context, query BatchQuery) (BatchResult, error)
 	ListMaterialBatches(ctx context.Context, query MaterialBatchQuery) (MaterialBatchResult, error)
-	ListWarehouses(ctx context.Context) ([]WarehouseRow, error)
+	ListWarehouses(ctx context.Context, query WarehouseListQuery) ([]WarehouseRow, error)
 	ListMaterialBatchLocations(ctx context.Context, query MaterialBatchLocationQuery) (MaterialBatchLocationResult, error)
 	ListWarehouseInventory(ctx context.Context, query WarehouseInventoryQuery) (WarehouseInventoryResult, error)
 	ListOutboundLogs(ctx context.Context, query OutboundLogQuery) (OutboundLogResult, error)
@@ -400,6 +412,7 @@ type Repository interface {
 	CreateAdjustment(ctx context.Context, cmd StockAdjustmentCommand) (StockAdjustmentResult, error)
 	TransferMaterial(ctx context.Context, cmd MaterialTransferCommand) (MaterialTransferResult, error)
 	TransferFinishedProduct(ctx context.Context, cmd FinishedProductTransferCommand) (FinishedProductTransferResult, error)
+	BindWarehouseCustomer(ctx context.Context, cmd BindWarehouseCustomerCommand) (WarehouseRow, error)
 }
 
 type Service struct {
@@ -435,8 +448,11 @@ func (s *Service) ListMaterialBatches(ctx context.Context, query MaterialBatchQu
 	return s.repo.ListMaterialBatches(ctx, query)
 }
 
-func (s *Service) ListWarehouses(ctx context.Context) ([]WarehouseRow, error) {
-	return s.repo.ListWarehouses(ctx)
+func (s *Service) ListWarehouses(ctx context.Context, query WarehouseListQuery) ([]WarehouseRow, error) {
+	if query.CustomerID < 0 {
+		query.CustomerID = 0
+	}
+	return s.repo.ListWarehouses(ctx, query)
 }
 
 func (s *Service) ListMaterialBatchLocations(ctx context.Context, query MaterialBatchLocationQuery) (MaterialBatchLocationResult, error) {
@@ -471,6 +487,21 @@ func (s *Service) GetStockTrace(ctx context.Context, query StockTraceQuery) (Sto
 		return StockTraceResult{}, fmt.Errorf("batch required")
 	}
 	return s.repo.GetStockTrace(ctx, query)
+}
+
+func (s *Service) BindWarehouseCustomer(ctx context.Context, cmd BindWarehouseCustomerCommand) (WarehouseRow, error) {
+	cmd.WarehouseCode = normalizeWarehouse(cmd.WarehouseCode)
+	if cmd.WarehouseCode == "" {
+		return WarehouseRow{}, fmt.Errorf("warehouse required")
+	}
+	if cmd.CustomerID < 0 {
+		return WarehouseRow{}, fmt.Errorf("customer_id must be >= 0")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Actor == "" {
+		cmd.Actor = "stock"
+	}
+	return s.repo.BindWarehouseCustomer(ctx, cmd)
 }
 
 func (s *Service) ReceiveMaterial(ctx context.Context, cmd MaterialReceiptCommand) (MaterialReceiptResult, error) {

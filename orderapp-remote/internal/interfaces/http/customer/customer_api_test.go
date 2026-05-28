@@ -14,9 +14,11 @@ import (
 )
 
 type fakeCustomerRepo struct {
-	upsert    customerapp.UpsertCommand
-	listQuery customerapp.ListQuery
-	assetCmd  customerapp.SaveAssetCommand
+	upsert             customerapp.UpsertCommand
+	listQuery          customerapp.ListQuery
+	assetCmd           customerapp.SaveAssetCommand
+	customerTypeCreate customerapp.CreateCustomerTypeCommand
+	orderTypeCreate    customerapp.CreateOrderTypeCommand
 }
 
 func (r *fakeCustomerRepo) Upsert(ctx context.Context, actor string, id *int64, cmd customerapp.UpsertCommand) (int64, error) {
@@ -72,6 +74,24 @@ func (r *fakeCustomerRepo) Delete(ctx context.Context, actor string, id int64) e
 	return nil
 }
 
+func (r *fakeCustomerRepo) ListCustomerTypeOptions(ctx context.Context) ([]customerapp.CustomerTypeOption, error) {
+	return []customerapp.CustomerTypeOption{
+		{Value: customerapp.CustomerTypeRetail, Label: "零售客户"},
+		{Value: customerapp.CustomerTypeChannel, Label: "渠道客户"},
+		{Value: "partner_store", Label: "联名门店"},
+	}, nil
+}
+
+func (r *fakeCustomerRepo) CreateCustomerTypeOption(ctx context.Context, actor string, cmd customerapp.CreateCustomerTypeCommand) (customerapp.CustomerTypeOption, error) {
+	r.customerTypeCreate = cmd
+	return customerapp.CustomerTypeOption{Value: "partner_store", Label: cmd.Label}, nil
+}
+
+func (r *fakeCustomerRepo) CreateOrderTypeOption(ctx context.Context, actor string, cmd customerapp.CreateOrderTypeCommand) (customerapp.Option, error) {
+	r.orderTypeCreate = cmd
+	return customerapp.Option{ID: 88, Name: cmd.Name}, nil
+}
+
 func TestCustomerAPIStoresCompanyContactFields(t *testing.T) {
 	repo := &fakeCustomerRepo{}
 	e := echo.New()
@@ -121,6 +141,50 @@ func TestCustomerAPIRoundTripsCustomerType(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"customer_type":"wholesale"`) {
 		t.Fatalf("response missing customer_type: %s", rec.Body.String())
+	}
+}
+
+func TestCustomerAPISupportsCustomCustomerTypeAndOptionCreation(t *testing.T) {
+	repo := &fakeCustomerRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
+
+	createTypeReq := httptest.NewRequest(http.MethodPost, "/api/customers/customer-types", strings.NewReader(`{"label":"联名门店"}`))
+	createTypeReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	createTypeRec := httptest.NewRecorder()
+	e.ServeHTTP(createTypeRec, createTypeReq)
+	if createTypeRec.Code != http.StatusOK || !strings.Contains(createTypeRec.Body.String(), `"value":"partner_store"`) || repo.customerTypeCreate.Label != "联名门店" {
+		t.Fatalf("create customer type status=%d body=%s cmd=%+v", createTypeRec.Code, createTypeRec.Body.String(), repo.customerTypeCreate)
+	}
+
+	body := strings.NewReader(`{"name":"联名门店A","customer_type":"partner_store","default_source_id":1,"default_order_type_id":2,"active":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/customers", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/customers status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.upsert.CustomerType != "partner_store" || !strings.Contains(rec.Body.String(), `"customer_type":"partner_store"`) {
+		t.Fatalf("custom customer type not round-tripped: cmd=%+v body=%s", repo.upsert, rec.Body.String())
+	}
+}
+
+func TestCustomerAPICreatesOrderTypeOption(t *testing.T) {
+	repo := &fakeCustomerRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Customer: customerapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/customers/order-types", strings.NewReader(`{"name":"补货订单"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"id":88`) || !strings.Contains(rec.Body.String(), `"name":"补货订单"`) {
+		t.Fatalf("create order type status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.orderTypeCreate.Name != "补货订单" {
+		t.Fatalf("order type command = %+v", repo.orderTypeCreate)
 	}
 }
 

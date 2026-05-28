@@ -14,6 +14,7 @@ type fakeRepo struct {
 	finishedTransfer FinishedProductTransferCommand
 	traceQuery       StockTraceQuery
 	outboundQuery    OutboundLogQuery
+	warehouseBind    BindWarehouseCustomerCommand
 }
 
 func (f *fakeRepo) ListLedger(ctx context.Context, query LedgerQuery) (LedgerResult, error) {
@@ -26,7 +27,7 @@ func (f *fakeRepo) ListBatches(ctx context.Context, query BatchQuery) (BatchResu
 func (f *fakeRepo) ListMaterialBatches(ctx context.Context, query MaterialBatchQuery) (MaterialBatchResult, error) {
 	return MaterialBatchResult{}, nil
 }
-func (f *fakeRepo) ListWarehouses(ctx context.Context) ([]WarehouseRow, error) {
+func (f *fakeRepo) ListWarehouses(ctx context.Context, query WarehouseListQuery) ([]WarehouseRow, error) {
 	return []WarehouseRow{}, nil
 }
 func (f *fakeRepo) ListMaterialBatchLocations(ctx context.Context, query MaterialBatchLocationQuery) (MaterialBatchLocationResult, error) {
@@ -59,6 +60,10 @@ func (f *fakeRepo) TransferMaterial(ctx context.Context, cmd MaterialTransferCom
 func (f *fakeRepo) TransferFinishedProduct(ctx context.Context, cmd FinishedProductTransferCommand) (FinishedProductTransferResult, error) {
 	f.finishedTransfer = cmd
 	return FinishedProductTransferResult{TransferID: 10, TransferNo: "FT-0000000010"}, nil
+}
+func (f *fakeRepo) BindWarehouseCustomer(ctx context.Context, cmd BindWarehouseCustomerCommand) (WarehouseRow, error) {
+	f.warehouseBind = cmd
+	return WarehouseRow{Code: cmd.WarehouseCode, Name: "客户仓", CustomerID: cmd.CustomerID, CustomerName: "渠道客户"}, nil
 }
 
 func TestListLedgerNormalizesLimitAndFilters(t *testing.T) {
@@ -101,6 +106,25 @@ func TestListWarehouseInventoryNormalizesCustomerContext(t *testing.T) {
 	}
 	if repo.inventoryQuery.Limit != 100 || repo.inventoryQuery.Offset != 0 {
 		t.Fatalf("limit/offset = %d/%d, want 100/0", repo.inventoryQuery.Limit, repo.inventoryQuery.Offset)
+	}
+}
+
+func TestBindWarehouseCustomerNormalizesCodeAndActor(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	row, err := svc.BindWarehouseCustomer(context.Background(), BindWarehouseCustomerCommand{
+		WarehouseCode: " finished_shop ",
+		CustomerID:    147,
+		Actor:         " jj ",
+	})
+	if err != nil {
+		t.Fatalf("BindWarehouseCustomer: %v", err)
+	}
+	if repo.warehouseBind.WarehouseCode != "finished_shop" || repo.warehouseBind.CustomerID != 147 || repo.warehouseBind.Actor != "jj" {
+		t.Fatalf("bind command = %+v, want trimmed code/actor", repo.warehouseBind)
+	}
+	if row.CustomerID != 147 || row.CustomerName != "渠道客户" {
+		t.Fatalf("warehouse row = %+v, want bound customer", row)
 	}
 }
 

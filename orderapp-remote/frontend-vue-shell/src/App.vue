@@ -84,6 +84,7 @@
       <div v-else-if="!isCurrentAllowed" class="status">无权访问</div>
       <component
         v-else
+        :key="currentViewIdentity"
         :is="currentInternalView"
         class="internal-view"
         :title="title"
@@ -748,6 +749,7 @@ const title = computed(() => menuMap[currentKey.value]?.title || '')
 const actorName = computed(() => currentActor.value?.name || '')
 const isCurrentAllowed = computed(() => menuMap[currentKey.value] && isViewAllowed(currentKey.value, allowedViewKeys.value))
 const currentInternalView = computed(() => internalViews[currentKey.value] || OrdersView)
+const currentViewIdentity = computed(() => `${currentKey.value}:${workspaceMode.value}:${workspaceCustomerContextId.value || 0}`)
 const visibleNotifications = computed(() => dedupeNotifications(notifications.value).slice(0, 3))
 const notificationStackStyle = computed(() => ({
   '--kferp-notice-stack-space': isMobile.value && visibleNotifications.value.length

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	customerapp "orderapp/internal/application/customer"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
@@ -162,7 +163,11 @@ func (r Repository) List(ctx context.Context, query customerapp.ListQuery) (cust
 	if err != nil {
 		return customerapp.ListResult{}, err
 	}
-	return customerapp.ListResult{Rows: rows, Sources: sources, OrderTypes: orderTypes, Employees: employees, Total: total, HasNext: hasNext}, nil
+	customerTypes, err := r.ListCustomerTypeOptions(ctx)
+	if err != nil {
+		return customerapp.ListResult{}, err
+	}
+	return customerapp.ListResult{Rows: rows, Sources: sources, OrderTypes: orderTypes, Employees: employees, CustomerTypeOptions: customerTypes, Total: total, HasNext: hasNext}, nil
 }
 
 func (r Repository) Editor(ctx context.Context, id int64) (*customerapp.EditorData, error) {
@@ -182,6 +187,10 @@ func (r Repository) Editor(ctx context.Context, id int64) (*customerapp.EditorDa
 	if err != nil {
 		return nil, err
 	}
+	customerTypes, err := r.ListCustomerTypeOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
 	assets, err := fetchCustomerAssets(ctx, r.pool, r.schema, id)
 	if err != nil {
 		return nil, err
@@ -191,12 +200,13 @@ func (r Repository) Editor(ctx context.Context, id int64) (*customerapp.EditorDa
 		return nil, err
 	}
 	return &customerapp.EditorData{
-		Customer:   *customer,
-		Sources:    sources,
-		OrderTypes: orderTypes,
-		Employees:  employees,
-		Assets:     assets,
-		Dashboard:  dashboard,
+		Customer:            *customer,
+		Sources:             sources,
+		OrderTypes:          orderTypes,
+		Employees:           employees,
+		CustomerTypeOptions: customerTypes,
+		Assets:              assets,
+		Dashboard:           dashboard,
 	}, nil
 }
 
@@ -208,6 +218,91 @@ func (r Repository) AssetObject(ctx context.Context, assetID int64) (customerapp
 		return customerapp.AssetObject{}, err
 	}
 	return customerapp.AssetObject{ObjectKey: obj, ContentType: contentType}, nil
+}
+
+func (r Repository) ListCustomerTypeOptions(ctx context.Context) ([]customerapp.CustomerTypeOption, error) {
+	if err := ensureCustomerTypeOptionTable(ctx, r.pool, r.schema); err != nil {
+		return nil, err
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT value,label
+		FROM %s.customer_type_options
+		WHERE active=true
+		ORDER BY sort_order, label, value
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	merged := mergeCustomerTypeOptions(customerapp.DefaultCustomerTypeOptions(), nil)
+	for rows.Next() {
+		var option customerapp.CustomerTypeOption
+		if err := rows.Scan(&option.Value, &option.Label); err != nil {
+			return nil, err
+		}
+		merged = mergeCustomerTypeOptions(merged, []customerapp.CustomerTypeOption{option})
+	}
+	return merged, rows.Err()
+}
+
+func (r Repository) CreateCustomerTypeOption(ctx context.Context, actor string, cmd customerapp.CreateCustomerTypeCommand) (customerapp.CustomerTypeOption, error) {
+	if err := ensureCustomerTypeOptionTable(ctx, r.pool, r.schema); err != nil {
+		return customerapp.CustomerTypeOption{}, err
+	}
+	label := strings.TrimSpace(cmd.Label)
+	if label == "" {
+		return customerapp.CustomerTypeOption{}, fmt.Errorf("label required")
+	}
+	value := sanitizeCustomerTypeValue(cmd.Value)
+	if value == "" {
+		value = sanitizeCustomerTypeValue(label)
+	}
+	if value == "" {
+		value = fmt.Sprintf("custom_%d", time.Now().UnixNano())
+	}
+	var existing customerapp.CustomerTypeOption
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT value,label
+		FROM %s.customer_type_options
+		WHERE active=true AND (value=$1 OR label=$2)
+		ORDER BY CASE WHEN value=$1 THEN 0 ELSE 1 END
+		LIMIT 1
+	`, r.schema), value, label).Scan(&existing.Value, &existing.Label)
+	if err == nil {
+		return existing, nil
+	}
+	if err != nil && err != pgx.ErrNoRows {
+		return customerapp.CustomerTypeOption{}, err
+	}
+	if _, err := r.pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_type_options(value,label,active,sort_order,created_at,created_by)
+		VALUES($1,$2,true,100,now(),$3)
+		ON CONFLICT(value) DO UPDATE SET label=excluded.label, active=true
+	`, r.schema), value, label, strings.TrimSpace(actor)); err != nil {
+		return customerapp.CustomerTypeOption{}, err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "customer_type_option", nil, "create", postgresinfra.StrPtr("label"), nil, postgresinfra.StrPtr(label), postgresinfra.AuditMeta{"value": value})
+	return customerapp.CustomerTypeOption{Value: value, Label: label}, nil
+}
+
+func (r Repository) CreateOrderTypeOption(ctx context.Context, actor string, cmd customerapp.CreateOrderTypeCommand) (customerapp.Option, error) {
+	name := strings.TrimSpace(cmd.Name)
+	if name == "" {
+		return customerapp.Option{}, fmt.Errorf("name required")
+	}
+	var option customerapp.Option
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT id,name FROM %s.order_types WHERE name=$1 LIMIT 1`, r.schema), name).Scan(&option.ID, &option.Name)
+	if err == nil {
+		return option, nil
+	}
+	if err != nil && err != pgx.ErrNoRows {
+		return customerapp.Option{}, err
+	}
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.order_types(name) VALUES($1) RETURNING id,name`, r.schema), name).Scan(&option.ID, &option.Name); err != nil {
+		return customerapp.Option{}, err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "order_type", &option.ID, "create", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(name), nil)
+	return option, nil
 }
 
 func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, query customerapp.ListQuery) (rows []customerapp.CustomerRow, total int, hasNext bool, err error) {
@@ -357,6 +452,69 @@ func fetchCustomerResponsibleEmployees(ctx context.Context, pool *pgxpool.Pool, 
 		ORDER BY id DESC
 	`, schema)
 	return fetchOptions(ctx, pool, q)
+}
+
+func ensureCustomerTypeOptionTable(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s.customer_type_options (
+			value TEXT PRIMARY KEY,
+			label TEXT NOT NULL DEFAULT '',
+			active BOOLEAN NOT NULL DEFAULT true,
+			sort_order INTEGER NOT NULL DEFAULT 100,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_by TEXT NOT NULL DEFAULT ''
+		)
+	`, schema)); err != nil {
+		return err
+	}
+	for index, option := range customerapp.DefaultCustomerTypeOptions() {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.customer_type_options(value,label,active,sort_order)
+			VALUES($1,$2,true,$3)
+			ON CONFLICT(value) DO UPDATE SET label=excluded.label, active=true, sort_order=excluded.sort_order
+		`, schema), option.Value, option.Label, (index+1)*10); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func mergeCustomerTypeOptions(base, extra []customerapp.CustomerTypeOption) []customerapp.CustomerTypeOption {
+	out := make([]customerapp.CustomerTypeOption, 0, len(base)+len(extra))
+	seen := map[string]bool{}
+	for _, option := range append(base, extra...) {
+		option.Value = strings.TrimSpace(option.Value)
+		option.Label = strings.TrimSpace(option.Label)
+		if option.Value == "" || option.Label == "" || seen[option.Value] {
+			continue
+		}
+		seen[option.Value] = true
+		out = append(out, option)
+	}
+	return out
+}
+
+func sanitizeCustomerTypeValue(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if r == '_' || r == '-' || unicode.IsSpace(r) {
+			if !lastUnderscore && b.Len() > 0 {
+				b.WriteByte('_')
+				lastUnderscore = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "_")
 }
 
 func fetchCustomerAssets(ctx context.Context, pool *pgxpool.Pool, schema string, customerID int64) ([]customerapp.CustomerAsset, error) {

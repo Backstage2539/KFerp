@@ -28,6 +28,8 @@ func registerCustomerRoutes(e *echo.Echo, deps Dependencies) {
 	e.GET("/customers", h.index)
 	e.GET("/api/customers", h.indexAPI)
 	e.POST("/api/customers", h.createAPI)
+	e.POST("/api/customers/customer-types", h.createCustomerTypeAPI)
+	e.POST("/api/customers/order-types", h.createOrderTypeAPI)
 	e.GET("/api/customers/:id", h.detailAPI)
 	e.PUT("/api/customers/:id", h.updateAPI)
 	e.GET("/customers/new", h.new)
@@ -114,12 +116,13 @@ type customerAssetAPI struct {
 }
 
 type customerEditorAPIResponse struct {
-	Customer   customerAPIModel     `json:"customer"`
-	Sources    []apiOption          `json:"sources"`
-	OrderTypes []apiOption          `json:"order_types"`
-	Employees  []apiOption          `json:"employees"`
-	Assets     []customerAssetAPI   `json:"assets"`
-	Dashboard  customerDashboardAPI `json:"dashboard"`
+	Customer            customerAPIModel                 `json:"customer"`
+	Sources             []apiOption                      `json:"sources"`
+	OrderTypes          []apiOption                      `json:"order_types"`
+	Employees           []apiOption                      `json:"employees"`
+	CustomerTypeOptions []customerapp.CustomerTypeOption `json:"customer_type_options"`
+	Assets              []customerAssetAPI               `json:"assets"`
+	Dashboard           customerDashboardAPI             `json:"dashboard"`
 }
 
 func (h customerHandler) index(c echo.Context) error {
@@ -157,22 +160,55 @@ func (h customerHandler) indexAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{
-		"rows":           result.Rows,
-		"sources":        apiOptions(result.Sources),
-		"order_types":    apiOptions(result.OrderTypes),
-		"employees":      apiOptions(result.Employees),
-		"page":           (offset / limit) + 1,
-		"limit":          limit,
-		"offset":         offset,
-		"total":          result.Total,
-		"total_pages":    pageCount(result.Total, limit),
-		"customer_type":  customerType,
-		"active":         formatActiveFilter(active),
-		"sort_by":        c.QueryParam("sort_by"),
-		"sort_direction": c.QueryParam("sort_direction"),
-		"has_prev":       offset > 0,
-		"has_next":       result.HasNext,
+		"rows":                  result.Rows,
+		"sources":               apiOptions(result.Sources),
+		"order_types":           apiOptions(result.OrderTypes),
+		"employees":             apiOptions(result.Employees),
+		"customer_type_options": result.CustomerTypeOptions,
+		"page":                  (offset / limit) + 1,
+		"limit":                 limit,
+		"offset":                offset,
+		"total":                 result.Total,
+		"total_pages":           pageCount(result.Total, limit),
+		"customer_type":         customerType,
+		"active":                formatActiveFilter(active),
+		"sort_by":               c.QueryParam("sort_by"),
+		"sort_direction":        c.QueryParam("sort_direction"),
+		"has_prev":              offset > 0,
+		"has_next":              result.HasNext,
 	})
+}
+
+func (h customerHandler) createCustomerTypeAPI(c echo.Context) error {
+	var req struct {
+		Label string `json:"label"`
+		Value string `json:"value"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	option, err := h.customer.CreateCustomerTypeOption(c.Request().Context(), support.ActorOf(c), customerapp.CreateCustomerTypeCommand{
+		Label: req.Label,
+		Value: req.Value,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, option)
+}
+
+func (h customerHandler) createOrderTypeAPI(c echo.Context) error {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	option, err := h.customer.CreateOrderTypeOption(c.Request().Context(), support.ActorOf(c), customerapp.CreateOrderTypeCommand{Name: req.Name})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, apiOption{ID: option.ID, Name: option.Name})
 }
 
 func pageCount(total, limit int) int {
@@ -268,12 +304,13 @@ func (h customerHandler) editorPayload(c echo.Context, id int64) (*customerEdito
 		return nil, err
 	}
 	payload := customerEditorAPIResponse{
-		Customer:   customerAPIModelFromEdit(&data.Customer),
-		Sources:    apiOptions(data.Sources),
-		OrderTypes: apiOptions(data.OrderTypes),
-		Employees:  apiOptions(data.Employees),
-		Assets:     customerAssetsAPI(data.Assets),
-		Dashboard:  customerDashboardAPIFromData(data.Dashboard),
+		Customer:            customerAPIModelFromEdit(&data.Customer),
+		Sources:             apiOptions(data.Sources),
+		OrderTypes:          apiOptions(data.OrderTypes),
+		Employees:           apiOptions(data.Employees),
+		CustomerTypeOptions: data.CustomerTypeOptions,
+		Assets:              customerAssetsAPI(data.Assets),
+		Dashboard:           customerDashboardAPIFromData(data.Dashboard),
 	}
 	return &payload, nil
 }

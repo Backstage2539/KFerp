@@ -3,7 +3,7 @@
     <section class="panel top-panel">
       <div class="panel-head">
         <div>
-          <h2>客户能力模板设置</h2>
+          <h2>客户门户能力模板设置</h2>
           <p>ERP 权限、小程序入口、客户能力和计价规则</p>
         </div>
         <button class="secondary" type="button" @click="loadTemplates" :disabled="loading">刷新</button>

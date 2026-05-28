@@ -81,6 +81,20 @@ func TestCustomerPortalAdminRepositoryAuditsPortalProfileFields(t *testing.T) {
 	}
 }
 
+func TestCustomerPortalAdminRepositoryDoesNotAutoCreateProcessingWarehouseFromCapabilities(t *testing.T) {
+	body, err := os.ReadFile("admin_repository.go")
+	if err != nil {
+		t.Fatalf("read admin_repository.go: %v", err)
+	}
+	text := string(body)
+	if strings.Contains(text, `warehouseCode == "" && capabilityEnabled`) {
+		t.Fatalf("admin repository should not auto-default processing warehouses from portal capability settings")
+	}
+	if !strings.Contains(text, "portalCustomerWarehouses") || !strings.Contains(text, "customer_id=$1") {
+		t.Fatalf("admin repository should expose customer-bound warehouses from the stock warehouse binding")
+	}
+}
+
 func TestCustomerPortalAdminRepositoryPersistsMallProducts(t *testing.T) {
 	body, err := os.ReadFile("admin_repository.go")
 	if err != nil {

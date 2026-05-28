@@ -1,11 +1,12 @@
 export const menuGroups = [
   {
-    id: 'customerFulfillment',
-    name: '客户履约',
+    id: 'customerManagement',
+    name: '客户管理',
     items: [
+      { key: 'customers', label: '客户档案', title: '客户档案' },
       { key: 'customerFulfillment', label: '履约运营台', title: '客户履约运营台' },
       { key: 'customerPortalSettings', label: '门户客户配置', title: '门户客户配置' },
-      { key: 'customerCapabilityTemplates', label: '能力模板', title: '客户能力模板设置' },
+      { key: 'customerCapabilityTemplates', label: '客户门户能力模板', title: '客户门户能力模板设置' },
       { key: 'customerFulfillmentManual', label: '客户履约手册', title: '客户履约手册' },
     ],
   },
@@ -17,7 +18,6 @@ export const menuGroups = [
       { key: 'orders', label: '订单列表', title: '订单列表' },
       { key: 'contracts', label: '合同盖章', title: '合同盖章' },
       { key: 'orderSalesManual', label: '订单销售手册', title: '订单销售手册' },
-      { key: 'customers', label: '客户档案', title: '客户档案' },
     ],
   },
   {
