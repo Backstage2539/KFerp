@@ -69,7 +69,7 @@ func TestProductFormulaMenuClickMatrixViewsExposeActions(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"/api/costing/bean-list",
 			"/api/costing/bean-list/publications",
-			"豆单版本列表",
+			"已发布价格表",
 			"生成价格表",
 		},
 		filepath.Join("frontend-vue-shell", "src", "components", "CostingSettingsPanel.vue"): {

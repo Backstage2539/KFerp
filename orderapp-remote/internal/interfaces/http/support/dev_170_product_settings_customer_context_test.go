@@ -68,7 +68,7 @@ func TestDev170CostingViewAcceptsCustomerContext(t *testing.T) {
 		"versionListScopeCustomerID(versionListScope.value)",
 		"publicationScope.value = 'customer'",
 		"selectedBeanListCustomerID.value = pageCustomerID",
-		"filterBeanListItemsForScope(items.value, activeCostingScope.value",
+		"filterBeanListItemsForPriceTableScope(items.value, activeCostingScope.value",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("CostingView.vue missing product settings customer context marker %q", want)
