@@ -38,7 +38,7 @@ func TestDev170ProductSettingsLayoutUsesTopLevelCustomerContext(t *testing.T) {
 		"categoryTreeForSkuContext",
 		"contextCategorizedProductIDs",
 		"skuContextProductFilter",
-		"v-for=\"primary in visibleCategoryTreeForSkuContext\"",
+		"v-for=\"primary in visibleCategoryManagementTreeForSkuContext\"",
 		"customer_id: selectedCustomerSkuCustomerID.value",
 		"豆单生成请进入产品价格表",
 	} {
