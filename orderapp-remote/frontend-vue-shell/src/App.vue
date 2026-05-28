@@ -82,6 +82,17 @@
       <div v-if="authLoading" class="status">加载中</div>
       <div v-else-if="authError" class="status">{{ authError }}</div>
       <div v-else-if="!isCurrentAllowed" class="status">无权访问</div>
+      <ProductSettingsView
+        v-else-if="isProductSettingsView"
+        :key="currentViewIdentity"
+        class="internal-view"
+        :title="title"
+        :view-key="currentKey"
+        :view-params="currentViewParams"
+        :workspace-mode="workspaceMode"
+        :customer-context-id="workspaceCustomerContextId"
+        :customer-context-label="workspaceCustomerLabel"
+        :customer-account-actor="isCustomerActor" />
       <component
         v-else
         :key="currentViewIdentity"
@@ -752,6 +763,7 @@ const toggleLabel = computed(() => {
 const title = computed(() => menuMap[currentKey.value]?.title || '')
 const actorName = computed(() => currentActor.value?.name || '')
 const isCurrentAllowed = computed(() => menuMap[currentKey.value] && isViewAllowed(currentKey.value, allowedViewKeys.value))
+const isProductSettingsView = computed(() => currentKey.value === 'productSettings' || currentKey.value === 'products')
 const currentViewIdentity = computed(() => `${currentKey.value}:${workspaceMode.value}:${workspaceCustomerContextId.value || 0}`)
 const visibleNotifications = computed(() => dedupeNotifications(notifications.value).slice(0, 3))
 const notificationStackStyle = computed(() => ({

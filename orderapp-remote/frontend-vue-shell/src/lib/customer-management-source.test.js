@@ -11,6 +11,8 @@ function source(rel) {
 
 test('vue shell remounts page components when switching menu views after SKU settings', () => {
   const app = source('App.vue')
+  assert.match(app, /<ProductSettingsView\s+v-else-if="isProductSettingsView"/)
+  assert.match(app, /currentKey\.value === 'productSettings' \|\| currentKey\.value === 'products'/)
   assert.match(app, /:key="currentViewIdentity"/)
   assert.match(app, /:is="resolveInternalView\(currentKey\)"/)
   assert.match(app, /markRaw\(internalViews\[key\] \|\| OrdersView\)/)
