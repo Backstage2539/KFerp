@@ -174,7 +174,7 @@ import { fetchCustomerProcessingPortalOverview } from './api/customer-fulfillmen
 import { fetchERPNotifications, markNotificationRead } from './api/message-center.js'
 import { fetchUISettings } from './api/ui-settings.js'
 import { dedupeNotifications } from './lib/global-notifications.js'
-import { replaceHistoryURL, viewNavigationURL } from './lib/url-state.js'
+import { relativeURLForHistory, replaceHistoryURL, viewNavigationURL } from './lib/url-state.js'
 import { installTableAutoPagination } from './lib/table-auto-pagination.js'
 import SearchableSelect from './components/SearchableSelect.vue'
 import {
@@ -389,6 +389,15 @@ function applyKeyToUrl(key, params = {}) {
   replaceHistoryURL(applyWorkspaceToUrl(viewNavigationURL(url, key, workspaceViewParams(params, workspaceContext()))))
 }
 
+function isProductSettingsKey(key) {
+  return key === 'productSettings' || key === 'products'
+}
+
+function hardNavigateToView(key, params = {}) {
+  const url = applyWorkspaceToUrl(viewNavigationURL(new URL(window.location.href), key, workspaceViewParams(params, workspaceContext())))
+  window.location.assign(relativeURLForHistory(url))
+}
+
 function scrollCurrentViewToTop() {
   nextTick(() => {
     if (content.value && typeof content.value.scrollTo === 'function') {
@@ -406,6 +415,10 @@ function scrollCurrentViewToTop() {
 function open(key, params = {}) {
   if (!menuMap[key]) return
   if (!isViewAllowed(key, allowedViewKeys.value)) return
+  if (isProductSettingsKey(currentKey.value) && !isProductSettingsKey(key)) {
+    hardNavigateToView(key, params)
+    return
+  }
   currentKey.value = key
   currentViewParams.value = workspaceViewParams(params, workspaceContext())
   ensureCurrentGroupOpen(key)
