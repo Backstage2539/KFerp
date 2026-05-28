@@ -1403,7 +1403,7 @@ test('SKU settings opens SKU creation and SKU copy behind drawers while category
     'openSkuCopyDrawer',
     '商品分类管理',
     'categorySearchQuery',
-    'visibleCategoryTreeForSkuContext',
+    'visibleCategoryManagementTreeForSkuContext',
     'category-search',
     'category-scroll-list',
     'product-editor-drawer',
@@ -1418,7 +1418,7 @@ test('SKU settings opens SKU creation and SKU copy behind drawers while category
   assert.doesNotMatch(template, /class="panel custom-product-panel"/)
   assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"[\s\S]*@click="openSkuCopyDrawer"/)
   assert.doesNotMatch(template, />分类设置</)
-  assert.match(template, /v-for="primary in visibleCategoryTreeForSkuContext"/)
+  assert.match(template, /v-for="primary in visibleCategoryManagementTreeForSkuContext"/)
   assert.match(template, /<aside class="settings-drawer sku-copy-drawer"[\s\S]*选择分类和产品/)
   assert.match(template, /当前SKU \{\{ skuDisplayTotal \}\}/)
   assert.match(template, /:total="skuDisplayTotal"/)
@@ -1552,6 +1552,39 @@ test('SKU category primary row keeps title and sorting on the left with collapse
   assert.match(template, /<div class="category-row-actions primary-category-right">[\s\S]*category-collapse-button[\s\S]*category-delete-button/)
   assert.match(style, /\.primary-category-left\s*\{[^}]*display:\s*flex;/s)
   assert.match(style, /\.primary-category-right\s*\{[^}]*justify-content:\s*flex-end;/s)
+})
+
+test('SKU category management only edits current-owned categories and removes customer category copy action', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  assert.match(script, /const categoryManagementTreeForSkuContext = computed\(\(\) => buildSkuContextCategoryTree/)
+  assert.match(script, /categoryManagementTreeForSkuContext[\s\S]*usePublicCategories:\s*false/)
+  assert.match(script, /const visibleCategoryManagementTreeForSkuContext = computed/)
+  assert.match(template, /v-for="primary in visibleCategoryManagementTreeForSkuContext"/)
+  assert.match(template, /!categoryManagementTreeForSkuContext\.length/)
+  assert.doesNotMatch(template, /复制为客户分类/)
+})
+
+test('SKU category management makes collapsed product types and child subtypes visually clear', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const style = source.split('<style scoped>')[1] || ''
+
+  assert.match(template, /class="primary-category"[\s\S]*collapsed:\s*isPrimaryCategoryCollapsed\(primary\)/)
+  assert.match(template, /isPrimaryCategoryCollapsed\(primary\)\s*\?\s*'展开'\s*:\s*'收起'/)
+  assert.match(style, /\.primary-category\.collapsed\s*\{[^}]*padding:\s*0;/s)
+  assert.match(style, /\.primary-category\.collapsed\s+\.primary-category-head\s*\{[^}]*border:\s*1px solid/s)
+  assert.match(style, /\.secondary-category\s*\{[^}]*margin-left:\s*34px;/s)
+})
+
+test('SKU category management delete buttons do not start subtype dragging', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+
+  assert.match(template, /aria-label="删除产品类型"[\s\S]*@pointerdown\.stop[\s\S]*@click\.stop="deleteCategory\(primary\)"/)
+  assert.match(template, /aria-label="删除产品子类型"[\s\S]*@pointerdown\.stop[\s\S]*@click\.stop="deleteCategory\(secondary\)"/)
 })
 
 test('SKU table keeps product type columns on one line and relies on horizontal scroll', () => {

@@ -21,7 +21,7 @@
             <div class="context-stats">
               <span>公共SKU {{ publicSkuRows.length }}</span>
               <span>当前SKU {{ skuDisplayTotal }}</span>
-              <span>商品分类 {{ categoryTreeForSkuContext.length }}</span>
+              <span>商品分类 {{ categoryManagementTreeForSkuContext.length }}</span>
             </div>
           </div>
           <div v-if="!isWorkspaceCustomerLocked" class="sku-context-controls">
@@ -314,7 +314,7 @@
               type="button"
               aria-label="切换删除产品类型"
               title="删除产品类型"
-              :disabled="loading || !categoryTreeForSkuContext.length"
+              :disabled="loading || !categoryManagementTreeForSkuContext.length"
               @click="togglePrimaryDeleteMode">
               -
             </button>
@@ -323,9 +323,10 @@
           <div class="category-scroll-list">
           <div class="category-tree">
             <div
-              v-for="primary in visibleCategoryTreeForSkuContext"
+              v-for="primary in visibleCategoryManagementTreeForSkuContext"
               :key="primary.id"
               class="primary-category"
+              :class="{ collapsed: isPrimaryCategoryCollapsed(primary) }"
               :data-primary-id="primary.id"
               @dragover.prevent="handlePrimaryCategoryDragOver($event, primary)"
               @drop.prevent="dropCategoryOnCurrentTarget(primary)">
@@ -348,9 +349,6 @@
                     <button v-else class="category-name-button primary-name-button" type="button" :disabled="!canEditCategory(primary)" @click="startCategoryEdit(primary)">
                       <strong>{{ primary.number }}. {{ primary.name }}<small v-if="skuContextCustomerID">（{{ categoryStateLabel(primary) }}）</small></strong>
                     </button>
-                    <div v-if="!canEditCategory(primary) && skuContextCustomerID" class="category-actions">
-                      <button class="text-button" type="button" @click="deriveCategoryTemplate(primary)">复制为客户分类</button>
-                    </div>
                   </div>
                   <div v-if="canEditCategory(primary)" class="category-action-pill category-child-toolbar" aria-label="产品子类型操作">
                     <button class="category-action-button compact" type="button" aria-label="新增产品子类型" title="新增产品子类型" :disabled="loading" @click="createSecondaryCategoryInline(primary)">+</button>
@@ -374,9 +372,9 @@
                     :aria-expanded="!isPrimaryCategoryCollapsed(primary)"
                     :title="isPrimaryCategoryCollapsed(primary) ? '展开产品类型' : '折叠产品类型'"
                     @click.stop="togglePrimaryCategoryCollapse(primary)">
-                    {{ isPrimaryCategoryCollapsed(primary) ? '›' : '⌄' }}
+                    {{ isPrimaryCategoryCollapsed(primary) ? '展开' : '收起' }}
                   </button>
-                  <button v-if="primaryDeleteMode && canEditCategory(primary)" class="category-delete-button" type="button" aria-label="删除产品类型" title="删除产品类型" @click.stop="deleteCategory(primary)">-</button>
+                  <button v-if="primaryDeleteMode && canEditCategory(primary)" class="category-delete-button" type="button" aria-label="删除产品类型" title="删除产品类型" @pointerdown.stop @click.stop="deleteCategory(primary)">-</button>
                 </div>
               </div>
 
@@ -435,8 +433,7 @@
                         </option>
                       </select>
                       <div class="secondary-category-actions">
-                        <button v-if="!canEditCategory(secondary) && skuContextCustomerID" class="text-button" type="button" @click="deriveCategoryTemplate(secondary)">复制为客户分类</button>
-                        <button v-if="secondaryDeleteModeFor === Number(primary.id) && canEditCategory(secondary)" class="category-delete-button" type="button" aria-label="删除产品子类型" title="删除产品子类型" @click.stop="deleteCategory(secondary)">-</button>
+                        <button v-if="secondaryDeleteModeFor === Number(primary.id) && canEditCategory(secondary)" class="category-delete-button" type="button" aria-label="删除产品子类型" title="删除产品子类型" @pointerdown.stop @click.stop="deleteCategory(secondary)">-</button>
                       </div>
                     </div>
                     <div v-show="!isSecondaryCategoryCollapsed(secondary)" class="product-chip-list">
@@ -462,7 +459,7 @@
               </template>
             </div>
           </div>
-          <p v-if="!visibleCategoryTreeForSkuContext.length" class="muted category-empty">没有匹配的商品分类</p>
+          <p v-if="!visibleCategoryManagementTreeForSkuContext.length" class="muted category-empty">没有匹配的商品分类</p>
 
           <div class="uncategorized" @dragover.prevent @drop="dropProductOnSecondary({ id: 0 })">
             <div class="sub-title">停车场（待归类 SKU）</div>
@@ -1174,8 +1171,19 @@ const categoryTreeForSkuContext = computed(() => buildSkuContextCategoryTree(cat
   publicProducts: publicProducts.value,
   customerProducts: customerProductsForContext.value,
 }))
+const categoryManagementTreeForSkuContext = computed(() => buildSkuContextCategoryTree(categories.value, {
+  customerID: skuContextCustomerID.value,
+  usePublicCategories: false,
+  usePublicSku: false,
+  usePublicSkuInCategoryTree: false,
+  publicCategories: flatPublicCategories.value,
+  customerCategories: flatCustomerCategories.value,
+  publicProducts: publicProducts.value,
+  customerProducts: customerProductsForContext.value,
+}))
 const isCategorySearchActive = computed(() => Boolean(categorySearchQuery.value.trim()))
 const visibleCategoryTreeForSkuContext = computed(() => filterCategoryTreeByQuery(categoryTreeForSkuContext.value, categorySearchQuery.value))
+const visibleCategoryManagementTreeForSkuContext = computed(() => filterCategoryTreeByQuery(categoryManagementTreeForSkuContext.value, categorySearchQuery.value))
 const productTypeCategoryOptions = computed(() => categoryTreeForSkuContext.value
   .map((category) => ({
     id: Number(category.id || 0),
@@ -3114,7 +3122,7 @@ function isFirstPrimaryCategory(primary) {
 }
 
 function isLastPrimaryCategory(primary) {
-  return Number(primary?.number || 0) >= categoryTreeForSkuContext.value.length
+  return Number(primary?.number || 0) >= categoryManagementTreeForSkuContext.value.length
 }
 
 function normalizeCategoryIdList(values = []) {
@@ -3182,12 +3190,12 @@ async function focusCategoryAfterCreate(category) {
 }
 
 async function createPrimaryCategoryInline() {
-  const name = nextCategoryName('新产品类型', categoryTreeForSkuContext.value)
+  const name = nextCategoryName('新产品类型', categoryManagementTreeForSkuContext.value)
   const category = await saveCategory({
     name,
     parent_id: 0,
     customer_id: selectedCustomerSkuCustomerID.value,
-    position: categoryTreeForSkuContext.value.length + 1,
+    position: categoryManagementTreeForSkuContext.value.length + 1,
   })
   const id = Number(category?.id || 0)
   if (id) {
@@ -3219,7 +3227,7 @@ async function movePrimaryCategory(category, direction) {
   if (!canEditCategory(category)) return
   const currentPosition = Number(category.number || category.position || 0)
   const position = currentPosition + Number(direction || 0)
-  if (position < 1 || position > categoryTreeForSkuContext.value.length) return
+  if (position < 1 || position > categoryManagementTreeForSkuContext.value.length) return
   loading.value = true
   error.value = ''
   ok.value = ''
@@ -3248,28 +3256,6 @@ async function saveCategory(body) {
   } catch (err) {
     error.value = err.message || '保存分类失败'
     return null
-  } finally {
-    loading.value = false
-  }
-}
-
-async function deriveCategoryTemplate(category) {
-  const customerID = skuContextCustomerID.value
-  if (!customerID || Number(category.customer_id || 0) !== 0) return
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    await apiSend('/api/product-settings/customer-categories/derive', {
-      body: {
-        customer_id: customerID,
-        source_category_id: Number(category.id || 0),
-      },
-    })
-    ok.value = '公共分类已复制为客户分类，可改名、排序和绑定客户梯度模板'
-    await loadAll()
-  } catch (err) {
-    error.value = err.message || '复制公共分类失败'
   } finally {
     loading.value = false
   }
@@ -3403,7 +3389,7 @@ async function handleCategoryPointerUp(event) {
     return
   }
   event.preventDefault()
-  const primary = categoryTreeForSkuContext.value.find((item) => Number(item.id) === Number(target?.parentID))
+  const primary = categoryManagementTreeForSkuContext.value.find((item) => Number(item.id) === Number(target?.parentID))
   if (!primary || !target) {
     clearDrag()
     return
@@ -3432,7 +3418,7 @@ function resolveCategoryPointerTarget(clientX, clientY, fallbackPrimaryID) {
     || document.querySelector(`[data-primary-id="${fallbackPrimaryID}"]`)
   if (!primaryElement) return null
   const primaryID = Number(primaryElement.dataset.primaryId || fallbackPrimaryID)
-  const primary = categoryTreeForSkuContext.value.find((item) => Number(item.id) === primaryID)
+  const primary = categoryManagementTreeForSkuContext.value.find((item) => Number(item.id) === primaryID)
   if (!primary) return null
   const secondaryElements = Array.from(primaryElement.querySelectorAll('.secondary-category'))
   if (!secondaryElements.length) return { primary, position: 1 }
@@ -3893,14 +3879,16 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .category-action-button:hover:not(:disabled) { background: #f4f0ea; }
 .category-action-button.danger-toggle.active { background: #fff1f0; color: #b42318; }
 .category-action-button:disabled { cursor: not-allowed; opacity: .36; }
-.category-collapse-button { width: 24px; height: 24px; min-height: 24px; display: inline-grid; place-items: center; flex: 0 0 auto; border: 1px solid #e3ddd4; border-radius: 999px; background: #fff; color: #4a4037; padding: 0; font-size: 15px; font-weight: 700; line-height: 1; cursor: pointer; }
+.category-collapse-button { min-width: 52px; height: 26px; min-height: 26px; display: inline-grid; place-items: center; flex: 0 0 auto; border: 1px solid #d8d0c6; border-radius: 999px; background: #fff; color: #4a4037; padding: 0 10px; font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer; }
 .category-collapse-button:hover { background: #f4f0ea; }
-.category-collapse-button.secondary-collapse { width: 22px; height: 22px; min-height: 22px; font-size: 13px; }
+.category-collapse-button.secondary-collapse { min-width: 24px; width: 24px; height: 24px; min-height: 24px; padding: 0; font-size: 13px; }
 .category-scroll-list { max-height: min(640px, calc(100vh - 280px)); overflow: auto; display: grid; gap: 10px; padding-right: 2px; }
 .category-tree { display: grid; gap: 10px; min-width: 0; }
 .primary-category { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fbfaf8; min-width: 0; }
+.primary-category.collapsed { padding: 0; border-color: transparent; background: transparent; }
 .category-head, .secondary-head, .category-actions { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
 .primary-category-head { align-items: flex-start; justify-content: space-between; gap: 10px; }
+.primary-category.collapsed .primary-category-head { align-items: center; width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #d8d0c6; border-radius: 8px; background: #fff; box-shadow: 0 1px 2px rgba(25, 20, 15, .05); }
 .primary-category-left { display: flex; align-items: flex-start; gap: 8px; flex: 1 1 auto; min-width: 0; }
 .primary-category-right { justify-content: flex-end; padding-top: 2px; }
 .category-row-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; margin-left: auto; padding-top: 1px; }
@@ -3918,7 +3906,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .category-child-toolbar { display: inline-flex; align-items: center; }
 .secondary-head { flex-wrap: wrap; justify-content: flex-start; }
 .secondary-head b { min-width: 120px; }
-.secondary-category { border: 1px solid #ddd; border-radius: 8px; padding: 9px; background: #fff; cursor: grab; user-select: none; touch-action: none; min-width: 0; overflow: hidden; }
+.secondary-category { border: 1px solid #ddd; border-radius: 8px; padding: 9px; margin-left: 34px; background: #fff; cursor: grab; user-select: none; touch-action: none; min-width: 0; overflow: hidden; }
 .secondary-category.dragging { opacity: .45; }
 .secondary-category.pointer-dragging { cursor: grabbing; }
 .secondary-head span { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border: 1px solid #ddd; border-radius: 6px; }
