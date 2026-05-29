@@ -61,6 +61,9 @@ func (r *fakeRepo) ActivateVersion(ctx context.Context, cmd ActivateVersionComma
 func (r *fakeRepo) SetBomSource(context.Context, SetBomSourceCommand) (Detail, error) {
 	return Detail{}, nil
 }
+func (r *fakeRepo) DeriveOwned(context.Context, DeriveOwnedCommand) (Detail, error) {
+	return Detail{}, nil
+}
 
 func TestServiceValidatesSaveItem(t *testing.T) {
 	repo := &fakeRepo{}
@@ -255,5 +258,8 @@ func (r errorRepo) ActivateVersion(ctx context.Context, cmd ActivateVersionComma
 	return r.err
 }
 func (r errorRepo) SetBomSource(context.Context, SetBomSourceCommand) (Detail, error) {
+	return Detail{}, r.err
+}
+func (r errorRepo) DeriveOwned(context.Context, DeriveOwnedCommand) (Detail, error) {
 	return Detail{}, r.err
 }

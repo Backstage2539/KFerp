@@ -60,60 +60,53 @@ func (r Repository) List(ctx context.Context) ([]bomapp.ListItem, error) {
 		if err := rows.Scan(&item.ProductID, &item.CustomerID, &item.Product, &item.RoastLevel, &item.ProductKind, &fallback, &item.Status, &item.ItemCount, &item.OrderUsageCount, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
+		source, err := resolveEffectiveBomSource(ctx, r.pool, r.schema, item.ProductID)
+		if err != nil {
+			return nil, err
+		}
+		summary, err := loadBomSummaryForSource(ctx, r.pool, r.schema, source)
+		if err != nil {
+			return nil, err
+		}
+		if summary.YieldRate > 0 {
+			fallback = summary.YieldRate
+		}
 		item.YieldRate = resolveBomYieldRate(item.RoastLevel, fallback)
+		item.Status = summary.Status
+		item.ItemCount = summary.ItemCount
+		item.UpdatedAt = summary.UpdatedAt
+		applyBomSourceToListItem(&item, source)
 		result = append(result, item)
 	}
 	return result, rows.Err()
 }
 
 func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail, error) {
-	var productName string
-	var roastLevel string
-	var yieldRate float64
-	var status string
-	var updatedAt string
-	var bomSourceType string
-	var bomSourceProductID int64
-	var bomSourceProductName string
-	var bomSourceVersionID int64
-	var bomSourceVersionNo string
-	err := r.pool.QueryRow(ctx,
-		"SELECT COALESCE(p.name,''), COALESCE(p.roast_level,''), COALESCE(NULLIF(b.yield_rate,0),0), COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END), COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'),'-'), "+
-			"COALESCE(p.bom_source_type,''), COALESCE(p.bom_source_bom_version_id,0), "+
-			"COALESCE(bv.version_no,''), COALESCE(sp.name,'') "+
-			"FROM "+r.schema+".products p LEFT JOIN "+r.schema+".product_bom b ON b.product_id=p.id "+
-			"LEFT JOIN "+r.schema+".bom_versions bv ON bv.id=p.bom_source_bom_version_id AND p.bom_source_type='inherit_version' "+
-			"LEFT JOIN "+r.schema+".products sp ON sp.id=bv.product_id "+
-			"WHERE p.id=$1", productID).Scan(
-			&productName, &roastLevel, &yieldRate, &status, &updatedAt,
-			&bomSourceType, &bomSourceVersionID, &bomSourceVersionNo, &bomSourceProductName)
+	source, err := resolveEffectiveBomSource(ctx, r.pool, r.schema, productID)
 	if err != nil {
 		return bomapp.Detail{}, err
 	}
 
-	if bomSourceType != "" {
-		bomSourceProductID = 0 // fetched via bv.product_id later if needed
-	}
-
-	items, total, err := listBomItems(ctx, r.pool, r.schema, productID)
+	summary, err := loadBomSummaryForSource(ctx, r.pool, r.schema, source)
 	if err != nil {
 		return bomapp.Detail{}, err
 	}
-	return bomapp.Detail{
-		ProductID:         productID,
-		ProductName:       productName,
-		RoastLevel:        roastLevel,
-		YieldRate:         resolveBomYieldRate(roastLevel, yieldRate),
-		Status:            status,
-		Items:             bomItemsToApp(items),
-		TotalRatio:        total,
-		UpdatedAt:         updatedAt,
-		BomSourceType:        bomSourceType,
-		BomSourceProductID:   bomSourceProductID,
-		BomSourceProductName: bomSourceProductName,
-		BomSourceVersionID:   bomSourceVersionID,
-		BomSourceVersionNo:   bomSourceVersionNo,
-	}, nil
+	items, total, err := listBomItemsForSource(ctx, r.pool, r.schema, source)
+	if err != nil {
+		return bomapp.Detail{}, err
+	}
+	detail := bomapp.Detail{
+		ProductID:   productID,
+		ProductName: source.ProductName,
+		RoastLevel:  source.RoastLevel,
+		YieldRate:   resolveBomYieldRate(source.RoastLevel, summary.YieldRate),
+		Status:      summary.Status,
+		Items:       bomItemsToApp(items),
+		TotalRatio:  total,
+		UpdatedAt:   summary.UpdatedAt,
+	}
+	applyBomSourceToDetail(&detail, source)
+	return detail, nil
 }
 
 func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
@@ -158,6 +151,9 @@ func (r Repository) BagSpecMappings(ctx context.Context) ([]bomapp.BagSpecMappin
 }
 
 func (r Repository) SyncProductYield(ctx context.Context, cmd bomapp.SyncProductYieldCommand) error {
+	if err := ensureBomEditable(ctx, r.pool, r.schema, cmd.ProductID); err != nil {
+		return err
+	}
 	var roastLevel string
 	if err := r.pool.QueryRow(ctx, "SELECT COALESCE(roast_level,'') FROM "+r.schema+".products WHERE id=$1", cmd.ProductID).Scan(&roastLevel); err != nil {
 		return fmt.Errorf("product not found")
@@ -186,6 +182,9 @@ func (r Repository) DeactivateBom(ctx context.Context, cmd bomapp.DeactivateBomC
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := ensureBomEditable(ctx, tx, r.schema, cmd.ProductID); err != nil {
+		return err
+	}
 	var roastLevel string
 	if err := tx.QueryRow(ctx, "SELECT COALESCE(roast_level,'') FROM "+r.schema+".products WHERE id=$1", cmd.ProductID).Scan(&roastLevel); err != nil {
 		return fmt.Errorf("product not found")
@@ -243,6 +242,9 @@ func (r Repository) DeleteItem(ctx context.Context, cmd bomapp.DeleteItemCommand
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := ensureBomEditable(ctx, tx, r.schema, cmd.ProductID); err != nil {
+		return err
+	}
 	var row struct {
 		ID                 int64
 		ProductID          int64
@@ -280,6 +282,14 @@ func (r Repository) DeleteBagSpecMapping(ctx context.Context, cmd bomapp.DeleteB
 }
 
 func (r Repository) ListVersions(ctx context.Context, productID int64) ([]bomapp.Version, error) {
+	source, err := resolveEffectiveBomSource(ctx, r.pool, r.schema, productID)
+	if err != nil {
+		return nil, err
+	}
+	versionProductID := source.EffectiveProductID
+	if versionProductID <= 0 {
+		versionProductID = productID
+	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT v.id,v.product_id,v.version_no,v.status,COALESCE(v.yield_rate,0.8),
 		       COALESCE((SELECT COUNT(*) FROM %s.bom_version_items i WHERE i.version_id=v.id),0),
@@ -287,7 +297,7 @@ func (r Repository) ListVersions(ctx context.Context, productID int64) ([]bomapp
 		FROM %s.bom_versions v
 		WHERE v.product_id=$1
 		ORDER BY v.created_at DESC, v.id DESC
-	`, r.schema, r.schema), productID)
+	`, r.schema, r.schema), versionProductID)
 	if err != nil {
 		return nil, err
 	}
@@ -310,6 +320,9 @@ func (r Repository) CreateVersion(ctx context.Context, cmd bomapp.CreateVersionC
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := ensureBomEditable(ctx, tx, r.schema, cmd.ProductID); err != nil {
+		return bomapp.Version{}, err
+	}
 	var yieldRate float64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(yield_rate,0.8) FROM %s.product_bom WHERE product_id=$1`, r.schema), cmd.ProductID).Scan(&yieldRate); err != nil {
 		yieldRate = 0.8
@@ -366,6 +379,9 @@ func (r Repository) ActivateVersion(ctx context.Context, cmd bomapp.ActivateVers
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT product_id,COALESCE(yield_rate,0.8) FROM %s.bom_versions WHERE id=$1 FOR UPDATE`, r.schema), cmd.VersionID).Scan(&productID, &yieldRate); err != nil {
 		return fmt.Errorf("bom version not found")
 	}
+	if err := ensureBomEditable(ctx, tx, r.schema, productID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.bom_versions SET status='disabled' WHERE product_id=$1 AND id<>$2`, r.schema), productID, cmd.VersionID); err != nil {
 		return err
 	}
@@ -400,6 +416,21 @@ func (r Repository) ActivateVersion(ctx context.Context, cmd bomapp.ActivateVers
 	return tx.Commit(ctx)
 }
 
+func (r Repository) DeriveOwned(ctx context.Context, cmd bomapp.DeriveOwnedCommand) (bomapp.Detail, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return bomapp.Detail{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := deriveOwnedBomTx(ctx, tx, r.schema, cmd); err != nil {
+		return bomapp.Detail{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return bomapp.Detail{}, err
+	}
+	return r.Detail(ctx, cmd.ProductID)
+}
+
 type bomItemRow struct {
 	ID                   int64
 	MaterialID           int64
@@ -414,8 +445,317 @@ type bomItemRow struct {
 	UnitCostSnapshot     float64
 }
 
-func listBomItems(ctx context.Context, pool *pgxpool.Pool, schema string, productID int64) ([]bomItemRow, float64, error) {
-	q := fmt.Sprintf(`
+type bomQueryer interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+type bomSourceInfo struct {
+	ProductID             int64
+	ProductName           string
+	RoastLevel            string
+	BaseProductID         int64
+	BomSourceType         string
+	EffectiveProductID    int64
+	EffectiveBomVersionID int64
+	SourceProductID       int64
+	SourceProductCode     string
+	SourceProductName     string
+	SourceBomProductID    int64
+	SourceBomVersionID    int64
+	SourceBomVersionNo    string
+	DerivedFromLabel      string
+	CanEditBOM            bool
+}
+
+type bomSourceRow struct {
+	SourceType                 string
+	SourceProductID            int64
+	SourceProductCodeSnapshot  string
+	SourceProductNameSnapshot  string
+	SourceBomProductID         int64
+	SourceBomVersionID         int64
+	SourceBomVersionNoSnapshot string
+	DerivedFromProductID       int64
+	DerivedFromBomVersionID    int64
+}
+
+type bomSummary struct {
+	YieldRate float64
+	Status    string
+	ItemCount int
+	UpdatedAt string
+}
+
+func resolveEffectiveBomSource(ctx context.Context, q bomQueryer, schema string, productID int64) (bomSourceInfo, error) {
+	var info bomSourceInfo
+	info.ProductID = productID
+	info.EffectiveProductID = productID
+	info.CanEditBOM = true
+	if err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(name,''), COALESCE(roast_level,''), COALESCE(base_product_id,0)
+		FROM %s.products
+		WHERE id=$1 AND active=true
+	`, schema), productID).Scan(&info.ProductName, &info.RoastLevel, &info.BaseProductID); err != nil {
+		return bomSourceInfo{}, err
+	}
+
+	var source bomSourceRow
+	err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(source_type,''),'owned'),
+		       COALESCE(source_product_id,0),
+		       COALESCE(source_product_code_snapshot,''),
+		       COALESCE(source_product_name_snapshot,''),
+		       COALESCE(source_bom_product_id,0),
+		       COALESCE(source_bom_version_id,0),
+		       COALESCE(source_bom_version_no_snapshot,''),
+		       COALESCE(derived_from_product_id,0),
+		       COALESCE(derived_from_bom_version_id,0)
+		FROM %s.product_bom_sources
+		WHERE product_id=$1
+	`, schema), productID).Scan(&source.SourceType, &source.SourceProductID, &source.SourceProductCodeSnapshot, &source.SourceProductNameSnapshot, &source.SourceBomProductID, &source.SourceBomVersionID, &source.SourceBomVersionNoSnapshot, &source.DerivedFromProductID, &source.DerivedFromBomVersionID)
+	if err != nil && err != pgx.ErrNoRows {
+		return bomSourceInfo{}, err
+	}
+	hasExplicitSource := err != pgx.ErrNoRows
+	hasOwn, err := hasOwnBomDefinition(ctx, q, schema, productID)
+	if err != nil {
+		return bomSourceInfo{}, err
+	}
+
+	sourceType := strings.TrimSpace(source.SourceType)
+	if sourceType == "" {
+		if info.BaseProductID > 0 && !hasOwn {
+			sourceType = "inherit_current"
+			source.SourceProductID = info.BaseProductID
+		} else if hasOwn {
+			sourceType = "owned"
+		} else {
+			sourceType = "missing"
+		}
+	} else if !hasExplicitSource && info.BaseProductID > 0 && !hasOwn {
+		sourceType = "inherit_current"
+		source.SourceProductID = info.BaseProductID
+	}
+	info.BomSourceType = sourceType
+
+	switch sourceType {
+	case "inherit_current", "inherit_version":
+		info.CanEditBOM = false
+		if source.SourceProductID <= 0 {
+			source.SourceProductID = source.SourceBomProductID
+		}
+		if source.SourceProductID <= 0 {
+			source.SourceProductID = info.BaseProductID
+		}
+		info.SourceProductID = source.SourceProductID
+		info.SourceBomProductID = source.SourceProductID
+		info.EffectiveProductID = source.SourceProductID
+		info.SourceBomVersionID = source.SourceBomVersionID
+		info.SourceBomVersionNo = source.SourceBomVersionNoSnapshot
+		if sourceType == "inherit_current" || info.SourceBomVersionNo == "" {
+			activeID, activeNo, err := activeBomVersionSnapshot(ctx, q, schema, info.EffectiveProductID)
+			if err != nil {
+				return bomSourceInfo{}, err
+			}
+			if sourceType == "inherit_current" {
+				info.SourceBomVersionID = activeID
+				info.SourceBomVersionNo = activeNo
+			} else if info.SourceBomVersionNo == "" {
+				info.SourceBomVersionNo = activeNo
+			}
+		}
+		info.EffectiveBomVersionID = info.SourceBomVersionID
+	case "derived_owned":
+		info.CanEditBOM = true
+		info.EffectiveProductID = productID
+		info.SourceProductID = source.DerivedFromProductID
+		if info.SourceProductID <= 0 {
+			info.SourceProductID = source.SourceProductID
+		}
+		info.SourceBomProductID = source.SourceBomProductID
+		if info.SourceBomProductID <= 0 {
+			info.SourceBomProductID = info.SourceProductID
+		}
+		info.SourceBomVersionID = source.DerivedFromBomVersionID
+		if info.SourceBomVersionID <= 0 {
+			info.SourceBomVersionID = source.SourceBomVersionID
+		}
+		info.SourceBomVersionNo = source.SourceBomVersionNoSnapshot
+		activeID, _, err := activeBomVersionSnapshot(ctx, q, schema, productID)
+		if err != nil {
+			return bomSourceInfo{}, err
+		}
+		info.EffectiveBomVersionID = activeID
+	case "owned":
+		info.CanEditBOM = true
+		info.EffectiveProductID = productID
+		activeID, _, err := activeBomVersionSnapshot(ctx, q, schema, productID)
+		if err != nil {
+			return bomSourceInfo{}, err
+		}
+		info.EffectiveBomVersionID = activeID
+	default:
+		info.BomSourceType = "missing"
+		info.CanEditBOM = true
+		info.EffectiveProductID = productID
+	}
+
+	if info.SourceProductID > 0 {
+		info.SourceProductCode = strings.TrimSpace(source.SourceProductCodeSnapshot)
+		if info.SourceProductCode == "" {
+			info.SourceProductCode = skuCodeSnapshot(info.SourceProductID)
+		}
+		info.SourceProductName = strings.TrimSpace(source.SourceProductNameSnapshot)
+		if info.SourceProductName == "" {
+			_ = q.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.products WHERE id=$1`, schema), info.SourceProductID).Scan(&info.SourceProductName)
+		}
+		if info.SourceBomVersionNo == "" {
+			_, versionNo, err := activeBomVersionSnapshot(ctx, q, schema, info.SourceProductID)
+			if err != nil {
+				return bomSourceInfo{}, err
+			}
+			info.SourceBomVersionNo = versionNo
+		}
+	}
+	if info.SourceBomVersionNo == "" {
+		info.SourceBomVersionNo = "当前BOM"
+	}
+	info.DerivedFromLabel = buildBomSourceLabel(info)
+	return info, nil
+}
+
+func hasOwnBomDefinition(ctx context.Context, q bomQueryer, schema string, productID int64) (bool, error) {
+	var has bool
+	err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(SELECT 1 FROM %s.product_bom WHERE product_id=$1)
+		    OR EXISTS(SELECT 1 FROM %s.product_bom_items WHERE product_id=$1)
+	`, schema, schema), productID).Scan(&has)
+	return has, err
+}
+
+func activeBomVersionSnapshot(ctx context.Context, q bomQueryer, schema string, productID int64) (int64, string, error) {
+	var id int64
+	var versionNo string
+	err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, COALESCE(version_no,'')
+		FROM %s.bom_versions
+		WHERE product_id=$1 AND status='active'
+		ORDER BY activated_at DESC NULLS LAST, id DESC
+		LIMIT 1
+	`, schema), productID).Scan(&id, &versionNo)
+	if err == pgx.ErrNoRows {
+		return 0, "当前BOM", nil
+	}
+	if err != nil {
+		return 0, "", err
+	}
+	if versionNo == "" {
+		versionNo = "当前BOM"
+	}
+	return id, versionNo, nil
+}
+
+func loadBomSummaryForSource(ctx context.Context, q bomQueryer, schema string, source bomSourceInfo) (bomSummary, error) {
+	if source.BomSourceType == "inherit_version" && source.EffectiveBomVersionID > 0 {
+		var summary bomSummary
+		err := q.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(v.yield_rate,0.8)::float8,
+			       COALESCE(NULLIF(v.status,''),'active'),
+			       COALESCE((SELECT COUNT(*) FROM %s.bom_version_items i WHERE i.version_id=v.id),0),
+			       COALESCE(to_char(v.created_at,'YYYY-MM-DD HH24:MI'),'-')
+			FROM %s.bom_versions v
+			WHERE v.id=$1
+		`, schema, schema), source.EffectiveBomVersionID).Scan(&summary.YieldRate, &summary.Status, &summary.ItemCount, &summary.UpdatedAt)
+		if err == nil {
+			return summary, nil
+		}
+		if err != pgx.ErrNoRows {
+			return bomSummary{}, err
+		}
+	}
+	productID := source.EffectiveProductID
+	if productID <= 0 {
+		productID = source.ProductID
+	}
+	var summary bomSummary
+	err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(b.yield_rate,0),0)::float8,
+		       COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END),
+		       COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=$1),0),
+		       COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'),'-')
+		FROM (SELECT $1::bigint AS product_id) p
+		LEFT JOIN %[1]s.product_bom b ON b.product_id=p.product_id
+	`, schema), productID).Scan(&summary.YieldRate, &summary.Status, &summary.ItemCount, &summary.UpdatedAt)
+	return summary, err
+}
+
+func applyBomSourceToListItem(item *bomapp.ListItem, source bomSourceInfo) {
+	item.BomSourceType = source.BomSourceType
+	item.EffectiveProductID = source.EffectiveProductID
+	item.EffectiveBomVersionID = source.EffectiveBomVersionID
+	item.SourceProductID = source.SourceProductID
+	item.SourceProductCode = source.SourceProductCode
+	item.SourceProductName = source.SourceProductName
+	item.SourceBomVersionID = source.SourceBomVersionID
+	item.SourceBomVersionNo = source.SourceBomVersionNo
+	item.DerivedFromLabel = source.DerivedFromLabel
+	item.CanEditBOM = source.CanEditBOM
+}
+
+func applyBomSourceToDetail(detail *bomapp.Detail, source bomSourceInfo) {
+	detail.BomSourceType = source.BomSourceType
+	detail.EffectiveProductID = source.EffectiveProductID
+	detail.EffectiveBomVersionID = source.EffectiveBomVersionID
+	detail.SourceProductID = source.SourceProductID
+	detail.SourceProductCode = source.SourceProductCode
+	detail.SourceProductName = source.SourceProductName
+	detail.SourceBomVersionID = source.SourceBomVersionID
+	detail.SourceBomVersionNo = source.SourceBomVersionNo
+	detail.DerivedFromLabel = source.DerivedFromLabel
+	detail.CanEditBOM = source.CanEditBOM
+}
+
+func buildBomSourceLabel(source bomSourceInfo) string {
+	target := strings.TrimSpace(strings.TrimSpace(source.SourceProductCode) + " " + strings.TrimSpace(source.SourceProductName))
+	version := strings.TrimSpace(source.SourceBomVersionNo)
+	if version == "" {
+		version = "当前BOM"
+	}
+	switch source.BomSourceType {
+	case "inherit_current":
+		return fmt.Sprintf("继承：%s / BOM %s", target, version)
+	case "inherit_version":
+		return fmt.Sprintf("锁定：%s / BOM %s", target, version)
+	case "derived_owned":
+		return fmt.Sprintf("自有 BOM，派生自：%s / BOM %s", target, version)
+	case "owned":
+		return "自有 BOM"
+	default:
+		return "缺 BOM"
+	}
+}
+
+func skuCodeSnapshot(productID int64) string {
+	if productID <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("SKU-%d", productID)
+}
+
+func ensureBomEditable(ctx context.Context, q bomQueryer, schema string, productID int64) error {
+	source, err := resolveEffectiveBomSource(ctx, q, schema, productID)
+	if err != nil {
+		return err
+	}
+	if !source.CanEditBOM {
+		return fmt.Errorf("inherited BOM is read-only; derive owned BOM first")
+	}
+	return nil
+}
+
+func listBomItems(ctx context.Context, db bomQueryer, schema string, productID int64) ([]bomItemRow, float64, error) {
+	query := fmt.Sprintf(`
 		SELECT bi.id,
 		       bi.material_id,
 		       COALESCE(m.name,''),
@@ -433,7 +773,7 @@ func listBomItems(ctx context.Context, pool *pgxpool.Pool, schema string, produc
 		WHERE bi.product_id=$1
 		ORDER BY COALESCE(m.name, cp.name, ''), bi.id
 	`, schema, schema, schema)
-	rows, err := pool.Query(ctx, q, productID)
+	rows, err := db.Query(ctx, query, productID)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -452,6 +792,142 @@ func listBomItems(ctx context.Context, pool *pgxpool.Pool, schema string, produc
 		out = append(out, row)
 	}
 	return out, total, rows.Err()
+}
+
+func listBomVersionItems(ctx context.Context, q bomQueryer, schema string, versionID int64) ([]bomItemRow, float64, error) {
+	rows, err := q.Query(ctx, fmt.Sprintf(`
+		SELECT bi.id,
+		       bi.material_id,
+		       COALESCE(m.name,''),
+		       COALESCE(NULLIF(bi.component_type,''),'material'),
+		       COALESCE(bi.component_product_id,0),
+		       COALESCE(cp.name,''),
+		       COALESCE(bi.component_spec_g,0),
+		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
+		       COALESCE(bi.qty_per_unit,0)::float8,
+		       bi.ratio_pct,
+		       COALESCE(bi.unit_cost_snapshot,0)::float8
+		FROM %s.bom_version_items bi
+		LEFT JOIN %s.materials m ON m.id=bi.material_id
+		LEFT JOIN %s.products cp ON cp.id=bi.component_product_id
+		WHERE bi.version_id=$1
+		ORDER BY COALESCE(m.name, cp.name, ''), bi.id
+	`, schema, schema, schema), versionID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	out := make([]bomItemRow, 0)
+	total := 0.0
+	for rows.Next() {
+		var row bomItemRow
+		if err := rows.Scan(&row.ID, &row.MaterialID, &row.MaterialName, &row.ComponentType, &row.ComponentProductID, &row.ComponentProductName, &row.ComponentSpecG, &row.ConsumeUnit, &row.QtyPerUnit, &row.RatioPct, &row.UnitCostSnapshot); err != nil {
+			return nil, 0, err
+		}
+		if row.ComponentType == "material" && row.ConsumeUnit == "ratio_pct" {
+			total += row.RatioPct
+		}
+		out = append(out, row)
+	}
+	return out, total, rows.Err()
+}
+
+func listBomItemsForSource(ctx context.Context, q bomQueryer, schema string, source bomSourceInfo) ([]bomItemRow, float64, error) {
+	if source.BomSourceType == "inherit_version" && source.EffectiveBomVersionID > 0 {
+		return listBomVersionItems(ctx, q, schema, source.EffectiveBomVersionID)
+	}
+	productID := source.EffectiveProductID
+	if productID <= 0 {
+		productID = source.ProductID
+	}
+	return listBomItems(ctx, q, schema, productID)
+}
+
+func deriveOwnedBomTx(ctx context.Context, tx pgx.Tx, schema string, cmd bomapp.DeriveOwnedCommand) error {
+	source, err := resolveEffectiveBomSource(ctx, tx, schema, cmd.ProductID)
+	if err != nil {
+		return err
+	}
+	if source.CanEditBOM && source.BomSourceType != "missing" {
+		return nil
+	}
+	summary, err := loadBomSummaryForSource(ctx, tx, schema, source)
+	if err != nil {
+		return err
+	}
+	if summary.Status == "missing" && summary.ItemCount == 0 {
+		return fmt.Errorf("source BOM not configured")
+	}
+	items, _, err := listBomItemsForSource(ctx, tx, schema, source)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_bom_items WHERE product_id=$1`, schema), cmd.ProductID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_bom WHERE product_id=$1`, schema), cmd.ProductID); err != nil {
+		return err
+	}
+	status := strings.TrimSpace(summary.Status)
+	if status == "" || status == "missing" {
+		status = "active"
+	}
+	yieldRate := summary.YieldRate
+	if yieldRate <= 0 {
+		yieldRate = resolveBomYieldRate(source.RoastLevel, 0)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_bom(product_id,yield_rate,status,updated_at)
+		VALUES($1,$2,$3,now())
+		ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate, status=excluded.status, updated_at=now()
+	`, schema), cmd.ProductID, yieldRate, status); err != nil {
+		return err
+	}
+	for _, item := range items {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,unit_cost_snapshot,updated_at)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
+		`, schema), cmd.ProductID, item.MaterialID, item.ComponentType, item.ComponentProductID, item.ComponentSpecG, item.ConsumeUnit, item.QtyPerUnit, item.RatioPct, item.UnitCostSnapshot); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_bom_sources(
+			product_id, source_type, source_product_id, source_product_code_snapshot, source_product_name_snapshot,
+			source_bom_product_id, source_bom_version_id, source_bom_version_no_snapshot,
+			derived_from_product_id, derived_from_bom_version_id, derived_at, derived_by, updated_at
+		)
+		VALUES($1,'derived_owned',$2,$3,$4,$5,$6,$7,$2,$6,now(),$8,now())
+		ON CONFLICT (product_id) DO UPDATE SET
+			source_type='derived_owned',
+			source_product_id=excluded.source_product_id,
+			source_product_code_snapshot=excluded.source_product_code_snapshot,
+			source_product_name_snapshot=excluded.source_product_name_snapshot,
+			source_bom_product_id=excluded.source_bom_product_id,
+			source_bom_version_id=excluded.source_bom_version_id,
+			source_bom_version_no_snapshot=excluded.source_bom_version_no_snapshot,
+			derived_from_product_id=excluded.derived_from_product_id,
+			derived_from_bom_version_id=excluded.derived_from_bom_version_id,
+			derived_at=excluded.derived_at,
+			derived_by=excluded.derived_by,
+			updated_at=now()
+	`, schema), cmd.ProductID, source.SourceProductID, source.SourceProductCode, source.SourceProductName, source.EffectiveProductID, source.SourceBomVersionID, source.SourceBomVersionNo, strings.TrimSpace(cmd.Actor)); err != nil {
+		return err
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, cmd.Actor, "product_bom", &cmd.ProductID, "derive_owned", postgresinfra.StrPtr("source_bom_version_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", source.SourceBomVersionID)), postgresinfra.AuditMeta{
+		"source_product_id":     source.SourceProductID,
+		"source_product_code":   source.SourceProductCode,
+		"source_product_name":   source.SourceProductName,
+		"source_bom_product_id": source.EffectiveProductID,
+		"source_bom_version_id": source.SourceBomVersionID,
+		"source_bom_version_no": source.SourceBomVersionNo,
+		"target_product_id":     cmd.ProductID,
+		"target_product_code":   skuCodeSnapshot(cmd.ProductID),
+		"target_product_name":   source.ProductName,
+		"copied_item_count":     len(items),
+		"can_edit_bom":          true,
+	})
 }
 
 func saveBagSpecMapping(ctx context.Context, pool *pgxpool.Pool, schema string, cmd bomapp.SaveBagSpecMappingCommand) error {
@@ -550,7 +1026,6 @@ func (r Repository) SetBomSource(ctx context.Context, cmd bomapp.SetBomSourceCom
 	var sourceVersionNo string
 
 	if cmd.SourceType == "inherit_version" {
-		// Lock to specific version: validate the version exists and belongs to the source product
 		err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 			SELECT bv.product_id, COALESCE(p.name,''), bv.id, COALESCE(bv.version_no,'')
 			FROM %s.bom_versions bv
@@ -562,7 +1037,6 @@ func (r Repository) SetBomSource(ctx context.Context, cmd bomapp.SetBomSourceCom
 		}
 	}
 
-	// Store the source configuration on the target product
 	_, err := r.pool.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.products
 		SET bom_source_type=$2,
@@ -574,7 +1048,6 @@ func (r Repository) SetBomSource(ctx context.Context, cmd bomapp.SetBomSourceCom
 		return bomapp.Detail{}, err
 	}
 
-	// Write audit log
 	auditMeta := postgresinfra.AuditMeta{
 		"bom_source_product_id":   bomSourceProductID,
 		"bom_source_product_name": sourceProductName,
