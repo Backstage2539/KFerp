@@ -34,17 +34,44 @@
           <strong>全部仓库</strong>
           <small>跨仓库汇总查询</small>
         </button>
-        <button
-          v-for="row in warehouses"
-          :key="row.code"
-          class="warehouse"
-          :class="{ active: selectedWarehouse === row.code }"
-          type="button"
-          @click="selectWarehouse(row.code)">
-          <strong>{{ row.name }}</strong>
-          <small>{{ kindLabel(row.kind) }} · {{ row.description || row.code }}</small>
-          <small v-if="row.customer_name">绑定客户：{{ row.customer_name }}</small>
-        </button>
+
+        <template v-if="generalWarehouses.length">
+          <button class="warehouse-section-toggle" type="button" @click="warehouseSections.general = !warehouseSections.general">
+            <span>普通仓库</span><b>{{ warehouseSections.general ? 'v' : '>' }}</b>
+          </button>
+          <template v-if="warehouseSections.general">
+            <button
+              v-for="row in generalWarehouses"
+              :key="row.code"
+              class="warehouse"
+              :class="{ active: selectedWarehouse === row.code }"
+              type="button"
+              @click="selectWarehouse(row.code)">
+              <strong>{{ row.name }}</strong>
+              <small>{{ kindLabel(row.kind) }} · {{ row.description || row.code }}</small>
+              <small v-if="row.customer_name">绑定客户：{{ row.customer_name }}</small>
+            </button>
+          </template>
+        </template>
+
+        <template v-if="customerWarehouses.length">
+          <button class="warehouse-section-toggle" type="button" @click="warehouseSections.customer = !warehouseSections.customer">
+            <span>客户仓库</span><b>{{ warehouseSections.customer ? 'v' : '>' }}</b>
+          </button>
+          <template v-if="warehouseSections.customer">
+            <button
+              v-for="row in customerWarehouses"
+              :key="row.code"
+              class="warehouse"
+              :class="{ active: selectedWarehouse === row.code }"
+              type="button"
+              @click="selectWarehouse(row.code)">
+              <strong>{{ row.name }}</strong>
+              <small>{{ kindLabel(row.kind) }} · {{ row.description || row.code }}</small>
+              <small v-if="row.customer_name">绑定客户：{{ row.customer_name }}</small>
+            </button>
+          </template>
+        </template>
       </aside>
 
       <section class="panel table-panel">
@@ -317,6 +344,9 @@ const selectedBindCustomerName = computed(() => {
   const customer = customerOptions.value.find((c) => Number(c.id) === id)
   return customer ? customerOptionLabel(customer) : ''
 })
+const warehouseSections = ref({ general: true, customer: true })
+const customerWarehouses = computed(() => warehouses.value.filter((row) => isCustomerWarehouse(row)))
+const generalWarehouses = computed(() => warehouses.value.filter((row) => !isCustomerWarehouse(row)))
 const totalG = computed(() => rows.value.reduce((sum, row) => sum + Number(row.qty_g || 0), 0))
 
 function kindLabel(kind) {
@@ -327,8 +357,13 @@ function kindLabel(kind) {
     finished: '成品仓',
     loss: '损耗仓',
     external: '外部库存',
-    customer_processing: '外部库存',
+    customer_processing: '客户仓库',
   }[kind] || kind || '仓库'
+}
+
+function isCustomerWarehouse(row) {
+  const k = String(row?.kind || '')
+  return k === 'external' || k === 'customer_processing'
 }
 
 function typeLabel(type) {
@@ -600,6 +635,6 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p{margin:0;color:#6b7280;font-size:13px}.head-actions{display:flex;gap:8px;align-items:center}.filters{display:grid;grid-template-columns:minmax(220px,1fr) 150px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}input,select,button{font:inherit;min-height:36px;border-radius:6px}input,select{width:100%;border:1px solid #d1d5db;padding:7px 9px}button{cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff;padding:8px 12px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111;padding:8px 12px}.link{border:0;background:transparent;color:#111;text-decoration:underline;padding:0;min-height:0}.workspace{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px}.warehouse-panel{align-self:start}.panel-title{font-weight:700;margin-bottom:10px}.warehouse{width:100%;text-align:left;border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:9px;margin-bottom:8px}.warehouse strong{display:block}.warehouse small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.warehouse.active{border-color:#111;background:#111;color:#fff}.warehouse.active small{color:#e5e7eb}.warehouse-binding-card{display:grid;gap:8px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;padding:10px;margin-top:10px}.warehouse-binding-card button{width:100%}.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}.summary div{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.summary span{display:block;color:#6b7280;font-size:12px;margin-bottom:4px}.summary strong{font-size:18px}.table-wrap{overflow:auto}table{width:100%;min-width:1100px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.pill,.quality-pill{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb;white-space:nowrap}.quality-pass{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.quality-hold{border-color:#fde68a;background:#fffbeb;color:#92400e}.quality-reject{border-color:#fecaca;background:#fef2f2;color:#991b1b}.quality-unchecked{border-color:#d1d5db;background:#f9fafb;color:#4b5563}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.tip{border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:8px;padding:9px 10px;margin-bottom:12px;font-size:13px;line-height:1.45}.drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.22);display:flex;justify-content:flex-end;z-index:40}.drawer{width:min(460px,100%);height:100%;background:#fff;border-left:1px solid #d1d5db;padding:16px;overflow:auto}.drawer.wide{width:min(760px,100%)}.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.drawer h3{margin:0;font-size:18px}.trace-search{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:end;margin-bottom:12px}.trace-title{font-weight:700;margin-bottom:10px}dl{display:grid;gap:8px;margin:0 0 14px}dl div{display:grid;grid-template-columns:88px 1fr;gap:8px}dt{color:#6b7280}dd{margin:0}.trace-block h4{margin:14px 0 8px;font-size:14px}.trace-table{min-width:0}.reservation-summary{margin-bottom:12px}.reservation-table input{min-width:110px}.danger{color:#b91c1c;margin-left:8px}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p{margin:0;color:#6b7280;font-size:13px}.head-actions{display:flex;gap:8px;align-items:center}.filters{display:grid;grid-template-columns:minmax(220px,1fr) 150px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}input,select,button{font:inherit;min-height:36px;border-radius:6px}input,select{width:100%;border:1px solid #d1d5db;padding:7px 9px}button{cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff;padding:8px 12px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111;padding:8px 12px}.link{border:0;background:transparent;color:#111;text-decoration:underline;padding:0;min-height:0}.workspace{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px}.warehouse-panel{align-self:start}.panel-title{font-weight:700;margin-bottom:10px}.warehouse{width:100%;text-align:left;border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:9px;margin-bottom:8px}.warehouse strong{display:block}.warehouse small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.warehouse.active{border-color:#111;background:#111;color:#fff}.warehouse.active small{color:#e5e7eb}.warehouse-section-toggle{width:100%;text-align:left;border:1px solid #e5e7eb;background:#f5f5f5;border-radius:8px;padding:7px 9px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:13px}.warehouse-section-toggle b{font-size:11px;color:#999}.warehouse-binding-card{display:grid;gap:8px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;padding:10px;margin-top:10px}.warehouse-binding-card button{width:100%}.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:10px;margin-bottom:12px}.summary div{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.summary span{display:block;color:#6b7280;font-size:12px;margin-bottom:4px}.summary strong{font-size:18px}.table-wrap{overflow:auto}table{width:100%;min-width:1100px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.pill,.quality-pill{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb;white-space:nowrap}.quality-pass{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.quality-hold{border-color:#fde68a;background:#fffbeb;color:#92400e}.quality-reject{border-color:#fecaca;background:#fef2f2;color:#991b1b}.quality-unchecked{border-color:#d1d5db;background:#f9fafb;color:#4b5563}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.tip{border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:8px;padding:9px 10px;margin-bottom:12px;font-size:13px;line-height:1.45}.drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.22);display:flex;justify-content:flex-end;z-index:40}.drawer{width:min(460px,100%);height:100%;background:#fff;border-left:1px solid #d1d5db;padding:16px;overflow:auto}.drawer.wide{width:min(760px,100%)}.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.drawer h3{margin:0;font-size:18px}.trace-search{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:end;margin-bottom:12px}.trace-title{font-weight:700;margin-bottom:10px}dl{display:grid;gap:8px;margin:0 0 14px}dl div{display:grid;grid-template-columns:88px 1fr;gap:8px}dt{color:#6b7280}dd{margin:0}.trace-block h4{margin:14px 0 8px;font-size:14px}.trace-table{min-width:0}.reservation-summary{margin-bottom:12px}.reservation-table input{min-width:110px}.danger{color:#b91c1c;margin-left:8px}
 @media (max-width:900px){.page{padding:12px}.filters,.workspace,.summary{grid-template-columns:1fr}}
 </style>
