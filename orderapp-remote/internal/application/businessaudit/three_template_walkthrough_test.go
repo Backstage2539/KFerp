@@ -748,13 +748,7 @@ func (s *threeTemplateWalkthroughStore) InternalCustomerPortalOverview(ctx conte
 }
 
 func (s *threeTemplateWalkthroughStore) InternalCustomerPortalOptions(ctx context.Context, customerID int64) (customerfulfillmentapp.CustomerFulfillmentOptions, error) {
-	if c, ok := s.customerByID[customerID]; ok && c != nil {
-		return customerfulfillmentapp.CustomerFulfillmentOptions{
-			CustomerSKUs: s.skuRows[customerID],
-			CustodyItems: s.custodyItemRows[customerID],
-		}, nil
-	}
-	return customerfulfillmentapp.CustomerFulfillmentOptions{}, fmt.Errorf("customer not found")
+	return customerfulfillmentapp.CustomerFulfillmentOptions{}, nil
 }
 
 func (s *threeTemplateWalkthroughStore) buildOverview(customerID int64, customerName string) customerfulfillmentapp.CustomerPortalOverview {
@@ -764,10 +758,10 @@ func (s *threeTemplateWalkthroughStore) buildOverview(customerID int64, customer
 		Capabilities:     s.enabledCapabilityCodes(s.customerByID[customerID]),
 		CustodyBalances:  s.custodyRows[customerID],
 		ProcessingOrders: s.processingRows[customerID],
-		DirectShipOrders: s.directRows[current.CustomerID],
-		Fees:             s.fees[current.CustomerID],
-		Settlements:      s.settlements[current.CustomerID],
-	}, nil
+		DirectShipOrders: s.directRows[customerID],
+		Fees:             s.fees[customerID],
+		Settlements:      s.settlements[customerID],
+	}
 }
 
 func (s *threeTemplateWalkthroughStore) SubmitCustomerProcessingWorkOrder(_ context.Context, cmd customerfulfillmentapp.SubmitCustomerProcessingWorkOrderCommand) (customerfulfillmentapp.ProcessingOrderSummary, error) {

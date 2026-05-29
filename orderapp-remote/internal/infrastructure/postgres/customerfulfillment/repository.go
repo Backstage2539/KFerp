@@ -296,6 +296,13 @@ func (r *Repository) InternalCustomerPortalOverview(ctx context.Context, custome
 	return r.buildOverview(ctx, customerID, customerName)
 }
 
+func (r *Repository) InternalCustomerPortalOptions(ctx context.Context, customerID int64) (app.CustomerFulfillmentOptions, error) {
+	if err := r.requirePortalCustomerWithWorkbench(ctx, customerID); err != nil {
+		return app.CustomerFulfillmentOptions{}, err
+	}
+	return r.CustomerFulfillmentOptions(ctx, customerID)
+}
+
 func (r *Repository) resolveCustomerName(ctx context.Context, customerID int64) (string, error) {
 	var name string
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
