@@ -5,7 +5,7 @@ export const menuGroups = [
     items: [
       { key: 'customers', label: '客户档案', title: '客户档案' },
       { key: 'customerFulfillment', label: '履约运营台', title: '客户履约运营台' },
-      { key: 'customerPortalSettings', label: '门户客户配置', title: '门户客户配置' },
+      { key: 'customerPortalSettings', label: '客户门户配置', title: '客户门户配置' },
       { key: 'customerCapabilityTemplates', label: '客户门户能力模板', title: '客户门户能力模板设置' },
       { key: 'customerFulfillmentManual', label: '客户履约手册', title: '客户履约手册' },
     ],

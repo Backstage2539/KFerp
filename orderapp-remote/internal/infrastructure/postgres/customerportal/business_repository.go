@@ -1213,9 +1213,6 @@ func (r Repository) CreateProcessingRequest(ctx context.Context, cmd customerpor
 	if err != nil {
 		return customerportalapp.ProcessingRequest{}, err
 	}
-	if err := r.ensureProcessingWarehouseTx(ctx, tx, warehouseCode, ""); err != nil {
-		return customerportalapp.ProcessingRequest{}, err
-	}
 	ct, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_processing_production_demands(
 			request_id,request_no,customer_id,product_id,product_name,spec_g,target_qty,need_g,target_warehouse,status,created_at,updated_at
@@ -1518,9 +1515,6 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 	if serviceCode == customerportalapp.PortalServiceProcessingShipment {
 		sourceWarehouse, err = r.processingWarehouseForCustomerTx(ctx, tx, cmd.CustomerID)
 		if err != nil {
-			return customerportalapp.FulfillmentOrder{}, err
-		}
-		if err := r.ensureProcessingWarehouseTx(ctx, tx, sourceWarehouse, ""); err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
 		}
 	}
@@ -1972,16 +1966,25 @@ func portalSmallBatchTierQuantity(specG int64, qtyLb float64, rule customerporta
 func (r Repository) processingWarehouseForCustomerTx(ctx context.Context, tx pgx.Tx, customerID int64) (string, error) {
 	code := ""
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(processing_warehouse_code,'')
-		FROM %s.customer_portal_profiles
-		WHERE customer_id=$1
+		SELECT code
+		FROM %s.warehouses
+		WHERE active=true
+		  AND customer_id=$1
+		ORDER BY
+		  CASE WHEN kind IN ('customer_processing','customer_finished','customer') THEN 0 ELSE 1 END,
+		  sort_order,
+		  code
+		LIMIT 1
 	`, r.schema), customerID).Scan(&code)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("customer warehouse binding required")
+	}
+	if err != nil {
 		return "", err
 	}
 	code = strings.TrimSpace(code)
 	if code == "" {
-		code = defaultProcessingWarehouseCode(customerID)
+		return "", fmt.Errorf("customer warehouse binding required")
 	}
 	return code, nil
 }

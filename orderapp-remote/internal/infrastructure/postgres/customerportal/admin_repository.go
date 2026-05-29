@@ -26,15 +26,12 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 		       COALESCE(c.phone,''),
 		       COALESCE(c.company_name,''),
 		       COALESCE(p.display_name,''),
-		       COALESCE(p.processing_warehouse_code,''),
 		       COALESCE(p.default_sender_id,0),
 		       COALESCE(p.enabled,false),
 		       COALESCE(p.status,'active'),
 		       COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
 		       COALESCE(NULLIF(p.miniapp_entry_mode,''),'services'),
 		       COALESCE(p.capability_template_key,''),
-		       COALESCE(NULLIF(p.bean_list_mode,''),'latest'),
-		       COALESCE(p.bean_list_publication_id,0),
 		       COALESCE((SELECT COUNT(*)::int FROM %s.customer_portal_user_bindings b WHERE b.customer_id=c.id AND b.status='approved'),0),
 		       eb.employee_id,
 		       eb.employee_name,
@@ -78,7 +75,7 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 		var row customerportalapp.PortalAdminCustomer
 		var employeeID sql.NullInt64
 		var employeeName, employeePhone, role, status, updatedBy, updatedAt sql.NullString
-		if err := rows.Scan(&row.ID, &row.Name, &row.CustomerType, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BeanListMode, &row.BeanListPublicationID, &row.BindingCount, &employeeID, &employeeName, &employeePhone, &role, &status, &updatedBy, &updatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.CustomerType, &row.Phone, &row.CompanyName, &row.DisplayName, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BindingCount, &employeeID, &employeeName, &employeePhone, &role, &status, &updatedBy, &updatedAt); err != nil {
 			return nil, err
 		}
 		row.ERPBinding = nullableERPBinding(row.ID, employeeID, employeeName, employeePhone, role, status, updatedBy, updatedAt)
@@ -273,10 +270,9 @@ func (r Repository) PortalAdminDetail(ctx context.Context, customerID int64) (cu
 		return customerportalapp.PortalAdminDetail{}, err
 	}
 	return customerportalapp.PortalAdminDetail{
-		Customer:               customer,
-		Bindings:               bindings,
-		Capabilities:           capabilities,
-		BeanListVersionOptions: r.portalBeanListVersionOptions(ctx, customerID),
+		Customer:     customer,
+		Bindings:     bindings,
+		Capabilities: capabilities,
 	}, nil
 }
 
@@ -298,30 +294,21 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 	if err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
 	}
-	warehouseCode := portalProfileWarehouseFromCommand(cmd, oldProfile)
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, processing_warehouse_code, default_sender_id, enabled, status, theme_key, miniapp_entry_mode, capability_template_key, bean_list_mode, bean_list_publication_id, updated_at, updated_by)
-		VALUES($1,$2,$3,$4,$5,'active',$6,$7,$8,$9,$10,now(),$11)
+		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, default_sender_id, enabled, status, theme_key, miniapp_entry_mode, capability_template_key, updated_at, updated_by)
+		VALUES($1,$2,$3,$4,'active',$5,$6,$7,now(),$8)
 		ON CONFLICT(customer_id) DO UPDATE SET
 			display_name=excluded.display_name,
-			processing_warehouse_code=excluded.processing_warehouse_code,
 			default_sender_id=excluded.default_sender_id,
 			enabled=excluded.enabled,
 			status='active',
 			theme_key=excluded.theme_key,
 			miniapp_entry_mode=excluded.miniapp_entry_mode,
 			capability_template_key=excluded.capability_template_key,
-			bean_list_mode=excluded.bean_list_mode,
-			bean_list_publication_id=excluded.bean_list_publication_id,
 			updated_at=now(),
 			updated_by=excluded.updated_by
-	`, r.schema), cmd.CustomerID, strings.TrimSpace(cmd.DisplayName), warehouseCode, cmd.DefaultSenderID, cmd.Enabled, customerportalapp.NormalizePortalThemeKey(cmd.ThemeKey), customerportalapp.NormalizeMiniappEntryMode(cmd.MiniappEntryMode), customerportalapp.NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey), strings.TrimSpace(cmd.BeanListMode), cmd.BeanListPublicationID, strings.TrimSpace(cmd.UpdatedBy)); err != nil {
+	`, r.schema), cmd.CustomerID, strings.TrimSpace(cmd.DisplayName), cmd.DefaultSenderID, cmd.Enabled, customerportalapp.NormalizePortalThemeKey(cmd.ThemeKey), customerportalapp.NormalizeMiniappEntryMode(cmd.MiniappEntryMode), customerportalapp.NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey), strings.TrimSpace(cmd.UpdatedBy)); err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
-	}
-	if strings.TrimSpace(cmd.ProcessingWarehouseCode) != "" {
-		if err := r.ensureProcessingWarehouseTx(ctx, tx, warehouseCode, firstNonEmpty(strings.TrimSpace(cmd.DisplayName), customerName)); err != nil {
-			return customerportalapp.PortalAdminDetail{}, err
-		}
 	}
 	for _, capability := range cmd.Capabilities {
 		raw, err := json.Marshal(map[string]any{})
@@ -366,17 +353,16 @@ func (r Repository) ApplyCapabilityTemplate(ctx context.Context, cmd customerpor
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var customerName, displayName, warehouseCode string
+	var customerName, displayName string
 	var defaultSenderID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(c.name,''),
 		       COALESCE(p.display_name,''),
-		       COALESCE(p.processing_warehouse_code,''),
 		       COALESCE(p.default_sender_id,0)
 		FROM %s.customers c
 		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
 		WHERE c.id=$1 AND c.active=true
-	`, r.schema, r.schema), cmd.CustomerID).Scan(&customerName, &displayName, &warehouseCode, &defaultSenderID); err != nil {
+	`, r.schema, r.schema), cmd.CustomerID).Scan(&customerName, &displayName, &defaultSenderID); err != nil {
 		if err == pgx.ErrNoRows {
 			return customerportalapp.PortalAdminDetail{}, customerportalapp.ErrPortalCustomerNotFound
 		}
@@ -385,11 +371,10 @@ func (r Repository) ApplyCapabilityTemplate(ctx context.Context, cmd customerpor
 
 	displayName = firstNonEmpty(displayName, customerName)
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, processing_warehouse_code, default_sender_id, enabled, status, theme_key, miniapp_entry_mode, capability_template_key, updated_at, updated_by)
-		VALUES($1,$2,$3,$4,true,'active',$5,$6,$7,now(),$8)
+		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, default_sender_id, enabled, status, theme_key, miniapp_entry_mode, capability_template_key, updated_at, updated_by)
+		VALUES($1,$2,$3,true,'active',$4,$5,$6,now(),$7)
 		ON CONFLICT(customer_id) DO UPDATE SET
 			display_name=excluded.display_name,
-			processing_warehouse_code=excluded.processing_warehouse_code,
 			default_sender_id=excluded.default_sender_id,
 			enabled=true,
 			status='active',
@@ -398,13 +383,8 @@ func (r Repository) ApplyCapabilityTemplate(ctx context.Context, cmd customerpor
 			capability_template_key=excluded.capability_template_key,
 			updated_at=now(),
 			updated_by=excluded.updated_by
-	`, r.schema), cmd.CustomerID, displayName, warehouseCode, defaultSenderID, customerportalapp.NormalizePortalThemeKey(cmd.Template.ThemeKey), customerportalapp.NormalizeMiniappEntryMode(cmd.Template.MiniappEntryMode), cmd.Template.Key, strings.TrimSpace(cmd.UpdatedBy)); err != nil {
+	`, r.schema), cmd.CustomerID, displayName, defaultSenderID, customerportalapp.NormalizePortalThemeKey(cmd.Template.ThemeKey), customerportalapp.NormalizeMiniappEntryMode(cmd.Template.MiniappEntryMode), cmd.Template.Key, strings.TrimSpace(cmd.UpdatedBy)); err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
-	}
-	if warehouseCode != "" && capabilityEnabled(cmd.Template.Capabilities, customerportalapp.CapabilityProcessing) {
-		if err := r.ensureProcessingWarehouseTx(ctx, tx, warehouseCode, displayName); err != nil {
-			return customerportalapp.PortalAdminDetail{}, err
-		}
 	}
 	for _, capability := range cmd.Template.Capabilities {
 		raw, err := json.Marshal(map[string]any{})
@@ -448,7 +428,7 @@ func (r Repository) UpsertPortalERPBinding(ctx context.Context, cmd customerport
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id
 		FROM %s.customers
-		WHERE id=$1 AND active=true AND COALESCE(NULLIF(customer_type,''),'retail')='wholesale'
+		WHERE id=$1 AND active=true
 	`, r.schema), cmd.CustomerID).Scan(&customerID); err != nil {
 		if err == pgx.ErrNoRows {
 			return customerportalapp.PortalAdminDetail{}, customerportalapp.ErrPortalCustomerNotFound
@@ -553,45 +533,6 @@ func (r Repository) grantTemplateERPRolesTx(ctx context.Context, tx pgx.Tx, cust
 	return nil
 }
 
-func capabilityEnabled(rows []customerportalapp.CapabilityOption, code string) bool {
-	for _, row := range rows {
-		if row.Code == code && row.Enabled {
-			return true
-		}
-	}
-	return false
-}
-
-func defaultProcessingWarehouseCode(customerID int64) string {
-	return fmt.Sprintf("cust_%d_processing", customerID)
-}
-
-func (r Repository) ensureProcessingWarehouseTx(ctx context.Context, tx pgx.Tx, code, customerName string) error {
-	var hasWarehouseTable bool
-	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.warehouses", r.schema)).Scan(&hasWarehouseTable); err != nil {
-		return err
-	}
-	if !hasWarehouseTable {
-		return nil
-	}
-	name := strings.TrimSpace(customerName)
-	if name == "" {
-		name = code
-	}
-	name += "-代加工仓"
-	_, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.warehouses(code,name,kind,parent_code,sort_order,is_default,active,description)
-		VALUES($1,$2,'customer_processing','finished_goods',60,false,true,'客户代加工成品专属仓')
-		ON CONFLICT(code) DO UPDATE SET
-			name=excluded.name,
-			kind=excluded.kind,
-			parent_code=excluded.parent_code,
-			active=true,
-			description=excluded.description
-	`, r.schema), code, name)
-	return err
-}
-
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		value = strings.TrimSpace(value)
@@ -605,27 +546,21 @@ func firstNonEmpty(values ...string) string {
 type portalProfileAuditSnapshot struct {
 	exists                bool
 	displayName           string
-	processingWarehouse   string
 	defaultSenderID       int64
 	enabled               bool
 	capabilityTemplateKey string
-	beanListMode          string
-	beanListPublicationID int64
 }
 
 func portalProfileAuditSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64) (portalProfileAuditSnapshot, error) {
 	var row portalProfileAuditSnapshot
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(display_name,''),
-		       COALESCE(processing_warehouse_code,''),
 		       COALESCE(default_sender_id,0),
 		       COALESCE(enabled,false),
-		       COALESCE(capability_template_key,''),
-		       COALESCE(bean_list_mode,''),
-		       COALESCE(bean_list_publication_id,0)
+		       COALESCE(capability_template_key,'')
 		FROM %s.customer_portal_profiles
 		WHERE customer_id=$1
-	`, schema), customerID).Scan(&row.displayName, &row.processingWarehouse, &row.defaultSenderID, &row.enabled, &row.capabilityTemplateKey, &row.beanListMode, &row.beanListPublicationID)
+	`, schema), customerID).Scan(&row.displayName, &row.defaultSenderID, &row.enabled, &row.capabilityTemplateKey)
 	if err == pgx.ErrNoRows {
 		return row, nil
 	}
@@ -637,13 +572,9 @@ func portalProfileAuditSnapshotTx(ctx context.Context, tx pgx.Tx, schema string,
 }
 
 func auditPortalProfileVisibilityTx(ctx context.Context, tx pgx.Tx, schema string, cmd customerportalapp.UpdatePortalVisibilityCommand, old portalProfileAuditSnapshot) error {
-	warehouseCode := portalProfileWarehouseFromCommand(cmd, old)
 	meta := postgresinfra.AuditMeta{"customer_id": cmd.CustomerID}
 	actor := strings.TrimSpace(cmd.UpdatedBy)
 	if err := auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "display_name", old.displayName, strings.TrimSpace(cmd.DisplayName), meta); err != nil {
-		return err
-	}
-	if err := auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "processing_warehouse_code", old.processingWarehouse, warehouseCode, meta); err != nil {
 		return err
 	}
 	if err := auditPortalProfileIntField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "default_sender_id", old.defaultSenderID, cmd.DefaultSenderID, meta); err != nil {
@@ -655,13 +586,7 @@ func auditPortalProfileVisibilityTx(ctx context.Context, tx pgx.Tx, schema strin
 	if err := auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "capability_template_key", old.capabilityTemplateKey, customerportalapp.NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey), meta); err != nil {
 		return err
 	}
-	oldBeanList := fmt.Sprintf("%s:%d", strings.TrimSpace(old.beanListMode), old.beanListPublicationID)
-	newBeanList := fmt.Sprintf("%s:%d", strings.TrimSpace(cmd.BeanListMode), cmd.BeanListPublicationID)
-	return auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "bean_list_version", oldBeanList, newBeanList, postgresinfra.AuditMeta{
-		"customer_id":              cmd.CustomerID,
-		"bean_list_mode":           strings.TrimSpace(cmd.BeanListMode),
-		"bean_list_publication_id": cmd.BeanListPublicationID,
-	})
+	return nil
 }
 
 func auditPortalProfileTextField(ctx context.Context, tx pgx.Tx, schema, actor string, customerID int64, oldExists bool, field, oldValue, newValue string, meta postgresinfra.AuditMeta) error {
@@ -705,14 +630,6 @@ func auditPortalProfileIntField(ctx context.Context, tx pgx.Tx, schema, actor st
 	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer_portal_profile", &customerID, "update", postgresinfra.StrPtr(field), oldPtr, postgresinfra.StrPtr(fmt.Sprintf("%d", newValue)), meta)
 }
 
-func portalProfileWarehouseFromCommand(cmd customerportalapp.UpdatePortalVisibilityCommand, old portalProfileAuditSnapshot) string {
-	warehouseCode := strings.TrimSpace(cmd.ProcessingWarehouseCode)
-	if warehouseCode == "" && old.exists {
-		return strings.TrimSpace(old.processingWarehouse)
-	}
-	return warehouseCode
-}
-
 func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (customerportalapp.PortalAdminCustomer, error) {
 	var row customerportalapp.PortalAdminCustomer
 	var employeeID sql.NullInt64
@@ -724,15 +641,12 @@ func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (
 		       COALESCE(c.phone,''),
 		       COALESCE(c.company_name,''),
 		       COALESCE(p.display_name,''),
-		       COALESCE(p.processing_warehouse_code,''),
 		       COALESCE(p.default_sender_id,0),
 		       COALESCE(p.enabled,false),
 		       COALESCE(p.status,'active'),
 		       COALESCE(NULLIF(p.theme_key,''),'coffee_factory'),
 		       COALESCE(NULLIF(p.miniapp_entry_mode,''),'services'),
 		       COALESCE(p.capability_template_key,''),
-		       COALESCE(NULLIF(p.bean_list_mode,''),'latest'),
-		       COALESCE(p.bean_list_publication_id,0),
 		       COALESCE((SELECT COUNT(*)::int FROM %s.customer_portal_user_bindings b WHERE b.customer_id=c.id AND b.status='approved'),0),
 		       eb.employee_id,
 		       eb.employee_name,
@@ -763,7 +677,7 @@ func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (
 			LIMIT 1
 		) eb ON true
 		WHERE c.id=$1
-		`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), customerID).Scan(&row.ID, &row.Name, &row.CustomerType, &row.Phone, &row.CompanyName, &row.DisplayName, &row.ProcessingWarehouseCode, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BeanListMode, &row.BeanListPublicationID, &row.BindingCount, &employeeID, &employeeName, &employeePhone, &role, &status, &updatedBy, &updatedAt)
+		`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), customerID).Scan(&row.ID, &row.Name, &row.CustomerType, &row.Phone, &row.CompanyName, &row.DisplayName, &row.DefaultSenderID, &row.PortalEnabled, &row.PortalStatus, &row.ThemeKey, &row.MiniappEntryMode, &row.CapabilityTemplateKey, &row.BindingCount, &employeeID, &employeeName, &employeePhone, &role, &status, &updatedBy, &updatedAt)
 	if err == nil {
 		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
 		row.MiniappEntryMode = customerportalapp.NormalizeMiniappEntryMode(row.MiniappEntryMode)

@@ -17,9 +17,7 @@ func TestCustomerPortalAdminRepositoryPersistsProfilesCapabilitiesAndBindings(t 
 		"PortalAdminDetail",
 		"UpdatePortalVisibility",
 		"customer_portal_profiles",
-		"processing_warehouse_code",
 		"default_sender_id",
-		"customer_processing",
 		"warehouses",
 		"customer_portal_user_bindings",
 		"customer_service_capabilities",
@@ -71,12 +69,21 @@ func TestCustomerPortalAdminRepositoryAuditsPortalProfileFields(t *testing.T) {
 		`auditPortalProfileBoolField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "enabled"`,
 		`auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "capability_template_key"`,
 		`auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "display_name"`,
-		`auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "processing_warehouse_code"`,
 		`auditPortalProfileIntField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "default_sender_id"`,
-		`auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "bean_list_version"`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("admin repository missing portal profile audit marker %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"processing_warehouse_code",
+		"bean_list_mode",
+		"bean_list_publication_id",
+		"customer_processing",
+		"ensureProcessingWarehouseTx",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("admin repository should not keep portal config field %q", forbidden)
 		}
 	}
 }

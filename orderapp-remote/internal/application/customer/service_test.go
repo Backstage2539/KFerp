@@ -40,6 +40,10 @@ func (r *fakeRepo) Delete(ctx context.Context, actor string, id int64) error {
 	return nil
 }
 
+func (r *fakeRepo) CreateOrderType(ctx context.Context, actor string, name string) (Option, error) {
+	return Option{ID: 22, Name: name}, nil
+}
+
 func (r *fakeRepo) List(ctx context.Context, query ListQuery) (ListResult, error) {
 	r.listQuery = query
 	return ListResult{}, nil

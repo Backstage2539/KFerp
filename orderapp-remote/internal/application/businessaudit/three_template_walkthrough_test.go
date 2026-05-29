@@ -629,15 +629,14 @@ func (s *threeTemplateWalkthroughStore) UpsertPortalERPBinding(_ context.Context
 func (s *threeTemplateWalkthroughStore) portalDetail(customer *walkthroughCustomer) customerportalapp.PortalAdminDetail {
 	return customerportalapp.PortalAdminDetail{
 		Customer: customerportalapp.PortalAdminCustomer{
-			ID:                      customer.ID,
-			Name:                    customer.Name,
-			DisplayName:             customer.Name,
-			PortalEnabled:           true,
-			ThemeKey:                customer.ThemeKey,
-			MiniappEntryMode:        customer.MiniappEntryMode,
-			CapabilityTemplateKey:   customer.TemplateKey,
-			ProcessingWarehouseCode: customer.ProcessingWarehouse,
-			ERPBinding:              &customerportalapp.PortalERPBinding{CustomerID: customer.ID, EmployeeID: customer.EmployeeID, Status: "active"},
+			ID:                    customer.ID,
+			Name:                  customer.Name,
+			DisplayName:           customer.Name,
+			PortalEnabled:         true,
+			ThemeKey:              customer.ThemeKey,
+			MiniappEntryMode:      customer.MiniappEntryMode,
+			CapabilityTemplateKey: customer.TemplateKey,
+			ERPBinding:            &customerportalapp.PortalERPBinding{CustomerID: customer.ID, EmployeeID: customer.EmployeeID, Status: "active"},
 		},
 		Capabilities: customer.Capabilities,
 	}

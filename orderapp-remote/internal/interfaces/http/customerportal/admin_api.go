@@ -19,16 +19,13 @@ import (
 )
 
 type portalVisibilityRequest struct {
-	DisplayName             string                               `json:"display_name"`
-	ProcessingWarehouseCode string                               `json:"processing_warehouse_code"`
-	DefaultSenderID         int64                                `json:"default_sender_id"`
-	Enabled                 *bool                                `json:"enabled"`
-	ThemeKey                string                               `json:"theme_key"`
-	MiniappEntryMode        string                               `json:"miniapp_entry_mode"`
-	CapabilityTemplateKey   string                               `json:"capability_template_key"`
-	BeanListMode            string                               `json:"bean_list_mode"`
-	BeanListPublicationID   int64                                `json:"bean_list_publication_id"`
-	Capabilities            []customerportalapp.CapabilityOption `json:"capabilities"`
+	DisplayName           string                               `json:"display_name"`
+	DefaultSenderID       int64                                `json:"default_sender_id"`
+	Enabled               *bool                                `json:"enabled"`
+	ThemeKey              string                               `json:"theme_key"`
+	MiniappEntryMode      string                               `json:"miniapp_entry_mode"`
+	CapabilityTemplateKey string                               `json:"capability_template_key"`
+	Capabilities          []customerportalapp.CapabilityOption `json:"capabilities"`
 }
 
 type capabilityTemplateRequest struct {
@@ -202,18 +199,15 @@ func registerAdminAPI(e *echo.Echo, svc Service, assetDirs ...string) {
 			enabled = *req.Enabled
 		}
 		detail, err := svc.UpdatePortalVisibility(c.Request().Context(), customerportalapp.UpdatePortalVisibilityCommand{
-			CustomerID:              id,
-			DisplayName:             req.DisplayName,
-			ProcessingWarehouseCode: req.ProcessingWarehouseCode,
-			DefaultSenderID:         req.DefaultSenderID,
-			Enabled:                 enabled,
-			ThemeKey:                req.ThemeKey,
-			MiniappEntryMode:        req.MiniappEntryMode,
-			CapabilityTemplateKey:   req.CapabilityTemplateKey,
-			BeanListMode:            req.BeanListMode,
-			BeanListPublicationID:   req.BeanListPublicationID,
-			Capabilities:            req.Capabilities,
-			UpdatedBy:               support.ActorOf(c),
+			CustomerID:            id,
+			DisplayName:           req.DisplayName,
+			DefaultSenderID:       req.DefaultSenderID,
+			Enabled:               enabled,
+			ThemeKey:              req.ThemeKey,
+			MiniappEntryMode:      req.MiniappEntryMode,
+			CapabilityTemplateKey: req.CapabilityTemplateKey,
+			Capabilities:          req.Capabilities,
+			UpdatedBy:             support.ActorOf(c),
 		})
 		if err != nil {
 			return portalAdminError(c, err)

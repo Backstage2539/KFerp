@@ -25,7 +25,7 @@ func TestCustomerCapabilityTemplatesPageWired(t *testing.T) {
 		"customerCapabilityTemplates",
 		"客户门户能力模板",
 		"客户管理",
-		"门户客户配置",
+		"客户门户配置",
 		"履约运营台",
 	} {
 		if !strings.Contains(menu, want) {
