@@ -1252,7 +1252,16 @@ function customerBeanListItems(listType, productTypeCategoryID = activeProductTy
 function beanMetaForItem(item) {
   const listType = priceListRenderTypeForItem(item)
   const key = metaKeyForListType(listType)
-  return beanMeta(item, key)
+  const meta = beanMeta(item, key)
+  if (meta && meta.code) return meta
+
+  // fallback: 产品分类为生豆但 product_kind 非 green_bean 时，green_bean_list meta 可能为空
+  // 尝试从缓存或已发布版本中获取 code
+  if (listType === 'green') {
+    const fallback = beanMeta(item, 'commercial_bean_list')
+    if (fallback && fallback.code) return fallback
+  }
+  return meta || {}
 }
 
 function matchesProductTypeCategory(item, productTypeCategoryID = activeProductTypeCategoryID.value) {

@@ -489,9 +489,22 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	commercialDisplay := commercialBeanListDisplay(profileName)
 	retailDisplay := retailBeanListDisplay(profileName)
 	dripDisplay := BeanListDisplay{}
+	greenDisplay := BeanListDisplay{}
+
+	// 产品分类为生豆时，即使 product_kind 不是 green_bean，也生成 green_bean_list meta
+	if isGreenBeanCategory(in) {
+		greenDisplay = greenBeanListDisplay(profileName, in)
+	}
+
 	if in.ProductKind == "drip_bag" {
 		dripDisplay = commercialDisplay
 		commercialDisplay = BeanListDisplay{}
+		retailDisplay = BeanListDisplay{}
+		greenDisplay = BeanListDisplay{}
+	}
+	if in.ProductKind == "green_bean" {
+		commercialDisplay = BeanListDisplay{}
+		dripDisplay = BeanListDisplay{}
 		retailDisplay = BeanListDisplay{}
 	}
 	if in.CustomerID > 0 {
@@ -544,6 +557,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		CommercialBeanList:        commercialDisplay,
 		DripBeanList:              dripDisplay,
 		RetailBeanList:            retailDisplay,
+		GreenBeanList:             greenDisplay,
 		BeanListQuality:           in.BeanListQuality,
 		Flavor:                    in.Flavor,
 		Origin:                    in.Origin,
