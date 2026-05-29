@@ -2171,6 +2171,12 @@ func isGreenBeanCategory(in ProductInput) bool {
 
 func buildCategoryGreenBeanListDisplay(in ProductInput, fallback BeanListDisplay) BeanListDisplay {
 	code := fallback.Code
+	// 为生豆列表生成 G.xxx 格式编号，使用产品ID保证唯一性
+	if !strings.HasPrefix(code, "G.") {
+		if in.ProductID > 0 {
+			code = fmt.Sprintf("G.%d", in.ProductID)
+		}
+	}
 	category := firstNonEmptyString(in.CategorySecondaryName, in.CategoryPrimaryName, "生豆销售")
 	displayName := fallback.DisplayName
 	if displayName == "" {
