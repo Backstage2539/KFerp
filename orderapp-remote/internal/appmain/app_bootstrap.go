@@ -26,8 +26,14 @@ func newHTTPServer(cfg appConfig, pool *pgxpool.Pool) *echo.Echo {
 	e.Use(middleware.Recover())
 	e.Use(middleware.Secure())
 	e.Use(supporthttp.OperationLogMiddleware(pool, cfg.Schema))
-	e.Use(supporthttp.BasicAuth(cfg.AuthUser, cfg.AuthPass, cfg.Schema, pool))
+	if shouldInstallBasicAuth(cfg) {
+		e.Use(supporthttp.BasicAuth(cfg.AuthUser, cfg.AuthPass, cfg.Schema, pool))
+	}
 	e.Use(supporthttp.EmployeeContextMiddleware(pool, cfg.Schema))
 	e.Renderer = supporthttp.NewTemplateRenderer(t)
 	return e
+}
+
+func shouldInstallBasicAuth(cfg appConfig) bool {
+	return !cfg.DisableBasicAuth
 }

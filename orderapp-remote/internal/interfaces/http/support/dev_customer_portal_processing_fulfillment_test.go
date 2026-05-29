@@ -71,7 +71,7 @@ func TestCustomerPortalProcessingFulfillmentProductionDemandSource(t *testing.T)
 		},
 		{
 			path: filepath.Join("internal", "infrastructure", "postgres", "customerportal", "business_repository.go"),
-			want: []string{"customer_processing_production_demands", "defaultProcessingWarehouseCode", "target_warehouse"},
+			want: []string{"customer_processing_production_demands", "processingWarehouseForCustomerTx", "target_warehouse", "customer warehouse binding required"},
 		},
 		{
 			path: filepath.Join("internal", "infrastructure", "postgres", "production", "unprod_summary.go"),

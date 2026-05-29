@@ -63,6 +63,27 @@ func TestLoadRuntimeCustomerPortalDevLogin(t *testing.T) {
 	}
 }
 
+func TestLoadRuntimeDisableBasicAuth(t *testing.T) {
+	cfg, err := LoadRuntime(func(key string) string {
+		switch key {
+		case "DATABASE_URL":
+			return "postgres://example"
+		case "APP_PASS":
+			return "secret"
+		case "DISABLE_BASIC_AUTH":
+			return "true"
+		default:
+			return ""
+		}
+	})
+	if err != nil {
+		t.Fatalf("LoadRuntime() error = %v", err)
+	}
+	if !cfg.DisableBasicAuth {
+		t.Fatal("DisableBasicAuth = false, want true")
+	}
+}
+
 func TestLoadRuntimeCustomerPortalWechatConfig(t *testing.T) {
 	cfg, err := LoadRuntime(func(key string) string {
 		switch key {

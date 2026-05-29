@@ -759,7 +759,7 @@ func TestCreateProcessingRequestValidatesAndRequiresCapability(t *testing.T) {
 
 func TestPortalAdminDetailAlwaysReturnsCompleteCapabilityCatalog(t *testing.T) {
 	repo := &fakeRepository{portalDetail: PortalAdminDetail{
-		Customer: PortalAdminCustomer{ID: 147, Name: "13800138075", DisplayName: "测试客户", PortalEnabled: true, ProcessingWarehouseCode: "cust_147_processing", DefaultSenderID: 3},
+		Customer: PortalAdminCustomer{ID: 147, Name: "13800138075", DisplayName: "测试客户", PortalEnabled: true, DefaultSenderID: 3},
 		Capabilities: []CapabilityOption{
 			{Code: CapabilityDirectShip, Enabled: true},
 			{Code: CapabilitySettlement, Enabled: false},
@@ -770,7 +770,7 @@ func TestPortalAdminDetailAlwaysReturnsCompleteCapabilityCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PortalAdminDetail() err=%v", err)
 	}
-	if got.Customer.ID != 147 || got.Customer.DisplayName != "测试客户" || got.Customer.ProcessingWarehouseCode != "cust_147_processing" || got.Customer.DefaultSenderID != 3 {
+	if got.Customer.ID != 147 || got.Customer.DisplayName != "测试客户" || got.Customer.DefaultSenderID != 3 {
 		t.Fatalf("detail customer=%+v", got.Customer)
 	}
 	if len(got.Capabilities) != len(DefaultCapabilityOptions()) {
@@ -1424,14 +1424,13 @@ func TestUpdatePortalVisibilityTrimsAndNormalizesCapabilities(t *testing.T) {
 	}}
 	svc := NewService(repo, fakeIdentityProvider{})
 	_, err := svc.UpdatePortalVisibility(context.Background(), UpdatePortalVisibilityCommand{
-		CustomerID:              147,
-		DisplayName:             "  测试客户  ",
-		Enabled:                 true,
-		ProcessingWarehouseCode: "  cust_147_processing  ",
-		DefaultSenderID:         8,
-		ThemeKey:                "  premium_partner  ",
-		MiniappEntryMode:        "  mall  ",
-		Capabilities:            []CapabilityOption{{Code: CapabilityDirectShip, Enabled: true}, {Code: CapabilityMall, Enabled: true}, {Code: "unknown", Enabled: true}, {Code: CapabilityBeanList, Enabled: false}},
+		CustomerID:       147,
+		DisplayName:      "  测试客户  ",
+		Enabled:          true,
+		DefaultSenderID:  8,
+		ThemeKey:         "  premium_partner  ",
+		MiniappEntryMode: "  mall  ",
+		Capabilities:     []CapabilityOption{{Code: CapabilityDirectShip, Enabled: true}, {Code: CapabilityMall, Enabled: true}, {Code: "unknown", Enabled: true}, {Code: CapabilityBeanList, Enabled: false}},
 	})
 	if err != nil {
 		t.Fatalf("UpdatePortalVisibility() err=%v", err)
@@ -1439,8 +1438,8 @@ func TestUpdatePortalVisibilityTrimsAndNormalizesCapabilities(t *testing.T) {
 	if repo.visibilityCommand.CustomerID != 147 || repo.visibilityCommand.DisplayName != "测试客户" || !repo.visibilityCommand.Enabled {
 		t.Fatalf("visibility command=%+v", repo.visibilityCommand)
 	}
-	if repo.visibilityCommand.ProcessingWarehouseCode != "cust_147_processing" || repo.visibilityCommand.DefaultSenderID != 8 {
-		t.Fatalf("visibility warehouse/sender not normalized: %+v", repo.visibilityCommand)
+	if repo.visibilityCommand.DefaultSenderID != 8 {
+		t.Fatalf("visibility sender not normalized: %+v", repo.visibilityCommand)
 	}
 	if repo.visibilityCommand.ThemeKey != PortalThemePremiumPartner {
 		t.Fatalf("visibility theme_key=%q, want premium_partner", repo.visibilityCommand.ThemeKey)

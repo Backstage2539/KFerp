@@ -59,7 +59,7 @@ func TestDev383CustomerManagementPortalWarehouseSourceMarkers(t *testing.T) {
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "customerportal", "admin_repository.go"): {
 			"portalCustomerWarehouses",
-			"portalProfileWarehouseFromCommand",
+			"customer_id=$1",
 		},
 	}
 
