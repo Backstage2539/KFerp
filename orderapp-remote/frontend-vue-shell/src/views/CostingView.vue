@@ -1234,21 +1234,25 @@ function tierKeyForListType(listType) {
 }
 
 function beanListItemsForType(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
-  const key = metaKeyForListType(listType)
   return scopedBeanListItems(publicationScope.value, listType)
     .filter((item) => matchesProductTypeCategory(item, productTypeCategoryID))
-    .filter((item) => beanMeta(item, key).code)
+    .filter((item) => beanMetaForItem(item).code)
     .slice()
-    .sort((a, b) => compareBeanCodes(beanMeta(a, key).code, beanMeta(b, key).code))
+    .sort((a, b) => compareBeanCodes(beanMetaForItem(a).code, beanMetaForItem(b).code))
 }
 
 function customerBeanListItems(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
-  const key = metaKeyForListType(listType)
   return scopedBeanListItems('customer', listType)
     .filter((item) => matchesProductTypeCategory(item, productTypeCategoryID))
-    .filter((item) => beanMeta(item, key).code)
+    .filter((item) => beanMetaForItem(item).code)
     .slice()
-    .sort((a, b) => compareBeanCodes(beanMeta(a, key).code, beanMeta(b, key).code))
+    .sort((a, b) => compareBeanCodes(beanMetaForItem(a).code, beanMetaForItem(b).code))
+}
+
+function beanMetaForItem(item) {
+  const listType = priceListRenderTypeForItem(item)
+  const key = metaKeyForListType(listType)
+  return beanMeta(item, key)
 }
 
 function matchesProductTypeCategory(item, productTypeCategoryID = activeProductTypeCategoryID.value) {
