@@ -416,6 +416,8 @@ type Repository interface {
 	ListImportRows(context.Context, ListImportRowsQuery) ([]ImportRow, error)
 	ApplyImport(context.Context, ApplyImportCommand) (ApplyResult, error)
 	CustomerPortalContext(context.Context, int64) (CustomerERPContext, error)
+	InternalCustomerPortalOverview(context.Context, int64) (CustomerPortalOverview, error)
+	InternalCustomerPortalOptions(context.Context, int64) (CustomerFulfillmentOptions, error)
 	CustomerPortalOverview(context.Context, int64) (CustomerPortalOverview, error)
 	SubmitCustomerProcessingWorkOrder(context.Context, SubmitCustomerProcessingWorkOrderCommand) (ProcessingOrderSummary, error)
 	SubmitCustomerDirectShipOrder(context.Context, SubmitCustomerDirectShipOrderCommand) (DirectShipOrderSummary, error)
@@ -505,6 +507,20 @@ func (s *Service) CustomerPortalOptions(ctx context.Context, employeeID int64) (
 		return CustomerFulfillmentOptions{}, err
 	}
 	return s.repo.CustomerFulfillmentOptions(ctx, current.CustomerID)
+}
+
+func (s *Service) InternalCustomerPortalOverview(ctx context.Context, customerID int64) (CustomerPortalOverview, error) {
+	if customerID <= 0 {
+		return CustomerPortalOverview{}, fmt.Errorf("customer required")
+	}
+	return s.repo.InternalCustomerPortalOverview(ctx, customerID)
+}
+
+func (s *Service) InternalCustomerPortalOptions(ctx context.Context, customerID int64) (CustomerFulfillmentOptions, error) {
+	if customerID <= 0 {
+		return CustomerFulfillmentOptions{}, fmt.Errorf("customer required")
+	}
+	return s.repo.CustomerFulfillmentOptions(ctx, customerID)
 }
 
 func (s *Service) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd SubmitCustomerProcessingWorkOrderCommand) (ProcessingOrderSummary, error) {

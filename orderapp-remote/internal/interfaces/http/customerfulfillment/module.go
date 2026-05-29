@@ -15,6 +15,8 @@ type Service interface {
 	ApplyImport(context.Context, app.ApplyImportCommand) (app.ApplyResult, error)
 	CustomerPortalOverview(context.Context, int64) (app.CustomerPortalOverview, error)
 	CustomerPortalOptions(context.Context, int64) (app.CustomerFulfillmentOptions, error)
+	InternalCustomerPortalOverview(context.Context, int64) (app.CustomerPortalOverview, error)
+	InternalCustomerPortalOptions(context.Context, int64) (app.CustomerFulfillmentOptions, error)
 	SubmitCustomerProcessingWorkOrder(context.Context, app.SubmitCustomerProcessingWorkOrderCommand) (app.ProcessingOrderSummary, error)
 	SubmitCustomerDirectShipOrder(context.Context, app.SubmitCustomerDirectShipOrderCommand) (app.DirectShipOrderSummary, error)
 	AdjustCustodyInventory(context.Context, app.AdjustCustodyInventoryCommand) (app.CustodyBalance, error)
@@ -69,6 +71,8 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	e.POST("/api/customer-fulfillment/:customer_id/external-users/:employee_id/login-enabled", api.SetExternalUserLoginEnabled)
 	e.GET("/api/customer-processing/portal/overview", api.customerPortalOverview)
 	e.GET("/api/customer-processing/portal/options", api.customerPortalOptions)
+	e.GET("/api/customer-processing/internal/:customer_id/overview", api.internalCustomerPortalOverview)
+	e.GET("/api/customer-processing/internal/:customer_id/options", api.internalCustomerPortalOptions)
 	e.POST("/api/customer-processing/portal/work-orders", api.submitCustomerProcessingWorkOrder)
 	e.POST("/api/customer-processing/portal/direct-ship-orders", api.submitCustomerDirectShipOrder)
 }

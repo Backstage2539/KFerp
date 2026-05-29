@@ -394,7 +394,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($1 = '' OR l.batch_code ILIKE $2 OR m.name ILIKE $2)
 			  AND ($3 = '' OR l.warehouse = $3)
 			  AND ($4 = '' OR $4 = 'material')
-			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) = $7::bigint)
+			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) IN (0, $7::bigint))
 			UNION ALL
 			SELECT COALESCE(last_ledger.warehouse,'finished_goods') AS warehouse,
 			       COALESCE(w.name,COALESCE(last_ledger.warehouse,'finished_goods')) AS warehouse_name,
@@ -428,7 +428,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($1 = '' OR b.batch_code ILIKE $2 OR p.name ILIKE $2)
 			  AND ($3 = '' OR COALESCE(last_ledger.warehouse,'finished_goods') = $3)
 			  AND ($4 = '' OR $4 = 'finished_product')
-			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) = $7::bigint OR COALESCE(p.customer_id,0) = $7::bigint)
+			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) IN (0, $7::bigint) OR COALESCE(p.customer_id,0) IN (0, $7::bigint))
 			UNION ALL
 			SELECT fi.warehouse,
 			       COALESCE(w.name,fi.warehouse) AS warehouse_name,
@@ -451,7 +451,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($1 = '' OR p.name ILIKE $2)
 			  AND ($3 = '' OR fi.warehouse = $3)
 			  AND ($4 = '' OR $4 = 'finished_product')
-			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) = $7::bigint OR COALESCE(p.customer_id,0) = $7::bigint)
+			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) IN (0, $7::bigint) OR COALESCE(p.customer_id,0) IN (0, $7::bigint))
 			  AND NOT EXISTS (
 			    SELECT 1
 			    FROM %s.stock_batches b

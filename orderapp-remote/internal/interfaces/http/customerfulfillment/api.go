@@ -149,6 +149,30 @@ func (a api) customerPortalOptions(c echo.Context) error {
 	return c.JSON(http.StatusOK, options)
 }
 
+func (a api) internalCustomerPortalOverview(c echo.Context) error {
+	customerID, err := parseID(c.Param("customer_id"), "customer")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	overview, err := a.svc.InternalCustomerPortalOverview(c.Request().Context(), customerID)
+	if err != nil {
+		return customerPortalError(c, err)
+	}
+	return c.JSON(http.StatusOK, overview)
+}
+
+func (a api) internalCustomerPortalOptions(c echo.Context) error {
+	customerID, err := parseID(c.Param("customer_id"), "customer")
+	if err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+	options, err := a.svc.InternalCustomerPortalOptions(c.Request().Context(), customerID)
+	if err != nil {
+		return customerPortalError(c, err)
+	}
+	return c.JSON(http.StatusOK, options)
+}
+
 func (a api) submitCustomerProcessingWorkOrder(c echo.Context) error {
 	employeeID := support.CurrentEmployeeID(c)
 	if employeeID <= 0 {

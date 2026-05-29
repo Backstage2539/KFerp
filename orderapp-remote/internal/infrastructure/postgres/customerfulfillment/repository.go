@@ -282,29 +282,90 @@ func (r *Repository) CustomerPortalOverview(ctx context.Context, employeeID int6
 	if err != nil {
 		return app.CustomerPortalOverview{}, err
 	}
+	return r.buildOverview(ctx, current.CustomerID, current.CustomerName)
+}
+
+func (r *Repository) InternalCustomerPortalOverview(ctx context.Context, customerID int64) (app.CustomerPortalOverview, error) {
+	customerName, err := r.resolveCustomerName(ctx, customerID)
+	if err != nil {
+		return app.CustomerPortalOverview{}, err
+	}
+	if err := r.requirePortalCustomerWithWorkbench(ctx, customerID); err != nil {
+		return app.CustomerPortalOverview{}, err
+	}
+	return r.buildOverview(ctx, customerID, customerName)
+}
+
+func (r *Repository) resolveCustomerName(ctx context.Context, customerID int64) (string, error) {
+	var name string
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(name,'')
+		FROM %s.customers
+		WHERE id=$1 AND active=true
+	`, r.schema), customerID).Scan(&name)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", fmt.Errorf("customer not found")
+		}
+		return "", err
+	}
+	return name, nil
+}
+
+func (r *Repository) requirePortalCustomerWithWorkbench(ctx context.Context, customerID int64) error {
+	var templateKey string
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(cp.capability_template_key,'')
+		FROM %s.customer_portal_profiles cp
+		JOIN %s.customers c ON c.id=cp.customer_id
+		WHERE cp.customer_id=$1
+		  AND cp.enabled=true
+		  AND c.active=true
+	`, r.schema, r.schema), customerID).Scan(&templateKey)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("customer portal not found")
+		}
+		return err
+	}
+	if templateKey == "" {
+		return fmt.Errorf("customer portal template not configured")
+	}
+	available, err := r.customerERPWorkbenchAvailableForTemplateKey(ctx, r.pool, templateKey)
+	if err != nil {
+		return err
+	}
+	if !available {
+		return fmt.Errorf("customer processing portal unavailable for this customer")
+	}
+	return nil
+}
+
+func (r *Repository) buildOverview(ctx context.Context, customerID int64, customerName string) (app.CustomerPortalOverview, error) {
 	overview := app.CustomerPortalOverview{
-		CustomerID:   current.CustomerID,
-		CustomerName: current.CustomerName,
+		CustomerID:   customerID,
+		CustomerName: customerName,
 	}
-	if overview.Capabilities, err = r.listCustomerCapabilityCodes(ctx, current.CustomerID); err != nil {
+	var err error
+	if overview.Capabilities, err = r.listCustomerCapabilityCodes(ctx, customerID); err != nil {
 		return app.CustomerPortalOverview{}, err
 	}
-	if overview.CustodyBalances, err = r.listCustodyBalances(ctx, current.CustomerID); err != nil {
+	if overview.CustodyBalances, err = r.listCustodyBalances(ctx, customerID); err != nil {
 		return app.CustomerPortalOverview{}, err
 	}
-	if overview.FinishedGoods, err = r.listFinishedGoods(ctx, current.CustomerID); err != nil {
+	if overview.FinishedGoods, err = r.listFinishedGoods(ctx, customerID); err != nil {
 		return app.CustomerPortalOverview{}, err
 	}
-	if overview.ProcessingOrders, err = r.listProcessingOrders(ctx, current.CustomerID); err != nil {
+	if overview.ProcessingOrders, err = r.listProcessingOrders(ctx, customerID); err != nil {
 		return app.CustomerPortalOverview{}, err
 	}
-	if overview.DirectShipOrders, err = r.listDirectShipOrders(ctx, current.CustomerID); err != nil {
+	if overview.DirectShipOrders, err = r.listDirectShipOrders(ctx, customerID); err != nil {
 		return app.CustomerPortalOverview{}, err
 	}
-	if overview.Fees, err = r.listFeeItems(ctx, current.CustomerID); err != nil {
+	if overview.Fees, err = r.listFeeItems(ctx, customerID); err != nil {
 		return app.CustomerPortalOverview{}, err
 	}
-	if overview.Settlements, err = r.listSettlements(ctx, current.CustomerID); err != nil {
+	if overview.Settlements, err = r.listSettlements(ctx, customerID); err != nil {
 		return app.CustomerPortalOverview{}, err
 	}
 	return overview, nil
