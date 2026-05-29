@@ -1020,43 +1020,94 @@ func resolveBomYieldRate(roastLevel string, storedYieldRate float64) float64 {
 }
 
 func (r Repository) SetBomSource(ctx context.Context, cmd bomapp.SetBomSourceCommand) (bomapp.Detail, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return bomapp.Detail{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Validate the version exists and capture snapshots for inherit_version
 	var bomSourceProductID int64
 	var sourceProductName string
 	var sourceVersionID int64
 	var sourceVersionNo string
-
+	var sourceProductCode string
 	if cmd.SourceType == "inherit_version" {
-		err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-			SELECT bv.product_id, COALESCE(p.name,''), bv.id, COALESCE(bv.version_no,'')
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT bv.product_id, COALESCE(p.name,''), bv.id, COALESCE(bv.version_no,''), COALESCE(p.code,'')
 			FROM %s.bom_versions bv
 			JOIN %s.products p ON p.id=bv.product_id
 			WHERE bv.id=$1 AND bv.status='active'
-		`, r.schema, r.schema), cmd.SourceBomVersionID).Scan(&bomSourceProductID, &sourceProductName, &sourceVersionID, &sourceVersionNo)
+		`, r.schema, r.schema), cmd.SourceBomVersionID).Scan(&bomSourceProductID, &sourceProductName, &sourceVersionID, &sourceVersionNo, &sourceProductCode)
 		if err != nil {
 			return bomapp.Detail{}, fmt.Errorf("bom version not found: %w", err)
 		}
 	}
 
-	_, err := r.pool.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.products
-		SET bom_source_type=$2,
-		    bom_source_bom_version_id=$3,
-		    updated_at=now()
-		WHERE id=$1
-	`, r.schema), cmd.ProductID, cmd.SourceType, cmd.SourceBomVersionID)
+	// Read current effective source to capture source product info
+	currentSource, err := resolveEffectiveBomSource(ctx, tx, r.schema, cmd.ProductID)
 	if err != nil {
 		return bomapp.Detail{}, err
 	}
-
-	auditMeta := postgresinfra.AuditMeta{
-		"bom_source_product_id":   bomSourceProductID,
-		"bom_source_product_name": sourceProductName,
-		"bom_source_version_id":   sourceVersionID,
-		"bom_source_version_no":   sourceVersionNo,
+	srcProductID := currentSource.SourceProductID
+	if srcProductID <= 0 {
+		srcProductID = currentSource.EffectiveProductID
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_bom", &cmd.ProductID,
-		"set_bom_source", postgresinfra.StrPtr("bom_source_type"), nil,
-		postgresinfra.StrPtr(cmd.SourceType), auditMeta)
+	srcProductName := currentSource.SourceProductName
+	srcProductCode := currentSource.SourceProductCode
+	srcBomProductID := currentSource.EffectiveProductID
+	if srcBomProductID <= 0 {
+		srcBomProductID = currentSource.SourceBomProductID
+	}
 
+	// For inherit_current, set version to 0 (follow current active version)
+	versionID := cmd.SourceBomVersionID
+	versionNo := sourceVersionNo
+	if cmd.SourceType == "inherit_current" {
+		versionID = 0
+		versionNo = ""
+	}
+
+	// Upsert into product_bom_sources
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_bom_sources(
+			product_id, source_type, source_product_id, source_product_code_snapshot, source_product_name_snapshot,
+			source_bom_product_id, source_bom_version_id, source_bom_version_no_snapshot,
+			derived_from_product_id, derived_from_bom_version_id,
+			updated_at
+		)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,0,0,now())
+		ON CONFLICT (product_id) DO UPDATE SET
+			source_type=excluded.source_type,
+			source_product_id=excluded.source_product_id,
+			source_product_code_snapshot=excluded.source_product_code_snapshot,
+			source_product_name_snapshot=excluded.source_product_name_snapshot,
+			source_bom_product_id=excluded.source_bom_product_id,
+			source_bom_version_id=excluded.source_bom_version_id,
+			source_bom_version_no_snapshot=excluded.source_bom_version_no_snapshot,
+			updated_at=now()
+	`, r.schema), cmd.ProductID, cmd.SourceType, srcProductID, srcProductCode, srcProductName, srcBomProductID, versionID, versionNo); err != nil {
+		return bomapp.Detail{}, fmt.Errorf("write bom source: %w", err)
+	}
+
+	// Audit log
+	auditMeta := postgresinfra.AuditMeta{
+		"bom_source_product_id":        srcProductID,
+		"bom_source_product_code":      srcProductCode,
+		"bom_source_product_name":      srcProductName,
+		"bom_source_bom_product_id":    srcBomProductID,
+		"bom_source_bom_version_id":    versionID,
+		"bom_source_bom_version_no":    versionNo,
+		"target_product_id":            cmd.ProductID,
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_bom", &cmd.ProductID,
+		"set_bom_source", postgresinfra.StrPtr("source_type"), nil,
+		postgresinfra.StrPtr(cmd.SourceType), auditMeta); err != nil {
+		return bomapp.Detail{}, fmt.Errorf("audit set_bom_source: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return bomapp.Detail{}, err
+	}
 	return r.Detail(ctx, cmd.ProductID)
 }

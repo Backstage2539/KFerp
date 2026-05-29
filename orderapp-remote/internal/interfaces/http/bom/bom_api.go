@@ -156,6 +156,24 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		return c.JSON(http.StatusOK, map[string]any{"ok": true})
 	})
 
+	e.POST("/api/bom/:product_id/source", func(c echo.Context) error {
+		productID, err := strconv.ParseInt(c.Param("product_id"), 10, 64)
+		if err != nil || productID <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid product_id"})
+		}
+		var req bomapp.SetBomSourceCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		req.ProductID = productID
+		req.Actor = support.ActorOf(c)
+		detail, err := bomSvc.SetBomSource(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, detail)
+	})
+
 	e.POST("/api/bom/:product_id/derive-owned", func(c echo.Context) error {
 		productID, err := strconv.ParseInt(c.Param("product_id"), 10, 64)
 		if err != nil || productID <= 0 {

@@ -171,6 +171,7 @@ type Repository interface {
 	CreateVersion(ctx context.Context, cmd CreateVersionCommand) (Version, error)
 	ActivateVersion(ctx context.Context, cmd ActivateVersionCommand) error
 	DeriveOwned(ctx context.Context, cmd DeriveOwnedCommand) (Detail, error)
+	SetBomSource(ctx context.Context, cmd SetBomSourceCommand) (Detail, error)
 }
 
 type Service struct {
@@ -214,6 +215,25 @@ func (s *Service) DeriveOwned(ctx context.Context, cmd DeriveOwnedCommand) (Deta
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	detail, err := s.repo.DeriveOwned(ctx, cmd)
+	if err != nil {
+		return Detail{}, err
+	}
+	enrichDetailYield(&detail)
+	return detail, nil
+}
+
+func (s *Service) SetBomSource(ctx context.Context, cmd SetBomSourceCommand) (Detail, error) {
+	if cmd.ProductID <= 0 {
+		return Detail{}, fmt.Errorf("product_id required")
+	}
+	if cmd.SourceType != "inherit_current" && cmd.SourceType != "inherit_version" {
+		return Detail{}, fmt.Errorf("source_type must be inherit_current or inherit_version")
+	}
+	if cmd.SourceType == "inherit_version" && cmd.SourceBomVersionID <= 0 {
+		return Detail{}, fmt.Errorf("source_bom_version_id required for inherit_version")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	detail, err := s.repo.SetBomSource(ctx, cmd)
 	if err != nil {
 		return Detail{}, err
 	}
