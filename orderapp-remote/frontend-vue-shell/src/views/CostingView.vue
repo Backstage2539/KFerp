@@ -1288,7 +1288,7 @@ function productGroupsForType(listType, productTypeCategoryID = activeProductTyp
 }
 
 function categoryCodeOfItem(item, listType = pdfTheme.value.listType) {
-  return String(beanMeta(item, metaKeyForListType(listType)).code || '').split('.')[0]
+  return String(beanMetaForItem(item).code || '').split('.')[0]
 }
 
 function publicationRows(scope, listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
