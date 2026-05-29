@@ -1280,9 +1280,10 @@ function beanListCategoryOptions(listType, productTypeCategoryID = activeProduct
   const seen = new Map()
   beanListItemsForType(listType, productTypeCategoryID).forEach((item) => {
     const meta = beanMetaForItem(item)
-    const code = String(meta.code || '').split('.')[0]
-    if (!seen.has(code)) {
-      seen.set(code, { code, label: meta.category || '未分类' })
+    const category = (meta.category || '').replace(/^\d+[、.．\-\s]+/, '')
+    const key = category || '未分类'
+    if (!seen.has(key)) {
+      seen.set(key, { code: key, category: meta.category || '未分类', label: meta.category || '未分类' })
     }
   })
   return Array.from(seen.values())
@@ -1291,12 +1292,16 @@ function beanListCategoryOptions(listType, productTypeCategoryID = activeProduct
 function productGroupsForType(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
   return beanListCategoryOptions(listType, productTypeCategoryID).map((category) => ({
     ...category,
-    items: beanListItemsForType(listType, productTypeCategoryID).filter((item) => categoryCodeOfItem(item, listType) === category.code),
+    items: beanListItemsForType(listType, productTypeCategoryID).filter((item) => 
+      categoryCodeOfItem(item, listType) === category.code
+    ),
   }))
 }
 
 function categoryCodeOfItem(item, listType = pdfTheme.value.listType) {
-  return String(beanMetaForItem(item).code || '').split('.')[0]
+  const meta = beanMetaForItem(item)
+  const category = (meta.category || '').replace(/^\d+[、.．\-\s]+/, '')
+  return category || (String(meta.code || '').split('.')[0])
 }
 
 function publicationRows(scope, listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
