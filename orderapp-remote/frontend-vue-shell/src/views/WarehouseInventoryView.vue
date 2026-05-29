@@ -45,21 +45,6 @@
           <small>{{ kindLabel(row.kind) }} · {{ row.description || row.code }}</small>
           <small v-if="row.customer_name">绑定客户：{{ row.customer_name }}</small>
         </button>
-        <div v-if="selectedWarehouse && !isCustomerInventoryContext" class="warehouse-binding-card">
-          <label>
-            <span>绑定客户</span>
-            <input v-model.trim="customerSearch" placeholder="输入客户名/手机号/公司名搜索" @input="filterCustomerOptions" />
-            <select v-model.number="warehouseBindCustomerID" size="8">
-              <option :value="0">不绑定客户</option>
-              <option v-for="customer in filteredCustomerOptions" :key="customer.id" :value="customer.id">
-                {{ customerOptionLabel(customer) }}
-              </option>
-            </select>
-          </label>
-          <button class="secondary" type="button" @click="saveWarehouseCustomerBinding" :disabled="warehouseBindingSaving">
-            {{ warehouseBindingSaving ? '保存中' : '保存绑定' }}
-          </button>
-        </div>
       </aside>
 
       <section class="panel table-panel">
@@ -67,6 +52,12 @@
           <div><span>当前仓库</span><strong>{{ currentWarehouseName }}</strong></div>
           <div><span>库存行</span><strong>{{ rows.length }}</strong></div>
           <div><span>合计(g)</span><strong>{{ totalG.toLocaleString('zh-CN') }}</strong></div>
+          <div v-if="!isCustomerInventoryContext" class="summary-action">
+            <span>仓库设置</span>
+            <button class="secondary" type="button" :disabled="!selectedWarehouse || !isExternalWarehouse" @click="openWarehouseSettingsDrawer">
+              仓库设置
+            </button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -111,6 +102,55 @@
           @change="handleInventoryPaginationChange"
         />
       </section>
+    </div>
+
+    <div v-if="warehouseSettingsDrawerOpen && !isCustomerInventoryContext" class="drawer-mask warehouse-settings-drawer" @click.self="warehouseSettingsDrawerOpen = false">
+      <aside class="drawer">
+        <div class="drawer-head">
+          <h3>仓库设置</h3>
+          <button class="secondary" type="button" @click="warehouseSettingsDrawerOpen = false">关闭</button>
+        </div>
+        <div class="settings-form">
+          <label>
+            <span>当前仓库</span>
+            <input :value="currentWarehouseName" disabled />
+          </label>
+          <template v-if="isExternalWarehouse">
+            <label>
+              <span>绑定客户</span>
+              <div class="customer-search-wrap">
+                <input
+                  v-model.trim="customerSearch"
+                  placeholder="输入客户名/手机号/公司名搜索"
+                  autocomplete="off"
+                  @input="filterCustomerOptions"
+                />
+                <div v-if="customerSearch" class="customer-search-results">
+                  <button
+                    v-for="customer in filteredCustomerOptions"
+                    :key="customer.id"
+                    type="button"
+                    class="customer-option"
+                    @click="selectCustomerForBinding(customer)"
+                  >
+                    {{ customerOptionLabel(customer) }}
+                  </button>
+                  <div v-if="!filteredCustomerOptions.length" class="muted">没有匹配客户</div>
+                </div>
+              </div>
+            </label>
+            <p class="muted setting-note">绑定客户后，只有该客户可查看此外部库存。</p>
+          </template>
+          <p v-else class="muted setting-note">仅外部库存类型仓库支持客户绑定。</p>
+          <div class="binding-status" v-if="warehouseBindCustomerID">
+            已绑定客户：{{ selectedBindCustomerName }}
+            <button class="link" type="button" @click="clearCustomerBinding">取消绑定</button>
+          </div>
+          <button v-if="isExternalWarehouse" class="primary" type="button" @click="saveWarehouseCustomerBinding" :disabled="warehouseBindingSaving">
+            {{ warehouseBindingSaving ? '保存中' : '保存绑定' }}
+          </button>
+        </div>
+      </aside>
     </div>
 
     <div v-if="traceDrawerOpen && !isCustomerInventoryContext" class="drawer-mask" @click.self="traceDrawerOpen = false">
@@ -257,8 +297,8 @@ const reservations = ref([])
 const reservationTotals = ref({})
 const warehouseBindCustomerID = ref(0)
 const warehouseBindingSaving = ref(false)
+const warehouseSettingsDrawerOpen = ref(false)
 const customerSearch = ref('')
-const filteredCustomerOptions = ref([])
 const contextCustomerID = computed(() => Number(props.customerContextId || 0))
 const isCustomerInventoryContext = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && contextCustomerID.value > 0)
 
@@ -267,16 +307,28 @@ const currentWarehouseName = computed(() => {
   return warehouses.value.find((row) => row.code === selectedWarehouse.value)?.name || selectedWarehouse.value
 })
 const selectedWarehouseRow = computed(() => warehouses.value.find((row) => row.code === selectedWarehouse.value) || null)
+const isExternalWarehouse = computed(() => {
+  const row = selectedWarehouseRow.value
+  return row && (String(row.kind || '') === 'external' || String(row.kind || '') === 'customer_processing')
+})
+const selectedBindCustomerName = computed(() => {
+  const id = Number(warehouseBindCustomerID.value || 0)
+  if (!id) return ''
+  const customer = customerOptions.value.find((c) => Number(c.id) === id)
+  return customer ? customerOptionLabel(customer) : ''
+})
 const totalG = computed(() => rows.value.reduce((sum, row) => sum + Number(row.qty_g || 0), 0))
 
 function kindLabel(kind) {
   return {
     raw: '原料仓',
     packaging: '包材仓',
-    wip: 'WIP仓',
+    wip: 'WIP在制仓',
     finished: '成品仓',
     loss: '损耗仓',
-  }[kind] || '仓库'
+    external: '外部库存',
+    customer_processing: '外部库存',
+  }[kind] || kind || '仓库'
 }
 
 function typeLabel(type) {
@@ -348,42 +400,65 @@ async function loadCustomers() {
   try {
     const data = await apiGet('/api/customers?limit=200&active=true')
     customerOptions.value = data.rows || []
-    filteredCustomerOptions.value = customerOptions.value
   } catch {
     customerOptions.value = []
-    filteredCustomerOptions.value = []
   }
 }
 
 function filterCustomerOptions() {
+  // filter is computed inline in template via filteredCustomerOptions
+}
+
+const filteredCustomerOptions = computed(() => {
   const q = customerSearch.value.toLowerCase()
-  if (!q) {
-    filteredCustomerOptions.value = customerOptions.value
-    return
-  }
-  filteredCustomerOptions.value = customerOptions.value.filter((customer) => {
+  if (!q) return []
+  return customerOptions.value.filter((customer) => {
     const name = (customer.name || '').toLowerCase()
     const phone = (customer.phone || '').toLowerCase()
     const company = (customer.company_name || '').toLowerCase()
     return name.includes(q) || phone.includes(q) || company.includes(q)
-  })
+  }).slice(0, 20)
+})
+
+function selectCustomerForBinding(customer) {
+  warehouseBindCustomerID.value = Number(customer.id || 0)
+  customerSearch.value = customerOptionLabel(customer)
+}
+
+function clearCustomerBinding() {
+  warehouseBindCustomerID.value = 0
+  customerSearch.value = ''
 }
 
 function syncWarehouseBinding() {
-  warehouseBindCustomerID.value = Number(selectedWarehouseRow.value?.customer_id || 0)
+  const customerID = Number(selectedWarehouseRow.value?.customer_id || 0)
+  warehouseBindCustomerID.value = customerID
+  customerSearch.value = ''
+  if (customerID > 0) {
+    const customer = customerOptions.value.find((c) => Number(c.id) === customerID)
+    if (customer) customerSearch.value = customerOptionLabel(customer)
+  }
+}
+
+function openWarehouseSettingsDrawer() {
+  if (!selectedWarehouse.value) return
+  syncWarehouseBinding()
+  warehouseSettingsDrawerOpen.value = true
 }
 
 async function saveWarehouseCustomerBinding() {
   if (!selectedWarehouse.value) return
+  const customerID = Number(warehouseBindCustomerID.value || 0)
   warehouseBindingSaving.value = true
   error.value = ''
   try {
     const row = await apiSend(`/api/stock/warehouses/${encodeURIComponent(selectedWarehouse.value)}/customer`, {
       method: 'PUT',
-      body: { customer_id: Number(warehouseBindCustomerID.value || 0) },
+      body: { customer_id: customerID },
     })
     warehouses.value = warehouses.value.map((item) => (item.code === row.code ? row : item))
     syncWarehouseBinding()
+    warehouseSettingsDrawerOpen.value = false
   } catch (err) {
     error.value = err.message || '保存仓库客户绑定失败'
   } finally {
