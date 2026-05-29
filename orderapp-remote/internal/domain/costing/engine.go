@@ -510,6 +510,12 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		}
 	}
 
+	greenDisplay := BeanListDisplay{}
+	// 产品分类为生豆时，即使 product_kind 非 green_bean，也生成 green_bean_list meta
+	if isGreenBeanCategory(in) {
+		greenDisplay = buildCategoryGreenBeanListDisplay(in, commercialDisplay)
+	}
+
 	out := ProductResult{
 		ProductID:                 in.ProductID,
 		Name:                      in.Name,
@@ -544,6 +550,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		CommercialBeanList:        commercialDisplay,
 		DripBeanList:              dripDisplay,
 		RetailBeanList:            retailDisplay,
+		GreenBeanList:             greenDisplay,
 		BeanListQuality:           in.BeanListQuality,
 		Flavor:                    in.Flavor,
 		Origin:                    in.Origin,
@@ -2155,12 +2162,44 @@ func applyCommercialTierOverrides(name string, tiers []CommercialWholesaleTier) 
 	return tiers
 }
 
-func containsAnyNormalized(s string, needles []string) bool {
-	n := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s), " ", ""))
-	for _, needle := range needles {
-		if strings.Contains(n, strings.ToLower(strings.ReplaceAll(needle, " ", ""))) {
-			return true
-		}
+func isGreenBeanCategory(in ProductInput) bool {
+	return strings.Contains(strings.ToLower(in.CategoryPrimaryName), "生豆") ||
+		strings.Contains(strings.ToLower(in.CategorySecondaryName), "生豆") ||
+		strings.Contains(strings.ToLower(in.ProductTypeName), "生豆") ||
+		strings.Contains(strings.ToLower(in.ProductSubtypeName), "生豆")
+}
+
+func buildCategoryGreenBeanListDisplay(in ProductInput, fallback BeanListDisplay) BeanListDisplay {
+	code := fallback.Code
+	category := firstNonEmptyString(in.CategorySecondaryName, in.CategoryPrimaryName, "生豆销售")
+	displayName := fallback.DisplayName
+	if displayName == "" {
+		displayName = in.Name
 	}
-	return false
+	flavor := fallback.Flavor
+	if flavor == "" {
+		flavor = in.Flavor
+	}
+	description := fallback.Description
+	if description == "" {
+		description = firstNonEmptyString(in.BeanListNote, in.Origin)
+	}
+	return BeanListDisplay{
+		Code:           code,
+		Category:       category,
+		DisplayName:    displayName,
+		RecommendedUse: firstNonEmptyString(fallback.RecommendedUse, "生豆销售"),
+		Flavor:         flavor,
+		Description:    description,
+	}
+}
+
+func containsAnyNormalized(s string, needles []string) bool {
+        n := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s), " ", ""))
+        for _, needle := range needles {
+                if strings.Contains(n, strings.ToLower(strings.ReplaceAll(needle, " ", ""))) {
+                        return true
+                }
+        }
+        return false
 }
