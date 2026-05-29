@@ -671,7 +671,7 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		BeanListQuality:           in.BeanListQuality,
 		GreenBeanList: BeanListDisplay{
 			Code:           code,
-			Category:       "生豆销售",
+			Category:       firstNonEmptyString(in.CategorySecondaryName, in.CategoryPrimaryName, "生豆销售"),
 			DisplayName:    displayName,
 			RecommendedUse: "生豆销售",
 			Flavor:         in.Flavor,

@@ -1277,10 +1277,9 @@ function scopedBeanListItems(scope, listType) {
 }
 
 function beanListCategoryOptions(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
-  const key = metaKeyForListType(listType)
   const seen = new Map()
   beanListItemsForType(listType, productTypeCategoryID).forEach((item) => {
-    const meta = beanMeta(item, key)
+    const meta = beanMetaForItem(item)
     const code = String(meta.code || '').split('.')[0]
     if (!seen.has(code)) {
       seen.set(code, { code, label: meta.category || '未分类' })
