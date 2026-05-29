@@ -224,7 +224,7 @@ export function productConfigTemplateBelongsToSkuContext(template = {}, context 
 	if (templateCustomerID === customerID) return true
 	if (templateCustomerID !== 0) return false
 	if (context.usePublicProductConfigTemplates === false || context.use_public_product_config_templates === false) return false
-	return true
+	return !hasCustomerDerivedTemplate(template, context.customerTemplates)
 }
 
 export function categoryDisplayState(category = {}, context = {}) {

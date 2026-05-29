@@ -175,6 +175,37 @@ func TestCustomerOptionsAPIRequiresPortalWorkbenchCapability(t *testing.T) {
 	}
 }
 
+func TestCustomerOptionsAPIIncludesPortalEnabledCustomerWithoutWorkbenchTemplate(t *testing.T) {
+	customers := &fakeCustomerDirectory{
+		result: customerapp.ListResult{Rows: []customerapp.CustomerRow{
+			{ID: 211, Name: "karen", CustomerType: "wholesale", Active: true, PortalEnabled: true},
+			{ID: 212, Name: "未开通门户客户", CustomerType: "wholesale", Active: true, PortalEnabled: false},
+		}},
+	}
+	svc := &fakeCustomerFulfillmentService{
+		erpWorkbenchAvailableByCustomer: map[int64]bool{
+			211: false,
+			212: false,
+		},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Customers: customers})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/customers?limit=80", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("customer options status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "karen") {
+		t.Fatalf("customer options should include portal-enabled customer even without workbench template: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "未开通门户客户") {
+		t.Fatalf("customer options should hide customer without portal switch: %s", rec.Body.String())
+	}
+}
+
 func TestCustomerOptionsAPISkipsCustomersWithoutPortalCapability(t *testing.T) {
 	customers := &fakeCustomerDirectory{
 		result: customerapp.ListResult{Rows: []customerapp.CustomerRow{

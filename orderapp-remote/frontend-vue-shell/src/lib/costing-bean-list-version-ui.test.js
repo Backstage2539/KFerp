@@ -8,11 +8,11 @@ const here = dirname(fileURLToPath(import.meta.url))
 const viewSource = readFileSync(resolve(here, '../views/CostingView.vue'), 'utf8')
 
 test('product bean-list view exposes publication versions without pricing trial workspace', () => {
-  const versionListIndex = viewSource.indexOf('豆单版本列表')
+  const versionListIndex = viewSource.indexOf('已发布价格表')
 
-  assert.ok(versionListIndex > -1, 'missing visible bean-list version list section')
-  assert.equal(viewSource.indexOf('价格试算'), -1, '产品豆单 should not expose the pricing trial workspace')
-  assert.equal(viewSource.indexOf('pricingCollapsed'), -1, 'pricing trial collapse state should be removed from 产品豆单')
+  assert.ok(versionListIndex > -1, 'missing visible product price-list version section')
+  assert.equal(viewSource.indexOf('价格试算'), -1, '产品价格表 should not expose the pricing trial workspace')
+  assert.equal(viewSource.indexOf('pricingCollapsed'), -1, 'pricing trial collapse state should be removed from 产品价格表')
 
   for (const expected of [
     'v-model.number="selectedProductTypeCategoryID"',

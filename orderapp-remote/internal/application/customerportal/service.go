@@ -1003,7 +1003,9 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 		return ServicePage{}, ErrCustomerBindingNotFound
 	}
 	if !current.HasAnyCapability(def.capabilities) {
-		return ServicePage{}, ErrCapabilityNotEnabled
+		page := emptyServicePage(def, current)
+		page.Summary = serviceSummary(page)
+		return page, nil
 	}
 	filter = normalizeServicePageFilter(filter)
 	limit := 20
@@ -1035,6 +1037,18 @@ func (s *Service) GetServicePage(ctx context.Context, token, key string, filter 
 	page.CurrentCustomerName = current.CurrentCustomerName
 	page.Summary = serviceSummary(page)
 	return page, nil
+}
+
+func emptyServicePage(def serviceDef, current CurrentContext) ServicePage {
+	return ServicePage{
+		Key:                 def.key,
+		Title:               def.title,
+		Capability:          def.capability,
+		ThemeKey:            NormalizePortalThemeKey(current.ThemeKey),
+		MiniappEntryMode:    NormalizeMiniappEntryMode(current.MiniappEntryMode),
+		CurrentCustomerID:   current.CurrentCustomerID,
+		CurrentCustomerName: current.CurrentCustomerName,
+	}
 }
 
 func (s *Service) GetBeanListPublication(ctx context.Context, token string, publicationID int64) (BeanListSummary, error) {

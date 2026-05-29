@@ -1711,7 +1711,7 @@ func TestMiniAPITemplateBusinessContract(t *testing.T) {
 					rec := httptest.NewRecorder()
 					e.ServeHTTP(rec, req)
 					wantStatus := http.StatusForbidden
-					if route.allowed {
+					if route.allowed || (route.method == http.MethodGet && strings.HasPrefix(route.path, "/api/mini/services/")) {
 						wantStatus = http.StatusOK
 					}
 					if rec.Code != wantStatus {

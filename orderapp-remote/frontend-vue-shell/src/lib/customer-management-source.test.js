@@ -34,8 +34,11 @@ test('customer portal settings removed bean list version and processing warehous
 test('warehouse inventory supports binding warehouses to customers from the inventory page', () => {
   const view = source('views/WarehouseInventoryView.vue')
   assert.match(view, /绑定客户/)
+  assert.match(view, /warehouse-settings-drawer/)
+  assert.match(view, /openWarehouseSettingsDrawer/)
   assert.match(view, /saveWarehouseCustomerBinding/)
   assert.match(view, /\/api\/stock\/warehouses\/\$\{encodeURIComponent\(selectedWarehouse\.value\)\}\/customer/)
+  assert.doesNotMatch(view, /warehouse-binding-card/)
 })
 
 test('customer drawer exposes inline add actions for customer type and order type selectors', () => {
