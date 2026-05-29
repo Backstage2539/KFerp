@@ -63,6 +63,10 @@ func (r *apiFakeRepo) ActivateVersion(context.Context, bomapp.ActivateVersionCom
 	return nil
 }
 
+func (r *apiFakeRepo) SetBomSource(context.Context, bomapp.SetBomSourceCommand) (bomapp.Detail, error) {
+	return bomapp.Detail{}, nil
+}
+
 func TestBomDeleteAPIInvalidatesCurrentBom(t *testing.T) {
 	repo := &apiFakeRepo{}
 	e := echo.New()

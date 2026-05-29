@@ -58,6 +58,9 @@ func (r *fakeRepo) ActivateVersion(ctx context.Context, cmd ActivateVersionComma
 	r.activated = cmd.VersionID
 	return nil
 }
+func (r *fakeRepo) SetBomSource(context.Context, SetBomSourceCommand) (Detail, error) {
+	return Detail{}, nil
+}
 
 func TestServiceValidatesSaveItem(t *testing.T) {
 	repo := &fakeRepo{}
@@ -250,4 +253,7 @@ func (r errorRepo) CreateVersion(ctx context.Context, cmd CreateVersionCommand) 
 }
 func (r errorRepo) ActivateVersion(ctx context.Context, cmd ActivateVersionCommand) error {
 	return r.err
+}
+func (r errorRepo) SetBomSource(context.Context, SetBomSourceCommand) (Detail, error) {
+	return Detail{}, r.err
 }
