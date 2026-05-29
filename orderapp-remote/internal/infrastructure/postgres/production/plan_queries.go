@@ -326,7 +326,11 @@ func (r Repository) loadProductYieldRateMap(ctx context.Context) (map[int64]floa
 		       COALESCE(NULLIF(b.yield_rate,0), CASE WHEN COALESCE(NULLIF(p.product_kind,''),'roasted_bean')='instant_coffee' THEN 1 ELSE 0.8 END),
 		       COALESCE(NULLIF(p.product_kind,''),'roasted_bean')
 		FROM `+r.schema+`.products p
-		LEFT JOIN `+r.schema+`.product_bom b ON b.product_id=p.id
+		LEFT JOIN `+r.schema+`.product_bom_sources bs ON bs.product_id=p.id
+		LEFT JOIN `+r.schema+`.product_bom b ON b.product_id=CASE
+			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
+			ELSE p.id
+		END
 		WHERE p.active=true`)
 	if err != nil {
 		return nil, err
@@ -421,7 +425,7 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 		return out, nil
 	}
 	q := fmt.Sprintf(`
-		SELECT bi.product_id,
+		SELECT requested.product_id,
 		       COALESCE(p.roast_level,''),
 		       COALESCE(pb.yield_rate,0),
 		       COALESCE(bi.material_id,0),
@@ -435,14 +439,18 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
 		       COALESCE(bi.qty_per_unit,0),
 		       COALESCE(NULLIF(p.drip_box_bag_count,0),10)
-		FROM %s.product_bom_items bi
-		LEFT JOIN %s.products p ON p.id=bi.product_id
+		FROM unnest($1::bigint[]) AS requested(product_id)
+		JOIN %s.products p ON p.id=requested.product_id AND p.active=true
+		LEFT JOIN %s.product_bom_sources bs ON bs.product_id=p.id
+		JOIN %s.product_bom_items bi ON bi.product_id=CASE
+			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
+			ELSE p.id
+		END
 		LEFT JOIN %s.product_bom pb ON pb.product_id=bi.product_id
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
 		LEFT JOIN %s.products cp ON cp.id=bi.component_product_id
-		WHERE bi.product_id = ANY($1)
-		ORDER BY bi.product_id, bi.id
-	`, r.schema, r.schema, r.schema, r.schema, r.schema)
+		ORDER BY requested.product_id, bi.id
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, productIDs)
 	if err != nil {
 		return out, err

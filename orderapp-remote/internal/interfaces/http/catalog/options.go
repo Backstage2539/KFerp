@@ -45,6 +45,16 @@ type ProductOption struct {
 	UnitRuleOverrideJSON        string              `json:"unit_rule_override_json"`
 	BomItemCount                int                 `json:"bom_item_count"`
 	BomStatus                   string              `json:"bom_status"`
+	BomSourceType               string              `json:"bom_source_type"`
+	EffectiveProductID          int64               `json:"effective_product_id"`
+	EffectiveBomVersionID       int64               `json:"effective_bom_version_id"`
+	SourceProductID             int64               `json:"source_product_id"`
+	SourceProductCode           string              `json:"source_product_code"`
+	SourceProductName           string              `json:"source_product_name"`
+	SourceBomVersionID          int64               `json:"source_bom_version_id"`
+	SourceBomVersionNo          string              `json:"source_bom_version_no"`
+	DerivedFromLabel            string              `json:"derived_from_label"`
+	CanEditBOM                  bool                `json:"can_edit_bom"`
 	OrderUsageCount             int                 `json:"order_usage_count"`
 	RetailSpecs                 []int64             `json:"retail_specs"`
 	Tiers                       []ProductTierOption `json:"tiers"`

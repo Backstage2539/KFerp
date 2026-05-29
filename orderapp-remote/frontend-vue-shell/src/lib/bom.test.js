@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   bomContextCustomerIDs,
+  bomSourceLabel,
   filterBomRowsByProductFocus,
   filterBomContextProducts,
   isBomProductCandidate,
@@ -56,4 +57,30 @@ test('BOM customer selector ignores customers that only have green bean SKUs', (
   ]
 
   assert.deepEqual([...bomContextCustomerIDs(products, bomRows)].sort((a, b) => a - b), [10, 12])
+})
+
+test('BOM source label preserves source SKU code and version snapshots', () => {
+  assert.equal(bomSourceLabel({
+    bom_source_type: 'inherit_current',
+    source_product_code: 'SKU-21',
+    source_product_name: 'K001 精品意式拼配',
+    source_bom_version_no: 'V003',
+  }), '继承：SKU-21 K001 精品意式拼配 / BOM V003')
+
+  assert.equal(bomSourceLabel({
+    bom_source_type: 'derived_owned',
+    source_product_code: 'SKU-21',
+    source_product_name: 'K001 精品意式拼配',
+    source_bom_version_no: 'V003',
+  }), '自有 BOM，派生自：SKU-21 K001 精品意式拼配 / BOM V003')
+})
+
+test('BOM view exposes read-only inherited BOM and explicit derive action', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /BOM来源/)
+  assert.match(source, /派生自有 BOM/)
+  assert.match(source, /deriveOwnedBom/)
+  assert.match(source, /canEditCurrentBomProduct/)
 })

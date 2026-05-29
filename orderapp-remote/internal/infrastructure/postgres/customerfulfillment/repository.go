@@ -879,11 +879,16 @@ func (r *Repository) ensureDripProductHasActiveBOMTx(ctx context.Context, tx pgx
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT EXISTS (
 			SELECT 1
-			FROM %s.product_bom b
-			WHERE b.product_id=$1 AND b.status='active'
+			FROM %s.products p
+			LEFT JOIN %s.product_bom_sources bs ON bs.product_id=p.id
+			JOIN %s.product_bom b ON b.product_id=CASE
+				WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
+				ELSE p.id
+			END
+			WHERE p.id=$1 AND b.status='active'
 			  AND EXISTS (SELECT 1 FROM %s.product_bom_items bi WHERE bi.product_id=b.product_id)
 		)
-	`, r.schema, r.schema), productID).Scan(&exists); err != nil {
+	`, r.schema, r.schema, r.schema, r.schema), productID).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {

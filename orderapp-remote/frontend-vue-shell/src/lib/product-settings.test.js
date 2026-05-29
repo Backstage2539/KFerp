@@ -1355,6 +1355,16 @@ test('SKU settings removes public SKU references from the customer SKU list and 
   assert.doesNotMatch(source, /savePublicSkuUsageForCustomer/)
 })
 
+test('SKU settings shows BOM source and keeps BOM derivation in BOM workspace', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+
+  assert.match(template, /BOM来源/)
+  assert.match(source, /bomSourceLabel\(row\)/)
+  assert.match(template, /维护 BOM/)
+  assert.doesNotMatch(template, /派生自有 BOM/)
+})
+
 test('SKU settings renders one unified SKU form as a full-width drawer', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 

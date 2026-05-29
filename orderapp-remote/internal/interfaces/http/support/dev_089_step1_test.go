@@ -439,8 +439,13 @@ func TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource(t *testing.T) {
 			t.Fatalf("catalog repository must persist product settings yield to product_bom: missing %q", want)
 		}
 	}
-	if !strings.Contains(string(queries), "LEFT JOIN %[1]s.product_bom b ON b.product_id=p.id") {
-		t.Fatalf("product settings list must read yield_rate from product_bom")
+	for _, want := range []string{
+		"LEFT JOIN %[1]s.product_bom_sources bs ON bs.product_id=p.id",
+		"LEFT JOIN %[1]s.product_bom b ON b.product_id=CASE",
+	} {
+		if !strings.Contains(string(queries), want) {
+			t.Fatalf("product settings list must read yield_rate from the effective product_bom source: missing %q", want)
+		}
 	}
 }
 

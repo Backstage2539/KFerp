@@ -20,6 +20,7 @@ type apiFakeRepo struct {
 	syncedYield             bomapp.SyncProductYieldCommand
 	savedItem               bomapp.SaveItemCommand
 	deletedItem             bomapp.DeleteItemCommand
+	derivedOwned            bomapp.DeriveOwnedCommand
 }
 
 func (r *apiFakeRepo) List(context.Context) ([]bomapp.ListItem, error) { return r.listRows, nil }
@@ -61,6 +62,10 @@ func (r *apiFakeRepo) CreateVersion(context.Context, bomapp.CreateVersionCommand
 }
 func (r *apiFakeRepo) ActivateVersion(context.Context, bomapp.ActivateVersionCommand) error {
 	return nil
+}
+func (r *apiFakeRepo) DeriveOwned(_ context.Context, cmd bomapp.DeriveOwnedCommand) (bomapp.Detail, error) {
+	r.derivedOwned = cmd
+	return bomapp.Detail{ProductID: cmd.ProductID, BomSourceType: "derived_owned", CanEditBOM: true}, nil
 }
 
 func TestBomDeleteAPIInvalidatesCurrentBom(t *testing.T) {

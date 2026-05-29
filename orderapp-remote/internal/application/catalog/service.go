@@ -52,6 +52,16 @@ type Product struct {
 	Active                      bool
 	BomItemCount                int
 	BomStatus                   string
+	BomSourceType               string
+	EffectiveProductID          int64
+	EffectiveBomVersionID       int64
+	SourceProductID             int64
+	SourceProductCode           string
+	SourceProductName           string
+	SourceBomVersionID          int64
+	SourceBomVersionNo          string
+	DerivedFromLabel            string
+	CanEditBOM                  bool
 	OrderUsageCount             int
 	Tiers                       []PriceTier
 }
@@ -116,6 +126,16 @@ type ProductSettingsProduct struct {
 	Active                      bool     `json:"active"`
 	BomItemCount                int      `json:"bom_item_count"`
 	BomStatus                   string   `json:"bom_status"`
+	BomSourceType               string   `json:"bom_source_type"`
+	EffectiveProductID          int64    `json:"effective_product_id"`
+	EffectiveBomVersionID       int64    `json:"effective_bom_version_id"`
+	SourceProductID             int64    `json:"source_product_id"`
+	SourceProductCode           string   `json:"source_product_code"`
+	SourceProductName           string   `json:"source_product_name"`
+	SourceBomVersionID          int64    `json:"source_bom_version_id"`
+	SourceBomVersionNo          string   `json:"source_bom_version_no"`
+	DerivedFromLabel            string   `json:"derived_from_label"`
+	CanEditBOM                  bool     `json:"can_edit_bom"`
 	OrderUsageCount             int      `json:"order_usage_count"`
 	Number                      int      `json:"number"`
 }
@@ -1721,6 +1741,16 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		Active:                      p.Active,
 		BomItemCount:                p.BomItemCount,
 		BomStatus:                   productBomStatus(p.BomStatus, p.BomItemCount),
+		BomSourceType:               p.BomSourceType,
+		EffectiveProductID:          p.EffectiveProductID,
+		EffectiveBomVersionID:       p.EffectiveBomVersionID,
+		SourceProductID:             p.SourceProductID,
+		SourceProductCode:           p.SourceProductCode,
+		SourceProductName:           p.SourceProductName,
+		SourceBomVersionID:          p.SourceBomVersionID,
+		SourceBomVersionNo:          p.SourceBomVersionNo,
+		DerivedFromLabel:            p.DerivedFromLabel,
+		CanEditBOM:                  p.CanEditBOM,
 		OrderUsageCount:             p.OrderUsageCount,
 	}
 }

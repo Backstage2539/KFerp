@@ -415,6 +415,26 @@ func TestCopySKUsRewritesCrossCustomerProductReferences(t *testing.T) {
 	}
 }
 
+func TestCopySKUsUsesBomInheritanceInsteadOfCopyingBomItems(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fn := catalogRepositoryFunctionForTest(t, string(repository), "func (r Repository) CopySKUs", "func replaceProductPriceTiersTx")
+	for _, want := range []string{
+		"setProductBOMSourceToInheritTx",
+		`"bom_source_type":    "inherit_current"`,
+		`"source_product_id":   plan.source.ID`,
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("CopySKUs must write inherited BOM source metadata, missing %q", want)
+		}
+	}
+	if strings.Contains(fn, "copyProductBOMTx") {
+		t.Fatalf("CopySKUs must not copy BOM items by default; use inherited BOM source instead")
+	}
+}
+
 func TestListSKUCopyOptionsBuffersRowsBeforeTargetLookups(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {

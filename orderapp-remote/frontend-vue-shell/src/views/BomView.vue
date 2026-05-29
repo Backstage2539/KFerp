@@ -67,6 +67,7 @@
             <thead>
               <tr>
                 <th>商品</th>
+                <th>BOM来源</th>
                 <th>工艺参数</th>
                 <th>预期损耗率</th>
                 <th>预期产出率</th>
@@ -82,6 +83,7 @@
                 :class="{ active: row.product_id === selectedProductId }"
                 @click="selectProduct(row.product_id)">
                 <td>{{ row.product }}</td>
+                <td>{{ bomSourceLabel(row) }}</td>
                 <td>{{ row.roast_level || '-' }}</td>
                 <td>{{ pct(expectedLoss(row)) }}</td>
                 <td>{{ pct(expectedYield(row)) }}</td>
@@ -90,7 +92,7 @@
                 <td>{{ row.updated_at }}</td>
               </tr>
               <tr v-if="!bomContextRows.length">
-                <td colspan="7" class="muted">{{ selectedBomCustomerSkuCustomerID ? '暂无客户SKU BOM' : '暂无公共SKU BOM' }}</td>
+                <td colspan="8" class="muted">{{ selectedBomCustomerSkuCustomerID ? '暂无客户SKU BOM' : '暂无公共SKU BOM' }}</td>
               </tr>
             </tbody>
           </table>
@@ -101,12 +103,17 @@
         <div class="panel-title">配方明细</div>
         <div v-if="detail" class="summary">
           <div><span>商品</span><strong>{{ detail.product_name }}</strong></div>
+          <div><span>BOM来源</span><strong>{{ currentBomSourceLabel }}</strong></div>
           <div><span>工艺参数</span><strong>{{ detail.roast_level || '-' }}</strong></div>
           <div><span>预期损耗率</span><strong>{{ pct(expectedLoss(detail)) }}</strong></div>
           <div><span>预期产出率</span><strong>{{ pct(expectedYield(detail)) }}</strong></div>
           <div><span>状态</span><strong :class="{ warn: detail.status === 'inactive' }">{{ bomStatusLabel(detail.status) }}</strong></div>
           <div><span>合计比例</span><strong :class="{ warn: detail.total_ratio > 100 }">{{ ratio(detail.total_ratio) }}</strong></div>
           <div><span>关联工艺</span><strong>{{ linkedProcessTemplates.length ? `${linkedProcessTemplates.length} 个模板` : '-' }}</strong></div>
+        </div>
+        <div v-if="detail?.can_edit_bom === false" class="warning-banner bom-source-banner">
+          <span>{{ currentBomSourceLabel }}。继承 BOM 只读；需要改配方时先派生为该 SKU 的自有 BOM。</span>
+          <button class="secondary compact-action" type="button" @click="deriveOwnedBom" :disabled="loading">派生自有 BOM</button>
         </div>
         <div v-if="detail && linkedProcessTemplates.length" class="linked-processes">
           <span v-for="template in linkedProcessTemplates" :key="template.id" :class="['status-pill', template.status === 'inactive' ? 'inactive' : '']">
@@ -276,7 +283,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { bomContextCustomerIDs, filterBomContextProducts, filterBomRowsByProductFocus } from '../lib/bom'
+import { bomContextCustomerIDs, bomSourceLabel, filterBomContextProducts, filterBomRowsByProductFocus } from '../lib/bom'
 import { componentTypeLabel, isDripProduct } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import { expectedLossRate, formatPercent } from '../lib/manufacturing-loss'
@@ -337,8 +344,12 @@ const bomContextRows = computed(() => filterBomRowsByProductFocus(allBomContextR
 const isBomProductFilterActive = computed(() => Number(bomFilterProductId.value || 0) > 0)
 const linkedProcessTemplates = computed(() => processTemplates.value.filter((template) => Number(template.product_id || 0) === Number(selectedProductId.value || 0)))
 const selectedProduct = computed(() => productByID(selectedProductId.value))
+const selectedBomRow = computed(() => rows.value.find((row) => Number(row.product_id || 0) === Number(selectedProductId.value || 0)) || null)
+const currentBomSourceLabel = computed(() => bomSourceLabel(detail.value || selectedBomRow.value || selectedProduct.value || {}))
 const canEditCurrentBomProduct = computed(() => {
   if (!selectedProductId.value) return true
+  if (detail.value?.can_edit_bom === false) return false
+  if (selectedBomRow.value?.can_edit_bom === false) return false
   if (!bomContextCustomerID.value) return true
   return Number(selectedProduct.value?.customer_id || 0) === bomContextCustomerID.value
 })
@@ -754,6 +765,16 @@ async function deleteItem(id) {
   })
 }
 
+async function deriveOwnedBom() {
+  if (!selectedProductId.value) return
+  await mutate(async () => {
+    detail.value = await apiSend(`/api/bom/${selectedProductId.value}/derive-owned`, { body: {} })
+    syncExpectedLossInput(detail.value)
+    await loadAll()
+    ok.value = '已派生为自有 BOM'
+  })
+}
+
 async function saveMapping() {
   await mutate(async () => {
     await apiSend('/api/bom/bag-spec-mappings/save', {
@@ -871,6 +892,7 @@ tbody tr.active { background: #f3f7fb; }
 .summary strong { font-size: 16px; }
 .linked-processes { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; }
 .warning-banner { border: 1px solid #e8c28f; border-radius: 6px; background: #fff8eb; color: #8a4b00; padding: 9px; margin-bottom: 12px; }
+.bom-source-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .inline-form { margin: 12px 0; }
 .muted { color: #666; text-align: center; }
 .muted.left { text-align: left; margin: 0; font-size: 13px; }

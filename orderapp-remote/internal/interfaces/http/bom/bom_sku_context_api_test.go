@@ -86,6 +86,65 @@ func TestBomDetailExposesFinishedProductComponentFields(t *testing.T) {
 	}
 }
 
+func TestBomDetailExposesSourceMetadataForInheritedBom(t *testing.T) {
+	repo := &apiFakeRepo{
+		detail: bomapp.Detail{
+			ProductID:          188,
+			ProductName:        "Karen 招牌拼配",
+			YieldRate:          0.82,
+			BomSourceType:      "inherit_current",
+			EffectiveProductID: 21,
+			SourceProductID:    21,
+			SourceProductCode:  "SKU-21",
+			SourceProductName:  "K001 精品意式拼配",
+			SourceBomVersionID: 7,
+			SourceBomVersionNo: "V003",
+			DerivedFromLabel:   "继承：SKU-21 K001 精品意式拼配 / BOM V003",
+			CanEditBOM:         false,
+		},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/bom/detail/188", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`"bom_source_type":"inherit_current"`,
+		`"effective_product_id":21`,
+		`"source_product_code":"SKU-21"`,
+		`"source_product_name":"K001 精品意式拼配"`,
+		`"source_bom_version_id":7`,
+		`"source_bom_version_no":"V003"`,
+		`"derived_from_label":"继承：SKU-21 K001 精品意式拼配 / BOM V003"`,
+		`"can_edit_bom":false`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("detail body missing %s: %s", want, body)
+		}
+	}
+}
+
+func TestBomDeriveOwnedAPIPassesActorAndProductID(t *testing.T) {
+	repo := &apiFakeRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/bom/188/derive-owned", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if repo.derivedOwned.ProductID != 188 {
+		t.Fatalf("derive owned product id = %d, want 188", repo.derivedOwned.ProductID)
+	}
+}
+
 func TestBomSaveAcceptsExpectedLossRate(t *testing.T) {
 	repo := &apiFakeRepo{}
 	e := echo.New()

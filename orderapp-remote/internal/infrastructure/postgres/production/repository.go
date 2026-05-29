@@ -524,7 +524,11 @@ func loadProductYieldRateMapTx(ctx context.Context, tx pgx.Tx, schema string) (m
 		       COALESCE(NULLIF(b.yield_rate,0), CASE WHEN COALESCE(NULLIF(p.product_kind,''),'roasted_bean')='instant_coffee' THEN 1 ELSE 0.8 END),
 		       COALESCE(NULLIF(p.product_kind,''),'roasted_bean')
 		FROM `+schema+`.products p
-		LEFT JOIN `+schema+`.product_bom b ON b.product_id=p.id
+		LEFT JOIN `+schema+`.product_bom_sources bs ON bs.product_id=p.id
+		LEFT JOIN `+schema+`.product_bom b ON b.product_id=CASE
+			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
+			ELSE p.id
+		END
 		WHERE p.active=true`)
 	if err != nil {
 		return nil, err

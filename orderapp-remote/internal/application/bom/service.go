@@ -8,18 +8,28 @@ import (
 )
 
 type ListItem struct {
-	ProductID         int64   `json:"product_id"`
-	CustomerID        int64   `json:"customer_id"`
-	Product           string  `json:"product"`
-	RoastLevel        string  `json:"roast_level"`
-	ProductKind       string  `json:"product_kind,omitempty"`
-	YieldRate         float64 `json:"yield_rate"`
-	ExpectedYieldRate float64 `json:"expected_yield_rate"`
-	ExpectedLossRate  float64 `json:"expected_loss_rate"`
-	Status            string  `json:"status"`
-	ItemCount         int     `json:"item_count"`
-	OrderUsageCount   int     `json:"order_usage_count"`
-	UpdatedAt         string  `json:"updated_at"`
+	ProductID             int64   `json:"product_id"`
+	CustomerID            int64   `json:"customer_id"`
+	Product               string  `json:"product"`
+	RoastLevel            string  `json:"roast_level"`
+	ProductKind           string  `json:"product_kind,omitempty"`
+	YieldRate             float64 `json:"yield_rate"`
+	ExpectedYieldRate     float64 `json:"expected_yield_rate"`
+	ExpectedLossRate      float64 `json:"expected_loss_rate"`
+	Status                string  `json:"status"`
+	ItemCount             int     `json:"item_count"`
+	OrderUsageCount       int     `json:"order_usage_count"`
+	UpdatedAt             string  `json:"updated_at"`
+	BomSourceType         string  `json:"bom_source_type"`
+	EffectiveProductID    int64   `json:"effective_product_id"`
+	EffectiveBomVersionID int64   `json:"effective_bom_version_id"`
+	SourceProductID       int64   `json:"source_product_id"`
+	SourceProductCode     string  `json:"source_product_code"`
+	SourceProductName     string  `json:"source_product_name"`
+	SourceBomVersionID    int64   `json:"source_bom_version_id"`
+	SourceBomVersionNo    string  `json:"source_bom_version_no"`
+	DerivedFromLabel      string  `json:"derived_from_label"`
+	CanEditBOM            bool    `json:"can_edit_bom"`
 }
 
 type Item struct {
@@ -36,16 +46,26 @@ type Item struct {
 }
 
 type Detail struct {
-	ProductID         int64   `json:"product_id"`
-	ProductName       string  `json:"product_name"`
-	RoastLevel        string  `json:"roast_level"`
-	YieldRate         float64 `json:"yield_rate"`
-	ExpectedYieldRate float64 `json:"expected_yield_rate"`
-	ExpectedLossRate  float64 `json:"expected_loss_rate"`
-	Status            string  `json:"status"`
-	Items             []Item  `json:"items"`
-	TotalRatio        float64 `json:"total_ratio"`
-	UpdatedAt         string  `json:"updated_at"`
+	ProductID             int64   `json:"product_id"`
+	ProductName           string  `json:"product_name"`
+	RoastLevel            string  `json:"roast_level"`
+	YieldRate             float64 `json:"yield_rate"`
+	ExpectedYieldRate     float64 `json:"expected_yield_rate"`
+	ExpectedLossRate      float64 `json:"expected_loss_rate"`
+	Status                string  `json:"status"`
+	Items                 []Item  `json:"items"`
+	TotalRatio            float64 `json:"total_ratio"`
+	UpdatedAt             string  `json:"updated_at"`
+	BomSourceType         string  `json:"bom_source_type"`
+	EffectiveProductID    int64   `json:"effective_product_id"`
+	EffectiveBomVersionID int64   `json:"effective_bom_version_id"`
+	SourceProductID       int64   `json:"source_product_id"`
+	SourceProductCode     string  `json:"source_product_code"`
+	SourceProductName     string  `json:"source_product_name"`
+	SourceBomVersionID    int64   `json:"source_bom_version_id"`
+	SourceBomVersionNo    string  `json:"source_bom_version_no"`
+	DerivedFromLabel      string  `json:"derived_from_label"`
+	CanEditBOM            bool    `json:"can_edit_bom"`
 }
 
 type Option struct {
@@ -101,6 +121,11 @@ type ActivateVersionCommand struct {
 	Actor     string `json:"actor"`
 }
 
+type DeriveOwnedCommand struct {
+	ProductID int64  `json:"product_id"`
+	Actor     string `json:"actor"`
+}
+
 type SaveItemCommand struct {
 	ProductID          int64   `json:"product_id"`
 	MaterialID         int64   `json:"material_id"`
@@ -145,6 +170,7 @@ type Repository interface {
 	ListVersions(ctx context.Context, productID int64) ([]Version, error)
 	CreateVersion(ctx context.Context, cmd CreateVersionCommand) (Version, error)
 	ActivateVersion(ctx context.Context, cmd ActivateVersionCommand) error
+	DeriveOwned(ctx context.Context, cmd DeriveOwnedCommand) (Detail, error)
 }
 
 type Service struct {
@@ -175,6 +201,19 @@ func (s *Service) Detail(ctx context.Context, productID int64) (Detail, error) {
 		return Detail{}, fmt.Errorf("invalid product_id")
 	}
 	detail, err := s.repo.Detail(ctx, productID)
+	if err != nil {
+		return Detail{}, err
+	}
+	enrichDetailYield(&detail)
+	return detail, nil
+}
+
+func (s *Service) DeriveOwned(ctx context.Context, cmd DeriveOwnedCommand) (Detail, error) {
+	if cmd.ProductID <= 0 {
+		return Detail{}, fmt.Errorf("product required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	detail, err := s.repo.DeriveOwned(ctx, cmd)
 	if err != nil {
 		return Detail{}, err
 	}

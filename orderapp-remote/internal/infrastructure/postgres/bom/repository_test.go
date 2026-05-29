@@ -64,6 +64,29 @@ func TestBomRepositoryExposesOrderUsageForCustomerSkuSorting(t *testing.T) {
 	}
 }
 
+func TestBomRepositoryPersistsSourceMetadataAndDeriveAudit(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := readRepositorySource(t)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS %[1]s.product_bom_sources",
+		"source_product_code_snapshot",
+		"source_bom_version_no_snapshot",
+		"derived_at TIMESTAMPTZ",
+		"deriveOwnedBomTx",
+		`"derive_owned"`,
+		`"source_product_code"`,
+		`"source_bom_version_no"`,
+		"can_edit_bom",
+	} {
+		if !strings.Contains(string(schema)+"\n"+repository, want) {
+			t.Fatalf("BOM source metadata or derive audit missing marker %q", want)
+		}
+	}
+}
+
 func readRepositorySource(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile("repository.go")

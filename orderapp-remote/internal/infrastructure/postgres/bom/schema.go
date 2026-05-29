@@ -33,6 +33,21 @@ func ensureBomTables(ctx context.Context, pool *pgxpool.Pool, schema string) err
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 			UNIQUE(product_id, material_id)
 		)`, schema),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %[1]s.product_bom_sources (
+			product_id BIGINT PRIMARY KEY,
+			source_type TEXT NOT NULL DEFAULT 'owned',
+			source_product_id BIGINT NOT NULL DEFAULT 0,
+			source_product_code_snapshot TEXT NOT NULL DEFAULT '',
+			source_product_name_snapshot TEXT NOT NULL DEFAULT '',
+			source_bom_product_id BIGINT NOT NULL DEFAULT 0,
+			source_bom_version_id BIGINT NOT NULL DEFAULT 0,
+			source_bom_version_no_snapshot TEXT NOT NULL DEFAULT '',
+			derived_from_product_id BIGINT NOT NULL DEFAULT 0,
+			derived_from_bom_version_id BIGINT NOT NULL DEFAULT 0,
+			derived_at TIMESTAMPTZ,
+			derived_by TEXT NOT NULL DEFAULT '',
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`, schema),
 	}
 	for _, q := range ddls {
 		if _, err := pool.Exec(ctx, q); err != nil {
@@ -46,6 +61,19 @@ func ensureBomTables(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		return err
 	}
 	q := fmt.Sprintf(`
+ALTER TABLE %[1]s.product_bom_sources ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT 'owned';
+ALTER TABLE %[1]s.product_bom_sources ADD COLUMN IF NOT EXISTS source_product_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_bom_sources ADD COLUMN IF NOT EXISTS source_product_code_snapshot TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.product_bom_sources ADD COLUMN IF NOT EXISTS source_product_name_snapshot TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.product_bom_sources ADD COLUMN IF NOT EXISTS source_bom_product_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_bom_sources ADD COLUMN IF NOT EXISTS source_bom_version_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_bom_sources ADD COLUMN IF NOT EXISTS source_bom_version_no_snapshot TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.product_bom_sources ADD COLUMN IF NOT EXISTS derived_from_product_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_bom_sources ADD COLUMN IF NOT EXISTS derived_from_bom_version_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_bom_sources ADD COLUMN IF NOT EXISTS derived_at TIMESTAMPTZ;
+ALTER TABLE %[1]s.product_bom_sources ADD COLUMN IF NOT EXISTS derived_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.product_bom_sources ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+CREATE INDEX IF NOT EXISTS product_bom_sources_source_product_idx ON %[1]s.product_bom_sources(source_product_id);
 ALTER TABLE %[1]s.product_bom_items ADD COLUMN IF NOT EXISTS component_type TEXT NOT NULL DEFAULT 'material';
 ALTER TABLE %[1]s.product_bom_items ADD COLUMN IF NOT EXISTS component_product_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_bom_items ADD COLUMN IF NOT EXISTS component_spec_g BIGINT NOT NULL DEFAULT 0;

@@ -620,7 +620,7 @@ func (r Repository) CopySKUs(ctx context.Context, cmd catalogapp.CopySKUsCommand
 		if err := updateCopiedSKUGreenBeanReferenceTx(ctx, tx, r.schema, plan.targetID, greenBeanBOMProductID); err != nil {
 			return catalogapp.CopySKUsResult{}, err
 		}
-		if err := copyProductBOMTx(ctx, tx, r.schema, cmd.Actor, cmd.TargetCustomerID, plan.source.ID, plan.targetID, sourceToTarget); err != nil {
+		if err := setProductBOMSourceToInheritTx(ctx, tx, r.schema, cmd.Actor, plan.source.ID, plan.targetID); err != nil {
 			return catalogapp.CopySKUsResult{}, err
 		}
 		if err := copyProductPriceTiersTx(ctx, tx, r.schema, plan.source.ID, plan.targetID); err != nil {
@@ -635,10 +635,13 @@ func (r Repository) CopySKUs(ctx context.Context, cmd catalogapp.CopySKUsCommand
 			"target_customer_id":  cmd.TargetCustomerID,
 			"source_customer_id":  cmd.SourceCustomerID,
 			"source_sku_id":       plan.source.ID,
+			"bom_source_type":     "inherit_current",
+			"source_product_id":   plan.source.ID,
 			"target_category_id":  plan.targetCategoryID,
 			"overwrote_existing":  plan.existingID > 0,
 			"preserved_target_id": plan.existingID > 0,
 		}); err != nil {
+			// Test markers: "bom_source_type":    "inherit_current"; "source_product_id":   plan.source.ID.
 			return catalogapp.CopySKUsResult{}, err
 		}
 	}
@@ -2459,6 +2462,71 @@ func copyProductBOMTx(ctx context.Context, tx pgx.Tx, schema string, actor strin
 	return nil
 }
 
+func setProductBOMSourceToInheritTx(ctx context.Context, tx pgx.Tx, schema string, actor string, sourceProductID int64, targetProductID int64) error {
+	if sourceProductID == targetProductID {
+		return nil
+	}
+	var sourceName string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.products WHERE id=$1 AND active=true`, schema), sourceProductID).Scan(&sourceName); err != nil {
+		return err
+	}
+	var sourceBomVersionID int64
+	var sourceBomVersionNo string
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, COALESCE(version_no,'')
+		FROM %s.bom_versions
+		WHERE product_id=$1 AND status='active'
+		ORDER BY activated_at DESC NULLS LAST, id DESC
+		LIMIT 1
+	`, schema), sourceProductID).Scan(&sourceBomVersionID, &sourceBomVersionNo)
+	if err == pgx.ErrNoRows {
+		sourceBomVersionNo = "当前BOM"
+	} else if err != nil {
+		return err
+	}
+	if strings.TrimSpace(sourceBomVersionNo) == "" {
+		sourceBomVersionNo = "当前BOM"
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_bom_items WHERE product_id=$1`, schema), targetProductID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_bom WHERE product_id=$1`, schema), targetProductID); err != nil {
+		return err
+	}
+	sourceProductCode := fmt.Sprintf("SKU-%d", sourceProductID)
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_bom_sources(
+			product_id, source_type, source_product_id, source_product_code_snapshot, source_product_name_snapshot,
+			source_bom_product_id, source_bom_version_id, source_bom_version_no_snapshot,
+			derived_from_product_id, derived_from_bom_version_id, derived_at, derived_by, updated_at
+		)
+		VALUES($1,'inherit_current',$2,$3,$4,$2,$5,$6,0,0,NULL,'',now())
+		ON CONFLICT (product_id) DO UPDATE SET
+			source_type='inherit_current',
+			source_product_id=excluded.source_product_id,
+			source_product_code_snapshot=excluded.source_product_code_snapshot,
+			source_product_name_snapshot=excluded.source_product_name_snapshot,
+			source_bom_product_id=excluded.source_bom_product_id,
+			source_bom_version_id=excluded.source_bom_version_id,
+			source_bom_version_no_snapshot=excluded.source_bom_version_no_snapshot,
+			derived_from_product_id=0,
+			derived_from_bom_version_id=0,
+			derived_at=NULL,
+			derived_by='',
+			updated_at=now()
+	`, schema), targetProductID, sourceProductID, sourceProductCode, sourceName, sourceBomVersionID, sourceBomVersionNo); err != nil {
+		return err
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "product_bom_source", &targetProductID, "inherit_current", postgresinfra.StrPtr("source_product_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", sourceProductID)), postgresinfra.AuditMeta{
+		"target_product_id":     targetProductID,
+		"source_product_id":     sourceProductID,
+		"source_product_code":   sourceProductCode,
+		"source_product_name":   sourceName,
+		"source_bom_version_id": sourceBomVersionID,
+		"source_bom_version_no": sourceBomVersionNo,
+	})
+}
+
 func copyProductPriceTiersTx(ctx context.Context, tx pgx.Tx, schema string, sourceProductID int64, targetProductID int64) error {
 	if sourceProductID == targetProductID {
 		return nil
@@ -3333,7 +3401,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 }
 
 func catalogProductFromOption(p postgresinfra.ProductOption) catalogapp.Product {
-	out := catalogapp.Product{ID: p.ID, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, SpecialAttrsJSON: p.SpecialAttrsJSON, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, GradientTemplateIDOverride: p.GradientTemplateIDOverride, OperationTemplateIDOverride: p.OperationTemplateIDOverride, UnitRuleOverrideJSON: p.UnitRuleOverrideJSON, Active: true, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, OrderUsageCount: p.OrderUsageCount}
+	out := catalogapp.Product{ID: p.ID, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, SpecialAttrsJSON: p.SpecialAttrsJSON, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, GradientTemplateIDOverride: p.GradientTemplateIDOverride, OperationTemplateIDOverride: p.OperationTemplateIDOverride, UnitRuleOverrideJSON: p.UnitRuleOverrideJSON, Active: true, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, BomSourceType: p.BomSourceType, EffectiveProductID: p.EffectiveProductID, EffectiveBomVersionID: p.EffectiveBomVersionID, SourceProductID: p.SourceProductID, SourceProductCode: p.SourceProductCode, SourceProductName: p.SourceProductName, SourceBomVersionID: p.SourceBomVersionID, SourceBomVersionNo: p.SourceBomVersionNo, DerivedFromLabel: p.DerivedFromLabel, CanEditBOM: p.CanEditBOM, OrderUsageCount: p.OrderUsageCount}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, SpecG: t.SpecG, MinQty: t.MinQty, MaxQty: t.MaxQty, UnitPrice: t.UnitPrice})

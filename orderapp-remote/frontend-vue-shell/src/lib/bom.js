@@ -55,3 +55,22 @@ export function bomContextCustomerIDs(products = [], bomRows = []) {
   }
   return ids
 }
+
+export function bomSourceLabel(row = {}) {
+  const explicit = String(row.derived_from_label || row.derivedFromLabel || '').trim()
+  if (explicit) return explicit
+  const sourceType = String(row.bom_source_type || row.bomSourceType || '').trim()
+  const code = String(row.source_product_code || row.sourceProductCode || '').trim()
+  const name = String(row.source_product_name || row.sourceProductName || '').trim()
+  const version = String(row.source_bom_version_no || row.sourceBomVersionNo || '当前BOM').trim() || '当前BOM'
+  const source = [code, name].filter(Boolean).join(' ')
+  if (sourceType === 'inherit_current') return `继承：${source} / BOM ${version}`
+  if (sourceType === 'inherit_version') return `锁定：${source} / BOM ${version}`
+  if (sourceType === 'derived_owned') return `自有 BOM，派生自：${source} / BOM ${version}`
+  if (sourceType === 'owned') return '自有 BOM'
+  if (Number(row.base_product_id || row.baseProductID || 0) > 0 && Number(row.bom_item_count || row.item_count || 0) === 0) {
+    return `继承：SKU-${Number(row.base_product_id || row.baseProductID)} / BOM 当前BOM`
+  }
+  if (String(row.bom_status || row.status || '') === 'missing') return '缺 BOM'
+  return '自有 BOM'
+}

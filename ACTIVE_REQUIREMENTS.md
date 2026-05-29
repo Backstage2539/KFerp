@@ -6,6 +6,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-385-SKU-BOM-INHERITANCE
+- Branch: codex/sku-bom-inheritance-20260529
+- Owner/session: Codex / 2026-05-29
+- Status: implementing
+- Scope: SKU复制默认继承来源 SKU 有效 BOM；BOM 维护页支持派生自有 BOM 并快照来源 SKU/BOM 编号、名称和版本；SKU/BOM 页面展示 BOM 来源；成本、生产计划和客户履约按有效 BOM 解析。
+- Verifier:
+  - Unit: go test ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/catalog ./internal/application/bom -count=1; node --test src/lib/bom.test.js src/lib/product-settings.test.js
+  - API: go test ./internal/interfaces/http/bom ./internal/interfaces/http/catalog ./internal/interfaces/http/production ./internal/interfaces/http/costing ./internal/interfaces/http/customerfulfillment ./internal/interfaces/http/support -count=1
+  - Frontend/build: npm --prefix orderapp-remote/frontend-vue-shell run build
+  - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_COSTING.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md
+  - Review/acceptance: orderapp-remote/docs/ACCEPTANCE_TESTS.md; orderapp-remote/docs/acceptance/2026-05-29-sku-bom-inheritance.md
+- Deployment: pending
+- Last update: 2026-05-29 15:30 Asia/Shanghai
+- Notes: reserve_req_id.sh indicated PR-385 but --claim hit the known awk multiline bug; using manual PR-385 seed/update. Browser verification still required before merge/deploy.
+
 ### PR-375-PROCESS-BOM-WORKORDER-SKU-MODEL
 - Branch: codex/process-bom-workorder-sku-model
 - Owner/session: Codex / 2026-05-26

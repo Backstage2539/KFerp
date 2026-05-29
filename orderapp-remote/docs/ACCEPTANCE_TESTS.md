@@ -643,6 +643,14 @@
 - [ ] “商品分类管理”入口位于 SKU设置 → 商品配置 页签内；SKU 列表不再显示旧“分类设置”入口、公共 SKU 引用开关或行内“复制为客户SKU”。
 - [ ] 需求进度录入 PR/DEV/UT/API/REV；单元、API、浏览器和手册验收证据按 Superpower/TDD 流程保留。
 
+## K15. SKU/BOM 继承与派生自有 BOM（PR-385-SKU-BOM-INHERITANCE）
+- [ ] 在客户 SKU 视图执行 SKU复制 后，目标 SKU 不生成重复 BOM 明细，SKU 列表和 BOM 配方维护显示 `继承：来源SKU编号 来源SKU名称 / BOM 版本号`。
+- [ ] 继承 BOM 在 BOM 抽屉/详情中只读，预期损耗率、组件、版本启用和失效操作不可直接编辑；点击“派生自有 BOM”后显示 `自有 BOM，派生自：来源SKU编号 来源SKU名称 / BOM 版本号`。
+- [ ] 派生自有 BOM 会复制当时有效 BOM 明细到目标 SKU；后续修改来源公共 SKU 名称或升级来源 BOM，不会改变派生来源快照，也不会影响目标 SKU 的自有 BOM 明细。
+- [ ] 操作日志可查到 SKU复制继承和“派生自有 BOM”，日志内容包含来源 SKU ID/编号、来源 SKU 名称、来源 BOM version ID/版本号、目标 SKU ID/编号。
+- [ ] 成本核算、产品价格表、生产计划和客户履约下单校验都按有效 BOM 解析：未派生时用继承 BOM，派生后用目标 SKU 自有 BOM。
+- [ ] 需求进度录入 PR/DEV/UT/API/REV；单元、API、浏览器和手册验收证据按 Superpower/TDD 流程保留。
+
 ## L. 操作手册强制治理（PR-DOCS-001）
 
 ### L1. 手册规则

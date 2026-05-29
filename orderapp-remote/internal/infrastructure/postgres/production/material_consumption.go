@@ -118,14 +118,18 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
 		       COALESCE(bi.qty_per_unit,0),
 		       COALESCE(NULLIF(p.drip_box_bag_count,0),10)
-		FROM %s.product_bom_items bi
-		LEFT JOIN %s.products p ON p.id=bi.product_id
+		FROM %s.products p
+		LEFT JOIN %s.product_bom_sources bs ON bs.product_id=p.id
+		JOIN %s.product_bom_items bi ON bi.product_id=CASE
+			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
+			ELSE p.id
+		END
 		LEFT JOIN %s.product_bom pb ON pb.product_id=bi.product_id
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
 		LEFT JOIN %s.products cp ON cp.id=bi.component_product_id
-		WHERE bi.product_id=$1
+		WHERE p.id=$1
 		ORDER BY bi.id
-	`, schema, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema, schema)
 	rows, err := tx.Query(ctx, q, r.ProductID)
 	if err != nil {
 		return nil, err
@@ -272,14 +276,18 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
 		       COALESCE(bi.qty_per_unit,0),
 		       COALESCE(NULLIF(p.drip_box_bag_count,0),10)
-		FROM %s.product_bom_items bi
-		LEFT JOIN %s.products p ON p.id=bi.product_id
+		FROM %s.products p
+		LEFT JOIN %s.product_bom_sources bs ON bs.product_id=p.id
+		JOIN %s.product_bom_items bi ON bi.product_id=CASE
+			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
+			ELSE p.id
+		END
 		LEFT JOIN %s.product_bom pb ON pb.product_id=bi.product_id
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
 		LEFT JOIN %s.products cp ON cp.id=bi.component_product_id
-		WHERE bi.product_id=$1
+		WHERE p.id=$1
 		ORDER BY bi.id
-	`, schema, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema, schema)
 	rows, err := tx.Query(ctx, q, r.ProductID)
 	if err != nil {
 		return nil, err

@@ -75,9 +75,13 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			         WHEN COALESCE(NULLIF(p.product_kind,''),'roasted')='green_bean'
 			          AND COALESCE(p.green_bean_bom_product_id,0) > 0
 			         THEN p.green_bean_bom_product_id
+			         WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version')
+			          AND COALESCE(bs.source_product_id,0) > 0
+			         THEN bs.source_product_id
 			         ELSE p.id
 			       END AS bom_product_id
 			FROM %[1]s.products p
+			LEFT JOIN %[1]s.product_bom_sources bs ON bs.product_id = p.id
 			WHERE p.active = true
 		),
 		finished_product_cost AS (

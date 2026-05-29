@@ -35,6 +35,16 @@ func productOptionFromCatalog(p catalogapp.Product) ProductOption {
 		UnitRuleOverrideJSON:        p.UnitRuleOverrideJSON,
 		BomItemCount:                p.BomItemCount,
 		BomStatus:                   p.BomStatus,
+		BomSourceType:               p.BomSourceType,
+		EffectiveProductID:          p.EffectiveProductID,
+		EffectiveBomVersionID:       p.EffectiveBomVersionID,
+		SourceProductID:             p.SourceProductID,
+		SourceProductCode:           p.SourceProductCode,
+		SourceProductName:           p.SourceProductName,
+		SourceBomVersionID:          p.SourceBomVersionID,
+		SourceBomVersionNo:          p.SourceBomVersionNo,
+		DerivedFromLabel:            p.DerivedFromLabel,
+		CanEditBOM:                  p.CanEditBOM,
 		OrderUsageCount:             p.OrderUsageCount,
 	}
 	out.Tiers = make([]ProductTierOption, 0, len(p.Tiers))

@@ -109,6 +109,7 @@
                 <th class="special-attrs-cell">特殊属性</th>
                 <th>BOM预期产出率</th>
                 <th>利润率覆盖</th>
+                <th>BOM来源</th>
                 <th>BOM状态</th>
                 <th>BOM</th>
                 <th>处理</th>
@@ -174,6 +175,7 @@
                       :disabled="!canEditSkuRow(row)"
                       @change="saveProductMarginOverride(row)" />
                   </td>
+                  <td class="bom-source-cell">{{ bomSourceLabel(row) }}</td>
                   <td>
                     <span :class="['status-pill', row.bom_status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.bom_status) }}</span>
                   </td>
@@ -193,7 +195,7 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'green_bean'" class="green-bean-detail-row">
-                  <td :colspan="13">
+                  <td :colspan="14">
                     <div class="green-bean-detail-fields">
                       <label>
                         <span>生豆属性</span>
@@ -223,7 +225,7 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'drip_bag'" class="green-bean-detail-row">
-                  <td :colspan="13">
+                  <td :colspan="14">
                     <div class="green-bean-detail-fields">
                       <label>
                         <span>每袋克重</span>
@@ -238,7 +240,7 @@
                 </tr>
               </template>
               <tr v-if="!displaySkuRows.length">
-                <td :colspan="13" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
+                <td :colspan="14" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
               </tr>
             </tbody>
           </table>
@@ -1004,6 +1006,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import { bomSourceLabel } from '../lib/bom'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
   buildGradientTemplatePayload,
@@ -3953,6 +3956,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .select-col { width: 42px; text-align: center; }
 .select-col input { width: 16px; min-height: 16px; }
 .sku-category-cell { min-width: 112px; max-width: 220px; white-space: nowrap; }
+.bom-source-cell { min-width: 180px; color: #3f3a34; }
 .sku-name-cell { min-width: 300px; }
 .special-attrs-cell { min-width: 220px; }
 .remark-cell { min-width: 220px; }
