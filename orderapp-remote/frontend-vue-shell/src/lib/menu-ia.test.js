@@ -56,6 +56,13 @@ test('production menu exposes the production flow manual as a primary page', () 
   assert.equal(groupForView(menuGroups, 'productionManual')?.id, 'production')
 })
 
+test('process templates live in the production menu for discoverability', () => {
+  const keys = primaryMenuKeys(menuGroups)
+  assert.ok(keys.includes('processTemplates'))
+  assert.equal(groupForView(menuGroups, 'processTemplates')?.id, 'production')
+  assert.equal(groupForView(menuGroups, 'industryFieldTemplates')?.id, 'product')
+})
+
 test('operation manuals live inside their functional menu groups', () => {
   const expectations = [
     ['orderSalesManual', 'sales'],
@@ -65,8 +72,7 @@ test('operation manuals live inside their functional menu groups', () => {
     ['greenBeanSalesManual', 'product'],
     ['settingsAuditManual', 'settings'],
     ['notificationManual', 'settings'],
-    ['customerPortalManual', 'customerFulfillment'],
-    ['customerFulfillmentManual', 'customerFulfillment'],
+    ['customerFulfillmentManual', 'customerManagement'],
     ['requirementsManual', 'requirements'],
   ]
   const keys = primaryMenuKeys(menuGroups)
@@ -81,9 +87,11 @@ test('settings menu exposes sales order settings and keeps sales order detail hi
   const keys = primaryMenuKeys(menuGroups)
   assert.ok(keys.includes('companyProfile'))
   assert.ok(keys.includes('salesOrderSettings'))
+  assert.ok(keys.includes('logisticsSettings'))
   assert.equal(keys.includes('salesOrder'), false)
   assert.equal(groupForView(menuGroups, 'companyProfile')?.id, 'settings')
   assert.equal(groupForView(menuGroups, 'salesOrderSettings')?.id, 'settings')
+  assert.equal(groupForView(menuGroups, 'logisticsSettings')?.id, 'settings')
 })
 
 test('sales menu no longer exposes the removed quote export page', () => {
@@ -94,15 +102,22 @@ test('sales menu no longer exposes the removed quote export page', () => {
   assert.equal(JSON.stringify(menuGroups).includes('报价导出'), false)
 })
 
-test('customer fulfillment menu consolidates operator, portal and template pages', () => {
+test('customer management menu consolidates customer dossier, portal settings, templates and manual', () => {
   const keys = primaryMenuKeys(menuGroups)
-  for (const key of ['customerFulfillment', 'customerPortalSettings', 'customerCapabilityTemplates', 'customerFulfillmentManual', 'customerPortalManual']) {
+  for (const key of ['customers', 'customerPortalSettings', 'customerCapabilityTemplates', 'customerFulfillmentManual']) {
     assert.ok(keys.includes(key))
-    assert.equal(groupForView(menuGroups, key)?.id, 'customerFulfillment')
+    assert.equal(groupForView(menuGroups, key)?.id, 'customerManagement')
   }
+  assert.equal(groupForView(menuGroups, 'customers')?.id, 'customerManagement')
+  assert.notEqual(groupForView(menuGroups, 'customers')?.id, 'sales')
+  assert.equal(menuGroups.find((group) => group.id === 'customerManagement')?.name, '客户管理')
+  assert.equal(menuGroups.find((group) => group.id === 'customerManagement')?.items.find((item) => item.key === 'customerCapabilityTemplates')?.label, '客户门户能力模板')
+  assert.equal(keys.includes('workspaceModeManual'), false)
+  assert.equal(keys.includes('customerPortalManual'), false)
+  assert.equal(menuMap.workspaceModeManual?.title, '客户履约手册')
+  assert.equal(menuMap.customerPortalManual?.title, '客户履约手册')
   assert.equal(keys.includes('customerProcessingPortal'), false)
   assert.equal(groupForView(menuGroups, 'customerProcessingPortal'), null)
-  assert.equal(menuGroups.find((group) => group.id === 'customerFulfillment')?.name, '客户履约')
 })
 
 test('system menu merges user permissions into employee maintenance', () => {
@@ -140,6 +155,7 @@ test('remaining ERP click-matrix targets reference real Vue shell views', () => 
     'order',
     'customers',
     'salesOrderSettings',
+    'logisticsSettings',
     'senderSettings',
     'orderInvoice',
     'salesOrder',

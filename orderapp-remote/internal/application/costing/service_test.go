@@ -9,15 +9,18 @@ import (
 )
 
 type fakeRepo struct {
-	params            domain.Parameters
-	inputs            []domain.ProductInput
-	settings          []ParameterSetting
-	savedItems        []domain.ProductResult
-	publishedID       int64
-	savedDripTemplate SaveDripPriceTemplateCommand
-	deactivatedDripID int64
-	publishedBeanList PublishBeanListCommand
-	draftBeanList     PublishBeanListCommand
+	params              domain.Parameters
+	inputs              []domain.ProductInput
+	settings            []ParameterSetting
+	savedItems          []domain.ProductResult
+	publishedID         int64
+	savedDripTemplate   SaveDripPriceTemplateCommand
+	deactivatedDripID   int64
+	publishedBeanList   PublishBeanListCommand
+	draftBeanList       PublishBeanListCommand
+	beanListPublication *BeanListPublication
+	beanListAsset       BeanListPublicationAsset
+	savedBeanListAsset  BeanListPublicationAsset
 }
 
 func (r *fakeRepo) LoadParameters(context.Context) (domain.Parameters, error) {
@@ -82,6 +85,26 @@ func (r *fakeRepo) PublishedBeanList(context.Context, BeanListPublicationQuery) 
 	return nil, nil
 }
 
+func (r *fakeRepo) LoadBeanListPublication(context.Context, BeanListPublicationQuery, int64) (*BeanListPublication, error) {
+	if r.beanListPublication != nil {
+		return r.beanListPublication, nil
+	}
+	return nil, nil
+}
+
+func (r *fakeRepo) LoadBeanListPublicationAsset(context.Context, int64, string) (BeanListPublicationAsset, error) {
+	if len(r.beanListAsset.Payload) > 0 {
+		return r.beanListAsset, nil
+	}
+	return BeanListPublicationAsset{}, ErrBeanListPublicationNotFound
+}
+
+func (r *fakeRepo) SaveBeanListPublicationAsset(_ context.Context, asset BeanListPublicationAsset, _ string) (BeanListPublicationAsset, error) {
+	r.savedBeanListAsset = asset
+	r.beanListAsset = asset
+	return asset, nil
+}
+
 func (r *fakeRepo) PublishBeanList(_ context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {
 	r.publishedBeanList = cmd
 	return &BeanListPublication{ID: 1, ListType: cmd.ListType, Version: cmd.Version, Status: "published", OwnerType: cmd.OwnerType, OwnerKey: cmd.OwnerKey, PriceSourcePublicationID: cmd.PriceSourcePublicationID, StyleSourcePublicationID: cmd.StyleSourcePublicationID}, nil
@@ -100,6 +123,87 @@ func TestCalculateRejectsEmptyProducts(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	if _, err := svc.Calculate(context.Background(), CalculateRequest{}); err == nil {
 		t.Fatalf("expected products required error")
+	}
+}
+
+func TestGenerateBeanListPublicationPDFSavesAndReusesAsset(t *testing.T) {
+	repo := &fakeRepo{beanListPublication: &BeanListPublication{
+		ID:        7,
+		ListType:  "commercial",
+		Version:   "V3.0.5",
+		Status:    "published",
+		OwnerType: "official",
+		Config:    map[string]any{},
+		Content:   map[string]any{"groups": []any{}},
+	}}
+	svc := NewService(repo)
+	renderCalls := 0
+	render := func(BeanListPublication) ([]byte, error) {
+		renderCalls++
+		return []byte("%PDF-1.4"), nil
+	}
+	cmd := BeanListPublicationPDFCommand{PublicationID: 7, Query: BeanListPublicationQuery{ListType: "commercial", OwnerType: "official"}}
+
+	first, err := svc.GenerateBeanListPublicationPDF(context.Background(), cmd, render)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.GenerateBeanListPublicationPDF(context.Background(), cmd, render)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if renderCalls != 1 {
+		t.Fatalf("render calls = %d", renderCalls)
+	}
+	if repo.savedBeanListAsset.PublicationID != 7 || repo.savedBeanListAsset.AssetType != "pdf" || repo.savedBeanListAsset.CacheKey != "bean-list-preview-style-v4:7:V3.0.5" {
+		t.Fatalf("saved asset = %+v", repo.savedBeanListAsset)
+	}
+	if first.Filename != "bean-list-commercial-V3.0.5.pdf" || first.Bytes != len("%PDF-1.4") || second.Bytes != first.Bytes {
+		t.Fatalf("pdf files = first %+v second %+v", first, second)
+	}
+}
+
+func TestGenerateBeanListPublicationPDFRegeneratesStaleCacheKey(t *testing.T) {
+	repo := &fakeRepo{
+		beanListPublication: &BeanListPublication{
+			ID:        7,
+			ListType:  "commercial",
+			Version:   "V3.0.5",
+			Status:    "published",
+			OwnerType: "official",
+			Config:    map[string]any{},
+			Content:   map[string]any{"groups": []any{}},
+		},
+		beanListAsset: BeanListPublicationAsset{
+			PublicationID: 7,
+			AssetType:     "pdf",
+			ContentType:   "application/pdf",
+			CacheKey:      "bean-list-preview-style-v1:7:V3.0.5",
+			Payload:       []byte("%PDF-old-text-style"),
+		},
+	}
+	svc := NewService(repo)
+	renderCalls := 0
+	render := func(BeanListPublication) ([]byte, error) {
+		renderCalls++
+		return []byte("%PDF-preview-style"), nil
+	}
+	cmd := BeanListPublicationPDFCommand{PublicationID: 7, Query: BeanListPublicationQuery{ListType: "commercial", OwnerType: "official"}}
+
+	file, err := svc.GenerateBeanListPublicationPDF(context.Background(), cmd, render)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if renderCalls != 1 {
+		t.Fatalf("render calls = %d", renderCalls)
+	}
+	if repo.savedBeanListAsset.CacheKey != "bean-list-preview-style-v4:7:V3.0.5" || string(repo.savedBeanListAsset.Payload) != "%PDF-preview-style" {
+		t.Fatalf("saved asset = %+v", repo.savedBeanListAsset)
+	}
+	if file.CacheKey != "bean-list-preview-style-v4:7:V3.0.5" || string(file.Payload) != "%PDF-preview-style" {
+		t.Fatalf("file = %+v", file)
 	}
 }
 
@@ -186,7 +290,7 @@ func TestBeanListOrdersItemsByExcelCommercialCode(t *testing.T) {
 	}}
 	svc := NewService(repo)
 
-	resp, err := svc.BeanList(context.Background())
+	resp, err := svc.BeanList(context.Background(), BeanListQuery{})
 	if err != nil {
 		t.Fatalf("BeanList() error = %v", err)
 	}
@@ -229,7 +333,7 @@ func TestBeanListAppliesCategoryGradientTemplateAndLeavesUnboundDefaults(t *test
 	}}
 	svc := NewService(repo)
 
-	resp, err := svc.BeanList(context.Background())
+	resp, err := svc.BeanList(context.Background(), BeanListQuery{})
 	if err != nil {
 		t.Fatalf("BeanList() error = %v", err)
 	}
@@ -265,7 +369,7 @@ func TestBeanListKeepsGreenBeanProductsOnDirectSaleTiers(t *testing.T) {
 	}}}
 	svc := NewService(repo)
 
-	resp, err := svc.BeanList(context.Background())
+	resp, err := svc.BeanList(context.Background(), BeanListQuery{})
 	if err != nil {
 		t.Fatalf("BeanList() error = %v", err)
 	}
@@ -304,7 +408,7 @@ func TestBeanListGreenBeanTemplateTiersDefaultToBomCostWithoutMargin(t *testing.
 	}
 	svc := NewService(&fakeRepo{inputs: []domain.ProductInput{input}})
 
-	resp, err := svc.BeanList(context.Background())
+	resp, err := svc.BeanList(context.Background(), BeanListQuery{})
 	if err != nil {
 		t.Fatalf("BeanList() error = %v", err)
 	}
@@ -335,7 +439,7 @@ func TestBeanListAppliesProductMarginOverrideBeforeCategoryTemplateMargin(t *tes
 	setDomainProductInputFloat64PtrField(t, &input, "MarginRateOverride", 0.30)
 	svc := NewService(&fakeRepo{inputs: []domain.ProductInput{input}})
 
-	resp, err := svc.BeanList(context.Background())
+	resp, err := svc.BeanList(context.Background(), BeanListQuery{})
 	if err != nil {
 		t.Fatalf("BeanList() error = %v", err)
 	}
@@ -441,6 +545,67 @@ func TestPublishBeanListKeepsCustomerSnapshotOwnerAndSources(t *testing.T) {
 	}
 	if repo.publishedBeanList.PriceSourcePublicationID != 11 || repo.publishedBeanList.StyleSourcePublicationID != 5 {
 		t.Fatalf("source ids = %+v", repo.publishedBeanList)
+	}
+}
+
+func TestPublishGreenBeanListAppliesManualKgPriceOverridesToKgContentSnapshot(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{
+		ListType: "green",
+		Version:  "VGREEN-1",
+		Config: map[string]any{
+			"customizers": map[string]any{
+				"414": map[string]any{
+					"greenPriceOverrides": map[string]any{
+						"51": float64(62),
+					},
+				},
+			},
+		},
+		Content: map[string]any{
+			"groups": []any{
+				map[string]any{
+					"items": []any{
+						map[string]any{
+							"productId": float64(414),
+							"name":      "兰卡拼配生豆",
+							"prices": []any{
+								map[string]any{"label": "60kg+", "price": float64(51.75), "unit": "kg"},
+							},
+							"green_bean_sale_tiers": []any{
+								map[string]any{
+									"label":            "60kg+",
+									"template_tier_id": float64(51),
+									"spec_g":           float64(1000),
+									"min_qty":          float64(60),
+									"price_per_unit":   float64(51.75),
+									"price_per_lb":     float64(23.49),
+									"display_unit":     "kg",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PublishBeanList() error = %v", err)
+	}
+	groups := repo.publishedBeanList.Content["groups"].([]any)
+	item := groups[0].(map[string]any)["items"].([]any)[0].(map[string]any)
+	price := item["prices"].([]any)[0].(map[string]any)
+	if price["price"] != float64(62) || price["unit"] != "kg" {
+		t.Fatalf("price row = %#v, want 62/kg", price)
+	}
+	tier := item["green_bean_sale_tiers"].([]any)[0].(map[string]any)
+	if tier["price_per_lb"] != float64(28.15) || tier["price_per_unit"] != float64(62) || tier["price_unit"] != "kg" || tier["display_unit"] != "kg" {
+		t.Fatalf("tier = %#v, want kg range with 62/kg", tier)
+	}
+	if tier["price_per_kg"] != float64(62) {
+		t.Fatalf("price_per_kg = %#v, want 62", tier["price_per_kg"])
 	}
 }
 

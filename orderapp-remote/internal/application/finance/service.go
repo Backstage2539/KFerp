@@ -61,6 +61,12 @@ type CreateExpenseCommand struct {
 type ExpenseFilter struct {
 	Month      string `json:"month"`
 	EmployeeID int64  `json:"employee_id,omitempty"`
+	CustomerID int64  `json:"customer_id,omitempty"`
+}
+
+type ReportFilter struct {
+	Month      string `json:"month"`
+	CustomerID int64  `json:"customer_id,omitempty"`
 }
 
 type ExpenseEmployee struct {
@@ -99,16 +105,18 @@ type ClosingCheckItem struct {
 }
 
 type SourceDetail struct {
-	Section       string       `json:"section"`
-	SourceType    string       `json:"source_type"`
-	SourceID      int64        `json:"source_id,omitempty"`
-	Date          string       `json:"date,omitempty"`
-	Name          string       `json:"name"`
-	Category      string       `json:"category,omitempty"`
-	Counterparty  string       `json:"counterparty,omitempty"`
-	PaymentMethod string       `json:"payment_method,omitempty"`
-	Amount        domain.Money `json:"amount"`
-	Link          string       `json:"link,omitempty"`
+	Section                string       `json:"section"`
+	SourceType             string       `json:"source_type"`
+	SourceID               int64        `json:"source_id,omitempty"`
+	Date                   string       `json:"date,omitempty"`
+	Name                   string       `json:"name"`
+	Category               string       `json:"category,omitempty"`
+	Counterparty           string       `json:"counterparty,omitempty"`
+	PaymentMethod          string       `json:"payment_method,omitempty"`
+	PaymentVoucherFilename string       `json:"payment_voucher_filename,omitempty"`
+	PaymentVoucherURL      string       `json:"payment_voucher_url,omitempty"`
+	Amount                 domain.Money `json:"amount"`
+	Link                   string       `json:"link,omitempty"`
 }
 
 type DrilldownSection struct {
@@ -214,12 +222,12 @@ type AdjustmentRecord struct {
 type Repository interface {
 	LoadSettings(ctx context.Context) (SettingsSnapshot, error)
 	SaveSettings(ctx context.Context, snapshot SettingsSnapshot, actor string) (SettingsSnapshot, error)
-	MonthlySourceTotals(ctx context.Context, month string) (domain.MonthlySourceTotals, []Exception, error)
+	MonthlySourceTotals(ctx context.Context, filter ReportFilter) (domain.MonthlySourceTotals, []Exception, error)
 	ListAdjustments(ctx context.Context, month string) ([]AdjustmentRecord, error)
 	CreateExpense(ctx context.Context, cmd CreateExpenseCommand) (Expense, error)
 	ListExpenses(ctx context.Context, filter ExpenseFilter) ([]Expense, error)
 	ListExpenseEmployees(ctx context.Context) ([]ExpenseEmployee, error)
-	FinanceSourceDetails(ctx context.Context, month string) ([]SourceDetail, error)
+	FinanceSourceDetails(ctx context.Context, filter ReportFilter) ([]SourceDetail, error)
 	ListTaxLedger(ctx context.Context, month string) ([]TaxLedgerEntry, error)
 	CreateTaxLedgerEntry(ctx context.Context, cmd CreateTaxLedgerCommand) (TaxLedgerEntry, error)
 	SaveMonthlyReport(ctx context.Context, report domain.MonthlyReport, actor string) (domain.MonthlyReport, error)
@@ -291,37 +299,38 @@ func (s *Service) Dashboard(ctx context.Context, month string) (Dashboard, error
 	if err != nil {
 		return Dashboard{}, err
 	}
-	totals, exceptions, err := s.loadTotals(ctx, month)
+	totals, exceptions, err := s.loadTotals(ctx, ReportFilter{Month: month})
 	if err != nil {
 		return Dashboard{}, err
 	}
-	report, err := s.reportFromTotals(ctx, settings.Settings, totals)
+	report, err := s.reportFromTotals(ctx, settings.Settings, totals, ReportFilter{Month: month})
 	if err != nil {
 		return Dashboard{}, err
 	}
 	return Dashboard{Settings: settings, Report: report, Exceptions: exceptions}, nil
 }
 
-func (s *Service) DraftReport(ctx context.Context, month string) (domain.MonthlyReport, error) {
-	if err := validateMonth(month); err != nil {
+func (s *Service) DraftReport(ctx context.Context, filter ReportFilter) (domain.MonthlyReport, error) {
+	normalized, err := normalizeReportFilter(filter)
+	if err != nil {
 		return domain.MonthlyReport{}, err
 	}
 	settings, err := s.loadSettings(ctx)
 	if err != nil {
 		return domain.MonthlyReport{}, err
 	}
-	totals, _, err := s.loadTotals(ctx, month)
+	totals, _, err := s.loadTotals(ctx, normalized)
 	if err != nil {
 		return domain.MonthlyReport{}, err
 	}
-	return s.reportFromTotals(ctx, settings.Settings, totals)
+	return s.reportFromTotals(ctx, settings.Settings, totals, normalized)
 }
 
 func (s *Service) CloseMonth(ctx context.Context, cmd CloseMonthCommand) (domain.MonthlyReport, error) {
 	if err := validateMonth(cmd.Month); err != nil {
 		return domain.MonthlyReport{}, err
 	}
-	report, err := s.DraftReport(ctx, cmd.Month)
+	report, err := s.DraftReport(ctx, ReportFilter{Month: cmd.Month})
 	if err != nil {
 		return domain.MonthlyReport{}, err
 	}
@@ -397,19 +406,55 @@ func (s *Service) ListExpenseEmployees(ctx context.Context) ([]ExpenseEmployee, 
 	return s.repo.ListExpenseEmployees(ctx)
 }
 
-func (s *Service) ClosingReview(ctx context.Context, month string) (ClosingReview, error) {
-	if err := validateMonth(month); err != nil {
-		return ClosingReview{}, err
-	}
-	dashboard, err := s.Dashboard(ctx, month)
+func (s *Service) ClosingReview(ctx context.Context, filter ReportFilter) (ClosingReview, error) {
+	normalized, err := normalizeReportFilter(filter)
 	if err != nil {
 		return ClosingReview{}, err
 	}
-	ledger, err := s.ListTaxLedger(ctx, month)
+	if normalized.CustomerID > 0 {
+		report, err := s.DraftReport(ctx, normalized)
+		if err != nil {
+			return ClosingReview{}, err
+		}
+		drilldown, err := s.ReportDrilldown(ctx, normalized)
+		if err != nil {
+			return ClosingReview{}, err
+		}
+		items := []ClosingCheckItem{
+			{
+				Code:     "customer_source_drilldown",
+				Title:    "客户来源明细",
+				Status:   statusFromCount(emptyDrilldownSections(drilldown)),
+				Severity: severityFromCount(emptyDrilldownSections(drilldown)),
+				Message:  drilldownMessage(drilldown),
+				Count:    len(drilldown.Sections),
+			},
+			{
+				Code:     "customer_cost_matching",
+				Title:    "客户成本配比",
+				Status:   costMatchingStatus(report),
+				Severity: costMatchingSeverity(report),
+				Message:  costMatchingMessage(report),
+			},
+			{
+				Code:     "customer_month_status",
+				Title:    "客户账期状态",
+				Status:   "ok",
+				Severity: "info",
+				Message:  "客户账户只展示当前客户相关收入、费用和工厂账期状态，不执行结账动作。",
+			},
+		}
+		return ClosingReview{Month: normalized.Month, Items: items}, nil
+	}
+	dashboard, err := s.Dashboard(ctx, normalized.Month)
 	if err != nil {
 		return ClosingReview{}, err
 	}
-	drilldown, err := s.ReportDrilldown(ctx, month)
+	ledger, err := s.ListTaxLedger(ctx, normalized.Month)
+	if err != nil {
+		return ClosingReview{}, err
+	}
+	drilldown, err := s.ReportDrilldown(ctx, normalized)
 	if err != nil {
 		return ClosingReview{}, err
 	}
@@ -453,21 +498,22 @@ func (s *Service) ClosingReview(ctx context.Context, month string) (ClosingRevie
 			Message:  "可导出会计交接 Excel，包含结账检查、来源明细、票税台账和凭证草稿。",
 		},
 	}
-	return ClosingReview{Month: month, Items: items}, nil
+	return ClosingReview{Month: normalized.Month, Items: items}, nil
 }
 
-func (s *Service) ReportDrilldown(ctx context.Context, month string) (ReportDrilldown, error) {
-	if err := validateMonth(month); err != nil {
-		return ReportDrilldown{}, err
-	}
-	if s.repo == nil {
-		return ReportDrilldown{Month: month}, nil
-	}
-	rows, err := s.repo.FinanceSourceDetails(ctx, month)
+func (s *Service) ReportDrilldown(ctx context.Context, filter ReportFilter) (ReportDrilldown, error) {
+	normalized, err := normalizeReportFilter(filter)
 	if err != nil {
 		return ReportDrilldown{}, err
 	}
-	return drilldownFromDetails(month, rows), nil
+	if s.repo == nil {
+		return ReportDrilldown{Month: normalized.Month}, nil
+	}
+	rows, err := s.repo.FinanceSourceDetails(ctx, normalized)
+	if err != nil {
+		return ReportDrilldown{}, err
+	}
+	return drilldownFromDetails(normalized.Month, rows), nil
 }
 
 func (s *Service) ListTaxLedger(ctx context.Context, month string) ([]TaxLedgerEntry, error) {
@@ -502,28 +548,32 @@ func (s *Service) CreateTaxLedgerEntry(ctx context.Context, cmd CreateTaxLedgerC
 	return s.repo.CreateTaxLedgerEntry(ctx, normalized)
 }
 
-func (s *Service) AccountantHandoff(ctx context.Context, month string) (AccountantHandoff, error) {
-	if err := validateMonth(month); err != nil {
-		return AccountantHandoff{}, err
-	}
-	report, err := s.DraftReport(ctx, month)
+func (s *Service) AccountantHandoff(ctx context.Context, filter ReportFilter) (AccountantHandoff, error) {
+	normalized, err := normalizeReportFilter(filter)
 	if err != nil {
 		return AccountantHandoff{}, err
 	}
-	review, err := s.ClosingReview(ctx, month)
+	report, err := s.DraftReport(ctx, normalized)
 	if err != nil {
 		return AccountantHandoff{}, err
 	}
-	drilldown, err := s.ReportDrilldown(ctx, month)
+	review, err := s.ClosingReview(ctx, normalized)
 	if err != nil {
 		return AccountantHandoff{}, err
 	}
-	ledger, err := s.ListTaxLedger(ctx, month)
+	drilldown, err := s.ReportDrilldown(ctx, normalized)
 	if err != nil {
 		return AccountantHandoff{}, err
+	}
+	ledger := []TaxLedgerEntry{}
+	if normalized.CustomerID == 0 {
+		ledger, err = s.ListTaxLedger(ctx, normalized.Month)
+		if err != nil {
+			return AccountantHandoff{}, err
+		}
 	}
 	return AccountantHandoff{
-		Month:         month,
+		Month:         normalized.Month,
 		Report:        report,
 		Checklist:     review.Items,
 		Drilldown:     drilldown,
@@ -562,32 +612,34 @@ func (s *Service) loadSettings(ctx context.Context) (SettingsSnapshot, error) {
 	return snapshot, nil
 }
 
-func (s *Service) loadTotals(ctx context.Context, month string) (domain.MonthlySourceTotals, []Exception, error) {
+func (s *Service) loadTotals(ctx context.Context, filter ReportFilter) (domain.MonthlySourceTotals, []Exception, error) {
 	if s.repo == nil {
-		return domain.MonthlySourceTotals{Month: month}, nil, nil
+		return domain.MonthlySourceTotals{Month: filter.Month}, nil, nil
 	}
-	totals, exceptions, err := s.repo.MonthlySourceTotals(ctx, month)
+	totals, exceptions, err := s.repo.MonthlySourceTotals(ctx, filter)
 	if err != nil {
 		return domain.MonthlySourceTotals{}, nil, err
 	}
-	totals.Month = month
+	totals.Month = filter.Month
 	return totals, exceptions, nil
 }
 
-func (s *Service) reportFromTotals(ctx context.Context, settings domain.Settings, totals domain.MonthlySourceTotals) (domain.MonthlyReport, error) {
+func (s *Service) reportFromTotals(ctx context.Context, settings domain.Settings, totals domain.MonthlySourceTotals, filter ReportFilter) (domain.MonthlyReport, error) {
 	report := domain.BuildMonthlyReport(settings, totals)
 	if s.repo == nil {
 		return report, nil
 	}
-	rows, err := s.repo.ListAdjustments(ctx, totals.Month)
-	if err != nil {
-		return domain.MonthlyReport{}, err
+	if filter.CustomerID == 0 {
+		rows, err := s.repo.ListAdjustments(ctx, totals.Month)
+		if err != nil {
+			return domain.MonthlyReport{}, err
+		}
+		adjustments := make([]domain.Adjustment, 0, len(rows))
+		for _, row := range rows {
+			adjustments = append(adjustments, domain.Adjustment{Type: row.Type, Amount: row.Amount})
+		}
+		report = domain.ApplyAdjustments(report, adjustments)
 	}
-	adjustments := make([]domain.Adjustment, 0, len(rows))
-	for _, row := range rows {
-		adjustments = append(adjustments, domain.Adjustment{Type: row.Type, Amount: row.Amount})
-	}
-	report = domain.ApplyAdjustments(report, adjustments)
 	status, err := s.repo.MonthlyReportStatus(ctx, totals.Month)
 	if err != nil {
 		return domain.MonthlyReport{}, err
@@ -820,6 +872,20 @@ func normalizeExpenseFilter(filter ExpenseFilter) (ExpenseFilter, error) {
 	}
 	if filter.EmployeeID < 0 {
 		return ExpenseFilter{}, fmt.Errorf("invalid employee_id")
+	}
+	if filter.CustomerID < 0 {
+		return ExpenseFilter{}, fmt.Errorf("invalid customer_id")
+	}
+	return filter, nil
+}
+
+func normalizeReportFilter(filter ReportFilter) (ReportFilter, error) {
+	filter.Month = strings.TrimSpace(filter.Month)
+	if err := validateMonth(filter.Month); err != nil {
+		return ReportFilter{}, err
+	}
+	if filter.CustomerID < 0 {
+		return ReportFilter{}, fmt.Errorf("invalid customer_id")
 	}
 	return filter, nil
 }

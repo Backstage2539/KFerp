@@ -28,7 +28,17 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/pricing-gradient-templates", h.gradientTemplatesAPI)
 	e.POST("/api/pricing-gradient-templates", h.saveGradientTemplateAPI)
 	e.PUT("/api/pricing-gradient-templates/:id", h.saveGradientTemplateAPI)
+	e.POST("/api/product-settings/product-config-templates", h.saveProductConfigTemplateAPI)
+	e.PUT("/api/product-settings/product-config-templates/:id", h.saveProductConfigTemplateAPI)
+	e.POST("/api/product-settings/product-config-templates/derive", h.deriveProductConfigTemplateAPI)
+	e.POST("/api/product-settings/units", h.saveProductUnitDefinitionAPI)
+	e.PUT("/api/product-settings/units/:code", h.saveProductUnitDefinitionAPI)
+	e.POST("/api/product-settings/unit-templates", h.saveProductUnitTemplateAPI)
+	e.PUT("/api/product-settings/unit-templates/:id", h.saveProductUnitTemplateAPI)
 	e.POST("/api/pricing-gradient-templates/:id/deactivate", h.deactivateGradientTemplateAPI)
+	e.POST("/api/product-settings/skus", h.createSKUAPI)
+	e.GET("/api/product-settings/skus/copy-options", h.skuCopyOptionsAPI)
+	e.POST("/api/product-settings/skus/copy", h.copySKUsAPI)
 	e.POST("/api/product-settings/products", h.createProductAPI)
 	e.POST("/api/product-settings/products/deactivate", h.deactivateProductsAPI)
 	e.POST("/api/product-settings/categories", h.saveProductCategoryAPI)
@@ -37,6 +47,11 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.POST("/api/product-settings/customer-categories/derive", h.deriveProductCategoryAPI)
 	e.POST("/api/product-settings/customer-gradient-templates/derive", h.deriveGradientTemplateAPI)
 	e.POST("/api/product-settings/customer-public-usage", h.saveCustomerPublicUsageAPI)
+	e.POST("/api/product-settings/customer-rule-templates", h.saveCustomerProductRuleTemplateAPI)
+	e.PUT("/api/product-settings/customer-rule-templates/:id", h.saveCustomerProductRuleTemplateAPI)
+	e.POST("/api/product-settings/customer-rule-overrides", h.saveCustomerProductRuleOverrideAPI)
+	e.PUT("/api/product-settings/customer-rule-overrides/:id", h.saveCustomerProductRuleOverrideAPI)
+	e.POST("/api/product-settings/customers/:id/rule-template", h.bindCustomerProductRuleTemplateAPI)
 	e.PUT("/api/product-settings/categories/:id", h.saveProductCategoryAPI)
 	e.DELETE("/api/product-settings/categories/:id", h.deleteProductCategoryAPI)
 	e.POST("/api/product-settings/categories/:id/move", h.moveProductCategoryAPI)
@@ -65,23 +80,28 @@ type productHandler struct {
 }
 
 type productUpdateAPIRequest struct {
-	ProductKind           string                    `json:"product_kind"`
-	Remark                *string                   `json:"remark"`
-	GreenBeanType         string                    `json:"green_bean_type"`
-	GreenBeanBomProductID int64                     `json:"green_bean_bom_product_id"`
-	DefaultPrice          *float64                  `json:"default_price"`
-	RoastLevel            *string                   `json:"roast_level"`
-	DripBagGrams          *float64                  `json:"drip_bag_grams"`
-	DripBoxBagCount       *int                      `json:"drip_box_bag_count"`
-	AllowFulfillmentOrder *bool                     `json:"allow_fulfillment_order"`
-	AllowMallOrder        *bool                     `json:"allow_mall_order"`
-	RetailPrice100G       *float64                  `json:"retail_price_100g"`
-	RetailPrice200G       *float64                  `json:"retail_price_200g"`
-	RetailPrice227G       *float64                  `json:"retail_price_227g"`
-	RetailPrice250G       *float64                  `json:"retail_price_250g"`
-	YieldRate             float64                   `json:"yield_rate"`
-	MarginRateOverride    optionalNullableFloat64   `json:"margin_rate_override"`
-	Tiers                 []productTierAPIUpsertRow `json:"tiers"`
+	Name                        *string                   `json:"name"`
+	ProductKind                 string                    `json:"product_kind"`
+	Remark                      *string                   `json:"remark"`
+	GreenBeanType               string                    `json:"green_bean_type"`
+	GreenBeanBomProductID       int64                     `json:"green_bean_bom_product_id"`
+	DefaultPrice                *float64                  `json:"default_price"`
+	RoastLevel                  *string                   `json:"roast_level"`
+	SpecialAttrsJSON            *string                   `json:"special_attrs_json"`
+	DripBagGrams                *float64                  `json:"drip_bag_grams"`
+	DripBoxBagCount             *int                      `json:"drip_box_bag_count"`
+	AllowFulfillmentOrder       *bool                     `json:"allow_fulfillment_order"`
+	AllowMallOrder              *bool                     `json:"allow_mall_order"`
+	RetailPrice100G             *float64                  `json:"retail_price_100g"`
+	RetailPrice200G             *float64                  `json:"retail_price_200g"`
+	RetailPrice227G             *float64                  `json:"retail_price_227g"`
+	RetailPrice250G             *float64                  `json:"retail_price_250g"`
+	YieldRate                   float64                   `json:"yield_rate"`
+	MarginRateOverride          optionalNullableFloat64   `json:"margin_rate_override"`
+	GradientTemplateIDOverride  *int64                    `json:"gradient_template_id_override"`
+	OperationTemplateIDOverride *int64                    `json:"operation_template_id_override"`
+	UnitRuleOverrideJSON        *string                   `json:"unit_rule_override_json"`
+	Tiers                       []productTierAPIUpsertRow `json:"tiers"`
 }
 
 type productCreateAPIRequest struct {
@@ -91,6 +111,7 @@ type productCreateAPIRequest struct {
 	GreenBeanType         string                    `json:"green_bean_type"`
 	GreenBeanBomProductID int64                     `json:"green_bean_bom_product_id"`
 	RoastLevel            *string                   `json:"roast_level"`
+	SpecialAttrsJSON      string                    `json:"special_attrs_json"`
 	DripBagGrams          *float64                  `json:"drip_bag_grams"`
 	DripBoxBagCount       *int                      `json:"drip_box_bag_count"`
 	AllowFulfillmentOrder *bool                     `json:"allow_fulfillment_order"`
@@ -102,6 +123,22 @@ type productCreateAPIRequest struct {
 	RetailPrice250G       float64                   `json:"retail_price_250g"`
 	YieldRate             float64                   `json:"yield_rate"`
 	Tiers                 []productTierAPIUpsertRow `json:"tiers"`
+}
+
+type skuCreateAPIRequest struct {
+	CustomerID               int64  `json:"customer_id"`
+	Name                     string `json:"name"`
+	Remark                   string `json:"remark"`
+	ProductTypeCategoryID    int64  `json:"product_type_category_id"`
+	ProductSubtypeCategoryID int64  `json:"product_subtype_category_id"`
+	SpecialAttrsJSON         string `json:"special_attrs_json"`
+	Active                   *bool  `json:"active"`
+}
+
+type skuCopyAPIRequest struct {
+	TargetCustomerID int64   `json:"target_customer_id"`
+	SourceCustomerID int64   `json:"source_customer_id"`
+	SourceSKUIDs     []int64 `json:"source_sku_ids"`
 }
 
 type productDeactivateAPIRequest struct {
@@ -116,11 +153,20 @@ type productTierAPIUpsertRow struct {
 }
 
 type productCategoryAPIRequest struct {
-	ID         int64  `json:"id"`
-	Name       string `json:"name"`
-	ParentID   int64  `json:"parent_id"`
-	CustomerID int64  `json:"customer_id"`
-	Position   int    `json:"position"`
+	ID                      int64  `json:"id"`
+	Name                    string `json:"name"`
+	ParentID                int64  `json:"parent_id"`
+	CustomerID              int64  `json:"customer_id"`
+	Position                int    `json:"position"`
+	ProductConfigTemplateID int64  `json:"product_config_template_id"`
+	GradientTemplateID      int64  `json:"gradient_template_id"`
+	OperationTemplateID     int64  `json:"operation_template_id"`
+	PriceListRuleJSON       string `json:"price_list_rule_json"`
+	InventoryUnit           string `json:"inventory_unit"`
+	QuoteUnit               string `json:"quote_unit"`
+	OrderUnit               string `json:"order_unit"`
+	UnitConversionJSON      string `json:"unit_conversion_json"`
+	IntegerUnit             bool   `json:"integer_unit"`
 }
 
 type productCategoryMoveAPIRequest struct {
@@ -145,6 +191,8 @@ type customProductAPIRequest struct {
 	GreenBeanType         string  `json:"green_bean_type"`
 	GreenBeanBomProductID int64   `json:"green_bean_bom_product_id"`
 	RoastLevel            string  `json:"roast_level"`
+	SpecialAttrsJSON      string  `json:"special_attrs_json"`
+	YieldRate             float64 `json:"yield_rate"`
 	DripBagGrams          float64 `json:"drip_bag_grams"`
 	DripBoxBagCount       int     `json:"drip_box_bag_count"`
 	CustomType            string  `json:"custom_type"`
@@ -157,6 +205,27 @@ type customerPublicUsageAPIRequest struct {
 	UsePublicSKU               bool  `json:"use_public_sku"`
 	UsePublicCategories        bool  `json:"use_public_categories"`
 	UsePublicGradientTemplates bool  `json:"use_public_gradient_templates"`
+}
+
+type customerProductRuleTemplateAPIRequest struct {
+	CustomerID int64                                        `json:"customer_id"`
+	Name       string                                       `json:"name"`
+	Active     *bool                                        `json:"active"`
+	Items      []catalogapp.CustomerProductRuleTemplateItem `json:"items"`
+}
+
+type customerProductRuleOverrideAPIRequest struct {
+	CustomerID               int64  `json:"customer_id"`
+	ProductSubtypeCategoryID int64  `json:"product_subtype_category_id"`
+	GradientTemplateID       int64  `json:"gradient_template_id"`
+	OperationTemplateID      int64  `json:"operation_template_id"`
+	PriceListRuleJSON        string `json:"price_list_rule_json"`
+	UnitRuleJSON             string `json:"unit_rule_json"`
+	Active                   *bool  `json:"active"`
+}
+
+type customerProductRuleTemplateBindingAPIRequest struct {
+	TemplateID int64 `json:"template_id"`
 }
 
 type deriveProductCategoryAPIRequest struct {
@@ -180,11 +249,52 @@ type deriveGradientTemplateAPIRequest struct {
 	Name             string `json:"name"`
 }
 
+type deriveProductConfigTemplateAPIRequest struct {
+	CustomerID       int64  `json:"customer_id"`
+	SourceTemplateID int64  `json:"source_template_id"`
+	Name             string `json:"name"`
+}
+
 type gradientTemplateAPIRequest struct {
-	CustomerID  int64                             `json:"customer_id"`
-	Name        string                            `json:"name"`
-	DisplayUnit string                            `json:"display_unit"`
-	Tiers       []catalogapp.GradientTemplateTier `json:"tiers"`
+	CustomerID     int64                             `json:"customer_id"`
+	Name           string                            `json:"name"`
+	DisplayUnit    string                            `json:"display_unit"`
+	UnitTemplateID int64                             `json:"unit_template_id"`
+	Tiers          []catalogapp.GradientTemplateTier `json:"tiers"`
+}
+
+type productConfigTemplateAPIRequest struct {
+	CustomerID             int64  `json:"customer_id"`
+	Name                   string `json:"name"`
+	GradientTemplateID     int64  `json:"gradient_template_id"`
+	OperationTemplateID    int64  `json:"operation_template_id"`
+	UnitTemplateID         int64  `json:"unit_template_id"`
+	PriceListRuleJSON      string `json:"price_list_rule_json"`
+	SpecialAttrsSchemaJSON string `json:"special_attrs_schema_json"`
+	InventoryUnit          string `json:"inventory_unit"`
+	QuoteUnit              string `json:"quote_unit"`
+	OrderUnit              string `json:"order_unit"`
+	UnitConversionJSON     string `json:"unit_conversion_json"`
+	IntegerUnit            bool   `json:"integer_unit"`
+	Active                 *bool  `json:"active"`
+}
+
+type productUnitDefinitionAPIRequest struct {
+	Code         string `json:"code"`
+	Name         string `json:"name"`
+	UnitType     string `json:"unit_type"`
+	AllowDecimal bool   `json:"allow_decimal"`
+	Active       *bool  `json:"active"`
+}
+
+type productUnitTemplateAPIRequest struct {
+	Name               string `json:"name"`
+	InventoryUnit      string `json:"inventory_unit"`
+	QuoteUnit          string `json:"quote_unit"`
+	OrderUnit          string `json:"order_unit"`
+	UnitConversionJSON string `json:"unit_conversion_json"`
+	IntegerUnit        bool   `json:"integer_unit"`
+	Active             *bool  `json:"active"`
 }
 
 type bindCategoryGradientTemplateAPIRequest struct {
@@ -258,8 +368,11 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		roastLevelInput = *req.RoastLevel
 	}
 	roastLevel := NormalizeRoastLevel(roastLevelInput)
-	if productKind != catalogdomain.ProductKindGreenBean && roastLevel == "" {
+	if strings.TrimSpace(roastLevelInput) != "" && roastLevel == "" {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
+	}
+	if catalogdomain.ProductKindRequiresRoast(productKind) && roastLevel == "" {
+		roastLevel = "中烘"
 	}
 	defaultPrice := optionalFloat64(req.DefaultPrice, existing.DefaultPrice)
 	retailPrice100G := optionalFloat64(req.RetailPrice100G, existing.RetailPrice100G)
@@ -289,7 +402,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	yieldRate := normalizeProductYieldRate(req.YieldRate)
-	if productKind != catalogdomain.ProductKindGreenBean && req.YieldRate > 0 && yieldRate <= 0 {
+	if catalogdomain.ProductKindSupportsBomParams(productKind) && req.YieldRate > 0 && yieldRate <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
 	marginRateOverride := existing.MarginRateOverride
@@ -299,29 +412,57 @@ func (h productHandler) updateAPI(c echo.Context) error {
 			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 		}
 	}
+	name := existing.Name
+	if req.Name != nil {
+		name = strings.TrimSpace(*req.Name)
+		if name == "" {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "name is required"})
+		}
+	}
 	remark := existing.Remark
 	if req.Remark != nil {
 		remark = strings.TrimSpace(*req.Remark)
 	}
+	gradientTemplateIDOverride := existing.GradientTemplateIDOverride
+	if req.GradientTemplateIDOverride != nil {
+		gradientTemplateIDOverride = *req.GradientTemplateIDOverride
+	}
+	operationTemplateIDOverride := existing.OperationTemplateIDOverride
+	if req.OperationTemplateIDOverride != nil {
+		operationTemplateIDOverride = *req.OperationTemplateIDOverride
+	}
+	unitRuleOverrideJSON := existing.UnitRuleOverrideJSON
+	if req.UnitRuleOverrideJSON != nil {
+		unitRuleOverrideJSON = strings.TrimSpace(*req.UnitRuleOverrideJSON)
+	}
+	specialAttrsJSON := existing.SpecialAttrsJSON
+	if req.SpecialAttrsJSON != nil {
+		specialAttrsJSON = strings.TrimSpace(*req.SpecialAttrsJSON)
+	}
 	if err := h.catalog.UpdateProductBasics(c.Request().Context(), catalogapp.UpdateProductBasicsCommand{
-		Actor:                 support.ActorOf(c),
-		ProductID:             id,
-		Remark:                remark,
-		RoastLevel:            roastLevel,
-		ProductKind:           productKind,
-		GreenBeanType:         greenBeanType,
-		GreenBeanBomProductID: greenBeanBomProductID,
-		DefaultPrice:          defaultPrice,
-		DripBagGrams:          dripBagGrams,
-		DripBoxBagCount:       dripBoxBagCount,
-		AllowFulfillmentOrder: allowFulfillmentOrder,
-		AllowMallOrder:        allowMallOrder,
-		RetailPrice100G:       retailPrice100G,
-		RetailPrice200G:       retailPrice200G,
-		RetailPrice227G:       retailPrice227G,
-		RetailPrice250G:       retailPrice250G,
-		YieldRate:             yieldRate,
-		MarginRateOverride:    marginRateOverride,
+		Actor:                       support.ActorOf(c),
+		ProductID:                   id,
+		Name:                        name,
+		Remark:                      remark,
+		RoastLevel:                  roastLevel,
+		ProductKind:                 productKind,
+		GreenBeanType:               greenBeanType,
+		GreenBeanBomProductID:       greenBeanBomProductID,
+		DefaultPrice:                defaultPrice,
+		DripBagGrams:                dripBagGrams,
+		DripBoxBagCount:             dripBoxBagCount,
+		AllowFulfillmentOrder:       allowFulfillmentOrder,
+		AllowMallOrder:              allowMallOrder,
+		RetailPrice100G:             retailPrice100G,
+		RetailPrice200G:             retailPrice200G,
+		RetailPrice227G:             retailPrice227G,
+		RetailPrice250G:             retailPrice250G,
+		YieldRate:                   yieldRate,
+		MarginRateOverride:          marginRateOverride,
+		GradientTemplateIDOverride:  gradientTemplateIDOverride,
+		OperationTemplateIDOverride: operationTemplateIDOverride,
+		UnitRuleOverrideJSON:        unitRuleOverrideJSON,
+		SpecialAttrsJSON:            specialAttrsJSON,
 	}); err != nil {
 		if catalogapp.IsValidationError(err) {
 			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
@@ -341,6 +482,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 			RetailPrice200G:       retailPrice200G,
 			RetailPrice227G:       retailPrice227G,
 			RetailPrice250G:       retailPrice250G,
+			YieldRate:             yieldRate,
 			Tiers:                 productTiersFromAPI(req.Tiers),
 		}); err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
@@ -386,11 +528,11 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 	if strings.TrimSpace(roastLevelInput) != "" && roastLevel == "" {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid roast_level"})
 	}
-	if productKind != catalogdomain.ProductKindGreenBean && roastLevel == "" {
-		roastLevel = "深烘"
+	if catalogdomain.ProductKindRequiresRoast(productKind) && roastLevel == "" {
+		roastLevel = "中烘"
 	}
 	yieldRate := normalizeProductYieldRate(req.YieldRate)
-	if productKind != catalogdomain.ProductKindGreenBean && req.YieldRate > 0 && yieldRate <= 0 {
+	if catalogdomain.ProductKindSupportsBomParams(productKind) && req.YieldRate > 0 && yieldRate <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
 	if err := validateExplicitDripConfig(productKind, req.DripBagGrams, req.DripBoxBagCount); err != nil {
@@ -432,6 +574,7 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		RetailPrice250G:          req.RetailPrice250G,
 		YieldRate:                yieldRate,
 		Tiers:                    productTiersFromAPI(req.Tiers),
+		SpecialAttrsJSON:         req.SpecialAttrsJSON,
 	})
 	if err != nil {
 		if catalogapp.IsValidationError(err) {
@@ -440,6 +583,67 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
+}
+
+func (h productHandler) createSKUAPI(c echo.Context) error {
+	var req skuCreateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	active := true
+	if req.Active != nil {
+		active = *req.Active
+	}
+	product, err := h.catalog.CreateSKU(c.Request().Context(), catalogapp.CreateSKUCommand{
+		Actor:                    support.ActorOf(c),
+		CustomerID:               req.CustomerID,
+		Name:                     req.Name,
+		Remark:                   req.Remark,
+		ProductTypeCategoryID:    req.ProductTypeCategoryID,
+		ProductSubtypeCategoryID: req.ProductSubtypeCategoryID,
+		SpecialAttrsJSON:         req.SpecialAttrsJSON,
+		Active:                   active,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"product": productOptionFromCatalog(product)})
+}
+
+func (h productHandler) skuCopyOptionsAPI(c echo.Context) error {
+	targetCustomerID, err := strconv.ParseInt(strings.TrimSpace(c.QueryParam("target_customer_id")), 10, 64)
+	if err != nil && strings.TrimSpace(c.QueryParam("target_customer_id")) != "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid target_customer_id"})
+	}
+	sourceCustomerID, err := strconv.ParseInt(strings.TrimSpace(c.QueryParam("source_customer_id")), 10, 64)
+	if err != nil && strings.TrimSpace(c.QueryParam("source_customer_id")) != "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid source_customer_id"})
+	}
+	options, err := h.catalog.ListSKUCopyOptions(c.Request().Context(), catalogapp.SKUCopyOptionsQuery{
+		TargetCustomerID: targetCustomerID,
+		SourceCustomerID: sourceCustomerID,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, options)
+}
+
+func (h productHandler) copySKUsAPI(c echo.Context) error {
+	var req skuCopyAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	result, err := h.catalog.CopySKUs(c.Request().Context(), catalogapp.CopySKUsCommand{
+		Actor:            support.ActorOf(c),
+		TargetCustomerID: req.TargetCustomerID,
+		SourceCustomerID: req.SourceCustomerID,
+		SourceSKUIDs:     req.SourceSKUIDs,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, result)
 }
 
 func (h productHandler) deactivateProductsAPI(c echo.Context) error {
@@ -531,17 +735,106 @@ func (h productHandler) saveGradientTemplateAPI(c echo.Context) error {
 		id = parsed
 	}
 	row, err := h.catalog.SaveGradientTemplate(c.Request().Context(), catalogapp.SaveGradientTemplateCommand{
-		Actor:       support.ActorOf(c),
-		ID:          id,
-		CustomerID:  req.CustomerID,
-		Name:        req.Name,
-		DisplayUnit: req.DisplayUnit,
-		Tiers:       req.Tiers,
+		Actor:          support.ActorOf(c),
+		ID:             id,
+		CustomerID:     req.CustomerID,
+		Name:           req.Name,
+		DisplayUnit:    req.DisplayUnit,
+		UnitTemplateID: req.UnitTemplateID,
+		Tiers:          req.Tiers,
 	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"template": row})
+}
+
+func (h productHandler) saveProductConfigTemplateAPI(c echo.Context) error {
+	var req productConfigTemplateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	var id int64
+	if idText := c.Param("id"); idText != "" {
+		parsed, err := strconv.ParseInt(idText, 10, 64)
+		if err != nil || parsed <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		}
+		id = parsed
+	}
+	template, err := h.catalog.SaveProductConfigTemplate(c.Request().Context(), catalogapp.SaveProductConfigTemplateCommand{
+		Actor:                  support.ActorOf(c),
+		ID:                     id,
+		CustomerID:             req.CustomerID,
+		Name:                   req.Name,
+		GradientTemplateID:     req.GradientTemplateID,
+		OperationTemplateID:    req.OperationTemplateID,
+		UnitTemplateID:         req.UnitTemplateID,
+		PriceListRuleJSON:      req.PriceListRuleJSON,
+		SpecialAttrsSchemaJSON: req.SpecialAttrsSchemaJSON,
+		InventoryUnit:          req.InventoryUnit,
+		QuoteUnit:              req.QuoteUnit,
+		OrderUnit:              req.OrderUnit,
+		UnitConversionJSON:     req.UnitConversionJSON,
+		IntegerUnit:            req.IntegerUnit,
+		Active:                 req.Active,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"template": template})
+}
+
+func (h productHandler) saveProductUnitDefinitionAPI(c echo.Context) error {
+	var req productUnitDefinitionAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	if code := strings.TrimSpace(c.Param("code")); code != "" {
+		req.Code = code
+	}
+	row, err := h.catalog.SaveProductUnitDefinition(c.Request().Context(), catalogapp.SaveProductUnitDefinitionCommand{
+		Actor:        support.ActorOf(c),
+		Code:         req.Code,
+		Name:         req.Name,
+		UnitType:     req.UnitType,
+		AllowDecimal: req.AllowDecimal,
+		Active:       req.Active,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"unit": row})
+}
+
+func (h productHandler) saveProductUnitTemplateAPI(c echo.Context) error {
+	var req productUnitTemplateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	var id int64
+	if idText := c.Param("id"); idText != "" {
+		parsed, err := strconv.ParseInt(idText, 10, 64)
+		if err != nil || parsed <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		}
+		id = parsed
+	}
+	template, err := h.catalog.SaveProductUnitTemplate(c.Request().Context(), catalogapp.SaveProductUnitTemplateCommand{
+		Actor:              support.ActorOf(c),
+		ID:                 id,
+		Name:               req.Name,
+		InventoryUnit:      req.InventoryUnit,
+		QuoteUnit:          req.QuoteUnit,
+		OrderUnit:          req.OrderUnit,
+		UnitConversionJSON: req.UnitConversionJSON,
+		IntegerUnit:        req.IntegerUnit,
+		Active:             req.Active,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"template": template})
 }
 
 func (h productHandler) deactivateGradientTemplateAPI(c echo.Context) error {
@@ -574,12 +867,21 @@ func (h productHandler) saveProductCategoryAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "name required"})
 	}
 	row, err := h.catalog.SaveProductCategory(c.Request().Context(), catalogapp.SaveProductCategoryCommand{
-		Actor:      support.ActorOf(c),
-		ID:         req.ID,
-		ParentID:   req.ParentID,
-		CustomerID: req.CustomerID,
-		Name:       req.Name,
-		Position:   req.Position,
+		Actor:                   support.ActorOf(c),
+		ID:                      req.ID,
+		ParentID:                req.ParentID,
+		CustomerID:              req.CustomerID,
+		Name:                    req.Name,
+		Position:                req.Position,
+		ProductConfigTemplateID: req.ProductConfigTemplateID,
+		GradientTemplateID:      req.GradientTemplateID,
+		OperationTemplateID:     req.OperationTemplateID,
+		PriceListRuleJSON:       req.PriceListRuleJSON,
+		InventoryUnit:           req.InventoryUnit,
+		QuoteUnit:               req.QuoteUnit,
+		OrderUnit:               req.OrderUnit,
+		UnitConversionJSON:      req.UnitConversionJSON,
+		IntegerUnit:             req.IntegerUnit,
 	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
@@ -602,6 +904,8 @@ func (h productHandler) createCustomProductAPI(c echo.Context) error {
 		GreenBeanType:         req.GreenBeanType,
 		GreenBeanBomProductID: req.GreenBeanBomProductID,
 		RoastLevel:            req.RoastLevel,
+		SpecialAttrsJSON:      req.SpecialAttrsJSON,
+		YieldRate:             normalizeProductYieldRate(req.YieldRate),
 		DripBagGrams:          req.DripBagGrams,
 		DripBoxBagCount:       req.DripBoxBagCount,
 		CustomType:            req.CustomType,
@@ -668,6 +972,23 @@ func (h productHandler) deriveGradientTemplateAPI(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"template": template})
 }
 
+func (h productHandler) deriveProductConfigTemplateAPI(c echo.Context) error {
+	var req deriveProductConfigTemplateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	template, err := h.catalog.DeriveProductConfigTemplate(c.Request().Context(), catalogapp.DeriveProductConfigTemplateCommand{
+		Actor:            support.ActorOf(c),
+		CustomerID:       req.CustomerID,
+		SourceTemplateID: req.SourceTemplateID,
+		Name:             req.Name,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"template": template})
+}
+
 func (h productHandler) saveCustomerPublicUsageAPI(c echo.Context) error {
 	var req customerPublicUsageAPIRequest
 	if err := c.Bind(&req); err != nil {
@@ -684,6 +1005,83 @@ func (h productHandler) saveCustomerPublicUsageAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"usage": usage})
+}
+
+func (h productHandler) saveCustomerProductRuleTemplateAPI(c echo.Context) error {
+	var req customerProductRuleTemplateAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	var id int64
+	if idText := c.Param("id"); idText != "" {
+		parsed, err := strconv.ParseInt(idText, 10, 64)
+		if err != nil || parsed <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		}
+		id = parsed
+	}
+	template, err := h.catalog.SaveCustomerProductRuleTemplate(c.Request().Context(), catalogapp.SaveCustomerProductRuleTemplateCommand{
+		Actor:      support.ActorOf(c),
+		ID:         id,
+		CustomerID: req.CustomerID,
+		Name:       req.Name,
+		Active:     req.Active,
+		Items:      req.Items,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"template": template})
+}
+
+func (h productHandler) saveCustomerProductRuleOverrideAPI(c echo.Context) error {
+	var req customerProductRuleOverrideAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	var id int64
+	if idText := c.Param("id"); idText != "" {
+		parsed, err := strconv.ParseInt(idText, 10, 64)
+		if err != nil || parsed <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		}
+		id = parsed
+	}
+	override, err := h.catalog.SaveCustomerProductRuleOverride(c.Request().Context(), catalogapp.SaveCustomerProductRuleOverrideCommand{
+		Actor:                    support.ActorOf(c),
+		ID:                       id,
+		CustomerID:               req.CustomerID,
+		ProductSubtypeCategoryID: req.ProductSubtypeCategoryID,
+		GradientTemplateID:       req.GradientTemplateID,
+		OperationTemplateID:      req.OperationTemplateID,
+		PriceListRuleJSON:        req.PriceListRuleJSON,
+		UnitRuleJSON:             req.UnitRuleJSON,
+		Active:                   req.Active,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"override": override})
+}
+
+func (h productHandler) bindCustomerProductRuleTemplateAPI(c echo.Context) error {
+	customerID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || customerID <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid customer id"})
+	}
+	var req customerProductRuleTemplateBindingAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	binding, err := h.catalog.BindCustomerProductRuleTemplate(c.Request().Context(), catalogapp.CustomerProductRuleTemplateBindingCommand{
+		Actor:      support.ActorOf(c),
+		CustomerID: customerID,
+		TemplateID: req.TemplateID,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"binding": binding})
 }
 
 func (h productHandler) moveProductCategoryAPI(c echo.Context) error {

@@ -807,6 +807,28 @@ func TestDefaultCapabilityTemplatesIncludePublicSKUDirectShipRules(t *testing.T)
 	}
 }
 
+func TestDefaultCapabilityTemplatesIncludeChannelDirectShipWorkbench(t *testing.T) {
+	template, ok := CustomerCapabilityTemplateByKey("channel_direct_ship")
+	if !ok {
+		t.Fatal("missing channel direct ship capability template")
+	}
+	if template.Label != "渠道代发/现货下单" {
+		t.Fatalf("channel template label=%q", template.Label)
+	}
+	if !template.ExposesERPWorkbench() {
+		t.Fatalf("channel template should expose ERP customer workbench: %+v", template)
+	}
+	for _, code := range []string{CapabilityProductOrder, CapabilityDirectShip, CapabilitySettlement} {
+		if !template.HasCapability(code) {
+			t.Fatalf("channel template missing capability %s: %+v", code, template.Capabilities)
+		}
+	}
+	rule := template.SmallBatchPriceRule()
+	if !rule.Enabled {
+		t.Fatalf("channel direct ship should keep small-batch price rule: %+v", rule)
+	}
+}
+
 func TestDefaultCapabilityTemplatesIncludeRetailMallTemplate(t *testing.T) {
 	template, ok := CustomerCapabilityTemplateByKey(CapabilityTemplateRetailMall)
 	if !ok {

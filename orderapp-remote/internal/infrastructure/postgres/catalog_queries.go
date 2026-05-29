@@ -24,35 +24,40 @@ type ProductTierOption struct {
 }
 
 type ProductOption struct {
-	ID                      int64
-	Name                    string
-	Remark                  string
-	ProductKind             string
-	GreenBeanType           string
-	GreenBeanBomProductID   int64
-	RoastLevel              string
-	DripBagGrams            float64
-	DripBoxBagCount         int
-	AllowFulfillmentOrder   bool
-	AllowMallOrder          bool
-	SalesUnits              []string
-	DefaultPrice            float64
-	RetailPrice100G         float64
-	RetailPrice200G         float64
-	RetailPrice227G         float64
-	RetailPrice250G         float64
-	YieldRate               float64
-	ProductCategoryID       int64
-	ProductCategoryPosition int
-	CustomerID              int64
-	BaseProductID           int64
-	Visibility              string
-	CustomType              string
-	MarginRateOverride      *float64
-	BomItemCount            int
-	BomStatus               string
-	RetailSpecs             []int64
-	Tiers                   []ProductTierOption
+	ID                          int64
+	Name                        string
+	Remark                      string
+	ProductKind                 string
+	GreenBeanType               string
+	GreenBeanBomProductID       int64
+	RoastLevel                  string
+	SpecialAttrsJSON            string
+	DripBagGrams                float64
+	DripBoxBagCount             int
+	AllowFulfillmentOrder       bool
+	AllowMallOrder              bool
+	SalesUnits                  []string
+	DefaultPrice                float64
+	RetailPrice100G             float64
+	RetailPrice200G             float64
+	RetailPrice227G             float64
+	RetailPrice250G             float64
+	YieldRate                   float64
+	ProductCategoryID           int64
+	ProductCategoryPosition     int
+	CustomerID                  int64
+	BaseProductID               int64
+	Visibility                  string
+	CustomType                  string
+	MarginRateOverride          *float64
+	GradientTemplateIDOverride  int64
+	OperationTemplateIDOverride int64
+	UnitRuleOverrideJSON        string
+	BomItemCount                int
+	BomStatus                   string
+	OrderUsageCount             int
+	RetailSpecs                 []int64
+	Tiers                       []ProductTierOption
 }
 
 func FetchOptions(ctx context.Context, pool *pgxpool.Pool, sqlstr string) ([]Option, error) {
@@ -74,7 +79,7 @@ func FetchOptions(ctx context.Context, pool *pgxpool.Pool, sqlstr string) ([]Opt
 }
 
 func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]ProductOption, error) {
-	sqlstr := fmt.Sprintf(`SELECT p.id, p.name, COALESCE(p.remark,''), COALESCE(p.roast_level,''), p.default_price,
+	sqlstr := fmt.Sprintf(`SELECT p.id, p.name, COALESCE(p.remark,''), COALESCE(p.roast_level,''), COALESCE(p.special_attrs_json::text,'{}'), p.default_price,
 		COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'),
 		COALESCE(p.green_bean_type, ''),
 		COALESCE(p.green_bean_bom_product_id, 0),
@@ -94,8 +99,17 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		COALESCE(NULLIF(p.visibility,''), 'public'),
 		COALESCE(p.custom_type, ''),
 		p.margin_rate_override::float8,
+		COALESCE(p.gradient_template_id_override,0),
+		COALESCE(p.operation_template_id_override,0),
+		COALESCE(p.unit_rule_override_json::text,'{}'),
 		COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=p.id), 0),
-		COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END)
+		COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END),
+		COALESCE((
+			SELECT COUNT(*)
+			FROM %[1]s.order_items oi
+			JOIN %[1]s.orders o ON o.id=oi.order_id
+			WHERE oi.product_id=p.id AND COALESCE(o.is_void,false)=false
+		),0) AS order_usage_count
 		FROM %[1]s.products p
 		LEFT JOIN %[1]s.product_bom b ON b.product_id=p.id
 		WHERE p.active=true ORDER BY p.name`, schema)
@@ -108,12 +122,16 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 	out := make([]ProductOption, 0)
 	for rows.Next() {
 		var p ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.BomItemCount, &p.BomStatus); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.BomItemCount, &p.BomStatus, &p.OrderUsageCount); err != nil {
 			return nil, err
 		}
 		p.ProductKind = catalogdomain.NormalizeProductKind(p.ProductKind)
 		if p.ProductKind == catalogdomain.ProductKindDripBag {
 			p.SalesUnits = []string{"bag", "box"}
+		}
+		if !catalogdomain.ProductKindSupportsBomParams(p.ProductKind) {
+			p.RoastLevel = ""
+			p.YieldRate = 0
 		}
 		p.RetailSpecs = salesdomain.RetailAvailableSpecs(salesdomain.RetailSpecPrices{
 			Price100G: p.RetailPrice100G,

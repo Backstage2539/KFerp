@@ -60,19 +60,65 @@ export function formatSpecLabel(specG) {
   return `${spec}g`
 }
 
+function parseUnitConversion(value) {
+  if (!value) return {}
+  if (typeof value === 'object') return value
+  try {
+    const parsed = JSON.parse(String(value))
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+export function productOrderUnit(product) {
+  return String(product?.order_unit || '').trim()
+}
+
+export function productOrderUnitSpecG(product) {
+  const orderUnit = productOrderUnit(product)
+  if (!orderUnit || orderUnit === 'kg') return 0
+  const conversion = parseUnitConversion(product?.unit_conversion_json)
+  const rule = conversion?.[orderUnit] || conversion?.[orderUnit.toLowerCase?.()]
+  const kg = toNumber(rule?.kg ?? rule?.KG)
+  if (kg > 0) return Math.round(kg * 1000)
+  const g = toNumber(rule?.g ?? rule?.G)
+  if (g > 0) return Math.round(g)
+  return 0
+}
+
+function productOrderUnitSpecOption(product) {
+  const unit = productOrderUnit(product)
+  const specG = productOrderUnitSpecG(product)
+  if (!unit || specG <= 0) return null
+  return { label: `${unit}（${formatSpecLabel(specG)}）`, value: String(specG), orderUnit: unit }
+}
+
 export function normalizedProductKind(productOrKind) {
   const raw = typeof productOrKind === 'object'
     ? productOrKind?.product_kind
     : productOrKind
-  return String(raw || '').trim() === 'green_bean' ? 'green_bean' : 'roasted'
+  const kind = String(raw || '').trim()
+  if (kind === 'green_bean') return 'green_bean'
+  if (kind === 'drip_bag') return 'drip_bag'
+  if (kind === 'instant_coffee' || kind === 'instant') return 'instant_coffee'
+  return 'roasted'
 }
 
 export function productKindLabel(productOrKind) {
-  return normalizedProductKind(productOrKind) === 'green_bean' ? '生豆' : '熟豆'
+  const kind = normalizedProductKind(productOrKind)
+  if (kind === 'green_bean') return '生豆'
+  if (kind === 'drip_bag') return '挂耳'
+  if (kind === 'instant_coffee') return '速溶咖啡'
+  return '熟豆'
 }
 
 export function productKindBadgeClass(productOrKind) {
-  return normalizedProductKind(productOrKind) === 'green_bean' ? 'kind-green' : 'kind-roasted'
+  const kind = normalizedProductKind(productOrKind)
+  if (kind === 'green_bean') return 'kind-green'
+  if (kind === 'drip_bag') return 'kind-drip'
+  if (kind === 'instant_coffee') return 'kind-instant'
+  return 'kind-roasted'
 }
 
 export function wholesaleSpecOptions(product) {
@@ -81,13 +127,17 @@ export function wholesaleSpecOptions(product) {
     const spec = toInt(tier.spec_g)
     if (spec > 0) specs.add(spec)
   }
+  const orderUnitOption = productOrderUnitSpecOption(product)
   return [
+    ...(orderUnitOption ? [orderUnitOption] : []),
     ...[...specs].sort((a, b) => a - b).map((spec) => ({ label: formatSpecLabel(spec), value: String(spec) })),
     { label: '自定义克数', value: CUSTOM_SPEC_VALUE },
   ]
 }
 
 export function defaultWholesaleSpec(product) {
+  const orderUnitSpec = productOrderUnitSpecG(product)
+  if (orderUnitSpec > 0) return String(orderUnitSpec)
   const tier = (product?.tiers || []).find((item) => toInt(item.spec_g) > 0)
   if (tier) return String(toInt(tier.spec_g))
   return wholesaleSpecOptions(product)[0]?.value || ''
@@ -139,13 +189,83 @@ export function wholesalePriceUnit(rowOrSpec) {
 }
 
 function rowQuantityForWholesalePriceUnit(row) {
-  const unit = wholesalePriceUnit(row)
+  const unit = orderRowPriceUnit(row)
   return normalizeSpecG(row) * Math.max(1, toInt(row?.qty)) / unit.unitG
 }
 
-function wholesaleTierUnitPriceLb(tier) {
+function normalizeTierDisplayUnit(unit) {
+  const raw = String(unit || '').trim()
+  const value = raw.toLowerCase()
+  if (['kg', 'lb', 'g100', 'g227', 'g250'].includes(value)) return value
+  return raw
+}
+
+function priceUnitForDisplayUnit(unit, specG = 0) {
+  const displayUnit = normalizeTierDisplayUnit(unit)
+  switch (displayUnit) {
+    case 'kg':
+      return { label: '元/kg', suffix: '/kg', unitG: 1000 }
+    case 'lb':
+      return { label: '元/磅', suffix: '/磅', unitG: 454 }
+    case 'g100':
+      return { label: '元/100g', suffix: '/100g', unitG: 100 }
+    case 'g227':
+      return { label: '元/227g', suffix: '/227g', unitG: 227 }
+    case 'g250':
+      return { label: '元/250g', suffix: '/250g', unitG: 250 }
+    default:
+      if (!displayUnit) return null
+      const unitG = Math.max(1, toInt(specG))
+      return { label: `元/${displayUnit}`, suffix: `/${displayUnit}`, unitG }
+  }
+}
+
+function priceUnitForStoredFields(label, suffix, unitG) {
+  const rawLabel = String(label || '').trim()
+  const rawSuffix = String(suffix || '').trim()
+  const normalizedUnitG = toNumber(unitG)
+  if (normalizedUnitG === 1000 || rawLabel === '元/kg' || rawSuffix === '/kg') return { label: '元/kg', suffix: '/kg', unitG: 1000 }
+  if (normalizedUnitG === 454 || rawLabel === '元/磅' || rawSuffix === '/磅') return { label: '元/磅', suffix: '/磅', unitG: 454 }
+  if (normalizedUnitG === 100 || rawLabel === '元/100g' || rawSuffix === '/100g') return { label: '元/100g', suffix: '/100g', unitG: 100 }
+  if (normalizedUnitG === 227 || rawLabel === '元/227g' || rawSuffix === '/227g') return { label: '元/227g', suffix: '/227g', unitG: 227 }
+  if (normalizedUnitG === 250 || rawLabel === '元/250g' || rawSuffix === '/250g') return { label: '元/250g', suffix: '/250g', unitG: 250 }
+  const customUnit = rawLabel.startsWith('元/') ? rawLabel.slice(2) : rawSuffix.startsWith('/') ? rawSuffix.slice(1) : ''
+  if (customUnit) {
+    return { label: `元/${customUnit}`, suffix: `/${customUnit}`, unitG: Math.max(1, normalizedUnitG || 1) }
+  }
+  return null
+}
+
+export function orderRowPriceUnit(row) {
+  return priceUnitForStoredFields(
+    String(row?.price_unit || '').trim(),
+    String(row?.price_unit_suffix || '').trim(),
+    row?.price_unit_g,
+  ) || wholesalePriceUnit(row)
+}
+
+function tierConfiguredUnitPrice(tier) {
   const configuredPrice = toNumber(tier?.unit_price)
-  const pricePerPackage = configuredPrice > 0 ? configuredPrice : toNumber(tier?.price)
+  return configuredPrice > 0 ? configuredPrice : toNumber(tier?.price)
+}
+
+function roundToCents(value) {
+  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100
+}
+
+export function orderTotalPreview({ itemsTotal = 0, shippingAmount = 0, discountAmount = 0, roundToInt = false } = {}) {
+  const goodsAmount = Math.max(0, roundToCents(toNumber(itemsTotal) - toNumber(discountAmount)))
+  const logisticsAmount = Math.max(0, roundToCents(toNumber(shippingAmount)))
+  const rawTotal = goodsAmount + logisticsAmount
+  return {
+    goodsAmount,
+    logisticsAmount,
+    grandTotal: roundToInt ? Math.round(rawTotal) : roundToCents(rawTotal),
+  }
+}
+
+function wholesaleTierUnitPriceLb(tier) {
+  const pricePerPackage = tierConfiguredUnitPrice(tier)
   if (pricePerPackage <= 0) return 0
   return pricePerPackage * 454 / tierSpecG(tier)
 }
@@ -157,48 +277,123 @@ function wholesaleDisplayUnitPrice(pricePerLb, rowOrSpec) {
   return price
 }
 
-function matchTierByQuantity(tiers, quantity, minValue, maxValue) {
+function wholesaleTierDisplayUnitPrice(tier, targetUnit) {
+  const sourceUnit = priceUnitForDisplayUnit(tier?.display_unit, tier?.spec_g)
+  if (!sourceUnit) {
+    const price = wholesaleTierUnitPriceLb(tier) * targetUnit.unitG / 454
+    if (targetUnit.unitG === 1000) return Math.round(price)
+    return roundToCents(price)
+  }
+  const price = tierConfiguredUnitPrice(tier) * targetUnit.unitG / sourceUnit.unitG
+  if (sourceUnit.unitG === 454 && targetUnit.unitG === 1000) return Math.round(price)
+  return roundToCents(price)
+}
+
+function matchTierByQuantityResult(tiers, quantity, minValue, maxValue) {
   const sorted = [...tiers].sort((a, b) => minValue(b) - minValue(a))
   const exact = sorted.find((item) => minValue(item) <= quantity && (maxValue(item) == null || maxValue(item) >= quantity))
-  if (exact) return exact
-  return sorted.find((item) => minValue(item) <= quantity)
-    || [...tiers].sort((a, b) => minValue(a) - minValue(b))[0]
-    || null
+  if (exact) return { tier: exact, belowMin: false }
+  const lower = sorted.find((item) => minValue(item) <= quantity)
+  if (lower) return { tier: lower, belowMin: false }
+  const lowest = [...tiers].sort((a, b) => minValue(a) - minValue(b))[0] || null
+  return { tier: lowest, belowMin: Boolean(lowest && quantity < minValue(lowest)) }
+}
+
+function matchTierByQuantity(tiers, quantity, minValue, maxValue) {
+  return matchTierByQuantityResult(tiers, quantity, minValue, maxValue).tier
+}
+
+function formatTierUnitPrice(value) {
+  const n = Number(value || 0)
+  if (!Number.isFinite(n)) return '0'
+  if (Number.isInteger(n)) return String(n)
+  return String(roundToCents(n)).replace(/\.?0+$/, '')
 }
 
 export function wholesaleTierPriceRows(product, row = null) {
-  return (product?.tiers || [])
+  return tiersForSelectedPublication(product, row)
     .filter((tier) => toInt(tier.spec_g) > 0)
     .map((tier) => {
-      const priceUnitTarget = row || toInt(tier.spec_g)
+      const priceUnit = priceUnitForDisplayUnit(tier?.display_unit, tier?.spec_g) || wholesalePriceUnit(toInt(tier.spec_g))
       return {
         id: String(tier.id || ''),
         specG: toInt(tier.spec_g),
         specLabel: formatSpecLabel(tier.spec_g),
         rangeLabel: formatTierRange(tier),
-        unitPrice: wholesaleDisplayUnitPrice(wholesaleTierUnitPriceLb(tier), priceUnitTarget),
-        priceUnit: wholesalePriceUnit(priceUnitTarget),
+        unitPrice: wholesaleTierDisplayUnitPrice(tier, priceUnit),
+        priceUnit,
       }
     })
 }
 
-export function findWholesaleTier(product, row) {
+function tierPublicationID(tier) {
+  const source = tierPriceSource(tier)
+  return toInt(source?.publication_id || source?.bean_list_publication_id)
+}
+
+function tiersForSelectedPublication(product, row = null) {
+  const tiers = product?.tiers || []
+  const publicationID = toInt(row?.bean_list_publication_id)
+  if (publicationID <= 0) return tiers
+  const selected = tiers.filter((tier) => tierPublicationID(tier) === publicationID)
+  return selected.length ? selected : tiers
+}
+
+function findWholesaleTierMatch(product, row) {
   const specG = normalizeSpecG(row)
   const qty = Math.max(1, toInt(row?.qty))
-  const tiers = (product?.tiers || []).filter((item) => toInt(item.spec_g) > 0)
+  const tiers = tiersForSelectedPublication(product, row).filter((item) => toInt(item.spec_g) > 0)
   const exactSpecTiers = tiers
     .filter((item) => toInt(item.spec_g) === specG)
   if (exactSpecTiers.length) {
     const exactQuantity = tierUsesKgQuantity(exactSpecTiers[0]) ? rowQuantityKg(row) : qty
-    return matchTierByQuantity(exactSpecTiers, exactQuantity, (item) => toNumber(item.min), (item) => (item.max == null ? null : toNumber(item.max)))
+    return matchTierByQuantityResult(exactSpecTiers, exactQuantity, (item) => toNumber(item.min), (item) => (item.max == null ? null : toNumber(item.max)))
   }
-  return matchTierByQuantity(tiers, rowQuantityLb(row), tierMinLb, tierMaxLb)
+  return matchTierByQuantityResult(tiers, rowQuantityLb(row), tierMinLb, tierMaxLb)
+}
+
+export function findWholesaleTier(product, row) {
+  return findWholesaleTierMatch(product, row).tier
+}
+
+export function resolveWholesaleTierPrice(product, row) {
+  const matched = findWholesaleTierMatch(product, row)
+  const tier = matched.tier
+  if (!tier) {
+    return {
+      tierID: 'auto',
+      unitPrice: '',
+      priceUnit: orderRowPriceUnit(row),
+      tierPriceLabel: '',
+      beanListPublicationID: 0,
+      beanListVersionNo: '',
+      belowMinTier: false,
+    }
+  }
+  const priceUnit = priceUnitForDisplayUnit(tier?.display_unit, tier?.spec_g) || orderRowPriceUnit(row)
+  const unitPrice = wholesaleTierDisplayUnitPrice(tier, priceUnit) || 0
+  const source = tierPriceSource(tier) || {}
+  return {
+    tierID: String(tier.id),
+    unitPrice: String(unitPrice),
+    priceUnit,
+    tierPriceLabel: `${formatTierUnitPrice(unitPrice)}${priceUnit.suffix}`,
+    beanListPublicationID: toInt(source.publication_id || source.bean_list_publication_id),
+    beanListVersionNo: String(source.version_no || source.bean_list_version_no || source.version || '').trim(),
+    belowMinTier: matched.belowMin,
+  }
 }
 
 export function syncWholesaleTierPrice(product, row) {
-  const tier = findWholesaleTier(product, row)
-  if (!tier) return { tierID: 'auto', unitPrice: '' }
-  return { tierID: String(tier.id), unitPrice: String(wholesaleDisplayUnitPrice(wholesaleTierUnitPriceLb(tier), row) || 0) }
+  const price = resolveWholesaleTierPrice(product, row)
+  return { tierID: price.tierID, unitPrice: price.unitPrice }
+}
+
+export function isOrderTierActive(row, tier) {
+  const rowTierID = String(row?.tier_id || '')
+  const tierID = String(tier?.id || '')
+  if (!rowTierID || !tierID || rowTierID === 'auto' || rowTierID === 'manual') return false
+  return rowTierID === tierID
 }
 
 function normalizeDripSalesUnit(unit) {
@@ -325,18 +520,242 @@ export function filterOptions(options, query) {
   })
 }
 
-export function filterProductsForCustomer(products, customerID) {
+export function sortProductsByCustomerUsage(products, customerID, usages = []) {
   const selectedCustomerID = toInt(customerID)
-  return (products || []).filter((product) => {
-    const productCustomerID = toInt(product?.customer_id)
-    const visibility = String(product?.visibility || (productCustomerID > 0 ? 'customer_only' : 'public')).trim()
-    if (visibility === 'public' || productCustomerID === 0) return true
-    return selectedCustomerID > 0 && productCustomerID === selectedCustomerID
+  if (selectedCustomerID <= 0) return products || []
+  const usageByProduct = new Map()
+  for (const row of usages || []) {
+    if (toInt(row?.customer_id) !== selectedCustomerID) continue
+    const productID = toInt(row?.product_id)
+    if (productID <= 0) continue
+    usageByProduct.set(productID, {
+      orderCount: toInt(row.order_count),
+      itemCount: toInt(row.item_count),
+      lastOrderDate: String(row.last_order_date || ''),
+    })
+  }
+  if (!usageByProduct.size) return products || []
+  return (products || [])
+    .map((product, index) => ({ product, index, usage: usageByProduct.get(toInt(product?.id)) || null }))
+    .sort((a, b) => {
+      if (a.usage && !b.usage) return -1
+      if (!a.usage && b.usage) return 1
+      if (a.usage && b.usage) {
+        if (a.usage.orderCount !== b.usage.orderCount) return b.usage.orderCount - a.usage.orderCount
+        if (a.usage.itemCount !== b.usage.itemCount) return b.usage.itemCount - a.usage.itemCount
+        if (a.usage.lastOrderDate !== b.usage.lastOrderDate) return b.usage.lastOrderDate.localeCompare(a.usage.lastOrderDate)
+      }
+      return a.index - b.index
+    })
+    .map((row) => row.product)
+}
+
+function normalizeBeanListType(value) {
+  const type = String(value || '').trim()
+  if (!type) return 'commercial'
+  if (type === 'commercial' || type === 'retail') return 'commercial'
+  if (type === 'green') return 'green'
+  if (type === 'drip') return 'drip'
+  return type
+}
+
+export function productBeanListType(product) {
+  if (isDripProduct(product)) return 'drip'
+  if (String(product?.product_kind || '').trim() === 'green_bean') return 'green'
+  return 'commercial'
+}
+
+function compareVersionNumbers(a, b) {
+  const left = String(a || '').match(/\d+/g)?.map(toInt) || []
+  const right = String(b || '').match(/\d+/g)?.map(toInt) || []
+  const length = Math.max(left.length, right.length)
+  for (let i = 0; i < length; i += 1) {
+    const diff = (left[i] || 0) - (right[i] || 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+function compareBeanListVersionOption(a, b) {
+  const leftPublished = String(a?.published_at || a?.created_at || '').trim()
+  const rightPublished = String(b?.published_at || b?.created_at || '').trim()
+  if (leftPublished && rightPublished && leftPublished !== rightPublished) {
+    return leftPublished.localeCompare(rightPublished)
+  }
+  const versionDiff = compareVersionNumbers(a?.version_no || a?.label, b?.version_no || b?.label)
+  if (versionDiff !== 0) return versionDiff
+  return toInt(a?.id) - toInt(b?.id)
+}
+
+export function latestBeanListVersionOption(options, listType) {
+  const normalized = normalizeBeanListType(listType)
+  const rows = (options || []).filter((item) => normalizeBeanListType(item?.list_type) === normalized)
+  if (!rows.length) return null
+  return rows.reduce((latest, item) => (
+    compareBeanListVersionOption(item, latest) > 0 ? item : latest
+  ), rows[0])
+}
+
+export function latestProductPriceListVersionOption(options, productOrType) {
+  const productTypeCategoryID = toInt(productOrType?.product_type_category_id || productOrType?.productTypeCategoryID)
+  const productTypeName = String(productOrType?.product_type_name || productOrType?.productTypeName || '').trim()
+  let rows = []
+  if (productTypeCategoryID > 0) {
+    rows = (options || []).filter((item) => toInt(item?.product_type_category_id) === productTypeCategoryID)
+  } else if (productTypeName) {
+    rows = (options || []).filter((item) => String(item?.product_type_name || '').trim() === productTypeName)
+  }
+  if (!rows.length) {
+    return latestBeanListVersionOption(options, productBeanListType(productOrType))
+  }
+  return rows.reduce((latest, item) => (
+    compareBeanListVersionOption(item, latest) > 0 ? item : latest
+  ), rows[0])
+}
+
+export function beanListVersionOptionGroups(options) {
+  const groups = new Map()
+  for (const item of options || []) {
+    const categoryID = toInt(item?.product_type_category_id)
+    const categoryName = String(item?.product_type_name || '').trim()
+    const listType = normalizeBeanListType(item?.list_type)
+    const key = categoryID > 0 ? `category:${categoryID}` : categoryName ? `category-name:${categoryName}` : `legacy:${listType}`
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        label: categoryName || beanListTypeLabel(listType),
+        listType,
+        options: [],
+      })
+    }
+    groups.get(key).options.push(item)
+  }
+  return [...groups.values()]
+}
+
+function beanListTypeLabel(listType) {
+  switch (normalizeBeanListType(listType)) {
+    case 'green':
+      return '生豆豆单'
+    case 'drip':
+      return '挂耳豆单'
+    default:
+      return '熟豆豆单'
+  }
+}
+
+export function rowUsesStaleBeanListPublication(row, options, listType = productBeanListType(row)) {
+  if (toInt(row?.product_id) <= 0) return false
+  const publicationID = toInt(row?.bean_list_publication_id)
+  if (publicationID <= 0) return false
+  const latest = latestProductPriceListVersionOption(options, row) || latestBeanListVersionOption(options, listType)
+  const latestID = toInt(latest?.id)
+  return latestID > 0 && latestID !== publicationID
+}
+
+export function beanListVersionOptionsForCustomer(options, customerID) {
+  const selectedCustomerID = toInt(customerID)
+  const rows = (options || []).filter((item) => toInt(item?.customer_id) === selectedCustomerID)
+  if (rows.length) return rows
+  const seen = new Set()
+  return (options || []).filter((item) => {
+    if (item?.is_customer_owned) return false
+    const id = toInt(item?.id)
+    if (id <= 0) return false
+    const key = `${normalizeBeanListType(item?.list_type)}:${id}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
   })
 }
 
-export function responsibleOptions({ employees = [], customers = [] } = {}) {
-  const employeeOptions = (employees || [])
+export function isBlankOrderLine(row) {
+  return toInt(row?.product_id) <= 0
+    && !String(row?.product_query || '').trim()
+    && !String(row?.item_note || '').trim()
+    && !String(row?.unit_price || '').trim()
+}
+
+export function needsTrailingBlankOrderLine(rows) {
+  return !(rows || []).some(isBlankOrderLine)
+}
+
+function normalizePublicationIDsByType(publicationIDsByType = {}) {
+  const out = {}
+  for (const [type, value] of Object.entries(publicationIDsByType || {})) {
+    const ids = Array.isArray(value) ? value : [value]
+    const normalizedIDs = ids.map(toInt).filter((id) => id > 0)
+    if (!normalizedIDs.length) continue
+    out[normalizeBeanListType(type)] = new Set(normalizedIDs)
+  }
+  return out
+}
+
+function tierPriceSource(tier) {
+  const raw = tier?.price_source_json
+  if (!raw) return null
+  if (typeof raw === 'object') return raw
+  try {
+    return JSON.parse(String(raw))
+  } catch {
+    return null
+  }
+}
+
+function productMatchesPublicationScope(product, publicationIDsByType) {
+  const listType = productBeanListType(product)
+  const publicationIDs = publicationIDsByType[listType]
+  if (!publicationIDs?.size) return true
+  return productMatchesExplicitPublicationScope(product, publicationIDsByType)
+}
+
+function productMatchesExplicitPublicationScope(product, publicationIDsByType) {
+  const listType = productBeanListType(product)
+  const publicationIDs = publicationIDsByType[listType]
+  if (!publicationIDs?.size) return false
+  return (product?.tiers || []).some((tier) => {
+    const source = tierPriceSource(tier)
+    if (!source) return false
+    const publicationID = tierPublicationID(tier)
+    return publicationID > 0
+      && publicationIDs.has(publicationID)
+      && normalizeBeanListType(source.list_type) === listType
+  })
+}
+
+function customerAllowsPublicSKU(customerID, publicUsages = []) {
+  const selectedCustomerID = toInt(customerID)
+  if (selectedCustomerID <= 0) return true
+  const usage = (publicUsages || []).find((item) => toInt(item?.customer_id) === selectedCustomerID)
+  return usage ? Boolean(usage.use_public_sku) : true
+}
+
+export function filterProductsForCustomer(products, customerID, publicationIDsByType = {}, publicUsages = []) {
+  const selectedCustomerID = toInt(customerID)
+  const scopedPublicationIDs = normalizePublicationIDsByType(publicationIDsByType)
+  const allowsPublicSKU = customerAllowsPublicSKU(selectedCustomerID, publicUsages)
+  return (products || []).filter((product) => {
+    const productCustomerID = toInt(product?.customer_id)
+    const visibility = String(product?.visibility || (productCustomerID > 0 ? 'customer_only' : 'public')).trim()
+    if (visibility === 'public' || productCustomerID === 0) {
+      if (
+        selectedCustomerID > 0
+        && !allowsPublicSKU
+        && !productMatchesExplicitPublicationScope(product, scopedPublicationIDs)
+      ) {
+        return false
+      }
+      return productMatchesPublicationScope(product, scopedPublicationIDs)
+    }
+    const visible = visibility === 'public' || productCustomerID === 0
+      ? true
+      : selectedCustomerID > 0 && productCustomerID === selectedCustomerID
+    return visible && productMatchesPublicationScope(product, scopedPublicationIDs)
+  })
+}
+
+export function responsibleOptions({ employees = [] } = {}) {
+  return (employees || [])
     .filter((item) => toInt(item?.id) > 0 && String(item?.name || '').trim())
     .map((item) => {
       const name = String(item.name || '').trim()
@@ -352,23 +771,6 @@ export function responsibleOptions({ employees = [], customers = [] } = {}) {
         search: ['员工', name, department, phone].filter(Boolean).join(' '),
       }
     })
-  const customerOptions = (customers || [])
-    .filter((item) => toInt(item?.id) > 0 && String(item?.name || '').trim())
-    .map((item) => {
-      const name = String(item.name || '').trim()
-      const contact = String(item.contact || '').trim()
-      const phone = String(item.phone || '').trim()
-      const meta = [contact, phone].filter(Boolean).join(' ')
-      return {
-        type: 'customer',
-        id: toInt(item.id),
-        name,
-        label: `合作方/客户 - ${name}`,
-        meta,
-        search: ['合作方', '客户', name, contact, phone].filter(Boolean).join(' '),
-      }
-    })
-  return [...employeeOptions, ...customerOptions]
 }
 
 export function defaultStatusID(options, names) {
@@ -401,7 +803,7 @@ function trimNumber(value) {
 
 export function lineTotal(product, row, retailOrder) {
   const base = lineTotalBeforeDiscount(product, row, retailOrder)
-  return Math.max(base - lineDiscountAmount(base, row), 0)
+  return Math.max(base - lineDiscountAmount(base, row, retailOrder), 0)
 }
 
 export function lineTotalBeforeDiscount(product, row, retailOrder) {
@@ -420,13 +822,24 @@ export function lineTotalBeforeDiscount(product, row, retailOrder) {
   return price * rowQuantityForWholesalePriceUnit(row)
 }
 
-export function lineDiscountAmount(baseLineTotal, row) {
+export function rowUnitDiscountUnits(row, retailOrder = false) {
+  const units = Math.max(0, toInt(row?.qty))
+  if (units <= 0) return 0
+  if (row?.product_kind === 'drip_bag' || row?.sales_unit === 'bag' || row?.sales_unit === 'box') return units
+  if (retailOrder) return units
+  const specG = normalizeSpecG(row)
+  if (specG <= 0) return units
+  return (specG * units) / orderRowPriceUnit(row).unitG
+}
+
+export function lineDiscountAmount(baseLineTotal, row, retailOrder = false) {
   const base = Math.max(0, toNumber(baseLineTotal))
   if (base <= 0) return 0
   const type = String(row?.discount_type || '').trim()
   const value = Math.max(0, toNumber(row?.discount_value))
   if (type === 'free') return base
   if (type === 'amount') return Math.min(value, base)
+  if (type === 'unit_amount') return Math.min(value * rowUnitDiscountUnits(row, retailOrder), base)
   if (type === 'percent') {
     const rate = Math.max(0, Math.min(value, 100))
     return Math.max(base - (base * rate / 100), 0)
@@ -437,6 +850,7 @@ export function lineDiscountAmount(baseLineTotal, row) {
 export function buildOrderPayload({ form, rows }) {
   const payload = {
     edit_id: Number(form.edit_id || 0),
+    document_date: form.document_date || form.order_date || '',
     order_date: form.order_date || '',
     customer_id: Number(form.customer_id || 0),
     source_id: Number(form.source_id || 0),
@@ -446,8 +860,11 @@ export function buildOrderPayload({ form, rows }) {
     ship_status_id: Number(form.ship_status_id || 0),
     ship_method: form.ship_method || '',
     ship_tracking_no: form.ship_tracking_no || '',
-    responsible_type: form.responsible_type || '',
-    responsible_id: Number(form.responsible_id || 0),
+    logistics_company_id: Number(form.logistics_company_id || 0),
+    logistics_product_id: Number(form.logistics_product_id || 0),
+    payment_goods_amount: String(form.payment_goods_amount || ''),
+    payment_shipping_amount: String(form.payment_shipping_amount || ''),
+    payment_voucher_asset_id: Number(form.payment_voucher_asset_id || 0),
     bean_list_publication_id: Number(form.bean_list_publication_id || 0),
     commercial_bean_list_publication_id: Number(form.commercial_bean_list_publication_id || 0),
     green_bean_list_publication_id: Number(form.green_bean_list_publication_id || 0),
@@ -481,7 +898,8 @@ export function buildOrderPayload({ form, rows }) {
 
   for (const row of rows || []) {
     const productID = toInt(row.product_id)
-    const productKind = row.product_kind === 'drip_bag' ? 'drip_bag' : row.product_kind === 'green_bean' ? 'green_bean' : 'roasted_bean'
+    const normalizedKind = normalizedProductKind(row)
+    const productKind = normalizedKind === 'drip_bag' ? 'drip_bag' : normalizedKind === 'green_bean' ? 'green_bean' : normalizedKind === 'instant_coffee' ? 'instant_coffee' : 'roasted_bean'
     const dripSpec = dripSalesUnitSpec(null, row)
     const specG = productKind === 'drip_bag' ? dripSpec.specG : normalizeSpecG(row)
     const qty = toInt(row.qty)
@@ -499,7 +917,7 @@ export function buildOrderPayload({ form, rows }) {
     payload.unit_bag_count.push(productKind === 'drip_bag' ? String(dripSpec.unitBagCount) : '0')
     payload.unit_bean_g.push(productKind === 'drip_bag' ? String(trimNumber(dripSpec.unitBeanG)) : '0')
     payload.discount_type.push(String(row.discount_type || '').trim())
-    payload.discount_value.push(row.discount_type === 'amount' || row.discount_type === 'percent' ? String(row.discount_value || '') : '')
+    payload.discount_value.push(['amount', 'unit_amount', 'percent'].includes(row.discount_type) ? String(row.discount_value || '') : '')
   }
 
   return payload

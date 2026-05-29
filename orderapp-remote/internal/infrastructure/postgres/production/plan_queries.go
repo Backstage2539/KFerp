@@ -118,16 +118,22 @@ func unprodRowsToApp(rows []UnprodNeedRow) []productionapp.UnprodNeedRow {
 	out := make([]productionapp.UnprodNeedRow, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, productionapp.UnprodNeedRow{
-			ProductID: row.ProductID,
-			Product:   row.Product,
-			OrderNos:  row.OrderNos,
-			SpecG:     row.SpecG,
-			NeedUnits: row.NeedUnits,
-			NeedG:     row.NeedG,
-			InvUnits:  row.InvUnits,
-			InvLooseG: row.InvLooseG,
-			InvG:      row.InvG,
-			GapG:      row.GapG,
+			ProductID:                row.ProductID,
+			Product:                  row.Product,
+			OrderNos:                 row.OrderNos,
+			SpecG:                    row.SpecG,
+			NeedUnits:                row.NeedUnits,
+			NeedG:                    row.NeedG,
+			InvUnits:                 row.InvUnits,
+			InvLooseG:                row.InvLooseG,
+			InvG:                     row.InvG,
+			GapG:                     row.GapG,
+			ProductionKind:           catalogdomain.NormalizeProductKind(row.ProductionKind),
+			ProductTypeCategoryID:    row.ProductTypeCategoryID,
+			ProductSubtypeCategoryID: row.ProductSubtypeCategoryID,
+			ProductTypeName:          row.ProductTypeName,
+			ProductSubtypeName:       row.ProductSubtypeName,
+			OperationTemplateID:      row.OperationTemplateID,
 		})
 	}
 	return out
@@ -291,9 +297,34 @@ func defaultPlanParams() planParams {
 	return planParams{YieldRate: 0.8, DripExtraG: 100, DripBoxSpec: 10, EnableDripBox: true}
 }
 
+func isInstantCoffeePlanRow(row productionapp.UnprodNeedRow) bool {
+	return strings.TrimSpace(row.ProductionKind) == "instant_coffee" ||
+		catalogdomain.NormalizeProductKind(row.ProductionKind) == catalogdomain.ProductKindInstantCoffee ||
+		strings.Contains(strings.TrimSpace(row.ProductTypeName), "速溶") ||
+		strings.Contains(strings.TrimSpace(row.ProductSubtypeName), "速溶") ||
+		strings.Contains(strings.TrimSpace(row.Product), "速溶")
+}
+
+func yieldRateForPlanRow(row productionapp.UnprodNeedRow, yieldByProductID map[int64]float64) float64 {
+	return normalizeYieldRate(yieldByProductID[row.ProductID])
+}
+
+func noBomRawMaterialName(row productionapp.UnprodNeedRow) string {
+	if isInstantCoffeePlanRow(row) {
+		return "速溶咖啡"
+	}
+	rawName := strings.TrimSpace(row.Product) + " 生豆"
+	if strings.TrimSpace(rawName) == "生豆" {
+		return "咖啡豆(生豆/原豆)"
+	}
+	return rawName
+}
+
 func (r Repository) loadProductYieldRateMap(ctx context.Context) (map[int64]float64, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT p.id, COALESCE(p.roast_level,''), COALESCE(b.yield_rate,0.8)
+		SELECT p.id, COALESCE(p.roast_level,''),
+		       COALESCE(NULLIF(b.yield_rate,0), CASE WHEN COALESCE(NULLIF(p.product_kind,''),'roasted_bean')='instant_coffee' THEN 1 ELSE 0.8 END),
+		       COALESCE(NULLIF(p.product_kind,''),'roasted_bean')
 		FROM `+r.schema+`.products p
 		LEFT JOIN `+r.schema+`.product_bom b ON b.product_id=p.id
 		WHERE p.active=true`)
@@ -307,7 +338,8 @@ func (r Repository) loadProductYieldRateMap(ctx context.Context) (map[int64]floa
 		var productID int64
 		var roastLevel string
 		var yieldRate float64
-		if err := rows.Scan(&productID, &roastLevel, &yieldRate); err != nil {
+		var productKind string
+		if err := rows.Scan(&productID, &roastLevel, &yieldRate, &productKind); err != nil {
 			return nil, err
 		}
 		out[productID] = catalogdomain.ResolveYieldRate(roastLevel, yieldRate)
@@ -318,7 +350,7 @@ func (r Repository) loadProductYieldRateMap(ctx context.Context) (map[int64]floa
 func buildProducePlanDisplayRows(rows []productionapp.UnprodNeedRow, yieldByProductID map[int64]float64, inputByKey map[string]int64) []productionapp.ProducePlanDisplayRow {
 	out := make([]productionapp.ProducePlanDisplayRow, 0, len(rows))
 	for _, r := range rows {
-		yieldRate := normalizeYieldRate(yieldByProductID[r.ProductID])
+		yieldRate := yieldRateForPlanRow(r, yieldByProductID)
 		inputG := defaultProductionInputG(r.GapG, yieldRate)
 		if v := inputByKey[producePlanKey(r.ProductID, r.SpecG)]; v > 0 {
 			inputG = v
@@ -334,7 +366,7 @@ func buildRoastPlanRows(rows []productionapp.UnprodNeedRow, machines []productio
 		if r.GapG <= 0 {
 			continue
 		}
-		yieldRate := normalizeYieldRate(yieldByProductID[r.ProductID])
+		yieldRate := yieldRateForPlanRow(r, yieldByProductID)
 		rawG := defaultProductionInputG(r.GapG, yieldRate)
 		machine, batches := pickMachineAndBatches(rawG, machines)
 		batchCount := int64(len(batches))
@@ -353,18 +385,19 @@ func buildRoastPlanRows(rows []productionapp.UnprodNeedRow, machines []productio
 			batchG = finalInputG
 		}
 		out = append(out, productionapp.RoastPlanRow{
-			Key:           producePlanKey(r.ProductID, r.SpecG),
-			ProductID:     r.ProductID,
-			ProductName:   r.Product,
-			SpecG:         r.SpecG,
-			Machine:       machine.Name,
-			BatchCount:    batchCount,
-			BatchG:        batchG,
-			FinalInputG:   finalInputG,
-			NeedG:         r.GapG,
-			YieldRate:     yieldRate,
-			YieldPctStr:   fmt.Sprintf("%.0f%%", yieldRate*100),
-			FinishedKgStr: formatKg(r.GapG),
+			Key:                 producePlanKey(r.ProductID, r.SpecG),
+			ProductID:           r.ProductID,
+			ProductName:         r.Product,
+			SpecG:               r.SpecG,
+			Machine:             machine.Name,
+			BatchCount:          batchCount,
+			BatchG:              batchG,
+			FinalInputG:         finalInputG,
+			NeedG:               r.GapG,
+			OperationTemplateID: r.OperationTemplateID,
+			YieldRate:           yieldRate,
+			YieldPctStr:         fmt.Sprintf("%.0f%%", yieldRate*100),
+			FinishedKgStr:       formatKg(r.GapG),
 		})
 	}
 	return out
@@ -450,16 +483,12 @@ func buildRoastPlanMaterialRatios(rows []productionapp.UnprodNeedRow, bomMap map
 	for _, row := range rows {
 		items := bomMap[row.ProductID]
 		if len(items) == 0 {
-			rawName := strings.TrimSpace(row.Product) + " 生豆"
-			if strings.TrimSpace(rawName) == "生豆" {
-				rawName = "咖啡豆(生豆/原豆)"
-			}
 			out = append(out, productionapp.RoastPlanMaterialRatio{
 				Key:          producePlanKey(row.ProductID, row.SpecG),
 				ProductID:    row.ProductID,
 				SpecG:        row.SpecG,
 				ProductName:  row.Product,
-				MaterialName: rawName,
+				MaterialName: noBomRawMaterialName(row),
 				MaterialUnit: "g",
 				RatioPct:     100,
 			})
@@ -522,11 +551,16 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 		finalInputG := finalInputByKey[producePlanKey(row.ProductID, row.SpecG)]
 		items := bomMap[row.ProductID]
 		if finalInputG <= 0 {
+			if len(items) == 0 && isInstantCoffeePlanRow(row) {
+				finalInputG = row.GapG
+			}
 			yield := fallbackYield
 			if len(items) > 0 && items[0].YieldRate > 0 && items[0].YieldRate <= 1 {
 				yield = items[0].YieldRate
 			}
-			finalInputG = int64(math.Ceil(float64(row.GapG) / yield))
+			if finalInputG <= 0 {
+				finalInputG = int64(math.Ceil(float64(row.GapG) / yield))
+			}
 		}
 		if len(items) == 0 {
 			noBom := row
@@ -746,6 +780,12 @@ func calcNoBomProducePlanMaterials(row productionapp.UnprodNeedRow, p planParams
 	}
 	unitsMissing := ceilDiv(row.GapG, row.SpecG)
 	name := strings.TrimSpace(row.Product)
+	if isInstantCoffeePlanRow(row) {
+		return []productionapp.MaterialNeed{
+			{Name: "速溶咖啡", Qty: row.GapG, Unit: "g"},
+			{Name: "速溶-盒子", Qty: unitsMissing, Unit: "个"},
+		}
+	}
 	if strings.Contains(name, "挂耳") {
 		out := []productionapp.MaterialNeed{
 			{Name: "咖啡豆(烘焙)", Qty: int64(math.Ceil(float64(row.GapG) / p.YieldRate)), Unit: "g"},
@@ -761,16 +801,8 @@ func calcNoBomProducePlanMaterials(row productionapp.UnprodNeedRow, p planParams
 		}
 		return out
 	}
-	if strings.Contains(name, "速溶") {
-		return []productionapp.MaterialNeed{{Name: "速溶-盒子", Qty: unitsMissing, Unit: "个"}}
-	}
-
-	rawName := name + " 生豆"
-	if strings.TrimSpace(rawName) == "生豆" {
-		rawName = "咖啡豆(生豆/原豆)"
-	}
 	out := []productionapp.MaterialNeed{{
-		Name: rawName,
+		Name: noBomRawMaterialName(row),
 		Qty:  int64(math.Ceil(float64(row.GapG) / p.YieldRate)),
 		Unit: "g",
 	}}
@@ -793,9 +825,10 @@ func calcRoastSplits(rows []productionapp.UnprodNeedRow, machines []productionap
 		if row.GapG <= 0 {
 			continue
 		}
-		rawG := int64(math.Ceil(float64(row.GapG) / yieldRate))
+		rowYieldRate := yieldRate
+		rawG := int64(math.Ceil(float64(row.GapG) / rowYieldRate))
 		pick, batches := pickMachineAndBatches(rawG, machines)
-		yieldPct := fmt.Sprintf("%.0f%%", yieldRate*100)
+		yieldPct := fmt.Sprintf("%.0f%%", rowYieldRate*100)
 		if pick.CapacityG <= 0 {
 			out = append(out, productionapp.RoastSplitRow{Material: row.Product, Machine: "未匹配设备", BatchKg: "0", Batches: 0, TotalKg: formatKg(row.GapG), YieldPctStr: yieldPct})
 			continue

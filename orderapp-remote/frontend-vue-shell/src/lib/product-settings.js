@@ -1,4 +1,4 @@
-import { slicePageRows } from './pagination.js'
+import { clampPage, normalizePageSize, slicePageRows } from './pagination.js'
 
 export const PRODUCT_KIND_ALL = 'all'
 export const SKU_CUSTOM_TYPE_ALL = 'all'
@@ -11,6 +11,24 @@ export const skuTypeOptions = [
   { value: 'custom_blend', label: '定制拼配' },
 ]
 
+export const priceListRulePricingModeOptions = [
+  { value: 'inherit_gradient_template', label: '按阶梯价模板' },
+  { value: 'fixed_unit_price', label: '固定单价' },
+  { value: 'cost_plus', label: '成本加成' },
+]
+
+export const priceListRuleRoundingOptions = [
+  { value: 'none', label: '不取整' },
+  { value: 'jiao', label: '保留到角' },
+  { value: 'yuan', label: '保留到元' },
+]
+
+export const integerUnitModeOptions = [
+  { value: 'inherit', label: '继承子类型' },
+  { value: 'integer', label: '只允许整数' },
+  { value: 'decimal', label: '允许小数' },
+]
+
 export const greenBeanTypeOptions = [
   { value: 'single_origin', label: '单品' },
   { value: 'blend', label: '拼配' },
@@ -20,7 +38,27 @@ export function normalizedProductKind(row = {}) {
   const kind = String(row?.product_kind || '').trim()
   if (kind === 'green_bean') return 'green_bean'
   if (kind === 'drip_bag') return 'drip_bag'
+  if (kind === 'instant_coffee' || kind === 'instant') return 'instant_coffee'
   return 'roasted'
+}
+
+export function inferProductKindFromProductTypeCategory(category = {}) {
+  const text = `${category?.name || ''} ${category?.source_name || ''}`.trim().toLowerCase()
+  if (!text) return 'roasted'
+  if (text.includes('速溶') || text.includes('冻干') || text.includes('instant')) return 'instant_coffee'
+  if (text.includes('挂耳') || text.includes('drip')) return 'drip_bag'
+  if (text.includes('生豆') || text.includes('green')) return 'green_bean'
+  return 'roasted'
+}
+
+export function productKindRequiresRoast(kindOrRow = {}) {
+  const kind = typeof kindOrRow === 'object' ? normalizedProductKind(kindOrRow) : normalizedProductKind({ product_kind: kindOrRow })
+  return kind !== 'green_bean'
+}
+
+export function productKindSupportsBomParams(kindOrRow = {}) {
+  const kind = typeof kindOrRow === 'object' ? normalizedProductKind(kindOrRow) : normalizedProductKind({ product_kind: kindOrRow })
+  return kind !== 'green_bean'
 }
 
 export function normalizedGreenBeanType(value) {
@@ -60,8 +98,66 @@ export function filterSkuRows(rows = [], filters = {}) {
   })
 }
 
+export function normalizeVisibleSkuFilters(filters = {}, rows = null) {
+  const normalized = {
+    productKind: PRODUCT_KIND_ALL,
+    customType: SKU_CUSTOM_TYPE_ALL,
+    query: String(filters.query || '').trim(),
+    primaryCategory: String(filters.primaryCategory || '').trim(),
+    secondaryCategory: String(filters.secondaryCategory || '').trim(),
+  }
+  if (Array.isArray(rows)) {
+    const primaryOptions = primaryCategoryOptions(rows)
+    if (normalized.primaryCategory && !primaryOptions.includes(normalized.primaryCategory)) {
+      normalized.primaryCategory = ''
+    }
+    const secondaryOptions = secondaryCategoryOptions(rows, normalized.primaryCategory)
+    if (normalized.secondaryCategory && !secondaryOptions.includes(normalized.secondaryCategory)) {
+      normalized.secondaryCategory = ''
+    }
+  }
+  return normalized
+}
+
 export function paginatedSkuRows(rows = [], filters = {}, pagination = {}) {
   return slicePageRows(filterSkuRows(rows, filters), pagination)
+}
+
+export function skuTableState(rows = [], filters = {}, pagination = {}) {
+  const sourceRows = Array.isArray(rows) ? rows : []
+  const normalizedFilters = normalizeVisibleSkuFilters(filters, sourceRows)
+  const filteredRows = filterSkuRows(sourceRows, normalizedFilters)
+  const pageSize = normalizePageSize(pagination.pageSize)
+  const page = clampPage(pagination.page, filteredRows.length, pageSize)
+  const start = (page - 1) * pageSize
+  return {
+    filters: normalizedFilters,
+    primaryOptions: primaryCategoryOptions(sourceRows),
+    secondaryOptions: secondaryCategoryOptions(sourceRows, normalizedFilters.primaryCategory),
+    total: filteredRows.length,
+    page,
+    pageSize,
+    rows: filteredRows.slice(start, start + pageSize),
+  }
+}
+
+export function skuListRowsFromProducts(products = [], categoryTree = [], filterFn = () => true) {
+  const categoryMetaByProductID = categoryProductMetaByID(categoryTree)
+  const categoryMetaByCategoryID = categoryPathMetaByID(categoryTree)
+  return (products || [])
+    .filter((product) => {
+      try {
+        return filterFn(product)
+      } catch (_) {
+        return false
+      }
+    })
+    .map((product) => ({
+      ...product,
+      ...(categoryMetaByProductID.get(Number(product?.id || 0))
+        || categoryMetaByCategoryID.get(Number(product?.product_category_id || 0))
+        || {}),
+    }))
 }
 
 export function customerSkuCustomerOptions(customers = []) {
@@ -100,21 +196,35 @@ export function categoryBelongsToSkuContext(category = {}, context = {}) {
   const customerID = Number(context.customerID || context.customer_id || 0)
   const categoryCustomerID = Number(category.customer_id || 0)
   if (!customerID) return categoryCustomerID === 0
-  if (categoryCustomerID === customerID) {
-    if (Number(category.source_category_id || 0) > 0) return true
-    return !isDuplicatedPublicCategory(category, context.publicCategories, context.publicProducts)
-  }
+  if (categoryCustomerID === customerID) return true
   if (categoryCustomerID !== 0 || !Boolean(context.usePublicCategories || context.use_public_categories)) return false
   return !hasCustomerDerivedCategory(category, context.customerCategories)
 }
 
+export function nextSkuContextCustomerID(currentCustomerID = 0, { workspaceMode = '', customerContextID = 0, customerContextId = 0 } = {}) {
+  if (String(workspaceMode || '').trim() !== 'customer') return 0
+  const lockedCustomerID = Number(customerContextID || customerContextId || 0)
+  if (lockedCustomerID > 0) return lockedCustomerID
+  return Number(currentCustomerID || 0)
+}
+
 export function gradientTemplateBelongsToSkuContext(template = {}, context = {}) {
-  const customerID = Number(context.customerID || context.customer_id || 0)
-  const templateCustomerID = Number(template.customer_id || 0)
-  if (!customerID) return templateCustomerID === 0
+	const customerID = Number(context.customerID || context.customer_id || 0)
+	const templateCustomerID = Number(template.customer_id || 0)
+	if (!customerID) return templateCustomerID === 0
   if (templateCustomerID === customerID) return true
   if (templateCustomerID !== 0 || !Boolean(context.usePublicGradientTemplates || context.use_public_gradient_templates)) return false
-  return !hasCustomerDerivedTemplate(template, context.customerTemplates)
+	return !hasCustomerDerivedTemplate(template, context.customerTemplates)
+}
+
+export function productConfigTemplateBelongsToSkuContext(template = {}, context = {}) {
+	const customerID = Number(context.customerID || context.customer_id || 0)
+	const templateCustomerID = Number(template.customer_id || 0)
+	if (!customerID) return templateCustomerID === 0
+	if (templateCustomerID === customerID) return true
+	if (templateCustomerID !== 0) return false
+	if (context.usePublicProductConfigTemplates === false || context.use_public_product_config_templates === false) return false
+	return true
 }
 
 export function categoryDisplayState(category = {}, context = {}) {
@@ -151,6 +261,131 @@ export function buildAssignCategoryPayload({ product = {}, category = {}, custom
     payload.derive_public_product = productCustomerID === 0
   }
   return payload
+}
+
+export function buildProductCategoryConfigPayload(category = {}) {
+	return {
+		id: Number(category.id || 0),
+		customer_id: Number(category.customer_id || 0),
+		name: String(category.name || '').trim(),
+		parent_id: Number(category.parent_id || 0),
+		position: Number(category.position || 0),
+		product_config_template_id: Number(category.product_config_template_id || 0),
+		gradient_template_id: Number(category.gradient_template_id || 0),
+		operation_template_id: Number(category.operation_template_id || 0),
+    price_list_rule_json: hasStructuredPriceRuleFields(category)
+      ? priceListRuleJSONFromForm(category)
+      : normalizeJSONString(category.price_list_rule_json),
+    inventory_unit: normalizeUnitText(category.inventory_unit, 'kg'),
+    quote_unit: normalizeUnitText(category.quote_unit, normalizeUnitText(category.inventory_unit, 'kg')),
+    order_unit: normalizeUnitText(category.order_unit, normalizeUnitText(category.quote_unit, normalizeUnitText(category.inventory_unit, 'kg'))),
+    unit_conversion_json: Array.isArray(category.unit_conversion_rows)
+      ? unitConversionJSONFromRows(category.unit_conversion_rows)
+      : normalizeJSONString(category.unit_conversion_json),
+    integer_unit: Boolean(category.integer_unit),
+	}
+}
+
+export function buildProductConfigTemplatePayload(form = {}) {
+	return {
+		id: Number(form.id || 0),
+		customer_id: Number(form.customer_id || 0),
+		name: String(form.name || '').trim(),
+		gradient_template_id: Number(form.gradient_template_id || 0),
+		operation_template_id: Number(form.operation_template_id || 0),
+		unit_template_id: Number(form.unit_template_id || 0),
+		price_list_rule_json: hasStructuredPriceRuleFields(form)
+			? priceListRuleJSONFromForm(form)
+			: normalizeJSONString(form.price_list_rule_json),
+		special_attrs_schema_json: Array.isArray(form.special_attrs_schema_rows)
+			? specialAttrSchemaJSONFromRows(form.special_attrs_schema_rows)
+			: normalizeJSONArrayString(form.special_attrs_schema_json),
+		active: form.active === false ? false : true,
+	}
+}
+
+export function buildProductUnitDefinitionPayload(form = {}) {
+  return {
+    code: String(form.code || '').trim(),
+    name: String(form.name || '').trim(),
+    unit_type: String(form.unit_type || '').trim() || 'other',
+    allow_decimal: Boolean(form.allow_decimal),
+    active: form.active === false ? false : true,
+  }
+}
+
+export function buildProductUnitTemplatePayload(form = {}) {
+  return {
+    id: Number(form.id || 0),
+    name: String(form.name || '').trim(),
+    inventory_unit: normalizeUnitText(form.inventory_unit, 'kg'),
+    quote_unit: normalizeUnitText(form.quote_unit, normalizeUnitText(form.inventory_unit, 'kg')),
+    order_unit: normalizeUnitText(form.order_unit, normalizeUnitText(form.quote_unit, normalizeUnitText(form.inventory_unit, 'kg'))),
+    unit_conversion_json: Array.isArray(form.unit_conversion_rows)
+      ? unitConversionJSONFromRows(form.unit_conversion_rows)
+      : normalizeJSONString(form.unit_conversion_json),
+    integer_unit: Boolean(form.integer_unit),
+    active: form.active === false ? false : true,
+  }
+}
+
+export function buildSkuConfigOverridePayload(row = {}) {
+  return {
+    gradient_template_id_override: Number(row.gradient_template_id_override || 0),
+    operation_template_id_override: Number(row.operation_template_id_override || 0),
+    unit_rule_override_json: hasStructuredUnitRuleFields(row)
+      ? unitRuleJSONFromForm(row)
+      : normalizeJSONString(row.unit_rule_override_json),
+  }
+}
+
+export function buildCustomerProductRuleTemplatePayload(form = {}) {
+  return {
+    id: Number(form.id || 0),
+    customer_id: Number(form.customer_id || 0),
+    name: String(form.name || '').trim(),
+    active: form.active === false ? false : true,
+    items: (form.items || []).map(buildCustomerProductRuleTemplateItemPayload),
+  }
+}
+
+export function buildCustomerProductRuleTemplateItemPayload(row = {}) {
+  return {
+    product_subtype_category_id: Number(row.product_subtype_category_id || 0),
+    gradient_template_id: Number(row.gradient_template_id || 0),
+    operation_template_id: Number(row.operation_template_id || 0),
+    price_list_rule_json: hasStructuredPriceRuleFields(row)
+      ? priceListRuleJSONFromForm(row)
+      : normalizeJSONString(row.price_list_rule_json),
+    unit_rule_json: hasStructuredUnitRuleFields(row)
+      ? unitRuleJSONFromForm(row)
+      : normalizeJSONString(row.unit_rule_json),
+    active: row.active === false ? false : true,
+  }
+}
+
+export function buildCustomerProductRuleOverridePayload(row = {}) {
+  return {
+    id: Number(row.id || 0),
+    customer_id: Number(row.customer_id || 0),
+    product_subtype_category_id: Number(row.product_subtype_category_id || 0),
+    gradient_template_id: Number(row.gradient_template_id || 0),
+    operation_template_id: Number(row.operation_template_id || 0),
+    price_list_rule_json: hasStructuredPriceRuleFields(row)
+      ? priceListRuleJSONFromForm(row)
+      : normalizeJSONString(row.price_list_rule_json),
+    unit_rule_json: hasStructuredUnitRuleFields(row)
+      ? unitRuleJSONFromForm(row)
+      : normalizeJSONString(row.unit_rule_json),
+    active: row.active === false ? false : true,
+  }
+}
+
+export function buildCustomerProductRuleBindingPayload(customerID, templateID) {
+  return {
+    customer_id: Number(customerID || 0),
+    template_id: Number(templateID || 0),
+  }
 }
 
 export function buildSkuContextCategoryTree(categories = [], context = {}) {
@@ -282,6 +517,56 @@ function numberProducts(products = [], primaryName = '', secondaryName = '') {
   }))
 }
 
+function categoryProductMetaByID(categoryTree = []) {
+  const out = new Map()
+  for (const primary of categoryTree || []) {
+    const primaryName = primary?.name || ''
+    for (const product of primary?.products || []) {
+      const id = Number(product?.id || 0)
+      if (!id) continue
+      out.set(id, {
+        number: product.number || '',
+        primary_name: primaryName,
+        secondary_name: '',
+      })
+    }
+    for (const secondary of primary?.children || []) {
+      const secondaryName = secondary?.name || ''
+      for (const product of secondary?.products || []) {
+        const id = Number(product?.id || 0)
+        if (!id) continue
+        out.set(id, {
+          number: product.number || '',
+          primary_name: primaryName,
+          secondary_name: secondaryName,
+        })
+      }
+    }
+  }
+  return out
+}
+
+function categoryPathMetaByID(categoryTree = []) {
+  const out = new Map()
+  function visit(category = {}, primaryName = '', secondaryName = '') {
+    const id = Number(category?.id || 0)
+    if (id) {
+      out.set(id, {
+        primary_name: primaryName || category?.name || '',
+        secondary_name: secondaryName,
+      })
+    }
+    const nextPrimaryName = primaryName || category?.name || ''
+    for (const child of category?.children || []) {
+      visit(child, nextPrimaryName, child?.name || '')
+    }
+  }
+  for (const primary of categoryTree || []) {
+    visit(primary, primary?.name || '', '')
+  }
+  return out
+}
+
 function dedupeRowsByID(rows = []) {
   const seen = new Set()
   const out = []
@@ -320,6 +605,7 @@ function hasCustomerDerivedTemplate(template = {}, customerTemplates = []) {
 }
 
 function isDuplicatedPublicCategory(category = {}, publicCategories = [], publicProducts = []) {
+  if (!(category.products || []).length && !(category.children || []).length) return false
   const matchesPublicCategory = (publicCategories || []).some((row) => (
     Number(row.customer_id || 0) === 0
     && Number(row.level || 0) === Number(category.level || 0)
@@ -346,6 +632,24 @@ export function secondaryCategoryOptions(rows = [], primaryCategory = '') {
     .map((row) => row.secondary_name))
 }
 
+export function productSubtypeCategoryOptionsForType(categoryTree = [], productTypeCategoryID = 0) {
+  const typeID = Number(productTypeCategoryID || 0)
+  if (!typeID) return []
+  const productType = (categoryTree || []).find((category) => Number(category?.id || 0) === typeID)
+  if (!productType) return []
+  return (productType.children || [])
+    .filter((category) => Number(category?.id || 0) > 0)
+    .map((category) => ({
+      id: Number(category.id || 0),
+      parent_id: Number(category.parent_id || typeID),
+      name: category.name || '',
+      customer_id: Number(category.customer_id || 0),
+		source_category_id: Number(category.source_category_id || 0),
+		product_config_template_id: Number(category.product_config_template_id || 0),
+		template_state: category.template_state || '',
+	}))
+}
+
 export function roastedBomProductOptions(products = [], { customerID = 0 } = {}) {
   const scopedCustomerID = Number(customerID || 0)
   return (products || [])
@@ -366,21 +670,19 @@ export function buildProductCreatePayload(form = {}) {
     name: String(form.name || '').trim(),
     product_kind: kind,
     remark: String(form.remark || '').trim(),
+    special_attrs_json: specialAttrValuesJSONFromForm(form.special_attr_values ?? form.special_attrs ?? form.special_attrs_json),
   }
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(form.green_bean_type)
     payload.green_bean_bom_product_id = Number(form.green_bean_bom_product_id || 0)
     return payload
   }
+  const yieldRate = normalizedYieldRateFromPercent(form)
+  if (yieldRate !== null) payload.yield_rate = yieldRate
   if (kind === 'drip_bag') {
-    payload.roast_level = String(form.roast_level || '').trim()
-    payload.yield_rate = Number((Number(form.yield_percent || 0) / 100).toFixed(4))
     payload.drip_bag_grams = Number(form.drip_bag_grams || 10)
     payload.drip_box_bag_count = Number(form.drip_box_bag_count || 10)
-    return payload
   }
-  payload.roast_level = String(form.roast_level || '').trim()
-  payload.yield_rate = Number((Number(form.yield_percent || 0) / 100).toFixed(4))
   return payload
 }
 
@@ -395,6 +697,7 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
     custom_type: String(form.custom_type || '').trim(),
     copy_bom: Boolean(form.copy_bom),
     copy_price_tiers: Boolean(form.copy_price_tiers),
+    special_attrs_json: specialAttrValuesJSONFromForm(form.special_attr_values ?? form.special_attrs ?? form.special_attrs_json),
   }
   if (kind === 'green_bean') {
     payload.base_product_id = 0
@@ -404,7 +707,17 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
     payload.green_bean_bom_product_id = Number(form.green_bean_bom_product_id || 0)
     return payload
   }
-  payload.roast_level = String(form.roast_level || '').trim()
+  if (payload.custom_type === 'custom_roast') {
+    payload.base_product_id = 0
+    payload.copy_bom = false
+    payload.copy_price_tiers = false
+  }
+  const yieldRate = normalizedYieldRateFromPercent(form)
+  if (yieldRate !== null) payload.yield_rate = yieldRate
+  if (kind === 'instant_coffee') {
+    payload.copy_bom = false
+    return payload
+  }
   if (kind === 'drip_bag') {
     payload.drip_bag_grams = Number(form.drip_bag_grams || 10)
     payload.drip_box_bag_count = Number(form.drip_box_bag_count || 10)
@@ -412,18 +725,49 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
   return payload
 }
 
+export function buildSkuCreatePayload(customerID, form = {}) {
+  return {
+    customer_id: Number(customerID || form.customer_id || 0),
+    name: String(form.name || '').trim(),
+    remark: String(form.remark || '').trim(),
+    product_type_category_id: Number(form.product_type_category_id || 0),
+    product_subtype_category_id: Number(form.product_subtype_category_id || 0),
+    special_attrs_json: specialAttrValuesJSONFromForm(form.special_attr_values ?? form.special_attrs ?? form.special_attrs_json),
+    active: form.active === false ? false : true,
+  }
+}
+
+export function buildSkuCopyPayload(form = {}) {
+  const sourceIDs = []
+  const seen = new Set()
+  for (const rawID of form.source_sku_ids || form.sourceSkuIDs || []) {
+    const id = Number(rawID || 0)
+    if (!id || seen.has(id)) continue
+    sourceIDs.push(id)
+    seen.add(id)
+  }
+  return {
+    target_customer_id: Number(form.target_customer_id || form.targetCustomerID || 0),
+    source_customer_id: Number(form.source_customer_id || form.sourceCustomerID || 0),
+    source_sku_ids: sourceIDs,
+  }
+}
+
 export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   const kind = normalizedProductKind(row)
   const payload = {
     product_kind: kind,
     remark: String(row.remark || '').trim(),
+    special_attrs_json: specialAttrValuesJSONFromForm(row.special_attr_values ?? row.special_attrs ?? row.special_attrs_json),
   }
+  const name = String(row.name || '').trim()
+  if (name) payload.name = name
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(row.green_bean_type)
     payload.green_bean_bom_product_id = Number(row.green_bean_bom_product_id || 0)
   } else {
-    payload.roast_level = String(row.roast_level || '').trim()
-    payload.yield_rate = Number((Number(row.yield_percent || 0) / 100).toFixed(4))
+    const yieldRate = normalizedYieldRateFromPercent(row)
+    if (yieldRate !== null) payload.yield_rate = yieldRate
     if (kind === 'drip_bag') {
       payload.drip_bag_grams = Number(row.drip_bag_grams || 10)
       payload.drip_box_bag_count = Number(row.drip_box_bag_count || 10)
@@ -433,7 +777,347 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   return payload
 }
 
+function normalizedYieldRateFromPercent(form = {}) {
+  if (!Object.prototype.hasOwnProperty.call(form, 'yield_percent')) return null
+  const rate = Number(form.yield_percent || 0) / 100
+  if (!Number.isFinite(rate) || rate <= 0) return null
+  return Number(rate.toFixed(4))
+}
+
+function rowCustomerID(row = {}) {
+  return Number(row.customer_id ?? row.customerID ?? 0)
+}
+
+function rowOrderUsageCount(row = {}) {
+  const raw = row.order_usage_count ?? row.orderUsageCount ?? row.order_count ?? row.orderCount ?? 0
+  const value = Number(raw || 0)
+  return Number.isFinite(value) ? value : 0
+}
+
+export function sortRowsForCustomerSkuPriority(rows = [], customerID = 0) {
+  const selectedCustomerID = Number(customerID || 0)
+  return [...rows].sort((a, b) => {
+    if (selectedCustomerID > 0) {
+      const aOwned = rowCustomerID(a) === selectedCustomerID ? 0 : 1
+      const bOwned = rowCustomerID(b) === selectedCustomerID ? 0 : 1
+      if (aOwned !== bOwned) return aOwned - bOwned
+    }
+    const usageDiff = rowOrderUsageCount(b) - rowOrderUsageCount(a)
+    if (usageDiff !== 0) return usageDiff
+    const positionDiff = Number(a.product_category_position || 0) - Number(b.product_category_position || 0)
+    if (positionDiff !== 0) return positionDiff
+    const numberDiff = Number(a.number || 0) - Number(b.number || 0)
+    if (numberDiff !== 0) return numberDiff
+    return String(a.name || '').localeCompare(String(b.name || ''))
+  })
+}
+
+export function buildProductBomURL(currentHref = '', row = {}) {
+  const url = new URL(currentHref || window.location.href)
+  const productID = Number(row.id || row.product_id || 0)
+  url.searchParams.set('view', 'bom')
+  if (productID > 0) {
+    url.searchParams.set('product_id', String(productID))
+    url.searchParams.set('bom_filter_product_id', String(productID))
+  } else {
+    url.searchParams.delete('product_id')
+    url.searchParams.delete('bom_filter_product_id')
+  }
+  return url
+}
+
 function uniqueSorted(values = []) {
   return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)))
     .sort((a, b) => a.localeCompare(b))
+}
+
+export function priceListRuleFormFromJSON(value = {}) {
+	const rule = parseJSONObject(value)
+	const extra = { ...rule }
+	for (const key of ['enabled', 'include_in_price_list', 'pricing_mode', 'display_mode', 'display_unit', 'rounding', 'tax_included', 'unit_price', 'price_per_unit', 'fixed_unit_price', 'fixed_price', 'cost_plus_rate', 'markup_rate', 'margin_rate']) {
+    delete extra[key]
+	}
+  const fixedUnitPrice = normalizeOptionalNumber(rule.fixed_unit_price ?? rule.unit_price ?? rule.price_per_unit ?? rule.fixed_price)
+  const costPlusRate = normalizeOptionalNumber(rule.cost_plus_rate ?? rule.markup_rate ?? rule.margin_rate)
+	return {
+		price_rule_pricing_mode: optionValue(rule.pricing_mode, priceListRulePricingModeOptions, 'inherit_gradient_template'),
+		price_rule_fixed_unit_price: fixedUnitPrice === null ? '' : fixedUnitPrice,
+		price_rule_cost_plus_percent: costPlusRate === null ? '' : Number((costPlusRate * 100).toFixed(4)),
+    price_rule_rounding: optionValue(rule.rounding, priceListRuleRoundingOptions, 'none'),
+    price_rule_tax_included: Boolean(rule.tax_included),
+    price_rule_extra: extra,
+  }
+}
+
+export function priceListRuleJSONFromForm(form = {}) {
+	const out = sanitizeExtraObject(form.price_rule_extra)
+	out.pricing_mode = optionValue(form.price_rule_pricing_mode, priceListRulePricingModeOptions, 'inherit_gradient_template')
+  const fixedUnitPrice = normalizeOptionalNumber(form.price_rule_fixed_unit_price)
+  if (out.pricing_mode === 'fixed_unit_price' && fixedUnitPrice !== null) {
+    out.fixed_unit_price = trimDecimal(fixedUnitPrice)
+  }
+  const costPlusPercent = normalizeOptionalNumber(form.price_rule_cost_plus_percent)
+  if (out.pricing_mode === 'cost_plus' && costPlusPercent !== null) {
+    out.cost_plus_rate = trimDecimal(costPlusPercent / 100)
+  }
+  out.rounding = optionValue(form.price_rule_rounding, priceListRuleRoundingOptions, 'none')
+  out.tax_included = Boolean(form.price_rule_tax_included)
+  return JSON.stringify(out)
+}
+
+export function unitConversionRowsFromJSON(value = {}) {
+  const conversion = parseJSONObject(value)
+  const rows = []
+  for (const [fromUnit, targets] of Object.entries(conversion)) {
+    const normalizedFromUnit = normalizeOptionalUnitText(fromUnit)
+    if (!normalizedFromUnit) continue
+    const targetMap = parseJSONObject(targets)
+    for (const [toUnit, ratio] of Object.entries(targetMap)) {
+      const normalizedToUnit = normalizeOptionalUnitText(toUnit)
+      const numericRatio = normalizePositiveNumber(ratio)
+      if (!normalizedToUnit || numericRatio <= 0) continue
+      rows.push({
+        from_qty: 1,
+        from_unit: normalizedFromUnit,
+        to_qty: numericRatio,
+        to_unit: normalizedToUnit,
+      })
+    }
+  }
+  return rows
+}
+
+export function unitConversionJSONFromRows(rows = []) {
+  const out = {}
+  for (const row of rows || []) {
+    const fromQty = normalizePositiveNumber(row?.from_qty)
+    const toQty = normalizePositiveNumber(row?.to_qty)
+    const fromUnit = normalizeOptionalUnitText(row?.from_unit)
+    const toUnit = normalizeOptionalUnitText(row?.to_unit)
+    if (fromQty <= 0 || toQty <= 0 || !fromUnit || !toUnit) continue
+    if (!out[fromUnit]) out[fromUnit] = {}
+    out[fromUnit][toUnit] = trimDecimal(toQty / fromQty)
+  }
+  return JSON.stringify(out)
+}
+
+export function unitRuleFormFromJSON(value = {}) {
+  const rule = parseJSONObject(value)
+  const conversion = rule.unit_conversion_json ?? rule.conversion_json ?? {}
+  const extra = { ...rule }
+  for (const key of ['inventory_unit', 'quote_unit', 'order_unit', 'unit_conversion_json', 'conversion_json', 'integer_unit']) {
+    delete extra[key]
+  }
+  return {
+    inventory_unit: normalizeOptionalUnitText(rule.inventory_unit),
+    quote_unit: normalizeOptionalUnitText(rule.quote_unit),
+    order_unit: normalizeOptionalUnitText(rule.order_unit),
+    unit_conversion_rows: unitConversionRowsFromJSON(conversion),
+    integer_unit_mode: integerUnitModeFromValue(rule.integer_unit),
+    unit_rule_extra: extra,
+  }
+}
+
+export function unitRuleJSONFromForm(form = {}) {
+  const out = sanitizeExtraObject(form.unit_rule_extra)
+  const inventoryUnit = normalizeOptionalUnitText(form.inventory_unit)
+  const quoteUnit = normalizeOptionalUnitText(form.quote_unit)
+  const orderUnit = normalizeOptionalUnitText(form.order_unit)
+  if (inventoryUnit) out.inventory_unit = inventoryUnit
+  if (quoteUnit) out.quote_unit = quoteUnit
+  if (orderUnit) out.order_unit = orderUnit
+  const conversionJSON = unitConversionJSONFromRows(form.unit_conversion_rows || [])
+  const conversion = parseJSONObject(conversionJSON)
+  if (Object.keys(conversion).length) out.unit_conversion_json = conversion
+  const mode = String(form.integer_unit_mode || '').trim()
+  if (mode === 'integer') out.integer_unit = true
+  if (mode === 'decimal') out.integer_unit = false
+  return JSON.stringify(out)
+}
+
+export function specialAttrSchemaRowsFromJSON(value = []) {
+  const rows = parseJSONArray(value)
+  return rows
+    .map((row, index) => normalizeSpecialAttrSchemaRow(row, index + 1))
+    .filter((row) => row.key)
+    .sort((a, b) => Number(a.position || 0) - Number(b.position || 0) || a.key.localeCompare(b.key))
+}
+
+export function specialAttrSchemaJSONFromRows(rows = []) {
+  const out = []
+  const seen = new Set()
+  for (const row of rows || []) {
+    const normalized = normalizeSpecialAttrSchemaRow(row, out.length + 1)
+    if (!normalized.key || seen.has(normalized.key)) continue
+    seen.add(normalized.key)
+    out.push({
+      key: normalized.key,
+      label: normalized.label,
+      value_type: normalized.value_type,
+      options: normalized.options,
+      required: normalized.required,
+      show_in_price_list: normalized.show_in_price_list,
+      position: out.length + 1,
+    })
+  }
+  return JSON.stringify(out)
+}
+
+export function specialAttrValuesFromJSON(value = {}) {
+  const parsed = parseJSONObject(value)
+  const out = {}
+  for (const [key, raw] of Object.entries(parsed)) {
+    const normalizedKey = normalizeSpecialAttrKey(key)
+    if (!normalizedKey) continue
+    const normalizedValue = normalizeSpecialAttrValue(raw)
+    if (normalizedValue === '') continue
+    out[normalizedKey] = normalizedValue
+  }
+  return out
+}
+
+export function specialAttrValuesJSONFromForm(value = {}) {
+  const source = typeof value === 'string' ? specialAttrValuesFromJSON(value) : (value && typeof value === 'object' && !Array.isArray(value) ? value : {})
+  const out = {}
+  for (const [key, raw] of Object.entries(source)) {
+    const normalizedKey = normalizeSpecialAttrKey(key)
+    if (!normalizedKey) continue
+    const normalizedValue = normalizeSpecialAttrValue(raw)
+    if (normalizedValue === '') continue
+    out[normalizedKey] = normalizedValue
+  }
+  return JSON.stringify(out)
+}
+
+function normalizeSpecialAttrSchemaRow(row = {}, fallbackPosition = 1) {
+  const key = normalizeSpecialAttrKey(row?.key)
+  const label = String(row?.label || key).trim()
+  const valueType = ['text', 'select', 'number', 'boolean'].includes(String(row?.value_type || '').trim())
+    ? String(row.value_type).trim()
+    : 'text'
+  const options = valueType === 'select' ? normalizeSpecialAttrOptions(row) : []
+  return {
+    key,
+    label,
+    value_type: valueType,
+    options,
+    options_text: options.join('\n'),
+    required: Boolean(row?.required),
+    show_in_price_list: Boolean(row?.show_in_price_list ?? row?.showInPriceList),
+    position: Number(row?.position || fallbackPosition || 1),
+  }
+}
+
+function normalizeSpecialAttrOptions(row = {}) {
+  const source = Object.prototype.hasOwnProperty.call(row, 'options_text')
+    ? row.options_text
+    : row?.options
+  if (Array.isArray(source)) {
+    return source.map((item) => String(item || '').trim()).filter(Boolean)
+  }
+  return String(source || '')
+    .split(/[\n,，;；]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function normalizeSpecialAttrKey(value) {
+  return String(value || '').trim().replace(/\s+/g, '_')
+}
+
+function normalizeSpecialAttrValue(value) {
+  if (value === null || typeof value === 'undefined') return ''
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  return String(value).trim()
+}
+
+function normalizeUnitText(value, fallback = 'kg') {
+  const normalized = String(value || '').trim()
+  if (normalized) return normalized
+  return String(fallback || '').trim() || 'kg'
+}
+
+function normalizeOptionalUnitText(value) {
+  return String(value || '').trim()
+}
+
+function normalizeJSONString(value) {
+  const raw = String(value || '').trim()
+  return raw || '{}'
+}
+
+function normalizeJSONArrayString(value) {
+  const raw = String(value || '').trim()
+  return raw || '[]'
+}
+
+function parseJSONObject(value) {
+  if (!value) return {}
+  if (typeof value === 'object' && !Array.isArray(value)) return value
+  try {
+    const parsed = JSON.parse(String(value || '{}'))
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function parseJSONArray(value) {
+  if (!value) return []
+  if (Array.isArray(value)) return value
+  try {
+    const parsed = JSON.parse(String(value || '[]'))
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function sanitizeExtraObject(value) {
+  const parsed = parseJSONObject(value)
+  return { ...parsed }
+}
+
+function optionValue(value, options = [], fallback = '') {
+  const normalized = String(value || '').trim()
+  return options.some((option) => option.value === normalized) ? normalized : fallback
+}
+
+function normalizePositiveNumber(value) {
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : 0
+}
+
+function normalizeOptionalNumber(value) {
+  if (value === null || typeof value === 'undefined' || value === '') return null
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : null
+}
+
+function trimDecimal(value) {
+  return Number(Number(value).toFixed(8))
+}
+
+function integerUnitModeFromValue(value) {
+  if (typeof value === 'undefined' || value === null || value === '') return 'inherit'
+  if (value === true) return 'integer'
+  if (value === false) return 'decimal'
+  const normalized = String(value).trim().toLowerCase()
+  if (['true', '1', 'yes', 'integer'].includes(normalized)) return 'integer'
+  if (['false', '0', 'no', 'decimal'].includes(normalized)) return 'decimal'
+  return 'inherit'
+}
+
+function hasStructuredPriceRuleFields(row = {}) {
+	return Object.prototype.hasOwnProperty.call(row, 'price_rule_pricing_mode')
+		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_display_mode')
+		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_fixed_unit_price')
+		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_cost_plus_percent')
+		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_rounding')
+		|| Object.prototype.hasOwnProperty.call(row, 'price_rule_tax_included')
+}
+
+function hasStructuredUnitRuleFields(row = {}) {
+  return Object.prototype.hasOwnProperty.call(row, 'integer_unit_mode')
+    || Object.prototype.hasOwnProperty.call(row, 'unit_conversion_rows')
 }

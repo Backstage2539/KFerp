@@ -78,7 +78,7 @@ func TestGreenBeanSalesWiringAndManuals(t *testing.T) {
 		},
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/views/ProductSettingsView.vue",
-			want: []string{"skuFilters", "filteredSkuRows", "paginatedSkuRows", "data-auto-pagination=\"off\"", "PaginationControls", "green_bean_type", "green_bean_bom_product_id"},
+			want: []string{"skuFilters", "skuVisibleTableState", "displaySkuRows", "skuDisplayTotal", "data-auto-pagination=\"off\"", "PaginationControls", "green_bean_type", "green_bean_bom_product_id"},
 		},
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/views/OrderEntryView.vue",
@@ -94,7 +94,7 @@ func TestGreenBeanSalesWiringAndManuals(t *testing.T) {
 		},
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/lib/bean-list-pdf.js",
-			want: []string{"green_bean_list", "green_bean_sale_tiers", "生豆豆单", "beanListQualityLines"},
+			want: []string{"green_bean_list", "green_bean_sale_tiers", "生豆产品价格表", "beanListQualityLines"},
 		},
 		{
 			path: "orderapp-remote/internal/infrastructure/postgres/stock/schema.go",

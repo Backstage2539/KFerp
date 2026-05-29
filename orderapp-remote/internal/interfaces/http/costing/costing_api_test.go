@@ -31,7 +31,7 @@ func (fakeService) ExplainPrice(ctx context.Context, req appcosting.PriceExplana
 	return appcosting.NewService(&fakeRepo{}).ExplainPrice(ctx, req)
 }
 
-func (fakeService) BeanList(context.Context) (*appcosting.CalculateResponse, error) {
+func (fakeService) BeanList(context.Context, appcosting.BeanListQuery) (*appcosting.CalculateResponse, error) {
 	return &appcosting.CalculateResponse{Parameters: domain.DefaultParameters()}, nil
 }
 
@@ -109,7 +109,7 @@ func fakePublishedBeanListPublication() appcosting.BeanListPublication {
 			"fontColor":       "#171717",
 		},
 		Content: map[string]any{
-			"title":      "棵凡咖啡批发豆单",
+			"title":      "棵凡咖啡批发产品价格表",
 			"subtitle":   "报价不含税、不含运",
 			"totalItems": float64(1),
 			"groups": []any{map[string]any{
@@ -162,13 +162,44 @@ func (fakeService) WithdrawBeanList(context.Context, appcosting.WithdrawBeanList
 	return nil
 }
 
+func (fakeService) GenerateBeanListPublicationPDF(context.Context, appcosting.BeanListPublicationPDFCommand, func(appcosting.BeanListPublication) ([]byte, error)) (appcosting.BeanListPublicationPDFFile, error) {
+	row := fakePublishedBeanListPublication()
+	body := []byte("%PDF-1.4")
+	return appcosting.BeanListPublicationPDFFile{
+		PublicationID: row.ID,
+		ListType:      row.ListType,
+		Version:       row.Version,
+		ContentType:   "application/pdf",
+		CacheKey:      "bean-list:7:V3.0.5",
+		Filename:      "bean-list-commercial-V3.0.5.pdf",
+		Bytes:         len(body),
+		Payload:       body,
+	}, nil
+}
+
+func (fakeService) LoadBeanListPublicationPDF(context.Context, appcosting.BeanListPublicationPDFCommand) (appcosting.BeanListPublicationPDFFile, error) {
+	return appcosting.BeanListPublicationPDFFile{
+		PublicationID: 7,
+		ListType:      "commercial",
+		Version:       "V3.0.5",
+		ContentType:   "application/pdf",
+		CacheKey:      "bean-list:7:V3.0.5",
+		Filename:      "bean-list-commercial-V3.0.5.pdf",
+		Bytes:         8,
+		Payload:       []byte("%PDF-1.4"),
+	}, nil
+}
+
 type recordingBeanListService struct {
 	fakeService
-	published   int
-	drafted     int
-	lastQuery   appcosting.BeanListPublicationQuery
-	lastPublish appcosting.PublishBeanListCommand
-	lastDraft   appcosting.PublishBeanListCommand
+	published      int
+	drafted        int
+	generatedPDFs  int
+	lastQuery      appcosting.BeanListPublicationQuery
+	lastBeanList   appcosting.BeanListQuery
+	lastPublish    appcosting.PublishBeanListCommand
+	lastDraft      appcosting.PublishBeanListCommand
+	lastPDFCommand appcosting.BeanListPublicationPDFCommand
 }
 
 func (s *recordingBeanListService) ListBeanListPublications(ctx context.Context, query appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
@@ -176,16 +207,28 @@ func (s *recordingBeanListService) ListBeanListPublications(ctx context.Context,
 	return s.fakeService.ListBeanListPublications(ctx, query)
 }
 
+func (s *recordingBeanListService) PublishedBeanList(ctx context.Context, query appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error) {
+	s.lastQuery = query
+	return s.fakeService.PublishedBeanList(ctx, query)
+}
+
+func (s *recordingBeanListService) BeanList(ctx context.Context, query appcosting.BeanListQuery) (*appcosting.CalculateResponse, error) {
+	s.lastBeanList = query
+	return s.fakeService.BeanList(ctx, query)
+}
+
 func (s *recordingBeanListService) PublishBeanList(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
 	s.published++
 	s.lastPublish = cmd
 	return &appcosting.BeanListPublication{
-		ID:        8,
-		ListType:  cmd.ListType,
-		Version:   cmd.Version,
-		Status:    "published",
-		OwnerType: cmd.OwnerType,
-		OwnerKey:  cmd.OwnerKey,
+		ID:                    8,
+		ListType:              cmd.ListType,
+		ProductTypeCategoryID: cmd.ProductTypeCategoryID,
+		ProductTypeName:       cmd.ProductTypeName,
+		Version:               cmd.Version,
+		Status:                "published",
+		OwnerType:             cmd.OwnerType,
+		OwnerKey:              cmd.OwnerKey,
 	}, nil
 }
 
@@ -193,12 +236,30 @@ func (s *recordingBeanListService) SaveBeanListDraft(ctx context.Context, cmd ap
 	s.drafted++
 	s.lastDraft = cmd
 	return &appcosting.BeanListPublication{
-		ID:        9,
-		ListType:  cmd.ListType,
-		Version:   cmd.Version,
-		Status:    "draft",
-		OwnerType: cmd.OwnerType,
-		OwnerKey:  cmd.OwnerKey,
+		ID:                    9,
+		ListType:              cmd.ListType,
+		ProductTypeCategoryID: cmd.ProductTypeCategoryID,
+		ProductTypeName:       cmd.ProductTypeName,
+		Version:               cmd.Version,
+		Status:                "draft",
+		OwnerType:             cmd.OwnerType,
+		OwnerKey:              cmd.OwnerKey,
+	}, nil
+}
+
+func (s *recordingBeanListService) GenerateBeanListPublicationPDF(ctx context.Context, cmd appcosting.BeanListPublicationPDFCommand, render func(appcosting.BeanListPublication) ([]byte, error)) (appcosting.BeanListPublicationPDFFile, error) {
+	s.generatedPDFs++
+	s.lastPDFCommand = cmd
+	body := []byte("%PDF-1.4")
+	return appcosting.BeanListPublicationPDFFile{
+		PublicationID: cmd.PublicationID,
+		ListType:      cmd.Query.ListType,
+		Version:       "V3.0.6",
+		ContentType:   "application/pdf",
+		CacheKey:      "bean-list:test",
+		Filename:      "bean-list-commercial-V3.0.6.pdf",
+		Bytes:         len(body),
+		Payload:       body,
 	}, nil
 }
 
@@ -269,6 +330,18 @@ func (fakeRepo) ListBeanListPublications(context.Context, appcosting.BeanListPub
 
 func (fakeRepo) PublishedBeanList(context.Context, appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error) {
 	return nil, nil
+}
+
+func (fakeRepo) LoadBeanListPublication(context.Context, appcosting.BeanListPublicationQuery, int64) (*appcosting.BeanListPublication, error) {
+	return nil, nil
+}
+
+func (fakeRepo) LoadBeanListPublicationAsset(context.Context, int64, string) (appcosting.BeanListPublicationAsset, error) {
+	return appcosting.BeanListPublicationAsset{}, appcosting.ErrBeanListPublicationNotFound
+}
+
+func (fakeRepo) SaveBeanListPublicationAsset(context.Context, appcosting.BeanListPublicationAsset, string) (appcosting.BeanListPublicationAsset, error) {
+	return appcosting.BeanListPublicationAsset{}, nil
 }
 
 func (fakeRepo) PublishBeanList(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
@@ -361,19 +434,19 @@ func TestCostingCalculateAPICustomerSkuUsesSkuCategory(t *testing.T) {
 	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
 
 	body, err := json.Marshal(appcosting.CalculateRequest{Products: []domain.ProductInput{{
-		ProductID:                  417,
-		Name:                       "曲奇拼配2.0",
-		BeanListTemplateName:       "红岩2.0",
-		CustomerID:                 152,
-		BaseProductID:              199,
-		Visibility:                 "customer_only",
-		CustomType:                 "public_sku_alias",
-		GreenBeanCostPerKg:         63.9,
-		YieldRate:                  0.8,
-		ProductCategoryID:          143,
-		SkuCategoryName:            "商用拼配",
-		SkuCategoryPosition:        1,
-		SkuProductCategoryPosition: 2,
+		ProductID:                 417,
+		Name:                      "曲奇拼配2.0",
+		BeanListTemplateName:      "红岩2.0",
+		CustomerID:                152,
+		BaseProductID:             199,
+		Visibility:                "customer_only",
+		CustomType:                "public_sku_alias",
+		GreenBeanCostPerKg:        63.9,
+		YieldRate:                 0.8,
+		ProductCategoryID:         143,
+		ProductCategoryPosition:   2,
+		CategorySecondaryName:     "商用拼配",
+		CategorySecondaryPosition: 1,
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -576,6 +649,120 @@ func TestCostingCalculateAPIReturnsExcelBeanListDisplayMetadata(t *testing.T) {
 	}
 }
 
+func TestCostingCalculateAPIReturnsCustomerSkuCategoryBeanListMetadata(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	input := domain.ProductInput{
+		ProductID:                 902,
+		Name:                      "芬纳定制-红酒日晒-中深烘",
+		ProductKind:               "roasted",
+		CustomerID:                74,
+		CustomType:                "custom_roast",
+		ProductCategoryID:         502,
+		ProductCategoryPosition:   2,
+		CategoryPrimaryName:       "咖啡豆",
+		CategoryPrimaryPosition:   1,
+		CategorySecondaryName:     "定制咖啡熟豆",
+		CategorySecondaryPosition: 1,
+		GreenBeanCostPerKg:        67,
+		YieldRate:                 0.815,
+		Flavor:                    "红酒、莓果",
+		BeanListNote:              "客户自有定制熟豆",
+	}
+
+	body, err := json.Marshal(appcosting.CalculateRequest{Products: []domain.ProductInput{input}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/calculate", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Items []struct {
+			CommercialBeanList struct {
+				Code        string `json:"code"`
+				Category    string `json:"category"`
+				DisplayName string `json:"display_name"`
+				Flavor      string `json:"flavor"`
+				Description string `json:"description"`
+			} `json:"commercial_bean_list"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("items = %+v", got.Items)
+	}
+	item := got.Items[0].CommercialBeanList
+	if item.Code != "1.2" || item.Category != "1、定制咖啡熟豆" || item.DisplayName != "芬纳定制-红酒日晒-中深烘" {
+		t.Fatalf("customer commercial bean list = %+v", item)
+	}
+	if item.Flavor != "红酒、莓果" || item.Description != "客户自有定制熟豆" {
+		t.Fatalf("customer commercial bean list missing fallbacks: %+v", item)
+	}
+}
+
+func TestCostingCalculateAPICustomerAliasWithoutCategoryUsesUnclassifiedGroup(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	input := domain.ProductInput{
+		ProductID:            417,
+		Name:                 "曲奇拼配2.0",
+		BeanListTemplateName: "红岩2.0",
+		ProductKind:          "roasted",
+		CustomerID:           152,
+		CustomType:           "public_sku_alias",
+		BaseProductID:        199,
+		GreenBeanCostPerKg:   63.9,
+		YieldRate:            0.8,
+	}
+
+	body, err := json.Marshal(appcosting.CalculateRequest{Products: []domain.ProductInput{input}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/calculate", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Items []struct {
+			CommercialBeanList struct {
+				Code        string `json:"code"`
+				Category    string `json:"category"`
+				DisplayName string `json:"display_name"`
+			} `json:"commercial_bean_list"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("items = %+v", got.Items)
+	}
+	item := got.Items[0].CommercialBeanList
+	if item.Code != "999.2" || item.Category != "未分类" || item.DisplayName != "曲奇拼配2.0" {
+		t.Fatalf("customer alias without SKU category commercial bean list = %+v", item)
+	}
+	if strings.Contains(item.Category, "精品意式拼配") {
+		t.Fatalf("customer alias without SKU category must not inherit Excel category: %+v", item)
+	}
+}
+
 func TestRoutesAreRegistered(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
@@ -596,6 +783,8 @@ func TestRoutesAreRegistered(t *testing.T) {
 		"GET /api/costing/bean-list",
 		"GET /api/costing/bean-list/publications",
 		"POST /api/costing/bean-list/publications",
+		"POST /api/costing/bean-list/publications/:id/pdf",
+		"GET /api/costing/bean-list/publications/:id/pdf",
 		"POST /api/costing/bean-list/publications/:id/withdraw",
 		"POST /api/costing/bean-list/drafts",
 		"GET /public/bean-list/:list_type",
@@ -605,6 +794,54 @@ func TestRoutesAreRegistered(t *testing.T) {
 		if !seen[want] {
 			t.Fatalf("missing route %s; got %+v", want, seen)
 		}
+	}
+}
+
+func TestBeanListPublicationPDFAPIGeneratesSavedPDFThenDownloadsIt(t *testing.T) {
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("basic_auth_admin", true)
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications/7/pdf?list_type=commercial&scope=official", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("generate status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var generated appcosting.BeanListPublicationPDFFile
+	if err := json.Unmarshal(rec.Body.Bytes(), &generated); err != nil {
+		t.Fatal(err)
+	}
+	if generated.PublicationID != 7 || generated.ContentType != "application/pdf" || generated.Bytes <= 0 {
+		t.Fatalf("generated = %+v", generated)
+	}
+	if generated.DownloadURL != "/api/costing/bean-list/publications/7/pdf?list_type=commercial&scope=official" {
+		t.Fatalf("download url = %q", generated.DownloadURL)
+	}
+	if generated.Payload != nil {
+		t.Fatalf("payload must not be serialized in generate response")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, generated.DownloadURL, nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("download status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get(echo.HeaderContentType); got != "application/pdf" {
+		t.Fatalf("content type = %q", got)
+	}
+	if cd := rec.Header().Get(echo.HeaderContentDisposition); !strings.Contains(cd, "bean-list-commercial-V3.0.5.pdf") {
+		t.Fatalf("content disposition = %q", cd)
+	}
+	if !bytes.HasPrefix(rec.Body.Bytes(), []byte("%PDF")) {
+		t.Fatalf("download body is not a pdf: %q", rec.Body.String())
 	}
 }
 
@@ -730,8 +967,8 @@ func TestPublicBeanListPageRendersPublishedSnapshot(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		"<title>棵凡咖啡批发豆单 V3.0.5</title>",
-		"棵凡咖啡批发豆单",
+		"<title>棵凡咖啡批发产品价格表 V3.0.5</title>",
+		"棵凡咖啡批发产品价格表",
 		"报价不含税、不含运",
 		"V3.0.5",
 		"1、工厂量单",
@@ -751,6 +988,22 @@ func TestPublicBeanListPageRendersPublishedSnapshot(t *testing.T) {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("public bean list page leaked admin content %q in body: %s", forbidden, body)
 		}
+	}
+}
+
+func TestPublicBeanListPagePassesProductTypeCategory(t *testing.T) {
+	svc := &recordingBeanListService{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/public/bean-list/commercial?product_type_category_id=12", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.lastQuery.ProductTypeCategoryID != 12 {
+		t.Fatalf("public product type query = %+v, want product_type_category_id 12", svc.lastQuery)
 	}
 }
 
@@ -793,7 +1046,7 @@ func TestPublicGreenBeanListPageRendersQualitySnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"棵凡咖啡生豆豆单",
+		"棵凡咖啡生豆产品价格表",
 		"生豆销售报价",
 		"生豆",
 		"工厂风味",
@@ -988,6 +1241,104 @@ func TestBeanListPublicationAPISupportsCustomerScope(t *testing.T) {
 	}
 	if svc.lastPublish.OwnerType != "customer" || svc.lastPublish.OwnerKey != "42" {
 		t.Fatalf("customer publish owner = %+v", svc.lastPublish)
+	}
+}
+
+func TestBeanListPublicationAPIPassesProductTypeCategory(t *testing.T) {
+	svc := &recordingBeanListService{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("basic_auth_admin", true)
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Costing: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/bean-list/publications?product_type_category_id=12&scope=official", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.lastQuery.ProductTypeCategoryID != 12 {
+		t.Fatalf("product type query = %+v, want product_type_category_id 12", svc.lastQuery)
+	}
+
+	body := bytes.NewBufferString(`{"list_type":"green","product_type_category_id":12,"product_type_name":"生豆","version":"V4.0.1","scope":"official","config":{"layoutStyle":"card"},"content":{"totalItems":1},"changelog":"生豆产品价格表"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.lastPublish.ProductTypeCategoryID != 12 || svc.lastPublish.ProductTypeName != "生豆" {
+		t.Fatalf("product type publish = %+v", svc.lastPublish)
+	}
+}
+
+func TestBeanListAPIPassesCustomerIDForCustomerProductRules(t *testing.T) {
+	svc := &recordingBeanListService{}
+	e := echo.New()
+	registerCostingAPI(e, svc, &fakeCostingAuthz{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/bean-list?customer_id=42", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/costing/bean-list status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.lastBeanList.CustomerID != 42 {
+		t.Fatalf("bean list query = %+v, want customer_id 42", svc.lastBeanList)
+	}
+}
+
+func TestBeanListPublicationPublishAndDraftGenerateStoredPreviewPDF(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		path          string
+		wantID        int64
+		wantOwnerType string
+		wantOwnerKey  string
+	}{
+		{name: "publish", path: "/api/costing/bean-list/publications", wantID: 8, wantOwnerType: "customer", wantOwnerKey: "42"},
+		{name: "draft", path: "/api/costing/bean-list/drafts", wantID: 9, wantOwnerType: "customer", wantOwnerKey: "42"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &recordingBeanListService{}
+			e := echo.New()
+			e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c echo.Context) error {
+					c.Set("basic_auth_admin", true)
+					c.Set("employee_id", int64(7))
+					return next(c)
+				}
+			})
+			RegisterRoutes(e, Dependencies{Costing: svc})
+
+			body := bytes.NewBufferString(`{"list_type":"commercial","version":"V3.0.8","scope":"customer","customer_id":42,"config":{"layoutStyle":"card","backgroundColor":"#f8f1e5"},"content":{"title":"棵凡咖啡批发产品价格表","groups":[{"category":"1、工厂量单","showCategory":true,"items":[{"code":"1.1","name":"曲奇拼配","prices":[{"label":"25-49kg","price":21,"unit":"kg"}]}]}]},"changelog":"客户 A 豆单"}`)
+			req := httptest.NewRequest(http.MethodPost, tc.path, body)
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+
+			e.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+			}
+			if svc.generatedPDFs != 1 {
+				t.Fatalf("generated PDFs = %d", svc.generatedPDFs)
+			}
+			if svc.lastPDFCommand.PublicationID != tc.wantID ||
+				svc.lastPDFCommand.Query.ListType != "commercial" ||
+				svc.lastPDFCommand.Query.OwnerType != tc.wantOwnerType ||
+				svc.lastPDFCommand.Query.OwnerKey != tc.wantOwnerKey {
+				t.Fatalf("pdf command = %+v", svc.lastPDFCommand)
+			}
+		})
 	}
 }
 

@@ -2,14 +2,19 @@ package costing
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	domain "orderapp/internal/domain/costing"
 )
+
+var ErrBeanListPublicationNotFound = errors.New("bean list publication not found")
 
 type CalculateRequest struct {
 	Products []domain.ProductInput `json:"products"`
@@ -57,6 +62,10 @@ type CalculateResponse struct {
 	Items      []domain.ProductResult `json:"items"`
 }
 
+type BeanListQuery struct {
+	CustomerID int64 `json:"customer_id,omitempty"`
+}
+
 type Run struct {
 	ID           int64                  `json:"id"`
 	Status       string                 `json:"status"`
@@ -81,6 +90,8 @@ type UpdateParameterCommand struct {
 type BeanListPublication struct {
 	ID                       int64          `json:"id"`
 	ListType                 string         `json:"list_type"`
+	ProductTypeCategoryID    int64          `json:"product_type_category_id,omitempty"`
+	ProductTypeName          string         `json:"product_type_name,omitempty"`
 	Version                  string         `json:"version"`
 	Status                   string         `json:"status"`
 	OwnerType                string         `json:"owner_type"`
@@ -97,15 +108,44 @@ type BeanListPublication struct {
 }
 
 type BeanListPublicationQuery struct {
-	ListType   string `json:"list_type"`
-	Scope      string `json:"scope,omitempty"`
-	CustomerID int64  `json:"customer_id,omitempty"`
-	OwnerType  string `json:"owner_type,omitempty"`
-	OwnerKey   string `json:"owner_key,omitempty"`
+	ListType              string `json:"list_type"`
+	ProductTypeCategoryID int64  `json:"product_type_category_id,omitempty"`
+	Scope                 string `json:"scope,omitempty"`
+	CustomerID            int64  `json:"customer_id,omitempty"`
+	OwnerType             string `json:"owner_type,omitempty"`
+	OwnerKey              string `json:"owner_key,omitempty"`
+}
+
+type BeanListPublicationAsset struct {
+	PublicationID int64  `json:"publication_id"`
+	AssetType     string `json:"asset_type"`
+	ContentType   string `json:"content_type"`
+	CacheKey      string `json:"cache_key"`
+	Payload       []byte `json:"-"`
+}
+
+type BeanListPublicationPDFCommand struct {
+	PublicationID int64
+	Query         BeanListPublicationQuery
+	Actor         string
+}
+
+type BeanListPublicationPDFFile struct {
+	PublicationID int64  `json:"publication_id"`
+	ListType      string `json:"list_type"`
+	Version       string `json:"version"`
+	ContentType   string `json:"content_type"`
+	CacheKey      string `json:"cache_key"`
+	Filename      string `json:"filename"`
+	DownloadURL   string `json:"download_url,omitempty"`
+	Bytes         int    `json:"bytes"`
+	Payload       []byte `json:"-"`
 }
 
 type PublishBeanListCommand struct {
 	ListType                 string         `json:"list_type"`
+	ProductTypeCategoryID    int64          `json:"product_type_category_id,omitempty"`
+	ProductTypeName          string         `json:"product_type_name,omitempty"`
 	Version                  string         `json:"version"`
 	Scope                    string         `json:"scope,omitempty"`
 	CustomerID               int64          `json:"customer_id,omitempty"`
@@ -140,9 +180,16 @@ type Repository interface {
 	DeactivateDripPriceTemplate(ctx context.Context, cmd DeactivateDripPriceTemplateCommand) error
 	ListBeanListPublications(ctx context.Context, query BeanListPublicationQuery) ([]BeanListPublication, error)
 	PublishedBeanList(ctx context.Context, query BeanListPublicationQuery) (*BeanListPublication, error)
+	LoadBeanListPublication(ctx context.Context, query BeanListPublicationQuery, publicationID int64) (*BeanListPublication, error)
+	LoadBeanListPublicationAsset(ctx context.Context, publicationID int64, assetType string) (BeanListPublicationAsset, error)
+	SaveBeanListPublicationAsset(ctx context.Context, asset BeanListPublicationAsset, actor string) (BeanListPublicationAsset, error)
 	PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
 	SaveBeanListDraft(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
 	WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error
+}
+
+type customerScopedProductInputRepository interface {
+	LoadProductInputsForCustomer(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error)
 }
 
 type Service struct {
@@ -287,7 +334,10 @@ func (s *Service) DeactivateDripPriceTemplate(ctx context.Context, cmd Deactivat
 	return s.repo.DeactivateDripPriceTemplate(ctx, cmd)
 }
 
-func (s *Service) BeanList(ctx context.Context) (*CalculateResponse, error) {
+func (s *Service) BeanList(ctx context.Context, query BeanListQuery) (*CalculateResponse, error) {
+	if query.CustomerID < 0 {
+		return nil, fmt.Errorf("customer_id must be >= 0")
+	}
 	params, err := s.Parameters(ctx)
 	if err != nil {
 		return nil, err
@@ -295,7 +345,16 @@ func (s *Service) BeanList(ctx context.Context) (*CalculateResponse, error) {
 	if s.repo == nil {
 		return &CalculateResponse{Parameters: params}, nil
 	}
-	inputs, err := s.repo.LoadProductInputs(ctx, params)
+	var inputs []domain.ProductInput
+	if query.CustomerID > 0 {
+		if scoped, ok := s.repo.(customerScopedProductInputRepository); ok {
+			inputs, err = scoped.LoadProductInputsForCustomer(ctx, params, query.CustomerID)
+		} else {
+			inputs, err = s.repo.LoadProductInputs(ctx, params)
+		}
+	} else {
+		inputs, err = s.repo.LoadProductInputs(ctx, params)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -344,7 +403,7 @@ func normalizeDripPriceTemplateCommand(cmd SaveDripPriceTemplateCommand) (SaveDr
 }
 
 func (s *Service) CreateRun(ctx context.Context, actor string) (*Run, error) {
-	resp, err := s.BeanList(ctx)
+	resp, err := s.BeanList(ctx, BeanListQuery{})
 	if err != nil {
 		return nil, err
 	}
@@ -386,6 +445,75 @@ func (s *Service) PublishedBeanList(ctx context.Context, query BeanListPublicati
 	return s.repo.PublishedBeanList(ctx, normalized)
 }
 
+func (s *Service) GenerateBeanListPublicationPDF(ctx context.Context, cmd BeanListPublicationPDFCommand, render func(BeanListPublication) ([]byte, error)) (BeanListPublicationPDFFile, error) {
+	if render == nil {
+		return BeanListPublicationPDFFile{}, fmt.Errorf("bean list renderer required")
+	}
+	normalized, err := normalizeBeanListPublicationPDFCommand(cmd)
+	if err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
+	if s.repo == nil {
+		return BeanListPublicationPDFFile{}, fmt.Errorf("repository required")
+	}
+	row, err := s.repo.LoadBeanListPublication(ctx, normalized.Query, normalized.PublicationID)
+	if err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
+	if row == nil {
+		return BeanListPublicationPDFFile{}, ErrBeanListPublicationNotFound
+	}
+	cacheKey := beanListPublicationPDFCacheKey(*row)
+	if asset, err := s.repo.LoadBeanListPublicationAsset(ctx, row.ID, "pdf"); err == nil && len(asset.Payload) > 0 && strings.TrimSpace(asset.CacheKey) == cacheKey {
+		return beanListPublicationPDFFile(*row, asset), nil
+	} else if err != nil && !errors.Is(err, ErrBeanListPublicationNotFound) {
+		return BeanListPublicationPDFFile{}, err
+	}
+	body, err := render(*row)
+	if err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
+	if len(body) == 0 {
+		return BeanListPublicationPDFFile{}, fmt.Errorf("bean list PDF is empty")
+	}
+	asset, err := s.repo.SaveBeanListPublicationAsset(ctx, BeanListPublicationAsset{
+		PublicationID: row.ID,
+		AssetType:     "pdf",
+		ContentType:   "application/pdf",
+		CacheKey:      cacheKey,
+		Payload:       body,
+	}, normalized.Actor)
+	if err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
+	return beanListPublicationPDFFile(*row, asset), nil
+}
+
+func (s *Service) LoadBeanListPublicationPDF(ctx context.Context, cmd BeanListPublicationPDFCommand) (BeanListPublicationPDFFile, error) {
+	normalized, err := normalizeBeanListPublicationPDFCommand(cmd)
+	if err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
+	if s.repo == nil {
+		return BeanListPublicationPDFFile{}, fmt.Errorf("repository required")
+	}
+	row, err := s.repo.LoadBeanListPublication(ctx, normalized.Query, normalized.PublicationID)
+	if err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
+	if row == nil {
+		return BeanListPublicationPDFFile{}, ErrBeanListPublicationNotFound
+	}
+	asset, err := s.repo.LoadBeanListPublicationAsset(ctx, row.ID, "pdf")
+	if err != nil {
+		return BeanListPublicationPDFFile{}, err
+	}
+	if len(asset.Payload) == 0 || strings.TrimSpace(asset.CacheKey) != beanListPublicationPDFCacheKey(*row) {
+		return BeanListPublicationPDFFile{}, ErrBeanListPublicationNotFound
+	}
+	return beanListPublicationPDFFile(*row, asset), nil
+}
+
 func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {
 	normalized, err := normalizeBeanListCommand(cmd)
 	if err != nil {
@@ -414,6 +542,13 @@ func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListComman
 		return PublishBeanListCommand{}, err
 	}
 	cmd.ListType = listType
+	if cmd.ProductTypeCategoryID < 0 {
+		return PublishBeanListCommand{}, fmt.Errorf("product_type_category_id must be >= 0")
+	}
+	cmd.ProductTypeName = strings.TrimSpace(cmd.ProductTypeName)
+	if cmd.ProductTypeName == "" {
+		cmd.ProductTypeName = LegacyBeanListTypeProductTypeName(cmd.ListType)
+	}
 	cmd.Version = strings.TrimSpace(cmd.Version)
 	cmd.Changelog = strings.TrimSpace(cmd.Changelog)
 	cmd.SourceVersion = strings.TrimSpace(cmd.SourceVersion)
@@ -435,7 +570,317 @@ func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListComman
 	if cmd.Content == nil {
 		cmd.Content = map[string]any{}
 	}
+	if cmd.ListType == "green" {
+		applyGreenBeanListManualPriceOverrides(cmd.Config, cmd.Content)
+	}
 	return cmd, nil
+}
+
+func applyGreenBeanListManualPriceOverrides(config map[string]any, content map[string]any) {
+	overridesByProduct := greenPriceOverridesByProduct(config)
+	if len(overridesByProduct) == 0 {
+		return
+	}
+	groups, ok := content["groups"].([]any)
+	if !ok {
+		return
+	}
+	for _, rawGroup := range groups {
+		group, ok := rawGroup.(map[string]any)
+		if !ok {
+			continue
+		}
+		items, ok := group["items"].([]any)
+		if !ok {
+			continue
+		}
+		for _, rawItem := range items {
+			item, ok := rawItem.(map[string]any)
+			if !ok {
+				continue
+			}
+			overrides := overridesByProduct[beanListItemProductKey(item)]
+			if len(overrides) == 0 {
+				overrides = overridesByProduct[stringValue(item["name"])]
+			}
+			if len(overrides) == 0 {
+				continue
+			}
+			tiers, ok := item["green_bean_sale_tiers"].([]any)
+			if !ok {
+				continue
+			}
+			changed := false
+			for _, rawTier := range tiers {
+				tier, ok := rawTier.(map[string]any)
+				if !ok {
+					continue
+				}
+				price, ok := greenTierManualOverride(tier, overrides)
+				if !ok {
+					continue
+				}
+				applyGreenTierManualPrice(tier, price)
+				changed = true
+			}
+			if changed {
+				item["prices"] = greenBeanPriceRowsFromTiers(tiers)
+			}
+		}
+	}
+}
+
+func greenPriceOverridesByProduct(config map[string]any) map[string]map[string]float64 {
+	customizers, ok := config["customizers"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := map[string]map[string]float64{}
+	for productKey, rawCustomizer := range customizers {
+		customizer, ok := rawCustomizer.(map[string]any)
+		if !ok {
+			continue
+		}
+		rawOverrides, ok := customizer["greenPriceOverrides"].(map[string]any)
+		if !ok {
+			continue
+		}
+		for tierKey, rawPrice := range rawOverrides {
+			price := numberValue(rawPrice)
+			if price <= 0 || strings.TrimSpace(tierKey) == "" {
+				continue
+			}
+			key := strings.TrimSpace(productKey)
+			if key == "" {
+				continue
+			}
+			if out[key] == nil {
+				out[key] = map[string]float64{}
+			}
+			out[key][strings.TrimSpace(tierKey)] = price
+		}
+	}
+	return out
+}
+
+func greenTierManualOverride(tier map[string]any, overrides map[string]float64) (float64, bool) {
+	for _, key := range []string{
+		stringValue(tier["template_tier_id"]),
+		stringValue(tier["templateTierID"]),
+		stringValue(tier["label"]),
+	} {
+		if key == "" {
+			continue
+		}
+		price, ok := overrides[key]
+		if ok && price > 0 {
+			return price, true
+		}
+	}
+	return 0, false
+}
+
+func applyGreenTierManualPrice(tier map[string]any, price float64) {
+	unitPrice := roundBeanListPrice(price)
+	priceUnit := greenBeanTierPriceUnit(tier, true)
+	unitG := greenBeanPriceUnitG(priceUnit, tier)
+	pricePerKg := unitPrice
+	if unitG > 0 && unitG != 1000 {
+		pricePerKg = unitPrice * 1000.0 / unitG
+	}
+	tier["price_unit"] = priceUnit
+	tier["price_per_unit"] = unitPrice
+	tier["price_per_kg"] = roundBeanListPrice(pricePerKg)
+	tier["price_per_lb"] = roundBeanListPrice(pricePerKg * domain.DefaultParameters().KgToLbFactor)
+}
+
+func greenBeanPriceRowsFromTiers(tiers []any) []any {
+	rows := make([]any, 0, len(tiers))
+	for _, rawTier := range tiers {
+		tier, ok := rawTier.(map[string]any)
+		if !ok {
+			continue
+		}
+		rows = append(rows, map[string]any{
+			"label": stringValue(tier["label"]),
+			"price": greenBeanDisplayPrice(tier),
+			"unit":  greenBeanPriceUnitLabel(tier),
+			"red":   false,
+		})
+	}
+	return rows
+}
+
+func greenBeanPriceUnitLabel(tier map[string]any) string {
+	switch greenBeanTierPriceUnit(tier, false) {
+	case "kg":
+		return "kg"
+	case "g100":
+		return "100g"
+	case "g227":
+		return "227g"
+	case "g250":
+		return "250g"
+	case "lb":
+		return "磅"
+	}
+	switch normalizeGreenBeanPriceUnit(stringValue(tier["display_unit"])) {
+	case "kg":
+		return "kg"
+	case "g100":
+		return "100g"
+	case "g227":
+		return "227g"
+	case "g250":
+		return "250g"
+	default:
+		return "磅"
+	}
+}
+
+func greenBeanDisplayPrice(tier map[string]any) float64 {
+	priceUnit := greenBeanTierPriceUnit(tier, false)
+	pricePerKg := greenBeanPricePerKg(tier)
+	switch priceUnit {
+	case "kg":
+		return roundBeanListPrice(firstPositiveNumber(pricePerKg, numberValue(tier["price_per_unit"])))
+	case "lb":
+		return roundBeanListPrice(firstPositiveNumber(numberValue(tier["price_per_lb"]), pricePerKg*domain.DefaultParameters().KgToLbFactor, numberValue(tier["price_per_unit"])))
+	default:
+		unitG := greenBeanPriceUnitG(priceUnit, tier)
+		if unitG > 0 && pricePerKg > 0 {
+			return roundBeanListPrice(pricePerKg * unitG / 1000.0)
+		}
+		return roundBeanListPrice(numberValue(tier["price_per_unit"]))
+	}
+}
+
+func greenBeanPricePerKg(tier map[string]any) float64 {
+	if price := numberValue(tier["price_per_kg"]); price > 0 {
+		return price
+	}
+	if normalizeGreenBeanPriceUnit(stringValue(tier["display_unit"])) == "kg" {
+		if price := numberValue(tier["price_per_unit"]); price > 0 {
+			return price
+		}
+	}
+	if price := numberValue(tier["price_per_lb"]); price > 0 {
+		return price / domain.DefaultParameters().KgToLbFactor
+	}
+	return 0
+}
+
+func greenBeanTierPriceUnit(tier map[string]any, preferDisplay bool) string {
+	displayUnit := normalizeGreenBeanPriceUnit(stringValue(tier["display_unit"]))
+	explicitUnit := normalizeGreenBeanPriceUnit(stringValue(tier["price_unit"]))
+	if preferDisplay {
+		return firstNonEmpty(displayUnit, explicitUnit, "lb")
+	}
+	return firstNonEmpty(explicitUnit, displayUnit, "lb")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func normalizeGreenBeanPriceUnit(unit string) string {
+	switch strings.TrimSpace(strings.ToLower(unit)) {
+	case "kg", "lb", "g100", "g227", "g250":
+		return strings.TrimSpace(strings.ToLower(unit))
+	default:
+		return ""
+	}
+}
+
+func greenBeanPriceUnitG(unit string, tier map[string]any) float64 {
+	switch normalizeGreenBeanPriceUnit(unit) {
+	case "kg":
+		return 1000
+	case "lb":
+		return 454
+	case "g100":
+		return 100
+	case "g227":
+		return 227
+	case "g250":
+		return 250
+	default:
+		specG := numberValue(tier["spec_g"])
+		if specG > 0 {
+			return specG
+		}
+		return 454
+	}
+}
+
+func beanListItemProductKey(item map[string]any) string {
+	for _, key := range []string{"product_id", "productID", "productId", "id", "name"} {
+		value := stringValue(item[key])
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func stringValue(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(v)
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(v), 'f', -1, 64)
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case json.Number:
+		return strings.TrimSpace(v.String())
+	default:
+		return strings.TrimSpace(fmt.Sprint(value))
+	}
+}
+
+func numberValue(value any) float64 {
+	switch v := value.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case json.Number:
+		n, _ := v.Float64()
+		return n
+	case string:
+		n, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return n
+	default:
+		return 0
+	}
+}
+
+func firstPositiveNumber(values ...float64) float64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func roundBeanListPrice(value float64) float64 {
+	return math.Round((value+1e-9)*100) / 100
 }
 
 func (s *Service) WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error {
@@ -484,10 +929,24 @@ func normalizeBeanListType(listType string) (string, error) {
 	}
 }
 
+func LegacyBeanListTypeProductTypeName(listType string) string {
+	switch strings.TrimSpace(listType) {
+	case "green", "green_bean":
+		return "生豆"
+	case "drip":
+		return "挂耳"
+	default:
+		return "熟豆"
+	}
+}
+
 func normalizeBeanListPublicationQuery(query BeanListPublicationQuery) (BeanListPublicationQuery, error) {
 	listType, err := normalizeBeanListType(query.ListType)
 	if err != nil {
 		return BeanListPublicationQuery{}, err
+	}
+	if query.ProductTypeCategoryID < 0 {
+		return BeanListPublicationQuery{}, fmt.Errorf("product_type_category_id must be >= 0")
 	}
 	ownerType, ownerKey, err := normalizeBeanListOwner(query.OwnerType, query.OwnerKey)
 	if err != nil {
@@ -497,6 +956,62 @@ func normalizeBeanListPublicationQuery(query BeanListPublicationQuery) (BeanList
 	query.OwnerType = ownerType
 	query.OwnerKey = ownerKey
 	return query, nil
+}
+
+func normalizeBeanListPublicationPDFCommand(cmd BeanListPublicationPDFCommand) (BeanListPublicationPDFCommand, error) {
+	if cmd.PublicationID <= 0 {
+		return BeanListPublicationPDFCommand{}, fmt.Errorf("invalid id")
+	}
+	query, err := normalizeBeanListPublicationQuery(cmd.Query)
+	if err != nil {
+		return BeanListPublicationPDFCommand{}, err
+	}
+	cmd.Query = query
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return cmd, nil
+}
+
+var beanListPublicationPDFFilenameUnsafeChars = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+
+func beanListPublicationPDFFile(row BeanListPublication, asset BeanListPublicationAsset) BeanListPublicationPDFFile {
+	contentType := strings.TrimSpace(asset.ContentType)
+	if contentType == "" {
+		contentType = "application/pdf"
+	}
+	cacheKey := strings.TrimSpace(asset.CacheKey)
+	if cacheKey == "" {
+		cacheKey = beanListPublicationPDFCacheKey(row)
+	}
+	return BeanListPublicationPDFFile{
+		PublicationID: row.ID,
+		ListType:      row.ListType,
+		Version:       row.Version,
+		ContentType:   contentType,
+		CacheKey:      cacheKey,
+		Filename:      beanListPublicationPDFFilename(row),
+		Bytes:         len(asset.Payload),
+		Payload:       asset.Payload,
+	}
+}
+
+func beanListPublicationPDFCacheKey(row BeanListPublication) string {
+	version := strings.TrimSpace(row.Version)
+	if version == "" {
+		version = "published"
+	}
+	return fmt.Sprintf("bean-list-preview-style-v4:%d:%s", row.ID, version)
+}
+
+func beanListPublicationPDFFilename(row BeanListPublication) string {
+	listType := strings.TrimSpace(row.ListType)
+	if listType == "" {
+		listType = "bean-list"
+	}
+	version := strings.TrimSpace(row.Version)
+	if version == "" {
+		version = fmt.Sprintf("%d", row.ID)
+	}
+	return "bean-list-" + beanListPublicationPDFFilenameUnsafeChars.ReplaceAllString(listType+"-"+version, "-") + ".pdf"
 }
 
 func normalizeBeanListOwner(ownerType, ownerKey string) (string, string, error) {

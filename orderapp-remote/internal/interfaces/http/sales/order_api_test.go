@@ -42,6 +42,64 @@ func TestOrderEntryRedirectsToVueShell(t *testing.T) {
 	}
 }
 
+func TestAPIProductsCarriesTierDisplayUnit(t *testing.T) {
+	products := apiProducts([]ProductOption{{
+		ID:          414,
+		Name:        "兰卡拼配生豆",
+		ProductKind: "green_bean",
+		Tiers: []ProductTierOption{{
+			ID:          50,
+			SpecG:       1000,
+			MinQty:      1,
+			UnitPrice:   23.49,
+			DisplayUnit: "kg",
+			ProductKind: "green_bean",
+		}},
+	}})
+
+	tiers, ok := products[0]["tiers"].([]map[string]any)
+	if !ok || len(tiers) != 1 {
+		t.Fatalf("tiers = %#v, want one tier map", products[0]["tiers"])
+	}
+	if got := tiers[0]["display_unit"]; got != "kg" {
+		t.Fatalf("display_unit = %#v, want kg", got)
+	}
+}
+
+func TestAPIProductsCarriesProductTypeAndUnitRule(t *testing.T) {
+	products := apiProducts([]ProductOption{{
+		ID:                       515,
+		Name:                     "冻干美式 20杯盒",
+		ProductKind:              "instant_coffee",
+		ProductTypeCategoryID:    12,
+		ProductSubtypeCategoryID: 13,
+		ProductTypeName:          "速溶咖啡",
+		ProductSubtypeName:       "冻干速溶",
+		InventoryUnit:            "kg",
+		QuoteUnit:                "盒",
+		OrderUnit:                "盒",
+		UnitConversionJSON:       `{"盒":{"kg":0.2}}`,
+		IntegerUnit:              true,
+	}})
+
+	got := products[0]
+	for key, want := range map[string]any{
+		"product_type_category_id":    int64(12),
+		"product_subtype_category_id": int64(13),
+		"product_type_name":           "速溶咖啡",
+		"product_subtype_name":        "冻干速溶",
+		"inventory_unit":              "kg",
+		"quote_unit":                  "盒",
+		"order_unit":                  "盒",
+		"unit_conversion_json":        `{"盒":{"kg":0.2}}`,
+		"integer_unit":                true,
+	} {
+		if got[key] != want {
+			t.Fatalf("%s = %#v, want %#v", key, got[key], want)
+		}
+	}
+}
+
 func TestOrderAPIRoutesExposeIrreversibleVoidJSONEndpoints(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "sales", "order_api.go"))
 	if err != nil {
@@ -94,6 +152,10 @@ func TestOrderAPIFormReturnsCustomerDefaultsForOrderEntry(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.company_employees(id,name,phone,department_id,account_type,active)
+		VALUES (44,'外部客户账号','13900000044',1,'channel_customer',true);
+	`, schema))
 
 	e := newOrderAPITestEcho(pool, schema)
 	req := httptest.NewRequest(http.MethodGet, "/api/order/form", nil)
@@ -104,10 +166,200 @@ func TestOrderAPIFormReturnsCustomerDefaultsForOrderEntry(t *testing.T) {
 		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, needle := range []string{`"default_source_id":1`, `"default_order_type_id":2`, `"py"`, `"pyi"`} {
+	for _, needle := range []string{`"customer_type":"wholesale"`, `"default_source_id":1`, `"default_order_type_id":2`, `"responsible_employee_id":5`, `"responsible_employee_name":"销售小王"`, `"py"`, `"pyi"`, `"销售小王"`} {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("GET /api/order/form missing %s: %s", needle, body)
 		}
+	}
+	if strings.Contains(body, "外部客户账号") {
+		t.Fatalf("GET /api/order/form exposed channel customer account as employee option: %s", body)
+	}
+}
+
+func TestOrderAPISaveUsesCustomerProfileDefaultsForHiddenHeaderFields(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := `{
+		"order_date":"2026-05-23",
+		"customer_id":3,
+		"pay_status_id":1,
+		"ship_status_id":1,
+		"product_id":["7"],
+		"item_name":["橘皮乌龙"],
+		"tier_id":["manual"],
+		"unit_price":["88"],
+		"qty":["1"],
+		"unit":["件"],
+		"spec":["454"]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/order", strings.NewReader(payload))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		OrderID int64 `json:"order_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	var sourceID, orderTypeID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(source_id,0), COALESCE(order_type_id,0) FROM %s.orders WHERE id=$1`, schema), resp.OrderID).Scan(&sourceID, &orderTypeID); err != nil {
+		t.Fatalf("query saved order defaults: %v", err)
+	}
+	if sourceID != 1 || orderTypeID != 2 {
+		t.Fatalf("saved header defaults source=%d order_type=%d, want 1/2", sourceID, orderTypeID)
+	}
+}
+
+func TestOrderAPISaveRejectsCustomerMissingRequiredProfileDefaults(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.customers(id,name,customer_type,contact,phone,address,active,responsible_employee_id)
+		VALUES (8,'缺资料客户','','缺资料','13800000008','杭州市缺资料路',true,5);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := `{
+		"order_date":"2026-05-23",
+		"customer_id":8,
+		"pay_status_id":1,
+		"ship_status_id":1,
+		"product_id":["7"],
+		"item_name":["橘皮乌龙"],
+		"tier_id":["manual"],
+		"unit_price":["88"],
+		"qty":["1"],
+		"unit":["件"],
+		"spec":["454"]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/order", strings.NewReader(payload))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/order status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{"客户类型", "来源", "订单类型"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("POST /api/order missing required %s error: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestOrderAPIFormReturnsLogisticsSettings(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{`"logistics_companies"`, `"顺丰"`, `"顺丰小件"`, `"顺丰大件"`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("GET /api/order/form missing %s: %s", needle, body)
+		}
+	}
+}
+
+func TestOrderAPIPaidStatusRequiresPaymentVoucher(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.pay_statuses(id,name) VALUES (3,'已收款') ON CONFLICT DO NOTHING;
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := `{
+		"order_date":"2026-05-23",
+		"customer_id":3,
+		"source_id":1,
+		"order_type_id":1,
+		"pay_status_id":3,
+		"payment_method":"微信支付",
+		"payment_goods_amount":"88.00",
+		"payment_shipping_amount":"0.00",
+		"ship_status_id":1,
+		"product_id":["7"],
+		"item_name":["橘皮乌龙"],
+		"tier_id":["manual"],
+		"unit_price":["88"],
+		"qty":["1"],
+		"unit":["件"],
+		"spec":["454"]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/order", strings.NewReader(payload))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/order status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "payment_voucher_asset_id") {
+		t.Fatalf("POST /api/order should require payment voucher, body=%s", rec.Body.String())
+	}
+}
+
+func TestOrderAPIShippedStatusRequiresLogisticsProduct(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.ship_statuses(id,name) VALUES (2,'已发货') ON CONFLICT DO NOTHING;
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := `{
+		"order_date":"2026-05-23",
+		"customer_id":3,
+		"source_id":1,
+		"order_type_id":1,
+		"pay_status_id":1,
+		"ship_status_id":2,
+		"product_id":["7"],
+		"item_name":["橘皮乌龙"],
+		"tier_id":["manual"],
+		"unit_price":["88"],
+		"qty":["1"],
+		"unit":["件"],
+		"spec":["454"]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/order", strings.NewReader(payload))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/order status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "logistics_company_id") {
+		t.Fatalf("POST /api/order should require logistics company, body=%s", rec.Body.String())
 	}
 }
 
@@ -268,6 +520,398 @@ func TestOrderAPIFormFiltersCustomerSpecificProducts(t *testing.T) {
 	}
 }
 
+func TestOrderAPIFormReturnsCustomerProductUsageForCommonProductSorting(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,retail_price_227g)
+		VALUES
+			(8,'客户常订拼配',58,true,58),
+			(9,'其他客户常订',59,true,59);
+		INSERT INTO %[1]s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES
+			(101,'SO-COMMON-1','2026-05-01',3,1,2,1,1,100,false),
+			(102,'SO-COMMON-2','2026-05-02',3,1,2,1,1,100,false),
+			(103,'SO-COMMON-3','2026-05-03',3,1,2,1,1,100,false),
+			(104,'SO-COMMON-VOID','2026-05-04',3,1,2,1,1,100,true),
+			(105,'SO-OTHER-CUSTOMER','2026-05-05',4,1,2,1,1,100,false);
+		INSERT INTO %[1]s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES
+			(101,1,8,'客户常订拼配',1,'件','454',58,58),
+			(102,1,8,'客户常订拼配',1,'件','454',58,58),
+			(103,1,7,'橘皮乌龙',1,'件','454',50,50),
+			(104,1,9,'作废订单商品',1,'件','454',59,59),
+			(105,1,9,'其他客户常订',1,'件','454',59,59);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		CustomerProductUsages []salesapp.CustomerProductUsageOption `json:"customer_product_usages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	var product8, product9 salesapp.CustomerProductUsageOption
+	for _, row := range resp.CustomerProductUsages {
+		if row.CustomerID == 3 && row.ProductID == 8 {
+			product8 = row
+		}
+		if row.CustomerID == 3 && row.ProductID == 9 {
+			product9 = row
+		}
+	}
+	if product8.OrderCount != 2 || product8.ItemCount != 2 || product8.LastOrderDate != "2026-05-02" {
+		t.Fatalf("customer 3 product 8 usage = %+v, want 2 orders / 2 items / 2026-05-02", product8)
+	}
+	if product9.ProductID != 0 {
+		t.Fatalf("voided order product should not be counted for customer 3: %+v", product9)
+	}
+}
+
+func TestOrderAPIFormUsesCustomerCommercialBeanListForProductOptions(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,retail_price_227g,customer_id,base_product_id,visibility,custom_type,product_kind)
+		VALUES
+			(8,'芬纳定制-红酒日晒-中深烘',0,true,0,3,0,'customer_only','custom_roast','roasted'),
+			(9,'芬纳曲奇定制',0,true,0,3,0,'customer_only','custom_roast','roasted');
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9903,'commercial','F-1','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":8,"name":"芬纳定制-红酒日晒-中深烘","commercial_wholesale_tiers":[{"label":"2磅-13磅","spec_g":454,"min_qty":2,"max_qty":13,"price_per_unit":65,"price_per_lb":65,"template_id":6,"template_tier_id":56,"display_unit":"lb"},{"label":"14-23磅","spec_g":454,"min_qty":14,"max_qty":23,"price_per_unit":59,"price_per_lb":59,"template_id":6,"template_tier_id":57,"display_unit":"lb"}]},{"productId":9,"name":"芬纳曲奇定制","commercial_wholesale_tiers":[{"label":"2磅-13磅","spec_g":454,"min_qty":2,"max_qty":13,"price_per_unit":52,"price_per_lb":52,"template_id":6,"template_tier_id":56,"display_unit":"lb"}]}]}]}'::jsonb,
+			'芬纳客户豆单','codex','2026-05-22 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Products []struct {
+			ID    int64  `json:"id"`
+			Name  string `json:"name"`
+			Tiers []struct {
+				ID              int64   `json:"id"`
+				SpecG           int64   `json:"spec_g"`
+				MinQty          float64 `json:"min"`
+				UnitPrice       float64 `json:"unit_price"`
+				DisplayUnit     string  `json:"display_unit"`
+				ProductKind     string  `json:"product_kind"`
+				PriceSourceJSON string  `json:"price_source_json"`
+			} `json:"tiers"`
+		} `json:"products"`
+		BeanListVersionOptions []salesapp.BeanListVersionOption `json:"bean_list_version_options"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	names := make([]string, 0, len(resp.Products))
+	var redWine *struct {
+		ID    int64  `json:"id"`
+		Name  string `json:"name"`
+		Tiers []struct {
+			ID              int64   `json:"id"`
+			SpecG           int64   `json:"spec_g"`
+			MinQty          float64 `json:"min"`
+			UnitPrice       float64 `json:"unit_price"`
+			DisplayUnit     string  `json:"display_unit"`
+			ProductKind     string  `json:"product_kind"`
+			PriceSourceJSON string  `json:"price_source_json"`
+		} `json:"tiers"`
+	}
+	for i := range resp.Products {
+		names = append(names, resp.Products[i].Name)
+		if resp.Products[i].ID == 8 {
+			redWine = &resp.Products[i]
+		}
+	}
+	if strings.Contains(strings.Join(names, ","), "橘皮乌龙") {
+		t.Fatalf("customer commercial bean list should hide public products not in the customer bean list, got %v", names)
+	}
+	if redWine == nil {
+		t.Fatalf("order form missing customer bean-list product 8: %v", names)
+	}
+	if len(redWine.Tiers) != 2 {
+		t.Fatalf("customer commercial tiers = %+v, want 2 tiers", redWine.Tiers)
+	}
+	if redWine.Tiers[0].ID != 56 || redWine.Tiers[0].SpecG != 454 || redWine.Tiers[0].MinQty != 2 || redWine.Tiers[0].UnitPrice != 65 {
+		t.Fatalf("first customer commercial tier = %+v", redWine.Tiers[0])
+	}
+	if redWine.Tiers[0].DisplayUnit != "lb" || redWine.Tiers[0].ProductKind != "roasted_bean" || !strings.Contains(redWine.Tiers[0].PriceSourceJSON, `"publication_id":9903`) {
+		t.Fatalf("customer commercial tier source = %+v", redWine.Tiers[0])
+	}
+}
+
+func TestOrderAPIFormReturnsAllPublishedCommercialBeanListTiersForVersionSwitching(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9902,'commercial','V3.0.13','published','official','','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":7,"name":"橘皮乌龙","commercial_wholesale_tiers":[{"label":"2磅-13磅","spec_g":454,"min_qty":2,"max_qty":13,"price_per_unit":61,"price_per_lb":61,"template_id":6,"template_tier_id":62,"display_unit":"lb"}]}]}]}'::jsonb,
+			'公共旧版','codex','2026-05-23 09:00:00+08'),
+			(9903,'commercial','V3.0.14','published','official','','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":7,"name":"橘皮乌龙","commercial_wholesale_tiers":[{"label":"2磅-13磅","spec_g":454,"min_qty":2,"max_qty":13,"price_per_unit":64,"price_per_lb":64,"template_id":6,"template_tier_id":63,"display_unit":"lb"}]}]}]}'::jsonb,
+			'公共新版','codex','2026-05-24 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Products []struct {
+			ID    int64 `json:"id"`
+			Tiers []struct {
+				UnitPrice       float64 `json:"unit_price"`
+				PriceSourceJSON string  `json:"price_source_json"`
+			} `json:"tiers"`
+		} `json:"products"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	seen := map[int64]float64{}
+	for _, product := range resp.Products {
+		if product.ID != 7 {
+			continue
+		}
+		for _, tier := range product.Tiers {
+			var source map[string]any
+			if err := json.Unmarshal([]byte(tier.PriceSourceJSON), &source); err != nil {
+				t.Fatalf("decode price source json %q: %v", tier.PriceSourceJSON, err)
+			}
+			id, _ := source["publication_id"].(float64)
+			if id > 0 {
+				seen[int64(id)] = tier.UnitPrice
+			}
+		}
+	}
+	if seen[9902] != 61 || seen[9903] != 64 {
+		t.Fatalf("commercial product tiers by publication = %#v, want 9902=61 and 9903=64", seen)
+	}
+}
+
+func TestOrderAPIFormReturnsLatestBeanListVersionDefaultForStaleWarning(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9902,'commercial','F-1','published','customer','3','{}'::jsonb,'{}'::jsonb,'旧版','codex','2026-05-21 09:00:00+08'),
+			(9903,'commercial','F-2','published','customer','3','{}'::jsonb,'{}'::jsonb,'新版','codex','2026-05-22 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		BeanListVersionOptions []salesapp.BeanListVersionOption `json:"bean_list_version_options"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	defaultByID := map[int64]bool{}
+	for _, option := range resp.BeanListVersionOptions {
+		if option.CustomerID == 3 && option.ListType == "commercial" {
+			defaultByID[option.ID] = option.IsDefault
+		}
+	}
+	if len(defaultByID) != 2 || defaultByID[9902] || !defaultByID[9903] {
+		t.Fatalf("commercial bean list defaults = %#v, want old=false latest=true", defaultByID)
+	}
+}
+
+func TestOrderAPIFormHidesWithdrawnPublicBeanListVersionsForFallbackCustomer(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9911,'commercial','P-1','withdrawn','official','','{}'::jsonb,'{}'::jsonb,'旧公共版','codex','2026-05-20 09:00:00+08'),
+			(9912,'commercial','P-2','published','official','','{}'::jsonb,'{}'::jsonb,'新公共版','codex','2026-05-22 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		BeanListVersionOptions []salesapp.BeanListVersionOption `json:"bean_list_version_options"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	defaultByID := map[int64]bool{}
+	ownedByID := map[int64]bool{}
+	for _, option := range resp.BeanListVersionOptions {
+		if option.CustomerID == 3 && option.ListType == "commercial" {
+			defaultByID[option.ID] = option.IsDefault
+			ownedByID[option.ID] = option.IsCustomerOwned
+		}
+	}
+	if len(defaultByID) != 1 || defaultByID[9911] || !defaultByID[9912] {
+		t.Fatalf("public fallback versions = %#v, want only currently published version 9912", defaultByID)
+	}
+	if ownedByID[9911] || ownedByID[9912] {
+		t.Fatalf("public fallback versions should not be customer owned: %#v", ownedByID)
+	}
+}
+
+func TestOrderAPIFormReturnsGlobalPublicBeanListVersionsBeforeCustomerSelected(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9921,'commercial','P-1','published','official','','{}'::jsonb,'{}'::jsonb,'公共旧版','codex','2026-05-20 09:00:00+08'),
+			(9922,'commercial','P-2','published','official','','{}'::jsonb,'{}'::jsonb,'公共新版','codex','2026-05-22 09:00:00+08'),
+			(9923,'green','G-1','published','official','','{}'::jsonb,'{}'::jsonb,'公共生豆','codex','2026-05-22 10:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		BeanListVersionOptions []salesapp.BeanListVersionOption `json:"bean_list_version_options"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	defaultByID := map[int64]bool{}
+	for _, option := range resp.BeanListVersionOptions {
+		if option.CustomerID == 0 {
+			defaultByID[option.ID] = option.IsDefault
+			if option.IsCustomerOwned {
+				t.Fatalf("global public option should not be customer owned: %+v", option)
+			}
+		}
+	}
+	for _, id := range []int64{9921, 9922, 9923} {
+		if _, ok := defaultByID[id]; !ok {
+			t.Fatalf("global public bean-list options missing id %d; got %#v", id, defaultByID)
+		}
+	}
+	if defaultByID[9921] || !defaultByID[9922] || !defaultByID[9923] {
+		t.Fatalf("global public default flags = %#v, want commercial latest and green latest defaults", defaultByID)
+	}
+}
+
+func TestOrderAPIRejectsWithdrawnPublicBeanListPublicationVersion(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor)
+		VALUES(9911,'commercial','P-1','withdrawn','official','','{}'::jsonb,'{"title":"公共豆单 P-1"}'::jsonb,'旧公共版','tester');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":                          "2026-05-23",
+		"customer_id":                         3,
+		"source_id":                           1,
+		"order_type_id":                       1,
+		"pay_status_id":                       2,
+		"payment_method":                      "微信支付",
+		"ship_status_id":                      1,
+		"commercial_bean_list_publication_id": 9911,
+		"product_id":                          []string{"7"},
+		"tier_id":                             []string{""},
+		"unit_price":                          []string{"99"},
+		"item_name":                           []string{"橘皮乌龙"},
+		"qty":                                 []string{"1"},
+		"unit":                                []string{"件"},
+		"spec":                                []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid bean list publication") {
+		t.Fatalf("POST /api/order status/body = %d/%s, want 400 invalid bean list publication", rec.Code, rec.Body.String())
+	}
+}
+
+func TestOrderAPIFormHidesPublicGreenBeansWhenCustomerDisablesPublicSKU(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_sku_public_usage(customer_id, use_public_sku, use_public_categories)
+		VALUES (3, false, false);
+		INSERT INTO %[1]s.products(id,name,default_price,active,retail_price_227g,customer_id,base_product_id,visibility,custom_type,product_kind)
+		VALUES
+			(8,'芬纳定制-红酒日晒-中深烘',0,true,0,3,0,'customer_only','custom_roast','roasted'),
+			(88,'岩师傅红酒日晒生豆',0,true,0,0,0,'public','','green_bean');
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9903,'commercial','F-1','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":8,"name":"芬纳定制-红酒日晒-中深烘","commercial_wholesale_tiers":[{"label":"2磅-13磅","spec_g":454,"min_qty":2,"max_qty":13,"price_per_unit":65,"price_per_lb":65,"template_id":6,"template_tier_id":56,"display_unit":"lb"}]}]}]}'::jsonb,
+			'芬纳客户豆单','codex','2026-05-22 09:00:00+08'),
+			(9904,'green','G-1','published','official','','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":88,"name":"岩师傅红酒日晒生豆","green_bean_sale_tiers":[{"label":"1KG","spec_g":1000,"min_qty":1,"price_per_unit":62,"display_unit":"kg","template_id":5,"template_tier_id":51}]}]}]}'::jsonb,
+			'公共生豆豆单','codex','2026-05-22 10:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	body := rec.Body.String()
+	if strings.Contains(body, "岩师傅红酒日晒生豆") {
+		t.Fatalf("customer with use_public_sku=false should not see public green bean products: %s", body)
+	}
+	if !strings.Contains(body, "芬纳定制-红酒日晒-中深烘") {
+		t.Fatalf("customer-owned bean-list product should remain visible: %s", body)
+	}
+	if !strings.Contains(body, `"customer_public_usages"`) || !strings.Contains(body, `"use_public_sku":false`) {
+		t.Fatalf("order form should expose customer public SKU usage for client-side filtering: %s", body)
+	}
+}
+
 func TestOrderAPIFormDoesNotReturnBoundRoastedTiersForGreenBeanProduct(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -328,6 +972,95 @@ func TestOrderAPIFormDoesNotReturnBoundRoastedTiersForGreenBeanProduct(t *testin
 	}
 	if len(green.Tiers) != 0 {
 		t.Fatalf("green bean must not inherit bound roasted tiers, got %+v", green.Tiers)
+	}
+}
+
+func TestOrderAPIFormReturnsPublishedGreenBeanListTiersForGreenBeanProduct(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,product_kind,green_bean_type,green_bean_bom_product_id,customer_id,visibility,custom_type)
+		VALUES (88,'曲奇拼配2.0',0,true,'green_bean','blend',7,3,'customer_only','public_sku_alias');
+		INSERT INTO %[1]s.product_price_tiers(id, product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, active, product_kind)
+		VALUES (8803,88,454,2,13,63,true,'roasted_bean');
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9901,'green','G-old','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":88,"name":"曲奇拼配2.0","green_bean_sale_tiers":[{"label":"旧档","spec_g":1000,"min_qty":1,"price_per_unit":58,"price_per_lb":26.33,"template_id":5,"template_tier_id":49,"display_unit":"kg"}]}]}]}'::jsonb,
+			'旧生豆价','codex','2026-05-18 09:00:00+08'),
+			(9902,'green','G-new','published','customer','3','{"customizers":{"88":{"greenPriceOverrides":{"51":62}}}}'::jsonb,
+			'{"groups":[{"items":[{"productId":88,"name":"曲奇拼配2.0","green_bean_sale_tiers":[{"label":"1KG","spec_g":1000,"min_qty":1,"max_qty":59,"price_per_unit":51.75,"price_per_lb":23.49,"template_id":5,"template_tier_id":50,"display_unit":"kg"},{"label":"60kG","spec_g":1000,"min_qty":60,"price_per_unit":62,"price_per_lb":28.15,"template_id":5,"template_tier_id":51,"display_unit":"kg"}]}]}]}'::jsonb,
+			'新生豆价','codex','2026-05-19 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Products []struct {
+			ID          int64  `json:"id"`
+			ProductKind string `json:"product_kind"`
+			Tiers       []struct {
+				ID              int64    `json:"id"`
+				SpecG           int64    `json:"spec_g"`
+				MinQty          float64  `json:"min"`
+				MaxQty          *float64 `json:"max"`
+				UnitPrice       float64  `json:"unit_price"`
+				DisplayUnit     string   `json:"display_unit"`
+				ProductKind     string   `json:"product_kind"`
+				PriceSourceJSON string   `json:"price_source_json"`
+			} `json:"tiers"`
+		} `json:"products"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode order form: %v", err)
+	}
+	var green *struct {
+		ID          int64  `json:"id"`
+		ProductKind string `json:"product_kind"`
+		Tiers       []struct {
+			ID              int64    `json:"id"`
+			SpecG           int64    `json:"spec_g"`
+			MinQty          float64  `json:"min"`
+			MaxQty          *float64 `json:"max"`
+			UnitPrice       float64  `json:"unit_price"`
+			DisplayUnit     string   `json:"display_unit"`
+			ProductKind     string   `json:"product_kind"`
+			PriceSourceJSON string   `json:"price_source_json"`
+		} `json:"tiers"`
+	}
+	for i := range resp.Products {
+		if resp.Products[i].ID == 88 {
+			green = &resp.Products[i]
+			break
+		}
+	}
+	if green == nil {
+		t.Fatalf("order form missing green bean product 88: %s", rec.Body.String())
+	}
+	if len(green.Tiers) != 2 {
+		t.Fatalf("green bean tiers = %+v, want 2 published tiers", green.Tiers)
+	}
+	if green.Tiers[0].ID != 50 || green.Tiers[0].SpecG != 1000 || green.Tiers[0].MinQty != 1 || green.Tiers[0].MaxQty == nil || *green.Tiers[0].MaxQty != 59 || green.Tiers[0].UnitPrice != 23.49 {
+		t.Fatalf("first published green bean tier = %+v", green.Tiers[0])
+	}
+	if green.Tiers[0].DisplayUnit != "kg" || green.Tiers[1].DisplayUnit != "kg" {
+		t.Fatalf("green bean tier display units = %q/%q, want kg/kg", green.Tiers[0].DisplayUnit, green.Tiers[1].DisplayUnit)
+	}
+	if green.Tiers[1].ID != 51 || green.Tiers[1].MinQty != 60 || green.Tiers[1].UnitPrice != 62 {
+		t.Fatalf("second published green bean tier = %+v", green.Tiers[1])
+	}
+	if green.Tiers[0].ProductKind != "green_bean" || !strings.Contains(green.Tiers[0].PriceSourceJSON, `"publication_id":9902`) {
+		t.Fatalf("green bean tier source = %+v", green.Tiers[0])
+	}
+	if !strings.Contains(green.Tiers[1].PriceSourceJSON, `"price_unit":"kg"`) {
+		t.Fatalf("manual green bean tier source should preserve kg price unit: %+v", green.Tiers[1])
 	}
 }
 
@@ -492,6 +1225,70 @@ func TestOrderAPIWholesaleExactSpecTierUsesKilogramQuantityForKgProducts(t *test
 	}
 }
 
+func TestOrderAPISavesBeanListKgDisplayUnitForSmallPackageOrder(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,retail_price_227g,customer_id,base_product_id,visibility,custom_type,product_kind)
+		VALUES (808,'兰卡拼配',0,true,0,3,0,'customer_only','custom_roast','roasted');
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9909,'commercial','V3.0.9','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":808,"name":"兰卡拼配","commercial_wholesale_tiers":[{"label":"25-49kg","spec_g":1000,"min_qty":25,"max_qty":49,"price_per_unit":82,"price_per_lb":37.23,"template_id":6,"template_tier_id":64,"display_unit":"kg","price_unit":"kg"}]}]}]}'::jsonb,
+			'kg量单','codex','2026-05-23 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":                          "2026-05-23",
+		"customer_id":                         3,
+		"source_id":                           1,
+		"order_type_id":                       1,
+		"pay_status_id":                       2,
+		"payment_method":                      "微信支付",
+		"ship_status_id":                      1,
+		"commercial_bean_list_publication_id": 9909,
+		"product_id":                          []string{"808"},
+		"tier_id":                             []string{"64"},
+		"unit_price":                          []string{"82"},
+		"item_name":                           []string{"兰卡拼配"},
+		"qty":                                 []string{"1"},
+		"unit":                                []string{"件"},
+		"spec":                                []string{"80"},
+		"product_kind":                        []string{"roasted_bean"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var unitPrice, lineTotal float64
+	var version, priceSource string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(unit_price,0)::float8,
+		       COALESCE(line_total,0)::float8,
+		       COALESCE(bean_list_version_no,''),
+		       COALESCE(price_source_json,'{}'::jsonb)::text
+		FROM %s.order_items
+		WHERE product_id=808
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&unitPrice, &lineTotal, &version, &priceSource); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if unitPrice != 82 || lineTotal != 6.56 || version != "V3.0.9" {
+		t.Fatalf("unit_price/line_total/version=%.2f/%.2f/%q, want 82.00/6.56/V3.0.9", unitPrice, lineTotal, version)
+	}
+	if !strings.Contains(priceSource, `"price_unit":"kg"`) && !strings.Contains(priceSource, `"price_unit": "kg"`) {
+		t.Fatalf("price_source_json should retain kg price unit: %s", priceSource)
+	}
+}
+
 func TestOrderAPICreatesDripBagOrderSavesUnitMetadataPriceAndAudit(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -648,26 +1445,23 @@ func TestOrderAPISavesAndListsEmployeeResponsiblePerson(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
-	seedOrderAPIResponsibleData(t, ctx, pool, schema)
 
 	e := newOrderAPITestEcho(pool, schema)
 	payload := map[string]any{
-		"order_date":       "2026-05-06",
-		"customer_id":      3,
-		"source_id":        1,
-		"order_type_id":    1,
-		"pay_status_id":    2,
-		"payment_method":   "微信支付",
-		"ship_status_id":   1,
-		"responsible_type": "employee",
-		"responsible_id":   5,
-		"product_id":       []string{"7"},
-		"tier_id":          []string{"manual"},
-		"unit_price":       []string{"88"},
-		"item_name":        []string{"橘皮乌龙"},
-		"qty":              []string{"1"},
-		"unit":             []string{"件"},
-		"spec":             []string{"454"},
+		"order_date":     "2026-05-06",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"payment_method": "微信支付",
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"qty":            []string{"1"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
 	}
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
@@ -775,7 +1569,7 @@ func TestOrderAPIEditsPaidOrderRequirePaymentMethodAndExposeToList(t *testing.T)
 	}
 }
 
-func TestOrderAPISavesCustomerResponsiblePersonForPartnerCommission(t *testing.T) {
+func TestOrderAPIIgnoresOrderResponsiblePayloadAndUsesCustomerProfile(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
 	seedOrderAPITestData(t, ctx, pool, schema)
@@ -820,8 +1614,47 @@ func TestOrderAPISavesCustomerResponsiblePersonForPartnerCommission(t *testing.T
 	`, schema)).Scan(&responsibleType, &responsibleID, &responsibleName); err != nil {
 		t.Fatalf("query customer responsible person: %v", err)
 	}
-	if responsibleType != "customer" || responsibleID != 4 || responsibleName != "渠道伙伴A" {
-		t.Fatalf("responsible party = %s/%d/%s, want customer/4/渠道伙伴A", responsibleType, responsibleID, responsibleName)
+	if responsibleType != "employee" || responsibleID != 5 || responsibleName != "销售小王" {
+		t.Fatalf("responsible party = %s/%d/%s, want employee/5/销售小王", responsibleType, responsibleID, responsibleName)
+	}
+}
+
+func TestOrderAPIRejectsCustomerWithoutResponsibleEmployee(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.customers(id,name,contact,phone,address,active,default_source_id,default_order_type_id,responsible_employee_id)
+		VALUES (40,'未分配客户','老板','13800000040','杭州市未分配路',true,1,2,0);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":       "2026-05-06",
+		"customer_id":      40,
+		"source_id":        1,
+		"order_type_id":    1,
+		"pay_status_id":    2,
+		"payment_method":   "微信支付",
+		"ship_status_id":   1,
+		"responsible_type": "employee",
+		"responsible_id":   5,
+		"product_id":       []string{"7"},
+		"tier_id":          []string{"manual"},
+		"unit_price":       []string{"88"},
+		"item_name":        []string{"橘皮乌龙"},
+		"qty":              []string{"1"},
+		"unit":             []string{"件"},
+		"spec":             []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "customer responsible employee required") {
+		t.Fatalf("POST /api/order without customer responsible status=%d body=%s, want 400 customer responsible employee required", rec.Code, rec.Body.String())
 	}
 }
 
@@ -832,12 +1665,78 @@ func TestFilterOrderProductsForCustomerKeepsPublicAndOwnProducts(t *testing.T) {
 		{ID: 3, Name: "其他客户专属深烘", CustomerID: 4, Visibility: "customer_only"},
 	}
 
-	got := filterOrderProductsForCustomer(products, 3)
+	got := filterOrderProductsForCustomer(products, 3, nil)
 	names := make([]string, 0, len(got))
 	for _, product := range got {
 		names = append(names, product.Name)
 	}
 	if strings.Join(names, ",") != "公共拼配,测试客户专属深烘" {
+		t.Fatalf("filtered names = %q", strings.Join(names, ","))
+	}
+}
+
+func TestFilterOrderProductsForCustomerLimitsCustomerOwnedBeanListScope(t *testing.T) {
+	products := []ProductOption{
+		{
+			ID:          1,
+			Name:        "公共拼配",
+			CustomerID:  0,
+			Visibility:  "public",
+			ProductKind: "roasted",
+			Tiers:       []ProductTierOption{{ID: 11, PriceSourceJSON: `{"source":"published_bean_list","list_type":"commercial","publication_id":12}`}},
+		},
+		{
+			ID:          2,
+			Name:        "芬纳定制-红酒日晒-中深烘",
+			CustomerID:  3,
+			Visibility:  "customer_only",
+			ProductKind: "roasted",
+			Tiers:       []ProductTierOption{{ID: 56, PriceSourceJSON: `{"source":"published_bean_list","list_type":"commercial","publication_id":9903}`}},
+		},
+		{
+			ID:          3,
+			Name:        "芬纳未发布定制",
+			CustomerID:  3,
+			Visibility:  "customer_only",
+			ProductKind: "roasted",
+			Tiers:       []ProductTierOption{},
+		},
+	}
+	versionOptions := []salesapp.BeanListVersionOption{{
+		CustomerID:      3,
+		ListType:        "commercial",
+		ID:              9903,
+		IsCustomerOwned: true,
+		IsDefault:       true,
+	}}
+
+	got := filterOrderProductsForCustomer(products, 3, versionOptions)
+	names := make([]string, 0, len(got))
+	for _, product := range got {
+		names = append(names, product.Name)
+	}
+	if strings.Join(names, ",") != "芬纳定制-红酒日晒-中深烘" {
+		t.Fatalf("filtered names = %q", strings.Join(names, ","))
+	}
+}
+
+func TestFilterOrderProductsForCustomerHonorsPublicSKUUsage(t *testing.T) {
+	products := []ProductOption{
+		{ID: 1, Name: "公共熟豆", CustomerID: 0, Visibility: "public", ProductKind: "roasted"},
+		{ID: 2, Name: "岩师傅红酒日晒生豆", CustomerID: 0, Visibility: "public", ProductKind: "green_bean"},
+		{ID: 3, Name: "芬纳定制-红酒日晒-中深烘", CustomerID: 74, Visibility: "customer_only", ProductKind: "roasted"},
+	}
+	publicUsages := []salesapp.CustomerPublicUsageOption{{
+		CustomerID:   74,
+		UsePublicSKU: false,
+	}}
+
+	got := filterOrderProductsForCustomer(products, 74, nil, publicUsages)
+	names := make([]string, 0, len(got))
+	for _, product := range got {
+		names = append(names, product.Name)
+	}
+	if strings.Join(names, ",") != "芬纳定制-红酒日晒-中深烘" {
 		t.Fatalf("filtered names = %q", strings.Join(names, ","))
 	}
 }
@@ -1515,6 +2414,51 @@ func TestOrderAPISaveCarriesItemNotes(t *testing.T) {
 	}
 }
 
+func TestOrderAPISaveCarriesDocumentAndOrderDates(t *testing.T) {
+	repo := &capturingSaveOrderRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "测试员")
+			return next(c)
+		}
+	})
+	registerOrderAPI(e, salesapp.NewService(repo), nil)
+
+	payload := map[string]any{
+		"document_date":  "2026-05-23",
+		"order_date":     "2026-05-20",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"qty":            []string{"1"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if got := repo.cmd.DocumentDate.Format("2006-01-02"); got != "2026-05-23" {
+		t.Fatalf("document date = %s, want 2026-05-23", got)
+	}
+	if got := repo.cmd.OrderDate.Format("2006-01-02"); got != "2026-05-20" {
+		t.Fatalf("order date = %s, want 2026-05-20", got)
+	}
+}
+
 func TestOrderAPISaveCarriesDripBagMetadata(t *testing.T) {
 	repo := &capturingSaveOrderRepo{}
 	e := echo.New()
@@ -1606,6 +2550,108 @@ func TestOrderAPISaveCarriesItemDiscounts(t *testing.T) {
 	}
 	if repo.cmd.Items[0].DiscountType != "percent" || repo.cmd.Items[0].DiscountValue != 50 {
 		t.Fatalf("captured item discount = %q/%v, want percent/50", repo.cmd.Items[0].DiscountType, repo.cmd.Items[0].DiscountValue)
+	}
+}
+
+func TestOrderAPISaveCarriesUnitAmountItemDiscount(t *testing.T) {
+	repo := &capturingSaveOrderRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "测试员")
+			return next(c)
+		}
+	})
+	registerOrderAPI(e, salesapp.NewService(repo), nil)
+
+	payload := map[string]any{
+		"order_date":     "2026-05-22",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"payment_method": "微信支付",
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"qty":            []string{"2"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+		"discount_type":  []string{"unit_amount"},
+		"discount_value": []string{"10"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.cmd.Items) != 1 {
+		t.Fatalf("captured items len = %d, want 1", len(repo.cmd.Items))
+	}
+	if repo.cmd.Items[0].DiscountType != "unit_amount" || repo.cmd.Items[0].DiscountValue != 10 {
+		t.Fatalf("captured item discount = %q/%v, want unit_amount/10", repo.cmd.Items[0].DiscountType, repo.cmd.Items[0].DiscountValue)
+	}
+}
+
+func TestOrderAPISavesUnitAmountItemDiscountTotals(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":     "2026-05-22",
+		"customer_id":    3,
+		"source_id":      1,
+		"order_type_id":  1,
+		"pay_status_id":  2,
+		"payment_method": "微信支付",
+		"ship_status_id": 1,
+		"product_id":     []string{"7"},
+		"tier_id":        []string{"manual"},
+		"unit_price":     []string{"88"},
+		"item_name":      []string{"橘皮乌龙"},
+		"qty":            []string{"2"},
+		"unit":           []string{"件"},
+		"spec":           []string{"454"},
+		"discount_type":  []string{"unit_amount"},
+		"discount_value": []string{"10"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var orderDiscount, grandTotal, lineDiscount, lineTotal float64
+	var discountType string
+	var discountValue float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(o.discount_amount,0), COALESCE(o.grand_total,0),
+		       COALESCE(oi.discount_type,''), COALESCE(oi.discount_value,0),
+		       COALESCE(oi.discount_amount,0), COALESCE(oi.line_total,0)
+		FROM %s.orders o
+		JOIN %s.order_items oi ON oi.order_id=o.id
+		ORDER BY o.id DESC
+		LIMIT 1
+	`, schema, schema)).Scan(&orderDiscount, &grandTotal, &discountType, &discountValue, &lineDiscount, &lineTotal); err != nil {
+		t.Fatalf("query saved order discount totals: %v", err)
+	}
+	if discountType != "unit_amount" || discountValue != 10 {
+		t.Fatalf("saved item discount = %q/%v, want unit_amount/10", discountType, discountValue)
+	}
+	if orderDiscount != 20 || lineDiscount != 20 || lineTotal != 156 || grandTotal != 156 {
+		t.Fatalf("discount totals = order %.2f line discount %.2f line %.2f grand %.2f; want 20/20/156/156", orderDiscount, lineDiscount, lineTotal, grandTotal)
 	}
 }
 
@@ -3284,25 +4330,29 @@ func newOrderAPITestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 func seedOrderAPITestData(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.customers(id,name,contact,phone,address,active,default_source_id,default_order_type_id) VALUES (3,'测试客户','测试收件人','13800000000','杭州市测试路',true,1,2);
-		INSERT INTO %s.sources(id,name) VALUES (1,'小程序');
-		INSERT INTO %s.order_types(id,name) VALUES (1,'批发订单'),(2,'零售订单');
-		INSERT INTO %s.pay_statuses(id,name) VALUES (1,'未付款'),(2,'已付款');
-		INSERT INTO %s.ship_statuses(id,name) VALUES (1,'未发货');
-		INSERT INTO %s.order_process_statuses(id,name,sort,active) VALUES (1,'待处理',10,true),(2,'库存待发货',33,true);
-		SELECT setval(pg_get_serial_sequence('%s.order_process_statuses','id'), (SELECT COALESCE(MAX(id),1) FROM %s.order_process_statuses));
-		INSERT INTO %s.products(id,name,default_price,active,retail_price_227g,retail_price_250g)
+		INSERT INTO %[1]s.company_departments(id,name,active) VALUES (1,'销售',true);
+		INSERT INTO %[1]s.company_employees(id,name,phone,department_id,account_type,active) VALUES (5,'销售小王','13800000005',1,'internal_employee',true);
+		INSERT INTO %[1]s.customers(id,name,customer_type,contact,phone,address,active,default_source_id,default_order_type_id,responsible_employee_id) VALUES (3,'测试客户','wholesale','测试收件人','13800000000','杭州市测试路',true,1,2,5);
+		INSERT INTO %[1]s.sources(id,name) VALUES (1,'小程序');
+		INSERT INTO %[1]s.order_types(id,name) VALUES (1,'批发订单'),(2,'零售订单');
+		INSERT INTO %[1]s.pay_statuses(id,name) VALUES (1,'未付款'),(2,'已付款');
+		INSERT INTO %[1]s.ship_statuses(id,name) VALUES (1,'未发货');
+		INSERT INTO %[1]s.order_process_statuses(id,name,sort,active) VALUES (1,'待处理',10,true),(2,'库存待发货',33,true);
+		SELECT setval(pg_get_serial_sequence('%[1]s.order_process_statuses','id'), (SELECT COALESCE(MAX(id),1) FROM %[1]s.order_process_statuses));
+		INSERT INTO %[1]s.products(id,name,default_price,active,retail_price_227g,retail_price_250g)
 		VALUES (7,'橘皮乌龙',50,true,50,56);
-	`, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+	`, schema))
 }
 
 func seedOrderAPIResponsibleData(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
 	t.Helper()
 	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
-		INSERT INTO %s.company_departments(id,name,active) VALUES (1,'销售',true);
-		INSERT INTO %s.company_employees(id,name,phone,department_id,active) VALUES (5,'销售小王','13800000005',1,true);
-		INSERT INTO %s.customers(id,name,contact,phone,address,active) VALUES (4,'渠道伙伴A','代理老张','13800000004','上海市渠道路',true);
-	`, schema, schema, schema))
+		INSERT INTO %[1]s.company_departments(id,name,active) VALUES (1,'销售',true) ON CONFLICT (id) DO NOTHING;
+		INSERT INTO %[1]s.company_employees(id,name,phone,department_id,account_type,active)
+		VALUES (5,'销售小王','13800000005',1,'internal_employee',true)
+		ON CONFLICT (id) DO NOTHING;
+		INSERT INTO %[1]s.customers(id,name,contact,phone,address,active,responsible_employee_id) VALUES (4,'渠道伙伴A','代理老张','13800000004','上海市渠道路',true,5);
+	`, schema))
 }
 
 func seedOrderAPIFinishedBatches(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
@@ -3339,6 +4389,7 @@ func orderAPITestDDL(schema string) string {
 CREATE TABLE %s.customers (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
+	customer_type TEXT NOT NULL DEFAULT '',
 	company_name TEXT NOT NULL DEFAULT '',
 	company_address TEXT NOT NULL DEFAULT '',
 	company_phone TEXT NOT NULL DEFAULT '',
@@ -3347,7 +4398,8 @@ CREATE TABLE %s.customers (
 	address TEXT NOT NULL DEFAULT '',
 	active BOOLEAN NOT NULL DEFAULT true,
 	default_source_id BIGINT,
-	default_order_type_id BIGINT
+	default_order_type_id BIGINT,
+	responsible_employee_id BIGINT NOT NULL DEFAULT 0
 );
 CREATE TABLE %s.company_profile (
 	id INTEGER PRIMARY KEY DEFAULT 1,
@@ -3372,6 +4424,7 @@ CREATE TABLE %s.company_employees (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
 	phone TEXT NOT NULL DEFAULT '',
+	account_type TEXT NOT NULL DEFAULT 'internal_employee',
 	department_id BIGINT NOT NULL REFERENCES %s.company_departments(id),
 	active BOOLEAN NOT NULL DEFAULT true,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -3508,8 +4561,14 @@ CREATE TABLE %s.bean_list_publications (
 	published_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE %s.customer_sku_public_usage (
+	customer_id BIGINT PRIMARY KEY,
+	use_public_sku BOOLEAN NOT NULL DEFAULT true,
+	use_public_categories BOOLEAN NOT NULL DEFAULT false
+);
 CREATE TABLE %s.orders (
 	id BIGSERIAL PRIMARY KEY,
+	document_date DATE,
 	order_date DATE,
 	customer_id BIGINT,
 	source_id BIGINT,
@@ -3670,7 +4729,7 @@ INSERT INTO %s.sender_settings(id, sender_label, is_default, active) VALUES(1, '
 	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
 		schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
 		schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
-		schema, schema, schema, schema, schema)
+		schema, schema, schema, schema, schema, schema)
 }
 
 func orderAPITrackingDDL(schema string) string {

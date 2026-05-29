@@ -7,8 +7,8 @@
           <p>按仓库查看原料、包材、WIP 和成品库存，批次作为明细维度展开。</p>
         </div>
         <div class="head-actions">
-          <button class="secondary" type="button" @click="openReservationDrawer">WIP占用</button>
-          <button class="secondary" type="button" @click="openTraceDrawer('')">批次追溯</button>
+          <button v-if="!isCustomerInventoryContext" class="secondary" type="button" @click="openReservationDrawer">WIP占用</button>
+          <button v-if="!isCustomerInventoryContext" class="secondary" type="button" @click="openTraceDrawer('')">批次追溯</button>
           <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
         </div>
       </div>
@@ -64,7 +64,7 @@
               type="button"
               @click="selectWarehouse(row.code)">
               <strong>{{ row.name }}</strong>
-              <small>{{ kindLabel(row.kind) }} · {{ customerName(row.customer_id) || row.description || row.code }}</small>
+              <small>{{ kindLabel(row.kind) }} · {{ row.customer_name || row.description || row.code }}</small>
             </button>
             <div v-if="!customerWarehouses.length" class="muted warehouse-empty">暂无客户仓库</div>
           </div>
@@ -78,7 +78,7 @@
             <div><span>库存行</span><strong>{{ rows.length }}</strong></div>
             <div><span>合计(g)</span><strong>{{ totalG.toLocaleString('zh-CN') }}</strong></div>
           </div>
-          <button class="secondary" type="button" @click="openWarehouseSettings" :disabled="!selectedCustomerWarehouse">
+          <button v-if="!isCustomerInventoryContext" class="secondary" type="button" @click="openWarehouseSettings" :disabled="!selectedCustomerWarehouse">
             仓库设置
           </button>
         </div>
@@ -96,7 +96,7 @@
                 <th>件数</th>
                 <th>单位成本</th>
                 <th>更新</th>
-                <th>操作</th>
+                <th v-if="!isCustomerInventoryContext">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -111,9 +111,9 @@
                 <td>{{ row.qty_units || '-' }}</td>
                 <td>{{ money(row.unit_cost) }}</td>
                 <td>{{ row.updated_at || '-' }}</td>
-                <td><button class="link" type="button" @click="openTraceDrawer(row.batch_code || '')">追溯</button></td>
+                <td v-if="!isCustomerInventoryContext"><button class="link" type="button" @click="openTraceDrawer(row.batch_code || '')">追溯</button></td>
               </tr>
-              <tr v-if="!rows.length"><td colspan="11" class="muted">暂无库存</td></tr>
+              <tr v-if="!rows.length"><td :colspan="isCustomerInventoryContext ? 10 : 11" class="muted">暂无库存</td></tr>
             </tbody>
           </table>
         </div>
@@ -127,7 +127,7 @@
       </section>
     </div>
 
-    <div v-if="traceDrawerOpen" class="drawer-mask" @click.self="traceDrawerOpen = false">
+    <div v-if="traceDrawerOpen && !isCustomerInventoryContext" class="drawer-mask" @click.self="traceDrawerOpen = false">
       <aside class="drawer">
         <div class="drawer-head">
           <h3>批次追溯</h3>
@@ -193,7 +193,7 @@
       </aside>
     </div>
 
-    <div v-if="reservationDrawerOpen" class="drawer-mask" @click.self="reservationDrawerOpen = false">
+    <div v-if="reservationDrawerOpen && !isCustomerInventoryContext" class="drawer-mask" @click.self="reservationDrawerOpen = false">
       <aside class="drawer wide">
         <div class="drawer-head">
           <h3>WIP占用</h3>
@@ -231,7 +231,7 @@
       </aside>
     </div>
 
-    <div v-if="warehouseSettingsOpen" class="drawer-mask" @click.self="warehouseSettingsOpen = false">
+    <div v-if="warehouseSettingsOpen && !isCustomerInventoryContext" class="drawer-mask" @click.self="warehouseSettingsOpen = false">
       <aside class="drawer">
         <div class="drawer-head">
           <h3>仓库设置</h3>
@@ -244,13 +244,16 @@
           </dl>
           <label>
             <span>绑定客户</span>
-            <select v-model.number="warehouseCustomerForm.customer_id">
+            <select v-model.number="warehouseBindCustomerID">
               <option :value="0">不绑定客户</option>
-              <option v-for="customer in customers" :key="customer.id" :value="customer.id">{{ customer.name }}</option>
+              <option v-for="customer in customerOptions" :key="customer.id" :value="customer.id">
+                {{ customerOptionLabel(customer) }}
+              </option>
             </select>
           </label>
-          <button class="primary" type="button" @click="saveWarehouseCustomer" :disabled="warehouseSettingsSaving">保存</button>
-          <div v-if="warehouseSettingsError" class="error">{{ warehouseSettingsError }}</div>
+          <button class="primary" type="button" @click="saveWarehouseCustomerBinding" :disabled="warehouseBindingSaving">
+            {{ warehouseBindingSaving ? '保存中' : '保存' }}
+          </button>
         </div>
         <div v-else class="muted">请选择客户仓库后再设置。</div>
       </aside>
@@ -263,13 +266,17 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
+import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode'
 
 const props = defineProps({
   viewParams: { type: Object, default: () => ({}) },
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
 })
 
 const warehouses = ref([])
-const customers = ref([])
+const customerOptions = ref([])
 const rows = ref([])
 const q = ref('')
 const itemType = ref('')
@@ -292,22 +299,23 @@ const reservations = ref([])
 const reservationTotals = ref({})
 const warehouseSections = ref({ general: true, customer: true })
 const warehouseSettingsOpen = ref(false)
-const warehouseSettingsSaving = ref(false)
-const warehouseSettingsError = ref('')
-const warehouseCustomerForm = ref({ customer_id: 0 })
+const warehouseBindCustomerID = ref(0)
+const warehouseBindingSaving = ref(false)
+const contextCustomerID = computed(() => Number(props.customerContextId || 0))
+const isCustomerInventoryContext = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && contextCustomerID.value > 0)
 
 const currentWarehouseName = computed(() => {
   if (!selectedWarehouse.value) return '全部仓库'
   return warehouses.value.find((row) => row.code === selectedWarehouse.value)?.name || selectedWarehouse.value
 })
-const totalG = computed(() => rows.value.reduce((sum, row) => sum + Number(row.qty_g || 0), 0))
+const selectedWarehouseRow = computed(() => warehouses.value.find((row) => row.code === selectedWarehouse.value) || null)
 const customerWarehouses = computed(() => warehouses.value.filter((row) => isCustomerWarehouse(row)))
 const generalWarehouses = computed(() => warehouses.value.filter((row) => !isCustomerWarehouse(row)))
-const selectedWarehouseRow = computed(() => warehouses.value.find((row) => row.code === selectedWarehouse.value) || null)
 const selectedCustomerWarehouse = computed(() => {
   const row = selectedWarehouseRow.value
   return row && isCustomerWarehouse(row) ? row : null
 })
+const totalG = computed(() => rows.value.reduce((sum, row) => sum + Number(row.qty_g || 0), 0))
 
 function kindLabel(kind) {
   return {
@@ -323,12 +331,6 @@ function kindLabel(kind) {
 
 function isCustomerWarehouse(row) {
   return Number(row?.customer_id || 0) > 0 || String(row?.kind || '').startsWith('customer')
-}
-
-function customerName(customerID) {
-  const id = Number(customerID || 0)
-  if (!id) return ''
-  return customers.value.find((row) => Number(row.id) === id)?.name || `客户 #${id}`
 }
 
 function typeLabel(type) {
@@ -357,12 +359,18 @@ function warehouseName(code) {
   return warehouses.value.find((row) => row.code === code)?.name || code
 }
 
+function customerOptionLabel(customer) {
+  const name = customer?.name || `客户 #${customer?.id || ''}`
+  return customer?.company_name && customer.company_name !== name ? `${name} · ${customer.company_name}` : name
+}
+
 function rowKey(row) {
   return `${row.warehouse}-${row.item_type}-${row.item_id}-${row.spec_g || 0}-${row.batch_id || row.batch_code || 'summary'}`
 }
 
 function selectWarehouse(code) {
   selectedWarehouse.value = code
+  syncWarehouseBinding()
   loadInventoryPage(1)
 }
 
@@ -372,8 +380,9 @@ function applyViewParams(params = {}) {
   const nextBatch = typeof params.batch === 'string' ? params.batch : ''
   const changed = nextWarehouse !== selectedWarehouse.value || nextItemType !== itemType.value
   selectedWarehouse.value = nextWarehouse
+  syncWarehouseBinding()
   itemType.value = nextItemType
-  if (nextBatch) {
+  if (nextBatch && !isCustomerInventoryContext.value) {
     traceBatch.value = nextBatch
     traceDrawerOpen.value = true
   }
@@ -381,19 +390,49 @@ function applyViewParams(params = {}) {
 }
 
 async function loadWarehouses() {
-  const data = await apiGet('/api/stock/warehouses')
+  const url = new URL('/api/stock/warehouses', window.location.origin)
+  if (isCustomerInventoryContext.value) url.searchParams.set('customer_id', String(contextCustomerID.value))
+  const data = await apiGet(url)
   warehouses.value = data.rows || []
+  syncWarehouseBinding()
 }
 
 async function loadCustomers() {
+  if (isCustomerInventoryContext.value) return
   try {
-    const url = new URL('/api/customers', window.location.origin)
-    url.searchParams.set('active', 'true')
-    url.searchParams.set('limit', '200')
-    const data = await apiGet(url)
-    customers.value = data.rows || []
+    const data = await apiGet('/api/customers?limit=200&active=true')
+    customerOptions.value = data.rows || []
   } catch {
-    customers.value = []
+    customerOptions.value = []
+  }
+}
+
+function syncWarehouseBinding() {
+  warehouseBindCustomerID.value = Number(selectedWarehouseRow.value?.customer_id || 0)
+}
+
+function openWarehouseSettings() {
+  if (!selectedCustomerWarehouse.value) return
+  syncWarehouseBinding()
+  warehouseSettingsOpen.value = true
+}
+
+async function saveWarehouseCustomerBinding() {
+  if (!selectedWarehouse.value) return
+  warehouseBindingSaving.value = true
+  error.value = ''
+  try {
+    const row = await apiSend(`/api/stock/warehouses/${encodeURIComponent(selectedWarehouse.value)}/customer`, {
+      method: 'PUT',
+      body: { customer_id: Number(warehouseBindCustomerID.value || 0) },
+    })
+    warehouses.value = warehouses.value.map((item) => (item.code === row.code ? row : item))
+    syncWarehouseBinding()
+    warehouseSettingsOpen.value = false
+  } catch (err) {
+    error.value = err.message || '保存仓库客户绑定失败'
+  } finally {
+    warehouseBindingSaving.value = false
   }
 }
 
@@ -405,6 +444,7 @@ async function loadInventory() {
     if (q.value) url.searchParams.set('q', q.value)
     if (selectedWarehouse.value) url.searchParams.set('warehouse', selectedWarehouse.value)
     if (itemType.value) url.searchParams.set('item_type', itemType.value)
+    if (isCustomerInventoryContext.value) url.searchParams.set('customer_id', String(contextCustomerID.value))
     url.searchParams.set('page', String(page.value))
     url.searchParams.set('limit', String(limit.value))
     const data = await apiGet(url)
@@ -517,32 +557,14 @@ async function loadAll() {
   }
 }
 
-function openWarehouseSettings() {
-  if (!selectedCustomerWarehouse.value) return
-  warehouseSettingsError.value = ''
-  warehouseCustomerForm.value = { customer_id: Number(selectedCustomerWarehouse.value.customer_id || 0) }
-  warehouseSettingsOpen.value = true
-}
-
-async function saveWarehouseCustomer() {
-  if (!selectedCustomerWarehouse.value) return
-  warehouseSettingsSaving.value = true
-  warehouseSettingsError.value = ''
-  try {
-    await apiSend(`/api/stock/warehouses/${encodeURIComponent(selectedCustomerWarehouse.value.code)}/customer`, {
-      method: 'PUT',
-      body: { customer_id: Number(warehouseCustomerForm.value.customer_id || 0) },
-    })
-    await loadWarehouses()
-    warehouseSettingsOpen.value = false
-  } catch (err) {
-    warehouseSettingsError.value = err.message || '保存仓库设置失败'
-  } finally {
-    warehouseSettingsSaving.value = false
-  }
-}
-
 watch(() => props.viewParams, (params) => applyViewParams(params), { deep: true, immediate: true })
+watch(() => props.customerContextId, () => {
+  if (isCustomerInventoryContext.value) {
+    traceDrawerOpen.value = false
+    reservationDrawerOpen.value = false
+  }
+  loadAll()
+})
 
 onMounted(loadAll)
 </script>

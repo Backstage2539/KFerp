@@ -16,12 +16,18 @@
             v-for="(placement, index) in placementsForPage(page.pageNumber)"
             :key="`${page.pageNumber}-${index}`"
             class="pdf-stamp-overlay"
-            :class="{ editable }"
+            :class="overlayClass(placement)"
             :style="contractStampOverlayStyle(placement, page.displayScale)"
-            title="拖动调整公章位置"
+            :title="overlayTitle(placement)"
             @pointerdown.prevent="startDrag($event, placement, page)">
-            <img v-if="sealUrl" :src="sealUrl" :alt="sealLabel || '公章'" draggable="false" />
-            <span v-else>{{ sealLabel || '公章' }}</span>
+            <img v-if="overlayImageUrl(placement)" :src="overlayImageUrl(placement)" :alt="overlayLabel(placement)" draggable="false" />
+            <span v-else>{{ overlayLabel(placement) }}</span>
+            <i
+              v-if="canResize(placement)"
+              class="pdf-stamp-resize-handle"
+              title="拖动调整大小"
+              @pointerdown.stop.prevent="startResize($event, placement, page)"
+            ></i>
           </div>
         </div>
       </div>
@@ -35,7 +41,7 @@ import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import { apiFetch } from '../api/client'
 import { contractStampOverlayStyle } from '../lib/contract-stamp'
-import { movePDFStampPlacement } from '../lib/document-pdf-stamp'
+import { movePDFStampPlacement, movePDFStampPlacementAcrossPages, resizePDFStampPlacement } from '../lib/document-pdf-stamp'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker
 
@@ -120,10 +126,28 @@ async function renderPDF(buffer) {
 }
 
 function startDrag(event, placement, page) {
-  if (!props.editable) return
+  if (!canDrag(placement)) return
   const index = localPlacements.value.indexOf(placement)
   if (index < 0 || !page) return
   dragState.value = {
+    mode: 'move',
+    index,
+    startX: event.clientX,
+    startY: event.clientY,
+    original: { ...placement },
+    displayScale: page.displayScale,
+  }
+  event.currentTarget?.setPointerCapture?.(event.pointerId)
+  window.addEventListener('pointermove', moveDrag)
+  window.addEventListener('pointerup', stopDrag)
+}
+
+function startResize(event, placement, page) {
+  if (!canResize(placement)) return
+  const index = localPlacements.value.indexOf(placement)
+  if (index < 0 || !page) return
+  dragState.value = {
+    mode: 'resize',
     index,
     startX: event.clientX,
     startY: event.clientY,
@@ -138,11 +162,21 @@ function startDrag(event, placement, page) {
 function moveDrag(event) {
   const state = dragState.value
   if (!state) return
-  const next = movePDFStampPlacement(state.original, {
+  const movement = {
     deltaX: event.clientX - state.startX,
     deltaY: event.clientY - state.startY,
     displayScale: state.displayScale,
-  })
+  }
+  const next = state.mode === 'resize'
+    ? resizePDFStampPlacement(state.original, {
+      ...movement,
+      minWidth: state.original.min_width || 24,
+      minHeight: state.original.min_height || 24,
+      lockAspectRatio: Boolean(state.original.lock_aspect_ratio),
+    })
+    : state.original.cross_page_drag
+      ? movePDFStampPlacementAcrossPages(state.original, { ...movement, pages: pages.value })
+      : movePDFStampPlacement(state.original, movement)
   localPlacements.value[state.index] = next
   emit('placement-change', next)
 }
@@ -155,6 +189,39 @@ function stopDrag() {
   window.removeEventListener('pointermove', moveDrag)
   window.removeEventListener('pointerup', stopDrag)
   if (next) emit('placement-commit', next)
+}
+
+function canDrag(placement) {
+  return props.editable && placement?.draggable !== false
+}
+
+function canResize(placement) {
+  return props.editable && placement?.resizable === true
+}
+
+function overlayImageUrl(placement) {
+  if (placement?.image_url) return placement.image_url
+  if (placement?.use_seal_image === false) return ''
+  if (placement?.kind && placement.kind !== 'seal') return ''
+  return props.sealUrl || ''
+}
+
+function overlayLabel(placement) {
+  return placement?.label || props.sealLabel || '公章'
+}
+
+function overlayTitle(placement) {
+  if (canResize(placement)) return '拖动调整位置，右下角调整大小'
+  return `拖动调整${overlayLabel(placement)}位置`
+}
+
+function overlayClass(placement) {
+  const kind = String(placement?.kind || 'seal').replace(/[^a-z0-9_-]/gi, '-')
+  return {
+    editable: canDrag(placement),
+    resizable: canResize(placement),
+    [`kind-${kind}`]: true,
+  }
 }
 </script>
 
@@ -171,4 +238,8 @@ function stopDrag() {
 .pdf-stamp-overlay { position: absolute; border: 1px dashed rgba(220, 38, 38, 0.75); display: flex; align-items: center; justify-content: center; color: #dc2626; font-weight: 700; background: rgba(254, 242, 242, 0.2); z-index: 3; }
 .pdf-stamp-overlay.editable { cursor: move; touch-action: none; }
 .pdf-stamp-overlay img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; pointer-events: none; user-select: none; }
+.pdf-stamp-overlay.kind-payment_text,
+.pdf-stamp-overlay.kind-payment_code { border-color: rgba(37, 99, 235, .8); background: rgba(239, 246, 255, .28); color: #1d4ed8; font-size: 13px; text-align: center; padding: 4px; }
+.pdf-stamp-overlay.kind-payment_code { border-color: rgba(5, 150, 105, .82); background: rgba(236, 253, 245, .3); color: #047857; }
+.pdf-stamp-resize-handle { position: absolute; right: -5px; bottom: -5px; width: 12px; height: 12px; border: 2px solid currentColor; border-radius: 999px; background: #fff; cursor: nwse-resize; touch-action: none; }
 </style>

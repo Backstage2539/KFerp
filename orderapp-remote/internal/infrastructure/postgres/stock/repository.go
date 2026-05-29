@@ -222,13 +222,16 @@ func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.Mate
 	return stockapp.MaterialBatchResult{Rows: out, Total: total, HasNext: hasNext}, nil
 }
 
-func (r Repository) ListWarehouses(ctx context.Context) ([]stockapp.WarehouseRow, error) {
+func (r Repository) ListWarehouses(ctx context.Context, query stockapp.WarehouseListQuery) ([]stockapp.WarehouseRow, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT code,name,kind,parent_code,sort_order,is_default,active,customer_id,description
-		FROM %s.warehouses
-		WHERE active=true
-		ORDER BY sort_order, code
-	`, r.schema))
+		SELECT w.code,w.name,w.kind,w.parent_code,w.sort_order,w.is_default,w.active,w.description,
+		       COALESCE(w.customer_id,0), COALESCE(c.name,'')
+		FROM %s.warehouses w
+		LEFT JOIN %s.customers c ON c.id=w.customer_id
+		WHERE w.active=true
+		  AND ($1::bigint=0 OR COALESCE(w.customer_id,0)=$1::bigint)
+		ORDER BY w.sort_order, w.code
+	`, r.schema, r.schema), query.CustomerID)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +239,7 @@ func (r Repository) ListWarehouses(ctx context.Context) ([]stockapp.WarehouseRow
 	out := make([]stockapp.WarehouseRow, 0)
 	for rows.Next() {
 		var row stockapp.WarehouseRow
-		if err := rows.Scan(&row.Code, &row.Name, &row.Kind, &row.ParentCode, &row.SortOrder, &row.IsDefault, &row.Active, &row.CustomerID, &row.Description); err != nil {
+		if err := rows.Scan(&row.Code, &row.Name, &row.Kind, &row.ParentCode, &row.SortOrder, &row.IsDefault, &row.Active, &row.Description, &row.CustomerID, &row.CustomerName); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -244,89 +247,58 @@ func (r Repository) ListWarehouses(ctx context.Context) ([]stockapp.WarehouseRow
 	return out, rows.Err()
 }
 
-func isCustomerWarehouseKind(kind string) bool {
-	k := strings.TrimSpace(strings.ToLower(kind))
-	return k == "customer" || strings.HasPrefix(k, "customer_")
-}
-
-func (r Repository) SetWarehouseCustomer(ctx context.Context, cmd stockapp.WarehouseCustomerBindingCommand) (stockapp.WarehouseRow, error) {
-	cmd.WarehouseCode = strings.TrimSpace(cmd.WarehouseCode)
-	if cmd.WarehouseCode == "" {
-		return stockapp.WarehouseRow{}, fmt.Errorf("warehouse required")
-	}
-
-	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+func (r Repository) BindWarehouseCustomer(ctx context.Context, cmd stockapp.BindWarehouseCustomerCommand) (stockapp.WarehouseRow, error) {
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return stockapp.WarehouseRow{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-
-	var row stockapp.WarehouseRow
+	var oldCustomerID int64
+	var warehouseName string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT code,name,kind,parent_code,sort_order,is_default,active,customer_id,description
+		SELECT COALESCE(customer_id,0), COALESCE(name,'')
 		FROM %s.warehouses
-		WHERE code=$1
-		FOR UPDATE
-	`, r.schema), cmd.WarehouseCode).Scan(
-		&row.Code, &row.Name, &row.Kind, &row.ParentCode, &row.SortOrder, &row.IsDefault, &row.Active, &row.CustomerID, &row.Description,
-	); err != nil {
+		WHERE code=$1 AND active=true
+	`, r.schema), cmd.WarehouseCode).Scan(&oldCustomerID, &warehouseName); err != nil {
 		if err == pgx.ErrNoRows {
 			return stockapp.WarehouseRow{}, fmt.Errorf("warehouse not found")
 		}
 		return stockapp.WarehouseRow{}, err
 	}
-
-	if !row.Active {
-		return stockapp.WarehouseRow{}, fmt.Errorf("warehouse is inactive")
-	}
-	if !isCustomerWarehouseKind(row.Kind) {
-		return stockapp.WarehouseRow{}, fmt.Errorf("not a customer warehouse")
-	}
-
 	if cmd.CustomerID > 0 {
-		var customerActive bool
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT EXISTS(
-				SELECT 1
-				FROM %s.customers
-				WHERE id=$1 AND COALESCE(active,true)=true
-			)
-		`, r.schema), cmd.CustomerID).Scan(&customerActive); err != nil {
+		var exists bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1 AND active=true)`, r.schema), cmd.CustomerID).Scan(&exists); err != nil {
 			return stockapp.WarehouseRow{}, err
 		}
-		if !customerActive {
+		if !exists {
 			return stockapp.WarehouseRow{}, fmt.Errorf("customer not found")
 		}
 	}
-
-	if row.CustomerID == cmd.CustomerID {
-		return row, nil
-	}
-
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.warehouses
-		SET customer_id=$2
+		SET customer_id=$2, updated_at=now()
 		WHERE code=$1
 	`, r.schema), cmd.WarehouseCode, cmd.CustomerID); err != nil {
 		return stockapp.WarehouseRow{}, err
 	}
-	oldValue := fmt.Sprintf("%d", row.CustomerID)
-	newValue := fmt.Sprintf("%d", cmd.CustomerID)
-	action := "bind_customer"
-	if cmd.CustomerID == 0 {
-		action = "unbind_customer"
+	if oldCustomerID != cmd.CustomerID {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "warehouse", nil, "update", postgresinfra.StrPtr("customer_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", oldCustomerID)), postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.CustomerID)), postgresinfra.AuditMeta{"warehouse": cmd.WarehouseCode, "warehouse_name": warehouseName}); err != nil {
+			return stockapp.WarehouseRow{}, err
+		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "warehouse", nil, action, postgresinfra.StrPtr("customer_id"), postgresinfra.StrPtr(oldValue), postgresinfra.StrPtr(newValue), postgresinfra.AuditMeta{
-		"warehouse_code": cmd.WarehouseCode,
-		"warehouse_name": row.Name,
-	}); err != nil {
-		return stockapp.WarehouseRow{}, err
-	}
-	row.CustomerID = cmd.CustomerID
 	if err := tx.Commit(ctx); err != nil {
 		return stockapp.WarehouseRow{}, err
 	}
-	return row, nil
+	rows, err := r.ListWarehouses(ctx, stockapp.WarehouseListQuery{})
+	if err != nil {
+		return stockapp.WarehouseRow{}, err
+	}
+	for _, row := range rows {
+		if row.Code == cmd.WarehouseCode {
+			return row, nil
+		}
+	}
+	return stockapp.WarehouseRow{}, fmt.Errorf("warehouse not found")
 }
 
 func (r Repository) ListMaterialBatchLocations(ctx context.Context, query stockapp.MaterialBatchLocationQuery) (stockapp.MaterialBatchLocationResult, error) {
@@ -422,6 +394,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($1 = '' OR l.batch_code ILIKE $2 OR m.name ILIKE $2)
 			  AND ($3 = '' OR l.warehouse = $3)
 			  AND ($4 = '' OR $4 = 'material')
+			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) = $7::bigint)
 			UNION ALL
 			SELECT COALESCE(last_ledger.warehouse,'finished_goods') AS warehouse,
 			       COALESCE(w.name,COALESCE(last_ledger.warehouse,'finished_goods')) AS warehouse_name,
@@ -455,6 +428,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($1 = '' OR b.batch_code ILIKE $2 OR p.name ILIKE $2)
 			  AND ($3 = '' OR COALESCE(last_ledger.warehouse,'finished_goods') = $3)
 			  AND ($4 = '' OR $4 = 'finished_product')
+			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) = $7::bigint OR COALESCE(p.customer_id,0) = $7::bigint)
 			UNION ALL
 			SELECT fi.warehouse,
 			       COALESCE(w.name,fi.warehouse) AS warehouse_name,
@@ -477,6 +451,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			  AND ($1 = '' OR p.name ILIKE $2)
 			  AND ($3 = '' OR fi.warehouse = $3)
 			  AND ($4 = '' OR $4 = 'finished_product')
+			  AND ($7::bigint = 0 OR COALESCE(w.customer_id,0) = $7::bigint OR COALESCE(p.customer_id,0) = $7::bigint)
 			  AND NOT EXISTS (
 			    SELECT 1
 			    FROM %s.stock_batches b
@@ -492,7 +467,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 		FROM warehouse_inventory
 		ORDER BY warehouse_name,item_type,item_name,spec_g,batch_code
 		LIMIT $5 OFFSET $6
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), q, qLike, query.Warehouse, query.ItemType, query.Limit+1, query.Offset)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), q, qLike, query.Warehouse, query.ItemType, query.Limit+1, query.Offset, query.CustomerID)
 	if err != nil {
 		return stockapp.WarehouseInventoryResult{}, err
 	}

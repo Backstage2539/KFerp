@@ -132,7 +132,7 @@
               <th>需求(g)</th>
               <th>库存(g)</th>
               <th>缺口(g)</th>
-              <th>BOM出品率</th>
+              <th>BOM预期产出率</th>
               <th>投料数(g)</th>
             </tr>
           </thead>
@@ -186,7 +186,7 @@
     </section>
 
     <section class="panel">
-      <div class="section-title">烘焙建议</div>
+      <div class="section-title">生产建议</div>
       <div v-if="!planReady" class="muted">请先选择产品并点击“生成计划”。</div>
       <div v-else class="table-wrap">
         <table>
@@ -224,7 +224,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watchEffect } from 'vue'
+import { computed, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { apiGet, apiSend, appURL } from '../api/client'
 import {
   buildInsufficientSelection,
@@ -239,6 +239,13 @@ import {
   syncRoastPlanRow,
 } from '../lib/produce-plan'
 import { replaceHistoryURL } from '../lib/url-state'
+
+const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+})
 
 const loading = ref(false)
 const saving = ref(false)
@@ -439,7 +446,7 @@ onMounted(async () => {
   const url = new URL(window.location.href)
   filters.from = url.searchParams.get('from') || ''
   filters.to = url.searchParams.get('to') || ''
-  filters.customer_id = url.searchParams.get('customer_id') || ''
+  filters.customer_id = String(props.viewParams?.customer_id || props.customerContextId || url.searchParams.get('customer_id') || '')
   const selectedCsv = url.searchParams.get('selected') || ''
   if (selectedCsv) {
     for (const key of selectedCsv.split(',')) {
@@ -447,6 +454,13 @@ onMounted(async () => {
     }
   }
   await load(url.searchParams.get('plan') === '1')
+})
+
+watch(() => [props.viewParams?.customer_id, props.customerContextId], async () => {
+  const nextCustomerID = String(props.viewParams?.customer_id || props.customerContextId || '')
+  if (String(filters.customer_id || '') === nextCustomerID) return
+  filters.customer_id = nextCustomerID
+  await load(false)
 })
 </script>
 

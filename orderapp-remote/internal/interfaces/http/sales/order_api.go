@@ -1,6 +1,7 @@
 package sales
 
 import (
+	"encoding/json"
 	"net/http"
 	support "orderapp/internal/interfaces/http/support"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 type orderAPIHandler struct {
 	sales    *salesapp.Service
 	messages MessagePublisher
+	assetDir string
 }
 
 type apiOption struct {
@@ -23,14 +25,17 @@ type apiOption struct {
 }
 
 type customerAPIOption struct {
-	ID                 int64  `json:"id"`
-	Name               string `json:"name"`
-	Contact            string `json:"contact,omitempty"`
-	Phone              string `json:"phone,omitempty"`
-	Py                 string `json:"py"`
-	Pyi                string `json:"pyi"`
-	DefaultSourceID    int64  `json:"default_source_id,omitempty"`
-	DefaultOrderTypeID int64  `json:"default_order_type_id,omitempty"`
+	ID                      int64  `json:"id"`
+	Name                    string `json:"name"`
+	CustomerType            string `json:"customer_type,omitempty"`
+	Contact                 string `json:"contact,omitempty"`
+	Phone                   string `json:"phone,omitempty"`
+	Py                      string `json:"py"`
+	Pyi                     string `json:"pyi"`
+	DefaultSourceID         int64  `json:"default_source_id,omitempty"`
+	DefaultOrderTypeID      int64  `json:"default_order_type_id,omitempty"`
+	ResponsibleEmployeeID   int64  `json:"responsible_employee_id,omitempty"`
+	ResponsibleEmployeeName string `json:"responsible_employee_name,omitempty"`
 }
 
 type employeeAPIOption struct {
@@ -44,22 +49,26 @@ type employeeAPIOption struct {
 }
 
 type orderFormAPIResponse struct {
-	Today                  string                           `json:"today"`
-	Customers              []customerAPIOption              `json:"customers"`
-	Employees              []employeeAPIOption              `json:"employees"`
-	Sources                []apiOption                      `json:"sources"`
-	ShipStatuses           []apiOption                      `json:"ship_statuses"`
-	PayStatuses            []apiOption                      `json:"pay_statuses"`
-	OrderTypes             []apiOption                      `json:"order_types"`
-	Products               []map[string]any                 `json:"products"`
-	BeanListVersionOptions []salesapp.BeanListVersionOption `json:"bean_list_version_options"`
-	EditMode               bool                             `json:"edit_mode"`
-	EditID                 int64                            `json:"edit_id"`
-	EditData               any                              `json:"edit_data,omitempty"`
+	Today                  string                                `json:"today"`
+	Customers              []customerAPIOption                   `json:"customers"`
+	Employees              []employeeAPIOption                   `json:"employees"`
+	Sources                []apiOption                           `json:"sources"`
+	ShipStatuses           []apiOption                           `json:"ship_statuses"`
+	PayStatuses            []apiOption                           `json:"pay_statuses"`
+	OrderTypes             []apiOption                           `json:"order_types"`
+	Products               []map[string]any                      `json:"products"`
+	Logistics              []salesapp.LogisticsCompany           `json:"logistics_companies"`
+	BeanListVersionOptions []salesapp.BeanListVersionOption      `json:"bean_list_version_options"`
+	CustomerPublicUsages   []salesapp.CustomerPublicUsageOption  `json:"customer_public_usages"`
+	CustomerProductUsages  []salesapp.CustomerProductUsageOption `json:"customer_product_usages"`
+	EditMode               bool                                  `json:"edit_mode"`
+	EditID                 int64                                 `json:"edit_id"`
+	EditData               any                                   `json:"edit_data,omitempty"`
 }
 
 type orderSaveAPIRequest struct {
 	EditID                          int64  `json:"edit_id"`
+	DocumentDate                    string `json:"document_date"`
 	OrderDate                       string `json:"order_date"`
 	CustomerID                      int64  `json:"customer_id"`
 	SourceID                        int64  `json:"source_id"`
@@ -69,6 +78,11 @@ type orderSaveAPIRequest struct {
 	ShipStatusID                    int64  `json:"ship_status_id"`
 	ShipMethod                      string `json:"ship_method"`
 	ShipTrackingNo                  string `json:"ship_tracking_no"`
+	LogisticsCompanyID              int64  `json:"logistics_company_id"`
+	LogisticsProductID              int64  `json:"logistics_product_id"`
+	PaymentGoodsAmount              string `json:"payment_goods_amount"`
+	PaymentShippingAmount           string `json:"payment_shipping_amount"`
+	PaymentVoucherAssetID           int64  `json:"payment_voucher_asset_id"`
 	ResponsibleType                 string `json:"responsible_type"`
 	ResponsibleID                   int64  `json:"responsible_id"`
 	Notes                           string `json:"notes"`
@@ -113,10 +127,15 @@ type orderVoidManyAPIRequest struct {
 	Reason   string  `json:"reason"`
 }
 
-func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages MessagePublisher) {
+func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages MessagePublisher, assetDirs ...string) {
+	assetDir := "/app/data/assets"
+	if len(assetDirs) > 0 && strings.TrimSpace(assetDirs[0]) != "" {
+		assetDir = strings.TrimSpace(assetDirs[0])
+	}
 	h := orderAPIHandler{
 		sales:    salesSvc,
 		messages: messages,
+		assetDir: assetDir,
 	}
 	e.GET("/api/orders", h.list)
 	e.GET("/api/orders/:id/detail", h.detail)
@@ -124,6 +143,7 @@ func registerOrderAPI(e *echo.Echo, salesSvc *salesapp.Service, messages Message
 	e.POST("/api/orders/void", h.voidMany)
 	e.GET("/api/order/form", h.form)
 	e.POST("/api/order/stock-batch-preview", h.stockBatchPreview)
+	e.POST("/api/order/payment-vouchers", h.uploadPaymentVoucher)
 	e.POST("/api/order", h.save)
 }
 
@@ -208,7 +228,7 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		filterByCustomer = true
 	}
 	if filterByCustomer {
-		data.Products = filterOrderProductsForCustomer(data.Products, customerID)
+		data.Products = filterOrderProductsForCustomer(data.Products, customerID, data.BeanListVersionOptions, data.CustomerPublicUsages)
 	}
 
 	resp := orderFormAPIResponse{
@@ -220,7 +240,10 @@ func (h orderAPIHandler) form(c echo.Context) error {
 		PayStatuses:            apiOptions(data.PayStatuses),
 		OrderTypes:             apiOptions(data.OrderTypes),
 		Products:               apiProducts(data.Products),
+		Logistics:              data.LogisticsCompanies,
 		BeanListVersionOptions: data.BeanListVersionOptions,
+		CustomerPublicUsages:   data.CustomerPublicUsages,
+		CustomerProductUsages:  data.CustomerProductUsages,
 	}
 
 	if editID > 0 {
@@ -475,8 +498,20 @@ func (h orderAPIHandler) stockBatchPreview(c echo.Context) error {
 	return c.JSON(http.StatusOK, preview)
 }
 
+func (h orderAPIHandler) uploadPaymentVoucher(c echo.Context) error {
+	if err := support.RequireEmployeeBound(c); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	asset, err := saveUploadedSalesOrderAsset(c, h.sales, h.assetDir, "payment_voucher")
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"asset": asset})
+}
+
 func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 	return CreateOrderRequest{
+		DocumentDate:                    r.DocumentDate,
 		OrderDate:                       r.OrderDate,
 		CustomerID:                      r.CustomerID,
 		SourceID:                        r.SourceID,
@@ -486,6 +521,11 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		ShipStatusID:                    r.ShipStatusID,
 		ShipMethod:                      r.ShipMethod,
 		ShipTrackingNo:                  r.ShipTrackingNo,
+		LogisticsCompanyID:              r.LogisticsCompanyID,
+		LogisticsProductID:              r.LogisticsProductID,
+		PaymentGoodsAmount:              r.PaymentGoodsAmount,
+		PaymentShippingAmount:           r.PaymentShippingAmount,
+		PaymentVoucherAssetID:           r.PaymentVoucherAssetID,
 		ResponsibleType:                 r.ResponsibleType,
 		ResponsibleID:                   r.ResponsibleID,
 		Notes:                           r.Notes,
@@ -533,14 +573,17 @@ func apiCustomerOptions(in []CustomerOption) []customerAPIOption {
 	out := make([]customerAPIOption, 0, len(in))
 	for _, item := range in {
 		out = append(out, customerAPIOption{
-			ID:                 item.ID,
-			Name:               item.Name,
-			Contact:            item.Contact,
-			Phone:              item.Phone,
-			Py:                 support.PinyinFull(item.Name),
-			Pyi:                support.PinyinInitials(item.Name),
-			DefaultSourceID:    item.DefaultSourceID,
-			DefaultOrderTypeID: item.DefaultOrderTypeID,
+			ID:                      item.ID,
+			Name:                    item.Name,
+			CustomerType:            item.CustomerType,
+			Contact:                 item.Contact,
+			Phone:                   item.Phone,
+			Py:                      support.PinyinFull(item.Name),
+			Pyi:                     support.PinyinInitials(item.Name),
+			DefaultSourceID:         item.DefaultSourceID,
+			DefaultOrderTypeID:      item.DefaultOrderTypeID,
+			ResponsibleEmployeeID:   item.ResponsibleEmployeeID,
+			ResponsibleEmployeeName: item.ResponsibleEmployeeName,
 		})
 	}
 	return out
@@ -566,27 +609,36 @@ func apiProducts(ps []ProductOption) []map[string]any {
 	out := make([]map[string]any, 0, len(ps))
 	for _, p := range ps {
 		jp := map[string]any{
-			"id":                 p.ID,
-			"name":               p.Name,
-			"py":                 support.PinyinFull(p.Name),
-			"pyi":                support.PinyinInitials(p.Name),
-			"retail_price_100g":  p.RetailPrice100G,
-			"retail_price_200g":  p.RetailPrice200G,
-			"retail_price_227g":  p.RetailPrice227G,
-			"retail_price_250g":  p.RetailPrice250G,
-			"customer_id":        p.CustomerID,
-			"base_product_id":    p.BaseProductID,
-			"visibility":         productVisibilityForAPI(p.Visibility, p.CustomerID),
-			"custom_type":        p.CustomType,
-			"product_kind":       p.ProductKind,
-			"drip_bag_grams":     p.DripBagGrams,
-			"drip_box_bag_count": p.DripBoxBagCount,
-			"sales_units":        p.SalesUnits,
-			"retail_specs":       p.RetailSpecs,
+			"id":                          p.ID,
+			"name":                        p.Name,
+			"py":                          support.PinyinFull(p.Name),
+			"pyi":                         support.PinyinInitials(p.Name),
+			"retail_price_100g":           p.RetailPrice100G,
+			"retail_price_200g":           p.RetailPrice200G,
+			"retail_price_227g":           p.RetailPrice227G,
+			"retail_price_250g":           p.RetailPrice250G,
+			"customer_id":                 p.CustomerID,
+			"base_product_id":             p.BaseProductID,
+			"visibility":                  productVisibilityForAPI(p.Visibility, p.CustomerID),
+			"custom_type":                 p.CustomType,
+			"product_kind":                p.ProductKind,
+			"drip_bag_grams":              p.DripBagGrams,
+			"drip_box_bag_count":          p.DripBoxBagCount,
+			"sales_units":                 p.SalesUnits,
+			"retail_specs":                p.RetailSpecs,
+			"product_type_category_id":    p.ProductTypeCategoryID,
+			"product_subtype_category_id": p.ProductSubtypeCategoryID,
+			"product_type_name":           p.ProductTypeName,
+			"product_subtype_name":        p.ProductSubtypeName,
+			"inventory_unit":              p.InventoryUnit,
+			"quote_unit":                  p.QuoteUnit,
+			"order_unit":                  p.OrderUnit,
+			"unit_conversion_json":        p.UnitConversionJSON,
+			"integer_unit":                p.IntegerUnit,
 		}
 		tiers := make([]map[string]any, 0, len(p.Tiers))
 		for _, t := range p.Tiers {
-			tiers = append(tiers, map[string]any{
+			tier := map[string]any{
 				"id":                t.ID,
 				"spec_g":            t.SpecG,
 				"min":               t.MinQty,
@@ -596,7 +648,11 @@ func apiProducts(ps []ProductOption) []map[string]any {
 				"sales_unit":        t.SalesUnit,
 				"unit_bag_count":    t.UnitBagCount,
 				"price_source_json": t.PriceSourceJSON,
-			})
+			}
+			if t.DisplayUnit != "" {
+				tier["display_unit"] = t.DisplayUnit
+			}
+			tiers = append(tiers, tier)
 		}
 		jp["tiers"] = tiers
 		out = append(out, jp)
@@ -604,21 +660,124 @@ func apiProducts(ps []ProductOption) []map[string]any {
 	return out
 }
 
-func filterOrderProductsForCustomer(products []ProductOption, customerID int64) []ProductOption {
+func filterOrderProductsForCustomer(products []ProductOption, customerID int64, versionOptions []salesapp.BeanListVersionOption, publicUsages ...[]salesapp.CustomerPublicUsageOption) []ProductOption {
+	publicationIDsByType := map[string]map[int64]bool{}
+	if len(versionOptions) > 0 {
+		publicationIDsByType = customerOwnedPublicationIDsByListType(customerID, versionOptions)
+	}
+	allowsPublicProducts := true
+	if len(publicUsages) > 0 {
+		allowsPublicProducts = customerAllowsPublicOrderProducts(customerID, publicUsages[0])
+	}
 	out := make([]ProductOption, 0, len(products))
 	for _, product := range products {
 		visibility := productVisibilityForAPI(product.Visibility, product.CustomerID)
 		if visibility == "public" || product.CustomerID == 0 {
+			if customerID > 0 && !allowsPublicProducts && !productMatchesExplicitCustomerOwnedBeanListScope(product, publicationIDsByType) {
+				continue
+			}
+			if !productMatchesCustomerOwnedBeanListScope(product, publicationIDsByType) {
+				continue
+			}
 			product.Visibility = "public"
 			out = append(out, product)
 			continue
 		}
 		if customerID > 0 && product.CustomerID == customerID {
+			if !productMatchesCustomerOwnedBeanListScope(product, publicationIDsByType) {
+				continue
+			}
 			product.Visibility = "customer_only"
 			out = append(out, product)
 		}
 	}
 	return out
+}
+
+func customerAllowsPublicOrderProducts(customerID int64, usages []salesapp.CustomerPublicUsageOption) bool {
+	if customerID <= 0 {
+		return true
+	}
+	for _, usage := range usages {
+		if usage.CustomerID == customerID {
+			return usage.UsePublicSKU
+		}
+	}
+	return true
+}
+
+func customerOwnedPublicationIDsByListType(customerID int64, options []salesapp.BeanListVersionOption) map[string]map[int64]bool {
+	out := map[string]map[int64]bool{}
+	if customerID <= 0 {
+		return out
+	}
+	for _, option := range options {
+		if option.CustomerID != customerID || !option.IsCustomerOwned || option.ID <= 0 {
+			continue
+		}
+		listType := normalizeOrderBeanListType(option.ListType)
+		if out[listType] == nil {
+			out[listType] = map[int64]bool{}
+		}
+		out[listType][option.ID] = true
+	}
+	return out
+}
+
+func productMatchesCustomerOwnedBeanListScope(product ProductOption, publicationIDsByType map[string]map[int64]bool) bool {
+	listType := orderProductBeanListType(product.ProductKind)
+	publicationIDs := publicationIDsByType[listType]
+	if len(publicationIDs) == 0 {
+		return true
+	}
+	return productMatchesExplicitCustomerOwnedBeanListScope(product, publicationIDsByType)
+}
+
+func productMatchesExplicitCustomerOwnedBeanListScope(product ProductOption, publicationIDsByType map[string]map[int64]bool) bool {
+	listType := orderProductBeanListType(product.ProductKind)
+	publicationIDs := publicationIDsByType[listType]
+	if len(publicationIDs) == 0 {
+		return false
+	}
+	for _, tier := range product.Tiers {
+		var source struct {
+			ListType      string `json:"list_type"`
+			PublicationID int64  `json:"publication_id"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(tier.PriceSourceJSON)), &source); err != nil {
+			continue
+		}
+		if source.PublicationID <= 0 || !publicationIDs[source.PublicationID] {
+			continue
+		}
+		if normalizeOrderBeanListType(source.ListType) != listType {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func orderProductBeanListType(productKind string) string {
+	switch strings.TrimSpace(productKind) {
+	case "green_bean":
+		return "green"
+	case "drip_bag":
+		return "drip"
+	default:
+		return "commercial"
+	}
+}
+
+func normalizeOrderBeanListType(listType string) string {
+	switch strings.TrimSpace(listType) {
+	case "green":
+		return "green"
+	case "drip":
+		return "drip"
+	default:
+		return "commercial"
+	}
 }
 
 func productVisibilityForAPI(visibility string, customerID int64) string {
@@ -705,6 +864,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		commercialPublicationID = itemPublicationIDByType("commercial")
 	}
 	return map[string]any{
+		"document_date":                       ed.DocumentDate,
 		"order_date":                          ed.OrderDate,
 		"customer_id":                         strconv.FormatInt(ed.CustomerID, 10),
 		"source_id":                           strconv.FormatInt(ed.SourceID, 10),
@@ -714,6 +874,12 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		"ship_status_id":                      strconv.FormatInt(ed.ShipStatusID, 10),
 		"ship_method":                         ed.ShipMethod,
 		"ship_tracking_no":                    ed.ShipTrackingNo,
+		"logistics_company_id":                ed.LogisticsCompanyID,
+		"logistics_product_id":                ed.LogisticsProductID,
+		"payment_goods_amount":                ed.PaymentGoodsAmount,
+		"payment_shipping_amount":             ed.PaymentShippingAmount,
+		"payment_voucher_asset_id":            ed.PaymentVoucherAssetID,
+		"payment_voucher":                     ed.PaymentVoucher,
 		"responsible_type":                    ed.ResponsibleType,
 		"responsible_id":                      ed.ResponsibleID,
 		"responsible_name":                    ed.ResponsibleName,

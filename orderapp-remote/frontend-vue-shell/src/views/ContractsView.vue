@@ -82,7 +82,7 @@
           <a v-if="latestStampedURL" class="secondary button-link" :href="appURL(latestStampedURL)">下载已盖章PDF</a>
         </div>
 
-        <div v-if="selectedContract && !selectedSeal" class="notice">请先在销售单设置中上传公章，或从已有公章中选择一个。</div>
+        <div v-if="selectedContract && !selectedSeal" class="notice">请先在公章设置中上传公章，或从已有公章中选择一个。</div>
         <div v-if="rendering" class="status">PDF 文件准备中</div>
         <div v-else-if="selectedContract && currentPDFBytes" class="pdf-preview-wrap">
           <PDFStampPreview

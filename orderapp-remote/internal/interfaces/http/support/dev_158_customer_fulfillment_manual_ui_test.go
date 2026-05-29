@@ -52,7 +52,9 @@ func TestCustomerFulfillmentManualVisibleInVueShell(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"操作手册：客户履约账户",
+		"操作手册：客户履约全流程",
+		"工作台模式手册、客户门户手册、客户履约手册",
+		"合并后的阅读地图",
 		"解析导入",
 		"应用最新批次",
 		"代发清单",
@@ -84,7 +86,7 @@ func TestCustomerFulfillmentManualUsesConsolidatedOperationManual(t *testing.T) 
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", path, err)
 	}
-	for _, want := range []string{"操作手册：客户履约账户", "三类 Excel", "结果校验"} {
+	for _, want := range []string{"操作手册：客户履约全流程", "合并后的阅读地图", "角色权限图", "三类 Excel", "结果校验"} {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("%s missing %q", path, want)
 		}

@@ -28,11 +28,12 @@ func TestCustomerAccountPortalTypesWiredAcrossUIAndAPIs(t *testing.T) {
 	}
 	for _, want := range []string{
 		"ensureDefaultRetailPortalTx",
-		"retail_mall",
-		"miniapp_entry_mode='mall'",
+		"syncCustomerPortalProfileTx",
+		"portal_enabled",
+		"capability_template_key",
 	} {
 		if !strings.Contains(customerRepo, want) {
-			t.Fatalf("customer repository missing retail/ecommerce portal default %q", want)
+			t.Fatalf("customer repository missing customer portal switch behavior %q", want)
 		}
 	}
 	for _, want := range []string{
@@ -72,14 +73,16 @@ func TestCustomerAccountPortalTypesWiredAcrossUIAndAPIs(t *testing.T) {
 			t.Fatalf("CustomerPortalSettingsView.vue contains stale portal account behavior %q", forbidden)
 		}
 	}
+	customerTypes := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "customer-types.js")))
 	for _, want := range []string{
 		"customer_type",
 		"批发客户",
 		"零售客户",
 		"电商客户",
+		"渠道客户",
 	} {
-		if !strings.Contains(customersView, want) {
-			t.Fatalf("CustomersView.vue missing customer type UI %q", want)
+		if !strings.Contains(customersView, want) && !strings.Contains(customerTypes, want) {
+			t.Fatalf("customer type UI missing %q", want)
 		}
 	}
 }

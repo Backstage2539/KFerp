@@ -30,6 +30,8 @@ func TestSalesOrderSettingsRoundTrip(t *testing.T) {
 	if err := repo.SaveSalesOrderSettings(ctx, salesapp.SaveSalesOrderSettingsCommand{
 		Actor: "测试员", CompanyName: "浅焙作坊咖啡", Note: "请密封保存", PaymentText: "微信或对公转账",
 		BankAccountName: "孟连口加农业科技有限公司", BankName: "中国农业银行孟连支行", BankAccountNo: "6222000000000000",
+		PaymentTextXMM: 18, PaymentTextYMM: 142, PaymentTextWidthMM: 98, PaymentTextHeightMM: 54, PaymentTextPageNumber: 1,
+		PaymentCodeXMM: 126, PaymentCodeYMM: 104, PaymentCodeWidthMM: 76, PaymentCodeHeightMM: 126, PaymentCodePageNumber: 2,
 	}); err != nil {
 		t.Fatalf("SaveSalesOrderSettings: %v", err)
 	}
@@ -42,6 +44,18 @@ func TestSalesOrderSettingsRoundTrip(t *testing.T) {
 	}
 	if got.BankAccountName != "孟连口加农业科技有限公司" || got.BankName != "中国农业银行孟连支行" || got.BankAccountNo != "6222000000000000" {
 		t.Fatalf("bank account settings = %+v", got)
+	}
+	if got.PaymentTextXMM != 18 || got.PaymentTextYMM != 142 || got.PaymentTextWidthMM != 98 || got.PaymentTextHeightMM != 54 {
+		t.Fatalf("payment text layout settings = %+v", got)
+	}
+	if got.PaymentTextPageNumber != 1 {
+		t.Fatalf("payment text layout page = %+v", got)
+	}
+	if got.PaymentCodeXMM != 126 || got.PaymentCodeYMM != 104 || got.PaymentCodeWidthMM != 76 || got.PaymentCodeHeightMM != 126 {
+		t.Fatalf("payment code layout settings = %+v", got)
+	}
+	if got.PaymentCodePageNumber != 2 {
+		t.Fatalf("payment code layout page = %+v", got)
 	}
 }
 
@@ -75,6 +89,159 @@ func TestSalesOrderPaymentCodeRoundTrip(t *testing.T) {
 	}
 	if len(settings.PaymentCodes) != 1 || settings.PaymentCodes[0].ID != code.ID || settings.PaymentCodes[0].Label != "微信" || settings.PaymentCodes[0].Asset.ObjectKey != "sales-order/payment/wx.png" {
 		t.Fatalf("payment codes = %+v", settings.PaymentCodes)
+	}
+}
+
+func TestDeactivateSalesOrderPaymentCodeKeepsVisibleForSettingsAndCanReactivate(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	repo := NewRepository(pool, schema)
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	asset, err := repo.SaveSalesOrderAsset(ctx, salesapp.SaveSalesOrderAssetCommand{
+		Actor: "测试员", Kind: "payment_code", Filename: "wx.png", ContentType: "image/png", Bytes: 12, SHA256: "abc", ObjectKey: "sales-order/payment/wx.png",
+	})
+	if err != nil {
+		t.Fatalf("SaveSalesOrderAsset: %v", err)
+	}
+	code, err := repo.SaveSalesOrderPaymentCode(ctx, salesapp.SaveSalesOrderPaymentCodeCommand{
+		Actor: "测试员", Label: "微信", Description: "扫码付款", AssetID: asset.ID, Sort: 10, Active: true,
+	})
+	if err != nil {
+		t.Fatalf("SaveSalesOrderPaymentCode: %v", err)
+	}
+
+	if err := repo.DeactivateSalesOrderPaymentCode(ctx, code.ID, "测试员"); err != nil {
+		t.Fatalf("DeactivateSalesOrderPaymentCode: %v", err)
+	}
+
+	settings, err := repo.LoadSalesOrderSettings(ctx)
+	if err != nil {
+		t.Fatalf("LoadSalesOrderSettings: %v", err)
+	}
+	if len(settings.PaymentCodes) != 1 || settings.PaymentCodes[0].ID != code.ID || settings.PaymentCodes[0].Active {
+		t.Fatalf("inactive payment code should remain visible in settings with active=false, got %+v", settings.PaymentCodes)
+	}
+	var codeRows, assetRows int
+	var active bool
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int, COALESCE(bool_or(active), false) FROM %s.sales_order_payment_codes WHERE id=$1`, schema), code.ID).Scan(&codeRows, &active); err != nil {
+		t.Fatalf("query payment code row: %v", err)
+	}
+	if codeRows != 1 || active {
+		t.Fatalf("payment code row count/active = %d/%v, want 1/false", codeRows, active)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int FROM %s.sales_order_assets WHERE id=$1`, schema), asset.ID).Scan(&assetRows); err != nil {
+		t.Fatalf("query payment code asset row: %v", err)
+	}
+	if assetRows != 1 {
+		t.Fatalf("payment code asset rows = %d, want 1", assetRows)
+	}
+	var action string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT action FROM %s.audit_logs WHERE entity_type='sales_order_payment_code' AND entity_id=$1 AND field='active' ORDER BY id DESC LIMIT 1`, schema), code.ID).Scan(&action); err != nil {
+		t.Fatalf("query payment code audit action: %v", err)
+	}
+	if action != "deactivate" {
+		t.Fatalf("payment code audit action = %q, want deactivate", action)
+	}
+
+	if err := repo.ActivateSalesOrderPaymentCode(ctx, code.ID, "测试员"); err != nil {
+		t.Fatalf("ActivateSalesOrderPaymentCode: %v", err)
+	}
+	settings, err = repo.LoadSalesOrderSettings(ctx)
+	if err != nil {
+		t.Fatalf("LoadSalesOrderSettings after activate: %v", err)
+	}
+	if len(settings.PaymentCodes) != 1 || settings.PaymentCodes[0].ID != code.ID || !settings.PaymentCodes[0].Active {
+		t.Fatalf("reactivated payment code should remain visible in settings with active=true, got %+v", settings.PaymentCodes)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT action FROM %s.audit_logs WHERE entity_type='sales_order_payment_code' AND entity_id=$1 AND field='active' ORDER BY id DESC LIMIT 1`, schema), code.ID).Scan(&action); err != nil {
+		t.Fatalf("query payment code activate audit action: %v", err)
+	}
+	if action != "activate" {
+		t.Fatalf("payment code audit action = %q, want activate", action)
+	}
+
+	if err := repo.DeleteSalesOrderPaymentCode(ctx, code.ID, "测试员"); err != nil {
+		t.Fatalf("DeleteSalesOrderPaymentCode: %v", err)
+	}
+	settings, err = repo.LoadSalesOrderSettings(ctx)
+	if err != nil {
+		t.Fatalf("LoadSalesOrderSettings after delete: %v", err)
+	}
+	if len(settings.PaymentCodes) != 0 {
+		t.Fatalf("deleted payment code should not remain visible in settings, got %+v", settings.PaymentCodes)
+	}
+	var deletedAtCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int FROM %s.sales_order_payment_codes WHERE id=$1 AND deleted_at IS NOT NULL AND deleted_by='测试员'`, schema), code.ID).Scan(&deletedAtCount); err != nil {
+		t.Fatalf("query deleted payment code row: %v", err)
+	}
+	if deletedAtCount != 1 {
+		t.Fatalf("deleted payment code marker rows = %d, want 1", deletedAtCount)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int FROM %s.sales_order_assets WHERE id=$1`, schema), asset.ID).Scan(&assetRows); err != nil {
+		t.Fatalf("query deleted payment code asset row: %v", err)
+	}
+	if assetRows != 1 {
+		t.Fatalf("deleted payment code should keep asset row, got %d", assetRows)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT action FROM %s.audit_logs WHERE entity_type='sales_order_payment_code' AND entity_id=$1 AND field='deleted_at' ORDER BY id DESC LIMIT 1`, schema), code.ID).Scan(&action); err != nil {
+		t.Fatalf("query payment code delete audit action: %v", err)
+	}
+	if action != "delete" {
+		t.Fatalf("payment code audit action = %q, want delete", action)
+	}
+}
+
+func TestSalesOrderDocumentSkipsInactivePaymentCodes(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	repo := NewRepository(pool, schema, WithSalesOrderAssetDir(t.TempDir()), WithSalesOrderRenderer(fakeSalesOrderRenderer{}))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderDocumentOrder(t, ctx, pool, schema)
+	if err := repo.SaveSalesOrderSettings(ctx, salesapp.SaveSalesOrderSettingsCommand{Actor: "测试员", CompanyName: "浅焙作坊咖啡"}); err != nil {
+		t.Fatalf("SaveSalesOrderSettings: %v", err)
+	}
+	asset, err := repo.SaveSalesOrderAsset(ctx, salesapp.SaveSalesOrderAssetCommand{
+		Actor: "测试员", Kind: "payment_code", Filename: "wx.png", ContentType: "image/png", Bytes: 12, SHA256: "abc", ObjectKey: "sales-order/payment/wx.png",
+	})
+	if err != nil {
+		t.Fatalf("SaveSalesOrderAsset: %v", err)
+	}
+	code, err := repo.SaveSalesOrderPaymentCode(ctx, salesapp.SaveSalesOrderPaymentCodeCommand{
+		Actor: "测试员", Label: "微信", Description: "扫码付款", AssetID: asset.ID, Sort: 10, Active: false,
+	})
+	if err != nil {
+		t.Fatalf("SaveSalesOrderPaymentCode inactive: %v", err)
+	}
+	inactiveDoc, err := repo.GenerateSalesOrderDocument(ctx, salesapp.GenerateSalesOrderDocumentCommand{Actor: "测试员", OrderID: 1})
+	if err != nil {
+		t.Fatalf("Generate inactive: %v", err)
+	}
+	if len(inactiveDoc.Snapshot.PaymentCodes) != 0 {
+		t.Fatalf("inactive payment code should not render in snapshot: %+v", inactiveDoc.Snapshot.PaymentCodes)
+	}
+	if err := repo.ActivateSalesOrderPaymentCode(ctx, code.ID, "测试员"); err != nil {
+		t.Fatalf("ActivateSalesOrderPaymentCode: %v", err)
+	}
+	activeDoc, err := repo.GenerateSalesOrderDocument(ctx, salesapp.GenerateSalesOrderDocumentCommand{Actor: "测试员", OrderID: 1})
+	if err != nil {
+		t.Fatalf("Generate active: %v", err)
+	}
+	if len(activeDoc.Snapshot.PaymentCodes) != 1 || activeDoc.Snapshot.PaymentCodes[0].Label != "微信" {
+		t.Fatalf("active payment code should render in snapshot: %+v", activeDoc.Snapshot.PaymentCodes)
 	}
 }
 
@@ -137,6 +304,61 @@ func TestGenerateSalesOrderDocumentCreatesVersions(t *testing.T) {
 	}
 	if string(b) != "%PDF-test" || file.Filename != "SO-20260430-0008-V2.pdf" {
 		t.Fatalf("file=%+v bytes=%q", file, b)
+	}
+}
+
+func TestSalesOrderPreviewIncludesNoteAndDiscountBreakdowns(t *testing.T) {
+	pool, schema := newSalesPostgresTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	prepareSalesSchemaPrerequisites(t, ctx, pool, schema)
+	repo := NewRepository(pool, schema, WithSalesOrderAssetDir(t.TempDir()), WithSalesOrderRenderer(fakeSalesOrderRenderer{}))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderDocumentOrder(t, ctx, pool, schema)
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET total_amount=2455, shipping_amount=169, discount_amount=261.65, grand_total=2362.35, express_fee='顺丰保价备注' WHERE id=1`, schema)); err != nil {
+		t.Fatalf("update order amounts: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.order_items SET discount_type='unit_amount', discount_amount=100 WHERE order_id=1 AND line_no=1`, schema)); err != nil {
+		t.Fatalf("update first item discount: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.order_items(order_id, line_no, product_id, item_name, spec, qty, unit, unit_price, discount_type, discount_amount, line_total)
+		VALUES(1, 2, 1, '芬纳-曲奇定制（20%%乌干达，15%%云南厌氧日晒，65%%云南水洗）', '1000g', 2, '件', 117, 'percent', 61.65, 93.35)`, schema)); err != nil {
+		t.Fatalf("insert discounted item: %v", err)
+	}
+
+	if err := repo.SaveSalesOrderNote(ctx, salesapp.SaveSalesOrderNoteCommand{Actor: "销售", OrderID: 1, Note: "  末行备注：随货附赠杯测样  "}); err != nil {
+		t.Fatalf("SaveSalesOrderNote: %v", err)
+	}
+	preview, err := repo.PreviewSalesOrderDocument(ctx, 1)
+	if err != nil {
+		t.Fatalf("PreviewSalesOrderDocument: %v", err)
+	}
+	if preview.Snapshot.SalesOrderNote != "末行备注：随货附赠杯测样" || preview.Snapshot.ExpressFee != "顺丰保价备注" || preview.Snapshot.Shipping != "169.00" || preview.Snapshot.Discount != "261.65" {
+		t.Fatalf("snapshot financial fields = %+v", preview.Snapshot)
+	}
+	if len(preview.Snapshot.Items) < 2 || preview.Snapshot.Items[0].DiscountAmount != "100.00" || preview.Snapshot.Items[1].DiscountAmount != "61.65" {
+		t.Fatalf("snapshot item discounts = %+v", preview.Snapshot.Items)
+	}
+	want := []salesdomain.SalesOrderDiscountBreakdown{
+		{Type: "unit_amount", Amount: "100.00"},
+		{Type: "percent", Amount: "61.65"},
+		{Type: "order_amount", Amount: "100.00"},
+	}
+	if fmt.Sprint(preview.Snapshot.DiscountBreakdowns) != fmt.Sprint(want) {
+		t.Fatalf("discount breakdowns = %+v, want %+v", preview.Snapshot.DiscountBreakdowns, want)
+	}
+
+	var auditCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.audit_logs WHERE entity_type='order' AND entity_id=1 AND field='sales_order_note' AND old_value='' AND new_value='末行备注：随货附赠杯测样'`, schema)).Scan(&auditCount); err != nil {
+		t.Fatalf("query audit: %v", err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("sales_order_note audit count = %d, want 1", auditCount)
 	}
 }
 
@@ -350,6 +572,8 @@ func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pg
 			total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 			shipping_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 			discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+			express_fee TEXT NOT NULL DEFAULT '',
+			sales_order_note TEXT NOT NULL DEFAULT '',
 			grand_total NUMERIC(12,2) NOT NULL DEFAULT 0
 		)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.order_items (
@@ -363,6 +587,8 @@ func prepareSalesSchemaPrerequisites(t *testing.T, ctx context.Context, pool *pg
 			qty NUMERIC(12,2) NOT NULL DEFAULT 0,
 			unit TEXT NOT NULL DEFAULT '',
 			unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+			discount_type TEXT NOT NULL DEFAULT '',
+			discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 			line_total NUMERIC(12,2) NOT NULL DEFAULT 0
 		)`, schema),
 		fmt.Sprintf(`CREATE TABLE %s.audit_logs (

@@ -9,8 +9,8 @@ import (
 
 func TestGroupStartNeedsForRunsMergesSpecsByProductAndKeepsOutputs(t *testing.T) {
 	needs := []productionapp.StartNeed{
-		{ProductID: 1, ProductName: "Uraga乌拉嘎", SpecG: 454, GapG: 10896, OrderNos: "SO-MERGE-454"},
-		{ProductID: 1, ProductName: "Uraga乌拉嘎", SpecG: 227, GapG: 454, OrderNos: "SO-MERGE-227"},
+		{ProductID: 1, ProductName: "Uraga乌拉嘎", SpecG: 454, GapG: 10896, OrderNos: "SO-MERGE-454", OperationTemplateID: 22},
+		{ProductID: 1, ProductName: "Uraga乌拉嘎", SpecG: 227, GapG: 454, OrderNos: "SO-MERGE-227", OperationTemplateID: 22},
 		{ProductID: 2, ProductName: "曲奇拼配", SpecG: 1000, GapG: 1000, OrderNos: "SO-OTHER"},
 	}
 	groups := groupStartNeedsForRuns(needs, map[string]int64{
@@ -31,6 +31,9 @@ func TestGroupStartNeedsForRunsMergesSpecsByProductAndKeepsOutputs(t *testing.T)
 	}
 	if first.OrderNos != "SO-MERGE-454,SO-MERGE-227" {
 		t.Fatalf("first group order_nos = %q", first.OrderNos)
+	}
+	if first.OperationTemplateID != 22 {
+		t.Fatalf("first group operation template = %d, want 22", first.OperationTemplateID)
 	}
 	gotSpecs := []int64{first.Outputs[0].SpecG, first.Outputs[1].SpecG}
 	if !reflect.DeepEqual(gotSpecs, []int64{454, 227}) {

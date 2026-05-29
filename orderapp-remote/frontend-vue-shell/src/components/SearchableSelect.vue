@@ -2,10 +2,11 @@
   <div ref="root" class="searchable-select" :class="{ open, disabled }">
     <div class="select-control">
       <input
+        ref="inputEl"
         :value="query"
         :placeholder="placeholder"
         :disabled="disabled"
-        type="search"
+        type="text"
         autocomplete="off"
         role="combobox"
         :aria-expanded="open"
@@ -14,6 +15,15 @@
         @input="handleInput"
         @keydown="handleKeydown"
       />
+      <button
+        v-if="showClear"
+        class="select-clear"
+        type="button"
+        :disabled="disabled"
+        aria-label="清除选择"
+        @mousedown.prevent
+        @click="clearSelection"
+      >×</button>
       <button
         class="select-toggle"
         type="button"
@@ -61,6 +71,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'select'])
 const root = ref(null)
+const inputEl = ref(null)
 const open = ref(false)
 const query = ref('')
 const activeIndex = ref(0)
@@ -75,6 +86,8 @@ const selectedOption = computed(() => {
 const filteredOptions = computed(() => (
   filterSearchableOptions(props.options, query.value, labelOf).slice(0, props.maxOptions)
 ))
+
+const showClear = computed(() => !props.disabled && String(query.value || '').length > 0)
 
 function labelOf(option) {
   return String(props.optionLabel(option) || '').trim()
@@ -139,6 +152,16 @@ function choose(option) {
   emit('select', option)
 }
 
+function clearSelection() {
+  query.value = ''
+  activeIndex.value = filteredOptions.value.length ? 0 : -1
+  open.value = true
+  if (String(props.modelValue ?? '') !== String(props.emptyValue)) {
+    emit('update:modelValue', props.emptyValue)
+  }
+  inputEl.value?.focus?.()
+}
+
 function handleKeydown(event) {
   if (event.key === 'Escape') {
     closeMenu()
@@ -192,14 +215,14 @@ onBeforeUnmount(() => {
   height: 38px;
   border: 1px solid #d1d5db;
   border-radius: 6px;
-  padding: 7px 34px 7px 9px;
+  padding: 7px 70px 7px 9px;
   font: inherit;
   background: #fff;
 }
-.select-toggle {
+.select-toggle,
+.select-clear {
   position: absolute;
   top: 4px;
-  right: 4px;
   width: 30px;
   height: 30px;
   min-height: 30px;
@@ -211,7 +234,10 @@ onBeforeUnmount(() => {
   font: inherit;
   line-height: 1;
 }
-.select-toggle:hover { background: #f3f4f6; }
+.select-toggle { right: 4px; }
+.select-clear { right: 36px; }
+.select-toggle:hover,
+.select-clear:hover { background: #f3f4f6; }
 .select-menu {
   position: absolute;
   z-index: 30;

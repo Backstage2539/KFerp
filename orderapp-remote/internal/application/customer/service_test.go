@@ -7,9 +7,11 @@ import (
 )
 
 type fakeRepo struct {
-	upsert    UpsertCommand
-	asset     SaveAssetCommand
-	listQuery ListQuery
+	upsert             UpsertCommand
+	asset              SaveAssetCommand
+	listQuery          ListQuery
+	customerTypeCreate CreateCustomerTypeCommand
+	orderTypeCreate    CreateOrderTypeCommand
 }
 
 func (r *fakeRepo) Upsert(ctx context.Context, actor string, id *int64, cmd UpsertCommand) (int64, error) {
@@ -55,10 +57,29 @@ func (r *fakeRepo) AssetObject(ctx context.Context, assetID int64) (AssetObject,
 	return AssetObject{}, nil
 }
 
+func (r *fakeRepo) ListCustomerTypeOptions(ctx context.Context) ([]CustomerTypeOption, error) {
+	return DefaultCustomerTypeOptions(), nil
+}
+
+func (r *fakeRepo) CreateCustomerTypeOption(ctx context.Context, actor string, cmd CreateCustomerTypeCommand) (CustomerTypeOption, error) {
+	r.customerTypeCreate = cmd
+	return CustomerTypeOption{Value: "partner_store", Label: cmd.Label}, nil
+}
+
+func (r *fakeRepo) CreateOrderTypeOption(ctx context.Context, actor string, cmd CreateOrderTypeCommand) (Option, error) {
+	r.orderTypeCreate = cmd
+	return Option{ID: 88, Name: cmd.Name}, nil
+}
+
 func TestServiceDelegatesCustomerUpsert(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
-	id, err := svc.Upsert(context.Background(), "actor", nil, UpsertCommand{Name: "Ada"})
+	id, err := svc.Upsert(context.Background(), "actor", nil, UpsertCommand{
+		Name:               "Ada",
+		CustomerType:       "wholesale",
+		DefaultSourceID:    "1",
+		DefaultOrderTypeID: "2",
+	})
 	if err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}
@@ -121,6 +142,77 @@ func TestServiceListNormalizesQuery(t *testing.T) {
 	}
 	if repo.listQuery.Active == nil || *repo.listQuery.Active != true {
 		t.Fatalf("normalized active = %+v, want true", repo.listQuery.Active)
+	}
+}
+
+func TestServiceSupportsChannelCustomerType(t *testing.T) {
+	if got := NormalizeCustomerType("channel"); got != "channel" {
+		t.Fatalf("NormalizeCustomerType(channel)=%q, want channel", got)
+	}
+	if got := NormalizeCustomerTypeFilter("channel"); got != "channel" {
+		t.Fatalf("NormalizeCustomerTypeFilter(channel)=%q, want channel", got)
+	}
+}
+
+func TestServiceSupportsCustomCustomerTypeOptions(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.Upsert(context.Background(), "actor", nil, UpsertCommand{
+		Name:               "联名门店A",
+		CustomerType:       "partner_store",
+		DefaultSourceID:    "1",
+		DefaultOrderTypeID: "2",
+	})
+	if err != nil {
+		t.Fatalf("Upsert() error = %v, want custom customer type accepted", err)
+	}
+	if repo.upsert.CustomerType != "partner_store" {
+		t.Fatalf("customer_type=%q, want partner_store", repo.upsert.CustomerType)
+	}
+	if got := NormalizeCustomerTypeFilter("partner_store"); got != "partner_store" {
+		t.Fatalf("custom filter = %q, want partner_store", got)
+	}
+}
+
+func TestServiceCreatesCustomerAndOrderTypeOptions(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	customerType, err := svc.CreateCustomerTypeOption(context.Background(), "actor", CreateCustomerTypeCommand{Label: " 联名门店 "})
+	if err != nil {
+		t.Fatalf("CreateCustomerTypeOption() error = %v", err)
+	}
+	if customerType.Value != "partner_store" || repo.customerTypeCreate.Label != "联名门店" {
+		t.Fatalf("customer type option = %+v command=%+v", customerType, repo.customerTypeCreate)
+	}
+	orderType, err := svc.CreateOrderTypeOption(context.Background(), "actor", CreateOrderTypeCommand{Name: " 补货订单 "})
+	if err != nil {
+		t.Fatalf("CreateOrderTypeOption() error = %v", err)
+	}
+	if orderType.ID != 88 || orderType.Name != "补货订单" || repo.orderTypeCreate.Name != "补货订单" {
+		t.Fatalf("order type option = %+v command=%+v", orderType, repo.orderTypeCreate)
+	}
+}
+
+func TestServiceAllowsPortalSwitchWithoutCapabilityTemplate(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	enabled := true
+	_, err := svc.Upsert(context.Background(), "actor", nil, UpsertCommand{
+		Name:                  "渠道客户",
+		CustomerType:          "channel",
+		DefaultSourceID:       "1",
+		DefaultOrderTypeID:    "2",
+		PortalEnabled:         &enabled,
+		CapabilityTemplateKey: "channel_direct_ship",
+	})
+	if err != nil {
+		t.Fatalf("Upsert() error = %v, want portal switch without template accepted", err)
+	}
+	if repo.upsert.PortalEnabled == nil || !*repo.upsert.PortalEnabled {
+		t.Fatalf("portal_enabled not delegated: %+v", repo.upsert)
+	}
+	if repo.upsert.CapabilityTemplateKey != "" {
+		t.Fatalf("capability_template_key=%q, want customer profile not to bind templates", repo.upsert.CapabilityTemplateKey)
 	}
 }
 

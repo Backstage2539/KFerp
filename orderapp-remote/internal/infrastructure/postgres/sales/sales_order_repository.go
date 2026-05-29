@@ -18,16 +18,32 @@ import (
 )
 
 func (r Repository) LoadSalesOrderSettings(ctx context.Context) (salesapp.SalesOrderSettings, error) {
-	settings := salesapp.SalesOrderSettings{SealXMM: 32, SealYMM: 5, SealWidthMM: 36}
+	settings := salesapp.SalesOrderSettings{
+		SealXMM:             32,
+		SealYMM:             5,
+		SealWidthMM:         36,
+		PaymentTextXMM:      salesapp.DefaultSalesOrderPaymentTextXMM,
+		PaymentTextYMM:      salesapp.DefaultSalesOrderPaymentTextYMM,
+		PaymentTextWidthMM:  salesapp.DefaultSalesOrderPaymentTextWidthMM,
+		PaymentTextHeightMM: salesapp.DefaultSalesOrderPaymentTextHeightMM,
+		PaymentCodeXMM:      salesapp.DefaultSalesOrderPaymentCodeXMM,
+		PaymentCodeYMM:      salesapp.DefaultSalesOrderPaymentCodeYMM,
+		PaymentCodeWidthMM:  salesapp.DefaultSalesOrderPaymentCodeWidthMM,
+		PaymentCodeHeightMM: salesapp.DefaultSalesOrderPaymentCodeHeightMM,
+	}
 	q := fmt.Sprintf(`SELECT s.company_name, s.note, s.payment_text,
 			COALESCE(s.bank_account_name,''), COALESCE(s.bank_name,''), COALESCE(s.bank_account_no,''),
 			COALESCE(s.seal_x_mm,32)::float8, COALESCE(s.seal_y_mm,5)::float8, COALESCE(s.seal_width_mm,36)::float8,
+			COALESCE(s.payment_text_x_mm,16)::float8, COALESCE(s.payment_text_y_mm,118)::float8, COALESCE(s.payment_text_width_mm,104)::float8, COALESCE(s.payment_text_height_mm,78)::float8,
+			COALESCE(s.payment_text_page_number,0)::int,
+			COALESCE(s.payment_code_x_mm,126)::float8, COALESCE(s.payment_code_y_mm,106)::float8, COALESCE(s.payment_code_width_mm,72)::float8, COALESCE(s.payment_code_height_mm,122)::float8,
+			COALESCE(s.payment_code_page_number,0)::int,
 			COALESCE(a.id,0), COALESCE(a.kind,''), COALESCE(a.filename,''), COALESCE(a.content_type,''), COALESCE(a.bytes,0), COALESCE(a.sha256,''), COALESCE(a.object_key,''), COALESCE(to_char(a.created_at,'YYYY-MM-DD HH24:MI:SS'),''), COALESCE(a.created_by,'')
 		FROM %s.sales_order_settings s
 		LEFT JOIN %s.sales_order_assets a ON a.id=s.seal_asset_id
 		WHERE s.id=1`, r.schema, r.schema)
 	var seal salesapp.SalesOrderAsset
-	err := r.pool.QueryRow(ctx, q).Scan(&settings.CompanyName, &settings.Note, &settings.PaymentText, &settings.BankAccountName, &settings.BankName, &settings.BankAccountNo, &settings.SealXMM, &settings.SealYMM, &settings.SealWidthMM, &seal.ID, &seal.Kind, &seal.Filename, &seal.ContentType, &seal.Bytes, &seal.SHA256, &seal.ObjectKey, &seal.CreatedAt, &seal.CreatedBy)
+	err := r.pool.QueryRow(ctx, q).Scan(&settings.CompanyName, &settings.Note, &settings.PaymentText, &settings.BankAccountName, &settings.BankName, &settings.BankAccountNo, &settings.SealXMM, &settings.SealYMM, &settings.SealWidthMM, &settings.PaymentTextXMM, &settings.PaymentTextYMM, &settings.PaymentTextWidthMM, &settings.PaymentTextHeightMM, &settings.PaymentTextPageNumber, &settings.PaymentCodeXMM, &settings.PaymentCodeYMM, &settings.PaymentCodeWidthMM, &settings.PaymentCodeHeightMM, &settings.PaymentCodePageNumber, &seal.ID, &seal.Kind, &seal.Filename, &seal.ContentType, &seal.Bytes, &seal.SHA256, &seal.ObjectKey, &seal.CreatedAt, &seal.CreatedBy)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return salesapp.SalesOrderSettings{}, err
 	}
@@ -44,8 +60,8 @@ func (r Repository) LoadSalesOrderSettings(ctx context.Context) (salesapp.SalesO
 }
 
 func (r Repository) SaveSalesOrderSettings(ctx context.Context, cmd salesapp.SaveSalesOrderSettingsCommand) error {
-	q := fmt.Sprintf(`INSERT INTO %s.sales_order_settings(id, company_name, note, payment_text, bank_account_name, bank_name, bank_account_no, seal_x_mm, seal_y_mm, seal_width_mm, updated_at, updated_by)
-		VALUES(1,$1,$2,$3,$4,$5,$6,$7,$8,$9,now(),$10)
+	q := fmt.Sprintf(`INSERT INTO %s.sales_order_settings(id, company_name, note, payment_text, bank_account_name, bank_name, bank_account_no, seal_x_mm, seal_y_mm, seal_width_mm, payment_text_x_mm, payment_text_y_mm, payment_text_width_mm, payment_text_height_mm, payment_text_page_number, payment_code_x_mm, payment_code_y_mm, payment_code_width_mm, payment_code_height_mm, payment_code_page_number, updated_at, updated_by)
+		VALUES(1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,now(),$20)
 		ON CONFLICT(id) DO UPDATE SET
 			company_name=excluded.company_name,
 			note=excluded.note,
@@ -56,13 +72,48 @@ func (r Repository) SaveSalesOrderSettings(ctx context.Context, cmd salesapp.Sav
 			seal_x_mm=excluded.seal_x_mm,
 			seal_y_mm=excluded.seal_y_mm,
 			seal_width_mm=excluded.seal_width_mm,
+			payment_text_x_mm=excluded.payment_text_x_mm,
+			payment_text_y_mm=excluded.payment_text_y_mm,
+			payment_text_width_mm=excluded.payment_text_width_mm,
+			payment_text_height_mm=excluded.payment_text_height_mm,
+			payment_text_page_number=excluded.payment_text_page_number,
+			payment_code_x_mm=excluded.payment_code_x_mm,
+			payment_code_y_mm=excluded.payment_code_y_mm,
+			payment_code_width_mm=excluded.payment_code_width_mm,
+			payment_code_height_mm=excluded.payment_code_height_mm,
+			payment_code_page_number=excluded.payment_code_page_number,
 			updated_at=now(),
 			updated_by=excluded.updated_by`, r.schema)
-	_, err := r.pool.Exec(ctx, q, cmd.CompanyName, cmd.Note, cmd.PaymentText, cmd.BankAccountName, cmd.BankName, cmd.BankAccountNo, cmd.SealXMM, cmd.SealYMM, cmd.SealWidthMM, cmd.Actor)
-	if err == nil {
-		postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "sales_order_settings", nil, "update", postgresinfra.StrPtr("settings"), nil, postgresinfra.StrPtr(cmd.CompanyName), postgresinfra.AuditMeta{"company_name": cmd.CompanyName, "bank_account_name": cmd.BankAccountName, "bank_name": cmd.BankName, "bank_account_no": cmd.BankAccountNo, "seal_x_mm": cmd.SealXMM, "seal_y_mm": cmd.SealYMM, "seal_width_mm": cmd.SealWidthMM})
+	_, err := r.pool.Exec(ctx, q, cmd.CompanyName, cmd.Note, cmd.PaymentText, cmd.BankAccountName, cmd.BankName, cmd.BankAccountNo, cmd.SealXMM, cmd.SealYMM, cmd.SealWidthMM, cmd.PaymentTextXMM, cmd.PaymentTextYMM, cmd.PaymentTextWidthMM, cmd.PaymentTextHeightMM, cmd.PaymentTextPageNumber, cmd.PaymentCodeXMM, cmd.PaymentCodeYMM, cmd.PaymentCodeWidthMM, cmd.PaymentCodeHeightMM, cmd.PaymentCodePageNumber, cmd.Actor)
+	if err != nil {
+		return err
 	}
-	return err
+	return postgresinfra.NewAuditService(r.pool, r.schema).Insert(ctx, postgresinfra.AuditEntry{
+		Actor:      cmd.Actor,
+		EntityType: "sales_order_settings",
+		Action:     "update",
+		Field:      postgresinfra.StrPtr("settings"),
+		NewValue:   postgresinfra.StrPtr(cmd.CompanyName),
+		Meta: postgresinfra.AuditMeta{
+			"company_name":             cmd.CompanyName,
+			"bank_account_name":        cmd.BankAccountName,
+			"bank_name":                cmd.BankName,
+			"bank_account_no":          cmd.BankAccountNo,
+			"seal_x_mm":                cmd.SealXMM,
+			"seal_y_mm":                cmd.SealYMM,
+			"seal_width_mm":            cmd.SealWidthMM,
+			"payment_text_x_mm":        cmd.PaymentTextXMM,
+			"payment_text_y_mm":        cmd.PaymentTextYMM,
+			"payment_text_width_mm":    cmd.PaymentTextWidthMM,
+			"payment_text_height_mm":   cmd.PaymentTextHeightMM,
+			"payment_text_page_number": cmd.PaymentTextPageNumber,
+			"payment_code_x_mm":        cmd.PaymentCodeXMM,
+			"payment_code_y_mm":        cmd.PaymentCodeYMM,
+			"payment_code_width_mm":    cmd.PaymentCodeWidthMM,
+			"payment_code_height_mm":   cmd.PaymentCodeHeightMM,
+			"payment_code_page_number": cmd.PaymentCodePageNumber,
+		},
+	})
 }
 
 func (r Repository) SaveSalesOrderAsset(ctx context.Context, cmd salesapp.SaveSalesOrderAssetCommand) (salesapp.SalesOrderAsset, error) {
@@ -114,7 +165,7 @@ func (r Repository) SaveSalesOrderPaymentCode(ctx context.Context, cmd salesapp.
 	if cmd.ID > 0 {
 		q := fmt.Sprintf(`UPDATE %s.sales_order_payment_codes
 			SET label=$2, description=$3, asset_id=$4, sort=$5, active=$6, updated_at=now()
-			WHERE id=$1
+			WHERE id=$1 AND deleted_at IS NULL
 			RETURNING id, label, description, asset_id, sort, active`, r.schema)
 		if err := r.pool.QueryRow(ctx, q, cmd.ID, cmd.Label, cmd.Description, cmd.AssetID, cmd.Sort, cmd.Active).Scan(&code.ID, &code.Label, &code.Description, &code.AssetID, &code.Sort, &code.Active); err != nil {
 			return salesapp.SalesOrderPaymentCode{}, err
@@ -131,11 +182,51 @@ func (r Repository) SaveSalesOrderPaymentCode(ctx context.Context, cmd salesapp.
 	return code, nil
 }
 
-func (r Repository) DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
-	q := fmt.Sprintf(`UPDATE %s.sales_order_payment_codes SET active=false, updated_at=now() WHERE id=$1`, r.schema)
-	_, err := r.pool.Exec(ctx, q, id)
+func (r Repository) SaveSalesOrderNote(ctx context.Context, cmd salesapp.SaveSalesOrderNoteCommand) error {
+	var oldNote string
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(sales_order_note,'') FROM %s.orders WHERE id=$1`, r.schema), cmd.OrderID).Scan(&oldNote); err != nil {
+		return err
+	}
+	note := strings.TrimSpace(cmd.Note)
+	if _, err := r.pool.Exec(ctx, fmt.Sprintf(`UPDATE %s.orders SET sales_order_note=$2 WHERE id=$1`, r.schema), cmd.OrderID, note); err != nil {
+		return err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "order", &cmd.OrderID, "update", postgresinfra.StrPtr("sales_order_note"), postgresinfra.StrPtr(oldNote), postgresinfra.StrPtr(note), nil)
+	return nil
+}
+
+func (r Repository) DeactivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
+	q := fmt.Sprintf(`UPDATE %s.sales_order_payment_codes SET active=false, updated_at=now() WHERE id=$1 AND deleted_at IS NULL`, r.schema)
+	tag, err := r.pool.Exec(ctx, q, id)
+	if err == nil && tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
 	if err == nil {
-		postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "sales_order_payment_code", &id, "delete", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), nil)
+		postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "sales_order_payment_code", &id, "deactivate", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), nil)
+	}
+	return err
+}
+
+func (r Repository) ActivateSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
+	q := fmt.Sprintf(`UPDATE %s.sales_order_payment_codes SET active=true, updated_at=now() WHERE id=$1 AND deleted_at IS NULL`, r.schema)
+	tag, err := r.pool.Exec(ctx, q, id)
+	if err == nil && tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	if err == nil {
+		postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "sales_order_payment_code", &id, "activate", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("false"), postgresinfra.StrPtr("true"), nil)
+	}
+	return err
+}
+
+func (r Repository) DeleteSalesOrderPaymentCode(ctx context.Context, id int64, actor string) error {
+	q := fmt.Sprintf(`UPDATE %s.sales_order_payment_codes SET active=false, deleted_at=now(), deleted_by=$2, updated_at=now() WHERE id=$1 AND deleted_at IS NULL`, r.schema)
+	tag, err := r.pool.Exec(ctx, q, id, actor)
+	if err == nil && tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	if err == nil {
+		postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "sales_order_payment_code", &id, "delete", postgresinfra.StrPtr("deleted_at"), nil, postgresinfra.StrPtr("now"), nil)
 	}
 	return err
 }
@@ -156,8 +247,8 @@ func (r Repository) loadSalesOrderPaymentCodes(ctx context.Context) ([]salesapp.
 			a.id, a.kind, a.filename, a.content_type, a.bytes, a.sha256, a.object_key, to_char(a.created_at,'YYYY-MM-DD HH24:MI:SS'), a.created_by
 		FROM %s.sales_order_payment_codes pc
 		JOIN %s.sales_order_assets a ON a.id=pc.asset_id
-		WHERE pc.active=true
-		ORDER BY pc.sort, pc.id`, r.schema, r.schema)
+		WHERE pc.deleted_at IS NULL
+		ORDER BY pc.active DESC, pc.sort, pc.id`, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q)
 	if err != nil {
 		return nil, err
@@ -451,15 +542,19 @@ func (r Repository) loadSalesOrderImageVersionsTx(ctx context.Context, tx pgx.Tx
 func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, orderID int64, settings salesapp.SalesOrderSettings) (salesdomain.SalesOrderSnapshot, error) {
 	var snapshot salesdomain.SalesOrderSnapshot
 	var total, shipping, discount, grand float64
-	q := fmt.Sprintf(`SELECT o.id, o.order_no, COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''), COALESCE(c.name,''),
+	q := fmt.Sprintf(`SELECT o.id, o.order_no,
+			COALESCE(to_char(o.document_date,'YYYY-MM-DD'), to_char(o.order_date,'YYYY-MM-DD'), ''),
+			COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''), COALESCE(c.name,''),
 			COALESCE(NULLIF(c.company_name,''), c.name, ''), COALESCE(NULLIF(c.company_address,''), c.address, ''),
 			COALESCE(NULLIF(c.company_phone,''), c.phone, ''),
 			COALESCE(o.total_amount,0)::float8, COALESCE(o.shipping_amount,0)::float8,
-			COALESCE(o.discount_amount,0)::float8, COALESCE(o.grand_total,0)::float8
+			COALESCE(o.discount_amount,0)::float8, COALESCE(o.grand_total,0)::float8,
+			COALESCE(o.express_fee,''),
+			COALESCE(o.sales_order_note,'')
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id=o.customer_id
 		WHERE o.id=$1`, r.schema, r.schema)
-	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.OrderDate, &snapshot.CustomerName, &snapshot.CustomerCompanyName, &snapshot.CustomerCompanyAddress, &snapshot.CustomerCompanyPhone, &total, &shipping, &discount, &grand); err != nil {
+	if err := tx.QueryRow(ctx, q, orderID).Scan(&snapshot.OrderID, &snapshot.OrderNo, &snapshot.DocumentDate, &snapshot.OrderDate, &snapshot.CustomerName, &snapshot.CustomerCompanyName, &snapshot.CustomerCompanyAddress, &snapshot.CustomerCompanyPhone, &total, &shipping, &discount, &grand, &snapshot.ExpressFee, &snapshot.SalesOrderNote); err != nil {
 		return salesdomain.SalesOrderSnapshot{}, err
 	}
 	companyProfile, err := r.loadCompanyProfileForSalesOrderTx(ctx, tx)
@@ -474,11 +569,21 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	snapshot.BankAccountName = firstNonEmpty(companyProfile.BankAccountName, settings.BankAccountName)
 	snapshot.BankName = firstNonEmpty(companyProfile.BankName, settings.BankName)
 	snapshot.BankAccountNo = firstNonEmpty(companyProfile.BankAccountNo, settings.BankAccountNo)
+	snapshot.PaymentTextBox = salesdomain.SalesOrderLayoutBox{XMM: settings.PaymentTextXMM, YMM: settings.PaymentTextYMM, WidthMM: settings.PaymentTextWidthMM, HeightMM: settings.PaymentTextHeightMM, PageNumber: settings.PaymentTextPageNumber}
+	snapshot.PaymentCodeBox = salesdomain.SalesOrderLayoutBox{XMM: settings.PaymentCodeXMM, YMM: settings.PaymentCodeYMM, WidthMM: settings.PaymentCodeWidthMM, HeightMM: settings.PaymentCodeHeightMM, PageNumber: settings.PaymentCodePageNumber}
 	snapshot.TotalAmount = salesdomain.FormatSalesOrderMoney(total)
 	snapshot.Shipping = salesdomain.FormatSalesOrderMoney(shipping)
 	snapshot.Discount = salesdomain.FormatSalesOrderMoney(discount)
 	snapshot.GrandTotal = salesdomain.FormatSalesOrderMoney(grand)
+	breakdowns, err := r.loadSalesOrderDiscountBreakdownsTx(ctx, tx, orderID, discount)
+	if err != nil {
+		return salesdomain.SalesOrderSnapshot{}, err
+	}
+	snapshot.DiscountBreakdowns = breakdowns
 	for _, code := range settings.PaymentCodes {
+		if !code.Active {
+			continue
+		}
 		snapshot.PaymentCodes = append(snapshot.PaymentCodes, salesdomain.SalesOrderAssetRef{
 			ID: code.Asset.ID, Label: code.Label, Description: code.Description, ObjectKey: code.Asset.ObjectKey, ContentType: code.Asset.ContentType, URL: code.Asset.URL,
 		})
@@ -488,7 +593,7 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	}
 
 	rows, err := tx.Query(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(oi.item_name,''), p.name, ''), COALESCE(oi.item_note,''), COALESCE(oi.spec,''), COALESCE(oi.qty,0)::float8,
-			COALESCE(oi.unit,''), COALESCE(oi.unit_price,0)::float8, COALESCE(oi.line_total,0)::float8
+			COALESCE(oi.unit,''), COALESCE(oi.unit_price,0)::float8, COALESCE(oi.discount_amount,0)::float8, COALESCE(oi.line_total,0)::float8
 		FROM %s.order_items oi
 		LEFT JOIN %s.products p ON p.id=oi.product_id
 		WHERE oi.order_id=$1
@@ -499,12 +604,13 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 	defer rows.Close()
 	for rows.Next() {
 		var item salesdomain.SalesOrderSnapshotItem
-		var qty, unitPrice, lineTotal float64
-		if err := rows.Scan(&item.Name, &item.Note, &item.Spec, &qty, &item.Unit, &unitPrice, &lineTotal); err != nil {
+		var qty, unitPrice, discountAmount, lineTotal float64
+		if err := rows.Scan(&item.Name, &item.Note, &item.Spec, &qty, &item.Unit, &unitPrice, &discountAmount, &lineTotal); err != nil {
 			return salesdomain.SalesOrderSnapshot{}, err
 		}
 		item.Qty = trimFloatZero(qty)
 		item.UnitPrice = salesdomain.FormatSalesOrderMoney(unitPrice)
+		item.DiscountAmount = salesdomain.FormatSalesOrderMoney(discountAmount)
 		item.LineTotal = salesdomain.FormatSalesOrderMoney(lineTotal)
 		snapshot.Items = append(snapshot.Items, item)
 	}
@@ -515,6 +621,39 @@ func (r Repository) buildSalesOrderSnapshotTx(ctx context.Context, tx pgx.Tx, or
 		return salesdomain.SalesOrderSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+func (r Repository) loadSalesOrderDiscountBreakdownsTx(ctx context.Context, tx pgx.Tx, orderID int64, orderDiscount float64) ([]salesdomain.SalesOrderDiscountBreakdown, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT COALESCE(discount_type,''), COALESCE(SUM(discount_amount),0)::float8
+		FROM %s.order_items
+		WHERE order_id=$1 AND COALESCE(discount_amount,0) > 0
+		GROUP BY COALESCE(discount_type,'')
+		ORDER BY MIN(line_no), MIN(id)
+	`, r.schema), orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]salesdomain.SalesOrderDiscountBreakdown, 0)
+	itemDiscount := 0.0
+	for rows.Next() {
+		var typ string
+		var amount float64
+		if err := rows.Scan(&typ, &amount); err != nil {
+			return nil, err
+		}
+		itemDiscount += amount
+		out = append(out, salesdomain.SalesOrderDiscountBreakdown{Type: typ, Amount: salesdomain.FormatSalesOrderMoney(amount)})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	manualDiscount := orderDiscount - itemDiscount
+	if manualDiscount > 0.004 {
+		out = append(out, salesdomain.SalesOrderDiscountBreakdown{Type: "order_amount", Amount: salesdomain.FormatSalesOrderMoney(manualDiscount)})
+	}
+	return out, nil
 }
 
 type salesOrderCompanyProfile struct {

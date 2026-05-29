@@ -1,7 +1,6 @@
 package costing
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -217,6 +216,182 @@ func TestGradientTemplateCommercialTiersMatchByWeightAndUseTemplateUnit(t *testi
 	assertClose(t, "227g price", smallUnit.CommercialWholesaleTiers[0].PricePerUnit, 19)
 }
 
+func TestComposableProductPricingUsesBomUnitCostAndCustomQuoteUnit(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:          8801,
+		Name:               "速溶盒装",
+		ProductKind:        "instant_coffee",
+		InventoryUnit:      "条",
+		QuoteUnit:          "盒",
+		OrderUnit:          "盒",
+		UnitConversionJSON: `{"盒":{"g":100,"条":10},"条":{"g":10}}`,
+		BomCostPerUnit:     12,
+		PriceListRuleJSON:  `{"pricing_mode":"cost_plus","display_unit":"inherit_quote_unit","rounding":"jiao"}`,
+		GradientTemplate: &GradientTemplate{
+			ID:          88,
+			Name:        "速溶盒装模板",
+			DisplayUnit: "盒",
+			Tiers: []GradientTemplateTier{
+				{ID: 881, Label: "10盒起", MinWeightG: 10, MaxWeightG: f64(99), MarginRate: 0.25, Position: 1},
+				{ID: 882, Label: "100盒起", MinWeightG: 100, MarginRate: 0.10, Position: 2},
+			},
+		},
+	})
+
+	if got.ProductKind != "instant_coffee" {
+		t.Fatalf("product kind = %q, want instant_coffee", got.ProductKind)
+	}
+	if got.BomCostPerUnit != 12 {
+		t.Fatalf("bom unit cost = %.2f, want 12", got.BomCostPerUnit)
+	}
+	if len(got.CommercialWholesaleTiers) != 2 {
+		t.Fatalf("tiers = %+v, want 2 custom tiers", got.CommercialWholesaleTiers)
+	}
+	first := got.CommercialWholesaleTiers[0]
+	if first.Label != "10盒起" || first.DisplayUnit != "盒" || first.SpecG != 100 || first.MinQty != 10 {
+		t.Fatalf("custom quote tier = %+v", first)
+	}
+	if first.MaxQty == nil || *first.MaxQty != 99 {
+		t.Fatalf("first max qty = %+v, want 99 boxes", first.MaxQty)
+	}
+	assertClose(t, "10 boxes unit price", first.PricePerUnit, 15)
+	assertClose(t, "10 boxes kg price", first.PricePerKg, 150)
+	assertClose(t, "100 boxes unit price", got.CommercialWholesaleTiers[1].PricePerUnit, 13.2)
+}
+
+func TestCustomGradientDisplayUnitDoesNotFallbackToLb(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:         8802,
+		Name:              "未知计价单位产品",
+		ProductKind:       "instant_coffee",
+		QuoteUnit:         "箱",
+		OrderUnit:         "箱",
+		BomCostPerUnit:    20,
+		PriceListRuleJSON: `{"pricing_mode":"cost_plus","display_unit":"inherit_quote_unit"}`,
+		GradientTemplate: &GradientTemplate{
+			ID:          89,
+			Name:        "箱报价模板",
+			DisplayUnit: "箱",
+			Tiers: []GradientTemplateTier{
+				{ID: 891, Label: "5箱起", MinWeightG: 5, MarginRate: 0.50, Position: 1},
+			},
+		},
+	})
+
+	if len(got.CommercialWholesaleTiers) != 1 {
+		t.Fatalf("tiers = %+v, want one custom tier", got.CommercialWholesaleTiers)
+	}
+	tier := got.CommercialWholesaleTiers[0]
+	if tier.DisplayUnit != "箱" || tier.SpecG != 1 || tier.MinQty != 5 {
+		t.Fatalf("custom unit tier = %+v, want display unit 箱 with count quantities", tier)
+	}
+	assertClose(t, "custom unit price", tier.PricePerUnit, 30)
+}
+
+func TestComposableProductPricingInheritsDisplayUnitFromGradientTemplate(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:          8803,
+		Name:               "速溶盒装",
+		ProductKind:        "instant_coffee",
+		InventoryUnit:      "条",
+		QuoteUnit:          "kg",
+		OrderUnit:          "kg",
+		UnitConversionJSON: `{"盒":{"g":100,"条":10},"条":{"g":10}}`,
+		BomCostPerUnit:     12,
+		PriceListRuleJSON:  `{"pricing_mode":"cost_plus","rounding":"jiao"}`,
+		GradientTemplate: &GradientTemplate{
+			ID:          88,
+			Name:        "速溶盒装模板",
+			DisplayUnit: "盒",
+			Tiers: []GradientTemplateTier{
+				{ID: 881, Label: "10盒起", MinWeightG: 10, MarginRate: 0.25, Position: 1},
+			},
+		},
+	})
+
+	if len(got.CommercialWholesaleTiers) != 1 {
+		t.Fatalf("tiers = %+v, want one tier", got.CommercialWholesaleTiers)
+	}
+	tier := got.CommercialWholesaleTiers[0]
+	if tier.DisplayUnit != "盒" || tier.SpecG != 100 || tier.MinQty != 10 {
+		t.Fatalf("tier = %+v, want gradient template display unit 盒", tier)
+	}
+	assertClose(t, "box price", tier.PricePerUnit, 15)
+}
+
+func TestComposableProductPricingSupportsFixedPriceAndCostPlusRate(t *testing.T) {
+	params := DefaultParameters()
+	template := &GradientTemplate{
+		ID:          91,
+		Name:        "盒装模板",
+		DisplayUnit: "盒",
+		Tiers: []GradientTemplateTier{
+			{ID: 911, Label: "10盒起", MinWeightG: 10, MarginRate: 0.25, Position: 1},
+		},
+	}
+
+	fixed := CalculateProduct(params, ProductInput{
+		ProductID:          8810,
+		Name:               "固定价盒装",
+		ProductKind:        "instant_coffee",
+		QuoteUnit:          "盒",
+		UnitConversionJSON: `{"盒":{"g":100}}`,
+		BomCostPerUnit:     12,
+		PriceListRuleJSON:  `{"pricing_mode":"fixed_unit_price","fixed_unit_price":18,"rounding":"yuan"}`,
+		GradientTemplate:   template,
+	})
+	assertClose(t, "fixed unit price", fixed.CommercialWholesaleTiers[0].PricePerUnit, 18)
+
+	costPlus := CalculateProduct(params, ProductInput{
+		ProductID:          8811,
+		Name:               "加成盒装",
+		ProductKind:        "instant_coffee",
+		QuoteUnit:          "盒",
+		UnitConversionJSON: `{"盒":{"g":100}}`,
+		BomCostPerUnit:     12,
+		PriceListRuleJSON:  `{"pricing_mode":"cost_plus","cost_plus_rate":0.5,"rounding":"jiao"}`,
+		GradientTemplate:   template,
+	})
+	if tier := costPlus.CommercialWholesaleTiers[0]; tier.MarginRate != 0.5 || tier.PricePerUnit != 18 {
+		t.Fatalf("cost plus tier = %+v, want 50%% markup and price 18", tier)
+	}
+}
+
+func TestProductSpecialAttrsExposeSelectedValuesInPriceListSnapshot(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:              8820,
+		Name:                   "特殊属性盒装",
+		ProductKind:            "instant_coffee",
+		QuoteUnit:              "盒",
+		UnitConversionJSON:     `{"盒":{"g":100}}`,
+		BomCostPerUnit:         12,
+		SpecialAttrsJSON:       `{"roast_level":"中深烘","caffeine":"低因","internal_note":"只内部看"}`,
+		SpecialAttrsSchemaJSON: `[{"key":"roast_level","label":"烘焙度","show_in_price_list":true,"position":1},{"key":"caffeine","label":"咖啡因","show_in_price_list":true,"position":2},{"key":"internal_note","label":"内部备注","show_in_price_list":false,"position":3}]`,
+		GradientTemplate: &GradientTemplate{
+			ID:          92,
+			Name:        "盒装模板",
+			DisplayUnit: "盒",
+			Tiers: []GradientTemplateTier{
+				{ID: 921, Label: "10盒起", MinWeightG: 10, MarginRate: 0.25, Position: 1},
+			},
+		},
+	})
+
+	if len(got.ProductAttributes) != 2 {
+		t.Fatalf("product attributes = %+v, want two visible attrs", got.ProductAttributes)
+	}
+	if got.ProductAttributes[0].Key != "roast_level" || got.ProductAttributes[0].Label != "烘焙度" || got.ProductAttributes[0].Value != "中深烘" {
+		t.Fatalf("first product attribute = %+v", got.ProductAttributes[0])
+	}
+	if got.ProductAttributes[1].Key != "caffeine" || got.ProductAttributes[1].Value != "低因" {
+		t.Fatalf("second product attribute = %+v", got.ProductAttributes[1])
+	}
+}
+
 func TestDripWholesaleTiersUseTemplateAndProductBagConfig(t *testing.T) {
 	params := DefaultParameters()
 	got := CalculateProduct(params, ProductInput{
@@ -268,6 +443,7 @@ func TestProductMarginOverrideReplacesGradientTemplateTierMargin(t *testing.T) {
 		Name:               "模板拼配",
 		GreenBeanCostPerKg: 51.75,
 		YieldRate:          0.8,
+		MarginRateOverride: f64(0.30),
 		GradientTemplate: &GradientTemplate{
 			ID:          9,
 			Name:        "工厂量单模板",
@@ -277,7 +453,6 @@ func TestProductMarginOverrideReplacesGradientTemplateTierMargin(t *testing.T) {
 			},
 		},
 	}
-	setProductInputFloat64PtrField(t, &input, "MarginRateOverride", 0.30)
 
 	got := CalculateProduct(params, input)
 	if len(got.CommercialWholesaleTiers) != 1 {
@@ -475,60 +650,140 @@ func TestExcelBeanListDisplayMetadataMatchesWorkbook(t *testing.T) {
 	}
 }
 
-func TestCustomerBeanListWithoutSkuCategoryDoesNotInheritExcelCategory(t *testing.T) {
+func TestCustomerCustomRoastBeanListUsesSkuCategoryMetadata(t *testing.T) {
 	params := DefaultParameters()
+	input := ProductInput{
+		ProductID:                 902,
+		Name:                      "芬纳定制-红酒日晒-中深烘",
+		ProductKind:               "roasted",
+		CustomerID:                74,
+		CustomType:                "custom_roast",
+		ProductCategoryID:         502,
+		ProductCategoryPosition:   2,
+		CategoryPrimaryName:       "咖啡豆",
+		CategoryPrimaryPosition:   1,
+		CategorySecondaryName:     "定制咖啡熟豆",
+		CategorySecondaryPosition: 1,
+		GreenBeanCostPerKg:        67,
+		YieldRate:                 0.815,
+		Flavor:                    "红酒、莓果",
+		BeanListNote:              "客户自有定制熟豆",
+	}
 
-	got := CalculateProduct(params, ProductInput{
-		ProductID:            417,
-		Name:                 "曲奇拼配2.0",
-		BeanListTemplateName: "红岩2.0",
-		CustomerID:           152,
-		BaseProductID:        199,
-		Visibility:           "customer_only",
-		CustomType:           "public_sku_alias",
-		GreenBeanCostPerKg:   63.9,
-		YieldRate:            0.8,
-		ProductCategoryID:    0,
-	})
+	got := CalculateProduct(params, input)
 
-	if got.CommercialBeanList.Category != "未分类" {
-		t.Fatalf("customer SKU without category must use SKU classification, got commercial category %q", got.CommercialBeanList.Category)
+	if got.CommercialBeanList.Code != "1.2" {
+		t.Fatalf("commercial code = %q, want 1.2; display=%+v", got.CommercialBeanList.Code, got.CommercialBeanList)
 	}
-	if got.CommercialBeanList.Code != "999.2" {
-		t.Fatalf("customer SKU without category code = %q, want 999.2", got.CommercialBeanList.Code)
+	if got.CommercialBeanList.Category != "1、定制咖啡熟豆" {
+		t.Fatalf("commercial category = %q", got.CommercialBeanList.Category)
 	}
-	if strings.Contains(got.CommercialBeanList.Category, "精品意式拼配") {
-		t.Fatalf("customer SKU inherited old Excel category: %+v", got.CommercialBeanList)
+	if got.CommercialBeanList.DisplayName != "芬纳定制-红酒日晒-中深烘" {
+		t.Fatalf("commercial display name = %q", got.CommercialBeanList.DisplayName)
 	}
-	if got.CommercialBeanList.DisplayName != "曲奇拼配2.0" {
-		t.Fatalf("customer display name = %q", got.CommercialBeanList.DisplayName)
+	if got.CommercialBeanList.Flavor != "红酒、莓果" || got.CommercialBeanList.Description != "客户自有定制熟豆" {
+		t.Fatalf("commercial metadata should fall back to product bean-list fields: %+v", got.CommercialBeanList)
 	}
 }
 
-func TestCustomerBeanListUsesSkuCategoryWhenPresent(t *testing.T) {
+func TestPublicCustomProductBeanListUsesSkuCategoryMetadata(t *testing.T) {
 	params := DefaultParameters()
+	input := ProductInput{
+		ProductID:                 1201,
+		Name:                      "冻干速溶咖啡盒装",
+		ProductKind:               "instant_coffee",
+		ProductCategoryID:         620,
+		ProductCategoryPosition:   3,
+		ProductTypeCategoryID:     600,
+		CategoryPrimaryName:       "速溶咖啡",
+		CategoryPrimaryPosition:   4,
+		CategorySecondaryName:     "冻干速溶",
+		CategorySecondaryPosition: 1,
+		GreenBeanCostPerKg:        88,
+		YieldRate:                 0.82,
+		Flavor:                    "焦糖、坚果",
+		BeanListNote:              "盒装 200g 速溶咖啡",
+	}
 
-	got := CalculateProduct(params, ProductInput{
-		ProductID:                  417,
-		Name:                       "曲奇拼配2.0",
-		BeanListTemplateName:       "红岩2.0",
-		CustomerID:                 152,
-		BaseProductID:              199,
-		Visibility:                 "customer_only",
-		CustomType:                 "public_sku_alias",
-		GreenBeanCostPerKg:         63.9,
-		YieldRate:                  0.8,
-		ProductCategoryID:          143,
-		SkuCategoryName:            "商用拼配",
-		SkuCategoryPosition:        1,
-		SkuProductCategoryPosition: 2,
-	})
+	got := CalculateProduct(params, input)
 
-	if got.CommercialBeanList.Category != "1、商用拼配" || got.CommercialBeanList.Code != "1.2" {
-		t.Fatalf("customer SKU should use current SKU category, got %+v", got.CommercialBeanList)
+	if got.ProductTypeCategoryID != input.ProductTypeCategoryID || got.ProductTypeName != "速溶咖啡" {
+		t.Fatalf("product type fields = id %d name %q", got.ProductTypeCategoryID, got.ProductTypeName)
+	}
+	if got.CommercialBeanList.Code != "1.3" {
+		t.Fatalf("commercial code = %q, want 1.3; display=%+v", got.CommercialBeanList.Code, got.CommercialBeanList)
+	}
+	if got.CommercialBeanList.Category != "1、冻干速溶" {
+		t.Fatalf("commercial category = %q", got.CommercialBeanList.Category)
+	}
+	if got.CommercialBeanList.DisplayName != "冻干速溶咖啡盒装" {
+		t.Fatalf("display name = %q", got.CommercialBeanList.DisplayName)
+	}
+}
+
+func TestCustomerAliasBeanListOverridesExcelCategoryWithSkuCategory(t *testing.T) {
+	params := DefaultParameters()
+	input := ProductInput{
+		ProductID:                 901,
+		Name:                      "芬纳咖啡-Uraga乌拉嘎-中烘",
+		BeanListTemplateName:      "Uraga乌拉嘎",
+		ProductKind:               "roasted",
+		CustomerID:                74,
+		CustomType:                "public_sku_alias",
+		BaseProductID:             1,
+		ProductCategoryID:         502,
+		ProductCategoryPosition:   1,
+		CategoryPrimaryName:       "咖啡豆",
+		CategoryPrimaryPosition:   1,
+		CategorySecondaryName:     "定制咖啡熟豆",
+		CategorySecondaryPosition: 1,
+		GreenBeanCostPerKg:        108,
+		YieldRate:                 0.8,
+	}
+
+	got := CalculateProduct(params, input)
+
+	if got.CommercialBeanList.Code != "1.1" {
+		t.Fatalf("commercial code = %q, want 1.1; display=%+v", got.CommercialBeanList.Code, got.CommercialBeanList)
+	}
+	if got.CommercialBeanList.Category != "1、定制咖啡熟豆" {
+		t.Fatalf("commercial category should use customer SKU category, got %q", got.CommercialBeanList.Category)
+	}
+	if got.CommercialBeanList.DisplayName != "芬纳咖啡-Uraga乌拉嘎-中烘" {
+		t.Fatalf("commercial display name = %q", got.CommercialBeanList.DisplayName)
+	}
+	if got.CommercialBeanList.RecommendedUse != "手冲/SOE/冷萃" || got.CommercialBeanList.Flavor == "" {
+		t.Fatalf("customer alias should preserve Excel bean-list details: %+v", got.CommercialBeanList)
+	}
+}
+
+func TestCustomerAliasBeanListWithoutSkuCategoryUsesUnclassifiedGroup(t *testing.T) {
+	params := DefaultParameters()
+	input := ProductInput{
+		ProductID:            417,
+		Name:                 "曲奇拼配2.0",
+		BeanListTemplateName: "红岩2.0",
+		ProductKind:          "roasted",
+		CustomerID:           152,
+		CustomType:           "public_sku_alias",
+		BaseProductID:        199,
+		GreenBeanCostPerKg:   63.9,
+		YieldRate:            0.8,
+	}
+
+	got := CalculateProduct(params, input)
+
+	if got.CommercialBeanList.Code != "999.2" {
+		t.Fatalf("commercial code = %q, want 999.2; display=%+v", got.CommercialBeanList.Code, got.CommercialBeanList)
+	}
+	if got.CommercialBeanList.Category != "未分类" {
+		t.Fatalf("commercial category = %q, want 未分类; display=%+v", got.CommercialBeanList.Category, got.CommercialBeanList)
+	}
+	if got.CommercialBeanList.DisplayName != "曲奇拼配2.0" {
+		t.Fatalf("commercial display name = %q", got.CommercialBeanList.DisplayName)
 	}
 	if strings.Contains(got.CommercialBeanList.Category, "精品意式拼配") {
-		t.Fatalf("customer SKU inherited old Excel category: %+v", got.CommercialBeanList)
+		t.Fatalf("customer alias without SKU category must not inherit Excel category: %+v", got.CommercialBeanList)
 	}
 }
 
@@ -586,18 +841,6 @@ func TestDripWholesaleTiersMatchExcelFormula(t *testing.T) {
 
 func f64(v float64) *float64 {
 	return &v
-}
-
-func setProductInputFloat64PtrField(t *testing.T, target any, fieldName string, value float64) {
-	t.Helper()
-	field := reflect.ValueOf(target).Elem().FieldByName(fieldName)
-	if !field.IsValid() {
-		t.Fatalf("missing %s field", fieldName)
-	}
-	if field.Kind() != reflect.Ptr || field.Type().Elem().Kind() != reflect.Float64 {
-		t.Fatalf("%s field type = %s, want *float64", fieldName, field.Type())
-	}
-	field.Set(reflect.ValueOf(&value))
 }
 
 func commercialPriceMap(tiers []CommercialWholesaleTier) map[string]float64 {

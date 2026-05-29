@@ -1,11 +1,33 @@
 export const DEFAULT_BEAN_LIST_PDF_VERSION = 'V3.0.5'
 
+export function nextBeanListVersion(version, fallback = DEFAULT_BEAN_LIST_PDF_VERSION) {
+  const source = String(version || '').trim()
+  if (!source) return fallback
+  const dotted = source.match(/^(.*\.)(\d+)$/)
+  if (dotted) {
+    const [, prefix, segment] = dotted
+    const next = String(Number(segment) + 1).padStart(segment.length, '0')
+    return `${prefix}${next}`
+  }
+  const trailingNumber = source.match(/\d+$/)
+  if (trailingNumber) return `${source}.01`
+  return `${source}.01`
+}
+
+export function defaultBeanListDraftVersion(publications = [], sourcePublication = null, fallback = DEFAULT_BEAN_LIST_PDF_VERSION) {
+  const current = (Array.isArray(publications) ? publications : []).find((row) => String(row?.status || '').trim() === 'published')
+  const row = current || sourcePublication || null
+  return nextBeanListVersion(row?.version || row?.version_no || row?.versionNo || '', fallback)
+}
+
 export function sanitizeBeanListPdfTheme(input = {}) {
   const listType = normalizeBeanListType(input.listType)
+  const rawBrand = input.brandName
+  const hasBrand = Object.prototype.hasOwnProperty.call(input, 'brandName') && String(input.brandName ?? '').trim() !== ''
   return {
     listType,
     version: String(input.version || DEFAULT_BEAN_LIST_PDF_VERSION).trim() || DEFAULT_BEAN_LIST_PDF_VERSION,
-    brandName: String(input.brandName || '棵凡咖啡').trim() || '棵凡咖啡',
+    brandName: hasBrand ? String(rawBrand || '').trim() : '棵凡咖啡',
     backgroundColor: normalizeColor(input.backgroundColor, '#f8f1e5'),
     fontColor: normalizeColor(input.fontColor, '#171717'),
     backgroundImage: String(input.backgroundImage || '').trim(),
@@ -20,19 +42,33 @@ export function sanitizeBeanListPdfTheme(input = {}) {
 }
 
 export function buildBeanListPdfTitle(listType, brandName = '棵凡咖啡') {
-  const brand = String(brandName || '棵凡咖啡').trim() || '棵凡咖啡'
+  const brand = String(brandName ?? '').trim()
+  const displayBrand = brand || '棵凡咖啡'
   const normalized = normalizeBeanListType(listType)
-  if (normalized === 'green') return `${brand}生豆豆单`
-  if (normalized === 'drip') return `${brand}挂耳豆单`
-  return normalized === 'retail' ? `${brand}零售豆单` : `${brand}批发豆单`
+  if (normalized === 'green') return brand ? `${brand}生豆产品价格表` : '生豆产品价格表'
+  if (normalized === 'drip') return brand ? `${brand}挂耳产品价格表` : '挂耳产品价格表'
+  return normalized === 'retail' ? (brand ? `${brand}零售产品价格表` : '零售产品价格表') : (brand ? `${brand}批发产品价格表` : '批发产品价格表')
 }
 
-export function filterBeanListItemsForScope(items = [], scope = 'official', customerID = 0) {
+export function filterBeanListItemsForScope(items = [], scope = 'official', customerID = 0, options = {}) {
+  const selectedCustomerID = Number(customerID || 0)
+  const usePublicCategories = options.usePublicCategories ?? options.use_public_categories ?? true
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    const itemCustomerID = Number(item?.customer_id ?? item?.customerID ?? 0)
+    if (scope === 'customer') {
+      if (itemCustomerID <= 0) return Boolean(usePublicCategories)
+      return selectedCustomerID > 0 && itemCustomerID === selectedCustomerID
+    }
+    return itemCustomerID <= 0
+  })
+}
+
+export function filterBeanListItemsForPriceTableScope(items = [], scope = 'official', customerID = 0) {
   const selectedCustomerID = Number(customerID || 0)
   return (Array.isArray(items) ? items : []).filter((item) => {
     const itemCustomerID = Number(item?.customer_id ?? item?.customerID ?? 0)
     if (scope === 'customer') {
-      return itemCustomerID <= 0 || (selectedCustomerID > 0 && itemCustomerID === selectedCustomerID)
+      return itemCustomerID > 0 && itemCustomerID === selectedCustomerID
     }
     return itemCustomerID <= 0
   })
@@ -106,6 +142,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
   const highlightTerms = normalizeStringList(customizer.highlightTerms)
   const badge = normalizeBadge(customizer.badge)
   const beanListQuality = normalizeBeanListQuality(item.bean_list_quality || item.beanListQuality)
+  const productAttributes = normalizeProductAttributes(item.product_attributes || item.productAttributes)
   const tierSnapshots = pdfTierSnapshots(item, tierKey, listType, customizer)
   return {
     productId: item.product_id || item.productID || item.id || null,
@@ -115,6 +152,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
     recommendedUse: meta.recommended_use || '',
     flavor: meta.flavor || item.flavor || '',
     description: meta.description || item.bean_list_note || '',
+    ...(productAttributes.length ? { productAttributes, attributeLines: productAttributes.map((attr) => `${attr.label}：${attr.value}`) } : {}),
     badge,
     badgeLabel: badgeLabel(badge),
     highlightTerms,
@@ -122,6 +160,15 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
     ...(tierSnapshots.length ? { [tierKey]: tierSnapshots } : {}),
     prices: pdfPriceRows(item, tierKey, listType, customizer)
   }
+}
+
+function normalizeProductAttributes(value = []) {
+  if (!Array.isArray(value)) return []
+  return value.map((row) => ({
+    key: String(row?.key || '').trim(),
+    label: String(row?.label || row?.key || '').trim(),
+    value: String(row?.value || '').trim(),
+  })).filter((row) => row.key && row.label && row.value)
 }
 
 function pdfTierSnapshots(item, tierKey, listType, customizer = {}) {
@@ -141,6 +188,14 @@ function pdfPriceRows(item, tierKey, listType, customizer = {}) {
   if (listType === 'drip') {
     return tiers.flatMap((tier) => dripPdfPriceRows(tier, item))
   }
+  if (listType === 'green') {
+    return tiers.map((tier) => ({
+      label: tier.label || '',
+      price: greenDisplayPrice(tier),
+      unit: greenPriceUnitLabel(tier),
+      red: false,
+    }))
+  }
   return tiers.map((tier) => {
     const label = tier.label || ''
     return {
@@ -154,24 +209,60 @@ function pdfPriceRows(item, tierKey, listType, customizer = {}) {
 
 function applyGreenTierPrice(tier, price) {
   const unitPrice = roundTo(price, 2)
-  const specG = Number(tier.spec_g || 1000) || 1000
+  const unit = greenTierPriceUnit(tier, true)
+  const unitG = greenPriceUnitG(unit, tier)
+  const pricePerKg = unitG === 1000 ? unitPrice : unitPrice * 1000 / unitG
+  tier.price_unit = unit
   tier.price_per_unit = unitPrice
-  switch (tier.display_unit) {
-    case 'lb':
-      tier.price_per_lb = unitPrice
-      tier.price_per_kg = roundTo(unitPrice / 0.454, 2)
-      break
-    case 'g100':
-    case 'g227':
-    case 'g250':
-      tier.price_per_kg = roundTo(unitPrice * 1000 / specG, 2)
-      tier.price_per_lb = roundTo(tier.price_per_kg * 0.454, 2)
-      break
+  tier.price_per_kg = roundTo(pricePerKg, 2)
+  tier.price_per_lb = roundTo(pricePerKg * 0.454, 2)
+}
+
+function greenPriceUnitLabel(tier = {}) {
+  const unit = greenTierPriceUnit(tier)
+  if (unit === 'kg') return 'kg'
+  if (unit === 'g100') return '100g'
+  if (unit === 'g227') return '227g'
+  if (unit === 'g250') return '250g'
+  return '磅'
+}
+
+function greenDisplayPrice(tier = {}) {
+  const unit = greenTierPriceUnit(tier)
+  const pricePerKg = firstNumber(tier.price_per_kg, tier.display_unit === 'kg' ? tier.price_per_unit : '', tier.price_per_lb ? Number(tier.price_per_lb) / 0.454 : '')
+  if (unit === 'kg') return roundTo(pricePerKg || firstNumber(tier.price_per_unit, 0), 2)
+  if (unit === 'lb') return roundTo(firstNumber(tier.price_per_lb, tier.price_unit === 'lb' ? tier.price_per_unit : '', pricePerKg ? pricePerKg * 0.454 : 0), 2)
+  const unitG = greenPriceUnitG(unit, tier)
+  if (tier.price_unit === unit) return roundTo(firstNumber(tier.price_per_unit, 0), 2)
+  if (pricePerKg > 0) return roundTo(pricePerKg * unitG / 1000, 2)
+  return roundTo(firstNumber(tier.price_per_unit, tier.price_per_lb, 0), 2)
+}
+
+function greenTierPriceUnit(tier = {}, preferDisplay = false) {
+  const displayUnit = normalizeGreenPriceUnit(tier.display_unit)
+  const explicitUnit = normalizeGreenPriceUnit(tier.price_unit)
+  return (preferDisplay ? (displayUnit || explicitUnit) : (explicitUnit || displayUnit)) || 'lb'
+}
+
+function normalizeGreenPriceUnit(unit) {
+  const value = String(unit || '').trim().toLowerCase()
+  return ['kg', 'lb', 'g100', 'g227', 'g250'].includes(value) ? value : ''
+}
+
+function greenPriceUnitG(unit, tier = {}) {
+  switch (normalizeGreenPriceUnit(unit)) {
     case 'kg':
+      return 1000
+    case 'lb':
+      return 454
+    case 'g100':
+      return 100
+    case 'g227':
+      return 227
+    case 'g250':
+      return 250
     default:
-      tier.price_per_kg = unitPrice
-      tier.price_per_lb = roundTo(unitPrice * 0.454, 2)
-      break
+      return Number(tier.spec_g || 454) || 454
   }
 }
 
@@ -301,6 +392,8 @@ export function priceUnit(tier = {}) {
     default:
       break
   }
+  const displayUnit = String(tier.display_unit || '').trim()
+  if (displayUnit) return displayUnit
   const specG = Number(tier.spec_g || 454)
   if (specG === 1000) return 'kg'
   if (specG === 227) return '227g'
@@ -360,10 +453,47 @@ export function copyBeanListPublicationConfig(publication = {}, currentOptions =
   }
 }
 
-export function copyBeanListPublicationContentGroups(publication = {}) {
+export function copyBeanListPublicationContentGroups(publication = {}, options = {}) {
   const groups = publication?.content?.groups
   if (!Array.isArray(groups)) return []
-  return JSON.parse(JSON.stringify(groups))
+  const copied = JSON.parse(JSON.stringify(groups))
+  const listType = normalizeBeanListType(options.listType || publication.list_type)
+  if (listType === 'green') {
+    applyGreenOverridesToCopiedGroups(copied, options.customizers)
+  }
+  return copied
+}
+
+export function beanListPublicationPdfOptions(publication = {}, currentOptions = {}) {
+  const config = publication.config && typeof publication.config === 'object' ? publication.config : {}
+  const listType = normalizeBeanListType(config.listType || publication.list_type || publication.listType)
+  const version = String(publication.version || publication.version_no || publication.versionNo || config.version || currentOptions.version || DEFAULT_BEAN_LIST_PDF_VERSION).trim()
+  const changelog = String(config.changelog || publication.changelog || currentOptions.changelog || '').trim()
+  const showCategoryNumbers = Object.prototype.hasOwnProperty.call(config, 'showCategoryNumbers')
+    ? config.showCategoryNumbers !== false
+    : currentOptions.showCategoryNumbers !== false
+  return {
+    ...sanitizeBeanListPdfTheme({
+      ...currentOptions,
+      ...config,
+      listType,
+      version,
+      changelog,
+    }),
+    showCategoryNumbers,
+  }
+}
+
+function applyGreenOverridesToCopiedGroups(groups = [], customizers = {}) {
+  groups.forEach((group) => {
+    const items = Array.isArray(group?.items) ? group.items : []
+    items.forEach((item) => {
+      if (!Array.isArray(item?.green_bean_sale_tiers)) return
+      const customizer = customizerFor(item, customizers && typeof customizers === 'object' ? customizers : {})
+      item.green_bean_sale_tiers = pdfTierSnapshots(item, 'green_bean_sale_tiers', 'green', customizer)
+      item.prices = pdfPriceRows(item, 'green_bean_sale_tiers', 'green', customizer)
+    })
+  })
 }
 
 function normalizeColor(value, fallback) {
@@ -410,13 +540,26 @@ function copyCustomizers(value, validProductIDs) {
     out[id] = {
       ...(badge ? { badge } : {}),
       ...(Array.isArray(highlightTerms) ? { highlightTerms } : highlightTerms ? { highlightTerms } : {}),
+      ...copyGreenPriceOverrides(customizer.greenPriceOverrides),
     }
   })
   return out
 }
 
 function productIDOf(item) {
-  return String(item?.product_id ?? item?.productID ?? item?.id ?? item?.name ?? '')
+  return String(item?.product_id ?? item?.productID ?? item?.productId ?? item?.id ?? item?.name ?? '')
+}
+
+function copyGreenPriceOverrides(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const overrides = {}
+  Object.entries(value).forEach(([key, price]) => {
+    const value = Number(price)
+    if (String(key).trim() && Number.isFinite(value) && value > 0) {
+      overrides[String(key)] = value
+    }
+  })
+  return Object.keys(overrides).length ? { greenPriceOverrides: overrides } : {}
 }
 
 function firstCodePart(code) {

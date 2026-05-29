@@ -36,6 +36,10 @@ test('finance report export URLs point to PDF and Excel endpoints for the month'
     pdf: '/api/finance/reports/2026-05/pdf',
     excel: '/api/finance/reports/2026-05/excel',
   })
+  assert.deepEqual(financeReportExportUrls('2026-05', 18), {
+    pdf: '/api/finance/reports/2026-05/pdf?customer_id=18',
+    excel: '/api/finance/reports/2026-05/excel?customer_id=18',
+  })
 })
 
 test('finance metric cards prefer adjusted net profit and tax totals when available', () => {

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestCostingViewHasBeanListPDFDrawerAndMobilePrintStyles(t *testing.T) {
+func TestCostingViewHasBeanListPDFDrawerAndStoredPreviewPDFWorkflow(t *testing.T) {
 	view, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "views", "CostingView.vue"))
 	if err != nil {
 		t.Fatal(err)
@@ -19,20 +19,26 @@ func TestCostingViewHasBeanListPDFDrawerAndMobilePrintStyles(t *testing.T) {
 	src := string(view) + "\n" + string(helper)
 	for _, want := range []string{
 		"pdfDrawerOpen",
-		"生成豆单 PDF",
+		"生成价格表 PDF",
 		"V3.0.5",
 		"backgroundColor",
 		"fontColor",
 		"backgroundImage",
 		"accept=\"image/*\"",
-		"window.print",
 		"@media print",
 		"bean-list-pdf-page",
 		"max-width: 430px",
+		"beanListPdfGenerating",
+		"apiSend('/api/costing/bean-list/drafts'",
+		"/api/costing/bean-list/publications/${row.id}/pdf?${params.toString()}",
+		"downloadBeanListPublicationPDF(document)",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("PDF source missing %q", want)
 		}
+	}
+	if strings.Contains(src, "window.print") {
+		t.Fatalf("PDF generation must use stored backend PDFs, not system print")
 	}
 }
 
@@ -153,7 +159,6 @@ func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T)
 		"pricingCollapsed",
 		"价格试算",
 		"保存试算",
-		"发布价格",
 		"试算批次",
 		"redPriceLabels",
 		"标红价格档",
@@ -185,8 +190,10 @@ func TestCostingViewPDFSupportsDripBeanListPricing(t *testing.T) {
 	for _, want := range []string{
 		"drip_bean_list",
 		"drip_wholesale_tiers",
-		"<option value=\"drip\">挂耳豆单</option>",
-		"挂耳豆单",
+		"productPriceListTypeOptions",
+		"priceListRenderTypeForItem",
+		"if (kind === 'drip_bag') return 'drip'",
+		"productPriceListPreviewSections",
 		"sales_unit",
 		"unit_bag_count",
 		"packed_price_per_bag",
@@ -210,14 +217,13 @@ func TestCostingViewHasCollapsibleBeanListPreviewSections(t *testing.T) {
 	for _, want := range []string{
 		"collapsible-bean-section",
 		"beanListPreviewCollapsed",
-		"toggleBeanListPreviewSection('commercial')",
-		"toggleBeanListPreviewSection('drip')",
-		"toggleBeanListPreviewSection('retail')",
-		"toggleBeanListPreviewSection('green')",
-		"greenGroups",
+		"toggleBeanListPreviewSection(section.key)",
+		"section.label",
+		"section.groups",
+		"productGroupsForType",
 		"green_bean_list",
 		"green_bean_sale_tiers",
-		"生豆豆单",
+		"产品价格表",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("CostingView.vue missing collapsible bean-list preview support %q", want)

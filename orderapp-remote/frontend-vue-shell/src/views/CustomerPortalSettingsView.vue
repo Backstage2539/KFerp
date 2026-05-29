@@ -13,6 +13,7 @@
           <input v-model.trim="q" placeholder="客户名/手机号/公司名" @keyup.enter="loadCustomers" />
         </label>
         <button class="primary" type="button" @click="loadCustomers" :disabled="loading">查询</button>
+        <button class="secondary" type="button" @click="openCustomerDossier">去客户档案开通</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">{{ ok }}</div>
@@ -27,7 +28,7 @@
         <span>绑定用户</span>
       </div>
 
-      <div v-if="!portalRows.length && !loading" class="muted empty">暂无客户</div>
+      <div v-if="!portalRows.length && !loading" class="muted empty">暂无已开通客户</div>
 
       <div v-for="row in portalRows" :key="row.customer.id" class="portal-row">
         <div class="customer-cell">
@@ -36,6 +37,13 @@
           <span>{{ row.customer.phone || '未填手机号' }}</span>
           <span>{{ customerTypeLabel(row.customer.customer_type) }}</span>
           <span>{{ row.customer.binding_count || 0 }} 个绑定用户</span>
+          <div class="customer-warehouses">
+            <b>客户仓库</b>
+            <span v-if="!(row.customer.warehouses || []).length">未绑定仓库</span>
+            <i v-for="warehouse in row.customer.warehouses || []" :key="`${row.customer.id}-${warehouse.code}`">
+              {{ warehouse.name || warehouse.code }} · {{ kindLabel(warehouse.kind) }}
+            </i>
+          </div>
         </div>
 
         <div class="config-cell">
@@ -54,7 +62,7 @@
           </label>
           <div class="template-picker">
             <label>
-              <span>能力模板</span>
+              <span>客户门户能力模板</span>
               <select v-model="row.form.capability_template_key">
                 <option value="">请选择模板</option>
                 <option v-if="unknownTemplateKey(row)" :value="unknownTemplateKey(row)">
@@ -80,12 +88,12 @@
 
         <div class="template-summary">
           <template v-if="unknownTemplateKey(row)">
-            <strong>未知能力模板</strong>
+            <strong>未知客户门户能力模板</strong>
             <span>当前模板 key 无法识别，请重新选择系统模板；如果要停用门户并清空模板，请先选择“请选择模板”。</span>
           </template>
           <template v-else-if="inactiveTemplateKey(row)">
             <strong>模板已失效</strong>
-            <span>当前客户引用的能力模板已经失效，请重新选择一个启用中的模板后保存。</span>
+            <span>当前客户引用的客户门户能力模板已经失效，请重新选择一个启用中的模板后保存。</span>
           </template>
           <template v-else-if="selectedTemplate(row)">
             <strong>{{ selectedTemplate(row).label }}</strong>
@@ -116,7 +124,7 @@
                     v-if="key === 'customerProcessingPortal'"
                     type="button"
                     class="chip-link"
-                    @click="openCustomerProcessingPortal"
+                    @click="openCustomerProfile(row)"
                   >
                     {{ viewLabel(key) }}
                   </button>
@@ -125,7 +133,7 @@
               </div>
             </div>
           </template>
-          <span v-else class="muted">请选择能力模板；客户的门户能力、规则和客户侧 ERP 页面都从模板继承。</span>
+          <span v-else class="muted">请选择客户门户能力模板；客户的门户能力、规则和客户侧 ERP 页面都从模板继承。</span>
           <span v-if="row.loading" class="muted">加载模板中...</span>
         </div>
 
@@ -187,7 +195,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import {
   createCustomerFulfillmentExternalUser,
@@ -195,6 +203,14 @@ import {
   resetCustomerFulfillmentExternalUserPassword,
   setCustomerFulfillmentExternalUserLoginEnabled,
 } from '../api/customer-fulfillment'
+import { customerDossierNavigationDetail } from '../lib/customer-portal-settings'
+import { workspaceCustomersRefreshEvent } from '../lib/workspace-mode'
+
+const props = defineProps({
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+})
 
 const q = ref('')
 const portalRows = ref([])
@@ -262,10 +278,17 @@ function senderProfileLabel(profile) {
 function customerTypeLabel(value) {
   return {
     wholesale: '批发客户',
+    channel: '渠道客户',
     retail: '零售客户',
     ecommerce: '电商客户',
-    channel: '渠道客户',
   }[value] || value || '零售客户'
+}
+
+function openCustomerDossier() {
+  const url = new URL(window.location.href)
+  url.searchParams.set('view', 'customers')
+  if (q.value) url.searchParams.set('q', q.value)
+  window.location.href = `${url.pathname}${url.search}${url.hash}`
 }
 
 function createPortalRow(customer) {
@@ -414,15 +437,32 @@ function themeLabel(value) {
   return `小程序主题：${themeLabels[value] || themeLabels.coffee_factory}`
 }
 
-function openCustomerProcessingPortal() {
+function kindLabel(kind) {
+  return {
+    raw: '原料仓',
+    packaging: '包材仓',
+    wip: 'WIP仓',
+    finished: '成品仓',
+    customer_processing: '客户仓',
+    loss: '损耗仓',
+  }[kind] || '仓库'
+}
+
+function openCustomerProfile(row) {
+  const detail = customerDossierNavigationDetail(row)
+  if (!detail.params.edit_id) return
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
-    detail: { key: 'customerProcessingPortal' },
+    detail,
   }))
 }
 
 function viewLabel(key) {
-  if (key === 'customerProcessingPortal') return '客户履约工作台'
+  if (key === 'customerProcessingPortal') return '打开客户档案'
   return key
+}
+
+function refreshWorkspaceCustomers() {
+  window.dispatchEvent(workspaceCustomersRefreshEvent())
 }
 
 function canSaveRow(row) {
@@ -444,6 +484,7 @@ async function createExternalUser(row) {
     row.externalUserForm.password = ''
     ok.value = `已为 ${row.customer.name} 创建外部用户 ${created.name || created.phone || ''}`.trim()
     await Promise.all([loadRowDetail(row), loadRowExternalUsers(row)])
+    refreshWorkspaceCustomers()
   } catch (err) {
     error.value = err.message || '创建外部用户失败'
   } finally {
@@ -463,6 +504,7 @@ async function resetExternalUserPassword(row, user) {
     row.externalUserPasswordMap[String(employeeID)] = ''
     ok.value = `已更新 ${user.name || user.phone || employeeID} 的密码`
     await Promise.all([loadRowDetail(row), loadRowExternalUsers(row)])
+    refreshWorkspaceCustomers()
   } catch (err) {
     error.value = err.message || '密码更新失败'
   } finally {
@@ -481,6 +523,7 @@ async function toggleExternalUserLogin(row, user) {
     await setCustomerFulfillmentExternalUserLoginEnabled(row.customer.id, employeeID, nextEnabled)
     ok.value = nextEnabled ? '已启用外部用户登录' : '已停用外部用户登录'
     await Promise.all([loadRowDetail(row), loadRowExternalUsers(row)])
+    refreshWorkspaceCustomers()
   } catch (err) {
     error.value = err.message || '登录状态保存失败'
   } finally {
@@ -489,7 +532,14 @@ async function toggleExternalUserLogin(row, user) {
 }
 
 onMounted(async () => {
+  if (props.customerContextLabel) q.value = props.customerContextLabel
   await Promise.all([loadCapabilityTemplates(), loadSenderProfiles()])
+  loadCustomers()
+})
+
+watch(() => props.customerContextId, () => {
+  if (!props.customerContextLabel) return
+  q.value = props.customerContextLabel
   loadCustomers()
 })
 </script>
@@ -515,6 +565,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .customer-cell, .config-cell, .binding-list, .external-user-cell { display: flex; flex-direction: column; gap: 8px; }
 .customer-cell strong { font-size: 15px; }
 .customer-cell span, .binding-row span { color: #666; font-size: 13px; line-height: 1.4; }
+.customer-warehouses { display: grid; gap: 5px; border: 1px solid #e4e7ec; border-radius: 8px; padding: 8px; background: #f8fafc; }
+.customer-warehouses b { font-size: 12px; color: #555; }
+.customer-warehouses i { font-style: normal; color: #333; font-size: 12px; line-height: 1.35; }
 .config-cell input, .config-cell select { width: 100%; }
 .template-picker { display: grid; gap: 8px; align-items: end; }
 .check { display: inline-flex; align-items: center; gap: 8px; }

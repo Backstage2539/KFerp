@@ -215,7 +215,7 @@ Skills 提供工具。需要某个工具时，查看它的 `SKILL.md`。把本�
 
 - 单元测试
 - API 级测试，优先不要依赖 UI
-- 操作手册更新；凡新增功能或改变用户操作流程，必须同步更新 Vue/Vite 前端中的相关操作说明，以及源 Markdown/手册文档
+- 操作手册更新；凡新增功能或改变用户操作流程，必须同步更新 Vue/Vite 前端中的相关操作说明，以及 `orderapp-remote/docs` 下的源 Markdown/手册文档。不要恢复根目录 `OPERATION_MANUALS.md` 或 `OP_MANUAL_*.md` 副本。
 - 根据 `REQUIREMENTS` / `ACCEPTANCE_TESTS` 做验收审核，并保留证据
 
 单个大功能必须有一个独立操作手册。小改动更新所属大功能的既有手册。开发过程中要对现有操作手册查缺补漏：入口、字段、流程顺序、权限、导入导出、异常/失败处理只要发生变化，都要在 DEV/UT/API/REV 完成前补齐。

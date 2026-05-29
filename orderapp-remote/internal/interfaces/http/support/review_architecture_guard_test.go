@@ -42,12 +42,19 @@ func TestDeployScriptSyncsOperationManualDocs(t *testing.T) {
 	}
 	content := string(body)
 	for _, want := range []string{
-		"OPERATION_MANUALS.md",
-		"OP_MANUAL_*.md",
-		"DOC_FILES=(",
+		"Keep orderapp-remote/docs as the deployed app docs",
+		"workspace",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("deploy script must sync operation manual docs, missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"OP_MANUAL_*.md",
+		"OPERATION_MANUALS.md OP_MANUAL_*.md",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("deploy script must not sync root operation manual copies, found %q", forbidden)
 		}
 	}
 }

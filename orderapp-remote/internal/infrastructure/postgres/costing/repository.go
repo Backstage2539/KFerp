@@ -47,6 +47,17 @@ func (r Repository) LoadParameters(ctx context.Context) (domain.Parameters, erro
 }
 
 func (r Repository) LoadProductInputs(ctx context.Context, params domain.Parameters) ([]domain.ProductInput, error) {
+	return r.loadProductInputs(ctx, params, 0)
+}
+
+func (r Repository) LoadProductInputsForCustomer(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error) {
+	if customerID < 0 {
+		customerID = 0
+	}
+	return r.loadProductInputs(ctx, params, customerID)
+}
+
+func (r Repository) loadProductInputs(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error) {
 	q := fmt.Sprintf(`
 		WITH material_valuation AS (
 			SELECT l.material_id,
@@ -81,6 +92,22 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 			WHERE p.active = true
 			GROUP BY p.id
 		),
+		bom_unit_cost AS (
+			SELECT p.id AS product_id,
+			       COALESCE(SUM(CASE
+			         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') = 'g_per_bag'
+			         THEN COALESCE(bi.qty_per_unit,0) / 1000.0 * COALESCE(mv.weighted_unit_cost, m.purchase_price, 0)
+			         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') IN ('unit_per_bag','unit_per_box')
+			         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(m.purchase_price,0), mv.weighted_unit_cost, 0)
+			         ELSE 0
+			       END),0) AS bom_cost_per_unit
+			FROM product_scope p
+			LEFT JOIN %[1]s.product_bom_items bi ON bi.product_id = p.bom_product_id
+				AND COALESCE(NULLIF(bi.component_type,''),'material') = 'material'
+			LEFT JOIN %[1]s.materials m ON m.id = bi.material_id
+			LEFT JOIN material_valuation mv ON mv.material_id = m.id
+			GROUP BY p.id
+		),
 		finished_component_cost AS (
 			SELECT bi.product_id,
 			       SUM(COALESCE(fpc.green_cost_per_kg,0) * COALESCE(NULLIF(bi.qty_per_unit,0), NULLIF(bi.component_spec_g,0), 1))
@@ -89,11 +116,28 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 			JOIN finished_product_cost fpc ON fpc.product_id = bi.component_product_id
 			WHERE COALESCE(NULLIF(bi.component_type,''),'material') = 'finished_product'
 			GROUP BY bi.product_id
+		),
+		operation_unit_cost AS (
+			SELECT template_id,
+			       COALESCE(SUM(CASE
+			         WHEN COALESCE(NULLIF(cost_type,''),'fixed') IN ('fixed','per_unit','per_quote_unit')
+			         THEN COALESCE(cost_rate,0)
+			         ELSE 0
+			       END),0) AS operation_cost_per_unit,
+			       COALESCE(SUM(CASE
+			         WHEN COALESCE(NULLIF(cost_type,''),'fixed') IN ('per_kg','per_kg_output','per_finished_kg')
+			         THEN COALESCE(cost_rate,0)
+			         ELSE 0
+			       END),0) AS operation_cost_per_kg
+			FROM %[1]s.operation_template_steps
+			WHERE active=true
+			GROUP BY template_id
 		)
 		SELECT p.id,
 		       p.name,
 		       COALESCE(base_p.name, p.name),
 		       COALESCE(p.roast_level, ''),
+		       COALESCE(p.special_attrs_json::text, '{}'),
 		       COALESCE(p.customer_id, 0),
 		       COALESCE(p.base_product_id, 0),
 		       COALESCE(NULLIF(p.visibility, ''), 'public'),
@@ -102,10 +146,85 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(p.drip_bag_grams, 10)::float8,
 		       COALESCE(p.drip_box_bag_count, 10),
 		       COALESCE(p.product_category_id, 0),
-		       COALESCE(pc.name, ''),
-		       COALESCE(pc.position, 0),
 		       COALESCE(p.product_category_position, 0),
-		       COALESCE(pc.gradient_template_id, 0),
+		       CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(parent_pc.id,0) ELSE COALESCE(pc.id,0) END,
+		       CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.id,0) ELSE 0 END,
+		       CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(parent_pc.name,'') ELSE COALESCE(pc.name,'') END,
+		       CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(parent_pc.position,0) ELSE COALESCE(pc.position,0) END,
+		       CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.name,'') ELSE '' END,
+		       CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.position,0) ELSE 0 END,
+		       COALESCE(
+		           NULLIF(cpro.gradient_template_id,0),
+		           NULLIF(cpti.gradient_template_id,0),
+		           NULLIF(p.gradient_template_id_override,0),
+		           NULLIF(pc.gradient_template_id,0),
+		           NULLIF(parent_pc.gradient_template_id,0),
+		           0
+		       ) AS effective_gradient_template_id,
+		       COALESCE(
+		           NULLIF(cpro.operation_template_id,0),
+		           NULLIF(cpti.operation_template_id,0),
+		           NULLIF(p.operation_template_id_override,0),
+		           NULLIF(pc.operation_template_id,0),
+		           NULLIF(parent_pc.operation_template_id,0),
+		           0
+		       ) AS effective_operation_template_id,
+		       COALESCE(
+		           NULLIF(cpro.price_list_rule_json::text,'{}'),
+		           NULLIF(cpti.price_list_rule_json::text,'{}'),
+		           NULLIF(p.unit_rule_override_json->>'price_list_rule_json',''),
+		           NULLIF(pc.price_list_rule_json::text,'{}'),
+		           NULLIF(parent_pc.price_list_rule_json::text,'{}'),
+		           '{}'
+		       ) AS effective_price_list_rule_json,
+		       COALESCE(
+		           NULLIF(pc_config.special_attrs_schema_json::text,'[]'),
+		           NULLIF(parent_pc_config.special_attrs_schema_json::text,'[]'),
+		           '[]'
+		       ) AS effective_special_attrs_schema_json,
+		       COALESCE(
+		           NULLIF(cpro.unit_rule_json->>'inventory_unit',''),
+		           NULLIF(cpti.unit_rule_json->>'inventory_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'inventory_unit',''),
+		           NULLIF(pc.inventory_unit,''),
+		           NULLIF(parent_pc.inventory_unit,''),
+		           'kg'
+		       ),
+		       COALESCE(
+		           NULLIF(cpro.unit_rule_json->>'quote_unit',''),
+		           NULLIF(cpti.unit_rule_json->>'quote_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'quote_unit',''),
+		           NULLIF(pc.quote_unit,''),
+		           NULLIF(parent_pc.quote_unit,''),
+		           'kg'
+		       ),
+		       COALESCE(
+		           NULLIF(cpro.unit_rule_json->>'order_unit',''),
+		           NULLIF(cpti.unit_rule_json->>'order_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'order_unit',''),
+		           NULLIF(pc.order_unit,''),
+		           NULLIF(parent_pc.order_unit,''),
+		           'kg'
+		       ),
+		       COALESCE(
+		           NULLIF(cpro.unit_rule_json->>'unit_conversion_json',''),
+		           NULLIF(cpro.unit_rule_json->>'conversion_json',''),
+		           NULLIF(cpti.unit_rule_json->>'unit_conversion_json',''),
+		           NULLIF(cpti.unit_rule_json->>'conversion_json',''),
+		           NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),
+		           NULLIF(p.unit_rule_override_json->>'conversion_json',''),
+		           NULLIF(pc.unit_conversion_json::text,'{}'),
+		           NULLIF(parent_pc.unit_conversion_json::text,'{}'),
+		           '{}'
+		       ),
+		       COALESCE(
+		           CASE WHEN lower(cpro.unit_rule_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(cpro.unit_rule_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
+		           CASE WHEN lower(cpti.unit_rule_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(cpti.unit_rule_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
+		           CASE WHEN lower(p.unit_rule_override_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(p.unit_rule_override_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
+		           pc.integer_unit,
+		           parent_pc.integer_unit,
+		           false
+		       ),
 		       p.margin_rate_override::float8,
 		       COALESCE(NULLIF(b.yield_rate,0), $1),
 		       CASE
@@ -115,6 +234,9 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		           THEN COALESCE(fcc.finished_green_cost_per_kg,0)
 		           ELSE COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0)
 		       END,
+		       COALESCE(MAX(buc.bom_cost_per_unit),0)::float8,
+		       COALESCE(MAX(ouc.operation_cost_per_unit),0)::float8,
+		       COALESCE(MAX(ouc.operation_cost_per_kg),0)::float8,
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.flavor, ''), ' / ') FILTER (WHERE NULLIF(bp.flavor, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.origin, ''), ' / ') FILTER (WHERE NULLIF(bp.origin, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.processing_station, ''), ' / ') FILTER (WHERE NULLIF(bp.processing_station, '') IS NOT NULL), ''),
@@ -137,7 +259,29 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		LEFT JOIN %[1]s.material_bean_profiles bp ON bp.material_id = m.id
 		LEFT JOIN %[1]s.products base_p ON base_p.id = p.base_product_id
 		LEFT JOIN %[1]s.product_categories pc ON pc.id = p.product_category_id AND pc.active=true
+		LEFT JOIN %[1]s.product_categories parent_pc ON parent_pc.id = pc.parent_id AND parent_pc.active=true
+		LEFT JOIN %[1]s.product_config_templates pc_config ON pc_config.id = pc.product_config_template_id AND pc_config.active=true
+		LEFT JOIN %[1]s.product_config_templates parent_pc_config ON parent_pc_config.id = parent_pc.product_config_template_id AND parent_pc_config.active=true
+		LEFT JOIN %[1]s.customers rule_customer ON rule_customer.id = $2 AND rule_customer.active=true
+		LEFT JOIN %[1]s.customer_product_rule_template_items cpti
+		  ON cpti.active=true
+		 AND cpti.template_id=COALESCE(rule_customer.customer_product_rule_template_id,0)
+		 AND cpti.product_subtype_category_id=CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.id,0) ELSE 0 END
+		LEFT JOIN %[1]s.customer_product_rule_overrides cpro
+		  ON cpro.active=true
+		 AND cpro.customer_id=$2
+		 AND cpro.product_subtype_category_id=CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.id,0) ELSE 0 END
+		LEFT JOIN operation_unit_cost ouc
+		  ON ouc.template_id=COALESCE(
+		           NULLIF(cpro.operation_template_id,0),
+		           NULLIF(cpti.operation_template_id,0),
+		           NULLIF(p.operation_template_id_override,0),
+		           NULLIF(pc.operation_template_id,0),
+		           NULLIF(parent_pc.operation_template_id,0),
+		           0
+		       )
 		LEFT JOIN finished_component_cost fcc ON fcc.product_id = p.id
+		LEFT JOIN bom_unit_cost buc ON buc.product_id = p.id
 		LEFT JOIN LATERAL (
 			SELECT COALESCE(NULLIF(qi.metrics_json->>'factory_flavor_description',''), NULLIF(qi.metrics_json->>'factory_flavor',''), NULLIF(qi.metrics_json->>'工厂风味描述',''), '') AS factory_flavor_description,
 			       COALESCE(NULLIF(qi.metrics_json->>'moisture',''), NULLIF(qi.metrics_json->>'水分',''), '') AS moisture,
@@ -165,10 +309,10 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 			LIMIT 1
 		) qc ON true
 		WHERE p.active = true
-		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, pc.name, pc.position, p.product_category_position, pc.gradient_template_id, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
+		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.price_list_rule_json, cpro.unit_rule_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
 		ORDER BY p.name
 	`, r.schema)
-	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
+	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate, customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -182,9 +326,11 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		var roastLevel string
 		var fallbackYield float64
 		var gradientTemplateID int64
-		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductKind, &input.DripBagGrams, &input.DripBoxBagCount, &input.ProductCategoryID, &input.SkuCategoryName, &input.SkuCategoryPosition, &input.SkuProductCategoryPosition, &gradientTemplateID, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus, &input.BeanListQuality.FactoryFlavorDescription, &input.BeanListQuality.Moisture, &input.BeanListQuality.Density, &input.BeanListQuality.InspectionCreatedAt, &input.BeanListQuality.InspectionReferenceNo); err != nil {
+		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.SpecialAttrsJSON, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductKind, &input.DripBagGrams, &input.DripBoxBagCount, &input.ProductCategoryID, &input.ProductCategoryPosition, &input.ProductTypeCategoryID, &input.ProductSubtypeCategoryID, &input.CategoryPrimaryName, &input.CategoryPrimaryPosition, &input.CategorySecondaryName, &input.CategorySecondaryPosition, &gradientTemplateID, &input.OperationTemplateID, &input.PriceListRuleJSON, &input.SpecialAttrsSchemaJSON, &input.InventoryUnit, &input.QuoteUnit, &input.OrderUnit, &input.UnitConversionJSON, &input.IntegerUnit, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.BomCostPerUnit, &input.OperationCostPerUnit, &input.OperationCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus, &input.BeanListQuality.FactoryFlavorDescription, &input.BeanListQuality.Moisture, &input.BeanListQuality.Density, &input.BeanListQuality.InspectionCreatedAt, &input.BeanListQuality.InspectionReferenceNo); err != nil {
 			return nil, err
 		}
+		input.ProductTypeName = input.CategoryPrimaryName
+		input.ProductSubtypeName = input.CategorySecondaryName
 		if gradientTemplateID > 0 {
 			templateIDs[gradientTemplateID] = true
 			templateIDByProduct[input.ProductID] = gradientTemplateID
@@ -545,9 +691,15 @@ func (r Repository) DeactivateDripPriceTemplate(ctx context.Context, cmd appcost
 func (r Repository) ListBeanListPublications(ctx context.Context, query appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
 	whereClause := "WHERE list_type=$1 AND owner_type=$2 AND owner_key=$3"
 	args := []any{strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+	if query.ProductTypeCategoryID > 0 {
+		whereClause = "WHERE product_type_category_id=$1 AND owner_type=$2 AND owner_key=$3"
+		args = []any{query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id,
 		       list_type,
+		       COALESCE(product_type_category_id,0),
+		       COALESCE(product_type_name,''),
 		       version_no,
 		       status,
 		       owner_type,
@@ -581,9 +733,17 @@ func (r Repository) ListBeanListPublications(ctx context.Context, query appcosti
 }
 
 func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error) {
+	whereClause := "list_type=$1 AND owner_type=$2 AND owner_key=$3"
+	args := []any{strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+	if query.ProductTypeCategoryID > 0 {
+		whereClause = "product_type_category_id=$1 AND owner_type=$2 AND owner_key=$3"
+		args = []any{query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+	}
 	row, err := scanBeanListPublication(r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,
 		       list_type,
+		       COALESCE(product_type_category_id,0),
+		       COALESCE(product_type_name,''),
 		       version_no,
 		       status,
 		       owner_type,
@@ -598,10 +758,10 @@ func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.Bean
 		       COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
 		       to_char(created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.bean_list_publications
-		WHERE list_type=$1 AND owner_type=$2 AND owner_key=$3 AND status='published'
+		WHERE %s AND status='published'
 		ORDER BY published_at DESC, id DESC
 		LIMIT 1
-	`, r.schema), strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)))
+	`, r.schema, whereClause), args...))
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -609,6 +769,115 @@ func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.Bean
 		return nil, err
 	}
 	return &row, nil
+}
+
+func (r Repository) LoadBeanListPublication(ctx context.Context, query appcosting.BeanListPublicationQuery, publicationID int64) (*appcosting.BeanListPublication, error) {
+	whereClause := "id=$1 AND list_type=$2 AND owner_type=$3 AND owner_key=$4"
+	args := []any{publicationID, strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+	if query.ProductTypeCategoryID > 0 {
+		whereClause = "id=$1 AND product_type_category_id=$2 AND owner_type=$3 AND owner_key=$4"
+		args = []any{publicationID, query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+	}
+	row, err := scanBeanListPublication(r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id,
+		       list_type,
+		       COALESCE(product_type_category_id,0),
+		       COALESCE(product_type_name,''),
+		       version_no,
+		       status,
+		       owner_type,
+		       owner_key,
+		       COALESCE(price_source_publication_id,0),
+		       COALESCE(style_source_publication_id,0),
+		       source_version_no,
+		       config_json,
+		       content_json,
+		       changelog,
+		       to_char(published_at,'YYYY-MM-DD HH24:MI'),
+		       COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
+		       to_char(created_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.bean_list_publications
+		WHERE %s
+	`, r.schema, whereClause), args...))
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, appcosting.ErrBeanListPublicationNotFound
+		}
+		return nil, err
+	}
+	return &row, nil
+}
+
+func (r Repository) LoadBeanListPublicationAsset(ctx context.Context, publicationID int64, assetType string) (appcosting.BeanListPublicationAsset, error) {
+	assetType = strings.TrimSpace(assetType)
+	if assetType == "" {
+		assetType = "pdf"
+	}
+	var asset appcosting.BeanListPublicationAsset
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT publication_id, asset_type, content_type, cache_key, payload
+		FROM %s.bean_list_publication_assets
+		WHERE publication_id=$1 AND asset_type=$2
+	`, r.schema), publicationID, assetType).Scan(&asset.PublicationID, &asset.AssetType, &asset.ContentType, &asset.CacheKey, &asset.Payload)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return appcosting.BeanListPublicationAsset{}, appcosting.ErrBeanListPublicationNotFound
+		}
+		return appcosting.BeanListPublicationAsset{}, err
+	}
+	return asset, nil
+}
+
+func (r Repository) SaveBeanListPublicationAsset(ctx context.Context, asset appcosting.BeanListPublicationAsset, actor string) (appcosting.BeanListPublicationAsset, error) {
+	asset.AssetType = strings.TrimSpace(asset.AssetType)
+	if asset.AssetType == "" {
+		asset.AssetType = "pdf"
+	}
+	asset.ContentType = strings.TrimSpace(asset.ContentType)
+	if asset.ContentType == "" {
+		asset.ContentType = "application/octet-stream"
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return appcosting.BeanListPublicationAsset{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var created bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			WITH inserted AS (
+				INSERT INTO %[1]s.bean_list_publication_assets(publication_id, asset_type, content_type, cache_key, payload, created_by)
+				VALUES($1,$2,$3,$4,$5,$6)
+				ON CONFLICT(publication_id, asset_type) DO UPDATE
+				SET content_type=EXCLUDED.content_type,
+				    cache_key=EXCLUDED.cache_key,
+				    payload=EXCLUDED.payload,
+				    created_by=EXCLUDED.created_by,
+				    updated_at=now()
+				RETURNING publication_id, asset_type, content_type, cache_key, payload, true
+			)
+		SELECT publication_id, asset_type, content_type, cache_key, payload, true FROM inserted
+		UNION ALL
+		SELECT publication_id, asset_type, content_type, cache_key, payload, false
+		FROM %[1]s.bean_list_publication_assets
+		WHERE publication_id=$1 AND asset_type=$2 AND NOT EXISTS (SELECT 1 FROM inserted)
+		LIMIT 1
+	`, r.schema), asset.PublicationID, asset.AssetType, asset.ContentType, asset.CacheKey, asset.Payload, strings.TrimSpace(actor)).
+		Scan(&asset.PublicationID, &asset.AssetType, &asset.ContentType, &asset.CacheKey, &asset.Payload, &created); err != nil {
+		return appcosting.BeanListPublicationAsset{}, err
+	}
+	if created {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, strings.TrimSpace(actor), "bean_list_publication_asset", &asset.PublicationID, "create", postgresinfra.StrPtr("asset_type"), nil, postgresinfra.StrPtr(asset.AssetType), postgresinfra.AuditMeta{
+			"publication_id": asset.PublicationID,
+			"asset_type":     asset.AssetType,
+			"cache_key":      asset.CacheKey,
+		}); err != nil {
+			return appcosting.BeanListPublicationAsset{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return appcosting.BeanListPublicationAsset{}, err
+	}
+	return asset, nil
 }
 
 func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
@@ -626,13 +895,6 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	if err := validateBeanListProductScope(ctx, tx, r.schema, cmd); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.bean_list_publications
-		SET status='withdrawn', withdrawn_at=now(), updated_at=now()
-		WHERE list_type=$1 AND owner_type=$2 AND owner_key=$3 AND status='published'
-	`, r.schema), cmd.ListType, cmd.OwnerType, cmd.OwnerKey); err != nil {
-		return nil, err
-	}
 
 	config, err := json.Marshal(cmd.Config)
 	if err != nil {
@@ -645,15 +907,17 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	var published appcosting.BeanListPublication
 	var configJSON, contentJSON []byte
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.bean_list_publications(list_type, version_no, status, owner_type, owner_key, price_source_publication_id, style_source_publication_id, source_version_no, config_json, content_json, changelog, actor)
-		VALUES($1,$2,'published',$3,$4,NULLIF($5,0),NULLIF($6,0),$7,$8::jsonb,$9::jsonb,$10,$11)
-		RETURNING id, list_type, version_no, status, owner_type, owner_key, COALESCE(price_source_publication_id,0), COALESCE(style_source_publication_id,0), source_version_no, config_json, content_json, changelog,
+		INSERT INTO %s.bean_list_publications(list_type, product_type_category_id, product_type_name, version_no, status, owner_type, owner_key, price_source_publication_id, style_source_publication_id, source_version_no, config_json, content_json, changelog, actor)
+		VALUES($1,$2,$3,$4,'published',$5,$6,NULLIF($7,0),NULLIF($8,0),$9,$10::jsonb,$11::jsonb,$12,$13)
+		RETURNING id, list_type, COALESCE(product_type_category_id,0), COALESCE(product_type_name,''), version_no, status, owner_type, owner_key, COALESCE(price_source_publication_id,0), COALESCE(style_source_publication_id,0), source_version_no, config_json, content_json, changelog,
 		          to_char(published_at,'YYYY-MM-DD HH24:MI'),
 		          COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
 		          to_char(created_at,'YYYY-MM-DD HH24:MI')
-	`, r.schema), cmd.ListType, cmd.Version, cmd.OwnerType, cmd.OwnerKey, cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersion, config, content, cmd.Changelog, cmd.Actor).Scan(
+	`, r.schema), cmd.ListType, cmd.ProductTypeCategoryID, cmd.ProductTypeName, cmd.Version, cmd.OwnerType, cmd.OwnerKey, cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersion, config, content, cmd.Changelog, cmd.Actor).Scan(
 		&published.ID,
 		&published.ListType,
+		&published.ProductTypeCategoryID,
+		&published.ProductTypeName,
 		&published.Version,
 		&published.Status,
 		&published.OwnerType,
@@ -687,6 +951,8 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &published.ID, "publish", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("published"), postgresinfra.AuditMeta{
 		"list_type":                cmd.ListType,
+		"product_type_category_id": cmd.ProductTypeCategoryID,
+		"product_type_name":        cmd.ProductTypeName,
 		"version":                  cmd.Version,
 		"owner_type":               cmd.OwnerType,
 		"owner_key":                cmd.OwnerKey,
@@ -727,15 +993,17 @@ func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.Publis
 	var draft appcosting.BeanListPublication
 	var configJSON, contentJSON []byte
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.bean_list_publications(list_type, version_no, status, owner_type, owner_key, price_source_publication_id, style_source_publication_id, source_version_no, config_json, content_json, changelog, actor)
-		VALUES($1,$2,'draft',$3,$4,NULLIF($5,0),NULLIF($6,0),$7,$8::jsonb,$9::jsonb,$10,$11)
-		RETURNING id, list_type, version_no, status, owner_type, owner_key, COALESCE(price_source_publication_id,0), COALESCE(style_source_publication_id,0), source_version_no, config_json, content_json, changelog,
+		INSERT INTO %s.bean_list_publications(list_type, product_type_category_id, product_type_name, version_no, status, owner_type, owner_key, price_source_publication_id, style_source_publication_id, source_version_no, config_json, content_json, changelog, actor)
+		VALUES($1,$2,$3,$4,'draft',$5,$6,NULLIF($7,0),NULLIF($8,0),$9,$10::jsonb,$11::jsonb,$12,$13)
+		RETURNING id, list_type, COALESCE(product_type_category_id,0), COALESCE(product_type_name,''), version_no, status, owner_type, owner_key, COALESCE(price_source_publication_id,0), COALESCE(style_source_publication_id,0), source_version_no, config_json, content_json, changelog,
 		          to_char(published_at,'YYYY-MM-DD HH24:MI'),
 		          COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
 		          to_char(created_at,'YYYY-MM-DD HH24:MI')
-	`, r.schema), cmd.ListType, cmd.Version, cmd.OwnerType, cmd.OwnerKey, cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersion, config, content, cmd.Changelog, cmd.Actor).Scan(
+	`, r.schema), cmd.ListType, cmd.ProductTypeCategoryID, cmd.ProductTypeName, cmd.Version, cmd.OwnerType, cmd.OwnerKey, cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersion, config, content, cmd.Changelog, cmd.Actor).Scan(
 		&draft.ID,
 		&draft.ListType,
+		&draft.ProductTypeCategoryID,
+		&draft.ProductTypeName,
 		&draft.Version,
 		&draft.Status,
 		&draft.OwnerType,
@@ -769,6 +1037,8 @@ func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.Publis
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &draft.ID, "save_draft", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("draft"), postgresinfra.AuditMeta{
 		"list_type":                cmd.ListType,
+		"product_type_category_id": cmd.ProductTypeCategoryID,
+		"product_type_name":        cmd.ProductTypeName,
 		"version":                  cmd.Version,
 		"owner_type":               cmd.OwnerType,
 		"owner_key":                cmd.OwnerKey,
@@ -888,7 +1158,7 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 	deleteTiers := fmt.Sprintf(`DELETE FROM %s.product_price_tiers WHERE product_id=$1`, r.schema)
 	insertTier := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
 		(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active, product_kind, price_basis, sales_unit, unit_bag_count, price_source_json)
-		VALUES($1,$2,$3,$4,$5,$3,$4,$6,true,'roasted_bean','weight','',0,'{}'::jsonb)`, r.schema)
+		VALUES($1,$2,$3,$4,$5,$3,$4,$6,true,$7,'weight','',0,$8::jsonb)`, r.schema)
 	insertDripTier := fmt.Sprintf(`INSERT INTO %s.product_price_tiers
 		(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, min_qty_lb, max_qty_lb, price_per_lb, active, product_kind, price_basis, sales_unit, unit_bag_count, price_source_json)
 		VALUES($1,$2,$3,$4,$5,NULL,NULL,NULL,true,$6,'unit',$7,$8,$9::jsonb)`, r.schema)
@@ -958,7 +1228,8 @@ func (r Repository) PublishRun(ctx context.Context, actor string, runID int64) e
 					pricePerUnit = tier.PricePerLb
 				}
 				pricePerLb := pricePerUnit * 454.0 / float64(specG)
-				if _, err := tx.Exec(ctx, insertTier, item.ProductID, specG, minQty, maxQty, pricePerUnit, pricePerLb); err != nil {
+				source := commercialPriceSourceJSON(tier)
+				if _, err := tx.Exec(ctx, insertTier, item.ProductID, specG, minQty, maxQty, pricePerUnit, pricePerLb, firstNonEmptyString(item.ProductKind, "roasted_bean"), source); err != nil {
 					return err
 				}
 			}
@@ -989,6 +1260,29 @@ func dripPriceSourceJSON(tier domain.DripWholesaleTier, bagGrams float64, boxBag
 		"tax_rate":             tier.TaxRate,
 	})
 	return string(b)
+}
+
+func commercialPriceSourceJSON(tier domain.CommercialWholesaleTier) string {
+	b, _ := json.Marshal(map[string]any{
+		"template_id":      tier.TemplateID,
+		"template_tier_id": tier.TemplateTierID,
+		"display_unit":     tier.DisplayUnit,
+		"price_unit":       firstNonEmptyString(tier.PriceUnit, tier.DisplayUnit),
+		"price_per_unit":   tier.PricePerUnit,
+		"price_per_kg":     tier.PricePerKg,
+		"price_per_lb":     tier.PricePerLb,
+		"margin_rate":      tier.MarginRate,
+	})
+	return string(b)
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func dripBoxMinQty(minBags int64, boxBagCount int) float64 {
@@ -1040,6 +1334,8 @@ func scanBeanListPublication(row beanListPublicationScanner) (appcosting.BeanLis
 	if err := row.Scan(
 		&out.ID,
 		&out.ListType,
+		&out.ProductTypeCategoryID,
+		&out.ProductTypeName,
 		&out.Version,
 		&out.Status,
 		&out.OwnerType,
@@ -1168,6 +1464,9 @@ func validateBeanListProductScope(ctx context.Context, tx pgx.Tx, schema string,
 		}
 		if ownerType == "customer" && productCustomerID > 0 && productCustomerID != customerID {
 			return fmt.Errorf("customer bean list cannot include another customer's SKU")
+		}
+		if ownerType == "customer" && productCustomerID <= 0 {
+			return fmt.Errorf("customer bean list cannot include public SKU")
 		}
 	}
 	if err := rows.Err(); err != nil {

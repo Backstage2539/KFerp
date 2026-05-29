@@ -2,25 +2,25 @@
   <div class="page" :class="{ 'embedded-page': props.embedded }">
     <section class="panel">
       <div class="panel-head">
-        <h2>销售单</h2>
+        <h2>{{ isCombinedSalesOrder ? '组合销售单' : '销售单' }}</h2>
         <div class="actions">
           <button v-if="props.embedded" class="secondary" type="button" @click="emit('close')">关闭</button>
           <a v-else class="secondary link-button" :href="appURL('/vue-shell?view=orders')">返回订单列表</a>
           <button class="secondary" type="button" @click="openSettingsDrawer">销售单设置</button>
           <button class="secondary" type="button" @click="openCustomerDrawer" :disabled="!customerSummary.id">客户信息</button>
-          <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
-          <a v-if="documents.length" class="secondary link-button" :href="salesOrderDownloadUrl(orderID)" target="_blank" rel="noopener">下载最新版 PDF</a>
-          <a v-if="imageDocuments.length" class="secondary link-button" :href="salesOrderImageDownloadUrl(orderID)" target="_blank" rel="noopener">下载最新版图片</a>
-          <button class="secondary" type="button" @click="shareLatestResource('sales_order_pdf')" :disabled="shareLoading || !orderID || !documents.length">{{ shareLoading === 'sales_order_pdf' ? '分享中' : '分享PDF到微信' }}</button>
-          <button class="secondary" type="button" @click="shareLatestResource('sales_order_image')" :disabled="shareLoading || !orderID || !imageDocuments.length">{{ shareLoading === 'sales_order_image' ? '分享中' : '分享图片到微信' }}</button>
-          <button class="primary" type="button" @click="generate" :disabled="generating || !orderID || !preview">{{ generating ? '生成中' : '确认生成 PDF' }}</button>
-          <button class="primary" type="button" @click="generateImage" :disabled="imageGenerating || !orderID || !preview">{{ imageGenerating ? '生成图片中' : '确认生成图片' }}</button>
+          <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !documentContextReady">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
+          <a v-if="documents.length && latestSalesOrderPDFDownloadURL" class="secondary link-button" :href="latestSalesOrderPDFDownloadURL" target="_blank" rel="noopener">下载最新版 PDF</a>
+          <a v-if="imageDocuments.length && latestSalesOrderImageDownloadURL" class="secondary link-button" :href="latestSalesOrderImageDownloadURL" target="_blank" rel="noopener">下载最新版图片</a>
+          <button class="secondary" type="button" @click="shareLatestResource('sales_order_pdf')" :disabled="shareLoading || !canShareSingleOrder || !documents.length">{{ shareLoading === 'sales_order_pdf' ? '分享中' : '分享PDF到微信' }}</button>
+          <button class="secondary" type="button" @click="shareLatestResource('sales_order_image')" :disabled="shareLoading || !canShareSingleOrder || !imageDocuments.length">{{ shareLoading === 'sales_order_image' ? '分享中' : '分享图片到微信' }}</button>
+          <button class="primary" type="button" @click="generate" :disabled="generating || !documentContextReady || !preview">{{ generating ? '生成中' : '确认生成 PDF' }}</button>
+          <button class="primary" type="button" @click="generateImage" :disabled="imageGenerating || !documentContextReady || !preview">{{ imageGenerating ? '生成图片中' : '确认生成图片' }}</button>
         </div>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="message" class="ok">{{ message }}</div>
       <div class="summary">
-        <span>订单 ID：{{ orderID || '-' }}</span>
+        <span>{{ isCombinedSalesOrder ? `组合订单：${combinedOrderIDs.length}张` : `订单 ID：${orderID || '-'}` }}</span>
         <span>客户：{{ customerSummary.name || '-' }}</span>
         <span>公司：{{ customerSummary.company_name || customerSummary.name || '-' }}</span>
         <span>PDF版本：{{ documents.length }}</span>
@@ -41,13 +41,22 @@
       </details>
     </section>
 
+    <section class="panel sales-order-note-panel">
+      <div class="panel-head">
+        <h3>销售单备注</h3>
+        <button class="secondary" type="button" @click="saveSalesOrderNote" :disabled="noteSaving || isCombinedSalesOrder || !orderID">{{ noteSaving ? '保存中' : '保存备注' }}</button>
+      </div>
+      <textarea v-model.trim="salesOrderNote" rows="2" :disabled="isCombinedSalesOrder" :placeholder="isCombinedSalesOrder ? '组合销售单读取各订单已保存的销售单备注' : '只显示在销售单最后一行，不影响订单列表内部备注'"></textarea>
+    </section>
+
     <section class="panel preview-panel">
       <div class="panel-head">
         <h3>销售单预览 <span v-if="preview" class="version-tag">V{{ preview.next_version_no }}</span></h3>
-        <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
+        <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !documentContextReady">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
       </div>
-      <div v-if="preview?.snapshot?.seal" class="preview-tools">
-        <label class="seal-size-slider">
+      <div v-if="preview?.snapshot" class="preview-tools">
+        <div class="layout-drag-hint">拖动“文字位置和大小”“收款码位置和大小”边框调整位置，拖右下角圆点调整大小。</div>
+        <label v-if="preview?.snapshot?.seal" class="seal-size-slider">
           <span>公章大小</span>
           <input v-model.number="previewSealWidthMM" type="range" :min="salesOrderSealMinWidthMM" :max="salesOrderSealMaxWidthMM" step="1" :disabled="sealDragSaving" @change="savePreviewSealSize" />
           <output>{{ previewSealWidthMM }}mm</output>
@@ -62,7 +71,7 @@
         seal-label="公章"
         preview-label="PREVIEW 预览版"
         @loaded="onPreviewPDFLoaded"
-        @placement-commit="savePDFPreviewSealPosition"
+        @placement-commit="savePDFPreviewPlacement"
       />
     </section>
 
@@ -140,6 +149,13 @@
             <input v-model.trim="customerForm.phone" />
           </label>
           <label>
+            <span>负责人</span>
+            <select v-model.number="customerForm.responsible_employee_id">
+              <option :value="0">选择员工</option>
+              <option v-for="employee in employees" :key="employee.id" :value="employee.id">{{ employee.name }}</option>
+            </select>
+          </label>
+          <label>
             <span>公司地址</span>
             <textarea v-model.trim="customerForm.company_address" name="company_address" rows="3"></textarea>
           </label>
@@ -170,7 +186,13 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend, appURL } from '../api/client'
 import { salesOrderDownloadUrl, salesOrderImageDownloadUrl } from '../lib/sales-order'
-import { pdfPlacementToSalesSealMM, salesSealMMToPDFPlacement } from '../lib/document-pdf-stamp'
+import { buildCombinedDocumentQuery } from '../lib/combined-order-documents'
+import {
+  pdfPlacementToSalesLayoutBox,
+  pdfPlacementToSalesSealMM,
+  salesLayoutBoxMMToPDFPreviewPlacement,
+  salesSealMMToPDFPlacement,
+} from '../lib/document-pdf-stamp'
 import { salesOrderSealMaxWidthMM, salesOrderSealMinWidthMM } from '../lib/sales-order-seal'
 import { buildShareResourcePayload, shareResourceToWechat } from '../lib/external-share'
 import PDFStampPreview from '../components/PDFStampPreview.vue'
@@ -178,6 +200,7 @@ import SalesOrderSettingsView from './SalesOrderSettingsView.vue'
 
 const props = defineProps({
   orderId: { type: [Number, String], default: 0 },
+  orderIds: { type: Array, default: () => [] },
   embedded: { type: Boolean, default: false },
 })
 
@@ -195,17 +218,41 @@ const preview = ref(null)
 const drawerOpen = ref(false)
 const settingsDrawerOpen = ref(false)
 const savingCustomer = ref(false)
+const noteSaving = ref(false)
 const sealDragSaving = ref(false)
+const layoutDragSaving = ref(false)
 const shareLoading = ref('')
 const previewPDFPages = ref([])
 const previewPDFRefreshKey = ref(0)
 const previewSealAspectRatio = ref(1)
 const customerSummary = reactive(emptyCustomer())
 const customerForm = reactive(emptyCustomer())
+const employees = ref([])
+const salesOrderNote = ref('')
 
 const orderID = computed(() => Number(props.orderId || new URL(window.location.href).searchParams.get('order_id') || 0))
-const salesOrderPreviewBasePDFUrl = computed(() => orderID.value ? `/api/orders/${orderID.value}/sales-order-preview.pdf` : '')
-const salesOrderPreviewPDFUrl = computed(() => salesOrderPreviewBasePDFUrl.value ? `${salesOrderPreviewBasePDFUrl.value}?v=${previewPDFRefreshKey.value}` : '')
+const combinedOrderIDs = computed(() => uniquePositiveIDs(props.orderIds))
+const combinedDocumentQuery = computed(() => buildCombinedDocumentQuery(combinedOrderIDs.value))
+const isCombinedSalesOrder = computed(() => combinedOrderIDs.value.length >= 2)
+const documentContextReady = computed(() => isCombinedSalesOrder.value || orderID.value > 0)
+const canShareSingleOrder = computed(() => !isCombinedSalesOrder.value && orderID.value > 0)
+const salesOrderPreviewBasePDFUrl = computed(() => {
+  if (isCombinedSalesOrder.value) return combinedDocumentQuery.value ? `/api/orders/combined/sales-order-preview.pdf?${combinedDocumentQuery.value}` : ''
+  return orderID.value ? `/api/orders/${orderID.value}/sales-order-preview.pdf` : ''
+})
+const salesOrderPreviewPDFUrl = computed(() => {
+  if (!salesOrderPreviewBasePDFUrl.value) return ''
+  const separator = salesOrderPreviewBasePDFUrl.value.includes('?') ? '&' : '?'
+  return `${salesOrderPreviewBasePDFUrl.value}${separator}v=${previewPDFRefreshKey.value}`
+})
+const latestSalesOrderPDFDownloadURL = computed(() => {
+  if (isCombinedSalesOrder.value) return latestDocumentURL(documents.value)
+  return orderID.value ? salesOrderDownloadUrl(orderID.value) : ''
+})
+const latestSalesOrderImageDownloadURL = computed(() => {
+  if (isCombinedSalesOrder.value) return latestDocumentURL(imageDocuments.value)
+  return orderID.value ? salesOrderImageDownloadUrl(orderID.value) : ''
+})
 const previewSealUrl = computed(() => assetURL(preview.value?.snapshot?.seal || {}))
 const previewSealWidthMM = computed({
   get() {
@@ -220,21 +267,54 @@ const previewSealWidthMM = computed({
   },
 })
 const salesOrderPreviewPlacements = computed(() => {
-  const seal = preview.value?.snapshot?.seal
+  const snapshot = preview.value?.snapshot
   const page = previewPDFPages.value[0]
-  if (!seal || !page) return []
-  return [salesSealMMToPDFPlacement(seal, page, { sealAspectRatio: previewSealAspectRatio.value })]
+  if (!snapshot || !page) return []
+  const placements = []
+  if (snapshot.payment_text_box) {
+    placements.push(salesLayoutBoxMMToPDFPreviewPlacement(snapshot.payment_text_box, previewPDFPages.value, {
+      kind: 'payment_text',
+      label: '文字位置和大小',
+      resizable: true,
+      cross_page_drag: true,
+      use_seal_image: false,
+      min_width: 80,
+      min_height: 36,
+    }))
+  }
+  if (snapshot.payment_code_box) {
+    placements.push(salesLayoutBoxMMToPDFPreviewPlacement(snapshot.payment_code_box, previewPDFPages.value, {
+      kind: 'payment_code',
+      label: '收款码位置和大小',
+      resizable: true,
+      cross_page_drag: true,
+      use_seal_image: false,
+      min_width: 80,
+      min_height: 80,
+    }))
+  }
+  if (snapshot.seal) {
+    placements.push(salesSealMMToPDFPlacement(snapshot.seal, page, {
+      kind: 'seal',
+      label: '公章',
+      resizable: false,
+      sealAspectRatio: previewSealAspectRatio.value,
+    }))
+  }
+  return placements
 })
 
 let previewSealAspectToken = 0
 watch(previewSealUrl, loadPreviewSealAspectRatio, { immediate: true })
 
 async function load() {
-  if (!orderID.value) return
+  if (!documentContextReady.value) return
   loading.value = true
   error.value = ''
   try {
-    const data = await apiGet(`/api/orders/${orderID.value}/sales-orders`)
+    const data = await apiGet(isCombinedSalesOrder.value
+      ? `/api/orders/combined/sales-orders?${combinedDocumentQuery.value}`
+      : `/api/orders/${orderID.value}/sales-orders`)
     documents.value = data.rows || []
     imageDocuments.value = data.image_rows || []
     assignCustomer(customerSummary, data.order?.customer || {})
@@ -251,11 +331,16 @@ async function loadPage() {
 }
 
 async function loadPreview() {
-  if (!orderID.value) return
+  if (!documentContextReady.value) return
   previewLoading.value = true
   error.value = ''
   try {
-    preview.value = await apiGet(`/api/orders/${orderID.value}/sales-order-preview`)
+    preview.value = await apiGet(isCombinedSalesOrder.value
+      ? `/api/orders/combined/sales-order-preview?${combinedDocumentQuery.value}`
+      : `/api/orders/${orderID.value}/sales-order-preview`)
+    salesOrderNote.value = isCombinedSalesOrder.value
+      ? combinedSalesOrderNotes(preview.value?.snapshot?.groups || [])
+      : preview.value?.snapshot?.sales_order_note || ''
     previewPDFRefreshKey.value += 1
   } catch (err) {
     preview.value = null
@@ -265,14 +350,36 @@ async function loadPreview() {
   }
 }
 
+async function saveSalesOrderNote() {
+  if (!orderID.value || isCombinedSalesOrder.value) return
+  noteSaving.value = true
+  error.value = ''
+  message.value = ''
+  try {
+    preview.value = await apiSend(`/api/orders/${orderID.value}/sales-order-note`, {
+      method: 'PUT',
+      body: { note: salesOrderNote.value },
+    })
+    salesOrderNote.value = preview.value?.snapshot?.sales_order_note || ''
+    previewPDFRefreshKey.value += 1
+    message.value = '销售单备注已保存，请重新生成 PDF 或图片后下载'
+  } catch (err) {
+    error.value = err.message || '保存销售单备注失败'
+  } finally {
+    noteSaving.value = false
+  }
+}
+
 async function generate() {
-  if (!orderID.value || !preview.value) return
+  if (!documentContextReady.value || !preview.value) return
   generating.value = true
   error.value = ''
   message.value = ''
   try {
-    const data = await apiSend(`/api/orders/${orderID.value}/sales-orders`)
-    message.value = `已生成 V${data.version_no}`
+    const data = await apiSend(isCombinedSalesOrder.value ? '/api/orders/combined/sales-orders' : `/api/orders/${orderID.value}/sales-orders`, {
+      body: isCombinedSalesOrder.value ? { order_ids: combinedOrderIDs.value } : undefined,
+    })
+    message.value = `${isCombinedSalesOrder.value ? '已生成组合销售单' : '已生成'} V${data.version_no}`
     await load()
     await loadPreview()
   } catch (err) {
@@ -283,13 +390,15 @@ async function generate() {
 }
 
 async function generateImage() {
-  if (!orderID.value || !preview.value) return
+  if (!documentContextReady.value || !preview.value) return
   imageGenerating.value = true
   error.value = ''
   message.value = ''
   try {
-    const data = await apiSend(`/api/orders/${orderID.value}/sales-order-images`)
-    message.value = `已生成图片 V${data.version_no}`
+    const data = await apiSend(isCombinedSalesOrder.value ? '/api/orders/combined/sales-order-images' : `/api/orders/${orderID.value}/sales-order-images`, {
+      body: isCombinedSalesOrder.value ? { order_ids: combinedOrderIDs.value } : undefined,
+    })
+    message.value = `${isCombinedSalesOrder.value ? '已生成组合销售单图片' : '已生成图片'} V${data.version_no}`
     await load()
     await loadPreview()
   } catch (err) {
@@ -300,7 +409,7 @@ async function generateImage() {
 }
 
 async function shareLatestResource(resourceType) {
-  if (!orderID.value || shareLoading.value) return
+  if (!canShareSingleOrder.value || shareLoading.value) return
   shareLoading.value = resourceType
   error.value = ''
   message.value = ''
@@ -337,8 +446,37 @@ function emptyCustomer() {
     address: '',
     default_source_id: null,
     default_order_type_id: null,
+    responsible_employee_id: 0,
     active: true,
   }
+}
+
+function uniquePositiveIDs(values = []) {
+  const seen = new Set()
+  const out = []
+  for (const raw of values) {
+    const id = Number(raw)
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
+}
+
+function latestDocumentURL(rows = []) {
+  const latest = rows.find((row) => row?.is_latest) || rows[0]
+  return latest?.download_url || ''
+}
+
+function combinedSalesOrderNotes(groups = []) {
+  return groups
+    .map((group) => {
+      const note = String(group?.sales_order_note || '').trim()
+      if (!note) return ''
+      return `${group?.order_no || '订单'}：${note}`
+    })
+    .filter(Boolean)
+    .join('\n')
 }
 
 function assignCustomer(target, data = {}) {
@@ -354,6 +492,7 @@ function assignCustomer(target, data = {}) {
     address: data.address || '',
     default_source_id: data.default_source_id || null,
     default_order_type_id: data.default_order_type_id || null,
+    responsible_employee_id: Number(data.responsible_employee_id || 0),
     active: data.active !== false,
   })
 }
@@ -424,6 +563,76 @@ async function savePDFPreviewSealPosition(placement) {
   }
 }
 
+async function savePDFPreviewPlacement(placement) {
+  if (placement?.kind === 'payment_text' || placement?.kind === 'payment_code') {
+    await savePDFPreviewLayoutBox(placement)
+    return
+  }
+  await savePDFPreviewSealPosition(placement)
+}
+
+async function savePDFPreviewLayoutBox(placement) {
+  const snapshot = preview.value?.snapshot
+  const page = previewPDFPages.value.find((item) => Number(item.pageNumber) === Number(placement?.page_number || 1))
+  if (!snapshot || !page || layoutDragSaving.value) return
+  const currentPlacements = salesOrderPreviewPlacements.value || []
+  const nextBox = {
+    ...pdfPlacementToSalesLayoutBox(placement, page),
+    page_number: Number(placement.page_number || 1),
+  }
+  if (placement.kind === 'payment_text') {
+    snapshot.payment_text_box = nextBox
+  } else if (placement.kind === 'payment_code') {
+    snapshot.payment_code_box = nextBox
+  } else {
+    return
+  }
+  layoutDragSaving.value = true
+  error.value = ''
+  try {
+    const textPlacement = placement.kind === 'payment_text'
+      ? placement
+      : currentPlacements.find((item) => item.kind === 'payment_text')
+    const codePlacement = placement.kind === 'payment_code'
+      ? placement
+      : currentPlacements.find((item) => item.kind === 'payment_code')
+    const textBox = normalizeLayoutBox(snapshot.payment_text_box, {
+      x_mm: 16,
+      y_mm: 118,
+      width_mm: 104,
+      height_mm: 78,
+      page_number: Number(textPlacement?.page_number || 0),
+    })
+    const codeBox = normalizeLayoutBox(snapshot.payment_code_box, {
+      x_mm: 126,
+      y_mm: 106,
+      width_mm: 72,
+      height_mm: 122,
+      page_number: Number(codePlacement?.page_number || 0),
+    })
+    await apiSend('/api/settings/sales-order/payment-layout', {
+      body: {
+        payment_text_x_mm: textBox.x_mm,
+        payment_text_y_mm: textBox.y_mm,
+        payment_text_width_mm: textBox.width_mm,
+        payment_text_height_mm: textBox.height_mm,
+        payment_text_page_number: textBox.page_number,
+        payment_code_x_mm: codeBox.x_mm,
+        payment_code_y_mm: codeBox.y_mm,
+        payment_code_width_mm: codeBox.width_mm,
+        payment_code_height_mm: codeBox.height_mm,
+        payment_code_page_number: codeBox.page_number,
+      },
+    })
+    previewPDFRefreshKey.value += 1
+    message.value = '销售单文字和收款码版式已保存，请重新生成图片或 PDF 后下载'
+  } catch (err) {
+    error.value = err.message || '保存销售单版式失败'
+  } finally {
+    layoutDragSaving.value = false
+  }
+}
+
 async function savePreviewSealSize() {
   const seal = preview.value?.snapshot?.seal
   if (!seal || sealDragSaving.value) return
@@ -448,6 +657,16 @@ async function savePreviewSealSize() {
   }
 }
 
+function normalizeLayoutBox(box = {}, fallback = {}) {
+  return {
+    x_mm: Math.round(Number(box.x_mm ?? fallback.x_mm ?? 0)),
+    y_mm: Math.round(Number(box.y_mm ?? fallback.y_mm ?? 0)),
+    width_mm: Math.round(Number(box.width_mm ?? fallback.width_mm ?? 1)),
+    height_mm: Math.round(Number(box.height_mm ?? fallback.height_mm ?? 1)),
+    page_number: Math.max(0, Math.round(Number(box.page_number ?? fallback.page_number ?? 0))),
+  }
+}
+
 async function openCustomerDrawer() {
   if (!customerSummary.id) return
   loading.value = true
@@ -455,6 +674,7 @@ async function openCustomerDrawer() {
   try {
     const data = await apiGet(`/api/customers/${customerSummary.id}`)
     assignCustomer(customerForm, data.customer || {})
+    employees.value = data.employees || employees.value
     drawerOpen.value = true
   } catch (err) {
     error.value = err.message || '加载客户信息失败'
@@ -482,6 +702,7 @@ async function saveCustomer() {
   error.value = ''
   message.value = ''
   try {
+    if (!Number(customerForm.responsible_employee_id || 0)) throw new Error('请选择客户负责人')
     const data = await apiSend(`/api/customers/${customerForm.id}`, {
       method: 'PUT',
       body: {
@@ -495,6 +716,7 @@ async function saveCustomer() {
         address: customerForm.address,
         default_source_id: customerForm.default_source_id,
         default_order_type_id: customerForm.default_order_type_id,
+        responsible_employee_id: customerForm.responsible_employee_id,
         active: customerForm.active,
       },
     })
@@ -521,8 +743,10 @@ onMounted(loadPage)
 .preview-panel { overflow: auto; }
 .panel-head, .actions, .summary { display: flex; align-items: center; gap: 12px; }
 .panel-head { justify-content: space-between; margin-bottom: 12px; }
+.sales-order-note-panel textarea { width: 100%; min-height: 76px; resize: vertical; border: 1px solid #d6cec3; border-radius: 6px; padding: 10px 12px; font: inherit; line-height: 1.6; background: #fff; }
 .actions { flex-wrap: wrap; justify-content: flex-end; }
-.preview-tools { display: flex; justify-content: flex-end; margin: -4px 0 12px; }
+.preview-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: -4px 0 12px; }
+.layout-drag-hint { color: #4b5563; font-size: 13px; line-height: 1.5; }
 .seal-size-slider { min-width: min(340px, 100%); display: grid; grid-template-columns: auto minmax(160px, 1fr) auto; gap: 10px; align-items: center; color: #4b5563; font-size: 13px; }
 .seal-size-slider input { width: 100%; accent-color: #1f1f1f; }
 .seal-size-slider output { min-width: 46px; text-align: right; color: #171717; font-variant-numeric: tabular-nums; }

@@ -100,7 +100,9 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 	})
 
 	e.GET("/api/stock/warehouses", func(c echo.Context) error {
-		rows, err := stockSvc.ListWarehouses(c.Request().Context())
+		rows, err := stockSvc.ListWarehouses(c.Request().Context(), stockapp.WarehouseListQuery{
+			CustomerID: int64(support.IntParam(c, "customer_id", 0)),
+		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
 		}
@@ -114,15 +116,15 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse{Error: "invalid request"})
 		}
-		result, err := stockSvc.SetWarehouseCustomer(c.Request().Context(), stockapp.WarehouseCustomerBindingCommand{
-			WarehouseCode: c.Param("code"),
+		row, err := stockSvc.BindWarehouseCustomer(c.Request().Context(), stockapp.BindWarehouseCustomerCommand{
+			WarehouseCode: strings.TrimSpace(c.Param("code")),
 			CustomerID:    req.CustomerID,
-			Operator:      support.ActorOf(c),
+			Actor:         support.ActorOf(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse{Error: err.Error()})
 		}
-		return c.JSON(http.StatusOK, result)
+		return c.JSON(http.StatusOK, row)
 	})
 
 	e.GET("/api/stock/material-batch-locations", func(c echo.Context) error {
@@ -149,11 +151,12 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		limit := stockLimit(c)
 		offset := stockOffsetForLimit(c, limit)
 		result, err := stockSvc.ListWarehouseInventory(c.Request().Context(), stockapp.WarehouseInventoryQuery{
-			Q:         strings.TrimSpace(c.QueryParam("q")),
-			Warehouse: strings.TrimSpace(c.QueryParam("warehouse")),
-			ItemType:  strings.TrimSpace(c.QueryParam("item_type")),
-			Limit:     limit,
-			Offset:    offset,
+			Q:          strings.TrimSpace(c.QueryParam("q")),
+			Warehouse:  strings.TrimSpace(c.QueryParam("warehouse")),
+			ItemType:   strings.TrimSpace(c.QueryParam("item_type")),
+			CustomerID: int64(support.IntParam(c, "customer_id", 0)),
+			Limit:      limit,
+			Offset:     offset,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})

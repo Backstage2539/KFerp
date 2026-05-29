@@ -25,9 +25,9 @@
             <th>订单号</th>
             <th>需求(g)</th>
             <th>投料(g)</th>
-            <th>BOM出品率</th>
+            <th>BOM预期产出率</th>
             <th>成品数</th>
-            <th>实际出品率</th>
+            <th>实际产出率</th>
             <th>操作人</th>
             <th>完成生产</th>
             <th>取消</th>

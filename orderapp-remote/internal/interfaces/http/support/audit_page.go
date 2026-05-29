@@ -192,6 +192,20 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 			return "商品与配方 / 产品设置", "删除产品分类"
 		}
 		return "商品与配方 / 产品设置", "调整产品分类"
+	case "process_template":
+		switch action {
+		case "publish":
+			return "生产管理 / 工艺模板", "发布工艺模板"
+		case "deactivate":
+			return "生产管理 / 工艺模板", "停用工艺模板"
+		default:
+			return "生产管理 / 工艺模板", "维护工艺模板"
+		}
+	case "industry_field_template":
+		if action == "deactivate" {
+			return "商品与配方 / 行业字段模板", "停用行业字段模板"
+		}
+		return "商品与配方 / 行业字段模板", "维护行业字段模板"
 	case "material":
 		return "库存管理 / 物料档案", "编辑物料档案"
 	case "customer", "customer_asset":
@@ -203,13 +217,16 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		return "设置 / 公司设置", "保存公司设置"
 	case "sales_order_settings":
 		if field == "seal_asset_id" {
-			return "设置 / 销售单设置", "上传销售单公章"
+			return "设置 / 销售单设置", "选择/上传共享公章"
 		}
 		return "设置 / 销售单设置", "保存销售单设置"
 	case "sales_order_asset":
 		return "设置 / 销售单设置", "上传销售单素材"
 	case "sales_order_payment_code":
-		if action == "delete" {
+		if action == "activate" {
+			return "设置 / 销售单设置", "启用收款二维码"
+		}
+		if action == "deactivate" || action == "delete" {
 			return "设置 / 销售单设置", "停用收款二维码"
 		}
 		return "设置 / 销售单设置", "维护收款二维码"
@@ -217,6 +234,14 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 		return "订单销售 / 销售单", "生成销售单PDF"
 	case "sales_order_image":
 		return "订单销售 / 销售单", "生成销售单图片"
+	case "delivery_note_document":
+		return "订单销售 / 出库单", "生成出库单PDF"
+	case "combined_sales_order_document":
+		return "订单销售 / 销售单", "生成组合销售单PDF"
+	case "combined_sales_order_image":
+		return "订单销售 / 销售单", "生成组合销售单图片"
+	case "combined_delivery_note_document":
+		return "订单销售 / 出库单", "生成组合出库单PDF"
 	case "material_receipt":
 		return "库存管理 / 采购入库", "提交原料入库"
 	case "material_transfer":
@@ -359,6 +384,25 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 		return "商品与配方 / 产品设置", "维护产品分类"
 	case strings.HasPrefix(target, "/api/product-settings"):
 		return "商品与配方 / 产品设置", "查看产品设置"
+	case strings.HasPrefix(target, "/api/process-templates"):
+		if strings.Contains(target, "/publish") {
+			return "生产管理 / 工艺模板", "发布工艺模板"
+		}
+		if strings.Contains(target, "/deactivate") {
+			return "生产管理 / 工艺模板", "停用工艺模板"
+		}
+		if method == "POST" {
+			return "生产管理 / 工艺模板", "保存工艺模板"
+		}
+		return "生产管理 / 工艺模板", "查看工艺模板"
+	case strings.HasPrefix(target, "/api/industry-field-templates"):
+		if strings.Contains(target, "/deactivate") {
+			return "商品与配方 / 行业字段模板", "停用行业字段模板"
+		}
+		if method == "POST" {
+			return "商品与配方 / 行业字段模板", "保存行业字段模板"
+		}
+		return "商品与配方 / 行业字段模板", "查看行业字段模板"
 	case strings.HasPrefix(target, "/api/products") || strings.Contains(target, "/products"):
 		return "商品与配方 / 产品设置", "维护产品设置"
 	case strings.Contains(target, "/bom"):
@@ -367,6 +411,10 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 		return "系统 / 操作日志", "查看操作日志"
 	case strings.HasPrefix(target, "/api/settings/sales-order/seal-position"):
 		return "设置 / 销售单设置", "保存公章位置"
+	case strings.HasPrefix(target, "/api/settings/sales-order/payment-layout"):
+		return "设置 / 销售单设置", "保存收款版式"
+	case strings.HasPrefix(target, "/api/settings/sales-order/seal/select"):
+		return "设置 / 销售单设置", "选择共享公章"
 	case strings.HasPrefix(target, "/api/settings/sales-order/seal") || strings.HasPrefix(target, "/api/settings/sales-order/payment-codes"):
 		return "设置 / 销售单设置", "维护销售单素材"
 	case strings.HasPrefix(target, "/api/settings/sales-order"):
@@ -376,6 +424,8 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 		return "设置 / 销售单设置", "查看销售单设置"
 	case strings.HasPrefix(target, "/api/settings/sender") || strings.HasPrefix(target, "/settings/sender"):
 		return "设置 / 发货人设置", "维护发货人"
+	case strings.HasPrefix(target, "/api/settings/logistics") || strings.HasPrefix(target, "/settings/logistics"):
+		return "设置 / 物流设置", "维护物流设置"
 	case strings.HasPrefix(target, "/api/outsource/templates") || strings.HasPrefix(target, "/settings/outsource"):
 		return "设置 / 代加工模板设置", "维护代加工模板"
 	case strings.Contains(target, "/sales-order-images"):
@@ -530,6 +580,10 @@ func auditSummary(r *AuditLogRow, rawEntityType, rawAction, rawField string) str
 		return fmt.Sprintf("%s 在%s修改了%s 的%s：%s -> %s", actor, menuName, target, field, oldValue, newValue)
 	case "create":
 		return fmt.Sprintf("%s 在%s新增了%s", actor, menuName, auditTargetName(r, rawEntityType))
+	case "deactivate":
+		return fmt.Sprintf("%s 在%s停用了%s", actor, menuName, auditTargetName(r, rawEntityType))
+	case "activate":
+		return fmt.Sprintf("%s 在%s启用了%s", actor, menuName, auditTargetName(r, rawEntityType))
 	case "delete":
 		return fmt.Sprintf("%s 在%s删除了%s", actor, menuName, auditTargetName(r, rawEntityType))
 	case "submit":
@@ -603,8 +657,15 @@ func auditTargetHint(r *AuditLogRow, rawEntityType string) string {
 		return firstNonEmpty(firstMetaText(meta, "kind", "asset_id"), valueForField(r, "kind"))
 	case "sales_order_payment_code":
 		return firstNonEmpty(firstMetaText(meta, "label", "asset_id"), valueForField(r, "label"))
-	case "sales_order_document", "sales_order_image":
+	case "sales_order_document", "sales_order_image", "delivery_note_document":
 		orderNo := firstMetaText(meta, "order_no", "order_id")
+		version := firstNonEmpty(firstMetaText(meta, "version_no", "version"), valueForField(r, "version_no"))
+		if orderNo != "" && version != "" {
+			return orderNo + " v" + version
+		}
+		return firstNonEmpty(orderNo, version)
+	case "combined_sales_order_document", "combined_sales_order_image", "combined_delivery_note_document":
+		orderNo := firstMetaText(meta, "order_nos", "order_no", "order_id")
 		version := firstNonEmpty(firstMetaText(meta, "version_no", "version"), valueForField(r, "version_no"))
 		if orderNo != "" && version != "" {
 			return orderNo + " v" + version
@@ -644,6 +705,10 @@ func auditTargetHint(r *AuditLogRow, rawEntityType string) string {
 		return firstMetaText(meta, "work_order_no", "note", "running_item_id", "material_id")
 	case "product_category":
 		return firstNonEmpty(firstMetaText(meta, "name", "category"), valueForField(r, "category"))
+	case "process_template":
+		return firstNonEmpty(valueForField(r, "template"), firstMetaText(meta, "name", "product_id"))
+	case "industry_field_template":
+		return firstNonEmpty(valueForField(r, "template"), firstMetaText(meta, "name", "industry_key"))
 	case "auth_account":
 		return firstMetaText(meta, "employee_id")
 	}
@@ -762,6 +827,10 @@ func labelEntityType(t string) string {
 		return "产品"
 	case "product_category":
 		return "产品分类"
+	case "process_template":
+		return "工艺模板"
+	case "industry_field_template":
+		return "行业字段模板"
 	case "material":
 		return "物料"
 	case "customer":
@@ -780,6 +849,14 @@ func labelEntityType(t string) string {
 		return "销售单文件"
 	case "sales_order_image":
 		return "销售单图片"
+	case "delivery_note_document":
+		return "出库单文件"
+	case "combined_sales_order_document":
+		return "组合销售单文件"
+	case "combined_sales_order_image":
+		return "组合销售单图片"
+	case "combined_delivery_note_document":
+		return "组合出库单文件"
 	case "material_receipt":
 		return "原料入库单"
 	case "material_transfer":
@@ -823,6 +900,10 @@ func labelAction(a string) string {
 		return "修改"
 	case "create":
 		return "新增"
+	case "deactivate":
+		return "停用"
+	case "activate":
+		return "启用"
 	case "delete":
 		return "删除"
 	case "submit":
@@ -920,10 +1001,14 @@ func labelField(f string) string {
 		return "默认来源"
 	case "default_order_type_id":
 		return "默认订单类型"
+	case "responsible_employee_id":
+		return "客户负责人"
 	case "active":
 		return "启用状态"
 	case "settings":
 		return "设置"
+	case "template":
+		return "模板"
 	case "asset_id":
 		return "素材ID"
 	case "seal_asset_id":

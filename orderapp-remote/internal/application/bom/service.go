@@ -3,19 +3,23 @@ package bom
 import (
 	"context"
 	"fmt"
+	productiondomain "orderapp/internal/domain/production"
 	"strings"
 )
 
 type ListItem struct {
-	ProductID   int64   `json:"product_id"`
-	CustomerID  int64   `json:"customer_id"`
-	Product     string  `json:"product"`
-	RoastLevel  string  `json:"roast_level"`
-	ProductKind string  `json:"product_kind,omitempty"`
-	YieldRate   float64 `json:"yield_rate"`
-	Status      string  `json:"status"`
-	ItemCount   int     `json:"item_count"`
-	UpdatedAt   string  `json:"updated_at"`
+	ProductID         int64   `json:"product_id"`
+	CustomerID        int64   `json:"customer_id"`
+	Product           string  `json:"product"`
+	RoastLevel        string  `json:"roast_level"`
+	ProductKind       string  `json:"product_kind,omitempty"`
+	YieldRate         float64 `json:"yield_rate"`
+	ExpectedYieldRate float64 `json:"expected_yield_rate"`
+	ExpectedLossRate  float64 `json:"expected_loss_rate"`
+	Status            string  `json:"status"`
+	ItemCount         int     `json:"item_count"`
+	OrderUsageCount   int     `json:"order_usage_count"`
+	UpdatedAt         string  `json:"updated_at"`
 }
 
 type Item struct {
@@ -32,14 +36,16 @@ type Item struct {
 }
 
 type Detail struct {
-	ProductID   int64   `json:"product_id"`
-	ProductName string  `json:"product_name"`
-	RoastLevel  string  `json:"roast_level"`
-	YieldRate   float64 `json:"yield_rate"`
-	Status      string  `json:"status"`
-	Items       []Item  `json:"items"`
-	TotalRatio  float64 `json:"total_ratio"`
-	UpdatedAt   string  `json:"updated_at"`
+	ProductID         int64   `json:"product_id"`
+	ProductName       string  `json:"product_name"`
+	RoastLevel        string  `json:"roast_level"`
+	YieldRate         float64 `json:"yield_rate"`
+	ExpectedYieldRate float64 `json:"expected_yield_rate"`
+	ExpectedLossRate  float64 `json:"expected_loss_rate"`
+	Status            string  `json:"status"`
+	Items             []Item  `json:"items"`
+	TotalRatio        float64 `json:"total_ratio"`
+	UpdatedAt         string  `json:"updated_at"`
 }
 
 type Option struct {
@@ -50,6 +56,7 @@ type Option struct {
 	ProductKind     string  `json:"product_kind,omitempty"`
 	DripBagGrams    float64 `json:"drip_bag_grams,omitempty"`
 	DripBoxBagCount int     `json:"drip_box_bag_count,omitempty"`
+	OrderUsageCount int     `json:"order_usage_count"`
 }
 
 type BagSpecMapping struct {
@@ -59,14 +66,16 @@ type BagSpecMapping struct {
 }
 
 type Version struct {
-	ID        int64   `json:"id"`
-	ProductID int64   `json:"product_id"`
-	VersionNo string  `json:"version_no"`
-	Status    string  `json:"status"`
-	YieldRate float64 `json:"yield_rate"`
-	ItemCount int     `json:"item_count"`
-	Note      string  `json:"note"`
-	CreatedAt string  `json:"created_at"`
+	ID                int64   `json:"id"`
+	ProductID         int64   `json:"product_id"`
+	VersionNo         string  `json:"version_no"`
+	Status            string  `json:"status"`
+	YieldRate         float64 `json:"yield_rate"`
+	ExpectedYieldRate float64 `json:"expected_yield_rate"`
+	ExpectedLossRate  float64 `json:"expected_loss_rate"`
+	ItemCount         int     `json:"item_count"`
+	Note              string  `json:"note"`
+	CreatedAt         string  `json:"created_at"`
 }
 
 type CreateVersionCommand struct {
@@ -76,8 +85,10 @@ type CreateVersionCommand struct {
 }
 
 type SyncProductYieldCommand struct {
-	ProductID int64  `json:"product_id"`
-	Actor     string `json:"actor"`
+	ProductID         int64    `json:"product_id"`
+	ExpectedLossRate  *float64 `json:"expected_loss_rate,omitempty"`
+	ExpectedYieldRate float64  `json:"expected_yield_rate,omitempty"`
+	Actor             string   `json:"actor"`
 }
 
 type DeactivateBomCommand struct {
@@ -152,6 +163,7 @@ func (s *Service) List(ctx context.Context) ([]ListItem, error) {
 	out := make([]ListItem, 0, len(rows))
 	for _, row := range rows {
 		if isBomMaintainedProductKind(row.ProductKind) {
+			enrichListItemYield(&row)
 			out = append(out, row)
 		}
 	}
@@ -162,7 +174,12 @@ func (s *Service) Detail(ctx context.Context, productID int64) (Detail, error) {
 	if productID <= 0 {
 		return Detail{}, fmt.Errorf("invalid product_id")
 	}
-	return s.repo.Detail(ctx, productID)
+	detail, err := s.repo.Detail(ctx, productID)
+	if err != nil {
+		return Detail{}, err
+	}
+	enrichDetailYield(&detail)
+	return detail, nil
 }
 
 func (s *Service) Products(ctx context.Context) ([]Option, error) {
@@ -198,6 +215,13 @@ func isBomMaintainedProductKind(kind string) bool {
 func (s *Service) SyncProductYield(ctx context.Context, cmd SyncProductYieldCommand) error {
 	if cmd.ProductID <= 0 {
 		return fmt.Errorf("product required")
+	}
+	if cmd.ExpectedLossRate != nil {
+		yieldRate, err := productiondomain.YieldRateFromExpectedLossRate(*cmd.ExpectedLossRate)
+		if err != nil {
+			return err
+		}
+		cmd.ExpectedYieldRate = yieldRate
 	}
 	return s.repo.SyncProductYield(ctx, cmd)
 }
@@ -285,7 +309,14 @@ func (s *Service) ListVersions(ctx context.Context, productID int64) ([]Version,
 	if productID <= 0 {
 		return nil, fmt.Errorf("product_id required")
 	}
-	return s.repo.ListVersions(ctx, productID)
+	rows, err := s.repo.ListVersions(ctx, productID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		enrichVersionYield(&rows[i])
+	}
+	return rows, nil
 }
 
 func (s *Service) CreateVersion(ctx context.Context, cmd CreateVersionCommand) (Version, error) {
@@ -293,6 +324,24 @@ func (s *Service) CreateVersion(ctx context.Context, cmd CreateVersionCommand) (
 		return Version{}, fmt.Errorf("product_id required")
 	}
 	return s.repo.CreateVersion(ctx, cmd)
+}
+
+func enrichListItemYield(row *ListItem) {
+	row.ExpectedYieldRate = productiondomain.NormalizeYieldRate(row.YieldRate)
+	row.ExpectedLossRate = productiondomain.ExpectedLossRate(row.ExpectedYieldRate)
+	row.YieldRate = row.ExpectedYieldRate
+}
+
+func enrichDetailYield(row *Detail) {
+	row.ExpectedYieldRate = productiondomain.NormalizeYieldRate(row.YieldRate)
+	row.ExpectedLossRate = productiondomain.ExpectedLossRate(row.ExpectedYieldRate)
+	row.YieldRate = row.ExpectedYieldRate
+}
+
+func enrichVersionYield(row *Version) {
+	row.ExpectedYieldRate = productiondomain.NormalizeYieldRate(row.YieldRate)
+	row.ExpectedLossRate = productiondomain.ExpectedLossRate(row.ExpectedYieldRate)
+	row.YieldRate = row.ExpectedYieldRate
 }
 
 func (s *Service) ActivateVersion(ctx context.Context, cmd ActivateVersionCommand) error {

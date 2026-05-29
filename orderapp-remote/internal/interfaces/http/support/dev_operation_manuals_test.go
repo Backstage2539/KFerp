@@ -63,7 +63,8 @@ func TestOperationManualWorkflowGuard(t *testing.T) {
 		"单个大功能必须有一个独立操作手册",
 		"现有操作手册要持续查缺补漏",
 		"验收证据必须包含手册文件路径",
-		"OP_MANUAL_<FEATURE>.md",
+		filepath.Join("orderapp-remote", "docs", "OP_MANUAL_<FEATURE>.md"),
+		"只维护 orderapp-remote/docs 一份",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("workflow manual missing operation manual rule %q", want)
@@ -91,7 +92,7 @@ func readFirstExistingManual(paths ...string) ([]byte, error) {
 	return nil, lastErr
 }
 
-func TestOperationManualDocsAreMirrored(t *testing.T) {
+func TestOperationManualDocsUseOrderappDocsAsSingleSource(t *testing.T) {
 	manuals := []string{
 		"OPERATION_MANUALS.md",
 		"OP_MANUAL_REQUIREMENTS.md",
@@ -105,6 +106,7 @@ func TestOperationManualDocsAreMirrored(t *testing.T) {
 		"OP_MANUAL_NOTIFICATIONS.md",
 		"OP_MANUAL_CUSTOMER_PORTAL.md",
 		"OP_MANUAL_CUSTOMER_FULFILLMENT.md",
+		"OP_MANUAL_WORKSPACE_MODE.md",
 	}
 	for _, name := range manuals {
 		local, err := os.ReadFile(filepath.Join("docs", name))
@@ -116,15 +118,8 @@ func TestOperationManualDocsAreMirrored(t *testing.T) {
 		}
 
 		rootPath := filepath.Join("..", name)
-		root, err := os.ReadFile(rootPath)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			t.Fatalf("reading root manual %s: %v", name, err)
-		}
-		if string(root) != string(local) {
-			t.Fatalf("root manual %s and orderapp docs copy differ", name)
+		if _, err := os.Stat(rootPath); !os.IsNotExist(err) {
+			t.Fatalf("root manual copy %s must not exist; keep operation manuals only under orderapp-remote/docs", name)
 		}
 	}
 }
@@ -142,6 +137,7 @@ func TestOperationManualDocsHaveFlowcharts(t *testing.T) {
 		"OP_MANUAL_NOTIFICATIONS.md",
 		"OP_MANUAL_CUSTOMER_PORTAL.md",
 		"OP_MANUAL_CUSTOMER_FULFILLMENT.md",
+		"OP_MANUAL_WORKSPACE_MODE.md",
 	}
 	for _, name := range manuals {
 		b, err := os.ReadFile(filepath.Join("docs", name))

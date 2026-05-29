@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import { salesOrderPageUrl, salesOrderDownloadUrl, salesOrderImageDownloadUrl } from './sales-order.js'
 import { buildShareResourcePayload, shareResourceToWechat } from './external-share.js'
 import {
@@ -24,6 +25,38 @@ test('salesOrderDownloadUrl points to latest pdf', () => {
 
 test('salesOrderImageDownloadUrl points to latest png image', () => {
   assert.equal(salesOrderImageDownloadUrl(12), '/orders/12/sales-order-image-latest.png')
+})
+
+test('sales order view supports editing a document-only final note', () => {
+  const src = fs.readFileSync(new URL('../views/SalesOrderView.vue', import.meta.url), 'utf8')
+  for (const marker of [
+    '销售单备注',
+    'salesOrderNote',
+    '/sales-order-note',
+    '保存备注',
+    '只显示在销售单最后一行',
+  ]) {
+    assert.ok(src.includes(marker), `SalesOrderView missing ${marker}`)
+  }
+})
+
+test('sales order preview keeps payment layout handles visible on multipage PDFs', () => {
+  const src = fs.readFileSync(new URL('../views/SalesOrderView.vue', import.meta.url), 'utf8')
+  assert.ok(src.includes('salesLayoutBoxMMToPDFPreviewPlacement'), 'SalesOrderView must use the multipage payment layout placement helper')
+  assert.ok(src.includes('salesLayoutBoxMMToPDFPreviewPlacement(snapshot.payment_text_box, previewPDFPages.value'), 'payment text handle should use all preview pages')
+  assert.ok(src.includes('salesLayoutBoxMMToPDFPreviewPlacement(snapshot.payment_code_box, previewPDFPages.value'), 'payment code handle should use all preview pages')
+  assert.ok(!src.includes('salesLayoutBoxMMToPDFPlacement(snapshot.payment_text_box, page'), 'payment text handle must not be locked to the first PDF page')
+  assert.ok(!src.includes('salesLayoutBoxMMToPDFPlacement(snapshot.payment_code_box, page'), 'payment code handle must not be locked to the first PDF page')
+})
+
+test('sales order payment layout handles can be dragged between preview PDF pages', () => {
+  const view = fs.readFileSync(new URL('../views/SalesOrderView.vue', import.meta.url), 'utf8')
+  const preview = fs.readFileSync(new URL('../components/PDFStampPreview.vue', import.meta.url), 'utf8')
+  assert.ok(view.includes('cross_page_drag: true'), 'payment layout handles must opt in to cross-page dragging')
+  assert.ok(view.includes('payment_text_page_number: textBox.page_number'), 'payment text page number must be saved with the dragged layout')
+  assert.ok(view.includes('payment_code_page_number: codeBox.page_number'), 'payment code page number must be saved with the dragged layout')
+  assert.ok(preview.includes('movePDFStampPlacementAcrossPages'), 'PDFStampPreview must use the cross-page movement helper')
+  assert.ok(preview.includes('state.original.cross_page_drag'), 'cross-page movement should stay placement-scoped')
 })
 
 test('sales order uses the shared external share payload for pdf and image resources', () => {

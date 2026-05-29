@@ -18,11 +18,11 @@
       <details class="manual">
         <summary>销售单设置手册</summary>
         <ul>
-          <li>公司名称在“公司设置”里维护；本页只维护销售单说明、收款方式、收款码和公章。</li>
-          <li>公账收款信息在“公司设置”里维护；为空时销售单不展示公账信息。</li>
-          <li>收款码支持多个，名称和说明会随 PDF 一起展示。</li>
+          <li>公司名称和公账收款信息在“公司设置”里维护；本页只维护销售单说明、收款方式、收款码和公章资产。</li>
+          <li>文字位置和大小、收款码位置和大小请在销售单预览中拖动调整；拖右下角圆点可调整文本框或收款码区域大小，多页预览可拖过页顶或页底切换页。</li>
+          <li>个性化说明会优先显示在公账收款前面，公账信息太长时优先裁掉后面的公账信息。</li>
           <li>上传公章时会自动裁掉图片白边；旧公章可点击“去除背景”重新生成透明 PNG。</li>
-          <li>公章可拖动调整盖在公司名称上的位置，松手自动保存；调整公章大小后会自动保存，调整后只影响新生成版本。</li>
+          <li>销售单、出库单和合同盖章共用这一套公章资产；上传后可在各页面选择要使用的公章。</li>
         </ul>
       </details>
     </section>
@@ -40,17 +40,24 @@
       </div>
       <table>
         <thead>
-          <tr><th>名称</th><th>说明</th><th>文件</th><th>排序</th><th>操作</th></tr>
+          <tr><th>名称</th><th>说明</th><th>文件</th><th>排序</th><th>状态</th><th>操作</th></tr>
         </thead>
         <tbody>
-          <tr v-for="code in settings.payment_codes || []" :key="code.id">
+          <tr v-for="code in settings.payment_codes || []" :key="code.id" :class="{ 'payment-code-inactive': !code.active }">
             <td>{{ code.label }}</td>
             <td>{{ code.description || '-' }}</td>
             <td>{{ code.asset?.filename || '-' }}</td>
             <td>{{ code.sort }}</td>
-            <td><button class="secondary" type="button" @click="deletePaymentCode(code)" :disabled="saving">停用</button></td>
+            <td><span class="status-pill" :class="{ inactive: !code.active }">{{ code.active ? '启用' : '停用' }}</span></td>
+            <td>
+              <div class="row-actions">
+                <button v-if="code.active" class="secondary" type="button" @click="deactivatePaymentCode(code)" :disabled="saving">停用</button>
+                <button v-else class="secondary" type="button" @click="activatePaymentCode(code)" :disabled="saving">启用</button>
+                <button class="secondary danger" type="button" @click="removePaymentCode(code)" :disabled="saving">删除</button>
+              </div>
+            </td>
           </tr>
-          <tr v-if="!(settings.payment_codes || []).length"><td colspan="5" class="muted">暂无收款码</td></tr>
+          <tr v-if="!(settings.payment_codes || []).length"><td colspan="6" class="muted">暂无收款码</td></tr>
         </tbody>
       </table>
     </section>
@@ -59,58 +66,36 @@
       <div class="panel-head">
         <h3>公章</h3>
       </div>
-      <div class="upload-row seal-row">
+      <div class="seal-toolbar">
+        <label>
+          <span>当前公章</span>
+          <select v-model.number="selectedSealID" :disabled="loading || !seals.length" @change="selectSeal">
+            <option :value="0">未选择</option>
+            <option v-for="seal in seals" :key="seal.id" :value="seal.id">{{ seal.filename || `公章 ${seal.id}` }}</option>
+          </select>
+        </label>
         <div class="current-seal">当前：{{ settings.seal?.filename || '未设置' }}</div>
         <input type="file" accept="image/*" @change="handleSealFile" />
         <button class="primary" type="button" @click="uploadSeal" :disabled="uploadingSeal || !sealFile">上传公章</button>
         <button class="secondary" type="button" @click="removeSealBackground" :disabled="removingSealBackground || !settings.seal">{{ removingSealBackground ? '处理中' : '去除背景' }}</button>
       </div>
-      <div class="seal-position">
-        <div class="seal-position-stage" :style="sealStageViewportStyle">
-          <div class="seal-stage-canvas" :style="sealStageCanvasStyle">
-            <div class="company-line">公司：公司名称</div>
-            <img
-              v-if="settings.seal?.url"
-              class="seal-drag-image"
-              :src="settings.seal.url"
-              alt="公章"
-              :style="sealDragStyle"
-              title="拖动调整公章位置，松手自动保存"
-              @pointerdown.stop="startSealDrag"
-            />
-            <div v-else class="seal-placeholder" :style="sealDragStyle" title="拖动调整公章位置，松手自动保存" @pointerdown.stop="startSealDrag">公章</div>
+      <div v-if="seals.length" class="seal-list">
+        <div v-for="seal in seals" :key="seal.id" class="seal-card" :class="{ active: Number(seal.id) === Number(selectedSealID) }">
+          <img v-if="seal.url" :src="seal.url" alt="公章预览" />
+          <div>
+            <strong>{{ seal.filename || `公章 ${seal.id}` }}</strong>
+            <span>{{ seal.created_at || '-' }}</span>
           </div>
         </div>
-        <div class="seal-position-fields">
-          <label><span>X(mm)</span><input v-model.number="form.seal_x_mm" type="number" min="0" step="1" /></label>
-          <label><span>Y(mm)</span><input v-model.number="form.seal_y_mm" type="number" min="0" step="1" /></label>
-          <label class="seal-size-control">
-            <span>公章大小(mm)</span>
-            <div class="seal-size-inputs">
-              <input v-model.number="form.seal_width_mm" type="range" :min="salesOrderSealMinWidthMM" :max="salesOrderSealMaxWidthMM" step="1" @change="saveSealPosition" />
-              <input v-model.number="form.seal_width_mm" type="number" :min="salesOrderSealMinWidthMM" :max="salesOrderSealMaxWidthMM" step="1" @change="saveSealPosition" />
-            </div>
-          </label>
-        </div>
       </div>
+      <div v-else class="muted">暂无公章，请先上传。</div>
     </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
-import {
-  beginSalesOrderSealDrag,
-  moveSalesOrderSealDrag,
-  salesOrderPreviewDesignHeightPX,
-  salesOrderPreviewDesignWidthPX,
-  salesOrderSealMaxWidthMM,
-  salesOrderSealMinWidthMM,
-  salesOrderSealPreviewScale,
-  salesOrderSealSettingsViewportHeight,
-  salesOrderSealStyle,
-} from '../lib/sales-order-seal'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -121,19 +106,17 @@ const saving = ref(false)
 const uploadingPayment = ref(false)
 const uploadingSeal = ref(false)
 const removingSealBackground = ref(false)
-const sealPositionSaving = ref(false)
 const error = ref('')
 const ok = ref('')
 const settings = ref({})
+const seals = ref([])
+const selectedSealID = ref(0)
 const paymentFile = ref(null)
 const sealFile = ref(null)
 
 const form = reactive({
   note: '',
   payment_text: '',
-  seal_x_mm: 32,
-  seal_y_mm: 5,
-  seal_width_mm: 36,
 })
 
 const paymentForm = reactive({
@@ -146,84 +129,24 @@ function assignSettings(data) {
   settings.value = data || {}
   form.note = data?.note || ''
   form.payment_text = data?.payment_text || ''
-  form.seal_x_mm = Number(data?.seal_x_mm || 32)
-  form.seal_y_mm = Number(data?.seal_y_mm || 5)
-  form.seal_width_mm = Number(data?.seal_width_mm || 36)
+  selectedSealID.value = Number(data?.seal?.id || selectedSealID.value || 0)
 }
-
-const sealDragStyle = computed(() => {
-  return salesOrderSealStyle(form, salesOrderSealPreviewScale)
-})
-
-const sealStageViewportStyle = computed(() => {
-  return {
-    height: `${salesOrderSealSettingsViewportHeight(form, salesOrderSealPreviewScale)}px`,
-  }
-})
-
-const sealStageCanvasStyle = computed(() => {
-  return {
-    width: `${salesOrderPreviewDesignWidthPX}px`,
-    minHeight: `${salesOrderPreviewDesignHeightPX}px`,
-  }
-})
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    assignSettings(await apiGet('/api/settings/sales-order'))
+    const [settingsData, sealData] = await Promise.all([
+      apiGet('/api/settings/sales-order'),
+      apiGet('/api/settings/sales-order/seals'),
+    ])
+    seals.value = sealData.rows || []
+    selectedSealID.value = Number(sealData.current_id || settingsData?.seal?.id || 0)
+    assignSettings(settingsData)
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
     loading.value = false
-  }
-}
-
-function startSealDrag(event) {
-  if (sealPositionSaving.value) return
-  event.preventDefault()
-  const drag = beginSalesOrderSealDrag({
-    seal: form,
-    clientX: event.clientX,
-    clientY: event.clientY,
-    scale: salesOrderSealPreviewScale,
-  })
-  const update = (clientX, clientY) => {
-    const next = moveSalesOrderSealDrag(drag, { clientX, clientY })
-    form.seal_x_mm = next.x_mm
-    form.seal_y_mm = next.y_mm
-    form.seal_width_mm = next.width_mm
-  }
-  const move = (moveEvent) => update(moveEvent.clientX, moveEvent.clientY)
-  const up = async () => {
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', up)
-    await saveSealPosition('公章位置已保存')
-  }
-  event.currentTarget?.setPointerCapture?.(event.pointerId)
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', up, { once: true })
-}
-
-async function saveSealPosition(eventOrMessage) {
-  sealPositionSaving.value = true
-  error.value = ''
-  ok.value = ''
-  const successText = typeof eventOrMessage === 'string' ? eventOrMessage : '公章大小已保存'
-  try {
-    assignSettings(await apiSend('/api/settings/sales-order/seal-position', {
-      body: {
-        seal_x_mm: Number(form.seal_x_mm || 32),
-        seal_y_mm: Number(form.seal_y_mm || 5),
-        seal_width_mm: Number(form.seal_width_mm || 36),
-      },
-    }))
-    ok.value = successText
-  } catch (err) {
-    error.value = err.message || '保存公章位置失败'
-  } finally {
-    sealPositionSaving.value = false
   }
 }
 
@@ -232,12 +155,33 @@ async function save() {
   error.value = ''
   ok.value = ''
   try {
-    assignSettings(await apiSend('/api/settings/sales-order', { body: { ...form } }))
+    assignSettings(await apiSend('/api/settings/sales-order', { body: preservedSettingsPayload() }))
     ok.value = '已保存'
   } catch (err) {
     error.value = err.message || '保存失败'
   } finally {
     saving.value = false
+  }
+}
+
+function preservedSettingsPayload() {
+  const data = settings.value || {}
+  return {
+    note: form.note,
+    payment_text: form.payment_text,
+    seal_x_mm: Number(data.seal_x_mm || 32),
+    seal_y_mm: Number(data.seal_y_mm || 5),
+    seal_width_mm: Number(data.seal_width_mm || 36),
+    payment_text_x_mm: Number(data.payment_text_x_mm || 16),
+    payment_text_y_mm: Number(data.payment_text_y_mm || 118),
+    payment_text_width_mm: Number(data.payment_text_width_mm || 104),
+    payment_text_height_mm: Number(data.payment_text_height_mm || 78),
+    payment_text_page_number: Number(data.payment_text_page_number || 0),
+    payment_code_x_mm: Number(data.payment_code_x_mm || 126),
+    payment_code_y_mm: Number(data.payment_code_y_mm || 106),
+    payment_code_width_mm: Number(data.payment_code_width_mm || 72),
+    payment_code_height_mm: Number(data.payment_code_height_mm || 122),
+    payment_code_page_number: Number(data.payment_code_page_number || 0),
   }
 }
 
@@ -272,15 +216,65 @@ async function uploadPaymentCode() {
   }
 }
 
-async function deletePaymentCode(code) {
+async function deactivatePaymentCode(code) {
   if (!code?.id) return
   saving.value = true
   error.value = ''
   try {
-    await apiSend(`/api/settings/sales-order/payment-codes/${code.id}`, { method: 'DELETE' })
+    await apiSend(`/api/settings/sales-order/payment-codes/${code.id}/deactivate`, { method: 'POST' })
+    ok.value = '收款码已停用'
     await load()
   } catch (err) {
     error.value = err.message || '停用失败'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function removePaymentCode(code) {
+  if (!code?.id) return
+  if (!window.confirm(`删除收款码“${code.label || code.id}”？`)) return
+  saving.value = true
+  error.value = ''
+  try {
+    await apiSend(`/api/settings/sales-order/payment-codes/${code.id}`, { method: 'DELETE' })
+    ok.value = '收款码已删除'
+    await load()
+  } catch (err) {
+    error.value = err.message || '删除失败'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function activatePaymentCode(code) {
+  if (!code?.id) return
+  saving.value = true
+  error.value = ''
+  try {
+    await apiSend(`/api/settings/sales-order/payment-codes/${code.id}/activate`, { method: 'POST' })
+    ok.value = '收款码已启用'
+    await load()
+  } catch (err) {
+    error.value = err.message || '启用失败'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function selectSeal() {
+  if (!selectedSealID.value) return
+  saving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    assignSettings(await apiSend('/api/settings/sales-order/seal/select', {
+      body: { asset_id: selectedSealID.value },
+    }))
+    ok.value = '公章已切换'
+    await load()
+  } catch (err) {
+    error.value = err.message || '选择公章失败'
   } finally {
     saving.value = false
   }
@@ -340,36 +334,36 @@ h3 { font-size: 16px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 10px; margin-bottom: 12px; }
 .wide { grid-column: 1 / -1; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
-input, textarea { width: 100%; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
-input { height: 38px; }
+input, select, textarea { width: 100%; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
+input, select { height: 38px; }
 textarea { resize: vertical; }
 button { min-height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
 .upload-row { display: grid; grid-template-columns: 180px 1fr 100px minmax(220px, 1fr) 90px; gap: 10px; align-items: center; margin-bottom: 12px; }
-.seal-row { grid-template-columns: 1fr minmax(220px, 1fr) 110px 110px; }
-.current-seal { color: #555; }
-.seal-position { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
-.seal-position-stage { position: relative; width: 100%; border: 1px dashed #d2c8bc; border-radius: 8px; background: #f5f1ec; overflow: auto; }
-.seal-stage-canvas { position: relative; background: #fffdf9; border-radius: 6px; }
-.company-line { position: absolute; left: 35px; top: 48px; font-weight: 700; }
-.seal-drag-image, .seal-placeholder { position: absolute; user-select: none; object-fit: contain; opacity: .86; cursor: move; touch-action: none; }
-.seal-placeholder { border: 2px solid #b91c1c; border-radius: 999px; color: #b91c1c; display: grid; place-items: center; font-weight: 800; }
-.seal-position-fields { order: -1; display: grid; grid-template-columns: repeat(2, minmax(120px, 180px)); gap: 10px; align-items: end; }
-.seal-size-control { grid-column: 1 / -1; }
-.seal-size-inputs { display: grid; grid-template-columns: minmax(220px, 320px) 88px; gap: 10px; align-items: center; }
-.seal-size-inputs input[type="range"] { padding: 0; }
+.seal-toolbar { display: grid; grid-template-columns: minmax(190px, 1fr) minmax(160px, 1fr) minmax(220px, 1fr) auto auto; gap: 10px; align-items: end; margin-bottom: 12px; }
+.current-seal { color: #555; align-self: center; }
+.seal-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.seal-card { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 10px; align-items: center; border: 1px solid #eee8df; border-radius: 8px; padding: 8px; background: #fffdf9; }
+.seal-card.active { border-color: #1f1f1f; box-shadow: 0 0 0 1px #1f1f1f inset; }
+.seal-card img { width: 54px; height: 54px; object-fit: contain; }
+.seal-card strong, .seal-card span { display: block; min-width: 0; overflow-wrap: anywhere; }
+.seal-card span { color: #666; font-size: 12px; margin-top: 3px; }
 table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; }
 th { background: #fbfaf8; }
+.payment-code-inactive { color: #777; background: #fcfcfc; }
+.status-pill { display: inline-flex; align-items: center; min-height: 24px; padding: 2px 8px; border-radius: 999px; background: #e7f8ed; color: #166534; font-size: 13px; font-weight: 600; }
+.status-pill.inactive { background: #f2f4f7; color: #667085; }
+.row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.danger { border-color: #b91c1c; color: #b91c1c; }
 .muted { color: #666; text-align: center; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff0; border: 1px solid #b7d9b7; color: #246024; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .form-grid, .upload-row, .seal-row, .seal-position { grid-template-columns: 1fr; }
-  .seal-position-fields { grid-template-columns: 1fr; }
+  .form-grid, .upload-row, .seal-toolbar { grid-template-columns: 1fr; }
 }
 </style>

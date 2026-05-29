@@ -37,7 +37,7 @@ func TestDev282OrderPaymentMethodFinanceEvidenceExists(t *testing.T) {
 	for _, want := range []string{
 		"normalizeOrderPaymentMethodForStatusTx",
 		"payment_method required",
-		"payment_method=$7",
+		"payment_method=$8",
 	} {
 		if !strings.Contains(salesRepo, want) {
 			t.Fatalf("sales repository missing %q", want)

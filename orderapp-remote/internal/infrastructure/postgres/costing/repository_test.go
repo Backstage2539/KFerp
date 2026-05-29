@@ -90,22 +90,91 @@ func TestLoadProductInputsReadsCategoryGradientTemplates(t *testing.T) {
 	}
 }
 
-func TestLoadProductInputsReadsSkuCategoryMetadataForBeanList(t *testing.T) {
+func TestLoadProductInputsResolvesCustomerProductRuleTemplates(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(b)
 	for _, want := range []string{
-		"COALESCE(pc.name, '')",
-		"COALESCE(pc.position, 0)",
-		"COALESCE(p.product_category_position, 0)",
-		"&input.SkuCategoryName",
-		"&input.SkuCategoryPosition",
-		"&input.SkuProductCategoryPosition",
+		"LoadProductInputsForCustomer",
+		"customer_product_rule_overrides cpro",
+		"customer_product_rule_template_items cpti",
+		"customer_product_rule_template_id",
+		"p.gradient_template_id_override",
+		"effective_gradient_template_id",
+		"NULLIF(cpro.gradient_template_id,0)",
+		"NULLIF(cpti.gradient_template_id,0)",
+		"NULLIF(p.gradient_template_id_override,0)",
+		"NULLIF(pc.gradient_template_id,0)",
+		"&input.InventoryUnit",
+		"&input.QuoteUnit",
+		"&input.OrderUnit",
+		"&input.UnitConversionJSON",
+		"&input.IntegerUnit",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("costing repository must load SKU category metadata for bean-list grouping; missing %q", want)
+			t.Fatalf("costing repository must resolve customer product rule templates and unit rules; missing %q", want)
+		}
+	}
+}
+
+func TestLoadProductInputsReadsComposablePriceRulesAndBomUnitCosts(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"bom_unit_cost",
+		"unit_per_box",
+		"unit_per_bag",
+		"g_per_bag",
+		"price_list_rule_json",
+		"&input.BomCostPerUnit",
+		"&input.PriceListRuleJSON",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must load composable price rules and BOM unit costs; missing %q", want)
+		}
+	}
+}
+
+func TestLoadProductInputsReadsOperationTemplateCosts(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"operation_template_steps",
+		"operation_unit_cost",
+		"effective_operation_template_id",
+		"&input.OperationCostPerUnit",
+		"&input.OperationCostPerKg",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must load operation template cost into product inputs; missing %q", want)
+		}
+	}
+}
+
+func TestLoadProductInputsReadsSkuCategoryPathForCustomerBeanLists(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"p.product_category_position",
+		"parent_pc.name",
+		"parent_pc.position",
+		"&input.CategoryPrimaryName",
+		"&input.CategorySecondaryName",
+		"&input.ProductCategoryPosition",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must load SKU category path for customer bean lists; missing %q", want)
 		}
 	}
 }
@@ -217,7 +286,8 @@ func TestPublishedBeanListReadsOnlyCurrentPublishedSnapshot(t *testing.T) {
 	}
 	body := src[start:end]
 	for _, want := range []string{
-		"WHERE list_type=$1 AND owner_type=$2 AND owner_key=$3 AND status='published'",
+		`whereClause := "list_type=$1 AND owner_type=$2 AND owner_key=$3"`,
+		"WHERE %s AND status='published'",
 		"ORDER BY published_at DESC, id DESC",
 		"LIMIT 1",
 		"pgx.ErrNoRows",
@@ -240,16 +310,61 @@ func TestBeanListPublicationSchemaSupportsOwnedLockedSnapshots(t *testing.T) {
 		"price_source_publication_id BIGINT",
 		"style_source_publication_id BIGINT",
 		"source_version_no TEXT NOT NULL DEFAULT ''",
-		"bean_list_publications_one_published_owner_idx",
-		"ON %[1]s.bean_list_publications(list_type, owner_type, owner_key)",
+		"DROP INDEX IF EXISTS %[1]s.bean_list_publications_one_published_owner_idx",
+		"bean_list_publications_owner_status_idx",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("bean list publication schema must support owned locked snapshots; missing %q", want)
 		}
 	}
+	if strings.Contains(src, "CREATE UNIQUE INDEX IF NOT EXISTS bean_list_publications_one_published_owner_idx") {
+		t.Fatalf("bean list publication schema must not enforce one published snapshot per owner; withdraw is manual only")
+	}
 }
 
-func TestPublishBeanListWithdrawsOnlySameOwnerSnapshot(t *testing.T) {
+func TestBeanListPublicationSchemaSupportsProductPriceListGeneralization(t *testing.T) {
+	b, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"product_type_category_id BIGINT NOT NULL DEFAULT 0",
+		"product_type_name TEXT NOT NULL DEFAULT ''",
+		"WHEN list_type IN ('commercial','retail') THEN '熟豆'",
+		"WHEN list_type='green' THEN '生豆'",
+		"WHEN list_type='drip' THEN '挂耳'",
+		"bean_list_publications_product_type_owner_status_idx",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("bean list publication schema must support product price list generalization; missing %q", want)
+		}
+	}
+}
+
+func TestBeanListPublicationRepositoryQueriesByProductType(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"product_type_category_id",
+		"product_type_name",
+		"query.ProductTypeCategoryID",
+		"cmd.ProductTypeCategoryID",
+		"cmd.ProductTypeName",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("bean list publication repository must preserve product price list fields; missing %q", want)
+		}
+	}
+	if !strings.Contains(src, "product_type_category_id=$1 AND owner_type=$2 AND owner_key=$3") {
+		t.Fatalf("ListBeanListPublications must allow product_type_category_id lookup while legacy list_type remains available")
+	}
+}
+
+func TestPublishBeanListDoesNotWithdrawExistingPublishedSnapshots(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +377,6 @@ func TestPublishBeanListWithdrawsOnlySameOwnerSnapshot(t *testing.T) {
 	}
 	body := src[start:end]
 	for _, want := range []string{
-		"WHERE list_type=$1 AND owner_type=$2 AND owner_key=$3 AND status='published'",
 		"price_source_publication_id",
 		"style_source_publication_id",
 		"source_version_no",
@@ -270,6 +384,9 @@ func TestPublishBeanListWithdrawsOnlySameOwnerSnapshot(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("PublishBeanList must lock customer snapshots independently; missing %q", want)
 		}
+	}
+	if strings.Contains(body, "SET status='withdrawn'") || strings.Contains(body, "UPDATE %s.bean_list_publications") {
+		t.Fatalf("PublishBeanList must not withdraw any existing published bean list; withdraw must stay a manual action")
 	}
 }
 
@@ -357,7 +474,7 @@ func TestSaveBeanListDraftInsertsCustomerDraftWithoutPublishing(t *testing.T) {
 	}
 	body := src[start:end]
 	for _, want := range []string{
-		"VALUES($1,$2,'draft'",
+		"VALUES($1,$2,$3,$4,'draft'",
 		"owner_type",
 		"owner_key",
 		"price_source_publication_id",

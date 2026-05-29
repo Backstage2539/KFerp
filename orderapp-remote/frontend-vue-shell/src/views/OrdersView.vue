@@ -56,6 +56,7 @@
         <button class="primary" type="button" @click="loadPage(1)" :disabled="loading">查询</button>
       </div>
       <div class="summary">
+        <span v-if="filters.customer_id">客户账户：{{ props.customerContextLabel || `#${filters.customer_id}` }}</span>
         <span>订单 {{ summary.orders || 0 }}</span>
         <span>客户 {{ summary.customers || 0 }}</span>
       </div>
@@ -65,7 +66,7 @@
       <div class="shipping-bar">
         <div>
           <h3>顺丰发货</h3>
-          <p>订单生产完成、标记“无需生产”或进入“库存待发货”后，在这里勾选并生成顺丰发货 Excel；单号在订单抽屉内回填。</p>
+          <p>订单生产完成、标记“无需生产”或进入“库存待发货”后，用订单列表选择框勾选并生成顺丰发货 Excel；单号在订单抽屉内回填。</p>
         </div>
         <div class="shipping-actions">
           <label class="sender-picker">
@@ -79,8 +80,8 @@
           </label>
           <button class="secondary" type="button" @click="applyShipReadyPreset" :disabled="loading">只看可发货</button>
           <button class="secondary" type="button" @click="selectVisibleShipReady" :disabled="!rows.length">勾选本页可发货</button>
-          <button class="primary" type="button" @click="generateShippingExcel" :disabled="shippingLoading || !selectedOrderIDs.length">
-            {{ shippingLoading ? '生成中' : `生成顺丰发货 Excel(${selectedOrderIDs.length})` }}
+          <button class="primary" type="button" @click="generateShippingExcel" :disabled="shippingLoading || !selectedOrderIDs.length || !allSelectedOrdersShipReady">
+            {{ shippingLoading ? '生成中' : `生成顺丰发货 Excel(${selectedShipReadyOrderIDs.length})` }}
           </button>
           <label class="tracking-upload">
             <span>回传 Excel</span>
@@ -97,12 +98,23 @@
       </div>
       <div v-if="shippingError" class="notice error">{{ shippingError }}</div>
       <div class="bulk-order-bar">
-        <span>批量失效已选 {{ bulkSelectedOrderIDs.length }} 个</span>
-        <button class="secondary" type="button" @click="clearBulkSelection" :disabled="!bulkSelectedOrderIDs.length">清空</button>
-        <button class="danger-action" type="button" @click="voidSelectedOrders" :disabled="bulkVoiding || !bulkSelectedOrderIDs.length">
+        <span>批量失效已选 {{ selectedVoidableOrderIDs.length }} 个</span>
+        <button class="danger-action" type="button" @click="voidSelectedOrders" :disabled="bulkVoiding || !selectedVoidableOrderIDs.length">
           {{ bulkVoiding ? '失效中' : '批量失效' }}
         </button>
-        <small>表头复选框用于当前页正常订单全选/取消；失效后不可恢复，需要重建时从“已失效”订单点“复制”。</small>
+        <small>表头复选框点一次全选当前页正常订单，再点一次取消全选；部分选择时显示横杆。失效后不可恢复，需要重建时从“已失效”订单点“复制”。</small>
+      </div>
+      <div class="combined-document-bar">
+        <div class="combined-document-status">
+          <strong>组合单据</strong>
+          <span>已选 {{ selectedOrderIDs.length }} 个</span>
+          <span v-if="documentSelectionSummary.customer">客户：{{ documentSelectionSummary.customer }}</span>
+          <span v-if="selectedOrderIDs.length && !documentSelectionSummary.valid" class="invalid">请选择同一客户的至少两个订单</span>
+        </div>
+        <div class="combined-document-actions">
+          <button class="primary" type="button" @click="openCombinedSalesOrderDrawer" :disabled="!canGenerateCombinedDocuments">组合销售单</button>
+          <button class="primary" type="button" @click="openCombinedDeliveryNoteDrawer" :disabled="!canGenerateCombinedDocuments || !allSelectedDocumentsShipped">组合出库单</button>
+        </div>
       </div>
       <div class="table-wrap">
         <table>
@@ -112,15 +124,16 @@
                 <label class="select-all-cell" title="当前页正常订单全选/取消">
                   <input
                     type="checkbox"
-                    :checked="allVisibleVoidableOrdersSelected()"
-                    :disabled="!hasVisibleVoidableOrders()"
+                    :checked="pageSelectionState.checked"
+                    :indeterminate="pageSelectionState.indeterminate"
+                    :aria-checked="pageSelectionState.indeterminate ? 'mixed' : String(pageSelectionState.checked)"
+                    :disabled="!pageSelectionState.selectableCount"
                     aria-label="当前页正常订单全选"
-                    @change="togglePageVoidSelection"
+                    @change="togglePageOrderSelection"
                   />
-                  <span>失效</span>
+                  <span>选择</span>
                 </label>
               </th>
-              <th class="select-col">发货</th>
               <th>订单号</th>
               <th>日期</th>
               <th>客户</th>
@@ -137,23 +150,19 @@
               <td class="select-col">
                 <input
                   type="checkbox"
-                  :checked="bulkSelectedOrderIDs.includes(Number(row.id))"
-                  :disabled="row.is_void"
-                  :title="row.is_void ? '已失效订单不能再次失效' : '选择后可批量失效'"
-                  @change="toggleBulkOrder(row, $event.target.checked)"
-                />
-              </td>
-              <td class="select-col">
-                <input
-                  type="checkbox"
                   :checked="selectedOrderIDs.includes(Number(row.id))"
-                  :disabled="!isShipReady(row)"
-                  :title="isShipReady(row) ? '选择发货' : (row.is_void ? '已失效订单不能发货' : '生产完成、无需生产或库存待发货后可发货')"
-                  @change="toggleOrder(row, $event.target.checked)"
+                  :disabled="row.is_void"
+                  :title="row.is_void ? '已失效订单不能选择' : '选择后可批量失效、发货或组合单据'"
+                  @change="toggleOrderSelection(row, $event.target.checked)"
                 />
               </td>
               <td><button class="order-link" type="button" @click.prevent="openOrderDetailDrawer(row)">{{ row.order_no }}</button></td>
-              <td>{{ row.order_date }}</td>
+              <td>
+                <div class="date-stack">
+                  <span>单据：{{ row.document_date || row.order_date || '-' }}</span>
+                  <span>订单：{{ row.order_date || '-' }}</span>
+                </div>
+              </td>
               <td>{{ row.customer }}</td>
               <td>{{ row.responsible_name || '-' }}</td>
               <td>
@@ -204,7 +213,7 @@
               </td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="11" class="muted">暂无订单</td>
+              <td colspan="12" class="muted">暂无订单</td>
             </tr>
           </tbody>
         </table>
@@ -223,7 +232,7 @@
         <div class="drawer-head">
           <div>
             <h3>{{ activeOrderDetail?.order_no || '订单详情' }}</h3>
-            <p>{{ activeOrderDetail?.customer || '-' }} · {{ activeOrderDetail?.order_date || '-' }}</p>
+            <p>{{ activeOrderDetail?.customer || '-' }} · 单据 {{ activeOrderDetail?.document_date || activeOrderDetail?.order_date || '-' }} · 订单 {{ activeOrderDetail?.order_date || '-' }}</p>
           </div>
           <button class="secondary" type="button" @click="closeOrderDetailDrawer">关闭</button>
         </div>
@@ -291,7 +300,7 @@
                   <span>{{ orderItemSpecLabel(item) }} × {{ item.qty }}{{ item.unit || '' }}</span>
                 </div>
                 <div>
-                  <span>{{ item.product_kind === 'drip_bag' ? '挂耳' : '熟豆' }}</span>
+                  <span>{{ productKindLabel(item.product_kind) }}</span>
                   <span>{{ item.unit_price ? `单价 ${item.unit_price}` : '-' }}</span>
                   <span v-if="item.price_source_json">{{ orderItemPriceSourceLabel(item.price_source_json) }}</span>
                 </div>
@@ -341,6 +350,18 @@
       </aside>
     </div>
 
+    <div v-if="combinedSalesOrderDrawerOpen" class="combined-document-drawer-mask" @click.self="closeCombinedSalesOrderDrawer">
+      <aside class="combined-document-drawer" aria-label="组合销售单">
+        <SalesOrderView :order-ids="activeCombinedSalesOrderIDs" embedded @close="closeCombinedSalesOrderDrawer" />
+      </aside>
+    </div>
+
+    <div v-if="combinedDeliveryNoteDrawerOpen" class="combined-document-drawer-mask" @click.self="closeCombinedDeliveryNoteDrawer">
+      <aside class="combined-document-drawer" aria-label="组合出库单">
+        <DeliveryNoteView :order-ids="activeCombinedDeliveryNoteIDs" embedded @close="closeCombinedDeliveryNoteDrawer" />
+      </aside>
+    </div>
+
     <div v-if="invoiceDrawerOpen" class="invoice-drawer-mask" @click.self="closeInvoiceDrawer">
       <aside class="invoice-drawer" aria-label="发票">
         <OrderInvoiceView :order-id="activeInvoiceID" embedded @close="closeInvoiceDrawer" @updated="load" />
@@ -350,12 +371,14 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
+import { combinedDocumentSelectionSummary, selectedOrdersShareSameCustomer } from '../lib/combined-order-documents'
 import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { productKindBadgeClass, productKindLabel } from '../lib/order-entry'
+import { orderListSelectionState, selectableOrderIDs, toggleOrderPageSelection } from '../lib/order-list-selection'
 import { formatTrackingSummary, trackingInputSummary } from '../lib/order-shipping'
 import { orderListScopeForRequest } from '../lib/order-scope'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
@@ -367,6 +390,9 @@ import SalesOrderView from './SalesOrderView.vue'
 
 const props = defineProps({
   viewParams: { type: Object, default: () => ({}) },
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
 })
 
 const loading = ref(false)
@@ -381,7 +407,6 @@ const page = ref(1)
 const hasPrev = ref(false)
 const hasNext = ref(false)
 const selectedOrderIDs = ref([])
-const bulkSelectedOrderIDs = ref([])
 const shippingLoading = ref(false)
 const shippingExcelUrl = ref('')
 const shippingMessage = ref('')
@@ -399,6 +424,10 @@ const salesOrderDrawerOpen = ref(false)
 const activeSalesOrderID = ref(0)
 const deliveryNoteDrawerOpen = ref(false)
 const activeDeliveryNoteID = ref(0)
+const combinedSalesOrderDrawerOpen = ref(false)
+const activeCombinedSalesOrderIDs = ref([])
+const combinedDeliveryNoteDrawerOpen = ref(false)
+const activeCombinedDeliveryNoteIDs = ref([])
 const invoiceDrawerOpen = ref(false)
 const activeInvoiceID = ref(0)
 const voidingOrderID = ref(0)
@@ -414,15 +443,35 @@ const filters = reactive({
   pay_status_id: 0,
   ship_status_id: 0,
   process_status_id: 0,
+  customer_id: 0,
   ship_ready: false,
   void: 'normal',
   limit: 10,
 })
 
+const selectedRows = computed(() => selectedOrderIDs.value
+  .map((id) => rows.value.find((row) => Number(row.id) === Number(id)))
+  .filter(Boolean))
+const pageSelectionState = computed(() => orderListSelectionState(rows.value, selectedOrderIDs.value))
+const selectedVoidableOrderIDs = computed(() => selectedRows.value
+  .filter((row) => !row?.is_void)
+  .map((row) => Number(row.id))
+  .filter(Boolean))
+const selectedShipReadyOrderIDs = computed(() => selectedRows.value
+  .filter(isShipReady)
+  .map((row) => Number(row.id))
+  .filter(Boolean))
+const allSelectedOrdersShipReady = computed(() => selectedRows.value.length > 0 && selectedRows.value.every(isShipReady))
+const selectedDocumentRows = selectedRows
+const documentSelectionSummary = computed(() => combinedDocumentSelectionSummary(selectedOrderIDs.value, rows.value))
+const canGenerateCombinedDocuments = computed(() => selectedOrdersShareSameCustomer(selectedOrderIDs.value, rows.value))
+const allSelectedDocumentsShipped = computed(() => selectedDocumentRows.value.length >= 2 && selectedDocumentRows.value.every(isShipped))
+
 function applyUrlFilters() {
   const params = new URL(window.location.href).searchParams
   filters.scope = orderListScopeForRequest(props.viewParams?.scope || params.get('scope') || 'all')
   filters.highlight_order_id = Number(props.viewParams?.highlight_order_id || params.get('highlight_order_id') || 0)
+  filters.customer_id = Number(props.viewParams?.customer_id || params.get('customer_id') || props.customerContextId || 0)
   filters.q = params.get('q') || ''
   filters.from = params.get('from') || ''
   filters.to = params.get('to') || ''
@@ -443,6 +492,7 @@ function buildUrl(nextPage) {
   for (const key of ['pay_status_id', 'ship_status_id', 'process_status_id']) {
     if (filters[key]) url.searchParams.set(key, String(filters[key]))
   }
+  if (filters.customer_id) url.searchParams.set('customer_id', String(filters.customer_id))
   if (filters.ship_ready) url.searchParams.set('ship_ready', '1')
   if (filters.scope && filters.scope !== 'all') url.searchParams.set('scope', filters.scope)
   url.searchParams.set('page', String(nextPage))
@@ -461,6 +511,8 @@ function updateBrowserUrl(nextPage) {
     if (filters[key]) url.searchParams.set(key, String(filters[key]))
     else url.searchParams.delete(key)
   }
+  if (filters.customer_id) url.searchParams.set('customer_id', String(filters.customer_id))
+  else url.searchParams.delete('customer_id')
   if (filters.ship_ready) url.searchParams.set('ship_ready', '1')
   else url.searchParams.delete('ship_ready')
   if (filters.scope && filters.scope !== 'all') url.searchParams.set('scope', filters.scope)
@@ -500,6 +552,40 @@ function openDeliveryNoteDrawer(row) {
 function closeDeliveryNoteDrawer() {
   deliveryNoteDrawerOpen.value = false
   activeDeliveryNoteID.value = 0
+}
+
+function openCombinedSalesOrderDrawer() {
+  if (!canGenerateCombinedDocuments.value) {
+    shippingError.value = '请选择同一客户的至少两个订单'
+    return
+  }
+  activeCombinedSalesOrderIDs.value = [...selectedOrderIDs.value]
+  combinedSalesOrderDrawerOpen.value = true
+  shippingError.value = ''
+}
+
+function closeCombinedSalesOrderDrawer() {
+  combinedSalesOrderDrawerOpen.value = false
+  activeCombinedSalesOrderIDs.value = []
+}
+
+function openCombinedDeliveryNoteDrawer() {
+  if (!canGenerateCombinedDocuments.value) {
+    shippingError.value = '请选择同一客户的至少两个订单'
+    return
+  }
+  if (!allSelectedDocumentsShipped.value) {
+    shippingError.value = '组合出库单要求所选订单都已发货'
+    return
+  }
+  activeCombinedDeliveryNoteIDs.value = [...selectedOrderIDs.value]
+  combinedDeliveryNoteDrawerOpen.value = true
+  shippingError.value = ''
+}
+
+function closeCombinedDeliveryNoteDrawer() {
+  combinedDeliveryNoteDrawerOpen.value = false
+  activeCombinedDeliveryNoteIDs.value = []
 }
 
 function openInvoiceDrawer(row) {
@@ -694,17 +780,17 @@ function senderDisplay(row) {
   const id = Number(row?.id || 0)
   const overrideID = Number(orderSenderIDs[id] || 0)
   if (overrideID > 0) return senderProfileLabel(overrideID) || `寄件人${overrideID}`
-  if (selectedOrderIDs.value.includes(id)) return globalSenderLabel()
+  if (selectedOrderIDs.value.includes(id) && isShipReady(row)) return globalSenderLabel()
   if (row?.sender_label || row?.sender_name) return row.sender_label || row.sender_name
   return row?.ship_tracking_no ? '未记录寄件人' : '未生成'
 }
 
-function toggleOrder(row, checked) {
+function toggleOrderSelection(row, checked) {
   const id = Number(row?.id || 0)
-  if (!id || !isShipReady(row)) return
+  if (!id || row?.is_void) return
   if (checked) {
     if (!selectedOrderIDs.value.includes(id)) selectedOrderIDs.value = [...selectedOrderIDs.value, id]
-    if (orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
+    if (isShipReady(row) && orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
   } else {
     selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => item !== id)
     delete orderSenderIDs[id]
@@ -712,46 +798,19 @@ function toggleOrder(row, checked) {
   shippingError.value = ''
 }
 
-function toggleBulkOrder(row, checked) {
-  const id = Number(row?.id || 0)
-  if (!id || row?.is_void) return
-  if (checked) {
-    if (!bulkSelectedOrderIDs.value.includes(id)) bulkSelectedOrderIDs.value = [...bulkSelectedOrderIDs.value, id]
-  } else {
-    bulkSelectedOrderIDs.value = bulkSelectedOrderIDs.value.filter((item) => item !== id)
-  }
-  shippingError.value = ''
-}
-
-function currentPageVoidableOrderIDs() {
-  return rows.value.filter((row) => !row?.is_void).map((row) => Number(row.id)).filter(Boolean)
-}
-
-function allVisibleVoidableOrdersSelected() {
-  const ids = currentPageVoidableOrderIDs()
-  return ids.length > 0 && ids.every((id) => bulkSelectedOrderIDs.value.includes(id))
-}
-
-function togglePageVoidSelection() {
-  const ids = currentPageVoidableOrderIDs()
+function togglePageOrderSelection() {
+  const ids = selectableOrderIDs(rows.value)
   if (!ids.length) {
     shippingError.value = '本页没有可批量失效的正常订单'
     return
   }
-  if (allVisibleVoidableOrdersSelected()) {
-    bulkSelectedOrderIDs.value = bulkSelectedOrderIDs.value.filter((id) => !ids.includes(id))
-  } else {
-    bulkSelectedOrderIDs.value = Array.from(new Set([...bulkSelectedOrderIDs.value, ...ids]))
+  selectedOrderIDs.value = toggleOrderPageSelection(rows.value, selectedOrderIDs.value)
+  for (const id of ids) {
+    const row = rows.value.find((item) => Number(item.id) === id)
+    if (selectedOrderIDs.value.includes(id) && isShipReady(row) && orderSenderIDs[id] === undefined) orderSenderIDs[id] = 0
+    if (!selectedOrderIDs.value.includes(id)) delete orderSenderIDs[id]
   }
   shippingError.value = ''
-}
-
-function clearBulkSelection() {
-  bulkSelectedOrderIDs.value = []
-}
-
-function hasVisibleVoidableOrders() {
-  return rows.value.some((row) => !row?.is_void)
 }
 
 function selectVisibleShipReady() {
@@ -781,7 +840,6 @@ async function voidOrder(row) {
   try {
     await apiSend(`/api/orders/${id}/void`, { body: { reason: 'ERP订单列表失效' } })
     selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => item !== id)
-    bulkSelectedOrderIDs.value = bulkSelectedOrderIDs.value.filter((item) => item !== id)
     delete orderSenderIDs[id]
     shippingMessage.value = `订单 ${label} 已失效`
     await load()
@@ -794,7 +852,7 @@ async function voidOrder(row) {
 }
 
 async function voidSelectedOrders() {
-  const ids = bulkSelectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && !row.is_void))
+  const ids = selectedVoidableOrderIDs.value
   if (!ids.length) return
   if (!window.confirm(`确认批量失效 ${ids.length} 个订单？失效后不可恢复；ERP 默认列表、履约客户订单和小程序订单都不展示。`)) return
   bulkVoiding.value = true
@@ -803,7 +861,6 @@ async function voidSelectedOrders() {
   try {
     const data = await apiSend(`/api/orders/void`, { body: { order_ids: ids, reason: 'ERP订单列表批量失效' } })
     selectedOrderIDs.value = selectedOrderIDs.value.filter((item) => !ids.includes(item))
-    bulkSelectedOrderIDs.value = []
     for (const id of ids) delete orderSenderIDs[id]
     shippingMessage.value = `已批量失效 ${Number(data.voided || ids.length)} 个订单`
     await load()
@@ -825,20 +882,29 @@ function copyOrder(row) {
 }
 
 async function generateShippingExcel() {
+  const ids = selectedShipReadyOrderIDs.value
+  if (!selectedOrderIDs.value.length) {
+    shippingError.value = '请先勾选需要发货的订单'
+    return
+  }
+  if (!allSelectedOrdersShipReady.value) {
+    shippingError.value = '生成发货 Excel 需要只选择可发货订单'
+    return
+  }
   shippingLoading.value = true
   shippingError.value = ''
   shippingMessage.value = ''
   shippingExcelUrl.value = ''
   try {
-    const orderSenders = selectedOrderIDs.value
+    const orderSenders = ids
       .map((id) => ({ order_id: id, sender_id: Number(orderSenderIDs[id] || 0) }))
       .filter((item) => item.sender_id > 0)
     const data = await apiSend('/api/orders/shipping-excel', {
-      body: { order_ids: selectedOrderIDs.value, sender_id: selectedSenderID.value, order_senders: orderSenders },
+      body: { order_ids: ids, sender_id: selectedSenderID.value, order_senders: orderSenders },
     })
     shippingExcelUrl.value = data.shipping_excel_url || ''
     const shipmentNo = data.shipment_no || ''
-    shippingMessage.value = `已生成 ${Number(data.count || selectedOrderIDs.value.length)} 个订单的顺丰发货录单${shipmentNo ? `：${shipmentNo}` : ''}，单号请在订单抽屉回填，或上传回传 Excel`
+    shippingMessage.value = `已生成 ${Number(data.count || ids.length)} 个订单的顺丰发货录单${shipmentNo ? `：${shipmentNo}` : ''}，单号请在订单抽屉回填，或上传回传 Excel`
     await load()
   } catch (err) {
     shippingError.value = err.message || '生成失败'
@@ -940,11 +1006,11 @@ async function load() {
         if (drawerTrackingNo.value === previousDrawerTrackingNo) drawerTrackingNo.value = refreshed.ship_tracking_no || ''
       }
     }
-    selectedOrderIDs.value = selectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && isShipReady(row)))
-    bulkSelectedOrderIDs.value = bulkSelectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && !row.is_void))
+    selectedOrderIDs.value = selectedOrderIDs.value.filter((id) => rows.value.some((row) => Number(row.id) === id && !row.is_void))
     for (const key of Object.keys(orderSenderIDs)) {
       const id = Number(key)
-      if (!rows.value.some((row) => Number(row.id) === id)) delete orderSenderIDs[key]
+      const selectedRow = rows.value.find((row) => Number(row.id) === id && selectedOrderIDs.value.includes(id))
+      if (!selectedRow || !isShipReady(selectedRow)) delete orderSenderIDs[key]
     }
     payStatuses.value = data.pay_statuses || []
     shipStatuses.value = data.ship_statuses || []
@@ -973,9 +1039,15 @@ onMounted(() => {
 watch(() => props.viewParams, async () => {
   const nextScope = orderListScopeForRequest(props.viewParams?.scope || 'all')
   const nextHighlightID = Number(props.viewParams?.highlight_order_id || 0)
-  if (filters.scope === nextScope && Number(filters.highlight_order_id || 0) === nextHighlightID) return
+  const nextCustomerID = Number(props.viewParams?.customer_id || props.customerContextId || 0)
+  if (
+    filters.scope === nextScope
+    && Number(filters.highlight_order_id || 0) === nextHighlightID
+    && Number(filters.customer_id || 0) === nextCustomerID
+  ) return
   filters.scope = nextScope
   filters.highlight_order_id = nextHighlightID
+  filters.customer_id = nextCustomerID
   await loadPage(1)
 }, { deep: true })
 </script>
@@ -1011,6 +1083,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .bulk-order-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px solid #efd1d1; border-radius: 8px; background: #fff7f7; padding: 9px 10px; margin-bottom: 12px; color: #6f2424; }
 .bulk-order-bar span { font-weight: 700; }
 .bulk-order-bar small { color: #7a4b4b; }
+.combined-document-bar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid #cfe0d4; border-radius: 8px; background: #f3faf5; padding: 9px 10px; margin-bottom: 12px; color: #244f34; }
+.combined-document-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.combined-document-status strong { font-size: 15px; }
+.combined-document-status .invalid { color: #9d1c1c; font-weight: 600; }
+.combined-document-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .danger-action { border-color: #8a1f1f; background: #8a1f1f; color: #fff; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .ok { background: #eef8f1; border: 1px solid #b9dfc4; color: #1f6b38; }
@@ -1034,6 +1111,8 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .voided-action-button:disabled { opacity: 1; cursor: default; }
 .link-button { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .order-link { height: auto; border: 0; border-radius: 0; padding: 0; background: transparent; color: #1f4f82; font: inherit; text-align: left; cursor: pointer; }
+.date-stack { display: grid; gap: 3px; min-width: 124px; color: #333; font-size: 13px; }
+.date-stack span { white-space: nowrap; }
 .shipping-summary { display: grid; gap: 4px; min-width: 130px; }
 .shipping-summary span { color: #666; font-size: 12px; }
 .shipping-summary strong { font-weight: 600; color: #171717; }
@@ -1046,6 +1125,8 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .kind-badge { display: inline-flex; align-items: center; min-height: 18px; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600; }
 .kind-roasted { color: #8a4b12; background: #fff3df; border: 1px solid #f3c67c; }
 .kind-green { color: #12613a; background: #e8f7ee; border: 1px solid #8bd4a6; }
+.kind-drip { color: #1f4b7a; background: #eaf3ff; border: 1px solid #9bc4ef; }
+.kind-instant { color: #6b3f16; background: #f5efe6; border: 1px solid #cba77d; }
 .status-stack { display: grid; grid-template-columns: repeat(2, minmax(90px, 1fr)); gap: 4px 8px; min-width: 230px; color: #333; font-size: 13px; }
 .actions-cell { min-width: 210px; }
 .actions-cell a, .actions-cell button, .actions-cell .inline-muted { display: inline-block; margin-right: 8px; }
@@ -1083,6 +1164,8 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .sales-order-drawer { width: min(1160px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
 .delivery-note-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
 .delivery-note-drawer { width: min(1160px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
+.combined-document-drawer-mask { position: fixed; inset: 0; z-index: 36; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
+.combined-document-drawer { width: min(1160px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
 .invoice-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
 .invoice-drawer { width: min(760px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
 @media (max-width: 900px) {
@@ -1092,6 +1175,6 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
   .shipping-actions { align-self: stretch; justify-content: flex-start; }
   table { min-width: 980px; }
   .status-stack, .drawer-status-grid { grid-template-columns: 1fr; }
-  .order-detail-drawer, .sales-order-drawer, .delivery-note-drawer, .invoice-drawer { width: 100vw; }
+  .order-detail-drawer, .sales-order-drawer, .delivery-note-drawer, .combined-document-drawer, .invoice-drawer { width: 100vw; }
 }
 </style>

@@ -105,6 +105,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 		SELECT
 			o.id,
 			COALESCE(o.order_no,'') AS order_no,
+			COALESCE(to_char(o.document_date, 'YYYY-MM-DD'), to_char(o.order_date, 'YYYY-MM-DD'), '') AS document_date,
 			COALESCE(to_char(o.order_date, 'YYYY-MM-DD'), '') AS order_date,
 			COALESCE(o.customer_id,0) AS customer_id,
 			COALESCE(c.name, '') AS customer,
@@ -186,7 +187,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 	for dbRows.Next() {
 		var r salesapp.OrderRow
 		var invoiceObjectKey string
-		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.PaymentMethod, &r.ShipStatus, &r.ShipTrackingNo, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.OrderNo, &r.DocumentDate, &r.OrderDate, &r.CustomerID, &r.Customer, &r.ResponsibleType, &r.ResponsibleID, &r.ResponsibleName, &r.TotalAmount, &r.ShippingAmount, &r.DiscountAmount, &r.GrandTotal, &r.ExpressFee, &r.OutsourceMaterialFee, &r.OutsourceRoastFee, &r.OutsourcePackagingFee, &r.OutsourceManualFee, &r.OutsourceTaxFee, &r.OutsourceOtherFee, &r.OutsourceTotalFee, &r.OrderType, &r.PayStatus, &r.PaymentMethod, &r.ShipStatus, &r.ShipTrackingNo, &r.ReceiverName, &r.ReceiverPhone, &r.ReceiverAddress, &r.ReceiverCompany, &r.PortalServiceCode, &r.SourceWarehouse, &r.SenderID, &r.SenderLabel, &r.SenderName, &r.ProcessStatus, &r.ProductKindSummary, &r.CreatedByEmployee, &r.OrderTypeID, &r.PayStatusID, &r.ShipStatusID, &r.ProcessStatusID, &r.Notes, &r.IsVoid, &r.InvoiceStatus, &r.InvoiceFilename, &invoiceObjectKey); err != nil {
 			return nil, false, err
 		}
 		r.InvoiceFileURL = salesOrderAssetURL(invoiceObjectKey)
@@ -302,16 +303,15 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 				SELECT 1 FROM %[1]s.customer_erp_user_bindings b
 				JOIN %[1]s.company_employees e ON e.id=b.employee_id
 				LEFT JOIN %[1]s.employee_login_passwords lp ON lp.employee_id=e.id
-				LEFT JOIN %[1]s.customer_portal_profiles p ON p.customer_id=b.customer_id
+				JOIN %[1]s.customer_portal_profiles p ON p.customer_id=b.customer_id AND p.enabled=true
 				WHERE b.customer_id=o.customer_id AND b.status='active'
 				  AND e.active=true
 				  AND e.account_type='channel_customer'
 				  AND COALESCE(lp.login_disabled,false)=false
-				  AND COALESCE(p.enabled,false)=true
 				  %[2]s
 				  AND (
 				      (
-				          NULLIF(p.capability_template_key,'') IN ('processing_fulfillment','public_sku_direct_ship')
+				          p.capability_template_key IN ('processing_fulfillment','public_sku_direct_ship','channel_direct_ship')
 				          AND NOT EXISTS (
 				              SELECT 1 FROM %[1]s.customer_capability_templates inactive_template
 				              WHERE inactive_template.template_key=p.capability_template_key

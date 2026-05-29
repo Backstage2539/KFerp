@@ -10,49 +10,76 @@ import (
 	"net/url"
 	catalogapp "orderapp/internal/application/catalog"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v4"
 )
 
 type productSettingsRepo struct {
-	products            []catalogapp.Product
-	categories          []catalogapp.ProductCategory
-	gradientTemplates   []catalogapp.GradientTemplate
-	savedCategory       catalogapp.SaveProductCategoryCommand
-	movedCategory       catalogapp.MoveProductCategoryCommand
-	deletedCategory     catalogapp.DeleteProductCategoryCommand
-	assigned            catalogapp.AssignProductCategoryCommand
-	assignResult        catalogapp.AssignProductCategoryResult
-	derivedProduct      catalogapp.DeriveCustomerProductCommand
-	derivedCategory     catalogapp.DeriveProductCategoryCommand
-	derivedTemplate     catalogapp.DeriveGradientTemplateCommand
-	savedTemplate       catalogapp.SaveGradientTemplateCommand
-	deactivatedTemplate catalogapp.DeactivateGradientTemplateCommand
-	boundTemplate       catalogapp.BindCategoryGradientTemplateCommand
-	updated             catalogapp.UpdateProductBasicsCommand
-	updateErr           error
-	deactivated         catalogapp.DeactivateProductsCommand
-	createdPublic       catalogapp.CreateProductCommand
-	publicUsage         catalogapp.CustomerPublicUsageCommand
-	publicUsages        []catalogapp.CustomerPublicUsage
-	createErr           error
-	createdProduct      catalogapp.CreateCustomProductCommand
-	categoryCreated     bool
-	categoryMoved       bool
-	categoryDeleted     bool
-	productAssigned     bool
-	productDerived      bool
-	categoryDerived     bool
-	templateDerived     bool
-	templateSaved       bool
-	templateDeactivated bool
-	templateBound       bool
-	productUpdated      bool
-	productsDeactivated bool
-	publicCreated       bool
-	productCreated      bool
-	publicUsageSaved    bool
+	products               []catalogapp.Product
+	categories             []catalogapp.ProductCategory
+	gradientTemplates      []catalogapp.GradientTemplate
+	productConfigTemplates []catalogapp.ProductConfigTemplate
+	productUnitDefinitions []catalogapp.ProductUnitDefinition
+	productUnitTemplates   []catalogapp.ProductUnitTemplate
+	savedCategory          catalogapp.SaveProductCategoryCommand
+	movedCategory          catalogapp.MoveProductCategoryCommand
+	deletedCategory        catalogapp.DeleteProductCategoryCommand
+	assigned               catalogapp.AssignProductCategoryCommand
+	assignResult           catalogapp.AssignProductCategoryResult
+	derivedProduct         catalogapp.DeriveCustomerProductCommand
+	derivedCategory        catalogapp.DeriveProductCategoryCommand
+	derivedTemplate        catalogapp.DeriveGradientTemplateCommand
+	derivedConfig          catalogapp.DeriveProductConfigTemplateCommand
+	savedTemplate          catalogapp.SaveGradientTemplateCommand
+	savedConfigTemplate    catalogapp.SaveProductConfigTemplateCommand
+	savedUnitDefinition    catalogapp.SaveProductUnitDefinitionCommand
+	savedUnitTemplate      catalogapp.SaveProductUnitTemplateCommand
+	deactivatedTemplate    catalogapp.DeactivateGradientTemplateCommand
+	boundTemplate          catalogapp.BindCategoryGradientTemplateCommand
+	updated                catalogapp.UpdateProductBasicsCommand
+	updateErr              error
+	deactivated            catalogapp.DeactivateProductsCommand
+	createdPublic          catalogapp.CreateProductCommand
+	createdSKU             catalogapp.CreateSKUCommand
+	copiedSKUs             catalogapp.CopySKUsCommand
+	skuCopyOptionsQuery    catalogapp.SKUCopyOptionsQuery
+	publicUsage            catalogapp.CustomerPublicUsageCommand
+	publicUsages           []catalogapp.CustomerPublicUsage
+	ruleTemplates          []catalogapp.CustomerProductRuleTemplate
+	ruleOverrides          []catalogapp.CustomerProductRuleOverride
+	customerRuleBindings   []catalogapp.CustomerProductRuleBinding
+	savedRuleTemplate      catalogapp.SaveCustomerProductRuleTemplateCommand
+	savedRuleOverride      catalogapp.SaveCustomerProductRuleOverrideCommand
+	savedRuleBinding       catalogapp.CustomerProductRuleTemplateBindingCommand
+	createErr              error
+	createdProduct         catalogapp.CreateCustomProductCommand
+	categoryCreated        bool
+	categoryMoved          bool
+	categoryDeleted        bool
+	productAssigned        bool
+	productDerived         bool
+	categoryDerived        bool
+	templateDerived        bool
+	configTemplateDerived  bool
+	templateSaved          bool
+	configTemplateSaved    bool
+	unitDefinitionSaved    bool
+	unitTemplateSaved      bool
+	templateDeactivated    bool
+	templateBound          bool
+	productUpdated         bool
+	productsDeactivated    bool
+	publicCreated          bool
+	skuCreated             bool
+	skusCopied             bool
+	skuCopyOptionsListed   bool
+	productCreated         bool
+	publicUsageSaved       bool
+	ruleTemplateSaved      bool
+	ruleOverrideSaved      bool
+	ruleBindingSaved       bool
 }
 
 func (r *productSettingsRepo) ListProducts(ctx context.Context) ([]catalogapp.Product, error) {
@@ -81,6 +108,9 @@ func (r *productSettingsRepo) UpdateProductBasics(ctx context.Context, cmd catal
 	r.productUpdated = true
 	for i := range r.products {
 		if r.products[i].ID == cmd.ProductID {
+			if cmd.Name != "" {
+				r.products[i].Name = cmd.Name
+			}
 			r.products[i].ProductKind = cmd.ProductKind
 			r.products[i].Remark = cmd.Remark
 			r.products[i].GreenBeanType = cmd.GreenBeanType
@@ -93,6 +123,9 @@ func (r *productSettingsRepo) UpdateProductBasics(ctx context.Context, cmd catal
 			r.products[i].RetailPrice250G = cmd.RetailPrice250G
 			r.products[i].YieldRate = cmd.YieldRate
 			r.products[i].MarginRateOverride = cmd.MarginRateOverride
+			r.products[i].GradientTemplateIDOverride = cmd.GradientTemplateIDOverride
+			r.products[i].OperationTemplateIDOverride = cmd.OperationTemplateIDOverride
+			r.products[i].UnitRuleOverrideJSON = cmd.UnitRuleOverrideJSON
 		}
 	}
 	return nil
@@ -132,6 +165,82 @@ func (r *productSettingsRepo) CreateProduct(ctx context.Context, cmd catalogapp.
 	}, nil
 }
 
+func (r *productSettingsRepo) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUCommand) (catalogapp.Product, error) {
+	r.createdSKU = cmd
+	r.skuCreated = true
+	visibility := "public"
+	if cmd.CustomerID > 0 {
+		visibility = "customer_only"
+	}
+	return catalogapp.Product{
+		ID:                912,
+		Name:              cmd.Name,
+		Remark:            cmd.Remark,
+		CustomerID:        cmd.CustomerID,
+		ProductCategoryID: cmd.ProductSubtypeCategoryID,
+		SpecialAttrsJSON:  cmd.SpecialAttrsJSON,
+		Visibility:        visibility,
+	}, nil
+}
+
+func (r *productSettingsRepo) CopySKUs(ctx context.Context, cmd catalogapp.CopySKUsCommand) (catalogapp.CopySKUsResult, error) {
+	r.copiedSKUs = cmd
+	r.skusCopied = true
+	return catalogapp.CopySKUsResult{CreatedCount: 2, OverwrittenCount: 1, SkippedCount: 0}, nil
+}
+
+func (r *productSettingsRepo) ListSKUCopyOptions(ctx context.Context, query catalogapp.SKUCopyOptionsQuery) (catalogapp.SKUCopyOptions, error) {
+	r.skuCopyOptionsQuery = query
+	r.skuCopyOptionsListed = true
+	sourceProducts := make([]catalogapp.Product, 0)
+	for _, product := range r.products {
+		if product.CustomerID == query.SourceCustomerID {
+			sourceProducts = append(sourceProducts, product)
+		}
+	}
+	categoryByID := map[int64]catalogapp.ProductCategory{}
+	for _, category := range r.categories {
+		categoryByID[category.ID] = category
+	}
+	group := catalogapp.SKUCopyTypeGroup{ID: 1, Name: "速溶咖啡"}
+	subtype := catalogapp.SKUCopySubtypeGroup{ID: 2, Name: "盒装速溶"}
+	for _, product := range sourceProducts {
+		state := "available"
+		if !product.Active {
+			state = "inactive"
+		}
+		sourceSubtype := categoryByID[product.ProductCategoryID]
+		sourceType := categoryByID[sourceSubtype.ParentID]
+		for _, target := range r.products {
+			targetSubtype := categoryByID[target.ProductCategoryID]
+			if target.CustomerID == query.TargetCustomerID && targetSubtype.Name == sourceSubtype.Name && strings.EqualFold(target.Name, product.Name) {
+				state = "will_overwrite"
+			}
+		}
+		if sourceType.ID > 0 {
+			group.ID = sourceType.ID
+			group.Name = sourceType.Name
+		}
+		if sourceSubtype.ID > 0 {
+			subtype.ID = sourceSubtype.ID
+			subtype.Name = sourceSubtype.Name
+		}
+		subtype.Products = append(subtype.Products, catalogapp.SKUCopyOption{
+			ID:                       product.ID,
+			Name:                     product.Name,
+			SourceCustomerID:         query.SourceCustomerID,
+			ProductTypeCategoryID:    group.ID,
+			ProductTypeName:          group.Name,
+			ProductSubtypeCategoryID: subtype.ID,
+			ProductSubtypeName:       subtype.Name,
+			CopyState:                state,
+			Active:                   product.Active,
+		})
+	}
+	group.Children = []catalogapp.SKUCopySubtypeGroup{subtype}
+	return catalogapp.SKUCopyOptions{Title: "选择分类和产品", TargetCustomerID: query.TargetCustomerID, SourceCustomerID: query.SourceCustomerID, TotalCount: len(sourceProducts), Groups: []catalogapp.SKUCopyTypeGroup{group}}, nil
+}
+
 func (r *productSettingsRepo) ListProductCategories(ctx context.Context) ([]catalogapp.ProductCategory, error) {
 	return r.categories, nil
 }
@@ -140,14 +249,80 @@ func (r *productSettingsRepo) ListGradientTemplates(ctx context.Context) ([]cata
 	return r.gradientTemplates, nil
 }
 
+func (r *productSettingsRepo) ListProductConfigTemplates(ctx context.Context) ([]catalogapp.ProductConfigTemplate, error) {
+	return r.productConfigTemplates, nil
+}
+
+func (r *productSettingsRepo) ListProductUnitDefinitions(ctx context.Context) ([]catalogapp.ProductUnitDefinition, error) {
+	return r.productUnitDefinitions, nil
+}
+
+func (r *productSettingsRepo) ListProductUnitTemplates(ctx context.Context) ([]catalogapp.ProductUnitTemplate, error) {
+	return r.productUnitTemplates, nil
+}
+
 func (r *productSettingsRepo) ListCustomerPublicUsages(ctx context.Context) ([]catalogapp.CustomerPublicUsage, error) {
 	return r.publicUsages, nil
+}
+
+func (r *productSettingsRepo) ListCustomerProductRuleTemplates(ctx context.Context) ([]catalogapp.CustomerProductRuleTemplate, error) {
+	return r.ruleTemplates, nil
+}
+
+func (r *productSettingsRepo) ListCustomerProductRuleOverrides(ctx context.Context) ([]catalogapp.CustomerProductRuleOverride, error) {
+	return r.ruleOverrides, nil
+}
+
+func (r *productSettingsRepo) ListCustomerProductRuleBindings(ctx context.Context) ([]catalogapp.CustomerProductRuleBinding, error) {
+	return r.customerRuleBindings, nil
 }
 
 func (r *productSettingsRepo) SaveGradientTemplate(ctx context.Context, cmd catalogapp.SaveGradientTemplateCommand) (catalogapp.GradientTemplate, error) {
 	r.savedTemplate = cmd
 	r.templateSaved = true
 	return catalogapp.GradientTemplate{ID: 77, Name: cmd.Name, DisplayUnit: cmd.DisplayUnit, Active: true, Tiers: cmd.Tiers}, nil
+}
+
+func (r *productSettingsRepo) SaveProductConfigTemplate(ctx context.Context, cmd catalogapp.SaveProductConfigTemplateCommand) (catalogapp.ProductConfigTemplate, error) {
+	r.savedConfigTemplate = cmd
+	r.configTemplateSaved = true
+	return catalogapp.ProductConfigTemplate{
+		ID:                     377,
+		CustomerID:             cmd.CustomerID,
+		Name:                   cmd.Name,
+		GradientTemplateID:     cmd.GradientTemplateID,
+		OperationTemplateID:    cmd.OperationTemplateID,
+		UnitTemplateID:         cmd.UnitTemplateID,
+		PriceListRuleJSON:      cmd.PriceListRuleJSON,
+		SpecialAttrsSchemaJSON: cmd.SpecialAttrsSchemaJSON,
+		InventoryUnit:          cmd.InventoryUnit,
+		QuoteUnit:              cmd.QuoteUnit,
+		OrderUnit:              cmd.OrderUnit,
+		UnitConversionJSON:     cmd.UnitConversionJSON,
+		IntegerUnit:            cmd.IntegerUnit,
+		Active:                 true,
+	}, nil
+}
+
+func (r *productSettingsRepo) SaveProductUnitDefinition(ctx context.Context, cmd catalogapp.SaveProductUnitDefinitionCommand) (catalogapp.ProductUnitDefinition, error) {
+	r.savedUnitDefinition = cmd
+	r.unitDefinitionSaved = true
+	return catalogapp.ProductUnitDefinition{Code: cmd.Code, Name: cmd.Name, UnitType: cmd.UnitType, AllowDecimal: cmd.AllowDecimal, Active: true}, nil
+}
+
+func (r *productSettingsRepo) SaveProductUnitTemplate(ctx context.Context, cmd catalogapp.SaveProductUnitTemplateCommand) (catalogapp.ProductUnitTemplate, error) {
+	r.savedUnitTemplate = cmd
+	r.unitTemplateSaved = true
+	return catalogapp.ProductUnitTemplate{
+		ID:                 912,
+		Name:               cmd.Name,
+		InventoryUnit:      cmd.InventoryUnit,
+		QuoteUnit:          cmd.QuoteUnit,
+		OrderUnit:          cmd.OrderUnit,
+		UnitConversionJSON: cmd.UnitConversionJSON,
+		IntegerUnit:        cmd.IntegerUnit,
+		Active:             true,
+	}, nil
 }
 
 func (r *productSettingsRepo) DeactivateGradientTemplate(ctx context.Context, cmd catalogapp.DeactivateGradientTemplateCommand) error {
@@ -165,7 +340,22 @@ func (r *productSettingsRepo) BindCategoryGradientTemplate(ctx context.Context, 
 func (r *productSettingsRepo) SaveProductCategory(ctx context.Context, cmd catalogapp.SaveProductCategoryCommand) (catalogapp.ProductCategory, error) {
 	r.savedCategory = cmd
 	r.categoryCreated = true
-	return catalogapp.ProductCategory{ID: 99, ParentID: cmd.ParentID, CustomerID: cmd.CustomerID, Name: cmd.Name, Position: cmd.Position}, nil
+	return catalogapp.ProductCategory{
+		ID:                      99,
+		ParentID:                cmd.ParentID,
+		CustomerID:              cmd.CustomerID,
+		Name:                    cmd.Name,
+		Position:                cmd.Position,
+		ProductConfigTemplateID: cmd.ProductConfigTemplateID,
+		GradientTemplateID:      cmd.GradientTemplateID,
+		OperationTemplateID:     cmd.OperationTemplateID,
+		PriceListRuleJSON:       cmd.PriceListRuleJSON,
+		InventoryUnit:           cmd.InventoryUnit,
+		QuoteUnit:               cmd.QuoteUnit,
+		OrderUnit:               cmd.OrderUnit,
+		UnitConversionJSON:      cmd.UnitConversionJSON,
+		IntegerUnit:             cmd.IntegerUnit,
+	}, nil
 }
 
 func (r *productSettingsRepo) MoveProductCategory(ctx context.Context, cmd catalogapp.MoveProductCategoryCommand) error {
@@ -250,10 +440,50 @@ func (r *productSettingsRepo) DeriveGradientTemplate(ctx context.Context, cmd ca
 	}, nil
 }
 
+func (r *productSettingsRepo) DeriveProductConfigTemplate(ctx context.Context, cmd catalogapp.DeriveProductConfigTemplateCommand) (catalogapp.ProductConfigTemplate, error) {
+	r.derivedConfig = cmd
+	r.configTemplateDerived = true
+	return catalogapp.ProductConfigTemplate{
+		ID:               388,
+		Name:             cmd.Name,
+		CustomerID:       cmd.CustomerID,
+		SourceTemplateID: cmd.SourceTemplateID,
+		TemplateState:    "derived_from_public",
+		Active:           true,
+	}, nil
+}
+
 func (r *productSettingsRepo) SaveCustomerPublicUsage(ctx context.Context, cmd catalogapp.CustomerPublicUsageCommand) (catalogapp.CustomerPublicUsage, error) {
 	r.publicUsage = cmd
 	r.publicUsageSaved = true
 	return catalogapp.CustomerPublicUsage{CustomerID: cmd.CustomerID, UsePublicSKU: cmd.UsePublicSKU, UsePublicCategories: cmd.UsePublicCategories, UsePublicGradientTemplates: cmd.UsePublicGradientTemplates}, nil
+}
+
+func (r *productSettingsRepo) SaveCustomerProductRuleTemplate(ctx context.Context, cmd catalogapp.SaveCustomerProductRuleTemplateCommand) (catalogapp.CustomerProductRuleTemplate, error) {
+	r.savedRuleTemplate = cmd
+	r.ruleTemplateSaved = true
+	return catalogapp.CustomerProductRuleTemplate{ID: 501, CustomerID: cmd.CustomerID, Name: cmd.Name, Active: true, Items: cmd.Items}, nil
+}
+
+func (r *productSettingsRepo) SaveCustomerProductRuleOverride(ctx context.Context, cmd catalogapp.SaveCustomerProductRuleOverrideCommand) (catalogapp.CustomerProductRuleOverride, error) {
+	r.savedRuleOverride = cmd
+	r.ruleOverrideSaved = true
+	return catalogapp.CustomerProductRuleOverride{
+		ID:                       601,
+		CustomerID:               cmd.CustomerID,
+		ProductSubtypeCategoryID: cmd.ProductSubtypeCategoryID,
+		GradientTemplateID:       cmd.GradientTemplateID,
+		OperationTemplateID:      cmd.OperationTemplateID,
+		PriceListRuleJSON:        cmd.PriceListRuleJSON,
+		UnitRuleJSON:             cmd.UnitRuleJSON,
+		Active:                   true,
+	}, nil
+}
+
+func (r *productSettingsRepo) BindCustomerProductRuleTemplate(ctx context.Context, cmd catalogapp.CustomerProductRuleTemplateBindingCommand) (catalogapp.CustomerProductRuleBinding, error) {
+	r.savedRuleBinding = cmd
+	r.ruleBindingSaved = true
+	return catalogapp.CustomerProductRuleBinding{CustomerID: cmd.CustomerID, TemplateID: cmd.TemplateID}, nil
 }
 
 func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) {
@@ -341,6 +571,159 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	}
 	if !repo.productAssigned || repo.assigned.ProductID != 7 || repo.assigned.CategoryID != 2 || repo.assigned.Position != 3 {
 		t.Fatalf("assign product command = %+v assigned=%v", repo.assigned, repo.productAssigned)
+	}
+}
+
+func TestProductSettingsAPIExposesAndSavesSubtypeConfigAndUnitRules(t *testing.T) {
+	repo := &productSettingsRepo{
+		categories: []catalogapp.ProductCategory{
+			{ID: 1, Name: "速溶咖啡", Level: 1, Position: 1, TemplateState: "public_template"},
+			{
+				ID: 2, ParentID: 1, Name: "冻干速溶", Level: 2, Position: 1, GradientTemplateID: 9,
+				OperationTemplateID: 19, PriceListRuleJSON: `{"generator":"instant"}`,
+				InventoryUnit: "kg", QuoteUnit: "盒", OrderUnit: "盒", UnitConversionJSON: `{"盒":{"kg":0.2}}`, IntegerUnit: true,
+				TemplateState: "public_template",
+			},
+		},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"operation_template_id":19`,
+		`"price_list_rule_json":"{\"generator\":\"instant\"}"`,
+		`"inventory_unit":"kg"`,
+		`"quote_unit":"盒"`,
+		`"order_unit":"盒"`,
+		`"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}"`,
+		`"integer_unit":true`,
+	} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("product settings response missing subtype config %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/categories", bytes.NewBufferString(`{
+		"name":"冻干速溶",
+		"parent_id":1,
+		"position":2,
+		"gradient_template_id":9,
+		"operation_template_id":19,
+		"price_list_rule_json":"{\"generator\":\"instant\"}",
+		"inventory_unit":"kg",
+		"quote_unit":"盒",
+		"order_unit":"盒",
+		"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}",
+		"integer_unit":true
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST category config status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.categoryCreated || repo.savedCategory.GradientTemplateID != 9 || repo.savedCategory.OperationTemplateID != 19 || repo.savedCategory.PriceListRuleJSON != `{"generator":"instant"}` {
+		t.Fatalf("category config command = %+v created=%v", repo.savedCategory, repo.categoryCreated)
+	}
+	if repo.savedCategory.InventoryUnit != "kg" || repo.savedCategory.QuoteUnit != "盒" || repo.savedCategory.OrderUnit != "盒" || repo.savedCategory.UnitConversionJSON != `{"盒":{"kg":0.2}}` || !repo.savedCategory.IntegerUnit {
+		t.Fatalf("category unit rule command = %+v", repo.savedCategory)
+	}
+}
+
+func TestProductSettingsAPIExposesAndSavesCustomerProductRules(t *testing.T) {
+	repo := &productSettingsRepo{
+		ruleTemplates: []catalogapp.CustomerProductRuleTemplate{{
+			ID: 501, CustomerID: 42, Name: "大客户速溶规则模板", Active: true,
+			Items: []catalogapp.CustomerProductRuleTemplateItem{{
+				ID: 701, ProductSubtypeCategoryID: 12, GradientTemplateID: 9, OperationTemplateID: 19,
+				PriceListRuleJSON: `{"generator":"instant"}`, UnitRuleJSON: `{"order_unit":"盒","integer_unit":true}`,
+			}},
+		}},
+		ruleOverrides: []catalogapp.CustomerProductRuleOverride{{
+			ID: 601, CustomerID: 42, ProductSubtypeCategoryID: 12, GradientTemplateID: 10,
+			PriceListRuleJSON: `{"generator":"customer-instant"}`, UnitRuleJSON: `{"order_unit":"箱","integer_unit":true}`, Active: true,
+		}},
+		customerRuleBindings: []catalogapp.CustomerProductRuleBinding{{CustomerID: 42, TemplateID: 501}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"customer_product_rule_templates"`,
+		`"name":"大客户速溶规则模板"`,
+		`"product_subtype_category_id":12`,
+		`"gradient_template_id":9`,
+		`"operation_template_id":19`,
+		`"customer_product_rule_overrides"`,
+		`"gradient_template_id":10`,
+		`"customer_product_rule_bindings"`,
+		`"template_id":501`,
+	} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("product settings response missing customer product rule field %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/customer-rule-templates", bytes.NewBufferString(`{
+		"customer_id":42,
+		"name":"大客户速溶规则模板",
+		"items":[{
+			"product_subtype_category_id":12,
+			"gradient_template_id":9,
+			"operation_template_id":19,
+			"price_list_rule_json":"{\"generator\":\"instant\"}",
+			"unit_rule_json":"{\"order_unit\":\"盒\",\"integer_unit\":true}"
+		}]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST customer-rule-templates status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.ruleTemplateSaved || repo.savedRuleTemplate.CustomerID != 42 || len(repo.savedRuleTemplate.Items) != 1 || repo.savedRuleTemplate.Items[0].GradientTemplateID != 9 {
+		t.Fatalf("saved customer rule template = %+v saved=%v", repo.savedRuleTemplate, repo.ruleTemplateSaved)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/customer-rule-overrides", bytes.NewBufferString(`{
+		"customer_id":42,
+		"product_subtype_category_id":12,
+		"gradient_template_id":10,
+		"operation_template_id":20,
+		"price_list_rule_json":"{\"generator\":\"customer-instant\"}",
+		"unit_rule_json":"{\"order_unit\":\"箱\",\"integer_unit\":true}"
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST customer-rule-overrides status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.ruleOverrideSaved || repo.savedRuleOverride.CustomerID != 42 || repo.savedRuleOverride.ProductSubtypeCategoryID != 12 || repo.savedRuleOverride.GradientTemplateID != 10 {
+		t.Fatalf("saved customer rule override = %+v saved=%v", repo.savedRuleOverride, repo.ruleOverrideSaved)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/customers/42/rule-template", bytes.NewBufferString(`{"template_id":501}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST customer rule binding status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.ruleBindingSaved || repo.savedRuleBinding.CustomerID != 42 || repo.savedRuleBinding.TemplateID != 501 {
+		t.Fatalf("saved rule binding = %+v saved=%v", repo.savedRuleBinding, repo.ruleBindingSaved)
 	}
 }
 
@@ -462,6 +845,32 @@ func TestProductSettingsAPIUpdatesProductRemark(t *testing.T) {
 	}
 }
 
+func TestProductSettingsAPIUpdatesProductName(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{
+			ID: 91, Name: "旧SKU名", ProductKind: "roasted", RoastLevel: "中烘", Remark: "旧备注", YieldRate: 0.8,
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := bytes.NewBufferString(`{"name":"芬纳定制-红酒日晒-中深烘","product_kind":"roasted","roast_level":"中烘","yield_rate":0.81,"remark":"门店常用奶咖"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/products/91", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /api/products/91 status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productUpdated || repo.updated.Name != "芬纳定制-红酒日晒-中深烘" {
+		t.Fatalf("updated name command = %+v updated=%v", repo.updated, repo.productUpdated)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"name":"芬纳定制-红酒日晒-中深烘"`)) {
+		t.Fatalf("response missing updated name: %s", rec.Body.String())
+	}
+}
+
 func TestProductSettingsAPIRejectsGreenBeanAsBomBinding(t *testing.T) {
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{{ID: 8, Name: "生豆 SKU", ProductKind: "green_bean"}},
@@ -534,12 +943,185 @@ func TestProductSettingsAPIManagesGradientTemplatesAndCategoryBinding(t *testing
 	}
 }
 
+func TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates(t *testing.T) {
+	repo := &productSettingsRepo{
+		productConfigTemplates: []catalogapp.ProductConfigTemplate{{
+			ID:                     301,
+			CustomerID:             0,
+			Name:                   "公共盒装商品配置",
+			GradientTemplateID:     8,
+			OperationTemplateID:    9,
+			UnitTemplateID:         12,
+			PriceListRuleJSON:      `{"pricing_mode":"inherit_gradient_template","display_unit":"inherit_quote_unit"}`,
+			SpecialAttrsSchemaJSON: `[{"key":"roast_level","label":"烘焙度","show_in_price_list":true}]`,
+			InventoryUnit:          "kg",
+			QuoteUnit:              "盒",
+			OrderUnit:              "盒",
+			UnitConversionJSON:     `{"盒":{"kg":0.2}}`,
+			IntegerUnit:            true,
+			TemplateState:          "public_template",
+			Active:                 true,
+		}},
+		categories: []catalogapp.ProductCategory{{
+			ID:            1,
+			Name:          "速溶咖啡",
+			Level:         1,
+			TemplateState: "public_template",
+		}, {
+			ID:                      12,
+			ParentID:                1,
+			Name:                    "冻干速溶",
+			Level:                   2,
+			ProductConfigTemplateID: 301,
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"product_config_templates"`,
+		`"name":"公共盒装商品配置"`,
+		`"product_config_template_id":301`,
+		`"unit_template_id":12`,
+		`"quote_unit":"盒"`,
+		`"price_list_rule_json":"{\"pricing_mode\":\"inherit_gradient_template\",\"display_unit\":\"inherit_quote_unit\"}"`,
+		`"special_attrs_schema_json":"[{\"key\":\"roast_level\",\"label\":\"烘焙度\",\"show_in_price_list\":true}]"`,
+	} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/product-config-templates", bytes.NewBufferString(`{
+		"customer_id":42,
+		"name":"客户盒装商品配置",
+		"gradient_template_id":18,
+		"operation_template_id":19,
+		"unit_template_id":12,
+		"price_list_rule_json":"{\"pricing_mode\":\"fixed_unit_price\",\"fixed_unit_price\":15}",
+		"special_attrs_schema_json":"[{\"key\":\"roast_level\",\"label\":\"烘焙度\",\"show_in_price_list\":true}]",
+		"active":true
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST product config template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.configTemplateSaved || repo.savedConfigTemplate.CustomerID != 42 || repo.savedConfigTemplate.Name != "客户盒装商品配置" || repo.savedConfigTemplate.GradientTemplateID != 18 || repo.savedConfigTemplate.UnitTemplateID != 12 {
+		t.Fatalf("saved config template = %+v saved=%v", repo.savedConfigTemplate, repo.configTemplateSaved)
+	}
+	if repo.savedConfigTemplate.PriceListRuleJSON != `{"pricing_mode":"fixed_unit_price","fixed_unit_price":15}` {
+		t.Fatalf("saved price list rule json = %q", repo.savedConfigTemplate.PriceListRuleJSON)
+	}
+	if repo.savedConfigTemplate.SpecialAttrsSchemaJSON == "" || repo.savedConfigTemplate.SpecialAttrsSchemaJSON == "[]" {
+		t.Fatalf("saved special attrs schema json = %q", repo.savedConfigTemplate.SpecialAttrsSchemaJSON)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/product-config-templates/derive", bytes.NewBufferString(`{"customer_id":42,"source_template_id":301,"name":"客户复制盒装商品配置"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST derive product config template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.configTemplateDerived || repo.derivedConfig.CustomerID != 42 || repo.derivedConfig.SourceTemplateID != 301 || repo.derivedConfig.Name != "客户复制盒装商品配置" {
+		t.Fatalf("derived config template = %+v derived=%v", repo.derivedConfig, repo.configTemplateDerived)
+	}
+	if !repo.publicUsageSaved || repo.publicUsage.CustomerID != 42 || !repo.publicUsage.UsePublicSKU || !repo.publicUsage.UsePublicCategories {
+		t.Fatalf("derive product config should enable public SKU/category reference, usage=%+v saved=%v", repo.publicUsage, repo.publicUsageSaved)
+	}
+	for _, want := range []string{`"template"`, `"id":388`, `"customer_id":42`, `"source_template_id":301`, `"template_state":"derived_from_public"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("derive product config response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.T) {
+	repo := &productSettingsRepo{
+		productUnitDefinitions: []catalogapp.ProductUnitDefinition{{
+			Code:         "盒",
+			Name:         "盒",
+			UnitType:     "package",
+			AllowDecimal: false,
+			Active:       true,
+		}},
+		productUnitTemplates: []catalogapp.ProductUnitTemplate{{
+			ID:                 12,
+			Name:               "盒装200g",
+			InventoryUnit:      "kg",
+			QuoteUnit:          "盒",
+			OrderUnit:          "盒",
+			UnitConversionJSON: `{"盒":{"kg":0.2}}`,
+			IntegerUnit:        true,
+			Active:             true,
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"product_unit_definitions"`,
+		`"code":"盒"`,
+		`"product_unit_templates"`,
+		`"name":"盒装200g"`,
+		`"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}"`,
+	} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/units", bytes.NewBufferString(`{"code":"盒","name":"盒","unit_type":"package","allow_decimal":false,"active":true}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST unit status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.unitDefinitionSaved || repo.savedUnitDefinition.Code != "盒" || repo.savedUnitDefinition.UnitType != "package" || repo.savedUnitDefinition.AllowDecimal {
+		t.Fatalf("saved unit definition = %+v saved=%v", repo.savedUnitDefinition, repo.unitDefinitionSaved)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/unit-templates", bytes.NewBufferString(`{
+		"name":"盒装200g",
+		"inventory_unit":"kg",
+		"quote_unit":"盒",
+		"order_unit":"盒",
+		"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}",
+		"integer_unit":true,
+		"active":true
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST unit template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.unitTemplateSaved || repo.savedUnitTemplate.Name != "盒装200g" || repo.savedUnitTemplate.QuoteUnit != "盒" || repo.savedUnitTemplate.UnitConversionJSON != `{"盒":{"kg":0.2}}` || !repo.savedUnitTemplate.IntegerUnit {
+		t.Fatalf("saved unit template = %+v saved=%v", repo.savedUnitTemplate, repo.unitTemplateSaved)
+	}
+}
+
 func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
 	repo := &productSettingsRepo{products: []catalogapp.Product{{ID: 7, Name: "橘皮乌龙", ProductKind: "roasted"}}}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
-	body := `{"customer_id":3,"base_product_id":7,"name":"测试客户-橘皮乌龙-中深烘","remark":"客户指定口味","roast_level":"中深烘","custom_type":"custom_roast","copy_bom":true,"copy_price_tiers":true}`
+	body := `{"customer_id":3,"base_product_id":7,"name":"测试客户-橘皮乌龙-中深烘","remark":"客户指定口味","roast_level":"中深烘","custom_type":"public_sku_alias","copy_bom":true,"copy_price_tiers":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/custom-products", bytes.NewBufferString(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -554,9 +1136,107 @@ func TestProductSettingsAPICreatesCustomerCustomProduct(t *testing.T) {
 	if repo.createdProduct.Remark != "客户指定口味" {
 		t.Fatalf("custom product remark not passed: %+v", repo.createdProduct)
 	}
-	for _, want := range []string{`"product"`, `"customer_id":3`, `"base_product_id":7`, `"visibility":"customer_only"`, `"custom_type":"custom_roast"`, `"remark":"客户指定口味"`} {
+	for _, want := range []string{`"product"`, `"customer_id":3`, `"base_product_id":7`, `"visibility":"customer_only"`, `"custom_type":"public_sku_alias"`, `"remark":"客户指定口味"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("custom product response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestProductSettingsAPICreatesUnifiedSKUWithoutLegacyFields(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/skus", bytes.NewBufferString(`{
+		"customer_id":42,
+		"name":"客户盒装速溶",
+		"remark":"10g/条，10条/盒",
+		"product_type_category_id":7,
+		"product_subtype_category_id":17,
+		"product_kind":"instant_coffee",
+		"custom_type":"public_sku_alias",
+		"base_product_id":99,
+		"special_attrs_json":"{\"roast_level\":\"中深烘\"}",
+		"active":true
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/product-settings/skus status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.skuCreated || repo.createdSKU.CustomerID != 42 || repo.createdSKU.ProductTypeCategoryID != 7 || repo.createdSKU.ProductSubtypeCategoryID != 17 {
+		t.Fatalf("created SKU command=%+v created=%v", repo.createdSKU, repo.skuCreated)
+	}
+	if repo.createdSKU.SpecialAttrsJSON != `{"roast_level":"中深烘"}` {
+		t.Fatalf("created SKU special attrs=%q", repo.createdSKU.SpecialAttrsJSON)
+	}
+}
+
+func TestProductSettingsAPISKUCopyOptionsAndCopy(t *testing.T) {
+	repo := &productSettingsRepo{
+		categories: []catalogapp.ProductCategory{
+			{ID: 1, CustomerID: 0, Name: "速溶咖啡", Level: 1, Position: 1},
+			{ID: 2, ParentID: 1, CustomerID: 0, Name: "盒装速溶", Level: 2, Position: 1},
+			{ID: 101, CustomerID: 42, Name: "速溶咖啡", Level: 1, Position: 1, SourceCategoryID: 1},
+			{ID: 102, ParentID: 101, CustomerID: 42, Name: "盒装速溶", Level: 2, Position: 1, SourceCategoryID: 2},
+		},
+		products: []catalogapp.Product{
+			{ID: 7, Name: "速溶10条盒装", CustomerID: 0, ProductCategoryID: 2, Active: true},
+			{ID: 8, Name: "停用速溶", CustomerID: 0, ProductCategoryID: 2, Active: false},
+			{ID: 107, Name: "速溶10条盒装", CustomerID: 42, ProductCategoryID: 102, Active: true},
+		},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings/skus/copy-options?target_customer_id=42&source_customer_id=0", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("copy options status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"copy_state":"will_overwrite"`) || !strings.Contains(rec.Body.String(), `"copy_state":"inactive"`) || !strings.Contains(rec.Body.String(), `"选择分类和产品"`) {
+		t.Fatalf("copy options body missing grouped copy states: %s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/skus/copy", bytes.NewBufferString(`{"target_customer_id":42,"source_customer_id":0,"source_sku_ids":[7,8,7]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("copy status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.skusCopied || repo.copiedSKUs.TargetCustomerID != 42 || len(repo.copiedSKUs.SourceSKUIDs) != 2 {
+		t.Fatalf("copied SKUs command=%+v copied=%v", repo.copiedSKUs, repo.skusCopied)
+	}
+	if !strings.Contains(rec.Body.String(), `"created_count":2`) || !strings.Contains(rec.Body.String(), `"overwritten_count":1`) {
+		t.Fatalf("copy response=%s", rec.Body.String())
+	}
+}
+
+func TestProductSettingsAPICreatesCustomerCustomRoastWithoutBaseProduct(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := `{"customer_id":3,"name":"测试客户-专属深烘","product_kind":"roasted","roast_level":"深烘","custom_type":"custom_roast","copy_bom":true,"copy_price_tiers":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/custom-products", bytes.NewBufferString(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST custom roast product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productCreated || repo.createdProduct.CustomerID != 3 || repo.createdProduct.BaseProductID != 0 || repo.createdProduct.CopyBOM || repo.createdProduct.CopyPriceTiers {
+		t.Fatalf("custom roast command = %+v created=%v", repo.createdProduct, repo.productCreated)
+	}
+	for _, want := range []string{`"product"`, `"customer_id":3`, `"base_product_id":0`, `"product_kind":"roasted"`, `"custom_type":"custom_roast"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("custom roast response missing %s: %s", want, rec.Body.String())
 		}
 	}
 }
@@ -604,6 +1284,9 @@ func TestProductSettingsAPIDerivesPublicCategoryAndProductTemplates(t *testing.T
 	}
 	if !repo.categoryDerived || repo.derivedCategory.CustomerID != 42 || repo.derivedCategory.SourceCategoryID != 17 {
 		t.Fatalf("derive category command = %+v derived=%v", repo.derivedCategory, repo.categoryDerived)
+	}
+	if !repo.publicUsageSaved || repo.publicUsage.CustomerID != 42 || !repo.publicUsage.UsePublicSKU || !repo.publicUsage.UsePublicCategories {
+		t.Fatalf("derive category should enable public SKU/category reference, usage=%+v saved=%v", repo.publicUsage, repo.publicUsageSaved)
 	}
 	for _, want := range []string{`"category"`, `"id":199`, `"customer_id":42`, `"source_category_id":17`, `"template_state":"derived_from_public"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
@@ -761,6 +1444,38 @@ func TestProductSettingsAPICreatesDripBagProduct(t *testing.T) {
 	}
 	if !reflect.DeepEqual(payload.Product.SalesUnits, []string{"bag", "box"}) {
 		t.Fatalf("sales_units = %#v, want bag/box body=%s", payload.Product.SalesUnits, rec.Body.String())
+	}
+}
+
+func TestProductSettingsAPICreatesInstantCoffeeProductWithoutRoastLevel(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	body := `{"name":"速溶美式","product_kind":"instant_coffee","default_price":39}`
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST instant coffee product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.publicCreated || repo.createdPublic.ProductKind != "instant_coffee" || repo.createdPublic.RoastLevel != "" || repo.createdPublic.YieldRate != 0 || repo.createdPublic.DefaultPrice != 39 {
+		t.Fatalf("instant coffee product command = %+v created=%v", repo.createdPublic, repo.publicCreated)
+	}
+	var payload struct {
+		Product struct {
+			ProductKind string   `json:"product_kind"`
+			RoastLevel  string   `json:"roast_level"`
+			SalesUnits  []string `json:"sales_units"`
+		} `json:"product"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode product response: %v body=%s", err, rec.Body.String())
+	}
+	if payload.Product.ProductKind != "instant_coffee" || payload.Product.RoastLevel != "" || len(payload.Product.SalesUnits) != 0 {
+		t.Fatalf("instant coffee response = %+v body=%s", payload.Product, rec.Body.String())
 	}
 }
 
@@ -1095,6 +1810,42 @@ func TestProductSettingsAPISavesAndReturnsProductMarginOverride(t *testing.T) {
 	}
 	if got := float64PtrField(t, repo.updated, "MarginRateOverride"); got != nil {
 		t.Fatalf("margin override should clear to nil, got %v in %+v", *got, repo.updated)
+	}
+}
+
+func TestProductSettingsAPISavesCustomerSkuMarginOverride(t *testing.T) {
+	margin := 0.275
+	product := catalogapp.Product{
+		ID: 17, Name: "芬纳咖啡-曲奇拼配-深烘", ProductKind: "roasted", RoastLevel: "深烘", YieldRate: 0.8,
+		CustomerID: 74, BaseProductID: 7, Visibility: "customer_only", CustomType: "custom_roast",
+	}
+	setFloat64PtrField(t, &product, "MarginRateOverride", margin)
+	repo := &productSettingsRepo{products: []catalogapp.Product{product}}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/product-settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"customer_id":74`, `"custom_type":"custom_roast"`, `"margin_rate_override":0.275`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("customer SKU product settings response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/products/17", bytes.NewBufferString(`{"product_kind":"roasted","roast_level":"深烘","yield_rate":0.8,"margin_rate_override":0.33}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT customer SKU product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	got := float64PtrField(t, repo.updated, "MarginRateOverride")
+	if got == nil || *got != 0.33 {
+		t.Fatalf("customer SKU margin override command = %+v, got %v", repo.updated, got)
 	}
 }
 

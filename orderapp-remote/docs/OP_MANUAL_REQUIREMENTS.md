@@ -41,4 +41,4 @@ flowchart TD
 - 只有聊天记录没有入表：不算进入流程。
 - 只有 UI 截图没有 API 证据：补 handler/API/curl 级验证。
 - 做了新功能但手册未更新：DEV/REV 不应标完成。
-- 大功能手册缺失：按 `OP_MANUAL_<FEATURE>.md` 新建，并同步到 `orderapp-remote/docs/`。
+- 大功能手册缺失：按 `orderapp-remote/docs/OP_MANUAL_<FEATURE>.md` 新建；不要在根目录新增第二份手册。

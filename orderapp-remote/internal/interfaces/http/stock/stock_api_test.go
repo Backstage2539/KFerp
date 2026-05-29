@@ -17,9 +17,10 @@ type fakeStockRepo struct {
 	adjustment       stockapp.StockAdjustmentCommand
 	transfer         stockapp.MaterialTransferCommand
 	finishedTransfer stockapp.FinishedProductTransferCommand
-	bindCustomerCmd  stockapp.WarehouseCustomerBindingCommand
 	traceQuery       stockapp.StockTraceQuery
 	outboundQuery    stockapp.OutboundLogQuery
+	inventoryQuery   stockapp.WarehouseInventoryQuery
+	warehouseBind    stockapp.BindWarehouseCustomerCommand
 }
 
 func (f *fakeStockRepo) ListLedger(ctx context.Context, query stockapp.LedgerQuery) (stockapp.LedgerResult, error) {
@@ -31,18 +32,14 @@ func (f *fakeStockRepo) ListBatches(ctx context.Context, query stockapp.BatchQue
 func (f *fakeStockRepo) ListMaterialBatches(ctx context.Context, query stockapp.MaterialBatchQuery) (stockapp.MaterialBatchResult, error) {
 	return stockapp.MaterialBatchResult{Rows: []stockapp.MaterialBatchRow{{ID: 2, BatchCode: "MB-0000000002", RemainingG: 1200, QualityStatus: "hold"}}}, nil
 }
-func (f *fakeStockRepo) ListWarehouses(ctx context.Context) ([]stockapp.WarehouseRow, error) {
-	return []stockapp.WarehouseRow{{Code: "raw_materials", Name: "原料仓", Kind: "raw"}, {Code: "wip", Name: "WIP仓", Kind: "wip"}, {Code: "customer_01", Name: "客户仓库", Kind: "customer", CustomerID: 7}}, nil
-}
-
-func (f *fakeStockRepo) SetWarehouseCustomer(ctx context.Context, cmd stockapp.WarehouseCustomerBindingCommand) (stockapp.WarehouseRow, error) {
-	f.bindCustomerCmd = cmd
-	return stockapp.WarehouseRow{Code: cmd.WarehouseCode, CustomerID: cmd.CustomerID}, nil
+func (f *fakeStockRepo) ListWarehouses(ctx context.Context, query stockapp.WarehouseListQuery) ([]stockapp.WarehouseRow, error) {
+	return []stockapp.WarehouseRow{{Code: "raw_materials", Name: "原料仓"}, {Code: "wip", Name: "WIP在制仓", CustomerID: query.CustomerID}}, nil
 }
 func (f *fakeStockRepo) ListMaterialBatchLocations(ctx context.Context, query stockapp.MaterialBatchLocationQuery) (stockapp.MaterialBatchLocationResult, error) {
 	return stockapp.MaterialBatchLocationResult{Rows: []stockapp.MaterialBatchLocationRow{{BatchCode: "MB-0000000002", Warehouse: "wip", QtyG: 60000, QualityStatus: "pass"}}}, nil
 }
 func (f *fakeStockRepo) ListWarehouseInventory(ctx context.Context, query stockapp.WarehouseInventoryQuery) (stockapp.WarehouseInventoryResult, error) {
+	f.inventoryQuery = query
 	return stockapp.WarehouseInventoryResult{Rows: []stockapp.WarehouseInventoryRow{
 		{Warehouse: "raw_materials", WarehouseName: "原料仓", ItemType: "material", ItemID: 1, ItemName: "水洗豆", BatchCode: "MB-0000000002", QtyG: 1200, QualityStatus: "pass"},
 		{Warehouse: "finished_goods", WarehouseName: "成品仓", ItemType: "finished_product", ItemID: 9, ItemName: "橘皮乌龙", SpecG: 454, BatchCode: "FP-0000000042", QtyG: 908, QtyUnits: 2, QualityStatus: "reject"},
@@ -108,6 +105,10 @@ func (f *fakeStockRepo) TransferFinishedProduct(ctx context.Context, cmd stockap
 	f.finishedTransfer = cmd
 	return stockapp.FinishedProductTransferResult{TransferID: 7, TransferNo: "FT-0000000007"}, nil
 }
+func (f *fakeStockRepo) BindWarehouseCustomer(ctx context.Context, cmd stockapp.BindWarehouseCustomerCommand) (stockapp.WarehouseRow, error) {
+	f.warehouseBind = cmd
+	return stockapp.WarehouseRow{Code: cmd.WarehouseCode, Name: "门店成品仓", CustomerID: cmd.CustomerID, CustomerName: "渠道客户"}, nil
+}
 
 func TestStockAPIRoutes(t *testing.T) {
 	repo := &fakeStockRepo{}
@@ -147,15 +148,15 @@ func TestStockAPIRoutes(t *testing.T) {
 		t.Fatalf("GET warehouses status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodPut, "/api/stock/warehouses/customer_01/customer", bytes.NewBufferString(`{"customer_id":0}`))
+	req = httptest.NewRequest(http.MethodPut, "/api/stock/warehouses/finished_shop/customer", bytes.NewBufferString(`{"customer_id":147}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"customer_id":147`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"customer_name":"渠道客户"`)) {
 		t.Fatalf("PUT warehouse customer status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.bindCustomerCmd.WarehouseCode != "customer_01" || repo.bindCustomerCmd.CustomerID != 0 {
-		t.Fatalf("warehouse binding command = %+v", repo.bindCustomerCmd)
+	if repo.warehouseBind.WarehouseCode != "finished_shop" || repo.warehouseBind.CustomerID != 147 {
+		t.Fatalf("warehouse bind command=%+v", repo.warehouseBind)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/stock/material-batch-locations?warehouse=wip", nil)
@@ -165,7 +166,7 @@ func TestStockAPIRoutes(t *testing.T) {
 		t.Fatalf("GET material batch locations status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/stock/warehouse-inventory?warehouse=finished_goods", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/stock/warehouse-inventory?warehouse=finished_goods&customer_id=149", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -176,6 +177,9 @@ func TestStockAPIRoutes(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"quality_status":"reject"`)) {
 		t.Fatalf("GET warehouse inventory missing quality status: %s", rec.Body.String())
+	}
+	if repo.inventoryQuery.CustomerID != 149 {
+		t.Fatalf("warehouse inventory customer_id = %d, want 149", repo.inventoryQuery.CustomerID)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/stock/outbound-logs?q=SO-20260503&limit=30", nil)

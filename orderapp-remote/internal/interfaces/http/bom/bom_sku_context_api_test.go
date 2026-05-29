@@ -57,6 +57,7 @@ func TestBomDetailExposesFinishedProductComponentFields(t *testing.T) {
 	repo := &apiFakeRepo{
 		detail: bomapp.Detail{
 			ProductID: 1,
+			YieldRate: 0.82,
 			Items: []bomapp.Item{{
 				ID:                   9,
 				ComponentType:        "finished_product",
@@ -78,10 +79,49 @@ func TestBomDetailExposesFinishedProductComponentFields(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{`"component_type":"finished_product"`, `"component_product_id":7`, `"consume_unit":"g_per_bag"`, `"qty_per_unit":10`} {
+	for _, want := range []string{`"component_type":"finished_product"`, `"component_product_id":7`, `"consume_unit":"g_per_bag"`, `"qty_per_unit":10`, `"expected_yield_rate":0.82`, `"expected_loss_rate":0.18`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("detail body missing %s: %s", want, body)
 		}
+	}
+}
+
+func TestBomSaveAcceptsExpectedLossRate(t *testing.T) {
+	repo := &apiFakeRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	body := `{"product_id":7,"expected_loss_rate":0.18}`
+	req := httptest.NewRequest(http.MethodPost, "/api/bom/save", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if repo.syncedYield.ProductID != 7 {
+		t.Fatalf("product id = %d, want 7", repo.syncedYield.ProductID)
+	}
+	if repo.syncedYield.ExpectedLossRate == nil || *repo.syncedYield.ExpectedLossRate != 0.18 {
+		t.Fatalf("expected loss rate = %v, want 0.18", repo.syncedYield.ExpectedLossRate)
+	}
+}
+
+func TestBomSaveRejectsInvalidExpectedLossRate(t *testing.T) {
+	repo := &apiFakeRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	body := `{"product_id":7,"expected_loss_rate":1}`
+	req := httptest.NewRequest(http.MethodPost, "/api/bom/save", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "expected_loss_rate") {
+		t.Fatalf("body missing expected_loss_rate error: %s", rec.Body.String())
 	}
 }
 

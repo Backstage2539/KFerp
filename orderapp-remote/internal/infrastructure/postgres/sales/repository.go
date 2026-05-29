@@ -20,11 +20,13 @@ import (
 )
 
 type Repository struct {
-	pool                 *pgxpool.Pool
-	schema               string
-	assetDir             string
-	renderer             SalesOrderPDFRenderer
-	deliveryNoteRenderer DeliveryNotePDFRenderer
+	pool                     *pgxpool.Pool
+	schema                   string
+	assetDir                 string
+	renderer                 SalesOrderPDFRenderer
+	deliveryNoteRenderer     DeliveryNotePDFRenderer
+	combinedSalesRenderer    CombinedSalesOrderPDFRenderer
+	combinedDeliveryRenderer CombinedDeliveryNotePDFRenderer
 }
 
 type SalesOrderPDFRenderer interface {
@@ -36,6 +38,17 @@ type SalesOrderPDFRenderer interface {
 type DeliveryNotePDFRenderer interface {
 	Render(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error)
 	RenderPreview(snapshot salesdomain.DeliveryNoteSnapshot) ([]byte, error)
+}
+
+type CombinedSalesOrderPDFRenderer interface {
+	RenderCombinedSalesOrder(snapshot salesdomain.CombinedSalesOrderSnapshot) ([]byte, error)
+	RenderCombinedSalesOrderPreview(snapshot salesdomain.CombinedSalesOrderSnapshot) ([]byte, error)
+	RenderCombinedSalesOrderPNG(snapshot salesdomain.CombinedSalesOrderSnapshot) ([]byte, error)
+}
+
+type CombinedDeliveryNotePDFRenderer interface {
+	RenderCombinedDeliveryNote(snapshot salesdomain.CombinedDeliveryNoteSnapshot) ([]byte, error)
+	RenderCombinedDeliveryNotePreview(snapshot salesdomain.CombinedDeliveryNoteSnapshot) ([]byte, error)
 }
 
 type RepositoryOption func(*Repository)
@@ -58,10 +71,20 @@ func NewRepository(pool *pgxpool.Pool, schema string, opts ...RepositoryOption) 
 		opt(&repo)
 	}
 	if repo.renderer == nil {
-		repo.renderer = pdfinfra.SalesOrderRenderer{AssetBaseDir: repo.assetDir}
+		renderer := pdfinfra.SalesOrderRenderer{AssetBaseDir: repo.assetDir}
+		repo.renderer = renderer
+		repo.combinedSalesRenderer = renderer
 	}
 	if repo.deliveryNoteRenderer == nil {
-		repo.deliveryNoteRenderer = pdfinfra.DeliveryNoteRenderer{AssetBaseDir: repo.assetDir}
+		renderer := pdfinfra.DeliveryNoteRenderer{AssetBaseDir: repo.assetDir}
+		repo.deliveryNoteRenderer = renderer
+		repo.combinedDeliveryRenderer = renderer
+	}
+	if repo.combinedSalesRenderer == nil {
+		repo.combinedSalesRenderer = pdfinfra.SalesOrderRenderer{AssetBaseDir: repo.assetDir}
+	}
+	if repo.combinedDeliveryRenderer == nil {
+		repo.combinedDeliveryRenderer = pdfinfra.DeliveryNoteRenderer{AssetBaseDir: repo.assetDir}
 	}
 	return repo
 }
@@ -136,6 +159,8 @@ func normalizeOrderItemDiscountType(value string) string {
 	switch strings.TrimSpace(strings.ToLower(value)) {
 	case "amount", "fixed", "minus":
 		return "amount"
+	case "unit_amount", "unit", "unit_discount", "per_unit", "unit_price":
+		return "unit_amount"
 	case "percent", "discount":
 		return "percent"
 	case "free":
@@ -145,17 +170,48 @@ func normalizeOrderItemDiscountType(value string) string {
 	}
 }
 
-func applyOrderItemDiscount(baseLineTotal float64, discountType string, discountValue float64) (float64, float64) {
+type orderDiscountItem struct {
+	productKind string
+	salesUnit   string
+	specG       int64
+	units       int64
+}
+
+func orderItemUnitDiscountUnits(item orderDiscountItem, retailOrder bool) float64 {
+	units := item.units
+	if units <= 0 {
+		return 0
+	}
+	if item.productKind == "drip_bag" || item.salesUnit == "bag" || item.salesUnit == "box" {
+		return float64(units)
+	}
+	if retailOrder {
+		return float64(units)
+	}
+	if item.specG <= 0 {
+		return float64(units)
+	}
+	return float64(item.specG*units) / wholesaleDisplayUnitG(item.specG)
+}
+
+func applyOrderItemDiscount(baseLineTotal float64, discountType string, discountValue float64, discountUnits ...float64) (float64, float64) {
 	baseLineTotal = maxFloat(baseLineTotal, 0)
 	discountValue = maxFloat(discountValue, 0)
 	if baseLineTotal <= 0 {
 		return 0, 0
+	}
+	unitCount := 1.0
+	if len(discountUnits) > 0 {
+		unitCount = maxFloat(discountUnits[0], 0)
 	}
 	switch normalizeOrderItemDiscountType(discountType) {
 	case "free":
 		return baseLineTotal, 0
 	case "amount":
 		discountAmount := minFloat(discountValue, baseLineTotal)
+		return discountAmount, maxFloat(baseLineTotal-discountAmount, 0)
+	case "unit_amount":
+		discountAmount := minFloat(discountValue*unitCount, baseLineTotal)
 		return discountAmount, maxFloat(baseLineTotal-discountAmount, 0)
 	case "percent":
 		rate := minFloat(discountValue, 100)
@@ -195,15 +251,14 @@ func (r Repository) orderFulfillmentMarkersTx(ctx context.Context, tx pgx.Tx, cu
 			FROM %[1]s.customer_erp_user_bindings b
 			JOIN %[1]s.company_employees e ON e.id=b.employee_id
 			LEFT JOIN %[1]s.employee_login_passwords lp ON lp.employee_id=e.id
-			LEFT JOIN %[1]s.customer_portal_profiles p ON p.customer_id=b.customer_id
+			JOIN %[1]s.customer_portal_profiles p ON p.customer_id=b.customer_id AND p.enabled=true
 			WHERE b.customer_id=$1
 			  AND b.status='active'
 			  AND e.active=true
 			  AND e.account_type='channel_customer'
 			  AND COALESCE(lp.login_disabled,false)=false
-			  AND COALESCE(p.enabled,false)=true
 			  AND (
-			      NULLIF(p.capability_template_key,'') IN ('processing_fulfillment','public_sku_direct_ship')
+			      p.capability_template_key IN ('processing_fulfillment','public_sku_direct_ship','channel_direct_ship')
 			      OR EXISTS (
 			          SELECT 1 FROM %[1]s.customer_capability_templates active_template
 			          WHERE active_template.template_key=p.capability_template_key
@@ -262,6 +317,81 @@ func normalizeOrderPaymentMethodForStatusTx(ctx context.Context, tx pgx.Tx, sche
 	return "", nil
 }
 
+func lookupStatusName(ctx context.Context, tx pgx.Tx, schema, table string, statusID int64) (string, error) {
+	if statusID <= 0 {
+		return "", nil
+	}
+	var statusName string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.%s WHERE id=$1`, schema, table), statusID).Scan(&statusName); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(statusName), nil
+}
+
+func orderPaidStatusRequiresReceipt(statusName string) bool {
+	statusName = strings.TrimSpace(statusName)
+	return strings.Contains(statusName, "已收款")
+}
+
+func orderShippedStatusRequiresLogistics(statusName string) bool {
+	statusName = strings.TrimSpace(statusName)
+	return strings.Contains(statusName, "已发货")
+}
+
+func validateOrderFulfillmentRequirementsTx(ctx context.Context, tx pgx.Tx, schema string, payStatusID, shipStatusID int64, logisticsCompanyID, logisticsProductID int64, paymentGoodsAmount, paymentShippingAmount float64, paymentVoucherAssetID int64) error {
+	shipStatusName, err := lookupStatusName(ctx, tx, schema, "ship_statuses", shipStatusID)
+	if err != nil {
+		return fmt.Errorf("invalid ship_status_id")
+	}
+	if orderShippedStatusRequiresLogistics(shipStatusName) {
+		if logisticsCompanyID <= 0 {
+			return fmt.Errorf("logistics_company_id required")
+		}
+		if logisticsProductID <= 0 {
+			return fmt.Errorf("logistics_product_id required")
+		}
+		var ok bool
+		q := fmt.Sprintf(`
+			SELECT EXISTS (
+				SELECT 1
+				FROM %s.logistics_products p
+				JOIN %s.logistics_companies c ON c.id=p.company_id
+				WHERE p.id=$1 AND c.id=$2 AND p.active=true AND c.active=true
+			)
+		`, schema, schema)
+		if err := tx.QueryRow(ctx, q, logisticsProductID, logisticsCompanyID).Scan(&ok); err != nil || !ok {
+			return fmt.Errorf("invalid logistics product")
+		}
+	} else {
+		logisticsCompanyID = 0
+		logisticsProductID = 0
+	}
+	_ = logisticsCompanyID
+	_ = logisticsProductID
+
+	payStatusName, err := lookupStatusName(ctx, tx, schema, "pay_statuses", payStatusID)
+	if err != nil {
+		return fmt.Errorf("invalid pay_status_id")
+	}
+	if orderPaidStatusRequiresReceipt(payStatusName) {
+		if paymentGoodsAmount <= 0 {
+			return fmt.Errorf("payment_goods_amount required")
+		}
+		if paymentShippingAmount < 0 {
+			return fmt.Errorf("invalid payment_shipping_amount")
+		}
+		if paymentVoucherAssetID <= 0 {
+			return fmt.Errorf("payment_voucher_asset_id required")
+		}
+		var ok bool
+		q := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s.sales_order_assets WHERE id=$1 AND kind='payment_voucher')`, schema)
+		if err := tx.QueryRow(ctx, q, paymentVoucherAssetID).Scan(&ok); err != nil || !ok {
+			return fmt.Errorf("invalid payment_voucher_asset_id")
+		}
+	}
+	return nil
+}
+
 func smallBatchTierQuantity(specG int64, qtyLb float64, rule smallBatchPriceRule) (int64, bool) {
 	rule = normalizeSmallBatchPriceRule(rule)
 	if !rule.Enabled || specG <= 0 || qtyLb <= 0 || qtyLb >= rule.ThresholdLB {
@@ -274,32 +404,31 @@ func smallBatchTierQuantity(specG int64, qtyLb float64, rule smallBatchPriceRule
 	return targetUnits, true
 }
 
-func resolveOrderResponsibleParty(ctx context.Context, tx pgx.Tx, schema, responsibleType string, responsibleID int64) (string, int64, string, error) {
-	typ := strings.TrimSpace(responsibleType)
-	if typ == "" && responsibleID == 0 {
-		return "", 0, "", nil
+func resolveOrderResponsibleParty(ctx context.Context, tx pgx.Tx, schema string, customerID int64) (string, int64, string, error) {
+	if customerID <= 0 {
+		return "", 0, "", fmt.Errorf("customer_id required")
+	}
+	var responsibleID int64
+	var responsibleName string
+	q := fmt.Sprintf(`
+		SELECT COALESCE(c.responsible_employee_id,0), COALESCE(e.name,'')
+		FROM %s.customers c
+		LEFT JOIN %s.company_employees e ON e.id=c.responsible_employee_id
+			AND e.active=true
+			AND (e.account_type='internal_employee' OR COALESCE(e.account_type,'')='')
+		WHERE c.id=$1 AND c.active=true
+	`, schema, schema)
+	if err := tx.QueryRow(ctx, q, customerID).Scan(&responsibleID, &responsibleName); err != nil {
+		return "", 0, "", fmt.Errorf("customer not found")
 	}
 	if responsibleID <= 0 {
-		return "", 0, "", fmt.Errorf("responsible_id required")
+		return "", 0, "", fmt.Errorf("customer responsible employee required")
 	}
-	switch typ {
-	case "employee":
-		var name string
-		q := fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.company_employees WHERE id=$1 AND active=true`, schema)
-		if err := tx.QueryRow(ctx, q, responsibleID).Scan(&name); err != nil || strings.TrimSpace(name) == "" {
-			return "", 0, "", fmt.Errorf("responsible employee not found")
-		}
-		return typ, responsibleID, strings.TrimSpace(name), nil
-	case "customer":
-		var name string
-		q := fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.customers WHERE id=$1 AND active=true`, schema)
-		if err := tx.QueryRow(ctx, q, responsibleID).Scan(&name); err != nil || strings.TrimSpace(name) == "" {
-			return "", 0, "", fmt.Errorf("responsible customer not found")
-		}
-		return typ, responsibleID, strings.TrimSpace(name), nil
-	default:
-		return "", 0, "", fmt.Errorf("invalid responsible_type")
+	responsibleName = strings.TrimSpace(responsibleName)
+	if responsibleName == "" {
+		return "", 0, "", fmt.Errorf("customer responsible employee not found")
 	}
+	return "employee", responsibleID, responsibleName, nil
 }
 
 func wholesaleDisplayUnitG(specG int64) float64 {
@@ -320,6 +449,16 @@ func wholesaleDisplayUnitPriceFromLb(pricePerLb float64, specG int64) float64 {
 
 func wholesaleLineTotalFromDisplayUnit(unitPrice float64, specG int64, units int64) float64 {
 	return unitPrice * (float64(specG*units) / wholesaleDisplayUnitG(specG))
+}
+
+func wholesaleLineTotalFromPriceUnit(unitPrice float64, specG int64, units int64, unitG float64) float64 {
+	if unitPrice <= 0 || specG <= 0 || units <= 0 {
+		return 0
+	}
+	if unitG <= 0 {
+		unitG = wholesaleDisplayUnitG(specG)
+	}
+	return unitPrice * (float64(specG*units) / unitG)
 }
 
 func resolveAutoWeightTierPriceTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, specG int64, units int64, qtyLb float64, smallBatchRule smallBatchPriceRule) (*int64, float64, float64, error) {
@@ -446,6 +585,27 @@ func beanListPriceSourceJSON(listType string, usage orderbeans.Usage, productID 
 		"bean_list_publication_id": usage.PublicationID,
 		"bean_list_version_no":     usage.VersionNo,
 		"product_id":               productID,
+	}
+	buf, err := json.Marshal(source)
+	if err != nil {
+		return "{}"
+	}
+	return string(buf)
+}
+
+func beanListPriceSourceJSONWithPricing(listType string, usage orderbeans.Usage, productID int64, pricing orderbeans.PublishedPricing) string {
+	source := map[string]any{
+		"source":                   "bean_list_publication",
+		"list_type":                strings.TrimSpace(listType),
+		"bean_list_publication_id": usage.PublicationID,
+		"bean_list_version_no":     usage.VersionNo,
+		"product_id":               productID,
+	}
+	if strings.TrimSpace(pricing.PriceUnit) != "" {
+		source["price_unit"] = strings.TrimSpace(pricing.PriceUnit)
+	}
+	if pricing.UnitG > 0 {
+		source["price_unit_g"] = pricing.UnitG
 	}
 	buf, err := json.Marshal(source)
 	if err != nil {
@@ -653,6 +813,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if od.IsZero() {
 		return salesapp.SaveOrderResult{}, fmt.Errorf("invalid order_date")
 	}
+	documentDate := cmd.DocumentDate
+	if documentDate.IsZero() {
+		documentDate = od
+	}
 	if cmd.CustomerID <= 0 {
 		return salesapp.SaveOrderResult{}, fmt.Errorf("customer required")
 	}
@@ -797,12 +961,28 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return salesapp.SaveOrderResult{}, err
 	}
 
+	customerProfile, err := r.requiredOrderCustomerProfileTx(ctx, tx, cmd.CustomerID)
+	if err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
+	cmd.SourceID = customerProfile.sourceID
+	cmd.OrderTypeID = customerProfile.orderTypeID
+
 	orderNo := ""
 	retailOrder := false
 	if cmd.OrderTypeID > 0 {
 		var orderTypeName string
 		_ = tx.QueryRow(ctx, fmt.Sprintf("SELECT COALESCE(name,'') FROM %s.order_types WHERE id=$1", r.schema), cmd.OrderTypeID).Scan(&orderTypeName)
 		retailOrder = isRetailOrderTypeName(orderTypeName)
+	}
+	applyItemDiscount := func(idx int) {
+		discountUnits := orderItemUnitDiscountUnits(orderDiscountItem{
+			productKind: items[idx].productKind,
+			salesUnit:   items[idx].salesUnit,
+			specG:       items[idx].specG,
+			units:       items[idx].units,
+		}, retailOrder)
+		items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue, discountUnits)
 	}
 	smallBatchRule := r.customerDirectShipSmallBatchPriceRuleTx(ctx, tx, cmd.CustomerID)
 	for idx := range items {
@@ -862,7 +1042,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				lineTotal = *items[idx].manualPrice * float64(items[idx].units)
 			}
 			items[idx].baseLineTotal = lineTotal
-			items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(lineTotal, items[idx].discountType, items[idx].discountValue)
+			applyItemDiscount(idx)
 			items[idx].unitPrice = *items[idx].manualPrice
 			items[idx].priceOverride = true
 			totalAmt += items[idx].baseLineTotal
@@ -883,7 +1063,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					items[idx].tierID = nil
 					items[idx].unitPrice = unitPrice
 					items[idx].baseLineTotal = unitPrice * float64(items[idx].units)
-					items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue)
+					applyItemDiscount(idx)
 					items[idx].matchedPriceQty = float64(items[idx].units)
 					items[idx].priceSourceJSON = beanListPriceSourceJSON(orderbeans.ListTypeDrip, usage, *items[idx].productID)
 					totalAmt += items[idx].baseLineTotal
@@ -926,7 +1106,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			_ = tx.QueryRow(ctx, q, *items[idx].productID).Scan(&retailPrices.Price100G, &retailPrices.Price200G, &retailPrices.Price227G, &retailPrices.Price250G)
 			_, lineTotal := salesdomain.RetailLinePriceForSpec(retailPrices, items[idx].specG, items[idx].units)
 			items[idx].baseLineTotal = lineTotal
-			items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(lineTotal, items[idx].discountType, items[idx].discountValue)
+			applyItemDiscount(idx)
 			if qtyLb > 0 {
 				items[idx].unitPrice = lineTotal / qtyLb
 			}
@@ -943,19 +1123,19 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			if usage.PublicationID <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少生豆豆单价格")
 			}
-			unitPrice, err := orderbeans.ResolvePublishedUnitPriceForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeGreen, usage.PublicationID, items[idx].specG, items[idx].units)
+			pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeGreen, usage.PublicationID, items[idx].specG, items[idx].units, items[idx].salesUnit, items[idx].unitBagCount)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
 			}
-			if unitPrice <= 0 {
+			if pricing.UnitPrice <= 0 {
 				return salesapp.SaveOrderResult{}, fmt.Errorf("缺少生豆豆单价格")
 			}
-			items[idx].unitPrice = unitPrice
-			items[idx].priceSourceJSON = beanListPriceSourceJSON(orderbeans.ListTypeGreen, usage, *items[idx].productID)
+			items[idx].unitPrice = pricing.UnitPrice
+			items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeGreen, usage, *items[idx].productID, pricing)
 			if items[idx].baseLineTotal <= 0 {
-				items[idx].baseLineTotal = wholesaleLineTotalFromDisplayUnit(unitPrice, items[idx].specG, items[idx].units)
+				items[idx].baseLineTotal = wholesaleLineTotalFromPriceUnit(pricing.UnitPrice, items[idx].specG, items[idx].units, pricing.UnitG)
 			}
-			items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue)
+			applyItemDiscount(idx)
 			totalAmt += items[idx].baseLineTotal
 			itemDiscountAmt += items[idx].discountAmount
 			continue
@@ -966,16 +1146,16 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 				return salesapp.SaveOrderResult{}, err
 			}
 			if usage.PublicationID > 0 {
-				unitPrice, err := orderbeans.ResolvePublishedUnitPriceForPublication(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeCommercial, usage.PublicationID, items[idx].specG, items[idx].units)
+				pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, *items[idx].productID, orderbeans.ListTypeCommercial, usage.PublicationID, items[idx].specG, items[idx].units, items[idx].salesUnit, items[idx].unitBagCount)
 				if err != nil {
 					return salesapp.SaveOrderResult{}, err
 				}
-				if unitPrice > 0 {
+				if pricing.UnitPrice > 0 {
 					items[idx].tierID = nil
-					items[idx].unitPrice = unitPrice
-					items[idx].baseLineTotal = wholesaleLineTotalFromDisplayUnit(unitPrice, items[idx].specG, items[idx].units)
-					items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue)
-					items[idx].priceSourceJSON = beanListPriceSourceJSON(orderbeans.ListTypeCommercial, usage, *items[idx].productID)
+					items[idx].unitPrice = pricing.UnitPrice
+					items[idx].baseLineTotal = wholesaleLineTotalFromPriceUnit(pricing.UnitPrice, items[idx].specG, items[idx].units, pricing.UnitG)
+					applyItemDiscount(idx)
+					items[idx].priceSourceJSON = beanListPriceSourceJSONWithPricing(orderbeans.ListTypeCommercial, usage, *items[idx].productID, pricing)
 					totalAmt += items[idx].baseLineTotal
 					itemDiscountAmt += items[idx].discountAmount
 					continue
@@ -1103,7 +1283,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if items[idx].baseLineTotal == 0 {
 			items[idx].baseLineTotal = wholesaleLineTotalFromDisplayUnit(items[idx].unitPrice, items[idx].specG, items[idx].units)
 		}
-		items[idx].discountAmount, items[idx].lineTotal = applyOrderItemDiscount(items[idx].baseLineTotal, items[idx].discountType, items[idx].discountValue)
+		applyItemDiscount(idx)
 		totalAmt += items[idx].baseLineTotal
 		itemDiscountAmt += items[idx].discountAmount
 	}
@@ -1139,6 +1319,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	if shipStatusID == 0 {
 		shipStatusID = lookupDefaultStatusID(ctx, tx, r.schema, "ship_statuses", "未发货")
 	}
+	if err := validateOrderFulfillmentRequirementsTx(ctx, tx, r.schema, payStatusID, shipStatusID, cmd.LogisticsCompanyID, cmd.LogisticsProductID, cmd.PaymentGoodsAmount, cmd.PaymentShippingAmount, cmd.PaymentVoucherAssetID); err != nil {
+		return salesapp.SaveOrderResult{}, err
+	}
 
 	shipMethod := strings.TrimSpace(cmd.ShipMethod)
 	if shipMethod == "" {
@@ -1150,7 +1333,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 	shipTrackingNo := salesapp.TrackingNumbersSummary(salesapp.NormalizeTrackingNumbers(cmd.ShipTrackingNo))
 
-	responsibleType, responsibleID, responsibleName, err := resolveOrderResponsibleParty(ctx, tx, r.schema, cmd.ResponsibleType, cmd.ResponsibleID)
+	responsibleType, responsibleID, responsibleName, err := resolveOrderResponsibleParty(ctx, tx, r.schema, cmd.CustomerID)
 	if err != nil {
 		return salesapp.SaveOrderResult{}, err
 	}
@@ -1175,41 +1358,48 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		portalServiceCode, sourceWarehouse = resolveOrderFulfillmentMarkers(existingPortalServiceCode, existingSourceWarehouse, portalServiceCode, sourceWarehouse)
 		uq := fmt.Sprintf(`
 				UPDATE %s.orders
-				SET order_date=$2,
-					customer_id=$3,
-					source_id=$4,
-					order_type_id=$5,
-					pay_status_id=$6,
-					payment_method=$7,
-					ship_status_id=$8,
-					ship_method=$9,
-					ship_tracking_no=$10,
-					notes=$11,
-					total_amount=$12,
-					shipping_amount=$13,
-					discount_amount=$14,
-					round_to_int=$15,
-					rounding_amount=$16,
-					grand_total=$17,
-					express_fee=$18,
-					outsource_material_fee=$19,
-					outsource_roast_fee=$20,
-					outsource_packaging_fee=$21,
-					outsource_manual_fee=$22,
-					outsource_tax_fee=$23,
-					outsource_other_fee=$24,
-						outsource_total_fee=$25,
-						responsible_party_type=$26,
-						responsible_party_id=$27,
-						responsible_party_name=$28,
-						portal_service_code=$29,
-						source_warehouse=$30,
-						bean_list_publication_id=$31,
-						bean_list_version_no=$32
+				SET document_date=$2,
+					order_date=$3,
+					customer_id=$4,
+					source_id=$5,
+					order_type_id=$6,
+					pay_status_id=$7,
+					payment_method=$8,
+					ship_status_id=$9,
+					ship_method=$10,
+					ship_tracking_no=$11,
+					notes=$12,
+					total_amount=$13,
+					shipping_amount=$14,
+					discount_amount=$15,
+					round_to_int=$16,
+					rounding_amount=$17,
+					grand_total=$18,
+					express_fee=$19,
+					outsource_material_fee=$20,
+					outsource_roast_fee=$21,
+					outsource_packaging_fee=$22,
+					outsource_manual_fee=$23,
+					outsource_tax_fee=$24,
+					outsource_other_fee=$25,
+						outsource_total_fee=$26,
+						responsible_party_type=$27,
+						responsible_party_id=$28,
+						responsible_party_name=$29,
+						portal_service_code=$30,
+						source_warehouse=$31,
+						bean_list_publication_id=$32,
+						bean_list_version_no=$33,
+						logistics_company_id=$34,
+						logistics_product_id=$35,
+						payment_goods_amount=$36,
+						payment_shipping_amount=$37,
+						payment_voucher_asset_id=$38
 					WHERE id=$1
 			`, r.schema)
 		if _, err := tx.Exec(ctx, uq,
 			orderID,
+			documentDate,
 			od,
 			cmd.CustomerID,
 			nullInt(cmd.SourceID),
@@ -1241,6 +1431,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			sourceWarehouse,
 			beanListPublicationID,
 			beanListVersionNo,
+			cmd.LogisticsCompanyID,
+			cmd.LogisticsProductID,
+			cmd.PaymentGoodsAmount,
+			cmd.PaymentShippingAmount,
+			cmd.PaymentVoucherAssetID,
 		); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
@@ -1248,13 +1443,13 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			return salesapp.SaveOrderResult{}, err
 		}
 	} else {
-		orderNo, err = nextOrderNo(ctx, tx, r.schema, od)
+		orderNo, err = nextOrderNo(ctx, tx, r.schema, documentDate)
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 		insertOrderSQL := fmt.Sprintf(`
 				INSERT INTO %s.orders(
-					order_date, customer_id,
+					document_date, order_date, customer_id,
 					source_id, order_type_id, pay_status_id, payment_method, ship_status_id,
 					ship_method, ship_tracking_no,
 					notes,
@@ -1266,7 +1461,9 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 						responsible_party_type, responsible_party_id, responsible_party_name,
 						portal_service_code, source_warehouse,
 						bean_list_publication_id, bean_list_version_no,
-						order_no
+						order_no,
+						logistics_company_id, logistics_product_id,
+						payment_goods_amount, payment_shipping_amount, payment_voucher_asset_id
 					) VALUES (
 						$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
 						$11,$12,$13,
@@ -1275,11 +1472,14 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 						$25,$26,$27,
 						$28,$29,
 						$30,$31,
-						$32
+						$32,
+						$33,
+						$34,$35,$36,$37,$38
 					)
 					RETURNING id
 			`, r.schema)
 		err = tx.QueryRow(ctx, insertOrderSQL,
+			documentDate,
 			od,
 			cmd.CustomerID,
 			nullInt(cmd.SourceID),
@@ -1312,6 +1512,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			beanListPublicationID,
 			beanListVersionNo,
 			orderNo,
+			cmd.LogisticsCompanyID,
+			cmd.LogisticsProductID,
+			cmd.PaymentGoodsAmount,
+			cmd.PaymentShippingAmount,
+			cmd.PaymentVoucherAssetID,
 		).Scan(&orderID)
 		if err != nil {
 			return salesapp.SaveOrderResult{}, err
@@ -1337,16 +1542,16 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		itemListType := orderbeans.ListTypeForProductKind(it.productKind, retailOrder)
 		itemPublicationID := selectedOrderBeanListPublicationID(cmd, itemListType)
 		if !it.priceOverride && productID > 0 && it.unitPrice <= 0 && it.specG > 0 && it.units > 0 {
-			publishedPrice, err := orderbeans.ResolvePublishedUnitPriceForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, productID, itemListType, itemPublicationID, int64(it.specG), int64(it.units), it.salesUnit, it.unitBagCount)
+			publishedPricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, productID, itemListType, itemPublicationID, int64(it.specG), int64(it.units), it.salesUnit, it.unitBagCount)
 			if err != nil {
 				return salesapp.SaveOrderResult{}, err
 			}
-			if publishedPrice > 0 {
-				it.unitPrice = publishedPrice
+			if publishedPricing.UnitPrice > 0 {
+				it.unitPrice = publishedPricing.UnitPrice
 				if it.productKind == "drip_bag" {
-					it.baseLineTotal = publishedPrice * float64(it.units)
+					it.baseLineTotal = publishedPricing.UnitPrice * float64(it.units)
 				} else {
-					it.baseLineTotal = wholesaleLineTotalFromDisplayUnit(publishedPrice, it.specG, it.units)
+					it.baseLineTotal = wholesaleLineTotalFromPriceUnit(publishedPricing.UnitPrice, it.specG, it.units, publishedPricing.UnitG)
 				}
 				if it.lineTotal <= 0 {
 					it.lineTotal = it.baseLineTotal
@@ -1458,6 +1663,43 @@ func (r Repository) resolveOrderBeanListPublicationTx(ctx context.Context, tx pg
 		return 0, "", nil
 	}
 	return requestedID, version, nil
+}
+
+type requiredOrderCustomerProfile struct {
+	customerType string
+	sourceID     int64
+	orderTypeID  int64
+}
+
+func (r Repository) requiredOrderCustomerProfileTx(ctx context.Context, tx pgx.Tx, customerID int64) (requiredOrderCustomerProfile, error) {
+	var profile requiredOrderCustomerProfile
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(customer_type,''), COALESCE(default_source_id,0), COALESCE(default_order_type_id,0)
+		FROM %s.customers
+		WHERE id=$1 AND active=true
+	`, r.schema), customerID).Scan(&profile.customerType, &profile.sourceID, &profile.orderTypeID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return requiredOrderCustomerProfile{}, fmt.Errorf("customer required")
+		}
+		return requiredOrderCustomerProfile{}, err
+	}
+	missing := make([]string, 0, 3)
+	switch strings.TrimSpace(profile.customerType) {
+	case "retail", "ecommerce", "wholesale", "channel":
+	default:
+		missing = append(missing, "客户类型")
+	}
+	if profile.sourceID <= 0 {
+		missing = append(missing, "来源")
+	}
+	if profile.orderTypeID <= 0 {
+		missing = append(missing, "订单类型")
+	}
+	if len(missing) > 0 {
+		return requiredOrderCustomerProfile{}, fmt.Errorf("客户资料缺少%s，请先在客户资料维护", strings.Join(missing, "、"))
+	}
+	return profile, nil
 }
 
 func relationExistsTx(ctx context.Context, tx pgx.Tx, relation string) bool {
@@ -1756,6 +1998,13 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if _, err := time.Parse("2006-01-02", orderDate); err != nil {
 		return fmt.Errorf("invalid order_date")
 	}
+	documentDate := strings.TrimSpace(req.DocumentDate)
+	if documentDate == "" {
+		documentDate = orderDate
+	}
+	if _, err := time.Parse("2006-01-02", documentDate); err != nil {
+		return fmt.Errorf("invalid document_date")
+	}
 	if req.CustomerID <= 0 {
 		return fmt.Errorf("customer required")
 	}
@@ -1767,6 +2016,14 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	disc, err := parseFee(req.DiscountAmount)
 	if err != nil {
 		return fmt.Errorf("invalid discount_amount")
+	}
+	paymentGoodsAmount, err := parseFee(req.PaymentGoodsAmount)
+	if err != nil {
+		return fmt.Errorf("invalid payment_goods_amount")
+	}
+	paymentShippingAmount, err := parseFee(req.PaymentShippingAmount)
+	if err != nil {
+		return fmt.Errorf("invalid payment_shipping_amount")
 	}
 	round := strings.TrimSpace(req.RoundToInt) != ""
 
@@ -1860,34 +2117,47 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	if err != nil {
 		return err
 	}
+	if err := validateOrderFulfillmentRequirementsTx(ctx, tx, schema, req.PayStatusID, req.ShipStatusID, req.LogisticsCompanyID, req.LogisticsProductID, paymentGoodsAmount, paymentShippingAmount, req.PaymentVoucherAssetID); err != nil {
+		return err
+	}
+	shipTrackingNo := salesapp.TrackingNumbersSummary(salesapp.NormalizeTrackingNumbers(req.ShipTrackingNo))
 	q := fmt.Sprintf(`
 		UPDATE %s.orders
-		SET order_date=$2,
-			customer_id=$3,
-			source_id=$4,
-			order_type_id=$5,
-			pay_status_id=$6,
-			payment_method=$7,
-			ship_status_id=$8,
-			notes=$9,
-			total_amount=$10,
-			shipping_amount=$11,
-			discount_amount=$12,
-			round_to_int=$13,
-			rounding_amount=$14,
-			grand_total=$15,
-			express_fee=$16,
-			outsource_material_fee=$17,
-			outsource_roast_fee=$18,
-			outsource_packaging_fee=$19,
-			outsource_manual_fee=$20,
-			outsource_tax_fee=$21,
-			outsource_other_fee=$22,
-			outsource_total_fee=$23
+		SET document_date=$2,
+			order_date=$3,
+			customer_id=$4,
+			source_id=$5,
+			order_type_id=$6,
+			pay_status_id=$7,
+			payment_method=$8,
+			ship_status_id=$9,
+			notes=$10,
+			total_amount=$11,
+			shipping_amount=$12,
+			discount_amount=$13,
+			round_to_int=$14,
+			rounding_amount=$15,
+			grand_total=$16,
+			express_fee=$17,
+			outsource_material_fee=$18,
+			outsource_roast_fee=$19,
+			outsource_packaging_fee=$20,
+			outsource_manual_fee=$21,
+			outsource_tax_fee=$22,
+			outsource_other_fee=$23,
+			outsource_total_fee=$24,
+			ship_method=$25,
+			ship_tracking_no=$26,
+			logistics_company_id=$27,
+			logistics_product_id=$28,
+			payment_goods_amount=$29,
+			payment_shipping_amount=$30,
+			payment_voucher_asset_id=$31
 		WHERE id=$1
 	`, schema)
 	if _, err := tx.Exec(ctx, q,
 		id,
+		documentDate,
 		orderDate,
 		req.CustomerID,
 		nullInt(req.SourceID),
@@ -1910,7 +2180,17 @@ func updateOrderHeader(ctx context.Context, pool *pgxpool.Pool, schema string, i
 		outsourceFees[4],
 		outsourceFees[5],
 		outsourceTotal,
+		nullText(req.ShipMethod),
+		nullText(shipTrackingNo),
+		req.LogisticsCompanyID,
+		req.LogisticsProductID,
+		paymentGoodsAmount,
+		paymentShippingAmount,
+		req.PaymentVoucherAssetID,
 	); err != nil {
+		return err
+	}
+	if _, err := replaceOrderTrackingNumbersTx(ctx, tx, schema, id, shipTrackingNo, "order_header", req.Actor); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

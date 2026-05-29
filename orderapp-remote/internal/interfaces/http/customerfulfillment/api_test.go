@@ -75,6 +75,10 @@ func TestCustomerOptionsAPIReturnsBoundWholesaleCustomersForPicker(t *testing.T)
 		externalUsersByCustomer: map[int64][]app.CustomerExternalUser{
 			147: {{CustomerID: 147, EmployeeID: 8, Phone: "13800138001", HasPassword: true, LoginEnabled: true, BindingStatus: "active"}},
 		},
+		erpWorkbenchAvailableByCustomer: map[int64]bool{
+			147: true,
+			149: false,
+		},
 	}
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Customers: customers})
@@ -101,7 +105,42 @@ func TestCustomerOptionsAPIReturnsBoundWholesaleCustomersForPicker(t *testing.T)
 	}
 }
 
-func TestCustomerOptionsAPIDoesNotRequireWorkbenchTemplate(t *testing.T) {
+func TestCustomerOptionsAPIUsesPortalCapabilityInsteadOfWholesaleType(t *testing.T) {
+	customers := &fakeCustomerDirectory{
+		result: customerapp.ListResult{Rows: []customerapp.CustomerRow{
+			{ID: 301, Name: "渠道代发客户", CustomerType: "channel", Active: true},
+			{ID: 302, Name: "未开通工作台客户", CustomerType: "wholesale", Active: true},
+			{ID: 303, Name: "停用渠道客户", CustomerType: "channel", Active: false},
+		}},
+	}
+	svc := &fakeCustomerFulfillmentService{
+		erpWorkbenchAvailableByCustomer: map[int64]bool{
+			301: true,
+			302: false,
+			303: true,
+		},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Customers: customers})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/customers?limit=80", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("customer options status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "渠道代发客户") {
+		t.Fatalf("customer options should include channel customer with portal workbench capability: %s", rec.Body.String())
+	}
+	for _, unwanted := range []string{"未开通工作台客户", "停用渠道客户"} {
+		if strings.Contains(rec.Body.String(), unwanted) {
+			t.Fatalf("customer options should hide %s: %s", unwanted, rec.Body.String())
+		}
+	}
+}
+
+func TestCustomerOptionsAPIRequiresPortalWorkbenchCapability(t *testing.T) {
 	customers := &fakeCustomerDirectory{
 		result: customerapp.ListResult{Rows: []customerapp.CustomerRow{
 			{ID: 201, Name: "无工作台模板客户", CustomerType: "wholesale", Active: true},
@@ -128,15 +167,15 @@ func TestCustomerOptionsAPIDoesNotRequireWorkbenchTemplate(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("customer options status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "无工作台模板客户") {
-		t.Fatalf("customer options must keep customer with valid external user even without workbench template: %s", rec.Body.String())
+	if strings.Contains(rec.Body.String(), "无工作台模板客户") {
+		t.Fatalf("customer options must hide customer without portal workbench capability: %s", rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), "代加工工作台客户") {
 		t.Fatalf("customer options must keep workbench customer: %s", rec.Body.String())
 	}
 }
 
-func TestCustomerOptionsAPISkipsLegacyBindingWithoutLoginOrPassword(t *testing.T) {
+func TestCustomerOptionsAPISkipsCustomersWithoutPortalCapability(t *testing.T) {
 	customers := &fakeCustomerDirectory{
 		result: customerapp.ListResult{Rows: []customerapp.CustomerRow{
 			{ID: 203, Name: "无密码客户", CustomerType: "wholesale", Active: true},
@@ -147,6 +186,10 @@ func TestCustomerOptionsAPISkipsLegacyBindingWithoutLoginOrPassword(t *testing.T
 		externalUsersByCustomer: map[int64][]app.CustomerExternalUser{
 			203: {{CustomerID: 203, EmployeeID: 33, Phone: "13800138033", HasPassword: false, LoginEnabled: true, BindingStatus: "active"}},
 			204: {{CustomerID: 204, EmployeeID: 34, Phone: "13800138034", HasPassword: true, LoginEnabled: false, BindingStatus: "active"}},
+		},
+		erpWorkbenchAvailableByCustomer: map[int64]bool{
+			203: false,
+			204: false,
 		},
 	}
 	e := echo.New()
@@ -161,12 +204,12 @@ func TestCustomerOptionsAPISkipsLegacyBindingWithoutLoginOrPassword(t *testing.T
 	}
 	for _, unwanted := range []string{"无密码客户", "禁用登录客户"} {
 		if strings.Contains(rec.Body.String(), unwanted) {
-			t.Fatalf("customer options should skip weak external-user customer %s: %s", unwanted, rec.Body.String())
+			t.Fatalf("customer options should skip non-capable portal customer %s: %s", unwanted, rec.Body.String())
 		}
 	}
 }
 
-func TestCustomerOptionsAPISkipsInactiveExternalUserBinding(t *testing.T) {
+func TestCustomerOptionsAPISkipsInactivePortalWorkbenchCustomer(t *testing.T) {
 	customers := &fakeCustomerDirectory{
 		result: customerapp.ListResult{Rows: []customerapp.CustomerRow{
 			{ID: 205, Name: "历史停用绑定客户", CustomerType: "wholesale", Active: true},
@@ -175,6 +218,9 @@ func TestCustomerOptionsAPISkipsInactiveExternalUserBinding(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{
 		externalUsersByCustomer: map[int64][]app.CustomerExternalUser{
 			205: {{CustomerID: 205, EmployeeID: 35, Phone: "13800138035", HasPassword: true, LoginEnabled: true, BindingStatus: "inactive"}},
+		},
+		erpWorkbenchAvailableByCustomer: map[int64]bool{
+			205: false,
 		},
 	}
 	e := echo.New()
@@ -188,7 +234,7 @@ func TestCustomerOptionsAPISkipsInactiveExternalUserBinding(t *testing.T) {
 		t.Fatalf("customer options status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	if strings.Contains(rec.Body.String(), "历史停用绑定客户") {
-		t.Fatalf("customer options should skip inactive external-user binding customer: %s", rec.Body.String())
+		t.Fatalf("customer options should skip inactive portal workbench customer: %s", rec.Body.String())
 	}
 }
 

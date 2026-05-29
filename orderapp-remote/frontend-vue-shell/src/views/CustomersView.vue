@@ -19,7 +19,7 @@
           <span>客户类型</span>
           <select v-model="customerTypeFilter">
             <option value="">全部类型</option>
-            <option v-for="type in customerTypes" :key="`filter-${type}`" :value="type">{{ customerTypeLabel(type) }}</option>
+            <option v-for="item in customerTypeOptionsForSelect" :key="item.value" :value="item.value">{{ item.label }}</option>
           </select>
         </label>
         <label>
@@ -52,11 +52,11 @@
         </label>
         <label>
           <span>客户类型</span>
-          <div class="inline-picker">
-            <select v-model="form.customer_type">
-              <option v-for="type in customerTypes" :key="`form-${type}`" :value="type">{{ customerTypeLabel(type) }}</option>
+          <div class="select-with-add">
+            <select v-model="form.customer_type" required>
+              <option v-for="item in customerTypeOptionsForSelect" :key="item.value" :value="item.value">{{ item.label }}</option>
             </select>
-            <button class="secondary icon-button" type="button" title="新增客户类型" @click="addCustomerType">+</button>
+            <button class="icon-button" type="button" title="新增客户类型" aria-label="新增客户类型" @click="createCustomerTypeOption">+</button>
           </div>
         </label>
         <label>
@@ -73,20 +73,25 @@
         </label>
         <label>
           <span>来源</span>
-          <select v-model.number="form.default_source_id">
-            <option :value="0">未设置</option>
+          <select v-model.number="form.default_source_id" required>
             <option v-for="item in sources" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </label>
         <label>
           <span>订单类型</span>
-          <div class="inline-picker">
-            <select v-model.number="form.default_order_type_id">
-              <option :value="0">未设置</option>
+          <div class="select-with-add">
+            <select v-model.number="form.default_order_type_id" required>
               <option v-for="item in orderTypes" :key="item.id" :value="item.id">{{ item.name }}</option>
             </select>
-            <button class="secondary icon-button" type="button" title="新增订单类型" @click="addOrderType">+</button>
+            <button class="icon-button" type="button" title="新增订单类型" aria-label="新增订单类型" @click="createOrderTypeOption">+</button>
           </div>
+        </label>
+        <label>
+          <span>负责人</span>
+          <select v-model.number="form.responsible_employee_id">
+            <option :value="0">选择员工</option>
+            <option v-for="employee in employees" :key="employee.id" :value="employee.id">{{ employee.name }}</option>
+          </select>
         </label>
         <label class="wide">
           <span>地址</span>
@@ -165,6 +170,8 @@
               <th>地址</th>
               <th>来源</th>
               <th>订单类型</th>
+              <th>负责人</th>
+              <th>门户/工作台</th>
               <th>状态</th>
               <th class="sortable" @click="setSort('updated')">
                 更新时间
@@ -180,18 +187,20 @@
               <td>
                 <button class="name-button" type="button" @click="openCustomerDrawer(row.id)">{{ row.name }}</button>
               </td>
-              <td>{{ customerTypeLabel(row.customer_type) }}</td>
+              <td>{{ displayCustomerTypeLabel(row.customer_type) }}</td>
               <td>{{ row.company_name || row.name }}</td>
               <td>{{ row.company_phone || '' }}</td>
               <td>{{ row.contact || '' }}</td>
               <td class="address">{{ row.address || '' }}</td>
               <td>{{ optionName(sources, row.default_source_id) }}</td>
               <td>{{ optionName(orderTypes, row.default_order_type_id) }}</td>
+              <td>{{ row.responsible_employee_name || employeeName(row.responsible_employee_id) }}</td>
+              <td>{{ row.portal_enabled ? '已开通' : '未开通' }}</td>
               <td>{{ row.active ? '启用' : '停用' }}</td>
               <td>{{ row.updated }}</td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="10" class="muted">暂无客户</td>
+              <td colspan="12" class="muted">暂无客户</td>
             </tr>
           </tbody>
         </table>
@@ -208,17 +217,19 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import { parseRecipientText } from '../lib/customer-recipient'
+import { customerTypeLabel, customerTypeOptions, mergeCustomerTypeOptions, normalizeCustomerType, validCustomerType } from '../lib/customer-types'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
 
 const rows = ref([])
 const sources = ref([])
 const orderTypes = ref([])
-const customerTypes = ref(['retail', 'ecommerce', 'wholesale', 'channel'])
+const customerTypeOptionsForSelect = ref(mergeCustomerTypeOptions(customerTypeOptions))
+const employees = ref([])
 const q = ref('')
 const page = ref(1)
 const pageSize = ref(10)
@@ -258,6 +269,7 @@ function emptyForm() {
     address: '',
     default_source_id: 0,
     default_order_type_id: 0,
+    responsible_employee_id: 0,
     active: true,
     portal_enabled: false,
   }
@@ -266,17 +278,17 @@ function emptyForm() {
 function assignForm(data) {
   Object.assign(form, {
     name: data?.name || '',
-    customer_type: normalizeCustomerType(data?.customer_type),
+    customer_type: normalizeCustomerType(data?.customer_type, customerTypeOptionsForSelect.value),
     company_name: data?.company_name || '',
     company_phone: data?.company_phone || '',
     contact: data?.contact || '',
     address: data?.address || '',
     default_source_id: Number(data?.default_source_id || 0),
     default_order_type_id: Number(data?.default_order_type_id || 0),
+    responsible_employee_id: Number(data?.responsible_employee_id || 0),
     active: data?.active !== false,
     portal_enabled: data?.portal_enabled === true,
   })
-  ensureCustomerTypeOption(form.customer_type)
 }
 
 function assignDashboard(data = {}) {
@@ -292,6 +304,19 @@ function assignDashboard(data = {}) {
 
 function optionName(options, id) {
   const item = options.find((x) => Number(x.id) === Number(id))
+  return item?.name || ''
+}
+
+function assignCustomerTypeOptions(data = {}) {
+  customerTypeOptionsForSelect.value = mergeCustomerTypeOptions(data.customer_type_options || customerTypeOptionsForSelect.value)
+}
+
+function displayCustomerTypeLabel(value) {
+  return customerTypeLabel(value, customerTypeOptionsForSelect.value)
+}
+
+function employeeName(id) {
+  const item = employees.value.find((x) => Number(x.id) === Number(id))
   return item?.name || ''
 }
 
@@ -311,26 +336,6 @@ function defaultOrderTypeID() {
 function applyFormDefaults() {
   if (!form.default_source_id && sources.value.length) form.default_source_id = defaultSourceID()
   if (!form.default_order_type_id && orderTypes.value.length) form.default_order_type_id = defaultOrderTypeID()
-}
-
-function normalizeCustomerType(value) {
-  const next = String(value || '').trim()
-  return next || 'retail'
-}
-
-function customerTypeLabel(value) {
-  const normalized = normalizeCustomerType(value)
-  return {
-    retail: '零售客户',
-    ecommerce: '电商客户',
-    wholesale: '批发客户',
-    channel: '渠道客户',
-  }[normalized] || normalized
-}
-
-function ensureCustomerTypeOption(value) {
-  const next = normalizeCustomerType(value)
-  if (next && !customerTypes.value.includes(next)) customerTypes.value.push(next)
 }
 
 function assetKindLabel(kind) {
@@ -357,7 +362,8 @@ function applyUrl() {
 }
 
 function normalizeListCustomerType(value) {
-  return String(value || '').trim()
+  const v = String(value || '').trim().toLowerCase()
+  return v
 }
 
 function normalizeActiveFilter(value) {
@@ -422,10 +428,11 @@ async function load() {
     url.searchParams.set('page', String(page.value))
     url.searchParams.set('limit', String(pageSize.value))
     const data = await apiGet(url)
+    assignCustomerTypeOptions(data)
     rows.value = data.rows || []
     sources.value = data.sources || []
     orderTypes.value = data.order_types || []
-    customerTypes.value = mergeCustomerTypes(data.customer_types || [], rows.value.map((row) => row.customer_type))
+    employees.value = data.employees || []
     if (customerDrawerOpen.value && !editingId.value) applyFormDefaults()
     const pagination = paginationFromApi(data)
     totalCustomers.value = pagination.total
@@ -482,10 +489,11 @@ async function openCustomerDrawer(id) {
     const data = await apiGet(`/api/customers/${id}`)
     customerDrawerOpen.value = true
     editingId.value = Number(data.customer.id)
-    assignForm(data.customer)
+    assignCustomerTypeOptions(data)
     sources.value = data.sources || sources.value
     orderTypes.value = data.order_types || orderTypes.value
-    customerTypes.value = mergeCustomerTypes(data.customer_types || [], [data.customer?.customer_type])
+    employees.value = data.employees || employees.value
+    assignForm(data.customer)
     assets.value = data.assets || []
     assignDashboard(data.dashboard)
     customerPaste.value = ''
@@ -515,10 +523,14 @@ async function saveCustomer() {
   ok.value = ''
   try {
     if (!form.name && form.contact) form.name = form.contact
+    if (!validCustomerType(form.customer_type, customerTypeOptionsForSelect.value)) throw new Error('请选择客户类型')
+    if (!Number(form.default_source_id || 0)) throw new Error('请选择客户来源')
+    if (!Number(form.default_order_type_id || 0)) throw new Error('请选择客户订单类型')
+    if (!Number(form.responsible_employee_id || 0)) throw new Error('请选择客户负责人')
     const body = {
       name: form.name,
       raw_name: '',
-      customer_type: normalizeCustomerType(form.customer_type),
+      customer_type: normalizeCustomerType(form.customer_type, customerTypeOptionsForSelect.value),
       company_name: form.company_name,
       company_address: '',
       company_phone: form.company_phone,
@@ -527,6 +539,7 @@ async function saveCustomer() {
       address: form.address,
       default_source_id: form.default_source_id || null,
       default_order_type_id: form.default_order_type_id || null,
+      responsible_employee_id: form.responsible_employee_id || null,
       active: !!form.active,
       portal_enabled: !!form.portal_enabled,
     }
@@ -549,37 +562,41 @@ async function saveCustomer() {
   }
 }
 
-function mergeCustomerTypes(...groups) {
-  const out = []
-  for (const value of ['retail', 'ecommerce', 'wholesale', 'channel', ...groups.flat()]) {
-    const next = normalizeCustomerType(value)
-    if (next && !out.includes(next)) out.push(next)
+async function createCustomerTypeOption() {
+  const label = String(window.prompt('新增客户类型') || '').trim()
+  if (!label) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const option = await apiSend('/api/customers/customer-types', {
+      body: { label },
+    })
+    customerTypeOptionsForSelect.value = mergeCustomerTypeOptions([...customerTypeOptionsForSelect.value, option])
+    form.customer_type = option.value
+    ok.value = `已新增客户类型：${option.label || label}`
+  } catch (err) {
+    error.value = err.message || '新增客户类型失败'
+  } finally {
+    loading.value = false
   }
-  return out
 }
 
-function addCustomerType() {
-  const name = window.prompt('新增客户类型')
-  const next = normalizeCustomerType(name)
-  if (!next) return
-  ensureCustomerTypeOption(next)
-  form.customer_type = next
-  customerTypeFilter.value = ''
-}
-
-async function addOrderType() {
+async function createOrderTypeOption() {
   const name = String(window.prompt('新增订单类型') || '').trim()
   if (!name) return
   loading.value = true
   error.value = ''
   ok.value = ''
   try {
-    const row = await apiSend('/api/customers/order-types', { body: { name } })
-    if (!orderTypes.value.some((item) => Number(item.id) === Number(row.id))) {
-      orderTypes.value = [...orderTypes.value, row]
+    const option = await apiSend('/api/customers/order-types', {
+      body: { name },
+    })
+    if (!orderTypes.value.some((item) => Number(item.id) === Number(option.id))) {
+      orderTypes.value = [...orderTypes.value, option]
     }
-    form.default_order_type_id = Number(row.id || 0)
-    ok.value = '已新增订单类型'
+    form.default_order_type_id = Number(option.id || 0)
+    ok.value = `已新增订单类型：${option.name || name}`
   } catch (err) {
     error.value = err.message || '新增订单类型失败'
   } finally {
@@ -655,7 +672,8 @@ onMounted(async () => {
 .customer-drawer { width: min(760px, 100vw); height: 100vh; overflow: auto; background: #fff; padding: 18px; box-shadow: -18px 0 38px rgba(20, 20, 20, .18); }
 .drawer-head { position: sticky; top: 0; z-index: 2; justify-content: space-between; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid #eee8df; background: #fff; }
 .customer-drawer input, .customer-drawer select, .customer-drawer textarea { width: 100%; }
-.inline-picker { display: grid; grid-template-columns: minmax(0, 1fr) 38px; gap: 8px; align-items: center; }
+.select-with-add { display: grid; grid-template-columns: minmax(0, 1fr) 38px; gap: 6px; align-items: center; }
+.icon-button { width: 38px; padding: 0; font-size: 18px; line-height: 1; font-weight: 700; }
 h2, h3 { margin: 0; font-size: 20px; }
 h3 { font-size: 18px; }
 label span, .stats span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
@@ -664,7 +682,6 @@ input, select { height: 38px; }
 textarea { min-height: 78px; resize: vertical; }
 button { height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
-.icon-button { width: 38px; padding: 0; font-weight: 700; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
 .text-button { height: 30px; border: 0; background: transparent; color: #1f4f82; padding: 0; }

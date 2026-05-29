@@ -38,7 +38,7 @@ func TestMiniappAccountingBillsEvidenceExists(t *testing.T) {
 	}
 
 	for _, path := range []string{
-		filepath.Join("..", "OP_MANUAL_CUSTOMER_PORTAL.md"),
+		filepath.Join("docs", "OP_MANUAL_CUSTOMER_PORTAL.md"),
 		filepath.Join("docs", "OP_MANUAL_CUSTOMER_PORTAL.md"),
 	} {
 		body := string(readOrderAppFileForTest(t, path))

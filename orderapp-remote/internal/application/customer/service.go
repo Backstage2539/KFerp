@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -11,36 +12,40 @@ const (
 	CustomerTypeRetail    = "retail"
 	CustomerTypeEcommerce = "ecommerce"
 	CustomerTypeWholesale = "wholesale"
+	CustomerTypeChannel   = "channel"
 )
 
 type UpsertCommand struct {
-	Name               string
-	RawName            string
-	CustomerType       string
-	CompanyName        string
-	CompanyAddress     string
-	CompanyPhone       string
-	Contact            string
-	Phone              string
-	Address            string
-	DefaultSourceID    string
-	DefaultOrderTypeID string
-	Active             string
-	PortalEnabled      *bool
+	Name                  string
+	RawName               string
+	CustomerType          string
+	CompanyName           string
+	CompanyAddress        string
+	CompanyPhone          string
+	Contact               string
+	Phone                 string
+	Address               string
+	DefaultSourceID       string
+	DefaultOrderTypeID    string
+	ResponsibleEmployeeID string
+	Active                string
+	PortalEnabled         *bool
+	CapabilityTemplateKey string
 }
 
 type InlineUpdateCommand struct {
-	Name               string
-	CustomerType       string
-	CompanyName        string
-	CompanyAddress     string
-	CompanyPhone       string
-	Contact            string
-	Phone              string
-	Address            string
-	DefaultSourceID    string
-	DefaultOrderTypeID string
-	Active             string
+	Name                  string
+	CustomerType          string
+	CompanyName           string
+	CompanyAddress        string
+	CompanyPhone          string
+	Contact               string
+	Phone                 string
+	Address               string
+	DefaultSourceID       string
+	DefaultOrderTypeID    string
+	ResponsibleEmployeeID string
+	Active                string
 }
 
 type Prefs struct {
@@ -85,46 +90,53 @@ type ListQuery struct {
 }
 
 type ListResult struct {
-	Rows       []CustomerRow
-	Sources    []Option
-	OrderTypes []Option
-	Types      []string
-	Total      int
-	HasNext    bool
+	Rows                []CustomerRow
+	Sources             []Option
+	OrderTypes          []Option
+	Employees           []Option
+	CustomerTypeOptions []CustomerTypeOption
+	Total               int
+	HasNext             bool
 }
 
 type CustomerRow struct {
-	ID                 int64   `json:"id"`
-	Name               string  `json:"name"`
-	CustomerType       string  `json:"customer_type"`
-	CompanyName        string  `json:"company_name"`
-	CompanyAddress     string  `json:"company_address"`
-	CompanyPhone       string  `json:"company_phone"`
-	Contact            *string `json:"contact"`
-	Phone              *string `json:"phone"`
-	Address            *string `json:"address"`
-	Active             bool    `json:"active"`
-	DefaultSourceID    *int    `json:"default_source_id"`
-	DefaultOrderTypeID *int    `json:"default_order_type_id"`
-	PortalEnabled      bool    `json:"portal_enabled"`
-	Updated            string  `json:"updated"`
+	ID                      int64   `json:"id"`
+	Name                    string  `json:"name"`
+	CustomerType            string  `json:"customer_type"`
+	CompanyName             string  `json:"company_name"`
+	CompanyAddress          string  `json:"company_address"`
+	CompanyPhone            string  `json:"company_phone"`
+	Contact                 *string `json:"contact"`
+	Phone                   *string `json:"phone"`
+	Address                 *string `json:"address"`
+	Active                  bool    `json:"active"`
+	DefaultSourceID         *int    `json:"default_source_id"`
+	DefaultOrderTypeID      *int    `json:"default_order_type_id"`
+	ResponsibleEmployeeID   *int    `json:"responsible_employee_id"`
+	ResponsibleEmployeeName string  `json:"responsible_employee_name"`
+	PortalEnabled           bool    `json:"portal_enabled"`
+	CapabilityTemplateKey   string  `json:"capability_template_key"`
+	Updated                 string  `json:"updated"`
 }
 
 type CustomerEditData struct {
-	ID                 int64
-	Name               string
-	RawName            string
-	CustomerType       string
-	CompanyName        string
-	CompanyAddress     string
-	CompanyPhone       string
-	Contact            string
-	Phone              string
-	Address            string
-	DefaultSourceID    string
-	DefaultOrderTypeID string
-	Active             bool
-	PortalEnabled      bool
+	ID                      int64
+	Name                    string
+	RawName                 string
+	CustomerType            string
+	CompanyName             string
+	CompanyAddress          string
+	CompanyPhone            string
+	Contact                 string
+	Phone                   string
+	Address                 string
+	DefaultSourceID         string
+	DefaultOrderTypeID      string
+	ResponsibleEmployeeID   string
+	ResponsibleEmployeeName string
+	PortalEnabled           bool
+	CapabilityTemplateKey   string
+	Active                  bool
 }
 
 type CustomerAsset struct {
@@ -152,13 +164,28 @@ type Option struct {
 	Name string
 }
 
+type CustomerTypeOption struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+type CreateCustomerTypeCommand struct {
+	Label string
+	Value string
+}
+
+type CreateOrderTypeCommand struct {
+	Name string
+}
+
 type EditorData struct {
-	Customer   CustomerEditData
-	Sources    []Option
-	OrderTypes []Option
-	Types      []string
-	Assets     []CustomerAsset
-	Dashboard  CustomerDashboard
+	Customer            CustomerEditData
+	Sources             []Option
+	OrderTypes          []Option
+	Employees           []Option
+	CustomerTypeOptions []CustomerTypeOption
+	Assets              []CustomerAsset
+	Dashboard           CustomerDashboard
 }
 
 type AssetObject struct {
@@ -176,7 +203,9 @@ type Repository interface {
 	DeleteAsset(ctx context.Context, actor string, assetID int64) (DeleteAssetResult, error)
 	InlineUpdate(ctx context.Context, actor string, id int64, cmd InlineUpdateCommand) error
 	Delete(ctx context.Context, actor string, id int64) error
-	CreateOrderType(ctx context.Context, actor string, name string) (Option, error)
+	ListCustomerTypeOptions(ctx context.Context) ([]CustomerTypeOption, error)
+	CreateCustomerTypeOption(ctx context.Context, actor string, cmd CreateCustomerTypeCommand) (CustomerTypeOption, error)
+	CreateOrderTypeOption(ctx context.Context, actor string, cmd CreateOrderTypeCommand) (Option, error)
 }
 
 type Service struct {
@@ -188,7 +217,11 @@ func NewService(repo Repository) *Service {
 }
 
 func (s *Service) Upsert(ctx context.Context, actor string, id *int64, cmd UpsertCommand) (int64, error) {
+	if err := validateRequiredCustomerProfileDefaults(cmd.CustomerType, cmd.DefaultSourceID, cmd.DefaultOrderTypeID); err != nil {
+		return 0, err
+	}
 	cmd.CustomerType = NormalizeCustomerType(cmd.CustomerType)
+	cmd.CapabilityTemplateKey = ""
 	return s.repo.Upsert(ctx, actor, id, cmd)
 }
 
@@ -229,6 +262,9 @@ func (s *Service) DeleteAsset(ctx context.Context, actor string, assetID int64) 
 }
 
 func (s *Service) InlineUpdate(ctx context.Context, actor string, id int64, cmd InlineUpdateCommand) error {
+	if err := validateRequiredCustomerProfileDefaults(cmd.CustomerType, cmd.DefaultSourceID, cmd.DefaultOrderTypeID); err != nil {
+		return err
+	}
 	cmd.CustomerType = NormalizeCustomerType(cmd.CustomerType)
 	return s.repo.InlineUpdate(ctx, actor, id, cmd)
 }
@@ -237,12 +273,30 @@ func (s *Service) Delete(ctx context.Context, actor string, id int64) error {
 	return s.repo.Delete(ctx, actor, id)
 }
 
-func (s *Service) CreateOrderType(ctx context.Context, actor string, name string) (Option, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
+func (s *Service) CreateCustomerTypeOption(ctx context.Context, actor string, cmd CreateCustomerTypeCommand) (CustomerTypeOption, error) {
+	cmd.Label = strings.TrimSpace(cmd.Label)
+	cmd.Value = strings.TrimSpace(cmd.Value)
+	if cmd.Label == "" {
+		return CustomerTypeOption{}, fmt.Errorf("label required")
+	}
+	return s.repo.CreateCustomerTypeOption(ctx, actor, cmd)
+}
+
+func (s *Service) CreateOrderTypeOption(ctx context.Context, actor string, cmd CreateOrderTypeCommand) (Option, error) {
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.Name == "" {
 		return Option{}, fmt.Errorf("name required")
 	}
-	return s.repo.CreateOrderType(ctx, actor, name)
+	return s.repo.CreateOrderTypeOption(ctx, actor, cmd)
+}
+
+func DefaultCustomerTypeOptions() []CustomerTypeOption {
+	return []CustomerTypeOption{
+		{Value: CustomerTypeRetail, Label: "零售客户"},
+		{Value: CustomerTypeEcommerce, Label: "电商客户"},
+		{Value: CustomerTypeWholesale, Label: "批发客户"},
+		{Value: CustomerTypeChannel, Label: "渠道客户"},
+	}
 }
 
 func NormalizeCustomerType(value string) string {
@@ -251,6 +305,32 @@ func NormalizeCustomerType(value string) string {
 		return CustomerTypeRetail
 	}
 	return value
+}
+
+func validRequiredCustomerType(value string) bool {
+	return strings.TrimSpace(value) != ""
+}
+
+func positiveIDString(value string) bool {
+	n, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	return err == nil && n > 0
+}
+
+func validateRequiredCustomerProfileDefaults(customerType, sourceID, orderTypeID string) error {
+	missing := make([]string, 0, 3)
+	if !validRequiredCustomerType(customerType) {
+		missing = append(missing, "客户类型")
+	}
+	if !positiveIDString(sourceID) {
+		missing = append(missing, "来源")
+	}
+	if !positiveIDString(orderTypeID) {
+		missing = append(missing, "订单类型")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("请维护客户资料：%s", strings.Join(missing, "、"))
+	}
+	return nil
 }
 
 func NormalizeCustomerTypeFilter(value string) string {

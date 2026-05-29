@@ -1824,10 +1824,10 @@ func (r *Repository) requireCustomerERPWorkbenchTemplateTx(ctx context.Context, 
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(capability_template_key,'')
 		FROM %s.customer_portal_profiles
-		WHERE customer_id=$1
+		WHERE customer_id=$1 AND enabled=true
 	`, r.schema), customerID).Scan(&templateKey); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
+			return customerportalapp.ErrCapabilityTemplateERPWorkbenchUnavailable
 		}
 		return err
 	}
@@ -1846,7 +1846,7 @@ func (r *Repository) grantCustomerTemplateRolesForEmployeeTx(ctx context.Context
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(capability_template_key,'')
 		FROM %s.customer_portal_profiles
-		WHERE customer_id=$1
+		WHERE customer_id=$1 AND enabled=true
 	`, r.schema), customerID).Scan(&templateKey); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -2120,10 +2120,10 @@ func (r *Repository) CustomerERPWorkbenchAvailable(ctx context.Context, customer
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(capability_template_key,'')
 		FROM %s.customer_portal_profiles
-		WHERE customer_id=$1
+		WHERE customer_id=$1 AND enabled=true
 	`, r.schema), customerID).Scan(&templateKey); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return true, nil
+			return false, nil
 		}
 		return false, err
 	}
@@ -2358,7 +2358,7 @@ func (r *Repository) customerCapabilityTemplateForCustomer(ctx context.Context, 
 	err := q.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(capability_template_key,'')
 		FROM %s.customer_portal_profiles
-		WHERE customer_id=$1
+		WHERE customer_id=$1 AND enabled=true
 	`, r.schema), customerID).Scan(&raw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return customerportalapp.CapabilityTemplate{}, false, nil
@@ -2423,7 +2423,7 @@ func (r *Repository) customerCapabilityTemplateForKey(ctx context.Context, q que
 
 func (r *Repository) customerERPWorkbenchAvailableForTemplateKey(ctx context.Context, q queryRower, templateKey string) (bool, error) {
 	if strings.TrimSpace(templateKey) == "" {
-		return true, nil
+		return false, nil
 	}
 	template, ok, err := r.customerCapabilityTemplateForKey(ctx, q, templateKey)
 	if err != nil {

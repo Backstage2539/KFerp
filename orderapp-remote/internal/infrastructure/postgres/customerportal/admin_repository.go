@@ -41,7 +41,7 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 		       eb.updated_by,
 		       eb.updated_at
 		FROM %s.customers c
-		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
+		JOIN %s.customer_portal_profiles p ON p.customer_id=c.id AND p.enabled=true
 		LEFT JOIN LATERAL (
 			SELECT b.employee_id,
 			       COALESCE(e.name,'') AS employee_name,
@@ -62,7 +62,6 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 			LIMIT 1
 		) eb ON true
 		WHERE c.active=true
-		  AND COALESCE(p.enabled,false)=true
 		  AND ($1='' OR c.name ILIKE '%%' || $1 || '%%' OR c.phone ILIKE '%%' || $1 || '%%' OR c.company_name ILIKE '%%' || $1 || '%%')
 		ORDER BY c.name, c.id
 		LIMIT $2
@@ -82,6 +81,7 @@ func (r Repository) ListPortalAdminCustomers(ctx context.Context, query customer
 		row.ERPBinding = nullableERPBinding(row.ID, employeeID, employeeName, employeePhone, role, status, updatedBy, updatedAt)
 		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
 		row.MiniappEntryMode = customerportalapp.NormalizeMiniappEntryMode(row.MiniappEntryMode)
+		row.Warehouses = r.portalCustomerWarehouses(ctx, row.ID)
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -290,6 +290,10 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 		}
 		return customerportalapp.PortalAdminDetail{}, err
 	}
+	oldProfile, err := portalProfileAuditSnapshotTx(ctx, tx, r.schema, cmd.CustomerID)
+	if err != nil {
+		return customerportalapp.PortalAdminDetail{}, err
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, default_sender_id, enabled, status, theme_key, miniapp_entry_mode, capability_template_key, updated_at, updated_by)
 		VALUES($1,$2,$3,$4,'active',$5,$6,$7,now(),$8)
@@ -333,11 +337,7 @@ func (r Repository) UpdatePortalVisibility(ctx context.Context, cmd customerport
 			return customerportalapp.PortalAdminDetail{}, err
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, strings.TrimSpace(cmd.UpdatedBy), "customer_portal_profile", &cmd.CustomerID, "update", postgresinfra.StrPtr("portal_config"), nil, postgresinfra.StrPtr(customerportalapp.NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey)), postgresinfra.AuditMeta{
-		"customer_id":             cmd.CustomerID,
-		"enabled":                 cmd.Enabled,
-		"capability_template_key": customerportalapp.NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey),
-	}); err != nil {
+	if err := auditPortalProfileVisibilityTx(ctx, tx, r.schema, cmd, oldProfile); err != nil {
 		return customerportalapp.PortalAdminDetail{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -429,11 +429,7 @@ func (r Repository) UpsertPortalERPBinding(ctx context.Context, cmd customerport
 		SELECT id
 		FROM %s.customers
 		WHERE id=$1 AND active=true
-		  AND EXISTS (
-		  	SELECT 1 FROM %s.customer_portal_profiles p
-		  	WHERE p.customer_id=%s.customers.id AND COALESCE(p.enabled,false)=true
-		  )
-	`, r.schema, r.schema, r.schema), cmd.CustomerID).Scan(&customerID); err != nil {
+	`, r.schema), cmd.CustomerID).Scan(&customerID); err != nil {
 		if err == pgx.ErrNoRows {
 			return customerportalapp.PortalAdminDetail{}, customerportalapp.ErrPortalCustomerNotFound
 		}
@@ -537,45 +533,6 @@ func (r Repository) grantTemplateERPRolesTx(ctx context.Context, tx pgx.Tx, cust
 	return nil
 }
 
-func capabilityEnabled(rows []customerportalapp.CapabilityOption, code string) bool {
-	for _, row := range rows {
-		if row.Code == code && row.Enabled {
-			return true
-		}
-	}
-	return false
-}
-
-func defaultProcessingWarehouseCode(customerID int64) string {
-	return fmt.Sprintf("cust_%d_processing", customerID)
-}
-
-func (r Repository) ensureProcessingWarehouseTx(ctx context.Context, tx pgx.Tx, code, customerName string) error {
-	var hasWarehouseTable bool
-	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.warehouses", r.schema)).Scan(&hasWarehouseTable); err != nil {
-		return err
-	}
-	if !hasWarehouseTable {
-		return nil
-	}
-	name := strings.TrimSpace(customerName)
-	if name == "" {
-		name = code
-	}
-	name += "-代加工仓"
-	_, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.warehouses(code,name,kind,parent_code,sort_order,is_default,active,description)
-		VALUES($1,$2,'customer_processing','finished_goods',60,false,true,'客户代加工成品专属仓')
-		ON CONFLICT(code) DO UPDATE SET
-			name=excluded.name,
-			kind=excluded.kind,
-			parent_code=excluded.parent_code,
-			active=true,
-			description=excluded.description
-	`, r.schema), code, name)
-	return err
-}
-
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		value = strings.TrimSpace(value)
@@ -584,6 +541,93 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+type portalProfileAuditSnapshot struct {
+	exists                bool
+	displayName           string
+	defaultSenderID       int64
+	enabled               bool
+	capabilityTemplateKey string
+}
+
+func portalProfileAuditSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64) (portalProfileAuditSnapshot, error) {
+	var row portalProfileAuditSnapshot
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(display_name,''),
+		       COALESCE(default_sender_id,0),
+		       COALESCE(enabled,false),
+		       COALESCE(capability_template_key,'')
+		FROM %s.customer_portal_profiles
+		WHERE customer_id=$1
+	`, schema), customerID).Scan(&row.displayName, &row.defaultSenderID, &row.enabled, &row.capabilityTemplateKey)
+	if err == pgx.ErrNoRows {
+		return row, nil
+	}
+	if err != nil {
+		return row, err
+	}
+	row.exists = true
+	return row, nil
+}
+
+func auditPortalProfileVisibilityTx(ctx context.Context, tx pgx.Tx, schema string, cmd customerportalapp.UpdatePortalVisibilityCommand, old portalProfileAuditSnapshot) error {
+	meta := postgresinfra.AuditMeta{"customer_id": cmd.CustomerID}
+	actor := strings.TrimSpace(cmd.UpdatedBy)
+	if err := auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "display_name", old.displayName, strings.TrimSpace(cmd.DisplayName), meta); err != nil {
+		return err
+	}
+	if err := auditPortalProfileIntField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "default_sender_id", old.defaultSenderID, cmd.DefaultSenderID, meta); err != nil {
+		return err
+	}
+	if err := auditPortalProfileBoolField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "enabled", old.enabled, cmd.Enabled, meta); err != nil {
+		return err
+	}
+	if err := auditPortalProfileTextField(ctx, tx, schema, actor, cmd.CustomerID, old.exists, "capability_template_key", old.capabilityTemplateKey, customerportalapp.NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey), meta); err != nil {
+		return err
+	}
+	return nil
+}
+
+func auditPortalProfileTextField(ctx context.Context, tx pgx.Tx, schema, actor string, customerID int64, oldExists bool, field, oldValue, newValue string, meta postgresinfra.AuditMeta) error {
+	oldValue = strings.TrimSpace(oldValue)
+	newValue = strings.TrimSpace(newValue)
+	if oldExists && oldValue == newValue {
+		return nil
+	}
+	if !oldExists && newValue == "" {
+		return nil
+	}
+	var oldPtr *string
+	if oldExists {
+		oldPtr = postgresinfra.StrPtr(oldValue)
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer_portal_profile", &customerID, "update", postgresinfra.StrPtr(field), oldPtr, postgresinfra.StrPtr(newValue), meta)
+}
+
+func auditPortalProfileBoolField(ctx context.Context, tx pgx.Tx, schema, actor string, customerID int64, oldExists bool, field string, oldValue, newValue bool, meta postgresinfra.AuditMeta) error {
+	if oldExists && oldValue == newValue {
+		return nil
+	}
+	var oldPtr *string
+	if oldExists {
+		oldPtr = postgresinfra.StrPtr(fmt.Sprintf("%t", oldValue))
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer_portal_profile", &customerID, "update", postgresinfra.StrPtr(field), oldPtr, postgresinfra.StrPtr(fmt.Sprintf("%t", newValue)), meta)
+}
+
+func auditPortalProfileIntField(ctx context.Context, tx pgx.Tx, schema, actor string, customerID int64, oldExists bool, field string, oldValue, newValue int64, meta postgresinfra.AuditMeta) error {
+	if oldExists && oldValue == newValue {
+		return nil
+	}
+	if !oldExists && newValue == 0 {
+		return nil
+	}
+	var oldPtr *string
+	if oldExists {
+		oldPtr = postgresinfra.StrPtr(fmt.Sprintf("%d", oldValue))
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer_portal_profile", &customerID, "update", postgresinfra.StrPtr(field), oldPtr, postgresinfra.StrPtr(fmt.Sprintf("%d", newValue)), meta)
 }
 
 func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (customerportalapp.PortalAdminCustomer, error) {
@@ -638,11 +682,39 @@ func (r Repository) portalAdminCustomer(ctx context.Context, customerID int64) (
 		row.ThemeKey = customerportalapp.NormalizePortalThemeKey(row.ThemeKey)
 		row.MiniappEntryMode = customerportalapp.NormalizeMiniappEntryMode(row.MiniappEntryMode)
 		row.ERPBinding = nullableERPBinding(row.ID, employeeID, employeeName, employeePhone, role, status, updatedBy, updatedAt)
+		row.Warehouses = r.portalCustomerWarehouses(ctx, row.ID)
 	}
 	if err == pgx.ErrNoRows {
 		return customerportalapp.PortalAdminCustomer{}, customerportalapp.ErrPortalCustomerNotFound
 	}
 	return row, err
+}
+
+func (r Repository) portalCustomerWarehouses(ctx context.Context, customerID int64) []customerportalapp.CustomerWarehouse {
+	if customerID <= 0 {
+		return nil
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT code,
+		       name,
+		       kind
+		FROM %s.warehouses
+		WHERE active=true AND customer_id=$1
+		ORDER BY sort_order, code
+	`, r.schema), customerID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := make([]customerportalapp.CustomerWarehouse, 0)
+	for rows.Next() {
+		var row customerportalapp.CustomerWarehouse
+		if err := rows.Scan(&row.Code, &row.Name, &row.Kind); err != nil {
+			return nil
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 func (r Repository) portalBeanListVersionOptions(ctx context.Context, customerID int64) []customerportalapp.BeanListVersionOption {

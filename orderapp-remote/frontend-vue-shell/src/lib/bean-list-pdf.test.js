@@ -5,9 +5,13 @@ import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
   buildBeanListPdfGroups,
   buildBeanListPdfTitle,
+  beanListPublicationPdfOptions,
   copyBeanListPublicationContentGroups,
   copyBeanListPublicationConfig,
+  defaultBeanListDraftVersion,
   filterBeanListItemsForScope,
+  nextBeanListVersion,
+  priceUnit,
   sanitizeBeanListPdfTheme,
   splitHighlightedText,
 } from './bean-list-pdf.js'
@@ -90,6 +94,39 @@ test('PDF bean-list helper defaults to V3.0.5 and keeps mobile print theme setti
   assert.equal(theme.backgroundImage, 'data:image/png;base64,abc')
 })
 
+test('PDF bean-list helper carries selected product special KV attributes into snapshot items', () => {
+  const groups = buildBeanListPdfGroups([{
+    product_id: 8801,
+    name: '速溶盒装',
+    commercial_bean_list: { code: '8.1', category: '8、速溶咖啡', display_name: '速溶盒装' },
+    product_attributes: [
+      { key: 'roast_level', label: '烘焙度', value: '中深烘' },
+      { key: 'caffeine', label: '咖啡因', value: '低因' },
+    ],
+    commercial_wholesale_tiers: [{ label: '10盒起', display_unit: '盒', price_per_unit: 15 }],
+  }], 'commercial')
+
+  assert.deepEqual(groups[0].items[0].productAttributes, [
+    { key: 'roast_level', label: '烘焙度', value: '中深烘' },
+    { key: 'caffeine', label: '咖啡因', value: '低因' },
+  ])
+  assert.deepEqual(groups[0].items[0].attributeLines, ['烘焙度：中深烘', '咖啡因：低因'])
+})
+
+test('PDF bean-list helper increments customer draft versions by the next 0.01-style suffix', () => {
+  assert.equal(nextBeanListVersion('V1'), 'V1.01')
+  assert.equal(nextBeanListVersion('V1.01'), 'V1.02')
+  assert.equal(nextBeanListVersion('V1.09'), 'V1.10')
+  assert.equal(nextBeanListVersion('V3.0.5'), 'V3.0.6')
+  assert.equal(nextBeanListVersion(''), DEFAULT_BEAN_LIST_PDF_VERSION)
+})
+
+test('PDF bean-list helper prefers current customer version before copied price source version', () => {
+  assert.equal(defaultBeanListDraftVersion([{ version: 'V1', status: 'published' }], { version: 'V9' }), 'V1.01')
+  assert.equal(defaultBeanListDraftVersion([{ version: 'V1.01', status: 'published' }], { version: 'V1' }), 'V1.02')
+  assert.equal(defaultBeanListDraftVersion([], { version: 'V1' }), 'V1.01')
+})
+
 test('PDF bean-list helper builds separate commercial and retail groups from Excel metadata', () => {
   const commercial = buildBeanListPdfGroups(rows, 'commercial')
   const retail = buildBeanListPdfGroups(rows, 'retail')
@@ -100,8 +137,8 @@ test('PDF bean-list helper builds separate commercial and retail groups from Exc
   assert.equal(retail.length, 2)
   assert.equal(retail[0].items[0].code, '3.2')
   assert.equal(retail[0].items[0].recommendedUse, '手冲/SOE/冷萃')
-  assert.equal(buildBeanListPdfTitle('commercial'), '棵凡咖啡批发豆单')
-  assert.equal(buildBeanListPdfTitle('retail'), '棵凡咖啡零售豆单')
+  assert.equal(buildBeanListPdfTitle('commercial'), '棵凡咖啡批发产品价格表')
+  assert.equal(buildBeanListPdfTitle('retail'), '棵凡咖啡零售产品价格表')
 })
 
 test('PDF bean-list helper builds a green bean list from template tiers and quality data', () => {
@@ -125,7 +162,7 @@ test('PDF bean-list helper builds a green bean list from template tiers and qual
     green_bean_sale_tiers: [{ label: '1kg+', spec_g: 1000, price_per_unit: 128, display_unit: 'kg' }],
   }], 'green')
 
-  assert.equal(buildBeanListPdfTitle('green'), '棵凡咖啡生豆豆单')
+  assert.equal(buildBeanListPdfTitle('green'), '棵凡咖啡生豆产品价格表')
   assert.equal(groups.length, 1)
   assert.equal(groups[0].category, 'G、生豆销售')
   assert.equal(groups[0].categoryCode, 'G')
@@ -149,7 +186,7 @@ test('PDF bean-list helper builds a green bean list from template tiers and qual
   ])
 })
 
-test('PDF bean-list helper applies manual green bean tier price overrides only to selected tiers', () => {
+test('PDF bean-list helper applies manual green bean kg price overrides to kg template tiers', () => {
   const groups = buildBeanListPdfGroups([{
     product_id: 90,
     product_kind: 'green_bean',
@@ -160,24 +197,30 @@ test('PDF bean-list helper applies manual green bean tier price overrides only t
       display_name: '兰卡拼配生豆',
     },
     green_bean_sale_tiers: [
-      { label: '24-49kg', template_tier_id: 2401, spec_g: 1000, price_per_unit: 60, display_unit: 'kg' },
-      { label: '50-99kg', template_tier_id: 2402, spec_g: 1000, price_per_unit: 58, display_unit: 'kg' },
+      { label: '24-49kg', template_tier_id: 2401, spec_g: 1000, price_per_unit: 60, price_per_lb: 27.24, display_unit: 'kg' },
+      { label: '60kg+', template_tier_id: 2402, spec_g: 1000, price_per_unit: 51.75, price_per_lb: 23.49, display_unit: 'kg' },
     ],
   }], 'green', {
     customizers: {
       90: {
         greenPriceOverrides: {
-          2402: 66.5,
+          2402: 62,
         },
       },
     },
   })
 
   assert.equal(groups[0].items[0].prices[0].price, 60)
-  assert.equal(groups[0].items[0].prices[1].price, 66.5)
+  assert.equal(groups[0].items[0].prices[0].unit, 'kg')
+  assert.equal(groups[0].items[0].prices[1].price, 62)
   assert.equal(groups[0].items[0].prices[1].unit, 'kg')
   assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_per_unit, 60)
-  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_per_unit, 66.5)
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_per_lb, 27.24)
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].display_unit, 'kg')
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_unit, 'kg')
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_per_unit, 62)
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_per_lb, 28.15)
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[1].price_per_kg, 62)
 })
 
 test('bean-list scope filter keeps customer SKUs isolated by customer', () => {
@@ -192,6 +235,17 @@ test('bean-list scope filter keeps customer SKUs isolated by customer', () => {
   assert.deepEqual(filterBeanListItemsForScope(scopedRows, 'customer', 0).map((item) => item.product_id), [1])
 })
 
+test('customer bean-list scope hides public catalog when public categories are disabled', () => {
+  const scopedRows = [
+    { product_id: 1, name: '公共豆', customer_id: 0 },
+    { product_id: 2, name: '客户 A 专属', customer_id: 42 },
+    { product_id: 3, name: '客户 B 专属', customer_id: 88 },
+  ]
+
+  assert.deepEqual(filterBeanListItemsForScope(scopedRows, 'customer', 42, { usePublicCategories: false }).map((item) => item.product_id), [2])
+  assert.deepEqual(filterBeanListItemsForScope(scopedRows, 'customer', 42, { usePublicCategories: true }).map((item) => item.product_id), [1, 2])
+})
+
 test('PDF commercial price units follow gradient template display units', () => {
   const groups = buildBeanListPdfGroups([{
     product_id: 40,
@@ -201,6 +255,19 @@ test('PDF commercial price units follow gradient template display units', () => 
   }], 'commercial')
 
   assert.equal(groups[0].items[0].prices[0].unit, '100g')
+})
+
+test('PDF commercial price units keep custom quote units from product price list snapshots', () => {
+  assert.equal(priceUnit({ display_unit: '盒', spec_g: 100, price_per_unit: 15 }), '盒')
+
+  const groups = buildBeanListPdfGroups([{
+    product_id: 41,
+    name: '速溶盒装',
+    commercial_bean_list: { code: '8.1', category: '8、速溶咖啡', display_name: '速溶盒装' },
+    commercial_wholesale_tiers: [{ label: '10盒起', spec_g: 100, display_unit: '盒', price_per_unit: 15 }],
+  }], 'commercial')
+
+  assert.equal(groups[0].items[0].prices[0].unit, '盒')
 })
 
 test('PDF drip bean-list helper expands live bag tiers to bag and box prices', () => {
@@ -284,8 +351,8 @@ test('PDF bean-list helper preserves layout, brand, changelog, badge, and red-hi
   assert.equal(theme.showVersion, false)
   assert.equal(theme.showChangelog, true)
   assert.equal(theme.changelog, 'V3.0.6 调整庄园精品豆')
-  assert.equal(buildBeanListPdfTitle('commercial', theme.brandName), '烘豆实验室批发豆单')
-  assert.equal(buildBeanListPdfTitle('retail', theme.brandName), '烘豆实验室零售豆单')
+  assert.equal(buildBeanListPdfTitle('commercial', theme.brandName), '烘豆实验室批发产品价格表')
+  assert.equal(buildBeanListPdfTitle('retail', theme.brandName), '烘豆实验室零售产品价格表')
 
   const groups = buildBeanListPdfGroups(rows, 'commercial', {
     selectedProductIDs: [30],
@@ -381,4 +448,75 @@ test('PDF bean-list helper copies published content groups as an immutable price
 
   assert.equal(publication.content.groups[0].items[0].prices[0].price, 127)
   assert.equal(copyBeanListPublicationContentGroups({ content: {} }).length, 0)
+})
+
+test('PDF bean-list helper builds download options from published green bean snapshots', () => {
+  const got = beanListPublicationPdfOptions({
+    list_type: 'green',
+    version: 'V1.02',
+    changelog: '60KG+ 改为 62',
+    config: {
+      brandName: '岩师傅',
+      layoutStyle: 'table',
+      showCategoryNumbers: false,
+      cardsPerRow: 3,
+      backgroundColor: '#ffffff',
+      fontColor: '#111111',
+    },
+  }, {
+    brandName: '棵凡咖啡',
+    layoutStyle: 'card',
+    showCategoryNumbers: true,
+  })
+
+  assert.equal(got.listType, 'green')
+  assert.equal(got.version, 'V1.02')
+  assert.equal(got.brandName, '岩师傅')
+  assert.equal(got.layoutStyle, 'table')
+  assert.equal(got.showCategoryNumbers, false)
+  assert.equal(got.changelog, '60KG+ 改为 62')
+})
+
+test('PDF bean-list helper reapplies green kg overrides when copying a kg price source snapshot', () => {
+  const publication = {
+    list_type: 'green',
+    content: {
+      groups: [{
+        category: 'G、生豆销售',
+        items: [{
+          productId: 414,
+          code: '1.414',
+          name: '兰卡拼配生豆',
+          prices: [{ label: '60kg+', price: 51.75, unit: 'kg', red: false }],
+          green_bean_sale_tiers: [{
+            label: '60kg+',
+            template_tier_id: 51,
+            spec_g: 1000,
+            min_qty: 60,
+            price_per_unit: 51.75,
+            price_per_lb: 23.49,
+            display_unit: 'kg',
+          }],
+        }],
+      }],
+    },
+  }
+
+  const groups = copyBeanListPublicationContentGroups(publication, {
+    listType: 'green',
+    customizers: {
+      414: {
+        greenPriceOverrides: {
+          51: 62,
+        },
+      },
+    },
+  })
+
+  assert.equal(groups[0].items[0].prices[0].price, 62)
+  assert.equal(groups[0].items[0].prices[0].unit, 'kg')
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_per_lb, 28.15)
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_unit, 'kg')
+  assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_per_kg, 62)
+  assert.equal(publication.content.groups[0].items[0].prices[0].price, 51.75)
 })

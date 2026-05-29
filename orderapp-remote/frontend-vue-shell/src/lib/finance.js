@@ -64,17 +64,23 @@ export function closingModeLabel(value) {
   return labels[value] || value || ''
 }
 
-export function financeReportExportUrls(month) {
+function customerQuery(customerId = 0) {
+  const id = Number(customerId || 0)
+  return id > 0 ? `?customer_id=${encodeURIComponent(id)}` : ''
+}
+
+export function financeReportExportUrls(month, customerId = 0) {
   const safeMonth = encodeURIComponent(month || currentMonth())
+  const query = customerQuery(customerId)
   return {
-    pdf: `/api/finance/reports/${safeMonth}/pdf`,
-    excel: `/api/finance/reports/${safeMonth}/excel`,
+    pdf: `/api/finance/reports/${safeMonth}/pdf${query}`,
+    excel: `/api/finance/reports/${safeMonth}/excel${query}`,
   }
 }
 
-export function financeAccountantHandoffUrl(month) {
+export function financeAccountantHandoffUrl(month, customerId = 0) {
   const safeMonth = encodeURIComponent(month || currentMonth())
-  return `/api/finance/reports/${safeMonth}/accountant-handoff.xlsx`
+  return `/api/finance/reports/${safeMonth}/accountant-handoff.xlsx${customerQuery(customerId)}`
 }
 
 function numberOrNull(value) {

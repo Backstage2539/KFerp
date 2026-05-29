@@ -97,7 +97,8 @@ func (r Repository) ListNotifications(ctx context.Context, query app.Notificatio
 	limitArg := argn + 1
 
 	sql := fmt.Sprintf(`
-		SELECT e.id, e.topic, e.event_type, e.source_type, e.source_id,
+		SELECT DISTINCT ON (e.id)
+		       e.id, e.topic, e.event_type, e.source_type, e.source_id,
 		       e.title, e.body, e.tone, e.payload_json,
 		       to_char(e.created_at,'YYYY-MM-DD HH24:MI:SS') AS created_at,
 		       r.event_id IS NOT NULL AS read

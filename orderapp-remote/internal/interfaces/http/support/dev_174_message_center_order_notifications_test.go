@@ -103,16 +103,16 @@ func TestMessageCenterOrderNotificationWiring(t *testing.T) {
 		`case "mine"`,
 		`case "fulfillment"`,
 		"customer_erp_user_bindings",
+		"customer_portal_profiles",
 		"portal_service_code",
-		"COALESCE(p.enabled,false)=true",
+		"channel_direct_ship",
 	} {
 		if !strings.Contains(orderQueries, want) {
 			t.Fatalf("order queries missing fulfillment scope marker %q", want)
 		}
 	}
 	for _, want := range []string{
-		`row.CustomerType == "wholesale"`,
-		"hasActiveERPBinding",
+		"CustomerERPWorkbenchAvailable",
 	} {
 		if !strings.Contains(customerFulfillmentAPI, want) {
 			t.Fatalf("customer fulfillment API missing picker filter %q", want)

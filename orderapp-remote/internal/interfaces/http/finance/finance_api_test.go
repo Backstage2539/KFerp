@@ -12,9 +12,12 @@ import (
 	"testing"
 	"time"
 
+	authzapp "orderapp/internal/application/authz"
+	customerfulfillmentapp "orderapp/internal/application/customerfulfillment"
 	appfinance "orderapp/internal/application/finance"
 	domain "orderapp/internal/domain/finance"
 	postgresfinance "orderapp/internal/infrastructure/postgres/finance"
+	"orderapp/internal/interfaces/http/support"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
@@ -82,7 +85,7 @@ func TestFinanceExpenseAndClosingAPI(t *testing.T) {
 		t.Fatalf("expense status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/finance/expenses?month=2026-05&employee_id=7", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/finance/expenses?month=2026-05&employee_id=7&customer_id=18", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"employee_name":"小王"`) {
@@ -90,6 +93,9 @@ func TestFinanceExpenseAndClosingAPI(t *testing.T) {
 	}
 	if svc.lastListFilter.EmployeeID != 7 {
 		t.Fatalf("employee filter = %d, want 7", svc.lastListFilter.EmployeeID)
+	}
+	if svc.lastListFilter.CustomerID != 18 {
+		t.Fatalf("customer filter = %d, want 18", svc.lastListFilter.CustomerID)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/finance/reports/2026-05/close", nil)
@@ -141,6 +147,104 @@ func TestFinanceImprovementAPIs(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Header().Get(echo.HeaderContentType), "spreadsheetml.sheet") || rec.Body.Len() == 0 {
 		t.Fatalf("accountant handoff status=%d type=%q bytes=%d", rec.Code, rec.Header().Get(echo.HeaderContentType), rec.Body.Len())
+	}
+}
+
+func TestFinanceReportAPIAppliesCustomerScope(t *testing.T) {
+	e, svc := newFinanceTestEcho()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/finance/reports/2026-05?customer_id=18", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("report status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.lastDraftReportFilter.CustomerID != 18 {
+		t.Fatalf("draft report customer filter = %d, want 18", svc.lastDraftReportFilter.CustomerID)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/finance/reports/2026-05/closing-review?customer_id=18", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("closing review status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.lastClosingReviewFilter.CustomerID != 18 {
+		t.Fatalf("closing review customer filter = %d, want 18", svc.lastClosingReviewFilter.CustomerID)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/finance/reports/2026-05/drilldown?customer_id=18", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("drilldown status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.lastDrilldownFilter.CustomerID != 18 {
+		t.Fatalf("drilldown customer filter = %d, want 18", svc.lastDrilldownFilter.CustomerID)
+	}
+}
+
+func TestCustomerAccountFinanceReadAPIDerivesBoundCustomerAndRejectsCrossCustomer(t *testing.T) {
+	e := echo.New()
+	svc := &fakeFinanceService{mode: domain.ClosingModeStrongLock}
+	customerAccounts := &fakeFinanceCustomerAccounts{
+		overview: customerfulfillmentapp.CustomerPortalOverview{CustomerID: 18, CustomerName: "客户A"},
+	}
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	e.Use(support.AuthorizationMiddleware(&fakeFinanceAuthzService{
+		actor: authzapp.Actor{Permissions: []string{"customer_processing.read"}},
+	}))
+	RegisterRoutes(e, Dependencies{Finance: svc, CustomerAccounts: customerAccounts})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/finance/expenses?month=2026-05", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("customer expenses status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.lastListFilter.CustomerID != 18 {
+		t.Fatalf("customer expenses filter customer=%d, want bound customer 18", svc.lastListFilter.CustomerID)
+	}
+	if customerAccounts.lastEmployeeID != 7 {
+		t.Fatalf("customer context employee=%d, want 7", customerAccounts.lastEmployeeID)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/finance/reports/2026-05", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("customer report status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if svc.lastDraftReportFilter.CustomerID != 18 {
+		t.Fatalf("customer report filter customer=%d, want bound customer 18", svc.lastDraftReportFilter.CustomerID)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/finance/reports/2026-05?customer_id=19", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "customer finance scope denied") {
+		t.Fatalf("cross-customer report status=%d body=%s, want 403 scope denied", rec.Code, rec.Body.String())
+	}
+
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/finance/employees"},
+		{http.MethodPost, "/api/finance/expenses"},
+		{http.MethodGet, "/api/finance/reports/2026-05/accountant-handoff.xlsx"},
+	} {
+		req = httptest.NewRequest(tc.method, tc.path, nil)
+		rec = httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%s %s status=%d body=%s, want 403", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
 	}
 }
 
@@ -417,9 +521,47 @@ func newFinanceTestEcho() (*echo.Echo, *fakeFinanceService) {
 }
 
 type fakeFinanceService struct {
-	mode           string
-	lastListFilter appfinance.ExpenseFilter
-	taxLedgerErr   error
+	mode                    string
+	lastListFilter          appfinance.ExpenseFilter
+	lastDraftReportFilter   appfinance.ReportFilter
+	lastClosingReviewFilter appfinance.ReportFilter
+	lastDrilldownFilter     appfinance.ReportFilter
+	taxLedgerErr            error
+}
+
+type fakeFinanceCustomerAccounts struct {
+	overview       customerfulfillmentapp.CustomerPortalOverview
+	err            error
+	lastEmployeeID int64
+}
+
+func (s *fakeFinanceCustomerAccounts) CustomerPortalOverview(ctx context.Context, employeeID int64) (customerfulfillmentapp.CustomerPortalOverview, error) {
+	s.lastEmployeeID = employeeID
+	if s.err != nil {
+		return customerfulfillmentapp.CustomerPortalOverview{}, s.err
+	}
+	return s.overview, nil
+}
+
+type fakeFinanceAuthzService struct {
+	actor authzapp.Actor
+}
+
+func (s *fakeFinanceAuthzService) ActorByEmployeeID(ctx context.Context, employeeID int64) (authzapp.Actor, error) {
+	s.actor.EmployeeID = employeeID
+	return s.actor, nil
+}
+
+func (s *fakeFinanceAuthzService) ListRoles(ctx context.Context) ([]authzapp.Role, error) {
+	return nil, nil
+}
+
+func (s *fakeFinanceAuthzService) AssignEmployeeRoles(ctx context.Context, cmd authzapp.AssignmentCommand) error {
+	return nil
+}
+
+func (s *fakeFinanceAuthzService) ListEmployeeRoles(ctx context.Context) (map[int64][]string, error) {
+	return nil, nil
 }
 
 func (s *fakeFinanceService) Settings(context.Context, string) (appfinance.SettingsSnapshot, error) {
@@ -458,7 +600,8 @@ func (s *fakeFinanceService) ListExpenses(_ context.Context, filter appfinance.E
 	return []appfinance.Expense{{ID: 1, Date: "2026-05-02", Month: "2026-05", Category: "房租", Amount: 3800, Allocation: appfinance.AllocationPeriodExpense, EmployeeID: 7, EmployeeName: "小王"}}, nil
 }
 
-func (s *fakeFinanceService) DraftReport(context.Context, string) (domain.MonthlyReport, error) {
+func (s *fakeFinanceService) DraftReport(_ context.Context, filter appfinance.ReportFilter) (domain.MonthlyReport, error) {
+	s.lastDraftReportFilter = filter
 	return domain.BuildMonthlyReport(domain.DefaultSettings(), domain.MonthlySourceTotals{Month: "2026-05", RevenueTaxInclusive: 103000}), nil
 }
 
@@ -472,11 +615,13 @@ func (s *fakeFinanceService) CreateAdjustment(_ context.Context, cmd appfinance.
 	return appfinance.AdjustmentRecord{ID: 1, Month: cmd.Month, Type: cmd.Type, Amount: cmd.Amount, Reason: cmd.Reason}, nil
 }
 
-func (s *fakeFinanceService) ClosingReview(context.Context, string) (appfinance.ClosingReview, error) {
+func (s *fakeFinanceService) ClosingReview(_ context.Context, filter appfinance.ReportFilter) (appfinance.ClosingReview, error) {
+	s.lastClosingReviewFilter = filter
 	return appfinance.ClosingReview{Month: "2026-05", Items: []appfinance.ClosingCheckItem{{Code: "source_exceptions", Status: "warn", Message: "有未处理异常"}}}, nil
 }
 
-func (s *fakeFinanceService) ReportDrilldown(context.Context, string) (appfinance.ReportDrilldown, error) {
+func (s *fakeFinanceService) ReportDrilldown(_ context.Context, filter appfinance.ReportFilter) (appfinance.ReportDrilldown, error) {
+	s.lastDrilldownFilter = filter
 	return appfinance.ReportDrilldown{Month: "2026-05", Sections: []appfinance.DrilldownSection{{Section: "revenue", Title: "收入", Total: 103000, Rows: []appfinance.SourceDetail{{Section: "revenue", SourceType: "order", SourceID: 256, Name: "SO-20260502-0001", Amount: 103000}}}}}, nil
 }
 
@@ -491,7 +636,7 @@ func (s *fakeFinanceService) CreateTaxLedgerEntry(_ context.Context, cmd appfina
 	return appfinance.TaxLedgerEntry{ID: 2, Month: cmd.Month, Kind: cmd.Kind, InvoiceNo: cmd.InvoiceNo, Counterparty: cmd.Counterparty, TotalAmount: cmd.TotalAmount, TaxAmount: cmd.TaxAmount, Status: cmd.Status}, nil
 }
 
-func (s *fakeFinanceService) AccountantHandoff(context.Context, string) (appfinance.AccountantHandoff, error) {
+func (s *fakeFinanceService) AccountantHandoff(context.Context, appfinance.ReportFilter) (appfinance.AccountantHandoff, error) {
 	return appfinance.AccountantHandoff{Month: "2026-05", VoucherDrafts: []appfinance.VoucherDraft{{Summary: "收入结转", Debit: "应收账款", Credit: "主营业务收入", Amount: 1000}}}, nil
 }
 
@@ -548,7 +693,18 @@ CREATE TABLE %s.orders (
 	discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 	payment_method TEXT NOT NULL DEFAULT '',
 	grand_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+	payment_voucher_asset_id BIGINT NOT NULL DEFAULT 0,
 	is_void BOOLEAN NOT NULL DEFAULT false
+);
+CREATE TABLE %s.sales_order_assets (
+	id BIGINT PRIMARY KEY,
+	kind TEXT NOT NULL DEFAULT '',
+	filename TEXT NOT NULL DEFAULT '',
+	content_type TEXT NOT NULL DEFAULT '',
+	bytes BIGINT NOT NULL DEFAULT 0,
+	sha256 TEXT NOT NULL DEFAULT '',
+	object_key TEXT NOT NULL DEFAULT '',
+	created_by TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE %s.order_items (
 	id BIGSERIAL PRIMARY KEY,
@@ -590,7 +746,7 @@ CREATE TABLE %s.audit_logs (
 	meta JSONB NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-`, schema, schema, schema, schema, schema, schema, schema, schema)
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 }
 
 func mustExecFinanceAPISQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string) {

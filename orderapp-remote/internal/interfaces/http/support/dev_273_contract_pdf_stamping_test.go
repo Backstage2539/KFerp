@@ -63,7 +63,7 @@ func TestDev273ContractPDFStampingVueShellWiring(t *testing.T) {
 
 func TestDev273ContractPDFStampingManualsDocumentWorkflow(t *testing.T) {
 	for _, path := range []string{
-		filepath.Join("..", "OP_MANUAL_ORDER_SALES.md"),
+		filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"),
 		filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md"),
 	} {
 		doc := string(readOrderAppFileForTest(t, path))

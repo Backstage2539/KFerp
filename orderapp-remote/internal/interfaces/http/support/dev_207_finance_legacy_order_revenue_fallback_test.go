@@ -59,7 +59,7 @@ func TestFinanceLegacyOrderRevenueFallbackRequirementSeedsExist(t *testing.T) {
 
 func TestFinanceLegacyOrderRevenueFallbackManualsAndRequirementDocs(t *testing.T) {
 	for _, path := range []string{
-		filepath.Join("..", "OP_MANUAL_FINANCE.md"),
+		filepath.Join("docs", "OP_MANUAL_FINANCE.md"),
 		filepath.Join("docs", "OP_MANUAL_FINANCE.md"),
 		filepath.Join("..", "REQUIREMENTS.md"),
 		filepath.Join("docs", "REQUIREMENTS.md"),

@@ -17,6 +17,14 @@ CREATE TABLE IF NOT EXISTS %[1]s.order_types (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS %[1]s.customer_type_options (
+	value TEXT PRIMARY KEY,
+	label TEXT NOT NULL DEFAULT '',
+	active BOOLEAN NOT NULL DEFAULT true,
+	sort_order INTEGER NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS %[1]s.pay_statuses (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL
@@ -45,6 +53,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.customers (
 	active BOOLEAN NOT NULL DEFAULT true,
 	default_source_id BIGINT,
 	default_order_type_id BIGINT,
+	customer_product_rule_template_id BIGINT NOT NULL DEFAULT 0,
+	responsible_employee_id BIGINT NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -52,6 +62,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.products (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL DEFAULT '',
 	roast_level TEXT NOT NULL DEFAULT '',
+	special_attrs_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	default_price NUMERIC NOT NULL DEFAULT 0,
 	product_kind TEXT NOT NULL DEFAULT 'roasted',
 	active BOOLEAN NOT NULL DEFAULT true,
@@ -80,6 +91,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_price_tiers (
 CREATE TABLE IF NOT EXISTS %[1]s.orders (
 	id BIGSERIAL PRIMARY KEY,
 	order_no TEXT NOT NULL DEFAULT '',
+	document_date DATE,
 	order_date DATE,
 	customer_id BIGINT,
 	source_id BIGINT,
@@ -162,9 +174,12 @@ func ensureCoreColumns(ctx context.Context, pool *pgxpool.Pool, schema string) e
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS company_phone TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS default_source_id BIGINT`,
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS default_order_type_id BIGINT`,
+		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS customer_product_rule_template_id BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS responsible_employee_id BIGINT NOT NULL DEFAULT 0`,
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()`,
 		`ALTER TABLE %[1]s.customers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`,
 		`ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS roast_level TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS special_attrs_json JSONB NOT NULL DEFAULT '{}'::jsonb`,
 		`ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS default_price NUMERIC NOT NULL DEFAULT 0`,
 		`ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_kind TEXT NOT NULL DEFAULT 'roasted'`,
 		`UPDATE %[1]s.products SET product_kind='roasted' WHERE COALESCE(product_kind,'')=''`,
@@ -180,6 +195,8 @@ func ensureCoreColumns(ctx context.Context, pool *pgxpool.Pool, schema string) e
 		`CREATE INDEX IF NOT EXISTS products_base_product_idx ON %[1]s.products(base_product_id)`,
 		`ALTER TABLE %[1]s.product_price_tiers ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true`,
 		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS order_no TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS document_date DATE`,
+		`UPDATE %[1]s.orders SET document_date=order_date WHERE document_date IS NULL`,
 		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS source_id BIGINT`,
 		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE %[1]s.orders ADD COLUMN IF NOT EXISTS ship_method TEXT NOT NULL DEFAULT ''`,
@@ -230,6 +247,7 @@ func seedCoreOptions(ctx context.Context, pool *pgxpool.Pool, schema string) err
 		`INSERT INTO %[1]s.sources(name) SELECT '小程序' WHERE NOT EXISTS (SELECT 1 FROM %[1]s.sources WHERE name='小程序')`,
 		`INSERT INTO %[1]s.order_types(name) SELECT '批发订单' WHERE NOT EXISTS (SELECT 1 FROM %[1]s.order_types WHERE name='批发订单')`,
 		`INSERT INTO %[1]s.order_types(name) SELECT '零售订单' WHERE NOT EXISTS (SELECT 1 FROM %[1]s.order_types WHERE name='零售订单')`,
+		`INSERT INTO %[1]s.customer_type_options(value,label,sort_order) VALUES ('retail','零售客户',10),('ecommerce','电商客户',20),('wholesale','批发客户',30),('channel','渠道客户',40) ON CONFLICT(value) DO UPDATE SET label=excluded.label, active=true, sort_order=excluded.sort_order`,
 		`INSERT INTO %[1]s.pay_statuses(name) SELECT '未付款' WHERE NOT EXISTS (SELECT 1 FROM %[1]s.pay_statuses WHERE name='未付款')`,
 		`INSERT INTO %[1]s.pay_statuses(name) SELECT '已付款' WHERE NOT EXISTS (SELECT 1 FROM %[1]s.pay_statuses WHERE name='已付款')`,
 		`INSERT INTO %[1]s.ship_statuses(name) SELECT '未发货' WHERE NOT EXISTS (SELECT 1 FROM %[1]s.ship_statuses WHERE name='未发货')`,

@@ -88,7 +88,8 @@ func TestFinanceRepositoryAggregatesOrdersCostsExpensesAndAdjustments(t *testing
 		"finance_tax_ledger",
 		"CreateTaxLedgerEntry",
 		"WHERE fe.month=$1",
-		"fe.employee_id=$2",
+		"fe.employee_id=$%d",
+		"fe.customer_id=$%d",
 		"ListExpenseEmployees",
 		"FROM %s.company_employees",
 		"FROM %s.finance_adjustments",
@@ -117,7 +118,7 @@ func TestMonthlySourceTotalsUsesLegacyTotalAmountWhenGrandTotalWasDefaultZero(t 
 	`, schema, schema, schema, schema, schema))
 
 	repo := NewRepository(pool, schema)
-	totals, _, err := repo.MonthlySourceTotals(ctx, "2026-05")
+	totals, _, err := repo.MonthlySourceTotals(ctx, appfinance.ReportFilter{Month: "2026-05"})
 	if err != nil {
 		t.Fatalf("MonthlySourceTotals: %v", err)
 	}
@@ -125,7 +126,7 @@ func TestMonthlySourceTotalsUsesLegacyTotalAmountWhenGrandTotalWasDefaultZero(t 
 		t.Fatalf("RevenueTaxInclusive = %.2f, want 230.00", totals.RevenueTaxInclusive)
 	}
 
-	details, err := repo.FinanceSourceDetails(ctx, "2026-05")
+	details, err := repo.FinanceSourceDetails(ctx, appfinance.ReportFilter{Month: "2026-05"})
 	if err != nil {
 		t.Fatalf("FinanceSourceDetails: %v", err)
 	}
@@ -157,7 +158,7 @@ func TestFinanceSourceDetailsIncludesOrderPaymentMethod(t *testing.T) {
 	`, schema, schema))
 
 	repo := NewRepository(pool, schema)
-	details, err := repo.FinanceSourceDetails(ctx, "2026-05")
+	details, err := repo.FinanceSourceDetails(ctx, appfinance.ReportFilter{Month: "2026-05"})
 	if err != nil {
 		t.Fatalf("FinanceSourceDetails: %v", err)
 	}
@@ -170,6 +171,37 @@ func TestFinanceSourceDetailsIncludesOrderPaymentMethod(t *testing.T) {
 		}
 	}
 	t.Fatalf("missing SO-PAID-BANK revenue detail: %#v", details)
+}
+
+func TestFinanceSourceDetailsIncludesOrderPaymentVoucher(t *testing.T) {
+	pool, schema := newFinancePostgresTestDB(t)
+	ctx := context.Background()
+
+	mustExecFinanceSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.customers(id, name, company_name) VALUES (1, '芬纳咖啡', '');
+		INSERT INTO %s.sales_order_assets(id, kind, filename, content_type, bytes, sha256, object_key, created_by)
+		VALUES (88, 'payment_voucher', 'fenna-paid.jpg', 'image/jpeg', 12, 'abc', 'sales_order_assets/payment_voucher/fenna-paid.jpg', '测试员');
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, total_amount, grand_total, payment_method, payment_voucher_asset_id, is_void)
+		VALUES (12, 'SO-PAID-VOUCHER', '2026-05-16', 1, 2340, 2340, '微信支付', 88, false);
+	`, schema, schema, schema))
+
+	repo := NewRepository(pool, schema)
+	details, err := repo.FinanceSourceDetails(ctx, appfinance.ReportFilter{Month: "2026-05"})
+	if err != nil {
+		t.Fatalf("FinanceSourceDetails: %v", err)
+	}
+	for _, row := range details {
+		if row.SourceType == "order_revenue" && row.SourceID == 12 {
+			if row.PaymentVoucherFilename != "fenna-paid.jpg" {
+				t.Fatalf("voucher filename = %q, want fenna-paid.jpg; row=%#v", row.PaymentVoucherFilename, row)
+			}
+			if row.PaymentVoucherURL != "/assets/sales_order_assets/payment_voucher/fenna-paid.jpg" {
+				t.Fatalf("voucher url = %q; row=%#v", row.PaymentVoucherURL, row)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing SO-PAID-VOUCHER revenue detail: %#v", details)
 }
 
 func TestCloseMonthKeepsAdjustedStatusAfterAdjustment(t *testing.T) {
@@ -250,7 +282,18 @@ CREATE TABLE %s.orders (
 	discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 	payment_method TEXT NOT NULL DEFAULT '',
 	grand_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+	payment_voucher_asset_id BIGINT NOT NULL DEFAULT 0,
 	is_void BOOLEAN NOT NULL DEFAULT false
+);
+CREATE TABLE %s.sales_order_assets (
+	id BIGINT PRIMARY KEY,
+	kind TEXT NOT NULL DEFAULT '',
+	filename TEXT NOT NULL DEFAULT '',
+	content_type TEXT NOT NULL DEFAULT '',
+	bytes BIGINT NOT NULL DEFAULT 0,
+	sha256 TEXT NOT NULL DEFAULT '',
+	object_key TEXT NOT NULL DEFAULT '',
+	created_by TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE %s.production_batch_costs (
 	id BIGSERIAL PRIMARY KEY,
@@ -274,7 +317,7 @@ CREATE TABLE %s.audit_logs (
 	meta JSONB NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-	`, schema, schema, schema, schema, schema)
+	`, schema, schema, schema, schema, schema, schema)
 }
 
 func mustExecFinanceSQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string) {

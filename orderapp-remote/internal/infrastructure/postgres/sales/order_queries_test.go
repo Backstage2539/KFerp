@@ -71,16 +71,20 @@ func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 		"b.status='active'",
 		"e.account_type='channel_customer'",
 		"COALESCE(lp.login_disabled,false)=false",
-		"COALESCE(p.enabled,false)=true",
+		"p.enabled=true",
 		"capability_template_key",
 		"active_template.active=true",
 		"inactive_template.active=false",
 		"processing_fulfillment",
 		"public_sku_direct_ship",
+		"channel_direct_ship",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("fulfillment scope missing %q in %q", want, joined)
 		}
+	}
+	if strings.Contains(joined, "customer_type") {
+		t.Fatalf("fulfillment scope should be capability-driven, not customer_type-driven: %q", joined)
 	}
 	if len(args) != 0 {
 		t.Fatalf("fulfillment scope args = %#v, want none", args)

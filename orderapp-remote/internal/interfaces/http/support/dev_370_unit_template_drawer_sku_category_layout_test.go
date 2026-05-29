@@ -1,0 +1,85 @@
+package support
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestDev370UnitTemplateDrawerSkuCategoryLayoutRequirementSeeds(t *testing.T) {
+	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
+	for _, want := range []string{
+		"PR-370-UNIT-TEMPLATE-DRAWER-SKU-CATEGORY-LAYOUT",
+		"DEV-370-UNIT-TEMPLATE-DRAWER-SKU-CATEGORY-LAYOUT",
+		"UT-370-UNIT-TEMPLATE-DRAWER-SKU-CATEGORY-LAYOUT",
+		"API-370-UNIT-TEMPLATE-DRAWER-SKU-CATEGORY-LAYOUT",
+		"REV-370-UNIT-TEMPLATE-DRAWER-SKU-CATEGORY-LAYOUT",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("unit template drawer/category layout seed missing %q", want)
+		}
+	}
+}
+
+func TestDev370UnitTemplateDrawerAndCategoryLayoutUI(t *testing.T) {
+	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
+	for _, want := range []string{
+		"unit-template-list-panel",
+		"unit-template-editor-panel",
+		"globalUnitDrawerOpen",
+		"global-unit-dictionary-drawer",
+		"openGlobalUnitDictionaryDrawer",
+		"saveGlobalUnitDefinitionFromDrawer",
+		"buildProductUnitDefinitionPayload",
+		"primary-category-left",
+		"primary-category-right",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("ProductSettingsView.vue missing drawer/layout marker %q", want)
+		}
+	}
+	unitListPos := strings.Index(src, "unit-template-list-panel")
+	unitEditorPos := strings.Index(src, "unit-template-editor-panel")
+	if unitListPos < 0 || unitEditorPos < 0 || unitListPos > unitEditorPos {
+		t.Fatal("unit template list should be before editor for left-list/right-editor layout")
+	}
+	leftPos := strings.Index(src, `class="primary-category-left"`)
+	rightPos := strings.Index(src, `class="category-row-actions primary-category-right"`)
+	sortPos := strings.Index(src, "category-sort-buttons")
+	collapsePos := strings.Index(src, "togglePrimaryCategoryCollapse")
+	if leftPos < 0 || rightPos < 0 || sortPos < leftPos || sortPos > rightPos || collapsePos < rightPos {
+		t.Fatal("primary category header should keep title/sort left and collapse action right")
+	}
+}
+
+func TestDev370UnitTemplateDrawerSkuCategoryLayoutDocs(t *testing.T) {
+	for rel, wants := range map[string][]string{
+		filepath.Join("docs", "REQUIREMENTS.md"): {
+			"PR-370-UNIT-TEMPLATE-DRAWER-SKU-CATEGORY-LAYOUT",
+			"单位模板页提供“全局单位字典”按钮",
+			"大类标题和上下排序按钮放在左侧",
+		},
+		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
+			"PR-370-UNIT-TEMPLATE-DRAWER-SKU-CATEGORY-LAYOUT",
+			"右侧抽屉维护全局单位字典",
+			"折叠/展开按钮在右侧",
+		},
+		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
+			"PR-370-UNIT-TEMPLATE-DRAWER-SKU-CATEGORY-LAYOUT",
+			"单位模板左侧是模板列表，右侧是新增或编辑表单",
+			"产品类型标题和上下排序按钮在左侧",
+		},
+		filepath.Join("docs", "acceptance", "2026-05-25-unit-template-drawer-sku-category-layout.md"): {
+			"PR-370",
+			"全局单位字典抽屉",
+			"左列表右编辑",
+		},
+	} {
+		src := string(readOrderAppFileForTest(t, rel))
+		for _, want := range wants {
+			if !strings.Contains(src, want) {
+				t.Fatalf("%s missing drawer/category layout doc marker %q", rel, want)
+			}
+		}
+	}
+}

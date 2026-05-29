@@ -7,13 +7,14 @@ import (
 
 type fakeRepo struct {
 	ledgerQuery      LedgerQuery
+	inventoryQuery   WarehouseInventoryQuery
 	receipt          MaterialReceiptCommand
 	adjustment       StockAdjustmentCommand
 	transfer         MaterialTransferCommand
 	finishedTransfer FinishedProductTransferCommand
 	traceQuery       StockTraceQuery
 	outboundQuery    OutboundLogQuery
-	setBinding       WarehouseCustomerBindingCommand
+	warehouseBind    BindWarehouseCustomerCommand
 }
 
 func (f *fakeRepo) ListLedger(ctx context.Context, query LedgerQuery) (LedgerResult, error) {
@@ -26,17 +27,14 @@ func (f *fakeRepo) ListBatches(ctx context.Context, query BatchQuery) (BatchResu
 func (f *fakeRepo) ListMaterialBatches(ctx context.Context, query MaterialBatchQuery) (MaterialBatchResult, error) {
 	return MaterialBatchResult{}, nil
 }
-func (f *fakeRepo) ListWarehouses(ctx context.Context) ([]WarehouseRow, error) {
+func (f *fakeRepo) ListWarehouses(ctx context.Context, query WarehouseListQuery) ([]WarehouseRow, error) {
 	return []WarehouseRow{}, nil
-}
-func (f *fakeRepo) SetWarehouseCustomer(ctx context.Context, cmd WarehouseCustomerBindingCommand) (WarehouseRow, error) {
-	f.setBinding = cmd
-	return WarehouseRow{Code: cmd.WarehouseCode, CustomerID: cmd.CustomerID}, nil
 }
 func (f *fakeRepo) ListMaterialBatchLocations(ctx context.Context, query MaterialBatchLocationQuery) (MaterialBatchLocationResult, error) {
 	return MaterialBatchLocationResult{}, nil
 }
 func (f *fakeRepo) ListWarehouseInventory(ctx context.Context, query WarehouseInventoryQuery) (WarehouseInventoryResult, error) {
+	f.inventoryQuery = query
 	return WarehouseInventoryResult{}, nil
 }
 func (f *fakeRepo) ListOutboundLogs(ctx context.Context, query OutboundLogQuery) (OutboundLogResult, error) {
@@ -63,6 +61,10 @@ func (f *fakeRepo) TransferFinishedProduct(ctx context.Context, cmd FinishedProd
 	f.finishedTransfer = cmd
 	return FinishedProductTransferResult{TransferID: 10, TransferNo: "FT-0000000010"}, nil
 }
+func (f *fakeRepo) BindWarehouseCustomer(ctx context.Context, cmd BindWarehouseCustomerCommand) (WarehouseRow, error) {
+	f.warehouseBind = cmd
+	return WarehouseRow{Code: cmd.WarehouseCode, Name: "客户仓", CustomerID: cmd.CustomerID, CustomerName: "渠道客户"}, nil
+}
 
 func TestListLedgerNormalizesLimitAndFilters(t *testing.T) {
 	repo := &fakeRepo{}
@@ -78,6 +80,51 @@ func TestListLedgerNormalizesLimitAndFilters(t *testing.T) {
 	}
 	if repo.ledgerQuery.Limit != 100 || repo.ledgerQuery.Offset != 0 {
 		t.Fatalf("limit/offset = %d/%d, want 100/0", repo.ledgerQuery.Limit, repo.ledgerQuery.Offset)
+	}
+}
+
+func TestListWarehouseInventoryNormalizesCustomerContext(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.ListWarehouseInventory(context.Background(), WarehouseInventoryQuery{
+		Q:          "  熟豆  ",
+		Warehouse:  " finished_goods ",
+		ItemType:   " finished_product ",
+		CustomerID: 149,
+		Limit:      999,
+		Offset:     -8,
+	})
+	if err != nil {
+		t.Fatalf("ListWarehouseInventory: %v", err)
+	}
+	if repo.inventoryQuery.Q != "熟豆" || repo.inventoryQuery.Warehouse != "finished_goods" || repo.inventoryQuery.ItemType != "finished_product" {
+		t.Fatalf("inventory query filters = %+v, want trimmed", repo.inventoryQuery)
+	}
+	if repo.inventoryQuery.CustomerID != 149 {
+		t.Fatalf("customer_id = %d, want 149", repo.inventoryQuery.CustomerID)
+	}
+	if repo.inventoryQuery.Limit != 100 || repo.inventoryQuery.Offset != 0 {
+		t.Fatalf("limit/offset = %d/%d, want 100/0", repo.inventoryQuery.Limit, repo.inventoryQuery.Offset)
+	}
+}
+
+func TestBindWarehouseCustomerNormalizesCodeAndActor(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	row, err := svc.BindWarehouseCustomer(context.Background(), BindWarehouseCustomerCommand{
+		WarehouseCode: " finished_shop ",
+		CustomerID:    147,
+		Actor:         " jj ",
+	})
+	if err != nil {
+		t.Fatalf("BindWarehouseCustomer: %v", err)
+	}
+	if repo.warehouseBind.WarehouseCode != "finished_shop" || repo.warehouseBind.CustomerID != 147 || repo.warehouseBind.Actor != "jj" {
+		t.Fatalf("bind command = %+v, want trimmed code/actor", repo.warehouseBind)
+	}
+	if row.CustomerID != 147 || row.CustomerName != "渠道客户" {
+		t.Fatalf("warehouse row = %+v, want bound customer", row)
 	}
 }
 
@@ -205,34 +252,6 @@ func TestTransferFinishedProductRejectsSameWarehouseAndZeroQuantity(t *testing.T
 	})
 	if err == nil {
 		t.Fatal("expected quantity validation error")
-	}
-}
-
-func TestSetWarehouseCustomerRequiresWarehouseCode(t *testing.T) {
-	svc := NewService(&fakeRepo{})
-	_, err := svc.SetWarehouseCustomer(context.Background(), WarehouseCustomerBindingCommand{WarehouseCode: "  ", CustomerID: 0})
-	if err == nil {
-		t.Fatal("expected warehouse validation error")
-	}
-}
-
-func TestSetWarehouseCustomerRejectsNegativeCustomer(t *testing.T) {
-	svc := NewService(&fakeRepo{})
-	_, err := svc.SetWarehouseCustomer(context.Background(), WarehouseCustomerBindingCommand{WarehouseCode: "cust_01", CustomerID: -1})
-	if err == nil {
-		t.Fatal("expected customer id validation error")
-	}
-}
-
-func TestSetWarehouseCustomerDefaultsOperator(t *testing.T) {
-	repo := &fakeRepo{}
-	svc := NewService(repo)
-	_, err := svc.SetWarehouseCustomer(context.Background(), WarehouseCustomerBindingCommand{WarehouseCode: "cust_01", CustomerID: 0})
-	if err != nil {
-		t.Fatalf("SetWarehouseCustomer: %v", err)
-	}
-	if repo.setBinding.Operator != "stock" {
-		t.Fatalf("operator = %q, want stock", repo.setBinding.Operator)
 	}
 }
 

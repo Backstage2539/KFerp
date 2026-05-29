@@ -52,11 +52,12 @@ COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --exclude='._*' --exclude='
 
 # 3) Sync build-time evidence context.
 # Keep orderapp-remote/docs as the deployed app docs; those files are the
-# Vue/API manual copies that support tests validate. Only add root acceptance
-# evidence and miniapp source so Docker build tests can read sibling repo paths.
+# single source for Vue/API operation manuals. Only add root governance docs,
+# acceptance evidence and miniapp source so Docker build tests can read sibling
+# repo paths.
 ssh -i "$KEY" "$SERVER" "mkdir -p $DOCS_DIR"
 shopt -s nullglob
-DOC_FILES=(REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md OPERATION_MANUALS.md OP_MANUAL_*.md DEPLOYMENT.md)
+DOC_FILES=(REQUIREMENTS.md ACCEPTANCE_TESTS.md HOW_TO_WORKFLOW.md DEPLOYMENT.md)
 ssh -i "$KEY" "$SERVER" "mkdir -p $DOCS_DIR/workspace"
 scp -i "$KEY" "${DOC_FILES[@]}" "$SERVER:$DOCS_DIR/workspace/"
 if [ -d docs/acceptance ]; then

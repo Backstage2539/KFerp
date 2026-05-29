@@ -92,7 +92,7 @@ func TestOrderStockShipmentDeductionRepositoryWiringExists(t *testing.T) {
 }
 
 func TestOrderStockShipmentDeductionManualEvidenceExists(t *testing.T) {
-	orderManual := string(readOrderAppFileForTest(t, filepath.Join("..", "OP_MANUAL_ORDER_SALES.md")))
+	orderManual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_ORDER_SALES.md")))
 	for _, want := range []string{
 		"库存待发货订单生成 Excel 时不扣库存",
 		"回填快递单号并标记已发货时，才扣减",
@@ -104,7 +104,7 @@ func TestOrderStockShipmentDeductionManualEvidenceExists(t *testing.T) {
 		}
 	}
 
-	productionManual := string(readOrderAppFileForTest(t, filepath.Join("..", "OP_MANUAL_PRODUCTION.md")))
+	productionManual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_PRODUCTION.md")))
 	for _, want := range []string{
 		"选择使用库存后订单进入库存待发货",
 		"生产计划中的订单只按库存缺口进入工单",

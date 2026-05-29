@@ -9,6 +9,7 @@ import (
 type SalesOrderSnapshot struct {
 	OrderID        int64  `json:"order_id"`
 	OrderNo        string `json:"order_no"`
+	DocumentDate   string `json:"document_date"`
 	OrderDate      string `json:"order_date"`
 	CustomerName   string `json:"customer_name"`
 	CompanyName    string `json:"company_name"`
@@ -18,29 +19,40 @@ type SalesOrderSnapshot struct {
 	CustomerCompanyAddress string `json:"customer_company_address"`
 	CustomerCompanyPhone   string `json:"customer_company_phone"`
 
-	PaymentText     string                   `json:"payment_text"`
-	TaxpayerID      string                   `json:"taxpayer_id"`
-	BankAccountName string                   `json:"bank_account_name"`
-	BankName        string                   `json:"bank_name"`
-	BankAccountNo   string                   `json:"bank_account_no"`
-	Note            string                   `json:"note"`
-	Items           []SalesOrderSnapshotItem `json:"items"`
-	TotalAmount     string                   `json:"total_amount"`
-	Shipping        string                   `json:"shipping"`
-	Discount        string                   `json:"discount"`
-	GrandTotal      string                   `json:"grand_total"`
-	PaymentCodes    []SalesOrderAssetRef     `json:"payment_codes"`
-	Seal            *SalesOrderAssetRef      `json:"seal,omitempty"`
+	PaymentText        string                        `json:"payment_text"`
+	TaxpayerID         string                        `json:"taxpayer_id"`
+	BankAccountName    string                        `json:"bank_account_name"`
+	BankName           string                        `json:"bank_name"`
+	BankAccountNo      string                        `json:"bank_account_no"`
+	Note               string                        `json:"note"`
+	Items              []SalesOrderSnapshotItem      `json:"items"`
+	TotalAmount        string                        `json:"total_amount"`
+	Shipping           string                        `json:"shipping"`
+	Discount           string                        `json:"discount"`
+	ExpressFee         string                        `json:"express_fee"`
+	SalesOrderNote     string                        `json:"sales_order_note"`
+	GrandTotal         string                        `json:"grand_total"`
+	DiscountBreakdowns []SalesOrderDiscountBreakdown `json:"discount_breakdowns"`
+	PaymentCodes       []SalesOrderAssetRef          `json:"payment_codes"`
+	PaymentTextBox     SalesOrderLayoutBox           `json:"payment_text_box"`
+	PaymentCodeBox     SalesOrderLayoutBox           `json:"payment_code_box"`
+	Seal               *SalesOrderAssetRef           `json:"seal,omitempty"`
+}
+
+type SalesOrderDiscountBreakdown struct {
+	Type   string `json:"type"`
+	Amount string `json:"amount"`
 }
 
 type SalesOrderSnapshotItem struct {
-	Name      string `json:"name"`
-	Note      string `json:"note"`
-	Spec      string `json:"spec"`
-	Qty       string `json:"qty"`
-	Unit      string `json:"unit"`
-	UnitPrice string `json:"unit_price"`
-	LineTotal string `json:"line_total"`
+	Name           string `json:"name"`
+	Note           string `json:"note"`
+	Spec           string `json:"spec"`
+	Qty            string `json:"qty"`
+	Unit           string `json:"unit"`
+	UnitPrice      string `json:"unit_price"`
+	DiscountAmount string `json:"discount_amount"`
+	LineTotal      string `json:"line_total"`
 }
 
 type SalesOrderAssetRef struct {
@@ -53,6 +65,14 @@ type SalesOrderAssetRef struct {
 	XMM         float64 `json:"x_mm,omitempty"`
 	YMM         float64 `json:"y_mm,omitempty"`
 	WidthMM     float64 `json:"width_mm,omitempty"`
+}
+
+type SalesOrderLayoutBox struct {
+	XMM        float64 `json:"x_mm"`
+	YMM        float64 `json:"y_mm"`
+	WidthMM    float64 `json:"width_mm"`
+	HeightMM   float64 `json:"height_mm"`
+	PageNumber int     `json:"page_number,omitempty"`
 }
 
 func NextSalesOrderVersion(existing []int) int {

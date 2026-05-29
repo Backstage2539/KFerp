@@ -7,7 +7,8 @@ export const operationManualsByView = {
   financeManual: { doc: 'OP_MANUAL_FINANCE.md', title: '财务手册' },
   settingsAuditManual: { doc: 'OP_MANUAL_SETTINGS_AUDIT.md', title: '设置审计手册' },
   notificationManual: { doc: 'OP_MANUAL_NOTIFICATIONS.md', title: '通知配置手册' },
-  customerPortalManual: { doc: 'OP_MANUAL_CUSTOMER_PORTAL.md', title: '客户门户手册' },
+  workspaceModeManual: { doc: 'OP_MANUAL_CUSTOMER_FULFILLMENT.md', title: '客户履约手册' },
+  customerPortalManual: { doc: 'OP_MANUAL_CUSTOMER_FULFILLMENT.md', title: '客户履约手册' },
   customerFulfillmentManual: { doc: 'OP_MANUAL_CUSTOMER_FULFILLMENT.md', title: '客户履约手册' },
   requirementsManual: { doc: 'OP_MANUAL_REQUIREMENTS.md', title: '需求管理手册' },
 }

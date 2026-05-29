@@ -47,11 +47,11 @@
               <th>订单号</th>
               <th>计划成品(g)</th>
               <th>投料数(g)</th>
-              <th>BOM出品率</th>
+              <th>BOM预期产出率</th>
               <th>完成件数</th>
               <th>散装余料(g)</th>
               <th>实际产出(g)</th>
-              <th>真实出品率</th>
+              <th>实际产出率</th>
               <th>开始人</th>
               <th>开始时间</th>
               <th>完成人</th>

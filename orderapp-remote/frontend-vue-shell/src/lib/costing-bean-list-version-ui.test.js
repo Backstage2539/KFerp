@@ -15,7 +15,9 @@ test('product bean-list view exposes publication versions without pricing trial 
   assert.equal(viewSource.indexOf('pricingCollapsed'), -1, 'pricing trial collapse state should be removed from 产品豆单')
 
   for (const expected of [
-    'v-model="pdfOptions.listType"',
+    'v-model.number="selectedProductTypeCategoryID"',
+    'productPriceListTypeOptions',
+    'selectedProductPriceListType',
     'currentScopePublicationRows',
     'function beanListPublicationStatusLabel',
     'function beanListPublicationStatusClass',
@@ -39,6 +41,61 @@ test('product bean-list view exposes publication versions without pricing trial 
   }
 })
 
+test('product bean-list version list downloads the selected publication snapshot', () => {
+  const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
+  const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
+  assert.ok(versionListStart > -1 && versionListEnd > versionListStart, 'missing bean-list version panel')
+  const versionListSource = viewSource.slice(versionListStart, versionListEnd)
+
+  for (const expected of [
+    '下载 PDF',
+    '@click="downloadBeanListPublication(row)"',
+    ':disabled="!beanListPublicationHasContent(row)"',
+  ]) {
+    assert.ok(versionListSource.includes(expected), `missing version-list download action: ${expected}`)
+  }
+  for (const expected of [
+    'const downloadSourcePublication = ref(null)',
+    'downloadSourcePublication.value || currentPriceSourcePublication.value',
+    'function downloadBeanListPublication',
+    "apiSend(`/api/costing/bean-list/publications/${row.id}/pdf?${params.toString()}`",
+    'await downloadBeanListPublicationPDF(document)',
+    'async function downloadBeanListPublicationPDF',
+    'apiFetch(document.download_url)',
+    'URL.createObjectURL(blob)',
+    'function beanListPublicationHasContent',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing publication snapshot download behavior: ${expected}`)
+  }
+  const downloadStart = viewSource.indexOf('async function downloadBeanListPublication(row)')
+  const downloadEnd = viewSource.indexOf('function beanListPublicationDownloadParams', downloadStart)
+  assert.ok(downloadStart > -1 && downloadEnd > downloadStart, 'downloadBeanListPublication function not found')
+  const downloadSource = viewSource.slice(downloadStart, downloadEnd)
+  assert.doesNotMatch(downloadSource, /nextTick\(\)/)
+  assert.doesNotMatch(downloadSource, /generateBeanListPdf\(\)/)
+})
+
+test('product bean-list generate PDF saves preview snapshot through backend instead of printing', () => {
+  const generateStart = viewSource.indexOf('async function generateBeanListPdf()')
+  const generateEnd = viewSource.indexOf('async function publishBeanList()', generateStart)
+  assert.ok(generateStart > -1 && generateEnd > generateStart, 'generateBeanListPdf function not found')
+  const generateSource = viewSource.slice(generateStart, generateEnd)
+
+  for (const expected of [
+    "apiSend('/api/costing/bean-list/drafts'",
+    'beanListPublicationPayload()',
+    "apiSend(`/api/costing/bean-list/publications/${row.id}/pdf?${params.toString()}`",
+    'await downloadBeanListPublicationPDF(document)',
+    'await loadBeanListPublications(listType, publicationScope.value, productTypeCategoryID)',
+    'await loadBeanListPublications(listType, versionListScope.value, productTypeCategoryID)',
+  ]) {
+    assert.ok(generateSource.includes(expected), `missing backend preview PDF generation behavior: ${expected}`)
+  }
+  assert.doesNotMatch(generateSource, /window\.print/)
+  assert.doesNotMatch(generateSource, /pdfPrinting\.value = true/)
+  assert.doesNotMatch(generateSource, /bean-list-pdf-printing/)
+})
+
 test('product bean-list version scope selector lists public and each fulfillment customer', () => {
   const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
@@ -56,7 +113,10 @@ test('product bean-list version scope selector lists public and each fulfillment
   assert.match(pageScopeSource, /:value="`customer:\$\{customer\.id\}`"/)
   assert.match(pageScopeSource, /customerOptionLabel\(customer\)/)
   assert.doesNotMatch(versionListSource, /v-model="versionListScope"/)
-  assert.match(versionListSource, /<option value="drip">挂耳豆单<\/option>/)
+  assert.match(versionListSource, /v-model\.number="selectedProductTypeCategoryID"/)
+  assert.match(versionListSource, /v-for="type in productPriceListTypeOptions"/)
+  assert.match(versionListSource, /:value="type\.id"/)
+  assert.match(versionListSource, /beanListPublicationTypeLabel\(row\)/)
   assert.doesNotMatch(versionListSource, /fulfillment_customers/)
   assert.doesNotMatch(versionListSource, /所有履约客户豆单/)
   assert.doesNotMatch(versionListSource, /棵凡官方豆单/)
@@ -72,18 +132,20 @@ test('product bean-list version scope selector lists public and each fulfillment
   assert.match(viewSource, /function syncPublicationScopeFromPageContext/)
 })
 
-test('product bean-list generate area uses collapsible bean-list sections including green beans', () => {
+test('product bean-list generate area uses dynamic collapsible product-type sections including green beans', () => {
   for (const expected of [
     'collapsible-bean-section',
     "beanListPreviewCollapsed",
-    "toggleBeanListPreviewSection('commercial')",
-    "toggleBeanListPreviewSection('drip')",
-    "toggleBeanListPreviewSection('retail')",
-    "toggleBeanListPreviewSection('green')",
-    "greenGroups",
+    'productPriceListPreviewSections',
+    'buildProductPriceListTypeOptions',
+    'priceListRenderTypeForItem',
+    'productPriceListTypeKey',
+    'toggleBeanListPreviewSection(section.key)',
+    "section.listType === 'green'",
+    "greenTierPriceRows",
     "green_bean_list",
     "green_bean_sale_tiers",
-    "生豆豆单",
+    "beanListTypeLabel(listType)",
   ]) {
     assert.ok(viewSource.includes(expected), `missing collapsible bean-list preview behavior: ${expected}`)
   }
@@ -112,9 +174,12 @@ test('product bean-list view maps every bean-list type to its own metadata and t
   for (const expected of [
     "if (listType === 'green') return 'green_bean_list'",
     "if (listType === 'green') return 'green_bean_sale_tiers'",
-    'official: { commercial: [], drip: [], retail: [], green: [] }',
-    'selectedProductIDsByType.value = { commercial: [], drip: [], retail: [], green: [] }',
-    "if (normalized === 'drip') return '挂耳'",
+    'function priceListRenderTypeForItem',
+    'function beanListPublicationTypeKey',
+    'product_type_category_id',
+    'product_type_name',
+    'selectedProductIDsByType.value = {}',
+    "if (kind === 'drip_bag') return 'drip'",
   ]) {
     assert.ok(viewSource.includes(expected), `missing bean-list type mapping: ${expected}`)
   }
@@ -124,6 +189,8 @@ test('product bean-list view exposes manual green bean tier price editing', () =
   for (const expected of [
     'green-tier-price-editor',
     'green-inline-price-editor',
+    '梯度按 KG，单价按元/KG',
+    '生成并发布新版豆单后，录单才会使用新价格',
     '保存生豆价格',
     'saveGreenBeanPriceDraft',
     'greenTierPriceRows(row)',
@@ -136,6 +203,16 @@ test('product bean-list view exposes manual green bean tier price editing', () =
     "'/api/costing/bean-list/drafts'",
   ]) {
     assert.ok(viewSource.includes(expected), `missing green bean tier price editing: ${expected}`)
+  }
+})
+
+test('product bean-list drawer defaults customer versions from the latest source plus one step', () => {
+  for (const expected of [
+    'defaultBeanListDraftVersion',
+    'defaultBeanListVersionForScope(listType, productTypeCategoryID = activeProductTypeCategoryID.value)',
+    'version: defaultBeanListVersionForScope(resolvedListType, activeProductTypeCategoryID.value)',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing customer bean-list version default behavior: ${expected}`)
   }
 })
 

@@ -45,6 +45,7 @@ type publicBeanListItem struct {
 	RecommendedUseHTML template.HTML
 	FlavorHTML         template.HTML
 	DescriptionHTML    template.HTML
+	AttributeHTML      template.HTML
 	QualityHTML        template.HTML
 	Prices             []publicBeanListPrice
 }
@@ -163,6 +164,7 @@ var publicBeanListTemplate = template.Must(template.New("public-bean-list").Func
                       {{if .RecommendedUseHTML}}<div class="pdf-table-line">出品建议 {{.RecommendedUseHTML}}</div>{{end}}
                       {{if .FlavorHTML}}<div class="pdf-table-line">风味 {{.FlavorHTML}}</div>{{end}}
                       {{if .DescriptionHTML}}<div class="pdf-table-line">特点 {{.DescriptionHTML}}</div>{{end}}
+                      {{if .AttributeHTML}}<div class="pdf-table-line">属性 {{.AttributeHTML}}</div>{{end}}
                       {{if .QualityHTML}}<div class="pdf-table-line">质检 {{.QualityHTML}}</div>{{end}}
                     </td>
                     <td class="pdf-table-prices">
@@ -184,6 +186,7 @@ var publicBeanListTemplate = template.Must(template.New("public-bean-list").Func
                     {{if .RecommendedUseHTML}}<dl class="pdf-detail"><dt>出品建议</dt><dd>{{.RecommendedUseHTML}}</dd></dl>{{end}}
                     {{if .FlavorHTML}}<dl class="pdf-detail"><dt>风味</dt><dd>{{.FlavorHTML}}</dd></dl>{{end}}
                     {{if .DescriptionHTML}}<dl class="pdf-detail"><dt>特点</dt><dd>{{.DescriptionHTML}}</dd></dl>{{end}}
+                    {{if .AttributeHTML}}<dl class="pdf-detail"><dt>属性</dt><dd>{{.AttributeHTML}}</dd></dl>{{end}}
                     {{if .QualityHTML}}<dl class="pdf-detail"><dt>质检</dt><dd>{{.QualityHTML}}</dd></dl>{{end}}
                     <div class="pdf-price-block">
                       <div class="pdf-section-label">报价</div>
@@ -281,6 +284,7 @@ func publicItemFromMap(item map[string]any) publicBeanListItem {
 		RecommendedUseHTML: publicHighlightHTML(mapString(item, "recommendedUse", ""), terms),
 		FlavorHTML:         publicHighlightHTML(mapString(item, "flavor", ""), terms),
 		DescriptionHTML:    publicHighlightHTML(mapString(item, "description", ""), terms),
+		AttributeHTML:      publicHighlightHTML(strings.Join(beanListPublicationPDFAttributeLines(item), " / "), terms),
 		QualityHTML:        publicQualityHTML(item, terms),
 	}
 	for _, priceMap := range publicMapsFromAny(item["prices"]) {
@@ -319,11 +323,11 @@ func buildPublicBeanListTitle(listType, brandName string) string {
 	}
 	switch normalizePublicBeanListType(listType) {
 	case "retail":
-		return brand + "零售豆单"
+		return brand + "零售产品价格表"
 	case "green":
-		return brand + "生豆豆单"
+		return brand + "生豆产品价格表"
 	}
-	return brand + "批发豆单"
+	return brand + "批发产品价格表"
 }
 
 func buildPublicBeanListSubtitle(listType string) string {

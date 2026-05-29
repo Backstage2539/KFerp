@@ -351,8 +351,8 @@ func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 		"/api/product-settings",
 		"/api/product-settings/categories",
 		"/api/product-settings/products/",
-		"一级分类",
-		"二级分类",
+		"产品类型",
+		"产品子类型",
 		"商品编号",
 	} {
 		if !strings.Contains(combined, want) {
@@ -420,7 +420,7 @@ func TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource(t *testing.T) {
 		"scheduleClearDrag",
 		"@dragend=\"scheduleClearDrag\"",
 		"dropCategoryOrProductOnSecondary",
-		"BOM出品率",
+		"BOM预期产出率",
 		"buildProductCreatePayload(productForm.value)",
 		"buildProductBasicsPayload(row, marginOverride.value)",
 	} {
@@ -483,7 +483,7 @@ func TestProductSettingsVueSupportsCategoryDelete(t *testing.T) {
 		"async function deleteCategory(category)",
 		"method: 'DELETE'",
 		"`/api/product-settings/categories/${category.id}`",
-		"删除分类后，分类内商品会回到未分类",
+		"分类已删除，相关商品已回到未分类",
 		"danger-text",
 	} {
 		if !strings.Contains(src, want) {

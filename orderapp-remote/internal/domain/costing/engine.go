@@ -1,6 +1,7 @@
 package costing
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -41,44 +42,62 @@ type Parameters struct {
 }
 
 type ProductInput struct {
-	ProductID                  int64                     `json:"product_id"`
-	Name                       string                    `json:"name"`
-	ProductKind                string                    `json:"product_kind,omitempty"`
-	DripBagGrams               float64                   `json:"drip_bag_grams,omitempty"`
-	DripBoxBagCount            int                       `json:"drip_box_bag_count,omitempty"`
-	CustomerID                 int64                     `json:"customer_id,omitempty"`
-	BaseProductID              int64                     `json:"base_product_id,omitempty"`
-	Visibility                 string                    `json:"visibility,omitempty"`
-	CustomType                 string                    `json:"custom_type,omitempty"`
-	ProductCategoryID          int64                     `json:"product_category_id,omitempty"`
-	SkuCategoryName            string                    `json:"sku_category_name,omitempty"`
-	SkuCategoryPosition        int                       `json:"sku_category_position,omitempty"`
-	SkuProductCategoryPosition int                       `json:"sku_product_category_position,omitempty"`
-	BeanListTemplateName       string                    `json:"bean_list_template_name,omitempty"`
-	Flavor                     string                    `json:"flavor,omitempty"`
-	Origin                     string                    `json:"origin,omitempty"`
-	ProcessingStation          string                    `json:"processing_station,omitempty"`
-	Variety                    string                    `json:"variety,omitempty"`
-	ProcessMethod              string                    `json:"process_method,omitempty"`
-	Grade                      string                    `json:"grade,omitempty"`
-	Altitude                   string                    `json:"altitude,omitempty"`
-	BeanListNote               string                    `json:"bean_list_note,omitempty"`
-	BomStatus                  string                    `json:"bom_status,omitempty"`
-	Warnings                   []string                  `json:"warnings,omitempty"`
-	GreenBeanCostPerKg         float64                   `json:"green_bean_cost_per_kg"`
-	YieldRate                  float64                   `json:"yield_rate"`
-	WholesaleTaxAddPerKg       float64                   `json:"wholesale_tax_add_per_kg"`
-	WholesaleTaxAddPerKgTiers  []float64                 `json:"wholesale_tax_add_per_kg_tiers"`
-	DripTaxAddPerBag100        float64                   `json:"drip_tax_add_per_bag_100"`
-	DripTaxAddPerBagRetail     float64                   `json:"drip_tax_add_per_bag_retail"`
-	WholesaleKgMarginRates     []float64                 `json:"wholesale_kg_margin_rates"`
-	WholesaleDripMultipliers   []float64                 `json:"wholesale_drip_multipliers"`
-	WholesaleTierScheme        string                    `json:"wholesale_tier_scheme,omitempty"`
-	MarginRateOverride         *float64                  `json:"margin_rate_override,omitempty"`
-	GradientTemplate           *GradientTemplate         `json:"gradient_template,omitempty"`
-	DripPriceTemplate          *DripPriceTemplate        `json:"drip_price_template,omitempty"`
-	GreenBeanSaleTiers         []CommercialWholesaleTier `json:"green_bean_sale_tiers,omitempty"`
-	BeanListQuality            BeanListQuality           `json:"bean_list_quality,omitempty"`
+	ProductID                 int64                     `json:"product_id"`
+	Name                      string                    `json:"name"`
+	ProductKind               string                    `json:"product_kind,omitempty"`
+	DripBagGrams              float64                   `json:"drip_bag_grams,omitempty"`
+	DripBoxBagCount           int                       `json:"drip_box_bag_count,omitempty"`
+	CustomerID                int64                     `json:"customer_id,omitempty"`
+	BaseProductID             int64                     `json:"base_product_id,omitempty"`
+	Visibility                string                    `json:"visibility,omitempty"`
+	CustomType                string                    `json:"custom_type,omitempty"`
+	ProductCategoryID         int64                     `json:"product_category_id,omitempty"`
+	ProductCategoryPosition   int                       `json:"product_category_position,omitempty"`
+	ProductTypeCategoryID     int64                     `json:"product_type_category_id,omitempty"`
+	ProductSubtypeCategoryID  int64                     `json:"product_subtype_category_id,omitempty"`
+	ProductTypeName           string                    `json:"product_type_name,omitempty"`
+	ProductSubtypeName        string                    `json:"product_subtype_name,omitempty"`
+	CategoryPrimaryName       string                    `json:"category_primary_name,omitempty"`
+	CategoryPrimaryPosition   int                       `json:"category_primary_position,omitempty"`
+	CategorySecondaryName     string                    `json:"category_secondary_name,omitempty"`
+	CategorySecondaryPosition int                       `json:"category_secondary_position,omitempty"`
+	OperationTemplateID       int64                     `json:"operation_template_id,omitempty"`
+	InventoryUnit             string                    `json:"inventory_unit,omitempty"`
+	QuoteUnit                 string                    `json:"quote_unit,omitempty"`
+	OrderUnit                 string                    `json:"order_unit,omitempty"`
+	UnitConversionJSON        string                    `json:"unit_conversion_json,omitempty"`
+	IntegerUnit               bool                      `json:"integer_unit,omitempty"`
+	PriceListRuleJSON         string                    `json:"price_list_rule_json,omitempty"`
+	SpecialAttrsJSON          string                    `json:"special_attrs_json,omitempty"`
+	SpecialAttrsSchemaJSON    string                    `json:"special_attrs_schema_json,omitempty"`
+	BeanListTemplateName      string                    `json:"bean_list_template_name,omitempty"`
+	Flavor                    string                    `json:"flavor,omitempty"`
+	Origin                    string                    `json:"origin,omitempty"`
+	ProcessingStation         string                    `json:"processing_station,omitempty"`
+	Variety                   string                    `json:"variety,omitempty"`
+	ProcessMethod             string                    `json:"process_method,omitempty"`
+	Grade                     string                    `json:"grade,omitempty"`
+	Altitude                  string                    `json:"altitude,omitempty"`
+	BeanListNote              string                    `json:"bean_list_note,omitempty"`
+	BomStatus                 string                    `json:"bom_status,omitempty"`
+	Warnings                  []string                  `json:"warnings,omitempty"`
+	GreenBeanCostPerKg        float64                   `json:"green_bean_cost_per_kg"`
+	BomCostPerUnit            float64                   `json:"bom_cost_per_unit,omitempty"`
+	OperationCostPerUnit      float64                   `json:"operation_cost_per_unit,omitempty"`
+	OperationCostPerKg        float64                   `json:"operation_cost_per_kg,omitempty"`
+	YieldRate                 float64                   `json:"yield_rate"`
+	WholesaleTaxAddPerKg      float64                   `json:"wholesale_tax_add_per_kg"`
+	WholesaleTaxAddPerKgTiers []float64                 `json:"wholesale_tax_add_per_kg_tiers"`
+	DripTaxAddPerBag100       float64                   `json:"drip_tax_add_per_bag_100"`
+	DripTaxAddPerBagRetail    float64                   `json:"drip_tax_add_per_bag_retail"`
+	WholesaleKgMarginRates    []float64                 `json:"wholesale_kg_margin_rates"`
+	WholesaleDripMultipliers  []float64                 `json:"wholesale_drip_multipliers"`
+	WholesaleTierScheme       string                    `json:"wholesale_tier_scheme,omitempty"`
+	MarginRateOverride        *float64                  `json:"margin_rate_override,omitempty"`
+	GradientTemplate          *GradientTemplate         `json:"gradient_template,omitempty"`
+	DripPriceTemplate         *DripPriceTemplate        `json:"drip_price_template,omitempty"`
+	GreenBeanSaleTiers        []CommercialWholesaleTier `json:"green_bean_sale_tiers,omitempty"`
+	BeanListQuality           BeanListQuality           `json:"bean_list_quality,omitempty"`
 }
 
 type CommercialWholesaleTier struct {
@@ -95,6 +114,7 @@ type CommercialWholesaleTier struct {
 	TemplateID     int64    `json:"template_id,omitempty"`
 	TemplateTierID int64    `json:"template_tier_id,omitempty"`
 	DisplayUnit    string   `json:"display_unit,omitempty"`
+	PriceUnit      string   `json:"price_unit,omitempty"`
 	MinWeightG     float64  `json:"min_weight_g,omitempty"`
 	MaxWeightG     *float64 `json:"max_weight_g,omitempty"`
 	MarginRate     float64  `json:"margin_rate,omitempty"`
@@ -234,6 +254,13 @@ type BeanListQuality struct {
 	InspectionReferenceNo    string `json:"inspection_reference_no,omitempty"`
 }
 
+type ProductAttribute struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Value    string `json:"value"`
+	Position int    `json:"position,omitempty"`
+}
+
 type ProductResult struct {
 	ProductID                      int64                     `json:"product_id"`
 	Name                           string                    `json:"name"`
@@ -245,6 +272,23 @@ type ProductResult struct {
 	Visibility                     string                    `json:"visibility,omitempty"`
 	CustomType                     string                    `json:"custom_type,omitempty"`
 	ProductCategoryID              int64                     `json:"product_category_id,omitempty"`
+	ProductCategoryPosition        int                       `json:"product_category_position,omitempty"`
+	ProductTypeCategoryID          int64                     `json:"product_type_category_id,omitempty"`
+	ProductSubtypeCategoryID       int64                     `json:"product_subtype_category_id,omitempty"`
+	ProductTypeName                string                    `json:"product_type_name,omitempty"`
+	ProductSubtypeName             string                    `json:"product_subtype_name,omitempty"`
+	CategoryPrimaryName            string                    `json:"category_primary_name,omitempty"`
+	CategoryPrimaryPosition        int                       `json:"category_primary_position,omitempty"`
+	CategorySecondaryName          string                    `json:"category_secondary_name,omitempty"`
+	CategorySecondaryPosition      int                       `json:"category_secondary_position,omitempty"`
+	OperationTemplateID            int64                     `json:"operation_template_id,omitempty"`
+	InventoryUnit                  string                    `json:"inventory_unit,omitempty"`
+	QuoteUnit                      string                    `json:"quote_unit,omitempty"`
+	OrderUnit                      string                    `json:"order_unit,omitempty"`
+	UnitConversionJSON             string                    `json:"unit_conversion_json,omitempty"`
+	IntegerUnit                    bool                      `json:"integer_unit,omitempty"`
+	PriceListRuleJSON              string                    `json:"price_list_rule_json,omitempty"`
+	ProductAttributes              []ProductAttribute        `json:"product_attributes,omitempty"`
 	MarginRateOverride             *float64                  `json:"margin_rate_override,omitempty"`
 	GradientTemplate               *GradientTemplate         `json:"gradient_template,omitempty"`
 	DripPriceTemplate              *DripPriceTemplate        `json:"drip_price_template,omitempty"`
@@ -265,6 +309,9 @@ type ProductResult struct {
 	Warnings                       []string                  `json:"warnings,omitempty"`
 	YieldRate                      float64                   `json:"yield_rate"`
 	GreenBeanCostPerKg             float64                   `json:"green_bean_cost_per_kg"`
+	BomCostPerUnit                 float64                   `json:"bom_cost_per_unit,omitempty"`
+	OperationCostPerUnit           float64                   `json:"operation_cost_per_unit,omitempty"`
+	OperationCostPerKg             float64                   `json:"operation_cost_per_kg,omitempty"`
 	RoastedBeanCostPerKg           float64                   `json:"roasted_bean_cost_per_kg"`
 	SmallBatchCostPerKg            float64                   `json:"small_batch_cost_per_kg"`
 	LargeBatchCostPerKg            float64                   `json:"large_batch_cost_per_kg"`
@@ -313,6 +360,12 @@ func ValidateProductInput(params Parameters, in ProductInput) (ProductInput, err
 	if in.GreenBeanCostPerKg < 0 {
 		return in, fmt.Errorf("green_bean_cost_per_kg must be >= 0")
 	}
+	if in.BomCostPerUnit < 0 {
+		return in, fmt.Errorf("bom_cost_per_unit must be >= 0")
+	}
+	if in.OperationCostPerUnit < 0 || in.OperationCostPerKg < 0 {
+		return in, fmt.Errorf("operation cost must be >= 0")
+	}
 	if in.YieldRate == 0 {
 		in.YieldRate = params.RoastYieldRate
 	}
@@ -328,6 +381,31 @@ func ValidateProductInput(params Parameters, in ProductInput) (ProductInput, err
 	}
 	if in.DripBoxBagCount <= 0 {
 		in.DripBoxBagCount = 10
+	}
+	in.InventoryUnit = normalizeProductUnit(in.InventoryUnit, "kg")
+	in.QuoteUnit = normalizeProductUnit(in.QuoteUnit, in.InventoryUnit)
+	in.OrderUnit = normalizeProductUnit(in.OrderUnit, in.QuoteUnit)
+	in.UnitConversionJSON = strings.TrimSpace(in.UnitConversionJSON)
+	if in.UnitConversionJSON == "" {
+		in.UnitConversionJSON = "{}"
+	}
+	in.PriceListRuleJSON = strings.TrimSpace(in.PriceListRuleJSON)
+	if in.PriceListRuleJSON == "" {
+		in.PriceListRuleJSON = "{}"
+	}
+	in.SpecialAttrsJSON = strings.TrimSpace(in.SpecialAttrsJSON)
+	if in.SpecialAttrsJSON == "" {
+		in.SpecialAttrsJSON = "{}"
+	}
+	in.SpecialAttrsSchemaJSON = strings.TrimSpace(in.SpecialAttrsSchemaJSON)
+	if in.SpecialAttrsSchemaJSON == "" {
+		in.SpecialAttrsSchemaJSON = "[]"
+	}
+	if strings.TrimSpace(in.ProductTypeName) == "" {
+		in.ProductTypeName = strings.TrimSpace(in.CategoryPrimaryName)
+	}
+	if strings.TrimSpace(in.ProductSubtypeName) == "" {
+		in.ProductSubtypeName = strings.TrimSpace(in.CategorySecondaryName)
 	}
 	in = ApplyExcelCommercialPricingProfile(params, in)
 	if len(in.WholesaleKgMarginRates) == 0 {
@@ -370,14 +448,20 @@ func ApplyExcelCommercialPricingProfile(params Parameters, in ProductInput) Prod
 }
 
 func normalizeProductKind(kind string) string {
-	switch strings.TrimSpace(kind) {
+	value := strings.TrimSpace(kind)
+	switch value {
 	case "drip_bag":
 		return "drip_bag"
 	case "green_bean":
 		return "green_bean"
+	case "instant_coffee":
+		return "instant_coffee"
 	case "roasted":
 		return "roasted"
 	default:
+		if value != "" {
+			return value
+		}
 		return "roasted"
 	}
 }
@@ -411,55 +495,76 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		retailDisplay = BeanListDisplay{}
 	}
 	if in.CustomerID > 0 {
-		if commercialDisplay.Code != "" {
-			commercialDisplay.DisplayName = in.Name
+		commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, in.ProductKind != "drip_bag")
+		retailDisplay = customerCategoryBeanListDisplay(in, retailDisplay, false)
+		dripDisplay = customerCategoryBeanListDisplay(in, dripDisplay, in.ProductKind == "drip_bag")
+	} else if hasSkuCategoryBeanListMetadata(in) {
+		if commercialDisplay.Code == "" {
+			commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, in.ProductKind != "drip_bag")
 		}
-		if retailDisplay.Code != "" {
-			retailDisplay.DisplayName = in.Name
+		if retailDisplay.Code == "" {
+			retailDisplay = customerCategoryBeanListDisplay(in, retailDisplay, false)
 		}
-		if dripDisplay.Code != "" {
-			dripDisplay.DisplayName = in.Name
+		if dripDisplay.Code == "" {
+			dripDisplay = customerCategoryBeanListDisplay(in, dripDisplay, in.ProductKind == "drip_bag")
 		}
-		commercialDisplay = customerSkuBeanListDisplay(commercialDisplay, in)
-		retailDisplay = customerSkuBeanListDisplay(retailDisplay, in)
-		dripDisplay = customerSkuBeanListDisplay(dripDisplay, in)
 	}
 
 	out := ProductResult{
-		ProductID:            in.ProductID,
-		Name:                 in.Name,
-		ProductKind:          in.ProductKind,
-		DripBagGrams:         in.DripBagGrams,
-		DripBoxBagCount:      in.DripBoxBagCount,
-		CustomerID:           in.CustomerID,
-		BaseProductID:        in.BaseProductID,
-		Visibility:           in.Visibility,
-		CustomType:           in.CustomType,
-		ProductCategoryID:    in.ProductCategoryID,
-		MarginRateOverride:   in.MarginRateOverride,
-		GradientTemplate:     in.GradientTemplate,
-		DripPriceTemplate:    in.DripPriceTemplate,
-		CommercialBeanList:   commercialDisplay,
-		DripBeanList:         dripDisplay,
-		RetailBeanList:       retailDisplay,
-		BeanListQuality:      in.BeanListQuality,
-		Flavor:               in.Flavor,
-		Origin:               in.Origin,
-		ProcessingStation:    in.ProcessingStation,
-		Variety:              in.Variety,
-		ProcessMethod:        in.ProcessMethod,
-		Grade:                in.Grade,
-		Altitude:             in.Altitude,
-		BeanListNote:         in.BeanListNote,
-		BomStatus:            in.BomStatus,
-		Warnings:             append([]string(nil), in.Warnings...),
-		YieldRate:            in.YieldRate,
-		GreenBeanCostPerKg:   in.GreenBeanCostPerKg,
-		RoastedBeanCostPerKg: roasted,
-		SmallBatchCostPerKg:  small,
-		LargeBatchCostPerKg:  large,
-		DripBaseCostPerBag:   dripBase,
-		RetailTaxPerKg:       retailTax,
+		ProductID:                 in.ProductID,
+		Name:                      in.Name,
+		ProductKind:               in.ProductKind,
+		DripBagGrams:              in.DripBagGrams,
+		DripBoxBagCount:           in.DripBoxBagCount,
+		CustomerID:                in.CustomerID,
+		BaseProductID:             in.BaseProductID,
+		Visibility:                in.Visibility,
+		CustomType:                in.CustomType,
+		ProductCategoryID:         in.ProductCategoryID,
+		ProductCategoryPosition:   in.ProductCategoryPosition,
+		ProductTypeCategoryID:     in.ProductTypeCategoryID,
+		ProductSubtypeCategoryID:  in.ProductSubtypeCategoryID,
+		ProductTypeName:           in.ProductTypeName,
+		ProductSubtypeName:        in.ProductSubtypeName,
+		CategoryPrimaryName:       in.CategoryPrimaryName,
+		CategoryPrimaryPosition:   in.CategoryPrimaryPosition,
+		CategorySecondaryName:     in.CategorySecondaryName,
+		CategorySecondaryPosition: in.CategorySecondaryPosition,
+		OperationTemplateID:       in.OperationTemplateID,
+		InventoryUnit:             in.InventoryUnit,
+		QuoteUnit:                 in.QuoteUnit,
+		OrderUnit:                 in.OrderUnit,
+		UnitConversionJSON:        in.UnitConversionJSON,
+		IntegerUnit:               in.IntegerUnit,
+		PriceListRuleJSON:         in.PriceListRuleJSON,
+		ProductAttributes:         productAttributesFromSpecialAttrs(in.SpecialAttrsSchemaJSON, in.SpecialAttrsJSON),
+		MarginRateOverride:        in.MarginRateOverride,
+		GradientTemplate:          in.GradientTemplate,
+		DripPriceTemplate:         in.DripPriceTemplate,
+		CommercialBeanList:        commercialDisplay,
+		DripBeanList:              dripDisplay,
+		RetailBeanList:            retailDisplay,
+		BeanListQuality:           in.BeanListQuality,
+		Flavor:                    in.Flavor,
+		Origin:                    in.Origin,
+		ProcessingStation:         in.ProcessingStation,
+		Variety:                   in.Variety,
+		ProcessMethod:             in.ProcessMethod,
+		Grade:                     in.Grade,
+		Altitude:                  in.Altitude,
+		BeanListNote:              in.BeanListNote,
+		BomStatus:                 in.BomStatus,
+		Warnings:                  append([]string(nil), in.Warnings...),
+		YieldRate:                 in.YieldRate,
+		GreenBeanCostPerKg:        in.GreenBeanCostPerKg,
+		BomCostPerUnit:            in.BomCostPerUnit,
+		OperationCostPerUnit:      in.OperationCostPerUnit,
+		OperationCostPerKg:        in.OperationCostPerKg,
+		RoastedBeanCostPerKg:      roasted,
+		SmallBatchCostPerKg:       small,
+		LargeBatchCostPerKg:       large,
+		DripBaseCostPerBag:        dripBase,
+		RetailTaxPerKg:            retailTax,
 	}
 
 	for i, margin := range in.WholesaleKgMarginRates {
@@ -498,80 +603,28 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	return out
 }
 
-func customerSkuBeanListDisplay(display BeanListDisplay, in ProductInput) BeanListDisplay {
-	if display.Code == "" {
-		return display
-	}
-	if in.ProductCategoryID > 0 && strings.TrimSpace(in.SkuCategoryName) != "" {
-		categoryPosition := positiveInt(in.SkuCategoryPosition, firstBeanListCodePart(display.Code), 1)
-		productPosition := positiveInt(in.SkuProductCategoryPosition, secondBeanListCodePart(display.Code), int(in.ProductID), 1)
-		display.Category = numberedBeanListCategory(categoryPosition, in.SkuCategoryName)
-		display.Code = fmt.Sprintf("%d.%d", categoryPosition, productPosition)
-		return display
-	}
-	display.Category = "未分类"
-	display.Code = customerUnclassifiedBeanListCode(in.ProductID, display.Code)
-	return display
-}
-
-func customerUnclassifiedBeanListCode(productID int64, sourceCode string) string {
-	return fmt.Sprintf("999.%d", positiveInt(secondBeanListCodePart(sourceCode), int(productID), 1))
-}
-
-func numberedBeanListCategory(position int, name string) string {
-	cleaned := stripLeadingCategoryNumber(strings.TrimSpace(name))
-	if cleaned == "" {
-		cleaned = "未分类"
-	}
-	return fmt.Sprintf("%d、%s", positiveInt(position, 1), cleaned)
-}
-
-func stripLeadingCategoryNumber(value string) string {
-	s := strings.TrimSpace(value)
-	runes := []rune(s)
-	i := 0
-	for i < len(runes) && runes[i] >= '0' && runes[i] <= '9' {
-		i++
-	}
-	if i == 0 || i >= len(runes) {
-		return s
-	}
-	switch runes[i] {
-	case '、', '.', '．', '-', ' ':
-		return strings.TrimSpace(string(runes[i+1:]))
-	default:
-		return s
-	}
-}
-
-func firstBeanListCodePart(code string) int {
-	parts := strings.Split(strings.TrimSpace(code), ".")
-	if len(parts) == 0 {
-		return 0
-	}
-	n, _ := strconv.Atoi(strings.TrimSpace(parts[0]))
-	return n
-}
-
-func secondBeanListCodePart(code string) int {
-	parts := strings.Split(strings.TrimSpace(code), ".")
-	if len(parts) < 2 {
-		return 0
-	}
-	n, _ := strconv.Atoi(strings.TrimSpace(parts[1]))
-	return n
-}
-
-func positiveInt(values ...int) int {
-	for _, value := range values {
-		if value > 0 {
-			return value
-		}
-	}
-	return 1
-}
-
 func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult {
+	in.InventoryUnit = normalizeProductUnit(in.InventoryUnit, "kg")
+	in.QuoteUnit = normalizeProductUnit(in.QuoteUnit, in.InventoryUnit)
+	in.OrderUnit = normalizeProductUnit(in.OrderUnit, in.QuoteUnit)
+	in.UnitConversionJSON = strings.TrimSpace(in.UnitConversionJSON)
+	if in.UnitConversionJSON == "" {
+		in.UnitConversionJSON = "{}"
+	}
+	in.SpecialAttrsJSON = strings.TrimSpace(in.SpecialAttrsJSON)
+	if in.SpecialAttrsJSON == "" {
+		in.SpecialAttrsJSON = "{}"
+	}
+	in.SpecialAttrsSchemaJSON = strings.TrimSpace(in.SpecialAttrsSchemaJSON)
+	if in.SpecialAttrsSchemaJSON == "" {
+		in.SpecialAttrsSchemaJSON = "[]"
+	}
+	if strings.TrimSpace(in.ProductTypeName) == "" {
+		in.ProductTypeName = strings.TrimSpace(in.CategoryPrimaryName)
+	}
+	if strings.TrimSpace(in.ProductSubtypeName) == "" {
+		in.ProductSubtypeName = strings.TrimSpace(in.CategorySecondaryName)
+	}
 	displayName := strings.TrimSpace(in.BeanListTemplateName)
 	if displayName == "" {
 		displayName = strings.TrimSpace(in.Name)
@@ -590,15 +643,32 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		}
 	}
 	return ProductResult{
-		ProductID:         in.ProductID,
-		Name:              in.Name,
-		ProductKind:       "green_bean",
-		CustomerID:        in.CustomerID,
-		BaseProductID:     in.BaseProductID,
-		Visibility:        in.Visibility,
-		CustomType:        in.CustomType,
-		ProductCategoryID: in.ProductCategoryID,
-		BeanListQuality:   in.BeanListQuality,
+		ProductID:                 in.ProductID,
+		Name:                      in.Name,
+		ProductKind:               "green_bean",
+		CustomerID:                in.CustomerID,
+		BaseProductID:             in.BaseProductID,
+		Visibility:                in.Visibility,
+		CustomType:                in.CustomType,
+		ProductCategoryID:         in.ProductCategoryID,
+		ProductCategoryPosition:   in.ProductCategoryPosition,
+		ProductTypeCategoryID:     in.ProductTypeCategoryID,
+		ProductSubtypeCategoryID:  in.ProductSubtypeCategoryID,
+		ProductTypeName:           in.ProductTypeName,
+		ProductSubtypeName:        in.ProductSubtypeName,
+		CategoryPrimaryName:       in.CategoryPrimaryName,
+		CategoryPrimaryPosition:   in.CategoryPrimaryPosition,
+		CategorySecondaryName:     in.CategorySecondaryName,
+		CategorySecondaryPosition: in.CategorySecondaryPosition,
+		OperationTemplateID:       in.OperationTemplateID,
+		InventoryUnit:             in.InventoryUnit,
+		QuoteUnit:                 in.QuoteUnit,
+		OrderUnit:                 in.OrderUnit,
+		UnitConversionJSON:        in.UnitConversionJSON,
+		IntegerUnit:               in.IntegerUnit,
+		PriceListRuleJSON:         in.PriceListRuleJSON,
+		ProductAttributes:         productAttributesFromSpecialAttrs(in.SpecialAttrsSchemaJSON, in.SpecialAttrsJSON),
+		BeanListQuality:           in.BeanListQuality,
 		GreenBeanList: BeanListDisplay{
 			Code:           code,
 			Category:       "生豆销售",
@@ -607,18 +677,33 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 			Flavor:         in.Flavor,
 			Description:    firstNonEmptyString(in.BeanListNote, in.Origin),
 		},
-		Flavor:             in.Flavor,
-		Origin:             in.Origin,
-		ProcessingStation:  in.ProcessingStation,
-		Variety:            in.Variety,
-		ProcessMethod:      in.ProcessMethod,
-		Grade:              in.Grade,
-		Altitude:           in.Altitude,
-		BeanListNote:       in.BeanListNote,
-		GreenBeanCostPerKg: in.GreenBeanCostPerKg,
-		BomStatus:          bomStatus,
-		GreenBeanSaleTiers: tiers,
+		Flavor:               in.Flavor,
+		Origin:               in.Origin,
+		ProcessingStation:    in.ProcessingStation,
+		Variety:              in.Variety,
+		ProcessMethod:        in.ProcessMethod,
+		Grade:                in.Grade,
+		Altitude:             in.Altitude,
+		BeanListNote:         in.BeanListNote,
+		GreenBeanCostPerKg:   in.GreenBeanCostPerKg,
+		BomCostPerUnit:       in.BomCostPerUnit,
+		OperationCostPerUnit: in.OperationCostPerUnit,
+		OperationCostPerKg:   in.OperationCostPerKg,
+		BomStatus:            bomStatus,
+		GreenBeanSaleTiers:   tiers,
 	}
+}
+
+func normalizeProductUnit(value string, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		return value
+	}
+	fallback = strings.TrimSpace(fallback)
+	if fallback != "" {
+		return fallback
+	}
+	return "kg"
 }
 
 func buildGreenBeanTemplateSaleTiers(params Parameters, in ProductInput) []CommercialWholesaleTier {
@@ -732,6 +817,95 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func customerCategoryBeanListDisplay(in ProductInput, display BeanListDisplay, allowFallback bool) BeanListDisplay {
+	if display.Code == "" && !allowFallback {
+		return display
+	}
+	categoryName := customerBeanListCategoryName(in)
+	if categoryName == "" {
+		if display.Code == "" {
+			display.RecommendedUse = "客户定制"
+		}
+		display.Code = customerUnclassifiedBeanListCode(display.Code, in.ProductCategoryPosition, in.ProductID)
+		display.Category = "未分类"
+		display.DisplayName = in.Name
+		if strings.TrimSpace(display.Flavor) == "" {
+			display.Flavor = in.Flavor
+		}
+		if strings.TrimSpace(display.Description) == "" {
+			display.Description = firstNonEmptyString(in.BeanListNote, in.Origin)
+		}
+		return display
+	}
+	categoryPosition := customerBeanListCategoryPosition(in)
+	productPosition := in.ProductCategoryPosition
+	if productPosition <= 0 && in.ProductID > 0 {
+		productPosition = int(in.ProductID)
+	}
+	if categoryPosition <= 0 {
+		categoryPosition = 1
+	}
+	if productPosition <= 0 {
+		productPosition = 1
+	}
+	if display.Code == "" {
+		display.RecommendedUse = "客户定制"
+	}
+	display.Code = fmt.Sprintf("%d.%d", categoryPosition, productPosition)
+	display.Category = fmt.Sprintf("%d、%s", categoryPosition, categoryName)
+	display.DisplayName = in.Name
+	if strings.TrimSpace(display.Flavor) == "" {
+		display.Flavor = in.Flavor
+	}
+	if strings.TrimSpace(display.Description) == "" {
+		display.Description = firstNonEmptyString(in.BeanListNote, in.Origin)
+	}
+	return display
+}
+
+func hasSkuCategoryBeanListMetadata(in ProductInput) bool {
+	return strings.TrimSpace(in.CategoryPrimaryName) != "" || strings.TrimSpace(in.CategorySecondaryName) != ""
+}
+
+func customerBeanListCategoryName(in ProductInput) string {
+	primary := strings.TrimSpace(in.CategoryPrimaryName)
+	secondary := strings.TrimSpace(in.CategorySecondaryName)
+	return firstNonEmptyString(secondary, primary)
+}
+
+func customerBeanListCategoryPosition(in ProductInput) int {
+	if strings.TrimSpace(in.CategorySecondaryName) != "" && in.CategorySecondaryPosition > 0 {
+		return in.CategorySecondaryPosition
+	}
+	if in.CategoryPrimaryPosition > 0 {
+		return in.CategoryPrimaryPosition
+	}
+	return 0
+}
+
+func customerUnclassifiedBeanListCode(sourceCode string, productCategoryPosition int, productID int64) string {
+	itemPosition := secondBeanListCodePart(sourceCode)
+	if itemPosition <= 0 {
+		itemPosition = productCategoryPosition
+	}
+	if itemPosition <= 0 && productID > 0 {
+		itemPosition = int(productID)
+	}
+	if itemPosition <= 0 {
+		itemPosition = 1
+	}
+	return fmt.Sprintf("999.%d", itemPosition)
+}
+
+func secondBeanListCodePart(code string) int {
+	parts := strings.Split(strings.TrimSpace(code), ".")
+	if len(parts) < 2 {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(parts[1]))
+	return n
 }
 
 func trimFloatZero(value float64) string {
@@ -937,11 +1111,376 @@ type commercialPriceParts struct {
 	DisplayUnit         string
 }
 
+type productPriceRule struct {
+	PricingMode     string
+	DisplayUnit     string
+	Rounding        string
+	TaxIncluded     bool
+	UnitPrice       float64
+	CostPlusRate    float64
+	HasCostPlusRate bool
+	TierPrices      map[string]float64
+	RawRuleJSON     string
+}
+
+func parseProductPriceRuleJSON(value string) productPriceRule {
+	rule := productPriceRule{
+		PricingMode: "inherit_gradient_template",
+		DisplayUnit: "",
+		Rounding:    "none",
+		RawRuleJSON: strings.TrimSpace(value),
+	}
+	raw := map[string]any{}
+	if err := json.Unmarshal([]byte(rule.RawRuleJSON), &raw); err != nil {
+		return rule
+	}
+	rule.PricingMode = normalizeProductPriceRuleMode(stringValue(raw["pricing_mode"]), rule.PricingMode)
+	rule.DisplayUnit = strings.TrimSpace(firstNonEmptyString(stringValue(raw["display_unit"]), stringValue(raw["display_mode"]), rule.DisplayUnit))
+	rule.Rounding = normalizeProductPriceRuleRounding(stringValue(raw["rounding"]))
+	rule.TaxIncluded = boolValue(raw["tax_included"])
+	rule.UnitPrice = firstPositiveFloat(raw, "unit_price", "price_per_unit", "fixed_unit_price", "fixed_price")
+	if rate, ok := firstNonNegativeFloat(raw, "cost_plus_rate", "markup_rate", "margin_rate"); ok {
+		rule.CostPlusRate = rate
+		rule.HasCostPlusRate = true
+	}
+	rule.TierPrices = map[string]float64{}
+	for _, key := range []string{"tier_prices", "fixed_prices", "prices"} {
+		if rows, ok := raw[key].(map[string]any); ok {
+			for tierKey, value := range rows {
+				if price := floatValue(value); price > 0 {
+					rule.TierPrices[strings.TrimSpace(tierKey)] = price
+				}
+			}
+		}
+	}
+	return rule
+}
+
+func normalizeProductPriceRuleMode(value string, fallback string) string {
+	switch strings.TrimSpace(value) {
+	case "fixed_unit_price", "cost_plus", "inherit_gradient_template":
+		return strings.TrimSpace(value)
+	default:
+		if fallback != "" {
+			return fallback
+		}
+		return "inherit_gradient_template"
+	}
+}
+
+func normalizeProductPriceRuleRounding(value string) string {
+	switch strings.TrimSpace(value) {
+	case "yuan", "jiao":
+		return strings.TrimSpace(value)
+	default:
+		return "none"
+	}
+}
+
+func stringValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	default:
+		return ""
+	}
+}
+
+func boolValue(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "true", "1", "yes":
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+}
+
+type specialAttrSchemaRow struct {
+	Key             string   `json:"key"`
+	Label           string   `json:"label"`
+	ValueType       string   `json:"value_type"`
+	Options         []string `json:"options"`
+	Required        bool     `json:"required"`
+	ShowInPriceList bool     `json:"show_in_price_list"`
+	Position        int      `json:"position"`
+}
+
+func productAttributesFromSpecialAttrs(schemaJSON string, valuesJSON string) []ProductAttribute {
+	var schema []specialAttrSchemaRow
+	if err := json.Unmarshal([]byte(strings.TrimSpace(schemaJSON)), &schema); err != nil {
+		return nil
+	}
+	values := map[string]any{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(valuesJSON)), &values); err != nil {
+		return nil
+	}
+	out := make([]ProductAttribute, 0, len(schema))
+	for index, row := range schema {
+		if !row.ShowInPriceList {
+			continue
+		}
+		key := strings.TrimSpace(row.Key)
+		if key == "" {
+			continue
+		}
+		value := specialAttrDisplayValue(values[key])
+		if value == "" {
+			continue
+		}
+		label := strings.TrimSpace(row.Label)
+		if label == "" {
+			label = key
+		}
+		position := row.Position
+		if position <= 0 {
+			position = index + 1
+		}
+		out = append(out, ProductAttribute{
+			Key:      key,
+			Label:    label,
+			Value:    value,
+			Position: position,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Position != out[j].Position {
+			return out[i].Position < out[j].Position
+		}
+		if out[i].Label != out[j].Label {
+			return out[i].Label < out[j].Label
+		}
+		return out[i].Key < out[j].Key
+	})
+	return out
+}
+
+func specialAttrDisplayValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case float64:
+		return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(v, 'f', 6, 64), "0"), ".")
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	case []any:
+		parts := make([]string, 0, len(v))
+		for _, item := range v {
+			if s := specialAttrDisplayValue(item); s != "" {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, "、")
+	default:
+		return ""
+	}
+}
+
+func floatValue(value any) float64 {
+	switch v := value.(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case json.Number:
+		n, _ := v.Float64()
+		return n
+	case string:
+		n, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return n
+	default:
+		return 0
+	}
+}
+
+func firstPositiveFloat(raw map[string]any, keys ...string) float64 {
+	for _, key := range keys {
+		if value := floatValue(raw[key]); value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func firstNonNegativeFloat(raw map[string]any, keys ...string) (float64, bool) {
+	for _, key := range keys {
+		value, ok := raw[key]
+		if !ok {
+			continue
+		}
+		numberValue := floatValue(value)
+		if numberValue >= 0 {
+			return numberValue, true
+		}
+	}
+	return 0, false
+}
+
+func productPriceRuleTierPrice(rule productPriceRule, tier GradientTemplateTier) (float64, bool) {
+	if rule.UnitPrice > 0 {
+		return rule.UnitPrice, true
+	}
+	for _, key := range []string{
+		strconv.FormatInt(tier.ID, 10),
+		strings.TrimSpace(tier.Label),
+	} {
+		if key == "" || key == "0" {
+			continue
+		}
+		if price := rule.TierPrices[key]; price > 0 {
+			return price, true
+		}
+	}
+	return 0, false
+}
+
+func shouldUseComposableProductPricing(in ProductInput, rule productPriceRule) bool {
+	if in.BomCostPerUnit > 0 || in.OperationCostPerUnit > 0 || in.OperationCostPerKg > 0 {
+		return true
+	}
+	switch rule.PricingMode {
+	case "cost_plus", "fixed_unit_price":
+		return true
+	default:
+		return false
+	}
+}
+
+func effectivePriceRuleDisplayUnit(in ProductInput, template GradientTemplate, rule productPriceRule) string {
+	displayUnit := strings.TrimSpace(rule.DisplayUnit)
+	if displayUnit == "" || displayUnit == "inherit_quote_unit" || displayUnit == "inherit_gradient_template" {
+		displayUnit = strings.TrimSpace(template.DisplayUnit)
+	}
+	if displayUnit == "" {
+		displayUnit = strings.TrimSpace(in.QuoteUnit)
+	}
+	return normalizeGradientDisplayUnit(displayUnit)
+}
+
+func isLegacyGradientDisplayUnit(unit string) bool {
+	switch strings.TrimSpace(unit) {
+	case "":
+		return true
+	case GradientDisplayUnitKg, GradientDisplayUnitLb, GradientDisplayUnit227G, GradientDisplayUnit100G, GradientDisplayUnit250G:
+		return true
+	default:
+		return false
+	}
+}
+
+func quantityScaleForGradientDisplayUnit(unit string) float64 {
+	if isLegacyGradientDisplayUnit(unit) {
+		return float64(specGForGradientDisplayUnit(unit))
+	}
+	return 1
+}
+
+func physicalSpecGForDisplayUnit(unit string, conversionJSON string) int {
+	if isLegacyGradientDisplayUnit(unit) {
+		return specGForGradientDisplayUnit(unit)
+	}
+	grams := gramsForUnitFromConversion(unit, conversionJSON)
+	if grams > 0 {
+		return int64ToInt(math.Round(grams))
+	}
+	return 1
+}
+
+func composableCostPerDisplayUnit(in ProductInput, displayUnit string) float64 {
+	cost := in.BomCostPerUnit + in.OperationCostPerUnit
+	if in.OperationCostPerKg > 0 {
+		specG := physicalSpecGForDisplayUnit(displayUnit, in.UnitConversionJSON)
+		if specG > 0 {
+			cost += in.OperationCostPerKg * float64(specG) / 1000.0
+		}
+	}
+	return cost
+}
+
+func int64ToInt(v float64) int {
+	if v <= 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+		return 1
+	}
+	maxInt := int(^uint(0) >> 1)
+	if v > float64(maxInt) {
+		return maxInt
+	}
+	return int(v)
+}
+
+func gramsForUnitFromConversion(unit string, conversionJSON string) float64 {
+	unit = strings.TrimSpace(unit)
+	if unit == "" {
+		return 0
+	}
+	raw := map[string]map[string]any{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(conversionJSON)), &raw); err != nil {
+		return 0
+	}
+	return gramsForUnitFromConversionMap(unit, raw, map[string]bool{})
+}
+
+func gramsForUnitFromConversionMap(unit string, conversion map[string]map[string]any, seen map[string]bool) float64 {
+	unit = strings.TrimSpace(unit)
+	if unit == "" || seen[unit] {
+		return 0
+	}
+	seen[unit] = true
+	targets := conversion[unit]
+	for target, ratioValue := range targets {
+		target = strings.TrimSpace(target)
+		ratio := floatValue(ratioValue)
+		if ratio <= 0 {
+			continue
+		}
+		switch target {
+		case "g", "克":
+			return ratio
+		case "kg", "公斤", "千克":
+			return ratio * 1000
+		case "lb", "磅":
+			return ratio * 454
+		default:
+			if targetGrams := gramsForUnitFromConversionMap(target, conversion, seen); targetGrams > 0 {
+				return ratio * targetGrams
+			}
+		}
+	}
+	return 0
+}
+
+func roundProductPriceByRule(value float64, rounding string) float64 {
+	switch normalizeProductPriceRuleRounding(rounding) {
+	case "yuan":
+		return math.Round(value)
+	case "jiao":
+		return math.Round(value*10) / 10
+	default:
+		return roundPrice(value)
+	}
+}
+
 func buildGradientTemplateCommercialTiers(params Parameters, in ProductInput, template GradientTemplate) []CommercialWholesaleTier {
+	rule := parseProductPriceRuleJSON(in.PriceListRuleJSON)
+	if shouldUseComposableProductPricing(in, rule) {
+		return buildComposableProductCommercialTiers(params, in, template, rule)
+	}
 	out := make([]CommercialWholesaleTier, 0, len(template.Tiers))
+	displayUnit := normalizeGradientDisplayUnit(template.DisplayUnit)
 	for _, tier := range template.Tiers {
-		parts := commercialPriceForGradientTier(params, in, template.DisplayUnit, tier, in.MarginRateOverride)
-		specG := specGForGradientDisplayUnit(template.DisplayUnit)
+		parts := commercialPriceForGradientTier(params, in, displayUnit, tier, in.MarginRateOverride)
+		specG := specGForGradientDisplayUnit(displayUnit)
 		minQty := roundQuantity(tier.MinWeightG / float64(specG))
 		var maxQty *float64
 		if tier.MaxWeightG != nil {
@@ -967,10 +1506,85 @@ func buildGradientTemplateCommercialTiers(params Parameters, in ProductInput, te
 			PricePerLb:     parts.FinalPricePerLb,
 			TemplateID:     template.ID,
 			TemplateTierID: tier.ID,
-			DisplayUnit:    template.DisplayUnit,
+			DisplayUnit:    parts.DisplayUnit,
+			PriceUnit:      parts.DisplayUnit,
 			MinWeightG:     tier.MinWeightG,
 			MaxWeightG:     tier.MaxWeightG,
 			MarginRate:     parts.MarginRate,
+		})
+	}
+	return out
+}
+
+func buildComposableProductCommercialTiers(params Parameters, in ProductInput, template GradientTemplate, rule productPriceRule) []CommercialWholesaleTier {
+	out := make([]CommercialWholesaleTier, 0, len(template.Tiers))
+	displayUnit := effectivePriceRuleDisplayUnit(in, template, rule)
+	specG := physicalSpecGForDisplayUnit(displayUnit, in.UnitConversionJSON)
+	hasPhysicalSpec := isLegacyGradientDisplayUnit(displayUnit) || gramsForUnitFromConversion(displayUnit, in.UnitConversionJSON) > 0
+	quantityScale := quantityScaleForGradientDisplayUnit(displayUnit)
+	if quantityScale <= 0 {
+		quantityScale = 1
+	}
+	for _, tier := range template.Tiers {
+		margin := tier.MarginRate
+		if in.MarginRateOverride != nil {
+			margin = *in.MarginRateOverride
+		}
+		if rule.PricingMode == "cost_plus" && rule.HasCostPlusRate {
+			margin = rule.CostPlusRate
+		}
+		pricePerUnit := composableCostPerDisplayUnit(in, displayUnit) * (1 + margin)
+		if rule.PricingMode == "fixed_unit_price" {
+			if fixedPrice, ok := productPriceRuleTierPrice(rule, tier); ok {
+				pricePerUnit = fixedPrice
+			}
+		}
+		pricePerUnit = roundProductPriceByRule(pricePerUnit, rule.Rounding)
+		pricePerKg := 0.0
+		pricePerLb := 0.0
+		if hasPhysicalSpec && specG > 0 {
+			pricePerKg = roundPrice(pricePerUnit * 1000.0 / float64(specG))
+			pricePerLb = roundPrice(pricePerKg * params.KgToLbFactor)
+		}
+		minQty := roundQuantity(tier.MinWeightG / quantityScale)
+		var maxQty *float64
+		if tier.MaxWeightG != nil {
+			v := roundQuantity(*tier.MaxWeightG / quantityScale)
+			maxQty = &v
+		}
+		minWeightG := tier.MinWeightG
+		if !isLegacyGradientDisplayUnit(displayUnit) {
+			minWeightG = minQty * float64(specG)
+		}
+		maxWeightG := tier.MaxWeightG
+		if !isLegacyGradientDisplayUnit(displayUnit) && maxQty != nil {
+			v := *maxQty * float64(specG)
+			maxWeightG = &v
+		}
+		minLb := roundQuantity(minWeightG / 454.0)
+		var maxLb *float64
+		if maxWeightG != nil {
+			v := roundQuantity(*maxWeightG / 454.0)
+			maxLb = &v
+		}
+		out = append(out, CommercialWholesaleTier{
+			Label:          tier.Label,
+			Scheme:         "gradient_template",
+			SpecG:          int64(specG),
+			MinQty:         minQty,
+			MaxQty:         maxQty,
+			PricePerUnit:   pricePerUnit,
+			MinLb:          minLb,
+			MaxLb:          maxLb,
+			PricePerKg:     pricePerKg,
+			PricePerLb:     pricePerLb,
+			TemplateID:     template.ID,
+			TemplateTierID: tier.ID,
+			DisplayUnit:    displayUnit,
+			PriceUnit:      displayUnit,
+			MinWeightG:     minWeightG,
+			MaxWeightG:     maxWeightG,
+			MarginRate:     margin,
 		})
 	}
 	return out
@@ -1077,7 +1691,7 @@ func ExplainCommercialPrice(params Parameters, in ProductInput, req PriceExplana
 		PreviewFinalPrice: preview.FinalPricePerUnit,
 		Steps: []PriceExplanationStep{
 			{Key: "green_bean_cost_per_kg", Label: "生豆成本", Source: "product", Value: previewInput.GreenBeanCostPerKg, Unit: "元/kg", Changed: req.Overrides.GreenBeanCostPerKg != nil},
-			{Key: "yield_rate", Label: "出成率", Source: "product_bom", Value: previewInput.YieldRate, Unit: "ratio", Changed: req.Overrides.YieldRate != nil},
+			{Key: "yield_rate", Label: "预期产出率", Source: "product_bom", Value: previewInput.YieldRate, Unit: "ratio", Changed: req.Overrides.YieldRate != nil},
 			{Key: "roasted_bean_cost_per_kg", Label: "熟豆成本", Source: "formula", Value: preview.RoastedCostPerKg, Unit: "元/kg", Changed: req.Overrides.GreenBeanCostPerKg != nil || req.Overrides.YieldRate != nil},
 			{Key: preview.ProductionKey, Label: "生产成本", Source: "cost_parameter", Value: preview.ProductionCostPerKg, Unit: "元/kg"},
 			{Key: "wholesale_package_cost_per_kg", Label: "批发包装成本", Source: "cost_parameter", Value: params.WholesalePackageCostPerKg, Unit: "元/kg"},
@@ -1145,7 +1759,7 @@ func ExplainDripPrice(params Parameters, in ProductInput, req PriceExplanationRe
 		PackedPricePerBox: packedBox,
 		Steps: []PriceExplanationStep{
 			{Key: "green_bean_cost_per_kg", Label: "生豆成本", Source: "product", Value: validated.GreenBeanCostPerKg, Unit: "元/kg"},
-			{Key: "yield_rate", Label: "出成率", Source: "product_bom", Value: validated.YieldRate, Unit: "ratio"},
+			{Key: "yield_rate", Label: "预期产出率", Source: "product_bom", Value: validated.YieldRate, Unit: "ratio"},
 			{Key: "roasted_bean_cost_per_kg", Label: "熟豆成本", Source: "formula", Value: roasted, Unit: "元/kg"},
 			{Key: "small_batch_production_cost_per_kg", Label: "小批量生产成本", Source: "cost_parameter", Value: params.SmallBatchProductionCostPerKg, Unit: "元/kg"},
 			{Key: "bag_grams", Label: "单袋熟豆克重", Source: "product_or_template", Value: tier.BagGrams, Unit: "g"},
@@ -1251,7 +1865,8 @@ func dripTemplateName(template *DripPriceTemplate) string {
 }
 
 func normalizeGradientDisplayUnit(unit string) string {
-	switch strings.TrimSpace(unit) {
+	value := strings.TrimSpace(unit)
+	switch value {
 	case GradientDisplayUnitKg:
 		return GradientDisplayUnitKg
 	case GradientDisplayUnit227G:
@@ -1263,6 +1878,9 @@ func normalizeGradientDisplayUnit(unit string) string {
 	case GradientDisplayUnitLb:
 		return GradientDisplayUnitLb
 	default:
+		if value != "" {
+			return value
+		}
 		return GradientDisplayUnitLb
 	}
 }
@@ -1271,6 +1889,8 @@ func specGForGradientDisplayUnit(unit string) int {
 	switch normalizeGradientDisplayUnit(unit) {
 	case GradientDisplayUnitKg:
 		return 1000
+	case GradientDisplayUnitLb:
+		return 454
 	case GradientDisplayUnit227G:
 		return 227
 	case GradientDisplayUnit100G:
@@ -1278,7 +1898,7 @@ func specGForGradientDisplayUnit(unit string) int {
 	case GradientDisplayUnit250G:
 		return 250
 	default:
-		return 454
+		return 1
 	}
 }
 
@@ -1315,9 +1935,15 @@ func roundProductPrices(out *ProductResult) {
 		out.WholesaleLbPrices[i] = roundPrice(out.WholesaleLbPrices[i])
 	}
 	for i := range out.CommercialWholesaleTiers {
-		out.CommercialWholesaleTiers[i].PricePerKg = roundPrice(out.CommercialWholesaleTiers[i].PricePerKg)
-		out.CommercialWholesaleTiers[i].PricePerLb = roundPrice(out.CommercialWholesaleTiers[i].PricePerLb)
-		out.CommercialWholesaleTiers[i].PricePerUnit = roundPrice(out.CommercialWholesaleTiers[i].PricePerUnit)
+		if isLegacyGradientDisplayUnit(out.CommercialWholesaleTiers[i].DisplayUnit) {
+			out.CommercialWholesaleTiers[i].PricePerKg = roundPrice(out.CommercialWholesaleTiers[i].PricePerKg)
+			out.CommercialWholesaleTiers[i].PricePerLb = roundPrice(out.CommercialWholesaleTiers[i].PricePerLb)
+			out.CommercialWholesaleTiers[i].PricePerUnit = roundPrice(out.CommercialWholesaleTiers[i].PricePerUnit)
+		} else {
+			out.CommercialWholesaleTiers[i].PricePerKg = roundPriceTo(out.CommercialWholesaleTiers[i].PricePerKg, 2)
+			out.CommercialWholesaleTiers[i].PricePerLb = roundPriceTo(out.CommercialWholesaleTiers[i].PricePerLb, 2)
+			out.CommercialWholesaleTiers[i].PricePerUnit = roundPriceTo(out.CommercialWholesaleTiers[i].PricePerUnit, 2)
+		}
 	}
 	for i := range out.WholesaleDripBagPrices {
 		out.WholesaleDripBagPrices[i] = roundPrice(out.WholesaleDripBagPrices[i])

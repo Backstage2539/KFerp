@@ -69,8 +69,8 @@ func TestProductFormulaMenuClickMatrixViewsExposeActions(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"/api/costing/bean-list",
 			"/api/costing/bean-list/publications",
-			"豆单版本列表",
-			"生成豆单",
+			"已发布价格表",
+			"生成价格表",
 		},
 		filepath.Join("frontend-vue-shell", "src", "components", "CostingSettingsPanel.vue"): {
 			"/api/costing/settings",
@@ -83,7 +83,7 @@ func TestProductFormulaMenuClickMatrixViewsExposeActions(t *testing.T) {
 			"/api/bom/item/save",
 			"/api/bom/versions",
 			"/api/bom/bag-spec-mappings/save",
-			"同步出品率",
+			"保存预期损耗率",
 			"保存组件",
 			"保存当前为版本",
 			"保存映射",

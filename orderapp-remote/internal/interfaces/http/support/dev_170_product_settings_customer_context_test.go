@@ -38,9 +38,9 @@ func TestDev170ProductSettingsLayoutUsesTopLevelCustomerContext(t *testing.T) {
 		"categoryTreeForSkuContext",
 		"contextCategorizedProductIDs",
 		"skuContextProductFilter",
-		"v-for=\"primary in categoryTreeForSkuContext\"",
+		"v-for=\"primary in visibleCategoryManagementTreeForSkuContext\"",
 		"customer_id: selectedCustomerSkuCustomerID.value",
-		"豆单生成请进入产品豆单",
+		"豆单生成请进入产品价格表",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("ProductSettingsView.vue missing customer context marker %q", want)
@@ -50,7 +50,7 @@ func TestDev170ProductSettingsLayoutUsesTopLevelCustomerContext(t *testing.T) {
 		t.Fatalf("ProductSettingsView.vue must not embed product bean-list workspace after SKU/product bean-list split")
 	}
 	contextPanel := strings.Index(view, "sku-context-panel")
-	publicCreate := strings.Index(view, "新增公共产品")
+	publicCreate := strings.Index(view, "product-editor-drawer")
 	if contextPanel < 0 || publicCreate < 0 || contextPanel > publicCreate {
 		t.Fatalf("SKU customer context panel must appear above product create panels: context=%d create=%d", contextPanel, publicCreate)
 	}
@@ -68,7 +68,7 @@ func TestDev170CostingViewAcceptsCustomerContext(t *testing.T) {
 		"versionListScopeCustomerID(versionListScope.value)",
 		"publicationScope.value = 'customer'",
 		"selectedBeanListCustomerID.value = pageCustomerID",
-		"filterBeanListItemsForScope(items.value, activeCostingScope.value",
+		"filterBeanListItemsForPriceTableScope(items.value, activeCostingScope.value",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("CostingView.vue missing product settings customer context marker %q", want)

@@ -24,6 +24,7 @@ const (
 const (
 	CapabilityTemplateProcessingFulfillment = "processing_fulfillment"
 	CapabilityTemplatePublicSKUDirectShip   = "public_sku_direct_ship"
+	CapabilityTemplateChannelDirectShip     = "channel_direct_ship"
 	CapabilityTemplateRetailMall            = "retail_mall"
 )
 
@@ -677,20 +678,27 @@ type PortalAdminCustomerQuery struct {
 }
 
 type PortalAdminCustomer struct {
-	ID                    int64             `json:"id"`
-	Name                  string            `json:"name"`
-	CustomerType          string            `json:"customer_type"`
-	Phone                 string            `json:"phone"`
-	CompanyName           string            `json:"company_name"`
-	DisplayName           string            `json:"display_name"`
-	DefaultSenderID       int64             `json:"default_sender_id"`
-	PortalEnabled         bool              `json:"portal_enabled"`
-	PortalStatus          string            `json:"portal_status"`
-	ThemeKey              string            `json:"theme_key"`
-	MiniappEntryMode      string            `json:"miniapp_entry_mode"`
-	CapabilityTemplateKey string            `json:"capability_template_key"`
-	BindingCount          int               `json:"binding_count"`
-	ERPBinding            *PortalERPBinding `json:"erp_binding,omitempty"`
+	ID                    int64               `json:"id"`
+	Name                  string              `json:"name"`
+	CustomerType          string              `json:"customer_type"`
+	Phone                 string              `json:"phone"`
+	CompanyName           string              `json:"company_name"`
+	DisplayName           string              `json:"display_name"`
+	DefaultSenderID       int64               `json:"default_sender_id"`
+	PortalEnabled         bool                `json:"portal_enabled"`
+	PortalStatus          string              `json:"portal_status"`
+	ThemeKey              string              `json:"theme_key"`
+	MiniappEntryMode      string              `json:"miniapp_entry_mode"`
+	CapabilityTemplateKey string              `json:"capability_template_key"`
+	BindingCount          int                 `json:"binding_count"`
+	ERPBinding            *PortalERPBinding   `json:"erp_binding,omitempty"`
+	Warehouses            []CustomerWarehouse `json:"warehouses,omitempty"`
+}
+
+type CustomerWarehouse struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
 }
 
 type PortalERPBinding struct {
@@ -1717,13 +1725,6 @@ func normalizePortalAdminCustomer(customer PortalAdminCustomer) PortalAdminCusto
 	return customer
 }
 
-func normalizeBeanListMode(value string) string {
-	if strings.TrimSpace(value) == "fixed" {
-		return "fixed"
-	}
-	return "latest"
-}
-
 func normalizePortalAdminCapabilityTemplateKey(value string) string {
 	raw := strings.TrimSpace(value)
 	if raw == "" {
@@ -1890,6 +1891,35 @@ func DefaultCapabilityTemplates() []CapabilityTemplate {
 			SortOrder:        20,
 			Label:            "公共 SKU 小批量代发",
 			Description:      "客户使用公共 SKU，可维护客户专属 SKU 名称，默认寄件人为客户自己，收件人为客户的终端客户",
+			ThemeKey:         PortalThemeCleanOps,
+			MiniappEntryMode: MiniappEntryModeServices,
+			ERPRoleCodes:     []string{},
+			ERPPermissions:   []string{"customer_processing.read", "customer_processing.submit"},
+			ERPViewKeys:      []string{"customerProcessingPortal"},
+			Capabilities: capabilityTemplateOptions(map[string]map[string]any{
+				CapabilityProductOrder: {
+					"public_sku_aliases": true,
+				},
+				CapabilityDirectShip: {
+					"public_sku_aliases":  true,
+					"customer_sender":     true,
+					"external_recipients": true,
+					"small_batch_price_rule": map[string]any{
+						"enabled":      true,
+						"threshold_lb": 14,
+						"tier_min_lb":  15,
+						"tier_max_lb":  28,
+					},
+				},
+				CapabilitySettlement: {},
+			}),
+		},
+		{
+			Key:              CapabilityTemplateChannelDirectShip,
+			Active:           true,
+			SortOrder:        25,
+			Label:            "渠道代发/现货下单",
+			Description:      "渠道客户使用公共 SKU 或客户专属 SKU 现货下单，收件人为渠道客户的终端收件人，不新增客户档案",
 			ThemeKey:         PortalThemeCleanOps,
 			MiniappEntryMode: MiniappEntryModeServices,
 			ERPRoleCodes:     []string{},
@@ -2127,6 +2157,8 @@ func NormalizeCapabilityTemplateKey(value string) string {
 		return CapabilityTemplateProcessingFulfillment
 	case CapabilityTemplatePublicSKUDirectShip:
 		return CapabilityTemplatePublicSKUDirectShip
+	case CapabilityTemplateChannelDirectShip:
+		return CapabilityTemplateChannelDirectShip
 	case CapabilityTemplateRetailMall:
 		return CapabilityTemplateRetailMall
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -21,6 +22,7 @@ import (
 	salesapp "orderapp/internal/application/sales"
 	support "orderapp/internal/interfaces/http/support"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 )
 
@@ -32,15 +34,25 @@ type salesOrderSettingsHandler struct {
 const maxSalesOrderSettingsAssetUploadBytes = 8 << 20
 
 type salesOrderSettingsRequest struct {
-	CompanyName     string  `json:"company_name"`
-	Note            string  `json:"note"`
-	PaymentText     string  `json:"payment_text"`
-	BankAccountName string  `json:"bank_account_name"`
-	BankName        string  `json:"bank_name"`
-	BankAccountNo   string  `json:"bank_account_no"`
-	SealXMM         float64 `json:"seal_x_mm"`
-	SealYMM         float64 `json:"seal_y_mm"`
-	SealWidthMM     float64 `json:"seal_width_mm"`
+	CompanyName           string  `json:"company_name"`
+	Note                  string  `json:"note"`
+	PaymentText           string  `json:"payment_text"`
+	BankAccountName       string  `json:"bank_account_name"`
+	BankName              string  `json:"bank_name"`
+	BankAccountNo         string  `json:"bank_account_no"`
+	SealXMM               float64 `json:"seal_x_mm"`
+	SealYMM               float64 `json:"seal_y_mm"`
+	SealWidthMM           float64 `json:"seal_width_mm"`
+	PaymentTextXMM        float64 `json:"payment_text_x_mm"`
+	PaymentTextYMM        float64 `json:"payment_text_y_mm"`
+	PaymentTextWidthMM    float64 `json:"payment_text_width_mm"`
+	PaymentTextHeightMM   float64 `json:"payment_text_height_mm"`
+	PaymentTextPageNumber int     `json:"payment_text_page_number"`
+	PaymentCodeXMM        float64 `json:"payment_code_x_mm"`
+	PaymentCodeYMM        float64 `json:"payment_code_y_mm"`
+	PaymentCodeWidthMM    float64 `json:"payment_code_width_mm"`
+	PaymentCodeHeightMM   float64 `json:"payment_code_height_mm"`
+	PaymentCodePageNumber int     `json:"payment_code_page_number"`
 }
 
 type salesOrderPaymentCodeRequest struct {
@@ -49,6 +61,10 @@ type salesOrderPaymentCodeRequest struct {
 	AssetID     int64  `json:"asset_id"`
 	Sort        int    `json:"sort"`
 	Active      bool   `json:"active"`
+}
+
+type salesOrderSealSelectRequest struct {
+	AssetID int64 `json:"asset_id"`
 }
 
 func registerSalesOrderSettingsRoutes(e *echo.Echo, salesSvc *salesapp.Service, assetDirs ...string) {
@@ -63,9 +79,13 @@ func registerSalesOrderSettingsRoutes(e *echo.Echo, salesSvc *salesapp.Service, 
 	e.GET("/api/settings/sales-order", h.get)
 	e.POST("/api/settings/sales-order", h.save)
 	e.POST("/api/settings/sales-order/seal-position", h.saveSealPosition)
+	e.POST("/api/settings/sales-order/payment-layout", h.savePaymentLayout)
 	e.GET("/api/settings/sales-order/seals", h.listSeals)
+	e.POST("/api/settings/sales-order/seal/select", h.selectSeal)
 	e.POST("/api/settings/sales-order/payment-codes", h.uploadPaymentCode)
 	e.PUT("/api/settings/sales-order/payment-codes/:id", h.updatePaymentCode)
+	e.POST("/api/settings/sales-order/payment-codes/:id/deactivate", h.deactivatePaymentCode)
+	e.POST("/api/settings/sales-order/payment-codes/:id/activate", h.activatePaymentCode)
 	e.DELETE("/api/settings/sales-order/payment-codes/:id", h.deletePaymentCode)
 	e.POST("/api/settings/sales-order/seal", h.uploadSeal)
 	e.POST("/api/settings/sales-order/seal/remove-background", h.removeSealBackground)
@@ -87,20 +107,100 @@ func (h salesOrderSettingsHandler) save(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
 	if err := h.sales.SaveSalesOrderSettings(c.Request().Context(), salesapp.SaveSalesOrderSettingsCommand{
-		Actor:           support.ActorOf(c),
-		CompanyName:     req.CompanyName,
-		Note:            req.Note,
-		PaymentText:     req.PaymentText,
-		BankAccountName: req.BankAccountName,
-		BankName:        req.BankName,
-		BankAccountNo:   req.BankAccountNo,
-		SealXMM:         req.SealXMM,
-		SealYMM:         req.SealYMM,
-		SealWidthMM:     req.SealWidthMM,
+		Actor:                 support.ActorOf(c),
+		CompanyName:           req.CompanyName,
+		Note:                  req.Note,
+		PaymentText:           req.PaymentText,
+		BankAccountName:       req.BankAccountName,
+		BankName:              req.BankName,
+		BankAccountNo:         req.BankAccountNo,
+		SealXMM:               req.SealXMM,
+		SealYMM:               req.SealYMM,
+		SealWidthMM:           req.SealWidthMM,
+		PaymentTextXMM:        req.PaymentTextXMM,
+		PaymentTextYMM:        req.PaymentTextYMM,
+		PaymentTextWidthMM:    req.PaymentTextWidthMM,
+		PaymentTextHeightMM:   req.PaymentTextHeightMM,
+		PaymentTextPageNumber: req.PaymentTextPageNumber,
+		PaymentCodeXMM:        req.PaymentCodeXMM,
+		PaymentCodeYMM:        req.PaymentCodeYMM,
+		PaymentCodeWidthMM:    req.PaymentCodeWidthMM,
+		PaymentCodeHeightMM:   req.PaymentCodeHeightMM,
+		PaymentCodePageNumber: req.PaymentCodePageNumber,
 	}); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	settings, err := h.sales.LoadSalesOrderSettings(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, settings)
+}
+
+func (h salesOrderSettingsHandler) savePaymentLayout(c echo.Context) error {
+	var req salesOrderSettingsRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	settings, err := h.sales.LoadSalesOrderSettings(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	if req.PaymentTextXMM <= 0 {
+		req.PaymentTextXMM = settings.PaymentTextXMM
+	}
+	if req.PaymentTextYMM <= 0 {
+		req.PaymentTextYMM = settings.PaymentTextYMM
+	}
+	if req.PaymentTextWidthMM <= 0 {
+		req.PaymentTextWidthMM = settings.PaymentTextWidthMM
+	}
+	if req.PaymentTextHeightMM <= 0 {
+		req.PaymentTextHeightMM = settings.PaymentTextHeightMM
+	}
+	if req.PaymentTextPageNumber <= 0 {
+		req.PaymentTextPageNumber = settings.PaymentTextPageNumber
+	}
+	if req.PaymentCodeXMM <= 0 {
+		req.PaymentCodeXMM = settings.PaymentCodeXMM
+	}
+	if req.PaymentCodeYMM <= 0 {
+		req.PaymentCodeYMM = settings.PaymentCodeYMM
+	}
+	if req.PaymentCodeWidthMM <= 0 {
+		req.PaymentCodeWidthMM = settings.PaymentCodeWidthMM
+	}
+	if req.PaymentCodeHeightMM <= 0 {
+		req.PaymentCodeHeightMM = settings.PaymentCodeHeightMM
+	}
+	if req.PaymentCodePageNumber <= 0 {
+		req.PaymentCodePageNumber = settings.PaymentCodePageNumber
+	}
+	if err := h.sales.SaveSalesOrderSettings(c.Request().Context(), salesapp.SaveSalesOrderSettingsCommand{
+		Actor:                 support.ActorOf(c),
+		CompanyName:           settings.CompanyName,
+		Note:                  settings.Note,
+		PaymentText:           settings.PaymentText,
+		BankAccountName:       settings.BankAccountName,
+		BankName:              settings.BankName,
+		BankAccountNo:         settings.BankAccountNo,
+		SealXMM:               settings.SealXMM,
+		SealYMM:               settings.SealYMM,
+		SealWidthMM:           settings.SealWidthMM,
+		PaymentTextXMM:        req.PaymentTextXMM,
+		PaymentTextYMM:        req.PaymentTextYMM,
+		PaymentTextWidthMM:    req.PaymentTextWidthMM,
+		PaymentTextHeightMM:   req.PaymentTextHeightMM,
+		PaymentTextPageNumber: req.PaymentTextPageNumber,
+		PaymentCodeXMM:        req.PaymentCodeXMM,
+		PaymentCodeYMM:        req.PaymentCodeYMM,
+		PaymentCodeWidthMM:    req.PaymentCodeWidthMM,
+		PaymentCodeHeightMM:   req.PaymentCodeHeightMM,
+		PaymentCodePageNumber: req.PaymentCodePageNumber,
+	}); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	settings, err = h.sales.LoadSalesOrderSettings(c.Request().Context())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
@@ -120,16 +220,26 @@ func (h salesOrderSettingsHandler) saveSealPosition(c echo.Context) error {
 		req.SealWidthMM = settings.SealWidthMM
 	}
 	if err := h.sales.SaveSalesOrderSettings(c.Request().Context(), salesapp.SaveSalesOrderSettingsCommand{
-		Actor:           support.ActorOf(c),
-		CompanyName:     settings.CompanyName,
-		Note:            settings.Note,
-		PaymentText:     settings.PaymentText,
-		BankAccountName: settings.BankAccountName,
-		BankName:        settings.BankName,
-		BankAccountNo:   settings.BankAccountNo,
-		SealXMM:         req.SealXMM,
-		SealYMM:         req.SealYMM,
-		SealWidthMM:     req.SealWidthMM,
+		Actor:                 support.ActorOf(c),
+		CompanyName:           settings.CompanyName,
+		Note:                  settings.Note,
+		PaymentText:           settings.PaymentText,
+		BankAccountName:       settings.BankAccountName,
+		BankName:              settings.BankName,
+		BankAccountNo:         settings.BankAccountNo,
+		SealXMM:               req.SealXMM,
+		SealYMM:               req.SealYMM,
+		SealWidthMM:           req.SealWidthMM,
+		PaymentTextXMM:        settings.PaymentTextXMM,
+		PaymentTextYMM:        settings.PaymentTextYMM,
+		PaymentTextWidthMM:    settings.PaymentTextWidthMM,
+		PaymentTextHeightMM:   settings.PaymentTextHeightMM,
+		PaymentTextPageNumber: settings.PaymentTextPageNumber,
+		PaymentCodeXMM:        settings.PaymentCodeXMM,
+		PaymentCodeYMM:        settings.PaymentCodeYMM,
+		PaymentCodeWidthMM:    settings.PaymentCodeWidthMM,
+		PaymentCodeHeightMM:   settings.PaymentCodeHeightMM,
+		PaymentCodePageNumber: settings.PaymentCodePageNumber,
 	}); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
@@ -154,6 +264,38 @@ func (h salesOrderSettingsHandler) listSeals(c echo.Context) error {
 		currentID = settings.Seal.ID
 	}
 	return c.JSON(http.StatusOK, map[string]any{"current_id": currentID, "rows": rows})
+}
+
+func (h salesOrderSettingsHandler) selectSeal(c echo.Context) error {
+	var req salesOrderSealSelectRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	if req.AssetID <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "asset required"})
+	}
+	seals, err := h.sales.ListSalesOrderSealAssets(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	found := false
+	for _, seal := range seals {
+		if seal.ID == req.AssetID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "seal asset required"})
+	}
+	if err := h.sales.SetSalesOrderSealAsset(c.Request().Context(), req.AssetID, support.ActorOf(c)); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	settings, err := h.sales.LoadSalesOrderSettings(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, settings)
 }
 
 func (h salesOrderSettingsHandler) uploadPaymentCode(c echo.Context) error {
@@ -199,12 +341,43 @@ func (h salesOrderSettingsHandler) updatePaymentCode(c echo.Context) error {
 	return c.JSON(http.StatusOK, code)
 }
 
+func (h salesOrderSettingsHandler) deactivatePaymentCode(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	if err := h.sales.DeactivateSalesOrderPaymentCode(c.Request().Context(), id, support.ActorOf(c)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.JSON(http.StatusNotFound, map[string]any{"error": "payment code not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h salesOrderSettingsHandler) activatePaymentCode(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	if err := h.sales.ActivateSalesOrderPaymentCode(c.Request().Context(), id, support.ActorOf(c)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.JSON(http.StatusNotFound, map[string]any{"error": "payment code not found"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
 func (h salesOrderSettingsHandler) deletePaymentCode(c echo.Context) error {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
 	}
 	if err := h.sales.DeleteSalesOrderPaymentCode(c.Request().Context(), id, support.ActorOf(c)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.JSON(http.StatusNotFound, map[string]any{"error": "payment code not found"})
+		}
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})

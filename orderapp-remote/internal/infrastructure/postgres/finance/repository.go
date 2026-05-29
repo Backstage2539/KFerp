@@ -128,19 +128,21 @@ func (r Repository) SaveSettings(ctx context.Context, snapshot appfinance.Settin
 	return saved, nil
 }
 
-func (r Repository) MonthlySourceTotals(ctx context.Context, month string) (domain.MonthlySourceTotals, []appfinance.Exception, error) {
-	out := domain.MonthlySourceTotals{Month: month}
+func (r Repository) MonthlySourceTotals(ctx context.Context, filter appfinance.ReportFilter) (domain.MonthlySourceTotals, []appfinance.Exception, error) {
+	out := domain.MonthlySourceTotals{Month: filter.Month}
 	if r.pool == nil {
 		return out, nil, nil
 	}
-	start := month + "-01"
+	start := filter.Month + "-01"
+	customerID := filter.CustomerID
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(SUM(%s),0)::float8
 		FROM %s.orders
 		WHERE COALESCE(is_void,false)=false
 		  AND order_date >= $1::date
 		  AND order_date < ($1::date + INTERVAL '1 month')
-	`, financeOrderRevenueSQL(""), r.schema), start).Scan(&out.RevenueTaxInclusive); err != nil {
+		  AND ($2::bigint=0 OR customer_id=$2::bigint)
+	`, financeOrderRevenueSQL(""), r.schema), start, customerID).Scan(&out.RevenueTaxInclusive); err != nil {
 		return out, nil, err
 	}
 	var productionCost, mainCostExpense, periodExpense, inputVAT, nonDeductibleVAT domain.Money
@@ -149,7 +151,8 @@ func (r Repository) MonthlySourceTotals(ctx context.Context, month string) (doma
 		FROM %s.production_batch_costs
 		WHERE created_at >= $1::date
 		  AND created_at < ($1::date + INTERVAL '1 month')
-	`, r.schema), start).Scan(&productionCost)
+		  AND $2::bigint=0
+	`, r.schema), start, customerID).Scan(&productionCost)
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT
 			COALESCE(SUM(amount) FILTER (WHERE allocation='main_cost'),0)::float8,
@@ -158,7 +161,8 @@ func (r Repository) MonthlySourceTotals(ctx context.Context, month string) (doma
 			COALESCE(SUM(non_deductible_input_vat),0)::float8
 		FROM %s.finance_expenses
 		WHERE month=$1
-	`, r.schema), month).Scan(&mainCostExpense, &periodExpense, &inputVAT, &nonDeductibleVAT); err != nil {
+		  AND ($2::bigint=0 OR customer_id=$2::bigint)
+	`, r.schema), filter.Month, customerID).Scan(&mainCostExpense, &periodExpense, &inputVAT, &nonDeductibleVAT); err != nil {
 		return out, nil, err
 	}
 	out.MainBusinessCost = productionCost + mainCostExpense
@@ -167,7 +171,7 @@ func (r Repository) MonthlySourceTotals(ctx context.Context, month string) (doma
 	out.NonDeductibleInputVAT = nonDeductibleVAT
 	exceptions := make([]appfinance.Exception, 0)
 	var uncategorized int
-	_ = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.finance_expenses WHERE month=$1 AND category=''`, r.schema), month).Scan(&uncategorized)
+	_ = r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.finance_expenses WHERE month=$1 AND category='' AND ($2::bigint=0 OR customer_id=$2::bigint)`, r.schema), filter.Month, customerID).Scan(&uncategorized)
 	if uncategorized > 0 {
 		exceptions = append(exceptions, appfinance.Exception{Code: "uncategorized_expense", Message: "有未分类费用", Count: uncategorized})
 	}
@@ -268,9 +272,15 @@ func (r Repository) ensureExpenseDimensionRefExists(ctx context.Context, table s
 func (r Repository) ListExpenses(ctx context.Context, filter appfinance.ExpenseFilter) ([]appfinance.Expense, error) {
 	where := "WHERE fe.month=$1"
 	args := []any{filter.Month}
+	argn := 2
 	if filter.EmployeeID > 0 {
-		where += " AND fe.employee_id=$2"
+		where += fmt.Sprintf(" AND fe.employee_id=$%d", argn)
 		args = append(args, filter.EmployeeID)
+		argn++
+	}
+	if filter.CustomerID > 0 {
+		where += fmt.Sprintf(" AND fe.customer_id=$%d", argn)
+		args = append(args, filter.CustomerID)
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT fe.id,to_char(fe.expense_date,'YYYY-MM-DD'),fe.month,fe.category,fe.amount::float8,fe.allocation,
@@ -298,11 +308,12 @@ func (r Repository) ListExpenses(ctx context.Context, filter appfinance.ExpenseF
 	return out, rows.Err()
 }
 
-func (r Repository) FinanceSourceDetails(ctx context.Context, month string) ([]appfinance.SourceDetail, error) {
+func (r Repository) FinanceSourceDetails(ctx context.Context, filter appfinance.ReportFilter) ([]appfinance.SourceDetail, error) {
 	if r.pool == nil {
 		return []appfinance.SourceDetail{}, nil
 	}
-	start := month + "-01"
+	start := filter.Month + "-01"
+	customerID := filter.CustomerID
 	out := []appfinance.SourceDetail{}
 	queries := []struct {
 		sql  string
@@ -315,30 +326,36 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, month string) ([]a
 				       COALESCE(NULLIF(o.order_no,''), '订单#' || o.id::text) AS name,
 				       '' AS category,COALESCE(NULLIF(c.name,''),NULLIF(c.company_name,''),'') AS counterparty,
 				       COALESCE(o.payment_method,'') AS payment_method,
+				       COALESCE(a.filename,'') AS payment_voucher_filename,
+				       CASE WHEN COALESCE(a.object_key,'') <> '' THEN '/assets/' || a.object_key ELSE '' END AS payment_voucher_url,
 				       %s::float8 AS amount,
 				       '/app/vue-shell?view=orders' AS link
 				FROM %s.orders o
 				LEFT JOIN %s.customers c ON c.id=o.customer_id
+				LEFT JOIN %s.sales_order_assets a ON a.id=o.payment_voucher_asset_id AND a.kind='payment_voucher'
 				WHERE COALESCE(o.is_void,false)=false
 				  AND o.order_date >= $1::date
 				  AND o.order_date < ($1::date + INTERVAL '1 month')
+				  AND ($2::bigint=0 OR o.customer_id=$2::bigint)
 				ORDER BY o.order_date,o.id
-			`, financeOrderRevenueSQL("o"), r.schema, r.schema),
-			args: []any{start},
+			`, financeOrderRevenueSQL("o"), r.schema, r.schema, r.schema),
+			args: []any{start, customerID},
 		},
 		{
 			sql: fmt.Sprintf(`
 				SELECT 'main_cost' AS section,'production_cost' AS source_type,id AS source_id,
 				       to_char(created_at,'YYYY-MM-DD') AS source_date,
 				       COALESCE(NULLIF(product_name,''),'生产批次成本') AS name,
-				       '生产批次成本' AS category,'' AS counterparty,'' AS payment_method,total_cost::float8 AS amount,
+				       '生产批次成本' AS category,'' AS counterparty,'' AS payment_method,
+				       '' AS payment_voucher_filename,'' AS payment_voucher_url,total_cost::float8 AS amount,
 				       '/app/vue-shell?view=productionCosts' AS link
 				FROM %s.production_batch_costs
 				WHERE created_at >= $1::date
 				  AND created_at < ($1::date + INTERVAL '1 month')
+				  AND $2::bigint=0
 				ORDER BY created_at,id
 			`, r.schema),
-			args: []any{start},
+			args: []any{start, customerID},
 		},
 		{
 			sql: fmt.Sprintf(`
@@ -346,13 +363,15 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, month string) ([]a
 				       to_char(fe.expense_date,'YYYY-MM-DD') AS source_date,
 				       fe.category AS name,fe.category AS category,COALESCE(e.name,'') AS counterparty,
 				       '' AS payment_method,
+				       '' AS payment_voucher_filename,'' AS payment_voucher_url,
 				       fe.amount::float8 AS amount,'/app/vue-shell?view=financeExpenses' AS link
 				FROM %s.finance_expenses fe
 				LEFT JOIN %s.company_employees e ON e.id=fe.employee_id
 				WHERE fe.month=$1
+				  AND ($2::bigint=0 OR fe.customer_id=$2::bigint)
 				ORDER BY fe.expense_date,fe.id
 			`, r.schema, r.schema),
-			args: []any{month},
+			args: []any{filter.Month, customerID},
 		},
 		{
 			sql: fmt.Sprintf(`
@@ -360,13 +379,15 @@ func (r Repository) FinanceSourceDetails(ctx context.Context, month string) ([]a
 				       to_char(created_at,'YYYY-MM-DD') AS source_date,
 				       COALESCE(NULLIF(invoice_no,''),kind) AS name,kind AS category,counterparty,
 				       '' AS payment_method,
+				       '' AS payment_voucher_filename,'' AS payment_voucher_url,
 				       CASE WHEN tax_amount > 0 THEN tax_amount ELSE total_amount END::float8 AS amount,
 				       '/app/vue-shell?view=financeTaxLedger' AS link
 				FROM %s.finance_tax_ledger
 				WHERE month=$1
+				  AND $2::bigint=0
 				ORDER BY id
 			`, r.schema),
-			args: []any{month},
+			args: []any{filter.Month, customerID},
 		},
 	}
 	for _, query := range queries {
@@ -586,7 +607,7 @@ func scanSourceDetails(rows pgx.Rows, out *[]appfinance.SourceDetail) error {
 	defer rows.Close()
 	for rows.Next() {
 		var row appfinance.SourceDetail
-		if err := rows.Scan(&row.Section, &row.SourceType, &row.SourceID, &row.Date, &row.Name, &row.Category, &row.Counterparty, &row.PaymentMethod, &row.Amount, &row.Link); err != nil {
+		if err := rows.Scan(&row.Section, &row.SourceType, &row.SourceID, &row.Date, &row.Name, &row.Category, &row.Counterparty, &row.PaymentMethod, &row.PaymentVoucherFilename, &row.PaymentVoucherURL, &row.Amount, &row.Link); err != nil {
 			return err
 		}
 		*out = append(*out, row)

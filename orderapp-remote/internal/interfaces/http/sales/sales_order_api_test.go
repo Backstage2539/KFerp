@@ -31,7 +31,7 @@ func TestSalesOrderSettingsAPI(t *testing.T) {
 	}
 	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
 
-	body := strings.NewReader(`{"note":"请密封保存\n第二行","payment_text":"微信\n对公转账","seal_x_mm":42,"seal_y_mm":21,"seal_width_mm":38}`)
+	body := strings.NewReader(`{"note":"请密封保存\n第二行","payment_text":"微信\n对公转账","seal_x_mm":42,"seal_y_mm":21,"seal_width_mm":38,"payment_text_x_mm":18,"payment_text_y_mm":142,"payment_text_width_mm":98,"payment_text_height_mm":54,"payment_code_x_mm":126,"payment_code_y_mm":104,"payment_code_width_mm":76,"payment_code_height_mm":126}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -45,6 +45,14 @@ func TestSalesOrderSettingsAPI(t *testing.T) {
 		`"seal_x_mm":42`,
 		`"seal_y_mm":21`,
 		`"seal_width_mm":38`,
+		`"payment_text_x_mm":18`,
+		`"payment_text_y_mm":142`,
+		`"payment_text_width_mm":98`,
+		`"payment_text_height_mm":54`,
+		`"payment_code_x_mm":126`,
+		`"payment_code_y_mm":104`,
+		`"payment_code_width_mm":76`,
+		`"payment_code_height_mm":126`,
 	} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("POST response missing %s: %s", want, rec.Body.String())
@@ -61,7 +69,12 @@ func TestSalesOrderSettingsRegistersSealToolRoutes(t *testing.T) {
 	}
 	for _, want := range []string{
 		"GET /api/settings/sales-order/seals",
+		"POST /api/settings/sales-order/seal/select",
 		"POST /api/settings/sales-order/seal-position",
+		"POST /api/settings/sales-order/payment-layout",
+		"POST /api/settings/sales-order/payment-codes/:id/deactivate",
+		"POST /api/settings/sales-order/payment-codes/:id/activate",
+		"DELETE /api/settings/sales-order/payment-codes/:id",
 		"POST /api/settings/sales-order/seal/remove-background",
 	} {
 		if !routes[want] {
@@ -80,6 +93,7 @@ func TestSalesOrderDocumentRoutesRegisterPreviewPDF(t *testing.T) {
 	for _, want := range []string{
 		"GET /api/orders/:id/sales-order-preview",
 		"GET /api/orders/:id/sales-order-preview.pdf",
+		"PUT /api/orders/:id/sales-order-note",
 		"POST /api/orders/:id/sales-orders",
 		"GET /orders/:id/sales-order-latest.pdf",
 	} {
@@ -196,7 +210,7 @@ func TestSalesOrderSealPositionAPIOnlyUpdatesCoordinates(t *testing.T) {
 	}
 	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
 
-	settingsBody := strings.NewReader(`{"note":"第一行\n第二行","payment_text":"微信付款","seal_x_mm":32,"seal_y_mm":22,"seal_width_mm":42}`)
+	settingsBody := strings.NewReader(`{"note":"第一行\n第二行","payment_text":"微信付款","seal_x_mm":32,"seal_y_mm":22,"seal_width_mm":42,"payment_text_x_mm":18,"payment_text_y_mm":142,"payment_text_width_mm":98,"payment_text_height_mm":54,"payment_code_x_mm":126,"payment_code_y_mm":104,"payment_code_width_mm":76,"payment_code_height_mm":126}`)
 	settingsReq := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order", settingsBody)
 	settingsReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	settingsRec := httptest.NewRecorder()
@@ -219,10 +233,108 @@ func TestSalesOrderSealPositionAPIOnlyUpdatesCoordinates(t *testing.T) {
 		`"seal_x_mm":58`,
 		`"seal_y_mm":19`,
 		`"seal_width_mm":46`,
+		`"payment_text_x_mm":18`,
+		`"payment_code_width_mm":76`,
 	} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("seal position response missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestSalesOrderPaymentLayoutAPIOnlyUpdatesPaymentBoxes(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
+
+	settingsBody := strings.NewReader(`{"note":"个性化说明","payment_text":"微信付款","seal_x_mm":32,"seal_y_mm":22,"seal_width_mm":42,"payment_text_x_mm":18,"payment_text_y_mm":142,"payment_text_width_mm":98,"payment_text_height_mm":54,"payment_code_x_mm":126,"payment_code_y_mm":104,"payment_code_width_mm":76,"payment_code_height_mm":126}`)
+	settingsReq := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order", settingsBody)
+	settingsReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	settingsRec := httptest.NewRecorder()
+	e.ServeHTTP(settingsRec, settingsReq)
+	if settingsRec.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", settingsRec.Code, settingsRec.Body.String())
+	}
+
+	body := strings.NewReader(`{"payment_text_x_mm":14,"payment_text_y_mm":98,"payment_text_width_mm":86,"payment_text_height_mm":48,"payment_text_page_number":1,"payment_code_x_mm":132,"payment_code_y_mm":92,"payment_code_width_mm":66,"payment_code_height_mm":110,"payment_code_page_number":2}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/payment-layout", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("payment layout status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"note":"个性化说明"`,
+		`"payment_text":"微信付款"`,
+		`"seal_x_mm":32`,
+		`"seal_y_mm":22`,
+		`"seal_width_mm":42`,
+		`"payment_text_x_mm":14`,
+		`"payment_text_y_mm":98`,
+		`"payment_text_width_mm":86`,
+		`"payment_text_height_mm":48`,
+		`"payment_text_page_number":1`,
+		`"payment_code_x_mm":132`,
+		`"payment_code_y_mm":92`,
+		`"payment_code_width_mm":66`,
+		`"payment_code_height_mm":110`,
+		`"payment_code_page_number":2`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("payment layout response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestSalesOrderSealSelectAPIChoosesReusableSealAsset(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sales_order_assets(id, kind, filename, content_type, bytes, sha256, object_key, created_by)
+		VALUES
+			(1301, 'seal', '合同章.png', 'image/png', 12, 'seal-a', 'sales_order_assets/seal/contract.png', '测试员'),
+			(1302, 'seal', '财务章.png', 'image/png', 14, 'seal-b', 'sales_order_assets/seal/finance.png', '测试员'),
+			(1303, 'payment_code', '收款码.png', 'image/png', 16, 'pay', 'sales_order_assets/payment/pay.png', '测试员')`, schema))
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.sales_order_settings(id, note, payment_text, seal_asset_id, seal_x_mm, seal_y_mm, seal_width_mm)
+		VALUES(1, '说明', '微信', 1301, 32, 22, 42)`, schema))
+	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/seal/select", strings.NewReader(`{"asset_id":1302}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("seal select status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"filename":"财务章.png"`,
+		`"seal_x_mm":32`,
+		`"seal_y_mm":22`,
+		`"seal_width_mm":42`,
+		`"note":"说明"`,
+		`"payment_text":"微信"`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("seal select response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	badReq := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/seal/select", strings.NewReader(`{"asset_id":1303}`))
+	badReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	badRec := httptest.NewRecorder()
+	e.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusBadRequest || !strings.Contains(badRec.Body.String(), "seal asset required") {
+		t.Fatalf("selecting a non-seal asset should fail status=%d body=%s", badRec.Code, badRec.Body.String())
 	}
 }
 
@@ -446,6 +558,141 @@ func TestSalesOrderPaymentCodeUploadStoresImageAsset(t *testing.T) {
 	}
 	if !bytes.HasPrefix(data, []byte{0xff, 0xd8}) {
 		t.Fatalf("payment code asset prefix=%x, want jpeg", data)
+	}
+}
+
+func TestSalesOrderPaymentCodeDeactivateKeepsVisibleForSettingsAndCanReactivate(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	assetDir := t.TempDir()
+	body, contentType := multipartSalesOrderAssetBodyWithFields(t, "pay.jpg", "image/jpeg", jpegSalesOrderAssetBytesForTest(), map[string]string{"label": "好老板（信用卡、花呗）"})
+	e := newSalesOrderAPITestEcho(pool, schema, assetDir)
+
+	uploadReq := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order/payment-codes", body)
+	uploadReq.Header.Set(echo.HeaderContentType, contentType)
+	uploadRec := httptest.NewRecorder()
+	e.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusOK {
+		t.Fatalf("payment code upload status=%d body=%s", uploadRec.Code, uploadRec.Body.String())
+	}
+	var uploadPayload struct {
+		Asset       salesapp.SalesOrderAsset       `json:"asset"`
+		PaymentCode salesapp.SalesOrderPaymentCode `json:"payment_code"`
+	}
+	if err := json.Unmarshal(uploadRec.Body.Bytes(), &uploadPayload); err != nil {
+		t.Fatalf("decode payment code upload response: %v", err)
+	}
+	if uploadPayload.PaymentCode.ID <= 0 || uploadPayload.Asset.ID <= 0 {
+		t.Fatalf("upload response missing ids: %+v", uploadPayload)
+	}
+
+	deactivateReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/settings/sales-order/payment-codes/%d/deactivate", uploadPayload.PaymentCode.ID), nil)
+	deactivateRec := httptest.NewRecorder()
+	e.ServeHTTP(deactivateRec, deactivateReq)
+	if deactivateRec.Code != http.StatusOK {
+		t.Fatalf("payment code deactivate status=%d body=%s", deactivateRec.Code, deactivateRec.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/settings/sales-order", nil)
+	getRec := httptest.NewRecorder()
+	e.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("settings get status=%d body=%s", getRec.Code, getRec.Body.String())
+	}
+	if !strings.Contains(getRec.Body.String(), "好老板（信用卡、花呗）") || !strings.Contains(getRec.Body.String(), `"active":false`) {
+		t.Fatalf("deactivated payment code should remain visible in settings as active=false: %s", getRec.Body.String())
+	}
+
+	var active bool
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT active FROM %s.sales_order_payment_codes WHERE id=$1`, schema), uploadPayload.PaymentCode.ID).Scan(&active); err != nil {
+		t.Fatalf("payment code row should remain after deactivate: %v", err)
+	}
+	if active {
+		t.Fatal("payment code row active=true, want false")
+	}
+	var assetCount int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int FROM %s.sales_order_assets WHERE id=$1 AND kind='payment_code'`, schema), uploadPayload.Asset.ID).Scan(&assetCount); err != nil {
+		t.Fatalf("query payment code asset: %v", err)
+	}
+	if assetCount != 1 {
+		t.Fatalf("payment code asset rows=%d, want 1", assetCount)
+	}
+	if _, err := os.Stat(filepath.Join(assetDir, uploadPayload.Asset.ObjectKey)); err != nil {
+		t.Fatalf("payment code uploaded file should remain after deactivate: %v", err)
+	}
+	var action string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT action FROM %s.audit_logs WHERE entity_type='sales_order_payment_code' AND entity_id=$1 AND field='active' ORDER BY id DESC LIMIT 1`, schema), uploadPayload.PaymentCode.ID).Scan(&action); err != nil {
+		t.Fatalf("query payment code audit action: %v", err)
+	}
+	if action != "deactivate" {
+		t.Fatalf("payment code audit action=%q, want deactivate", action)
+	}
+
+	activateReq := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/settings/sales-order/payment-codes/%d/activate", uploadPayload.PaymentCode.ID), nil)
+	activateRec := httptest.NewRecorder()
+	e.ServeHTTP(activateRec, activateReq)
+	if activateRec.Code != http.StatusOK {
+		t.Fatalf("payment code activate status=%d body=%s", activateRec.Code, activateRec.Body.String())
+	}
+	getReq = httptest.NewRequest(http.MethodGet, "/api/settings/sales-order", nil)
+	getRec = httptest.NewRecorder()
+	e.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("settings get after activate status=%d body=%s", getRec.Code, getRec.Body.String())
+	}
+	if !strings.Contains(getRec.Body.String(), "好老板（信用卡、花呗）") || !strings.Contains(getRec.Body.String(), `"active":true`) {
+		t.Fatalf("reactivated payment code should remain visible in settings as active=true: %s", getRec.Body.String())
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT active FROM %s.sales_order_payment_codes WHERE id=$1`, schema), uploadPayload.PaymentCode.ID).Scan(&active); err != nil {
+		t.Fatalf("payment code row should remain after activate: %v", err)
+	}
+	if !active {
+		t.Fatal("payment code row active=false, want true")
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT action FROM %s.audit_logs WHERE entity_type='sales_order_payment_code' AND entity_id=$1 AND field='active' ORDER BY id DESC LIMIT 1`, schema), uploadPayload.PaymentCode.ID).Scan(&action); err != nil {
+		t.Fatalf("query payment code activate audit action: %v", err)
+	}
+	if action != "activate" {
+		t.Fatalf("payment code audit action=%q, want activate", action)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/settings/sales-order/payment-codes/%d", uploadPayload.PaymentCode.ID), nil)
+	deleteRec := httptest.NewRecorder()
+	e.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("payment code delete status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+	getReq = httptest.NewRequest(http.MethodGet, "/api/settings/sales-order", nil)
+	getRec = httptest.NewRecorder()
+	e.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("settings get after delete status=%d body=%s", getRec.Code, getRec.Body.String())
+	}
+	if strings.Contains(getRec.Body.String(), "好老板（信用卡、花呗）") {
+		t.Fatalf("deleted payment code should not remain visible in settings: %s", getRec.Body.String())
+	}
+	var deletedAtSet bool
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT deleted_at IS NOT NULL FROM %s.sales_order_payment_codes WHERE id=$1`, schema), uploadPayload.PaymentCode.ID).Scan(&deletedAtSet); err != nil {
+		t.Fatalf("payment code row should remain after delete: %v", err)
+	}
+	if !deletedAtSet {
+		t.Fatal("payment code deleted_at is null, want set")
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT count(*)::int FROM %s.sales_order_assets WHERE id=$1 AND kind='payment_code'`, schema), uploadPayload.Asset.ID).Scan(&assetCount); err != nil {
+		t.Fatalf("query payment code asset after delete: %v", err)
+	}
+	if assetCount != 1 {
+		t.Fatalf("payment code asset rows after delete=%d, want 1", assetCount)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT action FROM %s.audit_logs WHERE entity_type='sales_order_payment_code' AND entity_id=$1 AND field='deleted_at' ORDER BY id DESC LIMIT 1`, schema), uploadPayload.PaymentCode.ID).Scan(&action); err != nil {
+		t.Fatalf("query payment code delete audit action: %v", err)
+	}
+	if action != "delete" {
+		t.Fatalf("payment code audit action=%q, want delete", action)
 	}
 }
 
@@ -760,6 +1007,51 @@ func TestSalesOrderPreviewAPIDoesNotCreateDocumentVersion(t *testing.T) {
 	}
 }
 
+func TestSalesOrderPreviewPDFAPIWrapsUTF8PaymentText(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderAPITestOrder(t, ctx, pool, schema)
+	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
+
+	settingsPayload, err := json.Marshal(map[string]any{
+		"company_name":           "浅焙作坊咖啡",
+		"payment_text":           strings.Repeat("微信支付支付宝转账对公账户", 8),
+		"note":                   strings.Repeat("请密封避光保存并尽快使用", 8),
+		"payment_text_x_mm":      16,
+		"payment_text_y_mm":      118,
+		"payment_text_width_mm":  62,
+		"payment_text_height_mm": 78,
+		"payment_code_x_mm":      126,
+		"payment_code_y_mm":      106,
+		"payment_code_width_mm":  72,
+		"payment_code_height_mm": 122,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settingsReq := httptest.NewRequest(http.MethodPost, "/api/settings/sales-order", bytes.NewReader(settingsPayload))
+	settingsReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	settingsRec := httptest.NewRecorder()
+	e.ServeHTTP(settingsRec, settingsReq)
+	if settingsRec.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", settingsRec.Code, settingsRec.Body.String())
+	}
+
+	previewPDFReq := httptest.NewRequest(http.MethodGet, "/api/orders/1/sales-order-preview.pdf", nil)
+	previewPDFRec := httptest.NewRecorder()
+	e.ServeHTTP(previewPDFRec, previewPDFReq)
+	if previewPDFRec.Code != http.StatusOK || previewPDFRec.Header().Get(echo.HeaderContentType) != "application/pdf" {
+		t.Fatalf("preview pdf status=%d content-type=%q body=%s", previewPDFRec.Code, previewPDFRec.Header().Get(echo.HeaderContentType), previewPDFRec.Body.String())
+	}
+	if !bytes.HasPrefix(previewPDFRec.Body.Bytes(), []byte("%PDF-")) {
+		t.Fatalf("preview pdf prefix=%q", previewPDFRec.Body.Bytes()[:min(len(previewPDFRec.Body.Bytes()), 8)])
+	}
+}
+
 func TestParseSalesOrderDocumentIDAcceptsPDFPathFallback(t *testing.T) {
 	got, err := parseSalesOrderDocumentID("", "/orders/254/sales-orders/1.pdf")
 	if err != nil {
@@ -841,6 +1133,42 @@ func TestSalesOrderPreviewAPIUsesGlobalCompanyProfile(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("preview response should use global company account profile, missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestSalesOrderNoteAPISavesAndReturnsPreviewSnapshot(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedSalesOrderAPITestOrder(t, ctx, pool, schema)
+	e := newSalesOrderAPITestEcho(pool, schema, t.TempDir())
+
+	req := httptest.NewRequest(http.MethodPut, "/api/orders/1/sales-order-note", strings.NewReader(`{"note":"  末行备注：随货附赠杯测样  "}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save note status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"order_no":"SO-20260430-0008"`,
+		`"sales_order_note":"末行备注：随货附赠杯测样"`,
+		`"next_version_no":1`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("save note response missing %s: %s", want, rec.Body.String())
+		}
+	}
+	var saved string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT sales_order_note FROM %s.orders WHERE id=1`, schema)).Scan(&saved); err != nil {
+		t.Fatalf("query saved note: %v", err)
+	}
+	if saved != "末行备注：随货附赠杯测样" {
+		t.Fatalf("saved sales_order_note=%q", saved)
 	}
 }
 

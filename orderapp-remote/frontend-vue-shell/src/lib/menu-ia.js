@@ -4,11 +4,10 @@ export const menuGroups = [
     name: '客户管理',
     items: [
       { key: 'customers', label: '客户档案', title: '客户档案' },
-      { key: 'customerPortalSettings', label: '客户门户配置', title: '客户门户配置' },
-      { key: 'customerCapabilityTemplates', label: '客户门户能力模板', title: '客户门户能力模板' },
       { key: 'customerFulfillment', label: '履约运营台', title: '客户履约运营台' },
+      { key: 'customerPortalSettings', label: '客户门户配置', title: '客户门户配置' },
+      { key: 'customerCapabilityTemplates', label: '客户门户能力模板', title: '客户门户能力模板设置' },
       { key: 'customerFulfillmentManual', label: '客户履约手册', title: '客户履约手册' },
-      { key: 'customerPortalManual', label: '客户门户手册', title: '客户门户手册' },
     ],
   },
   {
@@ -27,6 +26,7 @@ export const menuGroups = [
     items: [
       { key: 'productionManual', label: '生产手册', title: '生产手册' },
       { key: 'productionAcceptance', label: '生产验收', title: '生产验收' },
+      { key: 'processTemplates', label: '工艺模板', title: '工艺模板' },
       { key: 'producePlan', label: '生产计划/开始生产', title: '生产计划/开始生产' },
       { key: 'produceRunning', label: '生产中', title: '生产中' },
       { key: 'workOrders', label: '生产工单', title: '生产工单' },
@@ -54,9 +54,8 @@ export const menuGroups = [
     items: [
       { key: 'productSettings', label: 'SKU设置', title: 'SKU设置' },
       { key: 'mallSettings', label: '商城管理', title: '商城管理' },
-      { key: 'costing', label: '产品豆单', title: '产品豆单' },
+      { key: 'costing', label: '产品价格表', title: '产品价格表' },
       { key: 'bom', label: 'BOM配方维护', title: 'BOM配方维护' },
-      { key: 'processTemplates', label: '工艺模板', title: '工艺模板' },
       { key: 'industryFieldTemplates', label: '行业字段模板', title: '行业字段模板' },
       { key: 'costingManual', label: '成本核价手册', title: '成本核价手册' },
       { key: 'greenBeanSalesManual', label: '生豆销售手册', title: '生豆销售手册' },
@@ -83,9 +82,10 @@ export const menuGroups = [
       { key: 'machines', label: '设备产能配置', title: '设备产能配置' },
       { key: 'companyProfile', label: '公司设置', title: '公司设置' },
       { key: 'salesOrderSettings', label: '销售单设置', title: '销售单设置' },
+      { key: 'logisticsSettings', label: '物流设置', title: '物流设置' },
       { key: 'senderSettings', label: '发货人设置', title: '发货人设置' },
       { key: 'outsourceSettings', label: '代加工模板设置', title: '代加工模板设置' },
-      { key: 'uiSettings', label: '界面设置', title: '界面设置' },
+      { key: 'uiSettings', label: '全局设置', title: '全局设置' },
       { key: 'notificationSettings', label: '通知配置', title: '通知配置' },
       { key: 'notificationManual', label: '通知手册', title: '通知配置手册' },
       { key: 'settingsAuditManual', label: '设置审计手册', title: '设置审计手册' },
@@ -130,6 +130,8 @@ export const hiddenViewTitles = {
   salesOrder: '销售单',
   contractPDF: '合同PDF',
   customerProcessingPortal: '客户履约工作台',
+  workspaceModeManual: '客户履约手册',
+  customerPortalManual: '客户履约手册',
 }
 
 export const menuMap = Object.fromEntries([

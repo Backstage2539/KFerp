@@ -74,7 +74,7 @@ func TestMiniappCustomerSwitcherSourceWiring(t *testing.T) {
 
 func TestMiniappCustomerSwitcherDocsExist(t *testing.T) {
 	manuals := []string{
-		filepath.Join("..", "OP_MANUAL_CUSTOMER_PORTAL.md"),
+		filepath.Join("docs", "OP_MANUAL_CUSTOMER_PORTAL.md"),
 		filepath.Join("docs", "OP_MANUAL_CUSTOMER_PORTAL.md"),
 	}
 	for _, path := range manuals {

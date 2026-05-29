@@ -2,21 +2,21 @@
   <div class="delivery-note-page" :class="{ embedded: props.embedded }">
     <section class="panel">
       <div class="panel-head">
-        <h2>出库单</h2>
+        <h2>{{ isCombinedDeliveryNote ? '组合出库单' : '出库单' }}</h2>
         <div class="actions">
           <button v-if="props.embedded" class="secondary" type="button" @click="emit('close')">关闭</button>
           <a v-else class="secondary link-button" :href="appURL('/vue-shell?view=orders')">返回订单列表</a>
-          <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
-          <a v-if="documents.length" class="secondary link-button" :href="deliveryNoteDownloadUrl(orderID)" target="_blank" rel="noopener">下载最新版</a>
+          <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !documentContextReady">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
+          <a v-if="documents.length && latestDeliveryNoteDownloadURL" class="secondary link-button" :href="latestDeliveryNoteDownloadURL" target="_blank" rel="noopener">下载最新版</a>
           <button class="secondary" type="button" @click="openSettingsDrawer">公章设置</button>
-          <button class="secondary" type="button" @click="shareDeliveryNote" :disabled="shareLoading || !orderID || !documents.length">{{ shareLoading ? '分享中' : '分享到微信' }}</button>
-          <button class="primary" type="button" @click="confirmGenerateDeliveryNote" :disabled="generating || !orderID || !preview">{{ generating ? '生成中' : '确认生成 PDF' }}</button>
+          <button class="secondary" type="button" @click="shareDeliveryNote" :disabled="shareLoading || !canShareSingleOrder || !documents.length">{{ shareLoading ? '分享中' : '分享到微信' }}</button>
+          <button class="primary" type="button" @click="confirmGenerateDeliveryNote" :disabled="generating || !documentContextReady || !preview">{{ generating ? '生成中' : '确认生成 PDF' }}</button>
         </div>
       </div>
       <div v-if="error" class="notice error">{{ error }}</div>
       <div v-if="message" class="notice ok">{{ message }}</div>
       <div class="summary">
-        <span>订单 ID：{{ orderID || '-' }}</span>
+        <span>{{ isCombinedDeliveryNote ? `组合订单：${combinedOrderIDs.length}张` : `订单 ID：${orderID || '-'}` }}</span>
         <span>订单号：{{ orderSummary.order_no || '-' }}</span>
         <span>客户：{{ orderSummary.customer?.name || '-' }}</span>
         <span>发货状态：{{ orderSummary.ship_status || '-' }}</span>
@@ -27,38 +27,39 @@
     <section class="panel">
       <div class="panel-head">
         <h3>出库维护</h3>
-        <button class="primary" type="button" @click="saveForm" :disabled="saving || !orderID">{{ saving ? '保存中' : '保存出库信息' }}</button>
+        <button class="primary" type="button" @click="saveForm" :disabled="saving || isCombinedDeliveryNote || !orderID">{{ saving ? '保存中' : '保存出库信息' }}</button>
       </div>
       <form class="form-grid" @submit.prevent="saveForm">
         <label>
           <span>出库日期</span>
-          <input v-model.trim="form.posting_date" type="text" inputmode="numeric" placeholder="YYYY-MM-DD" />
+          <input v-model.trim="form.posting_date" type="text" inputmode="numeric" placeholder="YYYY-MM-DD" :disabled="isCombinedDeliveryNote" />
         </label>
         <label>
           <span>出库仓库</span>
-          <select v-model="form.source_warehouse">
+          <select v-model="form.source_warehouse" :disabled="isCombinedDeliveryNote">
             <option v-for="item in warehouseOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
           </select>
         </label>
         <label>
           <span>发货方式</span>
-          <input v-model.trim="form.delivery_method" />
+          <input v-model.trim="form.delivery_method" :disabled="isCombinedDeliveryNote" />
         </label>
         <label>
           <span>快递单号（可多个）</span>
-          <textarea v-model.trim="form.tracking_no" rows="2" placeholder="多个单号可用换行、逗号或分号分隔"></textarea>
+          <textarea v-model.trim="form.tracking_no" rows="2" placeholder="多个单号可用换行、逗号或分号分隔" :disabled="isCombinedDeliveryNote"></textarea>
         </label>
         <label class="wide">
           <span>备注</span>
-          <textarea v-model.trim="form.note" rows="3"></textarea>
+          <textarea v-model.trim="form.note" rows="3" :disabled="isCombinedDeliveryNote"></textarea>
         </label>
       </form>
+      <p v-if="isCombinedDeliveryNote" class="combined-note">组合出库单使用各订单已保存的出库信息；需要调整时请打开单个订单的出库单维护。</p>
     </section>
 
     <section class="panel">
       <div class="panel-head">
         <h3>出库单预览 <span v-if="preview" class="version-tag">V{{ preview.next_version_no }}</span></h3>
-        <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !orderID">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
+        <button class="secondary" type="button" @click="loadPreview" :disabled="previewLoading || !documentContextReady">{{ previewLoading ? '预览中' : '刷新预览' }}</button>
       </div>
       <div v-if="preview?.snapshot?.seal" class="preview-tools">
         <label class="seal-size-slider">
@@ -115,6 +116,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend, appURL } from '../api/client'
 import { deliveryNoteDownloadUrl } from '../lib/delivery-note'
+import { buildCombinedDocumentQuery } from '../lib/combined-order-documents'
 import { buildShareResourcePayload, shareResourceToWechat } from '../lib/external-share'
 import { pdfPlacementToSalesSealMM, salesSealMMToPDFPlacement } from '../lib/document-pdf-stamp'
 import { salesOrderSealMaxWidthMM, salesOrderSealMinWidthMM } from '../lib/sales-order-seal'
@@ -123,6 +125,7 @@ import CompanySealSettingsView from './CompanySealSettingsView.vue'
 
 const props = defineProps({
   orderId: { type: [Number, String], default: 0 },
+  orderIds: { type: Array, default: () => [] },
   embedded: { type: Boolean, default: false },
 })
 
@@ -151,8 +154,24 @@ const warehouseOptions = [
 ]
 
 const orderID = computed(() => Number(props.orderId || new URL(window.location.href).searchParams.get('order_id') || 0))
-const deliveryNotePreviewBasePDFUrl = computed(() => orderID.value ? `/api/orders/${orderID.value}/delivery-note-preview.pdf` : '')
-const deliveryNotePreviewPDFUrl = computed(() => deliveryNotePreviewBasePDFUrl.value ? `${deliveryNotePreviewBasePDFUrl.value}?v=${previewPDFRefreshKey.value}` : '')
+const combinedOrderIDs = computed(() => uniquePositiveIDs(props.orderIds))
+const combinedDocumentQuery = computed(() => buildCombinedDocumentQuery(combinedOrderIDs.value))
+const isCombinedDeliveryNote = computed(() => combinedOrderIDs.value.length >= 2)
+const documentContextReady = computed(() => isCombinedDeliveryNote.value || orderID.value > 0)
+const canShareSingleOrder = computed(() => !isCombinedDeliveryNote.value && orderID.value > 0)
+const deliveryNotePreviewBasePDFUrl = computed(() => {
+  if (isCombinedDeliveryNote.value) return combinedDocumentQuery.value ? `/api/orders/combined/delivery-note-preview.pdf?${combinedDocumentQuery.value}` : ''
+  return orderID.value ? `/api/orders/${orderID.value}/delivery-note-preview.pdf` : ''
+})
+const deliveryNotePreviewPDFUrl = computed(() => {
+  if (!deliveryNotePreviewBasePDFUrl.value) return ''
+  const separator = deliveryNotePreviewBasePDFUrl.value.includes('?') ? '&' : '?'
+  return `${deliveryNotePreviewBasePDFUrl.value}${separator}v=${previewPDFRefreshKey.value}`
+})
+const latestDeliveryNoteDownloadURL = computed(() => {
+  if (isCombinedDeliveryNote.value) return latestDocumentURL(documents.value)
+  return orderID.value ? deliveryNoteDownloadUrl(orderID.value) : ''
+})
 const previewSealUrl = computed(() => preview.value?.snapshot?.seal?.url || '')
 const previewSealWidthMM = computed({
   get() {
@@ -205,12 +224,31 @@ function assignOrder(data = {}) {
   })
 }
 
+function uniquePositiveIDs(values = []) {
+  const seen = new Set()
+  const out = []
+  for (const raw of values) {
+    const id = Number(raw)
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
+}
+
+function latestDocumentURL(rows = []) {
+  const latest = rows.find((row) => row?.is_latest) || rows[0]
+  return latest?.download_url || ''
+}
+
 async function load() {
-  if (!orderID.value) return
+  if (!documentContextReady.value) return
   loading.value = true
   error.value = ''
   try {
-    const data = await apiGet(`/api/orders/${orderID.value}/delivery-notes`)
+    const data = await apiGet(isCombinedDeliveryNote.value
+      ? `/api/orders/combined/delivery-notes?${combinedDocumentQuery.value}`
+      : `/api/orders/${orderID.value}/delivery-notes`)
     documents.value = data.rows || []
     assignOrder(data.order || {})
     assignForm(data.form || {})
@@ -227,7 +265,7 @@ async function loadPage() {
 }
 
 async function saveForm() {
-  if (!orderID.value) return
+  if (!orderID.value || isCombinedDeliveryNote.value) return
   saving.value = true
   error.value = ''
   message.value = ''
@@ -252,11 +290,13 @@ async function saveForm() {
 }
 
 async function loadPreview() {
-  if (!orderID.value) return
+  if (!documentContextReady.value) return
   previewLoading.value = true
   error.value = ''
   try {
-    preview.value = await apiGet(`/api/orders/${orderID.value}/delivery-note-preview`)
+    preview.value = await apiGet(isCombinedDeliveryNote.value
+      ? `/api/orders/combined/delivery-note-preview?${combinedDocumentQuery.value}`
+      : `/api/orders/${orderID.value}/delivery-note-preview`)
     previewPDFRefreshKey.value += 1
   } catch (err) {
     preview.value = null
@@ -267,13 +307,15 @@ async function loadPreview() {
 }
 
 async function confirmGenerateDeliveryNote() {
-  if (!orderID.value || !preview.value) return
+  if (!documentContextReady.value || !preview.value) return
   generating.value = true
   error.value = ''
   message.value = ''
   try {
-    const data = await apiSend(`/api/orders/${orderID.value}/delivery-notes`)
-    message.value = `已生成 V${data.version_no}`
+    const data = await apiSend(isCombinedDeliveryNote.value ? '/api/orders/combined/delivery-notes' : `/api/orders/${orderID.value}/delivery-notes`, {
+      body: isCombinedDeliveryNote.value ? { order_ids: combinedOrderIDs.value } : undefined,
+    })
+    message.value = `${isCombinedDeliveryNote.value ? '已生成组合出库单' : '已生成'} V${data.version_no}`
     await load()
     await loadPreview()
   } catch (err) {
@@ -284,7 +326,7 @@ async function confirmGenerateDeliveryNote() {
 }
 
 async function shareDeliveryNote() {
-  if (!orderID.value || shareLoading.value) return
+  if (!canShareSingleOrder.value || shareLoading.value) return
   shareLoading.value = true
   error.value = ''
   message.value = ''
@@ -448,6 +490,7 @@ th { color: #555; background: #faf8f4; font-weight: 600; }
 .notice.ok { background: #eef8f1; border: 1px solid #cfe8d4; color: #1f6f4a; }
 .notice.error { background: #fff1f1; border: 1px solid #f0caca; color: #9d1c1c; }
 .muted { color: #888; }
+.combined-note { margin: 10px 0 0; color: #666; font-size: 13px; }
 .settings-drawer-mask { position: fixed; inset: 0; z-index: 45; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
 .settings-drawer { width: min(720px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }
 @media (max-width: 900px) {

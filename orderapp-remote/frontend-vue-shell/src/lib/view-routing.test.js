@@ -17,7 +17,33 @@ test('delivery note date field keeps ISO date text visible to Chinese operators'
 test('sidebar navigation sanitizes stale edit identifiers before switching views', () => {
   const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
   assert.match(source, /viewNavigationURL/)
-  assert.match(source, /replaceHistoryURL\(viewNavigationURL\(url,\s*key,\s*params\)\)/)
+  assert.match(source, /replaceHistoryURL\(applyWorkspaceToUrl\(viewNavigationURL\(url,\s*key,\s*workspaceViewParams\(params,\s*workspaceContext\(\)\)\)\)\)/)
+})
+
+test('vue shell confines sidebar/content scrolling, returns routed pages to top, and supports mobile swipe menu', () => {
+  const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+
+  for (const marker of [
+    'ref="content"',
+    'scrollCurrentViewToTop',
+    'content.value.scrollTo',
+    'handleTouchStart',
+    'handleTouchEnd',
+    'touchStartX',
+    'mobileSwipeMinDistance',
+    "window.addEventListener('touchstart', handleTouchStart",
+    "window.addEventListener('touchend', handleTouchEnd",
+    "window.removeEventListener('touchstart', handleTouchStart",
+    "window.removeEventListener('touchend', handleTouchEnd",
+  ]) {
+    assert.ok(source.includes(marker), `App.vue should include ${marker}`)
+  }
+
+  assert.match(source, /function open\(key,\s*params\s*=\s*\{\}\)[\s\S]*scrollCurrentViewToTop\(\)/)
+  assert.match(source, /function setWorkspaceMode\(mode\)[\s\S]*scrollCurrentViewToTop\(\)/)
+  assert.match(source, /\.layout\s*\{[^}]*height:\s*100vh;[^}]*overflow:\s*hidden;/)
+  assert.match(source, /\.sidebar\s*\{[^}]*height:\s*100vh;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/)
+  assert.match(source, /\.content\s*\{[^}]*height:\s*100vh;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/)
 })
 
 test('customer fulfillment workbench renders sections from capability helpers', () => {
@@ -34,6 +60,10 @@ test('orders view exposes recipient snapshots and fee breakdowns', () => {
   const source = readFileSync(new URL('../views/OrdersView.vue', import.meta.url), 'utf8')
   assert.match(source, /收件信息/)
   assert.match(source, /activeOrderDetail\.receiver_name/)
+  assert.match(source, /row\.document_date/)
+  assert.match(source, /单据：/)
+  assert.match(source, /订单：/)
+  assert.match(source, /activeOrderDetail\?\.document_date/)
   assert.match(source, /orderFeeLines\(row\)/)
   assert.match(source, /customerFulfillmentOrderFees/)
   assert.match(source, /emphasized/)
@@ -48,11 +78,14 @@ test('orders view exposes irreversible invalidation and copy through the shared 
   assert.match(source, /copyOrder\(row\)/)
   assert.match(source, /voidSelectedOrders/)
   assert.match(source, /批量失效/)
-  assert.match(source, /togglePageVoidSelection/)
-  assert.match(source, /allVisibleVoidableOrdersSelected/)
+  assert.match(source, /togglePageOrderSelection/)
+  assert.match(source, /pageSelectionState\.indeterminate/)
   assert.match(source, /当前页正常订单全选/)
+  assert.match(source, /selectedVoidableOrderIDs/)
   assert.doesNotMatch(source, /选择本页正常订单/)
   assert.doesNotMatch(source, /selectVisibleVoidableOrders/)
+  assert.doesNotMatch(source, /togglePageVoidSelection/)
+  assert.doesNotMatch(source, /allVisibleVoidableOrdersSelected/)
   assert.match(source, /:copy-id=/)
   assert.match(source, /已失效/)
   assert.match(source, /失效后不可恢复/)

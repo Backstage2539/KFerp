@@ -9,17 +9,29 @@ type fakeRepo struct {
 	replace         ReplacePriceTiersCommand
 	update          UpdateProductBasicsCommand
 	create          CreateProductCommand
+	skuCreate       CreateSKUCommand
+	skuCopy         CopySKUsCommand
 	custom          CreateCustomProductCommand
 	derivedProduct  DeriveCustomerProductCommand
 	derivedCategory DeriveProductCategoryCommand
 	derivedTemplate DeriveGradientTemplateCommand
+	derivedConfig   DeriveProductConfigTemplateCommand
 	assigned        AssignProductCategoryCommand
 	assignResult    AssignProductCategoryResult
 	publicUsage     CustomerPublicUsageCommand
+	ruleTemplate    SaveCustomerProductRuleTemplateCommand
+	ruleOverride    SaveCustomerProductRuleOverrideCommand
+	ruleBinding     CustomerProductRuleTemplateBindingCommand
+	configTemplate  SaveProductConfigTemplateCommand
+	unitDefinition  SaveProductUnitDefinitionCommand
+	unitTemplate    SaveProductUnitTemplateCommand
 	deactivate      DeactivateProductsCommand
 	products        map[int64]Product
+	publicUsages    []CustomerPublicUsage
 	deactivated     bool
 	usageSaved      bool
+	skuCreated      bool
+	skusCopied      bool
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
@@ -57,12 +69,93 @@ func (r *fakeRepo) CreateProduct(ctx context.Context, cmd CreateProductCommand) 
 	return Product{ID: 11, Name: cmd.Name, RoastLevel: cmd.RoastLevel, YieldRate: cmd.YieldRate, Visibility: "public"}, nil
 }
 
+func (r *fakeRepo) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product, error) {
+	r.skuCreate = cmd
+	r.skuCreated = true
+	visibility := "public"
+	if cmd.CustomerID > 0 {
+		visibility = "customer_only"
+	}
+	return Product{ID: 12, Name: cmd.Name, Remark: cmd.Remark, CustomerID: cmd.CustomerID, ProductCategoryID: cmd.ProductSubtypeCategoryID, Visibility: visibility, SpecialAttrsJSON: cmd.SpecialAttrsJSON}, nil
+}
+
+func (r *fakeRepo) CopySKUs(ctx context.Context, cmd CopySKUsCommand) (CopySKUsResult, error) {
+	r.skuCopy = cmd
+	r.skusCopied = true
+	return CopySKUsResult{CreatedCount: 1, OverwrittenCount: len(cmd.SourceSKUIDs) - 1}, nil
+}
+
+func (r *fakeRepo) ListSKUCopyOptions(ctx context.Context, query SKUCopyOptionsQuery) (SKUCopyOptions, error) {
+	return SKUCopyOptions{Title: "选择分类和产品", TargetCustomerID: query.TargetCustomerID, SourceCustomerID: query.SourceCustomerID}, nil
+}
+
 func (r *fakeRepo) ListProductCategories(ctx context.Context) ([]ProductCategory, error) {
 	return []ProductCategory{{ID: 1, Name: "咖啡豆", Level: 1, Position: 1}}, nil
 }
 
 func (r *fakeRepo) ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error) {
 	return nil, nil
+}
+
+func (r *fakeRepo) ListProductConfigTemplates(ctx context.Context) ([]ProductConfigTemplate, error) {
+	return []ProductConfigTemplate{{
+		ID:                  301,
+		CustomerID:          0,
+		Name:                "公共盒装配置",
+		GradientTemplateID:  8,
+		OperationTemplateID: 9,
+		UnitTemplateID:      12,
+		PriceListRuleJSON:   `{"pricing_mode":"inherit_gradient_template"}`,
+		InventoryUnit:       "kg",
+		QuoteUnit:           "盒",
+		OrderUnit:           "盒",
+		UnitConversionJSON:  `{"盒":{"kg":0.2}}`,
+		IntegerUnit:         true,
+		Active:              true,
+	}}, nil
+}
+
+func (r *fakeRepo) ListProductUnitDefinitions(ctx context.Context) ([]ProductUnitDefinition, error) {
+	return []ProductUnitDefinition{{Code: "kg", Name: "kg", UnitType: "weight", AllowDecimal: true, Active: true}, {Code: "盒", Name: "盒", UnitType: "package", Active: true}}, nil
+}
+
+func (r *fakeRepo) ListProductUnitTemplates(ctx context.Context) ([]ProductUnitTemplate, error) {
+	return []ProductUnitTemplate{{ID: 12, Name: "盒装200g", InventoryUnit: "kg", QuoteUnit: "盒", OrderUnit: "盒", UnitConversionJSON: `{"盒":{"kg":0.2}}`, IntegerUnit: true, Active: true}}, nil
+}
+
+func (r *fakeRepo) SaveProductConfigTemplate(ctx context.Context, cmd SaveProductConfigTemplateCommand) (ProductConfigTemplate, error) {
+	r.configTemplate = cmd
+	return ProductConfigTemplate{
+		ID:                     701,
+		CustomerID:             cmd.CustomerID,
+		Name:                   cmd.Name,
+		GradientTemplateID:     cmd.GradientTemplateID,
+		OperationTemplateID:    cmd.OperationTemplateID,
+		UnitTemplateID:         cmd.UnitTemplateID,
+		PriceListRuleJSON:      cmd.PriceListRuleJSON,
+		SpecialAttrsSchemaJSON: cmd.SpecialAttrsSchemaJSON,
+		InventoryUnit:          cmd.InventoryUnit,
+		QuoteUnit:              cmd.QuoteUnit,
+		OrderUnit:              cmd.OrderUnit,
+		UnitConversionJSON:     cmd.UnitConversionJSON,
+		IntegerUnit:            cmd.IntegerUnit,
+		Active:                 true,
+	}, nil
+}
+
+func (r *fakeRepo) SaveProductUnitDefinition(ctx context.Context, cmd SaveProductUnitDefinitionCommand) (ProductUnitDefinition, error) {
+	r.unitDefinition = cmd
+	return ProductUnitDefinition{Code: cmd.Code, Name: cmd.Name, UnitType: cmd.UnitType, AllowDecimal: cmd.AllowDecimal, Active: true}, nil
+}
+
+func (r *fakeRepo) SaveProductUnitTemplate(ctx context.Context, cmd SaveProductUnitTemplateCommand) (ProductUnitTemplate, error) {
+	r.unitTemplate = cmd
+	return ProductUnitTemplate{ID: 12, Name: cmd.Name, InventoryUnit: cmd.InventoryUnit, QuoteUnit: cmd.QuoteUnit, OrderUnit: cmd.OrderUnit, UnitConversionJSON: cmd.UnitConversionJSON, IntegerUnit: cmd.IntegerUnit, Active: true}, nil
+}
+
+func (r *fakeRepo) DeriveProductConfigTemplate(ctx context.Context, cmd DeriveProductConfigTemplateCommand) (ProductConfigTemplate, error) {
+	r.derivedConfig = cmd
+	return ProductConfigTemplate{ID: 702, CustomerID: cmd.CustomerID, SourceTemplateID: cmd.SourceTemplateID, TemplateState: TemplateStateDerived, Name: cmd.Name, Active: true}, nil
 }
 
 func (r *fakeRepo) SaveGradientTemplate(ctx context.Context, cmd SaveGradientTemplateCommand) (GradientTemplate, error) {
@@ -78,7 +171,7 @@ func (r *fakeRepo) BindCategoryGradientTemplate(ctx context.Context, cmd BindCat
 }
 
 func (r *fakeRepo) SaveProductCategory(ctx context.Context, cmd SaveProductCategoryCommand) (ProductCategory, error) {
-	return ProductCategory{ID: 2, Name: cmd.Name, ParentID: cmd.ParentID, CustomerID: cmd.CustomerID, Position: cmd.Position}, nil
+	return ProductCategory{ID: 2, Name: cmd.Name, ParentID: cmd.ParentID, CustomerID: cmd.CustomerID, Position: cmd.Position, ProductConfigTemplateID: cmd.ProductConfigTemplateID}, nil
 }
 
 func (r *fakeRepo) MoveProductCategory(ctx context.Context, cmd MoveProductCategoryCommand) error {
@@ -118,13 +211,49 @@ func (r *fakeRepo) DeriveGradientTemplate(ctx context.Context, cmd DeriveGradien
 }
 
 func (r *fakeRepo) ListCustomerPublicUsages(ctx context.Context) ([]CustomerPublicUsage, error) {
-	return nil, nil
+	return r.publicUsages, nil
 }
 
 func (r *fakeRepo) SaveCustomerPublicUsage(ctx context.Context, cmd CustomerPublicUsageCommand) (CustomerPublicUsage, error) {
 	r.publicUsage = cmd
 	r.usageSaved = true
 	return CustomerPublicUsage{CustomerID: cmd.CustomerID, UsePublicSKU: cmd.UsePublicSKU, UsePublicCategories: cmd.UsePublicCategories, UsePublicGradientTemplates: cmd.UsePublicGradientTemplates}, nil
+}
+
+func (r *fakeRepo) ListCustomerProductRuleTemplates(ctx context.Context) ([]CustomerProductRuleTemplate, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) ListCustomerProductRuleOverrides(ctx context.Context) ([]CustomerProductRuleOverride, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) ListCustomerProductRuleBindings(ctx context.Context) ([]CustomerProductRuleBinding, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) SaveCustomerProductRuleTemplate(ctx context.Context, cmd SaveCustomerProductRuleTemplateCommand) (CustomerProductRuleTemplate, error) {
+	r.ruleTemplate = cmd
+	return CustomerProductRuleTemplate{ID: 501, CustomerID: cmd.CustomerID, Name: cmd.Name, Active: true, Items: cmd.Items}, nil
+}
+
+func (r *fakeRepo) SaveCustomerProductRuleOverride(ctx context.Context, cmd SaveCustomerProductRuleOverrideCommand) (CustomerProductRuleOverride, error) {
+	r.ruleOverride = cmd
+	return CustomerProductRuleOverride{
+		ID:                       601,
+		CustomerID:               cmd.CustomerID,
+		ProductSubtypeCategoryID: cmd.ProductSubtypeCategoryID,
+		GradientTemplateID:       cmd.GradientTemplateID,
+		OperationTemplateID:      cmd.OperationTemplateID,
+		PriceListRuleJSON:        cmd.PriceListRuleJSON,
+		UnitRuleJSON:             cmd.UnitRuleJSON,
+		Active:                   true,
+	}, nil
+}
+
+func (r *fakeRepo) BindCustomerProductRuleTemplate(ctx context.Context, cmd CustomerProductRuleTemplateBindingCommand) (CustomerProductRuleBinding, error) {
+	r.ruleBinding = cmd
+	return CustomerProductRuleBinding{CustomerID: cmd.CustomerID, TemplateID: cmd.TemplateID}, nil
 }
 
 func TestServiceDelegatesCatalogOperations(t *testing.T) {
@@ -167,6 +296,107 @@ func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	settings, err := svc.ProductSettings(context.Background())
 	if err != nil || len(settings.Categories) != 1 || len(settings.Products) != 1 {
 		t.Fatalf("ProductSettings() = %+v, %v", settings, err)
+	}
+}
+
+func TestProductSettingsKeepsBomParamsOnNonGreenSKU(t *testing.T) {
+	settings := BuildProductSettings(nil, []Product{{
+		ID:          88,
+		Name:        "速溶盒装",
+		ProductKind: "instant_coffee",
+		RoastLevel:  "中烘",
+		YieldRate:   0.96,
+	}})
+
+	if len(settings.Products) != 1 {
+		t.Fatalf("settings products = %+v", settings.Products)
+	}
+	got := settings.Products[0]
+	if got.ProductKind != "instant_coffee" || got.RoastLevel != "中烘" || got.YieldRate != 0.96 {
+		t.Fatalf("instant coffee product settings = %+v, want roast/yield from SKU", got)
+	}
+}
+
+func TestCreateProductKeepsBomParamsOnInstantCoffee(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.CreateProduct(context.Background(), CreateProductCommand{
+		Actor:            "tester",
+		Name:             "速溶盒装",
+		ProductKind:      "instant_coffee",
+		SpecialAttrsJSON: `{"roast_level":"中烘"}`,
+		YieldRate:        0.96,
+	})
+	if err != nil {
+		t.Fatalf("CreateProduct() err=%v", err)
+	}
+	if repo.create.ProductKind != "instant_coffee" || repo.create.RoastLevel != "" || repo.create.YieldRate != 0.96 || repo.create.SpecialAttrsJSON == "{}" {
+		t.Fatalf("create command = %+v, want instant coffee yield and special attrs preserved without legacy roast", repo.create)
+	}
+}
+
+func TestCreateSKUUsesUnifiedPayloadWithoutLegacyProductKindFields(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	got, err := svc.CreateSKU(context.Background(), CreateSKUCommand{
+		Actor:                    "tester",
+		CustomerID:               42,
+		Name:                     "客户盒装速溶",
+		Remark:                   "10g/条，10条/盒",
+		ProductTypeCategoryID:    7,
+		ProductSubtypeCategoryID: 17,
+		SpecialAttrsJSON:         `{"roast_level":"中深烘"}`,
+		Active:                   true,
+	})
+	if err != nil {
+		t.Fatalf("CreateSKU() err=%v", err)
+	}
+	if !repo.skuCreated || repo.skuCreate.CustomerID != 42 || repo.skuCreate.ProductSubtypeCategoryID != 17 || repo.skuCreate.SpecialAttrsJSON != `{"roast_level":"中深烘"}` {
+		t.Fatalf("CreateSKU command=%+v created=%v", repo.skuCreate, repo.skuCreated)
+	}
+	if got.CustomerID != 42 || got.ProductCategoryID != 17 || got.BaseProductID != 0 || got.CustomType != "" {
+		t.Fatalf("created SKU result = %+v", got)
+	}
+}
+
+func TestCopySKUsDedupesSourceIDsAndDelegatesOverwriteResult(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	got, err := svc.CopySKUs(context.Background(), CopySKUsCommand{
+		Actor:            "tester",
+		TargetCustomerID: 42,
+		SourceCustomerID: 0,
+		SourceSKUIDs:     []int64{7, 8, 7, 0},
+	})
+	if err != nil {
+		t.Fatalf("CopySKUs() err=%v", err)
+	}
+	if !repo.skusCopied || len(repo.skuCopy.SourceSKUIDs) != 2 || repo.skuCopy.SourceSKUIDs[0] != 7 || repo.skuCopy.SourceSKUIDs[1] != 8 {
+		t.Fatalf("CopySKUs command=%+v copied=%v", repo.skuCopy, repo.skusCopied)
+	}
+	if got.CreatedCount != 1 || got.OverwrittenCount != 1 {
+		t.Fatalf("CopySKUs result=%+v", got)
+	}
+}
+
+func TestCopySKUsRejectsSameSourceAndTargetOwner(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.CopySKUs(context.Background(), CopySKUsCommand{
+		Actor:            "tester",
+		TargetCustomerID: 42,
+		SourceCustomerID: 42,
+		SourceSKUIDs:     []int64{7},
+	})
+	if !IsValidationError(err) {
+		t.Fatalf("CopySKUs() err=%v, want validation error", err)
+	}
+	if repo.skusCopied {
+		t.Fatalf("CopySKUs delegated to repository for same source and target")
 	}
 }
 
@@ -237,6 +467,146 @@ func TestSaveCustomerPublicUsageAllowsIndependentReferenceSwitches(t *testing.T)
 	}
 }
 
+func TestServiceDelegatesCustomerProductRuleConfiguration(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	template, err := svc.SaveCustomerProductRuleTemplate(context.Background(), SaveCustomerProductRuleTemplateCommand{
+		Actor:      "tester",
+		CustomerID: 42,
+		Name:       "贴牌客户规则",
+		Items: []CustomerProductRuleTemplateItem{{
+			ProductSubtypeCategoryID: 7,
+			GradientTemplateID:       8,
+			OperationTemplateID:      9,
+			PriceListRuleJSON:        `{"mode":"by_subtype"}`,
+			UnitRuleJSON:             `{"quote_unit":"元/kg"}`,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SaveCustomerProductRuleTemplate() err=%v", err)
+	}
+	if template.ID != 501 || repo.ruleTemplate.CustomerID != 42 || len(repo.ruleTemplate.Items) != 1 || repo.ruleTemplate.Items[0].ProductSubtypeCategoryID != 7 {
+		t.Fatalf("rule template result=%+v command=%+v", template, repo.ruleTemplate)
+	}
+
+	override, err := svc.SaveCustomerProductRuleOverride(context.Background(), SaveCustomerProductRuleOverrideCommand{
+		Actor:                    "tester",
+		CustomerID:               42,
+		ProductSubtypeCategoryID: 7,
+		GradientTemplateID:       18,
+		OperationTemplateID:      19,
+		PriceListRuleJSON:        `{"mode":"customer"}`,
+		UnitRuleJSON:             `{"order_unit":"kg"}`,
+	})
+	if err != nil {
+		t.Fatalf("SaveCustomerProductRuleOverride() err=%v", err)
+	}
+	if override.ID != 601 || repo.ruleOverride.CustomerID != 42 || repo.ruleOverride.ProductSubtypeCategoryID != 7 || repo.ruleOverride.GradientTemplateID != 18 {
+		t.Fatalf("rule override result=%+v command=%+v", override, repo.ruleOverride)
+	}
+
+	binding, err := svc.BindCustomerProductRuleTemplate(context.Background(), CustomerProductRuleTemplateBindingCommand{
+		Actor:      "tester",
+		CustomerID: 42,
+		TemplateID: 501,
+	})
+	if err != nil {
+		t.Fatalf("BindCustomerProductRuleTemplate() err=%v", err)
+	}
+	if binding.CustomerID != 42 || binding.TemplateID != 501 || repo.ruleBinding.CustomerID != 42 || repo.ruleBinding.TemplateID != 501 {
+		t.Fatalf("rule binding result=%+v command=%+v", binding, repo.ruleBinding)
+	}
+}
+
+func TestServiceDelegatesProductConfigTemplates(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	template, err := svc.SaveProductConfigTemplate(context.Background(), SaveProductConfigTemplateCommand{
+		Actor:                  "tester",
+		CustomerID:             42,
+		Name:                   "客户盒装商品配置",
+		GradientTemplateID:     8,
+		OperationTemplateID:    9,
+		PriceListRuleJSON:      `{"pricing_mode":"fixed_unit_price","fixed_unit_price":15}`,
+		SpecialAttrsSchemaJSON: `[{"key":"roast_level","label":"烘焙度","value_type":"select","options":["浅烘","中烘"],"show_in_price_list":true}]`,
+		InventoryUnit:          "kg",
+		QuoteUnit:              "盒",
+		OrderUnit:              "盒",
+		UnitConversionJSON:     `{"盒":{"kg":0.2}}`,
+		IntegerUnit:            true,
+	})
+	if err != nil {
+		t.Fatalf("SaveProductConfigTemplate() err=%v", err)
+	}
+	if template.ID != 701 || repo.configTemplate.CustomerID != 42 || repo.configTemplate.Name != "客户盒装商品配置" || repo.configTemplate.QuoteUnit != "盒" || !repo.configTemplate.IntegerUnit {
+		t.Fatalf("product config template result=%+v command=%+v", template, repo.configTemplate)
+	}
+	if repo.configTemplate.SpecialAttrsSchemaJSON == "" || repo.configTemplate.SpecialAttrsSchemaJSON == "{}" {
+		t.Fatalf("special attrs schema not carried: %+v", repo.configTemplate)
+	}
+
+	if _, err := svc.SaveProductConfigTemplate(context.Background(), SaveProductConfigTemplateCommand{
+		Name:              "缺固定价",
+		UnitTemplateID:    12,
+		PriceListRuleJSON: `{"pricing_mode":"fixed_unit_price"}`,
+	}); err == nil {
+		t.Fatalf("SaveProductConfigTemplate() must reject fixed_unit_price without fixed_unit_price")
+	}
+	if _, err := svc.SaveProductConfigTemplate(context.Background(), SaveProductConfigTemplateCommand{
+		Name:              "缺加成比例",
+		UnitTemplateID:    12,
+		PriceListRuleJSON: `{"pricing_mode":"cost_plus"}`,
+	}); err == nil {
+		t.Fatalf("SaveProductConfigTemplate() must reject cost_plus without cost_plus_rate")
+	}
+
+	derived, err := svc.DeriveProductConfigTemplate(context.Background(), DeriveProductConfigTemplateCommand{
+		Actor:            "tester",
+		CustomerID:       42,
+		SourceTemplateID: 301,
+		Name:             "客户复制盒装配置",
+	})
+	if err != nil {
+		t.Fatalf("DeriveProductConfigTemplate() err=%v", err)
+	}
+	if derived.ID != 702 || repo.derivedConfig.CustomerID != 42 || repo.derivedConfig.SourceTemplateID != 301 || repo.derivedConfig.Name != "客户复制盒装配置" {
+		t.Fatalf("derived product config template=%+v command=%+v", derived, repo.derivedConfig)
+	}
+}
+
+func TestDeriveProductConfigTemplateEnablesPublicSKUReference(t *testing.T) {
+	repo := &fakeRepo{
+		publicUsages: []CustomerPublicUsage{{
+			CustomerID:                 42,
+			UsePublicSKU:               false,
+			UsePublicCategories:        false,
+			UsePublicGradientTemplates: true,
+		}},
+	}
+	svc := NewService(repo)
+
+	if _, err := svc.DeriveProductConfigTemplate(context.Background(), DeriveProductConfigTemplateCommand{
+		Actor:            "tester",
+		CustomerID:       42,
+		SourceTemplateID: 301,
+		Name:             "客户复制盒装配置",
+	}); err != nil {
+		t.Fatalf("DeriveProductConfigTemplate() err=%v", err)
+	}
+
+	if !repo.usageSaved {
+		t.Fatalf("DeriveProductConfigTemplate() should save public SKU reference usage")
+	}
+	if repo.publicUsage.CustomerID != 42 || !repo.publicUsage.UsePublicSKU || !repo.publicUsage.UsePublicCategories {
+		t.Fatalf("public usage should reference public SKU and categories, got %+v", repo.publicUsage)
+	}
+	if !repo.publicUsage.UsePublicGradientTemplates {
+		t.Fatalf("public gradient template switch should be preserved, got %+v", repo.publicUsage)
+	}
+}
+
 func TestDeriveProductCategoryRequiresCustomerAndSource(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
@@ -257,6 +627,36 @@ func TestDeriveProductCategoryRequiresCustomerAndSource(t *testing.T) {
 	}
 	if _, err := svc.DeriveProductCategory(context.Background(), DeriveProductCategoryCommand{CustomerID: 42}); err == nil {
 		t.Fatalf("DeriveProductCategory() should require source_category_id")
+	}
+}
+
+func TestDeriveProductCategoryEnablesPublicSKUReference(t *testing.T) {
+	repo := &fakeRepo{
+		publicUsages: []CustomerPublicUsage{{
+			CustomerID:                 42,
+			UsePublicSKU:               false,
+			UsePublicCategories:        false,
+			UsePublicGradientTemplates: true,
+		}},
+	}
+	svc := NewService(repo)
+
+	if _, err := svc.DeriveProductCategory(context.Background(), DeriveProductCategoryCommand{
+		Actor:            "tester",
+		CustomerID:       42,
+		SourceCategoryID: 17,
+	}); err != nil {
+		t.Fatalf("DeriveProductCategory() err=%v", err)
+	}
+
+	if !repo.usageSaved {
+		t.Fatalf("DeriveProductCategory() should save public SKU reference usage")
+	}
+	if repo.publicUsage.CustomerID != 42 || !repo.publicUsage.UsePublicSKU || !repo.publicUsage.UsePublicCategories {
+		t.Fatalf("public usage should reference public SKU and categories, got %+v", repo.publicUsage)
+	}
+	if !repo.publicUsage.UsePublicGradientTemplates {
+		t.Fatalf("public gradient template switch should be preserved, got %+v", repo.publicUsage)
 	}
 }
 
@@ -341,5 +741,21 @@ func TestCreateProductDefaultsAllowFulfillmentOrderAtServiceBoundary(t *testing.
 	}
 	if repo.create.AllowFulfillmentOrder {
 		t.Fatalf("explicit allow fulfillment false should be preserved: %+v", repo.create)
+	}
+}
+
+func TestCreateProductAcceptsInstantCoffeeWithDefaultBomParams(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	if _, err := svc.CreateProduct(context.Background(), CreateProductCommand{
+		Name:        "速溶美式",
+		ProductKind: "instant_coffee",
+	}); err != nil {
+		t.Fatalf("CreateProduct(instant_coffee) err=%v", err)
+	}
+
+	if repo.create.ProductKind != "instant_coffee" || repo.create.RoastLevel != "" || repo.create.YieldRate != 0 || repo.create.GreenBeanBomProductID != 0 {
+		t.Fatalf("instant coffee product command = %+v", repo.create)
 	}
 }

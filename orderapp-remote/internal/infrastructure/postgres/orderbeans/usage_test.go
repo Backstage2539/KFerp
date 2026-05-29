@@ -1,6 +1,10 @@
 package orderbeans
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestPublishedUnitPriceFromContentMatchesGreenBeanTiers(t *testing.T) {
 	content := []byte(`{
@@ -56,6 +60,41 @@ func TestPublishedUnitPriceFromContentMatchesCommercialAndDripTiers(t *testing.T
 	got, ok = publishedUnitPriceFromContentForListType(content, 12, ListTypeDrip, 100, 25, "box", 10)
 	if !ok || got != 28 {
 		t.Fatalf("drip box published price = %.2f/%v, want 28/true", got, ok)
+	}
+}
+
+func TestPublishedPricingKeepsKgDisplayUnitForSmallCommercialPack(t *testing.T) {
+	content := []byte(`{
+		"groups":[{
+			"items":[{
+				"productId":11,
+				"commercial_wholesale_tiers":[
+					{"label":"25-49kg","spec_g":1000,"min_qty":25,"max_qty":49,"price_per_unit":82,"price_per_lb":37.23,"display_unit":"kg","price_unit":"kg"}
+				]
+			}]
+		}]
+	}`)
+
+	got, ok := publishedPricingFromContentForListType(content, 11, ListTypeCommercial, 80, 1, "", 0)
+	if !ok {
+		t.Fatalf("published pricing missing")
+	}
+	if got.UnitPrice != 82 || got.PriceUnit != "kg" || got.UnitG != 1000 {
+		t.Fatalf("published pricing = %+v, want 82 kg/1000g", got)
+	}
+}
+
+func TestExplicitPublicationSelectionRequiresPublishedSnapshots(t *testing.T) {
+	source, err := os.ReadFile("usage.go")
+	if err != nil {
+		t.Fatalf("read usage.go: %v", err)
+	}
+	text := string(source)
+	if strings.Contains(text, "blp.status IN ('published','withdrawn')") {
+		t.Fatalf("explicit bean-list publication selection must reject withdrawn snapshots")
+	}
+	if !strings.Contains(text, "WHERE blp.status='published'") {
+		t.Fatalf("bean-list publication selection must use published snapshots only")
 	}
 }
 

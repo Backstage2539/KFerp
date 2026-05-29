@@ -678,6 +678,13 @@ import {
 import { parseRecipientText } from '../lib/customer-recipient'
 import { lineTotal, syncWholesaleTierPrice, toInt, toNumber, wholesalePriceUnit, wholesaleTierPriceRows } from '../lib/order-entry'
 import { normalizePageSize } from '../lib/pagination'
+import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
+
+const props = defineProps({
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+})
 
 const customerId = ref(0)
 const customerOptions = ref([])
@@ -806,7 +813,7 @@ watch(selectedParsedBatchId, async () => {
 onMounted(async () => {
   await loadCustomerOptions()
   const params = new URL(window.location.href).searchParams
-  customerId.value = Number(params.get('customer_id') || 0)
+  customerId.value = Number(props.customerContextId || params.get('customer_id') || 0)
   if (customerId.value) await loadAll()
 })
 
@@ -827,8 +834,28 @@ async function selectCustomer(customer) {
   customerId.value = Number(customer?.id || 0)
   fulfillmentOrdersPage.value = 1
   closeOrderDetailDrawer()
+  notifyWorkspaceCustomerChanged(customerId.value)
   if (customerId.value) await loadAll()
 }
+
+async function applyWorkspaceCustomerContext() {
+  const nextCustomerID = Number(props.customerContextId || 0)
+  if (nextCustomerID <= 0 || nextCustomerID === Number(customerId.value || 0)) return
+  customerId.value = nextCustomerID
+  fulfillmentOrdersPage.value = 1
+  closeOrderDetailDrawer()
+  await loadAll()
+}
+
+function notifyWorkspaceCustomerChanged(nextCustomerID) {
+  if (props.workspaceMode !== CUSTOMER_WORKSPACE_MODE || Number(nextCustomerID || 0) <= 0) return
+  if (Number(nextCustomerID || 0) === Number(props.customerContextId || 0)) return
+  window.dispatchEvent(workspaceCustomerChangeEvent(nextCustomerID))
+}
+
+watch(() => props.customerContextId, () => {
+  applyWorkspaceCustomerContext()
+})
 
 async function loadAll() {
   if (!normalizedCustomerId.value) return

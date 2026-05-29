@@ -7,8 +7,7 @@ RUN set -e; \
     mkdir -p /docs /miniapp; \
     if [ -d docs ]; then cp -R docs/. /docs/; fi; \
     if [ -d miniapp ]; then cp -R miniapp/. /miniapp/; fi; \
-    cp docs/OP_MANUAL_*.md / 2>/dev/null || true; \
-    cp docs/REQUIREMENTS.md docs/ACCEPTANCE_TESTS.md docs/HOW_TO_WORKFLOW.md docs/OPERATION_MANUALS.md / 2>/dev/null || true; \
+    cp docs/REQUIREMENTS.md docs/ACCEPTANCE_TESTS.md / 2>/dev/null || true; \
     /usr/local/go/bin/go test ./...
 RUN CGO_ENABLED=0 /usr/local/go/bin/go build -o /out/orderapp ./
 

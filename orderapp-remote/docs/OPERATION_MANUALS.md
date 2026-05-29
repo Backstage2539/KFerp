@@ -1,6 +1,6 @@
 # 操作手册总索引
 
-> 目的：把“用户怎么操作系统”沉淀成可查、可验收、可同步部署的手册，避免功能做完但现场不知道怎么用。
+> 目的：把“用户怎么操作系统”沉淀成可查、可验收、可部署的手册，避免功能做完但现场不知道怎么用。
 
 ## 维护规则
 - 开发时只要改变用户操作方式，就必须更新操作手册。字段、按钮、入口、权限、导入导出、异常处理、流程顺序变化都算。
@@ -8,7 +8,8 @@
 - 手册必须写清：入口、适用角色、前置条件、标准步骤、结果校验、常见问题、关联数据影响。
 - 手册必须有图示：每个大功能 `OP_MANUAL_*.md` 至少包含一个 `## 流程图` 和 Mermaid `flowchart`，让操作人员先看流程再看文字。
 - 需求完成前必须检查现有手册是否缺入口、缺字段、缺步骤、缺权限说明、缺导入导出说明、缺排障说明。
-- REV 证据必须包含手册路径；部署时必须把手册同步到 `/app/docs`。
+- 手册只维护 `orderapp-remote/docs` 一份；不要在仓库根目录恢复 `OPERATION_MANUALS.md` 或 `OP_MANUAL_*.md` 副本。
+- REV 证据必须包含 `orderapp-remote/docs/...` 手册路径或前端手册入口；部署时线上 `/app/docs` 直接来自 `orderapp-remote/docs`。
 
 ## 当前手册
 - 手册入口必须直接放在对应大功能菜单内，不单独建立“手册”或“文档”菜单。
@@ -21,8 +22,7 @@
 - `OP_MANUAL_FINANCE.md`：财务首页、费用管理、月度结账、经营报告、票税台账、财务设置。
 - `OP_MANUAL_SETTINGS_AUDIT.md`：设备产能、发货人、代加工模板、部门员工、操作日志。
 - `OP_MANUAL_NOTIFICATIONS.md`：通知规则、ERP 站内通知和外部 IM 扩展框架。
-- `OP_MANUAL_CUSTOMER_PORTAL.md`：客户门户配置、小程序主题、商城商品、小程序商城下单。
-- `OP_MANUAL_CUSTOMER_FULFILLMENT.md`：客户履约账户、Excel 导入、客户托管库存、代发订单、费用和月结。
+- `OP_MANUAL_CUSTOMER_FULFILLMENT.md`：客户管理与客户履约全流程，覆盖客户档案、门户客户配置、客户门户能力模板、客户履约手册入口、角色权限、客户开通、外部用户、客户账户模式、小程序商城、Excel 导入、托管库存、代发/代加工、费用和月结。
 
 ## 手册维护流程图
 ```mermaid
@@ -31,7 +31,7 @@ flowchart TD
   B -->|影响| C["更新对应大功能手册"]
   B -->|不影响| D["记录无需更新原因"]
   C --> E["补流程图、入口、步骤和常见问题"]
-  E --> F["同步根目录与 orderapp docs"]
+  E --> F["保持 orderapp-remote/docs 单一来源"]
   F --> G["REV 证据引用手册入口或路径"]
 ```
 
@@ -41,7 +41,7 @@ flowchart TD
 - 已将手册入口放入各大功能菜单，并删除被大功能手册覆盖的旧 `*-user-manual.md` 文档。
 - 已为所有大功能手册补充流程图，并让 Vue/Vite 通用手册页展示节点和箭头图示。
 - 已补 `HOW_TO_WORKFLOW.md`：操作手册更新进入固定交付流程。
-- 已补 `DEPLOYMENT.md` 和 `deploy_orderapp.sh`：部署时同步 `OPERATION_MANUALS.md` 和 `OP_MANUAL_*.md`。
+- 已补 `DEPLOYMENT.md` 和 `deploy_orderapp.sh`：部署时使用 `orderapp-remote/docs` 作为线上手册唯一来源。
 - 后续新增大功能时，必须新增对应 `OP_MANUAL_<FEATURE>.md`，并把入口放在对应大功能菜单里。
 
 ## 后续必须补的手册

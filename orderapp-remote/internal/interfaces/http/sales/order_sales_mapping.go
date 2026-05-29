@@ -20,11 +20,27 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 	if err != nil {
 		return salesapp.SaveOrderCommand{}, fmt.Errorf("invalid order_date")
 	}
+	documentDate := strings.TrimSpace(req.DocumentDate)
+	if documentDate == "" {
+		documentDate = orderDate
+	}
+	dd, err := time.Parse("2006-01-02", documentDate)
+	if err != nil {
+		return salesapp.SaveOrderCommand{}, fmt.Errorf("invalid document_date")
+	}
 	shippingAmount, err := parseCreateOrderAmount(req.ShippingAmount, "shipping_amount")
 	if err != nil {
 		return salesapp.SaveOrderCommand{}, err
 	}
 	discountAmount, err := parseCreateOrderAmount(req.DiscountAmount, "discount_amount")
+	if err != nil {
+		return salesapp.SaveOrderCommand{}, err
+	}
+	paymentGoodsAmount, err := parseCreateOrderAmount(req.PaymentGoodsAmount, "payment_goods_amount")
+	if err != nil {
+		return salesapp.SaveOrderCommand{}, err
+	}
+	paymentShippingAmount, err := parseCreateOrderAmount(req.PaymentShippingAmount, "payment_shipping_amount")
 	if err != nil {
 		return salesapp.SaveOrderCommand{}, err
 	}
@@ -55,6 +71,7 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 	return salesapp.SaveOrderCommand{
 		Actor:                           actor,
 		EditID:                          editID,
+		DocumentDate:                    dd,
 		OrderDate:                       od,
 		CustomerID:                      req.CustomerID,
 		SourceID:                        req.SourceID,
@@ -64,6 +81,11 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 		ShipStatusID:                    req.ShipStatusID,
 		ShipMethod:                      req.ShipMethod,
 		ShipTrackingNo:                  req.ShipTrackingNo,
+		LogisticsCompanyID:              req.LogisticsCompanyID,
+		LogisticsProductID:              req.LogisticsProductID,
+		PaymentGoodsAmount:              paymentGoodsAmount,
+		PaymentShippingAmount:           paymentShippingAmount,
+		PaymentVoucherAssetID:           req.PaymentVoucherAssetID,
 		ResponsibleType:                 strings.TrimSpace(req.ResponsibleType),
 		ResponsibleID:                   req.ResponsibleID,
 		Notes:                           req.Notes,
@@ -168,6 +190,7 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 func updateHeaderCommandFromRequest(req UpdateOrderRequest, actor string) salesapp.UpdateHeaderCommand {
 	return salesapp.UpdateHeaderCommand{
 		Actor:                 actor,
+		DocumentDate:          req.DocumentDate,
 		OrderDate:             req.OrderDate,
 		CustomerID:            req.CustomerID,
 		SourceID:              req.SourceID,
@@ -177,6 +200,11 @@ func updateHeaderCommandFromRequest(req UpdateOrderRequest, actor string) salesa
 		ShipStatusID:          req.ShipStatusID,
 		ShipMethod:            req.ShipMethod,
 		ShipTrackingNo:        req.ShipTrackingNo,
+		LogisticsCompanyID:    req.LogisticsCompanyID,
+		LogisticsProductID:    req.LogisticsProductID,
+		PaymentGoodsAmount:    req.PaymentGoodsAmount,
+		PaymentShippingAmount: req.PaymentShippingAmount,
+		PaymentVoucherAssetID: req.PaymentVoucherAssetID,
 		Notes:                 req.Notes,
 		ShippingAmount:        req.ShippingAmount,
 		DiscountAmount:        req.DiscountAmount,

@@ -20,9 +20,11 @@ type Service interface {
 	ListDripPriceTemplates(context.Context) ([]domain.DripPriceTemplate, error)
 	SaveDripPriceTemplate(context.Context, appcosting.SaveDripPriceTemplateCommand) (*domain.DripPriceTemplate, error)
 	DeactivateDripPriceTemplate(context.Context, appcosting.DeactivateDripPriceTemplateCommand) error
-	BeanList(context.Context) (*appcosting.CalculateResponse, error)
+	BeanList(context.Context, appcosting.BeanListQuery) (*appcosting.CalculateResponse, error)
 	ListBeanListPublications(context.Context, appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error)
 	PublishedBeanList(context.Context, appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error)
+	GenerateBeanListPublicationPDF(context.Context, appcosting.BeanListPublicationPDFCommand, func(appcosting.BeanListPublication) ([]byte, error)) (appcosting.BeanListPublicationPDFFile, error)
+	LoadBeanListPublicationPDF(context.Context, appcosting.BeanListPublicationPDFCommand) (appcosting.BeanListPublicationPDFFile, error)
 	PublishBeanList(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error)
 	SaveBeanListDraft(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error)
 	WithdrawBeanList(context.Context, appcosting.WithdrawBeanListCommand) error

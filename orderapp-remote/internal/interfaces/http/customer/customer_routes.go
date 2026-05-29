@@ -28,6 +28,7 @@ func registerCustomerRoutes(e *echo.Echo, deps Dependencies) {
 	e.GET("/customers", h.index)
 	e.GET("/api/customers", h.indexAPI)
 	e.POST("/api/customers", h.createAPI)
+	e.POST("/api/customers/customer-types", h.createCustomerTypeAPI)
 	e.POST("/api/customers/order-types", h.createOrderTypeAPI)
 	e.GET("/api/customers/:id", h.detailAPI)
 	e.PUT("/api/customers/:id", h.updateAPI)
@@ -56,36 +57,41 @@ type customerHandler struct {
 const maxCustomerAssetUploadBytes = 8 << 20
 
 type customerUpsertAPIRequest struct {
-	Name               string `json:"name"`
-	RawName            string `json:"raw_name"`
-	CustomerType       string `json:"customer_type"`
-	CompanyName        string `json:"company_name"`
-	CompanyAddress     string `json:"company_address"`
-	CompanyPhone       string `json:"company_phone"`
-	Contact            string `json:"contact"`
-	Phone              string `json:"phone"`
-	Address            string `json:"address"`
-	DefaultSourceID    *int64 `json:"default_source_id"`
-	DefaultOrderTypeID *int64 `json:"default_order_type_id"`
-	Active             *bool  `json:"active"`
-	PortalEnabled      *bool  `json:"portal_enabled"`
+	Name                  string `json:"name"`
+	RawName               string `json:"raw_name"`
+	CustomerType          string `json:"customer_type"`
+	CompanyName           string `json:"company_name"`
+	CompanyAddress        string `json:"company_address"`
+	CompanyPhone          string `json:"company_phone"`
+	Contact               string `json:"contact"`
+	Phone                 string `json:"phone"`
+	Address               string `json:"address"`
+	DefaultSourceID       *int64 `json:"default_source_id"`
+	DefaultOrderTypeID    *int64 `json:"default_order_type_id"`
+	ResponsibleEmployeeID *int64 `json:"responsible_employee_id"`
+	PortalEnabled         *bool  `json:"portal_enabled"`
+	CapabilityTemplateKey string `json:"capability_template_key"`
+	Active                *bool  `json:"active"`
 }
 
 type customerAPIModel struct {
-	ID                 int64  `json:"id"`
-	Name               string `json:"name"`
-	RawName            string `json:"raw_name"`
-	CustomerType       string `json:"customer_type"`
-	CompanyName        string `json:"company_name"`
-	CompanyAddress     string `json:"company_address"`
-	CompanyPhone       string `json:"company_phone"`
-	Contact            string `json:"contact"`
-	Phone              string `json:"phone"`
-	Address            string `json:"address"`
-	DefaultSourceID    *int64 `json:"default_source_id"`
-	DefaultOrderTypeID *int64 `json:"default_order_type_id"`
-	Active             bool   `json:"active"`
-	PortalEnabled      bool   `json:"portal_enabled"`
+	ID                      int64  `json:"id"`
+	Name                    string `json:"name"`
+	RawName                 string `json:"raw_name"`
+	CustomerType            string `json:"customer_type"`
+	CompanyName             string `json:"company_name"`
+	CompanyAddress          string `json:"company_address"`
+	CompanyPhone            string `json:"company_phone"`
+	Contact                 string `json:"contact"`
+	Phone                   string `json:"phone"`
+	Address                 string `json:"address"`
+	DefaultSourceID         *int64 `json:"default_source_id"`
+	DefaultOrderTypeID      *int64 `json:"default_order_type_id"`
+	ResponsibleEmployeeID   *int64 `json:"responsible_employee_id"`
+	ResponsibleEmployeeName string `json:"responsible_employee_name"`
+	PortalEnabled           bool   `json:"portal_enabled"`
+	CapabilityTemplateKey   string `json:"capability_template_key"`
+	Active                  bool   `json:"active"`
 }
 
 type customerDashboardAPI struct {
@@ -109,17 +115,14 @@ type customerAssetAPI struct {
 	URL         string `json:"url"`
 }
 
-type customerOrderTypeRequest struct {
-	Name string `json:"name"`
-}
-
 type customerEditorAPIResponse struct {
-	Customer   customerAPIModel     `json:"customer"`
-	Sources    []apiOption          `json:"sources"`
-	OrderTypes []apiOption          `json:"order_types"`
-	Types      []string             `json:"customer_types"`
-	Assets     []customerAssetAPI   `json:"assets"`
-	Dashboard  customerDashboardAPI `json:"dashboard"`
+	Customer            customerAPIModel                 `json:"customer"`
+	Sources             []apiOption                      `json:"sources"`
+	OrderTypes          []apiOption                      `json:"order_types"`
+	Employees           []apiOption                      `json:"employees"`
+	CustomerTypeOptions []customerapp.CustomerTypeOption `json:"customer_type_options"`
+	Assets              []customerAssetAPI               `json:"assets"`
+	Dashboard           customerDashboardAPI             `json:"dashboard"`
 }
 
 func (h customerHandler) index(c echo.Context) error {
@@ -157,22 +160,55 @@ func (h customerHandler) indexAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{
-		"rows":           result.Rows,
-		"sources":        apiOptions(result.Sources),
-		"order_types":    apiOptions(result.OrderTypes),
-		"customer_types": result.Types,
-		"page":           (offset / limit) + 1,
-		"limit":          limit,
-		"offset":         offset,
-		"total":          result.Total,
-		"total_pages":    pageCount(result.Total, limit),
-		"customer_type":  customerType,
-		"active":         formatActiveFilter(active),
-		"sort_by":        c.QueryParam("sort_by"),
-		"sort_direction": c.QueryParam("sort_direction"),
-		"has_prev":       offset > 0,
-		"has_next":       result.HasNext,
+		"rows":                  result.Rows,
+		"sources":               apiOptions(result.Sources),
+		"order_types":           apiOptions(result.OrderTypes),
+		"employees":             apiOptions(result.Employees),
+		"customer_type_options": result.CustomerTypeOptions,
+		"page":                  (offset / limit) + 1,
+		"limit":                 limit,
+		"offset":                offset,
+		"total":                 result.Total,
+		"total_pages":           pageCount(result.Total, limit),
+		"customer_type":         customerType,
+		"active":                formatActiveFilter(active),
+		"sort_by":               c.QueryParam("sort_by"),
+		"sort_direction":        c.QueryParam("sort_direction"),
+		"has_prev":              offset > 0,
+		"has_next":              result.HasNext,
 	})
+}
+
+func (h customerHandler) createCustomerTypeAPI(c echo.Context) error {
+	var req struct {
+		Label string `json:"label"`
+		Value string `json:"value"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	option, err := h.customer.CreateCustomerTypeOption(c.Request().Context(), support.ActorOf(c), customerapp.CreateCustomerTypeCommand{
+		Label: req.Label,
+		Value: req.Value,
+	})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, option)
+}
+
+func (h customerHandler) createOrderTypeAPI(c echo.Context) error {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	option, err := h.customer.CreateOrderTypeOption(c.Request().Context(), support.ActorOf(c), customerapp.CreateOrderTypeCommand{Name: req.Name})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, apiOption{ID: option.ID, Name: option.Name})
 }
 
 func pageCount(total, limit int) int {
@@ -229,7 +265,7 @@ func (h customerHandler) createAPI(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
-	id, err := h.customer.Upsert(c.Request().Context(), support.ActorOf(c), nil, customerUpsertCommandFromRequest(req.toFormRequest()))
+	id, err := h.customer.Upsert(c.Request().Context(), support.ActorOf(c), nil, req.toCommand())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
@@ -249,7 +285,7 @@ func (h customerHandler) updateAPI(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
-	if _, err := h.customer.Upsert(c.Request().Context(), support.ActorOf(c), &id, customerUpsertCommandFromRequest(req.toFormRequest())); err != nil {
+	if _, err := h.customer.Upsert(c.Request().Context(), support.ActorOf(c), &id, req.toCommand()); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	payload, err := h.editorPayload(c, id)
@@ -262,30 +298,19 @@ func (h customerHandler) updateAPI(c echo.Context) error {
 	return c.JSON(http.StatusOK, payload)
 }
 
-func (h customerHandler) createOrderTypeAPI(c echo.Context) error {
-	var req customerOrderTypeRequest
-	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
-	}
-	row, err := h.customer.CreateOrderType(c.Request().Context(), support.ActorOf(c), req.Name)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
-	}
-	return c.JSON(http.StatusOK, apiOption{ID: row.ID, Name: row.Name})
-}
-
 func (h customerHandler) editorPayload(c echo.Context, id int64) (*customerEditorAPIResponse, error) {
 	data, err := h.customer.Editor(c.Request().Context(), id)
 	if err != nil || data == nil {
 		return nil, err
 	}
 	payload := customerEditorAPIResponse{
-		Customer:   customerAPIModelFromEdit(&data.Customer),
-		Sources:    apiOptions(data.Sources),
-		OrderTypes: apiOptions(data.OrderTypes),
-		Types:      data.Types,
-		Assets:     customerAssetsAPI(data.Assets),
-		Dashboard:  customerDashboardAPIFromData(data.Dashboard),
+		Customer:            customerAPIModelFromEdit(&data.Customer),
+		Sources:             apiOptions(data.Sources),
+		OrderTypes:          apiOptions(data.OrderTypes),
+		Employees:           apiOptions(data.Employees),
+		CustomerTypeOptions: data.CustomerTypeOptions,
+		Assets:              customerAssetsAPI(data.Assets),
+		Dashboard:           customerDashboardAPIFromData(data.Dashboard),
 	}
 	return &payload, nil
 }
@@ -296,20 +321,26 @@ func (req customerUpsertAPIRequest) toFormRequest() CustomerUpsertRequest {
 		active = ""
 	}
 	return CustomerUpsertRequest{
-		Name:               req.Name,
-		RawName:            req.RawName,
-		CustomerType:       req.CustomerType,
-		CompanyName:        req.CompanyName,
-		CompanyAddress:     req.CompanyAddress,
-		CompanyPhone:       req.CompanyPhone,
-		Contact:            req.Contact,
-		Phone:              req.Phone,
-		Address:            req.Address,
-		DefaultSourceID:    optionalIntString(req.DefaultSourceID),
-		DefaultOrderTypeID: optionalIntString(req.DefaultOrderTypeID),
-		Active:             active,
-		PortalEnabled:      req.PortalEnabled,
+		Name:                  req.Name,
+		RawName:               req.RawName,
+		CustomerType:          req.CustomerType,
+		CompanyName:           req.CompanyName,
+		CompanyAddress:        req.CompanyAddress,
+		CompanyPhone:          req.CompanyPhone,
+		Contact:               req.Contact,
+		Phone:                 req.Phone,
+		Address:               req.Address,
+		DefaultSourceID:       optionalIntString(req.DefaultSourceID),
+		DefaultOrderTypeID:    optionalIntString(req.DefaultOrderTypeID),
+		ResponsibleEmployeeID: optionalIntString(req.ResponsibleEmployeeID),
+		Active:                active,
 	}
+}
+
+func (req customerUpsertAPIRequest) toCommand() customerapp.UpsertCommand {
+	cmd := customerUpsertCommandFromRequest(req.toFormRequest())
+	cmd.PortalEnabled = req.PortalEnabled
+	return cmd
 }
 
 func optionalIntString(v *int64) string {
@@ -329,20 +360,23 @@ func parseOptionalCustomerInt64(v string) *int64 {
 
 func customerAPIModelFromEdit(data *CustomerEditData) customerAPIModel {
 	return customerAPIModel{
-		ID:                 data.ID,
-		Name:               data.Name,
-		RawName:            data.RawName,
-		CustomerType:       customerapp.NormalizeCustomerType(data.CustomerType),
-		CompanyName:        data.CompanyName,
-		CompanyAddress:     data.CompanyAddress,
-		CompanyPhone:       data.CompanyPhone,
-		Contact:            data.Contact,
-		Phone:              data.Phone,
-		Address:            data.Address,
-		DefaultSourceID:    parseOptionalCustomerInt64(data.DefaultSourceID),
-		DefaultOrderTypeID: parseOptionalCustomerInt64(data.DefaultOrderTypeID),
-		Active:             data.Active,
-		PortalEnabled:      data.PortalEnabled,
+		ID:                      data.ID,
+		Name:                    data.Name,
+		RawName:                 data.RawName,
+		CustomerType:            customerapp.NormalizeCustomerType(data.CustomerType),
+		CompanyName:             data.CompanyName,
+		CompanyAddress:          data.CompanyAddress,
+		CompanyPhone:            data.CompanyPhone,
+		Contact:                 data.Contact,
+		Phone:                   data.Phone,
+		Address:                 data.Address,
+		DefaultSourceID:         parseOptionalCustomerInt64(data.DefaultSourceID),
+		DefaultOrderTypeID:      parseOptionalCustomerInt64(data.DefaultOrderTypeID),
+		ResponsibleEmployeeID:   parseOptionalCustomerInt64(data.ResponsibleEmployeeID),
+		ResponsibleEmployeeName: data.ResponsibleEmployeeName,
+		PortalEnabled:           data.PortalEnabled,
+		CapabilityTemplateKey:   data.CapabilityTemplateKey,
+		Active:                  data.Active,
 	}
 }
 

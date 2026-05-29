@@ -78,3 +78,44 @@ func TestProductionLogCompletionColumnMigratesBeforeIndex(t *testing.T) {
 		t.Fatal("completion_no must be added before creating indexes that reference it")
 	}
 }
+
+func TestOperationTemplateSchemaSupportsWorkOrdersAndCosts(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	for _, want := range []string{
+		"operation_templates",
+		"operation_template_steps",
+		"operation_template_id BIGINT NOT NULL DEFAULT 0",
+		"operation_template_step_id BIGINT NOT NULL DEFAULT 0",
+		"cost_type TEXT NOT NULL DEFAULT ''",
+		"cost_rate NUMERIC(12,4) NOT NULL DEFAULT 0",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("production schema must support operation template costing; missing %q", want)
+		}
+	}
+}
+
+func TestWorkOrderSchemaSupportsProcessTemplateSnapshots(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	for _, want := range []string{
+		"process_template_id BIGINT NOT NULL DEFAULT 0",
+		"process_template_name TEXT NOT NULL DEFAULT ''",
+		"process_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb",
+		"operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+		"sequence_no INT NOT NULL DEFAULT 1",
+		"records_loss BOOLEAN NOT NULL DEFAULT false",
+		"parameter_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("production schema must support process template snapshots; missing %q", want)
+		}
+	}
+}

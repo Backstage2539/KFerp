@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	productiondomain "orderapp/internal/domain/production"
 	stockdomain "orderapp/internal/domain/stock"
 	"strings"
 	"time"
@@ -137,11 +138,12 @@ type StartCommand struct {
 }
 
 type StartNeed struct {
-	ProductID   int64
-	ProductName string
-	SpecG       int64
-	GapG        int64
-	OrderNos    string
+	ProductID           int64
+	ProductName         string
+	SpecG               int64
+	GapG                int64
+	OrderNos            string
+	OperationTemplateID int64
 }
 
 type StartResult struct {
@@ -218,6 +220,11 @@ type UnprodNeedRow struct {
 	InvG                              int64  `json:"inv_g"`
 	GapG                              int64  `json:"gap_g"`
 	ProductionKind                    string `json:"production_kind,omitempty"`
+	ProductTypeCategoryID             int64  `json:"product_type_category_id,omitempty"`
+	ProductSubtypeCategoryID          int64  `json:"product_subtype_category_id,omitempty"`
+	ProductTypeName                   string `json:"product_type_name,omitempty"`
+	ProductSubtypeName                string `json:"product_subtype_name,omitempty"`
+	OperationTemplateID               int64  `json:"operation_template_id,omitempty"`
 	NeedBags                          int64  `json:"need_bags,omitempty"`
 	NeedBoxes                         int64  `json:"need_boxes,omitempty"`
 	UpstreamProductID                 int64  `json:"upstream_product_id,omitempty"`
@@ -257,18 +264,19 @@ type PlanSummaryQuery struct {
 }
 
 type RoastPlanRow struct {
-	Key           string  `json:"key"`
-	ProductID     int64   `json:"product_id"`
-	ProductName   string  `json:"product_name"`
-	SpecG         int64   `json:"spec_g"`
-	Machine       string  `json:"machine"`
-	BatchCount    int64   `json:"batch_count"`
-	BatchG        int64   `json:"batch_g"`
-	FinalInputG   int64   `json:"final_input_g"`
-	NeedG         int64   `json:"need_g"`
-	YieldRate     float64 `json:"yield_rate"`
-	YieldPctStr   string  `json:"yield_pct_str"`
-	FinishedKgStr string  `json:"finished_kg_str"`
+	Key                 string  `json:"key"`
+	ProductID           int64   `json:"product_id"`
+	ProductName         string  `json:"product_name"`
+	SpecG               int64   `json:"spec_g"`
+	Machine             string  `json:"machine"`
+	BatchCount          int64   `json:"batch_count"`
+	BatchG              int64   `json:"batch_g"`
+	FinalInputG         int64   `json:"final_input_g"`
+	NeedG               int64   `json:"need_g"`
+	OperationTemplateID int64   `json:"operation_template_id,omitempty"`
+	YieldRate           float64 `json:"yield_rate"`
+	YieldPctStr         string  `json:"yield_pct_str"`
+	FinishedKgStr       string  `json:"finished_kg_str"`
 }
 
 type RoastPlanMaterialRatio struct {
@@ -370,6 +378,8 @@ type WorkOrderRow struct {
 	CompletedAt           string  `json:"completed_at"`
 	RoastLevel            string  `json:"roast_level"`
 	YieldRate             float64 `json:"yield_rate"`
+	ExpectedYieldRate     float64 `json:"expected_yield_rate"`
+	ExpectedLossRate      float64 `json:"expected_loss_rate"`
 	SuggestedInputG       int64   `json:"suggested_input_g"`
 	SuggestedMachine      string  `json:"suggested_machine"`
 	SuggestedBatchCount   int64   `json:"suggested_batch_count"`
@@ -382,6 +392,7 @@ type WorkOrderRow struct {
 	WIPReservedG          int64   `json:"wip_reserved_g"`
 	WIPConsumedG          int64   `json:"wip_consumed_g"`
 	WIPRemainingReservedG int64   `json:"remaining_reserved_g"`
+	BomVersionID          int64   `json:"bom_version_id"`
 	ProcessTemplateID     int64   `json:"process_template_id"`
 	ProcessTemplateName   string  `json:"process_template_name"`
 	ProcessSnapshotJSON   string  `json:"process_snapshot_json"`
@@ -414,15 +425,16 @@ type JobCardRow struct {
 	ParameterSchemaJSON string  `json:"parameter_schema_json"`
 }
 
-type UpdateJobCardMetricsCommand struct {
+type JobCardActualsCommand struct {
 	ID              int64
 	PlannedInputQty float64
 	ActualInputQty  float64
 	ActualOutputQty float64
 	ActualLossQty   float64
+	ActualLossRate  float64
 	ExceptionReason string
 	MetricsJSON     string
-	Operator        string
+	Actor           string
 }
 
 type BatchCostQuery struct {
@@ -595,7 +607,7 @@ type Repository interface {
 	ListProductionLogs(ctx context.Context, query ProductionLogsQuery) (ProductionLogsResult, error)
 	ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]WorkOrderRow, error)
 	ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCardRow, error)
-	UpdateJobCardMetrics(ctx context.Context, cmd UpdateJobCardMetricsCommand) (JobCardRow, error)
+	UpdateJobCardActuals(ctx context.Context, cmd JobCardActualsCommand) error
 	ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error)
 	MaterialPlan(ctx context.Context, query MaterialPlanQuery) (MaterialPlanResult, error)
 	CreateQualityInspection(ctx context.Context, cmd QualityInspectionCommand) (QualityInspectionRow, error)
@@ -726,30 +738,27 @@ func (s *Service) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCa
 	return s.repo.ListJobCards(ctx, query)
 }
 
-func (s *Service) UpdateJobCardMetrics(ctx context.Context, cmd UpdateJobCardMetricsCommand) (JobCardRow, error) {
+func (s *Service) UpdateJobCardActuals(ctx context.Context, cmd JobCardActualsCommand) error {
 	if cmd.ID <= 0 {
-		return JobCardRow{}, fmt.Errorf("job_card id required")
+		return fmt.Errorf("job_card_id required")
 	}
 	if cmd.PlannedInputQty < 0 || cmd.ActualInputQty < 0 || cmd.ActualOutputQty < 0 || cmd.ActualLossQty < 0 {
-		return JobCardRow{}, fmt.Errorf("quantity must be >= 0")
+		return fmt.Errorf("quantity must be >= 0")
 	}
-	if cmd.ActualLossQty == 0 && cmd.ActualInputQty > 0 && cmd.ActualInputQty >= cmd.ActualOutputQty {
-		cmd.ActualLossQty = cmd.ActualInputQty - cmd.ActualOutputQty
+	if cmd.ActualInputQty > 0 {
+		lossQty, lossRate, err := productiondomain.ActualLossMetrics(cmd.ActualInputQty, cmd.ActualOutputQty)
+		if err != nil {
+			return err
+		}
+		cmd.ActualLossQty = lossQty
+		cmd.ActualLossRate = lossRate
 	}
 	cmd.ExceptionReason = strings.TrimSpace(cmd.ExceptionReason)
-	cmd.Operator = strings.TrimSpace(cmd.Operator)
 	cmd.MetricsJSON = strings.TrimSpace(cmd.MetricsJSON)
 	if cmd.MetricsJSON == "" {
 		cmd.MetricsJSON = "{}"
 	}
-	var metrics map[string]any
-	if err := json.Unmarshal([]byte(cmd.MetricsJSON), &metrics); err != nil {
-		return JobCardRow{}, fmt.Errorf("metrics_json must be valid json")
-	}
-	if metrics == nil {
-		cmd.MetricsJSON = "{}"
-	}
-	return s.repo.UpdateJobCardMetrics(ctx, cmd)
+	return s.repo.UpdateJobCardActuals(ctx, cmd)
 }
 
 func (s *Service) ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error) {
