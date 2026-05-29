@@ -1089,7 +1089,17 @@ function productTypeNameOfItem(item) {
 }
 
 function priceListRenderTypeForItem(item) {
+  const subtypeName = String(item?.product_subtype_name || item?.productSubtypeName || '').trim()
+  const typeName = String(item?.product_type_name || item?.productTypeName || '').trim()
   const kind = String(item?.product_kind || item?.productKind || '').trim().toLowerCase()
+
+  // 按产品子类型/产品类型名称推断豆单渲染模式
+  const categoryHint = (subtypeName + typeName).toLowerCase()
+  if (categoryHint.includes('生豆') || categoryHint.includes('green')) return 'green'
+  if (categoryHint.includes('挂耳') || categoryHint.includes('drip')) return 'drip'
+  if (categoryHint.includes('零售') || categoryHint.includes('retail')) return 'retail'
+
+  // fallback to product_kind for backward compatibility
   if (kind === 'green_bean') return 'green'
   if (kind === 'drip_bag') return 'drip'
   return 'commercial'
