@@ -449,15 +449,18 @@ function kindLabel(kind) {
 }
 
 function openCustomerProfile(row) {
-  const detail = customerDossierNavigationDetail(row)
-  if (!detail.params.edit_id) return
+  const customerID = Number(row?.customer?.id || 0)
+  if (!customerID) return
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
-    detail,
+    detail: {
+      key: 'customerProcessingPortal',
+      params: { customer_id: customerID },
+    },
   }))
 }
 
 function viewLabel(key) {
-  if (key === 'customerProcessingPortal') return '打开客户档案'
+  if (key === 'customerProcessingPortal') return '打开客户履约工作台'
   return key
 }
 

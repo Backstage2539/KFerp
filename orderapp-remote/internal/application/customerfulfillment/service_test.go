@@ -550,6 +550,14 @@ func (r *fakeCustomerFulfillmentRepository) CustomerPortalOverview(ctx context.C
 	return r.customerOverviewResult, nil
 }
 
+func (r *fakeCustomerFulfillmentRepository) InternalCustomerPortalOverview(ctx context.Context, customerID int64) (CustomerPortalOverview, error) {
+	return r.customerOverviewResult, nil
+}
+
+func (r *fakeCustomerFulfillmentRepository) InternalCustomerPortalOptions(ctx context.Context, customerID int64) (CustomerFulfillmentOptions, error) {
+	return r.optionsResult, nil
+}
+
 func (r *fakeCustomerFulfillmentRepository) SubmitCustomerProcessingWorkOrder(ctx context.Context, cmd SubmitCustomerProcessingWorkOrderCommand) (ProcessingOrderSummary, error) {
 	r.customerProcessingCmd = cmd
 	return r.customerProcessingResult, nil

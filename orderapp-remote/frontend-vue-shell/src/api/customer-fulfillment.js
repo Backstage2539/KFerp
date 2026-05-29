@@ -123,6 +123,14 @@ export function fetchCustomerProcessingPortalOptions() {
   return apiGet('/api/customer-processing/portal/options')
 }
 
+export function fetchInternalCustomerProcessingPortalOverview(customerID) {
+  return apiGet(`/api/customer-processing/internal/${Number(customerID)}/overview`)
+}
+
+export function fetchInternalCustomerProcessingPortalOptions(customerID) {
+  return apiGet(`/api/customer-processing/internal/${Number(customerID)}/options`)
+}
+
 export function submitCustomerProcessingWorkOrder(payload) {
   return apiSend('/api/customer-processing/portal/work-orders', { body: payload })
 }

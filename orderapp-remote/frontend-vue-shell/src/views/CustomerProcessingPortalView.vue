@@ -438,6 +438,8 @@ import {
   fetchCustomerFulfillmentOrders,
   fetchCustomerProcessingPortalOverview,
   fetchCustomerProcessingPortalOptions,
+  fetchInternalCustomerProcessingPortalOverview,
+  fetchInternalCustomerProcessingPortalOptions,
   submitCustomerDirectShipOrder,
   submitCustomerProcessingWorkOrder,
 } from '../api/customer-fulfillment'
@@ -445,6 +447,23 @@ import { customerFulfillmentOrderFees, customerFulfillmentSubmitCopy } from '../
 import { lineTotal, syncWholesaleTierPrice, toInt, wholesalePriceUnit, wholesaleTierPriceRows } from '../lib/order-entry'
 import { parseRecipientText } from '../lib/customer-recipient'
 import { normalizePageSize } from '../lib/pagination'
+
+const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
+  workspaceMode: { type: String, default: '' },
+  customerContextId: { type: [Number, String], default: 0 },
+  customerContextLabel: { type: String, default: '' },
+  customerAccountActor: { type: Boolean, default: false },
+})
+
+const internalCustomerID = computed(() => {
+  if (props.customerAccountActor) return 0
+  const fromProps = Number(props.customerContextId || 0)
+  if (fromProps > 0) return fromProps
+  const fromParams = Number(props.viewParams?.customer_id || 0)
+  return fromParams > 0 ? fromParams : 0
+})
+const isInternalContext = computed(() => internalCustomerID.value > 0)
 
 const loading = ref(false)
 const error = ref('')
@@ -530,8 +549,12 @@ async function loadOverview() {
   error.value = ''
   try {
     const [overviewData, optionsData] = await Promise.all([
-      fetchCustomerProcessingPortalOverview(),
-      fetchCustomerProcessingPortalOptions(),
+      isInternalContext.value
+        ? fetchInternalCustomerProcessingPortalOverview(internalCustomerID.value)
+        : fetchCustomerProcessingPortalOverview(),
+      isInternalContext.value
+        ? fetchInternalCustomerProcessingPortalOptions(internalCustomerID.value)
+        : fetchCustomerProcessingPortalOptions(),
     ])
     overview.value = overviewData || {}
     fulfillmentOptions.value = optionsData || {}

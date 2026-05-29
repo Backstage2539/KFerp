@@ -737,12 +737,33 @@ func (s *threeTemplateWalkthroughStore) CustomerPortalOverview(ctx context.Conte
 	if err != nil {
 		return customerfulfillmentapp.CustomerPortalOverview{}, err
 	}
+	return s.buildOverview(current.CustomerID, current.CustomerName), nil
+}
+
+func (s *threeTemplateWalkthroughStore) InternalCustomerPortalOverview(ctx context.Context, customerID int64) (customerfulfillmentapp.CustomerPortalOverview, error) {
+	if c, ok := s.customerByID[customerID]; ok && c != nil {
+		return s.buildOverview(customerID, c.Name), nil
+	}
+	return customerfulfillmentapp.CustomerPortalOverview{}, fmt.Errorf("customer not found")
+}
+
+func (s *threeTemplateWalkthroughStore) InternalCustomerPortalOptions(ctx context.Context, customerID int64) (customerfulfillmentapp.CustomerFulfillmentOptions, error) {
+	if c, ok := s.customerByID[customerID]; ok && c != nil {
+		return customerfulfillmentapp.CustomerFulfillmentOptions{
+			CustomerSKUs: s.skuRows[customerID],
+			CustodyItems: s.custodyItemRows[customerID],
+		}, nil
+	}
+	return customerfulfillmentapp.CustomerFulfillmentOptions{}, fmt.Errorf("customer not found")
+}
+
+func (s *threeTemplateWalkthroughStore) buildOverview(customerID int64, customerName string) customerfulfillmentapp.CustomerPortalOverview {
 	return customerfulfillmentapp.CustomerPortalOverview{
-		CustomerID:       current.CustomerID,
-		CustomerName:     current.CustomerName,
-		Capabilities:     s.enabledCapabilityCodes(s.customerByID[current.CustomerID]),
-		CustodyBalances:  s.custodyRows[current.CustomerID],
-		ProcessingOrders: s.processingRows[current.CustomerID],
+		CustomerID:       customerID,
+		CustomerName:     customerName,
+		Capabilities:     s.enabledCapabilityCodes(s.customerByID[customerID]),
+		CustodyBalances:  s.custodyRows[customerID],
+		ProcessingOrders: s.processingRows[customerID],
 		DirectShipOrders: s.directRows[current.CustomerID],
 		Fees:             s.fees[current.CustomerID],
 		Settlements:      s.settlements[current.CustomerID],

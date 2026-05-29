@@ -1070,6 +1070,14 @@ func (s *fakeCustomerFulfillmentService) CustomerPortalOverview(ctx context.Cont
 	return s.customerOverviewResult, nil
 }
 
+func (s *fakeCustomerFulfillmentService) InternalCustomerPortalOverview(ctx context.Context, customerID int64) (app.CustomerPortalOverview, error) {
+	return s.customerOverviewResult, nil
+}
+
+func (s *fakeCustomerFulfillmentService) InternalCustomerPortalOptions(ctx context.Context, customerID int64) (app.CustomerFulfillmentOptions, error) {
+	return s.portalOptionsResult, nil
+}
+
 func (s *fakeCustomerFulfillmentService) CustomerPortalOptions(ctx context.Context, employeeID int64) (app.CustomerFulfillmentOptions, error) {
 	s.portalOptionsEmployeeID = employeeID
 	return s.portalOptionsResult, nil
