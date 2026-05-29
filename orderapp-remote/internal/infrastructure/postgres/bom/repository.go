@@ -72,12 +72,27 @@ func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail,
 	var yieldRate float64
 	var status string
 	var updatedAt string
+	var bomSourceType string
+	var bomSourceProductID int64
+	var bomSourceProductName string
+	var bomSourceVersionID int64
+	var bomSourceVersionNo string
 	err := r.pool.QueryRow(ctx,
-		"SELECT COALESCE(p.name,''), COALESCE(p.roast_level,''), COALESCE(NULLIF(b.yield_rate,0),0), COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END), COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'),'-') "+
+		"SELECT COALESCE(p.name,''), COALESCE(p.roast_level,''), COALESCE(NULLIF(b.yield_rate,0),0), COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END), COALESCE(to_char(b.updated_at,'YYYY-MM-DD HH24:MI'),'-'), "+
+			"COALESCE(p.bom_source_type,''), COALESCE(p.bom_source_bom_version_id,0), "+
+			"COALESCE(bv.version_no,''), COALESCE(sp.name,'') "+
 			"FROM "+r.schema+".products p LEFT JOIN "+r.schema+".product_bom b ON b.product_id=p.id "+
-			"WHERE p.id=$1", productID).Scan(&productName, &roastLevel, &yieldRate, &status, &updatedAt)
+			"LEFT JOIN "+r.schema+".bom_versions bv ON bv.id=p.bom_source_bom_version_id AND p.bom_source_type='inherit_version' "+
+			"LEFT JOIN "+r.schema+".products sp ON sp.id=bv.product_id "+
+			"WHERE p.id=$1", productID).Scan(
+			&productName, &roastLevel, &yieldRate, &status, &updatedAt,
+			&bomSourceType, &bomSourceVersionID, &bomSourceVersionNo, &bomSourceProductName)
 	if err != nil {
 		return bomapp.Detail{}, err
+	}
+
+	if bomSourceType != "" {
+		bomSourceProductID = 0 // fetched via bv.product_id later if needed
 	}
 
 	items, total, err := listBomItems(ctx, r.pool, r.schema, productID)
@@ -85,14 +100,19 @@ func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail,
 		return bomapp.Detail{}, err
 	}
 	return bomapp.Detail{
-		ProductID:   productID,
-		ProductName: productName,
-		RoastLevel:  roastLevel,
-		YieldRate:   resolveBomYieldRate(roastLevel, yieldRate),
-		Status:      status,
-		Items:       bomItemsToApp(items),
-		TotalRatio:  total,
-		UpdatedAt:   updatedAt,
+		ProductID:         productID,
+		ProductName:       productName,
+		RoastLevel:        roastLevel,
+		YieldRate:         resolveBomYieldRate(roastLevel, yieldRate),
+		Status:            status,
+		Items:             bomItemsToApp(items),
+		TotalRatio:        total,
+		UpdatedAt:         updatedAt,
+		BomSourceType:        bomSourceType,
+		BomSourceProductID:   bomSourceProductID,
+		BomSourceProductName: bomSourceProductName,
+		BomSourceVersionID:   bomSourceVersionID,
+		BomSourceVersionNo:   bomSourceVersionNo,
 	}, nil
 }
 
@@ -521,4 +541,49 @@ func resolveBomYieldRate(roastLevel string, storedYieldRate float64) float64 {
 		return productiondomain.NormalizeYieldRate(storedYieldRate)
 	}
 	return catalogdomain.ResolveYieldRate(roastLevel, 0.8)
+}
+
+func (r Repository) SetBomSource(ctx context.Context, cmd bomapp.SetBomSourceCommand) (bomapp.Detail, error) {
+	var bomSourceProductID int64
+	var sourceProductName string
+	var sourceVersionID int64
+	var sourceVersionNo string
+
+	if cmd.SourceType == "inherit_version" {
+		// Lock to specific version: validate the version exists and belongs to the source product
+		err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+			SELECT bv.product_id, COALESCE(p.name,''), bv.id, COALESCE(bv.version_no,'')
+			FROM %s.bom_versions bv
+			JOIN %s.products p ON p.id=bv.product_id
+			WHERE bv.id=$1 AND bv.status='active'
+		`, r.schema, r.schema), cmd.SourceBomVersionID).Scan(&bomSourceProductID, &sourceProductName, &sourceVersionID, &sourceVersionNo)
+		if err != nil {
+			return bomapp.Detail{}, fmt.Errorf("bom version not found: %w", err)
+		}
+	}
+
+	// Store the source configuration on the target product
+	_, err := r.pool.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.products
+		SET bom_source_type=$2,
+		    bom_source_bom_version_id=$3,
+		    updated_at=now()
+		WHERE id=$1
+	`, r.schema), cmd.ProductID, cmd.SourceType, cmd.SourceBomVersionID)
+	if err != nil {
+		return bomapp.Detail{}, err
+	}
+
+	// Write audit log
+	auditMeta := postgresinfra.AuditMeta{
+		"bom_source_product_id":   bomSourceProductID,
+		"bom_source_product_name": sourceProductName,
+		"bom_source_version_id":   sourceVersionID,
+		"bom_source_version_no":   sourceVersionNo,
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_bom", &cmd.ProductID,
+		"set_bom_source", postgresinfra.StrPtr("bom_source_type"), nil,
+		postgresinfra.StrPtr(cmd.SourceType), auditMeta)
+
+	return r.Detail(ctx, cmd.ProductID)
 }
