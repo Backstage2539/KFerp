@@ -50,7 +50,7 @@ func (a api) listCustomers(c echo.Context) error {
 		if err != nil {
 			return customerFulfillmentError(c, http.StatusInternalServerError, err)
 		}
-		if available {
+		if row.PortalEnabled || available {
 			rows = append(rows, row)
 		}
 	}

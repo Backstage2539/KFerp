@@ -229,7 +229,7 @@ func (r Repository) ListWarehouses(ctx context.Context, query stockapp.Warehouse
 		FROM %s.warehouses w
 		LEFT JOIN %s.customers c ON c.id=w.customer_id
 		WHERE w.active=true
-		  AND ($1::bigint=0 OR COALESCE(w.customer_id,0)=$1::bigint)
+		  AND ($1::bigint=0 OR COALESCE(w.customer_id,0) IN (0, $1::bigint))
 		ORDER BY w.sort_order, w.code
 	`, r.schema, r.schema), query.CustomerID)
 	if err != nil {

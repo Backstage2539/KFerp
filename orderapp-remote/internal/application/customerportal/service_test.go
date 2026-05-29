@@ -504,16 +504,19 @@ func TestServicePreservesMiniSessionNotFoundSentinel(t *testing.T) {
 	}
 }
 
-func TestGetServicePageRequiresEnabledCapability(t *testing.T) {
+func TestGetServicePageReturnsEmptyPageWhenCapabilityDisabled(t *testing.T) {
 	repo := &fakeRepository{context: CurrentContext{
 		CurrentCustomerID:   7,
 		CurrentCustomerName: "客户A",
 		Capabilities:        []Capability{{Code: CapabilityDirectShip, Enabled: false}},
 	}}
 	svc := NewService(repo, fakeIdentityProvider{})
-	_, err := svc.GetServicePage(context.Background(), "mini-token", "directShip", ServicePageFilter{})
-	if !errors.Is(err, ErrCapabilityNotEnabled) {
-		t.Fatalf("GetServicePage() err=%v, want ErrCapabilityNotEnabled", err)
+	got, err := svc.GetServicePage(context.Background(), "mini-token", "directShip", ServicePageFilter{})
+	if err != nil {
+		t.Fatalf("GetServicePage() err=%v, want empty page", err)
+	}
+	if got.Key != ServiceKeyDirectShip || got.Title == "" || got.CurrentCustomerID != 7 || len(got.DirectShipBatches) != 0 || repo.serviceQuery.CustomerID != 0 {
+		t.Fatalf("GetServicePage()=%+v query=%+v, want empty page metadata without data load", got, repo.serviceQuery)
 	}
 }
 
@@ -962,8 +965,16 @@ func TestDefaultCapabilityTemplatesRuntimeBusinessContract(t *testing.T) {
 			svc := NewService(repo, fakeIdentityProvider{})
 
 			for serviceKey, allowed := range tt.servicePages {
-				_, err := svc.GetServicePage(context.Background(), "mini-token", serviceKey, ServicePageFilter{})
-				assertCapabilityAccess(t, tt.templateKey+" "+serviceKey, allowed, err)
+				got, err := svc.GetServicePage(context.Background(), "mini-token", serviceKey, ServicePageFilter{})
+				if err != nil {
+					t.Fatalf("%s %s service page err=%v, want page metadata", tt.templateKey, serviceKey, err)
+				}
+				if allowed && len(got.Orders) == 0 {
+					t.Fatalf("%s %s service page should load scoped data when capability is enabled", tt.templateKey, serviceKey)
+				}
+				if !allowed && len(got.Orders) != 0 {
+					t.Fatalf("%s %s service page should be empty when capability is disabled: %+v", tt.templateKey, serviceKey, got)
+				}
 			}
 
 			_, err := svc.GetMallPage(context.Background(), "mini-token")

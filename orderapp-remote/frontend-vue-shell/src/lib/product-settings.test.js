@@ -1131,8 +1131,16 @@ test('customer context filters product config templates while allowing public te
   const customerTemplate = { id: 401, name: '岩师傅 - 盒装商品配置', customer_id: 42, source_template_id: 301, template_state: 'derived_from_public' }
 
   assert.equal(productConfigTemplateBelongsToSkuContext(publicTemplate, { customerID: 42, customerTemplates: [] }), true)
-  assert.equal(productConfigTemplateBelongsToSkuContext(publicTemplate, { customerID: 42, customerTemplates: [customerTemplate] }), true)
+  assert.equal(productConfigTemplateBelongsToSkuContext(publicTemplate, { customerID: 42, customerTemplates: [customerTemplate] }), false)
   assert.equal(productConfigTemplateBelongsToSkuContext(customerTemplate, { customerID: 42 }), true)
+})
+
+test('SKU template panes render context-filtered template lists', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /v-for="template in gradientTemplatesForContext"/)
+  assert.doesNotMatch(source, /v-for="template in gradientTemplates"/)
+  assert.match(source, /v-for="config in productConfigTemplatesForContext"/)
 })
 
 test('SKU settings renders special KV template definitions and SKU value editors instead of hardcoded roast selectors', () => {

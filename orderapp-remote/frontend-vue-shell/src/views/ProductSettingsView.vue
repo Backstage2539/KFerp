@@ -492,7 +492,7 @@
         <div class="gradient-template-layout">
           <div class="template-list">
             <div
-              v-for="template in gradientTemplates"
+              v-for="template in gradientTemplatesForContext"
               :key="template.id"
               :class="['template-row', { active: Number(template.id) === Number(templateForm.id), inactive: template.active === false }]">
               <button class="template-row-main" type="button" @click="startGradientTemplateEdit(template)">
@@ -508,7 +508,7 @@
                 复制为客户模板
               </button>
             </div>
-            <p v-if="!gradientTemplates.length" class="muted">暂无梯度模板</p>
+            <p v-if="!gradientTemplatesForContext.length" class="muted">暂无梯度模板</p>
           </div>
           <form class="template-editor" @submit.prevent="saveGradientTemplate">
             <p v-if="!canEditCurrentTemplate" class="muted">公共模板需复制到客户后修改。</p>
@@ -702,7 +702,7 @@
               <span>阶梯价模板</span>
               <select v-model.number="productConfigTemplateForm.gradient_template_id" :disabled="!canEditCurrentProductConfigTemplate">
                 <option value="0">未绑定模板</option>
-                <option v-for="template in activeGradientTemplates" :key="template.id" :value="template.id">{{ template.name }} · {{ gradientDisplayUnitLabel(template.display_unit) }}</option>
+                <option v-for="template in selectableGradientTemplatesForProductConfig" :key="template.id" :value="template.id">{{ template.name }} · {{ gradientDisplayUnitLabel(template.display_unit) }}</option>
               </select>
             </label>
             <label>
@@ -1344,6 +1344,15 @@ const activeGradientTemplates = computed(() => gradientTemplates.value
     usePublicGradientTemplates: customerUsesPublicGradientTemplates.value,
     customerTemplates: customerGradientTemplatesForContext.value,
   })))
+const gradientTemplatesForContext = computed(() => activeGradientTemplates.value)
+const selectableGradientTemplatesForProductConfig = computed(() => gradientTemplates.value
+  .filter((template) => template.active !== false)
+  .filter((template) => {
+    const templateCustomerID = Number(template.customer_id || 0)
+    const customerID = skuContextCustomerID.value
+    if (!customerID) return templateCustomerID === 0
+    return templateCustomerID === 0 || templateCustomerID === customerID
+  }))
 const activeProductUnitDefinitions = computed(() => productUnitDefinitions.value.filter((unit) => unit.active !== false))
 const activeProductUnitTemplates = computed(() => productUnitTemplates.value.filter((template) => template.active !== false))
 const gradientDisplayUnitOptions = computed(() => {

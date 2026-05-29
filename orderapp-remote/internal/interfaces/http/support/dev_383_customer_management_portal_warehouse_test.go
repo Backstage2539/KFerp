@@ -78,7 +78,7 @@ func TestDev383CustomerManagementPortalWarehouseDocs(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-383-CUSTOMER-MANAGEMENT-PORTAL-WAREHOUSE",
 			"客户门户能力模板",
-			"仓库库存页必须支持给仓库绑定或解绑客户",
+			"仓库库存页必须在“当前仓库”摘要行右侧提供“仓库设置”按钮",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-383-CUSTOMER-MANAGEMENT-PORTAL-WAREHOUSE",
