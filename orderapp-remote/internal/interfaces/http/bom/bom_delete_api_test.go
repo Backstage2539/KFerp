@@ -68,6 +68,10 @@ func (r *apiFakeRepo) DeriveOwned(_ context.Context, cmd bomapp.DeriveOwnedComma
 	return bomapp.Detail{ProductID: cmd.ProductID, BomSourceType: "derived_owned", CanEditBOM: true}, nil
 }
 
+func (r *apiFakeRepo) SetBomSource(context.Context, bomapp.SetBomSourceCommand) (bomapp.Detail, error) {
+	return bomapp.Detail{}, nil
+}
+
 func TestBomDeleteAPIInvalidatesCurrentBom(t *testing.T) {
 	repo := &apiFakeRepo{}
 	e := echo.New()

@@ -101,6 +101,14 @@
 
       <section class="panel detail-panel">
         <div class="panel-title">配方明细</div>
+        <div v-if="detail?.bom_source_type === 'inherit_current'" class="inherit-source-banner">
+          <span>继承自 {{ detail.bom_source_product_name || '来源SKU' }} 的当前 BOM</span>
+          <button class="secondary compact" type="button" @click="lockCurrentBomVersion" :disabled="loading || !canEditCurrentBomProduct">锁定当前 BOM 版本</button>
+        </div>
+        <div v-if="detail?.bom_source_type === 'inherit_version'" class="inherit-source-banner locked">
+          <span>锁定：{{ detail.bom_source_product_name || '来源SKU' }} / BOM {{ detail.bom_source_version_no || 'V???' }}</span>
+          <button class="secondary compact" type="button" @click="unlockBomVersion" :disabled="loading || !canEditCurrentBomProduct">恢复跟随当前 BOM</button>
+        </div>
         <div v-if="detail" class="summary">
           <div><span>商品</span><strong>{{ detail.product_name }}</strong></div>
           <div><span>BOM来源</span><strong>{{ currentBomSourceLabel }}</strong></div>
@@ -228,7 +236,10 @@
               <td>{{ version.item_count }}</td>
               <td>{{ version.note }}</td>
               <td>{{ version.created_at }}</td>
-              <td><button class="text-button" type="button" @click="activateVersion(version.id)" :disabled="version.status === 'active' || !canEditCurrentBomProduct">启用</button></td>
+              <td>
+                <button class="text-button" type="button" @click="activateVersion(version.id)" :disabled="version.status === 'active' || !canEditCurrentBomProduct">启用</button>
+                <button v-if="detail?.bom_source_type === 'inherit_current' && version.status === 'active'" class="text-button" type="button" style="margin-left:6px" @click="lockBomVersion(version.id)" :disabled="!canEditCurrentBomProduct">锁定此版本</button>
+              </td>
             </tr>
             <tr v-if="!versions.length">
               <td colspan="8" class="muted">暂无版本</td>
@@ -732,6 +743,43 @@ async function deleteBom() {
     resetItemForm()
     ok.value = '当前 BOM 已失效'
     await loadAll()
+  })
+}
+
+async function lockCurrentBomVersion() {
+  if (!selectedProductId.value) return
+  if (!detail.value || detail.value.bom_source_type !== 'inherit_current') return
+  await mutate(async () => {
+    const updated = await apiSend(`/api/bom/${selectedProductId.value}/source`, {
+      body: { source_type: 'inherit_version', source_bom_version_id: 0 },
+    })
+    detail.value = updated
+    ok.value = '已锁定当前 BOM 版本'
+  })
+}
+
+async function unlockBomVersion() {
+  if (!selectedProductId.value) return
+  if (!detail.value || detail.value.bom_source_type !== 'inherit_version') return
+  await mutate(async () => {
+    const updated = await apiSend(`/api/bom/${selectedProductId.value}/source`, {
+      body: { source_type: 'inherit_current', source_bom_version_id: 0 },
+    })
+    detail.value = updated
+    ok.value = '已恢复跟随当前 BOM'
+  })
+}
+
+async function lockBomVersion(versionID) {
+  if (!selectedProductId.value) return
+  if (!versionID) return
+  await mutate(async () => {
+    const updated = await apiSend(`/api/bom/${selectedProductId.value}/source`, {
+      body: { source_type: 'inherit_version', source_bom_version_id: versionID },
+    })
+    detail.value = updated
+    ok.value = `已锁定 BOM 版本`
+    await loadVersions(selectedProductId.value)
   })
 }
 

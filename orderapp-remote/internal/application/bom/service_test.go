@@ -58,8 +58,8 @@ func (r *fakeRepo) ActivateVersion(ctx context.Context, cmd ActivateVersionComma
 	r.activated = cmd.VersionID
 	return nil
 }
-func (r *fakeRepo) DeriveOwned(ctx context.Context, cmd DeriveOwnedCommand) (Detail, error) {
-	return Detail{ProductID: cmd.ProductID, BomSourceType: "derived_owned", CanEditBOM: true}, nil
+func (r *fakeRepo) SetBomSource(context.Context, SetBomSourceCommand) (Detail, error) {
+	return Detail{}, nil
 }
 
 func TestServiceValidatesSaveItem(t *testing.T) {
@@ -254,6 +254,6 @@ func (r errorRepo) CreateVersion(ctx context.Context, cmd CreateVersionCommand) 
 func (r errorRepo) ActivateVersion(ctx context.Context, cmd ActivateVersionCommand) error {
 	return r.err
 }
-func (r errorRepo) DeriveOwned(ctx context.Context, cmd DeriveOwnedCommand) (Detail, error) {
+func (r errorRepo) SetBomSource(context.Context, SetBomSourceCommand) (Detail, error) {
 	return Detail{}, r.err
 }
