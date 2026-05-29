@@ -612,7 +612,14 @@ async function loadAll() {
       apiGet('/api/customers?limit=200'),
       apiGet('/api/process-templates'),
     ])
+    const customerID = Number(props.customerContextId || 0)
+    const isCustomerLocked = isWorkspaceCustomerLocked.value && customerID > 0
+
     rows.value = (listData || []).map(normalizeBomRow)
+    // 客户账户模式下只显示该客户的 BOM 行
+    if (isCustomerLocked) {
+      rows.value = rows.value.filter((row) => Number(row?.customer_id || 0) === customerID)
+    }
     products.value = (productData || []).map(normalizeBomProduct)
     materials.value = materialData || []
     mappings.value = mappingData || []
