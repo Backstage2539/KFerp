@@ -8,28 +8,18 @@ import (
 )
 
 type ListItem struct {
-	ProductID             int64   `json:"product_id"`
-	CustomerID            int64   `json:"customer_id"`
-	Product               string  `json:"product"`
-	RoastLevel            string  `json:"roast_level"`
-	ProductKind           string  `json:"product_kind,omitempty"`
-	YieldRate             float64 `json:"yield_rate"`
-	ExpectedYieldRate     float64 `json:"expected_yield_rate"`
-	ExpectedLossRate      float64 `json:"expected_loss_rate"`
-	Status                string  `json:"status"`
-	ItemCount             int     `json:"item_count"`
-	OrderUsageCount       int     `json:"order_usage_count"`
-	UpdatedAt             string  `json:"updated_at"`
-	BomSourceType         string  `json:"bom_source_type"`
-	EffectiveProductID    int64   `json:"effective_product_id"`
-	EffectiveBomVersionID int64   `json:"effective_bom_version_id"`
-	SourceProductID       int64   `json:"source_product_id"`
-	SourceProductCode     string  `json:"source_product_code"`
-	SourceProductName     string  `json:"source_product_name"`
-	SourceBomVersionID    int64   `json:"source_bom_version_id"`
-	SourceBomVersionNo    string  `json:"source_bom_version_no"`
-	DerivedFromLabel      string  `json:"derived_from_label"`
-	CanEditBOM            bool    `json:"can_edit_bom"`
+	ProductID         int64   `json:"product_id"`
+	CustomerID        int64   `json:"customer_id"`
+	Product           string  `json:"product"`
+	RoastLevel        string  `json:"roast_level"`
+	ProductKind       string  `json:"product_kind,omitempty"`
+	YieldRate         float64 `json:"yield_rate"`
+	ExpectedYieldRate float64 `json:"expected_yield_rate"`
+	ExpectedLossRate  float64 `json:"expected_loss_rate"`
+	Status            string  `json:"status"`
+	ItemCount         int     `json:"item_count"`
+	OrderUsageCount   int     `json:"order_usage_count"`
+	UpdatedAt         string  `json:"updated_at"`
 }
 
 type Item struct {
@@ -46,26 +36,22 @@ type Item struct {
 }
 
 type Detail struct {
-	ProductID             int64   `json:"product_id"`
-	ProductName           string  `json:"product_name"`
-	RoastLevel            string  `json:"roast_level"`
-	YieldRate             float64 `json:"yield_rate"`
-	ExpectedYieldRate     float64 `json:"expected_yield_rate"`
-	ExpectedLossRate      float64 `json:"expected_loss_rate"`
-	Status                string  `json:"status"`
-	Items                 []Item  `json:"items"`
-	TotalRatio            float64 `json:"total_ratio"`
-	UpdatedAt             string  `json:"updated_at"`
-	BomSourceType         string  `json:"bom_source_type"`
-	EffectiveProductID    int64   `json:"effective_product_id"`
-	EffectiveBomVersionID int64   `json:"effective_bom_version_id"`
-	SourceProductID       int64   `json:"source_product_id"`
-	SourceProductCode     string  `json:"source_product_code"`
-	SourceProductName     string  `json:"source_product_name"`
-	SourceBomVersionID    int64   `json:"source_bom_version_id"`
-	SourceBomVersionNo    string  `json:"source_bom_version_no"`
-	DerivedFromLabel      string  `json:"derived_from_label"`
-	CanEditBOM            bool    `json:"can_edit_bom"`
+	ProductID         int64   `json:"product_id"`
+	ProductName       string  `json:"product_name"`
+	RoastLevel        string  `json:"roast_level"`
+	YieldRate         float64 `json:"yield_rate"`
+	ExpectedYieldRate float64 `json:"expected_yield_rate"`
+	ExpectedLossRate  float64 `json:"expected_loss_rate"`
+	Status            string  `json:"status"`
+	Items             []Item  `json:"items"`
+	TotalRatio        float64 `json:"total_ratio"`
+	UpdatedAt         string  `json:"updated_at"`
+
+	BomSourceType        string `json:"bom_source_type,omitempty"`
+	BomSourceProductID   int64  `json:"bom_source_product_id,omitempty"`
+	BomSourceProductName string `json:"bom_source_product_name,omitempty"`
+	BomSourceVersionID   int64  `json:"bom_source_version_id,omitempty"`
+	BomSourceVersionNo   string `json:"bom_source_version_no,omitempty"`
 }
 
 type Option struct {
@@ -121,9 +107,11 @@ type ActivateVersionCommand struct {
 	Actor     string `json:"actor"`
 }
 
-type DeriveOwnedCommand struct {
-	ProductID int64  `json:"product_id"`
-	Actor     string `json:"actor"`
+type SetBomSourceCommand struct {
+	ProductID          int64  `json:"product_id"`
+	SourceType         string `json:"source_type"`          // "inherit_current" | "inherit_version"
+	SourceBomVersionID int64  `json:"source_bom_version_id"` // only for inherit_version
+	Actor              string `json:"actor"`
 }
 
 type SaveItemCommand struct {
@@ -170,7 +158,7 @@ type Repository interface {
 	ListVersions(ctx context.Context, productID int64) ([]Version, error)
 	CreateVersion(ctx context.Context, cmd CreateVersionCommand) (Version, error)
 	ActivateVersion(ctx context.Context, cmd ActivateVersionCommand) error
-	DeriveOwned(ctx context.Context, cmd DeriveOwnedCommand) (Detail, error)
+	SetBomSource(ctx context.Context, cmd SetBomSourceCommand) (Detail, error)
 }
 
 type Service struct {
@@ -201,19 +189,6 @@ func (s *Service) Detail(ctx context.Context, productID int64) (Detail, error) {
 		return Detail{}, fmt.Errorf("invalid product_id")
 	}
 	detail, err := s.repo.Detail(ctx, productID)
-	if err != nil {
-		return Detail{}, err
-	}
-	enrichDetailYield(&detail)
-	return detail, nil
-}
-
-func (s *Service) DeriveOwned(ctx context.Context, cmd DeriveOwnedCommand) (Detail, error) {
-	if cmd.ProductID <= 0 {
-		return Detail{}, fmt.Errorf("product required")
-	}
-	cmd.Actor = strings.TrimSpace(cmd.Actor)
-	detail, err := s.repo.DeriveOwned(ctx, cmd)
 	if err != nil {
 		return Detail{}, err
 	}
@@ -388,4 +363,17 @@ func (s *Service) ActivateVersion(ctx context.Context, cmd ActivateVersionComman
 		return fmt.Errorf("version_id required")
 	}
 	return s.repo.ActivateVersion(ctx, cmd)
+}
+
+func (s *Service) SetBomSource(ctx context.Context, cmd SetBomSourceCommand) (Detail, error) {
+	if cmd.ProductID <= 0 {
+		return Detail{}, fmt.Errorf("product_id required")
+	}
+	if cmd.SourceType != "inherit_current" && cmd.SourceType != "inherit_version" {
+		return Detail{}, fmt.Errorf("source_type must be inherit_current or inherit_version")
+	}
+	if cmd.SourceType == "inherit_version" && cmd.SourceBomVersionID <= 0 {
+		return Detail{}, fmt.Errorf("source_bom_version_id required for inherit_version")
+	}
+	return s.repo.SetBomSource(ctx, cmd)
 }
