@@ -14,6 +14,7 @@ type Runtime struct {
 	TemplateDir              string
 	AuthUser                 string
 	AuthPass                 string
+	DisableBasicAuth         bool
 	ListenAddr               string
 	CustomerPortalDevLogin   bool
 	CustomerPortalDevOpenID  string
@@ -38,6 +39,7 @@ func LoadRuntime(lookup func(string) string) (Runtime, error) {
 		TemplateDir:              env(lookup, "TEMPLATE_DIR", "templates"),
 		AuthUser:                 env(lookup, "APP_USER", "order"),
 		AuthPass:                 env(lookup, "APP_PASS", ""),
+		DisableBasicAuth:         envBool(lookup, "DISABLE_BASIC_AUTH", false),
 		ListenAddr:               env(lookup, "LISTEN", ":8080"),
 		CustomerPortalDevLogin:   envBool(lookup, "CUSTOMER_PORTAL_DEV_LOGIN", false),
 		CustomerPortalDevOpenID:  env(lookup, "CUSTOMER_PORTAL_DEV_OPENID", "dev-openid-local"),

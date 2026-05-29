@@ -74,6 +74,9 @@ func (r *fakeManufacturingGapRepo) ListWorkOrders(ctx context.Context, query pro
 func (r *fakeManufacturingGapRepo) ListJobCards(ctx context.Context, query productionapp.JobCardQuery) ([]productionapp.JobCardRow, error) {
 	return nil, nil
 }
+func (r *fakeManufacturingGapRepo) UpdateJobCardMetrics(ctx context.Context, cmd productionapp.UpdateJobCardMetricsCommand) (productionapp.JobCardRow, error) {
+	return productionapp.JobCardRow{ID: cmd.ID}, nil
+}
 func (r *fakeManufacturingGapRepo) ListBatchCosts(ctx context.Context, query productionapp.BatchCostQuery) ([]productionapp.BatchCostRow, error) {
 	return nil, nil
 }

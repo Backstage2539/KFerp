@@ -41,41 +41,44 @@ type Parameters struct {
 }
 
 type ProductInput struct {
-	ProductID                 int64                     `json:"product_id"`
-	Name                      string                    `json:"name"`
-	ProductKind               string                    `json:"product_kind,omitempty"`
-	DripBagGrams              float64                   `json:"drip_bag_grams,omitempty"`
-	DripBoxBagCount           int                       `json:"drip_box_bag_count,omitempty"`
-	CustomerID                int64                     `json:"customer_id,omitempty"`
-	BaseProductID             int64                     `json:"base_product_id,omitempty"`
-	Visibility                string                    `json:"visibility,omitempty"`
-	CustomType                string                    `json:"custom_type,omitempty"`
-	ProductCategoryID         int64                     `json:"product_category_id,omitempty"`
-	BeanListTemplateName      string                    `json:"bean_list_template_name,omitempty"`
-	Flavor                    string                    `json:"flavor,omitempty"`
-	Origin                    string                    `json:"origin,omitempty"`
-	ProcessingStation         string                    `json:"processing_station,omitempty"`
-	Variety                   string                    `json:"variety,omitempty"`
-	ProcessMethod             string                    `json:"process_method,omitempty"`
-	Grade                     string                    `json:"grade,omitempty"`
-	Altitude                  string                    `json:"altitude,omitempty"`
-	BeanListNote              string                    `json:"bean_list_note,omitempty"`
-	BomStatus                 string                    `json:"bom_status,omitempty"`
-	Warnings                  []string                  `json:"warnings,omitempty"`
-	GreenBeanCostPerKg        float64                   `json:"green_bean_cost_per_kg"`
-	YieldRate                 float64                   `json:"yield_rate"`
-	WholesaleTaxAddPerKg      float64                   `json:"wholesale_tax_add_per_kg"`
-	WholesaleTaxAddPerKgTiers []float64                 `json:"wholesale_tax_add_per_kg_tiers"`
-	DripTaxAddPerBag100       float64                   `json:"drip_tax_add_per_bag_100"`
-	DripTaxAddPerBagRetail    float64                   `json:"drip_tax_add_per_bag_retail"`
-	WholesaleKgMarginRates    []float64                 `json:"wholesale_kg_margin_rates"`
-	WholesaleDripMultipliers  []float64                 `json:"wholesale_drip_multipliers"`
-	WholesaleTierScheme       string                    `json:"wholesale_tier_scheme,omitempty"`
-	MarginRateOverride        *float64                  `json:"margin_rate_override,omitempty"`
-	GradientTemplate          *GradientTemplate         `json:"gradient_template,omitempty"`
-	DripPriceTemplate         *DripPriceTemplate        `json:"drip_price_template,omitempty"`
-	GreenBeanSaleTiers        []CommercialWholesaleTier `json:"green_bean_sale_tiers,omitempty"`
-	BeanListQuality           BeanListQuality           `json:"bean_list_quality,omitempty"`
+	ProductID                  int64                     `json:"product_id"`
+	Name                       string                    `json:"name"`
+	ProductKind                string                    `json:"product_kind,omitempty"`
+	DripBagGrams               float64                   `json:"drip_bag_grams,omitempty"`
+	DripBoxBagCount            int                       `json:"drip_box_bag_count,omitempty"`
+	CustomerID                 int64                     `json:"customer_id,omitempty"`
+	BaseProductID              int64                     `json:"base_product_id,omitempty"`
+	Visibility                 string                    `json:"visibility,omitempty"`
+	CustomType                 string                    `json:"custom_type,omitempty"`
+	ProductCategoryID          int64                     `json:"product_category_id,omitempty"`
+	SkuCategoryName            string                    `json:"sku_category_name,omitempty"`
+	SkuCategoryPosition        int                       `json:"sku_category_position,omitempty"`
+	SkuProductCategoryPosition int                       `json:"sku_product_category_position,omitempty"`
+	BeanListTemplateName       string                    `json:"bean_list_template_name,omitempty"`
+	Flavor                     string                    `json:"flavor,omitempty"`
+	Origin                     string                    `json:"origin,omitempty"`
+	ProcessingStation          string                    `json:"processing_station,omitempty"`
+	Variety                    string                    `json:"variety,omitempty"`
+	ProcessMethod              string                    `json:"process_method,omitempty"`
+	Grade                      string                    `json:"grade,omitempty"`
+	Altitude                   string                    `json:"altitude,omitempty"`
+	BeanListNote               string                    `json:"bean_list_note,omitempty"`
+	BomStatus                  string                    `json:"bom_status,omitempty"`
+	Warnings                   []string                  `json:"warnings,omitempty"`
+	GreenBeanCostPerKg         float64                   `json:"green_bean_cost_per_kg"`
+	YieldRate                  float64                   `json:"yield_rate"`
+	WholesaleTaxAddPerKg       float64                   `json:"wholesale_tax_add_per_kg"`
+	WholesaleTaxAddPerKgTiers  []float64                 `json:"wholesale_tax_add_per_kg_tiers"`
+	DripTaxAddPerBag100        float64                   `json:"drip_tax_add_per_bag_100"`
+	DripTaxAddPerBagRetail     float64                   `json:"drip_tax_add_per_bag_retail"`
+	WholesaleKgMarginRates     []float64                 `json:"wholesale_kg_margin_rates"`
+	WholesaleDripMultipliers   []float64                 `json:"wholesale_drip_multipliers"`
+	WholesaleTierScheme        string                    `json:"wholesale_tier_scheme,omitempty"`
+	MarginRateOverride         *float64                  `json:"margin_rate_override,omitempty"`
+	GradientTemplate           *GradientTemplate         `json:"gradient_template,omitempty"`
+	DripPriceTemplate          *DripPriceTemplate        `json:"drip_price_template,omitempty"`
+	GreenBeanSaleTiers         []CommercialWholesaleTier `json:"green_bean_sale_tiers,omitempty"`
+	BeanListQuality            BeanListQuality           `json:"bean_list_quality,omitempty"`
 }
 
 type CommercialWholesaleTier struct {
@@ -417,6 +420,9 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		if dripDisplay.Code != "" {
 			dripDisplay.DisplayName = in.Name
 		}
+		commercialDisplay = customerSkuBeanListDisplay(commercialDisplay, in)
+		retailDisplay = customerSkuBeanListDisplay(retailDisplay, in)
+		dripDisplay = customerSkuBeanListDisplay(dripDisplay, in)
 	}
 
 	out := ProductResult{
@@ -490,6 +496,79 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	out.RetailBeanTiers = buildRetailBeanTiers(profileName, out)
 	roundProductPrices(&out)
 	return out
+}
+
+func customerSkuBeanListDisplay(display BeanListDisplay, in ProductInput) BeanListDisplay {
+	if display.Code == "" {
+		return display
+	}
+	if in.ProductCategoryID > 0 && strings.TrimSpace(in.SkuCategoryName) != "" {
+		categoryPosition := positiveInt(in.SkuCategoryPosition, firstBeanListCodePart(display.Code), 1)
+		productPosition := positiveInt(in.SkuProductCategoryPosition, secondBeanListCodePart(display.Code), int(in.ProductID), 1)
+		display.Category = numberedBeanListCategory(categoryPosition, in.SkuCategoryName)
+		display.Code = fmt.Sprintf("%d.%d", categoryPosition, productPosition)
+		return display
+	}
+	display.Category = "未分类"
+	display.Code = customerUnclassifiedBeanListCode(in.ProductID, display.Code)
+	return display
+}
+
+func customerUnclassifiedBeanListCode(productID int64, sourceCode string) string {
+	return fmt.Sprintf("999.%d", positiveInt(secondBeanListCodePart(sourceCode), int(productID), 1))
+}
+
+func numberedBeanListCategory(position int, name string) string {
+	cleaned := stripLeadingCategoryNumber(strings.TrimSpace(name))
+	if cleaned == "" {
+		cleaned = "未分类"
+	}
+	return fmt.Sprintf("%d、%s", positiveInt(position, 1), cleaned)
+}
+
+func stripLeadingCategoryNumber(value string) string {
+	s := strings.TrimSpace(value)
+	runes := []rune(s)
+	i := 0
+	for i < len(runes) && runes[i] >= '0' && runes[i] <= '9' {
+		i++
+	}
+	if i == 0 || i >= len(runes) {
+		return s
+	}
+	switch runes[i] {
+	case '、', '.', '．', '-', ' ':
+		return strings.TrimSpace(string(runes[i+1:]))
+	default:
+		return s
+	}
+}
+
+func firstBeanListCodePart(code string) int {
+	parts := strings.Split(strings.TrimSpace(code), ".")
+	if len(parts) == 0 {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(parts[0]))
+	return n
+}
+
+func secondBeanListCodePart(code string) int {
+	parts := strings.Split(strings.TrimSpace(code), ".")
+	if len(parts) < 2 {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(parts[1]))
+	return n
+}
+
+func positiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 1
 }
 
 func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult {

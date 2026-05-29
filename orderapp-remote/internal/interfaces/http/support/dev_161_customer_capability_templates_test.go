@@ -23,9 +23,9 @@ func TestCustomerCapabilityTemplatesPageWired(t *testing.T) {
 	}
 	for _, want := range []string{
 		"customerCapabilityTemplates",
-		"客户能力模板",
-		"客户履约",
-		"门户客户配置",
+		"客户门户能力模板",
+		"客户管理",
+		"客户门户配置",
 		"履约运营台",
 	} {
 		if !strings.Contains(menu, want) {

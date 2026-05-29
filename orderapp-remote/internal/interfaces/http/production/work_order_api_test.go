@@ -12,7 +12,8 @@ import (
 )
 
 type workOrderAPIRepo struct {
-	rows []productionapp.WorkOrderRow
+	rows      []productionapp.WorkOrderRow
+	updateJob productionapp.UpdateJobCardMetricsCommand
 }
 
 func (r *workOrderAPIRepo) CreateBatch(ctx context.Context, cmd productionapp.CreateBatchCommand) (productionapp.CreateBatchResult, error) {
@@ -63,8 +64,33 @@ func (r *workOrderAPIRepo) ListWorkOrders(ctx context.Context, query productiona
 func (r *workOrderAPIRepo) ListJobCards(ctx context.Context, query productionapp.JobCardQuery) ([]productionapp.JobCardRow, error) {
 	return nil, nil
 }
+func (r *workOrderAPIRepo) UpdateJobCardMetrics(ctx context.Context, cmd productionapp.UpdateJobCardMetricsCommand) (productionapp.JobCardRow, error) {
+	r.updateJob = cmd
+	return productionapp.JobCardRow{ID: cmd.ID, ActualLossQty: cmd.ActualLossQty}, nil
+}
 func (r *workOrderAPIRepo) ListBatchCosts(ctx context.Context, query productionapp.BatchCostQuery) ([]productionapp.BatchCostRow, error) {
 	return nil, nil
+}
+
+func TestJobCardMetricsAPIUpdatesActualLoss(t *testing.T) {
+	repo := &workOrderAPIRepo{}
+	e := echo.New()
+	registerWorkOrderAPI(e, productionapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/job-cards/12/metrics", strings.NewReader(`{"actual_input_qty":100,"actual_output_qty":81,"metrics_json":"{}"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.updateJob.ID != 12 || repo.updateJob.ActualLossQty != 19 {
+		t.Fatalf("update command = %+v", repo.updateJob)
+	}
+	if !strings.Contains(rec.Body.String(), `"actual_loss_qty":19`) {
+		t.Fatalf("response missing actual loss: %s", rec.Body.String())
+	}
 }
 func (r *workOrderAPIRepo) MaterialPlan(ctx context.Context, query productionapp.MaterialPlanQuery) (productionapp.MaterialPlanResult, error) {
 	return productionapp.MaterialPlanResult{}, nil

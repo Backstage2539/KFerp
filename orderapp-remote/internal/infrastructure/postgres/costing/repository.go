@@ -102,6 +102,9 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(p.drip_bag_grams, 10)::float8,
 		       COALESCE(p.drip_box_bag_count, 10),
 		       COALESCE(p.product_category_id, 0),
+		       COALESCE(pc.name, ''),
+		       COALESCE(pc.position, 0),
+		       COALESCE(p.product_category_position, 0),
 		       COALESCE(pc.gradient_template_id, 0),
 		       p.margin_rate_override::float8,
 		       COALESCE(NULLIF(b.yield_rate,0), $1),
@@ -162,7 +165,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 			LIMIT 1
 		) qc ON true
 		WHERE p.active = true
-		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, pc.gradient_template_id, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
+		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, pc.name, pc.position, p.product_category_position, pc.gradient_template_id, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
 		ORDER BY p.name
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate)
@@ -179,7 +182,7 @@ func (r Repository) LoadProductInputs(ctx context.Context, params domain.Paramet
 		var roastLevel string
 		var fallbackYield float64
 		var gradientTemplateID int64
-		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductKind, &input.DripBagGrams, &input.DripBoxBagCount, &input.ProductCategoryID, &gradientTemplateID, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus, &input.BeanListQuality.FactoryFlavorDescription, &input.BeanListQuality.Moisture, &input.BeanListQuality.Density, &input.BeanListQuality.InspectionCreatedAt, &input.BeanListQuality.InspectionReferenceNo); err != nil {
+		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductKind, &input.DripBagGrams, &input.DripBoxBagCount, &input.ProductCategoryID, &input.SkuCategoryName, &input.SkuCategoryPosition, &input.SkuProductCategoryPosition, &gradientTemplateID, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus, &input.BeanListQuality.FactoryFlavorDescription, &input.BeanListQuality.Moisture, &input.BeanListQuality.Density, &input.BeanListQuality.InspectionCreatedAt, &input.BeanListQuality.InspectionReferenceNo); err != nil {
 			return nil, err
 		}
 		if gradientTemplateID > 0 {

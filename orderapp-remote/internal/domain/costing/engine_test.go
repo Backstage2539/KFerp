@@ -2,6 +2,7 @@ package costing
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -471,6 +472,63 @@ func TestExcelBeanListDisplayMetadataMatchesWorkbook(t *testing.T) {
 	blend := CalculateProduct(params, ProductInput{Name: "红岩2.0", GreenBeanCostPerKg: 63.9, YieldRate: 0.8})
 	if blend.CommercialBeanList.Code != "4.2" || blend.RetailBeanList.Code != "2.2" {
 		t.Fatalf("blend commercial/retail numbering = %+v / %+v", blend.CommercialBeanList, blend.RetailBeanList)
+	}
+}
+
+func TestCustomerBeanListWithoutSkuCategoryDoesNotInheritExcelCategory(t *testing.T) {
+	params := DefaultParameters()
+
+	got := CalculateProduct(params, ProductInput{
+		ProductID:            417,
+		Name:                 "曲奇拼配2.0",
+		BeanListTemplateName: "红岩2.0",
+		CustomerID:           152,
+		BaseProductID:        199,
+		Visibility:           "customer_only",
+		CustomType:           "public_sku_alias",
+		GreenBeanCostPerKg:   63.9,
+		YieldRate:            0.8,
+		ProductCategoryID:    0,
+	})
+
+	if got.CommercialBeanList.Category != "未分类" {
+		t.Fatalf("customer SKU without category must use SKU classification, got commercial category %q", got.CommercialBeanList.Category)
+	}
+	if got.CommercialBeanList.Code != "999.2" {
+		t.Fatalf("customer SKU without category code = %q, want 999.2", got.CommercialBeanList.Code)
+	}
+	if strings.Contains(got.CommercialBeanList.Category, "精品意式拼配") {
+		t.Fatalf("customer SKU inherited old Excel category: %+v", got.CommercialBeanList)
+	}
+	if got.CommercialBeanList.DisplayName != "曲奇拼配2.0" {
+		t.Fatalf("customer display name = %q", got.CommercialBeanList.DisplayName)
+	}
+}
+
+func TestCustomerBeanListUsesSkuCategoryWhenPresent(t *testing.T) {
+	params := DefaultParameters()
+
+	got := CalculateProduct(params, ProductInput{
+		ProductID:                  417,
+		Name:                       "曲奇拼配2.0",
+		BeanListTemplateName:       "红岩2.0",
+		CustomerID:                 152,
+		BaseProductID:              199,
+		Visibility:                 "customer_only",
+		CustomType:                 "public_sku_alias",
+		GreenBeanCostPerKg:         63.9,
+		YieldRate:                  0.8,
+		ProductCategoryID:          143,
+		SkuCategoryName:            "商用拼配",
+		SkuCategoryPosition:        1,
+		SkuProductCategoryPosition: 2,
+	})
+
+	if got.CommercialBeanList.Category != "1、商用拼配" || got.CommercialBeanList.Code != "1.2" {
+		t.Fatalf("customer SKU should use current SKU category, got %+v", got.CommercialBeanList)
+	}
+	if strings.Contains(got.CommercialBeanList.Category, "精品意式拼配") {
+		t.Fatalf("customer SKU inherited old Excel category: %+v", got.CommercialBeanList)
 	}
 }
 

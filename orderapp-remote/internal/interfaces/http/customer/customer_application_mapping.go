@@ -16,6 +16,7 @@ func customerUpsertCommandFromRequest(req CustomerUpsertRequest) customerapp.Ups
 		DefaultSourceID:    req.DefaultSourceID,
 		DefaultOrderTypeID: req.DefaultOrderTypeID,
 		Active:             req.Active,
+		PortalEnabled:      req.PortalEnabled,
 	}
 }
 

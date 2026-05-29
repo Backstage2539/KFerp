@@ -104,7 +104,7 @@ func TestMessageCenterOrderNotificationWiring(t *testing.T) {
 		`case "fulfillment"`,
 		"customer_erp_user_bindings",
 		"portal_service_code",
-		"customer_type",
+		"COALESCE(p.enabled,false)=true",
 	} {
 		if !strings.Contains(orderQueries, want) {
 			t.Fatalf("order queries missing fulfillment scope marker %q", want)

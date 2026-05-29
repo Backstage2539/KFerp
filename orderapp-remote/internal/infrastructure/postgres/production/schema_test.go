@@ -21,8 +21,42 @@ func TestWorkOrderSchemaCreatesMaterialSnapshotOnCleanSchema(t *testing.T) {
 		t.Fatal("schema.go missing work_orders status index after create table")
 	}
 	workOrdersDDL := text[start : start+end]
-	if !strings.Contains(workOrdersDDL, "material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb") {
-		t.Fatal("work_orders clean-schema DDL must create material_snapshot; ALTER before table creation is not enough")
+	for _, want := range []string{
+		"material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb",
+		"process_template_id BIGINT NOT NULL DEFAULT 0",
+		"process_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb",
+		"operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+	} {
+		if !strings.Contains(workOrdersDDL, want) {
+			t.Fatalf("work_orders clean-schema DDL missing %q", want)
+		}
+	}
+}
+
+func TestJobCardsSchemaCreatesActualLossColumnsOnCleanSchema(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	start := strings.Index(text, "CREATE TABLE IF NOT EXISTS %s.job_cards")
+	if start < 0 {
+		t.Fatal("schema.go missing job_cards create table DDL")
+	}
+	end := strings.Index(text[start:], "CREATE INDEX IF NOT EXISTS job_cards_work_order_idx")
+	if end < 0 {
+		t.Fatal("schema.go missing job_cards index after create table")
+	}
+	jobCardsDDL := text[start : start+end]
+	for _, want := range []string{
+		"actual_input_qty NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"actual_output_qty NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"actual_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0",
+		"parameter_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb",
+	} {
+		if !strings.Contains(jobCardsDDL, want) {
+			t.Fatalf("job_cards clean-schema DDL missing %q", want)
+		}
 	}
 }
 

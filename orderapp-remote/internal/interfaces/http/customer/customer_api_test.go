@@ -68,6 +68,10 @@ func (r *fakeCustomerRepo) Delete(ctx context.Context, actor string, id int64) e
 	return nil
 }
 
+func (r *fakeCustomerRepo) CreateOrderType(ctx context.Context, actor string, name string) (customerapp.Option, error) {
+	return customerapp.Option{ID: 88, Name: name}, nil
+}
+
 func TestCustomerAPIStoresCompanyContactFields(t *testing.T) {
 	repo := &fakeCustomerRepo{}
 	e := echo.New()

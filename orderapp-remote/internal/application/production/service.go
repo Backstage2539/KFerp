@@ -382,6 +382,10 @@ type WorkOrderRow struct {
 	WIPReservedG          int64   `json:"wip_reserved_g"`
 	WIPConsumedG          int64   `json:"wip_consumed_g"`
 	WIPRemainingReservedG int64   `json:"remaining_reserved_g"`
+	ProcessTemplateID     int64   `json:"process_template_id"`
+	ProcessTemplateName   string  `json:"process_template_name"`
+	ProcessSnapshotJSON   string  `json:"process_snapshot_json"`
+	OperationSummaryJSON  string  `json:"operation_summary_json"`
 }
 
 type JobCardQuery struct {
@@ -390,14 +394,35 @@ type JobCardQuery struct {
 }
 
 type JobCardRow struct {
-	ID          int64  `json:"id"`
-	WorkOrderID int64  `json:"work_order_id"`
-	Operation   string `json:"operation"`
-	Workstation string `json:"workstation"`
-	Status      string `json:"status"`
-	StartedAt   string `json:"started_at"`
-	CompletedAt string `json:"completed_at"`
-	Operator    string `json:"operator"`
+	ID                  int64   `json:"id"`
+	WorkOrderID         int64   `json:"work_order_id"`
+	SequenceNo          int     `json:"sequence_no"`
+	Operation           string  `json:"operation"`
+	Workstation         string  `json:"workstation"`
+	Status              string  `json:"status"`
+	StartedAt           string  `json:"started_at"`
+	CompletedAt         string  `json:"completed_at"`
+	Operator            string  `json:"operator"`
+	PlannedInputQty     float64 `json:"planned_input_qty"`
+	ActualInputQty      float64 `json:"actual_input_qty"`
+	ActualOutputQty     float64 `json:"actual_output_qty"`
+	ActualLossQty       float64 `json:"actual_loss_qty"`
+	ActualLossRate      float64 `json:"actual_loss_rate"`
+	RecordsLoss         bool    `json:"records_loss"`
+	ExceptionReason     string  `json:"exception_reason"`
+	MetricsJSON         string  `json:"metrics_json"`
+	ParameterSchemaJSON string  `json:"parameter_schema_json"`
+}
+
+type UpdateJobCardMetricsCommand struct {
+	ID              int64
+	PlannedInputQty float64
+	ActualInputQty  float64
+	ActualOutputQty float64
+	ActualLossQty   float64
+	ExceptionReason string
+	MetricsJSON     string
+	Operator        string
 }
 
 type BatchCostQuery struct {
@@ -570,6 +595,7 @@ type Repository interface {
 	ListProductionLogs(ctx context.Context, query ProductionLogsQuery) (ProductionLogsResult, error)
 	ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]WorkOrderRow, error)
 	ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCardRow, error)
+	UpdateJobCardMetrics(ctx context.Context, cmd UpdateJobCardMetricsCommand) (JobCardRow, error)
 	ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error)
 	MaterialPlan(ctx context.Context, query MaterialPlanQuery) (MaterialPlanResult, error)
 	CreateQualityInspection(ctx context.Context, cmd QualityInspectionCommand) (QualityInspectionRow, error)
@@ -698,6 +724,32 @@ func (s *Service) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCa
 		query.Limit = 200
 	}
 	return s.repo.ListJobCards(ctx, query)
+}
+
+func (s *Service) UpdateJobCardMetrics(ctx context.Context, cmd UpdateJobCardMetricsCommand) (JobCardRow, error) {
+	if cmd.ID <= 0 {
+		return JobCardRow{}, fmt.Errorf("job_card id required")
+	}
+	if cmd.PlannedInputQty < 0 || cmd.ActualInputQty < 0 || cmd.ActualOutputQty < 0 || cmd.ActualLossQty < 0 {
+		return JobCardRow{}, fmt.Errorf("quantity must be >= 0")
+	}
+	if cmd.ActualLossQty == 0 && cmd.ActualInputQty > 0 && cmd.ActualInputQty >= cmd.ActualOutputQty {
+		cmd.ActualLossQty = cmd.ActualInputQty - cmd.ActualOutputQty
+	}
+	cmd.ExceptionReason = strings.TrimSpace(cmd.ExceptionReason)
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	cmd.MetricsJSON = strings.TrimSpace(cmd.MetricsJSON)
+	if cmd.MetricsJSON == "" {
+		cmd.MetricsJSON = "{}"
+	}
+	var metrics map[string]any
+	if err := json.Unmarshal([]byte(cmd.MetricsJSON), &metrics); err != nil {
+		return JobCardRow{}, fmt.Errorf("metrics_json must be valid json")
+	}
+	if metrics == nil {
+		cmd.MetricsJSON = "{}"
+	}
+	return s.repo.UpdateJobCardMetrics(ctx, cmd)
 }
 
 func (s *Service) ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error) {

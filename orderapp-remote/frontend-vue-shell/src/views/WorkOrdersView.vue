@@ -30,6 +30,8 @@
             <th>规格</th>
             <th>建议投料</th>
             <th>烘焙建议</th>
+            <th>工艺快照</th>
+            <th>工序执行</th>
             <th>原料参考</th>
             <th>WIP占用</th>
             <th>状态</th>
@@ -50,6 +52,11 @@
               <small>{{ row.suggested_machine || '未匹配设备' }} · {{ row.suggested_batch_plan || '-' }}</small>
               <small>预计 {{ row.planned_units || 0 }} 袋 + {{ row.planned_loose_g || 0 }}g</small>
             </td>
+            <td class="summary">
+              <strong>{{ row.process_template_name || '默认工序' }}</strong>
+              <small v-if="row.process_template_id">模板 #{{ row.process_template_id }}</small>
+            </td>
+            <td class="summary">{{ operationSummary(row.operation_summary_json) }}</td>
             <td class="summary">{{ row.material_summary || '-' }}</td>
             <td>
               <strong>{{ formatG(row.remaining_reserved_g) }}</strong>
@@ -61,7 +68,7 @@
             <td><small>建 {{ row.created_at }}</small><small>完 {{ row.completed_at || '-' }}</small></td>
             <td><button class="secondary compact" @click="printWorkOrder(row)">打印</button></td>
           </tr>
-          <tr v-if="!rows.length"><td colspan="12" class="muted">暂无工单</td></tr>
+          <tr v-if="!rows.length"><td colspan="14" class="muted">暂无工单</td></tr>
         </tbody>
       </table>
     </section>
@@ -118,6 +125,23 @@ const percent = (v) => {
   return `${(n * 100).toFixed(n * 100 % 1 === 0 ? 0 : 1)}%`
 }
 const formatG = (v) => `${Number(v || 0).toLocaleString('zh-CN')}g`
+function operationSummary(raw) {
+  if (!raw) return '-'
+  try {
+    const items = JSON.parse(raw)
+    if (!Array.isArray(items) || !items.length) return '-'
+    return items.map((item) => {
+      const name = item.operation || '-'
+      const status = item.status || '-'
+      const loss = Number(item.actual_loss_qty || 0)
+      const rate = Number(item.actual_loss_rate || 0)
+      const suffix = loss > 0 ? `，损耗 ${loss.toFixed(0)}g / ${(rate * 100).toFixed(2)}%` : ''
+      return `${name} ${status}${suffix}`
+    }).join('\n')
+  } catch {
+    return String(raw)
+  }
+}
 
 async function load() {
   loading.value = true
@@ -156,7 +180,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,button{font:inherit;min-height:36px;border-radius:6px}select{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.table-wrap{overflow:auto}table{width:100%;min-width:1180px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:220px;line-height:1.45}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.print-sheet{display:none}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,button{font:inherit;min-height:36px;border-radius:6px}select{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.table-wrap{overflow:auto}table{width:100%;min-width:1500px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:240px;line-height:1.45;white-space:pre-wrap}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.print-sheet{display:none}
 
 @media print{
   :global(body.work-order-printing .sidebar),:global(body.work-order-printing .top){display:none!important}

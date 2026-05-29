@@ -1,12 +1,13 @@
 export const menuGroups = [
   {
-    id: 'customerFulfillment',
-    name: '客户履约',
+    id: 'customerManagement',
+    name: '客户管理',
     items: [
+      { key: 'customers', label: '客户档案', title: '客户档案' },
+      { key: 'customerPortalSettings', label: '客户门户配置', title: '客户门户配置' },
+      { key: 'customerCapabilityTemplates', label: '客户门户能力模板', title: '客户门户能力模板' },
       { key: 'customerFulfillment', label: '履约运营台', title: '客户履约运营台' },
-      { key: 'customerPortalSettings', label: '门户客户配置', title: '门户客户配置' },
-      { key: 'customerCapabilityTemplates', label: '能力模板', title: '客户能力模板设置' },
-      { key: 'customerFulfillmentManual', label: '履约操作手册', title: '客户履约手册' },
+      { key: 'customerFulfillmentManual', label: '客户履约手册', title: '客户履约手册' },
       { key: 'customerPortalManual', label: '客户门户手册', title: '客户门户手册' },
     ],
   },
@@ -18,7 +19,6 @@ export const menuGroups = [
       { key: 'orders', label: '订单列表', title: '订单列表' },
       { key: 'contracts', label: '合同盖章', title: '合同盖章' },
       { key: 'orderSalesManual', label: '订单销售手册', title: '订单销售手册' },
-      { key: 'customers', label: '客户档案', title: '客户档案' },
     ],
   },
   {
@@ -56,6 +56,8 @@ export const menuGroups = [
       { key: 'mallSettings', label: '商城管理', title: '商城管理' },
       { key: 'costing', label: '产品豆单', title: '产品豆单' },
       { key: 'bom', label: 'BOM配方维护', title: 'BOM配方维护' },
+      { key: 'processTemplates', label: '工艺模板', title: '工艺模板' },
+      { key: 'industryFieldTemplates', label: '行业字段模板', title: '行业字段模板' },
       { key: 'costingManual', label: '成本核价手册', title: '成本核价手册' },
       { key: 'greenBeanSalesManual', label: '生豆销售手册', title: '生豆销售手册' },
     ],

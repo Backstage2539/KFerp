@@ -132,7 +132,14 @@ type WarehouseRow struct {
 	SortOrder   int    `json:"sort_order"`
 	IsDefault   bool   `json:"is_default"`
 	Active      bool   `json:"active"`
+	CustomerID  int64  `json:"customer_id"`
 	Description string `json:"description"`
+}
+
+type WarehouseCustomerBindingCommand struct {
+	WarehouseCode string
+	CustomerID    int64
+	Operator      string
 }
 
 type MaterialBatchLocationQuery struct {
@@ -391,6 +398,7 @@ type Repository interface {
 	ListBatches(ctx context.Context, query BatchQuery) (BatchResult, error)
 	ListMaterialBatches(ctx context.Context, query MaterialBatchQuery) (MaterialBatchResult, error)
 	ListWarehouses(ctx context.Context) ([]WarehouseRow, error)
+	SetWarehouseCustomer(ctx context.Context, cmd WarehouseCustomerBindingCommand) (WarehouseRow, error)
 	ListMaterialBatchLocations(ctx context.Context, query MaterialBatchLocationQuery) (MaterialBatchLocationResult, error)
 	ListWarehouseInventory(ctx context.Context, query WarehouseInventoryQuery) (WarehouseInventoryResult, error)
 	ListOutboundLogs(ctx context.Context, query OutboundLogQuery) (OutboundLogResult, error)
@@ -436,6 +444,21 @@ func (s *Service) ListMaterialBatches(ctx context.Context, query MaterialBatchQu
 
 func (s *Service) ListWarehouses(ctx context.Context) ([]WarehouseRow, error) {
 	return s.repo.ListWarehouses(ctx)
+}
+
+func (s *Service) SetWarehouseCustomer(ctx context.Context, cmd WarehouseCustomerBindingCommand) (WarehouseRow, error) {
+	cmd.WarehouseCode = strings.TrimSpace(cmd.WarehouseCode)
+	if cmd.WarehouseCode == "" {
+		return WarehouseRow{}, fmt.Errorf("warehouse required")
+	}
+	if cmd.CustomerID < 0 {
+		return WarehouseRow{}, fmt.Errorf("customer_id must be >= 0")
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	if cmd.Operator == "" {
+		cmd.Operator = "stock"
+	}
+	return s.repo.SetWarehouseCustomer(ctx, cmd)
 }
 
 func (s *Service) ListMaterialBatchLocations(ctx context.Context, query MaterialBatchLocationQuery) (MaterialBatchLocationResult, error) {

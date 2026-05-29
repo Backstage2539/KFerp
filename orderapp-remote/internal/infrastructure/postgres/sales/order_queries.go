@@ -297,8 +297,7 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 			args = append(args, query.FulfillmentEmployeeID)
 			argn++
 		}
-		where = append(where, fmt.Sprintf(`COALESCE(NULLIF(c.customer_type,''),'retail')='wholesale'
-				AND o.portal_service_code IN ('direct_ship','processing_ship','product_order')
+		where = append(where, fmt.Sprintf(`o.portal_service_code IN ('direct_ship','processing_ship','product_order')
 			AND EXISTS (
 				SELECT 1 FROM %[1]s.customer_erp_user_bindings b
 				JOIN %[1]s.company_employees e ON e.id=b.employee_id
@@ -308,13 +307,14 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 				  AND e.active=true
 				  AND e.account_type='channel_customer'
 				  AND COALESCE(lp.login_disabled,false)=false
+				  AND COALESCE(p.enabled,false)=true
 				  %[2]s
 				  AND (
 				      (
-				          COALESCE(NULLIF(p.capability_template_key,''),'processing_fulfillment') IN ('processing_fulfillment','public_sku_direct_ship')
+				          NULLIF(p.capability_template_key,'') IN ('processing_fulfillment','public_sku_direct_ship')
 				          AND NOT EXISTS (
 				              SELECT 1 FROM %[1]s.customer_capability_templates inactive_template
-				              WHERE inactive_template.template_key=COALESCE(NULLIF(p.capability_template_key,''),'processing_fulfillment')
+				              WHERE inactive_template.template_key=p.capability_template_key
 				                AND inactive_template.active=false
 				          )
 				      )

@@ -13,6 +13,7 @@ type fakeRepo struct {
 	finishedTransfer FinishedProductTransferCommand
 	traceQuery       StockTraceQuery
 	outboundQuery    OutboundLogQuery
+	setBinding       WarehouseCustomerBindingCommand
 }
 
 func (f *fakeRepo) ListLedger(ctx context.Context, query LedgerQuery) (LedgerResult, error) {
@@ -27,6 +28,10 @@ func (f *fakeRepo) ListMaterialBatches(ctx context.Context, query MaterialBatchQ
 }
 func (f *fakeRepo) ListWarehouses(ctx context.Context) ([]WarehouseRow, error) {
 	return []WarehouseRow{}, nil
+}
+func (f *fakeRepo) SetWarehouseCustomer(ctx context.Context, cmd WarehouseCustomerBindingCommand) (WarehouseRow, error) {
+	f.setBinding = cmd
+	return WarehouseRow{Code: cmd.WarehouseCode, CustomerID: cmd.CustomerID}, nil
 }
 func (f *fakeRepo) ListMaterialBatchLocations(ctx context.Context, query MaterialBatchLocationQuery) (MaterialBatchLocationResult, error) {
 	return MaterialBatchLocationResult{}, nil
@@ -200,6 +205,34 @@ func TestTransferFinishedProductRejectsSameWarehouseAndZeroQuantity(t *testing.T
 	})
 	if err == nil {
 		t.Fatal("expected quantity validation error")
+	}
+}
+
+func TestSetWarehouseCustomerRequiresWarehouseCode(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	_, err := svc.SetWarehouseCustomer(context.Background(), WarehouseCustomerBindingCommand{WarehouseCode: "  ", CustomerID: 0})
+	if err == nil {
+		t.Fatal("expected warehouse validation error")
+	}
+}
+
+func TestSetWarehouseCustomerRejectsNegativeCustomer(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	_, err := svc.SetWarehouseCustomer(context.Background(), WarehouseCustomerBindingCommand{WarehouseCode: "cust_01", CustomerID: -1})
+	if err == nil {
+		t.Fatal("expected customer id validation error")
+	}
+}
+
+func TestSetWarehouseCustomerDefaultsOperator(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.SetWarehouseCustomer(context.Background(), WarehouseCustomerBindingCommand{WarehouseCode: "cust_01", CustomerID: 0})
+	if err != nil {
+		t.Fatalf("SetWarehouseCustomer: %v", err)
+	}
+	if repo.setBinding.Operator != "stock" {
+		t.Fatalf("operator = %q, want stock", repo.setBinding.Operator)
 	}
 }
 

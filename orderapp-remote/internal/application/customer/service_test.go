@@ -38,6 +38,10 @@ func (r *fakeRepo) Delete(ctx context.Context, actor string, id int64) error {
 	return nil
 }
 
+func (r *fakeRepo) CreateOrderType(ctx context.Context, actor string, name string) (Option, error) {
+	return Option{ID: 22, Name: name}, nil
+}
+
 func (r *fakeRepo) List(ctx context.Context, query ListQuery) (ListResult, error) {
 	r.listQuery = query
 	return ListResult{}, nil
@@ -100,8 +104,8 @@ func TestServiceListNormalizesQuery(t *testing.T) {
 	if repo.listQuery.Query != "rock" {
 		t.Fatalf("list query = %q, want rock", repo.listQuery.Query)
 	}
-	if repo.listQuery.CustomerType != "" {
-		t.Fatalf("normalized customer_type = %q, want empty", repo.listQuery.CustomerType)
+	if repo.listQuery.CustomerType != "bad-type" {
+		t.Fatalf("normalized customer_type = %q, want bad-type", repo.listQuery.CustomerType)
 	}
 	if repo.listQuery.SortBy != "name" {
 		t.Fatalf("normalized sort_by = %q, want name", repo.listQuery.SortBy)

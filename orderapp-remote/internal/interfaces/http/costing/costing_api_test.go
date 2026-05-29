@@ -314,6 +314,92 @@ func TestCostingCalculateAPI(t *testing.T) {
 	}
 }
 
+func TestCostingCalculateAPICustomerSkuWithoutCategoryDoesNotReturnExcelCategory(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	body, err := json.Marshal(appcosting.CalculateRequest{Products: []domain.ProductInput{{
+		ProductID:            417,
+		Name:                 "曲奇拼配2.0",
+		BeanListTemplateName: "红岩2.0",
+		CustomerID:           152,
+		BaseProductID:        199,
+		Visibility:           "customer_only",
+		CustomType:           "public_sku_alias",
+		GreenBeanCostPerKg:   63.9,
+		YieldRate:            0.8,
+		ProductCategoryID:    0,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/calculate", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got appcosting.CalculateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("items = %+v", got.Items)
+	}
+	category := got.Items[0].CommercialBeanList.Category
+	item := got.Items[0].CommercialBeanList
+	if category != "未分类" || item.Code != "999.2" || strings.Contains(category, "精品意式拼配") {
+		t.Fatalf("customer SKU category = %q, item = %+v", category, item)
+	}
+}
+
+func TestCostingCalculateAPICustomerSkuUsesSkuCategory(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	body, err := json.Marshal(appcosting.CalculateRequest{Products: []domain.ProductInput{{
+		ProductID:                  417,
+		Name:                       "曲奇拼配2.0",
+		BeanListTemplateName:       "红岩2.0",
+		CustomerID:                 152,
+		BaseProductID:              199,
+		Visibility:                 "customer_only",
+		CustomType:                 "public_sku_alias",
+		GreenBeanCostPerKg:         63.9,
+		YieldRate:                  0.8,
+		ProductCategoryID:          143,
+		SkuCategoryName:            "商用拼配",
+		SkuCategoryPosition:        1,
+		SkuProductCategoryPosition: 2,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/calculate", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got appcosting.CalculateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("items = %+v", got.Items)
+	}
+	item := got.Items[0].CommercialBeanList
+	if item.Category != "1、商用拼配" || item.Code != "1.2" || strings.Contains(item.Category, "精品意式拼配") {
+		t.Fatalf("customer SKU category = %+v", item)
+	}
+}
+
 func TestCostingPriceExplanationAPIIncludesFastCostParameters(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Costing: fakeService{}})

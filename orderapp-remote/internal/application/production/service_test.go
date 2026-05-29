@@ -6,7 +6,8 @@ import (
 )
 
 type fakeRepo struct {
-	create CreateBatchCommand
+	create    CreateBatchCommand
+	updateJob UpdateJobCardMetricsCommand
 }
 
 func (r *fakeRepo) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error) {
@@ -71,6 +72,10 @@ func (r *fakeRepo) ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]
 func (r *fakeRepo) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCardRow, error) {
 	return nil, nil
 }
+func (r *fakeRepo) UpdateJobCardMetrics(ctx context.Context, cmd UpdateJobCardMetricsCommand) (JobCardRow, error) {
+	r.updateJob = cmd
+	return JobCardRow{ID: cmd.ID}, nil
+}
 func (r *fakeRepo) ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error) {
 	return nil, nil
 }
@@ -127,6 +132,26 @@ func TestServiceDelegatesProductionUseCases(t *testing.T) {
 	machines, err := svc.ListMachines(context.Background(), false)
 	if err != nil || len(machines) != 1 || machines[0].Name != "小烘焙机" {
 		t.Fatalf("ListMachines() = %+v, %v", machines, err)
+	}
+}
+
+func TestUpdateJobCardMetricsCalculatesLoss(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	row, err := svc.UpdateJobCardMetrics(context.Background(), UpdateJobCardMetricsCommand{
+		ID:              11,
+		ActualInputQty:  100,
+		ActualOutputQty: 82,
+		MetricsJSON:     "{}",
+	})
+	if err != nil {
+		t.Fatalf("UpdateJobCardMetrics: %v", err)
+	}
+	if row.ID != 11 {
+		t.Fatalf("row id=%d, want 11", row.ID)
+	}
+	if repo.updateJob.ActualLossQty != 18 {
+		t.Fatalf("actual loss=%v, want 18", repo.updateJob.ActualLossQty)
 	}
 }
 

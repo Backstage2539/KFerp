@@ -677,23 +677,20 @@ type PortalAdminCustomerQuery struct {
 }
 
 type PortalAdminCustomer struct {
-	ID                      int64             `json:"id"`
-	Name                    string            `json:"name"`
-	CustomerType            string            `json:"customer_type"`
-	Phone                   string            `json:"phone"`
-	CompanyName             string            `json:"company_name"`
-	DisplayName             string            `json:"display_name"`
-	ProcessingWarehouseCode string            `json:"processing_warehouse_code"`
-	DefaultSenderID         int64             `json:"default_sender_id"`
-	PortalEnabled           bool              `json:"portal_enabled"`
-	PortalStatus            string            `json:"portal_status"`
-	ThemeKey                string            `json:"theme_key"`
-	MiniappEntryMode        string            `json:"miniapp_entry_mode"`
-	CapabilityTemplateKey   string            `json:"capability_template_key"`
-	BeanListMode            string            `json:"bean_list_mode"`
-	BeanListPublicationID   int64             `json:"bean_list_publication_id"`
-	BindingCount            int               `json:"binding_count"`
-	ERPBinding              *PortalERPBinding `json:"erp_binding,omitempty"`
+	ID                    int64             `json:"id"`
+	Name                  string            `json:"name"`
+	CustomerType          string            `json:"customer_type"`
+	Phone                 string            `json:"phone"`
+	CompanyName           string            `json:"company_name"`
+	DisplayName           string            `json:"display_name"`
+	DefaultSenderID       int64             `json:"default_sender_id"`
+	PortalEnabled         bool              `json:"portal_enabled"`
+	PortalStatus          string            `json:"portal_status"`
+	ThemeKey              string            `json:"theme_key"`
+	MiniappEntryMode      string            `json:"miniapp_entry_mode"`
+	CapabilityTemplateKey string            `json:"capability_template_key"`
+	BindingCount          int               `json:"binding_count"`
+	ERPBinding            *PortalERPBinding `json:"erp_binding,omitempty"`
 }
 
 type PortalERPBinding struct {
@@ -718,26 +715,22 @@ type PortalUserBinding struct {
 }
 
 type PortalAdminDetail struct {
-	Customer               PortalAdminCustomer     `json:"customer"`
-	Bindings               []PortalUserBinding     `json:"bindings"`
-	Capabilities           []CapabilityOption      `json:"capabilities"`
-	BeanListVersionOptions []BeanListVersionOption `json:"bean_list_version_options,omitempty"`
+	Customer     PortalAdminCustomer `json:"customer"`
+	Bindings     []PortalUserBinding `json:"bindings"`
+	Capabilities []CapabilityOption  `json:"capabilities"`
 }
 
 type UpdatePortalVisibilityCommand struct {
-	CustomerID              int64
-	DisplayName             string
-	ProcessingWarehouseCode string
-	DefaultSenderID         int64
-	Enabled                 bool
-	ThemeKey                string
-	MiniappEntryMode        string
-	CapabilityTemplateKey   string
-	BeanListMode            string
-	BeanListPublicationID   int64
-	Template                CapabilityTemplate
-	Capabilities            []CapabilityOption
-	UpdatedBy               string
+	CustomerID            int64
+	DisplayName           string
+	DefaultSenderID       int64
+	Enabled               bool
+	ThemeKey              string
+	MiniappEntryMode      string
+	CapabilityTemplateKey string
+	Template              CapabilityTemplate
+	Capabilities          []CapabilityOption
+	UpdatedBy             string
 }
 
 type ApplyCapabilityTemplateCommand struct {
@@ -1146,12 +1139,7 @@ func (s *Service) UpdatePortalVisibility(ctx context.Context, cmd UpdatePortalVi
 		return PortalAdminDetail{}, fmt.Errorf("repository required")
 	}
 	cmd.DisplayName = strings.TrimSpace(cmd.DisplayName)
-	cmd.ProcessingWarehouseCode = strings.TrimSpace(cmd.ProcessingWarehouseCode)
 	cmd.UpdatedBy = strings.TrimSpace(cmd.UpdatedBy)
-	cmd.BeanListMode = normalizeBeanListMode(cmd.BeanListMode)
-	if cmd.BeanListMode != "fixed" {
-		cmd.BeanListPublicationID = 0
-	}
 	rawTemplateKey := strings.TrimSpace(cmd.CapabilityTemplateKey)
 	cmd.CapabilityTemplateKey = NormalizeCapabilityTemplateKey(cmd.CapabilityTemplateKey)
 	if rawTemplateKey != "" && cmd.CapabilityTemplateKey == "" {
@@ -1722,10 +1710,6 @@ func normalizePortalAdminCustomer(customer PortalAdminCustomer) PortalAdminCusto
 	customer.ThemeKey = NormalizePortalThemeKey(customer.ThemeKey)
 	customer.MiniappEntryMode = NormalizeMiniappEntryMode(customer.MiniappEntryMode)
 	customer.CapabilityTemplateKey = normalizePortalAdminCapabilityTemplateKey(customer.CapabilityTemplateKey)
-	customer.BeanListMode = normalizeBeanListMode(customer.BeanListMode)
-	if customer.BeanListMode != "fixed" {
-		customer.BeanListPublicationID = 0
-	}
 	if customer.ERPBinding != nil {
 		customer.ERPBinding.Role = firstNonEmpty(customer.ERPBinding.Role, "customer")
 		customer.ERPBinding.Status = normalizePortalERPBindingStatus(customer.ERPBinding.Status)

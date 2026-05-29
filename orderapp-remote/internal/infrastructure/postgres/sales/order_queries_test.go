@@ -62,7 +62,6 @@ func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 	where, args, _ = orderListWhere("test_schema", salesapp.OrderListQuery{Scope: "fulfillment"})
 	joined = strings.Join(where, " AND ")
 	for _, want := range []string{
-		"customer_type",
 		"portal_service_code IN ('direct_ship','processing_ship','product_order')",
 		"test_schema.customer_erp_user_bindings",
 		"test_schema.customer_portal_profiles",
@@ -72,6 +71,7 @@ func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 		"b.status='active'",
 		"e.account_type='channel_customer'",
 		"COALESCE(lp.login_disabled,false)=false",
+		"COALESCE(p.enabled,false)=true",
 		"capability_template_key",
 		"active_template.active=true",
 		"inactive_template.active=false",

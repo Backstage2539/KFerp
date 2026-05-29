@@ -2,6 +2,7 @@ package customer
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 )
@@ -25,6 +26,7 @@ type UpsertCommand struct {
 	DefaultSourceID    string
 	DefaultOrderTypeID string
 	Active             string
+	PortalEnabled      *bool
 }
 
 type InlineUpdateCommand struct {
@@ -86,6 +88,7 @@ type ListResult struct {
 	Rows       []CustomerRow
 	Sources    []Option
 	OrderTypes []Option
+	Types      []string
 	Total      int
 	HasNext    bool
 }
@@ -103,6 +106,7 @@ type CustomerRow struct {
 	Active             bool    `json:"active"`
 	DefaultSourceID    *int    `json:"default_source_id"`
 	DefaultOrderTypeID *int    `json:"default_order_type_id"`
+	PortalEnabled      bool    `json:"portal_enabled"`
 	Updated            string  `json:"updated"`
 }
 
@@ -120,6 +124,7 @@ type CustomerEditData struct {
 	DefaultSourceID    string
 	DefaultOrderTypeID string
 	Active             bool
+	PortalEnabled      bool
 }
 
 type CustomerAsset struct {
@@ -151,6 +156,7 @@ type EditorData struct {
 	Customer   CustomerEditData
 	Sources    []Option
 	OrderTypes []Option
+	Types      []string
 	Assets     []CustomerAsset
 	Dashboard  CustomerDashboard
 }
@@ -170,6 +176,7 @@ type Repository interface {
 	DeleteAsset(ctx context.Context, actor string, assetID int64) (DeleteAssetResult, error)
 	InlineUpdate(ctx context.Context, actor string, id int64, cmd InlineUpdateCommand) error
 	Delete(ctx context.Context, actor string, id int64) error
+	CreateOrderType(ctx context.Context, actor string, name string) (Option, error)
 }
 
 type Service struct {
@@ -230,24 +237,24 @@ func (s *Service) Delete(ctx context.Context, actor string, id int64) error {
 	return s.repo.Delete(ctx, actor, id)
 }
 
+func (s *Service) CreateOrderType(ctx context.Context, actor string, name string) (Option, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Option{}, fmt.Errorf("name required")
+	}
+	return s.repo.CreateOrderType(ctx, actor, name)
+}
+
 func NormalizeCustomerType(value string) string {
-	switch strings.TrimSpace(value) {
-	case CustomerTypeWholesale:
-		return CustomerTypeWholesale
-	case CustomerTypeEcommerce:
-		return CustomerTypeEcommerce
-	default:
+	value = strings.TrimSpace(value)
+	if value == "" {
 		return CustomerTypeRetail
 	}
+	return value
 }
 
 func NormalizeCustomerTypeFilter(value string) string {
-	switch strings.TrimSpace(value) {
-	case CustomerTypeWholesale, CustomerTypeEcommerce, CustomerTypeRetail:
-		return strings.TrimSpace(value)
-	default:
-		return ""
-	}
+	return strings.TrimSpace(value)
 }
 
 func NormalizeCustomerSortBy(value string) string {

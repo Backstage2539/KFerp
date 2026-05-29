@@ -17,6 +17,7 @@ type fakeStockRepo struct {
 	adjustment       stockapp.StockAdjustmentCommand
 	transfer         stockapp.MaterialTransferCommand
 	finishedTransfer stockapp.FinishedProductTransferCommand
+	bindCustomerCmd  stockapp.WarehouseCustomerBindingCommand
 	traceQuery       stockapp.StockTraceQuery
 	outboundQuery    stockapp.OutboundLogQuery
 }
@@ -31,7 +32,12 @@ func (f *fakeStockRepo) ListMaterialBatches(ctx context.Context, query stockapp.
 	return stockapp.MaterialBatchResult{Rows: []stockapp.MaterialBatchRow{{ID: 2, BatchCode: "MB-0000000002", RemainingG: 1200, QualityStatus: "hold"}}}, nil
 }
 func (f *fakeStockRepo) ListWarehouses(ctx context.Context) ([]stockapp.WarehouseRow, error) {
-	return []stockapp.WarehouseRow{{Code: "raw_materials", Name: "原料仓"}, {Code: "wip", Name: "WIP在制仓"}}, nil
+	return []stockapp.WarehouseRow{{Code: "raw_materials", Name: "原料仓", Kind: "raw"}, {Code: "wip", Name: "WIP仓", Kind: "wip"}, {Code: "customer_01", Name: "客户仓库", Kind: "customer", CustomerID: 7}}, nil
+}
+
+func (f *fakeStockRepo) SetWarehouseCustomer(ctx context.Context, cmd stockapp.WarehouseCustomerBindingCommand) (stockapp.WarehouseRow, error) {
+	f.bindCustomerCmd = cmd
+	return stockapp.WarehouseRow{Code: cmd.WarehouseCode, CustomerID: cmd.CustomerID}, nil
 }
 func (f *fakeStockRepo) ListMaterialBatchLocations(ctx context.Context, query stockapp.MaterialBatchLocationQuery) (stockapp.MaterialBatchLocationResult, error) {
 	return stockapp.MaterialBatchLocationResult{Rows: []stockapp.MaterialBatchLocationRow{{BatchCode: "MB-0000000002", Warehouse: "wip", QtyG: 60000, QualityStatus: "pass"}}}, nil
@@ -139,6 +145,17 @@ func TestStockAPIRoutes(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"code":"wip"`)) {
 		t.Fatalf("GET warehouses status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/stock/warehouses/customer_01/customer", bytes.NewBufferString(`{"customer_id":0}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT warehouse customer status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.bindCustomerCmd.WarehouseCode != "customer_01" || repo.bindCustomerCmd.CustomerID != 0 {
+		t.Fatalf("warehouse binding command = %+v", repo.bindCustomerCmd)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/stock/material-batch-locations?warehouse=wip", nil)

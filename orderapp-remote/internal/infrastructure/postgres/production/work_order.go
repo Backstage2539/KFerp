@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	catalogdomain "orderapp/internal/domain/catalog"
+	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"strings"
 
 	productionapp "orderapp/internal/application/production"
@@ -12,28 +13,94 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+type processSnapshotOperation struct {
+	Seq                  int    `json:"seq"`
+	Operation            string `json:"operation"`
+	Workstation          string `json:"workstation"`
+	DefaultEquipment     string `json:"default_equipment"`
+	DefaultMinutes       int    `json:"default_minutes"`
+	RecordsLoss          bool   `json:"records_loss"`
+	ParameterSchemaJSON  string `json:"parameter_schema_json"`
+	QualityChecklistJSON string `json:"quality_checklist_json"`
+}
+
+type processTemplateSnapshot struct {
+	ID                   int64                      `json:"id"`
+	Name                 string                     `json:"name"`
+	ProductID            int64                      `json:"product_id"`
+	ProductName          string                     `json:"product_name"`
+	BomVersionID         int64                      `json:"bom_version_id"`
+	BomVersionNo         string                     `json:"bom_version_no"`
+	IndustryTemplateID   int64                      `json:"industry_template_id"`
+	IndustryTemplateName string                     `json:"industry_template_name"`
+	DefaultEquipment     string                     `json:"default_equipment"`
+	DefaultMinutes       int                        `json:"default_minutes"`
+	KeyParamsJSON        string                     `json:"key_params_json"`
+	Operations           []processSnapshotOperation `json:"operations"`
+}
+
 func workOrderNo(runningItemID int64) string {
 	return fmt.Sprintf("WO-%010d", runningItemID)
 }
 
 func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operator string) (int64, error) {
-	var workOrderID int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.work_orders(work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,material_snapshot,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,now())
-		ON CONFLICT (running_item_id) DO UPDATE SET status='running', material_snapshot=excluded.material_snapshot
-		RETURNING id
-	`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG, materialSnapshot).Scan(&workOrderID); err != nil {
+	processSnapshot, processSnapshotJSON, err := loadActiveProcessTemplateSnapshotTx(ctx, tx, schema, productID)
+	if err != nil {
 		return 0, err
 	}
-	_, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.job_cards(work_order_id,operation,workstation,status,started_at,operator)
-		VALUES($1,'roast','roaster','running',now(),$2)
-	`, schema), workOrderID, operator)
-	return workOrderID, err
+	processTemplateID := int64(0)
+	processTemplateName := ""
+	if processSnapshot != nil {
+		processTemplateID = processSnapshot.ID
+		processTemplateName = processSnapshot.Name
+	}
+	if len(processSnapshotJSON) == 0 {
+		processSnapshotJSON = []byte("{}")
+	}
+	var workOrderID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.work_orders(
+			work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,
+			material_snapshot,process_template_id,process_template_name,process_snapshot_json,created_at
+		)
+		VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,$9,$10,$11,now())
+		ON CONFLICT (running_item_id) DO UPDATE SET
+			status='running',
+			material_snapshot=excluded.material_snapshot,
+			process_template_id=excluded.process_template_id,
+			process_template_name=excluded.process_template_name,
+			process_snapshot_json=excluded.process_snapshot_json
+		RETURNING id
+	`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG, materialSnapshot, processTemplateID, processTemplateName, processSnapshotJSON).Scan(&workOrderID); err != nil {
+		return 0, err
+	}
+	ops := []processSnapshotOperation{{
+		Seq:         1,
+		Operation:   "roast",
+		Workstation: "roaster",
+		RecordsLoss: true,
+	}}
+	if processSnapshot != nil && len(processSnapshot.Operations) > 0 {
+		ops = processSnapshot.Operations
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.job_cards WHERE work_order_id=$1`, schema), workOrderID); err != nil {
+		return 0, err
+	}
+	for _, op := range ops {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.job_cards(
+				work_order_id,sequence_no,operation,workstation,status,started_at,operator,
+				planned_input_qty,records_loss,parameter_schema_json
+			)
+			VALUES($1,$2,$3,$4,'running',now(),$5,$6,$7,$8::jsonb)
+		`, schema), workOrderID, op.Seq, op.Operation, op.Workstation, operator, float64(plannedG), op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON)); err != nil {
+			return 0, err
+		}
+	}
+	return workOrderID, nil
 }
 
-func completeWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, actualCost float64, operator string) error {
+func completeWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, actualCost float64, actualInputG int64, actualOutputG int64, operator string) error {
 	var workOrderID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE %s.work_orders
@@ -46,11 +113,43 @@ func completeWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema st
 		}
 		return err
 	}
+	actualInput := float64(actualInputG)
+	actualOutput := float64(actualOutputG)
+	actualLoss := actualInput - actualOutput
+	if actualLoss < 0 {
+		actualLoss = 0
+	}
+	actualLossRate := 0.0
+	if actualInput > 0 {
+		actualLossRate = actualLoss / actualInput
+	}
 	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.job_cards
+		SET actual_input_qty=$2,
+		    actual_output_qty=$3,
+		    actual_loss_qty=$4,
+		    actual_loss_rate=$5,
+		    operator=COALESCE(NULLIF(operator,''),$6)
+		WHERE id = COALESCE(
+			(SELECT id FROM %s.job_cards WHERE work_order_id=$1 AND records_loss=true ORDER BY sequence_no DESC, id DESC LIMIT 1),
+			(SELECT id FROM %s.job_cards WHERE work_order_id=$1 ORDER BY sequence_no DESC, id DESC LIMIT 1)
+		)
+	`, schema, schema, schema), workOrderID, actualInput, actualOutput, actualLoss, actualLossRate, operator)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.job_cards
 		SET status='completed', completed_at=now(), operator=COALESCE(NULLIF(operator,''),$2)
 		WHERE work_order_id=$1 AND status <> 'completed'
-	`, schema), workOrderID, operator)
+	`, schema), workOrderID, operator); err != nil {
+		return err
+	}
+	summary, err := operationSummaryJSONForWorkOrderTx(ctx, tx, schema, workOrderID)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET operation_summary_json=$2::jsonb WHERE id=$1`, schema), workOrderID, summary)
 	return err
 }
 
@@ -76,6 +175,113 @@ func cancelWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 		return err
 	}
 	return releaseMaterialReservationsForRunningItemTx(ctx, tx, schema, runningItemID)
+}
+
+func loadActiveProcessTemplateSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) (*processTemplateSnapshot, []byte, error) {
+	var snapshot processTemplateSnapshot
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT pt.id,pt.name,pt.product_id,COALESCE(p.name,''),
+		       pt.bom_version_id,COALESCE(bv.version_no,''),
+		       pt.industry_template_id,COALESCE(ift.name,''),
+		       pt.default_equipment,pt.default_minutes,
+		       COALESCE(pt.key_params_json,'{}'::jsonb)::text
+		FROM %[1]s.process_templates pt
+		LEFT JOIN %[1]s.products p ON p.id=pt.product_id
+		LEFT JOIN %[1]s.bom_versions bv ON bv.id=pt.bom_version_id
+		LEFT JOIN %[1]s.industry_field_templates ift ON ift.id=pt.industry_template_id
+		WHERE pt.product_id=$1 AND pt.status='active'
+		ORDER BY pt.updated_at DESC, pt.id DESC
+		LIMIT 1
+	`, schema), productID).Scan(
+		&snapshot.ID,
+		&snapshot.Name,
+		&snapshot.ProductID,
+		&snapshot.ProductName,
+		&snapshot.BomVersionID,
+		&snapshot.BomVersionNo,
+		&snapshot.IndustryTemplateID,
+		&snapshot.IndustryTemplateName,
+		&snapshot.DefaultEquipment,
+		&snapshot.DefaultMinutes,
+		&snapshot.KeyParamsJSON,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil, nil
+		}
+		if strings.Contains(err.Error(), "process_templates") {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT seq,operation,workstation,default_equipment,default_minutes,records_loss,
+		       COALESCE(parameter_schema_json,'{}'::jsonb)::text,
+		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
+		FROM %s.process_template_operations
+		WHERE template_id=$1
+		ORDER BY seq, id
+	`, schema), snapshot.ID)
+	if err != nil {
+		if strings.Contains(err.Error(), "process_template_operations") {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var op processSnapshotOperation
+		if err := rows.Scan(&op.Seq, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.ParameterSchemaJSON, &op.QualityChecklistJSON); err != nil {
+			return nil, nil, err
+		}
+		snapshot.Operations = append(snapshot.Operations, op)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	b, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &snapshot, b, nil
+}
+
+func defaultJSONObject(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "{}"
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(raw), &obj); err != nil || obj == nil {
+		return "{}"
+	}
+	return raw
+}
+
+func operationSummaryJSONForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64) (string, error) {
+	var raw string
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(jsonb_agg(jsonb_build_object(
+			'id', id,
+			'sequence_no', sequence_no,
+			'operation', operation,
+			'workstation', workstation,
+			'status', status,
+			'records_loss', records_loss,
+			'planned_input_qty', planned_input_qty,
+			'actual_input_qty', actual_input_qty,
+			'actual_output_qty', actual_output_qty,
+			'actual_loss_qty', actual_loss_qty,
+			'actual_loss_rate', actual_loss_rate,
+			'exception_reason', exception_reason
+		) ORDER BY sequence_no, id), '[]'::jsonb)::text
+		FROM %s.job_cards
+		WHERE work_order_id=$1
+	`, schema), workOrderID).Scan(&raw)
+	if err != nil {
+		return "", err
+	}
+	return raw, nil
 }
 
 func recordBatchCostForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, finishedTotalG int64) (float64, error) {
@@ -168,6 +374,27 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		           FROM %s.work_order_material_reservations r
 		           WHERE r.running_item_id=wo.running_item_id AND r.status='reserved'
 		       ),0),
+		       COALESCE(wo.process_template_id,0),
+		       COALESCE(wo.process_template_name,''),
+		       COALESCE(wo.process_snapshot_json,'{}'::jsonb)::text,
+		       COALESCE((
+		           SELECT jsonb_agg(jsonb_build_object(
+		               'id', jc.id,
+		               'sequence_no', jc.sequence_no,
+		               'operation', jc.operation,
+		               'workstation', jc.workstation,
+		               'status', jc.status,
+		               'records_loss', jc.records_loss,
+		               'planned_input_qty', jc.planned_input_qty,
+		               'actual_input_qty', jc.actual_input_qty,
+		               'actual_output_qty', jc.actual_output_qty,
+		               'actual_loss_qty', jc.actual_loss_qty,
+		               'actual_loss_rate', jc.actual_loss_rate,
+		               'exception_reason', jc.exception_reason
+		           ) ORDER BY jc.sequence_no, jc.id)
+		           FROM %s.job_cards jc
+		           WHERE jc.work_order_id=wo.id
+		       ), '[]'::jsonb)::text,
 		       COALESCE((
 		           SELECT string_agg(COALESCE(m.name,'') || ' ' || COALESCE(NULLIF(trim(trailing '.' from trim(trailing '0' from COALESCE(bi.ratio_pct,0)::text)), ''), '0') || '%%', '、' ORDER BY bi.id)
 		           FROM %s.product_bom_items bi
@@ -181,7 +408,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		WHERE %s
 		ORDER BY wo.created_at DESC, wo.id DESC
 		LIMIT $%d
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +419,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		var snapshotText, fallbackMaterialSummary string
 		if err := rows.Scan(
 			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
-			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG, &fallbackMaterialSummary,
+			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON, &fallbackMaterialSummary,
 		); err != nil {
 			return nil, err
 		}
@@ -289,11 +516,20 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 	args = append(args, query.Limit)
 	limitArg := len(args)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,work_order_id,operation,workstation,status,
-		       to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),operator
+		SELECT id,work_order_id,sequence_no,operation,workstation,status,
+		       to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),operator,
+		       COALESCE(planned_input_qty,0)::float8,
+		       COALESCE(actual_input_qty,0)::float8,
+		       COALESCE(actual_output_qty,0)::float8,
+		       COALESCE(actual_loss_qty,0)::float8,
+		       COALESCE(actual_loss_rate,0)::float8,
+		       COALESCE(records_loss,false),
+		       COALESCE(exception_reason,''),
+		       COALESCE(metrics_json,'{}'::jsonb)::text,
+		       COALESCE(parameter_schema_json,'{}'::jsonb)::text
 		FROM %s.job_cards
 		WHERE %s
-		ORDER BY started_at DESC, id DESC
+		ORDER BY started_at DESC, work_order_id DESC, sequence_no, id
 		LIMIT $%d
 	`, r.schema, where, limitArg), args...)
 	if err != nil {
@@ -303,12 +539,64 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 	out := make([]productionapp.JobCardRow, 0)
 	for rows.Next() {
 		var row productionapp.JobCardRow
-		if err := rows.Scan(&row.ID, &row.WorkOrderID, &row.Operation, &row.Workstation, &row.Status, &row.StartedAt, &row.CompletedAt, &row.Operator); err != nil {
+		if err := rows.Scan(&row.ID, &row.WorkOrderID, &row.SequenceNo, &row.Operation, &row.Workstation, &row.Status, &row.StartedAt, &row.CompletedAt, &row.Operator, &row.PlannedInputQty, &row.ActualInputQty, &row.ActualOutputQty, &row.ActualLossQty, &row.ActualLossRate, &row.RecordsLoss, &row.ExceptionReason, &row.MetricsJSON, &row.ParameterSchemaJSON); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func (r Repository) UpdateJobCardMetrics(ctx context.Context, cmd productionapp.UpdateJobCardMetricsCommand) (productionapp.JobCardRow, error) {
+	actualLossRate := 0.0
+	if cmd.ActualInputQty > 0 {
+		actualLossRate = cmd.ActualLossQty / cmd.ActualInputQty
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return productionapp.JobCardRow{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var workOrderID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		UPDATE %s.job_cards
+		SET planned_input_qty=$2,
+		    actual_input_qty=$3,
+		    actual_output_qty=$4,
+		    actual_loss_qty=$5,
+		    actual_loss_rate=$6,
+		    exception_reason=$7,
+		    metrics_json=$8::jsonb,
+		    operator=COALESCE(NULLIF($9,''), operator)
+		WHERE id=$1
+		RETURNING work_order_id
+	`, r.schema), cmd.ID, cmd.PlannedInputQty, cmd.ActualInputQty, cmd.ActualOutputQty, cmd.ActualLossQty, actualLossRate, cmd.ExceptionReason, cmd.MetricsJSON, cmd.Operator).Scan(&workOrderID); err != nil {
+		return productionapp.JobCardRow{}, err
+	}
+	summary, err := operationSummaryJSONForWorkOrderTx(ctx, tx, r.schema, workOrderID)
+	if err != nil {
+		return productionapp.JobCardRow{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET operation_summary_json=$2::jsonb WHERE id=$1`, r.schema), workOrderID, summary); err != nil {
+		return productionapp.JobCardRow{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.ID, "update_metrics", postgresinfra.StrPtr("actual_loss"), nil, postgresinfra.StrPtr(fmt.Sprintf("%.4f", cmd.ActualLossQty)), postgresinfra.AuditMeta{"work_order_id": workOrderID, "planned_input_qty": cmd.PlannedInputQty, "actual_input_qty": cmd.ActualInputQty, "actual_output_qty": cmd.ActualOutputQty, "actual_loss_qty": cmd.ActualLossQty, "actual_loss_rate": actualLossRate, "exception_reason": cmd.ExceptionReason}); err != nil {
+		return productionapp.JobCardRow{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return productionapp.JobCardRow{}, err
+	}
+	rows, err := r.ListJobCards(ctx, productionapp.JobCardQuery{Limit: 500})
+	if err != nil {
+		return productionapp.JobCardRow{}, err
+	}
+	for _, row := range rows {
+		if row.ID == cmd.ID {
+			return row, nil
+		}
+	}
+	return productionapp.JobCardRow{}, pgx.ErrNoRows
 }
 
 func (r Repository) ListBatchCosts(ctx context.Context, query productionapp.BatchCostQuery) ([]productionapp.BatchCostRow, error) {

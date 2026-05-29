@@ -39,6 +39,7 @@ type upsertRequest struct {
 	DefaultSourceID    string
 	DefaultOrderTypeID string
 	Active             string
+	PortalEnabled      *bool
 }
 
 type inlineRequest = upsertRequest
@@ -70,6 +71,7 @@ func (r Repository) Upsert(ctx context.Context, actor string, id *int64, cmd cus
 		DefaultSourceID:    cmd.DefaultSourceID,
 		DefaultOrderTypeID: cmd.DefaultOrderTypeID,
 		Active:             cmd.Active,
+		PortalEnabled:      cmd.PortalEnabled,
 	}
 	return upsertCustomer(ctx, r.pool, r.schema, actor, id, req)
 }
@@ -138,6 +140,23 @@ func (r Repository) Delete(ctx context.Context, actor string, id int64) error {
 	return nil
 }
 
+func (r Repository) CreateOrderType(ctx context.Context, actor string, name string) (customerapp.Option, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return customerapp.Option{}, fmt.Errorf("name required")
+	}
+	var id int64
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.order_types WHERE name=$1 ORDER BY id LIMIT 1`, r.schema), name).Scan(&id)
+	if err == pgx.ErrNoRows {
+		err = r.pool.QueryRow(ctx, fmt.Sprintf(`INSERT INTO %s.order_types(name) VALUES($1) RETURNING id`, r.schema), name).Scan(&id)
+	}
+	if err != nil {
+		return customerapp.Option{}, err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, actor, "order_type", &id, "create", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{"name": name})
+	return customerapp.Option{ID: id, Name: name}, nil
+}
+
 func (r Repository) List(ctx context.Context, query customerapp.ListQuery) (customerapp.ListResult, error) {
 	rows, total, hasNext, err := fetchCustomers(ctx, r.pool, r.schema, query)
 	if err != nil {
@@ -151,7 +170,11 @@ func (r Repository) List(ctx context.Context, query customerapp.ListQuery) (cust
 	if err != nil {
 		return customerapp.ListResult{}, err
 	}
-	return customerapp.ListResult{Rows: rows, Sources: sources, OrderTypes: orderTypes, Total: total, HasNext: hasNext}, nil
+	types, err := fetchCustomerTypes(ctx, r.pool, r.schema)
+	if err != nil {
+		return customerapp.ListResult{}, err
+	}
+	return customerapp.ListResult{Rows: rows, Sources: sources, OrderTypes: orderTypes, Types: types, Total: total, HasNext: hasNext}, nil
 }
 
 func (r Repository) Editor(ctx context.Context, id int64) (*customerapp.EditorData, error) {
@@ -167,6 +190,10 @@ func (r Repository) Editor(ctx context.Context, id int64) (*customerapp.EditorDa
 	if err != nil {
 		return nil, err
 	}
+	types, err := fetchCustomerTypes(ctx, r.pool, r.schema)
+	if err != nil {
+		return nil, err
+	}
 	assets, err := fetchCustomerAssets(ctx, r.pool, r.schema, id)
 	if err != nil {
 		return nil, err
@@ -179,6 +206,7 @@ func (r Repository) Editor(ctx context.Context, id int64) (*customerapp.EditorDa
 		Customer:   *customer,
 		Sources:    sources,
 		OrderTypes: orderTypes,
+		Types:      types,
 		Assets:     assets,
 		Dashboard:  dashboard,
 	}, nil
@@ -245,12 +273,14 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 
 	sql := fmt.Sprintf(`
 		SELECT id, name, COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), contact, phone, address, active, default_source_id, default_order_type_id,
-			to_char(updated_at,'YYYY-MM-DD HH24:%%M') AS updated
-		FROM %s.customers
+			COALESCE(p.enabled,false),
+			to_char(c.updated_at,'YYYY-MM-DD HH24:%%M') AS updated
+		FROM %s.customers c
+		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
 		%s
             ORDER BY %s %s, id %s
             LIMIT $%d OFFSET $%d
-        `, schema, where, orderBy, orderDir, orderDir, limitArg, offsetArg)
+        `, schema, schema, where, orderBy, orderDir, orderDir, limitArg, offsetArg)
 
 	dbRows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
@@ -261,7 +291,7 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 	out := make([]customerapp.CustomerRow, 0)
 	for dbRows.Next() {
 		var r customerapp.CustomerRow
-		if err := dbRows.Scan(&r.ID, &r.Name, &r.CustomerType, &r.CompanyName, &r.CompanyAddress, &r.CompanyPhone, &r.Contact, &r.Phone, &r.Address, &r.Active, &r.DefaultSourceID, &r.DefaultOrderTypeID, &r.Updated); err != nil {
+		if err := dbRows.Scan(&r.ID, &r.Name, &r.CustomerType, &r.CompanyName, &r.CompanyAddress, &r.CompanyPhone, &r.Contact, &r.Phone, &r.Address, &r.Active, &r.DefaultSourceID, &r.DefaultOrderTypeID, &r.PortalEnabled, &r.Updated); err != nil {
 			return nil, 0, false, err
 		}
 		r.CustomerType = customerapp.NormalizeCustomerType(r.CustomerType)
@@ -279,11 +309,13 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 }
 
 func fetchCustomerByID(ctx context.Context, pool *pgxpool.Pool, schema string, id int64) (*customerapp.CustomerEditData, error) {
-	q := fmt.Sprintf(`SELECT id, name, COALESCE(raw_name,''), COALESCE(NULLIF(customer_type,''),'retail'), COALESCE(company_name,''), COALESCE(company_address,''), COALESCE(company_phone,''), COALESCE(contact,''), COALESCE(phone,''), COALESCE(address,''),
-		COALESCE(default_source_id::text,''), COALESCE(default_order_type_id::text,''), active
-		FROM %s.customers WHERE id=$1`, schema)
+	q := fmt.Sprintf(`SELECT c.id, c.name, COALESCE(c.raw_name,''), COALESCE(NULLIF(c.customer_type,''),'retail'), COALESCE(c.company_name,''), COALESCE(c.company_address,''), COALESCE(c.company_phone,''), COALESCE(c.contact,''), COALESCE(c.phone,''), COALESCE(c.address,''),
+		COALESCE(c.default_source_id::text,''), COALESCE(c.default_order_type_id::text,''), c.active, COALESCE(p.enabled,false)
+		FROM %s.customers c
+		LEFT JOIN %s.customer_portal_profiles p ON p.customer_id=c.id
+		WHERE c.id=$1`, schema, schema)
 	var d customerapp.CustomerEditData
-	err := pool.QueryRow(ctx, q, id).Scan(&d.ID, &d.Name, &d.RawName, &d.CustomerType, &d.CompanyName, &d.CompanyAddress, &d.CompanyPhone, &d.Contact, &d.Phone, &d.Address, &d.DefaultSourceID, &d.DefaultOrderTypeID, &d.Active)
+	err := pool.QueryRow(ctx, q, id).Scan(&d.ID, &d.Name, &d.RawName, &d.CustomerType, &d.CompanyName, &d.CompanyAddress, &d.CompanyPhone, &d.Contact, &d.Phone, &d.Address, &d.DefaultSourceID, &d.DefaultOrderTypeID, &d.Active, &d.PortalEnabled)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -292,6 +324,36 @@ func fetchCustomerByID(ctx context.Context, pool *pgxpool.Pool, schema string, i
 	}
 	d.CustomerType = customerapp.NormalizeCustomerType(d.CustomerType)
 	return &d, nil
+}
+
+func fetchCustomerTypes(ctx context.Context, pool *pgxpool.Pool, schema string) ([]string, error) {
+	rows, err := pool.Query(ctx, fmt.Sprintf(`
+		SELECT DISTINCT COALESCE(NULLIF(customer_type,''),'retail') AS customer_type
+		FROM %s.customers
+		WHERE active=true
+		ORDER BY customer_type
+	`, schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{"retail", "ecommerce", "wholesale", "channel"}
+	seen := map[string]bool{}
+	for _, value := range out {
+		seen[value] = true
+	}
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		value = strings.TrimSpace(value)
+		if value != "" && !seen[value] {
+			out = append(out, value)
+			seen[value] = true
+		}
+	}
+	return out, rows.Err()
 }
 
 func fetchOptions(ctx context.Context, pool *pgxpool.Pool, sqlstr string) ([]customerapp.Option, error) {
@@ -428,7 +490,7 @@ func upsertCustomer(ctx context.Context, pool *pgxpool.Pool, schema string, acto
 			return 0, err
 		}
 	}
-	if err := ensureDefaultRetailPortalTx(ctx, tx, schema, newID, name, actor, customerType, active); err != nil {
+	if err := syncCustomerPortalEnabledTx(ctx, tx, schema, newID, name, actor, req.PortalEnabled); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -485,10 +547,47 @@ func inlineUpdateCustomer(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	if err := auditCustomerDiffs(ctx, tx, schema, actor, id, old, next); err != nil {
 		return err
 	}
-	if err := ensureDefaultRetailPortalTx(ctx, tx, schema, id, next.name, actor, next.customerType, next.active); err != nil {
+	if err := syncCustomerPortalEnabledTx(ctx, tx, schema, id, next.name, actor, req.PortalEnabled); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func syncCustomerPortalEnabledTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64, customerName, actor string, enabled *bool) error {
+	if enabled == nil {
+		return nil
+	}
+	var hasProfiles bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`,
+		fmt.Sprintf("%s.customer_portal_profiles", schema),
+	).Scan(&hasProfiles); err != nil {
+		return err
+	}
+	if !hasProfiles {
+		return nil
+	}
+	displayName := strings.TrimSpace(customerName)
+	updatedBy := strings.TrimSpace(actor)
+	if updatedBy == "" {
+		updatedBy = "system"
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_portal_profiles(customer_id, display_name, enabled, status, updated_at, updated_by)
+		VALUES($1,$2,$3,'active',now(),$4)
+		ON CONFLICT(customer_id) DO UPDATE SET
+			display_name=COALESCE(NULLIF(%s.customer_portal_profiles.display_name,''), excluded.display_name),
+			enabled=excluded.enabled,
+			status='active',
+			updated_at=now(),
+			updated_by=excluded.updated_by
+	`, schema, schema), customerID, displayName, *enabled, updatedBy); err != nil {
+		return err
+	}
+	action := "disable"
+	if *enabled {
+		action = "enable"
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "customer_portal_profile", &customerID, action, postgresinfra.StrPtr("enabled"), nil, postgresinfra.StrPtr(fmt.Sprintf("%t", *enabled)), postgresinfra.AuditMeta{"customer_id": customerID})
 }
 
 func ensureDefaultRetailPortalTx(ctx context.Context, tx pgx.Tx, schema string, customerID int64, customerName, actor, customerType string, active bool) error {

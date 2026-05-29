@@ -46,7 +46,7 @@
       <div v-if="authLoading" class="status">加载中</div>
       <div v-else-if="authError" class="status">{{ authError }}</div>
       <div v-else-if="!isCurrentAllowed" class="status">无权访问</div>
-      <component v-else :is="currentInternalView" class="internal-view" :title="title" :view-key="currentKey" :view-params="currentViewParams" />
+      <component v-else :is="currentInternalView" :key="currentKey" class="internal-view" :title="title" :view-key="currentKey" :view-params="currentViewParams" />
     </main>
   </div>
 </template>
@@ -74,6 +74,7 @@ import FinanceReportView from './views/FinanceReportView.vue'
 import FinanceSettingsView from './views/FinanceSettingsView.vue'
 import FinanceTaxLedgerView from './views/FinanceTaxLedgerView.vue'
 import InventoryView from './views/InventoryView.vue'
+import IndustryFieldTemplatesView from './views/IndustryFieldTemplatesView.vue'
 import JobCardsView from './views/JobCardsView.vue'
 import MachinesView from './views/MachinesView.vue'
 import MallSettingsView from './views/MallSettingsView.vue'
@@ -88,6 +89,7 @@ import OutsourceSettingsView from './views/OutsourceSettingsView.vue'
 import NotificationSettingsView from './views/NotificationSettingsView.vue'
 import ProducePlanView from './views/ProducePlanView.vue'
 import ProduceRunningView from './views/ProduceRunningView.vue'
+import ProcessTemplatesView from './views/ProcessTemplatesView.vue'
 import ProductionAcceptanceView from './views/ProductionAcceptanceView.vue'
 import ProductionCostsView from './views/ProductionCostsView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
@@ -167,6 +169,8 @@ const internalViews = {
   stockOutboundLogs: StockOutboundLogsView,
   inventoryMaterialsManual: OperationManualView,
   bom: BomView,
+  processTemplates: ProcessTemplatesView,
+  industryFieldTemplates: IndustryFieldTemplatesView,
   productSettings: ProductSettingsView,
   mallSettings: MallSettingsView,
   costing: CostingView,

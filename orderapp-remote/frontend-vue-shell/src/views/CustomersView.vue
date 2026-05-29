@@ -19,9 +19,7 @@
           <span>客户类型</span>
           <select v-model="customerTypeFilter">
             <option value="">全部类型</option>
-            <option value="retail">零售客户</option>
-            <option value="ecommerce">电商客户</option>
-            <option value="wholesale">批发客户</option>
+            <option v-for="type in customerTypes" :key="`filter-${type}`" :value="type">{{ customerTypeLabel(type) }}</option>
           </select>
         </label>
         <label>
@@ -54,11 +52,12 @@
         </label>
         <label>
           <span>客户类型</span>
-          <select v-model="form.customer_type">
-            <option value="retail">零售客户</option>
-            <option value="ecommerce">电商客户</option>
-            <option value="wholesale">批发客户</option>
-          </select>
+          <div class="inline-picker">
+            <select v-model="form.customer_type">
+              <option v-for="type in customerTypes" :key="`form-${type}`" :value="type">{{ customerTypeLabel(type) }}</option>
+            </select>
+            <button class="secondary icon-button" type="button" title="新增客户类型" @click="addCustomerType">+</button>
+          </div>
         </label>
         <label>
           <span>公司名称</span>
@@ -81,10 +80,13 @@
         </label>
         <label>
           <span>订单类型</span>
-          <select v-model.number="form.default_order_type_id">
-            <option :value="0">未设置</option>
-            <option v-for="item in orderTypes" :key="item.id" :value="item.id">{{ item.name }}</option>
-          </select>
+          <div class="inline-picker">
+            <select v-model.number="form.default_order_type_id">
+              <option :value="0">未设置</option>
+              <option v-for="item in orderTypes" :key="item.id" :value="item.id">{{ item.name }}</option>
+            </select>
+            <button class="secondary icon-button" type="button" title="新增订单类型" @click="addOrderType">+</button>
+          </div>
         </label>
         <label class="wide">
           <span>地址</span>
@@ -93,6 +95,10 @@
         <label class="check">
           <input v-model="form.active" type="checkbox" />
           <span>启用</span>
+        </label>
+        <label class="check">
+          <input v-model="form.portal_enabled" type="checkbox" />
+          <span>开通客户门户/工作台</span>
         </label>
         <div class="form-actions">
           <button class="primary" type="submit" :disabled="loading">保存</button>
@@ -212,6 +218,7 @@ import { replaceHistoryURL } from '../lib/url-state'
 const rows = ref([])
 const sources = ref([])
 const orderTypes = ref([])
+const customerTypes = ref(['retail', 'ecommerce', 'wholesale', 'channel'])
 const q = ref('')
 const page = ref(1)
 const pageSize = ref(10)
@@ -252,6 +259,7 @@ function emptyForm() {
     default_source_id: 0,
     default_order_type_id: 0,
     active: true,
+    portal_enabled: false,
   }
 }
 
@@ -266,7 +274,9 @@ function assignForm(data) {
     default_source_id: Number(data?.default_source_id || 0),
     default_order_type_id: Number(data?.default_order_type_id || 0),
     active: data?.active !== false,
+    portal_enabled: data?.portal_enabled === true,
   })
+  ensureCustomerTypeOption(form.customer_type)
 }
 
 function assignDashboard(data = {}) {
@@ -304,15 +314,23 @@ function applyFormDefaults() {
 }
 
 function normalizeCustomerType(value) {
-  return ['retail', 'ecommerce', 'wholesale'].includes(value) ? value : 'retail'
+  const next = String(value || '').trim()
+  return next || 'retail'
 }
 
 function customerTypeLabel(value) {
+  const normalized = normalizeCustomerType(value)
   return {
     retail: '零售客户',
     ecommerce: '电商客户',
     wholesale: '批发客户',
-  }[normalizeCustomerType(value)]
+    channel: '渠道客户',
+  }[normalized] || normalized
+}
+
+function ensureCustomerTypeOption(value) {
+  const next = normalizeCustomerType(value)
+  if (next && !customerTypes.value.includes(next)) customerTypes.value.push(next)
 }
 
 function assetKindLabel(kind) {
@@ -339,9 +357,7 @@ function applyUrl() {
 }
 
 function normalizeListCustomerType(value) {
-  const v = String(value || '').trim().toLowerCase()
-  if (v === 'retail' || v === 'ecommerce' || v === 'wholesale') return v
-  return ''
+  return String(value || '').trim()
 }
 
 function normalizeActiveFilter(value) {
@@ -409,6 +425,7 @@ async function load() {
     rows.value = data.rows || []
     sources.value = data.sources || []
     orderTypes.value = data.order_types || []
+    customerTypes.value = mergeCustomerTypes(data.customer_types || [], rows.value.map((row) => row.customer_type))
     if (customerDrawerOpen.value && !editingId.value) applyFormDefaults()
     const pagination = paginationFromApi(data)
     totalCustomers.value = pagination.total
@@ -468,6 +485,7 @@ async function openCustomerDrawer(id) {
     assignForm(data.customer)
     sources.value = data.sources || sources.value
     orderTypes.value = data.order_types || orderTypes.value
+    customerTypes.value = mergeCustomerTypes(data.customer_types || [], [data.customer?.customer_type])
     assets.value = data.assets || []
     assignDashboard(data.dashboard)
     customerPaste.value = ''
@@ -510,6 +528,7 @@ async function saveCustomer() {
       default_source_id: form.default_source_id || null,
       default_order_type_id: form.default_order_type_id || null,
       active: !!form.active,
+      portal_enabled: !!form.portal_enabled,
     }
     const data = await apiSend(editingId.value ? `/api/customers/${editingId.value}` : '/api/customers', {
       method: editingId.value ? 'PUT' : 'POST',
@@ -525,6 +544,44 @@ async function saveCustomer() {
     updateUrl({ edit_id: editingId.value })
   } catch (err) {
     error.value = err.message || '保存失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function mergeCustomerTypes(...groups) {
+  const out = []
+  for (const value of ['retail', 'ecommerce', 'wholesale', 'channel', ...groups.flat()]) {
+    const next = normalizeCustomerType(value)
+    if (next && !out.includes(next)) out.push(next)
+  }
+  return out
+}
+
+function addCustomerType() {
+  const name = window.prompt('新增客户类型')
+  const next = normalizeCustomerType(name)
+  if (!next) return
+  ensureCustomerTypeOption(next)
+  form.customer_type = next
+  customerTypeFilter.value = ''
+}
+
+async function addOrderType() {
+  const name = String(window.prompt('新增订单类型') || '').trim()
+  if (!name) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const row = await apiSend('/api/customers/order-types', { body: { name } })
+    if (!orderTypes.value.some((item) => Number(item.id) === Number(row.id))) {
+      orderTypes.value = [...orderTypes.value, row]
+    }
+    form.default_order_type_id = Number(row.id || 0)
+    ok.value = '已新增订单类型'
+  } catch (err) {
+    error.value = err.message || '新增订单类型失败'
   } finally {
     loading.value = false
   }
@@ -598,6 +655,7 @@ onMounted(async () => {
 .customer-drawer { width: min(760px, 100vw); height: 100vh; overflow: auto; background: #fff; padding: 18px; box-shadow: -18px 0 38px rgba(20, 20, 20, .18); }
 .drawer-head { position: sticky; top: 0; z-index: 2; justify-content: space-between; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid #eee8df; background: #fff; }
 .customer-drawer input, .customer-drawer select, .customer-drawer textarea { width: 100%; }
+.inline-picker { display: grid; grid-template-columns: minmax(0, 1fr) 38px; gap: 8px; align-items: center; }
 h2, h3 { margin: 0; font-size: 20px; }
 h3 { font-size: 18px; }
 label span, .stats span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
@@ -606,6 +664,7 @@ input, select { height: 38px; }
 textarea { min-height: 78px; resize: vertical; }
 button { height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
+.icon-button { width: 38px; padding: 0; font-weight: 700; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
 .text-button { height: 30px; border: 0; background: transparent; color: #1f4f82; padding: 0; }

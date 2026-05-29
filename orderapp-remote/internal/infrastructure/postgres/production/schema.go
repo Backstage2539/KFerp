@@ -78,7 +78,11 @@ CREATE TABLE IF NOT EXISTS %s.work_orders (
 	actual_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	completed_at TIMESTAMPTZ,
-	material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb
+	material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
+	process_template_id BIGINT NOT NULL DEFAULT 0,
+	process_template_name TEXT NOT NULL DEFAULT '',
+	process_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 CREATE INDEX IF NOT EXISTS work_orders_status_idx ON %s.work_orders(status, created_at DESC);
 
@@ -87,10 +91,20 @@ CREATE TABLE IF NOT EXISTS %s.job_cards (
 	work_order_id BIGINT NOT NULL,
 	operation TEXT NOT NULL DEFAULT '',
 	workstation TEXT NOT NULL DEFAULT '',
+	sequence_no INT NOT NULL DEFAULT 1,
 	status TEXT NOT NULL DEFAULT 'running',
 	started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	completed_at TIMESTAMPTZ,
-	operator TEXT NOT NULL DEFAULT ''
+	operator TEXT NOT NULL DEFAULT '',
+	planned_input_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
+	actual_input_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
+	actual_output_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
+	actual_loss_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
+	actual_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
+	records_loss BOOLEAN NOT NULL DEFAULT false,
+	exception_reason TEXT NOT NULL DEFAULT '',
+	metrics_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	parameter_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE INDEX IF NOT EXISTS job_cards_work_order_idx ON %s.job_cards(work_order_id, id);
 CREATE INDEX IF NOT EXISTS job_cards_status_idx ON %s.job_cards(status, started_at DESC);
@@ -134,7 +148,24 @@ CREATE INDEX IF NOT EXISTS work_order_material_reservations_material_idx ON %s.w
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
-	_, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`, schema))
+	q2 := fmt.Sprintf(`
+ALTER TABLE %[1]s.work_orders ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE %[1]s.work_orders ADD COLUMN IF NOT EXISTS process_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.work_orders ADD COLUMN IF NOT EXISTS process_template_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.work_orders ADD COLUMN IF NOT EXISTS process_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE %[1]s.work_orders ADD COLUMN IF NOT EXISTS operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS sequence_no INT NOT NULL DEFAULT 1;
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS planned_input_qty NUMERIC(14,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS actual_input_qty NUMERIC(14,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS actual_output_qty NUMERIC(14,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS actual_loss_qty NUMERIC(14,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS actual_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS records_loss BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS exception_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS metrics_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE %[1]s.job_cards ADD COLUMN IF NOT EXISTS parameter_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+`, schema)
+	_, err := pool.Exec(ctx, q2)
 	return err
 }
 

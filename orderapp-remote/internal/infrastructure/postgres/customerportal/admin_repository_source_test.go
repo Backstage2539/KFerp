@@ -17,10 +17,7 @@ func TestCustomerPortalAdminRepositoryPersistsProfilesCapabilitiesAndBindings(t 
 		"PortalAdminDetail",
 		"UpdatePortalVisibility",
 		"customer_portal_profiles",
-		"processing_warehouse_code",
 		"default_sender_id",
-		"customer_processing",
-		"warehouses",
 		"customer_portal_user_bindings",
 		"customer_service_capabilities",
 		"theme_key",
@@ -35,15 +32,14 @@ func TestCustomerPortalAdminRepositoryPersistsProfilesCapabilitiesAndBindings(t 
 	}
 }
 
-func TestCustomerPortalAdminRepositoryShowsOnlyWholesaleCustomersAndERPBinding(t *testing.T) {
+func TestCustomerPortalAdminRepositoryShowsOnlyEnabledPortalCustomersAndERPBinding(t *testing.T) {
 	body, err := os.ReadFile("admin_repository.go")
 	if err != nil {
 		t.Fatalf("read admin_repository.go: %v", err)
 	}
 	text := string(body)
 	for _, want := range []string{
-		"customer_type",
-		"'wholesale'",
+		"COALESCE(p.enabled,false)=true",
 		"customer_erp_user_bindings",
 		"company_employees",
 		"account_type='channel_customer'",

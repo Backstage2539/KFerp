@@ -232,7 +232,7 @@ ON CONFLICT (material_batch_id, warehouse) DO NOTHING
 
 func ensureWarehouseTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	q := fmt.Sprintf(`
-CREATE TABLE IF NOT EXISTS %s.warehouses (
+CREATE TABLE IF NOT EXISTS %[1]s.warehouses (
 	code TEXT PRIMARY KEY,
 	name TEXT NOT NULL DEFAULT '',
 	kind TEXT NOT NULL DEFAULT '',
@@ -240,11 +240,19 @@ CREATE TABLE IF NOT EXISTS %s.warehouses (
 	sort_order INTEGER NOT NULL DEFAULT 0,
 	is_default BOOLEAN NOT NULL DEFAULT false,
 	active BOOLEAN NOT NULL DEFAULT true,
+	customer_id BIGINT NOT NULL DEFAULT 0,
 	description TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS warehouses_customer_idx ON %[1]s.warehouses(customer_id)
 `, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+	ALTER TABLE %s.warehouses
+		ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0;
+	`, schema)); err != nil {
 		return err
 	}
 	_, err := pool.Exec(ctx, fmt.Sprintf(`

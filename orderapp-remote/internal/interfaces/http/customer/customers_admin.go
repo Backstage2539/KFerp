@@ -19,4 +19,5 @@ type CustomerUpsertRequest struct {
 	DefaultSourceID    string `form:"default_source_id"`
 	DefaultOrderTypeID string `form:"default_order_type_id"`
 	Active             string `form:"active"`
+	PortalEnabled      *bool
 }

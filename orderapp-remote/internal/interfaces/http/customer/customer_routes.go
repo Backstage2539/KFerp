@@ -28,6 +28,7 @@ func registerCustomerRoutes(e *echo.Echo, deps Dependencies) {
 	e.GET("/customers", h.index)
 	e.GET("/api/customers", h.indexAPI)
 	e.POST("/api/customers", h.createAPI)
+	e.POST("/api/customers/order-types", h.createOrderTypeAPI)
 	e.GET("/api/customers/:id", h.detailAPI)
 	e.PUT("/api/customers/:id", h.updateAPI)
 	e.GET("/customers/new", h.new)
@@ -67,6 +68,7 @@ type customerUpsertAPIRequest struct {
 	DefaultSourceID    *int64 `json:"default_source_id"`
 	DefaultOrderTypeID *int64 `json:"default_order_type_id"`
 	Active             *bool  `json:"active"`
+	PortalEnabled      *bool  `json:"portal_enabled"`
 }
 
 type customerAPIModel struct {
@@ -83,6 +85,7 @@ type customerAPIModel struct {
 	DefaultSourceID    *int64 `json:"default_source_id"`
 	DefaultOrderTypeID *int64 `json:"default_order_type_id"`
 	Active             bool   `json:"active"`
+	PortalEnabled      bool   `json:"portal_enabled"`
 }
 
 type customerDashboardAPI struct {
@@ -106,10 +109,15 @@ type customerAssetAPI struct {
 	URL         string `json:"url"`
 }
 
+type customerOrderTypeRequest struct {
+	Name string `json:"name"`
+}
+
 type customerEditorAPIResponse struct {
 	Customer   customerAPIModel     `json:"customer"`
 	Sources    []apiOption          `json:"sources"`
 	OrderTypes []apiOption          `json:"order_types"`
+	Types      []string             `json:"customer_types"`
 	Assets     []customerAssetAPI   `json:"assets"`
 	Dashboard  customerDashboardAPI `json:"dashboard"`
 }
@@ -152,6 +160,7 @@ func (h customerHandler) indexAPI(c echo.Context) error {
 		"rows":           result.Rows,
 		"sources":        apiOptions(result.Sources),
 		"order_types":    apiOptions(result.OrderTypes),
+		"customer_types": result.Types,
 		"page":           (offset / limit) + 1,
 		"limit":          limit,
 		"offset":         offset,
@@ -253,6 +262,18 @@ func (h customerHandler) updateAPI(c echo.Context) error {
 	return c.JSON(http.StatusOK, payload)
 }
 
+func (h customerHandler) createOrderTypeAPI(c echo.Context) error {
+	var req customerOrderTypeRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	row, err := h.customer.CreateOrderType(c.Request().Context(), support.ActorOf(c), req.Name)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, apiOption{ID: row.ID, Name: row.Name})
+}
+
 func (h customerHandler) editorPayload(c echo.Context, id int64) (*customerEditorAPIResponse, error) {
 	data, err := h.customer.Editor(c.Request().Context(), id)
 	if err != nil || data == nil {
@@ -262,6 +283,7 @@ func (h customerHandler) editorPayload(c echo.Context, id int64) (*customerEdito
 		Customer:   customerAPIModelFromEdit(&data.Customer),
 		Sources:    apiOptions(data.Sources),
 		OrderTypes: apiOptions(data.OrderTypes),
+		Types:      data.Types,
 		Assets:     customerAssetsAPI(data.Assets),
 		Dashboard:  customerDashboardAPIFromData(data.Dashboard),
 	}
@@ -286,6 +308,7 @@ func (req customerUpsertAPIRequest) toFormRequest() CustomerUpsertRequest {
 		DefaultSourceID:    optionalIntString(req.DefaultSourceID),
 		DefaultOrderTypeID: optionalIntString(req.DefaultOrderTypeID),
 		Active:             active,
+		PortalEnabled:      req.PortalEnabled,
 	}
 }
 
@@ -319,6 +342,7 @@ func customerAPIModelFromEdit(data *CustomerEditData) customerAPIModel {
 		DefaultSourceID:    parseOptionalCustomerInt64(data.DefaultSourceID),
 		DefaultOrderTypeID: parseOptionalCustomerInt64(data.DefaultOrderTypeID),
 		Active:             data.Active,
+		PortalEnabled:      data.PortalEnabled,
 	}
 }
 

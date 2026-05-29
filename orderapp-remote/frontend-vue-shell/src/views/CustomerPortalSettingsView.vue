@@ -44,10 +44,6 @@
             <input v-model.trim="row.form.display_name" placeholder="默认使用客户名" />
           </label>
           <label>
-            <span>代加工仓库</span>
-            <input v-model.trim="row.form.processing_warehouse_code" placeholder="默认 cust_ID_processing" />
-          </label>
-          <label>
             <span>默认寄件人</span>
             <select v-model.number="row.form.default_sender_id">
               <option :value="0">使用系统默认寄件人</option>
@@ -72,25 +68,6 @@
                 </option>
               </select>
             </label>
-          </div>
-          <div class="bean-list-picker">
-            <span>豆单展示版本</span>
-            <label class="check">
-              <input v-model="row.form.bean_list_mode" type="radio" value="latest" />
-              <span>{{ row.beanListVersionOptions.length ? '展示客户最新版本' : '使用公共豆单' }}</span>
-            </label>
-            <label v-if="row.beanListVersionOptions.length" class="check">
-              <input v-model="row.form.bean_list_mode" type="radio" value="fixed" />
-              <span>固定指定版本</span>
-            </label>
-            <select
-              v-if="row.beanListVersionOptions.length && row.form.bean_list_mode === 'fixed'"
-              v-model.number="row.form.bean_list_publication_id"
-            >
-              <option v-for="item in row.beanListVersionOptions" :key="item.id" :value="item.id">
-                {{ beanListVersionLabel(item) }}
-              </option>
-            </select>
           </div>
           <label class="check">
             <input v-model="row.form.enabled" type="checkbox" />
@@ -287,7 +264,8 @@ function customerTypeLabel(value) {
     wholesale: '批发客户',
     retail: '零售客户',
     ecommerce: '电商客户',
-  }[value] || '零售客户'
+    channel: '渠道客户',
+  }[value] || value || '零售客户'
 }
 
 function createPortalRow(customer) {
@@ -295,16 +273,12 @@ function createPortalRow(customer) {
     customer,
     form: {
       display_name: customer.display_name || '',
-      processing_warehouse_code: customer.processing_warehouse_code || '',
       default_sender_id: Number(customer.default_sender_id || 0),
       enabled: customer.portal_enabled !== false,
       capability_template_key: trimTemplateKey(customer.capability_template_key),
-      bean_list_mode: normalizeBeanListMode(customer.bean_list_mode),
-      bean_list_publication_id: Number(customer.bean_list_publication_id || 0),
     },
     capabilities: [],
     bindings: [],
-    beanListVersionOptions: [],
     externalUsers: [],
     externalUserForm: {
       name: '',
@@ -331,15 +305,10 @@ async function loadRowDetail(row) {
 function assignRowDetail(row, data) {
   row.customer = data?.customer || row.customer
   row.form.display_name = row.customer.display_name || ''
-  row.form.processing_warehouse_code = row.customer.processing_warehouse_code || ''
   row.form.default_sender_id = Number(row.customer.default_sender_id || 0)
   row.form.enabled = row.customer.portal_enabled !== false
   row.form.capability_template_key = trimTemplateKey(row.customer.capability_template_key)
-  row.form.bean_list_mode = normalizeBeanListMode(row.customer.bean_list_mode)
-  row.form.bean_list_publication_id = Number(row.customer.bean_list_publication_id || 0)
   row.bindings = data?.bindings || []
-  row.beanListVersionOptions = data?.bean_list_version_options || []
-  syncRowBeanListVersion(row)
   row.capabilities = (data?.capabilities || []).map((item) => ({
     code: item.code,
     label: item.label || capabilityLabels[item.code] || item.code,
@@ -365,7 +334,6 @@ async function loadRowExternalUsers(row) {
 
 async function saveVisibility(row) {
   if (!row?.customer?.id) return
-  syncRowBeanListVersion(row)
   row.saving = true
   error.value = ''
   ok.value = ''
@@ -374,12 +342,9 @@ async function saveVisibility(row) {
       method: 'PUT',
       body: {
         display_name: row.form.display_name,
-        processing_warehouse_code: row.form.processing_warehouse_code,
         default_sender_id: Number(row.form.default_sender_id || 0),
         enabled: !!row.form.enabled,
         capability_template_key: trimTemplateKey(row.form.capability_template_key),
-        bean_list_mode: row.form.bean_list_mode,
-        bean_list_publication_id: Number(row.form.bean_list_publication_id || 0),
       },
     })
     assignRowDetail(row, data)
@@ -403,31 +368,6 @@ function selectedTemplate(row) {
 
 function trimTemplateKey(value) {
   return String(value || '').trim()
-}
-
-function normalizeBeanListMode(value) {
-  return String(value || '').trim() === 'fixed' ? 'fixed' : 'latest'
-}
-
-function beanListVersionLabel(item) {
-  const version = item?.version_no || `#${item?.id || ''}`
-  const time = item?.published_at ? ` · ${item.published_at}` : ''
-  return `${version}${time}`
-}
-
-function syncRowBeanListVersion(row) {
-  if (!row?.beanListVersionOptions?.length) {
-    row.form.bean_list_mode = 'latest'
-    row.form.bean_list_publication_id = 0
-    return
-  }
-  if (row.form.bean_list_mode !== 'fixed') {
-    row.form.bean_list_publication_id = 0
-    return
-  }
-  const currentID = Number(row.form.bean_list_publication_id || 0)
-  if (row.beanListVersionOptions.some((item) => Number(item.id) === currentID)) return
-  row.form.bean_list_publication_id = Number(row.beanListVersionOptions[0]?.id || 0)
 }
 
 function unknownTemplateKey(row) {
@@ -577,8 +517,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .customer-cell span, .binding-row span { color: #666; font-size: 13px; line-height: 1.4; }
 .config-cell input, .config-cell select { width: 100%; }
 .template-picker { display: grid; gap: 8px; align-items: end; }
-.bean-list-picker { display: grid; gap: 7px; border: 1px solid #e4e7ec; border-radius: 8px; padding: 8px; background: #f8fafc; }
-.bean-list-picker > span { color: #555; font-size: 12px; margin: 0; }
 .check { display: inline-flex; align-items: center; gap: 8px; }
 .check input { width: auto; height: auto; }
 .check span { margin: 0; color: #333; font-size: 13px; }

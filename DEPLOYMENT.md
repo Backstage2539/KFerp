@@ -124,6 +124,7 @@ ssh -i openclaw_jj_ed25519 root@1.12.242.58 "docker logs --tail=200 erp_orderapp
 orderapp 走 BasicAuth：
 - 用户名默认：`order`
 - 密码来自服务器 `/opt/stacks/erp/.env` 的 `ORDERAPP_PASS`
+- 如需临时关闭外层 BasicAuth（例如 in-app browser 无法处理原生 BasicAuth 弹窗），在 `/opt/stacks/erp/.env` 设置 `DISABLE_BASIC_AUTH=true` 后重建/重启 `orderapp`。该开关只取消外层 BasicAuth，系统账号/Bearer 登录仍由应用权限体系控制；使用完应恢复为 `false` 并重新部署。
 
 ### Q2: push 到 GitHub 失败（Repository not found）
 通常是 SSH Key 权限问题：

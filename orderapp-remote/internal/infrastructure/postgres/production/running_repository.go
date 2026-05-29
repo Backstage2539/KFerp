@@ -207,7 +207,7 @@ func (repo Repository) Finish(ctx context.Context, cmd productionapp.FinishComma
 	if err := completeMaterialReservationsForRunningItemTx(ctx, tx, schema, r.ID); err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	if err := completeWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, actualCost, operator); err != nil {
+	if err := completeWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, actualCost, r.InputG, totalFinishedG, operator); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), id, operator, finishedAt); err != nil {
@@ -347,7 +347,7 @@ func (repo Repository) finishRunningOutputs(ctx context.Context, tx pgx.Tx, r Pr
 	if err := completeMaterialReservationsForRunningItemTx(ctx, tx, schema, r.ID); err != nil {
 		return productionapp.FinishResult{}, err
 	}
-	if err := completeWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, actualCost, operator); err != nil {
+	if err := completeWorkOrderForRunningItemTx(ctx, tx, schema, r.ID, actualCost, consumedInputG, totalFinishedG, operator); err != nil {
 		return productionapp.FinishResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.produce_running_items SET status='done',finished_by=$2,finished_at=$3 WHERE id=$1`, schema), r.ID, operator, finishedAt); err != nil {
