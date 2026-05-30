@@ -118,7 +118,7 @@
                 <th>BOM预期产出率</th>
                 <th>利润率覆盖</th>
                 <th>BOM来源</th>
-                <th>BOM状态</th>
+                <th>SKU状态</th>
                 <th>BOM</th>
                 <th>处理</th>
                 <th class="remark-cell">备注</th>
@@ -126,9 +126,9 @@
             </thead>
             <tbody>
               <template v-for="row in displaySkuRows" :key="row.id">
-                <tr>
+                <tr :class="{ 'inactive-sku': row.active === false }">
                   <td class="select-col">
-                    <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row)" @change="toggleProductSelection(row, $event.target.checked)" />
+                    <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row) || row.active === false" @change="toggleProductSelection(row, $event.target.checked)" />
                   </td>
                   <td class="sku-category-cell">{{ categoryLabel(row, 1) }}</td>
                   <td class="sku-category-cell">{{ categoryLabel(row, 2) }}</td>
@@ -185,10 +185,11 @@
                   </td>
                   <td class="bom-source-cell">{{ bomSourceLabel(row) }}</td>
                   <td>
-                    <span :class="['status-pill', row.bom_status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.bom_status) }}</span>
+                    <span :class="['status-pill', (row.active === false || row.bom_status === 'inactive') ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
                   </td>
                   <td>
                     <button class="text-button" type="button" :disabled="!canEditSkuRow(row)" @click="openProductBom(row)">维护 BOM</button>
+                    <button class="text-button" type="button" style="margin-left:4px" @click="copySkuInPlace(row)">复制</button>
                   </td>
                   <td>
                     <button class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row)" @click="deactivateProducts([row.id])">停用</button>
@@ -2734,6 +2735,13 @@ function bomStatusLabel(value) {
   return '有效'
 }
 
+function skuStatusLabel(row) {
+  if (row.active === false) return '已失效'
+  if (row.bom_status === 'inactive') return 'BOM已失效'
+  if (row.bom_status === 'missing') return '缺BOM'
+  return '有效'
+}
+
 function pruneSelectedProducts(sourceProducts) {
   const validIDs = new Set((sourceProducts || []).map((product) => Number(product.id || 0)).filter(Boolean))
   selectedProductIds.value = selectedProductIds.value.filter((id) => validIDs.has(Number(id)))
@@ -3685,6 +3693,30 @@ async function deactivateProducts(productIds) {
   }
 }
 
+async function copySkuInPlace(row) {
+  if (!row || !row.id) return
+  const okToCopy = window.confirm(`复制 SKU「${row.name}」及其 BOM 到当前归属？同名 SKU 会覆盖资料但保留目标 SKU ID。`)
+  if (!okToCopy) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const result = await apiSend('/api/product-settings/skus/copy', {
+      body: buildSkuCopyPayload({
+        target_customer_id: skuContextCustomerID.value,
+        source_customer_id: Number(row.customer_id || 0),
+        source_sku_ids: [Number(row.id)],
+      }),
+    })
+    ok.value = `已复制 SKU「${row.name}」`
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '复制 SKU 失败'
+  } finally {
+    loading.value = false
+  }
+}
+
 watch(selectedCustomerSkuCustomerID, (customerID) => {
   if (restoringProductSettingsDraft) {
     pruneSelectedProducts(displaySkuRows.value)
@@ -4042,5 +4074,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
   .product-create-form .wide-field, .custom-product-form .wide-field { grid-column: auto; }
   .template-select { width: 100%; }
   table { min-width: 1400px; }
+  .sku-table .inactive-sku td { opacity: 0.4; }
+  .sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
 }
 </style>
