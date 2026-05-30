@@ -105,9 +105,10 @@
           <span>继承自 {{ detail.bom_source_product_name || '来源SKU' }} 的当前 BOM</span>
           <button class="secondary compact" type="button" @click="lockCurrentBomVersion" :disabled="loading || !canEditCurrentBomProduct">锁定当前 BOM 版本</button>
         </div>
-        <div v-if="detail?.bom_source_type === 'owned' && versions.length > 0" class="inherit-source-banner">
-          <span>自有 BOM · 可锁定到版本以固定配方</span>
-          <button class="secondary compact" type="button" @click="lockCurrentBomVersion" :disabled="loading || !canEditCurrentBomProduct">锁定当前 BOM 版本</button>
+        <div v-if="detail?.bom_source_type === 'owned'" class="inherit-source-banner">
+          <span v-if="versions.length > 0">自有 BOM · 可锁定到版本以固定配方</span>
+          <span v-else>自有 BOM · 先保存版本后再锁定</span>
+          <button v-if="versions.length > 0" class="secondary compact" type="button" @click="lockCurrentBomVersion" :disabled="loading || !canEditCurrentBomProduct">锁定当前 BOM 版本</button>
         </div>
         <div v-if="detail?.bom_source_type === 'inherit_version'" class="inherit-source-banner locked">
           <span v-if="detail.source_product_id > 0">锁定：{{ detail.bom_source_product_name || '来源SKU' }} / BOM {{ detail.bom_source_version_no || 'V???' }}</span>
