@@ -565,10 +565,6 @@ func (r Repository) CopySKUs(ctx context.Context, cmd catalogapp.CopySKUsCommand
 			result.SkippedCount++
 			continue
 		}
-		if !source.Active {
-			result.SkippedCount++
-			continue
-		}
 		targetCategoryID := int64(0)
 		if source.ProductCategoryID > 0 {
 			category, err := ensureProductCategoryForTargetTx(ctx, tx, r.schema, cmd.Actor, cmd.TargetCustomerID, source.ProductCategoryID)
