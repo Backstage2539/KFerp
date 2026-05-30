@@ -192,7 +192,6 @@
                     <span :class="['status-pill', (row.active === false || row.bom_status === 'inactive') ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
                   </td>
                   <td>
-                    <button class="text-button" type="button" style="margin-right:4px" @click="copySkuInPlace(row)">复制</button>
                     <button class="text-button" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="openProductBom(row)">维护 BOM</button>
                   </td>
                   <td>
