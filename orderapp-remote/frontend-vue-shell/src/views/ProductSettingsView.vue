@@ -4061,6 +4061,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
   .special-attr-schema-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .master-data-layout { grid-template-columns: 1fr; }
 }
+.sku-table .inactive-sku td { opacity: 0.4; }
+.sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
   .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row { grid-template-columns: 1fr; }
