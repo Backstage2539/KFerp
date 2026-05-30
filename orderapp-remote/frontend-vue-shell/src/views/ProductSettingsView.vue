@@ -114,7 +114,8 @@
                 <th>商品编号</th>
                 <th class="sku-name-cell">商品</th>
                 <th>归属</th>
-                <th class="special-attrs-cell">特殊属性</th>
+                <th class="special-attrs-cell">复制</th>
+                <th>特殊属性</th>
                 <th>BOM预期产出率</th>
                 <th>利润率覆盖</th>
                 <th>BOM来源</th>
@@ -141,6 +142,9 @@
                       @change="saveProductBasics(row, 'SKU名称已保存')" />
                   </td>
                   <td>{{ productOwnerLabel(row) }}</td>
+                  <td class="special-attrs-cell">
+                    <button class="text-button" type="button" @click="copySkuInPlace(row)">复制</button>
+                  </td>
                   <td class="special-attrs-cell">
                     <div v-if="specialAttrSchemaForProduct(row).length" class="special-attr-editor compact">
                       <label v-for="attr in specialAttrSchemaForProduct(row)" :key="`row-attr-${row.id}-${attr.key}`">

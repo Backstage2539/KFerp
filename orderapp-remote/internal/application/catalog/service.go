@@ -791,9 +791,7 @@ func (s *Service) CopySKUs(ctx context.Context, cmd CopySKUsCommand) (CopySKUsRe
 	if cmd.TargetCustomerID < 0 || cmd.SourceCustomerID < 0 {
 		return CopySKUsResult{}, ValidationError{Message: "invalid customer_id"}
 	}
-	if cmd.TargetCustomerID == cmd.SourceCustomerID {
-		return CopySKUsResult{}, ValidationError{Message: "source and target customer cannot be the same"}
-	}
+	// Allow same-customer copy for SKU duplication
 	seen := map[int64]bool{}
 	ids := make([]int64, 0, len(cmd.SourceSKUIDs))
 	for _, id := range cmd.SourceSKUIDs {
