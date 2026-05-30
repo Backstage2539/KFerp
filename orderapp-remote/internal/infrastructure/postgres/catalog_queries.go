@@ -139,7 +139,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
 			ELSE p.id
 		END
-		WHERE p.active=true ORDER BY p.name`, schema)
+		WHERE 1=1 ORDER BY p.active DESC, p.name`, schema)
 	rows, err := pool.Query(ctx, sqlstr)
 	if err != nil {
 		return nil, err
