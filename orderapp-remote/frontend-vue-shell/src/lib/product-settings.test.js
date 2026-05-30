@@ -539,7 +539,7 @@ test('normalizeVisibleSkuFilters drops hidden legacy SKU filters restored from o
   assert.deepEqual(filters, {
     productKind: 'all',
     customType: 'all',
-    active: 'all',
+    active: 'active',
     query: '',
     primaryCategory: '咖啡烘焙豆',
     secondaryCategory: '精品意式拼配',
@@ -553,7 +553,7 @@ test('normalizeVisibleSkuFilters drops hidden legacy SKU filters restored from o
   assert.deepEqual(staleCategoryFilters, {
     productKind: 'all',
     customType: 'all',
-    active: 'all',
+    active: 'active',
     query: '',
     primaryCategory: '',
     secondaryCategory: '',
@@ -626,7 +626,7 @@ test('skuTableState keeps visible rows, total, and category filters in one consi
     filters: {
       productKind: 'all',
       customType: 'all',
-      active: 'all',
+      active: 'active',
       query: '',
       primaryCategory: '',
       secondaryCategory: '',

@@ -105,7 +105,7 @@ export function normalizeVisibleSkuFilters(filters = {}, rows = null) {
   const normalized = {
     productKind: PRODUCT_KIND_ALL,
     customType: SKU_CUSTOM_TYPE_ALL,
-    active: String(filters.active || 'all').trim(),
+    active: String(filters.active || 'active').trim(),
     query: String(filters.query || '').trim(),
     primaryCategory: String(filters.primaryCategory || '').trim(),
     secondaryCategory: String(filters.secondaryCategory || '').trim(),
