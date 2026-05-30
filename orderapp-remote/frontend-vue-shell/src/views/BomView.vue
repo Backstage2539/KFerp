@@ -105,6 +105,10 @@
           <span>继承自 {{ detail.bom_source_product_name || '来源SKU' }} 的当前 BOM</span>
           <button class="secondary compact" type="button" @click="lockCurrentBomVersion" :disabled="loading || !canEditCurrentBomProduct">锁定当前 BOM 版本</button>
         </div>
+        <div v-if="detail?.bom_source_type === 'owned' && versions.length > 0" class="inherit-source-banner">
+          <span>自有 BOM · 可锁定到版本以固定配方</span>
+          <button class="secondary compact" type="button" @click="lockCurrentBomVersion" :disabled="loading || !canEditCurrentBomProduct">锁定当前 BOM 版本</button>
+        </div>
         <div v-if="detail?.bom_source_type === 'inherit_version'" class="inherit-source-banner locked">
           <span>锁定：{{ detail.bom_source_product_name || '来源SKU' }} / BOM {{ detail.bom_source_version_no || 'V???' }}</span>
           <button class="secondary compact" type="button" @click="unlockBomVersion" :disabled="loading || !canEditCurrentBomProduct">恢复跟随当前 BOM</button>
@@ -238,7 +242,7 @@
               <td>{{ version.created_at }}</td>
               <td>
                 <button class="text-button" type="button" @click="activateVersion(version.id)" :disabled="version.status === 'active' || !canEditCurrentBomProduct">启用</button>
-                <button v-if="detail?.bom_source_type === 'inherit_current' && version.status === 'active'" class="text-button" type="button" style="margin-left:6px" @click="lockBomVersion(version.id)" :disabled="!canEditCurrentBomProduct">锁定此版本</button>
+                <button class="text-button" type="button" @click="lockBomVersion(version.id)" :disabled="!canEditCurrentBomProduct || version.status !== 'active'">锁定此版本</button>
               </td>
             </tr>
             <tr v-if="!versions.length">
@@ -748,13 +752,22 @@ async function deleteBom() {
 
 async function lockCurrentBomVersion() {
   if (!selectedProductId.value) return
-  if (!detail.value || detail.value.bom_source_type !== 'inherit_current') return
+  if (!detail.value) return
+  // Allow locking for inherit_current AND owned BOMs
+  if (detail.value.bom_source_type !== 'inherit_current' && detail.value.bom_source_type !== 'owned') return
+  // Find the current active version to lock to
+  const activeVersion = versions.value.find(v => v.status === 'active')
+  if (!activeVersion) {
+    error.value = '没有有效的 BOM 版本可以锁定'
+    return
+  }
   await mutate(async () => {
     const updated = await apiSend(`/api/bom/${selectedProductId.value}/source`, {
-      body: { source_type: 'inherit_version', source_bom_version_id: 0 },
+      body: { source_type: 'inherit_version', source_bom_version_id: activeVersion.id },
     })
     detail.value = updated
-    ok.value = '已锁定当前 BOM 版本'
+    ok.value = `已锁定 BOM 版本 ${activeVersion.version_no}`
+    await loadVersions(selectedProductId.value)
   })
 }
 
@@ -762,11 +775,13 @@ async function unlockBomVersion() {
   if (!selectedProductId.value) return
   if (!detail.value || detail.value.bom_source_type !== 'inherit_version') return
   await mutate(async () => {
+    // If the SKU was originally owned, unlock back to owned; otherwise inherit_current
+    const targetType = detail.value.source_product_id > 0 ? 'inherit_current' : 'owned'
     const updated = await apiSend(`/api/bom/${selectedProductId.value}/source`, {
-      body: { source_type: 'inherit_current', source_bom_version_id: 0 },
+      body: { source_type: targetType, source_bom_version_id: 0 },
     })
     detail.value = updated
-    ok.value = '已恢复跟随当前 BOM'
+    ok.value = '已恢复当前 BOM'
   })
 }
 

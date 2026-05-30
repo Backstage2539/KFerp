@@ -226,8 +226,8 @@ func (s *Service) SetBomSource(ctx context.Context, cmd SetBomSourceCommand) (De
 	if cmd.ProductID <= 0 {
 		return Detail{}, fmt.Errorf("product_id required")
 	}
-	if cmd.SourceType != "inherit_current" && cmd.SourceType != "inherit_version" {
-		return Detail{}, fmt.Errorf("source_type must be inherit_current or inherit_version")
+	if cmd.SourceType != "inherit_current" && cmd.SourceType != "inherit_version" && cmd.SourceType != "owned" {
+		return Detail{}, fmt.Errorf("source_type must be inherit_current, inherit_version, or owned")
 	}
 	if cmd.SourceType == "inherit_version" && cmd.SourceBomVersionID <= 0 {
 		return Detail{}, fmt.Errorf("source_bom_version_id required for inherit_version")

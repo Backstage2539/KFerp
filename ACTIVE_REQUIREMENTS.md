@@ -10,16 +10,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Branch: codex/sku-bom-inheritance-20260529
 - Owner/session: Codex / 2026-05-29
 - Status: deployed
-- Scope: SKU复制默认继承来源 SKU 有效 BOM；BOM 维护页支持派生自有 BOM 并快照来源 SKU/BOM 编号、名称和版本；SKU/BOM 页面展示 BOM 来源；成本、生产计划和客户履约按有效 BOM 解析。
+- Scope: SKU复制默认继承来源 SKU 有效 BOM；BOM 维护页支持派生自有 BOM 并快照来源 SKU/BOM 编号、名称和版本；SKU/BOM 页面展示 BOM 来源；成本、生产计划和客户履约按有效 BOM 解析。支持 BOM 版本锁定（inherit_current / inherit_version）。
+- Fix (2026-05-30): 补全 SetBomSource API 端点 POST /api/bom/:product_id/source，修正 Repository 写入 product_bom_sources 表，新增 Service 层方法。
 - Verifier:
   - Unit: go test ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/catalog ./internal/application/bom -count=1; node --test src/lib/bom.test.js src/lib/product-settings.test.js
   - API: go test ./internal/interfaces/http/bom ./internal/interfaces/http/catalog ./internal/interfaces/http/production ./internal/interfaces/http/costing ./internal/interfaces/http/customerfulfillment ./internal/interfaces/http/support -count=1
   - Frontend/build: npm --prefix orderapp-remote/frontend-vue-shell run build
   - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_COSTING.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md
   - Review/acceptance: orderapp-remote/docs/ACCEPTANCE_TESTS.md; orderapp-remote/docs/acceptance/2026-05-29-sku-bom-inheritance.md
-- Deployment: development deployed at origin/develop a834c723c824fb19ce783925b8e310030244e1e4; backup root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260529225513
-- Last update: 2026-05-29 23:15 Asia/Shanghai
-- Notes: reserve_req_id.sh indicated PR-385 but --claim hit the known awk multiline bug; using manual PR-385 seed/update. Browser verified on development with target SKU 497: inherited source SKU 496 / BOM V001 was read-only, UI derive changed it to derived_owned, edited derived BOM ratio to 90 while source BOM stayed 100; audit logs include inherit_current id 3889, copy_sku id 3890, derive_owned id 3895, item save id 3897.
+- Deployment: development deployed at origin/develop 38e393864b2e89e0b8c9a4082f99165ede59e81e; backup root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260529225513
+- Last update: 2026-05-30 00:53 Asia/Shanghai
+- Notes: reserve_req_id.sh indicated PR-385 but --claim hit the known awk multiline bug; using manual PR-385 seed/update. Browser verified on development with target SKU 497: inherited source SKU 496 / BOM V001 was read-only, UI derive changed it to derived_owned, edited derived BOM ratio to 90 while source BOM stayed 100; audit logs include inherit_current id 3889, copy_sku id 3890, derive_owned id 3895, item save id 3897. 2026-05-30 bugfix: SetBomSource 之前未在 Repository 接口注册、缺少 API 端点和 Service 方法、SQL 错误写入 products 表不存在的列；现已修正并重新部署。
 
 ### PR-375-PROCESS-BOM-WORKORDER-SKU-MODEL
 - Branch: codex/process-bom-workorder-sku-model

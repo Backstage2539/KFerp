@@ -1032,6 +1032,26 @@ func (r Repository) SetBomSource(ctx context.Context, cmd bomapp.SetBomSourceCom
 	var sourceVersionID int64
 	var sourceVersionNo string
 	var sourceProductCode string
+	if cmd.SourceType == "owned" {
+		// Unlock: remove the source restriction, go back to owned
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			DELETE FROM %s.product_bom_sources
+			WHERE product_id=$1
+		`, r.schema), cmd.ProductID); err != nil {
+			return bomapp.Detail{}, fmt.Errorf("remove bom source: %w", err)
+		}
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_bom", &cmd.ProductID,
+			"unlock_bom_source", postgresinfra.StrPtr("source_type"), nil,
+			postgresinfra.StrPtr("owned"), postgresinfra.AuditMeta{
+				"target_product_id": cmd.ProductID,
+			}); err != nil {
+			return bomapp.Detail{}, fmt.Errorf("audit unlock_bom_source: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return bomapp.Detail{}, err
+		}
+		return r.Detail(ctx, cmd.ProductID)
+	}
 	if cmd.SourceType == "inherit_version" {
 		err := tx.QueryRow(ctx, fmt.Sprintf(`
 			SELECT bv.product_id, COALESCE(p.name,''), bv.id, COALESCE(bv.version_no,''), COALESCE(p.code,'')
