@@ -5,7 +5,22 @@
         <h2>{{ overview.customer_name || '客户履约工作台' }}</h2>
         <p>客户登录 · 查看数据、提交工单和履约订单信息</p>
       </div>
-      <button class="secondary" type="button" @click="loadOverview" :disabled="loading">刷新</button>
+      <div class="head-actions">
+        <label v-if="!internalCustomerID && !customerAccountActor" class="customer-picker-field">
+          <span>选择客户</span>
+          <SearchableSelect
+            v-model="adminCustomerValue"
+            :options="adminCustomerOptions"
+            :option-label="adminCustomerOptionLabel"
+            :option-meta="adminCustomerOptionMeta"
+            :option-value="optionNumericValue"
+            placeholder="搜索客户名/公司/联系人"
+            empty-text="没有匹配客户"
+            :disabled="loading"
+            @select="selectAdminCustomer" />
+        </label>
+        <button class="secondary" type="button" @click="loadOverview" :disabled="loading">刷新</button>
+      </div>
     </section>
 
     <div v-if="error" class="error">{{ error }}</div>
@@ -428,11 +443,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import DeliveryNoteView from './DeliveryNoteView.vue'
 import SalesOrderView from './SalesOrderView.vue'
+import { apiGet } from '../api/client'
 import {
   fetchCustomerFulfillmentOrderDetail,
   fetchCustomerFulfillmentOrders,
@@ -457,6 +473,7 @@ const props = defineProps({
 })
 
 const internalCustomerID = computed(() => {
+  if (adminSelectedCustomerId.value > 0) return adminSelectedCustomerId.value
   if (props.customerAccountActor) return 0
   const fromProps = Number(props.customerContextId || 0)
   if (fromProps > 0) return fromProps
@@ -464,6 +481,47 @@ const internalCustomerID = computed(() => {
   return fromParams > 0 ? fromParams : 0
 })
 const isInternalContext = computed(() => internalCustomerID.value > 0)
+
+// Admin customer picker
+const adminCustomerValue = ref('')
+const adminSelectedCustomerId = ref(0)
+const adminCustomerOptions = ref([])
+const adminCustomersLoaded = ref(false)
+
+async function fetchAdminCustomers() {
+  if (adminCustomersLoaded.value) return
+  try {
+    const data = await apiGet('/api/customers?limit=200&active=true')
+    adminCustomerOptions.value = (data?.rows || []).filter(row => row.active !== false)
+    adminCustomersLoaded.value = true
+  } catch {
+    // Silently ignore - customers can still use workspace mode
+  }
+}
+
+function selectAdminCustomer(option) {
+  const customerID = Number(option?.id || 0)
+  adminSelectedCustomerId.value = customerID
+  if (customerID > 0) {
+    loadOverview()
+  }
+}
+
+function adminCustomerOptionLabel(customer) {
+  return customer?.name || ''
+}
+
+function adminCustomerOptionMeta(customer) {
+  const parts = []
+  if (customer?.company_name && customer.company_name !== customer?.name) parts.push(customer.company_name)
+  if (customer?.contact) parts.push(customer.contact)
+  if (customer?.phone || customer?.company_phone) parts.push(customer.phone || customer.company_phone)
+  return parts.join(' / ')
+}
+
+function optionNumericValue(option) {
+  return Number(option?.id || 0)
+}
 
 const loading = ref(false)
 const error = ref('')
@@ -541,7 +599,10 @@ const metrics = computed(() => [
   canDirectShip.value ? { label: '履约订单', value: fulfillmentOrdersSummary.value.orders || fulfillmentOrders.value.length } : null,
 ].filter(Boolean))
 
-onMounted(loadOverview)
+onMounted(() => {
+  fetchAdminCustomers()
+  loadOverview()
+})
 
 async function loadOverview() {
   loading.value = true
