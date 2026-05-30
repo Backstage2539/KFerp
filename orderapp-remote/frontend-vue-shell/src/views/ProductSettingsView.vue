@@ -94,6 +94,14 @@
                 <option v-for="name in skuSecondaryCategoryOptions" :key="name" :value="name">{{ name }}</option>
               </select>
             </label>
+            <label>
+              <span>状态</span>
+              <select v-model="skuFilters.active">
+                <option value="all">全部</option>
+                <option value="active">有效</option>
+                <option value="inactive">已失效</option>
+              </select>
+            </label>
           </div>
           <table :key="skuTableKey" class="sku-table" data-auto-pagination="off">
             <thead>
@@ -906,7 +914,7 @@
                     :key="`copy-sku-${sku.id}`"
                     class="product-picker-row check-line"
                     :class="{ inactive: sku.copy_state === 'inactive', overwrite: sku.copy_state === 'will_overwrite' }">
-                    <input type="checkbox" :checked="isCopySkuSelected(sku)" :disabled="sku.copy_state === 'inactive'" @change="toggleCopySku(sku, $event.target.checked)" />
+                    <input type="checkbox" :checked="isCopySkuSelected(sku)" @change="toggleCopySku(sku, $event.target.checked)" />
                     <span>{{ sku.name }}</span>
                     <small>{{ sku.copy_state === 'will_overwrite' ? '覆盖同名' : (sku.copy_state === 'inactive' ? '已停用' : '新增') }}</small>
                   </label>

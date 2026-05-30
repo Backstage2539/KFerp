@@ -85,6 +85,7 @@ export function filterSkuRows(rows = [], filters = {}) {
   const query = String(filters.query || '').trim().toLowerCase()
   const primaryCategory = String(filters.primaryCategory || '').trim()
   const secondaryCategory = String(filters.secondaryCategory || '').trim()
+  const active = String(filters.active || 'all').trim()
   return (rows || []).filter((row) => {
     if (productKind && productKind !== PRODUCT_KIND_ALL && normalizedProductKind(row) !== productKind) return false
     if (customType && customType !== SKU_CUSTOM_TYPE_ALL && skuTypeValue(row) !== customType) return false
@@ -94,6 +95,8 @@ export function filterSkuRows(rows = [], filters = {}) {
     }
     if (primaryCategory && String(row.primary_name || '') !== primaryCategory) return false
     if (secondaryCategory && String(row.secondary_name || '') !== secondaryCategory) return false
+    if (active === 'active' && row.active === false) return false
+    if (active === 'inactive' && row.active !== false) return false
     return true
   })
 }
@@ -102,6 +105,7 @@ export function normalizeVisibleSkuFilters(filters = {}, rows = null) {
   const normalized = {
     productKind: PRODUCT_KIND_ALL,
     customType: SKU_CUSTOM_TYPE_ALL,
+    active: String(filters.active || 'all').trim(),
     query: String(filters.query || '').trim(),
     primaryCategory: String(filters.primaryCategory || '').trim(),
     secondaryCategory: String(filters.secondaryCategory || '').trim(),
