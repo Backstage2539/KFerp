@@ -127,7 +127,7 @@
             </thead>
             <tbody>
               <template v-for="row in displaySkuRows" :key="row.id">
-                <tr :class="{ 'inactive-sku': row.active === false }">
+                <tr :class="{ 'inactive-sku': row.active === false, 'sku-highlight': row.id === highlightedSkuId }">
                   <td class="select-col">
                     <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row) || row.active === false" @change="toggleProductSelection(row, $event.target.checked)" />
                   </td>
@@ -1139,6 +1139,7 @@ const customForm = ref(defaultCustomForm())
 const skuCopyOptions = ref(defaultSkuCopyOptions())
 const copySourceCustomerID = ref(0)
 const copySkuSelection = ref([])
+const highlightedSkuId = ref(0)
 const templateForm = ref(defaultGradientTemplateForm())
 const productUnitTemplateForm = ref(defaultProductUnitTemplateForm())
 const globalUnitForm = ref(defaultProductUnitDefinitionForm())
@@ -3711,6 +3712,11 @@ async function copySkuInPlace(row) {
     })
     ok.value = `已复制 SKU「${row.name}」`
     await loadAll()
+    const copied = displaySkuRows.value.find(r => r.name === row.name + ' (复制)' || r.name.startsWith(row.name + ' (复制 '))
+    if (copied) {
+      highlightedSkuId.value = copied.id
+      setTimeout(() => { highlightedSkuId.value = 0 }, 3000)
+    }
   } catch (err) {
     error.value = err.message || '复制 SKU 失败'
   } finally {
@@ -4078,6 +4084,11 @@ th { background: #fbfaf8; position: sticky; top: 0; }
   .template-select { width: 100%; }
   table { min-width: 1400px; }
   .sku-table .inactive-sku td { opacity: 0.4; }
-  .sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
+.sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
+.sku-highlight { animation: sku-flash 3s ease-out; }
+@keyframes sku-flash {
+  0% { background-color: #fef08a; }
+  100% { background-color: transparent; }
+}
 }
 </style>
