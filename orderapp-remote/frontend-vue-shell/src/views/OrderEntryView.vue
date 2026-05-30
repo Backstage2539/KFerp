@@ -50,7 +50,7 @@
           <input v-model.trim="form.order_date" type="date" />
         </label>
 
-        <label class="customer-combobox combobox" :class="{ open: customerOpen }">
+        <label v-if="!props.fulfillmentMode" class="customer-combobox combobox" :class="{ open: customerOpen }">
           <div class="label-row">
             <span>客户</span>
             <span class="label-actions">
@@ -85,6 +85,32 @@
             <div v-if="!filteredCustomers.length" class="combo-empty">没有匹配客户</div>
           </div>
         </label>
+
+        <div v-if="props.fulfillmentMode" class="fulfillment-recipient-section">
+          <label class="readonly-field">
+            <span>履约客户</span>
+            <input :value="props.customerContextLabel || `客户 #${props.customerContextId}`" readonly />
+          </label>
+          <label>
+            <span>收件人</span>
+            <input v-model.trim="form.receiver_name" />
+          </label>
+          <label>
+            <span>电话</span>
+            <input v-model.trim="form.receiver_phone" />
+          </label>
+          <label class="full-span">
+            <span>地址</span>
+            <input v-model.trim="form.receiver_address" />
+          </label>
+          <label v-if="props.recipientInfo?.historyOptions?.length" class="full-span">
+            <span>历史收件信息</span>
+            <select @change="applyRecipientHistory($event)">
+              <option value="">选择历史收件信息...</option>
+              <option v-for="h in props.recipientInfo.historyOptions" :key="h.key" :value="h.key">{{ h.label }} ({{ h.phone }}) {{ h.address }}</option>
+            </select>
+          </label>
+        </div>
 
         <label class="readonly-field">
           <span>客户负责人</span>
@@ -599,6 +625,8 @@ const props = defineProps({
   workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
+  fulfillmentMode: { type: Boolean, default: false },
+  recipientInfo: { type: Object, default: null },
 })
 
 const emit = defineEmits(['close', 'saved'])
@@ -674,6 +702,10 @@ const form = reactive({
   outsource_manual_fee: '',
   outsource_tax_fee: '',
   outsource_other_fee: '',
+  receiver_name: '',
+  receiver_phone: '',
+  receiver_address: '',
+  receiver_company: '',
 })
 
 function newRow() {
@@ -1014,6 +1046,16 @@ function chooseCustomer(item) {
   syncOrderHeaderFromCustomer(item)
   syncBeanListVersionForCustomer({ force: true })
   notifyWorkspaceCustomerChanged(form.customer_id)
+}
+
+function applyRecipientHistory(event) {
+  const key = event.target.value
+  if (!key || !props.recipientInfo?.historyOptions) return
+  const found = props.recipientInfo.historyOptions.find(h => h.key === key)
+  if (!found) return
+  form.receiver_name = found.name || ''
+  form.receiver_phone = found.phone || ''
+  form.receiver_address = found.address || ''
 }
 
 function syncOrderHeaderFromCustomer(customer = selectedCustomer.value, options = {}) {
@@ -1926,6 +1968,13 @@ watch(
   () => applyCustomerContextToNewOrder(),
 )
 
+watch(() => props.recipientInfo, (info) => {
+  if (!info || !props.fulfillmentMode) return
+  if (info.name) form.receiver_name = info.name
+  if (info.phone) form.receiver_phone = info.phone
+  if (info.address) form.receiver_address = info.address
+}, { immediate: true })
+
 watch(canUseBackfillMode, (canUse) => {
   if (!canUse) backfillMode.value = false
 })
@@ -1980,6 +2029,8 @@ watch(
 .page { min-height: 100%; max-width: 100%; overflow-x: hidden; padding: 18px; display: grid; gap: 14px; background: #f6f7f9; color: #15171a; box-sizing: border-box; }
 .page * { box-sizing: border-box; }
 .page.embedded { min-height: auto; padding: 0; background: transparent; }
+.fulfillment-recipient-section { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.fulfillment-recipient-section .full-span { grid-column: 1 / -1; }
 .order-hero, .panel { background: #fff; border: 1px solid #e7e9ee; border-radius: 8px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
 .order-hero { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; }
 .eyebrow { margin: 0 0 4px; color: #6b7280; font-size: 12px; }

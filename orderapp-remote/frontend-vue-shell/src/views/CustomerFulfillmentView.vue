@@ -118,133 +118,13 @@
 
         <div v-if="workbenchSections.directShip" class="ops-panel">
           <h3>{{ submitCopy.formTitle }}</h3>
-          <div class="direct-ship-form">
-            <div class="direct-ship-recipient">
-              <label class="recipient-paste">
-                <span>粘贴收件信息</span>
-                <textarea v-model="recipientPasteText" rows="2" placeholder="粘贴姓名、电话、地址" @paste.prevent="pasteRecipientInfo"></textarea>
-              </label>
-              <button class="secondary parse-button" type="button" @click="applyRecipientParse()" :disabled="loading">解析收件信息</button>
-              <label>
-                <span>历史收件信息</span>
-                <SearchableSelect
-                  v-model="recipientHistoryValue"
-                  :options="recipientOptions"
-                  :option-label="recipientOptionLabel"
-                  :option-meta="recipientOptionMeta"
-                  :option-value="recipientOptionValue"
-                  empty-value=""
-                  placeholder="搜索姓名/电话/地址"
-                  empty-text="没有历史收件信息"
-                  :disabled="loading || !normalizedCustomerId"
-                  @select="selectRecipientHistory" />
-              </label>
-              <label>
-                <span>收件人</span>
-                <input v-model.trim="directShipForm.receiver_name" />
-              </label>
-              <label>
-                <span>电话</span>
-                <input v-model.trim="directShipForm.receiver_phone" />
-              </label>
-              <label class="recipient-address">
-                <span>地址</span>
-                <input v-model.trim="directShipForm.receiver_address" />
-              </label>
-            </div>
-
-            <section class="direct-ship-items">
-              <div class="direct-ship-items-head">
-                <span class="muted">一个收件信息可添加多行商品</span>
-              </div>
-              <div class="table-wrap">
-                <table class="order-lines-table">
-                  <thead>
-                    <tr>
-                      <th>商品</th>
-                      <th>规格(g)</th>
-                      <th>数量</th>
-                      <th>单价</th>
-                      <th>优惠</th>
-                      <th>小计</th>
-                      <th>阶梯价</th>
-                      <th>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(row, idx) in directShipItems" :key="row.key">
-                      <td class="product-cell">
-                        <SearchableSelect
-                          v-model="row.product_value"
-                          :options="directShipProductOptions"
-                          :option-label="productOptionLabel"
-                          :option-meta="productOptionMeta"
-                          :option-value="productOptionValue"
-                          empty-value=""
-                          placeholder="搜索客户 SKU/公共 SKU"
-                          empty-text="没有匹配商品"
-                          :disabled="loading || !normalizedCustomerId"
-                          @select="(option) => selectDirectShipItemProduct(row, option)" />
-                      </td>
-                      <td><input v-model.number="row.spec_g" type="number" min="1" step="1" @input="syncDirectShipItemPrice(row)" /></td>
-                      <td><input v-model.number="row.qty" type="number" min="1" step="1" @input="syncDirectShipItemPrice(row)" /></td>
-                      <td class="price-cell">
-                        <input :value="row.unit_price || ''" type="text" disabled />
-                        <small>{{ priceUnitLabel(row) }}</small>
-                      </td>
-                      <td class="discount-cell">
-                        <select v-model="row.discount_type" @change="onDiscountTypeChange(row)">
-                          <option value="">无优惠</option>
-                          <option value="amount">减免数额</option>
-                          <option value="percent">折扣</option>
-                          <option value="free">免费</option>
-                        </select>
-                        <input
-                          v-if="row.discount_type === 'amount' || row.discount_type === 'percent'"
-                          v-model.number="row.discount_value"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          :placeholder="row.discount_type === 'percent' ? '90=9折' : '减免金额'" />
-                      </td>
-                      <td class="subtotal-cell">{{ money(rowLineTotal(row)) }}</td>
-                      <td>
-                        <div v-if="rowTierRows(row).length" class="tier-chips">
-                          <span
-                            v-for="tier in rowTierRows(row)"
-                            :key="`${row.key}-${tier.id}-${tier.rangeLabel}`"
-                            class="tier-chip"
-                            :class="{ active: rowTierActive(row, tier) }">
-                            {{ tier.rangeLabel }} {{ money(tier.unitPrice) }}{{ tier.priceUnit.suffix }}
-                          </span>
-                        </div>
-                        <span v-else class="muted">-</span>
-                      </td>
-                      <td>
-                        <button class="secondary danger" type="button" :disabled="directShipItems.length <= 1" @click="removeDirectShipItem(idx)">删除</button>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <div class="direct-ship-footer">
-              <label>
-                <span>运费</span>
-                <input v-model.number="directShipForm.shipping_amount" type="number" min="0" step="0.01" />
-              </label>
-              <div class="line-total grand-total">
-                <span>订单合计</span>
-                <strong>{{ money(directShipGrandTotal) }}</strong>
-              </div>
-              <label class="note-field">
-                <span>备注</span>
-                <textarea v-model.trim="directShipForm.note" rows="2" :placeholder="submitCopy.notePlaceholder" />
-              </label>
-            </div>
-            <button class="primary" type="button" @click="submitDirectShipOrder" :disabled="loading || !normalizedCustomerId">{{ submitCopy.submitButton }}</button>
-          </div>
+          <OrderEntryView
+            :embedded="true"
+            :fulfillment-mode="true"
+            :customer-context-id="customerId"
+            :customer-context-label="selectedCustomerLabel"
+            :recipient-info="{ historyOptions: recipientOptionsForOrderEntry }"
+            @saved="onFulfillmentOrderSaved" />
         </div>
 
         <div v-if="workbenchSections.inventory" class="ops-panel">
@@ -644,6 +524,7 @@ import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import DeliveryNoteView from './DeliveryNoteView.vue'
 import SalesOrderView from './SalesOrderView.vue'
+import OrderEntryView from './OrderEntryView.vue'
 import {
   applyCustomerFulfillmentImport,
   adjustCustomerFulfillmentCustodyInventory,
@@ -1277,6 +1158,20 @@ function recipientOptionMeta(option) {
 
 function recipientOptionValue(option) {
   return [option?.receiver_phone, option?.receiver_address, option?.last_order_no].filter(Boolean).join('|')
+}
+
+const recipientOptionsForOrderEntry = computed(() => {
+  return (recipientOptions.value || []).map(r => ({
+    key: `${r.receiver_phone}|${r.receiver_address}`,
+    label: r.receiver_name || '',
+    phone: r.receiver_phone || '',
+    address: r.receiver_address || '',
+  }))
+})
+
+function onFulfillmentOrderSaved(data) {
+  ok.value = `订单已创建：${data.order_no || data.order_id || ''}`
+  loadAll()
 }
 
 function uniqueProductOptions(rows) {

@@ -3,20 +3,24 @@ package customerfulfillment
 import (
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
 	customerapp "orderapp/internal/application/customer"
 	app "orderapp/internal/application/customerfulfillment"
 	messagecenterapp "orderapp/internal/application/messagecenter"
+	salesapp "orderapp/internal/application/sales"
 	"orderapp/internal/interfaces/http/support"
-	"strconv"
-	"strings"
 
 	"github.com/labstack/echo/v4"
 )
 
 type api struct {
-	svc       Service
+	svc      Service
 	customers CustomerDirectory
 	messages  MessagePublisher
+	sales    SalesSaver
 }
 
 const externalUsersRouteSegment = "external-users"
@@ -379,7 +383,7 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 			Note:          item.Note,
 		})
 	}
-	row, err := a.svc.SubmitCustomerDirectShipOrder(c.Request().Context(), app.SubmitCustomerDirectShipOrderCommand{
+	validateCmd := app.SubmitCustomerDirectShipOrderCommand{
 		EmployeeID:      support.CurrentEmployeeID(c),
 		CustomerID:      customerID,
 		ReceiverName:    req.ReceiverName,
@@ -394,11 +398,72 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 		Items:           items,
 		Note:            req.Note,
 		Actor:           currentCustomerFulfillmentActor(c),
+	}
+	if _, err := a.svc.SubmitCustomerDirectShipOrder(c.Request().Context(), validateCmd); err != nil {
+		return customerFulfillmentError(c, http.StatusBadRequest, err)
+	}
+
+	orderItems := make([]salesapp.OrderItemCommand, 0, len(req.Items))
+	for _, item := range req.Items {
+		pid := item.ProductID
+		orderItems = append(orderItems, salesapp.OrderItemCommand{
+			ProductID:    &pid,
+			Name:         item.ProductName,
+			Units:        item.QuantityUnits,
+			SpecG:        item.SpecG,
+			ProductKind:  "roasted_bean",
+			SalesUnit:    item.SalesUnit,
+			DiscountType: normalizeFulfillmentDiscountType(item.DiscountType),
+			DiscountValue: item.DiscountValue,
+			Note:         item.Note,
+		})
+	}
+	if len(orderItems) == 0 && req.ProductID > 0 {
+		pid := req.ProductID
+		orderItems = []salesapp.OrderItemCommand{{
+			ProductID:    &pid,
+			Name:         req.ProductName,
+			Units:        req.QuantityUnits,
+			SpecG:        parseFulfillmentSpecG(req.Spec),
+			ProductKind:  "roasted_bean",
+			SalesUnit:    "bag",
+			Note:         req.Note,
+		}}
+	}
+
+	salesRes, err := a.sales.SaveOrder(c.Request().Context(), salesapp.SaveOrderCommand{
+		Actor:           support.ActorOf(c),
+		OrderDate:       time.Now().UTC(),
+		CustomerID:      customerID,
+		ReceiverName:    strings.TrimSpace(req.ReceiverName),
+		ReceiverPhone:   strings.TrimSpace(req.ReceiverPhone),
+		ReceiverAddress: strings.TrimSpace(req.ReceiverAddress),
+		ReceiverCompany: strings.TrimSpace(req.ReceiverCompany),
+		PortalServiceCode: "direct_ship",
+		OrdersScope:      "fulfillment",
+		Notes:           req.Note,
+		ShippingAmount:   req.ShippingAmount,
+		PayStatusID:      1,
+		ShipStatusID:     1,
+		Items:            orderItems,
 	})
 	if err != nil {
 		return customerFulfillmentError(c, http.StatusBadRequest, err)
 	}
-	return c.JSON(http.StatusOK, row)
+	cdsSummary, _ := a.svc.SubmitCustomerDirectShipOrder(c.Request().Context(), validateCmd)
+	return c.JSON(http.StatusOK, map[string]any{
+		"order_id":      salesRes.OrderID,
+		"order_no":      salesRes.OrderNo,
+		"order_date":    time.Now().Format("2006-01-02"),
+		"status":        "submitted",
+		"item_count":    len(orderItems),
+		"cds_order_no": func() string {
+			if cdsSummary.OrderNo != "" {
+				return cdsSummary.OrderNo
+			}
+			return ""
+		}(),
+	})
 }
 
 func (a api) listImportRows(c echo.Context) error {
@@ -708,4 +773,27 @@ func customerPortalError(c echo.Context, err error) error {
 		return customerFulfillmentError(c, http.StatusForbidden, err)
 	}
 	return customerFulfillmentError(c, http.StatusBadRequest, err)
+}
+
+func normalizeFulfillmentDiscountType(dt string) string {
+	switch strings.TrimSpace(strings.ToLower(dt)) {
+	case "amount", "unit_amount", "percent":
+		return dt
+	case "free":
+		return "free"
+	default:
+		return ""
+	}
+}
+
+func parseFulfillmentSpecG(spec string) int64 {
+	spec = strings.TrimSpace(strings.TrimSuffix(strings.ToLower(spec), "g"))
+	if spec == "" {
+		return 0
+	}
+	n, err := strconv.ParseInt(spec, 10, 64)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }

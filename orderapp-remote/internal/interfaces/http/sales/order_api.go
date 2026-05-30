@@ -101,6 +101,12 @@ type orderSaveAPIRequest struct {
 	CommercialBeanListPublicationID int64  `json:"commercial_bean_list_publication_id"`
 	GreenBeanListPublicationID      int64  `json:"green_bean_list_publication_id"`
 	DripBeanListPublicationID       int64  `json:"drip_bean_list_publication_id"`
+	ReceiverName                    string `json:"receiver_name"`
+	ReceiverPhone                   string `json:"receiver_phone"`
+	ReceiverAddress                 string `json:"receiver_address"`
+	ReceiverCompany                 string `json:"receiver_company"`
+	PortalServiceCode               string `json:"portal_service_code"`
+	OrdersScope                     string `json:"orders_scope"`
 
 	ProductID     []string `json:"product_id"`
 	TierID        []string `json:"tier_id"`
@@ -544,6 +550,12 @@ func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 		CommercialBeanListPublicationID: r.CommercialBeanListPublicationID,
 		GreenBeanListPublicationID:      r.GreenBeanListPublicationID,
 		DripBeanListPublicationID:       r.DripBeanListPublicationID,
+		ReceiverName:                    r.ReceiverName,
+		ReceiverPhone:                   r.ReceiverPhone,
+		ReceiverAddress:                 r.ReceiverAddress,
+		ReceiverCompany:                 r.ReceiverCompany,
+		PortalServiceCode:               r.PortalServiceCode,
+		OrdersScope:                     r.OrdersScope,
 		ProductID:                       r.ProductID,
 		TierID:                          r.TierID,
 		UnitPrice:                       r.UnitPrice,

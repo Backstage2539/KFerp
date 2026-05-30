@@ -43,6 +43,12 @@ type CreateOrderRequest struct {
 	CommercialBeanListPublicationID int64  `form:"commercial_bean_list_publication_id"`
 	GreenBeanListPublicationID      int64  `form:"green_bean_list_publication_id"`
 	DripBeanListPublicationID       int64  `form:"drip_bean_list_publication_id"`
+	ReceiverName                    string `form:"receiver_name"`
+	ReceiverPhone                   string `form:"receiver_phone"`
+	ReceiverAddress                 string `form:"receiver_address"`
+	ReceiverCompany                 string `form:"receiver_company"`
+	PortalServiceCode               string `form:"portal_service_code"`
+	OrdersScope                     string `form:"orders_scope"`
 
 	ProductID     []string `form:"product_id[]"`
 	TierID        []string `form:"tier_id[]"`

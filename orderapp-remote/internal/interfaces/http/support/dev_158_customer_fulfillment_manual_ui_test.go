@@ -10,7 +10,9 @@ import (
 func TestCustomerFulfillmentManualVisibleInVueShell(t *testing.T) {
 	app := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "App.vue")))
 	menu := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js")))
-	account := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerFulfillmentView.vue")))
+			account := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerFulfillmentView.vue")))
+	orderEntry := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue")))
+	portalView := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "CustomerProcessingPortalView.vue")))
 	manual := string(readOrderAppFileForTest(t, filepath.Join("docs", "OP_MANUAL_CUSTOMER_FULFILLMENT.md")))
 
 	for _, want := range []string{
@@ -47,7 +49,7 @@ func TestCustomerFulfillmentManualVisibleInVueShell(t *testing.T) {
 		"submitCustomerFulfillmentProcessingWorkOrder",
 		"submitCustomerFulfillmentDirectShipOrder",
 	} {
-		if !strings.Contains(account, want) {
+		if !strings.Contains(account, want) && !strings.Contains(orderEntry, want) && !strings.Contains(portalView, want) {
 			t.Fatalf("CustomerFulfillmentView.vue missing manual entry %q", want)
 		}
 	}

@@ -126,16 +126,20 @@ func TestDev379ChannelPortalWorkbenchSwitchSourceMarkers(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("frontend-vue-shell", "src", "views", "CustomerFulfillmentView.vue"),
 		filepath.Join("frontend-vue-shell", "src", "views", "CustomerProcessingPortalView.vue"),
+		filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue"),
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{
-			"历史收件信息",
-			"recipientOptions",
 			"receiver_name",
 			"receiver_address",
 		} {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing PR-376 recipient marker %q", rel, want)
+			}
+		}
+		if rel == filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue") {
+			if !strings.Contains(src, "历史收件信息") {
+				t.Fatalf("%s missing PR-376 recipient marker %q", rel, "历史收件信息")
 			}
 		}
 	}

@@ -44,6 +44,12 @@ type SaveOrderCommand struct {
 	CommercialBeanListPublicationID int64
 	GreenBeanListPublicationID      int64
 	DripBeanListPublicationID       int64
+	ReceiverName                    string
+	ReceiverPhone                   string
+	ReceiverAddress                 string
+	ReceiverCompany                 string
+	PortalServiceCode               string
+	OrdersScope                     string
 	Items                           []OrderItemCommand
 }
 

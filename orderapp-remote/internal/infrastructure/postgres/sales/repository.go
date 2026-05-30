@@ -1339,7 +1339,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 
 	editID := cmd.EditID
-	portalServiceCode, sourceWarehouse := r.orderFulfillmentMarkersTx(ctx, tx, cmd.CustomerID)
+		portalServiceCode, sourceWarehouse := r.orderFulfillmentMarkersTx(ctx, tx, cmd.CustomerID)
+	if cmd.PortalServiceCode != "" {
+		portalServiceCode = cmd.PortalServiceCode
+	}
 	headerPublicationID := selectedOrderBeanListPublicationID(cmd, orderbeans.ListTypeCommercial)
 	beanListPublicationID, beanListVersionNo, err := r.resolveOrderBeanListPublicationTx(ctx, tx, cmd.CustomerID, headerPublicationID, orderbeans.ListTypeCommercial)
 	if err != nil {
@@ -1460,6 +1463,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 					outsource_manual_fee, outsource_tax_fee, outsource_other_fee, outsource_total_fee,
 						responsible_party_type, responsible_party_id, responsible_party_name,
 						portal_service_code, source_warehouse,
+						receiver_name, receiver_phone, receiver_address, receiver_company,
 						bean_list_publication_id, bean_list_version_no,
 						order_no,
 						logistics_company_id, logistics_product_id,
@@ -1468,13 +1472,14 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 						$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
 						$11,$12,$13,
 						$14,$15,$16,
-						$17,$18,$19,$20,$21,$22,$23,$24,
-						$25,$26,$27,
-						$28,$29,
-						$30,$31,
-						$32,
-						$33,
-						$34,$35,$36,$37,$38
+						$17,$18,$19,$20,$21,$22,$23,$24,$25,
+						$26,$27,$28,
+						$29,$30,
+						$31,$32,$33,$34,$35,
+						$36,$37,
+						$38,
+						$39,
+						$40,$41,$42
 					)
 					RETURNING id
 			`, r.schema)
@@ -1509,6 +1514,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			responsibleName,
 			portalServiceCode,
 			sourceWarehouse,
+			nullText(cmd.ReceiverName),
+			nullText(cmd.ReceiverPhone),
+			nullText(cmd.ReceiverAddress),
+			nullText(cmd.ReceiverCompany),
 			beanListPublicationID,
 			beanListVersionNo,
 			orderNo,

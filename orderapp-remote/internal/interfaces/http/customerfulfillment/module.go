@@ -6,6 +6,7 @@ import (
 	customerapp "orderapp/internal/application/customer"
 	app "orderapp/internal/application/customerfulfillment"
 	messagecenterapp "orderapp/internal/application/messagecenter"
+	salesapp "orderapp/internal/application/sales"
 
 	"github.com/labstack/echo/v4"
 )
@@ -35,6 +36,10 @@ type Service interface {
 	ListImports(context.Context, app.ListImportsQuery) ([]app.ImportBatch, error)
 }
 
+type SalesSaver interface {
+	SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error)
+}
+
 type CustomerDirectory interface {
 	List(context.Context, customerapp.ListQuery) (customerapp.ListResult, error)
 }
@@ -47,10 +52,11 @@ type Dependencies struct {
 	CustomerFulfillment Service
 	Customers           CustomerDirectory
 	MessageCenter       MessagePublisher
+	Sales               SalesSaver
 }
 
 func RegisterRoutes(e *echo.Echo, deps Dependencies) {
-	api := api{svc: deps.CustomerFulfillment, customers: deps.Customers, messages: deps.MessageCenter}
+	api := api{svc: deps.CustomerFulfillment, customers: deps.Customers, messages: deps.MessageCenter, sales: deps.Sales}
 	e.GET("/api/customer-fulfillment/customers", api.listCustomers)
 	e.GET("/api/customer-fulfillment/:customer_id/overview", api.overview)
 	e.GET("/api/customer-fulfillment/:customer_id/options", api.options)

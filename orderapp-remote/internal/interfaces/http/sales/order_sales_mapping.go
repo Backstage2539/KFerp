@@ -104,6 +104,12 @@ func saveOrderCommandFromCreateRequest(req CreateOrderRequest, editID int64, act
 		CommercialBeanListPublicationID: req.CommercialBeanListPublicationID,
 		GreenBeanListPublicationID:      req.GreenBeanListPublicationID,
 		DripBeanListPublicationID:       req.DripBeanListPublicationID,
+		ReceiverName:                    strings.TrimSpace(req.ReceiverName),
+		ReceiverPhone:                   strings.TrimSpace(req.ReceiverPhone),
+		ReceiverAddress:                 strings.TrimSpace(req.ReceiverAddress),
+		ReceiverCompany:                 strings.TrimSpace(req.ReceiverCompany),
+		PortalServiceCode:               strings.TrimSpace(req.PortalServiceCode),
+		OrdersScope:                     strings.TrimSpace(req.OrdersScope),
 		Items:                           orderItemCommandsFromCreateRequest(req),
 	}, nil
 }

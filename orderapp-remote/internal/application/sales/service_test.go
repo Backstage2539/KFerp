@@ -559,6 +559,75 @@ func TestSaveOrderCommandUsesTypedFields(t *testing.T) {
 	}
 }
 
+func TestSaveOrderCommandCarriesReceiverFields(t *testing.T) {
+	cmd := SaveOrderCommand{
+		ReceiverName:    "张三",
+		ReceiverPhone:   "13800138000",
+		ReceiverAddress: "北京市朝阳区某某路1号",
+		ReceiverCompany: "某咖啡店",
+		PortalServiceCode: "direct_ship",
+		OrdersScope:      "fulfillment",
+	}
+	if cmd.ReceiverName != "张三" {
+		t.Fatalf("ReceiverName = %q, want 张三", cmd.ReceiverName)
+	}
+	if cmd.ReceiverPhone != "13800138000" {
+		t.Fatalf("ReceiverPhone = %q, want 13800138000", cmd.ReceiverPhone)
+	}
+	if cmd.ReceiverAddress != "北京市朝阳区某某路1号" {
+		t.Fatalf("ReceiverAddress = %q, want 北京市朝阳区某某路1号", cmd.ReceiverAddress)
+	}
+	if cmd.PortalServiceCode != "direct_ship" {
+		t.Fatalf("PortalServiceCode = %q, want direct_ship", cmd.PortalServiceCode)
+	}
+	if cmd.OrdersScope != "fulfillment" {
+		t.Fatalf("OrdersScope = %q, want fulfillment", cmd.OrdersScope)
+	}
+}
+
+func TestSaveOrderPassesReceiverFieldsToRepository(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	res, err := svc.SaveOrder(context.Background(), SaveOrderCommand{
+		OrderDate:       time.Date(2026, 5, 30, 0, 0, 0, 0, time.UTC),
+		CustomerID:      3,
+		ReceiverName:    "李四",
+		ReceiverPhone:   "13900139000",
+		ReceiverAddress: "上海市浦东新区某某街2号",
+		ReceiverCompany: "某烘焙坊",
+		PortalServiceCode: "direct_ship",
+		OrdersScope:      "fulfillment",
+		Items: []OrderItemCommand{{
+			ProductID: int64Ptr(11),
+			Name:      "初晓",
+			Units:     1,
+			SpecG:     454,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SaveOrder() error = %v", err)
+	}
+	if res.Edited {
+		t.Fatalf("SaveOrder() result = %+v", res)
+	}
+	if repo.saveCmd.ReceiverName != "李四" {
+		t.Fatalf("repo saveCmd.ReceiverName = %q, want 李四", repo.saveCmd.ReceiverName)
+	}
+	if repo.saveCmd.ReceiverPhone != "13900139000" {
+		t.Fatalf("repo saveCmd.ReceiverPhone = %q, want 13900139000", repo.saveCmd.ReceiverPhone)
+	}
+	if repo.saveCmd.ReceiverAddress != "上海市浦东新区某某街2号" {
+		t.Fatalf("repo saveCmd.ReceiverAddress = %q, want 上海市浦东新区某某街2号", repo.saveCmd.ReceiverAddress)
+	}
+	if repo.saveCmd.PortalServiceCode != "direct_ship" {
+		t.Fatalf("repo saveCmd.PortalServiceCode = %q, want direct_ship", repo.saveCmd.PortalServiceCode)
+	}
+	if repo.saveCmd.OrdersScope != "fulfillment" {
+		t.Fatalf("repo saveCmd.OrdersScope = %q, want fulfillment", repo.saveCmd.OrdersScope)
+	}
+}
+
 func TestServiceValidatesSaveOrderBeforeRepository(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

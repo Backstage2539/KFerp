@@ -11,6 +11,7 @@ import (
 	customerapp "orderapp/internal/application/customer"
 	app "orderapp/internal/application/customerfulfillment"
 	messagecenterapp "orderapp/internal/application/messagecenter"
+	salesapp "orderapp/internal/application/sales"
 	"strings"
 	"testing"
 
@@ -27,7 +28,7 @@ func TestParseImportAPIAcceptsMultipartFile(t *testing.T) {
 		},
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -272,7 +273,7 @@ func TestCustomerOptionsAPISkipsInactivePortalWorkbenchCustomer(t *testing.T) {
 func TestApplyImportAPIReturnsApplySummary(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{applyResult: app.ApplyResult{BatchID: 55, AppliedRows: 8, DirectShipOrders: 1}}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/imports/55/apply", nil)
 	rec := httptest.NewRecorder()
@@ -294,7 +295,7 @@ func TestApplyImportAPIReturnsApplySummary(t *testing.T) {
 func TestApplyImportAPICapabilityUnavailableMapsToBadRequest(t *testing.T) {
 	svc := &fakeCustomerFulfillmentService{applyErr: errors.New("customer capability direct_ship unavailable")}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/imports/55/apply", nil)
 	rec := httptest.NewRecorder()
@@ -323,7 +324,7 @@ func TestImportRowsAPIReturnsInvalidRowsForTroubleshooting(t *testing.T) {
 		}},
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/imports/55/rows?status=invalid&limit=80", nil)
 	rec := httptest.NewRecorder()
@@ -354,7 +355,7 @@ func TestImportPreviewAPIReturnsNonMutatingSummary(t *testing.T) {
 		},
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/imports/55/preview", nil)
 	rec := httptest.NewRecorder()
@@ -387,7 +388,7 @@ func TestOverviewAPIReturnsCustomerFulfillmentData(t *testing.T) {
 		},
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/147/overview", nil)
 	rec := httptest.NewRecorder()
@@ -416,7 +417,7 @@ func TestCustomerFulfillmentOptionsAPIReturnsPickerData(t *testing.T) {
 		},
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/149/options", nil)
 	rec := httptest.NewRecorder()
@@ -458,7 +459,7 @@ func TestCustomerFulfillmentOptionsAPIReturnsDripUnitPricingFields(t *testing.T)
 		},
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/149/options", nil)
 	rec := httptest.NewRecorder()
@@ -502,7 +503,7 @@ func TestCustomerPortalOverviewAPIDerivesCustomerFromEmployeeBinding(t *testing.
 			return next(c)
 		}
 	})
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/customer-processing/portal/overview?customer_id=999", nil)
 	rec := httptest.NewRecorder()
@@ -532,7 +533,7 @@ func TestCustomerPortalOverviewAPILegacyWorkbenchBindingMapsToForbidden(t *testi
 			return next(c)
 		}
 	})
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/customer-processing/portal/overview", nil)
 	rec := httptest.NewRecorder()
@@ -563,7 +564,7 @@ func TestCustomerPortalOptionsAPIDerivesCustomerFromEmployeeBinding(t *testing.T
 			return next(c)
 		}
 	})
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/customer-processing/portal/options", nil)
 	rec := httptest.NewRecorder()
@@ -593,7 +594,7 @@ func TestCustomerPortalProcessingSubmitAPIDerivesEmployeeAndIgnoresCustomerID(t 
 			return next(c)
 		}
 	})
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	body := `{"customer_id":999,"product_name":"誉观山冷萃豆","raw_bean_name":"埃塞花魁","input_quantity_g":5000,"planned_output_units":50,"expected_date":"2026-05-20","note":"急单"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-processing/portal/work-orders", strings.NewReader(body))
@@ -659,7 +660,7 @@ func TestCustomerPortalDirectShipSubmitAPIForwardsDripSalesUnit(t *testing.T) {
 			return next(c)
 		}
 	})
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	body := `{"receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"浙江杭州","items":[{"product_id":88,"product_name":"誉观山挂耳","spec_g":10,"quantity_units":3,"sales_unit":"box"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-processing/portal/direct-ship-orders", strings.NewReader(body))
@@ -689,7 +690,7 @@ func TestCustomerPortalDirectShipSubmitAPIAcceptsMultiLineItems(t *testing.T) {
 			return next(c)
 		}
 	})
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	body := `{"receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"浙江杭州","shipping_amount":12,"items":[{"product_id":12,"product_name":"岩师傅冷萃豆","spec":"100g","quantity_units":2,"discount_type":"percent","discount_value":80},{"product_id":12,"product_name":"岩师傅冷萃豆","spec_g":227,"quantity_units":1,"discount_type":"amount","discount_value":10}],"note":"门卫代收"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-processing/portal/direct-ship-orders", strings.NewReader(body))
@@ -720,7 +721,7 @@ func TestInternalProcessingAndDirectShipSubmitAPIsUseExplicitCustomer(t *testing
 		customerDirectShipResult: app.DirectShipOrderSummary{OrderNo: "CDS-20260509-0001", Status: "submitted", ItemCount: 1},
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	processingBody := `{"product_name":"誉观山冷萃豆","raw_bean_name":"埃塞花魁","input_quantity_g":5000,"planned_output_units":50,"expected_date":"2026-05-20","note":"管理员提交"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/work-orders", strings.NewReader(processingBody))
@@ -759,7 +760,7 @@ func TestInternalSubmitAPICapabilityUnavailableMapsToBadRequest(t *testing.T) {
 		customerDirectShipErr: errors.New("customer capability direct_ship unavailable"),
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	processingBody := `{"product_name":"越权加工","input_quantity_g":5000,"planned_output_units":50}`
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/work-orders", strings.NewReader(processingBody))
@@ -791,7 +792,7 @@ func TestInternalCustodyAdjustmentAPIUsesExplicitCustomer(t *testing.T) {
 		custodyAdjustmentResult: app.CustodyBalance{ItemType: "raw_bean", ItemName: "埃塞花魁", QuantityG: 12000},
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	body := `{"item_type":"raw_bean","item_name":"埃塞花魁","quantity_g_delta":1000,"note":"手工补录"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/custody-adjustments", strings.NewReader(body))
@@ -815,7 +816,7 @@ func TestCustodyAdjustmentAPICapabilityUnavailableMapsToBadRequest(t *testing.T)
 		custodyAdjustmentErr: errors.New("customer capability inventory_custody unavailable"),
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	body := `{"item_type":"raw_bean","item_name":"越权生豆","quantity_g_delta":1000,"note":"越权补录"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/custody-adjustments", strings.NewReader(body))
@@ -839,7 +840,7 @@ func TestInternalERPBindingAPIUpsertsCustomerEmployeeBinding(t *testing.T) {
 		erpBindingResult: app.CustomerERPBinding{CustomerID: 149, EmployeeID: 23, EmployeeName: "誉观山客户", Role: "customer", Status: "active"},
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/erp-bindings", strings.NewReader(`{"employee_id":23,"status":"active"}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -864,7 +865,7 @@ func TestInternalERPBindingAPIWorkbenchUnavailableMapsToBadRequest(t *testing.T)
 		erpBindingErr: errors.New("ERP workbench unavailable for capability template"),
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/erp-bindings", strings.NewReader(`{"employee_id":23,"status":"active"}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -890,7 +891,7 @@ func TestExternalUsersAPIManagesCustomerAccounts(t *testing.T) {
 		setExternalUserLoginResult: app.CustomerExternalUser{CustomerID: 149, EmployeeID: 23, Name: "誉观山账号", Phone: "13800138075", LoginEnabled: false, HasPassword: true, BindingStatus: "active"},
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/customer-fulfillment/149/external-users", nil)
 	rec := httptest.NewRecorder()
@@ -941,7 +942,7 @@ func TestCreateSettlementAPIRequiresPeriod(t *testing.T) {
 		settlementResult: app.SettlementResult{BatchID: 88, CustomerID: 147, PeriodFrom: "2026-03-01", PeriodTo: "2026-03-31", FeeItems: 4, TotalAmountCents: 16300},
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/147/settlements", bytes.NewBufferString(`{"period_from":"","period_to":"2026-03-31"}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -973,7 +974,7 @@ func TestCreateSettlementAPICapabilityUnavailableMapsToBadRequest(t *testing.T) 
 		settlementErr: errors.New("customer capability settlement unavailable"),
 	}
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc})
+	RegisterRoutes(e, Dependencies{CustomerFulfillment: svc, Sales: testSalesSaver})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/customer-fulfillment/149/settlements", bytes.NewBufferString(`{"period_from":"2026-03-01","period_to":"2026-03-31"}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -1044,6 +1045,14 @@ type fakeCustomerFulfillmentService struct {
 	listImportsQuery                app.ListImportsQuery
 	listImportsResult               []app.ImportBatch
 }
+
+type fakeSalesSaver struct{}
+
+func (s *fakeSalesSaver) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand) (salesapp.SaveOrderResult, error) {
+	return salesapp.SaveOrderResult{OrderID: 999, OrderNo: "SO-TEST-999"}, nil
+}
+
+var testSalesSaver = &fakeSalesSaver{}
 
 func (s *fakeCustomerFulfillmentService) ParseImport(ctx context.Context, cmd app.ParseImportCommand) (app.ImportBatch, error) {
 	s.parseCmd = cmd
