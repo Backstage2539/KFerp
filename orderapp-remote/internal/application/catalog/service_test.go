@@ -382,7 +382,7 @@ func TestCopySKUsDedupesSourceIDsAndDelegatesOverwriteResult(t *testing.T) {
 	}
 }
 
-func TestCopySKUsRejectsSameSourceAndTargetOwner(t *testing.T) {
+func TestCopySKUsAllowsSameSourceAndTargetOwner(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 
@@ -392,11 +392,11 @@ func TestCopySKUsRejectsSameSourceAndTargetOwner(t *testing.T) {
 		SourceCustomerID: 42,
 		SourceSKUIDs:     []int64{7},
 	})
-	if !IsValidationError(err) {
-		t.Fatalf("CopySKUs() err=%v, want validation error", err)
+	if err != nil {
+		t.Fatalf("CopySKUs() err=%v, want no error for same source and target", err)
 	}
-	if repo.skusCopied {
-		t.Fatalf("CopySKUs delegated to repository for same source and target")
+	if !repo.skusCopied {
+		t.Fatalf("CopySKUs did not delegate for same source and target")
 	}
 }
 

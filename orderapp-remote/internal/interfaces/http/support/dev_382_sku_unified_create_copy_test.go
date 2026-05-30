@@ -42,8 +42,7 @@ func TestDev382SKUUnifiedCreateCopySourceMarkers(t *testing.T) {
 		filepath.Join("internal", "application", "catalog", "service.go"): {
 			"CreateSKU(ctx context.Context, cmd CreateSKUCommand)",
 			"CopySKUs(ctx context.Context, cmd CopySKUsCommand)",
-			"source and target customer cannot be the same",
-		},
+					},
 		filepath.Join("internal", "infrastructure", "postgres", "catalog", "repository.go"): {
 			"func (r Repository) CreateSKU",
 			"func (r Repository) ListSKUCopyOptions",
