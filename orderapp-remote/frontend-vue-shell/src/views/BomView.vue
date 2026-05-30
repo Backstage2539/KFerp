@@ -110,8 +110,9 @@
           <button class="secondary compact" type="button" @click="lockCurrentBomVersion" :disabled="loading || !canEditCurrentBomProduct">锁定当前 BOM 版本</button>
         </div>
         <div v-if="detail?.bom_source_type === 'inherit_version'" class="inherit-source-banner locked">
-          <span>锁定：{{ detail.bom_source_product_name || '来源SKU' }} / BOM {{ detail.bom_source_version_no || 'V???' }}</span>
-          <button class="secondary compact" type="button" @click="unlockBomVersion" :disabled="loading || !canEditCurrentBomProduct">恢复跟随当前 BOM</button>
+          <span v-if="detail.source_product_id > 0">锁定：{{ detail.bom_source_product_name || '来源SKU' }} / BOM {{ detail.bom_source_version_no || 'V???' }}</span>
+          <span v-else>已锁定到版本：BOM {{ detail.bom_source_version_no || 'V???' }}</span>
+          <button class="secondary compact" type="button" @click="unlockBomVersion" :disabled="loading || !canEditCurrentBomProduct">恢复当前 BOM</button>
         </div>
         <div v-if="detail" class="summary">
           <div><span>商品</span><strong>{{ detail.product_name }}</strong></div>
