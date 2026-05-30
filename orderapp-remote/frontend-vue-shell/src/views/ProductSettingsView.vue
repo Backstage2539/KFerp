@@ -137,7 +137,7 @@
                     <input
                       class="sku-name-input"
                       v-model.trim="row.name"
-                      :disabled="!canEditSkuRow(row)"
+                      :disabled="!canEditSkuRow(row) || row.active === false"
                       @change="saveProductBasics(row, 'SKU名称已保存')" />
                   </td>
                   <td>{{ productOwnerLabel(row) }}</td>
@@ -145,11 +145,11 @@
                     <div v-if="specialAttrSchemaForProduct(row).length" class="special-attr-editor compact">
                       <label v-for="attr in specialAttrSchemaForProduct(row)" :key="`row-attr-${row.id}-${attr.key}`">
                         <span>{{ attr.label }}</span>
-                        <select v-if="attr.value_type === 'select'" v-model="row.special_attr_values[attr.key]" :disabled="!canEditSkuRow(row)" @change="saveProductBasics(row)">
+                        <select v-if="attr.value_type === 'select'" v-model="row.special_attr_values[attr.key]" :disabled="!canEditSkuRow(row) || row.active === false" @change="saveProductBasics(row)">
                           <option value="">未填写</option>
                           <option v-for="option in attr.options" :key="`${attr.key}-${option}`" :value="option">{{ option }}</option>
                         </select>
-                        <input v-else v-model.trim="row.special_attr_values[attr.key]" :type="attr.value_type === 'number' ? 'number' : 'text'" :disabled="!canEditSkuRow(row)" @change="saveProductBasics(row)" />
+                        <input v-else v-model.trim="row.special_attr_values[attr.key]" :type="attr.value_type === 'number' ? 'number' : 'text'" :disabled="!canEditSkuRow(row) || row.active === false" @change="saveProductBasics(row)" />
                       </label>
                     </div>
                     <div v-else class="sku-empty-special-attrs">
@@ -166,7 +166,7 @@
                         min="1"
                         max="100"
                         step="0.01"
-                        :disabled="!canEditSkuRow(row)"
+                        :disabled="!canEditSkuRow(row) || row.active === false"
                         @change="saveProductBasics(row)" />
                       <span>%</span>
                     </div>
@@ -180,7 +180,7 @@
                       min="0"
                       step="0.001"
                       placeholder="留空继承分类模板"
-                      :disabled="!canEditSkuRow(row)"
+                      :disabled="!canEditSkuRow(row) || row.active === false"
                       @change="saveProductMarginOverride(row)" />
                   </td>
                   <td class="bom-source-cell">{{ bomSourceLabel(row) }}</td>
@@ -188,18 +188,18 @@
                     <span :class="['status-pill', (row.active === false || row.bom_status === 'inactive') ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
                   </td>
                   <td>
-                    <button class="text-button" type="button" :disabled="!canEditSkuRow(row)" @click="openProductBom(row)">维护 BOM</button>
-                    <button class="text-button" type="button" style="margin-left:4px" @click="copySkuInPlace(row)">复制</button>
+                    <button class="text-button" type="button" style="margin-right:4px" @click="copySkuInPlace(row)">复制</button>
+                    <button class="text-button" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="openProductBom(row)">维护 BOM</button>
                   </td>
                   <td>
-                    <button class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row)" @click="deactivateProducts([row.id])">停用</button>
+                    <button class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="deactivateProducts([row.id])">停用</button>
                   </td>
                   <td>
                     <textarea
                       class="remark-input"
                       v-model.trim="row.remark"
                       rows="2"
-                      :disabled="!canEditSkuRow(row)"
+                      :disabled="!canEditSkuRow(row) || row.active === false"
                       @change="saveProductBasics(row, 'SKU备注已保存')"></textarea>
                   </td>
                 </tr>
