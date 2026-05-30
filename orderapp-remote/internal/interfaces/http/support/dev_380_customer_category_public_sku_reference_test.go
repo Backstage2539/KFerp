@@ -29,7 +29,7 @@ func TestDev380CustomerCategoryPublicSKUReferenceSourceMarkers(t *testing.T) {
 		},
 		filepath.Join("internal", "application", "catalog", "service_test.go"): {
 			"TestCopySKUsDedupesSourceIDsAndDelegatesOverwriteResult",
-			"TestCopySKUsRejectsSameSourceAndTargetOwner",
+			"TestCopySKUsAllowsSameSourceAndTargetOwner",
 		},
 		filepath.Join("internal", "interfaces", "http", "catalog", "product_settings_api_test.go"): {
 			"TestProductSettingsAPISKUCopyOptionsAndCopy",
