@@ -2395,7 +2395,7 @@ func copyProductBOMTx(ctx context.Context, tx pgx.Tx, schema string, actor strin
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.product_bom(product_id,yield_rate,status,updated_at)
-		SELECT $1,yield_rate,status,now()
+		SELECT $1,yield_rate,'active',now()
 		FROM %s.product_bom
 		WHERE product_id=$2
 	`, schema, schema), targetProductID, sourceProductID); err != nil {
