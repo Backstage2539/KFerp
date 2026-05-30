@@ -3698,8 +3698,6 @@ async function deactivateProducts(productIds) {
 
 async function copySkuInPlace(row) {
   if (!row || !row.id) return
-  const okToCopy = window.confirm(`复制 SKU「${row.name}」及其 BOM 到当前归属？同名 SKU 会覆盖资料但保留目标 SKU ID。`)
-  if (!okToCopy) return
   loading.value = true
   error.value = ''
   ok.value = ''

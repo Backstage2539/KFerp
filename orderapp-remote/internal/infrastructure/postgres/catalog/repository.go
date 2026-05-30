@@ -588,6 +588,21 @@ func (r Repository) CopySKUs(ctx context.Context, cmd catalogapp.CopySKUsCommand
 		}
 		initialSource := source
 		initialSource.GreenBeanBomProductID = 0
+		if targetID > 0 && targetID == source.ID && cmd.SourceCustomerID == cmd.TargetCustomerID {
+			copyName := source.Name + " (复制)"
+			for attempt := 2; ; attempt++ {
+				collisionID, collErr := findTargetSKUByNameTx(ctx, tx, r.schema, cmd.TargetCustomerID, targetCategoryID, copyName)
+				if collErr != nil {
+					return catalogapp.CopySKUsResult{}, collErr
+				}
+				if collisionID == 0 {
+					break
+				}
+				copyName = fmt.Sprintf("%s (复制 %d)", source.Name, attempt)
+			}
+			initialSource.Name = copyName
+			targetID = 0
+		}
 		if targetID > 0 {
 			if err := updateCopiedSKUProductTx(ctx, tx, r.schema, targetID, initialSource, cmd.TargetCustomerID, targetCategoryID, visibility); err != nil {
 				return catalogapp.CopySKUsResult{}, err
