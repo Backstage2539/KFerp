@@ -45,6 +45,7 @@ type ProductOption struct {
 	YieldRate                   float64
 	ProductCategoryID           int64
 	ProductCategoryPosition     int
+	Active                      bool
 	CustomerID                  int64
 	BaseProductID               int64
 	Visibility                  string
@@ -104,6 +105,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		COALESCE(b.yield_rate, 0.8),
 		COALESCE(p.product_category_id, 0),
 		COALESCE(p.product_category_position, 0),
+		COALESCE(p.active,true),
 		COALESCE(p.customer_id, 0),
 		COALESCE(p.base_product_id, 0),
 		COALESCE(NULLIF(p.visibility,''), 'public'),
