@@ -350,9 +350,10 @@ type CopySKUsCommand struct {
 }
 
 type CopySKUsResult struct {
-	CreatedCount     int `json:"created_count"`
-	OverwrittenCount int `json:"overwritten_count"`
-	SkippedCount     int `json:"skipped_count"`
+	CreatedCount     int      `json:"created_count"`
+	OverwrittenCount int     `json:"overwritten_count"`
+	SkippedCount     int     `json:"skipped_count"`
+	CreatedIDs       []int64 `json:"created_ids,omitempty"`
 }
 
 type CreateCustomProductCommand struct {

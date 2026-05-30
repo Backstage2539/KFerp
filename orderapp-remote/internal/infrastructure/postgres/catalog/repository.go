@@ -614,6 +614,7 @@ func (r Repository) CopySKUs(ctx context.Context, cmd catalogapp.CopySKUsCommand
 				return catalogapp.CopySKUsResult{}, err
 			}
 			result.CreatedCount++
+			result.CreatedIDs = append(result.CreatedIDs, targetID)
 		}
 		sourceToTarget[source.ID] = targetID
 		plans = append(plans, skuCopyPlan{

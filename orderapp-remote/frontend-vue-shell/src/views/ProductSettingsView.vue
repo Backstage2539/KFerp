@@ -3712,9 +3712,8 @@ async function copySkuInPlace(row) {
     })
     ok.value = `已复制 SKU「${row.name}」`
     await loadAll()
-    const copied = displaySkuRows.value.find(r => r.name === row.name + ' (复制)' || r.name.startsWith(row.name + ' (复制 '))
-    if (copied) {
-      highlightedSkuId.value = copied.id
+    if (result?.created_ids?.length) {
+      highlightedSkuId.value = result.created_ids[0]
       setTimeout(() => { highlightedSkuId.value = 0 }, 3000)
     }
   } catch (err) {
