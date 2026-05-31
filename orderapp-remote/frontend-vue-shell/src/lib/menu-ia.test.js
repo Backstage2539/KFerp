@@ -39,15 +39,19 @@ test('expanded menu groups persist and keep current group open', () => {
   assert.deepEqual(restored, ['sales', 'inventory'])
 })
 
-test('product menu exposes unified product settings and keeps legacy views hidden', () => {
+test('product menu splits product archive, customer names and config templates as peer pages', () => {
   const keys = primaryMenuKeys(menuGroups)
-  assert.ok(keys.includes('productSettings'))
-  assert.ok(keys.includes('mallSettings'))
+  assert.ok(keys.includes('productMaster'))
+  assert.ok(keys.includes('customerProductAliases'))
+  assert.ok(keys.includes('productConfigTemplates'))
+  assert.equal(keys.includes('productSettings'), false)
   assert.ok(keys.includes('costing'))
   assert.equal(keys.includes('products'), false)
-  assert.equal(groupForView(menuGroups, 'productSettings')?.id, 'product')
-  assert.equal(groupForView(menuGroups, 'mallSettings')?.id, 'product')
+  assert.equal(groupForView(menuGroups, 'productMaster')?.id, 'product')
+  assert.equal(groupForView(menuGroups, 'customerProductAliases')?.id, 'product')
+  assert.equal(groupForView(menuGroups, 'productConfigTemplates')?.id, 'product')
   assert.equal(groupForView(menuGroups, 'costing')?.id, 'product')
+  assert.equal(menuGroups.find((group) => group.id === 'product')?.items.map((item) => item.label).join(' / '), '商品档案 / 客户商品名 / 商品配置模板 / 生产 BOM / 产品价格表 / 行业字段模板 / 成本核价手册 / 生豆销售手册')
 })
 
 test('production menu exposes the production flow manual as a primary page', () => {
@@ -148,8 +152,9 @@ test('remaining ERP click-matrix targets reference real Vue shell views', () => 
     'stockOutboundLogs',
     'purchase',
     'materials',
-    'productSettings',
-    'mallSettings',
+    'productMaster',
+    'customerProductAliases',
+    'productConfigTemplates',
     'costing',
     'bom',
     'order',

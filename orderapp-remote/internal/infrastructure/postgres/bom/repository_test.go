@@ -133,10 +133,40 @@ func TestProductionBomVersionSpecialAttrsSchemaBackfillAndAuditMarkers(t *testin
 		"CASE WHEN $3<>'' THEN $3::jsonb ELSE special_attrs_schema_json END",
 		"CASE WHEN $4<>'' THEN $4::jsonb ELSE special_attrs_json END",
 		`"update_special_attrs"`,
-		`"disable_production_bom_group"`,
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("production BOM version special attrs implementation missing marker %q", want)
+		}
+	}
+}
+
+func TestProductionBomGroupsArePureUIFoldersWithDeleteAndSort(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := readRepositorySource(t)
+	combined := string(schema) + "\n" + repository
+	for _, want := range []string{
+		"DEFAULT_PRODUCTION_BOM_GROUP_NAME",
+		"DeleteProductionBomGroup",
+		"MoveProductionBomGroup",
+		"move_production_bom_group",
+		"delete_production_bom_group",
+		"SET group_id=(SELECT id FROM",
+		"sort_order=$2",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("production BOM group folder behavior missing marker %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"DisableProductionBomGroup",
+		"disable_production_bom_group",
+		"include_inactive",
+	} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("production BOM groups should not use inactive/disable model; found %q", forbidden)
 		}
 	}
 }

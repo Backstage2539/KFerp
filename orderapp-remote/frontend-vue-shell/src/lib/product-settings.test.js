@@ -79,7 +79,7 @@ test('filterSkuRows supports product kind, name, primary category, and secondary
   ], { productKind: 'instant_coffee' }).map((row) => row.id), [5])
 })
 
-test('instant coffee product kind carries SKU-owned BOM yield and special KV settings', () => {
+test('instant coffee product kind carries legacy yield without writing SKU special attributes', () => {
   assert.equal(normalizedProductKind({ product_kind: 'instant_coffee' }), 'instant_coffee')
 
   assert.deepEqual(buildProductCreatePayload({
@@ -92,7 +92,6 @@ test('instant coffee product kind carries SKU-owned BOM yield and special KV set
     name: '冻干速溶咖啡',
     product_kind: 'instant_coffee',
     remark: '原料为速溶咖啡',
-    special_attrs_json: '{"roast_level":"深烘"}',
     yield_rate: 0.8,
   })
 
@@ -106,7 +105,6 @@ test('instant coffee product kind carries SKU-owned BOM yield and special KV set
     name: '冻干速溶咖啡',
     product_kind: 'instant_coffee',
     remark: '原料为速溶咖啡',
-    special_attrs_json: '{"roast_level":"中烘"}',
     yield_rate: 0.8,
     margin_rate_override: null,
   })
@@ -126,7 +124,6 @@ test('instant coffee product kind carries SKU-owned BOM yield and special KV set
     name: '客户A-速溶咖啡',
     remark: '',
     product_kind: 'instant_coffee',
-    special_attrs_json: '{"roast_level":"中烘"}',
     yield_rate: 1,
     custom_type: 'public_sku_alias',
     copy_bom: false,
@@ -163,7 +160,6 @@ test('unified SKU create payload is owned by current view and carries no legacy 
     remark: '10g/条，10条/盒',
     product_type_category_id: 7,
     product_subtype_category_id: 17,
-    special_attrs_json: '{"roast_level":"中深烘"}',
     active: true,
   })
   assert.equal(Object.hasOwn(payload, 'product_kind'), false)
@@ -404,7 +400,7 @@ test('special KV schema saves edited select options and clears stale options whe
   }]), '[{"key":"roast_level","label":"烘焙度","value_type":"text","options":[],"required":false,"show_in_price_list":true,"position":1}]')
 })
 
-test('instant coffee SKU payload carries SKU-owned BOM yield and special KV settings', () => {
+test('instant coffee SKU payload carries legacy yield without SKU special attributes', () => {
   assert.deepEqual(buildProductCreatePayload({
     name: '速溶盒装',
     product_kind: 'instant_coffee',
@@ -414,7 +410,6 @@ test('instant coffee SKU payload carries SKU-owned BOM yield and special KV sett
     name: '速溶盒装',
     product_kind: 'instant_coffee',
     remark: '',
-    special_attrs_json: '{"roast_level":"中烘"}',
     yield_rate: 0.96,
   })
 
@@ -426,7 +421,6 @@ test('instant coffee SKU payload carries SKU-owned BOM yield and special KV sett
   }), {
     product_kind: 'instant_coffee',
     remark: '条装原料',
-    special_attrs_json: '{"roast_level":"中烘"}',
     yield_rate: 0.98,
     margin_rate_override: null,
   })
@@ -716,7 +710,6 @@ test('product create payload carries SKU remark without direct green bean prices
     name: '暖阳拼配',
     product_kind: 'roasted',
     remark: '奶咖主推',
-    special_attrs_json: '{}',
     yield_rate: 0.82,
   })
 
@@ -732,7 +725,6 @@ test('product create payload carries SKU remark without direct green bean prices
     name: '巴拿马生豆',
     product_kind: 'green_bean',
     remark: '新季生豆',
-    special_attrs_json: '{}',
     green_bean_type: 'blend',
     green_bean_bom_product_id: 7,
   })
@@ -752,7 +744,6 @@ test('product basics payload preserves remark, green bean type, and BOM binding 
   assert.deepEqual(payload, {
     product_kind: 'green_bean',
     remark: '仅作生豆销售',
-    special_attrs_json: '{}',
     green_bean_type: 'single_origin',
     green_bean_bom_product_id: 7,
     margin_rate_override: null,
@@ -771,7 +762,7 @@ test('product basics payload carries customer SKU margin override', () => {
   }, 0.33)
 
   assert.equal(payload.product_kind, 'roasted')
-  assert.equal(payload.special_attrs_json, '{}')
+  assert.equal(Object.hasOwn(payload, 'special_attrs_json'), false)
   assert.equal(payload.yield_rate, 0.8)
   assert.equal(payload.margin_rate_override, 0.33)
   assert.equal(payload.remark, '客户定制烘焙')
@@ -829,7 +820,6 @@ test('customer custom SKU payload supports green bean and drip bag product setti
     name: '客户A-巴拿马生豆',
     remark: '客户生豆',
     product_kind: 'green_bean',
-    special_attrs_json: '{}',
     green_bean_type: 'blend',
     green_bean_bom_product_id: 9,
     custom_type: 'public_sku_alias',
@@ -853,7 +843,6 @@ test('customer custom SKU payload supports green bean and drip bag product setti
     product_kind: 'drip_bag',
     drip_bag_grams: 12,
     drip_box_bag_count: 8,
-    special_attrs_json: '{}',
     custom_type: 'custom_roast',
     copy_bom: false,
     copy_price_tiers: false,
@@ -875,7 +864,6 @@ test('customer custom roast SKU payload does not carry base product or copy flag
     name: '客户A-专属深烘',
     remark: '',
     product_kind: 'roasted',
-    special_attrs_json: '{"roast_level":"深烘"}',
     custom_type: 'custom_roast',
     copy_bom: false,
     copy_price_tiers: false,
@@ -1220,7 +1208,6 @@ test('SKU settings no longer renders special KV template definitions or SKU valu
     'special_attrs_schema_rows',
     'specialAttrSchemaForProduct',
     'specialAttrSchemaForForm',
-    'show_in_price_list',
     '产品信息字段（特殊属性KV）',
     'special-attr-editor',
     'openSpecialAttrConfigForProduct',
@@ -1232,33 +1219,68 @@ test('SKU settings no longer renders special KV template definitions or SKU valu
   assert.doesNotMatch(template, /v-model="customForm\.roast_level"/)
 })
 
-test('BOM view makes special attributes discoverable from BOM version detail', () => {
-  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+test('product pages split product archive, aliases and config templates without workspace tabs', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const app = fs.readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
 
   for (const expected of [
-    'BOM版本与特殊属性',
-    '特殊属性绑定到 BOM 版本',
-    '字段定义 special_attrs_schema_json',
-    '字段值 special_attrs_json',
-    '保存特殊属性',
-    '复制为新版草稿',
+    'productMaster',
+    'customerProductAliases',
+    'productConfigTemplates',
+    '商品档案',
+    '客户商品名',
+    '商品配置模板',
+    '生产配置',
+    '商品分类',
+    '价格/单位摘要',
+    '状态备注',
+    'sectionMode',
   ]) {
-    assert.ok(source.includes(expected), `missing BOM special attrs copy: ${expected}`)
+    assert.ok(source.includes(expected) || app.includes(expected), `missing split product page marker: ${expected}`)
   }
-  assert.match(template, /:readonly="!canEditSelectedProductionBomVersion"/)
+  assert.doesNotMatch(template, /sku-workspace-tabs/)
+  assert.doesNotMatch(template, /activeSettingsSection === 'templates' && activeConfigTemplateSection === 'category-management'/)
 })
 
-test('BOM version special attributes are saved through the production BOM draft API', () => {
+test('product config template page no longer contains product category management', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const configPageBlock = template.match(/productConfigTemplates[\s\S]*?<\/section>/)?.[0] || template
+
+  assert.match(source, /商品配置模板/)
+  assert.match(configPageBlock, /单位模板/)
+  assert.match(configPageBlock, /阶梯价模板/)
+  assert.doesNotMatch(configPageBlock, />商品分类管理</)
+  assert.match(template, /currentSettingsSection === 'master'[\s\S]*class="category-panel category-drawer-panel category-management-panel/)
+})
+
+test('BOM view no longer exposes special attributes from BOM version detail', () => {
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+
+  assert.doesNotMatch(source, /BOM版本与特殊属性/)
+  assert.doesNotMatch(source, /特殊属性绑定到 BOM 版本/)
+  assert.doesNotMatch(source, /字段定义 special_attrs_schema_json/)
+  assert.doesNotMatch(source, /字段值 special_attrs_json/)
+  assert.doesNotMatch(source, /保存特殊属性/)
+  assert.doesNotMatch(source, /保存预期损耗率/)
+  assert.doesNotMatch(source, /预期产出率/)
+  assert.doesNotMatch(template, /versionSpecialAttrsSchemaText/)
+})
+
+test('product production config owns expected loss, route and price-list attributes', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const bomSource = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
-  const script = bomSource.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
-  assert.doesNotMatch(source, /handleSpecialAttrSchemaTypeChange/)
-  assert.match(script, /saveProductionBomVersionSpecialAttrs/)
-  assert.match(script, /production-bom-versions\/\$\{versionID\}\/draft/)
-  assert.match(script, /special_attrs_schema_json:\s*versionSpecialAttrsSchemaText\.value/)
-  assert.match(script, /special_attrs_json:\s*versionSpecialAttrsText\.value/)
+  assert.match(source, /商品生产配置/)
+  assert.match(source, /预期损耗率/)
+  assert.match(source, /工艺路线/)
+  assert.match(source, /show_in_price_list/)
+  assert.match(source, /\/api\/product-production-configs/)
+  assert.doesNotMatch(bomSource, /expected_loss_rate/)
+  assert.doesNotMatch(bomSource, /special_attrs_json/)
 })
 
 test('copying public product config stays a template copy and no longer toggles public SKU references', () => {
@@ -1336,7 +1358,7 @@ test('SKU settings exposes SKU copy drawer and moves category management under p
     'copySkuSelection',
     '复制为商品档案',
     '商品分类管理',
-    "activeConfigTemplateSection === 'category-management'",
+    "currentSettingsSection === 'master'",
     '/api/product-settings/skus/copy-options',
     '/api/product-settings/skus/copy',
   ]) {
@@ -1455,22 +1477,22 @@ test('SKU settings renders one unified SKU form as a full-width drawer', () => {
   assert.match(source, /\.product-drawer-form\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/)
 })
 
-test('SKU settings groups master data and template configuration into separate workspaces', () => {
+test('product pages group product archive and template configuration into separate pages', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
-    'activeSettingsSection',
-    'sku-workspace-tabs',
+    'currentSettingsSection',
+    'sectionMode',
     'sku-master-workspace',
     'sku-template-workspace',
     'master-data-layout',
     'template-workspace-stack',
     '商品档案',
-    '商品配置',
+    '商品配置模板',
   ]) {
-    assert.ok(source.includes(expected), `missing SKU workspace layout marker: ${expected}`)
+    assert.ok(source.includes(expected), `missing product page layout marker: ${expected}`)
   }
 
   assert.ok(
@@ -1482,7 +1504,7 @@ test('SKU settings groups master data and template configuration into separate w
     'SKU list should remain in the daily-operation workspace before template configuration',
   )
   assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"[\s\S]*@click="openSkuCopyDrawer"/)
-  assert.match(template, /v-if="activeSettingsSection === 'templates' && activeConfigTemplateSection === 'category-management'"/)
+  assert.match(template, /v-if="currentSettingsSection === 'master'"[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
   assert.match(style, /\.master-data-layout\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*minmax\(0,\s*1fr\);/)
   assert.match(style, /\.template-workspace-stack\s*\{\s*display:\s*grid;\s*gap:\s*14px;/)
   assert.match(style, /@media\s*\(max-width:\s*1100px\)/)
@@ -1510,7 +1532,7 @@ test('product management exposes customer product names without direct BOM editi
   ]) {
     assert.ok(source.includes(expected), `missing customer product alias marker: ${expected}`)
   }
-  assert.match(template, /activeSettingsSection === 'aliases'/)
+  assert.match(template, /currentSettingsSection === 'aliases'/)
   assert.match(script, /apiGet\('\/api\/customer-product-aliases\?active=all'\)/)
   assert.match(script, /apiSend\(url,\s*\{ method,\s*body:\s*payload \}\)/)
   assert.match(script, /apiSend\(`\/api\/customer-product-aliases\/\$\{alias\.id\}\/disable`\)/)
@@ -1587,7 +1609,7 @@ test('SKU category management renders inline instead of teleporting into its own
 
   assert.doesNotMatch(template, /<Teleport\s+to="#sku-category-management-target"/)
   assert.doesNotMatch(template, /id="sku-category-management-target"/)
-  assert.match(template, /activeConfigTemplateSection === 'category-management'[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
+  assert.match(template, /currentSettingsSection === 'master'[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
   assert.ok(
     template.indexOf('class="config-template-tabs"') < template.indexOf('class="category-panel category-drawer-panel category-management-panel"'),
     'category management panel should render inside the template workspace after its tab buttons',
@@ -1615,7 +1637,7 @@ test('SKU settings edits product categories inline inside the category managemen
     assert.ok(source.includes(expected), `missing inline category editor marker: ${expected}`)
   }
 
-  assert.match(template, /v-if="activeSettingsSection === 'templates' && activeConfigTemplateSection === 'category-management'"[\s\S]*class="category-panel category-drawer-panel/)
+  assert.match(template, /v-if="currentSettingsSection === 'master'"[\s\S]*class="category-panel category-drawer-panel/)
   assert.doesNotMatch(source, /category-editor-drawer/)
   assert.doesNotMatch(source, /openCategoryDrawer/)
   assert.doesNotMatch(source, /openCategorySettingsDrawer/)
@@ -1813,7 +1835,7 @@ test('SKU settings splits product config templates and gradient templates into n
     assert.ok(source.includes(expected), `missing template tab marker: ${expected}`)
   }
 
-  assert.match(template, /activeSettingsSection === 'templates'[\s\S]*商品配置/)
+  assert.match(template, /currentSettingsSection === 'templates'[\s\S]*商品配置/)
   assert.doesNotMatch(template, />模板配置</)
   assert.ok(
     template.indexOf('商品配置模板') < template.indexOf('阶梯价模板'),
@@ -1857,7 +1879,7 @@ test('SKU settings separates global unit templates into a peer configuration tab
 
 test('SKU product config uses display unit from unit dictionary instead of fixed display modes', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const productConfigPane = source.match(/<div v-show="activeConfigTemplateSection === 'product-config'"[\s\S]*?<div v-if="productDrawerOpen"/)?.[0] || ''
+  const productConfigPane = source.match(/<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'product-config'"[\s\S]*?<div v-if="productDrawerOpen"/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   assert.ok(productConfigPane, 'product config pane should exist')
@@ -1874,7 +1896,7 @@ test('SKU product config uses display unit from unit dictionary instead of fixed
 
 test('SKU product config template list and price rule controls are visually structured', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const productConfigPane = source.match(/<div v-show="activeConfigTemplateSection === 'product-config'"[\s\S]*?<div v-if="productDrawerOpen"/)?.[0] || ''
+  const productConfigPane = source.match(/<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'product-config'"[\s\S]*?<div v-if="productDrawerOpen"/)?.[0] || ''
   const priceRuleBlock = productConfigPane.match(/<div class="rule-config-block price-rule-grid"[\s\S]*?<div class="rule-config-block">/)?.[0] || ''
   const style = source.split('<style scoped>')[1] || ''
 
@@ -1909,7 +1931,7 @@ test('SKU product config template list and price rule controls are visually stru
 
 test('SKU unit template save creates or updates without a separate new-template button', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const unitTemplatePane = source.match(/<div v-show="activeConfigTemplateSection === 'unit-template'"[\s\S]*?<div v-show="activeConfigTemplateSection === 'product-config'"/)?.[0] || ''
+  const unitTemplatePane = source.match(/<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'unit-template'"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'product-config'"/)?.[0] || ''
 
   assert.ok(unitTemplatePane, 'unit template pane should exist')
   assert.doesNotMatch(unitTemplatePane, />新建模板</)
@@ -1925,7 +1947,7 @@ test('SKU settings compacts context area and uses create edit labels for unit di
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
-  const unitTemplatePane = source.match(/<div v-show="activeConfigTemplateSection === 'unit-template'"[\s\S]*?<div v-show="activeConfigTemplateSection === 'product-config'"/)?.[0] || ''
+  const unitTemplatePane = source.match(/<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'unit-template'"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'product-config'"/)?.[0] || ''
   const globalUnitDrawer = source.match(/<div v-if="globalUnitDrawerOpen"[\s\S]*?<\/aside>\s*<\/div>/)?.[0] || ''
 
   for (const expected of [
@@ -1956,7 +1978,7 @@ test('SKU settings compacts context area and uses create edit labels for unit di
 
 test('SKU unit template workspace uses left list right editor and opens global unit dictionary drawer', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const unitTemplatePane = source.match(/<div v-show="activeConfigTemplateSection === 'unit-template'"[\s\S]*?<div v-show="activeConfigTemplateSection === 'product-config'"/)?.[0] || ''
+  const unitTemplatePane = source.match(/<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'unit-template'"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'product-config'"/)?.[0] || ''
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [

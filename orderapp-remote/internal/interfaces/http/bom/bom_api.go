@@ -57,6 +57,10 @@ type updateProductionBomGroupRequest struct {
 	SortOrder int    `json:"sort_order"`
 }
 
+type moveProductionBomGroupRequest struct {
+	SortOrder int `json:"sort_order"`
+}
+
 type createProductionBomRequest struct {
 	Name             string   `json:"name"`
 	GroupID          int64    `json:"group_id"`
@@ -96,8 +100,7 @@ type ErrorResponse struct {
 
 func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 	e.GET("/api/production-bom-groups", func(c echo.Context) error {
-		includeInactive := c.QueryParam("include_inactive") == "1" || c.QueryParam("include_inactive") == "true"
-		rows, err := bomSvc.ListProductionBomGroups(c.Request().Context(), includeInactive)
+		rows, err := bomSvc.ListProductionBomGroups(c.Request().Context(), false)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
@@ -132,12 +135,27 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		return c.JSON(http.StatusOK, row)
 	})
 
-	e.POST("/api/production-bom-groups/:id/disable", func(c echo.Context) error {
+	e.DELETE("/api/production-bom-groups/:id", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid group_id"})
 		}
-		if err := bomSvc.DisableProductionBomGroup(c.Request().Context(), bomapp.DisableProductionBomGroupCommand{ID: id, Actor: support.ActorOf(c)}); err != nil {
+		if err := bomSvc.DeleteProductionBomGroup(c.Request().Context(), bomapp.DeleteProductionBomGroupCommand{ID: id, Actor: support.ActorOf(c)}); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+
+	e.POST("/api/production-bom-groups/:id/move", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid group_id"})
+		}
+		var req moveProductionBomGroupRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		if err := bomSvc.MoveProductionBomGroup(c.Request().Context(), bomapp.MoveProductionBomGroupCommand{ID: id, SortOrder: req.SortOrder, Actor: support.ActorOf(c)}); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true})

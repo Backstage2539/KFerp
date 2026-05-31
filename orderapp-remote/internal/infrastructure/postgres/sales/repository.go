@@ -1626,6 +1626,11 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if err := validateCustomerAliasPublishedPrice(it.customerProductAliasID, it.priceOverride, it.unitPrice); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
+		productionConfigJSON, err := loadProductProductionConfigSummaryForOrderItemTx(ctx, tx, r.schema, productID)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		priceSourceJSON = withProductProductionConfigPriceSourceJSON(priceSourceJSON, productionConfigJSON)
 		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.customerProductAliasID, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, it.unit, it.spec, it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
@@ -1657,6 +1662,77 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 
 	return salesapp.SaveOrderResult{OrderID: orderID, OrderNo: orderNo, Edited: editID > 0, StockBatchUsed: stockDecision == "use_batch"}, nil
 
+}
+
+func loadProductProductionConfigSummaryForOrderItemTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) (string, error) {
+	if productID <= 0 {
+		return "{}", nil
+	}
+	var raw string
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		WITH config AS (
+			SELECT ppc.product_id,
+			       COALESCE(ppc.production_bom_id,0) AS production_bom_id,
+			       COALESCE(ppc.production_bom_version_id,0) AS production_bom_version_id,
+			       COALESCE(ppc.process_route_id,0) AS process_route_id,
+			       COALESCE(ppc.expected_loss_rate,0)::float8 AS expected_loss_rate
+			FROM %[1]s.product_production_configs ppc
+			WHERE ppc.product_id=$1
+		),
+		fields AS (
+			SELECT ppcf.product_id,
+			       jsonb_agg(jsonb_build_object(
+			         'field_key', ppcf.field_key,
+			         'label', ppcf.label,
+			         'field_type', ppcf.field_type,
+			         'unit', ppcf.unit,
+			         'value_text', ppcf.value_text,
+			         'value_number', ppcf.value_number,
+			         'value_bool', ppcf.value_bool,
+			         'show_in_price_list', ppcf.show_in_price_list,
+			         'sort_order', ppcf.sort_order
+			       ) ORDER BY ppcf.sort_order, ppcf.id) AS fields_json
+			FROM %[1]s.product_production_config_fields ppcf
+			WHERE ppcf.product_id=$1
+			GROUP BY ppcf.product_id
+		)
+		SELECT COALESCE(jsonb_build_object(
+			'product_id', c.product_id,
+			'production_bom_id', c.production_bom_id,
+			'production_bom_version_id', c.production_bom_version_id,
+			'process_route_id', c.process_route_id,
+			'expected_loss_rate', c.expected_loss_rate,
+			'fields', COALESCE(f.fields_json, '[]'::jsonb)
+		), '{}'::jsonb)::text
+		FROM config c
+		LEFT JOIN fields f ON f.product_id=c.product_id
+	`, schema), productID).Scan(&raw)
+	if err == pgx.ErrNoRows {
+		return "{}", nil
+	}
+	if err != nil {
+		if strings.Contains(err.Error(), "product_production_configs") {
+			return "{}", nil
+		}
+		return "", err
+	}
+	return raw, nil
+}
+
+func withProductProductionConfigPriceSourceJSON(existing string, configJSON string) string {
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(existing)), &obj); err != nil || obj == nil {
+		obj = map[string]any{}
+	}
+	var config map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(configJSON)), &config); err == nil && len(config) > 0 {
+		obj["production_config"] = config
+	}
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return existing
+	}
+	return string(b)
 }
 
 func (r Repository) resolveOrderBeanListPublicationTx(ctx context.Context, tx pgx.Tx, customerID, requestedID int64, listType string) (int64, string, error) {

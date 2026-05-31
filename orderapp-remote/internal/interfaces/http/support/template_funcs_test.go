@@ -42,7 +42,7 @@ func TestBomEntrypointsUseVueURL(t *testing.T) {
 		},
 		{
 			path:     "frontend-vue-shell/src/lib/menu-ia.js",
-			required: []string{"bom", "BOM配方维护"},
+			required: []string{"bom", "生产 BOM"},
 		},
 	}
 

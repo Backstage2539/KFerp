@@ -78,6 +78,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS process_template_operations_template_seq_uq
 	ON %[1]s.process_template_operations(template_id, seq);
 CREATE INDEX IF NOT EXISTS process_template_operations_template_idx
 	ON %[1]s.process_template_operations(template_id, seq, id);
+
+CREATE TABLE IF NOT EXISTS %[1]s.process_routes (
+	id BIGSERIAL PRIMARY KEY,
+	name TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'draft',
+	default_equipment TEXT NOT NULL DEFAULT '',
+	default_minutes INT NOT NULL DEFAULT 0,
+	note TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS process_routes_status_idx
+	ON %[1]s.process_routes(status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS %[1]s.process_route_operations (
+	id BIGSERIAL PRIMARY KEY,
+	route_id BIGINT NOT NULL,
+	seq INT NOT NULL DEFAULT 0,
+	operation TEXT NOT NULL DEFAULT '',
+	workstation TEXT NOT NULL DEFAULT '',
+	default_equipment TEXT NOT NULL DEFAULT '',
+	default_minutes INT NOT NULL DEFAULT 0,
+	records_loss BOOLEAN NOT NULL DEFAULT false,
+	quality_checklist_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS process_route_operations_route_seq_uq
+	ON %[1]s.process_route_operations(route_id, seq);
+CREATE INDEX IF NOT EXISTS process_route_operations_route_idx
+	ON %[1]s.process_route_operations(route_id, seq, id);
 `, schema)
 	_, err := pool.Exec(ctx, q)
 	return err

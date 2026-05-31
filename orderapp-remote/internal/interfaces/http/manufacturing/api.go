@@ -39,6 +39,16 @@ type processTemplateRequest struct {
 	Operations         []manufacturingapp.ProcessTemplateOperation `json:"operations"`
 }
 
+type processRouteRequest struct {
+	ID               int64                                    `json:"id"`
+	Name             string                                   `json:"name"`
+	Status           string                                   `json:"status"`
+	DefaultEquipment string                                   `json:"default_equipment"`
+	DefaultMinutes   int                                      `json:"default_minutes"`
+	Note             string                                   `json:"note"`
+	Operations       []manufacturingapp.ProcessRouteOperation `json:"operations"`
+}
+
 func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 	e.GET("/api/industry-field-templates", func(c echo.Context) error {
 		rows, err := svc.ListIndustryTemplates(c.Request().Context())
@@ -140,6 +150,59 @@ func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		if err := svc.DeactivateProcessTemplate(c.Request().Context(), manufacturingapp.TemplateStatusCommand{ID: id, Actor: support.ActorOf(c)}); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+
+	e.GET("/api/process-routes", func(c echo.Context) error {
+		rows, err := svc.ListProcessRoutes(c.Request().Context(), manufacturingapp.ProcessRouteQuery{
+			Status: strings.TrimSpace(c.QueryParam("status")),
+		})
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.POST("/api/process-routes", func(c echo.Context) error {
+		var req processRouteRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		row, err := svc.SaveProcessRoute(c.Request().Context(), manufacturingapp.SaveProcessRouteCommand{
+			ID:               req.ID,
+			Name:             req.Name,
+			Status:           req.Status,
+			DefaultEquipment: req.DefaultEquipment,
+			DefaultMinutes:   req.DefaultMinutes,
+			Note:             req.Note,
+			Operations:       req.Operations,
+			Actor:            support.ActorOf(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.POST("/api/process-routes/:id/publish", func(c echo.Context) error {
+		id, err := parseIDParam(c, "id")
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		if err := svc.PublishProcessRoute(c.Request().Context(), manufacturingapp.TemplateStatusCommand{ID: id, Actor: support.ActorOf(c)}); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+
+	e.POST("/api/process-routes/:id/deactivate", func(c echo.Context) error {
+		id, err := parseIDParam(c, "id")
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		if err := svc.DeactivateProcessRoute(c.Request().Context(), manufacturingapp.TemplateStatusCommand{ID: id, Actor: support.ActorOf(c)}); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true})

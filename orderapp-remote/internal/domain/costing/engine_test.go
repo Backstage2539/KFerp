@@ -538,7 +538,7 @@ func TestCommercialPriceExplanationIncludesFastCostParametersAndTemporaryOverrid
 	}
 	wantKeys := []string{
 		"green_bean_cost_per_kg",
-		"yield_rate",
+		"expected_loss_rate",
 		"roasted_bean_cost_per_kg",
 		"large_batch_production_cost_per_kg",
 		"wholesale_package_cost_per_kg",

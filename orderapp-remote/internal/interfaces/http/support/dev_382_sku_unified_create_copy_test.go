@@ -31,7 +31,7 @@ func TestDev382SKUUnifiedCreateCopySourceMarkers(t *testing.T) {
 			"ensureSkuCopySource",
 			"选择分类和产品",
 			"商品分类管理",
-			"activeConfigTemplateSection === 'category-management'",
+			"currentSettingsSection === 'master'",
 			"/api/product-settings/skus/copy-options",
 			"/api/product-settings/skus/copy",
 		},

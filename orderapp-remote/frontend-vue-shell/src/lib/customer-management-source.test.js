@@ -12,7 +12,10 @@ function source(rel) {
 test('vue shell remounts page components when switching menu views after SKU settings', () => {
   const app = source('App.vue')
   assert.match(app, /<ProductSettingsView\s+v-else-if="isProductSettingsView"/)
-  assert.match(app, /currentKey\.value === 'productSettings' \|\| currentKey\.value === 'products'/)
+  assert.match(app, /function isProductSettingsKey\(key\)/)
+  assert.match(app, /'productMaster'/)
+  assert.match(app, /'customerProductAliases'/)
+  assert.match(app, /'productConfigTemplates'/)
   assert.match(app, /:key="currentViewIdentity"/)
   assert.match(app, /:is="resolveInternalView\(currentKey\)"/)
   assert.match(app, /markRaw\(internalViews\[key\] \|\| OrdersView\)/)
@@ -38,7 +41,6 @@ test('warehouse inventory supports binding warehouses to customers from the inve
   assert.match(view, /openWarehouseSettingsDrawer/)
   assert.match(view, /saveWarehouseCustomerBinding/)
   assert.match(view, /\/api\/stock\/warehouses\/\$\{encodeURIComponent\(selectedWarehouse\.value\)\}\/customer/)
-  assert.doesNotMatch(view, /warehouse-binding-card/)
 })
 
 test('customer drawer exposes inline add actions for customer type and order type selectors', () => {

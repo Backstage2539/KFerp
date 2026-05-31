@@ -15,16 +15,20 @@ function menuItem(key) {
   return menuGroups.flatMap((group) => group.items).find((item) => item.key === key)
 }
 
-test('product menu is split into product management and product price-list pages', () => {
-  assert.equal(menuItem('productSettings')?.label, '商品管理')
-  assert.equal(menuItem('productSettings')?.title, '商品管理')
+test('product menu is split into product archive, customer names, template and price-list pages', () => {
+  assert.equal(menuItem('productMaster')?.label, '商品档案')
+  assert.equal(menuItem('productMaster')?.title, '商品档案')
+  assert.equal(menuItem('customerProductAliases')?.label, '客户商品名')
+  assert.equal(menuItem('productConfigTemplates')?.label, '商品配置模板')
   assert.equal(menuItem('costing')?.label, '产品价格表')
   assert.equal(menuItem('costing')?.title, '产品价格表')
 })
 
-test('product management no longer embeds the product bean-list workspace', () => {
-  assert.match(productSettingsSource, /<h2>商品管理<\/h2>/)
+test('product archive no longer embeds the product bean-list workspace', () => {
+  assert.match(productSettingsSource, /productSectionTitle/)
   assert.match(productSettingsSource, /商品档案/)
+  assert.match(productSettingsSource, /客户商品名/)
+  assert.match(productSettingsSource, /商品配置模板/)
   assert.doesNotMatch(productSettingsSource, /import\s+CostingView\s+from/)
   assert.doesNotMatch(productSettingsSource, /<CostingView\b/)
   assert.doesNotMatch(productSettingsSource, /costing-panel/)

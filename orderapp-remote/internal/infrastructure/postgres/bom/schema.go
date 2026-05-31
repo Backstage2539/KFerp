@@ -298,11 +298,11 @@ func backfillProductionBomLibrary(ctx context.Context, pool *pgxpool.Pool, schem
 	}
 	q := fmt.Sprintf(`
 INSERT INTO %[1]s.production_bom_groups(name, sort_order, active, created_by, updated_by)
-VALUES('默认配方组', 100, true, 'system-backfill', 'system-backfill')
+VALUES('默认分组', 100, true, 'system-backfill', 'system-backfill')
 ON CONFLICT DO NOTHING;
 
 WITH default_group AS (
-	SELECT id FROM %[1]s.production_bom_groups WHERE name='默认配方组' ORDER BY id LIMIT 1
+	SELECT id FROM %[1]s.production_bom_groups WHERE name='默认分组' ORDER BY id LIMIT 1
 ),
 legacy_products AS (
 	SELECT DISTINCT p.id, COALESCE(NULLIF(p.name,''), '商品 ' || p.id::text) AS name,

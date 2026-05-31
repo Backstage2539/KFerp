@@ -51,20 +51,23 @@ func TestLoadProductInputsUsesBomCostSnapshotForGreenBeanCost(t *testing.T) {
 	}
 }
 
-func TestLoadProductInputsPrefersBoundBomVersionSpecialAttrs(t *testing.T) {
+func TestLoadProductInputsPrefersProductProductionConfigFields(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(b)
 	for _, want := range []string{
-		"bound_bv.special_attrs_json",
-		"bound_bv.special_attrs_schema_json",
-		"COALESCE(NULLIF(bound_bv.special_attrs_json::text,'{}'), NULLIF(p.special_attrs_json::text,'{}'), '{}')",
-		"NULLIF(bound_bv.special_attrs_schema_json::text,'[]')",
+		"product_production_configs ppc",
+		"product_production_config_fields ppcf",
+		"production_config_attrs_json",
+		"production_config_attrs_schema_json",
+		"COALESCE(NULLIF(ppc.expected_loss_rate,0)",
+		"1 - COALESCE(NULLIF(ppc.expected_loss_rate,0)",
+		"ppcf.show_in_price_list=true",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("costing repository must prefer BOM version special attrs before SKU fallback; missing %q", want)
+			t.Fatalf("costing repository must prefer product production config before legacy fallback; missing %q", want)
 		}
 	}
 }

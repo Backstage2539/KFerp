@@ -355,3 +355,168 @@ func (r Repository) DeactivateProcessTemplate(ctx context.Context, cmd manufactu
 	}
 	return tx.Commit(ctx)
 }
+
+func (r Repository) ListProcessRoutes(ctx context.Context, query manufacturingapp.ProcessRouteQuery) ([]manufacturingapp.ProcessRoute, error) {
+	args := []any{}
+	where := "1=1"
+	if strings.TrimSpace(query.Status) != "" {
+		args = append(args, strings.TrimSpace(query.Status))
+		where += fmt.Sprintf(" AND pr.status=$%d", len(args))
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT pr.id,pr.name,pr.status,pr.default_equipment,pr.default_minutes,pr.note,
+		       to_char(pr.created_at,'YYYY-MM-DD HH24:MI'),
+		       to_char(pr.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %[1]s.process_routes pr
+		WHERE %[2]s
+		ORDER BY CASE WHEN pr.status='active' THEN 0 WHEN pr.status='draft' THEN 1 ELSE 2 END,
+		         pr.updated_at DESC, pr.id DESC
+	`, r.schema, where), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]manufacturingapp.ProcessRoute, 0)
+	for rows.Next() {
+		var row manufacturingapp.ProcessRoute
+		if err := rows.Scan(&row.ID, &row.Name, &row.Status, &row.DefaultEquipment, &row.DefaultMinutes, &row.Note, &row.CreatedAt, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := r.attachProcessRouteOperations(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r Repository) attachProcessRouteOperations(ctx context.Context, routes []manufacturingapp.ProcessRoute) error {
+	if len(routes) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(routes))
+	index := map[int64]int{}
+	for i, row := range routes {
+		ids = append(ids, row.ID)
+		index[row.ID] = i
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id,route_id,seq,operation,workstation,default_equipment,default_minutes,records_loss,
+		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
+		FROM %s.process_route_operations
+		WHERE route_id = ANY($1)
+		ORDER BY route_id, seq, id
+	`, r.schema), ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var op manufacturingapp.ProcessRouteOperation
+		if err := rows.Scan(&op.ID, &op.RouteID, &op.Seq, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.QualityChecklistJSON); err != nil {
+			return err
+		}
+		if i, ok := index[op.RouteID]; ok {
+			routes[i].Operations = append(routes[i].Operations, op)
+		}
+	}
+	return rows.Err()
+}
+
+func (r Repository) SaveProcessRoute(ctx context.Context, cmd manufacturingapp.SaveProcessRouteCommand) (manufacturingapp.ProcessRoute, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return manufacturingapp.ProcessRoute{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	action := "create"
+	var id int64
+	if cmd.ID > 0 {
+		action = "update"
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.process_routes
+			SET name=$2, status=$3, default_equipment=$4, default_minutes=$5, note=$6, updated_at=now()
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.Name, cmd.Status, cmd.DefaultEquipment, cmd.DefaultMinutes, cmd.Note).Scan(&id)
+		if err != nil {
+			return manufacturingapp.ProcessRoute{}, err
+		}
+	} else {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.process_routes(name,status,default_equipment,default_minutes,note,created_at,updated_at)
+			VALUES($1,$2,$3,$4,$5,now(),now())
+			RETURNING id
+		`, r.schema), cmd.Name, cmd.Status, cmd.DefaultEquipment, cmd.DefaultMinutes, cmd.Note).Scan(&id)
+		if err != nil {
+			return manufacturingapp.ProcessRoute{}, err
+		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.process_route_operations WHERE route_id=$1`, r.schema), id); err != nil {
+		return manufacturingapp.ProcessRoute{}, err
+	}
+	for _, op := range cmd.Operations {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.process_route_operations(
+				route_id,seq,operation,workstation,default_equipment,default_minutes,records_loss,
+				quality_checklist_json,created_at,updated_at
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,now(),now())
+		`, r.schema), id, op.Seq, op.Operation, op.Workstation, op.DefaultEquipment, op.DefaultMinutes, op.RecordsLoss, op.QualityChecklistJSON); err != nil {
+			return manufacturingapp.ProcessRoute{}, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "process_route", &id, action, postgresinfra.StrPtr("route"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"status": cmd.Status, "operation_count": len(cmd.Operations)}); err != nil {
+		return manufacturingapp.ProcessRoute{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return manufacturingapp.ProcessRoute{}, err
+	}
+	return r.processRouteByID(ctx, id)
+}
+
+func (r Repository) processRouteByID(ctx context.Context, id int64) (manufacturingapp.ProcessRoute, error) {
+	rows, err := r.ListProcessRoutes(ctx, manufacturingapp.ProcessRouteQuery{})
+	if err != nil {
+		return manufacturingapp.ProcessRoute{}, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, nil
+		}
+	}
+	return manufacturingapp.ProcessRoute{}, pgx.ErrNoRows
+}
+
+func (r Repository) PublishProcessRoute(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.process_routes SET status='active', updated_at=now() WHERE id=$1`, r.schema), cmd.ID); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "process_route", &cmd.ID, "publish", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("active"), postgresinfra.AuditMeta{"route_id": cmd.ID}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) DeactivateProcessRoute(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.process_routes SET status='inactive', updated_at=now() WHERE id=$1`, r.schema), cmd.ID); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "process_route", &cmd.ID, "deactivate", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("inactive"), postgresinfra.AuditMeta{"route_id": cmd.ID}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}

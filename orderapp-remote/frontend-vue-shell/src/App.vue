@@ -116,6 +116,7 @@
         class="internal-view"
         :title="title"
         :view-key="currentKey"
+        :section-mode="productSettingsSectionMode"
         :view-params="currentViewParams"
         :workspace-mode="workspaceMode"
         :view-context="currentViewContext"
@@ -316,7 +317,11 @@ const internalViews = {
   bom: BomView,
   processTemplates: ProcessTemplatesView,
   industryFieldTemplates: IndustryFieldTemplatesView,
+  productMaster: ProductSettingsView,
+  customerProductAliases: ProductSettingsView,
+  productConfigTemplates: ProductSettingsView,
   productSettings: ProductSettingsView,
+  products: ProductSettingsView,
   mallSettings: MallSettingsView,
   costing: CostingView,
   costingManual: OperationManualView,
@@ -462,7 +467,7 @@ function applyKeyToUrl(key, params = {}) {
 }
 
 function isProductSettingsKey(key) {
-  return key === 'productSettings' || key === 'products'
+  return ['productMaster', 'customerProductAliases', 'productConfigTemplates', 'productSettings', 'products'].includes(key)
 }
 
 function hardNavigateToView(key, params = {}) {
@@ -983,7 +988,12 @@ const toggleLabel = computed(() => {
 const title = computed(() => menuMap[currentKey.value]?.title || '')
 const actorName = computed(() => currentActor.value?.name || '')
 const isCurrentAllowed = computed(() => menuMap[currentKey.value] && isViewAllowed(currentKey.value, allowedViewKeys.value))
-const isProductSettingsView = computed(() => currentKey.value === 'productSettings' || currentKey.value === 'products')
+const isProductSettingsView = computed(() => isProductSettingsKey(currentKey.value))
+const productSettingsSectionMode = computed(() => {
+  if (currentKey.value === 'customerProductAliases') return 'aliases'
+  if (currentKey.value === 'productConfigTemplates') return 'templates'
+  return 'master'
+})
 const currentViewIdentity = computed(() => `${currentKey.value}:${currentViewContext.value.type}:${workspaceCustomerContextId.value || 0}:${orderIDForViewContext(currentViewContext.value) || 0}`)
 const visibleNotifications = computed(() => dedupeNotifications(notifications.value).slice(0, 3))
 const notificationStackStyle = computed(() => ({

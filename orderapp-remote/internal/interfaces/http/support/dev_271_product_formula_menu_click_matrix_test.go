@@ -79,14 +79,13 @@ func TestProductFormulaMenuClickMatrixViewsExposeActions(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
 			"/api/bom/list",
 			"/api/bom/detail/",
-			"/api/bom/save",
 			"/api/bom/item/save",
+			"/api/production-bom-groups",
 			"/api/production-boms/${bomID}/versions",
 			"/api/bom/bag-spec-mappings/save",
-			"保存预期损耗率",
 			"保存组件",
+			"管理分组",
 			"复制为新版草稿",
-			"保存特殊属性",
 			"保存映射",
 		},
 	}

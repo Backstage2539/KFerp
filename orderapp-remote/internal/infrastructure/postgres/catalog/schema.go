@@ -137,6 +137,55 @@ CREATE INDEX IF NOT EXISTS customer_product_aliases_customer_active_idx
 ON %[1]s.customer_product_aliases(customer_id, active, sort_order, id);
 CREATE INDEX IF NOT EXISTS customer_product_aliases_product_idx
 ON %[1]s.customer_product_aliases(product_id, active);
+CREATE TABLE IF NOT EXISTS %[1]s.product_production_configs (
+	product_id BIGINT PRIMARY KEY,
+	production_bom_id BIGINT NOT NULL DEFAULT 0,
+	production_bom_version_id BIGINT NOT NULL DEFAULT 0,
+	process_route_id BIGINT NOT NULL DEFAULT 0,
+	expected_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
+	note TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+ALTER TABLE %[1]s.product_production_configs ADD COLUMN IF NOT EXISTS production_bom_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_production_configs ADD COLUMN IF NOT EXISTS production_bom_version_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_production_configs ADD COLUMN IF NOT EXISTS process_route_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_production_configs ADD COLUMN IF NOT EXISTS expected_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_production_configs ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.product_production_configs ADD COLUMN IF NOT EXISTS created_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.product_production_configs ADD COLUMN IF NOT EXISTS updated_by TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS product_production_configs_bom_idx
+ON %[1]s.product_production_configs(production_bom_id, production_bom_version_id);
+CREATE INDEX IF NOT EXISTS product_production_configs_process_route_idx
+ON %[1]s.product_production_configs(process_route_id);
+CREATE TABLE IF NOT EXISTS %[1]s.product_production_config_fields (
+	id BIGSERIAL PRIMARY KEY,
+	product_id BIGINT NOT NULL,
+	field_key TEXT NOT NULL DEFAULT '',
+	label TEXT NOT NULL DEFAULT '',
+	field_type TEXT NOT NULL DEFAULT 'text',
+	unit TEXT NOT NULL DEFAULT '',
+	value_text TEXT NOT NULL DEFAULT '',
+	value_number NUMERIC(14,4),
+	value_bool BOOLEAN,
+	show_in_price_list BOOLEAN NOT NULL DEFAULT true,
+	sort_order INT NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS field_type TEXT NOT NULL DEFAULT 'text';
+ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS unit TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS value_text TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS value_number NUMERIC(14,4);
+ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS value_bool BOOLEAN;
+ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS show_in_price_list BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0;
+CREATE UNIQUE INDEX IF NOT EXISTS product_production_config_fields_product_key_uq
+ON %[1]s.product_production_config_fields(product_id, lower(field_key));
+CREATE INDEX IF NOT EXISTS product_production_config_fields_product_sort_idx
+ON %[1]s.product_production_config_fields(product_id, sort_order, id);
 CREATE TABLE IF NOT EXISTS %[1]s.product_config_templates (
 	id BIGSERIAL PRIMARY KEY,
 	customer_id BIGINT NOT NULL DEFAULT 0,
@@ -453,6 +502,64 @@ ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN min_qty_units SET DEFAULT 0;
 ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN min_qty_units SET NOT NULL;
 ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_per_unit SET DEFAULT 0;
 ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_per_unit SET NOT NULL;
+`, schema)
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	return backfillProductProductionConfigs(ctx, pool, schema)
+}
+
+func backfillProductProductionConfigs(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	var hasProducts, hasProductionBoms bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL, to_regclass($2) IS NOT NULL`, schema+".products", schema+".production_bom_versions").Scan(&hasProducts, &hasProductionBoms); err != nil {
+		return err
+	}
+	if !hasProducts || !hasProductionBoms {
+		return nil
+	}
+	q := fmt.Sprintf(`
+INSERT INTO %[1]s.product_production_configs(
+	product_id, production_bom_id, production_bom_version_id, expected_loss_rate, note, created_by, updated_by
+)
+SELECT p.id,
+       COALESCE(pbb.bom_id,0),
+       COALESCE(pbb.bom_version_id,0),
+       GREATEST(0, LEAST(0.9999, 1 - COALESCE(NULLIF(pbv.yield_rate,0), NULLIF(pb.yield_rate,0), CASE WHEN COALESCE(NULLIF(p.product_kind,''),'roasted_bean')='instant_coffee' THEN 1 ELSE 0.8 END))),
+       'legacy-backfill',
+       'system-backfill',
+       'system-backfill'
+FROM %[1]s.products p
+LEFT JOIN %[1]s.product_production_bom_bindings pbb ON pbb.product_id=p.id
+LEFT JOIN %[1]s.production_bom_versions pbv ON pbv.id=pbb.bom_version_id
+LEFT JOIN %[1]s.product_bom pb ON pb.product_id=p.id
+WHERE COALESCE(p.active,true)=true
+ON CONFLICT (product_id) DO NOTHING;
+
+WITH source_attrs AS (
+	SELECT p.id AS product_id,
+	       CASE
+	         WHEN COALESCE(NULLIF(p.roast_level,''),'') <> ''
+	         THEN jsonb_set(COALESCE(p.special_attrs_json, '{}'::jsonb), '{roast_level}', to_jsonb(p.roast_level), true)
+	         ELSE COALESCE(p.special_attrs_json, '{}'::jsonb)
+	       END AS attrs_json
+	FROM %[1]s.products p
+	JOIN %[1]s.product_production_configs ppc ON ppc.product_id=p.id
+),
+attr_rows AS (
+	SELECT source_attrs.product_id,
+	       kv.key AS field_key,
+	       kv.value AS value_text,
+	       row_number() OVER (PARTITION BY source_attrs.product_id ORDER BY kv.key)::int AS sort_order
+	FROM source_attrs
+	CROSS JOIN LATERAL jsonb_each_text(source_attrs.attrs_json) AS kv(key,value)
+	WHERE COALESCE(kv.key,'') <> '' AND COALESCE(kv.value,'') <> ''
+)
+INSERT INTO %[1]s.product_production_config_fields(
+	product_id, field_key, label, field_type, unit, value_text, show_in_price_list, sort_order
+)
+SELECT product_id, field_key, field_key, 'text', '', value_text, true, sort_order
+FROM attr_rows
+ON CONFLICT (product_id, lower(field_key)) DO NOTHING;
 `, schema)
 	_, err := pool.Exec(ctx, q)
 	return err

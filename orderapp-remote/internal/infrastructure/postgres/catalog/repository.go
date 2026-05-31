@@ -717,6 +717,136 @@ func (r Repository) ListProductCategories(ctx context.Context) ([]catalogapp.Pro
 	return out, rows.Err()
 }
 
+func (r Repository) ListProductProductionConfigs(ctx context.Context) ([]catalogapp.ProductProductionConfig, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT product_id, production_bom_id, production_bom_version_id, process_route_id,
+		       COALESCE(expected_loss_rate,0)::float8, COALESCE(note,'')
+		FROM %s.product_production_configs
+		ORDER BY product_id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.ProductProductionConfig, 0)
+	for rows.Next() {
+		var row catalogapp.ProductProductionConfig
+		if err := rows.Scan(&row.ProductID, &row.ProductionBomID, &row.ProductionBomVersionID, &row.ProcessRouteID, &row.ExpectedLossRate, &row.Note); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := r.attachProductProductionConfigFields(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r Repository) GetProductProductionConfig(ctx context.Context, productID int64) (catalogapp.ProductProductionConfig, error) {
+	rows, err := r.ListProductProductionConfigs(ctx)
+	if err != nil {
+		return catalogapp.ProductProductionConfig{}, err
+	}
+	for _, row := range rows {
+		if row.ProductID == productID {
+			return row, nil
+		}
+	}
+	return catalogapp.ProductProductionConfig{ProductID: productID, Fields: []catalogapp.ProductProductionConfigField{}}, nil
+}
+
+func (r Repository) attachProductProductionConfigFields(ctx context.Context, configs []catalogapp.ProductProductionConfig) error {
+	if len(configs) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(configs))
+	index := map[int64]int{}
+	for i, row := range configs {
+		ids = append(ids, row.ProductID)
+		index[row.ProductID] = i
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, product_id, field_key, label, field_type, unit, value_text,
+		       value_number::float8, value_bool, show_in_price_list, sort_order
+		FROM %s.product_production_config_fields
+		WHERE product_id = ANY($1)
+		ORDER BY product_id, sort_order, id
+	`, r.schema), ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var field catalogapp.ProductProductionConfigField
+		if err := rows.Scan(&field.ID, &field.ProductID, &field.FieldKey, &field.Label, &field.FieldType, &field.Unit, &field.ValueText, &field.ValueNumber, &field.ValueBool, &field.ShowInPriceList, &field.SortOrder); err != nil {
+			return err
+		}
+		if i, ok := index[field.ProductID]; ok {
+			configs[i].Fields = append(configs[i].Fields, field)
+		}
+	}
+	return rows.Err()
+}
+
+func (r Repository) SaveProductProductionConfig(ctx context.Context, cmd catalogapp.SaveProductProductionConfigCommand) (catalogapp.ProductProductionConfig, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return catalogapp.ProductProductionConfig{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_production_configs(
+			product_id, production_bom_id, production_bom_version_id, process_route_id,
+			expected_loss_rate, note, created_by, updated_by, created_at, updated_at
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$7,now(),now())
+		ON CONFLICT (product_id) DO UPDATE SET
+			production_bom_id=excluded.production_bom_id,
+			production_bom_version_id=excluded.production_bom_version_id,
+			process_route_id=excluded.process_route_id,
+			expected_loss_rate=excluded.expected_loss_rate,
+			note=excluded.note,
+			updated_by=excluded.updated_by,
+			updated_at=now()
+	`, r.schema), cmd.ProductID, cmd.ProductionBomID, cmd.ProductionBomVersionID, cmd.ProcessRouteID, cmd.ExpectedLossRate, strings.TrimSpace(cmd.Note), strings.TrimSpace(cmd.Actor)); err != nil {
+		return catalogapp.ProductProductionConfig{}, err
+	}
+	if cmd.ProductionBomID > 0 && cmd.ProductionBomVersionID > 0 {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_at,bound_by)
+			VALUES($1,$2,$3,now(),$4)
+			ON CONFLICT (product_id) DO UPDATE SET
+				bom_id=excluded.bom_id,
+				bom_version_id=excluded.bom_version_id,
+				bound_at=now(),
+				bound_by=excluded.bound_by
+		`, r.schema), cmd.ProductID, cmd.ProductionBomID, cmd.ProductionBomVersionID, strings.TrimSpace(cmd.Actor)); err != nil {
+			return catalogapp.ProductProductionConfig{}, err
+		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_production_config_fields WHERE product_id=$1`, r.schema), cmd.ProductID); err != nil {
+		return catalogapp.ProductProductionConfig{}, err
+	}
+	for _, field := range cmd.Fields {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.product_production_config_fields(
+				product_id, field_key, label, field_type, unit, value_text, value_number, value_bool, show_in_price_list, sort_order, created_at, updated_at
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),now())
+		`, r.schema), cmd.ProductID, field.FieldKey, field.Label, field.FieldType, field.Unit, field.ValueText, field.ValueNumber, field.ValueBool, field.ShowInPriceList, field.SortOrder); err != nil {
+			return catalogapp.ProductProductionConfig{}, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_production_config", &cmd.ProductID, "save_product_production_config", postgresinfra.StrPtr("product_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.ProductID)), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "production_bom_id": cmd.ProductionBomID, "production_bom_version_id": cmd.ProductionBomVersionID, "process_route_id": cmd.ProcessRouteID, "expected_loss_rate": cmd.ExpectedLossRate, "field_count": len(cmd.Fields)}); err != nil {
+		return catalogapp.ProductProductionConfig{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.ProductProductionConfig{}, err
+	}
+	return r.GetProductProductionConfig(ctx, cmd.ProductID)
+}
+
 func (r Repository) ListProductConfigTemplates(ctx context.Context) ([]catalogapp.ProductConfigTemplate, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, COALESCE(customer_id,0), COALESCE(source_template_id,0),
@@ -3785,7 +3915,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 }
 
 func catalogProductFromOption(p postgresinfra.ProductOption) catalogapp.Product {
-	out := catalogapp.Product{ID: p.ID, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, SpecialAttrsJSON: p.SpecialAttrsJSON, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, GradientTemplateIDOverride: p.GradientTemplateIDOverride, OperationTemplateIDOverride: p.OperationTemplateIDOverride, UnitRuleOverrideJSON: p.UnitRuleOverrideJSON, Active: p.Active, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, BomSourceType: p.BomSourceType, EffectiveProductID: p.EffectiveProductID, EffectiveBomVersionID: p.EffectiveBomVersionID, SourceProductID: p.SourceProductID, SourceProductCode: p.SourceProductCode, SourceProductName: p.SourceProductName, SourceBomVersionID: p.SourceBomVersionID, SourceBomVersionNo: p.SourceBomVersionNo, DerivedFromLabel: p.DerivedFromLabel, CanEditBOM: p.CanEditBOM, ProductionBomID: p.ProductionBomID, ProductionBomCode: p.ProductionBomCode, ProductionBomName: p.ProductionBomName, ProductionBomVersionID: p.ProductionBomVersionID, ProductionBomVersionNo: p.ProductionBomVersionNo, LatestBomVersionID: p.LatestBomVersionID, LatestBomVersionNo: p.LatestBomVersionNo, IsLatestBomVersion: p.IsLatestBomVersion, ProductionBomGroupID: p.ProductionBomGroupID, ProductionBomGroupName: p.ProductionBomGroupName, OrderUsageCount: p.OrderUsageCount}
+	out := catalogapp.Product{ID: p.ID, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, SpecialAttrsJSON: p.SpecialAttrsJSON, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ExpectedLossRate: p.ExpectedLossRate, ProcessRouteID: p.ProcessRouteID, ProductionConfigNote: p.ProductionConfigNote, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, GradientTemplateIDOverride: p.GradientTemplateIDOverride, OperationTemplateIDOverride: p.OperationTemplateIDOverride, UnitRuleOverrideJSON: p.UnitRuleOverrideJSON, Active: p.Active, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, BomSourceType: p.BomSourceType, EffectiveProductID: p.EffectiveProductID, EffectiveBomVersionID: p.EffectiveBomVersionID, SourceProductID: p.SourceProductID, SourceProductCode: p.SourceProductCode, SourceProductName: p.SourceProductName, SourceBomVersionID: p.SourceBomVersionID, SourceBomVersionNo: p.SourceBomVersionNo, DerivedFromLabel: p.DerivedFromLabel, CanEditBOM: p.CanEditBOM, ProductionBomID: p.ProductionBomID, ProductionBomCode: p.ProductionBomCode, ProductionBomName: p.ProductionBomName, ProductionBomVersionID: p.ProductionBomVersionID, ProductionBomVersionNo: p.ProductionBomVersionNo, LatestBomVersionID: p.LatestBomVersionID, LatestBomVersionNo: p.LatestBomVersionNo, IsLatestBomVersion: p.IsLatestBomVersion, ProductionBomGroupID: p.ProductionBomGroupID, ProductionBomGroupName: p.ProductionBomGroupName, OrderUsageCount: p.OrderUsageCount}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, SpecG: t.SpecG, MinQty: t.MinQty, MaxQty: t.MaxQty, UnitPrice: t.UnitPrice})

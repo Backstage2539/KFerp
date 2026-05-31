@@ -32,10 +32,10 @@ func TestDev377ProductConfigKVSKUReferenceLayoutSourceMarkers(t *testing.T) {
 			"sku-category-cell",
 			"white-space: nowrap",
 		},
-		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"BOM版本与特殊属性",
-			"字段定义 special_attrs_schema_json",
-			"字段值 special_attrs_json",
+		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
+			"商品生产配置",
+			"productionConfigPriceListFields",
+			"show_in_price_list",
 		},
 		filepath.Join("internal", "application", "catalog", "service.go"): {
 			"func (s *Service) DeriveProductConfigTemplate",

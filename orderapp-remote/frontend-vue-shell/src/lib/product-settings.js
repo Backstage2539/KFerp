@@ -731,7 +731,6 @@ export function buildProductCreatePayload(form = {}) {
     name: String(form.name || '').trim(),
     product_kind: kind,
     remark: String(form.remark || '').trim(),
-    special_attrs_json: specialAttrValuesJSONFromForm(form.special_attr_values ?? form.special_attrs ?? form.special_attrs_json),
   }
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(form.green_bean_type)
@@ -758,7 +757,6 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
     custom_type: String(form.custom_type || '').trim(),
     copy_bom: Boolean(form.copy_bom),
     copy_price_tiers: Boolean(form.copy_price_tiers),
-    special_attrs_json: specialAttrValuesJSONFromForm(form.special_attr_values ?? form.special_attrs ?? form.special_attrs_json),
   }
   if (kind === 'green_bean') {
     payload.base_product_id = 0
@@ -793,7 +791,6 @@ export function buildSkuCreatePayload(customerID, form = {}) {
     remark: String(form.remark || '').trim(),
     product_type_category_id: Number(form.product_type_category_id || 0),
     product_subtype_category_id: Number(form.product_subtype_category_id || 0),
-    special_attrs_json: specialAttrValuesJSONFromForm(form.special_attr_values ?? form.special_attrs ?? form.special_attrs_json),
     active: form.active === false ? false : true,
   }
 }
@@ -819,7 +816,6 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   const payload = {
     product_kind: kind,
     remark: String(row.remark || '').trim(),
-    special_attrs_json: specialAttrValuesJSONFromForm(row.special_attr_values ?? row.special_attrs ?? row.special_attrs_json),
   }
   const name = String(row.name || '').trim()
   if (name) payload.name = name

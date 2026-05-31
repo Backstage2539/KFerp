@@ -66,3 +66,24 @@ func TestEnsureOrderItemUnitPricingColumnsAddsCustomerAliasSnapshots(t *testing.
 		}
 	}
 }
+
+func TestOrderItemsFreezeProductProductionConfigSnapshotInPriceSource(t *testing.T) {
+	repo, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(repo)
+	for _, want := range []string{
+		"loadProductProductionConfigSummaryForOrderItemTx",
+		"product_production_configs",
+		"product_production_config_fields",
+		"production_config",
+		"expected_loss_rate",
+		"process_route_id",
+		"price_source_json",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("sales repository must freeze product production config into order item price_source_json; missing %q", want)
+		}
+	}
+}

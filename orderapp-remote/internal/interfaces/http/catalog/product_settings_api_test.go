@@ -17,79 +17,82 @@ import (
 )
 
 type productSettingsRepo struct {
-	products               []catalogapp.Product
-	categories             []catalogapp.ProductCategory
-	gradientTemplates      []catalogapp.GradientTemplate
-	productConfigTemplates []catalogapp.ProductConfigTemplate
-	productUnitDefinitions []catalogapp.ProductUnitDefinition
-	productUnitTemplates   []catalogapp.ProductUnitTemplate
-	savedCategory          catalogapp.SaveProductCategoryCommand
-	movedCategory          catalogapp.MoveProductCategoryCommand
-	deletedCategory        catalogapp.DeleteProductCategoryCommand
-	assigned               catalogapp.AssignProductCategoryCommand
-	assignResult           catalogapp.AssignProductCategoryResult
-	derivedProduct         catalogapp.DeriveCustomerProductCommand
-	derivedCategory        catalogapp.DeriveProductCategoryCommand
-	derivedTemplate        catalogapp.DeriveGradientTemplateCommand
-	derivedConfig          catalogapp.DeriveProductConfigTemplateCommand
-	savedTemplate          catalogapp.SaveGradientTemplateCommand
-	savedConfigTemplate    catalogapp.SaveProductConfigTemplateCommand
-	savedUnitDefinition    catalogapp.SaveProductUnitDefinitionCommand
-	savedUnitTemplate      catalogapp.SaveProductUnitTemplateCommand
-	deactivatedTemplate    catalogapp.DeactivateGradientTemplateCommand
-	boundTemplate          catalogapp.BindCategoryGradientTemplateCommand
-	updated                catalogapp.UpdateProductBasicsCommand
-	updateErr              error
-	deactivated            catalogapp.DeactivateProductsCommand
-	createdPublic          catalogapp.CreateProductCommand
-	createdSKU             catalogapp.CreateSKUCommand
-	copiedSKUs             catalogapp.CopySKUsCommand
-	skuCopyOptionsQuery    catalogapp.SKUCopyOptionsQuery
-	publicUsage            catalogapp.CustomerPublicUsageCommand
-	publicUsages           []catalogapp.CustomerPublicUsage
-	customerProductAliases []catalogapp.CustomerProductAlias
-	customerAliasQuery     catalogapp.CustomerProductAliasQuery
-	savedCustomerAlias     catalogapp.CustomerProductAliasCommand
-	disabledCustomerAlias  catalogapp.DisableCustomerProductAliasCommand
-	aliasCandidates        []catalogapp.CustomerProductAliasMigrationCandidate
-	aliasCandidateQuery    catalogapp.CustomerProductAliasMigrationCandidateQuery
-	ruleTemplates          []catalogapp.CustomerProductRuleTemplate
-	ruleOverrides          []catalogapp.CustomerProductRuleOverride
-	customerRuleBindings   []catalogapp.CustomerProductRuleBinding
-	savedRuleTemplate      catalogapp.SaveCustomerProductRuleTemplateCommand
-	savedRuleOverride      catalogapp.SaveCustomerProductRuleOverrideCommand
-	savedRuleBinding       catalogapp.CustomerProductRuleTemplateBindingCommand
-	createErr              error
-	createdProduct         catalogapp.CreateCustomProductCommand
-	categoryCreated        bool
-	categoryMoved          bool
-	categoryDeleted        bool
-	productAssigned        bool
-	productDerived         bool
-	categoryDerived        bool
-	templateDerived        bool
-	configTemplateDerived  bool
-	templateSaved          bool
-	configTemplateSaved    bool
-	unitDefinitionSaved    bool
-	unitTemplateSaved      bool
-	templateDeactivated    bool
-	templateBound          bool
-	productUpdated         bool
-	productsDeactivated    bool
-	publicCreated          bool
-	skuCreated             bool
-	skusCopied             bool
-	skuCopyOptionsListed   bool
-	productCreated         bool
-	publicUsageSaved       bool
-	customerAliasesListed  bool
-	customerAliasSaved     bool
-	customerAliasDisabled  bool
-	aliasCandidatesListed  bool
-	ruleTemplateSaved      bool
-	ruleOverrideSaved      bool
-	ruleBindingSaved       bool
+	products                 []catalogapp.Product
+	categories               []catalogapp.ProductCategory
+	gradientTemplates        []catalogapp.GradientTemplate
+	productConfigTemplates   []catalogapp.ProductConfigTemplate
+	productUnitDefinitions   []catalogapp.ProductUnitDefinition
+	productUnitTemplates     []catalogapp.ProductUnitTemplate
+	productProductionConfigs []catalogapp.ProductProductionConfig
+	savedCategory            catalogapp.SaveProductCategoryCommand
+	movedCategory            catalogapp.MoveProductCategoryCommand
+	deletedCategory          catalogapp.DeleteProductCategoryCommand
+	assigned                 catalogapp.AssignProductCategoryCommand
+	assignResult             catalogapp.AssignProductCategoryResult
+	derivedProduct           catalogapp.DeriveCustomerProductCommand
+	derivedCategory          catalogapp.DeriveProductCategoryCommand
+	derivedTemplate          catalogapp.DeriveGradientTemplateCommand
+	derivedConfig            catalogapp.DeriveProductConfigTemplateCommand
+	savedTemplate            catalogapp.SaveGradientTemplateCommand
+	savedConfigTemplate      catalogapp.SaveProductConfigTemplateCommand
+	savedUnitDefinition      catalogapp.SaveProductUnitDefinitionCommand
+	savedUnitTemplate        catalogapp.SaveProductUnitTemplateCommand
+	savedProductionConfig    catalogapp.SaveProductProductionConfigCommand
+	deactivatedTemplate      catalogapp.DeactivateGradientTemplateCommand
+	boundTemplate            catalogapp.BindCategoryGradientTemplateCommand
+	updated                  catalogapp.UpdateProductBasicsCommand
+	updateErr                error
+	deactivated              catalogapp.DeactivateProductsCommand
+	createdPublic            catalogapp.CreateProductCommand
+	createdSKU               catalogapp.CreateSKUCommand
+	copiedSKUs               catalogapp.CopySKUsCommand
+	skuCopyOptionsQuery      catalogapp.SKUCopyOptionsQuery
+	publicUsage              catalogapp.CustomerPublicUsageCommand
+	publicUsages             []catalogapp.CustomerPublicUsage
+	customerProductAliases   []catalogapp.CustomerProductAlias
+	customerAliasQuery       catalogapp.CustomerProductAliasQuery
+	savedCustomerAlias       catalogapp.CustomerProductAliasCommand
+	disabledCustomerAlias    catalogapp.DisableCustomerProductAliasCommand
+	aliasCandidates          []catalogapp.CustomerProductAliasMigrationCandidate
+	aliasCandidateQuery      catalogapp.CustomerProductAliasMigrationCandidateQuery
+	ruleTemplates            []catalogapp.CustomerProductRuleTemplate
+	ruleOverrides            []catalogapp.CustomerProductRuleOverride
+	customerRuleBindings     []catalogapp.CustomerProductRuleBinding
+	savedRuleTemplate        catalogapp.SaveCustomerProductRuleTemplateCommand
+	savedRuleOverride        catalogapp.SaveCustomerProductRuleOverrideCommand
+	savedRuleBinding         catalogapp.CustomerProductRuleTemplateBindingCommand
+	createErr                error
+	createdProduct           catalogapp.CreateCustomProductCommand
+	categoryCreated          bool
+	categoryMoved            bool
+	categoryDeleted          bool
+	productAssigned          bool
+	productDerived           bool
+	categoryDerived          bool
+	templateDerived          bool
+	configTemplateDerived    bool
+	templateSaved            bool
+	configTemplateSaved      bool
+	unitDefinitionSaved      bool
+	unitTemplateSaved        bool
+	productionConfigSaved    bool
+	templateDeactivated      bool
+	templateBound            bool
+	productUpdated           bool
+	productsDeactivated      bool
+	publicCreated            bool
+	skuCreated               bool
+	skusCopied               bool
+	skuCopyOptionsListed     bool
+	productCreated           bool
+	publicUsageSaved         bool
+	customerAliasesListed    bool
+	customerAliasSaved       bool
+	customerAliasDisabled    bool
+	aliasCandidatesListed    bool
+	ruleTemplateSaved        bool
+	ruleOverrideSaved        bool
+	ruleBindingSaved         bool
 }
 
 func (r *productSettingsRepo) ListProducts(ctx context.Context) ([]catalogapp.Product, error) {
@@ -253,6 +256,35 @@ func (r *productSettingsRepo) ListSKUCopyOptions(ctx context.Context, query cata
 
 func (r *productSettingsRepo) ListProductCategories(ctx context.Context) ([]catalogapp.ProductCategory, error) {
 	return r.categories, nil
+}
+
+func (r *productSettingsRepo) ListProductProductionConfigs(ctx context.Context) ([]catalogapp.ProductProductionConfig, error) {
+	return r.productProductionConfigs, nil
+}
+
+func (r *productSettingsRepo) GetProductProductionConfig(ctx context.Context, productID int64) (catalogapp.ProductProductionConfig, error) {
+	for _, row := range r.productProductionConfigs {
+		if row.ProductID == productID {
+			return row, nil
+		}
+	}
+	return catalogapp.ProductProductionConfig{ProductID: productID}, nil
+}
+
+func (r *productSettingsRepo) SaveProductProductionConfig(ctx context.Context, cmd catalogapp.SaveProductProductionConfigCommand) (catalogapp.ProductProductionConfig, error) {
+	r.savedProductionConfig = cmd
+	r.productionConfigSaved = true
+	row := catalogapp.ProductProductionConfig{
+		ProductID:              cmd.ProductID,
+		ProductionBomID:        cmd.ProductionBomID,
+		ProductionBomVersionID: cmd.ProductionBomVersionID,
+		ProcessRouteID:         cmd.ProcessRouteID,
+		ExpectedLossRate:       cmd.ExpectedLossRate,
+		Note:                   cmd.Note,
+		Fields:                 cmd.Fields,
+	}
+	r.productProductionConfigs = append(r.productProductionConfigs, row)
+	return row, nil
 }
 
 func (r *productSettingsRepo) ListGradientTemplates(ctx context.Context) ([]catalogapp.GradientTemplate, error) {

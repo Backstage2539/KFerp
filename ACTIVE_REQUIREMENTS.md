@@ -6,6 +6,29 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-390-PRODUCT-PRODUCTION-CONFIG-OVERHAUL
+- Branch: codex/product-production-config-overhaul-20260531
+- Owner/session: Codex / 2026-05-31
+- Status: verified; pending merge/deploy
+- Scope: 一次性把商品/BOM/工艺/价格/生产口径改为“BOM 只做配方库；商品档案承载生产配置和商品分类；客户商品名独立维护销售展示；商品配置模板独立维护模板规则；工艺路线只管工序；预期产出率下线，系统主口径改为预期损耗率”。
+- DEV:
+  - DEV-390-SCHEMA-BACKFILL：新增商品生产配置、生产配置字段和工艺路线结构，回填旧 BOM 绑定、yield_rate 和特殊属性。
+  - DEV-390-API-SERVICE：新增商品生产配置和工艺路线 API，调整 BOM 分组增删改名排序，成本/价格表/录单/生产计划/工单改读商品生产配置。
+  - DEV-390-VUE-PRODUCT-PAGES：拆分商品档案、客户商品名、商品配置模板页面入口，商品档案右侧承载生产配置和商品分类。
+  - DEV-390-VUE-BOM-LIBRARY：生产 BOM 页面改为分组树，BOM 详情只维护版本和配方明细，下线特殊属性、预期损耗、预期产出率。
+  - DEV-390-SNAPSHOT-COMPAT：价格表、订单行和工单冻结商品生产配置快照，历史数据继续 legacy fallback。
+  - DEV-390-MANUAL-DOCS：更新需求、验收、操作手册和活动需求记录。
+- Verifier:
+  - Unit/API/backend: targeted Go tests for catalog, bom, costing, sales, production, support packages; final go test ./...
+  - Frontend: targeted node tests for menu, product pages, BOM, price/order display helpers.
+  - Build: npm --prefix orderapp-remote/frontend-vue-shell run build.
+  - Changed verifier: scripts/verify_kferp.sh changed.
+  - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_COSTING.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md; orderapp-remote/docs/OPERATION_MANUALS.md.
+  - Review/acceptance: REQUIREMENTS.md; ACCEPTANCE_TESTS.md; orderapp-remote/docs/REQUIREMENTS.md; orderapp-remote/docs/ACCEPTANCE_TESTS.md; orderapp-remote/docs/acceptance/2026-05-31-product-production-config-overhaul.md.
+- Deployment: pending
+- Last update: 2026-06-01 00:03 Asia/Shanghai
+- Notes: Van requested no browser/manual验收 for this round; use code/docs/unit/API/build verification only. RED evidence: frontend targeted tests initially failed on missing split pages/BOM tree/product production config markers and later caught stale `special_attrs_json` payload assertions; backend targeted tests initially failed on missing product production config, process route, BOM group delete/sort and snapshot fields. Final local verification passed: `node --test src/lib/menu-ia.test.js src/lib/bom.test.js src/lib/product-settings.test.js src/lib/product-bean-list-split.test.js src/lib/workspace-mode.test.js src/lib/customer-management-source.test.js`; `go test ./...`; `npm run build` in `orderapp-remote/frontend-vue-shell` (existing chunk-size warning only); `scripts/verify_kferp.sh changed`.
+
 ### PR-389-BOM-GROUP-SPECIAL-ATTRS
 - Branch: codex/bom-version-special-attrs-20260531
 - Owner/session: Codex / 2026-05-31
