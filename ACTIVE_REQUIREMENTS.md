@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-386-PRODUCT-MODEL-OVERHAUL
 - Branch: codex/product-model-overhaul-20260531
 - Owner/session: Codex / 2026-05-31
-- Status: verified
+- Status: deployed
 - Scope: 五期统一商品模型改造。商品档案承载库存、BOM、成本、生产和成品批次；客户商品名承载客户侧对外名称、编号、品牌和展示分类并绑定商品档案；工厂自营作为内置客户-like 归属；生产 BOM 作为商品档案制造定义；产品价格表按价格表归属客户下启用的客户商品名生成和发布快照；旧客户 SKU 保持兼容并提供安全收敛检查。
 - DEV:
   - DEV-386-PHASE1-LANGUAGE-MANUAL：商品管理/商品档案/生产 BOM/价格表归属口径替换，手册场景和前端测试。
@@ -24,9 +24,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: scripts/verify_kferp.sh changed.
   - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_COSTING.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md; orderapp-remote/docs/OPERATION_MANUALS.md.
   - Review/acceptance: orderapp-remote/docs/REQUIREMENTS.md; orderapp-remote/docs/ACCEPTANCE_TESTS.md; orderapp-remote/docs/acceptance/2026-05-31-product-model-overhaul.md.
-- Deployment: not deployed; do not deploy until all five phases pass final verification and merge/development deploy is explicitly reached by workflow.
-- Last update: 2026-05-31 Asia/Shanghai
-- Notes: Phase 1-5 complete and locally verified. Final evidence: frontend target `node --test` 211/211 passed; targeted Go packages passed; `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` exited 0; browser flow passed for 商品管理、客户商品名、产品价格表、录单、客户履约、生产计划、生产工单、操作日志. During browser verification, Phase 3 also fixed price-list preview/PDF grouping to reuse alias-filtered `visibleCostingItems` and align category keys with PDF product selection.
+- Deployment: development deployed at origin/develop ea0ea54f62f8b16993980f51b4b315697ef65eea; backup root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260531150702.
+- Last update: 2026-05-31 15:16 Asia/Shanghai
+- Notes: Phase 1-5 complete and deployed to development. Final evidence before merge: frontend target `node --test` 211/211 passed; targeted Go packages passed; `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` exited 0; browser flow passed for 商品管理、客户商品名、产品价格表、录单、客户履约、生产计划、生产工单、操作日志. Merge/deploy evidence: feature branch pushed; develop merge commit ea0ea54f pushed; deployment script rebuilt image and ran Docker build `go test ./...`; containers healthy/running; unauthenticated API returned 401; authenticated API returned 200; `/app/` returned 303 then authenticated follow returned 200; PR-386 marker found in requirement API and synced acceptance doc. Van stopped additional browser UI smoke after deployment; temporary smoke login session was removed.
 
 ### PR-385-SKU-BOM-INHERITANCE
 - Branch: codex/sku-bom-inheritance-20260529
