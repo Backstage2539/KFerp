@@ -64,13 +64,13 @@ export function bomSourceLabel(row = {}) {
   const name = String(row.source_product_name || row.sourceProductName || '').trim()
   const version = String(row.source_bom_version_no || row.sourceBomVersionNo || '当前BOM').trim() || '当前BOM'
   const source = [code, name].filter(Boolean).join(' ')
-  if (sourceType === 'inherit_current') return `继承：${source} / BOM ${version}`
-  if (sourceType === 'inherit_version') return `锁定：${source} / BOM ${version}`
-  if (sourceType === 'derived_owned') return `自有 BOM，派生自：${source} / BOM ${version}`
-  if (sourceType === 'owned') return '自有 BOM'
+  if (sourceType === 'inherit_current') return `跟随默认 BOM：${source} / BOM ${version}`
+  if (sourceType === 'inherit_version') return `固定 BOM 版本：${source} / BOM ${version}`
+  if (sourceType === 'derived_owned') return `单独维护 BOM，基于：${source} / BOM ${version}`
+  if (sourceType === 'owned') return '默认生产 BOM'
   if (Number(row.base_product_id || row.baseProductID || 0) > 0 && Number(row.bom_item_count || row.item_count || 0) === 0) {
-    return `继承：SKU-${Number(row.base_product_id || row.baseProductID)} / BOM 当前BOM`
+    return `跟随默认 BOM：SKU-${Number(row.base_product_id || row.baseProductID)} / BOM 当前BOM`
   }
-  if (String(row.bom_status || row.status || '') === 'missing') return '缺 BOM'
-  return '自有 BOM'
+  if (String(row.bom_status || row.status || '') === 'missing') return '无生产 BOM'
+  return '默认生产 BOM'
 }

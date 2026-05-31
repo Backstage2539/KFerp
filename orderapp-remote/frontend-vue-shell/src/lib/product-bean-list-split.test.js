@@ -9,20 +9,22 @@ import { menuGroups } from './menu-ia.js'
 const here = dirname(fileURLToPath(import.meta.url))
 const productSettingsSource = readFileSync(resolve(here, '../views/ProductSettingsView.vue'), 'utf8')
 const costingSource = readFileSync(resolve(here, '../views/CostingView.vue'), 'utf8')
+const beanListPdfSource = readFileSync(resolve(here, './bean-list-pdf.js'), 'utf8')
 
 function menuItem(key) {
   return menuGroups.flatMap((group) => group.items).find((item) => item.key === key)
 }
 
-test('product menu is split into SKU settings and product bean-list pages', () => {
-  assert.equal(menuItem('productSettings')?.label, 'SKU设置')
-  assert.equal(menuItem('productSettings')?.title, 'SKU设置')
+test('product menu is split into product management and product price-list pages', () => {
+  assert.equal(menuItem('productSettings')?.label, '商品管理')
+  assert.equal(menuItem('productSettings')?.title, '商品管理')
   assert.equal(menuItem('costing')?.label, '产品价格表')
   assert.equal(menuItem('costing')?.title, '产品价格表')
 })
 
-test('SKU settings no longer embeds the product bean-list workspace', () => {
-  assert.match(productSettingsSource, /<h2>SKU设置<\/h2>/)
+test('product management no longer embeds the product bean-list workspace', () => {
+  assert.match(productSettingsSource, /<h2>商品管理<\/h2>/)
+  assert.match(productSettingsSource, /商品档案/)
   assert.doesNotMatch(productSettingsSource, /import\s+CostingView\s+from/)
   assert.doesNotMatch(productSettingsSource, /<CostingView\b/)
   assert.doesNotMatch(productSettingsSource, /costing-panel/)
@@ -56,15 +58,31 @@ test('SKU settings exposes customer context initialization with SKU creation in 
 
 test('product bean-list page owns customer context for bean-list previews', () => {
   assert.match(costingSource, /<h2>产品价格表<\/h2>/)
+  assert.match(costingSource, /价格表归属/)
   assert.match(costingSource, /const activeBeanListCustomerID = computed/)
   assert.match(costingSource, /const activeCostingScope = computed/)
-  assert.match(costingSource, /const activeCustomerPublicUsage = computed/)
-  assert.match(costingSource, /const customerPublicUsages = ref\(\[\]\)/)
+  assert.match(costingSource, /const customerProductAliases = ref\(\[\]\)/)
+  assert.match(costingSource, /activePriceListCustomerAliases/)
   assert.match(costingSource, /versionListScopeCustomerID\(versionListScope\.value\)/)
   assert.match(costingSource, /syncPublicationScopeFromPageContext/)
-  assert.match(costingSource, /filterBeanListItemsForPriceTableScope\(items\.value,\s*activeCostingScope\.value,\s*activeBeanListCustomerID\.value\)/)
-  assert.match(costingSource, /apiGet\('\/api\/product-settings'\)/)
+  assert.match(costingSource, /applyCustomerProductAliasesToBeanListItems\(scoped,\s*activePriceListCustomerAliases\.value,\s*activeBeanListCustomerID\.value\)/)
+  assert.match(costingSource, /apiGet\('\/api\/customer-product-aliases\?active=all'\)/)
   assert.doesNotMatch(costingSource, /<strong>发布归属<\/strong>/)
+  assert.doesNotMatch(costingSource, /豆单范围/)
+})
+
+test('product bean-list preview and PDF selection reuse alias-filtered visible items', () => {
+  const beanListItemsStart = costingSource.indexOf('function beanListItemsForType')
+  assert.notEqual(beanListItemsStart, -1)
+  const beanListItemsSource = costingSource.slice(beanListItemsStart, beanListItemsStart + 500)
+
+  assert.match(costingSource, /function priceListScopedItems/)
+  assert.match(beanListItemsSource, /priceListScopedItems\(\)/)
+  assert.doesNotMatch(beanListItemsSource, /scopedBeanListItems/)
+  assert.match(costingSource, /const pdfAvailableItems = computed\(\(\) => beanListItemsForType/)
+  assert.match(costingSource, /const categoryProductGroups = computed\(\(\) => productGroupsForType/)
+  assert.match(costingSource, /const code = String\(meta\.code \|\| ''\)\.split\('\.'\)\[0\] \|\| category \|\| '未分类'/)
+  assert.match(costingSource, /return String\(meta\.code \|\| ''\)\.split\('\.'\)\[0\] \|\| category \|\| '未分类'/)
 })
 
 test('product bean-list live preview loads customer rule scoped prices', () => {
@@ -89,6 +107,27 @@ test('product bean-list generation uses product type categories instead of legac
   assert.doesNotMatch(costingSource, /<option value="drip">挂耳豆单<\/option>/)
   assert.doesNotMatch(costingSource, /<option value="retail">零售豆单<\/option>/)
   assert.doesNotMatch(costingSource, /<option value="green">生豆豆单<\/option>/)
+})
+
+test('product bean-list publication payload freezes customer alias and product snapshots', () => {
+  const source = `${costingSource}\n${beanListPdfSource}`
+  for (const expected of [
+    'customer_product_alias_id',
+    'display_name_snapshot',
+    'customer_item_code_snapshot',
+    'brand_name_snapshot',
+    'display_category_snapshot',
+    'product_code_snapshot',
+    'product_name_snapshot',
+    'bom_version_id_snapshot',
+    'bom_usage_mode_snapshot',
+    'price_unit_snapshot',
+    'tiers_snapshot',
+    'special_attrs_snapshot',
+    'price_source_json',
+  ]) {
+    assert.match(source, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
 })
 
 test('product bean-list page does not expose pricing trial workspace', () => {

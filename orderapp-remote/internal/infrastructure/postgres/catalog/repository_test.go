@@ -138,6 +138,42 @@ func TestCustomerProductRuleTemplateSchemaPersistsTemplatesAndOverrides(t *testi
 	}
 }
 
+func TestCustomerProductAliasSchemaPersistsCustomerFacingNamesAndAudits(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{name: "alias table", src: string(schema), want: "CREATE TABLE IF NOT EXISTS %[1]s.customer_product_aliases"},
+		{name: "customer id", src: string(schema), want: "customer_id BIGINT NOT NULL"},
+		{name: "product id", src: string(schema), want: "product_id BIGINT NOT NULL"},
+		{name: "display name", src: string(schema), want: "display_name TEXT NOT NULL"},
+		{name: "customer code", src: string(schema), want: "customer_item_code TEXT NOT NULL DEFAULT ''"},
+		{name: "price list flag", src: string(schema), want: "include_in_price_list BOOLEAN NOT NULL DEFAULT true"},
+		{name: "factory self seed", src: string(schema), want: "工厂自营"},
+		{name: "list method", src: string(repository), want: "func (r Repository) ListCustomerProductAliases"},
+		{name: "save method", src: string(repository), want: "func (r Repository) SaveCustomerProductAlias"},
+		{name: "disable method", src: string(repository), want: "func (r Repository) DisableCustomerProductAlias"},
+		{name: "factory customer method", src: string(repository), want: "func (r Repository) EnsureFactoryCustomer"},
+		{name: "audit entity", src: string(repository), want: `"customer_product_alias"`},
+		{name: "create audit", src: string(repository), want: `"create_customer_product_alias"`},
+		{name: "update audit", src: string(repository), want: `"update_customer_product_alias"`},
+		{name: "disable audit", src: string(repository), want: `"disable_customer_product_alias"`},
+	} {
+		if !strings.Contains(tc.src, tc.want) {
+			t.Fatalf("customer product alias persistence missing %s marker %q", tc.name, tc.want)
+		}
+	}
+}
+
 func TestProductConfigTemplateSchemaPersistsIndependentTemplates(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

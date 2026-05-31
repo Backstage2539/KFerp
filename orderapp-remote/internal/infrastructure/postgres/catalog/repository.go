@@ -3086,6 +3086,378 @@ func (r Repository) SaveCustomerPublicUsage(ctx context.Context, cmd catalogapp.
 	return usage, nil
 }
 
+func (r Repository) EnsureFactoryCustomer(ctx context.Context, actor string) (int64, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var id int64
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.customers WHERE active=true AND name='工厂自营' ORDER BY id LIMIT 1`, r.schema)).Scan(&id)
+	if err == nil {
+		return id, tx.Commit(ctx)
+	}
+	if err != pgx.ErrNoRows {
+		return 0, err
+	}
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, raw_name, customer_type, active, created_at, updated_at)
+		VALUES('工厂自营', '工厂自营', 'wholesale', true, now(), now())
+		RETURNING id
+	`, r.schema)).Scan(&id); err != nil {
+		return 0, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "customer", &id, "ensure_factory_customer", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr("工厂自营"), postgresinfra.AuditMeta{"customer_id": id, "built_in": true}); err != nil {
+		return 0, err
+	}
+	return id, tx.Commit(ctx)
+}
+
+func (r Repository) ListCustomerProductAliases(ctx context.Context, query catalogapp.CustomerProductAliasQuery) ([]catalogapp.CustomerProductAlias, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT a.id,
+		       a.customer_id,
+		       COALESCE(c.name,''),
+		       a.product_id,
+		       'SKU-' || LPAD(a.product_id::text, 6, '0'),
+		       COALESCE(p.name,''),
+		       COALESCE(p.active,false),
+		       a.display_name,
+		       COALESCE(a.customer_item_code,''),
+		       COALESCE(a.brand_name,''),
+		       COALESCE(a.display_category_id,0),
+		       COALESCE(cat.name,''),
+		       COALESCE(a.sort_order,0),
+		       COALESCE(a.include_in_price_list,true),
+		       COALESCE(a.active,true),
+		       COALESCE(a.remark,''),
+		       COALESCE(a.created_by,''),
+		       COALESCE(a.updated_by,'')
+		FROM %s.customer_product_aliases a
+		LEFT JOIN %s.customers c ON c.id=a.customer_id
+		LEFT JOIN %s.products p ON p.id=a.product_id
+		LEFT JOIN %s.product_categories cat ON cat.id=a.display_category_id
+		WHERE ($1::bigint=0 OR a.customer_id=$1)
+		  AND ($2::boolean=false OR a.active=true)
+		ORDER BY a.customer_id, a.sort_order, a.id
+	`, r.schema, r.schema, r.schema, r.schema), query.CustomerID, query.ActiveOnly)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.CustomerProductAlias, 0)
+	for rows.Next() {
+		var row catalogapp.CustomerProductAlias
+		if err := rows.Scan(
+			&row.ID,
+			&row.CustomerID,
+			&row.CustomerName,
+			&row.ProductID,
+			&row.ProductCode,
+			&row.ProductName,
+			&row.ProductActive,
+			&row.DisplayName,
+			&row.CustomerItemCode,
+			&row.BrandName,
+			&row.DisplayCategoryID,
+			&row.DisplayCategoryName,
+			&row.SortOrder,
+			&row.IncludeInPriceList,
+			&row.Active,
+			&row.Remark,
+			&row.CreatedBy,
+			&row.UpdatedBy,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveCustomerProductAlias(ctx context.Context, cmd catalogapp.CustomerProductAliasCommand) (catalogapp.CustomerProductAlias, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.CustomerProductAlias{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.CustomerProductAlias{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var customerExists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1 AND active=true)`, r.schema), cmd.CustomerID).Scan(&customerExists); err != nil {
+		return catalogapp.CustomerProductAlias{}, err
+	}
+	if !customerExists {
+		return catalogapp.CustomerProductAlias{}, fmt.Errorf("customer not found")
+	}
+	var productExists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.products WHERE id=$1 AND active=true)`, r.schema), cmd.ProductID).Scan(&productExists); err != nil {
+		return catalogapp.CustomerProductAlias{}, err
+	}
+	if !productExists {
+		return catalogapp.CustomerProductAlias{}, fmt.Errorf("product not found")
+	}
+
+	action := "create_customer_product_alias"
+	id := cmd.ID
+	if cmd.ID > 0 {
+		action = "update_customer_product_alias"
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.customer_product_aliases
+			SET customer_id=$2,
+			    product_id=$3,
+			    display_name=$4,
+			    customer_item_code=$5,
+			    brand_name=$6,
+			    display_category_id=$7,
+			    sort_order=$8,
+			    include_in_price_list=$9,
+			    active=$10,
+			    remark=$11,
+			    updated_at=now(),
+			    updated_by=$12
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.CustomerID, cmd.ProductID, cmd.DisplayName, cmd.CustomerItemCode, cmd.BrandName, cmd.DisplayCategoryID, cmd.SortOrder, cmd.IncludeInPriceList, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+	} else {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.customer_product_aliases(
+				customer_id, product_id, display_name, customer_item_code, brand_name,
+				display_category_id, sort_order, include_in_price_list, active, remark,
+				created_at, updated_at, created_by, updated_by
+			)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),now(),$11,$11)
+			RETURNING id
+		`, r.schema), cmd.CustomerID, cmd.ProductID, cmd.DisplayName, cmd.CustomerItemCode, cmd.BrandName, cmd.DisplayCategoryID, cmd.SortOrder, cmd.IncludeInPriceList, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+	}
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return catalogapp.CustomerProductAlias{}, fmt.Errorf("customer product alias not found")
+		}
+		return catalogapp.CustomerProductAlias{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_product_alias", &id, action, postgresinfra.StrPtr("display_name"), nil, postgresinfra.StrPtr(cmd.DisplayName), postgresinfra.AuditMeta{
+		"alias_id":              id,
+		"customer_id":           cmd.CustomerID,
+		"product_id":            cmd.ProductID,
+		"display_name":          cmd.DisplayName,
+		"customer_item_code":    cmd.CustomerItemCode,
+		"brand_name":            cmd.BrandName,
+		"display_category_id":   cmd.DisplayCategoryID,
+		"sort_order":            cmd.SortOrder,
+		"include_in_price_list": cmd.IncludeInPriceList,
+		"active":                cmd.Active,
+	}); err != nil {
+		return catalogapp.CustomerProductAlias{}, err
+	}
+	row, err := fetchCustomerProductAliasTx(ctx, tx, r.schema, id)
+	if err != nil {
+		return catalogapp.CustomerProductAlias{}, err
+	}
+	return row, tx.Commit(ctx)
+}
+
+func (r Repository) DisableCustomerProductAlias(ctx context.Context, cmd catalogapp.DisableCustomerProductAliasCommand) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_product_aliases
+		SET active=false, updated_at=now(), updated_by=$2
+		WHERE id=$1 AND active=true
+	`, r.schema), cmd.ID, cmd.Actor)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("customer product alias not found")
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_product_alias", &cmd.ID, "disable_customer_product_alias", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"alias_id": cmd.ID}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) ListCustomerProductAliasMigrationCandidates(ctx context.Context, query catalogapp.CustomerProductAliasMigrationCandidateQuery) ([]catalogapp.CustomerProductAliasMigrationCandidate, error) {
+	if query.CustomerID <= 0 {
+		return nil, nil
+	}
+	hasSourceTable := catalogRelationExists(ctx, r.pool, fmt.Sprintf("%s.product_bom_sources", r.schema))
+	hasBomTable := catalogRelationExists(ctx, r.pool, fmt.Sprintf("%s.product_bom", r.schema))
+	hasFinishedInventory := catalogRelationExists(ctx, r.pool, fmt.Sprintf("%s.finished_inventory", r.schema))
+	hasWorkOrders := catalogRelationExists(ctx, r.pool, fmt.Sprintf("%s.work_orders", r.schema))
+	hasRunningItems := catalogRelationExists(ctx, r.pool, fmt.Sprintf("%s.produce_running_items", r.schema))
+	hasProductionLogs := catalogRelationExists(ctx, r.pool, fmt.Sprintf("%s.production_logs", r.schema))
+
+	sourceJoin := ""
+	sourceProductIDExpr := "COALESCE(NULLIF(p.base_product_id,0),0)"
+	sourceTypeExpr := "''"
+	if hasSourceTable {
+		sourceJoin = fmt.Sprintf("LEFT JOIN %s.product_bom_sources s ON s.product_id=p.id", r.schema)
+		sourceProductIDExpr = "COALESCE(NULLIF(s.source_product_id,0), NULLIF(p.base_product_id,0), 0)"
+		sourceTypeExpr = "COALESCE(NULLIF(s.source_type,''), '')"
+	}
+	ownBomExpr := "false"
+	if hasBomTable {
+		ownBomExpr = fmt.Sprintf("EXISTS (SELECT 1 FROM %s.product_bom b WHERE b.product_id=p.id AND COALESCE(NULLIF(b.status,''),'active')='active')", r.schema)
+	}
+	hasOwnBomExpr := ownBomExpr
+	if hasSourceTable {
+		hasOwnBomExpr = fmt.Sprintf("(%[1]s IN ('owned','derived_owned') OR (%[1]s='' AND %[2]s))", sourceTypeExpr, ownBomExpr)
+	}
+	inventoryExpr := "false"
+	if hasFinishedInventory {
+		inventoryExpr = fmt.Sprintf("EXISTS (SELECT 1 FROM %s.finished_inventory fi WHERE fi.product_id=p.id AND (COALESCE(fi.onhand_units,0)>0 OR COALESCE(fi.onhand_loose_g,0)>0))", r.schema)
+	}
+	productionChecks := make([]string, 0, 3)
+	if hasWorkOrders {
+		productionChecks = append(productionChecks, fmt.Sprintf("EXISTS (SELECT 1 FROM %s.work_orders wo WHERE wo.product_id=p.id)", r.schema))
+	}
+	if hasRunningItems {
+		productionChecks = append(productionChecks, fmt.Sprintf("EXISTS (SELECT 1 FROM %s.produce_running_items ri WHERE ri.product_id=p.id)", r.schema))
+	}
+	if hasProductionLogs {
+		productionChecks = append(productionChecks, fmt.Sprintf("EXISTS (SELECT 1 FROM %s.production_logs pl WHERE pl.product_id=p.id)", r.schema))
+	}
+	productionExpr := "false"
+	if len(productionChecks) > 0 {
+		productionExpr = "(" + strings.Join(productionChecks, " OR ") + ")"
+	}
+
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT p.id,
+		       'SKU-' || LPAD(p.id::text, 6, '0'),
+		       COALESCE(p.name,''),
+		       COALESCE(base.id,0),
+		       CASE WHEN base.id IS NULL THEN '' ELSE 'SKU-' || LPAD(base.id::text, 6, '0') END,
+		       COALESCE(base.name,''),
+		       %[1]s,
+		       %[2]s,
+		       %[3]s,
+		       %[4]s
+		FROM %[5]s.products p
+		%[6]s
+		LEFT JOIN %[5]s.products base ON base.id=%[7]s
+		WHERE COALESCE(p.customer_id,0)=$1
+		  AND COALESCE(p.active,true)=true
+		  AND %[7]s > 0
+		ORDER BY p.id
+	`, sourceTypeExpr, hasOwnBomExpr, productionExpr, inventoryExpr, r.schema, sourceJoin, sourceProductIDExpr), query.CustomerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]catalogapp.CustomerProductAliasMigrationCandidate, 0)
+	for rows.Next() {
+		var row catalogapp.CustomerProductAliasMigrationCandidate
+		row.CustomerID = query.CustomerID
+		if err := rows.Scan(&row.ProductID, &row.ProductCode, &row.ProductName, &row.BaseProductID, &row.BaseProductCode, &row.BaseProductName, &row.BomSourceType, &row.HasOwnBom, &row.HasProductionRecord, &row.HasInventoryRecord); err != nil {
+			return nil, err
+		}
+		row.SuggestedAction = "keep_product_record"
+		row.SuggestedReason = "存在独立生产、库存或生产 BOM 证据，保留为商品档案更稳妥"
+		if canRecommendCustomerAliasMigration(row) {
+			row.SuggestedAction = "convert_to_customer_product_alias"
+			row.SuggestedReason = "仅名称、编号、展示分类或价格差异，生产定义跟随来源商品档案"
+			row.CanAutoRecommend = true
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func canRecommendCustomerAliasMigration(row catalogapp.CustomerProductAliasMigrationCandidate) bool {
+	if row.BaseProductID <= 0 || row.HasOwnBom || row.HasProductionRecord || row.HasInventoryRecord {
+		return false
+	}
+	switch strings.TrimSpace(row.BomSourceType) {
+	case "", "missing", "inherit_current", "inherit_version":
+		return true
+	default:
+		return false
+	}
+}
+
+type catalogQueryRower interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func catalogRelationExists(ctx context.Context, q catalogQueryRower, relation string) bool {
+	var exists bool
+	if err := q.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, relation).Scan(&exists); err != nil {
+		return false
+	}
+	return exists
+}
+
+func fetchCustomerProductAliasTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (catalogapp.CustomerProductAlias, error) {
+	var row catalogapp.CustomerProductAlias
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT a.id,
+		       a.customer_id,
+		       COALESCE(c.name,''),
+		       a.product_id,
+		       'SKU-' || LPAD(a.product_id::text, 6, '0'),
+		       COALESCE(p.name,''),
+		       COALESCE(p.active,false),
+		       a.display_name,
+		       COALESCE(a.customer_item_code,''),
+		       COALESCE(a.brand_name,''),
+		       COALESCE(a.display_category_id,0),
+		       COALESCE(cat.name,''),
+		       COALESCE(a.sort_order,0),
+		       COALESCE(a.include_in_price_list,true),
+		       COALESCE(a.active,true),
+		       COALESCE(a.remark,''),
+		       COALESCE(a.created_by,''),
+		       COALESCE(a.updated_by,'')
+		FROM %s.customer_product_aliases a
+		LEFT JOIN %s.customers c ON c.id=a.customer_id
+		LEFT JOIN %s.products p ON p.id=a.product_id
+		LEFT JOIN %s.product_categories cat ON cat.id=a.display_category_id
+		WHERE a.id=$1
+	`, schema, schema, schema, schema), id).Scan(
+		&row.ID,
+		&row.CustomerID,
+		&row.CustomerName,
+		&row.ProductID,
+		&row.ProductCode,
+		&row.ProductName,
+		&row.ProductActive,
+		&row.DisplayName,
+		&row.CustomerItemCode,
+		&row.BrandName,
+		&row.DisplayCategoryID,
+		&row.DisplayCategoryName,
+		&row.SortOrder,
+		&row.IncludeInPriceList,
+		&row.Active,
+		&row.Remark,
+		&row.CreatedBy,
+		&row.UpdatedBy,
+	)
+	return row, err
+}
+
 func (r Repository) ListCustomerProductRuleTemplates(ctx context.Context) ([]catalogapp.CustomerProductRuleTemplate, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, COALESCE(customer_id,0), name, active

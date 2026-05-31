@@ -17,10 +17,10 @@ import (
 )
 
 type api struct {
-	svc      Service
+	svc       Service
 	customers CustomerDirectory
 	messages  MessagePublisher
-	sales    SalesSaver
+	sales     SalesSaver
 }
 
 const externalUsersRouteSegment = "external-users"
@@ -227,13 +227,18 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 		Spec            string `json:"spec"`
 		QuantityUnits   int64  `json:"quantity_units"`
 		Items           []struct {
-			ProductID     int64  `json:"product_id"`
-			ProductName   string `json:"product_name"`
-			Spec          string `json:"spec"`
-			SpecG         int64  `json:"spec_g"`
-			SalesUnit     string `json:"sales_unit"`
-			QuantityUnits int64  `json:"quantity_units"`
-			Note          string `json:"note"`
+			ProductID                          int64  `json:"product_id"`
+			CustomerProductAliasID             int64  `json:"customer_product_alias_id"`
+			CustomerProductDisplayNameSnapshot string `json:"customer_product_display_name_snapshot"`
+			CustomerItemCodeSnapshot           string `json:"customer_item_code_snapshot"`
+			ProductCodeSnapshot                string `json:"product_code_snapshot"`
+			ProductNameSnapshot                string `json:"product_name_snapshot"`
+			ProductName                        string `json:"product_name"`
+			Spec                               string `json:"spec"`
+			SpecG                              int64  `json:"spec_g"`
+			SalesUnit                          string `json:"sales_unit"`
+			QuantityUnits                      int64  `json:"quantity_units"`
+			Note                               string `json:"note"`
 		} `json:"items"`
 		Note string `json:"note"`
 	}
@@ -243,13 +248,18 @@ func (a api) submitCustomerDirectShipOrder(c echo.Context) error {
 	items := make([]app.SubmitCustomerDirectShipOrderItem, 0, len(req.Items))
 	for _, item := range req.Items {
 		items = append(items, app.SubmitCustomerDirectShipOrderItem{
-			ProductID:     item.ProductID,
-			ProductName:   item.ProductName,
-			Spec:          item.Spec,
-			SpecG:         item.SpecG,
-			SalesUnit:     item.SalesUnit,
-			QuantityUnits: item.QuantityUnits,
-			Note:          item.Note,
+			ProductID:                          item.ProductID,
+			CustomerProductAliasID:             item.CustomerProductAliasID,
+			CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,
+			CustomerItemCodeSnapshot:           item.CustomerItemCodeSnapshot,
+			ProductCodeSnapshot:                item.ProductCodeSnapshot,
+			ProductNameSnapshot:                item.ProductNameSnapshot,
+			ProductName:                        item.ProductName,
+			Spec:                               item.Spec,
+			SpecG:                              item.SpecG,
+			SalesUnit:                          item.SalesUnit,
+			QuantityUnits:                      item.QuantityUnits,
+			Note:                               item.Note,
 		})
 	}
 	row, err := a.svc.SubmitCustomerDirectShipOrder(c.Request().Context(), app.SubmitCustomerDirectShipOrderCommand{
@@ -354,15 +364,20 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 		Spec            string  `json:"spec"`
 		QuantityUnits   int64   `json:"quantity_units"`
 		Items           []struct {
-			ProductID     int64   `json:"product_id"`
-			ProductName   string  `json:"product_name"`
-			Spec          string  `json:"spec"`
-			SpecG         int64   `json:"spec_g"`
-			SalesUnit     string  `json:"sales_unit"`
-			QuantityUnits int64   `json:"quantity_units"`
-			DiscountType  string  `json:"discount_type"`
-			DiscountValue float64 `json:"discount_value"`
-			Note          string  `json:"note"`
+			ProductID                          int64   `json:"product_id"`
+			CustomerProductAliasID             int64   `json:"customer_product_alias_id"`
+			CustomerProductDisplayNameSnapshot string  `json:"customer_product_display_name_snapshot"`
+			CustomerItemCodeSnapshot           string  `json:"customer_item_code_snapshot"`
+			ProductCodeSnapshot                string  `json:"product_code_snapshot"`
+			ProductNameSnapshot                string  `json:"product_name_snapshot"`
+			ProductName                        string  `json:"product_name"`
+			Spec                               string  `json:"spec"`
+			SpecG                              int64   `json:"spec_g"`
+			SalesUnit                          string  `json:"sales_unit"`
+			QuantityUnits                      int64   `json:"quantity_units"`
+			DiscountType                       string  `json:"discount_type"`
+			DiscountValue                      float64 `json:"discount_value"`
+			Note                               string  `json:"note"`
 		} `json:"items"`
 		Note string `json:"note"`
 	}
@@ -372,15 +387,20 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 	items := make([]app.SubmitCustomerDirectShipOrderItem, 0, len(req.Items))
 	for _, item := range req.Items {
 		items = append(items, app.SubmitCustomerDirectShipOrderItem{
-			ProductID:     item.ProductID,
-			ProductName:   item.ProductName,
-			Spec:          item.Spec,
-			SpecG:         item.SpecG,
-			SalesUnit:     item.SalesUnit,
-			QuantityUnits: item.QuantityUnits,
-			DiscountType:  item.DiscountType,
-			DiscountValue: item.DiscountValue,
-			Note:          item.Note,
+			ProductID:                          item.ProductID,
+			CustomerProductAliasID:             item.CustomerProductAliasID,
+			CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,
+			CustomerItemCodeSnapshot:           item.CustomerItemCodeSnapshot,
+			ProductCodeSnapshot:                item.ProductCodeSnapshot,
+			ProductNameSnapshot:                item.ProductNameSnapshot,
+			ProductName:                        item.ProductName,
+			Spec:                               item.Spec,
+			SpecG:                              item.SpecG,
+			SalesUnit:                          item.SalesUnit,
+			QuantityUnits:                      item.QuantityUnits,
+			DiscountType:                       item.DiscountType,
+			DiscountValue:                      item.DiscountValue,
+			Note:                               item.Note,
 		})
 	}
 	validateCmd := app.SubmitCustomerDirectShipOrderCommand{
@@ -407,56 +427,61 @@ func (a api) submitInternalDirectShipOrder(c echo.Context) error {
 	for _, item := range req.Items {
 		pid := item.ProductID
 		orderItems = append(orderItems, salesapp.OrderItemCommand{
-			ProductID:    &pid,
-			Name:         item.ProductName,
-			Units:        item.QuantityUnits,
-			SpecG:        item.SpecG,
-			ProductKind:  "roasted_bean",
-			SalesUnit:    item.SalesUnit,
-			DiscountType: normalizeFulfillmentDiscountType(item.DiscountType),
-			DiscountValue: item.DiscountValue,
-			Note:         item.Note,
+			ProductID:                          &pid,
+			CustomerProductAliasID:             item.CustomerProductAliasID,
+			CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,
+			CustomerItemCodeSnapshot:           item.CustomerItemCodeSnapshot,
+			ProductCodeSnapshot:                item.ProductCodeSnapshot,
+			ProductNameSnapshot:                item.ProductNameSnapshot,
+			Name:                               item.ProductName,
+			Units:                              item.QuantityUnits,
+			SpecG:                              item.SpecG,
+			ProductKind:                        "roasted_bean",
+			SalesUnit:                          item.SalesUnit,
+			DiscountType:                       normalizeFulfillmentDiscountType(item.DiscountType),
+			DiscountValue:                      item.DiscountValue,
+			Note:                               item.Note,
 		})
 	}
 	if len(orderItems) == 0 && req.ProductID > 0 {
 		pid := req.ProductID
 		orderItems = []salesapp.OrderItemCommand{{
-			ProductID:    &pid,
-			Name:         req.ProductName,
-			Units:        req.QuantityUnits,
-			SpecG:        parseFulfillmentSpecG(req.Spec),
-			ProductKind:  "roasted_bean",
-			SalesUnit:    "bag",
-			Note:         req.Note,
+			ProductID:   &pid,
+			Name:        req.ProductName,
+			Units:       req.QuantityUnits,
+			SpecG:       parseFulfillmentSpecG(req.Spec),
+			ProductKind: "roasted_bean",
+			SalesUnit:   "bag",
+			Note:        req.Note,
 		}}
 	}
 
 	salesRes, err := a.sales.SaveOrder(c.Request().Context(), salesapp.SaveOrderCommand{
-		Actor:           support.ActorOf(c),
-		OrderDate:       time.Now().UTC(),
-		CustomerID:      customerID,
-		ReceiverName:    strings.TrimSpace(req.ReceiverName),
-		ReceiverPhone:   strings.TrimSpace(req.ReceiverPhone),
-		ReceiverAddress: strings.TrimSpace(req.ReceiverAddress),
-		ReceiverCompany: strings.TrimSpace(req.ReceiverCompany),
+		Actor:             support.ActorOf(c),
+		OrderDate:         time.Now().UTC(),
+		CustomerID:        customerID,
+		ReceiverName:      strings.TrimSpace(req.ReceiverName),
+		ReceiverPhone:     strings.TrimSpace(req.ReceiverPhone),
+		ReceiverAddress:   strings.TrimSpace(req.ReceiverAddress),
+		ReceiverCompany:   strings.TrimSpace(req.ReceiverCompany),
 		PortalServiceCode: "direct_ship",
-		OrdersScope:      "fulfillment",
-		Notes:           req.Note,
-		ShippingAmount:   req.ShippingAmount,
-		PayStatusID:      1,
-		ShipStatusID:     1,
-		Items:            orderItems,
+		OrdersScope:       "fulfillment",
+		Notes:             req.Note,
+		ShippingAmount:    req.ShippingAmount,
+		PayStatusID:       1,
+		ShipStatusID:      1,
+		Items:             orderItems,
 	})
 	if err != nil {
 		return customerFulfillmentError(c, http.StatusBadRequest, err)
 	}
 	cdsSummary, _ := a.svc.SubmitCustomerDirectShipOrder(c.Request().Context(), validateCmd)
 	return c.JSON(http.StatusOK, map[string]any{
-		"order_id":      salesRes.OrderID,
-		"order_no":      salesRes.OrderNo,
-		"order_date":    time.Now().Format("2006-01-02"),
-		"status":        "submitted",
-		"item_count":    len(orderItems),
+		"order_id":   salesRes.OrderID,
+		"order_no":   salesRes.OrderNo,
+		"order_date": time.Now().Format("2006-01-02"),
+		"status":     "submitted",
+		"item_count": len(orderItems),
 		"cds_order_no": func() string {
 			if cdsSummary.OrderNo != "" {
 				return cdsSummary.OrderNo

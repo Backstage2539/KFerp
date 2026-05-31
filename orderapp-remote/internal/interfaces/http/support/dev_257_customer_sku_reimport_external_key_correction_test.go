@@ -34,8 +34,8 @@ func TestCustomerSKUReimportExternalKeyCorrectionEvidenceExists(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"同一客户 SKU 重传并更正名称或烘焙度",
-		"工作台商品选择器只显示最新名称",
+		"客户商品编号是否保持一致",
+		"旧客户 SKU 收敛检查",
 	} {
 		if !strings.Contains(manual, want) {
 			t.Fatalf("customer fulfillment manual missing SKU correction marker %q", want)

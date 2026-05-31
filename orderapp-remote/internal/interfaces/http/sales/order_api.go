@@ -108,20 +108,29 @@ type orderSaveAPIRequest struct {
 	PortalServiceCode               string `json:"portal_service_code"`
 	OrdersScope                     string `json:"orders_scope"`
 
-	ProductID     []string `json:"product_id"`
-	TierID        []string `json:"tier_id"`
-	UnitPrice     []string `json:"unit_price"`
-	ItemName      []string `json:"item_name"`
-	ItemNote      []string `json:"item_note"`
-	Qty           []string `json:"qty"`
-	Unit          []string `json:"unit"`
-	Spec          []string `json:"spec"`
-	ProductKind   []string `json:"product_kind"`
-	SalesUnit     []string `json:"sales_unit"`
-	UnitBagCount  []string `json:"unit_bag_count"`
-	UnitBeanG     []string `json:"unit_bean_g"`
-	DiscountType  []string `json:"discount_type"`
-	DiscountValue []string `json:"discount_value"`
+	ProductID                          []string `json:"product_id"`
+	CustomerProductAliasID             []string `json:"customer_product_alias_id"`
+	CustomerProductDisplayNameSnapshot []string `json:"customer_product_display_name_snapshot"`
+	CustomerItemCodeSnapshot           []string `json:"customer_item_code_snapshot"`
+	BrandNameSnapshot                  []string `json:"brand_name_snapshot"`
+	ProductCodeSnapshot                []string `json:"product_code_snapshot"`
+	ProductNameSnapshot                []string `json:"product_name_snapshot"`
+	ItemBeanListPublicationID          []string `json:"item_bean_list_publication_id"`
+	ItemBeanListVersionNo              []string `json:"item_bean_list_version_no"`
+	PriceSourceJSON                    []string `json:"price_source_json"`
+	TierID                             []string `json:"tier_id"`
+	UnitPrice                          []string `json:"unit_price"`
+	ItemName                           []string `json:"item_name"`
+	ItemNote                           []string `json:"item_note"`
+	Qty                                []string `json:"qty"`
+	Unit                               []string `json:"unit"`
+	Spec                               []string `json:"spec"`
+	ProductKind                        []string `json:"product_kind"`
+	SalesUnit                          []string `json:"sales_unit"`
+	UnitBagCount                       []string `json:"unit_bag_count"`
+	UnitBeanG                          []string `json:"unit_bean_g"`
+	DiscountType                       []string `json:"discount_type"`
+	DiscountValue                      []string `json:"discount_value"`
 }
 
 type orderVoidAPIRequest struct {
@@ -517,59 +526,68 @@ func (h orderAPIHandler) uploadPaymentVoucher(c echo.Context) error {
 
 func (r orderSaveAPIRequest) toCreateRequest() CreateOrderRequest {
 	return CreateOrderRequest{
-		DocumentDate:                    r.DocumentDate,
-		OrderDate:                       r.OrderDate,
-		CustomerID:                      r.CustomerID,
-		SourceID:                        r.SourceID,
-		OrderTypeID:                     r.OrderTypeID,
-		PayStatusID:                     r.PayStatusID,
-		PaymentMethod:                   r.PaymentMethod,
-		ShipStatusID:                    r.ShipStatusID,
-		ShipMethod:                      r.ShipMethod,
-		ShipTrackingNo:                  r.ShipTrackingNo,
-		LogisticsCompanyID:              r.LogisticsCompanyID,
-		LogisticsProductID:              r.LogisticsProductID,
-		PaymentGoodsAmount:              r.PaymentGoodsAmount,
-		PaymentShippingAmount:           r.PaymentShippingAmount,
-		PaymentVoucherAssetID:           r.PaymentVoucherAssetID,
-		ResponsibleType:                 r.ResponsibleType,
-		ResponsibleID:                   r.ResponsibleID,
-		Notes:                           r.Notes,
-		ShippingAmount:                  r.ShippingAmount,
-		DiscountAmount:                  r.DiscountAmount,
-		RoundToInt:                      r.RoundToInt,
-		ExpressFee:                      r.ExpressFee,
-		OutsourceMaterialFee:            r.OutsourceMaterialFee,
-		OutsourceRoastFee:               r.OutsourceRoastFee,
-		OutsourcePackagingFee:           r.OutsourcePackagingFee,
-		OutsourceManualFee:              r.OutsourceManualFee,
-		OutsourceTaxFee:                 r.OutsourceTaxFee,
-		OutsourceOtherFee:               r.OutsourceOtherFee,
-		StockBatchDecision:              r.StockBatchDecision,
-		BeanListPublicationID:           r.BeanListPublicationID,
-		CommercialBeanListPublicationID: r.CommercialBeanListPublicationID,
-		GreenBeanListPublicationID:      r.GreenBeanListPublicationID,
-		DripBeanListPublicationID:       r.DripBeanListPublicationID,
-		ReceiverName:                    r.ReceiverName,
-		ReceiverPhone:                   r.ReceiverPhone,
-		ReceiverAddress:                 r.ReceiverAddress,
-		ReceiverCompany:                 r.ReceiverCompany,
-		PortalServiceCode:               r.PortalServiceCode,
-		OrdersScope:                     r.OrdersScope,
-		ProductID:                       r.ProductID,
-		TierID:                          r.TierID,
-		UnitPrice:                       r.UnitPrice,
-		ItemName:                        r.ItemName,
-		ItemNote:                        r.ItemNote,
-		Qty:                             r.Qty,
-		Unit:                            r.Unit,
-		Spec:                            r.Spec,
-		ProductKind:                     r.ProductKind,
-		SalesUnit:                       r.SalesUnit,
-		UnitBagCount:                    r.UnitBagCount,
-		UnitBeanG:                       r.UnitBeanG,
-		DiscountType:                    r.DiscountType,
-		DiscountValue:                   r.DiscountValue,
+		DocumentDate:                       r.DocumentDate,
+		OrderDate:                          r.OrderDate,
+		CustomerID:                         r.CustomerID,
+		SourceID:                           r.SourceID,
+		OrderTypeID:                        r.OrderTypeID,
+		PayStatusID:                        r.PayStatusID,
+		PaymentMethod:                      r.PaymentMethod,
+		ShipStatusID:                       r.ShipStatusID,
+		ShipMethod:                         r.ShipMethod,
+		ShipTrackingNo:                     r.ShipTrackingNo,
+		LogisticsCompanyID:                 r.LogisticsCompanyID,
+		LogisticsProductID:                 r.LogisticsProductID,
+		PaymentGoodsAmount:                 r.PaymentGoodsAmount,
+		PaymentShippingAmount:              r.PaymentShippingAmount,
+		PaymentVoucherAssetID:              r.PaymentVoucherAssetID,
+		ResponsibleType:                    r.ResponsibleType,
+		ResponsibleID:                      r.ResponsibleID,
+		Notes:                              r.Notes,
+		ShippingAmount:                     r.ShippingAmount,
+		DiscountAmount:                     r.DiscountAmount,
+		RoundToInt:                         r.RoundToInt,
+		ExpressFee:                         r.ExpressFee,
+		OutsourceMaterialFee:               r.OutsourceMaterialFee,
+		OutsourceRoastFee:                  r.OutsourceRoastFee,
+		OutsourcePackagingFee:              r.OutsourcePackagingFee,
+		OutsourceManualFee:                 r.OutsourceManualFee,
+		OutsourceTaxFee:                    r.OutsourceTaxFee,
+		OutsourceOtherFee:                  r.OutsourceOtherFee,
+		StockBatchDecision:                 r.StockBatchDecision,
+		BeanListPublicationID:              r.BeanListPublicationID,
+		CommercialBeanListPublicationID:    r.CommercialBeanListPublicationID,
+		GreenBeanListPublicationID:         r.GreenBeanListPublicationID,
+		DripBeanListPublicationID:          r.DripBeanListPublicationID,
+		ReceiverName:                       r.ReceiverName,
+		ReceiverPhone:                      r.ReceiverPhone,
+		ReceiverAddress:                    r.ReceiverAddress,
+		ReceiverCompany:                    r.ReceiverCompany,
+		PortalServiceCode:                  r.PortalServiceCode,
+		OrdersScope:                        r.OrdersScope,
+		ProductID:                          r.ProductID,
+		CustomerProductAliasID:             r.CustomerProductAliasID,
+		CustomerProductDisplayNameSnapshot: r.CustomerProductDisplayNameSnapshot,
+		CustomerItemCodeSnapshot:           r.CustomerItemCodeSnapshot,
+		BrandNameSnapshot:                  r.BrandNameSnapshot,
+		ProductCodeSnapshot:                r.ProductCodeSnapshot,
+		ProductNameSnapshot:                r.ProductNameSnapshot,
+		ItemBeanListPublicationID:          r.ItemBeanListPublicationID,
+		ItemBeanListVersionNo:              r.ItemBeanListVersionNo,
+		PriceSourceJSON:                    r.PriceSourceJSON,
+		TierID:                             r.TierID,
+		UnitPrice:                          r.UnitPrice,
+		ItemName:                           r.ItemName,
+		ItemNote:                           r.ItemNote,
+		Qty:                                r.Qty,
+		Unit:                               r.Unit,
+		Spec:                               r.Spec,
+		ProductKind:                        r.ProductKind,
+		SalesUnit:                          r.SalesUnit,
+		UnitBagCount:                       r.UnitBagCount,
+		UnitBeanG:                          r.UnitBeanG,
+		DiscountType:                       r.DiscountType,
+		DiscountValue:                      r.DiscountValue,
 	}
 }
 
@@ -621,32 +639,40 @@ func apiProducts(ps []ProductOption) []map[string]any {
 	out := make([]map[string]any, 0, len(ps))
 	for _, p := range ps {
 		jp := map[string]any{
-			"id":                          p.ID,
-			"name":                        p.Name,
-			"py":                          support.PinyinFull(p.Name),
-			"pyi":                         support.PinyinInitials(p.Name),
-			"retail_price_100g":           p.RetailPrice100G,
-			"retail_price_200g":           p.RetailPrice200G,
-			"retail_price_227g":           p.RetailPrice227G,
-			"retail_price_250g":           p.RetailPrice250G,
-			"customer_id":                 p.CustomerID,
-			"base_product_id":             p.BaseProductID,
-			"visibility":                  productVisibilityForAPI(p.Visibility, p.CustomerID),
-			"custom_type":                 p.CustomType,
-			"product_kind":                p.ProductKind,
-			"drip_bag_grams":              p.DripBagGrams,
-			"drip_box_bag_count":          p.DripBoxBagCount,
-			"sales_units":                 p.SalesUnits,
-			"retail_specs":                p.RetailSpecs,
-			"product_type_category_id":    p.ProductTypeCategoryID,
-			"product_subtype_category_id": p.ProductSubtypeCategoryID,
-			"product_type_name":           p.ProductTypeName,
-			"product_subtype_name":        p.ProductSubtypeName,
-			"inventory_unit":              p.InventoryUnit,
-			"quote_unit":                  p.QuoteUnit,
-			"order_unit":                  p.OrderUnit,
-			"unit_conversion_json":        p.UnitConversionJSON,
-			"integer_unit":                p.IntegerUnit,
+			"id":                                   p.ID,
+			"name":                                 p.Name,
+			"product_code":                         p.ProductCode,
+			"product_name_snapshot":                firstNonEmpty(p.ProductRecordName, p.Name),
+			"customer_product_alias_id":            p.CustomerProductAliasID,
+			"customer_product_display_name":        p.CustomerProductDisplayName,
+			"customer_item_code":                   p.CustomerItemCode,
+			"brand_name":                           p.BrandName,
+			"customer_alias_display_category_id":   p.CustomerAliasDisplayCategoryID,
+			"customer_alias_display_category_name": p.CustomerAliasDisplayCategoryName,
+			"py":                                   support.PinyinFull(p.Name),
+			"pyi":                                  support.PinyinInitials(p.Name),
+			"retail_price_100g":                    p.RetailPrice100G,
+			"retail_price_200g":                    p.RetailPrice200G,
+			"retail_price_227g":                    p.RetailPrice227G,
+			"retail_price_250g":                    p.RetailPrice250G,
+			"customer_id":                          p.CustomerID,
+			"base_product_id":                      p.BaseProductID,
+			"visibility":                           productVisibilityForAPI(p.Visibility, p.CustomerID),
+			"custom_type":                          p.CustomType,
+			"product_kind":                         p.ProductKind,
+			"drip_bag_grams":                       p.DripBagGrams,
+			"drip_box_bag_count":                   p.DripBoxBagCount,
+			"sales_units":                          p.SalesUnits,
+			"retail_specs":                         p.RetailSpecs,
+			"product_type_category_id":             p.ProductTypeCategoryID,
+			"product_subtype_category_id":          p.ProductSubtypeCategoryID,
+			"product_type_name":                    p.ProductTypeName,
+			"product_subtype_name":                 p.ProductSubtypeName,
+			"inventory_unit":                       p.InventoryUnit,
+			"quote_unit":                           p.QuoteUnit,
+			"order_unit":                           p.OrderUnit,
+			"unit_conversion_json":                 p.UnitConversionJSON,
+			"integer_unit":                         p.IntegerUnit,
 		}
 		tiers := make([]map[string]any, 0, len(p.Tiers))
 		for _, t := range p.Tiers {
@@ -681,10 +707,31 @@ func filterOrderProductsForCustomer(products []ProductOption, customerID int64, 
 	if len(publicUsages) > 0 {
 		allowsPublicProducts = customerAllowsPublicOrderProducts(customerID, publicUsages[0])
 	}
+	aliasProductIDs := map[int64]bool{}
+	if customerID > 0 {
+		for _, product := range products {
+			if product.CustomerProductAliasID > 0 && product.CustomerID == customerID {
+				aliasProductIDs[product.ID] = true
+			}
+		}
+	}
 	out := make([]ProductOption, 0, len(products))
 	for _, product := range products {
 		visibility := productVisibilityForAPI(product.Visibility, product.CustomerID)
+		if product.CustomerProductAliasID > 0 || visibility == "customer_alias" {
+			if customerID > 0 && product.CustomerID == customerID {
+				if !productMatchesCustomerOwnedBeanListScope(product, publicationIDsByType) {
+					continue
+				}
+				product.Visibility = "customer_alias"
+				out = append(out, product)
+			}
+			continue
+		}
 		if visibility == "public" || product.CustomerID == 0 {
+			if customerID > 0 && aliasProductIDs[product.ID] {
+				continue
+			}
 			if customerID > 0 && !allowsPublicProducts && !productMatchesExplicitCustomerOwnedBeanListScope(product, publicationIDsByType) {
 				continue
 			}
@@ -805,26 +852,32 @@ func productVisibilityForAPI(visibility string, customerID int64) string {
 
 func editDataForAPI(ed *OrderEditData) map[string]any {
 	type editItem struct {
-		ProductID             int64  `json:"product_id"`
-		ProductName           string `json:"product_name"`
-		Note                  string `json:"note"`
-		TierID                string `json:"tier_id"`
-		UnitPrice             string `json:"unit_price"`
-		Qty                   string `json:"qty"`
-		Unit                  string `json:"unit"`
-		Spec                  string `json:"spec"`
-		BeanListPublicationID int64  `json:"bean_list_publication_id"`
-		BeanListVersionNo     string `json:"bean_list_version_no"`
-		DiscountType          string `json:"discount_type"`
-		DiscountValue         string `json:"discount_value"`
-		DiscountAmount        string `json:"discount_amount"`
-		ProductKind           string `json:"product_kind"`
-		SalesUnit             string `json:"sales_unit"`
-		UnitBagCount          int64  `json:"unit_bag_count"`
-		UnitBeanG             string `json:"unit_bean_g"`
-		MatchedPriceQty       string `json:"matched_price_qty"`
-		UnitConversionLabel   string `json:"unit_conversion_label"`
-		PriceSourceJSON       string `json:"price_source_json"`
+		ProductID                          int64  `json:"product_id"`
+		ProductName                        string `json:"product_name"`
+		CustomerProductAliasID             int64  `json:"customer_product_alias_id"`
+		CustomerProductDisplayNameSnapshot string `json:"customer_product_display_name_snapshot"`
+		CustomerItemCodeSnapshot           string `json:"customer_item_code_snapshot"`
+		BrandNameSnapshot                  string `json:"brand_name_snapshot"`
+		ProductCodeSnapshot                string `json:"product_code_snapshot"`
+		ProductNameSnapshot                string `json:"product_name_snapshot"`
+		Note                               string `json:"note"`
+		TierID                             string `json:"tier_id"`
+		UnitPrice                          string `json:"unit_price"`
+		Qty                                string `json:"qty"`
+		Unit                               string `json:"unit"`
+		Spec                               string `json:"spec"`
+		BeanListPublicationID              int64  `json:"bean_list_publication_id"`
+		BeanListVersionNo                  string `json:"bean_list_version_no"`
+		DiscountType                       string `json:"discount_type"`
+		DiscountValue                      string `json:"discount_value"`
+		DiscountAmount                     string `json:"discount_amount"`
+		ProductKind                        string `json:"product_kind"`
+		SalesUnit                          string `json:"sales_unit"`
+		UnitBagCount                       int64  `json:"unit_bag_count"`
+		UnitBeanG                          string `json:"unit_bean_g"`
+		MatchedPriceQty                    string `json:"matched_price_qty"`
+		UnitConversionLabel                string `json:"unit_conversion_label"`
+		PriceSourceJSON                    string `json:"price_source_json"`
 	}
 	items := make([]editItem, 0, len(ed.Items))
 	for _, it := range ed.Items {
@@ -834,26 +887,32 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 			tierID = strconv.FormatInt(it.PriceTierID, 10)
 		}
 		items = append(items, editItem{
-			ProductID:             it.ProductID,
-			ProductName:           it.Product,
-			Note:                  it.Note,
-			TierID:                tierID,
-			UnitPrice:             it.UnitPrice,
-			Qty:                   it.Qty,
-			Unit:                  it.Unit,
-			Spec:                  spec,
-			BeanListPublicationID: it.BeanListPublicationID,
-			BeanListVersionNo:     it.BeanListVersionNo,
-			DiscountType:          it.DiscountType,
-			DiscountValue:         it.DiscountValue,
-			DiscountAmount:        it.DiscountAmount,
-			ProductKind:           it.ProductKind,
-			SalesUnit:             it.SalesUnit,
-			UnitBagCount:          it.UnitBagCount,
-			UnitBeanG:             it.UnitBeanG,
-			MatchedPriceQty:       it.MatchedPriceQty,
-			UnitConversionLabel:   it.UnitConversionLabel,
-			PriceSourceJSON:       it.PriceSourceJSON,
+			ProductID:                          it.ProductID,
+			ProductName:                        it.Product,
+			CustomerProductAliasID:             it.CustomerProductAliasID,
+			CustomerProductDisplayNameSnapshot: it.CustomerProductDisplayNameSnapshot,
+			CustomerItemCodeSnapshot:           it.CustomerItemCodeSnapshot,
+			BrandNameSnapshot:                  it.BrandNameSnapshot,
+			ProductCodeSnapshot:                it.ProductCodeSnapshot,
+			ProductNameSnapshot:                it.ProductNameSnapshot,
+			Note:                               it.Note,
+			TierID:                             tierID,
+			UnitPrice:                          it.UnitPrice,
+			Qty:                                it.Qty,
+			Unit:                               it.Unit,
+			Spec:                               spec,
+			BeanListPublicationID:              it.BeanListPublicationID,
+			BeanListVersionNo:                  it.BeanListVersionNo,
+			DiscountType:                       it.DiscountType,
+			DiscountValue:                      it.DiscountValue,
+			DiscountAmount:                     it.DiscountAmount,
+			ProductKind:                        it.ProductKind,
+			SalesUnit:                          it.SalesUnit,
+			UnitBagCount:                       it.UnitBagCount,
+			UnitBeanG:                          it.UnitBeanG,
+			MatchedPriceQty:                    it.MatchedPriceQty,
+			UnitConversionLabel:                it.UnitConversionLabel,
+			PriceSourceJSON:                    it.PriceSourceJSON,
 		})
 	}
 	itemPublicationIDByType := func(listType string) int64 {

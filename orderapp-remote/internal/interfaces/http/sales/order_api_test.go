@@ -100,6 +100,42 @@ func TestAPIProductsCarriesProductTypeAndUnitRule(t *testing.T) {
 	}
 }
 
+func TestAPIProductsCarriesCustomerAliasSnapshots(t *testing.T) {
+	products := apiProducts([]ProductOption{{
+		ID:                               77,
+		Name:                             "Karen 贴牌意式",
+		ProductKind:                      "roasted_bean",
+		CustomerID:                       42,
+		Visibility:                       "customer_alias",
+		CustomerProductAliasID:           910,
+		CustomerProductDisplayName:       "Karen 贴牌意式",
+		CustomerItemCode:                 "KAREN-ESP",
+		BrandName:                        "",
+		ProductCode:                      "SKU-77",
+		ProductRecordName:                "精品意式拼配",
+		CustomerAliasDisplayCategoryID:   5,
+		CustomerAliasDisplayCategoryName: "定制熟豆",
+	}})
+
+	got := products[0]
+	for key, want := range map[string]any{
+		"id":                                   int64(77),
+		"name":                                 "Karen 贴牌意式",
+		"customer_product_alias_id":            int64(910),
+		"customer_product_display_name":        "Karen 贴牌意式",
+		"customer_item_code":                   "KAREN-ESP",
+		"brand_name":                           "",
+		"product_code":                         "SKU-77",
+		"product_name_snapshot":                "精品意式拼配",
+		"customer_alias_display_category_id":   int64(5),
+		"customer_alias_display_category_name": "定制熟豆",
+	} {
+		if got[key] != want {
+			t.Fatalf("%s = %#v, want %#v", key, got[key], want)
+		}
+	}
+}
+
 func TestOrderAPIRoutesExposeIrreversibleVoidJSONEndpoints(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join("internal", "interfaces", "http", "sales", "order_api.go"))
 	if err != nil {
@@ -145,6 +181,89 @@ func TestOrderAPIFormReturnsRetailSpecs(t *testing.T) {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("GET /api/order/form missing %s: %s", needle, body)
 		}
+	}
+}
+
+func TestOrderAPIFormUsesCustomerProductAliasesForCustomerScope(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_product_aliases(
+			id, customer_id, product_id, display_name, customer_item_code, brand_name,
+			display_category_id, sort_order, include_in_price_list, active
+		)
+		VALUES
+			(910, 3, 7, 'Karen 贴牌意式', 'KAREN-ESP', '', 0, 1, true, true),
+			(911, 4, 7, '其他客户贴牌意式', 'OTHER-ESP', '', 0, 1, true, true);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/order/form?customer_id=3", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/order/form?customer_id=3 status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`"name":"Karen 贴牌意式"`,
+		`"customer_product_alias_id":910`,
+		`"customer_item_code":"KAREN-ESP"`,
+		`"product_name_snapshot":"橘皮乌龙"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("customer scoped order form missing %s: %s", want, body)
+		}
+	}
+	for _, forbidden := range []string{
+		`"name":"橘皮乌龙"`,
+		`"name":"其他客户贴牌意式"`,
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("customer scoped order form leaked %s: %s", forbidden, body)
+		}
+	}
+}
+
+func TestOrderAPISaveRejectsCustomerAliasWithoutPublishedPrice(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id, name, default_price, active, visibility, product_kind)
+		VALUES (707, '无发布价商品档案', 0, true, 'public', 'roasted_bean');
+		INSERT INTO %[1]s.customer_product_aliases(
+			id, customer_id, product_id, display_name, customer_item_code, brand_name,
+			display_category_id, sort_order, include_in_price_list, active
+		)
+		VALUES (9707, 3, 707, 'Karen 无发布价商品名', 'KAREN-NOPRICE', '', 0, 1, true, true);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := `{
+		"order_date":"2026-05-31",
+		"customer_id":3,
+		"pay_status_id":1,
+		"ship_status_id":1,
+		"product_id":["707"],
+		"customer_product_alias_id":["9707"],
+		"item_name":["Karen 无发布价商品名"],
+		"qty":["1"],
+		"unit":["件"],
+		"spec":["454"]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/order", strings.NewReader(payload))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/order status = %d, want 400, body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "customer product price unpublished") {
+		t.Fatalf("POST /api/order error = %s, want unpublished customer product price", rec.Body.String())
 	}
 }
 
@@ -4519,7 +4638,32 @@ CREATE TABLE %s.products (
 	green_bean_bom_product_id BIGINT NOT NULL DEFAULT 0,
 	product_kind TEXT NOT NULL DEFAULT 'roasted_bean',
 	drip_bag_grams NUMERIC(12,3) NOT NULL DEFAULT 10,
-	drip_box_bag_count INT NOT NULL DEFAULT 10
+	drip_box_bag_count INT NOT NULL DEFAULT 10,
+	product_category_id BIGINT NOT NULL DEFAULT 0,
+	unit_rule_override_json JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE TABLE %s.product_categories (
+	id BIGSERIAL PRIMARY KEY,
+	parent_id BIGINT NOT NULL DEFAULT 0,
+	name TEXT NOT NULL DEFAULT '',
+	active BOOLEAN NOT NULL DEFAULT true,
+	inventory_unit TEXT NOT NULL DEFAULT '',
+	quote_unit TEXT NOT NULL DEFAULT '',
+	order_unit TEXT NOT NULL DEFAULT '',
+	unit_conversion_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	integer_unit BOOLEAN NOT NULL DEFAULT false
+);
+CREATE TABLE %s.customer_product_aliases (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL,
+	product_id BIGINT NOT NULL,
+	display_name TEXT NOT NULL DEFAULT '',
+	customer_item_code TEXT NOT NULL DEFAULT '',
+	brand_name TEXT NOT NULL DEFAULT '',
+	display_category_id BIGINT NOT NULL DEFAULT 0,
+	sort_order INTEGER NOT NULL DEFAULT 0,
+	include_in_price_list BOOLEAN NOT NULL DEFAULT true,
+	active BOOLEAN NOT NULL DEFAULT true
 );
 CREATE TABLE %s.product_price_tiers (
 	id BIGSERIAL PRIMARY KEY,
@@ -4617,6 +4761,12 @@ CREATE TABLE %s.order_items (
 	order_id BIGINT,
 	line_no INTEGER,
 	product_id BIGINT,
+	customer_product_alias_id BIGINT NOT NULL DEFAULT 0,
+	customer_product_display_name_snapshot TEXT NOT NULL DEFAULT '',
+	customer_item_code_snapshot TEXT NOT NULL DEFAULT '',
+	brand_name_snapshot TEXT NOT NULL DEFAULT '',
+	product_code_snapshot TEXT NOT NULL DEFAULT '',
+	product_name_snapshot TEXT NOT NULL DEFAULT '',
 	price_tier_id BIGINT,
 	price_overridden BOOLEAN NOT NULL DEFAULT false,
 	bean_list_publication_id BIGINT,
@@ -4728,6 +4878,7 @@ CREATE TABLE %s.order_shipment_orders (
 INSERT INTO %s.sender_settings(id, sender_label, is_default, active) VALUES(1, '默认寄件人', true, true);
 	`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
 		schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
+		schema, schema,
 		schema, schema, schema, schema, schema, schema, schema, schema, schema, schema,
 		schema, schema, schema, schema, schema, schema)
 }

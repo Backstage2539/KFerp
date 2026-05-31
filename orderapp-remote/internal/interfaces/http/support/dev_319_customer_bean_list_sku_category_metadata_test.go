@@ -66,10 +66,10 @@ func TestDev319CustomerBeanListSkuCategoryMetadata(t *testing.T) {
 	}
 	manualText := string(manual)
 	for _, want := range []string{
-		"客户自有/客户定制熟豆不再依赖旧 Excel 豆单资料",
+		"客户商品名不再依赖旧 Excel 豆单资料",
 		"咖啡豆 / 定制咖啡熟豆",
 		"1、定制咖啡熟豆",
-		"客户新增熟豆 SKU 在客户豆单中不出现",
+		"客户新增商品在客户价格表中不出现",
 	} {
 		if !strings.Contains(manualText, want) {
 			t.Fatalf("manual missing %q", want)

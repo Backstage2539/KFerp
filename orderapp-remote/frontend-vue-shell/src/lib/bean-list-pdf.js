@@ -74,6 +74,27 @@ export function filterBeanListItemsForPriceTableScope(items = [], scope = 'offic
   })
 }
 
+export function applyCustomerProductAliasesToBeanListItems(items = [], aliases = [], customerID = 0) {
+  const selectedCustomerID = Number(customerID || 0)
+  if (selectedCustomerID <= 0) return Array.isArray(items) ? items : []
+  const aliasByProduct = new Map()
+  ;(Array.isArray(aliases) ? aliases : []).forEach((alias) => {
+    const aliasCustomerID = Number(alias?.customer_id ?? alias?.customerID ?? 0)
+    const productID = Number(alias?.product_id ?? alias?.productID ?? 0)
+    if (aliasCustomerID !== selectedCustomerID || productID <= 0) return
+    if (alias?.active === false || alias?.include_in_price_list === false || alias?.includeInPriceList === false) return
+    if (!aliasByProduct.has(productID)) aliasByProduct.set(productID, alias)
+  })
+  return (Array.isArray(items) ? items : [])
+    .map((item) => {
+      const productID = Number(item?.product_id ?? item?.productID ?? item?.productId ?? item?.id ?? 0)
+      const alias = aliasByProduct.get(productID)
+      if (!alias) return null
+      return customerAliasBeanListItem(item, alias, selectedCustomerID)
+    })
+    .filter(Boolean)
+}
+
 export function buildBeanListPdfSubtitle(listType) {
   const normalized = normalizeBeanListType(listType)
   if (normalized === 'green') return '生豆销售报价'
@@ -144,11 +165,30 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
   const beanListQuality = normalizeBeanListQuality(item.bean_list_quality || item.beanListQuality)
   const productAttributes = normalizeProductAttributes(item.product_attributes || item.productAttributes)
   const tierSnapshots = pdfTierSnapshots(item, tierKey, listType, customizer)
+  const prices = pdfPriceRows(item, tierKey, listType, customizer)
+  const displayName = stringField(item.customer_product_display_name ?? item.customerProductDisplayName ?? meta.display_name ?? item.name)
+  const productID = firstNumber(item.product_id, item.productID, item.productId, item.id)
   return {
-    productId: item.product_id || item.productID || item.id || null,
+    productId: productID || null,
+    product_id: productID || null,
+    customer_product_alias_id: firstNumber(item.customer_product_alias_id, item.customerProductAliasID),
+    customer_id: firstNumber(item.customer_id, item.customerID),
     code: code || meta.code || '',
     originalCode: meta.code || '',
-    name: meta.display_name || item.name || '',
+    name: displayName || item.name || '',
+    display_name_snapshot: displayName || item.name || '',
+    customer_item_code_snapshot: stringField(item.customer_item_code ?? item.customerItemCode),
+    brand_name_snapshot: stringField(item.brand_name ?? item.brandName),
+    display_category_snapshot: stringField(item.display_category_name ?? item.displayCategoryName ?? meta.category),
+    product_code_snapshot: stringField(item.product_code ?? item.productCode),
+    product_name_snapshot: stringField(item.product_name ?? item.productName ?? item.name),
+    bom_version_id_snapshot: firstNumber(item.bom_version_id, item.bomVersionID),
+    bom_version_no_snapshot: stringField(item.bom_version_no ?? item.bomVersionNo),
+    bom_usage_mode_snapshot: stringField(item.bom_usage_mode ?? item.bomUsageMode),
+    price_unit_snapshot: stringField(prices[0]?.unit || tierSnapshots[0]?.display_unit || tierSnapshots[0]?.price_unit || item.quote_unit || item.quoteUnit),
+    tiers_snapshot: tierSnapshots,
+    special_attrs_snapshot: productAttributes,
+    price_source_json: beanListItemPriceSource(item, listType, tierKey),
     recommendedUse: meta.recommended_use || '',
     flavor: meta.flavor || item.flavor || '',
     description: meta.description || item.bean_list_note || '',
@@ -158,7 +198,7 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
     highlightTerms,
     ...(beanListQuality ? { beanListQuality, qualityLines: beanListQualityLines(beanListQuality) } : {}),
     ...(tierSnapshots.length ? { [tierKey]: tierSnapshots } : {}),
-    prices: pdfPriceRows(item, tierKey, listType, customizer)
+    prices,
   }
 }
 
@@ -518,6 +558,57 @@ function normalizeStringList(values) {
 
 function stringField(value) {
   return String(value ?? '').trim()
+}
+
+function customerAliasBeanListItem(item, alias, customerID) {
+  const productID = Number(item?.product_id ?? item?.productID ?? item?.productId ?? item?.id ?? alias?.product_id ?? 0)
+  const displayName = stringField(alias?.display_name ?? alias?.displayName ?? item?.name)
+  const productName = stringField(item?.product_name ?? item?.productName ?? item?.name)
+  return {
+    ...item,
+    customer_id: customerID,
+    customer_product_alias_id: Number(alias?.id || 0),
+    customer_product_display_name: displayName,
+    customer_item_code: stringField(alias?.customer_item_code ?? alias?.customerItemCode),
+    brand_name: stringField(alias?.brand_name ?? alias?.brandName),
+    display_category_id: Number(alias?.display_category_id ?? alias?.displayCategoryID ?? 0),
+    display_category_name: stringField(alias?.display_category_name ?? alias?.displayCategoryName ?? alias?.category_name ?? alias?.categoryName),
+    product_id: productID,
+    product_code: stringField(item?.product_code ?? item?.productCode) || (productID > 0 ? `SKU-${productID}` : ''),
+    product_name: productName,
+    name: displayName || productName || item?.name || '',
+    commercial_bean_list: aliasBeanListMeta(item?.commercial_bean_list ?? item?.commercialBeanList, displayName),
+    retail_bean_list: aliasBeanListMeta(item?.retail_bean_list ?? item?.retailBeanList, displayName),
+    drip_bean_list: aliasBeanListMeta(item?.drip_bean_list ?? item?.dripBeanList, displayName),
+    green_bean_list: aliasBeanListMeta(item?.green_bean_list ?? item?.greenBeanList, displayName),
+  }
+}
+
+function aliasBeanListMeta(meta, displayName) {
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return meta || {}
+  return {
+    ...meta,
+    ...(displayName ? { display_name: displayName } : {}),
+  }
+}
+
+function beanListItemPriceSource(item, listType, tierKey) {
+  return {
+    product_id: firstNumber(item.product_id, item.productID, item.productId, item.id),
+    customer_product_alias_id: firstNumber(item.customer_product_alias_id, item.customerProductAliasID),
+    customer_id: firstNumber(item.customer_id, item.customerID),
+    list_type: normalizeBeanListType(listType),
+    tier_key: tierKey,
+    gradient_template_id: firstNumber(item.gradient_template?.id, item.gradientTemplate?.id),
+    drip_price_template_id: firstNumber(item.drip_price_template?.id, item.dripPriceTemplate?.id),
+    bom_version_id: firstNumber(item.bom_version_id, item.bomVersionID),
+    bom_usage_mode: stringField(item.bom_usage_mode ?? item.bomUsageMode),
+    yield_rate: firstNumber(item.yield_rate, item.yieldRate),
+    bom_cost_per_unit: firstNumber(item.bom_cost_per_unit, item.bomCostPerUnit),
+    operation_cost_per_unit: firstNumber(item.operation_cost_per_unit, item.operationCostPerUnit),
+    operation_cost_per_kg: firstNumber(item.operation_cost_per_kg, item.operationCostPerKg),
+    green_bean_cost_per_kg: firstNumber(item.green_bean_cost_per_kg, item.greenBeanCostPerKg),
+  }
 }
 
 function copySelectedValues(config, key, validValues = []) {

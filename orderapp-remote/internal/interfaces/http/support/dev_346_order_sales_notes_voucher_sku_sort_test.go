@@ -121,7 +121,7 @@ func TestDev346OrderSalesNotesVoucherSkuSortDocs(t *testing.T) {
 			markers: []string{
 				"SKU 商品名",
 				"历史订单使用次数",
-				"BOM 商品列表",
+				"商品 BOM 列表",
 			},
 		},
 		{

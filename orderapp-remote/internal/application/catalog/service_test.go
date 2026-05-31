@@ -19,6 +19,10 @@ type fakeRepo struct {
 	assigned        AssignProductCategoryCommand
 	assignResult    AssignProductCategoryResult
 	publicUsage     CustomerPublicUsageCommand
+	aliasQuery      CustomerProductAliasQuery
+	aliasCommand    CustomerProductAliasCommand
+	disabledAlias   DisableCustomerProductAliasCommand
+	aliasCandidates CustomerProductAliasMigrationCandidateQuery
 	ruleTemplate    SaveCustomerProductRuleTemplateCommand
 	ruleOverride    SaveCustomerProductRuleOverrideCommand
 	ruleBinding     CustomerProductRuleTemplateBindingCommand
@@ -220,6 +224,38 @@ func (r *fakeRepo) SaveCustomerPublicUsage(ctx context.Context, cmd CustomerPubl
 	return CustomerPublicUsage{CustomerID: cmd.CustomerID, UsePublicSKU: cmd.UsePublicSKU, UsePublicCategories: cmd.UsePublicCategories, UsePublicGradientTemplates: cmd.UsePublicGradientTemplates}, nil
 }
 
+func (r *fakeRepo) EnsureFactoryCustomer(ctx context.Context, actor string) (int64, error) {
+	return 9001, nil
+}
+
+func (r *fakeRepo) ListCustomerProductAliases(ctx context.Context, query CustomerProductAliasQuery) ([]CustomerProductAlias, error) {
+	r.aliasQuery = query
+	return []CustomerProductAlias{{ID: 1, CustomerID: query.CustomerID, ProductID: 88, DisplayName: "客户商品名", Active: true}}, nil
+}
+
+func (r *fakeRepo) SaveCustomerProductAlias(ctx context.Context, cmd CustomerProductAliasCommand) (CustomerProductAlias, error) {
+	r.aliasCommand = cmd
+	return CustomerProductAlias{ID: 1, CustomerID: cmd.CustomerID, ProductID: cmd.ProductID, DisplayName: cmd.DisplayName, CustomerItemCode: cmd.CustomerItemCode, IncludeInPriceList: cmd.IncludeInPriceList, Active: cmd.Active}, nil
+}
+
+func (r *fakeRepo) DisableCustomerProductAlias(ctx context.Context, cmd DisableCustomerProductAliasCommand) error {
+	r.disabledAlias = cmd
+	return nil
+}
+
+func (r *fakeRepo) ListCustomerProductAliasMigrationCandidates(ctx context.Context, query CustomerProductAliasMigrationCandidateQuery) ([]CustomerProductAliasMigrationCandidate, error) {
+	r.aliasCandidates = query
+	return []CustomerProductAliasMigrationCandidate{{
+		ProductID:        88,
+		ProductName:      "Karen 贴牌意式",
+		BaseProductID:    7,
+		BaseProductName:  "精品意式拼配",
+		SuggestedAction:  "convert_to_customer_product_alias",
+		SuggestedReason:  "仅名称/编号/价格差异，生产定义跟随来源商品档案",
+		CanAutoRecommend: true,
+	}}, nil
+}
+
 func (r *fakeRepo) ListCustomerProductRuleTemplates(ctx context.Context) ([]CustomerProductRuleTemplate, error) {
 	return nil, nil
 }
@@ -397,6 +433,25 @@ func TestCopySKUsAllowsSameSourceAndTargetOwner(t *testing.T) {
 	}
 	if !repo.skusCopied {
 		t.Fatalf("CopySKUs did not delegate for same source and target")
+	}
+}
+
+func TestListCustomerProductAliasMigrationCandidatesValidatesAndDelegates(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	if _, err := svc.ListCustomerProductAliasMigrationCandidates(context.Background(), CustomerProductAliasMigrationCandidateQuery{}); err == nil {
+		t.Fatal("ListCustomerProductAliasMigrationCandidates without customer should fail")
+	}
+	got, err := svc.ListCustomerProductAliasMigrationCandidates(context.Background(), CustomerProductAliasMigrationCandidateQuery{CustomerID: 42})
+	if err != nil {
+		t.Fatalf("ListCustomerProductAliasMigrationCandidates err=%v", err)
+	}
+	if repo.aliasCandidates.CustomerID != 42 {
+		t.Fatalf("alias candidate query = %+v, want customer 42", repo.aliasCandidates)
+	}
+	if len(got) != 1 || got[0].SuggestedAction != "convert_to_customer_product_alias" {
+		t.Fatalf("migration candidates = %+v", got)
 	}
 }
 

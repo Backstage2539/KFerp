@@ -42,62 +42,73 @@ type Parameters struct {
 }
 
 type ProductInput struct {
-	ProductID                 int64                     `json:"product_id"`
-	Name                      string                    `json:"name"`
-	ProductKind               string                    `json:"product_kind,omitempty"`
-	DripBagGrams              float64                   `json:"drip_bag_grams,omitempty"`
-	DripBoxBagCount           int                       `json:"drip_box_bag_count,omitempty"`
-	CustomerID                int64                     `json:"customer_id,omitempty"`
-	BaseProductID             int64                     `json:"base_product_id,omitempty"`
-	Visibility                string                    `json:"visibility,omitempty"`
-	CustomType                string                    `json:"custom_type,omitempty"`
-	ProductCategoryID         int64                     `json:"product_category_id,omitempty"`
-	ProductCategoryPosition   int                       `json:"product_category_position,omitempty"`
-	ProductTypeCategoryID     int64                     `json:"product_type_category_id,omitempty"`
-	ProductSubtypeCategoryID  int64                     `json:"product_subtype_category_id,omitempty"`
-	ProductTypeName           string                    `json:"product_type_name,omitempty"`
-	ProductSubtypeName        string                    `json:"product_subtype_name,omitempty"`
-	CategoryPrimaryName       string                    `json:"category_primary_name,omitempty"`
-	CategoryPrimaryPosition   int                       `json:"category_primary_position,omitempty"`
-	CategorySecondaryName     string                    `json:"category_secondary_name,omitempty"`
-	CategorySecondaryPosition int                       `json:"category_secondary_position,omitempty"`
-	OperationTemplateID       int64                     `json:"operation_template_id,omitempty"`
-	InventoryUnit             string                    `json:"inventory_unit,omitempty"`
-	QuoteUnit                 string                    `json:"quote_unit,omitempty"`
-	OrderUnit                 string                    `json:"order_unit,omitempty"`
-	UnitConversionJSON        string                    `json:"unit_conversion_json,omitempty"`
-	IntegerUnit               bool                      `json:"integer_unit,omitempty"`
-	PriceListRuleJSON         string                    `json:"price_list_rule_json,omitempty"`
-	SpecialAttrsJSON          string                    `json:"special_attrs_json,omitempty"`
-	SpecialAttrsSchemaJSON    string                    `json:"special_attrs_schema_json,omitempty"`
-	BeanListTemplateName      string                    `json:"bean_list_template_name,omitempty"`
-	Flavor                    string                    `json:"flavor,omitempty"`
-	Origin                    string                    `json:"origin,omitempty"`
-	ProcessingStation         string                    `json:"processing_station,omitempty"`
-	Variety                   string                    `json:"variety,omitempty"`
-	ProcessMethod             string                    `json:"process_method,omitempty"`
-	Grade                     string                    `json:"grade,omitempty"`
-	Altitude                  string                    `json:"altitude,omitempty"`
-	BeanListNote              string                    `json:"bean_list_note,omitempty"`
-	BomStatus                 string                    `json:"bom_status,omitempty"`
-	Warnings                  []string                  `json:"warnings,omitempty"`
-	GreenBeanCostPerKg        float64                   `json:"green_bean_cost_per_kg"`
-	BomCostPerUnit            float64                   `json:"bom_cost_per_unit,omitempty"`
-	OperationCostPerUnit      float64                   `json:"operation_cost_per_unit,omitempty"`
-	OperationCostPerKg        float64                   `json:"operation_cost_per_kg,omitempty"`
-	YieldRate                 float64                   `json:"yield_rate"`
-	WholesaleTaxAddPerKg      float64                   `json:"wholesale_tax_add_per_kg"`
-	WholesaleTaxAddPerKgTiers []float64                 `json:"wholesale_tax_add_per_kg_tiers"`
-	DripTaxAddPerBag100       float64                   `json:"drip_tax_add_per_bag_100"`
-	DripTaxAddPerBagRetail    float64                   `json:"drip_tax_add_per_bag_retail"`
-	WholesaleKgMarginRates    []float64                 `json:"wholesale_kg_margin_rates"`
-	WholesaleDripMultipliers  []float64                 `json:"wholesale_drip_multipliers"`
-	WholesaleTierScheme       string                    `json:"wholesale_tier_scheme,omitempty"`
-	MarginRateOverride        *float64                  `json:"margin_rate_override,omitempty"`
-	GradientTemplate          *GradientTemplate         `json:"gradient_template,omitempty"`
-	DripPriceTemplate         *DripPriceTemplate        `json:"drip_price_template,omitempty"`
-	GreenBeanSaleTiers        []CommercialWholesaleTier `json:"green_bean_sale_tiers,omitempty"`
-	BeanListQuality           BeanListQuality           `json:"bean_list_quality,omitempty"`
+	ProductID                  int64                     `json:"product_id"`
+	ProductCode                string                    `json:"product_code,omitempty"`
+	ProductName                string                    `json:"product_name,omitempty"`
+	Name                       string                    `json:"name"`
+	CustomerProductAliasID     int64                     `json:"customer_product_alias_id,omitempty"`
+	CustomerProductDisplayName string                    `json:"customer_product_display_name,omitempty"`
+	CustomerItemCode           string                    `json:"customer_item_code,omitempty"`
+	BrandName                  string                    `json:"brand_name,omitempty"`
+	DisplayCategoryID          int64                     `json:"display_category_id,omitempty"`
+	DisplayCategoryName        string                    `json:"display_category_name,omitempty"`
+	BomVersionID               int64                     `json:"bom_version_id,omitempty"`
+	BomVersionNo               string                    `json:"bom_version_no,omitempty"`
+	BomUsageMode               string                    `json:"bom_usage_mode,omitempty"`
+	ProductKind                string                    `json:"product_kind,omitempty"`
+	DripBagGrams               float64                   `json:"drip_bag_grams,omitempty"`
+	DripBoxBagCount            int                       `json:"drip_box_bag_count,omitempty"`
+	CustomerID                 int64                     `json:"customer_id,omitempty"`
+	BaseProductID              int64                     `json:"base_product_id,omitempty"`
+	Visibility                 string                    `json:"visibility,omitempty"`
+	CustomType                 string                    `json:"custom_type,omitempty"`
+	ProductCategoryID          int64                     `json:"product_category_id,omitempty"`
+	ProductCategoryPosition    int                       `json:"product_category_position,omitempty"`
+	ProductTypeCategoryID      int64                     `json:"product_type_category_id,omitempty"`
+	ProductSubtypeCategoryID   int64                     `json:"product_subtype_category_id,omitempty"`
+	ProductTypeName            string                    `json:"product_type_name,omitempty"`
+	ProductSubtypeName         string                    `json:"product_subtype_name,omitempty"`
+	CategoryPrimaryName        string                    `json:"category_primary_name,omitempty"`
+	CategoryPrimaryPosition    int                       `json:"category_primary_position,omitempty"`
+	CategorySecondaryName      string                    `json:"category_secondary_name,omitempty"`
+	CategorySecondaryPosition  int                       `json:"category_secondary_position,omitempty"`
+	OperationTemplateID        int64                     `json:"operation_template_id,omitempty"`
+	InventoryUnit              string                    `json:"inventory_unit,omitempty"`
+	QuoteUnit                  string                    `json:"quote_unit,omitempty"`
+	OrderUnit                  string                    `json:"order_unit,omitempty"`
+	UnitConversionJSON         string                    `json:"unit_conversion_json,omitempty"`
+	IntegerUnit                bool                      `json:"integer_unit,omitempty"`
+	PriceListRuleJSON          string                    `json:"price_list_rule_json,omitempty"`
+	SpecialAttrsJSON           string                    `json:"special_attrs_json,omitempty"`
+	SpecialAttrsSchemaJSON     string                    `json:"special_attrs_schema_json,omitempty"`
+	BeanListTemplateName       string                    `json:"bean_list_template_name,omitempty"`
+	Flavor                     string                    `json:"flavor,omitempty"`
+	Origin                     string                    `json:"origin,omitempty"`
+	ProcessingStation          string                    `json:"processing_station,omitempty"`
+	Variety                    string                    `json:"variety,omitempty"`
+	ProcessMethod              string                    `json:"process_method,omitempty"`
+	Grade                      string                    `json:"grade,omitempty"`
+	Altitude                   string                    `json:"altitude,omitempty"`
+	BeanListNote               string                    `json:"bean_list_note,omitempty"`
+	BomStatus                  string                    `json:"bom_status,omitempty"`
+	Warnings                   []string                  `json:"warnings,omitempty"`
+	GreenBeanCostPerKg         float64                   `json:"green_bean_cost_per_kg"`
+	BomCostPerUnit             float64                   `json:"bom_cost_per_unit,omitempty"`
+	OperationCostPerUnit       float64                   `json:"operation_cost_per_unit,omitempty"`
+	OperationCostPerKg         float64                   `json:"operation_cost_per_kg,omitempty"`
+	YieldRate                  float64                   `json:"yield_rate"`
+	WholesaleTaxAddPerKg       float64                   `json:"wholesale_tax_add_per_kg"`
+	WholesaleTaxAddPerKgTiers  []float64                 `json:"wholesale_tax_add_per_kg_tiers"`
+	DripTaxAddPerBag100        float64                   `json:"drip_tax_add_per_bag_100"`
+	DripTaxAddPerBagRetail     float64                   `json:"drip_tax_add_per_bag_retail"`
+	WholesaleKgMarginRates     []float64                 `json:"wholesale_kg_margin_rates"`
+	WholesaleDripMultipliers   []float64                 `json:"wholesale_drip_multipliers"`
+	WholesaleTierScheme        string                    `json:"wholesale_tier_scheme,omitempty"`
+	MarginRateOverride         *float64                  `json:"margin_rate_override,omitempty"`
+	GradientTemplate           *GradientTemplate         `json:"gradient_template,omitempty"`
+	DripPriceTemplate          *DripPriceTemplate        `json:"drip_price_template,omitempty"`
+	GreenBeanSaleTiers         []CommercialWholesaleTier `json:"green_bean_sale_tiers,omitempty"`
+	BeanListQuality            BeanListQuality           `json:"bean_list_quality,omitempty"`
 }
 
 type CommercialWholesaleTier struct {
@@ -263,7 +274,18 @@ type ProductAttribute struct {
 
 type ProductResult struct {
 	ProductID                      int64                     `json:"product_id"`
+	ProductCode                    string                    `json:"product_code,omitempty"`
+	ProductName                    string                    `json:"product_name,omitempty"`
 	Name                           string                    `json:"name"`
+	CustomerProductAliasID         int64                     `json:"customer_product_alias_id,omitempty"`
+	CustomerProductDisplayName     string                    `json:"customer_product_display_name,omitempty"`
+	CustomerItemCode               string                    `json:"customer_item_code,omitempty"`
+	BrandName                      string                    `json:"brand_name,omitempty"`
+	DisplayCategoryID              int64                     `json:"display_category_id,omitempty"`
+	DisplayCategoryName            string                    `json:"display_category_name,omitempty"`
+	BomVersionID                   int64                     `json:"bom_version_id,omitempty"`
+	BomVersionNo                   string                    `json:"bom_version_no,omitempty"`
+	BomUsageMode                   string                    `json:"bom_usage_mode,omitempty"`
 	ProductKind                    string                    `json:"product_kind,omitempty"`
 	DripBagGrams                   float64                   `json:"drip_bag_grams,omitempty"`
 	DripBoxBagCount                int                       `json:"drip_box_bag_count,omitempty"`
@@ -517,61 +539,72 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	}
 
 	out := ProductResult{
-		ProductID:                 in.ProductID,
-		Name:                      in.Name,
-		ProductKind:               in.ProductKind,
-		DripBagGrams:              in.DripBagGrams,
-		DripBoxBagCount:           in.DripBoxBagCount,
-		CustomerID:                in.CustomerID,
-		BaseProductID:             in.BaseProductID,
-		Visibility:                in.Visibility,
-		CustomType:                in.CustomType,
-		ProductCategoryID:         in.ProductCategoryID,
-		ProductCategoryPosition:   in.ProductCategoryPosition,
-		ProductTypeCategoryID:     in.ProductTypeCategoryID,
-		ProductSubtypeCategoryID:  in.ProductSubtypeCategoryID,
-		ProductTypeName:           in.ProductTypeName,
-		ProductSubtypeName:        in.ProductSubtypeName,
-		CategoryPrimaryName:       in.CategoryPrimaryName,
-		CategoryPrimaryPosition:   in.CategoryPrimaryPosition,
-		CategorySecondaryName:     in.CategorySecondaryName,
-		CategorySecondaryPosition: in.CategorySecondaryPosition,
-		OperationTemplateID:       in.OperationTemplateID,
-		InventoryUnit:             in.InventoryUnit,
-		QuoteUnit:                 in.QuoteUnit,
-		OrderUnit:                 in.OrderUnit,
-		UnitConversionJSON:        in.UnitConversionJSON,
-		IntegerUnit:               in.IntegerUnit,
-		PriceListRuleJSON:         in.PriceListRuleJSON,
-		ProductAttributes:         productAttributesFromSpecialAttrs(in.SpecialAttrsSchemaJSON, in.SpecialAttrsJSON),
-		MarginRateOverride:        in.MarginRateOverride,
-		GradientTemplate:          in.GradientTemplate,
-		DripPriceTemplate:         in.DripPriceTemplate,
-		CommercialBeanList:        commercialDisplay,
-		DripBeanList:              dripDisplay,
-		RetailBeanList:            retailDisplay,
-		GreenBeanList:             greenDisplay,
-		BeanListQuality:           in.BeanListQuality,
-		Flavor:                    in.Flavor,
-		Origin:                    in.Origin,
-		ProcessingStation:         in.ProcessingStation,
-		Variety:                   in.Variety,
-		ProcessMethod:             in.ProcessMethod,
-		Grade:                     in.Grade,
-		Altitude:                  in.Altitude,
-		BeanListNote:              in.BeanListNote,
-		BomStatus:                 in.BomStatus,
-		Warnings:                  append([]string(nil), in.Warnings...),
-		YieldRate:                 in.YieldRate,
-		GreenBeanCostPerKg:        in.GreenBeanCostPerKg,
-		BomCostPerUnit:            in.BomCostPerUnit,
-		OperationCostPerUnit:      in.OperationCostPerUnit,
-		OperationCostPerKg:        in.OperationCostPerKg,
-		RoastedBeanCostPerKg:      roasted,
-		SmallBatchCostPerKg:       small,
-		LargeBatchCostPerKg:       large,
-		DripBaseCostPerBag:        dripBase,
-		RetailTaxPerKg:            retailTax,
+		ProductID:                  in.ProductID,
+		ProductCode:                in.ProductCode,
+		ProductName:                in.ProductName,
+		Name:                       in.Name,
+		CustomerProductAliasID:     in.CustomerProductAliasID,
+		CustomerProductDisplayName: in.CustomerProductDisplayName,
+		CustomerItemCode:           in.CustomerItemCode,
+		BrandName:                  in.BrandName,
+		DisplayCategoryID:          in.DisplayCategoryID,
+		DisplayCategoryName:        in.DisplayCategoryName,
+		BomVersionID:               in.BomVersionID,
+		BomVersionNo:               in.BomVersionNo,
+		BomUsageMode:               in.BomUsageMode,
+		ProductKind:                in.ProductKind,
+		DripBagGrams:               in.DripBagGrams,
+		DripBoxBagCount:            in.DripBoxBagCount,
+		CustomerID:                 in.CustomerID,
+		BaseProductID:              in.BaseProductID,
+		Visibility:                 in.Visibility,
+		CustomType:                 in.CustomType,
+		ProductCategoryID:          in.ProductCategoryID,
+		ProductCategoryPosition:    in.ProductCategoryPosition,
+		ProductTypeCategoryID:      in.ProductTypeCategoryID,
+		ProductSubtypeCategoryID:   in.ProductSubtypeCategoryID,
+		ProductTypeName:            in.ProductTypeName,
+		ProductSubtypeName:         in.ProductSubtypeName,
+		CategoryPrimaryName:        in.CategoryPrimaryName,
+		CategoryPrimaryPosition:    in.CategoryPrimaryPosition,
+		CategorySecondaryName:      in.CategorySecondaryName,
+		CategorySecondaryPosition:  in.CategorySecondaryPosition,
+		OperationTemplateID:        in.OperationTemplateID,
+		InventoryUnit:              in.InventoryUnit,
+		QuoteUnit:                  in.QuoteUnit,
+		OrderUnit:                  in.OrderUnit,
+		UnitConversionJSON:         in.UnitConversionJSON,
+		IntegerUnit:                in.IntegerUnit,
+		PriceListRuleJSON:          in.PriceListRuleJSON,
+		ProductAttributes:          productAttributesFromSpecialAttrs(in.SpecialAttrsSchemaJSON, in.SpecialAttrsJSON),
+		MarginRateOverride:         in.MarginRateOverride,
+		GradientTemplate:           in.GradientTemplate,
+		DripPriceTemplate:          in.DripPriceTemplate,
+		CommercialBeanList:         commercialDisplay,
+		DripBeanList:               dripDisplay,
+		RetailBeanList:             retailDisplay,
+		GreenBeanList:              greenDisplay,
+		BeanListQuality:            in.BeanListQuality,
+		Flavor:                     in.Flavor,
+		Origin:                     in.Origin,
+		ProcessingStation:          in.ProcessingStation,
+		Variety:                    in.Variety,
+		ProcessMethod:              in.ProcessMethod,
+		Grade:                      in.Grade,
+		Altitude:                   in.Altitude,
+		BeanListNote:               in.BeanListNote,
+		BomStatus:                  in.BomStatus,
+		Warnings:                   append([]string(nil), in.Warnings...),
+		YieldRate:                  in.YieldRate,
+		GreenBeanCostPerKg:         in.GreenBeanCostPerKg,
+		BomCostPerUnit:             in.BomCostPerUnit,
+		OperationCostPerUnit:       in.OperationCostPerUnit,
+		OperationCostPerKg:         in.OperationCostPerKg,
+		RoastedBeanCostPerKg:       roasted,
+		SmallBatchCostPerKg:        small,
+		LargeBatchCostPerKg:        large,
+		DripBaseCostPerBag:         dripBase,
+		RetailTaxPerKg:             retailTax,
 	}
 
 	for i, margin := range in.WholesaleKgMarginRates {
@@ -650,32 +683,43 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		}
 	}
 	return ProductResult{
-		ProductID:                 in.ProductID,
-		Name:                      in.Name,
-		ProductKind:               "green_bean",
-		CustomerID:                in.CustomerID,
-		BaseProductID:             in.BaseProductID,
-		Visibility:                in.Visibility,
-		CustomType:                in.CustomType,
-		ProductCategoryID:         in.ProductCategoryID,
-		ProductCategoryPosition:   in.ProductCategoryPosition,
-		ProductTypeCategoryID:     in.ProductTypeCategoryID,
-		ProductSubtypeCategoryID:  in.ProductSubtypeCategoryID,
-		ProductTypeName:           in.ProductTypeName,
-		ProductSubtypeName:        in.ProductSubtypeName,
-		CategoryPrimaryName:       in.CategoryPrimaryName,
-		CategoryPrimaryPosition:   in.CategoryPrimaryPosition,
-		CategorySecondaryName:     in.CategorySecondaryName,
-		CategorySecondaryPosition: in.CategorySecondaryPosition,
-		OperationTemplateID:       in.OperationTemplateID,
-		InventoryUnit:             in.InventoryUnit,
-		QuoteUnit:                 in.QuoteUnit,
-		OrderUnit:                 in.OrderUnit,
-		UnitConversionJSON:        in.UnitConversionJSON,
-		IntegerUnit:               in.IntegerUnit,
-		PriceListRuleJSON:         in.PriceListRuleJSON,
-		ProductAttributes:         productAttributesFromSpecialAttrs(in.SpecialAttrsSchemaJSON, in.SpecialAttrsJSON),
-		BeanListQuality:           in.BeanListQuality,
+		ProductID:                  in.ProductID,
+		ProductCode:                in.ProductCode,
+		ProductName:                in.ProductName,
+		Name:                       in.Name,
+		CustomerProductAliasID:     in.CustomerProductAliasID,
+		CustomerProductDisplayName: in.CustomerProductDisplayName,
+		CustomerItemCode:           in.CustomerItemCode,
+		BrandName:                  in.BrandName,
+		DisplayCategoryID:          in.DisplayCategoryID,
+		DisplayCategoryName:        in.DisplayCategoryName,
+		BomVersionID:               in.BomVersionID,
+		BomVersionNo:               in.BomVersionNo,
+		BomUsageMode:               in.BomUsageMode,
+		ProductKind:                "green_bean",
+		CustomerID:                 in.CustomerID,
+		BaseProductID:              in.BaseProductID,
+		Visibility:                 in.Visibility,
+		CustomType:                 in.CustomType,
+		ProductCategoryID:          in.ProductCategoryID,
+		ProductCategoryPosition:    in.ProductCategoryPosition,
+		ProductTypeCategoryID:      in.ProductTypeCategoryID,
+		ProductSubtypeCategoryID:   in.ProductSubtypeCategoryID,
+		ProductTypeName:            in.ProductTypeName,
+		ProductSubtypeName:         in.ProductSubtypeName,
+		CategoryPrimaryName:        in.CategoryPrimaryName,
+		CategoryPrimaryPosition:    in.CategoryPrimaryPosition,
+		CategorySecondaryName:      in.CategorySecondaryName,
+		CategorySecondaryPosition:  in.CategorySecondaryPosition,
+		OperationTemplateID:        in.OperationTemplateID,
+		InventoryUnit:              in.InventoryUnit,
+		QuoteUnit:                  in.QuoteUnit,
+		OrderUnit:                  in.OrderUnit,
+		UnitConversionJSON:         in.UnitConversionJSON,
+		IntegerUnit:                in.IntegerUnit,
+		PriceListRuleJSON:          in.PriceListRuleJSON,
+		ProductAttributes:          productAttributesFromSpecialAttrs(in.SpecialAttrsSchemaJSON, in.SpecialAttrsJSON),
+		BeanListQuality:            in.BeanListQuality,
 		GreenBeanList: BeanListDisplay{
 			Code:           code,
 			Category:       firstNonEmptyString(in.CategorySecondaryName, in.CategoryPrimaryName, "生豆销售"),
@@ -2201,11 +2245,11 @@ func buildCategoryGreenBeanListDisplay(in ProductInput, fallback BeanListDisplay
 }
 
 func containsAnyNormalized(s string, needles []string) bool {
-        n := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s), " ", ""))
-        for _, needle := range needles {
-                if strings.Contains(n, strings.ToLower(strings.ReplaceAll(needle, " ", ""))) {
-                        return true
-                }
-        }
-        return false
+	n := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s), " ", ""))
+	for _, needle := range needles {
+		if strings.Contains(n, strings.ToLower(strings.ReplaceAll(needle, " ", ""))) {
+			return true
+		}
+	}
+	return false
 }

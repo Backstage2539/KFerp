@@ -67,7 +67,7 @@
             <thead>
               <tr>
                 <th>商品</th>
-                <th>BOM来源</th>
+                <th>生产 BOM</th>
                 <th>工艺参数</th>
                 <th>预期损耗率</th>
                 <th>预期产出率</th>
@@ -102,22 +102,22 @@
       <section class="panel detail-panel">
         <div class="panel-title">配方明细</div>
         <div v-if="detail?.bom_source_type === 'inherit_current'" class="inherit-source-banner">
-          <span>继承自 {{ detail.bom_source_product_name || '来源SKU' }} 的当前 BOM</span>
+          <span>跟随 {{ detail.bom_source_product_name || '来源商品档案' }} 的默认生产 BOM</span>
           <button class="secondary compact" type="button" @click="lockCurrentBomVersion" :disabled="loading || !canEditCurrentBomProduct">锁定当前 BOM 版本</button>
         </div>
         <div v-if="detail?.bom_source_type === 'owned'" class="inherit-source-banner">
-          <span v-if="versions.length > 0">自有 BOM · 可锁定到版本以固定配方</span>
-          <span v-else>自有 BOM · 先保存版本后再锁定</span>
+          <span v-if="versions.length > 0">默认生产 BOM · 可锁定到版本以固定配方</span>
+          <span v-else>默认生产 BOM · 先保存版本后再锁定</span>
           <button v-if="versions.length > 0" class="secondary compact" type="button" @click="lockCurrentBomVersion" :disabled="loading || !canEditCurrentBomProduct">锁定当前 BOM 版本</button>
         </div>
         <div v-if="detail?.bom_source_type === 'inherit_version'" class="inherit-source-banner locked">
-          <span v-if="detail.source_product_id > 0">锁定：{{ detail.bom_source_product_name || '来源SKU' }} / BOM {{ detail.bom_source_version_no || 'V???' }}</span>
+          <span v-if="detail.source_product_id > 0">固定 BOM 版本：{{ detail.bom_source_product_name || '来源商品档案' }} / BOM {{ detail.bom_source_version_no || 'V???' }}</span>
           <span v-else>已锁定到版本：BOM {{ detail.bom_source_version_no || 'V???' }}</span>
           <button class="secondary compact" type="button" @click="unlockBomVersion" :disabled="loading || !canEditCurrentBomProduct">恢复当前 BOM</button>
         </div>
         <div v-if="detail" class="summary">
           <div><span>商品</span><strong>{{ detail.product_name }}</strong></div>
-          <div><span>BOM来源</span><strong>{{ currentBomSourceLabel }}</strong></div>
+          <div><span>生产 BOM</span><strong>{{ currentBomSourceLabel }}</strong></div>
           <div><span>工艺参数</span><strong>{{ detail.roast_level || '-' }}</strong></div>
           <div><span>预期损耗率</span><strong>{{ pct(expectedLoss(detail)) }}</strong></div>
           <div><span>预期产出率</span><strong>{{ pct(expectedYield(detail)) }}</strong></div>
@@ -126,8 +126,8 @@
           <div><span>关联工艺</span><strong>{{ linkedProcessTemplates.length ? `${linkedProcessTemplates.length} 个模板` : '-' }}</strong></div>
         </div>
         <div v-if="detail?.can_edit_bom === false" class="warning-banner bom-source-banner">
-          <span>{{ currentBomSourceLabel }}。继承 BOM 只读；需要改配方时先派生为该 SKU 的自有 BOM。</span>
-          <button class="secondary compact-action" type="button" @click="deriveOwnedBom" :disabled="loading">派生自有 BOM</button>
+          <span>{{ currentBomSourceLabel }}。跟随或固定的生产 BOM 只读；需要改配方时先复制为当前商品档案单独维护 BOM。</span>
+          <button class="secondary compact-action" type="button" @click="deriveOwnedBom" :disabled="loading">复制为单独维护 BOM</button>
         </div>
         <div v-if="detail && linkedProcessTemplates.length" class="linked-processes">
           <span v-for="template in linkedProcessTemplates" :key="template.id" :class="['status-pill', template.status === 'inactive' ? 'inactive' : '']">
@@ -836,7 +836,7 @@ async function deriveOwnedBom() {
     detail.value = await apiSend(`/api/bom/${selectedProductId.value}/derive-owned`, { body: {} })
     syncExpectedLossInput(detail.value)
     await loadAll()
-    ok.value = '已派生为自有 BOM'
+    ok.value = '已复制为单独维护 BOM'
   })
 }
 

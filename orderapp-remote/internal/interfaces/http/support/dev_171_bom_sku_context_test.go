@@ -97,7 +97,7 @@ func TestDev171ManualsDocumentBomSkuContextOperation(t *testing.T) {
 		for _, want := range []string{
 			"BOM配置",
 			"SKU归属",
-			"默认公共SKU",
+			"公共SKU",
 			"客户SKU",
 			"BOM 配方维护",
 		} {

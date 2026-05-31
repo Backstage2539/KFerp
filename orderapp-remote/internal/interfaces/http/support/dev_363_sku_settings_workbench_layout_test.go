@@ -29,7 +29,7 @@ func TestDev363SkuSettingsWorkbenchLayoutUI(t *testing.T) {
 		"sku-template-workspace",
 		"master-data-layout",
 		"template-workspace-stack",
-		"商品资料",
+		"商品档案",
 		"商品配置",
 		"activeSettingsSection",
 	} {

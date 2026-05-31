@@ -1054,6 +1054,21 @@ func TestApplyDirectShipImportRepositoryWiring(t *testing.T) {
 	}
 }
 
+func TestCustomerFulfillmentOptionsUseCustomerProductAliases(t *testing.T) {
+	src := string(readCustomerFulfillmentRepoFile(t, "internal/infrastructure/postgres/customerfulfillment/repository.go"))
+	for _, want := range []string{
+		"customer_product_aliases",
+		"CustomerProductAliasID",
+		"CustomerProductDisplayName",
+		"CustomerItemCode",
+		"validateCustomerProductAliasForDirectShipTx",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("repository.go missing customer product alias marker %q", want)
+		}
+	}
+}
+
 func TestDirectShipImportLeavesERPProductIDNullWhenNoProductMatches(t *testing.T) {
 	src := string(readCustomerFulfillmentRepoFile(t, "internal/infrastructure/postgres/customerfulfillment/repository.go"))
 	if strings.Contains(src, "productID, _ := r.findProductForDirectShipTx") {
@@ -1869,6 +1884,67 @@ func TestSubmitCustomerDirectShipOrderCreatesERPOrder(t *testing.T) {
 	if totalAmount <= 0 || shippingAmount != 12 || grandTotal <= totalAmount {
 		t.Fatalf("order amounts total/shipping/grand = %.2f/%.2f/%.2f", totalAmount, shippingAmount, grandTotal)
 	}
+}
+
+func TestSubmitCustomerDirectShipOrderRejectsAliasWithoutPublishedPrice(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID, employeeID, productID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, customer_type) VALUES('Karen','wholesale') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.company_employees(name, phone, account_type, department_id, active)
+		VALUES('Karen门户账号','13800138970','channel_customer',(SELECT id FROM %[1]s.company_departments WHERE name='销售' LIMIT 1),true)
+		RETURNING id
+	`, schema)).Scan(&employeeID); err != nil {
+		t.Fatalf("insert employee: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_erp_user_bindings(customer_id, employee_id, status)
+		VALUES($1,$2,'active');
+		INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled)
+		VALUES($1,'direct_ship',true);
+	`, schema, schema), customerID, employeeID); err != nil {
+		t.Fatalf("insert binding/capability: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, default_price, active, visibility, product_kind)
+		VALUES('无发布价商品档案', 0, true, 'public', 'roasted_bean')
+		RETURNING id
+	`, schema)).Scan(&productID); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_product_aliases(
+			customer_id, product_id, display_name, customer_item_code, brand_name,
+			display_category_id, sort_order, include_in_price_list, active
+		)
+		VALUES($1,$2,'Karen 无发布价商品名','KAREN-NOPRICE','',0,1,true,true)
+	`, schema), customerID, productID); err != nil {
+		t.Fatalf("insert alias: %v", err)
+	}
+
+	_, err := repo.SubmitCustomerDirectShipOrder(ctx, app.SubmitCustomerDirectShipOrderCommand{
+		EmployeeID:      employeeID,
+		ReceiverName:    "刘祎泊",
+		ReceiverPhone:   "15302787466",
+		ReceiverAddress: "云南省昆明市西山区",
+		Items: []app.SubmitCustomerDirectShipOrderItem{{
+			ProductID:     productID,
+			ProductName:   "Karen 无发布价商品名",
+			Spec:          "454g",
+			QuantityUnits: 1,
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "customer product price unpublished") {
+		t.Fatalf("SubmitCustomerDirectShipOrder err=%v, want unpublished customer product price", err)
+	}
+	assertCustomerFulfillmentCount(t, pool, schema, "orders", "customer_id=$1 AND portal_service_code='direct_ship'", customerID, 0)
 }
 
 func TestInternalCustomerFulfillmentSubmitRequiresCustomerCapability(t *testing.T) {

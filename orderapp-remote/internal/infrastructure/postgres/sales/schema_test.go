@@ -46,3 +46,23 @@ func TestEnsureSchemaBackfillsERPOrdersForFulfillmentCustomers(t *testing.T) {
 		}
 	}
 }
+
+func TestEnsureOrderItemUnitPricingColumnsAddsCustomerAliasSnapshots(t *testing.T) {
+	body, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatalf("read schema.go: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"order_items ADD COLUMN IF NOT EXISTS customer_product_alias_id",
+		"order_items ADD COLUMN IF NOT EXISTS customer_product_display_name_snapshot",
+		"order_items ADD COLUMN IF NOT EXISTS customer_item_code_snapshot",
+		"order_items ADD COLUMN IF NOT EXISTS brand_name_snapshot",
+		"order_items ADD COLUMN IF NOT EXISTS product_code_snapshot",
+		"order_items ADD COLUMN IF NOT EXISTS product_name_snapshot",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("sales schema missing order item alias snapshot column marker %q", want)
+		}
+	}
+}

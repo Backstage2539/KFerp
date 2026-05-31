@@ -54,20 +54,29 @@ type SaveOrderCommand struct {
 }
 
 type OrderItemCommand struct {
-	ProductID     *int64
-	TierID        *int64
-	ManualPrice   *float64
-	DiscountType  string
-	DiscountValue float64
-	Name          string
-	Note          string
-	Units         int64
-	Unit          string
-	SpecG         int64
-	ProductKind   string
-	SalesUnit     string
-	UnitBagCount  int64
-	UnitBeanG     float64
+	ProductID                          *int64
+	CustomerProductAliasID             int64
+	CustomerProductDisplayNameSnapshot string
+	CustomerItemCodeSnapshot           string
+	BrandNameSnapshot                  string
+	ProductCodeSnapshot                string
+	ProductNameSnapshot                string
+	BeanListPublicationID              int64
+	BeanListVersionNo                  string
+	PriceSourceJSON                    string
+	TierID                             *int64
+	ManualPrice                        *float64
+	DiscountType                       string
+	DiscountValue                      float64
+	Name                               string
+	Note                               string
+	Units                              int64
+	Unit                               string
+	SpecG                              int64
+	ProductKind                        string
+	SalesUnit                          string
+	UnitBagCount                       int64
+	UnitBeanG                          float64
 }
 
 type SaveOrderResult struct {
@@ -244,33 +253,41 @@ type ProductTierOption struct {
 }
 
 type ProductOption struct {
-	ID                       int64               `json:"id"`
-	Name                     string              `json:"name"`
-	ProductKind              string              `json:"product_kind"`
-	RoastLevel               string              `json:"roast_level"`
-	DefaultPrice             float64             `json:"default_price"`
-	RetailPrice100G          float64             `json:"retail_price_100g"`
-	RetailPrice200G          float64             `json:"retail_price_200g"`
-	RetailPrice227G          float64             `json:"retail_price_227g"`
-	RetailPrice250G          float64             `json:"retail_price_250g"`
-	CustomerID               int64               `json:"customer_id"`
-	BaseProductID            int64               `json:"base_product_id"`
-	Visibility               string              `json:"visibility"`
-	CustomType               string              `json:"custom_type"`
-	DripBagGrams             float64             `json:"drip_bag_grams"`
-	DripBoxBagCount          int64               `json:"drip_box_bag_count"`
-	SalesUnits               []string            `json:"sales_units"`
-	RetailSpecs              []int64             `json:"retail_specs"`
-	Tiers                    []ProductTierOption `json:"tiers"`
-	ProductTypeCategoryID    int64               `json:"product_type_category_id,omitempty"`
-	ProductSubtypeCategoryID int64               `json:"product_subtype_category_id,omitempty"`
-	ProductTypeName          string              `json:"product_type_name,omitempty"`
-	ProductSubtypeName       string              `json:"product_subtype_name,omitempty"`
-	InventoryUnit            string              `json:"inventory_unit,omitempty"`
-	QuoteUnit                string              `json:"quote_unit,omitempty"`
-	OrderUnit                string              `json:"order_unit,omitempty"`
-	UnitConversionJSON       string              `json:"unit_conversion_json,omitempty"`
-	IntegerUnit              bool                `json:"integer_unit,omitempty"`
+	ID                               int64               `json:"id"`
+	Name                             string              `json:"name"`
+	ProductCode                      string              `json:"product_code,omitempty"`
+	ProductRecordName                string              `json:"product_record_name,omitempty"`
+	CustomerProductAliasID           int64               `json:"customer_product_alias_id,omitempty"`
+	CustomerProductDisplayName       string              `json:"customer_product_display_name,omitempty"`
+	CustomerItemCode                 string              `json:"customer_item_code,omitempty"`
+	BrandName                        string              `json:"brand_name,omitempty"`
+	CustomerAliasDisplayCategoryID   int64               `json:"customer_alias_display_category_id,omitempty"`
+	CustomerAliasDisplayCategoryName string              `json:"customer_alias_display_category_name,omitempty"`
+	ProductKind                      string              `json:"product_kind"`
+	RoastLevel                       string              `json:"roast_level"`
+	DefaultPrice                     float64             `json:"default_price"`
+	RetailPrice100G                  float64             `json:"retail_price_100g"`
+	RetailPrice200G                  float64             `json:"retail_price_200g"`
+	RetailPrice227G                  float64             `json:"retail_price_227g"`
+	RetailPrice250G                  float64             `json:"retail_price_250g"`
+	CustomerID                       int64               `json:"customer_id"`
+	BaseProductID                    int64               `json:"base_product_id"`
+	Visibility                       string              `json:"visibility"`
+	CustomType                       string              `json:"custom_type"`
+	DripBagGrams                     float64             `json:"drip_bag_grams"`
+	DripBoxBagCount                  int64               `json:"drip_box_bag_count"`
+	SalesUnits                       []string            `json:"sales_units"`
+	RetailSpecs                      []int64             `json:"retail_specs"`
+	Tiers                            []ProductTierOption `json:"tiers"`
+	ProductTypeCategoryID            int64               `json:"product_type_category_id,omitempty"`
+	ProductSubtypeCategoryID         int64               `json:"product_subtype_category_id,omitempty"`
+	ProductTypeName                  string              `json:"product_type_name,omitempty"`
+	ProductSubtypeName               string              `json:"product_subtype_name,omitempty"`
+	InventoryUnit                    string              `json:"inventory_unit,omitempty"`
+	QuoteUnit                        string              `json:"quote_unit,omitempty"`
+	OrderUnit                        string              `json:"order_unit,omitempty"`
+	UnitConversionJSON               string              `json:"unit_conversion_json,omitempty"`
+	IntegerUnit                      bool                `json:"integer_unit,omitempty"`
 }
 
 type BeanListVersionOption struct {
@@ -322,29 +339,35 @@ type OrderFormData struct {
 }
 
 type OrderEditItem struct {
-	ItemID                int64
-	LineNo                int
-	ProductID             int64
-	Product               string
-	Note                  string
-	Spec                  string
-	Qty                   string
-	Unit                  string
-	UnitPrice             string
-	LineTotal             string
-	PriceTierID           int64
-	BeanListPublicationID int64
-	BeanListVersionNo     string
-	DiscountType          string
-	DiscountValue         string
-	DiscountAmount        string
-	ProductKind           string
-	SalesUnit             string
-	UnitBagCount          int64
-	UnitBeanG             string
-	MatchedPriceQty       string
-	UnitConversionLabel   string
-	PriceSourceJSON       string
+	ItemID                             int64
+	LineNo                             int
+	ProductID                          int64
+	Product                            string
+	CustomerProductAliasID             int64
+	CustomerProductDisplayNameSnapshot string
+	CustomerItemCodeSnapshot           string
+	BrandNameSnapshot                  string
+	ProductCodeSnapshot                string
+	ProductNameSnapshot                string
+	Note                               string
+	Spec                               string
+	Qty                                string
+	Unit                               string
+	UnitPrice                          string
+	LineTotal                          string
+	PriceTierID                        int64
+	BeanListPublicationID              int64
+	BeanListVersionNo                  string
+	DiscountType                       string
+	DiscountValue                      string
+	DiscountAmount                     string
+	ProductKind                        string
+	SalesUnit                          string
+	UnitBagCount                       int64
+	UnitBeanG                          string
+	MatchedPriceQty                    string
+	UnitConversionLabel                string
+	PriceSourceJSON                    string
 }
 
 type OrderEditData struct {

@@ -50,20 +50,29 @@ type CreateOrderRequest struct {
 	PortalServiceCode               string `form:"portal_service_code"`
 	OrdersScope                     string `form:"orders_scope"`
 
-	ProductID     []string `form:"product_id[]"`
-	TierID        []string `form:"tier_id[]"`
-	UnitPrice     []string `form:"unit_price[]"`
-	ItemName      []string `form:"item_name[]"`
-	ItemNote      []string `form:"item_note[]"`
-	Qty           []string `form:"qty[]"`
-	Unit          []string `form:"unit[]"`
-	Spec          []string `form:"spec[]"`
-	ProductKind   []string `form:"product_kind[]"`
-	SalesUnit     []string `form:"sales_unit[]"`
-	UnitBagCount  []string `form:"unit_bag_count[]"`
-	UnitBeanG     []string `form:"unit_bean_g[]"`
-	DiscountType  []string `form:"discount_type[]"`
-	DiscountValue []string `form:"discount_value[]"`
+	ProductID                          []string `form:"product_id[]"`
+	CustomerProductAliasID             []string `form:"customer_product_alias_id[]"`
+	CustomerProductDisplayNameSnapshot []string `form:"customer_product_display_name_snapshot[]"`
+	CustomerItemCodeSnapshot           []string `form:"customer_item_code_snapshot[]"`
+	BrandNameSnapshot                  []string `form:"brand_name_snapshot[]"`
+	ProductCodeSnapshot                []string `form:"product_code_snapshot[]"`
+	ProductNameSnapshot                []string `form:"product_name_snapshot[]"`
+	ItemBeanListPublicationID          []string `form:"item_bean_list_publication_id[]"`
+	ItemBeanListVersionNo              []string `form:"item_bean_list_version_no[]"`
+	PriceSourceJSON                    []string `form:"price_source_json[]"`
+	TierID                             []string `form:"tier_id[]"`
+	UnitPrice                          []string `form:"unit_price[]"`
+	ItemName                           []string `form:"item_name[]"`
+	ItemNote                           []string `form:"item_note[]"`
+	Qty                                []string `form:"qty[]"`
+	Unit                               []string `form:"unit[]"`
+	Spec                               []string `form:"spec[]"`
+	ProductKind                        []string `form:"product_kind[]"`
+	SalesUnit                          []string `form:"sales_unit[]"`
+	UnitBagCount                       []string `form:"unit_bag_count[]"`
+	UnitBeanG                          []string `form:"unit_bean_g[]"`
+	DiscountType                       []string `form:"discount_type[]"`
+	DiscountValue                      []string `form:"discount_value[]"`
 }
 
 type UpdateOrderRequest struct {

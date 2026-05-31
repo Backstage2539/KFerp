@@ -34,12 +34,12 @@ func TestDev321CustomerSkuCategoryToggleFactoryBeanListTitle(t *testing.T) {
 			"SKU归属回到公共SKU",
 		},
 		"docs/OP_MANUAL_COSTING.md": {
-			"客户 SKU 还没有挂到客户分类时，产品价格表会把它放到“未分类”",
+			"客户商品名还没有展示分类时，产品价格表会把它放到“未分类”",
 			"“1、定制咖啡熟豆”分组",
 			"schema 修复",
 		},
 		"docs/OP_MANUAL_INVENTORY_MATERIALS.md": {
-			"客户自有分类和已归类客户 SKU 不会被隐藏或删除",
+			"客户自有分类和已归类客户商品不会被隐藏或删除",
 			"自动恢复父分类或把子分类迁到同名 active 父分类",
 		},
 		"docs/OP_MANUAL_WORKSPACE_MODE.md": {

@@ -111,6 +111,32 @@ WHERE active=true;
 INSERT INTO %[1]s.product_unit_templates(name, inventory_unit, quote_unit, order_unit, unit_conversion_json, integer_unit, active)
 VALUES ('默认kg单位','kg','kg','kg','{}'::jsonb,false,true)
 ON CONFLICT DO NOTHING;
+INSERT INTO %[1]s.customers(name, raw_name, customer_type, active, created_at, updated_at)
+SELECT '工厂自营', '工厂自营', 'wholesale', true, now(), now()
+WHERE NOT EXISTS (
+	SELECT 1 FROM %[1]s.customers WHERE active=true AND name='工厂自营'
+);
+CREATE TABLE IF NOT EXISTS %[1]s.customer_product_aliases (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL,
+	product_id BIGINT NOT NULL,
+	display_name TEXT NOT NULL,
+	customer_item_code TEXT NOT NULL DEFAULT '',
+	brand_name TEXT NOT NULL DEFAULT '',
+	display_category_id BIGINT NOT NULL DEFAULT 0,
+	sort_order INT NOT NULL DEFAULT 0,
+	include_in_price_list BOOLEAN NOT NULL DEFAULT true,
+	active BOOLEAN NOT NULL DEFAULT true,
+	remark TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS customer_product_aliases_customer_active_idx
+ON %[1]s.customer_product_aliases(customer_id, active, sort_order, id);
+CREATE INDEX IF NOT EXISTS customer_product_aliases_product_idx
+ON %[1]s.customer_product_aliases(product_id, active);
 CREATE TABLE IF NOT EXISTS %[1]s.product_config_templates (
 	id BIGSERIAL PRIMARY KEY,
 	customer_id BIGINT NOT NULL DEFAULT 0,

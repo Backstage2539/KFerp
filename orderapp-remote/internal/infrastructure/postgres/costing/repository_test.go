@@ -119,6 +119,31 @@ func TestLoadProductInputsResolvesCustomerProductRuleTemplates(t *testing.T) {
 	}
 }
 
+func TestLoadProductInputsForCustomerUsesCustomerProductAliasesAsPriceListSource(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"customer_product_aliases cpa",
+		"cpa.include_in_price_list=true",
+		"cpa.active=true",
+		"cpa.id IS NOT NULL",
+		"&input.CustomerProductAliasID",
+		"&input.CustomerProductDisplayName",
+		"&input.CustomerItemCode",
+		"&input.ProductCode",
+		"&input.ProductName",
+		"&input.BomVersionID",
+		"&input.BomUsageMode",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("customer price lists must load products through customer_product_aliases; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsComposablePriceRulesAndBomUnitCosts(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

@@ -178,6 +178,63 @@ export function customerSkuCustomerOptions(customers = []) {
     .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')))
 }
 
+export function buildCustomerProductAliasPayload(form = {}) {
+  return {
+    id: Number(form.id || 0),
+    customer_id: Number(form.customer_id || form.customerID || 0),
+    product_id: Number(form.product_id || form.productID || 0),
+    display_name: String(form.display_name ?? form.displayName ?? '').trim(),
+    customer_item_code: String(form.customer_item_code ?? form.customerItemCode ?? '').trim(),
+    brand_name: String(form.brand_name ?? form.brandName ?? '').trim(),
+    display_category_id: Number(form.display_category_id || form.displayCategoryID || 0),
+    sort_order: Number(form.sort_order || form.sortOrder || 0),
+    include_in_price_list: Boolean(form.include_in_price_list ?? form.includeInPriceList ?? true),
+    active: Boolean(form.active ?? true),
+    remark: String(form.remark ?? '').trim(),
+  }
+}
+
+export function customerProductAliasRowsForCustomer(rows = [], customerID = 0, options = {}) {
+  const selectedCustomerID = Number(customerID || 0)
+  const includeInactive = Boolean(options.includeInactive)
+  return (rows || [])
+    .filter((row) => {
+      if (selectedCustomerID > 0 && Number(row?.customer_id || 0) !== selectedCustomerID) return false
+      if (!includeInactive && row?.active === false) return false
+      return true
+    })
+    .slice()
+    .sort((a, b) => Number(a?.sort_order || 0) - Number(b?.sort_order || 0) || Number(a?.id || 0) - Number(b?.id || 0))
+}
+
+export function productCreationActionOptions(context = {}) {
+  const customerID = Number(context.customerID || context.customer_id || 0)
+  const actions = []
+  if (customerID > 0) {
+    actions.push({
+      key: 'customer_product_alias',
+      label: '创建客户商品名',
+      description: '贴牌、客户命名、客户编号或客户展示分类变化时使用，绑定已有商品档案，不复制生产 BOM。',
+    })
+  }
+  actions.push({
+    key: 'product_record',
+    label: '创建新商品档案',
+    description: '配方、包装、生产方式、库存对象或成本口径变化时使用，后续维护独立生产 BOM。',
+  })
+  return actions
+}
+
+export function customerProductAliasMigrationCandidateSummary(row = {}) {
+  const product = [row.product_code, row.product_name].map((value) => String(value || '').trim()).filter(Boolean).join(' ')
+  const base = [row.base_product_code, row.base_product_name].map((value) => String(value || '').trim()).filter(Boolean).join(' ')
+  const reason = String(row.suggested_reason || '').trim()
+  if (row.suggested_action === 'convert_to_customer_product_alias') {
+    return `建议转为客户商品名：${product || '当前客户商品'} → 绑定 ${base || '来源商品档案'}${reason ? `；${reason}` : ''}`
+  }
+  return `建议保留商品档案：${product || '当前客户商品'}${reason ? `；${reason}` : ''}`
+}
+
 export function buildCustomerPublicUsagePayload(customerID, options = {}) {
   return {
     customer_id: Number(customerID || 0),

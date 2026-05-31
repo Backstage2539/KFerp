@@ -734,10 +734,26 @@ export function filterProductsForCustomer(products, customerID, publicationIDsBy
   const selectedCustomerID = toInt(customerID)
   const scopedPublicationIDs = normalizePublicationIDsByType(publicationIDsByType)
   const allowsPublicSKU = customerAllowsPublicSKU(selectedCustomerID, publicUsages)
+  const aliasProductIDs = new Set(
+    (products || [])
+      .filter((product) => selectedCustomerID > 0
+        && toInt(product?.customer_product_alias_id) > 0
+        && toInt(product?.customer_id) === selectedCustomerID)
+      .map((product) => toInt(product?.id))
+      .filter((id) => id > 0),
+  )
   return (products || []).filter((product) => {
     const productCustomerID = toInt(product?.customer_id)
     const visibility = String(product?.visibility || (productCustomerID > 0 ? 'customer_only' : 'public')).trim()
+    if (visibility === 'customer_alias' || toInt(product?.customer_product_alias_id) > 0) {
+      return selectedCustomerID > 0
+        && productCustomerID === selectedCustomerID
+        && productMatchesPublicationScope(product, scopedPublicationIDs)
+    }
     if (visibility === 'public' || productCustomerID === 0) {
+      if (selectedCustomerID > 0 && aliasProductIDs.has(toInt(product?.id))) {
+        return false
+      }
       if (
         selectedCustomerID > 0
         && !allowsPublicSKU
@@ -887,6 +903,15 @@ export function buildOrderPayload({ form, rows }) {
     outsource_tax_fee: String(form.outsource_tax_fee || ''),
     outsource_other_fee: String(form.outsource_other_fee || ''),
     product_id: [],
+    customer_product_alias_id: [],
+    customer_product_display_name_snapshot: [],
+    customer_item_code_snapshot: [],
+    brand_name_snapshot: [],
+    product_code_snapshot: [],
+    product_name_snapshot: [],
+    item_bean_list_publication_id: [],
+    item_bean_list_version_no: [],
+    price_source_json: [],
     tier_id: [],
     unit_price: [],
     item_name: [],
@@ -911,6 +936,15 @@ export function buildOrderPayload({ form, rows }) {
     const qty = toInt(row.qty)
     if (productID <= 0 || specG <= 0 || qty <= 0) continue
     payload.product_id.push(String(productID))
+    payload.customer_product_alias_id.push(String(toInt(row.customer_product_alias_id)))
+    payload.customer_product_display_name_snapshot.push(String(row.customer_product_display_name || row.product_name || row.item_name || '').trim())
+    payload.customer_item_code_snapshot.push(String(row.customer_item_code || '').trim())
+    payload.brand_name_snapshot.push(String(row.brand_name || '').trim())
+    payload.product_code_snapshot.push(String(row.product_code || `SKU-${productID}`).trim())
+    payload.product_name_snapshot.push(String(row.product_record_name || row.product_name_snapshot || row.source_product_name || row.product_name || row.item_name || '').trim())
+    payload.item_bean_list_publication_id.push(String(toInt(row.bean_list_publication_id)))
+    payload.item_bean_list_version_no.push(String(row.bean_list_version_no || '').trim())
+    payload.price_source_json.push(String(row.price_source_json || '').trim())
     payload.tier_id.push(row.tier_id || 'auto')
     payload.unit_price.push(String(row.unit_price || ''))
     payload.item_name.push(row.product_name || row.item_name || '')

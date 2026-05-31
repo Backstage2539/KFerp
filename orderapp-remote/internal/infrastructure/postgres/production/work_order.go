@@ -98,23 +98,31 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 	if len(processSnapshotJSON) == 0 {
 		processSnapshotJSON = []byte("{}")
 	}
+	customerProductSnapshot, err := loadCustomerProductSnapshotForWorkOrderTx(ctx, tx, schema, runningItemID, productID, specG)
+	if err != nil {
+		return 0, err
+	}
+	if len(customerProductSnapshot) == 0 {
+		customerProductSnapshot = []byte("[]")
+	}
 
 	var workOrderID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.work_orders(
 			work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,
-			material_snapshot,operation_template_id,process_template_id,process_template_name,process_snapshot_json,created_at
+			material_snapshot,operation_template_id,process_template_id,process_template_name,process_snapshot_json,customer_product_snapshot_json,created_at
 		)
-		VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,$9,$10,$11,$12,now())
+		VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,$9,$10,$11,$12,$13,now())
 		ON CONFLICT (running_item_id) DO UPDATE SET
 			status='running',
 			material_snapshot=excluded.material_snapshot,
 			operation_template_id=excluded.operation_template_id,
 			process_template_id=excluded.process_template_id,
 			process_template_name=excluded.process_template_name,
-			process_snapshot_json=excluded.process_snapshot_json
+			process_snapshot_json=excluded.process_snapshot_json,
+			customer_product_snapshot_json=excluded.customer_product_snapshot_json
 		RETURNING id
-	`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG, materialSnapshot, operationTemplateID, processTemplateID, processTemplateName, processSnapshotJSON).Scan(&workOrderID); err != nil {
+	`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG, materialSnapshot, operationTemplateID, processTemplateID, processTemplateName, processSnapshotJSON, customerProductSnapshot).Scan(&workOrderID); err != nil {
 		return 0, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.job_cards WHERE work_order_id=$1`, schema), workOrderID); err != nil {
@@ -154,6 +162,57 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 		}
 	}
 	return workOrderID, nil
+}
+
+func loadCustomerProductSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, productID int64, specG int64) ([]byte, error) {
+	var raw string
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		WITH running AS (
+			SELECT string_to_array(replace(COALESCE(order_nos,''),' ',''), ',') AS order_nos
+			FROM %[1]s.produce_running_items
+			WHERE id=$1
+		),
+		lines AS (
+			SELECT DISTINCT
+			       o.order_no,
+			       COALESCE(o.customer_id,0) AS customer_id,
+			       COALESCE(oi.customer_product_alias_id,0) AS customer_product_alias_id,
+			       COALESCE(oi.customer_product_display_name_snapshot,'') AS customer_product_display_name_snapshot,
+			       COALESCE(oi.customer_item_code_snapshot,'') AS customer_item_code_snapshot,
+			       COALESCE(oi.product_code_snapshot,'') AS product_code_snapshot,
+			       COALESCE(oi.product_name_snapshot,'') AS product_name_snapshot
+			FROM %[1]s.order_items oi
+			JOIN %[1]s.orders o ON o.id=oi.order_id
+			JOIN running r ON o.order_no = ANY(r.order_nos)
+			CROSS JOIN LATERAL (
+				SELECT COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g
+			) spec
+			WHERE COALESCE(oi.product_id,0)=$2
+			  AND spec.spec_g=$3
+			  AND (
+			    COALESCE(oi.customer_product_alias_id,0)>0
+			    OR COALESCE(oi.customer_product_display_name_snapshot,'')<>''
+			    OR COALESCE(oi.product_name_snapshot,'')<>''
+			  )
+		)
+		SELECT COALESCE(jsonb_agg(jsonb_build_object(
+			'order_no', order_no,
+			'customer_id', customer_id,
+			'customer_product_alias_id', customer_product_alias_id,
+			'customer_product_display_name_snapshot', customer_product_display_name_snapshot,
+			'customer_item_code_snapshot', customer_item_code_snapshot,
+			'product_code_snapshot', product_code_snapshot,
+			'product_name_snapshot', product_name_snapshot
+		)), '[]'::jsonb)::text
+		FROM lines
+	`, schema), runningItemID, productID, specG).Scan(&raw)
+	if err != nil {
+		if strings.Contains(err.Error(), "customer_product_alias_id") || strings.Contains(err.Error(), "customer_product_display_name_snapshot") {
+			return []byte("[]"), nil
+		}
+		return nil, err
+	}
+	return []byte(raw), nil
 }
 
 func completeWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, actualCost float64, actualInputQty int64, actualOutputQty int64, operator string) error {

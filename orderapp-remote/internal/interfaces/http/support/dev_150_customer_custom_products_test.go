@@ -34,7 +34,7 @@ func TestCustomerCustomProductsRequirementSeeds(t *testing.T) {
 func TestCustomerCustomProductsFrontendWiring(t *testing.T) {
 	productSettings := string(readDev150File(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
-		"客户SKU列表",
+		"商品档案",
 		"/api/product-settings/skus",
 		"buildSkuCreatePayload",
 		"buildSkuCopyPayload",

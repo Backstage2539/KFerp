@@ -138,6 +138,40 @@ func TestCommercialWholesaleTiersSupportExcelSchemes(t *testing.T) {
 	assertClose(t, "8+ bags uses rounded second half-pound price", halfLb.CommercialWholesaleTiers[1].PricePerUnit, 166)
 }
 
+func TestCalculateProductPreservesCustomerAliasAndProductSnapshots(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:                  10,
+		ProductCode:                "K001",
+		ProductName:                "工厂拼配",
+		Name:                       "Karen 贴牌拼配",
+		CustomerID:                 42,
+		CustomerProductAliasID:     101,
+		CustomerProductDisplayName: "Karen 贴牌拼配",
+		CustomerItemCode:           "KA-001",
+		BrandName:                  "",
+		DisplayCategoryID:          8,
+		DisplayCategoryName:        "Karen 批发",
+		BomVersionID:               5,
+		BomVersionNo:               "v3",
+		BomUsageMode:               "inherit_current",
+		GreenBeanCostPerKg:         62,
+		YieldRate:                  params.RoastYieldRate,
+	})
+
+	if got.CustomerProductAliasID != 101 ||
+		got.CustomerProductDisplayName != "Karen 贴牌拼配" ||
+		got.CustomerItemCode != "KA-001" ||
+		got.ProductCode != "K001" ||
+		got.ProductName != "工厂拼配" ||
+		got.DisplayCategoryName != "Karen 批发" ||
+		got.BomVersionID != 5 ||
+		got.BomVersionNo != "v3" ||
+		got.BomUsageMode != "inherit_current" {
+		t.Fatalf("alias/product snapshots not preserved: %+v", got)
+	}
+}
+
 func TestGradientTemplateCommercialTiersMatchByWeightAndUseTemplateUnit(t *testing.T) {
 	params := DefaultParameters()
 	got := CalculateProduct(params, ProductInput{

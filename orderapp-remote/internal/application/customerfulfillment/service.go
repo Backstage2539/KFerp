@@ -139,15 +139,20 @@ type SubmitCustomerDirectShipOrderCommand struct {
 }
 
 type SubmitCustomerDirectShipOrderItem struct {
-	ProductID     int64   `json:"product_id"`
-	ProductName   string  `json:"product_name,omitempty"`
-	Spec          string  `json:"spec,omitempty"`
-	SpecG         int64   `json:"spec_g,omitempty"`
-	SalesUnit     string  `json:"sales_unit,omitempty"`
-	QuantityUnits int64   `json:"quantity_units"`
-	DiscountType  string  `json:"discount_type,omitempty"`
-	DiscountValue float64 `json:"discount_value,omitempty"`
-	Note          string  `json:"note,omitempty"`
+	ProductID                          int64   `json:"product_id"`
+	CustomerProductAliasID             int64   `json:"customer_product_alias_id,omitempty"`
+	CustomerProductDisplayNameSnapshot string  `json:"customer_product_display_name_snapshot,omitempty"`
+	CustomerItemCodeSnapshot           string  `json:"customer_item_code_snapshot,omitempty"`
+	ProductCodeSnapshot                string  `json:"product_code_snapshot,omitempty"`
+	ProductNameSnapshot                string  `json:"product_name_snapshot,omitempty"`
+	ProductName                        string  `json:"product_name,omitempty"`
+	Spec                               string  `json:"spec,omitempty"`
+	SpecG                              int64   `json:"spec_g,omitempty"`
+	SalesUnit                          string  `json:"sales_unit,omitempty"`
+	QuantityUnits                      int64   `json:"quantity_units"`
+	DiscountType                       string  `json:"discount_type,omitempty"`
+	DiscountValue                      float64 `json:"discount_value,omitempty"`
+	Note                               string  `json:"note,omitempty"`
 }
 
 type AdjustCustodyInventoryCommand struct {
@@ -220,19 +225,25 @@ type CustomerFulfillmentOptions struct {
 }
 
 type CustomerSKUOption struct {
-	ProductID       int64                  `json:"product_id"`
-	BaseProductID   int64                  `json:"base_product_id,omitempty"`
-	SKUCode         string                 `json:"sku_code,omitempty"`
-	ProductName     string                 `json:"product_name"`
-	ProductKind     string                 `json:"product_kind,omitempty"`
-	SalesUnits      []string               `json:"sales_units,omitempty"`
-	Spec            string                 `json:"spec,omitempty"`
-	RoastDegree     string                 `json:"roast_degree,omitempty"`
-	DripBagGrams    float64                `json:"drip_bag_grams,omitempty"`
-	DripBoxBagCount int                    `json:"drip_box_bag_count,omitempty"`
-	DefaultPrice    float64                `json:"default_price,omitempty"`
-	Tiers           []CustomerSKUPriceTier `json:"tiers,omitempty"`
-	Source          string                 `json:"source,omitempty"`
+	ProductID                  int64                  `json:"product_id"`
+	CustomerProductAliasID     int64                  `json:"customer_product_alias_id,omitempty"`
+	CustomerProductDisplayName string                 `json:"customer_product_display_name,omitempty"`
+	CustomerItemCode           string                 `json:"customer_item_code,omitempty"`
+	BrandName                  string                 `json:"brand_name,omitempty"`
+	ProductCode                string                 `json:"product_code,omitempty"`
+	ProductRecordName          string                 `json:"product_record_name,omitempty"`
+	BaseProductID              int64                  `json:"base_product_id,omitempty"`
+	SKUCode                    string                 `json:"sku_code,omitempty"`
+	ProductName                string                 `json:"product_name"`
+	ProductKind                string                 `json:"product_kind,omitempty"`
+	SalesUnits                 []string               `json:"sales_units,omitempty"`
+	Spec                       string                 `json:"spec,omitempty"`
+	RoastDegree                string                 `json:"roast_degree,omitempty"`
+	DripBagGrams               float64                `json:"drip_bag_grams,omitempty"`
+	DripBoxBagCount            int                    `json:"drip_box_bag_count,omitempty"`
+	DefaultPrice               float64                `json:"default_price,omitempty"`
+	Tiers                      []CustomerSKUPriceTier `json:"tiers,omitempty"`
+	Source                     string                 `json:"source,omitempty"`
 }
 
 type CustomerSKUPriceTier struct {
