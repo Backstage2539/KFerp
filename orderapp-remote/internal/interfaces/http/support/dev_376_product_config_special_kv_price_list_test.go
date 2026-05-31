@@ -24,12 +24,15 @@ func TestDev376ProductConfigSpecialKVRequirementSeeds(t *testing.T) {
 func TestDev376ProductConfigSpecialKVSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"特殊KV定义",
-			"special_attrs_schema_rows",
-			"special_attr_values",
-			"show_in_price_list",
 			"price_rule_fixed_unit_price",
 			"price_rule_cost_plus_percent",
+			"商品配置模板",
+		},
+		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
+			"特殊属性绑定到 BOM 版本",
+			"special_attrs_schema_json",
+			"special_attrs_json",
+			"saveProductionBomVersionSpecialAttrs",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"productPriceListPreviewSections",
@@ -72,17 +75,17 @@ func TestDev376ProductConfigSpecialKVDocs(t *testing.T) {
 	docs := map[string][]string{
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-376-PRODUCT-CONFIG-SPECIAL-KV-PRICE-LIST",
-			"特殊 KV 定义",
+			"PR-389-BOM-GROUP-SPECIAL-ATTRS",
 			"cost_plus_rate",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-376-PRODUCT-CONFIG-SPECIAL-KV-PRICE-LIST",
-			"特殊 KV 定义",
+			"PR-389-BOM-GROUP-SPECIAL-ATTRS",
 			"速溶咖啡产品价格表",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-376",
-			"特殊KV定义",
+			"PR-389",
+			"特殊属性",
 			"固定单价",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-26-product-config-special-kv-price-list.md"): {

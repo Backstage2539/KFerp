@@ -132,8 +132,7 @@
                 <th>商品编号</th>
                 <th class="sku-name-cell">商品</th>
                 <th>归属</th>
-                <th class="special-attrs-cell">新增动作</th>
-                <th>特殊属性</th>
+                <th class="action-cell">新增动作</th>
                 <th>生产 BOM 预期产出率</th>
                 <th>利润率覆盖</th>
                 <th>生产 BOM</th>
@@ -160,24 +159,8 @@
                       @change="saveProductBasics(row, 'SKU名称已保存')" />
                   </td>
                   <td>{{ productOwnerLabel(row) }}</td>
-                  <td class="special-attrs-cell">
+                  <td class="action-cell">
                     <button class="text-button" type="button" @click="copySkuInPlace(row)">复制为商品档案</button>
-                  </td>
-                  <td class="special-attrs-cell">
-                    <div v-if="specialAttrSchemaForProduct(row).length" class="special-attr-editor compact">
-                      <label v-for="attr in specialAttrSchemaForProduct(row)" :key="`row-attr-${row.id}-${attr.key}`">
-                        <span>{{ attr.label }}</span>
-                        <select v-if="attr.value_type === 'select'" v-model="row.special_attr_values[attr.key]" :disabled="!canEditSkuRow(row) || row.active === false" @change="saveProductBasics(row)">
-                          <option value="">未填写</option>
-                          <option v-for="option in attr.options" :key="`${attr.key}-${option}`" :value="option">{{ option }}</option>
-                        </select>
-                        <input v-else v-model.trim="row.special_attr_values[attr.key]" :type="attr.value_type === 'number' ? 'number' : 'text'" :disabled="!canEditSkuRow(row) || row.active === false" @change="saveProductBasics(row)" />
-                      </label>
-                    </div>
-                    <div v-else class="sku-empty-special-attrs">
-                      <span class="muted">未配置字段</span>
-                      <button class="text-button" type="button" @click="openSpecialAttrConfigForProduct(row)">配置字段</button>
-                    </div>
                   </td>
                   <td>
                     <div v-if="productKindSupportsBomParams(row)" class="yield-editor">
@@ -919,45 +902,6 @@
               <small>{{ productUnitTemplateSummary(selectedProductConfigUnitTemplate) }}</small>
               <small class="unit-impact-help">单位模板会影响产品价格表单位、录单默认单位和库存/生产折算；已发布价格表和历史订单不会被回改。</small>
             </div>
-            <div class="rule-config-block special-attrs-schema-editor">
-              <div class="field-group-title">
-                <span title="特殊KV定义">产品信息字段（特殊属性KV）</span>
-                <button class="secondary compact-action" type="button" :disabled="!canEditCurrentProductConfigTemplate" @click="addSpecialAttrSchemaRow">新增KV</button>
-              </div>
-              <p class="muted special-attrs-config-guide">配置入口：商品配置 → 商品配置模板 → 产品信息字段。这里定义字段，SKU列表特殊属性列填写具体值；勾选展示到价格表/PDF后，价格表页面、发布快照和 PDF 均展示。</p>
-              <div v-for="(attr, index) in productConfigTemplateForm.special_attrs_schema_rows" :key="`special-attr-${index}`" class="special-attr-schema-row">
-                <label>
-                  <span>Key</span>
-                  <input v-model.trim="attr.key" :disabled="!canEditCurrentProductConfigTemplate" placeholder="如 roast_level" />
-                </label>
-                <label>
-                  <span>名称</span>
-                  <input v-model.trim="attr.label" :disabled="!canEditCurrentProductConfigTemplate" placeholder="如 烘焙度" />
-                </label>
-                <label>
-                  <span>类型</span>
-                  <select v-model="attr.value_type" :disabled="!canEditCurrentProductConfigTemplate" @change="handleSpecialAttrSchemaTypeChange(attr)">
-                    <option value="text">文本</option>
-                    <option value="select">下拉</option>
-                    <option value="number">数字</option>
-                  </select>
-                </label>
-                <label class="wide-field">
-                  <span>下拉选项</span>
-                  <textarea v-model.trim="attr.options_text" aria-label="下拉选项" :disabled="!canEditCurrentProductConfigTemplate || attr.value_type !== 'select'" placeholder="每行一个选项，也支持用逗号分隔，例如：浅烘，中烘，中深烘，深烘"></textarea>
-                </label>
-                <label class="checkline">
-                  <input v-model="attr.required" :disabled="!canEditCurrentProductConfigTemplate" type="checkbox" />
-                  <span>必填</span>
-                </label>
-                <label class="checkline">
-                  <input v-model="attr.show_in_price_list" :disabled="!canEditCurrentProductConfigTemplate" type="checkbox" />
-                  <span>展示到价格表/PDF</span>
-                </label>
-                <button class="danger compact-action" type="button" :disabled="!canEditCurrentProductConfigTemplate" @click="removeSpecialAttrSchemaRow(index)">删除</button>
-              </div>
-              <p v-if="!productConfigTemplateForm.special_attrs_schema_rows.length" class="muted">暂无特殊KV。</p>
-            </div>
             <div class="form-actions">
               <button class="primary" type="submit" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate">保存商品配置</button>
               <button v-if="productConfigTemplateForm.id" class="secondary" type="button" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate" @click="deactivateProductConfigTemplate(productConfigTemplateForm.id)">停用配置</button>
@@ -1259,7 +1203,6 @@ import {
   productKindSupportsBomParams,
   productSubtypeCategoryOptionsForType,
   roastedBomProductOptions,
-  specialAttrSchemaRowsFromJSON,
   specialAttrValuesFromJSON,
   skuTableState,
   sortRowsForCustomerSkuPriority,
@@ -1803,8 +1746,6 @@ function defaultProductConfigTemplateForm(template = {}, options = {}) {
     unit_template_id: Number(template.unit_template_id || 0),
     price_list_rule_json: template.price_list_rule_json || '{}',
     ...priceListRuleFormFromJSON(template.price_list_rule_json || '{}'),
-    special_attrs_schema_json: template.special_attrs_schema_json || '[]',
-    special_attrs_schema_rows: specialAttrSchemaRowsFromJSON(template.special_attrs_schema_json || '[]'),
     inventory_unit: inventoryUnit,
     quote_unit: quoteUnit,
     order_unit: template.order_unit || quoteUnit,
@@ -2351,28 +2292,6 @@ function resetProductConfigTemplateForm() {
 
 function startProductConfigTemplateEdit(template) {
   productConfigTemplateForm.value = defaultProductConfigTemplateForm(JSON.parse(JSON.stringify(template || {})))
-}
-
-function addSpecialAttrSchemaRow() {
-  productConfigTemplateForm.value.special_attrs_schema_rows.push({
-    key: '',
-    label: '',
-    value_type: 'text',
-    options_text: '',
-    required: false,
-    show_in_price_list: false,
-    position: productConfigTemplateForm.value.special_attrs_schema_rows.length + 1,
-  })
-}
-
-function removeSpecialAttrSchemaRow(index) {
-  productConfigTemplateForm.value.special_attrs_schema_rows.splice(index, 1)
-}
-
-function handleSpecialAttrSchemaTypeChange(attr) {
-  if (!attr || attr.value_type === 'select') return
-  attr.options = []
-  attr.options_text = ''
 }
 
 function validateProductConfigTemplatePayload(payload) {
@@ -3167,45 +3086,6 @@ function productCategoryByID(categoryID) {
     || null
 }
 
-function specialAttrSchemaForCategory(categoryID) {
-  const category = productCategoryByID(categoryID)
-  const template = productConfigTemplateByID(category?.product_config_template_id)
-  return specialAttrSchemaRowsFromJSON(template?.special_attrs_schema_json || '[]')
-}
-
-function specialAttrSchemaForProduct(row = {}) {
-  return specialAttrSchemaForCategory(row.product_category_id)
-}
-
-function openSpecialAttrConfigForProduct(row = {}) {
-  error.value = ''
-  activeSettingsSection.value = 'templates'
-  activeConfigTemplateSection.value = 'product-config'
-  const category = productCategoryByID(row.product_category_id)
-  const template = productConfigTemplateByID(category?.product_config_template_id)
-  if (template) {
-    startProductConfigTemplateEdit(template)
-  } else {
-    resetProductConfigTemplateForm()
-  }
-  ok.value = '特殊属性字段在商品配置模板中定义；SKU列表特殊属性列填写具体值，勾选展示到价格表/PDF后，价格表页面、发布快照和 PDF 均展示'
-}
-
-function specialAttrSchemaForForm(form = {}) {
-  return specialAttrSchemaForCategory(form.product_subtype_category_id)
-}
-
-function syncSpecialAttrValuesForForm(form = {}) {
-  if (!form.special_attr_values || typeof form.special_attr_values !== 'object') {
-    form.special_attr_values = {}
-  }
-  for (const attr of specialAttrSchemaForForm(form)) {
-    if (!Object.prototype.hasOwnProperty.call(form.special_attr_values, attr.key)) {
-      form.special_attr_values[attr.key] = ''
-    }
-  }
-}
-
 function handleProductTypeCategoryChange(form) {
   if (!form) return
   form.product_subtype_category_id = 0
@@ -3226,7 +3106,6 @@ function syncProductTypeFromProductSubtype(form) {
     form.product_type_category_id = Number(subtype.parent_id || 0)
   }
   syncProductKindFromProductTypeCategory(form)
-  syncSpecialAttrValuesForForm(form)
 }
 
 function handleCustomProductTypeCategoryChange() {
@@ -4349,15 +4228,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .customer-rule-item { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(160px, .7fr) minmax(120px, .5fr) auto; gap: 8px; align-items: end; border: 1px solid #eee; border-radius: 8px; padding: 10px; background: #fafafa; }
 .customer-rule-editor label span, .customer-rule-binding label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 .rule-config-block { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; align-items: end; min-width: 0; border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fff; }
-.special-attrs-schema-editor { gap: 10px; }
-.special-attr-schema-row { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) minmax(96px, .7fr) minmax(180px, 1.2fr) auto auto auto; gap: 8px; align-items: end; padding: 9px; border: 1px solid #eee; border-radius: 8px; background: #fff; }
-.special-attr-schema-row label { min-width: 0; }
-.special-attr-schema-row input, .special-attr-schema-row select { min-width: 0; }
-.special-attr-editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
-.special-attr-editor.compact { grid-template-columns: minmax(150px, 1fr); min-width: 180px; }
-.special-attr-editor label { display: grid; gap: 4px; min-width: 0; }
-.special-attr-editor span { font-size: 12px; color: #666; }
-.special-attr-editor input, .special-attr-editor select { min-width: 0; min-height: 32px; border: 1px solid #ddd; border-radius: 7px; padding: 5px 7px; font: inherit; box-sizing: border-box; }
 .field-group-title { grid-column: 1 / -1; color: #3f3328; font-weight: 700; font-size: 13px; }
 .field-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 700; color: #3f3328; }
 .field-group-copy { display: grid; gap: 2px; }
@@ -4523,7 +4393,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
     .bom-source-cell { min-width: 180px; color: #3f3a34; }
     .bom-version-warning { display: block; margin-top: 3px; color: #9a5b13; font-size: 12px; white-space: nowrap; }
 .sku-name-cell { min-width: 300px; }
-.special-attrs-cell { min-width: 220px; }
+.action-cell { min-width: 150px; }
 .remark-cell { min-width: 220px; }
 .roast-select { min-width: 92px; }
 .green-type-select { min-width: 92px; }
@@ -4543,7 +4413,6 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .margin-input { width: 150px; }
 .sku-name-input { min-width: 240px; }
 .sku-table .sku-name-input { min-width: 300px; }
-.sku-empty-special-attrs { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .remark-input { width: 180px; min-height: 46px; resize: vertical; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
@@ -4599,7 +4468,6 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 @media (max-width: 1100px) {
   .custom-product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .customer-rule-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .special-attr-schema-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .master-data-layout { grid-template-columns: 1fr; }
 }
 .sku-table .inactive-sku td { opacity: 0.4; }

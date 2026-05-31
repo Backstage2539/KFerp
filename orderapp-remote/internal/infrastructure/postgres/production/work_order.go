@@ -503,8 +503,8 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT wo.id,wo.work_order_no,wo.running_item_id,wo.batch_id,wo.product_id,wo.product_name,wo.spec_g,wo.planned_g,wo.status,
 		       COALESCE(wo.actual_cost,0),to_char(wo.created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(wo.completed_at,'YYYY-MM-DD HH24:MI'),''),
-		       COALESCE(p.roast_level,''),
-		       COALESCE(NULLIF(ri.bom_yield_rate,0), pbv.yield_rate, pb.yield_rate, 0),
+		       COALESCE(NULLIF(bound_bv.special_attrs_json->>'roast_level',''), COALESCE(p.roast_level,'')),
+		       COALESCE(NULLIF(ri.bom_yield_rate,0), bound_bv.yield_rate, pb.yield_rate, 0),
 		       COALESCE(NULLIF(ri.input_g,0), wo.planned_g, 0),
 		       COALESCE(ri.planned_units,0),
 		       COALESCE(ri.planned_loose_g,0),
@@ -564,7 +564,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		LEFT JOIN %s.produce_running_items ri ON ri.id=wo.running_item_id
 		LEFT JOIN %s.products p ON p.id=wo.product_id
 		LEFT JOIN %s.product_production_bom_bindings pbb ON pbb.product_id=wo.product_id
-		LEFT JOIN %s.production_bom_versions pbv ON pbv.id=pbb.bom_version_id
+		LEFT JOIN %s.production_bom_versions bound_bv ON bound_bv.id=pbb.bom_version_id
 		LEFT JOIN %s.product_bom pb ON pb.product_id=wo.product_id
 		WHERE %s
 		ORDER BY wo.created_at DESC, wo.id DESC

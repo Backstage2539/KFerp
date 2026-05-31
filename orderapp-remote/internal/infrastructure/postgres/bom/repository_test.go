@@ -115,6 +115,32 @@ func TestProductionBomLibrarySchemaBackfillAndBindingMarkers(t *testing.T) {
 	}
 }
 
+func TestProductionBomVersionSpecialAttrsSchemaBackfillAndAuditMarkers(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := readRepositorySource(t)
+	combined := string(schema) + "\n" + repository
+	for _, want := range []string{
+		"ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs_schema_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+		"ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs_json JSONB NOT NULL DEFAULT '{}'::jsonb",
+		"backfillProductionBomVersionSpecialAttrs",
+		"copyProductionBomForSpecialAttrsConflict",
+		"source_bom_version_id",
+		"special_attrs_schema_json",
+		"special_attrs_json",
+		"CASE WHEN $3<>'' THEN $3::jsonb ELSE special_attrs_schema_json END",
+		"CASE WHEN $4<>'' THEN $4::jsonb ELSE special_attrs_json END",
+		`"update_special_attrs"`,
+		`"disable_production_bom_group"`,
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("production BOM version special attrs implementation missing marker %q", want)
+		}
+	}
+}
+
 func readRepositorySource(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile("repository.go")
