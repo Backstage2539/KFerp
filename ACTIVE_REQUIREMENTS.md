@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-388-PRODUCTION-BOM-LIBRARY
 - Branch: codex/production-bom-library-20260531
 - Owner/session: Codex / 2026-05-31
-- Status: verified and pushed
+- Status: merged and deployed to development
 - Scope: 把“商品内嵌 BOM + 继承/锁定/派生来源”收敛为独立生产 BOM 配方库、BOM 分组、BOM 版本和商品档案默认生产 BOM 版本绑定。客户商品名不产生 BOM；多个商品档案可复用同一个 BOM 版本；商品绑定旧版本只提示非最新版，不再叫锁定版本。
 - DEV:
   - DEV-388-SCHEMA-SERVICE-API：新增生产 BOM 分组、BOM、版本、版本明细和商品绑定表，补服务/API/操作日志。
@@ -25,8 +25,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: scripts/verify_kferp.sh changed
   - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_COSTING.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OPERATION_MANUALS.md
   - Review/acceptance: orderapp-remote/docs/REQUIREMENTS.md; orderapp-remote/docs/ACCEPTANCE_TESTS.md; orderapp-remote/docs/acceptance/2026-05-31-production-bom-library.md
-- Deployment: not requested for this branch; Van asked to push code/docs and skip browser/manual验收.
-- Last update: 2026-05-31 Asia/Shanghai; targeted Go, frontend node tests, Vue build, and changed verifier passed locally.
+- Deployment: merged to `develop` with `a6418c6958cb9a8862b2a59dfaeb9a3e0dbc9605`; follow-up test fake fix `36eeb93596185c3b85f7087e6e1ef0d4573d60e7` deployed to development via `./deploy_orderapp.sh development`.
+- Last update: 2026-05-31 Asia/Shanghai; targeted Go, frontend node tests, Vue build, changed verifier, local `go test ./...`, Docker build `go test ./...`, and development smoke passed.
+- Deploy evidence: backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260531201304`; containers running; `/app/` GET returned 303; authenticated `/app/vue-shell/` returned 200; `/app/api/production-bom-groups` returned 200; requirement API includes `PR-388-PRODUCTION-BOM-LIBRARY`.
 - Notes: `scripts/reserve_req_id.sh` returned PR-388; `--claim production-bom-library` hit the known awk multiline bug, so this entry was seeded manually.
 
 ### PR-387-VIEW-CONTEXT
