@@ -48,3 +48,22 @@ func TestBatchCostIncludesOperationTemplateStepCost(t *testing.T) {
 		t.Fatalf("operation cost must not be hard-coded to zero")
 	}
 }
+
+func TestWorkOrderFreezesCustomerProductAliasSnapshots(t *testing.T) {
+	srcBytes, err := os.ReadFile("work_order.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(srcBytes)
+	for _, want := range []string{
+		"customer_product_snapshot_json",
+		"loadCustomerProductSnapshotForWorkOrderTx",
+		"customer_product_alias_id",
+		"customer_product_display_name_snapshot",
+		"product_name_snapshot",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("work order must freeze customer alias/product snapshots; missing %q", want)
+		}
+	}
+}

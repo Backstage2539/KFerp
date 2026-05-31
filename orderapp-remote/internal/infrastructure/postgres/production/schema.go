@@ -113,7 +113,8 @@ CREATE TABLE IF NOT EXISTS %s.work_orders (
 	process_template_id BIGINT NOT NULL DEFAULT 0,
 	process_template_name TEXT NOT NULL DEFAULT '',
 	process_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-	operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb
+	operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+	customer_product_snapshot_json JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 CREATE INDEX IF NOT EXISTS work_orders_status_idx ON %s.work_orders(status, created_at DESC);
 
@@ -189,6 +190,7 @@ CREATE INDEX IF NOT EXISTS work_order_material_reservations_material_idx ON %s.w
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS process_template_name TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS process_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS customer_product_snapshot_json JSONB NOT NULL DEFAULT '[]'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS sequence_no INT NOT NULL DEFAULT 1`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS planned_input_qty NUMERIC(14,4) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS actual_input_qty NUMERIC(14,4) NOT NULL DEFAULT 0`, schema),

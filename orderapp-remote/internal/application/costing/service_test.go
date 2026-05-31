@@ -12,6 +12,8 @@ type fakeRepo struct {
 	params              domain.Parameters
 	inputs              []domain.ProductInput
 	settings            []ParameterSetting
+	customerInputs      []domain.ProductInput
+	lastCustomerID      int64
 	savedItems          []domain.ProductResult
 	publishedID         int64
 	savedDripTemplate   SaveDripPriceTemplateCommand
@@ -32,6 +34,11 @@ func (r *fakeRepo) LoadParameters(context.Context) (domain.Parameters, error) {
 
 func (r *fakeRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.ProductInput, error) {
 	return r.inputs, nil
+}
+
+func (r *fakeRepo) LoadProductInputsForCustomer(_ context.Context, _ domain.Parameters, customerID int64) ([]domain.ProductInput, error) {
+	r.lastCustomerID = customerID
+	return r.customerInputs, nil
 }
 
 func (r *fakeRepo) CreateRun(_ context.Context, actor string, items []domain.ProductResult) (*Run, error) {
@@ -123,6 +130,44 @@ func TestCalculateRejectsEmptyProducts(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	if _, err := svc.Calculate(context.Background(), CalculateRequest{}); err == nil {
 		t.Fatalf("expected products required error")
+	}
+}
+
+func TestBeanListPreservesCustomerAliasAndProductSnapshots(t *testing.T) {
+	repo := &fakeRepo{customerInputs: []domain.ProductInput{{
+		ProductID:                  10,
+		ProductCode:                "K001",
+		ProductName:                "工厂拼配",
+		Name:                       "Karen 贴牌拼配",
+		CustomerID:                 42,
+		CustomerProductAliasID:     101,
+		CustomerProductDisplayName: "Karen 贴牌拼配",
+		CustomerItemCode:           "KA-001",
+		DisplayCategoryName:        "Karen 批发",
+		BomVersionID:               5,
+		BomUsageMode:               "inherit_current",
+		GreenBeanCostPerKg:         62,
+		YieldRate:                  domain.DefaultParameters().RoastYieldRate,
+	}}}
+
+	resp, err := NewService(repo).BeanList(context.Background(), BeanListQuery{CustomerID: 42})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.lastCustomerID != 42 {
+		t.Fatalf("customer id = %d, want 42", repo.lastCustomerID)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("items = %+v", resp.Items)
+	}
+	item := resp.Items[0]
+	if item.CustomerProductAliasID != 101 ||
+		item.CustomerProductDisplayName != "Karen 贴牌拼配" ||
+		item.ProductCode != "K001" ||
+		item.ProductName != "工厂拼配" ||
+		item.BomVersionID != 5 ||
+		item.BomUsageMode != "inherit_current" {
+		t.Fatalf("alias/product snapshots = %+v", item)
 	}
 }
 

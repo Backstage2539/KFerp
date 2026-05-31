@@ -350,7 +350,7 @@ type CopySKUsCommand struct {
 }
 
 type CopySKUsResult struct {
-	CreatedCount     int      `json:"created_count"`
+	CreatedCount     int     `json:"created_count"`
 	OverwrittenCount int     `json:"overwritten_count"`
 	SkippedCount     int     `json:"skipped_count"`
 	CreatedIDs       []int64 `json:"created_ids,omitempty"`
@@ -388,6 +388,73 @@ type CustomerPublicUsageCommand struct {
 	UsePublicSKU               bool
 	UsePublicCategories        bool
 	UsePublicGradientTemplates bool
+}
+
+type CustomerProductAlias struct {
+	ID                  int64  `json:"id"`
+	CustomerID          int64  `json:"customer_id"`
+	CustomerName        string `json:"customer_name"`
+	ProductID           int64  `json:"product_id"`
+	ProductCode         string `json:"product_code"`
+	ProductName         string `json:"product_name"`
+	ProductActive       bool   `json:"product_active"`
+	DisplayName         string `json:"display_name"`
+	CustomerItemCode    string `json:"customer_item_code"`
+	BrandName           string `json:"brand_name"`
+	DisplayCategoryID   int64  `json:"display_category_id"`
+	DisplayCategoryName string `json:"display_category_name"`
+	SortOrder           int    `json:"sort_order"`
+	IncludeInPriceList  bool   `json:"include_in_price_list"`
+	Active              bool   `json:"active"`
+	Remark              string `json:"remark"`
+	CreatedBy           string `json:"created_by"`
+	UpdatedBy           string `json:"updated_by"`
+}
+
+type CustomerProductAliasQuery struct {
+	CustomerID int64
+	ActiveOnly bool
+}
+
+type CustomerProductAliasCommand struct {
+	Actor              string
+	ID                 int64
+	CustomerID         int64
+	ProductID          int64
+	DisplayName        string
+	CustomerItemCode   string
+	BrandName          string
+	DisplayCategoryID  int64
+	SortOrder          int
+	IncludeInPriceList bool
+	Active             bool
+	Remark             string
+}
+
+type DisableCustomerProductAliasCommand struct {
+	Actor string
+	ID    int64
+}
+
+type CustomerProductAliasMigrationCandidateQuery struct {
+	CustomerID int64
+}
+
+type CustomerProductAliasMigrationCandidate struct {
+	CustomerID          int64  `json:"customer_id"`
+	ProductID           int64  `json:"product_id"`
+	ProductCode         string `json:"product_code"`
+	ProductName         string `json:"product_name"`
+	BaseProductID       int64  `json:"base_product_id"`
+	BaseProductCode     string `json:"base_product_code"`
+	BaseProductName     string `json:"base_product_name"`
+	BomSourceType       string `json:"bom_source_type"`
+	SuggestedAction     string `json:"suggested_action"`
+	SuggestedReason     string `json:"suggested_reason"`
+	CanAutoRecommend    bool   `json:"can_auto_recommend"`
+	HasOwnBom           bool   `json:"has_own_bom"`
+	HasProductionRecord bool   `json:"has_production_record"`
+	HasInventoryRecord  bool   `json:"has_inventory_record"`
 }
 
 type CustomerProductRuleTemplateItem struct {
@@ -623,6 +690,11 @@ type Repository interface {
 	DeriveGradientTemplate(ctx context.Context, cmd DeriveGradientTemplateCommand) (GradientTemplate, error)
 	ListCustomerPublicUsages(ctx context.Context) ([]CustomerPublicUsage, error)
 	SaveCustomerPublicUsage(ctx context.Context, cmd CustomerPublicUsageCommand) (CustomerPublicUsage, error)
+	EnsureFactoryCustomer(ctx context.Context, actor string) (int64, error)
+	ListCustomerProductAliases(ctx context.Context, query CustomerProductAliasQuery) ([]CustomerProductAlias, error)
+	SaveCustomerProductAlias(ctx context.Context, cmd CustomerProductAliasCommand) (CustomerProductAlias, error)
+	DisableCustomerProductAlias(ctx context.Context, cmd DisableCustomerProductAliasCommand) error
+	ListCustomerProductAliasMigrationCandidates(ctx context.Context, query CustomerProductAliasMigrationCandidateQuery) ([]CustomerProductAliasMigrationCandidate, error)
 	ListCustomerProductRuleTemplates(ctx context.Context) ([]CustomerProductRuleTemplate, error)
 	ListCustomerProductRuleOverrides(ctx context.Context) ([]CustomerProductRuleOverride, error)
 	ListCustomerProductRuleBindings(ctx context.Context) ([]CustomerProductRuleBinding, error)
@@ -1255,6 +1327,56 @@ func (s *Service) SaveCustomerPublicUsage(ctx context.Context, cmd CustomerPubli
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	return s.repo.SaveCustomerPublicUsage(ctx, cmd)
+}
+
+func (s *Service) EnsureFactoryCustomer(ctx context.Context, actor string) (int64, error) {
+	return s.repo.EnsureFactoryCustomer(ctx, strings.TrimSpace(actor))
+}
+
+func (s *Service) ListCustomerProductAliases(ctx context.Context, query CustomerProductAliasQuery) ([]CustomerProductAlias, error) {
+	if query.CustomerID < 0 {
+		return nil, ValidationError{Message: "invalid customer_id"}
+	}
+	return s.repo.ListCustomerProductAliases(ctx, query)
+}
+
+func (s *Service) SaveCustomerProductAlias(ctx context.Context, cmd CustomerProductAliasCommand) (CustomerProductAlias, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.DisplayName = strings.TrimSpace(cmd.DisplayName)
+	cmd.CustomerItemCode = strings.TrimSpace(cmd.CustomerItemCode)
+	cmd.BrandName = strings.TrimSpace(cmd.BrandName)
+	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	if cmd.ID < 0 {
+		return CustomerProductAlias{}, ValidationError{Message: "invalid id"}
+	}
+	if cmd.CustomerID <= 0 {
+		return CustomerProductAlias{}, ValidationError{Message: "customer_id required"}
+	}
+	if cmd.ProductID <= 0 {
+		return CustomerProductAlias{}, ValidationError{Message: "product_id required"}
+	}
+	if cmd.DisplayName == "" {
+		return CustomerProductAlias{}, ValidationError{Message: "display_name required"}
+	}
+	if cmd.DisplayCategoryID < 0 {
+		return CustomerProductAlias{}, ValidationError{Message: "invalid display_category_id"}
+	}
+	return s.repo.SaveCustomerProductAlias(ctx, cmd)
+}
+
+func (s *Service) DisableCustomerProductAlias(ctx context.Context, cmd DisableCustomerProductAliasCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ID <= 0 {
+		return ValidationError{Message: "invalid id"}
+	}
+	return s.repo.DisableCustomerProductAlias(ctx, cmd)
+}
+
+func (s *Service) ListCustomerProductAliasMigrationCandidates(ctx context.Context, query CustomerProductAliasMigrationCandidateQuery) ([]CustomerProductAliasMigrationCandidate, error) {
+	if query.CustomerID <= 0 {
+		return nil, ValidationError{Message: "customer_id required"}
+	}
+	return s.repo.ListCustomerProductAliasMigrationCandidates(ctx, query)
 }
 
 func (s *Service) SaveCustomerProductRuleTemplate(ctx context.Context, cmd SaveCustomerProductRuleTemplateCommand) (CustomerProductRuleTemplate, error) {

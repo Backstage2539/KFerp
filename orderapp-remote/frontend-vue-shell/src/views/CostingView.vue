@@ -19,11 +19,11 @@
       </div>
       <div class="bean-list-global-scope">
         <div>
-          <span>豆单范围</span>
+          <span>价格表归属</span>
           <strong>{{ publicationScopeLabel(versionListScope) }}</strong>
         </div>
         <label v-if="!isWorkspaceCustomerLocked" class="scope-select">
-          <select v-model="versionListScope" aria-label="豆单范围">
+          <select v-model="versionListScope" aria-label="价格表归属">
             <option value="official">公共豆单</option>
             <option v-for="customer in customers" :key="`version-scope-${customer.id}`" :value="`customer:${customer.id}`">
               {{ customerOptionLabel(customer) }}
@@ -114,7 +114,7 @@
       <div class="bean-list-generate-bar">
         <div>
           <div class="section-title">生成价格表</div>
-          <p class="muted">按当前豆单范围和 SKU 设置里的产品类型生成公共或客户产品价格表。</p>
+          <p class="muted">按当前价格表归属和商品管理里的产品类型生成公共或客户产品价格表。</p>
         </div>
         <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">生成价格表</button>
       </div>
@@ -672,6 +672,7 @@ import { apiFetch, apiGet, apiSend } from '../api/client'
 import CostingSettingsPanel from '../components/CostingSettingsPanel.vue'
 import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
+  applyCustomerProductAliasesToBeanListItems,
   beanListPublicationPdfOptions,
   buildBeanListPdfGroups,
   buildBeanListPdfSubtitle,
@@ -728,7 +729,7 @@ const explanationOverrides = ref({
   margin_rate: '',
 })
 const customers = ref([])
-const customerPublicUsages = ref([])
+const customerProductAliases = ref([])
 const beanListPublications = ref({
   official: {},
   mine: {},
@@ -770,20 +771,22 @@ const activeBeanListCustomerID = computed(() => normalizedCustomerContextID.valu
 const activeCostingScope = computed(() => {
   return activeBeanListCustomerID.value > 0 ? 'customer' : 'official'
 })
-const activeCustomerPublicUsage = computed(() => {
-  const customerID = activeBeanListCustomerID.value
-  return customerPublicUsages.value.find((row) => Number(row.customer_id || 0) === customerID) || {
-    customer_id: customerID,
-    use_public_categories: false,
-  }
+const activePriceListCustomerAliases = computed(() => {
+  const customerID = Number(activeBeanListCustomerID.value || 0)
+  if (customerID <= 0) return []
+  return customerProductAliases.value.filter((row) => {
+    return Number(row?.customer_id || 0) === customerID && row?.active !== false && row?.include_in_price_list !== false
+  })
 })
-const visibleCostingItems = computed(() => filterBeanListItemsForPriceTableScope(items.value, activeCostingScope.value, activeBeanListCustomerID.value))
+const visibleCostingItems = computed(() => {
+  const scoped = filterBeanListItemsForPriceTableScope(items.value, activeCostingScope.value, activeBeanListCustomerID.value)
+  if (activeCostingScope.value !== 'customer') return scoped
+  return applyCustomerProductAliasesToBeanListItems(scoped, activePriceListCustomerAliases.value, activeBeanListCustomerID.value)
+})
 const customerScopedSkuCount = computed(() => {
   const customerID = Number(activeBeanListCustomerID.value || 0)
   if (!customerID || activeCostingScope.value !== 'customer') return visibleCostingItems.value.length
-  return (Array.isArray(items.value) ? items.value : []).filter((item) => {
-    return Number(item?.customer_id ?? item?.customerID ?? 0) === customerID
-  }).length
+  return activePriceListCustomerAliases.value.length
 })
 const productPriceListTypeOptions = computed(() => buildProductPriceListTypeOptions(visibleCostingItems.value))
 const selectedProductPriceListType = computed(() => {
@@ -856,7 +859,7 @@ const officialPriceSourcePublications = computed(() => publicationRows('official
 const selectedPriceSourcePublication = computed(() => officialPriceSourcePublications.value.find((row) => String(row.id) === String(selectedPriceSourcePublicationID.value)) || null)
 const currentPublicationOwnerLabel = computed(() => publicationScopeLabel(publicationScope.value))
 const currentPublicationScopeDescription = computed(() => {
-  if (publicationScope.value === 'customer') return '生成和发布会保存到当前豆单范围对应的履约客户。'
+  if (publicationScope.value === 'customer') return '生成和发布会保存到当前价格表归属对应的履约客户。'
   if (publicationScope.value === 'mine') return '当前客户账号保存自己的豆单修改。'
   return '生成和发布会保存到公共豆单。'
 })
@@ -1195,7 +1198,7 @@ function beanDescription(item, key) {
 function itemWarnings(item) {
   const warnings = Array.isArray(item?.warnings) ? item.warnings.filter(Boolean) : []
   if (item?.bom_status === 'missing_green_bean_template' && !warnings.some((warning) => String(warning).includes('未挂到带生豆模板的分类'))) {
-    return ['未挂到带生豆模板的分类，无法生成生豆价格。请在 SKU设置 里把该生豆 SKU 移到带生豆模板的生豆分类。', ...warnings]
+    return ['未挂到带生豆模板的分类，无法生成生豆价格。请在商品管理里把该生豆商品移到带生豆模板的生豆分类。', ...warnings]
   }
   if (item?.bom_status === 'inactive' && !warnings.some((warning) => String(warning).includes('BOM已失效'))) {
     return ['BOM已失效：请重新启用 BOM 后再发布价格表', ...warnings]
@@ -1234,7 +1237,8 @@ function tierKeyForListType(listType) {
 }
 
 function beanListItemsForType(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
-  return scopedBeanListItems(publicationScope.value, listType)
+  void listType
+  return priceListScopedItems()
     .filter((item) => matchesProductTypeCategory(item, productTypeCategoryID))
     .filter((item) => beanMetaForItem(item).code)
     .slice()
@@ -1242,7 +1246,8 @@ function beanListItemsForType(listType, productTypeCategoryID = activeProductTyp
 }
 
 function customerBeanListItems(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
-  return scopedBeanListItems('customer', listType)
+  void listType
+  return priceListScopedItems()
     .filter((item) => matchesProductTypeCategory(item, productTypeCategoryID))
     .filter((item) => beanMetaForItem(item).code)
     .slice()
@@ -1270,6 +1275,10 @@ function matchesProductTypeCategory(item, productTypeCategoryID = activeProductT
   return productTypeCategoryIDOfItem(item) === id
 }
 
+function priceListScopedItems() {
+  return visibleCostingItems.value
+}
+
 function scopedBeanListItems(scope, listType) {
   void listType
   const customerID = selectedBeanListCustomerID.value
@@ -1281,9 +1290,10 @@ function beanListCategoryOptions(listType, productTypeCategoryID = activeProduct
   beanListItemsForType(listType, productTypeCategoryID).forEach((item) => {
     const meta = beanMetaForItem(item)
     const category = (meta.category || '').replace(/^\d+[、.．\-\s]+/, '')
-    const key = category || '未分类'
+    const code = String(meta.code || '').split('.')[0] || category || '未分类'
+    const key = code
     if (!seen.has(key)) {
-      seen.set(key, { code: key, category: meta.category || '未分类', label: meta.category || '未分类' })
+      seen.set(key, { code, category: meta.category || category || '未分类', label: meta.category || category || '未分类' })
     }
   })
   return Array.from(seen.values())
@@ -1301,7 +1311,7 @@ function productGroupsForType(listType, productTypeCategoryID = activeProductTyp
 function categoryCodeOfItem(item, listType = pdfTheme.value.listType) {
   const meta = beanMetaForItem(item)
   const category = (meta.category || '').replace(/^\d+[、.．\-\s]+/, '')
-  return category || (String(meta.code || '').split('.')[0])
+  return String(meta.code || '').split('.')[0] || category || '未分类'
 }
 
 function publicationRows(scope, listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
@@ -1854,15 +1864,12 @@ async function loadCustomers() {
   }
 }
 
-async function loadCustomerPublicUsages() {
+async function loadCustomerProductAliases() {
   try {
-    const data = await apiGet('/api/product-settings')
-    customerPublicUsages.value = (data.customer_public_usages || []).map((row) => ({
-      customer_id: Number(row.customer_id || 0),
-      use_public_categories: Boolean(row.use_public_categories),
-    }))
+    const data = await apiGet('/api/customer-product-aliases?active=all')
+    customerProductAliases.value = Array.isArray(data.rows) ? data.rows : []
   } catch (err) {
-    customerPublicUsages.value = []
+    customerProductAliases.value = []
   }
 }
 
@@ -2240,7 +2247,7 @@ onMounted(() => {
   loadCurrentActor()
   loadBeanList()
   loadCustomers()
-  loadCustomerPublicUsages()
+  loadCustomerProductAliases()
   loadBeanListPublications(pdfTheme.value.listType, 'official', activeProductTypeCategoryID.value)
   loadBeanListPublications(pdfTheme.value.listType, 'mine', activeProductTypeCategoryID.value)
   window.addEventListener('afterprint', clearPdfPrintMode)

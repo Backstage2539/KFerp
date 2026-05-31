@@ -53,7 +53,7 @@ export const menuGroups = [
     id: 'product',
     name: '商品与配方',
     items: [
-      { key: 'productSettings', label: 'SKU设置', title: 'SKU设置' },
+      { key: 'productSettings', label: '商品管理', title: '商品管理' },
       { key: 'mallSettings', label: '商城管理', title: '商城管理' },
       { key: 'costing', label: '产品价格表', title: '产品价格表' },
       { key: 'bom', label: 'BOM配方维护', title: 'BOM配方维护' },
@@ -127,7 +127,7 @@ export const hiddenViewTitles = {
   stockOutboundLogs: '出库日志',
   inventory: '成品库存',
   allocationLogs: '分配批次查看',
-  products: 'SKU设置',
+  products: '商品管理',
   salesOrder: '销售单',
   contractPDF: '合同PDF',
   customerProcessingPortal: '客户履约工作台',

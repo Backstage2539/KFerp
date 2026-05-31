@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
+  applyCustomerProductAliasesToBeanListItems,
   buildBeanListPdfGroups,
   buildBeanListPdfTitle,
   beanListPublicationPdfOptions,
@@ -519,4 +520,75 @@ test('PDF bean-list helper reapplies green kg overrides when copying a kg price 
   assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_unit, 'kg')
   assert.equal(groups[0].items[0].green_bean_sale_tiers[0].price_per_kg, 62)
   assert.equal(publication.content.groups[0].items[0].prices[0].price, 51.75)
+})
+
+test('applyCustomerProductAliasesToBeanListItems scopes customer price lists by aliases and decorates display names', () => {
+  const source = [
+    {
+      product_id: 10,
+      name: '工厂拼配',
+      product_code: 'K001',
+      commercial_bean_list: { code: '1.1', category: '1、商用', display_name: '工厂拼配' },
+    },
+    {
+      product_id: 11,
+      name: '未授权拼配',
+      product_code: 'K002',
+      commercial_bean_list: { code: '1.2', category: '1、商用', display_name: '未授权拼配' },
+    },
+  ]
+  const aliases = [
+    { id: 101, customer_id: 42, product_id: 10, display_name: 'Karen 贴牌拼配', customer_item_code: 'KA-001', brand_name: '', display_category_name: 'Karen 批发', include_in_price_list: true, active: true },
+    { id: 102, customer_id: 42, product_id: 11, display_name: '不进价格表', include_in_price_list: false, active: true },
+    { id: 103, customer_id: 7, product_id: 11, display_name: '其他客户商品', include_in_price_list: true, active: true },
+  ]
+
+  const scoped = applyCustomerProductAliasesToBeanListItems(source, aliases, 42)
+
+  assert.equal(scoped.length, 1)
+  assert.equal(scoped[0].customer_product_alias_id, 101)
+  assert.equal(scoped[0].customer_id, 42)
+  assert.equal(scoped[0].name, 'Karen 贴牌拼配')
+  assert.equal(scoped[0].product_name, '工厂拼配')
+  assert.equal(scoped[0].customer_item_code, 'KA-001')
+  assert.equal(scoped[0].commercial_bean_list.display_name, 'Karen 贴牌拼配')
+})
+
+test('buildBeanListPdfGroups freezes customer alias and product snapshots in publication content', () => {
+  const groups = buildBeanListPdfGroups([{
+    product_id: 10,
+    product_code: 'K001',
+    product_name: '工厂拼配',
+    name: 'Karen 贴牌拼配',
+    customer_id: 42,
+    customer_product_alias_id: 101,
+    customer_product_display_name: 'Karen 贴牌拼配',
+    customer_item_code: 'KA-001',
+    brand_name: '',
+    display_category_name: 'Karen 批发',
+    bom_version_id: 5,
+    bom_version_no: 'v3',
+    bom_usage_mode: 'inherit_current',
+    yield_rate: 0.82,
+    product_attributes: [{ key: 'pack', label: '包装', value: '客户专属袋' }],
+    gradient_template: { id: 9, name: '批发模板' },
+    commercial_wholesale_tiers: [{ label: '24-49kg', price_per_unit: 88, price_per_kg: 88, price_per_lb: 40, display_unit: 'kg' }],
+    commercial_bean_list: { code: '1.1', category: '1、商用', display_name: 'Karen 贴牌拼配' },
+  }], 'commercial')
+
+  const item = groups[0].items[0]
+  assert.equal(item.customer_product_alias_id, 101)
+  assert.equal(item.customer_id, 42)
+  assert.equal(item.product_id, 10)
+  assert.equal(item.display_name_snapshot, 'Karen 贴牌拼配')
+  assert.equal(item.customer_item_code_snapshot, 'KA-001')
+  assert.equal(item.brand_name_snapshot, '')
+  assert.equal(item.display_category_snapshot, 'Karen 批发')
+  assert.equal(item.product_code_snapshot, 'K001')
+  assert.equal(item.product_name_snapshot, '工厂拼配')
+  assert.equal(item.bom_version_id_snapshot, 5)
+  assert.equal(item.bom_usage_mode_snapshot, 'inherit_current')
+  assert.equal(item.price_unit_snapshot, 'kg')
+  assert.deepEqual(item.special_attrs_snapshot, [{ key: 'pack', label: '包装', value: '客户专属袋' }])
+  assert.equal(item.price_source_json.gradient_template_id, 9)
 })

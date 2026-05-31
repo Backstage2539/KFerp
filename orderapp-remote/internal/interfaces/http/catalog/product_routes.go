@@ -24,6 +24,11 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/products/:id", h.detailAPI)
 	e.PUT("/api/products/:id", h.updateAPI)
 	e.GET("/api/product-settings", h.productSettingsAPI)
+	e.GET("/api/customer-product-aliases", h.customerProductAliasesAPI)
+	e.GET("/api/customer-product-aliases/migration-candidates", h.customerProductAliasMigrationCandidatesAPI)
+	e.POST("/api/customer-product-aliases", h.saveCustomerProductAliasAPI)
+	e.PUT("/api/customer-product-aliases/:id", h.saveCustomerProductAliasAPI)
+	e.POST("/api/customer-product-aliases/:id/disable", h.disableCustomerProductAliasAPI)
 	e.GET("/api/product-settings/categories", h.productCategoriesAPI)
 	e.GET("/api/pricing-gradient-templates", h.gradientTemplatesAPI)
 	e.POST("/api/pricing-gradient-templates", h.saveGradientTemplateAPI)
@@ -205,6 +210,19 @@ type customerPublicUsageAPIRequest struct {
 	UsePublicSKU               bool  `json:"use_public_sku"`
 	UsePublicCategories        bool  `json:"use_public_categories"`
 	UsePublicGradientTemplates bool  `json:"use_public_gradient_templates"`
+}
+
+type customerProductAliasAPIRequest struct {
+	CustomerID         int64  `json:"customer_id"`
+	ProductID          int64  `json:"product_id"`
+	DisplayName        string `json:"display_name"`
+	CustomerItemCode   string `json:"customer_item_code"`
+	BrandName          string `json:"brand_name"`
+	DisplayCategoryID  int64  `json:"display_category_id"`
+	SortOrder          int    `json:"sort_order"`
+	IncludeInPriceList *bool  `json:"include_in_price_list"`
+	Active             *bool  `json:"active"`
+	Remark             string `json:"remark"`
 }
 
 type customerProductRuleTemplateAPIRequest struct {
@@ -703,6 +721,102 @@ func (h productHandler) productSettingsAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, data)
+}
+
+func (h productHandler) customerProductAliasesAPI(c echo.Context) error {
+	customerID, err := parseOptionalInt64(c.QueryParam("customer_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid customer_id"})
+	}
+	activeParam := strings.ToLower(strings.TrimSpace(c.QueryParam("active")))
+	rows, err := h.catalog.ListCustomerProductAliases(c.Request().Context(), catalogapp.CustomerProductAliasQuery{
+		CustomerID: customerID,
+		ActiveOnly: activeParam == "" || activeParam == "active",
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+}
+
+func (h productHandler) customerProductAliasMigrationCandidatesAPI(c echo.Context) error {
+	customerID, err := parseOptionalInt64(c.QueryParam("customer_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid customer_id"})
+	}
+	rows, err := h.catalog.ListCustomerProductAliasMigrationCandidates(c.Request().Context(), catalogapp.CustomerProductAliasMigrationCandidateQuery{CustomerID: customerID})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+}
+
+func (h productHandler) saveCustomerProductAliasAPI(c echo.Context) error {
+	var req customerProductAliasAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	includeInPriceList := true
+	if req.IncludeInPriceList != nil {
+		includeInPriceList = *req.IncludeInPriceList
+	}
+	active := true
+	if req.Active != nil {
+		active = *req.Active
+	}
+	row, err := h.catalog.SaveCustomerProductAlias(c.Request().Context(), catalogapp.CustomerProductAliasCommand{
+		Actor:              support.ActorOf(c),
+		ID:                 id,
+		CustomerID:         req.CustomerID,
+		ProductID:          req.ProductID,
+		DisplayName:        req.DisplayName,
+		CustomerItemCode:   req.CustomerItemCode,
+		BrandName:          req.BrandName,
+		DisplayCategoryID:  req.DisplayCategoryID,
+		SortOrder:          req.SortOrder,
+		IncludeInPriceList: includeInPriceList,
+		Active:             active,
+		Remark:             req.Remark,
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"alias": row})
+}
+
+func (h productHandler) disableCustomerProductAliasAPI(c echo.Context) error {
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	if err := h.catalog.DisableCustomerProductAlias(c.Request().Context(), catalogapp.DisableCustomerProductAliasCommand{Actor: support.ActorOf(c), ID: id}); err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func parseOptionalInt64(raw string) (int64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	return strconv.ParseInt(raw, 10, 64)
 }
 
 func (h productHandler) productCategoriesAPI(c echo.Context) error {

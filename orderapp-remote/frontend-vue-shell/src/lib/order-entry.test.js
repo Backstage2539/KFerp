@@ -134,6 +134,49 @@ test('buildOrderPayload saves real custom spec grams', () => {
   assert.equal(payload.item_name[0], '橘皮乌龙')
 })
 
+test('buildOrderPayload freezes customer alias and product snapshots on order lines', () => {
+  const payload = buildOrderPayload({
+    form: {
+      document_date: '2026-05-31',
+      order_date: '2026-05-31',
+      customer_id: 42,
+      source_id: 1,
+      order_type_id: 2,
+      pay_status_id: 1,
+      ship_status_id: 1,
+    },
+    rows: [
+      {
+        product_id: 77,
+        product_name: 'Karen 贴牌意式',
+        product_code: 'SKU-77',
+        product_record_name: '精品意式拼配',
+        customer_product_alias_id: 910,
+        customer_item_code: 'KAREN-ESP',
+        brand_name: '',
+        tier_id: 'auto',
+        spec_mode: '454',
+        qty: 3,
+        unit: '件',
+        unit_price: 68,
+        bean_list_publication_id: 8001,
+        bean_list_version_no: 'KAREN-V1',
+        price_source_json: '{"publication_id":8001,"customer_product_alias_id":910}',
+      },
+    ],
+  })
+
+  assert.equal(payload.customer_product_alias_id[0], '910')
+  assert.equal(payload.customer_product_display_name_snapshot[0], 'Karen 贴牌意式')
+  assert.equal(payload.customer_item_code_snapshot[0], 'KAREN-ESP')
+  assert.equal(payload.brand_name_snapshot[0], '')
+  assert.equal(payload.product_code_snapshot[0], 'SKU-77')
+  assert.equal(payload.product_name_snapshot[0], '精品意式拼配')
+  assert.equal(payload.item_bean_list_publication_id[0], '8001')
+  assert.equal(payload.item_bean_list_version_no[0], 'KAREN-V1')
+  assert.equal(payload.price_source_json[0], '{"publication_id":8001,"customer_product_alias_id":910}')
+})
+
 test('order entry exposes document date, order date, and order backfill labels', () => {
   const source = orderEntryViewSource()
 
@@ -844,7 +887,7 @@ test('responsibleOptions only returns employee choices for customer ownership', 
 test('order entry raises the active combobox above following fields', () => {
   const source = orderEntryViewSource()
 
-  assert.match(source, /<label class="customer-combobox combobox"\s+:class="\{\s*open:\s*customerOpen\s*\}">/)
+  assert.match(source, /<label[^>]*class="customer-combobox combobox"[^>]*:class="\{\s*open:\s*customerOpen\s*\}"[^>]*>/)
   assert.match(source, /<label class="product-combobox combobox product-cell"\s+:class="\{\s*open:\s*row\.product_open\s*\}">/)
   assert.match(source, /<span>客户负责人<\/span>/)
   assert.doesNotMatch(source, /responsible-combobox/)
@@ -1150,6 +1193,35 @@ test('filterProductsForCustomer keeps public and selected customer products only
 
   assert.deepEqual(filterProductsForCustomer(rows, 3).map((item) => item.name), ['公共拼配', '客户A深烘'])
   assert.deepEqual(filterProductsForCustomer(rows, 0).map((item) => item.name), ['公共拼配'])
+})
+
+test('filterProductsForCustomer prefers current customer aliases over base product duplicates', () => {
+  const rows = [
+    { id: 7, name: '系统意式', customer_id: 0, visibility: 'public', tiers: [] },
+    {
+      id: 7,
+      name: 'Karen 贴牌意式',
+      customer_id: 42,
+      visibility: 'customer_alias',
+      customer_product_alias_id: 910,
+      customer_item_code: 'KAREN-ESP',
+      tiers: [],
+    },
+    {
+      id: 7,
+      name: '其他客户贴牌意式',
+      customer_id: 43,
+      visibility: 'customer_alias',
+      customer_product_alias_id: 911,
+      tiers: [],
+    },
+  ]
+
+  const scoped = filterProductsForCustomer(rows, 42)
+
+  assert.deepEqual(scoped.map((item) => item.name), ['Karen 贴牌意式'])
+  assert.equal(scoped[0].customer_product_alias_id, 910)
+  assert.equal(scoped[0].id, 7)
 })
 
 test('filterProductsForCustomer hides public products when customer commercial bean list owns the scope', () => {

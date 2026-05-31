@@ -715,6 +715,12 @@ function newRow() {
     product_open: false,
     product_id: 0,
     product_name: '',
+    product_code: '',
+    product_record_name: '',
+    customer_product_alias_id: 0,
+    customer_product_display_name: '',
+    customer_item_code: '',
+    brand_name: '',
     product_kind: 'roasted_bean',
     product_type_category_id: 0,
     product_type_name: '',
@@ -1353,6 +1359,12 @@ function clearProduct(row) {
   row.product_open = true
   row.product_id = 0
   row.product_name = ''
+  row.product_code = ''
+  row.product_record_name = ''
+  row.customer_product_alias_id = 0
+  row.customer_product_display_name = ''
+  row.customer_item_code = ''
+  row.brand_name = ''
   row.product_kind = 'roasted_bean'
   row.product_type_category_id = 0
   row.product_type_name = ''
@@ -1375,6 +1387,12 @@ function chooseProduct(row, product) {
   row.product_id = Number(product?.id || 0)
   row.product_name = product?.name || ''
   row.product_query = product?.name || ''
+  row.product_code = product?.product_code || (row.product_id ? `SKU-${row.product_id}` : '')
+  row.product_record_name = product?.product_name_snapshot || product?.product_record_name || product?.source_product_name || product?.name || ''
+  row.customer_product_alias_id = Number(product?.customer_product_alias_id || 0)
+  row.customer_product_display_name = product?.customer_product_display_name || product?.name || ''
+  row.customer_item_code = product?.customer_item_code || ''
+  row.brand_name = product?.brand_name || ''
   row.product_open = false
   row.manual_price = false
   row.product_kind = product?.product_kind || 'roasted_bean'
@@ -1708,6 +1726,12 @@ function applyEditData(data) {
       product_id: Number(item.product_id || 0),
       product_name: item.product_name || '',
       product_query: item.product_name || '',
+      product_code: item.product_code_snapshot || (item.product_id ? `SKU-${item.product_id}` : ''),
+      product_record_name: item.product_name_snapshot || product?.product_name_snapshot || product?.name || item.product_name || '',
+      customer_product_alias_id: Number(item.customer_product_alias_id || 0),
+      customer_product_display_name: item.customer_product_display_name_snapshot || item.product_name || '',
+      customer_item_code: item.customer_item_code_snapshot || '',
+      brand_name: item.brand_name_snapshot || '',
       product_kind: productKind,
       product_type_category_id: Number(product?.product_type_category_id || 0),
       product_type_name: product?.product_type_name || '',

@@ -128,7 +128,7 @@ func parseCreateOrderAmount(raw, field string) (float64, error) {
 
 func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.OrderItemCommand {
 	items := make([]salesapp.OrderItemCommand, 0)
-	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.ProductKind, req.SalesUnit, req.UnitBagCount, req.UnitBeanG, req.DiscountType, req.DiscountValue); i++ {
+	for i := 0; i < maxLen(req.ItemName, req.ItemNote, req.ProductID, req.CustomerProductAliasID, req.CustomerProductDisplayNameSnapshot, req.CustomerItemCodeSnapshot, req.BrandNameSnapshot, req.ProductCodeSnapshot, req.ProductNameSnapshot, req.ItemBeanListPublicationID, req.ItemBeanListVersionNo, req.PriceSourceJSON, req.TierID, req.UnitPrice, req.Qty, req.Unit, req.Spec, req.ProductKind, req.SalesUnit, req.UnitBagCount, req.UnitBeanG, req.DiscountType, req.DiscountValue); i++ {
 		pidStr := strings.TrimSpace(getStr(req.ProductID, i))
 		name := strings.TrimSpace(getStr(req.ItemName, i))
 		if pidStr == "" && name == "" {
@@ -137,13 +137,30 @@ func orderItemCommandsFromCreateRequest(req CreateOrderRequest) []salesapp.Order
 		it := salesapp.OrderItemCommand{
 			Name: name,
 			// Note: strings.TrimSpace(getStr(req.ItemNote, i))
-			Note:        strings.TrimSpace(getStr(req.ItemNote, i)),
-			ProductKind: strings.TrimSpace(getStr(req.ProductKind, i)),
-			SalesUnit:   strings.TrimSpace(getStr(req.SalesUnit, i)),
+			Note:                               strings.TrimSpace(getStr(req.ItemNote, i)),
+			CustomerProductDisplayNameSnapshot: strings.TrimSpace(getStr(req.CustomerProductDisplayNameSnapshot, i)),
+			CustomerItemCodeSnapshot:           strings.TrimSpace(getStr(req.CustomerItemCodeSnapshot, i)),
+			BrandNameSnapshot:                  strings.TrimSpace(getStr(req.BrandNameSnapshot, i)),
+			ProductCodeSnapshot:                strings.TrimSpace(getStr(req.ProductCodeSnapshot, i)),
+			ProductNameSnapshot:                strings.TrimSpace(getStr(req.ProductNameSnapshot, i)),
+			BeanListVersionNo:                  strings.TrimSpace(getStr(req.ItemBeanListVersionNo, i)),
+			PriceSourceJSON:                    strings.TrimSpace(getStr(req.PriceSourceJSON, i)),
+			ProductKind:                        strings.TrimSpace(getStr(req.ProductKind, i)),
+			SalesUnit:                          strings.TrimSpace(getStr(req.SalesUnit, i)),
 		}
 		if pidStr != "" {
 			if pid, err := strconv.ParseInt(pidStr, 10, 64); err == nil && pid > 0 {
 				it.ProductID = &pid
+			}
+		}
+		if aliasStr := strings.TrimSpace(getStr(req.CustomerProductAliasID, i)); aliasStr != "" {
+			if aliasID, err := strconv.ParseInt(aliasStr, 10, 64); err == nil && aliasID > 0 {
+				it.CustomerProductAliasID = aliasID
+			}
+		}
+		if publicationStr := strings.TrimSpace(getStr(req.ItemBeanListPublicationID, i)); publicationStr != "" {
+			if publicationID, err := strconv.ParseInt(publicationStr, 10, 64); err == nil && publicationID > 0 {
+				it.BeanListPublicationID = publicationID
 			}
 		}
 		if tidStr := strings.TrimSpace(getStr(req.TierID, i)); tidStr != "" && tidStr != "auto" {

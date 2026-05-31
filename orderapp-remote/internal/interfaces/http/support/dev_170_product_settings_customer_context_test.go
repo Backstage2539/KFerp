@@ -40,7 +40,7 @@ func TestDev170ProductSettingsLayoutUsesTopLevelCustomerContext(t *testing.T) {
 		"skuContextProductFilter",
 		"v-for=\"primary in visibleCategoryManagementTreeForSkuContext\"",
 		"customer_id: selectedCustomerSkuCustomerID.value",
-		"豆单生成请进入产品价格表",
+		"价格表生成请进入产品价格表",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("ProductSettingsView.vue missing customer context marker %q", want)
@@ -124,10 +124,10 @@ func TestDev170ManualsDocumentCustomerContextOperation(t *testing.T) {
 		doc := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{
 			"客户上下文",
-			"SKU归属",
+			"商品管理",
 			"客户自己的商品分类",
-			"豆单范围",
-			"豆单预览",
+			"价格表归属",
+			"产品价格表",
 		} {
 			if !strings.Contains(doc, want) {
 				t.Fatalf("%s missing customer context manual marker %q", rel, want)

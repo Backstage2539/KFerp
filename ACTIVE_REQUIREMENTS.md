@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-386-PRODUCT-MODEL-OVERHAUL
+- Branch: codex/product-model-overhaul-20260531
+- Owner/session: Codex / 2026-05-31
+- Status: verified
+- Scope: 五期统一商品模型改造。商品档案承载库存、BOM、成本、生产和成品批次；客户商品名承载客户侧对外名称、编号、品牌和展示分类并绑定商品档案；工厂自营作为内置客户-like 归属；生产 BOM 作为商品档案制造定义；产品价格表按价格表归属客户下启用的客户商品名生成和发布快照；旧客户 SKU 保持兼容并提供安全收敛检查。
+- DEV:
+  - DEV-386-PHASE1-LANGUAGE-MANUAL：商品管理/商品档案/生产 BOM/价格表归属口径替换，手册场景和前端测试。
+  - DEV-386-PHASE2-CUSTOMER-ALIAS：新增客户商品名模型、API 和商品管理页客户商品名工作区。
+  - DEV-386-PHASE3-PRICE-LIST：产品价格表读取客户商品名并发布 alias/product 双快照。
+  - DEV-386-PHASE4-ORDER-PORTAL-PRODUCTION：录单、门户、履约、生产计划和工单接入客户商品名展示与商品档案执行链路。
+  - DEV-386-PHASE5-LEGACY-SKU-CONVERGENCE：旧客户 SKU 只读收敛检查和新增动作分流。
+- Verifier:
+  - Unit/frontend: node --test src/lib/bom.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js src/lib/costing-bean-list-version-ui.test.js; later add alias/price/order tests as implemented.
+  - API/backend: targeted Go tests for catalog/customer alias/costing/sales/portal/production/support packages as each phase lands.
+  - Frontend/build: npm --prefix orderapp-remote/frontend-vue-shell run build.
+  - Changed verifier: scripts/verify_kferp.sh changed.
+  - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_COSTING.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md; orderapp-remote/docs/OPERATION_MANUALS.md.
+  - Review/acceptance: orderapp-remote/docs/REQUIREMENTS.md; orderapp-remote/docs/ACCEPTANCE_TESTS.md; orderapp-remote/docs/acceptance/2026-05-31-product-model-overhaul.md.
+- Deployment: not deployed; do not deploy until all five phases pass final verification and merge/development deploy is explicitly reached by workflow.
+- Last update: 2026-05-31 Asia/Shanghai
+- Notes: Phase 1-5 complete and locally verified. Final evidence: frontend target `node --test` 211/211 passed; targeted Go packages passed; `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` exited 0; browser flow passed for 商品管理、客户商品名、产品价格表、录单、客户履约、生产计划、生产工单、操作日志. During browser verification, Phase 3 also fixed price-list preview/PDF grouping to reuse alias-filtered `visibleCostingItems` and align category keys with PDF product selection.
+
 ### PR-385-SKU-BOM-INHERITANCE
 - Branch: codex/sku-bom-inheritance-20260529
 - Owner/session: Codex / 2026-05-29

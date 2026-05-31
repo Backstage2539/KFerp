@@ -220,7 +220,7 @@ test('product bean-list warns when a green bean item has no green category templ
   for (const expected of [
     "item?.bom_status === 'missing_green_bean_template'",
     '未挂到带生豆模板的分类，无法生成生豆价格',
-    '请在 SKU设置 里把该生豆 SKU 移到带生豆模板的生豆分类',
+    '请在商品管理里把该生豆商品移到带生豆模板的生豆分类',
   ]) {
     assert.ok(viewSource.includes(expected), `missing green bean category warning: ${expected}`)
   }

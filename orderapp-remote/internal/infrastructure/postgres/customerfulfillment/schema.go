@@ -288,6 +288,17 @@ CREATE INDEX IF NOT EXISTS customer_billing_rules_customer_fee_idx
 	if err != nil {
 		return err
 	}
+	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS customer_product_alias_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS customer_product_display_name_snapshot TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS customer_item_code_snapshot TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS product_code_snapshot TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.order_items ADD COLUMN IF NOT EXISTS product_name_snapshot TEXT NOT NULL DEFAULT ''`, schema),
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
 	if err := backfillSubmittedDirectShipERPOrders(ctx, pool, schema); err != nil {
 		return err
 	}

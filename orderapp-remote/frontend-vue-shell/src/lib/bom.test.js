@@ -65,22 +65,33 @@ test('BOM source label preserves source SKU code and version snapshots', () => {
     source_product_code: 'SKU-21',
     source_product_name: 'K001 精品意式拼配',
     source_bom_version_no: 'V003',
-  }), '继承：SKU-21 K001 精品意式拼配 / BOM V003')
+  }), '跟随默认 BOM：SKU-21 K001 精品意式拼配 / BOM V003')
+
+  assert.equal(bomSourceLabel({
+    bom_source_type: 'inherit_version',
+    source_product_code: 'SKU-21',
+    source_product_name: 'K001 精品意式拼配',
+    source_bom_version_no: 'V002',
+  }), '固定 BOM 版本：SKU-21 K001 精品意式拼配 / BOM V002')
 
   assert.equal(bomSourceLabel({
     bom_source_type: 'derived_owned',
     source_product_code: 'SKU-21',
     source_product_name: 'K001 精品意式拼配',
     source_bom_version_no: 'V003',
-  }), '自有 BOM，派生自：SKU-21 K001 精品意式拼配 / BOM V003')
+  }), '单独维护 BOM，基于：SKU-21 K001 精品意式拼配 / BOM V003')
+
+  assert.equal(bomSourceLabel({ bom_source_type: 'owned' }), '默认生产 BOM')
+  assert.equal(bomSourceLabel({ bom_status: 'missing' }), '无生产 BOM')
 })
 
 test('BOM view exposes read-only inherited BOM and explicit derive action', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /BOM来源/)
-  assert.match(source, /派生自有 BOM/)
+  assert.match(source, /生产 BOM/)
+  assert.match(source, /复制为单独维护 BOM/)
   assert.match(source, /deriveOwnedBom/)
   assert.match(source, /canEditCurrentBomProduct/)
+  assert.doesNotMatch(source, /派生自有 BOM/)
 })

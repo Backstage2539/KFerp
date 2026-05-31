@@ -71,6 +71,13 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		),
 		product_scope AS (
 			SELECT p.*,
+			       COALESCE(cpa.id,0) AS customer_product_alias_id,
+			       COALESCE(NULLIF(cpa.display_name,''), p.name) AS customer_product_display_name,
+			       COALESCE(cpa.customer_item_code,'') AS customer_item_code,
+			       COALESCE(cpa.brand_name,'') AS brand_name,
+			       COALESCE(cpa.display_category_id,0) AS display_category_id,
+			       COALESCE(alias_pc.name,'') AS display_category_name,
+			       COALESCE(NULLIF(bs.source_type,''), '') AS bom_usage_mode,
 			       CASE
 			         WHEN COALESCE(NULLIF(p.product_kind,''),'roasted')='green_bean'
 			          AND COALESCE(p.green_bean_bom_product_id,0) > 0
@@ -82,7 +89,15 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			       END AS bom_product_id
 			FROM %[1]s.products p
 			LEFT JOIN %[1]s.product_bom_sources bs ON bs.product_id = p.id
+			LEFT JOIN %[1]s.customer_product_aliases cpa
+			  ON $2 > 0
+			 AND cpa.product_id = p.id
+			 AND cpa.customer_id = $2
+			 AND cpa.active=true
+			 AND cpa.include_in_price_list=true
+			LEFT JOIN %[1]s.product_categories alias_pc ON alias_pc.id=cpa.display_category_id AND alias_pc.active=true
 			WHERE p.active = true
+			  AND (($2 <= 0 AND COALESCE(p.customer_id,0)=0) OR ($2 > 0 AND cpa.id IS NOT NULL))
 		),
 		finished_product_cost AS (
 			SELECT p.id AS product_id,
@@ -138,11 +153,19 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			GROUP BY template_id
 		)
 		SELECT p.id,
+		       CASE WHEN $2 > 0 THEN COALESCE(NULLIF(p.customer_product_display_name,''), p.name) ELSE p.name END,
+		       'SKU-' || p.id::text,
 		       p.name,
+		       COALESCE(p.customer_product_alias_id,0),
+		       COALESCE(p.customer_product_display_name,''),
+		       COALESCE(p.customer_item_code,''),
+		       COALESCE(p.brand_name,''),
+		       COALESCE(p.display_category_id,0),
+		       COALESCE(p.display_category_name,''),
 		       COALESCE(base_p.name, p.name),
 		       COALESCE(p.roast_level, ''),
 		       COALESCE(p.special_attrs_json::text, '{}'),
-		       COALESCE(p.customer_id, 0),
+		       CASE WHEN $2 > 0 THEN $2 ELSE COALESCE(p.customer_id, 0) END,
 		       COALESCE(p.base_product_id, 0),
 		       COALESCE(NULLIF(p.visibility, ''), 'public'),
 		       COALESCE(p.custom_type, ''),
@@ -250,6 +273,9 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.altitude, ''), ' / ') FILTER (WHERE NULLIF(bp.altitude, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.bean_list_note, ''), ' / ') FILTER (WHERE NULLIF(bp.bean_list_note, '') IS NOT NULL), ''),
 		       COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END),
+		       COALESCE(active_bv.id,0),
+		       COALESCE(active_bv.version_no,''),
+		       COALESCE(NULLIF(p.bom_usage_mode,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'owned' END),
 		       COALESCE(qc.factory_flavor_description, ''),
 		       COALESCE(qc.moisture, ''),
 		       COALESCE(qc.density, ''),
@@ -257,6 +283,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(qc.inspection_reference_no, '')
 		FROM product_scope p
 		LEFT JOIN %[1]s.product_bom b ON b.product_id = bom_product_id
+		LEFT JOIN %[1]s.bom_versions active_bv ON active_bv.product_id=p.bom_product_id AND active_bv.status='active'
 		LEFT JOIN %[1]s.product_bom_items bi ON bi.product_id = bom_product_id
 		LEFT JOIN %[1]s.materials m ON m.id = bi.material_id
 		LEFT JOIN material_valuation mv ON mv.material_id = m.id
@@ -313,7 +340,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			LIMIT 1
 		) qc ON true
 		WHERE p.active = true
-		GROUP BY p.id, p.name, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.price_list_rule_json, cpro.unit_rule_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
+		GROUP BY p.id, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.bom_usage_mode, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.price_list_rule_json, cpro.unit_rule_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
 		ORDER BY p.name
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate, customerID)
@@ -330,7 +357,68 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		var roastLevel string
 		var fallbackYield float64
 		var gradientTemplateID int64
-		if err := rows.Scan(&input.ProductID, &input.Name, &input.BeanListTemplateName, &roastLevel, &input.SpecialAttrsJSON, &input.CustomerID, &input.BaseProductID, &input.Visibility, &input.CustomType, &input.ProductKind, &input.DripBagGrams, &input.DripBoxBagCount, &input.ProductCategoryID, &input.ProductCategoryPosition, &input.ProductTypeCategoryID, &input.ProductSubtypeCategoryID, &input.CategoryPrimaryName, &input.CategoryPrimaryPosition, &input.CategorySecondaryName, &input.CategorySecondaryPosition, &gradientTemplateID, &input.OperationTemplateID, &input.PriceListRuleJSON, &input.SpecialAttrsSchemaJSON, &input.InventoryUnit, &input.QuoteUnit, &input.OrderUnit, &input.UnitConversionJSON, &input.IntegerUnit, &input.MarginRateOverride, &fallbackYield, &input.GreenBeanCostPerKg, &input.BomCostPerUnit, &input.OperationCostPerUnit, &input.OperationCostPerKg, &input.Flavor, &input.Origin, &input.ProcessingStation, &input.Variety, &input.ProcessMethod, &input.Grade, &input.Altitude, &input.BeanListNote, &input.BomStatus, &input.BeanListQuality.FactoryFlavorDescription, &input.BeanListQuality.Moisture, &input.BeanListQuality.Density, &input.BeanListQuality.InspectionCreatedAt, &input.BeanListQuality.InspectionReferenceNo); err != nil {
+		if err := rows.Scan(
+			&input.ProductID,
+			&input.Name,
+			&input.ProductCode,
+			&input.ProductName,
+			&input.CustomerProductAliasID,
+			&input.CustomerProductDisplayName,
+			&input.CustomerItemCode,
+			&input.BrandName,
+			&input.DisplayCategoryID,
+			&input.DisplayCategoryName,
+			&input.BeanListTemplateName,
+			&roastLevel,
+			&input.SpecialAttrsJSON,
+			&input.CustomerID,
+			&input.BaseProductID,
+			&input.Visibility,
+			&input.CustomType,
+			&input.ProductKind,
+			&input.DripBagGrams,
+			&input.DripBoxBagCount,
+			&input.ProductCategoryID,
+			&input.ProductCategoryPosition,
+			&input.ProductTypeCategoryID,
+			&input.ProductSubtypeCategoryID,
+			&input.CategoryPrimaryName,
+			&input.CategoryPrimaryPosition,
+			&input.CategorySecondaryName,
+			&input.CategorySecondaryPosition,
+			&gradientTemplateID,
+			&input.OperationTemplateID,
+			&input.PriceListRuleJSON,
+			&input.SpecialAttrsSchemaJSON,
+			&input.InventoryUnit,
+			&input.QuoteUnit,
+			&input.OrderUnit,
+			&input.UnitConversionJSON,
+			&input.IntegerUnit,
+			&input.MarginRateOverride,
+			&fallbackYield,
+			&input.GreenBeanCostPerKg,
+			&input.BomCostPerUnit,
+			&input.OperationCostPerUnit,
+			&input.OperationCostPerKg,
+			&input.Flavor,
+			&input.Origin,
+			&input.ProcessingStation,
+			&input.Variety,
+			&input.ProcessMethod,
+			&input.Grade,
+			&input.Altitude,
+			&input.BeanListNote,
+			&input.BomStatus,
+			&input.BomVersionID,
+			&input.BomVersionNo,
+			&input.BomUsageMode,
+			&input.BeanListQuality.FactoryFlavorDescription,
+			&input.BeanListQuality.Moisture,
+			&input.BeanListQuality.Density,
+			&input.BeanListQuality.InspectionCreatedAt,
+			&input.BeanListQuality.InspectionReferenceNo,
+		); err != nil {
 			return nil, err
 		}
 		input.ProductTypeName = input.CategoryPrimaryName

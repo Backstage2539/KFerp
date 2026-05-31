@@ -222,6 +222,13 @@ func applyOrderItemDiscount(baseLineTotal float64, discountType string, discount
 	}
 }
 
+func validateCustomerAliasPublishedPrice(customerProductAliasID int64, priceOverride bool, unitPrice float64) error {
+	if customerProductAliasID <= 0 || priceOverride || unitPrice > 0 {
+		return nil
+	}
+	return fmt.Errorf("customer product price unpublished")
+}
+
 func maxFloat(a, b float64) float64 {
 	if a > b {
 		return a
@@ -822,28 +829,36 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 
 	type item struct {
-		productID       *int64
-		tierID          *int64
-		manualPrice     *float64
-		discountType    string
-		discountValue   float64
-		discountAmount  float64
-		baseLineTotal   float64
-		name            string
-		note            string
-		units           int64
-		specG           int64
-		unit            *string
-		spec            *string
-		unitPrice       float64
-		lineTotal       float64
-		priceOverride   bool
-		productKind     string
-		salesUnit       string
-		unitBagCount    int64
-		unitBeanG       float64
-		matchedPriceQty float64
-		priceSourceJSON string
+		productID                          *int64
+		customerProductAliasID             int64
+		customerProductDisplayNameSnapshot string
+		customerItemCodeSnapshot           string
+		brandNameSnapshot                  string
+		productCodeSnapshot                string
+		productNameSnapshot                string
+		itemBeanListPublicationID          int64
+		itemBeanListVersionNo              string
+		tierID                             *int64
+		manualPrice                        *float64
+		discountType                       string
+		discountValue                      float64
+		discountAmount                     float64
+		baseLineTotal                      float64
+		name                               string
+		note                               string
+		units                              int64
+		specG                              int64
+		unit                               *string
+		spec                               *string
+		unitPrice                          float64
+		lineTotal                          float64
+		priceOverride                      bool
+		productKind                        string
+		salesUnit                          string
+		unitBagCount                       int64
+		unitBeanG                          float64
+		matchedPriceQty                    float64
+		priceSourceJSON                    string
 	}
 	items := make([]item, 0, len(cmd.Items))
 	for _, src := range cmd.Items {
@@ -852,19 +867,28 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			continue
 		}
 		it := item{
-			productID:     src.ProductID,
-			tierID:        src.TierID,
-			manualPrice:   src.ManualPrice,
-			discountType:  normalizeOrderItemDiscountType(src.DiscountType),
-			discountValue: maxFloat(src.DiscountValue, 0),
-			name:          name,
-			note:          strings.TrimSpace(src.Note),
-			units:         src.Units,
-			specG:         src.SpecG,
-			productKind:   normalizeOrderItemProductKind(src.ProductKind),
-			salesUnit:     normalizeOrderItemSalesUnit(src.SalesUnit),
-			unitBagCount:  src.UnitBagCount,
-			unitBeanG:     src.UnitBeanG,
+			productID:                          src.ProductID,
+			customerProductAliasID:             src.CustomerProductAliasID,
+			customerProductDisplayNameSnapshot: strings.TrimSpace(src.CustomerProductDisplayNameSnapshot),
+			customerItemCodeSnapshot:           strings.TrimSpace(src.CustomerItemCodeSnapshot),
+			brandNameSnapshot:                  strings.TrimSpace(src.BrandNameSnapshot),
+			productCodeSnapshot:                strings.TrimSpace(src.ProductCodeSnapshot),
+			productNameSnapshot:                strings.TrimSpace(src.ProductNameSnapshot),
+			itemBeanListPublicationID:          src.BeanListPublicationID,
+			itemBeanListVersionNo:              strings.TrimSpace(src.BeanListVersionNo),
+			tierID:                             src.TierID,
+			manualPrice:                        src.ManualPrice,
+			discountType:                       normalizeOrderItemDiscountType(src.DiscountType),
+			discountValue:                      maxFloat(src.DiscountValue, 0),
+			name:                               name,
+			note:                               strings.TrimSpace(src.Note),
+			units:                              src.Units,
+			specG:                              src.SpecG,
+			productKind:                        normalizeOrderItemProductKind(src.ProductKind),
+			salesUnit:                          normalizeOrderItemSalesUnit(src.SalesUnit),
+			unitBagCount:                       src.UnitBagCount,
+			unitBeanG:                          src.UnitBeanG,
+			priceSourceJSON:                    strings.TrimSpace(src.PriceSourceJSON),
 		}
 		if it.productKind == "drip_bag" {
 			if it.unitBeanG <= 0 && it.specG > 0 {
@@ -1339,7 +1363,7 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 	}
 
 	editID := cmd.EditID
-		portalServiceCode, sourceWarehouse := r.orderFulfillmentMarkersTx(ctx, tx, cmd.CustomerID)
+	portalServiceCode, sourceWarehouse := r.orderFulfillmentMarkersTx(ctx, tx, cmd.CustomerID)
 	if cmd.PortalServiceCode != "" {
 		portalServiceCode = cmd.PortalServiceCode
 	}
@@ -1349,8 +1373,8 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		return salesapp.SaveOrderResult{}, err
 	}
 
-	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,price_tier_id,price_overridden,product_kind,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
-				VALUES ($1,$2,$3,$4,$5,$6,NULLIF($7,0),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::jsonb)`, r.schema)
+	insertItemSQL := fmt.Sprintf(`INSERT INTO %s.order_items(order_id,line_no,product_id,customer_product_alias_id,customer_product_display_name_snapshot,customer_item_code_snapshot,brand_name_snapshot,product_code_snapshot,product_name_snapshot,price_tier_id,price_overridden,product_kind,bean_list_publication_id,bean_list_version_no,item_name,item_note,qty,unit,spec,unit_price,line_total_before_discount,discount_type,discount_value,discount_amount,line_total,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULLIF($13,0),$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30::jsonb)`, r.schema)
 
 	var orderID int64
 	if editID > 0 {
@@ -1548,8 +1572,30 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if it.productID != nil {
 			productID = *it.productID
 		}
+		aliasSnapshot, err := resolveOrderItemCustomerAliasSnapshotTx(ctx, tx, r.schema, cmd.CustomerID, productID, it.customerProductAliasID)
+		if err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		if aliasSnapshot.AliasID > 0 {
+			it.customerProductAliasID = aliasSnapshot.AliasID
+			it.customerProductDisplayNameSnapshot = aliasSnapshot.DisplayName
+			it.customerItemCodeSnapshot = aliasSnapshot.CustomerItemCode
+			it.brandNameSnapshot = aliasSnapshot.BrandName
+		}
+		if strings.TrimSpace(it.productCodeSnapshot) == "" {
+			it.productCodeSnapshot = aliasSnapshot.ProductCode
+		}
+		if strings.TrimSpace(it.productNameSnapshot) == "" {
+			it.productNameSnapshot = aliasSnapshot.ProductName
+		}
+		if strings.TrimSpace(it.customerProductDisplayNameSnapshot) == "" && aliasSnapshot.AliasID > 0 {
+			it.customerProductDisplayNameSnapshot = aliasSnapshot.DisplayName
+		}
 		itemListType := orderbeans.ListTypeForProductKind(it.productKind, retailOrder)
-		itemPublicationID := selectedOrderBeanListPublicationID(cmd, itemListType)
+		itemPublicationID := it.itemBeanListPublicationID
+		if itemPublicationID <= 0 {
+			itemPublicationID = selectedOrderBeanListPublicationID(cmd, itemListType)
+		}
 		if !it.priceOverride && productID > 0 && it.unitPrice <= 0 && it.specG > 0 && it.units > 0 {
 			publishedPricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, cmd.CustomerID, productID, itemListType, itemPublicationID, int64(it.specG), int64(it.units), it.salesUnit, it.unitBagCount)
 			if err != nil {
@@ -1574,7 +1620,13 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 		if !it.priceOverride && productID > 0 && usage.PublicationID > 0 && strings.TrimSpace(it.priceSourceJSON) == "" {
 			priceSourceJSON = beanListPriceSourceJSON(itemListType, usage, productID)
 		}
-		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, it.unit, it.spec, it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
+		if it.itemBeanListVersionNo != "" && usage.VersionNo == "" {
+			usage.VersionNo = it.itemBeanListVersionNo
+		}
+		if err := validateCustomerAliasPublishedPrice(it.customerProductAliasID, it.priceOverride, it.unitPrice); err != nil {
+			return salesapp.SaveOrderResult{}, err
+		}
+		if _, err := tx.Exec(ctx, insertItemSQL, orderID, idx+1, it.productID, it.customerProductAliasID, it.customerProductDisplayNameSnapshot, it.customerItemCodeSnapshot, it.brandNameSnapshot, it.productCodeSnapshot, it.productNameSnapshot, it.tierID, it.priceOverride, it.productKind, usage.PublicationID, usage.VersionNo, it.name, it.note, qtyAny, it.unit, it.spec, it.unitPrice, it.baseLineTotal, it.discountType, it.discountValue, it.discountAmount, it.lineTotal, it.salesUnit, it.unitBagCount, it.unitBeanG, it.matchedPriceQty, priceSourceJSON); err != nil {
 			return salesapp.SaveOrderResult{}, err
 		}
 	}
@@ -1717,6 +1769,70 @@ func relationExistsTx(ctx context.Context, tx pgx.Tx, relation string) bool {
 		return false
 	}
 	return exists
+}
+
+type orderItemCustomerAliasSnapshot struct {
+	AliasID             int64
+	DisplayName         string
+	CustomerItemCode    string
+	BrandName           string
+	ProductCode         string
+	ProductName         string
+	DisplayCategoryID   int64
+	DisplayCategoryName string
+}
+
+func resolveOrderItemCustomerAliasSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, customerID, productID, requestedAliasID int64) (orderItemCustomerAliasSnapshot, error) {
+	snap := orderItemCustomerAliasSnapshot{
+		ProductCode: fmt.Sprintf("SKU-%d", productID),
+	}
+	if productID <= 0 {
+		return orderItemCustomerAliasSnapshot{}, nil
+	}
+	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.products WHERE id=$1`, schema), productID).Scan(&snap.ProductName)
+	if !relationExistsTx(ctx, tx, fmt.Sprintf("%s.customer_product_aliases", schema)) {
+		return snap, nil
+	}
+
+	q := fmt.Sprintf(`
+		SELECT a.id,
+		       COALESCE(NULLIF(a.display_name,''), p.name, ''),
+		       COALESCE(a.customer_item_code,''),
+		       COALESCE(a.brand_name,''),
+		       COALESCE(p.name,''),
+		       COALESCE(a.display_category_id,0),
+		       ''
+		FROM %[1]s.customer_product_aliases a
+		JOIN %[1]s.products p ON p.id=a.product_id
+		WHERE a.customer_id=$1
+		  AND a.product_id=$2
+		  AND a.active=true
+	`, schema)
+	args := []any{customerID, productID}
+	if requestedAliasID > 0 {
+		q += " AND a.id=$3"
+		args = append(args, requestedAliasID)
+	}
+	q += " ORDER BY a.include_in_price_list DESC, a.sort_order, a.id LIMIT 1"
+	err := tx.QueryRow(ctx, q, args...).Scan(
+		&snap.AliasID,
+		&snap.DisplayName,
+		&snap.CustomerItemCode,
+		&snap.BrandName,
+		&snap.ProductName,
+		&snap.DisplayCategoryID,
+		&snap.DisplayCategoryName,
+	)
+	if err == pgx.ErrNoRows {
+		if requestedAliasID > 0 {
+			return orderItemCustomerAliasSnapshot{}, fmt.Errorf("customer_product_alias invalid")
+		}
+		return snap, nil
+	}
+	if err != nil {
+		return orderItemCustomerAliasSnapshot{}, err
+	}
+	return snap, nil
 }
 
 func (r Repository) UpdateHeader(ctx context.Context, id int64, cmd salesapp.UpdateHeaderCommand) error {

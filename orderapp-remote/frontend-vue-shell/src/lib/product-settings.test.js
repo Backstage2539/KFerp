@@ -7,6 +7,9 @@ import {
   buildCustomerProductRuleBindingPayload,
   buildCustomerProductRuleOverridePayload,
   buildCustomerProductRuleTemplatePayload,
+  buildCustomerProductAliasPayload,
+  customerProductAliasRowsForCustomer,
+  customerProductAliasMigrationCandidateSummary,
   buildCustomerPublicUsagePayload,
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
@@ -35,6 +38,7 @@ import {
   greenBeanTypeLabel,
   productBelongsToSkuContext,
   productConfigTemplateBelongsToSkuContext,
+  productCreationActionOptions,
   productDisplayState,
   productSubtypeCategoryOptionsForType,
   primaryCategoryOptions,
@@ -177,6 +181,67 @@ test('SKU copy payload supports all selected SKU ids and same-name overwrite flo
     source_customer_id: 0,
     source_sku_ids: [7, 8],
   })
+})
+
+test('customer product alias payload binds a customer-facing name to one product record', () => {
+  assert.deepEqual(buildCustomerProductAliasPayload({
+    id: '12',
+    customer_id: '42',
+    product_id: '88',
+    display_name: ' Karen 精品拼配 ',
+    customer_item_code: ' KAREN-ESP ',
+    brand_name: ' ',
+    display_category_id: '7',
+    sort_order: '30',
+    include_in_price_list: true,
+    active: false,
+    remark: '贴牌只改对外名称',
+  }), {
+    id: 12,
+    customer_id: 42,
+    product_id: 88,
+    display_name: 'Karen 精品拼配',
+    customer_item_code: 'KAREN-ESP',
+    brand_name: '',
+    display_category_id: 7,
+    sort_order: 30,
+    include_in_price_list: true,
+    active: false,
+    remark: '贴牌只改对外名称',
+  })
+})
+
+test('customer product alias rows are scoped to one customer and sorted for price-list display', () => {
+  const rows = [
+    { id: 3, customer_id: 7, product_id: 101, display_name: '其他客户', sort_order: 1, active: true },
+    { id: 2, customer_id: 42, product_id: 88, display_name: '停用商品名', sort_order: 1, active: false },
+    { id: 1, customer_id: 42, product_id: 87, display_name: 'Karen A', sort_order: 20, active: true },
+    { id: 4, customer_id: 42, product_id: 89, display_name: 'Karen B', sort_order: 10, active: true },
+  ]
+
+  assert.deepEqual(customerProductAliasRowsForCustomer(rows, 42).map((row) => row.id), [4, 1])
+  assert.deepEqual(customerProductAliasRowsForCustomer(rows, 42, { includeInactive: true }).map((row) => row.id), [2, 4, 1])
+})
+
+test('product creation actions split customer-facing names from new product records', () => {
+  assert.deepEqual(productCreationActionOptions({ customerID: 42 }).map((option) => option.label), [
+    '创建客户商品名',
+    '创建新商品档案',
+  ])
+  assert.deepEqual(productCreationActionOptions({ customerID: 0 }).map((option) => option.label), [
+    '创建新商品档案',
+  ])
+})
+
+test('customer product alias migration candidate summary explains safe convergence', () => {
+  assert.equal(customerProductAliasMigrationCandidateSummary({
+    product_code: 'SKU-000088',
+    product_name: 'Karen 贴牌意式',
+    base_product_code: 'SKU-000007',
+    base_product_name: '精品意式拼配',
+    suggested_action: 'convert_to_customer_product_alias',
+    suggested_reason: '仅名称/编号/价格差异',
+  }), '建议转为客户商品名：SKU-000088 Karen 贴牌意式 → 绑定 SKU-000007 精品意式拼配；仅名称/编号/价格差异')
 })
 
 test('product subtype options are derived from the selected product type only', () => {
@@ -1261,14 +1326,14 @@ test('SKU settings exposes SKU copy drawer and moves category management under p
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   for (const expected of [
-    'SKU复制',
+    '历史SKU复制',
     'sku-copy-drawer',
     '选择分类和产品',
     'copySourceCustomerID',
     'skuCopySourceOptions',
     'ensureSkuCopySource',
     'copySkuSelection',
-    '复制SKU',
+    '复制为商品档案',
     '商品分类管理',
     "activeConfigTemplateSection === 'category-management'",
     '/api/product-settings/skus/copy-options',
@@ -1358,14 +1423,15 @@ test('SKU settings removes public SKU references from the customer SKU list and 
   assert.doesNotMatch(source, /savePublicSkuUsageForCustomer/)
 })
 
-test('SKU settings shows BOM source and keeps BOM derivation in BOM workspace', () => {
+test('product management shows production BOM usage and keeps BOM derivation in BOM workspace', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
 
-  assert.match(template, /BOM来源/)
+  assert.match(template, /生产 BOM/)
   assert.match(source, /bomSourceLabel\(row\)/)
   assert.match(template, /维护 BOM/)
   assert.doesNotMatch(template, /派生自有 BOM/)
+  assert.doesNotMatch(template, /自有 BOM/)
 })
 
 test('SKU settings renders one unified SKU form as a full-width drawer', () => {
@@ -1390,7 +1456,7 @@ test('SKU settings groups master data and template configuration into separate w
     'sku-template-workspace',
     'master-data-layout',
     'template-workspace-stack',
-    '商品资料',
+    '商品档案',
     '商品配置',
   ]) {
     assert.ok(source.includes(expected), `missing SKU workspace layout marker: ${expected}`)
@@ -1410,6 +1476,35 @@ test('SKU settings groups master data and template configuration into separate w
   assert.match(style, /\.template-workspace-stack\s*\{\s*display:\s*grid;\s*gap:\s*14px;/)
   assert.match(style, /@media\s*\(max-width:\s*1100px\)/)
   assert.match(style, /\.master-data-layout\s*\{\s*grid-template-columns:\s*1fr;\s*\}/)
+})
+
+test('product management exposes customer product names without direct BOM editing', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  for (const expected of [
+    '客户商品名',
+    'customer-alias-workspace',
+    '客户商品编号',
+    '品牌名',
+    '进入价格表',
+    '绑定商品档案',
+    'customerProductAliases',
+    'buildCustomerProductAliasPayload',
+    '/api/customer-product-aliases',
+    'saveCustomerProductAlias',
+    'disableCustomerProductAlias',
+    'BOM 请回到绑定商品档案维护生产 BOM',
+  ]) {
+    assert.ok(source.includes(expected), `missing customer product alias marker: ${expected}`)
+  }
+  assert.match(template, /activeSettingsSection === 'aliases'/)
+  assert.match(script, /apiGet\('\/api\/customer-product-aliases\?active=all'\)/)
+  assert.match(script, /apiSend\(url,\s*\{ method,\s*body:\s*payload \}\)/)
+  assert.match(script, /apiSend\(`\/api\/customer-product-aliases\/\$\{alias\.id\}\/disable`\)/)
+  assert.doesNotMatch(template, /客户商品名[\s\S]*派生自有 BOM/)
+  assert.doesNotMatch(template, /customer-alias-workspace[\s\S]*@click="derive/)
 })
 
 test('SKU settings opens SKU creation and SKU copy behind drawers while category management is a config tab', () => {

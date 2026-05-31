@@ -42,7 +42,7 @@ func TestDev382SKUUnifiedCreateCopySourceMarkers(t *testing.T) {
 		filepath.Join("internal", "application", "catalog", "service.go"): {
 			"CreateSKU(ctx context.Context, cmd CreateSKUCommand)",
 			"CopySKUs(ctx context.Context, cmd CopySKUsCommand)",
-					},
+		},
 		filepath.Join("internal", "infrastructure", "postgres", "catalog", "repository.go"): {
 			"func (r Repository) CreateSKU",
 			"func (r Repository) ListSKUCopyOptions",
@@ -82,9 +82,9 @@ func TestDev382SKUUnifiedCreateCopyDocs(t *testing.T) {
 			"商品分类管理",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-382-SKU-UNIFIED-CREATE-COPY",
-			"同名同分类的目标 SKU 会被覆盖",
-			"停用 SKU",
+			"PR-382",
+			"历史 SKU 复制抽屉",
+			"生产 BOM",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-382-SKU-UNIFIED-CREATE-COPY",

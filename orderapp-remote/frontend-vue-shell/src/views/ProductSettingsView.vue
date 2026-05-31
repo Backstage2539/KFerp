@@ -3,8 +3,8 @@
     <section class="panel sku-page-summary">
       <div class="panel-head">
         <div>
-          <h2>SKU设置</h2>
-          <p>维护公共 SKU、客户专属 SKU、商品分类和商品配置；豆单生成请进入产品价格表。</p>
+          <h2>商品管理</h2>
+          <p>维护商品档案、客户使用场景、商品分类和商品配置；价格表生成请进入产品价格表。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -42,12 +42,12 @@
         </div>
       </div>
 
-      <div class="sku-workspace-tabs" role="tablist" aria-label="SKU设置工作区">
+      <div class="sku-workspace-tabs" role="tablist" aria-label="商品管理工作区">
         <button
           type="button"
           :class="['workspace-tab', { active: activeSettingsSection === 'master' }]"
           @click="activeSettingsSection = 'master'">
-          商品资料
+          商品档案
         </button>
         <button
           type="button"
@@ -55,16 +55,23 @@
           @click="activeSettingsSection = 'templates'">
           商品配置
         </button>
+        <button
+          type="button"
+          :class="['workspace-tab', { active: activeSettingsSection === 'aliases' }]"
+          @click="activeSettingsSection = 'aliases'">
+          客户商品名
+        </button>
       </div>
 
       <div v-show="activeSettingsSection === 'master'" class="sku-master-workspace">
         <div class="master-data-layout">
       <div class="panel product-panel">
         <div class="panel-title sku-panel-title">
-          <span>客户SKU列表 · {{ selectedSkuContextLabel }}</span>
+          <span>商品档案 · {{ selectedSkuContextLabel }}</span>
           <div class="panel-actions sku-panel-actions">
-            <button class="primary compact-action" type="button" @click="openProductDrawer">新增SKU</button>
-            <button class="secondary compact-action" type="button" @click="openSkuCopyDrawer">SKU复制</button>
+            <button v-if="skuContextCustomerID" class="primary compact-action" type="button" @click="openCustomerAliasSection">创建客户商品名</button>
+            <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
+            <button class="secondary compact-action" type="button" @click="openSkuCopyDrawer">历史SKU复制</button>
             <button class="secondary compact-action" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
               失效选中产品
             </button>
@@ -74,6 +81,17 @@
           </div>
         </div>
         <div v-show="!productsCollapsed">
+          <div class="product-action-guide">
+            <button
+              v-for="action in productCreationActions"
+              :key="action.key"
+              class="action-guide-button"
+              type="button"
+              @click="action.key === 'customer_product_alias' ? openCustomerAliasSection() : openProductDrawer()">
+              <strong>{{ action.label }}</strong>
+              <small>{{ action.description }}</small>
+            </button>
+          </div>
           <div class="table-wrap sku-table-wrap">
           <div class="sku-filters">
             <label>
@@ -114,12 +132,12 @@
                 <th>商品编号</th>
                 <th class="sku-name-cell">商品</th>
                 <th>归属</th>
-                <th class="special-attrs-cell">复制</th>
+                <th class="special-attrs-cell">新增动作</th>
                 <th>特殊属性</th>
-                <th>BOM预期产出率</th>
+                <th>生产 BOM 预期产出率</th>
                 <th>利润率覆盖</th>
-                <th>BOM来源</th>
-                <th>SKU状态</th>
+                <th>生产 BOM</th>
+                <th>商品状态</th>
                 <th>BOM</th>
                 <th>处理</th>
                 <th class="remark-cell">备注</th>
@@ -143,7 +161,7 @@
                   </td>
                   <td>{{ productOwnerLabel(row) }}</td>
                   <td class="special-attrs-cell">
-                    <button class="text-button" type="button" @click="copySkuInPlace(row)">复制</button>
+                    <button class="text-button" type="button" @click="copySkuInPlace(row)">复制为商品档案</button>
                   </td>
                   <td class="special-attrs-cell">
                     <div v-if="specialAttrSchemaForProduct(row).length" class="special-attr-editor compact">
@@ -268,6 +286,133 @@
         />
       </div>
         </div>
+      </div>
+
+      <div v-show="activeSettingsSection === 'aliases'" class="customer-alias-workspace">
+        <section class="panel customer-alias-panel">
+          <div class="panel-title">
+            <span>客户商品名 · {{ aliasCustomerLabel }}</span>
+            <div class="panel-actions">
+              <button class="secondary compact-action" type="button" @click="resetCustomerProductAliasForm">清空</button>
+            </div>
+          </div>
+          <p class="muted">客户商品名只维护对外名称、编号、品牌和展示分类；BOM 请回到绑定商品档案维护生产 BOM。</p>
+          <div v-if="selectedAliasCustomerID" class="alias-migration-panel">
+            <div class="field-group-head">
+              <strong>旧客户 SKU 收敛检查</strong>
+              <button class="secondary compact-action" type="button" :disabled="aliasMigrationLoading" @click="loadAliasMigrationCandidates(selectedAliasCustomerID)">
+                {{ aliasMigrationLoading ? '检查中' : '重新检查' }}
+              </button>
+            </div>
+            <p class="muted">只读检查，不自动迁移、不删除旧 SKU、不回改历史订单；仅提示哪些贴牌-only 商品可改用客户商品名。</p>
+            <div v-if="visibleAliasMigrationCandidates.length" class="alias-candidate-list">
+              <div v-for="candidate in visibleAliasMigrationCandidates" :key="candidate.product_id" class="alias-candidate-row">
+                <span>{{ customerProductAliasMigrationCandidateSummary(candidate) }}</span>
+                <button class="text-button" type="button" @click="prepareAliasFromCandidate(candidate)">创建客户商品名</button>
+              </div>
+            </div>
+            <p v-else class="muted">暂无可建议收敛的旧客户 SKU。</p>
+          </div>
+          <div class="alias-toolbar">
+            <label>
+              <span>客户</span>
+              <SearchableSelect
+                v-model="selectedAliasCustomerID"
+                :options="customerSkuCustomers"
+                :option-label="customerOptionLabel"
+                :option-meta="customerOptionMeta"
+                :option-value="optionNumericValue"
+                placeholder="选择客户"
+                empty-text="暂无客户" />
+            </label>
+            <label>
+              <span>绑定商品档案</span>
+              <SearchableSelect
+                v-model="customerProductAliasForm.product_id"
+                :options="aliasProductOptions"
+                :option-label="productOptionLabel"
+                :option-meta="productOptionMeta"
+                :option-value="optionNumericValue"
+                placeholder="选择商品档案"
+                empty-text="暂无商品档案" />
+            </label>
+          </div>
+          <form class="customer-alias-form" @submit.prevent="saveCustomerProductAlias">
+            <label>
+              <span>客户商品名</span>
+              <input v-model.trim="customerProductAliasForm.display_name" required placeholder="客户对外展示名称" />
+            </label>
+            <label>
+              <span>客户商品编号</span>
+              <input v-model.trim="customerProductAliasForm.customer_item_code" placeholder="客户侧编号，可留空" />
+            </label>
+            <label>
+              <span>品牌名</span>
+              <input v-model.trim="customerProductAliasForm.brand_name" placeholder="可留空" />
+            </label>
+            <label>
+              <span>展示分类</span>
+              <select v-model.number="customerProductAliasForm.display_category_id">
+                <option :value="0">未分类</option>
+                <option v-for="category in aliasDisplayCategoryOptions" :key="category.id" :value="category.id">{{ category.label }}</option>
+              </select>
+            </label>
+            <label>
+              <span>排序</span>
+              <input v-model.number="customerProductAliasForm.sort_order" type="number" min="0" step="1" />
+            </label>
+            <label class="checkbox-row">
+              <input v-model="customerProductAliasForm.include_in_price_list" type="checkbox" />
+              <span>进入价格表</span>
+            </label>
+            <label class="checkbox-row">
+              <input v-model="customerProductAliasForm.active" type="checkbox" />
+              <span>启用</span>
+            </label>
+            <label class="span-2">
+              <span>备注</span>
+              <textarea v-model.trim="customerProductAliasForm.remark" rows="2" placeholder="例如贴牌、客户命名、展示用途"></textarea>
+            </label>
+            <div class="form-actions span-2">
+              <button class="primary" type="submit" :disabled="aliasSaving || loading">保存客户商品名</button>
+            </div>
+          </form>
+          <div class="table-wrap">
+            <table class="customer-alias-table">
+              <thead>
+                <tr>
+                  <th>客户商品名</th>
+                  <th>客户商品编号</th>
+                  <th>品牌名</th>
+                  <th>展示分类</th>
+                  <th>绑定商品档案</th>
+                  <th>进入价格表</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="alias in visibleCustomerProductAliases" :key="alias.id">
+                  <td>{{ alias.display_name }}</td>
+                  <td>{{ alias.customer_item_code || '-' }}</td>
+                  <td>{{ alias.brand_name || '-' }}</td>
+                  <td>{{ alias.display_category_name || categoryName(alias.display_category_id) || '未分类' }}</td>
+                  <td>{{ alias.product_code || alias.product_id }} · {{ alias.product_name || productName(alias.product_id) }}</td>
+                  <td>{{ alias.include_in_price_list ? '是' : '否' }}</td>
+                  <td><span :class="['status-pill', alias.active === false ? 'inactive' : '']">{{ alias.active === false ? '停用' : '启用' }}</span></td>
+                  <td class="table-actions">
+                    <button class="text-button" type="button" @click="editCustomerProductAlias(alias)">编辑</button>
+                    <button class="text-button" type="button" @click="openProductBom({ id: alias.product_id })">生产 BOM</button>
+                    <button class="text-button danger-text" type="button" :disabled="alias.active === false" @click="disableCustomerProductAlias(alias)">停用</button>
+                  </td>
+                </tr>
+                <tr v-if="!visibleCustomerProductAliases.length">
+                  <td colspan="8" class="muted">当前客户暂无客户商品名。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
 
       <div v-show="activeSettingsSection === 'templates'" class="sku-template-workspace">
@@ -824,8 +969,8 @@
       <aside class="settings-drawer product-editor-drawer" aria-label="新增SKU">
         <div class="drawer-head">
           <div>
-            <h3>新增SKU</h3>
-            <p>当前归属：{{ selectedSkuContextLabel }}。只填写名称、备注、产品类别和产品子类型。</p>
+            <h3>创建新商品档案</h3>
+            <p>当前归属：{{ selectedSkuContextLabel }}。配方、包装、生产方式、库存对象或成本口径变化时使用。</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closeProductDrawer">关闭</button>
         </div>
@@ -855,7 +1000,7 @@
               <small>只有选中产品子类型才会挂入分类；未选会进入停车场。</small>
             </label>
             <div class="form-actions">
-              <button class="primary" type="submit" :disabled="skuSaving">新增SKU</button>
+              <button class="primary" type="submit" :disabled="skuSaving">创建新商品档案</button>
             </div>
           </form>
         </div>
@@ -866,8 +1011,8 @@
       <aside class="settings-drawer sku-copy-drawer" aria-label="SKU复制">
         <div class="drawer-head">
           <div>
-            <h3>SKU复制</h3>
-            <p>从公共 SKU 或其他客户复制到当前归属；同名 SKU 会覆盖资料但保留目标 SKU ID。</p>
+            <h3>历史SKU复制</h3>
+            <p>兼容旧客户 SKU。贴牌、客户命名、客户编号或客户展示差异优先使用“创建客户商品名”。</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closeSkuCopyDrawer">关闭</button>
         </div>
@@ -930,7 +1075,7 @@
         </div>
         <div class="drawer-footer sku-copy-footer">
           <span>已选 {{ copySelectedCount }} 款</span>
-          <button class="primary" type="button" :disabled="skuCopySaving || !copySelectedCount" @click="copySelectedSkus">复制SKU</button>
+          <button class="primary" type="button" :disabled="skuCopySaving || !copySelectedCount" @click="copySelectedSkus">复制为商品档案</button>
         </div>
       </aside>
     </div>
@@ -1031,6 +1176,8 @@ import {
 } from '../lib/gradient-templates'
 import {
   buildCustomerPublicUsagePayload,
+  buildCustomerProductAliasPayload,
+  customerProductAliasMigrationCandidateSummary,
   buildCustomerProductRuleBindingPayload,
   buildCustomerProductRuleOverridePayload,
   buildCustomerProductRuleTemplatePayload,
@@ -1049,6 +1196,7 @@ import {
   categoryBelongsToSkuContext as categoryBelongsToContext,
   categoryDisplayState,
   customerSkuCustomerOptions,
+  customerProductAliasRowsForCustomer,
   gradientTemplateBelongsToSkuContext,
   greenBeanTypeOptions,
   integerUnitModeOptions,
@@ -1062,6 +1210,7 @@ import {
   priceListRuleRoundingOptions,
   productBelongsToSkuContext as productBelongsToContext,
   productConfigTemplateBelongsToSkuContext,
+  productCreationActionOptions,
   productDisplayState,
   productKindSupportsBomParams,
   productSubtypeCategoryOptionsForType,
@@ -1093,6 +1242,8 @@ const productConfigTemplates = ref([])
 const productUnitDefinitions = ref([])
 const productUnitTemplates = ref([])
 const customerPublicUsages = ref([])
+const customerProductAliases = ref([])
+const aliasMigrationCandidates = ref([])
 const customerProductRuleTemplates = ref([])
 const customerProductRuleOverrides = ref([])
 const customerProductRuleBindings = ref([])
@@ -1108,6 +1259,8 @@ const productConfigSaving = ref(false)
 const productUnitSaving = ref(false)
 const globalUnitSaving = ref(false)
 const customerRuleSaving = ref(false)
+const aliasSaving = ref(false)
+const aliasMigrationLoading = ref(false)
 const error = ref('')
 const ok = ref('')
 const dragging = ref(null)
@@ -1128,6 +1281,7 @@ const categorySearchQuery = ref('')
 const primaryDeleteMode = ref(false)
 const secondaryDeleteModeFor = ref(0)
 const selectedCustomerSkuCustomerID = ref(0)
+const selectedAliasCustomerID = ref(0)
 const selectedProductIds = ref([])
 const skuFilters = ref(defaultSkuFilters())
 const skuPage = ref(1)
@@ -1146,6 +1300,7 @@ const globalUnitForm = ref(defaultProductUnitDefinitionForm())
 const globalUnitEditingCode = ref('')
 const customerRuleTemplateForm = ref(defaultCustomerProductRuleTemplateForm())
 const customerRuleOverrideForm = ref(defaultCustomerProductRuleOverrideForm())
+const customerProductAliasForm = ref(defaultCustomerProductAliasForm())
 
 const skuContextCustomerID = computed(() => Number(selectedCustomerSkuCustomerID.value || 0))
 const productConfigTemplateForm = ref(defaultProductConfigTemplateForm())
@@ -1304,6 +1459,24 @@ const publicSkuRows = computed(() => sortRowsForCustomerSkuPriority(
   0,
 ))
 const customerSkuCustomers = computed(() => customerSkuCustomerOptions(customers.value))
+const aliasCustomerLabel = computed(() => {
+  const customerID = Number(selectedAliasCustomerID.value || 0)
+  if (!customerID) return '请选择客户'
+  return customerName(customerID) || `客户 #${customerID}`
+})
+const aliasProductOptions = computed(() => products.value
+  .filter((product) => product.active !== false)
+  .slice()
+  .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')) || Number(a.id || 0) - Number(b.id || 0)))
+const aliasDisplayCategoryOptions = computed(() => flattenCategoryNodes(categories.value).map((category) => ({
+  id: Number(category.id || 0),
+  label: `${Number(category.customer_id || 0) > 0 ? `${customerName(category.customer_id) || '客户'} / ` : ''}${category.name || ''}`,
+})).filter((category) => category.id > 0 && category.label))
+const visibleCustomerProductAliases = computed(() => customerProductAliasRowsForCustomer(customerProductAliases.value, selectedAliasCustomerID.value, { includeInactive: true }))
+const productCreationActions = computed(() => productCreationActionOptions({ customerID: skuContextCustomerID.value }))
+const visibleAliasMigrationCandidates = computed(() => (aliasMigrationCandidates.value || [])
+  .filter((row) => Number(row.customer_id || 0) === Number(selectedAliasCustomerID.value || 0))
+  .filter((row) => row.can_auto_recommend || row.suggested_action === 'convert_to_customer_product_alias'))
 const skuCopySourceCustomers = computed(() => customerSkuCustomers.value.filter((customer) => Number(customer.id || 0) !== skuContextCustomerID.value))
 const skuCopySourceOptions = computed(() => {
   const targetCustomerID = skuContextCustomerID.value
@@ -1471,6 +1644,22 @@ function defaultSkuCopyOptions() {
     source_customer_id: 0,
     total_count: 0,
     groups: [],
+  }
+}
+
+function defaultCustomerProductAliasForm() {
+  return {
+    id: 0,
+    customer_id: Number(selectedAliasCustomerID.value || 0),
+    product_id: 0,
+    display_name: '',
+    customer_item_code: '',
+    brand_name: '',
+    display_category_id: 0,
+    sort_order: 0,
+    include_in_price_list: true,
+    active: true,
+    remark: '',
   }
 }
 
@@ -1652,6 +1841,8 @@ function productSettingsDraftKey() {
 function saveProductSettingsDraft() {
   saveFormDraft(productSettingsDraftKey(), {
     selectedCustomerSkuCustomerID: selectedCustomerSkuCustomerID.value,
+    selectedAliasCustomerID: selectedAliasCustomerID.value,
+    customerProductAliasForm: customerProductAliasForm.value,
     skuForm: skuForm.value,
     templateForm: templateForm.value,
     productConfigTemplateForm: productConfigTemplateForm.value,
@@ -1685,9 +1876,11 @@ async function restoreProductSettingsDraft() {
   if (!draft) return
   restoringProductSettingsDraft = true
   selectedCustomerSkuCustomerID.value = Number(draft.selectedCustomerSkuCustomerID || 0)
+  selectedAliasCustomerID.value = Number(draft.selectedAliasCustomerID || selectedCustomerSkuCustomerID.value || 0)
   syncSelectedCustomerSkuCustomer()
   applyWorkspaceCustomerContext()
   skuForm.value = { ...defaultSkuForm(), ...(draft.skuForm || draft.productForm || {}) }
+  customerProductAliasForm.value = { ...defaultCustomerProductAliasForm(), ...(draft.customerProductAliasForm || {}) }
   templateForm.value = normalizeGradientTemplate(draft.templateForm || defaultGradientTemplateForm())
   productConfigTemplateForm.value = defaultProductConfigTemplateForm(draft.productConfigTemplateForm || {})
   productUnitTemplateForm.value = defaultProductUnitTemplateForm(draft.productUnitTemplateForm || {})
@@ -1697,7 +1890,7 @@ async function restoreProductSettingsDraft() {
   collapsedPrimaryCategoryIds.value = normalizeCategoryIdList(draft.collapsedPrimaryCategoryIds)
   collapsedSecondaryCategoryIds.value = normalizeCategoryIdList(draft.collapsedSecondaryCategoryIds)
   productsCollapsed.value = Boolean(draft.productsCollapsed)
-  activeSettingsSection.value = ['master', 'templates'].includes(draft.activeSettingsSection) ? draft.activeSettingsSection : 'master'
+  activeSettingsSection.value = ['master', 'templates', 'aliases'].includes(draft.activeSettingsSection) ? draft.activeSettingsSection : 'master'
   activeConfigTemplateSection.value = ['product-config', 'unit-template', 'gradient', 'category-management'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
   categorySearchQuery.value = draft.categorySearchQuery || ''
   skuFilters.value = normalizeSkuFiltersForCurrentRows(draft.skuFilters || {})
@@ -1769,6 +1962,26 @@ function decorateCategory(category) {
   }
 }
 
+function decorateCustomerProductAlias(alias = {}) {
+  return {
+    ...alias,
+    id: Number(alias.id || 0),
+    customer_id: Number(alias.customer_id || 0),
+    product_id: Number(alias.product_id || 0),
+    display_name: alias.display_name || '',
+    customer_item_code: alias.customer_item_code || '',
+    brand_name: alias.brand_name || '',
+    display_category_id: Number(alias.display_category_id || 0),
+    sort_order: Number(alias.sort_order || 0),
+    include_in_price_list: alias.include_in_price_list !== false,
+    active: alias.active !== false,
+    remark: alias.remark || '',
+    product_code: alias.product_code || '',
+    product_name: alias.product_name || '',
+    display_category_name: alias.display_category_name || '',
+  }
+}
+
 function decorateCustomerProductRuleTemplate(template) {
   return {
     ...template,
@@ -1827,9 +2040,10 @@ async function loadAll() {
   loading.value = true
   error.value = ''
   try {
-    const [data, customerData] = await Promise.all([
+    const [data, customerData, aliasData] = await Promise.all([
       apiGet('/api/product-settings'),
       apiGet('/api/customer-fulfillment/customers?limit=200'),
+      apiGet('/api/customer-product-aliases?active=all'),
     ])
     categories.value = (data.categories || []).map(decorateCategory)
     products.value = (data.products || []).map(decorateProduct)
@@ -1849,8 +2063,11 @@ async function loadAll() {
       use_public_categories: Boolean(row.use_public_categories),
       use_public_gradient_templates: Boolean(row.use_public_gradient_templates),
     }))
+    customerProductAliases.value = (aliasData.rows || []).map(decorateCustomerProductAlias)
     customers.value = customerSkuCustomerOptions(customerData)
     syncSelectedCustomerSkuCustomer()
+    syncSelectedAliasCustomer()
+    await loadAliasMigrationCandidates(selectedAliasCustomerID.value, { silent: true })
     applyWorkspaceCustomerContext()
     syncVisibleSkuTableState()
     pruneSelectedProducts(displaySkuRows.value)
@@ -1858,6 +2075,38 @@ async function loadAll() {
     error.value = err.message || '加载失败'
   } finally {
     loading.value = false
+  }
+}
+
+async function loadAliasMigrationCandidates(customerID = selectedAliasCustomerID.value, options = {}) {
+  const id = Number(customerID || 0)
+  if (!id) {
+    aliasMigrationCandidates.value = []
+    return
+  }
+  aliasMigrationLoading.value = true
+  if (!options.silent) {
+    error.value = ''
+  }
+  try {
+    const data = await apiGet(`/api/customer-product-aliases/migration-candidates?customer_id=${encodeURIComponent(String(id))}`)
+    aliasMigrationCandidates.value = (data.rows || []).map((row) => ({
+      ...row,
+      customer_id: Number(row.customer_id || id),
+      product_id: Number(row.product_id || 0),
+      base_product_id: Number(row.base_product_id || 0),
+      can_auto_recommend: Boolean(row.can_auto_recommend),
+      has_own_bom: Boolean(row.has_own_bom),
+      has_production_record: Boolean(row.has_production_record),
+      has_inventory_record: Boolean(row.has_inventory_record),
+    }))
+  } catch (err) {
+    if (!options.silent) {
+      error.value = err.message || '加载旧客户 SKU 收敛检查失败'
+    }
+    aliasMigrationCandidates.value = []
+  } finally {
+    aliasMigrationLoading.value = false
   }
 }
 
@@ -2637,6 +2886,14 @@ function customerName(id) {
   return customers.value.find((customer) => Number(customer.id) === Number(id))?.name || ''
 }
 
+function productName(id) {
+  return products.value.find((product) => Number(product.id) === Number(id))?.name || ''
+}
+
+function categoryName(id) {
+  return flattenCategoryNodes(categories.value).find((category) => Number(category.id) === Number(id))?.name || ''
+}
+
 function customerOptionLabel(customer) {
   return customer?.name || ''
 }
@@ -2663,6 +2920,18 @@ function baseProductOptionMeta(product) {
   for (const value of Object.values(product?.special_attr_values || {})) {
     if (value) parts.push(value)
   }
+  return parts.join(' / ')
+}
+
+function productOptionLabel(product) {
+  return product?.name || ''
+}
+
+function productOptionMeta(product) {
+  const parts = []
+  parts.push(`SKU-${String(Number(product?.id || 0)).padStart(6, '0')}`)
+  const owner = ownerLabel(product)
+  if (owner) parts.push(owner)
   return parts.join(' / ')
 }
 
@@ -2758,6 +3027,17 @@ function syncSelectedCustomerSkuCustomer() {
   }
 }
 
+function syncSelectedAliasCustomer() {
+  const current = Number(selectedAliasCustomerID.value || 0)
+  if (current > 0 && customers.value.some((customer) => Number(customer.id || 0) === current)) return
+  const contextCustomerID = Number(selectedCustomerSkuCustomerID.value || props.customerContextId || 0)
+  if (contextCustomerID > 0 && customers.value.some((customer) => Number(customer.id || 0) === contextCustomerID)) {
+    selectedAliasCustomerID.value = contextCustomerID
+    return
+  }
+  selectedAliasCustomerID.value = Number(customers.value[0]?.id || 0)
+}
+
 function applyWorkspaceCustomerContext() {
   const nextCustomerID = nextSkuContextCustomerID(selectedCustomerSkuCustomerID.value, {
     workspaceMode: props.workspaceMode,
@@ -2765,6 +3045,9 @@ function applyWorkspaceCustomerContext() {
   })
   if (Number(selectedCustomerSkuCustomerID.value || 0) !== nextCustomerID) {
     selectedCustomerSkuCustomerID.value = nextCustomerID
+  }
+  if (props.workspaceMode === CUSTOMER_WORKSPACE_MODE && nextCustomerID > 0) {
+    selectedAliasCustomerID.value = nextCustomerID
   }
 }
 
@@ -3126,6 +3409,92 @@ async function saveCustomerPublicUsage(options, successMessage) {
     error.value = err.message || '保存公共引用设置失败'
   } finally {
     publicUsageSaving.value = false
+  }
+}
+
+function resetCustomerProductAliasForm() {
+  customerProductAliasForm.value = defaultCustomerProductAliasForm()
+}
+
+function openCustomerAliasSection() {
+  if (skuContextCustomerID.value > 0) {
+    selectedAliasCustomerID.value = skuContextCustomerID.value
+  }
+  activeSettingsSection.value = 'aliases'
+  resetCustomerProductAliasForm()
+}
+
+function prepareAliasFromCandidate(candidate = {}) {
+  const customerID = Number(candidate.customer_id || selectedAliasCustomerID.value || 0)
+  selectedAliasCustomerID.value = customerID
+  customerProductAliasForm.value = {
+    ...defaultCustomerProductAliasForm(),
+    customer_id: customerID,
+    product_id: Number(candidate.base_product_id || 0),
+    display_name: String(candidate.product_name || '').trim(),
+    customer_item_code: String(candidate.product_code || '').trim(),
+    brand_name: '',
+    remark: customerProductAliasMigrationCandidateSummary(candidate),
+  }
+  activeSettingsSection.value = 'aliases'
+}
+
+function editCustomerProductAlias(alias) {
+  selectedAliasCustomerID.value = Number(alias.customer_id || 0)
+  customerProductAliasForm.value = {
+    ...defaultCustomerProductAliasForm(),
+    ...decorateCustomerProductAlias(alias),
+  }
+}
+
+async function saveCustomerProductAlias() {
+  const payload = buildCustomerProductAliasPayload({
+    ...customerProductAliasForm.value,
+    customer_id: selectedAliasCustomerID.value || customerProductAliasForm.value.customer_id,
+  })
+  if (!payload.customer_id) {
+    error.value = '请选择客户'
+    return
+  }
+  if (!payload.product_id) {
+    error.value = '请选择绑定商品档案'
+    return
+  }
+  if (!payload.display_name) {
+    error.value = '请填写客户商品名'
+    return
+  }
+  aliasSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const url = payload.id ? `/api/customer-product-aliases/${payload.id}` : '/api/customer-product-aliases'
+    const method = payload.id ? 'PUT' : 'POST'
+    await apiSend(url, { method, body: payload })
+    ok.value = '客户商品名已保存'
+    resetCustomerProductAliasForm()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '保存客户商品名失败'
+  } finally {
+    aliasSaving.value = false
+  }
+}
+
+async function disableCustomerProductAlias(alias) {
+  const id = Number(alias?.id || 0)
+  if (!id) return
+  aliasSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/customer-product-aliases/${alias.id}/disable`)
+    ok.value = '客户商品名已停用'
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '停用客户商品名失败'
+  } finally {
+    aliasSaving.value = false
   }
 }
 
@@ -3737,8 +4106,18 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
   skuPage.value = 1
   collapsedPrimaryCategoryIds.value = []
   collapsedSecondaryCategoryIds.value = []
+  if (Number(customerID || 0) > 0) {
+    selectedAliasCustomerID.value = Number(customerID || 0)
+  }
   pruneSelectedProducts(displaySkuRows.value)
   notifyWorkspaceCustomerChanged(customerID)
+})
+
+watch(selectedAliasCustomerID, (customerID) => {
+  if (!customerProductAliasForm.value.id) {
+    customerProductAliasForm.value.customer_id = Number(customerID || 0)
+  }
+  loadAliasMigrationCandidates(customerID, { silent: true })
 })
 
 watch(() => [props.workspaceMode, props.customerContextId], applyWorkspaceCustomerContext, { immediate: true })
@@ -3925,6 +4304,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .checkline { display: flex !important; align-items: center; gap: 8px; min-height: 36px; }
 .checkline input { width: auto; min-height: 0; }
 .customer-copy-panel { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; border: 1px solid #e6e0d8; border-radius: 8px; background: #fbfaf8; padding: 8px 10px; margin-bottom: 10px; }
+.product-action-guide { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; margin: 0 0 10px; }
+.action-guide-button { min-height: 68px; border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 10px 12px; text-align: left; display: grid; gap: 4px; cursor: pointer; }
+.action-guide-button:hover { border-color: #c9beb1; background: #fffdf9; }
+.action-guide-button strong { color: #2c2118; font-size: 14px; }
+.action-guide-button small { color: #7b746c; line-height: 1.4; }
 .switchline { min-height: 30px; color: #333; font-size: 13px; }
 .form-actions { display: flex; justify-content: flex-end; }
 .inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; }
@@ -4028,6 +4412,21 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .remark-input { width: 180px; min-height: 46px; resize: vertical; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
+.customer-alias-workspace { display: grid; gap: 14px; min-width: 0; }
+.customer-alias-panel { display: grid; gap: 12px; }
+.alias-migration-panel { border: 1px solid #e6e0d8; border-radius: 8px; padding: 10px; background: #fbfaf8; display: grid; gap: 8px; }
+.alias-candidate-list { display: grid; gap: 6px; }
+.alias-candidate-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #eee7df; border-radius: 8px; background: #fff; padding: 8px 10px; }
+.alias-candidate-row span { min-width: 0; overflow-wrap: anywhere; }
+.alias-toolbar { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 12px; }
+.alias-toolbar label, .customer-alias-form label { display: grid; gap: 5px; min-width: 0; font-size: 13px; }
+.alias-toolbar label span, .customer-alias-form label span { color: #5f5a52; font-weight: 600; }
+.customer-alias-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: end; }
+.customer-alias-form .span-2 { grid-column: 1 / -1; }
+.checkbox-row { display: inline-flex !important; grid-template-columns: auto 1fr; align-items: center; gap: 8px !important; }
+.checkbox-row input { width: auto; min-height: 0; }
+.customer-alias-table { min-width: 980px; }
+.table-actions { white-space: nowrap; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-top: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
@@ -4071,7 +4470,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row { grid-template-columns: 1fr; }
+  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .alias-toolbar, .customer-alias-form { grid-template-columns: 1fr; }
   .sku-context-main { display: grid; }
   .sku-context-controls { justify-content: flex-start; min-width: 0; }
   .sku-workspace-tabs { width: 100%; }

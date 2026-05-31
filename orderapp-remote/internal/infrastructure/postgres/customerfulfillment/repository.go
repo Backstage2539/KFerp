@@ -516,26 +516,31 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 	}
 	for idx, item := range quotedItems {
 		itemPayload := map[string]any{
-			"submitted_by_employee_id":   cmd.EmployeeID,
-			"product_id":                 item.ProductID,
-			"product_name":               item.ProductName,
-			"product_kind":               item.ProductKind,
-			"spec":                       item.Spec,
-			"spec_g":                     item.SpecG,
-			"sales_unit":                 item.SalesUnit,
-			"unit_bag_count":             item.UnitBagCount,
-			"unit_bean_g":                item.UnitBeanG,
-			"matched_price_qty":          item.MatchedPriceQty,
-			"price_source":               item.PriceSource,
-			"price_source_snapshot":      item.PriceSourceSnapshot,
-			"quantity_units":             item.QuantityUnits,
-			"unit_price":                 item.UnitPrice,
-			"line_total_before_discount": item.BaseLineTotal,
-			"discount_type":              item.DiscountType,
-			"discount_value":             item.DiscountValue,
-			"discount_amount":            item.DiscountAmount,
-			"line_total":                 item.LineTotal,
-			"note":                       item.Note,
+			"submitted_by_employee_id":               cmd.EmployeeID,
+			"product_id":                             item.ProductID,
+			"customer_product_alias_id":              item.CustomerProductAliasID,
+			"customer_product_display_name_snapshot": item.CustomerProductDisplayNameSnapshot,
+			"customer_item_code_snapshot":            item.CustomerItemCodeSnapshot,
+			"product_code_snapshot":                  item.ProductCodeSnapshot,
+			"product_name_snapshot":                  item.ProductNameSnapshot,
+			"product_name":                           item.ProductName,
+			"product_kind":                           item.ProductKind,
+			"spec":                                   item.Spec,
+			"spec_g":                                 item.SpecG,
+			"sales_unit":                             item.SalesUnit,
+			"unit_bag_count":                         item.UnitBagCount,
+			"unit_bean_g":                            item.UnitBeanG,
+			"matched_price_qty":                      item.MatchedPriceQty,
+			"price_source":                           item.PriceSource,
+			"price_source_snapshot":                  item.PriceSourceSnapshot,
+			"quantity_units":                         item.QuantityUnits,
+			"unit_price":                             item.UnitPrice,
+			"line_total_before_discount":             item.BaseLineTotal,
+			"discount_type":                          item.DiscountType,
+			"discount_value":                         item.DiscountValue,
+			"discount_amount":                        item.DiscountAmount,
+			"line_total":                             item.LineTotal,
+			"note":                                   item.Note,
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.customer_direct_ship_import_order_items(
@@ -580,52 +585,67 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 }
 
 type submittedDirectShipItem struct {
-	ProductID     int64
-	ProductName   string
-	Spec          string
-	SpecG         int64
-	SalesUnit     string
-	QuantityUnits int64
-	DiscountType  string
-	DiscountValue float64
-	Note          string
+	ProductID                          int64
+	CustomerProductAliasID             int64
+	CustomerProductDisplayNameSnapshot string
+	CustomerItemCodeSnapshot           string
+	ProductCodeSnapshot                string
+	ProductNameSnapshot                string
+	ProductName                        string
+	Spec                               string
+	SpecG                              int64
+	SalesUnit                          string
+	QuantityUnits                      int64
+	DiscountType                       string
+	DiscountValue                      float64
+	Note                               string
 }
 
 type submittedDirectShipQuotedItem struct {
-	ProductID           int64
-	ProductName         string
-	ProductKind         string
-	Spec                string
-	SpecG               int64
-	SalesUnit           string
-	UnitBagCount        float64
-	UnitBeanG           float64
-	MatchedPriceQty     float64
-	PriceSource         string
-	PriceSourceSnapshot string
-	QuantityUnits       int64
-	UnitPrice           float64
-	DiscountType        string
-	DiscountValue       float64
-	DiscountAmount      float64
-	BaseLineTotal       float64
-	LineTotal           float64
-	Note                string
+	ProductID                          int64
+	CustomerProductAliasID             int64
+	CustomerProductDisplayNameSnapshot string
+	CustomerItemCodeSnapshot           string
+	ProductCodeSnapshot                string
+	ProductNameSnapshot                string
+	ProductName                        string
+	ProductKind                        string
+	Spec                               string
+	SpecG                              int64
+	SalesUnit                          string
+	UnitBagCount                       float64
+	UnitBeanG                          float64
+	MatchedPriceQty                    float64
+	PriceSource                        string
+	PriceSourceSnapshot                string
+	QuantityUnits                      int64
+	UnitPrice                          float64
+	DiscountType                       string
+	DiscountValue                      float64
+	DiscountAmount                     float64
+	BaseLineTotal                      float64
+	LineTotal                          float64
+	Note                               string
 }
 
 func normalizeSubmittedDirectShipItems(cmd app.SubmitCustomerDirectShipOrderCommand) []submittedDirectShipItem {
 	out := make([]submittedDirectShipItem, 0, len(cmd.Items))
 	for _, item := range cmd.Items {
 		out = append(out, submittedDirectShipItem{
-			ProductID:     item.ProductID,
-			ProductName:   strings.TrimSpace(item.ProductName),
-			Spec:          strings.TrimSpace(item.Spec),
-			SpecG:         item.SpecG,
-			SalesUnit:     strings.TrimSpace(item.SalesUnit),
-			QuantityUnits: item.QuantityUnits,
-			DiscountType:  strings.TrimSpace(strings.ToLower(item.DiscountType)),
-			DiscountValue: item.DiscountValue,
-			Note:          strings.TrimSpace(item.Note),
+			ProductID:                          item.ProductID,
+			CustomerProductAliasID:             item.CustomerProductAliasID,
+			CustomerProductDisplayNameSnapshot: strings.TrimSpace(item.CustomerProductDisplayNameSnapshot),
+			CustomerItemCodeSnapshot:           strings.TrimSpace(item.CustomerItemCodeSnapshot),
+			ProductCodeSnapshot:                strings.TrimSpace(item.ProductCodeSnapshot),
+			ProductNameSnapshot:                strings.TrimSpace(item.ProductNameSnapshot),
+			ProductName:                        strings.TrimSpace(item.ProductName),
+			Spec:                               strings.TrimSpace(item.Spec),
+			SpecG:                              item.SpecG,
+			SalesUnit:                          strings.TrimSpace(item.SalesUnit),
+			QuantityUnits:                      item.QuantityUnits,
+			DiscountType:                       strings.TrimSpace(strings.ToLower(item.DiscountType)),
+			DiscountValue:                      item.DiscountValue,
+			Note:                               strings.TrimSpace(item.Note),
 		})
 	}
 	if len(out) > 0 {
@@ -644,6 +664,63 @@ func normalizeSubmittedDirectShipItems(cmd app.SubmitCustomerDirectShipOrderComm
 	}}
 }
 
+type directShipCustomerAliasSnapshot struct {
+	CustomerProductAliasID             int64
+	CustomerProductDisplayNameSnapshot string
+	CustomerItemCodeSnapshot           string
+	ProductCodeSnapshot                string
+	ProductNameSnapshot                string
+}
+
+func requireCustomerAliasDirectShipPrice(aliasSnapshot directShipCustomerAliasSnapshot, unitPrice float64) error {
+	if aliasSnapshot.CustomerProductAliasID <= 0 || unitPrice > 0 {
+		return nil
+	}
+	return fmt.Errorf("customer product price unpublished")
+}
+
+func (r *Repository) validateCustomerProductAliasForDirectShipTx(ctx context.Context, tx pgx.Tx, customerID, productID, aliasID int64) (directShipCustomerAliasSnapshot, error) {
+	if productID <= 0 || !relationExists(ctx, tx, fmt.Sprintf("%s.customer_product_aliases", r.schema)) {
+		return directShipCustomerAliasSnapshot{}, nil
+	}
+	q := fmt.Sprintf(`
+		SELECT a.id,
+		       COALESCE(NULLIF(a.display_name,''), p.name, ''),
+		       COALESCE(a.customer_item_code,''),
+		       'SKU-' || p.id::text,
+		       COALESCE(p.name,'')
+		FROM %[1]s.customer_product_aliases a
+		JOIN %[1]s.products p ON p.id=a.product_id
+		WHERE a.customer_id=$1
+		  AND a.product_id=$2
+		  AND a.active=true
+	`, r.schema)
+	args := []any{customerID, productID}
+	if aliasID > 0 {
+		q += " AND a.id=$3"
+		args = append(args, aliasID)
+	}
+	q += " ORDER BY a.include_in_price_list DESC, a.sort_order, a.id LIMIT 1"
+	var snap directShipCustomerAliasSnapshot
+	err := tx.QueryRow(ctx, q, args...).Scan(
+		&snap.CustomerProductAliasID,
+		&snap.CustomerProductDisplayNameSnapshot,
+		&snap.CustomerItemCodeSnapshot,
+		&snap.ProductCodeSnapshot,
+		&snap.ProductNameSnapshot,
+	)
+	if err == pgx.ErrNoRows {
+		if aliasID > 0 {
+			return directShipCustomerAliasSnapshot{}, fmt.Errorf("customer_product_alias invalid")
+		}
+		return directShipCustomerAliasSnapshot{}, nil
+	}
+	if err != nil {
+		return directShipCustomerAliasSnapshot{}, err
+	}
+	return snap, nil
+}
+
 func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.Tx, customerID int64, item submittedDirectShipItem) (submittedDirectShipQuotedItem, error) {
 	specG := item.SpecG
 	if specG <= 0 {
@@ -654,6 +731,10 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 	}
 	if item.QuantityUnits <= 0 {
 		item.QuantityUnits = 1
+	}
+	aliasSnapshot, err := r.validateCustomerProductAliasForDirectShipTx(ctx, tx, customerID, item.ProductID, item.CustomerProductAliasID)
+	if err != nil {
+		return submittedDirectShipQuotedItem{}, err
 	}
 	var dbProductName, productKind string
 	var defaultPrice float64
@@ -675,8 +756,22 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 	}
 	productKind = catalogdomain.NormalizeProductKind(productKind)
 	productName := item.ProductName
+	if aliasSnapshot.CustomerProductAliasID > 0 {
+		item.CustomerProductAliasID = aliasSnapshot.CustomerProductAliasID
+		item.CustomerProductDisplayNameSnapshot = aliasSnapshot.CustomerProductDisplayNameSnapshot
+		item.CustomerItemCodeSnapshot = aliasSnapshot.CustomerItemCodeSnapshot
+		item.ProductCodeSnapshot = aliasSnapshot.ProductCodeSnapshot
+		item.ProductNameSnapshot = aliasSnapshot.ProductNameSnapshot
+		productName = aliasSnapshot.CustomerProductDisplayNameSnapshot
+	}
 	if productName == "" {
 		productName = strings.TrimSpace(dbProductName)
+	}
+	if item.ProductCodeSnapshot == "" {
+		item.ProductCodeSnapshot = fmt.Sprintf("SKU-%d", item.ProductID)
+	}
+	if item.ProductNameSnapshot == "" {
+		item.ProductNameSnapshot = strings.TrimSpace(dbProductName)
 	}
 	specText := item.Spec
 	if specText == "" {
@@ -733,6 +828,9 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 		unitPrice = r.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, customerID, item.ProductID, specG, item.QuantityUnits, defaultPrice)
 		baseLineTotal = customerFulfillmentLineTotalFromDisplayUnit(unitPrice, specG, item.QuantityUnits)
 	}
+	if err := requireCustomerAliasDirectShipPrice(aliasSnapshot, unitPrice); err != nil {
+		return submittedDirectShipQuotedItem{}, err
+	}
 	discountType := normalizeSubmittedDirectShipDiscountType(item.DiscountType)
 	discountValue := item.DiscountValue
 	if discountValue < 0 {
@@ -740,25 +838,30 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 	}
 	discountAmount, lineTotal := submittedDirectShipLineDiscount(baseLineTotal, discountType, discountValue)
 	return submittedDirectShipQuotedItem{
-		ProductID:           item.ProductID,
-		ProductName:         productName,
-		ProductKind:         productKind,
-		Spec:                specText,
-		SpecG:               specG,
-		SalesUnit:           salesUnit,
-		UnitBagCount:        unitBagCount,
-		UnitBeanG:           unitBeanG,
-		MatchedPriceQty:     matchedPriceQty,
-		PriceSource:         priceSource,
-		PriceSourceSnapshot: priceSourceSnapshot,
-		QuantityUnits:       item.QuantityUnits,
-		UnitPrice:           unitPrice,
-		DiscountType:        discountType,
-		DiscountValue:       discountValue,
-		DiscountAmount:      discountAmount,
-		BaseLineTotal:       baseLineTotal,
-		LineTotal:           lineTotal,
-		Note:                item.Note,
+		ProductID:                          item.ProductID,
+		CustomerProductAliasID:             item.CustomerProductAliasID,
+		CustomerProductDisplayNameSnapshot: item.CustomerProductDisplayNameSnapshot,
+		CustomerItemCodeSnapshot:           item.CustomerItemCodeSnapshot,
+		ProductCodeSnapshot:                item.ProductCodeSnapshot,
+		ProductNameSnapshot:                item.ProductNameSnapshot,
+		ProductName:                        productName,
+		ProductKind:                        productKind,
+		Spec:                               specText,
+		SpecG:                              specG,
+		SalesUnit:                          salesUnit,
+		UnitBagCount:                       unitBagCount,
+		UnitBeanG:                          unitBeanG,
+		MatchedPriceQty:                    matchedPriceQty,
+		PriceSource:                        priceSource,
+		PriceSourceSnapshot:                priceSourceSnapshot,
+		QuantityUnits:                      item.QuantityUnits,
+		UnitPrice:                          unitPrice,
+		DiscountType:                       discountType,
+		DiscountValue:                      discountValue,
+		DiscountAmount:                     discountAmount,
+		BaseLineTotal:                      baseLineTotal,
+		LineTotal:                          lineTotal,
+		Note:                               item.Note,
 	}, nil
 }
 
@@ -1518,13 +1621,13 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 	for _, item := range items {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.order_items(
-				order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,
+				order_id,line_no,product_id,customer_product_alias_id,customer_product_display_name_snapshot,customer_item_code_snapshot,product_code_snapshot,product_name_snapshot,item_name,qty,unit,spec,unit_price,
 				line_total_before_discount,discount_type,discount_value,discount_amount,line_total,
 				product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json,
 				bean_list_publication_id,bean_list_version_no
 			)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,NULLIF($20,0),$21)
-		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.productTitle, item.quantity, customerFulfillmentDisplayUnit(item.salesUnit), item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal, item.productKind, item.salesUnit, item.unitBagCount, item.unitBeanG, item.matchedPriceQty, customerFulfillmentJSONOrEmpty(item.priceSourceSnapshot), item.beanListUsage.PublicationID, item.beanListUsage.VersionNo); err != nil {
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::jsonb,NULLIF($25,0),$26)
+		`, r.schema), orderID, item.lineNo, nullableCustomerFulfillmentID(item.productID), item.customerProductAliasID, item.customerProductDisplayNameSnapshot, item.customerItemCodeSnapshot, item.productCodeSnapshot, item.productNameSnapshot, item.productTitle, item.quantity, customerFulfillmentDisplayUnit(item.salesUnit), item.spec, item.unitPrice, item.baseLineTotal, item.discountType, item.discountValue, item.discountAmount, item.lineTotal, item.productKind, item.salesUnit, item.unitBagCount, item.unitBeanG, item.matchedPriceQty, customerFulfillmentJSONOrEmpty(item.priceSourceSnapshot), item.beanListUsage.PublicationID, item.beanListUsage.VersionNo); err != nil {
 			return err
 		}
 	}
@@ -1532,24 +1635,29 @@ func (r *Repository) createSubmittedDirectShipERPOrderItemsTx(ctx context.Contex
 }
 
 type submittedDirectShipERPItemSeed struct {
-	lineNo              int
-	productID           int64
-	productTitle        string
-	productKind         string
-	spec                string
-	quantity            int64
-	salesUnit           string
-	unitBagCount        float64
-	unitBeanG           float64
-	matchedPriceQty     float64
-	priceSourceSnapshot string
-	unitPrice           float64
-	baseLineTotal       float64
-	discountType        string
-	discountValue       float64
-	discountAmount      float64
-	lineTotal           float64
-	beanListUsage       orderbeans.Usage
+	lineNo                             int
+	productID                          int64
+	customerProductAliasID             int64
+	customerProductDisplayNameSnapshot string
+	customerItemCodeSnapshot           string
+	productCodeSnapshot                string
+	productNameSnapshot                string
+	productTitle                       string
+	productKind                        string
+	spec                               string
+	quantity                           int64
+	salesUnit                          string
+	unitBagCount                       float64
+	unitBeanG                          float64
+	matchedPriceQty                    float64
+	priceSourceSnapshot                string
+	unitPrice                          float64
+	baseLineTotal                      float64
+	discountType                       string
+	discountValue                      float64
+	discountAmount                     float64
+	lineTotal                          float64
+	beanListUsage                      orderbeans.Usage
 }
 
 func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx pgx.Tx, importOrderID int64) ([]submittedDirectShipERPItemSeed, error) {
@@ -1587,6 +1695,11 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 			_ = json.Unmarshal(payloadJSON, &payload)
 		}
 		productID := payloadInt64(payload, "product_id")
+		customerProductAliasID := payloadInt64(payload, "customer_product_alias_id")
+		customerProductDisplayNameSnapshot := payloadString(payload, "customer_product_display_name_snapshot")
+		customerItemCodeSnapshot := payloadString(payload, "customer_item_code_snapshot")
+		productCodeSnapshot := payloadString(payload, "product_code_snapshot")
+		productNameSnapshot := payloadString(payload, "product_name_snapshot")
 		if productTitle == "" {
 			productTitle = payloadString(payload, "product_name", "product_title")
 		}
@@ -1624,23 +1737,28 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 			rowLineNo = lineNo
 		}
 		items = append(items, submittedDirectShipERPItemSeed{
-			lineNo:              rowLineNo,
-			productID:           productID,
-			productTitle:        productTitle,
-			productKind:         productKind,
-			spec:                spec,
-			quantity:            quantity,
-			salesUnit:           salesUnit,
-			unitBagCount:        unitBagCount,
-			unitBeanG:           unitBeanG,
-			matchedPriceQty:     matchedPriceQty,
-			priceSourceSnapshot: priceSourceSnapshot,
-			unitPrice:           unitPrice,
-			baseLineTotal:       baseLineTotal,
-			discountType:        discountType,
-			discountValue:       discountValue,
-			discountAmount:      discountAmount,
-			lineTotal:           lineTotal,
+			lineNo:                             rowLineNo,
+			productID:                          productID,
+			customerProductAliasID:             customerProductAliasID,
+			customerProductDisplayNameSnapshot: customerProductDisplayNameSnapshot,
+			customerItemCodeSnapshot:           customerItemCodeSnapshot,
+			productCodeSnapshot:                productCodeSnapshot,
+			productNameSnapshot:                productNameSnapshot,
+			productTitle:                       productTitle,
+			productKind:                        productKind,
+			spec:                               spec,
+			quantity:                           quantity,
+			salesUnit:                          salesUnit,
+			unitBagCount:                       unitBagCount,
+			unitBeanG:                          unitBeanG,
+			matchedPriceQty:                    matchedPriceQty,
+			priceSourceSnapshot:                priceSourceSnapshot,
+			unitPrice:                          unitPrice,
+			baseLineTotal:                      baseLineTotal,
+			discountType:                       discountType,
+			discountValue:                      discountValue,
+			discountAmount:                     discountAmount,
+			lineTotal:                          lineTotal,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -1651,14 +1769,19 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 	for idx := range items {
 		specG := parseSubmittedDirectShipSpecG(items[idx].spec)
 		quoted, quoteOK, quoteErr := r.quoteSubmittedDirectShipItemForERPRebuildTx(ctx, tx, customerID, submittedDirectShipItem{
-			ProductID:     items[idx].productID,
-			ProductName:   items[idx].productTitle,
-			Spec:          items[idx].spec,
-			SpecG:         specG,
-			SalesUnit:     items[idx].salesUnit,
-			QuantityUnits: items[idx].quantity,
-			DiscountType:  items[idx].discountType,
-			DiscountValue: items[idx].discountValue,
+			ProductID:                          items[idx].productID,
+			CustomerProductAliasID:             items[idx].customerProductAliasID,
+			CustomerProductDisplayNameSnapshot: items[idx].customerProductDisplayNameSnapshot,
+			CustomerItemCodeSnapshot:           items[idx].customerItemCodeSnapshot,
+			ProductCodeSnapshot:                items[idx].productCodeSnapshot,
+			ProductNameSnapshot:                items[idx].productNameSnapshot,
+			ProductName:                        items[idx].productTitle,
+			Spec:                               items[idx].spec,
+			SpecG:                              specG,
+			SalesUnit:                          items[idx].salesUnit,
+			QuantityUnits:                      items[idx].quantity,
+			DiscountType:                       items[idx].discountType,
+			DiscountValue:                      items[idx].discountValue,
 		})
 		if quoteErr != nil {
 			return nil, quoteErr
@@ -1668,6 +1791,13 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		}
 		if quoted.ProductName != "" {
 			items[idx].productTitle = quoted.ProductName
+		}
+		if quoted.CustomerProductAliasID > 0 {
+			items[idx].customerProductAliasID = quoted.CustomerProductAliasID
+			items[idx].customerProductDisplayNameSnapshot = quoted.CustomerProductDisplayNameSnapshot
+			items[idx].customerItemCodeSnapshot = quoted.CustomerItemCodeSnapshot
+			items[idx].productCodeSnapshot = quoted.ProductCodeSnapshot
+			items[idx].productNameSnapshot = quoted.ProductNameSnapshot
 		}
 		if quoted.Spec != "" {
 			items[idx].spec = quoted.Spec
@@ -2227,6 +2357,11 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 	add := func(row app.CustomerSKUOption) {
 		row.SKUCode = strings.TrimSpace(row.SKUCode)
 		row.ProductName = strings.Join(strings.Fields(strings.TrimSpace(row.ProductName)), " ")
+		row.CustomerProductDisplayName = strings.Join(strings.Fields(strings.TrimSpace(row.CustomerProductDisplayName)), " ")
+		row.CustomerItemCode = strings.TrimSpace(row.CustomerItemCode)
+		row.BrandName = strings.TrimSpace(row.BrandName)
+		row.ProductCode = strings.TrimSpace(row.ProductCode)
+		row.ProductRecordName = strings.Join(strings.Fields(strings.TrimSpace(row.ProductRecordName)), " ")
 		row.Spec = strings.TrimSpace(row.Spec)
 		row.RoastDegree = strings.TrimSpace(row.RoastDegree)
 		row.Source = strings.TrimSpace(row.Source)
@@ -2248,6 +2383,48 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 		}
 		seen[key] = struct{}{}
 		out = append(out, row)
+	}
+
+	if relationExists(ctx, r.pool, fmt.Sprintf("%s.customer_product_aliases", r.schema)) {
+		rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+			SELECT p.id,
+			       a.id,
+			       COALESCE(NULLIF(a.display_name,''), p.name, ''),
+			       COALESCE(a.customer_item_code,''),
+			       COALESCE(a.brand_name,''),
+			       'SKU-' || p.id::text,
+			       COALESCE(p.name,''),
+			       COALESCE(p.base_product_id,0),
+			       COALESCE(a.customer_item_code,''),
+			       COALESCE(NULLIF(a.display_name,''), p.name, ''),
+			       COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'),
+			       COALESCE(p.drip_bag_grams,10)::float8,
+			       COALESCE(p.drip_box_bag_count,10),
+			       '', COALESCE(p.roast_level,''), COALESCE(p.default_price,0), 'customer_product_alias'
+			FROM %s.customer_product_aliases a
+			JOIN %s.products p ON p.id=a.product_id
+			WHERE a.customer_id=$1
+			  AND a.active=true
+			  AND p.active=true
+			ORDER BY a.sort_order, a.id
+			LIMIT 300
+		`, r.schema, r.schema), customerID)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var row app.CustomerSKUOption
+			if err := rows.Scan(&row.ProductID, &row.CustomerProductAliasID, &row.CustomerProductDisplayName, &row.CustomerItemCode, &row.BrandName, &row.ProductCode, &row.ProductRecordName, &row.BaseProductID, &row.SKUCode, &row.ProductName, &row.ProductKind, &row.DripBagGrams, &row.DripBoxBagCount, &row.Spec, &row.RoastDegree, &row.DefaultPrice, &row.Source); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			add(row)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
 	}
 
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
@@ -2424,6 +2601,14 @@ func (r *Repository) listProductTierOptions(ctx context.Context, options []app.C
 
 type queryRower interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func relationExists(ctx context.Context, q queryRower, relation string) bool {
+	var exists bool
+	if err := q.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, relation).Scan(&exists); err != nil {
+		return false
+	}
+	return exists
 }
 
 func (r *Repository) customerCapabilityTemplateForCustomer(ctx context.Context, q queryRower, customerID int64) (customerportalapp.CapabilityTemplate, bool, error) {

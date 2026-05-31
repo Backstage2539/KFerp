@@ -32,8 +32,6 @@ func TestDev318CustomerBeanListPublicCategoryScope(t *testing.T) {
 	}
 	costingText := string(costingView)
 	for _, want := range []string{
-		"const customerPublicUsages = ref([])",
-		"const activeCustomerPublicUsage = computed",
 		"filterBeanListItemsForPriceTableScope(items.value, activeCostingScope.value, activeBeanListCustomerID.value)",
 		"filterBeanListItemsForPriceTableScope",
 	} {
@@ -62,9 +60,9 @@ func TestDev318CustomerBeanListPublicCategoryScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"选择某个履约客户范围时，产品价格表默认只展示该客户自己的 SKU",
-		"不混入公共分类或其他客户 SKU",
-		"需要客户复用公共产品时，先在 SKU设置 的客户视图点击“SKU复制”",
+		"选择某个履约客户范围时，产品价格表默认只展示该客户启用、纳入价格表且绑定有效商品档案的客户商品名",
+		"不混入其他客户商品名",
+		"客户只改名称、编号、品牌或展示分类时，创建客户商品名并绑定已有商品档案",
 	} {
 		if !strings.Contains(string(manual), want) {
 			t.Fatalf("manual missing %q", want)

@@ -47,6 +47,12 @@ type productSettingsRepo struct {
 	skuCopyOptionsQuery    catalogapp.SKUCopyOptionsQuery
 	publicUsage            catalogapp.CustomerPublicUsageCommand
 	publicUsages           []catalogapp.CustomerPublicUsage
+	customerProductAliases []catalogapp.CustomerProductAlias
+	customerAliasQuery     catalogapp.CustomerProductAliasQuery
+	savedCustomerAlias     catalogapp.CustomerProductAliasCommand
+	disabledCustomerAlias  catalogapp.DisableCustomerProductAliasCommand
+	aliasCandidates        []catalogapp.CustomerProductAliasMigrationCandidate
+	aliasCandidateQuery    catalogapp.CustomerProductAliasMigrationCandidateQuery
 	ruleTemplates          []catalogapp.CustomerProductRuleTemplate
 	ruleOverrides          []catalogapp.CustomerProductRuleOverride
 	customerRuleBindings   []catalogapp.CustomerProductRuleBinding
@@ -77,6 +83,10 @@ type productSettingsRepo struct {
 	skuCopyOptionsListed   bool
 	productCreated         bool
 	publicUsageSaved       bool
+	customerAliasesListed  bool
+	customerAliasSaved     bool
+	customerAliasDisabled  bool
+	aliasCandidatesListed  bool
 	ruleTemplateSaved      bool
 	ruleOverrideSaved      bool
 	ruleBindingSaved       bool
@@ -459,6 +469,69 @@ func (r *productSettingsRepo) SaveCustomerPublicUsage(ctx context.Context, cmd c
 	return catalogapp.CustomerPublicUsage{CustomerID: cmd.CustomerID, UsePublicSKU: cmd.UsePublicSKU, UsePublicCategories: cmd.UsePublicCategories, UsePublicGradientTemplates: cmd.UsePublicGradientTemplates}, nil
 }
 
+func (r *productSettingsRepo) EnsureFactoryCustomer(ctx context.Context, actor string) (int64, error) {
+	return 9001, nil
+}
+
+func (r *productSettingsRepo) ListCustomerProductAliases(ctx context.Context, query catalogapp.CustomerProductAliasQuery) ([]catalogapp.CustomerProductAlias, error) {
+	r.customerAliasQuery = query
+	r.customerAliasesListed = true
+	out := make([]catalogapp.CustomerProductAlias, 0, len(r.customerProductAliases))
+	for _, row := range r.customerProductAliases {
+		if query.CustomerID > 0 && row.CustomerID != query.CustomerID {
+			continue
+		}
+		if query.ActiveOnly && !row.Active {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out, nil
+}
+
+func (r *productSettingsRepo) SaveCustomerProductAlias(ctx context.Context, cmd catalogapp.CustomerProductAliasCommand) (catalogapp.CustomerProductAlias, error) {
+	r.savedCustomerAlias = cmd
+	r.customerAliasSaved = true
+	id := cmd.ID
+	if id == 0 {
+		id = 912
+	}
+	return catalogapp.CustomerProductAlias{
+		ID:                 id,
+		CustomerID:         cmd.CustomerID,
+		ProductID:          cmd.ProductID,
+		DisplayName:        cmd.DisplayName,
+		CustomerItemCode:   cmd.CustomerItemCode,
+		BrandName:          cmd.BrandName,
+		DisplayCategoryID:  cmd.DisplayCategoryID,
+		SortOrder:          cmd.SortOrder,
+		IncludeInPriceList: cmd.IncludeInPriceList,
+		Active:             cmd.Active,
+		Remark:             cmd.Remark,
+		ProductName:        "绑定商品档案",
+		CustomerName:       "Karen",
+	}, nil
+}
+
+func (r *productSettingsRepo) DisableCustomerProductAlias(ctx context.Context, cmd catalogapp.DisableCustomerProductAliasCommand) error {
+	r.disabledCustomerAlias = cmd
+	r.customerAliasDisabled = true
+	return nil
+}
+
+func (r *productSettingsRepo) ListCustomerProductAliasMigrationCandidates(ctx context.Context, query catalogapp.CustomerProductAliasMigrationCandidateQuery) ([]catalogapp.CustomerProductAliasMigrationCandidate, error) {
+	r.aliasCandidateQuery = query
+	r.aliasCandidatesListed = true
+	out := make([]catalogapp.CustomerProductAliasMigrationCandidate, 0, len(r.aliasCandidates))
+	for _, row := range r.aliasCandidates {
+		if query.CustomerID > 0 && row.CustomerID != query.CustomerID {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out, nil
+}
+
 func (r *productSettingsRepo) SaveCustomerProductRuleTemplate(ctx context.Context, cmd catalogapp.SaveCustomerProductRuleTemplateCommand) (catalogapp.CustomerProductRuleTemplate, error) {
 	r.savedRuleTemplate = cmd
 	r.ruleTemplateSaved = true
@@ -484,6 +557,142 @@ func (r *productSettingsRepo) BindCustomerProductRuleTemplate(ctx context.Contex
 	r.savedRuleBinding = cmd
 	r.ruleBindingSaved = true
 	return catalogapp.CustomerProductRuleBinding{CustomerID: cmd.CustomerID, TemplateID: cmd.TemplateID}, nil
+}
+
+func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
+	repo := &productSettingsRepo{
+		customerProductAliases: []catalogapp.CustomerProductAlias{{
+			ID:                  11,
+			CustomerID:          42,
+			CustomerName:        "Karen",
+			ProductID:           88,
+			ProductName:         "精品意式拼配",
+			ProductCode:         "SKU-000088",
+			DisplayName:         "Karen 精品拼配",
+			CustomerItemCode:    "KAREN-ESP",
+			BrandName:           "",
+			DisplayCategoryID:   7,
+			DisplayCategoryName: "商用批发",
+			SortOrder:           20,
+			IncludeInPriceList:  true,
+			Active:              true,
+			Remark:              "贴牌只改名字",
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-product-aliases?customer_id=42&active=all", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET aliases status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"rows"`, `"display_name":"Karen 精品拼配"`, `"customer_item_code":"KAREN-ESP"`, `"product_id":88`, `"product_code":"SKU-000088"`, `"include_in_price_list":true`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("customer product aliases response missing %s: %s", want, rec.Body.String())
+		}
+	}
+	if !repo.customerAliasesListed || repo.customerAliasQuery.CustomerID != 42 || repo.customerAliasQuery.ActiveOnly {
+		t.Fatalf("alias query = %+v listed=%v", repo.customerAliasQuery, repo.customerAliasesListed)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/customer-product-aliases", bytes.NewBufferString(`{
+		"customer_id":42,
+		"product_id":88,
+		"display_name":"Karen 精品拼配",
+		"customer_item_code":"KAREN-ESP",
+		"brand_name":"",
+		"display_category_id":7,
+		"sort_order":20,
+		"include_in_price_list":true,
+		"active":true,
+		"remark":"贴牌只改名字"
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST alias status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.customerAliasSaved || repo.savedCustomerAlias.CustomerID != 42 || repo.savedCustomerAlias.ProductID != 88 || repo.savedCustomerAlias.DisplayName != "Karen 精品拼配" || !repo.savedCustomerAlias.IncludeInPriceList {
+		t.Fatalf("save alias command = %+v saved=%v", repo.savedCustomerAlias, repo.customerAliasSaved)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/customer-product-aliases/11", bytes.NewBufferString(`{
+		"customer_id":42,
+		"product_id":88,
+		"display_name":"Karen 改名拼配",
+		"customer_item_code":"KAREN-ESP-V2",
+		"include_in_price_list":false,
+		"active":true
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT alias status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.savedCustomerAlias.ID != 11 || repo.savedCustomerAlias.CustomerItemCode != "KAREN-ESP-V2" || repo.savedCustomerAlias.IncludeInPriceList {
+		t.Fatalf("update alias command = %+v", repo.savedCustomerAlias)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/customer-product-aliases/11/disable", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disable alias status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.customerAliasDisabled || repo.disabledCustomerAlias.ID != 11 {
+		t.Fatalf("disable alias command = %+v disabled=%v", repo.disabledCustomerAlias, repo.customerAliasDisabled)
+	}
+}
+
+func TestCustomerProductAliasMigrationCandidatesAPIIsReadOnly(t *testing.T) {
+	repo := &productSettingsRepo{
+		aliasCandidates: []catalogapp.CustomerProductAliasMigrationCandidate{{
+			CustomerID:          42,
+			ProductID:           88,
+			ProductCode:         "SKU-000088",
+			ProductName:         "Karen 贴牌意式",
+			BaseProductID:       7,
+			BaseProductCode:     "SKU-000007",
+			BaseProductName:     "精品意式拼配",
+			BomSourceType:       "inherit_current",
+			SuggestedAction:     "convert_to_customer_product_alias",
+			SuggestedReason:     "仅名称/编号/价格差异，生产定义跟随来源商品档案",
+			CanAutoRecommend:    true,
+			HasOwnBom:           false,
+			HasProductionRecord: false,
+			HasInventoryRecord:  false,
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-product-aliases/migration-candidates?customer_id=42", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("migration candidates status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"rows"`,
+		`"suggested_action":"convert_to_customer_product_alias"`,
+		`"base_product_code":"SKU-000007"`,
+		`"can_auto_recommend":true`,
+	} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("migration candidates response missing %s: %s", want, rec.Body.String())
+		}
+	}
+	if !repo.aliasCandidatesListed || repo.aliasCandidateQuery.CustomerID != 42 {
+		t.Fatalf("alias candidate query=%+v listed=%v", repo.aliasCandidateQuery, repo.aliasCandidatesListed)
+	}
+	if repo.customerAliasSaved || repo.productCreated || repo.skusCopied {
+		t.Fatalf("migration candidates endpoint must be read-only: aliasSaved=%v productCreated=%v skusCopied=%v", repo.customerAliasSaved, repo.productCreated, repo.skusCopied)
+	}
 }
 
 func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) {

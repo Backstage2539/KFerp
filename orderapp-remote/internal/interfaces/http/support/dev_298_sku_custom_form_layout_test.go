@@ -20,9 +20,9 @@ func TestDev298SkuCustomFormLayoutSeedsAndDocs(t *testing.T) {
 	}
 
 	docMarkers := map[string][]string{
-		"docs/REQUIREMENTS.md":                                  {"客户专属 SKU", "横向"},
+		"docs/REQUIREMENTS.md":                                 {"客户专属 SKU", "横向"},
 		"docs/ACCEPTANCE_TESTS.md":                             {"客户专属 SKU", "横向"},
-		"docs/OP_MANUAL_COSTING.md":                            {"客户专属 SKU", "新增SKU"},
+		"docs/OP_MANUAL_COSTING.md":                            {"商品档案", "创建新商品档案"},
 		"docs/acceptance/2026-05-21-sku-custom-form-layout.md": {"客户专属 SKU", "横向"},
 	}
 	for rel, wants := range docMarkers {

@@ -352,6 +352,8 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.ProductKind, &p.DripBagGrams, &p.DripBoxBagCount, &p.ProductTypeCategoryID, &p.ProductSubtypeCategoryID, &p.ProductTypeName, &p.ProductSubtypeName, &p.InventoryUnit, &p.QuoteUnit, &p.OrderUnit, &p.UnitConversionJSON, &p.IntegerUnit); err != nil {
 			return nil, err
 		}
+		p.ProductCode = fmt.Sprintf("SKU-%d", p.ID)
+		p.ProductRecordName = p.Name
 		if p.ProductKind == "drip_bag" {
 			p.SalesUnits = []string{"bag", "box"}
 		}
@@ -365,6 +367,11 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	if aliasProducts, err := r.fetchOrderCustomerAliasProducts(ctx); err != nil {
+		return nil, err
+	} else {
+		out = append(out, aliasProducts...)
 	}
 
 	tierSQL := fmt.Sprintf(`
@@ -433,6 +440,73 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 	}
 	applyGreenBeanOrderPublicationTiers(out, greenPublicationTiers)
 	return out, nil
+}
+
+func (r Repository) fetchOrderCustomerAliasProducts(ctx context.Context) ([]salesapp.ProductOption, error) {
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.customer_product_aliases", r.schema)).Scan(&exists); err != nil || !exists {
+		return nil, nil
+	}
+	sqlstr := fmt.Sprintf(`SELECT p.id,
+		COALESCE(NULLIF(a.display_name,''), p.name, ''),
+		COALESCE(p.roast_level,''),
+		p.default_price,
+		COALESCE(p.retail_price_100g, 0),
+		COALESCE(p.retail_price_200g, 0),
+		COALESCE(p.retail_price_227g, p.default_price, 0),
+		COALESCE(p.retail_price_250g, 0),
+		a.customer_id,
+		COALESCE(p.base_product_id, 0),
+		'customer_alias',
+		COALESCE(p.custom_type, ''),
+		COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'),
+		COALESCE(p.drip_bag_grams, 0)::float8,
+		COALESCE(p.drip_box_bag_count, 0),
+		COALESCE(type_cat.id, 0) AS product_type_category_id,
+		COALESCE(subtype_cat.id, 0) AS product_subtype_category_id,
+		COALESCE(type_cat.name, '') AS product_type_name,
+		COALESCE(subtype_cat.name, '') AS product_subtype_name,
+		COALESCE(NULLIF(subtype_cat.inventory_unit,''), NULLIF(type_cat.inventory_unit,''), 'kg') AS inventory_unit,
+		COALESCE(NULLIF(subtype_cat.quote_unit,''), NULLIF(type_cat.quote_unit,''), 'kg') AS quote_unit,
+		COALESCE(NULLIF(subtype_cat.order_unit,''), NULLIF(type_cat.order_unit,''), 'kg') AS order_unit,
+		COALESCE(NULLIF(p.unit_rule_override_json, '{}'::jsonb), NULLIF(subtype_cat.unit_conversion_json, '{}'::jsonb), NULLIF(type_cat.unit_conversion_json, '{}'::jsonb), '{}'::jsonb)::text AS unit_conversion_json,
+		COALESCE(subtype_cat.integer_unit, type_cat.integer_unit, false) AS integer_unit,
+		a.id,
+		COALESCE(NULLIF(a.display_name,''), p.name, ''),
+		COALESCE(a.customer_item_code,''),
+		COALESCE(a.brand_name,''),
+		COALESCE(p.name,''),
+		COALESCE(a.display_category_id,0)
+		FROM %[1]s.customer_product_aliases a
+		JOIN %[1]s.products p ON p.id=a.product_id AND p.active=true
+		LEFT JOIN %[1]s.product_categories subtype_cat ON subtype_cat.id=p.product_category_id AND subtype_cat.active=true
+		LEFT JOIN %[1]s.product_categories type_cat ON type_cat.id=subtype_cat.parent_id AND type_cat.active=true
+		WHERE a.active=true
+		ORDER BY a.customer_id, a.sort_order, a.id`, r.schema)
+	rows, err := r.pool.Query(ctx, sqlstr)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]salesapp.ProductOption, 0)
+	for rows.Next() {
+		var p salesapp.ProductOption
+		if err := rows.Scan(&p.ID, &p.Name, &p.RoastLevel, &p.DefaultPrice, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.ProductKind, &p.DripBagGrams, &p.DripBoxBagCount, &p.ProductTypeCategoryID, &p.ProductSubtypeCategoryID, &p.ProductTypeName, &p.ProductSubtypeName, &p.InventoryUnit, &p.QuoteUnit, &p.OrderUnit, &p.UnitConversionJSON, &p.IntegerUnit, &p.CustomerProductAliasID, &p.CustomerProductDisplayName, &p.CustomerItemCode, &p.BrandName, &p.ProductRecordName, &p.CustomerAliasDisplayCategoryID); err != nil {
+			return nil, err
+		}
+		p.ProductCode = fmt.Sprintf("SKU-%d", p.ID)
+		if p.ProductKind == "drip_bag" {
+			p.SalesUnits = []string{"bag", "box"}
+		}
+		p.RetailSpecs = salesdomain.RetailAvailableSpecs(salesdomain.RetailSpecPrices{
+			Price100G: p.RetailPrice100G,
+			Price200G: p.RetailPrice200G,
+			Price227G: p.RetailPrice227G,
+			Price250G: p.RetailPrice250G,
+		})
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption) (map[int64][]salesapp.ProductTierOption, error) {
@@ -1250,7 +1324,13 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	itemsQ := fmt.Sprintf(`
 			SELECT oi.id, oi.line_no,
 				COALESCE(oi.product_id,0),
-				COALESCE(p.name,''),
+				COALESCE(NULLIF(oi.customer_product_display_name_snapshot,''), NULLIF(oi.item_name,''), p.name, ''),
+				COALESCE(oi.customer_product_alias_id,0),
+				COALESCE(oi.customer_product_display_name_snapshot,''),
+				COALESCE(oi.customer_item_code_snapshot,''),
+				COALESCE(oi.brand_name_snapshot,''),
+				COALESCE(oi.product_code_snapshot,''),
+				COALESCE(oi.product_name_snapshot,''),
 				COALESCE(oi.item_note,''),
 				COALESCE(oi.spec,''),
 				COALESCE(oi.qty,0),
@@ -1284,7 +1364,7 @@ func (r Repository) fetchOrderEdit(ctx context.Context, id int64) (*salesapp.Ord
 	for rows.Next() {
 		var it salesapp.OrderEditItem
 		var qty, unitPrice, lineTotal, discountValue, discountAmount, unitBeanG, matchedPriceQty float64
-		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.BeanListPublicationID, &it.BeanListVersionNo, &it.DiscountType, &discountValue, &discountAmount, &it.ProductKind, &it.SalesUnit, &it.UnitBagCount, &unitBeanG, &matchedPriceQty, &it.PriceSourceJSON); err != nil {
+		if err := rows.Scan(&it.ItemID, &it.LineNo, &it.ProductID, &it.Product, &it.CustomerProductAliasID, &it.CustomerProductDisplayNameSnapshot, &it.CustomerItemCodeSnapshot, &it.BrandNameSnapshot, &it.ProductCodeSnapshot, &it.ProductNameSnapshot, &it.Note, &it.Spec, &qty, &it.Unit, &unitPrice, &lineTotal, &it.PriceTierID, &it.BeanListPublicationID, &it.BeanListVersionNo, &it.DiscountType, &discountValue, &discountAmount, &it.ProductKind, &it.SalesUnit, &it.UnitBagCount, &unitBeanG, &matchedPriceQty, &it.PriceSourceJSON); err != nil {
 			return nil, err
 		}
 		it.Qty = trimFloatZero(qty)

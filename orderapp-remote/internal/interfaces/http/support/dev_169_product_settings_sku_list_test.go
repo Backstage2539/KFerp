@@ -29,7 +29,7 @@ func TestDev169ProductSettingsSkuListRequirementSeeds(t *testing.T) {
 func TestDev169ProductSettingsShowsUnifiedSkuList(t *testing.T) {
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
-		"客户SKU列表",
+		"商品档案",
 		"公共SKU",
 		"selectedCustomerSkuCustomerID",
 		"customerSkuCustomerOptions",
