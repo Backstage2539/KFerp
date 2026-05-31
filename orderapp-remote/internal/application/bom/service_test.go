@@ -64,6 +64,39 @@ func (r *fakeRepo) SetBomSource(context.Context, SetBomSourceCommand) (Detail, e
 func (r *fakeRepo) DeriveOwned(context.Context, DeriveOwnedCommand) (Detail, error) {
 	return Detail{}, nil
 }
+func (r *fakeRepo) ListProductionBomGroups(context.Context) ([]ProductionBomGroup, error) {
+	return nil, nil
+}
+func (r *fakeRepo) CreateProductionBomGroup(context.Context, CreateProductionBomGroupCommand) (ProductionBomGroup, error) {
+	return ProductionBomGroup{}, nil
+}
+func (r *fakeRepo) ListProductionBoms(context.Context) ([]ProductionBomSummary, error) {
+	return nil, nil
+}
+func (r *fakeRepo) GetProductionBomDetail(context.Context, int64) (ProductionBomDetail, error) {
+	return ProductionBomDetail{}, nil
+}
+func (r *fakeRepo) CreateProductionBom(context.Context, CreateProductionBomCommand) (ProductionBomSummary, error) {
+	return ProductionBomSummary{}, nil
+}
+func (r *fakeRepo) UpdateProductionBom(context.Context, UpdateProductionBomCommand) (ProductionBomSummary, error) {
+	return ProductionBomSummary{}, nil
+}
+func (r *fakeRepo) CopyProductionBom(context.Context, CopyProductionBomCommand) (ProductionBomSummary, error) {
+	return ProductionBomSummary{}, nil
+}
+func (r *fakeRepo) CreateProductionBomVersion(context.Context, CreateProductionBomVersionCommand) (ProductionBomVersion, error) {
+	return ProductionBomVersion{}, nil
+}
+func (r *fakeRepo) UpdateProductionBomVersionDraft(context.Context, UpdateProductionBomVersionDraftCommand) (ProductionBomVersion, error) {
+	return ProductionBomVersion{}, nil
+}
+func (r *fakeRepo) PublishProductionBomVersion(context.Context, PublishProductionBomVersionCommand) error {
+	return nil
+}
+func (r *fakeRepo) BindProductProductionBom(context.Context, BindProductProductionBomCommand) (ProductProductionBomBinding, error) {
+	return ProductProductionBomBinding{}, nil
+}
 
 func TestServiceValidatesSaveItem(t *testing.T) {
 	repo := &fakeRepo{}
@@ -262,4 +295,37 @@ func (r errorRepo) SetBomSource(context.Context, SetBomSourceCommand) (Detail, e
 }
 func (r errorRepo) DeriveOwned(context.Context, DeriveOwnedCommand) (Detail, error) {
 	return Detail{}, r.err
+}
+func (r errorRepo) ListProductionBomGroups(context.Context) ([]ProductionBomGroup, error) {
+	return nil, r.err
+}
+func (r errorRepo) CreateProductionBomGroup(context.Context, CreateProductionBomGroupCommand) (ProductionBomGroup, error) {
+	return ProductionBomGroup{}, r.err
+}
+func (r errorRepo) ListProductionBoms(context.Context) ([]ProductionBomSummary, error) {
+	return nil, r.err
+}
+func (r errorRepo) GetProductionBomDetail(context.Context, int64) (ProductionBomDetail, error) {
+	return ProductionBomDetail{}, r.err
+}
+func (r errorRepo) CreateProductionBom(context.Context, CreateProductionBomCommand) (ProductionBomSummary, error) {
+	return ProductionBomSummary{}, r.err
+}
+func (r errorRepo) UpdateProductionBom(context.Context, UpdateProductionBomCommand) (ProductionBomSummary, error) {
+	return ProductionBomSummary{}, r.err
+}
+func (r errorRepo) CopyProductionBom(context.Context, CopyProductionBomCommand) (ProductionBomSummary, error) {
+	return ProductionBomSummary{}, r.err
+}
+func (r errorRepo) CreateProductionBomVersion(context.Context, CreateProductionBomVersionCommand) (ProductionBomVersion, error) {
+	return ProductionBomVersion{}, r.err
+}
+func (r errorRepo) UpdateProductionBomVersionDraft(context.Context, UpdateProductionBomVersionDraftCommand) (ProductionBomVersion, error) {
+	return ProductionBomVersion{}, r.err
+}
+func (r errorRepo) PublishProductionBomVersion(context.Context, PublishProductionBomVersionCommand) error {
+	return r.err
+}
+func (r errorRepo) BindProductProductionBom(context.Context, BindProductProductionBomCommand) (ProductProductionBomBinding, error) {
+	return ProductProductionBomBinding{}, r.err
 }
