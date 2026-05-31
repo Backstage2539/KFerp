@@ -1229,6 +1229,7 @@ import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/wo
 
 const props = defineProps({
   workspaceMode: { type: String, default: '' },
+  viewContext: { type: Object, default: () => ({}) },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
 })
@@ -3048,6 +3049,9 @@ function applyWorkspaceCustomerContext() {
   }
   if (props.workspaceMode === CUSTOMER_WORKSPACE_MODE && nextCustomerID > 0) {
     selectedAliasCustomerID.value = nextCustomerID
+    if (activeSettingsSection.value === 'master') {
+      activeSettingsSection.value = 'aliases'
+    }
   }
 }
 
