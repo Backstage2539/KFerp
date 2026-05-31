@@ -33,22 +33,29 @@
       <header class="top" :class="{ compact: !showTitle }">
         <button class="toggle" @click="toggleMenu">{{ toggleLabel }}</button>
         <div v-if="showTitle" class="title">{{ title }}</div>
-        <div v-if="showWorkspaceSwitcher" class="workspace-switcher" role="group" aria-label="工作台模式">
+        <div v-if="showViewContextSelector" class="view-context-switcher workspace-switcher" role="group" aria-label="当前视图">
+          <span class="view-context-caption">当前视图</span>
           <button
             type="button"
-            :class="{ active: workspaceMode === FACTORY_WORKSPACE_MODE }"
-            @click="setWorkspaceMode(FACTORY_WORKSPACE_MODE)">
+            :class="{ active: currentViewContext.type === FACTORY_VIEW_CONTEXT }"
+            @click="setViewContextType(FACTORY_VIEW_CONTEXT)">
             工厂总览
           </button>
           <button
             type="button"
-            :class="{ active: workspaceMode === CUSTOMER_WORKSPACE_MODE }"
-            @click="setWorkspaceMode(CUSTOMER_WORKSPACE_MODE)">
-            客户账户
+            :class="{ active: currentViewContext.type === CUSTOMER_VIEW_CONTEXT }"
+            @click="setViewContextType(CUSTOMER_VIEW_CONTEXT)">
+            客户
+          </button>
+          <button
+            type="button"
+            :class="{ active: currentViewContext.type === ORDER_VIEW_CONTEXT }"
+            @click="setViewContextType(ORDER_VIEW_CONTEXT)">
+            订单
           </button>
         </div>
         <label v-if="showWorkspaceCustomerSelector" class="workspace-customer">
-          <span>当前客户</span>
+          <span>客户</span>
           <SearchableSelect
             v-model="workspaceCustomerId"
             :options="workspaceCustomerOptions"
@@ -58,6 +65,27 @@
             placeholder="选择客户"
             empty-text="没有匹配客户" />
         </label>
+        <label v-if="showWorkspaceOrderSelector" class="workspace-customer view-context-order">
+          <span>订单</span>
+          <SearchableSelect
+            v-model="workspaceOrderId"
+            :options="workspaceOrderOptions"
+            :option-label="orderOptionLabel"
+            :option-meta="orderOptionMeta"
+            :option-value="optionNumericValue"
+            placeholder="选择订单"
+            empty-text="没有匹配订单" />
+        </label>
+        <div v-if="currentViewContextLabel" class="view-context-label">当前视图：{{ currentViewContextLabel }}</div>
+        <div v-if="showViewContextSelector" class="view-context-presets" aria-label="保存视图">
+          <select v-model.number="selectedViewContextPresetId" @change="applySelectedViewContextPreset">
+            <option :value="0">常用视图</option>
+            <option v-for="preset in viewContextPresets" :key="preset.id" :value="preset.id">{{ preset.name }}</option>
+          </select>
+          <button type="button" @click="saveCurrentViewContextPreset">保存当前视图</button>
+          <button type="button" :disabled="!selectedViewContextPresetId" @click="disableSelectedViewContextPreset">停用视图</button>
+          <button type="button" @click="resetViewContextToDefault">恢复默认视图</button>
+        </div>
         <div v-if="actorName" class="actor">{{ actorName }}</div>
         <button v-if="currentActor" class="logout" type="button" @click="logout">退出</button>
       </header>
@@ -90,6 +118,7 @@
         :view-key="currentKey"
         :view-params="currentViewParams"
         :workspace-mode="workspaceMode"
+        :view-context="currentViewContext"
         :customer-context-id="workspaceCustomerContextId"
         :customer-context-label="workspaceCustomerLabel"
         :customer-account-actor="isCustomerActor" />
@@ -102,6 +131,7 @@
         :view-key="currentKey"
         :view-params="currentViewParams"
         :workspace-mode="workspaceMode"
+        :view-context="currentViewContext"
         :customer-context-id="workspaceCustomerContextId"
         :customer-context-label="workspaceCustomerLabel"
         :customer-account-actor="isCustomerActor" />
@@ -169,7 +199,7 @@ import WipMaterialsView from './views/WipMaterialsView.vue'
 import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
 import { clearStoredAuthToken, fetchCurrentActor, hasStoredAuthToken, logoutCurrentSession } from './api/auth.js'
-import { apiGet, appURL } from './api/client.js'
+import { apiGet, apiSend, appURL } from './api/client.js'
 import { fetchCustomerProcessingPortalOverview } from './api/customer-fulfillment.js'
 import { fetchERPNotifications, markNotificationRead } from './api/message-center.js'
 import { fetchUISettings } from './api/ui-settings.js'
@@ -196,8 +226,25 @@ import {
   isCustomerAccountActor,
   menuGroupsForWorkspaceMode,
   normalizeWorkspaceMode,
-  workspaceViewParams,
 } from './lib/workspace-mode.js'
+import {
+  CUSTOMER_VIEW_CONTEXT,
+  EXTERNAL_CUSTOMER_VIEW_CONTEXT,
+  FACTORY_VIEW_CONTEXT,
+  ORDER_VIEW_CONTEXT,
+  currentViewLabel,
+  customerIDForViewContext,
+  customerViewContextFromOption,
+  externalCustomerViewContext,
+  legacyWorkspaceModeForViewContext,
+  menuGroupsForViewContext,
+  normalizeViewContext,
+  orderIDForViewContext,
+  orderViewContextFromOption,
+  viewContextFromURL,
+  viewContextToURLParams,
+  viewContextViewParams,
+} from './lib/view-context.js'
 
 const collapsed = ref(false)
 const content = ref(null)
@@ -206,25 +253,34 @@ const viewAliases = { userPermissions: 'employees' }
 function normalizeViewKey(key) {
   return viewAliases[key] || key
 }
+const viewContextStorageKey = 'kferp.view-context'
 const workspaceModeStorageKey = 'kferp.workspace.mode'
 const workspaceCustomerStorageKey = 'kferp.workspace.customerId'
+const workspaceOrderStorageKey = 'kferp.workspace.orderId'
 const requestedURLParams = new URL(window.location.href).searchParams
 const requestedViewParam = requestedURLParams.get('view')
 const requestedView = normalizeViewKey(requestedViewParam)
 const requestedViewFromUrl = !!requestedViewParam
 const freshLogin = requestedURLParams.get('fresh_login') === '1'
-const workspaceMode = ref(normalizeWorkspaceMode(requestedURLParams.get('workspace') || readStorage(workspaceModeStorageKey)))
-const workspaceCustomerId = ref(Number(requestedURLParams.get('customer_id') || readStorage(workspaceCustomerStorageKey) || 0))
+const initialViewContext = initialViewContextFromRequest()
+const currentViewContext = ref(initialViewContext)
+const workspaceMode = ref(legacyWorkspaceModeForViewContext(initialViewContext))
+const workspaceCustomerId = ref(customerIDForViewContext(initialViewContext) || Number(readStorage(workspaceCustomerStorageKey) || 0))
+const workspaceOrderId = ref(orderIDForViewContext(initialViewContext) || Number(readStorage(workspaceOrderStorageKey) || 0))
 const workspaceCustomerOptions = ref([])
+const workspaceOrderOptions = ref([])
+const viewContextPresets = ref([])
+const selectedViewContextPresetId = ref(0)
 const currentKey = ref(requestedView && menuMap[requestedView] ? requestedView : 'order')
-const currentViewParams = ref(workspaceViewParams(readViewParams(), workspaceContext()))
+const currentViewParams = ref(viewContextViewParams(readViewParams(), currentViewContext.value))
+const externalCustomerContextType = EXTERNAL_CUSTOMER_VIEW_CONTEXT // external_customer
 const isMobile = ref(false)
 const mobileOpen = ref(false)
 let touchStartX = 0
 let touchStartY = 0
 const mobileSwipeMinDistance = 60
 const mobileSwipeMaxVerticalDrift = 80
-const expandedGroups = ref(defaultExpandedGroups(menuGroupsForWorkspaceMode(menuGroups, workspaceMode.value), currentKey.value))
+const expandedGroups = ref(defaultExpandedGroups(menuGroupsForViewContext(menuGroups, currentViewContext.value), currentKey.value))
 const menuStorageKey = 'kferp.menu.expandedGroups'
 const authLoading = ref(true)
 const authError = ref('')
@@ -338,11 +394,30 @@ const customerAccountActorMenuGroups = [
 function readViewParams() {
   const params = new URL(window.location.href).searchParams
   const out = {}
-  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id', 'customer_id']) {
+  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id', 'customer_id', 'order_id', 'order_no']) {
     const value = params.get(key)
     if (value) out[key] = value
   }
   return out
+}
+
+function readStoredViewContext() {
+  try {
+    const raw = window.localStorage.getItem(viewContextStorageKey)
+    if (raw) return normalizeViewContext(JSON.parse(raw))
+  } catch {
+    // Ignore invalid or unavailable localStorage.
+  }
+  const legacyMode = normalizeWorkspaceMode(readStorage(workspaceModeStorageKey))
+  const legacyCustomerID = Number(readStorage(workspaceCustomerStorageKey) || 0)
+  if (legacyMode === CUSTOMER_WORKSPACE_MODE || legacyCustomerID > 0) {
+    return normalizeViewContext({ type: CUSTOMER_VIEW_CONTEXT, customerID: legacyCustomerID })
+  }
+  return { type: FACTORY_VIEW_CONTEXT }
+}
+
+function initialViewContextFromRequest() {
+  return normalizeViewContext(viewContextFromURL(window.location.href, readStoredViewContext()))
 }
 
 function readStorage(key) {
@@ -362,31 +437,28 @@ function writeStorage(key, value) {
 }
 
 function workspaceContext() {
-  return { mode: workspaceMode.value, customerID: workspaceCustomerId.value }
+  return { mode: workspaceMode.value, customerID: customerIDForViewContext(currentViewContext.value) || workspaceCustomerId.value }
 }
 
 function optionNumericValue(option) {
   return Number(option?.id || 0)
 }
 
-function applyWorkspaceToUrl(url) {
-  if (workspaceMode.value === CUSTOMER_WORKSPACE_MODE) {
-    url.searchParams.set('workspace', CUSTOMER_WORKSPACE_MODE)
-    if (workspaceCustomerId.value) {
-      url.searchParams.set('customer_id', String(Number(workspaceCustomerId.value || 0)))
-    } else {
-      url.searchParams.delete('customer_id')
-    }
-    return url
+function applyViewContextToUrl(url) {
+  for (const key of ['view_context', 'context', 'workspace', 'customer_id', 'customer_name', 'order_id', 'order_no']) {
+    url.searchParams.delete(key)
   }
-  url.searchParams.delete('workspace')
-  url.searchParams.delete('customer_id')
+  const params = viewContextToURLParams(currentViewContext.value)
+  for (const [key, value] of Object.entries(params)) {
+    if (value) url.searchParams.set(key, value)
+  }
+  // Compatibility: old links using workspace=customer continue to round-trip.
   return url
 }
 
 function applyKeyToUrl(key, params = {}) {
   const url = new URL(window.location.href)
-  replaceHistoryURL(applyWorkspaceToUrl(viewNavigationURL(url, key, workspaceViewParams(params, workspaceContext()))))
+  replaceHistoryURL(applyViewContextToUrl(viewNavigationURL(url, key, viewContextViewParams(params, currentViewContext.value))))
 }
 
 function isProductSettingsKey(key) {
@@ -394,7 +466,7 @@ function isProductSettingsKey(key) {
 }
 
 function hardNavigateToView(key, params = {}) {
-  const url = applyWorkspaceToUrl(viewNavigationURL(new URL(window.location.href), key, workspaceViewParams(params, workspaceContext())))
+  const url = applyViewContextToUrl(viewNavigationURL(new URL(window.location.href), key, viewContextViewParams(params, currentViewContext.value)))
   window.location.assign(relativeURLForHistory(url))
 }
 
@@ -420,11 +492,48 @@ function open(key, params = {}) {
     return
   }
   currentKey.value = key
-  currentViewParams.value = workspaceViewParams(params, workspaceContext())
+  currentViewParams.value = viewContextViewParams(params, currentViewContext.value)
   ensureCurrentGroupOpen(key)
   applyKeyToUrl(key, currentViewParams.value)
   scrollCurrentViewToTop()
   if (isMobile.value) mobileOpen.value = false
+}
+
+function setCurrentViewContext(context, { reopen = true } = {}) {
+  if (isCustomerActor.value) return
+  const next = normalizeViewContext(context)
+  currentViewContext.value = next
+  workspaceMode.value = legacyWorkspaceModeForViewContext(next)
+  const customerID = customerIDForViewContext(next)
+  workspaceCustomerId.value = customerID
+  workspaceOrderId.value = orderIDForViewContext(next)
+  writeStorage(viewContextStorageKey, JSON.stringify(next))
+  writeStorage(workspaceModeStorageKey, workspaceMode.value)
+  if (customerID > 0) writeStorage(workspaceCustomerStorageKey, customerID)
+  if (workspaceOrderId.value > 0) writeStorage(workspaceOrderStorageKey, workspaceOrderId.value)
+  expandedGroups.value = defaultExpandedGroups(availableMenuGroups.value, currentKey.value)
+  if (reopen && !groupForView(availableMenuGroups.value, currentKey.value)) {
+    const first = firstAllowedMenuKey()
+    if (first) open(first)
+    return
+  }
+  currentViewParams.value = viewContextViewParams(currentViewParams.value, next)
+  applyKeyToUrl(currentKey.value, currentViewParams.value)
+  scrollCurrentViewToTop()
+}
+
+function setViewContextType(type) {
+  if (type === FACTORY_VIEW_CONTEXT) {
+    setCurrentViewContext({ type: FACTORY_VIEW_CONTEXT })
+    return
+  }
+  if (type === ORDER_VIEW_CONTEXT) {
+    const option = workspaceOrderOptions.value.find((item) => Number(item.id || item.order_id || 0) === Number(workspaceOrderId.value || 0))
+    setCurrentViewContext(option ? orderViewContextFromOption(option) : { type: ORDER_VIEW_CONTEXT })
+    return
+  }
+  const option = workspaceCustomerOptions.value.find((item) => Number(item.id || item.customer_id || 0) === Number(workspaceCustomerId.value || 0))
+  setCurrentViewContext(option ? customerViewContextFromOption(option) : { type: CUSTOMER_VIEW_CONTEXT, customerID: workspaceCustomerId.value })
 }
 
 function setWorkspaceMode(mode) {
@@ -434,19 +543,7 @@ function setWorkspaceMode(mode) {
     return
   }
   const nextMode = normalizeWorkspaceMode(mode)
-  if (workspaceMode.value !== nextMode) {
-    workspaceMode.value = nextMode
-    writeStorage(workspaceModeStorageKey, workspaceMode.value)
-  }
-  expandedGroups.value = defaultExpandedGroups(availableMenuGroups.value, currentKey.value)
-  if (!groupForView(availableMenuGroups.value, currentKey.value)) {
-    const first = firstAllowedMenuKey()
-    if (first) open(first)
-    return
-  }
-  currentViewParams.value = workspaceViewParams(currentViewParams.value, workspaceContext())
-  applyKeyToUrl(currentKey.value, currentViewParams.value)
-  scrollCurrentViewToTop()
+  setViewContextType(nextMode === CUSTOMER_WORKSPACE_MODE ? CUSTOMER_VIEW_CONTEXT : FACTORY_VIEW_CONTEXT)
 }
 
 function persistExpandedGroups() {
@@ -541,8 +638,9 @@ function handleNavigateView(event) {
 
 function handleWorkspaceCustomerChange(event) {
   const nextCustomerID = Number(event?.detail?.customerID || 0)
-  if (nextCustomerID > 0 && workspaceMode.value === CUSTOMER_WORKSPACE_MODE) {
-    workspaceCustomerId.value = nextCustomerID
+  if (nextCustomerID > 0 && currentViewContext.value.type === CUSTOMER_VIEW_CONTEXT) {
+    const option = workspaceCustomerOptions.value.find((item) => Number(item.id || item.customer_id || 0) === nextCustomerID)
+    setCurrentViewContext(option ? customerViewContextFromOption(option) : { type: CUSTOMER_VIEW_CONTEXT, customerID: nextCustomerID })
   }
 }
 
@@ -552,16 +650,122 @@ function handleWorkspaceCustomersRefresh() {
 
 async function loadWorkspaceCustomers() {
   try {
-    const data = await apiGet('/api/customer-fulfillment/customers?limit=200')
-    workspaceCustomerOptions.value = data.customers || data.items || []
+    const data = await apiGet('/api/view-context/options?type=customer&limit=200')
+    workspaceCustomerOptions.value = (data.options || []).map(customerOptionFromViewContextOption)
   } catch {
     try {
-      const data = await apiGet('/api/customers?limit=200')
+      const data = await apiGet('/api/customer-fulfillment/customers?limit=200')
       workspaceCustomerOptions.value = data.customers || data.items || []
     } catch {
-      workspaceCustomerOptions.value = []
+      try {
+        const data = await apiGet('/api/customers?limit=200')
+        workspaceCustomerOptions.value = data.customers || data.items || []
+      } catch {
+        workspaceCustomerOptions.value = []
+      }
     }
   }
+}
+
+async function loadWorkspaceOrders() {
+  try {
+    const data = await apiGet('/api/view-context/options?type=order&limit=80')
+    workspaceOrderOptions.value = data.options || []
+  } catch {
+    workspaceOrderOptions.value = []
+  }
+}
+
+async function loadViewContextPresets() {
+  try {
+    const data = await apiGet('/api/view-context/presets')
+    viewContextPresets.value = data.presets || []
+  } catch {
+    viewContextPresets.value = []
+  }
+}
+
+function presetPayloadForCurrentViewContext(name) {
+  return {
+    name,
+    context_type: currentViewContext.value.type,
+    context_json: contextJSONForPreset(currentViewContext.value),
+    menu_keys_json: availableMenuGroups.value.flatMap((group) => (group.items || []).map((item) => item.key)),
+    sort_order: viewContextPresets.value.length + 1,
+  }
+}
+
+function contextJSONForPreset(context) {
+  const ctx = normalizeViewContext(context)
+  const out = { type: ctx.type }
+  if (ctx.customerID) out.customer_id = ctx.customerID
+  if (ctx.customerName) out.customer_name = ctx.customerName
+  if (ctx.orderID) out.order_id = ctx.orderID
+  if (ctx.orderNo) out.order_no = ctx.orderNo
+  return out
+}
+
+async function saveCurrentViewContextPreset() {
+  const defaultName = currentViewContextLabel.value || '当前视图'
+  const name = window.prompt('保存当前视图', defaultName)
+  if (!name || !name.trim()) return
+  try {
+    const data = await apiSend('/api/view-context/presets', {
+      body: presetPayloadForCurrentViewContext(name.trim()),
+    })
+    await loadViewContextPresets()
+    selectedViewContextPresetId.value = Number(data?.preset?.id || 0)
+  } catch (err) {
+    window.alert(err.message || '保存视图失败')
+  }
+}
+
+function applySelectedViewContextPreset() {
+  const preset = viewContextPresets.value.find((row) => Number(row.id || 0) === Number(selectedViewContextPresetId.value || 0))
+  if (!preset) return
+  setCurrentViewContext({
+    ...(preset.context_json || {}),
+    type: preset.context_type,
+  })
+}
+
+async function disableSelectedViewContextPreset() {
+  const id = Number(selectedViewContextPresetId.value || 0)
+  if (!id) return
+  try {
+    await apiSend(`/api/view-context/presets/${id}/disable`)
+    selectedViewContextPresetId.value = 0
+    await loadViewContextPresets()
+  } catch (err) {
+    window.alert(err.message || '停用视图失败')
+  }
+}
+
+function resetViewContextToDefault() {
+  selectedViewContextPresetId.value = 0
+  setCurrentViewContext({ type: FACTORY_VIEW_CONTEXT })
+}
+
+function customerOptionFromViewContextOption(option) {
+  return {
+    id: Number(option?.customer_id || option?.id || 0),
+    name: option?.customer_name || option?.label || '',
+    company_name: option?.company_name || '',
+    contact: option?.contact || '',
+    phone: option?.phone || '',
+  }
+}
+
+function orderOptionLabel(option) {
+  return option?.label || option?.order_no || `订单 #${option?.order_id || option?.id || ''}`
+}
+
+function orderOptionMeta(option) {
+  const parts = []
+  if (option?.customer_name) parts.push(option.customer_name)
+  if (option?.order_date) parts.push(option.order_date)
+  if (option?.status) parts.push(option.status)
+  return parts.join(' / ')
 }
 
 async function loadCustomerAccountContext() {
@@ -569,7 +773,9 @@ async function loadCustomerAccountContext() {
   customerAccountContext.value = data || {}
   const customerID = Number(data?.customer_id || 0)
   if (customerID <= 0) return
+  currentViewContext.value = externalCustomerViewContext(data)
   workspaceCustomerId.value = customerID
+  workspaceMode.value = CUSTOMER_WORKSPACE_MODE
   if (workspaceCustomerOptions.value.some((item) => Number(item.id) === customerID)) return
   workspaceCustomerOptions.value = [
     ...workspaceCustomerOptions.value,
@@ -665,13 +871,12 @@ async function loadActor() {
     currentActor.value = await fetchCurrentActor()
     await loadUISettings()
     if (isCustomerAccountActor(currentActor.value)) {
-      workspaceMode.value = CUSTOMER_WORKSPACE_MODE
       await loadCustomerAccountContext()
       if (!['customerProcessingPortal', 'financeExpenses', 'financeClosing', 'financeReport'].includes(currentKey.value)) {
         currentKey.value = 'customerProcessingPortal'
         currentViewParams.value = {}
       } else {
-        currentViewParams.value = workspaceViewParams(currentViewParams.value, workspaceContext())
+        currentViewParams.value = viewContextViewParams(currentViewParams.value, currentViewContext.value)
       }
       applyKeyToUrl(currentKey.value, currentViewParams.value)
     }
@@ -726,7 +931,7 @@ onMounted(async () => {
     readStoredExpandedGroups(),
     currentKey.value,
   )
-  await Promise.all([loadActor(), loadWorkspaceCustomers()])
+  await Promise.all([loadActor(), loadWorkspaceCustomers(), loadWorkspaceOrders(), loadViewContextPresets()])
   window.addEventListener('resize', handleResize)
   window.addEventListener('touchstart', handleTouchStart, { passive: true })
   window.addEventListener('touchend', handleTouchEnd, { passive: true })
@@ -761,8 +966,10 @@ const allowedViewKeys = computed(() => {
 })
 const isCustomerActor = computed(() => isCustomerAccountActor(currentActor.value))
 const showWorkspaceSwitcher = computed(() => Boolean(currentActor.value) && !isCustomerActor.value)
-const showWorkspaceCustomerSelector = computed(() => workspaceMode.value === CUSTOMER_WORKSPACE_MODE && !isCustomerActor.value)
-const workspaceMenuGroups = computed(() => (isCustomerActor.value ? customerAccountActorMenuGroups : menuGroupsForWorkspaceMode(menuGroups, workspaceMode.value)))
+const showViewContextSelector = computed(() => Boolean(currentActor.value) && !isCustomerActor.value)
+const showWorkspaceCustomerSelector = computed(() => currentViewContext.value.type === CUSTOMER_VIEW_CONTEXT && !isCustomerActor.value)
+const showWorkspaceOrderSelector = computed(() => currentViewContext.value.type === ORDER_VIEW_CONTEXT && !isCustomerActor.value)
+const workspaceMenuGroups = computed(() => (isCustomerActor.value ? customerAccountActorMenuGroups : menuGroupsForViewContext(menuGroups, currentViewContext.value)))
 const availableMenuGroups = computed(() => filterMenuGroups(workspaceMenuGroups.value, allowedViewKeys.value, {
   actor: currentActor.value,
   workspaceMode: workspaceMode.value,
@@ -777,7 +984,7 @@ const title = computed(() => menuMap[currentKey.value]?.title || '')
 const actorName = computed(() => currentActor.value?.name || '')
 const isCurrentAllowed = computed(() => menuMap[currentKey.value] && isViewAllowed(currentKey.value, allowedViewKeys.value))
 const isProductSettingsView = computed(() => currentKey.value === 'productSettings' || currentKey.value === 'products')
-const currentViewIdentity = computed(() => `${currentKey.value}:${workspaceMode.value}:${workspaceCustomerContextId.value || 0}`)
+const currentViewIdentity = computed(() => `${currentKey.value}:${currentViewContext.value.type}:${workspaceCustomerContextId.value || 0}:${orderIDForViewContext(currentViewContext.value) || 0}`)
 const visibleNotifications = computed(() => dedupeNotifications(notifications.value).slice(0, 3))
 const notificationStackStyle = computed(() => ({
   '--kferp-notice-stack-space': isMobile.value && visibleNotifications.value.length
@@ -788,20 +995,39 @@ const workspaceCustomerOption = computed(() => (
   workspaceCustomerOptions.value.find((item) => Number(item.id) === Number(workspaceCustomerId.value)) || null
 ))
 const workspaceCustomerLabel = computed(() => {
-  if (workspaceMode.value !== CUSTOMER_WORKSPACE_MODE) return ''
+  if (legacyWorkspaceModeForViewContext(currentViewContext.value) !== CUSTOMER_WORKSPACE_MODE) return ''
   if (isCustomerActor.value && customerAccountContext.value?.customer_name) {
     return customerAccountContext.value.customer_name
   }
+  if (currentViewContext.value.customerName) return currentViewContext.value.customerName
   return workspaceCustomerOption.value ? customerOptionLabel(workspaceCustomerOption.value) : (workspaceCustomerId.value ? `客户 #${workspaceCustomerId.value}` : '')
 })
 const workspaceCustomerContextId = computed(() => (
-  workspaceMode.value === CUSTOMER_WORKSPACE_MODE ? Number(customerAccountContext.value?.customer_id || workspaceCustomerId.value || 0) : 0
+  legacyWorkspaceModeForViewContext(currentViewContext.value) === CUSTOMER_WORKSPACE_MODE
+    ? Number(customerAccountContext.value?.customer_id || customerIDForViewContext(currentViewContext.value) || workspaceCustomerId.value || 0)
+    : 0
 ))
+const currentViewContextLabel = computed(() => currentViewLabel(currentViewContext.value))
 
 watch(workspaceCustomerId, (next) => {
   writeStorage(workspaceCustomerStorageKey, Number(next || 0))
-  if (workspaceMode.value !== CUSTOMER_WORKSPACE_MODE) return
-  currentViewParams.value = workspaceViewParams(currentViewParams.value, workspaceContext())
+  if (currentViewContext.value.type !== CUSTOMER_VIEW_CONTEXT) return
+  const option = workspaceCustomerOptions.value.find((item) => Number(item.id || 0) === Number(next || 0))
+  currentViewContext.value = option ? customerViewContextFromOption(option) : normalizeViewContext({ type: CUSTOMER_VIEW_CONTEXT, customerID: next })
+  writeStorage(viewContextStorageKey, JSON.stringify(currentViewContext.value))
+  currentViewParams.value = viewContextViewParams(currentViewParams.value, currentViewContext.value)
+  applyKeyToUrl(currentKey.value, currentViewParams.value)
+})
+
+watch(workspaceOrderId, (next) => {
+  writeStorage(workspaceOrderStorageKey, Number(next || 0))
+  if (currentViewContext.value.type !== ORDER_VIEW_CONTEXT) return
+  const option = workspaceOrderOptions.value.find((item) => Number(item.id || item.order_id || 0) === Number(next || 0))
+  currentViewContext.value = option ? orderViewContextFromOption(option) : normalizeViewContext({ type: ORDER_VIEW_CONTEXT, orderID: next })
+  workspaceMode.value = legacyWorkspaceModeForViewContext(currentViewContext.value)
+  workspaceCustomerId.value = customerIDForViewContext(currentViewContext.value)
+  writeStorage(viewContextStorageKey, JSON.stringify(currentViewContext.value))
+  currentViewParams.value = viewContextViewParams(currentViewParams.value, currentViewContext.value)
   applyKeyToUrl(currentKey.value, currentViewParams.value)
 })
 
@@ -854,6 +1080,14 @@ watch([visibleNotifications, isMobile], syncNotificationStackSpace, { flush: 'po
   overflow: hidden;
   background: #fff;
 }
+.view-context-caption {
+  padding: 0 9px;
+  color: #555;
+  font-size: 13px;
+  line-height: 32px;
+  border-right: 1px solid #d8d8d8;
+  white-space: nowrap;
+}
 .workspace-switcher button {
   min-height: 32px;
   border: 0;
@@ -867,6 +1101,37 @@ watch([visibleNotifications, isMobile], syncNotificationStackSpace, { flush: 'po
 }
 .workspace-switcher button:last-child { border-right: 0; }
 .workspace-switcher button.active { background: #111; color: #fff; }
+.view-context-label {
+  max-width: min(420px, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: #444;
+  background: #f9f9f9;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.view-context-presets {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.view-context-presets select,
+.view-context-presets button {
+  min-height: 32px;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px 9px;
+  color: #333;
+  font-size: 13px;
+  line-height: 1.2;
+}
+.view-context-presets button:disabled { color: #aaa; cursor: not-allowed; }
 .workspace-customer {
   display: inline-flex;
   align-items: center;

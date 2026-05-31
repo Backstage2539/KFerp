@@ -444,6 +444,7 @@ const filters = reactive({
   ship_status_id: 0,
   process_status_id: 0,
   customer_id: 0,
+  order_id: 0,
   ship_ready: false,
   void: 'normal',
   limit: 10,
@@ -470,7 +471,8 @@ const allSelectedDocumentsShipped = computed(() => selectedDocumentRows.value.le
 function applyUrlFilters() {
   const params = new URL(window.location.href).searchParams
   filters.scope = orderListScopeForRequest(props.viewParams?.scope || params.get('scope') || 'all')
-  filters.highlight_order_id = Number(props.viewParams?.highlight_order_id || params.get('highlight_order_id') || 0)
+  filters.order_id = Number(props.viewParams?.order_id || params.get('order_id') || 0)
+  filters.highlight_order_id = Number(props.viewParams?.highlight_order_id || props.viewParams?.order_id || params.get('highlight_order_id') || 0)
   filters.customer_id = Number(props.viewParams?.customer_id || params.get('customer_id') || props.customerContextId || 0)
   filters.q = params.get('q') || ''
   filters.from = params.get('from') || ''
@@ -493,6 +495,7 @@ function buildUrl(nextPage) {
     if (filters[key]) url.searchParams.set(key, String(filters[key]))
   }
   if (filters.customer_id) url.searchParams.set('customer_id', String(filters.customer_id))
+  if (filters.order_id) url.searchParams.set('order_id', String(filters.order_id))
   if (filters.ship_ready) url.searchParams.set('ship_ready', '1')
   if (filters.scope && filters.scope !== 'all') url.searchParams.set('scope', filters.scope)
   url.searchParams.set('page', String(nextPage))
@@ -513,6 +516,8 @@ function updateBrowserUrl(nextPage) {
   }
   if (filters.customer_id) url.searchParams.set('customer_id', String(filters.customer_id))
   else url.searchParams.delete('customer_id')
+  if (filters.order_id) url.searchParams.set('order_id', String(filters.order_id))
+  else url.searchParams.delete('order_id')
   if (filters.ship_ready) url.searchParams.set('ship_ready', '1')
   else url.searchParams.delete('ship_ready')
   if (filters.scope && filters.scope !== 'all') url.searchParams.set('scope', filters.scope)
@@ -1038,15 +1043,18 @@ onMounted(() => {
 
 watch(() => props.viewParams, async () => {
   const nextScope = orderListScopeForRequest(props.viewParams?.scope || 'all')
-  const nextHighlightID = Number(props.viewParams?.highlight_order_id || 0)
+  const nextHighlightID = Number(props.viewParams?.highlight_order_id || props.viewParams?.order_id || 0)
+  const nextOrderID = Number(props.viewParams?.order_id || 0)
   const nextCustomerID = Number(props.viewParams?.customer_id || props.customerContextId || 0)
   if (
     filters.scope === nextScope
     && Number(filters.highlight_order_id || 0) === nextHighlightID
+    && Number(filters.order_id || 0) === nextOrderID
     && Number(filters.customer_id || 0) === nextCustomerID
   ) return
   filters.scope = nextScope
   filters.highlight_order_id = nextHighlightID
+  filters.order_id = nextOrderID
   filters.customer_id = nextCustomerID
   await loadPage(1)
 }, { deep: true })

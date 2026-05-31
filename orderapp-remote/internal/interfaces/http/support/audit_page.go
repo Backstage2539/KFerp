@@ -213,6 +213,15 @@ func auditMenuFeature(entityType, action, field string, meta *string) (string, s
 			return "订单销售 / 客户档案", "维护客户附件"
 		}
 		return "订单销售 / 客户档案", "编辑客户档案"
+	case "view_context_preset":
+		switch action {
+		case "disable_view_context_preset":
+			return "系统 / 当前视图", "停用保存视图"
+		case "update_view_context_preset":
+			return "系统 / 当前视图", "修改保存视图"
+		default:
+			return "系统 / 当前视图", "保存当前视图"
+		}
 	case "company_profile":
 		return "设置 / 公司设置", "保存公司设置"
 	case "sales_order_settings":
@@ -316,6 +325,19 @@ func operationMenuFeature(meta *string, field string) (string, string) {
 			return "设置 / 成本参数设置", "保存成本参数"
 		}
 		return "设置 / 成本参数设置", "查看成本参数"
+	case strings.HasPrefix(target, "/api/view-context/presets"):
+		if method == "POST" && strings.HasSuffix(target, "/disable") {
+			return "系统 / 当前视图", "停用保存视图"
+		}
+		if method == "POST" {
+			return "系统 / 当前视图", "保存当前视图"
+		}
+		if method == "PUT" {
+			return "系统 / 当前视图", "修改保存视图"
+		}
+		return "系统 / 当前视图", "查看保存视图"
+	case strings.HasPrefix(target, "/api/view-context/options"):
+		return "系统 / 当前视图", "查询视图选项"
 	case strings.HasPrefix(target, "/api/costing/bean-list/publications") && strings.Contains(target, "/withdraw"):
 		return "商品与配方 / 产品设置", "撤回豆单发布"
 	case strings.HasPrefix(target, "/api/costing/bean-list/publications"):
@@ -837,6 +859,8 @@ func labelEntityType(t string) string {
 		return "客户"
 	case "customer_asset":
 		return "客户附件"
+	case "view_context_preset":
+		return "保存视图"
 	case "company_profile":
 		return "公司信息"
 	case "sales_order_settings":

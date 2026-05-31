@@ -175,6 +175,7 @@ func (h orderAPIHandler) list(c echo.Context) error {
 		Scope:                 query.Scope,
 		EmployeeID:            query.EmployeeID,
 		FulfillmentEmployeeID: query.FulfillmentEmployeeID,
+		OrderID:               query.OrderID,
 		CustomerID:            query.CustomerID,
 		PayStatusID:           query.PayStatusID,
 		ShipStatusID:          query.ShipStatusID,
@@ -368,6 +369,7 @@ type ordersAPIQuery struct {
 	Scope                 string
 	EmployeeID            int64
 	FulfillmentEmployeeID int64
+	OrderID               int64
 	CustomerID            int64
 	PayStatusID           int64
 	ShipStatusID          int64
@@ -411,6 +413,7 @@ func ordersQueryFromContext(c echo.Context) (ordersAPIQuery, bool) {
 		q.Page = 1
 	}
 	q.CustomerID = int64(support.IntParam(c, "customer_id", 0))
+	q.OrderID = int64(support.IntParam(c, "order_id", 0))
 	q.EmployeeID = support.CurrentEmployeeID(c)
 	q.PayStatusID = int64(support.IntParam(c, "pay_status_id", 0))
 	q.ShipStatusID = int64(support.IntParam(c, "ship_status_id", 0))
