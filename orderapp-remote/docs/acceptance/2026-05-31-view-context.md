@@ -27,11 +27,10 @@
 
 - `cd orderapp-remote/frontend-vue-shell && node --test src/lib/view-context.test.js src/lib/workspace-mode.test.js`
 - `cd orderapp-remote && go test ./internal/interfaces/http/support -run TestViewContext -count=1`
-- 后续最终验证补充：
-  - `npm --prefix orderapp-remote/frontend-vue-shell run build`
-  - `scripts/verify_kferp.sh changed`
-  - 浏览器验收结果
-  - development 部署 smoke 结果
+- `cd orderapp-remote/frontend-vue-shell && node --test src/lib/view-context.test.js src/lib/workspace-mode.test.js src/lib/operation-manuals.test.js src/lib/menu-ia.test.js`
+- `cd orderapp-remote && go test ./internal/interfaces/http/support ./internal/interfaces/http/sales -count=1`
+- `cd orderapp-remote/frontend-vue-shell && npm run build`
+- `scripts/verify_kferp.sh changed`
 
 ## 手册证据
 
@@ -55,8 +54,20 @@
 
 ## 浏览器验收
 
-- 待最终验证补充。
+- 2026-05-31 Van 指示后续不用做浏览器/人工验收，以节省 token；本需求收口到代码落盘、文档推送、单测和 API 测试。
+- 曾创建的临时 smoke 登录会话已从 `login_sessions` 删除。
 
 ## 部署记录
 
-- 待合入 `develop` 并部署 development stack 后补充。
+- Feature branch：`codex/view-context-20260531`
+- Feature commit：`2c015a69 feat(view-context): add unified current view context`
+- Develop merge commit：`4f4e2c87 Merge PR-387 view context`
+- Deploy target：development stack
+- Deploy command：`./deploy_orderapp.sh development`
+- Backup：`root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260531160343`
+- Smoke：
+  - `docker compose ps`：`erp_orderapp` running，`erp_postgres` healthy，`erp_caddy` running，`erp_docconvert` running。
+  - Docker build：镜像内 `go test ./...` 通过。
+  - Authenticated `/vue-shell/`：200。
+  - Authenticated `/api/view-context/options?type=customer&limit=3`：200。
+  - Authenticated `/api/req/product?limit=500`：包含 `PR-387-VIEW-CONTEXT`。

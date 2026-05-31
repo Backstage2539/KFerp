@@ -9,14 +9,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-387-VIEW-CONTEXT
 - Branch: codex/view-context-20260531
 - Owner/session: Codex / 2026-05-31
-- Status: red
+- Status: deployed
 - Scope: 把“工厂总览 / 客户账户”升级为统一“视图上下文”。顶部显示当前视图并支持工厂、客户、订单和外部客户固定视图；视图只负责菜单呈现、默认过滤、URL 保留和跨页面参数传递，不替代后端权限。结合 PR-386 商品模型，客户视图使用客户商品名，执行侧仍使用商品档案、生产 BOM 和价格表快照。
 - DEV:
   - DEV-387-PHASE1-FRONTEND-CONTEXT：新增 Vue/Vite `view-context` 抽象，兼容旧 `workspace=customer&customer_id=...` URL 和旧 workspace-mode API。
   - DEV-387-PHASE2-PAGE-ADAPTERS：商品管理、产品价格表、BOM、录单、订单列表、仓库库存、费用管理接入客户/订单上下文。
   - DEV-387-PHASE3-OPTIONS-API：新增视图上下文客户/订单选项 API，并复用客户/订单权限边界。
   - DEV-387-PHASE4-PRESET-CRUD：新增保存视图表和 CRUD API，保存/修改/停用写操作日志。
-  - DEV-387-PHASE5-MANUAL-ACCEPTANCE-DEPLOY：更新手册、验收文档，完成浏览器验收、合入 develop 并部署 development stack。
+  - DEV-387-PHASE5-MANUAL-ACCEPTANCE-DEPLOY：更新手册、验收文档，合入 develop 并部署 development stack。
 - Verifier:
   - Unit/frontend: node --test src/lib/view-context.test.js src/lib/workspace-mode.test.js and targeted page tests touched by adapters.
   - API/backend: go test ./internal/interfaces/http/support -run 'TestViewContext' -count=1 plus targeted affected packages.
@@ -24,9 +24,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: scripts/verify_kferp.sh changed.
   - Manual: orderapp-remote/docs/OP_MANUAL_WORKSPACE_MODE.md; orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_COSTING.md; orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OPERATION_MANUALS.md.
   - Review/acceptance: orderapp-remote/docs/REQUIREMENTS.md; orderapp-remote/docs/ACCEPTANCE_TESTS.md; orderapp-remote/docs/acceptance/2026-05-31-view-context.md.
-- Deployment: pending; do not deploy until tests, build, manual, acceptance, browser verification and merge gates pass.
-- Last update: 2026-05-31 Asia/Shanghai
-- Notes: `scripts/reserve_req_id.sh --claim view-context` hit the known awk multiline bug; `scripts/reserve_req_id.sh` returned PR-387 and this entry was seeded manually.
+- Deployment: development deployed at origin/develop 4f4e2c87a960779ca7fda4f58c56e41f6851dd67; backup root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260531160343.
+- Last update: 2026-05-31 16:10 Asia/Shanghai
+- Notes: `scripts/reserve_req_id.sh --claim view-context` hit the known awk multiline bug; `scripts/reserve_req_id.sh` returned PR-387 and this entry was seeded manually. Final evidence before merge: `scripts/verify_kferp.sh changed` exited 0; frontend target `node --test src/lib/view-context.test.js src/lib/workspace-mode.test.js src/lib/operation-manuals.test.js src/lib/menu-ia.test.js` passed 28/28; API/backend `go test ./internal/interfaces/http/support ./internal/interfaces/http/sales -count=1` passed; `npm run build` passed with existing chunk-size warning. Merge/deploy evidence: feature branch pushed, local develop merge commit 4f4e2c87 pushed, deploy script rebuilt image and ran Docker build `go test ./...`; containers running, authenticated `/vue-shell/` returned 200, `/api/view-context/options?type=customer&limit=3` returned 200, PR-387 marker found in requirement API. Van explicitly stopped browser/manual验收 to save tokens; temporary smoke login session was removed.
 
 ### PR-386-PRODUCT-MODEL-OVERHAUL
 - Branch: codex/product-model-overhaul-20260531
