@@ -24,14 +24,14 @@ func TestDev363SkuSettingsWorkbenchLayoutRequirementSeeds(t *testing.T) {
 func TestDev363SkuSettingsWorkbenchLayoutUI(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
-		"sku-workspace-tabs",
+		"sectionMode",
 		"sku-master-workspace",
 		"sku-template-workspace",
 		"master-data-layout",
 		"template-workspace-stack",
 		"商品档案",
-		"商品配置",
-		"activeSettingsSection",
+		"商品配置模板",
+		"currentSettingsSection",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("ProductSettingsView.vue missing workbench layout marker %q", want)

@@ -24,7 +24,8 @@ type apiFakeRepo struct {
 	productionBomGroups                []bomapp.ProductionBomGroup
 	includeInactiveProductionBomGroups bool
 	updatedProductionBomGroup          bomapp.UpdateProductionBomGroupCommand
-	disabledProductionBomGroupID       int64
+	deletedProductionBomGroupID        int64
+	movedProductionBomGroup            bomapp.MoveProductionBomGroupCommand
 	productionBomRows                  []bomapp.ProductionBomSummary
 	productionBomDetail                bomapp.ProductionBomDetail
 	copiedProductionBom                bomapp.ProductionBomSummary
@@ -110,8 +111,13 @@ func (r *apiFakeRepo) UpdateProductionBomGroup(_ context.Context, cmd bomapp.Upd
 	return bomapp.ProductionBomGroup{ID: cmd.ID, Name: cmd.Name, SortOrder: cmd.SortOrder, Active: true}, nil
 }
 
-func (r *apiFakeRepo) DisableProductionBomGroup(_ context.Context, cmd bomapp.DisableProductionBomGroupCommand) error {
-	r.disabledProductionBomGroupID = cmd.ID
+func (r *apiFakeRepo) DeleteProductionBomGroup(_ context.Context, cmd bomapp.DeleteProductionBomGroupCommand) error {
+	r.deletedProductionBomGroupID = cmd.ID
+	return nil
+}
+
+func (r *apiFakeRepo) MoveProductionBomGroup(_ context.Context, cmd bomapp.MoveProductionBomGroupCommand) error {
+	r.movedProductionBomGroup = cmd
 	return nil
 }
 

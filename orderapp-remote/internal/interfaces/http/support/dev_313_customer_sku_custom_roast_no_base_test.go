@@ -46,11 +46,18 @@ func TestDev313CustomerSkuCustomRoastNoBaseProduct(t *testing.T) {
 		"buildSkuCreatePayload",
 		"product_type_category_id",
 		"product_subtype_category_id",
-		"special_attrs_json",
 	} {
 		if !strings.Contains(productSettingsLib, want) {
 			t.Fatalf("product-settings.js missing unified SKU payload marker %q", want)
 		}
+	}
+	skuPayloadStart := strings.Index(productSettingsLib, "export function buildSkuCreatePayload")
+	skuPayloadEnd := strings.Index(productSettingsLib, "export function buildSkuCopyPayload")
+	if skuPayloadStart < 0 || skuPayloadEnd <= skuPayloadStart {
+		t.Fatalf("product-settings.js missing buildSkuCreatePayload function block")
+	}
+	if strings.Contains(productSettingsLib[skuPayloadStart:skuPayloadEnd], "special_attrs_json") {
+		t.Fatalf("buildSkuCreatePayload should not write legacy SKU special_attrs_json after product production config migration")
 	}
 
 	requirements := string(readDev313File(t, "docs/REQUIREMENTS.md"))

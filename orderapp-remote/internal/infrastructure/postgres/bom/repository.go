@@ -21,6 +21,8 @@ type Repository struct {
 	schema string
 }
 
+const DEFAULT_PRODUCTION_BOM_GROUP_NAME = "默认分组"
+
 func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 	return Repository{pool: pool, schema: schema}
 }
@@ -1291,17 +1293,13 @@ func productionBomBindingForProduct(ctx context.Context, q bomQueryer, schema st
 	return row, true, nil
 }
 
-func (r Repository) ListProductionBomGroups(ctx context.Context, includeInactive bool) ([]bomapp.ProductionBomGroup, error) {
-	where := "WHERE active=true"
-	if includeInactive {
-		where = ""
-	}
+func (r Repository) ListProductionBomGroups(ctx context.Context, _ bool) ([]bomapp.ProductionBomGroup, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, name, sort_order, active
 		FROM %s.production_bom_groups
-		%s
+		WHERE active=true
 		ORDER BY sort_order, name, id
-	`, r.schema, where))
+	`, r.schema))
 	if err != nil {
 		return nil, err
 	}
@@ -1366,7 +1364,44 @@ func (r Repository) UpdateProductionBomGroup(ctx context.Context, cmd bomapp.Upd
 	return row, nil
 }
 
-func (r Repository) DisableProductionBomGroup(ctx context.Context, cmd bomapp.DisableProductionBomGroupCommand) error {
+func (r Repository) DeleteProductionBomGroup(ctx context.Context, cmd bomapp.DeleteProductionBomGroupCommand) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var name string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.production_bom_groups WHERE id=$1 FOR UPDATE`, r.schema), cmd.ID).Scan(&name); err != nil {
+		return err
+	}
+	if strings.TrimSpace(name) == DEFAULT_PRODUCTION_BOM_GROUP_NAME {
+		return fmt.Errorf("default group cannot be deleted")
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.production_bom_groups(name, sort_order, active, created_by, updated_by)
+		VALUES($1,100,true,'system','system')
+		ON CONFLICT DO NOTHING
+	`, r.schema), DEFAULT_PRODUCTION_BOM_GROUP_NAME); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.production_boms
+		SET group_id=(SELECT id FROM %s.production_bom_groups WHERE name=$2 ORDER BY id LIMIT 1),
+		    updated_at=now(), updated_by=$3
+		WHERE group_id=$1
+	`, r.schema, r.schema), cmd.ID, DEFAULT_PRODUCTION_BOM_GROUP_NAME, strings.TrimSpace(cmd.Actor)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_bom_groups WHERE id=$1`, r.schema), cmd.ID); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_group", &cmd.ID, "delete_production_bom_group", postgresinfra.StrPtr("group_id"), postgresinfra.StrPtr(fmt.Sprint(cmd.ID)), nil, postgresinfra.AuditMeta{"group_id": cmd.ID, "moved_to": DEFAULT_PRODUCTION_BOM_GROUP_NAME}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) MoveProductionBomGroup(ctx context.Context, cmd bomapp.MoveProductionBomGroupCommand) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -1374,19 +1409,12 @@ func (r Repository) DisableProductionBomGroup(ctx context.Context, cmd bomapp.Di
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.production_bom_groups
-		SET active=false, updated_at=now(), updated_by=$2
+		SET sort_order=$2, updated_at=now(), updated_by=$3
 		WHERE id=$1
-	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Actor)); err != nil {
+	`, r.schema), cmd.ID, cmd.SortOrder, strings.TrimSpace(cmd.Actor)); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.production_boms
-		SET group_id=0, updated_at=now(), updated_by=$2
-		WHERE group_id=$1
-	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Actor)); err != nil {
-		return err
-	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_group", &cmd.ID, "disable_production_bom_group", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"group_id": cmd.ID}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_group", &cmd.ID, "move_production_bom_group", postgresinfra.StrPtr("sort_order"), nil, postgresinfra.StrPtr(fmt.Sprint(cmd.SortOrder)), postgresinfra.AuditMeta{"group_id": cmd.ID, "sort_order": cmd.SortOrder}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -1884,14 +1912,14 @@ func ensureProductionBomGroupTx(ctx context.Context, tx pgx.Tx, schema string, g
 	var id int64
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.production_bom_groups(name, sort_order, active, created_by, updated_by)
-		VALUES('默认配方组',100,true,'system','system')
+		VALUES($1,100,true,'system','system')
 		ON CONFLICT DO NOTHING
 		RETURNING id
-	`, schema)).Scan(&id)
+	`, schema), DEFAULT_PRODUCTION_BOM_GROUP_NAME).Scan(&id)
 	if err == nil {
 		return id, nil
 	}
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.production_bom_groups WHERE name='默认配方组' ORDER BY id LIMIT 1`, schema)).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.production_bom_groups WHERE name=$1 ORDER BY id LIMIT 1`, schema), DEFAULT_PRODUCTION_BOM_GROUP_NAME).Scan(&id); err != nil {
 		return 0, err
 	}
 	return id, nil

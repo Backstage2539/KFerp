@@ -46,10 +46,11 @@ test('customer workspace keeps only customer-facing operations and finance', () 
     'order',
     'orders',
     'warehouseInventory',
-    'productSettings',
+    'productMaster',
+    'customerProductAliases',
+    'productConfigTemplates',
     'costing',
     'bom',
-    'mallSettings',
     'financeExpenses',
   ]) {
     assert.ok(keys.includes(key), `${key} should be reachable in customer workspace`)

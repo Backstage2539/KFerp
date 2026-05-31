@@ -343,8 +343,10 @@ func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	combined := string(app) + "\n" + string(menu) + "\n" + string(settings)
 	for _, want := range []string{
 		"ProductSettingsView",
-		"productSettings",
-		"商品管理",
+		"productMaster",
+		"customerProductAliases",
+		"productConfigTemplates",
+		"商品档案",
 		"CostingView",
 		"dragstart",
 		"drop",
@@ -362,8 +364,8 @@ func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 	if _, err := os.Stat(filepath.Join("frontend-vue-shell", "src", "views", "ProductsView.vue")); !os.IsNotExist(err) {
 		t.Fatalf("legacy product archive page should be removed, stat err=%v", err)
 	}
-	if strings.Contains(string(menu), "label: '商品档案'") || strings.Contains(string(menu), "label: '成本核算'") {
-		t.Fatalf("primary product menu should expose 商品管理 instead of 商品档案/成本核算")
+	if strings.Contains(string(menu), "label: '商品管理'") || strings.Contains(string(menu), "label: '成本核算'") {
+		t.Fatalf("primary product menu should expose split product pages instead of 商品管理/成本核算")
 	}
 }
 
@@ -419,7 +421,7 @@ func TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource(t *testing.T) {
 		"scheduleClearDrag",
 		"@dragend=\"scheduleClearDrag\"",
 		"dropCategoryOrProductOnSecondary",
-		"BOM预期产出率",
+		"生产配置预期损耗率",
 		"buildProductCreatePayload(productForm.value)",
 		"buildProductBasicsPayload(row, marginOverride.value)",
 	} {
@@ -431,19 +433,19 @@ func TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource(t *testing.T) {
 		t.Fatalf("dragend must not synchronously clear drag state before drop handlers run")
 	}
 	for _, want := range []string{
-		"INSERT INTO %s.product_bom(product_id,yield_rate,updated_at)",
-		"ON CONFLICT (product_id) DO UPDATE SET yield_rate=excluded.yield_rate",
+		"INSERT INTO %s.product_production_configs(",
+		"expected_loss_rate=excluded.expected_loss_rate",
 	} {
 		if !strings.Contains(string(repo), want) {
-			t.Fatalf("catalog repository must persist product settings yield to product_bom: missing %q", want)
+			t.Fatalf("catalog repository must persist product production config: missing %q", want)
 		}
 	}
 	for _, want := range []string{
 		"LEFT JOIN %[1]s.product_bom_sources bs ON bs.product_id=p.id",
-		"LEFT JOIN %[1]s.product_bom b ON b.product_id=CASE",
+		"LEFT JOIN %[1]s.product_production_configs ppc ON ppc.product_id=p.id",
 	} {
 		if !strings.Contains(string(queries), want) {
-			t.Fatalf("product settings list must read yield_rate from the effective product_bom source: missing %q", want)
+			t.Fatalf("product settings list must read product production config: missing %q", want)
 		}
 	}
 }

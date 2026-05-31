@@ -191,9 +191,15 @@ type UpdateProductionBomGroupCommand struct {
 	Actor     string `json:"actor"`
 }
 
-type DisableProductionBomGroupCommand struct {
+type DeleteProductionBomGroupCommand struct {
 	ID    int64  `json:"id"`
 	Actor string `json:"actor"`
+}
+
+type MoveProductionBomGroupCommand struct {
+	ID        int64  `json:"id"`
+	SortOrder int    `json:"sort_order"`
+	Actor     string `json:"actor"`
 }
 
 type CreateProductionBomCommand struct {
@@ -332,7 +338,8 @@ type Repository interface {
 	ListProductionBomGroups(ctx context.Context, includeInactive bool) ([]ProductionBomGroup, error)
 	CreateProductionBomGroup(ctx context.Context, cmd CreateProductionBomGroupCommand) (ProductionBomGroup, error)
 	UpdateProductionBomGroup(ctx context.Context, cmd UpdateProductionBomGroupCommand) (ProductionBomGroup, error)
-	DisableProductionBomGroup(ctx context.Context, cmd DisableProductionBomGroupCommand) error
+	DeleteProductionBomGroup(ctx context.Context, cmd DeleteProductionBomGroupCommand) error
+	MoveProductionBomGroup(ctx context.Context, cmd MoveProductionBomGroupCommand) error
 	ListProductionBoms(ctx context.Context) ([]ProductionBomSummary, error)
 	GetProductionBomDetail(ctx context.Context, id int64) (ProductionBomDetail, error)
 	CreateProductionBom(ctx context.Context, cmd CreateProductionBomCommand) (ProductionBomSummary, error)
@@ -619,12 +626,20 @@ func (s *Service) UpdateProductionBomGroup(ctx context.Context, cmd UpdateProduc
 	return s.repo.UpdateProductionBomGroup(ctx, cmd)
 }
 
-func (s *Service) DisableProductionBomGroup(ctx context.Context, cmd DisableProductionBomGroupCommand) error {
+func (s *Service) DeleteProductionBomGroup(ctx context.Context, cmd DeleteProductionBomGroupCommand) error {
 	if cmd.ID <= 0 {
 		return fmt.Errorf("group_id required")
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
-	return s.repo.DisableProductionBomGroup(ctx, cmd)
+	return s.repo.DeleteProductionBomGroup(ctx, cmd)
+}
+
+func (s *Service) MoveProductionBomGroup(ctx context.Context, cmd MoveProductionBomGroupCommand) error {
+	if cmd.ID <= 0 {
+		return fmt.Errorf("group_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return s.repo.MoveProductionBomGroup(ctx, cmd)
 }
 
 func (s *Service) ListProductionBoms(ctx context.Context) ([]ProductionBomSummary, error) {

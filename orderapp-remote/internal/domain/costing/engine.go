@@ -97,6 +97,7 @@ type ProductInput struct {
 	OperationCostPerUnit       float64                   `json:"operation_cost_per_unit,omitempty"`
 	OperationCostPerKg         float64                   `json:"operation_cost_per_kg,omitempty"`
 	YieldRate                  float64                   `json:"yield_rate"`
+	ExpectedLossRate           float64                   `json:"expected_loss_rate,omitempty"`
 	WholesaleTaxAddPerKg       float64                   `json:"wholesale_tax_add_per_kg"`
 	WholesaleTaxAddPerKgTiers  []float64                 `json:"wholesale_tax_add_per_kg_tiers"`
 	DripTaxAddPerBag100        float64                   `json:"drip_tax_add_per_bag_100"`
@@ -330,6 +331,7 @@ type ProductResult struct {
 	BomStatus                      string                    `json:"bom_status,omitempty"`
 	Warnings                       []string                  `json:"warnings,omitempty"`
 	YieldRate                      float64                   `json:"yield_rate"`
+	ExpectedLossRate               float64                   `json:"expected_loss_rate,omitempty"`
 	GreenBeanCostPerKg             float64                   `json:"green_bean_cost_per_kg"`
 	BomCostPerUnit                 float64                   `json:"bom_cost_per_unit,omitempty"`
 	OperationCostPerUnit           float64                   `json:"operation_cost_per_unit,omitempty"`
@@ -388,12 +390,19 @@ func ValidateProductInput(params Parameters, in ProductInput) (ProductInput, err
 	if in.OperationCostPerUnit < 0 || in.OperationCostPerKg < 0 {
 		return in, fmt.Errorf("operation cost must be >= 0")
 	}
+	if in.ExpectedLossRate < 0 || in.ExpectedLossRate >= 1 {
+		return in, fmt.Errorf("expected_loss_rate must be [0,1)")
+	}
+	if in.ExpectedLossRate > 0 {
+		in.YieldRate = 1 - in.ExpectedLossRate
+	}
 	if in.YieldRate == 0 {
 		in.YieldRate = params.RoastYieldRate
 	}
 	if in.YieldRate <= 0 || in.YieldRate > 1 {
 		return in, fmt.Errorf("yield_rate must be (0,1]")
 	}
+	in.ExpectedLossRate = 1 - in.YieldRate
 	if in.MarginRateOverride != nil && *in.MarginRateOverride < 0 {
 		return in, fmt.Errorf("margin_rate_override must be >= 0")
 	}
@@ -596,6 +605,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		BomStatus:                  in.BomStatus,
 		Warnings:                   append([]string(nil), in.Warnings...),
 		YieldRate:                  in.YieldRate,
+		ExpectedLossRate:           in.ExpectedLossRate,
 		GreenBeanCostPerKg:         in.GreenBeanCostPerKg,
 		BomCostPerUnit:             in.BomCostPerUnit,
 		OperationCostPerUnit:       in.OperationCostPerUnit,
@@ -1742,7 +1752,7 @@ func ExplainCommercialPrice(params Parameters, in ProductInput, req PriceExplana
 		PreviewFinalPrice: preview.FinalPricePerUnit,
 		Steps: []PriceExplanationStep{
 			{Key: "green_bean_cost_per_kg", Label: "生豆成本", Source: "product", Value: previewInput.GreenBeanCostPerKg, Unit: "元/kg", Changed: req.Overrides.GreenBeanCostPerKg != nil},
-			{Key: "yield_rate", Label: "预期产出率", Source: "product_bom", Value: previewInput.YieldRate, Unit: "ratio", Changed: req.Overrides.YieldRate != nil},
+			{Key: "expected_loss_rate", Label: "预期损耗率", Source: "product_production_config", Value: 1 - previewInput.YieldRate, Unit: "ratio", Changed: req.Overrides.YieldRate != nil},
 			{Key: "roasted_bean_cost_per_kg", Label: "熟豆成本", Source: "formula", Value: preview.RoastedCostPerKg, Unit: "元/kg", Changed: req.Overrides.GreenBeanCostPerKg != nil || req.Overrides.YieldRate != nil},
 			{Key: preview.ProductionKey, Label: "生产成本", Source: "cost_parameter", Value: preview.ProductionCostPerKg, Unit: "元/kg"},
 			{Key: "wholesale_package_cost_per_kg", Label: "批发包装成本", Source: "cost_parameter", Value: params.WholesalePackageCostPerKg, Unit: "元/kg"},
@@ -1810,7 +1820,7 @@ func ExplainDripPrice(params Parameters, in ProductInput, req PriceExplanationRe
 		PackedPricePerBox: packedBox,
 		Steps: []PriceExplanationStep{
 			{Key: "green_bean_cost_per_kg", Label: "生豆成本", Source: "product", Value: validated.GreenBeanCostPerKg, Unit: "元/kg"},
-			{Key: "yield_rate", Label: "预期产出率", Source: "product_bom", Value: validated.YieldRate, Unit: "ratio"},
+			{Key: "expected_loss_rate", Label: "预期损耗率", Source: "product_production_config", Value: 1 - validated.YieldRate, Unit: "ratio"},
 			{Key: "roasted_bean_cost_per_kg", Label: "熟豆成本", Source: "formula", Value: roasted, Unit: "元/kg"},
 			{Key: "small_batch_production_cost_per_kg", Label: "小批量生产成本", Source: "cost_parameter", Value: params.SmallBatchProductionCostPerKg, Unit: "元/kg"},
 			{Key: "bag_grams", Label: "单袋熟豆克重", Source: "product_or_template", Value: tier.BagGrams, Unit: "g"},

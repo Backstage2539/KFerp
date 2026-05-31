@@ -24,7 +24,7 @@ func TestVueShellEmbedsBomWithoutNestedMenu(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(menu-ia.js): %v", err)
 	}
-	if !strings.Contains(string(menuIA), "BOM配方维护") {
+	if !strings.Contains(string(menuIA), "生产 BOM") {
 		t.Fatal("frontend-vue-shell/src/lib/menu-ia.js missing BOM menu title")
 	}
 	for _, bad := range []string{"BOM_REACT_URL", "legacyUrl: BOM_REACT_URL"} {

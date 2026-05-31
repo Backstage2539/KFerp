@@ -14,6 +14,7 @@ import (
 
 type apiRepo struct {
 	processSaved  manufacturingapp.SaveProcessTemplateCommand
+	routeSaved    manufacturingapp.SaveProcessRouteCommand
 	industrySaved manufacturingapp.SaveIndustryTemplateCommand
 	publishedID   int64
 }
@@ -40,6 +41,20 @@ func (r *apiRepo) PublishProcessTemplate(ctx context.Context, cmd manufacturinga
 	return nil
 }
 func (r *apiRepo) DeactivateProcessTemplate(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
+	return nil
+}
+func (r *apiRepo) ListProcessRoutes(ctx context.Context, query manufacturingapp.ProcessRouteQuery) ([]manufacturingapp.ProcessRoute, error) {
+	return []manufacturingapp.ProcessRoute{{ID: 8, Name: "烘焙路线", Status: "active"}}, nil
+}
+func (r *apiRepo) SaveProcessRoute(ctx context.Context, cmd manufacturingapp.SaveProcessRouteCommand) (manufacturingapp.ProcessRoute, error) {
+	r.routeSaved = cmd
+	return manufacturingapp.ProcessRoute{ID: 9, Name: cmd.Name, Status: cmd.Status, Operations: cmd.Operations}, nil
+}
+func (r *apiRepo) PublishProcessRoute(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
+	r.publishedID = cmd.ID
+	return nil
+}
+func (r *apiRepo) DeactivateProcessRoute(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
 	return nil
 }
 
@@ -103,5 +118,37 @@ func TestPublishProcessTemplateAPI(t *testing.T) {
 	}
 	if repo.publishedID != 9 {
 		t.Fatalf("publishedID=%d, want 9", repo.publishedID)
+	}
+}
+
+func TestProcessRouteAPIListSaveAndPublish(t *testing.T) {
+	repo := &apiRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Manufacturing: manufacturingapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/process-routes", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"烘焙路线"`) {
+		t.Fatalf("list route status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	body := `{"name":"通用烘焙","operations":[{"operation":"烘焙","records_loss":true,"quality_checklist_json":"[\"颜色\"]"}]}`
+	req = httptest.NewRequest(http.MethodPost, "/api/process-routes", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save route status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.routeSaved.Name != "通用烘焙" || !repo.routeSaved.Operations[0].RecordsLoss {
+		t.Fatalf("saved route command = %+v", repo.routeSaved)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/process-routes/9/publish", strings.NewReader(`{}`))
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.publishedID != 9 {
+		t.Fatalf("publish route status=%d published=%d body=%s", rec.Code, repo.publishedID, rec.Body.String())
 	}
 }

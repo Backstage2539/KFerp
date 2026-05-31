@@ -39,10 +39,14 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 			"/api/process-templates",
 			"/api/industry-field-templates",
 		},
+		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
+			"商品生产配置",
+			"生产配置预期损耗率",
+			"工艺路线",
+		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"预期损耗率",
-			"预期产出率",
-			"关联工艺",
+			"生产 BOM（配方库）",
+			"管理分组",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProcessTemplatesView.vue"): {
 			"工艺模板",

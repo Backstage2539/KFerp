@@ -323,11 +323,17 @@ func noBomRawMaterialName(row productionapp.UnprodNeedRow) string {
 func (r Repository) loadProductYieldRateMap(ctx context.Context) (map[int64]float64, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT p.id, COALESCE(p.roast_level,''),
-		       COALESCE(NULLIF(pbv.yield_rate,0), NULLIF(b.yield_rate,0), CASE WHEN COALESCE(NULLIF(p.product_kind,''),'roasted_bean')='instant_coffee' THEN 1 ELSE 0.8 END),
+		       COALESCE(
+		           CASE WHEN ppc.product_id IS NOT NULL THEN 1 - COALESCE(NULLIF(ppc.expected_loss_rate,0), 0) ELSE NULL END,
+		           NULLIF(pbv.yield_rate,0),
+		           NULLIF(b.yield_rate,0),
+		           CASE WHEN COALESCE(NULLIF(p.product_kind,''),'roasted_bean')='instant_coffee' THEN 1 ELSE 0.8 END
+		       ),
 		       COALESCE(NULLIF(p.product_kind,''),'roasted_bean')
 		FROM `+r.schema+`.products p
+		LEFT JOIN `+r.schema+`.product_production_configs ppc ON ppc.product_id=p.id
 		LEFT JOIN `+r.schema+`.product_production_bom_bindings pbb ON pbb.product_id=p.id
-		LEFT JOIN `+r.schema+`.production_bom_versions pbv ON pbv.id=pbb.bom_version_id
+		LEFT JOIN `+r.schema+`.production_bom_versions pbv ON pbv.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id)
 		LEFT JOIN `+r.schema+`.product_bom_sources bs ON bs.product_id=p.id
 		LEFT JOIN `+r.schema+`.product_bom b ON b.product_id=CASE
 			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id

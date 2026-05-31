@@ -87,14 +87,70 @@ func defaultOperationTemplateSteps() []operationTemplateStepRow {
 func loadBoundBomVersionIDForProductTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) (int64, error) {
 	var versionID int64
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(bom_version_id,0)
-		FROM %s.product_production_bom_bindings
-		WHERE product_id=$1
-	`, schema), productID).Scan(&versionID)
+		SELECT COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)
+		FROM %s.products p
+		LEFT JOIN %s.product_production_configs ppc ON ppc.product_id=p.id
+		LEFT JOIN %s.product_production_bom_bindings pbb ON pbb.product_id=p.id
+		WHERE p.id=$1
+	`, schema, schema, schema), productID).Scan(&versionID)
 	if err == pgx.ErrNoRows {
 		return 0, nil
 	}
 	return versionID, err
+}
+
+func loadProductProductionConfigSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) ([]byte, error) {
+	var raw string
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		WITH config AS (
+			SELECT ppc.product_id,
+			       COALESCE(ppc.production_bom_id,0) AS production_bom_id,
+			       COALESCE(ppc.production_bom_version_id,0) AS production_bom_version_id,
+			       COALESCE(ppc.process_route_id,0) AS process_route_id,
+			       COALESCE(ppc.expected_loss_rate,0)::float8 AS expected_loss_rate,
+			       COALESCE(ppc.note,'') AS note
+			FROM %[1]s.product_production_configs ppc
+			WHERE ppc.product_id=$1
+		),
+		fields AS (
+			SELECT ppcf.product_id,
+			       jsonb_agg(jsonb_build_object(
+			         'field_key', ppcf.field_key,
+			         'label', ppcf.label,
+			         'field_type', ppcf.field_type,
+			         'unit', ppcf.unit,
+			         'value_text', ppcf.value_text,
+			         'value_number', ppcf.value_number,
+			         'value_bool', ppcf.value_bool,
+			         'show_in_price_list', ppcf.show_in_price_list,
+			         'sort_order', ppcf.sort_order
+			       ) ORDER BY ppcf.sort_order, ppcf.id) AS fields_json
+			FROM %[1]s.product_production_config_fields ppcf
+			WHERE ppcf.product_id=$1
+			GROUP BY ppcf.product_id
+		)
+		SELECT COALESCE(jsonb_build_object(
+			'product_id', c.product_id,
+			'production_bom_id', c.production_bom_id,
+			'production_bom_version_id', c.production_bom_version_id,
+			'process_route_id', c.process_route_id,
+			'expected_loss_rate', c.expected_loss_rate,
+			'note', c.note,
+			'fields', COALESCE(f.fields_json, '[]'::jsonb)
+		), '{}'::jsonb)::text
+		FROM config c
+		LEFT JOIN fields f ON f.product_id=c.product_id
+	`, schema), productID).Scan(&raw)
+	if err == pgx.ErrNoRows {
+		return []byte("{}"), nil
+	}
+	if err != nil {
+		if strings.Contains(err.Error(), "product_production_configs") {
+			return []byte("{}"), nil
+		}
+		return nil, err
+	}
+	return []byte(raw), nil
 }
 
 func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operationTemplateID int64, operator string) (int64, error) {
@@ -118,6 +174,13 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 	if len(customerProductSnapshot) == 0 {
 		customerProductSnapshot = []byte("[]")
 	}
+	productionConfigSnapshot, err := loadProductProductionConfigSnapshotForWorkOrderTx(ctx, tx, schema, productID)
+	if err != nil {
+		return 0, err
+	}
+	if len(productionConfigSnapshot) == 0 {
+		productionConfigSnapshot = []byte("{}")
+	}
 	bomVersionID, err := loadBoundBomVersionIDForProductTx(ctx, tx, schema, productID)
 	if err != nil {
 		return 0, err
@@ -127,9 +190,9 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO %s.work_orders(
 			work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,
-			material_snapshot,bom_version_id,operation_template_id,process_template_id,process_template_name,process_snapshot_json,customer_product_snapshot_json,created_at
+			material_snapshot,bom_version_id,operation_template_id,process_template_id,process_template_name,process_snapshot_json,production_config_snapshot_json,customer_product_snapshot_json,created_at
 		)
-		VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,$9,$10,$11,$12,$13,$14,now())
+		VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,$9,$10,$11,$12,$13,$14,$15,now())
 		ON CONFLICT (running_item_id) DO UPDATE SET
 			status='running',
 			material_snapshot=excluded.material_snapshot,
@@ -138,9 +201,10 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 			process_template_id=excluded.process_template_id,
 			process_template_name=excluded.process_template_name,
 			process_snapshot_json=excluded.process_snapshot_json,
+			production_config_snapshot_json=excluded.production_config_snapshot_json,
 			customer_product_snapshot_json=excluded.customer_product_snapshot_json
 		RETURNING id
-	`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG, materialSnapshot, bomVersionID, operationTemplateID, processTemplateID, processTemplateName, processSnapshotJSON, customerProductSnapshot).Scan(&workOrderID); err != nil {
+	`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG, materialSnapshot, bomVersionID, operationTemplateID, processTemplateID, processTemplateName, processSnapshotJSON, productionConfigSnapshot, customerProductSnapshot).Scan(&workOrderID); err != nil {
 		return 0, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.job_cards WHERE work_order_id=$1`, schema), workOrderID); err != nil {
@@ -503,8 +567,8 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT wo.id,wo.work_order_no,wo.running_item_id,wo.batch_id,wo.product_id,wo.product_name,wo.spec_g,wo.planned_g,wo.status,
 		       COALESCE(wo.actual_cost,0),to_char(wo.created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(wo.completed_at,'YYYY-MM-DD HH24:MI'),''),
-		       COALESCE(NULLIF(bound_bv.special_attrs_json->>'roast_level',''), COALESCE(p.roast_level,'')),
-		       COALESCE(NULLIF(ri.bom_yield_rate,0), bound_bv.yield_rate, pb.yield_rate, 0),
+		       COALESCE(NULLIF(wo.production_config_snapshot_json->'fields'->0->>'value_text',''), NULLIF(bound_bv.special_attrs_json->>'roast_level',''), COALESCE(p.roast_level,'')),
+		       COALESCE(NULLIF(ri.bom_yield_rate,0), CASE WHEN ppc.product_id IS NOT NULL THEN 1 - COALESCE(NULLIF(ppc.expected_loss_rate,0), 0) ELSE NULL END, bound_bv.yield_rate, pb.yield_rate, 0),
 		       COALESCE(NULLIF(ri.input_g,0), wo.planned_g, 0),
 		       COALESCE(ri.planned_units,0),
 		       COALESCE(ri.planned_loose_g,0),
@@ -525,7 +589,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		           FROM %s.work_order_material_reservations r
 		           WHERE r.running_item_id=wo.running_item_id AND r.status='reserved'
 		       ),0),
-		       COALESCE(NULLIF(wo.bom_version_id,0), pbb.bom_version_id,0),
+		       COALESCE(NULLIF(wo.bom_version_id,0), NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id,0),
 		       COALESCE(wo.process_template_id,0),
 		       COALESCE(wo.process_template_name,''),
 		       COALESCE(wo.process_snapshot_json,'{}'::jsonb)::text,
@@ -552,24 +616,26 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		           FROM (
 		               SELECT pbi.id,pbi.material_id,pbi.ratio_pct
 		               FROM %s.production_bom_version_items pbi
-		               WHERE pbb.product_id IS NOT NULL AND pbi.version_id=pbb.bom_version_id
+		               WHERE COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id,0) > 0
+		                 AND pbi.version_id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id)
 		               UNION ALL
 		               SELECT lbi.id,lbi.material_id,lbi.ratio_pct
 		               FROM %s.product_bom_items lbi
-		               WHERE pbb.product_id IS NULL AND lbi.product_id=wo.product_id
+		               WHERE COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id,0)=0 AND lbi.product_id=wo.product_id
 		           ) bi
 		           LEFT JOIN %s.materials m ON m.id=bi.material_id
 		       ), '')
 		FROM %s.work_orders wo
 		LEFT JOIN %s.produce_running_items ri ON ri.id=wo.running_item_id
 		LEFT JOIN %s.products p ON p.id=wo.product_id
+		LEFT JOIN %s.product_production_configs ppc ON ppc.product_id=wo.product_id
 		LEFT JOIN %s.product_production_bom_bindings pbb ON pbb.product_id=wo.product_id
-		LEFT JOIN %s.production_bom_versions bound_bv ON bound_bv.id=pbb.bom_version_id
+		LEFT JOIN %s.production_bom_versions bound_bv ON bound_bv.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id)
 		LEFT JOIN %s.product_bom pb ON pb.product_id=wo.product_id
 		WHERE %s
 		ORDER BY wo.created_at DESC, wo.id DESC
 		LIMIT $%d
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
 	if err != nil {
 		return nil, err
 	}

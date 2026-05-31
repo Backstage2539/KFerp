@@ -29,14 +29,13 @@ func TestDev389BomVersionSpecialAttrsSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
 			"管理分组",
-			"BOM版本与特殊属性",
-			"special_attrs_schema_json",
-			"special_attrs_json",
-			"include_inactive=1",
-			"saveProductionBomVersionSpecialAttrs",
+			"deleteProductionBomGroup",
+			"moveProductionBomGroup",
+			"/api/production-bom-groups",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"生产 BOM",
+			"商品生产配置",
 			"productionBomLabel(row)",
 			"action-cell",
 		},
@@ -54,10 +53,9 @@ func TestDev389BomVersionSpecialAttrsSourceMarkers(t *testing.T) {
 			"bound_bv.special_attrs_json->>'roast_level'",
 		},
 		filepath.Join("internal", "interfaces", "http", "bom", "bom_api.go"): {
-			"include_inactive",
+			"DeleteProductionBomGroup",
+			"MoveProductionBomGroup",
 			"UpdateProductionBomGroup",
-			"SpecialAttrsSchemaJSON",
-			"SpecialAttrsJSON",
 		},
 	}
 

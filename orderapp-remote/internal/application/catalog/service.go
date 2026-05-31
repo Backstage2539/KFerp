@@ -39,6 +39,9 @@ type Product struct {
 	RetailPrice227G             float64
 	RetailPrice250G             float64
 	YieldRate                   float64
+	ExpectedLossRate            float64
+	ProcessRouteID              int64
+	ProductionConfigNote        string
 	ProductCategoryID           int64
 	ProductCategoryPosition     int
 	CustomerID                  int64
@@ -123,6 +126,9 @@ type ProductSettingsProduct struct {
 	RetailPrice227G             float64  `json:"retail_price_227g"`
 	RetailPrice250G             float64  `json:"retail_price_250g"`
 	YieldRate                   float64  `json:"yield_rate"`
+	ExpectedLossRate            float64  `json:"expected_loss_rate"`
+	ProcessRouteID              int64    `json:"process_route_id"`
+	ProductionConfigNote        string   `json:"production_config_note"`
 	ProductCategoryID           int64    `json:"product_category_id"`
 	ProductCategoryPosition     int      `json:"product_category_position"`
 	CustomerID                  int64    `json:"customer_id"`
@@ -169,6 +175,7 @@ type ProductCategoryNode struct {
 type ProductSettingsData struct {
 	Categories                   []ProductCategoryNode         `json:"categories"`
 	Products                     []ProductSettingsProduct      `json:"products"`
+	ProductProductionConfigs     []ProductProductionConfig     `json:"product_production_configs"`
 	GradientTemplates            []GradientTemplate            `json:"gradient_templates"`
 	ProductConfigTemplates       []ProductConfigTemplate       `json:"product_config_templates"`
 	ProductUnitDefinitions       []ProductUnitDefinition       `json:"product_unit_definitions"`
@@ -177,6 +184,30 @@ type ProductSettingsData struct {
 	CustomerProductRuleTemplates []CustomerProductRuleTemplate `json:"customer_product_rule_templates"`
 	CustomerProductRuleOverrides []CustomerProductRuleOverride `json:"customer_product_rule_overrides"`
 	CustomerProductRuleBindings  []CustomerProductRuleBinding  `json:"customer_product_rule_bindings"`
+}
+
+type ProductProductionConfigField struct {
+	ID              int64    `json:"id"`
+	ProductID       int64    `json:"product_id"`
+	FieldKey        string   `json:"field_key"`
+	Label           string   `json:"label"`
+	FieldType       string   `json:"field_type"`
+	Unit            string   `json:"unit"`
+	ValueText       string   `json:"value_text"`
+	ValueNumber     *float64 `json:"value_number,omitempty"`
+	ValueBool       *bool    `json:"value_bool,omitempty"`
+	ShowInPriceList bool     `json:"show_in_price_list"`
+	SortOrder       int      `json:"sort_order"`
+}
+
+type ProductProductionConfig struct {
+	ProductID              int64                          `json:"product_id"`
+	ProductionBomID        int64                          `json:"production_bom_id"`
+	ProductionBomVersionID int64                          `json:"production_bom_version_id"`
+	ProcessRouteID         int64                          `json:"process_route_id"`
+	ExpectedLossRate       float64                        `json:"expected_loss_rate"`
+	Note                   string                         `json:"note"`
+	Fields                 []ProductProductionConfigField `json:"fields"`
 }
 
 type ProductConfigTemplate struct {
@@ -595,6 +626,17 @@ type SaveProductUnitTemplateCommand struct {
 	Active             *bool
 }
 
+type SaveProductProductionConfigCommand struct {
+	Actor                  string
+	ProductID              int64
+	ProductionBomID        int64
+	ProductionBomVersionID int64
+	ProcessRouteID         int64
+	ExpectedLossRate       float64
+	Note                   string
+	Fields                 []ProductProductionConfigField
+}
+
 type DeriveProductConfigTemplateCommand struct {
 	Actor            string
 	CustomerID       int64
@@ -689,6 +731,9 @@ type Repository interface {
 	ListSKUCopyOptions(ctx context.Context, query SKUCopyOptionsQuery) (SKUCopyOptions, error)
 	CopySKUs(ctx context.Context, cmd CopySKUsCommand) (CopySKUsResult, error)
 	ListProductCategories(ctx context.Context) ([]ProductCategory, error)
+	ListProductProductionConfigs(ctx context.Context) ([]ProductProductionConfig, error)
+	GetProductProductionConfig(ctx context.Context, productID int64) (ProductProductionConfig, error)
+	SaveProductProductionConfig(ctx context.Context, cmd SaveProductProductionConfigCommand) (ProductProductionConfig, error)
 	ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error)
 	ListProductConfigTemplates(ctx context.Context) ([]ProductConfigTemplate, error)
 	ListProductUnitDefinitions(ctx context.Context) ([]ProductUnitDefinition, error)
@@ -750,6 +795,49 @@ func (s *Service) ListProducts(ctx context.Context) ([]Product, error) {
 
 func (s *Service) GetProduct(ctx context.Context, id int64) (*Product, error) {
 	return s.repo.GetProduct(ctx, id)
+}
+
+func (s *Service) ListProductProductionConfigs(ctx context.Context) ([]ProductProductionConfig, error) {
+	return s.repo.ListProductProductionConfigs(ctx)
+}
+
+func (s *Service) GetProductProductionConfig(ctx context.Context, productID int64) (ProductProductionConfig, error) {
+	if productID <= 0 {
+		return ProductProductionConfig{}, ValidationError{Message: "product_id required"}
+	}
+	return s.repo.GetProductProductionConfig(ctx, productID)
+}
+
+func (s *Service) SaveProductProductionConfig(ctx context.Context, cmd SaveProductProductionConfigCommand) (ProductProductionConfig, error) {
+	if cmd.ProductID <= 0 {
+		return ProductProductionConfig{}, ValidationError{Message: "product_id required"}
+	}
+	if cmd.ExpectedLossRate < 0 || cmd.ExpectedLossRate >= 1 {
+		return ProductProductionConfig{}, ValidationError{Message: "expected_loss_rate must be [0,1)"}
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	for i := range cmd.Fields {
+		field := cmd.Fields[i]
+		field.FieldKey = strings.TrimSpace(field.FieldKey)
+		field.Label = strings.TrimSpace(field.Label)
+		field.FieldType = strings.ToLower(strings.TrimSpace(field.FieldType))
+		field.Unit = strings.TrimSpace(field.Unit)
+		if field.FieldType == "" {
+			field.FieldType = "text"
+		}
+		if field.FieldKey == "" {
+			return ProductProductionConfig{}, ValidationError{Message: "field_key required"}
+		}
+		if field.Label == "" {
+			field.Label = field.FieldKey
+		}
+		if field.SortOrder <= 0 {
+			field.SortOrder = i + 1
+		}
+		cmd.Fields[i] = field
+	}
+	return s.repo.SaveProductProductionConfig(ctx, cmd)
 }
 
 func (s *Service) ReplacePriceTiers(ctx context.Context, cmd ReplacePriceTiersCommand) error {
@@ -985,6 +1073,10 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
+	productionConfigs, err := s.repo.ListProductProductionConfigs(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
 	templates, err := s.repo.ListGradientTemplates(ctx)
 	if err != nil {
 		return ProductSettingsData{}, err
@@ -1018,6 +1110,7 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 		return ProductSettingsData{}, err
 	}
 	data := BuildProductSettings(categories, products)
+	data.ProductProductionConfigs = productionConfigs
 	data.GradientTemplates = templates
 	data.ProductConfigTemplates = configTemplates
 	data.ProductUnitDefinitions = unitDefinitions
@@ -1869,6 +1962,9 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		RetailPrice227G:             p.RetailPrice227G,
 		RetailPrice250G:             p.RetailPrice250G,
 		YieldRate:                   p.YieldRate,
+		ExpectedLossRate:            p.ExpectedLossRate,
+		ProcessRouteID:              p.ProcessRouteID,
+		ProductionConfigNote:        p.ProductionConfigNote,
 		ProductCategoryID:           p.ProductCategoryID,
 		ProductCategoryPosition:     p.ProductCategoryPosition,
 		CustomerID:                  p.CustomerID,

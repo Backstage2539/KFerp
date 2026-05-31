@@ -68,20 +68,22 @@ func TestWorkOrderFreezesCustomerProductAliasSnapshots(t *testing.T) {
 	}
 }
 
-func TestWorkOrderReadsRoastLevelFromBoundBomVersionSpecialAttrs(t *testing.T) {
+func TestWorkOrderFreezesProductProductionConfigSnapshot(t *testing.T) {
 	srcBytes, err := os.ReadFile("work_order.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(srcBytes)
 	for _, want := range []string{
-		"production_bom_versions",
-		"special_attrs_json",
-		"roast_level",
-		"COALESCE(NULLIF(bound_bv.special_attrs_json->>'roast_level',''),",
+		"production_config_snapshot_json",
+		"loadProductProductionConfigSnapshotForWorkOrderTx",
+		"product_production_configs",
+		"product_production_config_fields",
+		"expected_loss_rate",
+		"process_route_id",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("work order must prefer BOM version roast_level special attr before SKU fallback; missing %q", want)
+			t.Fatalf("work order must freeze product production config snapshots; missing %q", want)
 		}
 	}
 }

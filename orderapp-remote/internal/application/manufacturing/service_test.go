@@ -8,6 +8,7 @@ import (
 
 type fakeRepo struct {
 	savedProcess  SaveProcessTemplateCommand
+	savedRoute    SaveProcessRouteCommand
 	savedIndustry SaveIndustryTemplateCommand
 	publishedID   int64
 }
@@ -34,6 +35,20 @@ func (r *fakeRepo) PublishProcessTemplate(ctx context.Context, cmd TemplateStatu
 	return nil
 }
 func (r *fakeRepo) DeactivateProcessTemplate(ctx context.Context, cmd TemplateStatusCommand) error {
+	return nil
+}
+func (r *fakeRepo) ListProcessRoutes(ctx context.Context, query ProcessRouteQuery) ([]ProcessRoute, error) {
+	return nil, nil
+}
+func (r *fakeRepo) SaveProcessRoute(ctx context.Context, cmd SaveProcessRouteCommand) (ProcessRoute, error) {
+	r.savedRoute = cmd
+	return ProcessRoute{ID: 3, Name: cmd.Name, Operations: cmd.Operations}, nil
+}
+func (r *fakeRepo) PublishProcessRoute(ctx context.Context, cmd TemplateStatusCommand) error {
+	r.publishedID = cmd.ID
+	return nil
+}
+func (r *fakeRepo) DeactivateProcessRoute(ctx context.Context, cmd TemplateStatusCommand) error {
 	return nil
 }
 
@@ -109,5 +124,32 @@ func TestPublishProcessTemplateRequiresID(t *testing.T) {
 	}
 	if repo.publishedID != 9 {
 		t.Fatalf("publishedID = %d, want 9", repo.publishedID)
+	}
+}
+
+func TestSaveProcessRouteKeepsRouteLeanAndNormalizesOperations(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	if _, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
+		Name: "咖啡烘焙路线",
+		Operations: []ProcessRouteOperation{{
+			Operation:            "烘焙",
+			Workstation:          "烘焙区",
+			DefaultEquipment:     "Loring S15",
+			DefaultMinutes:       15,
+			RecordsLoss:          true,
+			QualityChecklistJSON: `["颜色","香气"]`,
+		}},
+	}); err != nil {
+		t.Fatalf("SaveProcessRoute: %v", err)
+	}
+	if repo.savedRoute.Status != "draft" {
+		t.Fatalf("status = %q, want draft", repo.savedRoute.Status)
+	}
+	if repo.savedRoute.Operations[0].Seq != 1 || !repo.savedRoute.Operations[0].RecordsLoss {
+		t.Fatalf("operation not normalized: %+v", repo.savedRoute.Operations[0])
+	}
+	if strings.Contains(repo.savedRoute.Note, "expected_loss_rate") {
+		t.Fatalf("route should not carry product parameters: %+v", repo.savedRoute)
 	}
 }

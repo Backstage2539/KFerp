@@ -239,6 +239,42 @@ func TestProductConfigSpecialAttrsPersistAndCopyIdempotently(t *testing.T) {
 	}
 }
 
+func TestProductProductionConfigSchemaBackfillsLegacyBOMAndAttributes(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries, err := os.ReadFile("../catalog_queries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := string(schema) + "\n" + string(repository) + "\n" + string(queries)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS %[1]s.product_production_configs",
+		"CREATE TABLE IF NOT EXISTS %[1]s.product_production_config_fields",
+		"expected_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0",
+		"process_route_id BIGINT NOT NULL DEFAULT 0",
+		"show_in_price_list BOOLEAN NOT NULL DEFAULT true",
+		"backfillProductProductionConfigs",
+		"1 - COALESCE(NULLIF(pbv.yield_rate,0)",
+		"jsonb_each_text",
+		"ListProductProductionConfigs",
+		"SaveProductProductionConfig",
+		`"product_production_config"`,
+		`"save_product_production_config"`,
+		"LEFT JOIN %[1]s.product_production_configs ppc ON ppc.product_id=p.id",
+		"COALESCE(ppc.expected_loss_rate",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("product production config implementation missing marker %q", want)
+		}
+	}
+}
+
 func TestLegacyProductKindMigrationBackfillsDefaultProductTypeSubtypes(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

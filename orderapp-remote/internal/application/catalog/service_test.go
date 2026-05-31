@@ -97,6 +97,26 @@ func (r *fakeRepo) ListProductCategories(ctx context.Context) ([]ProductCategory
 	return []ProductCategory{{ID: 1, Name: "咖啡豆", Level: 1, Position: 1}}, nil
 }
 
+func (r *fakeRepo) ListProductProductionConfigs(ctx context.Context) ([]ProductProductionConfig, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) GetProductProductionConfig(ctx context.Context, productID int64) (ProductProductionConfig, error) {
+	return ProductProductionConfig{ProductID: productID}, nil
+}
+
+func (r *fakeRepo) SaveProductProductionConfig(ctx context.Context, cmd SaveProductProductionConfigCommand) (ProductProductionConfig, error) {
+	return ProductProductionConfig{
+		ProductID:              cmd.ProductID,
+		ProductionBomID:        cmd.ProductionBomID,
+		ProductionBomVersionID: cmd.ProductionBomVersionID,
+		ProcessRouteID:         cmd.ProcessRouteID,
+		ExpectedLossRate:       cmd.ExpectedLossRate,
+		Note:                   cmd.Note,
+		Fields:                 cmd.Fields,
+	}, nil
+}
+
 func (r *fakeRepo) ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error) {
 	return nil, nil
 }

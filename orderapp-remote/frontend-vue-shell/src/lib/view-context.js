@@ -15,7 +15,7 @@ const customerWorkspaceSpec = [
   {
     id: 'customerGoods',
     name: '客户商品与配方',
-    keys: ['productSettings', 'costing', 'bom', 'mallSettings'],
+    keys: ['productMaster', 'customerProductAliases', 'productConfigTemplates', 'costing', 'bom'],
   },
   {
     id: 'customerFinance',

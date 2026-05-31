@@ -73,7 +73,10 @@ func (r *fakeRepo) CreateProductionBomGroup(context.Context, CreateProductionBom
 func (r *fakeRepo) UpdateProductionBomGroup(context.Context, UpdateProductionBomGroupCommand) (ProductionBomGroup, error) {
 	return ProductionBomGroup{}, nil
 }
-func (r *fakeRepo) DisableProductionBomGroup(context.Context, DisableProductionBomGroupCommand) error {
+func (r *fakeRepo) DeleteProductionBomGroup(context.Context, DeleteProductionBomGroupCommand) error {
+	return nil
+}
+func (r *fakeRepo) MoveProductionBomGroup(context.Context, MoveProductionBomGroupCommand) error {
 	return nil
 }
 func (r *fakeRepo) ListProductionBoms(context.Context) ([]ProductionBomSummary, error) {
@@ -311,7 +314,10 @@ func (r errorRepo) CreateProductionBomGroup(context.Context, CreateProductionBom
 func (r errorRepo) UpdateProductionBomGroup(context.Context, UpdateProductionBomGroupCommand) (ProductionBomGroup, error) {
 	return ProductionBomGroup{}, r.err
 }
-func (r errorRepo) DisableProductionBomGroup(context.Context, DisableProductionBomGroupCommand) error {
+func (r errorRepo) DeleteProductionBomGroup(context.Context, DeleteProductionBomGroupCommand) error {
+	return r.err
+}
+func (r errorRepo) MoveProductionBomGroup(context.Context, MoveProductionBomGroupCommand) error {
 	return r.err
 }
 func (r errorRepo) ListProductionBoms(context.Context) ([]ProductionBomSummary, error) {

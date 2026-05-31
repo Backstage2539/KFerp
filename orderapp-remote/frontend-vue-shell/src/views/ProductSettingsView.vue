@@ -3,8 +3,8 @@
     <section class="panel sku-page-summary">
       <div class="panel-head">
         <div>
-          <h2>商品管理</h2>
-          <p>维护商品档案、客户使用场景、商品分类和商品配置；价格表生成请进入产品价格表。</p>
+          <h2>{{ productSectionTitle }}</h2>
+          <p>商品档案承载库存、生产配置、商品分类和生产 BOM 绑定；客户商品名只维护销售展示；商品配置模板只维护模板规则。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -42,28 +42,7 @@
         </div>
       </div>
 
-      <div class="sku-workspace-tabs" role="tablist" aria-label="商品管理工作区">
-        <button
-          type="button"
-          :class="['workspace-tab', { active: activeSettingsSection === 'master' }]"
-          @click="activeSettingsSection = 'master'">
-          商品档案
-        </button>
-        <button
-          type="button"
-          :class="['workspace-tab', { active: activeSettingsSection === 'templates' }]"
-          @click="activeSettingsSection = 'templates'">
-          商品配置
-        </button>
-        <button
-          type="button"
-          :class="['workspace-tab', { active: activeSettingsSection === 'aliases' }]"
-          @click="activeSettingsSection = 'aliases'">
-          客户商品名
-        </button>
-      </div>
-
-      <div v-show="activeSettingsSection === 'master'" class="sku-master-workspace">
+      <div v-show="currentSettingsSection === 'master'" class="sku-master-workspace" data-section-mode="productMaster">
         <div class="master-data-layout">
       <div class="panel product-panel">
         <div class="panel-title sku-panel-title">
@@ -91,6 +70,11 @@
               <strong>{{ action.label }}</strong>
               <small>{{ action.description }}</small>
             </button>
+          </div>
+          <div class="production-config-summary" data-api="/api/product-production-configs">
+            <strong>商品生产配置</strong>
+            <span>按商品档案维护生产 BOM、BOM版本、工艺路线、预期损耗率和价格表产品信息字段。</span>
+            <small>商品分类、生产配置、价格/单位摘要和状态备注都归属商品档案；客户商品名不直接编辑 BOM；价格表生成请进入产品价格表。</small>
           </div>
           <div class="table-wrap sku-table-wrap">
           <div class="sku-filters">
@@ -133,7 +117,7 @@
                 <th class="sku-name-cell">商品</th>
                 <th>归属</th>
                 <th class="action-cell">新增动作</th>
-                <th>生产 BOM 预期产出率</th>
+                <th>生产配置预期损耗率</th>
                 <th>利润率覆盖</th>
                 <th>生产 BOM</th>
                 <th>商品状态</th>
@@ -163,19 +147,7 @@
                     <button class="text-button" type="button" @click="copySkuInPlace(row)">复制为商品档案</button>
                   </td>
                   <td>
-                    <div v-if="productKindSupportsBomParams(row)" class="yield-editor">
-                      <input
-                        class="yield-input"
-                        v-model.number="row.yield_percent"
-                        type="number"
-                        min="1"
-                        max="100"
-                        step="0.01"
-                        :disabled="!canEditSkuRow(row) || row.active === false"
-                        @change="saveProductBasics(row)" />
-                      <span>%</span>
-                    </div>
-                    <span v-else class="muted">-</span>
+                    <span>{{ productionConfigLossLabel(row) }}</span>
                   </td>
                   <td>
                     <input
@@ -275,7 +247,7 @@
         </div>
       </div>
 
-      <div v-show="activeSettingsSection === 'aliases'" class="customer-alias-workspace">
+      <div v-show="currentSettingsSection === 'aliases'" class="customer-alias-workspace">
         <section class="panel customer-alias-panel">
           <div class="panel-title">
             <span>客户商品名 · {{ aliasCustomerLabel }}</span>
@@ -402,9 +374,9 @@
         </section>
       </div>
 
-      <div v-show="activeSettingsSection === 'templates'" class="sku-template-workspace">
+      <div v-show="currentSettingsSection === 'templates' || currentSettingsSection === 'master'" class="sku-template-workspace">
         <div class="template-workspace-stack">
-          <div class="config-template-tabs" role="tablist" aria-label="商品配置模板类型">
+          <div v-if="currentSettingsSection === 'templates'" class="config-template-tabs" role="tablist" aria-label="商品配置模板类型">
             <button
               type="button"
               :class="['config-template-tab', { active: activeConfigTemplateSection === 'product-config' }]"
@@ -423,16 +395,10 @@
               @click="activeConfigTemplateSection = 'gradient'">
               阶梯价模板
             </button>
-            <button
-              type="button"
-              :class="['config-template-tab', { active: activeConfigTemplateSection === 'category-management' }]"
-              @click="activeConfigTemplateSection = 'category-management'">
-              商品分类管理
-            </button>
           </div>
-      <div v-if="activeSettingsSection === 'templates' && activeConfigTemplateSection === 'category-management'" class="category-panel category-drawer-panel category-management-panel">
+      <div v-if="currentSettingsSection === 'master'" class="category-panel category-drawer-panel category-management-panel">
         <div class="panel-title">
-          <span>商品分类 · {{ selectedSkuContextLabel }}</span>
+          <span>商品分类管理 · {{ selectedSkuContextLabel }}</span>
           <div class="panel-actions">
             <button class="toggle-section" type="button" @click="categoryCollapsed = !categoryCollapsed">
               {{ categoryCollapsed ? '展开' : '收起' }}
@@ -624,7 +590,7 @@
           </div>
         </div>
       </div>
-      <div v-show="activeConfigTemplateSection === 'gradient'" class="panel gradient-template-panel gradient-template-pane">
+      <div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'gradient'" class="panel gradient-template-panel gradient-template-pane">
         <div class="panel-title">
           <span>阶梯价模板</span>
           <button class="secondary compact-action" type="button" @click="resetGradientTemplateForm">新建模板</button>
@@ -710,7 +676,7 @@
         </div>
       </div>
 
-      <div v-show="activeConfigTemplateSection === 'unit-template'" class="panel unit-template-panel unit-template-pane">
+      <div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'unit-template'" class="panel unit-template-panel unit-template-pane">
         <div class="panel-title">
           <span>单位模板</span>
           <button class="secondary compact-action" type="button" @click="openGlobalUnitDictionaryDrawer">全局单位字典</button>
@@ -801,7 +767,7 @@
         </div>
       </div>
 
-      <div v-show="activeConfigTemplateSection === 'product-config'" class="panel product-config-panel product-config-template-pane">
+      <div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'product-config'" class="panel product-config-panel product-config-template-pane">
         <div class="panel-title">
           <span>商品配置模板</span>
           <button class="secondary compact-action" type="button" @click="resetProductConfigTemplateForm">新建商品配置</button>
@@ -979,7 +945,7 @@
             <select v-model.number="productionBomBindingVersionID" :disabled="!productionBomBindingBomID">
               <option :value="0">选择已发布版本</option>
               <option v-for="version in productionBomVersionOptions" :key="version.id" :value="version.id">
-                {{ version.version_no }} · 预期产出率 {{ Math.round(Number(version.expected_yield_rate || version.yield_rate || 0) * 10000) / 100 }}%
+                {{ version.version_no }} · 兼容产出因子 {{ Math.round(Number(version.expected_yield_rate || version.yield_rate || 0) * 10000) / 100 }}%
               </option>
             </select>
           </label>
@@ -1215,6 +1181,7 @@ import { normalizePageSize } from '../lib/pagination'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
+  sectionMode: { type: String, default: '' },
   workspaceMode: { type: String, default: '' },
   viewContext: { type: Object, default: () => ({}) },
   customerContextId: { type: [Number, String], default: 0 },
@@ -1227,6 +1194,7 @@ const categories = ref([])
 const products = ref([])
 const gradientTemplates = ref([])
 const productConfigTemplates = ref([])
+const productProductionConfigs = ref([])
 const productUnitDefinitions = ref([])
 const productUnitTemplates = ref([])
 const customerPublicUsages = ref([])
@@ -1264,6 +1232,20 @@ const collapsedSecondaryCategoryIds = ref([])
 const productsCollapsed = ref(false)
 const activeSettingsSection = ref('master')
 const activeConfigTemplateSection = ref('product-config')
+const PRODUCT_SECTION_MODES = {
+  productMaster: 'master',
+  master: 'master',
+  customerProductAliases: 'aliases',
+  aliases: 'aliases',
+  productConfigTemplates: 'templates',
+  templates: 'templates',
+}
+const currentSettingsSection = computed(() => PRODUCT_SECTION_MODES[props.sectionMode] || activeSettingsSection.value)
+const productSectionTitle = computed(() => {
+  if (currentSettingsSection.value === 'aliases') return '客户商品名'
+  if (currentSettingsSection.value === 'templates') return '商品配置模板'
+  return '商品档案'
+})
 const productDrawerOpen = ref(false)
 const skuCopyDrawerOpen = ref(false)
 const productionBomBindingDrawerOpen = ref(false)
@@ -1476,6 +1458,24 @@ const productCreationActions = computed(() => productCreationActionOptions({ cus
 const visibleAliasMigrationCandidates = computed(() => (aliasMigrationCandidates.value || [])
   .filter((row) => Number(row.customer_id || 0) === Number(selectedAliasCustomerID.value || 0))
   .filter((row) => row.can_auto_recommend || row.suggested_action === 'convert_to_customer_product_alias'))
+
+function productionConfigForProduct(product) {
+  const productID = Number(product?.id || product?.product_id || 0)
+  return productProductionConfigs.value.find((row) => Number(row.product_id || 0) === productID) || {}
+}
+
+function productionConfigPriceListFields(product) {
+  const config = productionConfigForProduct(product)
+  return (config.fields || []).filter((field) => field.show_in_price_list)
+}
+
+function productionConfigLossLabel(product) {
+  const config = productionConfigForProduct(product)
+  const loss = Number(config.expected_loss_rate ?? product?.expected_loss_rate ?? 0)
+  if (!Number.isFinite(loss) || loss <= 0) return '-'
+  return `${Math.round(loss * 10000) / 100}%`
+}
+
 const skuCopySourceCustomers = computed(() => customerSkuCustomers.value.filter((customer) => Number(customer.id || 0) !== skuContextCustomerID.value))
 const skuCopySourceOptions = computed(() => {
   const targetCustomerID = skuContextCustomerID.value
@@ -1888,7 +1888,7 @@ async function restoreProductSettingsDraft() {
   collapsedSecondaryCategoryIds.value = normalizeCategoryIdList(draft.collapsedSecondaryCategoryIds)
   productsCollapsed.value = Boolean(draft.productsCollapsed)
   activeSettingsSection.value = ['master', 'templates', 'aliases'].includes(draft.activeSettingsSection) ? draft.activeSettingsSection : 'master'
-  activeConfigTemplateSection.value = ['product-config', 'unit-template', 'gradient', 'category-management'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
+  activeConfigTemplateSection.value = ['product-config', 'unit-template', 'gradient'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
   categorySearchQuery.value = draft.categorySearchQuery || ''
   skuFilters.value = normalizeSkuFiltersForCurrentRows(draft.skuFilters || {})
   skuPage.value = Number(draft.skuPage || 1)
@@ -2046,6 +2046,7 @@ async function loadAll() {
     products.value = (data.products || []).map(decorateProduct)
     gradientTemplates.value = (data.gradient_templates || []).map(normalizeGradientTemplate)
     productConfigTemplates.value = (data.product_config_templates || []).map(decorateProductConfigTemplate)
+    productProductionConfigs.value = data.product_production_configs || []
     productUnitDefinitions.value = (data.product_unit_definitions || []).map(decorateProductUnitDefinition)
     productUnitTemplates.value = (data.product_unit_templates || []).map(decorateProductUnitTemplate)
     customerProductRuleTemplates.value = (data.customer_product_rule_templates || []).map(decorateCustomerProductRuleTemplate)
@@ -3295,7 +3296,7 @@ async function createProduct() {
   }
   const yieldPercent = Number(productForm.value.yield_percent || 0)
   if (productKindSupportsBomParams(productForm.value.product_kind) && (yieldPercent <= 0 || yieldPercent > 100)) {
-    error.value = 'BOM预期产出率必须在 1% 到 100% 之间'
+    error.value = 'BOM兼容产出因子必须在 1% 到 100% 之间'
     return
   }
   if (productForm.value.product_kind === 'green_bean' && Number(productForm.value.green_bean_bom_product_id || 0) <= 0) {
@@ -4018,7 +4019,7 @@ async function saveProductBasics(row, successMessage = '商品基础信息已保
   const productKind = normalizedProductKind(row)
   const yieldPercent = Number(row.yield_percent || 0)
   if (productKindSupportsBomParams(productKind) && (yieldPercent <= 0 || yieldPercent > 100)) {
-    error.value = 'BOM预期产出率必须在 1% 到 100% 之间'
+    error.value = 'BOM兼容产出因子必须在 1% 到 100% 之间'
     return
   }
   if (productKind === 'green_bean' && Number(row.green_bean_bom_product_id || 0) <= 0) {
@@ -4209,7 +4210,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .text-button { border: 0; background: transparent; color: #1f4f82; padding: 0; min-height: 28px; }
 .danger-text { color: #a33; }
 .settings-workbench { display: grid; gap: 10px; align-items: start; }
-.sku-workspace-tabs { display: inline-flex; align-items: center; gap: 4px; width: fit-content; border: 1px solid #e6e0d8; border-radius: 8px; background: #fbfaf8; padding: 4px; }
+.product-section-tabs-legacy { display: inline-flex; align-items: center; gap: 4px; width: fit-content; border: 1px solid #e6e0d8; border-radius: 8px; background: #fbfaf8; padding: 4px; }
 .workspace-tab { min-height: 32px; border: 0; border-radius: 6px; background: transparent; color: #333; padding: 0 14px; font-weight: 700; }
 .workspace-tab.active { background: #111; color: #fff; }
 .sku-master-workspace, .sku-template-workspace { display: grid; gap: 14px; min-width: 0; }
@@ -4477,7 +4478,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
   .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .alias-toolbar, .customer-alias-form { grid-template-columns: 1fr; }
   .sku-context-main { display: grid; }
   .sku-context-controls { justify-content: flex-start; min-width: 0; }
-  .sku-workspace-tabs { width: 100%; }
+  .product-section-tabs-legacy { width: 100%; }
   .workspace-tab { flex: 1; }
   .panel-actions { justify-content: flex-start; }
   .sku-panel-actions { width: 100%; }

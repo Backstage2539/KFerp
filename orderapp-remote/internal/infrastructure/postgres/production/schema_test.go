@@ -26,6 +26,7 @@ func TestWorkOrderSchemaCreatesMaterialSnapshotOnCleanSchema(t *testing.T) {
 		"process_template_id BIGINT NOT NULL DEFAULT 0",
 		"process_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb",
 		"operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+		"production_config_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb",
 	} {
 		if !strings.Contains(workOrdersDDL, want) {
 			t.Fatalf("work_orders clean-schema DDL missing %q", want)
@@ -110,12 +111,32 @@ func TestWorkOrderSchemaSupportsProcessTemplateSnapshots(t *testing.T) {
 		"process_template_name TEXT NOT NULL DEFAULT ''",
 		"process_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb",
 		"operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+		"production_config_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb",
 		"sequence_no INT NOT NULL DEFAULT 1",
 		"records_loss BOOLEAN NOT NULL DEFAULT false",
 		"parameter_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("production schema must support process template snapshots; missing %q", want)
+		}
+	}
+}
+
+func TestProductionPlanReadsExpectedLossFromProductProductionConfig(t *testing.T) {
+	for _, file := range []string{"plan_queries.go", "repository.go"} {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(src)
+		for _, want := range []string{
+			"product_production_configs",
+			"expected_loss_rate",
+			"1 - COALESCE(NULLIF(ppc.expected_loss_rate,0)",
+		} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%s must read expected loss from product production config; missing %q", file, want)
+			}
 		}
 	}
 }

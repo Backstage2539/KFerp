@@ -28,11 +28,11 @@ func TestDev378ProductConfigKVOptionsEditorSourceMarkers(t *testing.T) {
 			"options_text",
 			"valueType === 'select'",
 		},
-		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"BOM版本与特殊属性",
-			"special_attrs_schema_json",
-			"special_attrs_json",
-			"保存特殊属性",
+		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
+			"商品生产配置",
+			"productionConfigPriceListFields",
+			"show_in_price_list",
+			"/api/product-production-configs",
 		},
 	}
 

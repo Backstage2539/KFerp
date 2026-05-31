@@ -34,8 +34,8 @@
         </div>
       </div>
       <div class="filters">
-        <div class="bom-group-strip">
-          <span>BOM分组</span>
+        <div class="bom-group-strip group-tree" data-mode="group-tree">
+          <button class="secondary compact-action" type="button" @click="openGroupDrawer">增加分组</button>
           <button
             :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === 0 }]"
             type="button"
@@ -43,20 +43,13 @@
             全部
           </button>
           <button
-            :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === -1 }]"
-            type="button"
-            @click="selectProductionBomGroup(-1)">
-            未分组
-          </button>
-          <button
             v-for="group in productionBomGroups"
             :key="group.id"
-            :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === Number(group.id || 0) }]"
+            :class="['secondary', 'compact-action', 'bom-group-node', { active: selectedProductionBomGroupID === Number(group.id || 0) }]"
             type="button"
             @click="selectProductionBomGroup(Number(group.id || 0))">
             {{ group.name }}
           </button>
-          <button class="secondary compact-action" type="button" @click="openGroupDrawer">管理分组</button>
         </div>
         <label>
           <span>商品</span>
@@ -74,11 +67,6 @@
           <span>已过滤到当前 SKU BOM</span>
           <button class="text-button" type="button" @click="clearBomProductFilter">显示全部 BOM</button>
         </div>
-        <label>
-          <span>预期损耗率 %</span>
-          <input v-model.number="expectedLossRateInput" type="number" min="0" max="99.99" step="0.01" :disabled="!selectedProductId || !canEditCurrentBomProduct" />
-        </label>
-        <button class="primary" type="button" @click="saveBom" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct">保存预期损耗率</button>
         <button class="secondary danger-outline" type="button" @click="deleteBom" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct">失效当前 BOM</button>
       </div>
     </section>
@@ -92,9 +80,6 @@
               <tr>
                 <th>商品</th>
                 <th>生产 BOM</th>
-                <th>工艺参数</th>
-                <th>预期损耗率</th>
-                <th>预期产出率</th>
                 <th>状态</th>
                 <th>物料数</th>
                 <th>更新时间</th>
@@ -111,15 +96,12 @@
                   <div>{{ productionBomLabel(row) }}</div>
                   <small v-if="productionBomVersionWarning(row)" class="bom-version-warning" data-warning-prefix="当前引用">{{ productionBomVersionWarning(row) }}</small>
                 </td>
-                <td>{{ row.roast_level || '-' }}</td>
-                <td>{{ pct(expectedLoss(row)) }}</td>
-                <td>{{ pct(expectedYield(row)) }}</td>
                 <td><span :class="['status-pill', row.status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.status) }}</span></td>
                 <td>{{ row.item_count }}</td>
                 <td>{{ row.updated_at }}</td>
               </tr>
               <tr v-if="!bomContextRows.length">
-                <td colspan="8" class="muted">{{ selectedBomCustomerSkuCustomerID ? '暂无客户SKU BOM' : '暂无公共SKU BOM' }}</td>
+                <td colspan="5" class="muted">{{ selectedBomCustomerSkuCustomerID ? '暂无客户SKU BOM' : '暂无公共SKU BOM' }}</td>
               </tr>
             </tbody>
           </table>
@@ -133,8 +115,6 @@
           <div><span>生产 BOM</span><strong>{{ currentProductionBomLabel }}</strong></div>
           <div v-if="currentProductionBomWarning"><span>版本提示</span><strong class="warn">{{ currentProductionBomWarning }}</strong></div>
           <div><span>工艺参数</span><strong>{{ detail.roast_level || '-' }}</strong></div>
-          <div><span>预期损耗率</span><strong>{{ pct(expectedLoss(detail)) }}</strong></div>
-          <div><span>预期产出率</span><strong>{{ pct(expectedYield(detail)) }}</strong></div>
           <div><span>状态</span><strong :class="{ warn: detail.status === 'inactive' }">{{ bomStatusLabel(detail.status) }}</strong></div>
           <div><span>合计比例</span><strong :class="{ warn: detail.total_ratio > 100 }">{{ ratio(detail.total_ratio) }}</strong></div>
           <div><span>关联工艺</span><strong>{{ linkedProcessTemplates.length ? `${linkedProcessTemplates.length} 个模板` : '-' }}</strong></div>
@@ -221,7 +201,7 @@
     </div>
 
     <section class="panel">
-      <div class="panel-title">BOM版本与特殊属性</div>
+      <div class="panel-title">BOM版本</div>
       <div class="inline-form">
         <label>
           <span>版本备注</span>
@@ -235,8 +215,6 @@
             <tr>
               <th>版本</th>
               <th>状态</th>
-              <th>预期损耗率</th>
-              <th>预期产出率</th>
               <th>物料数</th>
               <th>备注</th>
               <th>创建时间</th>
@@ -251,8 +229,6 @@
               @click="selectProductionBomVersion(version)">
               <td>{{ version.version_no }}</td>
               <td>{{ productionBomVersionStatusLabel(version.status) }}</td>
-              <td>{{ pct(expectedLoss(version)) }}</td>
-              <td>{{ pct(expectedYield(version)) }}</td>
               <td>{{ version.item_count }}</td>
               <td>{{ version.note }}</td>
               <td>{{ version.published_at || version.created_at }}</td>
@@ -269,44 +245,10 @@
               </td>
             </tr>
             <tr v-if="!versions.length">
-              <td colspan="8" class="muted">暂无版本</td>
+              <td colspan="6" class="muted">暂无版本</td>
             </tr>
           </tbody>
         </table>
-      </div>
-      <div class="version-attrs-panel">
-        <div class="section-title-row">
-          <div>
-            <div class="panel-title compact-title">特殊属性</div>
-            <p class="muted left">特殊属性绑定到 BOM 版本；已发布版本只读，草稿版本可编辑字段定义和值。`roast_level` 作为普通属性保存。</p>
-          </div>
-          <span v-if="selectedProductionBomVersion" :class="['status-pill', selectedProductionBomVersion.status === 'draft' ? '' : 'readonly']">
-            {{ selectedProductionBomVersion.version_no }} · {{ productionBomVersionStatusLabel(selectedProductionBomVersion.status) }}
-          </span>
-        </div>
-        <div v-if="selectedProductionBomVersion" class="attrs-grid">
-          <label>
-            <span>字段定义 special_attrs_schema_json</span>
-            <textarea
-              v-model="versionSpecialAttrsSchemaText"
-              :readonly="!canEditSelectedProductionBomVersion"
-              rows="7"
-              placeholder='[{"key":"roast_level","label":"烘焙度","type":"text"}]'></textarea>
-          </label>
-          <label>
-            <span>字段值 special_attrs_json</span>
-            <textarea
-              v-model="versionSpecialAttrsText"
-              :readonly="!canEditSelectedProductionBomVersion"
-              rows="7"
-              placeholder='{"roast_level":"中深"}'></textarea>
-          </label>
-        </div>
-        <div v-else class="muted empty">请选择一个 BOM 版本维护特殊属性</div>
-        <div class="inline-form">
-          <button class="primary" type="button" @click="saveProductionBomVersionSpecialAttrs" :disabled="!canEditSelectedProductionBomVersion || loading">保存特殊属性</button>
-          <button class="secondary" type="button" @click="createVersion" :disabled="!currentProductionBomID || loading || !canEditCurrentBomProduct">复制为新版草稿</button>
-        </div>
       </div>
     </section>
 
@@ -354,7 +296,7 @@
         <div class="drawer-head">
           <div>
             <h3>管理分组</h3>
-            <p class="muted left">普通列表只显示启用分组；这里可以查看停用分组。</p>
+            <p class="muted left">分组只用于配方库归类。删除分组时，组内 BOM 会回到默认分组。</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closeGroupDrawer">关闭</button>
         </div>
@@ -376,7 +318,6 @@
               <tr>
                 <th>分组</th>
                 <th>排序</th>
-                <th>状态</th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -384,20 +325,20 @@
               <tr v-for="group in managedProductionBomGroups" :key="group.id">
                 <td>{{ group.name }}</td>
                 <td>{{ group.sort_order }}</td>
-                <td><span :class="['status-pill', group.active === false ? 'inactive' : '']">{{ group.active === false ? '已停用' : '启用' }}</span></td>
                 <td>
                   <button class="text-button" type="button" @click="editProductionBomGroup(group)">编辑</button>
+                  <button class="text-button" type="button" @click="moveProductionBomGroup(group, -1)">上移</button>
+                  <button class="text-button" type="button" @click="moveProductionBomGroup(group, 1)">下移</button>
                   <button
                     class="text-button danger-text"
                     type="button"
-                    :disabled="group.active === false"
-                    @click="disableProductionBomGroup(group)">
-                    停用
+                    @click="deleteProductionBomGroup(group)">
+                    DELETE
                   </button>
                 </td>
               </tr>
               <tr v-if="!managedProductionBomGroups.length">
-                <td colspan="4" class="muted">暂无分组</td>
+                <td colspan="3" class="muted">暂无分组</td>
               </tr>
             </tbody>
           </table>
@@ -414,7 +355,6 @@ import SearchableSelect from '../components/SearchableSelect.vue'
 import { bomContextCustomerIDs, filterBomContextProducts, filterBomRowsByProductFocus, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
 import { componentTypeLabel, isDripProduct } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
-import { expectedLossRate, formatPercent } from '../lib/manufacturing-loss'
 import { replaceHistoryURL } from '../lib/url-state'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
@@ -459,9 +399,6 @@ const itemForm = reactive({
 const mappingForm = reactive({ spec_g: 227, material_id: 0 })
 const groupForm = reactive({ id: 0, name: '', sort_order: 100 })
 const versionNote = ref('')
-const expectedLossRateInput = ref('')
-const versionSpecialAttrsSchemaText = ref('[]')
-const versionSpecialAttrsText = ref('{}')
 
 const detailItems = computed(() => detail.value?.items || [])
 const bomContextCustomerID = computed(() => Number(selectedBomCustomerSkuCustomerID.value || 0))
@@ -499,11 +436,6 @@ const visibleProductionBoms = computed(() => {
   return productionBoms.value
 })
 const selectedProductionBomVersion = computed(() => versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0)) || null)
-const canEditSelectedProductionBomVersion = computed(() => {
-  if (!selectedProductionBomVersion.value) return false
-  if (!canEditCurrentBomProduct.value) return false
-  return selectedProductionBomVersion.value.status === 'draft'
-})
 const canEditCurrentBomProduct = computed(() => {
   if (!selectedProductId.value) return true
   if (detail.value?.can_edit_bom === false) return false
@@ -527,10 +459,6 @@ const finishedProductConsumeUnitOptions = [
 const currentConsumeUnitOptions = computed(() => itemForm.component_type === 'finished_product'
   ? finishedProductConsumeUnitOptions
   : materialConsumeUnitOptions)
-
-function pct(value) {
-  return formatPercent(value)
-}
 
 function ratio(value) {
   const n = Number(value || 0)
@@ -572,7 +500,6 @@ function saveBomFormDraft() {
 		itemForm: { ...itemForm },
 		mappingForm: { ...mappingForm },
 		versionNote: versionNote.value,
-		expectedLossRateInput: expectedLossRateInput.value,
 	})
 }
 
@@ -591,10 +518,9 @@ async function restoreBomFormDraft() {
     consume_unit: 'ratio_pct',
     qty_per_unit: '',
     ratio_pct: '',
-  }, draft.itemForm || {})
+	}, draft.itemForm || {})
 	Object.assign(mappingForm, { spec_g: 227, material_id: 0 }, draft.mappingForm || {})
 	versionNote.value = draft.versionNote || ''
-	expectedLossRateInput.value = draft.expectedLossRateInput ?? expectedLossRateInput.value
 	if (syncSelectedProductToBomContext()) {
     await loadDetail(selectedProductId.value)
   }
@@ -655,35 +581,6 @@ function itemQuantityDisplay(item) {
   return `${qty(item.qty_per_unit)} ${consumeUnitLabel(item.consume_unit)}`
 }
 
-function expectedYield(row) {
-  return Number(row?.expected_yield_rate || row?.yield_rate || 0)
-}
-
-function expectedLoss(row) {
-  if (row && Object.prototype.hasOwnProperty.call(row, 'expected_loss_rate')) {
-    return Number(row.expected_loss_rate || 0)
-  }
-  return expectedLossRate(expectedYield(row))
-}
-
-function syncExpectedLossInput(row) {
-  if (!row) {
-    expectedLossRateInput.value = ''
-    return
-  }
-  expectedLossRateInput.value = Number((expectedLoss(row) * 100).toFixed(2))
-}
-
-function prettyJSONString(value, fallback) {
-  const raw = String(value || '').trim()
-  if (!raw) return fallback
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2)
-  } catch {
-    return raw
-  }
-}
-
 function productionBomVersionStatusLabel(status) {
   if (status === 'draft') return '草稿'
   if (status === 'published' || status === 'active') return '已发布'
@@ -700,25 +597,13 @@ function selectProductionBomGroup(groupID) {
   }
 }
 
-function syncProductionBomVersionForm(version) {
-  if (!version) {
-    versionSpecialAttrsSchemaText.value = '[]'
-    versionSpecialAttrsText.value = '{}'
-    return
-  }
-  versionSpecialAttrsSchemaText.value = prettyJSONString(version.special_attrs_schema_json, '[]')
-  versionSpecialAttrsText.value = prettyJSONString(version.special_attrs_json, '{}')
-}
-
 function selectProductionBomVersion(version) {
   selectedProductionBomVersionID.value = Number(version?.id || 0)
-  syncProductionBomVersionForm(version)
 }
 
 function syncSelectedProductionBomVersion() {
   if (!versions.value.length) {
     selectedProductionBomVersionID.value = 0
-    syncProductionBomVersionForm(null)
     return
   }
   const existing = versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0))
@@ -802,8 +687,6 @@ function clearSelectedProduct() {
   productionBomDetail.value = null
 	versions.value = []
   selectedProductionBomVersionID.value = 0
-  syncProductionBomVersionForm(null)
-	syncExpectedLossInput(null)
 	updateUrl()
 }
 
@@ -813,7 +696,6 @@ function syncSelectedProductToBomContext() {
     productionBomDetail.value = null
     versions.value = []
     selectedProductionBomVersionID.value = 0
-    syncProductionBomVersionForm(null)
     updateUrl()
     return false
   }
@@ -885,13 +767,10 @@ async function loadDetail(productId) {
     productionBomDetail.value = null
     versions.value = []
     selectedProductionBomVersionID.value = 0
-    syncProductionBomVersionForm(null)
-		syncExpectedLossInput(null)
 		updateUrl()
 		return
 	}
 	detail.value = await apiGet(`/api/bom/detail/${productId}`)
-	syncExpectedLossInput(detail.value)
 	await loadVersions(productId)
 	updateUrl()
 }
@@ -901,7 +780,6 @@ async function loadVersions(productId) {
     versions.value = []
     productionBomDetail.value = null
     selectedProductionBomVersionID.value = 0
-    syncProductionBomVersionForm(null)
     return
   }
   const bomID = currentProductionBomID.value
@@ -940,21 +818,6 @@ async function selectProduct(productId) {
 function clearBomProductFilter() {
   bomFilterProductId.value = 0
   updateUrl()
-}
-
-async function saveBom() {
-	if (!selectedProductId.value) return
-	if (!canEditCurrentBomProduct.value) return
-	const lossPercent = Number(expectedLossRateInput.value)
-	if (Number.isNaN(lossPercent) || lossPercent < 0 || lossPercent >= 100) {
-		error.value = '预期损耗率必须大于等于 0 且小于 100%'
-		return
-	}
-	await mutate(async () => {
-		await apiSend('/api/bom/save', { body: { product_id: selectedProductId.value, expected_loss_rate: lossPercent / 100 } })
-		ok.value = '已保存预期损耗率'
-		await loadAll()
-	})
 }
 
 function bomStatusLabel(status) {
@@ -1036,7 +899,7 @@ async function deleteMapping(specG) {
 }
 
 async function loadProductionBomGroupsForManagement() {
-  managedProductionBomGroups.value = await apiGet('/api/production-bom-groups?include_inactive=1') || []
+  managedProductionBomGroups.value = await apiGet('/api/production-bom-groups') || []
 }
 
 async function openGroupDrawer() {
@@ -1067,15 +930,27 @@ async function saveProductionBomGroup() {
   })
 }
 
-async function disableProductionBomGroup(group) {
+async function deleteProductionBomGroup(group) {
   const groupID = Number(group?.id || 0)
   if (!groupID) return
-  const okToDisable = window.confirm(`确认停用分组「${group?.name || groupID}」？分组下 BOM 会移到未分组，配方和商品绑定不受影响。`)
-  if (!okToDisable) return
+  const okToDelete = window.confirm(`确认删除分组「${group?.name || groupID}」？分组下 BOM 会移到默认分组，配方和商品绑定不受影响。`)
+  if (!okToDelete) return
   await mutate(async () => {
-    await apiSend(`/api/production-bom-groups/${group.id}/disable`, { body: {} })
-    ok.value = '已停用分组'
+    await apiSend(`/api/production-bom-groups/${group.id}`, { method: 'DELETE' })
+    ok.value = '已删除分组'
     if (selectedProductionBomGroupID.value === groupID) selectedProductionBomGroupID.value = 0
+    await Promise.all([loadProductionBomGroupsForManagement(), loadAll()])
+  })
+}
+
+async function moveProductionBomGroup(group, direction) {
+  const groupID = Number(group?.id || 0)
+  if (!groupID) return
+  await mutate(async () => {
+    await apiSend(`/api/production-bom-groups/${groupID}/move`, {
+      body: { sort_order: Math.max(0, Number(group?.sort_order || 0) + Number(direction || 0)) },
+    })
+    ok.value = '已调整分组顺序'
     await Promise.all([loadProductionBomGroupsForManagement(), loadAll()])
   })
 }
@@ -1106,22 +981,6 @@ async function activateVersion(id) {
       ok.value = '已启用版本'
     }
     await loadAll()
-  })
-}
-
-async function saveProductionBomVersionSpecialAttrs() {
-  const versionID = Number(selectedProductionBomVersionID.value || 0)
-  if (!versionID || !canEditSelectedProductionBomVersion.value) return
-  await mutate(async () => {
-    await apiSend(`/api/production-bom-versions/${versionID}/draft`, {
-      method: 'PUT',
-      body: {
-        special_attrs_schema_json: versionSpecialAttrsSchemaText.value,
-        special_attrs_json: versionSpecialAttrsText.value,
-      },
-    })
-    ok.value = '已保存特殊属性'
-    await loadVersions(selectedProductId.value)
   })
 }
 

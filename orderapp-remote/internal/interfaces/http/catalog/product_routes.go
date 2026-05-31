@@ -30,6 +30,10 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.PUT("/api/customer-product-aliases/:id", h.saveCustomerProductAliasAPI)
 	e.POST("/api/customer-product-aliases/:id/disable", h.disableCustomerProductAliasAPI)
 	e.GET("/api/product-settings/categories", h.productCategoriesAPI)
+	e.GET("/api/product-production-configs", h.productProductionConfigsAPI)
+	e.GET("/api/product-production-configs/:product_id", h.productProductionConfigAPI)
+	e.POST("/api/product-production-configs/:product_id", h.saveProductProductionConfigAPI)
+	e.PUT("/api/product-production-configs/:product_id", h.saveProductProductionConfigAPI)
 	e.GET("/api/pricing-gradient-templates", h.gradientTemplatesAPI)
 	e.POST("/api/pricing-gradient-templates", h.saveGradientTemplateAPI)
 	e.PUT("/api/pricing-gradient-templates/:id", h.saveGradientTemplateAPI)
@@ -295,6 +299,15 @@ type productConfigTemplateAPIRequest struct {
 	UnitConversionJSON     string `json:"unit_conversion_json"`
 	IntegerUnit            bool   `json:"integer_unit"`
 	Active                 *bool  `json:"active"`
+}
+
+type productProductionConfigAPIRequest struct {
+	ProductionBomID        int64                                     `json:"production_bom_id"`
+	ProductionBomVersionID int64                                     `json:"production_bom_version_id"`
+	ProcessRouteID         int64                                     `json:"process_route_id"`
+	ExpectedLossRate       float64                                   `json:"expected_loss_rate"`
+	Note                   string                                    `json:"note"`
+	Fields                 []catalogapp.ProductProductionConfigField `json:"fields"`
 }
 
 type productUnitDefinitionAPIRequest struct {
@@ -825,6 +838,57 @@ func (h productHandler) productCategoriesAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"categories": data.Categories})
+}
+
+func (h productHandler) productProductionConfigsAPI(c echo.Context) error {
+	rows, err := h.catalog.ListProductProductionConfigs(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+}
+
+func (h productHandler) productProductionConfigAPI(c echo.Context) error {
+	productID, err := strconv.ParseInt(c.Param("product_id"), 10, 64)
+	if err != nil || productID <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid product_id"})
+	}
+	row, err := h.catalog.GetProductProductionConfig(c.Request().Context(), productID)
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"config": row})
+}
+
+func (h productHandler) saveProductProductionConfigAPI(c echo.Context) error {
+	productID, err := strconv.ParseInt(c.Param("product_id"), 10, 64)
+	if err != nil || productID <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid product_id"})
+	}
+	var req productProductionConfigAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	row, err := h.catalog.SaveProductProductionConfig(c.Request().Context(), catalogapp.SaveProductProductionConfigCommand{
+		Actor:                  support.ActorOf(c),
+		ProductID:              productID,
+		ProductionBomID:        req.ProductionBomID,
+		ProductionBomVersionID: req.ProductionBomVersionID,
+		ProcessRouteID:         req.ProcessRouteID,
+		ExpectedLossRate:       req.ExpectedLossRate,
+		Note:                   req.Note,
+		Fields:                 req.Fields,
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"config": row})
 }
 
 func (h productHandler) gradientTemplatesAPI(c echo.Context) error {

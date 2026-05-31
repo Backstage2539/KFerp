@@ -28,11 +28,11 @@ func TestDev376ProductConfigSpecialKVSourceMarkers(t *testing.T) {
 			"price_rule_cost_plus_percent",
 			"商品配置模板",
 		},
-		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"特殊属性绑定到 BOM 版本",
-			"special_attrs_schema_json",
-			"special_attrs_json",
-			"saveProductionBomVersionSpecialAttrs",
+		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
+			"商品生产配置",
+			"productionConfigPriceListFields",
+			"show_in_price_list",
+			"/api/product-production-configs",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"productPriceListPreviewSections",

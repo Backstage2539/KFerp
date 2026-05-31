@@ -25,3 +25,37 @@ func TestManufacturingSchemaDefinesProcessAndIndustryTemplates(t *testing.T) {
 		}
 	}
 }
+
+func TestManufacturingSchemaCreatesProcessRoutesWithoutProductParameters(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS %[1]s.process_routes",
+		"CREATE TABLE IF NOT EXISTS %[1]s.process_route_operations",
+		"records_loss BOOLEAN NOT NULL DEFAULT false",
+		"quality_checklist_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+		"process_route_operations_route_seq_uq",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("process route schema missing marker %q", want)
+		}
+	}
+	processRouteStart := strings.Index(text, "CREATE TABLE IF NOT EXISTS %[1]s.process_routes")
+	processRouteEnd := strings.Index(text[processRouteStart:], "CREATE TABLE IF NOT EXISTS %[1]s.process_route_operations")
+	routeDDL := ""
+	if processRouteStart >= 0 && processRouteEnd > 0 {
+		routeDDL = text[processRouteStart : processRouteStart+processRouteEnd]
+	}
+	for _, forbidden := range []string{
+		"key_params_json JSONB",
+		"expected_loss_rate",
+		"roast_level",
+	} {
+		if strings.Contains(routeDDL, forbidden) {
+			t.Fatalf("process routes must not store product-specific parameters; found %q", forbidden)
+		}
+	}
+}
