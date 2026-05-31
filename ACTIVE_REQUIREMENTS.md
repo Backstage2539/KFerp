@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-389-BOM-GROUP-SPECIAL-ATTRS
 - Branch: codex/bom-version-special-attrs-20260531
 - Owner/session: Codex / 2026-05-31
-- Status: verified
+- Status: merged and deployed to development
 - Scope: BOM 分组补齐维护入口；特殊属性从 SKU/商品配置模板迁入生产 BOM 版本。生产 BOM 版本携带配方明细、预期损耗率、特殊属性字段和值；SKU 管理不再编辑特殊属性；价格表、成本、生产计划和工单优先读取绑定 BOM 版本特殊属性，旧 SKU 字段仅作兼容 fallback。
 - DEV:
   - DEV-389-BOM-GROUP-CRUD：扩展 BOM 分组查询/编辑/停用 API、操作日志和 Vue 分组管理入口。
@@ -25,8 +25,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: scripts/verify_kferp.sh changed.
   - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_COSTING.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OPERATION_MANUALS.md.
   - Review/acceptance: orderapp-remote/docs/REQUIREMENTS.md; orderapp-remote/docs/ACCEPTANCE_TESTS.md; orderapp-remote/docs/acceptance/2026-05-31-bom-version-special-attrs.md.
-- Deployment: not requested yet.
-- Last update: 2026-05-31 Asia/Shanghai; RED tests were added before implementation. Final local verification passed: `go test ./...`; `node --test src/lib/bom.test.js src/lib/product-settings.test.js`; `npm run build` in `orderapp-remote/frontend-vue-shell`; `scripts/verify_kferp.sh changed`.
+- Deployment: merged to `develop` with `52e824892770f73b8f68b1bcdf2a8f1fdd3e9643` and deployed to development via `./deploy_orderapp.sh`.
+- Last update: 2026-05-31 21:19 Asia/Shanghai; RED tests were added before implementation. Final local verification passed: `go test ./...`; `node --test src/lib/bom.test.js src/lib/product-settings.test.js`; `npm run build` in `orderapp-remote/frontend-vue-shell`; `scripts/verify_kferp.sh changed`. Docker build also ran `go test ./...` during deployment.
+- Deploy evidence: backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260531211432`; containers running; `/app/` GET returned `303` to `/app/orders`; authenticated `/app/vue-shell/` returned `200`; authenticated `/app/api/production-bom-groups?include_inactive=1` returned `200` with default group data; requirement API includes `PR-389-BOM-GROUP-SPECIAL-ATTRS`.
 - Notes: `scripts/reserve_req_id.sh` returned PR-389; entry seeded manually. Van requested no browser/manual验收 for this round to save tokens.
 
 ### PR-388-PRODUCTION-BOM-LIBRARY
