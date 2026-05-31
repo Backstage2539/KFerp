@@ -64,11 +64,17 @@ func (r *fakeRepo) SetBomSource(context.Context, SetBomSourceCommand) (Detail, e
 func (r *fakeRepo) DeriveOwned(context.Context, DeriveOwnedCommand) (Detail, error) {
 	return Detail{}, nil
 }
-func (r *fakeRepo) ListProductionBomGroups(context.Context) ([]ProductionBomGroup, error) {
+func (r *fakeRepo) ListProductionBomGroups(context.Context, bool) ([]ProductionBomGroup, error) {
 	return nil, nil
 }
 func (r *fakeRepo) CreateProductionBomGroup(context.Context, CreateProductionBomGroupCommand) (ProductionBomGroup, error) {
 	return ProductionBomGroup{}, nil
+}
+func (r *fakeRepo) UpdateProductionBomGroup(context.Context, UpdateProductionBomGroupCommand) (ProductionBomGroup, error) {
+	return ProductionBomGroup{}, nil
+}
+func (r *fakeRepo) DisableProductionBomGroup(context.Context, DisableProductionBomGroupCommand) error {
+	return nil
 }
 func (r *fakeRepo) ListProductionBoms(context.Context) ([]ProductionBomSummary, error) {
 	return nil, nil
@@ -296,11 +302,17 @@ func (r errorRepo) SetBomSource(context.Context, SetBomSourceCommand) (Detail, e
 func (r errorRepo) DeriveOwned(context.Context, DeriveOwnedCommand) (Detail, error) {
 	return Detail{}, r.err
 }
-func (r errorRepo) ListProductionBomGroups(context.Context) ([]ProductionBomGroup, error) {
+func (r errorRepo) ListProductionBomGroups(context.Context, bool) ([]ProductionBomGroup, error) {
 	return nil, r.err
 }
 func (r errorRepo) CreateProductionBomGroup(context.Context, CreateProductionBomGroupCommand) (ProductionBomGroup, error) {
 	return ProductionBomGroup{}, r.err
+}
+func (r errorRepo) UpdateProductionBomGroup(context.Context, UpdateProductionBomGroupCommand) (ProductionBomGroup, error) {
+	return ProductionBomGroup{}, r.err
+}
+func (r errorRepo) DisableProductionBomGroup(context.Context, DisableProductionBomGroupCommand) error {
+	return r.err
 }
 func (r errorRepo) ListProductionBoms(context.Context) ([]ProductionBomSummary, error) {
 	return nil, r.err

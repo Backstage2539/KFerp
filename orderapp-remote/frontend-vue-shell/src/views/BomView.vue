@@ -37,12 +37,26 @@
         <div class="bom-group-strip">
           <span>BOM分组</span>
           <button
+            :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === 0 }]"
+            type="button"
+            @click="selectProductionBomGroup(0)">
+            全部
+          </button>
+          <button
+            :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === -1 }]"
+            type="button"
+            @click="selectProductionBomGroup(-1)">
+            未分组
+          </button>
+          <button
             v-for="group in productionBomGroups"
             :key="group.id"
-            class="secondary compact-action"
-            type="button">
+            :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === Number(group.id || 0) }]"
+            type="button"
+            @click="selectProductionBomGroup(Number(group.id || 0))">
             {{ group.name }}
           </button>
+          <button class="secondary compact-action" type="button" @click="openGroupDrawer">管理分组</button>
         </div>
         <label>
           <span>商品</span>
@@ -207,13 +221,13 @@
     </div>
 
     <section class="panel">
-      <div class="panel-title">BOM版本</div>
+      <div class="panel-title">BOM版本与特殊属性</div>
       <div class="inline-form">
         <label>
           <span>版本备注</span>
           <input v-model.trim="versionNote" placeholder="例如 2026 春季豆单" :disabled="!selectedProductId || !canEditCurrentBomProduct" />
         </label>
-        <button class="primary" type="button" @click="createVersion" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct">保存当前为版本</button>
+        <button class="primary" type="button" @click="createVersion" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct || !currentProductionBomID">复制为新版草稿</button>
       </div>
       <div class="table-wrap compact">
         <table>
@@ -230,16 +244,28 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="version in versions" :key="version.id">
+            <tr
+              v-for="version in versions"
+              :key="version.id"
+              :class="{ active: Number(version.id || 0) === Number(selectedProductionBomVersionID || 0) }"
+              @click="selectProductionBomVersion(version)">
               <td>{{ version.version_no }}</td>
-              <td>{{ version.status }}</td>
+              <td>{{ productionBomVersionStatusLabel(version.status) }}</td>
               <td>{{ pct(expectedLoss(version)) }}</td>
               <td>{{ pct(expectedYield(version)) }}</td>
               <td>{{ version.item_count }}</td>
               <td>{{ version.note }}</td>
-              <td>{{ version.created_at }}</td>
+              <td>{{ version.published_at || version.created_at }}</td>
               <td>
-                <button class="text-button" type="button" @click="activateVersion(version.id)" :disabled="version.status === 'active' || !canEditCurrentBomProduct">启用</button>
+                <button
+                  v-if="version.status === 'draft'"
+                  class="text-button"
+                  type="button"
+                  @click.stop="activateVersion(version.id)"
+                  :disabled="!canEditCurrentBomProduct">
+                  发布
+                </button>
+                <span v-else class="muted left">只读</span>
               </td>
             </tr>
             <tr v-if="!versions.length">
@@ -247,6 +273,40 @@
             </tr>
           </tbody>
         </table>
+      </div>
+      <div class="version-attrs-panel">
+        <div class="section-title-row">
+          <div>
+            <div class="panel-title compact-title">特殊属性</div>
+            <p class="muted left">特殊属性绑定到 BOM 版本；已发布版本只读，草稿版本可编辑字段定义和值。`roast_level` 作为普通属性保存。</p>
+          </div>
+          <span v-if="selectedProductionBomVersion" :class="['status-pill', selectedProductionBomVersion.status === 'draft' ? '' : 'readonly']">
+            {{ selectedProductionBomVersion.version_no }} · {{ productionBomVersionStatusLabel(selectedProductionBomVersion.status) }}
+          </span>
+        </div>
+        <div v-if="selectedProductionBomVersion" class="attrs-grid">
+          <label>
+            <span>字段定义 special_attrs_schema_json</span>
+            <textarea
+              v-model="versionSpecialAttrsSchemaText"
+              :readonly="!canEditSelectedProductionBomVersion"
+              rows="7"
+              placeholder='[{"key":"roast_level","label":"烘焙度","type":"text"}]'></textarea>
+          </label>
+          <label>
+            <span>字段值 special_attrs_json</span>
+            <textarea
+              v-model="versionSpecialAttrsText"
+              :readonly="!canEditSelectedProductionBomVersion"
+              rows="7"
+              placeholder='{"roast_level":"中深"}'></textarea>
+          </label>
+        </div>
+        <div v-else class="muted empty">请选择一个 BOM 版本维护特殊属性</div>
+        <div class="inline-form">
+          <button class="primary" type="button" @click="saveProductionBomVersionSpecialAttrs" :disabled="!canEditSelectedProductionBomVersion || loading">保存特殊属性</button>
+          <button class="secondary" type="button" @click="createVersion" :disabled="!currentProductionBomID || loading || !canEditCurrentBomProduct">复制为新版草稿</button>
+        </div>
       </div>
     </section>
 
@@ -288,6 +348,62 @@
         </table>
       </div>
     </section>
+
+    <div v-if="groupDrawerOpen" class="drawer-mask" @click.self="closeGroupDrawer">
+      <aside class="drawer">
+        <div class="drawer-head">
+          <div>
+            <h3>管理分组</h3>
+            <p class="muted left">普通列表只显示启用分组；这里可以查看停用分组。</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeGroupDrawer">关闭</button>
+        </div>
+        <form class="inline-form" @submit.prevent="saveProductionBomGroup">
+          <label>
+            <span>分组名称</span>
+            <input v-model.trim="groupForm.name" placeholder="例如 常用配方" />
+          </label>
+          <label>
+            <span>排序</span>
+            <input v-model.number="groupForm.sort_order" type="number" min="0" step="1" />
+          </label>
+          <button class="primary" type="submit" :disabled="loading || !groupForm.name">{{ groupForm.id ? '保存分组' : '新增分组' }}</button>
+          <button class="secondary" type="button" @click="resetGroupForm">清空</button>
+        </form>
+        <div class="table-wrap compact">
+          <table>
+            <thead>
+              <tr>
+                <th>分组</th>
+                <th>排序</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="group in managedProductionBomGroups" :key="group.id">
+                <td>{{ group.name }}</td>
+                <td>{{ group.sort_order }}</td>
+                <td><span :class="['status-pill', group.active === false ? 'inactive' : '']">{{ group.active === false ? '已停用' : '启用' }}</span></td>
+                <td>
+                  <button class="text-button" type="button" @click="editProductionBomGroup(group)">编辑</button>
+                  <button
+                    class="text-button danger-text"
+                    type="button"
+                    :disabled="group.active === false"
+                    @click="disableProductionBomGroup(group)">
+                    停用
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="!managedProductionBomGroups.length">
+                <td colspan="4" class="muted">暂无分组</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </aside>
+    </div>
   </div>
 </template>
 
@@ -318,11 +434,16 @@ const versions = ref([])
 const processTemplates = ref([])
 const productionBomGroups = ref([])
 const productionBoms = ref([])
+const productionBomDetail = ref(null)
 const detail = ref(null)
 const selectedProductId = ref(0)
 const selectedBomCustomerSkuCustomerID = ref(0)
+const selectedProductionBomGroupID = ref(0)
+const selectedProductionBomVersionID = ref(0)
 const pendingUrlProductId = ref(0)
 const bomFilterProductId = ref(0)
+const groupDrawerOpen = ref(false)
+const managedProductionBomGroups = ref([])
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -336,8 +457,11 @@ const itemForm = reactive({
   ratio_pct: '',
 })
 const mappingForm = reactive({ spec_g: 227, material_id: 0 })
+const groupForm = reactive({ id: 0, name: '', sort_order: 100 })
 const versionNote = ref('')
 const expectedLossRateInput = ref('')
+const versionSpecialAttrsSchemaText = ref('[]')
+const versionSpecialAttrsText = ref('{}')
 
 const detailItems = computed(() => detail.value?.items || [])
 const bomContextCustomerID = computed(() => Number(selectedBomCustomerSkuCustomerID.value || 0))
@@ -354,13 +478,32 @@ const bomSkuCustomers = computed(() => customers.value
   .sort((a, b) => customerOptionLabel(a).localeCompare(customerOptionLabel(b))))
 const bomContextProducts = computed(() => filterBomContextProducts(products.value, bomContextCustomerID.value))
 const allBomContextRows = computed(() => filterBomContextProducts(rows.value, bomContextCustomerID.value))
-const bomContextRows = computed(() => filterBomRowsByProductFocus(allBomContextRows.value, bomFilterProductId.value))
+const groupFilteredBomContextRows = computed(() => {
+  const groupID = Number(selectedProductionBomGroupID.value || 0)
+  if (groupID > 0) return allBomContextRows.value.filter((row) => Number(row.production_bom_group_id || 0) === groupID)
+  if (groupID === -1) return allBomContextRows.value.filter((row) => !Number(row.production_bom_group_id || 0))
+  return allBomContextRows.value
+})
+const bomContextRows = computed(() => filterBomRowsByProductFocus(groupFilteredBomContextRows.value, bomFilterProductId.value))
 const isBomProductFilterActive = computed(() => Number(bomFilterProductId.value || 0) > 0)
 const linkedProcessTemplates = computed(() => processTemplates.value.filter((template) => Number(template.product_id || 0) === Number(selectedProductId.value || 0)))
 const selectedProduct = computed(() => productByID(selectedProductId.value))
 const selectedBomRow = computed(() => rows.value.find((row) => Number(row.product_id || 0) === Number(selectedProductId.value || 0)) || null)
 const currentProductionBomLabel = computed(() => productionBomLabel(detail.value || selectedBomRow.value || selectedProduct.value || {}))
 const currentProductionBomWarning = computed(() => productionBomVersionWarning(detail.value || selectedBomRow.value || selectedProduct.value || {}))
+const currentProductionBomID = computed(() => Number(detail.value?.production_bom_id || selectedBomRow.value?.production_bom_id || 0))
+const visibleProductionBoms = computed(() => {
+  const groupID = Number(selectedProductionBomGroupID.value || 0)
+  if (groupID > 0) return productionBoms.value.filter((bom) => Number(bom.group_id || 0) === groupID)
+  if (groupID === -1) return productionBoms.value.filter((bom) => !Number(bom.group_id || 0))
+  return productionBoms.value
+})
+const selectedProductionBomVersion = computed(() => versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0)) || null)
+const canEditSelectedProductionBomVersion = computed(() => {
+  if (!selectedProductionBomVersion.value) return false
+  if (!canEditCurrentBomProduct.value) return false
+  return selectedProductionBomVersion.value.status === 'draft'
+})
 const canEditCurrentBomProduct = computed(() => {
   if (!selectedProductId.value) return true
   if (detail.value?.can_edit_bom === false) return false
@@ -531,6 +674,70 @@ function syncExpectedLossInput(row) {
   expectedLossRateInput.value = Number((expectedLoss(row) * 100).toFixed(2))
 }
 
+function prettyJSONString(value, fallback) {
+  const raw = String(value || '').trim()
+  if (!raw) return fallback
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2)
+  } catch {
+    return raw
+  }
+}
+
+function productionBomVersionStatusLabel(status) {
+  if (status === 'draft') return '草稿'
+  if (status === 'published' || status === 'active') return '已发布'
+  if (status === 'archived') return '已归档'
+  return status || '-'
+}
+
+function selectProductionBomGroup(groupID) {
+  selectedProductionBomGroupID.value = Number(groupID || 0)
+  const visibleBomIDs = new Set(visibleProductionBoms.value.map((bom) => Number(bom.id || 0)))
+  const selectedBomID = Number(selectedBomRow.value?.production_bom_id || detail.value?.production_bom_id || 0)
+  if (selectedBomID && !visibleBomIDs.has(selectedBomID)) {
+    clearSelectedProduct()
+  }
+}
+
+function syncProductionBomVersionForm(version) {
+  if (!version) {
+    versionSpecialAttrsSchemaText.value = '[]'
+    versionSpecialAttrsText.value = '{}'
+    return
+  }
+  versionSpecialAttrsSchemaText.value = prettyJSONString(version.special_attrs_schema_json, '[]')
+  versionSpecialAttrsText.value = prettyJSONString(version.special_attrs_json, '{}')
+}
+
+function selectProductionBomVersion(version) {
+  selectedProductionBomVersionID.value = Number(version?.id || 0)
+  syncProductionBomVersionForm(version)
+}
+
+function syncSelectedProductionBomVersion() {
+  if (!versions.value.length) {
+    selectedProductionBomVersionID.value = 0
+    syncProductionBomVersionForm(null)
+    return
+  }
+  const existing = versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0))
+  const selected = existing || versions.value.find((version) => version.status === 'draft') || versions.value.find((version) => version.is_latest) || versions.value[0]
+  selectProductionBomVersion(selected)
+}
+
+function resetGroupForm() {
+  groupForm.id = 0
+  groupForm.name = ''
+  groupForm.sort_order = 100
+}
+
+function editProductionBomGroup(group) {
+  groupForm.id = Number(group?.id || 0)
+  groupForm.name = group?.name || ''
+  groupForm.sort_order = Number(group?.sort_order || 0)
+}
+
 function syncComponentTypeDefaults() {
   if (itemForm.component_type === 'finished_product') {
     itemForm.material_id = 0
@@ -592,7 +799,10 @@ function clearSelectedProduct() {
   selectedProductId.value = 0
 	bomFilterProductId.value = 0
 	detail.value = null
+  productionBomDetail.value = null
 	versions.value = []
+  selectedProductionBomVersionID.value = 0
+  syncProductionBomVersionForm(null)
 	syncExpectedLossInput(null)
 	updateUrl()
 }
@@ -600,7 +810,10 @@ function clearSelectedProduct() {
 function syncSelectedProductToBomContext() {
   if (!selectedProductId.value) {
     detail.value = null
+    productionBomDetail.value = null
     versions.value = []
+    selectedProductionBomVersionID.value = 0
+    syncProductionBomVersionForm(null)
     updateUrl()
     return false
   }
@@ -669,6 +882,10 @@ async function loadAll() {
 async function loadDetail(productId) {
 	if (!productId) {
 		detail.value = null
+    productionBomDetail.value = null
+    versions.value = []
+    selectedProductionBomVersionID.value = 0
+    syncProductionBomVersionForm(null)
 		syncExpectedLossInput(null)
 		updateUrl()
 		return
@@ -682,10 +899,22 @@ async function loadDetail(productId) {
 async function loadVersions(productId) {
   if (!productId) {
     versions.value = []
+    productionBomDetail.value = null
+    selectedProductionBomVersionID.value = 0
+    syncProductionBomVersionForm(null)
     return
   }
+  const bomID = currentProductionBomID.value
+  if (bomID) {
+    productionBomDetail.value = await apiGet(`/api/production-boms/${bomID}`)
+    versions.value = productionBomDetail.value?.versions || []
+    syncSelectedProductionBomVersion()
+    return
+  }
+  productionBomDetail.value = null
   const data = await apiGet(`/api/bom/versions?product_id=${productId}`)
   versions.value = data.rows || []
+  syncSelectedProductionBomVersion()
 }
 
 async function selectProduct(productId) {
@@ -806,12 +1035,62 @@ async function deleteMapping(specG) {
   })
 }
 
+async function loadProductionBomGroupsForManagement() {
+  managedProductionBomGroups.value = await apiGet('/api/production-bom-groups?include_inactive=1') || []
+}
+
+async function openGroupDrawer() {
+  groupDrawerOpen.value = true
+  resetGroupForm()
+  await mutate(async () => {
+    await loadProductionBomGroupsForManagement()
+  })
+}
+
+function closeGroupDrawer() {
+  groupDrawerOpen.value = false
+  resetGroupForm()
+}
+
+async function saveProductionBomGroup() {
+  const payload = { name: groupForm.name, sort_order: Number(groupForm.sort_order || 0) }
+  await mutate(async () => {
+    if (groupForm.id) {
+      await apiSend(`/api/production-bom-groups/${groupForm.id}`, { method: 'PUT', body: payload })
+      ok.value = '已保存分组'
+    } else {
+      await apiSend('/api/production-bom-groups', { body: payload })
+      ok.value = '已新增分组'
+    }
+    resetGroupForm()
+    await Promise.all([loadProductionBomGroupsForManagement(), loadAll()])
+  })
+}
+
+async function disableProductionBomGroup(group) {
+  const groupID = Number(group?.id || 0)
+  if (!groupID) return
+  const okToDisable = window.confirm(`确认停用分组「${group?.name || groupID}」？分组下 BOM 会移到未分组，配方和商品绑定不受影响。`)
+  if (!okToDisable) return
+  await mutate(async () => {
+    await apiSend(`/api/production-bom-groups/${group.id}/disable`, { body: {} })
+    ok.value = '已停用分组'
+    if (selectedProductionBomGroupID.value === groupID) selectedProductionBomGroupID.value = 0
+    await Promise.all([loadProductionBomGroupsForManagement(), loadAll()])
+  })
+}
+
 async function createVersion() {
   if (!canEditCurrentBomProduct.value) return
   await mutate(async () => {
-    await apiSend('/api/bom/versions', { body: { product_id: selectedProductId.value, note: versionNote.value } })
+    const bomID = currentProductionBomID.value
+    if (bomID) {
+      await apiSend(`/api/production-boms/${bomID}/versions`, { body: { note: versionNote.value } })
+    } else {
+      await apiSend('/api/bom/versions', { body: { product_id: selectedProductId.value, note: versionNote.value } })
+    }
     versionNote.value = ''
-    ok.value = '已保存版本'
+    ok.value = bomID ? '已复制为新版草稿' : '已保存版本'
     await loadVersions(selectedProductId.value)
   })
 }
@@ -819,9 +1098,30 @@ async function createVersion() {
 async function activateVersion(id) {
   if (!canEditCurrentBomProduct.value) return
   await mutate(async () => {
-    await apiSend(`/api/bom/versions/${id}/activate`, { body: {} })
-    ok.value = '已启用版本'
+    if (currentProductionBomID.value) {
+      await apiSend(`/api/production-bom-versions/${id}/publish`, { body: {} })
+      ok.value = '已发布版本'
+    } else {
+      await apiSend(`/api/bom/versions/${id}/activate`, { body: {} })
+      ok.value = '已启用版本'
+    }
     await loadAll()
+  })
+}
+
+async function saveProductionBomVersionSpecialAttrs() {
+  const versionID = Number(selectedProductionBomVersionID.value || 0)
+  if (!versionID || !canEditSelectedProductionBomVersion.value) return
+  await mutate(async () => {
+    await apiSend(`/api/production-bom-versions/${versionID}/draft`, {
+      method: 'PUT',
+      body: {
+        special_attrs_schema_json: versionSpecialAttrsSchemaText.value,
+        special_attrs_json: versionSpecialAttrsText.value,
+      },
+    })
+    ok.value = '已保存特殊属性'
+    await loadVersions(selectedProductId.value)
   })
 }
 
@@ -870,18 +1170,26 @@ watch(selectedProductId, () => {
 .panel-head, .filters, .inline-form, .summary { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
 .panel-head { justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .panel-title { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
+.compact-title { margin-bottom: 4px; }
 h2 { margin: 0; font-size: 20px; }
 h3 { margin: 2px 0 4px; font-size: 18px; }
 .grid { display: grid; grid-template-columns: minmax(360px, 0.9fr) minmax(420px, 1.1fr); gap: 14px; align-items: start; }
 label span, .summary span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
-input, select { height: 38px; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; min-width: 180px; }
+input, select, textarea { border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; min-width: 180px; }
+input, select { height: 38px; }
+textarea { width: 100%; min-height: 148px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.45; }
+textarea[readonly] { background: #f8f7f5; color: #555; }
 button { height: 38px; border-radius: 6px; border: 1px solid #1f1f1f; padding: 0 12px; font: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .primary { background: #1f1f1f; color: #fff; }
 .secondary { background: #fff; color: #1f1f1f; }
+.secondary.active { background: #1f1f1f; color: #fff; }
 .compact-action { height: 32px; padding: 0 10px; font-size: 12px; }
 .danger-outline { border-color: #9d2626; color: #9d2626; }
+.danger-text { color: #9d2626; margin-left: 10px; }
 .text-button { height: 30px; border: 0; background: transparent; color: #1f4f82; padding: 0; }
+.bom-group-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
+.bom-group-strip > span { color: #666; font-size: 12px; font-weight: 700; }
 .bom-focus-filter { align-self: stretch; display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #dbeafe; border-radius: 8px; background: #eff6ff; color: #1d4ed8; font-size: 13px; }
 .bom-sku-context-panel { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: grid; grid-template-columns: minmax(240px, 1fr) minmax(260px, auto); gap: 10px 14px; align-items: center; background: #fbfaf8; }
 .context-eyebrow { color: #7a4d1a; font-size: 12px; font-weight: 700; }
@@ -900,6 +1208,9 @@ tbody tr.active { background: #f3f7fb; }
 .summary div { min-width: 120px; border: 1px solid #eee8df; border-radius: 6px; padding: 9px; }
 .summary strong { font-size: 16px; }
 .linked-processes { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; }
+.version-attrs-panel { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; margin-top: 12px; background: #fbfaf8; }
+.section-title-row { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+.attrs-grid { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 12px; align-items: start; }
 .warning-banner { border: 1px solid #e8c28f; border-radius: 6px; background: #fff8eb; color: #8a4b00; padding: 9px; margin-bottom: 12px; }
 .bom-source-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .inline-form { margin: 12px 0; }
@@ -912,11 +1223,16 @@ tbody tr.active { background: #f3f7fb; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
+.status-pill.readonly { border-color: #d6d0c7; color: #5f5a54; background: #f8f7f5; }
+.drawer-mask { position: fixed; inset: 0; z-index: 80; background: rgba(20, 20, 20, .28); display: flex; justify-content: flex-end; }
+.drawer { width: min(560px, 100vw); height: 100%; background: #fff; box-shadow: -8px 0 28px rgba(0,0,0,.16); padding: 18px; overflow: auto; }
+.drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
 @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
 @media (max-width: 900px) {
   .page { padding: 12px; }
   .bom-sku-context-panel { grid-template-columns: 1fr; }
   .bom-sku-context-controls { justify-content: flex-start; }
+  .attrs-grid { grid-template-columns: 1fr; }
   table { min-width: 620px; }
 }
 </style>

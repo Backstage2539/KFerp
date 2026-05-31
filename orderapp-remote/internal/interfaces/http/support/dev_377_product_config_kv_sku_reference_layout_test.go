@@ -24,10 +24,6 @@ func TestDev377ProductConfigKVSKUReferenceLayoutRequirementSeeds(t *testing.T) {
 func TestDev377ProductConfigKVSKUReferenceLayoutSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"产品信息字段（特殊属性KV）",
-			"展示到价格表/PDF",
-			"SKU列表特殊属性列填写具体值",
-			"openSpecialAttrConfigForProduct",
 			"复制为客户配置",
 			"SKU复制",
 			"usePublicSku: false",
@@ -35,6 +31,11 @@ func TestDev377ProductConfigKVSKUReferenceLayoutSourceMarkers(t *testing.T) {
 			"sku-table-wrap",
 			"sku-category-cell",
 			"white-space: nowrap",
+		},
+		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
+			"BOM版本与特殊属性",
+			"字段定义 special_attrs_schema_json",
+			"字段值 special_attrs_json",
 		},
 		filepath.Join("internal", "application", "catalog", "service.go"): {
 			"func (s *Service) DeriveProductConfigTemplate",
@@ -56,19 +57,19 @@ func TestDev377ProductConfigKVSKUReferenceLayoutDocs(t *testing.T) {
 	docs := map[string][]string{
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-377-PRODUCT-CONFIG-KV-SKU-REFERENCE-LAYOUT",
-			"产品信息字段（特殊属性KV）",
+			"PR-389-BOM-GROUP-SPECIAL-ATTRS",
 			"客户要复用 SKU 时按 PR-382 的“SKU复制”生成客户自己的 SKU",
 			"产品类型一个字一行",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-377-PRODUCT-CONFIG-KV-SKU-REFERENCE-LAYOUT",
-			"展示到价格表/PDF",
+			"PR-389-BOM-GROUP-SPECIAL-ATTRS",
 			"SKU复制",
 			"横向滚动",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-376/377",
-			"配置字段",
+			"PR-389",
+			"BOM 版本",
 			"SKU复制",
 			"左右滑动",
 		},

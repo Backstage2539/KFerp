@@ -28,11 +28,11 @@ func TestDev378ProductConfigKVOptionsEditorSourceMarkers(t *testing.T) {
 			"options_text",
 			"valueType === 'select'",
 		},
-		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"handleSpecialAttrSchemaTypeChange",
-			"@change=\"handleSpecialAttrSchemaTypeChange(attr)\"",
-			"<textarea v-model.trim=\"attr.options_text\"",
-			"每行一个选项",
+		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
+			"BOM版本与特殊属性",
+			"special_attrs_schema_json",
+			"special_attrs_json",
+			"保存特殊属性",
 		},
 	}
 
@@ -50,21 +50,21 @@ func TestDev378ProductConfigKVOptionsEditorDocs(t *testing.T) {
 	docs := map[string][]string{
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-378-PRODUCT-CONFIG-KV-OPTIONS-EDITOR",
-			"下拉选项",
-			"切换为文本",
-			"SKU 设置",
+			"PR-389-BOM-GROUP-SPECIAL-ATTRS",
+			"BOM 版本",
+			"特殊属性",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-378-PRODUCT-CONFIG-KV-OPTIONS-EDITOR",
-			"烘焙度",
-			"深烘",
-			"文本",
+			"PR-389-BOM-GROUP-SPECIAL-ATTRS",
+			"BOM 版本",
+			"特殊属性",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-378",
-			"每行一个选项",
-			"改成文本",
-			"清空下拉选项",
+			"PR-389",
+			"BOM 版本",
+			"特殊属性",
+			"fallback",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-26-product-config-kv-options-editor.md"): {
 			"PR-378",

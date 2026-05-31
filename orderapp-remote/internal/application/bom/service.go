@@ -2,6 +2,7 @@ package bom
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	productiondomain "orderapp/internal/domain/production"
 	"strings"
@@ -147,18 +148,20 @@ type ProductionBomDetail struct {
 }
 
 type ProductionBomVersion struct {
-	ID                int64   `json:"id"`
-	BomID             int64   `json:"bom_id"`
-	VersionNo         string  `json:"version_no"`
-	Status            string  `json:"status"`
-	YieldRate         float64 `json:"yield_rate"`
-	ExpectedYieldRate float64 `json:"expected_yield_rate"`
-	ExpectedLossRate  float64 `json:"expected_loss_rate"`
-	ItemCount         int     `json:"item_count"`
-	Note              string  `json:"note"`
-	CreatedAt         string  `json:"created_at"`
-	PublishedAt       string  `json:"published_at"`
-	IsLatest          bool    `json:"is_latest"`
+	ID                     int64   `json:"id"`
+	BomID                  int64   `json:"bom_id"`
+	VersionNo              string  `json:"version_no"`
+	Status                 string  `json:"status"`
+	YieldRate              float64 `json:"yield_rate"`
+	ExpectedYieldRate      float64 `json:"expected_yield_rate"`
+	ExpectedLossRate       float64 `json:"expected_loss_rate"`
+	ItemCount              int     `json:"item_count"`
+	Note                   string  `json:"note"`
+	SpecialAttrsSchemaJSON string  `json:"special_attrs_schema_json"`
+	SpecialAttrsJSON       string  `json:"special_attrs_json"`
+	CreatedAt              string  `json:"created_at"`
+	PublishedAt            string  `json:"published_at"`
+	IsLatest               bool    `json:"is_latest"`
 }
 
 type ProductProductionBomBinding struct {
@@ -179,6 +182,18 @@ type CreateProductionBomGroupCommand struct {
 	Name      string `json:"name"`
 	SortOrder int    `json:"sort_order"`
 	Actor     string `json:"actor"`
+}
+
+type UpdateProductionBomGroupCommand struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+	Actor     string `json:"actor"`
+}
+
+type DisableProductionBomGroupCommand struct {
+	ID    int64  `json:"id"`
+	Actor string `json:"actor"`
 }
 
 type CreateProductionBomCommand struct {
@@ -220,10 +235,12 @@ type ProductionBomDraftItem struct {
 }
 
 type UpdateProductionBomVersionDraftCommand struct {
-	VersionID        int64                    `json:"version_id"`
-	ExpectedLossRate *float64                 `json:"expected_loss_rate,omitempty"`
-	Items            []ProductionBomDraftItem `json:"items"`
-	Actor            string                   `json:"actor"`
+	VersionID              int64                    `json:"version_id"`
+	ExpectedLossRate       *float64                 `json:"expected_loss_rate,omitempty"`
+	Items                  []ProductionBomDraftItem `json:"items"`
+	SpecialAttrsSchemaJSON string                   `json:"special_attrs_schema_json"`
+	SpecialAttrsJSON       string                   `json:"special_attrs_json"`
+	Actor                  string                   `json:"actor"`
 }
 
 type PublishProductionBomVersionCommand struct {
@@ -312,8 +329,10 @@ type Repository interface {
 	ActivateVersion(ctx context.Context, cmd ActivateVersionCommand) error
 	DeriveOwned(ctx context.Context, cmd DeriveOwnedCommand) (Detail, error)
 	SetBomSource(ctx context.Context, cmd SetBomSourceCommand) (Detail, error)
-	ListProductionBomGroups(ctx context.Context) ([]ProductionBomGroup, error)
+	ListProductionBomGroups(ctx context.Context, includeInactive bool) ([]ProductionBomGroup, error)
 	CreateProductionBomGroup(ctx context.Context, cmd CreateProductionBomGroupCommand) (ProductionBomGroup, error)
+	UpdateProductionBomGroup(ctx context.Context, cmd UpdateProductionBomGroupCommand) (ProductionBomGroup, error)
+	DisableProductionBomGroup(ctx context.Context, cmd DisableProductionBomGroupCommand) error
 	ListProductionBoms(ctx context.Context) ([]ProductionBomSummary, error)
 	GetProductionBomDetail(ctx context.Context, id int64) (ProductionBomDetail, error)
 	CreateProductionBom(ctx context.Context, cmd CreateProductionBomCommand) (ProductionBomSummary, error)
@@ -575,8 +594,8 @@ func (s *Service) ActivateVersion(ctx context.Context, cmd ActivateVersionComman
 	return s.repo.ActivateVersion(ctx, cmd)
 }
 
-func (s *Service) ListProductionBomGroups(ctx context.Context) ([]ProductionBomGroup, error) {
-	return s.repo.ListProductionBomGroups(ctx)
+func (s *Service) ListProductionBomGroups(ctx context.Context, includeInactive bool) ([]ProductionBomGroup, error) {
+	return s.repo.ListProductionBomGroups(ctx, includeInactive)
 }
 
 func (s *Service) CreateProductionBomGroup(ctx context.Context, cmd CreateProductionBomGroupCommand) (ProductionBomGroup, error) {
@@ -586,6 +605,26 @@ func (s *Service) CreateProductionBomGroup(ctx context.Context, cmd CreateProduc
 		return ProductionBomGroup{}, fmt.Errorf("name required")
 	}
 	return s.repo.CreateProductionBomGroup(ctx, cmd)
+}
+
+func (s *Service) UpdateProductionBomGroup(ctx context.Context, cmd UpdateProductionBomGroupCommand) (ProductionBomGroup, error) {
+	if cmd.ID <= 0 {
+		return ProductionBomGroup{}, fmt.Errorf("group_id required")
+	}
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Name == "" {
+		return ProductionBomGroup{}, fmt.Errorf("name required")
+	}
+	return s.repo.UpdateProductionBomGroup(ctx, cmd)
+}
+
+func (s *Service) DisableProductionBomGroup(ctx context.Context, cmd DisableProductionBomGroupCommand) error {
+	if cmd.ID <= 0 {
+		return fmt.Errorf("group_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return s.repo.DisableProductionBomGroup(ctx, cmd)
 }
 
 func (s *Service) ListProductionBoms(ctx context.Context) ([]ProductionBomSummary, error) {
@@ -675,12 +714,64 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 		return ProductionBomVersion{}, fmt.Errorf("version_id required")
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if strings.TrimSpace(cmd.SpecialAttrsSchemaJSON) != "" {
+		schemaJSON, err := normalizeJSONArrayText(cmd.SpecialAttrsSchemaJSON)
+		if err != nil {
+			return ProductionBomVersion{}, fmt.Errorf("invalid special_attrs_schema_json")
+		}
+		cmd.SpecialAttrsSchemaJSON = schemaJSON
+	}
+	if strings.TrimSpace(cmd.SpecialAttrsJSON) != "" {
+		attrsJSON, err := normalizeJSONObjectText(cmd.SpecialAttrsJSON)
+		if err != nil {
+			return ProductionBomVersion{}, fmt.Errorf("invalid special_attrs_json")
+		}
+		cmd.SpecialAttrsJSON = attrsJSON
+	}
 	row, err := s.repo.UpdateProductionBomVersionDraft(ctx, cmd)
 	if err != nil {
 		return ProductionBomVersion{}, err
 	}
 	enrichProductionBomVersionYield(&row)
 	return row, nil
+}
+
+func normalizeJSONArrayText(input string) (string, error) {
+	text := strings.TrimSpace(input)
+	if text == "" {
+		return "[]", nil
+	}
+	var v any
+	if err := json.Unmarshal([]byte(text), &v); err != nil {
+		return "", err
+	}
+	if _, ok := v.([]any); !ok {
+		return "", fmt.Errorf("json array required")
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func normalizeJSONObjectText(input string) (string, error) {
+	text := strings.TrimSpace(input)
+	if text == "" {
+		return "{}", nil
+	}
+	var v any
+	if err := json.Unmarshal([]byte(text), &v); err != nil {
+		return "", err
+	}
+	if _, ok := v.(map[string]any); !ok {
+		return "", fmt.Errorf("json object required")
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 func (s *Service) PublishProductionBomVersion(ctx context.Context, cmd PublishProductionBomVersionCommand) error {

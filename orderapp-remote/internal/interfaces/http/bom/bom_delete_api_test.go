@@ -13,25 +13,29 @@ import (
 )
 
 type apiFakeRepo struct {
-	deactivatedBomProductID      int64
-	listRows                     []bomapp.ListItem
-	productRows                  []bomapp.Option
-	detail                       bomapp.Detail
-	syncedYield                  bomapp.SyncProductYieldCommand
-	savedItem                    bomapp.SaveItemCommand
-	deletedItem                  bomapp.DeleteItemCommand
-	derivedOwned                 bomapp.DeriveOwnedCommand
-	productionBomGroups          []bomapp.ProductionBomGroup
-	productionBomRows            []bomapp.ProductionBomSummary
-	productionBomDetail          bomapp.ProductionBomDetail
-	copiedProductionBom          bomapp.ProductionBomSummary
-	createdProductionBom         bomapp.ProductionBomSummary
-	updatedProductionBom         bomapp.ProductionBomSummary
-	createdProductionVersion     bomapp.ProductionBomVersion
-	updatedProductionDraft       bomapp.ProductionBomVersion
-	productBomBinding            bomapp.ProductProductionBomBinding
-	boundProductBom              bomapp.BindProductProductionBomCommand
-	publishedProductionVersionID int64
+	deactivatedBomProductID            int64
+	listRows                           []bomapp.ListItem
+	productRows                        []bomapp.Option
+	detail                             bomapp.Detail
+	syncedYield                        bomapp.SyncProductYieldCommand
+	savedItem                          bomapp.SaveItemCommand
+	deletedItem                        bomapp.DeleteItemCommand
+	derivedOwned                       bomapp.DeriveOwnedCommand
+	productionBomGroups                []bomapp.ProductionBomGroup
+	includeInactiveProductionBomGroups bool
+	updatedProductionBomGroup          bomapp.UpdateProductionBomGroupCommand
+	disabledProductionBomGroupID       int64
+	productionBomRows                  []bomapp.ProductionBomSummary
+	productionBomDetail                bomapp.ProductionBomDetail
+	copiedProductionBom                bomapp.ProductionBomSummary
+	createdProductionBom               bomapp.ProductionBomSummary
+	updatedProductionBom               bomapp.ProductionBomSummary
+	createdProductionVersion           bomapp.ProductionBomVersion
+	updatedProductionDraft             bomapp.ProductionBomVersion
+	updatedProductionDraftCommand      bomapp.UpdateProductionBomVersionDraftCommand
+	productBomBinding                  bomapp.ProductProductionBomBinding
+	boundProductBom                    bomapp.BindProductProductionBomCommand
+	publishedProductionVersionID       int64
 }
 
 func (r *apiFakeRepo) List(context.Context) ([]bomapp.ListItem, error) { return r.listRows, nil }
@@ -83,12 +87,32 @@ func (r *apiFakeRepo) SetBomSource(context.Context, bomapp.SetBomSourceCommand) 
 	return bomapp.Detail{}, nil
 }
 
-func (r *apiFakeRepo) ListProductionBomGroups(context.Context) ([]bomapp.ProductionBomGroup, error) {
-	return r.productionBomGroups, nil
+func (r *apiFakeRepo) ListProductionBomGroups(_ context.Context, includeInactive bool) ([]bomapp.ProductionBomGroup, error) {
+	r.includeInactiveProductionBomGroups = includeInactive
+	if includeInactive {
+		return r.productionBomGroups, nil
+	}
+	out := make([]bomapp.ProductionBomGroup, 0, len(r.productionBomGroups))
+	for _, row := range r.productionBomGroups {
+		if row.Active {
+			out = append(out, row)
+		}
+	}
+	return out, nil
 }
 
 func (r *apiFakeRepo) CreateProductionBomGroup(_ context.Context, cmd bomapp.CreateProductionBomGroupCommand) (bomapp.ProductionBomGroup, error) {
 	return bomapp.ProductionBomGroup{ID: 99, Name: cmd.Name, SortOrder: cmd.SortOrder, Active: true}, nil
+}
+
+func (r *apiFakeRepo) UpdateProductionBomGroup(_ context.Context, cmd bomapp.UpdateProductionBomGroupCommand) (bomapp.ProductionBomGroup, error) {
+	r.updatedProductionBomGroup = cmd
+	return bomapp.ProductionBomGroup{ID: cmd.ID, Name: cmd.Name, SortOrder: cmd.SortOrder, Active: true}, nil
+}
+
+func (r *apiFakeRepo) DisableProductionBomGroup(_ context.Context, cmd bomapp.DisableProductionBomGroupCommand) error {
+	r.disabledProductionBomGroupID = cmd.ID
+	return nil
 }
 
 func (r *apiFakeRepo) ListProductionBoms(context.Context) ([]bomapp.ProductionBomSummary, error) {
@@ -122,10 +146,11 @@ func (r *apiFakeRepo) CreateProductionBomVersion(context.Context, bomapp.CreateP
 }
 
 func (r *apiFakeRepo) UpdateProductionBomVersionDraft(_ context.Context, cmd bomapp.UpdateProductionBomVersionDraftCommand) (bomapp.ProductionBomVersion, error) {
+	r.updatedProductionDraftCommand = cmd
 	if r.updatedProductionDraft.ID > 0 {
 		return r.updatedProductionDraft, nil
 	}
-	return bomapp.ProductionBomVersion{ID: cmd.VersionID, Status: "draft"}, nil
+	return bomapp.ProductionBomVersion{ID: cmd.VersionID, Status: "draft", SpecialAttrsSchemaJSON: cmd.SpecialAttrsSchemaJSON, SpecialAttrsJSON: cmd.SpecialAttrsJSON}, nil
 }
 
 func (r *apiFakeRepo) PublishProductionBomVersion(_ context.Context, cmd bomapp.PublishProductionBomVersionCommand) error {

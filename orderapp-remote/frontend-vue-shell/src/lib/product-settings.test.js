@@ -1211,53 +1211,54 @@ test('SKU template panes render context-filtered template lists', () => {
   assert.match(source, /v-for="config in productConfigTemplatesForContext"/)
 })
 
-test('SKU settings renders special KV template definitions and SKU value editors instead of hardcoded roast selectors', () => {
+test('SKU settings no longer renders special KV template definitions or SKU value editors', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
 
-  for (const expected of [
+  for (const removed of [
     '特殊KV定义',
     'special_attrs_schema_rows',
     'specialAttrSchemaForProduct',
     'specialAttrSchemaForForm',
-    'special_attr_values',
     'show_in_price_list',
+    '产品信息字段（特殊属性KV）',
+    'special-attr-editor',
+    'openSpecialAttrConfigForProduct',
   ]) {
-    assert.ok(source.includes(expected), `missing special KV UI marker: ${expected}`)
+    assert.doesNotMatch(source, new RegExp(removed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
   assert.doesNotMatch(template, /v-model="row\.roast_level"/)
   assert.doesNotMatch(template, /v-model="productForm\.roast_level"/)
   assert.doesNotMatch(template, /v-model="customForm\.roast_level"/)
 })
 
-test('SKU settings makes special KV configuration discoverable from SKU rows and template editor', () => {
-  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+test('BOM view makes special attributes discoverable from BOM version detail', () => {
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   for (const expected of [
-    '产品信息字段（特殊属性KV）',
-    '展示到价格表/PDF',
-    'SKU列表特殊属性列填写具体值',
-    '价格表页面、发布快照和 PDF 均展示',
-    '未配置字段',
-    '配置字段',
-    'openSpecialAttrConfigForProduct',
+    'BOM版本与特殊属性',
+    '特殊属性绑定到 BOM 版本',
+    '字段定义 special_attrs_schema_json',
+    '字段值 special_attrs_json',
+    '保存特殊属性',
+    '复制为新版草稿',
   ]) {
-    assert.ok(source.includes(expected), `missing discoverable special KV copy: ${expected}`)
+    assert.ok(source.includes(expected), `missing BOM special attrs copy: ${expected}`)
   }
-  assert.match(template, /class="[^"]*sku-empty-special-attrs[^"]*"/)
-  assert.match(script, /activeSettingsSection\.value = 'templates'[\s\S]*activeConfigTemplateSection\.value = 'product-config'/)
+  assert.match(template, /:readonly="!canEditSelectedProductionBomVersion"/)
 })
 
-test('SKU settings clears special KV dropdown options when the field type is changed away from select', () => {
+test('BOM version special attributes are saved through the production BOM draft API', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const template = source.split('<script setup>')[0] || source
-  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const bomSource = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const script = bomSource.split('<script setup>')[1]?.split('</script>')[0] || ''
 
-  assert.ok(script.includes('handleSpecialAttrSchemaTypeChange'), 'missing special KV type-change handler')
-  assert.match(template, /@change="handleSpecialAttrSchemaTypeChange\(attr\)"/)
-  assert.match(template, /<textarea[\s\S]*v-model\.trim="attr\.options_text"[\s\S]*下拉选项/)
+  assert.doesNotMatch(source, /handleSpecialAttrSchemaTypeChange/)
+  assert.match(script, /saveProductionBomVersionSpecialAttrs/)
+  assert.match(script, /production-bom-versions\/\$\{versionID\}\/draft/)
+  assert.match(script, /special_attrs_schema_json:\s*versionSpecialAttrsSchemaText\.value/)
+  assert.match(script, /special_attrs_json:\s*versionSpecialAttrsText\.value/)
 })
 
 test('copying public product config stays a template copy and no longer toggles public SKU references', () => {
@@ -1433,6 +1434,11 @@ test('product management shows production BOM usage and keeps BOM derivation in 
   assert.match(template, /更换生产 BOM/)
   assert.match(template, /当前引用/)
   assert.match(template, /维护 BOM/)
+  assert.doesNotMatch(template, /特殊属性/)
+  assert.doesNotMatch(template, /special-attr-editor/)
+  assert.doesNotMatch(template, /产品信息字段（特殊属性KV）/)
+  assert.doesNotMatch(template, /新增KV/)
+  assert.doesNotMatch(source, /special_attrs_schema_rows/)
   assert.doesNotMatch(template, /派生自有 BOM/)
   assert.doesNotMatch(template, /自有 BOM/)
   assert.doesNotMatch(template, /跟随默认 BOM/)
@@ -1718,7 +1724,7 @@ test('SKU table keeps product type columns on one line and relies on horizontal 
     'class="sku-table"',
     'sku-category-cell',
     'sku-name-cell',
-    'special-attrs-cell',
+    'action-cell',
   ]) {
     assert.ok(source.includes(expected), `missing SKU table layout marker: ${expected}`)
   }

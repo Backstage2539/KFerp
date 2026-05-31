@@ -3,6 +3,8 @@ package bom
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -242,6 +244,10 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_versions (
 	created_by TEXT NOT NULL DEFAULT '',
 	published_by TEXT NOT NULL DEFAULT ''
 );
+ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs_schema_json JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+UPDATE %[1]s.production_bom_versions SET special_attrs_schema_json='[]'::jsonb WHERE special_attrs_schema_json IS NULL;
+UPDATE %[1]s.production_bom_versions SET special_attrs_json='{}'::jsonb WHERE special_attrs_json IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS production_bom_versions_bom_version_uq
 	ON %[1]s.production_bom_versions(bom_id, version_no);
 CREATE UNIQUE INDEX IF NOT EXISTS production_bom_versions_legacy_version_uq
@@ -279,7 +285,10 @@ CREATE INDEX IF NOT EXISTS product_production_bom_bindings_bom_idx
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
-	return backfillProductionBomLibrary(ctx, pool, schema)
+	if err := backfillProductionBomLibrary(ctx, pool, schema); err != nil {
+		return err
+	}
+	return backfillProductionBomVersionSpecialAttrs(ctx, pool, schema)
 }
 
 func backfillProductionBomLibrary(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -414,4 +423,176 @@ ON CONFLICT DO NOTHING;
 `, schema)
 	_, err := pool.Exec(ctx, q)
 	return err
+}
+
+type bomVersionSpecialAttrCandidate struct {
+	ProductID  int64
+	BomID      int64
+	VersionID  int64
+	SchemaJSON string
+	AttrsJSON  string
+}
+
+type bomVersionSpecialAttrGroup struct {
+	SchemaJSON string
+	AttrsJSON  string
+	ProductIDs []int64
+}
+
+func backfillProductionBomVersionSpecialAttrs(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	var hasConfigTables bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL AND to_regclass($2) IS NOT NULL`, schema+".product_categories", schema+".product_config_templates").Scan(&hasConfigTables); err != nil || !hasConfigTables {
+		return err
+	}
+	rows, err := pool.Query(ctx, fmt.Sprintf(`
+		WITH candidates AS (
+			SELECT p.id AS product_id,
+			       b.bom_id,
+			       b.bom_version_id,
+			       COALESCE(
+			         NULLIF(pc_config.special_attrs_schema_json::text,'[]'),
+			         NULLIF(parent_pc_config.special_attrs_schema_json::text,'[]'),
+			         '[]'
+			       ) AS schema_json,
+			       CASE
+			         WHEN COALESCE(NULLIF(p.roast_level,''),'') <> ''
+			         THEN jsonb_set(COALESCE(p.special_attrs_json, '{}'::jsonb), '{roast_level}', to_jsonb(p.roast_level), true)::text
+			         ELSE COALESCE(p.special_attrs_json::text, '{}')
+			       END AS attrs_json
+			FROM %[1]s.products p
+			JOIN %[1]s.product_production_bom_bindings b ON b.product_id=p.id
+			JOIN %[1]s.production_bom_versions v ON v.id=b.bom_version_id
+			LEFT JOIN %[1]s.product_categories pc ON pc.id=p.product_category_id AND pc.active=true
+			LEFT JOIN %[1]s.product_categories parent_pc ON parent_pc.id=pc.parent_id AND parent_pc.active=true
+			LEFT JOIN %[1]s.product_config_templates pc_config ON pc_config.id=pc.product_config_template_id AND pc_config.active=true
+			LEFT JOIN %[1]s.product_config_templates parent_pc_config ON parent_pc_config.id=parent_pc.product_config_template_id AND parent_pc_config.active=true
+			WHERE COALESCE(v.special_attrs_schema_json, '[]'::jsonb) = '[]'::jsonb
+			  AND COALESCE(v.special_attrs_json, '{}'::jsonb) = '{}'::jsonb
+		)
+		SELECT product_id, bom_id, bom_version_id, schema_json, attrs_json
+		FROM candidates
+		ORDER BY bom_version_id, product_id
+	`, schema))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byVersion := map[int64][]bomVersionSpecialAttrCandidate{}
+	for rows.Next() {
+		var c bomVersionSpecialAttrCandidate
+		if err := rows.Scan(&c.ProductID, &c.BomID, &c.VersionID, &c.SchemaJSON, &c.AttrsJSON); err != nil {
+			return err
+		}
+		c.SchemaJSON = strings.TrimSpace(c.SchemaJSON)
+		if c.SchemaJSON == "" {
+			c.SchemaJSON = "[]"
+		}
+		c.AttrsJSON = strings.TrimSpace(c.AttrsJSON)
+		if c.AttrsJSON == "" {
+			c.AttrsJSON = "{}"
+		}
+		byVersion[c.VersionID] = append(byVersion[c.VersionID], c)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for versionID, candidates := range byVersion {
+		if len(candidates) == 0 {
+			continue
+		}
+		groupsBySig := map[string]*bomVersionSpecialAttrGroup{}
+		for _, c := range candidates {
+			sig := c.SchemaJSON + "\n" + c.AttrsJSON
+			group := groupsBySig[sig]
+			if group == nil {
+				group = &bomVersionSpecialAttrGroup{SchemaJSON: c.SchemaJSON, AttrsJSON: c.AttrsJSON}
+				groupsBySig[sig] = group
+			}
+			group.ProductIDs = append(group.ProductIDs, c.ProductID)
+		}
+		groups := make([]*bomVersionSpecialAttrGroup, 0, len(groupsBySig))
+		for _, group := range groupsBySig {
+			groups = append(groups, group)
+		}
+		sort.SliceStable(groups, func(i, j int) bool {
+			if len(groups[i].ProductIDs) != len(groups[j].ProductIDs) {
+				return len(groups[i].ProductIDs) > len(groups[j].ProductIDs)
+			}
+			return groups[i].ProductIDs[0] < groups[j].ProductIDs[0]
+		})
+		primary := groups[0]
+		if primary.SchemaJSON != "[]" || primary.AttrsJSON != "{}" {
+			if _, err := pool.Exec(ctx, fmt.Sprintf(`
+				UPDATE %s.production_bom_versions
+				SET special_attrs_schema_json=$2::jsonb, special_attrs_json=$3::jsonb
+				WHERE id=$1
+			`, schema), versionID, primary.SchemaJSON, primary.AttrsJSON); err != nil {
+				return err
+			}
+		}
+		for _, group := range groups[1:] {
+			if err := copyProductionBomForSpecialAttrsConflict(ctx, pool, schema, candidates[0].BomID, versionID, group); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func copyProductionBomForSpecialAttrsConflict(ctx context.Context, pool *pgxpool.Pool, schema string, sourceBomID int64, sourceVersionID int64, group *bomVersionSpecialAttrGroup) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var name string
+	var groupID int64
+	var status string
+	var yieldRate float64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT pb.name, pb.group_id, pb.status, COALESCE(v.yield_rate,0.8)::float8
+		FROM %[1]s.production_boms pb
+		JOIN %[1]s.production_bom_versions v ON v.id=$2
+		WHERE pb.id=$1
+	`, schema), sourceBomID, sourceVersionID).Scan(&name, &groupID, &status, &yieldRate); err != nil {
+		return err
+	}
+	var newBomID int64
+	tempCode := fmt.Sprintf("PENDING-%d-%d", sourceVersionID, group.ProductIDs[0])
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.production_boms(code, name, group_id, status, source_bom_id, source_bom_version_id, created_by, updated_by)
+		VALUES($1,$2,$3,$4,$5,$6,'system-special-attrs-backfill','system-special-attrs-backfill')
+		RETURNING id
+	`, schema), tempCode, name+" 特殊属性副本", groupID, status, sourceBomID, sourceVersionID).Scan(&newBomID); err != nil {
+		return err
+	}
+	code := fmt.Sprintf("BOM-%06d", newBomID)
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %[1]s.production_boms SET code=$1 WHERE id=$2`, schema), code, newBomID); err != nil {
+		return err
+	}
+	var newVersionID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.production_bom_versions(bom_id, version_no, status, yield_rate, note, special_attrs_schema_json, special_attrs_json, created_at, published_at, created_by, published_by)
+		VALUES($1,'V001','published',$2,'旧 SKU 特殊属性冲突自动拆分',$3::jsonb,$4::jsonb,now(),now(),'system-special-attrs-backfill','system-special-attrs-backfill')
+		RETURNING id
+	`, schema), newBomID, yieldRate, group.SchemaJSON, group.AttrsJSON).Scan(&newVersionID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot)
+		SELECT $1, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot
+		FROM %[1]s.production_bom_version_items
+		WHERE version_id=$2
+		ORDER BY id
+	`, schema), newVersionID, sourceVersionID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %[1]s.product_production_bom_bindings
+		SET bom_id=$1, bom_version_id=$2, bound_at=now(), bound_by='system-special-attrs-backfill'
+		WHERE product_id=ANY($3)
+	`, schema), newBomID, newVersionID, group.ProductIDs); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

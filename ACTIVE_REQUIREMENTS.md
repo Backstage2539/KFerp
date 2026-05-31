@@ -6,6 +6,29 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-389-BOM-GROUP-SPECIAL-ATTRS
+- Branch: codex/bom-version-special-attrs-20260531
+- Owner/session: Codex / 2026-05-31
+- Status: verified
+- Scope: BOM 分组补齐维护入口；特殊属性从 SKU/商品配置模板迁入生产 BOM 版本。生产 BOM 版本携带配方明细、预期损耗率、特殊属性字段和值；SKU 管理不再编辑特殊属性；价格表、成本、生产计划和工单优先读取绑定 BOM 版本特殊属性，旧 SKU 字段仅作兼容 fallback。
+- DEV:
+  - DEV-389-BOM-GROUP-CRUD：扩展 BOM 分组查询/编辑/停用 API、操作日志和 Vue 分组管理入口。
+  - DEV-389-BOM-VERSION-SPECIAL-ATTRS：扩展 production_bom_versions schema/service/API，草稿可编辑特殊属性，已发布只读。
+  - DEV-389-MIGRATION-BACKFILL：旧 SKU 特殊属性迁入 BOM 版本；同一 BOM 版本属性冲突时自动复制 BOM/版本并重新绑定商品。
+  - DEV-389-COST-PRODUCTION-INTEGRATION：价格表/成本/生产/工单优先读取 BOM 版本特殊属性，fallback 旧 SKU 字段。
+  - DEV-389-VUE-UI：SKU 管理移除特殊属性编辑，商品配置模板移除特殊属性定义，BOM 页面增加分组管理和版本特殊属性区。
+  - DEV-389-MANUAL-DOCS：更新需求、验收和操作手册。
+- Verifier:
+  - Unit/API/backend: go test ./... plus targeted BOM/catalog/costing/production/support packages.
+  - Frontend: node --test src/lib/bom.test.js src/lib/product-settings.test.js and targeted helpers.
+  - Build: npm --prefix orderapp-remote/frontend-vue-shell run build.
+  - Changed verifier: scripts/verify_kferp.sh changed.
+  - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_COSTING.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OPERATION_MANUALS.md.
+  - Review/acceptance: orderapp-remote/docs/REQUIREMENTS.md; orderapp-remote/docs/ACCEPTANCE_TESTS.md; orderapp-remote/docs/acceptance/2026-05-31-bom-version-special-attrs.md.
+- Deployment: not requested yet.
+- Last update: 2026-05-31 Asia/Shanghai; RED tests were added before implementation. Final local verification passed: `go test ./...`; `node --test src/lib/bom.test.js src/lib/product-settings.test.js`; `npm run build` in `orderapp-remote/frontend-vue-shell`; `scripts/verify_kferp.sh changed`.
+- Notes: `scripts/reserve_req_id.sh` returned PR-389; entry seeded manually. Van requested no browser/manual验收 for this round to save tokens.
+
 ### PR-388-PRODUCTION-BOM-LIBRARY
 - Branch: codex/production-bom-library-20260531
 - Owner/session: Codex / 2026-05-31
