@@ -231,7 +231,8 @@ func TestLoadProductInputsUsesGreenBeanBoundBomProductForCosting(t *testing.T) {
 		"green_bean_bom_product_id",
 		"bom_product_id",
 		"b.product_id = bom_product_id",
-		"bi.product_id = bom_product_id",
+		"effective_bom_items",
+		"bi.product_id = p.id",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("green bean costing must read BOM through bound roasted product; missing %q", want)

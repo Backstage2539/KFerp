@@ -45,6 +45,16 @@ func productOptionFromCatalog(p catalogapp.Product) ProductOption {
 		SourceBomVersionNo:          p.SourceBomVersionNo,
 		DerivedFromLabel:            p.DerivedFromLabel,
 		CanEditBOM:                  p.CanEditBOM,
+		ProductionBomID:             p.ProductionBomID,
+		ProductionBomCode:           p.ProductionBomCode,
+		ProductionBomName:           p.ProductionBomName,
+		ProductionBomVersionID:      p.ProductionBomVersionID,
+		ProductionBomVersionNo:      p.ProductionBomVersionNo,
+		LatestBomVersionID:          p.LatestBomVersionID,
+		LatestBomVersionNo:          p.LatestBomVersionNo,
+		IsLatestBomVersion:          p.IsLatestBomVersion,
+		ProductionBomGroupID:        p.ProductionBomGroupID,
+		ProductionBomGroupName:      p.ProductionBomGroupName,
 		OrderUsageCount:             p.OrderUsageCount,
 	}
 	out.Tiers = make([]ProductTierOption, 0, len(p.Tiers))

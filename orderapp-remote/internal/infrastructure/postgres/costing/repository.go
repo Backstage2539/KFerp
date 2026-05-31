@@ -77,7 +77,9 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			       COALESCE(cpa.brand_name,'') AS brand_name,
 			       COALESCE(cpa.display_category_id,0) AS display_category_id,
 			       COALESCE(alias_pc.name,'') AS display_category_name,
-			       COALESCE(NULLIF(bs.source_type,''), '') AS bom_usage_mode,
+			       CASE WHEN pbb.product_id IS NOT NULL THEN 'production_bom' ELSE COALESCE(NULLIF(bs.source_type,''), '') END AS bom_usage_mode,
+			       COALESCE(pbb.bom_id,0) AS production_bom_id,
+			       COALESCE(pbb.bom_version_id,0) AS production_bom_version_id,
 			       CASE
 			         WHEN COALESCE(NULLIF(p.product_kind,''),'roasted')='green_bean'
 			          AND COALESCE(p.green_bean_bom_product_id,0) > 0
@@ -89,6 +91,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			       END AS bom_product_id
 			FROM %[1]s.products p
 			LEFT JOIN %[1]s.product_bom_sources bs ON bs.product_id = p.id
+			LEFT JOIN %[1]s.product_production_bom_bindings pbb ON pbb.product_id = p.id
 			LEFT JOIN %[1]s.customer_product_aliases cpa
 			  ON $2 > 0
 			 AND cpa.product_id = p.id
@@ -99,11 +102,45 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			WHERE p.active = true
 			  AND (($2 <= 0 AND COALESCE(p.customer_id,0)=0) OR ($2 > 0 AND cpa.id IS NOT NULL))
 		),
+		all_effective_bom_items AS (
+			SELECT p.id AS product_id,
+			       pbi.material_id, pbi.component_type, pbi.component_product_id, pbi.component_spec_g,
+			       pbi.consume_unit, pbi.qty_per_unit, pbi.ratio_pct, pbi.unit_cost_snapshot
+			FROM %[1]s.products p
+			JOIN %[1]s.product_production_bom_bindings pbb ON pbb.product_id=p.id
+			JOIN %[1]s.production_bom_version_items pbi ON pbi.version_id=pbb.bom_version_id
+			WHERE p.active=true
+			UNION ALL
+			SELECT p.id AS product_id,
+			       bi.material_id, bi.component_type, bi.component_product_id, bi.component_spec_g,
+			       bi.consume_unit, bi.qty_per_unit, bi.ratio_pct, bi.unit_cost_snapshot
+			FROM %[1]s.products p
+			LEFT JOIN %[1]s.product_production_bom_bindings pbb ON pbb.product_id=p.id
+			LEFT JOIN %[1]s.product_bom_sources bs ON bs.product_id=p.id
+			JOIN %[1]s.product_bom_items bi ON bi.product_id=CASE
+				WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
+				ELSE p.id
+			END
+			WHERE p.active=true AND pbb.product_id IS NULL
+		),
+		effective_bom_items AS (
+			SELECT p.id AS product_id,
+			       pbi.material_id, pbi.component_type, pbi.component_product_id, pbi.component_spec_g,
+			       pbi.consume_unit, pbi.qty_per_unit, pbi.ratio_pct, pbi.unit_cost_snapshot
+			FROM product_scope p
+			JOIN %[1]s.production_bom_version_items pbi ON pbi.version_id=p.production_bom_version_id
+			UNION ALL
+			SELECT p.id AS product_id,
+			       bi.material_id, bi.component_type, bi.component_product_id, bi.component_spec_g,
+			       bi.consume_unit, bi.qty_per_unit, bi.ratio_pct, bi.unit_cost_snapshot
+			FROM product_scope p
+			JOIN %[1]s.product_bom_items bi ON p.production_bom_version_id=0 AND bi.product_id=p.bom_product_id
+		),
 		finished_product_cost AS (
 			SELECT p.id AS product_id,
 			       COALESCE(SUM(COALESCE(mv.weighted_unit_cost, m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0) AS green_cost_per_kg
 			FROM %[1]s.products p
-			LEFT JOIN %[1]s.product_bom_items bi ON bi.product_id = p.id
+			LEFT JOIN all_effective_bom_items bi ON bi.product_id = p.id
 				AND COALESCE(NULLIF(bi.component_type,''),'material') = 'material'
 				AND COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') = 'ratio_pct'
 			LEFT JOIN %[1]s.materials m ON m.id = bi.material_id
@@ -121,7 +158,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			         ELSE 0
 			       END),0) AS bom_cost_per_unit
 			FROM product_scope p
-			LEFT JOIN %[1]s.product_bom_items bi ON bi.product_id = p.bom_product_id
+			LEFT JOIN effective_bom_items bi ON bi.product_id = p.id
 				AND COALESCE(NULLIF(bi.component_type,''),'material') = 'material'
 			LEFT JOIN %[1]s.materials m ON m.id = bi.material_id
 			LEFT JOIN material_valuation mv ON mv.material_id = m.id
@@ -131,7 +168,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			SELECT bi.product_id,
 			       SUM(COALESCE(fpc.green_cost_per_kg,0) * COALESCE(NULLIF(bi.qty_per_unit,0), NULLIF(bi.component_spec_g,0), 1))
 			       / NULLIF(SUM(COALESCE(NULLIF(bi.qty_per_unit,0), NULLIF(bi.component_spec_g,0), 1)),0) AS finished_green_cost_per_kg
-			FROM %[1]s.product_bom_items bi
+			FROM all_effective_bom_items bi
 			JOIN finished_product_cost fpc ON fpc.product_id = bi.component_product_id
 			WHERE COALESCE(NULLIF(bi.component_type,''),'material') = 'finished_product'
 			GROUP BY bi.product_id
@@ -253,7 +290,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		           false
 		       ),
 		       p.margin_rate_override::float8,
-		       COALESCE(NULLIF(b.yield_rate,0), $1),
+		       COALESCE(NULLIF(bound_bv.yield_rate,0), NULLIF(b.yield_rate,0), $1),
 		       CASE
 		           WHEN COALESCE(NULLIF(p.product_kind,''), 'roasted') = 'green_bean'
 		           THEN COALESCE(SUM(COALESCE(NULLIF(bi.unit_cost_snapshot,0), m.purchase_price, 0) * COALESCE(bi.ratio_pct,0) / 100.0),0)
@@ -272,9 +309,9 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.grade, ''), ' / ') FILTER (WHERE NULLIF(bp.grade, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.altitude, ''), ' / ') FILTER (WHERE NULLIF(bp.altitude, '') IS NOT NULL), ''),
 		       COALESCE(string_agg(DISTINCT NULLIF(bp.bean_list_note, ''), ' / ') FILTER (WHERE NULLIF(bp.bean_list_note, '') IS NOT NULL), ''),
-		       COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END),
-		       COALESCE(active_bv.id,0),
-		       COALESCE(active_bv.version_no,''),
+		       COALESCE(NULLIF(bound_bom.status,''), NULLIF(b.status,''), CASE WHEN b.product_id IS NULL AND bound_bom.id IS NULL THEN 'missing' ELSE 'active' END),
+		       COALESCE(bound_bv.id, active_bv.id, 0),
+		       COALESCE(bound_bv.version_no, active_bv.version_no, ''),
 		       COALESCE(NULLIF(p.bom_usage_mode,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'owned' END),
 		       COALESCE(qc.factory_flavor_description, ''),
 		       COALESCE(qc.moisture, ''),
@@ -284,7 +321,9 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		FROM product_scope p
 		LEFT JOIN %[1]s.product_bom b ON b.product_id = bom_product_id
 		LEFT JOIN %[1]s.bom_versions active_bv ON active_bv.product_id=p.bom_product_id AND active_bv.status='active'
-		LEFT JOIN %[1]s.product_bom_items bi ON bi.product_id = bom_product_id
+		LEFT JOIN %[1]s.production_boms bound_bom ON bound_bom.id=p.production_bom_id
+		LEFT JOIN %[1]s.production_bom_versions bound_bv ON bound_bv.id=p.production_bom_version_id
+		LEFT JOIN effective_bom_items bi ON bi.product_id = p.id
 		LEFT JOIN %[1]s.materials m ON m.id = bi.material_id
 		LEFT JOIN material_valuation mv ON mv.material_id = m.id
 		LEFT JOIN %[1]s.material_bean_profiles bp ON bp.material_id = m.id
@@ -340,7 +379,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			LIMIT 1
 		) qc ON true
 		WHERE p.active = true
-		GROUP BY p.id, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.bom_usage_mode, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.price_list_rule_json, cpro.unit_rule_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
+		GROUP BY p.id, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.bom_usage_mode, p.production_bom_id, p.production_bom_version_id, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.price_list_rule_json, cpro.unit_rule_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, bound_bom.id, bound_bom.status, bound_bv.id, bound_bv.version_no, bound_bv.yield_rate, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
 		ORDER BY p.name
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate, customerID)

@@ -2,7 +2,7 @@
   <div class="page">
     <section class="panel">
       <div class="panel-head">
-        <h2>BOM配方维护</h2>
+        <h2>生产 BOM（配方库）</h2>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
@@ -11,7 +11,7 @@
         <div>
           <div class="context-eyebrow">SKU归属</div>
           <h3>{{ bomSkuContextLabel }}</h3>
-          <p class="muted left">BOM 商品列表和商品选择会按当前归属过滤，默认公共SKU。</p>
+          <p class="muted left">生产 BOM 是可分组、可复制、可复用的配方档案；商品档案只绑定一个已发布版本。</p>
         </div>
         <div v-if="!isWorkspaceCustomerLocked" class="bom-sku-context-controls">
           <button class="secondary compact-action" type="button" @click="selectedBomCustomerSkuCustomerID = 0" :disabled="!selectedBomCustomerSkuCustomerID">
@@ -34,6 +34,16 @@
         </div>
       </div>
       <div class="filters">
+        <div class="bom-group-strip">
+          <span>BOM分组</span>
+          <button
+            v-for="group in productionBomGroups"
+            :key="group.id"
+            class="secondary compact-action"
+            type="button">
+            {{ group.name }}
+          </button>
+        </div>
         <label>
           <span>商品</span>
           <SearchableSelect
@@ -83,7 +93,10 @@
                 :class="{ active: row.product_id === selectedProductId }"
                 @click="selectProduct(row.product_id)">
                 <td>{{ row.product }}</td>
-                <td>{{ bomSourceLabel(row) }}</td>
+                <td>
+                  <div>{{ productionBomLabel(row) }}</div>
+                  <small v-if="productionBomVersionWarning(row)" class="bom-version-warning" data-warning-prefix="当前引用">{{ productionBomVersionWarning(row) }}</small>
+                </td>
                 <td>{{ row.roast_level || '-' }}</td>
                 <td>{{ pct(expectedLoss(row)) }}</td>
                 <td>{{ pct(expectedYield(row)) }}</td>
@@ -101,33 +114,16 @@
 
       <section class="panel detail-panel">
         <div class="panel-title">配方明细</div>
-        <div v-if="detail?.bom_source_type === 'inherit_current'" class="inherit-source-banner">
-          <span>跟随 {{ detail.bom_source_product_name || '来源商品档案' }} 的默认生产 BOM</span>
-          <button class="secondary compact" type="button" @click="lockCurrentBomVersion" :disabled="loading || !canEditCurrentBomProduct">锁定当前 BOM 版本</button>
-        </div>
-        <div v-if="detail?.bom_source_type === 'owned'" class="inherit-source-banner">
-          <span v-if="versions.length > 0">默认生产 BOM · 可锁定到版本以固定配方</span>
-          <span v-else>默认生产 BOM · 先保存版本后再锁定</span>
-          <button v-if="versions.length > 0" class="secondary compact" type="button" @click="lockCurrentBomVersion" :disabled="loading || !canEditCurrentBomProduct">锁定当前 BOM 版本</button>
-        </div>
-        <div v-if="detail?.bom_source_type === 'inherit_version'" class="inherit-source-banner locked">
-          <span v-if="detail.source_product_id > 0">固定 BOM 版本：{{ detail.bom_source_product_name || '来源商品档案' }} / BOM {{ detail.bom_source_version_no || 'V???' }}</span>
-          <span v-else>已锁定到版本：BOM {{ detail.bom_source_version_no || 'V???' }}</span>
-          <button class="secondary compact" type="button" @click="unlockBomVersion" :disabled="loading || !canEditCurrentBomProduct">恢复当前 BOM</button>
-        </div>
         <div v-if="detail" class="summary">
           <div><span>商品</span><strong>{{ detail.product_name }}</strong></div>
-          <div><span>生产 BOM</span><strong>{{ currentBomSourceLabel }}</strong></div>
+          <div><span>生产 BOM</span><strong>{{ currentProductionBomLabel }}</strong></div>
+          <div v-if="currentProductionBomWarning"><span>版本提示</span><strong class="warn">{{ currentProductionBomWarning }}</strong></div>
           <div><span>工艺参数</span><strong>{{ detail.roast_level || '-' }}</strong></div>
           <div><span>预期损耗率</span><strong>{{ pct(expectedLoss(detail)) }}</strong></div>
           <div><span>预期产出率</span><strong>{{ pct(expectedYield(detail)) }}</strong></div>
           <div><span>状态</span><strong :class="{ warn: detail.status === 'inactive' }">{{ bomStatusLabel(detail.status) }}</strong></div>
           <div><span>合计比例</span><strong :class="{ warn: detail.total_ratio > 100 }">{{ ratio(detail.total_ratio) }}</strong></div>
           <div><span>关联工艺</span><strong>{{ linkedProcessTemplates.length ? `${linkedProcessTemplates.length} 个模板` : '-' }}</strong></div>
-        </div>
-        <div v-if="detail?.can_edit_bom === false" class="warning-banner bom-source-banner">
-          <span>{{ currentBomSourceLabel }}。跟随或固定的生产 BOM 只读；需要改配方时先复制为当前商品档案单独维护 BOM。</span>
-          <button class="secondary compact-action" type="button" @click="deriveOwnedBom" :disabled="loading">复制为单独维护 BOM</button>
         </div>
         <div v-if="detail && linkedProcessTemplates.length" class="linked-processes">
           <span v-for="template in linkedProcessTemplates" :key="template.id" :class="['status-pill', template.status === 'inactive' ? 'inactive' : '']">
@@ -244,7 +240,6 @@
               <td>{{ version.created_at }}</td>
               <td>
                 <button class="text-button" type="button" @click="activateVersion(version.id)" :disabled="version.status === 'active' || !canEditCurrentBomProduct">启用</button>
-                <button class="text-button" type="button" @click="lockBomVersion(version.id)" :disabled="!canEditCurrentBomProduct || version.status !== 'active'">锁定此版本</button>
               </td>
             </tr>
             <tr v-if="!versions.length">
@@ -300,7 +295,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { bomContextCustomerIDs, bomSourceLabel, filterBomContextProducts, filterBomRowsByProductFocus } from '../lib/bom'
+import { bomContextCustomerIDs, filterBomContextProducts, filterBomRowsByProductFocus, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
 import { componentTypeLabel, isDripProduct } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import { expectedLossRate, formatPercent } from '../lib/manufacturing-loss'
@@ -321,6 +316,8 @@ const materials = ref([])
 const mappings = ref([])
 const versions = ref([])
 const processTemplates = ref([])
+const productionBomGroups = ref([])
+const productionBoms = ref([])
 const detail = ref(null)
 const selectedProductId = ref(0)
 const selectedBomCustomerSkuCustomerID = ref(0)
@@ -362,7 +359,8 @@ const isBomProductFilterActive = computed(() => Number(bomFilterProductId.value 
 const linkedProcessTemplates = computed(() => processTemplates.value.filter((template) => Number(template.product_id || 0) === Number(selectedProductId.value || 0)))
 const selectedProduct = computed(() => productByID(selectedProductId.value))
 const selectedBomRow = computed(() => rows.value.find((row) => Number(row.product_id || 0) === Number(selectedProductId.value || 0)) || null)
-const currentBomSourceLabel = computed(() => bomSourceLabel(detail.value || selectedBomRow.value || selectedProduct.value || {}))
+const currentProductionBomLabel = computed(() => productionBomLabel(detail.value || selectedBomRow.value || selectedProduct.value || {}))
+const currentProductionBomWarning = computed(() => productionBomVersionWarning(detail.value || selectedBomRow.value || selectedProduct.value || {}))
 const canEditCurrentBomProduct = computed(() => {
   if (!selectedProductId.value) return true
   if (detail.value?.can_edit_bom === false) return false
@@ -632,13 +630,15 @@ async function loadAll() {
   error.value = ''
   ok.value = ''
   try {
-    const [listData, productData, materialData, mappingData, customerData, processData] = await Promise.all([
+    const [listData, productData, materialData, mappingData, customerData, processData, productionGroupData, productionBomData] = await Promise.all([
       apiGet('/api/bom/list'),
       apiGet('/api/bom/products'),
       apiGet('/api/bom/materials'),
       apiGet('/api/bom/bag-spec-mappings'),
       apiGet('/api/customers?limit=200'),
       apiGet('/api/process-templates'),
+      apiGet('/api/production-bom-groups'),
+      apiGet('/api/production-boms'),
     ])
     const customerID = Number(props.customerContextId || 0)
     const isCustomerLocked = isWorkspaceCustomerLocked.value && customerID > 0
@@ -653,6 +653,8 @@ async function loadAll() {
     mappings.value = mappingData || []
     customers.value = (customerData.rows || []).filter((row) => row.active !== false)
     processTemplates.value = processData.rows || []
+    productionBomGroups.value = productionGroupData || []
+    productionBoms.value = productionBomData || []
     syncBomContextFromUrlProduct()
     applyWorkspaceCustomerContext()
     syncSelectedBomCustomerSkuCustomer()
@@ -752,54 +754,6 @@ async function deleteBom() {
   })
 }
 
-async function lockCurrentBomVersion() {
-  if (!selectedProductId.value) return
-  if (!detail.value) return
-  // Allow locking for inherit_current AND owned BOMs
-  if (detail.value.bom_source_type !== 'inherit_current' && detail.value.bom_source_type !== 'owned') return
-  // Find the current active version to lock to
-  const activeVersion = versions.value.find(v => v.status === 'active')
-  if (!activeVersion) {
-    error.value = '没有有效的 BOM 版本可以锁定'
-    return
-  }
-  await mutate(async () => {
-    const updated = await apiSend(`/api/bom/${selectedProductId.value}/source`, {
-      body: { source_type: 'inherit_version', source_bom_version_id: activeVersion.id },
-    })
-    detail.value = updated
-    ok.value = `已锁定 BOM 版本 ${activeVersion.version_no}`
-    await loadVersions(selectedProductId.value)
-  })
-}
-
-async function unlockBomVersion() {
-  if (!selectedProductId.value) return
-  if (!detail.value || detail.value.bom_source_type !== 'inherit_version') return
-  await mutate(async () => {
-    // If the SKU was originally owned, unlock back to owned; otherwise inherit_current
-    const targetType = detail.value.source_product_id > 0 ? 'inherit_current' : 'owned'
-    const updated = await apiSend(`/api/bom/${selectedProductId.value}/source`, {
-      body: { source_type: targetType, source_bom_version_id: 0 },
-    })
-    detail.value = updated
-    ok.value = '已恢复当前 BOM'
-  })
-}
-
-async function lockBomVersion(versionID) {
-  if (!selectedProductId.value) return
-  if (!versionID) return
-  await mutate(async () => {
-    const updated = await apiSend(`/api/bom/${selectedProductId.value}/source`, {
-      body: { source_type: 'inherit_version', source_bom_version_id: versionID },
-    })
-    detail.value = updated
-    ok.value = `已锁定 BOM 版本`
-    await loadVersions(selectedProductId.value)
-  })
-}
-
 async function saveItem() {
   if (!canEditCurrentBomProduct.value) return
   await mutate(async () => {
@@ -827,16 +781,6 @@ async function deleteItem(id) {
     await apiSend('/api/bom/item/delete', { body: { product_id: selectedProductId.value, id } })
     ok.value = '已删除'
     await loadAll()
-  })
-}
-
-async function deriveOwnedBom() {
-  if (!selectedProductId.value) return
-  await mutate(async () => {
-    detail.value = await apiSend(`/api/bom/${selectedProductId.value}/derive-owned`, { body: {} })
-    syncExpectedLossInput(detail.value)
-    await loadAll()
-    ok.value = '已复制为单独维护 BOM'
   })
 }
 

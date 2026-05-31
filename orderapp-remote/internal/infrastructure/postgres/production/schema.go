@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS %s.work_orders (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	completed_at TIMESTAMPTZ,
 	material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
+	bom_version_id BIGINT NOT NULL DEFAULT 0,
 	operation_template_id BIGINT NOT NULL DEFAULT 0,
 	process_template_id BIGINT NOT NULL DEFAULT 0,
 	process_template_name TEXT NOT NULL DEFAULT '',
@@ -185,6 +186,7 @@ CREATE INDEX IF NOT EXISTS work_order_material_reservations_material_idx ON %s.w
 	}
 	for _, stmt := range []string{
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS bom_version_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS operation_template_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS process_template_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS process_template_name TEXT NOT NULL DEFAULT ''`, schema),

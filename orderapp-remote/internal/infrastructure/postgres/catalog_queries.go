@@ -66,6 +66,16 @@ type ProductOption struct {
 	SourceBomVersionNo          string
 	DerivedFromLabel            string
 	CanEditBOM                  bool
+	ProductionBomID             int64
+	ProductionBomCode           string
+	ProductionBomName           string
+	ProductionBomVersionID      int64
+	ProductionBomVersionNo      string
+	LatestBomVersionID          int64
+	LatestBomVersionNo          string
+	IsLatestBomVersion          bool
+	ProductionBomGroupID        int64
+	ProductionBomGroupName      string
 	OrderUsageCount             int
 	RetailSpecs                 []int64
 	Tiers                       []ProductTierOption
@@ -102,7 +112,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		COALESCE(p.retail_price_200g, 0),
 		COALESCE(p.retail_price_227g, p.default_price, 0),
 		COALESCE(p.retail_price_250g, 0),
-		COALESCE(b.yield_rate, 0.8),
+		COALESCE(pbv.yield_rate, b.yield_rate, 0.8),
 		COALESCE(p.product_category_id, 0),
 		COALESCE(p.product_category_position, 0),
 		COALESCE(p.active,true),
@@ -114,18 +124,24 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		COALESCE(p.gradient_template_id_override,0),
 		COALESCE(p.operation_template_id_override,0),
 		COALESCE(p.unit_rule_override_json::text,'{}'),
-		COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=CASE
-			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
-			ELSE p.id
-		END), 0),
-		COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END),
+		CASE WHEN pbb.product_id IS NOT NULL THEN COALESCE((SELECT COUNT(*) FROM %[1]s.production_bom_version_items pbi WHERE pbi.version_id=pbv.id),0)
+			ELSE COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=CASE
+				WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
+				ELSE p.id
+			END), 0)
+		END,
+		CASE WHEN pbb.product_id IS NOT NULL THEN COALESCE(NULLIF(pb.status,''), 'active')
+			ELSE COALESCE(NULLIF(b.status,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'active' END)
+		END,
 		COALESCE((
 			SELECT COUNT(*)
 			FROM %[1]s.order_items oi
 			JOIN %[1]s.orders o ON o.id=oi.order_id
 			WHERE oi.product_id=p.id AND COALESCE(o.is_void,false)=false
 		),0) AS order_usage_count,
-		COALESCE(NULLIF(bs.source_type,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'owned' END) AS bom_source_type,
+		CASE WHEN pbb.product_id IS NOT NULL THEN 'owned'
+			ELSE COALESCE(NULLIF(bs.source_type,''), CASE WHEN b.product_id IS NULL THEN 'missing' ELSE 'owned' END)
+		END AS bom_source_type,
 		CASE WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id ELSE p.id END AS effective_product_id,
 		COALESCE(bs.source_bom_version_id,0) AS effective_bom_version_id,
 		COALESCE(bs.source_product_id,0) AS source_product_id,
@@ -134,13 +150,37 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		COALESCE(bs.source_bom_version_id,0) AS source_bom_version_id,
 		COALESCE(NULLIF(bs.source_bom_version_no_snapshot,''),'当前BOM') AS source_bom_version_no,
 		'' AS derived_from_label,
-		CASE WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') THEN false ELSE true END AS can_edit_bom
+		CASE WHEN pbb.product_id IS NOT NULL THEN true
+			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') THEN false
+			ELSE true
+		END AS can_edit_bom,
+		COALESCE(pb.id,0) AS production_bom_id,
+		COALESCE(pb.code,'') AS production_bom_code,
+		COALESCE(pb.name,'') AS production_bom_name,
+		COALESCE(pbv.id,0) AS production_bom_version_id,
+		COALESCE(pbv.version_no,'') AS production_bom_version_no,
+		COALESCE(latest_bom_version.id,0) AS latest_bom_version_id,
+		COALESCE(latest_bom_version.version_no,'') AS latest_bom_version_no,
+		CASE WHEN pbv.id IS NULL THEN true ELSE pbv.id=COALESCE(latest_bom_version.id,0) END AS is_latest_bom_version,
+		COALESCE(pbg.id,0) AS production_bom_group_id,
+		COALESCE(pbg.name,'') AS production_bom_group_name
 		FROM %[1]s.products p
 		LEFT JOIN %[1]s.product_bom_sources bs ON bs.product_id=p.id
 		LEFT JOIN %[1]s.product_bom b ON b.product_id=CASE
 			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
 			ELSE p.id
 		END
+		LEFT JOIN %[1]s.product_production_bom_bindings pbb ON pbb.product_id=p.id
+		LEFT JOIN %[1]s.production_boms pb ON pb.id=pbb.bom_id
+		LEFT JOIN %[1]s.production_bom_versions pbv ON pbv.id=pbb.bom_version_id
+		LEFT JOIN %[1]s.production_bom_groups pbg ON pbg.id=pb.group_id
+		LEFT JOIN LATERAL (
+			SELECT id, version_no
+			FROM %[1]s.production_bom_versions latest
+			WHERE latest.bom_id=pb.id AND latest.status='published'
+			ORDER BY latest.published_at DESC NULLS LAST, latest.id DESC
+			LIMIT 1
+		) latest_bom_version ON true
 		WHERE 1=1 ORDER BY p.active DESC, p.name`, schema)
 	rows, err := pool.Query(ctx, sqlstr)
 	if err != nil {
@@ -151,7 +191,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 	out := make([]ProductOption, 0)
 	for rows.Next() {
 		var p ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.Active, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.BomItemCount, &p.BomStatus, &p.OrderUsageCount, &p.BomSourceType, &p.EffectiveProductID, &p.EffectiveBomVersionID, &p.SourceProductID, &p.SourceProductCode, &p.SourceProductName, &p.SourceBomVersionID, &p.SourceBomVersionNo, &p.DerivedFromLabel, &p.CanEditBOM); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.Active, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.BomItemCount, &p.BomStatus, &p.OrderUsageCount, &p.BomSourceType, &p.EffectiveProductID, &p.EffectiveBomVersionID, &p.SourceProductID, &p.SourceProductCode, &p.SourceProductName, &p.SourceBomVersionID, &p.SourceBomVersionNo, &p.DerivedFromLabel, &p.CanEditBOM, &p.ProductionBomID, &p.ProductionBomCode, &p.ProductionBomName, &p.ProductionBomVersionID, &p.ProductionBomVersionNo, &p.LatestBomVersionID, &p.LatestBomVersionNo, &p.IsLatestBomVersion, &p.ProductionBomGroupID, &p.ProductionBomGroupName); err != nil {
 			return nil, err
 		}
 		p.ProductKind = catalogdomain.NormalizeProductKind(p.ProductKind)

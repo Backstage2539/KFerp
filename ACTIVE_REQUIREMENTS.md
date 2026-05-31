@@ -6,6 +6,29 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-388-PRODUCTION-BOM-LIBRARY
+- Branch: codex/production-bom-library-20260531
+- Owner/session: Codex / 2026-05-31
+- Status: verified and pushed
+- Scope: 把“商品内嵌 BOM + 继承/锁定/派生来源”收敛为独立生产 BOM 配方库、BOM 分组、BOM 版本和商品档案默认生产 BOM 版本绑定。客户商品名不产生 BOM；多个商品档案可复用同一个 BOM 版本；商品绑定旧版本只提示非最新版，不再叫锁定版本。
+- DEV:
+  - DEV-388-SCHEMA-SERVICE-API：新增生产 BOM 分组、BOM、版本、版本明细和商品绑定表，补服务/API/操作日志。
+  - DEV-388-LEGACY-BACKFILL：旧 `owned/derived_owned/inherit_current/inherit_version` 兼容回填到商品生产 BOM 绑定，不回改历史业务数据。
+  - DEV-388-VUE-BOM-LIBRARY：BOM 页面改为生产 BOM 配方库和分组/版本口径，下线继承/锁定/派生文案。
+  - DEV-388-PRODUCT-BINDING：商品管理展示生产 BOM 编号、版本号和非最新版提示，提供更换生产 BOM 入口。
+  - DEV-388-COST-PRODUCTION-INTEGRATION：成本核算、产品价格表、生产计划、物料需求和工单优先读取绑定 BOM 版本。
+  - DEV-388-MANUAL-DOCS：更新需求、验收和操作手册。
+- Verifier:
+  - Unit/frontend: node --test src/lib/bom.test.js src/lib/product-settings.test.js
+  - API/backend: go test ./internal/interfaces/http/catalog ./internal/interfaces/http/bom ./internal/interfaces/http/support ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/production ./internal/infrastructure/postgres/costing -count=1
+  - Frontend/build: npm --prefix orderapp-remote/frontend-vue-shell run build
+  - Changed verifier: scripts/verify_kferp.sh changed
+  - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_COSTING.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OPERATION_MANUALS.md
+  - Review/acceptance: orderapp-remote/docs/REQUIREMENTS.md; orderapp-remote/docs/ACCEPTANCE_TESTS.md; orderapp-remote/docs/acceptance/2026-05-31-production-bom-library.md
+- Deployment: not requested for this branch; Van asked to push code/docs and skip browser/manual验收.
+- Last update: 2026-05-31 Asia/Shanghai; targeted Go, frontend node tests, Vue build, and changed verifier passed locally.
+- Notes: `scripts/reserve_req_id.sh` returned PR-388; `--claim production-bom-library` hit the known awk multiline bug, so this entry was seeded manually.
+
 ### PR-387-VIEW-CONTEXT
 - Branch: codex/view-context-20260531
 - Owner/session: Codex / 2026-05-31

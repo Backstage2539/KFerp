@@ -55,6 +55,16 @@ type ProductOption struct {
 	SourceBomVersionNo          string              `json:"source_bom_version_no"`
 	DerivedFromLabel            string              `json:"derived_from_label"`
 	CanEditBOM                  bool                `json:"can_edit_bom"`
+	ProductionBomID             int64               `json:"production_bom_id"`
+	ProductionBomCode           string              `json:"production_bom_code"`
+	ProductionBomName           string              `json:"production_bom_name"`
+	ProductionBomVersionID      int64               `json:"production_bom_version_id"`
+	ProductionBomVersionNo      string              `json:"production_bom_version_no"`
+	LatestBomVersionID          int64               `json:"latest_bom_version_id"`
+	LatestBomVersionNo          string              `json:"latest_bom_version_no"`
+	IsLatestBomVersion          bool                `json:"is_latest_bom_version"`
+	ProductionBomGroupID        int64               `json:"production_bom_group_id"`
+	ProductionBomGroupName      string              `json:"production_bom_group_name"`
 	OrderUsageCount             int                 `json:"order_usage_count"`
 	RetailSpecs                 []int64             `json:"retail_specs"`
 	Tiers                       []ProductTierOption `json:"tiers"`

@@ -2,7 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   bomContextCustomerIDs,
-  bomSourceLabel,
+  productionBomLabel,
+  productionBomVersionWarning,
   filterBomRowsByProductFocus,
   filterBomContextProducts,
   isBomProductCandidate,
@@ -59,39 +60,37 @@ test('BOM customer selector ignores customers that only have green bean SKUs', (
   assert.deepEqual([...bomContextCustomerIDs(products, bomRows)].sort((a, b) => a - b), [10, 12])
 })
 
-test('BOM source label preserves source SKU code and version snapshots', () => {
-  assert.equal(bomSourceLabel({
-    bom_source_type: 'inherit_current',
-    source_product_code: 'SKU-21',
-    source_product_name: 'K001 精品意式拼配',
-    source_bom_version_no: 'V003',
-  }), '跟随默认 BOM：SKU-21 K001 精品意式拼配 / BOM V003')
+test('production BOM label shows BOM code name and bound version without source terminology', () => {
+  assert.equal(productionBomLabel({
+    production_bom_code: 'BOM-001',
+    production_bom_name: '精品拼配',
+    production_bom_version_no: 'V003',
+  }), 'BOM-001 精品拼配 / V003')
 
-  assert.equal(bomSourceLabel({
-    bom_source_type: 'inherit_version',
-    source_product_code: 'SKU-21',
-    source_product_name: 'K001 精品意式拼配',
-    source_bom_version_no: 'V002',
-  }), '固定 BOM 版本：SKU-21 K001 精品意式拼配 / BOM V002')
-
-  assert.equal(bomSourceLabel({
-    bom_source_type: 'derived_owned',
-    source_product_code: 'SKU-21',
-    source_product_name: 'K001 精品意式拼配',
-    source_bom_version_no: 'V003',
-  }), '单独维护 BOM，基于：SKU-21 K001 精品意式拼配 / BOM V003')
-
-  assert.equal(bomSourceLabel({ bom_source_type: 'owned' }), '默认生产 BOM')
-  assert.equal(bomSourceLabel({ bom_status: 'missing' }), '无生产 BOM')
+  assert.equal(productionBomLabel({ bom_status: 'missing' }), '无生产 BOM')
+  assert.equal(productionBomVersionWarning({
+    production_bom_version_no: 'V002',
+    latest_bom_version_no: 'V003',
+    is_latest_bom_version: false,
+  }), '当前引用 V002，最新 V003')
+  assert.equal(productionBomVersionWarning({
+    production_bom_version_no: 'V003',
+    latest_bom_version_no: 'V003',
+    is_latest_bom_version: true,
+  }), '')
 })
 
-test('BOM view exposes read-only inherited BOM and explicit derive action', async () => {
+test('BOM view exposes recipe library and removes inherited/locked source actions', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /生产 BOM/)
-  assert.match(source, /复制为单独维护 BOM/)
-  assert.match(source, /deriveOwnedBom/)
-  assert.match(source, /canEditCurrentBomProduct/)
+  assert.match(source, /生产 BOM（配方库）/)
+  assert.match(source, /BOM分组/)
+  assert.match(source, /配方明细/)
+  assert.match(source, /当前引用/)
+  assert.doesNotMatch(source, /跟随默认 BOM/)
+  assert.doesNotMatch(source, /固定 BOM 版本/)
+  assert.doesNotMatch(source, /复制为单独维护 BOM/)
   assert.doesNotMatch(source, /派生自有 BOM/)
+  assert.doesNotMatch(source, /lockBomVersion/)
 })

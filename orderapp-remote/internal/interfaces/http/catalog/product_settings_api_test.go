@@ -699,6 +699,7 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{{
 			ID: 7, Name: "曲奇拼配", Remark: "奶咖主推", ProductCategoryID: 2, ProductCategoryPosition: 1, YieldRate: 0.82, BomItemCount: 2,
+			ProductionBomID: 11, ProductionBomCode: "BOM-001", ProductionBomName: "精品拼配", ProductionBomVersionID: 100, ProductionBomVersionNo: "V002", LatestBomVersionID: 101, LatestBomVersionNo: "V003", IsLatestBomVersion: false,
 		}, {
 			ID: 8, Name: "埃塞瑰夏生豆", ProductKind: "green_bean", ProductCategoryID: 2, ProductCategoryPosition: 2, YieldRate: 1,
 		}},
@@ -728,7 +729,7 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
 		}
 	}
-	for _, want := range []string{`"customer_id":0`, `"base_product_id":0`, `"visibility":"public"`, `"custom_type":""`, `"bom_item_count":2`} {
+	for _, want := range []string{`"customer_id":0`, `"base_product_id":0`, `"visibility":"public"`, `"custom_type":""`, `"bom_item_count":2`, `"production_bom_code":"BOM-001"`, `"production_bom_version_no":"V002"`, `"latest_bom_version_no":"V003"`, `"is_latest_bom_version":false`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing ownership field %s: %s", want, rec.Body.String())
 		}
