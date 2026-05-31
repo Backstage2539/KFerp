@@ -56,21 +56,28 @@ export function bomContextCustomerIDs(products = [], bomRows = []) {
   return ids
 }
 
+export function productionBomLabel(row = {}) {
+  const code = String(row.production_bom_code || row.productionBomCode || '').trim()
+  const name = String(row.production_bom_name || row.productionBomName || '').trim()
+  const version = String(row.production_bom_version_no || row.productionBomVersionNo || '').trim()
+  const status = String(row.bom_status || row.status || '').trim()
+  const title = [code, name].filter(Boolean).join(' ')
+  if (title && version) return `${title} / ${version}`
+  if (title) return `${title} / 未绑定版本`
+  if (version) return `生产 BOM / ${version}`
+  if (status === 'missing') return '无生产 BOM'
+  return '无生产 BOM'
+}
+
+export function productionBomVersionWarning(row = {}) {
+  const current = String(row.production_bom_version_no || row.productionBomVersionNo || '').trim()
+  const latest = String(row.latest_bom_version_no || row.latestBomVersionNo || '').trim()
+  const rawLatest = row.is_latest_bom_version ?? row.isLatestBomVersion
+  const isLatest = rawLatest === true || rawLatest === 'true' || rawLatest === 1
+  if (!current || !latest || isLatest || current === latest) return ''
+  return `当前引用 ${current}，最新 ${latest}`
+}
+
 export function bomSourceLabel(row = {}) {
-  const explicit = String(row.derived_from_label || row.derivedFromLabel || '').trim()
-  if (explicit) return explicit
-  const sourceType = String(row.bom_source_type || row.bomSourceType || '').trim()
-  const code = String(row.source_product_code || row.sourceProductCode || '').trim()
-  const name = String(row.source_product_name || row.sourceProductName || '').trim()
-  const version = String(row.source_bom_version_no || row.sourceBomVersionNo || '当前BOM').trim() || '当前BOM'
-  const source = [code, name].filter(Boolean).join(' ')
-  if (sourceType === 'inherit_current') return `跟随默认 BOM：${source} / BOM ${version}`
-  if (sourceType === 'inherit_version') return `固定 BOM 版本：${source} / BOM ${version}`
-  if (sourceType === 'derived_owned') return `单独维护 BOM，基于：${source} / BOM ${version}`
-  if (sourceType === 'owned') return '默认生产 BOM'
-  if (Number(row.base_product_id || row.baseProductID || 0) > 0 && Number(row.bom_item_count || row.item_count || 0) === 0) {
-    return `跟随默认 BOM：SKU-${Number(row.base_product_id || row.baseProductID)} / BOM 当前BOM`
-  }
-  if (String(row.bom_status || row.status || '') === 'missing') return '无生产 BOM'
-  return '默认生产 BOM'
+  return productionBomLabel(row)
 }

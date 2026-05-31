@@ -1428,10 +1428,15 @@ test('product management shows production BOM usage and keeps BOM derivation in 
   const template = source.split('<script setup>')[0] || source
 
   assert.match(template, /生产 BOM/)
-  assert.match(source, /bomSourceLabel\(row\)/)
+  assert.match(source, /productionBomLabel\(row\)/)
+  assert.match(source, /productionBomVersionWarning\(row\)/)
+  assert.match(template, /更换生产 BOM/)
+  assert.match(template, /当前引用/)
   assert.match(template, /维护 BOM/)
   assert.doesNotMatch(template, /派生自有 BOM/)
   assert.doesNotMatch(template, /自有 BOM/)
+  assert.doesNotMatch(template, /跟随默认 BOM/)
+  assert.doesNotMatch(template, /固定 BOM 版本/)
 })
 
 test('SKU settings renders one unified SKU form as a full-width drawer', () => {

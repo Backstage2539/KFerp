@@ -8,28 +8,38 @@ import (
 )
 
 type ListItem struct {
-	ProductID             int64   `json:"product_id"`
-	CustomerID            int64   `json:"customer_id"`
-	Product               string  `json:"product"`
-	RoastLevel            string  `json:"roast_level"`
-	ProductKind           string  `json:"product_kind,omitempty"`
-	YieldRate             float64 `json:"yield_rate"`
-	ExpectedYieldRate     float64 `json:"expected_yield_rate"`
-	ExpectedLossRate      float64 `json:"expected_loss_rate"`
-	Status                string  `json:"status"`
-	ItemCount             int     `json:"item_count"`
-	OrderUsageCount       int     `json:"order_usage_count"`
-	UpdatedAt             string  `json:"updated_at"`
-	BomSourceType         string  `json:"bom_source_type"`
-	EffectiveProductID    int64   `json:"effective_product_id"`
-	EffectiveBomVersionID int64   `json:"effective_bom_version_id"`
-	SourceProductID       int64   `json:"source_product_id"`
-	SourceProductCode     string  `json:"source_product_code"`
-	SourceProductName     string  `json:"source_product_name"`
-	SourceBomVersionID    int64   `json:"source_bom_version_id"`
-	SourceBomVersionNo    string  `json:"source_bom_version_no"`
-	DerivedFromLabel      string  `json:"derived_from_label"`
-	CanEditBOM            bool    `json:"can_edit_bom"`
+	ProductID              int64   `json:"product_id"`
+	CustomerID             int64   `json:"customer_id"`
+	Product                string  `json:"product"`
+	RoastLevel             string  `json:"roast_level"`
+	ProductKind            string  `json:"product_kind,omitempty"`
+	YieldRate              float64 `json:"yield_rate"`
+	ExpectedYieldRate      float64 `json:"expected_yield_rate"`
+	ExpectedLossRate       float64 `json:"expected_loss_rate"`
+	Status                 string  `json:"status"`
+	ItemCount              int     `json:"item_count"`
+	OrderUsageCount        int     `json:"order_usage_count"`
+	UpdatedAt              string  `json:"updated_at"`
+	BomSourceType          string  `json:"bom_source_type"`
+	EffectiveProductID     int64   `json:"effective_product_id"`
+	EffectiveBomVersionID  int64   `json:"effective_bom_version_id"`
+	SourceProductID        int64   `json:"source_product_id"`
+	SourceProductCode      string  `json:"source_product_code"`
+	SourceProductName      string  `json:"source_product_name"`
+	SourceBomVersionID     int64   `json:"source_bom_version_id"`
+	SourceBomVersionNo     string  `json:"source_bom_version_no"`
+	DerivedFromLabel       string  `json:"derived_from_label"`
+	CanEditBOM             bool    `json:"can_edit_bom"`
+	ProductionBomID        int64   `json:"production_bom_id"`
+	ProductionBomCode      string  `json:"production_bom_code"`
+	ProductionBomName      string  `json:"production_bom_name"`
+	ProductionBomVersionID int64   `json:"production_bom_version_id"`
+	ProductionBomVersionNo string  `json:"production_bom_version_no"`
+	LatestBomVersionID     int64   `json:"latest_bom_version_id"`
+	LatestBomVersionNo     string  `json:"latest_bom_version_no"`
+	IsLatestBomVersion     bool    `json:"is_latest_bom_version"`
+	ProductionBomGroupID   int64   `json:"production_bom_group_id"`
+	ProductionBomGroupName string  `json:"production_bom_group_name"`
 }
 
 type Item struct {
@@ -46,26 +56,36 @@ type Item struct {
 }
 
 type Detail struct {
-	ProductID             int64   `json:"product_id"`
-	ProductName           string  `json:"product_name"`
-	RoastLevel            string  `json:"roast_level"`
-	YieldRate             float64 `json:"yield_rate"`
-	ExpectedYieldRate     float64 `json:"expected_yield_rate"`
-	ExpectedLossRate      float64 `json:"expected_loss_rate"`
-	Status                string  `json:"status"`
-	Items                 []Item  `json:"items"`
-	TotalRatio            float64 `json:"total_ratio"`
-	UpdatedAt             string  `json:"updated_at"`
-	BomSourceType         string  `json:"bom_source_type"`
-	EffectiveProductID    int64   `json:"effective_product_id"`
-	EffectiveBomVersionID int64   `json:"effective_bom_version_id"`
-	SourceProductID       int64   `json:"source_product_id"`
-	SourceProductCode     string  `json:"source_product_code"`
-	SourceProductName     string  `json:"source_product_name"`
-	SourceBomVersionID    int64   `json:"source_bom_version_id"`
-	SourceBomVersionNo    string  `json:"source_bom_version_no"`
-	DerivedFromLabel      string  `json:"derived_from_label"`
-	CanEditBOM            bool    `json:"can_edit_bom"`
+	ProductID              int64   `json:"product_id"`
+	ProductName            string  `json:"product_name"`
+	RoastLevel             string  `json:"roast_level"`
+	YieldRate              float64 `json:"yield_rate"`
+	ExpectedYieldRate      float64 `json:"expected_yield_rate"`
+	ExpectedLossRate       float64 `json:"expected_loss_rate"`
+	Status                 string  `json:"status"`
+	Items                  []Item  `json:"items"`
+	TotalRatio             float64 `json:"total_ratio"`
+	UpdatedAt              string  `json:"updated_at"`
+	BomSourceType          string  `json:"bom_source_type"`
+	EffectiveProductID     int64   `json:"effective_product_id"`
+	EffectiveBomVersionID  int64   `json:"effective_bom_version_id"`
+	SourceProductID        int64   `json:"source_product_id"`
+	SourceProductCode      string  `json:"source_product_code"`
+	SourceProductName      string  `json:"source_product_name"`
+	SourceBomVersionID     int64   `json:"source_bom_version_id"`
+	SourceBomVersionNo     string  `json:"source_bom_version_no"`
+	DerivedFromLabel       string  `json:"derived_from_label"`
+	CanEditBOM             bool    `json:"can_edit_bom"`
+	ProductionBomID        int64   `json:"production_bom_id"`
+	ProductionBomCode      string  `json:"production_bom_code"`
+	ProductionBomName      string  `json:"production_bom_name"`
+	ProductionBomVersionID int64   `json:"production_bom_version_id"`
+	ProductionBomVersionNo string  `json:"production_bom_version_no"`
+	LatestBomVersionID     int64   `json:"latest_bom_version_id"`
+	LatestBomVersionNo     string  `json:"latest_bom_version_no"`
+	IsLatestBomVersion     bool    `json:"is_latest_bom_version"`
+	ProductionBomGroupID   int64   `json:"production_bom_group_id"`
+	ProductionBomGroupName string  `json:"production_bom_group_name"`
 }
 
 type Option struct {
@@ -96,6 +116,126 @@ type Version struct {
 	ItemCount         int     `json:"item_count"`
 	Note              string  `json:"note"`
 	CreatedAt         string  `json:"created_at"`
+}
+
+type ProductionBomGroup struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+	Active    bool   `json:"active"`
+}
+
+type ProductionBomSummary struct {
+	ID                    int64   `json:"id"`
+	Code                  string  `json:"code"`
+	Name                  string  `json:"name"`
+	GroupID               int64   `json:"group_id"`
+	GroupName             string  `json:"group_name"`
+	Status                string  `json:"status"`
+	LatestVersionID       int64   `json:"latest_version_id"`
+	LatestVersionNo       string  `json:"latest_version_no"`
+	ExpectedYieldRate     float64 `json:"expected_yield_rate"`
+	ExpectedLossRate      float64 `json:"expected_loss_rate"`
+	ReferenceProductCount int     `json:"reference_product_count"`
+	UpdatedAt             string  `json:"updated_at"`
+}
+
+type ProductionBomDetail struct {
+	ProductionBomSummary
+	Versions []ProductionBomVersion `json:"versions"`
+	Items    []Item                 `json:"items"`
+}
+
+type ProductionBomVersion struct {
+	ID                int64   `json:"id"`
+	BomID             int64   `json:"bom_id"`
+	VersionNo         string  `json:"version_no"`
+	Status            string  `json:"status"`
+	YieldRate         float64 `json:"yield_rate"`
+	ExpectedYieldRate float64 `json:"expected_yield_rate"`
+	ExpectedLossRate  float64 `json:"expected_loss_rate"`
+	ItemCount         int     `json:"item_count"`
+	Note              string  `json:"note"`
+	CreatedAt         string  `json:"created_at"`
+	PublishedAt       string  `json:"published_at"`
+	IsLatest          bool    `json:"is_latest"`
+}
+
+type ProductProductionBomBinding struct {
+	ProductID            int64  `json:"product_id"`
+	BomID                int64  `json:"production_bom_id"`
+	BomCode              string `json:"production_bom_code"`
+	BomName              string `json:"production_bom_name"`
+	BomVersionID         int64  `json:"production_bom_version_id"`
+	BomVersionNo         string `json:"production_bom_version_no"`
+	LatestBomVersionID   int64  `json:"latest_bom_version_id"`
+	LatestBomVersionNo   string `json:"latest_bom_version_no"`
+	IsLatestBomVersion   bool   `json:"is_latest_bom_version"`
+	ProductionBomGroupID int64  `json:"production_bom_group_id"`
+	ProductionBomGroup   string `json:"production_bom_group_name"`
+}
+
+type CreateProductionBomGroupCommand struct {
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+	Actor     string `json:"actor"`
+}
+
+type CreateProductionBomCommand struct {
+	Name             string   `json:"name"`
+	GroupID          int64    `json:"group_id"`
+	ExpectedLossRate *float64 `json:"expected_loss_rate,omitempty"`
+	Actor            string   `json:"actor"`
+}
+
+type UpdateProductionBomCommand struct {
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
+	GroupID int64  `json:"group_id"`
+	Status  string `json:"status"`
+	Actor   string `json:"actor"`
+}
+
+type CopyProductionBomCommand struct {
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
+	GroupID int64  `json:"group_id"`
+	Actor   string `json:"actor"`
+}
+
+type CreateProductionBomVersionCommand struct {
+	BomID int64  `json:"bom_id"`
+	Note  string `json:"note"`
+	Actor string `json:"actor"`
+}
+
+type ProductionBomDraftItem struct {
+	MaterialID         int64   `json:"material_id"`
+	ComponentType      string  `json:"component_type"`
+	ComponentProductID int64   `json:"component_product_id"`
+	ComponentSpecG     int64   `json:"component_spec_g"`
+	ConsumeUnit        string  `json:"consume_unit"`
+	QtyPerUnit         float64 `json:"qty_per_unit"`
+	RatioPct           float64 `json:"ratio_pct"`
+}
+
+type UpdateProductionBomVersionDraftCommand struct {
+	VersionID        int64                    `json:"version_id"`
+	ExpectedLossRate *float64                 `json:"expected_loss_rate,omitempty"`
+	Items            []ProductionBomDraftItem `json:"items"`
+	Actor            string                   `json:"actor"`
+}
+
+type PublishProductionBomVersionCommand struct {
+	VersionID int64  `json:"version_id"`
+	Actor     string `json:"actor"`
+}
+
+type BindProductProductionBomCommand struct {
+	ProductID    int64  `json:"product_id"`
+	BomID        int64  `json:"bom_id"`
+	BomVersionID int64  `json:"bom_version_id"`
+	Actor        string `json:"actor"`
 }
 
 type CreateVersionCommand struct {
@@ -172,6 +312,17 @@ type Repository interface {
 	ActivateVersion(ctx context.Context, cmd ActivateVersionCommand) error
 	DeriveOwned(ctx context.Context, cmd DeriveOwnedCommand) (Detail, error)
 	SetBomSource(ctx context.Context, cmd SetBomSourceCommand) (Detail, error)
+	ListProductionBomGroups(ctx context.Context) ([]ProductionBomGroup, error)
+	CreateProductionBomGroup(ctx context.Context, cmd CreateProductionBomGroupCommand) (ProductionBomGroup, error)
+	ListProductionBoms(ctx context.Context) ([]ProductionBomSummary, error)
+	GetProductionBomDetail(ctx context.Context, id int64) (ProductionBomDetail, error)
+	CreateProductionBom(ctx context.Context, cmd CreateProductionBomCommand) (ProductionBomSummary, error)
+	UpdateProductionBom(ctx context.Context, cmd UpdateProductionBomCommand) (ProductionBomSummary, error)
+	CopyProductionBom(ctx context.Context, cmd CopyProductionBomCommand) (ProductionBomSummary, error)
+	CreateProductionBomVersion(ctx context.Context, cmd CreateProductionBomVersionCommand) (ProductionBomVersion, error)
+	UpdateProductionBomVersionDraft(ctx context.Context, cmd UpdateProductionBomVersionDraftCommand) (ProductionBomVersion, error)
+	PublishProductionBomVersion(ctx context.Context, cmd PublishProductionBomVersionCommand) error
+	BindProductProductionBom(ctx context.Context, cmd BindProductProductionBomCommand) (ProductProductionBomBinding, error)
 }
 
 type Service struct {
@@ -403,11 +554,152 @@ func enrichVersionYield(row *Version) {
 	row.YieldRate = row.ExpectedYieldRate
 }
 
+func enrichProductionBomSummaryYield(row *ProductionBomSummary) {
+	row.ExpectedYieldRate = productiondomain.NormalizeYieldRate(row.ExpectedYieldRate)
+	if row.ExpectedYieldRate <= 0 {
+		row.ExpectedYieldRate = productiondomain.NormalizeYieldRate(1 - row.ExpectedLossRate)
+	}
+	row.ExpectedLossRate = productiondomain.ExpectedLossRate(row.ExpectedYieldRate)
+}
+
+func enrichProductionBomVersionYield(row *ProductionBomVersion) {
+	row.ExpectedYieldRate = productiondomain.NormalizeYieldRate(row.YieldRate)
+	row.ExpectedLossRate = productiondomain.ExpectedLossRate(row.ExpectedYieldRate)
+	row.YieldRate = row.ExpectedYieldRate
+}
+
 func (s *Service) ActivateVersion(ctx context.Context, cmd ActivateVersionCommand) error {
 	if cmd.VersionID <= 0 {
 		return fmt.Errorf("version_id required")
 	}
 	return s.repo.ActivateVersion(ctx, cmd)
+}
+
+func (s *Service) ListProductionBomGroups(ctx context.Context) ([]ProductionBomGroup, error) {
+	return s.repo.ListProductionBomGroups(ctx)
+}
+
+func (s *Service) CreateProductionBomGroup(ctx context.Context, cmd CreateProductionBomGroupCommand) (ProductionBomGroup, error) {
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Name == "" {
+		return ProductionBomGroup{}, fmt.Errorf("name required")
+	}
+	return s.repo.CreateProductionBomGroup(ctx, cmd)
+}
+
+func (s *Service) ListProductionBoms(ctx context.Context) ([]ProductionBomSummary, error) {
+	rows, err := s.repo.ListProductionBoms(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		enrichProductionBomSummaryYield(&rows[i])
+	}
+	return rows, nil
+}
+
+func (s *Service) GetProductionBomDetail(ctx context.Context, id int64) (ProductionBomDetail, error) {
+	if id <= 0 {
+		return ProductionBomDetail{}, fmt.Errorf("bom_id required")
+	}
+	row, err := s.repo.GetProductionBomDetail(ctx, id)
+	if err != nil {
+		return ProductionBomDetail{}, err
+	}
+	enrichProductionBomSummaryYield(&row.ProductionBomSummary)
+	for i := range row.Versions {
+		enrichProductionBomVersionYield(&row.Versions[i])
+	}
+	return row, nil
+}
+
+func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionBomCommand) (ProductionBomSummary, error) {
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Name == "" {
+		return ProductionBomSummary{}, fmt.Errorf("name required")
+	}
+	row, err := s.repo.CreateProductionBom(ctx, cmd)
+	if err != nil {
+		return ProductionBomSummary{}, err
+	}
+	enrichProductionBomSummaryYield(&row)
+	return row, nil
+}
+
+func (s *Service) UpdateProductionBom(ctx context.Context, cmd UpdateProductionBomCommand) (ProductionBomSummary, error) {
+	if cmd.ID <= 0 {
+		return ProductionBomSummary{}, fmt.Errorf("bom_id required")
+	}
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Status = strings.TrimSpace(cmd.Status)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	row, err := s.repo.UpdateProductionBom(ctx, cmd)
+	if err != nil {
+		return ProductionBomSummary{}, err
+	}
+	enrichProductionBomSummaryYield(&row)
+	return row, nil
+}
+
+func (s *Service) CopyProductionBom(ctx context.Context, cmd CopyProductionBomCommand) (ProductionBomSummary, error) {
+	if cmd.ID <= 0 {
+		return ProductionBomSummary{}, fmt.Errorf("bom_id required")
+	}
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	row, err := s.repo.CopyProductionBom(ctx, cmd)
+	if err != nil {
+		return ProductionBomSummary{}, err
+	}
+	enrichProductionBomSummaryYield(&row)
+	return row, nil
+}
+
+func (s *Service) CreateProductionBomVersion(ctx context.Context, cmd CreateProductionBomVersionCommand) (ProductionBomVersion, error) {
+	if cmd.BomID <= 0 {
+		return ProductionBomVersion{}, fmt.Errorf("bom_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	row, err := s.repo.CreateProductionBomVersion(ctx, cmd)
+	if err != nil {
+		return ProductionBomVersion{}, err
+	}
+	enrichProductionBomVersionYield(&row)
+	return row, nil
+}
+
+func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd UpdateProductionBomVersionDraftCommand) (ProductionBomVersion, error) {
+	if cmd.VersionID <= 0 {
+		return ProductionBomVersion{}, fmt.Errorf("version_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	row, err := s.repo.UpdateProductionBomVersionDraft(ctx, cmd)
+	if err != nil {
+		return ProductionBomVersion{}, err
+	}
+	enrichProductionBomVersionYield(&row)
+	return row, nil
+}
+
+func (s *Service) PublishProductionBomVersion(ctx context.Context, cmd PublishProductionBomVersionCommand) error {
+	if cmd.VersionID <= 0 {
+		return fmt.Errorf("version_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return s.repo.PublishProductionBomVersion(ctx, cmd)
+}
+
+func (s *Service) BindProductProductionBom(ctx context.Context, cmd BindProductProductionBomCommand) (ProductProductionBomBinding, error) {
+	if cmd.ProductID <= 0 {
+		return ProductProductionBomBinding{}, fmt.Errorf("product_id required")
+	}
+	if cmd.BomID <= 0 || cmd.BomVersionID <= 0 {
+		return ProductProductionBomBinding{}, fmt.Errorf("bom_id and bom_version_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return s.repo.BindProductProductionBom(ctx, cmd)
 }
 
 type SetBomSourceCommand struct {

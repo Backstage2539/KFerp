@@ -87,6 +87,34 @@ func TestBomRepositoryPersistsSourceMetadataAndDeriveAudit(t *testing.T) {
 	}
 }
 
+func TestProductionBomLibrarySchemaBackfillAndBindingMarkers(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := readRepositorySource(t)
+	combined := string(schema) + "\n" + repository
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS %[1]s.production_bom_groups",
+		"CREATE TABLE IF NOT EXISTS %[1]s.production_boms",
+		"CREATE TABLE IF NOT EXISTS %[1]s.production_bom_versions",
+		"CREATE TABLE IF NOT EXISTS %[1]s.production_bom_version_items",
+		"CREATE TABLE IF NOT EXISTS %[1]s.product_production_bom_bindings",
+		"backfillProductionBomLibrary",
+		"inherit_current",
+		"inherit_version",
+		"derived_owned",
+		"product_production_bom_bindings",
+		`"bind_production_bom"`,
+		`"copy_production_bom"`,
+		`"publish_production_bom_version"`,
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("production BOM library implementation missing marker %q", want)
+		}
+	}
+}
+
 func readRepositorySource(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile("repository.go")

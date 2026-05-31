@@ -13,14 +13,25 @@ import (
 )
 
 type apiFakeRepo struct {
-	deactivatedBomProductID int64
-	listRows                []bomapp.ListItem
-	productRows             []bomapp.Option
-	detail                  bomapp.Detail
-	syncedYield             bomapp.SyncProductYieldCommand
-	savedItem               bomapp.SaveItemCommand
-	deletedItem             bomapp.DeleteItemCommand
-	derivedOwned            bomapp.DeriveOwnedCommand
+	deactivatedBomProductID      int64
+	listRows                     []bomapp.ListItem
+	productRows                  []bomapp.Option
+	detail                       bomapp.Detail
+	syncedYield                  bomapp.SyncProductYieldCommand
+	savedItem                    bomapp.SaveItemCommand
+	deletedItem                  bomapp.DeleteItemCommand
+	derivedOwned                 bomapp.DeriveOwnedCommand
+	productionBomGroups          []bomapp.ProductionBomGroup
+	productionBomRows            []bomapp.ProductionBomSummary
+	productionBomDetail          bomapp.ProductionBomDetail
+	copiedProductionBom          bomapp.ProductionBomSummary
+	createdProductionBom         bomapp.ProductionBomSummary
+	updatedProductionBom         bomapp.ProductionBomSummary
+	createdProductionVersion     bomapp.ProductionBomVersion
+	updatedProductionDraft       bomapp.ProductionBomVersion
+	productBomBinding            bomapp.ProductProductionBomBinding
+	boundProductBom              bomapp.BindProductProductionBomCommand
+	publishedProductionVersionID int64
 }
 
 func (r *apiFakeRepo) List(context.Context) ([]bomapp.ListItem, error) { return r.listRows, nil }
@@ -70,6 +81,61 @@ func (r *apiFakeRepo) DeriveOwned(_ context.Context, cmd bomapp.DeriveOwnedComma
 
 func (r *apiFakeRepo) SetBomSource(context.Context, bomapp.SetBomSourceCommand) (bomapp.Detail, error) {
 	return bomapp.Detail{}, nil
+}
+
+func (r *apiFakeRepo) ListProductionBomGroups(context.Context) ([]bomapp.ProductionBomGroup, error) {
+	return r.productionBomGroups, nil
+}
+
+func (r *apiFakeRepo) CreateProductionBomGroup(_ context.Context, cmd bomapp.CreateProductionBomGroupCommand) (bomapp.ProductionBomGroup, error) {
+	return bomapp.ProductionBomGroup{ID: 99, Name: cmd.Name, SortOrder: cmd.SortOrder, Active: true}, nil
+}
+
+func (r *apiFakeRepo) ListProductionBoms(context.Context) ([]bomapp.ProductionBomSummary, error) {
+	return r.productionBomRows, nil
+}
+
+func (r *apiFakeRepo) GetProductionBomDetail(context.Context, int64) (bomapp.ProductionBomDetail, error) {
+	return r.productionBomDetail, nil
+}
+
+func (r *apiFakeRepo) CreateProductionBom(_ context.Context, cmd bomapp.CreateProductionBomCommand) (bomapp.ProductionBomSummary, error) {
+	if r.createdProductionBom.ID > 0 {
+		return r.createdProductionBom, nil
+	}
+	return bomapp.ProductionBomSummary{ID: 98, Code: "BOM-098", Name: cmd.Name, GroupID: cmd.GroupID, Status: "active", LatestVersionNo: "V001"}, nil
+}
+
+func (r *apiFakeRepo) UpdateProductionBom(_ context.Context, cmd bomapp.UpdateProductionBomCommand) (bomapp.ProductionBomSummary, error) {
+	if r.updatedProductionBom.ID > 0 {
+		return r.updatedProductionBom, nil
+	}
+	return bomapp.ProductionBomSummary{ID: cmd.ID, Code: "BOM-098", Name: cmd.Name, GroupID: cmd.GroupID, Status: cmd.Status, LatestVersionNo: "V001"}, nil
+}
+
+func (r *apiFakeRepo) CopyProductionBom(context.Context, bomapp.CopyProductionBomCommand) (bomapp.ProductionBomSummary, error) {
+	return r.copiedProductionBom, nil
+}
+
+func (r *apiFakeRepo) CreateProductionBomVersion(context.Context, bomapp.CreateProductionBomVersionCommand) (bomapp.ProductionBomVersion, error) {
+	return r.createdProductionVersion, nil
+}
+
+func (r *apiFakeRepo) UpdateProductionBomVersionDraft(_ context.Context, cmd bomapp.UpdateProductionBomVersionDraftCommand) (bomapp.ProductionBomVersion, error) {
+	if r.updatedProductionDraft.ID > 0 {
+		return r.updatedProductionDraft, nil
+	}
+	return bomapp.ProductionBomVersion{ID: cmd.VersionID, Status: "draft"}, nil
+}
+
+func (r *apiFakeRepo) PublishProductionBomVersion(_ context.Context, cmd bomapp.PublishProductionBomVersionCommand) error {
+	r.publishedProductionVersionID = cmd.VersionID
+	return nil
+}
+
+func (r *apiFakeRepo) BindProductProductionBom(_ context.Context, cmd bomapp.BindProductProductionBomCommand) (bomapp.ProductProductionBomBinding, error) {
+	r.boundProductBom = cmd
+	return r.productBomBinding, nil
 }
 
 func TestBomDeleteAPIInvalidatesCurrentBom(t *testing.T) {

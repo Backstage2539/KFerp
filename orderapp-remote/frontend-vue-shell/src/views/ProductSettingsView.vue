@@ -205,12 +205,16 @@
                       :disabled="!canEditSkuRow(row) || row.active === false"
                       @change="saveProductMarginOverride(row)" />
                   </td>
-                  <td class="bom-source-cell">{{ bomSourceLabel(row) }}</td>
+                  <td class="bom-source-cell">
+                    <div>{{ productionBomLabel(row) }}</div>
+                    <small v-if="productionBomVersionWarning(row)" class="bom-version-warning" data-warning-prefix="当前引用">{{ productionBomVersionWarning(row) }}</small>
+                  </td>
                   <td>
                     <span :class="['status-pill', (row.active === false || row.bom_status === 'inactive') ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
                   </td>
                   <td>
-                    <button class="text-button" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="openProductBom(row)">维护 BOM</button>
+                    <button class="text-button" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="openProductionBomBinding(row)">更换生产 BOM</button>
+                    <button class="text-button" type="button" :disabled="row.active === false" @click="openProductBom(row)">维护 BOM</button>
                   </td>
                   <td>
                     <button class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="deactivateProducts([row.id])">停用</button>
@@ -1007,6 +1011,46 @@
       </aside>
     </div>
 
+    <div v-if="productionBomBindingDrawerOpen" class="settings-drawer-mask" @click.self="closeProductionBomBindingDrawer">
+      <aside class="settings-drawer production-bom-binding-drawer" aria-label="更换生产 BOM">
+        <div class="drawer-head">
+          <div>
+            <h3>更换生产 BOM</h3>
+            <p>{{ productionBomBindingProduct?.name || '商品档案' }}</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeProductionBomBindingDrawer">关闭</button>
+        </div>
+        <div class="drawer-body">
+          <label>
+            <span>生产 BOM</span>
+            <select v-model.number="productionBomBindingBomID" @change="selectProductionBomForBinding(productionBomBindingBomID)">
+              <option :value="0">选择生产 BOM</option>
+              <option v-for="bom in productionBoms" :key="bom.id" :value="bom.id">
+                {{ bom.code }} {{ bom.name }}{{ bom.group_name ? ` / ${bom.group_name}` : '' }}
+              </option>
+            </select>
+          </label>
+          <label>
+            <span>BOM版本</span>
+            <select v-model.number="productionBomBindingVersionID" :disabled="!productionBomBindingBomID">
+              <option :value="0">选择已发布版本</option>
+              <option v-for="version in productionBomVersionOptions" :key="version.id" :value="version.id">
+                {{ version.version_no }} · 预期产出率 {{ Math.round(Number(version.expected_yield_rate || version.yield_rate || 0) * 10000) / 100 }}%
+              </option>
+            </select>
+          </label>
+          <div v-if="productionBomBindingProduct" class="drawer-section">
+            <strong>{{ productionBomLabel(productionBomBindingProduct) }}</strong>
+            <small v-if="productionBomVersionWarning(productionBomBindingProduct)" class="bom-version-warning" data-warning-prefix="当前引用">{{ productionBomVersionWarning(productionBomBindingProduct) }}</small>
+          </div>
+        </div>
+        <div class="drawer-footer">
+          <span class="muted">商品档案将绑定所选已发布版本</span>
+          <button class="primary" type="button" :disabled="productionBomBindingSaving || !productionBomBindingVersionID" @click="saveProductionBomBinding">保存绑定</button>
+        </div>
+      </aside>
+    </div>
+
     <div v-if="skuCopyDrawerOpen" class="settings-drawer-mask" @click.self="closeSkuCopyDrawer">
       <aside class="settings-drawer sku-copy-drawer" aria-label="SKU复制">
         <div class="drawer-head">
@@ -1163,7 +1207,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { bomSourceLabel } from '../lib/bom'
+import { productionBomLabel, productionBomVersionWarning } from '../lib/bom'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
   buildGradientTemplatePayload,
@@ -1248,6 +1292,8 @@ const aliasMigrationCandidates = ref([])
 const customerProductRuleTemplates = ref([])
 const customerProductRuleOverrides = ref([])
 const customerProductRuleBindings = ref([])
+const productionBoms = ref([])
+const productionBomDetails = ref({})
 const customers = ref([])
 const loading = ref(false)
 const skuSaving = ref(false)
@@ -1277,6 +1323,7 @@ const activeSettingsSection = ref('master')
 const activeConfigTemplateSection = ref('product-config')
 const productDrawerOpen = ref(false)
 const skuCopyDrawerOpen = ref(false)
+const productionBomBindingDrawerOpen = ref(false)
 const globalUnitDrawerOpen = ref(false)
 const categorySearchQuery = ref('')
 const primaryDeleteMode = ref(false)
@@ -1302,6 +1349,10 @@ const globalUnitEditingCode = ref('')
 const customerRuleTemplateForm = ref(defaultCustomerProductRuleTemplateForm())
 const customerRuleOverrideForm = ref(defaultCustomerProductRuleOverrideForm())
 const customerProductAliasForm = ref(defaultCustomerProductAliasForm())
+const productionBomBindingProduct = ref(null)
+const productionBomBindingBomID = ref(0)
+const productionBomBindingVersionID = ref(0)
+const productionBomBindingSaving = ref(false)
 
 const skuContextCustomerID = computed(() => Number(selectedCustomerSkuCustomerID.value || 0))
 const productConfigTemplateForm = ref(defaultProductConfigTemplateForm())
@@ -1326,6 +1377,10 @@ const selectedCustomerPublicUsage = computed(() => {
     use_public_gradient_templates: false,
   }
 })
+const selectedProductionBomDetail = computed(() => productionBomDetails.value[String(productionBomBindingBomID.value || 0)] || null)
+const productionBomVersionOptions = computed(() => (selectedProductionBomDetail.value?.versions || [])
+  .filter((version) => version.status === 'published')
+  .sort((a, b) => String(b.version_no || '').localeCompare(String(a.version_no || ''))))
 const customerUsesPublicCategories = computed(() => Boolean(
   selectedCustomerSkuCustomerID.value && selectedCustomerPublicUsage.value.use_public_categories,
 ))
@@ -3252,6 +3307,81 @@ function openProductBom(row) {
   window.location.href = buildProductBomURL(window.location.href, row).toString()
 }
 
+async function loadProductionBomCatalog() {
+  if (productionBoms.value.length) return
+  productionBoms.value = await apiGet('/api/production-boms') || []
+}
+
+async function ensureProductionBomDetail(bomID) {
+  const id = Number(bomID || 0)
+  if (!id || productionBomDetails.value[String(id)]) return
+  const detail = await apiGet(`/api/production-boms/${id}`)
+  productionBomDetails.value = { ...productionBomDetails.value, [String(id)]: detail }
+}
+
+async function selectProductionBomForBinding(bomID) {
+  productionBomBindingBomID.value = Number(bomID || 0)
+  productionBomBindingVersionID.value = 0
+  await ensureProductionBomDetail(productionBomBindingBomID.value)
+  const latest = productionBomVersionOptions.value[0]
+  if (latest) productionBomBindingVersionID.value = Number(latest.id || 0)
+}
+
+async function openProductionBomBinding(row) {
+  productionBomBindingProduct.value = row || null
+  productionBomBindingDrawerOpen.value = true
+  productionBomBindingBomID.value = Number(row?.production_bom_id || 0)
+  productionBomBindingVersionID.value = Number(row?.production_bom_version_id || 0)
+  error.value = ''
+  try {
+    await loadProductionBomCatalog()
+    if (!productionBomBindingBomID.value && productionBoms.value.length) {
+      productionBomBindingBomID.value = Number(productionBoms.value[0].id || 0)
+    }
+    await ensureProductionBomDetail(productionBomBindingBomID.value)
+    if (!productionBomBindingVersionID.value) {
+      const latest = productionBomVersionOptions.value[0]
+      if (latest) productionBomBindingVersionID.value = Number(latest.id || 0)
+    }
+  } catch (err) {
+    error.value = err.message || '加载生产 BOM 失败'
+  }
+}
+
+function closeProductionBomBindingDrawer() {
+  productionBomBindingDrawerOpen.value = false
+  productionBomBindingProduct.value = null
+  productionBomBindingBomID.value = 0
+  productionBomBindingVersionID.value = 0
+}
+
+async function saveProductionBomBinding() {
+  const productID = Number(productionBomBindingProduct.value?.id || 0)
+  if (!productID || !productionBomBindingBomID.value || !productionBomBindingVersionID.value) {
+    error.value = '请选择生产 BOM 和版本'
+    return
+  }
+  productionBomBindingSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/products/${productID}/production-bom-binding`, {
+      method: 'PUT',
+      body: {
+        bom_id: productionBomBindingBomID.value,
+        bom_version_id: productionBomBindingVersionID.value,
+      },
+    })
+    ok.value = '生产 BOM 已更新'
+    closeProductionBomBindingDrawer()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '更换生产 BOM 失败'
+  } finally {
+    productionBomBindingSaving.value = false
+  }
+}
+
 async function createSku() {
   ensureProductTypeCategorySelected(skuForm.value)
   if (!skuForm.value.name) {
@@ -4390,7 +4520,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .select-col { width: 42px; text-align: center; }
 .select-col input { width: 16px; min-height: 16px; }
 .sku-category-cell { min-width: 112px; max-width: 220px; white-space: nowrap; }
-.bom-source-cell { min-width: 180px; color: #3f3a34; }
+    .bom-source-cell { min-width: 180px; color: #3f3a34; }
+    .bom-version-warning { display: block; margin-top: 3px; color: #9a5b13; font-size: 12px; white-space: nowrap; }
 .sku-name-cell { min-width: 300px; }
 .special-attrs-cell { min-width: 220px; }
 .remark-cell { min-width: 220px; }
@@ -4437,8 +4568,9 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .muted { color: #666; font-size: 12px; }
 .settings-drawer-mask { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .22); }
 .settings-drawer { width: min(760px, 94vw); height: 100%; overflow: auto; background: #fff; box-shadow: -12px 0 32px rgba(0, 0, 0, .16); padding: 16px; display: grid; grid-template-rows: auto 1fr; gap: 12px; }
-.product-editor-drawer { width: min(820px, 94vw); }
-.sku-copy-drawer { width: min(940px, 96vw); grid-template-rows: auto 1fr auto; }
+    .product-editor-drawer { width: min(820px, 94vw); }
+    .sku-copy-drawer { width: min(940px, 96vw); grid-template-rows: auto 1fr auto; }
+    .production-bom-binding-drawer { width: min(680px, 94vw); grid-template-rows: auto 1fr auto; }
 .category-settings-drawer { width: min(920px, 96vw); }
 .global-unit-dictionary-drawer { width: min(760px, 94vw); }
 .drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 1px solid #eee8df; padding-bottom: 12px; }

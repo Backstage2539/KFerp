@@ -323,9 +323,11 @@ func noBomRawMaterialName(row productionapp.UnprodNeedRow) string {
 func (r Repository) loadProductYieldRateMap(ctx context.Context) (map[int64]float64, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT p.id, COALESCE(p.roast_level,''),
-		       COALESCE(NULLIF(b.yield_rate,0), CASE WHEN COALESCE(NULLIF(p.product_kind,''),'roasted_bean')='instant_coffee' THEN 1 ELSE 0.8 END),
+		       COALESCE(NULLIF(pbv.yield_rate,0), NULLIF(b.yield_rate,0), CASE WHEN COALESCE(NULLIF(p.product_kind,''),'roasted_bean')='instant_coffee' THEN 1 ELSE 0.8 END),
 		       COALESCE(NULLIF(p.product_kind,''),'roasted_bean')
 		FROM `+r.schema+`.products p
+		LEFT JOIN `+r.schema+`.product_production_bom_bindings pbb ON pbb.product_id=p.id
+		LEFT JOIN `+r.schema+`.production_bom_versions pbv ON pbv.id=pbb.bom_version_id
 		LEFT JOIN `+r.schema+`.product_bom_sources bs ON bs.product_id=p.id
 		LEFT JOIN `+r.schema+`.product_bom b ON b.product_id=CASE
 			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
@@ -427,7 +429,7 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 	q := fmt.Sprintf(`
 		SELECT requested.product_id,
 		       COALESCE(p.roast_level,''),
-		       COALESCE(pb.yield_rate,0),
+		       COALESCE(pbv.yield_rate, pb.yield_rate, 0),
 		       COALESCE(bi.material_id,0),
 		       COALESCE(m.name,''),
 		       COALESCE(NULLIF(m.unit,''),'g'),
@@ -442,15 +444,28 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 		FROM unnest($1::bigint[]) AS requested(product_id)
 		JOIN %s.products p ON p.id=requested.product_id AND p.active=true
 		LEFT JOIN %s.product_bom_sources bs ON bs.product_id=p.id
-		JOIN %s.product_bom_items bi ON bi.product_id=CASE
+		LEFT JOIN %s.product_production_bom_bindings pbb ON pbb.product_id=p.id
+		LEFT JOIN %s.production_bom_versions pbv ON pbv.id=pbb.bom_version_id
+		JOIN LATERAL (
+			SELECT pbi.id, pbi.material_id, pbi.ratio_pct, pbi.component_type, pbi.component_product_id, pbi.component_spec_g, pbi.consume_unit, pbi.qty_per_unit
+			FROM %s.production_bom_version_items pbi
+			WHERE pbb.product_id IS NOT NULL AND pbi.version_id=pbb.bom_version_id
+			UNION ALL
+			SELECT lbi.id, lbi.material_id, lbi.ratio_pct, lbi.component_type, lbi.component_product_id, lbi.component_spec_g, lbi.consume_unit, lbi.qty_per_unit
+			FROM %s.product_bom_items lbi
+			WHERE pbb.product_id IS NULL AND lbi.product_id=CASE
+				WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
+				ELSE p.id
+			END
+		) bi ON true
+		LEFT JOIN %s.product_bom pb ON pb.product_id=CASE
 			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
 			ELSE p.id
 		END
-		LEFT JOIN %s.product_bom pb ON pb.product_id=bi.product_id
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
 		LEFT JOIN %s.products cp ON cp.id=bi.component_product_id
 		ORDER BY requested.product_id, bi.id
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, productIDs)
 	if err != nil {
 		return out, err
