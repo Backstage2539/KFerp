@@ -6,10 +6,30 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-391-PRODUCT-PRODUCTION-CONFIG-UI-FIX
+- Branch: codex/product-production-config-ui-fix-20260601
+- Owner/session: Codex / 2026-06-01
+- Status: verified; pending merge/deploy
+- Scope: 修复 PR-390 后商品档案页看不到“商品生产配置”可编辑入口的问题。商品行新增“生产配置”按钮，抽屉中可维护生产 BOM、BOM 已发布版本、工艺路线、预期损耗率和产品信息字段；产品信息字段用普通表单行维护，不要求用户写 JSON。
+- DEV:
+  - DEV-391-VUE-PRODUCTION-CONFIG-DRAWER：商品档案列表新增“生产配置”入口和抽屉，保存到 `/api/product-production-configs/:product_id`。
+  - DEV-391-PROCESS-ROUTE-OPTIONS：抽屉加载 `/api/process-routes?status=published` 作为工艺路线选项。
+  - DEV-391-LANGUAGE-CLEANUP：更换生产 BOM 抽屉不再展示“兼容产出因子/预期产出率”。
+  - DEV-391-MANUAL-DOCS：更新商品/BOM/成本手册，明确商品档案 → 生产配置的操作位置。
+- Verifier:
+  - Unit/frontend: node --test src/lib/menu-ia.test.js src/lib/product-settings.test.js src/lib/bom.test.js src/lib/product-bean-list-split.test.js
+  - API/backend: go test ./internal/interfaces/http/catalog ./internal/application/catalog -count=1
+  - Frontend/build: npm run build in orderapp-remote/frontend-vue-shell
+  - Changed verifier: scripts/verify_kferp.sh changed
+  - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_COSTING.md
+- Deployment: pending
+- Last update: 2026-06-01 23:40 Asia/Shanghai
+- Notes: RED evidence: `node --test src/lib/product-settings.test.js` initially failed because `openProductProductionConfig(row)` and the drawer save/field controls were absent. GREEN evidence: targeted frontend tests passed 118/118; Vue build passed with existing chunk-size warning; changed verifier exited 0; catalog Go API/application tests passed.
+
 ### PR-390-PRODUCT-PRODUCTION-CONFIG-OVERHAUL
 - Branch: codex/product-production-config-overhaul-20260531
 - Owner/session: Codex / 2026-05-31
-- Status: verified; pending merge/deploy
+- Status: merged and deployed to development
 - Scope: 一次性把商品/BOM/工艺/价格/生产口径改为“BOM 只做配方库；商品档案承载生产配置和商品分类；客户商品名独立维护销售展示；商品配置模板独立维护模板规则；工艺路线只管工序；预期产出率下线，系统主口径改为预期损耗率”。
 - DEV:
   - DEV-390-SCHEMA-BACKFILL：新增商品生产配置、生产配置字段和工艺路线结构，回填旧 BOM 绑定、yield_rate 和特殊属性。
@@ -25,8 +45,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: scripts/verify_kferp.sh changed.
   - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_COSTING.md; orderapp-remote/docs/OP_MANUAL_PRODUCTION.md; orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md; orderapp-remote/docs/OPERATION_MANUALS.md.
   - Review/acceptance: REQUIREMENTS.md; ACCEPTANCE_TESTS.md; orderapp-remote/docs/REQUIREMENTS.md; orderapp-remote/docs/ACCEPTANCE_TESTS.md; orderapp-remote/docs/acceptance/2026-05-31-product-production-config-overhaul.md.
-- Deployment: pending
-- Last update: 2026-06-01 00:03 Asia/Shanghai
+- Deployment: merged to `develop` with `e0072e59641a6f81da101f3a01206acb27a8e3d6` and deployed to development. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260601000753`.
+- Last update: 2026-06-01 00:18 Asia/Shanghai
 - Notes: Van requested no browser/manual验收 for this round; use code/docs/unit/API/build verification only. RED evidence: frontend targeted tests initially failed on missing split pages/BOM tree/product production config markers and later caught stale `special_attrs_json` payload assertions; backend targeted tests initially failed on missing product production config, process route, BOM group delete/sort and snapshot fields. Final local verification passed: `node --test src/lib/menu-ia.test.js src/lib/bom.test.js src/lib/product-settings.test.js src/lib/product-bean-list-split.test.js src/lib/workspace-mode.test.js src/lib/customer-management-source.test.js`; `go test ./...`; `npm run build` in `orderapp-remote/frontend-vue-shell` (existing chunk-size warning only); `scripts/verify_kferp.sh changed`.
 
 ### PR-389-BOM-GROUP-SPECIAL-ATTRS
