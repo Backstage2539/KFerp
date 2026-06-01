@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-391-PRODUCT-PRODUCTION-CONFIG-UI-FIX
 - Branch: codex/product-production-config-ui-fix-20260601
 - Owner/session: Codex / 2026-06-01
-- Status: verified; pending merge/deploy
+- Status: merged and deployed to development
 - Scope: 修复 PR-390 后商品档案页看不到“商品生产配置”可编辑入口的问题。商品行新增“生产配置”按钮，抽屉中可维护生产 BOM、BOM 已发布版本、工艺路线、预期损耗率和产品信息字段；产品信息字段用普通表单行维护，不要求用户写 JSON。
 - DEV:
   - DEV-391-VUE-PRODUCTION-CONFIG-DRAWER：商品档案列表新增“生产配置”入口和抽屉，保存到 `/api/product-production-configs/:product_id`。
@@ -22,9 +22,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: npm run build in orderapp-remote/frontend-vue-shell
   - Changed verifier: scripts/verify_kferp.sh changed
   - Manual: orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md; orderapp-remote/docs/OP_MANUAL_COSTING.md
-- Deployment: pending
-- Last update: 2026-06-01 23:40 Asia/Shanghai
-- Notes: RED evidence: `node --test src/lib/product-settings.test.js` initially failed because `openProductProductionConfig(row)` and the drawer save/field controls were absent. GREEN evidence: targeted frontend tests passed 118/118; Vue build passed with existing chunk-size warning; changed verifier exited 0; catalog Go API/application tests passed.
+- Deployment: feature branch pushed, merged to `develop` with `acb9331921f6dea84ed758d1ead738016a715c76`, followed by doc marker fix `a7a15156e9ce3e410d6881f64dd7e09a243f89f9`, and deployed to development. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260601234922`.
+- Last update: 2026-06-01 23:53 Asia/Shanghai
+- Notes: RED evidence: `node --test src/lib/product-settings.test.js` initially failed because `openProductProductionConfig(row)` and the drawer save/field controls were absent. GREEN evidence: targeted frontend tests passed 118/118; Vue build passed with existing chunk-size warning; changed verifier exited 0; catalog Go API/application tests passed. Deploy evidence: Docker build ran `go test ./...`; containers running; unauthenticated `/app/` returned `303` to `/app/orders`; BasicAuth `/app/vue-shell/` returned `200`; BasicAuth `/app/api/product-production-configs` and `/app/api/process-routes` returned `200`; deployed source contains `保存商品生产配置`. One deploy attempt failed before restart because the first handoff removed historical PR-374/PR-389 doc markers used by support tests; markers were restored and build passed. A second attempt hit transient Docker registry TLS timeout for `golang:1.22-alpine`; manual retry of compose build succeeded.
 
 ### PR-390-PRODUCT-PRODUCTION-CONFIG-OVERHAUL
 - Branch: codex/product-production-config-overhaul-20260531
