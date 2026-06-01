@@ -33,6 +33,7 @@ func productOptionFromCatalog(p catalogapp.Product) ProductOption {
 		GradientTemplateIDOverride:  p.GradientTemplateIDOverride,
 		OperationTemplateIDOverride: p.OperationTemplateIDOverride,
 		UnitRuleOverrideJSON:        p.UnitRuleOverrideJSON,
+		ProductConfigTemplateID:     p.ProductConfigTemplateID,
 		BomItemCount:                p.BomItemCount,
 		BomStatus:                   p.BomStatus,
 		BomSourceType:               p.BomSourceType,

@@ -119,9 +119,9 @@ func TestDev346OrderSalesNotesVoucherSkuSortDocs(t *testing.T) {
 		{
 			rel: filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"),
 			markers: []string{
-				"SKU 商品名",
-				"历史订单使用次数",
-				"商品 BOM 列表",
+				"商品名称不再在列表单元格内直接编辑",
+				"搜索可匹配商品名称",
+				"生产 BOM 配方库",
 			},
 		},
 		{

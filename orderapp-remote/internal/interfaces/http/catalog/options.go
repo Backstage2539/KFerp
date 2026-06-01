@@ -43,6 +43,7 @@ type ProductOption struct {
 	GradientTemplateIDOverride  int64               `json:"gradient_template_id_override"`
 	OperationTemplateIDOverride int64               `json:"operation_template_id_override"`
 	UnitRuleOverrideJSON        string              `json:"unit_rule_override_json"`
+	ProductConfigTemplateID     int64               `json:"product_config_template_id"`
 	BomItemCount                int                 `json:"bom_item_count"`
 	BomStatus                   string              `json:"bom_status"`
 	BomSourceType               string              `json:"bom_source_type"`

@@ -79,7 +79,7 @@ func TestDev368SkuCategoryCollapseGlobalUnitDocs(t *testing.T) {
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-368-SKU-CATEGORY-COLLAPSE-GLOBAL-UNIT",
 			"定位到新加类目的位置",
-			"不再显示“更换商品配置”按钮",
+			"产品子类型行不再绑定商品配置模板",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-368-SKU-CATEGORY-COLLAPSE-GLOBAL-UNIT",

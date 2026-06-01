@@ -104,10 +104,11 @@ func loadProductProductionConfigSnapshotForWorkOrderTx(ctx context.Context, tx p
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		WITH config AS (
 			SELECT ppc.product_id,
-			       COALESCE(ppc.production_bom_id,0) AS production_bom_id,
-			       COALESCE(ppc.production_bom_version_id,0) AS production_bom_version_id,
-			       COALESCE(ppc.process_route_id,0) AS process_route_id,
-			       COALESCE(ppc.expected_loss_rate,0)::float8 AS expected_loss_rate,
+				       COALESCE(ppc.production_bom_id,0) AS production_bom_id,
+				       COALESCE(ppc.production_bom_version_id,0) AS production_bom_version_id,
+				       COALESCE(ppc.process_route_id,0) AS process_route_id,
+				       COALESCE(ppc.industry_field_template_id,0) AS industry_field_template_id,
+				       COALESCE(ppc.expected_loss_rate,0)::float8 AS expected_loss_rate,
 			       COALESCE(ppc.note,'') AS note
 			FROM %[1]s.product_production_configs ppc
 			WHERE ppc.product_id=$1
@@ -120,9 +121,12 @@ func loadProductProductionConfigSnapshotForWorkOrderTx(ctx context.Context, tx p
 			         'field_type', ppcf.field_type,
 			         'unit', ppcf.unit,
 			         'value_text', ppcf.value_text,
-			         'value_number', ppcf.value_number,
-			         'value_bool', ppcf.value_bool,
-			         'show_in_price_list', ppcf.show_in_price_list,
+				         'value_number', ppcf.value_number,
+				         'value_bool', ppcf.value_bool,
+				         'template_field_key', COALESCE(ppcf.template_field_key,''),
+				         'required', COALESCE(ppcf.required,false),
+				         'options_json', COALESCE(ppcf.options_json, '[]'::jsonb),
+				         'show_in_price_list', ppcf.show_in_price_list,
 			         'sort_order', ppcf.sort_order
 			       ) ORDER BY ppcf.sort_order, ppcf.id) AS fields_json
 			FROM %[1]s.product_production_config_fields ppcf
@@ -132,9 +136,10 @@ func loadProductProductionConfigSnapshotForWorkOrderTx(ctx context.Context, tx p
 		SELECT COALESCE(jsonb_build_object(
 			'product_id', c.product_id,
 			'production_bom_id', c.production_bom_id,
-			'production_bom_version_id', c.production_bom_version_id,
-			'process_route_id', c.process_route_id,
-			'expected_loss_rate', c.expected_loss_rate,
+				'production_bom_version_id', c.production_bom_version_id,
+				'process_route_id', c.process_route_id,
+				'industry_field_template_id', c.industry_field_template_id,
+				'expected_loss_rate', c.expected_loss_rate,
 			'note', c.note,
 			'fields', COALESCE(f.fields_json, '[]'::jsonb)
 		), '{}'::jsonb)::text

@@ -26,11 +26,11 @@ func TestDev362ProductConfigTemplateUI(t *testing.T) {
 	for _, want := range []string{
 		"商品配置",
 		"复制为客户配置",
-		"template-select",
+		"product_config_template_id",
+		"商品档案配置",
 		"productConfigTemplates",
 		"saveProductConfigTemplate",
 		"deriveProductConfigTemplateForCustomer",
-		"bindProductConfigTemplateToSubtype",
 		"/api/product-settings/product-config-templates",
 		"usePublicSkuInCategoryTree: false",
 	} {
@@ -64,12 +64,12 @@ func TestDev362ProductConfigTemplateDocs(t *testing.T) {
 			"分类树显示公共分类但不显示公共 SKU",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"PR-362-PRODUCT-CONFIG-TEMPLATE",
+			"PR-392",
 			"复制为客户配置",
 			"1 盒 = 0.2 kg",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-362-PRODUCT-CONFIG-TEMPLATE",
+			"PR-392",
 			"商品配置",
 			"是否进入产品价格表由产品价格表页面决定",
 		},

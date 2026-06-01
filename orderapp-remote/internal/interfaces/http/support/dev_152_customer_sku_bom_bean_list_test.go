@@ -33,7 +33,8 @@ func TestCustomerSkuBomBeanListWiring(t *testing.T) {
 		"customerSkuRows",
 		"selectedCustomerSkuCustomerID",
 		"bom_item_count",
-		"维护 BOM",
+		"商品档案配置",
+		"维护当前 BOM 明细",
 	} {
 		if !strings.Contains(productSettings, want) {
 			t.Fatalf("ProductSettingsView.vue missing customer SKU list wiring %q", want)

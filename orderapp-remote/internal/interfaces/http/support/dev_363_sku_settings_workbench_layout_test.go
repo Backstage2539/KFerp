@@ -56,7 +56,7 @@ func TestDev363SkuSettingsWorkbenchLayoutDocs(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-363-SKU-SETTINGS-WORKBENCH-LAYOUT",
-			"商品资料",
+			"商品档案",
 			"商品配置",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-25-sku-settings-workbench-layout.md"): {

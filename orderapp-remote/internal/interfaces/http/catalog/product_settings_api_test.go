@@ -53,6 +53,7 @@ type productSettingsRepo struct {
 	customerAliasQuery       catalogapp.CustomerProductAliasQuery
 	savedCustomerAlias       catalogapp.CustomerProductAliasCommand
 	disabledCustomerAlias    catalogapp.DisableCustomerProductAliasCommand
+	batchCustomerAliases     catalogapp.BatchCustomerProductAliasesCommand
 	aliasCandidates          []catalogapp.CustomerProductAliasMigrationCandidate
 	aliasCandidateQuery      catalogapp.CustomerProductAliasMigrationCandidateQuery
 	ruleTemplates            []catalogapp.CustomerProductRuleTemplate
@@ -89,6 +90,7 @@ type productSettingsRepo struct {
 	customerAliasesListed    bool
 	customerAliasSaved       bool
 	customerAliasDisabled    bool
+	customerAliasBatchSaved  bool
 	aliasCandidatesListed    bool
 	ruleTemplateSaved        bool
 	ruleOverrideSaved        bool
@@ -275,13 +277,14 @@ func (r *productSettingsRepo) SaveProductProductionConfig(ctx context.Context, c
 	r.savedProductionConfig = cmd
 	r.productionConfigSaved = true
 	row := catalogapp.ProductProductionConfig{
-		ProductID:              cmd.ProductID,
-		ProductionBomID:        cmd.ProductionBomID,
-		ProductionBomVersionID: cmd.ProductionBomVersionID,
-		ProcessRouteID:         cmd.ProcessRouteID,
-		ExpectedLossRate:       cmd.ExpectedLossRate,
-		Note:                   cmd.Note,
-		Fields:                 cmd.Fields,
+		ProductID:               cmd.ProductID,
+		ProductionBomID:         cmd.ProductionBomID,
+		ProductionBomVersionID:  cmd.ProductionBomVersionID,
+		ProcessRouteID:          cmd.ProcessRouteID,
+		IndustryFieldTemplateID: cmd.IndustryFieldTemplateID,
+		ExpectedLossRate:        cmd.ExpectedLossRate,
+		Note:                    cmd.Note,
+		Fields:                  cmd.Fields,
 	}
 	r.productProductionConfigs = append(r.productProductionConfigs, row)
 	return row, nil
@@ -551,6 +554,42 @@ func (r *productSettingsRepo) DisableCustomerProductAlias(ctx context.Context, c
 	return nil
 }
 
+func (r *productSettingsRepo) BatchCreateCustomerProductAliases(ctx context.Context, cmd catalogapp.BatchCustomerProductAliasesCommand) (catalogapp.BatchCustomerProductAliasesResult, error) {
+	r.batchCustomerAliases = cmd
+	r.customerAliasBatchSaved = true
+	created := make([]catalogapp.CustomerProductAlias, 0)
+	skipped := make([]catalogapp.CustomerProductAliasBatchSkipped, 0)
+	seenExisting := map[int64]bool{}
+	for _, alias := range r.customerProductAliases {
+		if alias.CustomerID == cmd.CustomerID && alias.Active {
+			seenExisting[alias.ProductID] = true
+		}
+	}
+	for _, productID := range cmd.ProductIDs {
+		if seenExisting[productID] {
+			skipped = append(skipped, catalogapp.CustomerProductAliasBatchSkipped{ProductID: productID, Reason: "exists"})
+			continue
+		}
+		created = append(created, catalogapp.CustomerProductAlias{
+			ID:                 int64(1000 + len(created)),
+			CustomerID:         cmd.CustomerID,
+			ProductID:          productID,
+			DisplayName:        "商品档案",
+			CustomerItemCode:   "SKU",
+			BrandName:          cmd.BrandName,
+			DisplayCategoryID:  cmd.DisplayCategoryID,
+			IncludeInPriceList: cmd.IncludeInPriceList,
+			Active:             true,
+		})
+	}
+	return catalogapp.BatchCustomerProductAliasesResult{
+		CreatedCount: len(created),
+		SkippedCount: len(skipped),
+		Created:      created,
+		Skipped:      skipped,
+	}, nil
+}
+
 func (r *productSettingsRepo) ListCustomerProductAliasMigrationCandidates(ctx context.Context, query catalogapp.CustomerProductAliasMigrationCandidateQuery) ([]catalogapp.CustomerProductAliasMigrationCandidate, error) {
 	r.aliasCandidateQuery = query
 	r.aliasCandidatesListed = true
@@ -677,6 +716,42 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 	}
 	if !repo.customerAliasDisabled || repo.disabledCustomerAlias.ID != 11 {
 		t.Fatalf("disable alias command = %+v disabled=%v", repo.disabledCustomerAlias, repo.customerAliasDisabled)
+	}
+}
+
+func TestCustomerProductAliasBatchAPICreatesAndSkipsExistingCustomerNames(t *testing.T) {
+	repo := &productSettingsRepo{
+		customerProductAliases: []catalogapp.CustomerProductAlias{{
+			ID:         11,
+			CustomerID: 42,
+			ProductID:  88,
+			Active:     true,
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/customer-product-aliases/batch", bytes.NewBufferString(`{
+		"customer_id":42,
+		"product_ids":[88,89,89,90],
+		"include_in_price_list":true,
+		"brand_name":"",
+		"display_category_id":7
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST batch alias status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.customerAliasBatchSaved || repo.batchCustomerAliases.CustomerID != 42 || !reflect.DeepEqual(repo.batchCustomerAliases.ProductIDs, []int64{88, 89, 90}) || !repo.batchCustomerAliases.IncludeInPriceList {
+		t.Fatalf("batch alias command=%+v saved=%v", repo.batchCustomerAliases, repo.customerAliasBatchSaved)
+	}
+	for _, want := range []string{`"created_count":2`, `"skipped_count":1`, `"reason":"exists"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("batch alias response missing %s: %s", want, rec.Body.String())
+		}
 	}
 }
 
@@ -1355,6 +1430,92 @@ func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.
 	}
 	if !repo.unitTemplateSaved || repo.savedUnitTemplate.Name != "盒装200g" || repo.savedUnitTemplate.QuoteUnit != "盒" || repo.savedUnitTemplate.UnitConversionJSON != `{"盒":{"kg":0.2}}` || !repo.savedUnitTemplate.IntegerUnit {
 		t.Fatalf("saved unit template = %+v saved=%v", repo.savedUnitTemplate, repo.unitTemplateSaved)
+	}
+}
+
+func TestProductSettingsAPIUpdatesProductTemplateAndProductionConfigIndustryFields(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{
+			ID: 91, Name: "旧SKU名", ProductKind: "roasted", RoastLevel: "中烘", Remark: "旧备注", YieldRate: 0.8,
+		}},
+		productProductionConfigs: []catalogapp.ProductProductionConfig{{
+			ProductID:               91,
+			ProductionBomID:         12,
+			ProductionBomVersionID:  1203,
+			ProcessRouteID:          5,
+			IndustryFieldTemplateID: 3001,
+			ExpectedLossRate:        0.18,
+			Fields: []catalogapp.ProductProductionConfigField{{
+				FieldKey:         "roast_level",
+				TemplateFieldKey: "roast_level",
+				Label:            "烘焙度",
+				FieldType:        "select",
+				ValueText:        "深烘",
+				Required:         true,
+				OptionsJSON:      `["浅烘","中烘","深烘"]`,
+				ShowInPriceList:  true,
+				SortOrder:        1,
+			}},
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET product settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"product_production_configs"`, `"industry_field_template_id":3001`, `"template_field_key":"roast_level"`, `"required":true`, `"options_json":"[\"浅烘\",\"中烘\",\"深烘\"]"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	body := bytes.NewBufferString(`{"name":"新SKU名","product_kind":"roasted","yield_rate":0.81,"remark":"门店常用奶咖","product_config_template_id":301}`)
+	req = httptest.NewRequest(http.MethodPut, "/api/products/91", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT product status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productUpdated || repo.updated.ProductConfigTemplateID != 301 {
+		t.Fatalf("updated product template command=%+v updated=%v", repo.updated, repo.productUpdated)
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/product-production-configs/91", bytes.NewBufferString(`{
+		"production_bom_id":12,
+		"production_bom_version_id":1203,
+		"process_route_id":5,
+		"industry_field_template_id":3001,
+		"expected_loss_rate":0.18,
+		"note":"深烘参数",
+		"fields":[{
+			"field_key":"roast_level",
+			"template_field_key":"roast_level",
+			"label":"烘焙度",
+			"field_type":"select",
+			"value_text":"深烘",
+			"required":true,
+			"options_json":"[\"浅烘\",\"中烘\",\"深烘\"]",
+			"show_in_price_list":true,
+			"sort_order":1
+		}]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT product production config status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productionConfigSaved || repo.savedProductionConfig.IndustryFieldTemplateID != 3001 || len(repo.savedProductionConfig.Fields) != 1 {
+		t.Fatalf("saved production config=%+v saved=%v", repo.savedProductionConfig, repo.productionConfigSaved)
+	}
+	field := repo.savedProductionConfig.Fields[0]
+	if field.TemplateFieldKey != "roast_level" || !field.Required || field.OptionsJSON != `["浅烘","中烘","深烘"]` || field.FieldType != "select" {
+		t.Fatalf("saved production config field=%+v", field)
 	}
 }
 

@@ -8,6 +8,7 @@ import {
   buildCustomerProductRuleOverridePayload,
   buildCustomerProductRuleTemplatePayload,
   buildCustomerProductAliasPayload,
+  buildCustomerProductAliasBatchPayload,
   customerProductAliasRowsForCustomer,
   customerProductAliasMigrationCandidateSummary,
   buildCustomerPublicUsagePayload,
@@ -204,6 +205,22 @@ test('customer product alias payload binds a customer-facing name to one product
     include_in_price_list: true,
     active: false,
     remark: '贴牌只改对外名称',
+  })
+})
+
+test('customer product alias batch payload creates many customer-facing names from product records', () => {
+  assert.deepEqual(buildCustomerProductAliasBatchPayload({
+    customer_id: '42',
+    product_ids: [8, '9', 0, 8, 'bad'],
+    include_in_price_list: true,
+    brand_name: ' ',
+    display_category_id: '12',
+  }), {
+    customer_id: 42,
+    product_ids: [8, 9],
+    include_in_price_list: true,
+    brand_name: '',
+    display_category_id: 12,
   })
 })
 
@@ -1269,23 +1286,27 @@ test('BOM view no longer exposes special attributes from BOM version detail', ()
   assert.doesNotMatch(template, /versionSpecialAttrsSchemaText/)
 })
 
-test('product production config owns expected loss, route and price-list attributes', () => {
+test('product archive config drawer owns template, BOM, route, expected loss and industry fields', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const bomSource = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
-  assert.match(source, /商品生产配置/)
+  assert.match(source, /商品档案配置/)
+  assert.match(source, /商品配置模板/)
+  assert.match(source, /行业字段模板/)
   assert.match(source, /预期损耗率/)
   assert.match(source, /工艺路线/)
   assert.match(source, /show_in_price_list/)
   assert.match(source, /\/api\/product-production-configs/)
   assert.match(source, /openProductProductionConfig\(row\)/)
   assert.match(source, /productProductionConfigDrawerOpen/)
-  assert.match(source, /保存商品生产配置/)
+  assert.match(source, /保存商品档案配置/)
   assert.match(source, /addProductProductionConfigField/)
   assert.match(source, /productProductionConfigForm\.fields/)
   assert.match(source, /\/api\/process-routes\?status=published/)
+  assert.match(source, /维护当前 BOM 明细/)
   assert.match(script, /saveProductProductionConfig/)
+  assert.match(script, /kferp:navigate-view/)
   assert.doesNotMatch(source, /兼容产出因子/)
   assert.doesNotMatch(source, /预期产出/)
   assert.doesNotMatch(bomSource, /expected_loss_rate/)
@@ -1384,7 +1405,6 @@ test('SKU settings exposes product subtype default unit configuration controls',
   for (const expected of [
     '商品配置',
     '复制为客户配置',
-    'template-select',
     'productConfigTemplates',
     'saveProductConfigTemplate',
     'deriveProductConfigTemplateForCustomer',
@@ -1394,12 +1414,13 @@ test('SKU settings exposes product subtype default unit configuration controls',
     '录单单位',
     '新增换算',
     '整数单位',
-    'bindProductConfigTemplateToSubtype',
     'buildProductConfigTemplatePayload',
-    'buildProductCategoryConfigPayload',
   ]) {
     assert.ok(source.includes(expected), `missing product config UI marker: ${expected}`)
   }
+  assert.match(source, /product_config_template_id/)
+  assert.match(source, /商品档案配置/)
+  assert.doesNotMatch(source, /bindProductConfigTemplateToSubtype/)
   assert.doesNotMatch(source, />更换商品配置</)
   assert.doesNotMatch(source, /startProductSubtypeConfigEdit/)
   assert.doesNotMatch(source, /saveProductSubtypeConfig/)
@@ -1455,16 +1476,20 @@ test('SKU settings removes public SKU references from the customer SKU list and 
   assert.doesNotMatch(source, /savePublicSkuUsageForCustomer/)
 })
 
-test('product management shows production BOM usage and keeps BOM derivation in BOM workspace', () => {
+test('product archive list uses the product name as the only production config entry', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
 
   assert.match(template, /生产 BOM/)
   assert.match(source, /productionBomLabel\(row\)/)
   assert.match(source, /productionBomVersionWarning\(row\)/)
-  assert.match(template, /更换生产 BOM/)
   assert.match(template, /当前引用/)
-  assert.match(template, /维护 BOM/)
+  assert.match(template, /class="[^"]*sku-name-button[^"]*"[\s\S]*@click="openProductProductionConfig\(row\)"/)
+  assert.ok(template.indexOf('<th class="sku-name-cell">商品名</th>') < template.indexOf('<th>商品编号</th>'), '商品名 must be the first business column before 商品编号')
+  assert.doesNotMatch(template, />生产配置<\/button>/)
+  assert.doesNotMatch(template, /更换生产 BOM/)
+  assert.doesNotMatch(template, />维护 BOM<\/button>/)
+  assert.doesNotMatch(template, /<th>BOM<\/th>/)
   assert.doesNotMatch(template, /特殊属性/)
   assert.doesNotMatch(template, /special-attr-editor/)
   assert.doesNotMatch(template, /产品信息字段（特殊属性KV）/)
@@ -1793,15 +1818,39 @@ test('SKU settings collapses category levels and focuses newly created categorie
   assert.match(style, /\.category-collapse-button\s*\{/)
 })
 
-test('SKU settings binds subtype product config directly without a separate change button', () => {
+test('SKU settings keeps product config template binding on the product record instead of categories', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
 
-  assert.match(template, /class="template-select"[\s\S]*@change\.stop="bindProductConfigTemplateToSubtype\(secondary, \$event\.target\.value\)"/)
+  assert.match(source, /productProductionConfigForm\.product_config_template_id/)
+  assert.match(template, /商品配置模板/)
+  assert.doesNotMatch(template, /class="template-select"[\s\S]*@change\.stop="bindProductConfigTemplateToSubtype/)
+  assert.doesNotMatch(source, /bindProductConfigTemplateToSubtype/)
   assert.doesNotMatch(template, />更换商品配置</)
   assert.doesNotMatch(source, /startProductSubtypeConfigEdit/)
   assert.doesNotMatch(source, /saveProductSubtypeConfig/)
   assert.doesNotMatch(source, /editingSubtypeConfigId/)
+})
+
+test('customer product aliases support batch adding product records', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  assert.match(template, /批量添加商品档案/)
+  assert.match(source, /customerAliasBatchDrawerOpen/)
+  assert.match(source, /selectedAliasBatchProductIds/)
+  assert.match(script, /\/api\/customer-product-aliases\/batch/)
+  assert.match(script, /buildCustomerProductAliasBatchPayload/)
+})
+
+test('product archive BOM detail navigation uses SPA view events instead of hard refresh', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const appSource = fs.readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /kferp:navigate-view/)
+  assert.doesNotMatch(source, /window\.location\.href\s*=\s*buildProductBomURL/)
+  assert.doesNotMatch(appSource, /isProductSettingsKey\(currentKey\.value\)[\s\S]{0,140}hardNavigateToView/)
 })
 
 test('global unit dictionary is managed from global settings instead of SKU settings', () => {

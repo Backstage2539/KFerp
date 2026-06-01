@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-392-PRODUCT-CONFIG-ENTRY-TEMPLATE-ALIAS
+- Branch: codex/product-config-entry-template-alias-20260602
+- Owner/session: Codex / 2026-06-02
+- Status: verified locally; not merged or deployed
+- Scope: 商品档案列表以商品名作为唯一商品档案配置入口；商品档案配置抽屉维护基础信息、商品配置模板、生产 BOM、工艺路线、预期损耗率、行业字段模板和值，并以内页跳转维护当前 BOM 明细。商品配置模板由商品档案引用，分类只负责归类；客户商品名支持批量从商品档案创建；生产 BOM 跳转不刷新左侧菜单。
+- DEV:
+  - DEV-392-PRODUCT-ARCHIVE-CONFIG-DRAWER：商品档案列表删除生产配置/更换生产 BOM/维护 BOM/BOM 重复按钮，点击商品名打开商品档案配置抽屉。
+  - DEV-392-PRODUCT-TEMPLATE-OWNERSHIP：新增 `products.product_config_template_id`，商品创建、商品基础信息、成本/价格/生产读取优先商品档案模板，旧分类模板 legacy fallback。
+  - DEV-392-INDUSTRY-FIELDS-IN-PRODUCT-CONFIG：商品生产配置保存 `industry_field_template_id` 和字段快照，行业字段模板在商品档案配置抽屉中以普通表单使用。
+  - DEV-392-CUSTOMER-ALIAS-BATCH：新增 `/api/customer-product-aliases/batch` 和客户商品名批量添加抽屉，重复绑定跳过并写操作日志。
+  - DEV-392-SPA-BOM-NAV-DOCS：生产 BOM 明细入口使用 `kferp:navigate-view` SPA 导航，更新手册、需求和验收文档。
+- Verifier:
+  - Frontend: `node --test src/lib/product-settings.test.js src/lib/view-routing.test.js`
+  - API/backend: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/costing ./internal/infrastructure/postgres/sales ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1`
+  - Build: `npm run build` in `orderapp-remote/frontend-vue-shell`
+  - Changed verifier: `scripts/verify_kferp.sh changed`
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`
+  - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-02-product-config-entry-template-alias.md`
+- Deployment: not merged, not deployed.
+- Last update: 2026-06-02 Asia/Shanghai
+- Notes: Van requested no browser/manual验收 for this round; use code/docs/unit/API/build verification only. RED evidence captured in acceptance doc: frontend tests initially failed on missing batch alias payload/product-name config entry/SPA BOM jump; catalog API tests initially failed on missing batch alias and product/industry field contracts. GREEN evidence: `node --test src/lib/product-settings.test.js src/lib/view-routing.test.js` passed 100/100; targeted catalog/costing/sales/production/support Go tests passed; `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+
 ### PR-391-PRODUCT-PRODUCTION-CONFIG-UI-FIX
 - Branch: codex/product-production-config-ui-fix-20260601
 - Owner/session: Codex / 2026-06-01

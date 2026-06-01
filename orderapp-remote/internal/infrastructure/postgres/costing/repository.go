@@ -241,57 +241,64 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.name,'') ELSE '' END,
 		       CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.position,0) ELSE 0 END,
 		       COALESCE(
-		           NULLIF(cpro.gradient_template_id,0),
-		           NULLIF(cpti.gradient_template_id,0),
-		           NULLIF(p.gradient_template_id_override,0),
-		           NULLIF(pc.gradient_template_id,0),
+			           NULLIF(cpro.gradient_template_id,0),
+			           NULLIF(cpti.gradient_template_id,0),
+			           NULLIF(p.gradient_template_id_override,0),
+			           NULLIF(p_config.gradient_template_id,0),
+			           NULLIF(pc.gradient_template_id,0),
 		           NULLIF(parent_pc.gradient_template_id,0),
 		           0
 		       ) AS effective_gradient_template_id,
 		       COALESCE(
-		           NULLIF(cpro.operation_template_id,0),
-		           NULLIF(cpti.operation_template_id,0),
-		           NULLIF(p.operation_template_id_override,0),
-		           NULLIF(pc.operation_template_id,0),
+			           NULLIF(cpro.operation_template_id,0),
+			           NULLIF(cpti.operation_template_id,0),
+			           NULLIF(p.operation_template_id_override,0),
+			           NULLIF(p_config.operation_template_id,0),
+			           NULLIF(pc.operation_template_id,0),
 		           NULLIF(parent_pc.operation_template_id,0),
 		           0
 		       ) AS effective_operation_template_id,
 		       COALESCE(
-		           NULLIF(cpro.price_list_rule_json::text,'{}'),
-		           NULLIF(cpti.price_list_rule_json::text,'{}'),
-		           NULLIF(p.unit_rule_override_json->>'price_list_rule_json',''),
-		           NULLIF(pc.price_list_rule_json::text,'{}'),
+			           NULLIF(cpro.price_list_rule_json::text,'{}'),
+			           NULLIF(cpti.price_list_rule_json::text,'{}'),
+			           NULLIF(p.unit_rule_override_json->>'price_list_rule_json',''),
+			           NULLIF(p_config.price_list_rule_json::text,'{}'),
+			           NULLIF(pc.price_list_rule_json::text,'{}'),
 		           NULLIF(parent_pc.price_list_rule_json::text,'{}'),
 		           '{}'
 		       ) AS effective_price_list_rule_json,
 		       COALESCE(
-		           NULLIF(pca.production_config_attrs_schema_json::text,'[]'),
-		           NULLIF(bound_bv.special_attrs_schema_json::text,'[]'),
-		           NULLIF(pc_config.special_attrs_schema_json::text,'[]'),
+			           NULLIF(pca.production_config_attrs_schema_json::text,'[]'),
+			           NULLIF(bound_bv.special_attrs_schema_json::text,'[]'),
+			           NULLIF(p_config.special_attrs_schema_json::text,'[]'),
+			           NULLIF(pc_config.special_attrs_schema_json::text,'[]'),
 		           NULLIF(parent_pc_config.special_attrs_schema_json::text,'[]'),
 		           '[]'
 		       ) AS effective_special_attrs_schema_json,
 		       COALESCE(
-		           NULLIF(cpro.unit_rule_json->>'inventory_unit',''),
-		           NULLIF(cpti.unit_rule_json->>'inventory_unit',''),
-		           NULLIF(p.unit_rule_override_json->>'inventory_unit',''),
-		           NULLIF(pc.inventory_unit,''),
+			           NULLIF(cpro.unit_rule_json->>'inventory_unit',''),
+			           NULLIF(cpti.unit_rule_json->>'inventory_unit',''),
+			           NULLIF(p.unit_rule_override_json->>'inventory_unit',''),
+			           NULLIF(p_config.inventory_unit,''),
+			           NULLIF(pc.inventory_unit,''),
 		           NULLIF(parent_pc.inventory_unit,''),
 		           'kg'
 		       ),
 		       COALESCE(
-		           NULLIF(cpro.unit_rule_json->>'quote_unit',''),
-		           NULLIF(cpti.unit_rule_json->>'quote_unit',''),
-		           NULLIF(p.unit_rule_override_json->>'quote_unit',''),
-		           NULLIF(pc.quote_unit,''),
+			           NULLIF(cpro.unit_rule_json->>'quote_unit',''),
+			           NULLIF(cpti.unit_rule_json->>'quote_unit',''),
+			           NULLIF(p.unit_rule_override_json->>'quote_unit',''),
+			           NULLIF(p_config.quote_unit,''),
+			           NULLIF(pc.quote_unit,''),
 		           NULLIF(parent_pc.quote_unit,''),
 		           'kg'
 		       ),
 		       COALESCE(
-		           NULLIF(cpro.unit_rule_json->>'order_unit',''),
-		           NULLIF(cpti.unit_rule_json->>'order_unit',''),
-		           NULLIF(p.unit_rule_override_json->>'order_unit',''),
-		           NULLIF(pc.order_unit,''),
+			           NULLIF(cpro.unit_rule_json->>'order_unit',''),
+			           NULLIF(cpti.unit_rule_json->>'order_unit',''),
+			           NULLIF(p.unit_rule_override_json->>'order_unit',''),
+			           NULLIF(p_config.order_unit,''),
+			           NULLIF(pc.order_unit,''),
 		           NULLIF(parent_pc.order_unit,''),
 		           'kg'
 		       ),
@@ -299,18 +306,20 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		           NULLIF(cpro.unit_rule_json->>'unit_conversion_json',''),
 		           NULLIF(cpro.unit_rule_json->>'conversion_json',''),
 		           NULLIF(cpti.unit_rule_json->>'unit_conversion_json',''),
-		           NULLIF(cpti.unit_rule_json->>'conversion_json',''),
-		           NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),
-		           NULLIF(p.unit_rule_override_json->>'conversion_json',''),
-		           NULLIF(pc.unit_conversion_json::text,'{}'),
+			           NULLIF(cpti.unit_rule_json->>'conversion_json',''),
+			           NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),
+			           NULLIF(p.unit_rule_override_json->>'conversion_json',''),
+			           NULLIF(p_config.unit_conversion_json::text,'{}'),
+			           NULLIF(pc.unit_conversion_json::text,'{}'),
 		           NULLIF(parent_pc.unit_conversion_json::text,'{}'),
 		           '{}'
 		       ),
 		       COALESCE(
-		           CASE WHEN lower(cpro.unit_rule_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(cpro.unit_rule_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
-		           CASE WHEN lower(cpti.unit_rule_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(cpti.unit_rule_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
-		           CASE WHEN lower(p.unit_rule_override_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(p.unit_rule_override_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
-		           pc.integer_unit,
+			           CASE WHEN lower(cpro.unit_rule_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(cpro.unit_rule_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
+			           CASE WHEN lower(cpti.unit_rule_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(cpti.unit_rule_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
+			           CASE WHEN lower(p.unit_rule_override_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(p.unit_rule_override_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
+			           p_config.integer_unit,
+			           pc.integer_unit,
 		           parent_pc.integer_unit,
 		           false
 		       ),
@@ -353,9 +362,10 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		LEFT JOIN material_valuation mv ON mv.material_id = m.id
 		LEFT JOIN %[1]s.material_bean_profiles bp ON bp.material_id = m.id
 		LEFT JOIN %[1]s.products base_p ON base_p.id = p.base_product_id
-		LEFT JOIN %[1]s.product_categories pc ON pc.id = p.product_category_id AND pc.active=true
-		LEFT JOIN %[1]s.product_categories parent_pc ON parent_pc.id = pc.parent_id AND parent_pc.active=true
-		LEFT JOIN %[1]s.product_config_templates pc_config ON pc_config.id = pc.product_config_template_id AND pc_config.active=true
+			LEFT JOIN %[1]s.product_categories pc ON pc.id = p.product_category_id AND pc.active=true
+			LEFT JOIN %[1]s.product_categories parent_pc ON parent_pc.id = pc.parent_id AND parent_pc.active=true
+			LEFT JOIN %[1]s.product_config_templates p_config ON p_config.id = p.product_config_template_id AND p_config.active=true
+			LEFT JOIN %[1]s.product_config_templates pc_config ON pc_config.id = pc.product_config_template_id AND pc_config.active=true
 		LEFT JOIN %[1]s.product_config_templates parent_pc_config ON parent_pc_config.id = parent_pc.product_config_template_id AND parent_pc_config.active=true
 		LEFT JOIN production_config_attrs pca ON pca.product_id=p.id
 		LEFT JOIN %[1]s.customers rule_customer ON rule_customer.id = $2 AND rule_customer.active=true
@@ -369,10 +379,11 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		 AND cpro.product_subtype_category_id=CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.id,0) ELSE 0 END
 		LEFT JOIN operation_unit_cost ouc
 		  ON ouc.template_id=COALESCE(
-		           NULLIF(cpro.operation_template_id,0),
-		           NULLIF(cpti.operation_template_id,0),
-		           NULLIF(p.operation_template_id_override,0),
-		           NULLIF(pc.operation_template_id,0),
+			           NULLIF(cpro.operation_template_id,0),
+			           NULLIF(cpti.operation_template_id,0),
+			           NULLIF(p.operation_template_id_override,0),
+			           NULLIF(p_config.operation_template_id,0),
+			           NULLIF(pc.operation_template_id,0),
 		           NULLIF(parent_pc.operation_template_id,0),
 		           0
 		       )
@@ -405,7 +416,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			LIMIT 1
 		) qc ON true
 		WHERE p.active = true
-		GROUP BY p.id, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.bom_usage_mode, p.production_bom_id, p.production_bom_version_id, p.production_config_yield_rate, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, pca.production_config_attrs_json, pca.production_config_attrs_schema_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.price_list_rule_json, cpro.unit_rule_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, bound_bom.id, bound_bom.status, bound_bv.id, bound_bv.version_no, bound_bv.yield_rate, bound_bv.special_attrs_json, bound_bv.special_attrs_schema_json, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
+			GROUP BY p.id, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.bom_usage_mode, p.production_bom_id, p.production_bom_version_id, p.production_config_yield_rate, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.product_config_template_id, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, p_config.gradient_template_id, p_config.operation_template_id, p_config.price_list_rule_json, p_config.inventory_unit, p_config.quote_unit, p_config.order_unit, p_config.unit_conversion_json, p_config.integer_unit, p_config.special_attrs_schema_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, pca.production_config_attrs_json, pca.production_config_attrs_schema_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.price_list_rule_json, cpro.unit_rule_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, bound_bom.id, bound_bom.status, bound_bv.id, bound_bv.version_no, bound_bv.yield_rate, bound_bv.special_attrs_json, bound_bv.special_attrs_schema_json, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
 		ORDER BY p.name
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate, customerID)

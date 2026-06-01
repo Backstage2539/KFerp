@@ -52,6 +52,7 @@ type Product struct {
 	GradientTemplateIDOverride  int64
 	OperationTemplateIDOverride int64
 	UnitRuleOverrideJSON        string
+	ProductConfigTemplateID     int64
 	Active                      bool
 	BomItemCount                int
 	BomStatus                   string
@@ -139,6 +140,7 @@ type ProductSettingsProduct struct {
 	GradientTemplateIDOverride  int64    `json:"gradient_template_id_override"`
 	OperationTemplateIDOverride int64    `json:"operation_template_id_override"`
 	UnitRuleOverrideJSON        string   `json:"unit_rule_override_json"`
+	ProductConfigTemplateID     int64    `json:"product_config_template_id"`
 	Active                      bool     `json:"active"`
 	BomItemCount                int      `json:"bom_item_count"`
 	BomStatus                   string   `json:"bom_status"`
@@ -187,27 +189,31 @@ type ProductSettingsData struct {
 }
 
 type ProductProductionConfigField struct {
-	ID              int64    `json:"id"`
-	ProductID       int64    `json:"product_id"`
-	FieldKey        string   `json:"field_key"`
-	Label           string   `json:"label"`
-	FieldType       string   `json:"field_type"`
-	Unit            string   `json:"unit"`
-	ValueText       string   `json:"value_text"`
-	ValueNumber     *float64 `json:"value_number,omitempty"`
-	ValueBool       *bool    `json:"value_bool,omitempty"`
-	ShowInPriceList bool     `json:"show_in_price_list"`
-	SortOrder       int      `json:"sort_order"`
+	ID               int64    `json:"id"`
+	ProductID        int64    `json:"product_id"`
+	FieldKey         string   `json:"field_key"`
+	Label            string   `json:"label"`
+	FieldType        string   `json:"field_type"`
+	Unit             string   `json:"unit"`
+	ValueText        string   `json:"value_text"`
+	ValueNumber      *float64 `json:"value_number,omitempty"`
+	ValueBool        *bool    `json:"value_bool,omitempty"`
+	TemplateFieldKey string   `json:"template_field_key"`
+	Required         bool     `json:"required"`
+	OptionsJSON      string   `json:"options_json"`
+	ShowInPriceList  bool     `json:"show_in_price_list"`
+	SortOrder        int      `json:"sort_order"`
 }
 
 type ProductProductionConfig struct {
-	ProductID              int64                          `json:"product_id"`
-	ProductionBomID        int64                          `json:"production_bom_id"`
-	ProductionBomVersionID int64                          `json:"production_bom_version_id"`
-	ProcessRouteID         int64                          `json:"process_route_id"`
-	ExpectedLossRate       float64                        `json:"expected_loss_rate"`
-	Note                   string                         `json:"note"`
-	Fields                 []ProductProductionConfigField `json:"fields"`
+	ProductID               int64                          `json:"product_id"`
+	ProductionBomID         int64                          `json:"production_bom_id"`
+	ProductionBomVersionID  int64                          `json:"production_bom_version_id"`
+	ProcessRouteID          int64                          `json:"process_route_id"`
+	IndustryFieldTemplateID int64                          `json:"industry_field_template_id"`
+	ExpectedLossRate        float64                        `json:"expected_loss_rate"`
+	Note                    string                         `json:"note"`
+	Fields                  []ProductProductionConfigField `json:"fields"`
 }
 
 type ProductConfigTemplate struct {
@@ -313,6 +319,7 @@ type UpdateProductBasicsCommand struct {
 	GradientTemplateIDOverride  int64
 	OperationTemplateIDOverride int64
 	UnitRuleOverrideJSON        string
+	ProductConfigTemplateID     int64
 }
 
 type CreateProductCommand struct {
@@ -336,6 +343,7 @@ type CreateProductCommand struct {
 	RetailPrice227G          float64
 	RetailPrice250G          float64
 	YieldRate                float64
+	ProductConfigTemplateID  int64
 	Tiers                    []PriceTier
 }
 
@@ -352,6 +360,7 @@ type CreateSKUCommand struct {
 	ProductTypeCategoryID    int64
 	ProductSubtypeCategoryID int64
 	SpecialAttrsJSON         string
+	ProductConfigTemplateID  int64
 	Active                   bool
 }
 
@@ -485,6 +494,27 @@ type CustomerProductAliasCommand struct {
 type DisableCustomerProductAliasCommand struct {
 	Actor string
 	ID    int64
+}
+
+type BatchCustomerProductAliasesCommand struct {
+	Actor              string
+	CustomerID         int64
+	ProductIDs         []int64
+	IncludeInPriceList bool
+	BrandName          string
+	DisplayCategoryID  int64
+}
+
+type CustomerProductAliasBatchSkipped struct {
+	ProductID int64  `json:"product_id"`
+	Reason    string `json:"reason"`
+}
+
+type BatchCustomerProductAliasesResult struct {
+	CreatedCount int                                `json:"created_count"`
+	SkippedCount int                                `json:"skipped_count"`
+	Created      []CustomerProductAlias             `json:"created"`
+	Skipped      []CustomerProductAliasBatchSkipped `json:"skipped"`
 }
 
 type CustomerProductAliasMigrationCandidateQuery struct {
@@ -627,14 +657,15 @@ type SaveProductUnitTemplateCommand struct {
 }
 
 type SaveProductProductionConfigCommand struct {
-	Actor                  string
-	ProductID              int64
-	ProductionBomID        int64
-	ProductionBomVersionID int64
-	ProcessRouteID         int64
-	ExpectedLossRate       float64
-	Note                   string
-	Fields                 []ProductProductionConfigField
+	Actor                   string
+	ProductID               int64
+	ProductionBomID         int64
+	ProductionBomVersionID  int64
+	ProcessRouteID          int64
+	IndustryFieldTemplateID int64
+	ExpectedLossRate        float64
+	Note                    string
+	Fields                  []ProductProductionConfigField
 }
 
 type DeriveProductConfigTemplateCommand struct {
@@ -758,6 +789,7 @@ type Repository interface {
 	EnsureFactoryCustomer(ctx context.Context, actor string) (int64, error)
 	ListCustomerProductAliases(ctx context.Context, query CustomerProductAliasQuery) ([]CustomerProductAlias, error)
 	SaveCustomerProductAlias(ctx context.Context, cmd CustomerProductAliasCommand) (CustomerProductAlias, error)
+	BatchCreateCustomerProductAliases(ctx context.Context, cmd BatchCustomerProductAliasesCommand) (BatchCustomerProductAliasesResult, error)
 	DisableCustomerProductAlias(ctx context.Context, cmd DisableCustomerProductAliasCommand) error
 	ListCustomerProductAliasMigrationCandidates(ctx context.Context, query CustomerProductAliasMigrationCandidateQuery) ([]CustomerProductAliasMigrationCandidate, error)
 	ListCustomerProductRuleTemplates(ctx context.Context) ([]CustomerProductRuleTemplate, error)
@@ -815,14 +847,19 @@ func (s *Service) SaveProductProductionConfig(ctx context.Context, cmd SaveProdu
 	if cmd.ExpectedLossRate < 0 || cmd.ExpectedLossRate >= 1 {
 		return ProductProductionConfig{}, ValidationError{Message: "expected_loss_rate must be [0,1)"}
 	}
+	if cmd.IndustryFieldTemplateID < 0 {
+		return ProductProductionConfig{}, ValidationError{Message: "invalid industry_field_template_id"}
+	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	for i := range cmd.Fields {
 		field := cmd.Fields[i]
 		field.FieldKey = strings.TrimSpace(field.FieldKey)
+		field.TemplateFieldKey = strings.TrimSpace(field.TemplateFieldKey)
 		field.Label = strings.TrimSpace(field.Label)
 		field.FieldType = strings.ToLower(strings.TrimSpace(field.FieldType))
 		field.Unit = strings.TrimSpace(field.Unit)
+		field.OptionsJSON = strings.TrimSpace(field.OptionsJSON)
 		if field.FieldType == "" {
 			field.FieldType = "text"
 		}
@@ -871,6 +908,9 @@ func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasi
 	}
 	if cmd.GradientTemplateIDOverride < 0 || cmd.OperationTemplateIDOverride < 0 {
 		return ValidationError{Message: "invalid template override"}
+	}
+	if cmd.ProductConfigTemplateID < 0 {
+		return ValidationError{Message: "invalid product_config_template_id"}
 	}
 	unitRuleOverrideJSON, err := normalizeJSONText(cmd.UnitRuleOverrideJSON)
 	if err != nil {
@@ -935,6 +975,9 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	if err != nil {
 		return Product{}, ValidationError{Message: "invalid special_attrs_json"}
 	}
+	if cmd.ProductConfigTemplateID < 0 {
+		return Product{}, ValidationError{Message: "invalid product_config_template_id"}
+	}
 	cmd.SpecialAttrsJSON = specialAttrsJSON
 	return s.repo.CreateProduct(ctx, cmd)
 }
@@ -951,6 +994,9 @@ func (s *Service) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product,
 	}
 	if cmd.ProductTypeCategoryID < 0 || cmd.ProductSubtypeCategoryID < 0 {
 		return Product{}, ValidationError{Message: "invalid category"}
+	}
+	if cmd.ProductConfigTemplateID < 0 {
+		return Product{}, ValidationError{Message: "invalid product_config_template_id"}
 	}
 	specialAttrsJSON, err := normalizeJSONObjectText(cmd.SpecialAttrsJSON)
 	if err != nil {
@@ -1485,6 +1531,31 @@ func (s *Service) DisableCustomerProductAlias(ctx context.Context, cmd DisableCu
 	return s.repo.DisableCustomerProductAlias(ctx, cmd)
 }
 
+func (s *Service) BatchCreateCustomerProductAliases(ctx context.Context, cmd BatchCustomerProductAliasesCommand) (BatchCustomerProductAliasesResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.BrandName = strings.TrimSpace(cmd.BrandName)
+	if cmd.CustomerID <= 0 {
+		return BatchCustomerProductAliasesResult{}, ValidationError{Message: "customer_id required"}
+	}
+	if cmd.DisplayCategoryID < 0 {
+		return BatchCustomerProductAliasesResult{}, ValidationError{Message: "invalid display_category_id"}
+	}
+	seen := map[int64]bool{}
+	ids := make([]int64, 0, len(cmd.ProductIDs))
+	for _, id := range cmd.ProductIDs {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return BatchCustomerProductAliasesResult{}, ValidationError{Message: "product_ids required"}
+	}
+	cmd.ProductIDs = ids
+	return s.repo.BatchCreateCustomerProductAliases(ctx, cmd)
+}
+
 func (s *Service) ListCustomerProductAliasMigrationCandidates(ctx context.Context, query CustomerProductAliasMigrationCandidateQuery) ([]CustomerProductAliasMigrationCandidate, error) {
 	if query.CustomerID <= 0 {
 		return nil, ValidationError{Message: "customer_id required"}
@@ -1975,6 +2046,7 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		GradientTemplateIDOverride:  p.GradientTemplateIDOverride,
 		OperationTemplateIDOverride: p.OperationTemplateIDOverride,
 		UnitRuleOverrideJSON:        productJSONOrDefault(p.UnitRuleOverrideJSON),
+		ProductConfigTemplateID:     p.ProductConfigTemplateID,
 		Active:                      p.Active,
 		BomItemCount:                p.BomItemCount,
 		BomStatus:                   productBomStatus(p.BomStatus, p.BomItemCount),
