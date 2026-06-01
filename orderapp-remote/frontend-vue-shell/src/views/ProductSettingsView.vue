@@ -168,6 +168,7 @@
                     <span :class="['status-pill', (row.active === false || row.bom_status === 'inactive') ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
                   </td>
                   <td>
+                    <button class="text-button" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="openProductProductionConfig(row)">生产配置</button>
                     <button class="text-button" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="openProductionBomBinding(row)">更换生产 BOM</button>
                     <button class="text-button" type="button" :disabled="row.active === false" @click="openProductBom(row)">维护 BOM</button>
                   </td>
@@ -921,6 +922,113 @@
       </aside>
     </div>
 
+    <div v-if="productProductionConfigDrawerOpen" class="settings-drawer-mask" @click.self="closeProductProductionConfigDrawer">
+      <aside class="settings-drawer product-production-config-drawer" aria-label="商品生产配置">
+        <div class="drawer-head">
+          <div>
+            <h3>商品生产配置</h3>
+            <p>{{ productProductionConfigProduct?.name || '商品档案' }}</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeProductProductionConfigDrawer">关闭</button>
+        </div>
+        <div class="drawer-body product-production-config-body">
+          <div class="production-config-grid">
+            <label>
+              <span>生产 BOM</span>
+              <select v-model.number="productProductionConfigForm.production_bom_id" @change="selectProductProductionConfigBom(productProductionConfigForm.production_bom_id)">
+                <option :value="0">不绑定生产 BOM</option>
+                <option v-for="bom in productionBoms" :key="bom.id" :value="bom.id">
+                  {{ bom.code }} {{ bom.name }}{{ bom.group_name ? ` / ${bom.group_name}` : '' }}
+                </option>
+              </select>
+            </label>
+            <label>
+              <span>BOM版本</span>
+              <select v-model.number="productProductionConfigForm.production_bom_version_id" :disabled="!productProductionConfigForm.production_bom_id">
+                <option :value="0">选择已发布版本</option>
+                <option v-for="version in productProductionConfigVersionOptions" :key="version.id" :value="version.id">
+                  {{ version.version_no }}
+                </option>
+              </select>
+            </label>
+            <label>
+              <span>工艺路线</span>
+              <select v-model.number="productProductionConfigForm.process_route_id">
+                <option :value="0">不设置工艺路线</option>
+                <option v-for="route in processRoutes" :key="route.id" :value="route.id">
+                  {{ route.name }}{{ route.default_minutes ? ` · ${route.default_minutes}分钟` : '' }}
+                </option>
+              </select>
+            </label>
+            <label>
+              <span>预期损耗率（%）</span>
+              <input v-model.number="productProductionConfigForm.expected_loss_percent" type="number" min="0" max="99.999" step="0.01" placeholder="例如 18" />
+            </label>
+            <label class="wide-field">
+              <span>备注</span>
+              <textarea v-model.trim="productProductionConfigForm.note" rows="2" placeholder="例如深烘配置、包装要求、生产注意事项"></textarea>
+            </label>
+          </div>
+
+          <section class="drawer-section production-config-fields">
+            <div class="field-group-head">
+              <div class="field-group-copy">
+                <strong>产品信息字段</strong>
+                <small>这些字段可进入价格表和订单/工单快照；不用填写 JSON。</small>
+              </div>
+              <button class="secondary compact-action" type="button" @click="addProductProductionConfigField">新增字段</button>
+            </div>
+            <div v-for="(field, index) in productProductionConfigForm.fields" :key="field.local_id" class="production-config-field-row">
+              <label>
+                <span>字段名</span>
+                <input v-model.trim="field.label" placeholder="如 烘焙度 / 包装规格" />
+              </label>
+              <label>
+                <span>类型</span>
+                <select v-model="field.field_type">
+                  <option value="text">文本</option>
+                  <option value="number">数字</option>
+                  <option value="bool">是否</option>
+                </select>
+              </label>
+              <label>
+                <span>单位</span>
+                <input v-model.trim="field.unit" placeholder="可留空" />
+              </label>
+              <label v-if="field.field_type === 'number'">
+                <span>字段值</span>
+                <input v-model.number="field.value_number" type="number" step="0.0001" />
+              </label>
+              <label v-else-if="field.field_type === 'bool'" class="checkline field-bool-value">
+                <input v-model="field.value_bool" type="checkbox" />
+                <span>字段值</span>
+              </label>
+              <label v-else>
+                <span>字段值</span>
+                <input v-model.trim="field.value_text" placeholder="字段值" />
+              </label>
+              <label class="checkline">
+                <input v-model="field.show_in_price_list" type="checkbox" />
+                <span>价格表展示</span>
+              </label>
+              <label>
+                <span>排序</span>
+                <input v-model.number="field.sort_order" type="number" min="0" step="1" />
+              </label>
+              <button class="text-button danger-text" type="button" @click="removeProductProductionConfigField(index)">删除</button>
+            </div>
+            <p v-if="!productProductionConfigForm.fields.length" class="muted">暂无产品信息字段。需要在价格表展示烘焙度、包装规格、等级等信息时再新增。</p>
+          </section>
+        </div>
+        <div class="drawer-footer">
+          <span class="muted">保存后价格表、录单、生产计划和新工单会读取这份商品生产配置。</span>
+          <button class="primary" type="button" :disabled="productProductionConfigSaving" @click="saveProductProductionConfig">
+            {{ productProductionConfigSaving ? '保存中' : '保存商品生产配置' }}
+          </button>
+        </div>
+      </aside>
+    </div>
+
     <div v-if="productionBomBindingDrawerOpen" class="settings-drawer-mask" @click.self="closeProductionBomBindingDrawer">
       <aside class="settings-drawer production-bom-binding-drawer" aria-label="更换生产 BOM">
         <div class="drawer-head">
@@ -945,7 +1053,7 @@
             <select v-model.number="productionBomBindingVersionID" :disabled="!productionBomBindingBomID">
               <option :value="0">选择已发布版本</option>
               <option v-for="version in productionBomVersionOptions" :key="version.id" :value="version.id">
-                {{ version.version_no }} · 兼容产出因子 {{ Math.round(Number(version.expected_yield_rate || version.yield_rate || 0) * 10000) / 100 }}%
+                {{ version.version_no }}
               </option>
             </select>
           </label>
@@ -1205,6 +1313,7 @@ const customerProductRuleOverrides = ref([])
 const customerProductRuleBindings = ref([])
 const productionBoms = ref([])
 const productionBomDetails = ref({})
+const processRoutes = ref([])
 const customers = ref([])
 const loading = ref(false)
 const skuSaving = ref(false)
@@ -1248,6 +1357,7 @@ const productSectionTitle = computed(() => {
 })
 const productDrawerOpen = ref(false)
 const skuCopyDrawerOpen = ref(false)
+const productProductionConfigDrawerOpen = ref(false)
 const productionBomBindingDrawerOpen = ref(false)
 const globalUnitDrawerOpen = ref(false)
 const categorySearchQuery = ref('')
@@ -1274,6 +1384,9 @@ const globalUnitEditingCode = ref('')
 const customerRuleTemplateForm = ref(defaultCustomerProductRuleTemplateForm())
 const customerRuleOverrideForm = ref(defaultCustomerProductRuleOverrideForm())
 const customerProductAliasForm = ref(defaultCustomerProductAliasForm())
+const productProductionConfigProduct = ref(null)
+const productProductionConfigForm = ref(defaultProductProductionConfigForm())
+const productProductionConfigSaving = ref(false)
 const productionBomBindingProduct = ref(null)
 const productionBomBindingBomID = ref(0)
 const productionBomBindingVersionID = ref(0)
@@ -1304,6 +1417,10 @@ const selectedCustomerPublicUsage = computed(() => {
 })
 const selectedProductionBomDetail = computed(() => productionBomDetails.value[String(productionBomBindingBomID.value || 0)] || null)
 const productionBomVersionOptions = computed(() => (selectedProductionBomDetail.value?.versions || [])
+  .filter((version) => version.status === 'published')
+  .sort((a, b) => String(b.version_no || '').localeCompare(String(a.version_no || ''))))
+const selectedProductProductionConfigBomDetail = computed(() => productionBomDetails.value[String(productProductionConfigForm.value.production_bom_id || 0)] || null)
+const productProductionConfigVersionOptions = computed(() => (selectedProductProductionConfigBomDetail.value?.versions || [])
   .filter((version) => version.status === 'published')
   .sort((a, b) => String(b.version_no || '').localeCompare(String(a.version_no || ''))))
 const customerUsesPublicCategories = computed(() => Boolean(
@@ -1659,6 +1776,39 @@ function defaultCustomerProductAliasForm() {
     include_in_price_list: true,
     active: true,
     remark: '',
+  }
+}
+
+function defaultProductProductionConfigField(row = {}, index = 0) {
+  const type = ['number', 'bool'].includes(String(row.field_type || '').trim()) ? String(row.field_type || '').trim() : 'text'
+  return {
+    local_id: `${Number(row.id || 0) || 'new'}-${Date.now()}-${index}`,
+    id: Number(row.id || 0),
+    field_key: String(row.field_key || '').trim(),
+    label: String(row.label || '').trim(),
+    field_type: type,
+    unit: String(row.unit || '').trim(),
+    value_text: String(row.value_text || '').trim(),
+    value_number: row.value_number === null || typeof row.value_number === 'undefined' || row.value_number === '' ? null : Number(row.value_number),
+    value_bool: Boolean(row.value_bool),
+    show_in_price_list: row.show_in_price_list !== false,
+    sort_order: Number(row.sort_order || index + 1),
+  }
+}
+
+function defaultProductProductionConfigForm(config = {}, product = {}) {
+  const lossRate = Number(config.expected_loss_rate ?? product.expected_loss_rate ?? 0)
+  return {
+    product_id: Number(config.product_id || product.id || 0),
+    production_bom_id: Number(config.production_bom_id || product.production_bom_id || 0),
+    production_bom_version_id: Number(config.production_bom_version_id || product.production_bom_version_id || 0),
+    process_route_id: Number(config.process_route_id || 0),
+    expected_loss_percent: Number.isFinite(lossRate) && lossRate > 0 ? Number((lossRate * 100).toFixed(2)) : 0,
+    note: String(config.note || product.production_config_note || '').trim(),
+    fields: (config.fields || [])
+      .slice()
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
+      .map((field, index) => defaultProductProductionConfigField(field, index)),
   }
 }
 
@@ -3192,11 +3342,135 @@ async function loadProductionBomCatalog() {
   productionBoms.value = await apiGet('/api/production-boms') || []
 }
 
+async function loadProcessRoutes() {
+  if (processRoutes.value.length) return
+  const data = await apiGet('/api/process-routes?status=published')
+  processRoutes.value = data?.rows || []
+}
+
 async function ensureProductionBomDetail(bomID) {
   const id = Number(bomID || 0)
   if (!id || productionBomDetails.value[String(id)]) return
   const detail = await apiGet(`/api/production-boms/${id}`)
   productionBomDetails.value = { ...productionBomDetails.value, [String(id)]: detail }
+}
+
+function productProductionConfigByProductID(productID) {
+  const id = Number(productID || 0)
+  return productProductionConfigs.value.find((row) => Number(row.product_id || 0) === id) || null
+}
+
+function normalizeProductProductionConfigFieldForSave(field = {}, index = 0) {
+  const label = String(field.label || '').trim()
+  const fieldKey = String(field.field_key || '').trim()
+    || label.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '_').replace(/^_+|_+$/g, '')
+    || `field_${index + 1}`
+  const fieldType = ['number', 'bool'].includes(String(field.field_type || '').trim()) ? String(field.field_type || '').trim() : 'text'
+  return {
+    id: Number(field.id || 0),
+    field_key: fieldKey,
+    label,
+    field_type: fieldType,
+    unit: String(field.unit || '').trim(),
+    value_text: fieldType === 'text' ? String(field.value_text || '').trim() : '',
+    value_number: fieldType === 'number' && field.value_number !== null && typeof field.value_number !== 'undefined' && field.value_number !== '' ? Number(field.value_number) : null,
+    value_bool: fieldType === 'bool' ? Boolean(field.value_bool) : null,
+    show_in_price_list: field.show_in_price_list !== false,
+    sort_order: Number(field.sort_order || index + 1),
+  }
+}
+
+async function selectProductProductionConfigBom(bomID) {
+  productProductionConfigForm.value.production_bom_id = Number(bomID || 0)
+  productProductionConfigForm.value.production_bom_version_id = 0
+  await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
+  const latest = productProductionConfigVersionOptions.value[0]
+  if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
+}
+
+async function openProductProductionConfig(row) {
+  productProductionConfigProduct.value = row || null
+  productProductionConfigForm.value = defaultProductProductionConfigForm(productProductionConfigByProductID(row?.id), row)
+  productProductionConfigDrawerOpen.value = true
+  error.value = ''
+  try {
+    await Promise.all([
+      loadProductionBomCatalog(),
+      loadProcessRoutes(),
+    ])
+    if (productProductionConfigForm.value.production_bom_id) {
+      await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
+      if (!productProductionConfigForm.value.production_bom_version_id) {
+        const latest = productProductionConfigVersionOptions.value[0]
+        if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
+      }
+    }
+  } catch (err) {
+    error.value = err.message || '加载商品生产配置失败'
+  }
+}
+
+function closeProductProductionConfigDrawer() {
+  productProductionConfigDrawerOpen.value = false
+  productProductionConfigProduct.value = null
+  productProductionConfigForm.value = defaultProductProductionConfigForm()
+}
+
+function addProductProductionConfigField() {
+  productProductionConfigForm.value.fields.push(defaultProductProductionConfigField({
+    show_in_price_list: true,
+    sort_order: productProductionConfigForm.value.fields.length + 1,
+  }, productProductionConfigForm.value.fields.length))
+}
+
+function removeProductProductionConfigField(index) {
+  productProductionConfigForm.value.fields.splice(index, 1)
+}
+
+async function saveProductProductionConfig() {
+  const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
+  if (!productID) {
+    error.value = '请选择商品档案'
+    return
+  }
+  const lossRate = Number(productProductionConfigForm.value.expected_loss_percent || 0) / 100
+  if (!Number.isFinite(lossRate) || lossRate < 0 || lossRate >= 1) {
+    error.value = '预期损耗率必须在 0% 到 99.999% 之间'
+    return
+  }
+  const fields = productProductionConfigForm.value.fields
+    .map((field, index) => normalizeProductProductionConfigFieldForSave(field, index))
+    .filter((field) => field.label || field.value_text || field.value_number !== null || field.value_bool !== null)
+  productProductionConfigSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const result = await apiSend(`/api/product-production-configs/${productID}`, {
+      method: 'PUT',
+      body: {
+        production_bom_id: Number(productProductionConfigForm.value.production_bom_id || 0),
+        production_bom_version_id: Number(productProductionConfigForm.value.production_bom_version_id || 0),
+        process_route_id: Number(productProductionConfigForm.value.process_route_id || 0),
+        expected_loss_rate: Number(lossRate.toFixed(6)),
+        note: String(productProductionConfigForm.value.note || '').trim(),
+        fields,
+      },
+    })
+    const saved = result?.config
+    if (saved) {
+      productProductionConfigs.value = [
+        ...productProductionConfigs.value.filter((row) => Number(row.product_id || 0) !== productID),
+        saved,
+      ]
+    }
+    ok.value = '商品生产配置已保存'
+    closeProductProductionConfigDrawer()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '保存商品生产配置失败'
+  } finally {
+    productProductionConfigSaving.value = false
+  }
 }
 
 async function selectProductionBomForBinding(bomID) {
@@ -3296,7 +3570,7 @@ async function createProduct() {
   }
   const yieldPercent = Number(productForm.value.yield_percent || 0)
   if (productKindSupportsBomParams(productForm.value.product_kind) && (yieldPercent <= 0 || yieldPercent > 100)) {
-    error.value = 'BOM兼容产出因子必须在 1% 到 100% 之间'
+    error.value = '历史 BOM 参数异常，请到商品生产配置维护预期损耗率'
     return
   }
   if (productForm.value.product_kind === 'green_bean' && Number(productForm.value.green_bean_bom_product_id || 0) <= 0) {
@@ -4019,7 +4293,7 @@ async function saveProductBasics(row, successMessage = '商品基础信息已保
   const productKind = normalizedProductKind(row)
   const yieldPercent = Number(row.yield_percent || 0)
   if (productKindSupportsBomParams(productKind) && (yieldPercent <= 0 || yieldPercent > 100)) {
-    error.value = 'BOM兼容产出因子必须在 1% 到 100% 之间'
+    error.value = '历史 BOM 参数异常，请到商品生产配置维护预期损耗率'
     return
   }
   if (productKind === 'green_bean' && Number(row.green_bean_bom_product_id || 0) <= 0) {
@@ -4441,6 +4715,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
     .product-editor-drawer { width: min(820px, 94vw); }
     .sku-copy-drawer { width: min(940px, 96vw); grid-template-rows: auto 1fr auto; }
     .production-bom-binding-drawer { width: min(680px, 94vw); grid-template-rows: auto 1fr auto; }
+    .product-production-config-drawer { width: min(980px, 96vw); grid-template-rows: auto 1fr auto; }
 .category-settings-drawer { width: min(920px, 96vw); }
 .global-unit-dictionary-drawer { width: min(760px, 94vw); }
 .drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 1px solid #eee8df; padding-bottom: 12px; }
@@ -4466,16 +4741,26 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .global-unit-chip-list { display: grid; gap: 8px; }
 .global-unit-chip { min-height: 50px; justify-content: flex-start; text-align: left; }
 .drawer-section { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; background: #fbfaf8; }
+.product-production-config-body { gap: 14px; }
+.production-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: end; }
+.production-config-grid label, .production-config-field-row label { display: grid; gap: 5px; min-width: 0; font-size: 13px; }
+.production-config-grid label span, .production-config-field-row label span { color: #5f5a52; font-weight: 600; }
+.production-config-grid .wide-field { grid-column: 1 / -1; }
+.production-config-fields { display: grid; gap: 10px; }
+.production-config-field-row { display: grid; grid-template-columns: minmax(120px, 1.2fr) minmax(94px, .7fr) minmax(80px, .6fr) minmax(130px, 1fr) minmax(112px, .7fr) minmax(76px, .5fr) auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; }
+.production-config-field-row .checkline { align-self: center; }
+.field-bool-value { min-height: 58px; align-content: end; }
 @media (max-width: 1100px) {
   .custom-product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .customer-rule-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .master-data-layout { grid-template-columns: 1fr; }
+  .production-config-field-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .sku-table .inactive-sku td { opacity: 0.4; }
 .sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .alias-toolbar, .customer-alias-form { grid-template-columns: 1fr; }
+  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .alias-toolbar, .customer-alias-form, .production-config-grid, .production-config-field-row { grid-template-columns: 1fr; }
   .sku-context-main { display: grid; }
   .sku-context-controls { justify-content: flex-start; min-width: 0; }
   .product-section-tabs-legacy { width: 100%; }
