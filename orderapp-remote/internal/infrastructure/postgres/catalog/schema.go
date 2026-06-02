@@ -33,6 +33,7 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS allow_mall_order BOOLEAN;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS gradient_template_id_override BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS operation_template_id_override BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS unit_rule_override_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0;
 UPDATE %[1]s.products SET visibility='public' WHERE COALESCE(visibility,'')='';
 UPDATE %[1]s.products SET product_kind='roasted_bean' WHERE COALESCE(product_kind,'')='';
 UPDATE %[1]s.products SET drip_bag_grams = 10 WHERE drip_bag_grams IS NULL;
@@ -77,6 +78,13 @@ ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS quote_unit TEXT NO
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS order_unit TEXT NOT NULL DEFAULT 'kg';
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS unit_conversion_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS integer_unit BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0;
+UPDATE %[1]s.products p
+SET product_config_template_id=COALESCE(pc.product_config_template_id,0)
+FROM %[1]s.product_categories pc
+WHERE COALESCE(p.product_config_template_id,0)=0
+	AND COALESCE(p.product_category_id,0)=pc.id
+	AND COALESCE(pc.product_config_template_id,0)>0;
 CREATE TABLE IF NOT EXISTS %[1]s.product_unit_definitions (
 	code TEXT PRIMARY KEY,
 	name TEXT NOT NULL,
@@ -142,6 +150,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_production_configs (
 	production_bom_id BIGINT NOT NULL DEFAULT 0,
 	production_bom_version_id BIGINT NOT NULL DEFAULT 0,
 	process_route_id BIGINT NOT NULL DEFAULT 0,
+	industry_field_template_id BIGINT NOT NULL DEFAULT 0,
 	expected_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
 	note TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -152,6 +161,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_production_configs (
 ALTER TABLE %[1]s.product_production_configs ADD COLUMN IF NOT EXISTS production_bom_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_production_configs ADD COLUMN IF NOT EXISTS production_bom_version_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_production_configs ADD COLUMN IF NOT EXISTS process_route_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_production_configs ADD COLUMN IF NOT EXISTS industry_field_template_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_production_configs ADD COLUMN IF NOT EXISTS expected_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_production_configs ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.product_production_configs ADD COLUMN IF NOT EXISTS created_by TEXT NOT NULL DEFAULT '';
@@ -170,6 +180,9 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_production_config_fields (
 	value_text TEXT NOT NULL DEFAULT '',
 	value_number NUMERIC(14,4),
 	value_bool BOOLEAN,
+	template_field_key TEXT NOT NULL DEFAULT '',
+	required BOOLEAN NOT NULL DEFAULT false,
+	options_json JSONB NOT NULL DEFAULT '[]'::jsonb,
 	show_in_price_list BOOLEAN NOT NULL DEFAULT true,
 	sort_order INT NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -180,6 +193,9 @@ ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS unit
 ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS value_text TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS value_number NUMERIC(14,4);
 ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS value_bool BOOLEAN;
+ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS template_field_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS required BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS options_json JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS show_in_price_list BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE %[1]s.product_production_config_fields ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0;
 CREATE UNIQUE INDEX IF NOT EXISTS product_production_config_fields_product_key_uq

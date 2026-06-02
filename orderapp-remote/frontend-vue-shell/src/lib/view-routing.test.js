@@ -17,7 +17,7 @@ test('delivery note date field keeps ISO date text visible to Chinese operators'
 test('sidebar navigation sanitizes stale edit identifiers before switching views', () => {
   const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
   assert.match(source, /viewNavigationURL/)
-  assert.match(source, /replaceHistoryURL\(applyWorkspaceToUrl\(viewNavigationURL\(url,\s*key,\s*workspaceViewParams\(params,\s*workspaceContext\(\)\)\)\)\)/)
+  assert.match(source, /replaceHistoryURL\(applyViewContextToUrl\(viewNavigationURL\(url,\s*key,\s*viewContextViewParams\(params,\s*currentViewContext\.value\)\)\)\)/)
 })
 
 test('vue shell confines sidebar/content scrolling, returns routed pages to top, and supports mobile swipe menu', () => {
@@ -40,7 +40,7 @@ test('vue shell confines sidebar/content scrolling, returns routed pages to top,
   }
 
   assert.match(source, /function open\(key,\s*params\s*=\s*\{\}\)[\s\S]*scrollCurrentViewToTop\(\)/)
-  assert.match(source, /function setWorkspaceMode\(mode\)[\s\S]*scrollCurrentViewToTop\(\)/)
+  assert.match(source, /function setCurrentViewContext\(context,[\s\S]*scrollCurrentViewToTop\(\)/)
   assert.match(source, /\.layout\s*\{[^}]*height:\s*100vh;[^}]*overflow:\s*hidden;/)
   assert.match(source, /\.sidebar\s*\{[^}]*height:\s*100vh;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/)
   assert.match(source, /\.content\s*\{[^}]*height:\s*100vh;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/)

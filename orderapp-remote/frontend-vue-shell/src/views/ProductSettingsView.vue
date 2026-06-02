@@ -111,17 +111,16 @@
                 <th class="select-col">
                   <input type="checkbox" :checked="allProductRowsSelected" :disabled="!editableDisplaySkuRows.length" @change="toggleAllProductRows($event.target.checked)" />
                 </th>
+                <th class="sku-name-cell">商品名</th>
+                <th>商品编号</th>
                 <th class="sku-col-product-type">产品类型</th>
                 <th class="sku-col-product-subtype">产品子类型</th>
-                <th>商品编号</th>
-                <th class="sku-name-cell">商品</th>
                 <th>归属</th>
                 <th class="action-cell">新增动作</th>
                 <th>生产配置预期损耗率</th>
                 <th>利润率覆盖</th>
                 <th>生产 BOM</th>
                 <th>商品状态</th>
-                <th>BOM</th>
                 <th>处理</th>
                 <th class="remark-cell">备注</th>
               </tr>
@@ -132,16 +131,12 @@
                   <td class="select-col">
                     <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row) || row.active === false" @change="toggleProductSelection(row, $event.target.checked)" />
                   </td>
+                  <td class="sku-name-cell">
+                    <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">{{ row.name || '未命名商品' }}</button>
+                  </td>
+                  <td>{{ row.number || '' }}</td>
                   <td class="sku-category-cell">{{ categoryLabel(row, 1) }}</td>
                   <td class="sku-category-cell">{{ categoryLabel(row, 2) }}</td>
-                  <td>{{ row.number || '' }}</td>
-                  <td class="sku-name-cell">
-                    <input
-                      class="sku-name-input"
-                      v-model.trim="row.name"
-                      :disabled="!canEditSkuRow(row) || row.active === false"
-                      @change="saveProductBasics(row, 'SKU名称已保存')" />
-                  </td>
                   <td>{{ productOwnerLabel(row) }}</td>
                   <td class="action-cell">
                     <button class="text-button" type="button" @click="copySkuInPlace(row)">复制为商品档案</button>
@@ -168,11 +163,6 @@
                     <span :class="['status-pill', (row.active === false || row.bom_status === 'inactive') ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
                   </td>
                   <td>
-                    <button class="text-button" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="openProductProductionConfig(row)">生产配置</button>
-                    <button class="text-button" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="openProductionBomBinding(row)">更换生产 BOM</button>
-                    <button class="text-button" type="button" :disabled="row.active === false" @click="openProductBom(row)">维护 BOM</button>
-                  </td>
-                  <td>
                     <button class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="deactivateProducts([row.id])">停用</button>
                   </td>
                   <td>
@@ -185,7 +175,7 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'green_bean'" class="green-bean-detail-row">
-                  <td :colspan="14">
+                  <td :colspan="13">
                     <div class="green-bean-detail-fields">
                       <label>
                         <span>生豆属性</span>
@@ -253,6 +243,7 @@
           <div class="panel-title">
             <span>客户商品名 · {{ aliasCustomerLabel }}</span>
             <div class="panel-actions">
+              <button class="secondary compact-action" type="button" :disabled="!selectedAliasCustomerID" @click="openCustomerAliasBatchDrawer">批量添加商品档案</button>
               <button class="secondary compact-action" type="button" @click="resetCustomerProductAliasForm">清空</button>
             </div>
           </div>
@@ -362,7 +353,7 @@
                   <td><span :class="['status-pill', alias.active === false ? 'inactive' : '']">{{ alias.active === false ? '停用' : '启用' }}</span></td>
                   <td class="table-actions">
                     <button class="text-button" type="button" @click="editCustomerProductAlias(alias)">编辑</button>
-                    <button class="text-button" type="button" @click="openProductBom({ id: alias.product_id })">生产 BOM</button>
+                    <button class="text-button" type="button" @click="navigateProductBom({ id: alias.product_id })">生产 BOM</button>
                     <button class="text-button danger-text" type="button" :disabled="alias.active === false" @click="disableCustomerProductAlias(alias)">停用</button>
                   </td>
                 </tr>
@@ -534,17 +525,6 @@
                       </button>
                       <small v-if="skuContextCustomerID">{{ categoryStateLabel(secondary) }}</small>
                       <small>{{ secondary.products.length }} 款</small>
-                      <select
-                        class="template-select"
-                        :value="secondary.product_config_template_id || 0"
-                        :disabled="!canEditCategory(secondary)"
-                        @pointerdown.stop
-                        @change.stop="bindProductConfigTemplateToSubtype(secondary, $event.target.value)">
-                        <option value="0">未绑定商品配置</option>
-                        <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">
-                          {{ config.name }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}
-                        </option>
-                      </select>
                       <div class="secondary-category-actions">
                         <button v-if="secondaryDeleteModeFor === Number(primary.id) && canEditCategory(secondary)" class="category-delete-button" type="button" aria-label="删除产品子类型" title="删除产品子类型" @pointerdown.stop @click.stop="deleteCategory(secondary)">-</button>
                       </div>
@@ -914,6 +894,15 @@
               </select>
               <small>只有选中产品子类型才会挂入分类；未选会进入停车场。</small>
             </label>
+            <label>
+              <span>商品配置模板</span>
+              <select v-model.number="skuForm.product_config_template_id">
+                <option :value="0">未绑定商品配置模板</option>
+                <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">
+                  {{ config.name }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}
+                </option>
+              </select>
+            </label>
             <div class="form-actions">
               <button class="primary" type="submit" :disabled="skuSaving">创建新商品档案</button>
             </div>
@@ -922,16 +911,155 @@
       </aside>
     </div>
 
-    <div v-if="productProductionConfigDrawerOpen" class="settings-drawer-mask" @click.self="closeProductProductionConfigDrawer">
-      <aside class="settings-drawer product-production-config-drawer" aria-label="商品生产配置">
+    <div v-if="customerAliasBatchDrawerOpen" class="settings-drawer-mask" @click.self="closeCustomerAliasBatchDrawer">
+      <aside class="settings-drawer customer-alias-batch-drawer" aria-label="批量添加商品档案">
         <div class="drawer-head">
           <div>
-            <h3>商品生产配置</h3>
+            <h3>批量添加商品档案</h3>
+            <p>{{ aliasCustomerLabel }}</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeCustomerAliasBatchDrawer">关闭</button>
+        </div>
+        <div class="drawer-body">
+          <div class="alias-batch-filters">
+            <label>
+              <span>搜索</span>
+              <input v-model.trim="aliasBatchFilters.query" placeholder="商品名称/编号" />
+            </label>
+            <label>
+              <span>产品类型</span>
+              <select v-model="aliasBatchFilters.primaryCategory">
+                <option value="">全部产品类型</option>
+                <option v-for="name in aliasBatchPrimaryOptions" :key="name" :value="name">{{ name }}</option>
+              </select>
+            </label>
+            <label>
+              <span>产品子类型</span>
+              <select v-model="aliasBatchFilters.secondaryCategory">
+                <option value="">全部产品子类型</option>
+                <option v-for="name in aliasBatchSecondaryOptions" :key="name" :value="name">{{ name }}</option>
+              </select>
+            </label>
+            <label>
+              <span>展示分类</span>
+              <select v-model.number="aliasBatchForm.display_category_id">
+                <option :value="0">未分类</option>
+                <option v-for="category in aliasDisplayCategoryOptions" :key="category.id" :value="category.id">{{ category.label }}</option>
+              </select>
+            </label>
+            <label>
+              <span>品牌名</span>
+              <input v-model.trim="aliasBatchForm.brand_name" placeholder="默认留空" />
+            </label>
+            <label class="checkbox-row">
+              <input v-model="aliasBatchForm.include_in_price_list" type="checkbox" />
+              <span>默认进入价格表</span>
+            </label>
+          </div>
+          <div class="alias-batch-toolbar">
+            <span class="muted">已选 {{ selectedAliasBatchProductIds.length }} 个；同客户同商品档案已存在时自动跳过。</span>
+            <button class="secondary compact-action" type="button" @click="toggleAllAliasBatchProducts(true)">全选当前筛选</button>
+            <button class="secondary compact-action" type="button" @click="toggleAllAliasBatchProducts(false)">清空选择</button>
+          </div>
+          <div class="table-wrap">
+            <table class="customer-alias-table alias-batch-table">
+              <thead>
+                <tr>
+                  <th class="select-col">选择</th>
+                  <th>商品档案</th>
+                  <th>商品编号</th>
+                  <th>产品类型</th>
+                  <th>产品子类型</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="product in aliasBatchCandidateRows" :key="product.id">
+                  <td class="select-col">
+                    <input type="checkbox" :checked="isAliasBatchProductSelected(product)" :disabled="aliasBatchProductExists(product)" @change="toggleAliasBatchProduct(product, $event.target.checked)" />
+                  </td>
+                  <td>{{ product.name }}</td>
+                  <td>{{ product.number || product.id }}</td>
+                  <td>{{ product.primary_name || '-' }}</td>
+                  <td>{{ product.secondary_name || '-' }}</td>
+                  <td>{{ aliasBatchProductExists(product) ? '已存在' : '可添加' }}</td>
+                </tr>
+                <tr v-if="!aliasBatchCandidateRows.length">
+                  <td colspan="6" class="muted">没有匹配的商品档案。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="drawer-footer">
+          <span class="muted">批量创建时客户商品名=商品档案名称，客户商品编号=商品编号，品牌默认留空。</span>
+          <button class="primary" type="button" :disabled="aliasBatchSaving || !selectedAliasBatchProductIds.length" @click="saveCustomerAliasBatch">
+            {{ aliasBatchSaving ? '添加中' : '批量创建客户商品名' }}
+          </button>
+        </div>
+      </aside>
+    </div>
+
+    <div v-if="productProductionConfigDrawerOpen" class="settings-drawer-mask" @click.self="closeProductProductionConfigDrawer">
+      <aside class="settings-drawer product-production-config-drawer" aria-label="商品档案配置">
+        <div class="drawer-head">
+          <div>
+            <h3>商品档案配置</h3>
             <p>{{ productProductionConfigProduct?.name || '商品档案' }}</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closeProductProductionConfigDrawer">关闭</button>
         </div>
         <div class="drawer-body product-production-config-body">
+          <section class="drawer-section">
+            <div class="field-group-head">
+              <div class="field-group-copy">
+                <strong>基础信息</strong>
+                <small>商品档案是库存、成本、生产和成品批次对象；客户对外名称在客户商品名维护。</small>
+              </div>
+            </div>
+            <div class="production-config-grid">
+              <label>
+                <span>商品名</span>
+                <input v-model.trim="productProductionConfigForm.name" :disabled="!canEditSkuRow(productProductionConfigProduct || {})" placeholder="商品档案名称" />
+              </label>
+              <label>
+                <span>商品配置模板</span>
+                <select v-model.number="productProductionConfigForm.product_config_template_id">
+                  <option :value="0">未绑定商品配置模板</option>
+                  <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">
+                    {{ config.name }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span>产品类型</span>
+                <select v-model.number="productProductionConfigForm.product_type_category_id" @change="handleArchiveConfigProductTypeChange">
+                  <option :value="0">未分类</option>
+                  <option v-for="category in productTypeCategoryOptions" :key="category.id" :value="category.id">{{ category.name }}</option>
+                </select>
+              </label>
+              <label>
+                <span>产品子类型</span>
+                <select v-model.number="productProductionConfigForm.product_subtype_category_id">
+                  <option :value="0">停车场</option>
+                  <option v-for="category in productSubtypeCategoryOptions(productProductionConfigForm.product_type_category_id)" :key="category.id" :value="category.id">{{ category.name }}</option>
+                </select>
+              </label>
+              <label class="wide-field">
+                <span>备注</span>
+                <textarea v-model.trim="productProductionConfigForm.remark" rows="2" placeholder="商品档案备注"></textarea>
+              </label>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <div class="field-group-head">
+              <div class="field-group-copy">
+                <strong>生产配置</strong>
+                <small>生产 BOM、工艺路线、预期损耗率和行业字段会被价格表、录单、生产计划和新工单读取。</small>
+              </div>
+              <button class="secondary compact-action" type="button" :disabled="!productProductionConfigForm.production_bom_id" @click="navigateCurrentProductBom">维护当前 BOM 明细</button>
+            </div>
           <div class="production-config-grid">
             <label>
               <span>生产 BOM</span>
@@ -969,14 +1097,21 @@
               <textarea v-model.trim="productProductionConfigForm.note" rows="2" placeholder="例如深烘配置、包装要求、生产注意事项"></textarea>
             </label>
           </div>
+          </section>
 
           <section class="drawer-section production-config-fields">
             <div class="field-group-head">
               <div class="field-group-copy">
-                <strong>产品信息字段</strong>
-                <small>这些字段可进入价格表和订单/工单快照；不用填写 JSON。</small>
+                <strong>行业字段值</strong>
+                <small>字段定义来自行业字段模板，也可以临时新增字段；不用填写 JSON。</small>
               </div>
-              <button class="secondary compact-action" type="button" @click="addProductProductionConfigField">新增字段</button>
+              <div class="field-group-actions">
+                <select v-model.number="productProductionConfigForm.industry_field_template_id" @change="applyIndustryFieldTemplateToProductionConfig">
+                  <option :value="0">不使用行业字段模板</option>
+                  <option v-for="template in activeIndustryFieldTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+                </select>
+                <button class="secondary compact-action" type="button" @click="addProductProductionConfigField">新增字段</button>
+              </div>
             </div>
             <div v-for="(field, index) in productProductionConfigForm.fields" :key="field.local_id" class="production-config-field-row">
               <label>
@@ -987,21 +1122,40 @@
                 <span>类型</span>
                 <select v-model="field.field_type">
                   <option value="text">文本</option>
+                  <option value="textarea">长文本</option>
                   <option value="number">数字</option>
-                  <option value="bool">是否</option>
+                  <option value="ratio">比例</option>
+                  <option value="select">选项</option>
+                  <option value="checkbox">勾选</option>
+                  <option value="date">日期</option>
                 </select>
               </label>
               <label>
                 <span>单位</span>
                 <input v-model.trim="field.unit" placeholder="可留空" />
               </label>
-              <label v-if="field.field_type === 'number'">
+              <label v-if="field.field_type === 'number' || field.field_type === 'ratio'">
                 <span>字段值</span>
                 <input v-model.number="field.value_number" type="number" step="0.0001" />
               </label>
-              <label v-else-if="field.field_type === 'bool'" class="checkline field-bool-value">
+              <label v-else-if="field.field_type === 'checkbox'" class="checkline field-bool-value">
                 <input v-model="field.value_bool" type="checkbox" />
                 <span>字段值</span>
+              </label>
+              <label v-else-if="field.field_type === 'select'">
+                <span>字段值</span>
+                <select v-model="field.value_text">
+                  <option value="">未选择</option>
+                  <option v-for="option in fieldOptions(field)" :key="option" :value="option">{{ option }}</option>
+                </select>
+              </label>
+              <label v-else-if="field.field_type === 'textarea'" class="wide-field">
+                <span>字段值</span>
+                <textarea v-model.trim="field.value_text" rows="2" placeholder="字段值"></textarea>
+              </label>
+              <label v-else-if="field.field_type === 'date'">
+                <span>字段值</span>
+                <input v-model="field.value_text" type="date" />
               </label>
               <label v-else>
                 <span>字段值</span>
@@ -1021,50 +1175,10 @@
           </section>
         </div>
         <div class="drawer-footer">
-          <span class="muted">保存后价格表、录单、生产计划和新工单会读取这份商品生产配置。</span>
+          <span class="muted">保存后价格表、录单、生产计划和新工单会读取这份商品档案配置。</span>
           <button class="primary" type="button" :disabled="productProductionConfigSaving" @click="saveProductProductionConfig">
-            {{ productProductionConfigSaving ? '保存中' : '保存商品生产配置' }}
+            {{ productProductionConfigSaving ? '保存中' : '保存商品档案配置' }}
           </button>
-        </div>
-      </aside>
-    </div>
-
-    <div v-if="productionBomBindingDrawerOpen" class="settings-drawer-mask" @click.self="closeProductionBomBindingDrawer">
-      <aside class="settings-drawer production-bom-binding-drawer" aria-label="更换生产 BOM">
-        <div class="drawer-head">
-          <div>
-            <h3>更换生产 BOM</h3>
-            <p>{{ productionBomBindingProduct?.name || '商品档案' }}</p>
-          </div>
-          <button class="secondary compact-action" type="button" @click="closeProductionBomBindingDrawer">关闭</button>
-        </div>
-        <div class="drawer-body">
-          <label>
-            <span>生产 BOM</span>
-            <select v-model.number="productionBomBindingBomID" @change="selectProductionBomForBinding(productionBomBindingBomID)">
-              <option :value="0">选择生产 BOM</option>
-              <option v-for="bom in productionBoms" :key="bom.id" :value="bom.id">
-                {{ bom.code }} {{ bom.name }}{{ bom.group_name ? ` / ${bom.group_name}` : '' }}
-              </option>
-            </select>
-          </label>
-          <label>
-            <span>BOM版本</span>
-            <select v-model.number="productionBomBindingVersionID" :disabled="!productionBomBindingBomID">
-              <option :value="0">选择已发布版本</option>
-              <option v-for="version in productionBomVersionOptions" :key="version.id" :value="version.id">
-                {{ version.version_no }}
-              </option>
-            </select>
-          </label>
-          <div v-if="productionBomBindingProduct" class="drawer-section">
-            <strong>{{ productionBomLabel(productionBomBindingProduct) }}</strong>
-            <small v-if="productionBomVersionWarning(productionBomBindingProduct)" class="bom-version-warning" data-warning-prefix="当前引用">{{ productionBomVersionWarning(productionBomBindingProduct) }}</small>
-          </div>
-        </div>
-        <div class="drawer-footer">
-          <span class="muted">商品档案将绑定所选已发布版本</span>
-          <button class="primary" type="button" :disabled="productionBomBindingSaving || !productionBomBindingVersionID" @click="saveProductionBomBinding">保存绑定</button>
         </div>
       </aside>
     </div>
@@ -1238,6 +1352,7 @@ import {
 } from '../lib/gradient-templates'
 import {
   buildCustomerPublicUsagePayload,
+  buildCustomerProductAliasBatchPayload,
   buildCustomerProductAliasPayload,
   customerProductAliasMigrationCandidateSummary,
   buildCustomerProductRuleBindingPayload,
@@ -1249,7 +1364,6 @@ import {
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
   buildProductBasicsPayload,
-  buildProductBomURL,
   buildProductCreatePayload,
   buildAssignCategoryPayload,
   buildSkuCopyPayload,
@@ -1303,6 +1417,7 @@ const products = ref([])
 const gradientTemplates = ref([])
 const productConfigTemplates = ref([])
 const productProductionConfigs = ref([])
+const industryFieldTemplates = ref([])
 const productUnitDefinitions = ref([])
 const productUnitTemplates = ref([])
 const customerPublicUsages = ref([])
@@ -1327,6 +1442,7 @@ const productUnitSaving = ref(false)
 const globalUnitSaving = ref(false)
 const customerRuleSaving = ref(false)
 const aliasSaving = ref(false)
+const aliasBatchSaving = ref(false)
 const aliasMigrationLoading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -1358,7 +1474,7 @@ const productSectionTitle = computed(() => {
 const productDrawerOpen = ref(false)
 const skuCopyDrawerOpen = ref(false)
 const productProductionConfigDrawerOpen = ref(false)
-const productionBomBindingDrawerOpen = ref(false)
+const customerAliasBatchDrawerOpen = ref(false)
 const globalUnitDrawerOpen = ref(false)
 const categorySearchQuery = ref('')
 const primaryDeleteMode = ref(false)
@@ -1366,6 +1482,7 @@ const secondaryDeleteModeFor = ref(0)
 const selectedCustomerSkuCustomerID = ref(0)
 const selectedAliasCustomerID = ref(0)
 const selectedProductIds = ref([])
+const selectedAliasBatchProductIds = ref([])
 const skuFilters = ref(defaultSkuFilters())
 const skuPage = ref(1)
 const skuPageSize = ref(10)
@@ -1384,13 +1501,11 @@ const globalUnitEditingCode = ref('')
 const customerRuleTemplateForm = ref(defaultCustomerProductRuleTemplateForm())
 const customerRuleOverrideForm = ref(defaultCustomerProductRuleOverrideForm())
 const customerProductAliasForm = ref(defaultCustomerProductAliasForm())
+const aliasBatchForm = ref(defaultCustomerProductAliasBatchForm())
+const aliasBatchFilters = ref(defaultAliasBatchFilters())
 const productProductionConfigProduct = ref(null)
 const productProductionConfigForm = ref(defaultProductProductionConfigForm())
 const productProductionConfigSaving = ref(false)
-const productionBomBindingProduct = ref(null)
-const productionBomBindingBomID = ref(0)
-const productionBomBindingVersionID = ref(0)
-const productionBomBindingSaving = ref(false)
 
 const skuContextCustomerID = computed(() => Number(selectedCustomerSkuCustomerID.value || 0))
 const productConfigTemplateForm = ref(defaultProductConfigTemplateForm())
@@ -1415,10 +1530,6 @@ const selectedCustomerPublicUsage = computed(() => {
     use_public_gradient_templates: false,
   }
 })
-const selectedProductionBomDetail = computed(() => productionBomDetails.value[String(productionBomBindingBomID.value || 0)] || null)
-const productionBomVersionOptions = computed(() => (selectedProductionBomDetail.value?.versions || [])
-  .filter((version) => version.status === 'published')
-  .sort((a, b) => String(b.version_no || '').localeCompare(String(a.version_no || ''))))
 const selectedProductProductionConfigBomDetail = computed(() => productionBomDetails.value[String(productProductionConfigForm.value.production_bom_id || 0)] || null)
 const productProductionConfigVersionOptions = computed(() => (selectedProductProductionConfigBomDetail.value?.versions || [])
   .filter((version) => version.status === 'published')
@@ -1566,11 +1677,23 @@ const aliasProductOptions = computed(() => products.value
   .filter((product) => product.active !== false)
   .slice()
   .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')) || Number(a.id || 0) - Number(b.id || 0)))
+const activeIndustryFieldTemplates = computed(() => industryFieldTemplates.value
+  .filter((template) => String(template.status || 'active') === 'active')
+  .slice()
+  .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name || '').localeCompare(String(b.name || ''))))
 const aliasDisplayCategoryOptions = computed(() => flattenCategoryNodes(categories.value).map((category) => ({
   id: Number(category.id || 0),
   label: `${Number(category.customer_id || 0) > 0 ? `${customerName(category.customer_id) || '客户'} / ` : ''}${category.name || ''}`,
 })).filter((category) => category.id > 0 && category.label))
 const visibleCustomerProductAliases = computed(() => customerProductAliasRowsForCustomer(customerProductAliases.value, selectedAliasCustomerID.value, { includeInactive: true }))
+const aliasBatchRows = computed(() => skuTableRowsFromFlatProducts(aliasProductOptions.value, categories.value, () => true))
+const aliasBatchFilteredRows = computed(() => filterAliasBatchRows(aliasBatchRows.value, aliasBatchFilters.value))
+const aliasBatchCandidateRows = computed(() => aliasBatchFilteredRows.value.slice(0, 300))
+const aliasBatchPrimaryOptions = computed(() => Array.from(new Set(aliasBatchRows.value.map((row) => row.primary_name || '').filter(Boolean))).sort((a, b) => a.localeCompare(b)))
+const aliasBatchSecondaryOptions = computed(() => Array.from(new Set(aliasBatchRows.value
+  .filter((row) => !aliasBatchFilters.value.primaryCategory || row.primary_name === aliasBatchFilters.value.primaryCategory)
+  .map((row) => row.secondary_name || '')
+  .filter(Boolean))).sort((a, b) => a.localeCompare(b)))
 const productCreationActions = computed(() => productCreationActionOptions({ customerID: skuContextCustomerID.value }))
 const visibleAliasMigrationCandidates = computed(() => (aliasMigrationCandidates.value || [])
   .filter((row) => Number(row.customer_id || 0) === Number(selectedAliasCustomerID.value || 0))
@@ -1748,6 +1871,7 @@ function defaultSkuForm() {
     remark: '',
     product_type_category_id: 0,
     product_subtype_category_id: 0,
+    product_config_template_id: 0,
     special_attr_values: {},
     active: true,
   }
@@ -1779,18 +1903,39 @@ function defaultCustomerProductAliasForm() {
   }
 }
 
+function defaultCustomerProductAliasBatchForm() {
+  return {
+    customer_id: Number(selectedAliasCustomerID.value || 0),
+    include_in_price_list: true,
+    brand_name: '',
+    display_category_id: 0,
+  }
+}
+
+function defaultAliasBatchFilters() {
+  return {
+    query: '',
+    primaryCategory: '',
+    secondaryCategory: '',
+  }
+}
+
 function defaultProductProductionConfigField(row = {}, index = 0) {
-  const type = ['number', 'bool'].includes(String(row.field_type || '').trim()) ? String(row.field_type || '').trim() : 'text'
+  const rawType = String(row.field_type || '').trim()
+  const type = ['text', 'textarea', 'number', 'ratio', 'select', 'checkbox', 'date', 'bool'].includes(rawType) ? (rawType === 'bool' ? 'checkbox' : rawType) : 'text'
   return {
     local_id: `${Number(row.id || 0) || 'new'}-${Date.now()}-${index}`,
     id: Number(row.id || 0),
     field_key: String(row.field_key || '').trim(),
+    template_field_key: String(row.template_field_key || row.field_key || '').trim(),
     label: String(row.label || '').trim(),
     field_type: type,
     unit: String(row.unit || '').trim(),
     value_text: String(row.value_text || '').trim(),
     value_number: row.value_number === null || typeof row.value_number === 'undefined' || row.value_number === '' ? null : Number(row.value_number),
     value_bool: Boolean(row.value_bool),
+    required: Boolean(row.required),
+    options_json: String(row.options_json || '[]').trim() || '[]',
     show_in_price_list: row.show_in_price_list !== false,
     sort_order: Number(row.sort_order || index + 1),
   }
@@ -1798,11 +1943,19 @@ function defaultProductProductionConfigField(row = {}, index = 0) {
 
 function defaultProductProductionConfigForm(config = {}, product = {}) {
   const lossRate = Number(config.expected_loss_rate ?? product.expected_loss_rate ?? 0)
+  const subtype = productSubtypeCategoryByID(product.product_category_id)
   return {
     product_id: Number(config.product_id || product.id || 0),
+    name: String(product.name || '').trim(),
+    remark: String(product.remark || '').trim(),
+    product_kind: product.product_kind || 'roasted',
+    product_type_category_id: Number(subtype?.parent_id || 0),
+    product_subtype_category_id: Number(product.product_category_id || 0),
+    product_config_template_id: Number(product.product_config_template_id || 0),
     production_bom_id: Number(config.production_bom_id || product.production_bom_id || 0),
     production_bom_version_id: Number(config.production_bom_version_id || product.production_bom_version_id || 0),
     process_route_id: Number(config.process_route_id || 0),
+    industry_field_template_id: Number(config.industry_field_template_id || 0),
     expected_loss_percent: Number.isFinite(lossRate) && lossRate > 0 ? Number((lossRate * 100).toFixed(2)) : 0,
     note: String(config.note || product.production_config_note || '').trim(),
     fields: (config.fields || [])
@@ -2187,16 +2340,18 @@ async function loadAll() {
   loading.value = true
   error.value = ''
   try {
-    const [data, customerData, aliasData] = await Promise.all([
+    const [data, customerData, aliasData, industryData] = await Promise.all([
       apiGet('/api/product-settings'),
       apiGet('/api/customer-fulfillment/customers?limit=200'),
       apiGet('/api/customer-product-aliases?active=all'),
+      apiGet('/api/industry-field-templates'),
     ])
     categories.value = (data.categories || []).map(decorateCategory)
     products.value = (data.products || []).map(decorateProduct)
     gradientTemplates.value = (data.gradient_templates || []).map(normalizeGradientTemplate)
     productConfigTemplates.value = (data.product_config_templates || []).map(decorateProductConfigTemplate)
     productProductionConfigs.value = data.product_production_configs || []
+    industryFieldTemplates.value = industryData?.rows || []
     productUnitDefinitions.value = (data.product_unit_definitions || []).map(decorateProductUnitDefinition)
     productUnitTemplates.value = (data.product_unit_templates || []).map(decorateProductUnitTemplate)
     customerProductRuleTemplates.value = (data.customer_product_rule_templates || []).map(decorateCustomerProductRuleTemplate)
@@ -2359,29 +2514,6 @@ async function bindCategoryGradientTemplate(category, templateID) {
   }
 }
 
-async function bindProductConfigTemplateToSubtype(category, templateID) {
-  if (!canEditCategory(category)) return
-  const payload = buildProductCategoryConfigPayload({
-    ...category,
-    product_config_template_id: Number(templateID || 0),
-  })
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    await apiSend(`/api/product-settings/categories/${payload.id}`, {
-      method: 'PUT',
-      body: payload,
-    })
-    ok.value = '子类型商品配置已更新'
-    await loadAll()
-  } catch (err) {
-    error.value = err.message || '绑定商品配置失败'
-  } finally {
-    loading.value = false
-  }
-}
-
 async function resolveGradientTemplateForCategory(category, templateID) {
   if (!templateID) return 0
   const template = gradientTemplates.value.find((row) => Number(row.id || 0) === Number(templateID))
@@ -2487,7 +2619,7 @@ async function saveProductConfigTemplate() {
     const url = payload.id ? `/api/product-settings/product-config-templates/${payload.id}` : '/api/product-settings/product-config-templates'
     const method = payload.id ? 'PUT' : 'POST'
     await apiSend(url, { method, body: payload })
-    ok.value = '商品配置已保存，绑定的产品子类型会同步更新'
+    ok.value = '商品配置模板已保存，引用该模板的商品档案会同步使用新规则'
     resetProductConfigTemplateForm()
     await loadAll()
   } catch (err) {
@@ -3333,8 +3465,18 @@ function handleCustomProductKindChange() {
   customForm.value.copy_price_tiers = customForm.value.product_kind !== 'green_bean' && customForm.value.custom_type !== 'custom_roast'
 }
 
-function openProductBom(row) {
-  window.location.href = buildProductBomURL(window.location.href, row).toString()
+function navigateProductBom(row) {
+  const productID = Number(row?.id || row?.product_id || 0)
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'bom',
+      params: productID > 0 ? { product_id: productID, bom_filter_product_id: productID } : {},
+    },
+  }))
+}
+
+function navigateCurrentProductBom() {
+  navigateProductBom({ id: productProductionConfigForm.value.product_id || productProductionConfigProduct.value?.id || 0 })
 }
 
 async function loadProductionBomCatalog() {
@@ -3365,18 +3507,45 @@ function normalizeProductProductionConfigFieldForSave(field = {}, index = 0) {
   const fieldKey = String(field.field_key || '').trim()
     || label.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '_').replace(/^_+|_+$/g, '')
     || `field_${index + 1}`
-  const fieldType = ['number', 'bool'].includes(String(field.field_type || '').trim()) ? String(field.field_type || '').trim() : 'text'
+  const fieldType = ['text', 'textarea', 'number', 'ratio', 'select', 'checkbox', 'date'].includes(String(field.field_type || '').trim()) ? String(field.field_type || '').trim() : 'text'
+  const usesText = ['text', 'textarea', 'select', 'date'].includes(fieldType)
+  const usesNumber = ['number', 'ratio'].includes(fieldType)
+  const optionsJSON = normalizeFieldOptionsJSON(field.options_json)
   return {
     id: Number(field.id || 0),
     field_key: fieldKey,
+    template_field_key: String(field.template_field_key || fieldKey).trim(),
     label,
     field_type: fieldType,
     unit: String(field.unit || '').trim(),
-    value_text: fieldType === 'text' ? String(field.value_text || '').trim() : '',
-    value_number: fieldType === 'number' && field.value_number !== null && typeof field.value_number !== 'undefined' && field.value_number !== '' ? Number(field.value_number) : null,
-    value_bool: fieldType === 'bool' ? Boolean(field.value_bool) : null,
+    value_text: usesText ? String(field.value_text || '').trim() : '',
+    value_number: usesNumber && field.value_number !== null && typeof field.value_number !== 'undefined' && field.value_number !== '' ? Number(field.value_number) : null,
+    value_bool: fieldType === 'checkbox' ? Boolean(field.value_bool) : null,
+    required: Boolean(field.required),
+    options_json: optionsJSON,
     show_in_price_list: field.show_in_price_list !== false,
     sort_order: Number(field.sort_order || index + 1),
+  }
+}
+
+function normalizeFieldOptionsJSON(value) {
+  if (Array.isArray(value)) return JSON.stringify(value)
+  const text = String(value || '').trim()
+  if (!text) return '[]'
+  try {
+    const parsed = JSON.parse(text)
+    return JSON.stringify(Array.isArray(parsed) ? parsed : [])
+  } catch (_) {
+    return JSON.stringify(text.split(/[,\n]/).map((item) => item.trim()).filter(Boolean))
+  }
+}
+
+function fieldOptions(field = {}) {
+  try {
+    const parsed = JSON.parse(field.options_json || '[]')
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean) : []
+  } catch (_) {
+    return []
   }
 }
 
@@ -3388,6 +3557,10 @@ async function selectProductProductionConfigBom(bomID) {
   if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
 }
 
+function handleArchiveConfigProductTypeChange() {
+  productProductionConfigForm.value.product_subtype_category_id = 0
+}
+
 async function openProductProductionConfig(row) {
   productProductionConfigProduct.value = row || null
   productProductionConfigForm.value = defaultProductProductionConfigForm(productProductionConfigByProductID(row?.id), row)
@@ -3397,6 +3570,7 @@ async function openProductProductionConfig(row) {
     await Promise.all([
       loadProductionBomCatalog(),
       loadProcessRoutes(),
+      loadIndustryFieldTemplates(),
     ])
     if (productProductionConfigForm.value.production_bom_id) {
       await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
@@ -3408,6 +3582,43 @@ async function openProductProductionConfig(row) {
   } catch (err) {
     error.value = err.message || '加载商品生产配置失败'
   }
+}
+
+async function loadIndustryFieldTemplates() {
+  if (industryFieldTemplates.value.length) return
+  const data = await apiGet('/api/industry-field-templates')
+  industryFieldTemplates.value = data?.rows || []
+}
+
+function selectedIndustryFieldTemplate() {
+  const id = Number(productProductionConfigForm.value.industry_field_template_id || 0)
+  if (!id) return null
+  return activeIndustryFieldTemplates.value.find((template) => Number(template.id || 0) === id) || null
+}
+
+function applyIndustryFieldTemplateToProductionConfig() {
+  const template = selectedIndustryFieldTemplate()
+  if (!template) return
+  const existingByKey = new Map((productProductionConfigForm.value.fields || []).map((field) => [String(field.template_field_key || field.field_key || '').trim(), field]))
+  productProductionConfigForm.value.fields = (template.fields || [])
+    .slice()
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+    .map((field, index) => {
+      const key = String(field.field_key || '').trim()
+      const existing = existingByKey.get(key) || {}
+      return defaultProductProductionConfigField({
+        ...existing,
+        field_key: existing.field_key || key,
+        template_field_key: key,
+        label: field.label || existing.label || key,
+        field_type: field.field_type || existing.field_type || 'text',
+        unit: field.unit || existing.unit || '',
+        required: Boolean(field.required),
+        options_json: field.options_json || existing.options_json || '[]',
+        show_in_price_list: existing.show_in_price_list !== false,
+        sort_order: Number(field.sort_order || index + 1),
+      }, index)
+    })
 }
 
 function closeProductProductionConfigDrawer() {
@@ -3445,12 +3656,35 @@ async function saveProductProductionConfig() {
   error.value = ''
   ok.value = ''
   try {
+    const originalProduct = productProductionConfigProduct.value || {}
+    await apiSend(`/api/products/${productID}`, {
+      method: 'PUT',
+      body: buildProductBasicsPayload({
+        ...originalProduct,
+        name: productProductionConfigForm.value.name,
+        remark: productProductionConfigForm.value.remark,
+        product_config_template_id: Number(productProductionConfigForm.value.product_config_template_id || 0),
+      }, originalProduct.margin_rate_override ?? null),
+    })
+    const nextCategoryID = Number(productProductionConfigForm.value.product_subtype_category_id || 0)
+    if (nextCategoryID > 0 && nextCategoryID !== Number(originalProduct.product_category_id || 0)) {
+      const category = productSubtypeCategoryByID(nextCategoryID) || { id: nextCategoryID, customer_id: Number(originalProduct.customer_id || skuContextCustomerID.value || 0) }
+      await apiSend(`/api/product-settings/products/${productID}/category`, {
+        body: buildAssignCategoryPayload({
+          product: originalProduct,
+          category,
+          customerID: Number(originalProduct.customer_id || skuContextCustomerID.value || 0),
+          position: Number(originalProduct.product_category_position || 0),
+        }),
+      })
+    }
     const result = await apiSend(`/api/product-production-configs/${productID}`, {
       method: 'PUT',
       body: {
         production_bom_id: Number(productProductionConfigForm.value.production_bom_id || 0),
         production_bom_version_id: Number(productProductionConfigForm.value.production_bom_version_id || 0),
         process_route_id: Number(productProductionConfigForm.value.process_route_id || 0),
+        industry_field_template_id: Number(productProductionConfigForm.value.industry_field_template_id || 0),
         expected_loss_rate: Number(lossRate.toFixed(6)),
         note: String(productProductionConfigForm.value.note || '').trim(),
         fields,
@@ -3463,76 +3697,13 @@ async function saveProductProductionConfig() {
         saved,
       ]
     }
-    ok.value = '商品生产配置已保存'
+    ok.value = '商品档案配置已保存'
     closeProductProductionConfigDrawer()
     await loadAll()
   } catch (err) {
-    error.value = err.message || '保存商品生产配置失败'
+    error.value = err.message || '保存商品档案配置失败'
   } finally {
     productProductionConfigSaving.value = false
-  }
-}
-
-async function selectProductionBomForBinding(bomID) {
-  productionBomBindingBomID.value = Number(bomID || 0)
-  productionBomBindingVersionID.value = 0
-  await ensureProductionBomDetail(productionBomBindingBomID.value)
-  const latest = productionBomVersionOptions.value[0]
-  if (latest) productionBomBindingVersionID.value = Number(latest.id || 0)
-}
-
-async function openProductionBomBinding(row) {
-  productionBomBindingProduct.value = row || null
-  productionBomBindingDrawerOpen.value = true
-  productionBomBindingBomID.value = Number(row?.production_bom_id || 0)
-  productionBomBindingVersionID.value = Number(row?.production_bom_version_id || 0)
-  error.value = ''
-  try {
-    await loadProductionBomCatalog()
-    if (!productionBomBindingBomID.value && productionBoms.value.length) {
-      productionBomBindingBomID.value = Number(productionBoms.value[0].id || 0)
-    }
-    await ensureProductionBomDetail(productionBomBindingBomID.value)
-    if (!productionBomBindingVersionID.value) {
-      const latest = productionBomVersionOptions.value[0]
-      if (latest) productionBomBindingVersionID.value = Number(latest.id || 0)
-    }
-  } catch (err) {
-    error.value = err.message || '加载生产 BOM 失败'
-  }
-}
-
-function closeProductionBomBindingDrawer() {
-  productionBomBindingDrawerOpen.value = false
-  productionBomBindingProduct.value = null
-  productionBomBindingBomID.value = 0
-  productionBomBindingVersionID.value = 0
-}
-
-async function saveProductionBomBinding() {
-  const productID = Number(productionBomBindingProduct.value?.id || 0)
-  if (!productID || !productionBomBindingBomID.value || !productionBomBindingVersionID.value) {
-    error.value = '请选择生产 BOM 和版本'
-    return
-  }
-  productionBomBindingSaving.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    await apiSend(`/api/products/${productID}/production-bom-binding`, {
-      method: 'PUT',
-      body: {
-        bom_id: productionBomBindingBomID.value,
-        bom_version_id: productionBomBindingVersionID.value,
-      },
-    })
-    ok.value = '生产 BOM 已更新'
-    closeProductionBomBindingDrawer()
-    await loadAll()
-  } catch (err) {
-    error.value = err.message || '更换生产 BOM 失败'
-  } finally {
-    productionBomBindingSaving.value = false
   }
 }
 
@@ -3702,6 +3873,101 @@ async function saveCustomerPublicUsage(options, successMessage) {
 
 function resetCustomerProductAliasForm() {
   customerProductAliasForm.value = defaultCustomerProductAliasForm()
+}
+
+function openCustomerAliasBatchDrawer() {
+  if (!selectedAliasCustomerID.value) {
+    error.value = '请选择客户'
+    return
+  }
+  aliasBatchForm.value = {
+    ...defaultCustomerProductAliasBatchForm(),
+    customer_id: Number(selectedAliasCustomerID.value || 0),
+  }
+  aliasBatchFilters.value = defaultAliasBatchFilters()
+  selectedAliasBatchProductIds.value = []
+  customerAliasBatchDrawerOpen.value = true
+}
+
+function closeCustomerAliasBatchDrawer() {
+  customerAliasBatchDrawerOpen.value = false
+  selectedAliasBatchProductIds.value = []
+}
+
+function aliasBatchProductExists(product) {
+  const productID = Number(product?.id || 0)
+  const customerID = Number(selectedAliasCustomerID.value || 0)
+  return visibleCustomerProductAliases.value.some((alias) => Number(alias.customer_id || 0) === customerID && Number(alias.product_id || 0) === productID && alias.active !== false)
+}
+
+function isAliasBatchProductSelected(product) {
+  return selectedAliasBatchProductIds.value.includes(Number(product?.id || 0))
+}
+
+function toggleAliasBatchProduct(product, checked) {
+  const productID = Number(product?.id || 0)
+  if (!productID || aliasBatchProductExists(product)) return
+  if (checked) {
+    if (!selectedAliasBatchProductIds.value.includes(productID)) selectedAliasBatchProductIds.value = [...selectedAliasBatchProductIds.value, productID]
+    return
+  }
+  selectedAliasBatchProductIds.value = selectedAliasBatchProductIds.value.filter((id) => Number(id) !== productID)
+}
+
+function toggleAllAliasBatchProducts(checked) {
+  if (!checked) {
+    selectedAliasBatchProductIds.value = []
+    return
+  }
+  const ids = aliasBatchCandidateRows.value
+    .filter((product) => !aliasBatchProductExists(product))
+    .map((product) => Number(product.id || 0))
+    .filter(Boolean)
+  selectedAliasBatchProductIds.value = Array.from(new Set([...selectedAliasBatchProductIds.value, ...ids]))
+}
+
+function filterAliasBatchRows(rows = [], filters = {}) {
+  const query = String(filters.query || '').trim().toLowerCase()
+  const primary = String(filters.primaryCategory || '').trim()
+  const secondary = String(filters.secondaryCategory || '').trim()
+  return (rows || []).filter((row) => {
+    if (query) {
+      const haystack = `${row.name || ''} ${row.number || ''} ${row.id || ''}`.toLowerCase()
+      if (!haystack.includes(query)) return false
+    }
+    if (primary && row.primary_name !== primary) return false
+    if (secondary && row.secondary_name !== secondary) return false
+    return row.active !== false
+  })
+}
+
+async function saveCustomerAliasBatch() {
+  const payload = buildCustomerProductAliasBatchPayload({
+    ...aliasBatchForm.value,
+    customer_id: selectedAliasCustomerID.value || aliasBatchForm.value.customer_id,
+    product_ids: selectedAliasBatchProductIds.value,
+  })
+  if (!payload.customer_id) {
+    error.value = '请选择客户'
+    return
+  }
+  if (!payload.product_ids.length) {
+    error.value = '请选择商品档案'
+    return
+  }
+  aliasBatchSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const result = await apiSend('/api/customer-product-aliases/batch', { body: payload })
+    ok.value = `客户商品名批量添加完成：创建 ${Number(result?.created_count || 0)} 个，跳过 ${Number(result?.skipped_count || 0)} 个`
+    closeCustomerAliasBatchDrawer()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '批量添加客户商品名失败'
+  } finally {
+    aliasBatchSaving.value = false
+  }
 }
 
 function openCustomerAliasSection() {

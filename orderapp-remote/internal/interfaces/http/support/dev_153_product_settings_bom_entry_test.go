@@ -21,15 +21,23 @@ func TestProductSettingsBasicProductRowsExposeBomEntry(t *testing.T) {
 		t.Fatalf("product SKU list empty row not found")
 	}
 	rowBlock := src[rowStart : rowStart+rowEnd]
-	if !strings.Contains(src, "<th>BOM</th>") {
-		t.Fatalf("product basics table must include BOM column")
+	if strings.Contains(src, "<th>BOM</th>") {
+		t.Fatalf("product basics table must no longer include duplicate BOM column")
 	}
 	for _, want := range []string{
-		`@click="openProductBom(row)"`,
-		"维护 BOM",
+		`@click="openProductProductionConfig(row)"`,
+		"sku-name-button",
 	} {
 		if !strings.Contains(rowBlock, want) {
-			t.Fatalf("product basics row must expose BOM maintenance entry, missing %q", want)
+			t.Fatalf("product basics row must expose product name config entry, missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"维护当前 BOM 明细",
+		"navigateCurrentProductBom",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product config drawer must expose BOM detail entry, missing %q", want)
 		}
 	}
 

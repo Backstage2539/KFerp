@@ -194,6 +194,24 @@ export function buildCustomerProductAliasPayload(form = {}) {
   }
 }
 
+export function buildCustomerProductAliasBatchPayload(form = {}) {
+  const ids = []
+  const seen = new Set()
+  for (const raw of form.product_ids || form.productIDs || []) {
+    const id = Number(raw || 0)
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  return {
+    customer_id: Number(form.customer_id || form.customerID || 0),
+    product_ids: ids,
+    include_in_price_list: Boolean(form.include_in_price_list ?? form.includeInPriceList ?? true),
+    brand_name: String(form.brand_name ?? form.brandName ?? '').trim(),
+    display_category_id: Number(form.display_category_id || form.displayCategoryID || 0),
+  }
+}
+
 export function customerProductAliasRowsForCustomer(rows = [], customerID = 0, options = {}) {
   const selectedCustomerID = Number(customerID || 0)
   const includeInactive = Boolean(options.includeInactive)
@@ -732,6 +750,8 @@ export function buildProductCreatePayload(form = {}) {
     product_kind: kind,
     remark: String(form.remark || '').trim(),
   }
+  const configTemplateID = Number(form.product_config_template_id || 0)
+  if (configTemplateID > 0) payload.product_config_template_id = configTemplateID
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(form.green_bean_type)
     payload.green_bean_bom_product_id = Number(form.green_bean_bom_product_id || 0)
@@ -785,7 +805,7 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
 }
 
 export function buildSkuCreatePayload(customerID, form = {}) {
-  return {
+  const payload = {
     customer_id: Number(customerID || form.customer_id || 0),
     name: String(form.name || '').trim(),
     remark: String(form.remark || '').trim(),
@@ -793,6 +813,9 @@ export function buildSkuCreatePayload(customerID, form = {}) {
     product_subtype_category_id: Number(form.product_subtype_category_id || 0),
     active: form.active === false ? false : true,
   }
+  const configTemplateID = Number(form.product_config_template_id || 0)
+  if (configTemplateID > 0) payload.product_config_template_id = configTemplateID
+  return payload
 }
 
 export function buildSkuCopyPayload(form = {}) {
@@ -819,6 +842,9 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   }
   const name = String(row.name || '').trim()
   if (name) payload.name = name
+  if (Object.prototype.hasOwnProperty.call(row, 'product_config_template_id')) {
+    payload.product_config_template_id = Number(row.product_config_template_id || 0)
+  }
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(row.green_bean_type)
     payload.green_bean_bom_product_id = Number(row.green_bean_bom_product_id || 0)

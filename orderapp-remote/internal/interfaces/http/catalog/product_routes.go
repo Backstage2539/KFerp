@@ -26,6 +26,7 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/product-settings", h.productSettingsAPI)
 	e.GET("/api/customer-product-aliases", h.customerProductAliasesAPI)
 	e.GET("/api/customer-product-aliases/migration-candidates", h.customerProductAliasMigrationCandidatesAPI)
+	e.POST("/api/customer-product-aliases/batch", h.batchCustomerProductAliasesAPI)
 	e.POST("/api/customer-product-aliases", h.saveCustomerProductAliasAPI)
 	e.PUT("/api/customer-product-aliases/:id", h.saveCustomerProductAliasAPI)
 	e.POST("/api/customer-product-aliases/:id/disable", h.disableCustomerProductAliasAPI)
@@ -110,28 +111,30 @@ type productUpdateAPIRequest struct {
 	GradientTemplateIDOverride  *int64                    `json:"gradient_template_id_override"`
 	OperationTemplateIDOverride *int64                    `json:"operation_template_id_override"`
 	UnitRuleOverrideJSON        *string                   `json:"unit_rule_override_json"`
+	ProductConfigTemplateID     *int64                    `json:"product_config_template_id"`
 	Tiers                       []productTierAPIUpsertRow `json:"tiers"`
 }
 
 type productCreateAPIRequest struct {
-	Name                  string                    `json:"name"`
-	Remark                string                    `json:"remark"`
-	ProductKind           string                    `json:"product_kind"`
-	GreenBeanType         string                    `json:"green_bean_type"`
-	GreenBeanBomProductID int64                     `json:"green_bean_bom_product_id"`
-	RoastLevel            *string                   `json:"roast_level"`
-	SpecialAttrsJSON      string                    `json:"special_attrs_json"`
-	DripBagGrams          *float64                  `json:"drip_bag_grams"`
-	DripBoxBagCount       *int                      `json:"drip_box_bag_count"`
-	AllowFulfillmentOrder *bool                     `json:"allow_fulfillment_order"`
-	AllowMallOrder        *bool                     `json:"allow_mall_order"`
-	DefaultPrice          float64                   `json:"default_price"`
-	RetailPrice100G       float64                   `json:"retail_price_100g"`
-	RetailPrice200G       float64                   `json:"retail_price_200g"`
-	RetailPrice227G       float64                   `json:"retail_price_227g"`
-	RetailPrice250G       float64                   `json:"retail_price_250g"`
-	YieldRate             float64                   `json:"yield_rate"`
-	Tiers                 []productTierAPIUpsertRow `json:"tiers"`
+	Name                    string                    `json:"name"`
+	Remark                  string                    `json:"remark"`
+	ProductKind             string                    `json:"product_kind"`
+	GreenBeanType           string                    `json:"green_bean_type"`
+	GreenBeanBomProductID   int64                     `json:"green_bean_bom_product_id"`
+	RoastLevel              *string                   `json:"roast_level"`
+	SpecialAttrsJSON        string                    `json:"special_attrs_json"`
+	DripBagGrams            *float64                  `json:"drip_bag_grams"`
+	DripBoxBagCount         *int                      `json:"drip_box_bag_count"`
+	AllowFulfillmentOrder   *bool                     `json:"allow_fulfillment_order"`
+	AllowMallOrder          *bool                     `json:"allow_mall_order"`
+	DefaultPrice            float64                   `json:"default_price"`
+	RetailPrice100G         float64                   `json:"retail_price_100g"`
+	RetailPrice200G         float64                   `json:"retail_price_200g"`
+	RetailPrice227G         float64                   `json:"retail_price_227g"`
+	RetailPrice250G         float64                   `json:"retail_price_250g"`
+	YieldRate               float64                   `json:"yield_rate"`
+	ProductConfigTemplateID int64                     `json:"product_config_template_id"`
+	Tiers                   []productTierAPIUpsertRow `json:"tiers"`
 }
 
 type skuCreateAPIRequest struct {
@@ -141,6 +144,7 @@ type skuCreateAPIRequest struct {
 	ProductTypeCategoryID    int64  `json:"product_type_category_id"`
 	ProductSubtypeCategoryID int64  `json:"product_subtype_category_id"`
 	SpecialAttrsJSON         string `json:"special_attrs_json"`
+	ProductConfigTemplateID  int64  `json:"product_config_template_id"`
 	Active                   *bool  `json:"active"`
 }
 
@@ -229,6 +233,14 @@ type customerProductAliasAPIRequest struct {
 	Remark             string `json:"remark"`
 }
 
+type customerProductAliasBatchAPIRequest struct {
+	CustomerID         int64   `json:"customer_id"`
+	ProductIDs         []int64 `json:"product_ids"`
+	IncludeInPriceList *bool   `json:"include_in_price_list"`
+	BrandName          string  `json:"brand_name"`
+	DisplayCategoryID  int64   `json:"display_category_id"`
+}
+
 type customerProductRuleTemplateAPIRequest struct {
 	CustomerID int64                                        `json:"customer_id"`
 	Name       string                                       `json:"name"`
@@ -302,12 +314,13 @@ type productConfigTemplateAPIRequest struct {
 }
 
 type productProductionConfigAPIRequest struct {
-	ProductionBomID        int64                                     `json:"production_bom_id"`
-	ProductionBomVersionID int64                                     `json:"production_bom_version_id"`
-	ProcessRouteID         int64                                     `json:"process_route_id"`
-	ExpectedLossRate       float64                                   `json:"expected_loss_rate"`
-	Note                   string                                    `json:"note"`
-	Fields                 []catalogapp.ProductProductionConfigField `json:"fields"`
+	ProductionBomID         int64                                     `json:"production_bom_id"`
+	ProductionBomVersionID  int64                                     `json:"production_bom_version_id"`
+	ProcessRouteID          int64                                     `json:"process_route_id"`
+	IndustryFieldTemplateID int64                                     `json:"industry_field_template_id"`
+	ExpectedLossRate        float64                                   `json:"expected_loss_rate"`
+	Note                    string                                    `json:"note"`
+	Fields                  []catalogapp.ProductProductionConfigField `json:"fields"`
 }
 
 type productUnitDefinitionAPIRequest struct {
@@ -466,6 +479,10 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	if req.UnitRuleOverrideJSON != nil {
 		unitRuleOverrideJSON = strings.TrimSpace(*req.UnitRuleOverrideJSON)
 	}
+	productConfigTemplateID := existing.ProductConfigTemplateID
+	if req.ProductConfigTemplateID != nil {
+		productConfigTemplateID = *req.ProductConfigTemplateID
+	}
 	specialAttrsJSON := existing.SpecialAttrsJSON
 	if req.SpecialAttrsJSON != nil {
 		specialAttrsJSON = strings.TrimSpace(*req.SpecialAttrsJSON)
@@ -493,6 +510,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		GradientTemplateIDOverride:  gradientTemplateIDOverride,
 		OperationTemplateIDOverride: operationTemplateIDOverride,
 		UnitRuleOverrideJSON:        unitRuleOverrideJSON,
+		ProductConfigTemplateID:     productConfigTemplateID,
 		SpecialAttrsJSON:            specialAttrsJSON,
 	}); err != nil {
 		if catalogapp.IsValidationError(err) {
@@ -604,6 +622,7 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		RetailPrice227G:          req.RetailPrice227G,
 		RetailPrice250G:          req.RetailPrice250G,
 		YieldRate:                yieldRate,
+		ProductConfigTemplateID:  req.ProductConfigTemplateID,
 		Tiers:                    productTiersFromAPI(req.Tiers),
 		SpecialAttrsJSON:         req.SpecialAttrsJSON,
 	})
@@ -633,6 +652,7 @@ func (h productHandler) createSKUAPI(c echo.Context) error {
 		ProductTypeCategoryID:    req.ProductTypeCategoryID,
 		ProductSubtypeCategoryID: req.ProductSubtypeCategoryID,
 		SpecialAttrsJSON:         req.SpecialAttrsJSON,
+		ProductConfigTemplateID:  req.ProductConfigTemplateID,
 		Active:                   active,
 	})
 	if err != nil {
@@ -810,6 +830,32 @@ func (h productHandler) saveCustomerProductAliasAPI(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"alias": row})
 }
 
+func (h productHandler) batchCustomerProductAliasesAPI(c echo.Context) error {
+	var req customerProductAliasBatchAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	includeInPriceList := true
+	if req.IncludeInPriceList != nil {
+		includeInPriceList = *req.IncludeInPriceList
+	}
+	result, err := h.catalog.BatchCreateCustomerProductAliases(c.Request().Context(), catalogapp.BatchCustomerProductAliasesCommand{
+		Actor:              support.ActorOf(c),
+		CustomerID:         req.CustomerID,
+		ProductIDs:         req.ProductIDs,
+		IncludeInPriceList: includeInPriceList,
+		BrandName:          req.BrandName,
+		DisplayCategoryID:  req.DisplayCategoryID,
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, result)
+}
+
 func (h productHandler) disableCustomerProductAliasAPI(c echo.Context) error {
 	id, err := parseOptionalInt64(c.Param("id"))
 	if err != nil || id <= 0 {
@@ -873,14 +919,15 @@ func (h productHandler) saveProductProductionConfigAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
 	}
 	row, err := h.catalog.SaveProductProductionConfig(c.Request().Context(), catalogapp.SaveProductProductionConfigCommand{
-		Actor:                  support.ActorOf(c),
-		ProductID:              productID,
-		ProductionBomID:        req.ProductionBomID,
-		ProductionBomVersionID: req.ProductionBomVersionID,
-		ProcessRouteID:         req.ProcessRouteID,
-		ExpectedLossRate:       req.ExpectedLossRate,
-		Note:                   req.Note,
-		Fields:                 req.Fields,
+		Actor:                   support.ActorOf(c),
+		ProductID:               productID,
+		ProductionBomID:         req.ProductionBomID,
+		ProductionBomVersionID:  req.ProductionBomVersionID,
+		ProcessRouteID:          req.ProcessRouteID,
+		IndustryFieldTemplateID: req.IndustryFieldTemplateID,
+		ExpectedLossRate:        req.ExpectedLossRate,
+		Note:                    req.Note,
+		Fields:                  req.Fields,
 	})
 	if err != nil {
 		if catalogapp.IsValidationError(err) {

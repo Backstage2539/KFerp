@@ -57,6 +57,7 @@ type ProductOption struct {
 	GradientTemplateIDOverride  int64
 	OperationTemplateIDOverride int64
 	UnitRuleOverrideJSON        string
+	ProductConfigTemplateID     int64
 	BomItemCount                int
 	BomStatus                   string
 	BomSourceType               string
@@ -130,6 +131,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 		COALESCE(p.gradient_template_id_override,0),
 		COALESCE(p.operation_template_id_override,0),
 		COALESCE(p.unit_rule_override_json::text,'{}'),
+		COALESCE(p.product_config_template_id,0),
 		CASE WHEN COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id) IS NOT NULL THEN COALESCE((SELECT COUNT(*) FROM %[1]s.production_bom_version_items pbi WHERE pbi.version_id=pbv.id),0)
 			ELSE COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=CASE
 				WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
@@ -198,7 +200,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 	out := make([]ProductOption, 0)
 	for rows.Next() {
 		var p ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ExpectedLossRate, &p.ProcessRouteID, &p.ProductionConfigNote, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.Active, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.BomItemCount, &p.BomStatus, &p.OrderUsageCount, &p.BomSourceType, &p.EffectiveProductID, &p.EffectiveBomVersionID, &p.SourceProductID, &p.SourceProductCode, &p.SourceProductName, &p.SourceBomVersionID, &p.SourceBomVersionNo, &p.DerivedFromLabel, &p.CanEditBOM, &p.ProductionBomID, &p.ProductionBomCode, &p.ProductionBomName, &p.ProductionBomVersionID, &p.ProductionBomVersionNo, &p.LatestBomVersionID, &p.LatestBomVersionNo, &p.IsLatestBomVersion, &p.ProductionBomGroupID, &p.ProductionBomGroupName); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ExpectedLossRate, &p.ProcessRouteID, &p.ProductionConfigNote, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.Active, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.ProductConfigTemplateID, &p.BomItemCount, &p.BomStatus, &p.OrderUsageCount, &p.BomSourceType, &p.EffectiveProductID, &p.EffectiveBomVersionID, &p.SourceProductID, &p.SourceProductCode, &p.SourceProductName, &p.SourceBomVersionID, &p.SourceBomVersionNo, &p.DerivedFromLabel, &p.CanEditBOM, &p.ProductionBomID, &p.ProductionBomCode, &p.ProductionBomName, &p.ProductionBomVersionID, &p.ProductionBomVersionNo, &p.LatestBomVersionID, &p.LatestBomVersionNo, &p.IsLatestBomVersion, &p.ProductionBomGroupID, &p.ProductionBomGroupName); err != nil {
 			return nil, err
 		}
 		p.ProductKind = catalogdomain.NormalizeProductKind(p.ProductKind)

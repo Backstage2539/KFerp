@@ -492,10 +492,6 @@ function scrollCurrentViewToTop() {
 function open(key, params = {}) {
   if (!menuMap[key]) return
   if (!isViewAllowed(key, allowedViewKeys.value)) return
-  if (isProductSettingsKey(currentKey.value) && !isProductSettingsKey(key)) {
-    hardNavigateToView(key, params)
-    return
-  }
   currentKey.value = key
   currentViewParams.value = viewContextViewParams(params, currentViewContext.value)
   ensureCurrentGroupOpen(key)

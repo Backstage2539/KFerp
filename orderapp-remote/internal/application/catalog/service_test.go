@@ -21,6 +21,7 @@ type fakeRepo struct {
 	publicUsage     CustomerPublicUsageCommand
 	aliasQuery      CustomerProductAliasQuery
 	aliasCommand    CustomerProductAliasCommand
+	aliasBatch      BatchCustomerProductAliasesCommand
 	disabledAlias   DisableCustomerProductAliasCommand
 	aliasCandidates CustomerProductAliasMigrationCandidateQuery
 	ruleTemplate    SaveCustomerProductRuleTemplateCommand
@@ -70,7 +71,7 @@ func (r *fakeRepo) DeactivateProducts(ctx context.Context, cmd DeactivateProduct
 
 func (r *fakeRepo) CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error) {
 	r.create = cmd
-	return Product{ID: 11, Name: cmd.Name, RoastLevel: cmd.RoastLevel, YieldRate: cmd.YieldRate, Visibility: "public"}, nil
+	return Product{ID: 11, Name: cmd.Name, RoastLevel: cmd.RoastLevel, YieldRate: cmd.YieldRate, Visibility: "public", ProductConfigTemplateID: cmd.ProductConfigTemplateID}, nil
 }
 
 func (r *fakeRepo) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product, error) {
@@ -80,7 +81,7 @@ func (r *fakeRepo) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product
 	if cmd.CustomerID > 0 {
 		visibility = "customer_only"
 	}
-	return Product{ID: 12, Name: cmd.Name, Remark: cmd.Remark, CustomerID: cmd.CustomerID, ProductCategoryID: cmd.ProductSubtypeCategoryID, Visibility: visibility, SpecialAttrsJSON: cmd.SpecialAttrsJSON}, nil
+	return Product{ID: 12, Name: cmd.Name, Remark: cmd.Remark, CustomerID: cmd.CustomerID, ProductCategoryID: cmd.ProductSubtypeCategoryID, Visibility: visibility, SpecialAttrsJSON: cmd.SpecialAttrsJSON, ProductConfigTemplateID: cmd.ProductConfigTemplateID}, nil
 }
 
 func (r *fakeRepo) CopySKUs(ctx context.Context, cmd CopySKUsCommand) (CopySKUsResult, error) {
@@ -107,13 +108,14 @@ func (r *fakeRepo) GetProductProductionConfig(ctx context.Context, productID int
 
 func (r *fakeRepo) SaveProductProductionConfig(ctx context.Context, cmd SaveProductProductionConfigCommand) (ProductProductionConfig, error) {
 	return ProductProductionConfig{
-		ProductID:              cmd.ProductID,
-		ProductionBomID:        cmd.ProductionBomID,
-		ProductionBomVersionID: cmd.ProductionBomVersionID,
-		ProcessRouteID:         cmd.ProcessRouteID,
-		ExpectedLossRate:       cmd.ExpectedLossRate,
-		Note:                   cmd.Note,
-		Fields:                 cmd.Fields,
+		ProductID:               cmd.ProductID,
+		ProductionBomID:         cmd.ProductionBomID,
+		ProductionBomVersionID:  cmd.ProductionBomVersionID,
+		ProcessRouteID:          cmd.ProcessRouteID,
+		ExpectedLossRate:        cmd.ExpectedLossRate,
+		IndustryFieldTemplateID: cmd.IndustryFieldTemplateID,
+		Note:                    cmd.Note,
+		Fields:                  cmd.Fields,
 	}, nil
 }
 
@@ -256,6 +258,25 @@ func (r *fakeRepo) ListCustomerProductAliases(ctx context.Context, query Custome
 func (r *fakeRepo) SaveCustomerProductAlias(ctx context.Context, cmd CustomerProductAliasCommand) (CustomerProductAlias, error) {
 	r.aliasCommand = cmd
 	return CustomerProductAlias{ID: 1, CustomerID: cmd.CustomerID, ProductID: cmd.ProductID, DisplayName: cmd.DisplayName, CustomerItemCode: cmd.CustomerItemCode, IncludeInPriceList: cmd.IncludeInPriceList, Active: cmd.Active}, nil
+}
+
+func (r *fakeRepo) BatchCreateCustomerProductAliases(ctx context.Context, cmd BatchCustomerProductAliasesCommand) (BatchCustomerProductAliasesResult, error) {
+	r.aliasBatch = cmd
+	created := make([]CustomerProductAlias, 0, len(cmd.ProductIDs))
+	for idx, productID := range cmd.ProductIDs {
+		created = append(created, CustomerProductAlias{
+			ID:                 int64(idx + 1),
+			CustomerID:         cmd.CustomerID,
+			ProductID:          productID,
+			DisplayName:        "商品档案",
+			CustomerItemCode:   "SKU",
+			BrandName:          cmd.BrandName,
+			DisplayCategoryID:  cmd.DisplayCategoryID,
+			IncludeInPriceList: cmd.IncludeInPriceList,
+			Active:             true,
+		})
+	}
+	return BatchCustomerProductAliasesResult{CreatedCount: len(created), Created: created}, nil
 }
 
 func (r *fakeRepo) DisableCustomerProductAlias(ctx context.Context, cmd DisableCustomerProductAliasCommand) error {
