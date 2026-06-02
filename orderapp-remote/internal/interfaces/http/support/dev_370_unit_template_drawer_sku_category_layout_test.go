@@ -28,12 +28,12 @@ func TestDev370UnitTemplateDrawerAndCategoryLayoutUI(t *testing.T) {
 		"unit-template-editor-panel",
 		"globalUnitDrawerOpen",
 		"global-unit-dictionary-drawer",
-		"openGlobalUnitDictionaryDrawer",
-		"saveGlobalUnitDefinitionFromDrawer",
-		"buildProductUnitDefinitionPayload",
-		"primary-category-left",
-		"primary-category-right",
-	} {
+			"openGlobalUnitDictionaryDrawer",
+			"saveGlobalUnitDefinitionFromDrawer",
+			"buildProductUnitDefinitionPayload",
+			"classification-template-list",
+			"classification-category-editor",
+		} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("ProductSettingsView.vue missing drawer/layout marker %q", want)
 		}
@@ -43,12 +43,10 @@ func TestDev370UnitTemplateDrawerAndCategoryLayoutUI(t *testing.T) {
 	if unitListPos < 0 || unitEditorPos < 0 || unitListPos > unitEditorPos {
 		t.Fatal("unit template list should be before editor for left-list/right-editor layout")
 	}
-	leftPos := strings.Index(src, `class="primary-category-left"`)
-	rightPos := strings.Index(src, `class="category-row-actions primary-category-right"`)
-	sortPos := strings.Index(src, "category-sort-buttons")
-	collapsePos := strings.Index(src, "togglePrimaryCategoryCollapse")
-	if leftPos < 0 || rightPos < 0 || sortPos < leftPos || sortPos > rightPos || collapsePos < rightPos {
-		t.Fatal("primary category header should keep title/sort left and collapse action right")
+	listPos := strings.Index(src, `classification-template-list`)
+	editorPos := strings.Index(src, `classification-category-editor`)
+	if listPos < 0 || editorPos < 0 || listPos > editorPos {
+		t.Fatal("classification template list should render before category editor")
 	}
 }
 

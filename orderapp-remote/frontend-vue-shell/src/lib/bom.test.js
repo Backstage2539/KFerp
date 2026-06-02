@@ -83,8 +83,14 @@ test('production BOM label shows BOM code name and bound version without source 
 test('BOM view exposes grouped recipe library and no longer edits production config fields', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const appSource = fs.readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
 
   assert.match(source, /生产 BOM（配方库）/)
+  assert.match(source, /bom-return-banner/)
+  assert.match(source, /return_navigation/)
+  assert.doesNotMatch(source, /searchParams\.get\('return_product_id'\)/)
+  assert.match(appSource, /transientReturnNavigation/)
+  assert.match(appSource, /returnNavigation/)
   assert.match(source, /新增分组/)
   assert.match(source, /group-tree/)
   assert.match(source, /配方明细/)

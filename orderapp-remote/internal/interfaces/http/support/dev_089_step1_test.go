@@ -341,22 +341,24 @@ func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	combined := string(app) + "\n" + string(menu) + "\n" + string(settings)
-	for _, want := range []string{
-		"ProductSettingsView",
-		"productMaster",
-		"customerProductAliases",
-		"productConfigTemplates",
-		"商品档案",
-		"CostingView",
-		"dragstart",
-		"drop",
-		"/api/product-settings",
-		"/api/product-settings/categories",
-		"/api/product-settings/products/",
-		"产品类型",
-		"产品子类型",
-		"商品编号",
-	} {
+		for _, want := range []string{
+			"ProductSettingsView",
+			"productMaster",
+			"customerProductAliases",
+			"productConfigTemplates",
+			"商品档案",
+			"CostingView",
+			"classification-view-toolbar",
+			"productClassificationTabs",
+			"aliasClassificationTabs",
+			"/api/product-settings",
+			"/api/product-classification-template-usages/products",
+			"/api/product-classification-assignments/products",
+			"/api/product-settings/products/",
+			"分类模板",
+			"移动到分类",
+			"商品编号",
+		} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("product settings Vue source missing %q", want)
 		}
@@ -376,12 +378,12 @@ func TestProductSettingsCategoryDragYieldAndCollapseRefinements(t *testing.T) {
 	}
 	src := string(settings)
 	for _, want := range []string{
-		"category-drop-line",
-		"categoryDropTarget",
-		"dropCategoryAtPosition",
+		"classification-group-row",
+		"classification-group-toggle",
+		"displaySkuGroups",
 		"yield_percent",
 		"saveProductBasics(row)",
-		"categoryCollapsed",
+		"activeProductClassificationTab",
 		"productsCollapsed",
 		"toggle-section",
 	} {
@@ -418,9 +420,9 @@ func TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource(t *testing.T) {
 	}
 	src := string(settings)
 	for _, want := range []string{
-		"scheduleClearDrag",
-		"@dragend=\"scheduleClearDrag\"",
-		"dropCategoryOrProductOnSecondary",
+		"saveSelectedProductClassificationAssignment",
+		"saveSelectedAliasClassificationAssignment",
+		"selectedProductClassificationCategoryID",
 		"生产配置预期损耗率",
 		"buildProductCreatePayload(productForm.value)",
 		"buildProductBasicsPayload(row, marginOverride.value)",
@@ -457,23 +459,20 @@ func TestProductSettingsSecondaryCategoryDragUsesPointerPositionInsteadOfNativeD
 	}
 	src := string(settings)
 	for _, want := range []string{
-		"@pointerdown=\"startCategoryPointerDrag($event, primary, index + 1, secondary)\"",
-		"handleCategoryPointerMove",
-		"handleCategoryPointerUp",
-		"resolveCategoryPointerTarget",
-		"document.elementsFromPoint",
-		"getBoundingClientRect",
-		"setPointerCapture",
-		"dropCategoryAtPosition(primary, target.position)",
-		"data-primary-id",
-		"data-secondary-position",
+		"classificationTemplateCreateDrawerOpen",
+		"openClassificationTemplateCreateDrawer",
+		"classification-category-editor",
+		"saveClassificationCategory",
+		"moveClassificationCategory",
+		"deleteClassificationCategory",
+		"product-classification-template-categories",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("product settings robust pointer drag missing %q", want)
+			t.Fatalf("product settings classification template editor missing %q", want)
 		}
 	}
-	if strings.Contains(src, "@dragstart=\"startCategoryDrag(secondary)\"") {
-		t.Fatalf("secondary category sorting must not depend on native HTML5 dragstart/drop")
+	if strings.Contains(src, "classification-config-drawer") || strings.Contains(src, "drawerStack") {
+		t.Fatalf("classification template editor must not depend on legacy stacked classification drawers")
 	}
 }
 
@@ -484,12 +483,11 @@ func TestProductSettingsVueSupportsCategoryDelete(t *testing.T) {
 	}
 	src := string(settings)
 	for _, want := range []string{
-		"deleteCategory(primary)",
-		"deleteCategory(secondary)",
-		"async function deleteCategory(category)",
+		"deleteClassificationCategory(category)",
+		"async function deleteClassificationCategory(category)",
 		"method: 'DELETE'",
-		"`/api/product-settings/categories/${category.id}`",
-		"分类已删除，相关商品已回到未分类",
+		"`/api/product-classification-template-categories/${category.id}?template_id=${templateID}`",
+		"删除分类",
 		"danger-text",
 	} {
 		if !strings.Contains(src, want) {

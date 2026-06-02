@@ -24,32 +24,30 @@ func TestDev367SkuCategoryActionPolishRequirementSeeds(t *testing.T) {
 func TestDev367SkuCategoryActionPolishUI(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
-		"category-action-pill",
-		"category-action-button",
-		"category-sort-pill",
-		"category-row-actions",
-		"secondary-category-actions",
-		`aria-label="删除产品类型"`,
-		`aria-label="删除产品子类型"`,
+		"classification-category-row",
+		"moveClassificationCategory(category, -1)",
+		"moveClassificationCategory(category, 1)",
+		"deleteClassificationCategory(category)",
+		"danger-text",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("ProductSettingsView.vue missing polished action marker %q", want)
+			t.Fatalf("ProductSettingsView.vue missing classification action marker %q", want)
 		}
 	}
 	if strings.Contains(src, `class="icon-action`) {
-		t.Fatal("SKU category controls should not use the old square icon-action buttons")
+		t.Fatal("classification template controls should not use the old square icon-action buttons")
 	}
-	deleteStart := strings.Index(src, "async function deleteCategory(category)")
+	deleteStart := strings.Index(src, "async function deleteClassificationCategory(category)")
 	if deleteStart < 0 {
-		t.Fatal("deleteCategory function missing")
+		t.Fatal("deleteClassificationCategory function missing")
 	}
-	deleteEnd := strings.Index(src[deleteStart:], "function startCategoryDrag")
+	deleteEnd := strings.Index(src[deleteStart:], "async function saveProductClassificationTemplateUsage")
 	if deleteEnd < 0 {
-		t.Fatal("deleteCategory function end marker missing")
+		t.Fatal("deleteClassificationCategory function end marker missing")
 	}
 	deleteFunction := src[deleteStart : deleteStart+deleteEnd]
-	if strings.Contains(deleteFunction, "window.confirm") {
-		t.Fatal("deleteCategory should delete directly after delete mode without a second confirm dialog")
+	if !strings.Contains(deleteFunction, "product-classification-template-categories") {
+		t.Fatal("deleteClassificationCategory should call classification template category API")
 	}
 }
 

@@ -15,7 +15,7 @@ func TestProductSettingsCanCreatePublicProducts(t *testing.T) {
 		"skuForm",
 		"defaultSkuForm",
 		`/api/product-settings/skus`,
-		"SKU已创建",
+			"商品档案已创建",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("ProductSettingsView.vue missing public product create wiring %q", want)

@@ -24,18 +24,17 @@ func TestDev365SkuCategoryInlineEditRequirementSeeds(t *testing.T) {
 func TestDev365SkuCategoryInlineEditUI(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
-		"category-inline-toolbar",
-		"createPrimaryCategoryInline",
-		"togglePrimaryDeleteMode",
-		"movePrimaryCategory",
-		"createSecondaryCategoryInline(primary)",
-		"toggleSecondaryDeleteMode(primary)",
-		"secondaryDeleteModeFor",
-		"category-sort-buttons",
-		"category-delete-button",
+		"classification-template-list",
+		"classification-category-editor",
+		"saveClassificationCategory",
+		"moveClassificationCategory",
+		"deleteClassificationCategory",
+		"openClassificationTemplateCreateDrawer",
+		"分类模板只定义分类结构",
+		"排序值越小越靠前",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("ProductSettingsView.vue missing inline category edit marker %q", want)
+			t.Fatalf("ProductSettingsView.vue missing classification template edit marker %q", want)
 		}
 	}
 	for _, forbidden := range []string{

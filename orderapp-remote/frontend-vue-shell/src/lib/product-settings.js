@@ -179,7 +179,7 @@ export function customerSkuCustomerOptions(customers = []) {
 }
 
 export function buildCustomerProductAliasPayload(form = {}) {
-  const payload = {
+  return {
     id: Number(form.id || 0),
     customer_id: Number(form.customer_id || form.customerID || 0),
     product_id: Number(form.product_id || form.productID || 0),
@@ -192,10 +192,6 @@ export function buildCustomerProductAliasPayload(form = {}) {
     active: Boolean(form.active ?? true),
     remark: String(form.remark ?? '').trim(),
   }
-  if (Object.prototype.hasOwnProperty.call(form, 'classification_template_id') || Object.prototype.hasOwnProperty.call(form, 'classificationTemplateID')) {
-    payload.classification_template_id = Number(form.classification_template_id || form.classificationTemplateID || 0)
-  }
-  return payload
 }
 
 export function buildCustomerProductAliasBatchPayload(form = {}) {
@@ -213,8 +209,86 @@ export function buildCustomerProductAliasBatchPayload(form = {}) {
     include_in_price_list: Boolean(form.include_in_price_list ?? form.includeInPriceList ?? true),
     brand_name: String(form.brand_name ?? form.brandName ?? '').trim(),
     display_category_id: Number(form.display_category_id || form.displayCategoryID || 0),
-    classification_template_id: Number(form.classification_template_id || form.classificationTemplateID || 0),
   }
+}
+
+export function buildClassificationTemplateUsagePayload(form = {}) {
+  const payload = {
+    classification_template_id: Number(form.classification_template_id || form.classificationTemplateID || form.template_id || form.templateID || 0),
+    sort_order: Number(form.sort_order || form.sortOrder || 100),
+  }
+  const customerID = Number(form.customer_id || form.customerID || 0)
+  if (customerID > 0) payload.customer_id = customerID
+  return payload
+}
+
+export function classificationTemplateTabs(templates = [], usages = [], options = {}) {
+  const activeTemplateByID = new Map((templates || [])
+    .filter((template) => template?.active !== false)
+    .map((template) => [Number(template.id || 0), template]))
+  const seen = new Set()
+  const tabs = [{
+    key: 'all',
+    id: 0,
+    template_id: 0,
+    label: String(options.allLabel || '全部商品'),
+    all: true,
+  }]
+  for (const usage of usages || []) {
+    if (usage?.active === false) continue
+    const templateID = Number(usage.classification_template_id || usage.template_id || 0)
+    const template = activeTemplateByID.get(templateID)
+    if (!template || seen.has(templateID)) continue
+    seen.add(templateID)
+    tabs.push({
+      key: `template-${templateID}`,
+      id: templateID,
+      template_id: templateID,
+      label: template.name || `分类模板 #${templateID}`,
+      sort_order: Number(usage.sort_order || template.sort_order || 100),
+      template,
+      all: false,
+    })
+  }
+  return tabs.slice(0, 1).concat(tabs.slice(1)
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.label || '').localeCompare(String(b.label || ''))))
+}
+
+export function groupRowsByClassificationCategory(rows = [], template = {}, options = {}) {
+  const idKey = options.idKey || 'id'
+  const assignmentKey = options.assignmentKey || 'product_id'
+  const assignmentsKey = options.assignmentsKey || 'product_assignments'
+  const assignmentsByObjectID = new Map((template?.[assignmentsKey] || [])
+    .filter((assignment) => Number(assignment.template_id || template.id || 0) === Number(template.id || 0))
+    .map((assignment) => [Number(assignment[assignmentKey] || 0), assignment]))
+  const categories = (template?.categories || [])
+    .filter((category) => category?.active !== false)
+    .slice()
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
+  const groups = categories.map((category) => ({
+    key: `category-${Number(category.id || 0)}`,
+    id: Number(category.id || 0),
+    label: category.name || '未命名分类',
+    rows: [],
+    category,
+  }))
+  const groupByCategoryID = new Map(groups.map((group) => [group.id, group]))
+  const uncategorized = { key: 'uncategorized', id: 0, label: '未分类', rows: [], category: null }
+  for (const row of rows || []) {
+    const objectID = Number(row?.[idKey] || 0)
+    const assignment = assignmentsByObjectID.get(objectID)
+    const categoryID = Number(assignment?.category_id || 0)
+    const target = groupByCategoryID.get(categoryID) || uncategorized
+    target.rows.push({
+      ...row,
+      classification_category_id: target.id,
+      classification_sort_order: Number(assignment?.sort_order || row?.sort_order || 100),
+    })
+  }
+  for (const group of [...groups, uncategorized]) {
+    group.rows.sort((a, b) => Number(a.classification_sort_order || 0) - Number(b.classification_sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
+  }
+  return [...groups, uncategorized]
 }
 
 export function customerProductAliasRowsForCustomer(rows = [], customerID = 0, options = {}) {
@@ -237,7 +311,7 @@ export function productCreationActionOptions(context = {}) {
     actions.push({
       key: 'customer_product_alias',
       label: '创建客户商品名',
-      description: '贴牌、客户命名、客户编号或客户展示分类变化时使用，绑定已有商品档案，不复制生产 BOM。',
+      description: '贴牌、客户命名、客户编号或客户侧分组变化时使用，绑定已有商品档案，不复制生产 BOM。',
     })
   }
   actions.push({
@@ -757,8 +831,6 @@ export function buildProductCreatePayload(form = {}) {
   }
   const configTemplateID = Number(form.product_config_template_id || 0)
   if (configTemplateID > 0) payload.product_config_template_id = configTemplateID
-  const classificationTemplateID = Number(form.classification_template_id || 0)
-  if (classificationTemplateID > 0) payload.classification_template_id = classificationTemplateID
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(form.green_bean_type)
     payload.green_bean_bom_product_id = Number(form.green_bean_bom_product_id || 0)
@@ -816,14 +888,10 @@ export function buildSkuCreatePayload(customerID, form = {}) {
     customer_id: Number(customerID || form.customer_id || 0),
     name: String(form.name || '').trim(),
     remark: String(form.remark || '').trim(),
-    product_type_category_id: Number(form.product_type_category_id || 0),
-    product_subtype_category_id: Number(form.product_subtype_category_id || 0),
     active: form.active === false ? false : true,
   }
   const configTemplateID = Number(form.product_config_template_id || 0)
   if (configTemplateID > 0) payload.product_config_template_id = configTemplateID
-  const classificationTemplateID = Number(form.classification_template_id || 0)
-  if (classificationTemplateID > 0) payload.classification_template_id = classificationTemplateID
   return payload
 }
 
@@ -853,9 +921,6 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   if (name) payload.name = name
   if (Object.prototype.hasOwnProperty.call(row, 'product_config_template_id')) {
     payload.product_config_template_id = Number(row.product_config_template_id || 0)
-  }
-  if (Object.prototype.hasOwnProperty.call(row, 'classification_template_id')) {
-    payload.classification_template_id = Number(row.classification_template_id || 0)
   }
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(row.green_bean_type)

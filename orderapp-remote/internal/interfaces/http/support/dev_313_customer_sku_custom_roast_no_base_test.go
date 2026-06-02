@@ -21,21 +21,21 @@ func TestDev313CustomerSkuCustomRoastNoBaseProduct(t *testing.T) {
 		}
 	}
 
-	productSettings := string(readDev313File(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
-	for _, want := range []string{
-		`@submit.prevent="createSku"`,
-		"skuForm.product_type_category_id",
-		"skuForm.product_subtype_category_id",
-		"buildSkuCreatePayload(skuContextCustomerID.value, skuForm.value)",
-	} {
+		productSettings := string(readDev313File(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
+		for _, want := range []string{
+			`@submit.prevent="createSku"`,
+			"buildSkuCreatePayload(skuContextCustomerID.value, skuForm.value)",
+		} {
 		if !strings.Contains(productSettings, want) {
 			t.Fatalf("ProductSettingsView.vue missing unified SKU create wiring %q", want)
 		}
 	}
 	for _, forbidden := range []string{
-		`v-else class="custom-product-form product-drawer-form"`,
-		`value="custom_blend">定制拼配 BOM`,
-	} {
+			`v-else class="custom-product-form product-drawer-form"`,
+			`value="custom_blend">定制拼配 BOM`,
+			"skuForm.product_type_category_id",
+			"skuForm.product_subtype_category_id",
+		} {
 		if strings.Contains(productSettings, forbidden) {
 			t.Fatalf("ProductSettingsView.vue should not expose legacy custom SKU create wiring %q", forbidden)
 		}
@@ -44,8 +44,7 @@ func TestDev313CustomerSkuCustomRoastNoBaseProduct(t *testing.T) {
 	productSettingsLib := string(readDev313File(t, filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js")))
 	for _, want := range []string{
 		"buildSkuCreatePayload",
-		"product_type_category_id",
-		"product_subtype_category_id",
+		"product_config_template_id",
 	} {
 		if !strings.Contains(productSettingsLib, want) {
 			t.Fatalf("product-settings.js missing unified SKU payload marker %q", want)

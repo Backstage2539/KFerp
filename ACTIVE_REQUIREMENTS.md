@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-394-PRODUCT-CLASSIFICATION-VIEW-TABS
+- Branch: codex/product-classification-view-tabs-20260602
+- Owner/session: Codex / 2026-06-02
+- Status: in_progress
+- Scope: 商品档案和客户商品名不再直接引用分类模板；分类模板作为列表页面启用的分类视图，一个模板一个 Tab。分类模板页面只维护分类结构；商品档案页和客户商品名页分别启用模板、按分类分组展示、用列表勾选做对象归类。客户商品名层删除生产/BOM 操作入口；生产 BOM 返回商品档案配置改为公共临时返回导航。
+- DEV:
+  - DEV-394-CLASSIFICATION-USAGE-API：新增商品档案/客户商品名分类模板启用 API，保留旧字段兼容，新写入不再把模板挂到对象本身。
+  - DEV-394-PRODUCT-CLASSIFICATION-TABS：商品档案页使用“启用模板 Tab + 分类分组 + 勾选归类”，创建和配置抽屉不再选择分类模板或旧产品类型/子类型。
+  - DEV-394-ALIAS-CLASSIFICATION-TABS：客户商品名页使用客户级启用模板 Tab，单个/批量新增不选模板，删除展示分类和生产/BOM 操作。
+  - DEV-394-CLASSIFICATION-TEMPLATE-STRUCTURE：分类模板页只维护模板和分类项结构，不再配置客户和对象归类。
+  - DEV-394-TRANSIENT-RETURN-NAV-DOCS：生产 BOM 返回商品档案配置使用前端内存态公共返回导航，刷新后消失，并更新手册/需求/验收文档。
+- Verifier:
+  - Frontend: `node --test src/lib/product-settings.test.js src/lib/bom.test.js src/lib/view-routing.test.js`
+  - API/backend: `go test ./internal/application/catalog ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1`
+  - Build: `npm run build` in `orderapp-remote/frontend-vue-shell`
+  - Changed verifier: `scripts/verify_kferp.sh changed`
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`
+  - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-02-product-classification-view-tabs.md`
+- Deployment: pending
+- Last update: 2026-06-02 Asia/Shanghai
+- Notes: Van requested no browser/manual验收; use code/docs/unit/API/build verification. RED evidence: frontend tests initially failed on missing classification template usage helpers, page-level tabs and BOM return navigation; catalog API tests initially failed because batch customer aliases still accepted `classification_template_id`, classification templates retained customer ownership, and product/customer classification-template usage APIs were missing; support marker tests caught stale PR-393 wording. GREEN evidence: `node --test src/lib/product-settings.test.js src/lib/bom.test.js src/lib/view-routing.test.js` passed 110/110; `go test ./internal/application/catalog ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1` passed; `npm run build` in Vue shell passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+
 ### PR-393-PRODUCT-CLASSIFICATION-TEMPLATES
 - Branch: codex/product-classification-template-drawers-20260602
 - Owner/session: Codex / 2026-06-02

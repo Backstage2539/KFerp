@@ -117,7 +117,7 @@
         :title="title"
         :view-key="currentKey"
         :section-mode="productSettingsSectionMode"
-        :view-params="currentViewParams"
+        :view-params="renderedViewParams"
         :workspace-mode="workspaceMode"
         :view-context="currentViewContext"
         :customer-context-id="workspaceCustomerContextId"
@@ -130,7 +130,7 @@
         class="internal-view"
         :title="title"
         :view-key="currentKey"
-        :view-params="currentViewParams"
+        :view-params="renderedViewParams"
         :workspace-mode="workspaceMode"
         :view-context="currentViewContext"
         :customer-context-id="workspaceCustomerContextId"
@@ -274,6 +274,7 @@ const viewContextPresets = ref([])
 const selectedViewContextPresetId = ref(0)
 const currentKey = ref(requestedView && menuMap[requestedView] ? requestedView : 'order')
 const currentViewParams = ref(viewContextViewParams(readViewParams(), currentViewContext.value))
+const transientReturnNavigation = ref(null)
 const externalCustomerContextType = EXTERNAL_CUSTOMER_VIEW_CONTEXT // external_customer
 const isMobile = ref(false)
 const mobileOpen = ref(false)
@@ -489,9 +490,12 @@ function scrollCurrentViewToTop() {
   })
 }
 
-function open(key, params = {}) {
+function open(key, params = {}, options = {}) {
   if (!menuMap[key]) return
   if (!isViewAllowed(key, allowedViewKeys.value)) return
+  transientReturnNavigation.value = options.returnNavigation
+    ? { ...options.returnNavigation, targetKey: key }
+    : null
   currentKey.value = key
   currentViewParams.value = viewContextViewParams(params, currentViewContext.value)
   ensureCurrentGroupOpen(key)
@@ -633,7 +637,7 @@ function toggleMenu() {
 function handleNavigateView(event) {
   const key = event?.detail?.key
   if (key && menuMap[key] && isViewAllowed(key, allowedViewKeys.value)) {
-    open(key, event?.detail?.params || {})
+    open(key, event?.detail?.params || {}, { returnNavigation: event?.detail?.returnNavigation || event?.detail?.return_navigation || null })
   }
 }
 
@@ -991,6 +995,13 @@ const productSettingsSectionMode = computed(() => {
   return 'master'
 })
 const currentViewIdentity = computed(() => `${currentKey.value}:${currentViewContext.value.type}:${workspaceCustomerContextId.value || 0}:${orderIDForViewContext(currentViewContext.value) || 0}`)
+const renderedViewParams = computed(() => {
+  const params = { ...(currentViewParams.value || {}) }
+  if (transientReturnNavigation.value && transientReturnNavigation.value.targetKey === currentKey.value) {
+    params.return_navigation = transientReturnNavigation.value
+  }
+  return params
+})
 const visibleNotifications = computed(() => dedupeNotifications(notifications.value).slice(0, 3))
 const notificationStackStyle = computed(() => ({
   '--kferp-notice-stack-space': isMobile.value && visibleNotifications.value.length
