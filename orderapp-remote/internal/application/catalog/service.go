@@ -44,6 +44,7 @@ type Product struct {
 	ProductionConfigNote        string
 	ProductCategoryID           int64
 	ProductCategoryPosition     int
+	ClassificationTemplateID    int64
 	CustomerID                  int64
 	BaseProductID               int64
 	Visibility                  string
@@ -132,6 +133,7 @@ type ProductSettingsProduct struct {
 	ProductionConfigNote        string   `json:"production_config_note"`
 	ProductCategoryID           int64    `json:"product_category_id"`
 	ProductCategoryPosition     int      `json:"product_category_position"`
+	ClassificationTemplateID    int64    `json:"classification_template_id"`
 	CustomerID                  int64    `json:"customer_id"`
 	BaseProductID               int64    `json:"base_product_id"`
 	Visibility                  string   `json:"visibility"`
@@ -175,17 +177,18 @@ type ProductCategoryNode struct {
 }
 
 type ProductSettingsData struct {
-	Categories                   []ProductCategoryNode         `json:"categories"`
-	Products                     []ProductSettingsProduct      `json:"products"`
-	ProductProductionConfigs     []ProductProductionConfig     `json:"product_production_configs"`
-	GradientTemplates            []GradientTemplate            `json:"gradient_templates"`
-	ProductConfigTemplates       []ProductConfigTemplate       `json:"product_config_templates"`
-	ProductUnitDefinitions       []ProductUnitDefinition       `json:"product_unit_definitions"`
-	ProductUnitTemplates         []ProductUnitTemplate         `json:"product_unit_templates"`
-	CustomerPublicUsages         []CustomerPublicUsage         `json:"customer_public_usages"`
-	CustomerProductRuleTemplates []CustomerProductRuleTemplate `json:"customer_product_rule_templates"`
-	CustomerProductRuleOverrides []CustomerProductRuleOverride `json:"customer_product_rule_overrides"`
-	CustomerProductRuleBindings  []CustomerProductRuleBinding  `json:"customer_product_rule_bindings"`
+	Categories                     []ProductCategoryNode           `json:"categories"`
+	Products                       []ProductSettingsProduct        `json:"products"`
+	ProductProductionConfigs       []ProductProductionConfig       `json:"product_production_configs"`
+	ProductClassificationTemplates []ProductClassificationTemplate `json:"product_classification_templates"`
+	GradientTemplates              []GradientTemplate              `json:"gradient_templates"`
+	ProductConfigTemplates         []ProductConfigTemplate         `json:"product_config_templates"`
+	ProductUnitDefinitions         []ProductUnitDefinition         `json:"product_unit_definitions"`
+	ProductUnitTemplates           []ProductUnitTemplate           `json:"product_unit_templates"`
+	CustomerPublicUsages           []CustomerPublicUsage           `json:"customer_public_usages"`
+	CustomerProductRuleTemplates   []CustomerProductRuleTemplate   `json:"customer_product_rule_templates"`
+	CustomerProductRuleOverrides   []CustomerProductRuleOverride   `json:"customer_product_rule_overrides"`
+	CustomerProductRuleBindings    []CustomerProductRuleBinding    `json:"customer_product_rule_bindings"`
 }
 
 type ProductProductionConfigField struct {
@@ -233,6 +236,43 @@ type ProductConfigTemplate struct {
 	UnitConversionJSON     string `json:"unit_conversion_json"`
 	IntegerUnit            bool   `json:"integer_unit"`
 	Active                 bool   `json:"active"`
+}
+
+type ProductClassificationTemplate struct {
+	ID                       int64                                          `json:"id"`
+	CustomerID               int64                                          `json:"customer_id"`
+	SourceTemplateID         int64                                          `json:"source_template_id"`
+	TemplateState            string                                         `json:"template_state"`
+	Name                     string                                         `json:"name"`
+	Active                   bool                                           `json:"active"`
+	SortOrder                int                                            `json:"sort_order"`
+	Categories               []ProductClassificationCategory                `json:"categories"`
+	ProductAssignments       []ProductClassificationAssignment              `json:"product_assignments"`
+	CustomerAliasAssignments []CustomerProductAliasClassificationAssignment `json:"customer_alias_assignments"`
+}
+
+type ProductClassificationCategory struct {
+	ID         int64  `json:"id"`
+	TemplateID int64  `json:"template_id"`
+	ParentID   int64  `json:"parent_id"`
+	Name       string `json:"name"`
+	Level      int    `json:"level"`
+	SortOrder  int    `json:"sort_order"`
+	Active     bool   `json:"active"`
+}
+
+type ProductClassificationAssignment struct {
+	ProductID  int64 `json:"product_id"`
+	TemplateID int64 `json:"template_id"`
+	CategoryID int64 `json:"category_id"`
+	SortOrder  int   `json:"sort_order"`
+}
+
+type CustomerProductAliasClassificationAssignment struct {
+	AliasID    int64 `json:"alias_id"`
+	TemplateID int64 `json:"template_id"`
+	CategoryID int64 `json:"category_id"`
+	SortOrder  int   `json:"sort_order"`
 }
 
 type ProductUnitDefinition struct {
@@ -320,6 +360,7 @@ type UpdateProductBasicsCommand struct {
 	OperationTemplateIDOverride int64
 	UnitRuleOverrideJSON        string
 	ProductConfigTemplateID     int64
+	ClassificationTemplateID    int64
 }
 
 type CreateProductCommand struct {
@@ -344,6 +385,7 @@ type CreateProductCommand struct {
 	RetailPrice250G          float64
 	YieldRate                float64
 	ProductConfigTemplateID  int64
+	ClassificationTemplateID int64
 	Tiers                    []PriceTier
 }
 
@@ -361,6 +403,7 @@ type CreateSKUCommand struct {
 	ProductSubtypeCategoryID int64
 	SpecialAttrsJSON         string
 	ProductConfigTemplateID  int64
+	ClassificationTemplateID int64
 	Active                   bool
 }
 
@@ -451,24 +494,25 @@ type CustomerPublicUsageCommand struct {
 }
 
 type CustomerProductAlias struct {
-	ID                  int64  `json:"id"`
-	CustomerID          int64  `json:"customer_id"`
-	CustomerName        string `json:"customer_name"`
-	ProductID           int64  `json:"product_id"`
-	ProductCode         string `json:"product_code"`
-	ProductName         string `json:"product_name"`
-	ProductActive       bool   `json:"product_active"`
-	DisplayName         string `json:"display_name"`
-	CustomerItemCode    string `json:"customer_item_code"`
-	BrandName           string `json:"brand_name"`
-	DisplayCategoryID   int64  `json:"display_category_id"`
-	DisplayCategoryName string `json:"display_category_name"`
-	SortOrder           int    `json:"sort_order"`
-	IncludeInPriceList  bool   `json:"include_in_price_list"`
-	Active              bool   `json:"active"`
-	Remark              string `json:"remark"`
-	CreatedBy           string `json:"created_by"`
-	UpdatedBy           string `json:"updated_by"`
+	ID                       int64  `json:"id"`
+	CustomerID               int64  `json:"customer_id"`
+	CustomerName             string `json:"customer_name"`
+	ProductID                int64  `json:"product_id"`
+	ProductCode              string `json:"product_code"`
+	ProductName              string `json:"product_name"`
+	ProductActive            bool   `json:"product_active"`
+	DisplayName              string `json:"display_name"`
+	CustomerItemCode         string `json:"customer_item_code"`
+	BrandName                string `json:"brand_name"`
+	DisplayCategoryID        int64  `json:"display_category_id"`
+	DisplayCategoryName      string `json:"display_category_name"`
+	ClassificationTemplateID int64  `json:"classification_template_id"`
+	SortOrder                int    `json:"sort_order"`
+	IncludeInPriceList       bool   `json:"include_in_price_list"`
+	Active                   bool   `json:"active"`
+	Remark                   string `json:"remark"`
+	CreatedBy                string `json:"created_by"`
+	UpdatedBy                string `json:"updated_by"`
 }
 
 type CustomerProductAliasQuery struct {
@@ -477,18 +521,19 @@ type CustomerProductAliasQuery struct {
 }
 
 type CustomerProductAliasCommand struct {
-	Actor              string
-	ID                 int64
-	CustomerID         int64
-	ProductID          int64
-	DisplayName        string
-	CustomerItemCode   string
-	BrandName          string
-	DisplayCategoryID  int64
-	SortOrder          int
-	IncludeInPriceList bool
-	Active             bool
-	Remark             string
+	Actor                    string
+	ID                       int64
+	CustomerID               int64
+	ProductID                int64
+	DisplayName              string
+	CustomerItemCode         string
+	BrandName                string
+	DisplayCategoryID        int64
+	ClassificationTemplateID int64
+	SortOrder                int
+	IncludeInPriceList       bool
+	Active                   bool
+	Remark                   string
 }
 
 type DisableCustomerProductAliasCommand struct {
@@ -497,12 +542,13 @@ type DisableCustomerProductAliasCommand struct {
 }
 
 type BatchCustomerProductAliasesCommand struct {
-	Actor              string
-	CustomerID         int64
-	ProductIDs         []int64
-	IncludeInPriceList bool
-	BrandName          string
-	DisplayCategoryID  int64
+	Actor                    string
+	CustomerID               int64
+	ProductIDs               []int64
+	IncludeInPriceList       bool
+	BrandName                string
+	DisplayCategoryID        int64
+	ClassificationTemplateID int64
 }
 
 type CustomerProductAliasBatchSkipped struct {
@@ -635,6 +681,53 @@ type SaveProductConfigTemplateCommand struct {
 	Active                 *bool
 }
 
+type SaveProductClassificationTemplateCommand struct {
+	Actor            string
+	ID               int64
+	CustomerID       int64
+	SourceTemplateID int64
+	Name             string
+	Active           bool
+	SortOrder        int
+}
+
+type DeleteProductClassificationTemplateCommand struct {
+	Actor string
+	ID    int64
+}
+
+type SaveProductClassificationCategoryCommand struct {
+	Actor      string
+	ID         int64
+	TemplateID int64
+	ParentID   int64
+	Name       string
+	Level      int
+	SortOrder  int
+}
+
+type DeleteProductClassificationCategoryCommand struct {
+	Actor      string
+	ID         int64
+	TemplateID int64
+}
+
+type SaveProductClassificationAssignmentCommand struct {
+	Actor      string
+	ProductID  int64
+	TemplateID int64
+	CategoryID int64
+	SortOrder  int
+}
+
+type SaveCustomerProductAliasClassificationAssignmentCommand struct {
+	Actor      string
+	AliasID    int64
+	TemplateID int64
+	CategoryID int64
+	SortOrder  int
+}
+
 type SaveProductUnitDefinitionCommand struct {
 	Actor        string
 	Code         string
@@ -765,6 +858,13 @@ type Repository interface {
 	ListProductProductionConfigs(ctx context.Context) ([]ProductProductionConfig, error)
 	GetProductProductionConfig(ctx context.Context, productID int64) (ProductProductionConfig, error)
 	SaveProductProductionConfig(ctx context.Context, cmd SaveProductProductionConfigCommand) (ProductProductionConfig, error)
+	ListProductClassificationTemplates(ctx context.Context) ([]ProductClassificationTemplate, error)
+	SaveProductClassificationTemplate(ctx context.Context, cmd SaveProductClassificationTemplateCommand) (ProductClassificationTemplate, error)
+	DeleteProductClassificationTemplate(ctx context.Context, cmd DeleteProductClassificationTemplateCommand) error
+	SaveProductClassificationCategory(ctx context.Context, cmd SaveProductClassificationCategoryCommand) (ProductClassificationCategory, error)
+	DeleteProductClassificationCategory(ctx context.Context, cmd DeleteProductClassificationCategoryCommand) error
+	SaveProductClassificationAssignment(ctx context.Context, cmd SaveProductClassificationAssignmentCommand) (ProductClassificationAssignment, error)
+	SaveCustomerProductAliasClassificationAssignment(ctx context.Context, cmd SaveCustomerProductAliasClassificationAssignmentCommand) (CustomerProductAliasClassificationAssignment, error)
 	ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error)
 	ListProductConfigTemplates(ctx context.Context) ([]ProductConfigTemplate, error)
 	ListProductUnitDefinitions(ctx context.Context) ([]ProductUnitDefinition, error)
@@ -912,6 +1012,9 @@ func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasi
 	if cmd.ProductConfigTemplateID < 0 {
 		return ValidationError{Message: "invalid product_config_template_id"}
 	}
+	if cmd.ClassificationTemplateID < 0 {
+		return ValidationError{Message: "invalid classification_template_id"}
+	}
 	unitRuleOverrideJSON, err := normalizeJSONText(cmd.UnitRuleOverrideJSON)
 	if err != nil {
 		return ValidationError{Message: "invalid unit_rule_override_json"}
@@ -978,6 +1081,9 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	if cmd.ProductConfigTemplateID < 0 {
 		return Product{}, ValidationError{Message: "invalid product_config_template_id"}
 	}
+	if cmd.ClassificationTemplateID < 0 {
+		return Product{}, ValidationError{Message: "invalid classification_template_id"}
+	}
 	cmd.SpecialAttrsJSON = specialAttrsJSON
 	return s.repo.CreateProduct(ctx, cmd)
 }
@@ -997,6 +1103,9 @@ func (s *Service) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product,
 	}
 	if cmd.ProductConfigTemplateID < 0 {
 		return Product{}, ValidationError{Message: "invalid product_config_template_id"}
+	}
+	if cmd.ClassificationTemplateID < 0 {
+		return Product{}, ValidationError{Message: "invalid classification_template_id"}
 	}
 	specialAttrsJSON, err := normalizeJSONObjectText(cmd.SpecialAttrsJSON)
 	if err != nil {
@@ -1123,6 +1232,10 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
+	classificationTemplates, err := s.repo.ListProductClassificationTemplates(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
 	templates, err := s.repo.ListGradientTemplates(ctx)
 	if err != nil {
 		return ProductSettingsData{}, err
@@ -1157,6 +1270,7 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	}
 	data := BuildProductSettings(categories, products)
 	data.ProductProductionConfigs = productionConfigs
+	data.ProductClassificationTemplates = classificationTemplates
 	data.GradientTemplates = templates
 	data.ProductConfigTemplates = configTemplates
 	data.ProductUnitDefinitions = unitDefinitions
@@ -1174,6 +1288,81 @@ func (s *Service) ListGradientTemplates(ctx context.Context) ([]GradientTemplate
 
 func (s *Service) ListProductConfigTemplates(ctx context.Context) ([]ProductConfigTemplate, error) {
 	return s.repo.ListProductConfigTemplates(ctx)
+}
+
+func (s *Service) ListProductClassificationTemplates(ctx context.Context) ([]ProductClassificationTemplate, error) {
+	return s.repo.ListProductClassificationTemplates(ctx)
+}
+
+func (s *Service) SaveProductClassificationTemplate(ctx context.Context, cmd SaveProductClassificationTemplateCommand) (ProductClassificationTemplate, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.ID < 0 || cmd.CustomerID < 0 || cmd.SourceTemplateID < 0 {
+		return ProductClassificationTemplate{}, ValidationError{Message: "invalid classification template"}
+	}
+	if cmd.Name == "" {
+		return ProductClassificationTemplate{}, ValidationError{Message: "name required"}
+	}
+	if cmd.SortOrder <= 0 {
+		cmd.SortOrder = 100
+	}
+	return s.repo.SaveProductClassificationTemplate(ctx, cmd)
+}
+
+func (s *Service) DeleteProductClassificationTemplate(ctx context.Context, cmd DeleteProductClassificationTemplateCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ID <= 0 {
+		return ValidationError{Message: "invalid id"}
+	}
+	return s.repo.DeleteProductClassificationTemplate(ctx, cmd)
+}
+
+func (s *Service) SaveProductClassificationCategory(ctx context.Context, cmd SaveProductClassificationCategoryCommand) (ProductClassificationCategory, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.ID < 0 || cmd.TemplateID <= 0 || cmd.ParentID < 0 {
+		return ProductClassificationCategory{}, ValidationError{Message: "invalid classification category"}
+	}
+	if cmd.Name == "" {
+		return ProductClassificationCategory{}, ValidationError{Message: "name required"}
+	}
+	if cmd.Level <= 0 {
+		cmd.Level = 1
+	}
+	if cmd.SortOrder <= 0 {
+		cmd.SortOrder = 100
+	}
+	return s.repo.SaveProductClassificationCategory(ctx, cmd)
+}
+
+func (s *Service) DeleteProductClassificationCategory(ctx context.Context, cmd DeleteProductClassificationCategoryCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ID <= 0 || cmd.TemplateID <= 0 {
+		return ValidationError{Message: "invalid classification category"}
+	}
+	return s.repo.DeleteProductClassificationCategory(ctx, cmd)
+}
+
+func (s *Service) SaveProductClassificationAssignment(ctx context.Context, cmd SaveProductClassificationAssignmentCommand) (ProductClassificationAssignment, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ProductID <= 0 || cmd.TemplateID <= 0 || cmd.CategoryID < 0 {
+		return ProductClassificationAssignment{}, ValidationError{Message: "invalid classification assignment"}
+	}
+	if cmd.SortOrder <= 0 {
+		cmd.SortOrder = 100
+	}
+	return s.repo.SaveProductClassificationAssignment(ctx, cmd)
+}
+
+func (s *Service) SaveCustomerProductAliasClassificationAssignment(ctx context.Context, cmd SaveCustomerProductAliasClassificationAssignmentCommand) (CustomerProductAliasClassificationAssignment, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.AliasID <= 0 || cmd.TemplateID <= 0 || cmd.CategoryID < 0 {
+		return CustomerProductAliasClassificationAssignment{}, ValidationError{Message: "invalid customer alias classification assignment"}
+	}
+	if cmd.SortOrder <= 0 {
+		cmd.SortOrder = 100
+	}
+	return s.repo.SaveCustomerProductAliasClassificationAssignment(ctx, cmd)
 }
 
 func (s *Service) ListProductUnitDefinitions(ctx context.Context) ([]ProductUnitDefinition, error) {
@@ -1520,6 +1709,9 @@ func (s *Service) SaveCustomerProductAlias(ctx context.Context, cmd CustomerProd
 	if cmd.DisplayCategoryID < 0 {
 		return CustomerProductAlias{}, ValidationError{Message: "invalid display_category_id"}
 	}
+	if cmd.ClassificationTemplateID < 0 {
+		return CustomerProductAlias{}, ValidationError{Message: "invalid classification_template_id"}
+	}
 	return s.repo.SaveCustomerProductAlias(ctx, cmd)
 }
 
@@ -1539,6 +1731,9 @@ func (s *Service) BatchCreateCustomerProductAliases(ctx context.Context, cmd Bat
 	}
 	if cmd.DisplayCategoryID < 0 {
 		return BatchCustomerProductAliasesResult{}, ValidationError{Message: "invalid display_category_id"}
+	}
+	if cmd.ClassificationTemplateID < 0 {
+		return BatchCustomerProductAliasesResult{}, ValidationError{Message: "invalid classification_template_id"}
 	}
 	seen := map[int64]bool{}
 	ids := make([]int64, 0, len(cmd.ProductIDs))
@@ -2038,6 +2233,7 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		ProductionConfigNote:        p.ProductionConfigNote,
 		ProductCategoryID:           p.ProductCategoryID,
 		ProductCategoryPosition:     p.ProductCategoryPosition,
+		ClassificationTemplateID:    p.ClassificationTemplateID,
 		CustomerID:                  p.CustomerID,
 		BaseProductID:               p.BaseProductID,
 		Visibility:                  productVisibility(p.Visibility, p.CustomerID),

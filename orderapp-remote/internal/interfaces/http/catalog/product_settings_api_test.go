@@ -17,84 +17,95 @@ import (
 )
 
 type productSettingsRepo struct {
-	products                 []catalogapp.Product
-	categories               []catalogapp.ProductCategory
-	gradientTemplates        []catalogapp.GradientTemplate
-	productConfigTemplates   []catalogapp.ProductConfigTemplate
-	productUnitDefinitions   []catalogapp.ProductUnitDefinition
-	productUnitTemplates     []catalogapp.ProductUnitTemplate
-	productProductionConfigs []catalogapp.ProductProductionConfig
-	savedCategory            catalogapp.SaveProductCategoryCommand
-	movedCategory            catalogapp.MoveProductCategoryCommand
-	deletedCategory          catalogapp.DeleteProductCategoryCommand
-	assigned                 catalogapp.AssignProductCategoryCommand
-	assignResult             catalogapp.AssignProductCategoryResult
-	derivedProduct           catalogapp.DeriveCustomerProductCommand
-	derivedCategory          catalogapp.DeriveProductCategoryCommand
-	derivedTemplate          catalogapp.DeriveGradientTemplateCommand
-	derivedConfig            catalogapp.DeriveProductConfigTemplateCommand
-	savedTemplate            catalogapp.SaveGradientTemplateCommand
-	savedConfigTemplate      catalogapp.SaveProductConfigTemplateCommand
-	savedUnitDefinition      catalogapp.SaveProductUnitDefinitionCommand
-	savedUnitTemplate        catalogapp.SaveProductUnitTemplateCommand
-	savedProductionConfig    catalogapp.SaveProductProductionConfigCommand
-	deactivatedTemplate      catalogapp.DeactivateGradientTemplateCommand
-	boundTemplate            catalogapp.BindCategoryGradientTemplateCommand
-	updated                  catalogapp.UpdateProductBasicsCommand
-	updateErr                error
-	deactivated              catalogapp.DeactivateProductsCommand
-	createdPublic            catalogapp.CreateProductCommand
-	createdSKU               catalogapp.CreateSKUCommand
-	copiedSKUs               catalogapp.CopySKUsCommand
-	skuCopyOptionsQuery      catalogapp.SKUCopyOptionsQuery
-	publicUsage              catalogapp.CustomerPublicUsageCommand
-	publicUsages             []catalogapp.CustomerPublicUsage
-	customerProductAliases   []catalogapp.CustomerProductAlias
-	customerAliasQuery       catalogapp.CustomerProductAliasQuery
-	savedCustomerAlias       catalogapp.CustomerProductAliasCommand
-	disabledCustomerAlias    catalogapp.DisableCustomerProductAliasCommand
-	batchCustomerAliases     catalogapp.BatchCustomerProductAliasesCommand
-	aliasCandidates          []catalogapp.CustomerProductAliasMigrationCandidate
-	aliasCandidateQuery      catalogapp.CustomerProductAliasMigrationCandidateQuery
-	ruleTemplates            []catalogapp.CustomerProductRuleTemplate
-	ruleOverrides            []catalogapp.CustomerProductRuleOverride
-	customerRuleBindings     []catalogapp.CustomerProductRuleBinding
-	savedRuleTemplate        catalogapp.SaveCustomerProductRuleTemplateCommand
-	savedRuleOverride        catalogapp.SaveCustomerProductRuleOverrideCommand
-	savedRuleBinding         catalogapp.CustomerProductRuleTemplateBindingCommand
-	createErr                error
-	createdProduct           catalogapp.CreateCustomProductCommand
-	categoryCreated          bool
-	categoryMoved            bool
-	categoryDeleted          bool
-	productAssigned          bool
-	productDerived           bool
-	categoryDerived          bool
-	templateDerived          bool
-	configTemplateDerived    bool
-	templateSaved            bool
-	configTemplateSaved      bool
-	unitDefinitionSaved      bool
-	unitTemplateSaved        bool
-	productionConfigSaved    bool
-	templateDeactivated      bool
-	templateBound            bool
-	productUpdated           bool
-	productsDeactivated      bool
-	publicCreated            bool
-	skuCreated               bool
-	skusCopied               bool
-	skuCopyOptionsListed     bool
-	productCreated           bool
-	publicUsageSaved         bool
-	customerAliasesListed    bool
-	customerAliasSaved       bool
-	customerAliasDisabled    bool
-	customerAliasBatchSaved  bool
-	aliasCandidatesListed    bool
-	ruleTemplateSaved        bool
-	ruleOverrideSaved        bool
-	ruleBindingSaved         bool
+	products                           []catalogapp.Product
+	categories                         []catalogapp.ProductCategory
+	gradientTemplates                  []catalogapp.GradientTemplate
+	productConfigTemplates             []catalogapp.ProductConfigTemplate
+	productUnitDefinitions             []catalogapp.ProductUnitDefinition
+	productUnitTemplates               []catalogapp.ProductUnitTemplate
+	productProductionConfigs           []catalogapp.ProductProductionConfig
+	savedCategory                      catalogapp.SaveProductCategoryCommand
+	movedCategory                      catalogapp.MoveProductCategoryCommand
+	deletedCategory                    catalogapp.DeleteProductCategoryCommand
+	assigned                           catalogapp.AssignProductCategoryCommand
+	assignResult                       catalogapp.AssignProductCategoryResult
+	derivedProduct                     catalogapp.DeriveCustomerProductCommand
+	derivedCategory                    catalogapp.DeriveProductCategoryCommand
+	derivedTemplate                    catalogapp.DeriveGradientTemplateCommand
+	derivedConfig                      catalogapp.DeriveProductConfigTemplateCommand
+	savedTemplate                      catalogapp.SaveGradientTemplateCommand
+	savedConfigTemplate                catalogapp.SaveProductConfigTemplateCommand
+	savedUnitDefinition                catalogapp.SaveProductUnitDefinitionCommand
+	savedUnitTemplate                  catalogapp.SaveProductUnitTemplateCommand
+	savedProductionConfig              catalogapp.SaveProductProductionConfigCommand
+	deactivatedTemplate                catalogapp.DeactivateGradientTemplateCommand
+	boundTemplate                      catalogapp.BindCategoryGradientTemplateCommand
+	updated                            catalogapp.UpdateProductBasicsCommand
+	updateErr                          error
+	deactivated                        catalogapp.DeactivateProductsCommand
+	createdPublic                      catalogapp.CreateProductCommand
+	createdSKU                         catalogapp.CreateSKUCommand
+	copiedSKUs                         catalogapp.CopySKUsCommand
+	skuCopyOptionsQuery                catalogapp.SKUCopyOptionsQuery
+	publicUsage                        catalogapp.CustomerPublicUsageCommand
+	publicUsages                       []catalogapp.CustomerPublicUsage
+	customerProductAliases             []catalogapp.CustomerProductAlias
+	customerAliasQuery                 catalogapp.CustomerProductAliasQuery
+	savedCustomerAlias                 catalogapp.CustomerProductAliasCommand
+	disabledCustomerAlias              catalogapp.DisableCustomerProductAliasCommand
+	batchCustomerAliases               catalogapp.BatchCustomerProductAliasesCommand
+	aliasCandidates                    []catalogapp.CustomerProductAliasMigrationCandidate
+	aliasCandidateQuery                catalogapp.CustomerProductAliasMigrationCandidateQuery
+	ruleTemplates                      []catalogapp.CustomerProductRuleTemplate
+	ruleOverrides                      []catalogapp.CustomerProductRuleOverride
+	customerRuleBindings               []catalogapp.CustomerProductRuleBinding
+	classificationTemplates            []catalogapp.ProductClassificationTemplate
+	savedRuleTemplate                  catalogapp.SaveCustomerProductRuleTemplateCommand
+	savedRuleOverride                  catalogapp.SaveCustomerProductRuleOverrideCommand
+	savedRuleBinding                   catalogapp.CustomerProductRuleTemplateBindingCommand
+	savedClassificationTemplate        catalogapp.SaveProductClassificationTemplateCommand
+	savedClassificationCategory        catalogapp.SaveProductClassificationCategoryCommand
+	savedClassificationAssignment      catalogapp.SaveProductClassificationAssignmentCommand
+	savedAliasClassificationAssignment catalogapp.SaveCustomerProductAliasClassificationAssignmentCommand
+	createErr                          error
+	createdProduct                     catalogapp.CreateCustomProductCommand
+	categoryCreated                    bool
+	categoryMoved                      bool
+	categoryDeleted                    bool
+	productAssigned                    bool
+	productDerived                     bool
+	categoryDerived                    bool
+	templateDerived                    bool
+	configTemplateDerived              bool
+	templateSaved                      bool
+	configTemplateSaved                bool
+	unitDefinitionSaved                bool
+	unitTemplateSaved                  bool
+	productionConfigSaved              bool
+	templateDeactivated                bool
+	templateBound                      bool
+	productUpdated                     bool
+	productsDeactivated                bool
+	publicCreated                      bool
+	skuCreated                         bool
+	skusCopied                         bool
+	skuCopyOptionsListed               bool
+	productCreated                     bool
+	publicUsageSaved                   bool
+	customerAliasesListed              bool
+	customerAliasSaved                 bool
+	customerAliasDisabled              bool
+	customerAliasBatchSaved            bool
+	aliasCandidatesListed              bool
+	ruleTemplateSaved                  bool
+	ruleOverrideSaved                  bool
+	ruleBindingSaved                   bool
+	classificationTemplateSaved        bool
+	classificationTemplateDeleted      bool
+	classificationCategorySaved        bool
+	classificationCategoryDeleted      bool
+	classificationAssignmentSaved      bool
+	aliasClassificationAssignmentSaved bool
 }
 
 func (r *productSettingsRepo) ListProducts(ctx context.Context) ([]catalogapp.Product, error) {
@@ -498,6 +509,67 @@ func (r *productSettingsRepo) DeriveProductConfigTemplate(ctx context.Context, c
 	}, nil
 }
 
+func (r *productSettingsRepo) ListProductClassificationTemplates(ctx context.Context) ([]catalogapp.ProductClassificationTemplate, error) {
+	if r.classificationTemplates != nil {
+		return r.classificationTemplates, nil
+	}
+	return []catalogapp.ProductClassificationTemplate{{
+		ID:         501,
+		CustomerID: 0,
+		Name:       "默认分类模板",
+		Active:     true,
+		Categories: []catalogapp.ProductClassificationCategory{{
+			ID:         502,
+			TemplateID: 501,
+			Name:       "未分类",
+			SortOrder:  0,
+			Active:     true,
+		}},
+	}}, nil
+}
+
+func (r *productSettingsRepo) SaveProductClassificationTemplate(ctx context.Context, cmd catalogapp.SaveProductClassificationTemplateCommand) (catalogapp.ProductClassificationTemplate, error) {
+	r.savedClassificationTemplate = cmd
+	r.classificationTemplateSaved = true
+	id := cmd.ID
+	if id == 0 {
+		id = 501
+	}
+	return catalogapp.ProductClassificationTemplate{ID: id, CustomerID: cmd.CustomerID, Name: cmd.Name, Active: true}, nil
+}
+
+func (r *productSettingsRepo) DeleteProductClassificationTemplate(ctx context.Context, cmd catalogapp.DeleteProductClassificationTemplateCommand) error {
+	r.classificationTemplateDeleted = true
+	return nil
+}
+
+func (r *productSettingsRepo) SaveProductClassificationCategory(ctx context.Context, cmd catalogapp.SaveProductClassificationCategoryCommand) (catalogapp.ProductClassificationCategory, error) {
+	r.savedClassificationCategory = cmd
+	r.classificationCategorySaved = true
+	id := cmd.ID
+	if id == 0 {
+		id = 502
+	}
+	return catalogapp.ProductClassificationCategory{ID: id, TemplateID: cmd.TemplateID, Name: cmd.Name, SortOrder: cmd.SortOrder, Active: true}, nil
+}
+
+func (r *productSettingsRepo) DeleteProductClassificationCategory(ctx context.Context, cmd catalogapp.DeleteProductClassificationCategoryCommand) error {
+	r.classificationCategoryDeleted = true
+	return nil
+}
+
+func (r *productSettingsRepo) SaveProductClassificationAssignment(ctx context.Context, cmd catalogapp.SaveProductClassificationAssignmentCommand) (catalogapp.ProductClassificationAssignment, error) {
+	r.savedClassificationAssignment = cmd
+	r.classificationAssignmentSaved = true
+	return catalogapp.ProductClassificationAssignment{TemplateID: cmd.TemplateID, CategoryID: cmd.CategoryID, ProductID: cmd.ProductID}, nil
+}
+
+func (r *productSettingsRepo) SaveCustomerProductAliasClassificationAssignment(ctx context.Context, cmd catalogapp.SaveCustomerProductAliasClassificationAssignmentCommand) (catalogapp.CustomerProductAliasClassificationAssignment, error) {
+	r.savedAliasClassificationAssignment = cmd
+	r.aliasClassificationAssignmentSaved = true
+	return catalogapp.CustomerProductAliasClassificationAssignment{TemplateID: cmd.TemplateID, CategoryID: cmd.CategoryID, AliasID: cmd.AliasID}, nil
+}
+
 func (r *productSettingsRepo) SaveCustomerPublicUsage(ctx context.Context, cmd catalogapp.CustomerPublicUsageCommand) (catalogapp.CustomerPublicUsage, error) {
 	r.publicUsage = cmd
 	r.publicUsageSaved = true
@@ -736,7 +808,8 @@ func TestCustomerProductAliasBatchAPICreatesAndSkipsExistingCustomerNames(t *tes
 		"product_ids":[88,89,89,90],
 		"include_in_price_list":true,
 		"brand_name":"",
-		"display_category_id":7
+		"display_category_id":7,
+		"classification_template_id":501
 	}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -745,13 +818,79 @@ func TestCustomerProductAliasBatchAPICreatesAndSkipsExistingCustomerNames(t *tes
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST batch alias status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.customerAliasBatchSaved || repo.batchCustomerAliases.CustomerID != 42 || !reflect.DeepEqual(repo.batchCustomerAliases.ProductIDs, []int64{88, 89, 90}) || !repo.batchCustomerAliases.IncludeInPriceList {
+	if !repo.customerAliasBatchSaved || repo.batchCustomerAliases.CustomerID != 42 || !reflect.DeepEqual(repo.batchCustomerAliases.ProductIDs, []int64{88, 89, 90}) || !repo.batchCustomerAliases.IncludeInPriceList || repo.batchCustomerAliases.ClassificationTemplateID != 501 {
 		t.Fatalf("batch alias command=%+v saved=%v", repo.batchCustomerAliases, repo.customerAliasBatchSaved)
 	}
 	for _, want := range []string{`"created_count":2`, `"skipped_count":1`, `"reason":"exists"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("batch alias response missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestProductClassificationTemplateAPIsSaveCategoriesAndAssignments(t *testing.T) {
+	repo := &productSettingsRepo{
+		classificationTemplates: []catalogapp.ProductClassificationTemplate{{
+			ID:         501,
+			CustomerID: 42,
+			Name:       "Karen 分类模板",
+			Active:     true,
+			Categories: []catalogapp.ProductClassificationCategory{{
+				ID:         502,
+				TemplateID: 501,
+				Name:       "精品拼配",
+				SortOrder:  1,
+				Active:     true,
+			}},
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-classification-templates", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"Karen 分类模板"`)) {
+		t.Fatalf("GET classification templates status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-templates", bytes.NewBufferString(`{"customer_id":42,"name":"客户侧价格表分类","sort_order":2}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !repo.classificationTemplateSaved || repo.savedClassificationTemplate.CustomerID != 42 || repo.savedClassificationTemplate.Name != "客户侧价格表分类" {
+		t.Fatalf("POST classification template status=%d body=%s cmd=%+v saved=%v", rec.Code, rec.Body.String(), repo.savedClassificationTemplate, repo.classificationTemplateSaved)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-template-categories", bytes.NewBufferString(`{"template_id":501,"name":"新品","level":1,"sort_order":3}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !repo.classificationCategorySaved || repo.savedClassificationCategory.TemplateID != 501 || repo.savedClassificationCategory.Name != "新品" {
+		t.Fatalf("POST classification category status=%d body=%s cmd=%+v saved=%v", rec.Code, rec.Body.String(), repo.savedClassificationCategory, repo.classificationCategorySaved)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-assignments/products", bytes.NewBufferString(`{"product_id":88,"template_id":501,"category_id":502,"sort_order":4}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !repo.classificationAssignmentSaved || repo.savedClassificationAssignment.ProductID != 88 || repo.savedClassificationAssignment.CategoryID != 502 {
+		t.Fatalf("POST product classification assignment status=%d body=%s cmd=%+v saved=%v", rec.Code, rec.Body.String(), repo.savedClassificationAssignment, repo.classificationAssignmentSaved)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-assignments/customer-aliases", bytes.NewBufferString(`{"alias_id":77,"template_id":501,"category_id":502,"sort_order":5}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !repo.aliasClassificationAssignmentSaved || repo.savedAliasClassificationAssignment.AliasID != 77 || repo.savedAliasClassificationAssignment.CategoryID != 502 {
+		t.Fatalf("POST alias classification assignment status=%d body=%s cmd=%+v saved=%v", rec.Code, rec.Body.String(), repo.savedAliasClassificationAssignment, repo.aliasClassificationAssignmentSaved)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/product-classification-template-categories/502?template_id=501", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !repo.classificationCategoryDeleted {
+		t.Fatalf("DELETE classification category status=%d body=%s deleted=%v", rec.Code, rec.Body.String(), repo.classificationCategoryDeleted)
 	}
 }
 
