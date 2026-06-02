@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -16,24 +17,6 @@ import (
 type Repository struct {
 	pool   *pgxpool.Pool
 	schema string
-}
-
-type skuCopyPlan struct {
-	source           catalogapp.Product
-	targetID         int64
-	targetCategoryID int64
-	existingID       int64
-}
-
-type skuCopyBOMItem struct {
-	materialID         int64
-	componentType      string
-	componentProductID int64
-	componentSpecG     int64
-	consumeUnit        string
-	qtyPerUnit         float64
-	ratioPct           float64
-	unitCostSnapshot   float64
 }
 
 func jsonTextOrDefaultArray(raw string) string {
@@ -368,6 +351,158 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 	return *product, nil
 }
 
+func (r Repository) CopyProduct(ctx context.Context, cmd catalogapp.CopyProductCommand) (catalogapp.Product, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.Product{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.Product{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	source, err := fetchProductForCopyTx(ctx, tx, r.schema, cmd.SourceProductID)
+	if err != nil {
+		return catalogapp.Product{}, err
+	}
+	if source == nil {
+		return catalogapp.Product{}, fmt.Errorf("source product not found")
+	}
+	copyName, err := nextProductArchiveCopyNameTx(ctx, tx, r.schema, source.Name)
+	if err != nil {
+		return catalogapp.Product{}, err
+	}
+	var productID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(
+			name, remark, product_kind, roast_level, default_price, active,
+			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
+			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
+			product_category_id, product_category_position,
+			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
+			special_attrs_json, product_config_template_id, classification_template_id, margin_rate_override,
+			gradient_template_id_override, operation_template_id_override, unit_rule_override_json, created_at
+		)
+		SELECT
+			$2, remark, product_kind, roast_level, default_price, active,
+			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
+			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
+			product_category_id, product_category_position,
+			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
+			special_attrs_json, product_config_template_id, 0, margin_rate_override,
+			gradient_template_id_override, operation_template_id_override, unit_rule_override_json, now()
+		FROM %s.products
+		WHERE id=$1
+		RETURNING id
+	`, r.schema, r.schema), cmd.SourceProductID, copyName).Scan(&productID); err != nil {
+		return catalogapp.Product{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_price_tiers(product_id,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active,product_kind,price_basis,sales_unit,unit_bag_count,price_source_json)
+		SELECT $2,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active,product_kind,price_basis,sales_unit,unit_bag_count,price_source_json
+		FROM %s.product_price_tiers
+		WHERE product_id=$1
+	`, r.schema, r.schema), cmd.SourceProductID, productID); err != nil {
+		return catalogapp.Product{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_production_configs(
+			product_id, production_bom_id, production_bom_version_id, process_route_id, industry_field_template_id,
+			expected_loss_rate, note, created_by, updated_by, created_at, updated_at
+		)
+		SELECT $2, production_bom_id, production_bom_version_id, process_route_id, industry_field_template_id,
+			expected_loss_rate, note, $3, $3, now(), now()
+		FROM %s.product_production_configs
+		WHERE product_id=$1
+	`, r.schema, r.schema), cmd.SourceProductID, productID, strings.TrimSpace(cmd.Actor)); err != nil {
+		return catalogapp.Product{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_at,bound_by)
+		SELECT $2,bom_id,bom_version_id,now(),$3
+		FROM %s.product_production_bom_bindings
+		WHERE product_id=$1
+		ON CONFLICT (product_id) DO UPDATE SET
+			bom_id=excluded.bom_id,
+			bom_version_id=excluded.bom_version_id,
+			bound_at=excluded.bound_at,
+			bound_by=excluded.bound_by
+	`, r.schema, r.schema), cmd.SourceProductID, productID, strings.TrimSpace(cmd.Actor)); err != nil {
+		return catalogapp.Product{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_production_config_fields(
+			product_id, field_key, label, field_type, unit, value_text, value_number, value_bool,
+			template_field_key, required, options_json, show_in_price_list, sort_order, created_at, updated_at
+		)
+		SELECT $2, field_key, label, field_type, unit, value_text, value_number, value_bool,
+			template_field_key, required, options_json, show_in_price_list, sort_order, now(), now()
+		FROM %s.product_production_config_fields
+		WHERE product_id=$1
+	`, r.schema, r.schema), cmd.SourceProductID, productID); err != nil {
+		return catalogapp.Product{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "copy_product_archive", postgresinfra.StrPtr("source_product_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.SourceProductID)), postgresinfra.StrPtr(fmt.Sprintf("%d", productID)), postgresinfra.AuditMeta{
+		"source_product_id":   cmd.SourceProductID,
+		"source_product_name": source.Name,
+		"target_product_id":   productID,
+		"target_product_name": copyName,
+	}); err != nil {
+		return catalogapp.Product{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.Product{}, err
+	}
+	product, err := r.GetProduct(ctx, productID)
+	if err != nil {
+		return catalogapp.Product{}, err
+	}
+	if product == nil {
+		return catalogapp.Product{}, fmt.Errorf("copied product not found")
+	}
+	return *product, nil
+}
+
+func fetchProductForCopyTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) (*catalogapp.Product, error) {
+	var product catalogapp.Product
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, name
+		FROM %s.products
+		WHERE id=$1
+	`, schema), productID).Scan(&product.ID, &product.Name); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &product, nil
+}
+
+func nextProductArchiveCopyNameTx(ctx context.Context, tx pgx.Tx, schema string, sourceName string) (string, error) {
+	baseName := strings.TrimSpace(sourceName)
+	if baseName == "" {
+		baseName = "未命名商品"
+	}
+	candidate := fmt.Sprintf("%s 复制", baseName)
+	for i := 0; i < 200; i++ {
+		if i > 0 {
+			candidate = fmt.Sprintf("%s 复制 %d", baseName, i+1)
+		}
+		var exists bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT EXISTS(SELECT 1 FROM %s.products WHERE lower(name)=lower($1))
+		`, schema), candidate).Scan(&exists); err != nil {
+			return "", err
+		}
+		if !exists {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("product copy name exhausted")
+}
+
 func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUCommand) (catalogapp.Product, error) {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
@@ -449,232 +584,6 @@ func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUComma
 		return catalogapp.Product{}, fmt.Errorf("created sku not found")
 	}
 	return *product, nil
-}
-
-func (r Repository) ListSKUCopyOptions(ctx context.Context, query catalogapp.SKUCopyOptionsQuery) (catalogapp.SKUCopyOptions, error) {
-	conn, err := r.pool.Acquire(ctx)
-	if err != nil {
-		return catalogapp.SKUCopyOptions{}, err
-	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return catalogapp.SKUCopyOptions{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT p.id, p.name, COALESCE(p.remark,''), COALESCE(p.customer_id,0), COALESCE(p.product_category_id,0), COALESCE(p.active,true),
-		       COALESCE(subtype.id,0), COALESCE(subtype.name,'未分类'),
-		       COALESCE(ptype.id,0), COALESCE(ptype.name,'未分类')
-		FROM %s.products p
-		LEFT JOIN %s.product_categories subtype ON subtype.id=COALESCE(p.product_category_id,0)
-		LEFT JOIN %s.product_categories ptype ON ptype.id=COALESCE(subtype.parent_id,0)
-		WHERE COALESCE(p.customer_id,0)=$1
-		ORDER BY COALESCE(ptype.position,9999), ptype.name, COALESCE(subtype.position,9999), subtype.name, p.name, p.id
-	`, r.schema, r.schema, r.schema), query.SourceCustomerID)
-	if err != nil {
-		return catalogapp.SKUCopyOptions{}, err
-	}
-
-	out := catalogapp.SKUCopyOptions{
-		Title:            "选择分类和产品",
-		TargetCustomerID: query.TargetCustomerID,
-		SourceCustomerID: query.SourceCustomerID,
-		Groups:           make([]catalogapp.SKUCopyTypeGroup, 0),
-	}
-	typeIndex := map[int64]int{}
-	subtypeIndex := map[string]int{}
-	sourceOptions := make([]catalogapp.SKUCopyOption, 0)
-	for rows.Next() {
-		var option catalogapp.SKUCopyOption
-		if err := rows.Scan(&option.ID, &option.Name, &option.Remark, &option.SourceCustomerID, &option.ProductSubtypeCategoryID, &option.Active, &option.ProductSubtypeCategoryID, &option.ProductSubtypeName, &option.ProductTypeCategoryID, &option.ProductTypeName); err != nil {
-			rows.Close()
-			return catalogapp.SKUCopyOptions{}, err
-		}
-		option.CopyState = "available"
-		if !option.Active {
-			option.CopyState = "inactive"
-		}
-		sourceOptions = append(sourceOptions, option)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return catalogapp.SKUCopyOptions{}, err
-	}
-
-	for _, option := range sourceOptions {
-		if option.Active {
-			targetSubtypeID, err := findEquivalentCategoryForTargetTx(ctx, tx, r.schema, query.TargetCustomerID, option.ProductSubtypeCategoryID)
-			if err != nil {
-				return catalogapp.SKUCopyOptions{}, err
-			}
-			if targetSubtypeID >= 0 {
-				existingID, err := findTargetSKUByNameTx(ctx, tx, r.schema, query.TargetCustomerID, targetSubtypeID, option.Name)
-				if err != nil {
-					return catalogapp.SKUCopyOptions{}, err
-				}
-				if existingID > 0 {
-					option.CopyState = "will_overwrite"
-				}
-			}
-		}
-		out.TotalCount++
-		typeID := option.ProductTypeCategoryID
-		if typeID == 0 {
-			typeID = -1
-		}
-		idx, ok := typeIndex[typeID]
-		if !ok {
-			out.Groups = append(out.Groups, catalogapp.SKUCopyTypeGroup{ID: option.ProductTypeCategoryID, Name: option.ProductTypeName, Children: make([]catalogapp.SKUCopySubtypeGroup, 0)})
-			idx = len(out.Groups) - 1
-			typeIndex[typeID] = idx
-		}
-		subtypeKey := fmt.Sprintf("%d:%d", typeID, option.ProductSubtypeCategoryID)
-		childIdx, ok := subtypeIndex[subtypeKey]
-		if !ok {
-			out.Groups[idx].Children = append(out.Groups[idx].Children, catalogapp.SKUCopySubtypeGroup{ID: option.ProductSubtypeCategoryID, Name: option.ProductSubtypeName, Products: make([]catalogapp.SKUCopyOption, 0)})
-			childIdx = len(out.Groups[idx].Children) - 1
-			subtypeIndex[subtypeKey] = childIdx
-		}
-		out.Groups[idx].Children[childIdx].Products = append(out.Groups[idx].Children[childIdx].Products, option)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return catalogapp.SKUCopyOptions{}, err
-	}
-	return out, nil
-}
-
-func (r Repository) CopySKUs(ctx context.Context, cmd catalogapp.CopySKUsCommand) (catalogapp.CopySKUsResult, error) {
-	conn, err := r.pool.Acquire(ctx)
-	if err != nil {
-		return catalogapp.CopySKUsResult{}, err
-	}
-	defer conn.Release()
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return catalogapp.CopySKUsResult{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if cmd.TargetCustomerID > 0 {
-		if err := ensureCustomerExistsTx(ctx, tx, r.schema, cmd.TargetCustomerID); err != nil {
-			return catalogapp.CopySKUsResult{}, err
-		}
-	}
-	if cmd.SourceCustomerID > 0 {
-		if err := ensureCustomerExistsTx(ctx, tx, r.schema, cmd.SourceCustomerID); err != nil {
-			return catalogapp.CopySKUsResult{}, err
-		}
-	}
-	result := catalogapp.CopySKUsResult{}
-	sourceToTarget := map[int64]int64{}
-	plans := make([]skuCopyPlan, 0, len(cmd.SourceSKUIDs))
-	for _, sourceID := range cmd.SourceSKUIDs {
-		source, err := fetchSKUCopySourceTx(ctx, tx, r.schema, sourceID)
-		if err != nil {
-			return catalogapp.CopySKUsResult{}, err
-		}
-		if source.CustomerID != cmd.SourceCustomerID {
-			result.SkippedCount++
-			continue
-		}
-		targetCategoryID := int64(0)
-		if source.ProductCategoryID > 0 {
-			category, err := ensureProductCategoryForTargetTx(ctx, tx, r.schema, cmd.Actor, cmd.TargetCustomerID, source.ProductCategoryID)
-			if err != nil {
-				return catalogapp.CopySKUsResult{}, err
-			}
-			targetCategoryID = category.ID
-		}
-		existingID, err := findTargetSKUByNameTx(ctx, tx, r.schema, cmd.TargetCustomerID, targetCategoryID, source.Name)
-		if err != nil {
-			return catalogapp.CopySKUsResult{}, err
-		}
-		targetID := existingID
-		position, err := nextProductPositionTx(ctx, tx, r.schema, targetCategoryID, cmd.TargetCustomerID, 0)
-		if err != nil {
-			return catalogapp.CopySKUsResult{}, err
-		}
-		visibility := "public"
-		if cmd.TargetCustomerID > 0 {
-			visibility = "customer_only"
-		}
-		initialSource := source
-		initialSource.GreenBeanBomProductID = 0
-		if targetID > 0 && targetID == source.ID && cmd.SourceCustomerID == cmd.TargetCustomerID {
-			copyName := source.Name + " (复制)"
-			for attempt := 2; ; attempt++ {
-				collisionID, collErr := findTargetSKUByNameTx(ctx, tx, r.schema, cmd.TargetCustomerID, targetCategoryID, copyName)
-				if collErr != nil {
-					return catalogapp.CopySKUsResult{}, collErr
-				}
-				if collisionID == 0 {
-					break
-				}
-				copyName = fmt.Sprintf("%s (复制 %d)", source.Name, attempt)
-			}
-			initialSource.Name = copyName
-			targetID = 0
-		}
-		if targetID > 0 {
-			if err := updateCopiedSKUProductTx(ctx, tx, r.schema, targetID, initialSource, cmd.TargetCustomerID, targetCategoryID, visibility); err != nil {
-				return catalogapp.CopySKUsResult{}, err
-			}
-			result.OverwrittenCount++
-		} else {
-			targetID, err = insertCopiedSKUProductTx(ctx, tx, r.schema, initialSource, cmd.TargetCustomerID, targetCategoryID, position, visibility)
-			if err != nil {
-				return catalogapp.CopySKUsResult{}, err
-			}
-			result.CreatedCount++
-			result.CreatedIDs = append(result.CreatedIDs, targetID)
-		}
-		sourceToTarget[source.ID] = targetID
-		plans = append(plans, skuCopyPlan{
-			source:           source,
-			targetID:         targetID,
-			targetCategoryID: targetCategoryID,
-			existingID:       existingID,
-		})
-	}
-	for _, plan := range plans {
-		greenBeanBOMProductID, err := resolveSKUCopyProductReferenceTx(ctx, tx, r.schema, cmd.Actor, cmd.TargetCustomerID, plan.source.GreenBeanBomProductID, sourceToTarget)
-		if err != nil {
-			return catalogapp.CopySKUsResult{}, err
-		}
-		if err := updateCopiedSKUGreenBeanReferenceTx(ctx, tx, r.schema, plan.targetID, greenBeanBOMProductID); err != nil {
-			return catalogapp.CopySKUsResult{}, err
-		}
-		if err := setProductBOMSourceToInheritTx(ctx, tx, r.schema, cmd.Actor, plan.source.ID, plan.targetID); err != nil {
-			return catalogapp.CopySKUsResult{}, err
-		}
-		if err := copyProductPriceTiersTx(ctx, tx, r.schema, plan.source.ID, plan.targetID); err != nil {
-			return catalogapp.CopySKUsResult{}, err
-		}
-		if plan.targetCategoryID > 0 {
-			if err := normalizeProductPositions(ctx, tx, r.schema, plan.targetCategoryID, cmd.TargetCustomerID); err != nil {
-				return catalogapp.CopySKUsResult{}, err
-			}
-		}
-		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &plan.targetID, "copy_sku", postgresinfra.StrPtr("source_sku_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", plan.source.ID)), postgresinfra.AuditMeta{
-			"target_customer_id":  cmd.TargetCustomerID,
-			"source_customer_id":  cmd.SourceCustomerID,
-			"source_sku_id":       plan.source.ID,
-			"bom_source_type":     "inherit_current",
-			"source_product_id":   plan.source.ID,
-			"target_category_id":  plan.targetCategoryID,
-			"overwrote_existing":  plan.existingID > 0,
-			"preserved_target_id": plan.existingID > 0,
-		}); err != nil {
-			// Test markers: "bom_source_type":    "inherit_current"; "source_product_id":   plan.source.ID.
-			return catalogapp.CopySKUsResult{}, err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return catalogapp.CopySKUsResult{}, err
-	}
-	return result, nil
 }
 
 func replaceProductPriceTiersTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, tiers []catalogapp.PriceTier) error {
@@ -1355,21 +1264,9 @@ func (r Repository) SaveProductClassificationAssignment(ctx context.Context, cmd
 		if !categoryExists {
 			return catalogapp.ProductClassificationAssignment{}, fmt.Errorf("classification category not found")
 		}
-		var existingTemplateID, existingCategoryID int64
-		err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT template_id, category_id
-			FROM %s.product_classification_assignments
-			WHERE product_id=$1 AND COALESCE(category_id,0)>0
-			ORDER BY updated_at DESC
-			LIMIT 1
-		`, r.schema), cmd.ProductID).Scan(&existingTemplateID, &existingCategoryID)
-		if err != nil && err != pgx.ErrNoRows {
-			return catalogapp.ProductClassificationAssignment{}, err
-		}
-		if err == nil && existingCategoryID > 0 {
-			return catalogapp.ProductClassificationAssignment{}, fmt.Errorf("product already classified; move out first")
-		}
-		_ = existingTemplateID
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_classification_assignments WHERE product_id=$1 AND template_id<>$2`, r.schema), cmd.ProductID, cmd.TemplateID); err != nil {
+		return catalogapp.ProductClassificationAssignment{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.product_classification_assignments(product_id, template_id, category_id, sort_order, updated_by, created_at, updated_at)
@@ -1419,21 +1316,9 @@ func (r Repository) SaveCustomerProductAliasClassificationAssignment(ctx context
 		if !categoryExists {
 			return catalogapp.CustomerProductAliasClassificationAssignment{}, fmt.Errorf("classification category not found")
 		}
-		var existingTemplateID, existingCategoryID int64
-		err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT template_id, category_id
-			FROM %s.customer_product_alias_classification_assignments
-			WHERE alias_id=$1 AND COALESCE(category_id,0)>0
-			ORDER BY updated_at DESC
-			LIMIT 1
-		`, r.schema), cmd.AliasID).Scan(&existingTemplateID, &existingCategoryID)
-		if err != nil && err != pgx.ErrNoRows {
-			return catalogapp.CustomerProductAliasClassificationAssignment{}, err
-		}
-		if err == nil && existingCategoryID > 0 {
-			return catalogapp.CustomerProductAliasClassificationAssignment{}, fmt.Errorf("customer product alias already classified; move out first")
-		}
-		_ = existingTemplateID
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.customer_product_alias_classification_assignments WHERE alias_id=$1 AND template_id<>$2`, r.schema), cmd.AliasID, cmd.TemplateID); err != nil {
+		return catalogapp.CustomerProductAliasClassificationAssignment{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_product_alias_classification_assignments(alias_id, template_id, category_id, sort_order, updated_by, created_at, updated_at)
@@ -2991,292 +2876,6 @@ func copyGradientTemplateTiersTx(ctx context.Context, tx pgx.Tx, schema string, 
 	return err
 }
 
-func findTargetSKUByNameTx(ctx context.Context, tx pgx.Tx, schema string, targetCustomerID int64, targetCategoryID int64, name string) (int64, error) {
-	var id int64
-	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id
-		FROM %s.products
-		WHERE COALESCE(customer_id,0)=$1
-		  AND COALESCE(product_category_id,0)=$2
-		  AND lower(name)=lower($3)
-		ORDER BY active DESC, id
-		LIMIT 1
-		FOR UPDATE
-	`, schema), targetCustomerID, targetCategoryID, strings.TrimSpace(name)).Scan(&id)
-	if err == pgx.ErrNoRows {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	return id, nil
-}
-
-func fetchSKUCopySourceTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) (catalogapp.Product, error) {
-	var p catalogapp.Product
-	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id, name, COALESCE(remark,''), COALESCE(roast_level,''), COALESCE(special_attrs_json::text,'{}'), default_price,
-		COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
-		COALESCE(green_bean_type, ''),
-		COALESCE(green_bean_bom_product_id, 0),
-		COALESCE(drip_bag_grams, 10)::float8,
-		COALESCE(drip_box_bag_count, 10),
-		COALESCE(allow_fulfillment_order, true),
-		COALESCE(allow_mall_order, false),
-		COALESCE(retail_price_100g, 0), COALESCE(retail_price_200g, 0),
-		COALESCE(retail_price_227g, default_price, 0), COALESCE(retail_price_250g, 0),
-		COALESCE((SELECT yield_rate FROM %[1]s.product_bom WHERE product_id=products.id), 0.8),
-		COALESCE(product_category_id,0), COALESCE(product_category_position,0),
-		COALESCE(customer_id,0), COALESCE(base_product_id,0),
-		COALESCE(NULLIF(visibility,''),'public'), COALESCE(custom_type,''),
-		margin_rate_override::float8,
-		COALESCE(gradient_template_id_override,0),
-		COALESCE(operation_template_id_override,0),
-		COALESCE(unit_rule_override_json::text,'{}'),
-		COALESCE(active,true),
-		COALESCE((SELECT COUNT(*) FROM %[1]s.product_bom_items bi WHERE bi.product_id=products.id),0),
-		COALESCE((SELECT NULLIF(status,'') FROM %[1]s.product_bom WHERE product_id=products.id), 'missing')
-		FROM %[1]s.products WHERE id=$1
-		FOR UPDATE`, schema), productID).Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.Active, &p.BomItemCount, &p.BomStatus)
-	if err != nil {
-		return catalogapp.Product{}, err
-	}
-	p.ProductKind = catalogdomain.NormalizeProductKind(p.ProductKind)
-	if p.ProductKind == catalogdomain.ProductKindDripBag {
-		p.SalesUnits = []string{"bag", "box"}
-	}
-	if !catalogdomain.ProductKindSupportsBomParams(p.ProductKind) {
-		p.RoastLevel = ""
-		p.YieldRate = 0
-	}
-	return p, nil
-}
-
-func updateCopiedSKUProductTx(ctx context.Context, tx pgx.Tx, schema string, targetID int64, source catalogapp.Product, targetCustomerID int64, targetCategoryID int64, visibility string) error {
-	_, err := tx.Exec(ctx, fmt.Sprintf(`
-		UPDATE %s.products
-		SET name=$2, remark=$3, product_kind=$4, roast_level=$5, default_price=$6, active=true,
-		    retail_price_100g=$7, retail_price_200g=$8, retail_price_227g=$9, retail_price_250g=$10,
-		    drip_bag_grams=$11, drip_box_bag_count=$12, allow_fulfillment_order=$13, allow_mall_order=$14,
-		    product_category_id=NULLIF($15,0), customer_id=$16, base_product_id=0, visibility=$17, custom_type='',
-		    green_bean_type=$18, green_bean_bom_product_id=$19, special_attrs_json=$20::jsonb,
-		    margin_rate_override=$21, gradient_template_id_override=$22, operation_template_id_override=$23,
-		    unit_rule_override_json=$24::jsonb
-		WHERE id=$1
-	`, schema), targetID, source.Name, source.Remark, source.ProductKind, source.RoastLevel, source.DefaultPrice, source.RetailPrice100G, source.RetailPrice200G, source.RetailPrice227G, source.RetailPrice250G, source.DripBagGrams, source.DripBoxBagCount, source.AllowFulfillmentOrder, source.AllowMallOrder, targetCategoryID, targetCustomerID, visibility, source.GreenBeanType, source.GreenBeanBomProductID, source.SpecialAttrsJSON, source.MarginRateOverride, source.GradientTemplateIDOverride, source.OperationTemplateIDOverride, source.UnitRuleOverrideJSON)
-	return err
-}
-
-func insertCopiedSKUProductTx(ctx context.Context, tx pgx.Tx, schema string, source catalogapp.Product, targetCustomerID int64, targetCategoryID int64, position int, visibility string) (int64, error) {
-	var id int64
-	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.products(
-			name, remark, product_kind, roast_level, default_price, active,
-			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
-			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
-			product_category_id, product_category_position,
-			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
-			special_attrs_json, margin_rate_override, gradient_template_id_override, operation_template_id_override,
-			unit_rule_override_json, created_at
-		)
-		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,0),$15,$16,0,$17,'',$18,$19,$20::jsonb,$21,$22,$23,$24::jsonb,now())
-		RETURNING id
-	`, schema), source.Name, source.Remark, source.ProductKind, source.RoastLevel, source.DefaultPrice, source.RetailPrice100G, source.RetailPrice200G, source.RetailPrice227G, source.RetailPrice250G, source.DripBagGrams, source.DripBoxBagCount, source.AllowFulfillmentOrder, source.AllowMallOrder, targetCategoryID, position, targetCustomerID, visibility, source.GreenBeanType, source.GreenBeanBomProductID, source.SpecialAttrsJSON, source.MarginRateOverride, source.GradientTemplateIDOverride, source.OperationTemplateIDOverride, source.UnitRuleOverrideJSON).Scan(&id)
-	return id, err
-}
-
-func updateCopiedSKUGreenBeanReferenceTx(ctx context.Context, tx pgx.Tx, schema string, targetProductID int64, greenBeanBOMProductID int64) error {
-	_, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products SET green_bean_bom_product_id=$2 WHERE id=$1`, schema), targetProductID, greenBeanBOMProductID)
-	return err
-}
-
-func resolveSKUCopyProductReferenceTx(ctx context.Context, tx pgx.Tx, schema string, actor string, targetCustomerID int64, sourceProductID int64, sourceToTarget map[int64]int64) (int64, error) {
-	if sourceProductID <= 0 {
-		return 0, nil
-	}
-	if targetID := sourceToTarget[sourceProductID]; targetID > 0 {
-		return targetID, nil
-	}
-	var refID int64
-	var refName string
-	var refCustomerID int64
-	var refCategoryID int64
-	var refActive bool
-	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id, name, COALESCE(customer_id,0), COALESCE(product_category_id,0), COALESCE(active,true)
-		FROM %s.products
-		WHERE id=$1
-	`, schema), sourceProductID).Scan(&refID, &refName, &refCustomerID, &refCategoryID, &refActive)
-	if err != nil {
-		return 0, err
-	}
-	if refCustomerID == targetCustomerID {
-		return refID, nil
-	}
-	targetCategoryID := int64(0)
-	if refCategoryID > 0 {
-		resolvedCategoryID, err := findEquivalentCategoryForTargetTx(ctx, tx, schema, targetCustomerID, refCategoryID)
-		if err != nil {
-			return 0, err
-		}
-		if resolvedCategoryID <= 0 {
-			return 0, fmt.Errorf("copied SKU product reference %d (%s) belongs to customer %d and has no target category equivalent for customer %d", refID, refName, refCustomerID, targetCustomerID)
-		}
-		targetCategoryID = resolvedCategoryID
-	}
-	if targetID, err := findTargetSKUByNameTx(ctx, tx, schema, targetCustomerID, targetCategoryID, refName); err != nil {
-		return 0, err
-	} else if targetID > 0 {
-		return targetID, nil
-	}
-	if !refActive {
-		return 0, fmt.Errorf("copied SKU product reference %d (%s) belongs to customer %d and is inactive with no target equivalent for customer %d", refID, refName, refCustomerID, targetCustomerID)
-	}
-	if actor == "" {
-		actor = "system"
-	}
-	return 0, fmt.Errorf("copied SKU product reference %d (%s) belongs to customer %d and has no target equivalent for customer %d", refID, refName, refCustomerID, targetCustomerID)
-}
-
-func copyProductBOMTx(ctx context.Context, tx pgx.Tx, schema string, actor string, targetCustomerID int64, sourceProductID int64, targetProductID int64, sourceToTarget map[int64]int64) error {
-	if sourceProductID == targetProductID {
-		return nil
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_bom_items WHERE product_id=$1`, schema), targetProductID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_bom WHERE product_id=$1`, schema), targetProductID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_bom(product_id,yield_rate,status,updated_at)
-		SELECT $1,yield_rate,'active',now()
-		FROM %s.product_bom
-		WHERE product_id=$2
-	`, schema, schema), targetProductID, sourceProductID); err != nil {
-		return err
-	}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT material_id,
-		       COALESCE(NULLIF(component_type,''),'material'),
-		       COALESCE(component_product_id,0),
-		       COALESCE(component_spec_g,0),
-		       COALESCE(NULLIF(consume_unit,''),'ratio_pct'),
-		       COALESCE(qty_per_unit,0)::float8,
-		       COALESCE(ratio_pct,0)::float8,
-		       COALESCE(unit_cost_snapshot,0)::float8
-		FROM %s.product_bom_items
-		WHERE product_id=$1
-		ORDER BY id
-	`, schema), sourceProductID)
-	if err != nil {
-		return err
-	}
-	bomItems := make([]skuCopyBOMItem, 0)
-	for rows.Next() {
-		var item skuCopyBOMItem
-		if err := rows.Scan(&item.materialID, &item.componentType, &item.componentProductID, &item.componentSpecG, &item.consumeUnit, &item.qtyPerUnit, &item.ratioPct, &item.unitCostSnapshot); err != nil {
-			rows.Close()
-			return err
-		}
-		bomItems = append(bomItems, item)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	insertSQL := fmt.Sprintf(`
-		INSERT INTO %s.product_bom_items(product_id,material_id,component_type,component_product_id,component_spec_g,consume_unit,qty_per_unit,ratio_pct,unit_cost_snapshot,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
-	`, schema)
-	for _, item := range bomItems {
-		componentType := strings.TrimSpace(item.componentType)
-		if componentType == "" {
-			componentType = "material"
-		}
-		componentProductID := item.componentProductID
-		materialID := item.materialID
-		if componentType == "finished_product" && componentProductID > 0 {
-			var err error
-			componentProductID, err = resolveSKUCopyProductReferenceTx(ctx, tx, schema, actor, targetCustomerID, componentProductID, sourceToTarget)
-			if err != nil {
-				return err
-			}
-			materialID = 0
-		} else if componentType != "finished_product" {
-			componentProductID = 0
-		}
-		if _, err := tx.Exec(ctx, insertSQL, targetProductID, materialID, componentType, componentProductID, item.componentSpecG, item.consumeUnit, item.qtyPerUnit, item.ratioPct, item.unitCostSnapshot); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func setProductBOMSourceToInheritTx(ctx context.Context, tx pgx.Tx, schema string, actor string, sourceProductID int64, targetProductID int64) error {
-	if sourceProductID == targetProductID {
-		return nil
-	}
-	var sourceName string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,'') FROM %s.products WHERE id=$1 AND active=true`, schema), sourceProductID).Scan(&sourceName); err != nil {
-		return err
-	}
-	var sourceBomVersionID int64
-	var sourceBomVersionNo string
-	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id, COALESCE(version_no,'')
-		FROM %s.bom_versions
-		WHERE product_id=$1 AND status='active'
-		ORDER BY activated_at DESC NULLS LAST, id DESC
-		LIMIT 1
-	`, schema), sourceProductID).Scan(&sourceBomVersionID, &sourceBomVersionNo)
-	if err == pgx.ErrNoRows {
-		sourceBomVersionNo = "当前BOM"
-	} else if err != nil {
-		return err
-	}
-	if strings.TrimSpace(sourceBomVersionNo) == "" {
-		sourceBomVersionNo = "当前BOM"
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_bom_items WHERE product_id=$1`, schema), targetProductID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.product_bom WHERE product_id=$1`, schema), targetProductID); err != nil {
-		return err
-	}
-	sourceProductCode := fmt.Sprintf("SKU-%d", sourceProductID)
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_bom_sources(
-			product_id, source_type, source_product_id, source_product_code_snapshot, source_product_name_snapshot,
-			source_bom_product_id, source_bom_version_id, source_bom_version_no_snapshot,
-			derived_from_product_id, derived_from_bom_version_id, derived_at, derived_by, updated_at
-		)
-		VALUES($1,'inherit_current',$2,$3,$4,$2,$5,$6,0,0,NULL,'',now())
-		ON CONFLICT (product_id) DO UPDATE SET
-			source_type='inherit_current',
-			source_product_id=excluded.source_product_id,
-			source_product_code_snapshot=excluded.source_product_code_snapshot,
-			source_product_name_snapshot=excluded.source_product_name_snapshot,
-			source_bom_product_id=excluded.source_bom_product_id,
-			source_bom_version_id=excluded.source_bom_version_id,
-			source_bom_version_no_snapshot=excluded.source_bom_version_no_snapshot,
-			derived_from_product_id=0,
-			derived_from_bom_version_id=0,
-			derived_at=NULL,
-			derived_by='',
-			updated_at=now()
-	`, schema), targetProductID, sourceProductID, sourceProductCode, sourceName, sourceBomVersionID, sourceBomVersionNo); err != nil {
-		return err
-	}
-	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "product_bom_source", &targetProductID, "inherit_current", postgresinfra.StrPtr("source_product_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", sourceProductID)), postgresinfra.AuditMeta{
-		"target_product_id":     targetProductID,
-		"source_product_id":     sourceProductID,
-		"source_product_code":   sourceProductCode,
-		"source_product_name":   sourceName,
-		"source_bom_version_id": sourceBomVersionID,
-		"source_bom_version_no": sourceBomVersionNo,
-	})
-}
-
 func copyProductPriceTiersTx(ctx context.Context, tx pgx.Tx, schema string, sourceProductID int64, targetProductID int64) error {
 	if sourceProductID == targetProductID {
 		return nil
@@ -3957,19 +3556,18 @@ func (r Repository) SaveCustomerProductAlias(ctx context.Context, cmd catalogapp
 			SET customer_id=$2,
 			    product_id=$3,
 			    display_name=$4,
-			    customer_item_code=$5,
-			    brand_name=$6,
-			    display_category_id=$7,
-			    classification_template_id=$8,
-			    sort_order=$9,
-			    include_in_price_list=$10,
-			    active=$11,
-			    remark=$12,
+			    brand_name=$5,
+			    display_category_id=$6,
+			    classification_template_id=$7,
+			    sort_order=$8,
+			    include_in_price_list=$9,
+			    active=$10,
+			    remark=$11,
 			    updated_at=now(),
-			    updated_by=$13
+			    updated_by=$12
 			WHERE id=$1
 			RETURNING id
-		`, r.schema), cmd.ID, cmd.CustomerID, cmd.ProductID, cmd.DisplayName, cmd.CustomerItemCode, cmd.BrandName, cmd.DisplayCategoryID, cmd.ClassificationTemplateID, cmd.SortOrder, cmd.IncludeInPriceList, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+		`, r.schema), cmd.ID, cmd.CustomerID, cmd.ProductID, cmd.DisplayName, cmd.BrandName, cmd.DisplayCategoryID, cmd.ClassificationTemplateID, cmd.SortOrder, cmd.IncludeInPriceList, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
 	} else {
 		err = tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.customer_product_aliases(
@@ -3979,7 +3577,12 @@ func (r Repository) SaveCustomerProductAlias(ctx context.Context, cmd catalogapp
 			)
 			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),now(),$12,$12)
 			RETURNING id
-		`, r.schema), cmd.CustomerID, cmd.ProductID, cmd.DisplayName, cmd.CustomerItemCode, cmd.BrandName, cmd.DisplayCategoryID, cmd.ClassificationTemplateID, cmd.SortOrder, cmd.IncludeInPriceList, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+		`, r.schema), cmd.CustomerID, cmd.ProductID, cmd.DisplayName, "", cmd.BrandName, cmd.DisplayCategoryID, cmd.ClassificationTemplateID, cmd.SortOrder, cmd.IncludeInPriceList, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+		if err == nil {
+			if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_product_aliases SET customer_item_code=$2 WHERE id=$1`, r.schema), id, generatedCustomerProductAliasCode(id)); err != nil {
+				return catalogapp.CustomerProductAlias{}, err
+			}
+		}
 	}
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -3992,7 +3595,7 @@ func (r Repository) SaveCustomerProductAlias(ctx context.Context, cmd catalogapp
 		"customer_id":                cmd.CustomerID,
 		"product_id":                 cmd.ProductID,
 		"display_name":               cmd.DisplayName,
-		"customer_item_code":         cmd.CustomerItemCode,
+		"customer_item_code":         generatedCustomerProductAliasCode(id),
 		"brand_name":                 cmd.BrandName,
 		"display_category_id":        cmd.DisplayCategoryID,
 		"classification_template_id": cmd.ClassificationTemplateID,
@@ -4007,6 +3610,13 @@ func (r Repository) SaveCustomerProductAlias(ctx context.Context, cmd catalogapp
 		return catalogapp.CustomerProductAlias{}, err
 	}
 	return row, tx.Commit(ctx)
+}
+
+func generatedCustomerProductAliasCode(id int64) string {
+	if id <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("CPA-%06d", id)
 }
 
 func (r Repository) BatchCreateCustomerProductAliases(ctx context.Context, cmd catalogapp.BatchCustomerProductAliasesCommand) (catalogapp.BatchCustomerProductAliasesResult, error) {
@@ -4107,10 +3717,14 @@ func (r Repository) BatchCreateCustomerProductAliases(ctx context.Context, cmd c
 			)
 			VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,true,'',now(),now(),$9,$9)
 			RETURNING id
-		`, r.schema), cmd.CustomerID, productID, product.Name, product.Code, cmd.BrandName, cmd.DisplayCategoryID, int64(0), cmd.IncludeInPriceList, cmd.Actor).Scan(&id); err != nil {
+		`, r.schema), cmd.CustomerID, productID, product.Name, "", cmd.BrandName, cmd.DisplayCategoryID, int64(0), cmd.IncludeInPriceList, cmd.Actor).Scan(&id); err != nil {
 			return catalogapp.BatchCustomerProductAliasesResult{}, err
 		}
-		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_product_alias", &id, "create_customer_product_alias_batch", postgresinfra.StrPtr("display_name"), nil, postgresinfra.StrPtr(product.Name), postgresinfra.AuditMeta{"alias_id": id, "customer_id": cmd.CustomerID, "product_id": productID, "customer_item_code": product.Code, "brand_name": cmd.BrandName, "display_category_id": cmd.DisplayCategoryID, "classification_template_id": 0, "include_in_price_list": cmd.IncludeInPriceList}); err != nil {
+		code := generatedCustomerProductAliasCode(id)
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_product_aliases SET customer_item_code=$2 WHERE id=$1`, r.schema), id, code); err != nil {
+			return catalogapp.BatchCustomerProductAliasesResult{}, err
+		}
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_product_alias", &id, "create_customer_product_alias_batch", postgresinfra.StrPtr("display_name"), nil, postgresinfra.StrPtr(product.Name), postgresinfra.AuditMeta{"alias_id": id, "customer_id": cmd.CustomerID, "product_id": productID, "customer_item_code": code, "brand_name": cmd.BrandName, "display_category_id": cmd.DisplayCategoryID, "classification_template_id": 0, "include_in_price_list": cmd.IncludeInPriceList}); err != nil {
 			return catalogapp.BatchCustomerProductAliasesResult{}, err
 		}
 		row, err := fetchCustomerProductAliasTx(ctx, tx, r.schema, id)

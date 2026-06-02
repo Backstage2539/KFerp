@@ -165,6 +165,29 @@ func TestLoadProductInputsForCustomerUsesCustomerProductAliasesAsPriceListSource
 	}
 }
 
+func TestLoadProductInputsReadsCurrentClassificationAssignments(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"product_classification_assignments product_class",
+		"customer_product_alias_classification_assignments alias_class",
+		"product_classification_templates product_ct",
+		"product_classification_templates alias_ct",
+		"product_classification_template_categories product_cc",
+		"product_classification_template_categories alias_cc",
+		"p.classification_template_id",
+		"&input.ClassificationTemplateID",
+		"&input.ClassificationCategoryName",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must load current classification assignments for price list candidates; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsComposablePriceRulesAndBomUnitCosts(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

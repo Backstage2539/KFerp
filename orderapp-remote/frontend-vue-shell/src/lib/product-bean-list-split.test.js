@@ -19,9 +19,9 @@ test('product menu is split into product archive, customer names, template and p
   assert.equal(menuItem('productMaster')?.label, '商品档案')
   assert.equal(menuItem('productMaster')?.title, '商品档案')
   assert.equal(menuItem('customerProductAliases')?.label, '客户商品名')
-  assert.equal(menuItem('productConfigTemplates')?.label, '商品配置模板')
-  assert.equal(menuItem('costing')?.label, '产品价格表')
-  assert.equal(menuItem('costing')?.title, '产品价格表')
+  assert.equal(menuItem('productConfigTemplates')?.label, '商品配置和分类模板')
+  assert.equal(menuItem('costing')?.label, '商品价格表')
+  assert.equal(menuItem('costing')?.title, '商品价格表')
 })
 
 test('product archive no longer embeds the product bean-list workspace', () => {
@@ -35,23 +35,23 @@ test('product archive no longer embeds the product bean-list workspace', () => {
   assert.doesNotMatch(productSettingsSource, /豆单和价格试算会按当前归属切换/)
 })
 
-test('SKU settings exposes customer context initialization with SKU creation in a drawer', () => {
+test('SKU settings exposes customer context initialization with product archive creation in a drawer', () => {
   for (const expected of [
     '/api/customer-fulfillment/customers?limit=200',
     'customerSkuCustomerOptions(customerData)',
     'buildSkuCreatePayload',
-    'buildSkuCopyPayload',
+    '/api/product-settings/products/${row.id}/copy',
     'buildCustomerPublicUsagePayload',
     '/api/product-settings/customer-public-usage',
     'savePublicCategoryUsageForCustomer',
-    'SKU复制',
+    '创建新商品档案',
   ]) {
     assert.match(productSettingsSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
   assert.match(productSettingsSource, /class="settings-drawer product-editor-drawer"/)
   assert.match(productSettingsSource, /class="sku-create-form product-create-form product-drawer-form" @submit\.prevent="createSku"/)
-  assert.match(productSettingsSource, /class="settings-drawer sku-copy-drawer"/)
-  assert.match(productSettingsSource, /<span>是否使用公共商品分类<\/span>/)
+  assert.doesNotMatch(productSettingsSource, /class="settings-drawer sku-copy-drawer"/)
+  assert.match(productSettingsSource, /增加分类/)
   assert.doesNotMatch(productSettingsSource, /<span>是否使用公共SKU<\/span>/)
   assert.doesNotMatch(productSettingsSource, /<span>是否使用商品分类<\/span>/)
   assert.doesNotMatch(productSettingsSource, /v-model="customForm\.customer_id"/)
@@ -61,7 +61,7 @@ test('SKU settings exposes customer context initialization with SKU creation in 
 })
 
 test('product bean-list page owns customer context for bean-list previews', () => {
-  assert.match(costingSource, /<h2>产品价格表<\/h2>/)
+  assert.match(costingSource, /<h2>商品价格表<\/h2>/)
   assert.match(costingSource, /价格表归属/)
   assert.match(costingSource, /const activeBeanListCustomerID = computed/)
   assert.match(costingSource, /const activeCostingScope = computed/)
@@ -85,7 +85,7 @@ test('product bean-list preview and PDF selection reuse alias-filtered visible i
   assert.doesNotMatch(beanListItemsSource, /scopedBeanListItems/)
   assert.match(costingSource, /const pdfAvailableItems = computed\(\(\) => beanListItemsForType/)
   assert.match(costingSource, /const categoryProductGroups = computed\(\(\) => productGroupsForType/)
-  assert.match(costingSource, /const code = String\(meta\.code \|\| ''\)\.split\('\.'\)\[0\] \|\| category \|\| '未分类'/)
+  assert.match(costingSource, /const code = classificationCategoryID > 0 \? `classification-category-\$\{classificationCategoryID\}` : \(String\(meta\.code \|\| ''\)\.split\('\.'\)\[0\] \|\| category \|\| '未分类'\)/)
   assert.match(costingSource, /return String\(meta\.code \|\| ''\)\.split\('\.'\)\[0\] \|\| category \|\| '未分类'/)
 })
 
@@ -97,16 +97,21 @@ test('product bean-list live preview loads customer rule scoped prices', () => {
 })
 
 test('product bean-list generation uses product type categories instead of legacy hard-coded list types', () => {
-  for (const expected of [
-    'productPriceListTypeOptions',
-    'selectedProductTypeCategoryID',
-    'selectedProductPriceListType',
-    'product_type_category_id',
-    'product_type_name',
-    'beanListPublicationTypeLabel(row)',
+ for (const expected of [
+	'productPriceListTypeOptions',
+	'selectedProductTypeCategoryID',
+	'selectedProductPriceListType',
+	'product_type_category_id',
+	'classification_template_name',
+	'beanListPublicationTypeLabel(row)',
   ]) {
-    assert.match(costingSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+	assert.match(costingSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  const helperStart = costingSource.indexOf('function classificationTemplateNameOfItem')
+  const helperEnd = costingSource.indexOf('function classificationCategoryNameOfItem')
+  assert.notEqual(helperStart, -1)
+  assert.notEqual(helperEnd, -1)
+  assert.doesNotMatch(costingSource.slice(helperStart, helperEnd), /product_type_name|category_primary_name/)
   assert.doesNotMatch(costingSource, /<option value="commercial">商用批发豆单<\/option>/)
   assert.doesNotMatch(costingSource, /<option value="drip">挂耳豆单<\/option>/)
   assert.doesNotMatch(costingSource, /<option value="retail">零售豆单<\/option>/)

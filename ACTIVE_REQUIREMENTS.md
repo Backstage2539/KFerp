@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-396-PRODUCT-CLASSIFICATION-COPY-FIXES
+- Branch: codex/product-classification-copy-fixes-20260602
+- Owner/session: Codex / 2026-06-02
+- Status: verified on feature branch; pending merge/deploy
+- Scope: 商品档案复制改为真正复制商品档案配置；下线历史 SKU 复制入口/API；商品档案和客户商品名分类交互改为“增加分类 / 移动到分类 / 移动到子类”；客户商品编号由系统生成；商品价格表候选按当前分类 assignment 生成。
+- DEV:
+  - DEV-396-PRODUCT-COPY：新增 `POST /api/product-settings/products/:id/copy`，复制商品基础信息、商品配置模板、生产配置、生产 BOM 绑定、生产配置字段和价格阶梯，并写操作日志。
+  - DEV-396-LEGACY-SKU-COPY-REMOVAL：删除历史 SKU 复制前端入口、服务层/仓储旧路径和旧路由，旧 HTTP 路由不可用。
+  - DEV-396-CLASSIFICATION-UX：商品档案和客户商品名固定未分类 Tab，`增加分类` 启用模板，移动归类直接覆盖旧归类，当前子类重复移动置灰。
+  - DEV-396-CUSTOMER-ALIAS-CODE：客户商品名单个/批量新增不提交客户商品编号，后端自动生成编号。
+  - DEV-396-PRICE-LIST-CLASSIFICATION：商品价格表候选从商品/客户商品当前分类 assignment 读取，未归类为“其他”。
+  - DEV-396-MANUAL-DOCS：更新需求、验收、商品/成本/履约手册和 acceptance 证据。
+- Verifier:
+  - Frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js orderapp-remote/frontend-vue-shell/src/lib/product-bean-list-split.test.js`
+  - API/backend: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/domain/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support`
+  - Build: `npm run build` in `orderapp-remote/frontend-vue-shell`
+  - Changed verifier: `scripts/verify_kferp.sh changed`
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`
+  - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-02-product-classification-copy-fixes.md`
+- Last update: 2026-06-02 Asia/Shanghai
+- Notes: Van requested no browser/manual验收; use code/docs/unit/API/build verification, then merge and deploy development. Feature-branch evidence: frontend target tests passed 110/110; targeted catalog/bom/costing/support Go tests passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+
 ### PR-395-PRODUCT-PRICE-CLASSIFICATION
 - Branch: codex/product-price-classification-20260602
 - Owner/session: Codex / 2026-06-02

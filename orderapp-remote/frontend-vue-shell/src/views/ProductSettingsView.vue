@@ -50,7 +50,6 @@
           <div class="panel-actions sku-panel-actions">
             <button v-if="skuContextCustomerID" class="primary compact-action" type="button" @click="openCustomerAliasSection">创建客户商品名</button>
             <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
-            <button class="secondary compact-action" type="button" @click="openSkuCopyDrawer">历史SKU复制</button>
             <button class="secondary compact-action" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
               失效选中产品
             </button>
@@ -60,23 +59,17 @@
           </div>
         </div>
         <div v-show="!productsCollapsed">
-          <div class="product-action-guide">
-            <button
-              v-for="action in productCreationActions"
-              :key="action.key"
-              class="action-guide-button"
-              type="button"
-              @click="action.key === 'customer_product_alias' ? openCustomerAliasSection() : openProductDrawer()">
-              <strong>{{ action.label }}</strong>
-              <small>{{ action.description }}</small>
-            </button>
-          </div>
-          <div class="production-config-summary" data-api="/api/product-production-configs">
-            <strong>商品生产配置</strong>
-            <span>按商品档案维护生产 BOM、BOM版本、工艺路线、预期损耗率和价格表产品信息字段。</span>
-            <small>商品分类、生产配置、价格/单位摘要和状态备注都归属商品档案；客户商品名不直接编辑 BOM；价格表生成请进入产品价格表。</small>
-          </div>
           <div class="classification-view-toolbar product-classification-tabs" aria-label="商品档案分类模板视图">
+            <div class="classification-actions">
+              <label>
+                <span>增加分类</span>
+                <select v-model.number="selectedProductClassificationTemplateID">
+                  <option :value="0">选择模板</option>
+                  <option v-for="template in activeProductClassificationTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+                </select>
+              </label>
+              <button class="secondary compact-action" type="button" :disabled="!selectedProductClassificationTemplateID" @click="saveProductClassificationTemplateUsage">增加分类</button>
+            </div>
             <div class="classification-tabs">
               <button
                 v-for="tab in productClassificationTabs"
@@ -88,22 +81,22 @@
               </button>
             </div>
             <div class="classification-actions">
-              <label>
-                <span>使用分类模板</span>
+              <label v-if="isProductAllOrUnclassifiedTab">
+                <span>移动到分类</span>
                 <select v-model.number="selectedProductClassificationTemplateID">
-                  <option :value="0">选择模板</option>
-                  <option v-for="template in activeProductClassificationTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+                  <option :value="0">选择分类</option>
+                  <option v-for="tab in productMovableClassificationTabs" :key="tab.id" :value="tab.id">{{ tab.label }}</option>
                 </select>
               </label>
-              <button class="secondary compact-action" type="button" :disabled="!selectedProductClassificationTemplateID" @click="saveProductClassificationTemplateUsage">使用分类模板</button>
-              <label v-if="currentProductClassificationTemplate">
-                <span>移动到分类</span>
+              <button v-if="isProductAllOrUnclassifiedTab" class="secondary compact-action" type="button" :disabled="!selectedProductIds.length || !selectedProductClassificationTemplateID" @click="saveSelectedProductClassificationAssignment">移动到分类</button>
+              <label v-else-if="currentProductClassificationTemplate">
+                <span>移动到子类</span>
                 <select v-model.number="selectedProductClassificationCategoryID">
                   <option :value="0">未分类</option>
                   <option v-for="category in productClassificationCategories" :key="category.id" :value="category.id">{{ category.name }}</option>
                 </select>
               </label>
-              <button v-if="currentProductClassificationTemplate" class="secondary compact-action" type="button" :disabled="!selectedProductIds.length" @click="saveSelectedProductClassificationAssignment">移动到分类</button>
+              <button v-if="currentProductClassificationTemplate && !isProductAllOrUnclassifiedTab" class="secondary compact-action" type="button" :disabled="!selectedProductIds.length || selectedProductRowsAlreadyInCurrentCategory" @click="saveSelectedProductClassificationAssignment">移动到子类</button>
             </div>
           </div>
           <div class="table-wrap sku-table-wrap">
@@ -167,7 +160,7 @@
                   </td>
                   <td>{{ productOwnerLabel(row) }}</td>
                   <td class="action-cell">
-                    <button class="text-button" type="button" @click="copySkuInPlace(row)">复制为商品档案</button>
+                    <button class="text-button" type="button" @click="copyProductArchive(row)">复制为商品档案</button>
                   </td>
                   <td>
                     <span>{{ productionConfigLossLabel(row) }}</span>
@@ -188,7 +181,7 @@
                     <small v-if="productionBomVersionWarning(row)" class="bom-version-warning" data-warning-prefix="当前引用">{{ productionBomVersionWarning(row) }}</small>
                   </td>
                   <td>
-                    <span :class="['status-pill', (row.active === false || row.bom_status === 'inactive') ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
+                    <span :class="['status-pill', row.active === false ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
                   </td>
                   <td>
                     <button class="text-button danger-text" type="button" :disabled="!canEditSkuRow(row) || row.active === false" @click="deactivateProducts([row.id])">停用</button>
@@ -324,10 +317,6 @@
               <input v-model.trim="customerProductAliasForm.display_name" required placeholder="客户对外展示名称" />
             </label>
             <label>
-              <span>客户商品编号</span>
-              <input v-model.trim="customerProductAliasForm.customer_item_code" placeholder="客户侧编号，可留空" />
-            </label>
-            <label>
               <span>品牌名</span>
               <input v-model.trim="customerProductAliasForm.brand_name" placeholder="可留空" />
             </label>
@@ -352,6 +341,16 @@
             </div>
           </form>
           <div class="classification-view-toolbar alias-classification-tabs" aria-label="客户商品名分类模板视图">
+            <div class="classification-actions">
+              <label>
+                <span>增加分类</span>
+                <select v-model.number="selectedAliasClassificationTemplateID">
+                  <option :value="0">选择模板</option>
+                  <option v-for="template in activeProductClassificationTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+                </select>
+              </label>
+              <button class="secondary compact-action" type="button" :disabled="!selectedAliasCustomerID || !selectedAliasClassificationTemplateID" @click="saveAliasClassificationTemplateUsage">增加分类</button>
+            </div>
             <div class="classification-tabs">
               <button
                 v-for="tab in aliasClassificationTabs"
@@ -363,22 +362,22 @@
               </button>
             </div>
             <div class="classification-actions">
-              <label>
-                <span>使用分类模板</span>
+              <label v-if="isAliasAllOrUnclassifiedTab">
+                <span>移动到分类</span>
                 <select v-model.number="selectedAliasClassificationTemplateID">
-                  <option :value="0">选择模板</option>
-                  <option v-for="template in activeProductClassificationTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+                  <option :value="0">选择分类</option>
+                  <option v-for="tab in aliasMovableClassificationTabs" :key="tab.id" :value="tab.id">{{ tab.label }}</option>
                 </select>
               </label>
-              <button class="secondary compact-action" type="button" :disabled="!selectedAliasCustomerID || !selectedAliasClassificationTemplateID" @click="saveAliasClassificationTemplateUsage">使用分类模板</button>
-              <label v-if="currentAliasClassificationTemplate">
-                <span>移动到分类</span>
+              <button v-if="isAliasAllOrUnclassifiedTab" class="secondary compact-action" type="button" :disabled="!selectedAliasIds.length || !selectedAliasClassificationTemplateID" @click="saveSelectedAliasClassificationAssignment">移动到分类</button>
+              <label v-else-if="currentAliasClassificationTemplate">
+                <span>移动到子类</span>
                 <select v-model.number="selectedAliasClassificationCategoryID">
                   <option :value="0">未分类</option>
                   <option v-for="category in aliasClassificationCategories" :key="category.id" :value="category.id">{{ category.name }}</option>
                 </select>
               </label>
-              <button v-if="currentAliasClassificationTemplate" class="secondary compact-action" type="button" :disabled="!selectedAliasIds.length" @click="saveSelectedAliasClassificationAssignment">移动到分类</button>
+              <button v-if="currentAliasClassificationTemplate && !isAliasAllOrUnclassifiedTab" class="secondary compact-action" type="button" :disabled="!selectedAliasIds.length || selectedAliasRowsAlreadyInCurrentCategory" @click="saveSelectedAliasClassificationAssignment">移动到子类</button>
             </div>
           </div>
           <div class="table-wrap">
@@ -953,7 +952,7 @@
           </div>
         </div>
         <div class="drawer-footer">
-          <span class="muted">批量创建时客户商品名=商品档案名称，客户商品编号=商品编号，品牌默认留空。</span>
+          <span class="muted">批量创建时客户商品名=商品档案名称，客户商品编号由系统生成，品牌默认留空。</span>
           <button class="primary" type="button" :disabled="aliasBatchSaving || !selectedAliasBatchProductIds.length" @click="saveCustomerAliasBatch">
             {{ aliasBatchSaving ? '添加中' : '批量创建客户商品名' }}
           </button>
@@ -1112,79 +1111,6 @@
       </aside>
     </div>
 
-    <div v-if="skuCopyDrawerOpen" class="settings-drawer-mask" @click.self="closeSkuCopyDrawer">
-      <aside class="settings-drawer sku-copy-drawer" aria-label="SKU复制">
-        <div class="drawer-head">
-          <div>
-            <h3>历史SKU复制</h3>
-            <p>兼容旧客户 SKU。贴牌、客户命名、客户编号或客户展示差异优先使用“创建客户商品名”。</p>
-          </div>
-          <button class="secondary compact-action" type="button" @click="closeSkuCopyDrawer">关闭</button>
-        </div>
-        <div class="drawer-body">
-          <label class="sku-copy-source">
-            <span>复制来源</span>
-            <select v-model.number="copySourceCustomerID" @change="loadSkuCopyOptions">
-              <option
-                v-for="source in skuCopySourceOptions"
-                :key="source.id"
-                :value="source.id">
-                {{ source.name }}
-              </option>
-            </select>
-          </label>
-
-          <section class="pdf-picker productSelection sku-copy-selection">
-            <div class="picker-head">
-              <label class="check-line">
-                <input type="checkbox" :checked="allCopySkusSelected" :disabled="!skuCopyTotalCount" @change="setAllCopySkus($event.target.checked)" />
-                <strong>选择分类和产品</strong>
-              </label>
-              <span>{{ copySelectedCount }}/{{ skuCopyTotalCount }} 款</span>
-              <div class="picker-actions">
-                <button class="secondary compact-action" type="button" :disabled="!skuCopyTotalCount" @click="setAllCopySkus(true)">全选</button>
-                <button class="secondary compact-action" type="button" :disabled="!copySelectedCount" @click="setAllCopySkus(false)">清空</button>
-              </div>
-            </div>
-            <div class="product-picker-list">
-              <div v-for="group in skuCopyGroups" :key="`copy-type-${group.id}`" class="product-picker-category">
-                <div class="product-picker-category-head">
-                  <label class="check-line">
-                    <input type="checkbox" :checked="isCopyTypeSelected(group)" @change="toggleCopyType(group, $event.target.checked)" />
-                    <strong>{{ group.name }}</strong>
-                  </label>
-                  <span>{{ selectedCopyCountForType(group) }}/{{ copyCountForType(group) }} 款</span>
-                </div>
-                <div v-for="subtype in group.children" :key="`copy-subtype-${subtype.id}`" class="product-picker-subcategory">
-                  <div class="product-picker-category-head subtype-head">
-                    <label class="check-line">
-                      <input type="checkbox" :checked="isCopySubtypeSelected(subtype)" @change="toggleCopySubtype(subtype, $event.target.checked)" />
-                      <span>{{ subtype.name }}</span>
-                    </label>
-                    <span>{{ selectedCopyCountForSubtype(subtype) }}/{{ copyCountForSubtype(subtype) }} 款</span>
-                  </div>
-                  <label
-                    v-for="sku in subtype.products"
-                    :key="`copy-sku-${sku.id}`"
-                    class="product-picker-row check-line"
-                    :class="{ inactive: sku.copy_state === 'inactive', overwrite: sku.copy_state === 'will_overwrite' }">
-                    <input type="checkbox" :checked="isCopySkuSelected(sku)" @change="toggleCopySku(sku, $event.target.checked)" />
-                    <span>{{ sku.name }}</span>
-                    <small>{{ sku.copy_state === 'will_overwrite' ? '覆盖同名' : (sku.copy_state === 'inactive' ? '已停用' : '新增') }}</small>
-                  </label>
-                </div>
-              </div>
-              <p v-if="!skuCopyGroups.length" class="muted">当前来源暂无可复制 SKU。</p>
-            </div>
-          </section>
-        </div>
-        <div class="drawer-footer sku-copy-footer">
-          <span>已选 {{ copySelectedCount }} 款</span>
-          <button class="primary" type="button" :disabled="skuCopySaving || !copySelectedCount" @click="copySelectedSkus">复制为商品档案</button>
-        </div>
-      </aside>
-    </div>
-
     <div v-if="globalUnitDrawerOpen" class="settings-drawer-mask" @click.self="closeGlobalUnitDictionaryDrawer">
       <aside class="settings-drawer global-unit-dictionary-drawer" aria-label="全局单位字典设置">
         <div class="drawer-head">
@@ -1284,7 +1210,6 @@ import {
   buildCustomerProductAliasBatchPayload,
   buildCustomerProductAliasPayload,
   buildClassificationTemplateUsagePayload,
-  classificationAssignmentConflict,
   classificationAssignmentForRow,
   classificationAssignmentLabel,
   classificationTemplateUnitPriceWarnings,
@@ -1301,7 +1226,6 @@ import {
   buildProductBasicsPayload,
   buildProductCreatePayload,
   buildAssignCategoryPayload,
-  buildSkuCopyPayload,
   buildSkuCreatePayload,
   buildSkuContextCategoryTree,
   categoryBelongsToSkuContext as categoryBelongsToContext,
@@ -1322,7 +1246,6 @@ import {
   priceListRuleRoundingOptions,
   productBelongsToSkuContext as productBelongsToContext,
   productConfigTemplateBelongsToSkuContext,
-  productCreationActionOptions,
   productDisplayState,
   productKindSupportsBomParams,
   productSubtypeCategoryOptionsForType,
@@ -1374,8 +1297,6 @@ const loading = ref(false)
 const skuSaving = ref(false)
 const productSaving = skuSaving
 const customSaving = skuSaving
-const skuCopyLoading = ref(false)
-const skuCopySaving = ref(false)
 const templateSaving = ref(false)
 const productConfigSaving = ref(false)
 const productUnitSaving = ref(false)
@@ -1427,7 +1348,6 @@ const productSectionTitle = computed(() => {
 const showGradientTemplatePane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'gradient')
 const showUnitTemplatePane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'unit-template')
 const productDrawerOpen = ref(false)
-const skuCopyDrawerOpen = ref(false)
 const productProductionConfigDrawerOpen = ref(false)
 const customerAliasBatchDrawerOpen = ref(false)
 const classificationTemplateCreateDrawerOpen = ref(false)
@@ -1455,9 +1375,6 @@ const publicUsageSaving = ref(false)
 const skuForm = ref(defaultSkuForm())
 const productForm = skuForm
 const customForm = ref(defaultCustomForm())
-const skuCopyOptions = ref(defaultSkuCopyOptions())
-const copySourceCustomerID = ref(0)
-const copySkuSelection = ref([])
 const highlightedSkuId = ref(0)
 const templateForm = ref(defaultGradientTemplateForm())
 const productUnitTemplateForm = ref(defaultProductUnitTemplateForm())
@@ -1657,7 +1574,6 @@ const visibleCustomerProductAliases = computed(() => customerProductAliasRowsFor
 const aliasBatchRows = computed(() => skuTableRowsFromFlatProducts(aliasProductOptions.value, categories.value, () => true))
 const aliasBatchFilteredRows = computed(() => filterAliasBatchRows(aliasBatchRows.value, aliasBatchFilters.value))
 const aliasBatchCandidateRows = computed(() => aliasBatchFilteredRows.value.slice(0, 300))
-const productCreationActions = computed(() => productCreationActionOptions({ customerID: skuContextCustomerID.value }))
 const visibleAliasMigrationCandidates = computed(() => (aliasMigrationCandidates.value || [])
   .filter((row) => Number(row.customer_id || 0) === Number(selectedAliasCustomerID.value || 0))
   .filter((row) => row.can_auto_recommend || row.suggested_action === 'convert_to_customer_product_alias'))
@@ -1679,18 +1595,6 @@ function productionConfigLossLabel(product) {
   return `${Math.round(loss * 10000) / 100}%`
 }
 
-const skuCopySourceCustomers = computed(() => customerSkuCustomers.value.filter((customer) => Number(customer.id || 0) !== skuContextCustomerID.value))
-const skuCopySourceOptions = computed(() => {
-  const targetCustomerID = skuContextCustomerID.value
-  const options = []
-  if (targetCustomerID !== 0) {
-    options.push({ id: 0, name: '公共SKU' })
-  }
-  for (const customer of skuCopySourceCustomers.value) {
-    options.push({ id: Number(customer.id || 0), name: customer.name })
-  }
-  return options
-})
 const customerSkuRows = computed(() => {
   const customerID = skuContextCustomerID.value
   return sortRowsForCustomerSkuPriority(
@@ -1769,13 +1673,17 @@ const activeProductClassificationTemplates = computed(() => productClassificatio
   .filter((template) => template.active !== false)
   .slice()
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name || '').localeCompare(String(b.name || ''))))
-const productClassificationTabs = computed(() => classificationTemplateTabs(activeProductClassificationTemplates.value, productClassificationTemplateUsages.value, { allLabel: '全部商品' }))
+const productClassificationTabs = computed(() => classificationTemplateTabs(activeProductClassificationTemplates.value, productClassificationTemplateUsages.value, { allLabel: '全部商品', unclassifiedLabel: '未分类商品' }))
 const aliasClassificationUsagesForCustomer = computed(() => aliasClassificationTemplateUsages.value.filter((row) => Number(row.customer_id || 0) === Number(selectedAliasCustomerID.value || 0)))
-const aliasClassificationTabs = computed(() => classificationTemplateTabs(activeProductClassificationTemplates.value, aliasClassificationUsagesForCustomer.value, { allLabel: '全部客户商品' }))
+const aliasClassificationTabs = computed(() => classificationTemplateTabs(activeProductClassificationTemplates.value, aliasClassificationUsagesForCustomer.value, { allLabel: '全部客户商品', unclassifiedLabel: '未分类客户商品' }))
 const currentProductClassificationTab = computed(() => productClassificationTabs.value.find((tab) => tab.key === activeProductClassificationTab.value) || productClassificationTabs.value[0])
 const currentAliasClassificationTab = computed(() => aliasClassificationTabs.value.find((tab) => tab.key === activeAliasClassificationTab.value) || aliasClassificationTabs.value[0])
 const currentProductClassificationTemplate = computed(() => currentProductClassificationTab.value?.template || null)
 const currentAliasClassificationTemplate = computed(() => currentAliasClassificationTab.value?.template || null)
+const isProductAllOrUnclassifiedTab = computed(() => Boolean(currentProductClassificationTab.value?.all || currentProductClassificationTab.value?.unclassified))
+const isAliasAllOrUnclassifiedTab = computed(() => Boolean(currentAliasClassificationTab.value?.all || currentAliasClassificationTab.value?.unclassified))
+const productMovableClassificationTabs = computed(() => productClassificationTabs.value.filter((tab) => !tab.all && !tab.unclassified))
+const aliasMovableClassificationTabs = computed(() => aliasClassificationTabs.value.filter((tab) => !tab.all && !tab.unclassified))
 const classificationTemplateEditorTemplate = computed(() => productClassificationTemplates.value.find((template) => Number(template.id || 0) === Number(classificationTemplateForm.value.id || 0)) || null)
 const classificationTemplateEditorCategories = computed(() => (classificationTemplateEditorTemplate.value?.categories || [])
   .filter((category) => category.active !== false)
@@ -1786,6 +1694,14 @@ const aliasClassificationCategories = computed(() => (currentAliasClassification
 const displaySkuGroups = computed(() => {
   const tab = currentProductClassificationTab.value
   if (!tab || tab.all) return [{ key: 'all-products', label: '全部商品', rows: displaySkuRows.value, all: true }]
+  if (tab.unclassified) {
+    return [{
+      key: 'unclassified-products',
+      label: '未分类商品',
+      rows: displaySkuRows.value.filter((row) => !classificationAssignmentForRow(row, productClassificationTemplates.value, { assignmentType: 'product' })),
+      all: true,
+    }]
+  }
   return groupRowsByClassificationCategory(displaySkuRows.value, tab.template, {
     idKey: 'id',
     assignmentKey: 'product_id',
@@ -1796,6 +1712,14 @@ const displaySkuGroups = computed(() => {
 const visibleCustomerAliasGroups = computed(() => {
   const tab = currentAliasClassificationTab.value
   if (!tab || tab.all) return [{ key: 'all-aliases', label: '全部客户商品', rows: visibleCustomerProductAliases.value, all: true }]
+  if (tab.unclassified) {
+    return [{
+      key: 'unclassified-aliases',
+      label: '未分类客户商品',
+      rows: visibleCustomerProductAliases.value.filter((row) => !classificationAssignmentForRow(row, productClassificationTemplates.value, { assignmentType: 'alias' })),
+      all: true,
+    }]
+  }
   return groupRowsByClassificationCategory(visibleCustomerProductAliases.value, tab.template, {
     idKey: 'id',
     assignmentKey: 'alias_id',
@@ -1827,23 +1751,22 @@ const canEditCurrentProductConfigTemplate = computed(() => {
   if (!productConfigTemplateForm.value.id) return true
   return Number(selectedProductConfigTemplateRow.value?.customer_id || 0) === skuContextCustomerID.value
 })
-const skuCopyGroups = computed(() => skuCopyOptions.value?.groups || [])
-const copyableSkuIDs = computed(() => {
-  const ids = []
-  for (const group of skuCopyGroups.value) {
-    for (const subtype of group.children || []) {
-      for (const sku of subtype.products || []) {
-        if (sku.copy_state === 'inactive') continue
-        const id = Number(sku.id || 0)
-        if (id) ids.push(id)
-      }
-    }
-  }
-  return ids
+const selectedProductRowsAlreadyInCurrentCategory = computed(() => {
+  const templateID = Number(currentProductClassificationTemplate.value?.id || 0)
+  if (!templateID || !selectedProductIds.value.length) return false
+  const categoryID = Number(selectedProductClassificationCategoryID.value || 0)
+  const selected = new Set(selectedProductIds.value.map((id) => Number(id || 0)))
+  const assignments = currentProductClassificationTemplate.value?.product_assignments || []
+  return [...selected].every((productID) => assignments.some((assignment) => Number(assignment.product_id || 0) === productID && Number(assignment.template_id || templateID) === templateID && Number(assignment.category_id || 0) === categoryID))
 })
-const skuCopyTotalCount = computed(() => copyableSkuIDs.value.length)
-const copySelectedCount = computed(() => copySkuSelection.value.length)
-const allCopySkusSelected = computed(() => skuCopyTotalCount.value > 0 && copyableSkuIDs.value.every((id) => copySkuSelection.value.includes(id)))
+const selectedAliasRowsAlreadyInCurrentCategory = computed(() => {
+  const templateID = Number(currentAliasClassificationTemplate.value?.id || 0)
+  if (!templateID || !selectedAliasIds.value.length) return false
+  const categoryID = Number(selectedAliasClassificationCategoryID.value || 0)
+  const selected = new Set(selectedAliasIds.value.map((id) => Number(id || 0)))
+  const assignments = currentAliasClassificationTemplate.value?.customer_alias_assignments || []
+  return [...selected].every((aliasID) => assignments.some((assignment) => Number(assignment.alias_id || 0) === aliasID && Number(assignment.template_id || templateID) === templateID && Number(assignment.category_id || 0) === categoryID))
+})
 const publicRoastedBomProducts = computed(() => roastedBomProductOptions(products.value))
 const customRoastedBomProducts = computed(() => roastedBomProductOptions(products.value, {
   customerID: selectedCustomerSkuCustomerID.value,
@@ -1875,16 +1798,6 @@ function defaultSkuForm() {
     product_config_template_id: 0,
     special_attr_values: {},
     active: true,
-  }
-}
-
-function defaultSkuCopyOptions() {
-  return {
-    title: '选择分类和产品',
-    target_customer_id: 0,
-    source_customer_id: 0,
-    total_count: 0,
-    groups: [],
   }
 }
 
@@ -2292,7 +2205,7 @@ function decorateProduct(product) {
     visibility: productVisibility(product),
     custom_type: product.custom_type || '',
     bom_item_count: Number(product.bom_item_count || 0),
-    bom_status: product.bom_status || (Number(product.bom_item_count || 0) > 0 ? 'active' : 'missing'),
+    bom_status: product.bom_status || '',
   }
 }
 
@@ -3223,148 +3136,6 @@ function canDragSkuRow(row) {
   return skuContextProductFilter(row)
 }
 
-async function openSkuCopyDrawer() {
-  ensureSkuCopySource()
-  skuCopyDrawerOpen.value = true
-  await loadSkuCopyOptions()
-}
-
-function closeSkuCopyDrawer() {
-  skuCopyDrawerOpen.value = false
-}
-
-async function loadSkuCopyOptions() {
-  ensureSkuCopySource()
-  skuCopyLoading.value = true
-  error.value = ''
-  try {
-    const params = new URLSearchParams({
-      target_customer_id: String(skuContextCustomerID.value),
-      source_customer_id: String(copySourceCustomerID.value || 0),
-    })
-    skuCopyOptions.value = await apiGet(`/api/product-settings/skus/copy-options?${params.toString()}`)
-    pruneCopySkuSelection()
-  } catch (err) {
-    error.value = err.message || '加载 SKU 复制选项失败'
-    skuCopyOptions.value = defaultSkuCopyOptions()
-  } finally {
-    skuCopyLoading.value = false
-  }
-}
-
-function ensureSkuCopySource() {
-  const options = skuCopySourceOptions.value
-  if (!options.length) {
-    copySourceCustomerID.value = 0
-    return
-  }
-  if (!options.some((source) => Number(source.id || 0) === Number(copySourceCustomerID.value || 0))) {
-    copySourceCustomerID.value = Number(options[0].id || 0)
-  }
-}
-
-function pruneCopySkuSelection() {
-  const valid = new Set(copyableSkuIDs.value)
-  copySkuSelection.value = copySkuSelection.value.filter((id) => valid.has(Number(id)))
-}
-
-function isCopySkuSelected(sku) {
-  return copySkuSelection.value.includes(Number(sku?.id || 0))
-}
-
-function toggleCopySku(sku, checked) {
-  if (sku?.copy_state === 'inactive') return
-  const id = Number(sku?.id || 0)
-  if (!id) return
-  copySkuSelection.value = checked
-    ? Array.from(new Set([...copySkuSelection.value, id]))
-    : copySkuSelection.value.filter((item) => item !== id)
-}
-
-function copyIDsForSubtype(subtype = {}) {
-  return (subtype.products || [])
-    .filter((sku) => sku.copy_state !== 'inactive')
-    .map((sku) => Number(sku.id || 0))
-    .filter(Boolean)
-}
-
-function copyIDsForType(group = {}) {
-  return (group.children || []).flatMap(copyIDsForSubtype)
-}
-
-function copyCountForSubtype(subtype = {}) {
-  return copyIDsForSubtype(subtype).length
-}
-
-function copyCountForType(group = {}) {
-  return copyIDsForType(group).length
-}
-
-function selectedCopyCountForSubtype(subtype = {}) {
-  const selected = new Set(copySkuSelection.value)
-  return copyIDsForSubtype(subtype).filter((id) => selected.has(id)).length
-}
-
-function selectedCopyCountForType(group = {}) {
-  const selected = new Set(copySkuSelection.value)
-  return copyIDsForType(group).filter((id) => selected.has(id)).length
-}
-
-function isCopySubtypeSelected(subtype = {}) {
-  const ids = copyIDsForSubtype(subtype)
-  return ids.length > 0 && ids.every((id) => copySkuSelection.value.includes(id))
-}
-
-function isCopyTypeSelected(group = {}) {
-  const ids = copyIDsForType(group)
-  return ids.length > 0 && ids.every((id) => copySkuSelection.value.includes(id))
-}
-
-function setCopyIDs(ids = [], checked = false) {
-  const target = new Set(copySkuSelection.value)
-  for (const id of ids) {
-    if (checked) target.add(id)
-    else target.delete(id)
-  }
-  copySkuSelection.value = Array.from(target)
-}
-
-function toggleCopySubtype(subtype, checked) {
-  setCopyIDs(copyIDsForSubtype(subtype), checked)
-}
-
-function toggleCopyType(group, checked) {
-  setCopyIDs(copyIDsForType(group), checked)
-}
-
-function setAllCopySkus(checked) {
-  copySkuSelection.value = checked ? copyableSkuIDs.value.slice() : []
-}
-
-async function copySelectedSkus() {
-  if (!copySelectedCount.value) return
-  skuCopySaving.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    const result = await apiSend('/api/product-settings/skus/copy', {
-      body: buildSkuCopyPayload({
-        target_customer_id: skuContextCustomerID.value,
-        source_customer_id: copySourceCustomerID.value,
-        source_sku_ids: copySkuSelection.value,
-      }),
-    })
-    ok.value = `SKU复制完成：新增 ${Number(result?.created_count || 0)} 款，覆盖 ${Number(result?.overwritten_count || 0)} 款`
-    copySkuSelection.value = []
-    await loadAll()
-    await loadSkuCopyOptions()
-  } catch (err) {
-    error.value = err.message || '复制 SKU 失败'
-  } finally {
-    skuCopySaving.value = false
-  }
-}
-
 function customerName(id) {
   return customers.value.find((customer) => Number(customer.id) === Number(id))?.name || ''
 }
@@ -3493,9 +3264,7 @@ function bomStatusLabel(value) {
 
 function skuStatusLabel(row) {
   if (row.active === false) return '已失效'
-  if (row.bom_status === 'inactive') return 'BOM已失效'
-  if (row.bom_status === 'missing') return '缺BOM'
-  return '有效'
+  return '启用'
 }
 
 function pruneSelectedProducts(sourceProducts) {
@@ -3983,17 +3752,11 @@ async function saveAliasClassificationTemplateUsage() {
 }
 
 async function saveSelectedProductClassificationAssignment() {
-  const templateID = Number(currentProductClassificationTemplate.value?.id || 0)
+  const templateID = isProductAllOrUnclassifiedTab.value
+    ? Number(selectedProductClassificationTemplateID.value || 0)
+    : Number(currentProductClassificationTemplate.value?.id || 0)
   if (!templateID || !selectedProductIds.value.length) return
-  const categoryID = Number(selectedProductClassificationCategoryID.value || 0)
-  if (categoryID > 0) {
-    const selectedRows = displaySkuRows.value.filter((row) => selectedProductIds.value.includes(Number(row.id || 0)))
-    const conflict = selectedRows.map((row) => classificationAssignmentConflict(row, templateID, productClassificationTemplates.value, { assignmentType: 'product', categoryID })).find(Boolean)
-    if (conflict) {
-      error.value = conflict.message
-      return
-    }
-  }
+  const categoryID = isProductAllOrUnclassifiedTab.value ? 0 : Number(selectedProductClassificationCategoryID.value || 0)
   for (const productID of selectedProductIds.value) {
     await apiSend('/api/product-classification-assignments/products', {
       body: {
@@ -4005,21 +3768,17 @@ async function saveSelectedProductClassificationAssignment() {
     })
   }
   selectedProductIds.value = []
+  selectedProductClassificationTemplateID.value = 0
   await refreshClassificationTemplates()
+  activeProductClassificationTab.value = `template-${templateID}`
 }
 
 async function saveSelectedAliasClassificationAssignment() {
-  const templateID = Number(currentAliasClassificationTemplate.value?.id || 0)
+  const templateID = isAliasAllOrUnclassifiedTab.value
+    ? Number(selectedAliasClassificationTemplateID.value || 0)
+    : Number(currentAliasClassificationTemplate.value?.id || 0)
   if (!templateID || !selectedAliasIds.value.length) return
-  const categoryID = Number(selectedAliasClassificationCategoryID.value || 0)
-  if (categoryID > 0) {
-    const selectedRows = visibleCustomerProductAliases.value.filter((row) => selectedAliasIds.value.includes(Number(row.id || 0)))
-    const conflict = selectedRows.map((row) => classificationAssignmentConflict(row, templateID, productClassificationTemplates.value, { assignmentType: 'alias', categoryID })).find(Boolean)
-    if (conflict) {
-      error.value = conflict.message
-      return
-    }
-  }
+  const categoryID = isAliasAllOrUnclassifiedTab.value ? 0 : Number(selectedAliasClassificationCategoryID.value || 0)
   for (const aliasID of selectedAliasIds.value) {
     await apiSend('/api/product-classification-assignments/customer-aliases', {
       body: {
@@ -4031,7 +3790,9 @@ async function saveSelectedAliasClassificationAssignment() {
     })
   }
   selectedAliasIds.value = []
+  selectedAliasClassificationTemplateID.value = 0
   await refreshClassificationTemplates()
+  activeAliasClassificationTab.value = `template-${templateID}`
 }
 
 async function saveProductProductionConfig() {
@@ -4997,27 +4758,21 @@ async function deactivateProducts(productIds) {
   }
 }
 
-async function copySkuInPlace(row) {
+async function copyProductArchive(row) {
   if (!row || !row.id) return
   loading.value = true
   error.value = ''
   ok.value = ''
   try {
-    const result = await apiSend('/api/product-settings/skus/copy', {
-      body: buildSkuCopyPayload({
-        target_customer_id: skuContextCustomerID.value,
-        source_customer_id: Number(row.customer_id || 0),
-        source_sku_ids: [Number(row.id)],
-      }),
-    })
-    ok.value = `已复制 SKU「${row.name}」`
+    const result = await apiSend(`/api/product-settings/products/${row.id}/copy`, { method: 'POST' })
+    ok.value = `已复制商品档案「${row.name}」`
     await loadAll()
-    if (result?.created_ids?.length) {
-      highlightedSkuId.value = result.created_ids[0]
+    if (result?.product?.id) {
+      highlightedSkuId.value = Number(result.product.id || 0)
       setTimeout(() => { highlightedSkuId.value = 0 }, 3000)
     }
   } catch (err) {
-    error.value = err.message || '复制 SKU 失败'
+    error.value = err.message || '复制商品档案失败'
   } finally {
     loading.value = false
   }
@@ -5029,8 +4784,6 @@ watch(selectedCustomerSkuCustomerID, (customerID) => {
     return
   }
   skuForm.value = defaultSkuForm()
-  copySkuSelection.value = []
-  skuCopyOptions.value = defaultSkuCopyOptions()
   resetProductConfigTemplateForm()
   resetCustomerProductRuleForms()
   skuFilters.value = defaultSkuFilters()
@@ -5240,11 +4993,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .checkline { display: flex !important; align-items: center; gap: 8px; min-height: 36px; }
 .checkline input { width: auto; min-height: 0; }
 .customer-copy-panel { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; border: 1px solid #e6e0d8; border-radius: 8px; background: #fbfaf8; padding: 8px 10px; margin-bottom: 10px; }
-.product-action-guide { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; margin: 0 0 10px; }
-.action-guide-button { min-height: 68px; border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 10px 12px; text-align: left; display: grid; gap: 4px; cursor: pointer; }
-.action-guide-button:hover { border-color: #c9beb1; background: #fffdf9; }
-.action-guide-button strong { color: #2c2118; font-size: 14px; }
-.action-guide-button small { color: #7b746c; line-height: 1.4; }
 .switchline { min-height: 30px; color: #333; font-size: 13px; }
 .form-actions { display: flex; justify-content: flex-end; }
 .inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; }
@@ -5370,7 +5118,6 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .settings-drawer-mask { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .22); }
 .settings-drawer { width: min(760px, 94vw); height: 100%; overflow: auto; background: #fff; box-shadow: -12px 0 32px rgba(0, 0, 0, .16); padding: 16px; display: grid; grid-template-rows: auto 1fr; gap: 12px; }
     .product-editor-drawer { width: min(820px, 94vw); }
-    .sku-copy-drawer { width: min(940px, 96vw); grid-template-rows: auto 1fr auto; }
     .production-bom-binding-drawer { width: min(680px, 94vw); grid-template-rows: auto 1fr auto; }
     .product-production-config-drawer { width: min(980px, 96vw); grid-template-rows: auto 1fr auto; }
 .category-settings-drawer { width: min(920px, 96vw); }
@@ -5380,8 +5127,6 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .drawer-head p { margin: 0; color: #666; font-size: 12px; }
 .drawer-body { display: grid; gap: 12px; align-content: start; min-width: 0; }
 .drawer-footer { border-top: 1px solid #eee8df; padding-top: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.sku-copy-source { display: grid; gap: 5px; font-size: 13px; }
-.sku-copy-selection { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 12px; display: grid; gap: 10px; }
 .picker-head, .product-picker-category-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .picker-actions { display: flex; align-items: center; gap: 8px; }
 .check-line { display: inline-flex; align-items: center; gap: 8px; }

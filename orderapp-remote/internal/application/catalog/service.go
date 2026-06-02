@@ -408,6 +408,11 @@ type CreateProductCommand struct {
 	Tiers                    []PriceTier
 }
 
+type CopyProductCommand struct {
+	Actor           string
+	SourceProductID int64
+}
+
 type DeactivateProductsCommand struct {
 	Actor      string
 	ProductIDs []int64
@@ -424,58 +429,6 @@ type CreateSKUCommand struct {
 	ProductConfigTemplateID  int64
 	ClassificationTemplateID int64
 	Active                   bool
-}
-
-type SKUCopyOptionsQuery struct {
-	TargetCustomerID int64
-	SourceCustomerID int64
-}
-
-type SKUCopyOption struct {
-	ID                       int64  `json:"id"`
-	Name                     string `json:"name"`
-	Remark                   string `json:"remark"`
-	SourceCustomerID         int64  `json:"source_customer_id"`
-	ProductTypeCategoryID    int64  `json:"product_type_category_id"`
-	ProductTypeName          string `json:"product_type_name"`
-	ProductSubtypeCategoryID int64  `json:"product_subtype_category_id"`
-	ProductSubtypeName       string `json:"product_subtype_name"`
-	CopyState                string `json:"copy_state"`
-	Active                   bool   `json:"active"`
-}
-
-type SKUCopySubtypeGroup struct {
-	ID       int64           `json:"id"`
-	Name     string          `json:"name"`
-	Products []SKUCopyOption `json:"products"`
-}
-
-type SKUCopyTypeGroup struct {
-	ID       int64                 `json:"id"`
-	Name     string                `json:"name"`
-	Children []SKUCopySubtypeGroup `json:"children"`
-}
-
-type SKUCopyOptions struct {
-	Title            string             `json:"title"`
-	TargetCustomerID int64              `json:"target_customer_id"`
-	SourceCustomerID int64              `json:"source_customer_id"`
-	TotalCount       int                `json:"total_count"`
-	Groups           []SKUCopyTypeGroup `json:"groups"`
-}
-
-type CopySKUsCommand struct {
-	Actor            string
-	TargetCustomerID int64
-	SourceCustomerID int64
-	SourceSKUIDs     []int64
-}
-
-type CopySKUsResult struct {
-	CreatedCount     int     `json:"created_count"`
-	OverwrittenCount int     `json:"overwritten_count"`
-	SkippedCount     int     `json:"skipped_count"`
-	CreatedIDs       []int64 `json:"created_ids,omitempty"`
 }
 
 type CreateCustomProductCommand struct {
@@ -899,9 +852,8 @@ type Repository interface {
 	UpdateProductBasics(ctx context.Context, cmd UpdateProductBasicsCommand) error
 	DeactivateProducts(ctx context.Context, cmd DeactivateProductsCommand) error
 	CreateProduct(ctx context.Context, cmd CreateProductCommand) (Product, error)
+	CopyProduct(ctx context.Context, cmd CopyProductCommand) (Product, error)
 	CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product, error)
-	ListSKUCopyOptions(ctx context.Context, query SKUCopyOptionsQuery) (SKUCopyOptions, error)
-	CopySKUs(ctx context.Context, cmd CopySKUsCommand) (CopySKUsResult, error)
 	ListProductCategories(ctx context.Context) ([]ProductCategory, error)
 	ListProductProductionConfigs(ctx context.Context) ([]ProductProductionConfig, error)
 	GetProductProductionConfig(ctx context.Context, productID int64) (ProductProductionConfig, error)
@@ -1138,6 +1090,14 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	return s.repo.CreateProduct(ctx, cmd)
 }
 
+func (s *Service) CopyProduct(ctx context.Context, cmd CopyProductCommand) (Product, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.SourceProductID <= 0 {
+		return Product{}, ValidationError{Message: "source_product_id required"}
+	}
+	return s.repo.CopyProduct(ctx, cmd)
+}
+
 func (s *Service) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product, error) {
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	cmd.Name = strings.TrimSpace(cmd.Name)
@@ -1161,35 +1121,6 @@ func (s *Service) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product,
 	}
 	cmd.SpecialAttrsJSON = specialAttrsJSON
 	return s.repo.CreateSKU(ctx, cmd)
-}
-
-func (s *Service) ListSKUCopyOptions(ctx context.Context, query SKUCopyOptionsQuery) (SKUCopyOptions, error) {
-	if query.TargetCustomerID < 0 || query.SourceCustomerID < 0 {
-		return SKUCopyOptions{}, ValidationError{Message: "invalid customer_id"}
-	}
-	return s.repo.ListSKUCopyOptions(ctx, query)
-}
-
-func (s *Service) CopySKUs(ctx context.Context, cmd CopySKUsCommand) (CopySKUsResult, error) {
-	cmd.Actor = strings.TrimSpace(cmd.Actor)
-	if cmd.TargetCustomerID < 0 || cmd.SourceCustomerID < 0 {
-		return CopySKUsResult{}, ValidationError{Message: "invalid customer_id"}
-	}
-	// Allow same-customer copy for SKU duplication
-	seen := map[int64]bool{}
-	ids := make([]int64, 0, len(cmd.SourceSKUIDs))
-	for _, id := range cmd.SourceSKUIDs {
-		if id <= 0 || seen[id] {
-			continue
-		}
-		seen[id] = true
-		ids = append(ids, id)
-	}
-	if len(ids) == 0 {
-		return CopySKUsResult{}, ValidationError{Message: "source_sku_ids required"}
-	}
-	cmd.SourceSKUIDs = ids
-	return s.repo.CopySKUs(ctx, cmd)
 }
 
 func (s *Service) validateGreenBeanBomProduct(ctx context.Context, productID int64) error {

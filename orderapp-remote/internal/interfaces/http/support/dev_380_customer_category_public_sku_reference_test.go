@@ -25,15 +25,16 @@ func TestDev380CustomerCategoryPublicSKUReferenceSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("internal", "application", "catalog", "service.go"): {
 			"func (s *Service) DeriveProductCategory",
-			"func (s *Service) CopySKUs",
+			"func (s *Service) CopyProduct",
+			"BatchCreateCustomerProductAliases",
 		},
 		filepath.Join("internal", "application", "catalog", "service_test.go"): {
-			"TestCopySKUsDedupesSourceIDsAndDelegatesOverwriteResult",
-			"TestCopySKUsAllowsSameSourceAndTargetOwner",
+			"TestCopyProductValidatesAndDelegates",
 		},
 		filepath.Join("internal", "interfaces", "http", "catalog", "product_settings_api_test.go"): {
-			"TestProductSettingsAPISKUCopyOptionsAndCopy",
-			"/api/product-settings/skus/copy",
+			"TestProductSettingsAPICopiesProductArchiveAndRemovesLegacySKUCopyRoutes",
+			"/api/product-settings/products/7/copy",
+			"BatchCreateCustomerProductAliases",
 		},
 	}
 

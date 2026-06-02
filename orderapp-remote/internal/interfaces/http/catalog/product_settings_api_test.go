@@ -45,8 +45,7 @@ type productSettingsRepo struct {
 	deactivated                         catalogapp.DeactivateProductsCommand
 	createdPublic                       catalogapp.CreateProductCommand
 	createdSKU                          catalogapp.CreateSKUCommand
-	copiedSKUs                          catalogapp.CopySKUsCommand
-	skuCopyOptionsQuery                 catalogapp.SKUCopyOptionsQuery
+	copiedProduct                       catalogapp.CopyProductCommand
 	publicUsage                         catalogapp.CustomerPublicUsageCommand
 	publicUsages                        []catalogapp.CustomerPublicUsage
 	customerProductAliases              []catalogapp.CustomerProductAlias
@@ -92,8 +91,7 @@ type productSettingsRepo struct {
 	productsDeactivated                 bool
 	publicCreated                       bool
 	skuCreated                          bool
-	skusCopied                          bool
-	skuCopyOptionsListed                bool
+	productCopied                       bool
 	productCreated                      bool
 	publicUsageSaved                    bool
 	customerAliasesListed               bool
@@ -197,6 +195,23 @@ func (r *productSettingsRepo) CreateProduct(ctx context.Context, cmd catalogapp.
 	}, nil
 }
 
+func (r *productSettingsRepo) CopyProduct(ctx context.Context, cmd catalogapp.CopyProductCommand) (catalogapp.Product, error) {
+	r.copiedProduct = cmd
+	r.productCopied = true
+	return catalogapp.Product{
+		ID:                      913,
+		Name:                    "速溶10条盒装 复制",
+		Remark:                  "复制配置",
+		ProductConfigTemplateID: 301,
+		ProductionBomID:         11,
+		ProductionBomVersionID:  22,
+		ProcessRouteID:          33,
+		ExpectedLossRate:        0.08,
+		Visibility:              "public",
+		Active:                  true,
+	}, nil
+}
+
 func (r *productSettingsRepo) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUCommand) (catalogapp.Product, error) {
 	r.createdSKU = cmd
 	r.skuCreated = true
@@ -213,64 +228,6 @@ func (r *productSettingsRepo) CreateSKU(ctx context.Context, cmd catalogapp.Crea
 		SpecialAttrsJSON:  cmd.SpecialAttrsJSON,
 		Visibility:        visibility,
 	}, nil
-}
-
-func (r *productSettingsRepo) CopySKUs(ctx context.Context, cmd catalogapp.CopySKUsCommand) (catalogapp.CopySKUsResult, error) {
-	r.copiedSKUs = cmd
-	r.skusCopied = true
-	return catalogapp.CopySKUsResult{CreatedCount: 2, OverwrittenCount: 1, SkippedCount: 0}, nil
-}
-
-func (r *productSettingsRepo) ListSKUCopyOptions(ctx context.Context, query catalogapp.SKUCopyOptionsQuery) (catalogapp.SKUCopyOptions, error) {
-	r.skuCopyOptionsQuery = query
-	r.skuCopyOptionsListed = true
-	sourceProducts := make([]catalogapp.Product, 0)
-	for _, product := range r.products {
-		if product.CustomerID == query.SourceCustomerID {
-			sourceProducts = append(sourceProducts, product)
-		}
-	}
-	categoryByID := map[int64]catalogapp.ProductCategory{}
-	for _, category := range r.categories {
-		categoryByID[category.ID] = category
-	}
-	group := catalogapp.SKUCopyTypeGroup{ID: 1, Name: "速溶咖啡"}
-	subtype := catalogapp.SKUCopySubtypeGroup{ID: 2, Name: "盒装速溶"}
-	for _, product := range sourceProducts {
-		state := "available"
-		if !product.Active {
-			state = "inactive"
-		}
-		sourceSubtype := categoryByID[product.ProductCategoryID]
-		sourceType := categoryByID[sourceSubtype.ParentID]
-		for _, target := range r.products {
-			targetSubtype := categoryByID[target.ProductCategoryID]
-			if target.CustomerID == query.TargetCustomerID && targetSubtype.Name == sourceSubtype.Name && strings.EqualFold(target.Name, product.Name) {
-				state = "will_overwrite"
-			}
-		}
-		if sourceType.ID > 0 {
-			group.ID = sourceType.ID
-			group.Name = sourceType.Name
-		}
-		if sourceSubtype.ID > 0 {
-			subtype.ID = sourceSubtype.ID
-			subtype.Name = sourceSubtype.Name
-		}
-		subtype.Products = append(subtype.Products, catalogapp.SKUCopyOption{
-			ID:                       product.ID,
-			Name:                     product.Name,
-			SourceCustomerID:         query.SourceCustomerID,
-			ProductTypeCategoryID:    group.ID,
-			ProductTypeName:          group.Name,
-			ProductSubtypeCategoryID: subtype.ID,
-			ProductSubtypeName:       subtype.Name,
-			CopyState:                state,
-			Active:                   product.Active,
-		})
-	}
-	group.Children = []catalogapp.SKUCopySubtypeGroup{subtype}
-	return catalogapp.SKUCopyOptions{Title: "选择分类和产品", TargetCustomerID: query.TargetCustomerID, SourceCustomerID: query.SourceCustomerID, TotalCount: len(sourceProducts), Groups: []catalogapp.SKUCopyTypeGroup{group}}, nil
 }
 
 func (r *productSettingsRepo) ListProductCategories(ctx context.Context) ([]catalogapp.ProductCategory, error) {
@@ -652,12 +609,16 @@ func (r *productSettingsRepo) SaveCustomerProductAlias(ctx context.Context, cmd 
 	if id == 0 {
 		id = 912
 	}
+	customerItemCode := cmd.CustomerItemCode
+	if customerItemCode == "" {
+		customerItemCode = "CPA-000912"
+	}
 	return catalogapp.CustomerProductAlias{
 		ID:                 id,
 		CustomerID:         cmd.CustomerID,
 		ProductID:          cmd.ProductID,
 		DisplayName:        cmd.DisplayName,
-		CustomerItemCode:   cmd.CustomerItemCode,
+		CustomerItemCode:   customerItemCode,
 		BrandName:          cmd.BrandName,
 		DisplayCategoryID:  cmd.DisplayCategoryID,
 		SortOrder:          cmd.SortOrder,
@@ -696,7 +657,7 @@ func (r *productSettingsRepo) BatchCreateCustomerProductAliases(ctx context.Cont
 			CustomerID:         cmd.CustomerID,
 			ProductID:          productID,
 			DisplayName:        "商品档案",
-			CustomerItemCode:   "SKU",
+			CustomerItemCode:   "CPA-001000",
 			BrandName:          cmd.BrandName,
 			DisplayCategoryID:  cmd.DisplayCategoryID,
 			IncludeInPriceList: cmd.IncludeInPriceList,
@@ -793,7 +754,6 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 		"customer_id":42,
 		"product_id":88,
 		"display_name":"Karen 精品拼配",
-		"customer_item_code":"KAREN-ESP",
 		"brand_name":"",
 		"display_category_id":7,
 		"sort_order":20,
@@ -807,15 +767,17 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST alias status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.customerAliasSaved || repo.savedCustomerAlias.CustomerID != 42 || repo.savedCustomerAlias.ProductID != 88 || repo.savedCustomerAlias.DisplayName != "Karen 精品拼配" || !repo.savedCustomerAlias.IncludeInPriceList {
+	if !repo.customerAliasSaved || repo.savedCustomerAlias.CustomerID != 42 || repo.savedCustomerAlias.ProductID != 88 || repo.savedCustomerAlias.DisplayName != "Karen 精品拼配" || repo.savedCustomerAlias.CustomerItemCode != "" || !repo.savedCustomerAlias.IncludeInPriceList {
 		t.Fatalf("save alias command = %+v saved=%v", repo.savedCustomerAlias, repo.customerAliasSaved)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"customer_item_code":"CPA-000912"`)) {
+		t.Fatalf("POST alias response should include generated customer item code: %s", rec.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodPut, "/api/customer-product-aliases/11", bytes.NewBufferString(`{
 		"customer_id":42,
 		"product_id":88,
 		"display_name":"Karen 改名拼配",
-		"customer_item_code":"KAREN-ESP-V2",
 		"include_in_price_list":false,
 		"active":true
 	}`))
@@ -825,7 +787,7 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT alias status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.savedCustomerAlias.ID != 11 || repo.savedCustomerAlias.CustomerItemCode != "KAREN-ESP-V2" || repo.savedCustomerAlias.IncludeInPriceList {
+	if repo.savedCustomerAlias.ID != 11 || repo.savedCustomerAlias.CustomerItemCode != "" || repo.savedCustomerAlias.IncludeInPriceList {
 		t.Fatalf("update alias command = %+v", repo.savedCustomerAlias)
 	}
 
@@ -874,6 +836,9 @@ func TestCustomerProductAliasBatchAPICreatesAndSkipsExistingCustomerNames(t *tes
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("batch alias response missing %s: %s", want, rec.Body.String())
 		}
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(`"customer_item_code":"SKU"`)) {
+		t.Fatalf("batch alias response must not copy product code as customer item code: %s", rec.Body.String())
 	}
 }
 
@@ -963,12 +928,28 @@ func TestProductClassificationTemplateAPIsSaveCategoriesAndAssignments(t *testin
 		t.Fatalf("POST product classification assignment status=%d body=%s cmd=%+v saved=%v", rec.Code, rec.Body.String(), repo.savedClassificationAssignment, repo.classificationAssignmentSaved)
 	}
 
+	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-assignments/products", bytes.NewBufferString(`{"product_id":88,"template_id":601,"category_id":0,"sort_order":6}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.savedClassificationAssignment.TemplateID != 601 || repo.savedClassificationAssignment.CategoryID != 0 {
+		t.Fatalf("POST product classification reassignment should overwrite without move-out status=%d body=%s cmd=%+v", rec.Code, rec.Body.String(), repo.savedClassificationAssignment)
+	}
+
 	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-assignments/customer-aliases", bytes.NewBufferString(`{"alias_id":77,"template_id":501,"category_id":502,"sort_order":5}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !repo.aliasClassificationAssignmentSaved || repo.savedAliasClassificationAssignment.AliasID != 77 || repo.savedAliasClassificationAssignment.CategoryID != 502 {
 		t.Fatalf("POST alias classification assignment status=%d body=%s cmd=%+v saved=%v", rec.Code, rec.Body.String(), repo.savedAliasClassificationAssignment, repo.aliasClassificationAssignmentSaved)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-assignments/customer-aliases", bytes.NewBufferString(`{"alias_id":77,"template_id":602,"category_id":0,"sort_order":6}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.savedAliasClassificationAssignment.TemplateID != 602 || repo.savedAliasClassificationAssignment.CategoryID != 0 {
+		t.Fatalf("POST alias classification reassignment should overwrite without move-out status=%d body=%s cmd=%+v", rec.Code, rec.Body.String(), repo.savedAliasClassificationAssignment)
 	}
 
 	req = httptest.NewRequest(http.MethodDelete, "/api/product-classification-template-categories/502?template_id=501", nil)
@@ -1021,8 +1002,8 @@ func TestCustomerProductAliasMigrationCandidatesAPIIsReadOnly(t *testing.T) {
 	if !repo.aliasCandidatesListed || repo.aliasCandidateQuery.CustomerID != 42 {
 		t.Fatalf("alias candidate query=%+v listed=%v", repo.aliasCandidateQuery, repo.aliasCandidatesListed)
 	}
-	if repo.customerAliasSaved || repo.productCreated || repo.skusCopied {
-		t.Fatalf("migration candidates endpoint must be read-only: aliasSaved=%v productCreated=%v skusCopied=%v", repo.customerAliasSaved, repo.productCreated, repo.skusCopied)
+	if repo.customerAliasSaved || repo.productCreated || repo.productCopied {
+		t.Fatalf("migration candidates endpoint must be read-only: aliasSaved=%v productCreated=%v productCopied=%v", repo.customerAliasSaved, repo.productCreated, repo.productCopied)
 	}
 }
 
@@ -1802,45 +1783,41 @@ func TestProductSettingsAPICreatesUnifiedSKUWithoutLegacyFields(t *testing.T) {
 	}
 }
 
-func TestProductSettingsAPISKUCopyOptionsAndCopy(t *testing.T) {
+func TestProductSettingsAPICopiesProductArchiveAndRemovesLegacySKUCopyRoutes(t *testing.T) {
 	repo := &productSettingsRepo{
-		categories: []catalogapp.ProductCategory{
-			{ID: 1, CustomerID: 0, Name: "速溶咖啡", Level: 1, Position: 1},
-			{ID: 2, ParentID: 1, CustomerID: 0, Name: "盒装速溶", Level: 2, Position: 1},
-			{ID: 101, CustomerID: 42, Name: "速溶咖啡", Level: 1, Position: 1, SourceCategoryID: 1},
-			{ID: 102, ParentID: 101, CustomerID: 42, Name: "盒装速溶", Level: 2, Position: 1, SourceCategoryID: 2},
-		},
 		products: []catalogapp.Product{
-			{ID: 7, Name: "速溶10条盒装", CustomerID: 0, ProductCategoryID: 2, Active: true},
-			{ID: 8, Name: "停用速溶", CustomerID: 0, ProductCategoryID: 2, Active: false},
-			{ID: 107, Name: "速溶10条盒装", CustomerID: 42, ProductCategoryID: 102, Active: true},
+			{ID: 7, Name: "速溶10条盒装", ProductConfigTemplateID: 301, ProductionBomID: 11, ProductionBomVersionID: 22, ProcessRouteID: 33, ExpectedLossRate: 0.08, Active: true},
 		},
 	}
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/product-settings/skus/copy-options?target_customer_id=42&source_customer_id=0", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products/7/copy", nil)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("copy options status=%d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("product copy status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"copy_state":"will_overwrite"`) || !strings.Contains(rec.Body.String(), `"copy_state":"inactive"`) || !strings.Contains(rec.Body.String(), `"选择分类和产品"`) {
-		t.Fatalf("copy options body missing grouped copy states: %s", rec.Body.String())
+	if !repo.productCopied || repo.copiedProduct.SourceProductID != 7 {
+		t.Fatalf("product copy command=%+v copied=%v", repo.copiedProduct, repo.productCopied)
+	}
+	if !strings.Contains(rec.Body.String(), `"name":"速溶10条盒装 复制"`) || !strings.Contains(rec.Body.String(), `"production_bom_id":11`) {
+		t.Fatalf("product copy response missing copied config: %s", rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/skus/copy", bytes.NewBufferString(`{"target_customer_id":42,"source_customer_id":0,"source_sku_ids":[7,8,7]}`))
+	req = httptest.NewRequest(http.MethodGet, "/api/product-settings/skus/copy-options?target_customer_id=42&source_customer_id=0", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("legacy copy options route status=%d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/skus/copy", bytes.NewBufferString(`{"target_customer_id":42,"source_customer_id":0,"source_sku_ids":[7]}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("copy status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if !repo.skusCopied || repo.copiedSKUs.TargetCustomerID != 42 || len(repo.copiedSKUs.SourceSKUIDs) != 2 {
-		t.Fatalf("copied SKUs command=%+v copied=%v", repo.copiedSKUs, repo.skusCopied)
-	}
-	if !strings.Contains(rec.Body.String(), `"created_count":2`) || !strings.Contains(rec.Body.String(), `"overwritten_count":1`) {
-		t.Fatalf("copy response=%s", rec.Body.String())
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("legacy SKU copy route status=%d body=%s, want 404", rec.Code, rec.Body.String())
 	}
 }
 

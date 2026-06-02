@@ -15,7 +15,7 @@ func TestProductSettingsCanCreatePublicProducts(t *testing.T) {
 		"skuForm",
 		"defaultSkuForm",
 		`/api/product-settings/skus`,
-			"商品档案已创建",
+		"商品档案已创建",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("ProductSettingsView.vue missing public product create wiring %q", want)
@@ -25,8 +25,7 @@ func TestProductSettingsCanCreatePublicProducts(t *testing.T) {
 	routes := string(readDev154File(t, "internal/interfaces/http/catalog/product_routes.go"))
 	for _, want := range []string{
 		`e.POST("/api/product-settings/skus", h.createSKUAPI)`,
-		`e.GET("/api/product-settings/skus/copy-options", h.skuCopyOptionsAPI)`,
-		`e.POST("/api/product-settings/skus/copy", h.copySKUsAPI)`,
+		`e.POST("/api/product-settings/products/:id/copy", h.copyProductAPI)`,
 		"ProductTypeCategoryID",
 		"ProductSubtypeCategoryID",
 		"SpecialAttrsJSON",

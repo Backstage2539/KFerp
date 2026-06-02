@@ -69,7 +69,7 @@ func TestDev393ProductClassificationTemplateVue(t *testing.T) {
 		"classification-category-editor",
 		"productClassificationTabs",
 		"aliasClassificationTabs",
-		"使用分类模板",
+		"增加分类",
 		"移动到分类",
 		"返回商品档案配置",
 	} {

@@ -1092,7 +1092,7 @@ function classificationCategoryIDOfItem(item) {
 }
 
 function classificationTemplateNameOfItem(item) {
-  return String(item?.classification_template_name || item?.classificationTemplateName || item?.classification_template_name_snapshot || item?.product_type_name || item?.productTypeName || item?.category_primary_name || item?.primary_name || '').trim()
+  return String(item?.classification_template_name || item?.classificationTemplateName || item?.classification_template_name_snapshot || '').trim()
 }
 
 function classificationCategoryNameOfItem(item) {

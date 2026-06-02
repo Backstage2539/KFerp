@@ -37,9 +37,9 @@ func TestCustomerCustomProductsFrontendWiring(t *testing.T) {
 		"商品档案",
 		"/api/product-settings/skus",
 		"buildSkuCreatePayload",
-		"buildSkuCopyPayload",
-		"skuCopySourceOptions",
-		"copySelectedSkus",
+		"批量添加商品档案",
+		"saveCustomerAliasBatch",
+		"/api/customer-product-aliases/batch",
 		"ownerLabel(row)",
 	} {
 		if !strings.Contains(productSettings, want) {
@@ -62,25 +62,25 @@ func TestCustomerCustomProductsFrontendWiring(t *testing.T) {
 func TestCustomerCustomSkuFormUsesSearchableDropdowns(t *testing.T) {
 	productSettings := string(readDev150File(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
-			"selectedCustomerSkuCustomerID",
-			"product-editor-drawer",
-			`class="sku-create-form product-create-form product-drawer-form"`,
-			`@submit.prevent="createSku"`,
-			"skuForm.name",
-			"skuForm.remark",
-			"buildSkuCreatePayload(skuContextCustomerID.value, skuForm.value)",
+		"selectedCustomerSkuCustomerID",
+		"product-editor-drawer",
+		`class="sku-create-form product-create-form product-drawer-form"`,
+		`@submit.prevent="createSku"`,
+		"skuForm.name",
+		"skuForm.remark",
+		"buildSkuCreatePayload(skuContextCustomerID.value, skuForm.value)",
 	} {
 		if !strings.Contains(productSettings, want) {
 			t.Fatalf("ProductSettingsView.vue missing unified SKU create wiring %q", want)
 		}
 	}
 	for _, forbidden := range []string{
-			`v-else class="custom-product-form product-drawer-form"`,
-			"customForm.copy_bom",
-			"customForm.copy_price_tiers",
-			"skuForm.product_type_category_id",
-			"skuForm.product_subtype_category_id",
-		} {
+		`v-else class="custom-product-form product-drawer-form"`,
+		"customForm.copy_bom",
+		"customForm.copy_price_tiers",
+		"skuForm.product_type_category_id",
+		"skuForm.product_subtype_category_id",
+	} {
 		if strings.Contains(productSettings, forbidden) {
 			t.Fatalf("ProductSettingsView.vue should not expose legacy custom SKU create wiring %q", forbidden)
 		}
