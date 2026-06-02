@@ -62,8 +62,8 @@ func TestDev292ProductSettingsVueExposesMarginOverrideColumn(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-			`:disabled="!canEditSkuRow(row)"`,
-			`:colspan="11"`,
+		`:disabled="!canEditSkuRow(row)"`,
+		`:colspan="12"`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("ProductSettingsView.vue missing customer SKU margin override behavior %q", want)

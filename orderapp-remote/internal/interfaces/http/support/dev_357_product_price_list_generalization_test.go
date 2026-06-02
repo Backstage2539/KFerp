@@ -33,7 +33,7 @@ func TestDev357ProductPriceListGeneralizationWiring(t *testing.T) {
 			"LegacyBeanListTypeProductTypeName",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
-			"产品价格表",
+			"商品价格表",
 			"发布价格表",
 		},
 	} {
