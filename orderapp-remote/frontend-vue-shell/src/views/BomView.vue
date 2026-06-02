@@ -3,7 +3,10 @@
     <section class="panel">
       <div class="panel-head">
         <h2>生产 BOM（配方库）</h2>
-        <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
+        <div class="panel-actions">
+          <button v-if="bomReturnProductID" class="secondary" type="button" @click="returnToProductConfig">{{ bomReturnLabel }}</button>
+          <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
+        </div>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">{{ ok }}</div>
@@ -359,6 +362,7 @@ import { replaceHistoryURL } from '../lib/url-state'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
   workspaceMode: { type: String, default: '' },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
@@ -382,6 +386,8 @@ const selectedProductionBomGroupID = ref(0)
 const selectedProductionBomVersionID = ref(0)
 const pendingUrlProductId = ref(0)
 const bomFilterProductId = ref(0)
+const bomReturnProductID = computed(() => Number(props.viewParams?.return_product_id || new URL(window.location.href).searchParams.get('return_product_id') || 0))
+const bomReturnLabel = computed(() => String(props.viewParams?.return_label || new URL(window.location.href).searchParams.get('return_label') || '返回商品档案配置'))
 const groupDrawerOpen = ref(false)
 const managedProductionBomGroups = ref([])
 const loading = ref(false)
@@ -720,6 +726,16 @@ function updateUrl() {
   replaceHistoryURL(url)
 }
 
+function returnToProductConfig() {
+  const productID = bomReturnProductID.value
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: String(props.viewParams?.return_view || 'productMaster'),
+      params: productID > 0 ? { open_product_config_id: productID } : {},
+    },
+  }))
+}
+
 async function loadAll() {
   loading.value = true
   error.value = ''
@@ -999,8 +1015,8 @@ async function mutate(action) {
 
 onMounted(async () => {
   const params = new URL(window.location.href).searchParams
-  selectedProductId.value = Number(params.get('product_id') || 0)
-  bomFilterProductId.value = Number(params.get('bom_filter_product_id') || 0)
+  selectedProductId.value = Number(props.viewParams?.product_id || params.get('product_id') || 0)
+  bomFilterProductId.value = Number(props.viewParams?.bom_filter_product_id || params.get('bom_filter_product_id') || 0)
   pendingUrlProductId.value = selectedProductId.value
   await loadAll()
   await restoreBomFormDraft()

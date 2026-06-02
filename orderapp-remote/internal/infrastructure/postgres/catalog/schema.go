@@ -34,6 +34,7 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS gradient_template_id_overrid
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS operation_template_id_override BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS unit_rule_override_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS classification_template_id BIGINT NOT NULL DEFAULT 0;
 UPDATE %[1]s.products SET visibility='public' WHERE COALESCE(visibility,'')='';
 UPDATE %[1]s.products SET product_kind='roasted_bean' WHERE COALESCE(product_kind,'')='';
 UPDATE %[1]s.products SET drip_bag_grams = 10 WHERE drip_bag_grams IS NULL;
@@ -55,6 +56,7 @@ DROP INDEX IF EXISTS %[1]s.products_name_key;
 CREATE INDEX IF NOT EXISTS products_customer_visibility_idx ON %[1]s.products(customer_id, visibility, active);
 CREATE INDEX IF NOT EXISTS products_base_product_idx ON %[1]s.products(base_product_id);
 CREATE INDEX IF NOT EXISTS products_kind_active_idx ON %[1]s.products(product_kind, active);
+CREATE INDEX IF NOT EXISTS products_classification_template_idx ON %[1]s.products(classification_template_id, active);
 CREATE TABLE IF NOT EXISTS %[1]s.product_categories (
 	id BIGSERIAL PRIMARY KEY,
 	parent_id BIGINT,
@@ -132,6 +134,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_product_aliases (
 	customer_item_code TEXT NOT NULL DEFAULT '',
 	brand_name TEXT NOT NULL DEFAULT '',
 	display_category_id BIGINT NOT NULL DEFAULT 0,
+	classification_template_id BIGINT NOT NULL DEFAULT 0,
 	sort_order INT NOT NULL DEFAULT 0,
 	include_in_price_list BOOLEAN NOT NULL DEFAULT true,
 	active BOOLEAN NOT NULL DEFAULT true,
@@ -141,10 +144,71 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_product_aliases (
 	created_by TEXT NOT NULL DEFAULT '',
 	updated_by TEXT NOT NULL DEFAULT ''
 );
+ALTER TABLE %[1]s.customer_product_aliases ADD COLUMN IF NOT EXISTS classification_template_id BIGINT NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS customer_product_aliases_customer_active_idx
 ON %[1]s.customer_product_aliases(customer_id, active, sort_order, id);
 CREATE INDEX IF NOT EXISTS customer_product_aliases_product_idx
 ON %[1]s.customer_product_aliases(product_id, active);
+CREATE INDEX IF NOT EXISTS customer_product_aliases_classification_template_idx
+ON %[1]s.customer_product_aliases(classification_template_id, active);
+CREATE TABLE IF NOT EXISTS %[1]s.product_classification_templates (
+	id BIGSERIAL PRIMARY KEY,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	source_template_id BIGINT NOT NULL DEFAULT 0,
+	template_state TEXT NOT NULL DEFAULT 'owned',
+	name TEXT NOT NULL,
+	active BOOLEAN NOT NULL DEFAULT true,
+	sort_order INT NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS product_classification_templates_customer_name_active_uniq
+ON %[1]s.product_classification_templates(customer_id, lower(name))
+WHERE active=true;
+CREATE INDEX IF NOT EXISTS product_classification_templates_sort_idx
+ON %[1]s.product_classification_templates(customer_id, active, sort_order, id);
+CREATE TABLE IF NOT EXISTS %[1]s.product_classification_template_categories (
+	id BIGSERIAL PRIMARY KEY,
+	template_id BIGINT NOT NULL,
+	parent_id BIGINT NOT NULL DEFAULT 0,
+	name TEXT NOT NULL,
+	level INT NOT NULL DEFAULT 1,
+	sort_order INT NOT NULL DEFAULT 100,
+	active BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS product_classification_template_categories_name_uniq
+ON %[1]s.product_classification_template_categories(template_id, parent_id, lower(name))
+WHERE active=true;
+CREATE INDEX IF NOT EXISTS product_classification_template_categories_sort_idx
+ON %[1]s.product_classification_template_categories(template_id, active, sort_order, id);
+CREATE TABLE IF NOT EXISTS %[1]s.product_classification_assignments (
+	product_id BIGINT NOT NULL,
+	template_id BIGINT NOT NULL,
+	category_id BIGINT NOT NULL DEFAULT 0,
+	sort_order INT NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_by TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY(product_id, template_id)
+);
+CREATE INDEX IF NOT EXISTS product_classification_assignments_template_category_idx
+ON %[1]s.product_classification_assignments(template_id, category_id, sort_order, product_id);
+CREATE TABLE IF NOT EXISTS %[1]s.customer_product_alias_classification_assignments (
+	alias_id BIGINT NOT NULL,
+	template_id BIGINT NOT NULL,
+	category_id BIGINT NOT NULL DEFAULT 0,
+	sort_order INT NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_by TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY(alias_id, template_id)
+);
+CREATE INDEX IF NOT EXISTS customer_product_alias_classification_assignments_template_category_idx
+ON %[1]s.customer_product_alias_classification_assignments(template_id, category_id, sort_order, alias_id);
 CREATE TABLE IF NOT EXISTS %[1]s.product_production_configs (
 	product_id BIGINT PRIMARY KEY,
 	production_bom_id BIGINT NOT NULL DEFAULT 0,

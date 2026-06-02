@@ -179,7 +179,7 @@ export function customerSkuCustomerOptions(customers = []) {
 }
 
 export function buildCustomerProductAliasPayload(form = {}) {
-  return {
+  const payload = {
     id: Number(form.id || 0),
     customer_id: Number(form.customer_id || form.customerID || 0),
     product_id: Number(form.product_id || form.productID || 0),
@@ -192,6 +192,10 @@ export function buildCustomerProductAliasPayload(form = {}) {
     active: Boolean(form.active ?? true),
     remark: String(form.remark ?? '').trim(),
   }
+  if (Object.prototype.hasOwnProperty.call(form, 'classification_template_id') || Object.prototype.hasOwnProperty.call(form, 'classificationTemplateID')) {
+    payload.classification_template_id = Number(form.classification_template_id || form.classificationTemplateID || 0)
+  }
+  return payload
 }
 
 export function buildCustomerProductAliasBatchPayload(form = {}) {
@@ -209,6 +213,7 @@ export function buildCustomerProductAliasBatchPayload(form = {}) {
     include_in_price_list: Boolean(form.include_in_price_list ?? form.includeInPriceList ?? true),
     brand_name: String(form.brand_name ?? form.brandName ?? '').trim(),
     display_category_id: Number(form.display_category_id || form.displayCategoryID || 0),
+    classification_template_id: Number(form.classification_template_id || form.classificationTemplateID || 0),
   }
 }
 
@@ -752,6 +757,8 @@ export function buildProductCreatePayload(form = {}) {
   }
   const configTemplateID = Number(form.product_config_template_id || 0)
   if (configTemplateID > 0) payload.product_config_template_id = configTemplateID
+  const classificationTemplateID = Number(form.classification_template_id || 0)
+  if (classificationTemplateID > 0) payload.classification_template_id = classificationTemplateID
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(form.green_bean_type)
     payload.green_bean_bom_product_id = Number(form.green_bean_bom_product_id || 0)
@@ -815,6 +822,8 @@ export function buildSkuCreatePayload(customerID, form = {}) {
   }
   const configTemplateID = Number(form.product_config_template_id || 0)
   if (configTemplateID > 0) payload.product_config_template_id = configTemplateID
+  const classificationTemplateID = Number(form.classification_template_id || 0)
+  if (classificationTemplateID > 0) payload.classification_template_id = classificationTemplateID
   return payload
 }
 
@@ -844,6 +853,9 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   if (name) payload.name = name
   if (Object.prototype.hasOwnProperty.call(row, 'product_config_template_id')) {
     payload.product_config_template_id = Number(row.product_config_template_id || 0)
+  }
+  if (Object.prototype.hasOwnProperty.call(row, 'classification_template_id')) {
+    payload.classification_template_id = Number(row.classification_template_id || 0)
   }
   if (kind === 'green_bean') {
     payload.green_bean_type = normalizedGreenBeanType(row.green_bean_type)

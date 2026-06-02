@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-393-PRODUCT-CLASSIFICATION-TEMPLATES
+- Branch: codex/product-classification-template-drawers-20260602
+- Owner/session: Codex / 2026-06-02
+- Status: local verified, not merged or deployed
+- Scope: 商品分类从商品档案表单里的直接分类下拉和旧拖拽分类树，收敛为“分类模板 + 配置分类抽屉”。商品档案和客户商品名只保存 `classification_template_id`；分类项和商品/客户商品名归属在可叠加、可收起的分类配置抽屉中维护。客户商品名批量添加商品档案时可选择分类模板，不选则默认复制/复用来源商品档案分类模板到客户侧并按同名分类映射。行业字段只能来自行业字段模板定义；生产 BOM 支持返回商品档案配置。
+- DEV:
+  - DEV-393-CLASSIFICATION-SCHEMA-API：新增分类模板、分类项、商品档案归属和客户商品名归属表/API，扩展商品档案和客户商品名 `classification_template_id`，写操作日志。
+  - DEV-393-PRODUCT-ALIAS-CLASSIFICATION：客户商品名单个/批量创建支持分类模板；批量不选时复制/复用来源模板并映射同名分类。
+  - DEV-393-DRAWER-STACK-BOM-RETURN：商品档案配置和分类配置支持多层抽屉、收起/展开/关闭；生产 BOM 页面提供“返回商品档案配置”。
+  - DEV-393-INDUSTRY-FIELD-TEMPLATE-LOCK：商品生产配置字段保存必须来自行业字段模板，不允许商品档案里临时新增/删除字段定义。
+  - DEV-393-MANUAL-DOCS：更新需求、验收、商品/BOM/成本/生产/履约手册。
+- Verifier:
+  - Frontend: `node --test src/lib/product-settings.test.js src/lib/bom.test.js`
+  - API/backend: `go test ./internal/application/catalog ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1`
+  - Build: `npm run build` in `orderapp-remote/frontend-vue-shell`
+  - Changed verifier: `scripts/verify_kferp.sh changed`
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`
+  - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-02-product-classification-template-drawers.md`
+- Deployment: not requested for this turn.
+- Last update: 2026-06-02 Asia/Shanghai
+- Notes: Van requested no browser/manual验收 for this round; use code/docs/unit/API/build verification only. RED evidence: frontend/support tests initially failed on missing classification template drawer/API markers and stale industry-field add behavior. GREEN evidence: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 102/102; `go test ./internal/application/catalog ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1` passed; `npm run build` in Vue shell passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+
 ### PR-392-PRODUCT-CONFIG-ENTRY-TEMPLATE-ALIAS
 - Branch: codex/product-config-entry-template-alias-20260602
 - Owner/session: Codex / 2026-06-02

@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-393-PRODUCT-CLASSIFICATION-TEMPLATES", title: "商品分类模板与配置抽屉改造：商品档案和客户商品名只引用分类模板，归类在独立抽屉维护", status: "doing", assignee: "Codex", evidence: "codex/product-classification-template-drawers-20260602"},
+		{table: "req_dev", code: "DEV-393-CLASSIFICATION-SCHEMA-API", title: "新增分类模板、分类项、商品归类和客户商品名归类 schema/API，并写操作日志", status: "doing", assignee: "Codex", evidence: "catalog schema/repository/product_routes"},
+		{table: "req_dev", code: "DEV-393-PRODUCT-ALIAS-CLASSIFICATION", title: "客户商品名单个和批量创建支持分类模板，批量时复制/复用商品档案分类模板并映射同名分类", status: "doing", assignee: "Codex", evidence: "BatchCreateCustomerProductAliases"},
+		{table: "req_dev", code: "DEV-393-DRAWER-STACK-BOM-RETURN", title: "商品档案配置抽屉支持打开分类配置子抽屉，维护当前 BOM 明细后可返回商品档案配置", status: "doing", assignee: "Codex", evidence: "ProductSettingsView; BomView"},
+		{table: "req_dev", code: "DEV-393-INDUSTRY-FIELD-TEMPLATE-LOCK", title: "商品档案行业字段只允许从行业字段模板生成，不允许临时新增/删除字段定义", status: "doing", assignee: "Codex", evidence: "SaveProductProductionConfig validation"},
 		{table: "req_product", code: "PR-BEANLIST-VERSION-001", title: "豆单发布形成版本列表，入口在产品豆单，录单和小程序按客户选择最新或固定版本并缓存生成结果", status: "review", assignee: "VA", evidence: "docs/superpowers/plans/2026-05-18-bean-list-versioning.md; CostingView.vue bean-list-version-panel"},
 		{table: "req_dev", code: "DEV-BEANLIST-VERSION-001", title: "新增豆单发布资产缓存、客户确认记录、客户门户固定版本配置和订单豆单版本字段", status: "done", assignee: "Codex", evidence: "bean_list_publication_assets; customer_bean_list_acknowledgements; orders.bean_list_publication_id"},
 		{table: "req_dev", code: "DEV-BEANLIST-VERSION-002", title: "ERP 录单按客户返回豆单版本选项，客户有专属版本时可选择且默认最新，无专属版本自动公共豆单", status: "done", assignee: "Codex", evidence: "OrderEntryView.vue; order_form_queries.go"},

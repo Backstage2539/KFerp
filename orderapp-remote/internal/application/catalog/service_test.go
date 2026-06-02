@@ -6,37 +6,41 @@ import (
 )
 
 type fakeRepo struct {
-	replace         ReplacePriceTiersCommand
-	update          UpdateProductBasicsCommand
-	create          CreateProductCommand
-	skuCreate       CreateSKUCommand
-	skuCopy         CopySKUsCommand
-	custom          CreateCustomProductCommand
-	derivedProduct  DeriveCustomerProductCommand
-	derivedCategory DeriveProductCategoryCommand
-	derivedTemplate DeriveGradientTemplateCommand
-	derivedConfig   DeriveProductConfigTemplateCommand
-	assigned        AssignProductCategoryCommand
-	assignResult    AssignProductCategoryResult
-	publicUsage     CustomerPublicUsageCommand
-	aliasQuery      CustomerProductAliasQuery
-	aliasCommand    CustomerProductAliasCommand
-	aliasBatch      BatchCustomerProductAliasesCommand
-	disabledAlias   DisableCustomerProductAliasCommand
-	aliasCandidates CustomerProductAliasMigrationCandidateQuery
-	ruleTemplate    SaveCustomerProductRuleTemplateCommand
-	ruleOverride    SaveCustomerProductRuleOverrideCommand
-	ruleBinding     CustomerProductRuleTemplateBindingCommand
-	configTemplate  SaveProductConfigTemplateCommand
-	unitDefinition  SaveProductUnitDefinitionCommand
-	unitTemplate    SaveProductUnitTemplateCommand
-	deactivate      DeactivateProductsCommand
-	products        map[int64]Product
-	publicUsages    []CustomerPublicUsage
-	deactivated     bool
-	usageSaved      bool
-	skuCreated      bool
-	skusCopied      bool
+	replace          ReplacePriceTiersCommand
+	update           UpdateProductBasicsCommand
+	create           CreateProductCommand
+	skuCreate        CreateSKUCommand
+	skuCopy          CopySKUsCommand
+	custom           CreateCustomProductCommand
+	derivedProduct   DeriveCustomerProductCommand
+	derivedCategory  DeriveProductCategoryCommand
+	derivedTemplate  DeriveGradientTemplateCommand
+	derivedConfig    DeriveProductConfigTemplateCommand
+	assigned         AssignProductCategoryCommand
+	assignResult     AssignProductCategoryResult
+	publicUsage      CustomerPublicUsageCommand
+	aliasQuery       CustomerProductAliasQuery
+	aliasCommand     CustomerProductAliasCommand
+	aliasBatch       BatchCustomerProductAliasesCommand
+	disabledAlias    DisableCustomerProductAliasCommand
+	aliasCandidates  CustomerProductAliasMigrationCandidateQuery
+	ruleTemplate     SaveCustomerProductRuleTemplateCommand
+	ruleOverride     SaveCustomerProductRuleOverrideCommand
+	ruleBinding      CustomerProductRuleTemplateBindingCommand
+	configTemplate   SaveProductConfigTemplateCommand
+	classTemplate    SaveProductClassificationTemplateCommand
+	classCategory    SaveProductClassificationCategoryCommand
+	classAssign      SaveProductClassificationAssignmentCommand
+	aliasClassAssign SaveCustomerProductAliasClassificationAssignmentCommand
+	unitDefinition   SaveProductUnitDefinitionCommand
+	unitTemplate     SaveProductUnitTemplateCommand
+	deactivate       DeactivateProductsCommand
+	products         map[int64]Product
+	publicUsages     []CustomerPublicUsage
+	deactivated      bool
+	usageSaved       bool
+	skuCreated       bool
+	skusCopied       bool
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
@@ -139,6 +143,58 @@ func (r *fakeRepo) ListProductConfigTemplates(ctx context.Context) ([]ProductCon
 		IntegerUnit:         true,
 		Active:              true,
 	}}, nil
+}
+
+func (r *fakeRepo) ListProductClassificationTemplates(ctx context.Context) ([]ProductClassificationTemplate, error) {
+	return []ProductClassificationTemplate{{
+		ID:         801,
+		CustomerID: 0,
+		Name:       "默认分类模板",
+		Active:     true,
+		Categories: []ProductClassificationCategory{{
+			ID:         802,
+			TemplateID: 801,
+			Name:       "未分类",
+			SortOrder:  0,
+			Active:     true,
+		}},
+	}}, nil
+}
+
+func (r *fakeRepo) SaveProductClassificationTemplate(ctx context.Context, cmd SaveProductClassificationTemplateCommand) (ProductClassificationTemplate, error) {
+	r.classTemplate = cmd
+	id := cmd.ID
+	if id == 0 {
+		id = 801
+	}
+	return ProductClassificationTemplate{ID: id, CustomerID: cmd.CustomerID, Name: cmd.Name, Active: true}, nil
+}
+
+func (r *fakeRepo) DeleteProductClassificationTemplate(ctx context.Context, cmd DeleteProductClassificationTemplateCommand) error {
+	return nil
+}
+
+func (r *fakeRepo) SaveProductClassificationCategory(ctx context.Context, cmd SaveProductClassificationCategoryCommand) (ProductClassificationCategory, error) {
+	r.classCategory = cmd
+	id := cmd.ID
+	if id == 0 {
+		id = 802
+	}
+	return ProductClassificationCategory{ID: id, TemplateID: cmd.TemplateID, Name: cmd.Name, SortOrder: cmd.SortOrder, Active: true}, nil
+}
+
+func (r *fakeRepo) DeleteProductClassificationCategory(ctx context.Context, cmd DeleteProductClassificationCategoryCommand) error {
+	return nil
+}
+
+func (r *fakeRepo) SaveProductClassificationAssignment(ctx context.Context, cmd SaveProductClassificationAssignmentCommand) (ProductClassificationAssignment, error) {
+	r.classAssign = cmd
+	return ProductClassificationAssignment{TemplateID: cmd.TemplateID, CategoryID: cmd.CategoryID, ProductID: cmd.ProductID}, nil
+}
+
+func (r *fakeRepo) SaveCustomerProductAliasClassificationAssignment(ctx context.Context, cmd SaveCustomerProductAliasClassificationAssignmentCommand) (CustomerProductAliasClassificationAssignment, error) {
+	r.aliasClassAssign = cmd
+	return CustomerProductAliasClassificationAssignment{TemplateID: cmd.TemplateID, CategoryID: cmd.CategoryID, AliasID: cmd.AliasID}, nil
 }
 
 func (r *fakeRepo) ListProductUnitDefinitions(ctx context.Context) ([]ProductUnitDefinition, error) {

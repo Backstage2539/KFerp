@@ -215,12 +215,14 @@ test('customer product alias batch payload creates many customer-facing names fr
     include_in_price_list: true,
     brand_name: ' ',
     display_category_id: '12',
+    classification_template_id: '88',
   }), {
     customer_id: 42,
     product_ids: [8, 9],
     include_in_price_list: true,
     brand_name: '',
     display_category_id: 12,
+    classification_template_id: 88,
   })
 })
 
@@ -1301,7 +1303,7 @@ test('product archive config drawer owns template, BOM, route, expected loss and
   assert.match(source, /openProductProductionConfig\(row\)/)
   assert.match(source, /productProductionConfigDrawerOpen/)
   assert.match(source, /保存商品档案配置/)
-  assert.match(source, /addProductProductionConfigField/)
+  assert.doesNotMatch(source, /addProductProductionConfigField/)
   assert.match(source, /productProductionConfigForm\.fields/)
   assert.match(source, /\/api\/process-routes\?status=published/)
   assert.match(source, /维护当前 BOM 明细/)
@@ -2060,6 +2062,60 @@ test('SKU unit template workspace uses left list right editor and opens global u
   assert.match(source, /<aside class="settings-drawer global-unit-dictionary-drawer"/)
   assert.match(source, /@submit\.prevent="saveGlobalUnitDefinitionFromDrawer"/)
   assert.match(style, /\.unit-template-layout\s*\{[^}]*grid-template-columns:\s*minmax\(220px,\s*280px\)\s+minmax\(0,\s*1fr\);/s)
+})
+
+test('product archive config references classification template without direct category dropdown', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const drawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
+
+  assert.ok(drawer, 'product archive config drawer should exist')
+  assert.match(drawer, /classification_template_id/)
+  assert.match(drawer, /配置分类/)
+  assert.match(drawer, /openClassificationConfigDrawer/)
+  assert.doesNotMatch(drawer, /product_subtype_category_id/)
+  assert.doesNotMatch(drawer, />产品子类型</)
+  assert.doesNotMatch(drawer, />分类<\/span>[\s\S]*<select/)
+})
+
+test('product archive industry fields are generated from templates without ad-hoc field definition editing', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const drawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
+
+  assert.ok(drawer, 'product archive config drawer should exist')
+  assert.match(drawer, /行业字段/)
+  assert.match(drawer, /industry_field_template_id/)
+  assert.doesNotMatch(drawer, /行业字段值/)
+  assert.doesNotMatch(drawer, /新增字段/)
+  assert.doesNotMatch(drawer, /删除<\/button>/)
+  assert.doesNotMatch(drawer, />字段名</)
+  assert.doesNotMatch(drawer, />类型</)
+})
+
+test('product settings supports stacked collapsible drawers for classification configuration', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+
+  for (const expected of [
+    'drawerStack',
+    'drawer-minibar',
+    'collapseDrawer',
+    'expandDrawer',
+    'openClassificationConfigDrawer',
+    'classification-config-drawer',
+    'aria-label="分类配置"',
+    '同一对象在同一分类模板内只归属一个分类',
+  ]) {
+    assert.ok(source.includes(expected), `missing drawer stack marker: ${expected}`)
+  }
+})
+
+test('customer product aliases can choose classification templates in single and batch flows', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const aliasDrawer = source.match(/<aside class="settings-drawer customer-alias-batch-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
+
+  assert.match(source, /customerProductAliasForm\.classification_template_id/)
+  assert.match(aliasDrawer, /aliasBatchForm\.classification_template_id/)
+  assert.match(aliasDrawer, /默认复制\/复用商品档案分类模板/)
+  assert.match(source, /openClassificationConfigDrawer\(\{[\s\S]*objectType:\s*'customer_alias'/)
 })
 
 test('assign category payload carries customer context for public template derivation', () => {

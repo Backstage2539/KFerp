@@ -25,6 +25,7 @@ func productOptionFromCatalog(p catalogapp.Product) ProductOption {
 		YieldRate:                   p.YieldRate,
 		ProductCategoryID:           p.ProductCategoryID,
 		ProductCategoryPosition:     p.ProductCategoryPosition,
+		ClassificationTemplateID:    p.ClassificationTemplateID,
 		CustomerID:                  p.CustomerID,
 		BaseProductID:               p.BaseProductID,
 		Visibility:                  p.Visibility,

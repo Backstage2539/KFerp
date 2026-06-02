@@ -302,12 +302,16 @@
               <input v-model.trim="customerProductAliasForm.brand_name" placeholder="可留空" />
             </label>
             <label>
-              <span>展示分类</span>
-              <select v-model.number="customerProductAliasForm.display_category_id">
-                <option :value="0">未分类</option>
-                <option v-for="category in aliasDisplayCategoryOptions" :key="category.id" :value="category.id">{{ category.label }}</option>
+              <span>分类模板</span>
+              <select v-model.number="customerProductAliasForm.classification_template_id">
+                <option :value="0">不使用分类模板</option>
+                <option v-for="template in activeProductClassificationTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
               </select>
             </label>
+            <div class="inline-field-action">
+              <span>分类配置</span>
+              <button class="secondary compact-action" type="button" :disabled="!customerProductAliasForm.classification_template_id || !customerProductAliasForm.id" @click="openClassificationConfigDrawer({ objectType: 'customer_alias', objectID: customerProductAliasForm.id, templateID: customerProductAliasForm.classification_template_id, title: `客户商品名分类配置：${customerProductAliasForm.display_name || '客户商品名'}`, parentId: 'customer-alias-form' })">配置分类</button>
+            </div>
             <label>
               <span>排序</span>
               <input v-model.number="customerProductAliasForm.sort_order" type="number" min="0" step="1" />
@@ -374,6 +378,12 @@
               :class="['config-template-tab', { active: activeConfigTemplateSection === 'product-config' }]"
               @click="activeConfigTemplateSection = 'product-config'">
               商品配置模板
+            </button>
+            <button
+              type="button"
+              :class="['config-template-tab', { active: activeConfigTemplateSection === 'classification-template' }]"
+              @click="activeConfigTemplateSection = 'classification-template'">
+              分类模板
             </button>
             <button
               type="button"
@@ -748,6 +758,50 @@
         </div>
       </div>
 
+      <div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'classification-template'" class="panel classification-template-panel">
+        <div class="panel-title">
+          <span>分类模板</span>
+          <button class="secondary compact-action" type="button" @click="resetClassificationTemplateForm">新建分类模板</button>
+        </div>
+        <p class="muted">分类模板只定义分类结构；商品档案和客户商品名引用模板后，在“配置分类”抽屉里维护对象归类。</p>
+        <div class="product-config-layout">
+          <div class="template-list product-config-list">
+            <div
+              v-for="template in activeProductClassificationTemplates"
+              :key="template.id"
+              :class="['template-row', 'product-config-row', { active: Number(template.id || 0) === Number(classificationTemplateForm.id || 0) }]">
+              <button class="template-row-main" type="button" @click="startClassificationTemplateEdit(template)">
+                <strong>{{ template.name }}</strong>
+                <small>{{ template.categories.length }} 个分类 · {{ template.customer_id ? customerName(template.customer_id) : '公共模板' }}</small>
+              </button>
+              <button class="text-button" type="button" @click.stop="openClassificationConfigDrawer({ objectType: 'product', templateID: template.id, title: `分类配置：${template.name}`, parentId: 'classification-template-panel' })">配置分类</button>
+            </div>
+            <p v-if="!activeProductClassificationTemplates.length" class="muted">暂无分类模板</p>
+          </div>
+          <form class="product-config-editor" @submit.prevent="saveClassificationTemplate">
+            <label>
+              <span>模板名称</span>
+              <input v-model.trim="classificationTemplateForm.name" placeholder="如 默认商品分类 / Karen 价格表分类" />
+            </label>
+            <label>
+              <span>归属客户</span>
+              <select v-model.number="classificationTemplateForm.customer_id">
+                <option :value="0">公共模板</option>
+                <option v-for="customer in customerSkuCustomers" :key="customer.id" :value="customer.id">{{ customer.name }}</option>
+              </select>
+            </label>
+            <label>
+              <span>排序</span>
+              <input v-model.number="classificationTemplateForm.sort_order" type="number" min="1" step="1" />
+            </label>
+            <div class="form-actions">
+              <button class="primary" type="submit" :disabled="classificationTemplateSaving">{{ classificationTemplateSaving ? '保存中' : '保存分类模板' }}</button>
+              <button v-if="classificationTemplateForm.id" class="secondary danger-outline" type="button" :disabled="classificationTemplateSaving" @click="deleteClassificationTemplate(classificationTemplateForm.id)">删除模板</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
       <div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'product-config'" class="panel product-config-panel product-config-template-pane">
         <div class="panel-title">
           <span>商品配置模板</span>
@@ -941,10 +995,10 @@
               </select>
             </label>
             <label>
-              <span>展示分类</span>
-              <select v-model.number="aliasBatchForm.display_category_id">
-                <option :value="0">未分类</option>
-                <option v-for="category in aliasDisplayCategoryOptions" :key="category.id" :value="category.id">{{ category.label }}</option>
+              <span>分类模板</span>
+              <select v-model.number="aliasBatchForm.classification_template_id">
+                <option :value="0">默认复制/复用商品档案分类模板</option>
+                <option v-for="template in activeProductClassificationTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
               </select>
             </label>
             <label>
@@ -1032,19 +1086,18 @@
                 </select>
               </label>
               <label>
-                <span>产品类型</span>
-                <select v-model.number="productProductionConfigForm.product_type_category_id" @change="handleArchiveConfigProductTypeChange">
-                  <option :value="0">未分类</option>
-                  <option v-for="category in productTypeCategoryOptions" :key="category.id" :value="category.id">{{ category.name }}</option>
+                <span>分类模板</span>
+                <select v-model.number="productProductionConfigForm.classification_template_id">
+                  <option :value="0">未绑定分类模板</option>
+                  <option v-for="template in activeProductClassificationTemplates" :key="template.id" :value="template.id">
+                    {{ template.name }}{{ template.customer_id ? ` / ${customerName(template.customer_id)}` : '' }}
+                  </option>
                 </select>
               </label>
-              <label>
-                <span>产品子类型</span>
-                <select v-model.number="productProductionConfigForm.product_subtype_category_id">
-                  <option :value="0">停车场</option>
-                  <option v-for="category in productSubtypeCategoryOptions(productProductionConfigForm.product_type_category_id)" :key="category.id" :value="category.id">{{ category.name }}</option>
-                </select>
-              </label>
+              <div class="inline-field-action">
+                <span>分类配置</span>
+                <button class="secondary compact-action" type="button" :disabled="!productProductionConfigForm.classification_template_id" @click="openClassificationConfigDrawer({ objectType: 'product', objectID: productProductionConfigForm.product_id, templateID: productProductionConfigForm.classification_template_id, title: `商品分类配置：${productProductionConfigForm.name || '商品档案'}`, parentId: 'product-production-config' })">配置分类</button>
+              </div>
               <label class="wide-field">
                 <span>备注</span>
                 <textarea v-model.trim="productProductionConfigForm.remark" rows="2" placeholder="商品档案备注"></textarea>
@@ -1102,38 +1155,21 @@
           <section class="drawer-section production-config-fields">
             <div class="field-group-head">
               <div class="field-group-copy">
-                <strong>行业字段值</strong>
-                <small>字段定义来自行业字段模板，也可以临时新增字段；不用填写 JSON。</small>
+                <strong>行业字段</strong>
+                <small>字段定义来自行业字段模板；这里只填写字段值和是否在价格表展示。</small>
               </div>
               <div class="field-group-actions">
                 <select v-model.number="productProductionConfigForm.industry_field_template_id" @change="applyIndustryFieldTemplateToProductionConfig">
                   <option :value="0">不使用行业字段模板</option>
                   <option v-for="template in activeIndustryFieldTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
                 </select>
-                <button class="secondary compact-action" type="button" @click="addProductProductionConfigField">新增字段</button>
               </div>
             </div>
             <div v-for="(field, index) in productProductionConfigForm.fields" :key="field.local_id" class="production-config-field-row">
-              <label>
-                <span>字段名</span>
-                <input v-model.trim="field.label" placeholder="如 烘焙度 / 包装规格" />
-              </label>
-              <label>
-                <span>类型</span>
-                <select v-model="field.field_type">
-                  <option value="text">文本</option>
-                  <option value="textarea">长文本</option>
-                  <option value="number">数字</option>
-                  <option value="ratio">比例</option>
-                  <option value="select">选项</option>
-                  <option value="checkbox">勾选</option>
-                  <option value="date">日期</option>
-                </select>
-              </label>
-              <label>
-                <span>单位</span>
-                <input v-model.trim="field.unit" placeholder="可留空" />
-              </label>
+              <div class="field-definition-readonly">
+                <strong>{{ field.label || field.field_key }}</strong>
+                <small>{{ fieldTypeLabel(field.field_type) }}{{ field.unit ? ` / ${field.unit}` : '' }}</small>
+              </div>
               <label v-if="field.field_type === 'number' || field.field_type === 'ratio'">
                 <span>字段值</span>
                 <input v-model.number="field.value_number" type="number" step="0.0001" />
@@ -1169,9 +1205,8 @@
                 <span>排序</span>
                 <input v-model.number="field.sort_order" type="number" min="0" step="1" />
               </label>
-              <button class="text-button danger-text" type="button" @click="removeProductProductionConfigField(index)">删除</button>
             </div>
-            <p v-if="!productProductionConfigForm.fields.length" class="muted">暂无产品信息字段。需要在价格表展示烘焙度、包装规格、等级等信息时再新增。</p>
+            <p v-if="!productProductionConfigForm.fields.length" class="muted">暂无产品信息字段。请选择行业字段模板后填写字段值。</p>
           </section>
         </div>
         <div class="drawer-footer">
@@ -1252,6 +1287,71 @@
         <div class="drawer-footer sku-copy-footer">
           <span>已选 {{ copySelectedCount }} 款</span>
           <button class="primary" type="button" :disabled="skuCopySaving || !copySelectedCount" @click="copySelectedSkus">复制为商品档案</button>
+        </div>
+      </aside>
+    </div>
+
+    <div class="drawer-minibar-list" aria-label="已收起抽屉">
+      <button v-for="drawer in collapsedDrawers" :key="drawer.id" class="drawer-minibar" type="button" @click="expandDrawer(drawer.id)">
+        {{ drawer.title }}
+      </button>
+    </div>
+
+    <div v-if="classificationConfigDrawer.open && !classificationConfigDrawer.collapsed" class="settings-drawer-mask drawer-stack-mask" @click.self="collapseDrawer(classificationConfigDrawer.id)">
+      <aside class="settings-drawer classification-config-drawer" aria-label="分类配置">
+        <div class="drawer-head">
+          <div>
+            <h3>分类配置</h3>
+            <p>{{ classificationConfigDrawer.title || selectedClassificationTemplate?.name || '分类模板' }}</p>
+          </div>
+          <div class="drawer-head-actions">
+            <button class="secondary compact-action" type="button" @click="collapseDrawer(classificationConfigDrawer.id)">收起</button>
+            <button class="secondary compact-action" type="button" @click="closeDrawer(classificationConfigDrawer.id)">关闭</button>
+          </div>
+        </div>
+        <div class="drawer-body classification-config-body">
+          <p class="muted">同一对象在同一分类模板内只归属一个分类；删除分类时对象回到未分类。</p>
+          <section class="drawer-section">
+            <div class="field-group-head">
+              <div class="field-group-copy">
+                <strong>分类项</strong>
+                <small>{{ selectedClassificationTemplate?.name || '请选择分类模板' }}</small>
+              </div>
+            </div>
+            <form class="classification-category-form" @submit.prevent="saveClassificationCategory">
+              <input v-model.trim="classificationConfigDrawer.categoryForm.name" placeholder="分类名称" />
+              <input v-model.number="classificationConfigDrawer.categoryForm.sort_order" type="number" min="1" step="1" placeholder="排序" />
+              <button class="primary compact-action" type="submit">{{ classificationConfigDrawer.categoryForm.id ? '保存分类' : '新增分类' }}</button>
+            </form>
+            <div class="classification-category-list">
+              <div v-for="category in classificationConfigCategories" :key="category.id" class="classification-category-row">
+                <button class="text-button" type="button" @click="editClassificationCategory(category)">{{ category.name }}</button>
+                <span class="muted">排序 {{ category.sort_order }}</span>
+                <button class="secondary compact-action" type="button" @click="moveClassificationCategory(category, -1)">上移</button>
+                <button class="secondary compact-action" type="button" @click="moveClassificationCategory(category, 1)">下移</button>
+                <button class="text-button danger-text" type="button" @click="deleteClassificationCategory(category)">删除分类</button>
+              </div>
+              <p v-if="!classificationConfigCategories.length" class="muted">暂无分类项，先新增分类。</p>
+            </div>
+          </section>
+          <section class="drawer-section">
+            <div class="field-group-head">
+              <div class="field-group-copy">
+                <strong>对象归类</strong>
+                <small>{{ classificationConfigObjectTypeLabel }}</small>
+              </div>
+            </div>
+            <div class="classification-assignment-list">
+              <label v-for="item in classificationConfigObjects" :key="item.id" class="classification-assignment-row">
+                <span>{{ item.label }}</span>
+                <select :value="classificationAssignmentCategoryID(item.id)" @change="saveClassificationAssignment(item, Number($event.target.value || 0))">
+                  <option :value="0">未分类</option>
+                  <option v-for="category in classificationConfigCategories" :key="category.id" :value="category.id">{{ category.name }}</option>
+                </select>
+              </label>
+              <p v-if="!classificationConfigObjects.length" class="muted">暂无可归类对象。</p>
+            </div>
+          </section>
         </div>
       </aside>
     </div>
@@ -1406,6 +1506,7 @@ const props = defineProps({
   sectionMode: { type: String, default: '' },
   workspaceMode: { type: String, default: '' },
   viewContext: { type: Object, default: () => ({}) },
+  viewParams: { type: Object, default: () => ({}) },
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
 })
@@ -1416,6 +1517,7 @@ const categories = ref([])
 const products = ref([])
 const gradientTemplates = ref([])
 const productConfigTemplates = ref([])
+const productClassificationTemplates = ref([])
 const productProductionConfigs = ref([])
 const industryFieldTemplates = ref([])
 const productUnitDefinitions = ref([])
@@ -1439,6 +1541,7 @@ const skuCopySaving = ref(false)
 const templateSaving = ref(false)
 const productConfigSaving = ref(false)
 const productUnitSaving = ref(false)
+const classificationTemplateSaving = ref(false)
 const globalUnitSaving = ref(false)
 const customerRuleSaving = ref(false)
 const aliasSaving = ref(false)
@@ -1475,6 +1578,8 @@ const productDrawerOpen = ref(false)
 const skuCopyDrawerOpen = ref(false)
 const productProductionConfigDrawerOpen = ref(false)
 const customerAliasBatchDrawerOpen = ref(false)
+const drawerStack = ref([])
+const classificationConfigDrawer = ref(defaultClassificationConfigDrawer())
 const globalUnitDrawerOpen = ref(false)
 const categorySearchQuery = ref('')
 const primaryDeleteMode = ref(false)
@@ -1509,6 +1614,7 @@ const productProductionConfigSaving = ref(false)
 
 const skuContextCustomerID = computed(() => Number(selectedCustomerSkuCustomerID.value || 0))
 const productConfigTemplateForm = ref(defaultProductConfigTemplateForm())
+const classificationTemplateForm = ref(defaultClassificationTemplateForm())
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
 const selectedSkuContextLabel = computed(() => {
   const customerID = skuContextCustomerID.value
@@ -1800,6 +1906,35 @@ const productConfigTemplatesForContext = computed(() => productConfigTemplates.v
     customerID: skuContextCustomerID.value,
     customerTemplates: customerProductConfigTemplatesForContext.value,
   })))
+const activeProductClassificationTemplates = computed(() => productClassificationTemplates.value
+  .filter((template) => template.active !== false)
+  .filter((template) => {
+    const templateCustomerID = Number(template.customer_id || 0)
+    const contextCustomerID = skuContextCustomerID.value || selectedAliasCustomerID.value || 0
+    if (!contextCustomerID) return templateCustomerID === 0
+    return templateCustomerID === 0 || templateCustomerID === contextCustomerID
+  })
+  .slice()
+  .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name || '').localeCompare(String(b.name || ''))))
+const collapsedDrawers = computed(() => drawerStack.value.filter((drawer) => drawer.collapsed))
+const selectedClassificationTemplate = computed(() => productClassificationTemplates.value.find((template) => Number(template.id || 0) === Number(classificationConfigDrawer.value.templateID || 0)) || null)
+const classificationConfigCategories = computed(() => (selectedClassificationTemplate.value?.categories || [])
+  .filter((category) => category.active !== false)
+  .slice()
+  .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
+const classificationConfigObjectTypeLabel = computed(() => classificationConfigDrawer.value.objectType === 'customer_alias' ? '客户商品名' : '商品档案')
+const classificationConfigObjects = computed(() => {
+  const objectType = classificationConfigDrawer.value.objectType
+  if (objectType === 'customer_alias') {
+    const customerID = Number(selectedAliasCustomerID.value || 0)
+    return customerProductAliases.value
+      .filter((alias) => alias.active !== false && (!customerID || Number(alias.customer_id || 0) === customerID))
+      .map((alias) => ({ id: Number(alias.id || 0), label: `${alias.display_name || alias.product_name || '客户商品名'}${alias.customer_item_code ? ` / ${alias.customer_item_code}` : ''}` }))
+  }
+  return products.value
+    .filter((product) => product.active !== false)
+    .map((product) => ({ id: Number(product.id || 0), label: product.name || `商品 #${product.id}` }))
+})
 const selectedProductConfigUnitTemplate = computed(() => findProductUnitTemplate(productConfigTemplateForm.value.unit_template_id))
 const activeProductConfigTemplates = computed(() => productConfigTemplatesForContext.value.filter((template) => template.active !== false))
 const customerProductRuleTemplatesForContext = computed(() => customerProductRuleTemplates.value
@@ -1896,6 +2031,7 @@ function defaultCustomerProductAliasForm() {
     customer_item_code: '',
     brand_name: '',
     display_category_id: 0,
+    classification_template_id: 0,
     sort_order: 0,
     include_in_price_list: true,
     active: true,
@@ -1909,6 +2045,7 @@ function defaultCustomerProductAliasBatchForm() {
     include_in_price_list: true,
     brand_name: '',
     display_category_id: 0,
+    classification_template_id: 0,
   }
 }
 
@@ -1917,6 +2054,20 @@ function defaultAliasBatchFilters() {
     query: '',
     primaryCategory: '',
     secondaryCategory: '',
+  }
+}
+
+function defaultClassificationConfigDrawer() {
+  return {
+    id: 'classification-config',
+    parentId: '',
+    open: false,
+    collapsed: false,
+    objectType: 'product',
+    objectID: 0,
+    templateID: 0,
+    title: '',
+    categoryForm: { id: 0, name: '', sort_order: 100 },
   }
 }
 
@@ -1943,15 +2094,13 @@ function defaultProductProductionConfigField(row = {}, index = 0) {
 
 function defaultProductProductionConfigForm(config = {}, product = {}) {
   const lossRate = Number(config.expected_loss_rate ?? product.expected_loss_rate ?? 0)
-  const subtype = productSubtypeCategoryByID(product.product_category_id)
   return {
     product_id: Number(config.product_id || product.id || 0),
     name: String(product.name || '').trim(),
     remark: String(product.remark || '').trim(),
     product_kind: product.product_kind || 'roasted',
-    product_type_category_id: Number(subtype?.parent_id || 0),
-    product_subtype_category_id: Number(product.product_category_id || 0),
     product_config_template_id: Number(product.product_config_template_id || 0),
+    classification_template_id: Number(product.classification_template_id || 0),
     production_bom_id: Number(config.production_bom_id || product.production_bom_id || 0),
     production_bom_version_id: Number(config.production_bom_version_id || product.production_bom_version_id || 0),
     process_route_id: Number(config.process_route_id || 0),
@@ -2055,6 +2204,17 @@ function defaultProductConfigTemplateForm(template = {}, options = {}) {
     unit_conversion_json: template.unit_conversion_json || '{}',
     unit_conversion_rows: unitConversionRowsFromJSON(template.unit_conversion_json || '{}'),
     integer_unit: Boolean(template.integer_unit),
+    active: template.active !== false,
+  }
+}
+
+function defaultClassificationTemplateForm(template = {}) {
+  return {
+    id: Number(template.id || 0),
+    customer_id: Number(Object.prototype.hasOwnProperty.call(template, 'customer_id') ? template.customer_id || 0 : selectedAliasCustomerID.value || 0),
+    source_template_id: Number(template.source_template_id || 0),
+    name: template.name || '',
+    sort_order: Number(template.sort_order || 100),
     active: template.active !== false,
   }
 }
@@ -2191,7 +2351,7 @@ async function restoreProductSettingsDraft() {
   collapsedSecondaryCategoryIds.value = normalizeCategoryIdList(draft.collapsedSecondaryCategoryIds)
   productsCollapsed.value = Boolean(draft.productsCollapsed)
   activeSettingsSection.value = ['master', 'templates', 'aliases'].includes(draft.activeSettingsSection) ? draft.activeSettingsSection : 'master'
-  activeConfigTemplateSection.value = ['product-config', 'unit-template', 'gradient'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
+  activeConfigTemplateSection.value = ['product-config', 'classification-template', 'unit-template', 'gradient'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
   categorySearchQuery.value = draft.categorySearchQuery || ''
   skuFilters.value = normalizeSkuFiltersForCurrentRows(draft.skuFilters || {})
   skuPage.value = Number(draft.skuPage || 1)
@@ -2225,6 +2385,7 @@ function decorateProduct(product) {
     default_price: Number(product.default_price || 0),
     margin_rate_override: marginRateOverride,
     margin_rate_override_input: marginRateOverride === null ? '' : marginRateOverride,
+    classification_template_id: Number(product.classification_template_id || 0),
     customer_id: Number(product.customer_id || 0),
     base_product_id: Number(product.base_product_id || 0),
     visibility: productVisibility(product),
@@ -2272,6 +2433,7 @@ function decorateCustomerProductAlias(alias = {}) {
     customer_item_code: alias.customer_item_code || '',
     brand_name: alias.brand_name || '',
     display_category_id: Number(alias.display_category_id || 0),
+    classification_template_id: Number(alias.classification_template_id || 0),
     sort_order: Number(alias.sort_order || 0),
     include_in_price_list: alias.include_in_price_list !== false,
     active: alias.active !== false,
@@ -2279,6 +2441,41 @@ function decorateCustomerProductAlias(alias = {}) {
     product_code: alias.product_code || '',
     product_name: alias.product_name || '',
     display_category_name: alias.display_category_name || '',
+  }
+}
+
+function decorateProductClassificationTemplate(template = {}) {
+  return {
+    ...template,
+    id: Number(template.id || 0),
+    customer_id: Number(template.customer_id || 0),
+    source_template_id: Number(template.source_template_id || 0),
+    template_state: template.template_state || '',
+    name: template.name || '',
+    active: template.active !== false,
+    sort_order: Number(template.sort_order || 100),
+    categories: (template.categories || []).map((category) => ({
+      ...category,
+      id: Number(category.id || 0),
+      template_id: Number(category.template_id || template.id || 0),
+      parent_id: Number(category.parent_id || 0),
+      name: category.name || '',
+      level: Number(category.level || 1),
+      sort_order: Number(category.sort_order || 100),
+      active: category.active !== false,
+    })),
+    product_assignments: (template.product_assignments || []).map((assignment) => ({
+      product_id: Number(assignment.product_id || 0),
+      template_id: Number(assignment.template_id || template.id || 0),
+      category_id: Number(assignment.category_id || 0),
+      sort_order: Number(assignment.sort_order || 100),
+    })),
+    customer_alias_assignments: (template.customer_alias_assignments || []).map((assignment) => ({
+      alias_id: Number(assignment.alias_id || 0),
+      template_id: Number(assignment.template_id || template.id || 0),
+      category_id: Number(assignment.category_id || 0),
+      sort_order: Number(assignment.sort_order || 100),
+    })),
   }
 }
 
@@ -2350,6 +2547,7 @@ async function loadAll() {
     products.value = (data.products || []).map(decorateProduct)
     gradientTemplates.value = (data.gradient_templates || []).map(normalizeGradientTemplate)
     productConfigTemplates.value = (data.product_config_templates || []).map(decorateProductConfigTemplate)
+    productClassificationTemplates.value = (data.product_classification_templates || []).map(decorateProductClassificationTemplate)
     productProductionConfigs.value = data.product_production_configs || []
     industryFieldTemplates.value = industryData?.rows || []
     productUnitDefinitions.value = (data.product_unit_definitions || []).map(decorateProductUnitDefinition)
@@ -2633,6 +2831,63 @@ async function deactivateProductConfigTemplate(id) {
   if (!id) return
   productConfigTemplateForm.value.active = false
   await saveProductConfigTemplate()
+}
+
+function resetClassificationTemplateForm() {
+  classificationTemplateForm.value = defaultClassificationTemplateForm()
+}
+
+function startClassificationTemplateEdit(template) {
+  classificationTemplateForm.value = defaultClassificationTemplateForm(JSON.parse(JSON.stringify(template || {})))
+}
+
+async function saveClassificationTemplate() {
+  const payload = {
+    customer_id: Number(classificationTemplateForm.value.customer_id || 0),
+    source_template_id: Number(classificationTemplateForm.value.source_template_id || 0),
+    name: String(classificationTemplateForm.value.name || '').trim(),
+    sort_order: Number(classificationTemplateForm.value.sort_order || 100),
+    active: classificationTemplateForm.value.active !== false,
+  }
+  if (!payload.name) {
+    error.value = '请填写分类模板名称'
+    return
+  }
+  const id = Number(classificationTemplateForm.value.id || 0)
+  classificationTemplateSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(id ? `/api/product-classification-templates/${id}` : '/api/product-classification-templates', {
+      method: id ? 'PUT' : 'POST',
+      body: payload,
+    })
+    ok.value = '分类模板已保存'
+    resetClassificationTemplateForm()
+    await refreshClassificationTemplates()
+  } catch (err) {
+    error.value = err.message || '保存分类模板失败'
+  } finally {
+    classificationTemplateSaving.value = false
+  }
+}
+
+async function deleteClassificationTemplate(id) {
+  const templateID = Number(id || 0)
+  if (!templateID) return
+  if (!window.confirm('删除分类模板？商品档案和客户商品名的历史记录不会回改。')) return
+  classificationTemplateSaving.value = true
+  error.value = ''
+  try {
+    await apiSend(`/api/product-classification-templates/${templateID}`, { method: 'DELETE' })
+    ok.value = '分类模板已删除'
+    resetClassificationTemplateForm()
+    await refreshClassificationTemplates()
+  } catch (err) {
+    error.value = err.message || '删除分类模板失败'
+  } finally {
+    classificationTemplateSaving.value = false
+  }
 }
 
 function openGlobalUnitDictionaryDrawer() {
@@ -3467,10 +3722,17 @@ function handleCustomProductKindChange() {
 
 function navigateProductBom(row) {
   const productID = Number(row?.id || row?.product_id || 0)
+  const productName = productProductionConfigForm.value.name || row?.name || productProductionConfigProduct.value?.name || ''
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: {
       key: 'bom',
-      params: productID > 0 ? { product_id: productID, bom_filter_product_id: productID } : {},
+      params: productID > 0 ? {
+        product_id: productID,
+        bom_filter_product_id: productID,
+        return_view: 'productMaster',
+        return_product_id: productID,
+        return_label: productName ? `返回商品档案配置：${productName}` : '返回商品档案配置',
+      } : {},
     },
   }))
 }
@@ -3549,6 +3811,18 @@ function fieldOptions(field = {}) {
   }
 }
 
+function fieldTypeLabel(type) {
+  return ({
+    text: '文本',
+    textarea: '长文本',
+    number: '数字',
+    ratio: '比例',
+    select: '选项',
+    checkbox: '勾选',
+    date: '日期',
+  })[String(type || '').trim()] || '文本'
+}
+
 async function selectProductProductionConfigBom(bomID) {
   productProductionConfigForm.value.production_bom_id = Number(bomID || 0)
   productProductionConfigForm.value.production_bom_version_id = 0
@@ -3557,14 +3831,17 @@ async function selectProductProductionConfigBom(bomID) {
   if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
 }
 
-function handleArchiveConfigProductTypeChange() {
-  productProductionConfigForm.value.product_subtype_category_id = 0
-}
-
 async function openProductProductionConfig(row) {
   productProductionConfigProduct.value = row || null
   productProductionConfigForm.value = defaultProductProductionConfigForm(productProductionConfigByProductID(row?.id), row)
   productProductionConfigDrawerOpen.value = true
+  syncDrawerStackEntry({
+    id: 'product-production-config',
+    title: `商品档案配置：${row?.name || '商品档案'}`,
+    parentId: '',
+    collapsed: false,
+    type: 'product_config',
+  })
   error.value = ''
   try {
     await Promise.all([
@@ -3625,17 +3902,152 @@ function closeProductProductionConfigDrawer() {
   productProductionConfigDrawerOpen.value = false
   productProductionConfigProduct.value = null
   productProductionConfigForm.value = defaultProductProductionConfigForm()
+  closeDrawer('product-production-config')
 }
 
-function addProductProductionConfigField() {
-  productProductionConfigForm.value.fields.push(defaultProductProductionConfigField({
-    show_in_price_list: true,
-    sort_order: productProductionConfigForm.value.fields.length + 1,
-  }, productProductionConfigForm.value.fields.length))
+function syncDrawerStackEntry(entry) {
+  const index = drawerStack.value.findIndex((drawer) => drawer.id === entry.id)
+  if (index >= 0) {
+    drawerStack.value[index] = { ...drawerStack.value[index], ...entry }
+  } else {
+    drawerStack.value.push(entry)
+  }
 }
 
-function removeProductProductionConfigField(index) {
-  productProductionConfigForm.value.fields.splice(index, 1)
+function openClassificationConfigDrawer({ objectType = 'product', objectID = 0, templateID = 0, title = '', parentId = '' } = {}) {
+  const nextTemplateID = Number(templateID || 0)
+  if (!nextTemplateID) {
+    error.value = '请先选择分类模板'
+    return
+  }
+  classificationConfigDrawer.value = {
+    ...defaultClassificationConfigDrawer(),
+    open: true,
+    collapsed: false,
+    objectType,
+    objectID: Number(objectID || 0),
+    templateID: nextTemplateID,
+    title: title || '分类配置',
+    parentId,
+  }
+  syncDrawerStackEntry({
+    id: classificationConfigDrawer.value.id,
+    title: classificationConfigDrawer.value.title,
+    parentId,
+    collapsed: false,
+    type: 'classification',
+  })
+}
+
+function collapseDrawer(id) {
+  const drawerID = String(id || '')
+  drawerStack.value = drawerStack.value.map((drawer) => drawer.id === drawerID ? { ...drawer, collapsed: true } : drawer)
+  if (drawerID === classificationConfigDrawer.value.id) {
+    classificationConfigDrawer.value.collapsed = true
+  }
+}
+
+function expandDrawer(id) {
+  const drawerID = String(id || '')
+  drawerStack.value = drawerStack.value.map((drawer) => drawer.id === drawerID ? { ...drawer, collapsed: false } : drawer)
+  if (drawerID === classificationConfigDrawer.value.id) {
+    classificationConfigDrawer.value.collapsed = false
+    classificationConfigDrawer.value.open = true
+  }
+}
+
+function closeDrawer(id) {
+  const drawerID = String(id || '')
+  const childIds = drawerStack.value.filter((drawer) => drawer.parentId === drawerID).map((drawer) => drawer.id)
+  drawerStack.value = drawerStack.value.filter((drawer) => drawer.id !== drawerID && drawer.parentId !== drawerID)
+  if (drawerID === classificationConfigDrawer.value.id || childIds.includes(classificationConfigDrawer.value.id) || drawerID === 'product-production-config') {
+    classificationConfigDrawer.value = defaultClassificationConfigDrawer()
+  }
+}
+
+function classificationAssignmentCategoryID(objectID) {
+  const template = selectedClassificationTemplate.value
+  if (!template) return 0
+  const id = Number(objectID || 0)
+  if (classificationConfigDrawer.value.objectType === 'customer_alias') {
+    return Number((template.customer_alias_assignments || []).find((row) => Number(row.alias_id || 0) === id)?.category_id || 0)
+  }
+  return Number((template.product_assignments || []).find((row) => Number(row.product_id || 0) === id)?.category_id || 0)
+}
+
+async function refreshClassificationTemplates() {
+  const data = await apiGet('/api/product-classification-templates')
+  productClassificationTemplates.value = (data.rows || []).map(decorateProductClassificationTemplate)
+}
+
+function editClassificationCategory(category) {
+  classificationConfigDrawer.value.categoryForm = {
+    id: Number(category.id || 0),
+    name: category.name || '',
+    sort_order: Number(category.sort_order || 100),
+  }
+}
+
+async function saveClassificationCategory() {
+  const templateID = Number(classificationConfigDrawer.value.templateID || 0)
+  if (!templateID) return
+  const form = classificationConfigDrawer.value.categoryForm
+  const id = Number(form.id || 0)
+  await apiSend(id ? `/api/product-classification-template-categories/${id}` : '/api/product-classification-template-categories', {
+    method: id ? 'PUT' : 'POST',
+    body: {
+      template_id: templateID,
+      parent_id: 0,
+      name: String(form.name || '').trim(),
+      level: 1,
+      sort_order: Number(form.sort_order || 100),
+    },
+  })
+  classificationConfigDrawer.value.categoryForm = { id: 0, name: '', sort_order: 100 }
+  await refreshClassificationTemplates()
+}
+
+async function moveClassificationCategory(category, delta) {
+  const nextSort = Math.max(1, Number(category.sort_order || 100) + (Number(delta || 0) * 10))
+  classificationConfigDrawer.value.categoryForm = {
+    id: Number(category.id || 0),
+    name: category.name || '',
+    sort_order: nextSort,
+  }
+  await saveClassificationCategory()
+}
+
+async function deleteClassificationCategory(category) {
+  const templateID = Number(classificationConfigDrawer.value.templateID || 0)
+  if (!templateID || !category?.id) return
+  if (!window.confirm(`删除分类「${category.name}」？该分类下对象会回到未分类。`)) return
+  await apiSend(`/api/product-classification-template-categories/${category.id}?template_id=${templateID}`, { method: 'DELETE' })
+  await refreshClassificationTemplates()
+}
+
+async function saveClassificationAssignment(item, categoryID) {
+  const templateID = Number(classificationConfigDrawer.value.templateID || 0)
+  if (!templateID || !item?.id) return
+  if (classificationConfigDrawer.value.objectType === 'customer_alias') {
+    await apiSend('/api/product-classification-assignments/customer-aliases', {
+      body: {
+        alias_id: Number(item.id || 0),
+        template_id: templateID,
+        category_id: Number(categoryID || 0),
+        sort_order: 100,
+      },
+    })
+  } else {
+    await apiSend('/api/product-classification-assignments/products', {
+      body: {
+        product_id: Number(item.id || 0),
+        template_id: templateID,
+        category_id: Number(categoryID || 0),
+        sort_order: 100,
+      },
+    })
+  }
+  await Promise.all([refreshClassificationTemplates(), loadAll()])
 }
 
 async function saveProductProductionConfig() {
@@ -3664,20 +4076,9 @@ async function saveProductProductionConfig() {
         name: productProductionConfigForm.value.name,
         remark: productProductionConfigForm.value.remark,
         product_config_template_id: Number(productProductionConfigForm.value.product_config_template_id || 0),
+        classification_template_id: Number(productProductionConfigForm.value.classification_template_id || 0),
       }, originalProduct.margin_rate_override ?? null),
     })
-    const nextCategoryID = Number(productProductionConfigForm.value.product_subtype_category_id || 0)
-    if (nextCategoryID > 0 && nextCategoryID !== Number(originalProduct.product_category_id || 0)) {
-      const category = productSubtypeCategoryByID(nextCategoryID) || { id: nextCategoryID, customer_id: Number(originalProduct.customer_id || skuContextCustomerID.value || 0) }
-      await apiSend(`/api/product-settings/products/${productID}/category`, {
-        body: buildAssignCategoryPayload({
-          product: originalProduct,
-          category,
-          customerID: Number(originalProduct.customer_id || skuContextCustomerID.value || 0),
-          position: Number(originalProduct.product_category_position || 0),
-        }),
-      })
-    }
     const result = await apiSend(`/api/product-production-configs/${productID}`, {
       method: 'PUT',
       body: {
@@ -4716,8 +5117,22 @@ watch(displaySkuRows, (rows) => {
   pruneSelectedProducts(rows)
 })
 
+async function applyProductSettingsViewParams(params = {}) {
+  const productID = Number(params.open_product_config_id || params.return_product_id || 0)
+  if (!productID) return
+  const row = products.value.find((product) => Number(product.id || 0) === productID)
+  if (row) {
+    await openProductProductionConfig(row)
+  }
+}
+
+watch(() => props.viewParams, (params) => {
+  applyProductSettingsViewParams(params || {})
+}, { deep: true })
+
 onMounted(async () => {
   await loadAll()
+  await applyProductSettingsViewParams(props.viewParams || {})
   await restoreProductSettingsDraft()
 })
 
@@ -5013,9 +5428,24 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .production-config-grid label span, .production-config-field-row label span { color: #5f5a52; font-weight: 600; }
 .production-config-grid .wide-field { grid-column: 1 / -1; }
 .production-config-fields { display: grid; gap: 10px; }
-.production-config-field-row { display: grid; grid-template-columns: minmax(120px, 1.2fr) minmax(94px, .7fr) minmax(80px, .6fr) minmax(130px, 1fr) minmax(112px, .7fr) minmax(76px, .5fr) auto; gap: 8px; align-items: end; padding: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; }
+.production-config-field-row { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(112px, .7fr) minmax(76px, .5fr); gap: 8px; align-items: end; padding: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; }
 .production-config-field-row .checkline { align-self: center; }
 .field-bool-value { min-height: 58px; align-content: end; }
+.field-definition-readonly { display: grid; gap: 4px; min-width: 0; }
+.field-definition-readonly strong { font-size: 13px; }
+.field-definition-readonly small { color: #6d665c; }
+.inline-field-action { display: grid; gap: 5px; min-width: 0; font-size: 13px; align-content: end; }
+.inline-field-action > span { color: #5f5a52; font-weight: 600; }
+.drawer-head-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.drawer-minibar-list { position: fixed; right: 18px; bottom: 18px; z-index: 64; display: grid; gap: 8px; justify-items: end; }
+.drawer-minibar { min-height: 32px; border-color: #a57a3b; background: #fff8ec; color: #5f3d11; box-shadow: 0 10px 24px rgba(31,31,31,.12); }
+.drawer-stack-mask { z-index: 62; }
+.classification-config-drawer { width: min(900px, 92vw); }
+.classification-config-body { display: grid; gap: 12px; }
+.classification-category-form { display: grid; grid-template-columns: minmax(180px, 1fr) 110px auto; gap: 8px; align-items: end; }
+.classification-category-list, .classification-assignment-list { display: grid; gap: 8px; }
+.classification-category-row, .classification-assignment-row { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto auto auto; gap: 8px; align-items: center; padding: 8px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; }
+.classification-assignment-row { grid-template-columns: minmax(180px, 1fr) minmax(180px, 240px); }
 @media (max-width: 1100px) {
   .custom-product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .customer-rule-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
