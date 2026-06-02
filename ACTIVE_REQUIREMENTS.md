@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-392-PRODUCT-CONFIG-ENTRY-TEMPLATE-ALIAS
 - Branch: codex/product-config-entry-template-alias-20260602
 - Owner/session: Codex / 2026-06-02
-- Status: verified locally; not merged or deployed
+- Status: merged and deployed to development
 - Scope: 商品档案列表以商品名作为唯一商品档案配置入口；商品档案配置抽屉维护基础信息、商品配置模板、生产 BOM、工艺路线、预期损耗率、行业字段模板和值，并以内页跳转维护当前 BOM 明细。商品配置模板由商品档案引用，分类只负责归类；客户商品名支持批量从商品档案创建；生产 BOM 跳转不刷新左侧菜单。
 - DEV:
   - DEV-392-PRODUCT-ARCHIVE-CONFIG-DRAWER：商品档案列表删除生产配置/更换生产 BOM/维护 BOM/BOM 重复按钮，点击商品名打开商品档案配置抽屉。
@@ -24,9 +24,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: `scripts/verify_kferp.sh changed`
   - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`
   - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-02-product-config-entry-template-alias.md`
-- Deployment: not merged, not deployed.
-- Last update: 2026-06-02 Asia/Shanghai
-- Notes: Van requested no browser/manual验收 for this round; use code/docs/unit/API/build verification only. RED evidence captured in acceptance doc: frontend tests initially failed on missing batch alias payload/product-name config entry/SPA BOM jump; catalog API tests initially failed on missing batch alias and product/industry field contracts. GREEN evidence: `node --test src/lib/product-settings.test.js src/lib/view-routing.test.js` passed 100/100; targeted catalog/costing/sales/production/support Go tests passed; `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+- Deployment: feature branch pushed, merged to `develop` with `fffe159ec3315937cdb5577481c6676bacb85f07`, pushed to `origin/develop`, and deployed to development with `./deploy_orderapp.sh`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260602110207`.
+- Last update: 2026-06-02 11:05 Asia/Shanghai
+- Notes: Van requested no browser/manual验收 for this round; use code/docs/unit/API/build verification only. RED evidence captured in acceptance doc: frontend tests initially failed on missing batch alias payload/product-name config entry/SPA BOM jump; catalog API tests initially failed on missing batch alias and product/industry field contracts. GREEN evidence before merge: `node --test src/lib/product-settings.test.js src/lib/view-routing.test.js` passed 100/100; targeted catalog/costing/sales/production/support Go tests passed; `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` exited 0. Merge-gate evidence on `develop`: frontend target tests passed 100/100; targeted Go/API packages passed; `scripts/verify_kferp.sh changed` passed; `scripts/verify_kferp.sh backend` passed; Vue build passed with existing chunk-size warning. Deploy evidence: Docker build ran `go test ./...` and succeeded; containers `erp_orderapp`, `erp_caddy`, `erp_postgres`, `erp_docconvert` running; unauthenticated `GET /app/` returned `303` to `/app/orders`; authenticated `GET /app/vue-shell` returned `200`; authenticated `GET /app/api/product-settings` returned `200` and includes `product_config_template_id`; requirement API exposes `PR-392-PRODUCT-CONFIG-ENTRY-TEMPLATE-ALIAS`; server source contains `批量添加商品档案`.
 
 ### PR-391-PRODUCT-PRODUCTION-CONFIG-UI-FIX
 - Branch: codex/product-production-config-ui-fix-20260601
