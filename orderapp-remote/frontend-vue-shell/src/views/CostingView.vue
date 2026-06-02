@@ -2,7 +2,7 @@
   <div class="page">
     <section class="panel">
       <div class="panel-head">
-        <h2>产品价格表</h2>
+        <h2>商品价格表</h2>
         <div class="actions">
           <button class="secondary" type="button" :disabled="loading" @click="loadBeanList">刷新</button>
           <button class="secondary" type="button" @click="settingsOpen = true">参数设置</button>
@@ -47,7 +47,7 @@
 
       <div class="version-controls">
         <label>
-          <span>产品类型</span>
+          <span>商品类型</span>
           <select v-model.number="selectedProductTypeCategoryID" :disabled="!productPriceListTypeOptions.length">
             <option v-for="type in productPriceListTypeOptions" :key="type.key" :value="type.id">
               {{ type.label }}（{{ type.itemCount }}款）
@@ -114,7 +114,7 @@
       <div class="bean-list-generate-bar">
         <div>
           <div class="section-title">生成价格表</div>
-          <p class="muted">按当前价格表归属和商品管理里的产品类型生成公共或客户产品价格表。</p>
+          <p class="muted">按当前价格表归属、商品当前归类和客户商品名生成商品价格表；未归类统一进入其他。</p>
         </div>
         <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">生成价格表</button>
       </div>
@@ -124,7 +124,7 @@
       <div class="collapsible-bean-head">
         <button class="section-toggle" type="button" :aria-expanded="!section.collapsed" @click="toggleBeanListPreviewSection(section.key)">
           <span>
-            <b>{{ section.label }}产品价格表</b>
+            <b>{{ section.label }}商品价格表</b>
             <small>{{ section.groups.length }} 类 · {{ section.itemCount }} 款</small>
           </span>
           <span>{{ section.collapsed ? '展开' : '收起' }}</span>
@@ -194,7 +194,7 @@
             </article>
           </div>
         </section>
-        <div v-if="!section.groups.length" class="muted empty-card">暂无产品价格表数据</div>
+        <div v-if="!section.groups.length" class="muted empty-card">暂无商品价格表数据</div>
       </div>
     </section>
 
@@ -321,7 +321,7 @@
 
         <div class="pdf-form">
           <label>
-            <span>产品类型</span>
+            <span>商品类型</span>
             <select v-model.number="selectedProductTypeCategoryID" :disabled="!productPriceListTypeOptions.length">
               <option v-for="type in productPriceListTypeOptions" :key="`drawer-${type.key}`" :value="type.id">
                 {{ type.label }}（{{ type.itemCount }}款）
@@ -788,7 +788,7 @@ const customerScopedSkuCount = computed(() => {
   if (!customerID || activeCostingScope.value !== 'customer') return visibleCostingItems.value.length
   return activePriceListCustomerAliases.value.length
 })
-const productPriceListTypeOptions = computed(() => buildProductPriceListTypeOptions(visibleCostingItems.value))
+const productPriceListTypeOptions = computed(() => buildClassificationPriceListTypeOptions(visibleCostingItems.value))
 const selectedProductPriceListType = computed(() => {
   const selectedID = Number(selectedProductTypeCategoryID.value || 0)
   return productPriceListTypeOptions.value.find((type) => Number(type.id || 0) === selectedID) || productPriceListTypeOptions.value[0] || null
@@ -1050,14 +1050,14 @@ function customerOptionLabel(customer) {
   return customer?.name || ''
 }
 
-function buildProductPriceListTypeOptions(sourceItems = []) {
+function buildClassificationPriceListTypeOptions(sourceItems = []) {
   const seen = new Map()
   ;(Array.isArray(sourceItems) ? sourceItems : []).forEach((item) => {
-    const id = productTypeCategoryIDOfItem(item)
+    const id = classificationTemplateIDOfItem(item)
     const listType = priceListRenderTypeForItem(item)
     const fallbackID = fallbackProductTypeID(listType)
-    const key = id > 0 ? `product-type:${id}` : `legacy:${listType}`
-    const label = productTypeNameOfItem(item) || beanListTypeLabel(listType)
+    const key = id > 0 ? `classification-template:${id}` : `classification:other:${listType}`
+    const label = classificationTemplateNameOfItem(item) || '其他'
     const current = seen.get(key) || {
       id: id > 0 ? id : fallbackID,
       categoryID: id,
@@ -1079,8 +1079,28 @@ function buildProductPriceListTypeOptions(sourceItems = []) {
     })
 }
 
+function buildProductPriceListTypeOptions(sourceItems = []) {
+  return buildClassificationPriceListTypeOptions(sourceItems)
+}
+
+function classificationTemplateIDOfItem(item) {
+  return Number(item?.classification_template_id || item?.classificationTemplateID || item?.classification_template_id_snapshot || item?.product_type_category_id || item?.productTypeCategoryID || 0)
+}
+
+function classificationCategoryIDOfItem(item) {
+  return Number(item?.classification_category_id || item?.classificationCategoryID || item?.classification_category_id_snapshot || 0)
+}
+
+function classificationTemplateNameOfItem(item) {
+  return String(item?.classification_template_name || item?.classificationTemplateName || item?.classification_template_name_snapshot || item?.product_type_name || item?.productTypeName || item?.category_primary_name || item?.primary_name || '').trim()
+}
+
+function classificationCategoryNameOfItem(item) {
+  return String(item?.classification_category_name || item?.classificationCategoryName || item?.classification_category_name_snapshot || '').trim()
+}
+
 function productTypeCategoryIDOfItem(item) {
-  return Number(item?.product_type_category_id || item?.productTypeCategoryID || 0)
+  return classificationTemplateIDOfItem(item)
 }
 
 function productTypePositionOfItem(item) {
@@ -1088,15 +1108,15 @@ function productTypePositionOfItem(item) {
 }
 
 function productTypeNameOfItem(item) {
-  return String(item?.product_type_name || item?.productTypeName || item?.category_primary_name || item?.primary_name || '').trim()
+  return classificationTemplateNameOfItem(item)
 }
 
 function priceListRenderTypeForItem(item) {
-  const subtypeName = String(item?.product_subtype_name || item?.productSubtypeName || '').trim()
-  const typeName = String(item?.product_type_name || item?.productTypeName || '').trim()
+  const subtypeName = String(classificationCategoryNameOfItem(item) || item?.product_subtype_name || item?.productSubtypeName || '').trim()
+  const typeName = String(classificationTemplateNameOfItem(item) || '').trim()
   const kind = String(item?.product_kind || item?.productKind || '').trim().toLowerCase()
 
-  // 按产品子类型/产品类型名称推断豆单渲染模式
+  // 按分类项/旧产品类型名称推断价格表渲染模式
   const categoryHint = (subtypeName + typeName).toLowerCase()
   if (categoryHint.includes('生豆') || categoryHint.includes('green')) return 'green'
   if (categoryHint.includes('挂耳') || categoryHint.includes('drip')) return 'drip'
@@ -1156,7 +1176,7 @@ function syncSelectedProductTypeCategoryFromOptions() {
 function buildProductPriceListTitle(brandName, productTypeLabel, listType) {
   const brand = String(brandName || '棵凡咖啡').trim() || '棵凡咖啡'
   const label = String(productTypeLabel || '').trim()
-  if (label) return `${brand}${label}产品价格表`
+  if (label) return `${brand}${label}商品价格表`
   return buildBeanListPdfTitle(listType, brand)
 }
 
@@ -1289,11 +1309,12 @@ function beanListCategoryOptions(listType, productTypeCategoryID = activeProduct
   const seen = new Map()
   beanListItemsForType(listType, productTypeCategoryID).forEach((item) => {
     const meta = beanMetaForItem(item)
-    const category = (meta.category || '').replace(/^\d+[、.．\-\s]+/, '')
-    const code = String(meta.code || '').split('.')[0] || category || '未分类'
+    const classificationCategoryID = classificationCategoryIDOfItem(item)
+    const category = (classificationCategoryNameOfItem(item) || meta.category || '').replace(/^\d+[、.．\-\s]+/, '') || '未分类'
+    const code = classificationCategoryID > 0 ? `classification-category-${classificationCategoryID}` : (String(meta.code || '').split('.')[0] || category || '未分类')
     const key = code
     if (!seen.has(key)) {
-      seen.set(key, { code, category: meta.category || category || '未分类', label: meta.category || category || '未分类' })
+      seen.set(key, { code, category, label: category })
     }
   })
   return Array.from(seen.values())
@@ -1309,6 +1330,8 @@ function productGroupsForType(listType, productTypeCategoryID = activeProductTyp
 }
 
 function categoryCodeOfItem(item, listType = pdfTheme.value.listType) {
+  const classificationCategoryID = classificationCategoryIDOfItem(item)
+  if (classificationCategoryID > 0) return `classification-category-${classificationCategoryID}`
   const meta = beanMetaForItem(item)
   const category = (meta.category || '').replace(/^\d+[、.．\-\s]+/, '')
   return String(meta.code || '').split('.')[0] || category || '未分类'
@@ -1557,6 +1580,8 @@ function beanListTypeLabel(listType) {
 }
 
 function beanListPublicationTypeLabel(row) {
+  const classificationName = String(row?.classification_template_name || row?.classification_template_name_snapshot || '').trim()
+  if (classificationName) return classificationName
   const productTypeName = String(row?.product_type_name || '').trim()
   if (productTypeName) return productTypeName
   const productTypeCategoryID = Number(row?.product_type_category_id || 0)
@@ -1568,6 +1593,11 @@ function beanListPublicationTypeLabel(row) {
 }
 
 function selectProductTypeFromPublication(row) {
+  const classificationTemplateID = Number(row?.classification_template_id || row?.classification_template_id_snapshot || 0)
+  if (classificationTemplateID > 0) {
+    selectedProductTypeCategoryID.value = classificationTemplateID
+    return
+  }
   const productTypeCategoryID = Number(row?.product_type_category_id || 0)
   if (productTypeCategoryID > 0) {
     selectedProductTypeCategoryID.value = productTypeCategoryID
@@ -2110,8 +2140,8 @@ async function publishBeanList() {
   try {
     const row = await apiSend('/api/costing/bean-list/publications', { body: beanListPublicationPayload() })
     message.value = publicationScope.value === 'official'
-      ? `已发布${selectedProductPriceListLabel.value}产品价格表 ${row.version}，客户访问链接已生成`
-      : `已发布${selectedProductPriceListLabel.value}客户产品价格表 ${row.version}，内容和价格已锁定为快照`
+      ? `已发布${selectedProductPriceListLabel.value}商品价格表 ${row.version}，客户访问链接已生成`
+      : `已发布${selectedProductPriceListLabel.value}客户商品价格表 ${row.version}，内容和价格已锁定为快照`
     await loadBeanListPublications(listType, publicationScope.value, productTypeCategoryID)
   } catch (err) {
     error.value = err.message || '发布价格表失败'
@@ -2175,10 +2205,16 @@ async function saveGreenBeanPriceDraftForSection(section) {
 function beanListPublicationPayload() {
   const listType = pdfTheme.value.listType
   const productTypeCategoryID = activePublicationProductTypeCategoryID(activeProductTypeCategoryID.value)
+  const selectedItems = beanListItemsForType(listType, productTypeCategoryID)
+  const firstClassifiedItem = selectedItems.find((item) => classificationTemplateIDOfItem(item) > 0 || classificationCategoryIDOfItem(item) > 0) || {}
   return {
     list_type: listType,
     product_type_category_id: productTypeCategoryID,
     product_type_name: selectedProductPriceListLabel.value,
+    classification_template_id: classificationTemplateIDOfItem(firstClassifiedItem) || productTypeCategoryID,
+    classification_template_name: classificationTemplateNameOfItem(firstClassifiedItem) || selectedProductPriceListLabel.value,
+    classification_category_id: classificationCategoryIDOfItem(firstClassifiedItem),
+    classification_category_name: classificationCategoryNameOfItem(firstClassifiedItem),
     version: pdfTheme.value.version,
     scope: publicationScope.value,
     customer_id: Number(selectedBeanListCustomerID.value || 0),

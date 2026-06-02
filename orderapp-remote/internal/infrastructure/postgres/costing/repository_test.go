@@ -521,7 +521,9 @@ func TestSaveBeanListDraftInsertsCustomerDraftWithoutPublishing(t *testing.T) {
 	}
 	body := src[start:end]
 	for _, want := range []string{
-		"VALUES($1,$2,$3,$4,'draft'",
+		"classification_template_id",
+		"classification_category_id",
+		"VALUES($1,$2,$3,$4,$5,$6,$7,$8,'draft'",
 		"owner_type",
 		"owner_key",
 		"price_source_publication_id",

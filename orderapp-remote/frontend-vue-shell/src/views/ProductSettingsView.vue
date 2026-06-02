@@ -129,6 +129,7 @@
                 </th>
                 <th class="sku-name-cell">商品名</th>
                 <th>商品编号</th>
+                <th>当前归类</th>
                 <th>归属</th>
                 <th class="action-cell">新增动作</th>
                 <th>生产配置预期损耗率</th>
@@ -142,7 +143,7 @@
             <tbody>
               <template v-for="group in displaySkuGroups" :key="group.key">
                 <tr v-if="!group.all" class="classification-group-row">
-                  <td :colspan="11">
+                  <td :colspan="12">
                     <button class="classification-group-toggle" type="button" @click="toggleProductClassificationGroup(group.key)">
                       {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
                     </button>
@@ -160,6 +161,10 @@
                     <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">{{ row.name || '未命名商品' }}</button>
                   </td>
                   <td>{{ row.number || '' }}</td>
+                  <td>
+                    <div>{{ productClassificationLabel(row) }}</div>
+                    <small v-for="warning in classificationWarningsForProduct(row)" :key="warning" class="bom-version-warning">{{ warning }}</small>
+                  </td>
                   <td>{{ productOwnerLabel(row) }}</td>
                   <td class="action-cell">
                     <button class="text-button" type="button" @click="copySkuInPlace(row)">复制为商品档案</button>
@@ -198,7 +203,7 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'green_bean'" class="green-bean-detail-row">
-                  <td :colspan="11">
+                  <td :colspan="12">
                     <div class="green-bean-detail-fields">
                       <label>
                         <span>生豆属性</span>
@@ -228,7 +233,7 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'drip_bag'" class="green-bean-detail-row">
-                  <td :colspan="11">
+                  <td :colspan="12">
                     <div class="green-bean-detail-fields">
                       <label>
                         <span>每袋克重</span>
@@ -245,7 +250,7 @@
                 </template>
               </template>
               <tr v-if="!displaySkuRows.length">
-                <td :colspan="11" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
+                <td :colspan="12" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
               </tr>
             </tbody>
           </table>
@@ -387,6 +392,7 @@
                   <th>客户商品编号</th>
                   <th>品牌名</th>
                   <th>绑定商品档案</th>
+                  <th>当前归类</th>
                   <th>进入价格表</th>
                   <th>状态</th>
                   <th>操作</th>
@@ -395,7 +401,7 @@
               <tbody>
                 <template v-for="group in visibleCustomerAliasGroups" :key="group.key">
                   <tr v-if="!group.all" class="classification-group-row">
-                    <td colspan="8">
+                    <td colspan="9">
                       <button class="classification-group-toggle" type="button" @click="toggleAliasClassificationGroup(group.key)">
                         {{ isAliasClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
                       </button>
@@ -412,17 +418,20 @@
                   <td>{{ alias.customer_item_code || '-' }}</td>
                   <td>{{ alias.brand_name || '-' }}</td>
                   <td>{{ alias.product_code || alias.product_id }} · {{ alias.product_name || productName(alias.product_id) }}</td>
+                  <td>
+                    <div>{{ aliasClassificationLabel(alias) }}</div>
+                    <small v-for="warning in classificationWarningsForAlias(alias)" :key="warning" class="bom-version-warning">{{ warning }}</small>
+                  </td>
                   <td>{{ alias.include_in_price_list ? '是' : '否' }}</td>
                   <td><span :class="['status-pill', alias.active === false ? 'inactive' : '']">{{ alias.active === false ? '停用' : '启用' }}</span></td>
                   <td class="table-actions">
-                    <button class="text-button" type="button" @click="editCustomerProductAlias(alias)">编辑</button>
                     <button class="text-button danger-text" type="button" :disabled="alias.active === false" @click="disableCustomerProductAlias(alias)">停用</button>
                   </td>
                 </tr>
                   </template>
                 </template>
                 <tr v-if="!visibleCustomerProductAliases.length">
-                  <td colspan="8" class="muted">当前客户暂无客户商品名。</td>
+                  <td colspan="9" class="muted">当前客户暂无客户商品名。</td>
                 </tr>
               </tbody>
             </table>
@@ -432,7 +441,7 @@
 
       <div v-show="currentSettingsSection === 'templates'" class="sku-template-workspace">
         <div class="template-workspace-stack">
-          <div v-if="currentSettingsSection === 'templates'" class="config-template-tabs" role="tablist" aria-label="商品配置模板类型">
+          <div v-if="currentSettingsSection === 'templates' && !forcedConfigTemplateSection" class="config-template-tabs" role="tablist" aria-label="商品配置模板类型">
             <button
               type="button"
               :class="['config-template-tab', { active: activeConfigTemplateSection === 'product-config' }]"
@@ -445,20 +454,8 @@
               @click="activeConfigTemplateSection = 'classification-template'">
               分类模板
             </button>
-            <button
-              type="button"
-              :class="['config-template-tab', { active: activeConfigTemplateSection === 'unit-template' }]"
-              @click="activeConfigTemplateSection = 'unit-template'">
-              单位模板
-            </button>
-            <button
-              type="button"
-              :class="['config-template-tab', { active: activeConfigTemplateSection === 'gradient' }]"
-              @click="activeConfigTemplateSection = 'gradient'">
-              阶梯价模板
-            </button>
           </div>
-      <div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'gradient'" class="panel gradient-template-panel gradient-template-pane">
+      <div v-show="showGradientTemplatePane" class="panel gradient-template-panel gradient-template-pane">
         <div class="panel-title">
           <span>阶梯价模板</span>
           <button class="secondary compact-action" type="button" @click="resetGradientTemplateForm">新建模板</button>
@@ -544,7 +541,7 @@
         </div>
       </div>
 
-      <div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'unit-template'" class="panel unit-template-panel unit-template-pane">
+      <div v-show="showUnitTemplatePane" class="panel unit-template-panel unit-template-pane">
         <div class="panel-title">
           <span>单位模板</span>
           <button class="secondary compact-action" type="button" @click="openGlobalUnitDictionaryDrawer">全局单位字典</button>
@@ -635,7 +632,7 @@
         </div>
       </div>
 
-      <div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'classification-template'" class="panel classification-template-panel">
+      <div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'classification-template'" class="panel classification-template-panel">
         <div class="panel-title">
           <span>分类模板</span>
           <button class="secondary compact-action" type="button" @click="openClassificationTemplateCreateDrawer">新建分类模板</button>
@@ -669,6 +666,20 @@
                 <span>备注</span>
                 <textarea v-model.trim="classificationTemplateForm.remark" rows="2" placeholder="用于说明这套分类视图的使用场景"></textarea>
               </label>
+              <label>
+                <span>模板默认阶梯价模板</span>
+                <select v-model.number="classificationTemplateForm.gradient_template_id">
+                  <option value="0">不引用</option>
+                  <option v-for="template in activeGradientTemplatesForContext" :key="template.id" :value="template.id">{{ template.name }}</option>
+                </select>
+              </label>
+              <label>
+                <span>模板默认单位模板</span>
+                <select v-model.number="classificationTemplateForm.unit_template_id">
+                  <option value="0">不引用</option>
+                  <option v-for="template in activeProductUnitTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+                </select>
+              </label>
               <div class="form-actions">
                 <button class="primary" type="submit" :disabled="classificationTemplateSaving">{{ classificationTemplateSaving ? '保存中' : '保存分类模板' }}</button>
                 <button v-if="classificationTemplateForm.id" class="secondary danger-outline" type="button" :disabled="classificationTemplateSaving" @click="deleteClassificationTemplate(classificationTemplateForm.id)">删除模板</button>
@@ -682,6 +693,14 @@
               <form class="classification-category-form" @submit.prevent="saveClassificationCategory">
                 <input v-model.trim="classificationCategoryForm.name" placeholder="分类名称" />
                 <input v-model.number="classificationCategoryForm.sort_order" type="number" min="1" step="1" placeholder="排序" />
+                <select v-model.number="classificationCategoryForm.gradient_template_id" aria-label="分类项阶梯价模板">
+                  <option value="0">分类项阶梯价模板：继承模板</option>
+                  <option v-for="template in activeGradientTemplatesForContext" :key="template.id" :value="template.id">{{ template.name }}</option>
+                </select>
+                <select v-model.number="classificationCategoryForm.unit_template_id" aria-label="分类项单位模板">
+                  <option value="0">分类项单位模板：继承模板</option>
+                  <option v-for="template in activeProductUnitTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+                </select>
                 <button class="primary compact-action" type="submit">{{ classificationCategoryForm.id ? '保存分类' : '新增分类' }}</button>
               </form>
               <div class="classification-category-list">
@@ -700,7 +719,7 @@
         </div>
       </div>
 
-      <div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'product-config'" class="panel product-config-panel product-config-template-pane">
+      <div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'" class="panel product-config-panel product-config-template-pane">
         <div class="panel-title">
           <span>商品配置模板</span>
           <button class="secondary compact-action" type="button" @click="resetProductConfigTemplateForm">新建商品配置</button>
@@ -1265,6 +1284,10 @@ import {
   buildCustomerProductAliasBatchPayload,
   buildCustomerProductAliasPayload,
   buildClassificationTemplateUsagePayload,
+  classificationAssignmentConflict,
+  classificationAssignmentForRow,
+  classificationAssignmentLabel,
+  classificationTemplateUnitPriceWarnings,
   classificationTemplateTabs,
   customerProductAliasMigrationCandidateSummary,
   buildCustomerProductRuleBindingPayload,
@@ -1382,13 +1405,27 @@ const PRODUCT_SECTION_MODES = {
   aliases: 'aliases',
   productConfigTemplates: 'templates',
   templates: 'templates',
+  pricingGradientTemplates: 'templates',
+  gradient: 'templates',
+  productUnitTemplates: 'templates',
+  unitTemplate: 'templates',
 }
+const forcedConfigTemplateSection = computed(() => {
+  if (props.sectionMode === 'pricingGradientTemplates' || props.sectionMode === 'gradient') return 'gradient'
+  if (props.sectionMode === 'productUnitTemplates' || props.sectionMode === 'unitTemplate') return 'unit-template'
+  return ''
+})
+const effectiveConfigTemplateSection = computed(() => forcedConfigTemplateSection.value || activeConfigTemplateSection.value)
 const currentSettingsSection = computed(() => PRODUCT_SECTION_MODES[props.sectionMode] || activeSettingsSection.value)
 const productSectionTitle = computed(() => {
   if (currentSettingsSection.value === 'aliases') return '客户商品名'
-  if (currentSettingsSection.value === 'templates') return '商品配置模板'
+  if (forcedConfigTemplateSection.value === 'gradient') return '阶梯价模板'
+  if (forcedConfigTemplateSection.value === 'unit-template') return '单位模板'
+  if (currentSettingsSection.value === 'templates') return '商品配置和分类模板'
   return '商品档案'
 })
+const showGradientTemplatePane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'gradient')
+const showUnitTemplatePane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'unit-template')
 const productDrawerOpen = ref(false)
 const skuCopyDrawerOpen = ref(false)
 const productProductionConfigDrawerOpen = ref(false)
@@ -1700,6 +1737,7 @@ const activeGradientTemplates = computed(() => gradientTemplates.value
     customerTemplates: customerGradientTemplatesForContext.value,
   })))
 const gradientTemplatesForContext = computed(() => activeGradientTemplates.value)
+const activeGradientTemplatesForContext = computed(() => activeGradientTemplates.value)
 const selectableGradientTemplatesForProductConfig = computed(() => gradientTemplates.value
   .filter((template) => template.active !== false)
   .filter((template) => {
@@ -1752,6 +1790,7 @@ const displaySkuGroups = computed(() => {
     idKey: 'id',
     assignmentKey: 'product_id',
     assignmentsKey: 'product_assignments',
+    onlyAssigned: true,
   })
 })
 const visibleCustomerAliasGroups = computed(() => {
@@ -1761,6 +1800,7 @@ const visibleCustomerAliasGroups = computed(() => {
     idKey: 'id',
     assignmentKey: 'alias_id',
     assignmentsKey: 'customer_alias_assignments',
+    onlyAssigned: true,
   })
 })
 const selectedProductConfigUnitTemplate = computed(() => findProductUnitTemplate(productConfigTemplateForm.value.unit_template_id))
@@ -1880,7 +1920,7 @@ function defaultAliasBatchFilters() {
 }
 
 function defaultClassificationCategoryForm() {
-  return { id: 0, name: '', sort_order: 100 }
+  return { id: 0, name: '', sort_order: 100, gradient_template_id: 0, unit_template_id: 0 }
 }
 
 function defaultProductProductionConfigField(row = {}, index = 0) {
@@ -2073,6 +2113,8 @@ function defaultClassificationTemplateForm(template = {}) {
     source_template_id: Number(template.source_template_id || 0),
     name: template.name || '',
     remark: template.remark || '',
+    gradient_template_id: Number(template.gradient_template_id || 0),
+    unit_template_id: Number(template.unit_template_id || 0),
     sort_order: Number(template.sort_order || 100),
     active: template.active !== false,
   }
@@ -2311,6 +2353,8 @@ function decorateProductClassificationTemplate(template = {}) {
     source_template_id: Number(template.source_template_id || 0),
     template_state: template.template_state || '',
     name: template.name || '',
+    gradient_template_id: Number(template.gradient_template_id || 0),
+    unit_template_id: Number(template.unit_template_id || 0),
     active: template.active !== false,
     sort_order: Number(template.sort_order || 100),
     categories: (template.categories || []).map((category) => ({
@@ -2321,6 +2365,8 @@ function decorateProductClassificationTemplate(template = {}) {
       name: category.name || '',
       level: Number(category.level || 1),
       sort_order: Number(category.sort_order || 100),
+      gradient_template_id: Number(category.gradient_template_id || 0),
+      unit_template_id: Number(category.unit_template_id || 0),
       active: category.active !== false,
     })),
     product_assignments: (template.product_assignments || []).map((assignment) => ({
@@ -2738,6 +2784,8 @@ function classificationTemplatePayload(form) {
     source_template_id: Number(form.source_template_id || 0),
     name: String(form.name || '').trim(),
     remark: String(form.remark || '').trim(),
+    gradient_template_id: Number(form.gradient_template_id || 0),
+    unit_template_id: Number(form.unit_template_id || 0),
     sort_order: Number(form.sort_order || 100),
     active: form.active !== false,
   }
@@ -3538,6 +3586,35 @@ function productConfigTemplateByID(templateID) {
   return productConfigTemplates.value.find((template) => Number(template.id || 0) === id) || null
 }
 
+function productClassificationLabel(row) {
+  return classificationAssignmentLabel(row, productClassificationTemplates.value, { assignmentType: 'product' })
+}
+
+function aliasClassificationLabel(row) {
+  return classificationAssignmentLabel(row, productClassificationTemplates.value, { assignmentType: 'alias' })
+}
+
+function classificationWarningsForProduct(row) {
+  const found = classificationAssignmentForRow(row, productClassificationTemplates.value, { assignmentType: 'product' })
+  if (!found) return []
+  return classificationTemplateUnitPriceWarnings({
+    productConfigTemplate: productConfigTemplateByID(row.product_config_template_id),
+    classificationTemplate: found.template,
+    classificationCategory: found.category,
+  })
+}
+
+function classificationWarningsForAlias(row) {
+  const found = classificationAssignmentForRow(row, productClassificationTemplates.value, { assignmentType: 'alias' })
+  if (!found) return []
+  const product = products.value.find((item) => Number(item.id || 0) === Number(row.product_id || 0)) || {}
+  return classificationTemplateUnitPriceWarnings({
+    productConfigTemplate: productConfigTemplateByID(product.product_config_template_id),
+    classificationTemplate: found.template,
+    classificationCategory: found.category,
+  })
+}
+
 function productCategoryByID(categoryID) {
   const id = Number(categoryID || 0)
   if (!id) return null
@@ -3831,6 +3908,8 @@ function editClassificationCategory(category) {
     id: Number(category.id || 0),
     name: category.name || '',
     sort_order: Number(category.sort_order || 100),
+    gradient_template_id: Number(category.gradient_template_id || 0),
+    unit_template_id: Number(category.unit_template_id || 0),
   }
 }
 
@@ -3847,6 +3926,8 @@ async function saveClassificationCategory() {
       name: String(form.name || '').trim(),
       level: 1,
       sort_order: Number(form.sort_order || 100),
+      gradient_template_id: Number(form.gradient_template_id || 0),
+      unit_template_id: Number(form.unit_template_id || 0),
     },
   })
   classificationCategoryForm.value = defaultClassificationCategoryForm()
@@ -3859,6 +3940,8 @@ async function moveClassificationCategory(category, delta) {
     id: Number(category.id || 0),
     name: category.name || '',
     sort_order: nextSort,
+    gradient_template_id: Number(category.gradient_template_id || 0),
+    unit_template_id: Number(category.unit_template_id || 0),
   }
   await saveClassificationCategory()
 }
@@ -3903,6 +3986,14 @@ async function saveSelectedProductClassificationAssignment() {
   const templateID = Number(currentProductClassificationTemplate.value?.id || 0)
   if (!templateID || !selectedProductIds.value.length) return
   const categoryID = Number(selectedProductClassificationCategoryID.value || 0)
+  if (categoryID > 0) {
+    const selectedRows = displaySkuRows.value.filter((row) => selectedProductIds.value.includes(Number(row.id || 0)))
+    const conflict = selectedRows.map((row) => classificationAssignmentConflict(row, templateID, productClassificationTemplates.value, { assignmentType: 'product', categoryID })).find(Boolean)
+    if (conflict) {
+      error.value = conflict.message
+      return
+    }
+  }
   for (const productID of selectedProductIds.value) {
     await apiSend('/api/product-classification-assignments/products', {
       body: {
@@ -3921,6 +4012,14 @@ async function saveSelectedAliasClassificationAssignment() {
   const templateID = Number(currentAliasClassificationTemplate.value?.id || 0)
   if (!templateID || !selectedAliasIds.value.length) return
   const categoryID = Number(selectedAliasClassificationCategoryID.value || 0)
+  if (categoryID > 0) {
+    const selectedRows = visibleCustomerProductAliases.value.filter((row) => selectedAliasIds.value.includes(Number(row.id || 0)))
+    const conflict = selectedRows.map((row) => classificationAssignmentConflict(row, templateID, productClassificationTemplates.value, { assignmentType: 'alias', categoryID })).find(Boolean)
+    if (conflict) {
+      error.value = conflict.message
+      return
+    }
+  }
   for (const aliasID of selectedAliasIds.value) {
     await apiSend('/api/product-classification-assignments/customer-aliases', {
       body: {

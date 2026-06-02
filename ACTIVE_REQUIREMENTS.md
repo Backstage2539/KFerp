@@ -6,6 +6,29 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-395-PRODUCT-PRICE-CLASSIFICATION
+- Branch: codex/product-price-classification-20260602
+- Owner/session: Codex / 2026-06-02
+- Status: local implementation verified; pending merge and development deploy.
+- Scope: 商品配置模板更名为“商品配置和分类模板”；阶梯价模板、单位模板拆成商品与配方独立菜单；产品价格表更名为商品价格表；商品档案和客户商品名单归类；分类模板/分类项可引用阶梯价模板和单位模板；商品价格表类型来自当前归类分类模板，未归类为“其他”。
+- DEV:
+  - DEV-395-MENU-PAGES：调整商品与配方菜单、App sectionMode 和 ProductSettingsView 页面呈现。
+  - DEV-395-CLASSIFICATION-TEMPLATE-REFS：分类模板/分类项新增阶梯价模板、单位模板引用字段/API/schema/repository。
+  - DEV-395-SINGLE-CLASSIFICATION：商品档案和客户商品名保存归类时前后端拒绝重复归类，全部 Tab 展示当前归类。
+  - DEV-395-CUSTOMER-ALIAS-CLEANUP：客户商品名列表删除无效编辑和生产/BOM 操作，保留停用。
+  - DEV-395-PRODUCT-PRICE-LIST：商品价格表使用 classification 字段优先，发布快照保存分类模板/分类项字段，旧 product_type 字段兼容。
+  - DEV-395-MANUAL-DOCS：更新商品、成本、履约手册、需求和验收文档。
+- Verifier:
+  - Frontend: `node --test src/lib/product-settings.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/menu-ia.test.js`
+  - API/backend: `go test ./internal/interfaces/http/catalog ./internal/application/catalog ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/costing ./internal/application/costing ./internal/infrastructure/postgres/costing -count=1`
+  - Build: `npm run build` in `orderapp-remote/frontend-vue-shell`
+  - Changed verifier: `scripts/verify_kferp.sh changed`
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`
+  - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-02-product-price-classification.md`
+- Deployment: pending.
+- Last update: 2026-06-02 Asia/Shanghai
+- Notes: Van requested no browser/manual验收 for this round; use code/docs/unit/API/build verification only.
+
 ### PR-394-PRODUCT-CLASSIFICATION-VIEW-TABS
 - Branch: codex/product-classification-view-tabs-20260602
 - Owner/session: Codex / 2026-06-02

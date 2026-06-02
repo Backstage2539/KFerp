@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publications (
 	list_type TEXT NOT NULL,
 	product_type_category_id BIGINT NOT NULL DEFAULT 0,
 	product_type_name TEXT NOT NULL DEFAULT '',
+	classification_template_id BIGINT NOT NULL DEFAULT 0,
+	classification_template_name TEXT NOT NULL DEFAULT '',
+	classification_category_id BIGINT NOT NULL DEFAULT 0,
+	classification_category_name TEXT NOT NULL DEFAULT '',
 	version_no TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'published',
 	owner_type TEXT NOT NULL DEFAULT 'official',
@@ -60,6 +64,10 @@ CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publications (
 );
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS product_type_category_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS product_type_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS classification_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS classification_template_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS classification_category_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS classification_category_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS owner_type TEXT NOT NULL DEFAULT 'official';
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS owner_key TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS price_source_publication_id BIGINT NULL;
