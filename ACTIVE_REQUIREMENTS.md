@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-396-PRODUCT-CLASSIFICATION-COPY-FIXES
 - Branch: codex/product-classification-copy-fixes-20260602
 - Owner/session: Codex / 2026-06-02
-- Status: verified on feature branch; pending merge/deploy
+- Status: merged and deployed to development
 - Scope: 商品档案复制改为真正复制商品档案配置；下线历史 SKU 复制入口/API；商品档案和客户商品名分类交互改为“增加分类 / 移动到分类 / 移动到子类”；客户商品编号由系统生成；商品价格表候选按当前分类 assignment 生成。
 - DEV:
   - DEV-396-PRODUCT-COPY：新增 `POST /api/product-settings/products/:id/copy`，复制商品基础信息、商品配置模板、生产配置、生产 BOM 绑定、生产配置字段和价格阶梯，并写操作日志。
@@ -25,8 +25,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: `scripts/verify_kferp.sh changed`
   - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`
   - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-02-product-classification-copy-fixes.md`
-- Last update: 2026-06-02 Asia/Shanghai
-- Notes: Van requested no browser/manual验收; use code/docs/unit/API/build verification, then merge and deploy development. Feature-branch evidence: frontend target tests passed 110/110; targeted catalog/bom/costing/support Go tests passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+- Deployment: feature branch pushed; merged to `develop` with `679bdfffb30a5925152814221401f2d07c105f82`; PR/DEV req_store evidence commit `27b281f0a0f499984edd71bcc867d45051c8bf83` pushed to `origin/develop`; development stack deployed with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603001306`.
+- Last update: 2026-06-03 Asia/Shanghai
+- Notes: Van requested no browser/manual验收; use code/docs/unit/API/build verification. Feature-branch and merge-gate evidence: frontend target tests passed 110/110; targeted catalog/bom/costing/support Go tests passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0. Deploy evidence: Docker build ran `go test ./...` and succeeded; containers running; unauthenticated `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell` returned 200; authenticated `/app/api/product-settings` returned 200; requirement API exposes `PR-396-PRODUCT-CLASSIFICATION-COPY-FIXES`.
 
 ### PR-395-PRODUCT-PRICE-CLASSIFICATION
 - Branch: codex/product-price-classification-20260602
