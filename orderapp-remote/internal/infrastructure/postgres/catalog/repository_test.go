@@ -174,6 +174,32 @@ func TestCustomerProductAliasSchemaPersistsCustomerFacingNamesAndAudits(t *testi
 	}
 }
 
+func TestCustomerProductAliasBatchDisableAndIndustryFieldOverridesPersist(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := string(schema) + "\n" + string(repository)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS %[1]s.customer_product_alias_industry_field_values",
+		"customer_product_alias_industry_field_values_alias_key_uq",
+		"func (r Repository) BatchDisableCustomerProductAliases",
+		"func (r Repository) ListCustomerProductAliasIndustryFields",
+		"func (r Repository) SaveCustomerProductAliasIndustryFields",
+		"customer_product_alias_industry_fields",
+		"save_customer_product_alias_industry_fields",
+		"disable_customer_product_alias",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("customer product alias batch/industry field implementation missing marker %q", want)
+		}
+	}
+}
+
 func TestProductConfigTemplateSchemaPersistsIndependentTemplates(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {
@@ -271,6 +297,26 @@ func TestProductProductionConfigSchemaBackfillsLegacyBOMAndAttributes(t *testing
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("product production config implementation missing marker %q", want)
+		}
+	}
+}
+
+func TestClassificationCategoryDeleteMovesAssignmentsBackToTemplateUnclassified(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	fn := catalogRepositoryFunctionForTest(t, src, "func (r Repository) DeleteProductClassificationCategory", "func (r Repository) SaveProductClassificationAssignment")
+	for _, want := range []string{
+		"UPDATE",
+		"product_classification_assignments",
+		"customer_product_alias_classification_assignments",
+		"category_id=0",
+		"delete_product_classification_category",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("classification category delete must move assignments to virtual unclassified; missing %q", want)
 		}
 	}
 }

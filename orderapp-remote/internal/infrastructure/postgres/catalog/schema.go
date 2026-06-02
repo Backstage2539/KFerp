@@ -300,6 +300,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS product_production_config_fields_product_key_u
 ON %[1]s.product_production_config_fields(product_id, lower(field_key));
 CREATE INDEX IF NOT EXISTS product_production_config_fields_product_sort_idx
 ON %[1]s.product_production_config_fields(product_id, sort_order, id);
+CREATE TABLE IF NOT EXISTS %[1]s.customer_product_alias_industry_field_values (
+	id BIGSERIAL PRIMARY KEY,
+	alias_id BIGINT NOT NULL,
+	field_key TEXT NOT NULL DEFAULT '',
+	value_text TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS customer_product_alias_industry_field_values_alias_key_uq
+ON %[1]s.customer_product_alias_industry_field_values(alias_id, lower(field_key));
+CREATE INDEX IF NOT EXISTS customer_product_alias_industry_field_values_alias_idx
+ON %[1]s.customer_product_alias_industry_field_values(alias_id);
 CREATE TABLE IF NOT EXISTS %[1]s.product_config_templates (
 	id BIGSERIAL PRIMARY KEY,
 	customer_id BIGINT NOT NULL DEFAULT 0,

@@ -72,6 +72,34 @@ func TestLoadProductInputsPrefersProductProductionConfigFields(t *testing.T) {
 	}
 }
 
+func TestLoadProductInputsUsesCustomerAliasIndustryFieldOverridesWithoutClassificationAmbiguity(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"alias_config_attrs",
+		"customer_product_alias_industry_field_values",
+		"current_classification_template_id",
+		"current_classification_category_id",
+		"CASE WHEN $2 > 0 THEN NULLIF(alias_attrs.alias_attrs_json::text,'{}')",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must use alias industry overrides and qualified classification aliases; missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"COALESCE(p.classification_template_id,0)",
+		"COALESCE(p.classification_category_id,0)",
+		"GROUP BY p.id, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.classification_template_id",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("costing repository still references ambiguous product_scope classification column %q", forbidden)
+		}
+	}
+}
+
 func TestLoadProductInputsPricesDripFromFinishedProductComponentCost(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
@@ -178,7 +206,7 @@ func TestLoadProductInputsReadsCurrentClassificationAssignments(t *testing.T) {
 		"product_classification_templates alias_ct",
 		"product_classification_template_categories product_cc",
 		"product_classification_template_categories alias_cc",
-		"p.classification_template_id",
+		"p.current_classification_template_id",
 		"&input.ClassificationTemplateID",
 		"&input.ClassificationCategoryName",
 	} {

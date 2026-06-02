@@ -52,7 +52,10 @@ type productSettingsRepo struct {
 	customerAliasQuery                  catalogapp.CustomerProductAliasQuery
 	savedCustomerAlias                  catalogapp.CustomerProductAliasCommand
 	disabledCustomerAlias               catalogapp.DisableCustomerProductAliasCommand
+	batchDisabledCustomerAliases        catalogapp.BatchDisableCustomerProductAliasesCommand
 	batchCustomerAliases                catalogapp.BatchCustomerProductAliasesCommand
+	aliasIndustryQuery                  catalogapp.CustomerProductAliasIndustryFieldQuery
+	savedAliasIndustryFields            catalogapp.SaveCustomerProductAliasIndustryFieldsCommand
 	aliasCandidates                     []catalogapp.CustomerProductAliasMigrationCandidate
 	aliasCandidateQuery                 catalogapp.CustomerProductAliasMigrationCandidateQuery
 	ruleTemplates                       []catalogapp.CustomerProductRuleTemplate
@@ -97,7 +100,10 @@ type productSettingsRepo struct {
 	customerAliasesListed               bool
 	customerAliasSaved                  bool
 	customerAliasDisabled               bool
+	customerAliasesBatchDisabled        bool
 	customerAliasBatchSaved             bool
+	aliasIndustryFieldsListed           bool
+	aliasIndustryFieldsSaved            bool
 	aliasCandidatesListed               bool
 	ruleTemplateSaved                   bool
 	ruleOverrideSaved                   bool
@@ -594,8 +600,25 @@ func (r *productSettingsRepo) ListCustomerProductAliases(ctx context.Context, qu
 		if query.CustomerID > 0 && row.CustomerID != query.CustomerID {
 			continue
 		}
-		if query.ActiveOnly && !row.Active {
+		activeMode := query.ActiveMode
+		if activeMode == "" {
+			if query.ActiveOnly {
+				activeMode = "active"
+			} else {
+				activeMode = "all"
+			}
+		}
+		if activeMode == "active" && !row.Active {
 			continue
+		}
+		if activeMode == "inactive" && row.Active {
+			continue
+		}
+		if query.SearchQuery != "" {
+			haystack := strings.ToLower(strings.Join([]string{row.DisplayName, row.CustomerItemCode, row.ProductCode, row.ProductName}, " "))
+			if !strings.Contains(haystack, strings.ToLower(query.SearchQuery)) {
+				continue
+			}
 		}
 		out = append(out, row)
 	}
@@ -634,6 +657,32 @@ func (r *productSettingsRepo) DisableCustomerProductAlias(ctx context.Context, c
 	r.disabledCustomerAlias = cmd
 	r.customerAliasDisabled = true
 	return nil
+}
+
+func (r *productSettingsRepo) BatchDisableCustomerProductAliases(ctx context.Context, cmd catalogapp.BatchDisableCustomerProductAliasesCommand) (catalogapp.BatchDisableCustomerProductAliasesResult, error) {
+	r.batchDisabledCustomerAliases = cmd
+	r.customerAliasesBatchDisabled = true
+	return catalogapp.BatchDisableCustomerProductAliasesResult{DisabledCount: len(cmd.IDs), Disabled: cmd.IDs}, nil
+}
+
+func (r *productSettingsRepo) ListCustomerProductAliasIndustryFields(ctx context.Context, query catalogapp.CustomerProductAliasIndustryFieldQuery) ([]catalogapp.ProductProductionConfigField, error) {
+	r.aliasIndustryQuery = query
+	r.aliasIndustryFieldsListed = true
+	return []catalogapp.ProductProductionConfigField{{
+		FieldKey:        "roast_level",
+		Label:           "烘焙度",
+		FieldType:       "select",
+		ValueText:       "深烘",
+		OptionsJSON:     `["浅烘","中烘","深烘"]`,
+		ShowInPriceList: true,
+		SortOrder:       1,
+	}}, nil
+}
+
+func (r *productSettingsRepo) SaveCustomerProductAliasIndustryFields(ctx context.Context, cmd catalogapp.SaveCustomerProductAliasIndustryFieldsCommand) ([]catalogapp.ProductProductionConfigField, error) {
+	r.savedAliasIndustryFields = cmd
+	r.aliasIndustryFieldsSaved = true
+	return cmd.Fields, nil
 }
 
 func (r *productSettingsRepo) BatchCreateCustomerProductAliases(ctx context.Context, cmd catalogapp.BatchCustomerProductAliasesCommand) (catalogapp.BatchCustomerProductAliasesResult, error) {
@@ -799,6 +848,57 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 	}
 	if !repo.customerAliasDisabled || repo.disabledCustomerAlias.ID != 11 {
 		t.Fatalf("disable alias command = %+v disabled=%v", repo.disabledCustomerAlias, repo.customerAliasDisabled)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/customer-product-aliases?customer_id=42&active=inactive&q=甜感", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET inactive aliases status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.customerAliasQuery.ActiveMode != "inactive" || repo.customerAliasQuery.SearchQuery != "甜感" {
+		t.Fatalf("alias query should carry active mode and search query: %+v", repo.customerAliasQuery)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/customer-product-aliases/batch-disable", bytes.NewBufferString(`{"ids":[11,12,12,0]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("batch disable alias status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.customerAliasesBatchDisabled || !reflect.DeepEqual(repo.batchDisabledCustomerAliases.IDs, []int64{11, 12}) {
+		t.Fatalf("batch disable command = %+v disabled=%v", repo.batchDisabledCustomerAliases, repo.customerAliasesBatchDisabled)
+	}
+}
+
+func TestCustomerProductAliasIndustryFieldAPIsListAndSaveOverrides(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/customer-product-aliases/11/industry-fields", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET alias industry fields status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.aliasIndustryFieldsListed || repo.aliasIndustryQuery.AliasID != 11 {
+		t.Fatalf("alias industry query = %+v listed=%v", repo.aliasIndustryQuery, repo.aliasIndustryFieldsListed)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"field_key":"roast_level"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"value_text":"深烘"`)) {
+		t.Fatalf("alias industry field response missing field values: %s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/customer-product-aliases/11/industry-fields", bytes.NewBufferString(`{"fields":[{"field_key":"roast_level","value_text":"中烘"}]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT alias industry fields status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.aliasIndustryFieldsSaved || repo.savedAliasIndustryFields.AliasID != 11 || len(repo.savedAliasIndustryFields.Fields) != 1 || repo.savedAliasIndustryFields.Fields[0].ValueText != "中烘" {
+		t.Fatalf("saved alias industry fields = %+v saved=%v", repo.savedAliasIndustryFields, repo.aliasIndustryFieldsSaved)
 	}
 }
 

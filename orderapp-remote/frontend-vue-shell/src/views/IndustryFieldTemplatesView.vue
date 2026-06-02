@@ -12,7 +12,7 @@
       <div v-if="ok" class="ok">{{ ok }}</div>
     </section>
 
-    <div class="grid">
+    <div class="grid industry-template-layout">
       <section class="panel table-wrap">
         <div class="section-title">模板列表</div>
         <table>
@@ -85,13 +85,7 @@
             <label>
               <span>类型</span>
               <select v-model="field.field_type">
-                <option value="text">文本</option>
-                <option value="textarea">长文本</option>
-                <option value="number">数字</option>
-                <option value="ratio">比例</option>
-                <option value="select">选项</option>
-                <option value="checkbox">勾选</option>
-                <option value="date">日期</option>
+                <option v-for="option in fieldTypeOptions(field)" :key="option.value" :value="option.value">{{ option.label }}</option>
               </select>
             </label>
             <label>
@@ -103,8 +97,8 @@
               <span>必填</span>
             </label>
             <label class="options">
-              <span>选项 JSON</span>
-              <textarea v-model.trim="field.options_json" rows="2" placeholder='["浅烘","中烘","深烘"]'></textarea>
+              <span>下拉预设</span>
+              <textarea v-model.trim="field.options_text" rows="2" placeholder="浅烘, 中烘, 深烘"></textarea>
             </label>
             <button class="text danger" type="button" @click="removeField(index)">删除</button>
           </div>
@@ -147,8 +141,50 @@ function blankField(sortOrder) {
     unit: '',
     required: false,
     options_json: '[]',
+    options_text: '',
     sort_order: sortOrder,
   }
+}
+
+function optionsTextFromJSON(raw) {
+  try {
+    const parsed = JSON.parse(String(raw || '[]'))
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean).join(', ') : ''
+  } catch (_) {
+    return String(raw || '').trim()
+  }
+}
+
+function optionsJSONFromText(raw) {
+  const seen = new Set()
+  const values = String(raw || '')
+    .split(/[,，]/)
+    .map((item) => item.trim())
+    .filter((item) => {
+      if (!item || seen.has(item)) return false
+      seen.add(item)
+      return true
+    })
+  return JSON.stringify(values)
+}
+
+function fieldTypeOptions(field = {}) {
+  const base = [
+    { value: 'text', label: '文本' },
+    { value: 'select', label: '下拉' },
+  ]
+  const current = String(field.field_type || '').trim()
+  const legacy = {
+    textarea: '长文本',
+    number: '数字',
+    ratio: '比例',
+    checkbox: '勾选',
+    date: '日期',
+  }
+  if (current && !base.some((item) => item.value === current)) {
+    base.push({ value: current, label: legacy[current] || current })
+  }
+  return base
 }
 
 function normalizeTemplate(row) {
@@ -162,6 +198,7 @@ function normalizeTemplate(row) {
       required: !!field.required,
       sort_order: Number(field.sort_order || index + 1),
       options_json: field.options_json || '[]',
+      options_text: optionsTextFromJSON(field.options_json || '[]'),
     })) : [blankField(1)],
   }
 }
@@ -219,7 +256,14 @@ async function mutate(action) {
 
 async function save() {
   await mutate(async () => {
-    const row = await apiSend('/api/industry-field-templates', { body: form })
+    const payload = {
+      ...form,
+      fields: form.fields.map((field) => ({
+        ...field,
+        options_json: optionsJSONFromText(field.options_text),
+      })),
+    }
+    const row = await apiSend('/api/industry-field-templates', { body: payload })
     resetForm(normalizeTemplate(row))
     await load()
     ok.value = '已保存行业字段模板'

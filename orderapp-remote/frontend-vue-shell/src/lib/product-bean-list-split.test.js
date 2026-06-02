@@ -60,6 +60,46 @@ test('SKU settings exposes customer context initialization with product archive 
   assert.doesNotMatch(productSettingsSource, /<form v-else class="custom-product-form product-drawer-form" @submit\.prevent="createCustomProduct">/)
 })
 
+test('product and customer classification actions are split into separate action cards', () => {
+  assert.match(productSettingsSource, /classification-action-card add-classification-card[\s\S]*<span>增加分类<\/span>/)
+  assert.match(productSettingsSource, /classification-action-card move-classification-card[\s\S]*移动到分类[\s\S]*移动到子类/)
+  const toolbarStart = productSettingsSource.indexOf('product-classification-tabs')
+  const toolbarEnd = productSettingsSource.indexOf('<div class="table-wrap sku-table-wrap">')
+  assert.notEqual(toolbarStart, -1)
+  assert.notEqual(toolbarEnd, -1)
+  const toolbar = productSettingsSource.slice(toolbarStart, toolbarEnd)
+  assert.match(toolbar, /add-classification-card/)
+  assert.match(toolbar, /move-classification-card/)
+})
+
+test('customer alias list has shared filters batch disable and industry field controls', () => {
+  assert.match(productSettingsSource, /alias-filters/)
+  assert.match(productSettingsSource, /aliasFilters\.query/)
+  assert.match(productSettingsSource, /aliasFilters\.active/)
+  assert.match(productSettingsSource, /batchDisableCustomerProductAliases/)
+  assert.match(productSettingsSource, /客户行业字段/)
+  assert.match(productSettingsSource, /openAliasIndustryFieldDrawer/)
+})
+
+test('classification template editor keeps template actions at bottom and category templates side by side', () => {
+  assert.match(productSettingsSource, /classification-template-actions-bottom[\s\S]*保存分类模板[\s\S]*删除模板/)
+  assert.match(productSettingsSource, /classification-category-template-row[\s\S]*分类项阶梯价模板[\s\S]*分类项单位模板/)
+  assert.match(productSettingsSource, /classification-template-create-fields/)
+})
+
+test('industry field template page uses comma options instead of JSON editing', () => {
+  const source = readFileSync(resolve(here, '../views/IndustryFieldTemplatesView.vue'), 'utf8')
+  assert.match(source, /industry-template-layout/)
+  assert.match(source, /下拉预设/)
+  assert.match(source, /options_text/)
+  assert.doesNotMatch(source, /选项 JSON/)
+})
+
+test('product and customer alias tables expose industry field columns', () => {
+  assert.match(productSettingsSource, /<th>行业字段<\/th>/)
+  assert.match(productSettingsSource, /industryFieldSummary/)
+})
+
 test('product bean-list page owns customer context for bean-list previews', () => {
   assert.match(costingSource, /<h2>商品价格表<\/h2>/)
   assert.match(costingSource, /价格表归属/)

@@ -54,8 +54,9 @@ test('product menu splits product archive, customer names and config templates a
   assert.equal(groupForView(menuGroups, 'productConfigTemplates')?.id, 'product')
   assert.equal(groupForView(menuGroups, 'pricingGradientTemplates')?.id, 'product')
   assert.equal(groupForView(menuGroups, 'productUnitTemplates')?.id, 'product')
+  assert.equal(groupForView(menuGroups, 'bom')?.id, 'production')
   assert.equal(groupForView(menuGroups, 'costing')?.id, 'product')
-  assert.equal(menuGroups.find((group) => group.id === 'product')?.items.map((item) => item.label).join(' / '), '商品档案 / 客户商品名 / 商品配置和分类模板 / 阶梯价模板 / 单位模板 / 生产 BOM / 商品价格表 / 行业字段模板 / 成本核价手册 / 生豆销售手册')
+  assert.equal(menuGroups.find((group) => group.id === 'product')?.items.map((item) => item.label).join(' / '), '商品档案 / 客户商品名 / 商品配置和分类模板 / 阶梯价模板 / 单位模板 / 商品价格表 / 行业字段模板 / 成本核价手册 / 生豆销售手册')
 })
 
 test('production menu exposes the production flow manual as a primary page', () => {
@@ -67,7 +68,9 @@ test('production menu exposes the production flow manual as a primary page', () 
 test('process templates live in the production menu for discoverability', () => {
   const keys = primaryMenuKeys(menuGroups)
   assert.ok(keys.includes('processTemplates'))
+  assert.ok(keys.includes('bom'))
   assert.equal(groupForView(menuGroups, 'processTemplates')?.id, 'production')
+  assert.equal(groupForView(menuGroups, 'bom')?.id, 'production')
   assert.equal(groupForView(menuGroups, 'industryFieldTemplates')?.id, 'product')
 })
 

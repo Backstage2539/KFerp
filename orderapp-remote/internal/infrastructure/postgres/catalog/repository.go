@@ -3457,6 +3457,18 @@ func (r Repository) EnsureFactoryCustomer(ctx context.Context, actor string) (in
 }
 
 func (r Repository) ListCustomerProductAliases(ctx context.Context, query catalogapp.CustomerProductAliasQuery) ([]catalogapp.CustomerProductAlias, error) {
+	activeMode := strings.ToLower(strings.TrimSpace(query.ActiveMode))
+	if activeMode == "" {
+		if query.ActiveOnly {
+			activeMode = "active"
+		} else {
+			activeMode = "all"
+		}
+	}
+	if activeMode != "active" && activeMode != "inactive" && activeMode != "all" {
+		activeMode = "active"
+	}
+	searchQuery := strings.ToLower(strings.TrimSpace(query.SearchQuery))
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT a.id,
 		       a.customer_id,
@@ -3482,9 +3494,10 @@ func (r Repository) ListCustomerProductAliases(ctx context.Context, query catalo
 		LEFT JOIN %s.products p ON p.id=a.product_id
 		LEFT JOIN %s.product_categories cat ON cat.id=a.display_category_id
 		WHERE ($1::bigint=0 OR a.customer_id=$1)
-		  AND ($2::boolean=false OR a.active=true)
+		  AND ($2::text='all' OR ($2::text='active' AND a.active=true) OR ($2::text='inactive' AND a.active=false))
+		  AND ($3::text='' OR lower(a.display_name || ' ' || COALESCE(a.customer_item_code,'') || ' ' || COALESCE(p.name,'') || ' SKU-' || LPAD(a.product_id::text, 6, '0')) LIKE '%%' || $3::text || '%%')
 		ORDER BY a.customer_id, a.sort_order, a.id
-	`, r.schema, r.schema, r.schema, r.schema), query.CustomerID, query.ActiveOnly)
+	`, r.schema, r.schema, r.schema, r.schema), query.CustomerID, activeMode, searchQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -3516,6 +3529,83 @@ func (r Repository) ListCustomerProductAliases(ctx context.Context, query catalo
 			return nil, err
 		}
 		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := r.attachCustomerProductAliasIndustryFields(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r Repository) attachCustomerProductAliasIndustryFields(ctx context.Context, aliases []catalogapp.CustomerProductAlias) error {
+	if len(aliases) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(aliases))
+	index := map[int64]int{}
+	for i, row := range aliases {
+		if row.ID <= 0 {
+			continue
+		}
+		ids = append(ids, row.ID)
+		index[row.ID] = i
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	fieldsByAlias, err := r.loadCustomerProductAliasIndustryFields(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for aliasID, fields := range fieldsByAlias {
+		if i, ok := index[aliasID]; ok {
+			aliases[i].IndustryFields = fields
+		}
+	}
+	return nil
+}
+
+func (r Repository) loadCustomerProductAliasIndustryFields(ctx context.Context, aliasIDs []int64) (map[int64][]catalogapp.ProductProductionConfigField, error) {
+	out := map[int64][]catalogapp.ProductProductionConfigField{}
+	if len(aliasIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT a.id,
+		       f.id,
+		       f.product_id,
+		       f.field_key,
+		       f.label,
+		       f.field_type,
+		       f.unit,
+		       COALESCE(NULLIF(v.value_text,''), f.value_text, ''),
+		       f.value_number::float8,
+		       f.value_bool,
+		       COALESCE(f.template_field_key,''),
+		       COALESCE(f.required,false),
+		       COALESCE(f.options_json::text,'[]'),
+		       COALESCE(f.show_in_price_list,true),
+		       COALESCE(f.sort_order,0)
+		FROM %s.customer_product_aliases a
+		JOIN %s.product_production_config_fields f ON f.product_id=a.product_id
+		LEFT JOIN %s.customer_product_alias_industry_field_values v
+		  ON v.alias_id=a.id AND lower(v.field_key)=lower(f.field_key)
+		WHERE a.id=ANY($1)
+		ORDER BY a.id, f.sort_order, f.id
+	`, r.schema, r.schema, r.schema), aliasIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var aliasID int64
+		var field catalogapp.ProductProductionConfigField
+		if err := rows.Scan(&aliasID, &field.ID, &field.ProductID, &field.FieldKey, &field.Label, &field.FieldType, &field.Unit, &field.ValueText, &field.ValueNumber, &field.ValueBool, &field.TemplateFieldKey, &field.Required, &field.OptionsJSON, &field.ShowInPriceList, &field.SortOrder); err != nil {
+			return nil, err
+		}
+		out[aliasID] = append(out[aliasID], field)
 	}
 	return out, rows.Err()
 }
@@ -3769,6 +3859,135 @@ func (r Repository) DisableCustomerProductAlias(ctx context.Context, cmd catalog
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (r Repository) BatchDisableCustomerProductAliases(ctx context.Context, cmd catalogapp.BatchDisableCustomerProductAliasesCommand) (catalogapp.BatchDisableCustomerProductAliasesResult, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.BatchDisableCustomerProductAliasesResult{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.BatchDisableCustomerProductAliasesResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	result := catalogapp.BatchDisableCustomerProductAliasesResult{
+		Disabled: []int64{},
+		Skipped:  []int64{},
+	}
+	for _, id := range cmd.IDs {
+		if id <= 0 {
+			continue
+		}
+		tag, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.customer_product_aliases
+			SET active=false, updated_at=now(), updated_by=$2
+			WHERE id=$1 AND active=true
+		`, r.schema), id, cmd.Actor)
+		if err != nil {
+			return catalogapp.BatchDisableCustomerProductAliasesResult{}, err
+		}
+		if tag.RowsAffected() == 0 {
+			result.Skipped = append(result.Skipped, id)
+			continue
+		}
+		result.Disabled = append(result.Disabled, id)
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_product_alias", &id, "disable_customer_product_alias", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"alias_id": id, "batch": true}); err != nil {
+			return catalogapp.BatchDisableCustomerProductAliasesResult{}, err
+		}
+	}
+	result.DisabledCount = len(result.Disabled)
+	result.SkippedCount = len(result.Skipped)
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.BatchDisableCustomerProductAliasesResult{}, err
+	}
+	return result, nil
+}
+
+func (r Repository) ListCustomerProductAliasIndustryFields(ctx context.Context, query catalogapp.CustomerProductAliasIndustryFieldQuery) ([]catalogapp.ProductProductionConfigField, error) {
+	fieldsByAlias, err := r.loadCustomerProductAliasIndustryFields(ctx, []int64{query.AliasID})
+	if err != nil {
+		return nil, err
+	}
+	return fieldsByAlias[query.AliasID], nil
+}
+
+func (r Repository) SaveCustomerProductAliasIndustryFields(ctx context.Context, cmd catalogapp.SaveCustomerProductAliasIndustryFieldsCommand) ([]catalogapp.ProductProductionConfigField, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var productID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT product_id FROM %s.customer_product_aliases WHERE id=$1 AND active=true`, r.schema), cmd.AliasID).Scan(&productID); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, catalogapp.ValidationError{Message: "customer product alias not found"}
+		}
+		return nil, err
+	}
+	allowedRows, err := tx.Query(ctx, fmt.Sprintf(`SELECT field_key FROM %s.product_production_config_fields WHERE product_id=$1`, r.schema), productID)
+	if err != nil {
+		return nil, err
+	}
+	allowed := map[string]bool{}
+	for allowedRows.Next() {
+		var key string
+		if err := allowedRows.Scan(&key); err != nil {
+			allowedRows.Close()
+			return nil, err
+		}
+		key = strings.ToLower(strings.TrimSpace(key))
+		if key != "" {
+			allowed[key] = true
+		}
+	}
+	if err := allowedRows.Err(); err != nil {
+		allowedRows.Close()
+		return nil, err
+	}
+	allowedRows.Close()
+	for _, field := range cmd.Fields {
+		key := strings.ToLower(strings.TrimSpace(field.FieldKey))
+		if key == "" {
+			continue
+		}
+		if !allowed[key] {
+			return nil, catalogapp.ValidationError{Message: fmt.Sprintf("field %s is not defined by product industry field template", field.FieldKey)}
+		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.customer_product_alias_industry_field_values WHERE alias_id=$1`, r.schema), cmd.AliasID); err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, field := range cmd.Fields {
+		key := strings.TrimSpace(field.FieldKey)
+		lowerKey := strings.ToLower(key)
+		if key == "" || seen[lowerKey] {
+			continue
+		}
+		seen[lowerKey] = true
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.customer_product_alias_industry_field_values(alias_id, field_key, value_text, created_at, updated_at, updated_by)
+			VALUES($1,$2,$3,now(),now(),$4)
+		`, r.schema), cmd.AliasID, key, strings.TrimSpace(field.ValueText), cmd.Actor); err != nil {
+			return nil, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_product_alias_industry_fields", &cmd.AliasID, "save_customer_product_alias_industry_fields", postgresinfra.StrPtr("field_count"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", len(seen))), postgresinfra.AuditMeta{"alias_id": cmd.AliasID, "field_count": len(seen)}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return r.ListCustomerProductAliasIndustryFields(ctx, catalogapp.CustomerProductAliasIndustryFieldQuery{AliasID: cmd.AliasID})
 }
 
 func (r Repository) ListCustomerProductAliasMigrationCandidates(ctx context.Context, query catalogapp.CustomerProductAliasMigrationCandidateQuery) ([]catalogapp.CustomerProductAliasMigrationCandidate, error) {
