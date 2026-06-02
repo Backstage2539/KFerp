@@ -354,15 +354,81 @@ export function classificationTemplateUnitPriceWarnings(input = {}) {
 
 export function customerProductAliasRowsForCustomer(rows = [], customerID = 0, options = {}) {
   const selectedCustomerID = Number(customerID || 0)
-  const includeInactive = Boolean(options.includeInactive)
+  const active = String(options.active || (options.includeInactive ? 'all' : 'active')).trim()
+  const query = String(options.query || '').trim().toLowerCase()
   return (rows || [])
     .filter((row) => {
       if (selectedCustomerID > 0 && Number(row?.customer_id || 0) !== selectedCustomerID) return false
-      if (!includeInactive && row?.active === false) return false
+      if (active === 'active' && row?.active === false) return false
+      if (active === 'inactive' && row?.active !== false) return false
+      if (query) {
+        const haystack = [
+          row?.display_name,
+          row?.customer_item_code,
+          row?.brand_name,
+          row?.product_code,
+          row?.product_name,
+        ].join(' ').toLowerCase()
+        if (!haystack.includes(query)) return false
+      }
       return true
     })
     .slice()
     .sort((a, b) => Number(a?.sort_order || 0) - Number(b?.sort_order || 0) || Number(a?.id || 0) - Number(b?.id || 0))
+}
+
+export function industryFieldOptionsTextFromJSON(raw = '[]') {
+  if (Array.isArray(raw)) return raw.map((value) => String(value || '').trim()).filter(Boolean).join(', ')
+  try {
+    const parsed = JSON.parse(String(raw || '[]'))
+    if (Array.isArray(parsed)) return parsed.map((value) => String(value || '').trim()).filter(Boolean).join(', ')
+  } catch (_) {
+    return String(raw || '').trim()
+  }
+  return ''
+}
+
+export function industryFieldOptionsJSONFromText(raw = '') {
+  const seen = new Set()
+  const values = String(raw || '')
+    .split(/[,，]/)
+    .map((value) => value.trim())
+    .filter((value) => {
+      if (!value || seen.has(value)) return false
+      seen.add(value)
+      return true
+    })
+  return JSON.stringify(values)
+}
+
+export function industryFieldSummary(fields = []) {
+  const parts = (fields || [])
+    .filter((field) => String(field?.field_key || field?.label || '').trim())
+    .map((field) => {
+      const label = String(field?.label || field?.field_key || '').trim()
+      const value = String(field?.value_text ?? field?.value ?? '').trim()
+      return value ? `${label}：${value}` : ''
+    })
+    .filter(Boolean)
+  return parts.length ? parts.join('；') : '-'
+}
+
+export function buildCustomerProductAliasIndustryFieldPayload(form = {}) {
+  const fields = Array.isArray(form?.fields) ? form.fields : []
+  const seen = new Set()
+  return {
+    fields: fields
+      .map((field) => ({
+        field_key: String(field?.field_key || '').trim(),
+        value_text: String(field?.value_text ?? field?.value ?? '').trim(),
+      }))
+      .filter((field) => {
+        const key = field.field_key.toLowerCase()
+        if (!key || seen.has(key)) return false
+        seen.add(key)
+        return true
+      }),
+  }
 }
 
 export function productCreationActionOptions(context = {}) {

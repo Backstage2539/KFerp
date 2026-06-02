@@ -6,6 +6,29 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-397-PRODUCT-CLASSIFICATION-INDUSTRY-FIELDS
+- Branch: codex/product-classification-industry-fields-20260603
+- Owner/session: Codex / 2026-06-03
+- Status: implementation verified locally; pending merge to develop and development deployment
+- Scope: 分类交互拆为增加分类和移动分类两张卡片；客户商品名补齐搜索、启停过滤、批量停用和客户行业字段覆盖；商品价格表 SQL 修复 `classification_template_id` 歧义；分类模板编辑优化；生产 BOM 移到生产管理；行业字段模板改成左列表右编辑、文本/下拉字段。
+- DEV:
+  - DEV-397-CLASSIFICATION-ACTION-CARDS：商品档案和客户商品名分类工具区拆成两张 action card，分类模板保存/删除在底部，分类项阶梯价/单位模板并排。
+  - DEV-397-CUSTOMER-ALIAS-FILTER-BATCH-DISABLE：`GET /api/customer-product-aliases` 支持 `active/q`，新增 `/api/customer-product-aliases/batch-disable`，客户商品名列表共享过滤和批量停用。
+  - DEV-397-PRICE-LIST-SQL-CLASSIFICATION：商品价格表候选查询使用 current classification 字段，客户范围优先读取客户商品行业字段覆盖值。
+  - DEV-397-INDUSTRY-FIELD-TEMPLATE-SIMPLE-UI：行业字段模板改为左列表右编辑，新增字段只用文本/下拉，下拉预设用逗号；客户商品行业字段保存到覆盖表。
+  - DEV-397-PRODUCTION-BOM-MENU：生产 BOM 菜单移到生产管理，route key 保持 `bom`。
+  - DEV-397-MANUAL-DOCS：更新需求、验收、商品/成本/生产/履约手册和 acceptance 证据。
+- Verifier:
+  - Frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js orderapp-remote/frontend-vue-shell/src/lib/product-bean-list-split.test.js orderapp-remote/frontend-vue-shell/src/lib/menu-ia.test.js`
+  - API/backend: `go test ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/costing ./internal/interfaces/http/manufacturing -count=1`
+  - Build: `npm run build` in `orderapp-remote/frontend-vue-shell`
+  - Changed verifier: `scripts/verify_kferp.sh changed`
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`
+  - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-product-classification-industry-fields.md`
+- Deployment: pending.
+- Last update: 2026-06-03 Asia/Shanghai
+- Notes: Van requested no browser/manual验收; use code/docs/unit/API/build verification only. Local target evidence so far: frontend 130/130 passed; targeted catalog/costing/manufacturing Go tests passed; Vue build passed with existing chunk-size warning.
+
 ### PR-396-PRODUCT-CLASSIFICATION-COPY-FIXES
 - Branch: codex/product-classification-copy-fixes-20260602
 - Owner/session: Codex / 2026-06-02

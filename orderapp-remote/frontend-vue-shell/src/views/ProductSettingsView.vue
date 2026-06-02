@@ -60,7 +60,7 @@
         </div>
         <div v-show="!productsCollapsed">
           <div class="classification-view-toolbar product-classification-tabs" aria-label="商品档案分类模板视图">
-            <div class="classification-actions">
+            <div class="classification-actions classification-action-card add-classification-card">
               <label>
                 <span>增加分类</span>
                 <select v-model.number="selectedProductClassificationTemplateID">
@@ -80,7 +80,7 @@
                 {{ tab.label }}
               </button>
             </div>
-            <div class="classification-actions">
+            <div class="classification-actions classification-action-card move-classification-card">
               <label v-if="isProductAllOrUnclassifiedTab">
                 <span>移动到分类</span>
                 <select v-model.number="selectedProductClassificationTemplateID">
@@ -123,6 +123,7 @@
                 <th class="sku-name-cell">商品名</th>
                 <th>商品编号</th>
                 <th>当前归类</th>
+                <th>行业字段</th>
                 <th>归属</th>
                 <th class="action-cell">新增动作</th>
                 <th>生产配置预期损耗率</th>
@@ -136,7 +137,7 @@
             <tbody>
               <template v-for="group in displaySkuGroups" :key="group.key">
                 <tr v-if="!group.all" class="classification-group-row">
-                  <td :colspan="12">
+                    <td :colspan="13">
                     <button class="classification-group-toggle" type="button" @click="toggleProductClassificationGroup(group.key)">
                       {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
                     </button>
@@ -157,6 +158,10 @@
                   <td>
                     <div>{{ productClassificationLabel(row) }}</div>
                     <small v-for="warning in classificationWarningsForProduct(row)" :key="warning" class="bom-version-warning">{{ warning }}</small>
+                  </td>
+                  <td class="industry-field-cell">
+                    <span>{{ industryFieldSummary(productionConfigPriceListFields(row)) }}</span>
+                    <button class="text-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">设置</button>
                   </td>
                   <td>{{ productOwnerLabel(row) }}</td>
                   <td class="action-cell">
@@ -196,7 +201,7 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'green_bean'" class="green-bean-detail-row">
-                  <td :colspan="12">
+                  <td :colspan="13">
                     <div class="green-bean-detail-fields">
                       <label>
                         <span>生豆属性</span>
@@ -226,7 +231,7 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'drip_bag'" class="green-bean-detail-row">
-                  <td :colspan="12">
+                  <td :colspan="13">
                     <div class="green-bean-detail-fields">
                       <label>
                         <span>每袋克重</span>
@@ -243,7 +248,7 @@
                 </template>
               </template>
               <tr v-if="!displaySkuRows.length">
-                <td :colspan="12" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
+                <td :colspan="13" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
               </tr>
             </tbody>
           </table>
@@ -340,8 +345,23 @@
               <button class="primary" type="submit" :disabled="aliasSaving || loading">保存客户商品名</button>
             </div>
           </form>
+          <div class="alias-filters">
+            <label>
+              <span>搜索客户商品</span>
+              <input v-model.trim="aliasFilters.query" placeholder="客户商品名/编号/绑定商品" />
+            </label>
+            <label>
+              <span>状态</span>
+              <select v-model="aliasFilters.active">
+                <option value="active">启用</option>
+                <option value="inactive">停用</option>
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <button class="secondary compact-action danger-outline" type="button" :disabled="!selectedAliasIds.length || aliasSaving" @click="batchDisableCustomerProductAliases">批量停用</button>
+          </div>
           <div class="classification-view-toolbar alias-classification-tabs" aria-label="客户商品名分类模板视图">
-            <div class="classification-actions">
+            <div class="classification-actions classification-action-card add-classification-card">
               <label>
                 <span>增加分类</span>
                 <select v-model.number="selectedAliasClassificationTemplateID">
@@ -361,7 +381,7 @@
                 {{ tab.label }}
               </button>
             </div>
-            <div class="classification-actions">
+            <div class="classification-actions classification-action-card move-classification-card">
               <label v-if="isAliasAllOrUnclassifiedTab">
                 <span>移动到分类</span>
                 <select v-model.number="selectedAliasClassificationTemplateID">
@@ -392,6 +412,7 @@
                   <th>品牌名</th>
                   <th>绑定商品档案</th>
                   <th>当前归类</th>
+                  <th>客户行业字段</th>
                   <th>进入价格表</th>
                   <th>状态</th>
                   <th>操作</th>
@@ -400,7 +421,7 @@
               <tbody>
                 <template v-for="group in visibleCustomerAliasGroups" :key="group.key">
                   <tr v-if="!group.all" class="classification-group-row">
-                    <td colspan="9">
+                    <td colspan="10">
                       <button class="classification-group-toggle" type="button" @click="toggleAliasClassificationGroup(group.key)">
                         {{ isAliasClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
                       </button>
@@ -421,6 +442,10 @@
                     <div>{{ aliasClassificationLabel(alias) }}</div>
                     <small v-for="warning in classificationWarningsForAlias(alias)" :key="warning" class="bom-version-warning">{{ warning }}</small>
                   </td>
+                  <td class="industry-field-cell">
+                    <span>{{ industryFieldSummary(alias.industry_fields || []) }}</span>
+                    <button class="text-button" type="button" :disabled="alias.active === false" @click="openAliasIndustryFieldDrawer(alias)">设置</button>
+                  </td>
                   <td>{{ alias.include_in_price_list ? '是' : '否' }}</td>
                   <td><span :class="['status-pill', alias.active === false ? 'inactive' : '']">{{ alias.active === false ? '停用' : '启用' }}</span></td>
                   <td class="table-actions">
@@ -430,7 +455,7 @@
                   </template>
                 </template>
                 <tr v-if="!visibleCustomerProductAliases.length">
-                  <td colspan="9" class="muted">当前客户暂无客户商品名。</td>
+                  <td colspan="10" class="muted">当前客户暂无客户商品名。</td>
                 </tr>
               </tbody>
             </table>
@@ -679,10 +704,6 @@
                   <option v-for="template in activeProductUnitTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
                 </select>
               </label>
-              <div class="form-actions">
-                <button class="primary" type="submit" :disabled="classificationTemplateSaving">{{ classificationTemplateSaving ? '保存中' : '保存分类模板' }}</button>
-                <button v-if="classificationTemplateForm.id" class="secondary danger-outline" type="button" :disabled="classificationTemplateSaving" @click="deleteClassificationTemplate(classificationTemplateForm.id)">删除模板</button>
-              </div>
             </form>
             <div v-if="classificationTemplateForm.id" class="classification-category-editor">
               <div class="field-group-head">
@@ -692,14 +713,16 @@
               <form class="classification-category-form" @submit.prevent="saveClassificationCategory">
                 <input v-model.trim="classificationCategoryForm.name" placeholder="分类名称" />
                 <input v-model.number="classificationCategoryForm.sort_order" type="number" min="1" step="1" placeholder="排序" />
-                <select v-model.number="classificationCategoryForm.gradient_template_id" aria-label="分类项阶梯价模板">
-                  <option value="0">分类项阶梯价模板：继承模板</option>
-                  <option v-for="template in activeGradientTemplatesForContext" :key="template.id" :value="template.id">{{ template.name }}</option>
-                </select>
-                <select v-model.number="classificationCategoryForm.unit_template_id" aria-label="分类项单位模板">
-                  <option value="0">分类项单位模板：继承模板</option>
-                  <option v-for="template in activeProductUnitTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
-                </select>
+                <div class="classification-category-template-row">
+                  <select v-model.number="classificationCategoryForm.gradient_template_id" aria-label="分类项阶梯价模板">
+                    <option value="0">分类项阶梯价模板：继承模板</option>
+                    <option v-for="template in activeGradientTemplatesForContext" :key="template.id" :value="template.id">{{ template.name }}</option>
+                  </select>
+                  <select v-model.number="classificationCategoryForm.unit_template_id" aria-label="分类项单位模板">
+                    <option value="0">分类项单位模板：继承模板</option>
+                    <option v-for="template in activeProductUnitTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+                  </select>
+                </div>
                 <button class="primary compact-action" type="submit">{{ classificationCategoryForm.id ? '保存分类' : '新增分类' }}</button>
               </form>
               <div class="classification-category-list">
@@ -714,6 +737,10 @@
               </div>
             </div>
             <p v-else class="muted">请先选择或新建一个分类模板。</p>
+            <div class="form-actions classification-template-actions-bottom">
+              <button class="primary" type="button" :disabled="classificationTemplateSaving" @click="saveClassificationTemplate">{{ classificationTemplateSaving ? '保存中' : '保存分类模板' }}</button>
+              <button v-if="classificationTemplateForm.id" class="secondary danger-outline" type="button" :disabled="classificationTemplateSaving" @click="deleteClassificationTemplate(classificationTemplateForm.id)">删除模板</button>
+            </div>
           </div>
         </div>
       </div>
@@ -839,7 +866,7 @@
           </div>
           <button class="secondary compact-action" type="button" @click="closeClassificationTemplateCreateDrawer">关闭</button>
         </div>
-        <form class="drawer-body template-editor" @submit.prevent="saveClassificationTemplateCreate">
+        <form class="drawer-body template-editor classification-template-create-fields" @submit.prevent="saveClassificationTemplateCreate">
           <label>
             <span>模板名称</span>
             <input v-model.trim="classificationTemplateCreateForm.name" required placeholder="如 门店展示分类 / 报价分类" />
@@ -852,6 +879,20 @@
           <label>
             <span>备注</span>
             <textarea v-model.trim="classificationTemplateCreateForm.remark" rows="3" placeholder="可选，用于说明这套分类视图的使用场景"></textarea>
+          </label>
+          <label>
+            <span>模板默认阶梯价模板</span>
+            <select v-model.number="classificationTemplateCreateForm.gradient_template_id">
+              <option value="0">不引用</option>
+              <option v-for="template in activeGradientTemplatesForContext" :key="template.id" :value="template.id">{{ template.name }}</option>
+            </select>
+          </label>
+          <label>
+            <span>模板默认单位模板</span>
+            <select v-model.number="classificationTemplateCreateForm.unit_template_id">
+              <option value="0">不引用</option>
+              <option v-for="template in activeProductUnitTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+            </select>
           </label>
           <div class="form-actions">
             <button class="primary" type="submit" :disabled="classificationTemplateSaving">{{ classificationTemplateSaving ? '保存中' : '创建分类模板' }}</button>
@@ -956,6 +997,32 @@
           <button class="primary" type="button" :disabled="aliasBatchSaving || !selectedAliasBatchProductIds.length" @click="saveCustomerAliasBatch">
             {{ aliasBatchSaving ? '添加中' : '批量创建客户商品名' }}
           </button>
+        </div>
+      </aside>
+    </div>
+
+    <div v-if="aliasIndustryFieldDrawerOpen" class="settings-drawer-mask" @click.self="closeAliasIndustryFieldDrawer">
+      <aside class="settings-drawer alias-industry-field-drawer" aria-label="客户行业字段">
+        <div class="drawer-head">
+          <div>
+            <h3>客户行业字段</h3>
+            <p>{{ aliasIndustryFieldAlias?.display_name || '客户商品名' }}</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeAliasIndustryFieldDrawer">关闭</button>
+        </div>
+        <div class="drawer-body product-drawer-form">
+          <label v-for="field in aliasIndustryFieldForm.fields" :key="field.field_key">
+            <span>{{ field.label || field.field_key }}</span>
+            <select v-if="String(field.field_type || '').toLowerCase() === 'select'" v-model="field.value_text">
+              <option value="">继承商品档案值</option>
+              <option v-for="option in industryFieldOptions(field)" :key="option" :value="option">{{ option }}</option>
+            </select>
+            <input v-else v-model.trim="field.value_text" placeholder="留空则继承商品档案值" />
+          </label>
+          <p v-if="!aliasIndustryFieldForm.fields.length" class="muted span-2">绑定商品档案暂无行业字段模板。</p>
+        </div>
+        <div class="drawer-footer">
+          <button class="primary" type="button" :disabled="aliasIndustryFieldSaving" @click="saveAliasIndustryFields">{{ aliasIndustryFieldSaving ? '保存中' : '保存客户行业字段' }}</button>
         </div>
       </aside>
     </div>
@@ -1207,6 +1274,7 @@ import {
 } from '../lib/gradient-templates'
 import {
   buildCustomerPublicUsagePayload,
+  buildCustomerProductAliasIndustryFieldPayload,
   buildCustomerProductAliasBatchPayload,
   buildCustomerProductAliasPayload,
   buildClassificationTemplateUsagePayload,
@@ -1233,6 +1301,7 @@ import {
   customerSkuCustomerOptions,
   customerProductAliasRowsForCustomer,
   groupRowsByClassificationCategory,
+  industryFieldSummary,
   gradientTemplateBelongsToSkuContext,
   greenBeanTypeOptions,
   integerUnitModeOptions,
@@ -1369,6 +1438,7 @@ const selectedAliasClassificationCategoryID = ref(0)
 const collapsedProductClassificationGroups = ref([])
 const collapsedAliasClassificationGroups = ref([])
 const skuFilters = ref(defaultSkuFilters())
+const aliasFilters = ref({ query: '', active: 'active' })
 const skuPage = ref(1)
 const skuPageSize = ref(10)
 const publicUsageSaving = ref(false)
@@ -1390,6 +1460,10 @@ const classificationCategoryForm = ref(defaultClassificationCategoryForm())
 const productProductionConfigProduct = ref(null)
 const productProductionConfigForm = ref(defaultProductProductionConfigForm())
 const productProductionConfigSaving = ref(false)
+const aliasIndustryFieldDrawerOpen = ref(false)
+const aliasIndustryFieldSaving = ref(false)
+const aliasIndustryFieldAlias = ref(null)
+const aliasIndustryFieldForm = ref({ fields: [] })
 
 const skuContextCustomerID = computed(() => Number(selectedCustomerSkuCustomerID.value || 0))
 const productConfigTemplateForm = ref(defaultProductConfigTemplateForm())
@@ -1570,7 +1644,10 @@ const aliasDisplayCategoryOptions = computed(() => flattenCategoryNodes(categori
   id: Number(category.id || 0),
   label: `${Number(category.customer_id || 0) > 0 ? `${customerName(category.customer_id) || '客户'} / ` : ''}${category.name || ''}`,
 })).filter((category) => category.id > 0 && category.label))
-const visibleCustomerProductAliases = computed(() => customerProductAliasRowsForCustomer(customerProductAliases.value, selectedAliasCustomerID.value, { includeInactive: true }))
+const visibleCustomerProductAliases = computed(() => customerProductAliasRowsForCustomer(customerProductAliases.value, selectedAliasCustomerID.value, {
+  active: aliasFilters.value.active,
+  query: aliasFilters.value.query,
+}))
 const aliasBatchRows = computed(() => skuTableRowsFromFlatProducts(aliasProductOptions.value, categories.value, () => true))
 const aliasBatchFilteredRows = computed(() => filterAliasBatchRows(aliasBatchRows.value, aliasBatchFilters.value))
 const aliasBatchCandidateRows = computed(() => aliasBatchFilteredRows.value.slice(0, 300))
@@ -2255,6 +2332,7 @@ function decorateCustomerProductAlias(alias = {}) {
     product_code: alias.product_code || '',
     product_name: alias.product_name || '',
     display_category_name: alias.display_category_name || '',
+    industry_fields: (alias.industry_fields || []).map((field, index) => defaultProductProductionConfigField(field, index)),
   }
 }
 
@@ -4190,6 +4268,89 @@ async function disableCustomerProductAlias(alias) {
   }
 }
 
+async function batchDisableCustomerProductAliases() {
+  const ids = selectedAliasIds.value.map((id) => Number(id || 0)).filter((id) => id > 0)
+  if (!ids.length) return
+  aliasSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const result = await apiSend('/api/customer-product-aliases/batch-disable', { body: { ids } })
+    ok.value = `批量停用完成：停用 ${Number(result?.disabled_count || 0)} 个，跳过 ${Number(result?.skipped_count || 0)} 个`
+    selectedAliasIds.value = []
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '批量停用客户商品名失败'
+  } finally {
+    aliasSaving.value = false
+  }
+}
+
+function industryFieldOptions(field = {}) {
+  try {
+    const parsed = JSON.parse(String(field.options_json || '[]'))
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean) : []
+  } catch (_) {
+    return []
+  }
+}
+
+async function openAliasIndustryFieldDrawer(alias) {
+  const id = Number(alias?.id || 0)
+  if (!id) return
+  aliasIndustryFieldAlias.value = alias
+  aliasIndustryFieldDrawerOpen.value = true
+  aliasIndustryFieldSaving.value = true
+  error.value = ''
+  try {
+    const data = await apiGet(`/api/customer-product-aliases/${id}/industry-fields`)
+    aliasIndustryFieldForm.value = {
+      fields: (data.fields || []).map((field, index) => ({
+        ...defaultProductProductionConfigField(field, index),
+        value_text: String(field.value_text || '').trim(),
+      })),
+    }
+  } catch (err) {
+    error.value = err.message || '加载客户行业字段失败'
+    aliasIndustryFieldForm.value = { fields: alias.industry_fields || [] }
+  } finally {
+    aliasIndustryFieldSaving.value = false
+  }
+}
+
+function closeAliasIndustryFieldDrawer() {
+  aliasIndustryFieldDrawerOpen.value = false
+  aliasIndustryFieldAlias.value = null
+  aliasIndustryFieldForm.value = { fields: [] }
+}
+
+async function saveAliasIndustryFields() {
+  const id = Number(aliasIndustryFieldAlias.value?.id || 0)
+  if (!id) return
+  aliasIndustryFieldSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const data = await apiSend(`/api/customer-product-aliases/${id}/industry-fields`, {
+      method: 'PUT',
+      body: buildCustomerProductAliasIndustryFieldPayload(aliasIndustryFieldForm.value),
+    })
+    const updatedFields = data.fields || []
+    customerProductAliases.value = customerProductAliases.value.map((row) => Number(row.id || 0) === id
+      ? { ...row, industry_fields: updatedFields }
+      : row)
+    if (aliasIndustryFieldAlias.value) {
+      aliasIndustryFieldAlias.value = { ...aliasIndustryFieldAlias.value, industry_fields: updatedFields }
+    }
+    ok.value = '客户行业字段已保存'
+    closeAliasIndustryFieldDrawer()
+  } catch (err) {
+    error.value = err.message || '保存客户行业字段失败'
+  } finally {
+    aliasIndustryFieldSaving.value = false
+  }
+}
+
 function nextCategoryName(baseName, siblings = []) {
   const existingNames = new Set((siblings || []).map((category) => String(category?.name || '').trim()))
   if (!existingNames.has(baseName)) return baseName
@@ -5107,6 +5268,9 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .alias-toolbar label span, .customer-alias-form label span { color: #5f5a52; font-weight: 600; }
 .customer-alias-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: end; }
 .customer-alias-form .span-2 { grid-column: 1 / -1; }
+.alias-filters { display: grid; grid-template-columns: minmax(220px, 1fr) 160px auto; gap: 10px; align-items: end; padding: 10px; margin: 10px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fff; }
+.alias-filters label { display: grid; gap: 5px; font-size: 13px; }
+.alias-filters label span { color: #5f5a52; font-weight: 600; }
 .checkbox-row { display: inline-flex !important; grid-template-columns: auto 1fr; align-items: center; gap: 8px !important; }
 .checkbox-row input { width: auto; min-height: 0; }
 .customer-alias-table { min-width: 980px; }
@@ -5160,16 +5324,21 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .drawer-head-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .classification-config-body { display: grid; gap: 12px; }
 .classification-category-editor { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid #eee8df; }
-.classification-category-form { display: grid; grid-template-columns: minmax(180px, 1fr) 110px auto; gap: 8px; align-items: end; }
+.classification-category-form { display: grid; grid-template-columns: minmax(180px, 1fr) 110px minmax(320px, 1.4fr) auto; gap: 8px; align-items: end; }
+.classification-category-template-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .classification-category-list, .classification-assignment-list { display: grid; gap: 8px; }
 .classification-category-row, .classification-assignment-row { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto auto auto; gap: 8px; align-items: center; padding: 8px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; }
 .classification-assignment-row { grid-template-columns: minmax(180px, 1fr) minmax(180px, 240px); }
 .classification-view-toolbar { display: grid; gap: 10px; padding: 10px; margin: 10px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
+.classification-action-card { border: 1px solid #e7ded4; border-radius: 8px; padding: 10px; background: #fff; }
 .classification-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
 .classification-tab { height: 32px; border-color: #d8cec2; background: #fff; color: #2f2a25; }
 .classification-tab.active { border-color: #1f1f1f; background: #1f1f1f; color: #fff; }
 .classification-actions { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
 .classification-actions label { display: grid; gap: 4px; }
+.classification-template-actions-bottom { justify-content: flex-end; margin-top: 14px; padding-top: 12px; border-top: 1px solid #eee8df; }
+.industry-field-cell { max-width: 260px; }
+.industry-field-cell span { display: block; line-height: 1.35; color: #3f3a33; }
 .classification-group-row td { background: #f6f1ea; border-top: 1px solid #e5ded4; border-bottom: 1px solid #e5ded4; color: #3b332a; }
 .classification-group-row strong { margin: 0 8px; }
 .classification-group-row small { color: #7c7064; }

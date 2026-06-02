@@ -10,10 +10,14 @@ import {
   buildCustomerProductAliasPayload,
   buildCustomerProductAliasBatchPayload,
   buildClassificationTemplateUsagePayload,
+  buildCustomerProductAliasIndustryFieldPayload,
   classificationAssignmentConflict,
   classificationAssignmentLabel,
   classificationTemplateUnitPriceWarnings,
   customerProductAliasRowsForCustomer,
+  industryFieldOptionsJSONFromText,
+  industryFieldOptionsTextFromJSON,
+  industryFieldSummary,
   classificationTemplateTabs,
   groupRowsByClassificationCategory,
   customerProductAliasMigrationCandidateSummary,
@@ -231,6 +235,39 @@ test('customer product alias batch payload creates many customer-facing names fr
     include_in_price_list: true,
     brand_name: '',
     display_category_id: 12,
+  })
+})
+
+test('customer product alias rows support active filters and search like product archive', () => {
+  const aliases = [
+    { id: 1, customer_id: 42, display_name: 'Karen 深烘', customer_item_code: 'CPA-000001', product_code: 'SKU-000001', product_name: '意式拼配', brand_name: '', active: true },
+    { id: 2, customer_id: 42, display_name: 'Karen 中烘', customer_item_code: 'CPA-000002', product_code: 'SKU-000002', product_name: '甜感拼配', brand_name: '', active: false },
+    { id: 3, customer_id: 9, display_name: 'Other', customer_item_code: 'CPA-000003', product_code: 'SKU-000003', product_name: '其他', brand_name: '', active: true },
+  ]
+
+  assert.deepEqual(customerProductAliasRowsForCustomer(aliases, 42, { active: 'active' }).map((row) => row.id), [1])
+  assert.deepEqual(customerProductAliasRowsForCustomer(aliases, 42, { active: 'inactive' }).map((row) => row.id), [2])
+  assert.deepEqual(customerProductAliasRowsForCustomer(aliases, 42, { active: 'all', query: '甜感' }).map((row) => row.id), [2])
+  assert.deepEqual(customerProductAliasRowsForCustomer(aliases, 42, { active: 'all', query: 'SKU-000001' }).map((row) => row.id), [1])
+})
+
+test('industry field helpers use comma text for select options and build alias field payloads', () => {
+  assert.equal(industryFieldOptionsTextFromJSON('["浅烘","中烘","深烘"]'), '浅烘, 中烘, 深烘')
+  assert.equal(industryFieldOptionsJSONFromText('浅烘, 中烘，深烘'), '["浅烘","中烘","深烘"]')
+  assert.equal(industryFieldSummary([
+    { label: '烘焙度', value_text: '深烘' },
+    { field_key: 'process', value_text: '水洗' },
+    { label: '空值', value_text: '' },
+  ]), '烘焙度：深烘；process：水洗')
+  assert.deepEqual(buildCustomerProductAliasIndustryFieldPayload({
+    fields: [
+      { field_key: 'roast_level', value_text: ' 深烘 ' },
+      { field_key: '', value_text: '跳过' },
+    ],
+  }), {
+    fields: [
+      { field_key: 'roast_level', value_text: '深烘' },
+    ],
   })
 })
 

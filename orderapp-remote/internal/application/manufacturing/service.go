@@ -171,7 +171,7 @@ func (s *Service) SaveIndustryTemplate(ctx context.Context, cmd SaveIndustryTemp
 		return IndustryFieldTemplate{}, fmt.Errorf("name required")
 	}
 	if cmd.IndustryKey == "" {
-		return IndustryFieldTemplate{}, fmt.Errorf("industry_key required")
+		cmd.IndustryKey = "general"
 	}
 	if cmd.Status != "active" && cmd.Status != "inactive" {
 		return IndustryFieldTemplate{}, fmt.Errorf("invalid status")

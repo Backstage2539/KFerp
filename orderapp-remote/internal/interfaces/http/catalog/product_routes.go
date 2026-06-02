@@ -27,8 +27,11 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/customer-product-aliases", h.customerProductAliasesAPI)
 	e.GET("/api/customer-product-aliases/migration-candidates", h.customerProductAliasMigrationCandidatesAPI)
 	e.POST("/api/customer-product-aliases/batch", h.batchCustomerProductAliasesAPI)
+	e.POST("/api/customer-product-aliases/batch-disable", h.batchDisableCustomerProductAliasesAPI)
 	e.POST("/api/customer-product-aliases", h.saveCustomerProductAliasAPI)
 	e.PUT("/api/customer-product-aliases/:id", h.saveCustomerProductAliasAPI)
+	e.GET("/api/customer-product-aliases/:id/industry-fields", h.customerProductAliasIndustryFieldsAPI)
+	e.PUT("/api/customer-product-aliases/:id/industry-fields", h.saveCustomerProductAliasIndustryFieldsAPI)
 	e.POST("/api/customer-product-aliases/:id/disable", h.disableCustomerProductAliasAPI)
 	e.GET("/api/product-settings/categories", h.productCategoriesAPI)
 	e.GET("/api/product-production-configs", h.productProductionConfigsAPI)
@@ -252,6 +255,14 @@ type customerProductAliasBatchAPIRequest struct {
 	BrandName                string  `json:"brand_name"`
 	DisplayCategoryID        int64   `json:"display_category_id"`
 	ClassificationTemplateID int64   `json:"classification_template_id"`
+}
+
+type customerProductAliasBatchDisableAPIRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
+type customerProductAliasIndustryFieldsAPIRequest struct {
+	Fields []catalogapp.ProductProductionConfigField `json:"fields"`
 }
 
 type customerProductRuleTemplateAPIRequest struct {
@@ -805,9 +816,14 @@ func (h productHandler) customerProductAliasesAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid customer_id"})
 	}
 	activeParam := strings.ToLower(strings.TrimSpace(c.QueryParam("active")))
+	if activeParam == "" {
+		activeParam = "active"
+	}
 	rows, err := h.catalog.ListCustomerProductAliases(c.Request().Context(), catalogapp.CustomerProductAliasQuery{
-		CustomerID: customerID,
-		ActiveOnly: activeParam == "" || activeParam == "active",
+		CustomerID:  customerID,
+		ActiveOnly:  activeParam == "active",
+		ActiveMode:  activeParam,
+		SearchQuery: c.QueryParam("q"),
 	})
 	if err != nil {
 		if catalogapp.IsValidationError(err) {
@@ -816,6 +832,62 @@ func (h productHandler) customerProductAliasesAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+}
+
+func (h productHandler) batchDisableCustomerProductAliasesAPI(c echo.Context) error {
+	var req customerProductAliasBatchDisableAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	result, err := h.catalog.BatchDisableCustomerProductAliases(c.Request().Context(), catalogapp.BatchDisableCustomerProductAliasesCommand{
+		Actor: support.ActorOf(c),
+		IDs:   req.IDs,
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, result)
+}
+
+func (h productHandler) customerProductAliasIndustryFieldsAPI(c echo.Context) error {
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	rows, err := h.catalog.ListCustomerProductAliasIndustryFields(c.Request().Context(), catalogapp.CustomerProductAliasIndustryFieldQuery{AliasID: id})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"fields": rows})
+}
+
+func (h productHandler) saveCustomerProductAliasIndustryFieldsAPI(c echo.Context) error {
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	var req customerProductAliasIndustryFieldsAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	rows, err := h.catalog.SaveCustomerProductAliasIndustryFields(c.Request().Context(), catalogapp.SaveCustomerProductAliasIndustryFieldsCommand{
+		Actor:   support.ActorOf(c),
+		AliasID: id,
+		Fields:  req.Fields,
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"fields": rows})
 }
 
 func (h productHandler) customerProductAliasMigrationCandidatesAPI(c echo.Context) error {

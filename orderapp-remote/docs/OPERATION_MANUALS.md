@@ -17,13 +17,13 @@
 - `OP_MANUAL_WORKSPACE_MODE.md`：顶部“当前视图”/视图上下文、客户视图、订单视图、保存视图和旧工作台 URL 兼容。
 - `OP_MANUAL_ORDER_SALES.md`：录单、订单列表、客户档案、销售单、合同盖章和出库单。
 - `OP_MANUAL_PRODUCTION.md`：生产计划、生产中、工单、工序卡、商品生产配置快照、生产成本、生产日志、分配批次。
-- `OP_MANUAL_INVENTORY_MATERIALS.md`：物料、原料入库、批次、库存流水、库存调整、商品档案、客户商品名、商品配置和分类模板、阶梯价模板、单位模板、生产 BOM 配方库、BOM 分组和商品生产配置。
+- `OP_MANUAL_INVENTORY_MATERIALS.md`：物料、原料入库、批次、库存流水、库存调整、商品档案、客户商品名、商品配置和分类模板、阶梯价模板、单位模板、BOM 分组、商品生产配置、分类交互和行业字段。
 - `OP_MANUAL_COSTING.md`：成本参数、成本试算、商品生产配置字段、分类模板单归类、商品价格表预览、价格表发布、客户商品名价格来源。
 - `OP_MANUAL_GREEN_BEAN_SALES.md`：生豆产品建档、绑定熟豆 BOM、生豆豆单、ERP 录单和小程序下单。
 - `OP_MANUAL_FINANCE.md`：财务首页、费用管理、月度结账、经营报告、票税台账、财务设置。
 - `OP_MANUAL_SETTINGS_AUDIT.md`：设备产能、发货人、代加工模板、部门员工、操作日志。
 - `OP_MANUAL_NOTIFICATIONS.md`：通知规则、ERP 站内通知和外部 IM 扩展框架。
-- `OP_MANUAL_CUSTOMER_FULFILLMENT.md`：客户管理与客户履约全流程，覆盖客户档案、门户客户配置、客户门户能力模板、客户履约手册入口、角色权限、客户开通、客户商品名、外部用户、客户账户模式、小程序商城、Excel 导入、托管库存、代发/代加工、费用和月结。
+- `OP_MANUAL_CUSTOMER_FULFILLMENT.md`：客户管理与客户履约全流程，覆盖客户档案、门户客户配置、客户门户能力模板、客户履约手册入口、角色权限、客户开通、客户商品名、客户行业字段覆盖、外部用户、客户账户模式、小程序商城、Excel 导入、托管库存、代发/代加工、费用和月结。
 
 ## 手册维护流程图
 ```mermaid

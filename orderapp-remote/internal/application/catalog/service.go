@@ -466,30 +466,33 @@ type CustomerPublicUsageCommand struct {
 }
 
 type CustomerProductAlias struct {
-	ID                       int64  `json:"id"`
-	CustomerID               int64  `json:"customer_id"`
-	CustomerName             string `json:"customer_name"`
-	ProductID                int64  `json:"product_id"`
-	ProductCode              string `json:"product_code"`
-	ProductName              string `json:"product_name"`
-	ProductActive            bool   `json:"product_active"`
-	DisplayName              string `json:"display_name"`
-	CustomerItemCode         string `json:"customer_item_code"`
-	BrandName                string `json:"brand_name"`
-	DisplayCategoryID        int64  `json:"display_category_id"`
-	DisplayCategoryName      string `json:"display_category_name"`
-	ClassificationTemplateID int64  `json:"classification_template_id"`
-	SortOrder                int    `json:"sort_order"`
-	IncludeInPriceList       bool   `json:"include_in_price_list"`
-	Active                   bool   `json:"active"`
-	Remark                   string `json:"remark"`
-	CreatedBy                string `json:"created_by"`
-	UpdatedBy                string `json:"updated_by"`
+	ID                       int64                          `json:"id"`
+	CustomerID               int64                          `json:"customer_id"`
+	CustomerName             string                         `json:"customer_name"`
+	ProductID                int64                          `json:"product_id"`
+	ProductCode              string                         `json:"product_code"`
+	ProductName              string                         `json:"product_name"`
+	ProductActive            bool                           `json:"product_active"`
+	DisplayName              string                         `json:"display_name"`
+	CustomerItemCode         string                         `json:"customer_item_code"`
+	BrandName                string                         `json:"brand_name"`
+	DisplayCategoryID        int64                          `json:"display_category_id"`
+	DisplayCategoryName      string                         `json:"display_category_name"`
+	ClassificationTemplateID int64                          `json:"classification_template_id"`
+	SortOrder                int                            `json:"sort_order"`
+	IncludeInPriceList       bool                           `json:"include_in_price_list"`
+	Active                   bool                           `json:"active"`
+	Remark                   string                         `json:"remark"`
+	CreatedBy                string                         `json:"created_by"`
+	UpdatedBy                string                         `json:"updated_by"`
+	IndustryFields           []ProductProductionConfigField `json:"industry_fields,omitempty"`
 }
 
 type CustomerProductAliasQuery struct {
-	CustomerID int64
-	ActiveOnly bool
+	CustomerID  int64
+	ActiveOnly  bool
+	ActiveMode  string
+	SearchQuery string
 }
 
 type CustomerProductAliasCommand struct {
@@ -511,6 +514,28 @@ type CustomerProductAliasCommand struct {
 type DisableCustomerProductAliasCommand struct {
 	Actor string
 	ID    int64
+}
+
+type BatchDisableCustomerProductAliasesCommand struct {
+	Actor string
+	IDs   []int64
+}
+
+type BatchDisableCustomerProductAliasesResult struct {
+	DisabledCount int     `json:"disabled_count"`
+	SkippedCount  int     `json:"skipped_count"`
+	Disabled      []int64 `json:"disabled"`
+	Skipped       []int64 `json:"skipped"`
+}
+
+type CustomerProductAliasIndustryFieldQuery struct {
+	AliasID int64
+}
+
+type SaveCustomerProductAliasIndustryFieldsCommand struct {
+	Actor   string
+	AliasID int64
+	Fields  []ProductProductionConfigField
 }
 
 type BatchCustomerProductAliasesCommand struct {
@@ -897,6 +922,9 @@ type Repository interface {
 	SaveCustomerProductAlias(ctx context.Context, cmd CustomerProductAliasCommand) (CustomerProductAlias, error)
 	BatchCreateCustomerProductAliases(ctx context.Context, cmd BatchCustomerProductAliasesCommand) (BatchCustomerProductAliasesResult, error)
 	DisableCustomerProductAlias(ctx context.Context, cmd DisableCustomerProductAliasCommand) error
+	BatchDisableCustomerProductAliases(ctx context.Context, cmd BatchDisableCustomerProductAliasesCommand) (BatchDisableCustomerProductAliasesResult, error)
+	ListCustomerProductAliasIndustryFields(ctx context.Context, query CustomerProductAliasIndustryFieldQuery) ([]ProductProductionConfigField, error)
+	SaveCustomerProductAliasIndustryFields(ctx context.Context, cmd SaveCustomerProductAliasIndustryFieldsCommand) ([]ProductProductionConfigField, error)
 	ListCustomerProductAliasMigrationCandidates(ctx context.Context, query CustomerProductAliasMigrationCandidateQuery) ([]CustomerProductAliasMigrationCandidate, error)
 	ListCustomerProductRuleTemplates(ctx context.Context) ([]CustomerProductRuleTemplate, error)
 	ListCustomerProductRuleOverrides(ctx context.Context) ([]CustomerProductRuleOverride, error)
@@ -1726,6 +1754,18 @@ func (s *Service) ListCustomerProductAliases(ctx context.Context, query Customer
 	if query.CustomerID < 0 {
 		return nil, ValidationError{Message: "invalid customer_id"}
 	}
+	query.ActiveMode = strings.ToLower(strings.TrimSpace(query.ActiveMode))
+	if query.ActiveMode == "" {
+		if query.ActiveOnly {
+			query.ActiveMode = "active"
+		} else {
+			query.ActiveMode = "all"
+		}
+	}
+	if query.ActiveMode != "active" && query.ActiveMode != "inactive" && query.ActiveMode != "all" {
+		return nil, ValidationError{Message: "invalid active"}
+	}
+	query.SearchQuery = strings.TrimSpace(query.SearchQuery)
 	return s.repo.ListCustomerProductAliases(ctx, query)
 }
 
@@ -1760,6 +1800,52 @@ func (s *Service) DisableCustomerProductAlias(ctx context.Context, cmd DisableCu
 		return ValidationError{Message: "invalid id"}
 	}
 	return s.repo.DisableCustomerProductAlias(ctx, cmd)
+}
+
+func (s *Service) BatchDisableCustomerProductAliases(ctx context.Context, cmd BatchDisableCustomerProductAliasesCommand) (BatchDisableCustomerProductAliasesResult, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	seen := map[int64]bool{}
+	ids := make([]int64, 0, len(cmd.IDs))
+	for _, id := range cmd.IDs {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return BatchDisableCustomerProductAliasesResult{}, ValidationError{Message: "ids required"}
+	}
+	cmd.IDs = ids
+	return s.repo.BatchDisableCustomerProductAliases(ctx, cmd)
+}
+
+func (s *Service) ListCustomerProductAliasIndustryFields(ctx context.Context, query CustomerProductAliasIndustryFieldQuery) ([]ProductProductionConfigField, error) {
+	if query.AliasID <= 0 {
+		return nil, ValidationError{Message: "invalid alias_id"}
+	}
+	return s.repo.ListCustomerProductAliasIndustryFields(ctx, query)
+}
+
+func (s *Service) SaveCustomerProductAliasIndustryFields(ctx context.Context, cmd SaveCustomerProductAliasIndustryFieldsCommand) ([]ProductProductionConfigField, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.AliasID <= 0 {
+		return nil, ValidationError{Message: "invalid alias_id"}
+	}
+	fields := make([]ProductProductionConfigField, 0, len(cmd.Fields))
+	seen := map[string]bool{}
+	for _, field := range cmd.Fields {
+		key := strings.TrimSpace(field.FieldKey)
+		if key == "" || seen[strings.ToLower(key)] {
+			continue
+		}
+		field.FieldKey = key
+		field.ValueText = strings.TrimSpace(field.ValueText)
+		fields = append(fields, field)
+		seen[strings.ToLower(key)] = true
+	}
+	cmd.Fields = fields
+	return s.repo.SaveCustomerProductAliasIndustryFields(ctx, cmd)
 }
 
 func (s *Service) BatchCreateCustomerProductAliases(ctx context.Context, cmd BatchCustomerProductAliasesCommand) (BatchCustomerProductAliasesResult, error) {
