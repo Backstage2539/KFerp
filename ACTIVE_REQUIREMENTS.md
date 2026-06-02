@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-397-PRODUCT-CLASSIFICATION-INDUSTRY-FIELDS
 - Branch: codex/product-classification-industry-fields-20260603
 - Owner/session: Codex / 2026-06-03
-- Status: implementation verified locally; pending merge to develop and development deployment
+- Status: merged and deployed to development
 - Scope: 分类交互拆为增加分类和移动分类两张卡片；客户商品名补齐搜索、启停过滤、批量停用和客户行业字段覆盖；商品价格表 SQL 修复 `classification_template_id` 歧义；分类模板编辑优化；生产 BOM 移到生产管理；行业字段模板改成左列表右编辑、文本/下拉字段。
 - DEV:
   - DEV-397-CLASSIFICATION-ACTION-CARDS：商品档案和客户商品名分类工具区拆成两张 action card，分类模板保存/删除在底部，分类项阶梯价/单位模板并排。
@@ -20,14 +20,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-397-MANUAL-DOCS：更新需求、验收、商品/成本/生产/履约手册和 acceptance 证据。
 - Verifier:
   - Frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js orderapp-remote/frontend-vue-shell/src/lib/product-bean-list-split.test.js orderapp-remote/frontend-vue-shell/src/lib/menu-ia.test.js`
-  - API/backend: `go test ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/costing ./internal/interfaces/http/manufacturing -count=1`
+  - API/backend: `go test ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/costing ./internal/interfaces/http/manufacturing ./internal/interfaces/http/support -count=1`; `go test ./...` in `orderapp-remote`
   - Build: `npm run build` in `orderapp-remote/frontend-vue-shell`
   - Changed verifier: `scripts/verify_kferp.sh changed`
   - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`
   - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-product-classification-industry-fields.md`
-- Deployment: pending.
+- Deployment: feature branch pushed; merged to `develop` with `fa0b3241d3edda505fe77e0e1602513fd4d58701`; full Go test fake fix merged with `ba0da7e4011170efd67e5d9651060a93d1cfa13a`; development stack deployed with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603012742`.
 - Last update: 2026-06-03 Asia/Shanghai
-- Notes: Van requested no browser/manual验收; use code/docs/unit/API/build verification only. Local target evidence so far: frontend 130/130 passed; targeted catalog/costing/manufacturing Go tests passed; Vue build passed with existing chunk-size warning.
+- Notes: Van requested no browser/manual验收; use code/docs/unit/API/build verification only. Evidence: frontend target tests passed 130/130; targeted catalog/costing/manufacturing/support Go tests passed; `go test ./...` passed locally and inside Docker build; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0. Smoke: containers running; unauthenticated `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell`, `/app/api/product-settings`, and `/app/api/customer-product-aliases?active=all&q=` returned 200; requirement API exposes `PR-397-PRODUCT-CLASSIFICATION-INDUSTRY-FIELDS`.
 
 ### PR-396-PRODUCT-CLASSIFICATION-COPY-FIXES
 - Branch: codex/product-classification-copy-fixes-20260602
