@@ -33,14 +33,13 @@ func TestDev170ProductSettingsLayoutUsesTopLevelCustomerContext(t *testing.T) {
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
 		"sku-context-panel",
-			"SKU归属",
-			"selectedSkuContextLabel",
-			"productClassificationTabs",
-			"aliasClassificationTabs",
-			"skuContextProductFilter",
-			"v-for=\"group in displaySkuGroups\"",
-			"v-for=\"group in visibleCustomerAliasGroups\"",
-			"价格表生成请进入产品价格表",
+		"SKU归属",
+		"selectedSkuContextLabel",
+		"productClassificationTabs",
+		"aliasClassificationTabs",
+		"skuContextProductFilter",
+		"v-for=\"group in displaySkuGroups\"",
+		"v-for=\"group in visibleCustomerAliasGroups\"",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("ProductSettingsView.vue missing customer context marker %q", want)

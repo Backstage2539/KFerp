@@ -461,93 +461,45 @@ func TestCreateCustomProductCopyBOMPreservesComponentFields(t *testing.T) {
 	}
 }
 
-func TestCopySKUsRewritesCrossCustomerProductReferences(t *testing.T) {
+func TestCopyProductArchiveCopiesConfigurationSnapshots(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(repository)
+	fn := catalogRepositoryFunctionForTest(t, src, "func (r Repository) CopyProduct", "func fetchProductForCopyTx")
 	for _, want := range []string{
-		"type skuCopyPlan struct",
-		"sourceToTarget := map[int64]int64{}",
-		"resolveSKUCopyProductReferenceTx",
-		"updateCopiedSKUGreenBeanReferenceTx",
-		"componentType == \"finished_product\"",
-		"componentProductID, err = resolveSKUCopyProductReferenceTx",
-		"SELECT id, name, COALESCE(customer_id,0), COALESCE(product_category_id,0)",
-		"belongs to customer",
-	} {
-		if !strings.Contains(src, want) {
-			t.Fatalf("SKU copy product reference rewrite missing marker %q", want)
-		}
-	}
-	copyBOM := catalogRepositoryFunctionForTest(t, src, "func copyProductBOMTx", "func copyProductPriceTiersTx")
-	if strings.Contains(copyBOM, "SELECT $1,material_id,component_type,component_product_id") {
-		t.Fatalf("copyProductBOMTx must not copy component_product_id verbatim")
-	}
-}
-
-func TestCopySKUsUsesBomInheritanceInsteadOfCopyingBomItems(t *testing.T) {
-	repository, err := os.ReadFile("repository.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fn := catalogRepositoryFunctionForTest(t, string(repository), "func (r Repository) CopySKUs", "func replaceProductPriceTiersTx")
-	for _, want := range []string{
-		"setProductBOMSourceToInheritTx",
-		`"bom_source_type":    "inherit_current"`,
-		`"source_product_id":   plan.source.ID`,
+		"nextProductArchiveCopyNameTx",
+		"product_config_template_id",
+		"product_price_tiers",
+		"product_production_configs",
+		"product_production_bom_bindings",
+		"product_production_config_fields",
+		"copy_product_archive",
 	} {
 		if !strings.Contains(fn, want) {
-			t.Fatalf("CopySKUs must write inherited BOM source metadata, missing %q", want)
+			t.Fatalf("CopyProduct must copy product archive configuration; missing %q", want)
 		}
 	}
-	if strings.Contains(fn, "copyProductBOMTx") {
-		t.Fatalf("CopySKUs must not copy BOM items by default; use inherited BOM source instead")
-	}
 }
 
-func TestListSKUCopyOptionsBuffersRowsBeforeTargetLookups(t *testing.T) {
+func TestLegacySKUCopyRepositoryCodeIsRemoved(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	fn := catalogRepositoryFunctionForTest(t, string(repository), "func (r Repository) ListSKUCopyOptions", "func (r Repository) CopySKUs")
-	if strings.Contains(fn, "defer rows.Close()") {
-		t.Fatalf("ListSKUCopyOptions must close source rows before running target lookups on the same transaction")
-	}
-	rowsErr := strings.Index(fn, "if err := rows.Err(); err != nil")
-	targetLookup := strings.Index(fn, "findEquivalentCategoryForTargetTx")
-	if rowsErr < 0 || targetLookup < 0 {
-		t.Fatalf("ListSKUCopyOptions missing rows.Err or target lookup markers")
-	}
-	if targetLookup < rowsErr {
-		t.Fatalf("ListSKUCopyOptions runs target lookups before source rows are fully consumed; this can trigger pgx conn busy")
-	}
-	if !strings.Contains(fn, "sourceOptions := make([]catalogapp.SKUCopyOption, 0)") {
-		t.Fatalf("ListSKUCopyOptions should buffer source SKU rows before annotating overwrite state")
-	}
-}
-
-func TestCopyProductBOMBuffersRowsBeforeReferenceLookups(t *testing.T) {
-	repository, err := os.ReadFile("repository.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fn := catalogRepositoryFunctionForTest(t, string(repository), "func copyProductBOMTx", "func copyProductPriceTiersTx")
-	if strings.Contains(fn, "defer rows.Close()") {
-		t.Fatalf("copyProductBOMTx must close source rows before resolving copied product references on the same transaction")
-	}
-	rowsErr := strings.Index(fn, "if err := rows.Err(); err != nil")
-	referenceLookup := strings.Index(fn, "resolveSKUCopyProductReferenceTx")
-	if rowsErr < 0 || referenceLookup < 0 {
-		t.Fatalf("copyProductBOMTx missing rows.Err or reference lookup markers")
-	}
-	if referenceLookup < rowsErr {
-		t.Fatalf("copyProductBOMTx resolves product references before source rows are fully consumed; this can trigger pgx conn busy")
-	}
-	if !strings.Contains(fn, "bomItems := make([]skuCopyBOMItem, 0)") {
-		t.Fatalf("copyProductBOMTx should buffer BOM item rows before copying them")
+	src := string(repository)
+	for _, forbidden := range []string{
+		"func (r Repository) CopySKUs",
+		"func (r Repository) ListSKUCopyOptions",
+		"func copyProductBOMTx",
+		"resolveSKUCopyProductReferenceTx",
+		"skuCopyPlan",
+		"skuCopyBOMItem",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("legacy SKU copy repository code must be removed, found %q", forbidden)
+		}
 	}
 }
 

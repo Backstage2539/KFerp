@@ -25,21 +25,17 @@ func TestDev377ProductConfigKVSKUReferenceLayoutSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"复制为客户配置",
-			"SKU复制",
-			"usePublicSku: false",
-			"usePublicSkuInCategoryTree: false",
+			"复制为商品档案",
+			"copyProductArchive",
 			"sku-table-wrap",
 			"sku-category-cell",
 			"white-space: nowrap",
-		},
-		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"商品生产配置",
 			"productionConfigPriceListFields",
 			"show_in_price_list",
 		},
 		filepath.Join("internal", "application", "catalog", "service.go"): {
 			"func (s *Service) DeriveProductConfigTemplate",
-			"CopySKUs(ctx context.Context, cmd CopySKUsCommand)",
+			"CopyProduct(ctx context.Context, cmd CopyProductCommand)",
 		},
 	}
 

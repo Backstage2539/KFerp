@@ -26,7 +26,6 @@ import {
   buildProductBasicsPayload,
   buildProductBomURL,
   buildProductCreatePayload,
-  buildSkuCopyPayload,
   buildSkuCreatePayload,
   buildSkuConfigOverridePayload,
   buildSkuContextCategoryTree,
@@ -174,18 +173,6 @@ test('unified SKU create payload is owned by current view and carries no legacy 
   assert.equal(Object.hasOwn(payload, 'product_subtype_category_id'), false)
 })
 
-test('SKU copy payload supports all selected SKU ids and same-name overwrite flow', () => {
-  assert.deepEqual(buildSkuCopyPayload({
-    target_customer_id: 42,
-    source_customer_id: 0,
-    source_sku_ids: [7, '8', 0, 7],
-  }), {
-    target_customer_id: 42,
-    source_customer_id: 0,
-    source_sku_ids: [7, 8],
-  })
-})
-
 test('customer product alias payload binds a customer-facing name to one product record', () => {
   assert.deepEqual(buildCustomerProductAliasPayload({
     id: '12',
@@ -205,7 +192,6 @@ test('customer product alias payload binds a customer-facing name to one product
     customer_id: 42,
     product_id: 88,
     display_name: 'Karen 精品拼配',
-    customer_item_code: 'KAREN-ESP',
     brand_name: '',
     display_category_id: 7,
     sort_order: 30,
@@ -268,12 +254,13 @@ test('classification template usages are page-level tabs instead of object field
     { classification_template_id: 88, active: true, sort_order: 30 },
     { classification_template_id: 89, active: true, sort_order: 10 },
     { classification_template_id: 90, active: true, sort_order: 1 },
-  ], { allLabel: '全部客户商品' })
+  ], { allLabel: '全部客户商品', unclassifiedLabel: '未分类客户商品' })
 
-  assert.deepEqual(tabs.map((tab) => tab.label), ['全部客户商品', '报价分类', '门店展示'])
+  assert.deepEqual(tabs.map((tab) => tab.label), ['全部客户商品', '未分类客户商品', '报价分类', '门店展示'])
   assert.deepEqual(groupRowsByClassificationCategory([
     { id: 1, display_name: 'A' },
     { id: 2, display_name: 'B' },
+    { id: 3, display_name: 'C' },
   ], {
     id: 88,
     categories: [
@@ -282,11 +269,12 @@ test('classification template usages are page-level tabs instead of object field
     ],
     customer_alias_assignments: [
       { alias_id: 2, template_id: 88, category_id: 701, sort_order: 1 },
+      { alias_id: 3, template_id: 88, category_id: 0, sort_order: 2 },
     ],
-  }, { idKey: 'id', assignmentKey: 'alias_id', assignmentsKey: 'customer_alias_assignments' }).map((group) => [group.label, group.rows.map((row) => row.id)]), [
+  }, { idKey: 'id', assignmentKey: 'alias_id', assignmentsKey: 'customer_alias_assignments', onlyAssigned: true }).map((group) => [group.label, group.rows.map((row) => row.id)]), [
     ['熟豆', []],
     ['挂耳', [2]],
-    ['未分类', [1]],
+    ['未分类', [3]],
   ])
 })
 
@@ -302,9 +290,8 @@ test('customer product alias rows are scoped to one customer and sorted for pric
   assert.deepEqual(customerProductAliasRowsForCustomer(rows, 42, { includeInactive: true }).map((row) => row.id), [2, 4, 1])
 })
 
-test('product creation actions split customer-facing names from new product records', () => {
+test('product creation actions keep only the product archive creation entry', () => {
   assert.deepEqual(productCreationActionOptions({ customerID: 42 }).map((option) => option.label), [
-    '创建客户商品名',
     '创建新商品档案',
   ])
   assert.deepEqual(productCreationActionOptions({ customerID: 0 }).map((option) => option.label), [
@@ -1316,8 +1303,6 @@ test('product pages split product archive, aliases and config templates without 
     '商品配置模板',
     '生产配置',
     '商品分类',
-    '价格/单位摘要',
-    '状态备注',
     'sectionMode',
   ]) {
     assert.ok(source.includes(expected) || app.includes(expected), `missing split product page marker: ${expected}`)
@@ -1441,27 +1426,31 @@ test('SKU creation uses one unified product archive form without legacy classifi
   assert.doesNotMatch(source, /const categoryID = Number\(form\?\.product_type_category_id/)
 })
 
-test('SKU settings exposes SKU copy drawer while classification templates replace legacy category management', () => {
+test('SKU settings removes legacy SKU copy drawer while classification templates replace legacy category management', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   for (const expected of [
-    '历史SKU复制',
-    'sku-copy-drawer',
-    '选择分类和产品',
-    'copySourceCustomerID',
-    'skuCopySourceOptions',
-    'ensureSkuCopySource',
-    'copySkuSelection',
     '复制为商品档案',
     '分类模板',
     'productClassificationTabs',
     "currentSettingsSection === 'master'",
+    '/api/product-settings/products/${row.id}/copy',
+  ]) {
+    assert.ok(source.includes(expected), `missing SKU copy/category management marker: ${expected}`)
+  }
+  for (const removed of [
+    '历史SKU复制',
+    'sku-copy-drawer',
+    'copySourceCustomerID',
+    'skuCopySourceOptions',
+    'ensureSkuCopySource',
+    'copySkuSelection',
     '/api/product-settings/skus/copy-options',
     '/api/product-settings/skus/copy',
   ]) {
-    assert.ok(source.includes(expected), `missing SKU copy/category management marker: ${expected}`)
+    assert.doesNotMatch(source, new RegExp(removed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
   assert.doesNotMatch(template, />分类设置</)
   assert.doesNotMatch(script, /derivePublicSku\(/)
@@ -1534,13 +1523,14 @@ test('SKU subtype config explains unit impact and stays inside narrow category p
   }
 })
 
-test('SKU settings removes public SKU references from the customer SKU list and uses SKU copy instead', () => {
+test('SKU settings removes public SKU references from the customer SKU list and product archive flow', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
 
   assert.match(source, /usePublicSkuInCategoryTree:\s*false/)
   assert.match(source, /usePublicSku:\s*false/)
-  assert.match(template, /SKU复制/)
+  assert.match(template, /创建新商品档案/)
+  assert.doesNotMatch(template, /SKU复制/)
   assert.doesNotMatch(template, /是否使用公共SKU/)
   assert.doesNotMatch(source, /savePublicSkuUsageForCustomer/)
 })
@@ -1559,6 +1549,11 @@ test('product archive list uses the product name as the only production config e
   assert.doesNotMatch(template, /更换生产 BOM/)
   assert.doesNotMatch(template, />维护 BOM<\/button>/)
   assert.doesNotMatch(template, /<th>BOM<\/th>/)
+  assert.doesNotMatch(template, /product-action-guide/)
+  assert.doesNotMatch(template, /production-config-summary/)
+  assert.doesNotMatch(source, /BOM已失效/)
+  assert.doesNotMatch(source, /缺BOM/)
+  assert.doesNotMatch(source, /row\.bom_status/)
   assert.doesNotMatch(template, /特殊属性/)
   assert.doesNotMatch(template, /special-attr-editor/)
   assert.doesNotMatch(template, /产品信息字段（特殊属性KV）/)
@@ -1606,7 +1601,8 @@ test('product pages group product archive and template configuration into separa
     template.indexOf('class="panel product-panel"') < template.indexOf('class="sku-template-workspace"'),
     'SKU list should remain in the daily-operation workspace before template configuration',
   )
-  assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"[\s\S]*@click="openSkuCopyDrawer"/)
+  assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"/)
+  assert.doesNotMatch(template, /@click="openSkuCopyDrawer"/)
   assert.doesNotMatch(template, /v-if="currentSettingsSection === 'master'"[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
   assert.match(template, /class="classification-view-toolbar product-classification-tabs"/)
   assert.match(style, /\.master-data-layout\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*minmax\(0,\s*1fr\);/)
@@ -1640,40 +1636,41 @@ test('product management exposes customer product names without direct BOM editi
   assert.match(script, /apiGet\('\/api\/customer-product-aliases\?active=all'\)/)
   assert.match(script, /apiSend\(url,\s*\{ method,\s*body:\s*payload \}\)/)
   assert.match(script, /apiSend\(`\/api\/customer-product-aliases\/\$\{alias\.id\}\/disable`\)/)
+  const aliasForm = template.match(/<form class="customer-alias-form"[\s\S]*?<\/form>/)?.[0] || ''
+  assert.doesNotMatch(aliasForm, /customerProductAliasForm\.customer_item_code/)
+  assert.doesNotMatch(template, />编辑<\/button>/)
   assert.doesNotMatch(template, /客户商品名[\s\S]*派生自有 BOM/)
   assert.doesNotMatch(template, /customer-alias-workspace[\s\S]*@click="derive/)
 })
 
-test('SKU settings opens SKU creation and SKU copy behind drawers while classification templates drive product tabs', () => {
+test('SKU settings keeps only the product creation drawer while classification templates drive product tabs', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
-    'skuCopyDrawerOpen',
-    'sku-copy-drawer',
-    'openSkuCopyDrawer',
     'productClassificationTabs',
     'displaySkuGroups',
-    '使用分类模板',
+    '增加分类',
     '移动到分类',
+    '移动到子类',
     'classification-group-row',
     'product-editor-drawer',
     'openProductDrawer',
-    'SKU复制',
-    '新增SKU',
+    '创建新商品档案',
   ]) {
     assert.ok(source.includes(expected), `missing compact SKU settings marker: ${expected}`)
   }
 
   assert.doesNotMatch(template, /class="panel public-product-panel"/)
   assert.doesNotMatch(template, /class="panel custom-product-panel"/)
-  assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"[\s\S]*@click="openSkuCopyDrawer"/)
+  assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"/)
+  assert.doesNotMatch(template, /@click="openSkuCopyDrawer"/)
   assert.doesNotMatch(template, />分类设置</)
   assert.doesNotMatch(template, /v-for="primary in visibleCategoryManagementTreeForSkuContext"/)
   assert.doesNotMatch(template, /class="category-panel category-drawer-panel category-management-panel"/)
-  assert.match(template, /<aside class="settings-drawer sku-copy-drawer"[\s\S]*选择分类和产品/)
+  assert.doesNotMatch(template, /<aside class="settings-drawer sku-copy-drawer"/)
   assert.match(template, /当前SKU \{\{ skuDisplayTotal \}\}/)
   assert.match(template, /:total="skuDisplayTotal"/)
   assert.match(template, /<table :key="skuTableKey" class="sku-table"/)
@@ -1875,6 +1872,8 @@ test('customer product aliases support batch adding product records', () => {
   assert.match(source, /selectedAliasBatchProductIds/)
   assert.match(script, /\/api\/customer-product-aliases\/batch/)
   assert.match(script, /buildCustomerProductAliasBatchPayload/)
+  assert.doesNotMatch(source, /批量创建时客户商品名=商品档案名称，客户商品编号=商品编号/)
+  assert.doesNotMatch(source, /aliasBatchForm\.customer_item_code/)
 })
 
 test('product archive BOM detail navigation uses SPA view events instead of hard refresh', () => {
@@ -2133,8 +2132,11 @@ test('product settings uses classification tabs and page-level assignment contro
     'activeAliasClassificationTab',
     'saveSelectedProductClassificationAssignment',
     'saveSelectedAliasClassificationAssignment',
-    '使用分类模板',
+    '未分类商品',
+    '未分类客户商品',
+    '增加分类',
     '移动到分类',
+    '移动到子类',
   ]) {
     assert.ok(source.includes(expected), `missing classification tab marker: ${expected}`)
   }
@@ -2196,7 +2198,7 @@ test('classification templates and categories reference gradient and unit templa
   assert.match(script, /classificationCategoryForm\.value[\s\S]*unit_template_id/)
 })
 
-test('classification assignment helpers enforce single classification and expose labels', () => {
+test('classification assignment helpers allow direct move overwrite and expose labels', () => {
   const templates = [{
     id: 10,
     name: '报价分类',
@@ -2206,10 +2208,26 @@ test('classification assignment helpers enforce single classification and expose
 
   assert.equal(classificationAssignmentLabel({ id: 88 }, templates, { assignmentType: 'product' }), '报价分类 / 意式拼配')
   assert.equal(classificationAssignmentLabel({ id: 89 }, templates, { assignmentType: 'product' }), '未分类')
-  assert.equal(classificationAssignmentConflict({ id: 88 }, 10, templates, { assignmentType: 'product' })?.message, '已归类，需先移出当前分类')
-  assert.equal(classificationAssignmentConflict({ id: 88 }, 10, templates, { assignmentType: 'product', categoryID: 11 })?.message, '已归类，需先移出当前分类')
-  assert.equal(classificationAssignmentConflict({ id: 88 }, 12, templates, { assignmentType: 'product' })?.message, '已归类，需先移出当前分类')
+  assert.equal(classificationAssignmentConflict({ id: 88 }, 10, templates, { assignmentType: 'product' }), null)
+  assert.equal(classificationAssignmentConflict({ id: 88 }, 10, templates, { assignmentType: 'product', categoryID: 11 }), null)
+  assert.equal(classificationAssignmentConflict({ id: 88 }, 12, templates, { assignmentType: 'product' }), null)
   assert.equal(classificationAssignmentConflict({ id: 89 }, 10, templates, { assignmentType: 'product' }), null)
+})
+
+test('product archive and customer alias classification UX uses big-category tabs and current classification labels', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  assert.match(source, /未分类商品/)
+  assert.match(source, /未分类客户商品/)
+  assert.match(source, /增加分类/)
+  assert.match(source, /移动到分类/)
+  assert.match(source, /移动到子类/)
+  assert.match(template, /当前归类/)
+  assert.match(script, /selectedProductRowsAlreadyInCurrentCategory/)
+  assert.match(script, /selectedAliasRowsAlreadyInCurrentCategory/)
+  assert.doesNotMatch(source, /已归类，需先移出当前分类/)
 })
 
 test('classification template unit and price mismatch warnings compare product config with assigned category', () => {

@@ -184,7 +184,6 @@ export function buildCustomerProductAliasPayload(form = {}) {
     customer_id: Number(form.customer_id || form.customerID || 0),
     product_id: Number(form.product_id || form.productID || 0),
     display_name: String(form.display_name ?? form.displayName ?? '').trim(),
-    customer_item_code: String(form.customer_item_code ?? form.customerItemCode ?? '').trim(),
     brand_name: String(form.brand_name ?? form.brandName ?? '').trim(),
     display_category_id: Number(form.display_category_id || form.displayCategoryID || 0),
     sort_order: Number(form.sort_order || form.sortOrder || 0),
@@ -234,6 +233,17 @@ export function classificationTemplateTabs(templates = [], usages = [], options 
     label: String(options.allLabel || '全部商品'),
     all: true,
   }]
+  if (options.unclassifiedLabel) {
+    tabs.push({
+      key: 'unclassified',
+      id: -1,
+      template_id: 0,
+      label: String(options.unclassifiedLabel),
+      unclassified: true,
+      all: false,
+      sort_order: -1,
+    })
+  }
   for (const usage of usages || []) {
     if (usage?.active === false) continue
     const templateID = Number(usage.classification_template_id || usage.template_id || 0)
@@ -250,7 +260,8 @@ export function classificationTemplateTabs(templates = [], usages = [], options 
       all: false,
     })
   }
-  return tabs.slice(0, 1).concat(tabs.slice(1)
+  const fixedTabs = tabs.filter((tab) => tab.all || tab.unclassified)
+  return fixedTabs.concat(tabs.filter((tab) => !tab.all && !tab.unclassified)
     .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.label || '').localeCompare(String(b.label || ''))))
 }
 
@@ -280,7 +291,6 @@ export function groupRowsByClassificationCategory(rows = [], template = {}, opti
     const assignment = assignmentsByObjectID.get(objectID)
     if (onlyAssigned && !assignment) continue
     const categoryID = Number(assignment?.category_id || 0)
-    if (onlyAssigned && categoryID <= 0) continue
     const target = groupByCategoryID.get(categoryID) || uncategorized
     target.rows.push({
       ...row,
@@ -303,7 +313,7 @@ export function classificationAssignmentForRow(row = {}, templates = [], options
   for (const template of templates || []) {
     const templateID = Number(template?.id || template?.template_id || 0)
     if (!templateID || template?.active === false) continue
-    const assignment = (template?.[assignmentsKey] || []).find((item) => Number(item?.[assignmentIDKey] || 0) === rowID && Number(item?.category_id || 0) > 0)
+    const assignment = (template?.[assignmentsKey] || []).find((item) => Number(item?.[assignmentIDKey] || 0) === rowID)
     if (!assignment) continue
     const categoryID = Number(assignment.category_id || 0)
     const category = (template.categories || []).find((item) => Number(item.id || 0) === categoryID)
@@ -321,15 +331,7 @@ export function classificationAssignmentLabel(row = {}, templates = [], options 
 }
 
 export function classificationAssignmentConflict(row = {}, targetTemplateID = 0, templates = [], options = {}) {
-  const rawTargetCategoryID = options.categoryID ?? options.category_id ?? -1
-  const targetCategoryID = Number(rawTargetCategoryID)
-  if (targetCategoryID === 0) return null
-  const found = classificationAssignmentForRow(row, templates, options)
-  if (!found) return null
-  return {
-    ...found,
-    message: '已归类，需先移出当前分类',
-  }
+  return null
 }
 
 export function classificationTemplateUnitPriceWarnings(input = {}) {
@@ -364,21 +366,11 @@ export function customerProductAliasRowsForCustomer(rows = [], customerID = 0, o
 }
 
 export function productCreationActionOptions(context = {}) {
-  const customerID = Number(context.customerID || context.customer_id || 0)
-  const actions = []
-  if (customerID > 0) {
-    actions.push({
-      key: 'customer_product_alias',
-      label: '创建客户商品名',
-      description: '贴牌、客户命名、客户编号或客户侧分组变化时使用，绑定已有商品档案，不复制生产 BOM。',
-    })
-  }
-  actions.push({
+  return [{
     key: 'product_record',
     label: '创建新商品档案',
     description: '配方、包装、生产方式、库存对象或成本口径变化时使用，后续维护独立生产 BOM。',
-  })
-  return actions
+  }]
 }
 
 export function customerProductAliasMigrationCandidateSummary(row = {}) {
@@ -952,22 +944,6 @@ export function buildSkuCreatePayload(customerID, form = {}) {
   const configTemplateID = Number(form.product_config_template_id || 0)
   if (configTemplateID > 0) payload.product_config_template_id = configTemplateID
   return payload
-}
-
-export function buildSkuCopyPayload(form = {}) {
-  const sourceIDs = []
-  const seen = new Set()
-  for (const rawID of form.source_sku_ids || form.sourceSkuIDs || []) {
-    const id = Number(rawID || 0)
-    if (!id || seen.has(id)) continue
-    sourceIDs.push(id)
-    seen.add(id)
-  }
-  return {
-    target_customer_id: Number(form.target_customer_id || form.targetCustomerID || 0),
-    source_customer_id: Number(form.source_customer_id || form.sourceCustomerID || 0),
-    source_sku_ids: sourceIDs,
-  }
 }
 
 export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {

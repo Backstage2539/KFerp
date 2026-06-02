@@ -52,6 +52,10 @@ type ProductInput struct {
 	BrandName                  string                    `json:"brand_name,omitempty"`
 	DisplayCategoryID          int64                     `json:"display_category_id,omitempty"`
 	DisplayCategoryName        string                    `json:"display_category_name,omitempty"`
+	ClassificationTemplateID   int64                     `json:"classification_template_id,omitempty"`
+	ClassificationTemplateName string                    `json:"classification_template_name,omitempty"`
+	ClassificationCategoryID   int64                     `json:"classification_category_id,omitempty"`
+	ClassificationCategoryName string                    `json:"classification_category_name,omitempty"`
 	BomVersionID               int64                     `json:"bom_version_id,omitempty"`
 	BomVersionNo               string                    `json:"bom_version_no,omitempty"`
 	BomUsageMode               string                    `json:"bom_usage_mode,omitempty"`
@@ -284,6 +288,10 @@ type ProductResult struct {
 	BrandName                      string                    `json:"brand_name,omitempty"`
 	DisplayCategoryID              int64                     `json:"display_category_id,omitempty"`
 	DisplayCategoryName            string                    `json:"display_category_name,omitempty"`
+	ClassificationTemplateID       int64                     `json:"classification_template_id,omitempty"`
+	ClassificationTemplateName     string                    `json:"classification_template_name,omitempty"`
+	ClassificationCategoryID       int64                     `json:"classification_category_id,omitempty"`
+	ClassificationCategoryName     string                    `json:"classification_category_name,omitempty"`
 	BomVersionID                   int64                     `json:"bom_version_id,omitempty"`
 	BomVersionNo                   string                    `json:"bom_version_no,omitempty"`
 	BomUsageMode                   string                    `json:"bom_usage_mode,omitempty"`
@@ -558,6 +566,10 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		BrandName:                  in.BrandName,
 		DisplayCategoryID:          in.DisplayCategoryID,
 		DisplayCategoryName:        in.DisplayCategoryName,
+		ClassificationTemplateID:   in.ClassificationTemplateID,
+		ClassificationTemplateName: in.ClassificationTemplateName,
+		ClassificationCategoryID:   in.ClassificationCategoryID,
+		ClassificationCategoryName: in.ClassificationCategoryName,
 		BomVersionID:               in.BomVersionID,
 		BomVersionNo:               in.BomVersionNo,
 		BomUsageMode:               in.BomUsageMode,
@@ -703,6 +715,10 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		BrandName:                  in.BrandName,
 		DisplayCategoryID:          in.DisplayCategoryID,
 		DisplayCategoryName:        in.DisplayCategoryName,
+		ClassificationTemplateID:   in.ClassificationTemplateID,
+		ClassificationTemplateName: in.ClassificationTemplateName,
+		ClassificationCategoryID:   in.ClassificationCategoryID,
+		ClassificationCategoryName: in.ClassificationCategoryName,
 		BomVersionID:               in.BomVersionID,
 		BomVersionNo:               in.BomVersionNo,
 		BomUsageMode:               in.BomUsageMode,

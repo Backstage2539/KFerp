@@ -723,26 +723,33 @@ func TestCustomerCustomRoastBeanListUsesSkuCategoryMetadata(t *testing.T) {
 func TestPublicCustomProductBeanListUsesSkuCategoryMetadata(t *testing.T) {
 	params := DefaultParameters()
 	input := ProductInput{
-		ProductID:                 1201,
-		Name:                      "冻干速溶咖啡盒装",
-		ProductKind:               "instant_coffee",
-		ProductCategoryID:         620,
-		ProductCategoryPosition:   3,
-		ProductTypeCategoryID:     600,
-		CategoryPrimaryName:       "速溶咖啡",
-		CategoryPrimaryPosition:   4,
-		CategorySecondaryName:     "冻干速溶",
-		CategorySecondaryPosition: 1,
-		GreenBeanCostPerKg:        88,
-		YieldRate:                 0.82,
-		Flavor:                    "焦糖、坚果",
-		BeanListNote:              "盒装 200g 速溶咖啡",
+		ProductID:                  1201,
+		Name:                       "冻干速溶咖啡盒装",
+		ProductKind:                "instant_coffee",
+		ProductCategoryID:          620,
+		ProductCategoryPosition:    3,
+		ProductTypeCategoryID:      600,
+		ClassificationTemplateID:   9001,
+		ClassificationTemplateName: "报价分类",
+		ClassificationCategoryID:   9002,
+		ClassificationCategoryName: "速溶商品",
+		CategoryPrimaryName:        "速溶咖啡",
+		CategoryPrimaryPosition:    4,
+		CategorySecondaryName:      "冻干速溶",
+		CategorySecondaryPosition:  1,
+		GreenBeanCostPerKg:         88,
+		YieldRate:                  0.82,
+		Flavor:                     "焦糖、坚果",
+		BeanListNote:               "盒装 200g 速溶咖啡",
 	}
 
 	got := CalculateProduct(params, input)
 
 	if got.ProductTypeCategoryID != input.ProductTypeCategoryID || got.ProductTypeName != "速溶咖啡" {
 		t.Fatalf("product type fields = id %d name %q", got.ProductTypeCategoryID, got.ProductTypeName)
+	}
+	if got.ClassificationTemplateID != input.ClassificationTemplateID || got.ClassificationTemplateName != input.ClassificationTemplateName || got.ClassificationCategoryID != input.ClassificationCategoryID || got.ClassificationCategoryName != input.ClassificationCategoryName {
+		t.Fatalf("classification fields = %+v", got)
 	}
 	if got.CommercialBeanList.Code != "1.3" {
 		t.Fatalf("commercial code = %q, want 1.3; display=%+v", got.CommercialBeanList.Code, got.CommercialBeanList)

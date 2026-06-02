@@ -189,8 +189,12 @@ func (r Repository) DeactivateBom(ctx context.Context, cmd bomapp.DeactivateBomC
 		return err
 	}
 	var roastLevel string
-	if err := tx.QueryRow(ctx, "SELECT COALESCE(roast_level,'') FROM "+r.schema+".products WHERE id=$1", cmd.ProductID).Scan(&roastLevel); err != nil {
+	var active bool
+	if err := tx.QueryRow(ctx, "SELECT COALESCE(roast_level,''), active FROM "+r.schema+".products WHERE id=$1", cmd.ProductID).Scan(&roastLevel, &active); err != nil {
 		return fmt.Errorf("product not found")
+	}
+	if active {
+		return fmt.Errorf("商品仍为启用状态，需先停用商品后再失效 BOM")
 	}
 	yieldRate := catalogdomain.ResolveYieldRate(roastLevel, 0.8)
 	if _, err := tx.Exec(ctx, "INSERT INTO "+r.schema+".product_bom(product_id,yield_rate,status,updated_at) VALUES($1,$2,'inactive',now()) ON CONFLICT (product_id) DO UPDATE SET status='inactive', updated_at=now()", cmd.ProductID, yieldRate); err != nil {

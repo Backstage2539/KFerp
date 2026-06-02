@@ -24,38 +24,34 @@ func TestDev382SKUUnifiedCreateCopyRequirementSeeds(t *testing.T) {
 func TestDev382SKUUnifiedCreateCopySourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"新增SKU",
-			"SKU复制",
-			"sku-copy-drawer",
-			"skuCopySourceOptions",
-			"ensureSkuCopySource",
-			"选择分类和产品",
+			"创建新商品档案",
+			"复制为商品档案",
+			"copyProductArchive",
+			"批量添加商品档案",
+			"增加分类",
+			"未分类商品",
 			"分类模板",
 			"productClassificationTabs",
-			"currentSettingsSection === 'master'",
-			"/api/product-settings/skus/copy-options",
-			"/api/product-settings/skus/copy",
+			"/api/product-settings/products/${row.id}/copy",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
 			"buildSkuCreatePayload",
-			"buildSkuCopyPayload",
+			"classificationTemplateTabs",
 		},
 		filepath.Join("internal", "application", "catalog", "service.go"): {
 			"CreateSKU(ctx context.Context, cmd CreateSKUCommand)",
-			"CopySKUs(ctx context.Context, cmd CopySKUsCommand)",
+			"CopyProduct(ctx context.Context, cmd CopyProductCommand)",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "catalog", "repository.go"): {
 			"func (r Repository) CreateSKU",
-			"func (r Repository) ListSKUCopyOptions",
-			"func (r Repository) CopySKUs",
-			"findTargetSKUByNameTx",
-			"copyProductBOMTx",
+			"func (r Repository) CopyProduct",
+			"nextProductArchiveCopyNameTx",
+			"product_production_configs",
 			"copyProductPriceTiersTx",
 		},
 		filepath.Join("internal", "interfaces", "http", "catalog", "product_routes.go"): {
 			"/api/product-settings/skus",
-			"/api/product-settings/skus/copy-options",
-			"/api/product-settings/skus/copy",
+			"/api/product-settings/products/:id/copy",
 		},
 	}
 
