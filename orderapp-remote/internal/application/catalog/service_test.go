@@ -6,41 +6,44 @@ import (
 )
 
 type fakeRepo struct {
-	replace          ReplacePriceTiersCommand
-	update           UpdateProductBasicsCommand
-	create           CreateProductCommand
-	copyProduct      CopyProductCommand
-	skuCreate        CreateSKUCommand
-	custom           CreateCustomProductCommand
-	derivedProduct   DeriveCustomerProductCommand
-	derivedCategory  DeriveProductCategoryCommand
-	derivedTemplate  DeriveGradientTemplateCommand
-	derivedConfig    DeriveProductConfigTemplateCommand
-	assigned         AssignProductCategoryCommand
-	assignResult     AssignProductCategoryResult
-	publicUsage      CustomerPublicUsageCommand
-	aliasQuery       CustomerProductAliasQuery
-	aliasCommand     CustomerProductAliasCommand
-	aliasBatch       BatchCustomerProductAliasesCommand
-	disabledAlias    DisableCustomerProductAliasCommand
-	aliasCandidates  CustomerProductAliasMigrationCandidateQuery
-	ruleTemplate     SaveCustomerProductRuleTemplateCommand
-	ruleOverride     SaveCustomerProductRuleOverrideCommand
-	ruleBinding      CustomerProductRuleTemplateBindingCommand
-	configTemplate   SaveProductConfigTemplateCommand
-	classTemplate    SaveProductClassificationTemplateCommand
-	classCategory    SaveProductClassificationCategoryCommand
-	classAssign      SaveProductClassificationAssignmentCommand
-	aliasClassAssign SaveCustomerProductAliasClassificationAssignmentCommand
-	unitDefinition   SaveProductUnitDefinitionCommand
-	unitTemplate     SaveProductUnitTemplateCommand
-	deactivate       DeactivateProductsCommand
-	products         map[int64]Product
-	publicUsages     []CustomerPublicUsage
-	deactivated      bool
-	usageSaved       bool
-	skuCreated       bool
-	productCopied    bool
+	replace            ReplacePriceTiersCommand
+	update             UpdateProductBasicsCommand
+	create             CreateProductCommand
+	copyProduct        CopyProductCommand
+	skuCreate          CreateSKUCommand
+	custom             CreateCustomProductCommand
+	derivedProduct     DeriveCustomerProductCommand
+	derivedCategory    DeriveProductCategoryCommand
+	derivedTemplate    DeriveGradientTemplateCommand
+	derivedConfig      DeriveProductConfigTemplateCommand
+	assigned           AssignProductCategoryCommand
+	assignResult       AssignProductCategoryResult
+	publicUsage        CustomerPublicUsageCommand
+	aliasQuery         CustomerProductAliasQuery
+	aliasCommand       CustomerProductAliasCommand
+	aliasBatch         BatchCustomerProductAliasesCommand
+	aliasBatchDisable  BatchDisableCustomerProductAliasesCommand
+	disabledAlias      DisableCustomerProductAliasCommand
+	aliasIndustryQuery CustomerProductAliasIndustryFieldQuery
+	aliasIndustrySave  SaveCustomerProductAliasIndustryFieldsCommand
+	aliasCandidates    CustomerProductAliasMigrationCandidateQuery
+	ruleTemplate       SaveCustomerProductRuleTemplateCommand
+	ruleOverride       SaveCustomerProductRuleOverrideCommand
+	ruleBinding        CustomerProductRuleTemplateBindingCommand
+	configTemplate     SaveProductConfigTemplateCommand
+	classTemplate      SaveProductClassificationTemplateCommand
+	classCategory      SaveProductClassificationCategoryCommand
+	classAssign        SaveProductClassificationAssignmentCommand
+	aliasClassAssign   SaveCustomerProductAliasClassificationAssignmentCommand
+	unitDefinition     SaveProductUnitDefinitionCommand
+	unitTemplate       SaveProductUnitTemplateCommand
+	deactivate         DeactivateProductsCommand
+	products           map[int64]Product
+	publicUsages       []CustomerPublicUsage
+	deactivated        bool
+	usageSaved         bool
+	skuCreated         bool
+	productCopied      bool
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
@@ -358,6 +361,22 @@ func (r *fakeRepo) BatchCreateCustomerProductAliases(ctx context.Context, cmd Ba
 func (r *fakeRepo) DisableCustomerProductAlias(ctx context.Context, cmd DisableCustomerProductAliasCommand) error {
 	r.disabledAlias = cmd
 	return nil
+}
+
+func (r *fakeRepo) BatchDisableCustomerProductAliases(ctx context.Context, cmd BatchDisableCustomerProductAliasesCommand) (BatchDisableCustomerProductAliasesResult, error) {
+	r.aliasBatchDisable = cmd
+	disabled := append([]int64(nil), cmd.IDs...)
+	return BatchDisableCustomerProductAliasesResult{DisabledCount: len(disabled), Disabled: disabled}, nil
+}
+
+func (r *fakeRepo) ListCustomerProductAliasIndustryFields(ctx context.Context, query CustomerProductAliasIndustryFieldQuery) ([]ProductProductionConfigField, error) {
+	r.aliasIndustryQuery = query
+	return []ProductProductionConfigField{{FieldKey: "roast_level", Label: "烘焙度", FieldType: "select", ValueText: "中烘"}}, nil
+}
+
+func (r *fakeRepo) SaveCustomerProductAliasIndustryFields(ctx context.Context, cmd SaveCustomerProductAliasIndustryFieldsCommand) ([]ProductProductionConfigField, error) {
+	r.aliasIndustrySave = cmd
+	return cmd.Fields, nil
 }
 
 func (r *fakeRepo) ListCustomerProductAliasMigrationCandidates(ctx context.Context, query CustomerProductAliasMigrationCandidateQuery) ([]CustomerProductAliasMigrationCandidate, error) {
