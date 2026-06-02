@@ -221,14 +221,18 @@ func (s *recordingBeanListService) PublishBeanList(ctx context.Context, cmd appc
 	s.published++
 	s.lastPublish = cmd
 	return &appcosting.BeanListPublication{
-		ID:                    8,
-		ListType:              cmd.ListType,
-		ProductTypeCategoryID: cmd.ProductTypeCategoryID,
-		ProductTypeName:       cmd.ProductTypeName,
-		Version:               cmd.Version,
-		Status:                "published",
-		OwnerType:             cmd.OwnerType,
-		OwnerKey:              cmd.OwnerKey,
+		ID:                         8,
+		ListType:                   cmd.ListType,
+		ProductTypeCategoryID:      cmd.ProductTypeCategoryID,
+		ProductTypeName:            cmd.ProductTypeName,
+		ClassificationTemplateID:   cmd.ClassificationTemplateID,
+		ClassificationTemplateName: cmd.ClassificationTemplateName,
+		ClassificationCategoryID:   cmd.ClassificationCategoryID,
+		ClassificationCategoryName: cmd.ClassificationCategoryName,
+		Version:                    cmd.Version,
+		Status:                     "published",
+		OwnerType:                  cmd.OwnerType,
+		OwnerKey:                   cmd.OwnerKey,
 	}, nil
 }
 
@@ -236,14 +240,18 @@ func (s *recordingBeanListService) SaveBeanListDraft(ctx context.Context, cmd ap
 	s.drafted++
 	s.lastDraft = cmd
 	return &appcosting.BeanListPublication{
-		ID:                    9,
-		ListType:              cmd.ListType,
-		ProductTypeCategoryID: cmd.ProductTypeCategoryID,
-		ProductTypeName:       cmd.ProductTypeName,
-		Version:               cmd.Version,
-		Status:                "draft",
-		OwnerType:             cmd.OwnerType,
-		OwnerKey:              cmd.OwnerKey,
+		ID:                         9,
+		ListType:                   cmd.ListType,
+		ProductTypeCategoryID:      cmd.ProductTypeCategoryID,
+		ProductTypeName:            cmd.ProductTypeName,
+		ClassificationTemplateID:   cmd.ClassificationTemplateID,
+		ClassificationTemplateName: cmd.ClassificationTemplateName,
+		ClassificationCategoryID:   cmd.ClassificationCategoryID,
+		ClassificationCategoryName: cmd.ClassificationCategoryName,
+		Version:                    cmd.Version,
+		Status:                     "draft",
+		OwnerType:                  cmd.OwnerType,
+		OwnerKey:                   cmd.OwnerKey,
 	}, nil
 }
 
@@ -1266,7 +1274,7 @@ func TestBeanListPublicationAPIPassesProductTypeCategory(t *testing.T) {
 		t.Fatalf("product type query = %+v, want product_type_category_id 12", svc.lastQuery)
 	}
 
-	body := bytes.NewBufferString(`{"list_type":"green","product_type_category_id":12,"product_type_name":"生豆","version":"V4.0.1","scope":"official","config":{"layoutStyle":"card"},"content":{"totalItems":1},"changelog":"生豆产品价格表"}`)
+	body := bytes.NewBufferString(`{"list_type":"green","product_type_category_id":12,"product_type_name":"生豆","classification_template_id":12,"classification_template_name":"报价分类","classification_category_id":34,"classification_category_name":"现货生豆","version":"V4.0.1","scope":"official","config":{"layoutStyle":"card"},"content":{"totalItems":1},"changelog":"生豆商品价格表"}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
@@ -1276,6 +1284,9 @@ func TestBeanListPublicationAPIPassesProductTypeCategory(t *testing.T) {
 	}
 	if svc.lastPublish.ProductTypeCategoryID != 12 || svc.lastPublish.ProductTypeName != "生豆" {
 		t.Fatalf("product type publish = %+v", svc.lastPublish)
+	}
+	if svc.lastPublish.ClassificationTemplateID != 12 || svc.lastPublish.ClassificationTemplateName != "报价分类" || svc.lastPublish.ClassificationCategoryID != 34 || svc.lastPublish.ClassificationCategoryName != "现货生豆" {
+		t.Fatalf("classification publish = %+v", svc.lastPublish)
 	}
 }
 

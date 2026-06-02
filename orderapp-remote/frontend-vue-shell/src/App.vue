@@ -321,6 +321,8 @@ const internalViews = {
   productMaster: ProductSettingsView,
   customerProductAliases: ProductSettingsView,
   productConfigTemplates: ProductSettingsView,
+  pricingGradientTemplates: ProductSettingsView,
+  productUnitTemplates: ProductSettingsView,
   productSettings: ProductSettingsView,
   products: ProductSettingsView,
   mallSettings: MallSettingsView,
@@ -468,7 +470,7 @@ function applyKeyToUrl(key, params = {}) {
 }
 
 function isProductSettingsKey(key) {
-  return ['productMaster', 'customerProductAliases', 'productConfigTemplates', 'productSettings', 'products'].includes(key)
+  return ['productMaster', 'customerProductAliases', 'productConfigTemplates', 'pricingGradientTemplates', 'productUnitTemplates', 'productSettings', 'products'].includes(key)
 }
 
 function hardNavigateToView(key, params = {}) {
@@ -992,6 +994,8 @@ const isProductSettingsView = computed(() => isProductSettingsKey(currentKey.val
 const productSettingsSectionMode = computed(() => {
   if (currentKey.value === 'customerProductAliases') return 'aliases'
   if (currentKey.value === 'productConfigTemplates') return 'templates'
+  if (currentKey.value === 'pricingGradientTemplates') return 'pricingGradientTemplates'
+  if (currentKey.value === 'productUnitTemplates') return 'productUnitTemplates'
   return 'master'
 })
 const currentViewIdentity = computed(() => `${currentKey.value}:${currentViewContext.value.type}:${workspaceCustomerContextId.value || 0}:${orderIDForViewContext(currentViewContext.value) || 0}`)

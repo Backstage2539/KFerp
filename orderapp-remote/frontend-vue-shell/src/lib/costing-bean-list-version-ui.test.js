@@ -153,6 +153,25 @@ test('product bean-list generate area uses dynamic collapsible product-type sect
   assert.doesNotMatch(viewSource, /openBeanListDrawer\('drip'\)/)
 })
 
+test('product price list uses classification templates and categories instead of legacy product types', () => {
+  for (const expected of [
+    '<h2>商品价格表</h2>',
+    'classification_template_id',
+    'classification_template_name',
+    'classification_category_id',
+    'classification_category_name',
+    'buildClassificationPriceListTypeOptions',
+    'classificationCategoryIDOfItem',
+    'classificationTemplateNameOfItem',
+    '未归类统一进入其他',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing classification price-list behavior: ${expected}`)
+  }
+  assert.doesNotMatch(viewSource, /<h2>产品价格表<\/h2>/)
+  assert.doesNotMatch(viewSource, /<span>产品类型<\/span>/)
+  assert.doesNotMatch(viewSource, /按当前价格表归属和商品管理里的产品类型生成/)
+})
+
 test('product bean-list drawer derives publication owner from current page scope', () => {
   for (const expected of [
     '当前归属',

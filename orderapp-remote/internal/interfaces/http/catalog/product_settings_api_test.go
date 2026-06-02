@@ -939,19 +939,19 @@ func TestProductClassificationTemplateAPIsSaveCategoriesAndAssignments(t *testin
 		t.Fatalf("GET classification templates status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-templates", bytes.NewBufferString(`{"customer_id":42,"name":"客户侧价格表分类","sort_order":2}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-templates", bytes.NewBufferString(`{"customer_id":42,"name":"客户侧价格表分类","sort_order":2,"gradient_template_id":91,"unit_template_id":92}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !repo.classificationTemplateSaved || repo.savedClassificationTemplate.CustomerID != 0 || repo.savedClassificationTemplate.Name != "客户侧价格表分类" {
+	if rec.Code != http.StatusOK || !repo.classificationTemplateSaved || repo.savedClassificationTemplate.CustomerID != 0 || repo.savedClassificationTemplate.Name != "客户侧价格表分类" || repo.savedClassificationTemplate.GradientTemplateID != 91 || repo.savedClassificationTemplate.UnitTemplateID != 92 {
 		t.Fatalf("POST classification template status=%d body=%s cmd=%+v saved=%v", rec.Code, rec.Body.String(), repo.savedClassificationTemplate, repo.classificationTemplateSaved)
 	}
 
-	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-template-categories", bytes.NewBufferString(`{"template_id":501,"name":"新品","level":1,"sort_order":3}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-template-categories", bytes.NewBufferString(`{"template_id":501,"name":"新品","level":1,"sort_order":3,"gradient_template_id":93,"unit_template_id":94}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !repo.classificationCategorySaved || repo.savedClassificationCategory.TemplateID != 501 || repo.savedClassificationCategory.Name != "新品" {
+	if rec.Code != http.StatusOK || !repo.classificationCategorySaved || repo.savedClassificationCategory.TemplateID != 501 || repo.savedClassificationCategory.Name != "新品" || repo.savedClassificationCategory.GradientTemplateID != 93 || repo.savedClassificationCategory.UnitTemplateID != 94 {
 		t.Fatalf("POST classification category status=%d body=%s cmd=%+v saved=%v", rec.Code, rec.Body.String(), repo.savedClassificationCategory, repo.classificationCategorySaved)
 	}
 

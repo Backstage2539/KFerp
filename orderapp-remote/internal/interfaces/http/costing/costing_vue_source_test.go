@@ -43,7 +43,7 @@ func TestCostingViewSupportsDripBeanListSource(t *testing.T) {
 		"productPriceListTypeOptions",
 		"priceListRenderTypeForItem",
 		"if (kind === 'drip_bag') return 'drip'",
-		"产品价格表",
+		"商品价格表",
 		"/api/drip-price-templates",
 		"/api/costing/drip-price-explanation",
 		"openDripPriceExplanation",

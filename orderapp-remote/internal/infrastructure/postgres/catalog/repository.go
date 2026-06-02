@@ -941,7 +941,7 @@ func (r Repository) ListProductClassificationTemplates(ctx context.Context) ([]c
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, COALESCE(customer_id,0), COALESCE(source_template_id,0),
 		       COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END),
-			       name, COALESCE(remark,''), active, COALESCE(sort_order,100)
+			       name, COALESCE(remark,''), COALESCE(gradient_template_id,0), COALESCE(unit_template_id,0), active, COALESCE(sort_order,100)
 		FROM %s.product_classification_templates
 		WHERE active=true
 		ORDER BY COALESCE(customer_id,0), COALESCE(sort_order,100), name, id
@@ -954,7 +954,7 @@ func (r Repository) ListProductClassificationTemplates(ctx context.Context) ([]c
 	index := map[int64]int{}
 	for rows.Next() {
 		var row catalogapp.ProductClassificationTemplate
-		if err := rows.Scan(&row.ID, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.Name, &row.Remark, &row.Active, &row.SortOrder); err != nil {
+		if err := rows.Scan(&row.ID, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.Name, &row.Remark, &row.GradientTemplateID, &row.UnitTemplateID, &row.Active, &row.SortOrder); err != nil {
 			return nil, err
 		}
 		row.Categories = []catalogapp.ProductClassificationCategory{}
@@ -974,7 +974,7 @@ func (r Repository) ListProductClassificationTemplates(ctx context.Context) ([]c
 		ids = append(ids, row.ID)
 	}
 	categoryRows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, template_id, COALESCE(parent_id,0), name, COALESCE(level,1), COALESCE(sort_order,100), active
+		SELECT id, template_id, COALESCE(parent_id,0), name, COALESCE(level,1), COALESCE(sort_order,100), COALESCE(gradient_template_id,0), COALESCE(unit_template_id,0), active
 		FROM %s.product_classification_template_categories
 		WHERE active=true AND template_id=ANY($1)
 		ORDER BY template_id, COALESCE(sort_order,100), id
@@ -984,7 +984,7 @@ func (r Repository) ListProductClassificationTemplates(ctx context.Context) ([]c
 	}
 	for categoryRows.Next() {
 		var row catalogapp.ProductClassificationCategory
-		if err := categoryRows.Scan(&row.ID, &row.TemplateID, &row.ParentID, &row.Name, &row.Level, &row.SortOrder, &row.Active); err != nil {
+		if err := categoryRows.Scan(&row.ID, &row.TemplateID, &row.ParentID, &row.Name, &row.Level, &row.SortOrder, &row.GradientTemplateID, &row.UnitTemplateID, &row.Active); err != nil {
 			categoryRows.Close()
 			return nil, err
 		}
@@ -1062,10 +1062,10 @@ func (r Repository) SaveProductClassificationTemplate(ctx context.Context, cmd c
 		action = "update_product_classification_template"
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.product_classification_templates
-				SET customer_id=$2, source_template_id=$3, name=$4, remark=$5, active=$6, sort_order=$7, updated_at=now(), updated_by=$8
+				SET customer_id=$2, source_template_id=$3, name=$4, remark=$5, gradient_template_id=$6, unit_template_id=$7, active=$8, sort_order=$9, updated_at=now(), updated_by=$10
 				WHERE id=$1
 				RETURNING id
-			`, r.schema), id, cmd.CustomerID, cmd.SourceTemplateID, cmd.Name, cmd.Remark, cmd.Active, cmd.SortOrder, cmd.Actor).Scan(&id); err != nil {
+			`, r.schema), id, cmd.CustomerID, cmd.SourceTemplateID, cmd.Name, cmd.Remark, cmd.GradientTemplateID, cmd.UnitTemplateID, cmd.Active, cmd.SortOrder, cmd.Actor).Scan(&id); err != nil {
 			return catalogapp.ProductClassificationTemplate{}, err
 		}
 	} else {
@@ -1077,14 +1077,14 @@ func (r Repository) SaveProductClassificationTemplate(ctx context.Context, cmd c
 			templateState = "derived_from_public"
 		}
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-				INSERT INTO %s.product_classification_templates(customer_id, source_template_id, template_state, name, remark, active, sort_order, created_by, updated_by)
-				VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8)
+				INSERT INTO %s.product_classification_templates(customer_id, source_template_id, template_state, name, remark, gradient_template_id, unit_template_id, active, sort_order, created_by, updated_by)
+				VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
 				RETURNING id
-			`, r.schema), cmd.CustomerID, cmd.SourceTemplateID, templateState, cmd.Name, cmd.Remark, cmd.Active, cmd.SortOrder, cmd.Actor).Scan(&id); err != nil {
+			`, r.schema), cmd.CustomerID, cmd.SourceTemplateID, templateState, cmd.Name, cmd.Remark, cmd.GradientTemplateID, cmd.UnitTemplateID, cmd.Active, cmd.SortOrder, cmd.Actor).Scan(&id); err != nil {
 			return catalogapp.ProductClassificationTemplate{}, err
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_classification_template", &id, action, postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"template_id": id, "customer_id": cmd.CustomerID, "source_template_id": cmd.SourceTemplateID, "sort_order": cmd.SortOrder, "active": cmd.Active, "remark": cmd.Remark}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_classification_template", &id, action, postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"template_id": id, "customer_id": cmd.CustomerID, "source_template_id": cmd.SourceTemplateID, "gradient_template_id": cmd.GradientTemplateID, "unit_template_id": cmd.UnitTemplateID, "sort_order": cmd.SortOrder, "active": cmd.Active, "remark": cmd.Remark}); err != nil {
 		return catalogapp.ProductClassificationTemplate{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1281,28 +1281,28 @@ func (r Repository) SaveProductClassificationCategory(ctx context.Context, cmd c
 		action = "update_product_classification_category"
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.product_classification_template_categories
-			SET template_id=$2, parent_id=$3, name=$4, level=$5, sort_order=$6, active=true, updated_at=now()
+			SET template_id=$2, parent_id=$3, name=$4, level=$5, sort_order=$6, gradient_template_id=$7, unit_template_id=$8, active=true, updated_at=now()
 			WHERE id=$1
 			RETURNING id
-		`, r.schema), id, cmd.TemplateID, cmd.ParentID, cmd.Name, cmd.Level, cmd.SortOrder).Scan(&id); err != nil {
+		`, r.schema), id, cmd.TemplateID, cmd.ParentID, cmd.Name, cmd.Level, cmd.SortOrder, cmd.GradientTemplateID, cmd.UnitTemplateID).Scan(&id); err != nil {
 			return catalogapp.ProductClassificationCategory{}, err
 		}
 	} else {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			INSERT INTO %s.product_classification_template_categories(template_id, parent_id, name, level, sort_order, active)
-			VALUES($1,$2,$3,$4,$5,true)
+			INSERT INTO %s.product_classification_template_categories(template_id, parent_id, name, level, sort_order, gradient_template_id, unit_template_id, active)
+			VALUES($1,$2,$3,$4,$5,$6,$7,true)
 			RETURNING id
-		`, r.schema), cmd.TemplateID, cmd.ParentID, cmd.Name, cmd.Level, cmd.SortOrder).Scan(&id); err != nil {
+		`, r.schema), cmd.TemplateID, cmd.ParentID, cmd.Name, cmd.Level, cmd.SortOrder, cmd.GradientTemplateID, cmd.UnitTemplateID).Scan(&id); err != nil {
 			return catalogapp.ProductClassificationCategory{}, err
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_classification_category", &id, action, postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"category_id": id, "template_id": cmd.TemplateID, "parent_id": cmd.ParentID, "sort_order": cmd.SortOrder}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_classification_category", &id, action, postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"category_id": id, "template_id": cmd.TemplateID, "parent_id": cmd.ParentID, "gradient_template_id": cmd.GradientTemplateID, "unit_template_id": cmd.UnitTemplateID, "sort_order": cmd.SortOrder}); err != nil {
 		return catalogapp.ProductClassificationCategory{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return catalogapp.ProductClassificationCategory{}, err
 	}
-	return catalogapp.ProductClassificationCategory{ID: id, TemplateID: cmd.TemplateID, ParentID: cmd.ParentID, Name: cmd.Name, Level: cmd.Level, SortOrder: cmd.SortOrder, Active: true}, nil
+	return catalogapp.ProductClassificationCategory{ID: id, TemplateID: cmd.TemplateID, ParentID: cmd.ParentID, Name: cmd.Name, Level: cmd.Level, SortOrder: cmd.SortOrder, GradientTemplateID: cmd.GradientTemplateID, UnitTemplateID: cmd.UnitTemplateID, Active: true}, nil
 }
 
 func (r Repository) DeleteProductClassificationCategory(ctx context.Context, cmd catalogapp.DeleteProductClassificationCategoryCommand) error {
@@ -1355,6 +1355,21 @@ func (r Repository) SaveProductClassificationAssignment(ctx context.Context, cmd
 		if !categoryExists {
 			return catalogapp.ProductClassificationAssignment{}, fmt.Errorf("classification category not found")
 		}
+		var existingTemplateID, existingCategoryID int64
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT template_id, category_id
+			FROM %s.product_classification_assignments
+			WHERE product_id=$1 AND COALESCE(category_id,0)>0
+			ORDER BY updated_at DESC
+			LIMIT 1
+		`, r.schema), cmd.ProductID).Scan(&existingTemplateID, &existingCategoryID)
+		if err != nil && err != pgx.ErrNoRows {
+			return catalogapp.ProductClassificationAssignment{}, err
+		}
+		if err == nil && existingCategoryID > 0 {
+			return catalogapp.ProductClassificationAssignment{}, fmt.Errorf("product already classified; move out first")
+		}
+		_ = existingTemplateID
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.product_classification_assignments(product_id, template_id, category_id, sort_order, updated_by, created_at, updated_at)
@@ -1404,6 +1419,21 @@ func (r Repository) SaveCustomerProductAliasClassificationAssignment(ctx context
 		if !categoryExists {
 			return catalogapp.CustomerProductAliasClassificationAssignment{}, fmt.Errorf("classification category not found")
 		}
+		var existingTemplateID, existingCategoryID int64
+		err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT template_id, category_id
+			FROM %s.customer_product_alias_classification_assignments
+			WHERE alias_id=$1 AND COALESCE(category_id,0)>0
+			ORDER BY updated_at DESC
+			LIMIT 1
+		`, r.schema), cmd.AliasID).Scan(&existingTemplateID, &existingCategoryID)
+		if err != nil && err != pgx.ErrNoRows {
+			return catalogapp.CustomerProductAliasClassificationAssignment{}, err
+		}
+		if err == nil && existingCategoryID > 0 {
+			return catalogapp.CustomerProductAliasClassificationAssignment{}, fmt.Errorf("customer product alias already classified; move out first")
+		}
+		_ = existingTemplateID
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_product_alias_classification_assignments(alias_id, template_id, category_id, sort_order, updated_by, created_at, updated_at)

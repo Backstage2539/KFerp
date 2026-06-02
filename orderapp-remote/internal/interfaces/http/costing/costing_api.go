@@ -407,18 +407,23 @@ func beanListPublicationQueryFromRequest(c echo.Context) (appcosting.BeanListPub
 	if err != nil {
 		return appcosting.BeanListPublicationQuery{}, fmt.Errorf("invalid product_type_category_id")
 	}
+	classificationTemplateID, err := parseOptionalInt64(c.QueryParam("classification_template_id"))
+	if err != nil {
+		return appcosting.BeanListPublicationQuery{}, fmt.Errorf("invalid classification_template_id")
+	}
 	scope := strings.TrimSpace(c.QueryParam("scope"))
 	ownerType, ownerKey, err := beanListOwnerFromScope(c, scope, customerID)
 	if err != nil {
 		return appcosting.BeanListPublicationQuery{}, err
 	}
 	return appcosting.BeanListPublicationQuery{
-		ListType:              c.QueryParam("list_type"),
-		ProductTypeCategoryID: productTypeCategoryID,
-		Scope:                 scope,
-		CustomerID:            customerID,
-		OwnerType:             ownerType,
-		OwnerKey:              ownerKey,
+		ListType:                 c.QueryParam("list_type"),
+		ProductTypeCategoryID:    productTypeCategoryID,
+		ClassificationTemplateID: classificationTemplateID,
+		Scope:                    scope,
+		CustomerID:               customerID,
+		OwnerType:                ownerType,
+		OwnerKey:                 ownerKey,
 	}, nil
 }
 

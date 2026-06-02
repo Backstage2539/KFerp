@@ -10,6 +10,9 @@ import {
   buildCustomerProductAliasPayload,
   buildCustomerProductAliasBatchPayload,
   buildClassificationTemplateUsagePayload,
+  classificationAssignmentConflict,
+  classificationAssignmentLabel,
+  classificationTemplateUnitPriceWarnings,
   customerProductAliasRowsForCustomer,
   classificationTemplateTabs,
   groupRowsByClassificationCategory,
@@ -1933,6 +1936,7 @@ test('SKU settings splits product config templates and gradient templates into n
 })
 
 test('SKU settings separates global unit templates into a peer configuration tab', () => {
+  const menuSource = fs.readFileSync(new URL('./menu-ia.js', import.meta.url), 'utf8')
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const settingsSource = fs.readFileSync(new URL('../views/UISettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
@@ -1940,7 +1944,7 @@ test('SKU settings separates global unit templates into a peer configuration tab
 
   for (const expected of [
     'unit-template-pane',
-    "activeConfigTemplateSection === 'unit-template'",
+    'showUnitTemplatePane',
     'productUnitDefinitions',
     'productUnitTemplates',
     'saveProductUnitTemplate',
@@ -1957,9 +1961,9 @@ test('SKU settings separates global unit templates into a peer configuration tab
   assert.doesNotMatch(source, /saveProductUnitDefinition/)
 
   assert.ok(
-    template.indexOf('商品配置模板') < template.indexOf('单位模板')
-      && template.indexOf('单位模板') < template.indexOf('阶梯价模板'),
-    'unit template tab should sit between product config templates and gradient templates',
+    menuSource.indexOf("label: '商品配置和分类模板'") < menuSource.indexOf("label: '阶梯价模板'")
+      && menuSource.indexOf("label: '阶梯价模板'") < menuSource.indexOf("label: '单位模板'"),
+    'unit and gradient templates should be peer product menu functions',
   )
   assert.doesNotMatch(template, /<div class="field-group-title">单位规则<\/div>[\s\S]*productConfigTemplateForm\.unit_conversion_rows/)
   assert.match(script, /buildProductConfigTemplatePayload\([\s\S]*unit_template_id/)
@@ -1967,7 +1971,7 @@ test('SKU settings separates global unit templates into a peer configuration tab
 
 test('SKU product config uses display unit from unit dictionary instead of fixed display modes', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const productConfigPane = source.match(/<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'product-config'"[\s\S]*?<div v-if="productDrawerOpen"/)?.[0] || ''
+  const productConfigPane = source.match(/<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"[\s\S]*?<div v-if="productDrawerOpen"/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   assert.ok(productConfigPane, 'product config pane should exist')
@@ -1984,7 +1988,7 @@ test('SKU product config uses display unit from unit dictionary instead of fixed
 
 test('SKU product config template list and price rule controls are visually structured', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const productConfigPane = source.match(/<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'product-config'"[\s\S]*?<div v-if="productDrawerOpen"/)?.[0] || ''
+  const productConfigPane = source.match(/<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"[\s\S]*?<div v-if="productDrawerOpen"/)?.[0] || ''
   const priceRuleBlock = productConfigPane.match(/<div class="rule-config-block price-rule-grid"[\s\S]*?<div class="rule-config-block">/)?.[0] || ''
   const style = source.split('<style scoped>')[1] || ''
 
@@ -2019,7 +2023,7 @@ test('SKU product config template list and price rule controls are visually stru
 
 test('SKU unit template save creates or updates without a separate new-template button', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const unitTemplatePane = source.match(/<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'unit-template'"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'product-config'"/)?.[0] || ''
+  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'classification-template'"/)?.[0] || ''
 
   assert.ok(unitTemplatePane, 'unit template pane should exist')
   assert.doesNotMatch(unitTemplatePane, />新建模板</)
@@ -2035,7 +2039,7 @@ test('SKU settings compacts context area and uses create edit labels for unit di
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
-  const unitTemplatePane = source.match(/<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'unit-template'"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'product-config'"/)?.[0] || ''
+  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'classification-template'"/)?.[0] || ''
   const globalUnitDrawer = source.match(/<div v-if="globalUnitDrawerOpen"[\s\S]*?<\/aside>\s*<\/div>/)?.[0] || ''
 
   for (const expected of [
@@ -2066,7 +2070,7 @@ test('SKU settings compacts context area and uses create edit labels for unit di
 
 test('SKU unit template workspace uses left list right editor and opens global unit dictionary drawer', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const unitTemplatePane = source.match(/<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'unit-template'"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'product-config'"/)?.[0] || ''
+  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'classification-template'"/)?.[0] || ''
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
@@ -2150,6 +2154,79 @@ test('customer product aliases use page-level classification templates, not sing
   assert.doesNotMatch(aliasTable, />展示分类</)
   assert.doesNotMatch(aliasTable, /navigateProductBom/)
   assert.doesNotMatch(source, /openClassificationConfigDrawer\(\{[\s\S]*objectType:\s*'customer_alias'/)
+})
+
+test('product menus split config, gradient, unit templates and rename product price list', () => {
+  const menuSource = fs.readFileSync(new URL('./menu-ia.js', import.meta.url), 'utf8')
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const costingSource = fs.readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
+  const configWorkspace = source.match(/<div v-show="currentSettingsSection === 'templates'"[\s\S]*?<div v-if="classificationTemplateCreateDrawerOpen"/)?.[0] || ''
+
+  for (const expected of [
+    "label: '商品配置和分类模板'",
+    "key: 'pricingGradientTemplates'",
+    "label: '阶梯价模板'",
+    "key: 'productUnitTemplates'",
+    "label: '单位模板'",
+    "label: '商品价格表'",
+  ]) {
+    assert.match(menuSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+  assert.doesNotMatch(menuSource, /label: '产品价格表'/)
+  assert.match(costingSource, /<h2>商品价格表<\/h2>/)
+  assert.doesNotMatch(costingSource, /<h2>产品价格表<\/h2>/)
+  assert.match(configWorkspace, /商品配置模板/)
+  assert.match(configWorkspace, /分类模板/)
+  assert.doesNotMatch(configWorkspace, /activeConfigTemplateSection === 'gradient'/)
+  assert.doesNotMatch(configWorkspace, /activeConfigTemplateSection === 'unit-template'/)
+})
+
+test('classification templates and categories reference gradient and unit templates', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const classificationPane = source.match(/<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'classification-template'"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"/)?.[0] || ''
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  assert.match(classificationPane, /模板默认阶梯价模板/)
+  assert.match(classificationPane, /模板默认单位模板/)
+  assert.match(classificationPane, /分类项阶梯价模板/)
+  assert.match(classificationPane, /分类项单位模板/)
+  assert.match(script, /classificationTemplateForm\.value[\s\S]*gradient_template_id/)
+  assert.match(script, /classificationTemplateForm\.value[\s\S]*unit_template_id/)
+  assert.match(script, /classificationCategoryForm\.value[\s\S]*gradient_template_id/)
+  assert.match(script, /classificationCategoryForm\.value[\s\S]*unit_template_id/)
+})
+
+test('classification assignment helpers enforce single classification and expose labels', () => {
+  const templates = [{
+    id: 10,
+    name: '报价分类',
+    categories: [{ id: 11, name: '意式拼配' }],
+    product_assignments: [{ product_id: 88, template_id: 10, category_id: 11 }],
+  }]
+
+  assert.equal(classificationAssignmentLabel({ id: 88 }, templates, { assignmentType: 'product' }), '报价分类 / 意式拼配')
+  assert.equal(classificationAssignmentLabel({ id: 89 }, templates, { assignmentType: 'product' }), '未分类')
+  assert.equal(classificationAssignmentConflict({ id: 88 }, 10, templates, { assignmentType: 'product' })?.message, '已归类，需先移出当前分类')
+  assert.equal(classificationAssignmentConflict({ id: 88 }, 10, templates, { assignmentType: 'product', categoryID: 11 })?.message, '已归类，需先移出当前分类')
+  assert.equal(classificationAssignmentConflict({ id: 88 }, 12, templates, { assignmentType: 'product' })?.message, '已归类，需先移出当前分类')
+  assert.equal(classificationAssignmentConflict({ id: 89 }, 10, templates, { assignmentType: 'product' }), null)
+})
+
+test('classification template unit and price mismatch warnings compare product config with assigned category', () => {
+  const warnings = classificationTemplateUnitPriceWarnings({
+    productConfigTemplate: { id: 7, gradient_template_id: 100, unit_template_id: 200 },
+    classificationTemplate: { id: 10, gradient_template_id: 101, unit_template_id: 201 },
+    classificationCategory: { id: 11, gradient_template_id: 102, unit_template_id: 202 },
+  })
+  assert.deepEqual(warnings, [
+    '商品配置阶梯价模板与所属分类引用不一致',
+    '商品配置单位模板与所属分类引用不一致',
+  ])
+  assert.deepEqual(classificationTemplateUnitPriceWarnings({
+    productConfigTemplate: { id: 7, gradient_template_id: 102, unit_template_id: 202 },
+    classificationTemplate: { id: 10, gradient_template_id: 101, unit_template_id: 201 },
+    classificationCategory: { id: 11, gradient_template_id: 102, unit_template_id: 202 },
+  }), [])
 })
 
 test('assign category payload carries customer context for public template derivation', () => {

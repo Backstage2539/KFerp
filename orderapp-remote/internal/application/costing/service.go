@@ -88,32 +88,37 @@ type UpdateParameterCommand struct {
 }
 
 type BeanListPublication struct {
-	ID                       int64          `json:"id"`
-	ListType                 string         `json:"list_type"`
-	ProductTypeCategoryID    int64          `json:"product_type_category_id,omitempty"`
-	ProductTypeName          string         `json:"product_type_name,omitempty"`
-	Version                  string         `json:"version"`
-	Status                   string         `json:"status"`
-	OwnerType                string         `json:"owner_type"`
-	OwnerKey                 string         `json:"owner_key,omitempty"`
-	PriceSourcePublicationID int64          `json:"price_source_publication_id,omitempty"`
-	StyleSourcePublicationID int64          `json:"style_source_publication_id,omitempty"`
-	SourceVersion            string         `json:"source_version,omitempty"`
-	Config                   map[string]any `json:"config"`
-	Content                  map[string]any `json:"content"`
-	Changelog                string         `json:"changelog"`
-	PublishedAt              string         `json:"published_at,omitempty"`
-	WithdrawnAt              string         `json:"withdrawn_at,omitempty"`
-	CreatedAt                string         `json:"created_at,omitempty"`
+	ID                         int64          `json:"id"`
+	ListType                   string         `json:"list_type"`
+	ProductTypeCategoryID      int64          `json:"product_type_category_id,omitempty"`
+	ProductTypeName            string         `json:"product_type_name,omitempty"`
+	ClassificationTemplateID   int64          `json:"classification_template_id,omitempty"`
+	ClassificationTemplateName string         `json:"classification_template_name,omitempty"`
+	ClassificationCategoryID   int64          `json:"classification_category_id,omitempty"`
+	ClassificationCategoryName string         `json:"classification_category_name,omitempty"`
+	Version                    string         `json:"version"`
+	Status                     string         `json:"status"`
+	OwnerType                  string         `json:"owner_type"`
+	OwnerKey                   string         `json:"owner_key,omitempty"`
+	PriceSourcePublicationID   int64          `json:"price_source_publication_id,omitempty"`
+	StyleSourcePublicationID   int64          `json:"style_source_publication_id,omitempty"`
+	SourceVersion              string         `json:"source_version,omitempty"`
+	Config                     map[string]any `json:"config"`
+	Content                    map[string]any `json:"content"`
+	Changelog                  string         `json:"changelog"`
+	PublishedAt                string         `json:"published_at,omitempty"`
+	WithdrawnAt                string         `json:"withdrawn_at,omitempty"`
+	CreatedAt                  string         `json:"created_at,omitempty"`
 }
 
 type BeanListPublicationQuery struct {
-	ListType              string `json:"list_type"`
-	ProductTypeCategoryID int64  `json:"product_type_category_id,omitempty"`
-	Scope                 string `json:"scope,omitempty"`
-	CustomerID            int64  `json:"customer_id,omitempty"`
-	OwnerType             string `json:"owner_type,omitempty"`
-	OwnerKey              string `json:"owner_key,omitempty"`
+	ListType                 string `json:"list_type"`
+	ProductTypeCategoryID    int64  `json:"product_type_category_id,omitempty"`
+	ClassificationTemplateID int64  `json:"classification_template_id,omitempty"`
+	Scope                    string `json:"scope,omitempty"`
+	CustomerID               int64  `json:"customer_id,omitempty"`
+	OwnerType                string `json:"owner_type,omitempty"`
+	OwnerKey                 string `json:"owner_key,omitempty"`
 }
 
 type BeanListPublicationAsset struct {
@@ -143,21 +148,25 @@ type BeanListPublicationPDFFile struct {
 }
 
 type PublishBeanListCommand struct {
-	ListType                 string         `json:"list_type"`
-	ProductTypeCategoryID    int64          `json:"product_type_category_id,omitempty"`
-	ProductTypeName          string         `json:"product_type_name,omitempty"`
-	Version                  string         `json:"version"`
-	Scope                    string         `json:"scope,omitempty"`
-	CustomerID               int64          `json:"customer_id,omitempty"`
-	OwnerType                string         `json:"owner_type,omitempty"`
-	OwnerKey                 string         `json:"owner_key,omitempty"`
-	PriceSourcePublicationID int64          `json:"price_source_publication_id,omitempty"`
-	StyleSourcePublicationID int64          `json:"style_source_publication_id,omitempty"`
-	SourceVersion            string         `json:"source_version,omitempty"`
-	Config                   map[string]any `json:"config"`
-	Content                  map[string]any `json:"content"`
-	Changelog                string         `json:"changelog"`
-	Actor                    string         `json:"actor,omitempty"`
+	ListType                   string         `json:"list_type"`
+	ProductTypeCategoryID      int64          `json:"product_type_category_id,omitempty"`
+	ProductTypeName            string         `json:"product_type_name,omitempty"`
+	ClassificationTemplateID   int64          `json:"classification_template_id,omitempty"`
+	ClassificationTemplateName string         `json:"classification_template_name,omitempty"`
+	ClassificationCategoryID   int64          `json:"classification_category_id,omitempty"`
+	ClassificationCategoryName string         `json:"classification_category_name,omitempty"`
+	Version                    string         `json:"version"`
+	Scope                      string         `json:"scope,omitempty"`
+	CustomerID                 int64          `json:"customer_id,omitempty"`
+	OwnerType                  string         `json:"owner_type,omitempty"`
+	OwnerKey                   string         `json:"owner_key,omitempty"`
+	PriceSourcePublicationID   int64          `json:"price_source_publication_id,omitempty"`
+	StyleSourcePublicationID   int64          `json:"style_source_publication_id,omitempty"`
+	SourceVersion              string         `json:"source_version,omitempty"`
+	Config                     map[string]any `json:"config"`
+	Content                    map[string]any `json:"content"`
+	Changelog                  string         `json:"changelog"`
+	Actor                      string         `json:"actor,omitempty"`
 }
 
 type WithdrawBeanListCommand struct {
@@ -545,9 +554,24 @@ func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListComman
 	if cmd.ProductTypeCategoryID < 0 {
 		return PublishBeanListCommand{}, fmt.Errorf("product_type_category_id must be >= 0")
 	}
+	if cmd.ClassificationTemplateID < 0 || cmd.ClassificationCategoryID < 0 {
+		return PublishBeanListCommand{}, fmt.Errorf("classification ids must be >= 0")
+	}
 	cmd.ProductTypeName = strings.TrimSpace(cmd.ProductTypeName)
+	cmd.ClassificationTemplateName = strings.TrimSpace(cmd.ClassificationTemplateName)
+	cmd.ClassificationCategoryName = strings.TrimSpace(cmd.ClassificationCategoryName)
 	if cmd.ProductTypeName == "" {
-		cmd.ProductTypeName = LegacyBeanListTypeProductTypeName(cmd.ListType)
+		if cmd.ClassificationTemplateName != "" {
+			cmd.ProductTypeName = cmd.ClassificationTemplateName
+		} else {
+			cmd.ProductTypeName = LegacyBeanListTypeProductTypeName(cmd.ListType)
+		}
+	}
+	if cmd.ClassificationTemplateID == 0 {
+		cmd.ClassificationTemplateID = cmd.ProductTypeCategoryID
+	}
+	if cmd.ClassificationTemplateName == "" {
+		cmd.ClassificationTemplateName = cmd.ProductTypeName
 	}
 	cmd.Version = strings.TrimSpace(cmd.Version)
 	cmd.Changelog = strings.TrimSpace(cmd.Changelog)
@@ -947,6 +971,12 @@ func normalizeBeanListPublicationQuery(query BeanListPublicationQuery) (BeanList
 	}
 	if query.ProductTypeCategoryID < 0 {
 		return BeanListPublicationQuery{}, fmt.Errorf("product_type_category_id must be >= 0")
+	}
+	if query.ClassificationTemplateID < 0 {
+		return BeanListPublicationQuery{}, fmt.Errorf("classification_template_id must be >= 0")
+	}
+	if query.ProductTypeCategoryID == 0 && query.ClassificationTemplateID > 0 {
+		query.ProductTypeCategoryID = query.ClassificationTemplateID
 	}
 	ownerType, ownerKey, err := normalizeBeanListOwner(query.OwnerType, query.OwnerKey)
 	if err != nil {

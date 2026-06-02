@@ -223,7 +223,7 @@ func TestCostingViewHasCollapsibleBeanListPreviewSections(t *testing.T) {
 		"productGroupsForType",
 		"green_bean_list",
 		"green_bean_sale_tiers",
-		"产品价格表",
+		"商品价格表",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("CostingView.vue missing collapsible bean-list preview support %q", want)

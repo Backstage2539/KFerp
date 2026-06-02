@@ -274,10 +274,13 @@ export function groupRowsByClassificationCategory(rows = [], template = {}, opti
   }))
   const groupByCategoryID = new Map(groups.map((group) => [group.id, group]))
   const uncategorized = { key: 'uncategorized', id: 0, label: '未分类', rows: [], category: null }
+  const onlyAssigned = Boolean(options.onlyAssigned)
   for (const row of rows || []) {
     const objectID = Number(row?.[idKey] || 0)
     const assignment = assignmentsByObjectID.get(objectID)
+    if (onlyAssigned && !assignment) continue
     const categoryID = Number(assignment?.category_id || 0)
+    if (onlyAssigned && categoryID <= 0) continue
     const target = groupByCategoryID.get(categoryID) || uncategorized
     target.rows.push({
       ...row,
@@ -289,6 +292,62 @@ export function groupRowsByClassificationCategory(rows = [], template = {}, opti
     group.rows.sort((a, b) => Number(a.classification_sort_order || 0) - Number(b.classification_sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
   }
   return [...groups, uncategorized]
+}
+
+export function classificationAssignmentForRow(row = {}, templates = [], options = {}) {
+  const assignmentType = String(options.assignmentType || 'product')
+  const rowID = Number(row?.[options.idKey || 'id'] || row?.product_id || row?.alias_id || 0)
+  if (!rowID) return null
+  const assignmentsKey = options.assignmentsKey || (assignmentType === 'alias' ? 'customer_alias_assignments' : 'product_assignments')
+  const assignmentIDKey = options.assignmentKey || (assignmentType === 'alias' ? 'alias_id' : 'product_id')
+  for (const template of templates || []) {
+    const templateID = Number(template?.id || template?.template_id || 0)
+    if (!templateID || template?.active === false) continue
+    const assignment = (template?.[assignmentsKey] || []).find((item) => Number(item?.[assignmentIDKey] || 0) === rowID && Number(item?.category_id || 0) > 0)
+    if (!assignment) continue
+    const categoryID = Number(assignment.category_id || 0)
+    const category = (template.categories || []).find((item) => Number(item.id || 0) === categoryID)
+    return { assignment, template, category }
+  }
+  return null
+}
+
+export function classificationAssignmentLabel(row = {}, templates = [], options = {}) {
+  const found = classificationAssignmentForRow(row, templates, options)
+  if (!found) return '未分类'
+  const templateName = found.template?.name || `分类模板 #${Number(found.template?.id || 0)}`
+  const categoryName = found.category?.name || '未分类'
+  return `${templateName} / ${categoryName}`
+}
+
+export function classificationAssignmentConflict(row = {}, targetTemplateID = 0, templates = [], options = {}) {
+  const rawTargetCategoryID = options.categoryID ?? options.category_id ?? -1
+  const targetCategoryID = Number(rawTargetCategoryID)
+  if (targetCategoryID === 0) return null
+  const found = classificationAssignmentForRow(row, templates, options)
+  if (!found) return null
+  return {
+    ...found,
+    message: '已归类，需先移出当前分类',
+  }
+}
+
+export function classificationTemplateUnitPriceWarnings(input = {}) {
+  const productConfigTemplate = input.productConfigTemplate || input.product_config_template || {}
+  const classificationTemplate = input.classificationTemplate || input.classification_template || {}
+  const classificationCategory = input.classificationCategory || input.classification_category || {}
+  const effectiveGradientID = Number(classificationCategory.gradient_template_id || classificationTemplate.gradient_template_id || 0)
+  const effectiveUnitID = Number(classificationCategory.unit_template_id || classificationTemplate.unit_template_id || 0)
+  const productGradientID = Number(productConfigTemplate.gradient_template_id || 0)
+  const productUnitID = Number(productConfigTemplate.unit_template_id || 0)
+  const warnings = []
+  if (productGradientID > 0 && effectiveGradientID > 0 && productGradientID !== effectiveGradientID) {
+    warnings.push('商品配置阶梯价模板与所属分类引用不一致')
+  }
+  if (productUnitID > 0 && effectiveUnitID > 0 && productUnitID !== effectiveUnitID) {
+    warnings.push('商品配置单位模板与所属分类引用不一致')
+  }
+  return warnings
 }
 
 export function customerProductAliasRowsForCustomer(rows = [], customerID = 0, options = {}) {

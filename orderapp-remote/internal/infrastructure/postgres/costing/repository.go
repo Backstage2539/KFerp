@@ -868,6 +868,10 @@ func (r Repository) ListBeanListPublications(ctx context.Context, query appcosti
 		       list_type,
 		       COALESCE(product_type_category_id,0),
 		       COALESCE(product_type_name,''),
+		       COALESCE(classification_template_id,0),
+		       COALESCE(classification_template_name,''),
+		       COALESCE(classification_category_id,0),
+		       COALESCE(classification_category_name,''),
 		       version_no,
 		       status,
 		       owner_type,
@@ -912,6 +916,10 @@ func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.Bean
 		       list_type,
 		       COALESCE(product_type_category_id,0),
 		       COALESCE(product_type_name,''),
+		       COALESCE(classification_template_id,0),
+		       COALESCE(classification_template_name,''),
+		       COALESCE(classification_category_id,0),
+		       COALESCE(classification_category_name,''),
 		       version_no,
 		       status,
 		       owner_type,
@@ -951,6 +959,10 @@ func (r Repository) LoadBeanListPublication(ctx context.Context, query appcostin
 		       list_type,
 		       COALESCE(product_type_category_id,0),
 		       COALESCE(product_type_name,''),
+		       COALESCE(classification_template_id,0),
+		       COALESCE(classification_template_name,''),
+		       COALESCE(classification_category_id,0),
+		       COALESCE(classification_category_name,''),
 		       version_no,
 		       status,
 		       owner_type,
@@ -1075,17 +1087,21 @@ func (r Repository) PublishBeanList(ctx context.Context, cmd appcosting.PublishB
 	var published appcosting.BeanListPublication
 	var configJSON, contentJSON []byte
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.bean_list_publications(list_type, product_type_category_id, product_type_name, version_no, status, owner_type, owner_key, price_source_publication_id, style_source_publication_id, source_version_no, config_json, content_json, changelog, actor)
-		VALUES($1,$2,$3,$4,'published',$5,$6,NULLIF($7,0),NULLIF($8,0),$9,$10::jsonb,$11::jsonb,$12,$13)
-		RETURNING id, list_type, COALESCE(product_type_category_id,0), COALESCE(product_type_name,''), version_no, status, owner_type, owner_key, COALESCE(price_source_publication_id,0), COALESCE(style_source_publication_id,0), source_version_no, config_json, content_json, changelog,
+		INSERT INTO %s.bean_list_publications(list_type, product_type_category_id, product_type_name, classification_template_id, classification_template_name, classification_category_id, classification_category_name, version_no, status, owner_type, owner_key, price_source_publication_id, style_source_publication_id, source_version_no, config_json, content_json, changelog, actor)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,'published',$9,$10,NULLIF($11,0),NULLIF($12,0),$13,$14::jsonb,$15::jsonb,$16,$17)
+		RETURNING id, list_type, COALESCE(product_type_category_id,0), COALESCE(product_type_name,''), COALESCE(classification_template_id,0), COALESCE(classification_template_name,''), COALESCE(classification_category_id,0), COALESCE(classification_category_name,''), version_no, status, owner_type, owner_key, COALESCE(price_source_publication_id,0), COALESCE(style_source_publication_id,0), source_version_no, config_json, content_json, changelog,
 		          to_char(published_at,'YYYY-MM-DD HH24:MI'),
 		          COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
 		          to_char(created_at,'YYYY-MM-DD HH24:MI')
-	`, r.schema), cmd.ListType, cmd.ProductTypeCategoryID, cmd.ProductTypeName, cmd.Version, cmd.OwnerType, cmd.OwnerKey, cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersion, config, content, cmd.Changelog, cmd.Actor).Scan(
+	`, r.schema), cmd.ListType, cmd.ProductTypeCategoryID, cmd.ProductTypeName, cmd.ClassificationTemplateID, cmd.ClassificationTemplateName, cmd.ClassificationCategoryID, cmd.ClassificationCategoryName, cmd.Version, cmd.OwnerType, cmd.OwnerKey, cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersion, config, content, cmd.Changelog, cmd.Actor).Scan(
 		&published.ID,
 		&published.ListType,
 		&published.ProductTypeCategoryID,
 		&published.ProductTypeName,
+		&published.ClassificationTemplateID,
+		&published.ClassificationTemplateName,
+		&published.ClassificationCategoryID,
+		&published.ClassificationCategoryName,
 		&published.Version,
 		&published.Status,
 		&published.OwnerType,
@@ -1161,17 +1177,21 @@ func (r Repository) SaveBeanListDraft(ctx context.Context, cmd appcosting.Publis
 	var draft appcosting.BeanListPublication
 	var configJSON, contentJSON []byte
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.bean_list_publications(list_type, product_type_category_id, product_type_name, version_no, status, owner_type, owner_key, price_source_publication_id, style_source_publication_id, source_version_no, config_json, content_json, changelog, actor)
-		VALUES($1,$2,$3,$4,'draft',$5,$6,NULLIF($7,0),NULLIF($8,0),$9,$10::jsonb,$11::jsonb,$12,$13)
-		RETURNING id, list_type, COALESCE(product_type_category_id,0), COALESCE(product_type_name,''), version_no, status, owner_type, owner_key, COALESCE(price_source_publication_id,0), COALESCE(style_source_publication_id,0), source_version_no, config_json, content_json, changelog,
+		INSERT INTO %s.bean_list_publications(list_type, product_type_category_id, product_type_name, classification_template_id, classification_template_name, classification_category_id, classification_category_name, version_no, status, owner_type, owner_key, price_source_publication_id, style_source_publication_id, source_version_no, config_json, content_json, changelog, actor)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,'draft',$9,$10,NULLIF($11,0),NULLIF($12,0),$13,$14::jsonb,$15::jsonb,$16,$17)
+		RETURNING id, list_type, COALESCE(product_type_category_id,0), COALESCE(product_type_name,''), COALESCE(classification_template_id,0), COALESCE(classification_template_name,''), COALESCE(classification_category_id,0), COALESCE(classification_category_name,''), version_no, status, owner_type, owner_key, COALESCE(price_source_publication_id,0), COALESCE(style_source_publication_id,0), source_version_no, config_json, content_json, changelog,
 		          to_char(published_at,'YYYY-MM-DD HH24:MI'),
 		          COALESCE(to_char(withdrawn_at,'YYYY-MM-DD HH24:MI'),''),
 		          to_char(created_at,'YYYY-MM-DD HH24:MI')
-	`, r.schema), cmd.ListType, cmd.ProductTypeCategoryID, cmd.ProductTypeName, cmd.Version, cmd.OwnerType, cmd.OwnerKey, cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersion, config, content, cmd.Changelog, cmd.Actor).Scan(
+	`, r.schema), cmd.ListType, cmd.ProductTypeCategoryID, cmd.ProductTypeName, cmd.ClassificationTemplateID, cmd.ClassificationTemplateName, cmd.ClassificationCategoryID, cmd.ClassificationCategoryName, cmd.Version, cmd.OwnerType, cmd.OwnerKey, cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersion, config, content, cmd.Changelog, cmd.Actor).Scan(
 		&draft.ID,
 		&draft.ListType,
 		&draft.ProductTypeCategoryID,
 		&draft.ProductTypeName,
+		&draft.ClassificationTemplateID,
+		&draft.ClassificationTemplateName,
+		&draft.ClassificationCategoryID,
+		&draft.ClassificationCategoryName,
 		&draft.Version,
 		&draft.Status,
 		&draft.OwnerType,
@@ -1504,6 +1524,10 @@ func scanBeanListPublication(row beanListPublicationScanner) (appcosting.BeanLis
 		&out.ListType,
 		&out.ProductTypeCategoryID,
 		&out.ProductTypeName,
+		&out.ClassificationTemplateID,
+		&out.ClassificationTemplateName,
+		&out.ClassificationCategoryID,
+		&out.ClassificationCategoryName,
 		&out.Version,
 		&out.Status,
 		&out.OwnerType,

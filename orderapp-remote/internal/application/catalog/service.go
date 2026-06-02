@@ -246,6 +246,8 @@ type ProductClassificationTemplate struct {
 	TemplateState            string                                         `json:"template_state"`
 	Name                     string                                         `json:"name"`
 	Remark                   string                                         `json:"remark"`
+	GradientTemplateID       int64                                          `json:"gradient_template_id"`
+	UnitTemplateID           int64                                          `json:"unit_template_id"`
 	Active                   bool                                           `json:"active"`
 	SortOrder                int                                            `json:"sort_order"`
 	Categories               []ProductClassificationCategory                `json:"categories"`
@@ -254,13 +256,15 @@ type ProductClassificationTemplate struct {
 }
 
 type ProductClassificationCategory struct {
-	ID         int64  `json:"id"`
-	TemplateID int64  `json:"template_id"`
-	ParentID   int64  `json:"parent_id"`
-	Name       string `json:"name"`
-	Level      int    `json:"level"`
-	SortOrder  int    `json:"sort_order"`
-	Active     bool   `json:"active"`
+	ID                 int64  `json:"id"`
+	TemplateID         int64  `json:"template_id"`
+	ParentID           int64  `json:"parent_id"`
+	Name               string `json:"name"`
+	Level              int    `json:"level"`
+	SortOrder          int    `json:"sort_order"`
+	GradientTemplateID int64  `json:"gradient_template_id"`
+	UnitTemplateID     int64  `json:"unit_template_id"`
+	Active             bool   `json:"active"`
 }
 
 type ProductClassificationAssignment struct {
@@ -697,14 +701,16 @@ type SaveProductConfigTemplateCommand struct {
 }
 
 type SaveProductClassificationTemplateCommand struct {
-	Actor            string
-	ID               int64
-	CustomerID       int64
-	SourceTemplateID int64
-	Name             string
-	Remark           string
-	Active           bool
-	SortOrder        int
+	Actor              string
+	ID                 int64
+	CustomerID         int64
+	SourceTemplateID   int64
+	Name               string
+	Remark             string
+	GradientTemplateID int64
+	UnitTemplateID     int64
+	Active             bool
+	SortOrder          int
 }
 
 type DeleteProductClassificationTemplateCommand struct {
@@ -713,13 +719,15 @@ type DeleteProductClassificationTemplateCommand struct {
 }
 
 type SaveProductClassificationCategoryCommand struct {
-	Actor      string
-	ID         int64
-	TemplateID int64
-	ParentID   int64
-	Name       string
-	Level      int
-	SortOrder  int
+	Actor              string
+	ID                 int64
+	TemplateID         int64
+	ParentID           int64
+	Name               string
+	Level              int
+	SortOrder          int
+	GradientTemplateID int64
+	UnitTemplateID     int64
 }
 
 type DeleteProductClassificationCategoryCommand struct {

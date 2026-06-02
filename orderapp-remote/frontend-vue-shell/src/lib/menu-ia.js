@@ -55,9 +55,11 @@ export const menuGroups = [
     items: [
       { key: 'productMaster', label: '商品档案', title: '商品档案' },
       { key: 'customerProductAliases', label: '客户商品名', title: '客户商品名' },
-      { key: 'productConfigTemplates', label: '商品配置模板', title: '商品配置模板' },
+      { key: 'productConfigTemplates', label: '商品配置和分类模板', title: '商品配置和分类模板' },
+      { key: 'pricingGradientTemplates', label: '阶梯价模板', title: '阶梯价模板' },
+      { key: 'productUnitTemplates', label: '单位模板', title: '单位模板' },
       { key: 'bom', label: '生产 BOM', title: '生产 BOM' },
-      { key: 'costing', label: '产品价格表', title: '产品价格表' },
+      { key: 'costing', label: '商品价格表', title: '商品价格表' },
       { key: 'industryFieldTemplates', label: '行业字段模板', title: '行业字段模板' },
       { key: 'costingManual', label: '成本核价手册', title: '成本核价手册' },
       { key: 'greenBeanSalesManual', label: '生豆销售手册', title: '生豆销售手册' },
