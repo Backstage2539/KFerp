@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-393-PRODUCT-CLASSIFICATION-TEMPLATES
 - Branch: codex/product-classification-template-drawers-20260602
 - Owner/session: Codex / 2026-06-02
-- Status: local verified, not merged or deployed
+- Status: merged and deployed to development
 - Scope: 商品分类从商品档案表单里的直接分类下拉和旧拖拽分类树，收敛为“分类模板 + 配置分类抽屉”。商品档案和客户商品名只保存 `classification_template_id`；分类项和商品/客户商品名归属在可叠加、可收起的分类配置抽屉中维护。客户商品名批量添加商品档案时可选择分类模板，不选则默认复制/复用来源商品档案分类模板到客户侧并按同名分类映射。行业字段只能来自行业字段模板定义；生产 BOM 支持返回商品档案配置。
 - DEV:
   - DEV-393-CLASSIFICATION-SCHEMA-API：新增分类模板、分类项、商品档案归属和客户商品名归属表/API，扩展商品档案和客户商品名 `classification_template_id`，写操作日志。
@@ -24,9 +24,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: `scripts/verify_kferp.sh changed`
   - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`
   - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-02-product-classification-template-drawers.md`
-- Deployment: not requested for this turn.
+- Deployment: feature branch pushed; merged to `develop` with `e7d10ef3f49c98b126a55c991c51ca6e7ce40f94`; development stack deployed with `./deploy_orderapp.sh development`. Backup from first deployment: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260602130506`.
 - Last update: 2026-06-02 Asia/Shanghai
-- Notes: Van requested no browser/manual验收 for this round; use code/docs/unit/API/build verification only. RED evidence: frontend/support tests initially failed on missing classification template drawer/API markers and stale industry-field add behavior. GREEN evidence: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 102/102; `go test ./internal/application/catalog ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1` passed; `npm run build` in Vue shell passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+- Notes: Van requested no browser/manual验收 for this round; use code/docs/unit/API/build verification only. RED evidence: frontend/support tests initially failed on missing classification template drawer/API markers and stale industry-field add behavior. GREEN evidence before merge: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 102/102; `go test ./internal/application/catalog ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1` passed; `npm run build` in Vue shell passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0. Merge-gate evidence after `origin/develop` merge: frontend target passed 102/102; targeted Go packages passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` and `scripts/verify_kferp.sh backend` exited 0. Deploy evidence: Docker build ran `go test ./...` and succeeded; containers running; unauthenticated `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell` returned 200; authenticated `/app/api/product-settings` and `/app/api/product-classification-templates` returned 200; requirement API exposes `PR-393-PRODUCT-CLASSIFICATION-TEMPLATES`; server source contains `classification-config-drawer`.
 
 ### PR-392-PRODUCT-CONFIG-ENTRY-TEMPLATE-ALIAS
 - Branch: codex/product-config-entry-template-alias-20260602

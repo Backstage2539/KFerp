@@ -27,3 +27,4 @@
 ## 说明
 - 本轮按 Van 当前要求不做浏览器/人工验收，只保留代码、单测、API 测试、构建和 changed verifier 证据。
 - 不做破坏性迁移，不回改历史订单、价格表、BOM、工单或旧分类字段。
+- 2026-06-02 已合入 `develop` 并部署 development stack；命令级 smoke 覆盖容器运行、`/app/` GET 303、认证 `/app/vue-shell` 200、认证 `/app/api/product-classification-templates` 200、需求 API 暴露 `PR-393-PRODUCT-CLASSIFICATION-TEMPLATES`。
