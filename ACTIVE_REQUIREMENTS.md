@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-395-PRODUCT-PRICE-CLASSIFICATION
 - Branch: codex/product-price-classification-20260602
 - Owner/session: Codex / 2026-06-02
-- Status: local implementation verified; pending merge and development deploy.
+- Status: merged and deployed to development
 - Scope: 商品配置模板更名为“商品配置和分类模板”；阶梯价模板、单位模板拆成商品与配方独立菜单；产品价格表更名为商品价格表；商品档案和客户商品名单归类；分类模板/分类项可引用阶梯价模板和单位模板；商品价格表类型来自当前归类分类模板，未归类为“其他”。
 - DEV:
   - DEV-395-MENU-PAGES：调整商品与配方菜单、App sectionMode 和 ProductSettingsView 页面呈现。
@@ -25,9 +25,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: `scripts/verify_kferp.sh changed`
   - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`
   - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-02-product-price-classification.md`
-- Deployment: pending.
-- Last update: 2026-06-02 Asia/Shanghai
-- Notes: Van requested no browser/manual验收 for this round; use code/docs/unit/API/build verification only.
+- Deployment: feature branch pushed; merged to `develop` with `e70131af2fcb4b8f578d7ba0706618576939d165`; support marker fix `cff0021b957ce6df1cbf1d20db6639dca57d067b` pushed to `origin/develop`; development stack deployed with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260602224205`.
+- Last update: 2026-06-02 22:45 Asia/Shanghai
+- Notes: Van requested no browser/manual验收 for this round; use code/docs/unit/API/build verification only. Local and merge-gate evidence: frontend target tests passed 124/124; targeted catalog/costing Go tests passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0. Deploy evidence: Docker build ran `go test ./...` and succeeded after support marker tests were updated to the PR-395 terminology; containers running; unauthenticated `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell` returned 200; authenticated `/app/api/product-settings` returned 200; deployed docs contain `PR-395-PRODUCT-PRICE-CLASSIFICATION`.
 
 ### PR-394-PRODUCT-CLASSIFICATION-VIEW-TABS
 - Branch: codex/product-classification-view-tabs-20260602
