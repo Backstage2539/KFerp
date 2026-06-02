@@ -177,18 +177,19 @@ type ProductCategoryNode struct {
 }
 
 type ProductSettingsData struct {
-	Categories                     []ProductCategoryNode           `json:"categories"`
-	Products                       []ProductSettingsProduct        `json:"products"`
-	ProductProductionConfigs       []ProductProductionConfig       `json:"product_production_configs"`
-	ProductClassificationTemplates []ProductClassificationTemplate `json:"product_classification_templates"`
-	GradientTemplates              []GradientTemplate              `json:"gradient_templates"`
-	ProductConfigTemplates         []ProductConfigTemplate         `json:"product_config_templates"`
-	ProductUnitDefinitions         []ProductUnitDefinition         `json:"product_unit_definitions"`
-	ProductUnitTemplates           []ProductUnitTemplate           `json:"product_unit_templates"`
-	CustomerPublicUsages           []CustomerPublicUsage           `json:"customer_public_usages"`
-	CustomerProductRuleTemplates   []CustomerProductRuleTemplate   `json:"customer_product_rule_templates"`
-	CustomerProductRuleOverrides   []CustomerProductRuleOverride   `json:"customer_product_rule_overrides"`
-	CustomerProductRuleBindings    []CustomerProductRuleBinding    `json:"customer_product_rule_bindings"`
+	Categories                          []ProductCategoryNode                `json:"categories"`
+	Products                            []ProductSettingsProduct             `json:"products"`
+	ProductProductionConfigs            []ProductProductionConfig            `json:"product_production_configs"`
+	ProductClassificationTemplates      []ProductClassificationTemplate      `json:"product_classification_templates"`
+	ProductClassificationTemplateUsages []ProductClassificationTemplateUsage `json:"product_classification_template_usages"`
+	GradientTemplates                   []GradientTemplate                   `json:"gradient_templates"`
+	ProductConfigTemplates              []ProductConfigTemplate              `json:"product_config_templates"`
+	ProductUnitDefinitions              []ProductUnitDefinition              `json:"product_unit_definitions"`
+	ProductUnitTemplates                []ProductUnitTemplate                `json:"product_unit_templates"`
+	CustomerPublicUsages                []CustomerPublicUsage                `json:"customer_public_usages"`
+	CustomerProductRuleTemplates        []CustomerProductRuleTemplate        `json:"customer_product_rule_templates"`
+	CustomerProductRuleOverrides        []CustomerProductRuleOverride        `json:"customer_product_rule_overrides"`
+	CustomerProductRuleBindings         []CustomerProductRuleBinding         `json:"customer_product_rule_bindings"`
 }
 
 type ProductProductionConfigField struct {
@@ -244,6 +245,7 @@ type ProductClassificationTemplate struct {
 	SourceTemplateID         int64                                          `json:"source_template_id"`
 	TemplateState            string                                         `json:"template_state"`
 	Name                     string                                         `json:"name"`
+	Remark                   string                                         `json:"remark"`
 	Active                   bool                                           `json:"active"`
 	SortOrder                int                                            `json:"sort_order"`
 	Categories               []ProductClassificationCategory                `json:"categories"`
@@ -273,6 +275,19 @@ type CustomerProductAliasClassificationAssignment struct {
 	TemplateID int64 `json:"template_id"`
 	CategoryID int64 `json:"category_id"`
 	SortOrder  int   `json:"sort_order"`
+}
+
+type ProductClassificationTemplateUsage struct {
+	ClassificationTemplateID int64 `json:"classification_template_id"`
+	Active                   bool  `json:"active"`
+	SortOrder                int   `json:"sort_order"`
+}
+
+type CustomerProductAliasClassificationTemplateUsage struct {
+	CustomerID               int64 `json:"customer_id"`
+	ClassificationTemplateID int64 `json:"classification_template_id"`
+	Active                   bool  `json:"active"`
+	SortOrder                int   `json:"sort_order"`
 }
 
 type ProductUnitDefinition struct {
@@ -687,6 +702,7 @@ type SaveProductClassificationTemplateCommand struct {
 	CustomerID       int64
 	SourceTemplateID int64
 	Name             string
+	Remark           string
 	Active           bool
 	SortOrder        int
 }
@@ -726,6 +742,30 @@ type SaveCustomerProductAliasClassificationAssignmentCommand struct {
 	TemplateID int64
 	CategoryID int64
 	SortOrder  int
+}
+
+type SaveProductClassificationTemplateUsageCommand struct {
+	Actor                    string
+	ClassificationTemplateID int64
+	SortOrder                int
+}
+
+type DeleteProductClassificationTemplateUsageCommand struct {
+	Actor                    string
+	ClassificationTemplateID int64
+}
+
+type SaveCustomerProductAliasClassificationTemplateUsageCommand struct {
+	Actor                    string
+	CustomerID               int64
+	ClassificationTemplateID int64
+	SortOrder                int
+}
+
+type DeleteCustomerProductAliasClassificationTemplateUsageCommand struct {
+	Actor                    string
+	CustomerID               int64
+	ClassificationTemplateID int64
 }
 
 type SaveProductUnitDefinitionCommand struct {
@@ -863,6 +903,12 @@ type Repository interface {
 	DeleteProductClassificationTemplate(ctx context.Context, cmd DeleteProductClassificationTemplateCommand) error
 	SaveProductClassificationCategory(ctx context.Context, cmd SaveProductClassificationCategoryCommand) (ProductClassificationCategory, error)
 	DeleteProductClassificationCategory(ctx context.Context, cmd DeleteProductClassificationCategoryCommand) error
+	ListProductClassificationTemplateUsages(ctx context.Context) ([]ProductClassificationTemplateUsage, error)
+	SaveProductClassificationTemplateUsage(ctx context.Context, cmd SaveProductClassificationTemplateUsageCommand) (ProductClassificationTemplateUsage, error)
+	DeleteProductClassificationTemplateUsage(ctx context.Context, cmd DeleteProductClassificationTemplateUsageCommand) error
+	ListCustomerProductAliasClassificationTemplateUsages(ctx context.Context, customerID int64) ([]CustomerProductAliasClassificationTemplateUsage, error)
+	SaveCustomerProductAliasClassificationTemplateUsage(ctx context.Context, cmd SaveCustomerProductAliasClassificationTemplateUsageCommand) (CustomerProductAliasClassificationTemplateUsage, error)
+	DeleteCustomerProductAliasClassificationTemplateUsage(ctx context.Context, cmd DeleteCustomerProductAliasClassificationTemplateUsageCommand) error
 	SaveProductClassificationAssignment(ctx context.Context, cmd SaveProductClassificationAssignmentCommand) (ProductClassificationAssignment, error)
 	SaveCustomerProductAliasClassificationAssignment(ctx context.Context, cmd SaveCustomerProductAliasClassificationAssignmentCommand) (CustomerProductAliasClassificationAssignment, error)
 	ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error)
@@ -1012,9 +1058,7 @@ func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasi
 	if cmd.ProductConfigTemplateID < 0 {
 		return ValidationError{Message: "invalid product_config_template_id"}
 	}
-	if cmd.ClassificationTemplateID < 0 {
-		return ValidationError{Message: "invalid classification_template_id"}
-	}
+	cmd.ClassificationTemplateID = 0
 	unitRuleOverrideJSON, err := normalizeJSONText(cmd.UnitRuleOverrideJSON)
 	if err != nil {
 		return ValidationError{Message: "invalid unit_rule_override_json"}
@@ -1081,9 +1125,7 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	if cmd.ProductConfigTemplateID < 0 {
 		return Product{}, ValidationError{Message: "invalid product_config_template_id"}
 	}
-	if cmd.ClassificationTemplateID < 0 {
-		return Product{}, ValidationError{Message: "invalid classification_template_id"}
-	}
+	cmd.ClassificationTemplateID = 0
 	cmd.SpecialAttrsJSON = specialAttrsJSON
 	return s.repo.CreateProduct(ctx, cmd)
 }
@@ -1104,9 +1146,7 @@ func (s *Service) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product,
 	if cmd.ProductConfigTemplateID < 0 {
 		return Product{}, ValidationError{Message: "invalid product_config_template_id"}
 	}
-	if cmd.ClassificationTemplateID < 0 {
-		return Product{}, ValidationError{Message: "invalid classification_template_id"}
-	}
+	cmd.ClassificationTemplateID = 0
 	specialAttrsJSON, err := normalizeJSONObjectText(cmd.SpecialAttrsJSON)
 	if err != nil {
 		return Product{}, ValidationError{Message: "invalid special_attrs_json"}
@@ -1236,6 +1276,10 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
+	classificationTemplateUsages, err := s.repo.ListProductClassificationTemplateUsages(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
 	templates, err := s.repo.ListGradientTemplates(ctx)
 	if err != nil {
 		return ProductSettingsData{}, err
@@ -1271,6 +1315,7 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	data := BuildProductSettings(categories, products)
 	data.ProductProductionConfigs = productionConfigs
 	data.ProductClassificationTemplates = classificationTemplates
+	data.ProductClassificationTemplateUsages = classificationTemplateUsages
 	data.GradientTemplates = templates
 	data.ProductConfigTemplates = configTemplates
 	data.ProductUnitDefinitions = unitDefinitions
@@ -1297,7 +1342,9 @@ func (s *Service) ListProductClassificationTemplates(ctx context.Context) ([]Pro
 func (s *Service) SaveProductClassificationTemplate(ctx context.Context, cmd SaveProductClassificationTemplateCommand) (ProductClassificationTemplate, error) {
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	cmd.Name = strings.TrimSpace(cmd.Name)
-	if cmd.ID < 0 || cmd.CustomerID < 0 || cmd.SourceTemplateID < 0 {
+	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	cmd.CustomerID = 0
+	if cmd.ID < 0 || cmd.SourceTemplateID < 0 {
 		return ProductClassificationTemplate{}, ValidationError{Message: "invalid classification template"}
 	}
 	if cmd.Name == "" {
@@ -1307,6 +1354,61 @@ func (s *Service) SaveProductClassificationTemplate(ctx context.Context, cmd Sav
 		cmd.SortOrder = 100
 	}
 	return s.repo.SaveProductClassificationTemplate(ctx, cmd)
+}
+
+func (s *Service) ListProductClassificationTemplateUsages(ctx context.Context) ([]ProductClassificationTemplateUsage, error) {
+	return s.repo.ListProductClassificationTemplateUsages(ctx)
+}
+
+func (s *Service) SaveProductClassificationTemplateUsage(ctx context.Context, cmd SaveProductClassificationTemplateUsageCommand) (ProductClassificationTemplateUsage, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ClassificationTemplateID <= 0 {
+		return ProductClassificationTemplateUsage{}, ValidationError{Message: "invalid classification_template_id"}
+	}
+	if cmd.SortOrder <= 0 {
+		cmd.SortOrder = 100
+	}
+	return s.repo.SaveProductClassificationTemplateUsage(ctx, cmd)
+}
+
+func (s *Service) DeleteProductClassificationTemplateUsage(ctx context.Context, cmd DeleteProductClassificationTemplateUsageCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ClassificationTemplateID <= 0 {
+		return ValidationError{Message: "invalid classification_template_id"}
+	}
+	return s.repo.DeleteProductClassificationTemplateUsage(ctx, cmd)
+}
+
+func (s *Service) ListCustomerProductAliasClassificationTemplateUsages(ctx context.Context, customerID int64) ([]CustomerProductAliasClassificationTemplateUsage, error) {
+	if customerID < 0 {
+		return nil, ValidationError{Message: "invalid customer_id"}
+	}
+	return s.repo.ListCustomerProductAliasClassificationTemplateUsages(ctx, customerID)
+}
+
+func (s *Service) SaveCustomerProductAliasClassificationTemplateUsage(ctx context.Context, cmd SaveCustomerProductAliasClassificationTemplateUsageCommand) (CustomerProductAliasClassificationTemplateUsage, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.CustomerID <= 0 {
+		return CustomerProductAliasClassificationTemplateUsage{}, ValidationError{Message: "customer_id required"}
+	}
+	if cmd.ClassificationTemplateID <= 0 {
+		return CustomerProductAliasClassificationTemplateUsage{}, ValidationError{Message: "invalid classification_template_id"}
+	}
+	if cmd.SortOrder <= 0 {
+		cmd.SortOrder = 100
+	}
+	return s.repo.SaveCustomerProductAliasClassificationTemplateUsage(ctx, cmd)
+}
+
+func (s *Service) DeleteCustomerProductAliasClassificationTemplateUsage(ctx context.Context, cmd DeleteCustomerProductAliasClassificationTemplateUsageCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.CustomerID <= 0 {
+		return ValidationError{Message: "customer_id required"}
+	}
+	if cmd.ClassificationTemplateID <= 0 {
+		return ValidationError{Message: "invalid classification_template_id"}
+	}
+	return s.repo.DeleteCustomerProductAliasClassificationTemplateUsage(ctx, cmd)
 }
 
 func (s *Service) DeleteProductClassificationTemplate(ctx context.Context, cmd DeleteProductClassificationTemplateCommand) error {
@@ -1709,9 +1811,7 @@ func (s *Service) SaveCustomerProductAlias(ctx context.Context, cmd CustomerProd
 	if cmd.DisplayCategoryID < 0 {
 		return CustomerProductAlias{}, ValidationError{Message: "invalid display_category_id"}
 	}
-	if cmd.ClassificationTemplateID < 0 {
-		return CustomerProductAlias{}, ValidationError{Message: "invalid classification_template_id"}
-	}
+	cmd.ClassificationTemplateID = 0
 	return s.repo.SaveCustomerProductAlias(ctx, cmd)
 }
 
@@ -1732,9 +1832,7 @@ func (s *Service) BatchCreateCustomerProductAliases(ctx context.Context, cmd Bat
 	if cmd.DisplayCategoryID < 0 {
 		return BatchCustomerProductAliasesResult{}, ValidationError{Message: "invalid display_category_id"}
 	}
-	if cmd.ClassificationTemplateID < 0 {
-		return BatchCustomerProductAliasesResult{}, ValidationError{Message: "invalid classification_template_id"}
-	}
+	cmd.ClassificationTemplateID = 0
 	seen := map[int64]bool{}
 	ids := make([]int64, 0, len(cmd.ProductIDs))
 	for _, id := range cmd.ProductIDs {

@@ -21,7 +21,7 @@
             <div class="context-stats">
               <span>公共SKU {{ publicSkuRows.length }}</span>
               <span>当前SKU {{ skuDisplayTotal }}</span>
-              <span>商品分类 {{ categoryManagementTreeForSkuContext.length }}</span>
+              <span>分类视图 {{ Math.max(productClassificationTabs.length - 1, 0) }}</span>
             </div>
           </div>
           <div v-if="!isWorkspaceCustomerLocked" class="sku-context-controls">
@@ -76,25 +76,41 @@
             <span>按商品档案维护生产 BOM、BOM版本、工艺路线、预期损耗率和价格表产品信息字段。</span>
             <small>商品分类、生产配置、价格/单位摘要和状态备注都归属商品档案；客户商品名不直接编辑 BOM；价格表生成请进入产品价格表。</small>
           </div>
+          <div class="classification-view-toolbar product-classification-tabs" aria-label="商品档案分类模板视图">
+            <div class="classification-tabs">
+              <button
+                v-for="tab in productClassificationTabs"
+                :key="tab.key"
+                :class="['classification-tab', { active: tab.key === activeProductClassificationTab }]"
+                type="button"
+                @click="activeProductClassificationTab = tab.key">
+                {{ tab.label }}
+              </button>
+            </div>
+            <div class="classification-actions">
+              <label>
+                <span>使用分类模板</span>
+                <select v-model.number="selectedProductClassificationTemplateID">
+                  <option :value="0">选择模板</option>
+                  <option v-for="template in activeProductClassificationTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+                </select>
+              </label>
+              <button class="secondary compact-action" type="button" :disabled="!selectedProductClassificationTemplateID" @click="saveProductClassificationTemplateUsage">使用分类模板</button>
+              <label v-if="currentProductClassificationTemplate">
+                <span>移动到分类</span>
+                <select v-model.number="selectedProductClassificationCategoryID">
+                  <option :value="0">未分类</option>
+                  <option v-for="category in productClassificationCategories" :key="category.id" :value="category.id">{{ category.name }}</option>
+                </select>
+              </label>
+              <button v-if="currentProductClassificationTemplate" class="secondary compact-action" type="button" :disabled="!selectedProductIds.length" @click="saveSelectedProductClassificationAssignment">移动到分类</button>
+            </div>
+          </div>
           <div class="table-wrap sku-table-wrap">
           <div class="sku-filters">
             <label>
               <span>搜索</span>
               <input v-model.trim="skuFilters.query" placeholder="搜索商品名称/类型/备注" />
-            </label>
-            <label>
-              <span>产品类型</span>
-              <select v-model="skuFilters.primaryCategory">
-                <option value="">全部产品类型</option>
-                <option v-for="name in skuPrimaryCategoryOptions" :key="name" :value="name">{{ name }}</option>
-              </select>
-            </label>
-            <label>
-              <span>产品子类型</span>
-              <select v-model="skuFilters.secondaryCategory">
-                <option value="">全部产品子类型</option>
-                <option v-for="name in skuSecondaryCategoryOptions" :key="name" :value="name">{{ name }}</option>
-              </select>
             </label>
             <label>
               <span>状态</span>
@@ -113,8 +129,6 @@
                 </th>
                 <th class="sku-name-cell">商品名</th>
                 <th>商品编号</th>
-                <th class="sku-col-product-type">产品类型</th>
-                <th class="sku-col-product-subtype">产品子类型</th>
                 <th>归属</th>
                 <th class="action-cell">新增动作</th>
                 <th>生产配置预期损耗率</th>
@@ -126,7 +140,18 @@
               </tr>
             </thead>
             <tbody>
-              <template v-for="row in displaySkuRows" :key="row.id">
+              <template v-for="group in displaySkuGroups" :key="group.key">
+                <tr v-if="!group.all" class="classification-group-row">
+                  <td :colspan="11">
+                    <button class="classification-group-toggle" type="button" @click="toggleProductClassificationGroup(group.key)">
+                      {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
+                    </button>
+                    <strong>{{ group.label }}</strong>
+                    <small>{{ group.rows.length }} 款</small>
+                  </td>
+                </tr>
+                <template v-if="!isProductClassificationGroupCollapsed(group.key)">
+              <template v-for="row in group.rows" :key="`${group.key}-${row.id}`">
                 <tr :class="{ 'inactive-sku': row.active === false, 'sku-highlight': row.id === highlightedSkuId }">
                   <td class="select-col">
                     <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row) || row.active === false" @change="toggleProductSelection(row, $event.target.checked)" />
@@ -135,8 +160,6 @@
                     <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">{{ row.name || '未命名商品' }}</button>
                   </td>
                   <td>{{ row.number || '' }}</td>
-                  <td class="sku-category-cell">{{ categoryLabel(row, 1) }}</td>
-                  <td class="sku-category-cell">{{ categoryLabel(row, 2) }}</td>
                   <td>{{ productOwnerLabel(row) }}</td>
                   <td class="action-cell">
                     <button class="text-button" type="button" @click="copySkuInPlace(row)">复制为商品档案</button>
@@ -151,7 +174,7 @@
                       type="number"
                       min="0"
                       step="0.001"
-                      placeholder="留空继承分类模板"
+                      placeholder="留空继承价格模板"
                       :disabled="!canEditSkuRow(row) || row.active === false"
                       @change="saveProductMarginOverride(row)" />
                   </td>
@@ -175,7 +198,7 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'green_bean'" class="green-bean-detail-row">
-                  <td :colspan="13">
+                  <td :colspan="11">
                     <div class="green-bean-detail-fields">
                       <label>
                         <span>生豆属性</span>
@@ -205,7 +228,7 @@
                   </td>
                 </tr>
                 <tr v-if="row.product_kind === 'drip_bag'" class="green-bean-detail-row">
-                  <td :colspan="14">
+                  <td :colspan="11">
                     <div class="green-bean-detail-fields">
                       <label>
                         <span>每袋克重</span>
@@ -219,8 +242,10 @@
                   </td>
                 </tr>
               </template>
+                </template>
+              </template>
               <tr v-if="!displaySkuRows.length">
-                <td :colspan="14" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
+                <td :colspan="11" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
               </tr>
             </tbody>
           </table>
@@ -247,7 +272,7 @@
               <button class="secondary compact-action" type="button" @click="resetCustomerProductAliasForm">清空</button>
             </div>
           </div>
-          <p class="muted">客户商品名只维护对外名称、编号、品牌和展示分类；BOM 请回到绑定商品档案维护生产 BOM。</p>
+          <p class="muted">客户商品名只维护对外名称、编号、品牌和价格表展示；生产 BOM 和生产配置只能回到商品档案维护。</p>
           <div v-if="selectedAliasCustomerID" class="alias-migration-panel">
             <div class="field-group-head">
               <strong>旧客户 SKU 收敛检查</strong>
@@ -302,17 +327,6 @@
               <input v-model.trim="customerProductAliasForm.brand_name" placeholder="可留空" />
             </label>
             <label>
-              <span>分类模板</span>
-              <select v-model.number="customerProductAliasForm.classification_template_id">
-                <option :value="0">不使用分类模板</option>
-                <option v-for="template in activeProductClassificationTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
-              </select>
-            </label>
-            <div class="inline-field-action">
-              <span>分类配置</span>
-              <button class="secondary compact-action" type="button" :disabled="!customerProductAliasForm.classification_template_id || !customerProductAliasForm.id" @click="openClassificationConfigDrawer({ objectType: 'customer_alias', objectID: customerProductAliasForm.id, templateID: customerProductAliasForm.classification_template_id, title: `客户商品名分类配置：${customerProductAliasForm.display_name || '客户商品名'}`, parentId: 'customer-alias-form' })">配置分类</button>
-            </div>
-            <label>
               <span>排序</span>
               <input v-model.number="customerProductAliasForm.sort_order" type="number" min="0" step="1" />
             </label>
@@ -332,14 +346,46 @@
               <button class="primary" type="submit" :disabled="aliasSaving || loading">保存客户商品名</button>
             </div>
           </form>
+          <div class="classification-view-toolbar alias-classification-tabs" aria-label="客户商品名分类模板视图">
+            <div class="classification-tabs">
+              <button
+                v-for="tab in aliasClassificationTabs"
+                :key="tab.key"
+                :class="['classification-tab', { active: tab.key === activeAliasClassificationTab }]"
+                type="button"
+                @click="activeAliasClassificationTab = tab.key">
+                {{ tab.label }}
+              </button>
+            </div>
+            <div class="classification-actions">
+              <label>
+                <span>使用分类模板</span>
+                <select v-model.number="selectedAliasClassificationTemplateID">
+                  <option :value="0">选择模板</option>
+                  <option v-for="template in activeProductClassificationTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+                </select>
+              </label>
+              <button class="secondary compact-action" type="button" :disabled="!selectedAliasCustomerID || !selectedAliasClassificationTemplateID" @click="saveAliasClassificationTemplateUsage">使用分类模板</button>
+              <label v-if="currentAliasClassificationTemplate">
+                <span>移动到分类</span>
+                <select v-model.number="selectedAliasClassificationCategoryID">
+                  <option :value="0">未分类</option>
+                  <option v-for="category in aliasClassificationCategories" :key="category.id" :value="category.id">{{ category.name }}</option>
+                </select>
+              </label>
+              <button v-if="currentAliasClassificationTemplate" class="secondary compact-action" type="button" :disabled="!selectedAliasIds.length" @click="saveSelectedAliasClassificationAssignment">移动到分类</button>
+            </div>
+          </div>
           <div class="table-wrap">
             <table class="customer-alias-table">
               <thead>
                 <tr>
+                  <th class="select-col">
+                    <input type="checkbox" :checked="allAliasRowsSelected" :disabled="!visibleCustomerProductAliases.length" @change="toggleAllAliasRows($event.target.checked)" />
+                  </th>
                   <th>客户商品名</th>
                   <th>客户商品编号</th>
                   <th>品牌名</th>
-                  <th>展示分类</th>
                   <th>绑定商品档案</th>
                   <th>进入价格表</th>
                   <th>状态</th>
@@ -347,20 +393,34 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="alias in visibleCustomerProductAliases" :key="alias.id">
+                <template v-for="group in visibleCustomerAliasGroups" :key="group.key">
+                  <tr v-if="!group.all" class="classification-group-row">
+                    <td colspan="8">
+                      <button class="classification-group-toggle" type="button" @click="toggleAliasClassificationGroup(group.key)">
+                        {{ isAliasClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
+                      </button>
+                      <strong>{{ group.label }}</strong>
+                      <small>{{ group.rows.length }} 款</small>
+                    </td>
+                  </tr>
+                  <template v-if="!isAliasClassificationGroupCollapsed(group.key)">
+                <tr v-for="alias in group.rows" :key="`${group.key}-${alias.id}`" class="classification-item-row">
+                  <td class="select-col">
+                    <input type="checkbox" :checked="isAliasSelected(alias)" :disabled="alias.active === false" @change="toggleAliasSelection(alias, $event.target.checked)" />
+                  </td>
                   <td>{{ alias.display_name }}</td>
                   <td>{{ alias.customer_item_code || '-' }}</td>
                   <td>{{ alias.brand_name || '-' }}</td>
-                  <td>{{ alias.display_category_name || categoryName(alias.display_category_id) || '未分类' }}</td>
                   <td>{{ alias.product_code || alias.product_id }} · {{ alias.product_name || productName(alias.product_id) }}</td>
                   <td>{{ alias.include_in_price_list ? '是' : '否' }}</td>
                   <td><span :class="['status-pill', alias.active === false ? 'inactive' : '']">{{ alias.active === false ? '停用' : '启用' }}</span></td>
                   <td class="table-actions">
                     <button class="text-button" type="button" @click="editCustomerProductAlias(alias)">编辑</button>
-                    <button class="text-button" type="button" @click="navigateProductBom({ id: alias.product_id })">生产 BOM</button>
                     <button class="text-button danger-text" type="button" :disabled="alias.active === false" @click="disableCustomerProductAlias(alias)">停用</button>
                   </td>
                 </tr>
+                  </template>
+                </template>
                 <tr v-if="!visibleCustomerProductAliases.length">
                   <td colspan="8" class="muted">当前客户暂无客户商品名。</td>
                 </tr>
@@ -370,7 +430,7 @@
         </section>
       </div>
 
-      <div v-show="currentSettingsSection === 'templates' || currentSettingsSection === 'master'" class="sku-template-workspace">
+      <div v-show="currentSettingsSection === 'templates'" class="sku-template-workspace">
         <div class="template-workspace-stack">
           <div v-if="currentSettingsSection === 'templates'" class="config-template-tabs" role="tablist" aria-label="商品配置模板类型">
             <button
@@ -398,189 +458,6 @@
               阶梯价模板
             </button>
           </div>
-      <div v-if="currentSettingsSection === 'master'" class="category-panel category-drawer-panel category-management-panel">
-        <div class="panel-title">
-          <span>商品分类管理 · {{ selectedSkuContextLabel }}</span>
-          <div class="panel-actions">
-            <button class="toggle-section" type="button" @click="categoryCollapsed = !categoryCollapsed">
-              {{ categoryCollapsed ? '展开' : '收起' }}
-            </button>
-          </div>
-        </div>
-        <div v-show="!categoryCollapsed">
-          <div v-if="selectedCustomerSkuCustomerID" class="customer-copy-panel">
-            <label class="checkline switchline">
-              <input :checked="customerUsesPublicCategories" type="checkbox" :disabled="publicUsageSaving" @change="savePublicCategoryUsageForCustomer" />
-              <span>是否使用公共商品分类</span>
-            </label>
-          </div>
-
-          <label class="category-search">
-            <span>搜索商品分类</span>
-            <input v-model.trim="categorySearchQuery" placeholder="搜索产品类型、子类型或 SKU" />
-          </label>
-
-          <div class="category-action-pill category-inline-toolbar" aria-label="产品类型操作">
-            <button class="category-action-button" type="button" aria-label="新增产品类型" title="新增产品类型" :disabled="loading" @click="createPrimaryCategoryInline">+</button>
-            <button
-              class="category-action-button danger-toggle"
-              :class="{ active: primaryDeleteMode }"
-              type="button"
-              aria-label="切换删除产品类型"
-              title="删除产品类型"
-              :disabled="loading || !categoryManagementTreeForSkuContext.length"
-              @click="togglePrimaryDeleteMode">
-              -
-            </button>
-          </div>
-
-          <div class="category-scroll-list">
-          <div class="category-tree">
-            <div
-              v-for="primary in visibleCategoryManagementTreeForSkuContext"
-              :key="primary.id"
-              class="primary-category"
-              :class="{ collapsed: isPrimaryCategoryCollapsed(primary) }"
-              :data-primary-id="primary.id"
-              @dragover.prevent="handlePrimaryCategoryDragOver($event, primary)"
-              @drop.prevent="dropCategoryOnCurrentTarget(primary)">
-              <div class="category-head primary-category-head">
-                <div class="primary-category-left">
-                  <div class="category-sort-pill category-sort-buttons" aria-label="产品类型排序">
-                    <button class="category-action-button compact" type="button" aria-label="上移产品类型" title="上移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isFirstPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, -1)">↑</button>
-                    <button class="category-action-button compact" type="button" aria-label="下移产品类型" title="下移产品类型" :disabled="loading || isCategorySearchActive || !canEditCategory(primary) || isLastPrimaryCategory(primary)" @click.stop="movePrimaryCategory(primary, 1)">↓</button>
-                  </div>
-                  <div class="category-title-stack">
-                  <div class="category-title-row">
-                    <form v-if="editingCategoryId === Number(primary.id)" class="category-name-form" @submit.prevent="saveCategoryName(primary)">
-                      <input
-                        v-model.trim="editingCategoryName"
-                        placeholder="产品类型名称"
-                        @keyup.enter.prevent="saveCategoryName(primary)"
-                        @keyup.esc.prevent="cancelCategoryNameEdit"
-                        @blur="saveCategoryName(primary)" />
-                    </form>
-                    <button v-else class="category-name-button primary-name-button" type="button" :disabled="!canEditCategory(primary)" @click="startCategoryEdit(primary)">
-                      <strong>{{ primary.number }}. {{ primary.name }}<small v-if="skuContextCustomerID">（{{ categoryStateLabel(primary) }}）</small></strong>
-                    </button>
-                  </div>
-                  <div v-if="canEditCategory(primary)" class="category-action-pill category-child-toolbar" aria-label="产品子类型操作">
-                    <button class="category-action-button compact" type="button" aria-label="新增产品子类型" title="新增产品子类型" :disabled="loading" @click="createSecondaryCategoryInline(primary)">+</button>
-                    <button
-                      class="category-action-button compact danger-toggle"
-                      :class="{ active: secondaryDeleteModeFor === Number(primary.id) }"
-                      type="button"
-                      aria-label="切换删除产品子类型"
-                      title="删除产品子类型"
-                      :disabled="loading || !primary.children.length"
-                      @click="toggleSecondaryDeleteMode(primary)">
-                      -
-                    </button>
-                  </div>
-                  </div>
-                </div>
-                <div class="category-row-actions primary-category-right">
-                  <button
-                    class="category-collapse-button"
-                    type="button"
-                    :aria-expanded="!isPrimaryCategoryCollapsed(primary)"
-                    :title="isPrimaryCategoryCollapsed(primary) ? '展开产品类型' : '折叠产品类型'"
-                    @click.stop="togglePrimaryCategoryCollapse(primary)">
-                    {{ isPrimaryCategoryCollapsed(primary) ? '展开' : '收起' }}
-                  </button>
-                  <button v-if="primaryDeleteMode && canEditCategory(primary)" class="category-delete-button" type="button" aria-label="删除产品类型" title="删除产品类型" @pointerdown.stop @click.stop="deleteCategory(primary)">-</button>
-                </div>
-              </div>
-
-              <template v-if="!isPrimaryCategoryCollapsed(primary)">
-                <div
-                  v-if="!isCategorySearchActive"
-                  class="category-drop-line"
-                  :class="{ active: isCategoryDropTarget(primary, 1) }"
-                  @dragover.prevent.stop="setCategoryDropTarget(primary, 1)"
-                  @drop.prevent.stop="dropCategoryAtPosition(primary, 1)">
-                </div>
-
-                <template v-for="(secondary, index) in primary.children" :key="secondary.id">
-                  <div
-                    class="secondary-category"
-                    :class="{ dragging: isDraggingCategory(secondary), 'pointer-dragging': isPointerDraggingCategory(secondary) }"
-                    :data-secondary-id="secondary.id"
-                    :data-secondary-position="index + 1"
-                    @pointerdown="startCategoryPointerDrag($event, primary, index + 1, secondary)"
-                    @dragenter.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
-                    @dragover.prevent.stop="handleSecondaryCategoryDragOver($event, primary, index + 1)"
-                    @drop.prevent.stop="dropCategoryOrProductOnSecondary(primary, index + 1, secondary)">
-                    <div class="secondary-head">
-                      <button
-                        class="category-collapse-button secondary-collapse"
-                        type="button"
-                        :aria-expanded="!isSecondaryCategoryCollapsed(secondary)"
-                        :title="isSecondaryCategoryCollapsed(secondary) ? '展开产品子类型' : '折叠产品子类型'"
-                        @pointerdown.stop
-                        @click.stop="toggleSecondaryCategoryCollapse(secondary)">
-                        {{ isSecondaryCategoryCollapsed(secondary) ? '›' : '⌄' }}
-                      </button>
-                      <form v-if="editingCategoryId === Number(secondary.id)" class="category-name-form secondary-name-form" @submit.prevent="saveCategoryName(secondary)" @pointerdown.stop>
-                        <input
-                          v-model.trim="editingCategoryName"
-                          placeholder="产品子类型名称"
-                          @keyup.enter.prevent="saveCategoryName(secondary)"
-                          @keyup.esc.prevent="cancelCategoryNameEdit"
-                          @blur="saveCategoryName(secondary)" />
-                      </form>
-                      <button v-else class="category-name-button secondary-name-button" type="button" :disabled="!canEditCategory(secondary)" @click.stop="startCategoryEdit(secondary)">
-                        <span>{{ secondary.number }}</span>
-                        <b>{{ secondary.name }}</b>
-                      </button>
-                      <small v-if="skuContextCustomerID">{{ categoryStateLabel(secondary) }}</small>
-                      <small>{{ secondary.products.length }} 款</small>
-                      <div class="secondary-category-actions">
-                        <button v-if="secondaryDeleteModeFor === Number(primary.id) && canEditCategory(secondary)" class="category-delete-button" type="button" aria-label="删除产品子类型" title="删除产品子类型" @pointerdown.stop @click.stop="deleteCategory(secondary)">-</button>
-                      </div>
-                    </div>
-                    <div v-show="!isSecondaryCategoryCollapsed(secondary)" class="product-chip-list">
-                      <span
-                        v-for="product in secondary.products"
-                        :key="product.id"
-                        class="product-chip"
-                        :draggable="canDragSkuRow(product)"
-                        @dragstart.stop="startProductDrag(product)"
-                        @dragend="scheduleClearDrag">
-                        {{ product.number }}. {{ product.name }}
-                      </span>
-                    </div>
-                  </div>
-                  <div
-                    v-if="!isCategorySearchActive"
-                    class="category-drop-line"
-                    :class="{ active: isCategoryDropTarget(primary, index + 2) }"
-                    @dragover.prevent.stop="setCategoryDropTarget(primary, index + 2)"
-                    @drop.prevent.stop="dropCategoryAtPosition(primary, index + 2)">
-                  </div>
-                </template>
-              </template>
-            </div>
-          </div>
-          <p v-if="!visibleCategoryManagementTreeForSkuContext.length" class="muted category-empty">没有匹配的商品分类</p>
-
-          <div class="uncategorized" @dragover.prevent @drop="dropProductOnSecondary({ id: 0 })">
-            <div class="sub-title">停车场（待归类 SKU）</div>
-            <p class="muted">未选择产品子类型创建的 SKU 会先进入停车场；拖入产品子类型后才参与产品价格表生成。</p>
-            <span
-              v-for="product in uncategorizedProducts"
-              :key="product.id"
-              class="product-chip"
-              :draggable="canDragSkuRow(product)"
-              @dragstart="startProductDrag(product)"
-              @dragend="scheduleClearDrag">
-              {{ product.name }}
-            </span>
-            <p v-if="!uncategorizedProducts.length" class="muted">停车场暂无 SKU</p>
-          </div>
-          </div>
-        </div>
-      </div>
       <div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'gradient'" class="panel gradient-template-panel gradient-template-pane">
         <div class="panel-title">
           <span>阶梯价模板</span>
@@ -761,44 +638,65 @@
       <div v-show="currentSettingsSection === 'templates' && activeConfigTemplateSection === 'classification-template'" class="panel classification-template-panel">
         <div class="panel-title">
           <span>分类模板</span>
-          <button class="secondary compact-action" type="button" @click="resetClassificationTemplateForm">新建分类模板</button>
+          <button class="secondary compact-action" type="button" @click="openClassificationTemplateCreateDrawer">新建分类模板</button>
         </div>
-        <p class="muted">分类模板只定义分类结构；商品档案和客户商品名引用模板后，在“配置分类”抽屉里维护对象归类。</p>
+        <p class="muted">分类模板只定义分类结构。点击左侧模板后，在右侧维护分类项；商品归类在商品档案或客户商品名列表中完成。排序值越小越靠前，默认 100；建议按 10 递增，方便中间插入。</p>
         <div class="product-config-layout">
-          <div class="template-list product-config-list">
+          <div class="template-list product-config-list classification-template-list">
             <div
               v-for="template in activeProductClassificationTemplates"
               :key="template.id"
               :class="['template-row', 'product-config-row', { active: Number(template.id || 0) === Number(classificationTemplateForm.id || 0) }]">
               <button class="template-row-main" type="button" @click="startClassificationTemplateEdit(template)">
                 <strong>{{ template.name }}</strong>
-                <small>{{ template.categories.length }} 个分类 · {{ template.customer_id ? customerName(template.customer_id) : '公共模板' }}</small>
+                <small>{{ template.categories.length }} 个分类 · 排序 {{ template.sort_order || 100 }}</small>
               </button>
-              <button class="text-button" type="button" @click.stop="openClassificationConfigDrawer({ objectType: 'product', templateID: template.id, title: `分类配置：${template.name}`, parentId: 'classification-template-panel' })">配置分类</button>
             </div>
             <p v-if="!activeProductClassificationTemplates.length" class="muted">暂无分类模板</p>
           </div>
-          <form class="product-config-editor" @submit.prevent="saveClassificationTemplate">
-            <label>
-              <span>模板名称</span>
-              <input v-model.trim="classificationTemplateForm.name" placeholder="如 默认商品分类 / Karen 价格表分类" />
-            </label>
-            <label>
-              <span>归属客户</span>
-              <select v-model.number="classificationTemplateForm.customer_id">
-                <option :value="0">公共模板</option>
-                <option v-for="customer in customerSkuCustomers" :key="customer.id" :value="customer.id">{{ customer.name }}</option>
-              </select>
-            </label>
-            <label>
-              <span>排序</span>
-              <input v-model.number="classificationTemplateForm.sort_order" type="number" min="1" step="1" />
-            </label>
-            <div class="form-actions">
-              <button class="primary" type="submit" :disabled="classificationTemplateSaving">{{ classificationTemplateSaving ? '保存中' : '保存分类模板' }}</button>
-              <button v-if="classificationTemplateForm.id" class="secondary danger-outline" type="button" :disabled="classificationTemplateSaving" @click="deleteClassificationTemplate(classificationTemplateForm.id)">删除模板</button>
+          <div class="product-config-editor classification-template-editor">
+            <form @submit.prevent="saveClassificationTemplate">
+              <label>
+                <span>模板名称</span>
+                <input v-model.trim="classificationTemplateForm.name" placeholder="如 门店展示分类 / 报价分类" />
+              </label>
+              <label>
+                <span>排序</span>
+                <input v-model.number="classificationTemplateForm.sort_order" type="number" min="1" step="1" />
+                <small>排序值越小越靠前，默认 100；建议按 10 递增。</small>
+              </label>
+              <label>
+                <span>备注</span>
+                <textarea v-model.trim="classificationTemplateForm.remark" rows="2" placeholder="用于说明这套分类视图的使用场景"></textarea>
+              </label>
+              <div class="form-actions">
+                <button class="primary" type="submit" :disabled="classificationTemplateSaving">{{ classificationTemplateSaving ? '保存中' : '保存分类模板' }}</button>
+                <button v-if="classificationTemplateForm.id" class="secondary danger-outline" type="button" :disabled="classificationTemplateSaving" @click="deleteClassificationTemplate(classificationTemplateForm.id)">删除模板</button>
+              </div>
+            </form>
+            <div v-if="classificationTemplateForm.id" class="classification-category-editor">
+              <div class="field-group-head">
+                <strong>分类项</strong>
+                <small>点击左侧模板后，在这里维护该模板下的分类。</small>
+              </div>
+              <form class="classification-category-form" @submit.prevent="saveClassificationCategory">
+                <input v-model.trim="classificationCategoryForm.name" placeholder="分类名称" />
+                <input v-model.number="classificationCategoryForm.sort_order" type="number" min="1" step="1" placeholder="排序" />
+                <button class="primary compact-action" type="submit">{{ classificationCategoryForm.id ? '保存分类' : '新增分类' }}</button>
+              </form>
+              <div class="classification-category-list">
+                <div v-for="category in classificationTemplateEditorCategories" :key="category.id" class="classification-category-row">
+                  <button class="text-button" type="button" @click="editClassificationCategory(category)">{{ category.name }}</button>
+                  <span class="muted">排序 {{ category.sort_order }}</span>
+                  <button class="secondary compact-action" type="button" @click="moveClassificationCategory(category, -1)">上移</button>
+                  <button class="secondary compact-action" type="button" @click="moveClassificationCategory(category, 1)">下移</button>
+                  <button class="text-button danger-text" type="button" @click="deleteClassificationCategory(category)">删除分类</button>
+                </div>
+                <p v-if="!classificationTemplateEditorCategories.length" class="muted">暂无分类项，先新增分类。</p>
+              </div>
             </div>
-          </form>
+            <p v-else class="muted">请先选择或新建一个分类模板。</p>
+          </div>
         </div>
       </div>
 
@@ -914,6 +812,36 @@
       </div>
     </section>
 
+    <div v-if="classificationTemplateCreateDrawerOpen" class="settings-drawer-mask" @click.self="closeClassificationTemplateCreateDrawer">
+      <aside class="settings-drawer classification-template-create-drawer" aria-label="新建分类模板">
+        <div class="drawer-head">
+          <div>
+            <h3>新建分类模板</h3>
+            <p>只创建分类结构模板；商品档案和客户商品名是否使用该模板，在各自列表页启用。</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeClassificationTemplateCreateDrawer">关闭</button>
+        </div>
+        <form class="drawer-body template-editor" @submit.prevent="saveClassificationTemplateCreate">
+          <label>
+            <span>模板名称</span>
+            <input v-model.trim="classificationTemplateCreateForm.name" required placeholder="如 门店展示分类 / 报价分类" />
+          </label>
+          <label>
+            <span>排序</span>
+            <input v-model.number="classificationTemplateCreateForm.sort_order" type="number" min="1" step="1" />
+            <small>排序值越小越靠前，默认 100；建议按 10 递增，方便中间插入。</small>
+          </label>
+          <label>
+            <span>备注</span>
+            <textarea v-model.trim="classificationTemplateCreateForm.remark" rows="3" placeholder="可选，用于说明这套分类视图的使用场景"></textarea>
+          </label>
+          <div class="form-actions">
+            <button class="primary" type="submit" :disabled="classificationTemplateSaving">{{ classificationTemplateSaving ? '保存中' : '创建分类模板' }}</button>
+          </div>
+        </form>
+      </aside>
+    </div>
+
     <div v-if="productDrawerOpen" class="settings-drawer-mask" @click.self="closeProductDrawer">
       <aside class="settings-drawer product-editor-drawer" aria-label="新增SKU">
         <div class="drawer-head">
@@ -932,21 +860,6 @@
             <label class="wide-field">
               <span>备注</span>
               <textarea v-model.trim="skuForm.remark" rows="2" placeholder="如 原料规格、包装说明或客户要求"></textarea>
-            </label>
-            <label>
-              <span>产品类别</span>
-              <select v-model.number="skuForm.product_type_category_id" @change="handleProductTypeCategoryChange(skuForm)">
-                <option value="0">选择产品类别</option>
-                <option v-for="category in productTypeCategoryOptions" :key="category.id" :value="category.id">{{ category.name }}</option>
-              </select>
-            </label>
-            <label>
-              <span>产品子类型</span>
-              <select v-model.number="skuForm.product_subtype_category_id" @change="syncProductTypeFromProductSubtype(skuForm)">
-                <option value="0">不选择，进停车场</option>
-                <option v-for="category in productSubtypeCategoryOptions(skuForm.product_type_category_id)" :key="category.id" :value="category.id">{{ category.name }}</option>
-              </select>
-              <small>只有选中产品子类型才会挂入分类；未选会进入停车场。</small>
             </label>
             <label>
               <span>商品配置模板</span>
@@ -981,27 +894,6 @@
               <input v-model.trim="aliasBatchFilters.query" placeholder="商品名称/编号" />
             </label>
             <label>
-              <span>产品类型</span>
-              <select v-model="aliasBatchFilters.primaryCategory">
-                <option value="">全部产品类型</option>
-                <option v-for="name in aliasBatchPrimaryOptions" :key="name" :value="name">{{ name }}</option>
-              </select>
-            </label>
-            <label>
-              <span>产品子类型</span>
-              <select v-model="aliasBatchFilters.secondaryCategory">
-                <option value="">全部产品子类型</option>
-                <option v-for="name in aliasBatchSecondaryOptions" :key="name" :value="name">{{ name }}</option>
-              </select>
-            </label>
-            <label>
-              <span>分类模板</span>
-              <select v-model.number="aliasBatchForm.classification_template_id">
-                <option :value="0">默认复制/复用商品档案分类模板</option>
-                <option v-for="template in activeProductClassificationTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
-              </select>
-            </label>
-            <label>
               <span>品牌名</span>
               <input v-model.trim="aliasBatchForm.brand_name" placeholder="默认留空" />
             </label>
@@ -1022,8 +914,6 @@
                   <th class="select-col">选择</th>
                   <th>商品档案</th>
                   <th>商品编号</th>
-                  <th>产品类型</th>
-                  <th>产品子类型</th>
                   <th>状态</th>
                 </tr>
               </thead>
@@ -1034,12 +924,10 @@
                   </td>
                   <td>{{ product.name }}</td>
                   <td>{{ product.number || product.id }}</td>
-                  <td>{{ product.primary_name || '-' }}</td>
-                  <td>{{ product.secondary_name || '-' }}</td>
                   <td>{{ aliasBatchProductExists(product) ? '已存在' : '可添加' }}</td>
                 </tr>
                 <tr v-if="!aliasBatchCandidateRows.length">
-                  <td colspan="6" class="muted">没有匹配的商品档案。</td>
+                  <td colspan="4" class="muted">没有匹配的商品档案。</td>
                 </tr>
               </tbody>
             </table>
@@ -1085,19 +973,6 @@
                   </option>
                 </select>
               </label>
-              <label>
-                <span>分类模板</span>
-                <select v-model.number="productProductionConfigForm.classification_template_id">
-                  <option :value="0">未绑定分类模板</option>
-                  <option v-for="template in activeProductClassificationTemplates" :key="template.id" :value="template.id">
-                    {{ template.name }}{{ template.customer_id ? ` / ${customerName(template.customer_id)}` : '' }}
-                  </option>
-                </select>
-              </label>
-              <div class="inline-field-action">
-                <span>分类配置</span>
-                <button class="secondary compact-action" type="button" :disabled="!productProductionConfigForm.classification_template_id" @click="openClassificationConfigDrawer({ objectType: 'product', objectID: productProductionConfigForm.product_id, templateID: productProductionConfigForm.classification_template_id, title: `商品分类配置：${productProductionConfigForm.name || '商品档案'}`, parentId: 'product-production-config' })">配置分类</button>
-              </div>
               <label class="wide-field">
                 <span>备注</span>
                 <textarea v-model.trim="productProductionConfigForm.remark" rows="2" placeholder="商品档案备注"></textarea>
@@ -1291,71 +1166,6 @@
       </aside>
     </div>
 
-    <div class="drawer-minibar-list" aria-label="已收起抽屉">
-      <button v-for="drawer in collapsedDrawers" :key="drawer.id" class="drawer-minibar" type="button" @click="expandDrawer(drawer.id)">
-        {{ drawer.title }}
-      </button>
-    </div>
-
-    <div v-if="classificationConfigDrawer.open && !classificationConfigDrawer.collapsed" class="settings-drawer-mask drawer-stack-mask" @click.self="collapseDrawer(classificationConfigDrawer.id)">
-      <aside class="settings-drawer classification-config-drawer" aria-label="分类配置">
-        <div class="drawer-head">
-          <div>
-            <h3>分类配置</h3>
-            <p>{{ classificationConfigDrawer.title || selectedClassificationTemplate?.name || '分类模板' }}</p>
-          </div>
-          <div class="drawer-head-actions">
-            <button class="secondary compact-action" type="button" @click="collapseDrawer(classificationConfigDrawer.id)">收起</button>
-            <button class="secondary compact-action" type="button" @click="closeDrawer(classificationConfigDrawer.id)">关闭</button>
-          </div>
-        </div>
-        <div class="drawer-body classification-config-body">
-          <p class="muted">同一对象在同一分类模板内只归属一个分类；删除分类时对象回到未分类。</p>
-          <section class="drawer-section">
-            <div class="field-group-head">
-              <div class="field-group-copy">
-                <strong>分类项</strong>
-                <small>{{ selectedClassificationTemplate?.name || '请选择分类模板' }}</small>
-              </div>
-            </div>
-            <form class="classification-category-form" @submit.prevent="saveClassificationCategory">
-              <input v-model.trim="classificationConfigDrawer.categoryForm.name" placeholder="分类名称" />
-              <input v-model.number="classificationConfigDrawer.categoryForm.sort_order" type="number" min="1" step="1" placeholder="排序" />
-              <button class="primary compact-action" type="submit">{{ classificationConfigDrawer.categoryForm.id ? '保存分类' : '新增分类' }}</button>
-            </form>
-            <div class="classification-category-list">
-              <div v-for="category in classificationConfigCategories" :key="category.id" class="classification-category-row">
-                <button class="text-button" type="button" @click="editClassificationCategory(category)">{{ category.name }}</button>
-                <span class="muted">排序 {{ category.sort_order }}</span>
-                <button class="secondary compact-action" type="button" @click="moveClassificationCategory(category, -1)">上移</button>
-                <button class="secondary compact-action" type="button" @click="moveClassificationCategory(category, 1)">下移</button>
-                <button class="text-button danger-text" type="button" @click="deleteClassificationCategory(category)">删除分类</button>
-              </div>
-              <p v-if="!classificationConfigCategories.length" class="muted">暂无分类项，先新增分类。</p>
-            </div>
-          </section>
-          <section class="drawer-section">
-            <div class="field-group-head">
-              <div class="field-group-copy">
-                <strong>对象归类</strong>
-                <small>{{ classificationConfigObjectTypeLabel }}</small>
-              </div>
-            </div>
-            <div class="classification-assignment-list">
-              <label v-for="item in classificationConfigObjects" :key="item.id" class="classification-assignment-row">
-                <span>{{ item.label }}</span>
-                <select :value="classificationAssignmentCategoryID(item.id)" @change="saveClassificationAssignment(item, Number($event.target.value || 0))">
-                  <option :value="0">未分类</option>
-                  <option v-for="category in classificationConfigCategories" :key="category.id" :value="category.id">{{ category.name }}</option>
-                </select>
-              </label>
-              <p v-if="!classificationConfigObjects.length" class="muted">暂无可归类对象。</p>
-            </div>
-          </section>
-        </div>
-      </aside>
-    </div>
-
     <div v-if="globalUnitDrawerOpen" class="settings-drawer-mask" @click.self="closeGlobalUnitDictionaryDrawer">
       <aside class="settings-drawer global-unit-dictionary-drawer" aria-label="全局单位字典设置">
         <div class="drawer-head">
@@ -1454,6 +1264,8 @@ import {
   buildCustomerPublicUsagePayload,
   buildCustomerProductAliasBatchPayload,
   buildCustomerProductAliasPayload,
+  buildClassificationTemplateUsagePayload,
+  classificationTemplateTabs,
   customerProductAliasMigrationCandidateSummary,
   buildCustomerProductRuleBindingPayload,
   buildCustomerProductRuleOverridePayload,
@@ -1473,6 +1285,7 @@ import {
   categoryDisplayState,
   customerSkuCustomerOptions,
   customerProductAliasRowsForCustomer,
+  groupRowsByClassificationCategory,
   gradientTemplateBelongsToSkuContext,
   greenBeanTypeOptions,
   integerUnitModeOptions,
@@ -1518,6 +1331,8 @@ const products = ref([])
 const gradientTemplates = ref([])
 const productConfigTemplates = ref([])
 const productClassificationTemplates = ref([])
+const productClassificationTemplateUsages = ref([])
+const aliasClassificationTemplateUsages = ref([])
 const productProductionConfigs = ref([])
 const industryFieldTemplates = ref([])
 const productUnitDefinitions = ref([])
@@ -1578,8 +1393,7 @@ const productDrawerOpen = ref(false)
 const skuCopyDrawerOpen = ref(false)
 const productProductionConfigDrawerOpen = ref(false)
 const customerAliasBatchDrawerOpen = ref(false)
-const drawerStack = ref([])
-const classificationConfigDrawer = ref(defaultClassificationConfigDrawer())
+const classificationTemplateCreateDrawerOpen = ref(false)
 const globalUnitDrawerOpen = ref(false)
 const categorySearchQuery = ref('')
 const primaryDeleteMode = ref(false)
@@ -1587,7 +1401,16 @@ const secondaryDeleteModeFor = ref(0)
 const selectedCustomerSkuCustomerID = ref(0)
 const selectedAliasCustomerID = ref(0)
 const selectedProductIds = ref([])
+const selectedAliasIds = ref([])
 const selectedAliasBatchProductIds = ref([])
+const activeProductClassificationTab = ref('all')
+const activeAliasClassificationTab = ref('all')
+const selectedProductClassificationTemplateID = ref(0)
+const selectedAliasClassificationTemplateID = ref(0)
+const selectedProductClassificationCategoryID = ref(0)
+const selectedAliasClassificationCategoryID = ref(0)
+const collapsedProductClassificationGroups = ref([])
+const collapsedAliasClassificationGroups = ref([])
 const skuFilters = ref(defaultSkuFilters())
 const skuPage = ref(1)
 const skuPageSize = ref(10)
@@ -1608,6 +1431,8 @@ const customerRuleOverrideForm = ref(defaultCustomerProductRuleOverrideForm())
 const customerProductAliasForm = ref(defaultCustomerProductAliasForm())
 const aliasBatchForm = ref(defaultCustomerProductAliasBatchForm())
 const aliasBatchFilters = ref(defaultAliasBatchFilters())
+const classificationTemplateCreateForm = ref(defaultClassificationTemplateForm())
+const classificationCategoryForm = ref(defaultClassificationCategoryForm())
 const productProductionConfigProduct = ref(null)
 const productProductionConfigForm = ref(defaultProductProductionConfigForm())
 const productProductionConfigSaving = ref(false)
@@ -1795,11 +1620,6 @@ const visibleCustomerProductAliases = computed(() => customerProductAliasRowsFor
 const aliasBatchRows = computed(() => skuTableRowsFromFlatProducts(aliasProductOptions.value, categories.value, () => true))
 const aliasBatchFilteredRows = computed(() => filterAliasBatchRows(aliasBatchRows.value, aliasBatchFilters.value))
 const aliasBatchCandidateRows = computed(() => aliasBatchFilteredRows.value.slice(0, 300))
-const aliasBatchPrimaryOptions = computed(() => Array.from(new Set(aliasBatchRows.value.map((row) => row.primary_name || '').filter(Boolean))).sort((a, b) => a.localeCompare(b)))
-const aliasBatchSecondaryOptions = computed(() => Array.from(new Set(aliasBatchRows.value
-  .filter((row) => !aliasBatchFilters.value.primaryCategory || row.primary_name === aliasBatchFilters.value.primaryCategory)
-  .map((row) => row.secondary_name || '')
-  .filter(Boolean))).sort((a, b) => a.localeCompare(b)))
 const productCreationActions = computed(() => productCreationActionOptions({ customerID: skuContextCustomerID.value }))
 const visibleAliasMigrationCandidates = computed(() => (aliasMigrationCandidates.value || [])
   .filter((row) => Number(row.customer_id || 0) === Number(selectedAliasCustomerID.value || 0))
@@ -1871,6 +1691,7 @@ const skuTableKey = computed(() => `${skuDisplayKey.value}:table`)
 const skuPaginationKey = computed(() => `${skuDisplayKey.value}:pagination`)
 const editableDisplaySkuRows = computed(() => displaySkuRows.value.filter(canEditSkuRow))
 const allProductRowsSelected = computed(() => editableDisplaySkuRows.value.length > 0 && editableDisplaySkuRows.value.every((row) => selectedProductIds.value.includes(Number(row.id))))
+const allAliasRowsSelected = computed(() => visibleCustomerProductAliases.value.length > 0 && visibleCustomerProductAliases.value.every((row) => row.active === false || selectedAliasIds.value.includes(Number(row.id))))
 const activeGradientTemplates = computed(() => gradientTemplates.value
   .filter((template) => template.active !== false)
   .filter((template) => gradientTemplateBelongsToSkuContext(template, {
@@ -1908,32 +1729,39 @@ const productConfigTemplatesForContext = computed(() => productConfigTemplates.v
   })))
 const activeProductClassificationTemplates = computed(() => productClassificationTemplates.value
   .filter((template) => template.active !== false)
-  .filter((template) => {
-    const templateCustomerID = Number(template.customer_id || 0)
-    const contextCustomerID = skuContextCustomerID.value || selectedAliasCustomerID.value || 0
-    if (!contextCustomerID) return templateCustomerID === 0
-    return templateCustomerID === 0 || templateCustomerID === contextCustomerID
-  })
   .slice()
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name || '').localeCompare(String(b.name || ''))))
-const collapsedDrawers = computed(() => drawerStack.value.filter((drawer) => drawer.collapsed))
-const selectedClassificationTemplate = computed(() => productClassificationTemplates.value.find((template) => Number(template.id || 0) === Number(classificationConfigDrawer.value.templateID || 0)) || null)
-const classificationConfigCategories = computed(() => (selectedClassificationTemplate.value?.categories || [])
+const productClassificationTabs = computed(() => classificationTemplateTabs(activeProductClassificationTemplates.value, productClassificationTemplateUsages.value, { allLabel: '全部商品' }))
+const aliasClassificationUsagesForCustomer = computed(() => aliasClassificationTemplateUsages.value.filter((row) => Number(row.customer_id || 0) === Number(selectedAliasCustomerID.value || 0)))
+const aliasClassificationTabs = computed(() => classificationTemplateTabs(activeProductClassificationTemplates.value, aliasClassificationUsagesForCustomer.value, { allLabel: '全部客户商品' }))
+const currentProductClassificationTab = computed(() => productClassificationTabs.value.find((tab) => tab.key === activeProductClassificationTab.value) || productClassificationTabs.value[0])
+const currentAliasClassificationTab = computed(() => aliasClassificationTabs.value.find((tab) => tab.key === activeAliasClassificationTab.value) || aliasClassificationTabs.value[0])
+const currentProductClassificationTemplate = computed(() => currentProductClassificationTab.value?.template || null)
+const currentAliasClassificationTemplate = computed(() => currentAliasClassificationTab.value?.template || null)
+const classificationTemplateEditorTemplate = computed(() => productClassificationTemplates.value.find((template) => Number(template.id || 0) === Number(classificationTemplateForm.value.id || 0)) || null)
+const classificationTemplateEditorCategories = computed(() => (classificationTemplateEditorTemplate.value?.categories || [])
   .filter((category) => category.active !== false)
   .slice()
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
-const classificationConfigObjectTypeLabel = computed(() => classificationConfigDrawer.value.objectType === 'customer_alias' ? '客户商品名' : '商品档案')
-const classificationConfigObjects = computed(() => {
-  const objectType = classificationConfigDrawer.value.objectType
-  if (objectType === 'customer_alias') {
-    const customerID = Number(selectedAliasCustomerID.value || 0)
-    return customerProductAliases.value
-      .filter((alias) => alias.active !== false && (!customerID || Number(alias.customer_id || 0) === customerID))
-      .map((alias) => ({ id: Number(alias.id || 0), label: `${alias.display_name || alias.product_name || '客户商品名'}${alias.customer_item_code ? ` / ${alias.customer_item_code}` : ''}` }))
-  }
-  return products.value
-    .filter((product) => product.active !== false)
-    .map((product) => ({ id: Number(product.id || 0), label: product.name || `商品 #${product.id}` }))
+const productClassificationCategories = computed(() => (currentProductClassificationTemplate.value?.categories || []).filter((category) => category.active !== false).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
+const aliasClassificationCategories = computed(() => (currentAliasClassificationTemplate.value?.categories || []).filter((category) => category.active !== false).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
+const displaySkuGroups = computed(() => {
+  const tab = currentProductClassificationTab.value
+  if (!tab || tab.all) return [{ key: 'all-products', label: '全部商品', rows: displaySkuRows.value, all: true }]
+  return groupRowsByClassificationCategory(displaySkuRows.value, tab.template, {
+    idKey: 'id',
+    assignmentKey: 'product_id',
+    assignmentsKey: 'product_assignments',
+  })
+})
+const visibleCustomerAliasGroups = computed(() => {
+  const tab = currentAliasClassificationTab.value
+  if (!tab || tab.all) return [{ key: 'all-aliases', label: '全部客户商品', rows: visibleCustomerProductAliases.value, all: true }]
+  return groupRowsByClassificationCategory(visibleCustomerProductAliases.value, tab.template, {
+    idKey: 'id',
+    assignmentKey: 'alias_id',
+    assignmentsKey: 'customer_alias_assignments',
+  })
 })
 const selectedProductConfigUnitTemplate = computed(() => findProductUnitTemplate(productConfigTemplateForm.value.unit_template_id))
 const activeProductConfigTemplates = computed(() => productConfigTemplatesForContext.value.filter((template) => template.active !== false))
@@ -2004,8 +1832,6 @@ function defaultSkuForm() {
   return {
     name: '',
     remark: '',
-    product_type_category_id: 0,
-    product_subtype_category_id: 0,
     product_config_template_id: 0,
     special_attr_values: {},
     active: true,
@@ -2031,7 +1857,6 @@ function defaultCustomerProductAliasForm() {
     customer_item_code: '',
     brand_name: '',
     display_category_id: 0,
-    classification_template_id: 0,
     sort_order: 0,
     include_in_price_list: true,
     active: true,
@@ -2045,30 +1870,17 @@ function defaultCustomerProductAliasBatchForm() {
     include_in_price_list: true,
     brand_name: '',
     display_category_id: 0,
-    classification_template_id: 0,
   }
 }
 
 function defaultAliasBatchFilters() {
   return {
     query: '',
-    primaryCategory: '',
-    secondaryCategory: '',
   }
 }
 
-function defaultClassificationConfigDrawer() {
-  return {
-    id: 'classification-config',
-    parentId: '',
-    open: false,
-    collapsed: false,
-    objectType: 'product',
-    objectID: 0,
-    templateID: 0,
-    title: '',
-    categoryForm: { id: 0, name: '', sort_order: 100 },
-  }
+function defaultClassificationCategoryForm() {
+  return { id: 0, name: '', sort_order: 100 }
 }
 
 function defaultProductProductionConfigField(row = {}, index = 0) {
@@ -2100,7 +1912,6 @@ function defaultProductProductionConfigForm(config = {}, product = {}) {
     remark: String(product.remark || '').trim(),
     product_kind: product.product_kind || 'roasted',
     product_config_template_id: Number(product.product_config_template_id || 0),
-    classification_template_id: Number(product.classification_template_id || 0),
     production_bom_id: Number(config.production_bom_id || product.production_bom_id || 0),
     production_bom_version_id: Number(config.production_bom_version_id || product.production_bom_version_id || 0),
     process_route_id: Number(config.process_route_id || 0),
@@ -2112,6 +1923,53 @@ function defaultProductProductionConfigForm(config = {}, product = {}) {
       .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
       .map((field, index) => defaultProductProductionConfigField(field, index)),
   }
+}
+
+function isProductClassificationGroupCollapsed(key) {
+  return collapsedProductClassificationGroups.value.includes(String(key || ''))
+}
+
+function toggleProductClassificationGroup(key) {
+  const groupKey = String(key || '')
+  if (!groupKey) return
+  collapsedProductClassificationGroups.value = isProductClassificationGroupCollapsed(groupKey)
+    ? collapsedProductClassificationGroups.value.filter((item) => item !== groupKey)
+    : [...collapsedProductClassificationGroups.value, groupKey]
+}
+
+function isAliasClassificationGroupCollapsed(key) {
+  return collapsedAliasClassificationGroups.value.includes(String(key || ''))
+}
+
+function toggleAliasClassificationGroup(key) {
+  const groupKey = String(key || '')
+  if (!groupKey) return
+  collapsedAliasClassificationGroups.value = isAliasClassificationGroupCollapsed(groupKey)
+    ? collapsedAliasClassificationGroups.value.filter((item) => item !== groupKey)
+    : [...collapsedAliasClassificationGroups.value, groupKey]
+}
+
+function isAliasSelected(alias) {
+  return selectedAliasIds.value.includes(Number(alias?.id || 0))
+}
+
+function toggleAliasSelection(alias, checked) {
+  const id = Number(alias?.id || 0)
+  if (!id) return
+  selectedAliasIds.value = checked
+    ? Array.from(new Set([...selectedAliasIds.value, id]))
+    : selectedAliasIds.value.filter((item) => item !== id)
+}
+
+function toggleAllAliasRows(checked) {
+  if (!checked) {
+    selectedAliasIds.value = []
+    return
+  }
+  selectedAliasIds.value = visibleCustomerProductAliases.value
+    .filter((row) => row.active !== false)
+    .map((row) => Number(row.id || 0))
+    .filter(Boolean)
 }
 
 function defaultProductForm() {
@@ -2211,9 +2069,10 @@ function defaultProductConfigTemplateForm(template = {}, options = {}) {
 function defaultClassificationTemplateForm(template = {}) {
   return {
     id: Number(template.id || 0),
-    customer_id: Number(Object.prototype.hasOwnProperty.call(template, 'customer_id') ? template.customer_id || 0 : selectedAliasCustomerID.value || 0),
+    customer_id: 0,
     source_template_id: Number(template.source_template_id || 0),
     name: template.name || '',
+    remark: template.remark || '',
     sort_order: Number(template.sort_order || 100),
     active: template.active !== false,
   }
@@ -2479,6 +2338,23 @@ function decorateProductClassificationTemplate(template = {}) {
   }
 }
 
+function decorateClassificationTemplateUsage(row = {}) {
+  return {
+    classification_template_id: Number(row.classification_template_id || 0),
+    active: row.active !== false,
+    sort_order: Number(row.sort_order || 100),
+  }
+}
+
+function decorateAliasClassificationTemplateUsage(row = {}) {
+  return {
+    customer_id: Number(row.customer_id || 0),
+    classification_template_id: Number(row.classification_template_id || 0),
+    active: row.active !== false,
+    sort_order: Number(row.sort_order || 100),
+  }
+}
+
 function decorateCustomerProductRuleTemplate(template) {
   return {
     ...template,
@@ -2537,17 +2413,21 @@ async function loadAll() {
   loading.value = true
   error.value = ''
   try {
-    const [data, customerData, aliasData, industryData] = await Promise.all([
+    const [data, customerData, aliasData, industryData, productUsageData, aliasUsageData] = await Promise.all([
       apiGet('/api/product-settings'),
       apiGet('/api/customer-fulfillment/customers?limit=200'),
       apiGet('/api/customer-product-aliases?active=all'),
       apiGet('/api/industry-field-templates'),
+      apiGet('/api/product-classification-template-usages/products'),
+      apiGet('/api/product-classification-template-usages/customer-aliases'),
     ])
     categories.value = (data.categories || []).map(decorateCategory)
     products.value = (data.products || []).map(decorateProduct)
     gradientTemplates.value = (data.gradient_templates || []).map(normalizeGradientTemplate)
     productConfigTemplates.value = (data.product_config_templates || []).map(decorateProductConfigTemplate)
     productClassificationTemplates.value = (data.product_classification_templates || []).map(decorateProductClassificationTemplate)
+    productClassificationTemplateUsages.value = (productUsageData.rows || data.product_classification_template_usages || []).map(decorateClassificationTemplateUsage)
+    aliasClassificationTemplateUsages.value = (aliasUsageData.rows || []).map(decorateAliasClassificationTemplateUsage)
     productProductionConfigs.value = data.product_production_configs || []
     industryFieldTemplates.value = industryData?.rows || []
     productUnitDefinitions.value = (data.product_unit_definitions || []).map(decorateProductUnitDefinition)
@@ -2835,20 +2715,36 @@ async function deactivateProductConfigTemplate(id) {
 
 function resetClassificationTemplateForm() {
   classificationTemplateForm.value = defaultClassificationTemplateForm()
+  classificationCategoryForm.value = defaultClassificationCategoryForm()
+}
+
+function openClassificationTemplateCreateDrawer() {
+  classificationTemplateCreateForm.value = defaultClassificationTemplateForm()
+  classificationTemplateCreateDrawerOpen.value = true
+}
+
+function closeClassificationTemplateCreateDrawer() {
+  classificationTemplateCreateDrawerOpen.value = false
 }
 
 function startClassificationTemplateEdit(template) {
   classificationTemplateForm.value = defaultClassificationTemplateForm(JSON.parse(JSON.stringify(template || {})))
+  classificationCategoryForm.value = defaultClassificationCategoryForm()
+}
+
+function classificationTemplatePayload(form) {
+  return {
+    customer_id: 0,
+    source_template_id: Number(form.source_template_id || 0),
+    name: String(form.name || '').trim(),
+    remark: String(form.remark || '').trim(),
+    sort_order: Number(form.sort_order || 100),
+    active: form.active !== false,
+  }
 }
 
 async function saveClassificationTemplate() {
-  const payload = {
-    customer_id: Number(classificationTemplateForm.value.customer_id || 0),
-    source_template_id: Number(classificationTemplateForm.value.source_template_id || 0),
-    name: String(classificationTemplateForm.value.name || '').trim(),
-    sort_order: Number(classificationTemplateForm.value.sort_order || 100),
-    active: classificationTemplateForm.value.active !== false,
-  }
+  const payload = classificationTemplatePayload(classificationTemplateForm.value)
   if (!payload.name) {
     error.value = '请填写分类模板名称'
     return
@@ -2867,6 +2763,32 @@ async function saveClassificationTemplate() {
     await refreshClassificationTemplates()
   } catch (err) {
     error.value = err.message || '保存分类模板失败'
+  } finally {
+    classificationTemplateSaving.value = false
+  }
+}
+
+async function saveClassificationTemplateCreate() {
+  const payload = classificationTemplatePayload(classificationTemplateCreateForm.value)
+  if (!payload.name) {
+    error.value = '请填写分类模板名称'
+    return
+  }
+  classificationTemplateSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const result = await apiSend('/api/product-classification-templates', {
+      method: 'POST',
+      body: payload,
+    })
+    ok.value = '分类模板已创建'
+    classificationTemplateCreateDrawerOpen.value = false
+    classificationTemplateCreateForm.value = defaultClassificationTemplateForm()
+    await refreshClassificationTemplates()
+    if (result?.template) startClassificationTemplateEdit(result.template)
+  } catch (err) {
+    error.value = err.message || '创建分类模板失败'
   } finally {
     classificationTemplateSaving.value = false
   }
@@ -3729,10 +3651,12 @@ function navigateProductBom(row) {
       params: productID > 0 ? {
         product_id: productID,
         bom_filter_product_id: productID,
-        return_view: 'productMaster',
-        return_product_id: productID,
-        return_label: productName ? `返回商品档案配置：${productName}` : '返回商品档案配置',
       } : {},
+      returnNavigation: productID > 0 ? {
+        label: productName ? `返回商品档案配置：${productName}` : '返回商品档案配置',
+        key: 'productMaster',
+        params: { open_product_config_id: productID },
+      } : null,
     },
   }))
 }
@@ -3835,13 +3759,6 @@ async function openProductProductionConfig(row) {
   productProductionConfigProduct.value = row || null
   productProductionConfigForm.value = defaultProductProductionConfigForm(productProductionConfigByProductID(row?.id), row)
   productProductionConfigDrawerOpen.value = true
-  syncDrawerStackEntry({
-    id: 'product-production-config',
-    title: `商品档案配置：${row?.name || '商品档案'}`,
-    parentId: '',
-    collapsed: false,
-    type: 'product_config',
-  })
   error.value = ''
   try {
     await Promise.all([
@@ -3902,77 +3819,6 @@ function closeProductProductionConfigDrawer() {
   productProductionConfigDrawerOpen.value = false
   productProductionConfigProduct.value = null
   productProductionConfigForm.value = defaultProductProductionConfigForm()
-  closeDrawer('product-production-config')
-}
-
-function syncDrawerStackEntry(entry) {
-  const index = drawerStack.value.findIndex((drawer) => drawer.id === entry.id)
-  if (index >= 0) {
-    drawerStack.value[index] = { ...drawerStack.value[index], ...entry }
-  } else {
-    drawerStack.value.push(entry)
-  }
-}
-
-function openClassificationConfigDrawer({ objectType = 'product', objectID = 0, templateID = 0, title = '', parentId = '' } = {}) {
-  const nextTemplateID = Number(templateID || 0)
-  if (!nextTemplateID) {
-    error.value = '请先选择分类模板'
-    return
-  }
-  classificationConfigDrawer.value = {
-    ...defaultClassificationConfigDrawer(),
-    open: true,
-    collapsed: false,
-    objectType,
-    objectID: Number(objectID || 0),
-    templateID: nextTemplateID,
-    title: title || '分类配置',
-    parentId,
-  }
-  syncDrawerStackEntry({
-    id: classificationConfigDrawer.value.id,
-    title: classificationConfigDrawer.value.title,
-    parentId,
-    collapsed: false,
-    type: 'classification',
-  })
-}
-
-function collapseDrawer(id) {
-  const drawerID = String(id || '')
-  drawerStack.value = drawerStack.value.map((drawer) => drawer.id === drawerID ? { ...drawer, collapsed: true } : drawer)
-  if (drawerID === classificationConfigDrawer.value.id) {
-    classificationConfigDrawer.value.collapsed = true
-  }
-}
-
-function expandDrawer(id) {
-  const drawerID = String(id || '')
-  drawerStack.value = drawerStack.value.map((drawer) => drawer.id === drawerID ? { ...drawer, collapsed: false } : drawer)
-  if (drawerID === classificationConfigDrawer.value.id) {
-    classificationConfigDrawer.value.collapsed = false
-    classificationConfigDrawer.value.open = true
-  }
-}
-
-function closeDrawer(id) {
-  const drawerID = String(id || '')
-  const childIds = drawerStack.value.filter((drawer) => drawer.parentId === drawerID).map((drawer) => drawer.id)
-  drawerStack.value = drawerStack.value.filter((drawer) => drawer.id !== drawerID && drawer.parentId !== drawerID)
-  if (drawerID === classificationConfigDrawer.value.id || childIds.includes(classificationConfigDrawer.value.id) || drawerID === 'product-production-config') {
-    classificationConfigDrawer.value = defaultClassificationConfigDrawer()
-  }
-}
-
-function classificationAssignmentCategoryID(objectID) {
-  const template = selectedClassificationTemplate.value
-  if (!template) return 0
-  const id = Number(objectID || 0)
-  if (classificationConfigDrawer.value.objectType === 'customer_alias') {
-    return Number((template.customer_alias_assignments || []).find((row) => Number(row.alias_id || 0) === id)?.category_id || 0)
-  }
-  return Number((template.product_assignments || []).find((row) => Number(row.product_id || 0) === id)?.category_id || 0)
 }
 
 async function refreshClassificationTemplates() {
@@ -3981,7 +3827,7 @@ async function refreshClassificationTemplates() {
 }
 
 function editClassificationCategory(category) {
-  classificationConfigDrawer.value.categoryForm = {
+  classificationCategoryForm.value = {
     id: Number(category.id || 0),
     name: category.name || '',
     sort_order: Number(category.sort_order || 100),
@@ -3989,9 +3835,9 @@ function editClassificationCategory(category) {
 }
 
 async function saveClassificationCategory() {
-  const templateID = Number(classificationConfigDrawer.value.templateID || 0)
+  const templateID = Number(classificationTemplateForm.value.id || 0)
   if (!templateID) return
-  const form = classificationConfigDrawer.value.categoryForm
+  const form = classificationCategoryForm.value
   const id = Number(form.id || 0)
   await apiSend(id ? `/api/product-classification-template-categories/${id}` : '/api/product-classification-template-categories', {
     method: id ? 'PUT' : 'POST',
@@ -4003,13 +3849,13 @@ async function saveClassificationCategory() {
       sort_order: Number(form.sort_order || 100),
     },
   })
-  classificationConfigDrawer.value.categoryForm = { id: 0, name: '', sort_order: 100 }
+  classificationCategoryForm.value = defaultClassificationCategoryForm()
   await refreshClassificationTemplates()
 }
 
 async function moveClassificationCategory(category, delta) {
   const nextSort = Math.max(1, Number(category.sort_order || 100) + (Number(delta || 0) * 10))
-  classificationConfigDrawer.value.categoryForm = {
+  classificationCategoryForm.value = {
     id: Number(category.id || 0),
     name: category.name || '',
     sort_order: nextSort,
@@ -4018,36 +3864,75 @@ async function moveClassificationCategory(category, delta) {
 }
 
 async function deleteClassificationCategory(category) {
-  const templateID = Number(classificationConfigDrawer.value.templateID || 0)
+  const templateID = Number(classificationTemplateForm.value.id || 0)
   if (!templateID || !category?.id) return
   if (!window.confirm(`删除分类「${category.name}」？该分类下对象会回到未分类。`)) return
   await apiSend(`/api/product-classification-template-categories/${category.id}?template_id=${templateID}`, { method: 'DELETE' })
   await refreshClassificationTemplates()
 }
 
-async function saveClassificationAssignment(item, categoryID) {
-  const templateID = Number(classificationConfigDrawer.value.templateID || 0)
-  if (!templateID || !item?.id) return
-  if (classificationConfigDrawer.value.objectType === 'customer_alias') {
-    await apiSend('/api/product-classification-assignments/customer-aliases', {
-      body: {
-        alias_id: Number(item.id || 0),
-        template_id: templateID,
-        category_id: Number(categoryID || 0),
-        sort_order: 100,
-      },
-    })
-  } else {
+async function saveProductClassificationTemplateUsage() {
+  const templateID = Number(selectedProductClassificationTemplateID.value || 0)
+  if (!templateID) return
+  const payload = buildClassificationTemplateUsagePayload({
+    classification_template_id: templateID,
+    sort_order: productClassificationTabs.value.length * 10 + 100,
+  })
+  await apiSend('/api/product-classification-template-usages/products', { body: payload })
+  selectedProductClassificationTemplateID.value = 0
+  await loadAll()
+  activeProductClassificationTab.value = `template-${templateID}`
+}
+
+async function saveAliasClassificationTemplateUsage() {
+  const templateID = Number(selectedAliasClassificationTemplateID.value || 0)
+  const customerID = Number(selectedAliasCustomerID.value || 0)
+  if (!templateID || !customerID) return
+  const payload = buildClassificationTemplateUsagePayload({
+    customer_id: customerID,
+    classification_template_id: templateID,
+    sort_order: aliasClassificationTabs.value.length * 10 + 100,
+  })
+  await apiSend('/api/product-classification-template-usages/customer-aliases', { body: payload })
+  selectedAliasClassificationTemplateID.value = 0
+  await loadAll()
+  activeAliasClassificationTab.value = `template-${templateID}`
+}
+
+async function saveSelectedProductClassificationAssignment() {
+  const templateID = Number(currentProductClassificationTemplate.value?.id || 0)
+  if (!templateID || !selectedProductIds.value.length) return
+  const categoryID = Number(selectedProductClassificationCategoryID.value || 0)
+  for (const productID of selectedProductIds.value) {
     await apiSend('/api/product-classification-assignments/products', {
       body: {
-        product_id: Number(item.id || 0),
+        product_id: Number(productID || 0),
         template_id: templateID,
-        category_id: Number(categoryID || 0),
+        category_id: categoryID,
         sort_order: 100,
       },
     })
   }
-  await Promise.all([refreshClassificationTemplates(), loadAll()])
+  selectedProductIds.value = []
+  await refreshClassificationTemplates()
+}
+
+async function saveSelectedAliasClassificationAssignment() {
+  const templateID = Number(currentAliasClassificationTemplate.value?.id || 0)
+  if (!templateID || !selectedAliasIds.value.length) return
+  const categoryID = Number(selectedAliasClassificationCategoryID.value || 0)
+  for (const aliasID of selectedAliasIds.value) {
+    await apiSend('/api/product-classification-assignments/customer-aliases', {
+      body: {
+        alias_id: Number(aliasID || 0),
+        template_id: templateID,
+        category_id: categoryID,
+        sort_order: 100,
+      },
+    })
+  }
+  selectedAliasIds.value = []
+  await refreshClassificationTemplates()
 }
 
 async function saveProductProductionConfig() {
@@ -4076,7 +3961,6 @@ async function saveProductProductionConfig() {
         name: productProductionConfigForm.value.name,
         remark: productProductionConfigForm.value.remark,
         product_config_template_id: Number(productProductionConfigForm.value.product_config_template_id || 0),
-        classification_template_id: Number(productProductionConfigForm.value.classification_template_id || 0),
       }, originalProduct.margin_rate_override ?? null),
     })
     const result = await apiSend(`/api/product-production-configs/${productID}`, {
@@ -4109,9 +3993,8 @@ async function saveProductProductionConfig() {
 }
 
 async function createSku() {
-  ensureProductTypeCategorySelected(skuForm.value)
   if (!skuForm.value.name) {
-    error.value = '请填写 SKU 名称'
+    error.value = '请填写商品名称'
     return
   }
   skuSaving.value = true
@@ -4121,14 +4004,12 @@ async function createSku() {
     await apiSend('/api/product-settings/skus', {
       body: buildSkuCreatePayload(skuContextCustomerID.value, skuForm.value),
     })
-    ok.value = Number(skuForm.value.product_subtype_category_id || 0) > 0
-      ? 'SKU已创建并挂到产品子类型'
-      : 'SKU已创建，未选择产品子类型，已进入停车场'
+    ok.value = '商品档案已创建'
     skuForm.value = defaultSkuForm()
     closeProductDrawer()
     await loadAll()
   } catch (err) {
-    error.value = err.message || '新增 SKU 失败'
+    error.value = err.message || '创建商品档案失败'
   } finally {
     skuSaving.value = false
   }
@@ -4329,15 +4210,11 @@ function toggleAllAliasBatchProducts(checked) {
 
 function filterAliasBatchRows(rows = [], filters = {}) {
   const query = String(filters.query || '').trim().toLowerCase()
-  const primary = String(filters.primaryCategory || '').trim()
-  const secondary = String(filters.secondaryCategory || '').trim()
   return (rows || []).filter((row) => {
     if (query) {
       const haystack = `${row.name || ''} ${row.number || ''} ${row.id || ''}`.toLowerCase()
       if (!haystack.includes(query)) return false
     }
-    if (primary && row.primary_name !== primary) return false
-    if (secondary && row.secondary_name !== secondary) return false
     return row.active !== false
   })
 }
@@ -5437,15 +5314,24 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .inline-field-action { display: grid; gap: 5px; min-width: 0; font-size: 13px; align-content: end; }
 .inline-field-action > span { color: #5f5a52; font-weight: 600; }
 .drawer-head-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-.drawer-minibar-list { position: fixed; right: 18px; bottom: 18px; z-index: 64; display: grid; gap: 8px; justify-items: end; }
-.drawer-minibar { min-height: 32px; border-color: #a57a3b; background: #fff8ec; color: #5f3d11; box-shadow: 0 10px 24px rgba(31,31,31,.12); }
-.drawer-stack-mask { z-index: 62; }
-.classification-config-drawer { width: min(900px, 92vw); }
 .classification-config-body { display: grid; gap: 12px; }
+.classification-category-editor { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid #eee8df; }
 .classification-category-form { display: grid; grid-template-columns: minmax(180px, 1fr) 110px auto; gap: 8px; align-items: end; }
 .classification-category-list, .classification-assignment-list { display: grid; gap: 8px; }
 .classification-category-row, .classification-assignment-row { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto auto auto; gap: 8px; align-items: center; padding: 8px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; }
 .classification-assignment-row { grid-template-columns: minmax(180px, 1fr) minmax(180px, 240px); }
+.classification-view-toolbar { display: grid; gap: 10px; padding: 10px; margin: 10px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
+.classification-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.classification-tab { height: 32px; border-color: #d8cec2; background: #fff; color: #2f2a25; }
+.classification-tab.active { border-color: #1f1f1f; background: #1f1f1f; color: #fff; }
+.classification-actions { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
+.classification-actions label { display: grid; gap: 4px; }
+.classification-group-row td { background: #f6f1ea; border-top: 1px solid #e5ded4; border-bottom: 1px solid #e5ded4; color: #3b332a; }
+.classification-group-row strong { margin: 0 8px; }
+.classification-group-row small { color: #7c7064; }
+.classification-group-toggle { height: 28px; border: 0; background: transparent; color: #1f4f82; padding: 0 4px; }
+.classification-item-row td:first-child + td,
+.classification-group-row + tr td:first-child + td { padding-left: 18px; }
 @media (max-width: 1100px) {
   .custom-product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .customer-rule-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }

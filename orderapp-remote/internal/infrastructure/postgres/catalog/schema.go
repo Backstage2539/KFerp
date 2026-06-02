@@ -157,6 +157,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_classification_templates (
 	source_template_id BIGINT NOT NULL DEFAULT 0,
 	template_state TEXT NOT NULL DEFAULT 'owned',
 	name TEXT NOT NULL,
+	remark TEXT NOT NULL DEFAULT '',
 	active BOOLEAN NOT NULL DEFAULT true,
 	sort_order INT NOT NULL DEFAULT 100,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -167,8 +168,9 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_classification_templates (
 CREATE UNIQUE INDEX IF NOT EXISTS product_classification_templates_customer_name_active_uniq
 ON %[1]s.product_classification_templates(customer_id, lower(name))
 WHERE active=true;
-CREATE INDEX IF NOT EXISTS product_classification_templates_sort_idx
-ON %[1]s.product_classification_templates(customer_id, active, sort_order, id);
+	CREATE INDEX IF NOT EXISTS product_classification_templates_sort_idx
+	ON %[1]s.product_classification_templates(customer_id, active, sort_order, id);
+	ALTER TABLE %[1]s.product_classification_templates ADD COLUMN IF NOT EXISTS remark TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS %[1]s.product_classification_template_categories (
 	id BIGSERIAL PRIMARY KEY,
 	template_id BIGINT NOT NULL,
@@ -185,6 +187,30 @@ ON %[1]s.product_classification_template_categories(template_id, parent_id, lowe
 WHERE active=true;
 CREATE INDEX IF NOT EXISTS product_classification_template_categories_sort_idx
 ON %[1]s.product_classification_template_categories(template_id, active, sort_order, id);
+CREATE TABLE IF NOT EXISTS %[1]s.product_classification_template_usages (
+	classification_template_id BIGINT PRIMARY KEY,
+	active BOOLEAN NOT NULL DEFAULT true,
+	sort_order INT NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS product_classification_template_usages_sort_idx
+ON %[1]s.product_classification_template_usages(active, sort_order, classification_template_id);
+CREATE TABLE IF NOT EXISTS %[1]s.customer_product_alias_classification_template_usages (
+	customer_id BIGINT NOT NULL,
+	classification_template_id BIGINT NOT NULL,
+	active BOOLEAN NOT NULL DEFAULT true,
+	sort_order INT NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY(customer_id, classification_template_id)
+);
+CREATE INDEX IF NOT EXISTS customer_product_alias_classification_template_usages_sort_idx
+ON %[1]s.customer_product_alias_classification_template_usages(customer_id, active, sort_order, classification_template_id);
 CREATE TABLE IF NOT EXISTS %[1]s.product_classification_assignments (
 	product_id BIGINT NOT NULL,
 	template_id BIGINT NOT NULL,

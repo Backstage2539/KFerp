@@ -39,7 +39,7 @@ test('vue shell confines sidebar/content scrolling, returns routed pages to top,
     assert.ok(source.includes(marker), `App.vue should include ${marker}`)
   }
 
-  assert.match(source, /function open\(key,\s*params\s*=\s*\{\}\)[\s\S]*scrollCurrentViewToTop\(\)/)
+  assert.match(source, /function open\(key,\s*params\s*=\s*\{\}(?:,\s*options\s*=\s*\{\})?\)[\s\S]*scrollCurrentViewToTop\(\)/)
   assert.match(source, /function setCurrentViewContext\(context,[\s\S]*scrollCurrentViewToTop\(\)/)
   assert.match(source, /\.layout\s*\{[^}]*height:\s*100vh;[^}]*overflow:\s*hidden;/)
   assert.match(source, /\.sidebar\s*\{[^}]*height:\s*100vh;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/)

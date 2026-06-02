@@ -9,7 +9,10 @@ import {
   buildCustomerProductRuleTemplatePayload,
   buildCustomerProductAliasPayload,
   buildCustomerProductAliasBatchPayload,
+  buildClassificationTemplateUsagePayload,
   customerProductAliasRowsForCustomer,
+  classificationTemplateTabs,
+  groupRowsByClassificationCategory,
   customerProductAliasMigrationCandidateSummary,
   buildCustomerPublicUsagePayload,
   buildCustomProductCreatePayload,
@@ -159,13 +162,13 @@ test('unified SKU create payload is owned by current view and carries no legacy 
     customer_id: 42,
     name: '客户盒装速溶',
     remark: '10g/条，10条/盒',
-    product_type_category_id: 7,
-    product_subtype_category_id: 17,
     active: true,
   })
   assert.equal(Object.hasOwn(payload, 'product_kind'), false)
   assert.equal(Object.hasOwn(payload, 'custom_type'), false)
   assert.equal(Object.hasOwn(payload, 'base_product_id'), false)
+  assert.equal(Object.hasOwn(payload, 'product_type_category_id'), false)
+  assert.equal(Object.hasOwn(payload, 'product_subtype_category_id'), false)
 })
 
 test('SKU copy payload supports all selected SKU ids and same-name overwrite flow', () => {
@@ -193,6 +196,7 @@ test('customer product alias payload binds a customer-facing name to one product
     include_in_price_list: true,
     active: false,
     remark: '贴牌只改对外名称',
+    classification_template_id: '88',
   }), {
     id: 12,
     customer_id: 42,
@@ -208,6 +212,23 @@ test('customer product alias payload binds a customer-facing name to one product
   })
 })
 
+test('customer product alias payloads never bind classification templates to aliases', () => {
+  const single = buildCustomerProductAliasPayload({
+    customer_id: '42',
+    product_id: '88',
+    display_name: 'Karen 精品拼配',
+    classification_template_id: '88',
+  })
+  const batch = buildCustomerProductAliasBatchPayload({
+    customer_id: '42',
+    product_ids: [8, '9'],
+    classification_template_id: '88',
+  })
+
+  assert.equal(Object.hasOwn(single, 'classification_template_id'), false)
+  assert.equal(Object.hasOwn(batch, 'classification_template_id'), false)
+})
+
 test('customer product alias batch payload creates many customer-facing names from product records', () => {
   assert.deepEqual(buildCustomerProductAliasBatchPayload({
     customer_id: '42',
@@ -215,15 +236,55 @@ test('customer product alias batch payload creates many customer-facing names fr
     include_in_price_list: true,
     brand_name: ' ',
     display_category_id: '12',
-    classification_template_id: '88',
   }), {
     customer_id: 42,
     product_ids: [8, 9],
     include_in_price_list: true,
     brand_name: '',
     display_category_id: 12,
-    classification_template_id: 88,
   })
+})
+
+test('classification template usages are page-level tabs instead of object fields', () => {
+  assert.deepEqual(buildClassificationTemplateUsagePayload({
+    customer_id: '42',
+    classification_template_id: '88',
+    sort_order: '20',
+  }), {
+    customer_id: 42,
+    classification_template_id: 88,
+    sort_order: 20,
+  })
+
+  const templates = [
+    { id: 88, name: '门店展示', active: true, sort_order: 20 },
+    { id: 89, name: '报价分类', active: true, sort_order: 10 },
+    { id: 90, name: '停用模板', active: false, sort_order: 1 },
+  ]
+  const tabs = classificationTemplateTabs(templates, [
+    { classification_template_id: 88, active: true, sort_order: 30 },
+    { classification_template_id: 89, active: true, sort_order: 10 },
+    { classification_template_id: 90, active: true, sort_order: 1 },
+  ], { allLabel: '全部客户商品' })
+
+  assert.deepEqual(tabs.map((tab) => tab.label), ['全部客户商品', '报价分类', '门店展示'])
+  assert.deepEqual(groupRowsByClassificationCategory([
+    { id: 1, display_name: 'A' },
+    { id: 2, display_name: 'B' },
+  ], {
+    id: 88,
+    categories: [
+      { id: 701, name: '挂耳', sort_order: 20, active: true },
+      { id: 700, name: '熟豆', sort_order: 10, active: true },
+    ],
+    customer_alias_assignments: [
+      { alias_id: 2, template_id: 88, category_id: 701, sort_order: 1 },
+    ],
+  }, { idKey: 'id', assignmentKey: 'alias_id', assignmentsKey: 'customer_alias_assignments' }).map((group) => [group.label, group.rows.map((row) => row.id)]), [
+    ['熟豆', []],
+    ['挂耳', [2]],
+    ['未分类', [1]],
+  ])
 })
 
 test('customer product alias rows are scoped to one customer and sorted for price-list display', () => {
@@ -1271,7 +1332,8 @@ test('product config template page no longer contains product category managemen
   assert.match(configPageBlock, /单位模板/)
   assert.match(configPageBlock, /阶梯价模板/)
   assert.doesNotMatch(configPageBlock, />商品分类管理</)
-  assert.match(template, /currentSettingsSection === 'master'[\s\S]*class="category-panel category-drawer-panel category-management-panel/)
+  assert.doesNotMatch(template, /currentSettingsSection === 'master'[\s\S]*class="category-panel category-drawer-panel category-management-panel/)
+  assert.match(template, /activeConfigTemplateSection === 'classification-template'/)
 })
 
 test('BOM view no longer exposes special attributes from BOM version detail', () => {
@@ -1349,20 +1411,21 @@ test('SKU settings labels category levels as product type and subtype', () => {
   assert.doesNotMatch(source, /二级分类/)
 })
 
-test('SKU creation uses one unified SKU form without public customer custom split', () => {
+test('SKU creation uses one unified product archive form without legacy classification fields', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const productDrawer = source.match(/<aside class="settings-drawer product-editor-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
 
-  assert.match(source, /产品类别/)
-  assert.match(source, /产品子类型/)
-  assert.match(source, /productTypeCategoryOptions/)
-  assert.match(source, /productSubtypeCategoryOptions/)
-  assert.match(source, /skuForm\.product_type_category_id/)
-  assert.match(source, /skuForm\.product_subtype_category_id/)
   assert.match(source, /@submit\.prevent="createSku"/)
   assert.match(script, /apiSend\('\/api\/product-settings\/skus'/)
-  assert.match(source, /停车场/)
+  assert.doesNotMatch(productDrawer, /产品类别/)
+  assert.doesNotMatch(productDrawer, /产品子类型/)
+  assert.doesNotMatch(productDrawer, /productTypeCategoryOptions/)
+  assert.doesNotMatch(productDrawer, /productSubtypeCategoryOptions/)
+  assert.doesNotMatch(productDrawer, /skuForm\.product_type_category_id/)
+  assert.doesNotMatch(productDrawer, /skuForm\.product_subtype_category_id/)
+  assert.doesNotMatch(productDrawer, /停车场/)
   assert.doesNotMatch(template, /新增公共 SKU/)
   assert.doesNotMatch(template, /新增客户专属 SKU/)
   assert.doesNotMatch(template, /基础产品/)
@@ -1375,7 +1438,7 @@ test('SKU creation uses one unified SKU form without public customer custom spli
   assert.doesNotMatch(source, /const categoryID = Number\(form\?\.product_type_category_id/)
 })
 
-test('SKU settings exposes SKU copy drawer and moves category management under product config', () => {
+test('SKU settings exposes SKU copy drawer while classification templates replace legacy category management', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
@@ -1389,7 +1452,8 @@ test('SKU settings exposes SKU copy drawer and moves category management under p
     'ensureSkuCopySource',
     'copySkuSelection',
     '复制为商品档案',
-    '商品分类管理',
+    '分类模板',
+    'productClassificationTabs',
     "currentSettingsSection === 'master'",
     '/api/product-settings/skus/copy-options',
     '/api/product-settings/skus/copy',
@@ -1540,7 +1604,8 @@ test('product pages group product archive and template configuration into separa
     'SKU list should remain in the daily-operation workspace before template configuration',
   )
   assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"[\s\S]*@click="openSkuCopyDrawer"/)
-  assert.match(template, /v-if="currentSettingsSection === 'master'"[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
+  assert.doesNotMatch(template, /v-if="currentSettingsSection === 'master'"[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
+  assert.match(template, /class="classification-view-toolbar product-classification-tabs"/)
   assert.match(style, /\.master-data-layout\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*minmax\(0,\s*1fr\);/)
   assert.match(style, /\.template-workspace-stack\s*\{\s*display:\s*grid;\s*gap:\s*14px;/)
   assert.match(style, /@media\s*\(max-width:\s*1100px\)/)
@@ -1564,7 +1629,7 @@ test('product management exposes customer product names without direct BOM editi
     '/api/customer-product-aliases',
     'saveCustomerProductAlias',
     'disableCustomerProductAlias',
-    'BOM 请回到绑定商品档案维护生产 BOM',
+    '生产 BOM 和生产配置只能回到商品档案维护',
   ]) {
     assert.ok(source.includes(expected), `missing customer product alias marker: ${expected}`)
   }
@@ -1576,7 +1641,7 @@ test('product management exposes customer product names without direct BOM editi
   assert.doesNotMatch(template, /customer-alias-workspace[\s\S]*@click="derive/)
 })
 
-test('SKU settings opens SKU creation and SKU copy behind drawers while category management is a config tab', () => {
+test('SKU settings opens SKU creation and SKU copy behind drawers while classification templates drive product tabs', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
@@ -1586,11 +1651,11 @@ test('SKU settings opens SKU creation and SKU copy behind drawers while category
     'skuCopyDrawerOpen',
     'sku-copy-drawer',
     'openSkuCopyDrawer',
-    '商品分类管理',
-    'categorySearchQuery',
-    'visibleCategoryManagementTreeForSkuContext',
-    'category-search',
-    'category-scroll-list',
+    'productClassificationTabs',
+    'displaySkuGroups',
+    '使用分类模板',
+    '移动到分类',
+    'classification-group-row',
     'product-editor-drawer',
     'openProductDrawer',
     'SKU复制',
@@ -1603,12 +1668,14 @@ test('SKU settings opens SKU creation and SKU copy behind drawers while category
   assert.doesNotMatch(template, /class="panel custom-product-panel"/)
   assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"[\s\S]*@click="openSkuCopyDrawer"/)
   assert.doesNotMatch(template, />分类设置</)
-  assert.match(template, /v-for="primary in visibleCategoryManagementTreeForSkuContext"/)
+  assert.doesNotMatch(template, /v-for="primary in visibleCategoryManagementTreeForSkuContext"/)
+  assert.doesNotMatch(template, /class="category-panel category-drawer-panel category-management-panel"/)
   assert.match(template, /<aside class="settings-drawer sku-copy-drawer"[\s\S]*选择分类和产品/)
   assert.match(template, /当前SKU \{\{ skuDisplayTotal \}\}/)
   assert.match(template, /:total="skuDisplayTotal"/)
   assert.match(template, /<table :key="skuTableKey" class="sku-table"/)
-  assert.match(template, /v-for="row in displaySkuRows"/)
+  assert.match(template, /v-for="group in displaySkuGroups"/)
+  assert.match(template, /v-for="row in group\.rows"/)
   assert.match(template, /v-if="!displaySkuRows\.length"/)
   assert.match(template, /:key="skuPaginationKey"/)
   assert.match(script, /const customerID = skuContextCustomerID\.value\s+return sortRowsForCustomerSkuPriority\(/)
@@ -1639,140 +1706,114 @@ test('SKU settings opens SKU creation and SKU copy behind drawers while category
   assert.match(style, /\.settings-drawer-mask\s*\{[^}]*position:\s*fixed;/s)
 })
 
-test('SKU category management renders inline instead of teleporting into its own component target', () => {
+test('legacy SKU category management is not rendered as the product archive classification entry', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
 
   assert.doesNotMatch(template, /<Teleport\s+to="#sku-category-management-target"/)
   assert.doesNotMatch(template, /id="sku-category-management-target"/)
-  assert.match(template, /currentSettingsSection === 'master'[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
-  assert.ok(
-    template.indexOf('class="config-template-tabs"') < template.indexOf('class="category-panel category-drawer-panel category-management-panel"'),
-    'category management panel should render inside the template workspace after its tab buttons',
-  )
+  assert.doesNotMatch(template, /currentSettingsSection === 'master'[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
+  assert.match(template, /class="classification-view-toolbar product-classification-tabs"/)
+  assert.match(template, /class="classification-view-toolbar alias-classification-tabs"/)
 })
 
-test('SKU settings edits product categories inline inside the category management tab', () => {
+test('classification template page edits only template structure, not object assignments', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
-    'category-inline-toolbar',
-    'createPrimaryCategoryInline',
-    'togglePrimaryDeleteMode',
-    'movePrimaryCategory',
-    'startCategoryEdit(primary)',
-    'createSecondaryCategoryInline(primary)',
-    'toggleSecondaryDeleteMode(primary)',
-    'secondaryDeleteModeFor',
-    'category-sort-buttons',
-    'category-delete-button',
+    'classification-template-pane',
+    'classification-template-list',
+    'classification-category-editor',
+    'classificationCategoryForm',
+    'saveClassificationCategory',
+    'moveClassificationCategory',
+    'deleteClassificationCategory',
+    '排序值越小越靠前',
   ]) {
-    assert.ok(source.includes(expected), `missing inline category editor marker: ${expected}`)
+    assert.ok(source.includes(expected), `missing classification template structure marker: ${expected}`)
   }
 
-  assert.match(template, /v-if="currentSettingsSection === 'master'"[\s\S]*class="category-panel category-drawer-panel/)
+  assert.match(template, /activeConfigTemplateSection === 'classification-template'/)
+  assert.match(template, /点击左侧模板后，在右侧维护分类项；商品归类在商品档案或客户商品名列表中完成/)
+  assert.match(template, /<button class="secondary compact-action" type="button" @click="openClassificationTemplateCreateDrawer"/)
   assert.doesNotMatch(source, /category-editor-drawer/)
   assert.doesNotMatch(source, /openCategoryDrawer/)
   assert.doesNotMatch(source, /openCategorySettingsDrawer/)
-  assert.doesNotMatch(template, />编辑产品类型</)
-  assert.doesNotMatch(template, />改名</)
-  assert.match(template, /@click(?:\.stop)?="startCategoryEdit\(primary\)"/)
-  assert.match(template, /@click(?:\.stop)?="startCategoryEdit\(secondary\)"/)
-  assert.match(template, /@keyup\.enter(?:\.prevent)?="saveCategoryName\(primary\)"/)
-  assert.match(template, /@keyup\.enter(?:\.prevent)?="saveCategoryName\(secondary\)"/)
-  assert.match(script, /apiSend\(`\/api\/product-settings\/categories\/\$\{category\.id\}\/move`/)
-  assert.match(style, /\.category-inline-toolbar\s*\{[^}]*display:\s*flex;/s)
+  assert.doesNotMatch(template, /归属客户/)
+  assert.doesNotMatch(template, /对象归类/)
+  assert.doesNotMatch(template, /配置分类/)
+  assert.match(script, /apiSend\(id \? `\/api\/product-classification-template-categories\/\$\{id\}` : '\/api\/product-classification-template-categories'/)
+  assert.match(style, /\.classification-category-editor\s*\{/)
 })
 
-test('SKU settings uses compact category action controls with right-side direct delete', () => {
+test('product and customer alias lists move selected rows within the active classification tab', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
-  const deleteStart = script.indexOf('async function deleteCategory(category)')
-  const deleteEnd = script.indexOf('function flattenCategoryNodes', deleteStart)
-  const deleteFunction = deleteStart >= 0 && deleteEnd > deleteStart ? script.slice(deleteStart, deleteEnd) : ''
 
   for (const expected of [
-    'category-action-pill',
-    'category-action-button',
-    'category-sort-pill',
-    'category-row-actions',
-    'secondary-category-actions',
-    'aria-label="上移产品类型"',
-    'aria-label="下移产品类型"',
-    'aria-label="删除产品类型"',
-    'aria-label="删除产品子类型"',
+    'saveSelectedProductClassificationAssignment',
+    'saveSelectedAliasClassificationAssignment',
+    '/api/product-classification-assignments/products',
+    '/api/product-classification-assignments/customer-aliases',
+    'currentProductClassificationTemplate',
+    'currentAliasClassificationTemplate',
+    'selectedProductClassificationCategoryID',
+    'selectedAliasClassificationCategoryID',
   ]) {
-    assert.ok(source.includes(expected), `missing polished category action marker: ${expected}`)
+    assert.ok(source.includes(expected), `missing classification assignment marker: ${expected}`)
   }
 
-  assert.doesNotMatch(template, /class="icon-action/)
-  assert.match(template, /<div class="category-row-actions[^"]*">[\s\S]*category-delete-button/)
-  assert.match(template, /<div class="secondary-category-actions">[\s\S]*category-delete-button/)
-  assert.doesNotMatch(deleteFunction, /window\.confirm/)
-  assert.doesNotMatch(style, /\.icon-action/)
-  assert.match(style, /\.category-action-pill\s*\{[^}]*border-radius:\s*999px;/s)
-  assert.match(style, /\.category-sort-pill\s*\{[^}]*border-radius:\s*999px;/s)
+  assert.match(template, /product-classification-tabs[\s\S]*<span>移动到分类<\/span>[\s\S]*saveSelectedProductClassificationAssignment/)
+  assert.match(template, /alias-classification-tabs[\s\S]*<span>移动到分类<\/span>[\s\S]*saveSelectedAliasClassificationAssignment/)
+  assert.match(template, /v-for="group in displaySkuGroups"/)
+  assert.match(template, /v-for="group in visibleCustomerAliasGroups"/)
+  assert.match(style, /\.classification-group-row\s+td\s*\{/)
 })
 
-test('SKU category primary row keeps title and sorting on the left with collapse on the right', () => {
+test('classification group rows support collapse and indentation in product and alias lists', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
-    'primary-category-left',
-    'primary-category-right',
-    'category-sort-buttons',
-    'category-collapse-button',
+    'toggleProductClassificationGroup',
+    'toggleAliasClassificationGroup',
+    'isProductClassificationGroupCollapsed',
+    'isAliasClassificationGroupCollapsed',
+    'classification-item-row',
+    'classification-group-toggle',
   ]) {
-    assert.ok(source.includes(expected), `missing primary category layout marker: ${expected}`)
+    assert.ok(source.includes(expected), `missing classification group marker: ${expected}`)
   }
 
-  assert.match(template, /<div class="primary-category-left">[\s\S]*category-sort-pill[\s\S]*primary-name-button/)
-  assert.match(template, /<div class="category-row-actions primary-category-right">[\s\S]*category-collapse-button[\s\S]*category-delete-button/)
-  assert.match(style, /\.primary-category-left\s*\{[^}]*display:\s*flex;/s)
-  assert.match(style, /\.primary-category-right\s*\{[^}]*justify-content:\s*flex-end;/s)
+  assert.match(template, /isProductClassificationGroupCollapsed\(group\.key\)\s*\?\s*'展开'\s*:\s*'收起'/)
+  assert.match(template, /isAliasClassificationGroupCollapsed\(group\.key\)\s*\?\s*'展开'\s*:\s*'收起'/)
+  assert.match(style, /\.classification-item-row\s+td:first-child \+ td,[\s\S]*padding-left:/)
+  assert.match(style, /\.classification-tab\.active\s*\{/)
 })
 
-test('SKU category management only edits current-owned categories and removes customer category copy action', () => {
+test('product archive and customer alias pages enable classification templates as page-level tabs', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
-  assert.match(script, /const categoryManagementTreeForSkuContext = computed\(\(\) => buildSkuContextCategoryTree/)
-  assert.match(script, /categoryManagementTreeForSkuContext[\s\S]*usePublicCategories:\s*false/)
-  assert.match(script, /const visibleCategoryManagementTreeForSkuContext = computed/)
-  assert.match(template, /v-for="primary in visibleCategoryManagementTreeForSkuContext"/)
-  assert.match(template, /!categoryManagementTreeForSkuContext\.length/)
+  assert.match(source, /product_classification_template_usages/)
+  assert.match(source, /aliasClassificationTemplateUsages/)
+  assert.match(script, /apiGet\('\/api\/product-classification-template-usages\/products'\)/)
+  assert.match(script, /apiGet\('\/api\/product-classification-template-usages\/customer-aliases'\)/)
+  assert.match(script, /saveProductClassificationTemplateUsage/)
+  assert.match(script, /saveAliasClassificationTemplateUsage/)
+  assert.match(template, /productClassificationTabs/)
+  assert.match(template, /aliasClassificationTabs/)
   assert.doesNotMatch(template, /复制为客户分类/)
 })
 
-test('SKU category management makes collapsed product types and child subtypes visually clear', () => {
-  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const template = source.split('<script setup>')[0] || source
-  const style = source.split('<style scoped>')[1] || ''
-
-  assert.match(template, /class="primary-category"[\s\S]*collapsed:\s*isPrimaryCategoryCollapsed\(primary\)/)
-  assert.match(template, /isPrimaryCategoryCollapsed\(primary\)\s*\?\s*'展开'\s*:\s*'收起'/)
-  assert.match(style, /\.primary-category\.collapsed\s*\{[^}]*padding:\s*0;/s)
-  assert.match(style, /\.primary-category\.collapsed\s+\.primary-category-head\s*\{[^}]*border:\s*1px solid/s)
-  assert.match(style, /\.secondary-category\s*\{[^}]*margin-left:\s*34px;/s)
-})
-
-test('SKU category management delete buttons do not start subtype dragging', () => {
-  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const template = source.split('<script setup>')[0] || source
-
-  assert.match(template, /aria-label="删除产品类型"[\s\S]*@pointerdown\.stop[\s\S]*@click\.stop="deleteCategory\(primary\)"/)
-  assert.match(template, /aria-label="删除产品子类型"[\s\S]*@pointerdown\.stop[\s\S]*@click\.stop="deleteCategory\(secondary\)"/)
-})
-
-test('SKU table keeps product type columns on one line and relies on horizontal scroll', () => {
+test('SKU table groups rows by enabled classification template tabs without product type columns', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const style = source.split('<style scoped>')[1] || ''
@@ -1780,44 +1821,31 @@ test('SKU table keeps product type columns on one line and relies on horizontal 
   for (const expected of [
     'sku-table-wrap',
     'class="sku-table"',
-    'sku-category-cell',
+    'classification-view-toolbar',
+    'product-classification-tabs',
+    'classification-group-row',
     'sku-name-cell',
     'action-cell',
   ]) {
     assert.ok(source.includes(expected), `missing SKU table layout marker: ${expected}`)
   }
-  assert.match(template, /<th class="sku-col-product-type">产品类型<\/th>/)
+  assert.doesNotMatch(template, /<th class="sku-col-product-type">产品类型<\/th>/)
+  assert.doesNotMatch(template, /<th class="sku-col-product-subtype">产品子类型<\/th>/)
+  assert.match(template, /v-for="group in displaySkuGroups"/)
+  assert.match(template, /classification-group-toggle/)
   assert.match(style, /\.sku-table-wrap\s*\{[^}]*overflow-x:\s*auto;/s)
   assert.match(style, /\.sku-table\s*\{[^}]*width:\s*max-content;[^}]*min-width:\s*1600px;/s)
   assert.match(style, /\.sku-table th,\s*\.sku-table td\s*\{[^}]*white-space:\s*nowrap;/s)
-  assert.match(style, /\.sku-category-cell\s*\{[^}]*white-space:\s*nowrap;/s)
 })
 
-test('SKU settings collapses category levels and focuses newly created categories', () => {
+test('legacy product type category drag UI is not present in the new product archive template', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
-  const style = source.split('<style scoped>')[1] || ''
 
-  for (const expected of [
-    'collapsedPrimaryCategoryIds',
-    'collapsedSecondaryCategoryIds',
-    'togglePrimaryCategoryCollapse',
-    'toggleSecondaryCategoryCollapse',
-    'isPrimaryCategoryCollapsed(primary)',
-    'isSecondaryCategoryCollapsed(secondary)',
-    'focusCategoryAfterCreate',
-    'scrollIntoView',
-    'data-secondary-id',
-    'category-collapse-button',
-  ]) {
-    assert.ok(source.includes(expected), `missing category collapse/focus marker: ${expected}`)
-  }
-
-  assert.match(template, /v-if="!isPrimaryCategoryCollapsed\(primary\)"[\s\S]*v-for="\(secondary, index\) in primary\.children"/)
-  assert.match(template, /v-show="!isSecondaryCategoryCollapsed\(secondary\)"[\s\S]*class="product-chip-list"/)
-  assert.match(script, /categorySearchQuery\.value\s*=\s*''[\s\S]*scrollIntoView/)
-  assert.match(style, /\.category-collapse-button\s*\{/)
+  assert.doesNotMatch(template, /产品类型操作/)
+  assert.doesNotMatch(template, /产品子类型操作/)
+  assert.doesNotMatch(template, /拖入产品子类型后才参与产品价格表生成/)
+  assert.doesNotMatch(template, /v-for="\(secondary, index\) in primary\.children"/)
 })
 
 test('SKU settings keeps product config template binding on the product record instead of categories', () => {
@@ -2064,14 +2092,14 @@ test('SKU unit template workspace uses left list right editor and opens global u
   assert.match(style, /\.unit-template-layout\s*\{[^}]*grid-template-columns:\s*minmax\(220px,\s*280px\)\s+minmax\(0,\s*1fr\);/s)
 })
 
-test('product archive config references classification template without direct category dropdown', () => {
+test('product archive config drawer does not bind classification templates or direct category dropdowns', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const drawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
 
   assert.ok(drawer, 'product archive config drawer should exist')
-  assert.match(drawer, /classification_template_id/)
-  assert.match(drawer, /配置分类/)
-  assert.match(drawer, /openClassificationConfigDrawer/)
+  assert.doesNotMatch(drawer, /classification_template_id/)
+  assert.doesNotMatch(drawer, /配置分类/)
+  assert.doesNotMatch(drawer, /openClassificationConfigDrawer/)
   assert.doesNotMatch(drawer, /product_subtype_category_id/)
   assert.doesNotMatch(drawer, />产品子类型</)
   assert.doesNotMatch(drawer, />分类<\/span>[\s\S]*<select/)
@@ -2091,31 +2119,37 @@ test('product archive industry fields are generated from templates without ad-ho
   assert.doesNotMatch(drawer, />类型</)
 })
 
-test('product settings supports stacked collapsible drawers for classification configuration', () => {
+test('product settings uses classification tabs and page-level assignment controls', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 
   for (const expected of [
-    'drawerStack',
-    'drawer-minibar',
-    'collapseDrawer',
-    'expandDrawer',
-    'openClassificationConfigDrawer',
-    'classification-config-drawer',
-    'aria-label="分类配置"',
-    '同一对象在同一分类模板内只归属一个分类',
+    'productClassificationTabs',
+    'aliasClassificationTabs',
+    'activeProductClassificationTab',
+    'activeAliasClassificationTab',
+    'saveSelectedProductClassificationAssignment',
+    'saveSelectedAliasClassificationAssignment',
+    '使用分类模板',
+    '移动到分类',
   ]) {
-    assert.ok(source.includes(expected), `missing drawer stack marker: ${expected}`)
+    assert.ok(source.includes(expected), `missing classification tab marker: ${expected}`)
   }
+  assert.doesNotMatch(source, /classification-config-drawer/)
+  assert.doesNotMatch(source, /aria-label="分类配置"/)
 })
 
-test('customer product aliases can choose classification templates in single and batch flows', () => {
+test('customer product aliases use page-level classification templates, not single or batch fields', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const aliasDrawer = source.match(/<aside class="settings-drawer customer-alias-batch-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
+  const aliasForm = source.match(/<form class="customer-alias-form"[\s\S]*?<\/form>/)?.[0] || ''
+  const aliasTable = source.match(/<table class="customer-alias-table"[\s\S]*?<\/table>/)?.[0] || ''
 
-  assert.match(source, /customerProductAliasForm\.classification_template_id/)
-  assert.match(aliasDrawer, /aliasBatchForm\.classification_template_id/)
-  assert.match(aliasDrawer, /默认复制\/复用商品档案分类模板/)
-  assert.match(source, /openClassificationConfigDrawer\(\{[\s\S]*objectType:\s*'customer_alias'/)
+  assert.doesNotMatch(aliasForm, /classification_template_id/)
+  assert.doesNotMatch(aliasDrawer, /aliasBatchForm\.classification_template_id/)
+  assert.doesNotMatch(aliasDrawer, /默认复制\/复用商品档案分类模板/)
+  assert.doesNotMatch(aliasTable, />展示分类</)
+  assert.doesNotMatch(aliasTable, /navigateProductBom/)
+  assert.doesNotMatch(source, /openClassificationConfigDrawer\(\{[\s\S]*objectType:\s*'customer_alias'/)
 })
 
 test('assign category payload carries customer context for public template derivation', () => {

@@ -42,6 +42,12 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.POST("/api/product-classification-template-categories", h.saveProductClassificationCategoryAPI)
 	e.PUT("/api/product-classification-template-categories/:id", h.saveProductClassificationCategoryAPI)
 	e.DELETE("/api/product-classification-template-categories/:id", h.deleteProductClassificationCategoryAPI)
+	e.GET("/api/product-classification-template-usages/products", h.productClassificationTemplateUsagesAPI)
+	e.POST("/api/product-classification-template-usages/products", h.saveProductClassificationTemplateUsageAPI)
+	e.DELETE("/api/product-classification-template-usages/products/:template_id", h.deleteProductClassificationTemplateUsageAPI)
+	e.GET("/api/product-classification-template-usages/customer-aliases", h.customerProductAliasClassificationTemplateUsagesAPI)
+	e.POST("/api/product-classification-template-usages/customer-aliases", h.saveCustomerProductAliasClassificationTemplateUsageAPI)
+	e.DELETE("/api/product-classification-template-usages/customer-aliases/:template_id", h.deleteCustomerProductAliasClassificationTemplateUsageAPI)
 	e.POST("/api/product-classification-assignments/products", h.saveProductClassificationAssignmentAPI)
 	e.POST("/api/product-classification-assignments/customer-aliases", h.saveCustomerProductAliasClassificationAssignmentAPI)
 	e.GET("/api/pricing-gradient-templates", h.gradientTemplatesAPI)
@@ -341,6 +347,7 @@ type productClassificationTemplateAPIRequest struct {
 	CustomerID       int64  `json:"customer_id"`
 	SourceTemplateID int64  `json:"source_template_id"`
 	Name             string `json:"name"`
+	Remark           string `json:"remark"`
 	Active           *bool  `json:"active"`
 	SortOrder        int    `json:"sort_order"`
 }
@@ -358,6 +365,12 @@ type productClassificationAssignmentAPIRequest struct {
 	TemplateID int64 `json:"template_id"`
 	CategoryID int64 `json:"category_id"`
 	SortOrder  int   `json:"sort_order"`
+}
+
+type productClassificationTemplateUsageAPIRequest struct {
+	CustomerID               int64 `json:"customer_id"`
+	ClassificationTemplateID int64 `json:"classification_template_id"`
+	SortOrder                int   `json:"sort_order"`
 }
 
 type customerProductAliasClassificationAssignmentAPIRequest struct {
@@ -1022,6 +1035,7 @@ func (h productHandler) saveProductClassificationTemplateAPI(c echo.Context) err
 		CustomerID:       req.CustomerID,
 		SourceTemplateID: req.SourceTemplateID,
 		Name:             req.Name,
+		Remark:           req.Remark,
 		Active:           active,
 		SortOrder:        req.SortOrder,
 	})
@@ -1089,6 +1103,100 @@ func (h productHandler) deleteProductClassificationCategoryAPI(c echo.Context) e
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid template_id"})
 	}
 	if err := h.catalog.DeleteProductClassificationCategory(c.Request().Context(), catalogapp.DeleteProductClassificationCategoryCommand{Actor: support.ActorOf(c), ID: id, TemplateID: templateID}); err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h productHandler) productClassificationTemplateUsagesAPI(c echo.Context) error {
+	rows, err := h.catalog.ListProductClassificationTemplateUsages(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+}
+
+func (h productHandler) saveProductClassificationTemplateUsageAPI(c echo.Context) error {
+	var req productClassificationTemplateUsageAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	row, err := h.catalog.SaveProductClassificationTemplateUsage(c.Request().Context(), catalogapp.SaveProductClassificationTemplateUsageCommand{
+		Actor:                    support.ActorOf(c),
+		ClassificationTemplateID: req.ClassificationTemplateID,
+		SortOrder:                req.SortOrder,
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"usage": row})
+}
+
+func (h productHandler) deleteProductClassificationTemplateUsageAPI(c echo.Context) error {
+	templateID, err := parseOptionalInt64(c.Param("template_id"))
+	if err != nil || templateID <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid classification_template_id"})
+	}
+	if err := h.catalog.DeleteProductClassificationTemplateUsage(c.Request().Context(), catalogapp.DeleteProductClassificationTemplateUsageCommand{Actor: support.ActorOf(c), ClassificationTemplateID: templateID}); err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h productHandler) customerProductAliasClassificationTemplateUsagesAPI(c echo.Context) error {
+	customerID, err := parseOptionalInt64(c.QueryParam("customer_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid customer_id"})
+	}
+	rows, err := h.catalog.ListCustomerProductAliasClassificationTemplateUsages(c.Request().Context(), customerID)
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+}
+
+func (h productHandler) saveCustomerProductAliasClassificationTemplateUsageAPI(c echo.Context) error {
+	var req productClassificationTemplateUsageAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	row, err := h.catalog.SaveCustomerProductAliasClassificationTemplateUsage(c.Request().Context(), catalogapp.SaveCustomerProductAliasClassificationTemplateUsageCommand{
+		Actor:                    support.ActorOf(c),
+		CustomerID:               req.CustomerID,
+		ClassificationTemplateID: req.ClassificationTemplateID,
+		SortOrder:                req.SortOrder,
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"usage": row})
+}
+
+func (h productHandler) deleteCustomerProductAliasClassificationTemplateUsageAPI(c echo.Context) error {
+	templateID, err := parseOptionalInt64(c.Param("template_id"))
+	if err != nil || templateID <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid classification_template_id"})
+	}
+	customerID, err := parseOptionalInt64(c.QueryParam("customer_id"))
+	if err != nil || customerID <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "customer_id required"})
+	}
+	if err := h.catalog.DeleteCustomerProductAliasClassificationTemplateUsage(c.Request().Context(), catalogapp.DeleteCustomerProductAliasClassificationTemplateUsageCommand{Actor: support.ActorOf(c), CustomerID: customerID, ClassificationTemplateID: templateID}); err != nil {
 		if catalogapp.IsValidationError(err) {
 			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 		}

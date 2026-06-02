@@ -65,12 +65,12 @@ func TestDev393ProductClassificationTemplateVue(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
 		"分类模板",
-		"配置分类",
-		"classification_template_id",
-		"classification-config-drawer",
-		"drawerStack",
-		"drawer-minibar",
-		"默认复制/复用商品档案分类模板",
+		"classification-template-list",
+		"classification-category-editor",
+		"productClassificationTabs",
+		"aliasClassificationTabs",
+		"使用分类模板",
+		"移动到分类",
 		"返回商品档案配置",
 	} {
 		if !strings.Contains(src, want) {
@@ -79,6 +79,8 @@ func TestDev393ProductClassificationTemplateVue(t *testing.T) {
 	}
 	for _, blocked := range []string{
 		"productProductionConfigForm.product_subtype_category_id",
+		"classification-config-drawer",
+		"drawerStack",
 		"新增字段",
 		"行业字段值",
 	} {

@@ -941,7 +941,7 @@ func (r Repository) ListProductClassificationTemplates(ctx context.Context) ([]c
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, COALESCE(customer_id,0), COALESCE(source_template_id,0),
 		       COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END),
-		       name, active, COALESCE(sort_order,100)
+			       name, COALESCE(remark,''), active, COALESCE(sort_order,100)
 		FROM %s.product_classification_templates
 		WHERE active=true
 		ORDER BY COALESCE(customer_id,0), COALESCE(sort_order,100), name, id
@@ -954,7 +954,7 @@ func (r Repository) ListProductClassificationTemplates(ctx context.Context) ([]c
 	index := map[int64]int{}
 	for rows.Next() {
 		var row catalogapp.ProductClassificationTemplate
-		if err := rows.Scan(&row.ID, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.Name, &row.Active, &row.SortOrder); err != nil {
+		if err := rows.Scan(&row.ID, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.Name, &row.Remark, &row.Active, &row.SortOrder); err != nil {
 			return nil, err
 		}
 		row.Categories = []catalogapp.ProductClassificationCategory{}
@@ -1062,10 +1062,10 @@ func (r Repository) SaveProductClassificationTemplate(ctx context.Context, cmd c
 		action = "update_product_classification_template"
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.product_classification_templates
-			SET customer_id=$2, source_template_id=$3, name=$4, active=$5, sort_order=$6, updated_at=now(), updated_by=$7
-			WHERE id=$1
-			RETURNING id
-		`, r.schema), id, cmd.CustomerID, cmd.SourceTemplateID, cmd.Name, cmd.Active, cmd.SortOrder, cmd.Actor).Scan(&id); err != nil {
+				SET customer_id=$2, source_template_id=$3, name=$4, remark=$5, active=$6, sort_order=$7, updated_at=now(), updated_by=$8
+				WHERE id=$1
+				RETURNING id
+			`, r.schema), id, cmd.CustomerID, cmd.SourceTemplateID, cmd.Name, cmd.Remark, cmd.Active, cmd.SortOrder, cmd.Actor).Scan(&id); err != nil {
 			return catalogapp.ProductClassificationTemplate{}, err
 		}
 	} else {
@@ -1077,14 +1077,14 @@ func (r Repository) SaveProductClassificationTemplate(ctx context.Context, cmd c
 			templateState = "derived_from_public"
 		}
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			INSERT INTO %s.product_classification_templates(customer_id, source_template_id, template_state, name, active, sort_order, created_by, updated_by)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$7)
-			RETURNING id
-		`, r.schema), cmd.CustomerID, cmd.SourceTemplateID, templateState, cmd.Name, cmd.Active, cmd.SortOrder, cmd.Actor).Scan(&id); err != nil {
+				INSERT INTO %s.product_classification_templates(customer_id, source_template_id, template_state, name, remark, active, sort_order, created_by, updated_by)
+				VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8)
+				RETURNING id
+			`, r.schema), cmd.CustomerID, cmd.SourceTemplateID, templateState, cmd.Name, cmd.Remark, cmd.Active, cmd.SortOrder, cmd.Actor).Scan(&id); err != nil {
 			return catalogapp.ProductClassificationTemplate{}, err
 		}
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_classification_template", &id, action, postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"template_id": id, "customer_id": cmd.CustomerID, "source_template_id": cmd.SourceTemplateID, "sort_order": cmd.SortOrder, "active": cmd.Active}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_classification_template", &id, action, postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"template_id": id, "customer_id": cmd.CustomerID, "source_template_id": cmd.SourceTemplateID, "sort_order": cmd.SortOrder, "active": cmd.Active, "remark": cmd.Remark}); err != nil {
 		return catalogapp.ProductClassificationTemplate{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1120,6 +1120,150 @@ func (r Repository) DeleteProductClassificationTemplate(ctx context.Context, cmd
 		return fmt.Errorf("classification template not found")
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_classification_template", &cmd.ID, "delete_product_classification_template", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"template_id": cmd.ID}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) ListProductClassificationTemplateUsages(ctx context.Context) ([]catalogapp.ProductClassificationTemplateUsage, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT classification_template_id, active, COALESCE(sort_order,100)
+		FROM %s.product_classification_template_usages
+		WHERE active=true
+		ORDER BY COALESCE(sort_order,100), classification_template_id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []catalogapp.ProductClassificationTemplateUsage{}
+	for rows.Next() {
+		var row catalogapp.ProductClassificationTemplateUsage
+		if err := rows.Scan(&row.ClassificationTemplateID, &row.Active, &row.SortOrder); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveProductClassificationTemplateUsage(ctx context.Context, cmd catalogapp.SaveProductClassificationTemplateUsageCommand) (catalogapp.ProductClassificationTemplateUsage, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return catalogapp.ProductClassificationTemplateUsage{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var exists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.product_classification_templates WHERE id=$1 AND active=true)`, r.schema), cmd.ClassificationTemplateID).Scan(&exists); err != nil {
+		return catalogapp.ProductClassificationTemplateUsage{}, err
+	}
+	if !exists {
+		return catalogapp.ProductClassificationTemplateUsage{}, fmt.Errorf("classification template not found")
+	}
+	var row catalogapp.ProductClassificationTemplateUsage
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_classification_template_usages(classification_template_id, active, sort_order, created_by, updated_by)
+		VALUES($1,true,$2,$3,$3)
+		ON CONFLICT(classification_template_id) DO UPDATE SET
+			active=true,
+			sort_order=excluded.sort_order,
+			updated_by=excluded.updated_by,
+			updated_at=now()
+		RETURNING classification_template_id, active, sort_order
+	`, r.schema), cmd.ClassificationTemplateID, cmd.SortOrder, cmd.Actor).Scan(&row.ClassificationTemplateID, &row.Active, &row.SortOrder); err != nil {
+		return catalogapp.ProductClassificationTemplateUsage{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_classification_template_usage", &cmd.ClassificationTemplateID, "save_product_classification_template_usage", postgresinfra.StrPtr("classification_template_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.ClassificationTemplateID)), postgresinfra.AuditMeta{"classification_template_id": cmd.ClassificationTemplateID, "sort_order": cmd.SortOrder}); err != nil {
+		return catalogapp.ProductClassificationTemplateUsage{}, err
+	}
+	return row, tx.Commit(ctx)
+}
+
+func (r Repository) DeleteProductClassificationTemplateUsage(ctx context.Context, cmd catalogapp.DeleteProductClassificationTemplateUsageCommand) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_classification_template_usages SET active=false, updated_at=now(), updated_by=$2 WHERE classification_template_id=$1`, r.schema), cmd.ClassificationTemplateID, cmd.Actor); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_classification_template_usage", &cmd.ClassificationTemplateID, "delete_product_classification_template_usage", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"classification_template_id": cmd.ClassificationTemplateID}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) ListCustomerProductAliasClassificationTemplateUsages(ctx context.Context, customerID int64) ([]catalogapp.CustomerProductAliasClassificationTemplateUsage, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT customer_id, classification_template_id, active, COALESCE(sort_order,100)
+		FROM %s.customer_product_alias_classification_template_usages
+		WHERE active=true AND ($1::bigint=0 OR customer_id=$1)
+		ORDER BY customer_id, COALESCE(sort_order,100), classification_template_id
+	`, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []catalogapp.CustomerProductAliasClassificationTemplateUsage{}
+	for rows.Next() {
+		var row catalogapp.CustomerProductAliasClassificationTemplateUsage
+		if err := rows.Scan(&row.CustomerID, &row.ClassificationTemplateID, &row.Active, &row.SortOrder); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveCustomerProductAliasClassificationTemplateUsage(ctx context.Context, cmd catalogapp.SaveCustomerProductAliasClassificationTemplateUsageCommand) (catalogapp.CustomerProductAliasClassificationTemplateUsage, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return catalogapp.CustomerProductAliasClassificationTemplateUsage{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var exists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customers WHERE id=$1 AND active=true)`, r.schema), cmd.CustomerID).Scan(&exists); err != nil {
+		return catalogapp.CustomerProductAliasClassificationTemplateUsage{}, err
+	}
+	if !exists {
+		return catalogapp.CustomerProductAliasClassificationTemplateUsage{}, fmt.Errorf("customer not found")
+	}
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.product_classification_templates WHERE id=$1 AND active=true)`, r.schema), cmd.ClassificationTemplateID).Scan(&exists); err != nil {
+		return catalogapp.CustomerProductAliasClassificationTemplateUsage{}, err
+	}
+	if !exists {
+		return catalogapp.CustomerProductAliasClassificationTemplateUsage{}, fmt.Errorf("classification template not found")
+	}
+	var row catalogapp.CustomerProductAliasClassificationTemplateUsage
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_product_alias_classification_template_usages(customer_id, classification_template_id, active, sort_order, created_by, updated_by)
+		VALUES($1,$2,true,$3,$4,$4)
+		ON CONFLICT(customer_id, classification_template_id) DO UPDATE SET
+			active=true,
+			sort_order=excluded.sort_order,
+			updated_by=excluded.updated_by,
+			updated_at=now()
+		RETURNING customer_id, classification_template_id, active, sort_order
+	`, r.schema), cmd.CustomerID, cmd.ClassificationTemplateID, cmd.SortOrder, cmd.Actor).Scan(&row.CustomerID, &row.ClassificationTemplateID, &row.Active, &row.SortOrder); err != nil {
+		return catalogapp.CustomerProductAliasClassificationTemplateUsage{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_alias_classification_template_usage", &cmd.CustomerID, "save_customer_alias_classification_template_usage", postgresinfra.StrPtr("classification_template_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.ClassificationTemplateID)), postgresinfra.AuditMeta{"customer_id": cmd.CustomerID, "classification_template_id": cmd.ClassificationTemplateID, "sort_order": cmd.SortOrder}); err != nil {
+		return catalogapp.CustomerProductAliasClassificationTemplateUsage{}, err
+	}
+	return row, tx.Commit(ctx)
+}
+
+func (r Repository) DeleteCustomerProductAliasClassificationTemplateUsage(ctx context.Context, cmd catalogapp.DeleteCustomerProductAliasClassificationTemplateUsageCommand) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_product_alias_classification_template_usages SET active=false, updated_at=now(), updated_by=$3 WHERE customer_id=$1 AND classification_template_id=$2`, r.schema), cmd.CustomerID, cmd.ClassificationTemplateID, cmd.Actor); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_alias_classification_template_usage", &cmd.CustomerID, "delete_customer_alias_classification_template_usage", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"customer_id": cmd.CustomerID, "classification_template_id": cmd.ClassificationTemplateID}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -1196,6 +1340,22 @@ func (r Repository) SaveProductClassificationAssignment(ctx context.Context, cmd
 		return catalogapp.ProductClassificationAssignment{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	var usageExists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.product_classification_template_usages WHERE classification_template_id=$1 AND active=true)`, r.schema), cmd.TemplateID).Scan(&usageExists); err != nil {
+		return catalogapp.ProductClassificationAssignment{}, err
+	}
+	if !usageExists {
+		return catalogapp.ProductClassificationAssignment{}, fmt.Errorf("classification template usage not enabled")
+	}
+	if cmd.CategoryID > 0 {
+		var categoryExists bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.product_classification_template_categories WHERE id=$1 AND template_id=$2 AND active=true)`, r.schema), cmd.CategoryID, cmd.TemplateID).Scan(&categoryExists); err != nil {
+			return catalogapp.ProductClassificationAssignment{}, err
+		}
+		if !categoryExists {
+			return catalogapp.ProductClassificationAssignment{}, fmt.Errorf("classification category not found")
+		}
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.product_classification_assignments(product_id, template_id, category_id, sort_order, updated_by, created_at, updated_at)
 		VALUES($1,$2,$3,$4,$5,now(),now())
@@ -1205,9 +1365,6 @@ func (r Repository) SaveProductClassificationAssignment(ctx context.Context, cmd
 			updated_by=excluded.updated_by,
 			updated_at=now()
 	`, r.schema), cmd.ProductID, cmd.TemplateID, cmd.CategoryID, cmd.SortOrder, cmd.Actor); err != nil {
-		return catalogapp.ProductClassificationAssignment{}, err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products SET classification_template_id=$2 WHERE id=$1`, r.schema), cmd.ProductID, cmd.TemplateID); err != nil {
 		return catalogapp.ProductClassificationAssignment{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_classification_assignment", &cmd.ProductID, "save_product_classification_assignment", postgresinfra.StrPtr("category_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.CategoryID)), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "template_id": cmd.TemplateID, "category_id": cmd.CategoryID, "sort_order": cmd.SortOrder}); err != nil {
@@ -1225,6 +1382,29 @@ func (r Repository) SaveCustomerProductAliasClassificationAssignment(ctx context
 		return catalogapp.CustomerProductAliasClassificationAssignment{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	var customerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT customer_id FROM %s.customer_product_aliases WHERE id=$1 AND active=true`, r.schema), cmd.AliasID).Scan(&customerID); err != nil {
+		if err == pgx.ErrNoRows {
+			return catalogapp.CustomerProductAliasClassificationAssignment{}, fmt.Errorf("customer product alias not found")
+		}
+		return catalogapp.CustomerProductAliasClassificationAssignment{}, err
+	}
+	var usageExists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.customer_product_alias_classification_template_usages WHERE customer_id=$1 AND classification_template_id=$2 AND active=true)`, r.schema), customerID, cmd.TemplateID).Scan(&usageExists); err != nil {
+		return catalogapp.CustomerProductAliasClassificationAssignment{}, err
+	}
+	if !usageExists {
+		return catalogapp.CustomerProductAliasClassificationAssignment{}, fmt.Errorf("classification template usage not enabled")
+	}
+	if cmd.CategoryID > 0 {
+		var categoryExists bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.product_classification_template_categories WHERE id=$1 AND template_id=$2 AND active=true)`, r.schema), cmd.CategoryID, cmd.TemplateID).Scan(&categoryExists); err != nil {
+			return catalogapp.CustomerProductAliasClassificationAssignment{}, err
+		}
+		if !categoryExists {
+			return catalogapp.CustomerProductAliasClassificationAssignment{}, fmt.Errorf("classification category not found")
+		}
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.customer_product_alias_classification_assignments(alias_id, template_id, category_id, sort_order, updated_by, created_at, updated_at)
 		VALUES($1,$2,$3,$4,$5,now(),now())
@@ -1234,9 +1414,6 @@ func (r Repository) SaveCustomerProductAliasClassificationAssignment(ctx context
 			updated_by=excluded.updated_by,
 			updated_at=now()
 	`, r.schema), cmd.AliasID, cmd.TemplateID, cmd.CategoryID, cmd.SortOrder, cmd.Actor); err != nil {
-		return catalogapp.CustomerProductAliasClassificationAssignment{}, err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_product_aliases SET classification_template_id=$2 WHERE id=$1`, r.schema), cmd.AliasID, cmd.TemplateID); err != nil {
 		return catalogapp.CustomerProductAliasClassificationAssignment{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_product_alias_classification_assignment", &cmd.AliasID, "save_customer_product_alias_classification_assignment", postgresinfra.StrPtr("category_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.CategoryID)), postgresinfra.AuditMeta{"alias_id": cmd.AliasID, "template_id": cmd.TemplateID, "category_id": cmd.CategoryID, "sort_order": cmd.SortOrder}); err != nil {
@@ -3842,7 +4019,7 @@ func (r Repository) BatchCreateCustomerProductAliases(ctx context.Context, cmd c
 	existingRows.Close()
 
 	productRows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT id, name, 'SKU-' || LPAD(id::text, 6, '0'), COALESCE(classification_template_id,0)
+		SELECT id, name, 'SKU-' || LPAD(id::text, 6, '0')
 		FROM %s.products
 		WHERE active=true AND id=ANY($1)
 	`, r.schema), cmd.ProductIDs)
@@ -3850,23 +4027,20 @@ func (r Repository) BatchCreateCustomerProductAliases(ctx context.Context, cmd c
 		return catalogapp.BatchCustomerProductAliasesResult{}, err
 	}
 	products := map[int64]struct {
-		Name                     string
-		Code                     string
-		ClassificationTemplateID int64
+		Name string
+		Code string
 	}{}
 	for productRows.Next() {
 		var id int64
 		var name, code string
-		var classificationTemplateID int64
-		if err := productRows.Scan(&id, &name, &code, &classificationTemplateID); err != nil {
+		if err := productRows.Scan(&id, &name, &code); err != nil {
 			productRows.Close()
 			return catalogapp.BatchCustomerProductAliasesResult{}, err
 		}
 		products[id] = struct {
-			Name                     string
-			Code                     string
-			ClassificationTemplateID int64
-		}{Name: name, Code: code, ClassificationTemplateID: classificationTemplateID}
+			Name string
+			Code string
+		}{Name: name, Code: code}
 	}
 	if err := productRows.Err(); err != nil {
 		productRows.Close()
@@ -3895,17 +4069,6 @@ func (r Repository) BatchCreateCustomerProductAliases(ctx context.Context, cmd c
 		}
 
 		var id int64
-		classificationTemplateID := cmd.ClassificationTemplateID
-		if classificationTemplateID == 0 {
-			classificationTemplateID = product.ClassificationTemplateID
-			if classificationTemplateID > 0 {
-				copiedID, copyErr := ensureCustomerClassificationTemplateTx(ctx, tx, r.schema, cmd.Actor, cmd.CustomerID, classificationTemplateID)
-				if copyErr != nil {
-					return catalogapp.BatchCustomerProductAliasesResult{}, copyErr
-				}
-				classificationTemplateID = copiedID
-			}
-		}
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.customer_product_aliases(
 				customer_id, product_id, display_name, customer_item_code, brand_name,
@@ -3914,15 +4077,10 @@ func (r Repository) BatchCreateCustomerProductAliases(ctx context.Context, cmd c
 			)
 			VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,true,'',now(),now(),$9,$9)
 			RETURNING id
-		`, r.schema), cmd.CustomerID, productID, product.Name, product.Code, cmd.BrandName, cmd.DisplayCategoryID, classificationTemplateID, cmd.IncludeInPriceList, cmd.Actor).Scan(&id); err != nil {
+		`, r.schema), cmd.CustomerID, productID, product.Name, product.Code, cmd.BrandName, cmd.DisplayCategoryID, int64(0), cmd.IncludeInPriceList, cmd.Actor).Scan(&id); err != nil {
 			return catalogapp.BatchCustomerProductAliasesResult{}, err
 		}
-		if classificationTemplateID > 0 {
-			if err := copyProductClassificationAssignmentToAliasTx(ctx, tx, r.schema, cmd.Actor, productID, id, product.ClassificationTemplateID, classificationTemplateID); err != nil {
-				return catalogapp.BatchCustomerProductAliasesResult{}, err
-			}
-		}
-		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_product_alias", &id, "create_customer_product_alias_batch", postgresinfra.StrPtr("display_name"), nil, postgresinfra.StrPtr(product.Name), postgresinfra.AuditMeta{"alias_id": id, "customer_id": cmd.CustomerID, "product_id": productID, "customer_item_code": product.Code, "brand_name": cmd.BrandName, "display_category_id": cmd.DisplayCategoryID, "classification_template_id": classificationTemplateID, "include_in_price_list": cmd.IncludeInPriceList}); err != nil {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_product_alias", &id, "create_customer_product_alias_batch", postgresinfra.StrPtr("display_name"), nil, postgresinfra.StrPtr(product.Name), postgresinfra.AuditMeta{"alias_id": id, "customer_id": cmd.CustomerID, "product_id": productID, "customer_item_code": product.Code, "brand_name": cmd.BrandName, "display_category_id": cmd.DisplayCategoryID, "classification_template_id": 0, "include_in_price_list": cmd.IncludeInPriceList}); err != nil {
 			return catalogapp.BatchCustomerProductAliasesResult{}, err
 		}
 		row, err := fetchCustomerProductAliasTx(ctx, tx, r.schema, id)

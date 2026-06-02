@@ -45,7 +45,7 @@ func TestDev292ProductSettingsVueExposesMarginOverrideColumn(t *testing.T) {
 		"利润率覆盖",
 		"margin_rate_override",
 		"saveProductMarginOverride(row)",
-		"留空继承分类模板",
+		"留空继承价格模板",
 		"normalizeMarginRateOverride",
 	} {
 		if !strings.Contains(text, want) {
@@ -62,8 +62,8 @@ func TestDev292ProductSettingsVueExposesMarginOverrideColumn(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		`:disabled="!canEditSkuRow(row)"`,
-		`:colspan="14"`,
+			`:disabled="!canEditSkuRow(row)"`,
+			`:colspan="11"`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("ProductSettingsView.vue missing customer SKU margin override behavior %q", want)

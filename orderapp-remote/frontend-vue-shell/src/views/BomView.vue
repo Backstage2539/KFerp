@@ -1,10 +1,13 @@
 <template>
   <div class="page">
+    <div v-if="bomReturnNavigation" class="bom-return-banner">
+      <button class="secondary bom-return-button" type="button" @click="returnToProductConfig">{{ bomReturnLabel }}</button>
+      <span>完成 BOM 明细维护后可回到来源操作界面。</span>
+    </div>
     <section class="panel">
       <div class="panel-head">
         <h2>生产 BOM（配方库）</h2>
         <div class="panel-actions">
-          <button v-if="bomReturnProductID" class="secondary" type="button" @click="returnToProductConfig">{{ bomReturnLabel }}</button>
           <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
         </div>
       </div>
@@ -386,8 +389,9 @@ const selectedProductionBomGroupID = ref(0)
 const selectedProductionBomVersionID = ref(0)
 const pendingUrlProductId = ref(0)
 const bomFilterProductId = ref(0)
-const bomReturnProductID = computed(() => Number(props.viewParams?.return_product_id || new URL(window.location.href).searchParams.get('return_product_id') || 0))
-const bomReturnLabel = computed(() => String(props.viewParams?.return_label || new URL(window.location.href).searchParams.get('return_label') || '返回商品档案配置'))
+const bomReturnNavigation = computed(() => props.viewParams?.return_navigation || null)
+const bomReturnProductID = computed(() => Number(bomReturnNavigation.value?.params?.open_product_config_id || 0))
+const bomReturnLabel = computed(() => String(bomReturnNavigation.value?.label || '返回商品档案配置'))
 const groupDrawerOpen = ref(false)
 const managedProductionBomGroups = ref([])
 const loading = ref(false)
@@ -727,11 +731,11 @@ function updateUrl() {
 }
 
 function returnToProductConfig() {
-  const productID = bomReturnProductID.value
+  const navigation = bomReturnNavigation.value
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: {
-      key: String(props.viewParams?.return_view || 'productMaster'),
-      params: productID > 0 ? { open_product_config_id: productID } : {},
+      key: String(navigation?.key || 'productMaster'),
+      params: navigation?.params || (bomReturnProductID.value > 0 ? { open_product_config_id: bomReturnProductID.value } : {}),
     },
   }))
 }
@@ -1041,6 +1045,9 @@ watch(selectedProductId, () => {
 <style scoped>
 * { box-sizing: border-box; }
 .page { padding: 18px; color: #171717; }
+.bom-return-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 12px; border: 1px solid #c7d2fe; border-radius: 8px; background: #eef2ff; color: #1e3a8a; }
+.bom-return-banner span { font-size: 13px; }
+.bom-return-button { border-color: #1e40af; color: #1e40af; font-weight: 700; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
 .panel-head, .filters, .inline-form, .summary { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
 .panel-head { justify-content: space-between; align-items: center; margin-bottom: 12px; }
