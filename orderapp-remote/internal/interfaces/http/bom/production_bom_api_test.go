@@ -36,6 +36,14 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 			ID: 12, Code: "BOM-002", Name: "精品拼配-包装改版", GroupID: 1, GroupName: "常用配方",
 			LatestVersionID: 102, LatestVersionNo: "V001", Status: "active",
 		},
+		createdProductionBom: bomapp.ProductionBomSummary{
+			ID: 13, Code: "BOM-003", Name: "新配方", GroupID: 1, GroupName: "常用配方",
+			LatestVersionID: 103, LatestVersionNo: "V001", Status: "active",
+		},
+		updatedProductionBom: bomapp.ProductionBomSummary{
+			ID: 11, Code: "BOM-001", Name: "精品拼配改名", GroupID: 1, GroupName: "常用配方",
+			LatestVersionID: 101, LatestVersionNo: "V003", Status: "inactive",
+		},
 		createdProductionVersion: bomapp.ProductionBomVersion{ID: 103, BomID: 11, VersionNo: "V004", Status: "draft", YieldRate: 0.82},
 		productBomBinding: bomapp.ProductProductionBomBinding{
 			ProductID: 7, BomID: 11, BomCode: "BOM-001", BomName: "精品拼配",
@@ -57,7 +65,9 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 		{method: http.MethodPost, path: "/api/production-bom-groups/1/move", body: `{"sort_order":5}`, want: []string{`"ok":true`}},
 		{method: http.MethodDelete, path: "/api/production-bom-groups/1", want: []string{`"ok":true`}},
 		{method: http.MethodGet, path: "/api/production-boms", want: []string{`"code":"BOM-001"`, `"latest_version_no":"V003"`, `"reference_product_count":2`}},
+		{method: http.MethodPost, path: "/api/production-boms", body: `{"name":"新配方","group_id":1}`, want: []string{`"code":"BOM-003"`, `"name":"新配方"`, `"status":"active"`}},
 		{method: http.MethodGet, path: "/api/production-boms/11", want: []string{`"versions"`, `"version_no":"V003"`, `"special_attrs_schema_json"`, `"special_attrs_json"`, `"is_latest":true`}},
+		{method: http.MethodPut, path: "/api/production-boms/11", body: `{"name":"精品拼配改名","group_id":1,"status":"inactive"}`, want: []string{`"name":"精品拼配改名"`, `"status":"inactive"`}},
 		{method: http.MethodPost, path: "/api/production-boms/11/copy", body: `{"name":"精品拼配-包装改版","group_id":1}`, want: []string{`"code":"BOM-002"`, `"name":"精品拼配-包装改版"`}},
 		{method: http.MethodPost, path: "/api/production-boms/11/versions", body: `{"note":"新版配方"}`, want: []string{`"version_no":"V004"`, `"status":"draft"`}},
 		{method: http.MethodPut, path: "/api/production-bom-versions/103/draft", body: `{"expected_loss_rate":0.18,"special_attrs_schema_json":"[{\"key\":\"roast_level\",\"label\":\"烘焙度\",\"show_in_price_list\":true}]","special_attrs_json":"{\"roast_level\":\"深烘\"}","items":[]}`, want: []string{`"status":"draft"`, `"special_attrs_json":"{\"roast_level\":\"深烘\"}"`}},
@@ -94,6 +104,15 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	}
 	if repo.deletedProductionBomGroupID != 1 {
 		t.Fatalf("deleted group id = %d, want 1", repo.deletedProductionBomGroupID)
+	}
+	if repo.createdProductionBomCommand.Name != "新配方" || repo.createdProductionBomCommand.GroupID != 1 {
+		t.Fatalf("created production bom command = %+v", repo.createdProductionBomCommand)
+	}
+	if repo.updatedProductionBomCommand.ID != 11 || repo.updatedProductionBomCommand.Name != "精品拼配改名" || repo.updatedProductionBomCommand.Status != "inactive" {
+		t.Fatalf("updated production bom command = %+v", repo.updatedProductionBomCommand)
+	}
+	if repo.copiedProductionBomCommand.ID != 11 || repo.copiedProductionBomCommand.Name != "精品拼配-包装改版" || repo.copiedProductionBomCommand.GroupID != 1 {
+		t.Fatalf("copied production bom command = %+v", repo.copiedProductionBomCommand)
 	}
 	if !strings.Contains(repo.updatedProductionDraftCommand.SpecialAttrsJSON, "深烘") {
 		t.Fatalf("draft special attrs command = %+v", repo.updatedProductionDraftCommand)

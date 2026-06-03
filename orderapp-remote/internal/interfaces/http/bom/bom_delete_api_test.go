@@ -29,8 +29,11 @@ type apiFakeRepo struct {
 	productionBomRows                  []bomapp.ProductionBomSummary
 	productionBomDetail                bomapp.ProductionBomDetail
 	copiedProductionBom                bomapp.ProductionBomSummary
+	copiedProductionBomCommand         bomapp.CopyProductionBomCommand
 	createdProductionBom               bomapp.ProductionBomSummary
+	createdProductionBomCommand        bomapp.CreateProductionBomCommand
 	updatedProductionBom               bomapp.ProductionBomSummary
+	updatedProductionBomCommand        bomapp.UpdateProductionBomCommand
 	createdProductionVersion           bomapp.ProductionBomVersion
 	updatedProductionDraft             bomapp.ProductionBomVersion
 	updatedProductionDraftCommand      bomapp.UpdateProductionBomVersionDraftCommand
@@ -130,6 +133,7 @@ func (r *apiFakeRepo) GetProductionBomDetail(context.Context, int64) (bomapp.Pro
 }
 
 func (r *apiFakeRepo) CreateProductionBom(_ context.Context, cmd bomapp.CreateProductionBomCommand) (bomapp.ProductionBomSummary, error) {
+	r.createdProductionBomCommand = cmd
 	if r.createdProductionBom.ID > 0 {
 		return r.createdProductionBom, nil
 	}
@@ -137,13 +141,15 @@ func (r *apiFakeRepo) CreateProductionBom(_ context.Context, cmd bomapp.CreatePr
 }
 
 func (r *apiFakeRepo) UpdateProductionBom(_ context.Context, cmd bomapp.UpdateProductionBomCommand) (bomapp.ProductionBomSummary, error) {
+	r.updatedProductionBomCommand = cmd
 	if r.updatedProductionBom.ID > 0 {
 		return r.updatedProductionBom, nil
 	}
 	return bomapp.ProductionBomSummary{ID: cmd.ID, Code: "BOM-098", Name: cmd.Name, GroupID: cmd.GroupID, Status: cmd.Status, LatestVersionNo: "V001"}, nil
 }
 
-func (r *apiFakeRepo) CopyProductionBom(context.Context, bomapp.CopyProductionBomCommand) (bomapp.ProductionBomSummary, error) {
+func (r *apiFakeRepo) CopyProductionBom(_ context.Context, cmd bomapp.CopyProductionBomCommand) (bomapp.ProductionBomSummary, error) {
+	r.copiedProductionBomCommand = cmd
 	return r.copiedProductionBom, nil
 }
 

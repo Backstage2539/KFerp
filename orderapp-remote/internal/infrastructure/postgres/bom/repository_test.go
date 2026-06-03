@@ -171,6 +171,20 @@ func TestProductionBomGroupsArePureUIFoldersWithDeleteAndSort(t *testing.T) {
 	}
 }
 
+func TestProductionBomCannotDeactivateWhenActiveProductsReferenceIt(t *testing.T) {
+	repository := readRepositorySource(t)
+	for _, want := range []string{
+		"production BOM is used by active products",
+		"FROM %s.product_production_bom_bindings b",
+		"JOIN %s.products p ON p.id=b.product_id",
+		"p.active=true",
+	} {
+		if !strings.Contains(repository, want) {
+			t.Fatalf("production BOM deactivate active product guard missing marker %q", want)
+		}
+	}
+}
+
 func readRepositorySource(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile("repository.go")

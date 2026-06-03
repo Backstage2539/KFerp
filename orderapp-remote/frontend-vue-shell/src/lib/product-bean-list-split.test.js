@@ -87,12 +87,21 @@ test('classification template editor keeps template actions at bottom and catego
   assert.match(productSettingsSource, /classification-template-create-fields/)
 })
 
-test('industry field template page uses comma options instead of JSON editing', () => {
+test('industry field template page uses simplified key-only fields and space separated select options', () => {
   const source = readFileSync(resolve(here, '../views/IndustryFieldTemplatesView.vue'), 'utf8')
   assert.match(source, /industry-template-layout/)
-  assert.match(source, /下拉预设/)
+  assert.match(source, /模板列表/)
+  assert.match(source, /字段键/)
+  assert.match(source, /空格分隔/)
+  assert.match(source, /输入默认文本/)
   assert.match(source, /options_text/)
+  assert.match(source, /split\(\/\\s\+\/\)/)
   assert.doesNotMatch(source, /选项 JSON/)
+  assert.doesNotMatch(source, /<span>行业键<\/span>/)
+  assert.doesNotMatch(source, /<th>行业键<\/th>/)
+  assert.doesNotMatch(source, /<span>显示名<\/span>/)
+  assert.doesNotMatch(source, /<span>单位<\/span>/)
+  assert.doesNotMatch(source, /<span>必填<\/span>/)
 })
 
 test('product and customer alias tables expose industry field columns', () => {

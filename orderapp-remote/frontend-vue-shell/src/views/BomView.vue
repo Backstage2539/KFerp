@@ -77,6 +77,63 @@
       </div>
     </section>
 
+    <section class="panel bom-catalog-panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title compact-title">生产 BOM 档案</div>
+          <p class="muted left">这里维护配方库本身；商品档案会在生产配置中引用某个 BOM 版本。</p>
+        </div>
+        <div class="bom-catalog-toolbar">
+          <button class="primary" type="button" @click="openNewProductionBomRecord">新建生产 BOM</button>
+          <label>
+            <span>状态</span>
+            <select v-model="productionBomStatusFilter">
+              <option value="active">启用</option>
+              <option value="inactive">已失效</option>
+              <option value="all">全部</option>
+            </select>
+          </label>
+          <label>
+            <span>搜索 BOM</span>
+            <input v-model.trim="productionBomSearchQuery" placeholder="按 BOM 名称或编号搜索" />
+          </label>
+        </div>
+      </div>
+      <div class="table-wrap compact bom-catalog-table">
+        <table>
+          <thead>
+            <tr>
+              <th>BOM</th>
+              <th>分组</th>
+              <th>状态</th>
+              <th>最新版本</th>
+              <th>引用商品</th>
+              <th>更新时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="bom in visibleProductionBoms" :key="bom.id">
+              <td><strong>{{ bom.code }}</strong><small>{{ bom.name }}</small></td>
+              <td>{{ bom.group_name || '默认分组' }}</td>
+              <td><span :class="['status-pill', bom.status === 'inactive' ? 'inactive' : '']">{{ productionBomRecordStatusLabel(bom.status) }}</span></td>
+              <td>{{ bom.latest_version_no || '-' }}</td>
+              <td>{{ bom.reference_product_count || 0 }}</td>
+              <td>{{ bom.updated_at || '-' }}</td>
+              <td>
+                <button class="text-button" type="button" @click="openEditProductionBomRecord(bom)">编辑 BOM</button>
+                <button class="text-button" type="button" @click="copyProductionBomRecord(bom)">复制 BOM</button>
+                <button class="text-button danger-text" type="button" :disabled="bom.status === 'inactive'" @click="deactivateProductionBomRecord(bom)">失效 BOM</button>
+              </td>
+            </tr>
+            <tr v-if="!visibleProductionBoms.length">
+              <td colspan="7" class="muted">没有匹配的生产 BOM</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <div class="grid">
       <section class="panel list-panel">
         <div class="panel-title">商品 BOM</div>
@@ -297,6 +354,39 @@
       </div>
     </section>
 
+    <div v-if="bomDrawerOpen" class="drawer-mask" @click.self="closeBomDrawer">
+      <aside class="drawer">
+        <div class="drawer-head">
+          <div>
+            <h3>{{ bomFormTitle }}</h3>
+            <p class="muted left">只维护配方库档案。版本和配方明细在右侧“BOM版本”和“配方明细”中处理。</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeBomDrawer">关闭</button>
+        </div>
+        <form class="inline-form bom-record-form" @submit.prevent="saveProductionBomRecord">
+          <label>
+            <span>BOM名称</span>
+            <input v-model.trim="bomForm.name" placeholder="例如 精品拼配" />
+          </label>
+          <label>
+            <span>分组</span>
+            <select v-model.number="bomForm.group_id">
+              <option :value="0">默认分组</option>
+              <option v-for="group in productionBomGroups" :key="group.id" :value="Number(group.id || 0)">{{ group.name }}</option>
+            </select>
+          </label>
+          <label v-if="bomForm.mode === 'edit'">
+            <span>状态</span>
+            <select v-model="bomForm.status">
+              <option value="active">启用</option>
+              <option value="inactive">已失效</option>
+            </select>
+          </label>
+          <button class="primary" type="submit" :disabled="loading || !bomForm.name">{{ bomForm.mode === 'copy' ? '复制 BOM' : '保存 BOM' }}</button>
+        </form>
+      </aside>
+    </div>
+
     <div v-if="groupDrawerOpen" class="drawer-mask" @click.self="closeGroupDrawer">
       <aside class="drawer">
         <div class="drawer-head">
@@ -358,7 +448,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { bomContextCustomerIDs, filterBomContextProducts, filterBomRowsByProductFocus, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
+import { bomContextCustomerIDs, filterBomContextProducts, filterBomRowsByProductFocus, filterProductionBomCatalog, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
 import { componentTypeLabel, isDripProduct } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -393,6 +483,9 @@ const bomReturnNavigation = computed(() => props.viewParams?.return_navigation |
 const bomReturnProductID = computed(() => Number(bomReturnNavigation.value?.params?.open_product_config_id || 0))
 const bomReturnLabel = computed(() => String(bomReturnNavigation.value?.label || '返回商品档案配置'))
 const groupDrawerOpen = ref(false)
+const bomDrawerOpen = ref(false)
+const productionBomStatusFilter = ref('active')
+const productionBomSearchQuery = ref('')
 const managedProductionBomGroups = ref([])
 const loading = ref(false)
 const error = ref('')
@@ -408,6 +501,7 @@ const itemForm = reactive({
 })
 const mappingForm = reactive({ spec_g: 227, material_id: 0 })
 const groupForm = reactive({ id: 0, name: '', sort_order: 100 })
+const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', group_id: 0, status: 'active' })
 const versionNote = ref('')
 
 const detailItems = computed(() => detail.value?.items || [])
@@ -440,11 +534,17 @@ const currentProductionBomLabel = computed(() => productionBomLabel(detail.value
 const currentProductionBomWarning = computed(() => productionBomVersionWarning(detail.value || selectedBomRow.value || selectedProduct.value || {}))
 const currentProductionBomID = computed(() => Number(detail.value?.production_bom_id || selectedBomRow.value?.production_bom_id || 0))
 const visibleProductionBoms = computed(() => {
-  const groupID = Number(selectedProductionBomGroupID.value || 0)
-  if (groupID > 0) return productionBoms.value.filter((bom) => Number(bom.group_id || 0) === groupID)
-  if (groupID === -1) return productionBoms.value.filter((bom) => !Number(bom.group_id || 0))
-  return productionBoms.value
+  return filterProductionBomCatalog(productionBoms.value, {
+    status: productionBomStatusFilter.value,
+    query: productionBomSearchQuery.value,
+    groupID: Number(selectedProductionBomGroupID.value || 0),
+  })
 })
+const bomFormTitle = computed(() => ({
+  create: '新建生产 BOM',
+  edit: '编辑 BOM',
+  copy: '复制 BOM',
+})[bomForm.mode] || '生产 BOM')
 const selectedProductionBomVersion = computed(() => versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0)) || null)
 const canEditCurrentBomProduct = computed(() => {
   if (!selectedProductId.value) return true
@@ -600,7 +700,12 @@ function productionBomVersionStatusLabel(status) {
 
 function selectProductionBomGroup(groupID) {
   selectedProductionBomGroupID.value = Number(groupID || 0)
-  const visibleBomIDs = new Set(visibleProductionBoms.value.map((bom) => Number(bom.id || 0)))
+  const groupOnlyRows = filterProductionBomCatalog(productionBoms.value, {
+    status: 'all',
+    query: '',
+    groupID: Number(selectedProductionBomGroupID.value || 0),
+  })
+  const visibleBomIDs = new Set(groupOnlyRows.map((bom) => Number(bom.id || 0)))
   const selectedBomID = Number(selectedBomRow.value?.production_bom_id || detail.value?.production_bom_id || 0)
   if (selectedBomID && !visibleBomIDs.has(selectedBomID)) {
     clearSelectedProduct()
@@ -625,6 +730,46 @@ function resetGroupForm() {
   groupForm.id = 0
   groupForm.name = ''
   groupForm.sort_order = 100
+}
+
+function resetBomForm() {
+  bomForm.id = 0
+  bomForm.source_id = 0
+  bomForm.mode = 'create'
+  bomForm.name = ''
+  bomForm.group_id = Number(selectedProductionBomGroupID.value || 0) > 0 ? Number(selectedProductionBomGroupID.value || 0) : 0
+  bomForm.status = 'active'
+}
+
+function openNewProductionBomRecord() {
+  resetBomForm()
+  bomForm.mode = 'create'
+  bomDrawerOpen.value = true
+}
+
+function openEditProductionBomRecord(bom) {
+  resetBomForm()
+  bomForm.mode = 'edit'
+  bomForm.id = Number(bom?.id || 0)
+  bomForm.name = bom?.name || ''
+  bomForm.group_id = Number(bom?.group_id || 0)
+  bomForm.status = bom?.status === 'inactive' ? 'inactive' : 'active'
+  bomDrawerOpen.value = true
+}
+
+function copyProductionBomRecord(bom) {
+  resetBomForm()
+  bomForm.mode = 'copy'
+  bomForm.source_id = Number(bom?.id || 0)
+  bomForm.name = `${bom?.name || '生产 BOM'} 副本`
+  bomForm.group_id = Number(bom?.group_id || 0)
+  bomForm.status = 'active'
+  bomDrawerOpen.value = true
+}
+
+function closeBomDrawer() {
+  bomDrawerOpen.value = false
+  resetBomForm()
 }
 
 function editProductionBomGroup(group) {
@@ -846,6 +991,10 @@ function bomStatusLabel(status) {
   return '有效'
 }
 
+function productionBomRecordStatusLabel(status) {
+  return status === 'inactive' ? '已失效' : '启用'
+}
+
 function processStatusLabel(status) {
   if (status === 'draft') return '草稿'
   if (status === 'active') return '已发布'
@@ -975,6 +1124,49 @@ async function moveProductionBomGroup(group, direction) {
   })
 }
 
+async function saveProductionBomRecord() {
+  const name = String(bomForm.name || '').trim()
+  if (!name) return
+  const payload = {
+    name,
+    group_id: Number(bomForm.group_id || 0),
+    status: bomForm.status === 'inactive' ? 'inactive' : 'active',
+  }
+  await mutate(async () => {
+    if (bomForm.mode === 'edit') {
+      await apiSend(`/api/production-boms/${bomForm.id}`, { method: 'PUT', body: payload })
+      ok.value = '已保存生产 BOM'
+    } else if (bomForm.mode === 'copy') {
+      await apiSend(`/api/production-boms/${bomForm.source_id}/copy`, { body: { name: payload.name, group_id: payload.group_id } })
+      ok.value = '已复制生产 BOM'
+    } else {
+      await apiSend('/api/production-boms', { body: { name: payload.name, group_id: payload.group_id } })
+      ok.value = '已新建生产 BOM'
+    }
+    closeBomDrawer()
+    await loadAll()
+  })
+}
+
+async function deactivateProductionBomRecord(bom) {
+  const bomID = Number(bom?.id || 0)
+  if (!bomID || bom?.status === 'inactive') return
+  const okToDeactivate = window.confirm(`确认失效生产 BOM「${bom?.name || bomID}」？已启用商品引用时，后端会拒绝并提示。`)
+  if (!okToDeactivate) return
+  await mutate(async () => {
+    await apiSend(`/api/production-boms/${bomID}`, {
+      method: 'PUT',
+      body: {
+        name: bom?.name || '',
+        group_id: Number(bom?.group_id || 0),
+        status: 'inactive',
+      },
+    })
+    ok.value = '已失效生产 BOM'
+    await loadAll()
+  })
+}
+
 async function createVersion() {
   if (!canEditCurrentBomProduct.value) return
   await mutate(async () => {
@@ -1070,6 +1262,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .danger-outline { border-color: #9d2626; color: #9d2626; }
 .danger-text { color: #9d2626; margin-left: 10px; }
 .text-button { height: 30px; border: 0; background: transparent; color: #1f4f82; padding: 0; }
+.bom-catalog-panel .panel-head { align-items: flex-end; }
+.bom-catalog-toolbar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.bom-catalog-table td strong { display: block; font-size: 14px; }
+.bom-catalog-table td small { display: block; color: #666; margin-top: 3px; }
+.bom-record-form { align-items: flex-end; }
 .bom-group-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
 .bom-group-strip > span { color: #666; font-size: 12px; font-weight: 700; }
 .bom-focus-filter { align-self: stretch; display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #dbeafe; border-radius: 8px; background: #eff6ff; color: #1d4ed8; font-size: 13px; }
