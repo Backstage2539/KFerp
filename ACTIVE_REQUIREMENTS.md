@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-398-BOM-INDUSTRY-TEMPLATE-REFINE
 - Branch: codex/bom-industry-template-refine-20260603
 - Owner/session: Codex / 2026-06-03
-- Status: verified locally after repository guard; merge/deploy pending
+- Status: merged and deployed to development
 - Scope: 生产 BOM 档案支持新建、编辑、失效、复制、启用/失效/全部过滤和名称/编号搜索；行业字段模板去掉行业键、显示名、单位和必填入口，字段键即显示名，文本/下拉用类型右侧输入框维护。
 - DEV:
   - DEV-398-PRODUCTION-BOM-CATALOG-CRUD：生产 BOM 页面新增“生产 BOM 档案”管理区，支持新建、编辑、失效、复制失效 BOM、状态过滤和名称/编号搜索。
@@ -22,9 +22,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: `scripts/verify_kferp.sh changed`
   - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`
   - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-bom-industry-template-refine.md`
-- Deployment: not merged/deployed yet.
+- Deployment: feature branch pushed; merged to `develop` with `fa0e83789e9eca81ea1034fbce9ff3ebfa531b59`; development stack deployed with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603133936`.
 - Last update: 2026-06-03 Asia/Shanghai
-- Notes: Van requested no browser/manual验收 for current workflow; use code/docs/unit/API/build verification. RED evidence: frontend target tests failed on missing `filterProductionBomCatalog` and old industry field UI markers; manufacturing API test failed because `label` was required; repository RED guard failed until production BOM deactivation checked active product bindings. GREEN evidence: frontend target tests passed 124/124; targeted BOM/manufacturing/support Go API tests passed; repository guard package passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0; `go test ./...` passed.
+- Notes: Van requested no browser/manual验收 for current workflow; use code/docs/unit/API/build verification. RED evidence: frontend target tests failed on missing `filterProductionBomCatalog` and old industry field UI markers; manufacturing API test failed because `label` was required; repository RED guard failed until production BOM deactivation checked active product bindings. GREEN evidence: frontend target tests passed 124/124; targeted BOM/manufacturing/support Go API tests passed; repository guard package passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0; `go test ./...` passed. Merge-gate evidence on `develop`: frontend target tests passed 124/124; targeted Go packages passed; `go test ./...` passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0. Deploy evidence: Docker build ran `go test ./...` successfully; containers running; unauthenticated `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell`, `/app/api/product-settings`, `/app/api/production-boms`, and `/app/api/industry-field-templates` returned 200; requirement API exposes `PR-398-BOM-INDUSTRY-TEMPLATE-REFINE`.
 
 ### PR-397-PRODUCT-CLASSIFICATION-INDUSTRY-FIELDS
 - Branch: codex/product-classification-industry-fields-20260603
