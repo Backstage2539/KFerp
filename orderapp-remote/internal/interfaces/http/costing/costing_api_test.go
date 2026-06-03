@@ -18,6 +18,15 @@ import (
 
 type fakeService struct{}
 
+func containsWarning(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func (fakeService) Parameters(context.Context) (domain.Parameters, error) {
 	return domain.DefaultParameters(), nil
 }
@@ -563,6 +572,9 @@ func TestCostingCalculateAPIRequiresGradientTemplateForCommercialTiers(t *testin
 	}
 	if len(got.Items[0].CommercialWholesaleTiers) != 0 {
 		t.Fatalf("commercial tiers = %+v, want none without gradient template", got.Items[0].CommercialWholesaleTiers)
+	}
+	if !containsWarning(got.Items[0].Warnings, domain.MissingGradientTemplateWarning) {
+		t.Fatalf("warnings = %+v, want missing gradient template warning", got.Items[0].Warnings)
 	}
 }
 

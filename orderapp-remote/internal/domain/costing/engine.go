@@ -14,6 +14,8 @@ const (
 	WholesaleTierSchemeKgThree  = "kg_three"
 	WholesaleTierScheme227GTwo  = "bag_227_two"
 
+	MissingGradientTemplateWarning = "未配置阶梯价模板：商品价格表不会生成商业阶梯价。请在商品档案绑定含阶梯价模板的商品配置模板，或设置客户商品规则。"
+
 	GradientDisplayUnitLb   = "lb"
 	GradientDisplayUnitKg   = "kg"
 	GradientDisplayUnit227G = "g227"
@@ -646,6 +648,9 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		out.WholesaleLbPrices = append(out.WholesaleLbPrices, kg*params.KgToLbFactor+1)
 	}
 	out.CommercialWholesaleTiers = buildCommercialWholesaleTiers(params, in, out.WholesaleKgPrices, out.WholesaleLbPrices)
+	if shouldWarnMissingGradientTemplate(in, out) {
+		out.Warnings = normalizeWarnings(append(out.Warnings, MissingGradientTemplateWarning))
+	}
 
 	out.DripWholesaleTiers = buildDripWholesaleTiers(params, in)
 	for _, tier := range out.DripWholesaleTiers {
@@ -1113,6 +1118,16 @@ func buildCommercialWholesaleTiers(params Parameters, in ProductInput, kgPrices,
 		return buildGradientTemplateCommercialTiers(params, in, *template)
 	}
 	return nil
+}
+
+func shouldWarnMissingGradientTemplate(in ProductInput, out ProductResult) bool {
+	if normalizeProductKind(in.ProductKind) == "green_bean" || normalizeProductKind(in.ProductKind) == "drip_bag" {
+		return false
+	}
+	if normalizeGradientTemplate(in.GradientTemplate) != nil {
+		return false
+	}
+	return len(out.CommercialWholesaleTiers) == 0
 }
 
 type commercialPriceParts struct {

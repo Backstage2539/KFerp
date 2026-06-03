@@ -25,6 +25,15 @@ type fakeRepo struct {
 	savedBeanListAsset  BeanListPublicationAsset
 }
 
+func sliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *fakeRepo) LoadParameters(context.Context) (domain.Parameters, error) {
 	if r.params.RoastYieldRate == 0 {
 		return domain.DefaultParameters(), nil
@@ -396,6 +405,9 @@ func TestBeanListRequiresExplicitGradientTemplateForCommercialTiers(t *testing.T
 	}
 	if len(unbound.CommercialWholesaleTiers) != 0 {
 		t.Fatalf("unbound tiers = %+v", unbound.CommercialWholesaleTiers)
+	}
+	if !sliceContains(unbound.Warnings, domain.MissingGradientTemplateWarning) {
+		t.Fatalf("unbound warnings = %+v", unbound.Warnings)
 	}
 }
 
