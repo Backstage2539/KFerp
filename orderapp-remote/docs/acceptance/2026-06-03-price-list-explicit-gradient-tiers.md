@@ -22,7 +22,15 @@
   - 通过：全量 Go 包通过。
 - `scripts/verify_kferp.sh changed`
   - 通过：命令退出码 0。
-- 待补充：development deploy smoke。
+- `./deploy_orderapp.sh development`
+  - 通过：Vue build 通过并带既有 chunk-size warning；Docker build 内 `go test ./...` 通过；部署到 `origin/develop=9d7d3e5dfcdbd84b574c72ef0d493e291924b432`。
+
+## Deploy Smoke
+- 容器：`erp_orderapp`、`erp_caddy`、`erp_postgres`、`erp_docconvert` 运行，`erp_postgres` healthy。
+- 未认证 `GET /app/`：303 到 `/app/orders`。
+- BasicAuth `GET /app/vue-shell`：200。
+- 需求 API：`PR-400-PRICE-LIST-EXPLICIT-GRADIENT-TIERS` 可查到。
+- 价格表只读 API：Karen 范围 `初晓2.5kg装` 返回 `tiers 0`、`gradient_template False`。
 
 ## 手册
 - `orderapp-remote/docs/OP_MANUAL_COSTING.md`
