@@ -34,8 +34,9 @@
 - Feature branch: `codex/bom-industry-template-refine-20260603`
 - Feature commit: `b63ee4ea feat: refine production bom and industry fields`
 - Merge commit: `fa0e83789e9eca81ea1034fbce9ff3ebfa531b59`
+- Deployment status commit: `a684b41365073d11c09de0d3c0e57582b09daa87`
 - Deployment: `./deploy_orderapp.sh development`
-- Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603133936`
+- Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603134559`
 - Docker build evidence: image build ran `go test ./...` successfully.
 - Smoke:
   - Containers running: `erp_orderapp`, `erp_caddy`, `erp_postgres`, `erp_docconvert`
