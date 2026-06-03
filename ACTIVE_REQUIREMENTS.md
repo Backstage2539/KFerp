@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-405-PRODUCTION-BOM-BATCH-DEACTIVATE
 - Branch: codex/bom-batch-deactivate-20260603
 - Owner/session: Codex / 2026-06-03
-- Status: verified on feature branch; pending merge/deploy
+- Status: merged and deployed to development
 - Scope: 生产 BOM 页面去掉单独“失效当前 BOM”入口，商品 BOM列表新增勾选后的“批量失效”；行内失效和批量失效都直接执行，不弹确认框；生产 BOM 失效不再因启用商品引用被后端拒绝，商品侧继续提示 BOM 已失效。
 - DEV:
   - DEV-405-BOM-BATCH-DEACTIVATE-UI：商品 BOM列表保留单行失效并新增批量失效卡片，删除单独“失效当前 BOM”按钮和确认弹窗。
@@ -22,9 +22,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: `scripts/verify_kferp.sh changed`
   - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
   - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-production-bom-batch-deactivate.md`
-- Deployment: pending
+- Deployment: feature branch pushed with `42fc561c`; fast-forward merged to `develop` and pushed to `origin/develop=42fc561cb2122eca02f9ac698dda618da7345b84`; development stack deployed with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603220253`.
 - Last update: 2026-06-03 Asia/Shanghai
-- Notes: RED evidence captured: frontend BOM test failed because page still had `失效当前 BOM` and confirm; backend repository test failed because `UpdateProductionBom` still blocked active product references. GREEN evidence: `node --test src/lib/bom.test.js` passed; `go test ./internal/infrastructure/postgres/bom ./internal/interfaces/http/bom ./internal/interfaces/http/support -count=1` passed; `go test ./...` passed; Vue build passed with existing chunk-size/plugin timing warnings; `scripts/verify_kferp.sh changed` exited 0.
+- Notes: RED evidence captured: frontend BOM test failed because page still had `失效当前 BOM` and confirm; backend repository test failed because `UpdateProductionBom` still blocked active product references. GREEN evidence: `node --test src/lib/bom.test.js` passed; `go test ./internal/infrastructure/postgres/bom ./internal/interfaces/http/bom ./internal/interfaces/http/support -count=1` passed; `go test ./...` passed; Vue build passed with existing chunk-size/plugin timing warnings; `scripts/verify_kferp.sh changed` exited 0. Deploy evidence: Docker build ran `go test ./...`; containers running; unauthenticated GET `/app/` returned 303 to `/app/orders`; authenticated GET `/app/vue-shell` returned 200; requirement API exposes `PR-405-PRODUCTION-BOM-BATCH-DEACTIVATE`; authenticated `/app/api/production-boms?status=all` returned 200 with BOM data.
 
 ### PR-404-PRICE-WARNING-BOM-DRAWERS
 - Branch: codex/price-warning-bom-drawers-20260603
