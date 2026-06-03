@@ -28,7 +28,12 @@
   - 通过。
 - `scripts/verify_kferp.sh changed`
   - 通过：命令退出码 0。
-- 待补充：development deploy smoke。
+- Development deploy：
+  - `./deploy_orderapp.sh development` 已部署 `origin/develop=577e821444d08f4f72878ec9a010d490514be44a`。
+  - 备份：`root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603201536`。
+  - Docker build 内部 `go test ./...` 通过。
+  - Smoke：容器运行；未登录 `/app/` 返回 303；BasicAuth `/app/vue-shell` 返回 200；需求 API 暴露 `PR-401-PRICE-LIST-MISSING-GRADIENT-WARNING`。
+  - Live API：Karen 商品价格表中 `初晓2.5kg装` 返回 `commercial_wholesale_tiers=0`，并包含 `未配置阶梯价模板` warning。
 
 ## 手册
 - `orderapp-remote/docs/OP_MANUAL_COSTING.md`

@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-401-PRICE-LIST-MISSING-GRADIENT-WARNING
 - Branch: codex/price-list-missing-gradient-warning-20260603
 - Owner/session: Codex / 2026-06-03
-- Status: in progress
+- Status: merged and deployed to development
 - Scope: 商品价格表中，像 `初晓2.5kg装` 这类没有配置阶梯价模板且不会生成商业阶梯价的商品，要显示“未配置阶梯价模板”提示，避免报价卡片静默空白。
 - DEV:
   - DEV-401-MISSING-GRADIENT-WARNING：成本引擎为需要商业报价但没有有效阶梯价模板的商品追加 warning；绑定模板商品、生豆直接销售和挂耳商品不误提示。
@@ -21,9 +21,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: `scripts/verify_kferp.sh changed`
   - Manual: `orderapp-remote/docs/OP_MANUAL_COSTING.md`
   - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-price-list-missing-gradient-warning.md`
-- Deployment: pending
+- Deployment: feature branch pushed with `61b96cfa`; merged to `develop` with `577e821444d08f4f72878ec9a010d490514be44a`; development stack deployed with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603201536`.
 - Last update: 2026-06-03 Asia/Shanghai
-- Notes: RED evidence captured: domain and BeanList service tests failed because no-template products returned empty `warnings`. GREEN evidence: targeted costing/API/support packages passed, `go test ./...` passed, and `scripts/verify_kferp.sh changed` exited 0.
+- Notes: RED evidence captured: domain and BeanList service tests failed because no-template products returned empty `warnings`. GREEN evidence: targeted costing/API/support packages passed, `go test ./...` passed, and `scripts/verify_kferp.sh changed` exited 0. Deploy evidence: Vue shell build passed with existing chunk-size warning; Docker build ran `go test ./...` successfully; containers running; unauthenticated `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell` returned 200; requirement API exposes `PR-401-PRICE-LIST-MISSING-GRADIENT-WARNING`; live Karen price-list API returned `初晓2.5kg装 tiers 0` and warning `未配置阶梯价模板`.
 
 ### PR-400-PRICE-LIST-EXPLICIT-GRADIENT-TIERS
 - Branch: codex/price-list-explicit-gradient-tiers-20260603
