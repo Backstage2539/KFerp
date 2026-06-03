@@ -46,6 +46,29 @@ export function filterBomRowsByProductFocus(rows = [], productID = 0) {
   return rows.filter((row) => Number(row.product_id || row.id || 0) === focusProductID)
 }
 
+export function filterProductionBomCatalog(rows = [], { status = 'active', query = '', groupID = 0 } = {}) {
+  const statusMode = String(status || 'active').trim().toLowerCase()
+  const keyword = String(query || '').trim().toLowerCase()
+  const selectedGroupID = Number(groupID || 0)
+  return rows.filter((row) => {
+    const rowStatus = String(row.status || 'active').trim().toLowerCase()
+    if (statusMode === 'active' && rowStatus === 'inactive') return false
+    if (statusMode === 'inactive' && rowStatus !== 'inactive') return false
+    const rowGroupID = Number(row.group_id || row.production_bom_group_id || 0)
+    if (selectedGroupID > 0 && rowGroupID !== selectedGroupID) return false
+    if (selectedGroupID === -1 && rowGroupID > 0) return false
+    if (!keyword) return true
+    const haystack = [
+      row.code,
+      row.name,
+      row.group_name,
+      row.latest_version_no,
+      row.status,
+    ].map((value) => String(value || '').toLowerCase()).join(' ')
+    return haystack.includes(keyword)
+  })
+}
+
 export function bomContextCustomerIDs(products = [], bomRows = []) {
   const ids = new Set()
   for (const row of [...products, ...bomRows]) {

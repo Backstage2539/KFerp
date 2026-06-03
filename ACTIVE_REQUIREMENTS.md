@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-398-BOM-INDUSTRY-TEMPLATE-REFINE
+- Branch: codex/bom-industry-template-refine-20260603
+- Owner/session: Codex / 2026-06-03
+- Status: verified locally after repository guard; merge/deploy pending
+- Scope: 生产 BOM 档案支持新建、编辑、失效、复制、启用/失效/全部过滤和名称/编号搜索；行业字段模板去掉行业键、显示名、单位和必填入口，字段键即显示名，文本/下拉用类型右侧输入框维护。
+- DEV:
+  - DEV-398-PRODUCTION-BOM-CATALOG-CRUD：生产 BOM 页面新增“生产 BOM 档案”管理区，支持新建、编辑、失效、复制失效 BOM、状态过滤和名称/编号搜索。
+  - DEV-398-INDUSTRY-TEMPLATE-KEY-ONLY：行业字段模板改为字段键 key-only，文本默认值和下拉选项在类型右侧输入，未传行业键默认 `general`。
+  - DEV-398-MANUAL-DOCS：更新需求、验收、商品/生产/成本手册和 acceptance 证据。
+- Verifier:
+  - Frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/bom.test.js orderapp-remote/frontend-vue-shell/src/lib/product-bean-list-split.test.js`
+  - API/backend: `go test ./internal/infrastructure/postgres/bom ./internal/interfaces/http/bom ./internal/interfaces/http/manufacturing ./internal/interfaces/http/support -count=1`; `go test ./...` in `orderapp-remote`
+  - Build: `npm run build` in `orderapp-remote/frontend-vue-shell`
+  - Changed verifier: `scripts/verify_kferp.sh changed`
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OPERATION_MANUALS.md`
+  - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-bom-industry-template-refine.md`
+- Deployment: not merged/deployed yet.
+- Last update: 2026-06-03 Asia/Shanghai
+- Notes: Van requested no browser/manual验收 for current workflow; use code/docs/unit/API/build verification. RED evidence: frontend target tests failed on missing `filterProductionBomCatalog` and old industry field UI markers; manufacturing API test failed because `label` was required; repository RED guard failed until production BOM deactivation checked active product bindings. GREEN evidence: frontend target tests passed 124/124; targeted BOM/manufacturing/support Go API tests passed; repository guard package passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0; `go test ./...` passed.
+
 ### PR-397-PRODUCT-CLASSIFICATION-INDUSTRY-FIELDS
 - Branch: codex/product-classification-industry-fields-20260603
 - Owner/session: Codex / 2026-06-03

@@ -1519,6 +1519,20 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 	if status == "" {
 		status = "active"
 	}
+	if status == "inactive" {
+		var activeReferences int64
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COUNT(*)
+			FROM %s.product_production_bom_bindings b
+			JOIN %s.products p ON p.id=b.product_id
+			WHERE b.bom_id=$1 AND p.active=true
+		`, r.schema, r.schema), cmd.ID).Scan(&activeReferences); err != nil {
+			return bomapp.ProductionBomSummary{}, err
+		}
+		if activeReferences > 0 {
+			return bomapp.ProductionBomSummary{}, fmt.Errorf("production BOM is used by active products; deactivate products first")
+		}
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.production_boms
 		SET name=COALESCE(NULLIF($2,''), name), group_id=$3, status=$4, updated_at=now(), updated_by=$5

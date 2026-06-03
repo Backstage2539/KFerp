@@ -109,7 +109,7 @@ func TestIndustryFieldTemplateAPISavesTextAndSelectFields(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Manufacturing: manufacturingapp.NewService(repo)})
 
-	body := `{"name":"商品内容字段","fields":[{"field_key":"roast_level","label":"烘焙度","field_type":"select","options_json":"[\"浅烘\",\"中烘\"]"},{"field_key":"selling_note","label":"卖点","field_type":"text"}]}`
+	body := `{"name":"商品内容字段","fields":[{"field_key":"烘焙度","field_type":"select","options_json":"[\"浅烘\",\"中烘\"]"},{"field_key":"卖点","field_type":"text"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/industry-field-templates", strings.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -117,7 +117,10 @@ func TestIndustryFieldTemplateAPISavesTextAndSelectFields(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("save status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if len(repo.industrySaved.Fields) != 2 || repo.industrySaved.Fields[0].FieldType != "select" || repo.industrySaved.Fields[0].OptionsJSON != `["浅烘","中烘"]` || repo.industrySaved.Fields[1].FieldType != "text" {
+	if repo.industrySaved.IndustryKey != "general" {
+		t.Fatalf("industry key = %q, want general", repo.industrySaved.IndustryKey)
+	}
+	if len(repo.industrySaved.Fields) != 2 || repo.industrySaved.Fields[0].FieldKey != "烘焙度" || repo.industrySaved.Fields[0].Label != "烘焙度" || repo.industrySaved.Fields[0].FieldType != "select" || repo.industrySaved.Fields[0].OptionsJSON != `["浅烘","中烘"]` || repo.industrySaved.Fields[1].FieldKey != "卖点" || repo.industrySaved.Fields[1].Label != "卖点" || repo.industrySaved.Fields[1].FieldType != "text" {
 		t.Fatalf("saved industry text/select fields = %+v", repo.industrySaved.Fields)
 	}
 }

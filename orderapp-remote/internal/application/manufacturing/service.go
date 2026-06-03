@@ -309,8 +309,11 @@ func normalizeIndustryField(field IndustryFieldDefinition, fallbackOrder int) (I
 	if field.SortOrder <= 0 {
 		field.SortOrder = fallbackOrder
 	}
-	if field.FieldKey == "" || field.Label == "" {
-		return field, fmt.Errorf("field_key and label required")
+	if field.FieldKey == "" {
+		return field, fmt.Errorf("field_key required")
+	}
+	if field.Label == "" {
+		field.Label = field.FieldKey
 	}
 	if field.FieldType == "" {
 		field.FieldType = "text"

@@ -3659,6 +3659,12 @@ function fieldOptions(field = {}) {
   }
 }
 
+function templateFieldDefaultText(field = {}) {
+  const fieldType = String(field.field_type || '').trim()
+  if (!['text', 'textarea'].includes(fieldType)) return ''
+  return fieldOptions(field)[0] || ''
+}
+
 function fieldTypeLabel(type) {
   return ({
     text: '文本',
@@ -3731,6 +3737,7 @@ function applyIndustryFieldTemplateToProductionConfig() {
         label: field.label || existing.label || key,
         field_type: field.field_type || existing.field_type || 'text',
         unit: field.unit || existing.unit || '',
+        value_text: existing.value_text || templateFieldDefaultText(field),
         required: Boolean(field.required),
         options_json: field.options_json || existing.options_json || '[]',
         show_in_price_list: existing.show_in_price_list !== false,

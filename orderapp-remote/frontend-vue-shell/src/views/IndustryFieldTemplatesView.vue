@@ -19,7 +19,6 @@
           <thead>
             <tr>
               <th>模板</th>
-              <th>行业键</th>
               <th>状态</th>
               <th>字段数</th>
               <th>更新时间</th>
@@ -28,13 +27,12 @@
           <tbody>
             <tr v-for="row in rows" :key="row.id" :class="{ active: row.id === form.id }" @click="editTemplate(row)">
               <td><strong>{{ row.name }}</strong><small>{{ row.description || '-' }}</small></td>
-              <td>{{ row.industry_key }}</td>
               <td><span :class="['pill', row.status]">{{ row.status === 'active' ? '启用' : '停用' }}</span></td>
               <td>{{ row.fields?.length || 0 }}</td>
               <td>{{ row.updated_at }}</td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="5" class="muted">暂无行业字段模板</td>
+              <td colspan="4" class="muted">暂无行业字段模板</td>
             </tr>
           </tbody>
         </table>
@@ -46,10 +44,6 @@
           <label>
             <span>模板名称</span>
             <input v-model.trim="form.name" placeholder="咖啡烘焙参数 / 服装加工参数 / 鲜果加工参数" />
-          </label>
-          <label>
-            <span>行业键</span>
-            <input v-model.trim="form.industry_key" placeholder="coffee / apparel / fruit" />
           </label>
           <label>
             <span>状态</span>
@@ -76,11 +70,7 @@
             </label>
             <label>
               <span>字段键</span>
-              <input v-model.trim="field.field_key" placeholder="roast_degree / cloth_loss_rate" />
-            </label>
-            <label>
-              <span>显示名</span>
-              <input v-model.trim="field.label" placeholder="烘焙度 / 布料损耗率" />
+              <input v-model.trim="field.field_key" placeholder="烘焙度 / 布料损耗率 / 产地" />
             </label>
             <label>
               <span>类型</span>
@@ -88,17 +78,11 @@
                 <option v-for="option in fieldTypeOptions(field)" :key="option.value" :value="option.value">{{ option.label }}</option>
               </select>
             </label>
-            <label>
-              <span>单位</span>
-              <input v-model.trim="field.unit" placeholder="% / g / min" />
-            </label>
-            <label class="checkbox">
-              <input v-model="field.required" type="checkbox" />
-              <span>必填</span>
-            </label>
             <label class="options">
-              <span>下拉预设</span>
-              <textarea v-model.trim="field.options_text" rows="2" placeholder="浅烘, 中烘, 深烘"></textarea>
+              <span>{{ field.field_type === 'select' ? '下拉选项' : '默认文本' }}</span>
+              <input
+                v-model.trim="field.options_text"
+                :placeholder="field.field_type === 'select' ? '空格分隔的下拉选项' : '输入默认文本'" />
             </label>
             <button class="text danger" type="button" @click="removeField(index)">删除</button>
           </div>
@@ -126,7 +110,7 @@ function blankForm() {
   return {
     id: 0,
     name: '',
-    industry_key: '',
+    industry_key: 'general',
     description: '',
     status: 'active',
     fields: [blankField(1)],
@@ -149,7 +133,7 @@ function blankField(sortOrder) {
 function optionsTextFromJSON(raw) {
   try {
     const parsed = JSON.parse(String(raw || '[]'))
-    return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean).join(', ') : ''
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean).join(' ') : ''
   } catch (_) {
     return String(raw || '').trim()
   }
@@ -157,8 +141,8 @@ function optionsTextFromJSON(raw) {
 
 function optionsJSONFromText(raw) {
   const seen = new Set()
-  const values = String(raw || '')
-    .split(/[,，]/)
+  const values = String(raw || '').replace(/[,，]+/g, ' ')
+    .split(/\s+/)
     .map((item) => item.trim())
     .filter((item) => {
       if (!item || seen.has(item)) return false
@@ -166,6 +150,11 @@ function optionsJSONFromText(raw) {
       return true
     })
   return JSON.stringify(values)
+}
+
+function defaultTextJSON(raw) {
+  const value = String(raw || '').trim()
+  return JSON.stringify(value ? [value] : [])
 }
 
 function fieldTypeOptions(field = {}) {
@@ -258,9 +247,13 @@ async function save() {
   await mutate(async () => {
     const payload = {
       ...form,
+      industry_key: 'general',
       fields: form.fields.map((field) => ({
         ...field,
-        options_json: optionsJSONFromText(field.options_text),
+        label: String(field.field_key || '').trim(),
+        unit: '',
+        required: false,
+        options_json: field.field_type === 'select' ? optionsJSONFromText(field.options_text) : defaultTextJSON(field.options_text),
       })),
     }
     const row = await apiSend('/api/industry-field-templates', { body: payload })
@@ -299,7 +292,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 td small { display: block; color: #777; margin-top: 3px; }
 tbody tr.active { background: #f3f7fb; }
 .section-title { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
-.form-grid { display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 10px; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 10px; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, select, textarea { width: 100%; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
 input, select { height: 38px; }
@@ -315,11 +308,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .wide { display: block; margin-top: 10px; }
 .fields-head { justify-content: space-between; margin-top: 14px; }
 .field-list { display: grid; gap: 10px; }
-.field-row { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; display: grid; grid-template-columns: 70px repeat(4, minmax(110px, 1fr)) 80px; gap: 8px; align-items: end; }
-.field-row .options { grid-column: span 5; }
-.checkbox { display: flex; align-items: center; gap: 6px; min-height: 38px; }
-.checkbox input { width: auto; height: auto; }
-.checkbox span { margin: 0; }
+.field-row { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; display: grid; grid-template-columns: 70px minmax(180px, 1fr) 120px minmax(220px, 1fr) 72px; gap: 8px; align-items: end; }
 .footer-actions { justify-content: flex-end; margin-top: 14px; }
 .pill { display: inline-flex; border: 1px solid #d1d5db; border-radius: 999px; padding: 2px 8px; background: #f9fafb; white-space: nowrap; }
 .pill.active { border-color: #b7d2b7; color: #27602e; background: #f2fbf2; }
@@ -331,11 +320,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 @media (max-width: 1180px) {
   .grid, .form-grid { grid-template-columns: 1fr; }
   .field-row { grid-template-columns: 1fr 1fr; }
-  .field-row .options { grid-column: span 2; }
 }
 @media (max-width: 760px) {
   .page { padding: 12px; }
   .field-row { grid-template-columns: 1fr; }
-  .field-row .options { grid-column: span 1; }
 }
 </style>

@@ -8,6 +8,7 @@ import {
   filterBomContextProducts,
   isBomProductCandidate,
   sortBomContextProducts,
+  filterProductionBomCatalog,
 } from './bom.js'
 
 test('BOM context shows public and current-customer SKUs while hiding other customers and green beans', () => {
@@ -108,4 +109,34 @@ test('BOM view exposes grouped recipe library and no longer edits production con
   assert.doesNotMatch(source, /复制为单独维护 BOM/)
   assert.doesNotMatch(source, /派生自有 BOM/)
   assert.doesNotMatch(source, /lockBomVersion/)
+})
+
+test('production BOM catalog supports status filters name search and inactive copy actions', async () => {
+  const rows = [
+    { id: 1, code: 'BOM-001', name: '精品拼配', status: 'active', group_id: 2 },
+    { id: 2, code: 'BOM-002', name: '旧版深烘', status: 'inactive', group_id: 2 },
+    { id: 3, code: 'BOM-003', name: '挂耳配方', status: 'active', group_id: 3 },
+  ]
+
+  assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', query: 'BOM-00' }).map((row) => row.id), [1, 3])
+  assert.deepEqual(filterProductionBomCatalog(rows, { status: 'inactive', query: '深烘' }).map((row) => row.id), [2])
+  assert.deepEqual(filterProductionBomCatalog(rows, { status: 'all', query: '拼配' }).map((row) => row.id), [1])
+
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  for (const marker of [
+    'bom-catalog-toolbar',
+    'productionBomStatusFilter',
+    'productionBomSearchQuery',
+    '新建生产 BOM',
+    '编辑 BOM',
+    '复制 BOM',
+    '失效 BOM',
+    'copyProductionBomRecord',
+    'deactivateProductionBomRecord',
+    '/api/production-boms/${bomForm.id}',
+    '/api/production-boms/${bomForm.source_id}/copy',
+  ]) {
+    assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
 })
