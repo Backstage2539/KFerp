@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-399-PRICE-LIST-GRADIENT-SOURCE-FIX
 - Branch: codex/price-list-unbound-gradient-fix-20260603
 - Owner/session: Codex / 2026-06-03
-- Status: verified, pending integration/deploy
+- Status: merged and deployed to development
 - Scope: 修复商品价格表候选把旧分类/父分类阶梯价模板当作商品实际阶梯价来源的问题；商品未绑定商品配置模板/阶梯价模板时，不应仅因归类或分类模板引用而显示阶梯价。
 - DEV:
   - DEV-399-PRICE-LIST-GRADIENT-SOURCE：`LoadProductInputs` 只从客户规则、客户规则模板、商品级覆盖和商品配置模板解析实际阶梯价模板，不再从旧产品分类或父分类兜底。
@@ -20,9 +20,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: `scripts/verify_kferp.sh changed`
   - Manual: `orderapp-remote/docs/OP_MANUAL_COSTING.md`
   - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-price-list-gradient-source-fix.md`
-- Deployment: not deployed yet.
+- Deployment: feature branch pushed; merged to `develop` with `c48919181250f266d842b962f39f9e75473f5c17`; development stack deployed with `./deploy_orderapp.sh development` at `c48919181250f266d842b962f39f9e75473f5c17`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603143627`.
 - Last update: 2026-06-03 Asia/Shanghai
-- Notes: RED evidence: `go test ./internal/infrastructure/postgres/costing -run TestLoadProductInputsDoesNotFallbackToCategoryGradientTemplates -count=1` failed because `effective_gradient_template_id` still contained `NULLIF(pc.gradient_template_id,0)`. GREEN evidence: targeted costing repository/application/http/support tests passed after removing category fallback from actual gradient source; `go test ./...` in `orderapp-remote` passed; `scripts/verify_kferp.sh changed` exited 0.
+- Notes: RED evidence: `go test ./internal/infrastructure/postgres/costing -run TestLoadProductInputsDoesNotFallbackToCategoryGradientTemplates -count=1` failed because `effective_gradient_template_id` still contained `NULLIF(pc.gradient_template_id,0)`. GREEN evidence on feature branch and merged develop: targeted costing repository/application/http/support tests passed after removing category fallback from actual gradient source; `go test ./...` in `orderapp-remote` passed; `scripts/verify_kferp.sh changed` exited 0. Deploy evidence: Vue build passed with existing chunk-size warning; Docker build ran `go test ./...` successfully; containers running; unauthenticated `/app/` returned 303; authenticated `/vue-shell` and `/app/vue-shell` returned 200; requirement API exposes `PR-399-PRICE-LIST-GRADIENT-SOURCE-FIX`; deployed docs contain `2026-06-03-price-list-gradient-source-fix.md`.
 
 ### PR-398-BOM-INDUSTRY-TEMPLATE-REFINE
 - Branch: codex/bom-industry-template-refine-20260603
