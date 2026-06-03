@@ -90,7 +90,8 @@ func TestDev167VueShowsProductMultiDeactivateAndBomInactiveWarnings(t *testing.T
 			wants: []string{
 				"item.warnings",
 				"BOM已失效",
-				"warning-chip",
+				"warning-icon",
+				"warningTooltip",
 			},
 		},
 	}

@@ -151,7 +151,19 @@
                 </div>
               </div>
               <div v-if="itemWarnings(item).length" class="bean-warning-list">
-                <span v-for="warning in itemWarnings(item)" :key="`${section.key}-warning-${item.product_id || item.name}-${warning}`" class="warning-chip">{{ warning }}</span>
+                <span
+                  v-for="warning in itemWarnings(item)"
+                  :key="`${section.key}-warning-${item.product_id || item.name}-${warning}`"
+                  class="warning-icon-wrap">
+                  <button
+                    class="warning-icon"
+                    type="button"
+                    :aria-label="warningTooltip(warning)"
+                    :title="warningTooltip(warning)">
+                    !
+                  </button>
+                  <span class="warning-tooltip" role="tooltip">{{ warningTooltip(warning) }}</span>
+                </span>
               </div>
               <div v-if="itemProductAttributeLines(item).length" class="bean-attrs">
                 <span v-for="line in itemProductAttributeLines(item)" :key="`${section.key}-attr-${item.product_id || item.name}-${line}`">{{ line }}</span>
@@ -1224,6 +1236,14 @@ function itemWarnings(item) {
     return ['BOM已失效：请重新启用 BOM 后再发布价格表', ...warnings]
   }
   return warnings
+}
+
+function warningTooltip(warning) {
+  const text = String(warning || '').trim()
+  if (text === '未设置计价方式') {
+    return '未设置计价方式。请到 商品与配方 → 商品配置和分类模板 → 商品配置模板，在该商品引用的配置模板中选择计价方式，可配置阶梯价模板、固定单价或成本加成。'
+  }
+  return text
 }
 
 function itemProductAttributeLines(item) {
@@ -2349,7 +2369,11 @@ th:first-child, td:first-child { text-align: left; }
 th { color: #555; background: #fafafa; font-weight: 700; }
 .name { font-weight: 650; }
 .item-warning-list, .bean-warning-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-.warning-chip { display: inline-flex; align-items: center; max-width: 100%; border: 1px solid #e8c28f; border-radius: 999px; background: #fff8eb; color: #8a4b00; padding: 2px 7px; font-size: 12px; font-weight: 650; line-height: 1.35; white-space: normal; }
+.warning-icon-wrap { position: relative; display: inline-flex; align-items: center; }
+.warning-icon { width: 22px; height: 22px; min-width: 22px; border: 1px solid #e8c28f; border-radius: 999px; background: #fff8eb; color: #8a4b00; padding: 0; font-size: 14px; font-weight: 800; line-height: 20px; text-align: center; }
+.warning-tooltip { position: absolute; left: 0; bottom: calc(100% + 7px); z-index: 10; display: none; width: min(320px, 72vw); border: 1px solid #e8c28f; border-radius: 8px; background: #fff8eb; color: #5f3400; padding: 8px 10px; font-size: 12px; font-weight: 600; line-height: 1.45; box-shadow: 0 8px 24px rgba(0,0,0,.12); white-space: normal; }
+.warning-icon-wrap:hover .warning-tooltip,
+.warning-icon:focus + .warning-tooltip { display: block; }
 .tiers-cell { min-width: 360px; text-align: left; white-space: normal; }
 .tier-list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
 .tier-chip { border: 1px solid #ddd; border-radius: 8px; background: #fff; padding: 5px 7px; color: #222; font-size: 12px; line-height: 1.2; }

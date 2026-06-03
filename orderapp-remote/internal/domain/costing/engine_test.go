@@ -100,7 +100,7 @@ func TestCommercialWholesaleTiersUse454gPackageRanges(t *testing.T) {
 	assertClose(t, "greater than 47 lb price", got.CommercialWholesaleTiers[3].PricePerLb, 46)
 }
 
-func TestProductWithoutGradientTemplateDoesNotPublishCommercialTiers(t *testing.T) {
+func TestProductWithoutPricingMethodDoesNotPublishCommercialTiers(t *testing.T) {
 	params := DefaultParameters()
 	got := CalculateProduct(params, ProductInput{
 		ProductID:          434,
@@ -112,19 +112,19 @@ func TestProductWithoutGradientTemplateDoesNotPublishCommercialTiers(t *testing.
 	if len(got.CommercialWholesaleTiers) != 0 {
 		t.Fatalf("commercial tiers = %+v, want none without gradient template", got.CommercialWholesaleTiers)
 	}
-	wantWarning := "未设置计价方式：商品价格表不会生成阶梯报价。请从主菜单进入「商品与配方 → 商品配置和分类模板 → 商品配置模板」，在「计价方式」下拉中选择含阶梯价模板的计价方式；也可以进入「商品与配方 → 阶梯价模板」先维护阶梯价模板。"
-	if MissingGradientTemplateWarning != wantWarning {
-		t.Fatalf("MissingGradientTemplateWarning = %q, want %q", MissingGradientTemplateWarning, wantWarning)
+	wantWarning := "未设置计价方式"
+	if MissingPricingMethodWarning != wantWarning {
+		t.Fatalf("MissingPricingMethodWarning = %q, want %q", MissingPricingMethodWarning, wantWarning)
 	}
-	if !containsString(got.Warnings, MissingGradientTemplateWarning) {
-		t.Fatalf("warnings = %+v, want missing gradient template warning", got.Warnings)
+	if !containsString(got.Warnings, MissingPricingMethodWarning) {
+		t.Fatalf("warnings = %+v, want missing pricing method warning", got.Warnings)
 	}
 	if len(got.WholesaleKgPrices) == 0 || len(got.WholesaleLbPrices) == 0 {
 		t.Fatalf("base wholesale prices should still be calculated: kg=%+v lb=%+v", got.WholesaleKgPrices, got.WholesaleLbPrices)
 	}
 }
 
-func TestProductWithGradientTemplateDoesNotWarnMissingGradientTemplate(t *testing.T) {
+func TestProductWithGradientTemplateDoesNotWarnMissingPricingMethod(t *testing.T) {
 	params := DefaultParameters()
 	got := CalculateProduct(params, ProductInput{
 		ProductID:          435,
@@ -141,12 +141,12 @@ func TestProductWithGradientTemplateDoesNotWarnMissingGradientTemplate(t *testin
 		},
 	})
 
-	if containsString(got.Warnings, MissingGradientTemplateWarning) {
-		t.Fatalf("warnings = %+v, want no missing gradient template warning", got.Warnings)
+	if containsString(got.Warnings, MissingPricingMethodWarning) {
+		t.Fatalf("warnings = %+v, want no missing pricing method warning", got.Warnings)
 	}
 }
 
-func TestNonCommercialGradientProductsDoNotWarnMissingGradientTemplate(t *testing.T) {
+func TestPricingMethodWarningDoesNotExemptProductKind(t *testing.T) {
 	params := DefaultParameters()
 
 	green := CalculateProduct(params, ProductInput{
@@ -156,8 +156,8 @@ func TestNonCommercialGradientProductsDoNotWarnMissingGradientTemplate(t *testin
 		GreenBeanCostPerKg: 62,
 		YieldRate:          params.RoastYieldRate,
 	})
-	if containsString(green.Warnings, MissingGradientTemplateWarning) {
-		t.Fatalf("green bean warnings = %+v, want no missing gradient template warning", green.Warnings)
+	if !containsString(green.Warnings, MissingPricingMethodWarning) {
+		t.Fatalf("green bean warnings = %+v, want missing pricing method warning", green.Warnings)
 	}
 
 	drip := CalculateProduct(params, ProductInput{
@@ -167,8 +167,33 @@ func TestNonCommercialGradientProductsDoNotWarnMissingGradientTemplate(t *testin
 		GreenBeanCostPerKg: 62,
 		YieldRate:          params.RoastYieldRate,
 	})
-	if containsString(drip.Warnings, MissingGradientTemplateWarning) {
-		t.Fatalf("drip warnings = %+v, want no missing gradient template warning", drip.Warnings)
+	if !containsString(drip.Warnings, MissingPricingMethodWarning) {
+		t.Fatalf("drip warnings = %+v, want missing pricing method warning", drip.Warnings)
+	}
+}
+
+func TestConfiguredFixedPriceAndCostPlusDoNotWarnMissingPricingMethod(t *testing.T) {
+	params := DefaultParameters()
+	cases := []struct {
+		name string
+		rule string
+	}{
+		{name: "fixed unit price", rule: `{"pricing_mode":"fixed_unit_price","unit_price":88}`},
+		{name: "cost plus", rule: `{"pricing_mode":"cost_plus","cost_plus_rate":0.25}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := CalculateProduct(params, ProductInput{
+				ProductID:          438,
+				Name:               tc.name,
+				GreenBeanCostPerKg: 62,
+				YieldRate:          params.RoastYieldRate,
+				PriceListRuleJSON:  tc.rule,
+			})
+			if containsString(got.Warnings, MissingPricingMethodWarning) {
+				t.Fatalf("warnings = %+v, want no missing pricing method warning", got.Warnings)
+			}
+		})
 	}
 }
 

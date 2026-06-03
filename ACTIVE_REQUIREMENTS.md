@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-404-PRICE-WARNING-BOM-DRAWERS
+- Branch: codex/price-warning-bom-drawers-20260603
+- Owner/session: Codex / 2026-06-03
+- Status: implemented, verified locally
+- Scope: 商品价格表 warning 改为短 `未设置计价方式` + 感叹号 hover/focus tooltip；缺计价方式 warning 不再按 `green_bean/drip_bag` 商品形态豁免；生产 BOM 页面重排列表工具区，并把 BOM 版本和全局规格袋材映射改为列表行按钮打开抽屉。
+- DEV:
+  - DEV-404-PRICE-LIST-WARNING-ICON：成本引擎使用 `MissingPricingMethodWarning`，固定单价、成本加成和有效阶梯价模板都视为有效计价方式；Vue 商品价格表用感叹号图标和 tooltip 展示 warning。
+  - DEV-404-BOM-LAYOUT-DRAWERS：生产 BOM 新建按钮右上角展示，列表标题下方放状态过滤/搜索，移动分组卡片位于分组 Tab 上方；BOM 行提供 `BOM版本` 与 `规格袋材映射` 抽屉入口。
+  - DEV-404-MANUAL-DOCS：更新需求、验收、成本手册和库存物料手册。
+- Verifier:
+  - RED: `go test ./internal/domain/costing ./internal/application/costing ./internal/interfaces/http/costing -run 'Test(ProductWithoutPricingMethodDoesNotPublishCommercialTiers|ProductWithGradientTemplateDoesNotWarnMissingPricingMethod|PricingMethodWarningDoesNotExemptProductKind|ConfiguredFixedPriceAndCostPlusDoNotWarnMissingPricingMethod|BeanListRequiresExplicitGradientTemplateForCommercialTiers|CostingCalculateAPIRequiresGradientTemplateForCommercialTiers)' -count=1`; `node --test src/lib/bom.test.js src/lib/product-bean-list-split.test.js`
+  - Frontend: `node --test src/lib/bom.test.js src/lib/product-bean-list-split.test.js`; `npm run build` in `orderapp-remote/frontend-vue-shell`
+  - API/backend: `go test ./internal/domain/costing ./internal/application/costing ./internal/interfaces/http/costing -count=1`
+  - Changed verifier: `scripts/verify_kferp.sh changed`
+  - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
+  - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-price-warning-bom-drawers.md`
+- Deployment: not started.
+- Last update: 2026-06-03 Asia/Shanghai
+- Notes: RED evidence captured: Go tests failed because new `MissingPricingMethodWarning` did not exist and old生豆/挂耳分支仍豁免；frontend tests failed because warning 仍是文本 chip，BOM 版本/规格袋材映射仍是底部 panel。GREEN evidence: `go test ./internal/domain/costing ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1` passed; `node --test src/lib/bom.test.js src/lib/product-bean-list-split.test.js` passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+
 ### PR-403-BOM-PRICE-INDUSTRY-POLISH
 - Branch: codex/bom-price-industry-polish-20260603
 - Owner/session: Codex / 2026-06-03

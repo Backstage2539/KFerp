@@ -406,7 +406,7 @@ func TestBeanListRequiresExplicitGradientTemplateForCommercialTiers(t *testing.T
 	if len(unbound.CommercialWholesaleTiers) != 0 {
 		t.Fatalf("unbound tiers = %+v", unbound.CommercialWholesaleTiers)
 	}
-	if !sliceContains(unbound.Warnings, domain.MissingGradientTemplateWarning) {
+	if !sliceContains(unbound.Warnings, domain.MissingPricingMethodWarning) {
 		t.Fatalf("unbound warnings = %+v", unbound.Warnings)
 	}
 }

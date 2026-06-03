@@ -60,21 +60,27 @@
       </div>
     </section>
 
+    <div class="bom-workspace-header">
+      <button class="primary" type="button" @click="openNewProductionBomRecord">新建生产 BOM</button>
+    </div>
+
     <section class="panel bom-workspace-actions">
-      <div class="bom-action-row">
-        <button class="primary" type="button" @click="openNewProductionBomRecord">新建生产 BOM</button>
+      <div class="bom-move-card">
+        <div>
+          <strong>移动到分组</strong>
+          <p class="muted left">勾选商品 BOM 后移动分组；移动到其他分组会直接覆盖旧分组。</p>
+        </div>
         <label>
-          <span>状态</span>
-          <select v-model="productionBomStatusFilter">
-            <option value="active">启用</option>
-            <option value="inactive">已失效</option>
-            <option value="all">全部</option>
+          <span>目标分组</span>
+          <select v-model.number="selectedBomMoveGroupID">
+            <option :value="0">未分类</option>
+            <option v-for="group in productionBomGroups" :key="group.id" :value="Number(group.id || 0)">{{ group.name }}</option>
           </select>
         </label>
-        <label class="bom-search-field">
-          <span>搜索 BOM</span>
-          <input v-model.trim="productionBomSearchQuery" placeholder="按 BOM 名称、编号或商品搜索" />
-        </label>
+        <button class="secondary" type="button" :disabled="!canMoveSelectedBoms || loading" @click="moveSelectedProductBomsToGroup">
+          移动到分组
+        </button>
+        <span class="muted left">已选 {{ selectedBomRecordsForMove.length }} 个可移动 BOM</span>
       </div>
       <div class="bom-list-tabs">
         <button class="secondary compact-action" type="button" @click="openGroupDrawer">增加分组</button>
@@ -99,23 +105,6 @@
           {{ group.name }}
         </button>
       </div>
-      <div class="bom-move-card">
-        <div>
-          <strong>移动到分组</strong>
-          <p class="muted left">勾选商品 BOM 后移动分组；移动到其他分组会直接覆盖旧分组。</p>
-        </div>
-        <label>
-          <span>目标分组</span>
-          <select v-model.number="selectedBomMoveGroupID">
-            <option :value="0">未分类</option>
-            <option v-for="group in productionBomGroups" :key="group.id" :value="Number(group.id || 0)">{{ group.name }}</option>
-          </select>
-        </label>
-        <button class="secondary" type="button" :disabled="!canMoveSelectedBoms || loading" @click="moveSelectedProductBomsToGroup">
-          移动到分组
-        </button>
-        <span class="muted left">已选 {{ selectedBomRecordsForMove.length }} 个可移动 BOM</span>
-      </div>
     </section>
 
     <div class="grid">
@@ -125,6 +114,20 @@
             <div class="panel-title compact-title">商品 BOM列表</div>
             <p class="muted left">一个 BOM 只归入一个分组；全部分组显示所有 BOM，未分类显示未归组 BOM。</p>
           </div>
+        </div>
+        <div class="bom-list-filters">
+          <label>
+            <span>状态</span>
+            <select v-model="productionBomStatusFilter">
+              <option value="active">启用</option>
+              <option value="inactive">已失效</option>
+              <option value="all">全部</option>
+            </select>
+          </label>
+          <label class="bom-search-field">
+            <span>搜索 BOM</span>
+            <input v-model.trim="productionBomSearchQuery" placeholder="按 BOM 名称、编号或商品搜索" />
+          </label>
         </div>
         <div class="table-wrap bom-list-panel-scroll">
           <table>
@@ -167,6 +170,8 @@
                 <td>{{ row.item_count }}</td>
                 <td>{{ row.updated_at }}</td>
                 <td>
+                  <button class="text-button" type="button" :disabled="!Number(row.production_bom_id || 0)" @click.stop="openBomVersionDrawer(row)">BOM版本</button>
+                  <button v-if="!isWorkspaceCustomerLocked" class="text-button" type="button" :disabled="!Number(row.production_bom_id || 0)" @click.stop="openBagSpecMappingDrawer(row)">规格袋材映射</button>
                   <button class="text-button" type="button" :disabled="!Number(row.production_bom_id || 0)" @click.stop="copyProductionBomRecord(bomRecordFromRow(row))">复制</button>
                   <button class="text-button danger-text" type="button" :disabled="!Number(row.production_bom_id || 0) || row.status === 'inactive'" @click.stop="deactivateProductionBomRecord(bomRecordFromRow(row))">失效</button>
                 </td>
@@ -271,96 +276,112 @@
       </section>
     </div>
 
-    <section class="panel">
-      <div class="panel-title">BOM版本</div>
-      <div class="inline-form">
-        <label>
-          <span>版本备注</span>
-          <input v-model.trim="versionNote" placeholder="例如 2026 春季豆单" :disabled="!selectedProductId || !canEditCurrentBomProduct" />
-        </label>
-        <button class="primary" type="button" @click="createVersion" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct || !currentProductionBomID">复制为新版草稿</button>
-      </div>
-      <div class="table-wrap compact">
-        <table>
-          <thead>
-            <tr>
-              <th>版本</th>
-              <th>状态</th>
-              <th>物料数</th>
-              <th>备注</th>
-              <th>创建时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="version in versions"
-              :key="version.id"
-              :class="{ active: Number(version.id || 0) === Number(selectedProductionBomVersionID || 0) }"
-              @click="selectProductionBomVersion(version)">
-              <td>{{ version.version_no }}</td>
-              <td>{{ productionBomVersionStatusLabel(version.status) }}</td>
-              <td>{{ version.item_count }}</td>
-              <td>{{ version.note }}</td>
-              <td>{{ version.published_at || version.created_at }}</td>
-              <td>
-                <button
-                  v-if="version.status === 'draft'"
-                  class="text-button"
-                  type="button"
-                  @click.stop="activateVersion(version.id)"
-                  :disabled="!canEditCurrentBomProduct">
-                  发布
-                </button>
-                <span v-else class="muted left">只读</span>
-              </td>
-            </tr>
-            <tr v-if="!versions.length">
-              <td colspan="6" class="muted">暂无版本</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <div v-if="versionDrawerOpen" class="drawer-mask" @click.self="closeBomVersionDrawer">
+      <aside class="drawer bom-version-drawer">
+        <div class="drawer-head">
+          <div>
+            <h3>BOM版本</h3>
+            <p class="muted left">{{ versionDrawerBomLabel }}</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeBomVersionDrawer">关闭</button>
+        </div>
+        <div class="inline-form">
+          <label>
+            <span>版本备注</span>
+            <input v-model.trim="versionNote" placeholder="例如 2026 春季豆单" :disabled="!selectedProductId || !canEditCurrentBomProduct" />
+          </label>
+          <button class="primary" type="button" @click="createVersion" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct || !currentProductionBomID">复制为新版草稿</button>
+        </div>
+        <div class="table-wrap compact">
+          <table>
+            <thead>
+              <tr>
+                <th>版本</th>
+                <th>状态</th>
+                <th>物料数</th>
+                <th>备注</th>
+                <th>创建时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="version in versions"
+                :key="version.id"
+                :class="{ active: Number(version.id || 0) === Number(selectedProductionBomVersionID || 0) }"
+                @click="selectProductionBomVersion(version)">
+                <td>{{ version.version_no }}</td>
+                <td>{{ productionBomVersionStatusLabel(version.status) }}</td>
+                <td>{{ version.item_count }}</td>
+                <td>{{ version.note }}</td>
+                <td>{{ version.published_at || version.created_at }}</td>
+                <td>
+                  <button
+                    v-if="version.status === 'draft'"
+                    class="text-button"
+                    type="button"
+                    @click.stop="activateVersion(version.id)"
+                    :disabled="!canEditCurrentBomProduct">
+                    发布
+                  </button>
+                  <span v-else class="muted left">只读</span>
+                </td>
+              </tr>
+              <tr v-if="!versions.length">
+                <td colspan="6" class="muted">暂无版本</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </aside>
+    </div>
 
-    <section v-if="!isWorkspaceCustomerLocked" class="panel">
-      <div class="panel-title">规格袋材映射</div>
-      <form class="inline-form" @submit.prevent="saveMapping">
-        <label>
-          <span>规格 g</span>
-          <input v-model.number="mappingForm.spec_g" type="number" min="1" step="1" />
-        </label>
-        <label>
-          <span>袋材物料</span>
-          <select v-model.number="mappingForm.material_id">
-            <option :value="0">选择物料</option>
-            <option v-for="material in materials" :key="material.id" :value="material.id">{{ material.name }}</option>
-          </select>
-        </label>
-        <button class="primary" type="submit" :disabled="loading">保存映射</button>
-      </form>
-      <div class="table-wrap compact">
-        <table>
-          <thead>
-            <tr>
-              <th>规格</th>
-              <th>袋材物料</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="mapping in mappings" :key="mapping.spec_g">
-              <td>{{ mapping.spec_g }}g</td>
-              <td>{{ mapping.material_name }}</td>
-              <td><button class="text-button" type="button" @click="deleteMapping(mapping.spec_g)">删除</button></td>
-            </tr>
-            <tr v-if="!mappings.length">
-              <td colspan="3" class="muted">暂无映射</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <div v-if="bagSpecMappingDrawerOpen" class="drawer-mask" @click.self="closeBagSpecMappingDrawer">
+      <aside class="drawer bag-spec-mapping-drawer">
+        <div class="drawer-head">
+          <div>
+            <h3>全局规格袋材映射</h3>
+            <p class="muted left">从 BOM 行打开，维护的是所有 BOM 共用的规格袋材映射。</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeBagSpecMappingDrawer">关闭</button>
+        </div>
+        <form class="inline-form" @submit.prevent="saveMapping">
+          <label>
+            <span>规格 g</span>
+            <input v-model.number="mappingForm.spec_g" type="number" min="1" step="1" />
+          </label>
+          <label>
+            <span>袋材物料</span>
+            <select v-model.number="mappingForm.material_id">
+              <option :value="0">选择物料</option>
+              <option v-for="material in materials" :key="material.id" :value="material.id">{{ material.name }}</option>
+            </select>
+          </label>
+          <button class="primary" type="submit" :disabled="loading">保存映射</button>
+        </form>
+        <div class="table-wrap compact">
+          <table>
+            <thead>
+              <tr>
+                <th>规格</th>
+                <th>袋材物料</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="mapping in mappings" :key="mapping.spec_g">
+                <td>{{ mapping.spec_g }}g</td>
+                <td>{{ mapping.material_name }}</td>
+                <td><button class="text-button" type="button" @click="deleteMapping(mapping.spec_g)">删除</button></td>
+              </tr>
+              <tr v-if="!mappings.length">
+                <td colspan="3" class="muted">暂无映射</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </aside>
+    </div>
 
     <div v-if="bomDrawerOpen" class="drawer-mask" @click.self="closeBomDrawer">
       <aside class="drawer">
@@ -493,6 +514,8 @@ const bomReturnProductID = computed(() => Number(bomReturnNavigation.value?.para
 const bomReturnLabel = computed(() => String(bomReturnNavigation.value?.label || '返回商品档案配置'))
 const groupDrawerOpen = ref(false)
 const bomDrawerOpen = ref(false)
+const versionDrawerOpen = ref(false)
+const bagSpecMappingDrawerOpen = ref(false)
 const productionBomStatusFilter = ref('active')
 const productionBomSearchQuery = ref('')
 const managedProductionBomGroups = ref([])
@@ -549,6 +572,7 @@ const bomFormTitle = computed(() => ({
   copy: '复制 BOM',
 })[bomForm.mode] || '生产 BOM')
 const selectedProductionBomVersion = computed(() => versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0)) || null)
+const versionDrawerBomLabel = computed(() => currentProductionBomLabel.value || '请选择 BOM')
 const canEditCurrentBomProduct = computed(() => {
   if (!selectedProductId.value) return true
   if (detail.value?.can_edit_bom === false) return false
@@ -832,6 +856,29 @@ function copyProductionBomRecord(bom) {
   bomForm.group_id = Number(bom?.group_id || 0)
   bomForm.status = 'active'
   bomDrawerOpen.value = true
+}
+
+async function openBomVersionDrawer(row) {
+  if (!Number(row?.production_bom_id || 0)) return
+  versionDrawerOpen.value = true
+  if (Number(row?.product_id || 0) !== Number(selectedProductId.value || 0)) {
+    await selectProduct(row.product_id)
+    return
+  }
+  await loadVersions(selectedProductId.value)
+}
+
+function closeBomVersionDrawer() {
+  versionDrawerOpen.value = false
+}
+
+function openBagSpecMappingDrawer() {
+  if (isWorkspaceCustomerLocked.value) return
+  bagSpecMappingDrawerOpen.value = true
+}
+
+function closeBagSpecMappingDrawer() {
+  bagSpecMappingDrawerOpen.value = false
 }
 
 function closeBomDrawer() {
@@ -1358,10 +1405,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .danger-outline { border-color: #9d2626; color: #9d2626; }
 .danger-text { color: #9d2626; margin-left: 10px; }
 .text-button { height: 30px; border: 0; background: transparent; color: #1f4f82; padding: 0; }
+.text-button + .text-button { margin-left: 10px; }
+.bom-workspace-header { display: flex; justify-content: flex-end; margin: 0 0 10px; }
 .bom-workspace-actions { display: grid; gap: 12px; }
 .bom-action-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
 .bom-search-field input { min-width: min(340px, 100%); }
 .bom-list-head { align-items: flex-start; }
+.bom-list-filters { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin: 6px 0 12px; padding-top: 10px; border-top: 1px solid #eee8df; }
 .bom-list-tabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .bom-move-card { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; }
 .bom-move-card strong { display: block; margin-bottom: 4px; }
@@ -1408,6 +1458,7 @@ tbody tr.active { background: #f3f7fb; }
 .status-pill.readonly { border-color: #d6d0c7; color: #5f5a54; background: #f8f7f5; }
 .drawer-mask { position: fixed; inset: 0; z-index: 80; background: rgba(20, 20, 20, .28); display: flex; justify-content: flex-end; }
 .drawer { width: min(560px, 100vw); height: 100%; background: #fff; box-shadow: -8px 0 28px rgba(0,0,0,.16); padding: 18px; overflow: auto; }
+.bom-version-drawer, .bag-spec-mapping-drawer { width: min(760px, 100vw); }
 .drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
 @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
 @media (max-width: 900px) {

@@ -14,7 +14,7 @@ const (
 	WholesaleTierSchemeKgThree  = "kg_three"
 	WholesaleTierScheme227GTwo  = "bag_227_two"
 
-	MissingGradientTemplateWarning = "未设置计价方式：商品价格表不会生成阶梯报价。请从主菜单进入「商品与配方 → 商品配置和分类模板 → 商品配置模板」，在「计价方式」下拉中选择含阶梯价模板的计价方式；也可以进入「商品与配方 → 阶梯价模板」先维护阶梯价模板。"
+	MissingPricingMethodWarning = "未设置计价方式"
 
 	GradientDisplayUnitLb   = "lb"
 	GradientDisplayUnitKg   = "kg"
@@ -648,8 +648,8 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		out.WholesaleLbPrices = append(out.WholesaleLbPrices, kg*params.KgToLbFactor+1)
 	}
 	out.CommercialWholesaleTiers = buildCommercialWholesaleTiers(params, in, out.WholesaleKgPrices, out.WholesaleLbPrices)
-	if shouldWarnMissingGradientTemplate(in, out) {
-		out.Warnings = normalizeWarnings(append(out.Warnings, MissingGradientTemplateWarning))
+	if shouldWarnMissingPricingMethod(in) {
+		out.Warnings = normalizeWarnings(append(out.Warnings, MissingPricingMethodWarning))
 	}
 
 	out.DripWholesaleTiers = buildDripWholesaleTiers(params, in)
@@ -709,7 +709,7 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 			bomStatus = "direct_sale_price"
 		}
 	}
-	return ProductResult{
+	out := ProductResult{
 		ProductID:                  in.ProductID,
 		ProductCode:                in.ProductCode,
 		ProductName:                in.ProductName,
@@ -772,8 +772,13 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		OperationCostPerUnit: in.OperationCostPerUnit,
 		OperationCostPerKg:   in.OperationCostPerKg,
 		BomStatus:            bomStatus,
+		Warnings:             append([]string(nil), in.Warnings...),
 		GreenBeanSaleTiers:   tiers,
 	}
+	if shouldWarnMissingPricingMethod(in) {
+		out.Warnings = normalizeWarnings(append(out.Warnings, MissingPricingMethodWarning))
+	}
+	return out
 }
 
 func normalizeProductUnit(value string, fallback string) string {
@@ -1120,14 +1125,20 @@ func buildCommercialWholesaleTiers(params Parameters, in ProductInput, kgPrices,
 	return nil
 }
 
-func shouldWarnMissingGradientTemplate(in ProductInput, out ProductResult) bool {
-	if normalizeProductKind(in.ProductKind) == "green_bean" || normalizeProductKind(in.ProductKind) == "drip_bag" {
-		return false
+func shouldWarnMissingPricingMethod(in ProductInput) bool {
+	return !hasEffectivePricingMethod(in)
+}
+
+func hasEffectivePricingMethod(in ProductInput) bool {
+	rule := parseProductPriceRuleJSON(in.PriceListRuleJSON)
+	switch rule.PricingMode {
+	case "fixed_unit_price":
+		return rule.UnitPrice > 0 || len(rule.TierPrices) > 0
+	case "cost_plus":
+		return rule.HasCostPlusRate
+	default:
+		return normalizeGradientTemplate(in.GradientTemplate) != nil
 	}
-	if normalizeGradientTemplate(in.GradientTemplate) != nil {
-		return false
-	}
-	return len(out.CommercialWholesaleTiers) == 0
 }
 
 type commercialPriceParts struct {

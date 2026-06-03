@@ -96,7 +96,9 @@ test('BOM view exposes grouped recipe library and no longer edits production con
   assert.match(source, /全部分组/)
   assert.match(source, /未分类/)
   assert.match(source, /移动到分组/)
+  assert.ok(source.indexOf('bom-move-card') < source.indexOf('bom-list-tabs'))
   assert.match(source, /bom-workspace-actions/)
+  assert.match(source, /bom-workspace-header/)
   assert.match(source, /bom-list-panel-scroll/)
   assert.match(source, /isMovableBomRow/)
   assert.match(source, /配方明细/)
@@ -140,6 +142,11 @@ test('production BOM list supports status filters name search group tabs and ina
     'productionBomStatusFilter',
     'productionBomSearchQuery',
     '新建生产 BOM',
+    'openBomVersionDrawer',
+    'BOM版本',
+    'openBagSpecMappingDrawer',
+    '全局规格袋材映射',
+    '规格袋材映射',
     '复制',
     '失效',
     'selectedBomRowKeys',
@@ -156,6 +163,12 @@ test('production BOM list supports status filters name search group tabs and ina
   const headEnd = source.indexOf('bom-list-panel-scroll')
   assert.notEqual(headStart, -1)
   assert.notEqual(headEnd, -1)
-  assert.doesNotMatch(source.slice(headStart, headEnd), /移动到分组/)
-  assert.doesNotMatch(source.slice(headStart, headEnd), /productionBomStatusFilter/)
+  const listHead = source.slice(headStart, headEnd)
+  assert.match(listHead, /productionBomStatusFilter/)
+  assert.match(listHead, /productionBomSearchQuery/)
+  assert.doesNotMatch(listHead, /移动到分组/)
+  assert.match(source, /versionDrawerOpen/)
+  assert.match(source, /bagSpecMappingDrawerOpen/)
+  assert.doesNotMatch(source, /<section class="panel">\s*<div class="panel-title">BOM版本<\/div>/)
+  assert.doesNotMatch(source, /<section v-if="!isWorkspaceCustomerLocked" class="panel">\s*<div class="panel-title">规格袋材映射<\/div>/)
 })

@@ -175,6 +175,21 @@ test('product bean-list generation uses product type categories instead of legac
   assert.doesNotMatch(costingSource, /<option value="green">生豆豆单<\/option>/)
 })
 
+test('product bean-list warnings render as icon tooltips instead of inline long text', () => {
+  assert.match(costingSource, /warning-icon/)
+  assert.match(costingSource, /warning-tooltip/)
+  assert.match(costingSource, /function warningTooltip/)
+  assert.match(costingSource, /未设置计价方式。请到 商品与配方 → 商品配置和分类模板 → 商品配置模板/)
+  assert.match(costingSource, /阶梯价模板、固定单价或成本加成/)
+  const warningBlockStart = costingSource.indexOf('bean-warning-list')
+  const warningBlockEnd = costingSource.indexOf('itemProductAttributeLines', warningBlockStart)
+  assert.notEqual(warningBlockStart, -1)
+  assert.notEqual(warningBlockEnd, -1)
+  const warningBlock = costingSource.slice(warningBlockStart, warningBlockEnd)
+  assert.doesNotMatch(warningBlock, /\{\{\s*warning\s*\}\}/)
+  assert.doesNotMatch(warningBlock, /warning-chip/)
+})
+
 test('product bean-list publication payload freezes customer alias and product snapshots', () => {
   const source = `${costingSource}\n${beanListPdfSource}`
   for (const expected of [

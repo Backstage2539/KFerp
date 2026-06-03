@@ -573,8 +573,8 @@ func TestCostingCalculateAPIRequiresGradientTemplateForCommercialTiers(t *testin
 	if len(got.Items[0].CommercialWholesaleTiers) != 0 {
 		t.Fatalf("commercial tiers = %+v, want none without gradient template", got.Items[0].CommercialWholesaleTiers)
 	}
-	if !containsWarning(got.Items[0].Warnings, domain.MissingGradientTemplateWarning) {
-		t.Fatalf("warnings = %+v, want missing gradient template warning", got.Items[0].Warnings)
+	if !containsWarning(got.Items[0].Warnings, domain.MissingPricingMethodWarning) {
+		t.Fatalf("warnings = %+v, want missing pricing method warning", got.Items[0].Warnings)
 	}
 }
 
