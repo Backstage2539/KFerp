@@ -1803,33 +1803,5 @@ func commercialTiersForPublish(item domain.ProductResult) []domain.CommercialWho
 	if len(item.CommercialWholesaleTiers) > 0 {
 		return item.CommercialWholesaleTiers
 	}
-	ranges := []struct {
-		label string
-		min   float64
-		max   *float64
-	}{
-		{"2包-13包", 2, floatPtr(13)},
-		{"14包-23包", 14, floatPtr(23)},
-		{"24包-47包", 24, floatPtr(47)},
-		{"48包+", 48, nil},
-	}
-	out := make([]domain.CommercialWholesaleTier, 0, len(ranges))
-	for i, r := range ranges {
-		if i >= len(item.WholesaleKgPrices) || i >= len(item.WholesaleLbPrices) {
-			break
-		}
-		out = append(out, domain.CommercialWholesaleTier{
-			Label:        r.label,
-			Scheme:       domain.WholesaleTierScheme454GFour,
-			SpecG:        454,
-			MinQty:       r.min,
-			MaxQty:       r.max,
-			PricePerUnit: item.WholesaleLbPrices[i],
-			MinLb:        r.min,
-			MaxLb:        r.max,
-			PricePerKg:   item.WholesaleKgPrices[i],
-			PricePerLb:   item.WholesaleLbPrices[i],
-		})
-	}
-	return out
+	return nil
 }

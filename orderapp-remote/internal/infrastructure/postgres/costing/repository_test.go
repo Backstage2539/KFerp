@@ -1,6 +1,7 @@
 package costing
 
 import (
+	domain "orderapp/internal/domain/costing"
 	"os"
 	"strings"
 	"testing"
@@ -153,6 +154,19 @@ func TestLoadProductInputsDoesNotFallbackToCategoryGradientTemplates(t *testing.
 		if !strings.Contains(src, want) {
 			t.Fatalf("costing repository must still load explicit gradient template details; missing %q", want)
 		}
+	}
+}
+
+func TestCommercialTiersForPublishDoesNotInventDefaultTiers(t *testing.T) {
+	item := domain.ProductResult{
+		ProductID:         434,
+		Name:              "初晓2.5kg装",
+		WholesaleKgPrices: []float64{132, 119, 106, 99},
+		WholesaleLbPrices: []float64{61, 55, 49, 46},
+	}
+
+	if tiers := commercialTiersForPublish(item); len(tiers) != 0 {
+		t.Fatalf("publish tiers = %+v, want none when result has no commercial tiers", tiers)
 	}
 }
 

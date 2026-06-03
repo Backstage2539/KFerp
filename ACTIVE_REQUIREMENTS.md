@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-400-PRICE-LIST-EXPLICIT-GRADIENT-TIERS
+- Branch: codex/price-list-explicit-gradient-tiers-20260603
+- Owner/session: Codex / 2026-06-03
+- Status: in progress
+- Scope: 修复商品价格表在商品没有任何明确阶梯价模板时仍由成本引擎或发布保存逻辑自动生成默认 4 档阶梯价的问题；例如“初晓2.5kg装”未绑定阶梯价模板时，商品价格表不应出现阶梯价。
+- DEV:
+  - DEV-400-COSTING-ENGINE-EXPLICIT-GRADIENT：成本引擎只在 `ProductInput.GradientTemplate` 有效时输出 `CommercialWholesaleTiers`，无模板时保留基础 kg/lb 成本价但不发布商业阶梯。
+  - DEV-400-PUBLISH-NO-DEFAULT-TIERS：发布保存 `product_price_tiers` 时只保存结果中的显式商业阶梯价，不再根据 `WholesaleKgPrices/WholesaleLbPrices` 补默认 4 档。
+  - DEV-400-MANUAL-DOCS：更新成本手册、需求和验收记录，明确“无明确阶梯价模板 = 不展示/不发布阶梯价”。
+- Verifier:
+  - RED: `go test ./internal/domain/costing -run TestProductWithoutGradientTemplateDoesNotPublishCommercialTiers -count=1`; `go test ./internal/infrastructure/postgres/costing -run TestCommercialTiersForPublishDoesNotInventDefaultTiers -count=1`
+  - API/backend: `go test ./internal/domain/costing ./internal/application/costing ./internal/infrastructure/postgres/costing -count=1`
+  - Full backend: `go test ./...` in `orderapp-remote`
+  - Changed verifier: `scripts/verify_kferp.sh changed`
+  - Manual: `orderapp-remote/docs/OP_MANUAL_COSTING.md`
+  - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-price-list-explicit-gradient-tiers.md`
+- Deployment: pending
+- Last update: 2026-06-03 Asia/Shanghai
+- Notes: RED evidence captured: engine test failed because `初晓2.5kg装` with no `GradientTemplate` still produced `2包-13包` through `48包+`; repository publish test failed because `commercialTiersForPublish` re-created the same defaults from kg/lb base prices. GREEN evidence: targeted costing/support packages passed, `go test ./...` passed, and `scripts/verify_kferp.sh changed` exited 0.
+
 ### PR-399-PRICE-LIST-GRADIENT-SOURCE-FIX
 - Branch: codex/price-list-unbound-gradient-fix-20260603
 - Owner/session: Codex / 2026-06-03
