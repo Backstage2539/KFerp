@@ -31,7 +31,18 @@
   - 通过。
 - `scripts/verify_kferp.sh changed`
   - 通过。
-- 合并 develop 和 development 部署证据待补。
+- 合并 develop：
+  - feature branch `codex/bom-price-industry-polish-20260603` 推送提交 `6ef54131`。
+  - `develop` fast-forward 到 `6ef5413121796d4b5a732dffa5193ac0c7b2ba23` 并推送。
+- development 部署：
+  - `./deploy_orderapp.sh development` 通过，Docker build 内部 `go test ./...` 通过。
+  - 备份路径：`root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603210236`。
+- smoke：
+  - `docker compose ps`：`erp_orderapp`、`erp_postgres`、`erp_caddy`、`erp_docconvert` 运行中，Postgres healthy。
+  - 未认证 `/app/` 返回 `303` 到 `/app/orders`。
+  - BasicAuth `/app/vue-shell` 返回 `200`。
+  - 需求 API 返回 `200` 且包含 `PR-403-BOM-PRICE-INDUSTRY-POLISH`。
+  - BOM list API 返回 `200`，`Codex测试豆 production_bom_id=604 version=V001 group=0`。
 
 ## 手册
 - `OP_MANUAL_COSTING.md`：商品价格表提示改为“未设置计价方式”，并写清 `商品与配方 → 商品配置和分类模板 → 商品配置模板 → 计价方式`。

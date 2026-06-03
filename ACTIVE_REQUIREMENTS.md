@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-403-BOM-PRICE-INDUSTRY-POLISH
 - Branch: codex/bom-price-industry-polish-20260603
 - Owner/session: Codex / 2026-06-03
-- Status: verified on feature branch; pending merge/deploy
+- Status: merged and deployed to development
 - Scope: 优化商品价格表缺少计价方式提示；行业字段模板改为左侧列表搜索/状态过滤、右侧编辑；生产 BOM 操作区移到列表和详情共同顶部，列表独立滚动；修复 `Codex测试豆` 这类旧 BOM 有明细但无生产 BOM 绑定导致不能勾选移动分组的问题。
 - DEV:
   - DEV-403-PRICE-LIST-PRICING-METHOD-WARNING：把“未配置阶梯价模板”改为“未设置计价方式”，并在提示中写清主菜单路径 `商品与配方 → 商品配置和分类模板 → 商品配置模板 → 计价方式`。
@@ -24,9 +24,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: `scripts/verify_kferp.sh changed`
   - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`
   - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-bom-price-industry-polish.md`
-- Deployment: pending.
+- Deployment: feature branch pushed with `6ef54131`; fast-forward merged to `develop` and pushed to `origin/develop=6ef5413121796d4b5a732dffa5193ac0c7b2ba23`; development stack deployed with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603210236`.
 - Last update: 2026-06-03 Asia/Shanghai
-- Notes: `Codex测试豆` 的根因是旧 BOM 行有 `item_count=1` 和 legacy `product_bom_items`，但 `production_bom_id=0`，前端按新模型禁止移动未绑定生产 BOM 的行。PR-403 不把前端限制放宽，而是在 BOM 读路径修复 legacy 绑定，保证旧 BOM 也进入生产 BOM 配方库后再移动分组。GREEN evidence: frontend target tests passed 22/22; targeted Go packages passed; `go test ./...` passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+- Notes: `Codex测试豆` 的根因是旧 BOM 行有 `item_count=1` 和 legacy `product_bom_items`，但 `production_bom_id=0`，前端按新模型禁止移动未绑定生产 BOM 的行。PR-403 不把前端限制放宽，而是在 BOM 读路径修复 legacy 绑定，保证旧 BOM 也进入生产 BOM 配方库后再移动分组。GREEN evidence: frontend target tests passed 22/22; targeted Go packages passed; `go test ./...` passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0. Deploy evidence: Docker build ran `go test ./...`; containers running; unauthenticated `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell` returned 200; requirement API exposes `PR-403-BOM-PRICE-INDUSTRY-POLISH`; authenticated BOM list API returned `Codex测试豆 production_bom_id=604 version=V001 group=0`.
 
 ### PR-402-PRODUCTION-BOM-GROUP-TABS
 - Branch: codex/production-bom-group-tabs-20260603
