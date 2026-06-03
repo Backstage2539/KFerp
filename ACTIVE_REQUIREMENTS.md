@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-401-PRICE-LIST-MISSING-GRADIENT-WARNING
+- Branch: codex/price-list-missing-gradient-warning-20260603
+- Owner/session: Codex / 2026-06-03
+- Status: in progress
+- Scope: 商品价格表中，像 `初晓2.5kg装` 这类没有配置阶梯价模板且不会生成商业阶梯价的商品，要显示“未配置阶梯价模板”提示，避免报价卡片静默空白。
+- DEV:
+  - DEV-401-MISSING-GRADIENT-WARNING：成本引擎为需要商业报价但没有有效阶梯价模板的商品追加 warning；绑定模板商品、生豆直接销售和挂耳商品不误提示。
+  - DEV-401-MANUAL-DOCS：更新成本手册、需求、验收和需求管理种子。
+- Verifier:
+  - RED: `go test ./internal/domain/costing -run 'TestProductWithoutGradientTemplateDoesNotPublishCommercialTiers|TestProductWithGradientTemplateDoesNotWarnMissingGradientTemplate' -count=1`; `go test ./internal/application/costing -run TestBeanListRequiresExplicitGradientTemplateForCommercialTiers -count=1`
+  - API/backend: `go test ./internal/domain/costing ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1`
+  - Full backend: `go test ./...` in `orderapp-remote`
+  - Changed verifier: `scripts/verify_kferp.sh changed`
+  - Manual: `orderapp-remote/docs/OP_MANUAL_COSTING.md`
+  - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-price-list-missing-gradient-warning.md`
+- Deployment: pending
+- Last update: 2026-06-03 Asia/Shanghai
+- Notes: RED evidence captured: domain and BeanList service tests failed because no-template products returned empty `warnings`. GREEN evidence: targeted costing/API/support packages passed, `go test ./...` passed, and `scripts/verify_kferp.sh changed` exited 0.
+
 ### PR-400-PRICE-LIST-EXPLICIT-GRADIENT-TIERS
 - Branch: codex/price-list-explicit-gradient-tiers-20260603
 - Owner/session: Codex / 2026-06-03

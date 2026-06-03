@@ -12,6 +12,15 @@ func assertClose(t *testing.T, name string, got, want float64) {
 	}
 }
 
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestEngineMatchesExcelCachedGoldens(t *testing.T) {
 	params := DefaultParameters()
 	input := ProductInput{
@@ -103,8 +112,59 @@ func TestProductWithoutGradientTemplateDoesNotPublishCommercialTiers(t *testing.
 	if len(got.CommercialWholesaleTiers) != 0 {
 		t.Fatalf("commercial tiers = %+v, want none without gradient template", got.CommercialWholesaleTiers)
 	}
+	if !containsString(got.Warnings, MissingGradientTemplateWarning) {
+		t.Fatalf("warnings = %+v, want missing gradient template warning", got.Warnings)
+	}
 	if len(got.WholesaleKgPrices) == 0 || len(got.WholesaleLbPrices) == 0 {
 		t.Fatalf("base wholesale prices should still be calculated: kg=%+v lb=%+v", got.WholesaleKgPrices, got.WholesaleLbPrices)
+	}
+}
+
+func TestProductWithGradientTemplateDoesNotWarnMissingGradientTemplate(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:          435,
+		Name:               "初晓2.5kg装",
+		GreenBeanCostPerKg: 62,
+		YieldRate:          params.RoastYieldRate,
+		GradientTemplate: &GradientTemplate{
+			ID:          7,
+			Name:        "454g 四档模板",
+			DisplayUnit: GradientDisplayUnitLb,
+			Tiers: []GradientTemplateTier{
+				{ID: 71, Label: "2包-13包", MinWeightG: 908, MaxWeightG: f64(5902), MarginRate: params.WholesaleKgMarginRates[0], Position: 1},
+			},
+		},
+	})
+
+	if containsString(got.Warnings, MissingGradientTemplateWarning) {
+		t.Fatalf("warnings = %+v, want no missing gradient template warning", got.Warnings)
+	}
+}
+
+func TestNonCommercialGradientProductsDoNotWarnMissingGradientTemplate(t *testing.T) {
+	params := DefaultParameters()
+
+	green := CalculateProduct(params, ProductInput{
+		ProductID:          436,
+		Name:               "初晓生豆",
+		ProductKind:        "green_bean",
+		GreenBeanCostPerKg: 62,
+		YieldRate:          params.RoastYieldRate,
+	})
+	if containsString(green.Warnings, MissingGradientTemplateWarning) {
+		t.Fatalf("green bean warnings = %+v, want no missing gradient template warning", green.Warnings)
+	}
+
+	drip := CalculateProduct(params, ProductInput{
+		ProductID:          437,
+		Name:               "初晓挂耳",
+		ProductKind:        "drip_bag",
+		GreenBeanCostPerKg: 62,
+		YieldRate:          params.RoastYieldRate,
+	})
+	if containsString(drip.Warnings, MissingGradientTemplateWarning) {
+		t.Fatalf("drip warnings = %+v, want no missing gradient template warning", drip.Warnings)
 	}
 }
 
@@ -893,7 +953,7 @@ func TestCalculateProductCarriesInactiveBomWarning(t *testing.T) {
 	if got.BomStatus != "inactive" {
 		t.Fatalf("BomStatus = %q, want inactive", got.BomStatus)
 	}
-	if len(got.Warnings) != 1 || got.Warnings[0] != "BOM已失效：请重新启用 BOM 后再发布价格策略" {
+	if !containsString(got.Warnings, "BOM已失效：请重新启用 BOM 后再发布价格策略") {
 		t.Fatalf("warnings = %+v", got.Warnings)
 	}
 }
