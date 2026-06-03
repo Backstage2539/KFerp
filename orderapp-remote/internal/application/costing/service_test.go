@@ -353,7 +353,7 @@ func TestBeanListOrdersItemsByExcelCommercialCode(t *testing.T) {
 	}
 }
 
-func TestBeanListAppliesCategoryGradientTemplateAndLeavesUnboundDefaults(t *testing.T) {
+func TestBeanListRequiresExplicitGradientTemplateForCommercialTiers(t *testing.T) {
 	repo := &fakeRepo{inputs: []domain.ProductInput{
 		{
 			ProductID:          501,
@@ -394,7 +394,7 @@ func TestBeanListAppliesCategoryGradientTemplateAndLeavesUnboundDefaults(t *test
 	if len(templated.CommercialWholesaleTiers) != 1 || templated.CommercialWholesaleTiers[0].Label != "大客户量单" || templated.CommercialWholesaleTiers[0].DisplayUnit != domain.GradientDisplayUnitKg {
 		t.Fatalf("templated tiers = %+v", templated.CommercialWholesaleTiers)
 	}
-	if len(unbound.CommercialWholesaleTiers) != 4 || unbound.CommercialWholesaleTiers[0].Label != "2包-13包" {
+	if len(unbound.CommercialWholesaleTiers) != 0 {
 		t.Fatalf("unbound tiers = %+v", unbound.CommercialWholesaleTiers)
 	}
 }

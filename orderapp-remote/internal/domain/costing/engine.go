@@ -1112,65 +1112,7 @@ func buildCommercialWholesaleTiers(params Parameters, in ProductInput, kgPrices,
 	if template := normalizeGradientTemplate(in.GradientTemplate); template != nil {
 		return buildGradientTemplateCommercialTiers(params, in, *template)
 	}
-	profileName := costingProfileName(in)
-	type tierDef struct {
-		label      string
-		specG      int64
-		minQty     float64
-		maxQty     *float64
-		priceIndex int
-		priceMode  string
-	}
-	scheme := normalizeWholesaleTierScheme(in.WholesaleTierScheme)
-	defs := []tierDef{
-		{"2包-13包", 454, 2, ptrFloat64(13), 0, "lb"},
-		{"14包-23包", 454, 14, ptrFloat64(23), 1, "lb"},
-		{"24包-47包", 454, 24, ptrFloat64(47), 2, "lb"},
-		{"48包+", 454, 48, nil, 3, "lb"},
-	}
-	switch scheme {
-	case WholesaleTierSchemeKgThree:
-		defs = []tierDef{
-			{"24-49kg", 1000, 24, ptrFloat64(49), 3, "kg"},
-			{"50-99kg", 1000, 50, ptrFloat64(99), 4, "kg"},
-			{"100-199kg", 1000, 100, ptrFloat64(199), 5, "kg"},
-		}
-	case WholesaleTierScheme227GTwo:
-		defs = []tierDef{
-			{"2包-7包", 227, 2, ptrFloat64(7), 0, "half_lb"},
-			{"8包+", 227, 8, nil, 1, "half_lb"},
-		}
-		if isMorningNayi(profileName) {
-			defs[1].priceIndex = 2
-		}
-	}
-	out := make([]CommercialWholesaleTier, 0, len(defs))
-	for _, def := range defs {
-		if def.priceIndex >= len(kgPrices) || def.priceIndex >= len(lbPrices) {
-			break
-		}
-		pricePerKg := kgPrices[def.priceIndex]
-		pricePerLb := lbPrices[def.priceIndex]
-		pricePerUnit := pricePerLb
-		if def.priceMode == "kg" {
-			pricePerUnit = pricePerKg
-		} else if def.priceMode == "half_lb" {
-			pricePerUnit = pricePerLb / 2
-		}
-		out = append(out, CommercialWholesaleTier{
-			Label:        def.label,
-			Scheme:       scheme,
-			SpecG:        def.specG,
-			MinQty:       def.minQty,
-			MaxQty:       def.maxQty,
-			PricePerUnit: pricePerUnit,
-			MinLb:        def.minQty,
-			MaxLb:        def.maxQty,
-			PricePerKg:   pricePerKg,
-			PricePerLb:   pricePerLb,
-		})
-	}
-	return applyCommercialTierOverrides(profileName, out)
+	return nil
 }
 
 type commercialPriceParts struct {

@@ -51,6 +51,17 @@ func TestCommercialWholesaleTiersUse454gPackageRanges(t *testing.T) {
 		Name:               "单品：孟连水洗（SOE)",
 		GreenBeanCostPerKg: 62,
 		YieldRate:          params.RoastYieldRate,
+		GradientTemplate: &GradientTemplate{
+			ID:          7,
+			Name:        "454g 四档模板",
+			DisplayUnit: GradientDisplayUnitLb,
+			Tiers: []GradientTemplateTier{
+				{ID: 71, Label: "2包-13包", MinWeightG: 908, MaxWeightG: f64(5902), MarginRate: params.WholesaleKgMarginRates[0], Position: 1},
+				{ID: 72, Label: "14包-23包", MinWeightG: 6356, MaxWeightG: f64(10442), MarginRate: params.WholesaleKgMarginRates[1], Position: 2},
+				{ID: 73, Label: "24包-47包", MinWeightG: 10896, MaxWeightG: f64(21338), MarginRate: params.WholesaleKgMarginRates[2], Position: 3},
+				{ID: 74, Label: "48包+", MinWeightG: 21792, MarginRate: params.WholesaleKgMarginRates[3], Position: 4},
+			},
+		},
 		WholesaleTaxAddPerKgTiers: []float64{
 			1.3622427631578853,
 			0,
@@ -80,7 +91,24 @@ func TestCommercialWholesaleTiersUse454gPackageRanges(t *testing.T) {
 	assertClose(t, "greater than 47 lb price", got.CommercialWholesaleTiers[3].PricePerLb, 46)
 }
 
-func TestNenkaExcelCommercialProfileMatchesWorkbook(t *testing.T) {
+func TestProductWithoutGradientTemplateDoesNotPublishCommercialTiers(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:          434,
+		Name:               "初晓2.5kg装",
+		GreenBeanCostPerKg: 62,
+		YieldRate:          params.RoastYieldRate,
+	})
+
+	if len(got.CommercialWholesaleTiers) != 0 {
+		t.Fatalf("commercial tiers = %+v, want none without gradient template", got.CommercialWholesaleTiers)
+	}
+	if len(got.WholesaleKgPrices) == 0 || len(got.WholesaleLbPrices) == 0 {
+		t.Fatalf("base wholesale prices should still be calculated: kg=%+v lb=%+v", got.WholesaleKgPrices, got.WholesaleLbPrices)
+	}
+}
+
+func TestNenkaExcelCommercialProfileDoesNotPublishTiersWithoutTemplate(t *testing.T) {
 	params := DefaultParameters()
 	input := ApplyExcelCommercialPricingProfile(params, ProductInput{
 		ProductID:          28,
@@ -91,13 +119,12 @@ func TestNenkaExcelCommercialProfileMatchesWorkbook(t *testing.T) {
 
 	got := CalculateProduct(params, input)
 
-	if got.CommercialWholesaleTiers[0].Label != "2包-13包" || got.CommercialWholesaleTiers[0].SpecG != 454 {
-		t.Fatalf("first tier = %+v", got.CommercialWholesaleTiers[0])
+	if len(got.CommercialWholesaleTiers) != 0 {
+		t.Fatalf("commercial tiers = %+v, want none without gradient template", got.CommercialWholesaleTiers)
 	}
-	assertClose(t, "Nenka 2-13 bags", got.CommercialWholesaleTiers[0].PricePerUnit, 127)
-	assertClose(t, "Nenka 14-23 bags", got.CommercialWholesaleTiers[1].PricePerUnit, 111)
-	assertClose(t, "Nenka 24-47 bags", got.CommercialWholesaleTiers[2].PricePerUnit, 98)
-	assertClose(t, "Nenka 48+ bags", got.CommercialWholesaleTiers[3].PricePerUnit, 90)
+	if len(got.WholesaleKgPrices) == 0 {
+		t.Fatalf("base wholesale prices should still be calculated: %+v", got.WholesaleKgPrices)
+	}
 }
 
 func TestCommercialWholesaleTiersSupportExcelSchemes(t *testing.T) {
@@ -109,6 +136,16 @@ func TestCommercialWholesaleTiersSupportExcelSchemes(t *testing.T) {
 		GreenBeanCostPerKg:  38.3,
 		YieldRate:           0.8,
 		WholesaleTierScheme: WholesaleTierSchemeKgThree,
+		GradientTemplate: &GradientTemplate{
+			ID:          8,
+			Name:        "kg 三档模板",
+			DisplayUnit: GradientDisplayUnitKg,
+			Tiers: []GradientTemplateTier{
+				{ID: 81, Label: "24-49kg", MinWeightG: 24000, MaxWeightG: f64(49000), MarginRate: params.WholesaleKgMarginRates[3], Position: 1},
+				{ID: 82, Label: "50-99kg", MinWeightG: 50000, MaxWeightG: f64(99000), MarginRate: params.WholesaleKgMarginRates[4], Position: 2},
+				{ID: 83, Label: "100-199kg", MinWeightG: 100000, MaxWeightG: f64(199000), MarginRate: params.WholesaleKgMarginRates[5], Position: 3},
+			},
+		},
 	})
 	if len(kg.CommercialWholesaleTiers) != 3 {
 		t.Fatalf("kg tiers = %+v", kg.CommercialWholesaleTiers)
@@ -116,9 +153,9 @@ func TestCommercialWholesaleTiersSupportExcelSchemes(t *testing.T) {
 	if kg.CommercialWholesaleTiers[0].Label != "24-49kg" || kg.CommercialWholesaleTiers[0].SpecG != 1000 {
 		t.Fatalf("kg tier 1 = %+v", kg.CommercialWholesaleTiers[0])
 	}
-	assertClose(t, "24-49kg uses fourth kg price", kg.CommercialWholesaleTiers[0].PricePerUnit, kg.WholesaleKgPrices[3])
-	assertClose(t, "50-99kg uses fifth kg price", kg.CommercialWholesaleTiers[1].PricePerUnit, kg.WholesaleKgPrices[4])
-	assertClose(t, "100-199kg uses sixth kg price", kg.CommercialWholesaleTiers[2].PricePerUnit, kg.WholesaleKgPrices[5])
+	if kg.CommercialWholesaleTiers[0].DisplayUnit != GradientDisplayUnitKg || kg.CommercialWholesaleTiers[0].PricePerUnit <= 0 {
+		t.Fatalf("kg template tier = %+v", kg.CommercialWholesaleTiers[0])
+	}
 
 	halfLb := CalculateProduct(params, ProductInput{
 		ProductID:              29,
@@ -127,6 +164,15 @@ func TestCommercialWholesaleTiersSupportExcelSchemes(t *testing.T) {
 		YieldRate:              0.8,
 		WholesaleTierScheme:    WholesaleTierScheme227GTwo,
 		WholesaleKgMarginRates: premiumWholesaleMarginRates(params),
+		GradientTemplate: &GradientTemplate{
+			ID:          9,
+			Name:        "227g 两档模板",
+			DisplayUnit: GradientDisplayUnit227G,
+			Tiers: []GradientTemplateTier{
+				{ID: 91, Label: "2包-7包", MinWeightG: 454, MaxWeightG: f64(1589), MarginRate: premiumWholesaleMarginRates(params)[0], Position: 1},
+				{ID: 92, Label: "8包+", MinWeightG: 1816, MarginRate: premiumWholesaleMarginRates(params)[1], Position: 2},
+			},
+		},
 	})
 	if len(halfLb.CommercialWholesaleTiers) != 2 {
 		t.Fatalf("227g tiers = %+v", halfLb.CommercialWholesaleTiers)
@@ -134,8 +180,9 @@ func TestCommercialWholesaleTiersSupportExcelSchemes(t *testing.T) {
 	if halfLb.CommercialWholesaleTiers[0].Label != "2包-7包" || halfLb.CommercialWholesaleTiers[0].SpecG != 227 {
 		t.Fatalf("227g tier 1 = %+v", halfLb.CommercialWholesaleTiers[0])
 	}
-	assertClose(t, "2-7 bags uses rounded half-pound price", halfLb.CommercialWholesaleTiers[0].PricePerUnit, 192)
-	assertClose(t, "8+ bags uses rounded second half-pound price", halfLb.CommercialWholesaleTiers[1].PricePerUnit, 166)
+	if halfLb.CommercialWholesaleTiers[0].DisplayUnit != GradientDisplayUnit227G || halfLb.CommercialWholesaleTiers[0].PricePerUnit <= 0 {
+		t.Fatalf("227g template tier = %+v", halfLb.CommercialWholesaleTiers[0])
+	}
 }
 
 func TestCalculateProductPreservesCustomerAliasAndProductSnapshots(t *testing.T) {
@@ -554,49 +601,45 @@ func TestCommercialPriceExplanationIncludesFastCostParametersAndTemporaryOverrid
 	}
 }
 
-func TestExcelBeanListCommercialPricesMatchRoundedWorkbook(t *testing.T) {
+func TestExcelCommercialProfilesDoNotPublishTiersWithoutTemplates(t *testing.T) {
 	params := DefaultParameters()
 	cases := []struct {
 		name      string
 		greenCost float64
-		want      map[string]float64
 	}{
-		{"曲奇拼配", 51.75, map[string]float64{"24-49kg": 82, "50-99kg": 78, "100-199kg": 73}},
-		{"金色山脉", 62, map[string]float64{"2包-13包": 61, "14包-23包": 55, "24包-47包": 49, "48包+": 46}},
-		{"酒心巧克力", 67, map[string]float64{"2包-13包": 65, "14包-23包": 59, "24包-47包": 53, "48包+": 48}},
-		{"菠萝意式2.0", 95, map[string]float64{"2包-13包": 106, "14包-23包": 92, "24包-47包": 81, "48包+": 74}},
-		{"橘皮乌龙", 62, map[string]float64{"2包-13包": 61, "14包-23包": 55, "24包-47包": 49, "48包+": 46}},
-		{"芒霜2.0", 105, map[string]float64{"2包-13包": 116, "14包-23包": 101, "24包-47包": 89, "48包+": 81}},
-		{"小菠萝2.0", 95, map[string]float64{"2包-13包": 106, "14包-23包": 92, "24包-47包": 81, "48包+": 74}},
-		{"萨奇姆", 90, map[string]float64{"2包-13包": 100, "14包-23包": 87, "48包+": 70}},
-		{"曜石2.0", 63.9, map[string]float64{"2包-13包": 63, "14包-23包": 56, "24包-47包": 50, "48包+": 47}},
-		{"红岩2.0", 63.9, map[string]float64{"2包-13包": 63, "14包-23包": 56, "24包-47包": 50, "48包+": 47}},
-		{"初晓", 75.5, map[string]float64{"2包-13包": 73, "14包-23包": 66, "24包-47包": 59, "48包+": 55}},
-		{"松饼", 64.4, map[string]float64{"2包-13包": 63, "14包-23包": 57, "24包-47包": 51, "48包+": 48}},
-		{"榛巧", 64.4, map[string]float64{"2包-13包": 63, "14包-23包": 57, "24包-47包": 51, "48包+": 48}},
-		{"果语花香", 71.5, map[string]float64{"2包-13包": 69, "14包-23包": 62, "24包-47包": 56, "48包+": 52}},
-		{"耶加雪菲G2", 76, map[string]float64{"2包-13包": 86, "14包-23包": 75, "24包-47包": 65, "48包+": 55}},
-		{"Uraga乌拉嘎", 108, map[string]float64{"2包-13包": 119, "14包-23包": 104, "24包-47包": 91, "48包+": 84}},
-		{"浣纱果园", 100, map[string]float64{"2包-13包": 111, "14包-23包": 96, "48包+": 100}},
-		{"肯尼亚TOPAA", 120, map[string]float64{"2包-13包": 132, "14包-23包": 114, "48包+": 93}},
-		{"森林瑰夏", 118, map[string]float64{"2包-13包": 130, "14包-23包": 113, "24包-47包": 99, "48包+": 91}},
-		{"Nenka嫩咖", 116, map[string]float64{"2包-13包": 127, "14包-23包": 111, "24包-47包": 98, "48包+": 90}},
-		{"曼特宁", 69, map[string]float64{"2包-13包": 79, "14包-23包": 68, "24包-47包": 60, "48包+": 55}},
-		{"白月光-瑰夏", 360, map[string]float64{"2包-7包": 190, "8包+": 165}},
-		{"芸上莓梦", 152, map[string]float64{"2包-7包": 82, "8包+": 72}},
-		{"晨曦-娜伊", 450, map[string]float64{"2包-7包": 237, "8包+": 184}},
-		{"晚香玉", 128, map[string]float64{"2包-7包": 70, "8包+": 61}},
+		{"曲奇拼配", 51.75},
+		{"金色山脉", 62},
+		{"酒心巧克力", 67},
+		{"菠萝意式2.0", 95},
+		{"橘皮乌龙", 62},
+		{"芒霜2.0", 105},
+		{"小菠萝2.0", 95},
+		{"萨奇姆", 90},
+		{"曜石2.0", 63.9},
+		{"红岩2.0", 63.9},
+		{"初晓", 75.5},
+		{"松饼", 64.4},
+		{"榛巧", 64.4},
+		{"果语花香", 71.5},
+		{"耶加雪菲G2", 76},
+		{"Uraga乌拉嘎", 108},
+		{"浣纱果园", 100},
+		{"肯尼亚TOPAA", 120},
+		{"森林瑰夏", 118},
+		{"Nenka嫩咖", 116},
+		{"曼特宁", 69},
+		{"白月光-瑰夏", 360},
+		{"芸上莓梦", 152},
+		{"晨曦-娜伊", 450},
+		{"晚香玉", 128},
 	}
 	for _, tc := range cases {
 		got := CalculateProduct(params, ProductInput{Name: tc.name, GreenBeanCostPerKg: tc.greenCost, YieldRate: 0.8})
-		tierPrices := commercialPriceMap(got.CommercialWholesaleTiers)
-		if len(tierPrices) != len(tc.want) {
-			t.Fatalf("%s tier count = %d (%+v), want %d", tc.name, len(tierPrices), got.CommercialWholesaleTiers, len(tc.want))
+		if len(got.CommercialWholesaleTiers) != 0 {
+			t.Fatalf("%s commercial tiers = %+v, want none without gradient template", tc.name, got.CommercialWholesaleTiers)
 		}
-		for label, want := range tc.want {
-			if tierPrices[label] != want {
-				t.Fatalf("%s %s = %.3f, want %.3f; tiers=%+v", tc.name, label, tierPrices[label], want, got.CommercialWholesaleTiers)
-			}
+		if len(got.WholesaleKgPrices) == 0 {
+			t.Fatalf("%s base wholesale prices should still be calculated: %+v", tc.name, got.WholesaleKgPrices)
 		}
 	}
 }

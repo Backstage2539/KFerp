@@ -531,7 +531,7 @@ func TestCostingPriceExplanationAPIIncludesFastCostParameters(t *testing.T) {
 	}
 }
 
-func TestCostingCalculateAPIReturnsExcelTierSchemeMetadata(t *testing.T) {
+func TestCostingCalculateAPIRequiresGradientTemplateForCommercialTiers(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
 
@@ -558,16 +558,15 @@ func TestCostingCalculateAPIReturnsExcelTierSchemeMetadata(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
-	if len(got.Items) != 1 || len(got.Items[0].CommercialWholesaleTiers) != 2 {
+	if len(got.Items) != 1 {
 		t.Fatalf("items = %+v", got.Items)
 	}
-	tier := got.Items[0].CommercialWholesaleTiers[0]
-	if tier.SpecG != 227 || tier.Label != "2包-7包" || tier.PricePerUnit <= 0 {
-		t.Fatalf("tier = %+v", tier)
+	if len(got.Items[0].CommercialWholesaleTiers) != 0 {
+		t.Fatalf("commercial tiers = %+v, want none without gradient template", got.Items[0].CommercialWholesaleTiers)
 	}
 }
 
-func TestCostingCalculateAPIRoundsExcelBeanListPrices(t *testing.T) {
+func TestCostingCalculateAPIRoundsRetailBeanListPricesWithoutCommercialTemplate(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
 
@@ -594,8 +593,8 @@ func TestCostingCalculateAPIRoundsExcelBeanListPrices(t *testing.T) {
 		t.Fatalf("invalid json: %v", err)
 	}
 	item := got.Items[0]
-	if item.CommercialWholesaleTiers[0].PricePerUnit != 190 || item.CommercialWholesaleTiers[1].PricePerUnit != 165 {
-		t.Fatalf("commercial tiers = %+v", item.CommercialWholesaleTiers)
+	if len(item.CommercialWholesaleTiers) != 0 {
+		t.Fatalf("commercial tiers = %+v, want none without gradient template", item.CommercialWholesaleTiers)
 	}
 	if len(item.RetailBeanTiers) != 2 || item.RetailBeanTiers[0].Label != "100g" || item.RetailBeanTiers[0].PricePerUnit != 115 {
 		t.Fatalf("retail tiers = %+v", item.RetailBeanTiers)
