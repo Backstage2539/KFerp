@@ -293,8 +293,6 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			           NULLIF(cpti.gradient_template_id,0),
 			           NULLIF(p.gradient_template_id_override,0),
 			           NULLIF(p_config.gradient_template_id,0),
-			           NULLIF(pc.gradient_template_id,0),
-		           NULLIF(parent_pc.gradient_template_id,0),
 		           0
 		       ) AS effective_gradient_template_id,
 		       COALESCE(
