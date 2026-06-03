@@ -25,6 +25,18 @@
   - 通过；保留既有 chunk-size warning。
 - `scripts/verify_kferp.sh changed`
   - 通过；命令退出码 0。
+- feature branch：
+  - `codex/price-warning-bom-drawers-20260603` 推送提交 `567df568`。
+- 合并 develop：
+  - `develop` fast-forward 到 `567df568c22d8c5b7d7c86d7a1183885185d0fc1` 并推送。
+- development 部署：
+  - `./deploy_orderapp.sh development` 通过，Docker build 内部 `go test ./...` 通过。
+  - 备份路径：`root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603214445`。
+- smoke：
+  - `docker compose ps`：`erp_orderapp`、`erp_postgres`、`erp_caddy`、`erp_docconvert` 运行中，Postgres healthy。
+  - 未认证 GET `/app/` 返回 `303` 到 `/app/orders`。
+  - BasicAuth GET `/app/vue-shell` 返回 `200`。
+  - 需求 API 包含 `PR-404-PRICE-WARNING-BOM-DRAWERS`。
 
 ## 手册
 - `OP_MANUAL_COSTING.md`：补充感叹号 tooltip、计价方式路径、固定单价/成本加成与无商品形态豁免口径。

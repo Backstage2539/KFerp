@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-404-PRICE-WARNING-BOM-DRAWERS
 - Branch: codex/price-warning-bom-drawers-20260603
 - Owner/session: Codex / 2026-06-03
-- Status: implemented, verified locally
+- Status: merged and deployed to development
 - Scope: 商品价格表 warning 改为短 `未设置计价方式` + 感叹号 hover/focus tooltip；缺计价方式 warning 不再按 `green_bean/drip_bag` 商品形态豁免；生产 BOM 页面重排列表工具区，并把 BOM 版本和全局规格袋材映射改为列表行按钮打开抽屉。
 - DEV:
   - DEV-404-PRICE-LIST-WARNING-ICON：成本引擎使用 `MissingPricingMethodWarning`，固定单价、成本加成和有效阶梯价模板都视为有效计价方式；Vue 商品价格表用感叹号图标和 tooltip 展示 warning。
@@ -22,9 +22,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: `scripts/verify_kferp.sh changed`
   - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
   - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-price-warning-bom-drawers.md`
-- Deployment: not started.
+- Deployment: feature branch pushed with `567df568`; fast-forward merged to `develop` and pushed to `origin/develop=567df568c22d8c5b7d7c86d7a1183885185d0fc1`; development stack deployed with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603214445`.
 - Last update: 2026-06-03 Asia/Shanghai
-- Notes: RED evidence captured: Go tests failed because new `MissingPricingMethodWarning` did not exist and old生豆/挂耳分支仍豁免；frontend tests failed because warning 仍是文本 chip，BOM 版本/规格袋材映射仍是底部 panel。GREEN evidence: `go test ./internal/domain/costing ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1` passed; `node --test src/lib/bom.test.js src/lib/product-bean-list-split.test.js` passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+- Notes: RED evidence captured: Go tests failed because new `MissingPricingMethodWarning` did not exist and old生豆/挂耳分支仍豁免；frontend tests failed because warning 仍是文本 chip，BOM 版本/规格袋材映射仍是底部 panel。GREEN evidence: `go test ./internal/domain/costing ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1` passed; `node --test src/lib/bom.test.js src/lib/product-bean-list-split.test.js` passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0. Deploy evidence: Docker build ran `go test ./...`; containers running; unauthenticated GET `/app/` returned 303 to `/app/orders`; authenticated GET `/app/vue-shell` returned 200; requirement API exposes `PR-404-PRICE-WARNING-BOM-DRAWERS`.
 
 ### PR-403-BOM-PRICE-INDUSTRY-POLISH
 - Branch: codex/bom-price-industry-polish-20260603
