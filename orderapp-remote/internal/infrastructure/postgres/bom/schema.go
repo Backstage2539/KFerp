@@ -230,6 +230,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS production_boms_legacy_product_uq
 CREATE INDEX IF NOT EXISTS production_boms_group_idx
 	ON %[1]s.production_boms(group_id, status);
 
+UPDATE %[1]s.production_boms
+SET group_id=0
+WHERE group_id IN (
+	SELECT id FROM %[1]s.production_bom_groups WHERE name IN ('默认分组','默认配方组')
+);
+DELETE FROM %[1]s.production_bom_groups WHERE name IN ('默认分组','默认配方组');
+
 CREATE TABLE IF NOT EXISTS %[1]s.production_bom_versions (
 	id BIGSERIAL PRIMARY KEY,
 	bom_id BIGINT NOT NULL,
@@ -297,14 +304,7 @@ func backfillProductionBomLibrary(ctx context.Context, pool *pgxpool.Pool, schem
 		return err
 	}
 	q := fmt.Sprintf(`
-INSERT INTO %[1]s.production_bom_groups(name, sort_order, active, created_by, updated_by)
-VALUES('默认分组', 100, true, 'system-backfill', 'system-backfill')
-ON CONFLICT DO NOTHING;
-
-WITH default_group AS (
-	SELECT id FROM %[1]s.production_bom_groups WHERE name='默认分组' ORDER BY id LIMIT 1
-),
-legacy_products AS (
+WITH legacy_products AS (
 	SELECT DISTINCT p.id, COALESCE(NULLIF(p.name,''), '商品 ' || p.id::text) AS name,
 	       COALESCE(NULLIF(pb.status,''), 'active') AS status
 	FROM %[1]s.products p
@@ -319,7 +319,7 @@ legacy_products AS (
 INSERT INTO %[1]s.production_boms(code, name, group_id, status, legacy_product_id, created_by, updated_by)
 SELECT 'BOM-' || LPAD(lp.id::text, 6, '0'),
        lp.name || ' 生产 BOM',
-       (SELECT id FROM default_group),
+       0,
        CASE WHEN lp.status='inactive' THEN 'inactive' ELSE 'active' END,
        lp.id,
        'system-backfill',

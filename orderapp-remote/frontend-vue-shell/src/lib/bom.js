@@ -59,10 +59,15 @@ export function filterProductionBomCatalog(rows = [], { status = 'active', query
     if (selectedGroupID === -1 && rowGroupID > 0) return false
     if (!keyword) return true
     const haystack = [
+      row.product,
       row.code,
       row.name,
+      row.production_bom_code,
+      row.production_bom_name,
       row.group_name,
+      row.production_bom_group_name,
       row.latest_version_no,
+      row.production_bom_version_no,
       row.status,
     ].map((value) => String(value || '').toLowerCase()).join(' ')
     return haystack.includes(keyword)

@@ -6,6 +6,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-402-PRODUCTION-BOM-GROUP-TABS
+- Branch: codex/production-bom-group-tabs-20260603
+- Owner/session: Codex / 2026-06-03
+- Status: in progress
+- Scope: 生产 BOM 分组去掉默认分组；生产 BOM 页面只保留商品 BOM列表作为主列表，在列表上方展示全部分组、未分类和用户新增分组 Tab，并支持勾选 BOM 批量移动到分组。
+- DEV:
+  - DEV-402-BOM-GROUP-TABS-UI：移除独立“生产 BOM 档案”列表，把新建、状态过滤、搜索、分组 Tab、批量移动分组和 BOM 名称编辑入口集中到商品 BOM列表。
+  - DEV-402-BOM-GROUP-UNCLASSIFIED：后端不再创建默认分组；旧默认分组迁回 `group_id=0` 未分类；删除分组时 BOM 回到未分类。
+  - DEV-402-MANUAL-DOCS：更新需求、验收和 BOM 操作手册。
+- Verifier:
+  - RED: `node --test src/lib/bom.test.js`; `go test ./internal/infrastructure/postgres/bom -run TestProductionBomGroupsArePureUIFoldersWithDeleteAndSort -count=1`
+  - Frontend: `node --test src/lib/bom.test.js`; `npm run build` in `orderapp-remote/frontend-vue-shell`
+  - API/backend: `go test ./internal/infrastructure/postgres/bom ./internal/interfaces/http/bom ./internal/application/bom -count=1`
+  - Full backend: `go test ./...` in `orderapp-remote`
+  - Changed verifier: `scripts/verify_kferp.sh changed`
+  - Manual: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
+  - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-production-bom-group-tabs.md`
+- Deployment: pending
+- Last update: 2026-06-03 Asia/Shanghai
+- Notes: RED evidence captured: frontend BOM test failed because page still rendered 独立“生产 BOM 档案”、`group-tree` and default group wording; backend repository marker test failed because delete group still moved BOM to default group. GREEN evidence: `node --test src/lib/bom.test.js`, targeted BOM/support Go packages, Vue build, `go test ./...`, and `scripts/verify_kferp.sh changed` passed.
+
 ### PR-401-PRICE-LIST-MISSING-GRADIENT-WARNING
 - Branch: codex/price-list-missing-gradient-warning-20260603
 - Owner/session: Codex / 2026-06-03

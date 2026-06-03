@@ -92,11 +92,16 @@ test('BOM view exposes grouped recipe library and no longer edits production con
   assert.doesNotMatch(source, /searchParams\.get\('return_product_id'\)/)
   assert.match(appSource, /transientReturnNavigation/)
   assert.match(appSource, /returnNavigation/)
-  assert.match(source, /新增分组/)
-  assert.match(source, /group-tree/)
+  assert.match(source, /增加分组/)
+  assert.match(source, /全部分组/)
+  assert.match(source, /未分类/)
+  assert.match(source, /移动到分组/)
   assert.match(source, /配方明细/)
   assert.match(source, /当前引用/)
   assert.match(source, /DELETE/)
+  assert.doesNotMatch(source, /生产 BOM 档案/)
+  assert.doesNotMatch(source, /默认分组/)
+  assert.doesNotMatch(source, /group-tree/)
   assert.doesNotMatch(source, /特殊属性/)
   assert.doesNotMatch(source, /special_attrs_schema_json/)
   assert.doesNotMatch(source, /special_attrs_json/)
@@ -111,27 +116,30 @@ test('BOM view exposes grouped recipe library and no longer edits production con
   assert.doesNotMatch(source, /lockBomVersion/)
 })
 
-test('production BOM catalog supports status filters name search and inactive copy actions', async () => {
+test('production BOM list supports status filters name search group tabs and inactive copy actions', async () => {
   const rows = [
     { id: 1, code: 'BOM-001', name: '精品拼配', status: 'active', group_id: 2 },
     { id: 2, code: 'BOM-002', name: '旧版深烘', status: 'inactive', group_id: 2 },
     { id: 3, code: 'BOM-003', name: '挂耳配方', status: 'active', group_id: 3 },
+    { id: 4, code: 'BOM-004', name: '未分类配方', status: 'active', group_id: 0 },
   ]
 
-  assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', query: 'BOM-00' }).map((row) => row.id), [1, 3])
+  assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', query: 'BOM-00' }).map((row) => row.id), [1, 3, 4])
   assert.deepEqual(filterProductionBomCatalog(rows, { status: 'inactive', query: '深烘' }).map((row) => row.id), [2])
   assert.deepEqual(filterProductionBomCatalog(rows, { status: 'all', query: '拼配' }).map((row) => row.id), [1])
+  assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', groupID: -1 }).map((row) => row.id), [4])
 
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   for (const marker of [
-    'bom-catalog-toolbar',
+    'bom-list-toolbar',
     'productionBomStatusFilter',
     'productionBomSearchQuery',
     '新建生产 BOM',
-    '编辑 BOM',
-    '复制 BOM',
-    '失效 BOM',
+    '复制',
+    '失效',
+    'selectedBomRowKeys',
+    'moveSelectedProductBomsToGroup',
     'copyProductionBomRecord',
     'deactivateProductionBomRecord',
     '/api/production-boms/${bomForm.id}',
