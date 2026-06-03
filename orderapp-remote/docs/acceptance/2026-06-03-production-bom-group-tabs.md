@@ -44,9 +44,10 @@
 - Feature branch: `codex/production-bom-group-tabs-20260603`
 - Feature commit: `af9015f4 refine production bom group tabs`
 - Develop merge: `88dc3043ba9c0839d3bd7d01ff1c75c4d8c72f4b`
+- Evidence sync commit: `68a00a6ebe997d88c4b5be8e0e899104e8c40dcb`
 - Deploy command: `./deploy_orderapp.sh development`
-- Deployed commit: `origin/develop=88dc3043ba9c0839d3bd7d01ff1c75c4d8c72f4b`
-- Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603203625`
+- Final deployed commit: `origin/develop=68a00a6ebe997d88c4b5be8e0e899104e8c40dcb`
+- Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260603204052`
 - Docker build: ran `go test ./...` successfully inside image build.
 - Smoke:
   - `docker compose ps`: `erp_orderapp` up, `erp_postgres` healthy.
