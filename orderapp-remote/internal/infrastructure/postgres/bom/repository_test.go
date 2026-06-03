@@ -148,12 +148,11 @@ func TestProductionBomGroupsArePureUIFoldersWithDeleteAndSort(t *testing.T) {
 	repository := readRepositorySource(t)
 	combined := string(schema) + "\n" + repository
 	for _, want := range []string{
-		"DEFAULT_PRODUCTION_BOM_GROUP_NAME",
 		"DeleteProductionBomGroup",
 		"MoveProductionBomGroup",
 		"move_production_bom_group",
 		"delete_production_bom_group",
-		"SET group_id=(SELECT id FROM",
+		"SET group_id=0",
 		"sort_order=$2",
 	} {
 		if !strings.Contains(combined, want) {
@@ -161,9 +160,13 @@ func TestProductionBomGroupsArePureUIFoldersWithDeleteAndSort(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
+		"DEFAULT_PRODUCTION_BOM_GROUP_NAME",
+		"VALUES('默认分组'",
+		"VALUES($1,100,true,'system','system')",
 		"DisableProductionBomGroup",
 		"disable_production_bom_group",
 		"include_inactive",
+		"ON CONFLICT DO NOTHING;\n\nWITH default_group",
 	} {
 		if strings.Contains(combined, forbidden) {
 			t.Fatalf("production BOM groups should not use inactive/disable model; found %q", forbidden)
