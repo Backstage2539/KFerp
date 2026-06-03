@@ -44,8 +44,9 @@ func TestCustomerSkuBomBeanListWiring(t *testing.T) {
 	bomView := string(readDev152File(t, filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue")))
 	for _, want := range []string{
 		"SearchableSelect",
-		"deleteBom",
-		"apiSend(`/api/bom/${selectedProductId.value}`",
+		"deactivateSelectedProductionBoms",
+		"deactivateProductionBomRecord",
+		"apiSend(`/api/production-boms/${bom.id}`",
 	} {
 		if !strings.Contains(bomView, want) {
 			t.Fatalf("BomView.vue missing BOM maintenance wiring %q", want)

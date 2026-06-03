@@ -195,16 +195,22 @@ func TestProductionBomBackfillRepairsLegacyItemsWithoutBindings(t *testing.T) {
 	}
 }
 
-func TestProductionBomCannotDeactivateWhenActiveProductsReferenceIt(t *testing.T) {
+func TestProductionBomCanDeactivateWhenActiveProductsReferenceIt(t *testing.T) {
 	repository := readRepositorySource(t)
-	for _, want := range []string{
+	start := strings.Index(repository, "func (r Repository) UpdateProductionBom")
+	end := strings.Index(repository, "func (r Repository) CopyProductionBom")
+	if start == -1 || end == -1 || end <= start {
+		t.Fatalf("cannot locate UpdateProductionBom source")
+	}
+	updateProductionBom := repository[start:end]
+	for _, forbidden := range []string{
 		"production BOM is used by active products",
-		"FROM %s.product_production_bom_bindings b",
-		"JOIN %s.products p ON p.id=b.product_id",
+		"deactivate products first",
+		"activeReferences",
 		"p.active=true",
 	} {
-		if !strings.Contains(repository, want) {
-			t.Fatalf("production BOM deactivate active product guard missing marker %q", want)
+		if strings.Contains(updateProductionBom, forbidden) {
+			t.Fatalf("production BOM deactivation should not block active product references; found %q", forbidden)
 		}
 	}
 }

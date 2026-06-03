@@ -80,7 +80,8 @@ func TestDev167VueShowsProductMultiDeactivateAndBomInactiveWarnings(t *testing.T
 		{
 			rel: filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"),
 			wants: []string{
-				"失效当前 BOM",
+				"批量失效",
+				"deactivateSelectedProductionBoms",
 				"bomStatusLabel",
 				"当前 BOM 已失效",
 			},

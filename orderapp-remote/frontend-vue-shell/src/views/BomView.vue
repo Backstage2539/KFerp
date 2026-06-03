@@ -56,7 +56,6 @@
           <span>已过滤到当前 SKU BOM</span>
           <button class="text-button" type="button" @click="clearBomProductFilter">显示全部 BOM</button>
         </div>
-        <button class="secondary danger-outline" type="button" @click="deleteBom" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct">失效当前 BOM</button>
       </div>
     </section>
 
@@ -81,6 +80,16 @@
           移动到分组
         </button>
         <span class="muted left">已选 {{ selectedBomRecordsForMove.length }} 个可移动 BOM</span>
+      </div>
+      <div class="bom-batch-deactivate-card">
+        <div>
+          <strong>批量失效</strong>
+          <p class="muted left">勾选商品 BOM 后统一失效；不会删除配方明细。</p>
+        </div>
+        <button class="secondary danger-outline" type="button" :disabled="!canDeactivateSelectedBoms || loading" @click="deactivateSelectedProductionBoms">
+          批量失效
+        </button>
+        <span class="muted left">已选 {{ selectedActiveBomRecordsForDeactivate.length }} 个可失效 BOM</span>
       </div>
       <div class="bom-list-tabs">
         <button class="secondary compact-action" type="button" @click="openGroupDrawer">增加分组</button>
@@ -622,10 +631,19 @@ const selectedBomRecordsForMove = computed(() => {
   }
   return [...byBomID.values()]
 })
+const selectedActiveBomRecordsForDeactivate = computed(() => {
+  const byBomID = new Map()
+  for (const row of selectedBomRows.value) {
+    const record = bomRecordFromRow(row)
+    if (record.id > 0 && record.status !== 'inactive' && !byBomID.has(record.id)) byBomID.set(record.id, record)
+  }
+  return [...byBomID.values()]
+})
 const canMoveSelectedBoms = computed(() => {
   const targetGroupID = Number(selectedBomMoveGroupID.value || 0)
   return selectedBomRecordsForMove.value.some((bom) => Number(bom.group_id || 0) !== targetGroupID)
 })
+const canDeactivateSelectedBoms = computed(() => selectedActiveBomRecordsForDeactivate.value.length > 0)
 
 function ratio(value) {
   const n = Number(value || 0)
@@ -1114,19 +1132,6 @@ function processStatusLabel(status) {
   return status || '-'
 }
 
-async function deleteBom() {
-  if (!selectedProductId.value) return
-  if (!canEditCurrentBomProduct.value) return
-  const okToDeactivate = window.confirm('确认失效当前 BOM？配方明细会保留，后续依赖该 BOM 的策略会提示 BOM 已失效。')
-  if (!okToDeactivate) return
-  await mutate(async () => {
-    await apiSend(`/api/bom/${selectedProductId.value}`, { method: 'DELETE' })
-    resetItemForm()
-    ok.value = '当前 BOM 已失效'
-    await loadAll()
-  })
-}
-
 async function saveItem() {
   if (!canEditCurrentBomProduct.value) return
   await mutate(async () => {
@@ -1245,6 +1250,31 @@ async function moveSelectedProductBomsToGroup() {
   })
 }
 
+async function deactivateProductionBomRecords(records, successText) {
+  await mutate(async () => {
+    for (const bom of records) {
+      await apiSend(`/api/production-boms/${bom.id}`, {
+        method: 'PUT',
+        body: {
+          name: bom?.name || '',
+          group_id: Number(bom?.group_id || 0),
+          status: 'inactive',
+        },
+      })
+    }
+    ok.value = successText
+    selectedBomRowKeys.value = []
+    await loadAll()
+    if (selectedProductId.value) await loadDetail(selectedProductId.value)
+  })
+}
+
+async function deactivateSelectedProductionBoms() {
+  const records = selectedActiveBomRecordsForDeactivate.value
+  if (!records.length) return
+  await deactivateProductionBomRecords(records, `已失效 ${records.length} 个生产 BOM`)
+}
+
 async function moveProductionBomGroup(group, direction) {
   const groupID = Number(group?.id || 0)
   if (!groupID) return
@@ -1284,20 +1314,7 @@ async function saveProductionBomRecord() {
 async function deactivateProductionBomRecord(bom) {
   const bomID = Number(bom?.id || 0)
   if (!bomID || bom?.status === 'inactive') return
-  const okToDeactivate = window.confirm(`确认失效生产 BOM「${bom?.name || bomID}」？已启用商品引用时，后端会拒绝并提示。`)
-  if (!okToDeactivate) return
-  await mutate(async () => {
-    await apiSend(`/api/production-boms/${bomID}`, {
-      method: 'PUT',
-      body: {
-        name: bom?.name || '',
-        group_id: Number(bom?.group_id || 0),
-        status: 'inactive',
-      },
-    })
-    ok.value = '已失效生产 BOM'
-    await loadAll()
-  })
+  await deactivateProductionBomRecords([bom], '已失效生产 BOM')
 }
 
 async function createVersion() {
@@ -1413,8 +1430,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .bom-list-head { align-items: flex-start; }
 .bom-list-filters { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin: 6px 0 12px; padding-top: 10px; border-top: 1px solid #eee8df; }
 .bom-list-tabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.bom-move-card { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; }
-.bom-move-card strong { display: block; margin-bottom: 4px; }
+.bom-move-card, .bom-batch-deactivate-card { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; }
+.bom-move-card strong, .bom-batch-deactivate-card strong { display: block; margin-bottom: 4px; }
+.bom-batch-deactivate-card { border-color: #eed5d5; background: #fff8f8; }
 .bom-list-panel-scroll { max-height: min(62vh, 720px); overflow: auto; }
 .bom-name-button { height: auto; min-height: 30px; text-align: left; font-weight: 700; }
 .bom-record-form { align-items: flex-end; }
