@@ -120,23 +120,54 @@ func TestLoadProductInputsPricesDripFromFinishedProductComponentCost(t *testing.
 	}
 }
 
-func TestLoadProductInputsReadsCategoryGradientTemplates(t *testing.T) {
+func TestLoadProductInputsDoesNotFallbackToCategoryGradientTemplates(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(b)
+	gradientExpr := effectiveGradientTemplateExpr(t, src)
 	for _, want := range []string{
-		"pc.gradient_template_id",
-		"product_categories pc",
+		"NULLIF(cpro.gradient_template_id,0)",
+		"NULLIF(cpti.gradient_template_id,0)",
+		"NULLIF(p.gradient_template_id_override,0)",
+		"NULLIF(p_config.gradient_template_id,0)",
+	} {
+		if !strings.Contains(gradientExpr, want) {
+			t.Fatalf("costing repository must keep explicit gradient template sources; missing %q in %s", want, gradientExpr)
+		}
+	}
+	for _, forbidden := range []string{
+		"NULLIF(pc.gradient_template_id,0)",
+		"NULLIF(parent_pc.gradient_template_id,0)",
+	} {
+		if strings.Contains(gradientExpr, forbidden) {
+			t.Fatalf("costing repository must not use product/category template gradient as price source; found %q in %s", forbidden, gradientExpr)
+		}
+	}
+	for _, want := range []string{
 		"pricing_gradient_templates",
 		"pricing_gradient_template_tiers",
 		"GradientTemplate = template",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("costing repository must load category gradient templates; missing %q", want)
+			t.Fatalf("costing repository must still load explicit gradient template details; missing %q", want)
 		}
 	}
+}
+
+func effectiveGradientTemplateExpr(t *testing.T, src string) string {
+	t.Helper()
+	marker := ") AS effective_gradient_template_id"
+	end := strings.Index(src, marker)
+	if end < 0 {
+		t.Fatalf("missing effective_gradient_template_id expression")
+	}
+	start := strings.LastIndex(src[:end], "COALESCE(")
+	if start < 0 {
+		t.Fatalf("missing COALESCE for effective_gradient_template_id expression")
+	}
+	return src[start : end+len(marker)]
 }
 
 func TestLoadProductInputsResolvesCustomerProductRuleTemplates(t *testing.T) {
@@ -155,7 +186,7 @@ func TestLoadProductInputsResolvesCustomerProductRuleTemplates(t *testing.T) {
 		"NULLIF(cpro.gradient_template_id,0)",
 		"NULLIF(cpti.gradient_template_id,0)",
 		"NULLIF(p.gradient_template_id_override,0)",
-		"NULLIF(pc.gradient_template_id,0)",
+		"NULLIF(p_config.gradient_template_id,0)",
 		"&input.InventoryUnit",
 		"&input.QuoteUnit",
 		"&input.OrderUnit",
