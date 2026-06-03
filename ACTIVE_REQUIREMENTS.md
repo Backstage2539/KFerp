@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-403-BOM-PRICE-INDUSTRY-POLISH
+- Branch: codex/bom-price-industry-polish-20260603
+- Owner/session: Codex / 2026-06-03
+- Status: verified on feature branch; pending merge/deploy
+- Scope: 优化商品价格表缺少计价方式提示；行业字段模板改为左侧列表搜索/状态过滤、右侧编辑；生产 BOM 操作区移到列表和详情共同顶部，列表独立滚动；修复 `Codex测试豆` 这类旧 BOM 有明细但无生产 BOM 绑定导致不能勾选移动分组的问题。
+- DEV:
+  - DEV-403-PRICE-LIST-PRICING-METHOD-WARNING：把“未配置阶梯价模板”改为“未设置计价方式”，并在提示中写清主菜单路径 `商品与配方 → 商品配置和分类模板 → 商品配置模板 → 计价方式`。
+  - DEV-403-INDUSTRY-TEMPLATE-LIST-EDITOR：行业字段模板左侧列表支持搜索模板名和启用/停用/全部过滤，点击模板后在右侧编辑，新建模板也在右侧编辑。
+  - DEV-403-BOM-GROUP-ACTION-LAYOUT：生产 BOM 的新建、状态过滤、搜索、分组 Tab 和移动分组卡片放在 BOM 列表与编辑详情共同顶部；BOM 列表保持独立滚动窗口。
+  - DEV-403-LEGACY-BOM-BINDING-REPAIR：BOM 列表/详情加载时幂等修复旧 `product_bom` / `product_bom_items` 有数据但缺少 `production_boms` 和商品绑定的记录，使旧 BOM 行可被勾选移动分组。
+- Verifier:
+  - RED: `go test ./internal/domain/costing -run TestProductWithoutGradientTemplateDoesNotPublishCommercialTiers -count=1`; `go test ./internal/infrastructure/postgres/bom -run TestProductionBomBackfillRepairsLegacyItemsWithoutBindings -count=1`; `node --test src/lib/bom.test.js src/lib/product-bean-list-split.test.js`
+  - Frontend: `node --test src/lib/bom.test.js src/lib/product-bean-list-split.test.js`; `npm run build` in `orderapp-remote/frontend-vue-shell`
+  - API/backend: `go test ./internal/domain/costing ./internal/infrastructure/postgres/bom ./internal/interfaces/http/bom ./internal/interfaces/http/manufacturing ./internal/interfaces/http/support -count=1`
+  - Full backend: `go test ./...` in `orderapp-remote`
+  - Changed verifier: `scripts/verify_kferp.sh changed`
+  - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`
+  - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-bom-price-industry-polish.md`
+- Deployment: pending.
+- Last update: 2026-06-03 Asia/Shanghai
+- Notes: `Codex测试豆` 的根因是旧 BOM 行有 `item_count=1` 和 legacy `product_bom_items`，但 `production_bom_id=0`，前端按新模型禁止移动未绑定生产 BOM 的行。PR-403 不把前端限制放宽，而是在 BOM 读路径修复 legacy 绑定，保证旧 BOM 也进入生产 BOM 配方库后再移动分组。GREEN evidence: frontend target tests passed 22/22; targeted Go packages passed; `go test ./...` passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+
 ### PR-402-PRODUCTION-BOM-GROUP-TABS
 - Branch: codex/production-bom-group-tabs-20260603
 - Owner/session: Codex / 2026-06-03

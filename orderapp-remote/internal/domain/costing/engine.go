@@ -14,7 +14,7 @@ const (
 	WholesaleTierSchemeKgThree  = "kg_three"
 	WholesaleTierScheme227GTwo  = "bag_227_two"
 
-	MissingGradientTemplateWarning = "未配置阶梯价模板：商品价格表不会生成商业阶梯价。请在商品档案绑定含阶梯价模板的商品配置模板，或设置客户商品规则。"
+	MissingGradientTemplateWarning = "未设置计价方式：商品价格表不会生成阶梯报价。请从主菜单进入「商品与配方 → 商品配置和分类模板 → 商品配置模板」，在「计价方式」下拉中选择含阶梯价模板的计价方式；也可以进入「商品与配方 → 阶梯价模板」先维护阶梯价模板。"
 
 	GradientDisplayUnitLb   = "lb"
 	GradientDisplayUnitKg   = "kg"

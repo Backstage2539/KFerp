@@ -26,6 +26,9 @@ func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 }
 
 func (r Repository) List(ctx context.Context) ([]bomapp.ListItem, error) {
+	if err := repairLegacyProductionBomBindings(ctx, r.pool, r.schema); err != nil {
+		return nil, err
+	}
 	q := fmt.Sprintf(`
 		SELECT
 			p.id,
@@ -83,6 +86,9 @@ func (r Repository) List(ctx context.Context) ([]bomapp.ListItem, error) {
 }
 
 func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail, error) {
+	if err := repairLegacyProductionBomBindings(ctx, r.pool, r.schema); err != nil {
+		return bomapp.Detail{}, err
+	}
 	source, err := resolveEffectiveBomSource(ctx, r.pool, r.schema, productID)
 	if err != nil {
 		return bomapp.Detail{}, err
@@ -1417,6 +1423,9 @@ func (r Repository) MoveProductionBomGroup(ctx context.Context, cmd bomapp.MoveP
 }
 
 func (r Repository) ListProductionBoms(ctx context.Context) ([]bomapp.ProductionBomSummary, error) {
+	if err := repairLegacyProductionBomBindings(ctx, r.pool, r.schema); err != nil {
+		return nil, err
+	}
 	rows, err := r.pool.Query(ctx, productionBomSummarySQL(r.schema, "1=1")+" ORDER BY COALESCE(g.sort_order,100), pb.name, pb.id")
 	if err != nil {
 		return nil, err
@@ -1920,4 +1929,100 @@ func ensureProductionBomGroupTx(ctx context.Context, tx pgx.Tx, schema string, g
 		return groupID, nil
 	}
 	return 0, nil
+}
+
+func repairLegacyProductionBomBindings(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	// PR-403: repair legacy product BOM rows that still have items but no production BOM binding.
+	q := fmt.Sprintf(`
+WITH missing_legacy_bindings AS (
+	SELECT p.id AS product_id,
+	       COALESCE(NULLIF(p.name,''), '商品 ' || p.id::text) AS product_name,
+	       COALESCE(NULLIF(pb.status,''), 'active') AS status,
+	       COALESCE(NULLIF(pb.yield_rate,0), 0.8) AS yield_rate,
+	       COALESCE(pb.updated_at, now()) AS updated_at
+	FROM %[1]s.products p
+	LEFT JOIN %[1]s.product_bom pb ON pb.product_id=p.id
+	LEFT JOIN %[1]s.product_production_bom_bindings existing_binding ON existing_binding.product_id=p.id
+	WHERE COALESCE(p.active,true)=true
+	  AND existing_binding.product_id IS NULL
+	  AND (
+	    pb.product_id IS NOT NULL
+	    OR EXISTS (SELECT 1 FROM %[1]s.product_bom_items bi WHERE bi.product_id=p.id)
+	    OR EXISTS (SELECT 1 FROM %[1]s.bom_versions bv WHERE bv.product_id=p.id)
+	  )
+),
+inserted_boms AS (
+	INSERT INTO %[1]s.production_boms(code, name, group_id, status, legacy_product_id, created_by, updated_by)
+	SELECT 'BOM-' || LPAD(product_id::text, 6, '0'),
+	       product_name || ' 生产 BOM',
+	       0,
+	       CASE WHEN status='inactive' THEN 'inactive' ELSE 'active' END,
+	       product_id,
+	       'system-pr403-legacy-binding-repair',
+	       'system-pr403-legacy-binding-repair'
+	FROM missing_legacy_bindings
+	ON CONFLICT DO NOTHING
+	RETURNING id
+),
+version_source AS (
+	SELECT pbom.id AS bom_id,
+	       mlb.product_id,
+	       mlb.yield_rate,
+	       mlb.updated_at
+	FROM missing_legacy_bindings mlb
+	JOIN %[1]s.production_boms pbom ON pbom.legacy_product_id=mlb.product_id
+	WHERE NOT EXISTS (
+		SELECT 1 FROM %[1]s.production_bom_versions existing_version WHERE existing_version.bom_id=pbom.id
+	)
+),
+inserted_versions AS (
+	INSERT INTO %[1]s.production_bom_versions(bom_id, version_no, status, yield_rate, note, legacy_product_id, legacy_bom_version_id, created_at, published_at, created_by, published_by)
+	SELECT bom_id, 'V001', 'published', yield_rate, '旧 BOM 绑定修复', product_id, 0, updated_at, updated_at, 'system-pr403-legacy-binding-repair', 'system-pr403-legacy-binding-repair'
+	FROM version_source
+	ON CONFLICT DO NOTHING
+	RETURNING id
+),
+item_source AS (
+	SELECT v.id AS version_id,
+	       i.material_id,
+	       COALESCE(NULLIF(i.component_type,''),'material') AS component_type,
+	       COALESCE(i.component_product_id,0) AS component_product_id,
+	       COALESCE(i.component_spec_g,0) AS component_spec_g,
+	       COALESCE(NULLIF(i.consume_unit,''),'ratio_pct') AS consume_unit,
+	       COALESCE(i.qty_per_unit,0) AS qty_per_unit,
+	       COALESCE(i.ratio_pct,0) AS ratio_pct,
+	       COALESCE(i.unit_cost_snapshot,0) AS unit_cost_snapshot
+	FROM %[1]s.production_bom_versions v
+	JOIN missing_legacy_bindings mlb ON mlb.product_id=v.legacy_product_id
+	JOIN %[1]s.product_bom_items i ON i.product_id=mlb.product_id
+	WHERE NOT EXISTS (
+		SELECT 1 FROM %[1]s.production_bom_version_items existing_item WHERE existing_item.version_id=v.id
+	)
+),
+inserted_items AS (
+	INSERT INTO %[1]s.production_bom_version_items(version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot)
+	SELECT version_id, material_id, component_type, component_product_id, component_spec_g, consume_unit, qty_per_unit, ratio_pct, unit_cost_snapshot
+	FROM item_source
+	RETURNING id
+),
+binding_rows AS (
+	SELECT mlb.product_id, pbom.id AS bom_id, v.id AS bom_version_id
+	FROM missing_legacy_bindings mlb
+	JOIN %[1]s.production_boms pbom ON pbom.legacy_product_id=mlb.product_id
+	JOIN LATERAL (
+		SELECT id
+		FROM %[1]s.production_bom_versions pv
+		WHERE pv.bom_id=pbom.id AND pv.status='published'
+		ORDER BY pv.published_at DESC NULLS LAST, pv.id DESC
+		LIMIT 1
+	) v ON true
+)
+INSERT INTO %[1]s.product_production_bom_bindings(product_id, bom_id, bom_version_id, bound_by)
+SELECT product_id, bom_id, bom_version_id, 'system-pr403-legacy-binding-repair'
+FROM binding_rows
+WHERE bom_version_id > 0
+ON CONFLICT DO NOTHING;
+`, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
 }

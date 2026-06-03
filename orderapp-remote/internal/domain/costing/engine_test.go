@@ -112,6 +112,10 @@ func TestProductWithoutGradientTemplateDoesNotPublishCommercialTiers(t *testing.
 	if len(got.CommercialWholesaleTiers) != 0 {
 		t.Fatalf("commercial tiers = %+v, want none without gradient template", got.CommercialWholesaleTiers)
 	}
+	wantWarning := "未设置计价方式：商品价格表不会生成阶梯报价。请从主菜单进入「商品与配方 → 商品配置和分类模板 → 商品配置模板」，在「计价方式」下拉中选择含阶梯价模板的计价方式；也可以进入「商品与配方 → 阶梯价模板」先维护阶梯价模板。"
+	if MissingGradientTemplateWarning != wantWarning {
+		t.Fatalf("MissingGradientTemplateWarning = %q, want %q", MissingGradientTemplateWarning, wantWarning)
+	}
 	if !containsString(got.Warnings, MissingGradientTemplateWarning) {
 		t.Fatalf("warnings = %+v, want missing gradient template warning", got.Warnings)
 	}

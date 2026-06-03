@@ -96,6 +96,9 @@ test('BOM view exposes grouped recipe library and no longer edits production con
   assert.match(source, /全部分组/)
   assert.match(source, /未分类/)
   assert.match(source, /移动到分组/)
+  assert.match(source, /bom-workspace-actions/)
+  assert.match(source, /bom-list-panel-scroll/)
+  assert.match(source, /isMovableBomRow/)
   assert.match(source, /配方明细/)
   assert.match(source, /当前引用/)
   assert.match(source, /DELETE/)
@@ -132,7 +135,8 @@ test('production BOM list supports status filters name search group tabs and ina
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   for (const marker of [
-    'bom-list-toolbar',
+    'bom-workspace-actions',
+    'bom-list-panel-scroll',
     'productionBomStatusFilter',
     'productionBomSearchQuery',
     '新建生产 BOM',
@@ -140,6 +144,7 @@ test('production BOM list supports status filters name search group tabs and ina
     '失效',
     'selectedBomRowKeys',
     'moveSelectedProductBomsToGroup',
+    'isMovableBomRow',
     'copyProductionBomRecord',
     'deactivateProductionBomRecord',
     '/api/production-boms/${bomForm.id}',
@@ -147,4 +152,10 @@ test('production BOM list supports status filters name search group tabs and ina
   ]) {
     assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  const headStart = source.indexOf('class="panel-head bom-list-head"')
+  const headEnd = source.indexOf('bom-list-panel-scroll')
+  assert.notEqual(headStart, -1)
+  assert.notEqual(headEnd, -1)
+  assert.doesNotMatch(source.slice(headStart, headEnd), /移动到分组/)
+  assert.doesNotMatch(source.slice(headStart, headEnd), /productionBomStatusFilter/)
 })

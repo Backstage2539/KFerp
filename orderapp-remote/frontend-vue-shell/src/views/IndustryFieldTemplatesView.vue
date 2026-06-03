@@ -4,7 +4,6 @@
       <div class="panel-head">
         <h2>行业字段模板</h2>
         <div class="actions">
-          <button class="secondary" type="button" @click="newTemplate">新建</button>
           <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
         </div>
       </div>
@@ -13,32 +12,44 @@
     </section>
 
     <div class="grid industry-template-layout">
-      <section class="panel table-wrap">
-        <div class="section-title">模板列表</div>
-        <table>
-          <thead>
-            <tr>
-              <th>模板</th>
-              <th>状态</th>
-              <th>字段数</th>
-              <th>更新时间</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in rows" :key="row.id" :class="{ active: row.id === form.id }" @click="editTemplate(row)">
-              <td><strong>{{ row.name }}</strong><small>{{ row.description || '-' }}</small></td>
-              <td><span :class="['pill', row.status]">{{ row.status === 'active' ? '启用' : '停用' }}</span></td>
-              <td>{{ row.fields?.length || 0 }}</td>
-              <td>{{ row.updated_at }}</td>
-            </tr>
-            <tr v-if="!rows.length">
-              <td colspan="4" class="muted">暂无行业字段模板</td>
-            </tr>
-          </tbody>
-        </table>
+      <section class="panel industry-template-list-panel">
+        <div class="section-title-row">
+          <div class="section-title">模板列表</div>
+          <button class="primary compact" type="button" @click="newTemplate">新建模板</button>
+        </div>
+        <div class="template-filters">
+          <label>
+            <span>搜索模板</span>
+            <input v-model.trim="industryTemplateFilters.query" placeholder="搜索模板名" />
+          </label>
+          <label>
+            <span>状态</span>
+            <select v-model="industryTemplateFilters.status">
+              <option value="active">启用</option>
+              <option value="inactive">停用</option>
+              <option value="all">全部</option>
+            </select>
+          </label>
+        </div>
+        <div class="template-list">
+          <button
+            v-for="row in filteredIndustryTemplateRows"
+            :key="row.id"
+            :class="['template-list-row', { active: row.id === form.id }]"
+            type="button"
+            @click="editTemplate(row)">
+            <span>
+              <strong>{{ row.name }}</strong>
+              <small>{{ row.description || '无说明' }}</small>
+            </span>
+            <span :class="['pill', row.status]">{{ row.status === 'active' ? '启用' : '停用' }}</span>
+            <small>{{ row.fields?.length || 0 }} 个字段 · {{ row.updated_at || '-' }}</small>
+          </button>
+          <p v-if="!filteredIndustryTemplateRows.length" class="muted list-empty">暂无匹配的行业字段模板</p>
+        </div>
       </section>
 
-      <section class="panel editor">
+      <section class="panel editor industry-template-editor-panel">
         <div class="section-title">{{ form.id ? '编辑模板' : '新建模板' }}</div>
         <div class="form-grid">
           <label>
@@ -97,7 +108,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 
 const rows = ref([])
@@ -105,6 +116,20 @@ const loading = ref(false)
 const error = ref('')
 const ok = ref('')
 const form = reactive(blankForm())
+const industryTemplateFilters = reactive({
+  query: '',
+  status: 'active',
+})
+
+const filteredIndustryTemplateRows = computed(() => {
+  const query = String(industryTemplateFilters.query || '').trim().toLowerCase()
+  const status = String(industryTemplateFilters.status || 'active')
+  return rows.value.filter((row) => {
+    if (status !== 'all' && String(row.status || 'active') !== status) return false
+    if (!query) return true
+    return String(row.name || '').toLowerCase().includes(query)
+  })
+})
 
 function blankForm() {
   return {
@@ -281,10 +306,22 @@ onMounted(load)
 * { box-sizing: border-box; }
 .page { padding: 18px; color: #171717; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
-.panel-head, .actions, .fields-head, .footer-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.panel-head, .actions, .fields-head, .footer-actions, .section-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .panel-head { justify-content: space-between; margin-bottom: 12px; }
 h2 { margin: 0; font-size: 20px; }
-.grid { display: grid; grid-template-columns: minmax(380px, .85fr) minmax(560px, 1.15fr); gap: 14px; align-items: start; }
+.grid { display: grid; grid-template-columns: minmax(280px, 360px) minmax(560px, 1fr); gap: 14px; align-items: start; }
+.industry-template-layout { min-height: 560px; }
+.industry-template-list-panel, .industry-template-editor-panel { align-self: stretch; }
+.industry-template-list-panel { display: flex; flex-direction: column; min-height: 560px; }
+.section-title-row { justify-content: space-between; margin-bottom: 10px; }
+.section-title-row .section-title { margin-bottom: 0; }
+.template-filters { display: grid; grid-template-columns: 1fr 120px; gap: 8px; margin-bottom: 10px; }
+.template-list { display: grid; align-content: start; gap: 8px; overflow: auto; padding-right: 2px; }
+.template-list-row { min-height: auto; height: auto; border: 1px solid #eee8df; background: #fff; border-radius: 8px; padding: 10px; display: grid; gap: 6px; text-align: left; color: #222; }
+.template-list-row.active { border-color: #1f1f1f; background: #f8f7f5; }
+.template-list-row strong, .template-list-row small { display: block; }
+.template-list-row small { color: #777; line-height: 1.35; }
+.list-empty { padding: 18px 8px; }
 .table-wrap { overflow: auto; }
 table { width: 100%; min-width: 620px; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; font-size: 14px; vertical-align: top; }

@@ -174,6 +174,27 @@ func TestProductionBomGroupsArePureUIFoldersWithDeleteAndSort(t *testing.T) {
 	}
 }
 
+func TestProductionBomBackfillRepairsLegacyItemsWithoutBindings(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := string(schema) + "\n" + readRepositorySource(t)
+	for _, want := range []string{
+		"PR-403: repair legacy product BOM rows that still have items but no production BOM binding",
+		"missing_legacy_bindings",
+		"LEFT JOIN %[1]s.product_production_bom_bindings existing_binding",
+		"existing_binding.product_id IS NULL",
+		"EXISTS (SELECT 1 FROM %[1]s.product_bom_items bi WHERE bi.product_id=p.id)",
+		"INSERT INTO %[1]s.product_production_bom_bindings(product_id, bom_id, bom_version_id, bound_by)",
+		"'system-pr403-legacy-binding-repair'",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("legacy BOM binding repair missing marker %q", want)
+		}
+	}
+}
+
 func TestProductionBomCannotDeactivateWhenActiveProductsReferenceIt(t *testing.T) {
 	repository := readRepositorySource(t)
 	for _, want := range []string{

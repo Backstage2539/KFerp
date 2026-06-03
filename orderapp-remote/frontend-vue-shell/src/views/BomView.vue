@@ -60,6 +60,64 @@
       </div>
     </section>
 
+    <section class="panel bom-workspace-actions">
+      <div class="bom-action-row">
+        <button class="primary" type="button" @click="openNewProductionBomRecord">新建生产 BOM</button>
+        <label>
+          <span>状态</span>
+          <select v-model="productionBomStatusFilter">
+            <option value="active">启用</option>
+            <option value="inactive">已失效</option>
+            <option value="all">全部</option>
+          </select>
+        </label>
+        <label class="bom-search-field">
+          <span>搜索 BOM</span>
+          <input v-model.trim="productionBomSearchQuery" placeholder="按 BOM 名称、编号或商品搜索" />
+        </label>
+      </div>
+      <div class="bom-list-tabs">
+        <button class="secondary compact-action" type="button" @click="openGroupDrawer">增加分组</button>
+        <button
+          :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === 0 }]"
+          type="button"
+          @click="selectProductionBomGroup(0)">
+          全部分组
+        </button>
+        <button
+          :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === -1 }]"
+          type="button"
+          @click="selectProductionBomGroup(-1)">
+          未分类
+        </button>
+        <button
+          v-for="group in productionBomGroups"
+          :key="group.id"
+          :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === Number(group.id || 0) }]"
+          type="button"
+          @click="selectProductionBomGroup(Number(group.id || 0))">
+          {{ group.name }}
+        </button>
+      </div>
+      <div class="bom-move-card">
+        <div>
+          <strong>移动到分组</strong>
+          <p class="muted left">勾选商品 BOM 后移动分组；移动到其他分组会直接覆盖旧分组。</p>
+        </div>
+        <label>
+          <span>目标分组</span>
+          <select v-model.number="selectedBomMoveGroupID">
+            <option :value="0">未分类</option>
+            <option v-for="group in productionBomGroups" :key="group.id" :value="Number(group.id || 0)">{{ group.name }}</option>
+          </select>
+        </label>
+        <button class="secondary" type="button" :disabled="!canMoveSelectedBoms || loading" @click="moveSelectedProductBomsToGroup">
+          移动到分组
+        </button>
+        <span class="muted left">已选 {{ selectedBomRecordsForMove.length }} 个可移动 BOM</span>
+      </div>
+    </section>
+
     <div class="grid">
       <section class="panel list-panel">
         <div class="panel-head bom-list-head">
@@ -67,63 +125,8 @@
             <div class="panel-title compact-title">商品 BOM列表</div>
             <p class="muted left">一个 BOM 只归入一个分组；全部分组显示所有 BOM，未分类显示未归组 BOM。</p>
           </div>
-          <div class="bom-list-toolbar">
-            <button class="primary" type="button" @click="openNewProductionBomRecord">新建生产 BOM</button>
-            <label>
-              <span>状态</span>
-              <select v-model="productionBomStatusFilter">
-                <option value="active">启用</option>
-                <option value="inactive">已失效</option>
-                <option value="all">全部</option>
-              </select>
-            </label>
-            <label>
-              <span>搜索 BOM</span>
-              <input v-model.trim="productionBomSearchQuery" placeholder="按 BOM 名称、编号或商品搜索" />
-            </label>
-          </div>
         </div>
-        <div class="bom-list-tabs">
-          <button class="secondary compact-action" type="button" @click="openGroupDrawer">增加分组</button>
-          <button
-            :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === 0 }]"
-            type="button"
-            @click="selectProductionBomGroup(0)">
-            全部分组
-          </button>
-          <button
-            :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === -1 }]"
-            type="button"
-            @click="selectProductionBomGroup(-1)">
-            未分类
-          </button>
-          <button
-            v-for="group in productionBomGroups"
-            :key="group.id"
-            :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === Number(group.id || 0) }]"
-            type="button"
-            @click="selectProductionBomGroup(Number(group.id || 0))">
-            {{ group.name }}
-          </button>
-        </div>
-        <div class="bom-move-card">
-          <div>
-            <strong>移动到分组</strong>
-            <p class="muted left">勾选商品 BOM 后移动分组；移动到其他分组会直接覆盖旧分组。</p>
-          </div>
-          <label>
-            <span>目标分组</span>
-            <select v-model.number="selectedBomMoveGroupID">
-              <option :value="0">未分类</option>
-              <option v-for="group in productionBomGroups" :key="group.id" :value="Number(group.id || 0)">{{ group.name }}</option>
-            </select>
-          </label>
-          <button class="secondary" type="button" :disabled="!canMoveSelectedBoms || loading" @click="moveSelectedProductBomsToGroup">
-            移动到分组
-          </button>
-          <span class="muted left">已选 {{ selectedBomRecordsForMove.length }} 个可移动 BOM</span>
-        </div>
-        <div class="table-wrap">
+        <div class="table-wrap bom-list-panel-scroll">
           <table>
             <thead>
               <tr>
@@ -148,7 +151,7 @@
                     v-model="selectedBomRowKeys"
                     type="checkbox"
                     :value="bomRowKey(row)"
-                    :disabled="!Number(row.production_bom_id || 0)"
+                    :disabled="!isMovableBomRow(row)"
                     @click.stop />
                 </td>
                 <td>{{ row.product }}</td>
@@ -569,7 +572,7 @@ const finishedProductConsumeUnitOptions = [
 const currentConsumeUnitOptions = computed(() => itemForm.component_type === 'finished_product'
   ? finishedProductConsumeUnitOptions
   : materialConsumeUnitOptions)
-const visibleMovableBomRows = computed(() => bomContextRows.value.filter((row) => Number(row.production_bom_id || 0) > 0))
+const visibleMovableBomRows = computed(() => bomContextRows.value.filter(isMovableBomRow))
 const isAllVisibleBomsSelected = computed(() => {
   const keys = visibleMovableBomRows.value.map(bomRowKey)
   if (!keys.length) return false
@@ -585,7 +588,7 @@ const isSomeVisibleBomsSelected = computed(() => {
 })
 const selectedBomRows = computed(() => {
   const selected = new Set(selectedBomRowKeys.value)
-  return allBomContextRows.value.filter((row) => selected.has(bomRowKey(row)) && Number(row.production_bom_id || 0) > 0)
+  return allBomContextRows.value.filter((row) => selected.has(bomRowKey(row)) && isMovableBomRow(row))
 })
 const selectedBomRecordsForMove = computed(() => {
   const byBomID = new Map()
@@ -613,6 +616,10 @@ function qty(value) {
 
 function bomRowKey(row) {
   return String(row?.product_id || row?.id || '')
+}
+
+function isMovableBomRow(row = {}) {
+  return Number(row.production_bom_id || 0) > 0
 }
 
 function optionLabel(option) {
@@ -739,7 +746,7 @@ function selectProductionBomGroup(groupID) {
     query: '',
     groupID: Number(selectedProductionBomGroupID.value || 0),
   })
-  const visibleBomIDs = new Set(groupOnlyRows.map((bom) => Number(bom.id || 0)))
+  const visibleBomIDs = new Set(groupOnlyRows.map((bom) => Number(bom.production_bom_id || bom.id || 0)))
   const selectedBomID = Number(selectedBomRow.value?.production_bom_id || detail.value?.production_bom_id || 0)
   if (selectedBomID && !visibleBomIDs.has(selectedBomID)) {
     clearSelectedProduct()
@@ -1351,11 +1358,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .danger-outline { border-color: #9d2626; color: #9d2626; }
 .danger-text { color: #9d2626; margin-left: 10px; }
 .text-button { height: 30px; border: 0; background: transparent; color: #1f4f82; padding: 0; }
-.bom-list-head { align-items: flex-end; }
-.bom-list-toolbar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
-.bom-list-tabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 12px; }
-.bom-move-card { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; margin-bottom: 12px; }
+.bom-workspace-actions { display: grid; gap: 12px; }
+.bom-action-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.bom-search-field input { min-width: min(340px, 100%); }
+.bom-list-head { align-items: flex-start; }
+.bom-list-tabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bom-move-card { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; }
 .bom-move-card strong { display: block; margin-bottom: 4px; }
+.bom-list-panel-scroll { max-height: min(62vh, 720px); overflow: auto; }
 .bom-name-button { height: auto; min-height: 30px; text-align: left; font-weight: 700; }
 .bom-record-form { align-items: flex-end; }
 .bom-group-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
