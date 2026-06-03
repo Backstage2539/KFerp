@@ -13,107 +13,7 @@
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">{{ ok }}</div>
-      <div class="bom-sku-context-panel">
-        <div>
-          <div class="context-eyebrow">SKU归属</div>
-          <h3>{{ bomSkuContextLabel }}</h3>
-          <p class="muted left">生产 BOM 是可分组、可复制、可复用的配方档案；商品档案只绑定一个已发布版本。</p>
-        </div>
-        <div v-if="!isWorkspaceCustomerLocked" class="bom-sku-context-controls">
-          <button class="secondary compact-action" type="button" @click="selectedBomCustomerSkuCustomerID = 0" :disabled="!selectedBomCustomerSkuCustomerID">
-            公共SKU
-          </button>
-          <SearchableSelect
-            class="bom-customer-select"
-            v-model="selectedBomCustomerSkuCustomerID"
-            :options="bomSkuCustomers"
-            :option-label="customerOptionLabel"
-            :option-meta="customerOptionMeta"
-            :option-value="optionNumericValue"
-            placeholder="选择客户SKU"
-            empty-text="暂无自定义SKU客户" />
-        </div>
-        <p v-else class="muted left context-lock-note">客户账户模式下由顶部当前客户控制。</p>
-        <div class="context-stats">
-          <span>公共SKU BOM {{ publicBomRows.length }}</span>
-          <span>当前SKU BOM {{ bomContextRows.length }}</span>
-        </div>
-      </div>
-      <div class="filters">
-        <label>
-          <span>商品</span>
-          <SearchableSelect
-            v-model="selectedProductId"
-            :options="bomContextProducts"
-            :option-label="optionLabel"
-            :option-meta="optionMeta"
-            :option-value="optionNumericValue"
-            placeholder="选择商品"
-            :empty-text="selectedBomCustomerSkuCustomerID ? '没有匹配客户SKU' : '没有匹配公共SKU'"
-            @select="selectProduct(optionNumericValue($event))" />
-        </label>
-        <div v-if="isBomProductFilterActive" class="bom-focus-filter">
-          <span>已过滤到当前 SKU BOM</span>
-          <button class="text-button" type="button" @click="clearBomProductFilter">显示全部 BOM</button>
-        </div>
-      </div>
-    </section>
-
-    <div class="bom-workspace-header">
-      <button class="primary" type="button" @click="openNewProductionBomRecord">新建生产 BOM</button>
-    </div>
-
-    <section class="panel bom-workspace-actions">
-      <div class="bom-move-card">
-        <div>
-          <strong>移动到分组</strong>
-          <p class="muted left">勾选商品 BOM 后移动分组；移动到其他分组会直接覆盖旧分组。</p>
-        </div>
-        <label>
-          <span>目标分组</span>
-          <select v-model.number="selectedBomMoveGroupID">
-            <option :value="0">未分类</option>
-            <option v-for="group in productionBomGroups" :key="group.id" :value="Number(group.id || 0)">{{ group.name }}</option>
-          </select>
-        </label>
-        <button class="secondary" type="button" :disabled="!canMoveSelectedBoms || loading" @click="moveSelectedProductBomsToGroup">
-          移动到分组
-        </button>
-        <span class="muted left">已选 {{ selectedBomRecordsForMove.length }} 个可移动 BOM</span>
-      </div>
-      <div class="bom-batch-deactivate-card">
-        <div>
-          <strong>批量失效</strong>
-          <p class="muted left">勾选商品 BOM 后统一失效；不会删除配方明细。</p>
-        </div>
-        <button class="secondary danger-outline" type="button" :disabled="!canDeactivateSelectedBoms || loading" @click="deactivateSelectedProductionBoms">
-          批量失效
-        </button>
-        <span class="muted left">已选 {{ selectedActiveBomRecordsForDeactivate.length }} 个可失效 BOM</span>
-      </div>
-      <div class="bom-list-tabs">
-        <button class="secondary compact-action" type="button" @click="openGroupDrawer">增加分组</button>
-        <button
-          :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === 0 }]"
-          type="button"
-          @click="selectProductionBomGroup(0)">
-          全部分组
-        </button>
-        <button
-          :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === -1 }]"
-          type="button"
-          @click="selectProductionBomGroup(-1)">
-          未分类
-        </button>
-        <button
-          v-for="group in productionBomGroups"
-          :key="group.id"
-          :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === Number(group.id || 0) }]"
-          type="button"
-          @click="selectProductionBomGroup(Number(group.id || 0))">
-          {{ group.name }}
-        </button>
-      </div>
+      <p class="muted left">生产 BOM 是可分组、可复制、可复用的配方档案；商品档案在生产配置中引用某个 BOM 版本。</p>
     </section>
 
     <div class="grid">
@@ -124,7 +24,58 @@
             <p class="muted left">一个 BOM 只归入一个分组；全部分组显示所有 BOM，未分类显示未归组 BOM。</p>
           </div>
         </div>
+        <div class="bom-list-tabs-row">
+          <div class="bom-list-tabs">
+            <button
+              :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === 0 }]"
+              type="button"
+              @click="selectProductionBomGroup(0)">
+              全部分组
+            </button>
+            <button
+              :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === -1 }]"
+              type="button"
+              @click="selectProductionBomGroup(-1)">
+              未分类
+            </button>
+            <button
+              v-for="group in productionBomGroups"
+              :key="group.id"
+              :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === Number(group.id || 0) }]"
+              type="button"
+              @click="selectProductionBomGroup(Number(group.id || 0))">
+              {{ group.name }}
+            </button>
+          </div>
+          <button class="primary compact-action" type="button" @click="openNewProductionBomRecord">新建商品 BOM</button>
+        </div>
+        <div class="bom-list-toolbar">
+          <button class="secondary compact-action" type="button" @click="openGroupDrawer">增加分组</button>
+          <label>
+            <span>目标分组</span>
+            <select v-model.number="selectedBomMoveGroupID">
+              <option :value="0">未分类</option>
+              <option v-for="group in productionBomGroups" :key="group.id" :value="Number(group.id || 0)">{{ group.name }}</option>
+            </select>
+          </label>
+          <button class="secondary compact-action" type="button" :disabled="!canMoveSelectedBoms || loading" @click="moveSelectedProductBomsToGroup">
+            移动到分组
+          </button>
+          <span class="muted left">已选 {{ selectedBomRecordsForMove.length }} 个可移动 BOM</span>
+        </div>
         <div class="bom-list-filters">
+          <label class="bom-product-filter">
+            <span>商品过滤</span>
+            <SearchableSelect
+              v-model="bomFilterProductId"
+              :options="bomContextProducts"
+              :option-label="optionLabel"
+              :option-meta="optionMeta"
+              :option-value="optionNumericValue"
+              placeholder="按商品编号或名称搜索"
+              empty-text="没有匹配商品"
+              @select="setBomProductFilter(optionNumericValue($event))" />
+          </label>
           <label>
             <span>状态</span>
             <select v-model="productionBomStatusFilter">
@@ -137,6 +88,9 @@
             <span>搜索 BOM</span>
             <input v-model.trim="productionBomSearchQuery" placeholder="按 BOM 名称、编号或商品搜索" />
           </label>
+          <button class="secondary compact-action danger-outline bom-batch-deactivate-action" type="button" :disabled="!canDeactivateSelectedBoms || loading" @click="deactivateSelectedProductionBoms">
+            批量失效
+          </button>
         </div>
         <div class="table-wrap bom-list-panel-scroll">
           <table>
@@ -155,9 +109,9 @@
             <tbody>
               <tr
                 v-for="row in bomContextRows"
-                :key="row.product_id"
-                :class="{ active: row.product_id === selectedProductId }"
-                @click="selectProduct(row.product_id)">
+                :key="bomRowKey(row)"
+                :class="{ active: bomRowKey(row) === activeBomRowKey, 'unbound-production-bom': row.is_unbound_production_bom }"
+                @click="selectBomRow(row)">
                 <td class="select-col">
                   <input
                     v-model="selectedBomRowKeys"
@@ -186,7 +140,7 @@
                 </td>
               </tr>
               <tr v-if="!bomContextRows.length">
-                <td colspan="8" class="muted">{{ selectedBomCustomerSkuCustomerID ? '暂无客户SKU BOM' : '暂无公共SKU BOM' }}</td>
+                <td colspan="8" class="muted">暂无商品 BOM</td>
               </tr>
             </tbody>
           </table>
@@ -297,9 +251,9 @@
         <div class="inline-form">
           <label>
             <span>版本备注</span>
-            <input v-model.trim="versionNote" placeholder="例如 2026 春季豆单" :disabled="!selectedProductId || !canEditCurrentBomProduct" />
+            <input v-model.trim="versionNote" placeholder="例如 2026 春季豆单" :disabled="!currentProductionBomID || !canEditCurrentBomProduct" />
           </label>
-          <button class="primary" type="button" @click="createVersion" :disabled="!selectedProductId || loading || !canEditCurrentBomProduct || !currentProductionBomID">复制为新版草稿</button>
+          <button class="primary" type="button" @click="createVersion" :disabled="loading || !canEditCurrentBomProduct || !currentProductionBomID">复制为新版草稿</button>
         </div>
         <div class="table-wrap compact">
           <table>
@@ -486,7 +440,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { bomContextCustomerIDs, filterBomContextProducts, filterBomRowsByProductFocus, filterProductionBomCatalog, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
+import { filterBomContextProducts, filterBomRowsByProductFocus, filterProductionBomCatalog, mergeProductionBomRows, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
 import { componentTypeLabel, isDripProduct } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -501,6 +455,7 @@ const props = defineProps({
 const BOM_FORM_DRAFT_SCOPE = FORM_DRAFT_SCOPES.bom
 
 const rows = ref([])
+const productionBoms = ref([])
 const products = ref([])
 const customers = ref([])
 const materials = ref([])
@@ -509,6 +464,7 @@ const versions = ref([])
 const processTemplates = ref([])
 const productionBomGroups = ref([])
 const productionBomDetail = ref(null)
+const selectedProductionBomRecord = ref(null)
 const detail = ref(null)
 const selectedProductId = ref(0)
 const selectedBomCustomerSkuCustomerID = ref(0)
@@ -546,20 +502,17 @@ const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', group_
 const versionNote = ref('')
 
 const detailItems = computed(() => detail.value?.items || [])
-const bomContextCustomerID = computed(() => Number(selectedBomCustomerSkuCustomerID.value || 0))
+const bomContextCustomerID = computed(() => Number(isWorkspaceCustomerLocked.value ? props.customerContextId : selectedBomCustomerSkuCustomerID.value || 0))
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
-const bomSkuContextLabel = computed(() => {
-  const customerID = bomContextCustomerID.value
-  if (!customerID) return '公共SKU'
-  return `${customerName(customerID) || `客户 #${customerID}`} SKU`
+const bomContextProducts = computed(() => (isWorkspaceCustomerLocked.value
+  ? filterBomContextProducts(products.value, bomContextCustomerID.value)
+  : products.value.filter(isBomProductCandidateCompat).slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))))
+const allBomContextRows = computed(() => {
+  const baseRows = isWorkspaceCustomerLocked.value
+    ? filterBomContextProducts(rows.value, bomContextCustomerID.value)
+    : rows.value.filter(isBomProductCandidateCompat)
+  return mergeProductionBomRows(baseRows, productionBoms.value)
 })
-const publicBomRows = computed(() => filterBomContextProducts(rows.value, 0))
-const customBomProductCustomerIDs = computed(() => bomContextCustomerIDs(products.value, rows.value))
-const bomSkuCustomers = computed(() => customers.value
-  .filter((customer) => customBomProductCustomerIDs.value.has(Number(customer.id || 0)))
-  .sort((a, b) => customerOptionLabel(a).localeCompare(customerOptionLabel(b))))
-const bomContextProducts = computed(() => filterBomContextProducts(products.value, bomContextCustomerID.value))
-const allBomContextRows = computed(() => filterBomContextProducts(rows.value, bomContextCustomerID.value))
 const groupFilteredBomContextRows = computed(() => {
   return filterProductionBomCatalog(allBomContextRows.value, {
     status: productionBomStatusFilter.value,
@@ -572,9 +525,9 @@ const isBomProductFilterActive = computed(() => Number(bomFilterProductId.value 
 const linkedProcessTemplates = computed(() => processTemplates.value.filter((template) => Number(template.product_id || 0) === Number(selectedProductId.value || 0)))
 const selectedProduct = computed(() => productByID(selectedProductId.value))
 const selectedBomRow = computed(() => rows.value.find((row) => Number(row.product_id || 0) === Number(selectedProductId.value || 0)) || null)
-const currentProductionBomLabel = computed(() => productionBomLabel(detail.value || selectedBomRow.value || selectedProduct.value || {}))
-const currentProductionBomWarning = computed(() => productionBomVersionWarning(detail.value || selectedBomRow.value || selectedProduct.value || {}))
-const currentProductionBomID = computed(() => Number(detail.value?.production_bom_id || selectedBomRow.value?.production_bom_id || 0))
+const currentProductionBomLabel = computed(() => productionBomLabel(detail.value || selectedBomRow.value || selectedProductionBomRecord.value || selectedProduct.value || {}))
+const currentProductionBomWarning = computed(() => productionBomVersionWarning(detail.value || selectedBomRow.value || selectedProductionBomRecord.value || selectedProduct.value || {}))
+const currentProductionBomID = computed(() => Number(detail.value?.production_bom_id || selectedBomRow.value?.production_bom_id || selectedProductionBomRecord.value?.production_bom_id || selectedProductionBomRecord.value?.id || 0))
 const bomFormTitle = computed(() => ({
   create: '新建生产 BOM',
   edit: '编辑 BOM',
@@ -582,7 +535,13 @@ const bomFormTitle = computed(() => ({
 })[bomForm.mode] || '生产 BOM')
 const selectedProductionBomVersion = computed(() => versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0)) || null)
 const versionDrawerBomLabel = computed(() => currentProductionBomLabel.value || '请选择 BOM')
+const activeBomRowKey = computed(() => {
+  if (selectedProductionBomRecord.value) return `bom:${Number(selectedProductionBomRecord.value.id || selectedProductionBomRecord.value.production_bom_id || 0)}`
+  const selectedRow = selectedBomRow.value
+  return selectedRow ? bomRowKey(selectedRow) : ''
+})
 const canEditCurrentBomProduct = computed(() => {
+  if (selectedProductionBomRecord.value) return true
   if (!selectedProductId.value) return true
   if (detail.value?.can_edit_bom === false) return false
   if (selectedBomRow.value?.can_edit_bom === false) return false
@@ -657,7 +616,9 @@ function qty(value) {
 }
 
 function bomRowKey(row) {
-  return String(row?.product_id || row?.id || '')
+  const bomID = Number(row?.production_bom_id || row?.id || 0)
+  if (bomID > 0) return `bom:${bomID}`
+  return `product:${Number(row?.product_id || 0)}`
 }
 
 function isMovableBomRow(row = {}) {
@@ -671,7 +632,8 @@ function optionLabel(option) {
 function optionMeta(option) {
   const parts = []
   if (Number(option?.customer_id || 0) > 0) parts.push(customerName(option.customer_id) || `客户 #${option.customer_id}`)
-  else parts.push('公共SKU')
+  else parts.push('商品档案')
+  if (option?.number) parts.push(option.number)
   if (option?.roast_level) parts.push(option.roast_level)
   return parts.join(' / ')
 }
@@ -723,18 +685,6 @@ function customerName(id) {
   return customers.value.find((customer) => Number(customer.id) === Number(id))?.name || ''
 }
 
-function customerOptionLabel(customer) {
-  return customer?.name || ''
-}
-
-function customerOptionMeta(customer) {
-  const parts = []
-  if (customer?.company_name && customer.company_name !== customer?.name) parts.push(customer.company_name)
-  if (customer?.contact) parts.push(customer.contact)
-  if (customer?.phone || customer?.company_phone) parts.push(customer.phone || customer.company_phone)
-  return parts.join(' / ')
-}
-
 function normalizeBomProduct(product) {
   return {
     ...product,
@@ -748,7 +698,24 @@ function normalizeBomRow(row) {
     ...row,
     product_id: Number(row.product_id || 0),
     customer_id: Number(row.customer_id || 0),
+    production_bom_id: Number(row.production_bom_id || 0),
+    production_bom_group_id: Number(row.production_bom_group_id ?? row.group_id ?? 0),
+    group_id: Number(row.group_id ?? row.production_bom_group_id ?? 0),
   }
+}
+
+function normalizeProductionBomRecord(row = {}) {
+  return {
+    ...row,
+    id: Number(row.id || row.production_bom_id || 0),
+    production_bom_id: Number(row.production_bom_id || row.id || 0),
+    group_id: Number(row.group_id || 0),
+    status: row.status === 'inactive' ? 'inactive' : 'active',
+  }
+}
+
+function isBomProductCandidateCompat(row = {}) {
+  return String(row.product_kind || row.productKind || '').trim().toLowerCase() !== 'green_bean'
 }
 
 function bomContextProductFilter(product) {
@@ -789,7 +756,7 @@ function selectProductionBomGroup(groupID) {
     groupID: Number(selectedProductionBomGroupID.value || 0),
   })
   const visibleBomIDs = new Set(groupOnlyRows.map((bom) => Number(bom.production_bom_id || bom.id || 0)))
-  const selectedBomID = Number(selectedBomRow.value?.production_bom_id || detail.value?.production_bom_id || 0)
+  const selectedBomID = Number(selectedBomRow.value?.production_bom_id || selectedProductionBomRecord.value?.id || detail.value?.production_bom_id || 0)
   if (selectedBomID && !visibleBomIDs.has(selectedBomID)) {
     clearSelectedProduct()
   }
@@ -879,6 +846,11 @@ function copyProductionBomRecord(bom) {
 async function openBomVersionDrawer(row) {
   if (!Number(row?.production_bom_id || 0)) return
   versionDrawerOpen.value = true
+  if (!Number(row?.product_id || 0)) {
+    await selectUnboundProductionBom(row)
+    await loadProductionBomVersions(Number(row.production_bom_id || row.id || 0))
+    return
+  }
   if (Number(row?.product_id || 0) !== Number(selectedProductId.value || 0)) {
     await selectProduct(row.product_id)
     return
@@ -972,6 +944,7 @@ function clearSelectedProduct() {
 	bomFilterProductId.value = 0
 	detail.value = null
   productionBomDetail.value = null
+  selectedProductionBomRecord.value = null
 	versions.value = []
   selectedProductionBomVersionID.value = 0
 	updateUrl()
@@ -981,6 +954,7 @@ function syncSelectedProductToBomContext() {
   if (!selectedProductId.value) {
     detail.value = null
     productionBomDetail.value = null
+    selectedProductionBomRecord.value = null
     versions.value = []
     selectedProductionBomVersionID.value = 0
     updateUrl()
@@ -1022,7 +996,7 @@ async function loadAll() {
   error.value = ''
   ok.value = ''
   try {
-    const [listData, productData, materialData, mappingData, customerData, processData, productionGroupData] = await Promise.all([
+    const [listData, productData, materialData, mappingData, customerData, processData, productionGroupData, productionBomData] = await Promise.all([
       apiGet('/api/bom/list'),
       apiGet('/api/bom/products'),
       apiGet('/api/bom/materials'),
@@ -1030,6 +1004,7 @@ async function loadAll() {
       apiGet('/api/customers?limit=200'),
       apiGet('/api/process-templates'),
       apiGet('/api/production-bom-groups'),
+      apiGet('/api/production-boms?status=all'),
     ])
     const customerID = Number(props.customerContextId || 0)
     const isCustomerLocked = isWorkspaceCustomerLocked.value && customerID > 0
@@ -1045,6 +1020,7 @@ async function loadAll() {
     customers.value = (customerData.rows || []).filter((row) => row.active !== false)
     processTemplates.value = processData.rows || []
     productionBomGroups.value = productionGroupData || []
+    productionBoms.value = (productionBomData.rows || productionBomData || []).map(normalizeProductionBomRecord)
     syncBomContextFromUrlProduct()
     applyWorkspaceCustomerContext()
     syncSelectedBomCustomerSkuCustomer()
@@ -1090,6 +1066,19 @@ async function loadVersions(productId) {
   syncSelectedProductionBomVersion()
 }
 
+async function loadProductionBomVersions(bomID) {
+  const id = Number(bomID || 0)
+  if (!id) {
+    productionBomDetail.value = null
+    versions.value = []
+    selectedProductionBomVersionID.value = 0
+    return
+  }
+  productionBomDetail.value = await apiGet(`/api/production-boms/${id}`)
+  versions.value = productionBomDetail.value?.versions || []
+  syncSelectedProductionBomVersion()
+}
+
 async function selectProduct(productId) {
   const nextProductId = Number(productId || 0)
   const nextProduct = productByID(nextProductId)
@@ -1101,6 +1090,7 @@ async function selectProduct(productId) {
     bomFilterProductId.value = 0
   }
   selectedProductId.value = nextProductId
+  selectedProductionBomRecord.value = null
   error.value = ''
   ok.value = ''
   try {
@@ -1108,6 +1098,46 @@ async function selectProduct(productId) {
   } catch (err) {
     error.value = err.message || '加载失败'
   }
+}
+
+function setBomProductFilter(productId) {
+  const id = Number(productId || 0)
+  bomFilterProductId.value = id
+  if (!id) {
+    updateUrl()
+    return
+  }
+  selectProduct(id)
+}
+
+async function selectUnboundProductionBom(row) {
+  const record = bomRecordFromRow(row)
+  if (!record.id) return
+  selectedProductId.value = 0
+  detail.value = null
+  selectedProductionBomRecord.value = {
+    ...record,
+    production_bom_id: record.id,
+    production_bom_code: record.code,
+    production_bom_name: record.name,
+    production_bom_group_id: record.group_id,
+    production_bom_group_name: record.group_name,
+    latest_bom_version_no: row.latest_bom_version_no || row.latest_version_no || '',
+    production_bom_version_no: row.production_bom_version_no || '',
+  }
+  productionBomDetail.value = null
+  versions.value = []
+  selectedProductionBomVersionID.value = 0
+  updateUrl()
+}
+
+async function selectBomRow(row) {
+  if (!Number(row?.product_id || 0)) {
+    openEditProductionBomRecord(bomRecordFromRow(row))
+    await selectUnboundProductionBom(row)
+    return
+  }
+  await selectProduct(row.product_id)
 }
 
 function clearBomProductFilter() {
@@ -1328,7 +1358,8 @@ async function createVersion() {
     }
     versionNote.value = ''
     ok.value = bomID ? '已复制为新版草稿' : '已保存版本'
-    await loadVersions(selectedProductId.value)
+    if (selectedProductId.value) await loadVersions(selectedProductId.value)
+    else await loadProductionBomVersions(bomID)
   })
 }
 
@@ -1423,28 +1454,21 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .danger-text { color: #9d2626; margin-left: 10px; }
 .text-button { height: 30px; border: 0; background: transparent; color: #1f4f82; padding: 0; }
 .text-button + .text-button { margin-left: 10px; }
-.bom-workspace-header { display: flex; justify-content: flex-end; margin: 0 0 10px; }
-.bom-workspace-actions { display: grid; gap: 12px; }
 .bom-action-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
 .bom-search-field input { min-width: min(340px, 100%); }
+.bom-product-filter { min-width: min(280px, 100%); }
 .bom-list-head { align-items: flex-start; }
 .bom-list-filters { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin: 6px 0 12px; padding-top: 10px; border-top: 1px solid #eee8df; }
+.bom-batch-deactivate-action { margin-left: auto; }
+.bom-list-tabs-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
+.bom-list-toolbar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; padding: 10px; margin: 8px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
 .bom-list-tabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.bom-move-card, .bom-batch-deactivate-card { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; }
-.bom-move-card strong, .bom-batch-deactivate-card strong { display: block; margin-bottom: 4px; }
-.bom-batch-deactivate-card { border-color: #eed5d5; background: #fff8f8; }
 .bom-list-panel-scroll { max-height: min(62vh, 720px); overflow: auto; }
 .bom-name-button { height: auto; min-height: 30px; text-align: left; font-weight: 700; }
 .bom-record-form { align-items: flex-end; }
 .bom-group-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
 .bom-group-strip > span { color: #666; font-size: 12px; font-weight: 700; }
 .bom-focus-filter { align-self: stretch; display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #dbeafe; border-radius: 8px; background: #eff6ff; color: #1d4ed8; font-size: 13px; }
-.bom-sku-context-panel { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: grid; grid-template-columns: minmax(240px, 1fr) minmax(260px, auto); gap: 10px 14px; align-items: center; background: #fbfaf8; }
-.context-eyebrow { color: #7a4d1a; font-size: 12px; font-weight: 700; }
-.bom-sku-context-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
-.bom-customer-select { min-width: min(320px, 100%); }
-.context-stats { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
-.context-stats span { border: 1px solid #e0d7cc; border-radius: 999px; padding: 4px 9px; background: #fff; color: #333; font-size: 12px; }
 .table-wrap { overflow: auto; }
 table { width: 100%; min-width: 640px; border-collapse: collapse; }
 .compact table { min-width: 520px; }
@@ -1481,8 +1505,6 @@ tbody tr.active { background: #f3f7fb; }
 @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .bom-sku-context-panel { grid-template-columns: 1fr; }
-  .bom-sku-context-controls { justify-content: flex-start; }
   .attrs-grid { grid-template-columns: 1fr; }
   table { min-width: 620px; }
 }

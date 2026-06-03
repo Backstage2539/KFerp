@@ -770,6 +770,7 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 			ProductID:           88,
 			ProductName:         "精品意式拼配",
 			ProductCode:         "SKU-000088",
+			ProductActive:       false,
 			DisplayName:         "Karen 精品拼配",
 			CustomerItemCode:    "KAREN-ESP",
 			BrandName:           "",
@@ -790,7 +791,7 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET aliases status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"rows"`, `"display_name":"Karen 精品拼配"`, `"customer_item_code":"KAREN-ESP"`, `"product_id":88`, `"product_code":"SKU-000088"`, `"include_in_price_list":true`} {
+	for _, want := range []string{`"rows"`, `"display_name":"Karen 精品拼配"`, `"customer_item_code":"KAREN-ESP"`, `"product_id":88`, `"product_code":"SKU-000088"`, `"product_active":false`, `"include_in_price_list":true`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("customer product aliases response missing %s: %s", want, rec.Body.String())
 		}

@@ -8,68 +8,20 @@
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
-      <div v-if="error" class="error">{{ error }}</div>
-      <div v-if="ok" class="ok">{{ ok }}</div>
     </section>
 
     <section class="settings-workbench">
-      <div class="panel sku-context-panel compact-sku-context">
-        <div class="sku-context-main">
-          <div class="sku-context-title-line">
-            <div class="context-eyebrow">SKU归属</div>
-            <h3>{{ selectedSkuContextLabel }}</h3>
-            <div class="context-stats">
-              <span>公共SKU {{ publicSkuRows.length }}</span>
-              <span>当前SKU {{ skuDisplayTotal }}</span>
-              <span>分类视图 {{ Math.max(productClassificationTabs.length - 1, 0) }}</span>
-            </div>
-          </div>
-          <div v-if="!isWorkspaceCustomerLocked" class="sku-context-controls">
-            <button class="secondary compact-action" type="button" @click="selectedCustomerSkuCustomerID = 0" :disabled="!selectedCustomerSkuCustomerID">
-              公共SKU
-            </button>
-            <SearchableSelect
-              class="sku-customer-select"
-              v-model="selectedCustomerSkuCustomerID"
-              :options="customerSkuCustomers"
-              :option-label="customerOptionLabel"
-              :option-meta="customerOptionMeta"
-              :option-value="optionNumericValue"
-              placeholder="选择履约客户"
-              empty-text="暂无履约客户" />
-          </div>
-          <p v-else class="muted context-lock-note">客户账户模式下由顶部当前客户控制。</p>
-        </div>
-      </div>
-
       <div v-show="currentSettingsSection === 'master'" class="sku-master-workspace" data-section-mode="productMaster">
         <div class="master-data-layout">
       <div class="panel product-panel">
         <div class="panel-title sku-panel-title">
           <span>商品档案 · {{ selectedSkuContextLabel }}</span>
-          <div class="panel-actions sku-panel-actions">
-            <button v-if="skuContextCustomerID" class="primary compact-action" type="button" @click="openCustomerAliasSection">创建客户商品名</button>
-            <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
-            <button class="secondary compact-action" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
-              失效选中产品
-            </button>
-            <button class="toggle-section" type="button" @click="productsCollapsed = !productsCollapsed">
-              {{ productsCollapsed ? '展开' : '收起' }}
-            </button>
-          </div>
+          <button class="toggle-section" type="button" @click="productsCollapsed = !productsCollapsed">
+            {{ productsCollapsed ? '展开' : '收起' }}
+          </button>
         </div>
         <div v-show="!productsCollapsed">
           <div class="classification-view-toolbar product-classification-tabs" aria-label="商品档案分类模板视图">
-            <div class="classification-actions classification-action-card add-classification-card">
-              <label>
-                <span>增加分类</span>
-                <select v-model.number="selectedProductClassificationTemplateID">
-                  <option :value="0">选择模板</option>
-                  <option v-for="template in activeProductClassificationTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
-                </select>
-              </label>
-              <button class="secondary compact-action" type="button" :disabled="!selectedProductClassificationTemplateID" @click="saveProductClassificationTemplateUsage">增加分类</button>
-            </div>
             <div class="classification-tabs">
               <button
                 v-for="tab in productClassificationTabs"
@@ -80,27 +32,30 @@
                 {{ tab.label }}
               </button>
             </div>
-            <div class="classification-actions classification-action-card move-classification-card">
-              <label v-if="isProductAllOrUnclassifiedTab">
-                <span>移动到分类</span>
-                <select v-model.number="selectedProductClassificationTemplateID">
-                  <option :value="0">选择分类</option>
-                  <option v-for="tab in productMovableClassificationTabs" :key="tab.id" :value="tab.id">{{ tab.label }}</option>
-                </select>
-              </label>
-              <button v-if="isProductAllOrUnclassifiedTab" class="secondary compact-action" type="button" :disabled="!selectedProductIds.length || !selectedProductClassificationTemplateID" @click="saveSelectedProductClassificationAssignment">移动到分类</button>
-              <label v-else-if="currentProductClassificationTemplate">
-                <span>移动到子类</span>
-                <select v-model.number="selectedProductClassificationCategoryID">
-                  <option :value="0">未分类</option>
-                  <option v-for="category in productClassificationCategories" :key="category.id" :value="category.id">{{ category.name }}</option>
-                </select>
-              </label>
-              <button v-if="currentProductClassificationTemplate && !isProductAllOrUnclassifiedTab" class="secondary compact-action" type="button" :disabled="!selectedProductIds.length || selectedProductRowsAlreadyInCurrentCategory" @click="saveSelectedProductClassificationAssignment">移动到子类</button>
+            <div class="classification-select-row product-classification-selects">
+              <SearchableSelect
+                v-model="selectedProductClassificationTemplateID"
+                :options="productAddClassificationOptions"
+                :option-label="classificationTemplateOptionLabel"
+                :option-meta="classificationTemplateOptionMeta"
+                :option-value="optionNumericValue"
+                placeholder="增加分类"
+                empty-text="没有可增加的分类"
+                @select="confirmProductClassificationTemplateUsage" />
+              <SearchableSelect
+                v-model="selectedProductClassificationMoveID"
+                :options="productMoveClassificationOptions"
+                :option-label="classificationMoveOptionLabel"
+                :option-meta="classificationMoveOptionMeta"
+                :option-value="optionNumericValue"
+                placeholder="移动到分类"
+                empty-text="没有可移动的分类"
+                :disabled="!selectedProductIds.length"
+                @select="confirmSelectedProductClassificationMove" />
             </div>
           </div>
           <div class="table-wrap sku-table-wrap">
-          <div class="sku-filters">
+          <div class="sku-filters product-filter-row">
             <label>
               <span>搜索</span>
               <input v-model.trim="skuFilters.query" placeholder="搜索商品名称/类型/备注" />
@@ -113,6 +68,12 @@
                 <option value="inactive">已失效</option>
               </select>
             </label>
+            <div class="filter-actions">
+              <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
+              <button class="secondary compact-action danger-outline" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
+                失效商品
+              </button>
+            </div>
           </div>
           <table :key="skuTableKey" class="sku-table" data-auto-pagination="off">
             <thead>
@@ -248,7 +209,7 @@
                 </template>
               </template>
               <tr v-if="!displaySkuRows.length">
-                <td :colspan="13" class="muted">{{ selectedCustomerSkuCustomerID ? '暂无客户SKU' : '暂无公共SKU' }}</td>
+                <td :colspan="13" class="muted">暂无商品档案</td>
               </tr>
             </tbody>
           </table>
@@ -270,29 +231,9 @@
         <section class="panel customer-alias-panel">
           <div class="panel-title">
             <span>客户商品名 · {{ aliasCustomerLabel }}</span>
-            <div class="panel-actions">
-              <button class="secondary compact-action" type="button" :disabled="!selectedAliasCustomerID" @click="openCustomerAliasBatchDrawer">批量添加商品档案</button>
-              <button class="secondary compact-action" type="button" @click="resetCustomerProductAliasForm">清空</button>
-            </div>
           </div>
           <p class="muted">客户商品名只维护对外名称、编号、品牌和价格表展示；生产 BOM 和生产配置只能回到商品档案维护。</p>
-          <div v-if="selectedAliasCustomerID" class="alias-migration-panel">
-            <div class="field-group-head">
-              <strong>旧客户 SKU 收敛检查</strong>
-              <button class="secondary compact-action" type="button" :disabled="aliasMigrationLoading" @click="loadAliasMigrationCandidates(selectedAliasCustomerID)">
-                {{ aliasMigrationLoading ? '检查中' : '重新检查' }}
-              </button>
-            </div>
-            <p class="muted">只读检查，不自动迁移、不删除旧 SKU、不回改历史订单；仅提示哪些贴牌-only 商品可改用客户商品名。</p>
-            <div v-if="visibleAliasMigrationCandidates.length" class="alias-candidate-list">
-              <div v-for="candidate in visibleAliasMigrationCandidates" :key="candidate.product_id" class="alias-candidate-row">
-                <span>{{ customerProductAliasMigrationCandidateSummary(candidate) }}</span>
-                <button class="text-button" type="button" @click="prepareAliasFromCandidate(candidate)">创建客户商品名</button>
-              </div>
-            </div>
-            <p v-else class="muted">暂无可建议收敛的旧客户 SKU。</p>
-          </div>
-          <div class="alias-toolbar">
+          <div class="alias-filters alias-filter-row">
             <label>
               <span>客户</span>
               <SearchableSelect
@@ -305,49 +246,7 @@
                 empty-text="暂无客户" />
             </label>
             <label>
-              <span>绑定商品档案</span>
-              <SearchableSelect
-                v-model="customerProductAliasForm.product_id"
-                :options="aliasProductOptions"
-                :option-label="productOptionLabel"
-                :option-meta="productOptionMeta"
-                :option-value="optionNumericValue"
-                placeholder="选择商品档案"
-                empty-text="暂无商品档案" />
-            </label>
-          </div>
-          <form class="customer-alias-form" @submit.prevent="saveCustomerProductAlias">
-            <label>
-              <span>客户商品名</span>
-              <input v-model.trim="customerProductAliasForm.display_name" required placeholder="客户对外展示名称" />
-            </label>
-            <label>
-              <span>品牌名</span>
-              <input v-model.trim="customerProductAliasForm.brand_name" placeholder="可留空" />
-            </label>
-            <label>
-              <span>排序</span>
-              <input v-model.number="customerProductAliasForm.sort_order" type="number" min="0" step="1" />
-            </label>
-            <label class="checkbox-row">
-              <input v-model="customerProductAliasForm.include_in_price_list" type="checkbox" />
-              <span>进入价格表</span>
-            </label>
-            <label class="checkbox-row">
-              <input v-model="customerProductAliasForm.active" type="checkbox" />
-              <span>启用</span>
-            </label>
-            <label class="span-2">
-              <span>备注</span>
-              <textarea v-model.trim="customerProductAliasForm.remark" rows="2" placeholder="例如贴牌、客户命名、展示用途"></textarea>
-            </label>
-            <div class="form-actions span-2">
-              <button class="primary" type="submit" :disabled="aliasSaving || loading">保存客户商品名</button>
-            </div>
-          </form>
-          <div class="alias-filters">
-            <label>
-              <span>搜索客户商品</span>
+              <span>搜索</span>
               <input v-model.trim="aliasFilters.query" placeholder="客户商品名/编号/绑定商品" />
             </label>
             <label>
@@ -358,19 +257,12 @@
                 <option value="all">全部</option>
               </select>
             </label>
-            <button class="secondary compact-action danger-outline" type="button" :disabled="!selectedAliasIds.length || aliasSaving" @click="batchDisableCustomerProductAliases">批量停用</button>
+            <div class="filter-actions">
+              <button class="primary compact-action" type="button" :disabled="!selectedAliasCustomerID" @click="openCustomerAliasCreateDrawer">新建客户商品</button>
+              <button class="secondary compact-action danger-outline" type="button" :disabled="!selectedAliasIds.length || aliasSaving" @click="batchDisableCustomerProductAliases">批量失效</button>
+            </div>
           </div>
           <div class="classification-view-toolbar alias-classification-tabs" aria-label="客户商品名分类模板视图">
-            <div class="classification-actions classification-action-card add-classification-card">
-              <label>
-                <span>增加分类</span>
-                <select v-model.number="selectedAliasClassificationTemplateID">
-                  <option :value="0">选择模板</option>
-                  <option v-for="template in activeProductClassificationTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
-                </select>
-              </label>
-              <button class="secondary compact-action" type="button" :disabled="!selectedAliasCustomerID || !selectedAliasClassificationTemplateID" @click="saveAliasClassificationTemplateUsage">增加分类</button>
-            </div>
             <div class="classification-tabs">
               <button
                 v-for="tab in aliasClassificationTabs"
@@ -381,23 +273,27 @@
                 {{ tab.label }}
               </button>
             </div>
-            <div class="classification-actions classification-action-card move-classification-card">
-              <label v-if="isAliasAllOrUnclassifiedTab">
-                <span>移动到分类</span>
-                <select v-model.number="selectedAliasClassificationTemplateID">
-                  <option :value="0">选择分类</option>
-                  <option v-for="tab in aliasMovableClassificationTabs" :key="tab.id" :value="tab.id">{{ tab.label }}</option>
-                </select>
-              </label>
-              <button v-if="isAliasAllOrUnclassifiedTab" class="secondary compact-action" type="button" :disabled="!selectedAliasIds.length || !selectedAliasClassificationTemplateID" @click="saveSelectedAliasClassificationAssignment">移动到分类</button>
-              <label v-else-if="currentAliasClassificationTemplate">
-                <span>移动到子类</span>
-                <select v-model.number="selectedAliasClassificationCategoryID">
-                  <option :value="0">未分类</option>
-                  <option v-for="category in aliasClassificationCategories" :key="category.id" :value="category.id">{{ category.name }}</option>
-                </select>
-              </label>
-              <button v-if="currentAliasClassificationTemplate && !isAliasAllOrUnclassifiedTab" class="secondary compact-action" type="button" :disabled="!selectedAliasIds.length || selectedAliasRowsAlreadyInCurrentCategory" @click="saveSelectedAliasClassificationAssignment">移动到子类</button>
+            <div class="classification-select-row alias-classification-selects">
+              <SearchableSelect
+                v-model="selectedAliasClassificationTemplateID"
+                :options="aliasAddClassificationOptions"
+                :option-label="classificationTemplateOptionLabel"
+                :option-meta="classificationTemplateOptionMeta"
+                :option-value="optionNumericValue"
+                placeholder="增加分类"
+                empty-text="没有可增加的分类"
+                :disabled="!selectedAliasCustomerID"
+                @select="confirmAliasClassificationTemplateUsage" />
+              <SearchableSelect
+                v-model="selectedAliasClassificationMoveID"
+                :options="aliasMoveClassificationOptions"
+                :option-label="classificationMoveOptionLabel"
+                :option-meta="classificationMoveOptionMeta"
+                :option-value="optionNumericValue"
+                placeholder="移动到分类"
+                empty-text="没有可移动的分类"
+                :disabled="!selectedAliasIds.length"
+                @select="confirmSelectedAliasClassificationMove" />
             </div>
           </div>
           <div class="table-wrap">
@@ -437,7 +333,10 @@
                   <td>{{ alias.display_name }}</td>
                   <td>{{ alias.customer_item_code || '-' }}</td>
                   <td>{{ alias.brand_name || '-' }}</td>
-                  <td>{{ alias.product_code || alias.product_id }} · {{ alias.product_name || productName(alias.product_id) }}</td>
+                  <td :class="{ 'invalid-product-reference': alias.product_active === false }">
+                    <span>{{ alias.product_code || alias.product_id }} · {{ alias.product_name || productName(alias.product_id) }}</span>
+                    <small v-if="alias.product_active === false" class="inactive-product-warning">绑定商品已失效</small>
+                  </td>
                   <td>
                     <div>{{ aliasClassificationLabel(alias) }}</div>
                     <small v-for="warning in classificationWarningsForAlias(alias)" :key="warning" class="bom-version-warning">{{ warning }}</small>
@@ -937,62 +836,108 @@
       </aside>
     </div>
 
-    <div v-if="customerAliasBatchDrawerOpen" class="settings-drawer-mask" @click.self="closeCustomerAliasBatchDrawer">
-      <aside class="settings-drawer customer-alias-batch-drawer" aria-label="批量添加商品档案">
+    <div v-if="customerAliasCreateDrawerOpen" class="settings-drawer-mask" @click.self="closeCustomerAliasCreateDrawer">
+      <aside class="settings-drawer customer-alias-create-drawer" aria-label="新建客户商品">
         <div class="drawer-head">
           <div>
-            <h3>批量添加商品档案</h3>
+            <h3>新建客户商品</h3>
             <p>{{ aliasCustomerLabel }}</p>
           </div>
-          <button class="secondary compact-action" type="button" @click="closeCustomerAliasBatchDrawer">关闭</button>
+          <button class="secondary compact-action" type="button" @click="closeCustomerAliasCreateDrawer">关闭</button>
         </div>
         <div class="drawer-body">
-          <div class="alias-batch-filters">
+          <div class="customer-alias-create-mode-tabs">
+            <button :class="['secondary', 'compact-action', { active: customerAliasCreateMode === 'single' }]" type="button" @click="customerAliasCreateMode = 'single'">单个新增</button>
+            <button :class="['secondary', 'compact-action', { active: customerAliasCreateMode === 'batch' }]" type="button" @click="customerAliasCreateMode = 'batch'">批量添加商品档案</button>
+          </div>
+          <form v-if="customerAliasCreateMode === 'single'" class="customer-alias-form customer-alias-create-form" @submit.prevent="saveCustomerProductAlias">
+            <label class="span-2">
+              <span>绑定商品档案</span>
+              <SearchableSelect
+                v-model="customerProductAliasForm.product_id"
+                :options="aliasProductOptions"
+                :option-label="productOptionLabel"
+                :option-meta="productOptionMeta"
+                :option-value="optionNumericValue"
+                placeholder="选择商品档案"
+                empty-text="暂无商品档案" />
+            </label>
             <label>
-              <span>搜索</span>
-              <input v-model.trim="aliasBatchFilters.query" placeholder="商品名称/编号" />
+              <span>客户商品名</span>
+              <input v-model.trim="customerProductAliasForm.display_name" required placeholder="客户对外展示名称" />
             </label>
             <label>
               <span>品牌名</span>
-              <input v-model.trim="aliasBatchForm.brand_name" placeholder="默认留空" />
+              <input v-model.trim="customerProductAliasForm.brand_name" placeholder="可留空" />
+            </label>
+            <label>
+              <span>排序</span>
+              <input v-model.number="customerProductAliasForm.sort_order" type="number" min="0" step="1" />
             </label>
             <label class="checkbox-row">
-              <input v-model="aliasBatchForm.include_in_price_list" type="checkbox" />
-              <span>默认进入价格表</span>
+              <input v-model="customerProductAliasForm.include_in_price_list" type="checkbox" />
+              <span>进入价格表</span>
             </label>
-          </div>
-          <div class="alias-batch-toolbar">
-            <span class="muted">已选 {{ selectedAliasBatchProductIds.length }} 个；同客户同商品档案已存在时自动跳过。</span>
-            <button class="secondary compact-action" type="button" @click="toggleAllAliasBatchProducts(true)">全选当前筛选</button>
-            <button class="secondary compact-action" type="button" @click="toggleAllAliasBatchProducts(false)">清空选择</button>
-          </div>
-          <div class="table-wrap">
-            <table class="customer-alias-table alias-batch-table">
-              <thead>
-                <tr>
-                  <th class="select-col">选择</th>
-                  <th>商品档案</th>
-                  <th>商品编号</th>
-                  <th>状态</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="product in aliasBatchCandidateRows" :key="product.id">
-                  <td class="select-col">
-                    <input type="checkbox" :checked="isAliasBatchProductSelected(product)" :disabled="aliasBatchProductExists(product)" @change="toggleAliasBatchProduct(product, $event.target.checked)" />
-                  </td>
-                  <td>{{ product.name }}</td>
-                  <td>{{ product.number || product.id }}</td>
-                  <td>{{ aliasBatchProductExists(product) ? '已存在' : '可添加' }}</td>
-                </tr>
-                <tr v-if="!aliasBatchCandidateRows.length">
-                  <td colspan="4" class="muted">没有匹配的商品档案。</td>
-                </tr>
-              </tbody>
-            </table>
+            <label class="checkbox-row">
+              <input v-model="customerProductAliasForm.active" type="checkbox" />
+              <span>启用</span>
+            </label>
+            <label class="span-2">
+              <span>备注</span>
+              <textarea v-model.trim="customerProductAliasForm.remark" rows="2" placeholder="例如贴牌、客户命名、展示用途"></textarea>
+            </label>
+            <div class="form-actions span-2">
+              <button class="primary" type="submit" :disabled="aliasSaving || loading">保存客户商品名</button>
+            </div>
+          </form>
+          <div v-else class="customer-alias-batch-mode">
+            <div class="alias-batch-filters">
+              <label>
+                <span>搜索</span>
+                <input v-model.trim="aliasBatchFilters.query" placeholder="商品名称/编号" />
+              </label>
+              <label>
+                <span>品牌名</span>
+                <input v-model.trim="aliasBatchForm.brand_name" placeholder="默认留空" />
+              </label>
+              <label class="checkbox-row">
+                <input v-model="aliasBatchForm.include_in_price_list" type="checkbox" />
+                <span>默认进入价格表</span>
+              </label>
+            </div>
+            <div class="alias-batch-toolbar">
+              <span class="muted">已选 {{ selectedAliasBatchProductIds.length }} 个；同客户同商品档案已存在时自动跳过。</span>
+              <button class="secondary compact-action" type="button" @click="toggleAllAliasBatchProducts(true)">全选当前筛选</button>
+              <button class="secondary compact-action" type="button" @click="toggleAllAliasBatchProducts(false)">清空选择</button>
+            </div>
+            <div class="table-wrap">
+              <table class="customer-alias-table alias-batch-table">
+                <thead>
+                  <tr>
+                    <th class="select-col">选择</th>
+                    <th>商品档案</th>
+                    <th>商品编号</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="product in aliasBatchCandidateRows" :key="product.id">
+                    <td class="select-col">
+                      <input type="checkbox" :checked="isAliasBatchProductSelected(product)" :disabled="aliasBatchProductExists(product)" @change="toggleAliasBatchProduct(product, $event.target.checked)" />
+                    </td>
+                    <td>{{ product.name }}</td>
+                    <td>{{ product.number || product.id }}</td>
+                    <td>{{ aliasBatchProductExists(product) ? '已存在' : '可添加' }}</td>
+                  </tr>
+                  <tr v-if="!aliasBatchCandidateRows.length">
+                    <td colspan="4" class="muted">没有匹配的商品档案。</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-        <div class="drawer-footer">
+        <div v-if="customerAliasCreateMode === 'batch'" class="drawer-footer">
           <span class="muted">批量创建时客户商品名=商品档案名称，客户商品编号由系统生成，品牌默认留空。</span>
           <button class="primary" type="button" :disabled="aliasBatchSaving || !selectedAliasBatchProductIds.length" @click="saveCustomerAliasBatch">
             {{ aliasBatchSaving ? '添加中' : '批量创建客户商品名' }}
@@ -1282,7 +1227,6 @@ import {
   classificationAssignmentLabel,
   classificationTemplateUnitPriceWarnings,
   classificationTemplateTabs,
-  customerProductAliasMigrationCandidateSummary,
   buildCustomerProductRuleBindingPayload,
   buildCustomerProductRuleOverridePayload,
   buildCustomerProductRuleTemplatePayload,
@@ -1354,7 +1298,6 @@ const productUnitDefinitions = ref([])
 const productUnitTemplates = ref([])
 const customerPublicUsages = ref([])
 const customerProductAliases = ref([])
-const aliasMigrationCandidates = ref([])
 const customerProductRuleTemplates = ref([])
 const customerProductRuleOverrides = ref([])
 const customerProductRuleBindings = ref([])
@@ -1374,7 +1317,6 @@ const globalUnitSaving = ref(false)
 const customerRuleSaving = ref(false)
 const aliasSaving = ref(false)
 const aliasBatchSaving = ref(false)
-const aliasMigrationLoading = ref(false)
 const error = ref('')
 const ok = ref('')
 const dragging = ref(null)
@@ -1418,7 +1360,8 @@ const showGradientTemplatePane = computed(() => currentSettingsSection.value ===
 const showUnitTemplatePane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'unit-template')
 const productDrawerOpen = ref(false)
 const productProductionConfigDrawerOpen = ref(false)
-const customerAliasBatchDrawerOpen = ref(false)
+const customerAliasCreateDrawerOpen = ref(false)
+const customerAliasCreateMode = ref('single')
 const classificationTemplateCreateDrawerOpen = ref(false)
 const globalUnitDrawerOpen = ref(false)
 const categorySearchQuery = ref('')
@@ -1433,6 +1376,8 @@ const activeProductClassificationTab = ref('all')
 const activeAliasClassificationTab = ref('all')
 const selectedProductClassificationTemplateID = ref(0)
 const selectedAliasClassificationTemplateID = ref(0)
+const selectedProductClassificationMoveID = ref(0)
+const selectedAliasClassificationMoveID = ref(0)
 const selectedProductClassificationCategoryID = ref(0)
 const selectedAliasClassificationCategoryID = ref(0)
 const collapsedProductClassificationGroups = ref([])
@@ -1471,8 +1416,8 @@ const classificationTemplateForm = ref(defaultClassificationTemplateForm())
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
 const selectedSkuContextLabel = computed(() => {
   const customerID = skuContextCustomerID.value
-  if (!customerID) return '公共SKU'
-  return `${customerName(customerID) || `客户 #${customerID}`} SKU`
+  if (!customerID) return '全部商品'
+  return `${customerName(customerID) || `客户 #${customerID}`} 商品`
 })
 const flatPublicCategories = computed(() => flattenCategoryNodes(categories.value).filter((category) => Number(category.customer_id || 0) === 0))
 const flatCustomerCategories = computed(() => flattenCategoryNodes(categories.value).filter((category) => Number(category.customer_id || 0) === skuContextCustomerID.value))
@@ -1651,9 +1596,6 @@ const visibleCustomerProductAliases = computed(() => customerProductAliasRowsFor
 const aliasBatchRows = computed(() => skuTableRowsFromFlatProducts(aliasProductOptions.value, categories.value, () => true))
 const aliasBatchFilteredRows = computed(() => filterAliasBatchRows(aliasBatchRows.value, aliasBatchFilters.value))
 const aliasBatchCandidateRows = computed(() => aliasBatchFilteredRows.value.slice(0, 300))
-const visibleAliasMigrationCandidates = computed(() => (aliasMigrationCandidates.value || [])
-  .filter((row) => Number(row.customer_id || 0) === Number(selectedAliasCustomerID.value || 0))
-  .filter((row) => row.can_auto_recommend || row.suggested_action === 'convert_to_customer_product_alias'))
 
 function productionConfigForProduct(product) {
   const productID = Number(product?.id || product?.product_id || 0)
@@ -1761,6 +1703,22 @@ const isProductAllOrUnclassifiedTab = computed(() => Boolean(currentProductClass
 const isAliasAllOrUnclassifiedTab = computed(() => Boolean(currentAliasClassificationTab.value?.all || currentAliasClassificationTab.value?.unclassified))
 const productMovableClassificationTabs = computed(() => productClassificationTabs.value.filter((tab) => !tab.all && !tab.unclassified))
 const aliasMovableClassificationTabs = computed(() => aliasClassificationTabs.value.filter((tab) => !tab.all && !tab.unclassified))
+const productAddClassificationOptions = computed(() => {
+  const enabled = new Set(productMovableClassificationTabs.value.map((tab) => Number(tab.id || tab.template?.id || 0)).filter(Boolean))
+  return activeProductClassificationTemplates.value.filter((template) => !enabled.has(Number(template.id || 0)))
+})
+const aliasAddClassificationOptions = computed(() => {
+  const enabled = new Set(aliasMovableClassificationTabs.value.map((tab) => Number(tab.id || tab.template?.id || 0)).filter(Boolean))
+  return activeProductClassificationTemplates.value.filter((template) => !enabled.has(Number(template.id || 0)))
+})
+const productMoveClassificationOptions = computed(() => {
+  if (isProductAllOrUnclassifiedTab.value) return productMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
+  return [{ id: 0, name: '未分类', move_type: 'category' }, ...productClassificationCategories.value.map((category) => ({ ...category, move_type: 'category' }))]
+})
+const aliasMoveClassificationOptions = computed(() => {
+  if (isAliasAllOrUnclassifiedTab.value) return aliasMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
+  return [{ id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, move_type: 'category' }))]
+})
 const classificationTemplateEditorTemplate = computed(() => productClassificationTemplates.value.find((template) => Number(template.id || 0) === Number(classificationTemplateForm.value.id || 0)) || null)
 const classificationTemplateEditorCategories = computed(() => (classificationTemplateEditorTemplate.value?.categories || [])
   .filter((category) => category.active !== false)
@@ -2331,6 +2289,7 @@ function decorateCustomerProductAlias(alias = {}) {
     remark: alias.remark || '',
     product_code: alias.product_code || '',
     product_name: alias.product_name || '',
+    product_active: alias.product_active !== false,
     display_category_name: alias.display_category_name || '',
     industry_fields: (alias.industry_fields || []).map((field, index) => defaultProductProductionConfigField(field, index)),
   }
@@ -2485,7 +2444,6 @@ async function loadAll() {
     customers.value = customerSkuCustomerOptions(customerData)
     syncSelectedCustomerSkuCustomer()
     syncSelectedAliasCustomer()
-    await loadAliasMigrationCandidates(selectedAliasCustomerID.value, { silent: true })
     applyWorkspaceCustomerContext()
     syncVisibleSkuTableState()
     pruneSelectedProducts(displaySkuRows.value)
@@ -2493,38 +2451,6 @@ async function loadAll() {
     error.value = err.message || '加载失败'
   } finally {
     loading.value = false
-  }
-}
-
-async function loadAliasMigrationCandidates(customerID = selectedAliasCustomerID.value, options = {}) {
-  const id = Number(customerID || 0)
-  if (!id) {
-    aliasMigrationCandidates.value = []
-    return
-  }
-  aliasMigrationLoading.value = true
-  if (!options.silent) {
-    error.value = ''
-  }
-  try {
-    const data = await apiGet(`/api/customer-product-aliases/migration-candidates?customer_id=${encodeURIComponent(String(id))}`)
-    aliasMigrationCandidates.value = (data.rows || []).map((row) => ({
-      ...row,
-      customer_id: Number(row.customer_id || id),
-      product_id: Number(row.product_id || 0),
-      base_product_id: Number(row.base_product_id || 0),
-      can_auto_recommend: Boolean(row.can_auto_recommend),
-      has_own_bom: Boolean(row.has_own_bom),
-      has_production_record: Boolean(row.has_production_record),
-      has_inventory_record: Boolean(row.has_inventory_record),
-    }))
-  } catch (err) {
-    if (!options.silent) {
-      error.value = err.message || '加载旧客户 SKU 收敛检查失败'
-    }
-    aliasMigrationCandidates.value = []
-  } finally {
-    aliasMigrationLoading.value = false
   }
 }
 
@@ -3242,6 +3168,36 @@ function optionNumericValue(option) {
   return Number(option?.id || 0)
 }
 
+function notifyKferp(type, title, message = '') {
+  window.dispatchEvent(new CustomEvent('kferp:notify', {
+    detail: {
+      type,
+      title,
+      message,
+    },
+  }))
+}
+
+function classificationTemplateOptionLabel(template) {
+  return template?.label || template?.name || ''
+}
+
+function classificationTemplateOptionMeta(template) {
+  const count = Array.isArray(template?.categories) ? template.categories.length : 0
+  return count ? `${count} 个分类项` : '暂无分类项'
+}
+
+function classificationMoveOptionLabel(option) {
+  return option?.label || option?.name || ''
+}
+
+function classificationMoveOptionMeta(option) {
+  if (option?.move_type === 'template') return '移动到大类，子类为未分类'
+  if (currentProductClassificationTemplate.value && productMoveClassificationOptions.value.includes(option)) return currentProductClassificationTemplate.value.name || ''
+  if (currentAliasClassificationTemplate.value && aliasMoveClassificationOptions.value.includes(option)) return currentAliasClassificationTemplate.value.name || ''
+  return ''
+}
+
 function baseProductOptionLabel(product) {
   return product?.name || ''
 }
@@ -3821,6 +3777,17 @@ async function saveProductClassificationTemplateUsage() {
   activeProductClassificationTab.value = `template-${templateID}`
 }
 
+async function confirmProductClassificationTemplateUsage(template) {
+  const templateID = Number(template?.id || 0)
+  if (!templateID) return
+  selectedProductClassificationTemplateID.value = templateID
+  if (!window.confirm(`增加分类「${template?.name || templateID}」？`)) {
+    selectedProductClassificationTemplateID.value = 0
+    return
+  }
+  await saveProductClassificationTemplateUsage()
+}
+
 async function saveAliasClassificationTemplateUsage() {
   const templateID = Number(selectedAliasClassificationTemplateID.value || 0)
   const customerID = Number(selectedAliasCustomerID.value || 0)
@@ -3836,9 +3803,20 @@ async function saveAliasClassificationTemplateUsage() {
   activeAliasClassificationTab.value = `template-${templateID}`
 }
 
+async function confirmAliasClassificationTemplateUsage(template) {
+  const templateID = Number(template?.id || 0)
+  if (!templateID) return
+  selectedAliasClassificationTemplateID.value = templateID
+  if (!window.confirm(`为当前客户增加分类「${template?.name || templateID}」？`)) {
+    selectedAliasClassificationTemplateID.value = 0
+    return
+  }
+  await saveAliasClassificationTemplateUsage()
+}
+
 async function saveSelectedProductClassificationAssignment() {
   const templateID = isProductAllOrUnclassifiedTab.value
-    ? Number(selectedProductClassificationTemplateID.value || 0)
+    ? Number(selectedProductClassificationMoveID.value || 0)
     : Number(currentProductClassificationTemplate.value?.id || 0)
   if (!templateID || !selectedProductIds.value.length) return
   const categoryID = isProductAllOrUnclassifiedTab.value ? 0 : Number(selectedProductClassificationCategoryID.value || 0)
@@ -3854,13 +3832,39 @@ async function saveSelectedProductClassificationAssignment() {
   }
   selectedProductIds.value = []
   selectedProductClassificationTemplateID.value = 0
+  selectedProductClassificationMoveID.value = 0
+  selectedProductClassificationCategoryID.value = 0
   await refreshClassificationTemplates()
   activeProductClassificationTab.value = `template-${templateID}`
 }
 
+async function confirmSelectedProductClassificationMove(option) {
+  if (!selectedProductIds.value.length) {
+    error.value = '请先勾选商品'
+    return
+  }
+  const label = classificationMoveOptionLabel(option)
+  if (isProductAllOrUnclassifiedTab.value) {
+    selectedProductClassificationMoveID.value = Number(option?.id || 0)
+  } else {
+    selectedProductClassificationCategoryID.value = Number(option?.id || 0)
+  }
+  if (selectedProductRowsAlreadyInCurrentCategory.value) {
+    selectedProductClassificationMoveID.value = 0
+    selectedProductClassificationCategoryID.value = 0
+    return
+  }
+  if (!window.confirm(`移动选中商品到「${label || '未分类'}」？`)) {
+    selectedProductClassificationMoveID.value = 0
+    selectedProductClassificationCategoryID.value = 0
+    return
+  }
+  await saveSelectedProductClassificationAssignment()
+}
+
 async function saveSelectedAliasClassificationAssignment() {
   const templateID = isAliasAllOrUnclassifiedTab.value
-    ? Number(selectedAliasClassificationTemplateID.value || 0)
+    ? Number(selectedAliasClassificationMoveID.value || 0)
     : Number(currentAliasClassificationTemplate.value?.id || 0)
   if (!templateID || !selectedAliasIds.value.length) return
   const categoryID = isAliasAllOrUnclassifiedTab.value ? 0 : Number(selectedAliasClassificationCategoryID.value || 0)
@@ -3876,8 +3880,34 @@ async function saveSelectedAliasClassificationAssignment() {
   }
   selectedAliasIds.value = []
   selectedAliasClassificationTemplateID.value = 0
+  selectedAliasClassificationMoveID.value = 0
+  selectedAliasClassificationCategoryID.value = 0
   await refreshClassificationTemplates()
   activeAliasClassificationTab.value = `template-${templateID}`
+}
+
+async function confirmSelectedAliasClassificationMove(option) {
+  if (!selectedAliasIds.value.length) {
+    error.value = '请先勾选客户商品'
+    return
+  }
+  const label = classificationMoveOptionLabel(option)
+  if (isAliasAllOrUnclassifiedTab.value) {
+    selectedAliasClassificationMoveID.value = Number(option?.id || 0)
+  } else {
+    selectedAliasClassificationCategoryID.value = Number(option?.id || 0)
+  }
+  if (selectedAliasRowsAlreadyInCurrentCategory.value) {
+    selectedAliasClassificationMoveID.value = 0
+    selectedAliasClassificationCategoryID.value = 0
+    return
+  }
+  if (!window.confirm(`移动选中客户商品到「${label || '未分类'}」？`)) {
+    selectedAliasClassificationMoveID.value = 0
+    selectedAliasClassificationCategoryID.value = 0
+    return
+  }
+  await saveSelectedAliasClassificationAssignment()
 }
 
 async function saveProductProductionConfig() {
@@ -4102,10 +4132,15 @@ function resetCustomerProductAliasForm() {
   customerProductAliasForm.value = defaultCustomerProductAliasForm()
 }
 
-function openCustomerAliasBatchDrawer() {
+function openCustomerAliasCreateDrawer(mode = 'single') {
   if (!selectedAliasCustomerID.value) {
     error.value = '请选择客户'
     return
+  }
+  customerAliasCreateMode.value = mode === 'batch' ? 'batch' : 'single'
+  customerProductAliasForm.value = {
+    ...defaultCustomerProductAliasForm(),
+    customer_id: Number(selectedAliasCustomerID.value || 0),
   }
   aliasBatchForm.value = {
     ...defaultCustomerProductAliasBatchForm(),
@@ -4113,12 +4148,13 @@ function openCustomerAliasBatchDrawer() {
   }
   aliasBatchFilters.value = defaultAliasBatchFilters()
   selectedAliasBatchProductIds.value = []
-  customerAliasBatchDrawerOpen.value = true
+  customerAliasCreateDrawerOpen.value = true
 }
 
-function closeCustomerAliasBatchDrawer() {
-  customerAliasBatchDrawerOpen.value = false
+function closeCustomerAliasCreateDrawer() {
+  customerAliasCreateDrawerOpen.value = false
   selectedAliasBatchProductIds.value = []
+  resetCustomerProductAliasForm()
 }
 
 function aliasBatchProductExists(product) {
@@ -4184,7 +4220,7 @@ async function saveCustomerAliasBatch() {
   try {
     const result = await apiSend('/api/customer-product-aliases/batch', { body: payload })
     ok.value = `客户商品名批量添加完成：创建 ${Number(result?.created_count || 0)} 个，跳过 ${Number(result?.skipped_count || 0)} 个`
-    closeCustomerAliasBatchDrawer()
+    closeCustomerAliasCreateDrawer()
     await loadAll()
   } catch (err) {
     error.value = err.message || '批量添加客户商品名失败'
@@ -4199,29 +4235,6 @@ function openCustomerAliasSection() {
   }
   activeSettingsSection.value = 'aliases'
   resetCustomerProductAliasForm()
-}
-
-function prepareAliasFromCandidate(candidate = {}) {
-  const customerID = Number(candidate.customer_id || selectedAliasCustomerID.value || 0)
-  selectedAliasCustomerID.value = customerID
-  customerProductAliasForm.value = {
-    ...defaultCustomerProductAliasForm(),
-    customer_id: customerID,
-    product_id: Number(candidate.base_product_id || 0),
-    display_name: String(candidate.product_name || '').trim(),
-    customer_item_code: String(candidate.product_code || '').trim(),
-    brand_name: '',
-    remark: customerProductAliasMigrationCandidateSummary(candidate),
-  }
-  activeSettingsSection.value = 'aliases'
-}
-
-function editCustomerProductAlias(alias) {
-  selectedAliasCustomerID.value = Number(alias.customer_id || 0)
-  customerProductAliasForm.value = {
-    ...defaultCustomerProductAliasForm(),
-    ...decorateCustomerProductAlias(alias),
-  }
 }
 
 async function saveCustomerProductAlias() {
@@ -4859,7 +4872,7 @@ async function saveProductMarginOverride(row) {
 
 async function saveProductBasics(row, successMessage = '商品基础信息已保存') {
   if (!canEditSkuRow(row)) {
-    error.value = '公共 SKU 为引用，请回到公共SKU归属维护'
+    error.value = '公共商品档案为引用，请回到商品档案维护'
     return
   }
   const productKind = normalizedProductKind(row)
@@ -4969,7 +4982,14 @@ watch(selectedAliasCustomerID, (customerID) => {
   if (!customerProductAliasForm.value.id) {
     customerProductAliasForm.value.customer_id = Number(customerID || 0)
   }
-  loadAliasMigrationCandidates(customerID, { silent: true })
+})
+
+watch(ok, (message) => {
+  if (message) notifyKferp('success', String(message))
+})
+
+watch(error, (message) => {
+  if (message) notifyKferp('error', String(message))
 })
 
 watch(() => [props.workspaceMode, props.customerContextId], applyWorkspaceCustomerContext, { immediate: true })
@@ -5043,8 +5063,8 @@ onBeforeUnmount(saveProductSettingsDraft)
 .panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .panel-head h2 { margin: 0 0 4px; font-size: 20px; }
 .panel-head p { margin: 0; color: #666; font-size: 13px; }
-.sku-page-summary { padding: 10px 12px; }
-.sku-page-summary .panel-head { align-items: center; }
+.sku-page-summary { padding: 8px 12px; }
+.sku-page-summary .panel-head { align-items: center; margin-bottom: 0; }
 .sku-page-summary .panel-head h2 { margin: 0 0 2px; font-size: 18px; }
 .sku-page-summary .ok, .sku-page-summary .error { margin-top: 8px; padding: 7px 10px; font-size: 13px; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 700; margin-bottom: 10px; }
@@ -5071,8 +5091,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .config-template-tabs { display: inline-flex; align-items: center; gap: 4px; width: fit-content; border: 1px solid #e6e0d8; border-radius: 8px; background: #fbfaf8; padding: 4px; }
 .config-template-tab { min-height: 32px; border: 0; border-radius: 6px; background: transparent; color: #333; padding: 0 14px; font-weight: 700; }
 .config-template-tab.active { background: #111; color: #fff; }
-.sku-context-panel { grid-column: 1 / -1; display: grid; gap: 10px; }
-.compact-sku-context { padding: 10px 12px; }
 .customer-rule-panel { grid-column: 1 / -1; }
 .customer-rule-binding { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); align-items: end; gap: 12px; margin-bottom: 12px; }
 .customer-rule-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); gap: 14px; align-items: start; }
@@ -5100,13 +5118,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .field-help-icon:focus-visible { box-shadow: 0 0 0 3px rgba(17, 17, 17, .16); }
 .field-help-tooltip { position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); display: none; width: min(240px, 70vw); padding: 8px 10px; border: 1px solid #d8d2ca; border-radius: 6px; background: #fff; color: #3f3328; font-size: 12px; font-weight: 400; line-height: 1.45; box-shadow: 0 8px 22px rgba(35, 28, 20, .16); z-index: 20; }
 .field-help-wrap:hover .field-help-tooltip, .field-help-wrap:focus-within .field-help-tooltip { display: block; }
-.sku-context-main { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
-.sku-context-main h3 { margin: 0; font-size: 17px; }
-.sku-context-title-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
-.context-eyebrow { color: #7a4d1a; font-size: 12px; font-weight: 700; }
-.sku-context-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; min-width: min(460px, 100%); }
-.context-stats { display: flex; flex-wrap: wrap; gap: 6px; }
-.context-stats span { border: 1px solid #e6e0d8; border-radius: 999px; padding: 4px 9px; background: #fbfaf8; color: #333; font-size: 12px; }
 .product-create-form { display: grid; grid-template-columns: repeat(2, minmax(140px, 1fr)); gap: 10px; align-items: end; }
 .custom-product-panel { grid-column: 1 / -1; }
 .custom-product-form { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; align-items: end; }
@@ -5156,8 +5167,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .sku-panel-title { align-items: flex-start; }
 .sku-panel-actions { flex: 1; }
 .sku-customer-select { min-width: 220px; max-width: 320px; flex: 1 1 220px; font-weight: 400; }
-.sku-filters { display: grid; grid-template-columns: 150px 170px minmax(200px, 1fr) 180px 180px; gap: 8px; margin-bottom: 10px; align-items: end; }
+.sku-filters { display: grid; grid-template-columns: minmax(220px, 1fr) 160px auto; gap: 8px; margin-bottom: 10px; align-items: end; }
 .sku-filters label { display: grid; gap: 5px; font-size: 12px; color: #333; }
+.filter-actions { display: inline-flex; justify-content: flex-end; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
 .checkline { display: flex !important; align-items: center; gap: 8px; min-height: 36px; }
 .checkline input { width: auto; min-height: 0; }
 .customer-copy-panel { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; border: 1px solid #e6e0d8; border-radius: 8px; background: #fbfaf8; padding: 8px 10px; margin-bottom: 10px; }
@@ -5266,22 +5278,19 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
 .customer-alias-workspace { display: grid; gap: 14px; min-width: 0; }
 .customer-alias-panel { display: grid; gap: 12px; }
-.alias-migration-panel { border: 1px solid #e6e0d8; border-radius: 8px; padding: 10px; background: #fbfaf8; display: grid; gap: 8px; }
-.alias-candidate-list { display: grid; gap: 6px; }
-.alias-candidate-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #eee7df; border-radius: 8px; background: #fff; padding: 8px 10px; }
-.alias-candidate-row span { min-width: 0; overflow-wrap: anywhere; }
-.alias-toolbar { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 12px; }
-.alias-toolbar label, .customer-alias-form label { display: grid; gap: 5px; min-width: 0; font-size: 13px; }
-.alias-toolbar label span, .customer-alias-form label span { color: #5f5a52; font-weight: 600; }
+.customer-alias-form label { display: grid; gap: 5px; min-width: 0; font-size: 13px; }
+.customer-alias-form label span { color: #5f5a52; font-weight: 600; }
 .customer-alias-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: end; }
 .customer-alias-form .span-2 { grid-column: 1 / -1; }
-.alias-filters { display: grid; grid-template-columns: minmax(220px, 1fr) 160px auto; gap: 10px; align-items: end; padding: 10px; margin: 10px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fff; }
+.alias-filters { display: grid; grid-template-columns: minmax(220px, 260px) minmax(220px, 1fr) 160px auto; gap: 10px; align-items: end; padding: 10px; margin: 10px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fff; }
 .alias-filters label { display: grid; gap: 5px; font-size: 13px; }
 .alias-filters label span { color: #5f5a52; font-weight: 600; }
 .checkbox-row { display: inline-flex !important; grid-template-columns: auto 1fr; align-items: center; gap: 8px !important; }
 .checkbox-row input { width: auto; min-height: 0; }
 .customer-alias-table { min-width: 980px; }
 .table-actions { white-space: nowrap; }
+.invalid-product-reference { color: #9d2626; font-weight: 700; }
+.inactive-product-warning { display: block; margin-top: 3px; color: #9d2626; font-size: 12px; font-weight: 700; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-top: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
@@ -5336,13 +5345,11 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .classification-category-list, .classification-assignment-list { display: grid; gap: 8px; }
 .classification-category-row, .classification-assignment-row { display: grid; grid-template-columns: minmax(160px, 1fr) auto auto auto auto; gap: 8px; align-items: center; padding: 8px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; }
 .classification-assignment-row { grid-template-columns: minmax(180px, 1fr) minmax(180px, 240px); }
-.classification-view-toolbar { display: grid; gap: 10px; padding: 10px; margin: 10px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
-.classification-action-card { border: 1px solid #e7ded4; border-radius: 8px; padding: 10px; background: #fff; }
+.classification-view-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px; margin: 10px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; flex-wrap: wrap; }
 .classification-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
 .classification-tab { height: 32px; border-color: #d8cec2; background: #fff; color: #2f2a25; }
 .classification-tab.active { border-color: #1f1f1f; background: #1f1f1f; color: #fff; }
-.classification-actions { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
-.classification-actions label { display: grid; gap: 4px; }
+.classification-select-row { display: grid; grid-template-columns: minmax(160px, 210px) minmax(170px, 230px); gap: 8px; margin-left: auto; align-items: end; }
 .classification-template-actions-bottom { justify-content: flex-end; margin-top: 14px; padding-top: 12px; border-top: 1px solid #eee8df; }
 .industry-field-cell { max-width: 260px; }
 .industry-field-cell span { display: block; line-height: 1.35; color: #3f3a33; }
@@ -5362,9 +5369,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .alias-toolbar, .customer-alias-form, .production-config-grid, .production-config-field-row { grid-template-columns: 1fr; }
-  .sku-context-main { display: grid; }
-  .sku-context-controls { justify-content: flex-start; min-width: 0; }
+  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .customer-alias-form, .production-config-grid, .production-config-field-row { grid-template-columns: 1fr; }
   .product-section-tabs-legacy { width: 100%; }
   .workspace-tab { flex: 1; }
   .panel-actions { justify-content: flex-start; }

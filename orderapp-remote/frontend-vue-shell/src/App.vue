@@ -290,6 +290,7 @@ const currentActor = ref(null)
 const customerAccountContext = ref(null)
 const uiSettings = ref({ hide_customer_account_fulfillment: true })
 const notifications = ref([])
+const localNotifications = ref([])
 const notificationStackSpace = ref(0)
 const workspaceCustomersRefreshEventName = WORKSPACE_CUSTOMERS_REFRESH_EVENT
 let notificationTimer = 0
@@ -828,6 +829,10 @@ function stopNotificationPolling() {
 }
 
 async function dismissNotification(item) {
+  if (item?.local_notice) {
+    localNotifications.value = localNotifications.value.filter((row) => String(row.id) !== String(item?.id))
+    return
+  }
   notifications.value = notifications.value.filter((row) => Number(row.id) !== Number(item?.id))
   if (item?.id) {
     try {
@@ -839,6 +844,10 @@ async function dismissNotification(item) {
 }
 
 async function openNotification(item) {
+  if (item?.local_notice) {
+    await dismissNotification(item)
+    return
+  }
   const payload = item?.payload || {}
   const orderID = Number(payload.highlight_order_id || payload.order_id || item?.source_id || 0)
   await dismissNotification(item)
@@ -850,6 +859,28 @@ async function openNotification(item) {
 
 function notificationToneClass(item) {
   return `tone-${item?.tone || 'info'}`
+}
+
+function handleLocalNotification(event) {
+  const detail = event?.detail || {}
+  const title = String(detail.title || detail.message || '操作提示').trim()
+  const body = String(detail.body || detail.message || '').trim()
+  const rawTone = detail.tone || detail.type || 'info'
+  const tone = rawTone === 'error' ? 'danger' : (rawTone === 'success' ? 'info' : rawTone)
+  const id = `local-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  localNotifications.value = [
+    {
+      id,
+      local_notice: true,
+      title,
+      body,
+      tone,
+    },
+    ...localNotifications.value,
+  ].slice(0, 5)
+  window.setTimeout(() => {
+    localNotifications.value = localNotifications.value.filter((row) => row.id !== id)
+  }, 4200)
 }
 
 function firstAllowedMenuKey() {
@@ -943,6 +974,7 @@ onMounted(async () => {
   window.addEventListener('touchstart', handleTouchStart, { passive: true })
   window.addEventListener('touchend', handleTouchEnd, { passive: true })
   window.addEventListener('kferp:navigate-view', handleNavigateView)
+  window.addEventListener('kferp:notify', handleLocalNotification)
   window.addEventListener('kferp:workspace-customer-change', handleWorkspaceCustomerChange)
   window.addEventListener(workspaceCustomersRefreshEventName, handleWorkspaceCustomersRefresh)
 })
@@ -952,6 +984,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('touchstart', handleTouchStart)
   window.removeEventListener('touchend', handleTouchEnd)
   window.removeEventListener('kferp:navigate-view', handleNavigateView)
+  window.removeEventListener('kferp:notify', handleLocalNotification)
   window.removeEventListener('kferp:workspace-customer-change', handleWorkspaceCustomerChange)
   window.removeEventListener(workspaceCustomersRefreshEventName, handleWorkspaceCustomersRefresh)
   if (stopTableAutoPagination) stopTableAutoPagination()
@@ -1006,7 +1039,7 @@ const renderedViewParams = computed(() => {
   }
   return params
 })
-const visibleNotifications = computed(() => dedupeNotifications(notifications.value).slice(0, 3))
+const visibleNotifications = computed(() => dedupeNotifications([...localNotifications.value, ...notifications.value]).slice(0, 3))
 const notificationStackStyle = computed(() => ({
   '--kferp-notice-stack-space': isMobile.value && visibleNotifications.value.length
     ? `${notificationStackSpace.value}px`

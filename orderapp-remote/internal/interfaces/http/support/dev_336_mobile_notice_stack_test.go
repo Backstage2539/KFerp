@@ -25,7 +25,8 @@ func TestDev336MobileNoticeStackWiring(t *testing.T) {
 	app := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "App.vue")))
 	for _, want := range []string{
 		`class="global-notification-stack"`,
-		`visibleNotifications = computed(() => dedupeNotifications(notifications.value).slice(0, 3))`,
+		`localNotifications = ref([])`,
+		`visibleNotifications = computed(() => dedupeNotifications([...localNotifications.value, ...notifications.value]).slice(0, 3))`,
 		`notificationStack = ref(null)`,
 		`getBoundingClientRect().bottom`,
 		`notificationStackStyle = computed`,

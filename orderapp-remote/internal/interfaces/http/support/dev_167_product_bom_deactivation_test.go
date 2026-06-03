@@ -73,7 +73,7 @@ func TestDev167VueShowsProductMultiDeactivateAndBomInactiveWarnings(t *testing.T
 			wants: []string{
 				"selectedProductIds",
 				"/api/product-settings/products/deactivate",
-				"失效选中产品",
+				"失效商品",
 				"失效",
 			},
 		},

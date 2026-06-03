@@ -15,19 +15,22 @@ test('warehouse inventory applies customer workspace context and hides cross-cus
   assert.match(view, /v-if="!isCustomerInventoryContext"/)
 })
 
-test('SKU settings locks the customer selector when the shell supplies customer context', () => {
+test('product settings keeps customer context in code without showing legacy SKU scope selector', () => {
   const view = source('../views/ProductSettingsView.vue')
 
   assert.match(view, /isWorkspaceCustomerLocked/)
-  assert.match(view, /v-if="!isWorkspaceCustomerLocked"\s+class="sku-context-controls"/)
-  assert.match(view, /客户账户模式下由顶部当前客户控制/)
+  assert.match(view, /watch\(selectedCustomerSkuCustomerID/)
+  assert.doesNotMatch(view, /class="sku-context-controls"/)
+  assert.doesNotMatch(view, /SKU归属/)
 })
 
-test('BOM settings shows public plus current customer products but locks customer switching', () => {
+test('BOM settings uses customer context without showing legacy SKU scope selector', () => {
   const view = source('../views/BomView.vue')
 
   assert.match(view, /isWorkspaceCustomerLocked/)
-  assert.match(view, /v-if="!isWorkspaceCustomerLocked"\s+class="bom-sku-context-controls"/)
+  assert.match(view, /客户账户模式下只显示该客户的 BOM 行/)
+  assert.doesNotMatch(view, /class="bom-sku-context-controls"/)
+  assert.doesNotMatch(view, /SKU归属/)
   assert.match(view, /canEditCurrentBomProduct/)
 })
 

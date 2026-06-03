@@ -53,7 +53,7 @@ func TestDev347SkuBomJumpFocusFilterWiring(t *testing.T) {
 			markers: []string{
 				"bomFilterProductId",
 				"filterBomRowsByProductFocus",
-				"显示全部 BOM",
+				"商品过滤",
 				"bom_filter_product_id",
 			},
 		},

@@ -30,7 +30,7 @@ func TestDev169ProductSettingsShowsUnifiedSkuList(t *testing.T) {
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
 		"商品档案",
-		"公共SKU",
+		"全部商品",
 		"selectedCustomerSkuCustomerID",
 		"customerSkuCustomerOptions",
 		"customerSkuCustomers",

@@ -7,6 +7,7 @@ import {
   filterBomRowsByProductFocus,
   filterBomContextProducts,
   isBomProductCandidate,
+  mergeProductionBomRows,
   sortBomContextProducts,
   filterProductionBomCatalog,
 } from './bom.js'
@@ -46,6 +47,27 @@ test('BOM rows can be focused to the SKU product from settings navigation', () =
 
   assert.deepEqual(filterBomRowsByProductFocus(rows, 10).map((row) => row.product_id), [10])
   assert.deepEqual(filterBomRowsByProductFocus(rows, 0).map((row) => row.product_id), [10, 11, 12])
+})
+
+test('BOM list merges unbound production BOM records as selectable catalog rows', () => {
+  const rows = [{
+    product_id: 10,
+    product: '已绑定商品',
+    production_bom_id: 5,
+    production_bom_code: 'BOM-000005',
+    production_bom_name: '已绑定 BOM',
+  }]
+  const productionBoms = [
+    { id: 5, code: 'BOM-000005', name: '已绑定 BOM', reference_product_count: 1 },
+    { id: 186, code: 'BOM-000186', name: 'Nenka嫩咖 生产 BOM', status: 'active', group_id: 0, reference_product_count: 0 },
+  ]
+
+  const merged = mergeProductionBomRows(rows, productionBoms)
+  assert.deepEqual(merged.map((row) => row.production_bom_id), [5, 186])
+  assert.equal(merged[1].product, '未绑定商品')
+  assert.equal(merged[1].is_unbound_production_bom, true)
+  assert.equal(productionBomLabel(merged[1]), 'BOM-000186 Nenka嫩咖 生产 BOM / 未绑定版本')
+  assert.deepEqual(filterBomRowsByProductFocus(merged, 10).map((row) => row.production_bom_id), [5])
 })
 
 test('BOM customer selector ignores customers that only have green bean SKUs', () => {
@@ -96,11 +118,10 @@ test('BOM view exposes grouped recipe library and no longer edits production con
   assert.match(source, /全部分组/)
   assert.match(source, /未分类/)
   assert.match(source, /移动到分组/)
-  assert.ok(source.indexOf('bom-move-card') < source.indexOf('bom-list-tabs'))
-  assert.match(source, /bom-workspace-actions/)
-  assert.match(source, /bom-workspace-header/)
+  assert.match(source, /bom-list-toolbar/)
+  assert.match(source, /bom-list-tabs-row/)
+  assert.match(source, /bom-list-filters/)
   assert.match(source, /bom-list-panel-scroll/)
-  assert.match(source, /bom-batch-deactivate-card/)
   assert.match(source, /批量失效/)
   assert.match(source, /deactivateSelectedProductionBoms/)
   assert.match(source, /selectedActiveBomRecordsForDeactivate/)
@@ -125,6 +146,9 @@ test('BOM view exposes grouped recipe library and no longer edits production con
   assert.doesNotMatch(source, /复制为单独维护 BOM/)
   assert.doesNotMatch(source, /派生自有 BOM/)
   assert.doesNotMatch(source, /lockBomVersion/)
+  assert.doesNotMatch(source, /context-eyebrow">SKU归属/)
+  assert.doesNotMatch(source, /bom-move-card/)
+  assert.doesNotMatch(source, /bom-batch-deactivate-card/)
 })
 
 test('production BOM list supports status filters name search group tabs and inactive copy actions', async () => {
@@ -142,12 +166,17 @@ test('production BOM list supports status filters name search group tabs and ina
 
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const listFilters = template.match(/<div class="bom-list-filters"[\s\S]*?<\/div>\s*<div class="table-wrap bom-list-panel-scroll">/)?.[0] || ''
+  const tabRow = template.match(/<div class="bom-list-tabs-row"[\s\S]*?<\/div>\s*<div class="bom-list-toolbar">/)?.[0] || ''
+  const toolbar = template.match(/<div class="bom-list-toolbar"[\s\S]*?<div class="bom-list-filters">/)?.[0] || ''
   for (const marker of [
-    'bom-workspace-actions',
+    'bom-list-toolbar',
     'bom-list-panel-scroll',
     'productionBomStatusFilter',
+    'bomFilterProductId',
     'productionBomSearchQuery',
-    '新建生产 BOM',
+    '新建商品 BOM',
     'openBomVersionDrawer',
     'BOM版本',
     'openBagSpecMappingDrawer',
@@ -160,11 +189,27 @@ test('production BOM list supports status filters name search group tabs and ina
     'isMovableBomRow',
     'copyProductionBomRecord',
     'deactivateProductionBomRecord',
+    'mergeProductionBomRows',
+    'is_unbound_production_bom',
     '/api/production-boms/${bomForm.id}',
     '/api/production-boms/${bomForm.source_id}/copy',
+    '/api/production-boms?status=all',
   ]) {
     assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  assert.match(listFilters, /状态/)
+  assert.match(listFilters, /商品过滤/)
+  assert.match(listFilters, /搜索 BOM/)
+  assert.match(listFilters, /批量失效/)
+  assert.match(tabRow, /bom-list-tabs/)
+  assert.match(tabRow, /新建商品 BOM/)
+  assert.match(toolbar, /移动到分组/)
+  assert.match(toolbar, /增加分组/)
+  assert.doesNotMatch(source, /class="bom-workspace-header"/)
+  assert.doesNotMatch(source, /class="bom-workspace-actions"/)
+  assert.doesNotMatch(source, /bom-batch-deactivate-card/)
+  assert.doesNotMatch(source, /bom-move-card/)
+  assert.doesNotMatch(template, /<div class="filters">[\s\S]*选择商品/)
   const headStart = source.indexOf('class="panel-head bom-list-head"')
   const headEnd = source.indexOf('bom-list-panel-scroll')
   assert.notEqual(headStart, -1)
@@ -172,7 +217,8 @@ test('production BOM list supports status filters name search group tabs and ina
   const listHead = source.slice(headStart, headEnd)
   assert.match(listHead, /productionBomStatusFilter/)
   assert.match(listHead, /productionBomSearchQuery/)
-  assert.doesNotMatch(listHead, /移动到分组/)
+  assert.match(listHead, /bomFilterProductId/)
+  assert.match(listHead, /deactivateSelectedProductionBoms/)
   assert.match(source, /versionDrawerOpen/)
   assert.match(source, /bagSpecMappingDrawerOpen/)
   const deactivateStart = source.indexOf('async function deactivateProductionBomRecord')

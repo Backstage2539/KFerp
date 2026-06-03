@@ -32,12 +32,16 @@ func TestDev170ProductSettingsCustomerContextRequirementSeeds(t *testing.T) {
 func TestDev170ProductSettingsLayoutUsesTopLevelCustomerContext(t *testing.T) {
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
-		"sku-context-panel",
-		"SKU归属",
+		"sku-page-summary",
+		"商品档案承载库存",
 		"selectedSkuContextLabel",
 		"productClassificationTabs",
 		"aliasClassificationTabs",
 		"skuContextProductFilter",
+		"product-filter-row",
+		"alias-filter-row",
+		"product-classification-selects",
+		"alias-classification-selects",
 		"v-for=\"group in displaySkuGroups\"",
 		"v-for=\"group in visibleCustomerAliasGroups\"",
 	} {
@@ -48,10 +52,10 @@ func TestDev170ProductSettingsLayoutUsesTopLevelCustomerContext(t *testing.T) {
 	if strings.Contains(view, "<CostingView") {
 		t.Fatalf("ProductSettingsView.vue must not embed product bean-list workspace after SKU/product bean-list split")
 	}
-	contextPanel := strings.Index(view, "sku-context-panel")
-	publicCreate := strings.Index(view, "product-editor-drawer")
-	if contextPanel < 0 || publicCreate < 0 || contextPanel > publicCreate {
-		t.Fatalf("SKU customer context panel must appear above product create panels: context=%d create=%d", contextPanel, publicCreate)
+	summaryPanel := strings.Index(view, "sku-page-summary")
+	productCreate := strings.Index(view, "product-editor-drawer")
+	if summaryPanel < 0 || productCreate < 0 || summaryPanel > productCreate {
+		t.Fatalf("product summary must appear above product create drawer: summary=%d create=%d", summaryPanel, productCreate)
 	}
 }
 

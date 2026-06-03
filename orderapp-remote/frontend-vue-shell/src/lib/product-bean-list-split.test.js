@@ -60,16 +60,18 @@ test('SKU settings exposes customer context initialization with product archive 
   assert.doesNotMatch(productSettingsSource, /<form v-else class="custom-product-form product-drawer-form" @submit\.prevent="createCustomProduct">/)
 })
 
-test('product and customer classification actions are split into separate action cards', () => {
-  assert.match(productSettingsSource, /classification-action-card add-classification-card[\s\S]*<span>增加分类<\/span>/)
-  assert.match(productSettingsSource, /classification-action-card move-classification-card[\s\S]*移动到分类[\s\S]*移动到子类/)
+test('product and customer classification actions use searchable selects next to tabs', () => {
   const toolbarStart = productSettingsSource.indexOf('product-classification-tabs')
   const toolbarEnd = productSettingsSource.indexOf('<div class="table-wrap sku-table-wrap">')
   assert.notEqual(toolbarStart, -1)
   assert.notEqual(toolbarEnd, -1)
   const toolbar = productSettingsSource.slice(toolbarStart, toolbarEnd)
-  assert.match(toolbar, /add-classification-card/)
-  assert.match(toolbar, /move-classification-card/)
+  assert.match(toolbar, /product-classification-selects/)
+  assert.match(toolbar, /placeholder="增加分类"/)
+  assert.match(toolbar, /placeholder="移动到分类"/)
+  assert.match(productSettingsSource, /alias-classification-selects/)
+  assert.doesNotMatch(productSettingsSource, /classification-action-card/)
+  assert.doesNotMatch(productSettingsSource, /移动到子类/)
 })
 
 test('customer alias list has shared filters batch disable and industry field controls', () => {

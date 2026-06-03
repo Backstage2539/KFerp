@@ -28,31 +28,30 @@ func TestDev171BomSkuContextRequirementSeeds(t *testing.T) {
 func TestDev171BomViewFiltersBySkuContext(t *testing.T) {
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue")))
 	for _, want := range []string{
-		"bom-sku-context-panel",
-		"SKU归属",
+		"bom-list-tabs-row",
+		"bom-list-filters",
+		"商品过滤",
+		"批量失效",
 		"selectedBomCustomerSkuCustomerID",
-		"bomSkuContextLabel",
-		"customBomProductCustomerIDs",
-		"bomSkuCustomers",
+		"mergeProductionBomRows",
 		"bomContextProducts",
 		"bomContextRows",
 		"bomContextProductFilter",
 		":options=\"bomContextProducts\"",
 		"v-for=\"row in bomContextRows\"",
-		"暂无公共SKU BOM",
-		"暂无客户SKU BOM",
-		"filterBomContextProducts(rows.value, 0)",
-		"bomContextCustomerIDs(products.value, rows.value)",
+		"暂无商品 BOM",
+		"filterBomContextProducts",
+		"filterBomRowsByProductFocus",
 		"apiGet('/api/customers?limit=200')",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("BomView.vue missing BOM SKU context marker %q", want)
 		}
 	}
-	contextPanel := strings.Index(view, "bom-sku-context-panel")
-	productSelect := strings.Index(view, "placeholder=\"选择商品\"")
-	if contextPanel < 0 || productSelect < 0 || contextPanel > productSelect {
-		t.Fatalf("BOM SKU context panel must appear above product selector: context=%d productSelect=%d", contextPanel, productSelect)
+	tabRow := strings.Index(view, "bom-list-tabs-row")
+	filterRow := strings.Index(view, "bom-list-filters")
+	if tabRow < 0 || filterRow < 0 || tabRow > filterRow {
+		t.Fatalf("BOM group tab row must appear above list filters: tab=%d filter=%d", tabRow, filterRow)
 	}
 }
 

@@ -20,7 +20,6 @@ import {
   industryFieldSummary,
   classificationTemplateTabs,
   groupRowsByClassificationCategory,
-  customerProductAliasMigrationCandidateSummary,
   buildCustomerPublicUsagePayload,
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
@@ -334,17 +333,6 @@ test('product creation actions keep only the product archive creation entry', ()
   assert.deepEqual(productCreationActionOptions({ customerID: 0 }).map((option) => option.label), [
     '创建新商品档案',
   ])
-})
-
-test('customer product alias migration candidate summary explains safe convergence', () => {
-  assert.equal(customerProductAliasMigrationCandidateSummary({
-    product_code: 'SKU-000088',
-    product_name: 'Karen 贴牌意式',
-    base_product_code: 'SKU-000007',
-    base_product_name: '精品意式拼配',
-    suggested_action: 'convert_to_customer_product_alias',
-    suggested_reason: '仅名称/编号/价格差异',
-  }), '建议转为客户商品名：SKU-000088 Karen 贴牌意式 → 绑定 SKU-000007 精品意式拼配；仅名称/编号/价格差异')
 })
 
 test('product subtype options are derived from the selected product type only', () => {
@@ -1638,7 +1626,7 @@ test('product pages group product archive and template configuration into separa
     template.indexOf('class="panel product-panel"') < template.indexOf('class="sku-template-workspace"'),
     'SKU list should remain in the daily-operation workspace before template configuration',
   )
-  assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"/)
+  assert.match(template, /class="sku-filters product-filter-row"[\s\S]*@click="openProductDrawer"/)
   assert.doesNotMatch(template, /@click="openSkuCopyDrawer"/)
   assert.doesNotMatch(template, /v-if="currentSettingsSection === 'master'"[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
   assert.match(template, /class="classification-view-toolbar product-classification-tabs"/)
@@ -1665,7 +1653,10 @@ test('product management exposes customer product names without direct BOM editi
     '/api/customer-product-aliases',
     'saveCustomerProductAlias',
     'disableCustomerProductAlias',
-    '生产 BOM 和生产配置只能回到商品档案维护',
+    '客户商品名只维护对外名称、编号、品牌和价格表展示',
+    'customer-alias-create-drawer',
+    'openCustomerAliasCreateDrawer',
+    '绑定商品已失效',
   ]) {
     assert.ok(source.includes(expected), `missing customer product alias marker: ${expected}`)
   }
@@ -1673,11 +1664,21 @@ test('product management exposes customer product names without direct BOM editi
   assert.match(script, /apiGet\('\/api\/customer-product-aliases\?active=all'\)/)
   assert.match(script, /apiSend\(url,\s*\{ method,\s*body:\s*payload \}\)/)
   assert.match(script, /apiSend\(`\/api\/customer-product-aliases\/\$\{alias\.id\}\/disable`\)/)
-  const aliasForm = template.match(/<form class="customer-alias-form"[\s\S]*?<\/form>/)?.[0] || ''
+  assert.match(script, /apiSend\('\/api\/customer-product-aliases\/batch-disable'/)
+  const aliasForm = template.match(/<aside class="settings-drawer customer-alias-create-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
+  const inlineAliasArea = template.match(/<section class="panel customer-alias-panel"[\s\S]*?<div class="table-wrap">/)?.[0] || ''
+  const aliasFilters = template.match(/<div class="alias-filters alias-filter-row"[\s\S]*?<div class="classification-view-toolbar alias-classification-tabs"/)?.[0] || ''
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.customer_item_code/)
+  assert.doesNotMatch(inlineAliasArea, /<form class="customer-alias-form"/)
+  assert.match(aliasFilters, /新建客户商品/)
+  assert.match(aliasFilters, /批量失效/)
+  assert.doesNotMatch(aliasFilters, />搜索客户商品</)
   assert.doesNotMatch(template, />编辑<\/button>/)
   assert.doesNotMatch(template, /客户商品名[\s\S]*派生自有 BOM/)
   assert.doesNotMatch(template, /customer-alias-workspace[\s\S]*@click="derive/)
+  assert.doesNotMatch(template, /旧客户 SKU 收敛检查/)
+  assert.doesNotMatch(source, /aliasMigrationCandidates/)
+  assert.doesNotMatch(source, /migration-candidates/)
 })
 
 test('SKU settings keeps only the product creation drawer while classification templates drive product tabs', () => {
@@ -1691,7 +1692,6 @@ test('SKU settings keeps only the product creation drawer while classification t
     'displaySkuGroups',
     '增加分类',
     '移动到分类',
-    '移动到子类',
     'classification-group-row',
     'product-editor-drawer',
     'openProductDrawer',
@@ -1702,13 +1702,14 @@ test('SKU settings keeps only the product creation drawer while classification t
 
   assert.doesNotMatch(template, /class="panel public-product-panel"/)
   assert.doesNotMatch(template, /class="panel custom-product-panel"/)
-  assert.match(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"/)
+  assert.doesNotMatch(template, /class="panel-actions sku-panel-actions"[\s\S]*@click="openProductDrawer"/)
+  assert.match(template, /class="sku-filters product-filter-row"[\s\S]*@click="openProductDrawer"[\s\S]*deactivateProducts/)
   assert.doesNotMatch(template, /@click="openSkuCopyDrawer"/)
   assert.doesNotMatch(template, />分类设置</)
   assert.doesNotMatch(template, /v-for="primary in visibleCategoryManagementTreeForSkuContext"/)
   assert.doesNotMatch(template, /class="category-panel category-drawer-panel category-management-panel"/)
   assert.doesNotMatch(template, /<aside class="settings-drawer sku-copy-drawer"/)
-  assert.match(template, /当前SKU \{\{ skuDisplayTotal \}\}/)
+  assert.doesNotMatch(template, /当前SKU \{\{ skuDisplayTotal \}\}/)
   assert.match(template, /:total="skuDisplayTotal"/)
   assert.match(template, /<table :key="skuTableKey" class="sku-table"/)
   assert.match(template, /v-for="group in displaySkuGroups"/)
@@ -1795,6 +1796,10 @@ test('product and customer alias lists move selected rows within the active clas
   for (const expected of [
     'saveSelectedProductClassificationAssignment',
     'saveSelectedAliasClassificationAssignment',
+    'confirmProductClassificationTemplateUsage',
+    'confirmAliasClassificationTemplateUsage',
+    'confirmSelectedProductClassificationMove',
+    'confirmSelectedAliasClassificationMove',
     '/api/product-classification-assignments/products',
     '/api/product-classification-assignments/customer-aliases',
     'currentProductClassificationTemplate',
@@ -1805,8 +1810,17 @@ test('product and customer alias lists move selected rows within the active clas
     assert.ok(source.includes(expected), `missing classification assignment marker: ${expected}`)
   }
 
-  assert.match(template, /product-classification-tabs[\s\S]*<span>移动到分类<\/span>[\s\S]*saveSelectedProductClassificationAssignment/)
-  assert.match(template, /alias-classification-tabs[\s\S]*<span>移动到分类<\/span>[\s\S]*saveSelectedAliasClassificationAssignment/)
+  assert.match(template, /product-classification-tabs[\s\S]*classification-tabs[\s\S]*product-classification-selects[\s\S]*增加分类[\s\S]*移动到分类/)
+  assert.match(template, /alias-classification-tabs[\s\S]*classification-tabs[\s\S]*alias-classification-selects[\s\S]*增加分类[\s\S]*移动到分类/)
+  assert.match(template, /SearchableSelect[\s\S]*placeholder="增加分类"[\s\S]*@select="confirmProductClassificationTemplateUsage"/)
+  assert.match(template, /SearchableSelect[\s\S]*placeholder="移动到分类"[\s\S]*@select="confirmSelectedProductClassificationMove"/)
+  assert.match(template, /SearchableSelect[\s\S]*placeholder="增加分类"[\s\S]*@select="confirmAliasClassificationTemplateUsage"/)
+  assert.match(template, /SearchableSelect[\s\S]*placeholder="移动到分类"[\s\S]*@select="confirmSelectedAliasClassificationMove"/)
+  assert.doesNotMatch(template, /move-classification-card/)
+  assert.doesNotMatch(template, /add-classification-card/)
+  assert.doesNotMatch(template, /classification-action-card/)
+  assert.match(template, /product-filter-row[\s\S]*openProductDrawer[\s\S]*deactivateProducts/)
+  assert.match(template, /alias-filter-row[\s\S]*openCustomerAliasCreateDrawer[\s\S]*batchDisableCustomerProductAliases/)
   assert.match(template, /v-for="group in displaySkuGroups"/)
   assert.match(template, /v-for="group in visibleCustomerAliasGroups"/)
   assert.match(style, /\.classification-group-row\s+td\s*\{/)
@@ -1905,7 +1919,9 @@ test('customer product aliases support batch adding product records', () => {
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   assert.match(template, /批量添加商品档案/)
-  assert.match(source, /customerAliasBatchDrawerOpen/)
+  assert.match(source, /customerAliasCreateDrawerOpen/)
+  assert.match(source, /customerAliasCreateMode/)
+  assert.match(template, /customerAliasCreateMode === 'batch'/)
   assert.match(source, /selectedAliasBatchProductIds/)
   assert.match(script, /\/api\/customer-product-aliases\/batch/)
   assert.match(script, /buildCustomerProductAliasBatchPayload/)
@@ -2080,14 +2096,17 @@ test('SKU settings compacts context area and uses create edit labels for unit di
 
   for (const expected of [
     'sku-page-summary',
-    'compact-sku-context',
-    'sku-context-title-line',
+    'kferp:notify',
   ]) {
     assert.ok(source.includes(expected), `missing compact SKU context marker: ${expected}`)
   }
 
-  assert.match(style, /\.sku-page-summary\s*\{[^}]*padding:\s*10px 12px;/s)
-  assert.match(style, /\.compact-sku-context\s*\{[^}]*padding:\s*10px 12px;/s)
+  assert.match(style, /\.sku-page-summary\s*\{[^}]*padding:\s*8px 12px;/s)
+  assert.match(style, /\.sku-page-summary \.panel-head\s*\{[^}]*margin-bottom:\s*0;/s)
+  assert.doesNotMatch(template, /SKU归属/)
+  assert.doesNotMatch(template, /compact-sku-context/)
+  assert.doesNotMatch(template, /<div v-if="error" class="error"/)
+  assert.doesNotMatch(template, /<div v-if="ok" class="ok"/)
   assert.doesNotMatch(template, /产品列表、商品分类和商品配置会按当前归属切换。/)
 
   assert.match(unitTemplatePane, /@click="resetProductUnitTemplateForm"[\s\S]*新增单位模板/)
@@ -2173,7 +2192,6 @@ test('product settings uses classification tabs and page-level assignment contro
     '未分类客户商品',
     '增加分类',
     '移动到分类',
-    '移动到子类',
   ]) {
     assert.ok(source.includes(expected), `missing classification tab marker: ${expected}`)
   }
@@ -2183,13 +2201,15 @@ test('product settings uses classification tabs and page-level assignment contro
 
 test('customer product aliases use page-level classification templates, not single or batch fields', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const aliasDrawer = source.match(/<aside class="settings-drawer customer-alias-batch-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
-  const aliasForm = source.match(/<form class="customer-alias-form"[\s\S]*?<\/form>/)?.[0] || ''
+  const aliasDrawer = source.match(/<aside class="settings-drawer customer-alias-create-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
+  const aliasForm = aliasDrawer.match(/<form class="customer-alias-form"[\s\S]*?<\/form>/)?.[0] || ''
   const aliasTable = source.match(/<table class="customer-alias-table"[\s\S]*?<\/table>/)?.[0] || ''
 
   assert.doesNotMatch(aliasForm, /classification_template_id/)
   assert.doesNotMatch(aliasDrawer, /aliasBatchForm\.classification_template_id/)
   assert.doesNotMatch(aliasDrawer, /默认复制\/复用商品档案分类模板/)
+  assert.match(aliasDrawer, /批量添加商品档案/)
+  assert.doesNotMatch(source, /customer-alias-batch-drawer/)
   assert.doesNotMatch(aliasTable, />展示分类</)
   assert.doesNotMatch(aliasTable, /navigateProductBom/)
   assert.doesNotMatch(source, /openClassificationConfigDrawer\(\{[\s\S]*objectType:\s*'customer_alias'/)
@@ -2260,7 +2280,9 @@ test('product archive and customer alias classification UX uses big-category tab
   assert.match(source, /未分类客户商品/)
   assert.match(source, /增加分类/)
   assert.match(source, /移动到分类/)
-  assert.match(source, /移动到子类/)
+  assert.match(source, /classification-select-row/)
+  assert.match(source, /productAddClassificationOptions/)
+  assert.match(source, /aliasAddClassificationOptions/)
   assert.match(template, /当前归类/)
   assert.match(script, /selectedProductRowsAlreadyInCurrentCategory/)
   assert.match(script, /selectedAliasRowsAlreadyInCurrentCategory/)
