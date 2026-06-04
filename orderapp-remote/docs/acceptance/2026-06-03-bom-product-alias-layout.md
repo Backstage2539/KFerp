@@ -54,6 +54,8 @@
 - Vue 开发规范新增跨页面跳转规则：涉及业务页面跳转时必须使用 `kferp:navigate-view` + `returnNavigation`，目标页提供返回来源操作入口。
 - RED：`node --test src/lib/bom.test.js` failed，因为 BOM 详情尚未包含引用商品跳转、版本/袋材映射详情区；`node --test src/lib/view-routing.test.js` failed，因为 Vue 开发规范尚未记录 `returnNavigation` 跳转规则。
 - GREEN：`node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` 119/119 passed；`go test ./internal/interfaces/http/bom ./internal/interfaces/http/support -count=1` passed；`npm run build` passed；`scripts/verify_kferp.sh changed` passed。
+- 部署：feature commit `c04916b8` 已合入并推送 `origin/develop=189fed6972c2953e913b0c6dcdab2bb619b59d34`，development stack 通过 `./deploy_orderapp.sh development` 部署。Docker build 期间 `go test ./...` passed；备份 `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604133129`。
+- Smoke：`erp_orderapp`、`erp_postgres`、`erp_caddy`、`erp_docconvert` running；未认证 GET `/app/` 返回 303 到 `/app/orders`；GET `/app/vue-shell` 返回 200；GET `/app/api/production-boms?status=all` 返回 200；远端前端 JS 包含 `返回BOM编辑`、`referenced-product-button`、`全局规格袋材映射`、`product-return-banner` 和 `复制为新版草稿`。
 
 ## 手册与需求文档
 - `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
