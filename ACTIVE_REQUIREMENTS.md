@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-413-PRODUCT-CREATE-NULL-PRODUCTION-CONFIG
 - Branch: codex/product-create-null-production-config-20260604
 - Owner/session: Codex / 2026-06-04
-- Status: in development
+- Status: merged and deployed to development
 - Scope: 修复新建商品档案成功后自动打开“商品档案配置”抽屉时，商品尚无 `product_production_configs` 行导致前端读取 `expected_loss_rate` 空值崩溃的问题。
 - DEV:
   - DEV-413-PRODUCT-CREATE-NULL-CONFIG-GUARD：把商品生产配置表单构造逻辑抽为可测试 helper，并兼容 `null`/缺失生产配置行；新商品仍使用商品档案行默认值打开配置抽屉。
@@ -20,6 +20,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
   - Changed verifier: `scripts/verify_kferp.sh changed` exited 0.
 - Manual/docs: no workflow change; update requirements, acceptance record, and requirement seed only.
+- Integration: feature commit `6a0acc49` pushed to `origin/codex/product-create-null-production-config-20260604` and fast-forward merged/pushed to `origin/develop=6a0acc4979f787f6b95de5524fac69a7ae0b7165`.
+- Deployment: development stack deployed with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604212529`.
+- Smoke: containers running (`erp_orderapp`, `erp_caddy`, `erp_postgres`, `erp_docconvert`); unauthenticated GET `/app/` returned 303 to `/app/orders`; GET `/app/vue-shell/` returned 200; authenticated requirement API returned 200 and exposes `PR-413-PRODUCT-CREATE-NULL-PRODUCTION-CONFIG`; remote source/docs contain `buildProductProductionConfigForm` and the PR-413 acceptance record.
 - Last update: 2026-06-04 Asia/Shanghai
 
 ### PR-412-CLASSIFICATION-CONFIG-TEMPLATE-INHERITANCE

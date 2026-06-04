@@ -20,4 +20,4 @@
 - support 需求种子测试：`go test ./internal/interfaces/http/support -run 'TestDev413|TestDev408' -count=1` 通过。
 - Vue build：`npm run build` 通过，保留既有 chunk-size warning。
 - Changed verifier：`scripts/verify_kferp.sh changed` 退出 0。
-- development stack 部署 smoke：待合并部署后补充到 `ACTIVE_REQUIREMENTS.md`。
+- development stack 部署 smoke：`./deploy_orderapp.sh development` 已部署 `origin/develop=6a0acc4979f787f6b95de5524fac69a7ae0b7165`；容器运行；`GET /app/` 返回 303 到 `/app/orders`；`GET /app/vue-shell/` 返回 200；认证需求 API 暴露 `PR-413-PRODUCT-CREATE-NULL-PRODUCTION-CONFIG`；远端源码包含 `buildProductProductionConfigForm`。
