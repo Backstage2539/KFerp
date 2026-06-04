@@ -42,6 +42,7 @@
 - [ ] PR-407-PRODUCTION-BOM-GROUP-CATEGORIES-VERSION-EDIT：新建生产 BOM 后自动生成 `V001 草稿` 并打开该 BOM，比例输入和物料保存可用；已发布版本显示“已发布版本只读，复制为新版草稿后编辑”，比例输入只读。
 - [ ] PR-407-PRODUCTION-BOM-GROUP-CATEGORIES-VERSION-EDIT：配方明细、合计比例和保存组件位于 BOM 版本区域下方；切换版本后，明细和合计比例按当前版本刷新；复制已发布版本为新版草稿后自动选中新草稿并复制原物料比例。
 - [ ] PR-408-PRODUCT-CREATE-CONFIG-DRAWER：创建新商品档案成功后自动打开该商品的“商品档案配置”抽屉，且抽屉使用重新加载后的完整商品行，可立即配置商品配置模板、生产 BOM、工艺路线、预期损耗率和行业字段。
+- [ ] PR-413-PRODUCT-CREATE-NULL-PRODUCTION-CONFIG：创建新商品档案成功后，如果该商品还没有生产配置记录，商品档案配置抽屉仍能打开；预期损耗率默认为 0，生产 BOM、BOM 版本、工艺路线和行业字段模板为空，不出现 `Cannot read properties of null (reading 'expected_loss_rate')`。
 - [ ] PR-409-CUSTOMER-ALIAS-PRICING-BOM-CONFIG / PR-411：旧客户商品直接 `gradient_template_id` 与 `unit_template_id` 字段保留兼容读取；新 UI 不再直接选择这两个字段，而是选择商品配置模板。
 - [ ] PR-409-CUSTOMER-ALIAS-PRICING-BOM-CONFIG / PR-411：客户范围产品价格表生成时，客户商品选择的商品配置模板优先于绑定商品档案配置；旧客户商品直接阶梯价模板和单位模板仅作为历史 fallback。
 - [ ] PR-409-CUSTOMER-ALIAS-PRICING-BOM-CONFIG：商品档案配置抽屉绑定生产 BOM 时，只显示启用 BOM，支持按 BOM 编号/名称搜索，选项显示 BOM 编号、名称和版本号，并默认选择最新已发布版本。

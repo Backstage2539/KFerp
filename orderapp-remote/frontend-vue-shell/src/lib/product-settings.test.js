@@ -26,6 +26,7 @@ import {
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
   buildProductConfigTemplatePayload,
+  buildProductProductionConfigForm,
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
   buildProductBasicsPayload,
@@ -1691,6 +1692,24 @@ test('new product archive creation opens the created product config drawer with 
   assert.match(createSkuBlock, /const result = await apiSend\('\/api\/product-settings\/skus'/)
   assert.match(createSkuBlock, /await loadAll\(\)[\s\S]*resolveCreatedProductForConfig\(result/)
   assert.match(createSkuBlock, /await openProductProductionConfig\(createdProductForConfig\)/)
+})
+
+test('product production config form tolerates newly created products without production config rows', () => {
+  const form = buildProductProductionConfigForm(null, {
+    id: 812,
+    name: '新建商品',
+    remark: '刚创建',
+    product_kind: 'roasted',
+    product_config_template_id: 42,
+    production_bom_id: 0,
+  })
+
+  assert.equal(form.product_id, 812)
+  assert.equal(form.name, '新建商品')
+  assert.equal(form.remark, '刚创建')
+  assert.equal(form.product_config_template_id, 42)
+  assert.equal(form.expected_loss_percent, 0)
+  assert.deepEqual(form.fields, [])
 })
 
 test('SKU settings renders one unified SKU form as a full-width drawer', () => {

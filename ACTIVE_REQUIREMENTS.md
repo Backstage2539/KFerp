@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-413-PRODUCT-CREATE-NULL-PRODUCTION-CONFIG
+- Branch: codex/product-create-null-production-config-20260604
+- Owner/session: Codex / 2026-06-04
+- Status: in development
+- Scope: 修复新建商品档案成功后自动打开“商品档案配置”抽屉时，商品尚无 `product_production_configs` 行导致前端读取 `expected_loss_rate` 空值崩溃的问题。
+- DEV:
+  - DEV-413-PRODUCT-CREATE-NULL-CONFIG-GUARD：把商品生产配置表单构造逻辑抽为可测试 helper，并兼容 `null`/缺失生产配置行；新商品仍使用商品档案行默认值打开配置抽屉。
+- Verifier:
+  - RED: `node --test src/lib/product-settings.test.js` failed because `buildProductProductionConfigForm` was not exported and null config was not guarded.
+  - Frontend: `node --test src/lib/product-settings.test.js` passed 109/109.
+  - API/backend: `go test ./internal/interfaces/http/support -run 'TestDev413|TestDev408' -count=1` passed.
+  - Frontend/build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
+  - Changed verifier: `scripts/verify_kferp.sh changed` exited 0.
+- Manual/docs: no workflow change; update requirements, acceptance record, and requirement seed only.
+- Last update: 2026-06-04 Asia/Shanghai
+
 ### PR-412-CLASSIFICATION-CONFIG-TEMPLATE-INHERITANCE
 - Branch: codex/classification-config-template-inheritance-20260604
 - Owner/session: Codex / 2026-06-04

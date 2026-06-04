@@ -1072,6 +1072,52 @@ export function resolveCreatedProductForConfig(result = {}, products = []) {
   return createdID > 0 || createdName ? createdProduct : null
 }
 
+export function buildProductProductionConfigField(row = {}, index = 0) {
+  const source = row && typeof row === 'object' ? row : {}
+  const rawType = String(source.field_type || '').trim()
+  const type = ['text', 'textarea', 'number', 'ratio', 'select', 'checkbox', 'date', 'bool'].includes(rawType) ? (rawType === 'bool' ? 'checkbox' : rawType) : 'text'
+  return {
+    local_id: `${Number(source.id || 0) || 'new'}-${Date.now()}-${index}`,
+    id: Number(source.id || 0),
+    field_key: String(source.field_key || '').trim(),
+    template_field_key: String(source.template_field_key || source.field_key || '').trim(),
+    label: String(source.label || '').trim(),
+    field_type: type,
+    unit: String(source.unit || '').trim(),
+    value_text: String(source.value_text || '').trim(),
+    value_number: source.value_number === null || typeof source.value_number === 'undefined' || source.value_number === '' ? null : Number(source.value_number),
+    value_bool: Boolean(source.value_bool),
+    required: Boolean(source.required),
+    options_json: String(source.options_json || '[]').trim() || '[]',
+    show_in_price_list: source.show_in_price_list !== false,
+    sort_order: Number(source.sort_order || index + 1),
+  }
+}
+
+export function buildProductProductionConfigForm(config = {}, product = {}) {
+  const sourceConfig = config && typeof config === 'object' ? config : {}
+  const sourceProduct = product && typeof product === 'object' ? product : {}
+  const lossRate = Number(sourceConfig.expected_loss_rate ?? sourceProduct.expected_loss_rate ?? 0)
+  const fields = Array.isArray(sourceConfig.fields) ? sourceConfig.fields : []
+  return {
+    product_id: Number(sourceConfig.product_id || sourceProduct.id || 0),
+    name: String(sourceProduct.name || '').trim(),
+    remark: String(sourceProduct.remark || '').trim(),
+    product_kind: sourceProduct.product_kind || 'roasted',
+    product_config_template_id: Number(sourceProduct.product_config_template_id || 0),
+    production_bom_id: Number(sourceConfig.production_bom_id || sourceProduct.production_bom_id || 0),
+    production_bom_version_id: Number(sourceConfig.production_bom_version_id || sourceProduct.production_bom_version_id || 0),
+    process_route_id: Number(sourceConfig.process_route_id || 0),
+    industry_field_template_id: Number(sourceConfig.industry_field_template_id || 0),
+    expected_loss_percent: Number.isFinite(lossRate) && lossRate > 0 ? Number((lossRate * 100).toFixed(2)) : 0,
+    note: String(sourceConfig.note || sourceProduct.production_config_note || '').trim(),
+    fields: fields
+      .slice()
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
+      .map((field, index) => buildProductProductionConfigField(field, index)),
+  }
+}
+
 export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   const kind = normalizedProductKind(row)
   const payload = {

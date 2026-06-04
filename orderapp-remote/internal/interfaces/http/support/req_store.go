@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-413-PRODUCT-CREATE-NULL-PRODUCTION-CONFIG", title: "新建商品档案成功后自动打开配置抽屉时，商品尚无生产配置记录也不能因 expected_loss_rate 空值崩溃", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; ProductSettingsView.vue; product-settings.js"},
+		{table: "req_dev", code: "DEV-413-PRODUCT-CREATE-NULL-CONFIG-GUARD", title: "商品生产配置表单构造 helper 兼容 null 配置，使用商品档案行作为默认值打开配置抽屉", status: "doing", assignee: "Codex", evidence: "buildProductProductionConfigForm; product-settings.test.js"},
+		{table: "req_unit", code: "UT-413-PRODUCT-CREATE-NULL-PRODUCTION-CONFIG", title: "前端单测覆盖新建商品无 production config 行时表单默认值和 expected_loss_rate 空值保护", status: "doing", assignee: "Codex", evidence: "node --test src/lib/product-settings.test.js"},
+		{table: "req_review", code: "REV-413-PRODUCT-CREATE-NULL-PRODUCTION-CONFIG", prCode: "PR-413-PRODUCT-CREATE-NULL-PRODUCTION-CONFIG", title: "验收：创建新商品档案后配置抽屉可正常打开，预期损耗率默认 0 且不再出现 expected_loss_rate 空值错误", status: "todo", assignee: "VA", evidence: "待部署 smoke"},
 		{table: "req_product", code: "PR-412-CLASSIFICATION-CONFIG-TEMPLATE-INHERITANCE", title: "分类模板和分类项不再直接引用阶梯价模板和单位模板，改为引用商品配置模板；计价关系为商品引用模板>子类引用模板>大类引用模板", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; ProductSettingsView.vue; catalog/costing repository"},
 		{table: "req_dev", code: "DEV-412-CLASSIFICATION-TEMPLATE-CONFIG-REFERENCE", title: "分类模板和分类项 API、仓储、Vue 表单支持 product_config_template_id，并提示商品配置模板可以被商品覆盖", status: "doing", assignee: "Codex", evidence: "catalog product routes; ProductSettingsView.vue; product-settings.test.js"},
 		{table: "req_dev", code: "DEV-412-PRICE-LIST-CONFIG-INHERITANCE", title: "商品价格表和成本输入读取商品配置模板优先级：商品/客户商品配置模板、分类项配置模板、分类模板配置模板、旧兼容字段", status: "doing", assignee: "Codex", evidence: "costing/repository.go; costing repository tests"},

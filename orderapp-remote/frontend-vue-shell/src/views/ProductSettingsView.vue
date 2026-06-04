@@ -1229,6 +1229,8 @@ import {
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
   buildProductConfigTemplatePayload,
+  buildProductProductionConfigField,
+  buildProductProductionConfigForm,
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
   buildProductBasicsPayload,
@@ -1886,45 +1888,11 @@ function defaultClassificationCategoryForm() {
 }
 
 function defaultProductProductionConfigField(row = {}, index = 0) {
-  const rawType = String(row.field_type || '').trim()
-  const type = ['text', 'textarea', 'number', 'ratio', 'select', 'checkbox', 'date', 'bool'].includes(rawType) ? (rawType === 'bool' ? 'checkbox' : rawType) : 'text'
-  return {
-    local_id: `${Number(row.id || 0) || 'new'}-${Date.now()}-${index}`,
-    id: Number(row.id || 0),
-    field_key: String(row.field_key || '').trim(),
-    template_field_key: String(row.template_field_key || row.field_key || '').trim(),
-    label: String(row.label || '').trim(),
-    field_type: type,
-    unit: String(row.unit || '').trim(),
-    value_text: String(row.value_text || '').trim(),
-    value_number: row.value_number === null || typeof row.value_number === 'undefined' || row.value_number === '' ? null : Number(row.value_number),
-    value_bool: Boolean(row.value_bool),
-    required: Boolean(row.required),
-    options_json: String(row.options_json || '[]').trim() || '[]',
-    show_in_price_list: row.show_in_price_list !== false,
-    sort_order: Number(row.sort_order || index + 1),
-  }
+  return buildProductProductionConfigField(row, index)
 }
 
 function defaultProductProductionConfigForm(config = {}, product = {}) {
-  const lossRate = Number(config.expected_loss_rate ?? product.expected_loss_rate ?? 0)
-  return {
-    product_id: Number(config.product_id || product.id || 0),
-    name: String(product.name || '').trim(),
-    remark: String(product.remark || '').trim(),
-    product_kind: product.product_kind || 'roasted',
-    product_config_template_id: Number(product.product_config_template_id || 0),
-    production_bom_id: Number(config.production_bom_id || product.production_bom_id || 0),
-    production_bom_version_id: Number(config.production_bom_version_id || product.production_bom_version_id || 0),
-    process_route_id: Number(config.process_route_id || 0),
-    industry_field_template_id: Number(config.industry_field_template_id || 0),
-    expected_loss_percent: Number.isFinite(lossRate) && lossRate > 0 ? Number((lossRate * 100).toFixed(2)) : 0,
-    note: String(config.note || product.production_config_note || '').trim(),
-    fields: (config.fields || [])
-      .slice()
-      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
-      .map((field, index) => defaultProductProductionConfigField(field, index)),
-  }
+  return buildProductProductionConfigForm(config, product)
 }
 
 function isProductClassificationGroupCollapsed(key) {
