@@ -20,3 +20,6 @@
 - GREEN: `go test ./internal/interfaces/http/materials ./internal/application/materials ./internal/infrastructure/postgres/materials ./internal/interfaces/http/support -count=1` passed。
 - GREEN: `npm run build` passed with existing chunk-size warning。
 - GREEN: `scripts/verify_kferp.sh changed` exited 0。
+- Deploy: development stack deployed at `origin/develop=b9bf889d8312f55b45b2c3f2eb19cb5783f15bbe`，backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260605013954`。
+- Smoke: `/app/vue-shell?view=materials` authenticated GET 200，`/app/api/materials?limit=5` authenticated GET 200，需求接口返回 `PR-416-MATERIALS-LIST-LAYOUT-BATCH-DEPRECATE`。
+- Browser: 物料档案页实际 DOM 表头为 `物料名称 / 单位 / 库存数量 / 状态`，没有 `物料类型`；存在 `批量失效`、`全选物料`；表格 `min-width` 生效为 `920px`，容器 `overflow-x=auto`。

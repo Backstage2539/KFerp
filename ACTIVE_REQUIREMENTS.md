@@ -7,9 +7,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-416-MATERIALS-LIST-LAYOUT-BATCH-DEPRECATE
-- Branch: codex/materials-list-layout-batch-deprecate-20260605
+- Branches: codex/materials-list-layout-batch-deprecate-20260605; codex/materials-list-table-scroll-style-20260605
 - Owner/session: Codex / 2026-06-05
-- Status: implementing
+- Status: deployed to development; smoke and browser check passed
 - Scope: 物料档案列表去掉 `物料类型` 列，未分类物料通过 `未分类` Tab/组展示；搜索和启停过滤移动到 `物料列表` 上方；表格左侧支持全选复选框；勾选多个物料后通过 `批量失效` 逐条调用现有失效接口并保留操作日志；列表设置横向滚动和更宽列宽，避免状态列和行内容挤压。
 - DEV:
   - DEV-416-MATERIALS-LIST-LAYOUT：`MaterialsView.vue` 把搜索、状态、查询、新建物料、批量失效收敛到物料列表工具栏，删除物料类型列，增加表头全选和横向滚动。
@@ -17,9 +17,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-416-MANUAL-DOCS：更新物料档案操作手册、需求、验收和 requirement seed。
 - Verifier:
   - RED: `node --test src/lib/materials-ui.test.js` failed because old view had no `批量失效` and still kept filters in the top card; `go test ./internal/interfaces/http/materials -run 'TestMaterialsViewUsesClassificationAndIndustryFields|TestMaterialsViewListLayoutSupportsBulkSelection' -count=1` failed on missing `deprecateSelectedMaterials` and `material-list-toolbar`.
-  - GREEN: `node --test src/lib/materials-ui.test.js` passed 4/4; `node --test src/lib/materials-ui.test.js src/lib/menu-ia.test.js` passed 18/18; `go test ./internal/interfaces/http/materials -run 'TestMaterialsViewUsesClassificationAndIndustryFields|TestMaterialsViewListLayoutSupportsBulkSelection' -count=1` passed; `go test ./internal/interfaces/http/materials ./internal/application/materials ./internal/infrastructure/postgres/materials ./internal/interfaces/http/support -count=1` passed; `npm run build` passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+  - GREEN: `node --test src/lib/materials-ui.test.js` passed 4/4; `node --test src/lib/materials-ui.test.js src/lib/menu-ia.test.js` passed 18/18; `go test ./internal/interfaces/http/materials -run 'TestMaterialsViewUsesClassificationAndIndustryFields|TestMaterialsViewListLayoutSupportsBulkSelection' -count=1` passed; `go test ./internal/interfaces/http/materials ./internal/application/materials ./internal/infrastructure/postgres/materials ./internal/interfaces/http/support -count=1` passed; `npm run build` passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0. Browser check after deploy: `/app/vue-shell?view=materials` has headers `物料名称 / 单位 / 库存数量 / 状态`, no `物料类型`, has `批量失效`, has `全选物料`, table min-width `920px`, overflow-x `auto`.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-05-materials-list-layout-batch-deprecate.md`; requirement seed updated in `orderapp-remote/internal/interfaces/http/support/req_store.go`.
-- Deploy/smoke: pending.
+- Deploy/smoke: merged to `origin/develop=b9bf889d8312f55b45b2c3f2eb19cb5783f15bbe`; development deploy passed Docker build `go test ./...`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260605013954`; containers running; unauthenticated `/app/` 303 to `/app/orders`; authenticated `/app/vue-shell?view=materials` 200; authenticated `/app/api/materials?limit=5` 200; requirement API exposes `PR-416-MATERIALS-LIST-LAYOUT-BATCH-DEPRECATE`.
 - Last update: 2026-06-05 Asia/Shanghai
 
 ### PR-415-PRODUCT-PRICE-LIST-NO-DRIP-TEMPLATE
