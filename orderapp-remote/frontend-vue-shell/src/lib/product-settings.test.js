@@ -49,6 +49,7 @@ import {
   productConfigTemplateBelongsToSkuContext,
   productCreationActionOptions,
   productDisplayState,
+  resolveCreatedProductForConfig,
   productSubtypeCategoryOptionsForType,
   primaryCategoryOptions,
   roastedBomProductOptions,
@@ -1593,6 +1594,29 @@ test('product archive list uses the product name as the only production config e
   assert.doesNotMatch(template, /自有 BOM/)
   assert.doesNotMatch(template, /跟随默认 BOM/)
   assert.doesNotMatch(template, /固定 BOM 版本/)
+})
+
+test('new product archive creation opens the created product config drawer with the reloaded product row', () => {
+  const reloaded = [
+    { id: 8, name: '旧商品', product_config_template_id: 0 },
+    { id: 12, name: '新商品', product_config_template_id: 301, production_bom_id: 44 },
+  ]
+  assert.deepEqual(
+    resolveCreatedProductForConfig({ id: '12', name: '新商品' }, reloaded),
+    reloaded[1],
+  )
+  assert.deepEqual(
+    resolveCreatedProductForConfig({ product: { id: 12 } }, reloaded),
+    reloaded[1],
+  )
+
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const createSkuBlock = script.match(/async function createSku\(\) \{[\s\S]*?\n\}/)?.[0] || ''
+
+  assert.match(createSkuBlock, /const result = await apiSend\('\/api\/product-settings\/skus'/)
+  assert.match(createSkuBlock, /await loadAll\(\)[\s\S]*resolveCreatedProductForConfig\(result/)
+  assert.match(createSkuBlock, /await openProductProductionConfig\(createdProductForConfig\)/)
 })
 
 test('SKU settings renders one unified SKU form as a full-width drawer', () => {

@@ -1259,6 +1259,7 @@ import {
   productConfigTemplateBelongsToSkuContext,
   productDisplayState,
   productKindSupportsBomParams,
+  resolveCreatedProductForConfig,
   productSubtypeCategoryOptionsForType,
   roastedBomProductOptions,
   specialAttrValuesFromJSON,
@@ -3992,13 +3993,17 @@ async function createSku() {
   error.value = ''
   ok.value = ''
   try {
-    await apiSend('/api/product-settings/skus', {
+    const result = await apiSend('/api/product-settings/skus', {
       body: buildSkuCreatePayload(skuContextCustomerID.value, skuForm.value),
     })
     ok.value = '商品档案已创建'
     skuForm.value = defaultSkuForm()
     closeProductDrawer()
     await loadAll()
+    const createdProductForConfig = resolveCreatedProductForConfig(result, products.value)
+    if (createdProductForConfig) {
+      await openProductProductionConfig(createdProductForConfig)
+    }
   } catch (err) {
     error.value = err.message || '创建商品档案失败'
   } finally {

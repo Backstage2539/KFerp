@@ -1012,6 +1012,29 @@ export function buildSkuCreatePayload(customerID, form = {}) {
   return payload
 }
 
+export function resolveCreatedProductForConfig(result = {}, products = []) {
+  const createdProduct = result?.product || result?.sku || result || {}
+  const createdID = Number(createdProduct.id || createdProduct.product_id || 0)
+  if (createdID > 0) {
+    const product = products.find(row => Number(row?.id || row?.product_id || 0) === createdID)
+    if (product) return product
+  }
+
+  const createdCode = String(createdProduct.code || createdProduct.product_code || createdProduct.number || '').trim()
+  if (createdCode) {
+    const product = products.find(row => String(row?.code || row?.product_code || row?.number || '').trim() === createdCode)
+    if (product) return product
+  }
+
+  const createdName = String(createdProduct.name || createdProduct.product_name || '').trim()
+  if (createdName) {
+    const product = products.find(row => String(row?.name || row?.product_name || '').trim() === createdName)
+    if (product) return product
+  }
+
+  return createdID > 0 || createdName ? createdProduct : null
+}
+
 export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   const kind = normalizedProductKind(row)
   const payload = {

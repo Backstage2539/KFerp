@@ -6,6 +6,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-408-PRODUCT-CREATE-CONFIG-DRAWER
+- Branch: codex/product-create-config-drawer-20260604
+- Owner/session: Codex / 2026-06-04
+- Status: implementation in progress
+- Scope: 修复新增商品档案后配置入口断掉的问题。创建商品档案成功后，前端使用 `/api/product-settings/skus` 返回值和重载后的商品列表定位新商品，并自动打开“商品档案配置”抽屉；后续点击商品名仍进入同一配置入口。
+- DEV:
+  - DEV-408-PRODUCT-CREATE-OPEN-CONFIG：新增 `resolveCreatedProductForConfig` helper，`createSku` 成功后重载列表并打开新商品配置抽屉。
+  - DEV-408-MANUAL-DOCS：更新商品档案手册、需求、验收和 acceptance 记录。
+- Verifier:
+  - RED: `node --test src/lib/product-settings.test.js` failed because `resolveCreatedProductForConfig` was not exported and `createSku` did not use the create response to open the config drawer.
+  - GREEN so far: `node --test src/lib/product-settings.test.js` passed 102/102.
+  - Broader GREEN: `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` passed 121/121; `go test ./internal/interfaces/http/catalog -run TestProductSettingsAPICreatesUnifiedSKUWithoutLegacyFields -count=1` passed; `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-04-product-create-config-drawer.md`
+- Last update: 2026-06-04 Asia/Shanghai
+
 ### PR-407-PRODUCTION-BOM-GROUP-CATEGORIES-VERSION-EDIT
 - Branch: codex/production-bom-categories-version-edit-20260604
 - Owner/session: Codex / 2026-06-04
