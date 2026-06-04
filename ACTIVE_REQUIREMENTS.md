@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-415-PRODUCT-PRICE-LIST-NO-DRIP-TEMPLATE
 - Branches: codex/price-list-drip-template-source-20260605; codex/remove-drip-template-active-api-20260605
 - Owner/session: Codex / 2026-06-05
-- Status: verified locally; pending follow-up merge/deploy
+- Status: deployed to development; smoke passed
 - Scope: 商品价格表下线挂耳专用模板和 `drip` 专用枚举推断；分类名包含“挂耳/drip”或 `product_kind=drip_bag` 不再切换到 `drip_wholesale_tiers`，挂耳商品按普通商品配置模板、阶梯价模板、固定单价或成本加成生成报价；`/api/drip-price-templates` 和 `/api/costing/drip-price-explanation` 不再注册，成本 schema 不再 seed 默认挂耳供应价；旧 `drip` 发布快照/PDF 仅作为历史兼容读取。
 - DEV:
   - DEV-415-COSTING-VIEW-NO-DRIP-INFERENCE：`CostingView.vue` 不再根据挂耳分类名或 `drip_bag` 生成 `drip` 类型，也不调用挂耳供应价模板或挂耳价格解释接口。
@@ -20,6 +20,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED: `node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/costing-bean-list-version-ui.test.js` failed because `CostingView.vue` still had `categoryHint.includes('挂耳')`, `kind === 'drip_bag'`, and `section.listType === 'drip'`.
   - GREEN: `node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/costing-bean-list-version-ui.test.js` passed 51/51; `go test ./internal/domain/costing ./internal/application/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1` passed; `go test ./internal/interfaces/http/support -run TestDev415 -count=1` passed; `npm run build` passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-05-product-price-list-no-drip-template.md`; requirement seed updated in `orderapp-remote/internal/interfaces/http/support/req_store.go`.
+- Deploy/smoke: merged to `origin/develop`; development deploy passed Docker build `go test ./...`; `/app/vue-shell` authenticated GET 200; `/api/drip-price-templates` and `/api/costing/drip-price-explanation` authenticated checks return 404; `/api/costing/bean-list` shows `甜香茶韵挂耳` and `黑巧炸弹挂耳` with commercial tiers `100盒-499盒` / `10-99盒` and `drip_wholesale_tiers` count 0.
 - Last update: 2026-06-05 Asia/Shanghai
 
 ### PR-414-MATERIALS-CLASSIFICATION-INDUSTRY-SETTINGS
