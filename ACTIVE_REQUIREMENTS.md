@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-408-PRODUCT-CREATE-CONFIG-DRAWER
 - Branch: codex/product-create-config-drawer-20260604
 - Owner/session: Codex / 2026-06-04
-- Status: implementation in progress
+- Status: merged and deployed to development
 - Scope: 修复新增商品档案后配置入口断掉的问题。创建商品档案成功后，前端使用 `/api/product-settings/skus` 返回值和重载后的商品列表定位新商品，并自动打开“商品档案配置”抽屉；后续点击商品名仍进入同一配置入口。
 - DEV:
   - DEV-408-PRODUCT-CREATE-OPEN-CONFIG：新增 `resolveCreatedProductForConfig` helper，`createSku` 成功后重载列表并打开新商品配置抽屉。
@@ -20,6 +20,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Broader GREEN: `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` passed 121/121; `go test ./internal/interfaces/http/catalog -run TestProductSettingsAPICreatesUnifiedSKUWithoutLegacyFields -count=1` passed; `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
   - Seed follow-up GREEN: `go test ./internal/interfaces/http/support -run TestDev408 -count=1` passed; `go test ./internal/interfaces/http/support -count=1` passed; `scripts/verify_kferp.sh changed` exited 0.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-04-product-create-config-drawer.md`
+- Deployment: feature commit `471a2df3` and seed follow-up `57f660d9` pushed to `origin/codex/product-create-config-drawer-20260604`; fast-forward merged to `origin/develop=57f660d94ff9c905d3c2beb2d3f2d6eee349b27e`; development stack deployed with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604175632`.
+- Smoke: containers running; unauthenticated GET `/app/` returned 303; authenticated `/app/vue-shell` returned 200; authenticated `/app/api/product-settings` returned 200; requirement API exposes `PR-408-PRODUCT-CREATE-CONFIG-DRAWER`; remote source contains `resolveCreatedProductForConfig`.
 - Last update: 2026-06-04 Asia/Shanghai
 
 ### PR-407-PRODUCTION-BOM-GROUP-CATEGORIES-VERSION-EDIT

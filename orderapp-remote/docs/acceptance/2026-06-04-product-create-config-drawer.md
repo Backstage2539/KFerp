@@ -33,3 +33,12 @@
 - `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
 - `orderapp-remote/docs/REQUIREMENTS.md`
 - `orderapp-remote/docs/ACCEPTANCE_TESTS.md`
+
+## 部署证据
+- 运行时代码提交：`471a2df3 fix product create config drawer`
+- 需求种子提交：`57f660d9 test: seed product create config drawer requirement`
+- 合并：以上提交已快进合入并推送 `origin/develop=57f660d94ff9c905d3c2beb2d3f2d6eee349b27e`。
+- 部署：`./deploy_orderapp.sh development`。
+- 备份：`root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604175632`。
+- 部署构建：Docker build 期间 `go test ./...` 通过。
+- Smoke：`erp_orderapp`、`erp_postgres`、`erp_caddy`、`erp_docconvert` running；未认证 GET `/app/` 返回 303；认证 `/app/vue-shell` 返回 200；认证 `/app/api/product-settings` 返回 200；需求 API 暴露 `PR-408-PRODUCT-CREATE-CONFIG-DRAWER`；远端源码包含 `resolveCreatedProductForConfig`。
