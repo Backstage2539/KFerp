@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-410-CUSTOMER-ALIAS-RENAME-PRICE-DISPLAY
 - Branch: codex/customer-alias-rename-price-display-20260604
 - Owner/session: Codex / 2026-06-04
-- Status: verified, pending merge/deploy
+- Status: merged and deployed to development
 - Scope: 客户商品名配置中把旧“品牌名”改为“重命名”；客户商品名列表和客户商品价格表都优先展示重命名后的名称；客户商品名列表删除品牌名列；商品档案列表展示稳定商品编号而不是列表序号。
 - DEV:
   - DEV-410-ALIAS-RENAME-UI：客户商品名列表删除品牌名列，编辑抽屉字段改为“重命名”，列表名称显示 `重命名 > 客户商品名`。
@@ -23,7 +23,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Frontend/build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
 - Changed verifier: `scripts/verify_kferp.sh changed` exited 0.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-04-customer-alias-rename-price-display.md`
-- Deployment: pending
+- Deployment: feature commit `79f53f17` pushed to `origin/codex/customer-alias-rename-price-display-20260604` and fast-forward merged to `origin/develop`; development stack deployed with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604192223`.
+- Smoke: containers running; unauthenticated GET `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell` 200; requirement API exposes `PR-410-CUSTOMER-ALIAS-RENAME-PRICE-DISPLAY`; authenticated `/app/api/product-settings` and `/app/api/customer-product-aliases?active=all&q=` returned 200; remote Vue bundle contains `重命名` and `customerAliasEffectiveDisplayName`.
 - Last update: 2026-06-04 Asia/Shanghai
 
 ### PR-409-CUSTOMER-ALIAS-PRICING-BOM-CONFIG
