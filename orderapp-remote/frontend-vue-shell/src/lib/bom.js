@@ -159,6 +159,15 @@ export function filterProductionBomCatalog(rows = [], { status = 'active', query
   })
 }
 
+export function isMissingProductionBomRow(row = {}) {
+  return Number(row?.product_id || 0) > 0 && Number(row?.production_bom_id || 0) <= 0
+}
+
+export function defaultProductionBomNameForProduct(row = {}) {
+  const name = String(row?.product || row?.product_name || row?.name || '').trim()
+  return name ? `${name} 生产 BOM` : '新建生产 BOM'
+}
+
 export function bomContextCustomerIDs(products = [], bomRows = []) {
   const ids = new Set()
   for (const row of [...products, ...bomRows]) {

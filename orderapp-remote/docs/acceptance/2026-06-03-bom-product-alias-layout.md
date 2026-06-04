@@ -34,6 +34,12 @@
 - 部署：feature commit `e5cbda1d580a1b3edaf53bf8660082f7836038d6` 已快进合入并推送 `origin/develop`，development stack 通过 `./deploy_orderapp.sh development` 部署。Docker build 期间 `go test ./...` passed；初次部署备份 `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604114317`。
 - Smoke：`erp_orderapp`、`erp_postgres`、`erp_caddy`、`erp_docconvert` running；未认证 GET `/app/` 返回 303 到 `/app/orders`；认证 `/app/vue-shell` 返回 200；认证 `/app/api/production-boms?status=all` 返回 200；需求 API 暴露 `PR-406-BOM-PRODUCT-ALIAS-LAYOUT`；远端源码包含 `productionBomDetailAsRecipeDetail`。
 
+## 2026-06-04 missing product BOM follow-up
+- 修复商品档案行没有生产 BOM 时只能显示“无生产 BOM / 未维护”且所有 BOM 操作禁用的问题。现在这类行会显示 `创建BOM`，点击后调用 `/api/production-boms` 创建生产 BOM 和 V001 已发布版本，再调用 `/api/products/:id/production-bom-binding` 绑定商品，随后可维护右侧配方明细。
+- RED：`node --test src/lib/bom.test.js` failed，因为 `defaultProductionBomNameForProduct` 和缺 BOM 行识别 helper 尚未导出，页面也没有创建并绑定路径。
+- GREEN：`node --test src/lib/bom.test.js` 10/10 passed；`node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` 119/119 passed；`npm run build` passed；`scripts/verify_kferp.sh changed` passed。
+- 部署：本轮未部署；等待后续合并/部署指令。
+
 ## 手册与需求文档
 - `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
 - `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`

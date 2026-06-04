@@ -7,10 +7,12 @@ import {
   filterBomRowsByProductFocus,
   filterBomContextProducts,
   isBomProductCandidate,
+  isMissingProductionBomRow,
   mergeProductionBomRows,
   productionBomDetailAsRecipeDetail,
   sortBomContextProducts,
   filterProductionBomCatalog,
+  defaultProductionBomNameForProduct,
 } from './bom.js'
 
 test('BOM context shows public and current-customer SKUs while hiding other customers and green beans', () => {
@@ -137,6 +139,20 @@ test('production BOM label shows BOM code name and bound version without source 
   }), '')
 })
 
+test('product rows without production BOM are actionable creation candidates', () => {
+  const missingRow = {
+    product_id: 88,
+    product: '云南美式均衡抗搓王-咖啡豆-200g',
+    production_bom_id: 0,
+    status: 'missing',
+  }
+
+  assert.equal(isMissingProductionBomRow(missingRow), true)
+  assert.equal(defaultProductionBomNameForProduct(missingRow), '云南美式均衡抗搓王-咖啡豆-200g 生产 BOM')
+  assert.equal(isMissingProductionBomRow({ product_id: 88, production_bom_id: 12 }), false)
+  assert.equal(isMissingProductionBomRow({ product_id: 0, production_bom_id: 0 }), false)
+})
+
 test('BOM view exposes grouped recipe library and no longer edits production config fields', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
@@ -228,6 +244,10 @@ test('production BOM list supports status filters name search group tabs and ina
     'isMovableBomRow',
     'copyProductionBomRecord',
     'deactivateProductionBomRecord',
+    'createProductionBomForProductRow',
+    'isMissingProductBomRow',
+    '/api/products/${productID}/production-bom-binding',
+    '创建BOM',
     'mergeProductionBomRows',
     'is_unbound_production_bom',
     '/api/production-boms/${bomForm.id}',

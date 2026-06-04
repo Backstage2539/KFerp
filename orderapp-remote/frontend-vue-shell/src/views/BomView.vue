@@ -125,6 +125,9 @@
                   <button v-if="Number(row.production_bom_id || 0)" class="text-button bom-name-button" type="button" @click.stop="openBomRowPrimary(row)">
                     {{ productionBomLabel(row) }}
                   </button>
+                  <button v-else-if="isMissingProductBomRow(row)" class="text-button bom-name-button" type="button" @click.stop="createProductionBomForProductRow(row)">
+                    {{ productionBomLabel(row) }}
+                  </button>
                   <div v-else>{{ productionBomLabel(row) }}</div>
                   <small v-if="productionBomVersionWarning(row)" class="bom-version-warning" data-warning-prefix="当前引用">{{ productionBomVersionWarning(row) }}</small>
                 </td>
@@ -133,10 +136,15 @@
                 <td>{{ row.item_count }}</td>
                 <td>{{ row.updated_at }}</td>
                 <td>
-                  <button class="text-button" type="button" :disabled="!Number(row.production_bom_id || 0)" @click.stop="openBomVersionDrawer(row)">BOM版本</button>
-                  <button v-if="!isWorkspaceCustomerLocked" class="text-button" type="button" :disabled="!Number(row.production_bom_id || 0)" @click.stop="openBagSpecMappingDrawer(row)">规格袋材映射</button>
-                  <button class="text-button" type="button" :disabled="!Number(row.production_bom_id || 0)" @click.stop="copyProductionBomRecord(bomRecordFromRow(row))">复制</button>
-                  <button class="text-button danger-text" type="button" :disabled="!Number(row.production_bom_id || 0) || row.status === 'inactive'" @click.stop="deactivateProductionBomRecord(bomRecordFromRow(row))">失效</button>
+                  <template v-if="isMissingProductBomRow(row)">
+                    <button class="text-button" type="button" @click.stop="createProductionBomForProductRow(row)">创建BOM</button>
+                  </template>
+                  <template v-else>
+                    <button class="text-button" type="button" :disabled="!Number(row.production_bom_id || 0)" @click.stop="openBomVersionDrawer(row)">BOM版本</button>
+                    <button v-if="!isWorkspaceCustomerLocked" class="text-button" type="button" :disabled="!Number(row.production_bom_id || 0)" @click.stop="openBagSpecMappingDrawer(row)">规格袋材映射</button>
+                    <button class="text-button" type="button" :disabled="!Number(row.production_bom_id || 0)" @click.stop="copyProductionBomRecord(bomRecordFromRow(row))">复制</button>
+                    <button class="text-button danger-text" type="button" :disabled="!Number(row.production_bom_id || 0) || row.status === 'inactive'" @click.stop="deactivateProductionBomRecord(bomRecordFromRow(row))">失效</button>
+                  </template>
                 </td>
               </tr>
               <tr v-if="!bomContextRows.length">
@@ -440,7 +448,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { filterBomContextProducts, filterBomRowsByProductFocus, filterProductionBomCatalog, mergeProductionBomRows, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
+import { defaultProductionBomNameForProduct, filterBomContextProducts, filterBomRowsByProductFocus, filterProductionBomCatalog, isMissingProductionBomRow, mergeProductionBomRows, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
 import { componentTypeLabel, isDripProduct } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -624,6 +632,10 @@ function bomRowKey(row) {
 
 function isMovableBomRow(row = {}) {
   return Number(row.production_bom_id || 0) > 0
+}
+
+function isMissingProductBomRow(row = {}) {
+  return isMissingProductionBomRow(row)
 }
 
 function optionLabel(option) {
@@ -842,6 +854,34 @@ function copyProductionBomRecord(bom) {
   bomForm.group_id = Number(bom?.group_id || 0)
   bomForm.status = 'active'
   bomDrawerOpen.value = true
+}
+
+async function createProductionBomForProductRow(row = {}) {
+  const productID = Number(row?.product_id || 0)
+  if (!productID || Number(row?.production_bom_id || 0) > 0) return
+  const selectedGroupID = Number(selectedProductionBomGroupID.value || 0)
+  const rowGroupID = Number(row?.production_bom_group_id ?? row?.group_id ?? 0)
+  await mutate(async () => {
+    const created = await apiSend('/api/production-boms', {
+      body: {
+        name: defaultProductionBomNameForProduct(row),
+        group_id: selectedGroupID > 0 ? selectedGroupID : rowGroupID,
+      },
+    })
+    const bomID = Number(created?.id || created?.production_bom_id || 0)
+    const versionID = Number(created?.latest_version_id || created?.production_bom_version_id || 0)
+    if (!bomID || !versionID) throw new Error('生产 BOM 创建失败')
+    await apiSend(`/api/products/${productID}/production-bom-binding`, {
+      method: 'PUT',
+      body: {
+        bom_id: bomID,
+        bom_version_id: versionID,
+      },
+    })
+    ok.value = '已创建并绑定生产 BOM'
+    await loadAll()
+    await selectProduct(productID)
+  })
 }
 
 async function openBomVersionDrawer(row) {
