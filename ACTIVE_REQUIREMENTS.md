@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-410-CUSTOMER-ALIAS-RENAME-PRICE-DISPLAY
+- Branch: codex/customer-alias-rename-price-display-20260604
+- Owner/session: Codex / 2026-06-04
+- Status: verified, pending merge/deploy
+- Scope: 客户商品名配置中把旧“品牌名”改为“重命名”；客户商品名列表和客户商品价格表都优先展示重命名后的名称；客户商品名列表删除品牌名列；商品档案列表展示稳定商品编号而不是列表序号。
+- DEV:
+  - DEV-410-ALIAS-RENAME-UI：客户商品名列表删除品牌名列，编辑抽屉字段改为“重命名”，列表名称显示 `重命名 > 客户商品名`。
+  - DEV-410-PRICE-LIST-RENAME-SOURCE：客户范围商品价格表候选和 PDF/发布内容优先使用客户商品名重命名值。
+  - DEV-410-PRODUCT-CODE-DISPLAY：商品档案列表显示 `product_code/SKU-000xxx` 稳定商品编号，不再显示分类内序号。
+  - DEV-410-MANUAL-DOCS：更新商品档案、客户商品名和商品价格表手册、需求、验收记录。
+- Verifier:
+  - RED: `node --test src/lib/product-settings.test.js` failed before `customerAliasEffectiveDisplayName/productCodeLabel` existed; `go test ./internal/infrastructure/postgres/costing -run TestLoadProductInputsUsesCustomerAliasRenameAsCustomerDisplayName -count=1` failed before costing SQL used rename first.
+- GREEN: `node --test src/lib/product-settings.test.js src/lib/bean-list-pdf.test.js` passed 128/128; broader frontend target `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/bean-list-pdf.test.js src/lib/view-routing.test.js` passed 147/147.
+- API/backend: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1` passed.
+- Frontend/build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
+- Changed verifier: `scripts/verify_kferp.sh changed` exited 0.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-04-customer-alias-rename-price-display.md`
+- Deployment: pending
+- Last update: 2026-06-04 Asia/Shanghai
+
 ### PR-409-CUSTOMER-ALIAS-PRICING-BOM-CONFIG
 - Branch: codex/customer-alias-pricing-bom-config-20260604
 - Owner/session: Codex / 2026-06-04

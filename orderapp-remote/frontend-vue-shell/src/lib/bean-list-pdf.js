@@ -562,7 +562,7 @@ function stringField(value) {
 
 function customerAliasBeanListItem(item, alias, customerID) {
   const productID = Number(item?.product_id ?? item?.productID ?? item?.productId ?? item?.id ?? alias?.product_id ?? 0)
-  const displayName = stringField(alias?.display_name ?? alias?.displayName ?? item?.name)
+  const displayName = stringField(alias?.brand_name ?? alias?.brandName) || stringField(alias?.display_name ?? alias?.displayName ?? item?.name)
   const productName = stringField(item?.product_name ?? item?.productName ?? item?.name)
   return {
     ...item,

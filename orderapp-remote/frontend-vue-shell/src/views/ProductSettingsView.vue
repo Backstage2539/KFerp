@@ -119,7 +119,7 @@
                   <td class="sku-name-cell">
                     <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">{{ row.name || '未命名商品' }}</button>
                   </td>
-                  <td>{{ row.number || '' }}</td>
+                  <td>{{ productCodeLabel(row) }}</td>
                   <td>
                     <div>{{ productClassificationLabel(row) }}</div>
                     <small v-for="warning in classificationWarningsForProduct(row)" :key="warning" class="bom-version-warning">{{ warning }}</small>
@@ -236,7 +236,7 @@
           <div class="panel-title">
             <span>客户商品名 · {{ aliasCustomerLabel }}</span>
           </div>
-          <p class="muted">客户商品名只维护对外名称、编号、品牌和价格表展示；生产 BOM 和生产配置只能回到商品档案维护。</p>
+          <p class="muted">客户商品名只维护对外名称、编号、重命名和价格表展示；生产 BOM 和生产配置只能回到商品档案维护。</p>
           <div class="alias-filters alias-filter-row">
             <label>
               <span>客户</span>
@@ -309,7 +309,6 @@
                   </th>
                   <th>客户商品名</th>
                   <th>客户商品编号</th>
-                  <th>品牌名</th>
                   <th>绑定商品档案</th>
                   <th>计价/单位</th>
                   <th>当前归类</th>
@@ -322,7 +321,7 @@
               <tbody>
                 <template v-for="group in visibleCustomerAliasGroups" :key="group.key">
                   <tr v-if="!group.all" class="classification-group-row">
-                    <td colspan="11">
+                    <td colspan="10">
                       <button class="classification-group-toggle" type="button" @click="toggleAliasClassificationGroup(group.key)">
                         {{ isAliasClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
                       </button>
@@ -336,10 +335,9 @@
                     <input type="checkbox" :checked="isAliasSelected(alias)" :disabled="alias.active === false" @change="toggleAliasSelection(alias, $event.target.checked)" />
                   </td>
                   <td>
-                    <button class="text-button" type="button" @click="openCustomerProductAliasEditor(alias)">{{ alias.display_name }}</button>
+                    <button class="text-button" type="button" @click="openCustomerProductAliasEditor(alias)">{{ customerAliasEffectiveDisplayName(alias) }}</button>
                   </td>
                   <td>{{ alias.customer_item_code || '-' }}</td>
-                  <td>{{ alias.brand_name || '-' }}</td>
                   <td :class="{ 'invalid-product-reference': alias.product_active === false }">
                     <span>{{ alias.product_code || alias.product_id }} · {{ alias.product_name || productName(alias.product_id) }}</span>
                     <small v-if="alias.product_active === false" class="inactive-product-warning">绑定商品已失效</small>
@@ -365,7 +363,7 @@
                   </template>
                 </template>
                 <tr v-if="!visibleCustomerProductAliases.length">
-                  <td colspan="11" class="muted">当前客户暂无客户商品名。</td>
+                  <td colspan="10" class="muted">当前客户暂无客户商品名。</td>
                 </tr>
               </tbody>
             </table>
@@ -878,8 +876,8 @@
               <input v-model.trim="customerProductAliasForm.display_name" required placeholder="客户对外展示名称" />
             </label>
             <label>
-              <span>品牌名</span>
-              <input v-model.trim="customerProductAliasForm.brand_name" placeholder="可留空" />
+              <span>重命名</span>
+              <input v-model.trim="customerProductAliasForm.brand_name" placeholder="留空则使用客户商品名" />
             </label>
             <label>
               <span>阶梯价模板</span>
@@ -916,12 +914,6 @@
             </div>
           </form>
           <div v-else class="customer-alias-batch-mode">
-            <div class="alias-batch-filters">
-              <label>
-                <span>品牌名</span>
-                <input v-model.trim="aliasBatchForm.brand_name" placeholder="默认留空" />
-              </label>
-            </div>
             <div class="alias-batch-list-filters">
               <label>
                 <span>搜索</span>
@@ -961,7 +953,7 @@
           </div>
         </div>
         <div v-if="customerAliasCreateMode === 'batch'" class="drawer-footer">
-          <span class="muted">批量创建时客户商品名=商品档案名称，客户商品编号由系统生成，品牌默认留空。</span>
+          <span class="muted">批量创建时客户商品名=商品档案名称，客户商品编号由系统生成；需要客户侧改名后再点客户商品名填写“重命名”。</span>
           <button class="primary" type="button" :disabled="aliasBatchSaving || !selectedAliasBatchProductIds.length" @click="saveCustomerAliasBatch">
             {{ aliasBatchSaving ? '添加中' : '批量创建客户商品名' }}
           </button>
@@ -1248,6 +1240,7 @@ import {
   buildCustomerProductAliasIndustryFieldPayload,
   buildCustomerProductAliasBatchPayload,
   buildCustomerProductAliasPayload,
+  customerAliasEffectiveDisplayName,
   activeProductionBomOptions,
   buildClassificationTemplateUsagePayload,
   classificationAssignmentForRow,
@@ -1288,6 +1281,7 @@ import {
   productConfigTemplateBelongsToSkuContext,
   productDisplayState,
   productKindSupportsBomParams,
+  productCodeLabel,
   productionBomOptionLabel,
   resolveCreatedProductForConfig,
   productSubtypeCategoryOptionsForType,
@@ -2265,6 +2259,7 @@ function decorateProduct(product) {
   const marginRateOverride = normalizeBackendMarginRateOverride(product.margin_rate_override)
   return {
     ...product,
+    product_code: product.product_code || productCodeLabel(product),
     remark: product.remark || '',
     product_kind: productKind,
     green_bean_type: product.green_bean_type || 'single_origin',

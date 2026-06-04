@@ -252,6 +252,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-410-CUSTOMER-ALIAS-RENAME-PRICE-DISPLAY", title: "客户商品名旧品牌字段改为重命名，客户商品名列表和客户商品价格表优先展示重命名；商品档案列表显示稳定商品编号", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; ProductSettingsView.vue; costing repository"},
+		{table: "req_dev", code: "DEV-410-ALIAS-RENAME-UI", title: "客户商品名列表删除品牌名列，编辑抽屉把品牌名改为重命名，列表名称显示重命名后的名字", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; product-settings.test.js"},
+		{table: "req_dev", code: "DEV-410-PRICE-LIST-RENAME-SOURCE", title: "客户商品价格表候选和 PDF/发布内容优先使用客户商品名重命名值", status: "doing", assignee: "Codex", evidence: "costing repository; bean-list-pdf.js"},
+		{table: "req_dev", code: "DEV-410-PRODUCT-CODE-DISPLAY", title: "商品档案列表显示稳定商品编号，不再把分类内排序号当作商品编号展示", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; product-settings.js"},
+		{table: "req_unit", code: "UT-410-CUSTOMER-ALIAS-RENAME-PRICE-DISPLAY", title: "前端单测覆盖重命名展示和商品编号 helper，价格表 PDF helper 使用重命名", status: "doing", assignee: "Codex", evidence: "product-settings.test.js; bean-list-pdf.test.js"},
+		{table: "req_api", code: "API-410-CUSTOMER-ALIAS-RENAME-PRICE-DISPLAY", title: "后端测试覆盖客户商品价格表 SQL 使用重命名作为客户展示名", status: "doing", assignee: "Codex", evidence: "costing repository tests"},
+		{table: "req_review", code: "REV-410-CUSTOMER-ALIAS-RENAME-PRICE-DISPLAY", prCode: "PR-410-CUSTOMER-ALIAS-RENAME-PRICE-DISPLAY", title: "验收：客户商品名重命名后列表和客户价格表使用新名字，商品档案显示稳定商品编号", status: "todo", assignee: "VA", evidence: "待部署 smoke"},
 		{table: "req_product", code: "PR-393-PRODUCT-CLASSIFICATION-TEMPLATES", title: "商品分类模板与配置抽屉改造：商品档案和客户商品名只引用分类模板，归类在独立抽屉维护", status: "doing", assignee: "Codex", evidence: "codex/product-classification-template-drawers-20260602"},
 		{table: "req_dev", code: "DEV-393-CLASSIFICATION-SCHEMA-API", title: "新增分类模板、分类项、商品归类和客户商品名归类 schema/API，并写操作日志", status: "doing", assignee: "Codex", evidence: "catalog schema/repository/product_routes"},
 		{table: "req_dev", code: "DEV-393-PRODUCT-ALIAS-CLASSIFICATION", title: "客户商品名单个和批量创建支持分类模板，批量时复制/复用商品档案分类模板并映射同名分类", status: "doing", assignee: "Codex", evidence: "BatchCreateCustomerProductAliases"},

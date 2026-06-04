@@ -72,7 +72,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		product_scope AS (
 			SELECT p.*,
 			       COALESCE(cpa.id,0) AS customer_product_alias_id,
-			       COALESCE(NULLIF(cpa.display_name,''), p.name) AS customer_product_display_name,
+			       COALESCE(NULLIF(cpa.brand_name,''), NULLIF(cpa.display_name,''), p.name) AS customer_product_display_name,
 			       COALESCE(cpa.customer_item_code,'') AS customer_item_code,
 			       COALESCE(cpa.brand_name,'') AS brand_name,
 			       COALESCE(cpa.display_category_id,0) AS display_category_id,

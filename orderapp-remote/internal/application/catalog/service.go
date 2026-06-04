@@ -111,6 +111,7 @@ type ProductCategory struct {
 type ProductSettingsProduct struct {
 	ID                          int64    `json:"id"`
 	Name                        string   `json:"name"`
+	ProductCode                 string   `json:"product_code"`
 	Remark                      string   `json:"remark"`
 	ProductKind                 string   `json:"product_kind"`
 	GreenBeanType               string   `json:"green_bean_type"`
@@ -2344,6 +2345,7 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 	return ProductSettingsProduct{
 		ID:                          p.ID,
 		Name:                        p.Name,
+		ProductCode:                 productCodeForID(p.ID),
 		Remark:                      p.Remark,
 		GreenBeanType:               p.GreenBeanType,
 		GreenBeanBomProductID:       p.GreenBeanBomProductID,
@@ -2401,6 +2403,13 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		ProductionBomGroupName:      p.ProductionBomGroupName,
 		OrderUsageCount:             p.OrderUsageCount,
 	}
+}
+
+func productCodeForID(id int64) string {
+	if id <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("SKU-%06d", id)
 }
 
 func productJSONOrDefault(raw string) string {

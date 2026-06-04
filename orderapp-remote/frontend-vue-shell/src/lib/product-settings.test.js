@@ -9,6 +9,7 @@ import {
   buildCustomerProductRuleTemplatePayload,
   buildCustomerProductAliasPayload,
   buildCustomerProductAliasBatchPayload,
+  customerAliasEffectiveDisplayName,
   activeProductionBomOptions,
   buildClassificationTemplateUsagePayload,
   buildCustomerProductAliasIndustryFieldPayload,
@@ -44,6 +45,7 @@ import {
   normalizedProductKind,
   paginatedSkuRows,
   productionBomOptionLabel,
+  productCodeLabel,
   priceListRuleFormFromJSON,
   priceListRuleJSONFromForm,
   greenBeanTypeLabel,
@@ -209,6 +211,21 @@ test('customer product alias payload binds a customer-facing name to one product
     active: false,
     remark: '贴牌只改对外名称',
   })
+})
+
+test('customer alias rename overrides list display while preserving customer product name field', () => {
+  const alias = {
+    display_name: 'Karen 原客户商品名',
+    brand_name: 'Karen 重命名报价名',
+  }
+
+  assert.equal(customerAliasEffectiveDisplayName(alias), 'Karen 重命名报价名')
+  assert.equal(customerAliasEffectiveDisplayName({ display_name: 'Karen 原客户商品名', brand_name: ' ' }), 'Karen 原客户商品名')
+})
+
+test('product archive code label uses stable product code instead of list order number', () => {
+  assert.equal(productCodeLabel({ id: 88, number: 3 }), 'SKU-000088')
+  assert.equal(productCodeLabel({ id: 88, product_code: 'P-2026-001', number: 3 }), 'P-2026-001')
 })
 
 test('product archive BOM binding options show active BOMs with version numbers', () => {
@@ -1690,7 +1707,7 @@ test('product management exposes customer product names without direct BOM editi
     '客户商品名',
     'customer-alias-workspace',
     '客户商品编号',
-    '品牌名',
+    '重命名',
     '进入价格表',
     '绑定商品档案',
     'customerProductAliases',
@@ -1698,7 +1715,7 @@ test('product management exposes customer product names without direct BOM editi
     '/api/customer-product-aliases',
     'saveCustomerProductAlias',
     'disableCustomerProductAlias',
-    '客户商品名只维护对外名称、编号、品牌和价格表展示',
+    '客户商品名只维护对外名称、编号、重命名和价格表展示',
     'customer-alias-create-drawer',
     'openCustomerAliasCreateDrawer',
     '绑定商品已失效',
@@ -1715,6 +1732,8 @@ test('product management exposes customer product names without direct BOM editi
   const aliasFilters = template.match(/<div class="alias-filters alias-filter-row"[\s\S]*?<div class="classification-view-toolbar alias-classification-tabs"/)?.[0] || ''
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.customer_item_code/)
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.include_in_price_list/)
+  assert.doesNotMatch(inlineAliasArea, /<th>品牌名<\/th>/)
+  assert.doesNotMatch(inlineAliasArea, /alias\.brand_name\s*\|\|\s*'-'/)
   assert.doesNotMatch(aliasForm, />进入价格表</)
   assert.doesNotMatch(inlineAliasArea, /<form class="customer-alias-form"/)
   assert.match(aliasFilters, /新建客户商品/)

@@ -554,6 +554,27 @@ test('applyCustomerProductAliasesToBeanListItems scopes customer price lists by 
   assert.equal(scoped[0].commercial_bean_list.display_name, 'Karen 贴牌拼配')
 })
 
+test('applyCustomerProductAliasesToBeanListItems uses alias rename before customer product name', () => {
+  const scoped = applyCustomerProductAliasesToBeanListItems([{
+    product_id: 10,
+    name: '工厂拼配',
+    product_code: 'K001',
+    commercial_bean_list: { code: '1.1', category: '1、商用', display_name: '工厂拼配' },
+  }], [{
+    id: 101,
+    customer_id: 42,
+    product_id: 10,
+    display_name: 'Karen 原客户商品名',
+    brand_name: 'Karen 重命名报价名',
+    include_in_price_list: true,
+    active: true,
+  }], 42)
+
+  assert.equal(scoped[0].name, 'Karen 重命名报价名')
+  assert.equal(scoped[0].customer_product_display_name, 'Karen 重命名报价名')
+  assert.equal(scoped[0].commercial_bean_list.display_name, 'Karen 重命名报价名')
+})
+
 test('buildBeanListPdfGroups freezes customer alias and product snapshots in publication content', () => {
   const groups = buildBeanListPdfGroups([{
     product_id: 10,

@@ -101,6 +101,22 @@ func TestLoadProductInputsUsesCustomerAliasIndustryFieldOverridesWithoutClassifi
 	}
 }
 
+func TestLoadProductInputsUsesCustomerAliasRenameAsCustomerDisplayName(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"COALESCE(NULLIF(cpa.brand_name,''), NULLIF(cpa.display_name,''), p.name) AS customer_product_display_name",
+		"CASE WHEN $2 > 0 THEN COALESCE(NULLIF(p.customer_product_display_name,''), p.name) ELSE p.name END",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("customer price lists must use alias rename before customer product name; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsPricesDripFromFinishedProductComponentCost(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

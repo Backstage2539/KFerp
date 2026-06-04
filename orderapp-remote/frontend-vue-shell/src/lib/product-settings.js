@@ -195,6 +195,19 @@ export function buildCustomerProductAliasPayload(form = {}) {
   }
 }
 
+export function customerAliasEffectiveDisplayName(alias = {}) {
+  const renamed = String(alias.brand_name ?? alias.brandName ?? '').trim()
+  if (renamed) return renamed
+  return String(alias.display_name ?? alias.displayName ?? '').trim()
+}
+
+export function productCodeLabel(row = {}) {
+  const explicit = String(row.product_code ?? row.productCode ?? row.code ?? '').trim()
+  if (explicit) return explicit
+  const id = Number(row.id ?? row.product_id ?? row.productID ?? 0)
+  return id > 0 ? `SKU-${String(id).padStart(6, '0')}` : ''
+}
+
 export function activeProductionBomOptions(rows = []) {
   return (Array.isArray(rows) ? rows : [])
     .filter((row) => Number(row?.id || 0) > 0)
