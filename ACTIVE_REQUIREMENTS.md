@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-411-CUSTOMER-PRODUCT-CONFIG-TEMPLATE-PRICING
 - Branch: codex/customer-product-config-template-pricing-20260604
 - Owner/session: Codex / 2026-06-04
-- Status: merged to origin/develop, deployment blocked by SSH entrypoint closing connections before key exchange
+- Status: merged and deployed to development
 - Scope: 客户商品名统一更名为客户商品；客户商品配置不再直接维护阶梯价模板和单位模板，只选择商品配置模板，默认继承绑定商品档案的商品配置模板；商品配置模板中删除独立阶梯价模板配置，只在价格表生成规则选择“按阶梯价模板”时展示和保存阶梯价模板。
 - DEV:
   - DEV-411-CUSTOMER-PRODUCT-RENAME：商品与配方菜单、客户商品列表、抽屉、提示和手册统一使用“客户商品”。
@@ -26,7 +26,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Changed verifier: `scripts/verify_kferp.sh changed` exited 0.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-04-customer-product-config-template-pricing.md`
 - Integration: feature commit `e357adeb` pushed to `origin/codex/customer-product-config-template-pricing-20260604` and fast-forward merged/pushed to `origin/develop=e357adebaa31d6db790dd931925cabe2edf1b8d5`.
-- Deployment: attempted `./deploy_orderapp.sh` from clean pushed `develop`; local Vue build passed, but SSH to `root@1.12.242.58` closed during handshake before source sync/rebuild. Reproduced with deployment key, `~/.ssh/id_rsa`, `IdentitiesOnly=yes`, config bypass, legacy algorithm options, delayed retries, and ports `22/2222/2022/12222/22022`; `ssh-keyscan` also returned `Connection closed by remote host`. Public app smoke remained healthy during the blocker: unauthenticated GET `/app/` returned 303 and `/app/vue-shell/` returned 200.
+- Deployment: first attempts were blocked by SSH closing connections before key exchange; retried successfully and deployed development stack with `./deploy_orderapp.sh` at `origin/develop=06dd6c9f627fc11705b8a94b1790f8d196cae69e`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604202755`.
+- Smoke: containers running (`erp_orderapp`, `erp_caddy`, `erp_postgres`, `erp_docconvert`); unauthenticated GET `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell/` returned 200; requirement API exposes `PR-411-CUSTOMER-PRODUCT-CONFIG-TEMPLATE-PRICING`; authenticated `/app/api/product-settings` and `/app/api/customer-product-aliases?active=all&q=` returned 200; remote source contains `product_config_template_id`, `客户商品`, and `productConfigTemplateNeedsGradientTemplate`.
 - Last update: 2026-06-04 Asia/Shanghai
 
 ### PR-410-CUSTOMER-ALIAS-RENAME-PRICE-DISPLAY
