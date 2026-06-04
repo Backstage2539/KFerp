@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-417-MULTILEVEL-MANUFACTURING-BOM
 - Branch: codex/multilevel-manufacturing-bom-20260605
 - Owner/session: Codex / 2026-06-05
-- Status: implemented and locally verified; not merged; not deployed
+- Status: merged and deployed to development
 - Scope: 把生产 BOM 改为制造主档，BOM 声明产出商品、产出数量和组件清单；组件支持物料和商品/半成品；商品档案只做库存/销售/价格/行业字段和生产反查，不再编辑或绑定 BOM；生产工单页提供按 BOM 预览生产需求和多层展开策略。
 - DEV:
   - DEV-417-BOM-OUTPUT-PRODUCT-SCHEMA：`production_boms.output_product_id`、BOM 版本产出数量/单位、组件 `material/product` 支持，旧 `finished_product` 兼容读取。
@@ -25,7 +25,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: `scripts/verify_kferp.sh changed` exited 0.
   - Browser QA: local Vite + Chrome headless with mock API; screenshots saved under `/tmp/kferp-pr417-browser-qa/` for BOM list/detail, product archive reverse lookup drawer, and work-order BOM demand preview.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-05-multilevel-manufacturing-bom.md`
-- Deploy/smoke: not requested in this turn; no merge or deploy performed.
+- Integration: feature commit `9e75f10e` pushed to `origin/codex/multilevel-manufacturing-bom-20260605`; merge commit `227711a5` pushed to `origin/develop`.
+- Deploy/smoke: development stack deployed with `./deploy_orderapp.sh development` at `origin/develop=227711a5d1d52c2d3deeecad4102ddbc720e57e8`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260605023848`. Docker build ran `go test ./...` successfully. Smoke: `erp_orderapp`, `erp_postgres`, `erp_caddy`, `erp_docconvert` running; unauthenticated `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell` returned 200; authenticated `/app/api/production-boms?status=all` returned 200; requirement API exposes `PR-417-MULTILEVEL-MANUFACTURING-BOM`; remote source/docs contain `output_product_id` and `生产 BOM（制造主档）`.
 - Last update: 2026-06-05 Asia/Shanghai
 
 ### PR-416-MATERIALS-LIST-LAYOUT-BATCH-DEPRECATE
