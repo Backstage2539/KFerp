@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-406-BOM-PRODUCT-ALIAS-LAYOUT
 - Branch: codex/bom-product-alias-layout-20260603
 - Owner/session: Codex / 2026-06-03
-- Status: follow-up fixes complete locally; base PR-406 was previously deployed to development
+- Status: merged and deployed to development
 - Scope: 生产 BOM 删除顶部 SKU归属/商品选择并统一为商品 BOM列表过滤行；合并未绑定生产 BOM 进列表并支持勾选、复制、失效、移动分组；商品档案和客户商品名删除旧 SKU归属/旧客户 SKU 收敛检查，分类操作收敛为 Tab 行右侧“增加分类 / 移动到分类”可搜索下拉；客户商品名新建改为抽屉并对绑定商品失效标红。本轮 follow-up 修复：点击已绑定 BOM 名称恢复右侧配方明细；客户商品名可移动回虚拟未分类；新建客户商品抽屉删除进入价格表开关；批量添加商品档案搜索框移动到列表顶部。
 - DEV:
   - DEV-406-BOM-UNIFIED-LIST：BOM 页面合并 `/api/bom/list` 与 `/api/production-boms?status=all`，未绑定 BOM 使用 `bom:{production_bom_id}` 行 key 并可操作。
@@ -24,9 +24,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Changed verifier: `scripts/verify_kferp.sh changed` passed
   - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`
   - Review/acceptance: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-03-bom-product-alias-layout.md`
-- Deployment: base PR-406 feature branch was pushed with `9a4a3ea1` and deployed to development in the previous PR-406 rollout. This follow-up fix has not been merged or deployed yet.
-- Last update: 2026-06-03 Asia/Shanghai
-- Notes: Follow-up RED evidence added for BOM name click restoring recipe detail, customer alias move-to-unclassified sentinel handling, hidden price-list switches, and batch search placement. Follow-up GREEN evidence: frontend target/source-marker tests passed 139/139; catalog/support Go tests passed; Vue build passed; changed verifier passed. Browser/manual验收 per current convention not executed.
+- Deployment: follow-up commit `67f09bfc` pushed to feature branch and fast-forward merged to `develop`; `origin/develop=67f09bfc9fd412fd316852178d69e2c66b0b91ad` deployed to development with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604104002`.
+- Last update: 2026-06-04 Asia/Shanghai
+- Notes: Follow-up RED evidence added for BOM name click restoring recipe detail, customer alias move-to-unclassified sentinel handling, hidden price-list switches, and batch search placement. Follow-up GREEN evidence: frontend target/source-marker tests passed 139/139 before merge; develop branch spot checks passed 109/109 for `bom.test.js` + `product-settings.test.js`; catalog/support Go tests passed; Vue build passed; changed verifier passed. Deploy evidence: Docker build ran `go test ./...`; containers running; unauthenticated GET `/app/` returned 303 to `/app/orders`; authenticated GET `/app/vue-shell` returned 200; requirement API exposes `PR-406-BOM-PRODUCT-ALIAS-LAYOUT`; authenticated `/app/api/bom/list` and `/app/api/customer-product-aliases?active=all&q=` returned 200; remote source includes `openBomRowPrimary` and `alias-batch-list-filters`. Browser/manual验收 per current convention not executed.
 
 ### PR-405-PRODUCTION-BOM-BATCH-DEACTIVATE
 - Branch: codex/bom-batch-deactivate-20260603
