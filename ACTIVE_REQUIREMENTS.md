@@ -18,6 +18,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED: `node --test src/lib/product-settings.test.js` failed because `resolveCreatedProductForConfig` was not exported and `createSku` did not use the create response to open the config drawer.
   - GREEN so far: `node --test src/lib/product-settings.test.js` passed 102/102.
   - Broader GREEN: `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` passed 121/121; `go test ./internal/interfaces/http/catalog -run TestProductSettingsAPICreatesUnifiedSKUWithoutLegacyFields -count=1` passed; `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+  - Seed follow-up GREEN: `go test ./internal/interfaces/http/support -run TestDev408 -count=1` passed; `go test ./internal/interfaces/http/support -count=1` passed; `scripts/verify_kferp.sh changed` exited 0.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-04-product-create-config-drawer.md`
 - Last update: 2026-06-04 Asia/Shanghai
 

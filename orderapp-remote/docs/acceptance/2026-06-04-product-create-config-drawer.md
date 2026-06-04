@@ -24,6 +24,10 @@
   - 通过；保留既有 chunk-size warning。
 - `scripts/verify_kferp.sh changed`
   - 通过；命令退出码 0。
+- `go test ./internal/interfaces/http/support -run TestDev408 -count=1`
+  - 通过，覆盖 PR/DEV/UT/API/REV 需求表种子和源码 marker。
+- `go test ./internal/interfaces/http/support -count=1`
+  - 通过。
 
 ## 手册
 - `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
