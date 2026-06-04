@@ -14,6 +14,7 @@ Use this skill to enforce KFerp's unified frontend architecture without Van havi
 - If a touched page is still template-based, treat that as migration debt and migrate/refactor the page or affected entry point into Vue/Vite before implementing the feature.
 - New pages and changed pages must use JSON APIs rather than new HTML template data wiring.
 - Manuals shown in the frontend must stay aligned with Markdown/manual docs.
+- 跨页面跳转必须使用 `kferp:navigate-view` 传递 `returnNavigation`；目标页面在左上角展示“返回来源操作”的入口。返回上下文只保存在前端内存里，刷新后消失，不能写进持久业务数据或让刷新后的页面保留过期返回入口。
 
 ## Workflow
 

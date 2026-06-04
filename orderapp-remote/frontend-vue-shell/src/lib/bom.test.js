@@ -149,6 +149,12 @@ test('BOM view exposes grouped recipe library and no longer edits production con
   assert.match(source, /@click\.stop="openBomRowPrimary\(row\)"/)
   assert.match(source, /productionBomDetailAsRecipeDetail/)
   assert.match(source, /await selectUnboundProductionBom\(row\)/)
+  assert.match(source, /openReferencedProductConfig/)
+  assert.match(source, /引用商品/)
+  assert.match(source, /返回BOM编辑/)
+  assert.match(source, /returnNavigation/)
+  assert.match(source, /targetKey:\s*'productMaster'/)
+  assert.match(source, /open_product_config_id/)
   assert.match(source, /当前引用/)
   assert.match(source, /DELETE/)
   assert.doesNotMatch(source, /openEditProductionBomRecord\(bomRecordFromRow\(row\)\)\s*await selectUnboundProductionBom\(row\)/)
@@ -172,6 +178,28 @@ test('BOM view exposes grouped recipe library and no longer edits production con
   assert.doesNotMatch(source, /context-eyebrow">SKU归属/)
   assert.doesNotMatch(source, /bom-move-card/)
   assert.doesNotMatch(source, /bom-batch-deactivate-card/)
+})
+
+test('BOM detail keeps versions and bag-spec mapping inside the edit detail panel', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const detailPanel = template.match(/<section class="panel detail-panel"[\s\S]*?<\/section>/)?.[0] || ''
+
+  assert.match(detailPanel, /BOM版本/)
+  assert.match(detailPanel, /复制为新版草稿/)
+  assert.match(detailPanel, /规格袋材映射/)
+  assert.match(detailPanel, /全局规格袋材映射/)
+  assert.match(detailPanel, /openReferencedProductConfig\(product\)/)
+  assert.match(detailPanel, /referenced-product-button/)
+  assert.match(detailPanel, /product\.product_name/)
+  assert.match(detailPanel, /product\.product_code/)
+  assert.doesNotMatch(source, /versionDrawerOpen/)
+  assert.doesNotMatch(source, /bagSpecMappingDrawerOpen/)
+  assert.doesNotMatch(source, /class="drawer bom-version-drawer"/)
+  assert.doesNotMatch(source, /class="drawer bag-spec-mapping-drawer"/)
+  assert.doesNotMatch(template, /<button class="text-button"[^>]*openBomVersionDrawer\(row\)[\s\S]*BOM版本/)
+  assert.doesNotMatch(template, /<button[^>]*openBagSpecMappingDrawer\(row\)[\s\S]*规格袋材映射/)
 })
 
 test('production BOM list supports status filters name search group tabs and inactive copy actions', async () => {
@@ -199,9 +227,7 @@ test('production BOM list supports status filters name search group tabs and ina
     'productionBomStatusFilter',
     'productionBomSearchQuery',
     '新建生产 BOM',
-    'openBomVersionDrawer',
     'BOM版本',
-    'openBagSpecMappingDrawer',
     '全局规格袋材映射',
     '规格袋材映射',
     '复制',
@@ -248,8 +274,8 @@ test('production BOM list supports status filters name search group tabs and ina
   assert.match(listHead, /productionBomStatusFilter/)
   assert.match(listHead, /productionBomSearchQuery/)
   assert.match(listHead, /deactivateSelectedProductionBoms/)
-  assert.match(source, /versionDrawerOpen/)
-  assert.match(source, /bagSpecMappingDrawerOpen/)
+  assert.match(source, /createVersion/)
+  assert.match(source, /saveMapping/)
   const deactivateStart = source.indexOf('async function deactivateProductionBomRecord')
   const deactivateEnd = source.indexOf('async function createVersion', deactivateStart)
   assert.notEqual(deactivateStart, -1)

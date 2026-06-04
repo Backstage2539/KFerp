@@ -48,6 +48,13 @@
 - 部署：feature commit `4011bbfb` 已合入并推送 `origin/develop=757decf7ccfcd397d66c8726921986ae47e66cf7`，development stack 通过 `./deploy_orderapp.sh development` 部署。Docker build 期间 `go test ./...` passed；备份 `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604130904`。
 - Smoke：`erp_orderapp`、`erp_postgres`、`erp_caddy`、`erp_docconvert` running；未认证 GET `/app/` 返回 303 到 `/app/orders`；GET `/app/vue-shell` 返回 200；GET `/app/api/production-boms?status=all` 返回 200；orderapp 日志显示正常监听 `:8080`；远端前端产物包含 `生产 BOM列表`，不再包含 `商品过滤`。
 
+## 2026-06-04 BOM detail product-return follow-up
+- BOM 详情的“引用商品”改为显示商品档案商品名、商品编号和版本信息的可点击入口。点击后通过 `kferp:navigate-view` 跳转到商品档案配置，并传递临时 `returnNavigation`；商品档案左上角展示 `返回BOM编辑：{BOM 名称}`，刷新页面后该返回入口消失。
+- `BOM版本` 和 `全局规格袋材映射` 移入右侧 BOM 编辑详情。列表行不再提供独立 `BOM版本` / `规格袋材映射` 按钮，也不再打开对应抽屉；页面底部仍不保留独立 panel。
+- Vue 开发规范新增跨页面跳转规则：涉及业务页面跳转时必须使用 `kferp:navigate-view` + `returnNavigation`，目标页提供返回来源操作入口。
+- RED：`node --test src/lib/bom.test.js` failed，因为 BOM 详情尚未包含引用商品跳转、版本/袋材映射详情区；`node --test src/lib/view-routing.test.js` failed，因为 Vue 开发规范尚未记录 `returnNavigation` 跳转规则。
+- GREEN：`node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` 119/119 passed；`go test ./internal/interfaces/http/bom ./internal/interfaces/http/support -count=1` passed；`npm run build` passed；`scripts/verify_kferp.sh changed` passed。
+
 ## 手册与需求文档
 - `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
 - `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`

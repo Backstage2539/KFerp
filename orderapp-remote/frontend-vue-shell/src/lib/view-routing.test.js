@@ -20,6 +20,17 @@ test('sidebar navigation sanitizes stale edit identifiers before switching views
   assert.match(source, /replaceHistoryURL\(applyViewContextToUrl\(viewNavigationURL\(url,\s*key,\s*viewContextViewParams\(params,\s*currentViewContext\.value\)\)\)\)/)
 })
 
+test('KFerp Vue workflow documents return navigation for cross-page jumps', () => {
+  const skill = readFileSync(new URL('../../../../.agents/skills/kferp-vue-change/SKILL.md', import.meta.url), 'utf8')
+  const appSource = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+
+  assert.match(skill, /跨页面跳转/)
+  assert.match(skill, /returnNavigation/)
+  assert.match(skill, /刷新后消失/)
+  assert.match(appSource, /transientReturnNavigation/)
+  assert.match(appSource, /kferp:navigate-view/)
+})
+
 test('vue shell confines sidebar/content scrolling, returns routed pages to top, and supports mobile swipe menu', () => {
   const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
 
