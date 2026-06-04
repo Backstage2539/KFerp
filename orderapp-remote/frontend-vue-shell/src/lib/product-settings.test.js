@@ -1440,7 +1440,7 @@ test('BOM view no longer exposes special attributes from BOM version detail', ()
   assert.doesNotMatch(template, /versionSpecialAttrsSchemaText/)
 })
 
-test('product archive config drawer owns template, BOM, route, expected loss and industry fields', () => {
+test('product archive config drawer owns template and industry fields while production BOM is read-only reverse lookup', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const bomSource = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
@@ -1448,8 +1448,13 @@ test('product archive config drawer owns template, BOM, route, expected loss and
   assert.match(source, /商品档案配置/)
   assert.match(source, /商品配置模板/)
   assert.match(source, /行业字段模板/)
-  assert.match(source, /预期损耗率/)
-  assert.match(source, /工艺路线/)
+  assert.match(source, /生产反查/)
+  assert.match(source, /可生产 BOM/)
+  assert.match(source, /被哪些 BOM 使用/)
+  assert.match(source, /productProductionConfigProduceBomRows/)
+  assert.match(source, /productProductionConfigUsedByBomRows/)
+  assert.match(source, /ensureProductBomUsage/)
+  assert.match(source, /\/api\/production-bom-product-usage\/\$\{id\}/)
   assert.match(source, /show_in_price_list/)
   assert.match(source, /\/api\/product-production-configs/)
   assert.match(source, /openProductProductionConfig\(row\)/)
@@ -1457,8 +1462,9 @@ test('product archive config drawer owns template, BOM, route, expected loss and
   assert.match(source, /保存商品档案配置/)
   assert.doesNotMatch(source, /addProductProductionConfigField/)
   assert.match(source, /productProductionConfigForm\.fields/)
-  assert.match(source, /\/api\/process-routes\?status=published/)
-  assert.match(source, /维护当前 BOM 明细/)
+  assert.doesNotMatch(source, /维护当前 BOM 明细/)
+  assert.doesNotMatch(source, /placeholder="搜索有效生产 BOM"/)
+  assert.doesNotMatch(source, /<span>BOM版本<\/span>/)
   assert.match(script, /saveProductProductionConfig/)
   assert.match(script, /kferp:navigate-view/)
   assert.match(source, /product-return-banner/)
@@ -2357,15 +2363,20 @@ test('customer product aliases use page-level classification templates, not sing
   assert.doesNotMatch(source, /openClassificationConfigDrawer\(\{[\s\S]*objectType:\s*'customer_alias'/)
 })
 
-test('product archive config drawer searches active production BOMs and shows versions', () => {
+test('product archive config drawer only shows production BOM reverse lookup instead of binding editor', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const drawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
 
-  assert.match(drawer, /SearchableSelect[\s\S]*productProductionConfigActiveBomOptions/)
-  assert.match(drawer, /placeholder="搜索有效生产 BOM"/)
-  assert.match(drawer, /productionBomOptionLabel/)
-  assert.match(source, /const bomID = Number\(\(typeof bom === 'object' && bom !== null \? bom\.id : bom\) \|\| 0\)/)
+  assert.match(drawer, /可生产 BOM/)
+  assert.match(drawer, /被哪些 BOM 使用/)
+  assert.match(drawer, /productProductionConfigProduceBomRows/)
+  assert.match(drawer, /productProductionConfigUsedByBomRows/)
+  assert.match(source, /productBomUsageByProductID/)
   assert.doesNotMatch(drawer, /<select v-model\.number="productProductionConfigForm\.production_bom_id"/)
+  assert.doesNotMatch(drawer, /SearchableSelect[\s\S]*productProductionConfigActiveBomOptions/)
+  assert.doesNotMatch(drawer, /placeholder="搜索有效生产 BOM"/)
+  assert.doesNotMatch(drawer, /维护当前 BOM 明细/)
+  assert.doesNotMatch(drawer, /BOM版本/)
 })
 
 test('product menus split config, gradient, unit templates and rename product price list', () => {

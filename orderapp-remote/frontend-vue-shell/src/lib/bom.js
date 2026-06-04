@@ -62,9 +62,12 @@ export function productionBomDetailAsRecipeDetail(detail = {}, fallback = {}) {
   }, 0)
 
   return {
-    product_id: 0,
-    product: '未绑定商品',
-    product_name: '未绑定商品',
+    product_id: Number(firstPresent(detail.output_product_id, fallback.output_product_id, 0)),
+    product: detail.output_product_name || fallback.output_product_name || '未设置产出商品',
+    product_name: detail.output_product_name || fallback.output_product_name || '未设置产出商品',
+    output_product_id: Number(firstPresent(detail.output_product_id, fallback.output_product_id, 0)),
+    output_product_name: detail.output_product_name || fallback.output_product_name || '',
+    output_product_code: detail.output_product_code || fallback.output_product_code || '',
     product_kind: 'roasted_bean',
     roast_level: '',
     status: detail.status === 'inactive' ? 'inactive' : 'active',
@@ -91,6 +94,7 @@ export function productionBomDetailAsRecipeDetail(detail = {}, fallback = {}) {
     latest_bom_version_no: versionNo,
     is_latest_bom_version: true,
     referenced_products: Array.isArray(detail.referenced_products) ? detail.referenced_products : [],
+    used_by_boms: Array.isArray(detail.used_by_boms) ? detail.used_by_boms : [],
   }
 }
 
@@ -110,6 +114,8 @@ export function filterProductionBomCatalog(rows = [], { status = 'active', query
       row.product,
       row.code,
       row.name,
+      row.output_product_name,
+      row.output_product_code,
       row.production_bom_code,
       row.production_bom_name,
       row.group_name,

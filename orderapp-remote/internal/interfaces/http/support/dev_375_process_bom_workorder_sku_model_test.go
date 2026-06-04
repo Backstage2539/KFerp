@@ -40,12 +40,12 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 			"/api/industry-field-templates",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"商品生产配置",
-			"生产配置预期损耗率",
-			"工艺路线",
+			"生产反查",
+			"可生产 BOM",
+			"被哪些 BOM 使用",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"生产 BOM（配方库）",
+			"生产 BOM（制造主档）",
 			"管理分组",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProcessTemplatesView.vue"): {
@@ -62,6 +62,8 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 			"保存实际",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue"): {
+			"按 BOM 预览生产需求",
+			"多层展开策略",
 			"损耗汇总",
 			"预期损耗",
 			"operation_summary_json",
@@ -82,13 +84,13 @@ func TestDev375ProcessBomWorkorderSkuModelDocs(t *testing.T) {
 	docs := map[string][]string{
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-375-PROCESS-BOM-WORKORDER-SKU-MODEL",
-			"BOM 维护预期损耗率",
+			"BOM 是生产端主档案",
 			"工序卡记录实际投入",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-375-PROCESS-BOM-WORKORDER-SKU-MODEL",
-			"BOM 可维护预期损耗率",
-			"工单展示冻结的预期损耗",
+			"产出商品",
+			"工单冻结 BOM 版本",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"预期损耗率",

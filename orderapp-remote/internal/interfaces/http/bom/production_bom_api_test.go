@@ -20,12 +20,14 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 		productionBomRows: []bomapp.ProductionBomSummary{{
 			ID: 11, Code: "BOM-001", Name: "精品拼配", GroupID: 1, GroupName: "常用配方",
 			GroupCategoryID: 31, GroupCategoryName: "浅烘",
+			OutputProductID: 7, OutputProductName: "10条盒装速溶咖啡", OutputProductCode: "SKU-0007",
 			LatestVersionID: 101, LatestVersionNo: "V003", Status: "active", ReferenceProductCount: 2,
 		}},
 		productionBomDetail: bomapp.ProductionBomDetail{
 			ProductionBomSummary: bomapp.ProductionBomSummary{
 				ID: 11, Code: "BOM-001", Name: "精品拼配", GroupID: 1, GroupName: "常用配方",
 				GroupCategoryID: 31, GroupCategoryName: "浅烘",
+				OutputProductID: 7, OutputProductName: "10条盒装速溶咖啡", OutputProductCode: "SKU-0007",
 				LatestVersionID: 101, LatestVersionNo: "V003", Status: "active",
 			},
 			ReferencedProducts: []bomapp.ProductionBomReferencedProduct{
@@ -33,7 +35,7 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 				{ProductID: 8, ProductName: "Karen贴牌", ProductCode: "SKU-0008", Active: false},
 			},
 			Versions: []bomapp.ProductionBomVersion{{
-				ID: 101, BomID: 11, VersionNo: "V003", Status: "published", YieldRate: 0.82, IsLatest: true,
+				ID: 101, BomID: 11, VersionNo: "V003", Status: "published", YieldRate: 0.82, OutputQty: 1, OutputUnit: "盒", IsLatest: true,
 				SpecialAttrsSchemaJSON: `[{"key":"roast_level","label":"烘焙度","show_in_price_list":true}]`,
 				SpecialAttrsJSON:       `{"roast_level":"中深烘"}`,
 			}},
@@ -45,6 +47,7 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 		createdProductionBom: bomapp.ProductionBomSummary{
 			ID: 13, Code: "BOM-003", Name: "新配方", GroupID: 1, GroupName: "常用配方",
 			GroupCategoryID: 31, GroupCategoryName: "浅烘",
+			OutputProductID: 7, OutputProductName: "10条盒装速溶咖啡", OutputProductCode: "SKU-0007",
 			LatestVersionID: 103, LatestVersionNo: "V001", LatestVersionStatus: "draft", Status: "active",
 		},
 		updatedProductionBom: bomapp.ProductionBomSummary{
@@ -52,7 +55,7 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 			GroupCategoryID: 0, GroupCategoryName: "",
 			LatestVersionID: 101, LatestVersionNo: "V003", Status: "inactive",
 		},
-		createdProductionVersion:          bomapp.ProductionBomVersion{ID: 103, BomID: 11, VersionNo: "V004", Status: "draft", YieldRate: 0.82},
+		createdProductionVersion:          bomapp.ProductionBomVersion{ID: 103, BomID: 11, VersionNo: "V004", Status: "draft", YieldRate: 0.82, OutputQty: 1, OutputUnit: "盒"},
 		createdProductionBomGroupCategory: bomapp.ProductionBomGroupCategory{ID: 32, GroupID: 1, Name: "中烘", SortOrder: 20},
 		updatedProductionBomGroupCategory: bomapp.ProductionBomGroupCategory{ID: 31, GroupID: 1, Name: "浅中烘", SortOrder: 15},
 		productBomBinding: bomapp.ProductProductionBomBinding{
@@ -77,13 +80,13 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 		{method: http.MethodDelete, path: "/api/production-bom-group-categories/31", want: []string{`"ok":true`}},
 		{method: http.MethodPost, path: "/api/production-bom-groups/1/move", body: `{"sort_order":5}`, want: []string{`"ok":true`}},
 		{method: http.MethodDelete, path: "/api/production-bom-groups/1", want: []string{`"ok":true`}},
-		{method: http.MethodGet, path: "/api/production-boms", want: []string{`"code":"BOM-001"`, `"latest_version_no":"V003"`, `"reference_product_count":2`, `"group_category_id":31`, `"group_category_name":"浅烘"`}},
-		{method: http.MethodPost, path: "/api/production-boms", body: `{"name":"新配方","group_id":1,"group_category_id":31}`, want: []string{`"code":"BOM-003"`, `"name":"新配方"`, `"status":"active"`, `"latest_version_status":"draft"`}},
-		{method: http.MethodGet, path: "/api/production-boms/11?version_id=101", want: []string{`"versions"`, `"version_no":"V003"`, `"special_attrs_schema_json"`, `"special_attrs_json"`, `"is_latest":true`, `"referenced_products"`, `"product_name":"初晓2.5kg装"`, `"active":false`, `"group_category_name":"浅烘"`}},
+		{method: http.MethodGet, path: "/api/production-boms", want: []string{`"code":"BOM-001"`, `"latest_version_no":"V003"`, `"reference_product_count":2`, `"output_product_id":7`, `"output_product_name":"10条盒装速溶咖啡"`, `"group_category_id":31`, `"group_category_name":"浅烘"`}},
+		{method: http.MethodPost, path: "/api/production-boms", body: `{"name":"新配方","output_product_id":7,"output_qty":1,"output_unit":"盒","group_id":1,"group_category_id":31}`, want: []string{`"code":"BOM-003"`, `"name":"新配方"`, `"output_product_id":7`, `"status":"active"`, `"latest_version_status":"draft"`}},
+		{method: http.MethodGet, path: "/api/production-boms/11?version_id=101", want: []string{`"versions"`, `"version_no":"V003"`, `"output_qty":1`, `"output_unit":"盒"`, `"special_attrs_schema_json"`, `"special_attrs_json"`, `"is_latest":true`, `"referenced_products"`, `"product_name":"初晓2.5kg装"`, `"active":false`, `"group_category_name":"浅烘"`}},
 		{method: http.MethodPut, path: "/api/production-boms/11", body: `{"name":"精品拼配改名","group_id":1,"group_category_id":0,"status":"inactive"}`, want: []string{`"name":"精品拼配改名"`, `"status":"inactive"`}},
 		{method: http.MethodPost, path: "/api/production-boms/11/copy", body: `{"name":"精品拼配-包装改版","group_id":1}`, want: []string{`"code":"BOM-002"`, `"name":"精品拼配-包装改版"`}},
 		{method: http.MethodPost, path: "/api/production-boms/11/versions", body: `{"note":"新版配方"}`, want: []string{`"version_no":"V004"`, `"status":"draft"`}},
-		{method: http.MethodPut, path: "/api/production-bom-versions/103/draft", body: `{"expected_loss_rate":0.18,"special_attrs_schema_json":"[{\"key\":\"roast_level\",\"label\":\"烘焙度\",\"show_in_price_list\":true}]","special_attrs_json":"{\"roast_level\":\"深烘\"}","items":[]}`, want: []string{`"status":"draft"`, `"special_attrs_json":"{\"roast_level\":\"深烘\"}"`}},
+		{method: http.MethodPut, path: "/api/production-bom-versions/103/draft", body: `{"expected_loss_rate":0.18,"output_qty":1,"output_unit":"盒","special_attrs_schema_json":"[{\"key\":\"roast_level\",\"label\":\"烘焙度\",\"show_in_price_list\":true}]","special_attrs_json":"{\"roast_level\":\"深烘\"}","items":[{"component_type":"product","component_product_id":77,"consume_unit":"unit_per_box","qty_per_unit":10}]}`, want: []string{`"status":"draft"`, `"output_unit":"盒"`, `"special_attrs_json":"{\"roast_level\":\"深烘\"}"`}},
 		{method: http.MethodPost, path: "/api/production-bom-versions/103/publish", want: []string{`"ok":true`}},
 		{method: http.MethodPut, path: "/api/products/7/production-bom-binding", body: `{"bom_id":11,"bom_version_id":100}`, want: []string{`"product_id":7`, `"production_bom_version_no":"V002"`, `"latest_bom_version_no":"V003"`, `"is_latest_bom_version":false`}},
 	} {
@@ -124,6 +127,9 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	if repo.createdProductionBomCommand.GroupCategoryID != 31 {
 		t.Fatalf("created production bom group category = %d, want 31", repo.createdProductionBomCommand.GroupCategoryID)
 	}
+	if repo.createdProductionBomCommand.OutputProductID != 7 || repo.createdProductionBomCommand.OutputQty != 1 || repo.createdProductionBomCommand.OutputUnit != "盒" {
+		t.Fatalf("created production bom output command = %+v", repo.createdProductionBomCommand)
+	}
 	if repo.updatedProductionBomCommand.ID != 11 || repo.updatedProductionBomCommand.Name != "精品拼配改名" || repo.updatedProductionBomCommand.Status != "inactive" {
 		t.Fatalf("updated production bom command = %+v", repo.updatedProductionBomCommand)
 	}
@@ -144,5 +150,11 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	}
 	if !strings.Contains(repo.updatedProductionDraftCommand.SpecialAttrsJSON, "深烘") {
 		t.Fatalf("draft special attrs command = %+v", repo.updatedProductionDraftCommand)
+	}
+	if repo.updatedProductionDraftCommand.OutputQty != 1 || repo.updatedProductionDraftCommand.OutputUnit != "盒" {
+		t.Fatalf("draft output basis command = %+v", repo.updatedProductionDraftCommand)
+	}
+	if len(repo.updatedProductionDraftCommand.Items) != 1 || repo.updatedProductionDraftCommand.Items[0].ComponentType != "product" {
+		t.Fatalf("draft product component command = %+v", repo.updatedProductionDraftCommand)
 	}
 }

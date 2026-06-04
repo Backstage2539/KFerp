@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-417-MULTILEVEL-MANUFACTURING-BOM
+- Branch: codex/multilevel-manufacturing-bom-20260605
+- Owner/session: Codex / 2026-06-05
+- Status: implemented and locally verified; not merged; not deployed
+- Scope: 把生产 BOM 改为制造主档，BOM 声明产出商品、产出数量和组件清单；组件支持物料和商品/半成品；商品档案只做库存/销售/价格/行业字段和生产反查，不再编辑或绑定 BOM；生产工单页提供按 BOM 预览生产需求和多层展开策略。
+- DEV:
+  - DEV-417-BOM-OUTPUT-PRODUCT-SCHEMA：`production_boms.output_product_id`、BOM 版本产出数量/单位、组件 `material/product` 支持，旧 `finished_product` 兼容读取。
+  - DEV-417-BOM-PUBLISH-MULTILEVEL-VALIDATION：BOM 发布校验产出商品、组件非空、商品组件用量和循环引用；已发布版本只读，复制新版草稿后编辑。
+  - DEV-417-PRODUCT-REVERSE-BOM-LOOKUP：商品档案配置抽屉只读展示“可生产 BOM”和“被哪些 BOM 使用”，删除 BOM 绑定/维护入口。
+  - DEV-417-WORKORDER-BOM-DEMAND-PREVIEW：生产工单页按 BOM 预览产出基准、组件需求、多层展开策略和下层 BOM 提示。
+  - DEV-417-MANUAL-DOCS：更新生产 BOM、商品档案、成本、工单、库存相关手册、需求、验收和 acceptance 记录。
+- Verifier:
+  - Frontend: `node --test src/lib/bom.test.js src/lib/product-settings.test.js` passed 119/119.
+  - Targeted Go/API: `go test ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1` passed.
+  - Full Go: `go test ./...` in `orderapp-remote` passed.
+  - Build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
+  - Changed verifier: `scripts/verify_kferp.sh changed` exited 0.
+  - Browser QA: local Vite + Chrome headless with mock API; screenshots saved under `/tmp/kferp-pr417-browser-qa/` for BOM list/detail, product archive reverse lookup drawer, and work-order BOM demand preview.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-05-multilevel-manufacturing-bom.md`
+- Deploy/smoke: not requested in this turn; no merge or deploy performed.
+- Last update: 2026-06-05 Asia/Shanghai
+
 ### PR-416-MATERIALS-LIST-LAYOUT-BATCH-DEPRECATE
 - Branches: codex/materials-list-layout-batch-deprecate-20260605; codex/materials-list-table-scroll-style-20260605
 - Owner/session: Codex / 2026-06-05

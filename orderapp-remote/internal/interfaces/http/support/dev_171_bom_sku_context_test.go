@@ -34,8 +34,8 @@ func TestDev171BomViewFiltersBySkuContext(t *testing.T) {
 		"批量失效",
 		"productionBomRows",
 		"v-for=\"row in productionBomRows\"",
-		"引用商品",
-		"referencedProductsLabel",
+		"产出商品",
+		"usedByBoms",
 		"apiGet('/api/production-boms?status=all')",
 	} {
 		if !strings.Contains(view, want) {

@@ -224,6 +224,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_boms (
 	id BIGSERIAL PRIMARY KEY,
 	code TEXT NOT NULL DEFAULT '',
 	name TEXT NOT NULL DEFAULT '',
+	output_product_id BIGINT NOT NULL DEFAULT 0,
 	group_id BIGINT NOT NULL DEFAULT 0,
 	status TEXT NOT NULL DEFAULT 'active',
 	source_bom_id BIGINT NOT NULL DEFAULT 0,
@@ -238,6 +239,12 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_boms (
 	updated_by TEXT NOT NULL DEFAULT ''
 );
 ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS group_category_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS output_product_id BIGINT NOT NULL DEFAULT 0;
+UPDATE %[1]s.production_boms SET output_product_id=legacy_product_id WHERE output_product_id=0 AND legacy_product_id > 0;
+UPDATE %[1]s.production_boms pb
+SET output_product_id=b.product_id
+FROM %[1]s.product_production_bom_bindings b
+WHERE pb.id=b.bom_id AND pb.output_product_id=0 AND b.product_id > 0;
 CREATE UNIQUE INDEX IF NOT EXISTS production_boms_code_uq
 	ON %[1]s.production_boms(code);
 CREATE UNIQUE INDEX IF NOT EXISTS production_boms_legacy_product_uq
@@ -247,6 +254,8 @@ CREATE INDEX IF NOT EXISTS production_boms_group_idx
 	ON %[1]s.production_boms(group_id, status);
 CREATE INDEX IF NOT EXISTS production_boms_group_category_idx
 	ON %[1]s.production_boms(group_id, group_category_id, status);
+CREATE INDEX IF NOT EXISTS production_boms_output_product_idx
+	ON %[1]s.production_boms(output_product_id, status);
 
 UPDATE %[1]s.production_boms
 SET group_id=0, group_category_id=0
@@ -261,6 +270,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_versions (
 	version_no TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'draft',
 	yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0.8000,
+	output_qty NUMERIC(14,6) NOT NULL DEFAULT 1,
+	output_unit TEXT NOT NULL DEFAULT 'unit',
 	note TEXT NOT NULL DEFAULT '',
 	legacy_product_id BIGINT NOT NULL DEFAULT 0,
 	legacy_bom_version_id BIGINT NOT NULL DEFAULT 0,
@@ -269,8 +280,12 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_versions (
 	created_by TEXT NOT NULL DEFAULT '',
 	published_by TEXT NOT NULL DEFAULT ''
 );
+ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS output_qty NUMERIC(14,6) NOT NULL DEFAULT 1;
+ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS output_unit TEXT NOT NULL DEFAULT 'unit';
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs_schema_json JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+UPDATE %[1]s.production_bom_versions SET output_qty=1 WHERE output_qty IS NULL OR output_qty <= 0;
+UPDATE %[1]s.production_bom_versions SET output_unit='unit' WHERE COALESCE(output_unit,'')='';
 UPDATE %[1]s.production_bom_versions SET special_attrs_schema_json='[]'::jsonb WHERE special_attrs_schema_json IS NULL;
 UPDATE %[1]s.production_bom_versions SET special_attrs_json='{}'::jsonb WHERE special_attrs_json IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS production_bom_versions_bom_version_uq
@@ -374,9 +389,10 @@ WITH legacy_products AS (
 	    OR EXISTS (SELECT 1 FROM %[1]s.bom_versions bv WHERE bv.product_id=p.id)
 	  )
 )
-INSERT INTO %[1]s.production_boms(code, name, group_id, status, legacy_product_id, created_by, updated_by)
+INSERT INTO %[1]s.production_boms(code, name, output_product_id, group_id, status, legacy_product_id, created_by, updated_by)
 SELECT 'BOM-' || LPAD(lp.id::text, 6, '0'),
        lp.name || ' 生产 BOM',
+       lp.id,
        0,
        CASE WHEN lp.status='inactive' THEN 'inactive' ELSE 'active' END,
        lp.id,
@@ -396,8 +412,8 @@ WITH version_rows AS (
 	FROM %[1]s.bom_versions bv
 	JOIN %[1]s.production_boms pbom ON pbom.legacy_product_id=bv.product_id
 )
-INSERT INTO %[1]s.production_bom_versions(bom_id, version_no, status, yield_rate, note, legacy_product_id, legacy_bom_version_id, created_at, published_at, created_by, published_by)
-SELECT bom_id, version_no, status, yield_rate, note, product_id, legacy_bom_version_id, created_at,
+INSERT INTO %[1]s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, note, legacy_product_id, legacy_bom_version_id, created_at, published_at, created_by, published_by)
+SELECT bom_id, version_no, status, yield_rate, 1, 'kg', note, product_id, legacy_bom_version_id, created_at,
        CASE WHEN status='published' THEN published_at ELSE NULL END,
        'system-backfill',
        CASE WHEN status='published' THEN 'system-backfill' ELSE '' END
@@ -414,8 +430,8 @@ WITH fallback_products AS (
 		SELECT 1 FROM %[1]s.production_bom_versions v WHERE v.bom_id=pbom.id
 	)
 )
-INSERT INTO %[1]s.production_bom_versions(bom_id, version_no, status, yield_rate, note, legacy_product_id, legacy_bom_version_id, created_at, published_at, created_by, published_by)
-SELECT bom_id, 'V001', 'published', yield_rate, '旧 BOM 回填', product_id, 0, updated_at, updated_at, 'system-backfill', 'system-backfill'
+INSERT INTO %[1]s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, note, legacy_product_id, legacy_bom_version_id, created_at, published_at, created_by, published_by)
+SELECT bom_id, 'V001', 'published', yield_rate, 1, 'kg', '旧 BOM 回填', product_id, 0, updated_at, updated_at, 'system-backfill', 'system-backfill'
 FROM fallback_products
 ON CONFLICT DO NOTHING;
 
@@ -618,8 +634,8 @@ func copyProductionBomForSpecialAttrsConflict(ctx context.Context, pool *pgxpool
 	var newBomID int64
 	tempCode := fmt.Sprintf("PENDING-%d-%d", sourceVersionID, group.ProductIDs[0])
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %[1]s.production_boms(code, name, group_id, status, source_bom_id, source_bom_version_id, created_by, updated_by)
-		VALUES($1,$2,$3,$4,$5,$6,'system-special-attrs-backfill','system-special-attrs-backfill')
+		INSERT INTO %[1]s.production_boms(code, name, output_product_id, group_id, status, source_bom_id, source_bom_version_id, created_by, updated_by)
+		VALUES($1,$2,(SELECT output_product_id FROM %[1]s.production_boms WHERE id=$5),$3,$4,$5,$6,'system-special-attrs-backfill','system-special-attrs-backfill')
 		RETURNING id
 	`, schema), tempCode, name+" 特殊属性副本", groupID, status, sourceBomID, sourceVersionID).Scan(&newBomID); err != nil {
 		return err
@@ -630,8 +646,8 @@ func copyProductionBomForSpecialAttrsConflict(ctx context.Context, pool *pgxpool
 	}
 	var newVersionID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %[1]s.production_bom_versions(bom_id, version_no, status, yield_rate, note, special_attrs_schema_json, special_attrs_json, created_at, published_at, created_by, published_by)
-		VALUES($1,'V001','published',$2,'旧 SKU 特殊属性冲突自动拆分',$3::jsonb,$4::jsonb,now(),now(),'system-special-attrs-backfill','system-special-attrs-backfill')
+		INSERT INTO %[1]s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, note, special_attrs_schema_json, special_attrs_json, created_at, published_at, created_by, published_by)
+		VALUES($1,'V001','published',$2,1,'kg','旧 SKU 特殊属性冲突自动拆分',$3::jsonb,$4::jsonb,now(),now(),'system-special-attrs-backfill','system-special-attrs-backfill')
 		RETURNING id
 	`, schema), newBomID, yieldRate, group.SchemaJSON, group.AttrsJSON).Scan(&newVersionID); err != nil {
 		return err

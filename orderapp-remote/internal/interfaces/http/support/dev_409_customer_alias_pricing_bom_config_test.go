@@ -29,9 +29,9 @@ func TestDev409CustomerAliasPricingBomConfigSourceMarkers(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"customerProductAliasForm.product_config_template_id",
 			"aliasProductConfigTemplateOptions",
-			"productProductionConfigActiveBomOptions",
-			"placeholder=\"搜索有效生产 BOM\"",
-			"productionBomOptionLabel",
+			"生产反查",
+			"productProductionConfigProduceBomRows",
+			"ensureProductBomUsage",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "catalog", "repository.go"): {
 			"product_config_template_id=$8",

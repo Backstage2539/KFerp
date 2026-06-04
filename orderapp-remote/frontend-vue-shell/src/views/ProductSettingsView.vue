@@ -8,7 +8,7 @@
       <div class="panel-head">
         <div>
           <h2>{{ productSectionTitle }}</h2>
-          <p>商品档案承载库存、生产配置、商品分类和生产 BOM 绑定；客户商品只维护销售展示；商品配置模板只维护模板规则。</p>
+          <p>商品档案承载库存、销售、价格和行业字段；生产 BOM 在生产模块声明产出商品，商品档案只做生产反查。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -91,9 +91,9 @@
                 <th>行业字段</th>
                 <th>归属</th>
                 <th class="action-cell">新增动作</th>
-                <th>生产配置预期损耗率</th>
+                <th>预期损耗率</th>
                 <th>利润率覆盖</th>
-                <th>生产 BOM</th>
+                <th>生产反查</th>
                 <th>商品状态</th>
                 <th>处理</th>
                 <th class="remark-cell">备注</th>
@@ -236,7 +236,7 @@
           <div class="panel-title">
             <span>客户商品 · {{ aliasCustomerLabel }}</span>
           </div>
-          <p class="muted">客户商品只维护对外名称、编号、重命名和价格表展示；生产 BOM 和生产配置只能回到商品档案维护。</p>
+          <p class="muted">客户商品只维护对外名称、编号、重命名和价格表展示；生产结构回到生产 BOM 维护，商品档案只提供库存对象和反查入口。</p>
           <div class="alias-filters alias-filter-row">
             <label>
               <span>客户</span>
@@ -1004,51 +1004,36 @@
           <section class="drawer-section">
             <div class="field-group-head">
               <div class="field-group-copy">
-                <strong>生产配置</strong>
-                <small>生产 BOM、工艺路线、预期损耗率和行业字段会被价格表、录单、生产计划和新工单读取。</small>
+                <strong>生产反查</strong>
+                <small>BOM 在生产模块维护；商品档案只查看自己能被哪些 BOM 产出、又被哪些上层 BOM 当组件使用。</small>
               </div>
-              <button class="secondary compact-action" type="button" :disabled="!productProductionConfigForm.production_bom_id" @click="navigateCurrentProductBom">维护当前 BOM 明细</button>
             </div>
-          <div class="production-config-grid">
-            <label>
-              <span>生产 BOM</span>
-              <SearchableSelect
-                v-model="productProductionConfigForm.production_bom_id"
-                :options="productProductionConfigActiveBomOptions"
-                :option-label="productionBomOptionLabel"
-                :option-meta="productionBomOptionMeta"
-                :option-value="optionNumericValue"
-                placeholder="搜索有效生产 BOM"
-                empty-text="暂无有效生产 BOM"
-                @select="selectProductProductionConfigBom" />
-            </label>
-            <label>
-              <span>BOM版本</span>
-              <select v-model.number="productProductionConfigForm.production_bom_version_id" :disabled="!productProductionConfigForm.production_bom_id">
-                <option :value="0">选择已发布版本</option>
-                <option v-for="version in productProductionConfigVersionOptions" :key="version.id" :value="version.id">
-                  {{ version.version_no }}
-                </option>
-              </select>
-            </label>
-            <label>
-              <span>工艺路线</span>
-              <select v-model.number="productProductionConfigForm.process_route_id">
-                <option :value="0">不设置工艺路线</option>
-                <option v-for="route in processRoutes" :key="route.id" :value="route.id">
-                  {{ route.name }}{{ route.default_minutes ? ` · ${route.default_minutes}分钟` : '' }}
-                </option>
-              </select>
-            </label>
-            <label>
-              <span>预期损耗率（%）</span>
-              <input v-model.number="productProductionConfigForm.expected_loss_percent" type="number" min="0" max="99.999" step="0.01" placeholder="例如 18" />
-            </label>
-            <label class="wide-field">
-              <span>备注</span>
-              <textarea v-model.trim="productProductionConfigForm.note" rows="2" placeholder="例如深烘配置、包装要求、生产注意事项"></textarea>
-            </label>
-          </div>
+            <div class="production-config-grid reverse-bom-grid">
+              <div class="readonly-link-list">
+                <span>可生产 BOM</span>
+                <button
+                  v-for="row in productProductionConfigProduceBomRows"
+                  :key="row.id"
+                  class="text-button readonly-link-button"
+                  type="button"
+                  @click="navigateProductBom(row)">
+                  {{ productionBomLabel(row) }}
+                </button>
+                <small v-if="!productProductionConfigProduceBomRows.length" class="muted">暂无生产 BOM 产出该商品</small>
+              </div>
+              <div class="readonly-link-list">
+                <span>被哪些 BOM 使用</span>
+                <button
+                  v-for="row in productProductionConfigUsedByBomRows"
+                  :key="`${row.bom_id}:${row.bom_version_id}`"
+                  class="text-button readonly-link-button"
+                  type="button"
+                  @click="navigateProductBom({ production_bom_id: row.bom_id, id: row.bom_id, name: row.bom_name })">
+                  {{ row.bom_code }} {{ row.bom_name }} / {{ row.bom_version_no }}
+                </button>
+                <small v-if="!productProductionConfigUsedByBomRows.length" class="muted">暂无上层 BOM 使用该商品</small>
+              </div>
+            </div>
           </section>
 
           <section class="drawer-section production-config-fields">
@@ -1306,6 +1291,7 @@ const customerProductRuleOverrides = ref([])
 const customerProductRuleBindings = ref([])
 const productionBoms = ref([])
 const productionBomDetails = ref({})
+const productBomUsageByProductID = ref({})
 const processRoutes = ref([])
 const customers = ref([])
 const loading = ref(false)
@@ -1591,6 +1577,32 @@ const activeIndustryFieldTemplates = computed(() => industryFieldTemplates.value
   .slice()
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name || '').localeCompare(String(b.name || ''))))
 const productProductionConfigActiveBomOptions = computed(() => activeProductionBomOptions(productionBoms.value))
+const productProductionConfigProduceBomRows = computed(() => {
+  const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
+  if (!productID) return []
+  return productionBoms.value.filter((row) => Number(row.output_product_id || 0) === productID)
+})
+const productProductionConfigUsedByBomRows = computed(() => {
+  const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
+  const seen = new Set()
+  const rows = []
+  for (const row of productBomUsageByProductID.value[String(productID)] || []) {
+    const key = `${row.bom_id}:${row.bom_version_id}:${row.consume_unit}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    rows.push(row)
+  }
+  for (const bom of productProductionConfigProduceBomRows.value) {
+    const detail = productionBomDetails.value[String(bom.id || bom.production_bom_id || 0)]
+    for (const row of detail?.used_by_boms || []) {
+      const key = `${row.bom_id}:${row.bom_version_id}:${row.consume_unit}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      rows.push(row)
+    }
+  }
+  return rows
+})
 const aliasProductConfigTemplateOptions = computed(() => productConfigTemplates.value
   .filter((template) => template.active !== false)
   .filter((template) => {
@@ -3604,6 +3616,13 @@ async function ensureProductionBomDetail(bomID) {
   productionBomDetails.value = { ...productionBomDetails.value, [String(id)]: detail }
 }
 
+async function ensureProductBomUsage(productID) {
+  const id = Number(productID || 0)
+  if (!id || productBomUsageByProductID.value[String(id)]) return
+  const rows = await apiGet(`/api/production-bom-product-usage/${id}`)
+  productBomUsageByProductID.value = { ...productBomUsageByProductID.value, [String(id)]: rows || [] }
+}
+
 function productProductionConfigByProductID(productID) {
   const id = Number(productID || 0)
   return productProductionConfigs.value.find((row) => Number(row.product_id || 0) === id) || null
@@ -3694,6 +3713,8 @@ async function openProductProductionConfig(row) {
       loadProcessRoutes(),
       loadIndustryFieldTemplates(),
     ])
+    await ensureProductBomUsage(row?.id)
+    await Promise.all(productProductionConfigProduceBomRows.value.map((bom) => ensureProductionBomDetail(bom.id || bom.production_bom_id)))
     if (productProductionConfigForm.value.production_bom_id) {
       await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
       if (!productProductionConfigForm.value.production_bom_version_id) {
