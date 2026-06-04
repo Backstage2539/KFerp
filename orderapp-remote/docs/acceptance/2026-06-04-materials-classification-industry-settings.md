@@ -24,3 +24,11 @@
 - `go test ./...`：通过。
 - `npm run build`：通过；保留既有 chunk size warning。
 - `scripts/verify_kferp.sh changed`：通过。
+
+## 部署证据
+- Feature branch：`codex/materials-classification-industry-settings-20260604`
+- Feature/develop commit：`0649aa30507ae4fed33b56b282e116bb86b53c4f`
+- Deploy command：`./deploy_orderapp.sh development`
+- Backup：`root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604232739`
+- Deploy build：Docker build 内部 `go test ./...` 通过。
+- Smoke：`erp_orderapp`、`erp_caddy`、`erp_postgres`、`erp_docconvert` 运行中；`GET /app/` 返回 303 到 `/app/orders`；`GET /app/vue-shell` 返回 200；未登录访问 `/app/api/materials` 和 `/app/api/req/product` 返回 401；部署源码/文档包含 PR-414、`行业设置`、`当前仓库暂无可配置项` 和 `target_qty`；development 数据库存在 `material_classification_groups`、`material_classification_assignments`、`material_industry_field_values` 和 `materials.industry_field_template_id`。
