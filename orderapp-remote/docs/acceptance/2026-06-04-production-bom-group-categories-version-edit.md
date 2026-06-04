@@ -47,6 +47,11 @@
 - `orderapp-remote/docs/REQUIREMENTS.md`
 - `orderapp-remote/docs/ACCEPTANCE_TESTS.md`
 
-## 待追加
-- feature branch push / merge develop / development stack deploy
-- deploy smoke evidence
+## 部署证据
+- 运行时代码提交：`a56fe8f5 feat: add production bom inner categories and draft recipe editing`
+- 需求种子补丁：`912fa6d3 test: seed production bom group category requirements`
+- 合并：以上提交已快进合入并推送 `origin/develop=912fa6d31bd1092408200142546486d7066f7270`。
+- 部署：`./deploy_orderapp.sh development`。
+- 备份：`root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604150219`。
+- 部署构建：Docker build 期间 `go test ./...` 通过。
+- Smoke：`erp_orderapp`、`erp_postgres`、`erp_caddy`、`erp_docconvert` running；未认证 GET `/app/` 返回 303 到 `/app/orders`；认证 `/app/vue-shell` 返回 200；认证 `/app/api/production-boms?status=all` 返回 200；认证 `/app/api/production-bom-groups` 返回 200；需求 API 暴露 `PR-407-PRODUCTION-BOM-GROUP-CATEGORIES-VERSION-EDIT`；远端源码/文档包含 `production_bom_group_categories`、`groupProductionBomRowsByInnerCategory`、`V001 草稿`。
