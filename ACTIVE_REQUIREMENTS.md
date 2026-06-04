@@ -9,15 +9,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-406-BOM-PRODUCT-ALIAS-LAYOUT
 - Branch: codex/bom-product-alias-layout-20260603
 - Follow-up branch: codex/unbound-production-bom-recipe-detail-20260604
-- Current follow-up branch: codex/missing-product-bom-create-flow-20260604
+- Current follow-up branch: codex/production-bom-independent-list-20260604
 - Owner/session: Codex / 2026-06-03
-- Status: merged and deployed to development
-- Scope: 生产 BOM 删除顶部 SKU归属/商品选择并统一为商品 BOM列表过滤行；合并未绑定生产 BOM 进列表并支持勾选、复制、失效、移动分组；商品档案和客户商品名删除旧 SKU归属/旧客户 SKU 收敛检查，分类操作收敛为 Tab 行右侧“增加分类 / 移动到分类”可搜索下拉；客户商品名新建改为抽屉并对绑定商品失效标红。本轮 follow-up 修复：点击已绑定 BOM 名称恢复右侧配方明细；点击未绑定商品 BOM 也加载右侧配方明细并显示“未绑定商品”；客户商品名可移动回虚拟未分类；新建客户商品抽屉删除进入价格表开关；批量添加商品档案搜索框移动到列表顶部。
-- Current follow-up scope: 商品档案行没有生产 BOM 时，商品 BOM列表不能只显示“无生产 BOM / 未维护”和禁用按钮；前端提供 `创建BOM`，自动创建生产 BOM、生成 V001 已发布版本、绑定商品，再进入配方明细维护。
+- Status: in progress on feature branch
+- Scope: 生产 BOM 删除顶部 SKU归属/商品选择并统一为生产 BOM 独立配方库；商品档案和客户商品名删除旧 SKU归属/旧客户 SKU 收敛检查，分类操作收敛为 Tab 行右侧“增加分类 / 移动到分类”可搜索下拉；客户商品名新建改为抽屉并对绑定商品失效标红。本轮 follow-up 修复：生产 BOM 列表不能再混入商品档案行，列表只展示生产 BOM，商品引用只在 BOM 详情展示；点击任意 BOM 名称都能进入右侧配方明细。
+- Current follow-up scope: 撤销上一轮“缺 BOM 商品行在生产 BOM 列表创建BOM”的列表逻辑。生产 BOM 页面只读 `/api/production-boms?status=all`；去掉商品列、商品过滤、`无生产 BOM / 未维护` 商品行和 `创建BOM` 操作；商品档案配置跳转改传 `production_bom_id`。
 - DEV:
-  - DEV-406-BOM-UNIFIED-LIST：BOM 页面合并 `/api/bom/list` 与 `/api/production-boms?status=all`，未绑定 BOM 使用 `bom:{production_bom_id}` 行 key 并可操作。
-  - DEV-406-UNBOUND-BOM-DETAIL：未绑定商品 BOM 点击后从 `/api/production-boms/:id` 加载版本和配方项，右侧配方明细商品字段显示“未绑定商品”，不再清空 detail 或打开档案抽屉。
-  - DEV-406-MISSING-PRODUCT-BOM-CREATE：缺少生产 BOM 的商品档案行显示 `创建BOM`；创建时复用 `/api/production-boms` 和 `/api/products/:id/production-bom-binding`，不再让用户停在不可处理的禁用状态。
+  - DEV-406-BOM-INDEPENDENT-LIST：BOM 页面只使用 `/api/production-boms?status=all` 展示独立生产 BOM 档案，行 key 使用 `bom:{production_bom_id}`，不再合并 `/api/bom/list` 商品行。
+  - DEV-406-BOM-DETAIL-REFERENCED-PRODUCTS：`/api/production-boms/:id` 返回 `referenced_products`，右侧配方明细展示引用商品；商品引用不参与列表行。
+  - DEV-406-PRODUCT-BOM-NAV-ID：商品档案配置的“维护当前 BOM 明细”通过 `production_bom_id` 跳转生产 BOM，不再传商品筛选参数。
   - DEV-406-PRODUCT-ARCHIVE-LAYOUT：商品档案页压缩顶部说明、删除 `SKU归属`，过滤行右侧放创建/失效，反馈走 `kferp:notify`。
   - DEV-406-ALIAS-DRAWER-BATCH-DISABLE：客户商品名页删除旧收敛检查，新建客户商品抽屉包含单个/批量模式，过滤行右侧放新建/批量失效，绑定商品失效标红。
   - DEV-406-CLASSIFICATION-DROPDOWNS：商品档案和客户商品名分类操作改为 Tab 行右侧两个可搜索下拉，选择后确认执行并允许覆盖旧归类。
@@ -26,8 +26,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED: `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js`
   - Follow-up RED: `node --test src/lib/bom.test.js` failed because `productionBomDetailAsRecipeDetail` was not exported and unbound BOM selection still cleared detail.
   - Current follow-up RED: `node --test src/lib/bom.test.js` failed because `defaultProductionBomNameForProduct` / missing-row helper were not exported and the Vue page lacked the create-and-bind path.
+  - Independent-list RED: `node --test src/lib/bom.test.js` failed because production BOM label did not read independent `code/name/latest_version_no` and BomView still contained `商品 BOM列表` / `商品过滤` / `mergeProductionBomRows`; targeted Go test failed because `ProductionBomDetail` did not expose `referenced_products`.
   - Follow-up frontend: `node --test src/lib/bom.test.js` passed 9/9; `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` passed 118/118; `npm run build` passed.
   - Current follow-up frontend: `node --test src/lib/bom.test.js` passed 10/10; `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` passed 119/119; `npm run build` passed; `scripts/verify_kferp.sh changed` passed.
+  - Independent-list frontend/API: `node --test src/lib/bom.test.js` passed 8/8; `node --test src/lib/product-settings.test.js src/lib/view-routing.test.js` passed 109/109; `go test ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/interfaces/http/support -count=1` passed.
   - Follow-up changed verifier: `scripts/verify_kferp.sh changed` passed.
   - Frontend: `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js src/lib/product-bean-list-split.test.js src/lib/workspace-context-pages.test.js` passed 139/139; `npm run build` passed in `orderapp-remote/frontend-vue-shell`
   - API/backend: `go test ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1` passed
@@ -41,7 +43,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Current follow-up deployment: `22f674af` pushed to `origin/develop=22f674afb730804b6834236fcdbf80ff51b835e9` and deployed to development with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604122816`.
 - Last update: 2026-06-04 Asia/Shanghai
 - Notes: Follow-up RED evidence added for BOM name click restoring recipe detail, customer alias move-to-unclassified sentinel handling, hidden price-list switches, batch search placement, and unbound production BOM detail projection. Follow-up GREEN evidence: frontend target/source-marker tests passed 139/139 before earlier merge; develop branch spot checks passed 109/109 for `bom.test.js` + `product-settings.test.js`; catalog/support Go tests passed; Vue build passed; changed verifier passed. Unbound BOM follow-up evidence: `node --test src/lib/bom.test.js` passed 9/9; `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` passed 118/118; Vue build passed; changed verifier passed. Deploy evidence: Docker build ran `go test ./...`; containers running; unauthenticated GET `/app/` returned 303 to `/app/orders`; authenticated GET `/app/vue-shell` returned 200; requirement API exposes `PR-406-BOM-PRODUCT-ALIAS-LAYOUT`; authenticated `/app/api/bom/list`, `/app/api/customer-product-aliases?active=all&q=`, and `/app/api/production-boms?status=all` returned 200; remote source includes `openBomRowPrimary`, `alias-batch-list-filters`, and `productionBomDetailAsRecipeDetail`. Browser/manual验收 per current convention not executed.
-- Current follow-up notes: 截图中的“无生产 BOM / 未维护”行是 `/api/bom/list` 返回的商品档案行，`product_id>0` 但 `production_bom_id=0`，不是未绑定生产 BOM 档案。旧前端按 `production_bom_id>0` 禁用勾选、版本、复制和失效，导致用户看到不可处理的死行。本轮改为创建并绑定生产 BOM。Deploy evidence: Docker build ran `go test ./...`; containers running; unauthenticated `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell` returned 200; requirement API exposes `PR-406-BOM-PRODUCT-ALIAS-LAYOUT`; authenticated `/app/api/bom/list` and `/app/api/production-boms?status=all` returned 200; remote source includes `createProductionBomForProductRow`, `defaultProductionBomNameForProduct`, and `production-bom-binding`; app logs show normal startup on `:8080`.
+- Superseded follow-up notes: 上一轮曾把 `/api/bom/list` 返回的缺 BOM 商品档案行改为 `创建BOM`，但 Van 进一步确认生产 BOM 列表不应包含商品列表。本轮撤销该列表逻辑：生产 BOM 页面只展示 `/api/production-boms?status=all` 的独立配方档案；商品引用只在详情展示，商品档案侧通过 `production_bom_id` 跳转。
 
 ### PR-405-PRODUCTION-BOM-BATCH-DEACTIVATE
 - Branch: codex/bom-batch-deactivate-20260603

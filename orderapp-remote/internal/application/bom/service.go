@@ -143,8 +143,18 @@ type ProductionBomSummary struct {
 
 type ProductionBomDetail struct {
 	ProductionBomSummary
-	Versions []ProductionBomVersion `json:"versions"`
-	Items    []Item                 `json:"items"`
+	Versions           []ProductionBomVersion           `json:"versions"`
+	Items              []Item                           `json:"items"`
+	ReferencedProducts []ProductionBomReferencedProduct `json:"referenced_products"`
+}
+
+type ProductionBomReferencedProduct struct {
+	ProductID    int64  `json:"product_id"`
+	ProductName  string `json:"product_name"`
+	ProductCode  string `json:"product_code"`
+	Active       bool   `json:"active"`
+	BomVersionID int64  `json:"bom_version_id"`
+	BomVersionNo string `json:"bom_version_no"`
 }
 
 type ProductionBomVersion struct {

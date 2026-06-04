@@ -26,6 +26,10 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 				ID: 11, Code: "BOM-001", Name: "精品拼配", GroupID: 1, GroupName: "常用配方",
 				LatestVersionID: 101, LatestVersionNo: "V003", Status: "active",
 			},
+			ReferencedProducts: []bomapp.ProductionBomReferencedProduct{
+				{ProductID: 7, ProductName: "初晓2.5kg装", ProductCode: "SKU-0007", Active: true},
+				{ProductID: 8, ProductName: "Karen贴牌", ProductCode: "SKU-0008", Active: false},
+			},
 			Versions: []bomapp.ProductionBomVersion{{
 				ID: 101, BomID: 11, VersionNo: "V003", Status: "published", YieldRate: 0.82, IsLatest: true,
 				SpecialAttrsSchemaJSON: `[{"key":"roast_level","label":"烘焙度","show_in_price_list":true}]`,
@@ -66,7 +70,7 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 		{method: http.MethodDelete, path: "/api/production-bom-groups/1", want: []string{`"ok":true`}},
 		{method: http.MethodGet, path: "/api/production-boms", want: []string{`"code":"BOM-001"`, `"latest_version_no":"V003"`, `"reference_product_count":2`}},
 		{method: http.MethodPost, path: "/api/production-boms", body: `{"name":"新配方","group_id":1}`, want: []string{`"code":"BOM-003"`, `"name":"新配方"`, `"status":"active"`}},
-		{method: http.MethodGet, path: "/api/production-boms/11", want: []string{`"versions"`, `"version_no":"V003"`, `"special_attrs_schema_json"`, `"special_attrs_json"`, `"is_latest":true`}},
+		{method: http.MethodGet, path: "/api/production-boms/11", want: []string{`"versions"`, `"version_no":"V003"`, `"special_attrs_schema_json"`, `"special_attrs_json"`, `"is_latest":true`, `"referenced_products"`, `"product_name":"初晓2.5kg装"`, `"active":false`}},
 		{method: http.MethodPut, path: "/api/production-boms/11", body: `{"name":"精品拼配改名","group_id":1,"status":"inactive"}`, want: []string{`"name":"精品拼配改名"`, `"status":"inactive"`}},
 		{method: http.MethodPost, path: "/api/production-boms/11/copy", body: `{"name":"精品拼配-包装改版","group_id":1}`, want: []string{`"code":"BOM-002"`, `"name":"精品拼配-包装改版"`}},
 		{method: http.MethodPost, path: "/api/production-boms/11/versions", body: `{"note":"新版配方"}`, want: []string{`"version_no":"V004"`, `"status":"draft"`}},

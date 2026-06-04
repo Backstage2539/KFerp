@@ -39,9 +39,9 @@ func TestVueShellEmbedsBomWithoutNestedMenu(t *testing.T) {
 	}
 	bomSrc := string(bom)
 	for _, want := range []string{
-		"/api/bom/list",
-		"/api/bom/detail/",
-		"/api/bom/item/save",
+		"/api/production-boms?status=all",
+		"/api/production-boms/${record.id}",
+		"/api/production-bom-versions/${draftVersionID}/draft",
 		"/api/bom/bag-spec-mappings",
 	} {
 		if !strings.Contains(bomSrc, want) {

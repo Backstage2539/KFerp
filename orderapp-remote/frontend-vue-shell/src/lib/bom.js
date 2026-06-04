@@ -46,46 +46,6 @@ export function filterBomRowsByProductFocus(rows = [], productID = 0) {
   return rows.filter((row) => Number(row.product_id || row.id || 0) === focusProductID)
 }
 
-export function mergeProductionBomRows(productBomRows = [], productionBomRecords = []) {
-  const rows = Array.isArray(productBomRows) ? productBomRows : []
-  const boundBomIDs = new Set(rows
-    .map((row) => Number(row?.production_bom_id || 0))
-    .filter((id) => id > 0))
-  const extras = (Array.isArray(productionBomRecords) ? productionBomRecords : [])
-    .filter((bom) => {
-      const id = Number(bom?.id || bom?.production_bom_id || 0)
-      if (!id || boundBomIDs.has(id)) return false
-      return Number(bom?.reference_product_count || 0) <= 0
-    })
-    .map((bom) => ({
-      id: Number(bom.id || bom.production_bom_id || 0),
-      product_id: 0,
-      customer_id: 0,
-      product: '未绑定商品',
-      product_name: '未绑定商品',
-      product_code: '',
-      product_kind: 'roasted_bean',
-      production_bom_id: Number(bom.id || bom.production_bom_id || 0),
-      production_bom_code: bom.code || bom.production_bom_code || '',
-      production_bom_name: bom.name || bom.production_bom_name || '',
-      production_bom_group_id: Number(bom.group_id || bom.production_bom_group_id || 0),
-      production_bom_group_name: bom.group_name || bom.production_bom_group_name || '',
-      group_id: Number(bom.group_id || bom.production_bom_group_id || 0),
-      group_name: bom.group_name || bom.production_bom_group_name || '',
-      status: bom.status === 'inactive' ? 'inactive' : 'active',
-      item_count: Number(bom.item_count || bom.material_count || 0),
-      updated_at: bom.updated_at || '',
-      latest_bom_version_no: bom.latest_bom_version_no || bom.latest_version_no || '',
-      latest_version_no: bom.latest_version_no || bom.latest_bom_version_no || '',
-      production_bom_version_id: Number(bom.production_bom_version_id || bom.latest_version_id || 0),
-      production_bom_version_no: bom.production_bom_version_no || '',
-      is_latest_bom_version: !bom.production_bom_version_no || bom.production_bom_version_no === (bom.latest_bom_version_no || bom.latest_version_no || ''),
-      is_unbound_production_bom: true,
-      can_edit_bom: true,
-    }))
-  return rows.concat(extras)
-}
-
 function firstPresent(...values) {
   return values.find((value) => value !== undefined && value !== null && value !== '')
 }
@@ -128,6 +88,7 @@ export function productionBomDetailAsRecipeDetail(detail = {}, fallback = {}) {
     latest_bom_version_id: versionID,
     latest_bom_version_no: versionNo,
     is_latest_bom_version: true,
+    referenced_products: Array.isArray(detail.referenced_products) ? detail.referenced_products : [],
   }
 }
 
@@ -159,15 +120,6 @@ export function filterProductionBomCatalog(rows = [], { status = 'active', query
   })
 }
 
-export function isMissingProductionBomRow(row = {}) {
-  return Number(row?.product_id || 0) > 0 && Number(row?.production_bom_id || 0) <= 0
-}
-
-export function defaultProductionBomNameForProduct(row = {}) {
-  const name = String(row?.product || row?.product_name || row?.name || '').trim()
-  return name ? `${name} 生产 BOM` : '新建生产 BOM'
-}
-
 export function bomContextCustomerIDs(products = [], bomRows = []) {
   const ids = new Set()
   for (const row of [...products, ...bomRows]) {
@@ -179,9 +131,9 @@ export function bomContextCustomerIDs(products = [], bomRows = []) {
 }
 
 export function productionBomLabel(row = {}) {
-  const code = String(row.production_bom_code || row.productionBomCode || '').trim()
-  const name = String(row.production_bom_name || row.productionBomName || '').trim()
-  const version = String(row.production_bom_version_no || row.productionBomVersionNo || '').trim()
+  const code = String(row.production_bom_code || row.productionBomCode || row.code || '').trim()
+  const name = String(row.production_bom_name || row.productionBomName || row.name || '').trim()
+  const version = String(row.production_bom_version_no || row.productionBomVersionNo || row.latest_bom_version_no || row.latestBomVersionNo || row.latest_version_no || row.latestVersionNo || '').trim()
   const status = String(row.bom_status || row.status || '').trim()
   const title = [code, name].filter(Boolean).join(' ')
   if (title && version) return `${title} / ${version}`

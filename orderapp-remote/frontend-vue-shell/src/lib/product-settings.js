@@ -1075,15 +1075,15 @@ export function sortRowsForCustomerSkuPriority(rows = [], customerID = 0) {
 
 export function buildProductBomURL(currentHref = '', row = {}) {
   const url = new URL(currentHref || window.location.href)
-  const productID = Number(row.id || row.product_id || 0)
+  const bomID = Number(row.production_bom_id || row.bom_id || 0)
   url.searchParams.set('view', 'bom')
-  if (productID > 0) {
-    url.searchParams.set('product_id', String(productID))
-    url.searchParams.set('bom_filter_product_id', String(productID))
+  if (bomID > 0) {
+    url.searchParams.set('production_bom_id', String(bomID))
   } else {
-    url.searchParams.delete('product_id')
-    url.searchParams.delete('bom_filter_product_id')
+    url.searchParams.delete('production_bom_id')
   }
+  url.searchParams.delete('product_id')
+  url.searchParams.delete('bom_filter_product_id')
   return url
 }
 

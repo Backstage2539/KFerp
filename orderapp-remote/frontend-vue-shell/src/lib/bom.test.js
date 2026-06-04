@@ -7,12 +7,9 @@ import {
   filterBomRowsByProductFocus,
   filterBomContextProducts,
   isBomProductCandidate,
-  isMissingProductionBomRow,
-  mergeProductionBomRows,
   productionBomDetailAsRecipeDetail,
   sortBomContextProducts,
   filterProductionBomCatalog,
-  defaultProductionBomNameForProduct,
 } from './bom.js'
 
 test('BOM context shows public and current-customer SKUs while hiding other customers and green beans', () => {
@@ -50,27 +47,6 @@ test('BOM rows can be focused to the SKU product from settings navigation', () =
 
   assert.deepEqual(filterBomRowsByProductFocus(rows, 10).map((row) => row.product_id), [10])
   assert.deepEqual(filterBomRowsByProductFocus(rows, 0).map((row) => row.product_id), [10, 11, 12])
-})
-
-test('BOM list merges unbound production BOM records as selectable catalog rows', () => {
-  const rows = [{
-    product_id: 10,
-    product: '已绑定商品',
-    production_bom_id: 5,
-    production_bom_code: 'BOM-000005',
-    production_bom_name: '已绑定 BOM',
-  }]
-  const productionBoms = [
-    { id: 5, code: 'BOM-000005', name: '已绑定 BOM', reference_product_count: 1 },
-    { id: 186, code: 'BOM-000186', name: 'Nenka嫩咖 生产 BOM', status: 'active', group_id: 0, reference_product_count: 0 },
-  ]
-
-  const merged = mergeProductionBomRows(rows, productionBoms)
-  assert.deepEqual(merged.map((row) => row.production_bom_id), [5, 186])
-  assert.equal(merged[1].product, '未绑定商品')
-  assert.equal(merged[1].is_unbound_production_bom, true)
-  assert.equal(productionBomLabel(merged[1]), 'BOM-000186 Nenka嫩咖 生产 BOM / 未绑定版本')
-  assert.deepEqual(filterBomRowsByProductFocus(merged, 10).map((row) => row.production_bom_id), [5])
 })
 
 test('unbound production BOM detail is projected as recipe detail with unbound product label', () => {
@@ -121,6 +97,12 @@ test('BOM customer selector ignores customers that only have green bean SKUs', (
 
 test('production BOM label shows BOM code name and bound version without source terminology', () => {
   assert.equal(productionBomLabel({
+    code: 'BOM-009',
+    name: '独立配方',
+    latest_version_no: 'V004',
+  }), 'BOM-009 独立配方 / V004')
+
+  assert.equal(productionBomLabel({
     production_bom_code: 'BOM-001',
     production_bom_name: '精品拼配',
     production_bom_version_no: 'V003',
@@ -137,20 +119,6 @@ test('production BOM label shows BOM code name and bound version without source 
     latest_bom_version_no: 'V003',
     is_latest_bom_version: true,
   }), '')
-})
-
-test('product rows without production BOM are actionable creation candidates', () => {
-  const missingRow = {
-    product_id: 88,
-    product: '云南美式均衡抗搓王-咖啡豆-200g',
-    production_bom_id: 0,
-    status: 'missing',
-  }
-
-  assert.equal(isMissingProductionBomRow(missingRow), true)
-  assert.equal(defaultProductionBomNameForProduct(missingRow), '云南美式均衡抗搓王-咖啡豆-200g 生产 BOM')
-  assert.equal(isMissingProductionBomRow({ product_id: 88, production_bom_id: 12 }), false)
-  assert.equal(isMissingProductionBomRow({ product_id: 0, production_bom_id: 0 }), false)
 })
 
 test('BOM view exposes grouped recipe library and no longer edits production config fields', async () => {
@@ -229,9 +197,8 @@ test('production BOM list supports status filters name search group tabs and ina
     'bom-list-toolbar',
     'bom-list-panel-scroll',
     'productionBomStatusFilter',
-    'bomFilterProductId',
     'productionBomSearchQuery',
-    '新建商品 BOM',
+    '新建生产 BOM',
     'openBomVersionDrawer',
     'BOM版本',
     'openBagSpecMappingDrawer',
@@ -244,12 +211,8 @@ test('production BOM list supports status filters name search group tabs and ina
     'isMovableBomRow',
     'copyProductionBomRecord',
     'deactivateProductionBomRecord',
-    'createProductionBomForProductRow',
-    'isMissingProductBomRow',
-    '/api/products/${productID}/production-bom-binding',
-    '创建BOM',
-    'mergeProductionBomRows',
-    'is_unbound_production_bom',
+    'referencedProductsLabel',
+    '引用商品',
     '/api/production-boms/${bomForm.id}',
     '/api/production-boms/${bomForm.source_id}/copy',
     '/api/production-boms?status=all',
@@ -257,13 +220,21 @@ test('production BOM list supports status filters name search group tabs and ina
     assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
   assert.match(listFilters, /状态/)
-  assert.match(listFilters, /商品过滤/)
   assert.match(listFilters, /搜索 BOM/)
   assert.match(listFilters, /批量失效/)
   assert.match(tabRow, /bom-list-tabs/)
-  assert.match(tabRow, /新建商品 BOM/)
+  assert.match(tabRow, /新建生产 BOM/)
   assert.match(toolbar, /移动到分组/)
   assert.match(toolbar, /增加分组/)
+  assert.doesNotMatch(source, /商品 BOM列表/)
+  assert.doesNotMatch(source, /商品过滤/)
+  assert.doesNotMatch(source, /createProductionBomForProductRow/)
+  assert.doesNotMatch(source, /isMissingProductBomRow/)
+  assert.doesNotMatch(source, /mergeProductionBomRows/)
+  assert.doesNotMatch(source, /v-for="row in bomContextRows"/)
+  assert.doesNotMatch(source, /<th>商品<\/th>/)
+  assert.doesNotMatch(source, /<td>\{\{ row\.product \}\}<\/td>/)
+  assert.doesNotMatch(source, /无生产 BOM/)
   assert.doesNotMatch(source, /class="bom-workspace-header"/)
   assert.doesNotMatch(source, /class="bom-workspace-actions"/)
   assert.doesNotMatch(source, /bom-batch-deactivate-card/)
@@ -276,7 +247,6 @@ test('production BOM list supports status filters name search group tabs and ina
   const listHead = source.slice(headStart, headEnd)
   assert.match(listHead, /productionBomStatusFilter/)
   assert.match(listHead, /productionBomSearchQuery/)
-  assert.match(listHead, /bomFilterProductId/)
   assert.match(listHead, /deactivateSelectedProductionBoms/)
   assert.match(source, /versionDrawerOpen/)
   assert.match(source, /bagSpecMappingDrawerOpen/)
