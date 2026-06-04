@@ -27,7 +27,8 @@
 
 ## 部署证据
 - Feature branch：`codex/materials-classification-industry-settings-20260604`
-- Feature/develop commit：`0649aa30507ae4fed33b56b282e116bb86b53c4f`
+- Feature commit：`0649aa30507ae4fed33b56b282e116bb86b53c4f`
+- Develop：feature commit and deployment-evidence commit have been pushed to `origin/develop`.
 - Deploy command：`./deploy_orderapp.sh development`
 - Backup：`root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604232739`
 - Deploy build：Docker build 内部 `go test ./...` 通过。

@@ -252,7 +252,7 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
-		{table: "req_product", code: "PR-414-MATERIALS-CLASSIFICATION-INDUSTRY-SETTINGS", title: "商品价格表不因旧豆单编号缺失隐藏商品；仓库设置普通仓库显示空状态；物料档案支持分类、CRUD、全局单位、单数量库存和行业字段模板", status: "review", assignee: "Codex", evidence: "origin/develop=0649aa30; MaterialsView.vue; CostingView.vue; WarehouseInventoryView.vue"},
+		{table: "req_product", code: "PR-414-MATERIALS-CLASSIFICATION-INDUSTRY-SETTINGS", title: "商品价格表不因旧豆单编号缺失隐藏商品；仓库设置普通仓库显示空状态；物料档案支持分类、CRUD、全局单位、单数量库存和行业字段模板", status: "review", assignee: "Codex", evidence: "development deploy smoke passed; MaterialsView.vue; CostingView.vue; WarehouseInventoryView.vue"},
 		{table: "req_dev", code: "DEV-414-PRICE-LIST-METADATA-CANDIDATES", title: "商品价格表候选、预览和 PDF 选择不再用旧 bean-list code 作为可见条件，无计价方式只显示 warning", status: "done", assignee: "Codex", evidence: "CostingView.vue; product-bean-list-split.test.js"},
 		{table: "req_dev", code: "DEV-414-WAREHOUSE-SETTINGS-EMPTY", title: "普通仓库可打开仓库设置抽屉，无客户绑定配置时展示空状态", status: "done", assignee: "Codex", evidence: "WarehouseInventoryView.vue; materials-ui.test.js"},
 		{table: "req_dev", code: "DEV-414-MATERIALS-CLASSIFICATION-CRUD", title: "物料分类大类/组内小类 schema/API/Vue 交互，物料支持新建、编辑和失效", status: "done", assignee: "Codex", evidence: "materials schema/repository/api; MaterialsView.vue"},
