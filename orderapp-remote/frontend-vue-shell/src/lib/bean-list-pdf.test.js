@@ -287,6 +287,31 @@ test('PDF drip bean-list helper expands live bag tiers to bag and box prices', (
   ])
 })
 
+test('PDF product price list treats drip-named products as normal commercial pricing', () => {
+  const groups = buildBeanListPdfGroups([{
+    product_id: 522,
+    name: '甜香茶韵挂耳',
+    product_kind: 'roasted',
+    commercial_bean_list: { code: '1.522', category: '咖啡挂耳', display_name: '甜香茶韵挂耳' },
+    drip_bean_list: { code: 'D.522', category: '旧挂耳快照', display_name: '甜香茶韵挂耳' },
+    commercial_wholesale_tiers: [
+      { label: '100盒-499盒', display_unit: '盒', price_per_unit: 11, template_id: 14, template_tier_id: 86 },
+      { label: '10-99盒', display_unit: '盒', price_per_unit: 12, template_id: 14, template_tier_id: 87 },
+    ],
+    drip_wholesale_tiers: [
+      { label: '100袋', packed_price_per_bag: 2 },
+      { label: '1000袋', packed_price_per_bag: 1 },
+    ],
+  }], 'commercial')
+
+  assert.deepEqual(groups[0].items[0].prices, [
+    { label: '100盒-499盒', price: 11, unit: '盒', red: false },
+    { label: '10-99盒', price: 12, unit: '盒', red: false },
+  ])
+  assert.equal(groups[0].items[0].price_unit_snapshot, '盒')
+  assert.deepEqual(groups[0].items[0].tiers_snapshot.map((tier) => tier.template_tier_id), [86, 87])
+})
+
 test('PDF drip bean-list helper preserves published box tier snapshots', () => {
   const groups = buildBeanListPdfGroups([{
     product_id: 51,

@@ -252,6 +252,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-415-PRODUCT-PRICE-LIST-NO-DRIP-TEMPLATE", title: "商品价格表下线挂耳专用模板和 drip 枚举推断；挂耳商品按普通商品配置模板计价", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; CostingView.vue; bean-list-pdf.js"},
+		{table: "req_dev", code: "DEV-415-COSTING-VIEW-NO-DRIP-INFERENCE", title: "商品价格表页面不再根据挂耳分类名或 product_kind=drip_bag 切换到专用 drip 类型，也不调用挂耳供应价模板接口", status: "doing", assignee: "Codex", evidence: "CostingView.vue; product-bean-list-split.test.js"},
+		{table: "req_dev", code: "DEV-415-LEGACY-DRIP-PDF-COMPAT", title: "保留旧 drip 发布快照/PDF 读取兼容，新生成商品价格表按 commercial 商品配置模板生成", status: "doing", assignee: "Codex", evidence: "bean-list-pdf.js; bean-list-pdf.test.js"},
+		{table: "req_unit", code: "UT-415-PRODUCT-PRICE-LIST-NO-DRIP-TEMPLATE", title: "前端单测覆盖挂耳商品不再生成专用 drip 价格表类型，PDF 商品价格表使用普通商品阶梯", status: "doing", assignee: "Codex", evidence: "node --test product-bean-list-split.test.js bean-list-pdf.test.js costing-bean-list-version-ui.test.js"},
+		{table: "req_api", code: "API-415-PRODUCT-PRICE-LIST-NO-DRIP-TEMPLATE", title: "Go/source 测试覆盖 CostingView 不再暴露挂耳专用模板接口，历史 PDF helper 保留 drip 快照兼容", status: "doing", assignee: "Codex", evidence: "go test ./internal/interfaces/http/costing ./internal/application/costing ./internal/infrastructure/postgres/costing -count=1"},
+		{table: "req_review", code: "REV-415-PRODUCT-PRICE-LIST-NO-DRIP-TEMPLATE", prCode: "PR-415-PRODUCT-PRICE-LIST-NO-DRIP-TEMPLATE", title: "验收：甜香茶韵挂耳、黑巧炸弹挂耳按商品配置模板展示阶梯价，不再显示旧挂耳专用袋数档位", status: "todo", assignee: "VA", evidence: "待部署 smoke"},
 		{table: "req_product", code: "PR-414-MATERIALS-CLASSIFICATION-INDUSTRY-SETTINGS", title: "商品价格表不因旧豆单编号缺失隐藏商品；仓库设置普通仓库显示空状态；物料档案支持分类、CRUD、全局单位、单数量库存和行业字段模板", status: "review", assignee: "Codex", evidence: "development deploy smoke passed; MaterialsView.vue; CostingView.vue; WarehouseInventoryView.vue"},
 		{table: "req_dev", code: "DEV-414-PRICE-LIST-METADATA-CANDIDATES", title: "商品价格表候选、预览和 PDF 选择不再用旧 bean-list code 作为可见条件，无计价方式只显示 warning", status: "done", assignee: "Codex", evidence: "CostingView.vue; product-bean-list-split.test.js"},
 		{table: "req_dev", code: "DEV-414-WAREHOUSE-SETTINGS-EMPTY", title: "普通仓库可打开仓库设置抽屉，无客户绑定配置时展示空状态", status: "done", assignee: "Codex", evidence: "WarehouseInventoryView.vue; materials-ui.test.js"},

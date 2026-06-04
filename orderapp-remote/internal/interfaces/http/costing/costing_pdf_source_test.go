@@ -177,7 +177,7 @@ func TestCostingViewSupportsConfigurableBeanListPublishingWorkflow(t *testing.T)
 	}
 }
 
-func TestCostingViewPDFSupportsDripBeanListPricing(t *testing.T) {
+func TestBeanListPDFKeepsLegacyDripSnapshotsButViewDoesNotInferDripType(t *testing.T) {
 	view, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "views", "CostingView.vue"))
 	if err != nil {
 		t.Fatal(err)
@@ -192,7 +192,6 @@ func TestCostingViewPDFSupportsDripBeanListPricing(t *testing.T) {
 		"drip_wholesale_tiers",
 		"productPriceListTypeOptions",
 		"priceListRenderTypeForItem",
-		"if (kind === 'drip_bag') return 'drip'",
 		"productPriceListPreviewSections",
 		"sales_unit",
 		"unit_bag_count",
@@ -204,6 +203,15 @@ func TestCostingViewPDFSupportsDripBeanListPricing(t *testing.T) {
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("PDF source must support drip bean-list pricing; missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"if (kind === 'drip_bag') return 'drip'",
+		"categoryHint.includes('挂耳')",
+		"section.listType === 'drip'",
+	} {
+		if strings.Contains(string(view), forbidden) {
+			t.Fatalf("CostingView.vue should not infer dedicated drip price-list type %q", forbidden)
 		}
 	}
 }

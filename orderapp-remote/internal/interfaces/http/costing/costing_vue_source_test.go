@@ -29,7 +29,7 @@ func TestCostingViewGroupsBeanListsByExcelCategoryAndShowsMetadata(t *testing.T)
 	}
 }
 
-func TestCostingViewSupportsDripBeanListSource(t *testing.T) {
+func TestCostingViewDoesNotExposeDedicatedDripTemplateSource(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "views", "CostingView.vue")
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -37,21 +37,28 @@ func TestCostingViewSupportsDripBeanListSource(t *testing.T) {
 	}
 	src := string(b)
 	for _, want := range []string{
-		"drip_bean_list",
-		"drip_wholesale_tiers",
 		"productPriceListPreviewSections",
 		"productPriceListTypeOptions",
 		"priceListRenderTypeForItem",
-		"if (kind === 'drip_bag') return 'drip'",
 		"商品价格表",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("CostingView.vue missing product price-list source %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"if (kind === 'drip_bag') return 'drip'",
+		"categoryHint.includes('挂耳')",
+		"categoryHint.includes('drip')",
+		"section.listType === 'drip'",
 		"/api/drip-price-templates",
 		"/api/costing/drip-price-explanation",
 		"openDripPriceExplanation",
 		"loadDripPriceExplanation",
 		"dripDisplayTiers",
 	} {
-		if !strings.Contains(src, want) {
-			t.Fatalf("CostingView.vue missing drip bean-list support %q", want)
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("CostingView.vue should not expose dedicated drip template source %q", forbidden)
 		}
 	}
 }

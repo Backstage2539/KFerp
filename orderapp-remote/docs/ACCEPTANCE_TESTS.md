@@ -837,6 +837,12 @@
 - [ ] 物料单位来自全局单位字典；物料库存补录和库存调整只输入一个目标数量并提交 `target_qty/unit_code`，后端保留旧 `target_g/target_units` 兼容。
 - [ ] 行业字段模板入口位于 `设置 → 行业设置`，不在商品与配方；物料档案使用行业字段模板替代硬编码咖啡生豆属性，旧 `material_bean_profiles` 可非破坏回填为行业字段值。
 
+### K27. 商品价格表下线挂耳专用模板（PR-415-PRODUCT-PRICE-LIST-NO-DRIP-TEMPLATE）
+- [ ] 商品价格表不再因为分类模板名、分类项名包含“挂耳/drip”或 `product_kind=drip_bag` 生成专用 `drip` 价格表类型。
+- [ ] 甜香茶韵挂耳、黑巧炸弹挂耳这类挂耳商品按商品配置模板里的计价方式展示阶梯，不再显示旧 `100袋/1000袋/5000袋/10000袋` 挂耳专用档位。
+- [ ] 商品价格表页面不调用 `/api/drip-price-templates` 或 `/api/costing/drip-price-explanation`；价格来源抽屉统一调用通用价格来源接口。
+- [ ] 旧 `drip` 已发布价格表、旧订单和旧 PDF 快照仍可作为历史兼容读取，不回改历史内容。
+
 ### K19. 产品价格表显式阶梯价模板（PR-400-PRICE-LIST-EXPLICIT-GRADIENT-TIERS）
 - [ ] `初晓2.5kg装` 这类没有任何明确阶梯价模板的商品在产品价格表预览和发布内容中不出现默认商业阶梯价。
 - [ ] 成本试算仍保留内部 kg/lb 基础价格数组，但 `commercial_wholesale_tiers` 为空时不会在发布保存时补写默认 `2包-13包` 到 `48包+` 档位。

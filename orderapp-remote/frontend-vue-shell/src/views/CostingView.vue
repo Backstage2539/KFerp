@@ -170,16 +170,7 @@
               </div>
               <div v-if="beanFlavor(item, section.metaKey)" class="bean-note">{{ beanFlavor(item, section.metaKey) }}</div>
               <div v-if="beanDescription(item, section.metaKey)" class="bean-desc">{{ beanDescription(item, section.metaKey) }}</div>
-              <template v-if="section.listType === 'drip'">
-                <div class="bean-row" v-for="tier in dripDisplayTiers(item)" :key="`drip-tier-${tier.label}-${tier.sales_unit}`">
-                  <span>{{ tier.label }} / {{ dripTierUnit(tier) }}</span>
-                  <strong>
-                    {{ price(tier.price_per_unit) }}
-                    <button v-if="item.drip_price_template" class="source-button" type="button" @click="openDripPriceExplanation(item, tier)">来源</button>
-                  </strong>
-                </div>
-              </template>
-              <template v-else-if="section.listType === 'retail'">
+              <template v-if="section.listType === 'retail'">
                 <div class="bean-row" v-for="tier in item.retail_bean_tiers || []" :key="`retail-tier-${tier.label}`">
                   <span>{{ tier.label }}</span><strong>{{ price(tier.price_per_unit) }}</strong>
                 </div>
@@ -238,24 +229,16 @@
             <span>模板</span>
             <strong>{{ priceExplanation.template_name || '-' }}</strong>
           </div>
-          <div v-if="isDripExplanation">
-            <span>袋价</span>
-            <strong v-if="isDripExplanation">{{ price(priceExplanation.packed_price_per_bag) }}/袋</strong>
-          </div>
-          <div v-if="isDripExplanation">
-            <span>盒价</span>
-            <strong>{{ price(priceExplanation.packed_price_per_box) }}/盒</strong>
-          </div>
-          <div v-if="!isDripExplanation">
+          <div>
             <span>当前试算</span>
             <strong>{{ price(priceExplanation.saved_final_price) }}/{{ gradientDisplayUnitLabel(priceExplanation.display_unit).replace('元/', '') }}</strong>
           </div>
-          <div v-if="!isDripExplanation">
+          <div>
             <span>临时试算</span>
             <strong>{{ price(priceExplanation.preview_final_price) }}/{{ gradientDisplayUnitLabel(priceExplanation.display_unit).replace('元/', '') }}</strong>
           </div>
         </div>
-        <div v-if="priceExplanation && !isDripExplanation" class="explanation-form">
+        <div v-if="priceExplanation" class="explanation-form">
           <label>
             <span>临时生豆成本 元/kg</span>
             <input v-model="explanationOverrides.green_bean_cost_per_kg" type="number" step="0.01" placeholder="不填则沿用当前" />
@@ -277,7 +260,7 @@
             <small>{{ step.source }}</small>
           </div>
         </div>
-        <p class="muted">{{ isDripExplanation ? '挂耳价格来源只展示当前公式步骤；交易价格仍需发布价格表后生效。' : '这里的参数只做临时试算；保存请回到快速成本参数或梯度模板，交易价格仍需发布后生效。' }}</p>
+        <p class="muted">这里的参数只做临时试算；保存请回到快速成本参数或梯度模板，交易价格仍需发布后生效。</p>
       </aside>
     </div>
 
@@ -734,7 +717,6 @@ const items = ref([])
 const priceExplanation = ref(null)
 const explanationItem = ref(null)
 const explanationTier = ref(null)
-const explanationMode = ref('commercial')
 const explanationOverrides = ref({
   green_bean_cost_per_kg: '',
   yield_rate: '',
@@ -884,7 +866,6 @@ const publicBeanListURL = computed(() => {
   return `${window.location.origin}/public/bean-list/${pdfTheme.value.listType}${query ? `?${query}` : ''}`
 })
 const inactiveBomWarningCount = computed(() => visibleCostingItems.value.filter((item) => itemWarnings(item).length).length)
-const isDripExplanation = computed(() => explanationMode.value === 'drip')
 const pdfPageStyle = computed(() => {
   const bg = pdfTheme.value.backgroundImage
   return {
@@ -1004,49 +985,6 @@ function tierUnit(tier) {
   return '包'
 }
 
-function firstFiniteNumber(...values) {
-  for (const value of values) {
-    const n = Number(value)
-    if (Number.isFinite(n)) return n
-  }
-  return 0
-}
-
-function dripDisplayTiers(item) {
-  const tiers = Array.isArray(item?.drip_wholesale_tiers) ? item.drip_wholesale_tiers : []
-  return tiers.flatMap((tier) => {
-    if (tier?.sales_unit === 'box') {
-      return [{
-        ...tier,
-        price_per_unit: firstFiniteNumber(tier.price_per_unit, tier.packed_price_per_box, 0),
-        unit_bag_count: Number(tier.unit_bag_count || tier.box_bag_count || item?.drip_box_bag_count || 10),
-      }]
-    }
-    const boxBagCount = Number(tier?.unit_bag_count || tier?.box_bag_count || item?.drip_box_bag_count || 10) || 10
-    const bagPrice = firstFiniteNumber(tier?.price_per_unit, tier?.packed_price_per_bag, tier?.price_per_lb, 0)
-    const rows = [{
-      ...tier,
-      sales_unit: 'bag',
-      unit_bag_count: 1,
-      price_per_unit: bagPrice,
-    }]
-    if (boxBagCount > 1) {
-      rows.push({
-        ...tier,
-        sales_unit: 'box',
-        unit_bag_count: boxBagCount,
-        price_per_unit: firstFiniteNumber(tier?.packed_price_per_box, bagPrice * boxBagCount),
-      })
-    }
-    return rows
-  })
-}
-
-function dripTierUnit(tier) {
-  if (tier?.sales_unit === 'box') return `盒(${Number(tier.unit_bag_count || 10)}袋)`
-  return '袋'
-}
-
 function beanListGroupItemCount(groups) {
   return (Array.isArray(groups) ? groups : []).reduce((sum, group) => sum + (Array.isArray(group.items) ? group.items.length : 0), 0)
 }
@@ -1131,12 +1069,10 @@ function priceListRenderTypeForItem(item) {
   // 按分类项/旧产品类型名称推断价格表渲染模式
   const categoryHint = (subtypeName + typeName).toLowerCase()
   if (categoryHint.includes('生豆') || categoryHint.includes('green')) return 'green'
-  if (categoryHint.includes('挂耳') || categoryHint.includes('drip')) return 'drip'
   if (categoryHint.includes('零售') || categoryHint.includes('retail')) return 'retail'
 
   // fallback to product_kind for backward compatibility
   if (kind === 'green_bean') return 'green'
-  if (kind === 'drip_bag') return 'drip'
   return 'commercial'
 }
 
@@ -2011,22 +1947,6 @@ async function handleSettingSaved() {
 }
 
 async function openPriceExplanation(item, tier) {
-  explanationMode.value = 'commercial'
-  explanationItem.value = item
-  explanationTier.value = tier
-  explanationOverrides.value = {
-    green_bean_cost_per_kg: '',
-    yield_rate: '',
-    margin_rate: '',
-  }
-  priceExplanation.value = null
-  priceExplanationError.value = ''
-  priceExplanationOpen.value = true
-  await loadPriceExplanation()
-}
-
-async function openDripPriceExplanation(item, tier) {
-  explanationMode.value = 'drip'
   explanationItem.value = item
   explanationTier.value = tier
   explanationOverrides.value = {
@@ -2055,33 +1975,18 @@ async function loadPriceExplanation() {
   priceExplanationLoading.value = true
   priceExplanationError.value = ''
   try {
-    if (explanationMode.value === 'drip') {
-      priceExplanation.value = await loadDripPriceExplanation({
-        product: explanationItem.value,
-        tier_label: explanationTier.value?.label || '',
-      })
-    } else {
-      const payload = buildPriceExplanationRequest(
-        explanationItem.value,
-        explanationTier.value,
-        cleanExplanationOverrides(),
-      )
-      priceExplanation.value = await apiSend('/api/costing/price-explanation', { body: payload })
-    }
+    const payload = buildPriceExplanationRequest(
+      explanationItem.value,
+      explanationTier.value,
+      cleanExplanationOverrides(),
+    )
+    priceExplanation.value = await apiSend('/api/costing/price-explanation', { body: payload })
   } catch (err) {
     priceExplanation.value = null
     priceExplanationError.value = err.message || '加载价格来源失败'
   } finally {
     priceExplanationLoading.value = false
   }
-}
-
-async function loadDripPriceTemplates() {
-  return apiGet('/api/drip-price-templates')
-}
-
-async function loadDripPriceExplanation(payload) {
-  return apiSend('/api/costing/drip-price-explanation', { body: payload })
 }
 
 function handlePdfBackgroundUpload(event) {

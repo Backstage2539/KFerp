@@ -189,7 +189,7 @@ test('product bean-list drawer derives publication owner from current page scope
   assert.doesNotMatch(viewSource, /<SearchableSelect[\s\S]*selectedBeanListCustomerID/)
 })
 
-test('product bean-list view maps every bean-list type to its own metadata and tier fields', () => {
+test('product bean-list view maps green and commercial fields without dedicated drip inference', () => {
   for (const expected of [
     "if (listType === 'green') return 'green_bean_list'",
     "if (listType === 'green') return 'green_bean_sale_tiers'",
@@ -198,9 +198,16 @@ test('product bean-list view maps every bean-list type to its own metadata and t
     'product_type_category_id',
     'product_type_name',
     'selectedProductIDsByType.value = {}',
-    "if (kind === 'drip_bag') return 'drip'",
   ]) {
     assert.ok(viewSource.includes(expected), `missing bean-list type mapping: ${expected}`)
+  }
+  for (const forbidden of [
+    "if (kind === 'drip_bag') return 'drip'",
+    "categoryHint.includes('挂耳')",
+    "section.listType === 'drip'",
+    "openDripPriceExplanation",
+  ]) {
+    assert.doesNotMatch(viewSource, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
 })
 

@@ -197,6 +197,23 @@ test('product bean-list warnings render as icon tooltips instead of inline long 
   assert.doesNotMatch(warningBlock, /warning-chip/)
 })
 
+test('product price list no longer treats drip names or drip product kind as a dedicated template type', () => {
+  const helperStart = costingSource.indexOf('function priceListRenderTypeForItem')
+  const helperEnd = costingSource.indexOf('function fallbackProductTypeID', helperStart)
+  assert.notEqual(helperStart, -1)
+  assert.notEqual(helperEnd, -1)
+  const helperSource = costingSource.slice(helperStart, helperEnd)
+
+  assert.doesNotMatch(helperSource, /categoryHint\.includes\('挂耳'\)/)
+  assert.doesNotMatch(helperSource, /categoryHint\.includes\('drip'\)/)
+  assert.doesNotMatch(helperSource, /kind === 'drip_bag'/)
+  assert.doesNotMatch(helperSource, /return 'drip'/)
+  assert.doesNotMatch(costingSource, /section\.listType === 'drip'/)
+  assert.doesNotMatch(costingSource, /openDripPriceExplanation/)
+  assert.doesNotMatch(costingSource, /loadDripPriceExplanation/)
+  assert.doesNotMatch(costingSource, /\/api\/drip-price-templates/)
+})
+
 test('product bean-list publication payload freezes customer alias and product snapshots', () => {
   const source = `${costingSource}\n${beanListPdfSource}`
   for (const expected of [
