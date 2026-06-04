@@ -875,10 +875,6 @@
               <input v-model.number="customerProductAliasForm.sort_order" type="number" min="0" step="1" />
             </label>
             <label class="checkbox-row">
-              <input v-model="customerProductAliasForm.include_in_price_list" type="checkbox" />
-              <span>进入价格表</span>
-            </label>
-            <label class="checkbox-row">
               <input v-model="customerProductAliasForm.active" type="checkbox" />
               <span>启用</span>
             </label>
@@ -893,16 +889,14 @@
           <div v-else class="customer-alias-batch-mode">
             <div class="alias-batch-filters">
               <label>
-                <span>搜索</span>
-                <input v-model.trim="aliasBatchFilters.query" placeholder="商品名称/编号" />
-              </label>
-              <label>
                 <span>品牌名</span>
                 <input v-model.trim="aliasBatchForm.brand_name" placeholder="默认留空" />
               </label>
-              <label class="checkbox-row">
-                <input v-model="aliasBatchForm.include_in_price_list" type="checkbox" />
-                <span>默认进入价格表</span>
+            </div>
+            <div class="alias-batch-list-filters">
+              <label>
+                <span>搜索</span>
+                <input v-model.trim="aliasBatchFilters.query" placeholder="商品名称/编号" />
               </label>
             </div>
             <div class="alias-batch-toolbar">
@@ -1283,6 +1277,7 @@ const props = defineProps({
   customerContextLabel: { type: String, default: '' },
 })
 const SKU_SETTINGS_FORM_DRAFT_SCOPE = FORM_DRAFT_SCOPES.skuSettings
+const UNCLASSIFIED_CATEGORY_MOVE_ID = -999999
 let restoringProductSettingsDraft = false
 
 const categories = ref([])
@@ -1713,11 +1708,11 @@ const aliasAddClassificationOptions = computed(() => {
 })
 const productMoveClassificationOptions = computed(() => {
   if (isProductAllOrUnclassifiedTab.value) return productMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
-  return [{ id: 0, name: '未分类', move_type: 'category' }, ...productClassificationCategories.value.map((category) => ({ ...category, move_type: 'category' }))]
+  return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...productClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
 })
 const aliasMoveClassificationOptions = computed(() => {
   if (isAliasAllOrUnclassifiedTab.value) return aliasMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
-  return [{ id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, move_type: 'category' }))]
+  return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
 })
 const classificationTemplateEditorTemplate = computed(() => productClassificationTemplates.value.find((template) => Number(template.id || 0) === Number(classificationTemplateForm.value.id || 0)) || null)
 const classificationTemplateEditorCategories = computed(() => (classificationTemplateEditorTemplate.value?.categories || [])
@@ -3198,6 +3193,12 @@ function classificationMoveOptionMeta(option) {
   return ''
 }
 
+function classificationMoveCategoryID(option) {
+  if (!option || option.move_type === 'template') return 0
+  if (Object.prototype.hasOwnProperty.call(option, 'category_id')) return Number(option.category_id || 0)
+  return Number(option.id || 0)
+}
+
 function baseProductOptionLabel(product) {
   return product?.name || ''
 }
@@ -3847,7 +3848,7 @@ async function confirmSelectedProductClassificationMove(option) {
   if (isProductAllOrUnclassifiedTab.value) {
     selectedProductClassificationMoveID.value = Number(option?.id || 0)
   } else {
-    selectedProductClassificationCategoryID.value = Number(option?.id || 0)
+    selectedProductClassificationCategoryID.value = classificationMoveCategoryID(option)
   }
   if (selectedProductRowsAlreadyInCurrentCategory.value) {
     selectedProductClassificationMoveID.value = 0
@@ -3895,7 +3896,7 @@ async function confirmSelectedAliasClassificationMove(option) {
   if (isAliasAllOrUnclassifiedTab.value) {
     selectedAliasClassificationMoveID.value = Number(option?.id || 0)
   } else {
-    selectedAliasClassificationCategoryID.value = Number(option?.id || 0)
+    selectedAliasClassificationCategoryID.value = classificationMoveCategoryID(option)
   }
   if (selectedAliasRowsAlreadyInCurrentCategory.value) {
     selectedAliasClassificationMoveID.value = 0

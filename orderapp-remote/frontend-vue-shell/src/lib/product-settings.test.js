@@ -1669,6 +1669,8 @@ test('product management exposes customer product names without direct BOM editi
   const inlineAliasArea = template.match(/<section class="panel customer-alias-panel"[\s\S]*?<div class="table-wrap">/)?.[0] || ''
   const aliasFilters = template.match(/<div class="alias-filters alias-filter-row"[\s\S]*?<div class="classification-view-toolbar alias-classification-tabs"/)?.[0] || ''
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.customer_item_code/)
+  assert.doesNotMatch(aliasForm, /customerProductAliasForm\.include_in_price_list/)
+  assert.doesNotMatch(aliasForm, />进入价格表</)
   assert.doesNotMatch(inlineAliasArea, /<form class="customer-alias-form"/)
   assert.match(aliasFilters, /新建客户商品/)
   assert.match(aliasFilters, /批量失效/)
@@ -1806,6 +1808,8 @@ test('product and customer alias lists move selected rows within the active clas
     'currentAliasClassificationTemplate',
     'selectedProductClassificationCategoryID',
     'selectedAliasClassificationCategoryID',
+    'UNCLASSIFIED_CATEGORY_MOVE_ID',
+    'classificationMoveCategoryID',
   ]) {
     assert.ok(source.includes(expected), `missing classification assignment marker: ${expected}`)
   }
@@ -2203,10 +2207,14 @@ test('customer product aliases use page-level classification templates, not sing
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const aliasDrawer = source.match(/<aside class="settings-drawer customer-alias-create-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
   const aliasForm = aliasDrawer.match(/<form class="customer-alias-form"[\s\S]*?<\/form>/)?.[0] || ''
+  const aliasBatchMode = aliasDrawer.match(/<div v-else class="customer-alias-batch-mode"[\s\S]*?<\/div>\s*<\/div>\s*<div v-if="customerAliasCreateMode === 'batch'"/)?.[0] || ''
   const aliasTable = source.match(/<table class="customer-alias-table"[\s\S]*?<\/table>/)?.[0] || ''
 
   assert.doesNotMatch(aliasForm, /classification_template_id/)
+  assert.doesNotMatch(aliasForm, /include_in_price_list/)
   assert.doesNotMatch(aliasDrawer, /aliasBatchForm\.classification_template_id/)
+  assert.doesNotMatch(aliasDrawer, />默认进入价格表</)
+  assert.match(aliasBatchMode, /alias-batch-list-filters[\s\S]*aliasBatchFilters\.query[\s\S]*alias-batch-table/)
   assert.doesNotMatch(aliasDrawer, /默认复制\/复用商品档案分类模板/)
   assert.match(aliasDrawer, /批量添加商品档案/)
   assert.doesNotMatch(source, /customer-alias-batch-drawer/)

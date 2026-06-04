@@ -122,7 +122,7 @@
                 </td>
                 <td>{{ row.product }}</td>
                 <td>
-                  <button v-if="Number(row.production_bom_id || 0)" class="text-button bom-name-button" type="button" @click.stop="openEditProductionBomRecord(bomRecordFromRow(row))">
+                  <button v-if="Number(row.production_bom_id || 0)" class="text-button bom-name-button" type="button" @click.stop="openBomRowPrimary(row)">
                     {{ productionBomLabel(row) }}
                   </button>
                   <div v-else>{{ productionBomLabel(row) }}</div>
@@ -1138,6 +1138,15 @@ async function selectBomRow(row) {
     return
   }
   await selectProduct(row.product_id)
+}
+
+async function openBomRowPrimary(row) {
+  if (Number(row?.product_id || 0)) {
+    await selectBomRow(row)
+    return
+  }
+  openEditProductionBomRecord(bomRecordFromRow(row))
+  await selectUnboundProductionBom(row)
 }
 
 function clearBomProductFilter() {

@@ -127,6 +127,8 @@ test('BOM view exposes grouped recipe library and no longer edits production con
   assert.match(source, /selectedActiveBomRecordsForDeactivate/)
   assert.match(source, /isMovableBomRow/)
   assert.match(source, /配方明细/)
+  assert.match(source, /openBomRowPrimary/)
+  assert.match(source, /@click\.stop="openBomRowPrimary\(row\)"/)
   assert.match(source, /当前引用/)
   assert.match(source, /DELETE/)
   assert.doesNotMatch(source, /失效当前 BOM/)
