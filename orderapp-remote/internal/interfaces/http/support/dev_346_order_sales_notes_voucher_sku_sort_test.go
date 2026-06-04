@@ -121,7 +121,7 @@ func TestDev346OrderSalesNotesVoucherSkuSortDocs(t *testing.T) {
 			markers: []string{
 				"商品名称不再在列表单元格内直接编辑",
 				"搜索可匹配商品名称",
-				"生产 BOM 配方库",
+				"生产 BOM 制造主档",
 			},
 		},
 		{

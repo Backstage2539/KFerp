@@ -1610,7 +1610,15 @@ func (r Repository) GetProductionBomDetail(ctx context.Context, id int64, versio
 	if err != nil {
 		return bomapp.ProductionBomDetail{}, err
 	}
-	return bomapp.ProductionBomDetail{ProductionBomSummary: summary, Versions: versions, Items: items, ReferencedProducts: referencedProducts}, nil
+	usedByBoms, err := r.listProductionBomUsedByBoms(ctx, summary.OutputProductID)
+	if err != nil {
+		return bomapp.ProductionBomDetail{}, err
+	}
+	return bomapp.ProductionBomDetail{ProductionBomSummary: summary, Versions: versions, Items: items, ReferencedProducts: referencedProducts, UsedByBoms: usedByBoms}, nil
+}
+
+func (r Repository) ListProductionBomUsageByProduct(ctx context.Context, productID int64) ([]bomapp.ProductionBomUsedByBom, error) {
+	return r.listProductionBomUsedByBoms(ctx, productID)
 }
 
 func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreateProductionBomCommand) (bomapp.ProductionBomSummary, error) {
@@ -1630,10 +1638,10 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 	tempCode := fmt.Sprintf("PENDING-%d", time.Now().UnixNano())
 	var bomID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_boms(code, name, group_id, group_category_id, status, created_by, updated_by)
-		VALUES($1,$2,$3,$4,'active',$5,$5)
+		INSERT INTO %s.production_boms(code, name, output_product_id, group_id, group_category_id, status, created_by, updated_by)
+		VALUES($1,$2,$3,$4,$5,'active',$6,$6)
 		RETURNING id
-	`, r.schema), tempCode, strings.TrimSpace(cmd.Name), groupID, groupCategoryID, strings.TrimSpace(cmd.Actor)).Scan(&bomID); err != nil {
+	`, r.schema), tempCode, strings.TrimSpace(cmd.Name), cmd.OutputProductID, groupID, groupCategoryID, strings.TrimSpace(cmd.Actor)).Scan(&bomID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	code := fmt.Sprintf("BOM-%06d", bomID)
@@ -1646,13 +1654,13 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 	}
 	var versionID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, note, created_at, created_by)
-		VALUES($1,'V001','draft',$2,'初始版本',now(),$3)
+		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, note, created_at, created_by)
+		VALUES($1,'V001','draft',$2,$3,$4,'初始版本',now(),$5)
 		RETURNING id
-	`, r.schema), bomID, yieldRate, strings.TrimSpace(cmd.Actor)).Scan(&versionID); err != nil {
+	`, r.schema), bomID, yieldRate, cmd.OutputQty, strings.TrimSpace(cmd.OutputUnit), strings.TrimSpace(cmd.Actor)).Scan(&versionID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &bomID, "create", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(code), postgresinfra.AuditMeta{"bom_id": bomID, "bom_version_id": versionID, "name": strings.TrimSpace(cmd.Name), "group_id": groupID, "group_category_id": groupCategoryID}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &bomID, "create", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(code), postgresinfra.AuditMeta{"bom_id": bomID, "bom_version_id": versionID, "name": strings.TrimSpace(cmd.Name), "output_product_id": cmd.OutputProductID, "output_qty": cmd.OutputQty, "output_unit": strings.TrimSpace(cmd.OutputUnit), "group_id": groupID, "group_category_id": groupCategoryID}); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1681,9 +1689,11 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.production_boms
-		SET name=COALESCE(NULLIF($2,''), name), group_id=$3, group_category_id=$4, status=$5, updated_at=now(), updated_by=$6
+		SET name=COALESCE(NULLIF($2,''), name),
+		    output_product_id=COALESCE(NULLIF($3,0), output_product_id),
+		    group_id=$4, group_category_id=$5, status=$6, updated_at=now(), updated_by=$7
 		WHERE id=$1
-	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Name), groupID, groupCategoryID, status, strings.TrimSpace(cmd.Actor)); err != nil {
+	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Name), cmd.OutputProductID, groupID, groupCategoryID, status, strings.TrimSpace(cmd.Actor)); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &cmd.ID, "update", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr(status), postgresinfra.AuditMeta{"bom_id": cmd.ID, "name": strings.TrimSpace(cmd.Name), "group_id": groupID, "group_category_id": groupCategoryID, "status": status}); err != nil {
@@ -1710,22 +1720,25 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 		return bomapp.ProductionBomSummary{}, err
 	}
 	var sourceName string
+	var sourceOutputProductID int64
 	var sourceVersionID int64
 	var sourceYield float64
+	var sourceOutputQty float64
+	var sourceOutputUnit string
 	var sourceSpecialAttrsSchemaJSON string
 	var sourceSpecialAttrsJSON string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT pb.name, v.id, COALESCE(v.yield_rate,0.8)::float8, COALESCE(v.special_attrs_schema_json::text,'[]'), COALESCE(v.special_attrs_json::text,'{}')
+		SELECT pb.name, COALESCE(pb.output_product_id,0), v.id, COALESCE(v.yield_rate,0.8)::float8, COALESCE(v.output_qty,1)::float8, COALESCE(NULLIF(v.output_unit,''),'unit'), COALESCE(v.special_attrs_schema_json::text,'[]'), COALESCE(v.special_attrs_json::text,'{}')
 		FROM %s.production_boms pb
 		JOIN LATERAL (
-			SELECT id, yield_rate, special_attrs_schema_json, special_attrs_json
+			SELECT id, yield_rate, output_qty, output_unit, special_attrs_schema_json, special_attrs_json
 			FROM %s.production_bom_versions
 			WHERE bom_id=pb.id AND status IN ('draft','published')
 			ORDER BY CASE WHEN status='draft' THEN 0 ELSE 1 END, published_at DESC NULLS LAST, created_at DESC, id DESC
 			LIMIT 1
 		) v ON true
 		WHERE pb.id=$1
-	`, r.schema, r.schema), cmd.ID).Scan(&sourceName, &sourceVersionID, &sourceYield, &sourceSpecialAttrsSchemaJSON, &sourceSpecialAttrsJSON); err != nil {
+	`, r.schema, r.schema), cmd.ID).Scan(&sourceName, &sourceOutputProductID, &sourceVersionID, &sourceYield, &sourceOutputQty, &sourceOutputUnit, &sourceSpecialAttrsSchemaJSON, &sourceSpecialAttrsJSON); err != nil {
 		return bomapp.ProductionBomSummary{}, fmt.Errorf("source production BOM not found")
 	}
 	name := strings.TrimSpace(cmd.Name)
@@ -1734,11 +1747,15 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	}
 	tempCode := fmt.Sprintf("PENDING-%d", time.Now().UnixNano())
 	var newBomID int64
+	outputProductID := sourceOutputProductID
+	if cmd.OutputProductID > 0 {
+		outputProductID = cmd.OutputProductID
+	}
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_boms(code, name, group_id, group_category_id, status, source_bom_id, source_bom_version_id, created_by, updated_by)
-		VALUES($1,$2,$3,$4,'active',$5,$6,$7,$7)
+		INSERT INTO %s.production_boms(code, name, output_product_id, group_id, group_category_id, status, source_bom_id, source_bom_version_id, created_by, updated_by)
+		VALUES($1,$2,$3,$4,$5,'active',$6,$7,$8,$8)
 		RETURNING id
-	`, r.schema), tempCode, name, groupID, groupCategoryID, cmd.ID, sourceVersionID, strings.TrimSpace(cmd.Actor)).Scan(&newBomID); err != nil {
+	`, r.schema), tempCode, name, outputProductID, groupID, groupCategoryID, cmd.ID, sourceVersionID, strings.TrimSpace(cmd.Actor)).Scan(&newBomID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	code := fmt.Sprintf("BOM-%06d", newBomID)
@@ -1747,10 +1764,10 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	}
 	var newVersionID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, note, special_attrs_schema_json, special_attrs_json, created_at, created_by)
-		VALUES($1,'V001','draft',$2,'复制来源 BOM',$3::jsonb,$4::jsonb,now(),$5)
+		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, note, special_attrs_schema_json, special_attrs_json, created_at, created_by)
+		VALUES($1,'V001','draft',$2,$3,$4,'复制来源 BOM',$5::jsonb,$6::jsonb,now(),$7)
 		RETURNING id
-	`, r.schema), newBomID, sourceYield, sourceSpecialAttrsSchemaJSON, sourceSpecialAttrsJSON, strings.TrimSpace(cmd.Actor)).Scan(&newVersionID); err != nil {
+	`, r.schema), newBomID, sourceYield, sourceOutputQty, sourceOutputUnit, sourceSpecialAttrsSchemaJSON, sourceSpecialAttrsJSON, strings.TrimSpace(cmd.Actor)).Scan(&newVersionID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -1779,23 +1796,25 @@ func (r Repository) CreateProductionBomVersion(ctx context.Context, cmd bomapp.C
 	defer func() { _ = tx.Rollback(ctx) }()
 	var sourceVersionID int64
 	var yieldRate float64
+	var outputQty float64
+	var outputUnit string
 	var specialAttrsSchemaJSON string
 	var specialAttrsJSON string
 	if cmd.SourceVersionID > 0 {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT id, COALESCE(yield_rate,0.8)::float8, COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}')
+			SELECT id, COALESCE(yield_rate,0.8)::float8, COALESCE(output_qty,1)::float8, COALESCE(NULLIF(output_unit,''),'unit'), COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}')
 			FROM %s.production_bom_versions
 			WHERE bom_id=$1 AND id=$2 AND status IN ('published','draft')
-		`, r.schema), cmd.BomID, cmd.SourceVersionID).Scan(&sourceVersionID, &yieldRate, &specialAttrsSchemaJSON, &specialAttrsJSON); err != nil {
+		`, r.schema), cmd.BomID, cmd.SourceVersionID).Scan(&sourceVersionID, &yieldRate, &outputQty, &outputUnit, &specialAttrsSchemaJSON, &specialAttrsJSON); err != nil {
 			return bomapp.ProductionBomVersion{}, fmt.Errorf("source production BOM version not found")
 		}
 	} else if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			SELECT id, COALESCE(yield_rate,0.8)::float8, COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}')
+			SELECT id, COALESCE(yield_rate,0.8)::float8, COALESCE(output_qty,1)::float8, COALESCE(NULLIF(output_unit,''),'unit'), COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}')
 			FROM %s.production_bom_versions
 			WHERE bom_id=$1 AND status='published'
 			ORDER BY published_at DESC NULLS LAST, id DESC
 			LIMIT 1
-		`, r.schema), cmd.BomID).Scan(&sourceVersionID, &yieldRate, &specialAttrsSchemaJSON, &specialAttrsJSON); err != nil {
+		`, r.schema), cmd.BomID).Scan(&sourceVersionID, &yieldRate, &outputQty, &outputUnit, &specialAttrsSchemaJSON, &specialAttrsJSON); err != nil {
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("published production BOM version not found")
 	}
 	var next int64
@@ -1805,10 +1824,10 @@ func (r Repository) CreateProductionBomVersion(ctx context.Context, cmd bomapp.C
 	versionNo := fmt.Sprintf("V%03d", next)
 	var versionID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, note, special_attrs_schema_json, special_attrs_json, created_at, created_by)
-		VALUES($1,$2,'draft',$3,$4,$5::jsonb,$6::jsonb,now(),$7)
+		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, note, special_attrs_schema_json, special_attrs_json, created_at, created_by)
+		VALUES($1,$2,'draft',$3,$4,$5,$6,$7::jsonb,$8::jsonb,now(),$9)
 		RETURNING id
-	`, r.schema), cmd.BomID, versionNo, yieldRate, strings.TrimSpace(cmd.Note), specialAttrsSchemaJSON, specialAttrsJSON, strings.TrimSpace(cmd.Actor)).Scan(&versionID); err != nil {
+	`, r.schema), cmd.BomID, versionNo, yieldRate, outputQty, outputUnit, strings.TrimSpace(cmd.Note), specialAttrsSchemaJSON, specialAttrsJSON, strings.TrimSpace(cmd.Actor)).Scan(&versionID); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -1837,7 +1856,9 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 	defer func() { _ = tx.Rollback(ctx) }()
 	var status string
 	var yieldRate float64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status, COALESCE(yield_rate,0.8)::float8 FROM %s.production_bom_versions WHERE id=$1 FOR UPDATE`, r.schema), cmd.VersionID).Scan(&status, &yieldRate); err != nil {
+	var outputQty float64
+	var outputUnit string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status, COALESCE(yield_rate,0.8)::float8, COALESCE(output_qty,1)::float8, COALESCE(NULLIF(output_unit,''),'unit') FROM %s.production_bom_versions WHERE id=$1 FOR UPDATE`, r.schema), cmd.VersionID).Scan(&status, &yieldRate, &outputQty, &outputUnit); err != nil {
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("production BOM version not found")
 	}
 	if status != "draft" {
@@ -1846,13 +1867,21 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 	if cmd.ExpectedLossRate != nil {
 		yieldRate = productiondomain.NormalizeYieldRate(1 - *cmd.ExpectedLossRate)
 	}
+	if cmd.OutputQty > 0 {
+		outputQty = cmd.OutputQty
+	}
+	if strings.TrimSpace(cmd.OutputUnit) != "" {
+		outputUnit = strings.TrimSpace(cmd.OutputUnit)
+	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.production_bom_versions
 		SET yield_rate=$2,
-		    special_attrs_schema_json=CASE WHEN $3<>'' THEN $3::jsonb ELSE special_attrs_schema_json END,
-		    special_attrs_json=CASE WHEN $4<>'' THEN $4::jsonb ELSE special_attrs_json END
+		    output_qty=$3,
+		    output_unit=$4,
+		    special_attrs_schema_json=CASE WHEN $5<>'' THEN $5::jsonb ELSE special_attrs_schema_json END,
+		    special_attrs_json=CASE WHEN $6<>'' THEN $6::jsonb ELSE special_attrs_json END
 		WHERE id=$1
-	`, r.schema), cmd.VersionID, yieldRate, cmd.SpecialAttrsSchemaJSON, cmd.SpecialAttrsJSON); err != nil {
+	`, r.schema), cmd.VersionID, yieldRate, outputQty, outputUnit, cmd.SpecialAttrsSchemaJSON, cmd.SpecialAttrsJSON); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
 	if cmd.Items != nil {
@@ -1884,6 +1913,81 @@ func (r Repository) UpdateProductionBomVersionDraft(ctx context.Context, cmd bom
 		return bomapp.ProductionBomVersion{}, err
 	}
 	return r.productionBomVersionByID(ctx, cmd.VersionID)
+}
+
+func (r Repository) ValidateProductionBomVersionForPublish(ctx context.Context, cmd bomapp.PublishProductionBomVersionCommand) error {
+	var bomID int64
+	var outputProductID int64
+	var itemCount int64
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT v.bom_id,
+		       COALESCE(pb.output_product_id,0),
+		       COALESCE((SELECT COUNT(*) FROM %s.production_bom_version_items i WHERE i.version_id=v.id),0)
+		FROM %s.production_bom_versions v
+		JOIN %s.production_boms pb ON pb.id=v.bom_id
+		WHERE v.id=$1 AND v.status='draft'
+	`, r.schema, r.schema, r.schema), cmd.VersionID).Scan(&bomID, &outputProductID, &itemCount); err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("production BOM version not found")
+		}
+		return err
+	}
+	if outputProductID <= 0 {
+		return fmt.Errorf("output_product_id required")
+	}
+	if itemCount <= 0 {
+		return fmt.Errorf("components required")
+	}
+	var hasCycle bool
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		WITH RECURSIVE selected_versions AS (
+			SELECT pb.id AS bom_id,
+			       pb.output_product_id,
+			       v.id AS version_id
+			FROM %[1]s.production_boms pb
+			JOIN LATERAL (
+				SELECT id, status, published_at, created_at
+				FROM %[1]s.production_bom_versions pv
+				WHERE pv.bom_id=pb.id
+				  AND pv.status IN ('draft','published')
+				ORDER BY CASE WHEN pv.id=$1 THEN 0 WHEN pv.status='published' THEN 1 ELSE 2 END,
+				         pv.published_at DESC NULLS LAST,
+				         pv.created_at DESC,
+				         pv.id DESC
+				LIMIT 1
+			) v ON true
+			WHERE pb.output_product_id > 0
+		),
+		edges AS (
+			SELECT sv.output_product_id AS parent_product_id,
+			       i.component_product_id AS component_product_id
+			FROM selected_versions sv
+			JOIN %[1]s.production_bom_version_items i ON i.version_id=sv.version_id
+			WHERE i.component_type IN ('product','finished_product')
+			  AND i.component_product_id > 0
+		),
+		walk(product_id, path) AS (
+			SELECT $2::bigint, ARRAY[$2::bigint]
+			UNION ALL
+			SELECT e.component_product_id, walk.path || e.component_product_id
+			FROM walk
+			JOIN edges e ON e.parent_product_id=walk.product_id
+			WHERE NOT e.component_product_id = ANY(walk.path)
+		)
+		SELECT EXISTS(
+			SELECT 1
+			FROM walk
+			JOIN edges e ON e.parent_product_id=walk.product_id
+			WHERE e.component_product_id=$2
+		)
+	`, r.schema), cmd.VersionID, outputProductID).Scan(&hasCycle); err != nil {
+		return err
+	}
+	if hasCycle {
+		return fmt.Errorf("cycle detected")
+	}
+	_ = bomID
+	return nil
 }
 
 func (r Repository) PublishProductionBomVersion(ctx context.Context, cmd bomapp.PublishProductionBomVersionCommand) error {
@@ -1947,6 +2051,9 @@ func productionBomSummarySQL(schema, where string) string {
 		SELECT pb.id,
 		       COALESCE(pb.code,''),
 		       COALESCE(pb.name,''),
+		       COALESCE(pb.output_product_id,0),
+		       COALESCE(op.name,''),
+		       CASE WHEN COALESCE(pb.output_product_id,0)>0 THEN 'SKU-' || lpad(pb.output_product_id::text,6,'0') ELSE '' END,
 		       COALESCE(g.id,0),
 		       COALESCE(g.name,''),
 		       COALESCE(c.id,0),
@@ -1963,6 +2070,7 @@ func productionBomSummarySQL(schema, where string) string {
 		       ),0),
 		       COALESCE(to_char(pb.updated_at,'YYYY-MM-DD HH24:MI'),'-')
 		FROM %[1]s.production_boms pb
+		LEFT JOIN %[1]s.products op ON op.id=pb.output_product_id
 		LEFT JOIN %[1]s.production_bom_groups g ON g.id=pb.group_id
 		LEFT JOIN %[1]s.production_bom_group_categories c ON c.id=pb.group_category_id AND c.group_id=pb.group_id
 		LEFT JOIN LATERAL (
@@ -1986,6 +2094,9 @@ func scanProductionBomSummaries(rows pgx.Rows) ([]bomapp.ProductionBomSummary, e
 			&row.ID,
 			&row.Code,
 			&row.Name,
+			&row.OutputProductID,
+			&row.OutputProductName,
+			&row.OutputProductCode,
 			&row.GroupID,
 			&row.GroupName,
 			&row.GroupCategoryID,
@@ -2030,6 +2141,8 @@ func (r Repository) listProductionBomVersions(ctx context.Context, bomID int64) 
 			LIMIT 1
 		)
 		SELECT v.id, v.bom_id, COALESCE(v.version_no,''), COALESCE(v.status,'draft'), COALESCE(v.yield_rate,0.8)::float8,
+		       COALESCE(v.output_qty,1)::float8,
+		       COALESCE(NULLIF(v.output_unit,''),'unit'),
 		       COALESCE((SELECT COUNT(*) FROM %s.production_bom_version_items i WHERE i.version_id=v.id),0),
 		       COALESCE(v.note,''),
 		       COALESCE(v.special_attrs_schema_json::text,'[]'),
@@ -2048,7 +2161,7 @@ func (r Repository) listProductionBomVersions(ctx context.Context, bomID int64) 
 	out := make([]bomapp.ProductionBomVersion, 0)
 	for rows.Next() {
 		var row bomapp.ProductionBomVersion
-		if err := rows.Scan(&row.ID, &row.BomID, &row.VersionNo, &row.Status, &row.YieldRate, &row.ItemCount, &row.Note, &row.SpecialAttrsSchemaJSON, &row.SpecialAttrsJSON, &row.CreatedAt, &row.PublishedAt, &row.IsLatest); err != nil {
+		if err := rows.Scan(&row.ID, &row.BomID, &row.VersionNo, &row.Status, &row.YieldRate, &row.OutputQty, &row.OutputUnit, &row.ItemCount, &row.Note, &row.SpecialAttrsSchemaJSON, &row.SpecialAttrsJSON, &row.CreatedAt, &row.PublishedAt, &row.IsLatest); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -2085,9 +2198,48 @@ func (r Repository) listProductionBomReferencedProducts(ctx context.Context, bom
 	return out, rows.Err()
 }
 
+func (r Repository) listProductionBomUsedByBoms(ctx context.Context, outputProductID int64) ([]bomapp.ProductionBomUsedByBom, error) {
+	if outputProductID <= 0 {
+		return []bomapp.ProductionBomUsedByBom{}, nil
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT pb.id,
+		       COALESCE(pb.code,''),
+		       COALESCE(pb.name,''),
+		       v.id,
+		       COALESCE(v.version_no,''),
+		       COALESCE(pb.output_product_id,0),
+		       COALESCE(op.name,''),
+		       COALESCE(i.consume_unit,''),
+		       COALESCE(i.qty_per_unit,0)::float8
+		FROM %[1]s.production_bom_version_items i
+		JOIN %[1]s.production_bom_versions v ON v.id=i.version_id AND v.status IN ('draft','published')
+		JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
+		LEFT JOIN %[1]s.products op ON op.id=pb.output_product_id
+		WHERE i.component_type IN ('product','finished_product')
+		  AND i.component_product_id=$1
+		ORDER BY pb.name, v.version_no, i.id
+	`, r.schema), outputProductID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]bomapp.ProductionBomUsedByBom, 0)
+	for rows.Next() {
+		var row bomapp.ProductionBomUsedByBom
+		if err := rows.Scan(&row.BomID, &row.BomCode, &row.BomName, &row.BomVersionID, &row.BomVersionNo, &row.OutputProductID, &row.OutputProductName, &row.ConsumeUnit, &row.QtyPerUnit); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 func (r Repository) productionBomVersionByID(ctx context.Context, id int64) (bomapp.ProductionBomVersion, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT v.id, v.bom_id, COALESCE(v.version_no,''), COALESCE(v.status,'draft'), COALESCE(v.yield_rate,0.8)::float8,
+		       COALESCE(v.output_qty,1)::float8,
+		       COALESCE(NULLIF(v.output_unit,''),'unit'),
 		       COALESCE((SELECT COUNT(*) FROM %s.production_bom_version_items i WHERE i.version_id=v.id),0),
 		       COALESCE(v.note,''),
 		       COALESCE(v.special_attrs_schema_json::text,'[]'),
@@ -2112,7 +2264,7 @@ func (r Repository) productionBomVersionByID(ctx context.Context, id int64) (bom
 		return bomapp.ProductionBomVersion{}, pgx.ErrNoRows
 	}
 	var row bomapp.ProductionBomVersion
-	if err := rows.Scan(&row.ID, &row.BomID, &row.VersionNo, &row.Status, &row.YieldRate, &row.ItemCount, &row.Note, &row.SpecialAttrsSchemaJSON, &row.SpecialAttrsJSON, &row.CreatedAt, &row.PublishedAt, &row.IsLatest); err != nil {
+	if err := rows.Scan(&row.ID, &row.BomID, &row.VersionNo, &row.Status, &row.YieldRate, &row.OutputQty, &row.OutputUnit, &row.ItemCount, &row.Note, &row.SpecialAttrsSchemaJSON, &row.SpecialAttrsJSON, &row.CreatedAt, &row.PublishedAt, &row.IsLatest); err != nil {
 		return bomapp.ProductionBomVersion{}, err
 	}
 	return row, rows.Err()
@@ -2165,9 +2317,10 @@ WITH missing_legacy_bindings AS (
 	  )
 ),
 inserted_boms AS (
-	INSERT INTO %[1]s.production_boms(code, name, group_id, status, legacy_product_id, created_by, updated_by)
+	INSERT INTO %[1]s.production_boms(code, name, output_product_id, group_id, status, legacy_product_id, created_by, updated_by)
 	SELECT 'BOM-' || LPAD(product_id::text, 6, '0'),
 	       product_name || ' 生产 BOM',
+	       product_id,
 	       0,
 	       CASE WHEN status='inactive' THEN 'inactive' ELSE 'active' END,
 	       product_id,
@@ -2189,8 +2342,8 @@ version_source AS (
 	)
 ),
 inserted_versions AS (
-	INSERT INTO %[1]s.production_bom_versions(bom_id, version_no, status, yield_rate, note, legacy_product_id, legacy_bom_version_id, created_at, published_at, created_by, published_by)
-	SELECT bom_id, 'V001', 'published', yield_rate, '旧 BOM 绑定修复', product_id, 0, updated_at, updated_at, 'system-pr403-legacy-binding-repair', 'system-pr403-legacy-binding-repair'
+	INSERT INTO %[1]s.production_bom_versions(bom_id, version_no, status, yield_rate, output_qty, output_unit, note, legacy_product_id, legacy_bom_version_id, created_at, published_at, created_by, published_by)
+	SELECT bom_id, 'V001', 'published', yield_rate, 1, 'kg', '旧 BOM 绑定修复', product_id, 0, updated_at, updated_at, 'system-pr403-legacy-binding-repair', 'system-pr403-legacy-binding-repair'
 	FROM version_source
 	ON CONFLICT DO NOTHING
 	RETURNING id

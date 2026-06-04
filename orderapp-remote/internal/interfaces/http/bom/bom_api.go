@@ -73,6 +73,9 @@ type moveProductionBomGroupRequest struct {
 
 type createProductionBomRequest struct {
 	Name             string   `json:"name"`
+	OutputProductID  int64    `json:"output_product_id"`
+	OutputQty        float64  `json:"output_qty"`
+	OutputUnit       string   `json:"output_unit"`
 	GroupID          int64    `json:"group_id"`
 	GroupCategoryID  int64    `json:"group_category_id"`
 	ExpectedLossRate *float64 `json:"expected_loss_rate"`
@@ -80,6 +83,7 @@ type createProductionBomRequest struct {
 
 type updateProductionBomRequest struct {
 	Name            string `json:"name"`
+	OutputProductID int64  `json:"output_product_id"`
 	GroupID         int64  `json:"group_id"`
 	GroupCategoryID int64  `json:"group_category_id"`
 	Status          string `json:"status"`
@@ -87,6 +91,7 @@ type updateProductionBomRequest struct {
 
 type copyProductionBomRequest struct {
 	Name            string `json:"name"`
+	OutputProductID int64  `json:"output_product_id"`
 	GroupID         int64  `json:"group_id"`
 	GroupCategoryID int64  `json:"group_category_id"`
 }
@@ -98,6 +103,8 @@ type createProductionBomVersionRequest struct {
 
 type updateProductionBomVersionDraftRequest struct {
 	ExpectedLossRate       *float64                        `json:"expected_loss_rate"`
+	OutputQty              float64                         `json:"output_qty"`
+	OutputUnit             string                          `json:"output_unit"`
 	Items                  []bomapp.ProductionBomDraftItem `json:"items"`
 	SpecialAttrsSchemaJSON string                          `json:"special_attrs_schema_json"`
 	SpecialAttrsJSON       string                          `json:"special_attrs_json"`
@@ -226,12 +233,24 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		return c.JSON(http.StatusOK, rows)
 	})
 
+	e.GET("/api/production-bom-product-usage/:product_id", func(c echo.Context) error {
+		productID, err := strconv.ParseInt(c.Param("product_id"), 10, 64)
+		if err != nil || productID <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid product_id"})
+		}
+		rows, err := bomSvc.ListProductionBomUsageByProduct(c.Request().Context(), productID)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, rows)
+	})
+
 	e.POST("/api/production-boms", func(c echo.Context) error {
 		var req createProductionBomRequest
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.CreateProductionBom(c.Request().Context(), bomapp.CreateProductionBomCommand{Name: req.Name, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, ExpectedLossRate: req.ExpectedLossRate, Actor: support.ActorOf(c)})
+		row, err := bomSvc.CreateProductionBom(c.Request().Context(), bomapp.CreateProductionBomCommand{Name: req.Name, OutputProductID: req.OutputProductID, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, ExpectedLossRate: req.ExpectedLossRate, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -263,7 +282,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.UpdateProductionBom(c.Request().Context(), bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, Status: req.Status, Actor: support.ActorOf(c)})
+		row, err := bomSvc.UpdateProductionBom(c.Request().Context(), bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, OutputProductID: req.OutputProductID, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, Status: req.Status, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -279,7 +298,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.CopyProductionBom(c.Request().Context(), bomapp.CopyProductionBomCommand{ID: id, Name: req.Name, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, Actor: support.ActorOf(c)})
+		row, err := bomSvc.CopyProductionBom(c.Request().Context(), bomapp.CopyProductionBomCommand{ID: id, Name: req.Name, OutputProductID: req.OutputProductID, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -311,7 +330,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.UpdateProductionBomVersionDraft(c.Request().Context(), bomapp.UpdateProductionBomVersionDraftCommand{VersionID: id, ExpectedLossRate: req.ExpectedLossRate, Items: req.Items, SpecialAttrsSchemaJSON: req.SpecialAttrsSchemaJSON, SpecialAttrsJSON: req.SpecialAttrsJSON, Actor: support.ActorOf(c)})
+		row, err := bomSvc.UpdateProductionBomVersionDraft(c.Request().Context(), bomapp.UpdateProductionBomVersionDraftCommand{VersionID: id, ExpectedLossRate: req.ExpectedLossRate, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, Items: req.Items, SpecialAttrsSchemaJSON: req.SpecialAttrsSchemaJSON, SpecialAttrsJSON: req.SpecialAttrsJSON, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}

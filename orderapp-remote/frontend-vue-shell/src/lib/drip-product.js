@@ -20,6 +20,7 @@ export function validateDripProduct(product) {
 }
 
 export function componentTypeLabel(type) {
+  if (type === 'product') return '商品组件'
   if (type === 'finished_product') return '成品'
   return '物料'
 }

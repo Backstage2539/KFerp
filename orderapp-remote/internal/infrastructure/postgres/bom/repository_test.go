@@ -100,6 +100,10 @@ func TestProductionBomLibrarySchemaBackfillAndBindingMarkers(t *testing.T) {
 		"CREATE TABLE IF NOT EXISTS %[1]s.production_bom_versions",
 		"CREATE TABLE IF NOT EXISTS %[1]s.production_bom_version_items",
 		"CREATE TABLE IF NOT EXISTS %[1]s.product_production_bom_bindings",
+		"output_product_id BIGINT NOT NULL DEFAULT 0",
+		"output_qty NUMERIC(14,6) NOT NULL DEFAULT 1",
+		"output_unit TEXT NOT NULL DEFAULT 'unit'",
+		"UPDATE %[1]s.production_boms SET output_product_id=legacy_product_id",
 		"backfillProductionBomLibrary",
 		"inherit_current",
 		"inherit_version",
@@ -111,6 +115,33 @@ func TestProductionBomLibrarySchemaBackfillAndBindingMarkers(t *testing.T) {
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("production BOM library implementation missing marker %q", want)
+		}
+	}
+}
+
+func TestProductionBomOutputProductAndMultiLevelPublishValidationMarkers(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := readRepositorySource(t)
+	combined := string(schema) + "\n" + repository
+	for _, want := range []string{
+		"OutputProductID",
+		"OutputProductName",
+		"OutputQty",
+		"OutputUnit",
+		"ValidateProductionBomVersionForPublish",
+		"output_product_id required",
+		"components required",
+		"cycle detected",
+		"component_type IN ('product','finished_product')",
+		"ListProductionBomUsageByProduct",
+		"listProductionBomUsedByBoms",
+		"UsedByBoms: usedByBoms",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("production BOM output/multi-level implementation missing marker %q", want)
 		}
 	}
 }
@@ -130,8 +161,8 @@ func TestProductionBomVersionSpecialAttrsSchemaBackfillAndAuditMarkers(t *testin
 		"source_bom_version_id",
 		"special_attrs_schema_json",
 		"special_attrs_json",
-		"CASE WHEN $3<>'' THEN $3::jsonb ELSE special_attrs_schema_json END",
-		"CASE WHEN $4<>'' THEN $4::jsonb ELSE special_attrs_json END",
+		"CASE WHEN $5<>'' THEN $5::jsonb ELSE special_attrs_schema_json END",
+		"CASE WHEN $6<>'' THEN $6::jsonb ELSE special_attrs_json END",
 		`"update_special_attrs"`,
 	} {
 		if !strings.Contains(combined, want) {

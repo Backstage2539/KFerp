@@ -8,13 +8,18 @@ import (
 )
 
 type fakeRepo struct {
-	savedItem     SaveItemCommand
-	deletedID     int64
-	deactivatedID int64
-	activated     int64
-	versionFor    int64
-	listRows      []ListItem
-	productRows   []Option
+	savedItem                     SaveItemCommand
+	deletedID                     int64
+	deactivatedID                 int64
+	activated                     int64
+	versionFor                    int64
+	listRows                      []ListItem
+	productRows                   []Option
+	createdProductionBomCommand   CreateProductionBomCommand
+	updatedProductionDraftCommand UpdateProductionBomVersionDraftCommand
+	publishValidationErr          error
+	usageProductID                int64
+	usageRows                     []ProductionBomUsedByBom
 }
 
 func (r *fakeRepo) List(ctx context.Context) ([]ListItem, error) { return r.listRows, nil }
@@ -94,8 +99,13 @@ func (r *fakeRepo) ListProductionBoms(context.Context) ([]ProductionBomSummary, 
 func (r *fakeRepo) GetProductionBomDetail(context.Context, int64, int64) (ProductionBomDetail, error) {
 	return ProductionBomDetail{}, nil
 }
-func (r *fakeRepo) CreateProductionBom(context.Context, CreateProductionBomCommand) (ProductionBomSummary, error) {
-	return ProductionBomSummary{}, nil
+func (r *fakeRepo) ListProductionBomUsageByProduct(_ context.Context, productID int64) ([]ProductionBomUsedByBom, error) {
+	r.usageProductID = productID
+	return r.usageRows, nil
+}
+func (r *fakeRepo) CreateProductionBom(_ context.Context, cmd CreateProductionBomCommand) (ProductionBomSummary, error) {
+	r.createdProductionBomCommand = cmd
+	return ProductionBomSummary{ID: 11, Name: cmd.Name, OutputProductID: cmd.OutputProductID}, nil
 }
 func (r *fakeRepo) UpdateProductionBom(context.Context, UpdateProductionBomCommand) (ProductionBomSummary, error) {
 	return ProductionBomSummary{}, nil
@@ -106,8 +116,12 @@ func (r *fakeRepo) CopyProductionBom(context.Context, CopyProductionBomCommand) 
 func (r *fakeRepo) CreateProductionBomVersion(context.Context, CreateProductionBomVersionCommand) (ProductionBomVersion, error) {
 	return ProductionBomVersion{}, nil
 }
-func (r *fakeRepo) UpdateProductionBomVersionDraft(context.Context, UpdateProductionBomVersionDraftCommand) (ProductionBomVersion, error) {
-	return ProductionBomVersion{}, nil
+func (r *fakeRepo) UpdateProductionBomVersionDraft(_ context.Context, cmd UpdateProductionBomVersionDraftCommand) (ProductionBomVersion, error) {
+	r.updatedProductionDraftCommand = cmd
+	return ProductionBomVersion{ID: cmd.VersionID, Status: "draft", OutputQty: cmd.OutputQty, OutputUnit: cmd.OutputUnit}, nil
+}
+func (r *fakeRepo) ValidateProductionBomVersionForPublish(context.Context, PublishProductionBomVersionCommand) error {
+	return r.publishValidationErr
 }
 func (r *fakeRepo) PublishProductionBomVersion(context.Context, PublishProductionBomVersionCommand) error {
 	return nil
@@ -268,6 +282,88 @@ func TestServiceValidatesDeactivateBom(t *testing.T) {
 	}
 }
 
+func TestCreateProductionBomRequiresOutputProduct(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	if _, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "10条速溶盒装"}); err == nil || !strings.Contains(err.Error(), "output_product_id required") {
+		t.Fatalf("expected output_product_id validation error, got %v", err)
+	}
+	row, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "10条速溶盒装", OutputProductID: 88, OutputQty: 1, OutputUnit: "盒"})
+	if err != nil {
+		t.Fatalf("CreateProductionBom valid command: %v", err)
+	}
+	if row.OutputProductID != 88 || repo.createdProductionBomCommand.OutputProductID != 88 {
+		t.Fatalf("output product not propagated, row=%+v cmd=%+v", row, repo.createdProductionBomCommand)
+	}
+	if repo.createdProductionBomCommand.OutputQty != 1 || repo.createdProductionBomCommand.OutputUnit != "盒" {
+		t.Fatalf("output basis not propagated: %+v", repo.createdProductionBomCommand)
+	}
+}
+
+func TestUpdateProductionBomDraftAcceptsProductComponentsAndOutputBasis(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	version, err := svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
+		VersionID:  103,
+		OutputQty:  1,
+		OutputUnit: "盒",
+		Items: []ProductionBomDraftItem{{
+			ComponentType:      "product",
+			ComponentProductID: 77,
+			ConsumeUnit:        "unit_per_box",
+			QtyPerUnit:         10,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateProductionBomVersionDraft: %v", err)
+	}
+	if version.OutputQty != 1 || version.OutputUnit != "盒" {
+		t.Fatalf("version output basis = %+v, want 1 盒", version)
+	}
+	item := repo.updatedProductionDraftCommand.Items[0]
+	if item.ComponentType != "product" || item.ComponentProductID != 77 || item.QtyPerUnit != 10 {
+		t.Fatalf("product component not normalized/preserved: %+v", item)
+	}
+
+	_, err = svc.UpdateProductionBomVersionDraft(ctx, UpdateProductionBomVersionDraftCommand{
+		VersionID:  103,
+		OutputQty:  1,
+		OutputUnit: "盒",
+		Items:      []ProductionBomDraftItem{{ComponentType: "product", ComponentProductID: 77, ConsumeUnit: "ratio_pct", RatioPct: 10}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "product consume_unit must not be ratio_pct") {
+		t.Fatalf("expected product ratio validation error, got %v", err)
+	}
+}
+
+func TestPublishProductionBomVersionRunsOutputComponentAndCycleValidation(t *testing.T) {
+	repo := &fakeRepo{publishValidationErr: errors.New("cycle detected")}
+	svc := NewService(repo)
+	err := svc.PublishProductionBomVersion(context.Background(), PublishProductionBomVersionCommand{VersionID: 103})
+	if err == nil || !strings.Contains(err.Error(), "cycle detected") {
+		t.Fatalf("expected publish validation error, got %v", err)
+	}
+}
+
+func TestListProductionBomUsageByProductRequiresProductAndDelegates(t *testing.T) {
+	repo := &fakeRepo{usageRows: []ProductionBomUsedByBom{{BomID: 8, BomName: "10条盒装速溶"}}}
+	svc := NewService(repo)
+	if _, err := svc.ListProductionBomUsageByProduct(context.Background(), 0); err == nil || !strings.Contains(err.Error(), "product_id required") {
+		t.Fatalf("expected product_id validation error, got %v", err)
+	}
+	rows, err := svc.ListProductionBomUsageByProduct(context.Background(), 77)
+	if err != nil {
+		t.Fatalf("ListProductionBomUsageByProduct: %v", err)
+	}
+	if repo.usageProductID != 77 || len(rows) != 1 || rows[0].BomID != 8 {
+		t.Fatalf("usage lookup = product %d rows %+v", repo.usageProductID, rows)
+	}
+}
+
 type errorRepo struct {
 	err error
 }
@@ -344,6 +440,9 @@ func (r errorRepo) ListProductionBoms(context.Context) ([]ProductionBomSummary, 
 func (r errorRepo) GetProductionBomDetail(context.Context, int64, int64) (ProductionBomDetail, error) {
 	return ProductionBomDetail{}, r.err
 }
+func (r errorRepo) ListProductionBomUsageByProduct(context.Context, int64) ([]ProductionBomUsedByBom, error) {
+	return nil, r.err
+}
 func (r errorRepo) CreateProductionBom(context.Context, CreateProductionBomCommand) (ProductionBomSummary, error) {
 	return ProductionBomSummary{}, r.err
 }
@@ -358,6 +457,9 @@ func (r errorRepo) CreateProductionBomVersion(context.Context, CreateProductionB
 }
 func (r errorRepo) UpdateProductionBomVersionDraft(context.Context, UpdateProductionBomVersionDraftCommand) (ProductionBomVersion, error) {
 	return ProductionBomVersion{}, r.err
+}
+func (r errorRepo) ValidateProductionBomVersionForPublish(context.Context, PublishProductionBomVersionCommand) error {
+	return r.err
 }
 func (r errorRepo) PublishProductionBomVersion(context.Context, PublishProductionBomVersionCommand) error {
 	return r.err

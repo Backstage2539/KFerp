@@ -75,7 +75,7 @@ func TestDev347SkuBomJumpFocusFilterDocs(t *testing.T) {
 	}{
 		{rel: filepath.Join("docs", "REQUIREMENTS.md"), markers: []string{"PR-347-SKU-BOM-JUMP-FOCUS-FILTER", "维护 BOM", "显示全部 BOM"}},
 		{rel: filepath.Join("docs", "ACCEPTANCE_TESTS.md"), markers: []string{"PR-347-SKU-BOM-JUMP-FOCUS-FILTER", "维护 BOM", "显示全部 BOM"}},
-		{rel: filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"), markers: []string{"PR-392", "维护当前 BOM 明细", "production_bom_id"}},
+		{rel: filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"), markers: []string{"PR-417", "生产反查", "产出商品"}},
 		{rel: filepath.Join("docs", "acceptance", "2026-05-23-sku-bom-jump-focus-filter.md"), markers: []string{"PR-347-SKU-BOM-JUMP-FOCUS-FILTER", "维护 BOM", "显示全部 BOM"}},
 	} {
 		src := string(readOrderAppFileForTest(t, check.rel))

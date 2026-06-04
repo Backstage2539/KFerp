@@ -42,6 +42,8 @@ type apiFakeRepo struct {
 	createdProductionVersion                 bomapp.ProductionBomVersion
 	updatedProductionDraft                   bomapp.ProductionBomVersion
 	updatedProductionDraftCommand            bomapp.UpdateProductionBomVersionDraftCommand
+	productionBomUsageProductID              int64
+	productionBomUsageRows                   []bomapp.ProductionBomUsedByBom
 	productBomBinding                        bomapp.ProductProductionBomBinding
 	boundProductBom                          bomapp.BindProductProductionBomCommand
 	publishedProductionVersionID             int64
@@ -158,12 +160,17 @@ func (r *apiFakeRepo) GetProductionBomDetail(context.Context, int64, int64) (bom
 	return r.productionBomDetail, nil
 }
 
+func (r *apiFakeRepo) ListProductionBomUsageByProduct(_ context.Context, productID int64) ([]bomapp.ProductionBomUsedByBom, error) {
+	r.productionBomUsageProductID = productID
+	return r.productionBomUsageRows, nil
+}
+
 func (r *apiFakeRepo) CreateProductionBom(_ context.Context, cmd bomapp.CreateProductionBomCommand) (bomapp.ProductionBomSummary, error) {
 	r.createdProductionBomCommand = cmd
 	if r.createdProductionBom.ID > 0 {
 		return r.createdProductionBom, nil
 	}
-	return bomapp.ProductionBomSummary{ID: 98, Code: "BOM-098", Name: cmd.Name, GroupID: cmd.GroupID, Status: "active", LatestVersionNo: "V001"}, nil
+	return bomapp.ProductionBomSummary{ID: 98, Code: "BOM-098", Name: cmd.Name, GroupID: cmd.GroupID, OutputProductID: cmd.OutputProductID, Status: "active", LatestVersionNo: "V001"}, nil
 }
 
 func (r *apiFakeRepo) UpdateProductionBom(_ context.Context, cmd bomapp.UpdateProductionBomCommand) (bomapp.ProductionBomSummary, error) {
@@ -188,7 +195,11 @@ func (r *apiFakeRepo) UpdateProductionBomVersionDraft(_ context.Context, cmd bom
 	if r.updatedProductionDraft.ID > 0 {
 		return r.updatedProductionDraft, nil
 	}
-	return bomapp.ProductionBomVersion{ID: cmd.VersionID, Status: "draft", SpecialAttrsSchemaJSON: cmd.SpecialAttrsSchemaJSON, SpecialAttrsJSON: cmd.SpecialAttrsJSON}, nil
+	return bomapp.ProductionBomVersion{ID: cmd.VersionID, Status: "draft", OutputQty: cmd.OutputQty, OutputUnit: cmd.OutputUnit, SpecialAttrsSchemaJSON: cmd.SpecialAttrsSchemaJSON, SpecialAttrsJSON: cmd.SpecialAttrsJSON}, nil
+}
+
+func (r *apiFakeRepo) ValidateProductionBomVersionForPublish(context.Context, bomapp.PublishProductionBomVersionCommand) error {
+	return nil
 }
 
 func (r *apiFakeRepo) PublishProductionBomVersion(_ context.Context, cmd bomapp.PublishProductionBomVersionCommand) error {
@@ -249,5 +260,35 @@ func TestBomDeleteItemAPIRequiresProductID(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "product_id required") {
 		t.Fatalf("body missing product_id error: %s", rec.Body.String())
+	}
+}
+
+func TestProductionBomProductUsageAPIReturnsUpperBomsForProductComponent(t *testing.T) {
+	repo := &apiFakeRepo{productionBomUsageRows: []bomapp.ProductionBomUsedByBom{{
+		BomID:             8,
+		BomCode:           "BOM-000008",
+		BomName:           "10条盒装速溶",
+		BomVersionID:      81,
+		BomVersionNo:      "V001",
+		OutputProductID:   88,
+		OutputProductName: "10条盒装速溶咖啡",
+		ConsumeUnit:       "unit",
+		QtyPerUnit:        10,
+	}}}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/production-bom-product-usage/77", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if repo.productionBomUsageProductID != 77 {
+		t.Fatalf("usage product id = %d, want 77", repo.productionBomUsageProductID)
+	}
+	if !strings.Contains(rec.Body.String(), `"bom_name":"10条盒装速溶"`) || !strings.Contains(rec.Body.String(), `"qty_per_unit":10`) {
+		t.Fatalf("body missing usage row: %s", rec.Body.String())
 	}
 }

@@ -87,12 +87,22 @@ func defaultOperationTemplateSteps() []operationTemplateStepRow {
 func loadBoundBomVersionIDForProductTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) (int64, error) {
 	var versionID int64
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)
+		SELECT COALESCE(output_bv.id, NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)
 		FROM %s.products p
 		LEFT JOIN %s.product_production_configs ppc ON ppc.product_id=p.id
 		LEFT JOIN %s.product_production_bom_bindings pbb ON pbb.product_id=p.id
+		LEFT JOIN LATERAL (
+			SELECT v.id
+			FROM %s.production_boms pb
+			JOIN %s.production_bom_versions v ON v.bom_id=pb.id
+			WHERE pb.output_product_id=p.id
+			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+			  AND v.status='published'
+			ORDER BY v.published_at DESC NULLS LAST, v.id DESC
+			LIMIT 1
+		) output_bv ON true
 		WHERE p.id=$1
-	`, schema, schema, schema), productID).Scan(&versionID)
+	`, schema, schema, schema, schema, schema), productID).Scan(&versionID)
 	if err == pgx.ErrNoRows {
 		return 0, nil
 	}
@@ -621,12 +631,12 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		           FROM (
 		               SELECT pbi.id,pbi.material_id,pbi.ratio_pct
 		               FROM %s.production_bom_version_items pbi
-		               WHERE COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id,0) > 0
-		                 AND pbi.version_id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id)
+		               WHERE COALESCE(NULLIF(wo.bom_version_id,0), NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id,0) > 0
+		                 AND pbi.version_id=COALESCE(NULLIF(wo.bom_version_id,0), NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id)
 		               UNION ALL
 		               SELECT lbi.id,lbi.material_id,lbi.ratio_pct
 		               FROM %s.product_bom_items lbi
-		               WHERE COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id,0)=0 AND lbi.product_id=wo.product_id
+		               WHERE COALESCE(NULLIF(wo.bom_version_id,0), NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id,0)=0 AND lbi.product_id=wo.product_id
 		           ) bi
 		           LEFT JOIN %s.materials m ON m.id=bi.material_id
 		       ), '')
@@ -635,7 +645,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		LEFT JOIN %s.products p ON p.id=wo.product_id
 		LEFT JOIN %s.product_production_configs ppc ON ppc.product_id=wo.product_id
 		LEFT JOIN %s.product_production_bom_bindings pbb ON pbb.product_id=wo.product_id
-		LEFT JOIN %s.production_bom_versions bound_bv ON bound_bv.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id)
+		LEFT JOIN %s.production_bom_versions bound_bv ON bound_bv.id=COALESCE(NULLIF(wo.bom_version_id,0), NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id)
 		LEFT JOIN %s.product_bom pb ON pb.product_id=wo.product_id
 		WHERE %s
 		ORDER BY wo.created_at DESC, wo.id DESC

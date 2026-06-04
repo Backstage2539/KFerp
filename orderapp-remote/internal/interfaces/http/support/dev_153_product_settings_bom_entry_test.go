@@ -33,11 +33,12 @@ func TestProductSettingsBasicProductRowsExposeBomEntry(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"维护当前 BOM 明细",
-		"navigateCurrentProductBom",
+		"生产反查",
+		"productProductionConfigProduceBomRows",
+		"productProductionConfigUsedByBomRows",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("product config drawer must expose BOM detail entry, missing %q", want)
+			t.Fatalf("product config drawer must expose BOM reverse lookup, missing %q", want)
 		}
 	}
 

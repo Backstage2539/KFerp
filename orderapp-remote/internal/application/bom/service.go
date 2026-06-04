@@ -138,6 +138,9 @@ type ProductionBomSummary struct {
 	ID                    int64   `json:"id"`
 	Code                  string  `json:"code"`
 	Name                  string  `json:"name"`
+	OutputProductID       int64   `json:"output_product_id"`
+	OutputProductName     string  `json:"output_product_name"`
+	OutputProductCode     string  `json:"output_product_code"`
 	GroupID               int64   `json:"group_id"`
 	GroupName             string  `json:"group_name"`
 	GroupCategoryID       int64   `json:"group_category_id"`
@@ -157,6 +160,7 @@ type ProductionBomDetail struct {
 	Versions           []ProductionBomVersion           `json:"versions"`
 	Items              []Item                           `json:"items"`
 	ReferencedProducts []ProductionBomReferencedProduct `json:"referenced_products"`
+	UsedByBoms         []ProductionBomUsedByBom         `json:"used_by_boms"`
 }
 
 type ProductionBomReferencedProduct struct {
@@ -168,6 +172,18 @@ type ProductionBomReferencedProduct struct {
 	BomVersionNo string `json:"bom_version_no"`
 }
 
+type ProductionBomUsedByBom struct {
+	BomID             int64   `json:"bom_id"`
+	BomCode           string  `json:"bom_code"`
+	BomName           string  `json:"bom_name"`
+	BomVersionID      int64   `json:"bom_version_id"`
+	BomVersionNo      string  `json:"bom_version_no"`
+	OutputProductID   int64   `json:"output_product_id"`
+	OutputProductName string  `json:"output_product_name"`
+	ConsumeUnit       string  `json:"consume_unit"`
+	QtyPerUnit        float64 `json:"qty_per_unit"`
+}
+
 type ProductionBomVersion struct {
 	ID                     int64   `json:"id"`
 	BomID                  int64   `json:"bom_id"`
@@ -176,6 +192,8 @@ type ProductionBomVersion struct {
 	YieldRate              float64 `json:"yield_rate"`
 	ExpectedYieldRate      float64 `json:"expected_yield_rate"`
 	ExpectedLossRate       float64 `json:"expected_loss_rate"`
+	OutputQty              float64 `json:"output_qty"`
+	OutputUnit             string  `json:"output_unit"`
 	ItemCount              int     `json:"item_count"`
 	Note                   string  `json:"note"`
 	SpecialAttrsSchemaJSON string  `json:"special_attrs_schema_json"`
@@ -244,6 +262,9 @@ type DeleteProductionBomGroupCategoryCommand struct {
 
 type CreateProductionBomCommand struct {
 	Name             string   `json:"name"`
+	OutputProductID  int64    `json:"output_product_id"`
+	OutputQty        float64  `json:"output_qty"`
+	OutputUnit       string   `json:"output_unit"`
 	GroupID          int64    `json:"group_id"`
 	GroupCategoryID  int64    `json:"group_category_id"`
 	ExpectedLossRate *float64 `json:"expected_loss_rate,omitempty"`
@@ -253,6 +274,7 @@ type CreateProductionBomCommand struct {
 type UpdateProductionBomCommand struct {
 	ID              int64  `json:"id"`
 	Name            string `json:"name"`
+	OutputProductID int64  `json:"output_product_id"`
 	GroupID         int64  `json:"group_id"`
 	GroupCategoryID int64  `json:"group_category_id"`
 	Status          string `json:"status"`
@@ -262,6 +284,7 @@ type UpdateProductionBomCommand struct {
 type CopyProductionBomCommand struct {
 	ID              int64  `json:"id"`
 	Name            string `json:"name"`
+	OutputProductID int64  `json:"output_product_id"`
 	GroupID         int64  `json:"group_id"`
 	GroupCategoryID int64  `json:"group_category_id"`
 	Actor           string `json:"actor"`
@@ -287,6 +310,8 @@ type ProductionBomDraftItem struct {
 type UpdateProductionBomVersionDraftCommand struct {
 	VersionID              int64                    `json:"version_id"`
 	ExpectedLossRate       *float64                 `json:"expected_loss_rate,omitempty"`
+	OutputQty              float64                  `json:"output_qty"`
+	OutputUnit             string                   `json:"output_unit"`
 	Items                  []ProductionBomDraftItem `json:"items"`
 	SpecialAttrsSchemaJSON string                   `json:"special_attrs_schema_json"`
 	SpecialAttrsJSON       string                   `json:"special_attrs_json"`
@@ -389,11 +414,13 @@ type Repository interface {
 	DeleteProductionBomGroupCategory(ctx context.Context, cmd DeleteProductionBomGroupCategoryCommand) error
 	ListProductionBoms(ctx context.Context) ([]ProductionBomSummary, error)
 	GetProductionBomDetail(ctx context.Context, id int64, versionID int64) (ProductionBomDetail, error)
+	ListProductionBomUsageByProduct(ctx context.Context, productID int64) ([]ProductionBomUsedByBom, error)
 	CreateProductionBom(ctx context.Context, cmd CreateProductionBomCommand) (ProductionBomSummary, error)
 	UpdateProductionBom(ctx context.Context, cmd UpdateProductionBomCommand) (ProductionBomSummary, error)
 	CopyProductionBom(ctx context.Context, cmd CopyProductionBomCommand) (ProductionBomSummary, error)
 	CreateProductionBomVersion(ctx context.Context, cmd CreateProductionBomVersionCommand) (ProductionBomVersion, error)
 	UpdateProductionBomVersionDraft(ctx context.Context, cmd UpdateProductionBomVersionDraftCommand) (ProductionBomVersion, error)
+	ValidateProductionBomVersionForPublish(ctx context.Context, cmd PublishProductionBomVersionCommand) error
 	PublishProductionBomVersion(ctx context.Context, cmd PublishProductionBomVersionCommand) error
 	BindProductProductionBom(ctx context.Context, cmd BindProductProductionBomCommand) (ProductProductionBomBinding, error)
 }
@@ -747,11 +774,28 @@ func (s *Service) GetProductionBomDetail(ctx context.Context, id int64, versionI
 	return row, nil
 }
 
+func (s *Service) ListProductionBomUsageByProduct(ctx context.Context, productID int64) ([]ProductionBomUsedByBom, error) {
+	if productID <= 0 {
+		return nil, fmt.Errorf("product_id required")
+	}
+	return s.repo.ListProductionBomUsageByProduct(ctx, productID)
+}
+
 func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionBomCommand) (ProductionBomSummary, error) {
 	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.OutputUnit = strings.TrimSpace(cmd.OutputUnit)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	if cmd.Name == "" {
 		return ProductionBomSummary{}, fmt.Errorf("name required")
+	}
+	if cmd.OutputProductID <= 0 {
+		return ProductionBomSummary{}, fmt.Errorf("output_product_id required")
+	}
+	if cmd.OutputQty <= 0 {
+		cmd.OutputQty = 1
+	}
+	if cmd.OutputUnit == "" {
+		cmd.OutputUnit = "unit"
 	}
 	row, err := s.repo.CreateProductionBom(ctx, cmd)
 	if err != nil {
@@ -808,6 +852,22 @@ func (s *Service) UpdateProductionBomVersionDraft(ctx context.Context, cmd Updat
 		return ProductionBomVersion{}, fmt.Errorf("version_id required")
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.OutputUnit = strings.TrimSpace(cmd.OutputUnit)
+	if cmd.OutputQty < 0 {
+		return ProductionBomVersion{}, fmt.Errorf("output_qty must be positive")
+	}
+	if cmd.OutputQty > 0 && cmd.OutputUnit == "" {
+		cmd.OutputUnit = "unit"
+	}
+	if cmd.Items != nil {
+		for i := range cmd.Items {
+			item, err := normalizeProductionBomDraftItem(cmd.Items[i])
+			if err != nil {
+				return ProductionBomVersion{}, err
+			}
+			cmd.Items[i] = item
+		}
+	}
 	if strings.TrimSpace(cmd.SpecialAttrsSchemaJSON) != "" {
 		schemaJSON, err := normalizeJSONArrayText(cmd.SpecialAttrsSchemaJSON)
 		if err != nil {
@@ -873,7 +933,61 @@ func (s *Service) PublishProductionBomVersion(ctx context.Context, cmd PublishPr
 		return fmt.Errorf("version_id required")
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if err := s.repo.ValidateProductionBomVersionForPublish(ctx, cmd); err != nil {
+		return err
+	}
 	return s.repo.PublishProductionBomVersion(ctx, cmd)
+}
+
+func normalizeProductionBomDraftItem(item ProductionBomDraftItem) (ProductionBomDraftItem, error) {
+	componentType := strings.TrimSpace(item.ComponentType)
+	if componentType == "" {
+		componentType = "material"
+	}
+	if componentType == "finished_product" {
+		componentType = "product"
+	}
+	if componentType != "material" && componentType != "product" {
+		return item, fmt.Errorf("invalid component_type")
+	}
+	consumeUnit := strings.TrimSpace(item.ConsumeUnit)
+	if consumeUnit == "" {
+		if componentType == "product" {
+			consumeUnit = "unit_per_box"
+		} else {
+			consumeUnit = "ratio_pct"
+		}
+	}
+	switch consumeUnit {
+	case "ratio_pct", "g_per_bag", "unit_per_bag", "unit_per_box", "fixed_qty", "unit", "g", "kg", "length", "area":
+	default:
+		return item, fmt.Errorf("invalid consume_unit")
+	}
+	switch componentType {
+	case "material":
+		if item.MaterialID <= 0 {
+			return item, fmt.Errorf("material_id required")
+		}
+	case "product":
+		item.MaterialID = 0
+		if item.ComponentProductID <= 0 {
+			return item, fmt.Errorf("component_product_id required")
+		}
+		if consumeUnit == "ratio_pct" {
+			return item, fmt.Errorf("product consume_unit must not be ratio_pct")
+		}
+	}
+	if consumeUnit == "ratio_pct" {
+		if item.RatioPct <= 0 || item.RatioPct > 100 {
+			return item, fmt.Errorf("ratio must be (0,100]")
+		}
+		item.QtyPerUnit = 0
+	} else if item.QtyPerUnit <= 0 {
+		return item, fmt.Errorf("qty_per_unit required")
+	}
+	item.ComponentType = componentType
+	item.ConsumeUnit = consumeUnit
+	return item, nil
 }
 
 func (s *Service) BindProductProductionBom(ctx context.Context, cmd BindProductProductionBomCommand) (ProductProductionBomBinding, error) {

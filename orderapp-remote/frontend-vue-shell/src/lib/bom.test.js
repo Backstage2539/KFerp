@@ -49,11 +49,14 @@ test('BOM rows can be focused to the SKU product from settings navigation', () =
   assert.deepEqual(filterBomRowsByProductFocus(rows, 0).map((row) => row.product_id), [10, 11, 12])
 })
 
-test('unbound production BOM detail is projected as recipe detail with unbound product label', () => {
+test('production BOM detail is projected as recipe detail with output product label', () => {
   const detail = productionBomDetailAsRecipeDetail({
     id: 186,
     code: 'BOM-000186',
     name: 'Nenka嫩咖 生产 BOM',
+    output_product_id: 88,
+    output_product_name: '10条盒装挂耳',
+    output_product_code: 'SKU-000088',
     group_id: 8,
     group_name: '客户配方',
     status: 'active',
@@ -68,8 +71,9 @@ test('unbound production BOM detail is projected as recipe detail with unbound p
     ],
   })
 
-  assert.equal(detail.product_id, 0)
-  assert.equal(detail.product_name, '未绑定商品')
+  assert.equal(detail.product_id, 88)
+  assert.equal(detail.product_name, '10条盒装挂耳')
+  assert.equal(detail.output_product_code, 'SKU-000088')
   assert.equal(detail.production_bom_id, 186)
   assert.equal(detail.production_bom_code, 'BOM-000186')
   assert.equal(detail.production_bom_name, 'Nenka嫩咖 生产 BOM')
@@ -121,12 +125,20 @@ test('production BOM label shows BOM code name and bound version without source 
   }), '')
 })
 
-test('BOM view exposes grouped recipe library and no longer edits production config fields', async () => {
+test('BOM view exposes grouped manufacturing BOM library and no longer edits product-bound production config fields', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const appSource = fs.readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /生产 BOM（配方库）/)
+  assert.match(source, /生产 BOM（制造主档）/)
+  assert.match(source, /产出商品/)
+  assert.match(source, /产出数量/)
+  assert.match(source, /组件来源/)
+  assert.match(source, /商品组件/)
+  assert.match(source, /多层展开/)
+  assert.match(source, /usedByBoms/)
+  assert.match(source, /outputProductOptions/)
+  assert.match(source, /output_product_id/)
   assert.match(source, /bom-return-banner/)
   assert.match(source, /return_navigation/)
   assert.doesNotMatch(source, /searchParams\.get\('return_product_id'\)/)
@@ -150,7 +162,7 @@ test('BOM view exposes grouped recipe library and no longer edits production con
   assert.match(source, /productionBomDetailAsRecipeDetail/)
   assert.match(source, /await selectUnboundProductionBom\(row\)/)
   assert.match(source, /openReferencedProductConfig/)
-  assert.match(source, /引用商品/)
+  assert.match(source, /产出商品/)
   assert.match(source, /返回BOM编辑/)
   assert.match(source, /returnNavigation/)
   assert.match(source, /targetKey:\s*'productMaster'/)
@@ -161,6 +173,7 @@ test('BOM view exposes grouped recipe library and no longer edits production con
   assert.doesNotMatch(source, /失效当前 BOM/)
   assert.doesNotMatch(source, /async function deleteBom/)
   assert.doesNotMatch(source, /生产 BOM 档案/)
+  assert.doesNotMatch(source, /商品档案在生产配置中引用某个 BOM 版本/)
   assert.doesNotMatch(source, /默认分组/)
   assert.doesNotMatch(source, /group-tree/)
   assert.doesNotMatch(source, /特殊属性/)
@@ -243,7 +256,7 @@ test('production BOM list supports status filters name search group tabs and ina
     'copyProductionBomRecord',
     'deactivateProductionBomRecord',
     'referencedProductsLabel',
-    '引用商品',
+    '产出商品',
     '/api/production-boms/${bomForm.id}',
     '/api/production-boms/${bomForm.source_id}/copy',
     '/api/production-boms?status=all',

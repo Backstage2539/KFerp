@@ -341,24 +341,24 @@ func TestProductSettingsVueWiringAndLegacyTierEditorRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	combined := string(app) + "\n" + string(menu) + "\n" + string(settings)
-		for _, want := range []string{
-			"ProductSettingsView",
-			"productMaster",
-			"customerProductAliases",
-			"productConfigTemplates",
-			"商品档案",
-			"CostingView",
-			"classification-view-toolbar",
-			"productClassificationTabs",
-			"aliasClassificationTabs",
-			"/api/product-settings",
-			"/api/product-classification-template-usages/products",
-			"/api/product-classification-assignments/products",
-			"/api/product-settings/products/",
-			"分类模板",
-			"移动到分类",
-			"商品编号",
-		} {
+	for _, want := range []string{
+		"ProductSettingsView",
+		"productMaster",
+		"customerProductAliases",
+		"productConfigTemplates",
+		"商品档案",
+		"CostingView",
+		"classification-view-toolbar",
+		"productClassificationTabs",
+		"aliasClassificationTabs",
+		"/api/product-settings",
+		"/api/product-classification-template-usages/products",
+		"/api/product-classification-assignments/products",
+		"/api/product-settings/products/",
+		"分类模板",
+		"移动到分类",
+		"商品编号",
+	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("product settings Vue source missing %q", want)
 		}
@@ -423,7 +423,7 @@ func TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource(t *testing.T) {
 		"saveSelectedProductClassificationAssignment",
 		"saveSelectedAliasClassificationAssignment",
 		"selectedProductClassificationCategoryID",
-		"生产配置预期损耗率",
+		"预期损耗率",
 		"buildProductCreatePayload(productForm.value)",
 		"buildProductBasicsPayload(row, marginOverride.value)",
 	} {
