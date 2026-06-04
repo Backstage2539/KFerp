@@ -46,15 +46,16 @@
           />
         </label>
         <label v-if="isMaterialCostAdjustment"><span>目标成本/千克</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" /></label>
-        <label v-if="!isMaterialCostAdjustment"><span>规格(g)</span><input type="number" min="0" step="1" v-model.number="form.spec_g" :disabled="form.item_type !== 'finished_product'" /></label>
+        <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>规格(g)</span><input type="number" min="0" step="1" v-model.number="form.spec_g" /></label>
         <label v-if="!isMaterialCostAdjustment">
           <span>仓库</span>
           <select v-model="form.warehouse">
             <option v-for="row in warehouseOptions" :key="row.code" :value="row.code">{{ row.name }}</option>
           </select>
         </label>
-        <label v-if="!isMaterialCostAdjustment"><span>目标(g/散装g)</span><input type="number" min="0" step="1" v-model.number="form.target_g" /></label>
-        <label v-if="!isMaterialCostAdjustment"><span>目标件数</span><input type="number" min="0" step="1" v-model.number="form.target_units" /></label>
+        <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>目标数量（{{ selectedMaterialUnitLabel }}）</span><input type="number" min="0" step="0.001" v-model.number="form.target_qty" /></label>
+        <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>目标散装g</span><input type="number" min="0" step="1" v-model.number="form.target_g" /></label>
+        <label v-if="!isMaterialCostAdjustment && form.item_type === 'finished_product'"><span>成品目标件数</span><input type="number" min="0" step="1" v-model.number="form.target_units" /></label>
         <label v-if="!isMaterialCostAdjustment && form.item_type === 'material'"><span>补录成本/千克</span><input type="number" min="0" step="0.0001" v-model.number="form.target_unit_cost" placeholder="不填则用物料默认采购价" /></label>
         <label class="span-3"><span>原因</span><input v-model.trim="form.reason" placeholder="盘点调整/损耗/更正" /></label>
         <button class="primary" type="button" @click="submit" :disabled="saving">{{ isMaterialCostAdjustment ? '提交成本调整' : '提交调整' }}</button>
@@ -80,9 +81,11 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const ok = ref('')
-const form = reactive({ adjustment_type: 'quantity', item_type: 'material', item_id: 0, spec_g: 0, warehouse: 'raw_materials', target_g: 0, target_units: 0, material_batch_id: 0, target_unit_cost: 0, reason: '' })
+const form = reactive({ adjustment_type: 'quantity', item_type: 'material', item_id: 0, spec_g: 0, warehouse: 'raw_materials', target_qty: 0, target_g: 0, target_units: 0, material_batch_id: 0, target_unit_cost: 0, reason: '' })
 const isMaterialCostAdjustment = computed(() => form.adjustment_type === 'material_cost')
 const currentOptions = computed(() => form.item_type === 'material' ? materials.value : products.value)
+const selectedMaterial = computed(() => materials.value.find((row) => Number(row.id || row.ID || 0) === Number(form.item_id || 0)) || null)
+const selectedMaterialUnitLabel = computed(() => selectedMaterial.value?.unit || selectedMaterial.value?.Unit || '物料单位')
 const warehouseOptions = computed(() => {
   const kind = form.item_type === 'finished_product' ? 'finished' : ''
   const rows = warehouses.value.filter((row) => !kind || row.kind === kind)
@@ -140,6 +143,15 @@ async function submit() {
       material_batch_id: form.material_batch_id,
       target_unit_cost: Number(form.target_unit_cost || 0),
       reason: form.reason,
+    } : form.item_type === 'material' ? {
+      adjustment_type: 'quantity',
+      item_type: 'material',
+      item_id: form.item_id,
+      warehouse: form.warehouse,
+      target_qty: Number(form.target_qty || 0),
+      unit_code: selectedMaterial.value?.unit || selectedMaterial.value?.Unit || '',
+      target_unit_cost: Number(form.target_unit_cost || 0),
+      reason: form.reason,
     } : {
       adjustment_type: 'quantity',
       item_type: form.item_type,
@@ -159,6 +171,7 @@ async function submit() {
 watch(() => form.item_type, () => {
   form.item_id = 0
   form.warehouse = form.item_type === 'finished_product' ? 'finished_goods' : 'raw_materials'
+  form.target_qty = 0
   form.material_batch_id = 0
   materialBatches.value = []
 })

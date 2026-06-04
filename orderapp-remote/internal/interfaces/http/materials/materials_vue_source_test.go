@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestMaterialsViewUsesMasterDetailForTypeSpecificProfiles(t *testing.T) {
+func TestMaterialsViewUsesClassificationAndIndustryFields(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "views", "MaterialsView.vue"))
 	if err != nil {
 		t.Fatal(err)
@@ -18,25 +18,29 @@ func TestMaterialsViewUsesMasterDetailForTypeSpecificProfiles(t *testing.T) {
 		"material-list-panel",
 		"material-detail-panel",
 		"selectMaterial(row)",
-		"copySelectedMaterial",
 		"deprecateSelectedMaterial",
-		"bean_profile",
-		"pack_profile",
-		"包材属性",
+		"新建物料",
+		"全部分类",
+		"未分类",
+		"增加分类",
+		"移动到分类",
+		"移动到小分类",
+		"industry_field_template_id",
+		"materialIndustryFields",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("MaterialsView.vue missing %q", want)
 		}
 	}
 	for _, forbidden := range []string{
-		"<th>编码</th>",
-		"<th>单位</th>",
-		`v-model.trim="row.code"`,
-		`v-model.trim="row.name"`,
+		"copySelectedMaterial",
+		"咖啡生豆属性",
+		"销售价",
+		"基础档案字段锁定",
 		"profile-modal",
 	} {
 		if strings.Contains(src, forbidden) {
-			t.Fatalf("MaterialsView.vue still contains table inline edit or modal marker %q", forbidden)
+			t.Fatalf("MaterialsView.vue still contains old material marker %q", forbidden)
 		}
 	}
 }
@@ -61,10 +65,23 @@ func TestMaterialsViewDisallowsInlineStockAndUsesBackfill(t *testing.T) {
 	for _, forbidden := range []string{
 		`v-model.number="draft.onhand_g"`,
 		`v-model.number="draft.onhand_units"`,
+		`stockBackfill.target_g`,
+		`stockBackfill.target_units`,
+		"目标库存(g)",
+		"目标库存(个)",
 		"保存库存/属性",
 	} {
 		if strings.Contains(src, forbidden) {
 			t.Fatalf("MaterialsView.vue still allows inline stock editing through %q", forbidden)
+		}
+	}
+	for _, want := range []string{
+		`stockBackfill.target_qty`,
+		`target_qty`,
+		`unit_code`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("MaterialsView.vue missing single quantity marker %q", want)
 		}
 	}
 }

@@ -232,16 +232,18 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 
 	e.POST("/api/stock/adjustments", func(c echo.Context) error {
 		var req struct {
-			AdjustmentType  string  `json:"adjustment_type"`
-			ItemType        string  `json:"item_type"`
-			ItemID          int64   `json:"item_id"`
-			SpecG           int64   `json:"spec_g"`
-			Warehouse       string  `json:"warehouse"`
-			TargetG         int64   `json:"target_g"`
-			TargetUnits     int64   `json:"target_units"`
-			MaterialBatchID int64   `json:"material_batch_id"`
-			TargetUnitCost  float64 `json:"target_unit_cost"`
-			Reason          string  `json:"reason"`
+			AdjustmentType  string   `json:"adjustment_type"`
+			ItemType        string   `json:"item_type"`
+			ItemID          int64    `json:"item_id"`
+			SpecG           int64    `json:"spec_g"`
+			Warehouse       string   `json:"warehouse"`
+			TargetG         int64    `json:"target_g"`
+			TargetUnits     int64    `json:"target_units"`
+			TargetQty       *float64 `json:"target_qty"`
+			UnitCode        string   `json:"unit_code"`
+			MaterialBatchID int64    `json:"material_batch_id"`
+			TargetUnitCost  float64  `json:"target_unit_cost"`
+			Reason          string   `json:"reason"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse{Error: "invalid request"})
@@ -254,6 +256,9 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 			Warehouse:       req.Warehouse,
 			TargetG:         req.TargetG,
 			TargetUnits:     req.TargetUnits,
+			TargetQty:       valueOfFloat64(req.TargetQty),
+			HasTargetQty:    req.TargetQty != nil,
+			UnitCode:        req.UnitCode,
 			MaterialBatchID: req.MaterialBatchID,
 			TargetUnitCost:  req.TargetUnitCost,
 			Reason:          req.Reason,
@@ -327,6 +332,13 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 func stockOffset(c echo.Context) int {
 	limit := support.IntParam(c, "limit", 100)
 	return stockOffsetForLimit(c, limit)
+}
+
+func valueOfFloat64(v *float64) float64 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 func stockLimit(c echo.Context) int {

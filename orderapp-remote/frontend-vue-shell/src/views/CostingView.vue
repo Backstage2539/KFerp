@@ -1280,7 +1280,6 @@ function beanListItemsForType(listType, productTypeCategoryID = activeProductTyp
   void listType
   return priceListScopedItems()
     .filter((item) => matchesProductTypeCategory(item, productTypeCategoryID))
-    .filter((item) => beanMetaForItem(item).code)
     .slice()
     .sort((a, b) => compareBeanCodes(beanMetaForItem(a).code, beanMetaForItem(b).code))
 }
@@ -1289,7 +1288,6 @@ function customerBeanListItems(listType, productTypeCategoryID = activeProductTy
   void listType
   return priceListScopedItems()
     .filter((item) => matchesProductTypeCategory(item, productTypeCategoryID))
-    .filter((item) => beanMetaForItem(item).code)
     .slice()
     .sort((a, b) => compareBeanCodes(beanMetaForItem(a).code, beanMetaForItem(b).code))
 }

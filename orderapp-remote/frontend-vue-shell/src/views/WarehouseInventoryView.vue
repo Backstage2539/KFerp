@@ -81,7 +81,7 @@
           <div><span>合计(g)</span><strong>{{ totalG.toLocaleString('zh-CN') }}</strong></div>
           <div v-if="!isCustomerInventoryContext" class="summary-action">
             <span>仓库设置</span>
-            <button class="secondary" type="button" :disabled="!selectedWarehouse || !isExternalWarehouse" @click="openWarehouseSettingsDrawer">
+            <button class="secondary" type="button" :disabled="!selectedWarehouse" @click="openWarehouseSettingsDrawer">
               仓库设置
             </button>
           </div>
@@ -168,7 +168,7 @@
             </label>
             <p class="muted setting-note">绑定客户后，只有该客户可查看此外部库存。</p>
           </template>
-          <p v-else class="muted setting-note">仅外部库存类型仓库支持客户绑定。</p>
+          <p v-else class="muted setting-note">当前仓库暂无可配置项。</p>
           <div class="binding-status" v-if="warehouseBindCustomerID">
             已绑定客户：{{ selectedBindCustomerName }}
             <button class="link" type="button" @click="clearCustomerBinding">取消绑定</button>

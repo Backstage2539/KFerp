@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-414-MATERIALS-CLASSIFICATION-INDUSTRY-SETTINGS
+- Branch: codex/materials-classification-industry-settings-20260604
+- Owner/session: Codex / 2026-06-04
+- Status: verified locally; pending merge and development deploy
+- Scope: 商品价格表候选不再因旧豆单 metadata code 缺失隐藏挂耳/速溶等商品；普通仓库也可打开仓库设置并显示空状态；物料档案支持分类大类/小类、新建、编辑、失效、全局单位字典、单数量库存补录；咖啡生豆硬编码属性改由行业字段模板承接，行业字段模板移动到 设置 / 行业设置。
+- DEV:
+  - DEV-414-PRICE-LIST-METADATA-CANDIDATES：商品价格表候选、预览和 PDF 选择不再用旧 bean-list code 作为可见门槛，无计价方式只提示不隐藏。
+  - DEV-414-WAREHOUSE-SETTINGS-EMPTY：普通仓库可打开仓库设置抽屉，无配置项时展示空状态；客户上下文仍隐藏内部设置入口。
+  - DEV-414-MATERIALS-CLASSIFICATION-CRUD：物料分类大类/组内分类 schema/API/Vue 交互，物料支持新建、编辑、失效和操作日志。
+  - DEV-414-MATERIALS-UNIT-STOCK-QTY：物料单位来自全局单位字典，物料补录和库存调整新前端只写 `target_qty/unit_code`，旧 `target_g/target_units` 兼容。
+  - DEV-414-MATERIALS-INDUSTRY-FIELDS：物料绑定行业字段模板并保存字段值，旧咖啡生豆属性保留兼容 fallback。
+- Verifier:
+  - RED: targeted frontend/materials and Go materials tests initially failed on missing menu move, material classification schema/API and single quantity support.
+- GREEN: `node --test src/lib/materials-ui.test.js src/lib/menu-ia.test.js src/lib/product-bean-list-split.test.js` passed 33/33; targeted Go materials/stock/costing/support packages passed; `go test ./...` passed; `npm run build` passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-04-materials-classification-industry-settings.md`; requirement seed updated in `orderapp-remote/internal/interfaces/http/support/req_store.go`.
+- Last update: 2026-06-04 Asia/Shanghai
+
 ### FIX-20260604-BEAN-LIST-UNCATEGORIZED-DISPLAY
 - Branch: codex/bom-group-tabs-industry-layout-20260603
 - Owner/session: Codex / 2026-06-04

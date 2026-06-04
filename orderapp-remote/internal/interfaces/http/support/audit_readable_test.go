@@ -211,7 +211,7 @@ func TestDecorateAuditLogRowScannedEntitiesUseReadableLabels(t *testing.T) {
 			action:      "create",
 			field:       "template",
 			meta:        `{"status":"active","industry_key":"apparel","field_count":1}`,
-			wantMenu:    "商品与配方 / 行业字段模板",
+			wantMenu:    "设置 / 行业设置",
 			wantFeature: "维护行业字段模板",
 			wantEntity:  "行业字段模板",
 			wantAction:  "新增",
@@ -325,7 +325,7 @@ func TestDecorateAuditLogRowScannedOperationRoutesUseCurrentMenuIA(t *testing.T)
 		{"product category move", "POST", "/api/product-settings/products/:id/category", "/api/product-settings/products/15/category", "商品与配方 / 产品设置", "调整产品分类"},
 		{"process template save", "POST", "/api/process-templates", "/api/process-templates", "生产管理 / 工艺模板", "保存工艺模板"},
 		{"process template publish", "POST", "/api/process-templates/:id/publish", "/api/process-templates/1/publish", "生产管理 / 工艺模板", "发布工艺模板"},
-		{"industry field template save", "POST", "/api/industry-field-templates", "/api/industry-field-templates", "商品与配方 / 行业字段模板", "保存行业字段模板"},
+		{"industry field template save", "POST", "/api/industry-field-templates", "/api/industry-field-templates", "设置 / 行业设置", "保存行业字段模板"},
 	}
 
 	for _, tc := range tests {

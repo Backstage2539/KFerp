@@ -10,6 +10,7 @@ type fakeRepo struct {
 	create    CreateCommand
 	update    UpdateCommand
 	deprecate DeprecateCommand
+	assign    AssignClassificationCommand
 }
 
 func (r *fakeRepo) List(ctx context.Context, cmd ListCommand) ([]Material, error) {
@@ -30,6 +31,31 @@ func (r *fakeRepo) Create(ctx context.Context, cmd CreateCommand) (Material, err
 func (r *fakeRepo) Deprecate(ctx context.Context, cmd DeprecateCommand) (Material, error) {
 	r.deprecate = cmd
 	return Material{ID: cmd.ID, DeprecatedAt: "2026-04-27 13:30"}, nil
+}
+
+func (r *fakeRepo) ListClassificationGroups(ctx context.Context) ([]MaterialClassificationGroup, error) {
+	return []MaterialClassificationGroup{{ID: 9, Name: "包材"}}, nil
+}
+
+func (r *fakeRepo) SaveClassificationGroup(ctx context.Context, cmd SaveClassificationGroupCommand) (MaterialClassificationGroup, error) {
+	return MaterialClassificationGroup{ID: 9, Name: cmd.Name, SortOrder: cmd.SortOrder}, nil
+}
+
+func (r *fakeRepo) DeleteClassificationGroup(ctx context.Context, cmd DeleteClassificationGroupCommand) error {
+	return nil
+}
+
+func (r *fakeRepo) SaveClassificationCategory(ctx context.Context, cmd SaveClassificationCategoryCommand) (MaterialClassificationCategory, error) {
+	return MaterialClassificationCategory{ID: 11, GroupID: cmd.GroupID, Name: cmd.Name, SortOrder: cmd.SortOrder}, nil
+}
+
+func (r *fakeRepo) DeleteClassificationCategory(ctx context.Context, cmd DeleteClassificationCategoryCommand) error {
+	return nil
+}
+
+func (r *fakeRepo) AssignClassification(ctx context.Context, cmd AssignClassificationCommand) error {
+	r.assign = cmd
+	return nil
 }
 
 func TestServiceOwnsMaterialUseCases(t *testing.T) {

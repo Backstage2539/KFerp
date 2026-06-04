@@ -48,7 +48,6 @@ func TestVueShellUsesInternalMaterialsView(t *testing.T) {
 		`/api/materials`,
 		`saveMaterial`,
 		`selectMaterial(row)`,
-		`copySelectedMaterial`,
 		`deprecateSelectedMaterial`,
 		`操作日志`,
 	} {
@@ -56,9 +55,12 @@ func TestVueShellUsesInternalMaterialsView(t *testing.T) {
 			t.Fatalf("MaterialsView.vue missing %q", want)
 		}
 	}
+	if strings.Contains(viewSrc, `copySelectedMaterial`) {
+		t.Fatal("MaterialsView.vue must not restore copySelectedMaterial")
+	}
 }
 
-func TestMaterialsAPIUpdateKeepsBaseFieldsImmutable(t *testing.T) {
+func TestMaterialsAPIUpdateAllowsBaseFieldsAndWritesAudit(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`INSERT INTO %s.materials(code,name,kind,unit,purchase_price,sale_price,onhand_g,onhand_units,min_level_g,min_level_units,updated_at)
@@ -83,9 +85,9 @@ func TestMaterialsAPIUpdateKeepsBaseFieldsImmutable(t *testing.T) {
 		Code:          "m-api-1",
 		Name:          "测试物料改名",
 		Kind:          "bean",
-		Unit:          "g",
-		PurchasePrice: 10,
-		SalePrice:     21,
+		Unit:          "kg",
+		PurchasePrice: 12,
+		SalePrice:     20,
 		OnhandG:       1000,
 		OnhandUnits:   0,
 		MinLevelG:     100,
@@ -98,8 +100,22 @@ func TestMaterialsAPIUpdateKeepsBaseFieldsImmutable(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "copy material") {
-		t.Fatalf("POST /api/materials/:id status = %d body=%s, want immutable field rejection", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/materials/:id status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var updated materialsapp.Material
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != "测试物料改名" || updated.Unit != "kg" || updated.PurchasePrice != 12 {
+		t.Fatalf("updated material = %+v", updated)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.audit_logs WHERE entity_type='material' AND entity_id=$1 AND action='update' AND field IN ('name','unit','purchase_price')`, schema), id).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count < 3 {
+		t.Fatalf("audit update count = %d, want at least 3", count)
 	}
 }
 
@@ -146,6 +162,90 @@ func TestMaterialsAPIUpdateRejectsInlineStockChange(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "stock adjustment") {
 		t.Fatalf("POST /api/materials/:id status = %d body=%s, want stock adjustment rejection", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMaterialsAPIClassificationAndIndustryFields(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("actor", "api-test")
+			return next(c)
+		}
+	})
+	registerMaterialsAPI(e, materialsapp.NewService(postgresmaterials.NewRepository(pool, schema)))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/material-classification-groups", strings.NewReader(`{"name":"咖啡生豆","sort_order":10}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST group status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var group materialsapp.MaterialClassificationGroup
+	if err := json.Unmarshal(rec.Body.Bytes(), &group); err != nil {
+		t.Fatal(err)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/material-classification-groups/%d/categories", group.ID), strings.NewReader(`{"name":"云南","sort_order":20}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST category status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var category materialsapp.MaterialClassificationCategory
+	if err := json.Unmarshal(rec.Body.Bytes(), &category); err != nil {
+		t.Fatal(err)
+	}
+
+	createBody := `{"code":"green-1","name":"云南生豆","unit":"kg","industry_field_template_id":3,"industry_fields":[{"field_key":"产地","value_text":"云南"}]}`
+	req = httptest.NewRequest(http.MethodPost, "/api/materials", strings.NewReader(createBody))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST material status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var material materialsapp.Material
+	if err := json.Unmarshal(rec.Body.Bytes(), &material); err != nil {
+		t.Fatal(err)
+	}
+	if material.IndustryFieldTemplateID != 3 || len(material.IndustryFields) != 1 || material.IndustryFields[0].FieldKey != "产地" {
+		t.Fatalf("created material industry fields = %+v template=%d", material.IndustryFields, material.IndustryFieldTemplateID)
+	}
+
+	assign := fmt.Sprintf(`{"material_ids":[%d],"group_id":%d,"category_id":%d}`, material.ID, group.ID, category.ID)
+	req = httptest.NewRequest(http.MethodPost, "/api/material-classification-assignments", strings.NewReader(assign))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST assignment status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/materials?active=all&q=云南", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET materials status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"classification_group_name":"咖啡生豆"`) || !strings.Contains(rec.Body.String(), `"classification_category_name":"云南"`) {
+		t.Fatalf("material classification missing in response: %s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/material-classification-group-categories/%d", category.ID), nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE category status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/materials?active=all&q=云南", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), `"classification_category_id":0`) {
+		t.Fatalf("deleted category should move material to group unclassified: %s", rec.Body.String())
 	}
 }
 

@@ -95,7 +95,7 @@ func TestNormalizeMaterialInputKeepsBeanProfileOnlyForBeans(t *testing.T) {
 	}
 }
 
-func TestAssertImmutableMaterialFieldsRejectsChangedBaseFields(t *testing.T) {
+func TestAssertMaterialStockFieldsReadOnlyAllowsBaseFieldEdits(t *testing.T) {
 	old := materialRow{
 		Code:          "bean-a",
 		Name:          "豆子A",
@@ -109,14 +109,14 @@ func TestAssertImmutableMaterialFieldsRejectsChangedBaseFields(t *testing.T) {
 		Code:          "bean-a",
 		Name:          "豆子A新",
 		Kind:          "bean",
-		Unit:          "g",
+		Unit:          "kg",
 		BatchNo:       "20260427",
-		PurchasePrice: 88,
+		PurchasePrice: 90,
 		SalePrice:     99,
 	}
-	err := assertImmutableMaterialFields(old, next)
-	if err == nil || !strings.Contains(err.Error(), "copy material") {
-		t.Fatalf("assertImmutableMaterialFields() error = %v, want copy material", err)
+	err := assertMaterialStockFieldsReadOnly(old, next)
+	if err != nil {
+		t.Fatalf("assertMaterialStockFieldsReadOnly() error = %v, want base fields editable", err)
 	}
 }
 
@@ -143,8 +143,27 @@ func TestAssertImmutableMaterialFieldsRejectsInlineStockChange(t *testing.T) {
 		OnhandG:       1200,
 		OnhandUnits:   2,
 	}
-	err := assertImmutableMaterialFields(old, next)
+	err := assertMaterialStockFieldsReadOnly(old, next)
 	if err == nil || !strings.Contains(err.Error(), "stock adjustment") {
-		t.Fatalf("assertImmutableMaterialFields() error = %v, want stock adjustment", err)
+		t.Fatalf("assertMaterialStockFieldsReadOnly() error = %v, want stock adjustment", err)
+	}
+}
+
+func TestNormalizeMaterialInputCarriesIndustryTemplateAndFields(t *testing.T) {
+	got, err := normalizeMaterialInput(materialInput{
+		Code:                    "bean-industry",
+		Name:                    "行业字段豆",
+		Unit:                    "kg",
+		IndustryFieldTemplateID: 7,
+		IndustryFields: []materialIndustryFieldInput{
+			{FieldKey: " 产地 ", ValueText: " 云南 "},
+			{FieldKey: "", ValueText: "忽略"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IndustryFieldTemplateID != 7 || len(got.IndustryFields) != 1 || got.IndustryFields[0].FieldKey != "产地" || got.IndustryFields[0].ValueText != "云南" {
+		t.Fatalf("industry fields = %+v template=%d", got.IndustryFields, got.IndustryFieldTemplateID)
 	}
 }

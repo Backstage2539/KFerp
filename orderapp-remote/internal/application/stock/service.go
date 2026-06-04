@@ -383,6 +383,9 @@ type StockAdjustmentCommand struct {
 	Warehouse       string
 	TargetG         int64
 	TargetUnits     int64
+	TargetQty       float64
+	HasTargetQty    bool
+	UnitCode        string
 	MaterialBatchID int64
 	TargetUnitCost  float64
 	Reason          string
@@ -597,6 +600,7 @@ func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentComma
 	}
 	cmd.ItemType = normalizeStockItemType(cmd.ItemType)
 	cmd.Warehouse = normalizeWarehouse(cmd.Warehouse)
+	cmd.UnitCode = strings.TrimSpace(cmd.UnitCode)
 	cmd.Reason = strings.TrimSpace(cmd.Reason)
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
 	if cmd.Operator == "" {
@@ -620,7 +624,7 @@ func (s *Service) CreateAdjustment(ctx context.Context, cmd StockAdjustmentComma
 	if cmd.ItemType == "finished_product" && cmd.SpecG <= 0 {
 		return StockAdjustmentResult{}, fmt.Errorf("spec_g required")
 	}
-	if cmd.TargetG < 0 || cmd.TargetUnits < 0 {
+	if cmd.TargetG < 0 || cmd.TargetUnits < 0 || (cmd.HasTargetQty && cmd.TargetQty < 0) {
 		return StockAdjustmentResult{}, fmt.Errorf("negative qty")
 	}
 	if cmd.TargetUnitCost < 0 {

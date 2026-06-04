@@ -21,6 +21,17 @@ func TestMaterialsSchemaSeparatesBeanProfileTable(t *testing.T) {
 	if !strings.Contains(src, "deprecated_at TIMESTAMPTZ") {
 		t.Fatalf("materials schema must support deprecating old materials")
 	}
+	for _, want := range []string{
+		"industry_field_template_id BIGINT NOT NULL DEFAULT 0",
+		"material_industry_field_values",
+		"material_classification_groups",
+		"material_classification_group_categories",
+		"material_classification_assignments",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("materials schema missing %q", want)
+		}
+	}
 	materialsDDL := between(t, src, "CREATE TABLE IF NOT EXISTS %s.materials", ")`, schema)")
 	for _, forbidden := range []string{
 		"origin TEXT",

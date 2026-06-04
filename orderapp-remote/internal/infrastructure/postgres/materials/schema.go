@@ -33,6 +33,7 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS sale_price NUMERIC(12,2) NOT NULL DEFAULT 0`,
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS batch_no TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS deprecated_at TIMESTAMPTZ NULL`,
+		`ALTER TABLE %[1]s.materials ADD COLUMN IF NOT EXISTS industry_field_template_id BIGINT NOT NULL DEFAULT 0`,
 		`UPDATE %[1]s.materials SET batch_no=to_char(now(),'YYYYMMDD') WHERE batch_no=''`,
 	} {
 		if _, err := pool.Exec(ctx, fmt.Sprintf(stmt, schema)); err != nil {
@@ -43,6 +44,12 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 		return err
 	}
 	if err := ensurePackProfileSchema(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := ensureMaterialClassificationSchema(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := ensureMaterialIndustryFieldSchema(ctx, pool, schema); err != nil {
 		return err
 	}
 	logQ := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.material_consumption_logs (
@@ -72,6 +79,71 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_consumption_logs ADD COLUMN IF NOT EXISTS material_batch_id BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_consumption_logs ADD COLUMN IF NOT EXISTS material_batch_code TEXT NOT NULL DEFAULT ''`, schema))
 	return nil
+}
+
+func ensureMaterialClassificationSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.material_classification_groups (
+		id BIGSERIAL PRIMARY KEY,
+		name TEXT NOT NULL,
+		sort_order INTEGER NOT NULL DEFAULT 100,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);
+	CREATE INDEX IF NOT EXISTS material_classification_groups_sort_idx ON %s.material_classification_groups(sort_order, id);
+
+	CREATE TABLE IF NOT EXISTS %s.material_classification_group_categories (
+		id BIGSERIAL PRIMARY KEY,
+		group_id BIGINT NOT NULL REFERENCES %s.material_classification_groups(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		sort_order INTEGER NOT NULL DEFAULT 100,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+	);
+	CREATE INDEX IF NOT EXISTS material_classification_group_categories_group_idx ON %s.material_classification_group_categories(group_id, sort_order, id);
+
+	CREATE TABLE IF NOT EXISTS %s.material_classification_assignments (
+		material_id BIGINT PRIMARY KEY REFERENCES %s.materials(id) ON DELETE CASCADE,
+		group_id BIGINT NOT NULL DEFAULT 0,
+		category_id BIGINT NOT NULL DEFAULT 0,
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_by TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX IF NOT EXISTS material_classification_assignments_group_idx ON %s.material_classification_assignments(group_id, category_id);`,
+		schema, schema, schema, schema, schema, schema, schema, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
+}
+
+func ensureMaterialIndustryFieldSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.material_industry_field_values (
+		material_id BIGINT NOT NULL REFERENCES %s.materials(id) ON DELETE CASCADE,
+		field_key TEXT NOT NULL,
+		value_text TEXT NOT NULL DEFAULT '',
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		updated_by TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY(material_id, field_key)
+	);
+	CREATE INDEX IF NOT EXISTS material_industry_field_values_material_idx ON %s.material_industry_field_values(material_id);`, schema, schema, schema)
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	backfill := fmt.Sprintf(`
+		INSERT INTO %s.material_industry_field_values(material_id, field_key, value_text, updated_at)
+		SELECT material_id, field_key, value_text, now()
+		FROM (
+			SELECT material_id, '产地' AS field_key, origin AS value_text FROM %s.material_bean_profiles WHERE COALESCE(origin,'') <> ''
+			UNION ALL SELECT material_id, '处理站', processing_station FROM %s.material_bean_profiles WHERE COALESCE(processing_station,'') <> ''
+			UNION ALL SELECT material_id, '品种', variety FROM %s.material_bean_profiles WHERE COALESCE(variety,'') <> ''
+			UNION ALL SELECT material_id, '处理法', process_method FROM %s.material_bean_profiles WHERE COALESCE(process_method,'') <> ''
+			UNION ALL SELECT material_id, '等级', grade FROM %s.material_bean_profiles WHERE COALESCE(grade,'') <> ''
+			UNION ALL SELECT material_id, '海拔', altitude FROM %s.material_bean_profiles WHERE COALESCE(altitude,'') <> ''
+			UNION ALL SELECT material_id, '风味', flavor FROM %s.material_bean_profiles WHERE COALESCE(flavor,'') <> ''
+			UNION ALL SELECT material_id, '豆单备注', bean_list_note FROM %s.material_bean_profiles WHERE COALESCE(bean_list_note,'') <> ''
+		) legacy
+		ON CONFLICT(material_id, field_key) DO NOTHING`, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+	_, err := pool.Exec(ctx, backfill)
+	return err
 }
 
 func ensurePackProfileSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error {

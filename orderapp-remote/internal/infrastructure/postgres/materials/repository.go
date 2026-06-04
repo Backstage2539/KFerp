@@ -19,38 +19,54 @@ type Repository struct {
 }
 
 type materialRow struct {
-	ID            int64
-	Code          string
-	Name          string
-	Kind          string
-	Unit          string
-	BatchNo       string
-	PurchasePrice float64
-	SalePrice     float64
-	OnhandG       int64
-	OnhandUnits   int64
-	MinLevelG     int64
-	MinLevelUnits int64
-	Profile       *beanProfileInput
-	PackProfile   *packProfileInput
-	UpdatedAt     string
-	DeprecatedAt  string
+	ID                         int64
+	Code                       string
+	Name                       string
+	Kind                       string
+	Unit                       string
+	BatchNo                    string
+	PurchasePrice              float64
+	SalePrice                  float64
+	OnhandG                    int64
+	OnhandUnits                int64
+	StockQty                   float64
+	MinLevelG                  int64
+	MinLevelUnits              int64
+	MinLevelQty                float64
+	IndustryFieldTemplateID    int64
+	IndustryFields             []materialIndustryFieldInput
+	ClassificationGroupID      int64
+	ClassificationGroupName    string
+	ClassificationCategoryID   int64
+	ClassificationCategoryName string
+	Profile                    *beanProfileInput
+	PackProfile                *packProfileInput
+	UpdatedAt                  string
+	DeprecatedAt               string
 }
 
 type materialInput struct {
-	Code          string
-	Name          string
-	Kind          string
-	Unit          string
-	BatchNo       string
-	PurchasePrice float64
-	SalePrice     float64
-	OnhandG       int64
-	OnhandUnits   int64
-	MinLevelG     int64
-	MinLevelUnits int64
-	Profile       *beanProfileInput
-	PackProfile   *packProfileInput
+	Code                    string
+	Name                    string
+	Kind                    string
+	Unit                    string
+	BatchNo                 string
+	PurchasePrice           float64
+	SalePrice               float64
+	OnhandG                 int64
+	OnhandUnits             int64
+	MinLevelG               int64
+	MinLevelUnits           int64
+	MinLevelQty             float64
+	IndustryFieldTemplateID int64
+	IndustryFields          []materialIndustryFieldInput
+	Profile                 *beanProfileInput
+	PackProfile             *packProfileInput
+}
+
+type materialIndustryFieldInput struct {
+	FieldKey  string
+	ValueText string
 }
 
 type beanProfileInput struct {
@@ -78,7 +94,7 @@ func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 }
 
 func (r Repository) List(ctx context.Context, cmd materialsapp.ListCommand) ([]materialsapp.Material, error) {
-	rows, err := listMaterials(ctx, r.pool, r.schema, cmd.Query, cmd.Limit, cmd.IncludeDeprecated)
+	rows, err := listMaterials(ctx, r.pool, r.schema, cmd.Query, cmd.Active, cmd.Limit, cmd.IncludeDeprecated)
 	if err != nil {
 		return nil, err
 	}
@@ -109,14 +125,47 @@ func (r Repository) Deprecate(ctx context.Context, cmd materialsapp.DeprecateCom
 	return materialToApp(row), nil
 }
 
-func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, limit int, includeDeprecated bool) ([]materialRow, error) {
+func (r Repository) ListClassificationGroups(ctx context.Context) ([]materialsapp.MaterialClassificationGroup, error) {
+	return listMaterialClassificationGroups(ctx, r.pool, r.schema)
+}
+
+func (r Repository) SaveClassificationGroup(ctx context.Context, cmd materialsapp.SaveClassificationGroupCommand) (materialsapp.MaterialClassificationGroup, error) {
+	return saveMaterialClassificationGroup(ctx, r.pool, r.schema, cmd)
+}
+
+func (r Repository) DeleteClassificationGroup(ctx context.Context, cmd materialsapp.DeleteClassificationGroupCommand) error {
+	return deleteMaterialClassificationGroup(ctx, r.pool, r.schema, cmd)
+}
+
+func (r Repository) SaveClassificationCategory(ctx context.Context, cmd materialsapp.SaveClassificationCategoryCommand) (materialsapp.MaterialClassificationCategory, error) {
+	return saveMaterialClassificationCategory(ctx, r.pool, r.schema, cmd)
+}
+
+func (r Repository) DeleteClassificationCategory(ctx context.Context, cmd materialsapp.DeleteClassificationCategoryCommand) error {
+	return deleteMaterialClassificationCategory(ctx, r.pool, r.schema, cmd)
+}
+
+func (r Repository) AssignClassification(ctx context.Context, cmd materialsapp.AssignClassificationCommand) error {
+	return assignMaterialClassification(ctx, r.pool, r.schema, cmd)
+}
+
+func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q, active string, limit int, includeDeprecated bool) ([]materialRow, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
 	whereParts := []string{}
 	args := []any{}
 	argn := 1
-	if !includeDeprecated {
+	switch strings.TrimSpace(active) {
+	case "inactive":
+		whereParts = append(whereParts, "m.deprecated_at IS NOT NULL")
+	case "all":
+	case "":
+		if includeDeprecated {
+			break
+		}
+		whereParts = append(whereParts, "m.deprecated_at IS NULL")
+	default:
 		whereParts = append(whereParts, "m.deprecated_at IS NULL")
 	}
 	if s := strings.TrimSpace(q); s != "" {
@@ -136,6 +185,9 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, li
 		       COALESCE(m.batch_no, ''),
 		       COALESCE(m.purchase_price,0), COALESCE(m.sale_price,0),
 		       m.onhand_g, m.onhand_units, m.min_level_g, m.min_level_units,
+		       COALESCE(m.industry_field_template_id,0),
+		       COALESCE(a.group_id,0), COALESCE(g.name,''),
+		       COALESCE(a.category_id,0), COALESCE(gc.name,''),
 		       COALESCE(bp.origin, ''), COALESCE(bp.processing_station, ''), COALESCE(bp.variety, ''),
 		       COALESCE(bp.process_method, ''), COALESCE(bp.grade, ''), COALESCE(bp.altitude, ''),
 		       COALESCE(bp.flavor, ''), COALESCE(bp.bean_list_note, ''),
@@ -146,10 +198,13 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, li
 		FROM %s.materials m
 		LEFT JOIN %s.material_bean_profiles bp ON bp.material_id = m.id
 		LEFT JOIN %s.material_pack_profiles pp ON pp.material_id = m.id
+		LEFT JOIN %s.material_classification_assignments a ON a.material_id = m.id
+		LEFT JOIN %s.material_classification_groups g ON g.id = a.group_id
+		LEFT JOIN %s.material_classification_group_categories gc ON gc.id = a.category_id
 		%s
-		ORDER BY m.kind, m.name, m.id DESC
+		ORDER BY COALESCE(g.sort_order,999999), COALESCE(gc.sort_order,999999), m.name, m.id DESC
 		LIMIT $%d
-	`, schema, schema, schema, where, limitArg)
+	`, schema, schema, schema, schema, schema, schema, where, limitArg)
 	rows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
@@ -161,10 +216,12 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, li
 		var r materialRow
 		var profile beanProfileInput
 		var packProfile packProfileInput
-		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.Kind, &r.Unit, &r.BatchNo, &r.PurchasePrice, &r.SalePrice, &r.OnhandG, &r.OnhandUnits, &r.MinLevelG, &r.MinLevelUnits, &profile.Origin, &profile.ProcessingStation, &profile.Variety, &profile.ProcessMethod, &profile.Grade, &profile.Altitude, &profile.Flavor, &profile.BeanListNote, &packProfile.SizeSpec, &packProfile.Dimensions, &packProfile.Material, &packProfile.Capacity, &packProfile.Color, &packProfile.Note, &r.UpdatedAt, &r.DeprecatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Code, &r.Name, &r.Kind, &r.Unit, &r.BatchNo, &r.PurchasePrice, &r.SalePrice, &r.OnhandG, &r.OnhandUnits, &r.MinLevelG, &r.MinLevelUnits, &r.IndustryFieldTemplateID, &r.ClassificationGroupID, &r.ClassificationGroupName, &r.ClassificationCategoryID, &r.ClassificationCategoryName, &profile.Origin, &profile.ProcessingStation, &profile.Variety, &profile.ProcessMethod, &profile.Grade, &profile.Altitude, &profile.Flavor, &profile.BeanListNote, &packProfile.SizeSpec, &packProfile.Dimensions, &packProfile.Material, &packProfile.Capacity, &packProfile.Color, &packProfile.Note, &r.UpdatedAt, &r.DeprecatedAt); err != nil {
 			return nil, err
 		}
 		r.Kind = normalizeMaterialKind(r.Kind)
+		r.StockQty = materialQtyForUnit(r.Unit, r.OnhandG, r.OnhandUnits)
+		r.MinLevelQty = materialQtyForUnit(r.Unit, r.MinLevelG, r.MinLevelUnits)
 		if r.Kind == "bean" || !profile.empty() {
 			r.Profile = &profile
 		}
@@ -173,7 +230,13 @@ func listMaterials(ctx context.Context, pool *pgxpool.Pool, schema, q string, li
 		}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := attachMaterialIndustryFields(ctx, pool, schema, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor string, id int64, in materialInput) (materialRow, error) {
@@ -201,6 +264,7 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		       COALESCE(m.batch_no, ''),
 		       COALESCE(m.purchase_price,0), COALESCE(m.sale_price,0),
 		       m.onhand_g, m.onhand_units, m.min_level_g, m.min_level_units,
+		       COALESCE(m.industry_field_template_id,0),
 		       COALESCE(bp.origin, ''), COALESCE(bp.processing_station, ''), COALESCE(bp.variety, ''),
 		       COALESCE(bp.process_method, ''), COALESCE(bp.grade, ''), COALESCE(bp.altitude, ''),
 		       COALESCE(bp.flavor, ''), COALESCE(bp.bean_list_note, ''),
@@ -215,7 +279,7 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		FOR UPDATE OF m`, schema, schema, schema)
 	var oldProfile beanProfileInput
 	var oldPackProfile packProfileInput
-	if err := tx.QueryRow(ctx, qOld, id).Scan(&old.ID, &old.Code, &old.Name, &old.Kind, &old.Unit, &old.BatchNo, &old.PurchasePrice, &old.SalePrice, &old.OnhandG, &old.OnhandUnits, &old.MinLevelG, &old.MinLevelUnits, &oldProfile.Origin, &oldProfile.ProcessingStation, &oldProfile.Variety, &oldProfile.ProcessMethod, &oldProfile.Grade, &oldProfile.Altitude, &oldProfile.Flavor, &oldProfile.BeanListNote, &oldPackProfile.SizeSpec, &oldPackProfile.Dimensions, &oldPackProfile.Material, &oldPackProfile.Capacity, &oldPackProfile.Color, &oldPackProfile.Note, &old.UpdatedAt, &old.DeprecatedAt); err != nil {
+	if err := tx.QueryRow(ctx, qOld, id).Scan(&old.ID, &old.Code, &old.Name, &old.Kind, &old.Unit, &old.BatchNo, &old.PurchasePrice, &old.SalePrice, &old.OnhandG, &old.OnhandUnits, &old.MinLevelG, &old.MinLevelUnits, &old.IndustryFieldTemplateID, &oldProfile.Origin, &oldProfile.ProcessingStation, &oldProfile.Variety, &oldProfile.ProcessMethod, &oldProfile.Grade, &oldProfile.Altitude, &oldProfile.Flavor, &oldProfile.BeanListNote, &oldPackProfile.SizeSpec, &oldPackProfile.Dimensions, &oldPackProfile.Material, &oldPackProfile.Capacity, &oldPackProfile.Color, &oldPackProfile.Note, &old.UpdatedAt, &old.DeprecatedAt); err != nil {
 		if err == pgx.ErrNoRows {
 			return materialRow{}, fmt.Errorf("not found")
 		}
@@ -231,7 +295,8 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 	if old.DeprecatedAt != "" {
 		return materialRow{}, fmt.Errorf("material deprecated")
 	}
-	if err := assertImmutableMaterialFields(old, next); err != nil {
+	old.IndustryFields = loadMaterialIndustryFieldsForTx(ctx, tx, schema, id)
+	if err := assertMaterialStockFieldsReadOnly(old, next); err != nil {
 		return materialRow{}, err
 	}
 
@@ -247,15 +312,19 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 			onhand_units=$10,
 			min_level_g=$11,
 			min_level_units=$12,
+			industry_field_template_id=$13,
 			updated_at=now()
 		WHERE id=$1`, schema)
-	if _, err := tx.Exec(ctx, q, id, next.Code, next.Name, next.Kind, next.Unit, next.BatchNo, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits); err != nil {
+	if _, err := tx.Exec(ctx, q, id, next.Code, next.Name, next.Kind, next.Unit, next.BatchNo, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits, next.IndustryFieldTemplateID); err != nil {
 		return materialRow{}, err
 	}
 	if err := writeBeanProfileTx(ctx, tx, schema, id, next); err != nil {
 		return materialRow{}, err
 	}
 	if err := writePackProfileTx(ctx, tx, schema, id, next); err != nil {
+		return materialRow{}, err
+	}
+	if err := writeMaterialIndustryFieldsTx(ctx, tx, schema, actor, id, next); err != nil {
 		return materialRow{}, err
 	}
 	if err := logMaterialDiffsTx(ctx, tx, schema, actor, old, next); err != nil {
@@ -265,7 +334,7 @@ func updateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 		return materialRow{}, err
 	}
 
-	rows, err := listMaterials(ctx, pool, schema, next.Code, 1, false)
+	rows, err := listMaterials(ctx, pool, schema, next.Code, "active", 1, false)
 	if err != nil {
 		return materialRow{}, err
 	}
@@ -293,18 +362,21 @@ func createMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, actor
 
 	q := fmt.Sprintf(`INSERT INTO %s.materials(
 			code, name, kind, unit, batch_no, purchase_price, sale_price,
-			onhand_g, onhand_units, min_level_g, min_level_units, updated_at
+			onhand_g, onhand_units, min_level_g, min_level_units, industry_field_template_id, updated_at
 		)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
 		RETURNING id`, schema)
 	var id int64
-	if err := tx.QueryRow(ctx, q, next.Code, next.Name, next.Kind, next.Unit, next.BatchNo, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, q, next.Code, next.Name, next.Kind, next.Unit, next.BatchNo, next.PurchasePrice, next.SalePrice, next.OnhandG, next.OnhandUnits, next.MinLevelG, next.MinLevelUnits, next.IndustryFieldTemplateID).Scan(&id); err != nil {
 		return materialRow{}, err
 	}
 	if err := writeBeanProfileTx(ctx, tx, schema, id, next); err != nil {
 		return materialRow{}, err
 	}
 	if err := writePackProfileTx(ctx, tx, schema, id, next); err != nil {
+		return materialRow{}, err
+	}
+	if err := writeMaterialIndustryFieldsTx(ctx, tx, schema, actor, id, next); err != nil {
 		return materialRow{}, err
 	}
 	if err := logMaterialCreateTx(ctx, tx, schema, actor, id, next); err != nil {
@@ -358,7 +430,7 @@ func deprecateMaterialInline(ctx context.Context, pool *pgxpool.Pool, schema, ac
 }
 
 func getMaterialByID(ctx context.Context, pool *pgxpool.Pool, schema string, id int64) (materialRow, error) {
-	rows, err := listMaterials(ctx, pool, schema, "", 500, true)
+	rows, err := listMaterials(ctx, pool, schema, "", "all", 500, true)
 	if err != nil {
 		return materialRow{}, err
 	}
@@ -395,6 +467,10 @@ func normalizeMaterialInput(in materialInput) (materialInput, error) {
 	if in.Unit == "" {
 		in.Unit = "g"
 	}
+	if in.MinLevelQty > 0 && in.MinLevelG == 0 && in.MinLevelUnits == 0 {
+		in.MinLevelG, in.MinLevelUnits = quantityToLegacy(in.Unit, in.MinLevelQty)
+	}
+	in.IndustryFields = normalizeMaterialIndustryFields(in.IndustryFields)
 	if in.BatchNo == "" {
 		in.BatchNo = time.Now().Format("20060102")
 	}
@@ -426,6 +502,27 @@ func normalizeMaterialInput(in materialInput) (materialInput, error) {
 	return in, nil
 }
 
+func normalizeMaterialIndustryFields(fields []materialIndustryFieldInput) []materialIndustryFieldInput {
+	seen := map[string]bool{}
+	out := make([]materialIndustryFieldInput, 0, len(fields))
+	for _, field := range fields {
+		key := strings.TrimSpace(field.FieldKey)
+		if key == "" {
+			continue
+		}
+		lookup := strings.ToLower(key)
+		if seen[lookup] {
+			continue
+		}
+		seen[lookup] = true
+		out = append(out, materialIndustryFieldInput{
+			FieldKey:  key,
+			ValueText: strings.TrimSpace(field.ValueText),
+		})
+	}
+	return out
+}
+
 func normalizeMaterialKind(kind string) string {
 	switch strings.TrimSpace(kind) {
 	case "raw_bean", "raw-bean", "green_bean", "green-bean":
@@ -437,16 +534,40 @@ func normalizeMaterialKind(kind string) string {
 	}
 }
 
-func assertImmutableMaterialFields(old materialRow, next materialInput) error {
-	if old.Code != next.Code ||
-		old.Name != next.Name ||
-		old.Kind != next.Kind ||
-		old.Unit != next.Unit ||
-		old.BatchNo != next.BatchNo ||
-		fmt.Sprintf("%.2f", old.PurchasePrice) != fmt.Sprintf("%.2f", next.PurchasePrice) ||
-		fmt.Sprintf("%.2f", old.SalePrice) != fmt.Sprintf("%.2f", next.SalePrice) {
-		return fmt.Errorf("base fields are immutable; copy material to create a new version")
+func materialQtyForUnit(unit string, qtyG, qtyUnits int64) float64 {
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "kg":
+		return float64(qtyG) / 1000
+	case "lb":
+		return float64(qtyG) / 453.59237
+	case "oz":
+		return float64(qtyG) / 28.349523125
+	case "g", "克":
+		return float64(qtyG)
+	default:
+		if qtyUnits != 0 {
+			return float64(qtyUnits)
+		}
+		return float64(qtyG)
 	}
+}
+
+func quantityToLegacy(unit string, qty float64) (int64, int64) {
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "kg":
+		return int64(math.Round(qty * 1000)), 0
+	case "lb":
+		return int64(math.Round(qty * 453.59237)), 0
+	case "oz":
+		return int64(math.Round(qty * 28.349523125)), 0
+	case "g", "克":
+		return int64(math.Round(qty)), 0
+	default:
+		return 0, int64(math.Round(qty))
+	}
+}
+
+func assertMaterialStockFieldsReadOnly(old materialRow, next materialInput) error {
 	if old.OnhandG != next.OnhandG || old.OnhandUnits != next.OnhandUnits {
 		return fmt.Errorf("stock fields are read-only; use stock adjustment")
 	}
@@ -484,6 +605,8 @@ func logMaterialDiffsTx(ctx context.Context, tx pgx.Tx, schema, actor string, ol
 		{"onhand_units", fmt.Sprintf("%d", old.OnhandUnits), fmt.Sprintf("%d", next.OnhandUnits)},
 		{"min_level_g", fmt.Sprintf("%d", old.MinLevelG), fmt.Sprintf("%d", next.MinLevelG)},
 		{"min_level_units", fmt.Sprintf("%d", old.MinLevelUnits), fmt.Sprintf("%d", next.MinLevelUnits)},
+		{"industry_field_template_id", fmt.Sprintf("%d", old.IndustryFieldTemplateID), fmt.Sprintf("%d", next.IndustryFieldTemplateID)},
+		{"industry_fields", materialIndustryFieldsString(old.IndustryFields), materialIndustryFieldsString(next.IndustryFields)},
 		{"bean_profile.origin", profileValue(old.Profile, func(p *beanProfileInput) string { return p.Origin }), profileValue(next.Profile, func(p *beanProfileInput) string { return p.Origin })},
 		{"bean_profile.processing_station", profileValue(old.Profile, func(p *beanProfileInput) string { return p.ProcessingStation }), profileValue(next.Profile, func(p *beanProfileInput) string { return p.ProcessingStation })},
 		{"bean_profile.variety", profileValue(old.Profile, func(p *beanProfileInput) string { return p.Variety }), profileValue(next.Profile, func(p *beanProfileInput) string { return p.Variety })},
@@ -568,6 +691,362 @@ func writePackProfileTx(ctx context.Context, tx pgx.Tx, schema string, materialI
 			updated_at=now()`, schema)
 	_, err := tx.Exec(ctx, q, materialID, profile.SizeSpec, profile.Dimensions, profile.Material, profile.Capacity, profile.Color, profile.Note)
 	return err
+}
+
+func loadMaterialIndustryFieldsForTx(ctx context.Context, tx pgx.Tx, schema string, materialID int64) []materialIndustryFieldInput {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT field_key, value_text
+		FROM %s.material_industry_field_values
+		WHERE material_id=$1
+		ORDER BY field_key`, schema), materialID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := []materialIndustryFieldInput{}
+	for rows.Next() {
+		var row materialIndustryFieldInput
+		if err := rows.Scan(&row.FieldKey, &row.ValueText); err == nil {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+func attachMaterialIndustryFields(ctx context.Context, pool *pgxpool.Pool, schema string, rows []materialRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(rows))
+	byID := map[int64]int{}
+	for idx := range rows {
+		ids = append(ids, rows[idx].ID)
+		byID[rows[idx].ID] = idx
+	}
+	q := fmt.Sprintf(`
+		SELECT material_id, field_key, value_text
+		FROM %s.material_industry_field_values
+		WHERE material_id = ANY($1)
+		ORDER BY field_key`, schema)
+	fieldRows, err := pool.Query(ctx, q, ids)
+	if err != nil {
+		return err
+	}
+	defer fieldRows.Close()
+	for fieldRows.Next() {
+		var materialID int64
+		var field materialIndustryFieldInput
+		if err := fieldRows.Scan(&materialID, &field.FieldKey, &field.ValueText); err != nil {
+			return err
+		}
+		if idx, ok := byID[materialID]; ok {
+			rows[idx].IndustryFields = append(rows[idx].IndustryFields, field)
+		}
+	}
+	return fieldRows.Err()
+}
+
+func writeMaterialIndustryFieldsTx(ctx context.Context, tx pgx.Tx, schema, actor string, materialID int64, in materialInput) error {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.material_industry_field_values WHERE material_id=$1`, schema), materialID); err != nil {
+		return err
+	}
+	for _, field := range in.IndustryFields {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.material_industry_field_values(material_id, field_key, value_text, updated_at, updated_by)
+			VALUES($1,$2,$3,now(),$4)`, schema), materialID, field.FieldKey, field.ValueText, actor); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func listMaterialClassificationGroups(ctx context.Context, pool *pgxpool.Pool, schema string) ([]materialsapp.MaterialClassificationGroup, error) {
+	groupRows, err := pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, name, sort_order
+		FROM %s.material_classification_groups
+		ORDER BY sort_order, id`, schema))
+	if err != nil {
+		return nil, err
+	}
+	defer groupRows.Close()
+	groups := make([]materialsapp.MaterialClassificationGroup, 0)
+	groupIndex := map[int64]int{}
+	for groupRows.Next() {
+		var group materialsapp.MaterialClassificationGroup
+		if err := groupRows.Scan(&group.ID, &group.Name, &group.SortOrder); err != nil {
+			return nil, err
+		}
+		group.Categories = []materialsapp.MaterialClassificationCategory{}
+		groupIndex[group.ID] = len(groups)
+		groups = append(groups, group)
+	}
+	if err := groupRows.Err(); err != nil {
+		return nil, err
+	}
+	categoryRows, err := pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, group_id, name, sort_order
+		FROM %s.material_classification_group_categories
+		ORDER BY group_id, sort_order, id`, schema))
+	if err != nil {
+		return nil, err
+	}
+	defer categoryRows.Close()
+	for categoryRows.Next() {
+		var category materialsapp.MaterialClassificationCategory
+		if err := categoryRows.Scan(&category.ID, &category.GroupID, &category.Name, &category.SortOrder); err != nil {
+			return nil, err
+		}
+		if idx, ok := groupIndex[category.GroupID]; ok {
+			groups[idx].Categories = append(groups[idx].Categories, category)
+		}
+	}
+	return groups, categoryRows.Err()
+}
+
+func saveMaterialClassificationGroup(ctx context.Context, pool *pgxpool.Pool, schema string, cmd materialsapp.SaveClassificationGroupCommand) (materialsapp.MaterialClassificationGroup, error) {
+	name := strings.TrimSpace(cmd.Name)
+	if name == "" {
+		return materialsapp.MaterialClassificationGroup{}, fmt.Errorf("name required")
+	}
+	if cmd.SortOrder <= 0 {
+		cmd.SortOrder = 100
+	}
+	actor := strings.TrimSpace(cmd.Actor)
+	if actor == "" {
+		actor = "materials"
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return materialsapp.MaterialClassificationGroup{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var id int64
+	action := "create"
+	if cmd.ID > 0 {
+		action = "update"
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.material_classification_groups
+			SET name=$2, sort_order=$3, updated_at=now()
+			WHERE id=$1
+			RETURNING id`, schema), cmd.ID, name, cmd.SortOrder).Scan(&id); err != nil {
+			return materialsapp.MaterialClassificationGroup{}, err
+		}
+	} else {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.material_classification_groups(name, sort_order, created_at, updated_at)
+			VALUES($1,$2,now(),now())
+			RETURNING id`, schema), name, cmd.SortOrder).Scan(&id); err != nil {
+			return materialsapp.MaterialClassificationGroup{}, err
+		}
+	}
+	if err := logMaterialClassificationTx(ctx, tx, schema, actor, "material_classification_group", id, action, "group", "", name); err != nil {
+		return materialsapp.MaterialClassificationGroup{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return materialsapp.MaterialClassificationGroup{}, err
+	}
+	groups, err := listMaterialClassificationGroups(ctx, pool, schema)
+	if err != nil {
+		return materialsapp.MaterialClassificationGroup{}, err
+	}
+	for _, group := range groups {
+		if group.ID == id {
+			return group, nil
+		}
+	}
+	return materialsapp.MaterialClassificationGroup{}, fmt.Errorf("not found")
+}
+
+func deleteMaterialClassificationGroup(ctx context.Context, pool *pgxpool.Pool, schema string, cmd materialsapp.DeleteClassificationGroupCommand) error {
+	if cmd.ID <= 0 {
+		return fmt.Errorf("invalid id")
+	}
+	actor := strings.TrimSpace(cmd.Actor)
+	if actor == "" {
+		actor = "materials"
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var name string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.material_classification_groups WHERE id=$1`, schema), cmd.ID).Scan(&name); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.material_classification_assignments WHERE group_id=$1`, schema), cmd.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.material_classification_groups WHERE id=$1`, schema), cmd.ID); err != nil {
+		return err
+	}
+	if err := logMaterialClassificationTx(ctx, tx, schema, actor, "material_classification_group", cmd.ID, "delete", "group", name, ""); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func saveMaterialClassificationCategory(ctx context.Context, pool *pgxpool.Pool, schema string, cmd materialsapp.SaveClassificationCategoryCommand) (materialsapp.MaterialClassificationCategory, error) {
+	if cmd.GroupID <= 0 {
+		return materialsapp.MaterialClassificationCategory{}, fmt.Errorf("group required")
+	}
+	name := strings.TrimSpace(cmd.Name)
+	if name == "" {
+		return materialsapp.MaterialClassificationCategory{}, fmt.Errorf("name required")
+	}
+	if cmd.SortOrder <= 0 {
+		cmd.SortOrder = 100
+	}
+	actor := strings.TrimSpace(cmd.Actor)
+	if actor == "" {
+		actor = "materials"
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return materialsapp.MaterialClassificationCategory{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var exists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.material_classification_groups WHERE id=$1)`, schema), cmd.GroupID).Scan(&exists); err != nil {
+		return materialsapp.MaterialClassificationCategory{}, err
+	}
+	if !exists {
+		return materialsapp.MaterialClassificationCategory{}, fmt.Errorf("group not found")
+	}
+	var id int64
+	action := "create"
+	if cmd.ID > 0 {
+		action = "update"
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.material_classification_group_categories
+			SET group_id=$2, name=$3, sort_order=$4, updated_at=now()
+			WHERE id=$1
+			RETURNING id`, schema), cmd.ID, cmd.GroupID, name, cmd.SortOrder).Scan(&id); err != nil {
+			return materialsapp.MaterialClassificationCategory{}, err
+		}
+	} else {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.material_classification_group_categories(group_id, name, sort_order, created_at, updated_at)
+			VALUES($1,$2,$3,now(),now())
+			RETURNING id`, schema), cmd.GroupID, name, cmd.SortOrder).Scan(&id); err != nil {
+			return materialsapp.MaterialClassificationCategory{}, err
+		}
+	}
+	if err := logMaterialClassificationTx(ctx, tx, schema, actor, "material_classification_category", id, action, "category", "", name); err != nil {
+		return materialsapp.MaterialClassificationCategory{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return materialsapp.MaterialClassificationCategory{}, err
+	}
+	return materialsapp.MaterialClassificationCategory{ID: id, GroupID: cmd.GroupID, Name: name, SortOrder: cmd.SortOrder}, nil
+}
+
+func deleteMaterialClassificationCategory(ctx context.Context, pool *pgxpool.Pool, schema string, cmd materialsapp.DeleteClassificationCategoryCommand) error {
+	if cmd.ID <= 0 {
+		return fmt.Errorf("invalid id")
+	}
+	actor := strings.TrimSpace(cmd.Actor)
+	if actor == "" {
+		actor = "materials"
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var name string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT name FROM %s.material_classification_group_categories WHERE id=$1`, schema), cmd.ID).Scan(&name); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.material_classification_assignments
+		SET category_id=0, updated_at=now()
+		WHERE category_id=$1`, schema), cmd.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.material_classification_group_categories WHERE id=$1`, schema), cmd.ID); err != nil {
+		return err
+	}
+	if err := logMaterialClassificationTx(ctx, tx, schema, actor, "material_classification_category", cmd.ID, "delete", "category", name, ""); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func assignMaterialClassification(ctx context.Context, pool *pgxpool.Pool, schema string, cmd materialsapp.AssignClassificationCommand) error {
+	if len(cmd.MaterialIDs) == 0 {
+		return fmt.Errorf("material_ids required")
+	}
+	actor := strings.TrimSpace(cmd.Actor)
+	if actor == "" {
+		actor = "materials"
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if cmd.GroupID > 0 {
+		var exists bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.material_classification_groups WHERE id=$1)`, schema), cmd.GroupID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("group not found")
+		}
+	}
+	if cmd.CategoryID > 0 {
+		var exists bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.material_classification_group_categories WHERE id=$1 AND group_id=$2)`, schema), cmd.CategoryID, cmd.GroupID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("category not found")
+		}
+	}
+	for _, materialID := range cmd.MaterialIDs {
+		if materialID <= 0 {
+			continue
+		}
+		if cmd.GroupID <= 0 {
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.material_classification_assignments WHERE material_id=$1`, schema), materialID); err != nil {
+				return err
+			}
+		} else {
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s.material_classification_assignments(material_id, group_id, category_id, updated_at, updated_by)
+				VALUES($1,$2,$3,now(),$4)
+				ON CONFLICT(material_id) DO UPDATE SET
+					group_id=excluded.group_id,
+					category_id=excluded.category_id,
+					updated_at=now(),
+					updated_by=excluded.updated_by`, schema), materialID, cmd.GroupID, cmd.CategoryID, actor); err != nil {
+				return err
+			}
+		}
+		if err := logMaterialClassificationTx(ctx, tx, schema, actor, "material", materialID, "classify", "material_classification", "", fmt.Sprintf("%d/%d", cmd.GroupID, cmd.CategoryID)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func logMaterialClassificationTx(ctx context.Context, tx pgx.Tx, schema, actor, entityType string, entityID int64, action, field, oldValue, newValue string) error {
+	q := fmt.Sprintf(`INSERT INTO %s.audit_logs(actor, entity_type, entity_id, action, field, old_value, new_value, meta)
+		VALUES($1,$2,$3,$4,$5,$6,$7,jsonb_build_object('entity_type',$2::text,'entity_id',$3::bigint))`, schema)
+	_, err := tx.Exec(ctx, q, actor, entityType, entityID, action, field, oldValue, newValue)
+	return err
+}
+
+func materialIndustryFieldsString(fields []materialIndustryFieldInput) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(fields))
+	for _, field := range normalizeMaterialIndustryFields(fields) {
+		parts = append(parts, field.FieldKey+"="+field.ValueText)
+	}
+	return strings.Join(parts, ";")
 }
 
 func (p *beanProfileInput) normalize() {
@@ -696,39 +1175,72 @@ func materialsToApp(rows []materialRow) []materialsapp.Material {
 
 func materialToApp(row materialRow) materialsapp.Material {
 	return materialsapp.Material{
-		ID:            row.ID,
-		Code:          row.Code,
-		Name:          row.Name,
-		Kind:          row.Kind,
-		Unit:          row.Unit,
-		BatchNo:       row.BatchNo,
-		PurchasePrice: row.PurchasePrice,
-		SalePrice:     row.SalePrice,
-		OnhandG:       row.OnhandG,
-		OnhandUnits:   row.OnhandUnits,
-		MinLevelG:     row.MinLevelG,
-		MinLevelUnits: row.MinLevelUnits,
-		BeanProfile:   beanProfileToApp(row.Profile),
-		PackProfile:   packProfileToApp(row.PackProfile),
-		UpdatedAt:     row.UpdatedAt,
-		DeprecatedAt:  row.DeprecatedAt,
+		ID:                         row.ID,
+		Code:                       row.Code,
+		Name:                       row.Name,
+		Kind:                       row.Kind,
+		Unit:                       row.Unit,
+		BatchNo:                    row.BatchNo,
+		PurchasePrice:              row.PurchasePrice,
+		SalePrice:                  row.SalePrice,
+		OnhandG:                    row.OnhandG,
+		OnhandUnits:                row.OnhandUnits,
+		StockQty:                   row.StockQty,
+		MinLevelG:                  row.MinLevelG,
+		MinLevelUnits:              row.MinLevelUnits,
+		MinLevelQty:                row.MinLevelQty,
+		IndustryFieldTemplateID:    row.IndustryFieldTemplateID,
+		IndustryFields:             materialIndustryFieldsToApp(row.IndustryFields),
+		ClassificationGroupID:      row.ClassificationGroupID,
+		ClassificationGroupName:    row.ClassificationGroupName,
+		ClassificationCategoryID:   row.ClassificationCategoryID,
+		ClassificationCategoryName: row.ClassificationCategoryName,
+		BeanProfile:                beanProfileToApp(row.Profile),
+		PackProfile:                packProfileToApp(row.PackProfile),
+		UpdatedAt:                  row.UpdatedAt,
+		DeprecatedAt:               row.DeprecatedAt,
 	}
 }
 
 func materialInputFromApp(in materialsapp.MaterialInput) materialInput {
 	return materialInput{
-		Code:          in.Code,
-		Name:          in.Name,
-		Kind:          in.Kind,
-		Unit:          in.Unit,
-		BatchNo:       in.BatchNo,
-		PurchasePrice: in.PurchasePrice,
-		SalePrice:     in.SalePrice,
-		OnhandG:       in.OnhandG,
-		OnhandUnits:   in.OnhandUnits,
-		MinLevelG:     in.MinLevelG,
-		MinLevelUnits: in.MinLevelUnits,
-		Profile:       beanProfileFromApp(in.BeanProfile),
-		PackProfile:   packProfileFromApp(in.PackProfile),
+		Code:                    in.Code,
+		Name:                    in.Name,
+		Kind:                    in.Kind,
+		Unit:                    in.Unit,
+		BatchNo:                 in.BatchNo,
+		PurchasePrice:           in.PurchasePrice,
+		SalePrice:               in.SalePrice,
+		OnhandG:                 in.OnhandG,
+		OnhandUnits:             in.OnhandUnits,
+		MinLevelG:               in.MinLevelG,
+		MinLevelUnits:           in.MinLevelUnits,
+		MinLevelQty:             in.MinLevelQty,
+		IndustryFieldTemplateID: in.IndustryFieldTemplateID,
+		IndustryFields:          materialIndustryFieldsFromApp(in.IndustryFields),
+		Profile:                 beanProfileFromApp(in.BeanProfile),
+		PackProfile:             packProfileFromApp(in.PackProfile),
 	}
+}
+
+func materialIndustryFieldsToApp(fields []materialIndustryFieldInput) []materialsapp.MaterialIndustryFieldValue {
+	out := make([]materialsapp.MaterialIndustryFieldValue, 0, len(fields))
+	for _, field := range fields {
+		out = append(out, materialsapp.MaterialIndustryFieldValue{
+			FieldKey:  field.FieldKey,
+			ValueText: field.ValueText,
+		})
+	}
+	return out
+}
+
+func materialIndustryFieldsFromApp(fields []materialsapp.MaterialIndustryFieldValue) []materialIndustryFieldInput {
+	out := make([]materialIndustryFieldInput, 0, len(fields))
+	for _, field := range fields {
+		out = append(out, materialIndustryFieldInput{
+			FieldKey:  field.FieldKey,
+			ValueText: field.ValueText,
+		})
+	}
+	return out
 }

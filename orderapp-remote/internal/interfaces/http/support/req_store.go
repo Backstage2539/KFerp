@@ -252,6 +252,15 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-414-MATERIALS-CLASSIFICATION-INDUSTRY-SETTINGS", title: "商品价格表不因旧豆单编号缺失隐藏商品；仓库设置普通仓库显示空状态；物料档案支持分类、CRUD、全局单位、单数量库存和行业字段模板", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; MaterialsView.vue; CostingView.vue; WarehouseInventoryView.vue"},
+		{table: "req_dev", code: "DEV-414-PRICE-LIST-METADATA-CANDIDATES", title: "商品价格表候选、预览和 PDF 选择不再用旧 bean-list code 作为可见条件，无计价方式只显示 warning", status: "doing", assignee: "Codex", evidence: "CostingView.vue; product-bean-list-split.test.js"},
+		{table: "req_dev", code: "DEV-414-WAREHOUSE-SETTINGS-EMPTY", title: "普通仓库可打开仓库设置抽屉，无客户绑定配置时展示空状态", status: "doing", assignee: "Codex", evidence: "WarehouseInventoryView.vue; materials-ui.test.js"},
+		{table: "req_dev", code: "DEV-414-MATERIALS-CLASSIFICATION-CRUD", title: "物料分类大类/组内小类 schema/API/Vue 交互，物料支持新建、编辑和失效", status: "doing", assignee: "Codex", evidence: "materials schema/repository/api; MaterialsView.vue"},
+		{table: "req_dev", code: "DEV-414-MATERIALS-UNIT-STOCK-QTY", title: "物料单位来自全局单位字典，物料库存补录和库存调整新前端只提交 target_qty/unit_code，旧字段兼容", status: "doing", assignee: "Codex", evidence: "MaterialsView.vue; StockAdjustmentsView.vue; stock repository"},
+		{table: "req_dev", code: "DEV-414-MATERIALS-INDUSTRY-FIELDS", title: "物料档案绑定行业字段模板并保存字段值，咖啡生豆旧属性回填为行业字段值兼容", status: "doing", assignee: "Codex", evidence: "material_industry_field_values; MaterialsView.vue"},
+		{table: "req_unit", code: "UT-414-MATERIALS-CLASSIFICATION-INDUSTRY-SETTINGS", title: "前端单测覆盖价格表候选不过滤旧 code、仓库设置空状态、物料分类/CRUD/单数量和行业字段菜单迁移", status: "doing", assignee: "Codex", evidence: "node --test materials-ui.test.js menu-ia.test.js product-bean-list-split.test.js"},
+		{table: "req_api", code: "API-414-MATERIALS-CLASSIFICATION-INDUSTRY-SETTINGS", title: "API 测试覆盖物料 CRUD 可编辑基础字段、分类大类/小类归类、行业字段值和库存调整 target_qty/unit_code", status: "doing", assignee: "Codex", evidence: "go test materials/stock/costing targeted"},
+		{table: "req_review", code: "REV-414-MATERIALS-CLASSIFICATION-INDUSTRY-SETTINGS", prCode: "PR-414-MATERIALS-CLASSIFICATION-INDUSTRY-SETTINGS", title: "验收：商品价格表显示挂耳候选，普通仓库设置空状态，物料档案按分类和行业字段维护；本轮不做浏览器人工验收", status: "todo", assignee: "VA", evidence: "待部署 smoke"},
 		{table: "req_product", code: "PR-413-PRODUCT-CREATE-NULL-PRODUCTION-CONFIG", title: "新建商品档案成功后自动打开配置抽屉时，商品尚无生产配置记录也不能因 expected_loss_rate 空值崩溃", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; ProductSettingsView.vue; product-settings.js"},
 		{table: "req_dev", code: "DEV-413-PRODUCT-CREATE-NULL-CONFIG-GUARD", title: "商品生产配置表单构造 helper 兼容 null 配置，使用商品档案行作为默认值打开配置抽屉", status: "doing", assignee: "Codex", evidence: "buildProductProductionConfigForm; product-settings.test.js"},
 		{table: "req_unit", code: "UT-413-PRODUCT-CREATE-NULL-PRODUCTION-CONFIG", title: "前端单测覆盖新建商品无 production config 行时表单默认值和 expected_loss_rate 空值保护", status: "doing", assignee: "Codex", evidence: "node --test src/lib/product-settings.test.js"},

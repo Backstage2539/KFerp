@@ -22,6 +22,7 @@ test('product menu is split into product archive, customer products, template an
   assert.equal(menuItem('productConfigTemplates')?.label, '商品配置和分类模板')
   assert.equal(menuItem('costing')?.label, '商品价格表')
   assert.equal(menuItem('costing')?.title, '商品价格表')
+  assert.equal(menuItem('industryFieldTemplates')?.label, '行业设置')
 })
 
 test('product archive no longer embeds the product bean-list workspace', () => {
@@ -144,6 +145,7 @@ test('product bean-list preview and PDF selection reuse alias-filtered visible i
 
   assert.match(costingSource, /function priceListScopedItems/)
   assert.match(beanListItemsSource, /priceListScopedItems\(\)/)
+  assert.doesNotMatch(beanListItemsSource, /beanMetaForItem\(item\)\.code/)
   assert.doesNotMatch(beanListItemsSource, /scopedBeanListItems/)
   assert.match(costingSource, /const pdfAvailableItems = computed\(\(\) => beanListItemsForType/)
   assert.match(costingSource, /const categoryProductGroups = computed\(\(\) => productGroupsForType/)

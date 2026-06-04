@@ -3,6 +3,7 @@ package stock
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -1232,6 +1233,8 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 		"before_units":    beforeUnits,
 		"change_units":    changeUnits,
 		"after_units":     afterUnits,
+		"target_qty":      cmd.TargetQty,
+		"unit_code":       cmd.UnitCode,
 	}); err != nil {
 		return stockapp.StockAdjustmentResult{}, err
 	}
@@ -1335,13 +1338,22 @@ func (r Repository) applyAdjustmentTx(ctx context.Context, tx pgx.Tx, cmd stocka
 	if cmd.ItemType == itemTypeMaterial {
 		var name string
 		var beforeG, beforeUnits int64
-		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,''),onhand_g,onhand_units FROM %s.materials WHERE id=$1 FOR UPDATE`, r.schema), cmd.ItemID).Scan(&name, &beforeG, &beforeUnits); err != nil {
+		var materialUnit string
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(name,''),onhand_g,onhand_units,COALESCE(unit,'') FROM %s.materials WHERE id=$1 FOR UPDATE`, r.schema), cmd.ItemID).Scan(&name, &beforeG, &beforeUnits, &materialUnit); err != nil {
 			return "", 0, 0, 0, 0, err
 		}
-		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET onhand_g=$2,onhand_units=$3,updated_at=now() WHERE id=$1`, r.schema), cmd.ItemID, cmd.TargetG, cmd.TargetUnits); err != nil {
+		targetG, targetUnits := cmd.TargetG, cmd.TargetUnits
+		if cmd.HasTargetQty {
+			unitCode := strings.TrimSpace(cmd.UnitCode)
+			if unitCode == "" {
+				unitCode = materialUnit
+			}
+			targetG, targetUnits = r.materialTargetQtyToLegacyTx(ctx, tx, unitCode, cmd.TargetQty)
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET onhand_g=$2,onhand_units=$3,updated_at=now() WHERE id=$1`, r.schema), cmd.ItemID, targetG, targetUnits); err != nil {
 			return "", 0, 0, 0, 0, err
 		}
-		return name, beforeG, beforeUnits, cmd.TargetG, cmd.TargetUnits, nil
+		return name, beforeG, beforeUnits, targetG, targetUnits, nil
 	}
 
 	var name string
@@ -1362,6 +1374,52 @@ func (r Repository) applyAdjustmentTx(ctx context.Context, tx pgx.Tx, cmd stocka
 		return "", 0, 0, 0, 0, err
 	}
 	return name, beforeG, beforeUnits, afterG, cmd.TargetUnits, nil
+}
+
+func (r Repository) materialTargetQtyToLegacyTx(ctx context.Context, tx pgx.Tx, unitCode string, qty float64) (int64, int64) {
+	unitCode = strings.TrimSpace(unitCode)
+	unitType := ""
+	if unitCode != "" {
+		var tableName string
+		_ = tx.QueryRow(ctx, `SELECT COALESCE(to_regclass($1)::text,'')`, fmt.Sprintf("%s.product_unit_definitions", r.schema)).Scan(&tableName)
+		if tableName != "" {
+			_ = tx.QueryRow(ctx, fmt.Sprintf(`
+				SELECT COALESCE(unit_type,'')
+				FROM %s.product_unit_definitions
+				WHERE code=$1 AND active=true
+				LIMIT 1`, r.schema), unitCode).Scan(&unitType)
+		}
+	}
+	if isWeightUnit(unitCode, unitType) {
+		return int64(math.Round(weightQtyToGrams(unitCode, qty))), 0
+	}
+	return 0, int64(math.Round(qty))
+}
+
+func isWeightUnit(unitCode, unitType string) bool {
+	switch strings.ToLower(strings.TrimSpace(unitType)) {
+	case "weight", "重量":
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(unitCode)) {
+	case "g", "kg", "lb", "oz", "克", "千克":
+		return true
+	default:
+		return false
+	}
+}
+
+func weightQtyToGrams(unitCode string, qty float64) float64 {
+	switch strings.ToLower(strings.TrimSpace(unitCode)) {
+	case "kg", "千克":
+		return qty * 1000
+	case "lb":
+		return qty * 453.59237
+	case "oz":
+		return qty * 28.349523125
+	default:
+		return qty
+	}
 }
 
 func (r Repository) ensureWarehouseExistsTx(ctx context.Context, tx pgx.Tx, warehouse string) error {

@@ -18,10 +18,16 @@ type MaterialListResponse struct {
 func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 	e.GET("/api/materials", func(c echo.Context) error {
 		limit := support.IntParam(c, "limit", 200)
+		active := strings.TrimSpace(c.QueryParam("active"))
+		includeDeprecated := strings.TrimSpace(c.QueryParam("include_deprecated")) == "1"
+		if active == "all" {
+			includeDeprecated = true
+		}
 		rows, err := materialsSvc.List(c.Request().Context(), materialsapp.ListCommand{
 			Query:             strings.TrimSpace(c.QueryParam("q")),
+			Active:            active,
 			Limit:             limit,
-			IncludeDeprecated: strings.TrimSpace(c.QueryParam("include_deprecated")) == "1",
+			IncludeDeprecated: includeDeprecated,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -78,4 +84,155 @@ func registerMaterialsAPI(e *echo.Echo, materialsSvc *materialsapp.Service) {
 		}
 		return c.JSON(http.StatusOK, row)
 	})
+
+	e.GET("/api/material-classification-groups", func(c echo.Context) error {
+		rows, err := materialsSvc.ListClassificationGroups(c.Request().Context())
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.POST("/api/material-classification-groups", func(c echo.Context) error {
+		var req struct {
+			Name      string `json:"name"`
+			SortOrder int    `json:"sort_order"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		row, err := materialsSvc.SaveClassificationGroup(c.Request().Context(), materialsapp.SaveClassificationGroupCommand{
+			Actor:     support.ActorOf(c),
+			Name:      req.Name,
+			SortOrder: req.SortOrder,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.PUT("/api/material-classification-groups/:id", func(c echo.Context) error {
+		id, err := parsePositiveID(c.Param("id"))
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid id"})
+		}
+		var req struct {
+			Name      string `json:"name"`
+			SortOrder int    `json:"sort_order"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		row, err := materialsSvc.SaveClassificationGroup(c.Request().Context(), materialsapp.SaveClassificationGroupCommand{
+			Actor:     support.ActorOf(c),
+			ID:        id,
+			Name:      req.Name,
+			SortOrder: req.SortOrder,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.DELETE("/api/material-classification-groups/:id", func(c echo.Context) error {
+		id, err := parsePositiveID(c.Param("id"))
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid id"})
+		}
+		if err := materialsSvc.DeleteClassificationGroup(c.Request().Context(), materialsapp.DeleteClassificationGroupCommand{Actor: support.ActorOf(c), ID: id}); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+
+	e.POST("/api/material-classification-groups/:group_id/categories", func(c echo.Context) error {
+		groupID, err := parsePositiveID(c.Param("group_id"))
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid group_id"})
+		}
+		var req struct {
+			Name      string `json:"name"`
+			SortOrder int    `json:"sort_order"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		row, err := materialsSvc.SaveClassificationCategory(c.Request().Context(), materialsapp.SaveClassificationCategoryCommand{
+			Actor:     support.ActorOf(c),
+			GroupID:   groupID,
+			Name:      req.Name,
+			SortOrder: req.SortOrder,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.PUT("/api/material-classification-group-categories/:id", func(c echo.Context) error {
+		id, err := parsePositiveID(c.Param("id"))
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid id"})
+		}
+		var req struct {
+			GroupID   int64  `json:"group_id"`
+			Name      string `json:"name"`
+			SortOrder int    `json:"sort_order"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		row, err := materialsSvc.SaveClassificationCategory(c.Request().Context(), materialsapp.SaveClassificationCategoryCommand{
+			Actor:     support.ActorOf(c),
+			ID:        id,
+			GroupID:   req.GroupID,
+			Name:      req.Name,
+			SortOrder: req.SortOrder,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.DELETE("/api/material-classification-group-categories/:id", func(c echo.Context) error {
+		id, err := parsePositiveID(c.Param("id"))
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid id"})
+		}
+		if err := materialsSvc.DeleteClassificationCategory(c.Request().Context(), materialsapp.DeleteClassificationCategoryCommand{Actor: support.ActorOf(c), ID: id}); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+
+	e.POST("/api/material-classification-assignments", func(c echo.Context) error {
+		var req struct {
+			MaterialIDs []int64 `json:"material_ids"`
+			GroupID     int64   `json:"group_id"`
+			CategoryID  int64   `json:"category_id"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		if err := materialsSvc.AssignClassification(c.Request().Context(), materialsapp.AssignClassificationCommand{
+			Actor:       support.ActorOf(c),
+			MaterialIDs: req.MaterialIDs,
+			GroupID:     req.GroupID,
+			CategoryID:  req.CategoryID,
+		}); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+}
+
+func parsePositiveID(v string) (int64, error) {
+	id, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	if err != nil || id <= 0 {
+		return 0, strconv.ErrSyntax
+	}
+	return id, nil
 }
