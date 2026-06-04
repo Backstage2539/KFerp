@@ -31,6 +31,8 @@
 - 修复未绑定商品 BOM 点击后右侧配方明细消失的问题。未绑定 BOM 现在从 `/api/production-boms/:id` 读取版本和配方项，并在右侧明细中显示商品为“未绑定商品”。
 - RED：`node --test src/lib/bom.test.js` failed，因为 `productionBomDetailAsRecipeDetail` 尚未导出，旧选择逻辑会清空 `detail`。
 - GREEN：`node --test src/lib/bom.test.js` 9/9 passed；`node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` 118/118 passed；`npm run build` passed；`scripts/verify_kferp.sh changed` passed。
+- 部署：feature commit `e5cbda1d580a1b3edaf53bf8660082f7836038d6` 已快进合入并推送 `origin/develop`，development stack 通过 `./deploy_orderapp.sh development` 部署。Docker build 期间 `go test ./...` passed；初次部署备份 `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604114317`。
+- Smoke：`erp_orderapp`、`erp_postgres`、`erp_caddy`、`erp_docconvert` running；未认证 GET `/app/` 返回 303 到 `/app/orders`；认证 `/app/vue-shell` 返回 200；认证 `/app/api/production-boms?status=all` 返回 200；需求 API 暴露 `PR-406-BOM-PRODUCT-ALIAS-LAYOUT`；远端源码包含 `productionBomDetailAsRecipeDetail`。
 
 ## 手册与需求文档
 - `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
