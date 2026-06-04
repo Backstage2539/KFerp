@@ -63,14 +63,16 @@
           </button>
           <template v-if="isCustomProductionBomGroupSelected">
             <span class="toolbar-divider">组内分类</span>
-            <button class="secondary compact-action" type="button" @click="openGroupCategoryDrawer">新增小分类</button>
-            <label>
-              <span>目标小分类</span>
-              <select v-model.number="selectedProductionBomGroupCategoryID">
-                <option :value="0">未分类</option>
-                <option v-for="category in productionBomGroupCategories" :key="category.id" :value="Number(category.id || 0)">{{ category.name }}</option>
-              </select>
-            </label>
+            <div class="group-category-move-controls">
+              <button class="secondary compact-action" type="button" @click="openGroupCategoryDrawer">新增小分类</button>
+              <label>
+                <span>目标小分类</span>
+                <select v-model.number="selectedProductionBomGroupCategoryID">
+                  <option :value="0">未分类</option>
+                  <option v-for="category in productionBomGroupCategories" :key="category.id" :value="Number(category.id || 0)">{{ category.name }}</option>
+                </select>
+              </label>
+            </div>
             <button class="secondary compact-action" type="button" :disabled="!canMoveSelectedBomsToGroupCategory || loading" @click="moveSelectedProductBomsToGroupCategory">
               移动到小分类
             </button>
@@ -1623,6 +1625,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .bom-list-tabs-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
 .bom-list-toolbar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; padding: 10px; margin: 8px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
 .toolbar-divider { align-self: center; color: #666; font-size: 12px; font-weight: 700; padding-left: 8px; border-left: 1px solid #ddd6ce; }
+.group-category-move-controls { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
 .bom-list-tabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .bom-list-panel-scroll { max-height: min(62vh, 720px); overflow: auto; }
 .bom-name-button { height: auto; min-height: 30px; text-align: left; font-weight: 700; }

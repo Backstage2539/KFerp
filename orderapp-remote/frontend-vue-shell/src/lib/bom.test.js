@@ -314,6 +314,10 @@ test('production BOM custom groups expose inner category grouping and version dr
   ]) {
     assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  assert.match(
+    template,
+    /<div class="group-category-move-controls"[\s\S]*?<button class="secondary compact-action" type="button" @click="openGroupCategoryDrawer">新增小分类<\/button>\s*<label>[\s\S]*?<span>目标小分类<\/span>[\s\S]*?<select v-model\.number="selectedProductionBomGroupCategoryID">/
+  )
   assert.match(tabRow, /全部分组/)
   assert.match(tabRow, /未分类/)
   assert.match(source, /version\.status === 'published'/)
