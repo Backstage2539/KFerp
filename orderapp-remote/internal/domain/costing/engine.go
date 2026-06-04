@@ -539,7 +539,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, in.ProductKind != "drip_bag")
 		retailDisplay = customerCategoryBeanListDisplay(in, retailDisplay, false)
 		dripDisplay = customerCategoryBeanListDisplay(in, dripDisplay, in.ProductKind == "drip_bag")
-	} else if hasSkuCategoryBeanListMetadata(in) {
+	} else {
 		if commercialDisplay.Code == "" {
 			commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, in.ProductKind != "drip_bag")
 		}
@@ -953,6 +953,7 @@ func customerCategoryBeanListDisplay(in ProductInput, display BeanListDisplay, a
 }
 
 func hasSkuCategoryBeanListMetadata(in ProductInput) bool {
+	_ = in // kept for backward reference; fallback now always applies in CalculateProduct
 	return strings.TrimSpace(in.CategoryPrimaryName) != "" || strings.TrimSpace(in.CategorySecondaryName) != ""
 }
 

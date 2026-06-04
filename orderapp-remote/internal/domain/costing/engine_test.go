@@ -1031,3 +1031,47 @@ func retailPriceMap(tiers []RetailBeanTier) map[string]float64 {
 	}
 	return out
 }
+
+func TestCalculateProductGeneratesDefaultBeanListDisplayForUncategorizedProducts(t *testing.T) {
+	params := DefaultParameters()
+
+	// 速溶咖啡 (instant_coffee) without hardcoded metadata and without classification
+	instant := CalculateProduct(params, ProductInput{
+		ProductID:   9100,
+		Name:        "三合一速溶咖啡",
+		ProductKind: "instant_coffee",
+	})
+	if instant.CommercialBeanList.Code == "" {
+		t.Fatalf("instant coffee commercial bean list code must not be empty: %+v", instant.CommercialBeanList)
+	}
+	if instant.CommercialBeanList.Category != "未分类" {
+		t.Fatalf("instant coffee commercial category = %q, want 未分类", instant.CommercialBeanList.Category)
+	}
+	if instant.CommercialBeanList.DisplayName != "三合一速溶咖啡" {
+		t.Fatalf("instant coffee display name = %q, want 三合一速溶咖啡", instant.CommercialBeanList.DisplayName)
+	}
+
+	// 挂耳咖啡 (drip_bag) without hardcoded metadata and without classification
+	drip := CalculateProduct(params, ProductInput{
+		ProductID:       9101,
+		Name:            "精品挂耳礼盒",
+		ProductKind:     "drip_bag",
+		DripBagGrams:    10,
+		DripBoxBagCount: 10,
+	})
+	if drip.DripBeanList.Code == "" {
+		t.Fatalf("drip bag bean list code must not be empty: %+v", drip.DripBeanList)
+	}
+	if drip.DripBeanList.Category != "未分类" {
+		t.Fatalf("drip bag category = %q, want 未分类", drip.DripBeanList.Category)
+	}
+	if drip.DripBeanList.DisplayName != "精品挂耳礼盒" {
+		t.Fatalf("drip bag display name = %q, want 精品挂耳礼盒", drip.DripBeanList.DisplayName)
+	}
+	if drip.CommercialBeanList.Code != "" {
+		t.Fatalf("drip bag should not appear in commercial bean list: %+v", drip.CommercialBeanList)
+	}
+	if drip.RetailBeanList.Code != "" {
+		t.Fatalf("drip bag should not appear in retail bean list: %+v", drip.RetailBeanList)
+	}
+}

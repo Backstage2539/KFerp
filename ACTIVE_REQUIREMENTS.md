@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### FIX-20260604-BEAN-LIST-UNCATEGORIZED-DISPLAY
+- Branch: codex/bom-group-tabs-industry-layout-20260603
+- Owner/session: Codex / 2026-06-04
+- Status: fixing (not yet merged/deployed)
+- Scope: 商品价格表对未匹配硬编码豆单元数据且无产品分类的商品（如速溶咖啡、挂耳咖啡）也生成默认豆单展示（未分类 + product_id 编号），避免 Vue 前端因 `beanMeta.code` 为空将其过滤掉。
+- Root cause: `CalculateProduct` 中的 `hasSkuCategoryBeanListMetadata` 门控导致没有产品分类的商品无法回退到 `customerCategoryBeanListDisplay` 生成默认展示码。
+- Fix: 将 `else if hasSkuCategoryBeanListMetadata(in)` 改为 `else`，使所有无硬编码元数据的商品都通过 `customerCategoryBeanListDisplay` 生成回退展示（该函数本身就支持无分类场景：`categoryName == ""` 时生成"未分类"分组和 `product_category_position.product_id` 格式编号）。
+- DEV:
+  - DEV-FIX-BEAN-LIST-UNCATEGORIZED：`CalculateProduct` 中移除 `hasSkuCategoryBeanListMetadata` 门控，始终为无硬编码元数据的商品回退到 `customerCategoryBeanListDisplay`。
+- Verifier:
+  - RED: `go test ./internal/domain/costing -run TestCalculateProductGeneratesDefaultBeanListDisplayForUncategorizedProducts -count=1` — 修复前 `CommercialBeanList.Code` 和 `DripBeanList.Code` 为空。
+  - GREEN: `go test ./internal/domain/costing -count=1` passed (incl. new test); `go test ./internal/domain/costing ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1` passed.
+  - Frontend: unaffected (Vue 端已有基于 `beanMeta.code` 的过滤逻辑，后端提供码后即可展示)。
+  - Changed verifier: `scripts/verify_kferp.sh changed` exited 0.
+- Manual/docs: 无用户流程变化；无需更新操作手册。
+- Last update: 2026-06-04 Asia/Shanghai
+
 ### PR-413-PRODUCT-CREATE-NULL-PRODUCTION-CONFIG
 - Branch: codex/product-create-null-production-config-20260604
 - Owner/session: Codex / 2026-06-04
