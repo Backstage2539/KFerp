@@ -34,7 +34,7 @@ func TestDev321CustomerSkuCategoryToggleFactoryBeanListTitle(t *testing.T) {
 			"SKU归属回到公共SKU",
 		},
 		"docs/OP_MANUAL_COSTING.md": {
-			"客户商品名还没有展示分类时，产品价格表会把它放到“未分类”",
+			"客户商品还没有展示分类时，产品价格表会把它放到“未分类”",
 			"“1、定制咖啡熟豆”分组",
 			"schema 修复",
 		},

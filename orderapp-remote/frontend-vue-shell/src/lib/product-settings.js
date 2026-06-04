@@ -186,8 +186,7 @@ export function buildCustomerProductAliasPayload(form = {}) {
     display_name: String(form.display_name ?? form.displayName ?? '').trim(),
     brand_name: String(form.brand_name ?? form.brandName ?? '').trim(),
     display_category_id: Number(form.display_category_id || form.displayCategoryID || 0),
-    gradient_template_id: Number(form.gradient_template_id || form.gradientTemplateID || 0),
-    unit_template_id: Number(form.unit_template_id || form.unitTemplateID || 0),
+    product_config_template_id: Number(form.product_config_template_id || form.productConfigTemplateID || 0),
     sort_order: Number(form.sort_order || form.sortOrder || 0),
     include_in_price_list: Boolean(form.include_in_price_list ?? form.includeInPriceList ?? true),
     active: Boolean(form.active ?? true),
@@ -482,7 +481,7 @@ export function customerProductAliasMigrationCandidateSummary(row = {}) {
   const base = [row.base_product_code, row.base_product_name].map((value) => String(value || '').trim()).filter(Boolean).join(' ')
   const reason = String(row.suggested_reason || '').trim()
   if (row.suggested_action === 'convert_to_customer_product_alias') {
-    return `建议转为客户商品名：${product || '当前客户商品'} → 绑定 ${base || '来源商品档案'}${reason ? `；${reason}` : ''}`
+    return `建议转为客户商品：${product || '当前客户商品'} → 绑定 ${base || '来源商品档案'}${reason ? `；${reason}` : ''}`
   }
   return `建议保留商品档案：${product || '当前客户商品'}${reason ? `；${reason}` : ''}`
 }
@@ -604,7 +603,7 @@ export function buildProductConfigTemplatePayload(form = {}) {
 		id: Number(form.id || 0),
 		customer_id: Number(form.customer_id || 0),
 		name: String(form.name || '').trim(),
-		gradient_template_id: Number(form.gradient_template_id || 0),
+		gradient_template_id: productConfigTemplateNeedsGradientTemplate(form) ? Number(form.gradient_template_id || 0) : 0,
 		operation_template_id: Number(form.operation_template_id || 0),
 		unit_template_id: Number(form.unit_template_id || 0),
 		price_list_rule_json: hasStructuredPriceRuleFields(form)
@@ -615,6 +614,11 @@ export function buildProductConfigTemplatePayload(form = {}) {
 			: normalizeJSONArrayString(form.special_attrs_schema_json),
 		active: form.active === false ? false : true,
 	}
+}
+
+export function productConfigTemplateNeedsGradientTemplate(form = {}) {
+  const ruleForm = hasStructuredPriceRuleFields(form) ? form : priceListRuleFormFromJSON(form.price_list_rule_json || '{}')
+  return optionValue(ruleForm.price_rule_pricing_mode, priceListRulePricingModeOptions, 'inherit_gradient_template') === 'inherit_gradient_template'
 }
 
 export function buildProductUnitDefinitionPayload(form = {}) {

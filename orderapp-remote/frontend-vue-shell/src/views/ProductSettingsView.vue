@@ -8,7 +8,7 @@
       <div class="panel-head">
         <div>
           <h2>{{ productSectionTitle }}</h2>
-          <p>商品档案承载库存、生产配置、商品分类和生产 BOM 绑定；客户商品名只维护销售展示；商品配置模板只维护模板规则。</p>
+          <p>商品档案承载库存、生产配置、商品分类和生产 BOM 绑定；客户商品只维护销售展示；商品配置模板只维护模板规则。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -234,9 +234,9 @@
       <div v-show="currentSettingsSection === 'aliases'" class="customer-alias-workspace">
         <section class="panel customer-alias-panel">
           <div class="panel-title">
-            <span>客户商品名 · {{ aliasCustomerLabel }}</span>
+            <span>客户商品 · {{ aliasCustomerLabel }}</span>
           </div>
-          <p class="muted">客户商品名只维护对外名称、编号、重命名和价格表展示；生产 BOM 和生产配置只能回到商品档案维护。</p>
+          <p class="muted">客户商品只维护对外名称、编号、重命名和价格表展示；生产 BOM 和生产配置只能回到商品档案维护。</p>
           <div class="alias-filters alias-filter-row">
             <label>
               <span>客户</span>
@@ -251,7 +251,7 @@
             </label>
             <label>
               <span>搜索</span>
-              <input v-model.trim="aliasFilters.query" placeholder="客户商品名/编号/绑定商品" />
+              <input v-model.trim="aliasFilters.query" placeholder="客户商品/编号/绑定商品" />
             </label>
             <label>
               <span>状态</span>
@@ -266,7 +266,7 @@
               <button class="secondary compact-action danger-outline" type="button" :disabled="!selectedAliasIds.length || aliasSaving" @click="batchDisableCustomerProductAliases">批量失效</button>
             </div>
           </div>
-          <div class="classification-view-toolbar alias-classification-tabs" aria-label="客户商品名分类模板视图">
+          <div class="classification-view-toolbar alias-classification-tabs" aria-label="客户商品分类模板视图">
             <div class="classification-tabs">
               <button
                 v-for="tab in aliasClassificationTabs"
@@ -307,7 +307,7 @@
                   <th class="select-col">
                     <input type="checkbox" :checked="allAliasRowsSelected" :disabled="!visibleCustomerProductAliases.length" @change="toggleAllAliasRows($event.target.checked)" />
                   </th>
-                  <th>客户商品名</th>
+                  <th>客户商品</th>
                   <th>客户商品编号</th>
                   <th>绑定商品档案</th>
                   <th>计价/单位</th>
@@ -363,7 +363,7 @@
                   </template>
                 </template>
                 <tr v-if="!visibleCustomerProductAliases.length">
-                  <td colspan="10" class="muted">当前客户暂无客户商品名。</td>
+                  <td colspan="10" class="muted">当前客户暂无客户商品。</td>
                 </tr>
               </tbody>
             </table>
@@ -569,7 +569,7 @@
           <span>分类模板</span>
           <button class="secondary compact-action" type="button" @click="openClassificationTemplateCreateDrawer">新建分类模板</button>
         </div>
-        <p class="muted">分类模板只定义分类结构。点击左侧模板后，在右侧维护分类项；商品归类在商品档案或客户商品名列表中完成。排序值越小越靠前，默认 100；建议按 10 递增，方便中间插入。</p>
+        <p class="muted">分类模板只定义分类结构。点击左侧模板后，在右侧维护分类项；商品归类在商品档案或客户商品列表中完成。排序值越小越靠前，默认 100；建议按 10 递增，方便中间插入。</p>
         <div class="product-config-layout">
           <div class="template-list product-config-list classification-template-list">
             <div
@@ -697,13 +697,6 @@
               <input v-model.trim="productConfigTemplateForm.name" :disabled="!canEditCurrentProductConfigTemplate" placeholder="如 盒装速溶配置" />
             </label>
             <label>
-              <span>阶梯价模板</span>
-              <select v-model.number="productConfigTemplateForm.gradient_template_id" :disabled="!canEditCurrentProductConfigTemplate">
-                <option value="0">未绑定模板</option>
-                <option v-for="template in selectableGradientTemplatesForProductConfig" :key="template.id" :value="template.id">{{ template.name }} · {{ gradientDisplayUnitLabel(template.display_unit) }}</option>
-              </select>
-            </label>
-            <label>
               <span>工序模板ID</span>
               <input v-model.number="productConfigTemplateForm.operation_template_id" :disabled="!canEditCurrentProductConfigTemplate" type="number" min="0" step="1" placeholder="0 表示未绑定" />
             </label>
@@ -713,6 +706,13 @@
                 <span>计价方式</span>
                 <select v-model="productConfigTemplateForm.price_rule_pricing_mode" :disabled="!canEditCurrentProductConfigTemplate">
                   <option v-for="option in priceListRulePricingModeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </label>
+              <label v-if="productConfigTemplateNeedsGradientTemplate(productConfigTemplateForm)" class="rule-config-field">
+                <span>阶梯价模板</span>
+                <select v-model.number="productConfigTemplateForm.gradient_template_id" :disabled="!canEditCurrentProductConfigTemplate">
+                  <option value="0">未绑定模板</option>
+                  <option v-for="template in selectableGradientTemplatesForProductConfig" :key="template.id" :value="template.id">{{ template.name }} · {{ gradientDisplayUnitLabel(template.display_unit) }}</option>
                 </select>
               </label>
               <label v-if="productConfigTemplateForm.price_rule_pricing_mode === 'fixed_unit_price'" class="rule-config-field">
@@ -770,7 +770,7 @@
         <div class="drawer-head">
           <div>
             <h3>新建分类模板</h3>
-            <p>只创建分类结构模板；商品档案和客户商品名是否使用该模板，在各自列表页启用。</p>
+            <p>只创建分类结构模板；商品档案和客户商品是否使用该模板，在各自列表页启用。</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closeClassificationTemplateCreateDrawer">关闭</button>
         </div>
@@ -872,28 +872,19 @@
                 empty-text="暂无商品档案" />
             </label>
             <label>
-              <span>客户商品名</span>
+              <span>客户商品</span>
               <input v-model.trim="customerProductAliasForm.display_name" required placeholder="客户对外展示名称" />
             </label>
             <label>
               <span>重命名</span>
-              <input v-model.trim="customerProductAliasForm.brand_name" placeholder="留空则使用客户商品名" />
+              <input v-model.trim="customerProductAliasForm.brand_name" placeholder="留空则使用客户商品" />
             </label>
             <label>
-              <span>阶梯价模板</span>
-              <select v-model.number="customerProductAliasForm.gradient_template_id">
-                <option :value="0">不覆盖阶梯价模板</option>
-                <option v-for="template in aliasGradientTemplateOptions" :key="template.id" :value="template.id">
-                  {{ template.name }}
-                </option>
-              </select>
-            </label>
-            <label>
-              <span>单位模板</span>
-              <select v-model.number="customerProductAliasForm.unit_template_id">
-                <option :value="0">不覆盖单位模板</option>
-                <option v-for="template in aliasProductUnitTemplateOptions" :key="template.id" :value="template.id">
-                  {{ template.name }}
+              <span>商品配置模板</span>
+              <select v-model.number="customerProductAliasForm.product_config_template_id">
+                <option :value="0">继承商品档案配置</option>
+                <option v-for="config in aliasProductConfigTemplateOptions" :key="config.id" :value="config.id">
+                  {{ config.name }}
                 </option>
               </select>
             </label>
@@ -910,7 +901,7 @@
               <textarea v-model.trim="customerProductAliasForm.remark" rows="2" placeholder="例如贴牌、客户命名、展示用途"></textarea>
             </label>
             <div class="form-actions span-2">
-              <button class="primary" type="submit" :disabled="aliasSaving || loading">保存客户商品名</button>
+              <button class="primary" type="submit" :disabled="aliasSaving || loading">保存客户商品</button>
             </div>
           </form>
           <div v-else class="customer-alias-batch-mode">
@@ -953,9 +944,9 @@
           </div>
         </div>
         <div v-if="customerAliasCreateMode === 'batch'" class="drawer-footer">
-          <span class="muted">批量创建时客户商品名=商品档案名称，客户商品编号由系统生成；需要客户侧改名后再点客户商品名填写“重命名”。</span>
+          <span class="muted">批量创建时客户商品=商品档案名称，客户商品编号由系统生成；需要客户侧改名后再点客户商品填写“重命名”。</span>
           <button class="primary" type="button" :disabled="aliasBatchSaving || !selectedAliasBatchProductIds.length" @click="saveCustomerAliasBatch">
-            {{ aliasBatchSaving ? '添加中' : '批量创建客户商品名' }}
+            {{ aliasBatchSaving ? '添加中' : '批量创建客户商品' }}
           </button>
         </div>
       </aside>
@@ -966,7 +957,7 @@
         <div class="drawer-head">
           <div>
             <h3>客户行业字段</h3>
-            <p>{{ aliasIndustryFieldAlias?.display_name || '客户商品名' }}</p>
+            <p>{{ aliasIndustryFieldAlias?.display_name || '客户商品' }}</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closeAliasIndustryFieldDrawer">关闭</button>
         </div>
@@ -1001,7 +992,7 @@
             <div class="field-group-head">
               <div class="field-group-copy">
                 <strong>基础信息</strong>
-                <small>商品档案是库存、成本、生产和成品批次对象；客户对外名称在客户商品名维护。</small>
+                <small>商品档案是库存、成本、生产和成品批次对象；客户对外名称在客户商品维护。</small>
               </div>
             </div>
             <div class="production-config-grid">
@@ -1279,6 +1270,7 @@ import {
   priceListRuleRoundingOptions,
   productBelongsToSkuContext as productBelongsToContext,
   productConfigTemplateBelongsToSkuContext,
+  productConfigTemplateNeedsGradientTemplate,
   productDisplayState,
   productKindSupportsBomParams,
   productCodeLabel,
@@ -1376,7 +1368,7 @@ const currentSettingsSection = computed(() => PRODUCT_SECTION_MODES[props.sectio
 const productReturnNavigation = computed(() => props.viewParams?.return_navigation || null)
 const productReturnLabel = computed(() => String(productReturnNavigation.value?.label || '返回上一步'))
 const productSectionTitle = computed(() => {
-  if (currentSettingsSection.value === 'aliases') return '客户商品名'
+  if (currentSettingsSection.value === 'aliases') return '客户商品'
   if (forcedConfigTemplateSection.value === 'gradient') return '阶梯价模板'
   if (forcedConfigTemplateSection.value === 'unit-template') return '单位模板'
   if (currentSettingsSection.value === 'templates') return '商品配置和分类模板'
@@ -1612,17 +1604,13 @@ const activeIndustryFieldTemplates = computed(() => industryFieldTemplates.value
   .slice()
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name || '').localeCompare(String(b.name || ''))))
 const productProductionConfigActiveBomOptions = computed(() => activeProductionBomOptions(productionBoms.value))
-const aliasGradientTemplateOptions = computed(() => gradientTemplates.value
+const aliasProductConfigTemplateOptions = computed(() => productConfigTemplates.value
   .filter((template) => template.active !== false)
   .filter((template) => {
     const templateCustomerID = Number(template.customer_id || 0)
     const customerID = Number(selectedAliasCustomerID.value || 0)
     return templateCustomerID === 0 || (customerID > 0 && templateCustomerID === customerID)
   })
-  .slice()
-  .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')) || Number(a.id || 0) - Number(b.id || 0)))
-const aliasProductUnitTemplateOptions = computed(() => productUnitTemplates.value
-  .filter((template) => template.active !== false)
   .slice()
   .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')) || Number(a.id || 0) - Number(b.id || 0)))
 const aliasDisplayCategoryOptions = computed(() => flattenCategoryNodes(categories.value).map((category) => ({
@@ -1885,8 +1873,7 @@ function defaultCustomerProductAliasForm() {
     customer_item_code: '',
     brand_name: '',
     display_category_id: 0,
-    gradient_template_id: 0,
-    unit_template_id: 0,
+    product_config_template_id: 0,
     sort_order: 0,
     include_in_price_list: true,
     active: true,
@@ -2326,6 +2313,7 @@ function decorateCustomerProductAlias(alias = {}) {
     brand_name: alias.brand_name || '',
     display_category_id: Number(alias.display_category_id || 0),
     classification_template_id: Number(alias.classification_template_id || 0),
+    product_config_template_id: Number(alias.product_config_template_id || 0),
     gradient_template_id: Number(alias.gradient_template_id || 0),
     unit_template_id: Number(alias.unit_template_id || 0),
     sort_order: Number(alias.sort_order || 0),
@@ -2807,7 +2795,7 @@ async function saveClassificationTemplateCreate() {
 async function deleteClassificationTemplate(id) {
   const templateID = Number(id || 0)
   if (!templateID) return
-  if (!window.confirm('删除分类模板？商品档案和客户商品名的历史记录不会回改。')) return
+  if (!window.confirm('删除分类模板？商品档案和客户商品的历史记录不会回改。')) return
   classificationTemplateSaving.value = true
   error.value = ''
   try {
@@ -3318,14 +3306,26 @@ function findGradientTemplate(id) {
   return gradientTemplates.value.find((template) => Number(template.id || 0) === templateID) || null
 }
 
+function productConfigTemplateForAlias(alias = {}) {
+  const override = productConfigTemplateByID(alias.product_config_template_id)
+  if (override) return { template: override, inherited: false }
+  const product = products.value.find((row) => Number(row.id || 0) === Number(alias.product_id || 0)) || null
+  const inherited = productConfigTemplateByID(product?.product_config_template_id)
+  return { template: inherited, inherited: true }
+}
+
 function aliasPricingTemplateLabel(alias = {}) {
-  const template = findGradientTemplate(alias.gradient_template_id)
-  return template ? `阶梯价：${template.name}` : '阶梯价：不覆盖'
+  const { template, inherited } = productConfigTemplateForAlias(alias)
+  if (template) return `商品配置：${template.name}${inherited ? '（继承商品档案）' : ''}`
+  return '商品配置：继承商品档案配置'
 }
 
 function aliasUnitTemplateLabel(alias = {}) {
-  const template = findProductUnitTemplate(alias.unit_template_id)
-  return template ? `单位：${template.name}` : '单位：不覆盖'
+  const { template } = productConfigTemplateForAlias(alias)
+  if (!template) return '计价/单位：继承商品档案配置'
+  const pricingMode = priceListRuleFormFromJSON(template.price_list_rule_json || '{}').price_rule_pricing_mode
+  const pricingLabel = priceListRulePricingModeOptions.find((option) => option.value === pricingMode)?.label || '计价方式'
+  return `${pricingLabel} · ${productConfigUnitTemplateName(template.unit_template_id)}`
 }
 
 function productionBomOptionMeta(row = {}) {
@@ -4255,8 +4255,7 @@ function openCustomerProductAliasEditor(alias = {}) {
     product_id: Number(alias.product_id || 0),
     display_name: String(alias.display_name || '').trim(),
     brand_name: String(alias.brand_name || '').trim(),
-    gradient_template_id: Number(alias.gradient_template_id || 0),
-    unit_template_id: Number(alias.unit_template_id || 0),
+    product_config_template_id: Number(alias.product_config_template_id || 0),
     sort_order: Number(alias.sort_order || 0),
     active: alias.active !== false,
     remark: String(alias.remark || '').trim(),
@@ -4332,11 +4331,11 @@ async function saveCustomerAliasBatch() {
   ok.value = ''
   try {
     const result = await apiSend('/api/customer-product-aliases/batch', { body: payload })
-    ok.value = `客户商品名批量添加完成：创建 ${Number(result?.created_count || 0)} 个，跳过 ${Number(result?.skipped_count || 0)} 个`
+    ok.value = `客户商品批量添加完成：创建 ${Number(result?.created_count || 0)} 个，跳过 ${Number(result?.skipped_count || 0)} 个`
     closeCustomerAliasCreateDrawer()
     await loadAll()
   } catch (err) {
-    error.value = err.message || '批量添加客户商品名失败'
+    error.value = err.message || '批量添加客户商品失败'
   } finally {
     aliasBatchSaving.value = false
   }
@@ -4364,7 +4363,7 @@ async function saveCustomerProductAlias() {
     return
   }
   if (!payload.display_name) {
-    error.value = '请填写客户商品名'
+    error.value = '请填写客户商品'
     return
   }
   aliasSaving.value = true
@@ -4374,11 +4373,11 @@ async function saveCustomerProductAlias() {
     const url = payload.id ? `/api/customer-product-aliases/${payload.id}` : '/api/customer-product-aliases'
     const method = payload.id ? 'PUT' : 'POST'
     await apiSend(url, { method, body: payload })
-    ok.value = '客户商品名已保存'
+    ok.value = '客户商品已保存'
     closeCustomerAliasCreateDrawer()
     await loadAll()
   } catch (err) {
-    error.value = err.message || '保存客户商品名失败'
+    error.value = err.message || '保存客户商品失败'
   } finally {
     aliasSaving.value = false
   }
@@ -4392,10 +4391,10 @@ async function disableCustomerProductAlias(alias) {
   ok.value = ''
   try {
     await apiSend(`/api/customer-product-aliases/${alias.id}/disable`)
-    ok.value = '客户商品名已停用'
+    ok.value = '客户商品已停用'
     await loadAll()
   } catch (err) {
-    error.value = err.message || '停用客户商品名失败'
+    error.value = err.message || '停用客户商品失败'
   } finally {
     aliasSaving.value = false
   }
@@ -4413,7 +4412,7 @@ async function batchDisableCustomerProductAliases() {
     selectedAliasIds.value = []
     await loadAll()
   } catch (err) {
-    error.value = err.message || '批量停用客户商品名失败'
+    error.value = err.message || '批量停用客户商品失败'
   } finally {
     aliasSaving.value = false
   }

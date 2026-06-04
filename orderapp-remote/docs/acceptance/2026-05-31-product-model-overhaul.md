@@ -12,9 +12,9 @@
 
 ## 验收口径
 - 商品档案是真实 SKU，用于库存、生产 BOM、成本、生产和成品批次。
-- 客户商品名是客户侧展示/销售对象，绑定商品档案；工厂自营作为内置客户走同一链路。
-- 产品价格表按价格表归属客户下启用的客户商品名生成，发布冻结客户商品名和商品档案双快照。
-- 录单、客户门户、履约展示客户商品名；库存、生产、成本和工单使用商品档案与生产 BOM。
+- 客户商品是客户侧展示/销售对象，绑定商品档案；工厂自营作为内置客户走同一链路。
+- 产品价格表按价格表归属客户下启用的客户商品生成，发布冻结客户商品和商品档案双快照。
+- 录单、客户门户、履约展示客户商品；库存、生产、成本和工单使用商品档案与生产 BOM。
 - 旧客户 SKU、历史订单、历史价格表、历史 BOM、历史工单保留兼容，不做破坏性迁移。
 
 ## Phase 1：口径、文案、手册
@@ -44,7 +44,7 @@
 - 待补证据：
   - 浏览器验收。
 
-## Phase 2：客户商品名
+## Phase 2：客户商品
 - RED：
   - `node --test src/lib/product-settings.test.js`
   - 结果：失败，缺少 `buildCustomerProductAliasPayload` 导出。
@@ -60,22 +60,22 @@
   - `go test ./internal/infrastructure/postgres/catalog -run TestCustomerProductAliasSchemaPersistsCustomerFacingNamesAndAudits -count=1`
   - 结果：通过。
 - 已完成：
-  - 新增 `customer_product_aliases` 持久化结构，保存客户商品名、客户商品编号、品牌名、展示分类、排序、是否进入价格表、启停状态、创建/更新人。
-  - schema 初始化内置 `工厂自营` 客户-like 归属，工厂自营后续可走客户商品名/价格表/录单同一链路。
+  - 新增 `customer_product_aliases` 持久化结构，保存客户商品、客户商品编号、品牌名、展示分类、排序、是否进入价格表、启停状态、创建/更新人。
+  - schema 初始化内置 `工厂自营` 客户-like 归属，工厂自营后续可走客户商品/价格表/录单同一链路。
   - 新增 `GET /api/customer-product-aliases`、`POST /api/customer-product-aliases`、`PUT /api/customer-product-aliases/:id`、`POST /api/customer-product-aliases/:id/disable`。
-  - 新增、修改、停用客户商品名写 `customer_product_alias` 操作日志，审计动作分别为 `create_customer_product_alias`、`update_customer_product_alias`、`disable_customer_product_alias`。
-  - 商品管理新增“客户商品名”工作区，可选择客户、绑定商品档案、维护客户商品编号/品牌/展示分类/排序/是否进入价格表；工作区不直接编辑 BOM，只提供生产 BOM 跳转。
+  - 新增、修改、停用客户商品写 `customer_product_alias` 操作日志，审计动作分别为 `create_customer_product_alias`、`update_customer_product_alias`、`disable_customer_product_alias`。
+  - 商品管理新增“客户商品”工作区，可选择客户、绑定商品档案、维护客户商品编号/品牌/展示分类/排序/是否进入价格表；工作区不直接编辑 BOM，只提供生产 BOM 跳转。
 - 手册证据：
   - `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
 - 待补证据：
   - Phase 2 浏览器验收随最终五期完整浏览器流程一起执行。
 
-## Phase 3：产品价格表接入客户商品名
+## Phase 3：产品价格表接入客户商品
 - RED：
   - `node --test src/lib/bean-list-pdf.test.js src/lib/product-bean-list-split.test.js`
   - 结果：失败，缺少 `applyCustomerProductAliasesToBeanListItems` 导出，产品价格表页面未加载 `customer_product_aliases`，发布快照缺少 alias/product 字段。
   - `go test ./internal/domain/costing -run TestCalculateProductPreservesCustomerAliasAndProductSnapshots -count=1`
-  - 结果：编译失败，`ProductInput` / `ProductResult` 缺少客户商品名和商品档案快照字段。
+  - 结果：编译失败，`ProductInput` / `ProductResult` 缺少客户商品和商品档案快照字段。
   - `go test ./internal/infrastructure/postgres/costing -run TestLoadProductInputsForCustomerUsesCustomerProductAliasesAsPriceListSource -count=1`
   - 结果：失败，成本仓储未通过 `customer_product_aliases` 生成客户价格表候选。
 - GREEN：
@@ -86,29 +86,29 @@
   - `go test ./internal/domain/costing ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing -count=1`
   - 结果：通过。
 - 已完成：
-  - 产品价格表切到具体客户后，候选源只来自该客户 `active=true`、`include_in_price_list=true` 且绑定有效商品档案的客户商品名。
-  - 页面顶部商品数、产品类型下拉、预览卡片、生成抽屉产品选择和 PDF 内容都使用客户商品名过滤结果。
+  - 产品价格表切到具体客户后，候选源只来自该客户 `active=true`、`include_in_price_list=true` 且绑定有效商品档案的客户商品。
+  - 页面顶部商品数、产品类型下拉、预览卡片、生成抽屉产品选择和 PDF 内容都使用客户商品过滤结果。
   - 后端 `/api/costing/bean-list?customer_id=` 通过 `customer_product_aliases` 读取绑定商品档案，同时保留商品档案成本、BOM、梯度模板、单位模板和商品配置计算。
   - 发布内容冻结 `customer_product_alias_id`、`customer_id`、客户展示名/客户商品编号/品牌/展示分类、商品档案 ID/编号/名称、BOM 版本和使用方式、价格单位、阶梯、特殊属性和价格来源 JSON。
   - 旧 `bean_list_publications` 结构继续兼容，旧公共/客户价格表可查询、下载、撤回，不回写历史版本内容。
 - 手册证据：
   - `orderapp-remote/docs/OP_MANUAL_COSTING.md`
 - 待补证据：
-  - 最终浏览器验收已覆盖产品价格表：Karen 价格表归属下商品数为 2，产品类型仅有 `熟豆批发（1款）` 和 `挂耳（1款）`，生成价格表抽屉品牌名默认为空，产品选择和 PDF 预览显示客户商品名 `Karen 意式贴牌`。
+  - 最终浏览器验收已覆盖产品价格表：Karen 价格表归属下商品数为 2，产品类型仅有 `熟豆批发（1款）` 和 `挂耳（1款）`，生成价格表抽屉品牌名默认为空，产品选择和 PDF 预览显示客户商品 `Karen 意式贴牌`。
   - 浏览器验收期间发现并修复：预览卡片/PDF 选择此前未完全复用 `visibleCostingItems`，且分类 key 与 PDF `visibleCategoryCodes` 不一致会导致 1/1 款但预览 0 款；已补 `product-bean-list-split.test.js` 回归测试。
 
 ## Phase 4：录单、门户、履约、生产接入
 - RED：
   - `node --test src/lib/order-entry.test.js`
-  - 结果：失败，订单 payload 缺少客户商品名和商品档案快照数组，客户范围商品过滤仍会混入绑定商品档案的公共行。
+  - 结果：失败，订单 payload 缺少客户商品和商品档案快照数组，客户范围商品过滤仍会混入绑定商品档案的公共行。
   - `go test ./internal/interfaces/http/sales -run 'TestAPIProductsCarriesCustomerAliasSnapshots|TestOrderAPIFormUsesCustomerProductAliasesForCustomerScope' -count=1`
-  - 结果：失败，`ProductOption` 和订单 API 返回缺少客户商品名快照字段。
+  - 结果：失败，`ProductOption` 和订单 API 返回缺少客户商品快照字段。
   - `go test ./internal/infrastructure/postgres/sales -run TestValidateCustomerAliasPublishedPriceRejectsZeroUnpublishedPrice -count=1`
-  - 结果：编译失败，缺少客户商品名价格守卫。
+  - 结果：编译失败，缺少客户商品价格守卫。
   - `go test ./internal/infrastructure/postgres/customerfulfillment -run TestRequireCustomerAliasDirectShipPriceRejectsZeroUnpublishedPrice -count=1`
-  - 结果：编译失败，缺少履约客户商品名价格守卫。
+  - 结果：编译失败，缺少履约客户商品价格守卫。
   - `go test ./internal/infrastructure/postgres/production -run TestWorkOrderFreezesCustomerProductAliasSnapshots -count=1`
-  - 结果：失败，生产工单未冻结客户商品名快照。
+  - 结果：失败，生产工单未冻结客户商品快照。
 - GREEN：
   - `node --test src/lib/order-entry.test.js`
   - 结果：77 项通过。
@@ -119,20 +119,20 @@
   - `go test ./internal/interfaces/http/production ./internal/infrastructure/postgres/production -count=1`
   - 结果：通过。
 - 已完成：
-  - 录单商品下拉在选择客户后优先显示该客户启用的客户商品名，绑定商品档案的公共重复行会被隐藏；保存订单行时写入 `customer_product_alias_id`、客户商品名快照、客户商品编号、品牌、商品档案编号/名称、价格表版本和价格来源 JSON。
-  - 订单保存后端会校验客户商品名必须属于当前客户并绑定当前商品档案；没有有效价格且非内部手工价时返回 `customer product price unpublished`，不会静默保存 0 元订单。
-  - 客户门户/履约选项优先返回当前客户启用的客户商品名，并校验不能跨客户传入 alias；客户履约代发创建 ERP 订单时同步写入客户商品名和商品档案快照。
-  - 生产工单新增 `customer_product_snapshot_json`，开工时按订单行冻结客户商品名、客户商品编号、商品档案编号/名称和订单号，用于生产追溯；生产计划和库存仍按商品档案执行。
-  - 操作日志沿用订单保存、客户履约提交、生产开工和工序/库存既有业务日志路径；客户商品名新增/修改/停用已在 Phase 2 覆盖。
+  - 录单商品下拉在选择客户后优先显示该客户启用的客户商品，绑定商品档案的公共重复行会被隐藏；保存订单行时写入 `customer_product_alias_id`、客户商品快照、客户商品编号、品牌、商品档案编号/名称、价格表版本和价格来源 JSON。
+  - 订单保存后端会校验客户商品必须属于当前客户并绑定当前商品档案；没有有效价格且非内部手工价时返回 `customer product price unpublished`，不会静默保存 0 元订单。
+  - 客户门户/履约选项优先返回当前客户启用的客户商品，并校验不能跨客户传入 alias；客户履约代发创建 ERP 订单时同步写入客户商品和商品档案快照。
+  - 生产工单新增 `customer_product_snapshot_json`，开工时按订单行冻结客户商品、客户商品编号、商品档案编号/名称和订单号，用于生产追溯；生产计划和库存仍按商品档案执行。
+  - 操作日志沿用订单保存、客户履约提交、生产开工和工序/库存既有业务日志路径；客户商品新增/修改/停用已在 Phase 2 覆盖。
 - 手册证据：
   - `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`
   - `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`
   - `orderapp-remote/docs/OP_MANUAL_COSTING.md`
 - 待补证据：
   - 最终浏览器验收已覆盖录单、客户履约、生产计划和工单：
-    - 录单在 Karen 客户上下文下商品下拉只显示 Karen 客户商品名，不显示绑定商品档案公共原名。
+    - 录单在 Karen 客户上下文下商品下拉只显示 Karen 客户商品，不显示绑定商品档案公共原名。
     - 客户履约运营台在 Karen 上下文显示代加工、代发清单、结算单和内嵌商品明细入口。
-    - 生产计划从客户商品名解析到 `商品档案 K001` 和生产 BOM，并显示 BOM 预期产出率和投料数。
+    - 生产计划从客户商品解析到 `商品档案 K001` 和生产 BOM，并显示 BOM 预期产出率和投料数。
     - 生产工单显示冻结预期损耗、默认工序和实际损耗率汇总。
 
 ## Phase 5：旧客户 SKU 收敛和迁移安全
@@ -153,25 +153,25 @@
   - `node --test src/lib/product-settings.test.js`
   - 结果：87 项通过。
 - 已完成：
-  - 新增只读 API `GET /api/customer-product-aliases/migration-candidates?customer_id=`，用于识别可建议转为客户商品名的旧客户 SKU。
+  - 新增只读 API `GET /api/customer-product-aliases/migration-candidates?customer_id=`，用于识别可建议转为客户商品的旧客户 SKU。
   - 候选判断保守：存在单独生产 BOM、生产记录、库存记录，或无法追溯来源商品档案时，不自动建议收敛。
-  - 商品管理新增动作分流：“创建客户商品名”用于贴牌、客户命名、客户编号、展示分类和价格差异；“创建新商品档案”用于配方、包装、生产方式、库存对象和成本口径变化。
-  - 客户商品名工作区展示“旧客户 SKU 收敛检查”，候选行可预填客户商品名表单并绑定来源商品档案；保存仍走客户商品名写操作日志，原旧 SKU 不删除、不回改历史。
+  - 商品管理新增动作分流：“创建客户商品”用于贴牌、客户命名、客户编号、展示分类和价格差异；“创建新商品档案”用于配方、包装、生产方式、库存对象和成本口径变化。
+  - 客户商品工作区展示“旧客户 SKU 收敛检查”，候选行可预填客户商品表单并绑定来源商品档案；保存仍走客户商品写操作日志，原旧 SKU 不删除、不回改历史。
   - 历史 SKU 复制文案保留为兼容入口，单行动作改为“复制为商品档案”，避免新贴牌继续默认复制 SKU/BOM。
 - 手册证据：
   - `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
   - `orderapp-remote/docs/OP_MANUAL_COSTING.md`
   - `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`
 - 待补证据：
-  - 最终浏览器验收已覆盖旧客户 SKU 收敛检查：客户商品名页显示 `KAR-OLD` 建议转为客户商品名，并展示来源商品档案 `K001`。
+  - 最终浏览器验收已覆盖旧客户 SKU 收敛检查：客户商品页显示 `KAR-OLD` 建议转为客户商品，并展示来源商品档案 `K001`。
 
 ## 最终验收清单
-- [x] 商品管理、客户商品名、商品配置、分类与展示可用。
+- [x] 商品管理、客户商品、商品配置、分类与展示可用。
 - [x] 工厂自营发布价格表：同一价格表发布链路保留公共豆单/工厂归属，浏览器本轮重点验证 Karen 客户归属；工厂自营作为客户-like 归属已在 Phase 2 schema/API 幂等测试覆盖。
-- [x] Karen 贴牌不复制 BOM，通过客户商品名发布专属价格。
+- [x] Karen 贴牌不复制 BOM，通过客户商品发布专属价格。
 - [x] Karen 专属包装创建新商品档案和生产 BOM：本期明确入口和数据边界，浏览器验收覆盖“创建新商品档案”入口；不做破坏性迁移或历史回改。
 - [x] Karen 改配方创建新商品档案和生产 BOM：本期明确入口和数据边界，浏览器验收覆盖“创建新商品档案”入口；BOM 仍由商品档案维护。
-- [x] 录单选择客户商品名。
+- [x] 录单选择客户商品。
 - [x] 生产计划和工单使用商品档案与生产 BOM。
 - [x] 操作日志可查关键业务写操作。
 - [x] Vue build 通过：`npm run build`，Vite 构建成功，仅保留既有 chunk size warning。
@@ -196,15 +196,15 @@
 - 运行方式：本地构建后的 Vue/Vite 包 + 本地验收 API 桩，使用浏览器打开 `http://127.0.0.1:4180/vue-shell/`。
 - 浏览器断言：
   - 商品管理主入口显示商品档案/生产 BOM。
-  - 客户商品名页可见旧客户 SKU 收敛检查。
-  - 产品价格表只使用 Karen 客户商品名候选：`熟豆批发（1款）`、`挂耳（1款）`。
-  - 生成价格表品牌名留空，产品选择是客户商品名。
+  - 客户商品页可见旧客户 SKU 收敛检查。
+  - 产品价格表只使用 Karen 客户商品候选：`熟豆批发（1款）`、`挂耳（1款）`。
+  - 生成价格表品牌名留空，产品选择是客户商品。
   - 价格表发布按钮可用并可写入客户快照。
-  - 录单商品下拉显示客户商品名并隐藏公共原名。
+  - 录单商品下拉显示客户商品并隐藏公共原名。
   - 客户履约运营台按 Karen 上下文显示履约与下单入口。
-  - 生产计划从客户商品名解析到商品档案和生产 BOM。
+  - 生产计划从客户商品解析到商品档案和生产 BOM。
   - 生产工单展示冻结预期损耗与实际损耗汇总。
-  - 操作日志可查客户商品名和价格表发布记录。
+  - 操作日志可查客户商品和价格表发布记录。
 - 截图证据：
   - `/tmp/kferp-pr386-01-product-settings.png`
   - `/tmp/kferp-pr386-02-price-list.png`

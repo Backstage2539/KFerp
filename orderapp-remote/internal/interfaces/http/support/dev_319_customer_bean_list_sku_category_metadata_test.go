@@ -66,7 +66,7 @@ func TestDev319CustomerBeanListSkuCategoryMetadata(t *testing.T) {
 	}
 	manualText := string(manual)
 	for _, want := range []string{
-		"客户商品名不再依赖旧 Excel 豆单资料",
+		"客户商品不再依赖旧 Excel 豆单资料",
 		"咖啡豆 / 定制咖啡熟豆",
 		"1、定制咖啡熟豆",
 		"客户新增商品在客户价格表中不出现",

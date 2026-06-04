@@ -4,12 +4,12 @@
 - 商品档案列表收敛为“商品名即配置入口”，删除重复的生产配置/BOM 操作按钮。
 - 商品档案配置抽屉维护基础信息、商品配置模板、生产 BOM、工艺路线、预期损耗率、行业字段模板和值。
 - 商品配置模板由商品档案引用，产品分类只保留归类能力；旧分类模板作为 legacy fallback。
-- 客户商品名支持批量从商品档案创建。
+- 客户商品支持批量从商品档案创建。
 - 生产 BOM 明细入口改为 Vue/Vite 内部导航，不刷新左侧菜单。
 
 ## RED Evidence
-- `node --test src/lib/product-settings.test.js src/lib/view-routing.test.js` 初始失败：缺少批量客户商品名 payload、商品名配置入口、商品档案模板引用、行业字段表单和 SPA BOM 跳转断言。
-- `go test ./internal/interfaces/http/catalog -run 'TestCustomerProductAlias|TestProductSettingsAPIUpdatesProductTemplateAndProductionConfigIndustryFields|TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates' -count=1` 初始失败：缺少批量客户商品名 API、`product_config_template_id` 和 `industry_field_template_id` 契约。
+- `node --test src/lib/product-settings.test.js src/lib/view-routing.test.js` 初始失败：缺少批量客户商品 payload、商品名配置入口、商品档案模板引用、行业字段表单和 SPA BOM 跳转断言。
+- `go test ./internal/interfaces/http/catalog -run 'TestCustomerProductAlias|TestProductSettingsAPIUpdatesProductTemplateAndProductionConfigIndustryFields|TestProductSettingsAPIExposesSavesAndDerivesProductConfigTemplates' -count=1` 初始失败：缺少批量客户商品 API、`product_config_template_id` 和 `industry_field_template_id` 契约。
 
 ## Implementation Notes
 - `products.product_config_template_id` 新增并从旧产品子类型模板回填；商品创建和基础信息保存可写入该字段。

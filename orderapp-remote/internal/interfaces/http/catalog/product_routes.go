@@ -242,6 +242,7 @@ type customerProductAliasAPIRequest struct {
 	BrandName                string `json:"brand_name"`
 	DisplayCategoryID        int64  `json:"display_category_id"`
 	ClassificationTemplateID int64  `json:"classification_template_id"`
+	ProductConfigTemplateID  int64  `json:"product_config_template_id"`
 	GradientTemplateID       int64  `json:"gradient_template_id"`
 	UnitTemplateID           int64  `json:"unit_template_id"`
 	SortOrder                int    `json:"sort_order"`
@@ -934,6 +935,7 @@ func (h productHandler) saveCustomerProductAliasAPI(c echo.Context) error {
 		BrandName:                req.BrandName,
 		DisplayCategoryID:        req.DisplayCategoryID,
 		ClassificationTemplateID: req.ClassificationTemplateID,
+		ProductConfigTemplateID:  req.ProductConfigTemplateID,
 		GradientTemplateID:       req.GradientTemplateID,
 		UnitTemplateID:           req.UnitTemplateID,
 		SortOrder:                req.SortOrder,

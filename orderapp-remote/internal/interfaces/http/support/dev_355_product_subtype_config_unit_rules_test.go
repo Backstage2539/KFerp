@@ -76,7 +76,7 @@ func TestDev355ProductSubtypeConfigUnitRulesDocs(t *testing.T) {
 			"integer_unit",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"商品配置模板由商品档案选择引用",
+			"商品配置模板由商品档案或客户商品选择引用",
 			"库存单位",
 			"报价单位",
 			"录单单位",

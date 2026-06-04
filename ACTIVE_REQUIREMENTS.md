@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-411-CUSTOMER-PRODUCT-CONFIG-TEMPLATE-PRICING
+- Branch: codex/customer-product-config-template-pricing-20260604
+- Owner/session: Codex / 2026-06-04
+- Status: local verification passed, pending merge/deploy
+- Scope: 客户商品名统一更名为客户商品；客户商品配置不再直接维护阶梯价模板和单位模板，只选择商品配置模板，默认继承绑定商品档案的商品配置模板；商品配置模板中删除独立阶梯价模板配置，只在价格表生成规则选择“按阶梯价模板”时展示和保存阶梯价模板。
+- DEV:
+  - DEV-411-CUSTOMER-PRODUCT-RENAME：商品与配方菜单、客户商品列表、抽屉、提示和手册统一使用“客户商品”。
+  - DEV-411-ALIAS-CONFIG-TEMPLATE：客户商品 API/仓储/前端新增 `product_config_template_id`，新 UI 停止写客户商品直接 `gradient_template_id` / `unit_template_id`。
+  - DEV-411-PRICE-LIST-CONFIG-TEMPLATE-SOURCE：客户范围商品价格表取价顺序改为客户商品配置模板 → 商品档案配置模板 → 旧直接字段/旧规则 fallback。
+  - DEV-411-PRODUCT-CONFIG-PRICING-RULE：商品配置模板只在计价方式为“按阶梯价模板”时选择阶梯价模板，固定单价/成本加成保存时清空阶梯价模板。
+  - DEV-411-MANUAL-DOCS：更新商品、客户商品和商品价格表手册、需求、验收和 acceptance 记录。
+- Verifier:
+  - RED: `node --test src/lib/product-settings.test.js` failed because `productConfigTemplateNeedsGradientTemplate` was missing; targeted Go tests failed because customer product aliases lacked `product_config_template_id`, costing SQL still prioritized direct alias templates, and PR-411 seed was absent.
+- GREEN: `node --test src/lib/product-settings.test.js` passed 108/108; broader frontend target `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/bean-list-pdf.test.js src/lib/view-routing.test.js src/lib/menu-ia.test.js src/lib/product-bean-list-split.test.js` passed 178/178.
+- API/backend: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1` passed.
+- Full backend: `go test ./...` in `orderapp-remote` passed.
+- Frontend/build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
+- Changed verifier: `scripts/verify_kferp.sh changed` exited 0.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-04-customer-product-config-template-pricing.md`
+- Deployment: pending
+- Last update: 2026-06-04 Asia/Shanghai
+
 ### PR-410-CUSTOMER-ALIAS-RENAME-PRICE-DISPLAY
 - Branch: codex/customer-alias-rename-price-display-20260604
 - Owner/session: Codex / 2026-06-04

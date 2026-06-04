@@ -766,24 +766,25 @@ func (r *productSettingsRepo) BindCustomerProductRuleTemplate(ctx context.Contex
 func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 	repo := &productSettingsRepo{
 		customerProductAliases: []catalogapp.CustomerProductAlias{{
-			ID:                  11,
-			CustomerID:          42,
-			CustomerName:        "Karen",
-			ProductID:           88,
-			ProductName:         "精品意式拼配",
-			ProductCode:         "SKU-000088",
-			ProductActive:       false,
-			DisplayName:         "Karen 精品拼配",
-			CustomerItemCode:    "KAREN-ESP",
-			BrandName:           "",
-			DisplayCategoryID:   7,
-			DisplayCategoryName: "商用批发",
-			GradientTemplateID:  18,
-			UnitTemplateID:      22,
-			SortOrder:           20,
-			IncludeInPriceList:  true,
-			Active:              true,
-			Remark:              "贴牌只改名字",
+			ID:                      11,
+			CustomerID:              42,
+			CustomerName:            "Karen",
+			ProductID:               88,
+			ProductName:             "精品意式拼配",
+			ProductCode:             "SKU-000088",
+			ProductActive:           false,
+			DisplayName:             "Karen 精品拼配",
+			CustomerItemCode:        "KAREN-ESP",
+			BrandName:               "",
+			DisplayCategoryID:       7,
+			DisplayCategoryName:     "商用批发",
+			ProductConfigTemplateID: 301,
+			GradientTemplateID:      18,
+			UnitTemplateID:          22,
+			SortOrder:               20,
+			IncludeInPriceList:      true,
+			Active:                  true,
+			Remark:                  "贴牌只改名字",
 		}},
 	}
 	e := echo.New()
@@ -795,7 +796,7 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET aliases status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"rows"`, `"display_name":"Karen 精品拼配"`, `"customer_item_code":"KAREN-ESP"`, `"product_id":88`, `"product_code":"SKU-000088"`, `"product_active":false`, `"gradient_template_id":18`, `"unit_template_id":22`, `"include_in_price_list":true`} {
+	for _, want := range []string{`"rows"`, `"display_name":"Karen 精品拼配"`, `"customer_item_code":"KAREN-ESP"`, `"product_id":88`, `"product_code":"SKU-000088"`, `"product_active":false`, `"product_config_template_id":301`, `"gradient_template_id":18`, `"unit_template_id":22`, `"include_in_price_list":true`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("customer product aliases response missing %s: %s", want, rec.Body.String())
 		}
@@ -810,8 +811,7 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 		"display_name":"Karen 精品拼配",
 		"brand_name":"",
 		"display_category_id":7,
-		"gradient_template_id":18,
-		"unit_template_id":22,
+		"product_config_template_id":301,
 		"sort_order":20,
 		"include_in_price_list":true,
 		"active":true,
@@ -823,7 +823,7 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST alias status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.customerAliasSaved || repo.savedCustomerAlias.CustomerID != 42 || repo.savedCustomerAlias.ProductID != 88 || repo.savedCustomerAlias.DisplayName != "Karen 精品拼配" || repo.savedCustomerAlias.CustomerItemCode != "" || repo.savedCustomerAlias.GradientTemplateID != 18 || repo.savedCustomerAlias.UnitTemplateID != 22 || !repo.savedCustomerAlias.IncludeInPriceList {
+	if !repo.customerAliasSaved || repo.savedCustomerAlias.CustomerID != 42 || repo.savedCustomerAlias.ProductID != 88 || repo.savedCustomerAlias.DisplayName != "Karen 精品拼配" || repo.savedCustomerAlias.CustomerItemCode != "" || repo.savedCustomerAlias.ProductConfigTemplateID != 301 || repo.savedCustomerAlias.GradientTemplateID != 0 || repo.savedCustomerAlias.UnitTemplateID != 0 || !repo.savedCustomerAlias.IncludeInPriceList {
 		t.Fatalf("save alias command = %+v saved=%v", repo.savedCustomerAlias, repo.customerAliasSaved)
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"customer_item_code":"CPA-000912"`)) {
@@ -834,8 +834,7 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 		"customer_id":42,
 		"product_id":88,
 		"display_name":"Karen 改名拼配",
-		"gradient_template_id":19,
-		"unit_template_id":23,
+		"product_config_template_id":302,
 		"include_in_price_list":false,
 		"active":true
 	}`))
@@ -845,7 +844,7 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT alias status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.savedCustomerAlias.ID != 11 || repo.savedCustomerAlias.CustomerItemCode != "" || repo.savedCustomerAlias.GradientTemplateID != 19 || repo.savedCustomerAlias.UnitTemplateID != 23 || repo.savedCustomerAlias.IncludeInPriceList {
+	if repo.savedCustomerAlias.ID != 11 || repo.savedCustomerAlias.CustomerItemCode != "" || repo.savedCustomerAlias.ProductConfigTemplateID != 302 || repo.savedCustomerAlias.GradientTemplateID != 0 || repo.savedCustomerAlias.UnitTemplateID != 0 || repo.savedCustomerAlias.IncludeInPriceList {
 		t.Fatalf("update alias command = %+v", repo.savedCustomerAlias)
 	}
 

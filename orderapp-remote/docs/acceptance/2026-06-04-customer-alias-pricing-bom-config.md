@@ -1,4 +1,4 @@
-# PR-409 客户商品名报价覆盖与商品档案 BOM 绑定修正验收记录
+# PR-409 客户商品报价覆盖与商品档案 BOM 绑定修正验收记录
 
 ## 范围
 - PR：`PR-409-CUSTOMER-ALIAS-PRICING-BOM-CONFIG`
@@ -10,14 +10,14 @@
   - `DEV-409-MANUAL-DOCS`
 
 ## 验收点
-- 客户商品名可维护客户侧阶梯价模板和单位模板；列表展示当前覆盖状态。
-- 客户范围商品价格表优先读取客户商品名覆盖的阶梯价模板和单位模板。
+- 历史 PR-409 中客户商品可维护客户侧阶梯价模板和单位模板；PR-411 后新 UI 已收敛为选择客户商品配置模板，旧直接字段仅作为兼容读取。
+- 客户范围产品价格表优先读取客户商品选择的商品配置模板；历史直接阶梯价模板和单位模板仅作为旧数据 fallback。
 - 商品档案配置抽屉绑定生产 BOM 时只展示启用 BOM，支持模糊搜索并显示版本号。
 - 修改商品档案生产 BOM 绑定时，旧产品信息字段没有行业字段模板不会再导致保存失败。
 
 ## RED Evidence
 - `node --test src/lib/product-settings.test.js`：新增 BOM 搜索/有效状态/版本号断言后，旧页面仍使用普通 `select production_bom_id`，测试失败。
-- `go test ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/costing -count=1`：客户商品名模板字段和价格表读取客户覆盖字段缺失，源码守卫失败。
+- `go test ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/costing -count=1`：客户商品模板字段和价格表读取客户覆盖字段缺失，源码守卫失败。
 
 ## GREEN Evidence
 - `node --test src/lib/product-settings.test.js`：通过。

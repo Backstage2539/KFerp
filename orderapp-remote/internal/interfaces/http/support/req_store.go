@@ -252,6 +252,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-411-CUSTOMER-PRODUCT-CONFIG-TEMPLATE-PRICING", title: "客户商品名更名为客户商品；客户商品不再直接配置阶梯价模板和单位模板，改为选择商品配置模板；商品配置模板仅在计价方式为按阶梯价模板时维护阶梯价模板", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; ProductSettingsView.vue; costing repository"},
+		{table: "req_dev", code: "DEV-411-CUSTOMER-PRODUCT-RENAME", title: "Vue 商品与配方菜单和客户商品页面把客户商品名口径统一为客户商品", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; menu-ia.js; product-settings.test.js"},
+		{table: "req_dev", code: "DEV-411-ALIAS-CONFIG-TEMPLATE", title: "客户商品新增和编辑只选择商品配置模板，默认继承商品档案商品配置模板，不再展示阶梯价模板和单位模板直接覆盖", status: "doing", assignee: "Codex", evidence: "catalog product routes; product-settings.js"},
+		{table: "req_dev", code: "DEV-411-PRICE-LIST-CONFIG-TEMPLATE-SOURCE", title: "商品价格表客户范围优先读取客户商品选择的商品配置模板，再回退绑定商品档案配置模板，旧直接模板字段仅作兼容 fallback", status: "doing", assignee: "Codex", evidence: "costing/repository.go"},
+		{table: "req_unit", code: "UT-411-CUSTOMER-PRODUCT-CONFIG-TEMPLATE-PRICING", title: "前端单测覆盖客户商品 payload、商品配置模板计价方式下阶梯价模板条件展示和客户商品页面文案", status: "doing", assignee: "Codex", evidence: "node --test src/lib/product-settings.test.js"},
+		{table: "req_api", code: "API-411-CUSTOMER-PRODUCT-CONFIG-TEMPLATE-PRICING", title: "API/仓储测试覆盖客户商品 product_config_template_id 持久化和商品价格表 SQL 取价优先级", status: "doing", assignee: "Codex", evidence: "catalog/costing Go tests"},
+		{table: "req_review", code: "REV-411-CUSTOMER-PRODUCT-CONFIG-TEMPLATE-PRICING", prCode: "PR-411-CUSTOMER-PRODUCT-CONFIG-TEMPLATE-PRICING", title: "验收：客户商品通过商品配置模板配置报价规则，商品配置模板只在按阶梯价模板时选择阶梯价模板；本轮不做浏览器人工验收", status: "todo", assignee: "VA", evidence: "待部署 smoke"},
 		{table: "req_product", code: "PR-410-CUSTOMER-ALIAS-RENAME-PRICE-DISPLAY", title: "客户商品名旧品牌字段改为重命名，客户商品名列表和客户商品价格表优先展示重命名；商品档案列表显示稳定商品编号", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; ProductSettingsView.vue; costing repository"},
 		{table: "req_dev", code: "DEV-410-ALIAS-RENAME-UI", title: "客户商品名列表删除品牌名列，编辑抽屉把品牌名改为重命名，列表名称显示重命名后的名字", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; product-settings.test.js"},
 		{table: "req_dev", code: "DEV-410-PRICE-LIST-RENAME-SOURCE", title: "客户商品价格表候选和 PDF/发布内容优先使用客户商品名重命名值", status: "doing", assignee: "Codex", evidence: "costing repository; bean-list-pdf.js"},

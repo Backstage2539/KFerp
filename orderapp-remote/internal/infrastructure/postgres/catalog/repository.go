@@ -3480,6 +3480,7 @@ func (r Repository) ListCustomerProductAliases(ctx context.Context, query catalo
 		       COALESCE(a.display_category_id,0),
 		       COALESCE(cat.name,''),
 		       COALESCE(a.classification_template_id,0),
+		       COALESCE(a.product_config_template_id,0),
 		       COALESCE(a.gradient_template_id,0),
 		       COALESCE(a.unit_template_id,0),
 		       COALESCE(a.sort_order,0),
@@ -3518,6 +3519,7 @@ func (r Repository) ListCustomerProductAliases(ctx context.Context, query catalo
 			&row.DisplayCategoryID,
 			&row.DisplayCategoryName,
 			&row.ClassificationTemplateID,
+			&row.ProductConfigTemplateID,
 			&row.GradientTemplateID,
 			&row.UnitTemplateID,
 			&row.SortOrder,
@@ -3650,27 +3652,28 @@ func (r Repository) SaveCustomerProductAlias(ctx context.Context, cmd catalogapp
 			    brand_name=$5,
 			    display_category_id=$6,
 			    classification_template_id=$7,
-			    gradient_template_id=$8,
-			    unit_template_id=$9,
-			    sort_order=$10,
-			    include_in_price_list=$11,
-			    active=$12,
-			    remark=$13,
+			    product_config_template_id=$8,
+			    gradient_template_id=$9,
+			    unit_template_id=$10,
+			    sort_order=$11,
+			    include_in_price_list=$12,
+			    active=$13,
+			    remark=$14,
 			    updated_at=now(),
-			    updated_by=$14
+			    updated_by=$15
 			WHERE id=$1
 			RETURNING id
-		`, r.schema), cmd.ID, cmd.CustomerID, cmd.ProductID, cmd.DisplayName, cmd.BrandName, cmd.DisplayCategoryID, cmd.ClassificationTemplateID, cmd.GradientTemplateID, cmd.UnitTemplateID, cmd.SortOrder, cmd.IncludeInPriceList, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+		`, r.schema), cmd.ID, cmd.CustomerID, cmd.ProductID, cmd.DisplayName, cmd.BrandName, cmd.DisplayCategoryID, cmd.ClassificationTemplateID, cmd.ProductConfigTemplateID, cmd.GradientTemplateID, cmd.UnitTemplateID, cmd.SortOrder, cmd.IncludeInPriceList, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
 	} else {
 		err = tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.customer_product_aliases(
 				customer_id, product_id, display_name, customer_item_code, brand_name,
-				display_category_id, classification_template_id, gradient_template_id, unit_template_id, sort_order, include_in_price_list, active, remark,
+				display_category_id, classification_template_id, product_config_template_id, gradient_template_id, unit_template_id, sort_order, include_in_price_list, active, remark,
 				created_at, updated_at, created_by, updated_by
 			)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),now(),$14,$14)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now(),now(),$15,$15)
 			RETURNING id
-		`, r.schema), cmd.CustomerID, cmd.ProductID, cmd.DisplayName, "", cmd.BrandName, cmd.DisplayCategoryID, cmd.ClassificationTemplateID, cmd.GradientTemplateID, cmd.UnitTemplateID, cmd.SortOrder, cmd.IncludeInPriceList, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+		`, r.schema), cmd.CustomerID, cmd.ProductID, cmd.DisplayName, "", cmd.BrandName, cmd.DisplayCategoryID, cmd.ClassificationTemplateID, cmd.ProductConfigTemplateID, cmd.GradientTemplateID, cmd.UnitTemplateID, cmd.SortOrder, cmd.IncludeInPriceList, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
 		if err == nil {
 			if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.customer_product_aliases SET customer_item_code=$2 WHERE id=$1`, r.schema), id, generatedCustomerProductAliasCode(id)); err != nil {
 				return catalogapp.CustomerProductAlias{}, err
@@ -3692,6 +3695,7 @@ func (r Repository) SaveCustomerProductAlias(ctx context.Context, cmd catalogapp
 		"brand_name":                 cmd.BrandName,
 		"display_category_id":        cmd.DisplayCategoryID,
 		"classification_template_id": cmd.ClassificationTemplateID,
+		"product_config_template_id": cmd.ProductConfigTemplateID,
 		"gradient_template_id":       cmd.GradientTemplateID,
 		"unit_template_id":           cmd.UnitTemplateID,
 		"sort_order":                 cmd.SortOrder,
@@ -4253,6 +4257,7 @@ func fetchCustomerProductAliasTx(ctx context.Context, tx pgx.Tx, schema string, 
 		       COALESCE(a.display_category_id,0),
 		       COALESCE(cat.name,''),
 		       COALESCE(a.classification_template_id,0),
+		       COALESCE(a.product_config_template_id,0),
 		       COALESCE(a.gradient_template_id,0),
 		       COALESCE(a.unit_template_id,0),
 		       COALESCE(a.sort_order,0),
@@ -4280,6 +4285,7 @@ func fetchCustomerProductAliasTx(ctx context.Context, tx pgx.Tx, schema string, 
 		&row.DisplayCategoryID,
 		&row.DisplayCategoryName,
 		&row.ClassificationTemplateID,
+		&row.ProductConfigTemplateID,
 		&row.GradientTemplateID,
 		&row.UnitTemplateID,
 		&row.SortOrder,

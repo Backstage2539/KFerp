@@ -145,11 +145,12 @@ func TestLoadProductInputsDoesNotFallbackToCategoryGradientTemplates(t *testing.
 	src := string(b)
 	gradientExpr := effectiveGradientTemplateExpr(t, src)
 	for _, want := range []string{
+		"NULLIF(alias_config.gradient_template_id,0)",
+		"NULLIF(p_config.gradient_template_id,0)",
 		"NULLIF(p.customer_product_alias_gradient_template_id,0)",
 		"NULLIF(cpro.gradient_template_id,0)",
 		"NULLIF(cpti.gradient_template_id,0)",
 		"NULLIF(p.gradient_template_id_override,0)",
-		"NULLIF(p_config.gradient_template_id,0)",
 	} {
 		if !strings.Contains(gradientExpr, want) {
 			t.Fatalf("costing repository must keep explicit gradient template sources; missing %q in %s", want, gradientExpr)
@@ -212,12 +213,14 @@ func TestLoadProductInputsResolvesCustomerProductRuleTemplates(t *testing.T) {
 		"customer_product_rule_overrides cpro",
 		"customer_product_rule_template_items cpti",
 		"customer_product_rule_template_id",
+		"alias_config",
 		"p.gradient_template_id_override",
 		"effective_gradient_template_id",
+		"NULLIF(alias_config.gradient_template_id,0)",
+		"NULLIF(p_config.gradient_template_id,0)",
 		"NULLIF(cpro.gradient_template_id,0)",
 		"NULLIF(cpti.gradient_template_id,0)",
 		"NULLIF(p.gradient_template_id_override,0)",
-		"NULLIF(p_config.gradient_template_id,0)",
 		"&input.InventoryUnit",
 		"&input.QuoteUnit",
 		"&input.OrderUnit",
@@ -238,6 +241,7 @@ func TestLoadProductInputsForCustomerUsesCustomerProductAliasesAsPriceListSource
 	src := string(b)
 	for _, want := range []string{
 		"customer_product_aliases cpa",
+		"COALESCE(cpa.product_config_template_id,0) AS customer_product_alias_product_config_template_id",
 		"COALESCE(cpa.gradient_template_id,0) AS customer_product_alias_gradient_template_id",
 		"COALESCE(cpa.unit_template_id,0) AS customer_product_alias_unit_template_id",
 		"cpa.include_in_price_list=true",
@@ -257,31 +261,46 @@ func TestLoadProductInputsForCustomerUsesCustomerProductAliasesAsPriceListSource
 	}
 }
 
-func TestLoadProductInputsForCustomerAliasOverridesPricingAndUnitTemplates(t *testing.T) {
+func TestLoadProductInputsForCustomerAliasConfigTemplateOverridesProductTemplateAndKeepsLegacyFallback(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(b)
 	gradientExpr := effectiveGradientTemplateExpr(t, src)
-	firstAlias := strings.Index(gradientExpr, "NULLIF(p.customer_product_alias_gradient_template_id,0)")
-	firstRule := strings.Index(gradientExpr, "NULLIF(cpro.gradient_template_id,0)")
-	if firstAlias < 0 {
-		t.Fatalf("customer alias gradient template must be part of effective gradient expression: %s", gradientExpr)
+	firstAliasConfig := strings.Index(gradientExpr, "NULLIF(alias_config.gradient_template_id,0)")
+	firstProductConfig := strings.Index(gradientExpr, "NULLIF(p_config.gradient_template_id,0)")
+	legacyAlias := strings.Index(gradientExpr, "NULLIF(p.customer_product_alias_gradient_template_id,0)")
+	if firstAliasConfig < 0 {
+		t.Fatalf("customer alias product config template must be part of effective gradient expression: %s", gradientExpr)
 	}
-	if firstRule < 0 || firstAlias > firstRule {
-		t.Fatalf("customer alias gradient template must override customer rule templates: %s", gradientExpr)
+	if firstProductConfig < 0 || firstAliasConfig > firstProductConfig {
+		t.Fatalf("customer alias product config template must override product archive config template: %s", gradientExpr)
+	}
+	if legacyAlias < 0 || firstProductConfig > legacyAlias {
+		t.Fatalf("legacy customer alias direct gradient must only fallback after product config template: %s", gradientExpr)
 	}
 	for _, want := range []string{
-		"LEFT JOIN %[1]s.product_unit_templates alias_unit",
-		"NULLIF(alias_unit.inventory_unit,'')",
-		"NULLIF(alias_unit.quote_unit,'')",
-		"NULLIF(alias_unit.order_unit,'')",
-		"NULLIF(alias_unit.unit_conversion_json::text,'{}')",
-		"alias_unit.integer_unit",
+		"LEFT JOIN %[1]s.product_config_templates alias_config",
+		"LEFT JOIN %[1]s.product_unit_templates alias_legacy_unit",
+		"NULLIF(alias_config.inventory_unit,'')",
+		"NULLIF(p_config.inventory_unit,'')",
+		"NULLIF(alias_legacy_unit.inventory_unit,'')",
+		"NULLIF(alias_config.quote_unit,'')",
+		"NULLIF(p_config.quote_unit,'')",
+		"NULLIF(alias_legacy_unit.quote_unit,'')",
+		"NULLIF(alias_config.order_unit,'')",
+		"NULLIF(p_config.order_unit,'')",
+		"NULLIF(alias_legacy_unit.order_unit,'')",
+		"NULLIF(alias_config.unit_conversion_json::text,'{}')",
+		"NULLIF(p_config.unit_conversion_json::text,'{}')",
+		"NULLIF(alias_legacy_unit.unit_conversion_json::text,'{}')",
+		"alias_config.integer_unit",
+		"p_config.integer_unit",
+		"alias_legacy_unit.integer_unit",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("customer alias unit template must override product units; missing %q", want)
+			t.Fatalf("customer alias product config template must drive units before legacy fallback; missing %q", want)
 		}
 	}
 }

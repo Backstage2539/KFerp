@@ -480,6 +480,7 @@ type CustomerProductAlias struct {
 	DisplayCategoryID        int64                          `json:"display_category_id"`
 	DisplayCategoryName      string                         `json:"display_category_name"`
 	ClassificationTemplateID int64                          `json:"classification_template_id"`
+	ProductConfigTemplateID  int64                          `json:"product_config_template_id"`
 	GradientTemplateID       int64                          `json:"gradient_template_id"`
 	UnitTemplateID           int64                          `json:"unit_template_id"`
 	SortOrder                int                            `json:"sort_order"`
@@ -508,6 +509,7 @@ type CustomerProductAliasCommand struct {
 	BrandName                string
 	DisplayCategoryID        int64
 	ClassificationTemplateID int64
+	ProductConfigTemplateID  int64
 	GradientTemplateID       int64
 	UnitTemplateID           int64
 	SortOrder                int
@@ -1794,6 +1796,9 @@ func (s *Service) SaveCustomerProductAlias(ctx context.Context, cmd CustomerProd
 	}
 	if cmd.DisplayCategoryID < 0 {
 		return CustomerProductAlias{}, ValidationError{Message: "invalid display_category_id"}
+	}
+	if cmd.ProductConfigTemplateID < 0 {
+		return CustomerProductAlias{}, ValidationError{Message: "invalid product_config_template_id"}
 	}
 	if cmd.GradientTemplateID < 0 {
 		return CustomerProductAlias{}, ValidationError{Message: "invalid gradient_template_id"}

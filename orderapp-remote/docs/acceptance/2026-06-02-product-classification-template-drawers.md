@@ -2,12 +2,12 @@
 
 ## 范围
 - 商品档案只引用分类模板，分类归属改由“配置分类”抽屉维护。
-- 客户商品名单个维护和批量添加商品档案支持分类模板；批量不选时复制/复用来源商品档案分类模板到客户侧。
+- 客户商品单个维护和批量添加商品档案支持分类模板；批量不选时复制/复用来源商品档案分类模板到客户侧。
 - 行业字段值只能来自行业字段模板定义，商品档案配置不再临时新增或删除字段定义。
 - 商品档案配置进入生产 BOM 后，可通过“返回商品档案配置”恢复当前商品配置抽屉。
 
 ## RED 证据
-- `node --test src/lib/product-settings.test.js src/lib/bom.test.js` 初次失败：旧实现缺少分类模板抽屉、客户商品名批量分类模板、BOM 返回入口等 PR-393 断言。
+- `node --test src/lib/product-settings.test.js src/lib/bom.test.js` 初次失败：旧实现缺少分类模板抽屉、客户商品批量分类模板、BOM 返回入口等 PR-393 断言。
 - `go test ./internal/interfaces/http/support -run TestDev393 -count=1` 初次失败：PR-393 需求种子、schema/API/Vue 标记缺失。
 
 ## GREEN 证据

@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_product_aliases (
 	brand_name TEXT NOT NULL DEFAULT '',
 	display_category_id BIGINT NOT NULL DEFAULT 0,
 	classification_template_id BIGINT NOT NULL DEFAULT 0,
+	product_config_template_id BIGINT NOT NULL DEFAULT 0,
 	gradient_template_id BIGINT NOT NULL DEFAULT 0,
 	unit_template_id BIGINT NOT NULL DEFAULT 0,
 	sort_order INT NOT NULL DEFAULT 0,
@@ -147,6 +148,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.customer_product_aliases (
 	updated_by TEXT NOT NULL DEFAULT ''
 );
 ALTER TABLE %[1]s.customer_product_aliases ADD COLUMN IF NOT EXISTS classification_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.customer_product_aliases ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.customer_product_aliases ADD COLUMN IF NOT EXISTS gradient_template_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.customer_product_aliases ADD COLUMN IF NOT EXISTS unit_template_id BIGINT NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS customer_product_aliases_customer_active_idx

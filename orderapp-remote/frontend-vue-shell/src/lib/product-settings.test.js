@@ -51,6 +51,7 @@ import {
   greenBeanTypeLabel,
   productBelongsToSkuContext,
   productConfigTemplateBelongsToSkuContext,
+  productConfigTemplateNeedsGradientTemplate,
   productCreationActionOptions,
   productDisplayState,
   resolveCreatedProductForConfig,
@@ -192,6 +193,7 @@ test('customer product alias payload binds a customer-facing name to one product
     display_category_id: '7',
     gradient_template_id: '18',
     unit_template_id: '22',
+    product_config_template_id: '31',
     sort_order: '30',
     include_in_price_list: true,
     active: false,
@@ -204,13 +206,27 @@ test('customer product alias payload binds a customer-facing name to one product
     display_name: 'Karen 精品拼配',
     brand_name: '',
     display_category_id: 7,
-    gradient_template_id: 18,
-    unit_template_id: 22,
+    product_config_template_id: 31,
     sort_order: 30,
     include_in_price_list: true,
     active: false,
     remark: '贴牌只改对外名称',
   })
+})
+
+test('customer product aliases no longer submit direct gradient or unit template overrides', () => {
+  const payload = buildCustomerProductAliasPayload({
+    customer_id: 42,
+    product_id: 88,
+    display_name: 'Karen 精品拼配',
+    product_config_template_id: 31,
+    gradient_template_id: 18,
+    unit_template_id: 22,
+  })
+
+  assert.equal(payload.product_config_template_id, 31)
+  assert.equal(Object.hasOwn(payload, 'gradient_template_id'), false)
+  assert.equal(Object.hasOwn(payload, 'unit_template_id'), false)
 })
 
 test('customer alias rename overrides list display while preserving customer product name field', () => {
@@ -221,6 +237,29 @@ test('customer alias rename overrides list display while preserving customer pro
 
   assert.equal(customerAliasEffectiveDisplayName(alias), 'Karen 重命名报价名')
   assert.equal(customerAliasEffectiveDisplayName({ display_name: 'Karen 原客户商品名', brand_name: ' ' }), 'Karen 原客户商品名')
+})
+
+test('product config templates only bind a gradient template for gradient pricing mode', () => {
+  const gradientForm = {
+    name: '按阶梯价报价',
+    gradient_template_id: '18',
+    unit_template_id: '22',
+    price_rule_pricing_mode: 'inherit_gradient_template',
+    price_rule_rounding: 'none',
+  }
+  const fixedForm = {
+    name: '固定单价报价',
+    gradient_template_id: '18',
+    unit_template_id: '22',
+    price_rule_pricing_mode: 'fixed_unit_price',
+    price_rule_fixed_unit_price: '88',
+    price_rule_rounding: 'yuan',
+  }
+
+  assert.equal(productConfigTemplateNeedsGradientTemplate(gradientForm), true)
+  assert.equal(productConfigTemplateNeedsGradientTemplate(fixedForm), false)
+  assert.equal(buildProductConfigTemplatePayload(gradientForm).gradient_template_id, 18)
+  assert.equal(buildProductConfigTemplatePayload(fixedForm).gradient_template_id, 0)
 })
 
 test('product archive code label uses stable product code instead of list order number', () => {
@@ -445,7 +484,7 @@ test('product config template payload carries template rules and unit settings a
     id: 301,
     customer_id: 42,
     name: '客户盒装商品配置',
-    gradient_template_id: 8,
+    gradient_template_id: 0,
     operation_template_id: 9,
     unit_template_id: 12,
     price_rule_pricing_mode: 'fixed_unit_price',
@@ -464,7 +503,7 @@ test('product config template payload carries template rules and unit settings a
     id: 301,
     customer_id: 42,
     name: '客户盒装商品配置',
-    gradient_template_id: 8,
+    gradient_template_id: 0,
     operation_template_id: 9,
     unit_template_id: 12,
     price_list_rule_json: '{"pricing_mode":"fixed_unit_price","fixed_unit_price":15,"rounding":"yuan","tax_included":true}',
@@ -1359,7 +1398,7 @@ test('product pages split product archive, aliases and config templates without 
     'customerProductAliases',
     'productConfigTemplates',
     '商品档案',
-    '客户商品名',
+    '客户商品',
     '商品配置模板',
     '生产配置',
     '商品分类',
@@ -1378,7 +1417,9 @@ test('product config template page no longer contains product category managemen
 
   assert.match(source, /商品配置模板/)
   assert.match(configPageBlock, /单位模板/)
-  assert.match(configPageBlock, /阶梯价模板/)
+  assert.match(configPageBlock, /价格表生成规则/)
+  assert.match(configPageBlock, /productConfigTemplateNeedsGradientTemplate\(productConfigTemplateForm\)[\s\S]*阶梯价模板/)
+  assert.doesNotMatch(configPageBlock, /<label>\s*<span>阶梯价模板<\/span>\s*<select v-model\.number="productConfigTemplateForm\.gradient_template_id"/)
   assert.doesNotMatch(configPageBlock, />商品分类管理</)
   assert.doesNotMatch(template, /currentSettingsSection === 'master'[\s\S]*class="category-panel category-drawer-panel category-management-panel/)
   assert.match(template, /activeConfigTemplateSection === 'classification-template'/)
@@ -1704,18 +1745,19 @@ test('product management exposes customer product names without direct BOM editi
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   for (const expected of [
-    '客户商品名',
+    '客户商品',
     'customer-alias-workspace',
     '客户商品编号',
     '重命名',
     '进入价格表',
     '绑定商品档案',
+    '商品配置模板',
     'customerProductAliases',
     'buildCustomerProductAliasPayload',
     '/api/customer-product-aliases',
     'saveCustomerProductAlias',
     'disableCustomerProductAlias',
-    '客户商品名只维护对外名称、编号、重命名和价格表展示',
+    '客户商品只维护对外名称、编号、重命名和价格表展示',
     'customer-alias-create-drawer',
     'openCustomerAliasCreateDrawer',
     '绑定商品已失效',
@@ -1732,6 +1774,9 @@ test('product management exposes customer product names without direct BOM editi
   const aliasFilters = template.match(/<div class="alias-filters alias-filter-row"[\s\S]*?<div class="classification-view-toolbar alias-classification-tabs"/)?.[0] || ''
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.customer_item_code/)
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.include_in_price_list/)
+  assert.doesNotMatch(aliasForm, /customerProductAliasForm\.gradient_template_id/)
+  assert.doesNotMatch(aliasForm, /customerProductAliasForm\.unit_template_id/)
+  assert.match(aliasForm, /customerProductAliasForm\.product_config_template_id/)
   assert.doesNotMatch(inlineAliasArea, /<th>品牌名<\/th>/)
   assert.doesNotMatch(inlineAliasArea, /alias\.brand_name\s*\|\|\s*'-'/)
   assert.doesNotMatch(aliasForm, />进入价格表</)
@@ -1740,7 +1785,8 @@ test('product management exposes customer product names without direct BOM editi
   assert.match(aliasFilters, /批量失效/)
   assert.doesNotMatch(aliasFilters, />搜索客户商品</)
   assert.doesNotMatch(template, />编辑<\/button>/)
-  assert.doesNotMatch(template, /客户商品名[\s\S]*派生自有 BOM/)
+  assert.doesNotMatch(template, /客户商品名/)
+  assert.doesNotMatch(template, /客户商品[\s\S]*派生自有 BOM/)
   assert.doesNotMatch(template, /customer-alias-workspace[\s\S]*@click="derive/)
   assert.doesNotMatch(template, /旧客户 SKU 收敛检查/)
   assert.doesNotMatch(source, /aliasMigrationCandidates/)
@@ -1841,7 +1887,7 @@ test('classification template page edits only template structure, not object ass
   }
 
   assert.match(template, /activeConfigTemplateSection === 'classification-template'/)
-  assert.match(template, /点击左侧模板后，在右侧维护分类项；商品归类在商品档案或客户商品名列表中完成/)
+  assert.match(template, /点击左侧模板后，在右侧维护分类项；商品归类在商品档案或客户商品列表中完成/)
   assert.match(template, /<button class="secondary compact-action" type="button" @click="openClassificationTemplateCreateDrawer"/)
   assert.doesNotMatch(source, /category-editor-drawer/)
   assert.doesNotMatch(source, /openCategoryDrawer/)
@@ -2276,8 +2322,9 @@ test('customer product aliases use page-level classification templates, not sing
 
   assert.doesNotMatch(aliasForm, /classification_template_id/)
   assert.doesNotMatch(aliasForm, /include_in_price_list/)
-  assert.match(aliasForm, /customerProductAliasForm\.gradient_template_id/)
-  assert.match(aliasForm, /customerProductAliasForm\.unit_template_id/)
+  assert.doesNotMatch(aliasForm, /customerProductAliasForm\.gradient_template_id/)
+  assert.doesNotMatch(aliasForm, /customerProductAliasForm\.unit_template_id/)
+  assert.match(aliasForm, /customerProductAliasForm\.product_config_template_id/)
   assert.match(aliasTable, /openCustomerProductAliasEditor\(alias\)/)
   assert.match(aliasTable, />计价\/单位</)
   assert.doesNotMatch(aliasDrawer, /aliasBatchForm\.classification_template_id/)

@@ -27,20 +27,22 @@ func TestDev409CustomerAliasPricingBomConfigSeeds(t *testing.T) {
 func TestDev409CustomerAliasPricingBomConfigSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"customerProductAliasForm.gradient_template_id",
-			"customerProductAliasForm.unit_template_id",
+			"customerProductAliasForm.product_config_template_id",
+			"aliasProductConfigTemplateOptions",
 			"productProductionConfigActiveBomOptions",
 			"placeholder=\"搜索有效生产 BOM\"",
 			"productionBomOptionLabel",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "catalog", "repository.go"): {
-			"gradient_template_id=$8",
-			"unit_template_id=$9",
+			"product_config_template_id=$8",
+			"gradient_template_id=$9",
+			"unit_template_id=$10",
 			"return fields, nil",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go"): {
+			"NULLIF(alias_config.gradient_template_id,0)",
 			"NULLIF(p.customer_product_alias_gradient_template_id,0)",
-			"alias_unit.inventory_unit",
+			"alias_legacy_unit.inventory_unit",
 		},
 	}
 

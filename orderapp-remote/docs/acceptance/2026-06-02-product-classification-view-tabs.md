@@ -1,16 +1,16 @@
 # PR-394 商品/客户商品分类视图验收证据
 
 ## 范围
-- 商品档案和客户商品名不再直接引用分类模板。
+- 商品档案和客户商品不再直接引用分类模板。
 - 分类模板作为页面启用的分类视图：启用一个模板新增一个 Tab。
-- 商品档案页和客户商品名页在当前模板 Tab 内勾选对象并移动分类。
+- 商品档案页和客户商品页在当前模板 Tab 内勾选对象并移动分类。
 - 分类模板页只维护模板结构和分类项，不配置客户或对象归类。
-- 客户商品名层删除生产/BOM 操作入口。
+- 客户商品层删除生产/BOM 操作入口。
 - 生产 BOM 返回商品档案配置改为前端内存态临时返回导航，刷新后消失。
 
 ## RED 证据
 - Frontend：新增分类视图测试后，`node --test src/lib/product-settings.test.js src/lib/bom.test.js src/lib/view-routing.test.js` 最初失败，缺少 `buildClassificationTemplateUsagePayload`、分类模板 Tab/group helper 和生产 BOM 返回导航参数支持。
-- API：新增接口测试后，catalog API 最初失败，批量客户商品名仍接受 `classification_template_id`，分类模板保存仍保留 `customer_id`，并且商品档案/客户商品名分类模板启用 API 不存在。
+- API：新增接口测试后，catalog API 最初失败，批量客户商品仍接受 `classification_template_id`，分类模板保存仍保留 `customer_id`，并且商品档案/客户商品分类模板启用 API 不存在。
 - Support markers：现有支持测试仍检查旧“分类模板下拉/配置分类抽屉”模型，最初失败，说明文档和源码标记仍是上一版口径。
 
 ## GREEN 证据

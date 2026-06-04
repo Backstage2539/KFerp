@@ -114,7 +114,7 @@
       <div class="bean-list-generate-bar">
         <div>
           <div class="section-title">生成价格表</div>
-          <p class="muted">按当前价格表归属、商品当前归类和客户商品名生成商品价格表；未归类统一进入其他。</p>
+          <p class="muted">按当前价格表归属、商品当前归类和客户商品生成商品价格表；未归类统一进入其他。</p>
         </div>
         <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">生成价格表</button>
       </div>

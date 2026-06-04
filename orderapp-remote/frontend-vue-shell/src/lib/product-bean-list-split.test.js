@@ -15,10 +15,10 @@ function menuItem(key) {
   return menuGroups.flatMap((group) => group.items).find((item) => item.key === key)
 }
 
-test('product menu is split into product archive, customer names, template and price-list pages', () => {
+test('product menu is split into product archive, customer products, template and price-list pages', () => {
   assert.equal(menuItem('productMaster')?.label, '商品档案')
   assert.equal(menuItem('productMaster')?.title, '商品档案')
-  assert.equal(menuItem('customerProductAliases')?.label, '客户商品名')
+  assert.equal(menuItem('customerProductAliases')?.label, '客户商品')
   assert.equal(menuItem('productConfigTemplates')?.label, '商品配置和分类模板')
   assert.equal(menuItem('costing')?.label, '商品价格表')
   assert.equal(menuItem('costing')?.title, '商品价格表')
@@ -27,7 +27,7 @@ test('product menu is split into product archive, customer names, template and p
 test('product archive no longer embeds the product bean-list workspace', () => {
   assert.match(productSettingsSource, /productSectionTitle/)
   assert.match(productSettingsSource, /商品档案/)
-  assert.match(productSettingsSource, /客户商品名/)
+  assert.match(productSettingsSource, /客户商品/)
   assert.match(productSettingsSource, /商品配置模板/)
   assert.doesNotMatch(productSettingsSource, /import\s+CostingView\s+from/)
   assert.doesNotMatch(productSettingsSource, /<CostingView\b/)

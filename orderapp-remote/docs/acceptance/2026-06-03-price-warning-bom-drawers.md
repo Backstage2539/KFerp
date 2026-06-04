@@ -1,16 +1,16 @@
-# PR-404 商品价格表 warning 与生产 BOM 抽屉交互
+# PR-404 产品价格表 warning 与生产 BOM 抽屉交互
 
 ## 范围
-- 商品价格表缺少计价方式时，API warning 统一为短文案 `未设置计价方式`。
-- 商品价格表卡片不直接显示长 warning 文案，改为感叹号图标；hover/focus 后显示配置路径 tooltip。
-- `green_bean`、`drip_bag` 不再作为商品价格表 warning 判定豁免条件；系统其他生豆/挂耳业务逻辑保留。
+- 产品价格表缺少计价方式时，API warning 统一为短文案 `未设置计价方式`。
+- 产品价格表卡片不直接显示长 warning 文案，改为感叹号图标；hover/focus 后显示配置路径 tooltip。
+- `green_bean`、`drip_bag` 不再作为产品价格表 warning 判定豁免条件；系统其他生豆/挂耳业务逻辑保留。
 - 生产 BOM 页面重排新建、过滤、移动分组和分组 Tab；BOM 版本、规格袋材映射改为列表行按钮打开抽屉。
 
 ## RED 证据
 - `go test ./internal/domain/costing ./internal/application/costing ./internal/interfaces/http/costing -run 'Test(ProductWithoutPricingMethodDoesNotPublishCommercialTiers|ProductWithGradientTemplateDoesNotWarnMissingPricingMethod|PricingMethodWarningDoesNotExemptProductKind|ConfiguredFixedPriceAndCostPlusDoNotWarnMissingPricingMethod|BeanListRequiresExplicitGradientTemplateForCommercialTiers|CostingCalculateAPIRequiresGradientTemplateForCommercialTiers)' -count=1`
   - 失败原因：旧实现没有 `MissingPricingMethodWarning`，且生豆/挂耳分支仍豁免缺计价方式提示。
 - `node --test src/lib/bom.test.js src/lib/product-bean-list-split.test.js`
-  - 失败原因：商品价格表仍用 `warning-chip` 直接显示 warning 文案；生产 BOM 页面仍把过滤放在全局工具区，版本和规格袋材映射仍是底部 panel。
+  - 失败原因：产品价格表仍用 `warning-chip` 直接显示 warning 文案；生产 BOM 页面仍把过滤放在全局工具区，版本和规格袋材映射仍是底部 panel。
 
 ## GREEN 证据
 - `go test ./internal/domain/costing ./internal/application/costing ./internal/interfaces/http/costing -run 'Test(ProductWithoutPricingMethodDoesNotPublishCommercialTiers|ProductWithGradientTemplateDoesNotWarnMissingPricingMethod|PricingMethodWarningDoesNotExemptProductKind|ConfiguredFixedPriceAndCostPlusDoNotWarnMissingPricingMethod|BeanListRequiresExplicitGradientTemplateForCommercialTiers|CostingCalculateAPIRequiresGradientTemplateForCommercialTiers)' -count=1`

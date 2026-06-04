@@ -3,11 +3,11 @@
 ## 范围
 - 新增商品生产配置、商品生产配置字段和工艺路线结构。
 - BOM 收敛为配方库：分组、BOM 档案、版本和配方明细；预期损耗率和产品信息字段迁到商品生产配置。
-- 商品与配方菜单拆为商品档案、客户商品名、商品配置模板、生产 BOM、产品价格表和行业字段模板。
+- 商品与配方菜单拆为商品档案、客户商品、商品配置模板、生产 BOM、产品价格表和行业字段模板。
 - 成本、价格表、录单、生产计划和工单读取并冻结商品生产配置。
 
 ## RED 证据
-- 前端：`node --test src/lib/menu-ia.test.js src/lib/bom.test.js src/lib/product-settings.test.js` 初始失败，缺少商品档案/客户商品名/商品配置模板拆分、BOM 分组树和商品生产配置标记。
+- 前端：`node --test src/lib/menu-ia.test.js src/lib/bom.test.js src/lib/product-settings.test.js` 初始失败，缺少商品档案/客户商品/商品配置模板拆分、BOM 分组树和商品生产配置标记。
 - 后端：`go test ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/manufacturing ./internal/infrastructure/postgres/costing ./internal/infrastructure/postgres/production ./internal/infrastructure/postgres/sales -count=1` 初始失败，缺少商品生产配置、工艺路线和 BOM 分组删除/排序能力。
 
 ## GREEN 证据
