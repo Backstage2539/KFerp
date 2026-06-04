@@ -23,3 +23,8 @@
 - `go test ./...`：通过。
 - `npm run build`：通过，保留既有 Vite chunk-size warning。
 - `scripts/verify_kferp.sh changed`：退出码 0。
+
+## 部署
+- 合入 `origin/develop=f4d4ef4c26e899fc1112a24b69c353c6b8361a4a`。
+- `./deploy_orderapp.sh development` 成功，备份为 `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604210721`。
+- Smoke：容器 `erp_orderapp`、`erp_caddy`、`erp_postgres`、`erp_docconvert` 运行；`GET /app/` 返回 303 到 `/app/orders`；`GET /app/vue-shell/` 返回 200；未登录访问受保护 API 返回 401；服务器 docs 和 Vue bundle 均包含 PR-412 标记和新商品配置模板文案。

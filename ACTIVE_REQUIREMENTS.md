@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-412-CLASSIFICATION-CONFIG-TEMPLATE-INHERITANCE
 - Branch: codex/classification-config-template-inheritance-20260604
 - Owner/session: Codex / 2026-06-04
-- Status: in progress
+- Status: merged and deployed to development
 - Scope: 分类模板和分类项不再直接引用阶梯价模板和单位模板，改为引用商品配置模板；商品价格表/成本输入按 `商品引用模板 > 子类引用模板 > 大类引用模板 > 旧兼容字段` 读取计价、单位和价格表规则。
 - DEV:
   - DEV-412-CLASSIFICATION-TEMPLATE-CONFIG-REFERENCE：分类模板和分类项 schema/API/repository/Vue 表单支持 `product_config_template_id`，新 UI 下线分类直接阶梯价/单位模板引用，并提示商品配置模板可以被商品覆盖。
@@ -22,7 +22,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
   - Changed verifier: `scripts/verify_kferp.sh changed` exited 0.
   - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-04-classification-config-template-inheritance.md`
-- Deployment: pending
+- Integration: feature commit `f4d4ef4c` pushed to `origin/codex/classification-config-template-inheritance-20260604` and fast-forward merged/pushed to `origin/develop=f4d4ef4c26e899fc1112a24b69c353c6b8361a4a`.
+- Deployment: development stack deployed with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604210721`.
+- Smoke: containers running (`erp_orderapp`, `erp_caddy`, `erp_postgres`, `erp_docconvert`); unauthenticated GET `/app/` returned 303 to `/app/orders`; GET `/app/vue-shell/` returned 200; protected `/app/api/req/product` and `/app/api/product-settings` returned 401 without login; deployed docs contain `PR-412-CLASSIFICATION-CONFIG-TEMPLATE-INHERITANCE`; deployed Vue bundle contains `模板默认商品配置模板`, `分类项商品配置模板`, and `product_config_template_id`.
 - Last update: 2026-06-04 Asia/Shanghai
 
 ### PR-411-CUSTOMER-PRODUCT-CONFIG-TEMPLATE-PRICING
