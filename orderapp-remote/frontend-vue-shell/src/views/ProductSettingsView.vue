@@ -3525,14 +3525,12 @@ function handleCustomProductKindChange() {
 
 function navigateProductBom(row) {
   const productID = Number(row?.id || row?.product_id || 0)
+  const bomID = Number(row?.production_bom_id || productProductionConfigForm.value.production_bom_id || 0)
   const productName = productProductionConfigForm.value.name || row?.name || productProductionConfigProduct.value?.name || ''
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: {
       key: 'bom',
-      params: productID > 0 ? {
-        product_id: productID,
-        bom_filter_product_id: productID,
-      } : {},
+      params: bomID > 0 ? { production_bom_id: bomID } : {},
       returnNavigation: productID > 0 ? {
         label: productName ? `返回商品档案配置：${productName}` : '返回商品档案配置',
         key: 'productMaster',

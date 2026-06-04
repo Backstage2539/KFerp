@@ -195,6 +195,20 @@ func TestProductionBomBackfillRepairsLegacyItemsWithoutBindings(t *testing.T) {
 	}
 }
 
+func TestProductionBomDetailListsReferencedProducts(t *testing.T) {
+	repository := readRepositorySource(t)
+	for _, want := range []string{
+		"listProductionBomReferencedProducts",
+		"JOIN %[1]s.products p ON p.id=b.product_id",
+		"WHERE b.bom_id=$1",
+		"ReferencedProducts: referencedProducts",
+	} {
+		if !strings.Contains(repository, want) {
+			t.Fatalf("production BOM detail referenced product implementation missing marker %q", want)
+		}
+	}
+}
+
 func TestProductionBomCanDeactivateWhenActiveProductsReferenceIt(t *testing.T) {
 	repository := readRepositorySource(t)
 	start := strings.Index(repository, "func (r Repository) UpdateProductionBom")

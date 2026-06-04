@@ -1,9 +1,9 @@
 # PR-406 BOM、商品档案与客户商品名交互修正验收记录
 
 ## 范围
-- 生产 BOM 页面收敛为一个商品 BOM列表，过滤行包含商品过滤、状态、搜索和批量失效。
-- 未绑定商品的生产 BOM 合并进商品 BOM列表，显示“未绑定商品”，可勾选、复制、失效、移动分组和打开版本抽屉。
-- 点击已绑定商品的 BOM 名称会选中该商品并显示右侧配方明细；点击未绑定商品的 BOM 名称也会显示右侧配方明细，商品字段显示“未绑定商品”。
+- 生产 BOM 页面收敛为独立的生产 BOM 列表，过滤行包含状态、BOM 搜索和批量失效，不再展示商品列或商品过滤。
+- 生产 BOM 作为独立配方档案展示；商品引用只在右侧 BOM 详情的“引用商品”区展示。
+- 点击任意 BOM 名称会显示右侧配方明细；BOM 不因未绑定商品而不能选中、复制、失效、移动分组或维护配方。
 - 商品档案页面删除 `SKU归属` 行，压缩顶部说明，创建/失效/分类移动反馈改用统一 `kferp:notify` 通知。
 - 商品档案和客户商品名分类操作改为 Tab 行右侧 `增加分类` 与 `移动到分类` 两个可搜索下拉；客户商品名可从分类项直接移动回虚拟 `未分类`。
 - 客户商品名删除旧客户 SKU 收敛检查，新建客户商品改为抽屉；抽屉内不展示 `进入价格表` / `默认进入价格表` 开关；批量添加商品档案在该抽屉内切换模式，搜索框位于待选商品列表顶部。
@@ -38,7 +38,13 @@
 - 修复商品档案行没有生产 BOM 时只能显示“无生产 BOM / 未维护”且所有 BOM 操作禁用的问题。现在这类行会显示 `创建BOM`，点击后调用 `/api/production-boms` 创建生产 BOM 和 V001 已发布版本，再调用 `/api/products/:id/production-bom-binding` 绑定商品，随后可维护右侧配方明细。
 - RED：`node --test src/lib/bom.test.js` failed，因为 `defaultProductionBomNameForProduct` 和缺 BOM 行识别 helper 尚未导出，页面也没有创建并绑定路径。
 - GREEN：`node --test src/lib/bom.test.js` 10/10 passed；`node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` 119/119 passed；`npm run build` passed；`scripts/verify_kferp.sh changed` passed。
-- 部署：本轮未部署；等待后续合并/部署指令。
+- 状态：该方案已被下方 “independent BOM list follow-up” 替代；生产 BOM 列表不再生成商品档案行，也不再展示 `创建BOM` 行操作。
+
+## 2026-06-04 independent BOM list follow-up
+- 纠正上一轮“生产 BOM 列表合并商品行”的口径。生产 BOM 是独立配方档案，列表数据只来自 `/api/production-boms?status=all`，不再读取 `/api/bom/list` 作为主列表，不再显示商品列、商品过滤、`无生产 BOM / 未维护` 商品行或 `创建BOM` 行操作。
+- 商品档案配置跳转 BOM 明细时传递 `production_bom_id`，直接打开对应生产 BOM；商品引用关系在 `/api/production-boms/:id` 的 `referenced_products` 中展示。
+- RED：`node --test src/lib/bom.test.js` failed，因为 `productionBomLabel` 不能识别独立 BOM 的 `code/name/latest_version_no`，且 Vue 仍包含 `商品 BOM列表`、`商品过滤` 和 `mergeProductionBomRows`；Go targeted test failed，因为 `ProductionBomDetail` 尚未返回 `referenced_products`。
+- GREEN：`node --test src/lib/bom.test.js` passed；`node --test src/lib/product-settings.test.js src/lib/view-routing.test.js` passed；`go test ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/interfaces/http/support -count=1` passed。
 
 ## 手册与需求文档
 - `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`

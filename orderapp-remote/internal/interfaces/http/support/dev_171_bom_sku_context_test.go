@@ -30,8 +30,20 @@ func TestDev171BomViewFiltersBySkuContext(t *testing.T) {
 	for _, want := range []string{
 		"bom-list-tabs-row",
 		"bom-list-filters",
-		"商品过滤",
+		"生产 BOM列表",
 		"批量失效",
+		"productionBomRows",
+		"v-for=\"row in productionBomRows\"",
+		"引用商品",
+		"referencedProductsLabel",
+		"apiGet('/api/production-boms?status=all')",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("BomView.vue missing BOM SKU context marker %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"商品过滤",
 		"selectedBomCustomerSkuCustomerID",
 		"mergeProductionBomRows",
 		"bomContextProducts",
@@ -44,8 +56,8 @@ func TestDev171BomViewFiltersBySkuContext(t *testing.T) {
 		"filterBomRowsByProductFocus",
 		"apiGet('/api/customers?limit=200')",
 	} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("BomView.vue missing BOM SKU context marker %q", want)
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("BomView.vue should not keep product-context BOM marker %q", unwanted)
 		}
 	}
 	tabRow := strings.Index(view, "bom-list-tabs-row")

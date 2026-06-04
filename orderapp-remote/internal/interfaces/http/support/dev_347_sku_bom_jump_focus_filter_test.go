@@ -30,7 +30,7 @@ func TestDev347SkuBomJumpFocusFilterWiring(t *testing.T) {
 			rel: filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"),
 			markers: []string{
 				"buildProductBomURL",
-				"bom_filter_product_id",
+				"production_bom_id",
 			},
 		},
 		{
@@ -38,7 +38,7 @@ func TestDev347SkuBomJumpFocusFilterWiring(t *testing.T) {
 			markers: []string{
 				"kferp:navigate-view",
 				"navigateProductBom",
-				"bom_filter_product_id",
+				"production_bom_id",
 			},
 		},
 		{
@@ -51,10 +51,10 @@ func TestDev347SkuBomJumpFocusFilterWiring(t *testing.T) {
 		{
 			rel: filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"),
 			markers: []string{
-				"bomFilterProductId",
-				"filterBomRowsByProductFocus",
-				"商品过滤",
-				"bom_filter_product_id",
+				"pendingProductionBomID",
+				"production_bom_id",
+				"productionBomRows",
+				"生产 BOM列表",
 			},
 		},
 	}
@@ -75,7 +75,7 @@ func TestDev347SkuBomJumpFocusFilterDocs(t *testing.T) {
 	}{
 		{rel: filepath.Join("docs", "REQUIREMENTS.md"), markers: []string{"PR-347-SKU-BOM-JUMP-FOCUS-FILTER", "维护 BOM", "显示全部 BOM"}},
 		{rel: filepath.Join("docs", "ACCEPTANCE_TESTS.md"), markers: []string{"PR-347-SKU-BOM-JUMP-FOCUS-FILTER", "维护 BOM", "显示全部 BOM"}},
-		{rel: filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"), markers: []string{"PR-392", "维护当前 BOM 明细", "清除商品筛选"}},
+		{rel: filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"), markers: []string{"PR-392", "维护当前 BOM 明细", "production_bom_id"}},
 		{rel: filepath.Join("docs", "acceptance", "2026-05-23-sku-bom-jump-focus-filter.md"), markers: []string{"PR-347-SKU-BOM-JUMP-FOCUS-FILTER", "维护 BOM", "显示全部 BOM"}},
 	} {
 		src := string(readOrderAppFileForTest(t, check.rel))

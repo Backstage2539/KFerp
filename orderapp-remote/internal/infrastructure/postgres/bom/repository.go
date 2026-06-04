@@ -1450,16 +1450,26 @@ func (r Repository) GetProductionBomDetail(ctx context.Context, id int64) (bomap
 	if err != nil {
 		return bomapp.ProductionBomDetail{}, err
 	}
-	latestID := summaries[0].LatestVersionID
+	detailVersionID := summaries[0].LatestVersionID
+	for _, version := range versions {
+		if version.Status == "draft" {
+			detailVersionID = version.ID
+			break
+		}
+	}
 	items := []bomapp.Item{}
-	if latestID > 0 {
-		itemRows, _, err := listProductionBomVersionItems(ctx, r.pool, r.schema, latestID)
+	if detailVersionID > 0 {
+		itemRows, _, err := listProductionBomVersionItems(ctx, r.pool, r.schema, detailVersionID)
 		if err != nil {
 			return bomapp.ProductionBomDetail{}, err
 		}
 		items = bomItemsToApp(itemRows)
 	}
-	return bomapp.ProductionBomDetail{ProductionBomSummary: summaries[0], Versions: versions, Items: items}, nil
+	referencedProducts, err := r.listProductionBomReferencedProducts(ctx, id)
+	if err != nil {
+		return bomapp.ProductionBomDetail{}, err
+	}
+	return bomapp.ProductionBomDetail{ProductionBomSummary: summaries[0], Versions: versions, Items: items, ReferencedProducts: referencedProducts}, nil
 }
 
 func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreateProductionBomCommand) (bomapp.ProductionBomSummary, error) {
@@ -1870,6 +1880,35 @@ func (r Repository) listProductionBomVersions(ctx context.Context, bomID int64) 
 	for rows.Next() {
 		var row bomapp.ProductionBomVersion
 		if err := rows.Scan(&row.ID, &row.BomID, &row.VersionNo, &row.Status, &row.YieldRate, &row.ItemCount, &row.Note, &row.SpecialAttrsSchemaJSON, &row.SpecialAttrsJSON, &row.CreatedAt, &row.PublishedAt, &row.IsLatest); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) listProductionBomReferencedProducts(ctx context.Context, bomID int64) ([]bomapp.ProductionBomReferencedProduct, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT b.product_id,
+		       COALESCE(p.name,''),
+		       ('SKU-' || lpad(b.product_id::text,6,'0')),
+		       COALESCE(p.active,true),
+		       b.bom_version_id,
+		       COALESCE(v.version_no,'')
+		FROM %[1]s.product_production_bom_bindings b
+		JOIN %[1]s.products p ON p.id=b.product_id
+		LEFT JOIN %[1]s.production_bom_versions v ON v.id=b.bom_version_id
+		WHERE b.bom_id=$1
+		ORDER BY COALESCE(p.active,true) DESC, p.name, b.product_id
+	`, r.schema), bomID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]bomapp.ProductionBomReferencedProduct, 0)
+	for rows.Next() {
+		var row bomapp.ProductionBomReferencedProduct
+		if err := rows.Scan(&row.ProductID, &row.ProductName, &row.ProductCode, &row.Active, &row.BomVersionID, &row.BomVersionNo); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
