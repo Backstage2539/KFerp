@@ -2374,19 +2374,27 @@ test('product menus split config, gradient, unit templates and rename product pr
   assert.doesNotMatch(configWorkspace, /activeConfigTemplateSection === 'unit-template'/)
 })
 
-test('classification templates and categories reference gradient and unit templates', () => {
+test('classification templates and categories reference product config templates instead of direct gradient and unit templates', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const classificationPane = source.match(/<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'classification-template'"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
-  assert.match(classificationPane, /模板默认阶梯价模板/)
-  assert.match(classificationPane, /模板默认单位模板/)
-  assert.match(classificationPane, /分类项阶梯价模板/)
-  assert.match(classificationPane, /分类项单位模板/)
-  assert.match(script, /classificationTemplateForm\.value[\s\S]*gradient_template_id/)
-  assert.match(script, /classificationTemplateForm\.value[\s\S]*unit_template_id/)
-  assert.match(script, /classificationCategoryForm\.value[\s\S]*gradient_template_id/)
-  assert.match(script, /classificationCategoryForm\.value[\s\S]*unit_template_id/)
+  assert.match(classificationPane, /模板默认商品配置模板/)
+  assert.match(classificationPane, /分类项商品配置模板/)
+  assert.match(classificationPane, /商品单独选择商品配置模板时会覆盖分类配置/)
+  assert.match(script, /classificationTemplateForm\.value[\s\S]*product_config_template_id/)
+  assert.match(script, /classificationCategoryForm\.value[\s\S]*product_config_template_id/)
+  assert.match(script, /product_config_template_id: Number\(form\.product_config_template_id \|\| 0\)/)
+  assert.match(script, /gradient_template_id: 0/)
+  assert.match(script, /unit_template_id: 0/)
+  assert.doesNotMatch(classificationPane, /模板默认阶梯价模板/)
+  assert.doesNotMatch(classificationPane, /模板默认单位模板/)
+  assert.doesNotMatch(classificationPane, /分类项阶梯价模板/)
+  assert.doesNotMatch(classificationPane, /分类项单位模板/)
+  assert.doesNotMatch(classificationPane, /classificationTemplateForm\.gradient_template_id/)
+  assert.doesNotMatch(classificationPane, /classificationTemplateForm\.unit_template_id/)
+  assert.doesNotMatch(classificationPane, /classificationCategoryForm\.gradient_template_id/)
+  assert.doesNotMatch(classificationPane, /classificationCategoryForm\.unit_template_id/)
 })
 
 test('classification assignment helpers allow direct move overwrite and expose labels', () => {
@@ -2423,20 +2431,24 @@ test('product archive and customer alias classification UX uses big-category tab
   assert.doesNotMatch(source, /已归类，需先移出当前分类/)
 })
 
-test('classification template unit and price mismatch warnings compare product config with assigned category', () => {
+test('classification template warnings explain that product config templates override category and template defaults', () => {
   const warnings = classificationTemplateUnitPriceWarnings({
-    productConfigTemplate: { id: 7, gradient_template_id: 100, unit_template_id: 200 },
-    classificationTemplate: { id: 10, gradient_template_id: 101, unit_template_id: 201 },
-    classificationCategory: { id: 11, gradient_template_id: 102, unit_template_id: 202 },
+    productConfigTemplate: { id: 7 },
+    classificationTemplate: { id: 10, product_config_template_id: 101 },
+    classificationCategory: { id: 11, product_config_template_id: 102 },
   })
   assert.deepEqual(warnings, [
-    '商品配置阶梯价模板与所属分类引用不一致',
-    '商品配置单位模板与所属分类引用不一致',
+    '商品已选择商品配置模板，将覆盖所属分类引用的商品配置模板',
   ])
   assert.deepEqual(classificationTemplateUnitPriceWarnings({
-    productConfigTemplate: { id: 7, gradient_template_id: 102, unit_template_id: 202 },
-    classificationTemplate: { id: 10, gradient_template_id: 101, unit_template_id: 201 },
-    classificationCategory: { id: 11, gradient_template_id: 102, unit_template_id: 202 },
+    productConfigTemplate: { id: 102 },
+    classificationTemplate: { id: 10, product_config_template_id: 101 },
+    classificationCategory: { id: 11, product_config_template_id: 102 },
+  }), [])
+  assert.deepEqual(classificationTemplateUnitPriceWarnings({
+    productConfigTemplate: { id: 0 },
+    classificationTemplate: { id: 10, product_config_template_id: 101 },
+    classificationCategory: { id: 11, product_config_template_id: 102 },
   }), [])
 })
 

@@ -305,6 +305,39 @@ func TestLoadProductInputsForCustomerAliasConfigTemplateOverridesProductTemplate
 	}
 }
 
+func TestLoadProductInputsUsesClassificationConfigTemplatesBeforeLegacyFallback(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	gradientExpr := effectiveGradientTemplateExpr(t, src)
+	for _, want := range []string{
+		"LEFT JOIN %[1]s.product_config_templates classification_category_config",
+		"LEFT JOIN %[1]s.product_config_templates classification_template_config",
+		"NULLIF(classification_category_config.gradient_template_id,0)",
+		"NULLIF(classification_template_config.gradient_template_id,0)",
+		"NULLIF(classification_category_config.inventory_unit,'')",
+		"NULLIF(classification_template_config.inventory_unit,'')",
+		"NULLIF(classification_category_config.price_list_rule_json::text,'{}')",
+		"NULLIF(classification_template_config.price_list_rule_json::text,'{}')",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("classification config template inheritance missing marker %q", want)
+		}
+	}
+	productConfig := strings.Index(gradientExpr, "NULLIF(p_config.gradient_template_id,0)")
+	categoryConfig := strings.Index(gradientExpr, "NULLIF(classification_category_config.gradient_template_id,0)")
+	templateConfig := strings.Index(gradientExpr, "NULLIF(classification_template_config.gradient_template_id,0)")
+	legacyAlias := strings.Index(gradientExpr, "NULLIF(p.customer_product_alias_gradient_template_id,0)")
+	if productConfig < 0 || categoryConfig < 0 || templateConfig < 0 || legacyAlias < 0 {
+		t.Fatalf("effective gradient expression missing expected source: %s", gradientExpr)
+	}
+	if !(productConfig < categoryConfig && categoryConfig < templateConfig && templateConfig < legacyAlias) {
+		t.Fatalf("classification config template precedence must be product > category > template > legacy alias: %s", gradientExpr)
+	}
+}
+
 func TestLoadProductInputsReadsCurrentClassificationAssignments(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

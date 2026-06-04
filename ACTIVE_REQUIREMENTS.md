@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-412-CLASSIFICATION-CONFIG-TEMPLATE-INHERITANCE
+- Branch: codex/classification-config-template-inheritance-20260604
+- Owner/session: Codex / 2026-06-04
+- Status: in progress
+- Scope: 分类模板和分类项不再直接引用阶梯价模板和单位模板，改为引用商品配置模板；商品价格表/成本输入按 `商品引用模板 > 子类引用模板 > 大类引用模板 > 旧兼容字段` 读取计价、单位和价格表规则。
+- DEV:
+  - DEV-412-CLASSIFICATION-TEMPLATE-CONFIG-REFERENCE：分类模板和分类项 schema/API/repository/Vue 表单支持 `product_config_template_id`，新 UI 下线分类直接阶梯价/单位模板引用，并提示商品配置模板可以被商品覆盖。
+  - DEV-412-PRICE-LIST-CONFIG-INHERITANCE：商品价格表和成本输入读取分类项/分类模板引用的商品配置模板，放在商品/客户商品配置模板之后、旧直接字段之前。
+  - DEV-412-MANUAL-DOCS：更新商品配置和分类模板、商品价格表手册、需求、验收和 acceptance 记录。
+- Verifier:
+  - RED: `node --test src/lib/product-settings.test.js` failed on old classification gradient/unit UI and old warning helper; targeted Go tests failed on missing `ProductConfigTemplateID`, missing classification config SQL join, and missing PR-412 seed.
+  - Frontend: `node --test src/lib/product-settings.test.js` passed 108/108; broader target `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/bean-list-pdf.test.js src/lib/view-routing.test.js src/lib/menu-ia.test.js src/lib/product-bean-list-split.test.js` passed 178/178.
+  - API/backend: targeted catalog/costing/support tests passed; `go test ./...` passed.
+  - Frontend/build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
+  - Changed verifier: `scripts/verify_kferp.sh changed` exited 0.
+  - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-04-classification-config-template-inheritance.md`
+- Deployment: pending
+- Last update: 2026-06-04 Asia/Shanghai
+
 ### PR-411-CUSTOMER-PRODUCT-CONFIG-TEMPLATE-PRICING
 - Branch: codex/customer-product-config-template-pricing-20260604
 - Owner/session: Codex / 2026-06-04

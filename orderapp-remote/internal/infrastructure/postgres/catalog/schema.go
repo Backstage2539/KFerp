@@ -164,6 +164,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_classification_templates (
 	template_state TEXT NOT NULL DEFAULT 'owned',
 	name TEXT NOT NULL,
 	remark TEXT NOT NULL DEFAULT '',
+	product_config_template_id BIGINT NOT NULL DEFAULT 0,
 	gradient_template_id BIGINT NOT NULL DEFAULT 0,
 	unit_template_id BIGINT NOT NULL DEFAULT 0,
 	active BOOLEAN NOT NULL DEFAULT true,
@@ -179,6 +180,7 @@ WHERE active=true;
 	CREATE INDEX IF NOT EXISTS product_classification_templates_sort_idx
 	ON %[1]s.product_classification_templates(customer_id, active, sort_order, id);
 	ALTER TABLE %[1]s.product_classification_templates ADD COLUMN IF NOT EXISTS remark TEXT NOT NULL DEFAULT '';
+	ALTER TABLE %[1]s.product_classification_templates ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0;
 	ALTER TABLE %[1]s.product_classification_templates ADD COLUMN IF NOT EXISTS gradient_template_id BIGINT NOT NULL DEFAULT 0;
 	ALTER TABLE %[1]s.product_classification_templates ADD COLUMN IF NOT EXISTS unit_template_id BIGINT NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS %[1]s.product_classification_template_categories (
@@ -188,6 +190,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_classification_template_categories (
 	name TEXT NOT NULL,
 	level INT NOT NULL DEFAULT 1,
 	sort_order INT NOT NULL DEFAULT 100,
+	product_config_template_id BIGINT NOT NULL DEFAULT 0,
 	gradient_template_id BIGINT NOT NULL DEFAULT 0,
 	unit_template_id BIGINT NOT NULL DEFAULT 0,
 	active BOOLEAN NOT NULL DEFAULT true,
@@ -196,6 +199,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_classification_template_categories (
 );
 ALTER TABLE %[1]s.product_classification_template_categories ADD COLUMN IF NOT EXISTS gradient_template_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_classification_template_categories ADD COLUMN IF NOT EXISTS unit_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_classification_template_categories ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0;
 CREATE UNIQUE INDEX IF NOT EXISTS product_classification_template_categories_name_uniq
 ON %[1]s.product_classification_template_categories(template_id, parent_id, lower(name))
 WHERE active=true;

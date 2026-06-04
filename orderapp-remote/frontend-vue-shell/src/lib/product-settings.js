@@ -375,16 +375,11 @@ export function classificationTemplateUnitPriceWarnings(input = {}) {
   const productConfigTemplate = input.productConfigTemplate || input.product_config_template || {}
   const classificationTemplate = input.classificationTemplate || input.classification_template || {}
   const classificationCategory = input.classificationCategory || input.classification_category || {}
-  const effectiveGradientID = Number(classificationCategory.gradient_template_id || classificationTemplate.gradient_template_id || 0)
-  const effectiveUnitID = Number(classificationCategory.unit_template_id || classificationTemplate.unit_template_id || 0)
-  const productGradientID = Number(productConfigTemplate.gradient_template_id || 0)
-  const productUnitID = Number(productConfigTemplate.unit_template_id || 0)
+  const effectiveProductConfigID = Number(classificationCategory.product_config_template_id || classificationTemplate.product_config_template_id || 0)
+  const productConfigID = Number(productConfigTemplate.id || productConfigTemplate.product_config_template_id || 0)
   const warnings = []
-  if (productGradientID > 0 && effectiveGradientID > 0 && productGradientID !== effectiveGradientID) {
-    warnings.push('商品配置阶梯价模板与所属分类引用不一致')
-  }
-  if (productUnitID > 0 && effectiveUnitID > 0 && productUnitID !== effectiveUnitID) {
-    warnings.push('商品配置单位模板与所属分类引用不一致')
+  if (productConfigID > 0 && effectiveProductConfigID > 0 && productConfigID !== effectiveProductConfigID) {
+    warnings.push('商品已选择商品配置模板，将覆盖所属分类引用的商品配置模板')
   }
   return warnings
 }

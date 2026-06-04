@@ -206,6 +206,35 @@ func TestCustomerProductAliasBatchDisableAndIndustryFieldOverridesPersist(t *tes
 	}
 }
 
+func TestProductClassificationTemplatesPersistProductConfigTemplateReferences(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{name: "classification template product config column", src: string(schema), want: "product_config_template_id BIGINT NOT NULL DEFAULT 0"},
+		{name: "classification template product config migration", src: string(schema), want: "ALTER TABLE %[1]s.product_classification_templates ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0"},
+		{name: "classification category product config migration", src: string(schema), want: "ALTER TABLE %[1]s.product_classification_template_categories ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0"},
+		{name: "template select product config", src: string(repository), want: "COALESCE(product_config_template_id,0), COALESCE(gradient_template_id,0), COALESCE(unit_template_id,0)"},
+		{name: "category select product config", src: string(repository), want: "COALESCE(product_config_template_id,0), COALESCE(gradient_template_id,0), COALESCE(unit_template_id,0)"},
+		{name: "template update product config", src: string(repository), want: "product_config_template_id=$6, gradient_template_id=$7, unit_template_id=$8"},
+		{name: "category update product config", src: string(repository), want: "product_config_template_id=$7, gradient_template_id=$8, unit_template_id=$9"},
+		{name: "audit product config template", src: string(repository), want: `"product_config_template_id": cmd.ProductConfigTemplateID`},
+	} {
+		if !strings.Contains(tc.src, tc.want) {
+			t.Fatalf("classification template persistence missing %s marker %q", tc.name, tc.want)
+		}
+	}
+}
+
 func TestProductConfigTemplateSchemaPersistsIndependentTemplates(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

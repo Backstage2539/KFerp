@@ -252,6 +252,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-412-CLASSIFICATION-CONFIG-TEMPLATE-INHERITANCE", title: "分类模板和分类项不再直接引用阶梯价模板和单位模板，改为引用商品配置模板；计价关系为商品引用模板>子类引用模板>大类引用模板", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; ProductSettingsView.vue; catalog/costing repository"},
+		{table: "req_dev", code: "DEV-412-CLASSIFICATION-TEMPLATE-CONFIG-REFERENCE", title: "分类模板和分类项 API、仓储、Vue 表单支持 product_config_template_id，并提示商品配置模板可以被商品覆盖", status: "doing", assignee: "Codex", evidence: "catalog product routes; ProductSettingsView.vue; product-settings.test.js"},
+		{table: "req_dev", code: "DEV-412-PRICE-LIST-CONFIG-INHERITANCE", title: "商品价格表和成本输入读取商品配置模板优先级：商品/客户商品配置模板、分类项配置模板、分类模板配置模板、旧兼容字段", status: "doing", assignee: "Codex", evidence: "costing/repository.go; costing repository tests"},
+		{table: "req_unit", code: "UT-412-CLASSIFICATION-CONFIG-TEMPLATE-INHERITANCE", title: "前端单测覆盖分类模板和分类项只显示商品配置模板，不直接显示阶梯价模板和单位模板", status: "doing", assignee: "Codex", evidence: "node --test src/lib/product-settings.test.js"},
+		{table: "req_api", code: "API-412-CLASSIFICATION-CONFIG-TEMPLATE-INHERITANCE", title: "API/仓储测试覆盖分类模板 product_config_template_id 持久化和商品价格表继承 SQL 顺序", status: "doing", assignee: "Codex", evidence: "catalog/costing Go tests"},
+		{table: "req_review", code: "REV-412-CLASSIFICATION-CONFIG-TEMPLATE-INHERITANCE", prCode: "PR-412-CLASSIFICATION-CONFIG-TEMPLATE-INHERITANCE", title: "验收：分类模板和子类只引用商品配置模板，商品价格表按商品>子类>大类取计价配置；本轮不做浏览器人工验收", status: "todo", assignee: "VA", evidence: "待部署 smoke"},
 		{table: "req_product", code: "PR-411-CUSTOMER-PRODUCT-CONFIG-TEMPLATE-PRICING", title: "客户商品名更名为客户商品；客户商品不再直接配置阶梯价模板和单位模板，改为选择商品配置模板；商品配置模板仅在计价方式为按阶梯价模板时维护阶梯价模板", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; ProductSettingsView.vue; costing repository"},
 		{table: "req_dev", code: "DEV-411-CUSTOMER-PRODUCT-RENAME", title: "Vue 商品与配方菜单和客户商品页面把客户商品名口径统一为客户商品", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; menu-ia.js; product-settings.test.js"},
 		{table: "req_dev", code: "DEV-411-ALIAS-CONFIG-TEMPLATE", title: "客户商品新增和编辑只选择商品配置模板，默认继承商品档案商品配置模板，不再展示阶梯价模板和单位模板直接覆盖", status: "doing", assignee: "Codex", evidence: "catalog product routes; product-settings.js"},

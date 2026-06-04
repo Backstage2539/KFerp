@@ -599,18 +599,12 @@
                 <textarea v-model.trim="classificationTemplateForm.remark" rows="2" placeholder="用于说明这套分类视图的使用场景"></textarea>
               </label>
               <label>
-                <span>模板默认阶梯价模板</span>
-                <select v-model.number="classificationTemplateForm.gradient_template_id">
+                <span>模板默认商品配置模板</span>
+                <select v-model.number="classificationTemplateForm.product_config_template_id">
                   <option value="0">不引用</option>
-                  <option v-for="template in activeGradientTemplatesForContext" :key="template.id" :value="template.id">{{ template.name }}</option>
+                  <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">{{ config.name }}</option>
                 </select>
-              </label>
-              <label>
-                <span>模板默认单位模板</span>
-                <select v-model.number="classificationTemplateForm.unit_template_id">
-                  <option value="0">不引用</option>
-                  <option v-for="template in activeProductUnitTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
-                </select>
+                <small>商品未单独选择商品配置模板时，先使用分类项配置；分类项未配置时使用这里。</small>
               </label>
             </form>
             <div v-if="classificationTemplateForm.id" class="classification-category-editor">
@@ -622,15 +616,12 @@
                 <input v-model.trim="classificationCategoryForm.name" placeholder="分类名称" />
                 <input v-model.number="classificationCategoryForm.sort_order" type="number" min="1" step="1" placeholder="排序" />
                 <div class="classification-category-template-row">
-                  <select v-model.number="classificationCategoryForm.gradient_template_id" aria-label="分类项阶梯价模板">
-                    <option value="0">分类项阶梯价模板：继承模板</option>
-                    <option v-for="template in activeGradientTemplatesForContext" :key="template.id" :value="template.id">{{ template.name }}</option>
-                  </select>
-                  <select v-model.number="classificationCategoryForm.unit_template_id" aria-label="分类项单位模板">
-                    <option value="0">分类项单位模板：继承模板</option>
-                    <option v-for="template in activeProductUnitTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
+                  <select v-model.number="classificationCategoryForm.product_config_template_id" aria-label="分类项商品配置模板">
+                    <option value="0">分类项商品配置模板：继承模板</option>
+                    <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">{{ config.name }}</option>
                   </select>
                 </div>
+                <small class="muted">商品单独选择商品配置模板时会覆盖分类配置。</small>
                 <button class="primary compact-action" type="submit">{{ classificationCategoryForm.id ? '保存分类' : '新增分类' }}</button>
               </form>
               <div class="classification-category-list">
@@ -789,18 +780,12 @@
             <textarea v-model.trim="classificationTemplateCreateForm.remark" rows="3" placeholder="可选，用于说明这套分类视图的使用场景"></textarea>
           </label>
           <label>
-            <span>模板默认阶梯价模板</span>
-            <select v-model.number="classificationTemplateCreateForm.gradient_template_id">
+            <span>模板默认商品配置模板</span>
+            <select v-model.number="classificationTemplateCreateForm.product_config_template_id">
               <option value="0">不引用</option>
-              <option v-for="template in activeGradientTemplatesForContext" :key="template.id" :value="template.id">{{ template.name }}</option>
+              <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">{{ config.name }}</option>
             </select>
-          </label>
-          <label>
-            <span>模板默认单位模板</span>
-            <select v-model.number="classificationTemplateCreateForm.unit_template_id">
-              <option value="0">不引用</option>
-              <option v-for="template in activeProductUnitTemplates" :key="template.id" :value="template.id">{{ template.name }}</option>
-            </select>
+            <small>商品未单独选择商品配置模板时，先使用分类项配置；分类项未配置时使用这里。</small>
           </label>
           <div class="form-actions">
             <button class="primary" type="submit" :disabled="classificationTemplateSaving">{{ classificationTemplateSaving ? '保存中' : '创建分类模板' }}</button>
@@ -1897,7 +1882,7 @@ function defaultAliasBatchFilters() {
 }
 
 function defaultClassificationCategoryForm() {
-  return { id: 0, name: '', sort_order: 100, gradient_template_id: 0, unit_template_id: 0 }
+  return { id: 0, name: '', sort_order: 100, product_config_template_id: 0, gradient_template_id: 0, unit_template_id: 0 }
 }
 
 function defaultProductProductionConfigField(row = {}, index = 0) {
@@ -2090,6 +2075,7 @@ function defaultClassificationTemplateForm(template = {}) {
     source_template_id: Number(template.source_template_id || 0),
     name: template.name || '',
     remark: template.remark || '',
+    product_config_template_id: Number(template.product_config_template_id || 0),
     gradient_template_id: Number(template.gradient_template_id || 0),
     unit_template_id: Number(template.unit_template_id || 0),
     sort_order: Number(template.sort_order || 100),
@@ -2336,6 +2322,7 @@ function decorateProductClassificationTemplate(template = {}) {
     source_template_id: Number(template.source_template_id || 0),
     template_state: template.template_state || '',
     name: template.name || '',
+    product_config_template_id: Number(template.product_config_template_id || 0),
     gradient_template_id: Number(template.gradient_template_id || 0),
     unit_template_id: Number(template.unit_template_id || 0),
     active: template.active !== false,
@@ -2348,6 +2335,7 @@ function decorateProductClassificationTemplate(template = {}) {
       name: category.name || '',
       level: Number(category.level || 1),
       sort_order: Number(category.sort_order || 100),
+      product_config_template_id: Number(category.product_config_template_id || 0),
       gradient_template_id: Number(category.gradient_template_id || 0),
       unit_template_id: Number(category.unit_template_id || 0),
       active: category.active !== false,
@@ -2734,8 +2722,9 @@ function classificationTemplatePayload(form) {
     source_template_id: Number(form.source_template_id || 0),
     name: String(form.name || '').trim(),
     remark: String(form.remark || '').trim(),
-    gradient_template_id: Number(form.gradient_template_id || 0),
-    unit_template_id: Number(form.unit_template_id || 0),
+    product_config_template_id: Number(form.product_config_template_id || 0),
+    gradient_template_id: 0,
+    unit_template_id: 0,
     sort_order: Number(form.sort_order || 100),
     active: form.active !== false,
   }
@@ -3485,8 +3474,9 @@ function classificationWarningsForAlias(row) {
   const found = classificationAssignmentForRow(row, productClassificationTemplates.value, { assignmentType: 'alias' })
   if (!found) return []
   const product = products.value.find((item) => Number(item.id || 0) === Number(row.product_id || 0)) || {}
+  const aliasConfig = productConfigTemplateByID(row.product_config_template_id)
   return classificationTemplateUnitPriceWarnings({
-    productConfigTemplate: productConfigTemplateByID(product.product_config_template_id),
+    productConfigTemplate: aliasConfig || productConfigTemplateByID(product.product_config_template_id),
     classificationTemplate: found.template,
     classificationCategory: found.category,
   })
@@ -3802,6 +3792,7 @@ function editClassificationCategory(category) {
     id: Number(category.id || 0),
     name: category.name || '',
     sort_order: Number(category.sort_order || 100),
+    product_config_template_id: Number(category.product_config_template_id || 0),
     gradient_template_id: Number(category.gradient_template_id || 0),
     unit_template_id: Number(category.unit_template_id || 0),
   }
@@ -3820,8 +3811,9 @@ async function saveClassificationCategory() {
       name: String(form.name || '').trim(),
       level: 1,
       sort_order: Number(form.sort_order || 100),
-      gradient_template_id: Number(form.gradient_template_id || 0),
-      unit_template_id: Number(form.unit_template_id || 0),
+      product_config_template_id: Number(form.product_config_template_id || 0),
+      gradient_template_id: 0,
+      unit_template_id: 0,
     },
   })
   classificationCategoryForm.value = defaultClassificationCategoryForm()
@@ -3834,6 +3826,7 @@ async function moveClassificationCategory(category, delta) {
     id: Number(category.id || 0),
     name: category.name || '',
     sort_order: nextSort,
+    product_config_template_id: Number(category.product_config_template_id || 0),
     gradient_template_id: Number(category.gradient_template_id || 0),
     unit_template_id: Number(category.unit_template_id || 0),
   }

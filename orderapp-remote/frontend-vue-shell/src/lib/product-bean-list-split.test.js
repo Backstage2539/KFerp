@@ -83,9 +83,12 @@ test('customer alias list has shared filters batch disable and industry field co
   assert.match(productSettingsSource, /openAliasIndustryFieldDrawer/)
 })
 
-test('classification template editor keeps template actions at bottom and category templates side by side', () => {
+test('classification template editor keeps template actions at bottom and category product config template controls', () => {
   assert.match(productSettingsSource, /classification-template-actions-bottom[\s\S]*保存分类模板[\s\S]*删除模板/)
-  assert.match(productSettingsSource, /classification-category-template-row[\s\S]*分类项阶梯价模板[\s\S]*分类项单位模板/)
+  assert.match(productSettingsSource, /classification-category-template-row[\s\S]*分类项商品配置模板/)
+  assert.match(productSettingsSource, /商品单独选择商品配置模板时会覆盖分类配置/)
+  assert.doesNotMatch(productSettingsSource, /分类项阶梯价模板/)
+  assert.doesNotMatch(productSettingsSource, /分类项单位模板/)
   assert.match(productSettingsSource, /classification-template-create-fields/)
 })
 

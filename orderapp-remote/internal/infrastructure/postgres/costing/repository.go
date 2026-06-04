@@ -89,6 +89,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			         WHEN COALESCE(product_class.template_id,0) > 0 AND COALESCE(product_class.category_id,0)=0 THEN '未分类'
 			         ELSE product_cc.name
 			       END,'') AS current_classification_category_name,
+			       COALESCE(CASE WHEN $2 > 0 THEN alias_cc.product_config_template_id ELSE product_cc.product_config_template_id END,0) AS current_classification_category_product_config_template_id,
+			       COALESCE(CASE WHEN $2 > 0 THEN alias_ct.product_config_template_id ELSE product_ct.product_config_template_id END,0) AS current_classification_template_product_config_template_id,
 			       CASE WHEN ppc.product_id IS NOT NULL THEN 'product_production_config' WHEN pbb.product_id IS NOT NULL THEN 'production_bom' ELSE COALESCE(NULLIF(bs.source_type,''), '') END AS bom_usage_mode,
 			       COALESCE(NULLIF(ppc.production_bom_id,0), pbb.bom_id,0) AS production_bom_id,
 			       COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id,0) AS production_bom_version_id,
@@ -294,6 +296,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(
 			           NULLIF(alias_config.gradient_template_id,0),
 			           NULLIF(p_config.gradient_template_id,0),
+			           NULLIF(classification_category_config.gradient_template_id,0),
+			           NULLIF(classification_template_config.gradient_template_id,0),
 			           NULLIF(p.customer_product_alias_gradient_template_id,0),
 			           NULLIF(cpro.gradient_template_id,0),
 			           NULLIF(cpti.gradient_template_id,0),
@@ -303,6 +307,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(
 			           NULLIF(alias_config.operation_template_id,0),
 			           NULLIF(p_config.operation_template_id,0),
+			           NULLIF(classification_category_config.operation_template_id,0),
+			           NULLIF(classification_template_config.operation_template_id,0),
 			           NULLIF(cpro.operation_template_id,0),
 			           NULLIF(cpti.operation_template_id,0),
 			           NULLIF(p.operation_template_id_override,0),
@@ -313,6 +319,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(
 			           NULLIF(alias_config.price_list_rule_json::text,'{}'),
 			           NULLIF(p_config.price_list_rule_json::text,'{}'),
+			           NULLIF(classification_category_config.price_list_rule_json::text,'{}'),
+			           NULLIF(classification_template_config.price_list_rule_json::text,'{}'),
 			           NULLIF(cpro.price_list_rule_json::text,'{}'),
 			           NULLIF(cpti.price_list_rule_json::text,'{}'),
 			           NULLIF(p.unit_rule_override_json->>'price_list_rule_json',''),
@@ -325,6 +333,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			           NULLIF(bound_bv.special_attrs_schema_json::text,'[]'),
 			           NULLIF(alias_config.special_attrs_schema_json::text,'[]'),
 			           NULLIF(p_config.special_attrs_schema_json::text,'[]'),
+			           NULLIF(classification_category_config.special_attrs_schema_json::text,'[]'),
+			           NULLIF(classification_template_config.special_attrs_schema_json::text,'[]'),
 			           NULLIF(pc_config.special_attrs_schema_json::text,'[]'),
 		           NULLIF(parent_pc_config.special_attrs_schema_json::text,'[]'),
 		           '[]'
@@ -332,6 +342,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(
 			           NULLIF(alias_config.inventory_unit,''),
 			           NULLIF(p_config.inventory_unit,''),
+			           NULLIF(classification_category_config.inventory_unit,''),
+			           NULLIF(classification_template_config.inventory_unit,''),
 			           NULLIF(alias_legacy_unit.inventory_unit,''),
 			           NULLIF(cpro.unit_rule_json->>'inventory_unit',''),
 			           NULLIF(cpti.unit_rule_json->>'inventory_unit',''),
@@ -343,6 +355,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(
 			           NULLIF(alias_config.quote_unit,''),
 			           NULLIF(p_config.quote_unit,''),
+			           NULLIF(classification_category_config.quote_unit,''),
+			           NULLIF(classification_template_config.quote_unit,''),
 			           NULLIF(alias_legacy_unit.quote_unit,''),
 			           NULLIF(cpro.unit_rule_json->>'quote_unit',''),
 			           NULLIF(cpti.unit_rule_json->>'quote_unit',''),
@@ -354,6 +368,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(
 			           NULLIF(alias_config.order_unit,''),
 			           NULLIF(p_config.order_unit,''),
+			           NULLIF(classification_category_config.order_unit,''),
+			           NULLIF(classification_template_config.order_unit,''),
 			           NULLIF(alias_legacy_unit.order_unit,''),
 			           NULLIF(cpro.unit_rule_json->>'order_unit',''),
 			           NULLIF(cpti.unit_rule_json->>'order_unit',''),
@@ -365,6 +381,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(
 		           NULLIF(alias_config.unit_conversion_json::text,'{}'),
 		           NULLIF(p_config.unit_conversion_json::text,'{}'),
+		           NULLIF(classification_category_config.unit_conversion_json::text,'{}'),
+		           NULLIF(classification_template_config.unit_conversion_json::text,'{}'),
 		           NULLIF(alias_legacy_unit.unit_conversion_json::text,'{}'),
 		           NULLIF(cpro.unit_rule_json->>'unit_conversion_json',''),
 		           NULLIF(cpro.unit_rule_json->>'conversion_json',''),
@@ -379,6 +397,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		       COALESCE(
 			           alias_config.integer_unit,
 			           p_config.integer_unit,
+			           classification_category_config.integer_unit,
+			           classification_template_config.integer_unit,
 			           alias_legacy_unit.integer_unit,
 			           CASE WHEN lower(cpro.unit_rule_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(cpro.unit_rule_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
 			           CASE WHEN lower(cpti.unit_rule_json->>'integer_unit') IN ('true','1','yes') THEN true WHEN lower(cpti.unit_rule_json->>'integer_unit') IN ('false','0','no') THEN false ELSE NULL END,
@@ -430,6 +450,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			LEFT JOIN %[1]s.product_categories parent_pc ON parent_pc.id = pc.parent_id AND parent_pc.active=true
 		LEFT JOIN %[1]s.product_config_templates p_config ON p_config.id = p.product_config_template_id AND p_config.active=true
 		LEFT JOIN %[1]s.product_config_templates alias_config ON alias_config.id = p.customer_product_alias_product_config_template_id AND alias_config.active=true
+		LEFT JOIN %[1]s.product_config_templates classification_category_config ON classification_category_config.id = p.current_classification_category_product_config_template_id AND classification_category_config.active=true
+		LEFT JOIN %[1]s.product_config_templates classification_template_config ON classification_template_config.id = p.current_classification_template_product_config_template_id AND classification_template_config.active=true
 			LEFT JOIN %[1]s.product_config_templates pc_config ON pc_config.id = pc.product_config_template_id AND pc_config.active=true
 		LEFT JOIN %[1]s.product_config_templates parent_pc_config ON parent_pc_config.id = parent_pc.product_config_template_id AND parent_pc_config.active=true
 		LEFT JOIN %[1]s.product_unit_templates alias_legacy_unit ON alias_legacy_unit.id=p.customer_product_alias_unit_template_id AND alias_legacy_unit.active=true
@@ -446,10 +468,13 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 		 AND cpro.product_subtype_category_id=CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.id,0) ELSE 0 END
 		LEFT JOIN operation_unit_cost ouc
 		  ON ouc.template_id=COALESCE(
+			           NULLIF(alias_config.operation_template_id,0),
+			           NULLIF(p_config.operation_template_id,0),
+			           NULLIF(classification_category_config.operation_template_id,0),
+			           NULLIF(classification_template_config.operation_template_id,0),
 			           NULLIF(cpro.operation_template_id,0),
 			           NULLIF(cpti.operation_template_id,0),
 			           NULLIF(p.operation_template_id_override,0),
-			           NULLIF(p_config.operation_template_id,0),
 			           NULLIF(pc.operation_template_id,0),
 		           NULLIF(parent_pc.operation_template_id,0),
 		           0
@@ -483,7 +508,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			LIMIT 1
 		) qc ON true
 		WHERE p.active = true
-			GROUP BY p.id, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.customer_product_alias_product_config_template_id, p.customer_product_alias_gradient_template_id, p.customer_product_alias_unit_template_id, p.current_classification_template_id, p.current_classification_template_name, p.current_classification_category_id, p.current_classification_category_name, p.bom_usage_mode, p.production_bom_id, p.production_bom_version_id, p.production_config_yield_rate, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.product_config_template_id, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, alias_config.gradient_template_id, alias_config.operation_template_id, alias_config.price_list_rule_json, alias_config.inventory_unit, alias_config.quote_unit, alias_config.order_unit, alias_config.unit_conversion_json, alias_config.integer_unit, alias_config.special_attrs_schema_json, p_config.gradient_template_id, p_config.operation_template_id, p_config.price_list_rule_json, p_config.inventory_unit, p_config.quote_unit, p_config.order_unit, p_config.unit_conversion_json, p_config.integer_unit, p_config.special_attrs_schema_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, alias_legacy_unit.inventory_unit, alias_legacy_unit.quote_unit, alias_legacy_unit.order_unit, alias_legacy_unit.unit_conversion_json, alias_legacy_unit.integer_unit, pca.production_config_attrs_json, pca.production_config_attrs_schema_json, alias_attrs.alias_attrs_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.price_list_rule_json, cpro.unit_rule_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, bound_bom.id, bound_bom.status, bound_bv.id, bound_bv.version_no, bound_bv.yield_rate, bound_bv.special_attrs_json, bound_bv.special_attrs_schema_json, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
+			GROUP BY p.id, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.customer_product_alias_product_config_template_id, p.customer_product_alias_gradient_template_id, p.customer_product_alias_unit_template_id, p.current_classification_template_id, p.current_classification_template_name, p.current_classification_category_id, p.current_classification_category_name, p.current_classification_category_product_config_template_id, p.current_classification_template_product_config_template_id, p.bom_usage_mode, p.production_bom_id, p.production_bom_version_id, p.production_config_yield_rate, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.product_config_template_id, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, alias_config.gradient_template_id, alias_config.operation_template_id, alias_config.price_list_rule_json, alias_config.inventory_unit, alias_config.quote_unit, alias_config.order_unit, alias_config.unit_conversion_json, alias_config.integer_unit, alias_config.special_attrs_schema_json, p_config.gradient_template_id, p_config.operation_template_id, p_config.price_list_rule_json, p_config.inventory_unit, p_config.quote_unit, p_config.order_unit, p_config.unit_conversion_json, p_config.integer_unit, p_config.special_attrs_schema_json, classification_category_config.gradient_template_id, classification_category_config.operation_template_id, classification_category_config.price_list_rule_json, classification_category_config.inventory_unit, classification_category_config.quote_unit, classification_category_config.order_unit, classification_category_config.unit_conversion_json, classification_category_config.integer_unit, classification_category_config.special_attrs_schema_json, classification_template_config.gradient_template_id, classification_template_config.operation_template_id, classification_template_config.price_list_rule_json, classification_template_config.inventory_unit, classification_template_config.quote_unit, classification_template_config.order_unit, classification_template_config.unit_conversion_json, classification_template_config.integer_unit, classification_template_config.special_attrs_schema_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, alias_legacy_unit.inventory_unit, alias_legacy_unit.quote_unit, alias_legacy_unit.order_unit, alias_legacy_unit.unit_conversion_json, alias_legacy_unit.integer_unit, pca.production_config_attrs_json, pca.production_config_attrs_schema_json, alias_attrs.alias_attrs_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.price_list_rule_json, cpro.unit_rule_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, bound_bom.id, bound_bom.status, bound_bv.id, bound_bv.version_no, bound_bv.yield_rate, bound_bv.special_attrs_json, bound_bv.special_attrs_schema_json, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
 		ORDER BY p.name
 	`, r.schema)
 	rows, err := r.pool.Query(ctx, q, params.RoastYieldRate, customerID)

@@ -351,24 +351,26 @@ type productProductionConfigAPIRequest struct {
 }
 
 type productClassificationTemplateAPIRequest struct {
-	CustomerID         int64  `json:"customer_id"`
-	SourceTemplateID   int64  `json:"source_template_id"`
-	Name               string `json:"name"`
-	Remark             string `json:"remark"`
-	GradientTemplateID int64  `json:"gradient_template_id"`
-	UnitTemplateID     int64  `json:"unit_template_id"`
-	Active             *bool  `json:"active"`
-	SortOrder          int    `json:"sort_order"`
+	CustomerID              int64  `json:"customer_id"`
+	SourceTemplateID        int64  `json:"source_template_id"`
+	Name                    string `json:"name"`
+	Remark                  string `json:"remark"`
+	ProductConfigTemplateID int64  `json:"product_config_template_id"`
+	GradientTemplateID      int64  `json:"gradient_template_id"`
+	UnitTemplateID          int64  `json:"unit_template_id"`
+	Active                  *bool  `json:"active"`
+	SortOrder               int    `json:"sort_order"`
 }
 
 type productClassificationCategoryAPIRequest struct {
-	TemplateID         int64  `json:"template_id"`
-	ParentID           int64  `json:"parent_id"`
-	Name               string `json:"name"`
-	Level              int    `json:"level"`
-	SortOrder          int    `json:"sort_order"`
-	GradientTemplateID int64  `json:"gradient_template_id"`
-	UnitTemplateID     int64  `json:"unit_template_id"`
+	TemplateID              int64  `json:"template_id"`
+	ParentID                int64  `json:"parent_id"`
+	Name                    string `json:"name"`
+	Level                   int    `json:"level"`
+	SortOrder               int    `json:"sort_order"`
+	ProductConfigTemplateID int64  `json:"product_config_template_id"`
+	GradientTemplateID      int64  `json:"gradient_template_id"`
+	UnitTemplateID          int64  `json:"unit_template_id"`
 }
 
 type productClassificationAssignmentAPIRequest struct {
@@ -1087,16 +1089,17 @@ func (h productHandler) saveProductClassificationTemplateAPI(c echo.Context) err
 		active = *req.Active
 	}
 	row, err := h.catalog.SaveProductClassificationTemplate(c.Request().Context(), catalogapp.SaveProductClassificationTemplateCommand{
-		Actor:              support.ActorOf(c),
-		ID:                 id,
-		CustomerID:         req.CustomerID,
-		SourceTemplateID:   req.SourceTemplateID,
-		Name:               req.Name,
-		Remark:             req.Remark,
-		GradientTemplateID: req.GradientTemplateID,
-		UnitTemplateID:     req.UnitTemplateID,
-		Active:             active,
-		SortOrder:          req.SortOrder,
+		Actor:                   support.ActorOf(c),
+		ID:                      id,
+		CustomerID:              req.CustomerID,
+		SourceTemplateID:        req.SourceTemplateID,
+		Name:                    req.Name,
+		Remark:                  req.Remark,
+		ProductConfigTemplateID: req.ProductConfigTemplateID,
+		GradientTemplateID:      req.GradientTemplateID,
+		UnitTemplateID:          req.UnitTemplateID,
+		Active:                  active,
+		SortOrder:               req.SortOrder,
 	})
 	if err != nil {
 		if catalogapp.IsValidationError(err) {
@@ -1135,15 +1138,16 @@ func (h productHandler) saveProductClassificationCategoryAPI(c echo.Context) err
 		id = parsed
 	}
 	row, err := h.catalog.SaveProductClassificationCategory(c.Request().Context(), catalogapp.SaveProductClassificationCategoryCommand{
-		Actor:              support.ActorOf(c),
-		ID:                 id,
-		TemplateID:         req.TemplateID,
-		ParentID:           req.ParentID,
-		Name:               req.Name,
-		Level:              req.Level,
-		SortOrder:          req.SortOrder,
-		GradientTemplateID: req.GradientTemplateID,
-		UnitTemplateID:     req.UnitTemplateID,
+		Actor:                   support.ActorOf(c),
+		ID:                      id,
+		TemplateID:              req.TemplateID,
+		ParentID:                req.ParentID,
+		Name:                    req.Name,
+		Level:                   req.Level,
+		SortOrder:               req.SortOrder,
+		ProductConfigTemplateID: req.ProductConfigTemplateID,
+		GradientTemplateID:      req.GradientTemplateID,
+		UnitTemplateID:          req.UnitTemplateID,
 	})
 	if err != nil {
 		if catalogapp.IsValidationError(err) {
