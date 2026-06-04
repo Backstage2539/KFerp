@@ -1,5 +1,9 @@
 <template>
   <div class="page">
+    <div v-if="productReturnNavigation" class="product-return-banner">
+      <button class="secondary product-return-button" type="button" @click="returnToPreviousView">{{ productReturnLabel }}</button>
+      <span>完成商品档案配置后可回到来源操作界面。</span>
+    </div>
     <section class="panel sku-page-summary">
       <div class="panel-head">
         <div>
@@ -1344,6 +1348,8 @@ const forcedConfigTemplateSection = computed(() => {
 })
 const effectiveConfigTemplateSection = computed(() => forcedConfigTemplateSection.value || activeConfigTemplateSection.value)
 const currentSettingsSection = computed(() => PRODUCT_SECTION_MODES[props.sectionMode] || activeSettingsSection.value)
+const productReturnNavigation = computed(() => props.viewParams?.return_navigation || null)
+const productReturnLabel = computed(() => String(productReturnNavigation.value?.label || '返回上一步'))
 const productSectionTitle = computed(() => {
   if (currentSettingsSection.value === 'aliases') return '客户商品名'
   if (forcedConfigTemplateSection.value === 'gradient') return '阶梯价模板'
@@ -3544,6 +3550,17 @@ function navigateCurrentProductBom() {
   navigateProductBom({ id: productProductionConfigForm.value.product_id || productProductionConfigProduct.value?.id || 0 })
 }
 
+function returnToPreviousView() {
+  const navigation = productReturnNavigation.value
+  if (!navigation?.key) return
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: String(navigation.key),
+      params: navigation.params || {},
+    },
+  }))
+}
+
 async function loadProductionBomCatalog() {
   if (productionBoms.value.length) return
   productionBoms.value = await apiGet('/api/production-boms') || []
@@ -5275,6 +5292,9 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .remark-input { width: 180px; min-height: 46px; resize: vertical; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
+.product-return-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; padding: 10px 12px; border: 1px solid #dbeafe; border-radius: 8px; background: #eff6ff; color: #1e3a8a; }
+.product-return-banner span { font-size: 13px; color: #31577f; }
+.product-return-button { border-color: #1d4ed8; color: #1d4ed8; background: #fff; }
 .customer-alias-workspace { display: grid; gap: 14px; min-width: 0; }
 .customer-alias-panel { display: grid; gap: 12px; }
 .customer-alias-form label { display: grid; gap: 5px; min-width: 0; font-size: 13px; }
