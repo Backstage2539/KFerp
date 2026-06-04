@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-409-CUSTOMER-ALIAS-PRICING-BOM-CONFIG
 - Branch: codex/customer-alias-pricing-bom-config-20260604
 - Owner/session: Codex / 2026-06-04
-- Status: verifying
+- Status: merged and deployed to development
 - Scope: 客户商品名支持客户侧阶梯价模板和单位模板覆盖；商品档案配置绑定生产 BOM 时只显示有效 BOM、可按 BOM 编号/名称模糊搜索并显示最新版本号；修复商品档案修改 BOM 时旧行业字段触发 `industry_field_template_id required for product information fields` 的保存错误。
 - DEV:
   - DEV-409-CUSTOMER-ALIAS-PRICING-UNIT：客户商品名 API、仓储、前端抽屉和列表增加阶梯价模板/单位模板覆盖字段，操作日志记录模板选择。
@@ -24,7 +24,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
   - Changed verifier: `scripts/verify_kferp.sh changed` exited 0.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-04-customer-alias-pricing-bom-config.md`
-- Deployment: pending
+- Deployment: feature commit `47bbcdac` pushed to `origin/codex/customer-alias-pricing-bom-config-20260604` and fast-forward merged to `origin/develop`; development stack deployed with `./deploy_orderapp.sh development`. Initial backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604183505`.
+- Smoke: containers running; unauthenticated GET `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell` returned 200; requirement API exposes `PR-409-CUSTOMER-ALIAS-PRICING-BOM-CONFIG`; authenticated `/app/api/product-settings`、`/app/api/customer-product-aliases?active=all&q=`、`/app/api/production-boms?status=all` returned 200.
 - Last update: 2026-06-04 Asia/Shanghai
 
 ### PR-408-PRODUCT-CREATE-CONFIG-DRAWER

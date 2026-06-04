@@ -34,4 +34,5 @@
 - `orderapp-remote/docs/ACCEPTANCE_TESTS.md`
 
 ## 备注
-- 本轮按当前约定不做浏览器/人工验收；部署后以 API smoke 和源码/需求标记确认上线。
+- 本轮按当前约定不做浏览器/人工验收。
+- Development smoke：容器运行；未认证 GET `/app/` 返回 303；认证 `/app/vue-shell` 返回 200；需求 API 暴露 `PR-409-CUSTOMER-ALIAS-PRICING-BOM-CONFIG`；认证 `/app/api/product-settings`、`/app/api/customer-product-aliases?active=all&q=`、`/app/api/production-boms?status=all` 均返回 200。
