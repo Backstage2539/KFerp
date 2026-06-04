@@ -10,28 +10,30 @@
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">{{ ok }}</div>
-      <div class="filters">
-        <label>
-          <span>搜索</span>
-          <input v-model.trim="q" placeholder="名称/编码/批次号" @keyup.enter="loadMaterials" />
-        </label>
-        <label>
-          <span>状态</span>
-          <select v-model="activeFilter" @change="loadMaterials">
-            <option value="active">启用</option>
-            <option value="inactive">失效</option>
-            <option value="all">全部</option>
-          </select>
-        </label>
-        <button class="primary" type="button" @click="loadMaterials" :disabled="loading">查询</button>
-        <span class="spacer"></span>
-        <button class="primary" type="button" @click="createMaterial">新建物料</button>
-        <button class="danger" type="button" @click="deprecateSelectedMaterial" :disabled="!selected || draftMode || loading">失效物料</button>
-      </div>
     </section>
 
     <div class="materials-layout">
       <section class="panel material-list-panel">
+        <div class="panel-title">物料列表</div>
+        <div class="material-list-toolbar">
+          <label>
+            <span>搜索</span>
+            <input v-model.trim="q" placeholder="名称/编码/批次号" @keyup.enter="loadMaterials" />
+          </label>
+          <label>
+            <span>状态</span>
+            <select v-model="activeFilter" @change="loadMaterials">
+              <option value="active">启用</option>
+              <option value="inactive">失效</option>
+              <option value="all">全部</option>
+            </select>
+          </label>
+          <button class="primary" type="button" @click="loadMaterials" :disabled="loading">查询</button>
+          <span class="spacer"></span>
+          <button class="primary" type="button" @click="createMaterial">新建物料</button>
+          <button class="danger" type="button" @click="deprecateSelectedMaterials" :disabled="!selectedMaterialIDs.length || loading">批量失效</button>
+        </div>
+
         <div class="classification-row">
           <div class="tabs">
             <button type="button" :class="{ active: activeTab === 'all' }" @click="activeTab = 'all'">全部分类</button>
@@ -83,7 +85,6 @@
           </div>
         </div>
 
-        <div class="panel-title">物料列表</div>
         <template v-if="activeGroup">
           <div v-for="section in groupedMaterialSections" :key="section.key" class="material-section">
             <button class="section-toggle" type="button" @click="toggleSection(section.key)">
@@ -94,7 +95,9 @@
               :rows="section.rows"
               :selected="selected"
               :selected-ids="selectedMaterialIDs"
+              :all-selected="areRowsSelected(section.rows)"
               @toggle="toggleMaterialSelection"
+              @toggle-all="toggleMaterialRows(section.rows)"
               @select="(row) => selectMaterial(row)" />
           </div>
         </template>
@@ -103,7 +106,9 @@
           :rows="visibleRows"
           :selected="selected"
           :selected-ids="selectedMaterialIDs"
+          :all-selected="areRowsSelected(visibleRows)"
           @toggle="toggleMaterialSelection"
+          @toggle-all="toggleMaterialRows(visibleRows)"
           @select="(row) => selectMaterial(row)" />
       </section>
 
@@ -211,14 +216,29 @@ const MaterialRowsTable = defineComponent({
     rows: { type: Array, default: () => [] },
     selected: { type: Object, default: null },
     selectedIds: { type: Array, default: () => [] },
+    allSelected: { type: Boolean, default: false },
   },
-  emits: ['toggle', 'select'],
+  emits: ['toggle', 'toggle-all', 'select'],
   setup(props, { emit }) {
     return () => h('div', { class: 'table-wrap' }, [
-      h('table', [
+      h('table', { class: 'materials-table' }, [
+        h('colgroup', [
+          h('col', { class: 'select-col' }),
+          h('col', { class: 'name-col' }),
+          h('col', { class: 'unit-col' }),
+          h('col', { class: 'stock-col' }),
+          h('col', { class: 'status-col' }),
+        ]),
         h('thead', [h('tr', [
-          h('th', ''),
-          h('th', '物料类型'),
+          h('th', [h('input', {
+            type: 'checkbox',
+            title: '全选物料',
+            'aria-label': '全选物料',
+            checked: props.allSelected,
+            disabled: !props.rows.length,
+            onClick: (event) => event.stopPropagation(),
+            onChange: () => emit('toggle-all'),
+          })]),
           h('th', '物料名称'),
           h('th', '单位'),
           h('th', '库存数量'),
@@ -236,13 +256,12 @@ const MaterialRowsTable = defineComponent({
                 onClick: (event) => event.stopPropagation(),
                 onChange: () => emit('toggle', row.id),
               })]),
-              h('td', [h('span', { class: 'pill' }, materialTypeLabel(row))]),
-              h('td', [h('strong', row.name), h('small', row.code || '-')]),
+              h('td', { class: 'material-name-cell' }, [h('strong', row.name), h('small', row.code || '-')]),
               h('td', unitDisplay(row.unit)),
               h('td', `${stockQty(row)} ${unitDisplay(row.unit)}`),
               h('td', [h('span', { class: row.deprecated_at ? 'pill muted-pill' : 'pill ok-pill' }, row.deprecated_at ? '失效' : '启用')]),
             ]))
-          : [h('tr', [h('td', { colspan: 6, class: 'muted' }, '暂无物料')])]),
+          : [h('tr', [h('td', { colspan: 5, class: 'muted' }, '暂无物料')])]),
       ]),
     ])
   },
@@ -479,6 +498,29 @@ function toggleMaterialSelection(id) {
   selectedMaterialIDs.value = Array.from(next)
 }
 
+function rowIDsForSelection(sourceRows) {
+  return (sourceRows || []).map((row) => Number(row.id || 0)).filter(Boolean)
+}
+
+function areRowsSelected(sourceRows) {
+  const ids = rowIDsForSelection(sourceRows)
+  if (!ids.length) return false
+  const selectedSet = new Set(selectedMaterialIDs.value)
+  return ids.every((id) => selectedSet.has(id))
+}
+
+function toggleMaterialRows(sourceRows) {
+  const ids = rowIDsForSelection(sourceRows)
+  if (!ids.length) return
+  const next = new Set(selectedMaterialIDs.value)
+  const shouldClear = ids.every((id) => next.has(id))
+  for (const id of ids) {
+    if (shouldClear) next.delete(id)
+    else next.add(id)
+  }
+  selectedMaterialIDs.value = Array.from(next)
+}
+
 function toggleSection(key) {
   collapsedSections.value = { ...collapsedSections.value, [key]: !collapsedSections.value[key] }
 }
@@ -622,14 +664,24 @@ async function submitStockBackfill() {
   })
 }
 
-async function deprecateSelectedMaterial() {
-  if (!selected.value || draftMode.value) return
-  if (!window.confirm(`失效物料：${selected.value.name}？`)) return
+async function deprecateSelectedMaterials() {
+  const ids = selectedMaterialIDs.value.slice()
+  if (!ids.length) {
+    error.value = '请先勾选物料'
+    return
+  }
+  if (!window.confirm(`批量失效 ${ids.length} 个物料？`)) return
   await mutate(async () => {
-    const data = await apiSend(`/api/materials/${selected.value.id}/deprecate`)
-    ok.value = `已失效：${data.name || selected.value.name}`
-    selected.value = null
-    draft.value = null
+    for (const id of ids) {
+      await apiSend(`/api/materials/${id}/deprecate`)
+    }
+    ok.value = `已失效 ${ids.length} 个物料`
+    selectedMaterialIDs.value = []
+    if (selected.value && ids.includes(selected.value.id)) {
+      selected.value = null
+      draft.value = null
+      draftMode.value = false
+    }
     await loadMaterials()
   })
 }
@@ -645,13 +697,6 @@ async function mutate(action) {
   } finally {
     loading.value = false
   }
-}
-
-function materialTypeLabel(row) {
-  if (row.classification_group_name) {
-    return row.classification_category_name ? `${row.classification_group_name} / ${row.classification_category_name}` : `${row.classification_group_name} / 未分类`
-  }
-  return '未分类'
 }
 
 function stockQty(row) {
@@ -726,13 +771,17 @@ onMounted(() => {
 .page { padding: 18px; color: #171717; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
 .compact-head { padding: 12px 14px; }
-.panel-head, .filters, .detail-head, .actions, .form-actions, .classification-row, .move-row, .inner-category-card { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.panel-head, .filters, .material-list-toolbar, .detail-head, .actions, .form-actions, .classification-row, .move-row, .inner-category-card { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .panel-head { justify-content: space-between; margin-bottom: 10px; }
 .panel-head h2 { margin: 0; font-size: 20px; }
 .panel-head p, .detail-head p { margin: 4px 0 0; color: #666; font-size: 12px; }
 .panel-title { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
 .spacer { flex: 1 1 auto; }
 .materials-layout { display: grid; grid-template-columns: minmax(480px, .9fr) minmax(520px, 1.1fr); gap: 14px; align-items: start; }
+.material-list-toolbar { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #eee8df; }
+.material-list-toolbar label { min-width: 150px; }
+.material-list-toolbar label:first-child { flex: 1 1 220px; }
+.material-list-toolbar label:nth-child(2) { flex: 0 0 130px; }
 .classification-row { justify-content: space-between; margin-bottom: 10px; }
 .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
 .tabs button.active, .section-toggle { background: #1f1f1f; color: #fff; }
@@ -745,10 +794,17 @@ onMounted(() => {
 .left { text-align: left; }
 .material-section { margin-bottom: 10px; }
 .section-toggle { width: 100%; justify-content: space-between; border: 0; display: flex; }
-.table-wrap { overflow: auto; }
-table { width: 100%; border-collapse: collapse; min-width: 680px; }
+.table-wrap { width: 100%; overflow-x: auto; overflow-y: visible; }
+table { width: 100%; border-collapse: collapse; min-width: 920px; }
+col.select-col { width: 48px; }
+col.name-col { width: 390px; }
+col.unit-col { width: 100px; }
+col.stock-col { width: 170px; }
+col.status-col { width: 110px; }
 th, td { border-bottom: 1px solid #eee8df; padding: 10px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 th { background: #fbfaf8; position: sticky; top: 0; }
+.materials-table th, .materials-table td { white-space: nowrap; }
+.material-name-cell strong { white-space: normal; line-height: 1.35; }
 .material-list-panel tbody tr { cursor: pointer; }
 tbody tr.active { background: #f3f7fb; }
 td strong, td small { display: block; }

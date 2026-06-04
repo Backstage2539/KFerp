@@ -18,7 +18,7 @@ func TestMaterialsViewUsesClassificationAndIndustryFields(t *testing.T) {
 		"material-list-panel",
 		"material-detail-panel",
 		"selectMaterial(row)",
-		"deprecateSelectedMaterial",
+		"deprecateSelectedMaterials",
 		"新建物料",
 		"全部分类",
 		"未分类",
@@ -38,9 +38,42 @@ func TestMaterialsViewUsesClassificationAndIndustryFields(t *testing.T) {
 		"销售价",
 		"基础档案字段锁定",
 		"profile-modal",
+		"物料类型",
 	} {
 		if strings.Contains(src, forbidden) {
 			t.Fatalf("MaterialsView.vue still contains old material marker %q", forbidden)
+		}
+	}
+}
+
+func TestMaterialsViewListLayoutSupportsBulkSelection(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "views", "MaterialsView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"material-list-toolbar",
+		"全选物料",
+		"toggleMaterialRows",
+		"deprecateSelectedMaterials",
+		"批量失效",
+		"min-width: 920px",
+		"overflow-x: auto",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("MaterialsView.vue missing list layout marker %q", want)
+		}
+	}
+	compactStart := strings.Index(src, `<section class="panel compact-head">`)
+	layoutStart := strings.Index(src, `<div class="materials-layout">`)
+	if compactStart < 0 || layoutStart < 0 || compactStart >= layoutStart {
+		t.Fatalf("MaterialsView.vue missing expected compact/list layout markers")
+	}
+	compact := src[compactStart:layoutStart]
+	for _, forbidden := range []string{`v-model.trim="q"`, `v-model="activeFilter"`} {
+		if strings.Contains(compact, forbidden) {
+			t.Fatalf("compact head still contains material list filter %q", forbidden)
 		}
 	}
 }

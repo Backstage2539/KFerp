@@ -23,7 +23,7 @@ test('materials view uses classification tabs and editable material records', ()
     '移动到分类',
     '移动到小分类',
     '新建物料',
-    '失效物料',
+    '批量失效',
     'saveMaterial',
     'industry_field_template_id',
     'materialIndustryFields',
@@ -39,9 +39,32 @@ test('materials view uses classification tabs and editable material records', ()
     '库存(个)',
     '目标库存(g)',
     '目标库存(个)',
+    '物料类型',
   ]) {
     assert.doesNotMatch(materialsSource, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+})
+
+test('materials list owns filters, selection and batch deprecate layout', () => {
+  assert.match(materialsSource, /class="material-list-toolbar"/)
+  assert.match(materialsSource, /deprecateSelectedMaterials/)
+  assert.match(materialsSource, /全选物料/)
+  assert.match(materialsSource, /allSelected/)
+  assert.match(materialsSource, /toggle-all/)
+  assert.match(materialsSource, /min-width:\s*920px/)
+  assert.match(materialsSource, /overflow-x:\s*auto/)
+
+  const compactHeadStart = materialsSource.indexOf('<section class="panel compact-head">')
+  const compactHeadEnd = materialsSource.indexOf('<div class="materials-layout">')
+  const compactHeadSource = materialsSource.slice(compactHeadStart, compactHeadEnd)
+  assert.doesNotMatch(compactHeadSource, /v-model\.trim="q"/)
+  assert.doesNotMatch(compactHeadSource, /v-model="activeFilter"/)
+
+  const listPanelStart = materialsSource.indexOf('<section class="panel material-list-panel">')
+  const listPanelSource = materialsSource.slice(listPanelStart)
+  assert.match(listPanelSource, /v-model\.trim="q"/)
+  assert.match(listPanelSource, /v-model="activeFilter"/)
+  assert.match(listPanelSource, /@click="deprecateSelectedMaterials"/)
 })
 
 test('materials and stock adjustments use single material quantity from material unit', () => {

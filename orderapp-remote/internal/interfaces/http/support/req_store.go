@@ -252,6 +252,12 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-416-MATERIALS-LIST-LAYOUT-BATCH-DEPRECATE", title: "物料档案列表去掉物料类型列，列表内搜索过滤、全选和批量失效，并支持横向滚动", status: "review", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; MaterialsView.vue; OP_MANUAL_INVENTORY_MATERIALS.md"},
+		{table: "req_dev", code: "DEV-416-MATERIALS-LIST-LAYOUT", title: "物料列表工具栏承载搜索、状态、新建和批量失效；删除物料类型列，增加表头全选和横向滚动", status: "done", assignee: "Codex", evidence: "MaterialsView.vue; materials-ui.test.js"},
+		{table: "req_dev", code: "DEV-416-MATERIALS-BATCH-DEPRECATE", title: "批量失效读取勾选物料并逐条调用现有失效接口，继续复用物料操作日志", status: "done", assignee: "Codex", evidence: "deprecateSelectedMaterials; /api/materials/:id/deprecate"},
+		{table: "req_unit", code: "UT-416-MATERIALS-LIST-LAYOUT-BATCH-DEPRECATE", title: "前端和源码守卫覆盖无物料类型列、列表工具栏、全选、批量失效和横向滚动", status: "done", assignee: "Codex", evidence: "node --test src/lib/materials-ui.test.js; materials_vue_source_test.go"},
+		{table: "req_api", code: "API-416-MATERIALS-LIST-LAYOUT-BATCH-DEPRECATE", title: "API 复用现有单条物料失效接口；批量失效逐条写操作日志，不新增重复接口", status: "done", assignee: "Codex", evidence: "go test ./internal/interfaces/http/materials"},
+		{table: "req_review", code: "REV-416-MATERIALS-LIST-LAYOUT-BATCH-DEPRECATE", prCode: "PR-416-MATERIALS-LIST-LAYOUT-BATCH-DEPRECATE", title: "验收：物料列表无物料类型列，过滤和批量失效在列表上方，表头可全选且列表可横向滚动", status: "todo", assignee: "VA", evidence: "docs/acceptance/2026-06-05-materials-list-layout-batch-deprecate.md"},
 		{table: "req_product", code: "PR-415-PRODUCT-PRICE-LIST-NO-DRIP-TEMPLATE", title: "商品价格表下线挂耳专用模板和 drip 枚举推断；挂耳商品按普通商品配置模板计价", status: "review", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; CostingView.vue; costing API routes; engine.go"},
 		{table: "req_dev", code: "DEV-415-COSTING-VIEW-NO-DRIP-INFERENCE", title: "商品价格表页面不再根据挂耳分类名或 product_kind=drip_bag 切换到专用 drip 类型，也不调用挂耳供应价模板接口", status: "done", assignee: "Codex", evidence: "CostingView.vue; product-bean-list-split.test.js"},
 		{table: "req_dev", code: "DEV-415-REMOVE-DRIP-TEMPLATE-ACTIVE-API", title: "下线挂耳模板和挂耳价格解释 API；成本 schema 不再 seed 默认挂耳供应价，候选不再注入默认挂耳模板", status: "done", assignee: "Codex", evidence: "costing_api.go; repository.go; schema.go; engine.go"},
