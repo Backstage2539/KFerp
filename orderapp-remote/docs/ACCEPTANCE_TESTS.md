@@ -840,7 +840,8 @@
 ### K27. 商品价格表下线挂耳专用模板（PR-415-PRODUCT-PRICE-LIST-NO-DRIP-TEMPLATE）
 - [ ] 商品价格表不再因为分类模板名、分类项名包含“挂耳/drip”或 `product_kind=drip_bag` 生成专用 `drip` 价格表类型。
 - [ ] 甜香茶韵挂耳、黑巧炸弹挂耳这类挂耳商品按商品配置模板里的计价方式展示阶梯，不再显示旧 `100袋/1000袋/5000袋/10000袋` 挂耳专用档位。
-- [ ] 商品价格表页面不调用 `/api/drip-price-templates` 或 `/api/costing/drip-price-explanation`；价格来源抽屉统一调用通用价格来源接口。
+- [ ] `/api/drip-price-templates` 和 `/api/costing/drip-price-explanation` 不再注册；商品价格表页面不调用这些接口，价格来源抽屉统一调用通用价格来源接口。
+- [ ] 成本 schema 不再 seed 默认挂耳供应价；候选商品不再被自动注入挂耳模板或默认生成 `drip_wholesale_tiers`。
 - [ ] 旧 `drip` 已发布价格表、旧订单和旧 PDF 快照仍可作为历史兼容读取，不回改历史内容。
 
 ### K19. 产品价格表显式阶梯价模板（PR-400-PRICE-LIST-EXPLICIT-GRADIENT-TIERS）

@@ -615,34 +615,14 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 	if err != nil {
 		return nil, err
 	}
-	dripTemplate, err := r.loadDefaultDripPriceTemplate(ctx)
-	if err != nil {
-		return nil, err
-	}
 	for i := range out {
 		if templateID := templateIDByProduct[out[i].ProductID]; templateID > 0 {
 			if template := templates[templateID]; template != nil {
 				out[i].GradientTemplate = template
 			}
 		}
-		if out[i].ProductKind == "drip_bag" && dripTemplate != nil {
-			out[i].DripPriceTemplate = dripTemplate
-		}
 	}
 	return out, nil
-}
-
-func (r Repository) loadDefaultDripPriceTemplate(ctx context.Context) (*domain.DripPriceTemplate, error) {
-	rows, err := r.ListDripPriceTemplates(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for i := range rows {
-		if rows[i].Active {
-			return &rows[i], nil
-		}
-	}
-	return nil, nil
 }
 
 func (r Repository) loadGradientTemplatesByID(ctx context.Context, ids map[int64]bool) (map[int64]*domain.GradientTemplate, error) {

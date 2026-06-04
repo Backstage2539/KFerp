@@ -666,5 +666,6 @@
 ## 28. 商品价格表下线挂耳专用模板（PR-415-PRODUCT-PRICE-LIST-NO-DRIP-TEMPLATE）
 - 商品价格表不得再因为分类模板名、分类项名包含“挂耳/drip”，或因为商品 `product_kind=drip_bag`，把商品切换到专用 `drip` 价格表类型。
 - 新生成的商品价格表中，挂耳商品和其他商品一样读取商品配置模板、分类默认商品配置模板或客户商品配置模板中的计价方式；有效计价方式包括阶梯价模板、固定单价和成本加成。
+- 挂耳供应价模板不再是可维护业务对象：`/api/drip-price-templates` 和 `/api/costing/drip-price-explanation` 不再注册，成本 schema 不再 seed 默认挂耳供应价。
 - 旧 `drip_bean_list`、`drip_wholesale_tiers` 和旧 `list_type=drip` 仅作为历史已发布价格表、旧订单和旧 PDF 的兼容读取，不作为新商品价格表预览、生成或发布的来源。
 - 商品价格表页面不得调用挂耳供应价模板接口或挂耳价格解释接口；价格来源抽屉统一调用通用商品价格来源解释。

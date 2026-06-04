@@ -794,11 +794,6 @@ func TestRoutesAreRegistered(t *testing.T) {
 		"GET /api/costing/settings",
 		"POST /api/costing/settings/:key",
 		"POST /api/costing/calculate",
-		"GET /api/drip-price-templates",
-		"POST /api/drip-price-templates",
-		"PUT /api/drip-price-templates/:id",
-		"POST /api/drip-price-templates/:id/deactivate",
-		"POST /api/costing/drip-price-explanation",
 		"GET /api/costing/bean-list",
 		"GET /api/costing/bean-list/publications",
 		"POST /api/costing/bean-list/publications",
@@ -812,6 +807,17 @@ func TestRoutesAreRegistered(t *testing.T) {
 	} {
 		if !seen[want] {
 			t.Fatalf("missing route %s; got %+v", want, seen)
+		}
+	}
+	for _, gone := range []string{
+		"GET /api/drip-price-templates",
+		"POST /api/drip-price-templates",
+		"PUT /api/drip-price-templates/:id",
+		"POST /api/drip-price-templates/:id/deactivate",
+		"POST /api/costing/drip-price-explanation",
+	} {
+		if seen[gone] {
+			t.Fatalf("legacy drip template route must not be registered: %s", gone)
 		}
 	}
 }
@@ -864,112 +870,27 @@ func TestBeanListPublicationPDFAPIGeneratesSavedPDFThenDownloadsIt(t *testing.T)
 	}
 }
 
-func TestDripPriceTemplateAPIValidatesBagAndBoxConfig(t *testing.T) {
+func TestDripTemplateAndExplanationAPIsAreRemoved(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
 
 	for _, tc := range []struct {
-		name string
-		body string
-		want string
+		method string
+		path   string
+		body   string
 	}{
-		{name: "bag grams", body: `{"name":"坏模板","bag_grams":0,"box_bag_count":10,"tiers":[{"label":"100袋","min_bags":100,"multiplier":2.2}]}`, want: "bag_grams"},
-		{name: "box count", body: `{"name":"坏模板","bag_grams":10,"box_bag_count":0,"tiers":[{"label":"100袋","min_bags":100,"multiplier":2.2}]}`, want: "box_bag_count"},
+		{method: http.MethodGet, path: "/api/drip-price-templates"},
+		{method: http.MethodPost, path: "/api/drip-price-templates", body: `{}`},
+		{method: http.MethodPut, path: "/api/drip-price-templates/5", body: `{}`},
+		{method: http.MethodPost, path: "/api/drip-price-templates/5/deactivate"},
+		{method: http.MethodPost, path: "/api/costing/drip-price-explanation", body: `{}`},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/api/drip-price-templates", bytes.NewBufferString(tc.body))
-			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-			rec := httptest.NewRecorder()
-			e.ServeHTTP(rec, req)
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
-			}
-			if !strings.Contains(rec.Body.String(), tc.want) {
-				t.Fatalf("body %s missing %s", rec.Body.String(), tc.want)
-			}
-		})
-	}
-}
-
-func TestDripPriceTemplateDeactivateAPIKeepsPublishedTiersByOnlyDeactivatingTemplate(t *testing.T) {
-	svc := &recordingDripTemplateService{}
-	e := echo.New()
-	RegisterRoutes(e, Dependencies{Costing: svc})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/drip-price-templates/5/deactivate", nil)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
-	}
-	if svc.deactivatedID != 5 {
-		t.Fatalf("deactivated id = %d", svc.deactivatedID)
-	}
-	if svc.publishRunCalls != 0 {
-		t.Fatalf("deactivate must not republish or delete product price tiers, publish calls = %d", svc.publishRunCalls)
-	}
-}
-
-type recordingDripTemplateService struct {
-	fakeService
-	deactivatedID   int64
-	publishRunCalls int
-}
-
-func (s *recordingDripTemplateService) DeactivateDripPriceTemplate(ctx context.Context, cmd appcosting.DeactivateDripPriceTemplateCommand) error {
-	s.deactivatedID = cmd.ID
-	return nil
-}
-
-func (s *recordingDripTemplateService) PublishRun(ctx context.Context, actor string, runID int64) error {
-	s.publishRunCalls++
-	return nil
-}
-
-func TestCostingDripPriceExplanationAPIIncludesCostFormulaAndBoxConversion(t *testing.T) {
-	e := echo.New()
-	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
-
-	template := fakeDripPriceTemplate()
-	body, err := json.Marshal(appcosting.DripPriceExplanationCommand{
-		Product: domain.ProductInput{
-			ProductID:          701,
-			Name:               "耶加雪菲挂耳",
-			ProductKind:        "drip_bag",
-			DripBagGrams:       10,
-			DripBoxBagCount:    10,
-			GreenBeanCostPerKg: 60,
-			YieldRate:          0.8,
-			DripPriceTemplate:  &template,
-		},
-		TierLabel: "100袋",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest(http.MethodPost, "/api/costing/drip-price-explanation", bytes.NewReader(body))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-	rec := httptest.NewRecorder()
-
-	e.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
-	}
-	bodyText := rec.Body.String()
-	for _, want := range []string{
-		`"key":"roasted_bean_cost_per_kg"`,
-		`"key":"bag_grams"`,
-		`"key":"drip_process_cost_per_bag"`,
-		`"key":"drip_extra_cost_per_bag"`,
-		`"key":"template_multiplier"`,
-		`"key":"retail_tax_rate"`,
-		`"key":"packed_price_per_bag"`,
-		`"key":"box_conversion"`,
-		`"box_bag_count":10`,
-	} {
-		if !strings.Contains(bodyText, want) {
-			t.Fatalf("drip explanation missing %s: %s", want, bodyText)
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s %s status = %d, body = %s", tc.method, tc.path, rec.Code, rec.Body.String())
 		}
 	}
 }

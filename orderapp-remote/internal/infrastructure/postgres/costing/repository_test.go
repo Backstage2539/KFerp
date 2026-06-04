@@ -674,7 +674,7 @@ func TestPublishRunPublishesDripPriceTiersAsUnitAndBoxSnapshots(t *testing.T) {
 	}
 }
 
-func TestDefaultDripPriceTemplateSchemaAndSeed(t *testing.T) {
+func TestDripPriceTemplateSchemaIsLegacyOnlyAndDoesNotSeedDefaultTemplate(t *testing.T) {
 	b, err := os.ReadFile("schema.go")
 	if err != nil {
 		t.Fatal(err)
@@ -683,23 +683,23 @@ func TestDefaultDripPriceTemplateSchemaAndSeed(t *testing.T) {
 	for _, want := range []string{
 		"drip_price_templates",
 		"drip_price_template_tiers",
-		"默认挂耳供应价",
 		"product_kind TEXT NOT NULL DEFAULT 'roasted_bean'",
 		"price_basis TEXT NOT NULL DEFAULT 'weight'",
 		"sales_unit TEXT NOT NULL DEFAULT ''",
 		"unit_bag_count INT NOT NULL DEFAULT 0",
 		"price_source_json JSONB NOT NULL DEFAULT '{}'::jsonb",
-		"100袋",
-		"1000袋",
-		"5000袋",
-		"10000袋",
-		"2.2",
-		"1.8",
-		"1.6",
-		"1.35",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("costing schema must create and seed drip price templates; missing %q", want)
+			t.Fatalf("costing schema must keep legacy drip snapshot structure; missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"seedDefaultDripPriceTemplate",
+		"默认挂耳供应价",
+		"10000袋",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("costing schema must not seed default drip template; found %q", forbidden)
 		}
 	}
 }

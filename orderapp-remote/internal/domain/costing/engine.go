@@ -530,25 +530,15 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 	commercialDisplay := commercialBeanListDisplay(profileName)
 	retailDisplay := retailBeanListDisplay(profileName)
 	dripDisplay := BeanListDisplay{}
-	if in.ProductKind == "drip_bag" || isDripCategory(in) {
-		dripDisplay = commercialDisplay
-		commercialDisplay = BeanListDisplay{}
-		retailDisplay = BeanListDisplay{}
-	}
-	isDrip := isDripProduct(in)
 	if in.CustomerID > 0 {
-		commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, !isDrip)
+		commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, true)
 		retailDisplay = customerCategoryBeanListDisplay(in, retailDisplay, false)
-		dripDisplay = customerCategoryBeanListDisplay(in, dripDisplay, isDrip)
 	} else {
 		if commercialDisplay.Code == "" {
-			commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, !isDrip)
+			commercialDisplay = customerCategoryBeanListDisplay(in, commercialDisplay, true)
 		}
 		if retailDisplay.Code == "" {
 			retailDisplay = customerCategoryBeanListDisplay(in, retailDisplay, false)
-		}
-		if dripDisplay.Code == "" {
-			dripDisplay = customerCategoryBeanListDisplay(in, dripDisplay, isDrip)
 		}
 	}
 
@@ -653,10 +643,12 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		out.Warnings = normalizeWarnings(append(out.Warnings, MissingPricingMethodWarning))
 	}
 
-	out.DripWholesaleTiers = buildDripWholesaleTiers(params, in)
-	for _, tier := range out.DripWholesaleTiers {
-		out.WholesaleDripBagPrices = append(out.WholesaleDripBagPrices, tier.LoosePricePerBag)
-		out.WholesaleDripBagWithPackPrices = append(out.WholesaleDripBagWithPackPrices, tier.PackedPricePerBag)
+	if in.DripPriceTemplate != nil {
+		out.DripWholesaleTiers = buildDripWholesaleTiers(params, in)
+		for _, tier := range out.DripWholesaleTiers {
+			out.WholesaleDripBagPrices = append(out.WholesaleDripBagPrices, tier.LoosePricePerBag)
+			out.WholesaleDripBagWithPackPrices = append(out.WholesaleDripBagWithPackPrices, tier.PackedPricePerBag)
+		}
 	}
 
 	out.RetailKgPrice = retailSmall*(1+params.RetailBeanMarginRate) + params.WholesalePackageCostPerKg + params.ProductLossPerKg + retailTax + params.RetailLogisticsPerKg
@@ -2207,19 +2199,6 @@ func isGreenBeanCategory(in ProductInput) bool {
 		strings.Contains(strings.ToLower(in.CategorySecondaryName), "生豆") ||
 		strings.Contains(strings.ToLower(in.ProductTypeName), "生豆") ||
 		strings.Contains(strings.ToLower(in.ProductSubtypeName), "生豆")
-}
-
-func isDripCategory(in ProductInput) bool {
-	return strings.Contains(strings.ToLower(in.CategoryPrimaryName), "挂耳") ||
-		strings.Contains(strings.ToLower(in.CategorySecondaryName), "挂耳") ||
-		strings.Contains(strings.ToLower(in.ProductTypeName), "挂耳") ||
-		strings.Contains(strings.ToLower(in.ProductSubtypeName), "挂耳") ||
-		strings.Contains(strings.ToLower(in.ClassificationTemplateName), "挂耳") ||
-		strings.Contains(strings.ToLower(in.ClassificationCategoryName), "挂耳")
-}
-
-func isDripProduct(in ProductInput) bool {
-	return strings.TrimSpace(in.ProductKind) == "drip_bag" || isDripCategory(in)
 }
 
 func buildCategoryGreenBeanListDisplay(in ProductInput, fallback BeanListDisplay) BeanListDisplay {

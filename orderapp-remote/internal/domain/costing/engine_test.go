@@ -45,8 +45,9 @@ func TestEngineMatchesExcelCachedGoldens(t *testing.T) {
 	assertClose(t, "wholesale kg 1kg tier", got.WholesaleKgPrices[0], 132)
 	assertClose(t, "wholesale lb 1kg tier", got.WholesaleLbPrices[0], 61)
 	assertClose(t, "wholesale kg 24kg tier", got.WholesaleKgPrices[3], 99)
-	assertClose(t, "wholesale drip 100", got.WholesaleDripBagPrices[0], 3)
-	assertClose(t, "wholesale drip with pack 100", got.WholesaleDripBagWithPackPrices[0], 3)
+	if len(got.DripWholesaleTiers) != 0 || len(got.WholesaleDripBagPrices) != 0 || len(got.WholesaleDripBagWithPackPrices) != 0 {
+		t.Fatalf("drip wholesale tiers should not be generated without an explicit legacy snapshot/template: %+v", got.DripWholesaleTiers)
+	}
 	assertClose(t, "retail kg", got.RetailKgPrice, 219)
 	assertClose(t, "retail lb", got.Retail454gPrice, 99)
 	assertClose(t, "retail half lb", got.Retail227gPrice, 50)
@@ -588,8 +589,8 @@ func TestDripWholesaleTiersUseTemplateAndProductBagConfig(t *testing.T) {
 	if got.ProductKind != "drip_bag" || got.DripBagGrams != 12 || got.DripBoxBagCount != 10 {
 		t.Fatalf("drip product config = %+v", got)
 	}
-	if got.DripBeanList.Code == "" || got.CommercialBeanList.Code != "" || got.RetailBeanList.Code != "" {
-		t.Fatalf("drip product must only appear in drip bean list, got commercial=%+v drip=%+v retail=%+v", got.CommercialBeanList, got.DripBeanList, got.RetailBeanList)
+	if got.CommercialBeanList.Code == "" || got.DripBeanList.Code != "" {
+		t.Fatalf("drip products now appear in the normal commercial product price list, got commercial=%+v drip=%+v retail=%+v", got.CommercialBeanList, got.DripBeanList, got.RetailBeanList)
 	}
 	if len(got.DripWholesaleTiers) != 2 {
 		t.Fatalf("drip tiers = %+v, want template tiers", got.DripWholesaleTiers)
@@ -987,7 +988,7 @@ func TestCalculateProductCarriesInactiveBomWarning(t *testing.T) {
 	}
 }
 
-func TestDripWholesaleTiersMatchExcelFormula(t *testing.T) {
+func TestDripWholesaleTiersRequireExplicitLegacyTemplate(t *testing.T) {
 	params := DefaultParameters()
 	params.RetailTaxRate = 0.03
 	params.DripGreenRatioKgPerBag = 0.01
@@ -1001,13 +1002,32 @@ func TestDripWholesaleTiersMatchExcelFormula(t *testing.T) {
 		GreenBeanCostPerKg: 80,
 		YieldRate:          0.8,
 	})
-	if len(out.DripWholesaleTiers) != 4 {
+	if len(out.DripWholesaleTiers) != 0 {
+		t.Fatalf("tiers len=%d, want 0 without explicit template", len(out.DripWholesaleTiers))
+	}
+
+	out = CalculateProduct(params, ProductInput{
+		Name:               "历史挂耳测试",
+		GreenBeanCostPerKg: 80,
+		YieldRate:          0.8,
+		DripPriceTemplate: &DripPriceTemplate{
+			ID:               9,
+			Name:             "历史挂耳快照",
+			BagGrams:         10,
+			BoxBagCount:      10,
+			IncludePackaging: true,
+			Tiers: []DripPriceTemplateTier{
+				{ID: 91, Label: "100袋", MinBags: 100, Multiplier: 2.2, Position: 1},
+			},
+		},
+	})
+	if len(out.DripWholesaleTiers) != 1 {
 		t.Fatalf("tiers len=%d", len(out.DripWholesaleTiers))
 	}
 	base := (80/0.8+params.SmallBatchProductionCostPerKg)*0.01 + 0.44 + 0.10
 	wantLoose := roundPrice(base*2.2 + base*(2.2-1)*0.03)
 	wantPacked := roundPrice(wantLoose + 0.20)
-	if out.DripWholesaleTiers[0].MinBags != 100 || out.DripWholesaleTiers[0].LoosePricePerBag != wantLoose || out.DripWholesaleTiers[0].PackedPricePerBag != wantPacked {
+	if out.DripWholesaleTiers[0].MinBags != 100 || out.DripWholesaleTiers[0].TemplateID != 9 || out.DripWholesaleTiers[0].LoosePricePerBag != wantLoose || out.DripWholesaleTiers[0].PackedPricePerBag != wantPacked {
 		t.Fatalf("first tier=%+v want loose %.2f packed %.2f", out.DripWholesaleTiers[0], wantLoose, wantPacked)
 	}
 }
@@ -1059,17 +1079,17 @@ func TestCalculateProductGeneratesDefaultBeanListDisplayForUncategorizedProducts
 		DripBagGrams:    10,
 		DripBoxBagCount: 10,
 	})
-	if drip.DripBeanList.Code == "" {
-		t.Fatalf("drip bag bean list code must not be empty: %+v", drip.DripBeanList)
+	if drip.CommercialBeanList.Code == "" {
+		t.Fatalf("drip bag commercial bean list code must not be empty: %+v", drip.CommercialBeanList)
 	}
-	if drip.DripBeanList.Category != "未分类" {
-		t.Fatalf("drip bag category = %q, want 未分类", drip.DripBeanList.Category)
+	if drip.CommercialBeanList.Category != "未分类" {
+		t.Fatalf("drip bag category = %q, want 未分类", drip.CommercialBeanList.Category)
 	}
-	if drip.DripBeanList.DisplayName != "精品挂耳礼盒" {
-		t.Fatalf("drip bag display name = %q, want 精品挂耳礼盒", drip.DripBeanList.DisplayName)
+	if drip.CommercialBeanList.DisplayName != "精品挂耳礼盒" {
+		t.Fatalf("drip bag display name = %q, want 精品挂耳礼盒", drip.CommercialBeanList.DisplayName)
 	}
-	if drip.CommercialBeanList.Code != "" {
-		t.Fatalf("drip bag should not appear in commercial bean list: %+v", drip.CommercialBeanList)
+	if drip.DripBeanList.Code != "" {
+		t.Fatalf("drip bag should not appear in a dedicated drip bean list: %+v", drip.DripBeanList)
 	}
 	if drip.RetailBeanList.Code != "" {
 		t.Fatalf("drip bag should not appear in retail bean list: %+v", drip.RetailBeanList)

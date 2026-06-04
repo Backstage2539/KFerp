@@ -169,7 +169,7 @@ ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_source_json SET NOT NUL
 	if err := seedParameters(ctx, pool, schema); err != nil {
 		return err
 	}
-	return seedDefaultDripPriceTemplate(ctx, pool, schema)
+	return nil
 }
 
 func seedParameters(ctx context.Context, pool *pgxpool.Pool, schema string) error {
@@ -209,44 +209,6 @@ func seedParameters(ctx context.Context, pool *pgxpool.Pool, schema string) erro
 		ON CONFLICT(key) DO UPDATE SET label=EXCLUDED.label, unit=EXCLUDED.unit`, schema)
 	for _, r := range rows {
 		if _, err := pool.Exec(ctx, q, r.key, r.label, r.value, r.unit); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func seedDefaultDripPriceTemplate(ctx context.Context, pool *pgxpool.Pool, schema string) error {
-	var id int64
-	err := pool.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.drip_price_templates(name, active, bag_grams, box_bag_count, include_packaging)
-		SELECT '默认挂耳供应价', true, 10, 10, true
-		WHERE NOT EXISTS (SELECT 1 FROM %s.drip_price_templates WHERE name='默认挂耳供应价')
-		RETURNING id
-	`, schema, schema)).Scan(&id)
-	if err != nil {
-		if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.drip_price_templates WHERE name='默认挂耳供应价' ORDER BY id LIMIT 1`, schema)).Scan(&id); err != nil {
-			return err
-		}
-	}
-	rows := []struct {
-		label      string
-		minBags    float64
-		multiplier float64
-		position   int
-	}{
-		{"100袋", 100, 2.2, 1},
-		{"1000袋", 1000, 1.8, 2},
-		{"5000袋", 5000, 1.6, 3},
-		{"10000袋", 10000, 1.35, 4},
-	}
-	for _, row := range rows {
-		if _, err := pool.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.drip_price_template_tiers(template_id, label, min_bags, multiplier, position, active)
-			SELECT $1, $2, $3, $4, $5, true
-			WHERE NOT EXISTS (
-				SELECT 1 FROM %s.drip_price_template_tiers WHERE template_id=$1 AND label=$2
-			)
-		`, schema, schema), id, row.label, row.minBags, row.multiplier, row.position); err != nil {
 			return err
 		}
 	}

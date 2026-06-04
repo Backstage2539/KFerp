@@ -7,17 +7,18 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-415-PRODUCT-PRICE-LIST-NO-DRIP-TEMPLATE
-- Branch: codex/price-list-drip-template-source-20260605
+- Branches: codex/price-list-drip-template-source-20260605; codex/remove-drip-template-active-api-20260605
 - Owner/session: Codex / 2026-06-05
-- Status: verified locally; pending merge/deploy
-- Scope: 商品价格表下线挂耳专用模板和 `drip` 专用枚举推断；分类名包含“挂耳/drip”或 `product_kind=drip_bag` 不再切换到 `drip_wholesale_tiers`，挂耳商品按普通商品配置模板、阶梯价模板、固定单价或成本加成生成报价；旧 `drip` 发布快照/PDF 仅作为历史兼容读取。
+- Status: verified locally; pending follow-up merge/deploy
+- Scope: 商品价格表下线挂耳专用模板和 `drip` 专用枚举推断；分类名包含“挂耳/drip”或 `product_kind=drip_bag` 不再切换到 `drip_wholesale_tiers`，挂耳商品按普通商品配置模板、阶梯价模板、固定单价或成本加成生成报价；`/api/drip-price-templates` 和 `/api/costing/drip-price-explanation` 不再注册，成本 schema 不再 seed 默认挂耳供应价；旧 `drip` 发布快照/PDF 仅作为历史兼容读取。
 - DEV:
   - DEV-415-COSTING-VIEW-NO-DRIP-INFERENCE：`CostingView.vue` 不再根据挂耳分类名或 `drip_bag` 生成 `drip` 类型，也不调用挂耳供应价模板或挂耳价格解释接口。
+  - DEV-415-REMOVE-DRIP-TEMPLATE-ACTIVE-API：HTTP 层下线挂耳模板和挂耳价格解释接口；商品价格表候选不再加载默认挂耳模板，不再默认生成 `drip_wholesale_tiers`。
   - DEV-415-LEGACY-DRIP-PDF-COMPAT：PDF helper 保留旧 `drip` 快照读取兼容；新商品价格表对挂耳命名商品按普通 `commercial_wholesale_tiers` 展示。
   - DEV-415-MANUAL-DOCS：更新成本手册、需求、验收和 requirement seed。
 - Verifier:
   - RED: `node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/costing-bean-list-version-ui.test.js` failed because `CostingView.vue` still had `categoryHint.includes('挂耳')`, `kind === 'drip_bag'`, and `section.listType === 'drip'`.
-  - GREEN: `node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/costing-bean-list-version-ui.test.js` passed 51/51; `go test ./internal/interfaces/http/costing ./internal/application/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1` passed; `go test ./internal/interfaces/http/support -run TestDev415 -count=1` passed; `npm run build` passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+  - GREEN: `node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/costing-bean-list-version-ui.test.js` passed 51/51; `go test ./internal/domain/costing ./internal/application/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1` passed; `go test ./internal/interfaces/http/support -run TestDev415 -count=1` passed; `npm run build` passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-05-product-price-list-no-drip-template.md`; requirement seed updated in `orderapp-remote/internal/interfaces/http/support/req_store.go`.
 - Last update: 2026-06-05 Asia/Shanghai
 

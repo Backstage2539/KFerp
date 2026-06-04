@@ -249,14 +249,23 @@ func TestBeanListPublicationPermissionsSeparatePublishAndDraft(t *testing.T) {
 		{http.MethodPost, "/api/costing/bean-list/publications/8/withdraw", "auth.manage"},
 		{http.MethodPost, "/api/costing/bean-list/drafts", "costing.read"},
 		{http.MethodGet, "/api/costing/bean-list/publications", "costing.read"},
-		{http.MethodGet, "/api/drip-price-templates", "costing.read"},
-		{http.MethodPost, "/api/drip-price-templates", "costing.write"},
-		{http.MethodPut, "/api/drip-price-templates/8", "costing.write"},
-		{http.MethodPost, "/api/drip-price-templates/8/deactivate", "costing.write"},
 	}
 	for _, tc := range cases {
 		if got := requiredPermissionForRequest(tc.method, tc.path); got != tc.want {
 			t.Fatalf("%s %s permission = %q, want %q", tc.method, tc.path, got, tc.want)
+		}
+	}
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/drip-price-templates"},
+		{http.MethodPost, "/api/drip-price-templates"},
+		{http.MethodPut, "/api/drip-price-templates/8"},
+		{http.MethodPost, "/api/drip-price-templates/8/deactivate"},
+	} {
+		if got := requiredPermissionForRequest(tc.method, tc.path); got != "" {
+			t.Fatalf("%s %s permission = %q, want empty because route is removed", tc.method, tc.path, got)
 		}
 	}
 }
