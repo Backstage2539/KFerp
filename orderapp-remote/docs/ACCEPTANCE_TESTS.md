@@ -42,6 +42,10 @@
 - [ ] PR-407-PRODUCTION-BOM-GROUP-CATEGORIES-VERSION-EDIT：新建生产 BOM 后自动生成 `V001 草稿` 并打开该 BOM，比例输入和物料保存可用；已发布版本显示“已发布版本只读，复制为新版草稿后编辑”，比例输入只读。
 - [ ] PR-407-PRODUCTION-BOM-GROUP-CATEGORIES-VERSION-EDIT：配方明细、合计比例和保存组件位于 BOM 版本区域下方；切换版本后，明细和合计比例按当前版本刷新；复制已发布版本为新版草稿后自动选中新草稿并复制原物料比例。
 - [ ] PR-408-PRODUCT-CREATE-CONFIG-DRAWER：创建新商品档案成功后自动打开该商品的“商品档案配置”抽屉，且抽屉使用重新加载后的完整商品行，可立即配置商品配置模板、生产 BOM、工艺路线、预期损耗率和行业字段。
+- [ ] PR-409-CUSTOMER-ALIAS-PRICING-BOM-CONFIG：客户商品名新增/编辑抽屉可选择阶梯价模板和单位模板，列表展示当前计价/单位覆盖；客户商品名保存接口返回并持久化 `gradient_template_id` 与 `unit_template_id`。
+- [ ] PR-409-CUSTOMER-ALIAS-PRICING-BOM-CONFIG：客户范围商品价格表生成时，客户商品名覆盖的阶梯价模板和单位模板优先于绑定商品档案配置；未覆盖时仍按商品档案配置回退。
+- [ ] PR-409-CUSTOMER-ALIAS-PRICING-BOM-CONFIG：商品档案配置抽屉绑定生产 BOM 时，只显示启用 BOM，支持按 BOM 编号/名称搜索，选项显示 BOM 编号、名称和版本号，并默认选择最新已发布版本。
+- [ ] PR-409-CUSTOMER-ALIAS-PRICING-BOM-CONFIG：商品档案仅修改生产 BOM 绑定时，不再因旧产品信息字段缺少行业字段模板报 `industry_field_template_id required for product information fields`。
 - [ ] PR-406-BOM-PRODUCT-ALIAS-LAYOUT：商品档案页面无 `SKU归属` 行，顶部描述卡片不再显示 inline ok/error；创建、失效和移动分类结果通过统一通知展示；过滤行右侧有 `创建新商品档案` 和 `失效商品`。
 - [ ] PR-406-BOM-PRODUCT-ALIAS-LAYOUT：商品档案和客户商品名分类 Tab 行右侧分别是可搜索的 `增加分类` 与 `移动到分类` 下拉，选择后需要确认；移动分类允许覆盖旧归类，并能从分类项移动回虚拟 `未分类`。
 - [ ] PR-406-BOM-PRODUCT-ALIAS-LAYOUT：客户商品名页面不出现旧客户 SKU 收敛检查；`新建客户商品` 打开抽屉，抽屉内支持单个新增和批量添加商品档案；客户商品编号不显示手填输入框，也不显示 `进入价格表` / `默认进入价格表` 开关；批量添加的搜索框位于待选商品列表顶部。

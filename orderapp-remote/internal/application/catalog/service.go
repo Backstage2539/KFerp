@@ -479,6 +479,8 @@ type CustomerProductAlias struct {
 	DisplayCategoryID        int64                          `json:"display_category_id"`
 	DisplayCategoryName      string                         `json:"display_category_name"`
 	ClassificationTemplateID int64                          `json:"classification_template_id"`
+	GradientTemplateID       int64                          `json:"gradient_template_id"`
+	UnitTemplateID           int64                          `json:"unit_template_id"`
 	SortOrder                int                            `json:"sort_order"`
 	IncludeInPriceList       bool                           `json:"include_in_price_list"`
 	Active                   bool                           `json:"active"`
@@ -505,6 +507,8 @@ type CustomerProductAliasCommand struct {
 	BrandName                string
 	DisplayCategoryID        int64
 	ClassificationTemplateID int64
+	GradientTemplateID       int64
+	UnitTemplateID           int64
 	SortOrder                int
 	IncludeInPriceList       bool
 	Active                   bool
@@ -1789,6 +1793,12 @@ func (s *Service) SaveCustomerProductAlias(ctx context.Context, cmd CustomerProd
 	}
 	if cmd.DisplayCategoryID < 0 {
 		return CustomerProductAlias{}, ValidationError{Message: "invalid display_category_id"}
+	}
+	if cmd.GradientTemplateID < 0 {
+		return CustomerProductAlias{}, ValidationError{Message: "invalid gradient_template_id"}
+	}
+	if cmd.UnitTemplateID < 0 {
+		return CustomerProductAlias{}, ValidationError{Message: "invalid unit_template_id"}
 	}
 	cmd.ClassificationTemplateID = 0
 	return s.repo.SaveCustomerProductAlias(ctx, cmd)

@@ -129,6 +129,7 @@ func TestLoadProductInputsDoesNotFallbackToCategoryGradientTemplates(t *testing.
 	src := string(b)
 	gradientExpr := effectiveGradientTemplateExpr(t, src)
 	for _, want := range []string{
+		"NULLIF(p.customer_product_alias_gradient_template_id,0)",
 		"NULLIF(cpro.gradient_template_id,0)",
 		"NULLIF(cpti.gradient_template_id,0)",
 		"NULLIF(p.gradient_template_id_override,0)",
@@ -221,6 +222,8 @@ func TestLoadProductInputsForCustomerUsesCustomerProductAliasesAsPriceListSource
 	src := string(b)
 	for _, want := range []string{
 		"customer_product_aliases cpa",
+		"COALESCE(cpa.gradient_template_id,0) AS customer_product_alias_gradient_template_id",
+		"COALESCE(cpa.unit_template_id,0) AS customer_product_alias_unit_template_id",
 		"cpa.include_in_price_list=true",
 		"cpa.active=true",
 		"cpa.id IS NOT NULL",
@@ -234,6 +237,35 @@ func TestLoadProductInputsForCustomerUsesCustomerProductAliasesAsPriceListSource
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("customer price lists must load products through customer_product_aliases; missing %q", want)
+		}
+	}
+}
+
+func TestLoadProductInputsForCustomerAliasOverridesPricingAndUnitTemplates(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	gradientExpr := effectiveGradientTemplateExpr(t, src)
+	firstAlias := strings.Index(gradientExpr, "NULLIF(p.customer_product_alias_gradient_template_id,0)")
+	firstRule := strings.Index(gradientExpr, "NULLIF(cpro.gradient_template_id,0)")
+	if firstAlias < 0 {
+		t.Fatalf("customer alias gradient template must be part of effective gradient expression: %s", gradientExpr)
+	}
+	if firstRule < 0 || firstAlias > firstRule {
+		t.Fatalf("customer alias gradient template must override customer rule templates: %s", gradientExpr)
+	}
+	for _, want := range []string{
+		"LEFT JOIN %[1]s.product_unit_templates alias_unit",
+		"NULLIF(alias_unit.inventory_unit,'')",
+		"NULLIF(alias_unit.quote_unit,'')",
+		"NULLIF(alias_unit.order_unit,'')",
+		"NULLIF(alias_unit.unit_conversion_json::text,'{}')",
+		"alias_unit.integer_unit",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("customer alias unit template must override product units; missing %q", want)
 		}
 	}
 }

@@ -6,6 +6,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-409-CUSTOMER-ALIAS-PRICING-BOM-CONFIG
+- Branch: codex/customer-alias-pricing-bom-config-20260604
+- Owner/session: Codex / 2026-06-04
+- Status: verifying
+- Scope: 客户商品名支持客户侧阶梯价模板和单位模板覆盖；商品档案配置绑定生产 BOM 时只显示有效 BOM、可按 BOM 编号/名称模糊搜索并显示最新版本号；修复商品档案修改 BOM 时旧行业字段触发 `industry_field_template_id required for product information fields` 的保存错误。
+- DEV:
+  - DEV-409-CUSTOMER-ALIAS-PRICING-UNIT：客户商品名 API、仓储、前端抽屉和列表增加阶梯价模板/单位模板覆盖字段，操作日志记录模板选择。
+  - DEV-409-PRICE-LIST-ALIAS-OVERRIDE：商品价格表/成本输入在客户范围优先读取客户商品名覆盖的阶梯价模板和单位模板，再回退商品档案配置。
+  - DEV-409-PRODUCT-BOM-SELECTOR：商品档案配置抽屉的生产 BOM 选择器改为可搜索有效 BOM，并在选项中显示 BOM 编号、名称和版本号。
+  - DEV-409-INDUSTRY-FIELD-LEGACY-SAVE：无行业字段模板时允许旧商品生产配置字段原样保存，避免仅修改 BOM 绑定时报错。
+  - DEV-409-MANUAL-DOCS：更新商品档案、客户商品名、商品价格表相关手册、需求、验收和 acceptance 记录。
+- Verifier:
+  - RED: `node --test src/lib/product-settings.test.js` failed before active BOM SearchableSelect/version markers existed; `go test ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/costing -count=1` failed before alias pricing/unit persistence and price-list source markers existed.
+  - GREEN: `node --test src/lib/product-settings.test.js` passed 104/104; `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` passed 123/123.
+  - API/backend: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1` passed.
+  - Frontend/build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
+  - Changed verifier: `scripts/verify_kferp.sh changed` exited 0.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-04-customer-alias-pricing-bom-config.md`
+- Deployment: pending
+- Last update: 2026-06-04 Asia/Shanghai
+
 ### PR-408-PRODUCT-CREATE-CONFIG-DRAWER
 - Branch: codex/product-create-config-drawer-20260604
 - Owner/session: Codex / 2026-06-04

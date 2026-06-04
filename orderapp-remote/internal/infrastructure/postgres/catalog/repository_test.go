@@ -157,6 +157,8 @@ func TestCustomerProductAliasSchemaPersistsCustomerFacingNamesAndAudits(t *testi
 		{name: "product id", src: string(schema), want: "product_id BIGINT NOT NULL"},
 		{name: "display name", src: string(schema), want: "display_name TEXT NOT NULL"},
 		{name: "customer code", src: string(schema), want: "customer_item_code TEXT NOT NULL DEFAULT ''"},
+		{name: "alias gradient template", src: string(schema), want: "gradient_template_id BIGINT NOT NULL DEFAULT 0"},
+		{name: "alias unit template", src: string(schema), want: "unit_template_id BIGINT NOT NULL DEFAULT 0"},
 		{name: "price list flag", src: string(schema), want: "include_in_price_list BOOLEAN NOT NULL DEFAULT true"},
 		{name: "factory self seed", src: string(schema), want: "工厂自营"},
 		{name: "list method", src: string(repository), want: "func (r Repository) ListCustomerProductAliases"},
@@ -164,6 +166,8 @@ func TestCustomerProductAliasSchemaPersistsCustomerFacingNamesAndAudits(t *testi
 		{name: "disable method", src: string(repository), want: "func (r Repository) DisableCustomerProductAlias"},
 		{name: "factory customer method", src: string(repository), want: "func (r Repository) EnsureFactoryCustomer"},
 		{name: "audit entity", src: string(repository), want: `"customer_product_alias"`},
+		{name: "audit pricing template", src: string(repository), want: `"gradient_template_id":       cmd.GradientTemplateID`},
+		{name: "audit unit template", src: string(repository), want: `"unit_template_id":           cmd.UnitTemplateID`},
 		{name: "create audit", src: string(repository), want: `"create_customer_product_alias"`},
 		{name: "update audit", src: string(repository), want: `"update_customer_product_alias"`},
 		{name: "disable audit", src: string(repository), want: `"disable_customer_product_alias"`},
@@ -298,6 +302,20 @@ func TestProductProductionConfigSchemaBackfillsLegacyBOMAndAttributes(t *testing
 		if !strings.Contains(combined, want) {
 			t.Fatalf("product production config implementation missing marker %q", want)
 		}
+	}
+}
+
+func TestProductProductionConfigLegacyFieldsCanSaveWithoutIndustryTemplate(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	if strings.Contains(src, "industry_field_template_id required for product information fields") {
+		t.Fatalf("changing BOM bindings must not fail existing legacy product information fields without a template")
+	}
+	if !strings.Contains(src, "if templateID <= 0 {\n\t\treturn fields, nil\n\t}") {
+		t.Fatalf("legacy product production fields should pass through when no industry template is selected")
 	}
 }
 

@@ -336,7 +336,7 @@ func (r *fakeRepo) ListCustomerProductAliases(ctx context.Context, query Custome
 
 func (r *fakeRepo) SaveCustomerProductAlias(ctx context.Context, cmd CustomerProductAliasCommand) (CustomerProductAlias, error) {
 	r.aliasCommand = cmd
-	return CustomerProductAlias{ID: 1, CustomerID: cmd.CustomerID, ProductID: cmd.ProductID, DisplayName: cmd.DisplayName, CustomerItemCode: cmd.CustomerItemCode, IncludeInPriceList: cmd.IncludeInPriceList, Active: cmd.Active}, nil
+	return CustomerProductAlias{ID: 1, CustomerID: cmd.CustomerID, ProductID: cmd.ProductID, DisplayName: cmd.DisplayName, CustomerItemCode: cmd.CustomerItemCode, GradientTemplateID: cmd.GradientTemplateID, UnitTemplateID: cmd.UnitTemplateID, IncludeInPriceList: cmd.IncludeInPriceList, Active: cmd.Active}, nil
 }
 
 func (r *fakeRepo) BatchCreateCustomerProductAliases(ctx context.Context, cmd BatchCustomerProductAliasesCommand) (BatchCustomerProductAliasesResult, error) {

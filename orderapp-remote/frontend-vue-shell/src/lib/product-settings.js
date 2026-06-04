@@ -186,11 +186,36 @@ export function buildCustomerProductAliasPayload(form = {}) {
     display_name: String(form.display_name ?? form.displayName ?? '').trim(),
     brand_name: String(form.brand_name ?? form.brandName ?? '').trim(),
     display_category_id: Number(form.display_category_id || form.displayCategoryID || 0),
+    gradient_template_id: Number(form.gradient_template_id || form.gradientTemplateID || 0),
+    unit_template_id: Number(form.unit_template_id || form.unitTemplateID || 0),
     sort_order: Number(form.sort_order || form.sortOrder || 0),
     include_in_price_list: Boolean(form.include_in_price_list ?? form.includeInPriceList ?? true),
     active: Boolean(form.active ?? true),
     remark: String(form.remark ?? '').trim(),
   }
+}
+
+export function activeProductionBomOptions(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .filter((row) => Number(row?.id || 0) > 0)
+    .filter((row) => String(row?.status || 'active').trim().toLowerCase() === 'active')
+    .map((row) => ({
+      ...row,
+      id: Number(row.id || 0),
+      code: String(row.code || '').trim(),
+      name: String(row.name || '').trim(),
+      latest_version_no: String(row.latest_version_no || row.production_bom_version_no || '').trim(),
+      latest_version_status: String(row.latest_version_status || '').trim(),
+      group_name: String(row.group_name || '').trim(),
+    }))
+    .sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')) || String(a.name || '').localeCompare(String(b.name || '')))
+}
+
+export function productionBomOptionLabel(row = {}) {
+  const code = String(row.code || '').trim()
+  const name = String(row.name || '').trim()
+  const version = String(row.latest_version_no || row.production_bom_version_no || '').trim()
+  return [code, name].filter(Boolean).join(' ') + (version ? ` / ${version}` : '')
 }
 
 export function buildCustomerProductAliasBatchPayload(form = {}) {

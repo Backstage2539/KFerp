@@ -9,6 +9,7 @@ import {
   buildCustomerProductRuleTemplatePayload,
   buildCustomerProductAliasPayload,
   buildCustomerProductAliasBatchPayload,
+  activeProductionBomOptions,
   buildClassificationTemplateUsagePayload,
   buildCustomerProductAliasIndustryFieldPayload,
   classificationAssignmentConflict,
@@ -42,6 +43,7 @@ import {
   normalizeVisibleSkuFilters,
   normalizedProductKind,
   paginatedSkuRows,
+  productionBomOptionLabel,
   priceListRuleFormFromJSON,
   priceListRuleJSONFromForm,
   greenBeanTypeLabel,
@@ -186,6 +188,8 @@ test('customer product alias payload binds a customer-facing name to one product
     customer_item_code: ' KAREN-ESP ',
     brand_name: ' ',
     display_category_id: '7',
+    gradient_template_id: '18',
+    unit_template_id: '22',
     sort_order: '30',
     include_in_price_list: true,
     active: false,
@@ -198,11 +202,23 @@ test('customer product alias payload binds a customer-facing name to one product
     display_name: 'Karen 精品拼配',
     brand_name: '',
     display_category_id: 7,
+    gradient_template_id: 18,
+    unit_template_id: 22,
     sort_order: 30,
     include_in_price_list: true,
     active: false,
     remark: '贴牌只改对外名称',
   })
+})
+
+test('product archive BOM binding options show active BOMs with version numbers', () => {
+  const rows = activeProductionBomOptions([
+    { id: 2, code: 'BOM-002', name: '失效配方', status: 'inactive', latest_version_no: 'V003' },
+    { id: 1, code: 'BOM-001', name: '初晓拼配', status: 'active', latest_version_no: 'V002', group_name: '拼配' },
+  ])
+
+  assert.deepEqual(rows.map((row) => row.id), [1])
+  assert.equal(productionBomOptionLabel(rows[0]), 'BOM-001 初晓拼配 / V002')
 })
 
 test('customer product alias payloads never bind classification templates to aliases', () => {
@@ -2235,12 +2251,16 @@ test('product settings uses classification tabs and page-level assignment contro
 test('customer product aliases use page-level classification templates, not single or batch fields', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const aliasDrawer = source.match(/<aside class="settings-drawer customer-alias-create-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
-  const aliasForm = aliasDrawer.match(/<form class="customer-alias-form"[\s\S]*?<\/form>/)?.[0] || ''
+  const aliasForm = aliasDrawer.match(/<form[^>]*class="[^"]*customer-alias-form[^"]*"[\s\S]*?<\/form>/)?.[0] || ''
   const aliasBatchMode = aliasDrawer.match(/<div v-else class="customer-alias-batch-mode"[\s\S]*?<\/div>\s*<\/div>\s*<div v-if="customerAliasCreateMode === 'batch'"/)?.[0] || ''
   const aliasTable = source.match(/<table class="customer-alias-table"[\s\S]*?<\/table>/)?.[0] || ''
 
   assert.doesNotMatch(aliasForm, /classification_template_id/)
   assert.doesNotMatch(aliasForm, /include_in_price_list/)
+  assert.match(aliasForm, /customerProductAliasForm\.gradient_template_id/)
+  assert.match(aliasForm, /customerProductAliasForm\.unit_template_id/)
+  assert.match(aliasTable, /openCustomerProductAliasEditor\(alias\)/)
+  assert.match(aliasTable, />计价\/单位</)
   assert.doesNotMatch(aliasDrawer, /aliasBatchForm\.classification_template_id/)
   assert.doesNotMatch(aliasDrawer, />默认进入价格表</)
   assert.match(aliasBatchMode, /alias-batch-list-filters[\s\S]*aliasBatchFilters\.query[\s\S]*alias-batch-table/)
@@ -2250,6 +2270,17 @@ test('customer product aliases use page-level classification templates, not sing
   assert.doesNotMatch(aliasTable, />展示分类</)
   assert.doesNotMatch(aliasTable, /navigateProductBom/)
   assert.doesNotMatch(source, /openClassificationConfigDrawer\(\{[\s\S]*objectType:\s*'customer_alias'/)
+})
+
+test('product archive config drawer searches active production BOMs and shows versions', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const drawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
+
+  assert.match(drawer, /SearchableSelect[\s\S]*productProductionConfigActiveBomOptions/)
+  assert.match(drawer, /placeholder="搜索有效生产 BOM"/)
+  assert.match(drawer, /productionBomOptionLabel/)
+  assert.match(source, /const bomID = Number\(\(typeof bom === 'object' && bom !== null \? bom\.id : bom\) \|\| 0\)/)
+  assert.doesNotMatch(drawer, /<select v-model\.number="productProductionConfigForm\.production_bom_id"/)
 })
 
 test('product menus split config, gradient, unit templates and rename product price list', () => {

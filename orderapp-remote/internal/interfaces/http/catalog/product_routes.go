@@ -242,6 +242,8 @@ type customerProductAliasAPIRequest struct {
 	BrandName                string `json:"brand_name"`
 	DisplayCategoryID        int64  `json:"display_category_id"`
 	ClassificationTemplateID int64  `json:"classification_template_id"`
+	GradientTemplateID       int64  `json:"gradient_template_id"`
+	UnitTemplateID           int64  `json:"unit_template_id"`
 	SortOrder                int    `json:"sort_order"`
 	IncludeInPriceList       *bool  `json:"include_in_price_list"`
 	Active                   *bool  `json:"active"`
@@ -932,6 +934,8 @@ func (h productHandler) saveCustomerProductAliasAPI(c echo.Context) error {
 		BrandName:                req.BrandName,
 		DisplayCategoryID:        req.DisplayCategoryID,
 		ClassificationTemplateID: req.ClassificationTemplateID,
+		GradientTemplateID:       req.GradientTemplateID,
+		UnitTemplateID:           req.UnitTemplateID,
 		SortOrder:                req.SortOrder,
 		IncludeInPriceList:       includeInPriceList,
 		Active:                   active,

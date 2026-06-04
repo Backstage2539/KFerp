@@ -311,6 +311,7 @@
                   <th>客户商品编号</th>
                   <th>品牌名</th>
                   <th>绑定商品档案</th>
+                  <th>计价/单位</th>
                   <th>当前归类</th>
                   <th>客户行业字段</th>
                   <th>进入价格表</th>
@@ -321,7 +322,7 @@
               <tbody>
                 <template v-for="group in visibleCustomerAliasGroups" :key="group.key">
                   <tr v-if="!group.all" class="classification-group-row">
-                    <td colspan="10">
+                    <td colspan="11">
                       <button class="classification-group-toggle" type="button" @click="toggleAliasClassificationGroup(group.key)">
                         {{ isAliasClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
                       </button>
@@ -334,12 +335,18 @@
                   <td class="select-col">
                     <input type="checkbox" :checked="isAliasSelected(alias)" :disabled="alias.active === false" @change="toggleAliasSelection(alias, $event.target.checked)" />
                   </td>
-                  <td>{{ alias.display_name }}</td>
+                  <td>
+                    <button class="text-button" type="button" @click="openCustomerProductAliasEditor(alias)">{{ alias.display_name }}</button>
+                  </td>
                   <td>{{ alias.customer_item_code || '-' }}</td>
                   <td>{{ alias.brand_name || '-' }}</td>
                   <td :class="{ 'invalid-product-reference': alias.product_active === false }">
                     <span>{{ alias.product_code || alias.product_id }} · {{ alias.product_name || productName(alias.product_id) }}</span>
                     <small v-if="alias.product_active === false" class="inactive-product-warning">绑定商品已失效</small>
+                  </td>
+                  <td>
+                    <div>{{ aliasPricingTemplateLabel(alias) }}</div>
+                    <small>{{ aliasUnitTemplateLabel(alias) }}</small>
                   </td>
                   <td>
                     <div>{{ aliasClassificationLabel(alias) }}</div>
@@ -358,7 +365,7 @@
                   </template>
                 </template>
                 <tr v-if="!visibleCustomerProductAliases.length">
-                  <td colspan="10" class="muted">当前客户暂无客户商品名。</td>
+                  <td colspan="11" class="muted">当前客户暂无客户商品名。</td>
                 </tr>
               </tbody>
             </table>
@@ -875,6 +882,24 @@
               <input v-model.trim="customerProductAliasForm.brand_name" placeholder="可留空" />
             </label>
             <label>
+              <span>阶梯价模板</span>
+              <select v-model.number="customerProductAliasForm.gradient_template_id">
+                <option :value="0">不覆盖阶梯价模板</option>
+                <option v-for="template in aliasGradientTemplateOptions" :key="template.id" :value="template.id">
+                  {{ template.name }}
+                </option>
+              </select>
+            </label>
+            <label>
+              <span>单位模板</span>
+              <select v-model.number="customerProductAliasForm.unit_template_id">
+                <option :value="0">不覆盖单位模板</option>
+                <option v-for="template in aliasProductUnitTemplateOptions" :key="template.id" :value="template.id">
+                  {{ template.name }}
+                </option>
+              </select>
+            </label>
+            <label>
               <span>排序</span>
               <input v-model.number="customerProductAliasForm.sort_order" type="number" min="0" step="1" />
             </label>
@@ -1019,12 +1044,15 @@
           <div class="production-config-grid">
             <label>
               <span>生产 BOM</span>
-              <select v-model.number="productProductionConfigForm.production_bom_id" @change="selectProductProductionConfigBom(productProductionConfigForm.production_bom_id)">
-                <option :value="0">不绑定生产 BOM</option>
-                <option v-for="bom in productionBoms" :key="bom.id" :value="bom.id">
-                  {{ bom.code }} {{ bom.name }}{{ bom.group_name ? ` / ${bom.group_name}` : '' }}
-                </option>
-              </select>
+              <SearchableSelect
+                v-model="productProductionConfigForm.production_bom_id"
+                :options="productProductionConfigActiveBomOptions"
+                :option-label="productionBomOptionLabel"
+                :option-meta="productionBomOptionMeta"
+                :option-value="optionNumericValue"
+                placeholder="搜索有效生产 BOM"
+                empty-text="暂无有效生产 BOM"
+                @select="selectProductProductionConfigBom" />
             </label>
             <label>
               <span>BOM版本</span>
@@ -1220,6 +1248,7 @@ import {
   buildCustomerProductAliasIndustryFieldPayload,
   buildCustomerProductAliasBatchPayload,
   buildCustomerProductAliasPayload,
+  activeProductionBomOptions,
   buildClassificationTemplateUsagePayload,
   classificationAssignmentForRow,
   classificationAssignmentLabel,
@@ -1259,6 +1288,7 @@ import {
   productConfigTemplateBelongsToSkuContext,
   productDisplayState,
   productKindSupportsBomParams,
+  productionBomOptionLabel,
   resolveCreatedProductForConfig,
   productSubtypeCategoryOptionsForType,
   roastedBomProductOptions,
@@ -1587,6 +1617,20 @@ const activeIndustryFieldTemplates = computed(() => industryFieldTemplates.value
   .filter((template) => String(template.status || 'active') === 'active')
   .slice()
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name || '').localeCompare(String(b.name || ''))))
+const productProductionConfigActiveBomOptions = computed(() => activeProductionBomOptions(productionBoms.value))
+const aliasGradientTemplateOptions = computed(() => gradientTemplates.value
+  .filter((template) => template.active !== false)
+  .filter((template) => {
+    const templateCustomerID = Number(template.customer_id || 0)
+    const customerID = Number(selectedAliasCustomerID.value || 0)
+    return templateCustomerID === 0 || (customerID > 0 && templateCustomerID === customerID)
+  })
+  .slice()
+  .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')) || Number(a.id || 0) - Number(b.id || 0)))
+const aliasProductUnitTemplateOptions = computed(() => productUnitTemplates.value
+  .filter((template) => template.active !== false)
+  .slice()
+  .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')) || Number(a.id || 0) - Number(b.id || 0)))
 const aliasDisplayCategoryOptions = computed(() => flattenCategoryNodes(categories.value).map((category) => ({
   id: Number(category.id || 0),
   label: `${Number(category.customer_id || 0) > 0 ? `${customerName(category.customer_id) || '客户'} / ` : ''}${category.name || ''}`,
@@ -1847,6 +1891,8 @@ function defaultCustomerProductAliasForm() {
     customer_item_code: '',
     brand_name: '',
     display_category_id: 0,
+    gradient_template_id: 0,
+    unit_template_id: 0,
     sort_order: 0,
     include_in_price_list: true,
     active: true,
@@ -2285,6 +2331,8 @@ function decorateCustomerProductAlias(alias = {}) {
     brand_name: alias.brand_name || '',
     display_category_id: Number(alias.display_category_id || 0),
     classification_template_id: Number(alias.classification_template_id || 0),
+    gradient_template_id: Number(alias.gradient_template_id || 0),
+    unit_template_id: Number(alias.unit_template_id || 0),
     sort_order: Number(alias.sort_order || 0),
     include_in_price_list: alias.include_in_price_list !== false,
     active: alias.active !== false,
@@ -3269,6 +3317,29 @@ function findProductUnitTemplate(id) {
   return productUnitTemplates.value.find((template) => Number(template.id || 0) === templateID) || null
 }
 
+function findGradientTemplate(id) {
+  const templateID = Number(id || 0)
+  if (!templateID) return null
+  return gradientTemplates.value.find((template) => Number(template.id || 0) === templateID) || null
+}
+
+function aliasPricingTemplateLabel(alias = {}) {
+  const template = findGradientTemplate(alias.gradient_template_id)
+  return template ? `阶梯价：${template.name}` : '阶梯价：不覆盖'
+}
+
+function aliasUnitTemplateLabel(alias = {}) {
+  const template = findProductUnitTemplate(alias.unit_template_id)
+  return template ? `单位：${template.name}` : '单位：不覆盖'
+}
+
+function productionBomOptionMeta(row = {}) {
+  const parts = []
+  if (row.group_name) parts.push(row.group_name)
+  if (row.latest_version_status) parts.push(row.latest_version_status === 'published' ? '已发布' : row.latest_version_status)
+  return parts.join(' / ')
+}
+
 function productUnitTemplateSummary(idOrTemplate) {
   const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
   if (!template) return '未绑定单位模板'
@@ -3650,10 +3721,11 @@ function fieldTypeLabel(type) {
   })[String(type || '').trim()] || '文本'
 }
 
-async function selectProductProductionConfigBom(bomID) {
-  productProductionConfigForm.value.production_bom_id = Number(bomID || 0)
+async function selectProductProductionConfigBom(bom) {
+  const bomID = Number((typeof bom === 'object' && bom !== null ? bom.id : bom) || 0)
+  productProductionConfigForm.value.production_bom_id = bomID
   productProductionConfigForm.value.production_bom_version_id = 0
-  await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
+  await ensureProductionBomDetail(bomID)
   const latest = productProductionConfigVersionOptions.value[0]
   if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
 }
@@ -4172,6 +4244,31 @@ function openCustomerAliasCreateDrawer(mode = 'single') {
   customerAliasCreateDrawerOpen.value = true
 }
 
+function openCustomerProductAliasEditor(alias = {}) {
+  const customerID = Number(alias.customer_id || selectedAliasCustomerID.value || 0)
+  if (!customerID) {
+    error.value = '请选择客户'
+    return
+  }
+  selectedAliasCustomerID.value = customerID
+  customerAliasCreateMode.value = 'single'
+  customerProductAliasForm.value = {
+    ...defaultCustomerProductAliasForm(),
+    ...alias,
+    id: Number(alias.id || 0),
+    customer_id: customerID,
+    product_id: Number(alias.product_id || 0),
+    display_name: String(alias.display_name || '').trim(),
+    brand_name: String(alias.brand_name || '').trim(),
+    gradient_template_id: Number(alias.gradient_template_id || 0),
+    unit_template_id: Number(alias.unit_template_id || 0),
+    sort_order: Number(alias.sort_order || 0),
+    active: alias.active !== false,
+    remark: String(alias.remark || '').trim(),
+  }
+  customerAliasCreateDrawerOpen.value = true
+}
+
 function closeCustomerAliasCreateDrawer() {
   customerAliasCreateDrawerOpen.value = false
   selectedAliasBatchProductIds.value = []
@@ -4283,7 +4380,7 @@ async function saveCustomerProductAlias() {
     const method = payload.id ? 'PUT' : 'POST'
     await apiSend(url, { method, body: payload })
     ok.value = '客户商品名已保存'
-    resetCustomerProductAliasForm()
+    closeCustomerAliasCreateDrawer()
     await loadAll()
   } catch (err) {
     error.value = err.message || '保存客户商品名失败'
