@@ -11,7 +11,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Follow-up branch: codex/unbound-production-bom-recipe-detail-20260604
 - Current follow-up branch: codex/production-bom-independent-list-20260604
 - Owner/session: Codex / 2026-06-03
-- Status: in progress on feature branch
+- Status: merged and deployed to development
 - Scope: 生产 BOM 删除顶部 SKU归属/商品选择并统一为生产 BOM 独立配方库；商品档案和客户商品名删除旧 SKU归属/旧客户 SKU 收敛检查，分类操作收敛为 Tab 行右侧“增加分类 / 移动到分类”可搜索下拉；客户商品名新建改为抽屉并对绑定商品失效标红。本轮 follow-up 修复：生产 BOM 列表不能再混入商品档案行，列表只展示生产 BOM，商品引用只在 BOM 详情展示；点击任意 BOM 名称都能进入右侧配方明细。
 - Current follow-up scope: 撤销上一轮“缺 BOM 商品行在生产 BOM 列表创建BOM”的列表逻辑。生产 BOM 页面只读 `/api/production-boms?status=all`；去掉商品列、商品过滤、`无生产 BOM / 未维护` 商品行和 `创建BOM` 操作；商品档案配置跳转改传 `production_bom_id`。
 - DEV:
@@ -42,8 +42,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Last update: 2026-06-04 Asia/Shanghai
 - Current follow-up deployment: `22f674af` pushed to `origin/develop=22f674afb730804b6834236fcdbf80ff51b835e9` and deployed to development with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604122816`.
 - Last update: 2026-06-04 Asia/Shanghai
+- Independent-list deployment: feature commit `4011bbfb` pushed to `origin/codex/production-bom-independent-list-20260604`; merged to `develop` with `origin/develop=757decf7ccfcd397d66c8726921986ae47e66cf7`; deployed to development with `./deploy_orderapp.sh development`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604130904`.
+- Last update: 2026-06-04 Asia/Shanghai
 - Notes: Follow-up RED evidence added for BOM name click restoring recipe detail, customer alias move-to-unclassified sentinel handling, hidden price-list switches, batch search placement, and unbound production BOM detail projection. Follow-up GREEN evidence: frontend target/source-marker tests passed 139/139 before earlier merge; develop branch spot checks passed 109/109 for `bom.test.js` + `product-settings.test.js`; catalog/support Go tests passed; Vue build passed; changed verifier passed. Unbound BOM follow-up evidence: `node --test src/lib/bom.test.js` passed 9/9; `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` passed 118/118; Vue build passed; changed verifier passed. Deploy evidence: Docker build ran `go test ./...`; containers running; unauthenticated GET `/app/` returned 303 to `/app/orders`; authenticated GET `/app/vue-shell` returned 200; requirement API exposes `PR-406-BOM-PRODUCT-ALIAS-LAYOUT`; authenticated `/app/api/bom/list`, `/app/api/customer-product-aliases?active=all&q=`, and `/app/api/production-boms?status=all` returned 200; remote source includes `openBomRowPrimary`, `alias-batch-list-filters`, and `productionBomDetailAsRecipeDetail`. Browser/manual验收 per current convention not executed.
 - Superseded follow-up notes: 上一轮曾把 `/api/bom/list` 返回的缺 BOM 商品档案行改为 `创建BOM`，但 Van 进一步确认生产 BOM 列表不应包含商品列表。本轮撤销该列表逻辑：生产 BOM 页面只展示 `/api/production-boms?status=all` 的独立配方档案；商品引用只在详情展示，商品档案侧通过 `production_bom_id` 跳转。
+- Independent-list GREEN evidence: `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` passed 117/117; `go test ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/interfaces/http/support -count=1` passed; `go test ./...` passed; Vue build passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` passed. Deploy smoke: containers running; unauthenticated `/app/` returned 303 to `/app/orders`; `/app/vue-shell` returned 200; `/app/api/production-boms?status=all` returned 200; orderapp logs show normal startup on `:8080`; remote source contains `生产 BOM列表` and no longer contains `商品过滤`.
 
 ### PR-405-PRODUCTION-BOM-BATCH-DEACTIVATE
 - Branch: codex/bom-batch-deactivate-20260603

@@ -45,6 +45,8 @@
 - 商品档案配置跳转 BOM 明细时传递 `production_bom_id`，直接打开对应生产 BOM；商品引用关系在 `/api/production-boms/:id` 的 `referenced_products` 中展示。
 - RED：`node --test src/lib/bom.test.js` failed，因为 `productionBomLabel` 不能识别独立 BOM 的 `code/name/latest_version_no`，且 Vue 仍包含 `商品 BOM列表`、`商品过滤` 和 `mergeProductionBomRows`；Go targeted test failed，因为 `ProductionBomDetail` 尚未返回 `referenced_products`。
 - GREEN：`node --test src/lib/bom.test.js` passed；`node --test src/lib/product-settings.test.js src/lib/view-routing.test.js` passed；`go test ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/interfaces/http/support -count=1` passed。
+- 部署：feature commit `4011bbfb` 已合入并推送 `origin/develop=757decf7ccfcd397d66c8726921986ae47e66cf7`，development stack 通过 `./deploy_orderapp.sh development` 部署。Docker build 期间 `go test ./...` passed；备份 `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260604130904`。
+- Smoke：`erp_orderapp`、`erp_postgres`、`erp_caddy`、`erp_docconvert` running；未认证 GET `/app/` 返回 303 到 `/app/orders`；GET `/app/vue-shell` 返回 200；GET `/app/api/production-boms?status=all` 返回 200；orderapp 日志显示正常监听 `:8080`；远端前端产物包含 `生产 BOM列表`，不再包含 `商品过滤`。
 
 ## 手册与需求文档
 - `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`
