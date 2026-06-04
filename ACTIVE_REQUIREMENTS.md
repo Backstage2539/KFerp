@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-411-CUSTOMER-PRODUCT-CONFIG-TEMPLATE-PRICING
 - Branch: codex/customer-product-config-template-pricing-20260604
 - Owner/session: Codex / 2026-06-04
-- Status: local verification passed, pending merge/deploy
+- Status: merged to origin/develop, deployment blocked by SSH entrypoint closing connections before key exchange
 - Scope: 客户商品名统一更名为客户商品；客户商品配置不再直接维护阶梯价模板和单位模板，只选择商品配置模板，默认继承绑定商品档案的商品配置模板；商品配置模板中删除独立阶梯价模板配置，只在价格表生成规则选择“按阶梯价模板”时展示和保存阶梯价模板。
 - DEV:
   - DEV-411-CUSTOMER-PRODUCT-RENAME：商品与配方菜单、客户商品列表、抽屉、提示和手册统一使用“客户商品”。
@@ -25,7 +25,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Frontend/build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
 - Changed verifier: `scripts/verify_kferp.sh changed` exited 0.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-04-customer-product-config-template-pricing.md`
-- Deployment: pending
+- Integration: feature commit `e357adeb` pushed to `origin/codex/customer-product-config-template-pricing-20260604` and fast-forward merged/pushed to `origin/develop=e357adebaa31d6db790dd931925cabe2edf1b8d5`.
+- Deployment: attempted `./deploy_orderapp.sh` from clean pushed `develop`; local Vue build passed, but SSH to `root@1.12.242.58` closed during handshake before source sync/rebuild. Reproduced with deployment key, `~/.ssh/id_rsa`, `IdentitiesOnly=yes`, config bypass, legacy algorithm options, delayed retries, and ports `22/2222/2022/12222/22022`; `ssh-keyscan` also returned `Connection closed by remote host`. Public app smoke remained healthy during the blocker: unauthenticated GET `/app/` returned 303 and `/app/vue-shell/` returned 200.
 - Last update: 2026-06-04 Asia/Shanghai
 
 ### PR-410-CUSTOMER-ALIAS-RENAME-PRICE-DISPLAY
