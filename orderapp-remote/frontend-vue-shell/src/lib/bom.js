@@ -86,6 +86,51 @@ export function mergeProductionBomRows(productBomRows = [], productionBomRecords
   return rows.concat(extras)
 }
 
+function firstPresent(...values) {
+  return values.find((value) => value !== undefined && value !== null && value !== '')
+}
+
+export function productionBomDetailAsRecipeDetail(detail = {}, fallback = {}) {
+  const bomID = Number(firstPresent(detail.id, detail.production_bom_id, fallback.production_bom_id, fallback.id, 0))
+  const versionID = Number(firstPresent(detail.latest_version_id, detail.latest_bom_version_id, fallback.production_bom_version_id, fallback.latest_version_id, 0))
+  const versionNo = String(firstPresent(detail.latest_version_no, detail.latest_bom_version_no, fallback.production_bom_version_no, fallback.latest_version_no, fallback.latest_bom_version_no, '')).trim()
+  const items = Array.isArray(detail.items) ? detail.items : []
+  const totalRatio = items.reduce((sum, item) => {
+    if ((item?.component_type || 'material') !== 'material') return sum
+    if ((item?.consume_unit || 'ratio_pct') !== 'ratio_pct') return sum
+    return sum + Number(item?.ratio_pct || 0)
+  }, 0)
+
+  return {
+    product_id: 0,
+    product: '未绑定商品',
+    product_name: '未绑定商品',
+    product_kind: 'roasted_bean',
+    roast_level: '',
+    status: detail.status === 'inactive' ? 'inactive' : 'active',
+    items,
+    total_ratio: totalRatio,
+    expected_loss_rate: Number(firstPresent(detail.expected_loss_rate, fallback.expected_loss_rate, 0)),
+    expected_yield_rate: Number(firstPresent(detail.expected_yield_rate, detail.yield_rate, fallback.expected_yield_rate, fallback.yield_rate, 0)),
+    yield_rate: Number(firstPresent(detail.yield_rate, detail.expected_yield_rate, fallback.yield_rate, fallback.expected_yield_rate, 0)),
+    updated_at: detail.updated_at || fallback.updated_at || '',
+    can_edit_bom: true,
+    bom_source_type: 'unbound_production_bom',
+    effective_product_id: 0,
+    effective_bom_version_id: versionID,
+    production_bom_id: bomID,
+    production_bom_code: detail.code || detail.production_bom_code || fallback.production_bom_code || fallback.code || '',
+    production_bom_name: detail.name || detail.production_bom_name || fallback.production_bom_name || fallback.name || '',
+    production_bom_group_id: Number(firstPresent(detail.group_id, detail.production_bom_group_id, fallback.production_bom_group_id, fallback.group_id, 0)),
+    production_bom_group_name: detail.group_name || detail.production_bom_group_name || fallback.production_bom_group_name || fallback.group_name || '',
+    production_bom_version_id: versionID,
+    production_bom_version_no: versionNo,
+    latest_bom_version_id: versionID,
+    latest_bom_version_no: versionNo,
+    is_latest_bom_version: true,
+  }
+}
+
 export function filterProductionBomCatalog(rows = [], { status = 'active', query = '', groupID = 0 } = {}) {
   const statusMode = String(status || 'active').trim().toLowerCase()
   const keyword = String(query || '').trim().toLowerCase()

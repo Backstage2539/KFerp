@@ -8,6 +8,7 @@ import {
   filterBomContextProducts,
   isBomProductCandidate,
   mergeProductionBomRows,
+  productionBomDetailAsRecipeDetail,
   sortBomContextProducts,
   filterProductionBomCatalog,
 } from './bom.js'
@@ -70,6 +71,39 @@ test('BOM list merges unbound production BOM records as selectable catalog rows'
   assert.deepEqual(filterBomRowsByProductFocus(merged, 10).map((row) => row.production_bom_id), [5])
 })
 
+test('unbound production BOM detail is projected as recipe detail with unbound product label', () => {
+  const detail = productionBomDetailAsRecipeDetail({
+    id: 186,
+    code: 'BOM-000186',
+    name: 'Nenka嫩咖 生产 BOM',
+    group_id: 8,
+    group_name: '客户配方',
+    status: 'active',
+    latest_version_id: 901,
+    latest_version_no: 'V001',
+    expected_loss_rate: 0.12,
+    expected_yield_rate: 0.88,
+    items: [
+      { id: 1, component_type: 'material', consume_unit: 'ratio_pct', ratio_pct: 60, material_name: 'A 豆' },
+      { id: 2, component_type: 'material', consume_unit: 'g_per_bag', qty_per_unit: 12, material_name: '袋材' },
+      { id: 3, component_type: 'finished_product', consume_unit: 'ratio_pct', ratio_pct: 40, component_product_name: '成品' },
+    ],
+  })
+
+  assert.equal(detail.product_id, 0)
+  assert.equal(detail.product_name, '未绑定商品')
+  assert.equal(detail.production_bom_id, 186)
+  assert.equal(detail.production_bom_code, 'BOM-000186')
+  assert.equal(detail.production_bom_name, 'Nenka嫩咖 生产 BOM')
+  assert.equal(detail.production_bom_version_id, 901)
+  assert.equal(detail.production_bom_version_no, 'V001')
+  assert.equal(detail.production_bom_group_name, '客户配方')
+  assert.equal(detail.expected_loss_rate, 0.12)
+  assert.equal(detail.expected_yield_rate, 0.88)
+  assert.equal(detail.total_ratio, 60)
+  assert.equal(detail.items.length, 3)
+})
+
 test('BOM customer selector ignores customers that only have green bean SKUs', () => {
   const products = [
     { id: 1, customer_id: 9, product_kind: 'green_bean' },
@@ -129,8 +163,11 @@ test('BOM view exposes grouped recipe library and no longer edits production con
   assert.match(source, /配方明细/)
   assert.match(source, /openBomRowPrimary/)
   assert.match(source, /@click\.stop="openBomRowPrimary\(row\)"/)
+  assert.match(source, /productionBomDetailAsRecipeDetail/)
+  assert.match(source, /await selectUnboundProductionBom\(row\)/)
   assert.match(source, /当前引用/)
   assert.match(source, /DELETE/)
+  assert.doesNotMatch(source, /openEditProductionBomRecord\(bomRecordFromRow\(row\)\)\s*await selectUnboundProductionBom\(row\)/)
   assert.doesNotMatch(source, /失效当前 BOM/)
   assert.doesNotMatch(source, /async function deleteBom/)
   assert.doesNotMatch(source, /生产 BOM 档案/)

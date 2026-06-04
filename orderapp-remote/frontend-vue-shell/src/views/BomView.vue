@@ -169,7 +169,7 @@
         <form class="inline-form" @submit.prevent="saveItem">
           <label>
             <span>组件类型</span>
-            <select v-model="itemForm.component_type" :disabled="!detail || !canEditCurrentBomProduct" @change="syncComponentTypeDefaults">
+            <select v-model="itemForm.component_type" :disabled="!detail || !canEditCurrentBomItems" @change="syncComponentTypeDefaults">
               <option value="material">物料</option>
               <option value="finished_product">成品</option>
             </select>
@@ -185,7 +185,7 @@
               :option-value="optionNumericValue"
               placeholder="选择熟豆成品"
               empty-text="没有可用熟豆成品"
-              :disabled="!detail || !canEditCurrentBomProduct" />
+              :disabled="!detail || !canEditCurrentBomItems" />
             <SearchableSelect
               v-else
               v-model="itemForm.material_id"
@@ -194,23 +194,23 @@
               :option-value="optionNumericValue"
               placeholder="选择物料"
               empty-text="没有匹配物料"
-              :disabled="!detail || !canEditCurrentBomProduct" />
+              :disabled="!detail || !canEditCurrentBomItems" />
           </label>
           <label>
             <span>消耗单位</span>
-            <select v-model="itemForm.consume_unit" :disabled="!detail || !canEditCurrentBomProduct || itemForm.component_type === 'finished_product'">
+            <select v-model="itemForm.consume_unit" :disabled="!detail || !canEditCurrentBomItems || itemForm.component_type === 'finished_product'">
               <option v-for="unit in currentConsumeUnitOptions" :key="unit.value" :value="unit.value">{{ unit.label }}</option>
             </select>
           </label>
           <label v-if="itemForm.consume_unit === 'ratio_pct'">
             <span>比例 %</span>
-            <input v-model.number="itemForm.ratio_pct" type="number" min="0.01" max="100" step="0.01" :disabled="!detail || !canEditCurrentBomProduct" />
+            <input v-model.number="itemForm.ratio_pct" type="number" min="0.01" max="100" step="0.01" :disabled="!detail || !canEditCurrentBomItems" />
           </label>
           <label v-else>
             <span>用量</span>
-            <input v-model.number="itemForm.qty_per_unit" type="number" min="0.001" step="0.001" :disabled="!detail || !canEditCurrentBomProduct" />
+            <input v-model.number="itemForm.qty_per_unit" type="number" min="0.001" step="0.001" :disabled="!detail || !canEditCurrentBomItems" />
           </label>
-          <button class="primary" type="submit" :disabled="!detail || loading || !canEditCurrentBomProduct">保存组件</button>
+          <button class="primary" type="submit" :disabled="!detail || loading || !canEditCurrentBomItems">保存组件</button>
         </form>
 
         <div class="table-wrap">
@@ -228,7 +228,7 @@
                 <td>{{ componentTypeLabel(item.component_type) }}</td>
                 <td>{{ componentItemName(item) }}</td>
                 <td>{{ itemQuantityDisplay(item) }}</td>
-                <td><button class="text-button" type="button" :disabled="!canEditCurrentBomProduct" @click="deleteItem(item.id)">删除</button></td>
+                <td><button class="text-button" type="button" :disabled="!canEditCurrentBomItems" @click="deleteItem(item.id)">删除</button></td>
               </tr>
               <tr v-if="!detailItems.length">
                 <td colspan="4" class="muted">暂无组件</td>
@@ -440,7 +440,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { filterBomContextProducts, filterBomRowsByProductFocus, filterProductionBomCatalog, mergeProductionBomRows, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
+import { filterBomContextProducts, filterBomRowsByProductFocus, filterProductionBomCatalog, mergeProductionBomRows, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
 import { componentTypeLabel, isDripProduct } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -548,6 +548,7 @@ const canEditCurrentBomProduct = computed(() => {
   if (!bomContextCustomerID.value) return true
   return Number(selectedProduct.value?.customer_id || 0) === bomContextCustomerID.value
 })
+const canEditCurrentBomItems = computed(() => canEditCurrentBomProduct.value && Number(selectedProductId.value || 0) > 0)
 const roastedBeanProducts = computed(() => products.value.filter((product) => {
   if (Number(product.id || 0) === Number(selectedProductId.value || 0)) return false
   return (product.product_kind || 'roasted_bean') === 'roasted_bean'
@@ -1114,7 +1115,8 @@ async function selectUnboundProductionBom(row) {
   const record = bomRecordFromRow(row)
   if (!record.id) return
   selectedProductId.value = 0
-  detail.value = null
+  error.value = ''
+  ok.value = ''
   selectedProductionBomRecord.value = {
     ...record,
     production_bom_id: record.id,
@@ -1125,15 +1127,35 @@ async function selectUnboundProductionBom(row) {
     latest_bom_version_no: row.latest_bom_version_no || row.latest_version_no || '',
     production_bom_version_no: row.production_bom_version_no || '',
   }
-  productionBomDetail.value = null
-  versions.value = []
-  selectedProductionBomVersionID.value = 0
-  updateUrl()
+  try {
+    productionBomDetail.value = await apiGet(`/api/production-boms/${record.id}`)
+    versions.value = productionBomDetail.value?.versions || []
+    syncSelectedProductionBomVersion()
+    detail.value = productionBomDetailAsRecipeDetail(productionBomDetail.value || {}, row)
+    selectedProductionBomRecord.value = {
+      ...selectedProductionBomRecord.value,
+      id: detail.value.production_bom_id,
+      production_bom_id: detail.value.production_bom_id,
+      production_bom_code: detail.value.production_bom_code,
+      production_bom_name: detail.value.production_bom_name,
+      production_bom_group_id: detail.value.production_bom_group_id,
+      production_bom_group_name: detail.value.production_bom_group_name,
+      latest_bom_version_no: detail.value.latest_bom_version_no,
+      production_bom_version_no: detail.value.production_bom_version_no,
+    }
+  } catch (err) {
+    detail.value = null
+    productionBomDetail.value = null
+    versions.value = []
+    selectedProductionBomVersionID.value = 0
+    error.value = err.message || '加载生产 BOM 配方失败'
+  } finally {
+    updateUrl()
+  }
 }
 
 async function selectBomRow(row) {
   if (!Number(row?.product_id || 0)) {
-    openEditProductionBomRecord(bomRecordFromRow(row))
     await selectUnboundProductionBom(row)
     return
   }
@@ -1145,7 +1167,6 @@ async function openBomRowPrimary(row) {
     await selectBomRow(row)
     return
   }
-  openEditProductionBomRecord(bomRecordFromRow(row))
   await selectUnboundProductionBom(row)
 }
 
@@ -1172,7 +1193,7 @@ function processStatusLabel(status) {
 }
 
 async function saveItem() {
-  if (!canEditCurrentBomProduct.value) return
+  if (!canEditCurrentBomItems.value) return
   await mutate(async () => {
     await apiSend('/api/bom/item/save', {
       body: {
@@ -1193,7 +1214,7 @@ async function saveItem() {
 }
 
 async function deleteItem(id) {
-  if (!canEditCurrentBomProduct.value) return
+  if (!canEditCurrentBomItems.value) return
   await mutate(async () => {
     await apiSend('/api/bom/item/delete', { body: { product_id: selectedProductId.value, id } })
     ok.value = '已删除'
