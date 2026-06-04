@@ -40,7 +40,7 @@ func TestVueShellEmbedsBomWithoutNestedMenu(t *testing.T) {
 	bomSrc := string(bom)
 	for _, want := range []string{
 		"/api/production-boms?status=all",
-		"/api/production-boms/${record.id}",
+		"/api/production-boms/${id}${query}",
 		"/api/production-bom-versions/${draftVersionID}/draft",
 		"/api/bom/bag-spec-mappings",
 	} {

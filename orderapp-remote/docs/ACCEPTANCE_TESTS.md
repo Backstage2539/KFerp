@@ -37,6 +37,10 @@
 - [ ] PR-406-BOM-PRODUCT-ALIAS-LAYOUT：生产 BOM 页面无顶部 `SKU归属`、顶部商品选择区、商品列和商品过滤；状态、搜索和批量失效在生产 BOM列表标题下方同一过滤行；分组 Tab 行右侧是 `新建生产 BOM`。
 - [ ] PR-406-BOM-PRODUCT-ALIAS-LAYOUT：生产 BOM列表只展示独立 BOM 档案，点击任意 BOM 名称都能显示右侧配方明细；没有绑定商品的 BOM 也可以勾选、复制、失效、移动分组和在详情内维护 BOM版本。
 - [ ] PR-406-BOM-PRODUCT-ALIAS-LAYOUT：BOM 详情展示“引用商品”信息并显示商品档案商品名；点击引用商品可进入商品档案配置，商品档案左上角可返回 BOM 编辑界面；刷新后临时返回入口消失。
+- [ ] PR-407-PRODUCTION-BOM-GROUP-CATEGORIES-VERSION-EDIT：生产 BOM 自定义大组 Tab 下展示组内分类分组，支持新增、改名、删除组内分类；删除组内分类后，该分类下 BOM 回到当前大组内的“未分类”。
+- [ ] PR-407-PRODUCTION-BOM-GROUP-CATEGORIES-VERSION-EDIT：勾选生产 BOM 后可移动到大组或组内小分类；跨大组移动会清空旧小分类，移动到小分类会直接覆盖旧小分类；全部分组和顶层未分类不展示组内分类维护入口。
+- [ ] PR-407-PRODUCTION-BOM-GROUP-CATEGORIES-VERSION-EDIT：新建生产 BOM 后自动生成 `V001 草稿` 并打开该 BOM，比例输入和物料保存可用；已发布版本显示“已发布版本只读，复制为新版草稿后编辑”，比例输入只读。
+- [ ] PR-407-PRODUCTION-BOM-GROUP-CATEGORIES-VERSION-EDIT：配方明细、合计比例和保存组件位于 BOM 版本区域下方；切换版本后，明细和合计比例按当前版本刷新；复制已发布版本为新版草稿后自动选中新草稿并复制原物料比例。
 - [ ] PR-406-BOM-PRODUCT-ALIAS-LAYOUT：商品档案页面无 `SKU归属` 行，顶部描述卡片不再显示 inline ok/error；创建、失效和移动分类结果通过统一通知展示；过滤行右侧有 `创建新商品档案` 和 `失效商品`。
 - [ ] PR-406-BOM-PRODUCT-ALIAS-LAYOUT：商品档案和客户商品名分类 Tab 行右侧分别是可搜索的 `增加分类` 与 `移动到分类` 下拉，选择后需要确认；移动分类允许覆盖旧归类，并能从分类项移动回虚拟 `未分类`。
 - [ ] PR-406-BOM-PRODUCT-ALIAS-LAYOUT：客户商品名页面不出现旧客户 SKU 收敛检查；`新建客户商品` 打开抽屉，抽屉内支持单个新增和批量添加商品档案；客户商品编号不显示手填输入框，也不显示 `进入价格表` / `默认进入价格表` 开关；批量添加的搜索框位于待选商品列表顶部。

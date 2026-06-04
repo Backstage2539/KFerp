@@ -79,10 +79,19 @@ func (r *fakeRepo) DeleteProductionBomGroup(context.Context, DeleteProductionBom
 func (r *fakeRepo) MoveProductionBomGroup(context.Context, MoveProductionBomGroupCommand) error {
 	return nil
 }
+func (r *fakeRepo) CreateProductionBomGroupCategory(context.Context, CreateProductionBomGroupCategoryCommand) (ProductionBomGroupCategory, error) {
+	return ProductionBomGroupCategory{}, nil
+}
+func (r *fakeRepo) UpdateProductionBomGroupCategory(context.Context, UpdateProductionBomGroupCategoryCommand) (ProductionBomGroupCategory, error) {
+	return ProductionBomGroupCategory{}, nil
+}
+func (r *fakeRepo) DeleteProductionBomGroupCategory(context.Context, DeleteProductionBomGroupCategoryCommand) error {
+	return nil
+}
 func (r *fakeRepo) ListProductionBoms(context.Context) ([]ProductionBomSummary, error) {
 	return nil, nil
 }
-func (r *fakeRepo) GetProductionBomDetail(context.Context, int64) (ProductionBomDetail, error) {
+func (r *fakeRepo) GetProductionBomDetail(context.Context, int64, int64) (ProductionBomDetail, error) {
 	return ProductionBomDetail{}, nil
 }
 func (r *fakeRepo) CreateProductionBom(context.Context, CreateProductionBomCommand) (ProductionBomSummary, error) {
@@ -320,10 +329,19 @@ func (r errorRepo) DeleteProductionBomGroup(context.Context, DeleteProductionBom
 func (r errorRepo) MoveProductionBomGroup(context.Context, MoveProductionBomGroupCommand) error {
 	return r.err
 }
+func (r errorRepo) CreateProductionBomGroupCategory(context.Context, CreateProductionBomGroupCategoryCommand) (ProductionBomGroupCategory, error) {
+	return ProductionBomGroupCategory{}, r.err
+}
+func (r errorRepo) UpdateProductionBomGroupCategory(context.Context, UpdateProductionBomGroupCategoryCommand) (ProductionBomGroupCategory, error) {
+	return ProductionBomGroupCategory{}, r.err
+}
+func (r errorRepo) DeleteProductionBomGroupCategory(context.Context, DeleteProductionBomGroupCategoryCommand) error {
+	return r.err
+}
 func (r errorRepo) ListProductionBoms(context.Context) ([]ProductionBomSummary, error) {
 	return nil, r.err
 }
-func (r errorRepo) GetProductionBomDetail(context.Context, int64) (ProductionBomDetail, error) {
+func (r errorRepo) GetProductionBomDetail(context.Context, int64, int64) (ProductionBomDetail, error) {
 	return ProductionBomDetail{}, r.err
 }
 func (r errorRepo) CreateProductionBom(context.Context, CreateProductionBomCommand) (ProductionBomSummary, error) {

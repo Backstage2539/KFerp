@@ -1321,7 +1321,36 @@ func (r Repository) ListProductionBomGroups(ctx context.Context, _ bool) ([]boma
 		}
 		out = append(out, row)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+	categoryRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, group_id, name, sort_order
+		FROM %s.production_bom_group_categories
+		ORDER BY group_id, sort_order, name, id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer categoryRows.Close()
+	byGroup := map[int64][]bomapp.ProductionBomGroupCategory{}
+	for categoryRows.Next() {
+		var row bomapp.ProductionBomGroupCategory
+		if err := categoryRows.Scan(&row.ID, &row.GroupID, &row.Name, &row.SortOrder); err != nil {
+			return nil, err
+		}
+		byGroup[row.GroupID] = append(byGroup[row.GroupID], row)
+	}
+	if err := categoryRows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Categories = byGroup[out[i].ID]
+	}
+	return out, nil
 }
 
 func (r Repository) CreateProductionBomGroup(ctx context.Context, cmd bomapp.CreateProductionBomGroupCommand) (bomapp.ProductionBomGroup, error) {
@@ -1389,9 +1418,13 @@ func (r Repository) DeleteProductionBomGroup(ctx context.Context, cmd bomapp.Del
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.production_boms
 		SET group_id=0,
+		    group_category_id=0,
 		    updated_at=now(), updated_by=$2
 		WHERE group_id=$1
 	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Actor)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_bom_group_categories WHERE group_id=$1`, r.schema), cmd.ID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_bom_groups WHERE id=$1`, r.schema), cmd.ID); err != nil {
@@ -1422,6 +1455,88 @@ func (r Repository) MoveProductionBomGroup(ctx context.Context, cmd bomapp.MoveP
 	return tx.Commit(ctx)
 }
 
+func (r Repository) CreateProductionBomGroupCategory(ctx context.Context, cmd bomapp.CreateProductionBomGroupCategoryCommand) (bomapp.ProductionBomGroupCategory, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return bomapp.ProductionBomGroupCategory{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	groupID, err := ensureProductionBomGroupTx(ctx, tx, r.schema, cmd.GroupID)
+	if err != nil {
+		return bomapp.ProductionBomGroupCategory{}, err
+	}
+	if groupID <= 0 {
+		return bomapp.ProductionBomGroupCategory{}, fmt.Errorf("group_id required")
+	}
+	var id int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.production_bom_group_categories(group_id, name, sort_order, created_by, updated_by)
+		VALUES($1,$2,$3,$4,$4)
+		RETURNING id
+	`, r.schema), groupID, strings.TrimSpace(cmd.Name), cmd.SortOrder, strings.TrimSpace(cmd.Actor)).Scan(&id); err != nil {
+		return bomapp.ProductionBomGroupCategory{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_group_category", &id, "create_production_bom_group_category", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(strings.TrimSpace(cmd.Name)), postgresinfra.AuditMeta{"group_id": groupID, "category_id": id, "sort_order": cmd.SortOrder}); err != nil {
+		return bomapp.ProductionBomGroupCategory{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return bomapp.ProductionBomGroupCategory{}, err
+	}
+	return bomapp.ProductionBomGroupCategory{ID: id, GroupID: groupID, Name: strings.TrimSpace(cmd.Name), SortOrder: cmd.SortOrder}, nil
+}
+
+func (r Repository) UpdateProductionBomGroupCategory(ctx context.Context, cmd bomapp.UpdateProductionBomGroupCategoryCommand) (bomapp.ProductionBomGroupCategory, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return bomapp.ProductionBomGroupCategory{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.production_bom_group_categories
+		SET name=$2, sort_order=$3, updated_at=now(), updated_by=$4
+		WHERE id=$1
+	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Name), cmd.SortOrder, strings.TrimSpace(cmd.Actor)); err != nil {
+		return bomapp.ProductionBomGroupCategory{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_group_category", &cmd.ID, "update_production_bom_group_category", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(strings.TrimSpace(cmd.Name)), postgresinfra.AuditMeta{"category_id": cmd.ID, "sort_order": cmd.SortOrder}); err != nil {
+		return bomapp.ProductionBomGroupCategory{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return bomapp.ProductionBomGroupCategory{}, err
+	}
+	var row bomapp.ProductionBomGroupCategory
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`SELECT id, group_id, name, sort_order FROM %s.production_bom_group_categories WHERE id=$1`, r.schema), cmd.ID).Scan(&row.ID, &row.GroupID, &row.Name, &row.SortOrder); err != nil {
+		return bomapp.ProductionBomGroupCategory{}, err
+	}
+	return row, nil
+}
+
+func (r Repository) DeleteProductionBomGroupCategory(ctx context.Context, cmd bomapp.DeleteProductionBomGroupCategoryCommand) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var groupID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT group_id FROM %s.production_bom_group_categories WHERE id=$1 FOR UPDATE`, r.schema), cmd.ID).Scan(&groupID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.production_boms
+		SET group_category_id=0, updated_at=now(), updated_by=$2
+		WHERE group_category_id=$1
+	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Actor)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_bom_group_categories WHERE id=$1`, r.schema), cmd.ID); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom_group_category", &cmd.ID, "delete_production_bom_group_category", postgresinfra.StrPtr("category_id"), postgresinfra.StrPtr(fmt.Sprint(cmd.ID)), nil, postgresinfra.AuditMeta{"group_id": groupID, "category_id": cmd.ID, "moved_to": "group_unclassified"}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (r Repository) ListProductionBoms(ctx context.Context) ([]bomapp.ProductionBomSummary, error) {
 	if err := repairLegacyProductionBomBindings(ctx, r.pool, r.schema); err != nil {
 		return nil, err
@@ -1434,7 +1549,7 @@ func (r Repository) ListProductionBoms(ctx context.Context) ([]bomapp.Production
 	return scanProductionBomSummaries(rows)
 }
 
-func (r Repository) GetProductionBomDetail(ctx context.Context, id int64) (bomapp.ProductionBomDetail, error) {
+func (r Repository) GetProductionBomDetail(ctx context.Context, id int64, versionID int64) (bomapp.ProductionBomDetail, error) {
 	rows, err := r.pool.Query(ctx, productionBomSummarySQL(r.schema, "pb.id=$1"), id)
 	if err != nil {
 		return bomapp.ProductionBomDetail{}, err
@@ -1450,26 +1565,52 @@ func (r Repository) GetProductionBomDetail(ctx context.Context, id int64) (bomap
 	if err != nil {
 		return bomapp.ProductionBomDetail{}, err
 	}
-	detailVersionID := summaries[0].LatestVersionID
-	for _, version := range versions {
-		if version.Status == "draft" {
-			detailVersionID = version.ID
-			break
+	detailVersionID := int64(0)
+	if versionID > 0 {
+		for _, version := range versions {
+			if version.ID == versionID {
+				detailVersionID = version.ID
+				break
+			}
+		}
+	}
+	if detailVersionID <= 0 {
+		detailVersionID = summaries[0].LatestVersionID
+		for _, version := range versions {
+			if version.Status == "draft" {
+				detailVersionID = version.ID
+				break
+			}
 		}
 	}
 	items := []bomapp.Item{}
+	selectedVersion := bomapp.ProductionBomVersion{}
 	if detailVersionID > 0 {
+		for _, version := range versions {
+			if version.ID == detailVersionID {
+				selectedVersion = version
+				break
+			}
+		}
 		itemRows, _, err := listProductionBomVersionItems(ctx, r.pool, r.schema, detailVersionID)
 		if err != nil {
 			return bomapp.ProductionBomDetail{}, err
 		}
 		items = bomItemsToApp(itemRows)
 	}
+	summary := summaries[0]
+	if selectedVersion.ID > 0 {
+		summary.LatestVersionID = selectedVersion.ID
+		summary.LatestVersionNo = selectedVersion.VersionNo
+		summary.LatestVersionStatus = selectedVersion.Status
+		summary.ExpectedYieldRate = selectedVersion.ExpectedYieldRate
+		summary.ExpectedLossRate = selectedVersion.ExpectedLossRate
+	}
 	referencedProducts, err := r.listProductionBomReferencedProducts(ctx, id)
 	if err != nil {
 		return bomapp.ProductionBomDetail{}, err
 	}
-	return bomapp.ProductionBomDetail{ProductionBomSummary: summaries[0], Versions: versions, Items: items, ReferencedProducts: referencedProducts}, nil
+	return bomapp.ProductionBomDetail{ProductionBomSummary: summary, Versions: versions, Items: items, ReferencedProducts: referencedProducts}, nil
 }
 
 func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreateProductionBomCommand) (bomapp.ProductionBomSummary, error) {
@@ -1482,13 +1623,17 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 	if err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
+	groupCategoryID, err := validateProductionBomGroupCategoryTx(ctx, tx, r.schema, groupID, cmd.GroupCategoryID)
+	if err != nil {
+		return bomapp.ProductionBomSummary{}, err
+	}
 	tempCode := fmt.Sprintf("PENDING-%d", time.Now().UnixNano())
 	var bomID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_boms(code, name, group_id, status, created_by, updated_by)
-		VALUES($1,$2,$3,'active',$4,$4)
+		INSERT INTO %s.production_boms(code, name, group_id, group_category_id, status, created_by, updated_by)
+		VALUES($1,$2,$3,$4,'active',$5,$5)
 		RETURNING id
-	`, r.schema), tempCode, strings.TrimSpace(cmd.Name), groupID, strings.TrimSpace(cmd.Actor)).Scan(&bomID); err != nil {
+	`, r.schema), tempCode, strings.TrimSpace(cmd.Name), groupID, groupCategoryID, strings.TrimSpace(cmd.Actor)).Scan(&bomID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	code := fmt.Sprintf("BOM-%06d", bomID)
@@ -1501,13 +1646,13 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 	}
 	var versionID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, note, created_at, published_at, created_by, published_by)
-		VALUES($1,'V001','published',$2,'初始版本',now(),now(),$3,$3)
+		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, note, created_at, created_by)
+		VALUES($1,'V001','draft',$2,'初始版本',now(),$3)
 		RETURNING id
 	`, r.schema), bomID, yieldRate, strings.TrimSpace(cmd.Actor)).Scan(&versionID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &bomID, "create", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(code), postgresinfra.AuditMeta{"bom_id": bomID, "bom_version_id": versionID, "name": strings.TrimSpace(cmd.Name)}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &bomID, "create", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(code), postgresinfra.AuditMeta{"bom_id": bomID, "bom_version_id": versionID, "name": strings.TrimSpace(cmd.Name), "group_id": groupID, "group_category_id": groupCategoryID}); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1526,18 +1671,22 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 	if err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
+	groupCategoryID, err := validateProductionBomGroupCategoryTx(ctx, tx, r.schema, groupID, cmd.GroupCategoryID)
+	if err != nil {
+		return bomapp.ProductionBomSummary{}, err
+	}
 	status := strings.TrimSpace(cmd.Status)
 	if status == "" {
 		status = "active"
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.production_boms
-		SET name=COALESCE(NULLIF($2,''), name), group_id=$3, status=$4, updated_at=now(), updated_by=$5
+		SET name=COALESCE(NULLIF($2,''), name), group_id=$3, group_category_id=$4, status=$5, updated_at=now(), updated_by=$6
 		WHERE id=$1
-	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Name), groupID, status, strings.TrimSpace(cmd.Actor)); err != nil {
+	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Name), groupID, groupCategoryID, status, strings.TrimSpace(cmd.Actor)); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &cmd.ID, "update", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr(status), postgresinfra.AuditMeta{"bom_id": cmd.ID, "name": strings.TrimSpace(cmd.Name), "group_id": groupID, "status": status}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &cmd.ID, "update", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr(status), postgresinfra.AuditMeta{"bom_id": cmd.ID, "name": strings.TrimSpace(cmd.Name), "group_id": groupID, "group_category_id": groupCategoryID, "status": status}); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1556,6 +1705,10 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	if err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
+	groupCategoryID, err := validateProductionBomGroupCategoryTx(ctx, tx, r.schema, groupID, cmd.GroupCategoryID)
+	if err != nil {
+		return bomapp.ProductionBomSummary{}, err
+	}
 	var sourceName string
 	var sourceVersionID int64
 	var sourceYield float64
@@ -1567,8 +1720,8 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 		JOIN LATERAL (
 			SELECT id, yield_rate, special_attrs_schema_json, special_attrs_json
 			FROM %s.production_bom_versions
-			WHERE bom_id=pb.id AND status='published'
-			ORDER BY published_at DESC NULLS LAST, id DESC
+			WHERE bom_id=pb.id AND status IN ('draft','published')
+			ORDER BY CASE WHEN status='draft' THEN 0 ELSE 1 END, published_at DESC NULLS LAST, created_at DESC, id DESC
 			LIMIT 1
 		) v ON true
 		WHERE pb.id=$1
@@ -1582,10 +1735,10 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	tempCode := fmt.Sprintf("PENDING-%d", time.Now().UnixNano())
 	var newBomID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_boms(code, name, group_id, status, source_bom_id, source_bom_version_id, created_by, updated_by)
-		VALUES($1,$2,$3,'active',$4,$5,$6,$6)
+		INSERT INTO %s.production_boms(code, name, group_id, group_category_id, status, source_bom_id, source_bom_version_id, created_by, updated_by)
+		VALUES($1,$2,$3,$4,'active',$5,$6,$7,$7)
 		RETURNING id
-	`, r.schema), tempCode, name, groupID, cmd.ID, sourceVersionID, strings.TrimSpace(cmd.Actor)).Scan(&newBomID); err != nil {
+	`, r.schema), tempCode, name, groupID, groupCategoryID, cmd.ID, sourceVersionID, strings.TrimSpace(cmd.Actor)).Scan(&newBomID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	code := fmt.Sprintf("BOM-%06d", newBomID)
@@ -1594,8 +1747,8 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	}
 	var newVersionID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, note, special_attrs_schema_json, special_attrs_json, created_at, published_at, created_by, published_by)
-		VALUES($1,'V001','published',$2,'复制来源 BOM',$3::jsonb,$4::jsonb,now(),now(),$5,$5)
+		INSERT INTO %s.production_bom_versions(bom_id, version_no, status, yield_rate, note, special_attrs_schema_json, special_attrs_json, created_at, created_by)
+		VALUES($1,'V001','draft',$2,'复制来源 BOM',$3::jsonb,$4::jsonb,now(),$5)
 		RETURNING id
 	`, r.schema), newBomID, sourceYield, sourceSpecialAttrsSchemaJSON, sourceSpecialAttrsJSON, strings.TrimSpace(cmd.Actor)).Scan(&newVersionID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
@@ -1609,7 +1762,7 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	`, r.schema, r.schema), newVersionID, sourceVersionID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &newBomID, "copy_production_bom", postgresinfra.StrPtr("source_bom_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.ID)), postgresinfra.StrPtr(fmt.Sprintf("%d", newBomID)), postgresinfra.AuditMeta{"source_bom_id": cmd.ID, "source_bom_version_id": sourceVersionID, "target_bom_id": newBomID, "target_bom_version_id": newVersionID}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &newBomID, "copy_production_bom", postgresinfra.StrPtr("source_bom_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.ID)), postgresinfra.StrPtr(fmt.Sprintf("%d", newBomID)), postgresinfra.AuditMeta{"source_bom_id": cmd.ID, "source_bom_version_id": sourceVersionID, "target_bom_id": newBomID, "target_bom_version_id": newVersionID, "group_id": groupID, "group_category_id": groupCategoryID}); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1628,13 +1781,21 @@ func (r Repository) CreateProductionBomVersion(ctx context.Context, cmd bomapp.C
 	var yieldRate float64
 	var specialAttrsSchemaJSON string
 	var specialAttrsJSON string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id, COALESCE(yield_rate,0.8)::float8, COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}')
-		FROM %s.production_bom_versions
-		WHERE bom_id=$1 AND status='published'
-		ORDER BY published_at DESC NULLS LAST, id DESC
-		LIMIT 1
-	`, r.schema), cmd.BomID).Scan(&sourceVersionID, &yieldRate, &specialAttrsSchemaJSON, &specialAttrsJSON); err != nil {
+	if cmd.SourceVersionID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT id, COALESCE(yield_rate,0.8)::float8, COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}')
+			FROM %s.production_bom_versions
+			WHERE bom_id=$1 AND id=$2 AND status IN ('published','draft')
+		`, r.schema), cmd.BomID, cmd.SourceVersionID).Scan(&sourceVersionID, &yieldRate, &specialAttrsSchemaJSON, &specialAttrsJSON); err != nil {
+			return bomapp.ProductionBomVersion{}, fmt.Errorf("source production BOM version not found")
+		}
+	} else if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT id, COALESCE(yield_rate,0.8)::float8, COALESCE(special_attrs_schema_json::text,'[]'), COALESCE(special_attrs_json::text,'{}')
+			FROM %s.production_bom_versions
+			WHERE bom_id=$1 AND status='published'
+			ORDER BY published_at DESC NULLS LAST, id DESC
+			LIMIT 1
+		`, r.schema), cmd.BomID).Scan(&sourceVersionID, &yieldRate, &specialAttrsSchemaJSON, &specialAttrsJSON); err != nil {
 		return bomapp.ProductionBomVersion{}, fmt.Errorf("published production BOM version not found")
 	}
 	var next int64
@@ -1788,9 +1949,12 @@ func productionBomSummarySQL(schema, where string) string {
 		       COALESCE(pb.name,''),
 		       COALESCE(g.id,0),
 		       COALESCE(g.name,''),
+		       COALESCE(c.id,0),
+		       COALESCE(c.name,''),
 		       COALESCE(NULLIF(pb.status,''),'active'),
 		       COALESCE(latest.id,0),
 		       COALESCE(latest.version_no,''),
+		       COALESCE(latest.status,'') AS latest_version_status,
 		       COALESCE(latest.yield_rate,0)::float8,
 		       COALESCE((
 		           SELECT COUNT(*)
@@ -1800,11 +1964,13 @@ func productionBomSummarySQL(schema, where string) string {
 		       COALESCE(to_char(pb.updated_at,'YYYY-MM-DD HH24:MI'),'-')
 		FROM %[1]s.production_boms pb
 		LEFT JOIN %[1]s.production_bom_groups g ON g.id=pb.group_id
+		LEFT JOIN %[1]s.production_bom_group_categories c ON c.id=pb.group_category_id AND c.group_id=pb.group_id
 		LEFT JOIN LATERAL (
-			SELECT id, version_no, yield_rate
+			SELECT id, version_no, status, yield_rate
 			FROM %[1]s.production_bom_versions v
-			WHERE v.bom_id=pb.id AND v.status='published'
-			ORDER BY v.published_at DESC NULLS LAST, v.id DESC
+			WHERE v.bom_id=pb.id AND v.status IN ('draft','published')
+			ORDER BY CASE WHEN v.status='draft' THEN 0 ELSE 1 END,
+			         v.published_at DESC NULLS LAST, v.created_at DESC, v.id DESC
 			LIMIT 1
 		) latest ON true
 		WHERE %s
@@ -1822,9 +1988,12 @@ func scanProductionBomSummaries(rows pgx.Rows) ([]bomapp.ProductionBomSummary, e
 			&row.Name,
 			&row.GroupID,
 			&row.GroupName,
+			&row.GroupCategoryID,
+			&row.GroupCategoryName,
 			&row.Status,
 			&row.LatestVersionID,
 			&row.LatestVersionNo,
+			&row.LatestVersionStatus,
 			&row.ExpectedYieldRate,
 			&row.ReferenceProductCount,
 			&row.UpdatedAt,
@@ -1954,6 +2123,25 @@ func ensureProductionBomGroupTx(ctx context.Context, tx pgx.Tx, schema string, g
 		return groupID, nil
 	}
 	return 0, nil
+}
+
+func validateProductionBomGroupCategoryTx(ctx context.Context, tx pgx.Tx, schema string, groupID int64, categoryID int64) (int64, error) {
+	if groupID <= 0 || categoryID <= 0 {
+		return 0, nil
+	}
+	var exists bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1 FROM %s.production_bom_group_categories
+			WHERE id=$1 AND group_id=$2
+		)
+	`, schema), categoryID, groupID).Scan(&exists); err != nil {
+		return 0, err
+	}
+	if !exists {
+		return 0, fmt.Errorf("group_category_id does not belong to group_id")
+	}
+	return categoryID, nil
 }
 
 func repairLegacyProductionBomBindings(ctx context.Context, pool *pgxpool.Pool, schema string) error {

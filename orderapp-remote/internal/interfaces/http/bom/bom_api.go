@@ -57,6 +57,16 @@ type updateProductionBomGroupRequest struct {
 	SortOrder int    `json:"sort_order"`
 }
 
+type createProductionBomGroupCategoryRequest struct {
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+}
+
+type updateProductionBomGroupCategoryRequest struct {
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+}
+
 type moveProductionBomGroupRequest struct {
 	SortOrder int `json:"sort_order"`
 }
@@ -64,22 +74,26 @@ type moveProductionBomGroupRequest struct {
 type createProductionBomRequest struct {
 	Name             string   `json:"name"`
 	GroupID          int64    `json:"group_id"`
+	GroupCategoryID  int64    `json:"group_category_id"`
 	ExpectedLossRate *float64 `json:"expected_loss_rate"`
 }
 
 type updateProductionBomRequest struct {
-	Name    string `json:"name"`
-	GroupID int64  `json:"group_id"`
-	Status  string `json:"status"`
+	Name            string `json:"name"`
+	GroupID         int64  `json:"group_id"`
+	GroupCategoryID int64  `json:"group_category_id"`
+	Status          string `json:"status"`
 }
 
 type copyProductionBomRequest struct {
-	Name    string `json:"name"`
-	GroupID int64  `json:"group_id"`
+	Name            string `json:"name"`
+	GroupID         int64  `json:"group_id"`
+	GroupCategoryID int64  `json:"group_category_id"`
 }
 
 type createProductionBomVersionRequest struct {
-	Note string `json:"note"`
+	SourceVersionID int64  `json:"source_version_id"`
+	Note            string `json:"note"`
 }
 
 type updateProductionBomVersionDraftRequest struct {
@@ -161,6 +175,49 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		return c.JSON(http.StatusOK, map[string]any{"ok": true})
 	})
 
+	e.POST("/api/production-bom-groups/:id/categories", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid group_id"})
+		}
+		var req createProductionBomGroupCategoryRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		row, err := bomSvc.CreateProductionBomGroupCategory(c.Request().Context(), bomapp.CreateProductionBomGroupCategoryCommand{GroupID: id, Name: req.Name, SortOrder: req.SortOrder, Actor: support.ActorOf(c)})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.PUT("/api/production-bom-group-categories/:id", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid category_id"})
+		}
+		var req updateProductionBomGroupCategoryRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		row, err := bomSvc.UpdateProductionBomGroupCategory(c.Request().Context(), bomapp.UpdateProductionBomGroupCategoryCommand{ID: id, Name: req.Name, SortOrder: req.SortOrder, Actor: support.ActorOf(c)})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.DELETE("/api/production-bom-group-categories/:id", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid category_id"})
+		}
+		if err := bomSvc.DeleteProductionBomGroupCategory(c.Request().Context(), bomapp.DeleteProductionBomGroupCategoryCommand{ID: id, Actor: support.ActorOf(c)}); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+
 	e.GET("/api/production-boms", func(c echo.Context) error {
 		rows, err := bomSvc.ListProductionBoms(c.Request().Context())
 		if err != nil {
@@ -174,7 +231,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.CreateProductionBom(c.Request().Context(), bomapp.CreateProductionBomCommand{Name: req.Name, GroupID: req.GroupID, ExpectedLossRate: req.ExpectedLossRate, Actor: support.ActorOf(c)})
+		row, err := bomSvc.CreateProductionBom(c.Request().Context(), bomapp.CreateProductionBomCommand{Name: req.Name, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, ExpectedLossRate: req.ExpectedLossRate, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -186,7 +243,8 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid bom_id"})
 		}
-		row, err := bomSvc.GetProductionBomDetail(c.Request().Context(), id)
+		versionID, _ := strconv.ParseInt(c.QueryParam("version_id"), 10, 64)
+		row, err := bomSvc.GetProductionBomDetail(c.Request().Context(), id, versionID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return c.JSON(http.StatusNotFound, ErrorResponse{Error: "production bom not found"})
@@ -205,7 +263,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.UpdateProductionBom(c.Request().Context(), bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, GroupID: req.GroupID, Status: req.Status, Actor: support.ActorOf(c)})
+		row, err := bomSvc.UpdateProductionBom(c.Request().Context(), bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, Status: req.Status, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -221,7 +279,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.CopyProductionBom(c.Request().Context(), bomapp.CopyProductionBomCommand{ID: id, Name: req.Name, GroupID: req.GroupID, Actor: support.ActorOf(c)})
+		row, err := bomSvc.CopyProductionBom(c.Request().Context(), bomapp.CopyProductionBomCommand{ID: id, Name: req.Name, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -237,7 +295,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil && !errors.Is(err, echo.ErrUnsupportedMediaType) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.CreateProductionBomVersion(c.Request().Context(), bomapp.CreateProductionBomVersionCommand{BomID: id, Note: req.Note, Actor: support.ActorOf(c)})
+		row, err := bomSvc.CreateProductionBomVersion(c.Request().Context(), bomapp.CreateProductionBomVersionCommand{BomID: id, SourceVersionID: req.SourceVersionID, Note: req.Note, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}

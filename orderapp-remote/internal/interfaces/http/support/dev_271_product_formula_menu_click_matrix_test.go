@@ -78,7 +78,7 @@ func TestProductFormulaMenuClickMatrixViewsExposeActions(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
 			"/api/production-boms?status=all",
-			"/api/production-boms/${record.id}",
+			"/api/production-boms/${id}${query}",
 			"/api/production-bom-versions/${draftVersionID}/draft",
 			"/api/production-bom-groups",
 			"/api/production-boms/${bomID}/versions",

@@ -61,6 +61,20 @@
           <button class="secondary compact-action" type="button" :disabled="!canMoveSelectedBoms || loading" @click="moveSelectedProductBomsToGroup">
             移动到分组
           </button>
+          <template v-if="isCustomProductionBomGroupSelected">
+            <span class="toolbar-divider">组内分类</span>
+            <button class="secondary compact-action" type="button" @click="openGroupCategoryDrawer">新增小分类</button>
+            <label>
+              <span>目标小分类</span>
+              <select v-model.number="selectedProductionBomGroupCategoryID">
+                <option :value="0">未分类</option>
+                <option v-for="category in productionBomGroupCategories" :key="category.id" :value="Number(category.id || 0)">{{ category.name }}</option>
+              </select>
+            </label>
+            <button class="secondary compact-action" type="button" :disabled="!canMoveSelectedBomsToGroupCategory || loading" @click="moveSelectedProductBomsToGroupCategory">
+              移动到小分类
+            </button>
+          </template>
           <span class="muted left">已选 {{ selectedBomRecordsForMove.length }} 个可移动 BOM</span>
         </div>
         <div class="bom-list-filters">
@@ -94,7 +108,58 @@
                 <th>操作</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody v-if="isCustomProductionBomGroupSelected">
+              <template v-for="group in groupProductionBomRowsByInnerCategory" :key="group.key">
+                <tr class="classification-group-row">
+                  <td colspan="8">
+                    <button class="text-button category-toggle" type="button" @click.stop="toggleBomGroupCategory(group.key)">
+                      {{ isBomGroupCategoryCollapsed(group.key) ? '展开' : '收起' }}
+                    </button>
+                    <strong>{{ group.name }}</strong>
+                    <span class="muted left">{{ group.rows.length }} 个 BOM</span>
+                    <template v-if="group.category_id > 0">
+                      <button class="text-button" type="button" @click.stop="openGroupCategoryDrawer(group.category)">改名</button>
+                      <button class="text-button danger-text" type="button" @click.stop="deleteProductionBomGroupCategory(group.category)">删除</button>
+                    </template>
+                  </td>
+                </tr>
+                <template v-if="!isBomGroupCategoryCollapsed(group.key)">
+                  <tr
+                    v-for="row in group.rows"
+                    :key="bomRowKey(row)"
+                    :class="{ active: bomRowKey(row) === activeBomRowKey }"
+                    @click="selectBomRow(row)">
+                    <td class="select-col">
+                      <input
+                        v-model="selectedBomRowKeys"
+                        type="checkbox"
+                        :value="bomRowKey(row)"
+                        :disabled="!isMovableBomRow(row)"
+                        @click.stop />
+                    </td>
+                    <td>
+                      <button class="text-button bom-name-button" type="button" @click.stop="openBomRowPrimary(row)">
+                        {{ productionBomLabel(row) }}
+                      </button>
+                      <small v-if="productionBomVersionWarning(row)" class="bom-version-warning" data-warning-prefix="当前引用">{{ productionBomVersionWarning(row) }}</small>
+                    </td>
+                    <td>{{ bomGroupLabel(row) }}</td>
+                    <td><span :class="['status-pill', row.status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.status) }}</span></td>
+                    <td>{{ row.item_count || row.material_count || 0 }}</td>
+                    <td>{{ row.reference_product_count || 0 }}</td>
+                    <td>{{ row.updated_at }}</td>
+                    <td>
+                      <button class="text-button" type="button" :disabled="!Number(row.production_bom_id || row.id || 0)" @click.stop="copyProductionBomRecord(bomRecordFromRow(row))">复制</button>
+                      <button class="text-button danger-text" type="button" :disabled="!Number(row.production_bom_id || row.id || 0) || row.status === 'inactive'" @click.stop="deactivateProductionBomRecord(bomRecordFromRow(row))">失效</button>
+                    </td>
+                  </tr>
+                </template>
+              </template>
+              <tr v-if="!productionBomRows.length">
+                <td colspan="8" class="muted">暂无配方档案</td>
+              </tr>
+            </tbody>
+            <tbody v-else>
               <tr
                 v-for="row in productionBomRows"
                 :key="bomRowKey(row)"
@@ -140,7 +205,6 @@
           <div v-if="currentProductionBomWarning"><span>版本提示</span><strong class="warn">{{ currentProductionBomWarning }}</strong></div>
           <div><span>工艺参数</span><strong>{{ detail.roast_level || '-' }}</strong></div>
           <div><span>状态</span><strong :class="{ warn: detail.status === 'inactive' }">{{ bomStatusLabel(detail.status) }}</strong></div>
-          <div><span>合计比例</span><strong :class="{ warn: detail.total_ratio > 100 }">{{ ratio(detail.total_ratio) }}</strong></div>
           <div><span>关联工艺</span><strong>{{ linkedProcessTemplates.length ? `${linkedProcessTemplates.length} 个模板` : '-' }}</strong></div>
         </div>
         <div v-if="detail && linkedProcessTemplates.length" class="linked-processes">
@@ -169,9 +233,10 @@
             </div>
             <div class="inline-actions">
               <input v-model.trim="versionNote" placeholder="版本备注，例如 2026 春季豆单" :disabled="!currentProductionBomID || !canEditCurrentBomProduct" />
-              <button class="primary compact-action" type="button" @click="createVersion" :disabled="loading || !canEditCurrentBomProduct || !currentProductionBomID">复制为新版草稿</button>
+              <button class="primary compact-action" type="button" @click="copyVersionAsDraft()" :disabled="loading || !canCopyCurrentVersionAsDraft">复制为新版草稿</button>
             </div>
           </div>
+          <div v-if="selectedProductionBomVersion?.status === 'published'" class="warning-banner">已发布版本只读，复制为新版草稿后编辑</div>
           <div class="table-wrap compact">
             <table>
               <thead>
@@ -189,7 +254,7 @@
                   v-for="version in versions"
                   :key="version.id"
                   :class="{ active: Number(version.id || 0) === Number(selectedProductionBomVersionID || 0) }"
-                  @click="selectProductionBomVersion(version)">
+                  @click="selectProductionBomVersion(version, { reload: true })">
                   <td>{{ version.version_no }}</td>
                   <td>{{ productionBomVersionStatusLabel(version.status) }}</td>
                   <td>{{ version.item_count }}</td>
@@ -202,7 +267,15 @@
                       type="button"
                       @click.stop="activateVersion(version.id)"
                       :disabled="!canEditCurrentBomProduct">
-                      发布
+                      发布版本
+                    </button>
+                    <button
+                      v-else-if="version.status === 'published'"
+                      class="text-button"
+                      type="button"
+                      @click.stop="copyVersionAsDraft(version)"
+                      :disabled="!canEditCurrentBomProduct">
+                      复制为新版草稿
                     </button>
                     <span v-else class="muted left">只读</span>
                   </td>
@@ -212,6 +285,88 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+          <div class="version-recipe-panel">
+            <div class="section-title-row">
+              <div>
+                <h3>配方明细</h3>
+                <p class="muted left">当前编辑版本：{{ selectedProductionBomVersion?.version_no || '-' }} · {{ productionBomVersionStatusLabel(selectedProductionBomVersion?.status || '') }}</p>
+              </div>
+              <div class="version-ratio-box">
+                <span>合计比例</span>
+                <strong :class="{ warn: detail.total_ratio > 100 }">{{ ratio(detail.total_ratio) }}</strong>
+              </div>
+            </div>
+            <form class="inline-form" @submit.prevent="saveItem">
+              <label>
+                <span>组件类型</span>
+                <select v-model="itemForm.component_type" :disabled="!detail || !canEditCurrentBomItems" @change="syncComponentTypeDefaults">
+                  <option value="material">物料</option>
+                  <option value="finished_product">成品</option>
+                </select>
+              </label>
+              <label>
+                <span>{{ itemForm.component_type === 'finished_product' ? '熟豆成品' : '物料' }}</span>
+                <SearchableSelect
+                  v-if="itemForm.component_type === 'finished_product'"
+                  v-model="itemForm.component_product_id"
+                  :options="roastedBeanProducts"
+                  :option-label="optionLabel"
+                  :option-meta="optionMeta"
+                  :option-value="optionNumericValue"
+                  placeholder="选择熟豆成品"
+                  empty-text="没有可用熟豆成品"
+                  :disabled="!detail || !canEditCurrentBomItems" />
+                <SearchableSelect
+                  v-else
+                  v-model="itemForm.material_id"
+                  :options="materials"
+                  :option-label="optionLabel"
+                  :option-value="optionNumericValue"
+                  placeholder="选择物料"
+                  empty-text="没有匹配物料"
+                  :disabled="!detail || !canEditCurrentBomItems" />
+              </label>
+              <label>
+                <span>消耗单位</span>
+                <select v-model="itemForm.consume_unit" :disabled="!detail || !canEditCurrentBomItems || itemForm.component_type === 'finished_product'">
+                  <option v-for="unit in currentConsumeUnitOptions" :key="unit.value" :value="unit.value">{{ unit.label }}</option>
+                </select>
+              </label>
+              <label v-if="itemForm.consume_unit === 'ratio_pct'">
+                <span>比例 %</span>
+                <input v-model.number="itemForm.ratio_pct" type="number" min="0.01" max="100" step="0.01" :disabled="!detail || !canEditCurrentBomItems" />
+              </label>
+              <label v-else>
+                <span>用量</span>
+                <input v-model.number="itemForm.qty_per_unit" type="number" min="0.001" step="0.001" :disabled="!detail || !canEditCurrentBomItems" />
+              </label>
+              <button class="primary" type="submit" :disabled="!detail || loading || !canEditCurrentBomItems">保存组件</button>
+            </form>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>类型</th>
+                    <th>组件</th>
+                    <th>用量</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in detailItems" :key="item.id">
+                    <td>{{ componentTypeLabel(item.component_type) }}</td>
+                    <td>{{ componentItemName(item) }}</td>
+                    <td>{{ itemQuantityDisplay(item) }}</td>
+                    <td><button class="text-button" type="button" :disabled="!canEditCurrentBomItems" @click="deleteItem(item.id)">删除</button></td>
+                  </tr>
+                  <tr v-if="!detailItems.length">
+                    <td colspan="4" class="muted">暂无组件</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -259,76 +414,6 @@
           </div>
         </div>
 
-        <form class="inline-form" @submit.prevent="saveItem">
-          <label>
-            <span>组件类型</span>
-            <select v-model="itemForm.component_type" :disabled="!detail || !canEditCurrentBomItems" @change="syncComponentTypeDefaults">
-              <option value="material">物料</option>
-              <option value="finished_product">成品</option>
-            </select>
-          </label>
-          <label>
-            <span>{{ itemForm.component_type === 'finished_product' ? '熟豆成品' : '物料' }}</span>
-            <SearchableSelect
-              v-if="itemForm.component_type === 'finished_product'"
-              v-model="itemForm.component_product_id"
-              :options="roastedBeanProducts"
-              :option-label="optionLabel"
-              :option-meta="optionMeta"
-              :option-value="optionNumericValue"
-              placeholder="选择熟豆成品"
-              empty-text="没有可用熟豆成品"
-              :disabled="!detail || !canEditCurrentBomItems" />
-            <SearchableSelect
-              v-else
-              v-model="itemForm.material_id"
-              :options="materials"
-              :option-label="optionLabel"
-              :option-value="optionNumericValue"
-              placeholder="选择物料"
-              empty-text="没有匹配物料"
-              :disabled="!detail || !canEditCurrentBomItems" />
-          </label>
-          <label>
-            <span>消耗单位</span>
-            <select v-model="itemForm.consume_unit" :disabled="!detail || !canEditCurrentBomItems || itemForm.component_type === 'finished_product'">
-              <option v-for="unit in currentConsumeUnitOptions" :key="unit.value" :value="unit.value">{{ unit.label }}</option>
-            </select>
-          </label>
-          <label v-if="itemForm.consume_unit === 'ratio_pct'">
-            <span>比例 %</span>
-            <input v-model.number="itemForm.ratio_pct" type="number" min="0.01" max="100" step="0.01" :disabled="!detail || !canEditCurrentBomItems" />
-          </label>
-          <label v-else>
-            <span>用量</span>
-            <input v-model.number="itemForm.qty_per_unit" type="number" min="0.001" step="0.001" :disabled="!detail || !canEditCurrentBomItems" />
-          </label>
-          <button class="primary" type="submit" :disabled="!detail || loading || !canEditCurrentBomItems">保存组件</button>
-        </form>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>类型</th>
-                <th>组件</th>
-                <th>用量</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in detailItems" :key="item.id">
-                <td>{{ componentTypeLabel(item.component_type) }}</td>
-                <td>{{ componentItemName(item) }}</td>
-                <td>{{ itemQuantityDisplay(item) }}</td>
-                <td><button class="text-button" type="button" :disabled="!canEditCurrentBomItems" @click="deleteItem(item.id)">删除</button></td>
-              </tr>
-              <tr v-if="!detailItems.length">
-                <td colspan="4" class="muted">暂无组件</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
       </section>
     </div>
 
@@ -348,9 +433,16 @@
           </label>
           <label>
             <span>分组</span>
-            <select v-model.number="bomForm.group_id">
+            <select v-model.number="bomForm.group_id" @change="bomForm.group_category_id = 0">
               <option :value="0">未分类</option>
               <option v-for="group in productionBomGroups" :key="group.id" :value="Number(group.id || 0)">{{ group.name }}</option>
+            </select>
+          </label>
+          <label v-if="Number(bomForm.group_id || 0) > 0">
+            <span>组内分类</span>
+            <select v-model.number="bomForm.group_category_id">
+              <option :value="0">未分类</option>
+              <option v-for="category in bomFormGroupCategories" :key="category.id" :value="Number(category.id || 0)">{{ category.name }}</option>
             </select>
           </label>
           <label v-if="bomForm.mode === 'edit'">
@@ -361,6 +453,29 @@
             </select>
           </label>
           <button class="primary" type="submit" :disabled="loading || !bomForm.name">{{ bomForm.mode === 'copy' ? '复制 BOM' : '保存 BOM' }}</button>
+        </form>
+      </aside>
+    </div>
+
+    <div v-if="groupCategoryDrawerOpen" class="drawer-mask" @click.self="closeGroupCategoryDrawer">
+      <aside class="drawer">
+        <div class="drawer-head">
+          <div>
+            <h3>{{ categoryForm.id ? '编辑组内分类' : '新增组内分类' }}</h3>
+            <p class="muted left">当前大组：{{ selectedProductionBomGroup?.name || '-' }}。组内分类只用于当前大组下的 BOM 归类。</p>
+          </div>
+          <button class="secondary compact-action" type="button" @click="closeGroupCategoryDrawer">关闭</button>
+        </div>
+        <form class="inline-form" @submit.prevent="saveProductionBomGroupCategory">
+          <label>
+            <span>分类名称</span>
+            <input v-model.trim="categoryForm.name" placeholder="例如 浅烘 / 深烘 / 常规" />
+          </label>
+          <label>
+            <span>排序</span>
+            <input v-model.number="categoryForm.sort_order" type="number" min="0" step="1" />
+          </label>
+          <button class="primary" type="submit" :disabled="loading || !categoryForm.name || !selectedProductionBomGroup">保存小分类</button>
         </form>
       </aside>
     </div>
@@ -454,12 +569,15 @@ const selectedProductId = ref(0)
 const selectedProductionBomGroupID = ref(0)
 const selectedProductionBomVersionID = ref(0)
 const selectedBomMoveGroupID = ref(0)
+const selectedProductionBomGroupCategoryID = ref(0)
 const selectedBomRowKeys = ref([])
+const collapsedBomGroupCategoryKeys = ref([])
 const pendingProductionBomID = ref(0)
 const bomReturnNavigation = computed(() => props.viewParams?.return_navigation || null)
 const bomReturnProductID = computed(() => Number(bomReturnNavigation.value?.params?.open_product_config_id || 0))
 const bomReturnLabel = computed(() => String(bomReturnNavigation.value?.label || '返回商品档案配置'))
 const groupDrawerOpen = ref(false)
+const groupCategoryDrawerOpen = ref(false)
 const bomDrawerOpen = ref(false)
 const productionBomStatusFilter = ref('active')
 const productionBomSearchQuery = ref('')
@@ -478,7 +596,8 @@ const itemForm = reactive({
 })
 const mappingForm = reactive({ spec_g: 227, material_id: 0 })
 const groupForm = reactive({ id: 0, name: '', sort_order: 100 })
-const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', group_id: 0, status: 'active' })
+const categoryForm = reactive({ id: 0, name: '', sort_order: 100 })
+const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', group_id: 0, group_category_id: 0, status: 'active' })
 const versionNote = ref('')
 
 const detailItems = computed(() => detail.value?.items || [])
@@ -489,6 +608,35 @@ const productionBomRows = computed(() => {
     query: productionBomSearchQuery.value,
     groupID: Number(selectedProductionBomGroupID.value || 0),
   })
+})
+const selectedProductionBomGroup = computed(() => {
+  const groupID = Number(selectedProductionBomGroupID.value || 0)
+  return productionBomGroups.value.find((group) => Number(group.id || 0) === groupID) || null
+})
+const isCustomProductionBomGroupSelected = computed(() => Number(selectedProductionBomGroupID.value || 0) > 0)
+const productionBomGroupCategories = computed(() => Array.isArray(selectedProductionBomGroup.value?.categories) ? selectedProductionBomGroup.value.categories : [])
+const bomFormGroupCategories = computed(() => {
+  const groupID = Number(bomForm.group_id || 0)
+  return productionBomGroups.value.find((group) => Number(group.id || 0) === groupID)?.categories || []
+})
+const groupProductionBomRowsByInnerCategory = computed(() => {
+  if (!isCustomProductionBomGroupSelected.value) return []
+  const buckets = new Map()
+  const ensureBucket = (categoryID, name, category = null) => {
+    const key = `category:${Number(categoryID || 0)}`
+    if (!buckets.has(key)) buckets.set(key, { key, category_id: Number(categoryID || 0), name, category, rows: [] })
+    return buckets.get(key)
+  }
+  ensureBucket(0, '未分类')
+  for (const category of productionBomGroupCategories.value) {
+    ensureBucket(Number(category.id || 0), category.name || '未命名分类', category)
+  }
+  for (const row of productionBomRows.value) {
+    const categoryID = Number(row.group_category_id || row.production_bom_group_category_id || 0)
+    const bucket = buckets.get(`category:${categoryID}`) || buckets.get('category:0')
+    bucket.rows.push(row)
+  }
+  return [...buckets.values()].filter((bucket) => bucket.category_id === 0 || bucket.rows.length > 0)
 })
 const linkedProcessTemplates = computed(() => processTemplates.value.filter((template) => Number(template.product_id || 0) === Number(selectedProductId.value || 0)))
 const selectedProduct = computed(() => productByID(selectedProductId.value))
@@ -520,6 +668,7 @@ const canEditCurrentBomProduct = computed(() => {
 })
 const selectedProductionBomDraftVersion = computed(() => versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0) && version.status === 'draft') || null)
 const canEditCurrentBomItems = computed(() => canEditCurrentBomProduct.value && Number(selectedProductionBomDraftVersion.value?.id || 0) > 0)
+const canCopyCurrentVersionAsDraft = computed(() => canEditCurrentBomProduct.value && currentProductionBomID.value > 0 && selectedProductionBomVersion.value?.status === 'published')
 const roastedBeanProducts = computed(() => products.value.filter((product) => {
   if (Number(product.id || 0) === Number(selectedProductId.value || 0)) return false
   return (product.product_kind || 'roasted_bean') === 'roasted_bean'
@@ -573,6 +722,14 @@ const selectedActiveBomRecordsForDeactivate = computed(() => {
 const canMoveSelectedBoms = computed(() => {
   const targetGroupID = Number(selectedBomMoveGroupID.value || 0)
   return selectedBomRecordsForMove.value.some((bom) => Number(bom.group_id || 0) !== targetGroupID)
+})
+const canMoveSelectedBomsToGroupCategory = computed(() => {
+  if (!isCustomProductionBomGroupSelected.value) return false
+  const targetGroupID = Number(selectedProductionBomGroupID.value || 0)
+  const targetCategoryID = Number(selectedProductionBomGroupCategoryID.value || 0)
+  return selectedBomRecordsForMove.value.some((bom) => {
+    return Number(bom.group_id || 0) !== targetGroupID || Number(bom.group_category_id || 0) !== targetCategoryID
+  })
 })
 const canDeactivateSelectedBoms = computed(() => selectedActiveBomRecordsForDeactivate.value.length > 0)
 
@@ -666,8 +823,13 @@ function normalizeProductionBomRecord(row = {}) {
     production_bom_id: Number(row.production_bom_id || row.id || 0),
     group_id: Number(row.group_id || 0),
     production_bom_group_id: Number(row.production_bom_group_id ?? row.group_id ?? 0),
+    group_category_id: Number(row.group_category_id || row.production_bom_group_category_id || 0),
+    production_bom_group_category_id: Number(row.production_bom_group_category_id ?? row.group_category_id ?? 0),
+    group_category_name: row.group_category_name || row.production_bom_group_category_name || '',
+    production_bom_group_category_name: row.production_bom_group_category_name || row.group_category_name || '',
     item_count: Number(row.item_count || row.material_count || 0),
     reference_product_count: Number(row.reference_product_count || 0),
+    latest_version_status: row.latest_version_status || '',
     status: row.status === 'inactive' ? 'inactive' : 'active',
   }
 }
@@ -748,7 +910,10 @@ function selectProductionBomGroup(groupID) {
 }
 
 function bomGroupLabel(row) {
-  return String(row?.production_bom_group_name || row?.group_name || '').trim() || '未分类'
+  const groupName = String(row?.production_bom_group_name || row?.group_name || '').trim() || '未分类'
+  const categoryName = String(row?.production_bom_group_category_name || row?.group_category_name || '').trim()
+  if (categoryName && groupName !== '未分类') return `${groupName} / ${categoryName}`
+  return groupName
 }
 
 function bomRecordFromRow(row = {}) {
@@ -758,6 +923,8 @@ function bomRecordFromRow(row = {}) {
     name: row.production_bom_name || row.name || row.product || '',
     group_id: Number(row.production_bom_group_id ?? row.group_id ?? 0),
     group_name: row.production_bom_group_name || row.group_name || '',
+    group_category_id: Number(row.production_bom_group_category_id ?? row.group_category_id ?? 0),
+    group_category_name: row.production_bom_group_category_name || row.group_category_name || '',
     status: row.status === 'inactive' ? 'inactive' : 'active',
   }
 }
@@ -773,8 +940,12 @@ function toggleAllVisibleBoms(event) {
   selectedBomRowKeys.value = [...next]
 }
 
-function selectProductionBomVersion(version) {
-  selectedProductionBomVersionID.value = Number(version?.id || 0)
+async function selectProductionBomVersion(version, options = {}) {
+  const versionID = Number(version?.id || version || 0)
+  selectedProductionBomVersionID.value = versionID
+  if (options.reload && currentProductionBomID.value > 0 && versionID > 0) {
+    await loadProductionBomDetailForVersion(currentProductionBomID.value, versionID)
+  }
 }
 
 function syncSelectedProductionBomVersion() {
@@ -784,7 +955,7 @@ function syncSelectedProductionBomVersion() {
   }
   const existing = versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0))
   const selected = existing || versions.value.find((version) => version.status === 'draft') || versions.value.find((version) => version.is_latest) || versions.value[0]
-  selectProductionBomVersion(selected)
+  selectedProductionBomVersionID.value = Number(selected?.id || 0)
 }
 
 function resetGroupForm() {
@@ -793,12 +964,19 @@ function resetGroupForm() {
   groupForm.sort_order = 100
 }
 
+function resetCategoryForm() {
+  categoryForm.id = 0
+  categoryForm.name = ''
+  categoryForm.sort_order = 100
+}
+
 function resetBomForm() {
   bomForm.id = 0
   bomForm.source_id = 0
   bomForm.mode = 'create'
   bomForm.name = ''
   bomForm.group_id = Number(selectedProductionBomGroupID.value || 0) > 0 ? Number(selectedProductionBomGroupID.value || 0) : 0
+  bomForm.group_category_id = 0
   bomForm.status = 'active'
 }
 
@@ -814,6 +992,7 @@ function openEditProductionBomRecord(bom) {
   bomForm.id = Number(bom?.id || 0)
   bomForm.name = bom?.name || ''
   bomForm.group_id = Number(bom?.group_id || 0)
+  bomForm.group_category_id = Number(bom?.group_category_id || 0)
   bomForm.status = bom?.status === 'inactive' ? 'inactive' : 'active'
   bomDrawerOpen.value = true
 }
@@ -824,6 +1003,7 @@ function copyProductionBomRecord(bom) {
   bomForm.source_id = Number(bom?.id || 0)
   bomForm.name = `${bom?.name || '生产 BOM'} 副本`
   bomForm.group_id = Number(bom?.group_id || 0)
+  bomForm.group_category_id = Number(bom?.group_category_id || 0)
   bomForm.status = 'active'
   bomDrawerOpen.value = true
 }
@@ -831,6 +1011,36 @@ function copyProductionBomRecord(bom) {
 function closeBomDrawer() {
   bomDrawerOpen.value = false
   resetBomForm()
+}
+
+function openGroupCategoryDrawer(category = null) {
+  if (!selectedProductionBomGroup.value) return
+  if (category?.id) {
+    categoryForm.id = Number(category.id || 0)
+    categoryForm.name = category.name || ''
+    categoryForm.sort_order = Number(category.sort_order || 100)
+  } else {
+    resetCategoryForm()
+  }
+  groupCategoryDrawerOpen.value = true
+}
+
+function closeGroupCategoryDrawer() {
+  groupCategoryDrawerOpen.value = false
+  resetCategoryForm()
+}
+
+function toggleBomGroupCategory(key) {
+  const value = String(key || '')
+  if (!value) return
+  const next = new Set(collapsedBomGroupCategoryKeys.value)
+  if (next.has(value)) next.delete(value)
+  else next.add(value)
+  collapsedBomGroupCategoryKeys.value = [...next]
+}
+
+function isBomGroupCategoryCollapsed(key) {
+  return collapsedBomGroupCategoryKeys.value.includes(String(key || ''))
 }
 
 function editProductionBomGroup(group) {
@@ -968,6 +1178,32 @@ async function loadProductionBomVersions(bomID) {
   syncSelectedProductionBomVersion()
 }
 
+async function loadProductionBomDetailForVersion(bomID, versionID = 0, fallbackRow = null) {
+  const id = Number(bomID || 0)
+  if (!id) return
+  const query = Number(versionID || 0) > 0 ? `?version_id=${Number(versionID || 0)}` : ''
+  productionBomDetail.value = await apiGet(`/api/production-boms/${id}${query}`)
+  versions.value = productionBomDetail.value?.versions || []
+  if (Number(versionID || 0) > 0) selectedProductionBomVersionID.value = Number(versionID || 0)
+  else syncSelectedProductionBomVersion()
+  const row = fallbackRow || selectedProductionBomRecord.value || {}
+  detail.value = productionBomDetailAsRecipeDetail(productionBomDetail.value || {}, row)
+  selectedProductionBomRecord.value = {
+    ...bomRecordFromRow({ ...row, ...productionBomDetail.value }),
+    id: detail.value.production_bom_id,
+    production_bom_id: detail.value.production_bom_id,
+    production_bom_code: detail.value.production_bom_code,
+    production_bom_name: detail.value.production_bom_name,
+    production_bom_group_id: detail.value.production_bom_group_id,
+    production_bom_group_name: detail.value.production_bom_group_name,
+    production_bom_group_category_id: detail.value.production_bom_group_category_id,
+    production_bom_group_category_name: detail.value.production_bom_group_category_name,
+    latest_bom_version_no: detail.value.latest_bom_version_no,
+    production_bom_version_no: detail.value.production_bom_version_no,
+    reference_product_count: productionBomDetail.value?.reference_product_count || row.reference_product_count || 0,
+  }
+}
+
 async function selectProductionBomRecordByID(bomID) {
   const id = Number(bomID || 0)
   if (!id) return
@@ -988,25 +1224,13 @@ async function selectUnboundProductionBom(row) {
     production_bom_name: record.name,
     production_bom_group_id: record.group_id,
     production_bom_group_name: record.group_name,
+    production_bom_group_category_id: record.group_category_id,
+    production_bom_group_category_name: record.group_category_name,
     latest_bom_version_no: row.latest_bom_version_no || row.latest_version_no || '',
     production_bom_version_no: row.production_bom_version_no || '',
   }
   try {
-    productionBomDetail.value = await apiGet(`/api/production-boms/${record.id}`)
-    versions.value = productionBomDetail.value?.versions || []
-    syncSelectedProductionBomVersion()
-    detail.value = productionBomDetailAsRecipeDetail(productionBomDetail.value || {}, row)
-    selectedProductionBomRecord.value = {
-      ...selectedProductionBomRecord.value,
-      id: detail.value.production_bom_id,
-      production_bom_id: detail.value.production_bom_id,
-      production_bom_code: detail.value.production_bom_code,
-      production_bom_name: detail.value.production_bom_name,
-      production_bom_group_id: detail.value.production_bom_group_id,
-      production_bom_group_name: detail.value.production_bom_group_name,
-      latest_bom_version_no: detail.value.latest_bom_version_no,
-      production_bom_version_no: detail.value.production_bom_version_no,
-    }
+    await loadProductionBomDetailForVersion(record.id, 0, row)
   } catch (err) {
     detail.value = null
     productionBomDetail.value = null
@@ -1045,25 +1269,27 @@ function processStatusLabel(status) {
 async function saveItem() {
   if (!canEditCurrentBomItems.value) return
   await mutate(async () => {
+    const versionID = Number(selectedProductionBomVersionID.value || 0)
     const nextItems = detailItems.value.map(productionBomDraftItemFromItem)
     nextItems.push(productionBomDraftItemFromForm())
     await saveProductionBomDraftItems(nextItems)
     resetItemForm()
     ok.value = '已保存'
-    await selectProductionBomRecordByID(currentProductionBomID.value)
+    await loadProductionBomDetailForVersion(currentProductionBomID.value, versionID)
   })
 }
 
 async function deleteItem(id) {
   if (!canEditCurrentBomItems.value) return
   await mutate(async () => {
+    const versionID = Number(selectedProductionBomVersionID.value || 0)
     const deleteID = Number(id || 0)
     const nextItems = detailItems.value
       .filter((item) => Number(item.id || 0) !== deleteID)
       .map(productionBomDraftItemFromItem)
     await saveProductionBomDraftItems(nextItems)
     ok.value = '已删除'
-    await selectProductionBomRecordByID(currentProductionBomID.value)
+    await loadProductionBomDetailForVersion(currentProductionBomID.value, versionID)
   })
 }
 
@@ -1121,6 +1347,36 @@ async function saveProductionBomGroup() {
   })
 }
 
+async function saveProductionBomGroupCategory() {
+  const groupID = Number(selectedProductionBomGroupID.value || 0)
+  const payload = { name: categoryForm.name, sort_order: Number(categoryForm.sort_order || 0) }
+  if (!groupID || !payload.name) return
+  await mutate(async () => {
+    if (categoryForm.id) {
+      await apiSend(`/api/production-bom-group-categories/${categoryForm.id}`, { method: 'PUT', body: payload })
+      ok.value = '已保存小分类'
+    } else {
+      await apiSend(`/api/production-bom-groups/${groupID}/categories`, { body: payload })
+      ok.value = '已新增小分类'
+    }
+    closeGroupCategoryDrawer()
+    await loadAll()
+  })
+}
+
+async function deleteProductionBomGroupCategory(category) {
+  const categoryID = Number(category?.id || 0)
+  if (!categoryID) return
+  const okToDelete = window.confirm(`确认删除组内分类「${category?.name || categoryID}」？分类下 BOM 会回到该大组的未分类。`)
+  if (!okToDelete) return
+  await mutate(async () => {
+    await apiSend(`/api/production-bom-group-categories/${categoryID}`, { method: 'DELETE' })
+    ok.value = '已删除小分类'
+    if (Number(selectedProductionBomGroupCategoryID.value || 0) === categoryID) selectedProductionBomGroupCategoryID.value = 0
+    await loadAll()
+  })
+}
+
 async function deleteProductionBomGroup(group) {
   const groupID = Number(group?.id || 0)
   if (!groupID) return
@@ -1145,11 +1401,38 @@ async function moveSelectedProductBomsToGroup() {
         body: {
           name: bom.name,
           group_id: targetGroupID,
+          group_category_id: 0,
           status: bom.status === 'inactive' ? 'inactive' : 'active',
         },
       })
     }
     ok.value = `已移动 ${records.length} 个 BOM`
+    selectedBomRowKeys.value = []
+    await loadAll()
+  })
+}
+
+async function moveSelectedProductBomsToGroupCategory() {
+  const targetGroupID = Number(selectedProductionBomGroupID.value || 0)
+  const targetCategoryID = Number(selectedProductionBomGroupCategoryID.value || 0)
+  if (!targetGroupID) return
+  const records = selectedBomRecordsForMove.value.filter((bom) => {
+    return Number(bom.group_id || 0) !== targetGroupID || Number(bom.group_category_id || 0) !== targetCategoryID
+  })
+  if (!records.length) return
+  await mutate(async () => {
+    for (const bom of records) {
+      await apiSend(`/api/production-boms/${bom.id}`, {
+        method: 'PUT',
+        body: {
+          name: bom.name,
+          group_id: targetGroupID,
+          group_category_id: targetCategoryID,
+          status: bom.status === 'inactive' ? 'inactive' : 'active',
+        },
+      })
+    }
+    ok.value = `已移动 ${records.length} 个 BOM 到小分类`
     selectedBomRowKeys.value = []
     await loadAll()
   })
@@ -1163,6 +1446,7 @@ async function deactivateProductionBomRecords(records, successText) {
         body: {
           name: bom?.name || '',
           group_id: Number(bom?.group_id || 0),
+          group_category_id: Number(bom?.group_category_id || 0),
           status: 'inactive',
         },
       })
@@ -1198,6 +1482,7 @@ async function saveProductionBomRecord() {
   const payload = {
     name,
     group_id: Number(bomForm.group_id || 0),
+    group_category_id: Number(bomForm.group_category_id || 0),
     status: bomForm.status === 'inactive' ? 'inactive' : 'active',
   }
   await mutate(async () => {
@@ -1205,11 +1490,13 @@ async function saveProductionBomRecord() {
       await apiSend(`/api/production-boms/${bomForm.id}`, { method: 'PUT', body: payload })
       ok.value = '已保存生产 BOM'
     } else if (bomForm.mode === 'copy') {
-      await apiSend(`/api/production-boms/${bomForm.source_id}/copy`, { body: { name: payload.name, group_id: payload.group_id } })
+      const copied = await apiSend(`/api/production-boms/${bomForm.source_id}/copy`, { body: { name: payload.name, group_id: payload.group_id, group_category_id: payload.group_category_id } })
       ok.value = '已复制生产 BOM'
+      pendingProductionBomID.value = Number(copied?.id || 0)
     } else {
-      await apiSend('/api/production-boms', { body: { name: payload.name, group_id: payload.group_id } })
+      const created = await apiSend('/api/production-boms', { body: { name: payload.name, group_id: payload.group_id, group_category_id: payload.group_category_id } })
       ok.value = '已新建生产 BOM'
+      pendingProductionBomID.value = Number(created?.id || 0)
     }
     closeBomDrawer()
     await loadAll()
@@ -1223,17 +1510,23 @@ async function deactivateProductionBomRecord(bom) {
 }
 
 async function createVersion() {
+  await copyVersionAsDraft()
+}
+
+async function copyVersionAsDraft(version = selectedProductionBomVersion.value) {
   if (!canEditCurrentBomProduct.value) return
   await mutate(async () => {
     const bomID = currentProductionBomID.value
+    const sourceVersionID = Number(version?.id || 0)
     if (bomID) {
-      await apiSend(`/api/production-boms/${bomID}/versions`, { body: { note: versionNote.value } })
+      const created = await apiSend(`/api/production-boms/${bomID}/versions`, { body: { note: versionNote.value, source_version_id: sourceVersionID } })
+      selectedProductionBomVersionID.value = Number(created?.id || 0)
     } else {
       await apiSend('/api/bom/versions', { body: { product_id: selectedProductId.value, note: versionNote.value } })
     }
     versionNote.value = ''
     ok.value = bomID ? '已复制为新版草稿' : '已保存版本'
-    await selectProductionBomRecordByID(bomID)
+    if (bomID) await loadProductionBomDetailForVersion(bomID, selectedProductionBomVersionID.value)
   })
 }
 
@@ -1249,7 +1542,7 @@ async function activateVersion(id) {
       ok.value = '已启用版本'
     }
     await loadAll()
-    if (bomID) await selectProductionBomRecordByID(bomID)
+    if (bomID) await loadProductionBomDetailForVersion(bomID, id)
   })
 }
 
@@ -1278,6 +1571,7 @@ onBeforeUnmount(saveBomFormDraft)
 watch(selectedProductionBomGroupID, (groupID) => {
   selectedBomRowKeys.value = []
   selectedBomMoveGroupID.value = Number(groupID || 0) > 0 ? Number(groupID || 0) : 0
+  selectedProductionBomGroupCategoryID.value = 0
 })
 
 watch([productionBomStatusFilter, productionBomSearchQuery], () => {
@@ -1328,6 +1622,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .bom-batch-deactivate-action { margin-left: auto; }
 .bom-list-tabs-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
 .bom-list-toolbar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; padding: 10px; margin: 8px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
+.toolbar-divider { align-self: center; color: #666; font-size: 12px; font-weight: 700; padding-left: 8px; border-left: 1px solid #ddd6ce; }
 .bom-list-tabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .bom-list-panel-scroll { max-height: min(62vh, 720px); overflow: auto; }
 .bom-name-button { height: auto; min-height: 30px; text-align: left; font-weight: 700; }
@@ -1344,6 +1639,9 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .select-col input { min-width: 0; width: 16px; height: 16px; }
 tbody tr.active { background: #f3f7fb; }
 .list-panel tbody tr { cursor: pointer; }
+.classification-group-row td { background: #f8f7f5; color: #333; border-top: 1px solid #e6e0d8; }
+.classification-group-row strong { margin: 0 8px; }
+.category-toggle { font-size: 12px; }
 .summary { align-items: stretch; margin-bottom: 12px; }
 .summary div { min-width: 120px; border: 1px solid #eee8df; border-radius: 6px; padding: 9px; }
 .summary strong { font-size: 16px; }
@@ -1354,6 +1652,10 @@ tbody tr.active { background: #f3f7fb; }
 .section-title-row { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
 .detail-subpanel { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; margin: 12px 0; background: #fbfaf8; }
 .detail-subpanel h3 { margin: 0 0 4px; font-size: 16px; }
+.version-recipe-panel { border-top: 1px solid #e6e0d8; margin-top: 14px; padding-top: 14px; }
+.version-ratio-box { min-width: 120px; border: 1px solid #eee8df; border-radius: 6px; padding: 8px 10px; background: #fff; }
+.version-ratio-box span { display: block; color: #666; font-size: 12px; margin-bottom: 4px; }
+.version-ratio-box strong { font-size: 16px; }
 .inline-actions { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; justify-content: flex-end; }
 .inline-actions input { min-width: min(280px, 100%); }
 .compact-form { align-items: end; }

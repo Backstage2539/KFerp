@@ -185,9 +185,14 @@ test('BOM detail keeps versions and bag-spec mapping inside the edit detail pane
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const detailPanel = template.match(/<section class="panel detail-panel"[\s\S]*?<\/section>/)?.[0] || ''
+  const versionPanel = template.match(/<div v-if="detail" class="detail-subpanel bom-version-panel"[\s\S]*?<div v-if="detail && !isWorkspaceCustomerLocked" class="detail-subpanel bag-spec-mapping-panel">/)?.[0] || ''
 
   assert.match(detailPanel, /BOM版本/)
   assert.match(detailPanel, /复制为新版草稿/)
+  assert.match(detailPanel, /已发布版本只读，复制为新版草稿后编辑/)
+  assert.match(versionPanel, /配方明细/)
+  assert.match(versionPanel, /合计比例/)
+  assert.match(versionPanel, /保存组件/)
   assert.match(detailPanel, /规格袋材映射/)
   assert.match(detailPanel, /全局规格袋材映射/)
   assert.match(detailPanel, /openReferencedProductConfig\(product\)/)
@@ -285,4 +290,33 @@ test('production BOM list supports status filters name search group tabs and ina
   assert.doesNotMatch(deactivateSource, /确认失效/)
   assert.doesNotMatch(source, /<section class="panel">\s*<div class="panel-title">BOM版本<\/div>/)
   assert.doesNotMatch(source, /<section v-if="!isWorkspaceCustomerLocked" class="panel">\s*<div class="panel-title">规格袋材映射<\/div>/)
+})
+
+test('production BOM custom groups expose inner category grouping and version draft editing affordances', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const tabRow = template.match(/<div class="bom-list-tabs-row"[\s\S]*?<\/div>\s*<div class="bom-list-toolbar">/)?.[0] || ''
+
+  for (const marker of [
+    '组内分类',
+    '新增小分类',
+    '移动到小分类',
+    'productionBomGroupCategories',
+    'groupProductionBomRowsByInnerCategory',
+    'moveSelectedProductBomsToGroupCategory',
+    'openGroupCategoryDrawer',
+    'deleteProductionBomGroupCategory',
+    'selectedProductionBomGroupCategoryID',
+    'group_category_id',
+    '/api/production-bom-groups/${groupID}/categories',
+    '/api/production-bom-group-categories/${categoryForm.id}',
+  ]) {
+    assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+  assert.match(tabRow, /全部分组/)
+  assert.match(tabRow, /未分类/)
+  assert.match(source, /version\.status === 'published'/)
+  assert.match(source, /copyVersionAsDraft/)
+  assert.match(source, /loadProductionBomDetailForVersion\(currentProductionBomID\.value,\s*versionID\)/)
 })

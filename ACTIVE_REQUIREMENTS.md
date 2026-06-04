@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-407-PRODUCTION-BOM-GROUP-CATEGORIES-VERSION-EDIT
+- Branch: codex/production-bom-categories-version-edit-20260604
+- Owner/session: Codex / 2026-06-04
+- Status: implementation in progress
+- Scope: 生产 BOM 分组 Tab 作为大组，自定义大组内增加组内分类；BOM 同时只能属于一个大组和一个组内分类，跨大组移动清空小分类；配方比例和物料编辑归属 BOM 版本，新建 BOM 默认生成 V001 草稿，已发布版本只读，复制为新版草稿后编辑。
+- DEV:
+  - DEV-407-BOM-GROUP-CATEGORIES-DATA-API：新增 `production_bom_group_categories` 和 `production_boms.group_category_id`，补组内分类 CRUD、删除分类回组内未分类、跨大组清空小分类和操作日志。
+  - DEV-407-BOM-VERSION-DRAFT-RECIPE：新建生产 BOM 初始版本改为 `V001 draft`，空初始已发布版本安全修复为草稿；`GET /api/production-boms/:id?version_id=...` 按选中版本返回配方明细。
+  - DEV-407-BOM-VUE-GROUP-CATEGORY-UX：生产 BOM 自定义大组 Tab 下按组内分类分组展示，支持新增/改名/删除小分类，勾选 BOM 移动到小分类；BOM 抽屉显示大组和组内分类。
+  - DEV-407-BOM-VUE-VERSION-RECIPE-UX：BOM 版本区下方展示配方明细、合计比例和保存组件；草稿可编辑，已发布版本显示只读提示，复制新版草稿后自动选中。
+  - DEV-407-MANUAL-DOCS：更新生产 BOM 手册、需求、验收和 acceptance 证据。
+- Verifier:
+  - RED: `node --test src/lib/bom.test.js` failed on missing group category/version recipe markers; `go test ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom -count=1` failed before new category types/schema existed.
+  - GREEN so far: `node --test src/lib/bom.test.js` passed 10/10; `go test ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom -count=1` passed; `npm run build` passed with existing chunk-size warning.
+  - Broader GREEN: `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/view-routing.test.js` passed 120/120; `go test ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/interfaces/http/support -count=1` passed; `go test ./...` in `orderapp-remote` passed; `npm run build` in `frontend-vue-shell` passed with existing chunk-size warning; `scripts/verify_kferp.sh changed` exited 0.
+  - Remaining before merge/deploy: feature branch push, merge to develop, development deploy and smoke.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-04-production-bom-group-categories-version-edit.md`
+- Last update: 2026-06-04 Asia/Shanghai
+
 ### PR-406-BOM-PRODUCT-ALIAS-LAYOUT
 - Branch: codex/bom-product-alias-layout-20260603
 - Follow-up branch: codex/unbound-production-bom-recipe-detail-20260604

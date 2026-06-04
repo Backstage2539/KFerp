@@ -120,10 +120,18 @@ type Version struct {
 }
 
 type ProductionBomGroup struct {
+	ID         int64                        `json:"id"`
+	Name       string                       `json:"name"`
+	SortOrder  int                          `json:"sort_order"`
+	Active     bool                         `json:"active"`
+	Categories []ProductionBomGroupCategory `json:"categories,omitempty"`
+}
+
+type ProductionBomGroupCategory struct {
 	ID        int64  `json:"id"`
+	GroupID   int64  `json:"group_id"`
 	Name      string `json:"name"`
 	SortOrder int    `json:"sort_order"`
-	Active    bool   `json:"active"`
 }
 
 type ProductionBomSummary struct {
@@ -132,9 +140,12 @@ type ProductionBomSummary struct {
 	Name                  string  `json:"name"`
 	GroupID               int64   `json:"group_id"`
 	GroupName             string  `json:"group_name"`
+	GroupCategoryID       int64   `json:"group_category_id"`
+	GroupCategoryName     string  `json:"group_category_name"`
 	Status                string  `json:"status"`
 	LatestVersionID       int64   `json:"latest_version_id"`
 	LatestVersionNo       string  `json:"latest_version_no"`
+	LatestVersionStatus   string  `json:"latest_version_status"`
 	ExpectedYieldRate     float64 `json:"expected_yield_rate"`
 	ExpectedLossRate      float64 `json:"expected_loss_rate"`
 	ReferenceProductCount int     `json:"reference_product_count"`
@@ -212,32 +223,55 @@ type MoveProductionBomGroupCommand struct {
 	Actor     string `json:"actor"`
 }
 
+type CreateProductionBomGroupCategoryCommand struct {
+	GroupID   int64  `json:"group_id"`
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+	Actor     string `json:"actor"`
+}
+
+type UpdateProductionBomGroupCategoryCommand struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+	Actor     string `json:"actor"`
+}
+
+type DeleteProductionBomGroupCategoryCommand struct {
+	ID    int64  `json:"id"`
+	Actor string `json:"actor"`
+}
+
 type CreateProductionBomCommand struct {
 	Name             string   `json:"name"`
 	GroupID          int64    `json:"group_id"`
+	GroupCategoryID  int64    `json:"group_category_id"`
 	ExpectedLossRate *float64 `json:"expected_loss_rate,omitempty"`
 	Actor            string   `json:"actor"`
 }
 
 type UpdateProductionBomCommand struct {
-	ID      int64  `json:"id"`
-	Name    string `json:"name"`
-	GroupID int64  `json:"group_id"`
-	Status  string `json:"status"`
-	Actor   string `json:"actor"`
+	ID              int64  `json:"id"`
+	Name            string `json:"name"`
+	GroupID         int64  `json:"group_id"`
+	GroupCategoryID int64  `json:"group_category_id"`
+	Status          string `json:"status"`
+	Actor           string `json:"actor"`
 }
 
 type CopyProductionBomCommand struct {
-	ID      int64  `json:"id"`
-	Name    string `json:"name"`
-	GroupID int64  `json:"group_id"`
-	Actor   string `json:"actor"`
+	ID              int64  `json:"id"`
+	Name            string `json:"name"`
+	GroupID         int64  `json:"group_id"`
+	GroupCategoryID int64  `json:"group_category_id"`
+	Actor           string `json:"actor"`
 }
 
 type CreateProductionBomVersionCommand struct {
-	BomID int64  `json:"bom_id"`
-	Note  string `json:"note"`
-	Actor string `json:"actor"`
+	BomID           int64  `json:"bom_id"`
+	SourceVersionID int64  `json:"source_version_id"`
+	Note            string `json:"note"`
+	Actor           string `json:"actor"`
 }
 
 type ProductionBomDraftItem struct {
@@ -350,8 +384,11 @@ type Repository interface {
 	UpdateProductionBomGroup(ctx context.Context, cmd UpdateProductionBomGroupCommand) (ProductionBomGroup, error)
 	DeleteProductionBomGroup(ctx context.Context, cmd DeleteProductionBomGroupCommand) error
 	MoveProductionBomGroup(ctx context.Context, cmd MoveProductionBomGroupCommand) error
+	CreateProductionBomGroupCategory(ctx context.Context, cmd CreateProductionBomGroupCategoryCommand) (ProductionBomGroupCategory, error)
+	UpdateProductionBomGroupCategory(ctx context.Context, cmd UpdateProductionBomGroupCategoryCommand) (ProductionBomGroupCategory, error)
+	DeleteProductionBomGroupCategory(ctx context.Context, cmd DeleteProductionBomGroupCategoryCommand) error
 	ListProductionBoms(ctx context.Context) ([]ProductionBomSummary, error)
-	GetProductionBomDetail(ctx context.Context, id int64) (ProductionBomDetail, error)
+	GetProductionBomDetail(ctx context.Context, id int64, versionID int64) (ProductionBomDetail, error)
 	CreateProductionBom(ctx context.Context, cmd CreateProductionBomCommand) (ProductionBomSummary, error)
 	UpdateProductionBom(ctx context.Context, cmd UpdateProductionBomCommand) (ProductionBomSummary, error)
 	CopyProductionBom(ctx context.Context, cmd CopyProductionBomCommand) (ProductionBomSummary, error)
@@ -652,6 +689,38 @@ func (s *Service) MoveProductionBomGroup(ctx context.Context, cmd MoveProduction
 	return s.repo.MoveProductionBomGroup(ctx, cmd)
 }
 
+func (s *Service) CreateProductionBomGroupCategory(ctx context.Context, cmd CreateProductionBomGroupCategoryCommand) (ProductionBomGroupCategory, error) {
+	if cmd.GroupID <= 0 {
+		return ProductionBomGroupCategory{}, fmt.Errorf("group_id required")
+	}
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Name == "" {
+		return ProductionBomGroupCategory{}, fmt.Errorf("name required")
+	}
+	return s.repo.CreateProductionBomGroupCategory(ctx, cmd)
+}
+
+func (s *Service) UpdateProductionBomGroupCategory(ctx context.Context, cmd UpdateProductionBomGroupCategoryCommand) (ProductionBomGroupCategory, error) {
+	if cmd.ID <= 0 {
+		return ProductionBomGroupCategory{}, fmt.Errorf("category_id required")
+	}
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.Name == "" {
+		return ProductionBomGroupCategory{}, fmt.Errorf("name required")
+	}
+	return s.repo.UpdateProductionBomGroupCategory(ctx, cmd)
+}
+
+func (s *Service) DeleteProductionBomGroupCategory(ctx context.Context, cmd DeleteProductionBomGroupCategoryCommand) error {
+	if cmd.ID <= 0 {
+		return fmt.Errorf("category_id required")
+	}
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return s.repo.DeleteProductionBomGroupCategory(ctx, cmd)
+}
+
 func (s *Service) ListProductionBoms(ctx context.Context) ([]ProductionBomSummary, error) {
 	rows, err := s.repo.ListProductionBoms(ctx)
 	if err != nil {
@@ -663,11 +732,11 @@ func (s *Service) ListProductionBoms(ctx context.Context) ([]ProductionBomSummar
 	return rows, nil
 }
 
-func (s *Service) GetProductionBomDetail(ctx context.Context, id int64) (ProductionBomDetail, error) {
+func (s *Service) GetProductionBomDetail(ctx context.Context, id int64, versionID int64) (ProductionBomDetail, error) {
 	if id <= 0 {
 		return ProductionBomDetail{}, fmt.Errorf("bom_id required")
 	}
-	row, err := s.repo.GetProductionBomDetail(ctx, id)
+	row, err := s.repo.GetProductionBomDetail(ctx, id, versionID)
 	if err != nil {
 		return ProductionBomDetail{}, err
 	}

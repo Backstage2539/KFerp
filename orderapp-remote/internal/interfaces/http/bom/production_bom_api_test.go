@@ -14,16 +14,18 @@ import (
 func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	repo := &apiFakeRepo{
 		productionBomGroups: []bomapp.ProductionBomGroup{
-			{ID: 1, Name: "常用配方", Active: true, SortOrder: 10},
+			{ID: 1, Name: "常用配方", Active: true, SortOrder: 10, Categories: []bomapp.ProductionBomGroupCategory{{ID: 31, GroupID: 1, Name: "浅烘", SortOrder: 10}}},
 			{ID: 2, Name: "停用分组", Active: false, SortOrder: 99},
 		},
 		productionBomRows: []bomapp.ProductionBomSummary{{
 			ID: 11, Code: "BOM-001", Name: "精品拼配", GroupID: 1, GroupName: "常用配方",
+			GroupCategoryID: 31, GroupCategoryName: "浅烘",
 			LatestVersionID: 101, LatestVersionNo: "V003", Status: "active", ReferenceProductCount: 2,
 		}},
 		productionBomDetail: bomapp.ProductionBomDetail{
 			ProductionBomSummary: bomapp.ProductionBomSummary{
 				ID: 11, Code: "BOM-001", Name: "精品拼配", GroupID: 1, GroupName: "常用配方",
+				GroupCategoryID: 31, GroupCategoryName: "浅烘",
 				LatestVersionID: 101, LatestVersionNo: "V003", Status: "active",
 			},
 			ReferencedProducts: []bomapp.ProductionBomReferencedProduct{
@@ -42,13 +44,17 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 		},
 		createdProductionBom: bomapp.ProductionBomSummary{
 			ID: 13, Code: "BOM-003", Name: "新配方", GroupID: 1, GroupName: "常用配方",
-			LatestVersionID: 103, LatestVersionNo: "V001", Status: "active",
+			GroupCategoryID: 31, GroupCategoryName: "浅烘",
+			LatestVersionID: 103, LatestVersionNo: "V001", LatestVersionStatus: "draft", Status: "active",
 		},
 		updatedProductionBom: bomapp.ProductionBomSummary{
 			ID: 11, Code: "BOM-001", Name: "精品拼配改名", GroupID: 1, GroupName: "常用配方",
+			GroupCategoryID: 0, GroupCategoryName: "",
 			LatestVersionID: 101, LatestVersionNo: "V003", Status: "inactive",
 		},
-		createdProductionVersion: bomapp.ProductionBomVersion{ID: 103, BomID: 11, VersionNo: "V004", Status: "draft", YieldRate: 0.82},
+		createdProductionVersion:          bomapp.ProductionBomVersion{ID: 103, BomID: 11, VersionNo: "V004", Status: "draft", YieldRate: 0.82},
+		createdProductionBomGroupCategory: bomapp.ProductionBomGroupCategory{ID: 32, GroupID: 1, Name: "中烘", SortOrder: 20},
+		updatedProductionBomGroupCategory: bomapp.ProductionBomGroupCategory{ID: 31, GroupID: 1, Name: "浅中烘", SortOrder: 15},
 		productBomBinding: bomapp.ProductProductionBomBinding{
 			ProductID: 7, BomID: 11, BomCode: "BOM-001", BomName: "精品拼配",
 			BomVersionID: 100, BomVersionNo: "V002", LatestBomVersionID: 101, LatestBomVersionNo: "V003",
@@ -64,14 +70,17 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 		body   string
 		want   []string
 	}{
-		{method: http.MethodGet, path: "/api/production-bom-groups", want: []string{`"name":"常用配方"`}},
+		{method: http.MethodGet, path: "/api/production-bom-groups", want: []string{`"name":"常用配方"`, `"categories"`, `"name":"浅烘"`}},
 		{method: http.MethodPut, path: "/api/production-bom-groups/1", body: `{"name":"常用配方改名","sort_order":20}`, want: []string{`"name":"常用配方改名"`, `"sort_order":20`}},
+		{method: http.MethodPost, path: "/api/production-bom-groups/1/categories", body: `{"name":"中烘","sort_order":20}`, want: []string{`"name":"中烘"`, `"group_id":1`}},
+		{method: http.MethodPut, path: "/api/production-bom-group-categories/31", body: `{"name":"浅中烘","sort_order":15}`, want: []string{`"name":"浅中烘"`, `"sort_order":15`}},
+		{method: http.MethodDelete, path: "/api/production-bom-group-categories/31", want: []string{`"ok":true`}},
 		{method: http.MethodPost, path: "/api/production-bom-groups/1/move", body: `{"sort_order":5}`, want: []string{`"ok":true`}},
 		{method: http.MethodDelete, path: "/api/production-bom-groups/1", want: []string{`"ok":true`}},
-		{method: http.MethodGet, path: "/api/production-boms", want: []string{`"code":"BOM-001"`, `"latest_version_no":"V003"`, `"reference_product_count":2`}},
-		{method: http.MethodPost, path: "/api/production-boms", body: `{"name":"新配方","group_id":1}`, want: []string{`"code":"BOM-003"`, `"name":"新配方"`, `"status":"active"`}},
-		{method: http.MethodGet, path: "/api/production-boms/11", want: []string{`"versions"`, `"version_no":"V003"`, `"special_attrs_schema_json"`, `"special_attrs_json"`, `"is_latest":true`, `"referenced_products"`, `"product_name":"初晓2.5kg装"`, `"active":false`}},
-		{method: http.MethodPut, path: "/api/production-boms/11", body: `{"name":"精品拼配改名","group_id":1,"status":"inactive"}`, want: []string{`"name":"精品拼配改名"`, `"status":"inactive"`}},
+		{method: http.MethodGet, path: "/api/production-boms", want: []string{`"code":"BOM-001"`, `"latest_version_no":"V003"`, `"reference_product_count":2`, `"group_category_id":31`, `"group_category_name":"浅烘"`}},
+		{method: http.MethodPost, path: "/api/production-boms", body: `{"name":"新配方","group_id":1,"group_category_id":31}`, want: []string{`"code":"BOM-003"`, `"name":"新配方"`, `"status":"active"`, `"latest_version_status":"draft"`}},
+		{method: http.MethodGet, path: "/api/production-boms/11?version_id=101", want: []string{`"versions"`, `"version_no":"V003"`, `"special_attrs_schema_json"`, `"special_attrs_json"`, `"is_latest":true`, `"referenced_products"`, `"product_name":"初晓2.5kg装"`, `"active":false`, `"group_category_name":"浅烘"`}},
+		{method: http.MethodPut, path: "/api/production-boms/11", body: `{"name":"精品拼配改名","group_id":1,"group_category_id":0,"status":"inactive"}`, want: []string{`"name":"精品拼配改名"`, `"status":"inactive"`}},
 		{method: http.MethodPost, path: "/api/production-boms/11/copy", body: `{"name":"精品拼配-包装改版","group_id":1}`, want: []string{`"code":"BOM-002"`, `"name":"精品拼配-包装改版"`}},
 		{method: http.MethodPost, path: "/api/production-boms/11/versions", body: `{"note":"新版配方"}`, want: []string{`"version_no":"V004"`, `"status":"draft"`}},
 		{method: http.MethodPut, path: "/api/production-bom-versions/103/draft", body: `{"expected_loss_rate":0.18,"special_attrs_schema_json":"[{\"key\":\"roast_level\",\"label\":\"烘焙度\",\"show_in_price_list\":true}]","special_attrs_json":"{\"roast_level\":\"深烘\"}","items":[]}`, want: []string{`"status":"draft"`, `"special_attrs_json":"{\"roast_level\":\"深烘\"}"`}},
@@ -112,8 +121,23 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	if repo.createdProductionBomCommand.Name != "新配方" || repo.createdProductionBomCommand.GroupID != 1 {
 		t.Fatalf("created production bom command = %+v", repo.createdProductionBomCommand)
 	}
+	if repo.createdProductionBomCommand.GroupCategoryID != 31 {
+		t.Fatalf("created production bom group category = %d, want 31", repo.createdProductionBomCommand.GroupCategoryID)
+	}
 	if repo.updatedProductionBomCommand.ID != 11 || repo.updatedProductionBomCommand.Name != "精品拼配改名" || repo.updatedProductionBomCommand.Status != "inactive" {
 		t.Fatalf("updated production bom command = %+v", repo.updatedProductionBomCommand)
+	}
+	if repo.updatedProductionBomCommand.GroupCategoryID != 0 {
+		t.Fatalf("updated production bom group category = %d, want 0", repo.updatedProductionBomCommand.GroupCategoryID)
+	}
+	if repo.createdProductionBomGroupCategoryCommand.GroupID != 1 || repo.createdProductionBomGroupCategoryCommand.Name != "中烘" {
+		t.Fatalf("created production bom group category command = %+v", repo.createdProductionBomGroupCategoryCommand)
+	}
+	if repo.updatedProductionBomGroupCategoryCommand.ID != 31 || repo.updatedProductionBomGroupCategoryCommand.Name != "浅中烘" {
+		t.Fatalf("updated production bom group category command = %+v", repo.updatedProductionBomGroupCategoryCommand)
+	}
+	if repo.deletedProductionBomGroupCategoryID != 31 {
+		t.Fatalf("deleted category id = %d, want 31", repo.deletedProductionBomGroupCategoryID)
 	}
 	if repo.copiedProductionBomCommand.ID != 11 || repo.copiedProductionBomCommand.Name != "精品拼配-包装改版" || repo.copiedProductionBomCommand.GroupID != 1 {
 		t.Fatalf("copied production bom command = %+v", repo.copiedProductionBomCommand)

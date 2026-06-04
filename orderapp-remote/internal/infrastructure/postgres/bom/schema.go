@@ -205,6 +205,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS production_bom_groups_name_uq
 	ON %[1]s.production_bom_groups(lower(name))
 	WHERE active=true;
 
+CREATE TABLE IF NOT EXISTS %[1]s.production_bom_group_categories (
+	id BIGSERIAL PRIMARY KEY,
+	group_id BIGINT NOT NULL,
+	name TEXT NOT NULL DEFAULT '',
+	sort_order INTEGER NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS production_bom_group_categories_name_uq
+	ON %[1]s.production_bom_group_categories(group_id, lower(name));
+CREATE INDEX IF NOT EXISTS production_bom_group_categories_group_sort_idx
+	ON %[1]s.production_bom_group_categories(group_id, sort_order, id);
+
 CREATE TABLE IF NOT EXISTS %[1]s.production_boms (
 	id BIGSERIAL PRIMARY KEY,
 	code TEXT NOT NULL DEFAULT '',
@@ -222,6 +237,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_boms (
 	created_by TEXT NOT NULL DEFAULT '',
 	updated_by TEXT NOT NULL DEFAULT ''
 );
+ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS group_category_id BIGINT NOT NULL DEFAULT 0;
 CREATE UNIQUE INDEX IF NOT EXISTS production_boms_code_uq
 	ON %[1]s.production_boms(code);
 CREATE UNIQUE INDEX IF NOT EXISTS production_boms_legacy_product_uq
@@ -229,9 +245,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS production_boms_legacy_product_uq
 	WHERE legacy_product_id > 0;
 CREATE INDEX IF NOT EXISTS production_boms_group_idx
 	ON %[1]s.production_boms(group_id, status);
+CREATE INDEX IF NOT EXISTS production_boms_group_category_idx
+	ON %[1]s.production_boms(group_id, group_category_id, status);
 
 UPDATE %[1]s.production_boms
-SET group_id=0
+SET group_id=0, group_category_id=0
 WHERE group_id IN (
 	SELECT id FROM %[1]s.production_bom_groups WHERE name IN ('默认分组','默认配方组')
 );
@@ -295,7 +313,47 @@ CREATE INDEX IF NOT EXISTS product_production_bom_bindings_bom_idx
 	if err := backfillProductionBomLibrary(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := resetInvalidProductionBomGroupCategories(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := repairEmptyInitialPublishedProductionBomVersions(ctx, pool, schema); err != nil {
+		return err
+	}
 	return backfillProductionBomVersionSpecialAttrs(ctx, pool, schema)
+}
+
+func resetInvalidProductionBomGroupCategories(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+UPDATE %[1]s.production_boms pb
+SET group_category_id=0
+WHERE group_category_id > 0
+  AND NOT EXISTS (
+    SELECT 1
+    FROM %[1]s.production_bom_group_categories c
+    WHERE c.id=pb.group_category_id AND c.group_id=pb.group_id
+  );
+`, schema))
+	return err
+}
+
+func repairEmptyInitialPublishedProductionBomVersions(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	_, err := pool.Exec(ctx, fmt.Sprintf(`
+UPDATE %[1]s.production_bom_versions v
+SET status='draft', published_at=NULL, published_by=''
+WHERE v.version_no='V001'
+  AND v.status='published'
+  AND COALESCE(v.note,'')='初始版本'
+  AND NOT EXISTS (
+    SELECT 1 FROM %[1]s.production_bom_version_items i WHERE i.version_id=v.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM %[1]s.product_production_bom_bindings b WHERE b.bom_version_id=v.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM %[1]s.production_bom_versions other WHERE other.bom_id=v.bom_id AND other.id<>v.id
+  );
+`, schema))
+	return err
 }
 
 func backfillProductionBomLibrary(ctx context.Context, pool *pgxpool.Pool, schema string) error {

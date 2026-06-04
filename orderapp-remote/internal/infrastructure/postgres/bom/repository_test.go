@@ -153,6 +153,7 @@ func TestProductionBomGroupsArePureUIFoldersWithDeleteAndSort(t *testing.T) {
 		"move_production_bom_group",
 		"delete_production_bom_group",
 		"SET group_id=0",
+		"group_category_id=0",
 		"sort_order=$2",
 	} {
 		if !strings.Contains(combined, want) {
@@ -170,6 +171,36 @@ func TestProductionBomGroupsArePureUIFoldersWithDeleteAndSort(t *testing.T) {
 	} {
 		if strings.Contains(combined, forbidden) {
 			t.Fatalf("production BOM groups should not use inactive/disable model; found %q", forbidden)
+		}
+	}
+}
+
+func TestProductionBomGroupCategoriesAndDraftInitialVersionMarkers(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := readRepositorySource(t)
+	combined := string(schema) + "\n" + repository
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS %[1]s.production_bom_group_categories",
+		"ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS group_category_id BIGINT NOT NULL DEFAULT 0",
+		"production_bom_group_categories_group_sort_idx",
+		"resetInvalidProductionBomGroupCategories",
+		"CreateProductionBomGroupCategory",
+		"UpdateProductionBomGroupCategory",
+		"DeleteProductionBomGroupCategory",
+		"delete_production_bom_group_category",
+		"SET group_category_id=0",
+		"validateProductionBomGroupCategoryTx",
+		"GroupCategoryID",
+		"GroupCategoryName",
+		"latest_version_status",
+		"VALUES($1,'V001','draft'",
+		"repairEmptyInitialPublishedProductionBomVersions",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("production BOM group category or initial draft behavior missing marker %q", want)
 		}
 	}
 }
