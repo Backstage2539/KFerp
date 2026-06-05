@@ -27,21 +27,34 @@ type UnprodNeedRow struct {
 	OperationTemplateID      int64  `json:"operation_template_id,omitempty"`
 }
 
-func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from, to string, customerID int64) ([]UnprodNeedRow, error) {
-	where := fmt.Sprintf(`WHERE o.is_void=false AND (
-		COALESCE(o.process_status_id,0) = 0
+func productionPlanOpenStatusNames() []string {
+	return []string{"待处理", "待生产", "生产中"}
+}
+
+func productionPlanOpenStatusFilter(schema, orderAlias string) string {
+	names := productionPlanOpenStatusNames()
+	quoted := make([]string, 0, len(names))
+	for _, name := range names {
+		quoted = append(quoted, "'"+strings.ReplaceAll(name, "'", "''")+"'")
+	}
+	return fmt.Sprintf(`(
+		COALESCE(%[2]s.process_status_id,0) = 0
 		OR EXISTS (
-			SELECT 1 FROM %s.order_process_statuses ops
-			WHERE ops.id=o.process_status_id
-			  AND ops.name IN ('待处理','待生产')
+			SELECT 1 FROM %[1]s.order_process_statuses ops
+			WHERE ops.id=%[2]s.process_status_id
+			  AND ops.name IN (%[3]s)
 		)
-	)
+	)`, schema, orderAlias, strings.Join(quoted, ","))
+}
+
+func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from, to string, customerID int64) ([]UnprodNeedRow, error) {
+	where := fmt.Sprintf(`WHERE o.is_void=false AND %s
 	AND COALESCE(oi.product_id,0) > 0
 	AND NOT EXISTS (
 		SELECT 1 FROM %s.ship_statuses ss
 		WHERE ss.id=o.ship_status_id
 		  AND ss.name='已发货'
-	)`, schema, schema)
+	)`, productionPlanOpenStatusFilter(schema, "o"), schema)
 	demandWhere := []string{"d.status='planned'", "COALESCE(d.product_id,0) > 0"}
 	args := []any{}
 	argn := 1

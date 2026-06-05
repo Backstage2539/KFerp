@@ -6,10 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-422-PRODUCTION-PLAN-IN-PROGRESS-REMAINING
+- Branch: codex/production-plan-include-in-progress-20260606
+- Owner/session: Codex goal E2E / 2026-06-06
+- Status: implementing; local source guard green, pending push/merge/deploy/live GoalE2E replay
+- Scope: 部分商品开始或完工后，订单状态会进入 `生产中`；生产计划必须继续列出该订单里尚未生产完成的剩余商品，包括挂耳等需要后续生产的商品。
+- DEV:
+  - DEV-422-PRODUCTION-PLAN-OPEN-STATUS：生产计划主缺口查询和挂耳专用缺口查询共用生产计划开放状态过滤器，纳入空状态、`待处理`、`待生产` 和 `生产中`。
+- Verifier:
+  - RED live: GoalE2E 订单 `SO-20260605-0001` 完成熟豆/生豆/速溶后仍缺挂耳，`/api/produce/unproduced` 返回 0 行，直接启动 `534-10` 返回 `没有可开始生产的数据`。
+  - RED local: `go test ./internal/interfaces/http/support -run TestDev422ProductionPlanIncludesInProgressOrders -count=1` failed before fix because plan queries did not use a shared filter including `生产中`.
+  - GREEN local: `go test ./internal/interfaces/http/support -run TestDev422ProductionPlanIncludesInProgressOrders -count=1` passed.
+  - Integration behavior test: `go test ./internal/interfaces/http/production -run TestProducePlanIncludesInProgressOrdersWithRemainingItems -count=1 -v` is present but skips without `ORDERAPP_TEST_DATABASE_URL`.
+- Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-421-ORDER-RECEIVER-COMPANY-EMPTY
 - Branch: codex/order-receiver-company-empty-20260605
 - Owner/session: Codex goal E2E / 2026-06-05
-- Status: verified locally; pending push, develop merge and development deploy
+- Status: merged and deployed to development; live GoalE2E order replay passed
 - Scope: 录单时收货单位可为空；订单保存不得把 `receiver_company` 等 NOT NULL 收货字段写成 NULL，也不得向前端暴露原始 SQL not-null 错误。
 - DEV:
   - DEV-421-ORDER-RECEIVER-NONNULL：新建订单保存时 `receiver_name/receiver_phone/receiver_address/receiver_company` 统一写入 trim 后字符串，空值落库为空字符串。
@@ -23,8 +38,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
   - GREEN changed verifier: `scripts/verify_kferp.sh changed` exited 0.
   - GREEN diff check: `git diff --check` exited 0.
+  - Deploy/live: origin/develop `fd047465bbb194563fcc4a9d0b79e01d7310ef52`; `./deploy_orderapp.sh`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606000050`; live `/api/order` created `SO-20260605-0001` with blank `receiver_company`.
 - Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
-- Last update: 2026-06-05 Asia/Shanghai
+- Last update: 2026-06-06 Asia/Shanghai
 
 ### PR-419-BOM-USAGE-LOOKUP-CLEANUP
 - Branch: codex/bom-usage-main-followup-20260605

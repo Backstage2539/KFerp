@@ -214,6 +214,42 @@ func TestProducePlanSkipsOrderItemsWithoutProductID(t *testing.T) {
 	}
 }
 
+func TestProducePlanIncludesInProgressOrdersWithRemainingItems(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active,product_kind,drip_bag_grams) VALUES
+			(1,'GoalE2E 熟豆',50,true,'roasted_bean',0),
+			(2,'GoalE2E 挂耳',5,true,'drip_bag',10);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES ('生产中',20,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
+			(1,'SO-IN-PROGRESS-REMAINING','2026-06-05',false,(SELECT id FROM %s.order_process_statuses WHERE name='生产中' LIMIT 1));
+		INSERT INTO %s.order_items(
+			order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total,
+			product_kind,sales_unit,unit_bag_count,unit_bean_g
+		) VALUES
+			(1,1,'GoalE2E 熟豆',2,'袋','227g',1,58,116,'roasted','bag',0,0),
+			(1,2,'GoalE2E 挂耳',20,'袋','10g/袋',2,5,100,'drip_bag','bag',1,10);
+	`, schema, schema, schema, schema, schema))
+
+	e := newProducePlanTestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?from=2026-06-05&to=2026-06-05", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/produce/unproduced status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{`"order_nos":"SO-IN-PROGRESS-REMAINING"`, `"product_id":1`, `"product_id":2`, `"gap_g":454`, `"gap_g":200`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("in-progress remaining plan response missing %s: %s", needle, body)
+		}
+	}
+}
+
 func TestProducePlanSummaryAPIDripBagBoxCreatesDripDemandAndUpstreamShortage(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()

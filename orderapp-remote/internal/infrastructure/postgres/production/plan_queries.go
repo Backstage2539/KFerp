@@ -177,21 +177,14 @@ func mergeDripPlanRows(rows []productionapp.UnprodNeedRow, dripRows []production
 }
 
 func (r Repository) fetchDripPlanNeeds(ctx context.Context, from, to string, customerID int64) ([]productionapp.UnprodNeedRow, error) {
-	where := fmt.Sprintf(`WHERE o.is_void=false AND (
-		COALESCE(o.process_status_id,0) = 0
-		OR EXISTS (
-			SELECT 1 FROM %s.order_process_statuses ops
-			WHERE ops.id=o.process_status_id
-			  AND ops.name IN ('待处理','待生产')
-		)
-	)
+	where := fmt.Sprintf(`WHERE o.is_void=false AND %s
 	AND COALESCE(oi.product_id,0) > 0
 	AND COALESCE(NULLIF(oi.product_kind,''), NULLIF(p.product_kind,''), 'roasted_bean') = 'drip_bag'
 	AND NOT EXISTS (
 		SELECT 1 FROM %s.ship_statuses ss
 		WHERE ss.id=o.ship_status_id
 		  AND ss.name='已发货'
-	)`, r.schema, r.schema)
+	)`, productionPlanOpenStatusFilter(r.schema, "o"), r.schema)
 	args := []any{}
 	argn := 1
 	if customerID > 0 {
