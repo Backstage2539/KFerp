@@ -41,8 +41,8 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"被哪些 BOM 使用",
-			"产出该商品",
-			"作为组件",
+			"productProductionConfigUsedByBomRows",
+			"bomUsageRowKey",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
 			"生产 BOM（制造主档）",
