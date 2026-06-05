@@ -4043,6 +4043,58 @@ func TestOrdersShippingTrackingAPIDeductsDefaultFinishedInventoryWithoutAllocati
 	}
 }
 
+func TestOrdersShippingTrackingAPIDeductsDefaultFinishedBatchWithoutAllocation(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	seedOrderAPIFinishedBatches(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.ship_statuses(id,name) VALUES (2,'已发货') ON CONFLICT DO NOTHING;
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES (35, 'SO-PRODUCED-BATCH-NO-ALLOC-SHIP', '2026-06-06', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 100, false);
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES (35,1,7,'橘皮乌龙',2,'袋','454g',50,100);
+	`, schema, schema, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	body, _ := json.Marshal(map[string]any{"tracking_no": "SF-PRODUCED-BATCH-001"})
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/35/shipping-tracking", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/35/shipping-tracking status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var remainingG, remainingUnits int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_g,remaining_units FROM %s.stock_batches WHERE id=101`, schema)).Scan(&remainingG, &remainingUnits); err != nil {
+		t.Fatalf("query finished stock batch: %v", err)
+	}
+	if remainingG != 0 || remainingUnits != 0 {
+		t.Fatalf("oldest finished batch remaining = %dg/%d units, want 0/0", remainingG, remainingUnits)
+	}
+	var nextRemainingG, nextRemainingUnits int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_g,remaining_units FROM %s.stock_batches WHERE id=102`, schema)).Scan(&nextRemainingG, &nextRemainingUnits); err != nil {
+		t.Fatalf("query next finished stock batch: %v", err)
+	}
+	if nextRemainingG != 908 || nextRemainingUnits != 2 {
+		t.Fatalf("newer finished batch remaining = %dg/%d units, want 908/2", nextRemainingG, nextRemainingUnits)
+	}
+	var deductionCount, ledgerCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.order_stock_deductions WHERE order_id=35 AND batch_code='FP-OLD-454' AND deducted_g=908`, schema)).Scan(&deductionCount); err != nil {
+		t.Fatalf("query batch deductions: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE source_doc_type='sales_order_shipment' AND source_doc_id=35 AND source_batch_code='FP-OLD-454' AND qty_change_g=-908`, schema)).Scan(&ledgerCount); err != nil {
+		t.Fatalf("query batch ledger: %v", err)
+	}
+	if deductionCount != 1 || ledgerCount != 1 {
+		t.Fatalf("batch deduction=%d ledger=%d, want 1/1", deductionCount, ledgerCount)
+	}
+}
+
 func TestOrdersSingleShippingTrackingAPIDeductsReservedFinishedBatch(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()

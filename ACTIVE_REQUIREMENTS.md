@@ -6,10 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-425-SHIPPING-DEDUCT-PRODUCED-STOCK-BATCHES
+- Branch: codex/shipment-deduct-produced-stock-batches-20260606
+- Owner/session: Codex goal E2E / 2026-06-06
+- Status: implementing; local RED/GREEN complete, pending full verification, push/merge/deploy/live GoalE2E batch-stock replay
+- Scope: 生产完成订单发货时必须扣减仓库库存页展示的 `stock_batches` 成品批次库存；默认成品仓无分配订单应优先用 FIFO 成品批次扣减，只有没有批次库存时才回退旧 `finished_inventory`。
+- DEV:
+  - DEV-425-SHIPPING-NO-ALLOCATION-BATCH-FIFO：发货无分配兜底复用 `previewOrderStockBatches` 和 `deductFinishedBatchAllocationTx`，默认 `finished_goods` 优先扣成品批次。
+- Verifier:
+  - RED browser/live: PR-424 部署后，GoalE2E 订单 `SO-20260605-0001` 的 `finished_inventory` 已扣减且 `sales_order_shipment` 流水存在，但内置浏览器 `仓库库存` 仍显示成品批次 `FP-0000000031/32/33/34` 保持原数量。
+  - RED local: `go test ./internal/interfaces/http/support -run TestDev425ShippingNoAllocationFallbackDeductsFinishedBatches -count=1` failed before implementation because no-allocation fallback had no `previewOrderStockBatches` / `deductFinishedBatchAllocationTx` path.
+  - GREEN local: `go test ./internal/interfaces/http/support -run 'TestDev425ShippingNoAllocationFallbackDeductsFinishedBatches|TestDev424ShippingDeductsDefaultFinishedInventoryWithoutAllocation' -count=1` passed.
+  - API behavior test: `TestOrdersShippingTrackingAPIDeductsDefaultFinishedBatchWithoutAllocation` is present but skips locally without `ORDERAPP_TEST_DATABASE_URL`.
+- Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-424-SHIPPING-DEDUCT-PRODUCED-FINISHED-STOCK
 - Branch: codex/shipment-deduct-produced-finished-stock-20260606
 - Owner/session: Codex goal E2E / 2026-06-06
-- Status: implementing; local RED/GREEN complete, pending full verification, push/merge/deploy/live GoalE2E shipment replay
+- Status: merged and deployed to development; live GoalE2E legacy-summary replay passed, followed by PR-425 for batch-stock UI consistency
 - Scope: 生产完成订单回填快递单号并标记已发货时，即使没有 `order_stock_batch_allocations` 分配记录，只要来源仓是默认 `finished_goods`，也必须按订单行扣成品库存并写 `sales_order_shipment` 流水。
 - DEV:
   - DEV-424-SHIPPING-NO-ALLOCATION-FALLBACK：发货扣库存无分配兜底逻辑覆盖默认 `finished_goods`，不再只处理非默认来源仓。
@@ -18,6 +33,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED local: `go test ./internal/interfaces/http/support -run TestDev424ShippingDeductsDefaultFinishedInventoryWithoutAllocation -count=1` failed because `order_stock_deductions.go` skipped `finished_goods` no-allocation orders.
   - GREEN local: `go test ./internal/interfaces/http/support -run TestDev424ShippingDeductsDefaultFinishedInventoryWithoutAllocation -count=1` passed.
   - API behavior test: `TestOrdersShippingTrackingAPIDeductsDefaultFinishedInventoryWithoutAllocation` is present but skips locally without `ORDERAPP_TEST_DATABASE_URL`.
+  - Deploy/live: origin/develop `149cb31d41741f745d89bc0279af50baa6a7449e`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606004238`; replay on `SO-20260605-0001` created four `sales_order_shipment` rows and deducted `finished_inventory`, duplicate replay did not double-deduct.
 - Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
 - Last update: 2026-06-06 Asia/Shanghai
 
