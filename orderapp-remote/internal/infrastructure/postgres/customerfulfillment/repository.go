@@ -2373,7 +2373,9 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 			return
 		}
 		key := fmt.Sprintf("%d|%s|%s", row.ProductID, row.ProductName, row.Spec)
-		if row.ProductID > 0 {
+		if row.CustomerProductAliasID > 0 {
+			key = fmt.Sprintf("alias:%d", row.CustomerProductAliasID)
+		} else if row.ProductID > 0 {
 			key = fmt.Sprintf("product:%d", row.ProductID)
 		} else if row.SKUCode != "" {
 			key = "sku:" + row.SKUCode

@@ -100,6 +100,20 @@ func TestOrderListWhereSupportsMineAndFulfillmentScopes(t *testing.T) {
 	}
 }
 
+func TestOrdersSummaryExposesPendingSettlementAmount(t *testing.T) {
+	summary := salesapp.OrdersSummary{
+		Orders:                  10,
+		Customers:               1,
+		TotalAmount:             "980.00",
+		PaidAmount:              "128.00",
+		PendingSettlementAmount: "852.00",
+	}
+
+	if summary.PendingSettlementAmount != "852.00" || summary.TotalAmount != "980.00" || summary.PaidAmount != "128.00" {
+		t.Fatalf("summary settlement amounts = %+v", summary)
+	}
+}
+
 func TestResolveOrderFulfillmentMarkersPreservesExistingGeneratedOrderScope(t *testing.T) {
 	portalServiceCode, sourceWarehouse := resolveOrderFulfillmentMarkers("direct_ship", "finished_goods", "product_order", "finished_goods")
 	if portalServiceCode != "direct_ship" || sourceWarehouse != "finished_goods" {

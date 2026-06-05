@@ -426,8 +426,11 @@ type OrderEditData struct {
 }
 
 type OrdersSummary struct {
-	Orders    int `json:"orders"`
-	Customers int `json:"customers"`
+	Orders                  int    `json:"orders"`
+	Customers               int    `json:"customers"`
+	TotalAmount             string `json:"total_amount,omitempty"`
+	PaidAmount              string `json:"paid_amount,omitempty"`
+	PendingSettlementAmount string `json:"pending_settlement_amount,omitempty"`
 }
 
 type OrderRow struct {

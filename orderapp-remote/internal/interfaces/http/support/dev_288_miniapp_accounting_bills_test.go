@@ -59,7 +59,7 @@ func TestMiniappAccountingBillsSourceWiring(t *testing.T) {
 		filepath.Join("internal", "application", "customerportal", "service.go"): {
 			"settlementAccountingSummary",
 			"应收总额",
-			"未付款金额",
+			"待结算金额",
 			"PaymentMethod",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "customerportal", "business_repository.go"): {

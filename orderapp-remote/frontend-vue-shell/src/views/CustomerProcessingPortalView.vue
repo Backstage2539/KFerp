@@ -597,6 +597,7 @@ const metrics = computed(() => [
   canSubmitProcessing.value ? { label: '加工工单', value: (overview.value.processing_orders || []).length } : null,
   canViewInventory.value ? { label: '成品库存', value: (overview.value.finished_goods || []).length } : null,
   canDirectShip.value ? { label: '履约订单', value: fulfillmentOrdersSummary.value.orders || fulfillmentOrders.value.length } : null,
+  canDirectShip.value ? { label: '待结算金额', value: money(fulfillmentOrdersSummary.value.pending_settlement_amount || 0) } : null,
 ].filter(Boolean))
 
 onMounted(() => {
@@ -675,8 +676,15 @@ async function submitDirectShip() {
     const items = directShipItems.value
       .map((row) => ({
         product_id: Number(row.product_id || 0),
+        customer_product_alias_id: Number(row.customer_product_alias_id || 0),
+        customer_product_display_name_snapshot: String(row.customer_product_display_name || row.product_name || '').trim(),
+        customer_item_code_snapshot: String(row.customer_item_code || '').trim(),
+        product_code_snapshot: String(row.product_code || '').trim(),
+        product_name_snapshot: String(row.product_record_name || '').trim(),
         product_name: String(row.product_name || '').trim(),
+        spec: row.spec_g ? `${Number(row.spec_g)}g` : '',
         spec_g: Number(row.spec_g || 0),
+        sales_unit: String(row.sales_unit || '').trim(),
         quantity_units: Number(row.qty || 0),
       }))
       .filter((row) => row.product_id > 0 && row.spec_g > 0 && row.quantity_units > 0)
@@ -807,9 +815,15 @@ function selectProcessingRawBean(option) {
 
 function selectDirectShipItemProduct(row, option) {
   row.product_id = Number(option?.product_id || 0)
+  row.customer_product_alias_id = Number(option?.customer_product_alias_id || 0)
+  row.customer_product_display_name = String(option?.customer_product_display_name || option?.product_name || '').trim()
+  row.customer_item_code = String(option?.customer_item_code || option?.sku_code || '').trim()
+  row.product_code = String(option?.product_code || '').trim()
+  row.product_record_name = String(option?.product_record_name || '').trim()
   row.product_name = String(option?.product_name || '').trim()
   row.product_value = productOptionValue(option)
   row.spec_g = parseSpecG(option?.spec) || firstTierSpecG(option) || 454
+  row.sales_unit = String(Array.isArray(option?.sales_units) ? option.sales_units[0] || '' : option?.sales_unit || '').trim()
   if (!toInt(row.qty)) row.qty = 1
   syncDirectShipItemPrice(row)
   ensureSingleTrailingEmptyRow()
@@ -858,6 +872,8 @@ function productOptionMeta(option) {
 }
 
 function productOptionValue(option) {
+  const aliasID = Number(option?.customer_product_alias_id || 0)
+  if (aliasID > 0) return `alias:${aliasID}:${option?.spec || ''}:${option?.warehouse || ''}:${option?.source || ''}`
   if (Number(option?.product_id || 0) > 0) {
     return `product:${option.product_id}:${option?.spec || ''}:${option?.warehouse || ''}:${option?.source || ''}`
   }
@@ -900,7 +916,10 @@ function uniqueProductOptions(rows) {
     const name = String(row?.product_name || '').trim()
     if (!name) continue
     const normalized = { ...row, product_name: name, spec: String(row?.spec || '').trim() }
-    const key = `${normalized.product_id || 0}|${normalized.product_name}|${normalized.spec}|${normalized.warehouse || ''}|${normalized.source || ''}`
+    const aliasID = Number(normalized.customer_product_alias_id || 0)
+    const key = aliasID > 0
+      ? `alias:${aliasID}|${normalized.spec}|${normalized.warehouse || ''}|${normalized.source || ''}`
+      : `${normalized.product_id || 0}|${normalized.product_name}|${normalized.spec}|${normalized.warehouse || ''}|${normalized.source || ''}`
     if (seen.has(key)) continue
     seen.add(key)
     out.push(normalized)
@@ -912,9 +931,15 @@ function newDirectShipItem() {
   return {
     key: `${Date.now()}-${Math.random()}`,
     product_id: 0,
+    customer_product_alias_id: 0,
+    customer_product_display_name: '',
+    customer_item_code: '',
+    product_code: '',
+    product_record_name: '',
     product_name: '',
     product_value: '',
     spec_g: 454,
+    sales_unit: '',
     qty: 1,
     tier_id: 'auto',
     unit_price: '',
@@ -931,8 +956,17 @@ function productByID(id) {
   return directShipProductOptions.value.find((item) => Number(item.product_id || 0) === Number(id)) || null
 }
 
+function productForDirectShipRow(row) {
+  const aliasID = Number(row?.customer_product_alias_id || 0)
+  if (aliasID > 0) {
+    const byAlias = directShipProductOptions.value.find((item) => Number(item.customer_product_alias_id || 0) === aliasID)
+    if (byAlias) return byAlias
+  }
+  return productByID(row?.product_id)
+}
+
 function syncDirectShipItemPrice(row) {
-  const product = productByID(row.product_id)
+  const product = productForDirectShipRow(row)
   if (!product) {
     row.tier_id = 'auto'
     row.unit_price = ''
@@ -944,7 +978,7 @@ function syncDirectShipItemPrice(row) {
 }
 
 function rowLineTotal(row) {
-  const base = lineTotal(productByID(row.product_id), row, false)
+  const base = lineTotal(productForDirectShipRow(row), row, false)
   return base > 0 ? base : 0
 }
 
@@ -953,7 +987,7 @@ function priceUnitLabel(row) {
 }
 
 function rowTierRows(row) {
-  return wholesaleTierPriceRows(productByID(row.product_id), row)
+  return wholesaleTierPriceRows(productForDirectShipRow(row), row)
 }
 
 function rowTierActive(row, tier) {

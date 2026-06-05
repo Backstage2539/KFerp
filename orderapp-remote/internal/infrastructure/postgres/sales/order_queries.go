@@ -247,14 +247,17 @@ func fetchOrdersSummary(ctx context.Context, pool *pgxpool.Pool, schema string, 
 
 	sql := fmt.Sprintf(`
 		SELECT count(*)::int AS orders,
-		       count(distinct o.customer_id)::int AS customers
+		       count(distinct o.customer_id)::int AS customers,
+		       COALESCE(to_char(COALESCE(SUM(o.grand_total),0), 'FM999999999999990.00'), '0.00') AS total_amount,
+		       COALESCE(to_char(COALESCE(SUM(CASE WHEN COALESCE(o.pay_status_id,0)=2 THEN o.grand_total ELSE 0 END),0), 'FM999999999999990.00'), '0.00') AS paid_amount,
+		       COALESCE(to_char(COALESCE(SUM(CASE WHEN COALESCE(o.pay_status_id,0)=2 THEN 0 ELSE o.grand_total END),0), 'FM999999999999990.00'), '0.00') AS pending_settlement_amount
 		FROM %s.orders o
 		LEFT JOIN %s.customers c ON c.id = o.customer_id
 		%s
 	`, schema, schema, wsql)
 
 	var s salesapp.OrdersSummary
-	if err := pool.QueryRow(ctx, sql, args...).Scan(&s.Orders, &s.Customers); err != nil {
+	if err := pool.QueryRow(ctx, sql, args...).Scan(&s.Orders, &s.Customers, &s.TotalAmount, &s.PaidAmount, &s.PendingSettlementAmount); err != nil {
 		return salesapp.OrdersSummary{}, err
 	}
 	return s, nil
