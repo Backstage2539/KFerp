@@ -14,6 +14,6 @@
 
 ## Deployment Acceptance
 
-- Pending: deploy to development and replay GoalE2E remaining drip-bag production.
-- Expected: `/api/produce/unproduced?from=2026-06-05&to=2026-06-05&customer_id=164` returns the remaining `GoalE2E-0605-234447 咖啡挂耳` row for `SO-20260605-0001`.
-- Expected: `/api/produce/start` accepts selected `534-10`, and `/api/produce/running/finish` writes a production log for product `534`.
+- Passed on development after deploy `c3acd2c2894927deda34d1d8203019d246e45e6b`.
+- `/api/produce/unproduced?from=2026-06-05&to=2026-06-05&customer_id=164` returned remaining GoalE2E rows after the order had entered `生产中`, including `GoalE2E-0605-234447 咖啡挂耳` `534-10`.
+- Follow-up PR-423 then allowed `/api/produce/start` and `/api/produce/running/finish` to complete the remaining挂耳 production.

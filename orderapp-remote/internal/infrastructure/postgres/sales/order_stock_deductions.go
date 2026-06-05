@@ -84,7 +84,7 @@ func (r Repository) deductOrderAllocatedStockTx(ctx context.Context, tx pgx.Tx, 
 			return err
 		}
 	}
-	if len(allocations) == 0 && warehouse != "finished_goods" {
+	if len(allocations) == 0 {
 		return r.deductOrderSourceWarehouseItemsTx(ctx, tx, orderID, warehouse, actor)
 	}
 	return nil

@@ -6,10 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-424-SHIPPING-DEDUCT-PRODUCED-FINISHED-STOCK
+- Branch: codex/shipment-deduct-produced-finished-stock-20260606
+- Owner/session: Codex goal E2E / 2026-06-06
+- Status: implementing; local RED/GREEN complete, pending full verification, push/merge/deploy/live GoalE2E shipment replay
+- Scope: 生产完成订单回填快递单号并标记已发货时，即使没有 `order_stock_batch_allocations` 分配记录，只要来源仓是默认 `finished_goods`，也必须按订单行扣成品库存并写 `sales_order_shipment` 流水。
+- DEV:
+  - DEV-424-SHIPPING-NO-ALLOCATION-FALLBACK：发货扣库存无分配兜底逻辑覆盖默认 `finished_goods`，不再只处理非默认来源仓。
+- Verifier:
+  - RED live: GoalE2E 订单 `SO-20260605-0001` 调用 `/api/orders/1487/shipping-tracking` 成功后变为 `已发货` 且快递号为 `SF-0605234447`，但 `finished_inventory` 未扣减，`order_stock_deductions` 和 `sales_order_shipment` 流水均为 0。
+  - RED local: `go test ./internal/interfaces/http/support -run TestDev424ShippingDeductsDefaultFinishedInventoryWithoutAllocation -count=1` failed because `order_stock_deductions.go` skipped `finished_goods` no-allocation orders.
+  - GREEN local: `go test ./internal/interfaces/http/support -run TestDev424ShippingDeductsDefaultFinishedInventoryWithoutAllocation -count=1` passed.
+  - API behavior test: `TestOrdersShippingTrackingAPIDeductsDefaultFinishedInventoryWithoutAllocation` is present but skips locally without `ORDERAPP_TEST_DATABASE_URL`.
+- Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-423-PRODUCTION-BOM-PRODUCT-COMPONENT-CONSUMPTION
 - Branch: codex/production-bom-product-component-consumption-20260606
 - Owner/session: Codex goal E2E / 2026-06-06
-- Status: implementing; local targeted green, pending push/merge/deploy/live GoalE2E replay
+- Status: merged and deployed to development; live GoalE2E drip production replay passed
 - Scope: 新生产 BOM 明细使用 `component_type=product` 表示商品组件；生产启动和完工扣减必须把它当作旧 `finished_product` 成品组件处理，支持挂耳消耗已生产熟豆。
 - DEV:
   - DEV-423-PRODUCTION-BOM-PRODUCT-COMPONENT-NORMALIZE：生产计划和生产消耗层统一把 BOM `product` 组件归一化为成品组件扣减路径。
@@ -18,13 +33,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED local: `go test ./internal/infrastructure/postgres/production -run TestNormalizeBomComponentTypeAcceptsProductionBomProductComponents -count=1` failed because `product` normalized to `material`.
   - GREEN targeted: `go test ./internal/infrastructure/postgres/production -run 'TestNormalizeBomComponentTypeAcceptsProductionBomProductComponents|TestCurrentMaterialNeedsDeductsFinishedProductComponent' -count=1` passed.
   - GREEN production packages: `go test ./internal/infrastructure/postgres/production ./internal/interfaces/http/production -count=1` passed.
+  - Deploy/live: origin/develop `6d86f5ee581966813407425a7593ea99b036c1d1`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606002758`; GoalE2E batch `A20260605-163043-0f` completed挂耳 product `534`, production log id `13` consumed熟豆 product `532` as finished-product component.
 - Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
 - Last update: 2026-06-06 Asia/Shanghai
 
 ### PR-422-PRODUCTION-PLAN-IN-PROGRESS-REMAINING
 - Branch: codex/production-plan-include-in-progress-20260606
 - Owner/session: Codex goal E2E / 2026-06-06
-- Status: implementing; local source guard green, pending push/merge/deploy/live GoalE2E replay
+- Status: merged and deployed to development; live GoalE2E remaining-plan replay passed
 - Scope: 部分商品开始或完工后，订单状态会进入 `生产中`；生产计划必须继续列出该订单里尚未生产完成的剩余商品，包括挂耳等需要后续生产的商品。
 - DEV:
   - DEV-422-PRODUCTION-PLAN-OPEN-STATUS：生产计划主缺口查询和挂耳专用缺口查询共用生产计划开放状态过滤器，纳入空状态、`待处理`、`待生产` 和 `生产中`。
@@ -33,6 +49,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED local: `go test ./internal/interfaces/http/support -run TestDev422ProductionPlanIncludesInProgressOrders -count=1` failed before fix because plan queries did not use a shared filter including `生产中`.
   - GREEN local: `go test ./internal/interfaces/http/support -run TestDev422ProductionPlanIncludesInProgressOrders -count=1` passed.
   - Integration behavior test: `go test ./internal/interfaces/http/production -run TestProducePlanIncludesInProgressOrdersWithRemainingItems -count=1 -v` is present but skips without `ORDERAPP_TEST_DATABASE_URL`.
+  - Deploy/live: origin/develop `c3acd2c2894927deda34d1d8203019d246e45e6b`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606001849`; GoalE2E 订单进入 `生产中` 后 `/api/produce/unproduced` 返回剩余挂耳 `534-10`。
 - Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
 - Last update: 2026-06-06 Asia/Shanghai
 

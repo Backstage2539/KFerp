@@ -701,3 +701,8 @@
 - 新生产 BOM 明细使用 `component_type=product` 表示商品/半成品组件；生产消耗层必须将它等价于旧 `finished_product` 组件处理。
 - 挂耳 BOM 使用熟豆商品作为组件时，开始生产不得报 `product BOM not configured`；完工时必须扣减上游熟豆成品库存并写入成品组件消耗流水。
 - 旧 `component_type=finished_product` 历史数据继续兼容，不回改历史 BOM。
+
+## 33. 发货扣减生产完成成品库存（PR-424-SHIPPING-DEDUCT-PRODUCED-FINISHED-STOCK）
+- 生产完成订单回填快递单号并标记 `已发货` 时，必须同时扣减对应成品库存并写 `sales_order_shipment` 出库流水。
+- 即使订单没有 `order_stock_batch_allocations` 分配记录，只要订单来源仓是默认 `finished_goods`，也不得跳过出库扣减。
+- 扣减应按订单行商品、规格和数量计算；已扣减订单重复回填快递单号不得重复扣库存。

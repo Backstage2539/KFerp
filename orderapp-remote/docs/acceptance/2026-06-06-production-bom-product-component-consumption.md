@@ -14,6 +14,7 @@
 
 ## Deployment Acceptance
 
-- Pending: deploy to development and replay GoalE2E drip-bag production.
-- Expected: `/api/produce/start` accepts selected `534-10`.
-- Expected: `/api/produce/running/finish` writes a production log for product `534` and consumes product `532` as a finished-product component.
+- Passed on development after deploy `6d86f5ee581966813407425a7593ea99b036c1d1`.
+- `/api/produce/start` accepted selected `534-10` and created batch `A20260605-163043-0f`.
+- `/api/produce/running/finish` completed product `534` with 20 units / 200g.
+- Production log id `13` recorded `GoalE2E-0605-234447 咖啡挂耳` output and consumed product `532` `GoalE2E-0605-234447 咖啡熟豆` as a finished-product component.

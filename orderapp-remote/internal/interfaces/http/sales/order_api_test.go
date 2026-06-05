@@ -3993,6 +3993,56 @@ func TestOrdersShippingTrackingAPIDeductsOrderSourceWarehouseWithoutAllocation(t
 	}
 }
 
+func TestOrdersShippingTrackingAPIDeductsDefaultFinishedInventoryWithoutAllocation(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.ship_statuses(id,name) VALUES (2,'已发货') ON CONFLICT DO NOTHING;
+		INSERT INTO %s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES (33, 'SO-PRODUCED-NO-ALLOC-SHIP', '2026-06-06', 3, 1, 2, 1, (SELECT id FROM %s.order_process_statuses WHERE name='生产完成' LIMIT 1), 100, false);
+		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total)
+		VALUES (33,1,7,'橘皮乌龙',2,'袋','454g',50,100);
+		INSERT INTO %s.finished_inventory(product_id,spec_g,warehouse,onhand_units,onhand_loose_g)
+		VALUES (7,454,'finished_goods',3,0);
+	`, schema, schema, schema, schema, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	body, _ := json.Marshal(map[string]any{"tracking_no": "SF-PRODUCED-001"})
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/33/shipping-tracking", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/33/shipping-tracking status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var units, looseG int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT onhand_units,onhand_loose_g
+		FROM %s.finished_inventory
+		WHERE product_id=7 AND spec_g=454 AND warehouse='finished_goods'
+	`, schema)).Scan(&units, &looseG); err != nil {
+		t.Fatalf("query finished inventory: %v", err)
+	}
+	if units != 1 || looseG != 0 {
+		t.Fatalf("finished inventory after produced shipment = %d units + %dg, want 1 + 0g", units, looseG)
+	}
+	var deductionCount, ledgerCount int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.order_stock_deductions WHERE order_id=33 AND batch_code='SOURCE-WH:finished_goods' AND deducted_g=908`, schema)).Scan(&deductionCount); err != nil {
+		t.Fatalf("query default warehouse deductions: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s.stock_ledger_entries WHERE source_doc_type='sales_order_shipment' AND source_doc_id=33 AND warehouse='finished_goods' AND qty_change_g=-908`, schema)).Scan(&ledgerCount); err != nil {
+		t.Fatalf("query default warehouse ledger: %v", err)
+	}
+	if deductionCount != 1 || ledgerCount != 1 {
+		t.Fatalf("default warehouse deduction=%d ledger=%d, want 1/1", deductionCount, ledgerCount)
+	}
+}
+
 func TestOrdersSingleShippingTrackingAPIDeductsReservedFinishedBatch(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
