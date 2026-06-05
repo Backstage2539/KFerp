@@ -1004,7 +1004,7 @@
             <div class="field-group-head">
               <div class="field-group-copy">
                 <strong>被哪些 BOM 使用</strong>
-                <small>BOM 在生产模块维护；这里仅只读查看哪些 BOM 产出或消耗这个商品。</small>
+                <small>BOM 在生产模块维护；这里仅只读查看把这个商品当作组件消耗的上层 BOM。</small>
               </div>
             </div>
             <div class="production-config-grid reverse-bom-grid single-column">

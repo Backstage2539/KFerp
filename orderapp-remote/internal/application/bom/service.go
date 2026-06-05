@@ -91,6 +91,7 @@ type Detail struct {
 
 type Option struct {
 	ID              int64   `json:"id"`
+	ProductCode     string  `json:"product_code,omitempty"`
 	Name            string  `json:"name"`
 	CustomerID      int64   `json:"customer_id"`
 	RoastLevel      string  `json:"roast_level,omitempty"`

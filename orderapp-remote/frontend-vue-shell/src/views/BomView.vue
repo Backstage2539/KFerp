@@ -548,7 +548,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { filterProductionBomCatalog, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
+import { bomProductOptionLabel, filterProductionBomCatalog, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
 import { componentTypeLabel } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -799,7 +799,7 @@ function isMovableBomRow(row = {}) {
 }
 
 function optionLabel(option) {
-  return option?.name || ''
+  return bomProductOptionLabel(option)
 }
 
 function optionMeta(option) {

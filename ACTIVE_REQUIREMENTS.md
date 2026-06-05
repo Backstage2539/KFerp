@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-419-BOM-USAGE-LOOKUP-CLEANUP
 - Branch: codex/bom-usage-main-followup-20260605
 - Owner/session: Codex / 2026-06-05
-- Status: verified locally; pending push, develop merge and development deploy
+- Status: merged to origin/develop; pending development deploy/browser acceptance
 - Scope: 收敛商品档案和生产 BOM 的“被哪些 BOM 使用”口径：商品档案只展示把该商品作为组件消耗的上层生产 BOM，不展示产出该商品的 BOM；列表删除重复标题、关系前缀和版本号，失效商品不展示且同一 BOM 只展示一次；生产 BOM 列表删除“编辑”按钮，点击 BOM 名称直接打开设置抽屉；修复 `BOM-000884 初晓拼配 / V002` 不应被自己或 `BOM-000518 初晓 生产 BOM` 使用的问题。
 - DEV:
   - DEV-419-BOM-USAGE-BACKEND-COMPONENT-ONLY：`/api/production-bom-product-usage/:product_id` 和 BOM 详情 `used_by_boms` 使用组件反查，过滤失效商品/失效上层 BOM，排除自引用并按上层 BOM 去重，不再返回 `relation_type=output`。
@@ -25,6 +25,33 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN diff check: `git diff --check` exited 0.
   - Browser QA: pending development deploy.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-05-bom-usage-lookup-cleanup.md`.
+- Integration: merged to `origin/develop=d3197c3bf50f03122f86c5c1da23f6dc42e33759`.
+- Last update: 2026-06-05 Asia/Shanghai
+
+### PR-420-BOM-PRODUCT-SKU-SELECTOR
+- Branch: codex/bom-output-product-sku-label-20260605
+- Owner/session: Codex / 2026-06-05
+- Status: verified locally; pending push, develop merge and development deploy
+- Scope: 继续处理 Van 对 `BOM-000884 初晓拼配 / V002` 和 `SKU-000518 初晓` 的反馈：PR-419 已把“被哪些 BOM 使用”收敛为组件反查并合入 develop；本轮补 BOM 编辑/新建抽屉的产出商品和商品组件候选显示 SKU 编号，避免同名“初晓”无法区分，并修正商品档案反查说明文案。
+- DEV:
+  - DEV-420-BOM-PRODUCT-SKU-LABEL：`/api/bom/products` 返回 `product_code`；`BomView.vue` 的产出商品和商品组件 `SearchableSelect` 主标签显示 `SKU编号 商品名`，无显式编号时按商品 id 生成 `SKU-000xxx` 兜底。
+  - DEV-420-PRODUCT-USAGE-COPY：商品档案“被哪些 BOM 使用”说明改为组件反查口径，不再写“产出或消耗”。
+  - DEV-420-MANUAL-DOCS-PROGRESS：更新需求 seed、生产手册、验收清单和 acceptance 记录。
+- Verifier:
+  - RED frontend: `node --test src/lib/bom.test.js` failed because `bomProductOptionLabel` was not exported.
+  - RED API: `go test ./internal/interfaces/http/bom -run TestBomListAndProductsExposeCustomerID -count=1` failed because `Option` lacked `ProductCode`.
+  - RED copy: `node --test src/lib/product-settings.test.js` failed because the drawer still said `产出或消耗`.
+  - GREEN frontend: `node --test src/lib/bom.test.js` passed 12/12.
+  - GREEN product settings: `node --test src/lib/product-settings.test.js` passed 109/109.
+  - GREEN API: `go test ./internal/interfaces/http/bom -run TestBomListAndProductsExposeCustomerID -count=1` passed.
+  - GREEN targeted frontend: `node --test src/lib/bom.test.js src/lib/product-settings.test.js` passed 121/121.
+  - GREEN targeted Go/API: `go test ./internal/application/bom ./internal/infrastructure/postgres/bom ./internal/interfaces/http/bom ./internal/interfaces/http/support -count=1` passed.
+  - GREEN full Go: `go test ./...` in `orderapp-remote` passed.
+  - GREEN build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size/plugin timing warnings.
+  - GREEN changed verifier: `scripts/verify_kferp.sh changed` exited 0.
+  - GREEN diff check: `git diff --check` exited 0.
+  - Browser QA: pending development deploy.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-05-bom-product-sku-selector.md`.
 - Last update: 2026-06-05 Asia/Shanghai
 
 ### PR-418-BOM-FOLLOWUP-USAGE-UNITS

@@ -2377,6 +2377,7 @@ test('product archive config drawer only shows BOM usage relation instead of bin
   assert.match(source, /productBomUsageByProductID/)
   assert.doesNotMatch(drawer, /生产反查/)
   assert.doesNotMatch(drawer, /可生产 BOM/)
+  assert.doesNotMatch(drawer, /产出或消耗/)
   assert.doesNotMatch(drawer, /产出该商品/)
   assert.doesNotMatch(drawer, /作为组件/)
   assert.doesNotMatch(drawer, /row\.bom_version_no/)

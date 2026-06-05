@@ -7,6 +7,21 @@ export function isBomProductCandidate(row = {}) {
   return normalizedBomProductKind(row) !== 'green_bean'
 }
 
+export function bomProductCode(row = {}) {
+  const explicit = String(row.product_code || row.productCode || row.sku_code || row.skuCode || row.code || '').trim()
+  if (explicit) return explicit
+  const id = Number(row.product_id || row.productID || row.id || 0)
+  return id > 0 ? `SKU-${String(id).padStart(6, '0')}` : ''
+}
+
+export function bomProductOptionLabel(row = {}) {
+  const name = String(row.name || row.product_name || row.productName || row.product || '').trim()
+  const code = bomProductCode(row)
+  if (!name) return code
+  if (!code || name.toLowerCase().includes(code.toLowerCase())) return name
+  return `${code} ${name}`
+}
+
 export function bomRowCustomerID(row = {}) {
   return Number(row.customer_id ?? row.customerID ?? 0)
 }

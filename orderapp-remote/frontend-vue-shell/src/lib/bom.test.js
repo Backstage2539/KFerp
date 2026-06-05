@@ -10,6 +10,7 @@ import {
   productionBomDetailAsRecipeDetail,
   sortBomContextProducts,
   filterProductionBomCatalog,
+  bomProductOptionLabel,
 } from './bom.js'
 
 test('BOM context shows public and current-customer SKUs while hiding other customers and green beans', () => {
@@ -47,6 +48,13 @@ test('BOM rows can be focused to the SKU product from settings navigation', () =
 
   assert.deepEqual(filterBomRowsByProductFocus(rows, 10).map((row) => row.product_id), [10])
   assert.deepEqual(filterBomRowsByProductFocus(rows, 0).map((row) => row.product_id), [10, 11, 12])
+})
+
+test('BOM product selector labels include stable SKU codes before duplicate names', () => {
+  assert.equal(bomProductOptionLabel({ id: 518, name: '初晓' }), 'SKU-000518 初晓')
+  assert.equal(bomProductOptionLabel({ product_id: 884, product_name: '初晓拼配' }), 'SKU-000884 初晓拼配')
+  assert.equal(bomProductOptionLabel({ id: 518, product_code: 'SKU-000518', name: '初晓' }), 'SKU-000518 初晓')
+  assert.equal(bomProductOptionLabel({ id: 518, product_code: 'SKU-000518', name: 'SKU-000518 初晓' }), 'SKU-000518 初晓')
 })
 
 test('production BOM detail is projected as recipe detail with output product label', () => {
