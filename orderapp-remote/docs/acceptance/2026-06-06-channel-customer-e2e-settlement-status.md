@@ -9,9 +9,12 @@
 - RED：`node --test src/lib/customer-portal-theme.test.js` 曾因客户工作台没有 `待结算金额` 指标失败。
 - RED：`go test ./internal/infrastructure/postgres/customerfulfillment -run TestCustomerFulfillmentOptionsUseCustomerProductAliases -count=1` 曾因客户商品选项按 `product_id` 去重导致同一商品档案多个客户 SKU 被合并失败。
 - RED：`go test ./internal/interfaces/http/catalog -run TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames -count=1` 曾因客户商品保存接口未传递 `customer_item_code` 失败。
+- RED：development 客户工作台提交挂耳客户 SKU 曾返回 `product BOM not configured`；`go test ./internal/interfaces/http/support -run TestDev426DripCustomerOrderAcceptsProductionBOMModel -count=1` 曾因客户履约/小程序挂耳下单只检查旧 `product_bom` 失败。
 - GREEN：`go test ./internal/infrastructure/postgres/sales ./internal/application/customerportal -run 'TestOrdersSummaryExposesPendingSettlementAmount|TestGetSettlementServicePageSummaryShowsReceivableLedger' -count=1` 通过。
 - GREEN：`go test ./internal/infrastructure/postgres/customerfulfillment -run TestCustomerFulfillmentOptionsUseCustomerProductAliases -count=1` 通过。
 - GREEN：`go test ./internal/interfaces/http/catalog -run TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames -count=1` 通过。
+- GREEN：`go test ./internal/interfaces/http/support -run TestDev426DripCustomerOrderAcceptsProductionBOMModel -count=1` 通过。
+- GREEN：`go test ./internal/infrastructure/postgres/customerfulfillment ./internal/infrastructure/postgres/customerportal -count=1` 通过。
 - GREEN：`node --test src/lib/customer-portal-theme.test.js` 通过。
 
 ## 待补充 Live 验收

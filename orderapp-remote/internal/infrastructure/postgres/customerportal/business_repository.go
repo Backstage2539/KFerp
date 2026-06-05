@@ -1702,10 +1702,45 @@ func (r Repository) ensurePortalDripProductHasActiveBOMTx(ctx context.Context, t
 	`, r.schema, r.schema), productID).Scan(&exists); err != nil {
 		return err
 	}
-	if !exists {
-		return fmt.Errorf("product BOM not configured")
+	if exists {
+		return nil
 	}
-	return nil
+	productionBomExists, err := r.portalProductionBOMConfiguredForProductTx(ctx, tx, productID)
+	if err != nil {
+		return err
+	}
+	if productionBomExists {
+		return nil
+	}
+	return fmt.Errorf("product BOM not configured")
+}
+
+func (r Repository) portalProductionBOMConfiguredForProductTx(ctx context.Context, tx pgx.Tx, productID int64) (bool, error) {
+	for _, relation := range []string{"production_boms", "production_bom_versions", "production_bom_version_items"} {
+		if !portalRelationExists(ctx, tx, fmt.Sprintf("%s.%s", r.schema, relation)) {
+			return false, nil
+		}
+	}
+	var exists bool
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM %[1]s.production_boms pb
+			JOIN %[1]s.production_bom_versions v ON v.bom_id=pb.id AND v.status='published'
+			JOIN %[1]s.production_bom_version_items i ON i.version_id=v.id
+			WHERE pb.status='active'
+			  AND (pb.output_product_id=$1 OR pb.legacy_product_id=$1)
+		)
+	`, r.schema), productID).Scan(&exists)
+	return exists, err
+}
+
+func portalRelationExists(ctx context.Context, tx pgx.Tx, relation string) bool {
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, relation).Scan(&exists); err != nil {
+		return false
+	}
+	return exists
 }
 
 func (r Repository) portalDripUnitPriceTiersTx(ctx context.Context, tx pgx.Tx, productID int64) ([]salesdomain.UnitPriceTier, error) {
