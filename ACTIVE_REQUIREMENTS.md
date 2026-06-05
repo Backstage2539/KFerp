@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-421-ORDER-RECEIVER-COMPANY-EMPTY
+- Branch: codex/order-receiver-company-empty-20260605
+- Owner/session: Codex goal E2E / 2026-06-05
+- Status: verified locally; pending push, develop merge and development deploy
+- Scope: 录单时收货单位可为空；订单保存不得把 `receiver_company` 等 NOT NULL 收货字段写成 NULL，也不得向前端暴露原始 SQL not-null 错误。
+- DEV:
+  - DEV-421-ORDER-RECEIVER-NONNULL：新建订单保存时 `receiver_name/receiver_phone/receiver_address/receiver_company` 统一写入 trim 后字符串，空值落库为空字符串。
+- Verifier:
+  - RED: GoalE2E 线上 API 保存四类商品订单，`receiver_company` 为空时返回 `null value in column "receiver_company" ... SQLSTATE 23502`。
+  - RED local: `go test ./internal/infrastructure/postgres/sales -run TestSaveOrderReceiverFieldsUseNonNullText -count=1` failed before fix because receiver fields used `nullText`。
+  - GREEN targeted: `go test ./internal/infrastructure/postgres/sales -run TestSaveOrderReceiverFieldsUseNonNullText -count=1` passed.
+  - GREEN targeted API: `go test ./internal/interfaces/http/sales -run 'TestOrderAPI' -count=1` passed.
+  - GREEN sales packages: `go test ./internal/infrastructure/postgres/sales ./internal/interfaces/http/sales -count=1` passed.
+  - GREEN full Go: `go test ./...` in `orderapp-remote` passed.
+  - GREEN build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
+  - GREEN changed verifier: `scripts/verify_kferp.sh changed` exited 0.
+  - GREEN diff check: `git diff --check` exited 0.
+- Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
+- Last update: 2026-06-05 Asia/Shanghai
+
 ### PR-419-BOM-USAGE-LOOKUP-CLEANUP
 - Branch: codex/bom-usage-main-followup-20260605
 - Owner/session: Codex / 2026-06-05

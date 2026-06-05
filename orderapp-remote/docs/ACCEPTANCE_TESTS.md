@@ -863,6 +863,11 @@
 - [ ] 物料列表最左侧表头复选框可全选/取消全选当前列表或当前分组；勾选后点击 `批量失效` 会逐条失效并保留操作日志。
 - [ ] 物料列表支持横向滚动查看宽内容，状态列和物料名称不再被挤成不可读的窄列。
 
+### K29. 录单收货单位空值保存（PR-421-ORDER-RECEIVER-COMPANY-EMPTY）
+- [ ] ERP 录单不填写收货单位时，保存订单成功，不返回 `receiver_company` not-null 或 `SQLSTATE 23502` 错误。
+- [ ] 新建订单的 `receiver_name`、`receiver_phone`、`receiver_address`、`receiver_company` 为空时落库为空字符串，订单详情和订单列表可正常读取。
+- [ ] 四类商品 GoalE2E 订单可在收货单位为空的情况下继续进入生产计划、生产完成和发货流程。
+
 ### K19. 产品价格表显式阶梯价模板（PR-400-PRICE-LIST-EXPLICIT-GRADIENT-TIERS）
 - [ ] `初晓2.5kg装` 这类没有任何明确阶梯价模板的商品在产品价格表预览和发布内容中不出现默认商业阶梯价。
 - [ ] 成本试算仍保留内部 kg/lb 基础价格数组，但 `commercial_wholesale_tiers` 为空时不会在发布保存时补写默认 `2包-13包` 到 `48包+` 档位。

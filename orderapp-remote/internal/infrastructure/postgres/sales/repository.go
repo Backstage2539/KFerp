@@ -1538,10 +1538,10 @@ func (r Repository) SaveOrder(ctx context.Context, cmd salesapp.SaveOrderCommand
 			responsibleName,
 			portalServiceCode,
 			sourceWarehouse,
-			nullText(cmd.ReceiverName),
-			nullText(cmd.ReceiverPhone),
-			nullText(cmd.ReceiverAddress),
-			nullText(cmd.ReceiverCompany),
+			notNullText(cmd.ReceiverName),
+			notNullText(cmd.ReceiverPhone),
+			notNullText(cmd.ReceiverAddress),
+			notNullText(cmd.ReceiverCompany),
 			beanListPublicationID,
 			beanListVersionNo,
 			orderNo,
@@ -2490,6 +2490,10 @@ func nullText(v string) any {
 		return nil
 	}
 	return v
+}
+
+func notNullText(v string) string {
+	return strings.TrimSpace(v)
 }
 
 func nullInt(v int64) any {
