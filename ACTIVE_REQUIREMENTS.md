@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-425-SHIPPING-DEDUCT-PRODUCED-STOCK-BATCHES
 - Branch: codex/shipment-deduct-produced-stock-batches-20260606
 - Owner/session: Codex goal E2E / 2026-06-06
-- Status: implementing; local RED/GREEN complete, pending full verification, push/merge/deploy/live GoalE2E batch-stock replay
+- Status: merged and deployed to development; live GoalE2E batch-stock replay passed
 - Scope: 生产完成订单发货时必须扣减仓库库存页展示的 `stock_batches` 成品批次库存；默认成品仓无分配订单应优先用 FIFO 成品批次扣减，只有没有批次库存时才回退旧 `finished_inventory`。
 - DEV:
   - DEV-425-SHIPPING-NO-ALLOCATION-BATCH-FIFO：发货无分配兜底复用 `previewOrderStockBatches` 和 `deductFinishedBatchAllocationTx`，默认 `finished_goods` 优先扣成品批次。
@@ -18,6 +18,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED local: `go test ./internal/interfaces/http/support -run TestDev425ShippingNoAllocationFallbackDeductsFinishedBatches -count=1` failed before implementation because no-allocation fallback had no `previewOrderStockBatches` / `deductFinishedBatchAllocationTx` path.
   - GREEN local: `go test ./internal/interfaces/http/support -run 'TestDev425ShippingNoAllocationFallbackDeductsFinishedBatches|TestDev424ShippingDeductsDefaultFinishedInventoryWithoutAllocation' -count=1` passed.
   - API behavior test: `TestOrdersShippingTrackingAPIDeductsDefaultFinishedBatchWithoutAllocation` is present but skips locally without `ORDERAPP_TEST_DATABASE_URL`.
+  - Deploy/live: origin/develop `33e6ceb98901de79284a2c765d7118a451d37673`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606005514`; repaired the PR-424 legacy summary replay with audited SQL, reran `/api/orders/1487/shipping-tracking`, and verified `stock_batches` now show熟豆 227g/1 remaining, 生豆/挂耳/速溶 0, duplicate replay no double-deduct; browser `仓库库存` search only shows the remaining熟豆批次.
 - Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
 - Last update: 2026-06-06 Asia/Shanghai
 

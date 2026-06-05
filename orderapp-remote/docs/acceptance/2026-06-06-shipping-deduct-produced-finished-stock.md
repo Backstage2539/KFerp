@@ -15,5 +15,6 @@
 
 ## Deployment Acceptance
 
-- Pending: deploy to development and replay GoalE2E shipment deduction on `SO-20260605-0001` or an equivalent four-product order.
-- Expected: order is `已发货`, `ship_tracking_no` is recorded, finished inventory is deducted, and stock ledger rows exist with `source_doc_type='sales_order_shipment'`.
+- Passed on development after deploy `149cb31d41741f745d89bc0279af50baa6a7449e`.
+- Replayed `/api/orders/1487/shipping-tracking` for `SO-20260605-0001`: order remained `已发货`, `ship_tracking_no=SF-0605234447`, four `sales_order_shipment` rows were written, and duplicate replay did not double-deduct.
+- Follow-up PR-425 fixed the batch-stock UI side so `仓库库存` also reflects the shipment deduction.

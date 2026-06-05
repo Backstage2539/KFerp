@@ -15,5 +15,8 @@
 
 ## Deployment Acceptance
 
-- Pending: deploy to development, repair/replay GoalE2E order `SO-20260605-0001`, and verify `仓库库存` no longer shows those produced成品批次 as available.
-- Expected: `stock_batches.remaining_g/remaining_units` for the shipped GoalE2E quantities are deducted and repeat tracking update does not double-deduct.
+- Passed on development after deploy `33e6ceb98901de79284a2c765d7118a451d37673`.
+- GoalE2E repair/replay: deleted the four incorrect `SOURCE-WH:finished_goods` shipment deduction/ledger rows from PR-424 replay in a transaction and wrote both `order_audit_logs` and generic `audit_logs`, then reran `/api/orders/1487/shipping-tracking`.
+- Result: `stock_batches` show熟豆 batch `FP-0000000032` remaining `227g / 1` after shipping 2 bags and挂耳 component consumption; 生豆 `FP-0000000031`, 挂耳 `FP-0000000034`, and速溶 `FP-0000000033` are `0g / 0`.
+- Duplicate replay kept batch balances unchanged and kept `order_stock_deductions` / `sales_order_shipment` ledger count at 4.
+- Browser acceptance: 内置浏览器 `仓库库存` 搜索 `GoalE2E-0605-234447` only shows the remaining熟豆 batch row; shipped生豆、挂耳、速溶 no longer appear as available stock.
