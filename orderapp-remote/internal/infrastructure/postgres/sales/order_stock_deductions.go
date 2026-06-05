@@ -84,7 +84,7 @@ func (r Repository) deductOrderAllocatedStockTx(ctx context.Context, tx pgx.Tx, 
 			return err
 		}
 	}
-	if len(allocations) == 0 && warehouse != "finished_goods" {
+	if len(allocations) == 0 {
 		return r.deductOrderSourceWarehouseItemsTx(ctx, tx, orderID, warehouse, actor)
 	}
 	return nil
@@ -232,6 +232,7 @@ func (r Repository) deductOrderSourceWarehouseItemsTx(ctx context.Context, tx pg
 	}
 	defer rows.Close()
 
+	items := make([]orderStockItem, 0)
 	allocations := make([]orderStockDeductionAllocation, 0)
 	for rows.Next() {
 		var alloc orderStockDeductionAllocation
@@ -245,11 +246,58 @@ func (r Repository) deductOrderSourceWarehouseItemsTx(ctx context.Context, tx pg
 		alloc.AllocatedG = alloc.SpecG * units
 		alloc.BatchCode = "SOURCE-WH:" + warehouse
 		allocations = append(allocations, alloc)
+		items = append(items, orderStockItem{
+			ProductID:   alloc.ProductID,
+			ProductName: alloc.ProductName,
+			SpecG:       alloc.SpecG,
+			Units:       units,
+			NeedG:       alloc.AllocatedG,
+		})
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 	rows.Close()
+
+	if warehouse == "finished_goods" && len(items) > 0 {
+		preview, err := r.previewOrderStockBatches(ctx, tx, items, orderID, true)
+		if err != nil {
+			return err
+		}
+		if !preview.Sufficient {
+			return fmt.Errorf("finished stock batch insufficient")
+		}
+		batchAllocations := make([]orderStockDeductionAllocation, 0)
+		for _, line := range preview.Lines {
+			for _, batch := range line.Allocations {
+				if batch.AllocatedG <= 0 || strings.TrimSpace(batch.BatchCode) == "" {
+					continue
+				}
+				batchAllocations = append(batchAllocations, orderStockDeductionAllocation{
+					ProductID:   line.ProductID,
+					ProductName: line.ProductName,
+					SpecG:       line.SpecG,
+					BatchID:     batch.BatchID,
+					BatchCode:   batch.BatchCode,
+					AllocatedG:  batch.AllocatedG,
+				})
+			}
+		}
+		if len(batchAllocations) > 0 {
+			for _, alloc := range batchAllocations {
+				if alloc.BatchID > 0 {
+					if err := r.deductFinishedBatchAllocationTx(ctx, tx, orderID, alloc, warehouse, actor); err != nil {
+						return err
+					}
+					continue
+				}
+				if err := r.deductLegacyFinishedInventoryAllocationTx(ctx, tx, orderID, alloc, warehouse, actor); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
 
 	for _, alloc := range allocations {
 		if err := r.deductLegacyFinishedInventoryAllocationTx(ctx, tx, orderID, alloc, warehouse, actor); err != nil {

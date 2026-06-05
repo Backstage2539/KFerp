@@ -687,3 +687,28 @@
 - 物料列表左侧必须提供通用选择复选框；表头复选框用于全选或取消全选当前列表/当前分组，行复选框用于选择单个物料。
 - `批量失效` 读取已勾选物料，逐条调用物料失效接口。每个实际失效的物料仍必须写操作日志。
 - 物料列表必须支持横向滚动和稳定列宽，不能因为左侧列表面板较窄导致物料名称、单位、库存数量和状态挤压成不可读布局。
+
+## 30. 录单收货单位空值保存（PR-421-ORDER-RECEIVER-COMPANY-EMPTY）
+- ERP 录单时 `收货单位` 不是必填项；用户留空也必须能保存订单。
+- 新建订单保存不得把 `receiver_name`、`receiver_phone`、`receiver_address`、`receiver_company` 写成 `NULL`，这些字段为空时统一落库为空字符串。
+- API 保存失败时不得向前端暴露 `SQLSTATE 23502` 这类原始数据库约束错误；本修复先消除收货字段空值导致的 not-null 写入。
+
+## 31. 生产中订单剩余项继续排产（PR-422-PRODUCTION-PLAN-IN-PROGRESS-REMAINING）
+- 订单进入 `生产中` 后，如果仍有未生产完成的商品明细，生产计划必须继续列出这些剩余项，不得只显示待处理订单。
+- 生产计划主缺口查询和挂耳专用缺口查询必须使用同一套可继续排产状态口径：空状态、`待处理`、`待生产` 和 `生产中`。
+- 挂耳、熟豆、生豆、速溶等商品在同一订单中分批生产时，先完成部分商品不得导致剩余挂耳或其他商品从 `/api/produce/unproduced` 和 `/api/produce/start` 消失。
+
+## 32. 生产 BOM 商品组件消耗兼容（PR-423-PRODUCTION-BOM-PRODUCT-COMPONENT-CONSUMPTION）
+- 新生产 BOM 明细使用 `component_type=product` 表示商品/半成品组件；生产消耗层必须将它等价于旧 `finished_product` 组件处理。
+- 挂耳 BOM 使用熟豆商品作为组件时，开始生产不得报 `product BOM not configured`；完工时必须扣减上游熟豆成品库存并写入成品组件消耗流水。
+- 旧 `component_type=finished_product` 历史数据继续兼容，不回改历史 BOM。
+
+## 33. 发货扣减生产完成成品库存（PR-424-SHIPPING-DEDUCT-PRODUCED-FINISHED-STOCK）
+- 生产完成订单回填快递单号并标记 `已发货` 时，必须同时扣减对应成品库存并写 `sales_order_shipment` 出库流水。
+- 即使订单没有 `order_stock_batch_allocations` 分配记录，只要订单来源仓是默认 `finished_goods`，也不得跳过出库扣减。
+- 扣减应按订单行商品、规格和数量计算；已扣减订单重复回填快递单号不得重复扣库存。
+
+## 34. 发货扣减生产成品批次库存（PR-425-SHIPPING-DEDUCT-PRODUCED-STOCK-BATCHES）
+- 生产完工生成 `stock_batches` 成品批次后，发货回填快递单号必须优先扣减成品批次余额，而不是只扣旧 `finished_inventory` 汇总表。
+- 无订单库存分配记录时，默认成品仓发货应按 FIFO 使用可释放成品批次；只有不存在成品批次库存时才回退旧汇总库存。
+- 仓库库存页展示的成品批次余额必须与发货扣减结果一致，不得出现订单已发货但批次库存仍完整可用。

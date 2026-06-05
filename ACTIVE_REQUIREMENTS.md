@@ -6,6 +6,91 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-425-SHIPPING-DEDUCT-PRODUCED-STOCK-BATCHES
+- Branch: codex/shipment-deduct-produced-stock-batches-20260606
+- Owner/session: Codex goal E2E / 2026-06-06
+- Status: merged and deployed to development; live GoalE2E batch-stock replay passed
+- Scope: 生产完成订单发货时必须扣减仓库库存页展示的 `stock_batches` 成品批次库存；默认成品仓无分配订单应优先用 FIFO 成品批次扣减，只有没有批次库存时才回退旧 `finished_inventory`。
+- DEV:
+  - DEV-425-SHIPPING-NO-ALLOCATION-BATCH-FIFO：发货无分配兜底复用 `previewOrderStockBatches` 和 `deductFinishedBatchAllocationTx`，默认 `finished_goods` 优先扣成品批次。
+- Verifier:
+  - RED browser/live: PR-424 部署后，GoalE2E 订单 `SO-20260605-0001` 的 `finished_inventory` 已扣减且 `sales_order_shipment` 流水存在，但内置浏览器 `仓库库存` 仍显示成品批次 `FP-0000000031/32/33/34` 保持原数量。
+  - RED local: `go test ./internal/interfaces/http/support -run TestDev425ShippingNoAllocationFallbackDeductsFinishedBatches -count=1` failed before implementation because no-allocation fallback had no `previewOrderStockBatches` / `deductFinishedBatchAllocationTx` path.
+  - GREEN local: `go test ./internal/interfaces/http/support -run 'TestDev425ShippingNoAllocationFallbackDeductsFinishedBatches|TestDev424ShippingDeductsDefaultFinishedInventoryWithoutAllocation' -count=1` passed.
+  - API behavior test: `TestOrdersShippingTrackingAPIDeductsDefaultFinishedBatchWithoutAllocation` is present but skips locally without `ORDERAPP_TEST_DATABASE_URL`.
+  - Deploy/live: origin/develop `33e6ceb98901de79284a2c765d7118a451d37673`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606005514`; repaired the PR-424 legacy summary replay with audited SQL, reran `/api/orders/1487/shipping-tracking`, and verified `stock_batches` now show熟豆 227g/1 remaining, 生豆/挂耳/速溶 0, duplicate replay no double-deduct; browser `仓库库存` search only shows the remaining熟豆批次.
+- Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
+- Last update: 2026-06-06 Asia/Shanghai
+
+### PR-424-SHIPPING-DEDUCT-PRODUCED-FINISHED-STOCK
+- Branch: codex/shipment-deduct-produced-finished-stock-20260606
+- Owner/session: Codex goal E2E / 2026-06-06
+- Status: merged and deployed to development; live GoalE2E legacy-summary replay passed, followed by PR-425 for batch-stock UI consistency
+- Scope: 生产完成订单回填快递单号并标记已发货时，即使没有 `order_stock_batch_allocations` 分配记录，只要来源仓是默认 `finished_goods`，也必须按订单行扣成品库存并写 `sales_order_shipment` 流水。
+- DEV:
+  - DEV-424-SHIPPING-NO-ALLOCATION-FALLBACK：发货扣库存无分配兜底逻辑覆盖默认 `finished_goods`，不再只处理非默认来源仓。
+- Verifier:
+  - RED live: GoalE2E 订单 `SO-20260605-0001` 调用 `/api/orders/1487/shipping-tracking` 成功后变为 `已发货` 且快递号为 `SF-0605234447`，但 `finished_inventory` 未扣减，`order_stock_deductions` 和 `sales_order_shipment` 流水均为 0。
+  - RED local: `go test ./internal/interfaces/http/support -run TestDev424ShippingDeductsDefaultFinishedInventoryWithoutAllocation -count=1` failed because `order_stock_deductions.go` skipped `finished_goods` no-allocation orders.
+  - GREEN local: `go test ./internal/interfaces/http/support -run TestDev424ShippingDeductsDefaultFinishedInventoryWithoutAllocation -count=1` passed.
+  - API behavior test: `TestOrdersShippingTrackingAPIDeductsDefaultFinishedInventoryWithoutAllocation` is present but skips locally without `ORDERAPP_TEST_DATABASE_URL`.
+  - Deploy/live: origin/develop `149cb31d41741f745d89bc0279af50baa6a7449e`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606004238`; replay on `SO-20260605-0001` created four `sales_order_shipment` rows and deducted `finished_inventory`, duplicate replay did not double-deduct.
+- Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
+- Last update: 2026-06-06 Asia/Shanghai
+
+### PR-423-PRODUCTION-BOM-PRODUCT-COMPONENT-CONSUMPTION
+- Branch: codex/production-bom-product-component-consumption-20260606
+- Owner/session: Codex goal E2E / 2026-06-06
+- Status: merged and deployed to development; live GoalE2E drip production replay passed
+- Scope: 新生产 BOM 明细使用 `component_type=product` 表示商品组件；生产启动和完工扣减必须把它当作旧 `finished_product` 成品组件处理，支持挂耳消耗已生产熟豆。
+- DEV:
+  - DEV-423-PRODUCTION-BOM-PRODUCT-COMPONENT-NORMALIZE：生产计划和生产消耗层统一把 BOM `product` 组件归一化为成品组件扣减路径。
+- Verifier:
+  - RED live: GoalE2E 挂耳 `534-10` 已在生产计划中出现，但 `/api/produce/start` 返回 `product BOM not configured: GoalE2E-0605-234447 咖啡挂耳`。
+  - RED local: `go test ./internal/infrastructure/postgres/production -run TestNormalizeBomComponentTypeAcceptsProductionBomProductComponents -count=1` failed because `product` normalized to `material`.
+  - GREEN targeted: `go test ./internal/infrastructure/postgres/production -run 'TestNormalizeBomComponentTypeAcceptsProductionBomProductComponents|TestCurrentMaterialNeedsDeductsFinishedProductComponent' -count=1` passed.
+  - GREEN production packages: `go test ./internal/infrastructure/postgres/production ./internal/interfaces/http/production -count=1` passed.
+  - Deploy/live: origin/develop `6d86f5ee581966813407425a7593ea99b036c1d1`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606002758`; GoalE2E batch `A20260605-163043-0f` completed挂耳 product `534`, production log id `13` consumed熟豆 product `532` as finished-product component.
+- Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
+- Last update: 2026-06-06 Asia/Shanghai
+
+### PR-422-PRODUCTION-PLAN-IN-PROGRESS-REMAINING
+- Branch: codex/production-plan-include-in-progress-20260606
+- Owner/session: Codex goal E2E / 2026-06-06
+- Status: merged and deployed to development; live GoalE2E remaining-plan replay passed
+- Scope: 部分商品开始或完工后，订单状态会进入 `生产中`；生产计划必须继续列出该订单里尚未生产完成的剩余商品，包括挂耳等需要后续生产的商品。
+- DEV:
+  - DEV-422-PRODUCTION-PLAN-OPEN-STATUS：生产计划主缺口查询和挂耳专用缺口查询共用生产计划开放状态过滤器，纳入空状态、`待处理`、`待生产` 和 `生产中`。
+- Verifier:
+  - RED live: GoalE2E 订单 `SO-20260605-0001` 完成熟豆/生豆/速溶后仍缺挂耳，`/api/produce/unproduced` 返回 0 行，直接启动 `534-10` 返回 `没有可开始生产的数据`。
+  - RED local: `go test ./internal/interfaces/http/support -run TestDev422ProductionPlanIncludesInProgressOrders -count=1` failed before fix because plan queries did not use a shared filter including `生产中`.
+  - GREEN local: `go test ./internal/interfaces/http/support -run TestDev422ProductionPlanIncludesInProgressOrders -count=1` passed.
+  - Integration behavior test: `go test ./internal/interfaces/http/production -run TestProducePlanIncludesInProgressOrdersWithRemainingItems -count=1 -v` is present but skips without `ORDERAPP_TEST_DATABASE_URL`.
+  - Deploy/live: origin/develop `c3acd2c2894927deda34d1d8203019d246e45e6b`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606001849`; GoalE2E 订单进入 `生产中` 后 `/api/produce/unproduced` 返回剩余挂耳 `534-10`。
+- Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
+- Last update: 2026-06-06 Asia/Shanghai
+
+### PR-421-ORDER-RECEIVER-COMPANY-EMPTY
+- Branch: codex/order-receiver-company-empty-20260605
+- Owner/session: Codex goal E2E / 2026-06-05
+- Status: merged and deployed to development; live GoalE2E order replay passed
+- Scope: 录单时收货单位可为空；订单保存不得把 `receiver_company` 等 NOT NULL 收货字段写成 NULL，也不得向前端暴露原始 SQL not-null 错误。
+- DEV:
+  - DEV-421-ORDER-RECEIVER-NONNULL：新建订单保存时 `receiver_name/receiver_phone/receiver_address/receiver_company` 统一写入 trim 后字符串，空值落库为空字符串。
+- Verifier:
+  - RED: GoalE2E 线上 API 保存四类商品订单，`receiver_company` 为空时返回 `null value in column "receiver_company" ... SQLSTATE 23502`。
+  - RED local: `go test ./internal/infrastructure/postgres/sales -run TestSaveOrderReceiverFieldsUseNonNullText -count=1` failed before fix because receiver fields used `nullText`。
+  - GREEN targeted: `go test ./internal/infrastructure/postgres/sales -run TestSaveOrderReceiverFieldsUseNonNullText -count=1` passed.
+  - GREEN targeted API: `go test ./internal/interfaces/http/sales -run 'TestOrderAPI' -count=1` passed.
+  - GREEN sales packages: `go test ./internal/infrastructure/postgres/sales ./internal/interfaces/http/sales -count=1` passed.
+  - GREEN full Go: `go test ./...` in `orderapp-remote` passed.
+  - GREEN build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
+  - GREEN changed verifier: `scripts/verify_kferp.sh changed` exited 0.
+  - GREEN diff check: `git diff --check` exited 0.
+  - Deploy/live: origin/develop `fd047465bbb194563fcc4a9d0b79e01d7310ef52`; `./deploy_orderapp.sh`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606000050`; live `/api/order` created `SO-20260605-0001` with blank `receiver_company`.
+- Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-419-BOM-USAGE-LOOKUP-CLEANUP
 - Branch: codex/bom-usage-main-followup-20260605
 - Owner/session: Codex / 2026-06-05
