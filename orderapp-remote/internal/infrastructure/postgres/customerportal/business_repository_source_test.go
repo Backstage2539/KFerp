@@ -95,6 +95,12 @@ func TestCustomerPortalOrderQuerySupportsKeywordAndDateFilters(t *testing.T) {
 		"query.DateTo",
 		"LOWER(COALESCE(c.contact,''))",
 		"LOWER(COALESCE(c.address,''))",
+		"LOWER(COALESCE(o.receiver_name,''))",
+		"LOWER(COALESCE(o.receiver_phone,''))",
+		"LOWER(COALESCE(o.receiver_address,''))",
+		"COALESCE(NULLIF(o.receiver_name,''), NULLIF(c.contact,''), c.name, '')",
+		"COALESCE(NULLIF(o.receiver_phone,''), c.phone, '')",
+		"COALESCE(NULLIF(o.receiver_address,''), NULLIF(c.address,''), c.company_address, '')",
 		"EXISTS (SELECT 1 FROM %s.order_items",
 	} {
 		if !strings.Contains(text, want) {

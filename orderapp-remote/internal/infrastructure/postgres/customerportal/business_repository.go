@@ -877,11 +877,14 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 		args = append(args, "%"+strings.ToLower(keyword)+"%")
 		placeholder := fmt.Sprintf("$%d", len(args))
 		where = append(where, fmt.Sprintf(`(
-			LOWER(COALESCE(o.order_no,'')) LIKE %[1]s
-			OR LOWER(COALESCE(c.contact,'')) LIKE %[1]s
-			OR LOWER(COALESCE(c.name,'')) LIKE %[1]s
-			OR LOWER(COALESCE(c.phone,'')) LIKE %[1]s
-			OR LOWER(COALESCE(c.address,'')) LIKE %[1]s
+				LOWER(COALESCE(o.order_no,'')) LIKE %[1]s
+				OR LOWER(COALESCE(o.receiver_name,'')) LIKE %[1]s
+				OR LOWER(COALESCE(o.receiver_phone,'')) LIKE %[1]s
+				OR LOWER(COALESCE(o.receiver_address,'')) LIKE %[1]s
+				OR LOWER(COALESCE(c.contact,'')) LIKE %[1]s
+				OR LOWER(COALESCE(c.name,'')) LIKE %[1]s
+				OR LOWER(COALESCE(c.phone,'')) LIKE %[1]s
+				OR LOWER(COALESCE(c.address,'')) LIKE %[1]s
 			OR LOWER(COALESCE(c.company_address,'')) LIKE %[1]s
 			OR EXISTS (SELECT 1 FROM %s.order_items oi2
 				WHERE oi2.order_id=o.id
@@ -911,12 +914,12 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 	args = append(args, limit)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT o.id,
-		       COALESCE(o.order_no,''),
-		       COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''),
-		       COALESCE(NULLIF(c.contact,''), c.name, ''),
-		       COALESCE(c.phone,''),
-		       COALESCE(NULLIF(c.address,''), c.company_address, ''),
-		       COALESCE(ops.name,''),
+			       COALESCE(o.order_no,''),
+			       COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''),
+			       COALESCE(NULLIF(o.receiver_name,''), NULLIF(c.contact,''), c.name, ''),
+			       COALESCE(NULLIF(o.receiver_phone,''), c.phone, ''),
+			       COALESCE(NULLIF(o.receiver_address,''), NULLIF(c.address,''), c.company_address, ''),
+			       COALESCE(ops.name,''),
 		       COALESCE(ps.name,''),
 		       COALESCE(o.payment_method,''),
 		       COALESCE(ss.name,''),
