@@ -696,3 +696,8 @@
 - 订单进入 `生产中` 后，如果仍有未生产完成的商品明细，生产计划必须继续列出这些剩余项，不得只显示待处理订单。
 - 生产计划主缺口查询和挂耳专用缺口查询必须使用同一套可继续排产状态口径：空状态、`待处理`、`待生产` 和 `生产中`。
 - 挂耳、熟豆、生豆、速溶等商品在同一订单中分批生产时，先完成部分商品不得导致剩余挂耳或其他商品从 `/api/produce/unproduced` 和 `/api/produce/start` 消失。
+
+## 32. 生产 BOM 商品组件消耗兼容（PR-423-PRODUCTION-BOM-PRODUCT-COMPONENT-CONSUMPTION）
+- 新生产 BOM 明细使用 `component_type=product` 表示商品/半成品组件；生产消耗层必须将它等价于旧 `finished_product` 组件处理。
+- 挂耳 BOM 使用熟豆商品作为组件时，开始生产不得报 `product BOM not configured`；完工时必须扣减上游熟豆成品库存并写入成品组件消耗流水。
+- 旧 `component_type=finished_product` 历史数据继续兼容，不回改历史 BOM。

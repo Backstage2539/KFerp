@@ -98,6 +98,14 @@ func TestBuildRoastPlanRowsCarriesOperationTemplateID(t *testing.T) {
 	}
 }
 
+func TestNormalizeBomComponentTypeAcceptsProductionBomProductComponents(t *testing.T) {
+	for _, input := range []string{"product", "finished_product"} {
+		if got := normalizeBomComponentType(input); got != "finished_product" {
+			t.Fatalf("normalizeBomComponentType(%q) = %q, want finished_product", input, got)
+		}
+	}
+}
+
 func TestBuildRoastPlanMaterialRatiosUsesInstantCoffeeRawMaterial(t *testing.T) {
 	rows := []productionapp.UnprodNeedRow{{
 		ProductID:      88,

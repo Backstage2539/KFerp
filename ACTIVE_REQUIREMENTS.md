@@ -6,6 +6,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-423-PRODUCTION-BOM-PRODUCT-COMPONENT-CONSUMPTION
+- Branch: codex/production-bom-product-component-consumption-20260606
+- Owner/session: Codex goal E2E / 2026-06-06
+- Status: implementing; local targeted green, pending push/merge/deploy/live GoalE2E replay
+- Scope: 新生产 BOM 明细使用 `component_type=product` 表示商品组件；生产启动和完工扣减必须把它当作旧 `finished_product` 成品组件处理，支持挂耳消耗已生产熟豆。
+- DEV:
+  - DEV-423-PRODUCTION-BOM-PRODUCT-COMPONENT-NORMALIZE：生产计划和生产消耗层统一把 BOM `product` 组件归一化为成品组件扣减路径。
+- Verifier:
+  - RED live: GoalE2E 挂耳 `534-10` 已在生产计划中出现，但 `/api/produce/start` 返回 `product BOM not configured: GoalE2E-0605-234447 咖啡挂耳`。
+  - RED local: `go test ./internal/infrastructure/postgres/production -run TestNormalizeBomComponentTypeAcceptsProductionBomProductComponents -count=1` failed because `product` normalized to `material`.
+  - GREEN targeted: `go test ./internal/infrastructure/postgres/production -run 'TestNormalizeBomComponentTypeAcceptsProductionBomProductComponents|TestCurrentMaterialNeedsDeductsFinishedProductComponent' -count=1` passed.
+  - GREEN production packages: `go test ./internal/infrastructure/postgres/production ./internal/interfaces/http/production -count=1` passed.
+- Manual/docs: no user workflow change; no operation manual update required. Requirement and acceptance notes updated.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-422-PRODUCTION-PLAN-IN-PROGRESS-REMAINING
 - Branch: codex/production-plan-include-in-progress-20260606
 - Owner/session: Codex goal E2E / 2026-06-06

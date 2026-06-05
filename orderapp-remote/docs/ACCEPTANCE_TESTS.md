@@ -873,6 +873,11 @@
 - [ ] `/api/produce/unproduced` 对 `生产中` 订单返回剩余缺口；直接启动剩余项不返回 `没有可开始生产的数据`。
 - [ ] 挂耳专用计划口径与普通商品一致纳入 `生产中`，完成熟豆/生豆/速溶后仍可继续启动和完工挂耳。
 
+### K31. 生产 BOM 商品组件消耗兼容（PR-423-PRODUCTION-BOM-PRODUCT-COMPONENT-CONSUMPTION）
+- [ ] 新生产 BOM 明细 `component_type=product` 的商品组件，在生产启动/完工时按成品组件消耗处理，不被当成普通物料过滤掉。
+- [ ] 挂耳 BOM 以熟豆商品为组件时可启动生产，不返回 `product BOM not configured`。
+- [ ] 挂耳完工后生产日志包含挂耳产出，熟豆成品库存被扣减并留下成品组件消耗审计/库存流水。
+
 ### K19. 产品价格表显式阶梯价模板（PR-400-PRICE-LIST-EXPLICIT-GRADIENT-TIERS）
 - [ ] `初晓2.5kg装` 这类没有任何明确阶梯价模板的商品在产品价格表预览和发布内容中不出现默认商业阶梯价。
 - [ ] 成本试算仍保留内部 kg/lb 基础价格数组，但 `commercial_wholesale_tiers` 为空时不会在发布保存时补写默认 `2包-13包` 到 `48包+` 档位。

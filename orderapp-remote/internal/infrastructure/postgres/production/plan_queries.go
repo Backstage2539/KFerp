@@ -769,10 +769,12 @@ func materialAvailabilityKey(name string, unit string) string {
 }
 
 func normalizeBomComponentType(value string) string {
-	if strings.TrimSpace(value) == "finished_product" {
+	switch strings.TrimSpace(value) {
+	case "finished_product", "product":
 		return "finished_product"
+	default:
+		return "material"
 	}
-	return "material"
 }
 
 func normalizeBomConsumeUnit(value string) string {
