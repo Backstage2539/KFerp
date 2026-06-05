@@ -2198,11 +2198,40 @@ func (r Repository) listProductionBomReferencedProducts(ctx context.Context, bom
 	return out, rows.Err()
 }
 
-func (r Repository) listProductionBomUsedByBoms(ctx context.Context, outputProductID int64) ([]bomapp.ProductionBomUsedByBom, error) {
-	if outputProductID <= 0 {
+func (r Repository) listProductionBomUsedByBoms(ctx context.Context, componentProductID int64) ([]bomapp.ProductionBomUsedByBom, error) {
+	if componentProductID <= 0 {
 		return []bomapp.ProductionBomUsedByBom{}, nil
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		WITH usage AS (
+			SELECT DISTINCT ON (pb.id)
+			       pb.id AS bom_id,
+			       COALESCE(pb.code,'') AS bom_code,
+			       COALESCE(pb.name,'') AS bom_name,
+			       v.id AS bom_version_id,
+			       COALESCE(v.version_no,'') AS bom_version_no,
+			       COALESCE(pb.output_product_id,0) AS output_product_id,
+			       COALESCE(op.name,'') AS output_product_name,
+			       'component' AS relation_type,
+			       COALESCE(i.consume_unit,'') AS consume_unit,
+			       COALESCE(i.qty_per_unit,0)::float8 AS qty_per_unit,
+			       i.id AS sort_item_id
+			FROM %[1]s.production_bom_version_items i
+			JOIN %[1]s.production_bom_versions v ON v.id=i.version_id AND v.status IN ('draft','published')
+			JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
+			JOIN %[1]s.products cp ON cp.id=i.component_product_id AND cp.active=true
+			LEFT JOIN %[1]s.products op ON op.id=pb.output_product_id
+			WHERE i.component_type IN ('product','finished_product')
+			  AND i.component_product_id=$1
+			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+			  AND COALESCE(pb.output_product_id,0)<>$1
+			ORDER BY pb.id,
+			         CASE WHEN v.status='draft' THEN 0 ELSE 1 END,
+			         v.published_at DESC NULLS LAST,
+			         v.created_at DESC,
+			         v.id DESC,
+			         i.id
+		)
 		SELECT bom_id,
 		       bom_code,
 		       bom_name,
@@ -2213,45 +2242,9 @@ func (r Repository) listProductionBomUsedByBoms(ctx context.Context, outputProdu
 		       relation_type,
 		       consume_unit,
 		       qty_per_unit
-		FROM (
-			SELECT pb.id AS bom_id,
-			       COALESCE(pb.code,'') AS bom_code,
-			       COALESCE(pb.name,'') AS bom_name,
-			       v.id AS bom_version_id,
-			       COALESCE(v.version_no,'') AS bom_version_no,
-			       COALESCE(pb.output_product_id,0) AS output_product_id,
-			       COALESCE(op.name,'') AS output_product_name,
-			       'output' AS relation_type,
-			       COALESCE(NULLIF(v.output_unit,''),'unit') AS consume_unit,
-			       COALESCE(v.output_qty,1)::float8 AS qty_per_unit,
-			       v.id AS sort_version_id,
-			       0 AS sort_item_id
-			FROM %[1]s.production_boms pb
-			JOIN %[1]s.production_bom_versions v ON v.bom_id=pb.id AND v.status IN ('draft','published')
-			LEFT JOIN %[1]s.products op ON op.id=pb.output_product_id
-			WHERE pb.output_product_id=$1
-			UNION ALL
-			SELECT pb.id AS bom_id,
-			       COALESCE(pb.code,'') AS bom_code,
-			       COALESCE(pb.name,'') AS bom_name,
-			       v.id AS bom_version_id,
-			       COALESCE(v.version_no,'') AS bom_version_no,
-			       COALESCE(pb.output_product_id,0) AS output_product_id,
-			       COALESCE(op.name,'') AS output_product_name,
-			       'component' AS relation_type,
-			       COALESCE(i.consume_unit,'') AS consume_unit,
-			       COALESCE(i.qty_per_unit,0)::float8 AS qty_per_unit,
-			       v.id AS sort_version_id,
-			       i.id AS sort_item_id
-			FROM %[1]s.production_bom_version_items i
-			JOIN %[1]s.production_bom_versions v ON v.id=i.version_id AND v.status IN ('draft','published')
-			JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
-			LEFT JOIN %[1]s.products op ON op.id=pb.output_product_id
-			WHERE i.component_type IN ('product','finished_product')
-			  AND i.component_product_id=$1
-		) usage
-		ORDER BY bom_name, sort_version_id, relation_type DESC, sort_item_id
-	`, r.schema), outputProductID)
+		FROM usage
+		ORDER BY bom_name, bom_version_id DESC, sort_item_id
+	`, r.schema), componentProductID)
 	if err != nil {
 		return nil, err
 	}
