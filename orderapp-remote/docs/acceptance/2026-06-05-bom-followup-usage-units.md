@@ -20,3 +20,4 @@
 - GREEN Go/API：`go test ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1` 通过。
 - GREEN 全量：`go test ./...`、`npm run build`、`scripts/verify_kferp.sh changed` 均通过；Vue build 只有既有 chunk-size/plugin timing warning。
 - 浏览器验收：本地 build + mock API 验证 BOM 明细、BOM 编辑抽屉和商品档案配置抽屉；截图保存于 `/tmp/kferp-pr418-bom-followup-qa/product-usage-drawer.png`、`/tmp/kferp-pr418-bom-followup-qa/bom-detail-units.png`、`/tmp/kferp-pr418-bom-followup-qa/bom-edit-output-basis.png`。
+- 部署验收：development stack 已部署 `origin/develop=60efcc23733f8826cac7ee2c9ea5dd35d10448d2`，backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260605215233`；Docker build 内 `go test ./...` 通过；容器运行；`/app/vue-shell/`、`/app/api/production-boms?status=all`、`/app/api/product-settings/units` 均返回 200；`/app/api/production-bom-product-usage/530` 返回 `BOM-001369` 且 `relation_type=output`；远端 `BomView.vue` 不再包含“全局规格袋材映射”。

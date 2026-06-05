@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-418-BOM-FOLLOWUP-USAGE-UNITS
 - Branch: codex/bom-followup-usage-units-20260605
 - Owner/session: Codex / 2026-06-05
-- Status: locally verified; pending integration/deploy
+- Status: merged and deployed to development
 - Scope: 修复 PR-417 后续验收问题：商品档案配置抽屉删除“生产反查/可生产 BOM”分区，只保留“被哪些 BOM 使用”，并把 BOM 产出该商品与 BOM 作为组件消耗该商品合并到同一只读列表；BOM 编辑抽屉展示并允许草稿版本维护产出数量/单位；BOM 明细删除全局规格袋材映射 UI；配方明细消耗单位下拉改读全局设置的单位字典；修复 `BOM-001369 卡布奇诺条装 / V001` 产出商品 `卡布奇诺速溶条装` 在商品档案看不到使用关系的问题。
 - DEV:
   - DEV-418-PRODUCT-BOM-USAGE-LOOKUP：`/api/production-bom-product-usage/:product_id` 返回 `output/component` 关系；商品档案配置抽屉只展示“被哪些 BOM 使用”，不再展示“可生产 BOM”。
@@ -25,7 +25,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN changed verifier: `scripts/verify_kferp.sh changed` exited 0.
   - Browser QA: local build + mock API verified BOM detail unit dictionary, BOM edit output quantity/unit, product archive usage drawer for `BOM-001369 卡布奇诺条装 / V001`; screenshots saved under `/tmp/kferp-pr418-bom-followup-qa/`.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-05-bom-followup-usage-units.md`.
-- Deploy/smoke: pending.
+- Integration: feature commit `60efcc23` pushed to `origin/codex/bom-followup-usage-units-20260605` and fast-forward merged/pushed to `origin/develop=60efcc23733f8826cac7ee2c9ea5dd35d10448d2`.
+- Deploy/smoke: development stack deployed with `./deploy_orderapp.sh development` at `origin/develop=60efcc23733f8826cac7ee2c9ea5dd35d10448d2`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260605215233`. Docker build ran `go test ./...` successfully. Smoke: `erp_orderapp`, `erp_postgres`, `erp_caddy`, `erp_docconvert` running; unauthenticated `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell/` returned 200; authenticated `/app/api/production-boms?status=all` returned 200; authenticated `/app/api/product-settings/units` returned 200; requirement API exposes `PR-418-BOM-FOLLOWUP-USAGE-UNITS`; authenticated `/app/api/production-bom-product-usage/530` returned `BOM-001369` with `relation_type=output`; remote source contains `bomUsageRelationLabel` and `/api/product-settings/units`, and no longer contains `全局规格袋材映射` in `BomView.vue`.
 - Last update: 2026-06-05 Asia/Shanghai
 
 ### PR-417-MULTILEVEL-MANUFACTURING-BOM
