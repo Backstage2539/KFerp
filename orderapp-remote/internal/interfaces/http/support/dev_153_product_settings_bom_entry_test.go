@@ -33,9 +33,9 @@ func TestProductSettingsBasicProductRowsExposeBomEntry(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"生产反查",
-		"productProductionConfigProduceBomRows",
+		"BOM 使用",
 		"productProductionConfigUsedByBomRows",
+		"bomUsageRelationLabel",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("product config drawer must expose BOM reverse lookup, missing %q", want)
@@ -49,7 +49,7 @@ func TestProductSettingsBasicProductRowsExposeBomEntry(t *testing.T) {
 		"UT-153-01",
 		"API-153-01",
 		"REV-153-01",
-		"普通产品和新建产品也能在产品设置直接维护 BOM",
+		"普通产品和新建产品也能在产品设置查看 BOM 使用关系",
 	} {
 		if !strings.Contains(reqs, want) {
 			t.Fatalf("requirement seed missing %q", want)

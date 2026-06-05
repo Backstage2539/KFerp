@@ -84,7 +84,7 @@ func TestDev374ComposableProductPricingDocs(t *testing.T) {
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-374-COMPOSABLE-PRODUCT-PRICING",
 			"速溶咖啡条装原料",
-			"个/盒",
+			"全局单位字典",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-25-composable-product-pricing.md"): {
 			"PR-374",

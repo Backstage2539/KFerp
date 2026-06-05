@@ -6,15 +6,37 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-418-BOM-FOLLOWUP-USAGE-UNITS
+- Branch: codex/bom-followup-usage-units-20260605
+- Owner/session: Codex / 2026-06-05
+- Status: locally verified; pending integration/deploy
+- Scope: 修复 PR-417 后续验收问题：商品档案配置抽屉删除“生产反查/可生产 BOM”分区，只保留“被哪些 BOM 使用”，并把 BOM 产出该商品与 BOM 作为组件消耗该商品合并到同一只读列表；BOM 编辑抽屉展示并允许草稿版本维护产出数量/单位；BOM 明细删除全局规格袋材映射 UI；配方明细消耗单位下拉改读全局设置的单位字典；修复 `BOM-001369 卡布奇诺条装 / V001` 产出商品 `卡布奇诺速溶条装` 在商品档案看不到使用关系的问题。
+- DEV:
+  - DEV-418-PRODUCT-BOM-USAGE-LOOKUP：`/api/production-bom-product-usage/:product_id` 返回 `output/component` 关系；商品档案配置抽屉只展示“被哪些 BOM 使用”，不再展示“可生产 BOM”。
+  - DEV-418-BOM-OUTPUT-BASIS-UNITS：生产 BOM 编辑抽屉展示产出数量/单位，草稿版本保存时同步 `production_bom_versions.output_qty/output_unit`；组件消耗单位从 `/api/product-settings/units` 读取。
+  - DEV-418-BOM-DETAIL-CLEANUP：生产 BOM 明细删除全局规格袋材映射区域和前端保存/删除入口，后端历史兼容接口暂保留给已有计算链路读取。
+  - DEV-418-MANUAL-DOCS：更新商品档案、生产 BOM、需求、验收和 support requirement seed。
+- Verifier:
+  - RED: `node --test src/lib/bom.test.js src/lib/product-settings.test.js` failed on old UI markers; `go test ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/interfaces/http/catalog -count=1` failed because usage result lacked `relation_type` and `/api/product-settings/units` GET returned 405.
+  - GREEN frontend: `node --test src/lib/bom.test.js src/lib/product-settings.test.js` passed 119/119.
+  - GREEN targeted Go/API: `go test ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1` passed.
+  - GREEN full Go: `go test ./...` in `orderapp-remote` passed.
+  - GREEN build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size/plugin timing warnings.
+  - GREEN changed verifier: `scripts/verify_kferp.sh changed` exited 0.
+  - Browser QA: local build + mock API verified BOM detail unit dictionary, BOM edit output quantity/unit, product archive usage drawer for `BOM-001369 卡布奇诺条装 / V001`; screenshots saved under `/tmp/kferp-pr418-bom-followup-qa/`.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-05-bom-followup-usage-units.md`.
+- Deploy/smoke: pending.
+- Last update: 2026-06-05 Asia/Shanghai
+
 ### PR-417-MULTILEVEL-MANUFACTURING-BOM
 - Branch: codex/multilevel-manufacturing-bom-20260605
 - Owner/session: Codex / 2026-06-05
 - Status: merged and deployed to development
-- Scope: 把生产 BOM 改为制造主档，BOM 声明产出商品、产出数量和组件清单；组件支持物料和商品/半成品；商品档案只做库存/销售/价格/行业字段和生产反查，不再编辑或绑定 BOM；生产工单页提供按 BOM 预览生产需求和多层展开策略。
+- Scope: 把生产 BOM 改为制造主档，BOM 声明产出商品、产出数量和组件清单；组件支持物料和商品/半成品；商品档案只做库存/销售/价格/行业字段和只读 BOM 使用关系，不再编辑或绑定 BOM；生产工单页提供按 BOM 预览生产需求和多层展开策略。
 - DEV:
   - DEV-417-BOM-OUTPUT-PRODUCT-SCHEMA：`production_boms.output_product_id`、BOM 版本产出数量/单位、组件 `material/product` 支持，旧 `finished_product` 兼容读取。
   - DEV-417-BOM-PUBLISH-MULTILEVEL-VALIDATION：BOM 发布校验产出商品、组件非空、商品组件用量和循环引用；已发布版本只读，复制新版草稿后编辑。
-  - DEV-417-PRODUCT-REVERSE-BOM-LOOKUP：商品档案配置抽屉只读展示“可生产 BOM”和“被哪些 BOM 使用”，删除 BOM 绑定/维护入口。
+  - DEV-417-PRODUCT-REVERSE-BOM-LOOKUP：商品档案配置抽屉只读展示“被哪些 BOM 使用”，删除 BOM 绑定/维护入口。
   - DEV-417-WORKORDER-BOM-DEMAND-PREVIEW：生产工单页按 BOM 预览产出基准、组件需求、多层展开策略和下层 BOM 提示。
   - DEV-417-MANUAL-DOCS：更新生产 BOM、商品档案、成本、工单、库存相关手册、需求、验收和 acceptance 记录。
 - Verifier:
@@ -254,12 +276,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Status: merged and deployed to development
 - Scope: 生产 BOM 删除顶部 SKU归属/商品选择并统一为生产 BOM 独立配方库；商品档案和客户商品名删除旧 SKU归属/旧客户 SKU 收敛检查，分类操作收敛为 Tab 行右侧“增加分类 / 移动到分类”可搜索下拉；客户商品名新建改为抽屉并对绑定商品失效标红。本轮 follow-up 修复：生产 BOM 列表不能再混入商品档案行，列表只展示生产 BOM，商品引用只在 BOM 详情展示；点击任意 BOM 名称都能进入右侧配方明细。
 - Current follow-up scope: 撤销上一轮“缺 BOM 商品行在生产 BOM 列表创建BOM”的列表逻辑。生产 BOM 页面只读 `/api/production-boms?status=all`；去掉商品列、商品过滤、`无生产 BOM / 未维护` 商品行和 `创建BOM` 操作；商品档案配置跳转改传 `production_bom_id`。
-- Detail-return follow-up scope: BOM 详情的“引用商品”显示商品档案商品名并可跳转到商品档案配置，商品档案左上角可返回 BOM 编辑；`BOM版本` 与 `全局规格袋材映射` 移入 BOM 编辑详情，不再作为列表行抽屉入口；Vue 开发规范新增跨页面跳转必须携带临时 `returnNavigation` 的规则。
+- Detail-return follow-up scope: BOM 详情的“引用商品”显示商品档案商品名并可跳转到商品档案配置，商品档案左上角可返回 BOM 编辑；`BOM版本` 移入 BOM 编辑详情，不再作为列表行抽屉入口；Vue 开发规范新增跨页面跳转必须携带临时 `returnNavigation` 的规则。
 - DEV:
   - DEV-406-BOM-INDEPENDENT-LIST：BOM 页面只使用 `/api/production-boms?status=all` 展示独立生产 BOM 档案，行 key 使用 `bom:{production_bom_id}`，不再合并 `/api/bom/list` 商品行。
   - DEV-406-BOM-DETAIL-REFERENCED-PRODUCTS：`/api/production-boms/:id` 返回 `referenced_products`，右侧配方明细展示引用商品；商品引用不参与列表行。
   - DEV-406-PRODUCT-BOM-NAV-ID：商品档案配置的“维护当前 BOM 明细”通过 `production_bom_id` 跳转生产 BOM，不再传商品筛选参数。
-  - DEV-406-BOM-DETAIL-INLINE-VERSIONS-MAPPINGS：BOM 编辑详情内展示和维护 BOM 版本、复制新版草稿、发布草稿和全局规格袋材映射；列表行删除 BOM版本/规格袋材映射抽屉入口。
+  - DEV-406-BOM-DETAIL-INLINE-VERSIONS-MAPPINGS：BOM 编辑详情内展示和维护 BOM 版本、复制新版草稿和发布草稿；列表行删除 BOM版本抽屉入口。
   - DEV-406-BOM-REFERENCED-PRODUCT-RETURN：BOM 详情引用商品按钮跳转商品档案配置，并通过 `returnNavigation` 提供左上角返回 BOM 编辑；`.agents/skills/kferp-vue-change` 固化跨页面跳转返回规则。
   - DEV-406-PRODUCT-ARCHIVE-LAYOUT：商品档案页压缩顶部说明、删除 `SKU归属`，过滤行右侧放创建/失效，反馈走 `kferp:notify`。
   - DEV-406-ALIAS-DRAWER-BATCH-DISABLE：客户商品名页删除旧收敛检查，新建客户商品抽屉包含单个/批量模式，过滤行右侧放新建/批量失效，绑定商品失效标红。
@@ -319,7 +341,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Branch: codex/price-warning-bom-drawers-20260603
 - Owner/session: Codex / 2026-06-03
 - Status: merged and deployed to development
-- Scope: 商品价格表 warning 改为短 `未设置计价方式` + 感叹号 hover/focus tooltip；缺计价方式 warning 不再按 `green_bean/drip_bag` 商品形态豁免；生产 BOM 页面重排列表工具区，并把 BOM 版本和全局规格袋材映射改为列表行按钮打开抽屉。
+- Scope: 商品价格表 warning 改为短 `未设置计价方式` + 感叹号 hover/focus tooltip；缺计价方式 warning 不再按 `green_bean/drip_bag` 商品形态豁免；生产 BOM 页面重排列表工具区，并把 BOM 版本改为列表行按钮打开抽屉；袋材映射入口已在 PR-418 下线。
 - DEV:
   - DEV-404-PRICE-LIST-WARNING-ICON：成本引擎使用 `MissingPricingMethodWarning`，固定单价、成本加成和有效阶梯价模板都视为有效计价方式；Vue 商品价格表用感叹号图标和 tooltip 展示 warning。
   - DEV-404-BOM-LAYOUT-DRAWERS：生产 BOM 新建按钮右上角展示，列表标题下方放状态过滤/搜索，移动分组卡片位于分组 Tab 上方；BOM 行提供 `BOM版本` 与 `规格袋材映射` 抽屉入口。

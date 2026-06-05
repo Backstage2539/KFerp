@@ -8,7 +8,7 @@
       <div class="panel-head">
         <div>
           <h2>{{ productSectionTitle }}</h2>
-          <p>商品档案承载库存、销售、价格和行业字段；生产 BOM 在生产模块声明产出商品，商品档案只做生产反查。</p>
+          <p>商品档案承载库存、销售、价格和行业字段；生产 BOM 在生产模块声明产出商品，商品档案只读查看 BOM 使用关系。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -93,7 +93,7 @@
                 <th class="action-cell">新增动作</th>
                 <th>预期损耗率</th>
                 <th>利润率覆盖</th>
-                <th>生产反查</th>
+                <th>BOM 使用</th>
                 <th>商品状态</th>
                 <th>处理</th>
                 <th class="remark-cell">备注</th>
@@ -147,8 +147,7 @@
                       @change="saveProductMarginOverride(row)" />
                   </td>
                   <td class="bom-source-cell">
-                    <div>{{ productionBomLabel(row) }}</div>
-                    <small v-if="productionBomVersionWarning(row)" class="bom-version-warning" data-warning-prefix="当前引用">{{ productionBomVersionWarning(row) }}</small>
+                    <button class="text-button" type="button" @click="openProductProductionConfig(row)">查看使用关系</button>
                   </td>
                   <td>
                     <span :class="['status-pill', row.active === false ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
@@ -1004,23 +1003,11 @@
           <section class="drawer-section">
             <div class="field-group-head">
               <div class="field-group-copy">
-                <strong>生产反查</strong>
-                <small>BOM 在生产模块维护；商品档案只查看自己能被哪些 BOM 产出、又被哪些上层 BOM 当组件使用。</small>
+                <strong>被哪些 BOM 使用</strong>
+                <small>BOM 在生产模块维护；这里仅只读查看哪些 BOM 产出或消耗这个商品。</small>
               </div>
             </div>
-            <div class="production-config-grid reverse-bom-grid">
-              <div class="readonly-link-list">
-                <span>可生产 BOM</span>
-                <button
-                  v-for="row in productProductionConfigProduceBomRows"
-                  :key="row.id"
-                  class="text-button readonly-link-button"
-                  type="button"
-                  @click="navigateProductBom(row)">
-                  {{ productionBomLabel(row) }}
-                </button>
-                <small v-if="!productProductionConfigProduceBomRows.length" class="muted">暂无生产 BOM 产出该商品</small>
-              </div>
+            <div class="production-config-grid reverse-bom-grid single-column">
               <div class="readonly-link-list">
                 <span>被哪些 BOM 使用</span>
                 <button
@@ -1029,9 +1016,9 @@
                   class="text-button readonly-link-button"
                   type="button"
                   @click="navigateProductBom({ production_bom_id: row.bom_id, id: row.bom_id, name: row.bom_name })">
-                  {{ row.bom_code }} {{ row.bom_name }} / {{ row.bom_version_no }}
+                  {{ bomUsageRelationLabel(row) }} · {{ row.bom_code }} {{ row.bom_name }} / {{ row.bom_version_no }}
                 </button>
-                <small v-if="!productProductionConfigUsedByBomRows.length" class="muted">暂无上层 BOM 使用该商品</small>
+                <small v-if="!productProductionConfigUsedByBomRows.length" class="muted">暂无 BOM 使用该商品</small>
               </div>
             </div>
           </section>
@@ -1185,7 +1172,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { productionBomLabel, productionBomVersionWarning } from '../lib/bom'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
   buildGradientTemplatePayload,
@@ -1577,29 +1563,15 @@ const activeIndustryFieldTemplates = computed(() => industryFieldTemplates.value
   .slice()
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name || '').localeCompare(String(b.name || ''))))
 const productProductionConfigActiveBomOptions = computed(() => activeProductionBomOptions(productionBoms.value))
-const productProductionConfigProduceBomRows = computed(() => {
-  const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
-  if (!productID) return []
-  return productionBoms.value.filter((row) => Number(row.output_product_id || 0) === productID)
-})
 const productProductionConfigUsedByBomRows = computed(() => {
   const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
   const seen = new Set()
   const rows = []
   for (const row of productBomUsageByProductID.value[String(productID)] || []) {
-    const key = `${row.bom_id}:${row.bom_version_id}:${row.consume_unit}`
+    const key = `${row.bom_id}:${row.bom_version_id}:${row.relation_type || 'component'}:${row.consume_unit}`
     if (seen.has(key)) continue
     seen.add(key)
-    rows.push(row)
-  }
-  for (const bom of productProductionConfigProduceBomRows.value) {
-    const detail = productionBomDetails.value[String(bom.id || bom.production_bom_id || 0)]
-    for (const row of detail?.used_by_boms || []) {
-      const key = `${row.bom_id}:${row.bom_version_id}:${row.consume_unit}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      rows.push(row)
-    }
+    rows.push({ relation_type: 'component', ...row })
   }
   return rows
 })
@@ -3567,8 +3539,8 @@ function handleCustomProductKindChange() {
 }
 
 function navigateProductBom(row) {
-  const productID = Number(row?.id || row?.product_id || 0)
-  const bomID = Number(row?.production_bom_id || productProductionConfigForm.value.production_bom_id || 0)
+  const productID = Number(row?.product_id || productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || row?.id || 0)
+  const bomID = Number(row?.production_bom_id || row?.bom_id || productProductionConfigForm.value.production_bom_id || 0)
   const productName = productProductionConfigForm.value.name || row?.name || productProductionConfigProduct.value?.name || ''
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: {
@@ -3581,6 +3553,11 @@ function navigateProductBom(row) {
       } : null,
     },
   }))
+}
+
+function bomUsageRelationLabel(row) {
+  if (row?.relation_type === 'output') return '产出该商品'
+  return '作为组件'
 }
 
 function navigateCurrentProductBom() {
@@ -3707,17 +3684,16 @@ async function openProductProductionConfig(row) {
   productProductionConfigForm.value = defaultProductProductionConfigForm(productProductionConfigByProductID(row?.id), row)
   productProductionConfigDrawerOpen.value = true
   error.value = ''
-  try {
-    await Promise.all([
-      loadProductionBomCatalog(),
-      loadProcessRoutes(),
-      loadIndustryFieldTemplates(),
-    ])
-    await ensureProductBomUsage(row?.id)
-    await Promise.all(productProductionConfigProduceBomRows.value.map((bom) => ensureProductionBomDetail(bom.id || bom.production_bom_id)))
-    if (productProductionConfigForm.value.production_bom_id) {
-      await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
-      if (!productProductionConfigForm.value.production_bom_version_id) {
+	try {
+		await Promise.all([
+			loadProductionBomCatalog(),
+			loadProcessRoutes(),
+			loadIndustryFieldTemplates(),
+		])
+		await ensureProductBomUsage(row?.id)
+		if (productProductionConfigForm.value.production_bom_id) {
+			await ensureProductionBomDetail(productProductionConfigForm.value.production_bom_id)
+			if (!productProductionConfigForm.value.production_bom_version_id) {
         const latest = productProductionConfigVersionOptions.value[0]
         if (latest) productProductionConfigForm.value.production_bom_version_id = Number(latest.id || 0)
       }

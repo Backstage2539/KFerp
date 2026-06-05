@@ -28,7 +28,6 @@ func TestProductFormulaMenuClickMatrixEvidenceExists(t *testing.T) {
 		"sync_bom",
 		"save_bom_item",
 		"save_bom_version",
-		"save_bag_mapping",
 		"port_18162_free",
 		"port_9241_free",
 	} {
@@ -82,11 +81,11 @@ func TestProductFormulaMenuClickMatrixViewsExposeActions(t *testing.T) {
 			"/api/production-bom-versions/${draftVersionID}/draft",
 			"/api/production-bom-groups",
 			"/api/production-boms/${bomID}/versions",
-			"/api/bom/bag-spec-mappings/save",
+			"/api/product-settings/units",
 			"保存组件",
 			"管理分组",
 			"复制为新版草稿",
-			"保存映射",
+			"产出数量",
 		},
 	}
 

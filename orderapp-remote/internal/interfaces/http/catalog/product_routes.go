@@ -59,6 +59,7 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.POST("/api/product-settings/product-config-templates", h.saveProductConfigTemplateAPI)
 	e.PUT("/api/product-settings/product-config-templates/:id", h.saveProductConfigTemplateAPI)
 	e.POST("/api/product-settings/product-config-templates/derive", h.deriveProductConfigTemplateAPI)
+	e.GET("/api/product-settings/units", h.productUnitDefinitionsAPI)
 	e.POST("/api/product-settings/units", h.saveProductUnitDefinitionAPI)
 	e.PUT("/api/product-settings/units/:code", h.saveProductUnitDefinitionAPI)
 	e.POST("/api/product-settings/unit-templates", h.saveProductUnitTemplateAPI)
@@ -813,6 +814,14 @@ func (h productHandler) productSettingsAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, data)
+}
+
+func (h productHandler) productUnitDefinitionsAPI(c echo.Context) error {
+	rows, err := h.catalog.ListProductUnitDefinitions(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, rows)
 }
 
 func (h productHandler) customerProductAliasesAPI(c echo.Context) error {

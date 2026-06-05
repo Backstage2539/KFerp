@@ -42,7 +42,7 @@ func TestVueShellEmbedsBomWithoutNestedMenu(t *testing.T) {
 		"/api/production-boms?status=all",
 		"/api/production-boms/${id}${query}",
 		"/api/production-bom-versions/${draftVersionID}/draft",
-		"/api/bom/bag-spec-mappings",
+		"/api/product-settings/units",
 	} {
 		if !strings.Contains(bomSrc, want) {
 			t.Fatalf("frontend-vue-shell/src/views/BomView.vue missing %q", want)

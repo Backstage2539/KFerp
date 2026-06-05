@@ -1440,7 +1440,7 @@ test('BOM view no longer exposes special attributes from BOM version detail', ()
   assert.doesNotMatch(template, /versionSpecialAttrsSchemaText/)
 })
 
-test('product archive config drawer owns template and industry fields while production BOM is read-only reverse lookup', () => {
+test('product archive config drawer owns template and industry fields while BOM relation is read-only usage lookup', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const bomSource = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
@@ -1448,11 +1448,9 @@ test('product archive config drawer owns template and industry fields while prod
   assert.match(source, /商品档案配置/)
   assert.match(source, /商品配置模板/)
   assert.match(source, /行业字段模板/)
-  assert.match(source, /生产反查/)
-  assert.match(source, /可生产 BOM/)
   assert.match(source, /被哪些 BOM 使用/)
-  assert.match(source, /productProductionConfigProduceBomRows/)
   assert.match(source, /productProductionConfigUsedByBomRows/)
+  assert.match(source, /bomUsageRelationLabel/)
   assert.match(source, /ensureProductBomUsage/)
   assert.match(source, /\/api\/production-bom-product-usage\/\$\{id\}/)
   assert.match(source, /show_in_price_list/)
@@ -1465,6 +1463,9 @@ test('product archive config drawer owns template and industry fields while prod
   assert.doesNotMatch(source, /维护当前 BOM 明细/)
   assert.doesNotMatch(source, /placeholder="搜索有效生产 BOM"/)
   assert.doesNotMatch(source, /<span>BOM版本<\/span>/)
+  assert.doesNotMatch(source, /生产反查/)
+  assert.doesNotMatch(source, /可生产 BOM/)
+  assert.doesNotMatch(source, /productProductionConfigProduceBomRows/)
   assert.match(script, /saveProductProductionConfig/)
   assert.match(script, /kferp:navigate-view/)
   assert.match(source, /product-return-banner/)
@@ -1652,11 +1653,13 @@ test('product archive list uses the product name as the only production config e
   const template = source.split('<script setup>')[0] || source
 
   assert.match(template, /生产 BOM/)
-  assert.match(source, /productionBomLabel\(row\)/)
-  assert.match(source, /productionBomVersionWarning\(row\)/)
-  assert.match(template, /当前引用/)
+  assert.match(template, /BOM 使用/)
+  assert.match(template, /查看使用关系/)
   assert.match(template, /class="[^"]*sku-name-button[^"]*"[\s\S]*@click="openProductProductionConfig\(row\)"/)
   assert.ok(template.indexOf('<th class="sku-name-cell">商品名</th>') < template.indexOf('<th>商品编号</th>'), '商品名 must be the first business column before 商品编号')
+  assert.doesNotMatch(source, /productionBomLabel\(row\)/)
+  assert.doesNotMatch(source, /productionBomVersionWarning\(row\)/)
+  assert.doesNotMatch(template, /当前引用/)
   assert.doesNotMatch(template, />生产配置<\/button>/)
   assert.doesNotMatch(template, /更换生产 BOM/)
   assert.doesNotMatch(template, />维护 BOM<\/button>/)
@@ -2363,15 +2366,17 @@ test('customer product aliases use page-level classification templates, not sing
   assert.doesNotMatch(source, /openClassificationConfigDrawer\(\{[\s\S]*objectType:\s*'customer_alias'/)
 })
 
-test('product archive config drawer only shows production BOM reverse lookup instead of binding editor', () => {
+test('product archive config drawer only shows BOM usage relation instead of binding editor or producible BOM list', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const drawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
 
-  assert.match(drawer, /可生产 BOM/)
   assert.match(drawer, /被哪些 BOM 使用/)
-  assert.match(drawer, /productProductionConfigProduceBomRows/)
   assert.match(drawer, /productProductionConfigUsedByBomRows/)
+  assert.match(drawer, /bomUsageRelationLabel/)
   assert.match(source, /productBomUsageByProductID/)
+  assert.doesNotMatch(drawer, /生产反查/)
+  assert.doesNotMatch(drawer, /可生产 BOM/)
+  assert.doesNotMatch(drawer, /productProductionConfigProduceBomRows/)
   assert.doesNotMatch(drawer, /<select v-model\.number="productProductionConfigForm\.production_bom_id"/)
   assert.doesNotMatch(drawer, /SearchableSelect[\s\S]*productProductionConfigActiveBomOptions/)
   assert.doesNotMatch(drawer, /placeholder="搜索有效生产 BOM"/)

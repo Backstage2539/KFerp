@@ -139,6 +139,8 @@ func TestProductionBomOutputProductAndMultiLevelPublishValidationMarkers(t *test
 		"ListProductionBomUsageByProduct",
 		"listProductionBomUsedByBoms",
 		"UsedByBoms: usedByBoms",
+		"'output' AS relation_type",
+		"'component' AS relation_type",
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("production BOM output/multi-level implementation missing marker %q", want)

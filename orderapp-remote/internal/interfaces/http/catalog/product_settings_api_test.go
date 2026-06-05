@@ -1715,6 +1715,16 @@ func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.
 		}
 	}
 
+	req = httptest.NewRequest(http.MethodGet, "/api/product-settings/units", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/product-settings/units status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"code":"盒"`)) || bytes.Contains(rec.Body.Bytes(), []byte(`"product_unit_templates"`)) {
+		t.Fatalf("unit dictionary response should only include unit definitions: %s", rec.Body.String())
+	}
+
 	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/units", bytes.NewBufferString(`{"code":"盒","name":"盒","unit_type":"package","allow_decimal":false,"active":true}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()

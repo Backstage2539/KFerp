@@ -193,12 +193,12 @@ test('BOM view exposes grouped manufacturing BOM library and no longer edits pro
   assert.doesNotMatch(source, /bom-batch-deactivate-card/)
 })
 
-test('BOM detail keeps versions and bag-spec mapping inside the edit detail panel', async () => {
+test('BOM detail keeps version recipe editing without global bag-spec mapping panel', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const detailPanel = template.match(/<section class="panel detail-panel"[\s\S]*?<\/section>/)?.[0] || ''
-  const versionPanel = template.match(/<div v-if="detail" class="detail-subpanel bom-version-panel"[\s\S]*?<div v-if="detail && !isWorkspaceCustomerLocked" class="detail-subpanel bag-spec-mapping-panel">/)?.[0] || ''
+  const versionPanel = template.match(/<div v-if="detail" class="detail-subpanel bom-version-panel"[\s\S]*?<\/div>\s*<\/div>\s*<\/section>/)?.[0] || ''
 
   assert.match(detailPanel, /BOM版本/)
   assert.match(detailPanel, /复制为新版草稿/)
@@ -206,8 +206,15 @@ test('BOM detail keeps versions and bag-spec mapping inside the edit detail pane
   assert.match(versionPanel, /配方明细/)
   assert.match(versionPanel, /合计比例/)
   assert.match(versionPanel, /保存组件/)
-  assert.match(detailPanel, /规格袋材映射/)
-  assert.match(detailPanel, /全局规格袋材映射/)
+  assert.match(source, /loadProductUnitDefinitions/)
+  assert.match(source, /\/api\/product-settings\/units/)
+  assert.match(source, /unitDictionaryConsumeUnitOptions/)
+  assert.doesNotMatch(detailPanel, /规格袋材映射/)
+  assert.doesNotMatch(detailPanel, /全局规格袋材映射/)
+  assert.doesNotMatch(source, /bag-spec-mapping-panel/)
+  assert.doesNotMatch(source, /全局规格袋材映射/)
+  assert.doesNotMatch(source, /const materialConsumeUnitOptions = \[/)
+  assert.doesNotMatch(source, /const finishedProductConsumeUnitOptions = \[/)
   assert.match(detailPanel, /openReferencedProductConfig\(product\)/)
   assert.match(detailPanel, /referenced-product-button/)
   assert.match(detailPanel, /product\.product_name/)
@@ -238,7 +245,8 @@ test('production BOM list supports status filters name search group tabs and ina
   const template = source.split('<script setup>')[0] || source
   const listFilters = template.match(/<div class="bom-list-filters"[\s\S]*?<\/div>\s*<div class="table-wrap bom-list-panel-scroll">/)?.[0] || ''
   const tabRow = template.match(/<div class="bom-list-tabs-row"[\s\S]*?<\/div>\s*<div class="bom-list-toolbar">/)?.[0] || ''
-  const toolbar = template.match(/<div class="bom-list-toolbar"[\s\S]*?<div class="bom-list-filters">/)?.[0] || ''
+	  const toolbar = template.match(/<div class="bom-list-toolbar"[\s\S]*?<div class="bom-list-filters">/)?.[0] || ''
+  const bomRecordForm = template.match(/<form class="inline-form bom-record-form"[\s\S]*?<\/form>/)?.[0] || ''
   for (const marker of [
     'bom-list-toolbar',
     'bom-list-panel-scroll',
@@ -246,8 +254,6 @@ test('production BOM list supports status filters name search group tabs and ina
     'productionBomSearchQuery',
     '新建生产 BOM',
     'BOM版本',
-    '全局规格袋材映射',
-    '规格袋材映射',
     '复制',
     '失效',
     'selectedBomRowKeys',
@@ -266,6 +272,9 @@ test('production BOM list supports status filters name search group tabs and ina
   assert.match(listFilters, /状态/)
   assert.match(listFilters, /搜索 BOM/)
   assert.match(listFilters, /批量失效/)
+  assert.match(bomRecordForm, /产出数量/)
+  assert.match(bomRecordForm, /产出单位/)
+  assert.doesNotMatch(bomRecordForm, /v-if="bomForm\.mode !== 'edit'"/)
   assert.match(tabRow, /bom-list-tabs/)
   assert.match(tabRow, /新建生产 BOM/)
   assert.match(toolbar, /移动到分组/)
@@ -293,7 +302,9 @@ test('production BOM list supports status filters name search group tabs and ina
   assert.match(listHead, /productionBomSearchQuery/)
   assert.match(listHead, /deactivateSelectedProductionBoms/)
   assert.match(source, /createVersion/)
-  assert.match(source, /saveMapping/)
+  assert.doesNotMatch(source, /saveMapping/)
+  assert.doesNotMatch(source, /deleteMapping/)
+  assert.doesNotMatch(source, /api\/bom\/bag-spec-mappings/)
   const deactivateStart = source.indexOf('async function deactivateProductionBomRecord')
   const deactivateEnd = source.indexOf('async function createVersion', deactivateStart)
   assert.notEqual(deactivateStart, -1)

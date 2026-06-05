@@ -36,7 +36,7 @@ func TestDev389BomVersionSpecialAttrsSourceMarkers(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"生产 BOM",
 			"商品生产配置",
-			"productionBomLabel(row)",
+			"bomUsageRelationLabel",
 			"action-cell",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "bom", "schema.go"): {

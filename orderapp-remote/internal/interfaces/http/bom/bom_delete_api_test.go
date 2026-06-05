@@ -272,8 +272,20 @@ func TestProductionBomProductUsageAPIReturnsUpperBomsForProductComponent(t *test
 		BomVersionNo:      "V001",
 		OutputProductID:   88,
 		OutputProductName: "10条盒装速溶咖啡",
+		RelationType:      "component",
 		ConsumeUnit:       "unit",
 		QtyPerUnit:        10,
+	}, {
+		BomID:             9,
+		BomCode:           "BOM-001369",
+		BomName:           "卡布奇诺条装",
+		BomVersionID:      91,
+		BomVersionNo:      "V001",
+		OutputProductID:   77,
+		OutputProductName: "卡布奇诺速溶条装",
+		RelationType:      "output",
+		ConsumeUnit:       "条",
+		QtyPerUnit:        1,
 	}}}
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
@@ -288,7 +300,10 @@ func TestProductionBomProductUsageAPIReturnsUpperBomsForProductComponent(t *test
 	if repo.productionBomUsageProductID != 77 {
 		t.Fatalf("usage product id = %d, want 77", repo.productionBomUsageProductID)
 	}
-	if !strings.Contains(rec.Body.String(), `"bom_name":"10条盒装速溶"`) || !strings.Contains(rec.Body.String(), `"qty_per_unit":10`) {
+	if !strings.Contains(rec.Body.String(), `"bom_name":"10条盒装速溶"`) || !strings.Contains(rec.Body.String(), `"relation_type":"component"`) || !strings.Contains(rec.Body.String(), `"qty_per_unit":10`) {
+		t.Fatalf("body missing component usage row: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"bom_name":"卡布奇诺条装"`) || !strings.Contains(rec.Body.String(), `"relation_type":"output"`) || !strings.Contains(rec.Body.String(), `"consume_unit":"条"`) {
 		t.Fatalf("body missing usage row: %s", rec.Body.String())
 	}
 }

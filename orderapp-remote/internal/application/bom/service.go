@@ -180,6 +180,7 @@ type ProductionBomUsedByBom struct {
 	BomVersionNo      string  `json:"bom_version_no"`
 	OutputProductID   int64   `json:"output_product_id"`
 	OutputProductName string  `json:"output_product_name"`
+	RelationType      string  `json:"relation_type"`
 	ConsumeUnit       string  `json:"consume_unit"`
 	QtyPerUnit        float64 `json:"qty_per_unit"`
 }
