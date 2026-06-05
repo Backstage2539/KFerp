@@ -151,7 +151,6 @@
                     <td>{{ row.output_product_name || '-' }}</td>
                     <td>{{ row.updated_at }}</td>
                     <td>
-                      <button class="text-button" type="button" :disabled="!Number(row.production_bom_id || row.id || 0)" @click.stop="openEditProductionBomRecord(bomRecordFromRow(row))">编辑</button>
                       <button class="text-button" type="button" :disabled="!Number(row.production_bom_id || row.id || 0)" @click.stop="copyProductionBomRecord(bomRecordFromRow(row))">复制</button>
                       <button class="text-button danger-text" type="button" :disabled="!Number(row.production_bom_id || row.id || 0) || row.status === 'inactive'" @click.stop="deactivateProductionBomRecord(bomRecordFromRow(row))">失效</button>
                     </td>
@@ -188,7 +187,6 @@
                 <td>{{ row.output_product_name || '-' }}</td>
                 <td>{{ row.updated_at }}</td>
                 <td>
-                  <button class="text-button" type="button" :disabled="!Number(row.production_bom_id || row.id || 0)" @click.stop="openEditProductionBomRecord(bomRecordFromRow(row))">编辑</button>
                   <button class="text-button" type="button" :disabled="!Number(row.production_bom_id || row.id || 0)" @click.stop="copyProductionBomRecord(bomRecordFromRow(row))">复制</button>
                   <button class="text-button danger-text" type="button" :disabled="!Number(row.production_bom_id || row.id || 0) || row.status === 'inactive'" @click.stop="deactivateProductionBomRecord(bomRecordFromRow(row))">失效</button>
                 </td>
@@ -221,11 +219,11 @@
         <div v-if="detail && referencedProducts.length" class="linked-processes referenced-products">
           <button
             v-for="product in referencedProducts"
-            :key="product.product_id"
+            :key="referencedProductKey(product)"
             type="button"
-            :class="['status-pill', 'referenced-product-button', product.active === false ? 'inactive' : '']"
+            class="status-pill referenced-product-button"
             @click="openReferencedProductConfig(product)">
-            {{ product.product_name || `商品 #${product.product_id}` }}<template v-if="product.product_code"> · {{ product.product_code }}</template><template v-if="product.bom_version_no"> · {{ product.bom_version_no }}</template>
+            {{ product.product_name || `商品 #${product.product_id}` }}<template v-if="product.product_code"> · {{ product.product_code }}</template>
           </button>
         </div>
         <div v-if="detail && usedByBoms.length" class="detail-subpanel compact-subpanel">
@@ -648,11 +646,24 @@ const groupProductionBomRowsByInnerCategory = computed(() => {
 })
 const linkedProcessTemplates = computed(() => processTemplates.value.filter((template) => Number(template.product_id || 0) === Number(selectedProductId.value || 0)))
 const selectedProduct = computed(() => productByID(selectedProductId.value))
-const referencedProducts = computed(() => detail.value?.referenced_products || productionBomDetail.value?.referenced_products || [])
+const rawReferencedProducts = computed(() => detail.value?.referenced_products || productionBomDetail.value?.referenced_products || [])
+const referencedProducts = computed(() => {
+  const seen = new Set()
+  const rows = []
+  for (const product of rawReferencedProducts.value || []) {
+    if (!isActiveReferencedProduct(product)) continue
+    const key = referencedProductKey(product)
+    if (seen.has(key)) continue
+    seen.add(key)
+    rows.push(product)
+  }
+  return rows
+})
 const usedByBoms = computed(() => detail.value?.used_by_boms || productionBomDetail.value?.used_by_boms || [])
 const referencedProductsLabel = computed(() => {
   const count = referencedProducts.value.length
   if (count > 0) return `${count} 个商品`
+  if ((rawReferencedProducts.value || []).length > 0) return '未被商品引用'
   const summaryCount = Number(selectedProductionBomRecord.value?.reference_product_count || detail.value?.reference_product_count || productionBomDetail.value?.reference_product_count || 0)
   return summaryCount > 0 ? `${summaryCount} 个商品` : '未被商品引用'
 })
@@ -763,6 +774,24 @@ function bomRowKey(row) {
   const bomID = Number(row?.production_bom_id || row?.id || 0)
   if (bomID > 0) return `bom:${bomID}`
   return `product:${Number(row?.product_id || 0)}`
+}
+
+function isInactiveMarker(value) {
+  if (value === false || value === 0) return true
+  const normalized = String(value ?? '').trim().toLowerCase()
+  return ['inactive', 'disabled', 'deprecated', 'deactivated', 'archived', 'false', '0', '失效'].includes(normalized)
+}
+
+function isActiveReferencedProduct(product = {}) {
+  return !isInactiveMarker(product.active) && !isInactiveMarker(product.status) && !isInactiveMarker(product.product_status)
+}
+
+function referencedProductKey(product = {}) {
+  const productID = Number(product.product_id || product.id || 0)
+  if (productID > 0) return `product:${productID}`
+  const code = String(product.product_code || product.code || '').trim()
+  const name = String(product.product_name || product.name || '').trim()
+  return `product:${code}:${name}`
 }
 
 function isMovableBomRow(row = {}) {
@@ -1299,7 +1328,7 @@ async function selectBomRow(row) {
 }
 
 async function openBomRowPrimary(row) {
-  await selectUnboundProductionBom(row)
+  await openEditProductionBomRecord(bomRecordFromRow(row))
 }
 
 function bomStatusLabel(status) {

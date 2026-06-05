@@ -219,12 +219,26 @@ test('BOM detail keeps version recipe editing without global bag-spec mapping pa
   assert.match(detailPanel, /referenced-product-button/)
   assert.match(detailPanel, /product\.product_name/)
   assert.match(detailPanel, /product\.product_code/)
+  assert.match(source, /referencedProductKey\(product\)/)
+  assert.match(source, /isActiveReferencedProduct/)
+  assert.doesNotMatch(detailPanel, /product\.bom_version_no/)
   assert.doesNotMatch(source, /versionDrawerOpen/)
   assert.doesNotMatch(source, /bagSpecMappingDrawerOpen/)
   assert.doesNotMatch(source, /class="drawer bom-version-drawer"/)
   assert.doesNotMatch(source, /class="drawer bag-spec-mapping-drawer"/)
   assert.doesNotMatch(template, /<button class="text-button"[^>]*openBomVersionDrawer\(row\)[\s\S]*BOM版本/)
   assert.doesNotMatch(template, /<button[^>]*openBagSpecMappingDrawer\(row\)[\s\S]*规格袋材映射/)
+})
+
+test('production BOM name opens the settings drawer and list no longer shows edit button', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const tableBlock = template.match(/<div class="table-wrap bom-list-panel-scroll">[\s\S]*?<\/table>\s*<\/div>/)?.[0] || ''
+
+  assert.match(tableBlock, /@click\.stop="openBomRowPrimary\(row\)"/)
+  assert.doesNotMatch(tableBlock, />编辑<\/button>/)
+  assert.match(source, /async function openBomRowPrimary\(row\)[\s\S]*openEditProductionBomRecord\(bomRecordFromRow\(row\)\)/)
 })
 
 test('production BOM list supports status filters name search group tabs and inactive copy actions', async () => {

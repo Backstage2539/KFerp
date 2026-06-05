@@ -139,12 +139,17 @@ func TestProductionBomOutputProductAndMultiLevelPublishValidationMarkers(t *test
 		"ListProductionBomUsageByProduct",
 		"listProductionBomUsedByBoms",
 		"UsedByBoms: usedByBoms",
-		"'output' AS relation_type",
 		"'component' AS relation_type",
+		"COALESCE(NULLIF(pb.status,''),'active')='active'",
+		"COALESCE(pb.output_product_id,0)<>$1",
+		"SELECT DISTINCT ON (pb.id)",
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("production BOM output/multi-level implementation missing marker %q", want)
 		}
+	}
+	if strings.Contains(repository, "'output' AS relation_type") {
+		t.Fatalf("production BOM usage lookup must not return output-product rows as BOM usage")
 	}
 }
 
