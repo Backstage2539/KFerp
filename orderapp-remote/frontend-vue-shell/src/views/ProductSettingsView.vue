@@ -1009,14 +1009,13 @@
             </div>
             <div class="production-config-grid reverse-bom-grid single-column">
               <div class="readonly-link-list">
-                <span>被哪些 BOM 使用</span>
                 <button
                   v-for="row in productProductionConfigUsedByBomRows"
-                  :key="`${row.bom_id}:${row.bom_version_id}`"
+                  :key="bomUsageRowKey(row)"
                   class="text-button readonly-link-button"
                   type="button"
-                  @click="navigateProductBom({ production_bom_id: row.bom_id, id: row.bom_id, name: row.bom_name })">
-                  {{ bomUsageRelationLabel(row) }} · {{ row.bom_code }} {{ row.bom_name }} / {{ row.bom_version_no }}
+                  @click="navigateProductBom({ production_bom_id: bomUsageBomID(row), id: bomUsageBomID(row), name: row.bom_name })">
+                  {{ bomUsageRelationLabel(row) }}
                 </button>
                 <small v-if="!productProductionConfigUsedByBomRows.length" class="muted">暂无 BOM 使用该商品</small>
               </div>
@@ -1568,10 +1567,12 @@ const productProductionConfigUsedByBomRows = computed(() => {
   const seen = new Set()
   const rows = []
   for (const row of productBomUsageByProductID.value[String(productID)] || []) {
-    const key = `${row.bom_id}:${row.bom_version_id}:${row.relation_type || 'component'}:${row.consume_unit}`
+    if (!isActiveBomUsageRow(row)) continue
+    const normalized = { relation_type: 'component', ...row }
+    const key = bomUsageRowKey(normalized)
     if (seen.has(key)) continue
     seen.add(key)
-    rows.push({ relation_type: 'component', ...row })
+    rows.push(normalized)
   }
   return rows
 })
@@ -3555,9 +3556,33 @@ function navigateProductBom(row) {
   }))
 }
 
-function bomUsageRelationLabel(row) {
-  if (row?.relation_type === 'output') return '产出该商品'
-  return '作为组件'
+function isInactiveMarker(value) {
+  if (value === false || value === 0) return true
+  const normalized = String(value ?? '').trim().toLowerCase()
+  return ['inactive', 'disabled', 'deprecated', 'deactivated', 'archived', 'false', '0', '失效'].includes(normalized)
+}
+
+function isActiveBomUsageRow(row = {}) {
+  return !isInactiveMarker(row.status) && !isInactiveMarker(row['bom_status']) && !isInactiveMarker(row.active)
+}
+
+function bomUsageBomID(row = {}) {
+  return Number(row.bom_id || row.production_bom_id || row.id || 0)
+}
+
+function bomUsageRowKey(row = {}) {
+  const bomID = bomUsageBomID(row)
+  if (bomID > 0) return `bom:${bomID}`
+  const code = String(row.bom_code || row.production_bom_code || row.code || '').trim()
+  const name = String(row.bom_name || row.production_bom_name || row.name || '').trim()
+  return `bom:${code}:${name}`
+}
+
+function bomUsageRelationLabel(row = {}) {
+  const bomID = bomUsageBomID(row)
+  const code = String(row.bom_code || row.production_bom_code || row.code || '').trim()
+  const name = String(row.bom_name || row.production_bom_name || row.name || '').trim()
+  return [code, name].filter(Boolean).join(' ') || (bomID > 0 ? `BOM #${bomID}` : '生产 BOM')
 }
 
 function navigateCurrentProductBom() {
