@@ -280,8 +280,8 @@ func TestApplyGreenBeanOrderPublicationTiersReplacesDirectProductTiers(t *testin
 			}},
 		},
 	}
-	publicationTiers := map[int64][]salesapp.ProductTierOption{
-		416: {{
+	publicationTiers := map[orderPublicationProductKey][]salesapp.ProductTierOption{
+		{ProductID: 416}: {{
 			ID:          50,
 			SpecG:       1000,
 			MinQty:      1,
@@ -385,8 +385,8 @@ func TestApplyCommercialOrderPublicationTiersReplacesCustomerRoastedTiers(t *tes
 			}},
 		},
 	}
-	publicationTiers := map[int64][]salesapp.ProductTierOption{
-		425: {{
+	publicationTiers := map[orderPublicationProductKey][]salesapp.ProductTierOption{
+		{ProductID: 425}: {{
 			ID:          56,
 			SpecG:       454,
 			MinQty:      2,
@@ -402,6 +402,52 @@ func TestApplyCommercialOrderPublicationTiersReplacesCustomerRoastedTiers(t *tes
 	}
 	if len(products[1].Tiers) != 1 || products[1].Tiers[0].ID != 991 || products[1].Tiers[0].UnitPrice != 62 {
 		t.Fatalf("green product tiers changed = %+v", products[1].Tiers)
+	}
+}
+
+func TestApplyCommercialOrderPublicationTiersKeepsCustomerAliasSnapshotsSeparate(t *testing.T) {
+	products := []salesapp.ProductOption{
+		{
+			ID:                     538,
+			CustomerID:             19,
+			CustomerProductAliasID: 82,
+			ProductKind:            "roasted_bean",
+		},
+		{
+			ID:                     538,
+			CustomerID:             122,
+			CustomerProductAliasID: 83,
+			ProductKind:            "roasted_bean",
+		},
+	}
+	publicationTiers := map[orderPublicationProductKey][]salesapp.ProductTierOption{
+		{CustomerID: 19, ProductID: 538}: {{
+			ID:              5600001,
+			UnitPrice:       88.5,
+			PriceSourceJSON: `{"publication_id":56,"list_type":"commercial"}`,
+		}},
+		{CustomerID: 122, ProductID: 538}: {{
+			ID:              5500001,
+			UnitPrice:       88.5,
+			PriceSourceJSON: `{"publication_id":55,"list_type":"commercial"}`,
+		}},
+	}
+
+	applyCommercialOrderPublicationTiers(products, publicationTiers)
+
+	for idx, wantPublicationID := range []int64{56, 55} {
+		if len(products[idx].Tiers) != 1 {
+			t.Fatalf("product[%d] tiers = %+v, want one customer-specific tier", idx, products[idx].Tiers)
+		}
+		var source struct {
+			PublicationID int64 `json:"publication_id"`
+		}
+		if err := json.Unmarshal([]byte(products[idx].Tiers[0].PriceSourceJSON), &source); err != nil {
+			t.Fatalf("product[%d] price source json invalid: %v", idx, err)
+		}
+		if source.PublicationID != wantPublicationID {
+			t.Fatalf("product[%d] publication_id=%d, want %d", idx, source.PublicationID, wantPublicationID)
+		}
 	}
 }
 

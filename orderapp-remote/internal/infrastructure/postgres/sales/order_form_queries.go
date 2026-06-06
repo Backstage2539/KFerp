@@ -454,7 +454,19 @@ func (r Repository) fetchOrderCustomerAliasProducts(ctx context.Context) ([]sale
 	return out, rows.Err()
 }
 
-func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption) (map[int64][]salesapp.ProductTierOption, error) {
+type orderPublicationProductKey struct {
+	CustomerID int64
+	ProductID  int64
+}
+
+func orderPublicationProductKeyForProduct(product salesapp.ProductOption) orderPublicationProductKey {
+	return orderPublicationProductKey{
+		CustomerID: product.CustomerID,
+		ProductID:  product.ID,
+	}
+}
+
+func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
 	customerOwners := map[string]bool{}
 	hasCommercialProduct := false
 	for _, product := range products {
@@ -467,11 +479,11 @@ func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, pr
 		}
 	}
 	if !hasCommercialProduct {
-		return map[int64][]salesapp.ProductTierOption{}, nil
+		return map[orderPublicationProductKey][]salesapp.ProductTierOption{}, nil
 	}
 	var exists bool
 	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.bean_list_publications", r.schema)).Scan(&exists); err != nil || !exists {
-		return map[int64][]salesapp.ProductTierOption{}, err
+		return map[orderPublicationProductKey][]salesapp.ProductTierOption{}, err
 	}
 	ownerKeys := make([]string, 0, len(customerOwners))
 	for key := range customerOwners {
@@ -532,31 +544,32 @@ func (r Repository) fetchCommercialOrderPublicationTiers(ctx context.Context, pr
 		return nil, err
 	}
 
-	out := map[int64][]salesapp.ProductTierOption{}
+	out := map[orderPublicationProductKey][]salesapp.ProductTierOption{}
 	for _, product := range products {
 		if !orderCommercialProductKind(product.ProductKind) {
 			continue
 		}
+		key := orderPublicationProductKeyForProduct(product)
 		if product.CustomerID > 0 {
 			ownerKey := strconv.FormatInt(product.CustomerID, 10)
 			if tiers := customerTiers[ownerKey][product.ID]; len(tiers) > 0 {
-				out[product.ID] = tiers
+				out[key] = tiers
 			}
 			continue
 		}
 		if tiers := officialTiers[product.ID]; len(tiers) > 0 {
-			out[product.ID] = tiers
+			out[key] = tiers
 		}
 	}
 	return out, nil
 }
 
-func applyCommercialOrderPublicationTiers(products []salesapp.ProductOption, publicationTiers map[int64][]salesapp.ProductTierOption) {
+func applyCommercialOrderPublicationTiers(products []salesapp.ProductOption, publicationTiers map[orderPublicationProductKey][]salesapp.ProductTierOption) {
 	for i := range products {
 		if !orderCommercialProductKind(products[i].ProductKind) {
 			continue
 		}
-		tiers := publicationTiers[products[i].ID]
+		tiers := publicationTiers[orderPublicationProductKeyForProduct(products[i])]
 		if len(tiers) == 0 {
 			continue
 		}
@@ -573,7 +586,7 @@ func orderCommercialProductKind(productKind string) bool {
 	}
 }
 
-func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption) (map[int64][]salesapp.ProductTierOption, error) {
+func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, products []salesapp.ProductOption) (map[orderPublicationProductKey][]salesapp.ProductTierOption, error) {
 	customerOwners := map[string]bool{}
 	hasGreenBeanProduct := false
 	for _, product := range products {
@@ -586,11 +599,11 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 		}
 	}
 	if !hasGreenBeanProduct {
-		return map[int64][]salesapp.ProductTierOption{}, nil
+		return map[orderPublicationProductKey][]salesapp.ProductTierOption{}, nil
 	}
 	var exists bool
 	if err := r.pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, fmt.Sprintf("%s.bean_list_publications", r.schema)).Scan(&exists); err != nil || !exists {
-		return map[int64][]salesapp.ProductTierOption{}, err
+		return map[orderPublicationProductKey][]salesapp.ProductTierOption{}, err
 	}
 	ownerKeys := make([]string, 0, len(customerOwners))
 	for key := range customerOwners {
@@ -653,21 +666,22 @@ func (r Repository) fetchGreenBeanOrderPublicationTiers(ctx context.Context, pro
 		return nil, err
 	}
 
-	out := map[int64][]salesapp.ProductTierOption{}
+	out := map[orderPublicationProductKey][]salesapp.ProductTierOption{}
 	for _, product := range products {
 		if strings.TrimSpace(product.ProductKind) != "green_bean" {
 			continue
 		}
+		key := orderPublicationProductKeyForProduct(product)
 		ownerKey := ""
 		if product.CustomerID > 0 {
 			ownerKey = strconv.FormatInt(product.CustomerID, 10)
 		}
 		if tiers := customerTiers[ownerKey][product.ID]; len(tiers) > 0 {
-			out[product.ID] = tiers
+			out[key] = tiers
 			continue
 		}
 		if tiers := officialTiers[product.ID]; len(tiers) > 0 {
-			out[product.ID] = tiers
+			out[key] = tiers
 		}
 	}
 	return out, nil
@@ -686,12 +700,12 @@ func mergeOrderPublicationTierMaps(dst, src map[int64][]salesapp.ProductTierOpti
 	return dst
 }
 
-func applyGreenBeanOrderPublicationTiers(products []salesapp.ProductOption, publicationTiers map[int64][]salesapp.ProductTierOption) {
+func applyGreenBeanOrderPublicationTiers(products []salesapp.ProductOption, publicationTiers map[orderPublicationProductKey][]salesapp.ProductTierOption) {
 	for i := range products {
 		if strings.TrimSpace(products[i].ProductKind) != "green_bean" {
 			continue
 		}
-		products[i].Tiers = append([]salesapp.ProductTierOption(nil), publicationTiers[products[i].ID]...)
+		products[i].Tiers = append([]salesapp.ProductTierOption(nil), publicationTiers[orderPublicationProductKeyForProduct(products[i])]...)
 		if products[i].Tiers == nil {
 			products[i].Tiers = []salesapp.ProductTierOption{}
 		}
