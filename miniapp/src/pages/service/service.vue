@@ -784,7 +784,7 @@ function inventoryInputOptions(items: InventoryItem[]): PickerOption<InventoryIt
 
 function productPickerOptions(products: ProductSummary[]): PickerOption<ProductSummary>[] {
   return products.map((item) => ({
-    label: `${productKindLabel(item)} / ${item.name} / 默认 ¥${item.default_price || '0.00'}`,
+    label: `${productKindLabel(item)} / ${item.name} / 已发布价格表`,
     value: item.id,
     data: item,
   }))
@@ -1392,7 +1392,7 @@ onShow(() => {
         <text class="panel-title">现货商品</text>
         <view v-for="item in page.products" :key="item.id" class="list-row">
           <text class="row-main">{{ item.name }}</text>
-          <text class="row-sub">{{ productKindLabel(item) }} / {{ item.roast_level || '未烘焙' }} / 默认 ¥{{ item.default_price }}</text>
+            <text class="row-sub">{{ productKindLabel(item) }} / {{ item.roast_level || '未烘焙' }} / 已发布价格表</text>
         </view>
       </view>
 

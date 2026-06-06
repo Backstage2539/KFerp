@@ -86,11 +86,11 @@ func TestGreenBeanSalesWiringAndManuals(t *testing.T) {
 		},
 		{
 			path: "orderapp-remote/internal/infrastructure/postgres/sales/repository.go",
-			want: []string{"product_kind", "ListTypeForProductKind", "ResolvePublishedUnitPrice", "productKindForOrderItem"},
+			want: []string{"product_kind", "ListTypeForProductKind", "ResolvePublishedPricingForPublicationWithUnit", "productKindForOrderItem"},
 		},
 		{
 			path: "orderapp-remote/internal/infrastructure/postgres/customerportal/business_repository.go",
-			want: []string{"ListTypeGreen", "ResolvePublishedUnitPrice", "beanListQuality"},
+			want: []string{"ListTypeGreen", "ResolvePublishedPricingForPublicationWithUnit", "beanListQuality"},
 		},
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/lib/product-settings.js",

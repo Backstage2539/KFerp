@@ -26,6 +26,8 @@ import {
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
   buildProductConfigTemplatePayload,
+  buildProductPriceRecordPayload,
+  buildProductTierPriceSchemePayload,
   buildProductProductionConfigForm,
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
@@ -54,6 +56,7 @@ import {
   productConfigTemplateNeedsGradientTemplate,
   productCreationActionOptions,
   productDisplayState,
+  productPriceRecordLabel,
   resolveCreatedProductForConfig,
   productSubtypeCategoryOptionsForType,
   primaryCategoryOptions,
@@ -121,7 +124,6 @@ test('instant coffee product kind carries legacy yield without writing SKU speci
     product_kind: 'instant_coffee',
     remark: '原料为速溶咖啡',
     yield_rate: 0.8,
-    margin_rate_override: null,
   })
 
   assert.deepEqual(buildCustomProductCreatePayload(42, {
@@ -206,7 +208,6 @@ test('customer product alias payload binds a customer-facing name to one product
     display_name: 'Karen 精品拼配',
     brand_name: '',
     display_category_id: 7,
-    product_config_template_id: 31,
     sort_order: 30,
     include_in_price_list: true,
     active: false,
@@ -214,7 +215,7 @@ test('customer product alias payload binds a customer-facing name to one product
   })
 })
 
-test('customer product aliases no longer submit direct gradient or unit template overrides', () => {
+test('customer product aliases no longer submit template or pricing overrides', () => {
   const payload = buildCustomerProductAliasPayload({
     customer_id: 42,
     product_id: 88,
@@ -222,11 +223,109 @@ test('customer product aliases no longer submit direct gradient or unit template
     product_config_template_id: 31,
     gradient_template_id: 18,
     unit_template_id: 22,
+    classification_template_id: 91,
   })
 
-  assert.equal(payload.product_config_template_id, 31)
+  assert.equal(Object.hasOwn(payload, 'product_config_template_id'), false)
   assert.equal(Object.hasOwn(payload, 'gradient_template_id'), false)
   assert.equal(Object.hasOwn(payload, 'unit_template_id'), false)
+  assert.equal(Object.hasOwn(payload, 'classification_template_id'), false)
+})
+
+test('product settings view exposes direct category and price management while retiring normal template entry points', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const appSource = fs.readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+  const menuSource = fs.readFileSync(new URL('./menu-ia.js', import.meta.url), 'utf8')
+  const productCreateDrawer = source.slice(source.indexOf('product-editor-drawer'), source.indexOf('customer-alias-create-drawer'))
+  const aliasCreateDrawer = source.slice(source.indexOf('customer-alias-create-drawer'), source.indexOf('product-production-config-drawer'))
+  const productConfigDrawer = source.slice(source.indexOf('product-production-config-drawer'), source.indexOf('<script setup>'))
+  const normalFormSurface = [productCreateDrawer, aliasCreateDrawer, productConfigDrawer].join('\n')
+
+  for (const want of ['商品分类管理', '商品价格管理', '价格摘要', '暂无价格表价格', '库存单位', '整数库存']) {
+    assert.match(source, new RegExp(want))
+  }
+  assert.match(appSource, /productPriceManagement/)
+  assert.match(menuSource, /key: 'productPriceManagement', label: '商品价格管理'/)
+
+  for (const forbidden of [
+    '商品配置模板',
+    '报价单位',
+    '录单单位',
+    '利润率覆盖',
+  ]) {
+    assert.doesNotMatch(normalFormSurface, new RegExp(forbidden))
+  }
+})
+
+test('product price management records final prices and tier schemes only reference records', () => {
+  assert.deepEqual(buildProductPriceRecordPayload({
+    id: 5,
+    product_id: 7,
+    customer_product_alias_id: 0,
+    final_unit_price: '88.50',
+    price_unit: ' kg ',
+    currency: '',
+    price_group_name: ' 常规批发 ',
+    inventory_unit: 'kg',
+    inventory_conversion_json: { kg: { kg: 1 } },
+    status: 'published',
+    remark: ' 最终价 ',
+    margin_rate: 0.3,
+    cost_plus_rate: 0.2,
+  }), {
+    id: 5,
+    product_id: 7,
+    customer_product_alias_id: 0,
+    final_unit_price: 88.5,
+    price_unit: 'kg',
+    currency: 'CNY',
+    price_group_id: 0,
+    price_group_name: '常规批发',
+    inventory_unit: 'kg',
+    inventory_conversion_json: { kg: { kg: 1 } },
+    status: 'published',
+    remark: '最终价',
+  })
+
+  assert.deepEqual(buildProductTierPriceSchemePayload({
+    name: ' 批发阶梯 ',
+    product_id: 7,
+    price_group_id: 3,
+    tiers: [
+      { label: '10kg+', min_qty: '10', max_qty: '', source_price_record_id: 11, final_unit_price: 999, price_unit: '箱', currency: 'USD', position: 2, margin_rate: 0.3 },
+      { label: '1kg+', min_qty: '1', max_qty: '9', source_price_record_id: 10, position: 1 },
+    ],
+  }), {
+    id: 0,
+    name: '批发阶梯',
+    product_id: 7,
+    customer_product_alias_id: 0,
+    price_group_id: 3,
+    active: true,
+    remark: '',
+    tiers: [
+      { label: '1kg+', min_qty: 1, max_qty: 9, source_price_record_id: 10, position: 1 },
+      { label: '10kg+', min_qty: 10, max_qty: null, source_price_record_id: 11, position: 2 },
+    ],
+  })
+
+  assert.equal(productPriceRecordLabel({ final_unit_price: 88, price_unit: 'kg', currency: 'CNY', price_group_name: '常规批发' }), '常规批发 · CNY 88/kg')
+})
+
+test('product settings exposes product price management pane without margin or cost-plus calculation fields', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const pane = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<div v-if="classificationTemplateCreateDrawerOpen"/)?.[0] || ''
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  for (const want of ['product-price-management-pane', '商品价格管理', '商品价格记录', '最终单价', '价格单位', '价格分组', '阶梯价格方案', '引用价格记录']) {
+    assert.match(pane, new RegExp(want))
+  }
+  for (const want of ['productPriceRecords', 'productPriceGroups', 'productTierPriceSchemes', 'buildProductPriceRecordPayload', 'buildProductTierPriceSchemePayload']) {
+    assert.match(script, new RegExp(want))
+  }
+  for (const forbidden of ['利润率', '成本加成', 'margin_rate', 'cost_plus']) {
+    assert.equal(pane.includes(forbidden), false, `product price management pane should not expose ${forbidden}`)
+  }
 })
 
 test('customer alias rename overrides list display while preserving customer product name field', () => {
@@ -590,7 +689,6 @@ test('instant coffee SKU payload carries legacy yield without SKU special attrib
     product_kind: 'instant_coffee',
     remark: '条装原料',
     yield_rate: 0.98,
-    margin_rate_override: null,
   })
 })
 
@@ -912,7 +1010,6 @@ test('product basics payload preserves remark without hard-coded green bean attr
   assert.deepEqual(payload, {
     product_kind: 'green_bean',
     remark: '仅作生豆销售',
-    margin_rate_override: null,
   })
   assert.equal(Object.hasOwn(payload, 'green_bean_type'), false)
   assert.equal(Object.hasOwn(payload, 'green_bean_bom_product_id'), false)
@@ -935,7 +1032,7 @@ test('product basics payload no longer writes hard-coded drip bag package fields
   assert.equal(Object.hasOwn(payload, 'drip_box_bag_count'), false)
 })
 
-test('product basics payload carries customer SKU margin override', () => {
+test('product basics payload no longer carries customer SKU margin override', () => {
   const payload = buildProductBasicsPayload({
     id: 17,
     name: '芬纳咖啡-曲奇拼配-深烘',
@@ -949,7 +1046,7 @@ test('product basics payload carries customer SKU margin override', () => {
   assert.equal(payload.product_kind, 'roasted')
   assert.equal(Object.hasOwn(payload, 'special_attrs_json'), false)
   assert.equal(payload.yield_rate, 0.8)
-  assert.equal(payload.margin_rate_override, 0.33)
+  assert.equal(Object.hasOwn(payload, 'margin_rate_override'), false)
   assert.equal(payload.remark, '客户定制烘焙')
 })
 
@@ -1736,14 +1833,13 @@ test('product production config form tolerates newly created products without pr
     name: '新建商品',
     remark: '刚创建',
     product_kind: 'roasted',
-    product_config_template_id: 42,
     production_bom_id: 0,
   })
 
   assert.equal(form.product_id, 812)
   assert.equal(form.name, '新建商品')
   assert.equal(form.remark, '刚创建')
-  assert.equal(form.product_config_template_id, 42)
+  assert.equal(Object.hasOwn(form, 'product_config_template_id'), false)
   assert.equal(form.expected_loss_percent, 0)
   assert.deepEqual(form.fields, [])
 })
@@ -1771,7 +1867,7 @@ test('product pages group product archive and template configuration into separa
     'master-data-layout',
     'template-workspace-stack',
     '商品档案',
-    '商品配置模板',
+    '价格摘要',
   ]) {
     assert.ok(source.includes(expected), `missing product page layout marker: ${expected}`)
   }
@@ -1806,7 +1902,7 @@ test('product management exposes customer product names without direct BOM editi
     '重命名',
     '进入价格表',
     '绑定商品档案',
-    '商品配置模板',
+    '价格摘要',
     'customerProductAliases',
     'buildCustomerProductAliasPayload',
     '/api/customer-product-aliases',
@@ -1831,7 +1927,7 @@ test('product management exposes customer product names without direct BOM editi
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.include_in_price_list/)
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.gradient_template_id/)
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.unit_template_id/)
-  assert.match(aliasForm, /customerProductAliasForm\.product_config_template_id/)
+  assert.doesNotMatch(aliasForm, /customerProductAliasForm\.product_config_template_id/)
   assert.doesNotMatch(inlineAliasArea, /<th>品牌名<\/th>/)
   assert.doesNotMatch(inlineAliasArea, /alias\.brand_name\s*\|\|\s*'-'/)
   assert.doesNotMatch(aliasForm, />进入价格表</)
@@ -2068,12 +2164,13 @@ test('legacy product type category drag UI is not present in the new product arc
   assert.doesNotMatch(template, /v-for="\(secondary, index\) in primary\.children"/)
 })
 
-test('SKU settings keeps product config template binding on the product record instead of categories', () => {
+test('SKU settings no longer binds product config templates on the product record', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
+  const productConfigDrawer = template.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
 
-  assert.match(source, /productProductionConfigForm\.product_config_template_id/)
-  assert.match(template, /商品配置模板/)
+  assert.doesNotMatch(productConfigDrawer, /productProductionConfigForm\.product_config_template_id/)
+  assert.doesNotMatch(productConfigDrawer, /商品配置模板/)
   assert.doesNotMatch(template, /class="template-select"[\s\S]*@change\.stop="bindProductConfigTemplateToSubtype/)
   assert.doesNotMatch(source, /bindProductConfigTemplateToSubtype/)
   assert.doesNotMatch(template, />更换商品配置</)
@@ -2401,9 +2498,9 @@ test('customer product aliases use page-level classification templates, not sing
   assert.doesNotMatch(aliasForm, /include_in_price_list/)
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.gradient_template_id/)
   assert.doesNotMatch(aliasForm, /customerProductAliasForm\.unit_template_id/)
-  assert.match(aliasForm, /customerProductAliasForm\.product_config_template_id/)
+  assert.doesNotMatch(aliasForm, /customerProductAliasForm\.product_config_template_id/)
   assert.match(aliasTable, /openCustomerProductAliasEditor\(alias\)/)
-  assert.match(aliasTable, />计价\/单位</)
+  assert.match(aliasTable, />价格摘要</)
   assert.doesNotMatch(aliasDrawer, /aliasBatchForm\.classification_template_id/)
   assert.doesNotMatch(aliasDrawer, />默认进入价格表</)
   assert.match(aliasBatchMode, /alias-batch-list-filters[\s\S]*aliasBatchFilters\.query[\s\S]*alias-batch-table/)

@@ -592,6 +592,51 @@ func TestPublishBeanListValidatesVersionAndListType(t *testing.T) {
 	}
 }
 
+func TestPublishBeanListRequiresFinalPriceSnapshotOnPriceTiers(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	content := map[string]any{
+		"groups": []any{
+			map[string]any{
+				"items": []any{
+					map[string]any{
+						"productId": float64(414),
+						"name":      "曲奇拼配",
+						"commercial_wholesale_tiers": []any{
+							map[string]any{
+								"label":          "1kg+",
+								"spec_g":         float64(1000),
+								"min_qty":        float64(1),
+								"price_per_unit": float64(88),
+								"display_unit":   "kg",
+								"price_unit":     "kg",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.0.0", Content: content}); err == nil {
+		t.Fatalf("expected publish to reject price tiers without source price snapshot")
+	}
+	if _, err := svc.SaveBeanListDraft(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.0.0", Content: content}); err != nil {
+		t.Fatalf("draft should allow incomplete price snapshots: %v", err)
+	}
+
+	tier := content["groups"].([]any)[0].(map[string]any)["items"].([]any)[0].(map[string]any)["commercial_wholesale_tiers"].([]any)[0].(map[string]any)
+	tier["source_price_record_id"] = float64(901)
+	tier["final_unit_price"] = float64(88)
+	tier["currency"] = "CNY"
+	tier["inventory_unit"] = "kg"
+	tier["inventory_conversion_json"] = map[string]any{"kg": map[string]any{"kg": float64(1)}}
+
+	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.0.1", Content: content}); err != nil {
+		t.Fatalf("PublishBeanList() with final price snapshot error = %v", err)
+	}
+}
+
 func TestPublishBeanListKeepsCustomerSnapshotOwnerAndSources(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
@@ -649,13 +694,18 @@ func TestPublishGreenBeanListAppliesManualKgPriceOverridesToKgContentSnapshot(t 
 							},
 							"green_bean_sale_tiers": []any{
 								map[string]any{
-									"label":            "60kg+",
-									"template_tier_id": float64(51),
-									"spec_g":           float64(1000),
-									"min_qty":          float64(60),
-									"price_per_unit":   float64(51.75),
-									"price_per_lb":     float64(23.49),
-									"display_unit":     "kg",
+									"label":                     "60kg+",
+									"source_price_record_id":    float64(905),
+									"final_unit_price":          float64(51.75),
+									"currency":                  "CNY",
+									"inventory_unit":            "kg",
+									"inventory_conversion_json": map[string]any{"kg": map[string]any{"kg": float64(1)}},
+									"template_tier_id":          float64(51),
+									"spec_g":                    float64(1000),
+									"min_qty":                   float64(60),
+									"price_per_unit":            float64(51.75),
+									"price_per_lb":              float64(23.49),
+									"display_unit":              "kg",
 								},
 							},
 						},

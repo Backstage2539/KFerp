@@ -183,7 +183,6 @@ export function buildCustomerProductAliasPayload(form = {}) {
     display_name: String(form.display_name ?? form.displayName ?? '').trim(),
     brand_name: String(form.brand_name ?? form.brandName ?? '').trim(),
     display_category_id: Number(form.display_category_id || form.displayCategoryID || 0),
-    product_config_template_id: Number(form.product_config_template_id || form.productConfigTemplateID || 0),
     sort_order: Number(form.sort_order || form.sortOrder || 0),
     include_in_price_list: Boolean(form.include_in_price_list ?? form.includeInPriceList ?? true),
     active: Boolean(form.active ?? true),
@@ -638,6 +637,56 @@ export function buildProductUnitTemplatePayload(form = {}) {
   }
 }
 
+export function buildProductPriceRecordPayload(form = {}) {
+  return {
+    id: Number(form.id || 0),
+    product_id: Number(form.product_id || 0),
+    customer_product_alias_id: Number(form.customer_product_alias_id || 0),
+    final_unit_price: Number(form.final_unit_price || 0),
+    price_unit: normalizeUnitText(form.price_unit, 'kg'),
+    currency: String(form.currency || '').trim().toUpperCase() || 'CNY',
+    price_group_id: Number(form.price_group_id || 0),
+    price_group_name: String(form.price_group_name || '').trim(),
+    inventory_unit: normalizeUnitText(form.inventory_unit, 'kg'),
+    inventory_conversion_json: normalizeInventoryConversionValue(form.inventory_conversion_json),
+    status: String(form.status || '').trim() || 'draft',
+    remark: String(form.remark || '').trim(),
+  }
+}
+
+export function buildProductTierPriceSchemePayload(form = {}) {
+  const tiers = (Array.isArray(form.tiers) ? form.tiers : [])
+    .map((tier, index) => ({
+      label: String(tier.label || '').trim(),
+      min_qty: Number(tier.min_qty || 0),
+      max_qty: tier.max_qty === '' || tier.max_qty === null || typeof tier.max_qty === 'undefined' ? null : Number(tier.max_qty),
+      source_price_record_id: Number(tier.source_price_record_id || 0),
+      position: Number(tier.position || 0) || index + 1,
+    }))
+    .sort((a, b) => {
+      if (a.position !== b.position) return a.position - b.position
+      return a.min_qty - b.min_qty
+    })
+  return {
+    id: Number(form.id || 0),
+    name: String(form.name || '').trim(),
+    product_id: Number(form.product_id || 0),
+    customer_product_alias_id: Number(form.customer_product_alias_id || 0),
+    price_group_id: Number(form.price_group_id || 0),
+    active: form.active === false ? false : true,
+    remark: String(form.remark || '').trim(),
+    tiers,
+  }
+}
+
+export function productPriceRecordLabel(record = {}) {
+  const group = String(record.price_group_name || '').trim() || '未分组'
+  const currency = String(record.currency || '').trim().toUpperCase() || 'CNY'
+  const price = formatProductFinalUnitPrice(record.final_unit_price)
+  const unit = normalizeUnitText(record.price_unit, 'kg')
+  return `${group} · ${currency} ${price}/${unit}`
+}
+
 export function buildSkuConfigOverridePayload(row = {}) {
   return {
     gradient_template_id_override: Number(row.gradient_template_id_override || 0),
@@ -966,8 +1015,6 @@ export function buildProductCreatePayload(form = {}) {
     product_kind: kind,
     remark: String(form.remark || '').trim(),
   }
-  const configTemplateID = Number(form.product_config_template_id || 0)
-  if (configTemplateID > 0) payload.product_config_template_id = configTemplateID
   if (kind === 'green_bean') return payload
   const yieldRate = normalizedYieldRateFromPercent(form)
   if (yieldRate !== null) payload.yield_rate = yieldRate
@@ -1013,8 +1060,6 @@ export function buildSkuCreatePayload(customerID, form = {}) {
     remark: String(form.remark || '').trim(),
     active: form.active === false ? false : true,
   }
-  const configTemplateID = Number(form.product_config_template_id || 0)
-  if (configTemplateID > 0) payload.product_config_template_id = configTemplateID
   return payload
 }
 
@@ -1073,7 +1118,6 @@ export function buildProductProductionConfigForm(config = {}, product = {}) {
     name: String(sourceProduct.name || '').trim(),
     remark: String(sourceProduct.remark || '').trim(),
     product_kind: sourceProduct.product_kind || 'roasted',
-    product_config_template_id: Number(sourceProduct.product_config_template_id || 0),
     production_bom_id: Number(sourceConfig.production_bom_id || sourceProduct.production_bom_id || 0),
     production_bom_version_id: Number(sourceConfig.production_bom_version_id || sourceProduct.production_bom_version_id || 0),
     process_route_id: Number(sourceConfig.process_route_id || 0),
@@ -1087,7 +1131,7 @@ export function buildProductProductionConfigForm(config = {}, product = {}) {
   }
 }
 
-export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
+export function buildProductBasicsPayload(row = {}) {
   const kind = normalizedProductKind(row)
   const payload = {
     product_kind: kind,
@@ -1095,14 +1139,10 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   }
   const name = String(row.name || '').trim()
   if (name) payload.name = name
-  if (Object.prototype.hasOwnProperty.call(row, 'product_config_template_id')) {
-    payload.product_config_template_id = Number(row.product_config_template_id || 0)
-  }
   if (kind !== 'green_bean') {
     const yieldRate = normalizedYieldRateFromPercent(row)
     if (yieldRate !== null) payload.yield_rate = yieldRate
   }
-  payload.margin_rate_override = marginRateOverride
   return payload
 }
 
@@ -1368,6 +1408,17 @@ function normalizeUnitText(value, fallback = 'kg') {
 
 function normalizeOptionalUnitText(value) {
   return String(value || '').trim()
+}
+
+function normalizeInventoryConversionValue(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value
+  return parseJSONObject(value)
+}
+
+function formatProductFinalUnitPrice(value) {
+  const n = Number(value || 0)
+  if (!Number.isFinite(n)) return '0'
+  return n.toFixed(4).replace(/\.?0+$/, '')
 }
 
 function normalizeJSONString(value) {

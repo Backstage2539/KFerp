@@ -197,6 +197,8 @@ describe('mini mall helpers', () => {
     const api = fs.readFileSync(path.join(currentDir, '..', 'api', 'customerPortal.ts'), 'utf8')
     expect(servicePage).not.toContain('placeholder="单价，可不填"')
     expect(servicePage).not.toContain('placeholder="运费，可不填"')
+    expect(servicePage).not.toContain('默认 ¥')
+    expect(servicePage).toContain('已发布价格表')
     expect(servicePage).not.toContain('shipping_amount: Number(fulfillmentForm.value.shipping_amount)')
     expect(servicePage).not.toContain('unit_price: Number(fulfillmentForm.value.unit_price)')
     expect(api).not.toContain('shipping_amount?: number')

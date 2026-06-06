@@ -29,7 +29,7 @@ func TestInsertIDAtPositionReordersWithoutDuplicatePositionTie(t *testing.T) {
 	}
 }
 
-func TestProductMarginOverridePersistsOnProducts(t *testing.T) {
+func TestProductMarginOverrideRemainsReadableButProductUpdateDoesNotWrite(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {
 		t.Fatal(err)
@@ -50,11 +50,17 @@ func TestProductMarginOverridePersistsOnProducts(t *testing.T) {
 		{name: "schema column", src: string(schema), want: "ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS margin_rate_override NUMERIC(14,6)"},
 		{name: "product fetch", src: string(queries), want: "p.margin_rate_override::float8"},
 		{name: "product get fallback", src: string(repository), want: "margin_rate_override::float8"},
-		{name: "product update", src: string(repository), want: "margin_rate_override=$9"},
-		{name: "audit metadata", src: string(repository), want: `"margin_rate_override":           cmd.MarginRateOverride`},
 	} {
 		if !strings.Contains(tc.src, tc.want) {
-			t.Fatalf("catalog product margin override persistence missing %s marker %q", tc.name, tc.want)
+			t.Fatalf("catalog product margin override compatibility missing %s marker %q", tc.name, tc.want)
+		}
+	}
+	for _, banned := range []string{
+		"margin_rate_override=$",
+		`"margin_rate_override":           cmd.MarginRateOverride`,
+	} {
+		if strings.Contains(string(repository), banned) {
+			t.Fatalf("product basics update should not write legacy margin override marker %q", banned)
 		}
 	}
 }
@@ -90,7 +96,7 @@ func TestProductSubtypeConfigAndUnitRulesPersistOnCategories(t *testing.T) {
 	}
 }
 
-func TestProductConfigOverridesPersistOnProducts(t *testing.T) {
+func TestProductConfigOverridesRemainReadableButProductUpdateDoesNotWrite(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {
 		t.Fatal(err)
@@ -107,11 +113,19 @@ func TestProductConfigOverridesPersistOnProducts(t *testing.T) {
 		{name: "gradient override column", src: string(schema), want: "ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS gradient_template_id_override BIGINT NOT NULL DEFAULT 0"},
 		{name: "operation override column", src: string(schema), want: "ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS operation_template_id_override BIGINT NOT NULL DEFAULT 0"},
 		{name: "unit override column", src: string(schema), want: "ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS unit_rule_override_json JSONB NOT NULL DEFAULT '{}'::jsonb"},
-		{name: "product update writes overrides", src: string(repository), want: "gradient_template_id_override=$17"},
 		{name: "product fetch reads overrides", src: string(repository), want: "unit_rule_override_json::text"},
 	} {
 		if !strings.Contains(tc.src, tc.want) {
-			t.Fatalf("product config override persistence missing %s marker %q", tc.name, tc.want)
+			t.Fatalf("product config override compatibility missing %s marker %q", tc.name, tc.want)
+		}
+	}
+	for _, banned := range []string{
+		"gradient_template_id_override=$",
+		"operation_template_id_override=$",
+		"unit_rule_override_json=$",
+	} {
+		if strings.Contains(string(repository), banned) {
+			t.Fatalf("product basics update should not write legacy config override marker %q", banned)
 		}
 	}
 }
@@ -289,7 +303,7 @@ func TestProductConfigSpecialAttrsPersistAndCopyIdempotently(t *testing.T) {
 		{name: "legacy roast migration to special attrs", src: string(schema), want: "jsonb_set(COALESCE(special_attrs_json"},
 		{name: "product list query reads special attrs", src: string(queries), want: "COALESCE(p.special_attrs_json::text,'{}')"},
 		{name: "template list reads special attrs schema", src: string(repository), want: "COALESCE(special_attrs_schema_json::text,'[]')"},
-		{name: "product update writes special attrs", src: string(repository), want: "special_attrs_json=$20::jsonb"},
+		{name: "product update writes special attrs", src: string(repository), want: "special_attrs_json=$16::jsonb"},
 		{name: "template save writes special attrs schema", src: string(repository), want: "special_attrs_schema_json=$13::jsonb"},
 		{name: "derived config copies special attrs schema", src: string(repository), want: "source.SpecialAttrsSchemaJSON"},
 		{name: "derived config returns existing copy", src: string(repository), want: "findProductConfigTemplateBySourceTx"},
@@ -428,7 +442,7 @@ func TestProductRemarkPersistsOnProducts(t *testing.T) {
 		{name: "product list query", src: string(queries), want: "COALESCE(p.remark,'')"},
 		{name: "product get query", src: string(repository), want: "COALESCE(remark,'')"},
 		{name: "product create insert", src: string(repository), want: "name, remark, product_kind"},
-		{name: "product update", src: string(repository), want: "remark=$15"},
+		{name: "product update", src: string(repository), want: "remark=$14"},
 		{name: "custom product insert", src: string(repository), want: "name, remark, product_kind, roast_level"},
 		{name: "audit metadata", src: string(repository), want: `"remark":`},
 	} {
@@ -452,7 +466,7 @@ func TestProductNameAndOrderUsageAreExposedForCustomerSkuSorting(t *testing.T) {
 		src  string
 		want string
 	}{
-		{name: "product update writes name", src: string(repository), want: "name=COALESCE(NULLIF($16,''), name)"},
+		{name: "product update writes name", src: string(repository), want: "name=COALESCE(NULLIF($15,''), name)"},
 		{name: "audit metadata includes name", src: string(repository), want: `"name":`},
 		{name: "product fetch counts order items", src: string(queries), want: "order_usage_count"},
 		{name: "product fetch joins order items", src: string(queries), want: "FROM %[1]s.order_items oi"},
@@ -556,7 +570,7 @@ func TestCreateCustomProductCopyBOMPreservesComponentFields(t *testing.T) {
 	}
 }
 
-func TestCopyProductArchiveCopiesConfigurationSnapshots(t *testing.T) {
+func TestCopyProductArchiveCopiesOnlyMasterDataNotPriceOrBomTemplates(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
@@ -565,15 +579,26 @@ func TestCopyProductArchiveCopiesConfigurationSnapshots(t *testing.T) {
 	fn := catalogRepositoryFunctionForTest(t, src, "func (r Repository) CopyProduct", "func fetchProductForCopyTx")
 	for _, want := range []string{
 		"nextProductArchiveCopyNameTx",
-		"product_config_template_id",
-		"product_price_tiers",
-		"product_production_configs",
-		"product_production_bom_bindings",
 		"product_production_config_fields",
 		"copy_product_archive",
 	} {
 		if !strings.Contains(fn, want) {
-			t.Fatalf("CopyProduct must copy product archive configuration; missing %q", want)
+			t.Fatalf("CopyProduct must copy master data and industry fields; missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"product_config_template_id",
+		"classification_template_id",
+		"product_price_tiers",
+		"product_production_configs",
+		"product_production_bom_bindings",
+		"margin_rate_override",
+		"gradient_template_id_override",
+		"operation_template_id_override",
+		"unit_rule_override_json",
+	} {
+		if strings.Contains(fn, forbidden) {
+			t.Fatalf("CopyProduct must not copy legacy template, price, or BOM state; found %q", forbidden)
 		}
 	}
 }
@@ -898,5 +923,52 @@ func TestTemplateDerivationRepositoryAuditsAndCopiesPublicSources(t *testing.T) 
 	}
 	if strings.Contains(src, "UPDATE %s.products SET name=$2, product_category_id=NULLIF($3,0), product_category_position=$4") {
 		t.Fatalf("re-copying an existing public SKU alias must not overwrite the customer copy name or category")
+	}
+}
+
+func TestProductPriceMasterSchemaPersistsFinalRecordsAndReferenceSchemes(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schemaSrc := string(schema)
+	repositorySrc := string(repository)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS %[1]s.product_price_groups",
+		"CREATE TABLE IF NOT EXISTS %[1]s.product_price_records",
+		"final_unit_price NUMERIC(14,4) NOT NULL",
+		"price_unit TEXT NOT NULL",
+		"inventory_conversion_json JSONB NOT NULL DEFAULT '{}'::jsonb",
+		"CREATE TABLE IF NOT EXISTS %[1]s.product_tier_price_schemes",
+		"CREATE TABLE IF NOT EXISTS %[1]s.product_tier_price_scheme_tiers",
+		"source_price_record_id BIGINT NOT NULL",
+	} {
+		if !strings.Contains(schemaSrc, want) {
+			t.Fatalf("product price master schema missing marker %q", want)
+		}
+	}
+	for _, want := range []string{
+		"func (r Repository) SaveProductPriceRecord",
+		"save_product_price_record",
+		"func (r Repository) SaveProductTierPriceScheme",
+		"save_product_tier_price_scheme",
+		"source_price_record_id, final_unit_price, price_unit, currency",
+	} {
+		if !strings.Contains(repositorySrc, want) {
+			t.Fatalf("product price master repository missing marker %q", want)
+		}
+	}
+	schemeTableStart := strings.Index(schemaSrc, "CREATE TABLE IF NOT EXISTS %[1]s.product_tier_price_scheme_tiers")
+	schemeTableEnd := strings.Index(schemaSrc[schemeTableStart:], ");")
+	if schemeTableStart < 0 || schemeTableEnd < 0 {
+		t.Fatalf("product tier scheme table definition not found")
+	}
+	schemeTable := schemaSrc[schemeTableStart : schemeTableStart+schemeTableEnd]
+	if strings.Contains(schemeTable, "margin_rate") || strings.Contains(schemeTable, "cost_plus") {
+		t.Fatalf("tier price scheme tiers must reference final price records, not store calculation fields: %s", schemeTable)
 	}
 }

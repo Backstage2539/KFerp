@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"strings"
 	"testing"
@@ -14,6 +13,7 @@ import (
 	postgresauthz "orderapp/internal/infrastructure/postgres/authz"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
 	postgrescore "orderapp/internal/infrastructure/postgres/core"
+	postgrescosting "orderapp/internal/infrastructure/postgres/costing"
 	postgrescustomerportal "orderapp/internal/infrastructure/postgres/customerportal"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -3290,25 +3290,186 @@ func TestSubmitCustomerDirectShipOrderUsesKgTierPriceAsDisplayUnit(t *testing.T)
 	}
 }
 
-func TestCustomerFulfillmentSubmittedUnitPriceUsesSpecAdjustedDefaultWhenRuleDisabled(t *testing.T) {
+func TestSubmitCustomerDirectShipOrderUsesPublishedPriceSnapshot(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerFulfillmentTestDB(t)
 	repo := NewRepository(pool, schema)
 
-	tx, err := pool.Begin(ctx)
+	var customerID, employeeID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, customer_type) VALUES('岩师傅','wholesale') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.company_employees(name, phone, account_type, department_id, active)
+		VALUES('13800138067','13800138067','channel_customer',(SELECT id FROM %[1]s.company_departments WHERE name='销售' LIMIT 1),true)
+		RETURNING id
+	`, schema)).Scan(&employeeID); err != nil {
+		t.Fatalf("insert employee: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_erp_user_bindings(customer_id, employee_id, status)
+		VALUES($1,$2,'active');
+		INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled)
+		VALUES($1,'direct_ship',true);
+	`, schema, schema), customerID, employeeID); err != nil {
+		t.Fatalf("insert binding/capability: %v", err)
+	}
+
+	var productID, publicationID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, default_price, active, customer_id, visibility, custom_type, product_kind)
+		VALUES('岩师傅兰卡拼配快照', 180, true, $1, 'customer_only', 'public_sku_alias', 'roasted_bean')
+		RETURNING id
+	`, schema), customerID).Scan(&productID); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+	content := fmt.Sprintf(`{
+		"groups":[{
+			"items":[{
+				"productId":%d,
+				"name":"岩师傅兰卡拼配快照",
+				"commercial_wholesale_tiers":[{
+					"label":"25kg+",
+					"source_price_record_id":901,
+					"spec_g":1000,
+					"min_qty":25,
+					"final_unit_price":82,
+					"price_unit":"kg",
+					"display_unit":"kg",
+					"inventory_unit":"kg",
+					"inventory_conversion_json":{"kg":{"kg":1}}
+				}]
+			}]
+		}]
+	}`, productID)
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.bean_list_publications(list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor)
+		VALUES('commercial','V-SNAPSHOT','published','customer',$1,'{}'::jsonb,$2::jsonb,'','test')
+		RETURNING id
+	`, schema), fmt.Sprint(customerID), content).Scan(&publicationID); err != nil {
+		t.Fatalf("insert publication: %v", err)
+	}
+
+	got, err := repo.SubmitCustomerDirectShipOrder(ctx, app.SubmitCustomerDirectShipOrderCommand{
+		EmployeeID:      employeeID,
+		ReceiverName:    "自红波",
+		ReceiverPhone:   "13769940806",
+		ReceiverAddress: "普洱市思茅区",
+		ShippingAmount:  59,
+		Items: []app.SubmitCustomerDirectShipOrderItem{{
+			ProductID:                productID,
+			ProductName:              "岩师傅兰卡拼配快照",
+			SpecG:                    1000,
+			QuantityUnits:            25,
+			DiscountType:             "",
+			DiscountValue:            0,
+			CustomerItemCodeSnapshot: "",
+		}},
+	})
 	if err != nil {
-		t.Fatalf("begin tx: %v", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	price80 := repo.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, 999, 1, 80, 1, 63)
-	if math.Abs(price80-63) > 0.000001 {
-		t.Fatalf("spec 80g unit price = %v, want 63", price80)
+		t.Fatalf("SubmitCustomerDirectShipOrder: %v", err)
 	}
 
-	price454 := repo.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, 999, 1, 454, 1, 63)
-	if math.Abs(price454-63) > 0.000001 {
-		t.Fatalf("spec 454g unit price = %v, want 63", price454)
+	var unitPrice, lineTotal, totalAmount, shippingAmount, grandTotal float64
+	var rowPublicationID int64
+	var rowVersionNo, priceSourceJSON string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT oi.unit_price::float8,
+		       oi.line_total::float8,
+		       o.total_amount::float8,
+		       o.shipping_amount::float8,
+		       o.grand_total::float8,
+		       COALESCE(oi.bean_list_publication_id,0),
+		       COALESCE(oi.bean_list_version_no,''),
+		       COALESCE(oi.price_source_json,'{}'::jsonb)::text
+		FROM %[1]s.orders o
+		JOIN %[1]s.order_items oi ON oi.order_id=o.id
+		WHERE o.order_no=$1
+	`, schema), got.OrderNo).Scan(&unitPrice, &lineTotal, &totalAmount, &shippingAmount, &grandTotal, &rowPublicationID, &rowVersionNo, &priceSourceJSON); err != nil {
+		t.Fatalf("load order item: %v", err)
+	}
+	if unitPrice != 82 || lineTotal != 2050 || totalAmount != 2050 || shippingAmount != 59 || grandTotal != 2109 {
+		t.Fatalf("snapshot pricing unit/line/total/shipping/grand = %.2f/%.2f/%.2f/%.2f/%.2f, want 82/2050/2050/59/2109", unitPrice, lineTotal, totalAmount, shippingAmount, grandTotal)
+	}
+	if rowPublicationID != publicationID || rowVersionNo != "V-SNAPSHOT" {
+		t.Fatalf("bean list usage = %d/%q, want %d/V-SNAPSHOT", rowPublicationID, rowVersionNo, publicationID)
+	}
+	for _, want := range []string{`"published_price_snapshot"`, `"source_price_record_id": 901`, `"inventory_conversion_json"`} {
+		if !strings.Contains(priceSourceJSON, want) {
+			t.Fatalf("price_source_json=%s missing %s", priceSourceJSON, want)
+		}
+	}
+}
+
+func TestSubmitCustomerDirectShipOrderRejectsLegacyPriceFallbackWithoutSnapshot(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID, employeeID, productID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, customer_type) VALUES('旧价格客户','wholesale') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.company_employees(name, phone, account_type, department_id, active)
+		VALUES('13800138068','13800138068','channel_customer',(SELECT id FROM %[1]s.company_departments WHERE name='销售' LIMIT 1),true)
+		RETURNING id
+	`, schema)).Scan(&employeeID); err != nil {
+		t.Fatalf("insert employee: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_erp_user_bindings(customer_id, employee_id, status)
+		VALUES($1,$2,'active');
+		INSERT INTO %s.customer_service_capabilities(customer_id, capability_code, enabled)
+		VALUES($1,'direct_ship',true);
+	`, schema, schema), customerID, employeeID); err != nil {
+		t.Fatalf("insert binding/capability: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, default_price, active, customer_id, visibility, custom_type, product_kind)
+		VALUES('旧阶梯不可兜底商品', 180, true, $1, 'customer_only', 'public_sku_alias', 'roasted_bean')
+		RETURNING id
+	`, schema), customerID).Scan(&productID); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_price_tiers(product_id, spec_g, min_qty_units, max_qty_units, price_per_unit, price_per_lb, active)
+		VALUES($1,1000,1,999,82,82*454.0/1000.0,true)
+	`, schema), productID); err != nil {
+		t.Fatalf("insert legacy tier: %v", err)
+	}
+
+	_, err := repo.SubmitCustomerDirectShipOrder(ctx, app.SubmitCustomerDirectShipOrderCommand{
+		EmployeeID:      employeeID,
+		ReceiverName:    "旧价收件人",
+		ReceiverPhone:   "13769940806",
+		ReceiverAddress: "普洱市思茅区",
+		Items: []app.SubmitCustomerDirectShipOrderItem{{
+			ProductID:     productID,
+			ProductName:   "旧阶梯不可兜底商品",
+			SpecG:         1000,
+			QuantityUnits: 25,
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "缺少商品价格表价格") {
+		t.Fatalf("SubmitCustomerDirectShipOrder err=%v, want missing product price table snapshot", err)
+	}
+	assertCustomerFulfillmentCount(t, pool, schema, "orders", "customer_id=$1 AND portal_service_code='direct_ship'", customerID, 0)
+}
+
+func TestCustomerFulfillmentPublishedPriceUnitTotals(t *testing.T) {
+	if got := customerFulfillmentLineTotalFromPriceUnit(82, 1000, 25, 1000); got != 2050 {
+		t.Fatalf("1000g x 25 at 82/kg = %v, want 2050", got)
+	}
+	if got := customerFulfillmentLineTotalFromPriceUnit(82, 2500, 10, 1000); got != 2050 {
+		t.Fatalf("2.5kg x 10 at 82/kg = %v, want 2050", got)
+	}
+	if got := customerFulfillmentLineTotalFromPriceUnit(48, 454, 10, 454); got != 480 {
+		t.Fatalf("454g x 10 at 48/lb = %v, want 480", got)
 	}
 }
 
@@ -3361,6 +3522,9 @@ func newCustomerFulfillmentTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	}
 	if err := postgrescustomerportal.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("customerportal.EnsureSchema: %v", err)
+	}
+	if err := postgrescosting.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("costing.EnsureSchema: %v", err)
 	}
 	if err := EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("customerfulfillment.EnsureSchema: %v", err)

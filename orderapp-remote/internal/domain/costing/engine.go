@@ -114,8 +114,22 @@ type ProductInput struct {
 	MarginRateOverride         *float64                  `json:"margin_rate_override,omitempty"`
 	GradientTemplate           *GradientTemplate         `json:"gradient_template,omitempty"`
 	DripPriceTemplate          *DripPriceTemplate        `json:"drip_price_template,omitempty"`
+	ProductPriceSnapshots      []ProductPriceSnapshot    `json:"product_price_snapshots,omitempty"`
 	GreenBeanSaleTiers         []CommercialWholesaleTier `json:"green_bean_sale_tiers,omitempty"`
 	BeanListQuality            BeanListQuality           `json:"bean_list_quality,omitempty"`
+}
+
+type ProductPriceSnapshot struct {
+	SourcePriceRecordID     int64           `json:"source_price_record_id"`
+	FinalUnitPrice          float64         `json:"final_unit_price"`
+	PriceUnit               string          `json:"price_unit"`
+	Currency                string          `json:"currency"`
+	PriceGroupID            int64           `json:"price_group_id,omitempty"`
+	PriceGroupName          string          `json:"price_group_name,omitempty"`
+	InventoryUnit           string          `json:"inventory_unit"`
+	InventoryConversionJSON json.RawMessage `json:"inventory_conversion_json"`
+	ProductID               int64           `json:"product_id,omitempty"`
+	CustomerProductAliasID  int64           `json:"customer_product_alias_id,omitempty"`
 }
 
 type CommercialWholesaleTier struct {
@@ -325,6 +339,7 @@ type ProductResult struct {
 	MarginRateOverride             *float64                  `json:"margin_rate_override,omitempty"`
 	GradientTemplate               *GradientTemplate         `json:"gradient_template,omitempty"`
 	DripPriceTemplate              *DripPriceTemplate        `json:"drip_price_template,omitempty"`
+	ProductPriceSnapshots          []ProductPriceSnapshot    `json:"product_price_snapshots,omitempty"`
 	CommercialBeanList             BeanListDisplay           `json:"commercial_bean_list"`
 	DripBeanList                   BeanListDisplay           `json:"drip_bean_list"`
 	RetailBeanList                 BeanListDisplay           `json:"retail_bean_list"`
@@ -594,6 +609,7 @@ func CalculateProduct(params Parameters, in ProductInput) ProductResult {
 		MarginRateOverride:         in.MarginRateOverride,
 		GradientTemplate:           in.GradientTemplate,
 		DripPriceTemplate:          in.DripPriceTemplate,
+		ProductPriceSnapshots:      append([]ProductPriceSnapshot(nil), in.ProductPriceSnapshots...),
 		CommercialBeanList:         commercialDisplay,
 		DripBeanList:               dripDisplay,
 		RetailBeanList:             retailDisplay,
@@ -743,6 +759,7 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 		IntegerUnit:                in.IntegerUnit,
 		PriceListRuleJSON:          in.PriceListRuleJSON,
 		ProductAttributes:          productAttributesFromSpecialAttrs(in.SpecialAttrsSchemaJSON, in.SpecialAttrsJSON),
+		ProductPriceSnapshots:      append([]ProductPriceSnapshot(nil), in.ProductPriceSnapshots...),
 		BeanListQuality:            in.BeanListQuality,
 		GreenBeanList: BeanListDisplay{
 			Code:           code,

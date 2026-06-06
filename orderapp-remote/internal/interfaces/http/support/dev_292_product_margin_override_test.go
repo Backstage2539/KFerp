@@ -35,38 +35,32 @@ func TestDev292ProductMarginOverrideRequirementSeeds(t *testing.T) {
 	}
 }
 
-func TestDev292ProductSettingsVueExposesMarginOverrideColumn(t *testing.T) {
+func TestDev292ProductSettingsVueRetiresMarginOverrideColumn(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(b)
 	for _, want := range []string{
-		"利润率覆盖",
-		"margin_rate_override",
-		"saveProductMarginOverride(row)",
-		"留空继承价格模板",
-		"normalizeMarginRateOverride",
+		"价格摘要",
+		"productPriceSummaryLabel",
+		"aliasPriceSummaryLabel",
+		"暂无价格表价格",
+		"buildProductBasicsPayload(row)",
 	} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("ProductSettingsView.vue missing product margin override marker %q", want)
+			t.Fatalf("ProductSettingsView.vue missing product price-summary remodel marker %q", want)
 		}
 	}
 	for _, forbidden := range []string{
-		`<th v-if="!selectedCustomerSkuCustomerID">利润率覆盖</th>`,
-		`<td v-if="!selectedCustomerSkuCustomerID">`,
-		`:colspan="selectedCustomerSkuCustomerID ? 14 : 15"`,
+		"利润率覆盖",
+		"saveProductMarginOverride(row)",
+		"留空继承价格模板",
+		"normalizeMarginRateOverride",
+		"buildProductBasicsPayload(row, null)",
 	} {
 		if strings.Contains(text, forbidden) {
-			t.Fatalf("ProductSettingsView.vue must expose margin override for customer-owned SKU rows, found old public-only gate %q", forbidden)
-		}
-	}
-	for _, want := range []string{
-		`:disabled="!canEditSkuRow(row) || row.active === false"`,
-		`:colspan="12"`,
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("ProductSettingsView.vue missing customer SKU margin override behavior %q", want)
+			t.Fatalf("ProductSettingsView.vue must retire product margin override UI marker %q", forbidden)
 		}
 	}
 }

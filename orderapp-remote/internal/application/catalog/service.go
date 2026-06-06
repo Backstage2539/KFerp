@@ -187,6 +187,9 @@ type ProductSettingsData struct {
 	ProductConfigTemplates              []ProductConfigTemplate              `json:"product_config_templates"`
 	ProductUnitDefinitions              []ProductUnitDefinition              `json:"product_unit_definitions"`
 	ProductUnitTemplates                []ProductUnitTemplate                `json:"product_unit_templates"`
+	ProductPriceGroups                  []ProductPriceGroup                  `json:"product_price_groups"`
+	ProductPriceRecords                 []ProductPriceRecord                 `json:"product_price_records"`
+	ProductTierPriceSchemes             []ProductTierPriceScheme             `json:"product_tier_price_schemes"`
 	CustomerPublicUsages                []CustomerPublicUsage                `json:"customer_public_usages"`
 	CustomerProductRuleTemplates        []CustomerProductRuleTemplate        `json:"customer_product_rule_templates"`
 	CustomerProductRuleOverrides        []CustomerProductRuleOverride        `json:"customer_product_rule_overrides"`
@@ -314,6 +317,68 @@ type ProductUnitTemplate struct {
 	UnitConversionJSON string `json:"unit_conversion_json"`
 	IntegerUnit        bool   `json:"integer_unit"`
 	Active             bool   `json:"active"`
+}
+
+type ProductPriceGroup struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+	Active    bool   `json:"active"`
+}
+
+type ProductPriceRecord struct {
+	ID                      int64   `json:"id"`
+	ProductID               int64   `json:"product_id"`
+	CustomerProductAliasID  int64   `json:"customer_product_alias_id"`
+	FinalUnitPrice          float64 `json:"final_unit_price"`
+	PriceUnit               string  `json:"price_unit"`
+	Currency                string  `json:"currency"`
+	PriceGroupID            int64   `json:"price_group_id"`
+	PriceGroupName          string  `json:"price_group_name"`
+	InventoryUnit           string  `json:"inventory_unit"`
+	InventoryConversionJSON string  `json:"inventory_conversion_json"`
+	Status                  string  `json:"status"`
+	Remark                  string  `json:"remark"`
+	Active                  bool    `json:"active"`
+}
+
+type ProductPriceRecordQuery struct {
+	ProductID              int64
+	CustomerProductAliasID int64
+	PriceGroupID           int64
+	ActiveMode             string
+	Status                 string
+}
+
+type ProductTierPriceScheme struct {
+	ID                     int64                        `json:"id"`
+	Name                   string                       `json:"name"`
+	ProductID              int64                        `json:"product_id"`
+	CustomerProductAliasID int64                        `json:"customer_product_alias_id"`
+	PriceGroupID           int64                        `json:"price_group_id"`
+	Active                 bool                         `json:"active"`
+	Remark                 string                       `json:"remark"`
+	Tiers                  []ProductTierPriceSchemeTier `json:"tiers"`
+}
+
+type ProductTierPriceSchemeTier struct {
+	ID                  int64    `json:"id"`
+	SchemeID            int64    `json:"scheme_id"`
+	Label               string   `json:"label"`
+	MinQty              float64  `json:"min_qty"`
+	MaxQty              *float64 `json:"max_qty,omitempty"`
+	SourcePriceRecordID int64    `json:"source_price_record_id"`
+	FinalUnitPrice      float64  `json:"final_unit_price"`
+	PriceUnit           string   `json:"price_unit"`
+	Currency            string   `json:"currency"`
+	Position            int      `json:"position"`
+}
+
+type ProductTierPriceSchemeQuery struct {
+	ProductID              int64
+	CustomerProductAliasID int64
+	PriceGroupID           int64
+	ActiveMode             string
 }
 
 type GradientTemplate struct {
@@ -797,6 +862,43 @@ type SaveProductUnitTemplateCommand struct {
 	Active             *bool
 }
 
+type SaveProductPriceGroupCommand struct {
+	Actor     string
+	ID        int64
+	Name      string
+	SortOrder int
+	Active    *bool
+}
+
+type SaveProductPriceRecordCommand struct {
+	Actor                   string
+	ID                      int64
+	ProductID               int64
+	CustomerProductAliasID  int64
+	FinalUnitPrice          float64
+	PriceUnit               string
+	Currency                string
+	PriceGroupID            int64
+	PriceGroupName          string
+	InventoryUnit           string
+	InventoryConversionJSON string
+	Status                  string
+	Remark                  string
+	Active                  *bool
+}
+
+type SaveProductTierPriceSchemeCommand struct {
+	Actor                  string
+	ID                     int64
+	Name                   string
+	ProductID              int64
+	CustomerProductAliasID int64
+	PriceGroupID           int64
+	Active                 *bool
+	Remark                 string
+	Tiers                  []ProductTierPriceSchemeTier
+}
+
 type DeleteProductUnitTemplateCommand struct {
 	Actor string
 	ID    int64
@@ -928,6 +1030,13 @@ type Repository interface {
 	ListProductConfigTemplates(ctx context.Context) ([]ProductConfigTemplate, error)
 	ListProductUnitDefinitions(ctx context.Context) ([]ProductUnitDefinition, error)
 	ListProductUnitTemplates(ctx context.Context) ([]ProductUnitTemplate, error)
+	ListProductPriceGroups(ctx context.Context) ([]ProductPriceGroup, error)
+	SaveProductPriceGroup(ctx context.Context, cmd SaveProductPriceGroupCommand) (ProductPriceGroup, error)
+	ListProductPriceRecords(ctx context.Context, query ProductPriceRecordQuery) ([]ProductPriceRecord, error)
+	GetProductPriceRecord(ctx context.Context, id int64) (ProductPriceRecord, error)
+	SaveProductPriceRecord(ctx context.Context, cmd SaveProductPriceRecordCommand) (ProductPriceRecord, error)
+	ListProductTierPriceSchemes(ctx context.Context, query ProductTierPriceSchemeQuery) ([]ProductTierPriceScheme, error)
+	SaveProductTierPriceScheme(ctx context.Context, cmd SaveProductTierPriceSchemeCommand) (ProductTierPriceScheme, error)
 	SaveGradientTemplate(ctx context.Context, cmd SaveGradientTemplateCommand) (GradientTemplate, error)
 	SaveProductConfigTemplate(ctx context.Context, cmd SaveProductConfigTemplateCommand) (ProductConfigTemplate, error)
 	DeleteProductConfigTemplate(ctx context.Context, cmd DeleteProductConfigTemplateCommand) error
@@ -1077,8 +1186,12 @@ func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasi
 	if cmd.ProductConfigTemplateID < 0 {
 		return ValidationError{Message: "invalid product_config_template_id"}
 	}
+	cmd.MarginRateOverride = nil
+	cmd.GradientTemplateIDOverride = 0
+	cmd.OperationTemplateIDOverride = 0
+	cmd.ProductConfigTemplateID = 0
 	cmd.ClassificationTemplateID = 0
-	unitRuleOverrideJSON, err := normalizeJSONText(cmd.UnitRuleOverrideJSON)
+	unitRuleOverrideJSON, err := normalizeJSONText("{}")
 	if err != nil {
 		return ValidationError{Message: "invalid unit_rule_override_json"}
 	}
@@ -1144,7 +1257,9 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	if cmd.ProductConfigTemplateID < 0 {
 		return Product{}, ValidationError{Message: "invalid product_config_template_id"}
 	}
+	cmd.ProductConfigTemplateID = 0
 	cmd.ClassificationTemplateID = 0
+	cmd.Tiers = nil
 	cmd.SpecialAttrsJSON = specialAttrsJSON
 	return s.repo.CreateProduct(ctx, cmd)
 }
@@ -1173,6 +1288,7 @@ func (s *Service) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product,
 	if cmd.ProductConfigTemplateID < 0 {
 		return Product{}, ValidationError{Message: "invalid product_config_template_id"}
 	}
+	cmd.ProductConfigTemplateID = 0
 	cmd.ClassificationTemplateID = 0
 	specialAttrsJSON, err := normalizeJSONObjectText(cmd.SpecialAttrsJSON)
 	if err != nil {
@@ -1294,6 +1410,18 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
+	priceGroups, err := s.repo.ListProductPriceGroups(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
+	priceRecords, err := s.repo.ListProductPriceRecords(ctx, ProductPriceRecordQuery{ActiveMode: "all"})
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
+	tierPriceSchemes, err := s.repo.ListProductTierPriceSchemes(ctx, ProductTierPriceSchemeQuery{ActiveMode: "all"})
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
 	usages, err := s.repo.ListCustomerPublicUsages(ctx)
 	if err != nil {
 		return ProductSettingsData{}, err
@@ -1318,6 +1446,9 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	data.ProductConfigTemplates = configTemplates
 	data.ProductUnitDefinitions = unitDefinitions
 	data.ProductUnitTemplates = unitTemplates
+	data.ProductPriceGroups = priceGroups
+	data.ProductPriceRecords = priceRecords
+	data.ProductTierPriceSchemes = tierPriceSchemes
 	data.CustomerPublicUsages = usages
 	data.CustomerProductRuleTemplates = ruleTemplates
 	data.CustomerProductRuleOverrides = ruleOverrides
@@ -1471,6 +1602,114 @@ func (s *Service) ListProductUnitDefinitions(ctx context.Context) ([]ProductUnit
 
 func (s *Service) ListProductUnitTemplates(ctx context.Context) ([]ProductUnitTemplate, error) {
 	return s.repo.ListProductUnitTemplates(ctx)
+}
+
+func (s *Service) ListProductPriceGroups(ctx context.Context) ([]ProductPriceGroup, error) {
+	return s.repo.ListProductPriceGroups(ctx)
+}
+
+func (s *Service) SaveProductPriceGroup(ctx context.Context, cmd SaveProductPriceGroupCommand) (ProductPriceGroup, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	if cmd.ID < 0 {
+		return ProductPriceGroup{}, ValidationError{Message: "invalid id"}
+	}
+	if cmd.Name == "" {
+		return ProductPriceGroup{}, ValidationError{Message: "name required"}
+	}
+	if cmd.SortOrder <= 0 {
+		cmd.SortOrder = 100
+	}
+	return s.repo.SaveProductPriceGroup(ctx, cmd)
+}
+
+func (s *Service) ListProductPriceRecords(ctx context.Context, query ProductPriceRecordQuery) ([]ProductPriceRecord, error) {
+	if query.ProductID < 0 || query.CustomerProductAliasID < 0 || query.PriceGroupID < 0 {
+		return nil, ValidationError{Message: "invalid price record query"}
+	}
+	query.ActiveMode = strings.TrimSpace(query.ActiveMode)
+	if strings.TrimSpace(query.Status) != "" {
+		query.Status = normalizeProductPriceStatus(query.Status)
+	}
+	return s.repo.ListProductPriceRecords(ctx, query)
+}
+
+func (s *Service) SaveProductPriceRecord(ctx context.Context, cmd SaveProductPriceRecordCommand) (ProductPriceRecord, error) {
+	normalized, err := normalizeProductPriceRecordCommand(cmd)
+	if err != nil {
+		return ProductPriceRecord{}, err
+	}
+	return s.repo.SaveProductPriceRecord(ctx, normalized)
+}
+
+func (s *Service) ListProductTierPriceSchemes(ctx context.Context, query ProductTierPriceSchemeQuery) ([]ProductTierPriceScheme, error) {
+	if query.ProductID < 0 || query.CustomerProductAliasID < 0 || query.PriceGroupID < 0 {
+		return nil, ValidationError{Message: "invalid tier price scheme query"}
+	}
+	query.ActiveMode = strings.TrimSpace(query.ActiveMode)
+	return s.repo.ListProductTierPriceSchemes(ctx, query)
+}
+
+func (s *Service) SaveProductTierPriceScheme(ctx context.Context, cmd SaveProductTierPriceSchemeCommand) (ProductTierPriceScheme, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	if cmd.ID < 0 || cmd.ProductID < 0 || cmd.CustomerProductAliasID < 0 || cmd.PriceGroupID < 0 {
+		return ProductTierPriceScheme{}, ValidationError{Message: "invalid tier price scheme"}
+	}
+	if cmd.ProductID <= 0 && cmd.CustomerProductAliasID <= 0 {
+		return ProductTierPriceScheme{}, ValidationError{Message: "product or customer product required"}
+	}
+	if cmd.Name == "" {
+		return ProductTierPriceScheme{}, ValidationError{Message: "name required"}
+	}
+	if len(cmd.Tiers) == 0 {
+		return ProductTierPriceScheme{}, ValidationError{Message: "tiers required"}
+	}
+	normalized := make([]ProductTierPriceSchemeTier, 0, len(cmd.Tiers))
+	for i, tier := range cmd.Tiers {
+		tier.Label = strings.TrimSpace(tier.Label)
+		if tier.SourcePriceRecordID <= 0 {
+			return ProductTierPriceScheme{}, ValidationError{Message: "source_price_record_id required"}
+		}
+		if tier.MinQty < 0 {
+			return ProductTierPriceScheme{}, ValidationError{Message: "min_qty must not be negative"}
+		}
+		if tier.MaxQty != nil && *tier.MaxQty <= tier.MinQty {
+			return ProductTierPriceScheme{}, ValidationError{Message: "max_qty must be greater than min_qty"}
+		}
+		if tier.Position <= 0 {
+			tier.Position = i + 1
+		}
+		source, err := s.repo.GetProductPriceRecord(ctx, tier.SourcePriceRecordID)
+		if err != nil {
+			return ProductTierPriceScheme{}, err
+		}
+		if source.ID <= 0 || !source.Active {
+			return ProductTierPriceScheme{}, ValidationError{Message: "source price record not found"}
+		}
+		if source.FinalUnitPrice <= 0 {
+			return ProductTierPriceScheme{}, ValidationError{Message: "source price record final_unit_price required"}
+		}
+		if strings.TrimSpace(source.PriceUnit) == "" {
+			return ProductTierPriceScheme{}, ValidationError{Message: "source price record price_unit required"}
+		}
+		tier.FinalUnitPrice = source.FinalUnitPrice
+		tier.PriceUnit = strings.TrimSpace(source.PriceUnit)
+		tier.Currency = normalizeCurrency(source.Currency)
+		if tier.Label == "" {
+			tier.Label = fmt.Sprintf("价格记录 %d", tier.SourcePriceRecordID)
+		}
+		normalized = append(normalized, tier)
+	}
+	sort.SliceStable(normalized, func(i, j int) bool {
+		if normalized[i].Position != normalized[j].Position {
+			return normalized[i].Position < normalized[j].Position
+		}
+		return normalized[i].MinQty < normalized[j].MinQty
+	})
+	cmd.Tiers = normalized
+	return s.repo.SaveProductTierPriceScheme(ctx, cmd)
 }
 
 func (s *Service) SaveProductUnitDefinition(ctx context.Context, cmd SaveProductUnitDefinitionCommand) (ProductUnitDefinition, error) {
@@ -1853,6 +2092,9 @@ func (s *Service) SaveCustomerProductAlias(ctx context.Context, cmd CustomerProd
 	if cmd.UnitTemplateID < 0 {
 		return CustomerProductAlias{}, ValidationError{Message: "invalid unit_template_id"}
 	}
+	cmd.ProductConfigTemplateID = 0
+	cmd.GradientTemplateID = 0
+	cmd.UnitTemplateID = 0
 	cmd.ClassificationTemplateID = 0
 	return s.repo.SaveCustomerProductAlias(ctx, cmd)
 }
@@ -2040,6 +2282,58 @@ func normalizeCustomerProductRuleOverrideCommand(cmd SaveCustomerProductRuleOver
 	cmd.PriceListRuleJSON = item.PriceListRuleJSON
 	cmd.UnitRuleJSON = item.UnitRuleJSON
 	return cmd, nil
+}
+
+func normalizeProductPriceRecordCommand(cmd SaveProductPriceRecordCommand) (SaveProductPriceRecordCommand, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.PriceUnit = strings.TrimSpace(cmd.PriceUnit)
+	cmd.Currency = normalizeCurrency(cmd.Currency)
+	cmd.PriceGroupName = strings.TrimSpace(cmd.PriceGroupName)
+	cmd.InventoryUnit = strings.TrimSpace(cmd.InventoryUnit)
+	cmd.Status = normalizeProductPriceStatus(cmd.Status)
+	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	if cmd.ID < 0 || cmd.ProductID < 0 || cmd.CustomerProductAliasID < 0 || cmd.PriceGroupID < 0 {
+		return SaveProductPriceRecordCommand{}, ValidationError{Message: "invalid product price record"}
+	}
+	if cmd.ProductID <= 0 && cmd.CustomerProductAliasID <= 0 {
+		return SaveProductPriceRecordCommand{}, ValidationError{Message: "product or customer product required"}
+	}
+	if cmd.FinalUnitPrice <= 0 {
+		return SaveProductPriceRecordCommand{}, ValidationError{Message: "final_unit_price must be > 0"}
+	}
+	if cmd.PriceUnit == "" {
+		return SaveProductPriceRecordCommand{}, ValidationError{Message: "price_unit required"}
+	}
+	if cmd.InventoryUnit == "" {
+		cmd.InventoryUnit = "kg"
+	}
+	conversionJSON, err := normalizeJSONObjectText(cmd.InventoryConversionJSON)
+	if err != nil {
+		return SaveProductPriceRecordCommand{}, ValidationError{Message: "invalid inventory_conversion_json"}
+	}
+	cmd.InventoryConversionJSON = conversionJSON
+	return cmd, nil
+}
+
+func normalizeCurrency(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	if value == "" {
+		return "CNY"
+	}
+	return value
+}
+
+func normalizeProductPriceStatus(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "published", "active", "启用", "已发布":
+		return "published"
+	case "inactive", "disabled", "停用":
+		return "inactive"
+	case "draft", "草稿", "":
+		return "draft"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
 }
 
 func normalizeGradientTemplateCommand(cmd SaveGradientTemplateCommand) (SaveGradientTemplateCommand, error) {

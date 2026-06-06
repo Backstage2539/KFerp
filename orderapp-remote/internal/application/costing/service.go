@@ -540,6 +540,9 @@ func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListComman
 	if err != nil {
 		return nil, err
 	}
+	if err := validateBeanListFinalPriceSnapshots(normalized); err != nil {
+		return nil, err
+	}
 	if s.repo == nil {
 		return nil, fmt.Errorf("repository required")
 	}
@@ -615,6 +618,92 @@ func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListComman
 		applyGreenBeanListManualPriceOverrides(cmd.Config, cmd.Content)
 	}
 	return cmd, nil
+}
+
+func validateBeanListFinalPriceSnapshots(cmd PublishBeanListCommand) error {
+	groups, ok := cmd.Content["groups"].([]any)
+	if !ok || len(groups) == 0 {
+		return nil
+	}
+	tierKeys := []string{"commercial_wholesale_tiers", "green_bean_sale_tiers", "retail_bean_tiers", "drip_wholesale_tiers"}
+	for groupIdx, rawGroup := range groups {
+		group, ok := rawGroup.(map[string]any)
+		if !ok {
+			continue
+		}
+		items, ok := group["items"].([]any)
+		if !ok {
+			continue
+		}
+		for itemIdx, rawItem := range items {
+			item, ok := rawItem.(map[string]any)
+			if !ok {
+				continue
+			}
+			for _, tierKey := range tierKeys {
+				tiers, ok := item[tierKey].([]any)
+				if !ok {
+					continue
+				}
+				for tierIdx, rawTier := range tiers {
+					tier, ok := rawTier.(map[string]any)
+					if !ok || !beanListTierHasPrice(tier) {
+						continue
+					}
+					if numberValue(tier["source_price_record_id"]) <= 0 {
+						return fmt.Errorf("价格表快照缺少来源价格记录：第%d组第%d个商品第%d档", groupIdx+1, itemIdx+1, tierIdx+1)
+					}
+					if numberValue(tier["final_unit_price"]) <= 0 {
+						return fmt.Errorf("价格表快照缺少最终价：第%d组第%d个商品第%d档", groupIdx+1, itemIdx+1, tierIdx+1)
+					}
+					if stringValue(tier["price_unit"]) == "" {
+						return fmt.Errorf("价格表快照缺少价格单位：第%d组第%d个商品第%d档", groupIdx+1, itemIdx+1, tierIdx+1)
+					}
+					if stringValue(tier["inventory_unit"]) == "" {
+						return fmt.Errorf("价格表快照缺少库存单位：第%d组第%d个商品第%d档", groupIdx+1, itemIdx+1, tierIdx+1)
+					}
+					if !hasBeanListInventoryConversion(tier["inventory_conversion_json"]) {
+						return fmt.Errorf("价格表快照缺少价格单位到库存单位换算：第%d组第%d个商品第%d档", groupIdx+1, itemIdx+1, tierIdx+1)
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func beanListTierHasPrice(tier map[string]any) bool {
+	for _, key := range []string{"final_unit_price", "price_per_unit", "price_per_kg", "price_per_lb", "packed_price_per_bag", "packed_price_per_box"} {
+		if numberValue(tier[key]) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func hasBeanListInventoryConversion(value any) bool {
+	switch v := value.(type) {
+	case map[string]any:
+		return len(v) > 0
+	case map[string]map[string]any:
+		return len(v) > 0
+	case json.RawMessage:
+		return hasBeanListInventoryConversion(string(v))
+	case []byte:
+		return hasBeanListInventoryConversion(string(v))
+	case string:
+		v = strings.TrimSpace(v)
+		if v == "" || v == "{}" || v == "null" {
+			return false
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(v), &decoded); err != nil {
+			return false
+		}
+		return len(decoded) > 0
+	default:
+		return false
+	}
 }
 
 func applyGreenBeanListManualPriceOverrides(config map[string]any, content map[string]any) {
@@ -730,6 +819,7 @@ func applyGreenTierManualPrice(tier map[string]any, price float64) {
 		pricePerKg = unitPrice * 1000.0 / unitG
 	}
 	tier["price_unit"] = priceUnit
+	tier["final_unit_price"] = unitPrice
 	tier["price_per_unit"] = unitPrice
 	tier["price_per_kg"] = roundBeanListPrice(pricePerKg)
 	tier["price_per_lb"] = roundBeanListPrice(pricePerKg * domain.DefaultParameters().KgToLbFactor)

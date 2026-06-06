@@ -56,6 +56,15 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/pricing-gradient-templates", h.gradientTemplatesAPI)
 	e.POST("/api/pricing-gradient-templates", h.saveGradientTemplateAPI)
 	e.PUT("/api/pricing-gradient-templates/:id", h.saveGradientTemplateAPI)
+	e.GET("/api/product-price-groups", h.productPriceGroupsAPI)
+	e.POST("/api/product-price-groups", h.saveProductPriceGroupAPI)
+	e.PUT("/api/product-price-groups/:id", h.saveProductPriceGroupAPI)
+	e.GET("/api/product-price-records", h.productPriceRecordsAPI)
+	e.POST("/api/product-price-records", h.saveProductPriceRecordAPI)
+	e.PUT("/api/product-price-records/:id", h.saveProductPriceRecordAPI)
+	e.GET("/api/product-tier-price-schemes", h.productTierPriceSchemesAPI)
+	e.POST("/api/product-tier-price-schemes", h.saveProductTierPriceSchemeAPI)
+	e.PUT("/api/product-tier-price-schemes/:id", h.saveProductTierPriceSchemeAPI)
 	e.POST("/api/product-settings/product-config-templates", h.saveProductConfigTemplateAPI)
 	e.PUT("/api/product-settings/product-config-templates/:id", h.saveProductConfigTemplateAPI)
 	e.DELETE("/api/product-settings/product-config-templates/:id", h.deleteProductConfigTemplateAPI)
@@ -416,6 +425,37 @@ type productUnitTemplateAPIRequest struct {
 	Active             *bool  `json:"active"`
 }
 
+type productPriceGroupAPIRequest struct {
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+	Active    *bool  `json:"active"`
+}
+
+type productPriceRecordAPIRequest struct {
+	ProductID               int64           `json:"product_id"`
+	CustomerProductAliasID  int64           `json:"customer_product_alias_id"`
+	FinalUnitPrice          float64         `json:"final_unit_price"`
+	PriceUnit               string          `json:"price_unit"`
+	Currency                string          `json:"currency"`
+	PriceGroupID            int64           `json:"price_group_id"`
+	PriceGroupName          string          `json:"price_group_name"`
+	InventoryUnit           string          `json:"inventory_unit"`
+	InventoryConversionJSON json.RawMessage `json:"inventory_conversion_json"`
+	Status                  string          `json:"status"`
+	Remark                  string          `json:"remark"`
+	Active                  *bool           `json:"active"`
+}
+
+type productTierPriceSchemeAPIRequest struct {
+	Name                   string                                  `json:"name"`
+	ProductID              int64                                   `json:"product_id"`
+	CustomerProductAliasID int64                                   `json:"customer_product_alias_id"`
+	PriceGroupID           int64                                   `json:"price_group_id"`
+	Active                 *bool                                   `json:"active"`
+	Remark                 string                                  `json:"remark"`
+	Tiers                  []catalogapp.ProductTierPriceSchemeTier `json:"tiers"`
+}
+
 type bindCategoryGradientTemplateAPIRequest struct {
 	GradientTemplateID int64 `json:"gradient_template_id"`
 }
@@ -525,12 +565,6 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
 	marginRateOverride := existing.MarginRateOverride
-	if req.MarginRateOverride.Set {
-		marginRateOverride, err = normalizeProductMarginRateOverride(req.MarginRateOverride.Value)
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
-		}
-	}
 	name := existing.Name
 	if req.Name != nil {
 		name = strings.TrimSpace(*req.Name)
@@ -542,26 +576,11 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	if req.Remark != nil {
 		remark = strings.TrimSpace(*req.Remark)
 	}
-	gradientTemplateIDOverride := existing.GradientTemplateIDOverride
-	if req.GradientTemplateIDOverride != nil {
-		gradientTemplateIDOverride = *req.GradientTemplateIDOverride
-	}
-	operationTemplateIDOverride := existing.OperationTemplateIDOverride
-	if req.OperationTemplateIDOverride != nil {
-		operationTemplateIDOverride = *req.OperationTemplateIDOverride
-	}
-	unitRuleOverrideJSON := existing.UnitRuleOverrideJSON
-	if req.UnitRuleOverrideJSON != nil {
-		unitRuleOverrideJSON = strings.TrimSpace(*req.UnitRuleOverrideJSON)
-	}
-	productConfigTemplateID := existing.ProductConfigTemplateID
-	if req.ProductConfigTemplateID != nil {
-		productConfigTemplateID = *req.ProductConfigTemplateID
-	}
-	classificationTemplateID := existing.ClassificationTemplateID
-	if req.ClassificationTemplateID != nil {
-		classificationTemplateID = *req.ClassificationTemplateID
-	}
+	gradientTemplateIDOverride := int64(0)
+	operationTemplateIDOverride := int64(0)
+	unitRuleOverrideJSON := "{}"
+	productConfigTemplateID := int64(0)
+	classificationTemplateID := int64(0)
 	specialAttrsJSON := existing.SpecialAttrsJSON
 	if req.SpecialAttrsJSON != nil {
 		specialAttrsJSON = strings.TrimSpace(*req.SpecialAttrsJSON)
@@ -597,25 +616,6 @@ func (h productHandler) updateAPI(c echo.Context) error {
 			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 		}
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
-	}
-	if productKind != catalogdomain.ProductKindGreenBean && len(req.Tiers) > 0 {
-		if err := h.catalog.ReplacePriceTiers(c.Request().Context(), catalogapp.ReplacePriceTiersCommand{
-			Actor:                 support.ActorOf(c),
-			ProductID:             id,
-			ProductKind:           productKind,
-			GreenBeanType:         greenBeanType,
-			GreenBeanBomProductID: greenBeanBomProductID,
-			DefaultPrice:          defaultPrice,
-			RoastLevel:            roastLevel,
-			RetailPrice100G:       retailPrice100G,
-			RetailPrice200G:       retailPrice200G,
-			RetailPrice227G:       retailPrice227G,
-			RetailPrice250G:       retailPrice250G,
-			YieldRate:             yieldRate,
-			Tiers:                 productTiersFromAPI(req.Tiers),
-		}); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
-		}
 	}
 	p, err := h.catalog.GetProduct(c.Request().Context(), id)
 	if err != nil {
@@ -702,9 +702,9 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		RetailPrice227G:          req.RetailPrice227G,
 		RetailPrice250G:          req.RetailPrice250G,
 		YieldRate:                yieldRate,
-		ProductConfigTemplateID:  req.ProductConfigTemplateID,
-		ClassificationTemplateID: req.ClassificationTemplateID,
-		Tiers:                    productTiersFromAPI(req.Tiers),
+		ProductConfigTemplateID:  0,
+		ClassificationTemplateID: 0,
+		Tiers:                    nil,
 		SpecialAttrsJSON:         req.SpecialAttrsJSON,
 	})
 	if err != nil {
@@ -733,8 +733,8 @@ func (h productHandler) createSKUAPI(c echo.Context) error {
 		ProductTypeCategoryID:    req.ProductTypeCategoryID,
 		ProductSubtypeCategoryID: req.ProductSubtypeCategoryID,
 		SpecialAttrsJSON:         req.SpecialAttrsJSON,
-		ProductConfigTemplateID:  req.ProductConfigTemplateID,
-		ClassificationTemplateID: req.ClassificationTemplateID,
+		ProductConfigTemplateID:  0,
+		ClassificationTemplateID: 0,
 		Active:                   active,
 	})
 	if err != nil {
@@ -826,6 +826,167 @@ func (h productHandler) productUnitDefinitionsAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, rows)
+}
+
+func (h productHandler) productPriceGroupsAPI(c echo.Context) error {
+	rows, err := h.catalog.ListProductPriceGroups(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"groups": rows, "rows": rows})
+}
+
+func (h productHandler) saveProductPriceGroupAPI(c echo.Context) error {
+	var req productPriceGroupAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	row, err := h.catalog.SaveProductPriceGroup(c.Request().Context(), catalogapp.SaveProductPriceGroupCommand{
+		Actor:     support.ActorOf(c),
+		ID:        id,
+		Name:      req.Name,
+		SortOrder: req.SortOrder,
+		Active:    req.Active,
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"group": row})
+}
+
+func (h productHandler) productPriceRecordsAPI(c echo.Context) error {
+	productID, err := parseOptionalInt64(c.QueryParam("product_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid product_id"})
+	}
+	aliasID, err := parseOptionalInt64(c.QueryParam("customer_product_alias_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid customer_product_alias_id"})
+	}
+	groupID, err := parseOptionalInt64(c.QueryParam("price_group_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid price_group_id"})
+	}
+	records, err := h.catalog.ListProductPriceRecords(c.Request().Context(), catalogapp.ProductPriceRecordQuery{
+		ProductID:              productID,
+		CustomerProductAliasID: aliasID,
+		PriceGroupID:           groupID,
+		ActiveMode:             c.QueryParam("active"),
+		Status:                 c.QueryParam("status"),
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	groups, err := h.catalog.ListProductPriceGroups(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"records": records, "rows": records, "groups": groups})
+}
+
+func (h productHandler) saveProductPriceRecordAPI(c echo.Context) error {
+	var req productPriceRecordAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	inventoryConversionJSON, err := rawJSONText(req.InventoryConversionJSON, "{}")
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid inventory_conversion_json"})
+	}
+	row, err := h.catalog.SaveProductPriceRecord(c.Request().Context(), catalogapp.SaveProductPriceRecordCommand{
+		Actor:                   support.ActorOf(c),
+		ID:                      id,
+		ProductID:               req.ProductID,
+		CustomerProductAliasID:  req.CustomerProductAliasID,
+		FinalUnitPrice:          req.FinalUnitPrice,
+		PriceUnit:               req.PriceUnit,
+		Currency:                req.Currency,
+		PriceGroupID:            req.PriceGroupID,
+		PriceGroupName:          req.PriceGroupName,
+		InventoryUnit:           req.InventoryUnit,
+		InventoryConversionJSON: inventoryConversionJSON,
+		Status:                  req.Status,
+		Remark:                  req.Remark,
+		Active:                  req.Active,
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"record": row})
+}
+
+func (h productHandler) productTierPriceSchemesAPI(c echo.Context) error {
+	productID, err := parseOptionalInt64(c.QueryParam("product_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid product_id"})
+	}
+	aliasID, err := parseOptionalInt64(c.QueryParam("customer_product_alias_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid customer_product_alias_id"})
+	}
+	groupID, err := parseOptionalInt64(c.QueryParam("price_group_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid price_group_id"})
+	}
+	rows, err := h.catalog.ListProductTierPriceSchemes(c.Request().Context(), catalogapp.ProductTierPriceSchemeQuery{
+		ProductID:              productID,
+		CustomerProductAliasID: aliasID,
+		PriceGroupID:           groupID,
+		ActiveMode:             c.QueryParam("active"),
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"schemes": rows, "rows": rows})
+}
+
+func (h productHandler) saveProductTierPriceSchemeAPI(c echo.Context) error {
+	var req productTierPriceSchemeAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	row, err := h.catalog.SaveProductTierPriceScheme(c.Request().Context(), catalogapp.SaveProductTierPriceSchemeCommand{
+		Actor:                  support.ActorOf(c),
+		ID:                     id,
+		Name:                   req.Name,
+		ProductID:              req.ProductID,
+		CustomerProductAliasID: req.CustomerProductAliasID,
+		PriceGroupID:           req.PriceGroupID,
+		Active:                 req.Active,
+		Remark:                 req.Remark,
+		Tiers:                  req.Tiers,
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"scheme": row})
 }
 
 func (h productHandler) customerProductAliasesAPI(c echo.Context) error {
@@ -949,10 +1110,10 @@ func (h productHandler) saveCustomerProductAliasAPI(c echo.Context) error {
 		CustomerItemCode:         req.CustomerItemCode,
 		BrandName:                req.BrandName,
 		DisplayCategoryID:        req.DisplayCategoryID,
-		ClassificationTemplateID: req.ClassificationTemplateID,
-		ProductConfigTemplateID:  req.ProductConfigTemplateID,
-		GradientTemplateID:       req.GradientTemplateID,
-		UnitTemplateID:           req.UnitTemplateID,
+		ClassificationTemplateID: 0,
+		ProductConfigTemplateID:  0,
+		GradientTemplateID:       0,
+		UnitTemplateID:           0,
 		SortOrder:                req.SortOrder,
 		IncludeInPriceList:       includeInPriceList,
 		Active:                   active,
@@ -1014,6 +1175,33 @@ func parseOptionalInt64(raw string) (int64, error) {
 		return 0, nil
 	}
 	return strconv.ParseInt(raw, 10, 64)
+}
+
+func rawJSONText(raw json.RawMessage, fallback string) (string, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return fallback, nil
+	}
+	if strings.HasPrefix(trimmed, `"`) {
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return "", err
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return fallback, nil
+		}
+		return value, nil
+	}
+	var parsed any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(parsed)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }
 
 func (h productHandler) productCategoriesAPI(c echo.Context) error {

@@ -8,7 +8,7 @@
       <div class="panel-head">
         <div>
           <h2>{{ productSectionTitle }}</h2>
-          <p>商品档案承载库存、销售、价格和行业字段；生产 BOM 在生产模块声明产出商品，商品档案只读查看 BOM 使用关系。</p>
+          <p>商品档案只维护商品资料、商品分类管理、库存单位、整数库存、行业字段和 BOM 使用摘要；商品价格管理与商品价格表快照提供价格摘要，缺失时显示暂无价格表价格。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
@@ -91,8 +91,9 @@
                 <th>行业字段</th>
                 <th>归属</th>
                 <th class="action-cell">新增动作</th>
-                <th>预期损耗率</th>
-                <th>利润率覆盖</th>
+                <th>库存单位</th>
+                <th>整数库存</th>
+                <th>价格摘要</th>
                 <th>商品状态</th>
                 <th>处理</th>
                 <th class="remark-cell">备注</th>
@@ -101,7 +102,7 @@
             <tbody>
               <template v-for="group in displaySkuGroups" :key="group.key">
                 <tr v-if="!group.all" class="classification-group-row">
-                    <td :colspan="12">
+                    <td :colspan="13">
                     <button class="classification-group-toggle" type="button" @click="toggleProductClassificationGroup(group.key)">
                       {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
                     </button>
@@ -131,20 +132,9 @@
                   <td class="action-cell">
                     <button class="text-button" type="button" @click="copyProductArchive(row)">复制为商品档案</button>
                   </td>
-                  <td>
-                    <span>{{ productionConfigLossLabel(row) }}</span>
-                  </td>
-                  <td>
-                    <input
-                      class="margin-input"
-                      v-model="row.margin_rate_override_input"
-                      type="number"
-                      min="0"
-                      step="0.001"
-                      placeholder="留空继承价格模板"
-                      :disabled="!canEditSkuRow(row) || row.active === false"
-                      @change="saveProductMarginOverride(row)" />
-                  </td>
+                  <td>{{ productInventoryUnitLabel(row) }}</td>
+                  <td>{{ productIntegerInventoryLabel(row) }}</td>
+                  <td class="price-summary-cell">{{ productPriceSummaryLabel(row) }}</td>
                   <td>
                     <span :class="['status-pill', row.active === false ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
                   </td>
@@ -164,7 +154,7 @@
                 </template>
               </template>
               <tr v-if="!displaySkuRows.length">
-                <td :colspan="12" class="muted">暂无商品档案</td>
+                <td :colspan="13" class="muted">暂无商品档案</td>
               </tr>
             </tbody>
           </table>
@@ -261,7 +251,7 @@
                   <th>客户商品</th>
                   <th>客户商品编号</th>
                   <th>绑定商品档案</th>
-                  <th>计价/单位</th>
+                  <th>价格摘要</th>
                   <th>当前归类</th>
                   <th>客户行业字段</th>
                   <th>进入价格表</th>
@@ -293,10 +283,7 @@
                     <span>{{ alias.product_code || alias.product_id }} · {{ alias.product_name || productName(alias.product_id) }}</span>
                     <small v-if="alias.product_active === false" class="inactive-product-warning">绑定商品已失效</small>
                   </td>
-                  <td>
-                    <div>{{ aliasPricingTemplateLabel(alias) }}</div>
-                    <small>{{ aliasUnitTemplateLabel(alias) }}</small>
-                  </td>
+                  <td class="price-summary-cell">{{ aliasPriceSummaryLabel(alias) }}</td>
                   <td>
                     <div>{{ aliasClassificationLabel(alias) }}</div>
                     <small v-for="warning in classificationWarningsForAlias(alias)" :key="warning" class="bom-version-warning">{{ warning }}</small>
@@ -336,6 +323,12 @@
               :class="['config-template-tab', { active: activeConfigTemplateSection === 'classification-template' }]"
               @click="activeConfigTemplateSection = 'classification-template'">
               分类模板
+            </button>
+            <button
+              type="button"
+              :class="['config-template-tab', { active: activeConfigTemplateSection === 'product-price-management' }]"
+              @click="activeConfigTemplateSection = 'product-price-management'">
+              商品价格管理
             </button>
           </div>
       <div v-show="showGradientTemplatePane" class="panel gradient-template-panel gradient-template-pane">
@@ -702,6 +695,195 @@
           </form>
         </div>
       </div>
+
+      <div v-show="showProductPriceManagementPane" class="panel product-price-management-pane">
+        <div class="panel-title">
+          <span>商品价格管理</span>
+          <div class="panel-actions">
+            <button class="secondary compact-action" type="button" @click="resetProductPriceRecordForm">新建价格记录</button>
+            <button class="secondary compact-action" type="button" @click="resetProductTierPriceSchemeForm">新建阶梯方案</button>
+          </div>
+        </div>
+        <div class="product-price-management-layout">
+          <section class="product-price-records-panel">
+            <div class="field-group-head">
+              <strong>商品价格记录</strong>
+              <small>价格记录保存最终单价，价格表发布时会固化价格单位和库存换算。</small>
+            </div>
+            <div class="table-wrap compact-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>价格分组</th>
+                    <th>商品</th>
+                    <th>最终单价</th>
+                    <th>价格单位</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="record in productPriceRecords" :key="record.id">
+                    <td>{{ record.price_group_name || productPriceGroupName(record.price_group_id) || '未分组' }}</td>
+                    <td>{{ priceRecordTargetLabel(record) }}</td>
+                    <td>{{ productPriceRecordLabel(record) }}</td>
+                    <td>{{ record.price_unit || '-' }}</td>
+                    <td><span :class="['status-pill', record.active === false ? 'inactive' : '']">{{ productPriceRecordStatusLabel(record) }}</span></td>
+                    <td><button class="text-button" type="button" @click="startProductPriceRecordEdit(record)">编辑价格记录</button></td>
+                  </tr>
+                  <tr v-if="!productPriceRecords.length">
+                    <td colspan="6" class="muted">暂无价格记录</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <form class="template-editor product-price-record-form" @submit.prevent="saveProductPriceRecord">
+              <div class="template-editor-grid">
+                <label>
+                  <span>商品</span>
+                  <select v-model.number="productPriceRecordForm.product_id">
+                    <option value="0">不绑定商品档案</option>
+                    <option v-for="product in products" :key="product.id" :value="product.id">{{ product.name }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>客户商品</span>
+                  <select v-model.number="productPriceRecordForm.customer_product_alias_id">
+                    <option value="0">不绑定客户商品</option>
+                    <option v-for="alias in customerProductAliases" :key="alias.id" :value="alias.id">{{ customerAliasEffectiveDisplayName(alias) }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>价格分组</span>
+                  <input v-model.trim="productPriceRecordForm.price_group_name" placeholder="如 常规批发" />
+                </label>
+                <label>
+                  <span>最终单价</span>
+                  <input v-model.number="productPriceRecordForm.final_unit_price" type="number" min="0" step="0.0001" />
+                </label>
+                <label>
+                  <span>价格单位</span>
+                  <select v-model="productPriceRecordForm.price_unit">
+                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>币种</span>
+                  <input v-model.trim="productPriceRecordForm.currency" placeholder="CNY" />
+                </label>
+                <label>
+                  <span>库存单位</span>
+                  <select v-model="productPriceRecordForm.inventory_unit">
+                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>状态</span>
+                  <select v-model="productPriceRecordForm.status">
+                    <option value="draft">草稿</option>
+                    <option value="published">已发布</option>
+                    <option value="inactive">停用</option>
+                  </select>
+                </label>
+              </div>
+              <label class="wide-field">
+                <span>库存换算 JSON</span>
+                <textarea v-model.trim="productPriceRecordForm.inventory_conversion_json" rows="2" placeholder="{&quot;kg&quot;:{&quot;kg&quot;:1}}"></textarea>
+              </label>
+              <label class="wide-field">
+                <span>备注</span>
+                <textarea v-model.trim="productPriceRecordForm.remark" rows="2"></textarea>
+              </label>
+              <div class="form-actions">
+                <button class="primary" type="submit" :disabled="productPriceSaving">保存价格记录</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="product-tier-price-schemes-panel">
+            <div class="field-group-head">
+              <strong>阶梯价格方案</strong>
+              <small>每个档位只引用价格记录，保存后档位即为该记录的最终价。</small>
+            </div>
+            <div class="template-list compact-template-list">
+              <div
+                v-for="scheme in productTierPriceSchemes"
+                :key="scheme.id"
+                :class="['template-row', { active: Number(scheme.id || 0) === Number(productTierPriceSchemeForm.id || 0), inactive: scheme.active === false }]">
+                <button class="template-row-main" type="button" @click="startProductTierPriceSchemeEdit(scheme)">
+                  <strong>{{ scheme.name }}</strong>
+                  <small>{{ scheme.tiers?.length || 0 }} 档 · {{ productPriceGroupName(scheme.price_group_id) || '未分组' }}</small>
+                </button>
+              </div>
+              <p v-if="!productTierPriceSchemes.length" class="muted">暂无阶梯价格方案</p>
+            </div>
+            <form class="template-editor product-tier-price-scheme-form" @submit.prevent="saveProductTierPriceScheme">
+              <div class="template-editor-grid">
+                <label>
+                  <span>方案名称</span>
+                  <input v-model.trim="productTierPriceSchemeForm.name" placeholder="如 批发阶梯" />
+                </label>
+                <label>
+                  <span>商品</span>
+                  <select v-model.number="productTierPriceSchemeForm.product_id">
+                    <option value="0">不绑定商品档案</option>
+                    <option v-for="product in products" :key="product.id" :value="product.id">{{ product.name }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>客户商品</span>
+                  <select v-model.number="productTierPriceSchemeForm.customer_product_alias_id">
+                    <option value="0">不绑定客户商品</option>
+                    <option v-for="alias in customerProductAliases" :key="alias.id" :value="alias.id">{{ customerAliasEffectiveDisplayName(alias) }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>价格分组</span>
+                  <select v-model.number="productTierPriceSchemeForm.price_group_id">
+                    <option value="0">未分组</option>
+                    <option v-for="group in productPriceGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
+                  </select>
+                </label>
+              </div>
+              <div class="template-tier-head">
+                <strong>档位</strong>
+                <button class="secondary compact-action" type="button" @click="addProductTierPriceSchemeTier">新增档位</button>
+              </div>
+              <div class="template-tier-list">
+                <div v-for="(tier, index) in productTierPriceSchemeForm.tiers" :key="`tier-price-${index}`" class="template-tier-row product-tier-price-row">
+                  <label>
+                    <span>档位名</span>
+                    <input v-model.trim="tier.label" placeholder="1kg+" />
+                  </label>
+                  <label>
+                    <span>最小数量</span>
+                    <input v-model.number="tier.min_qty" type="number" min="0" step="0.0001" />
+                  </label>
+                  <label>
+                    <span>最大数量</span>
+                    <input v-model="tier.max_qty" type="number" min="0" step="0.0001" placeholder="无上限" />
+                  </label>
+                  <label>
+                    <span>引用价格记录</span>
+                    <select v-model.number="tier.source_price_record_id">
+                      <option value="0">请选择</option>
+                      <option v-for="record in productPriceRecords" :key="record.id" :value="record.id">{{ productPriceRecordLabel(record) }}</option>
+                    </select>
+                  </label>
+                  <button class="text-button danger-text" type="button" @click="removeProductTierPriceSchemeTier(index)">删除</button>
+                </div>
+              </div>
+              <label class="wide-field">
+                <span>备注</span>
+                <textarea v-model.trim="productTierPriceSchemeForm.remark" rows="2"></textarea>
+              </label>
+              <div class="form-actions">
+                <button class="primary" type="submit" :disabled="productPriceSaving">保存阶梯方案</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </div>
         </div>
       </div>
     </section>
@@ -763,15 +945,6 @@
               <span>备注</span>
               <textarea v-model.trim="skuForm.remark" rows="2" placeholder="如 原料规格、包装说明或客户要求"></textarea>
             </label>
-            <label>
-              <span>商品配置模板</span>
-              <select v-model.number="skuForm.product_config_template_id">
-                <option :value="0">未绑定商品配置模板</option>
-                <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">
-                  {{ config.name }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}
-                </option>
-              </select>
-            </label>
             <div class="form-actions">
               <button class="primary" type="submit" :disabled="skuSaving">创建新商品档案</button>
             </div>
@@ -813,15 +986,6 @@
             <label>
               <span>重命名</span>
               <input v-model.trim="customerProductAliasForm.brand_name" placeholder="留空则使用客户商品" />
-            </label>
-            <label>
-              <span>商品配置模板</span>
-              <select v-model.number="customerProductAliasForm.product_config_template_id">
-                <option :value="0">继承商品档案配置</option>
-                <option v-for="config in aliasProductConfigTemplateOptions" :key="config.id" :value="config.id">
-                  {{ config.name }}
-                </option>
-              </select>
             </label>
             <label>
               <span>排序</span>
@@ -934,15 +1098,6 @@
               <label>
                 <span>商品名</span>
                 <input v-model.trim="productProductionConfigForm.name" :disabled="!canEditSkuRow(productProductionConfigProduct || {})" placeholder="商品档案名称" />
-              </label>
-              <label>
-                <span>商品配置模板</span>
-                <select v-model.number="productProductionConfigForm.product_config_template_id">
-                  <option :value="0">未绑定商品配置模板</option>
-                  <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">
-                    {{ config.name }} · {{ config.quote_unit || 'kg' }}/{{ config.order_unit || config.quote_unit || 'kg' }}
-                  </option>
-                </select>
               </label>
               <label class="wide-field">
                 <span>备注</span>
@@ -1151,6 +1306,8 @@ import {
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
   buildProductConfigTemplatePayload,
+  buildProductPriceRecordPayload,
+  buildProductTierPriceSchemePayload,
   buildProductProductionConfigField,
   buildProductProductionConfigForm,
   buildProductUnitDefinitionPayload,
@@ -1180,6 +1337,7 @@ import {
   productConfigTemplateBelongsToSkuContext,
   productConfigTemplateNeedsGradientTemplate,
   productDisplayState,
+  productPriceRecordLabel,
   productKindSupportsBomParams,
   productCodeLabel,
   productionBomOptionLabel,
@@ -1220,6 +1378,9 @@ const productProductionConfigs = ref([])
 const industryFieldTemplates = ref([])
 const productUnitDefinitions = ref([])
 const productUnitTemplates = ref([])
+const productPriceGroups = ref([])
+const productPriceRecords = ref([])
+const productTierPriceSchemes = ref([])
 const customerPublicUsages = ref([])
 const customerProductAliases = ref([])
 const customerProductRuleTemplates = ref([])
@@ -1237,6 +1398,7 @@ const customSaving = skuSaving
 const templateSaving = ref(false)
 const productConfigSaving = ref(false)
 const productUnitSaving = ref(false)
+const productPriceSaving = ref(false)
 const classificationTemplateSaving = ref(false)
 const globalUnitSaving = ref(false)
 const customerRuleSaving = ref(false)
@@ -1261,6 +1423,8 @@ const PRODUCT_SECTION_MODES = {
   customerProductAliases: 'aliases',
   aliases: 'aliases',
   productConfigTemplates: 'templates',
+  productPriceManagement: 'templates',
+  productPrices: 'templates',
   templates: 'templates',
   pricingGradientTemplates: 'templates',
   gradient: 'templates',
@@ -1270,6 +1434,7 @@ const PRODUCT_SECTION_MODES = {
 const forcedConfigTemplateSection = computed(() => {
   if (props.sectionMode === 'pricingGradientTemplates' || props.sectionMode === 'gradient') return 'gradient'
   if (props.sectionMode === 'productUnitTemplates' || props.sectionMode === 'unitTemplate') return 'unit-template'
+  if (props.sectionMode === 'productPriceManagement' || props.sectionMode === 'productPrices') return 'product-price-management'
   return ''
 })
 const effectiveConfigTemplateSection = computed(() => forcedConfigTemplateSection.value || activeConfigTemplateSection.value)
@@ -1280,11 +1445,13 @@ const productSectionTitle = computed(() => {
   if (currentSettingsSection.value === 'aliases') return '客户商品'
   if (forcedConfigTemplateSection.value === 'gradient') return '阶梯价模板'
   if (forcedConfigTemplateSection.value === 'unit-template') return '单位模板'
+  if (forcedConfigTemplateSection.value === 'product-price-management') return '商品价格管理'
   if (currentSettingsSection.value === 'templates') return '商品配置和分类模板'
   return '商品档案'
 })
 const showGradientTemplatePane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'gradient')
 const showUnitTemplatePane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'unit-template')
+const showProductPriceManagementPane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'product-price-management')
 const productDrawerOpen = ref(false)
 const productProductionConfigDrawerOpen = ref(false)
 const customerAliasCreateDrawerOpen = ref(false)
@@ -1320,6 +1487,8 @@ const customForm = ref(defaultCustomForm())
 const highlightedSkuId = ref(0)
 const templateForm = ref(defaultGradientTemplateForm())
 const productUnitTemplateForm = ref(defaultProductUnitTemplateForm())
+const productPriceRecordForm = ref(defaultProductPriceRecordForm())
+const productTierPriceSchemeForm = ref(defaultProductTierPriceSchemeForm())
 const globalUnitForm = ref(defaultProductUnitDefinitionForm())
 const globalUnitEditingCode = ref('')
 const customerRuleTemplateForm = ref(defaultCustomerProductRuleTemplateForm())
@@ -1527,15 +1696,6 @@ const productProductionConfigUsedByBomRows = computed(() => {
   }
   return rows
 })
-const aliasProductConfigTemplateOptions = computed(() => productConfigTemplates.value
-  .filter((template) => template.active !== false)
-  .filter((template) => {
-    const templateCustomerID = Number(template.customer_id || 0)
-    const customerID = Number(selectedAliasCustomerID.value || 0)
-    return templateCustomerID === 0 || (customerID > 0 && templateCustomerID === customerID)
-  })
-  .slice()
-  .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')) || Number(a.id || 0) - Number(b.id || 0)))
 const aliasDisplayCategoryOptions = computed(() => flattenCategoryNodes(categories.value).map((category) => ({
   id: Number(category.id || 0),
   label: `${Number(category.customer_id || 0) > 0 ? `${customerName(category.customer_id) || '客户'} / ` : ''}${category.name || ''}`,
@@ -2013,6 +2173,51 @@ function defaultProductUnitTemplateForm(template = {}) {
   }
 }
 
+function defaultProductPriceRecordForm(record = {}) {
+  return {
+    id: Number(record.id || 0),
+    product_id: Number(record.product_id || 0),
+    customer_product_alias_id: Number(record.customer_product_alias_id || 0),
+    final_unit_price: Number(record.final_unit_price || 0),
+    price_unit: record.price_unit || 'kg',
+    currency: record.currency || 'CNY',
+    price_group_id: Number(record.price_group_id || 0),
+    price_group_name: record.price_group_name || productPriceGroupName(record.price_group_id) || '',
+    inventory_unit: record.inventory_unit || 'kg',
+    inventory_conversion_json: typeof record.inventory_conversion_json === 'object'
+      ? JSON.stringify(record.inventory_conversion_json)
+      : (record.inventory_conversion_json || '{"kg":{"kg":1}}'),
+    status: record.status || 'draft',
+    remark: record.remark || '',
+    active: record.active !== false,
+  }
+}
+
+function defaultProductTierPriceSchemeForm(scheme = {}) {
+  return {
+    id: Number(scheme.id || 0),
+    name: scheme.name || '',
+    product_id: Number(scheme.product_id || 0),
+    customer_product_alias_id: Number(scheme.customer_product_alias_id || 0),
+    price_group_id: Number(scheme.price_group_id || 0),
+    active: scheme.active !== false,
+    remark: scheme.remark || '',
+    tiers: Array.isArray(scheme.tiers) && scheme.tiers.length
+      ? scheme.tiers.map((tier, index) => defaultProductTierPriceSchemeTier(tier, index))
+      : [defaultProductTierPriceSchemeTier({}, 0)],
+  }
+}
+
+function defaultProductTierPriceSchemeTier(tier = {}, index = 0) {
+  return {
+    label: tier.label || '',
+    min_qty: Number(tier.min_qty || 0),
+    max_qty: tier.max_qty === null || typeof tier.max_qty === 'undefined' ? '' : tier.max_qty,
+    source_price_record_id: Number(tier.source_price_record_id || 0),
+    position: Number(tier.position || 0) || index + 1,
+  }
+}
+
 function defaultCustomerProductRuleTemplateForm() {
   return {
     id: 0,
@@ -2066,6 +2271,8 @@ function saveProductSettingsDraft() {
     templateForm: templateForm.value,
     productConfigTemplateForm: productConfigTemplateForm.value,
     productUnitTemplateForm: productUnitTemplateForm.value,
+    productPriceRecordForm: productPriceRecordForm.value,
+    productTierPriceSchemeForm: productTierPriceSchemeForm.value,
     editingCategoryId: editingCategoryId.value,
     editingCategoryName: editingCategoryName.value,
     categoryCollapsed: categoryCollapsed.value,
@@ -2103,6 +2310,8 @@ async function restoreProductSettingsDraft() {
   templateForm.value = normalizeGradientTemplate(draft.templateForm || defaultGradientTemplateForm())
   productConfigTemplateForm.value = defaultProductConfigTemplateForm(draft.productConfigTemplateForm || {})
   productUnitTemplateForm.value = defaultProductUnitTemplateForm(draft.productUnitTemplateForm || {})
+  productPriceRecordForm.value = defaultProductPriceRecordForm(draft.productPriceRecordForm || {})
+  productTierPriceSchemeForm.value = defaultProductTierPriceSchemeForm(draft.productTierPriceSchemeForm || {})
   editingCategoryId.value = Number(draft.editingCategoryId || 0)
   editingCategoryName.value = draft.editingCategoryName || ''
   categoryCollapsed.value = Boolean(draft.categoryCollapsed)
@@ -2110,7 +2319,7 @@ async function restoreProductSettingsDraft() {
   collapsedSecondaryCategoryIds.value = normalizeCategoryIdList(draft.collapsedSecondaryCategoryIds)
   productsCollapsed.value = Boolean(draft.productsCollapsed)
   activeSettingsSection.value = ['master', 'templates', 'aliases'].includes(draft.activeSettingsSection) ? draft.activeSettingsSection : 'master'
-  activeConfigTemplateSection.value = ['product-config', 'classification-template', 'unit-template', 'gradient'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
+  activeConfigTemplateSection.value = ['product-config', 'classification-template', 'unit-template', 'gradient', 'product-price-management'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
   categorySearchQuery.value = draft.categorySearchQuery || ''
   skuFilters.value = normalizeSkuFiltersForCurrentRows(draft.skuFilters || {})
   skuPage.value = Number(draft.skuPage || 1)
@@ -2285,6 +2494,46 @@ function decorateProductUnitTemplate(template) {
   return defaultProductUnitTemplateForm(template)
 }
 
+function decorateProductPriceGroup(group = {}) {
+  return {
+    id: Number(group.id || 0),
+    name: group.name || '',
+    sort_order: Number(group.sort_order || 100),
+    active: group.active !== false,
+  }
+}
+
+function decorateProductPriceRecord(record = {}) {
+  return {
+    ...record,
+    id: Number(record.id || 0),
+    product_id: Number(record.product_id || 0),
+    customer_product_alias_id: Number(record.customer_product_alias_id || 0),
+    final_unit_price: Number(record.final_unit_price || 0),
+    price_group_id: Number(record.price_group_id || 0),
+    price_group_name: record.price_group_name || productPriceGroupName(record.price_group_id) || '',
+    inventory_conversion_json: record.inventory_conversion_json || '{"kg":{"kg":1}}',
+    active: record.active !== false,
+  }
+}
+
+function decorateProductTierPriceScheme(scheme = {}) {
+  return {
+    ...scheme,
+    id: Number(scheme.id || 0),
+    product_id: Number(scheme.product_id || 0),
+    customer_product_alias_id: Number(scheme.customer_product_alias_id || 0),
+    price_group_id: Number(scheme.price_group_id || 0),
+    active: scheme.active !== false,
+    tiers: (scheme.tiers || []).map((tier, index) => ({
+      ...tier,
+      min_qty: Number(tier.min_qty || 0),
+      source_price_record_id: Number(tier.source_price_record_id || 0),
+      position: Number(tier.position || 0) || index + 1,
+    })),
+  }
+}
+
 function decorateCustomerProductRuleItem(item = {}) {
   return {
     ...defaultCustomerProductRuleTemplateItem(),
@@ -2340,6 +2589,9 @@ async function loadAll() {
     industryFieldTemplates.value = industryData?.rows || []
     productUnitDefinitions.value = (data.product_unit_definitions || []).map(decorateProductUnitDefinition)
     productUnitTemplates.value = (data.product_unit_templates || []).map(decorateProductUnitTemplate)
+    productPriceGroups.value = (data.product_price_groups || []).map(decorateProductPriceGroup)
+    productPriceRecords.value = (data.product_price_records || []).map(decorateProductPriceRecord)
+    productTierPriceSchemes.value = (data.product_tier_price_schemes || []).map(decorateProductTierPriceScheme)
     customerProductRuleTemplates.value = (data.customer_product_rule_templates || []).map(decorateCustomerProductRuleTemplate)
     customerProductRuleOverrides.value = (data.customer_product_rule_overrides || []).map(decorateCustomerProductRuleOverride)
     customerProductRuleBindings.value = (data.customer_product_rule_bindings || []).map((row) => ({
@@ -2604,6 +2856,96 @@ async function deleteProductConfigTemplate(id) {
     error.value = err.message || '删除商品配置模板失败'
   } finally {
     productConfigSaving.value = false
+  }
+}
+
+function resetProductPriceRecordForm() {
+  productPriceRecordForm.value = defaultProductPriceRecordForm()
+}
+
+function startProductPriceRecordEdit(record) {
+  productPriceRecordForm.value = defaultProductPriceRecordForm(JSON.parse(JSON.stringify(record || {})))
+}
+
+function validateProductPriceRecordPayload(payload) {
+  if (Number(payload.product_id || 0) <= 0 && Number(payload.customer_product_alias_id || 0) <= 0) return '请选择商品或客户商品'
+  if (!(Number(payload.final_unit_price || 0) > 0)) return '请填写最终单价'
+  if (!String(payload.price_unit || '').trim()) return '请选择价格单位'
+  return ''
+}
+
+async function saveProductPriceRecord() {
+  const payload = buildProductPriceRecordPayload(productPriceRecordForm.value)
+  const validation = validateProductPriceRecordPayload(payload)
+  if (validation) {
+    error.value = validation
+    return
+  }
+  productPriceSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const url = payload.id ? `/api/product-price-records/${payload.id}` : '/api/product-price-records'
+    const method = payload.id ? 'PUT' : 'POST'
+    await apiSend(url, { method, body: payload })
+    ok.value = '商品价格记录已保存'
+    await loadAll()
+    resetProductPriceRecordForm()
+  } catch (err) {
+    error.value = err.message || '保存商品价格记录失败'
+  } finally {
+    productPriceSaving.value = false
+  }
+}
+
+function resetProductTierPriceSchemeForm() {
+  productTierPriceSchemeForm.value = defaultProductTierPriceSchemeForm()
+}
+
+function startProductTierPriceSchemeEdit(scheme) {
+  productTierPriceSchemeForm.value = defaultProductTierPriceSchemeForm(JSON.parse(JSON.stringify(scheme || {})))
+}
+
+function addProductTierPriceSchemeTier() {
+  productTierPriceSchemeForm.value.tiers.push(defaultProductTierPriceSchemeTier({}, productTierPriceSchemeForm.value.tiers.length))
+}
+
+function removeProductTierPriceSchemeTier(index) {
+  productTierPriceSchemeForm.value.tiers.splice(index, 1)
+  if (!productTierPriceSchemeForm.value.tiers.length) {
+    addProductTierPriceSchemeTier()
+  }
+}
+
+function validateProductTierPriceSchemePayload(payload) {
+  if (!String(payload.name || '').trim()) return '请填写阶梯方案名称'
+  if (Number(payload.product_id || 0) <= 0 && Number(payload.customer_product_alias_id || 0) <= 0) return '请选择商品或客户商品'
+  if (!payload.tiers.length) return '请至少添加一个档位'
+  if (payload.tiers.some((tier) => Number(tier.source_price_record_id || 0) <= 0)) return '每个档位都要引用价格记录'
+  return ''
+}
+
+async function saveProductTierPriceScheme() {
+  const payload = buildProductTierPriceSchemePayload(productTierPriceSchemeForm.value)
+  const validation = validateProductTierPriceSchemePayload(payload)
+  if (validation) {
+    error.value = validation
+    return
+  }
+  productPriceSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const url = payload.id ? `/api/product-tier-price-schemes/${payload.id}` : '/api/product-tier-price-schemes'
+    const method = payload.id ? 'PUT' : 'POST'
+    await apiSend(url, { method, body: payload })
+    ok.value = '阶梯价格方案已保存'
+    await loadAll()
+    resetProductTierPriceSchemeForm()
+  } catch (err) {
+    error.value = err.message || '保存阶梯价格方案失败'
+  } finally {
+    productPriceSaving.value = false
   }
 }
 
@@ -3118,6 +3460,26 @@ function productName(id) {
   return products.value.find((product) => Number(product.id) === Number(id))?.name || ''
 }
 
+function productPriceGroupName(id) {
+  return productPriceGroups.value.find((group) => Number(group.id) === Number(id))?.name || ''
+}
+
+function priceRecordTargetLabel(record = {}) {
+  const aliasID = Number(record.customer_product_alias_id || 0)
+  if (aliasID > 0) {
+    const alias = customerProductAliases.value.find((row) => Number(row.id || 0) === aliasID)
+    return alias ? customerAliasEffectiveDisplayName(alias) : `客户商品 #${aliasID}`
+  }
+  const productID = Number(record.product_id || 0)
+  return productID > 0 ? productName(productID) || `商品 #${productID}` : '-'
+}
+
+function productPriceRecordStatusLabel(record = {}) {
+  if (record.active === false || record.status === 'inactive') return '停用'
+  if (record.status === 'published') return '已发布'
+  return '草稿'
+}
+
 function categoryName(id) {
   return flattenCategoryNodes(categories.value).find((category) => Number(category.id) === Number(id))?.name || ''
 }
@@ -3229,6 +3591,49 @@ function productUnitName(code) {
   const normalized = String(code || '').trim()
   if (!normalized) return '-'
   return visibleProductUnitDefinitions.value.find((unit) => unit.code === normalized)?.name || normalized
+}
+
+function productInventoryUnitLabel(row = {}) {
+  return productUnitName(row.inventory_unit || row.stock_unit || 'kg')
+}
+
+function productIntegerInventoryLabel(row = {}) {
+  return row.integer_inventory_unit || row.integer_unit || row.stock_integer_unit ? '只允许整数' : '允许小数'
+}
+
+function normalizePriceSummary(summary = {}) {
+  const source = summary && typeof summary === 'object' ? summary : {}
+  const price = source.final_price ?? source.unit_price ?? source.price
+  const unit = source.price_unit || source.unit || source.uom || ''
+  const version = source.price_table_version || source.version || source.version_no || ''
+  const tier = source.tier_label || source.tier || source.quantity_tier || ''
+  const updatedAt = source.updated_at || source.published_at || ''
+  return {
+    price,
+    unit,
+    version,
+    tier,
+    updatedAt,
+  }
+}
+
+function priceSummaryLabel(summary = {}) {
+  const normalized = normalizePriceSummary(summary)
+  const priceNumber = Number(normalized.price)
+  if (!Number.isFinite(priceNumber) || priceNumber <= 0) return '暂无价格表价格'
+  const unit = normalized.unit ? `/${productUnitName(normalized.unit)}` : ''
+  const version = normalized.version ? ` · ${normalized.version}` : ''
+  const tier = normalized.tier ? ` · ${normalized.tier}` : ''
+  const updated = normalized.updatedAt ? ` · ${String(normalized.updatedAt).slice(0, 16)}` : ''
+  return `¥${priceNumber.toFixed(2)}${unit}${tier}${version}${updated}`
+}
+
+function productPriceSummaryLabel(row = {}) {
+  return priceSummaryLabel(row.price_summary || row.current_price_summary || row.latest_price_snapshot || {})
+}
+
+function aliasPriceSummaryLabel(row = {}) {
+  return priceSummaryLabel(row.price_summary || row.current_price_summary || row.latest_price_snapshot || {})
 }
 
 function findProductUnitTemplate(id) {
@@ -3990,8 +4395,7 @@ async function saveProductProductionConfig() {
         ...originalProduct,
         name: productProductionConfigForm.value.name,
         remark: productProductionConfigForm.value.remark,
-        product_config_template_id: Number(productProductionConfigForm.value.product_config_template_id || 0),
-      }, originalProduct.margin_rate_override ?? null),
+      }),
     })
     const result = await apiSend(`/api/product-production-configs/${productID}`, {
       method: 'PUT',
@@ -4917,18 +5321,6 @@ async function dropProductOnSecondary(secondary) {
   }
 }
 
-function normalizeMarginRateOverride(row) {
-  const raw = row.margin_rate_override_input
-  if (raw === '' || raw === null || typeof raw === 'undefined') return { ok: true, value: null }
-  const value = Number(raw)
-  if (!Number.isFinite(value) || value < 0) return { ok: false, value: null }
-  return { ok: true, value: Number(value.toFixed(6)) }
-}
-
-async function saveProductMarginOverride(row) {
-  await saveProductBasics(row, '产品级利润率覆盖已保存')
-}
-
 async function saveProductBasics(row, successMessage = '商品基础信息已保存') {
   if (!canEditSkuRow(row)) {
     error.value = '公共商品档案为引用，请回到商品档案维护'
@@ -4940,21 +5332,14 @@ async function saveProductBasics(row, successMessage = '商品基础信息已保
     error.value = '历史 BOM 参数异常，请到商品生产配置维护预期损耗率'
     return
   }
-  const marginOverride = normalizeMarginRateOverride(row)
-  if (!marginOverride.ok) {
-    error.value = '利润率覆盖必须为 0 或正数'
-    return
-  }
   loading.value = true
   error.value = ''
   ok.value = ''
   try {
     await apiSend(`/api/products/${row.id}`, {
       method: 'PUT',
-      body: buildProductBasicsPayload(row, marginOverride.value),
+      body: buildProductBasicsPayload(row),
     })
-    row.margin_rate_override = marginOverride.value
-    row.margin_rate_override_input = marginOverride.value === null ? '' : marginOverride.value
     ok.value = successMessage
     await loadAll()
   } catch (err) {
@@ -5206,6 +5591,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .template-editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 10px; }
 .template-editor label, .product-config-editor label { display: grid; gap: 5px; font-size: 13px; }
 .product-config-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.product-price-management-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr); gap: 12px; align-items: start; }
+.product-price-management-layout section { display: grid; gap: 10px; min-width: 0; }
+.product-price-record-form, .product-tier-price-scheme-form { display: grid; gap: 10px; }
+.product-price-record-form .template-editor-grid, .product-tier-price-scheme-form .template-editor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.product-tier-price-row { grid-template-columns: minmax(110px, .8fr) minmax(100px, .65fr) minmax(100px, .65fr) minmax(180px, 1.2fr) auto; }
+.compact-table-wrap table { min-width: 720px; }
 .product-config-editor { display: grid; gap: 10px; }
 .template-tier-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 12px 0 8px; }
 .template-tier-list { display: grid; gap: 8px; }
@@ -5418,7 +5809,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .customer-alias-form, .production-config-grid, .production-config-field-row { grid-template-columns: 1fr; }
+  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .product-price-management-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .product-tier-price-row, .product-price-record-form .template-editor-grid, .product-tier-price-scheme-form .template-editor-grid, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .customer-alias-form, .production-config-grid, .production-config-field-row { grid-template-columns: 1fr; }
   .product-section-tabs-legacy { width: 100%; }
   .workspace-tab { flex: 1; }
   .panel-actions { justify-content: flex-start; }

@@ -25,9 +25,12 @@ type Usage struct {
 }
 
 type PublishedPricing struct {
-	UnitPrice float64
-	PriceUnit string
-	UnitG     float64
+	UnitPrice               float64
+	PriceUnit               string
+	UnitG                   float64
+	SourcePriceRecordID     int64
+	InventoryUnit           string
+	InventoryConversionJSON string
 }
 
 type rowQuerier interface {
@@ -160,22 +163,26 @@ type publishedBeanListContent struct {
 }
 
 type publishedPriceTier struct {
-	SpecG             int64    `json:"spec_g"`
-	MinQty            float64  `json:"min_qty"`
-	MaxQty            *float64 `json:"max_qty"`
-	PricePerUnit      float64  `json:"price_per_unit"`
-	PricePerKg        float64  `json:"price_per_kg"`
-	MinLb             float64  `json:"min_lb"`
-	MaxLb             *float64 `json:"max_lb"`
-	PricePerLb        float64  `json:"price_per_lb"`
-	MinWeightG        float64  `json:"min_weight_g"`
-	MaxWeightG        *float64 `json:"max_weight_g"`
-	SalesUnit         string   `json:"sales_unit"`
-	UnitBagCount      int64    `json:"unit_bag_count"`
-	PackedPricePerBag float64  `json:"packed_price_per_bag"`
-	PackedPricePerBox float64  `json:"packed_price_per_box"`
-	DisplayUnit       string   `json:"display_unit"`
-	PriceUnit         string   `json:"price_unit"`
+	SourcePriceRecordID     int64           `json:"source_price_record_id"`
+	FinalUnitPrice          float64         `json:"final_unit_price"`
+	SpecG                   int64           `json:"spec_g"`
+	MinQty                  float64         `json:"min_qty"`
+	MaxQty                  *float64        `json:"max_qty"`
+	PricePerUnit            float64         `json:"price_per_unit"`
+	PricePerKg              float64         `json:"price_per_kg"`
+	MinLb                   float64         `json:"min_lb"`
+	MaxLb                   *float64        `json:"max_lb"`
+	PricePerLb              float64         `json:"price_per_lb"`
+	MinWeightG              float64         `json:"min_weight_g"`
+	MaxWeightG              *float64        `json:"max_weight_g"`
+	SalesUnit               string          `json:"sales_unit"`
+	UnitBagCount            int64           `json:"unit_bag_count"`
+	PackedPricePerBag       float64         `json:"packed_price_per_bag"`
+	PackedPricePerBox       float64         `json:"packed_price_per_box"`
+	DisplayUnit             string          `json:"display_unit"`
+	PriceUnit               string          `json:"price_unit"`
+	InventoryUnit           string          `json:"inventory_unit"`
+	InventoryConversionJSON json.RawMessage `json:"inventory_conversion_json"`
 }
 
 func publishedUnitPriceFromContent(raw []byte, productID int64, specG int64, qty int64) (float64, bool) {
@@ -204,7 +211,10 @@ func publishedPricingFromContentForListType(raw []byte, productID int64, listTyp
 			if strings.TrimSpace(listType) == ListTypeDrip {
 				if tier, ok := matchPublishedDripPriceTier(tiers, salesUnit, qty, unitBagCount); ok {
 					price := publishedDripUnitPrice(tier, salesUnit, unitBagCount)
-					return PublishedPricing{UnitPrice: price, PriceUnit: normalizePublishedDripSalesUnit(salesUnit), UnitG: 1}, price > 0
+					if tier.FinalUnitPrice > 0 {
+						price = tier.FinalUnitPrice
+					}
+					return publishedPricingWithSnapshot(PublishedPricing{UnitPrice: price, PriceUnit: normalizePublishedDripSalesUnit(salesUnit), UnitG: 1}, tier), price > 0
 				}
 				continue
 			}
@@ -400,28 +410,43 @@ func publishedTierDisplayUnitPrice(tier publishedPriceTier, specG int64) float64
 func publishedTierPricing(tier publishedPriceTier, specG int64) PublishedPricing {
 	priceUnit := publishedTierPriceUnit(tier, specG)
 	unitG := publishedPriceUnitG(priceUnit, specG)
+	if tier.FinalUnitPrice > 0 {
+		return publishedPricingWithSnapshot(PublishedPricing{UnitPrice: roundPublishedPrice(tier.FinalUnitPrice), PriceUnit: priceUnit, UnitG: unitG}, tier)
+	}
 	displayUnit := normalizePublishedPriceUnit(tier.DisplayUnit)
 	displayG := publishedPriceUnitG(displayUnit, tier.SpecG)
 	if displayG <= 0 {
 		displayG = publishedPriceUnitG("", tier.SpecG)
 	}
 	if tier.PricePerKg > 0 {
-		return PublishedPricing{UnitPrice: roundPublishedPrice(tier.PricePerKg * unitG / 1000.0), PriceUnit: priceUnit, UnitG: unitG}
+		return publishedPricingWithSnapshot(PublishedPricing{UnitPrice: roundPublishedPrice(tier.PricePerKg * unitG / 1000.0), PriceUnit: priceUnit, UnitG: unitG}, tier)
 	}
 	if tier.PricePerLb > 0 && normalizePublishedPriceUnit(tier.PriceUnit) == "" && normalizePublishedPriceUnit(tier.DisplayUnit) == "" {
 		price := tier.PricePerLb * unitG / 454.0
 		if unitG == 1000 {
 			price = math.Round(price)
 		}
-		return PublishedPricing{UnitPrice: roundPublishedPrice(price), PriceUnit: priceUnit, UnitG: unitG}
+		return publishedPricingWithSnapshot(PublishedPricing{UnitPrice: roundPublishedPrice(price), PriceUnit: priceUnit, UnitG: unitG}, tier)
 	}
 	if tier.PricePerUnit > 0 {
-		return PublishedPricing{UnitPrice: roundPublishedPrice(tier.PricePerUnit * unitG / displayG), PriceUnit: priceUnit, UnitG: unitG}
+		return publishedPricingWithSnapshot(PublishedPricing{UnitPrice: roundPublishedPrice(tier.PricePerUnit * unitG / displayG), PriceUnit: priceUnit, UnitG: unitG}, tier)
 	}
 	if tier.PricePerLb > 0 {
-		return PublishedPricing{UnitPrice: roundPublishedPrice(tier.PricePerLb * unitG / 454.0), PriceUnit: priceUnit, UnitG: unitG}
+		return publishedPricingWithSnapshot(PublishedPricing{UnitPrice: roundPublishedPrice(tier.PricePerLb * unitG / 454.0), PriceUnit: priceUnit, UnitG: unitG}, tier)
 	}
-	return PublishedPricing{PriceUnit: priceUnit, UnitG: unitG}
+	return publishedPricingWithSnapshot(PublishedPricing{PriceUnit: priceUnit, UnitG: unitG}, tier)
+}
+
+func publishedPricingWithSnapshot(pricing PublishedPricing, tier publishedPriceTier) PublishedPricing {
+	pricing.SourcePriceRecordID = tier.SourcePriceRecordID
+	pricing.InventoryUnit = strings.TrimSpace(tier.InventoryUnit)
+	if len(tier.InventoryConversionJSON) > 0 && string(tier.InventoryConversionJSON) != "null" {
+		pricing.InventoryConversionJSON = strings.TrimSpace(string(tier.InventoryConversionJSON))
+	}
+	if pricing.InventoryConversionJSON == "" {
+		pricing.InventoryConversionJSON = "{}"
+	}
+	return pricing
 }
 
 func publishedTierPriceUnit(tier publishedPriceTier, specG int64) string {

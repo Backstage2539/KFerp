@@ -15,10 +15,67 @@ func TestOrderFormProductQueryKeepsRoastLevelAndProductKindScanShape(t *testing.
 	}
 	text := string(source)
 	if !strings.Contains(text, "SELECT p.id, p.name, COALESCE(p.roast_level,'')") {
-		t.Fatalf("order form product query must select roast_level as the third product column before default_price")
+		t.Fatalf("order form product query must select roast_level as the third product column")
 	}
 	if strings.Contains(text, "SELECT id, name, COALESCE(NULLIF(product_kind,''),'roasted')") {
 		t.Fatalf("order form product query must not scan product_kind into ProductOption.RoastLevel")
+	}
+}
+
+func TestOrderFormProductsUsePublishedPriceSnapshotsOnly(t *testing.T) {
+	source, err := os.ReadFile("order_form_queries.go")
+	if err != nil {
+		t.Fatalf("read order_form_queries.go: %v", err)
+	}
+	text := string(source)
+	for _, forbidden := range []string{
+		"p.default_price",
+		"COALESCE(p.retail_price_227g, p.default_price, 0)",
+		"FROM %[1]s.product_price_tiers",
+		"direct_tiers",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("order form products must not expose legacy product price fallback %q", forbidden)
+		}
+	}
+	for _, want := range []string{
+		"bean_list_publications",
+		"source_price_record_id",
+		"inventory_conversion_json",
+		"published_price_snapshot",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("order form products must expose published price snapshot metadata; missing %q", want)
+		}
+	}
+}
+
+func TestOrderSaveRequiresPublishedPriceSnapshotInsteadOfLegacyTierFallback(t *testing.T) {
+	source, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatalf("read repository.go: %v", err)
+	}
+	text := string(source)
+	for _, forbidden := range []string{
+		"loadOrderUnitPriceTiersTx(ctx, tx, r.schema",
+		"FROM %s.product_price_tiers",
+		"resolveAutoWeightTierPriceTx(",
+		"COALESCE(NULLIF(retail_price_227g,0), default_price, 0)",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("order save must not use legacy product price fallback %q", forbidden)
+		}
+	}
+	for _, want := range []string{
+		"缺少商品价格表价格",
+		"缺少挂耳价格表价格",
+		"beanListPriceSourceJSONWithPricing",
+		"source_price_record_id",
+		"inventory_conversion_json",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("order save must require published price snapshot metadata; missing %q", want)
+		}
 	}
 }
 

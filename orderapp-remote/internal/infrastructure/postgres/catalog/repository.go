@@ -171,11 +171,10 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
 		SET roast_level=$2, retail_price_100g=$3, retail_price_200g=$4, retail_price_227g=$5, retail_price_250g=$6,
-		    product_kind=$7, drip_bag_grams=$8, margin_rate_override=$9, drip_box_bag_count=$10, allow_fulfillment_order=$11, allow_mall_order=$12,
-		    green_bean_type=$13, green_bean_bom_product_id=$14, remark=$15, name=COALESCE(NULLIF($16,''), name),
-		    gradient_template_id_override=$17, operation_template_id_override=$18, unit_rule_override_json=$19::jsonb,
-		    special_attrs_json=$20::jsonb, product_config_template_id=$21, classification_template_id=$22
-		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.MarginRateOverride, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.Remark, cmd.Name, cmd.GradientTemplateIDOverride, cmd.OperationTemplateIDOverride, cmd.UnitRuleOverrideJSON, cmd.SpecialAttrsJSON, cmd.ProductConfigTemplateID, cmd.ClassificationTemplateID); err != nil {
+		    product_kind=$7, drip_bag_grams=$8, drip_box_bag_count=$9, allow_fulfillment_order=$10, allow_mall_order=$11,
+		    green_bean_type=$12, green_bean_bom_product_id=$13, remark=$14, name=COALESCE(NULLIF($15,''), name),
+		    special_attrs_json=$16::jsonb
+		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.Remark, cmd.Name, cmd.SpecialAttrsJSON); err != nil {
 		return err
 	}
 	if catalogdomain.ProductKindSupportsBomParams(productKind) && yieldRate > 0 {
@@ -189,22 +188,16 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 		return err
 	}
 	meta := postgresinfra.AuditMeta{
-		"product_id":                     cmd.ProductID,
-		"product_kind":                   productKind,
-		"roast_level":                    roastLevel,
-		"yield_rate":                     yieldRate,
-		"retail_price_100g":              cmd.RetailPrice100G,
-		"retail_price_200g":              cmd.RetailPrice200G,
-		"retail_price_227g":              cmd.RetailPrice227G,
-		"retail_price_250g":              cmd.RetailPrice250G,
-		"margin_rate_override":           cmd.MarginRateOverride,
-		"remark":                         cmd.Remark,
-		"name":                           cmd.Name,
-		"gradient_template_id_override":  cmd.GradientTemplateIDOverride,
-		"operation_template_id_override": cmd.OperationTemplateIDOverride,
-		"unit_rule_override_json":        cmd.UnitRuleOverrideJSON,
-		"product_config_template_id":     cmd.ProductConfigTemplateID,
-		"classification_template_id":     cmd.ClassificationTemplateID,
+		"product_id":        cmd.ProductID,
+		"product_kind":      productKind,
+		"roast_level":       roastLevel,
+		"yield_rate":        yieldRate,
+		"retail_price_100g": cmd.RetailPrice100G,
+		"retail_price_200g": cmd.RetailPrice200G,
+		"retail_price_227g": cmd.RetailPrice227G,
+		"retail_price_250g": cmd.RetailPrice250G,
+		"remark":            cmd.Remark,
+		"name":              cmd.Name,
 	}
 	meta["product_kind"] = cmd.ProductKind
 	meta["drip_bag_grams"] = cmd.DripBagGrams
@@ -289,15 +282,15 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 
 	var productID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			INSERT INTO %s.products(
+		INSERT INTO %s.products(
 			name, remark, product_kind, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
 			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
-			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id, special_attrs_json, product_config_template_id, classification_template_id, created_at
+			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id, special_attrs_json, created_at
 		)
-		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,0,0,'public','',$14,$15,$16::jsonb,$17,$18,now())
+		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,0,0,'public','',$14,$15,$16::jsonb,now())
 		RETURNING id
-	`, r.schema), name, cmd.Remark, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.SpecialAttrsJSON, cmd.ProductConfigTemplateID, cmd.ClassificationTemplateID).Scan(&productID); err != nil {
+	`, r.schema), name, cmd.Remark, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.SpecialAttrsJSON).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 
@@ -310,31 +303,24 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 			return catalogapp.Product{}, err
 		}
 	}
-	if len(cmd.Tiers) > 0 {
-		if err := replaceProductPriceTiersTx(ctx, tx, r.schema, productID, cmd.Tiers); err != nil {
-			return catalogapp.Product{}, err
-		}
-	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "create", postgresinfra.StrPtr("public_product"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{
-		"product_id":                 productID,
-		"roast_level":                roastLevel,
-		"default_price":              cmd.DefaultPrice,
-		"yield_rate":                 yieldRate,
-		"retail_price_100g":          cmd.RetailPrice100G,
-		"retail_price_200g":          cmd.RetailPrice200G,
-		"retail_price_227g":          cmd.RetailPrice227G,
-		"retail_price_250g":          cmd.RetailPrice250G,
-		"remark":                     cmd.Remark,
-		"product_kind":               productKind,
-		"drip_bag_grams":             cmd.DripBagGrams,
-		"drip_box_bag_count":         cmd.DripBoxBagCount,
-		"allow_fulfillment_order":    cmd.AllowFulfillmentOrder,
-		"allow_mall_order":           cmd.AllowMallOrder,
-		"sales_units":                cmd.SalesUnits,
-		"green_bean_type":            greenBeanType,
-		"green_bean_bom":             greenBeanBomProductID,
-		"product_config_template_id": cmd.ProductConfigTemplateID,
-		"classification_template_id": cmd.ClassificationTemplateID,
+		"product_id":              productID,
+		"roast_level":             roastLevel,
+		"default_price":           cmd.DefaultPrice,
+		"yield_rate":              yieldRate,
+		"retail_price_100g":       cmd.RetailPrice100G,
+		"retail_price_200g":       cmd.RetailPrice200G,
+		"retail_price_227g":       cmd.RetailPrice227G,
+		"retail_price_250g":       cmd.RetailPrice250G,
+		"remark":                  cmd.Remark,
+		"product_kind":            productKind,
+		"drip_bag_grams":          cmd.DripBagGrams,
+		"drip_box_bag_count":      cmd.DripBoxBagCount,
+		"allow_fulfillment_order": cmd.AllowFulfillmentOrder,
+		"allow_mall_order":        cmd.AllowMallOrder,
+		"sales_units":             cmd.SalesUnits,
+		"green_bean_type":         greenBeanType,
+		"green_bean_bom":          greenBeanBomProductID,
 	}); err != nil {
 		return catalogapp.Product{}, err
 	}
@@ -382,8 +368,7 @@ func (r Repository) CopyProduct(ctx context.Context, cmd catalogapp.CopyProductC
 			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
 			product_category_id, product_category_position,
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
-			special_attrs_json, product_config_template_id, classification_template_id, margin_rate_override,
-			gradient_template_id_override, operation_template_id_override, unit_rule_override_json, created_at
+			special_attrs_json, created_at
 		)
 		SELECT
 			$2, remark, product_kind, roast_level, default_price, active,
@@ -391,45 +376,11 @@ func (r Repository) CopyProduct(ctx context.Context, cmd catalogapp.CopyProductC
 			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
 			product_category_id, product_category_position,
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
-			special_attrs_json, product_config_template_id, 0, margin_rate_override,
-			gradient_template_id_override, operation_template_id_override, unit_rule_override_json, now()
+			special_attrs_json, now()
 		FROM %s.products
 		WHERE id=$1
 		RETURNING id
 	`, r.schema, r.schema), cmd.SourceProductID, copyName).Scan(&productID); err != nil {
-		return catalogapp.Product{}, err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_price_tiers(product_id,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active,product_kind,price_basis,sales_unit,unit_bag_count,price_source_json)
-		SELECT $2,spec_g,min_qty_units,max_qty_units,price_per_unit,min_qty_lb,max_qty_lb,price_per_lb,active,product_kind,price_basis,sales_unit,unit_bag_count,price_source_json
-		FROM %s.product_price_tiers
-		WHERE product_id=$1
-	`, r.schema, r.schema), cmd.SourceProductID, productID); err != nil {
-		return catalogapp.Product{}, err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_production_configs(
-			product_id, production_bom_id, production_bom_version_id, process_route_id, industry_field_template_id,
-			expected_loss_rate, note, created_by, updated_by, created_at, updated_at
-		)
-		SELECT $2, production_bom_id, production_bom_version_id, process_route_id, industry_field_template_id,
-			expected_loss_rate, note, $3, $3, now(), now()
-		FROM %s.product_production_configs
-		WHERE product_id=$1
-	`, r.schema, r.schema), cmd.SourceProductID, productID, strings.TrimSpace(cmd.Actor)); err != nil {
-		return catalogapp.Product{}, err
-	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_at,bound_by)
-		SELECT $2,bom_id,bom_version_id,now(),$3
-		FROM %s.product_production_bom_bindings
-		WHERE product_id=$1
-		ON CONFLICT (product_id) DO UPDATE SET
-			bom_id=excluded.bom_id,
-			bom_version_id=excluded.bom_version_id,
-			bound_at=excluded.bound_at,
-			bound_by=excluded.bound_by
-	`, r.schema, r.schema), cmd.SourceProductID, productID, strings.TrimSpace(cmd.Actor)); err != nil {
 		return catalogapp.Product{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -1407,6 +1358,317 @@ func (r Repository) ListProductUnitTemplates(ctx context.Context) ([]catalogapp.
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func (r Repository) ListProductPriceGroups(ctx context.Context) ([]catalogapp.ProductPriceGroup, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, name, COALESCE(sort_order,100), active
+		FROM %s.product_price_groups
+		WHERE deleted_at IS NULL
+		ORDER BY active DESC, COALESCE(sort_order,100), name, id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.ProductPriceGroup, 0)
+	for rows.Next() {
+		var row catalogapp.ProductPriceGroup
+		if err := rows.Scan(&row.ID, &row.Name, &row.SortOrder, &row.Active); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveProductPriceGroup(ctx context.Context, cmd catalogapp.SaveProductPriceGroupCommand) (catalogapp.ProductPriceGroup, error) {
+	active := true
+	if cmd.Active != nil {
+		active = *cmd.Active
+	}
+	var id int64
+	if cmd.ID > 0 {
+		if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.product_price_groups
+			SET name=$2, sort_order=$3, active=$4, deleted_at=NULL, updated_at=now(), updated_by=$5
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.Name, cmd.SortOrder, active, cmd.Actor).Scan(&id); err != nil {
+			return catalogapp.ProductPriceGroup{}, err
+		}
+	} else if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_price_groups(name, sort_order, active, created_by, updated_by)
+		VALUES($1,$2,$3,$4,$4)
+		RETURNING id
+	`, r.schema), cmd.Name, cmd.SortOrder, active, cmd.Actor).Scan(&id); err != nil {
+		return catalogapp.ProductPriceGroup{}, err
+	}
+	row, err := r.findProductPriceGroup(ctx, id)
+	if err != nil {
+		return catalogapp.ProductPriceGroup{}, err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_price_group", &id, "save_product_price_group", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(row.Name), postgresinfra.AuditMeta{"sort_order": row.SortOrder, "active": row.Active})
+	return row, nil
+}
+
+func (r Repository) findProductPriceGroup(ctx context.Context, id int64) (catalogapp.ProductPriceGroup, error) {
+	var row catalogapp.ProductPriceGroup
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, name, COALESCE(sort_order,100), active
+		FROM %s.product_price_groups
+		WHERE id=$1 AND deleted_at IS NULL
+	`, r.schema), id).Scan(&row.ID, &row.Name, &row.SortOrder, &row.Active)
+	return row, err
+}
+
+func (r Repository) ListProductPriceRecords(ctx context.Context, query catalogapp.ProductPriceRecordQuery) ([]catalogapp.ProductPriceRecord, error) {
+	activeMode := strings.ToLower(strings.TrimSpace(query.ActiveMode))
+	status := strings.TrimSpace(query.Status)
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, COALESCE(product_id,0), COALESCE(customer_product_alias_id,0),
+		       final_unit_price::float8, price_unit, currency,
+		       COALESCE(price_group_id,0), price_group_name, inventory_unit,
+		       COALESCE(inventory_conversion_json::text,'{}'), status, remark, active
+		FROM %s.product_price_records
+		WHERE ($1::bigint=0 OR product_id=$1)
+		  AND ($2::bigint=0 OR customer_product_alias_id=$2)
+		  AND ($3::bigint=0 OR price_group_id=$3)
+		  AND ($4::text='' OR status=$4)
+		  AND (CASE WHEN $5::text='all' THEN true WHEN $5::text='inactive' THEN active=false ELSE active=true END)
+		ORDER BY active DESC, price_group_id, product_id, customer_product_alias_id, id
+	`, r.schema), query.ProductID, query.CustomerProductAliasID, query.PriceGroupID, status, activeMode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.ProductPriceRecord, 0)
+	for rows.Next() {
+		var row catalogapp.ProductPriceRecord
+		if err := rows.Scan(&row.ID, &row.ProductID, &row.CustomerProductAliasID, &row.FinalUnitPrice, &row.PriceUnit, &row.Currency, &row.PriceGroupID, &row.PriceGroupName, &row.InventoryUnit, &row.InventoryConversionJSON, &row.Status, &row.Remark, &row.Active); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) GetProductPriceRecord(ctx context.Context, id int64) (catalogapp.ProductPriceRecord, error) {
+	return fetchProductPriceRecordByID(ctx, r.pool, r.schema, id)
+}
+
+func (r Repository) SaveProductPriceRecord(ctx context.Context, cmd catalogapp.SaveProductPriceRecordCommand) (catalogapp.ProductPriceRecord, error) {
+	active := true
+	if cmd.Active != nil {
+		active = *cmd.Active
+	}
+	var id int64
+	if cmd.ID > 0 {
+		if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.product_price_records
+			SET product_id=$2,
+			    customer_product_alias_id=$3,
+			    final_unit_price=$4,
+			    price_unit=$5,
+			    currency=$6,
+			    price_group_id=$7,
+			    price_group_name=$8,
+			    inventory_unit=$9,
+			    inventory_conversion_json=$10::jsonb,
+			    status=$11,
+			    active=$12,
+			    remark=$13,
+			    updated_at=now(),
+			    updated_by=$14
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.ProductID, cmd.CustomerProductAliasID, cmd.FinalUnitPrice, cmd.PriceUnit, cmd.Currency, cmd.PriceGroupID, cmd.PriceGroupName, cmd.InventoryUnit, cmd.InventoryConversionJSON, cmd.Status, active, cmd.Remark, cmd.Actor).Scan(&id); err != nil {
+			return catalogapp.ProductPriceRecord{}, err
+		}
+	} else if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_price_records(
+			product_id, customer_product_alias_id, final_unit_price, price_unit, currency,
+			price_group_id, price_group_name, inventory_unit, inventory_conversion_json,
+			status, active, remark, created_by, updated_by
+		)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$13)
+		RETURNING id
+	`, r.schema), cmd.ProductID, cmd.CustomerProductAliasID, cmd.FinalUnitPrice, cmd.PriceUnit, cmd.Currency, cmd.PriceGroupID, cmd.PriceGroupName, cmd.InventoryUnit, cmd.InventoryConversionJSON, cmd.Status, active, cmd.Remark, cmd.Actor).Scan(&id); err != nil {
+		return catalogapp.ProductPriceRecord{}, err
+	}
+	row, err := fetchProductPriceRecordByID(ctx, r.pool, r.schema, id)
+	if err != nil {
+		return catalogapp.ProductPriceRecord{}, err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_price_record", &id, "save_product_price_record", postgresinfra.StrPtr("final_unit_price"), nil, postgresinfra.StrPtr(fmt.Sprintf("%.4f", row.FinalUnitPrice)), postgresinfra.AuditMeta{
+		"product_id":                row.ProductID,
+		"customer_product_alias_id": row.CustomerProductAliasID,
+		"price_unit":                row.PriceUnit,
+		"currency":                  row.Currency,
+		"price_group_id":            row.PriceGroupID,
+		"price_group_name":          row.PriceGroupName,
+		"inventory_unit":            row.InventoryUnit,
+		"inventory_conversion_json": row.InventoryConversionJSON,
+		"status":                    row.Status,
+		"active":                    row.Active,
+	})
+	return row, nil
+}
+
+func fetchProductPriceRecordByID(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, schema string, id int64) (catalogapp.ProductPriceRecord, error) {
+	var row catalogapp.ProductPriceRecord
+	err := q.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, COALESCE(product_id,0), COALESCE(customer_product_alias_id,0),
+		       final_unit_price::float8, price_unit, currency,
+		       COALESCE(price_group_id,0), price_group_name, inventory_unit,
+		       COALESCE(inventory_conversion_json::text,'{}'), status, remark, active
+		FROM %s.product_price_records
+		WHERE id=$1
+	`, schema), id).Scan(&row.ID, &row.ProductID, &row.CustomerProductAliasID, &row.FinalUnitPrice, &row.PriceUnit, &row.Currency, &row.PriceGroupID, &row.PriceGroupName, &row.InventoryUnit, &row.InventoryConversionJSON, &row.Status, &row.Remark, &row.Active)
+	return row, err
+}
+
+func (r Repository) ListProductTierPriceSchemes(ctx context.Context, query catalogapp.ProductTierPriceSchemeQuery) ([]catalogapp.ProductTierPriceScheme, error) {
+	activeMode := strings.ToLower(strings.TrimSpace(query.ActiveMode))
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, name, COALESCE(product_id,0), COALESCE(customer_product_alias_id,0),
+		       COALESCE(price_group_id,0), active, remark
+		FROM %s.product_tier_price_schemes
+		WHERE ($1::bigint=0 OR product_id=$1)
+		  AND ($2::bigint=0 OR customer_product_alias_id=$2)
+		  AND ($3::bigint=0 OR price_group_id=$3)
+		  AND (CASE WHEN $4::text='all' THEN true WHEN $4::text='inactive' THEN active=false ELSE active=true END)
+		ORDER BY active DESC, price_group_id, product_id, customer_product_alias_id, name, id
+	`, r.schema), query.ProductID, query.CustomerProductAliasID, query.PriceGroupID, activeMode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.ProductTierPriceScheme, 0)
+	index := map[int64]int{}
+	for rows.Next() {
+		var row catalogapp.ProductTierPriceScheme
+		if err := rows.Scan(&row.ID, &row.Name, &row.ProductID, &row.CustomerProductAliasID, &row.PriceGroupID, &row.Active, &row.Remark); err != nil {
+			return nil, err
+		}
+		row.Tiers = []catalogapp.ProductTierPriceSchemeTier{}
+		index[row.ID] = len(out)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+	ids := make([]int64, 0, len(out))
+	for _, row := range out {
+		ids = append(ids, row.ID)
+	}
+	tierRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, scheme_id, label, min_qty::float8, max_qty::float8,
+		       source_price_record_id, final_unit_price, price_unit, currency, position
+		FROM %s.product_tier_price_scheme_tiers
+		WHERE active=true AND scheme_id=ANY($1)
+		ORDER BY scheme_id, position, min_qty, id
+	`, r.schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	defer tierRows.Close()
+	for tierRows.Next() {
+		var tier catalogapp.ProductTierPriceSchemeTier
+		if err := tierRows.Scan(&tier.ID, &tier.SchemeID, &tier.Label, &tier.MinQty, &tier.MaxQty, &tier.SourcePriceRecordID, &tier.FinalUnitPrice, &tier.PriceUnit, &tier.Currency, &tier.Position); err != nil {
+			return nil, err
+		}
+		if i, ok := index[tier.SchemeID]; ok {
+			out[i].Tiers = append(out[i].Tiers, tier)
+		}
+	}
+	return out, tierRows.Err()
+}
+
+func (r Repository) SaveProductTierPriceScheme(ctx context.Context, cmd catalogapp.SaveProductTierPriceSchemeCommand) (catalogapp.ProductTierPriceScheme, error) {
+	active := true
+	if cmd.Active != nil {
+		active = *cmd.Active
+	}
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.ProductTierPriceScheme{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.ProductTierPriceScheme{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var id int64
+	if cmd.ID > 0 {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.product_tier_price_schemes
+			SET name=$2,
+			    product_id=$3,
+			    customer_product_alias_id=$4,
+			    price_group_id=$5,
+			    active=$6,
+			    remark=$7,
+			    updated_at=now(),
+			    updated_by=$8
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.Name, cmd.ProductID, cmd.CustomerProductAliasID, cmd.PriceGroupID, active, cmd.Remark, cmd.Actor).Scan(&id); err != nil {
+			return catalogapp.ProductTierPriceScheme{}, err
+		}
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.product_tier_price_scheme_tiers SET active=false, updated_at=now() WHERE scheme_id=$1`, r.schema), id); err != nil {
+			return catalogapp.ProductTierPriceScheme{}, err
+		}
+	} else if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_tier_price_schemes(name, product_id, customer_product_alias_id, price_group_id, active, remark, created_by, updated_by)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$7)
+		RETURNING id
+	`, r.schema), cmd.Name, cmd.ProductID, cmd.CustomerProductAliasID, cmd.PriceGroupID, active, cmd.Remark, cmd.Actor).Scan(&id); err != nil {
+		return catalogapp.ProductTierPriceScheme{}, err
+	}
+	insertTier := fmt.Sprintf(`
+		INSERT INTO %s.product_tier_price_scheme_tiers(
+			scheme_id, label, min_qty, max_qty, source_price_record_id, final_unit_price, price_unit, currency, position, active
+		)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,true)
+		RETURNING id
+	`, r.schema)
+	for i := range cmd.Tiers {
+		cmd.Tiers[i].SchemeID = id
+		if err := tx.QueryRow(ctx, insertTier, id, cmd.Tiers[i].Label, cmd.Tiers[i].MinQty, cmd.Tiers[i].MaxQty, cmd.Tiers[i].SourcePriceRecordID, cmd.Tiers[i].FinalUnitPrice, cmd.Tiers[i].PriceUnit, cmd.Tiers[i].Currency, cmd.Tiers[i].Position).Scan(&cmd.Tiers[i].ID); err != nil {
+			return catalogapp.ProductTierPriceScheme{}, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_tier_price_scheme", &id, "save_product_tier_price_scheme", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{
+		"product_id":                cmd.ProductID,
+		"customer_product_alias_id": cmd.CustomerProductAliasID,
+		"price_group_id":            cmd.PriceGroupID,
+		"tier_count":                len(cmd.Tiers),
+		"source_price_record_count": len(cmd.Tiers),
+		"active":                    active,
+	}); err != nil {
+		return catalogapp.ProductTierPriceScheme{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.ProductTierPriceScheme{}, err
+	}
+	rows, err := r.ListProductTierPriceSchemes(ctx, catalogapp.ProductTierPriceSchemeQuery{ActiveMode: "all"})
+	if err != nil {
+		return catalogapp.ProductTierPriceScheme{}, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, nil
+		}
+	}
+	return catalogapp.ProductTierPriceScheme{}, fmt.Errorf("product tier price scheme not found")
 }
 
 func (r Repository) SaveProductUnitDefinition(ctx context.Context, cmd catalogapp.SaveProductUnitDefinitionCommand) (catalogapp.ProductUnitDefinition, error) {

@@ -15,7 +15,6 @@ import (
 	app "orderapp/internal/application/customerfulfillment"
 	customerportalapp "orderapp/internal/application/customerportal"
 	catalogdomain "orderapp/internal/domain/catalog"
-	salesdomain "orderapp/internal/domain/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"orderapp/internal/infrastructure/postgres/orderbeans"
 
@@ -533,6 +532,8 @@ func (r *Repository) SubmitCustomerDirectShipOrder(ctx context.Context, cmd app.
 			"matched_price_qty":                      item.MatchedPriceQty,
 			"price_source":                           item.PriceSource,
 			"price_source_snapshot":                  item.PriceSourceSnapshot,
+			"bean_list_publication_id":               item.BeanListUsage.PublicationID,
+			"bean_list_version_no":                   item.BeanListUsage.VersionNo,
 			"quantity_units":                         item.QuantityUnits,
 			"unit_price":                             item.UnitPrice,
 			"line_total_before_discount":             item.BaseLineTotal,
@@ -625,6 +626,7 @@ type submittedDirectShipQuotedItem struct {
 	DiscountAmount                     float64
 	BaseLineTotal                      float64
 	LineTotal                          float64
+	BeanListUsage                      orderbeans.Usage
 	Note                               string
 }
 
@@ -737,18 +739,17 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 		return submittedDirectShipQuotedItem{}, err
 	}
 	var dbProductName, productKind string
-	var defaultPrice float64
 	var dripBagGrams float64
 	var dripBoxBagCount int
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(name,''), COALESCE(default_price,0),
-		       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
-		       COALESCE(drip_bag_grams,10)::float8,
-		       COALESCE(drip_box_bag_count,10)
+			SELECT COALESCE(name,''),
+			       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
+			       COALESCE(drip_bag_grams,10)::float8,
+			       COALESCE(drip_box_bag_count,10)
 		FROM %s.products
 		WHERE id=$1 AND active=true
 		  AND %s
-	`, r.schema, customerFulfillmentProductVisibleToCustomerSQL(r.schema+".products", "$2")), item.ProductID, customerID).Scan(&dbProductName, &defaultPrice, &productKind, &dripBagGrams, &dripBoxBagCount); err != nil {
+		`, r.schema, customerFulfillmentProductVisibleToCustomerSQL(r.schema+".products", "$2")), item.ProductID, customerID).Scan(&dbProductName, &productKind, &dripBagGrams, &dripBoxBagCount); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return submittedDirectShipQuotedItem{}, fmt.Errorf("product unavailable")
 		}
@@ -781,8 +782,9 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 	unitBagCount := 0.0
 	unitBeanG := 0.0
 	matchedPriceQty := 0.0
-	priceSource := ""
+	priceSource := "published_price_snapshot"
 	priceSourceSnapshot := ""
+	var beanListUsage orderbeans.Usage
 	var unitPrice, baseLineTotal float64
 	if productKind == catalogdomain.ProductKindDripBag {
 		if err := r.ensureDripProductHasActiveBOMTx(ctx, tx, item.ProductID); err != nil {
@@ -805,29 +807,20 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 		if specText == "" || specText == "454g" {
 			specText = customerFulfillmentDripSpecText(salesUnit, dripBagGrams, dripBoxBagCount)
 		}
-		tiers, err := r.customerFulfillmentDripUnitPriceTiersTx(ctx, tx, item.ProductID)
-		if err != nil {
-			return submittedDirectShipQuotedItem{}, err
-		}
-		result, err := salesdomain.CalculateUnitLineTotal(salesdomain.UnitLineInput{
-			ProductKind:  productKind,
-			SalesUnit:    salesUnit,
-			Quantity:     float64(item.QuantityUnits),
-			UnitBagCount: unitBagCount,
-			Tiers:        tiers,
-		})
-		if err != nil {
-			return submittedDirectShipQuotedItem{}, fmt.Errorf("drip price unpublished")
-		}
-		unitPrice = result.UnitPrice
-		baseLineTotal = result.LineTotal
-		matchedPriceQty = result.MatchedQtyForTier
-		priceSource = "published_unit_price"
-		priceSourceSnapshot = customerFulfillmentPriceSourceSnapshot(result)
-	} else {
-		unitPrice = r.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, customerID, item.ProductID, specG, item.QuantityUnits, defaultPrice)
-		baseLineTotal = customerFulfillmentLineTotalFromDisplayUnit(unitPrice, specG, item.QuantityUnits)
 	}
+	usage, pricing, err := r.customerFulfillmentPublishedPricingTx(ctx, tx, customerID, item.ProductID, productKind, specG, item.QuantityUnits, salesUnit, int64(math.Round(unitBagCount)))
+	if err != nil {
+		return submittedDirectShipQuotedItem{}, err
+	}
+	beanListUsage = usage
+	unitPrice = pricing.UnitPrice
+	if productKind == catalogdomain.ProductKindDripBag {
+		baseLineTotal = pricing.UnitPrice * float64(item.QuantityUnits)
+		matchedPriceQty = float64(item.QuantityUnits)
+	} else {
+		baseLineTotal = customerFulfillmentLineTotalFromPriceUnit(pricing.UnitPrice, specG, item.QuantityUnits, pricing.UnitG)
+	}
+	priceSourceSnapshot = customerFulfillmentPublishedPriceSourceSnapshot(orderbeans.ListTypeForProductKind(productKind, false), beanListUsage, item.ProductID, pricing)
 	if err := requireCustomerAliasDirectShipPrice(aliasSnapshot, unitPrice); err != nil {
 		return submittedDirectShipQuotedItem{}, err
 	}
@@ -861,63 +854,23 @@ func (r *Repository) quoteSubmittedDirectShipItemTx(ctx context.Context, tx pgx.
 		DiscountAmount:                     discountAmount,
 		BaseLineTotal:                      baseLineTotal,
 		LineTotal:                          lineTotal,
+		BeanListUsage:                      beanListUsage,
 		Note:                               item.Note,
 	}, nil
 }
 
 func (r *Repository) quoteSubmittedDirectShipItemForERPRebuildTx(ctx context.Context, tx pgx.Tx, customerID int64, item submittedDirectShipItem) (submittedDirectShipQuotedItem, bool, error) {
-	specG := item.SpecG
-	if specG <= 0 {
-		specG = parseSubmittedDirectShipSpecG(item.Spec)
+	if item.ProductID <= 0 {
+		return submittedDirectShipQuotedItem{}, false, nil
 	}
-	if specG <= 0 {
-		specG = 454
-	}
-	if item.QuantityUnits <= 0 {
-		item.QuantityUnits = 1
-	}
-	var dbProductName string
-	var defaultPrice float64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(name,''), COALESCE(default_price,0)
-		FROM %s.products
-		WHERE id=$1
-	`, r.schema), item.ProductID).Scan(&dbProductName, &defaultPrice); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+	quoted, err := r.quoteSubmittedDirectShipItemTx(ctx, tx, customerID, item)
+	if err != nil {
+		if strings.Contains(err.Error(), "product unavailable") {
 			return submittedDirectShipQuotedItem{}, false, nil
 		}
 		return submittedDirectShipQuotedItem{}, false, err
 	}
-	productName := item.ProductName
-	if productName == "" {
-		productName = strings.TrimSpace(dbProductName)
-	}
-	specText := item.Spec
-	if specText == "" {
-		specText = fmt.Sprintf("%dg", specG)
-	}
-	unitPrice := r.customerFulfillmentSubmittedUnitPriceTx(ctx, tx, customerID, item.ProductID, specG, item.QuantityUnits, defaultPrice)
-	baseLineTotal := customerFulfillmentLineTotalFromDisplayUnit(unitPrice, specG, item.QuantityUnits)
-	discountType := normalizeSubmittedDirectShipDiscountType(item.DiscountType)
-	discountValue := item.DiscountValue
-	if discountValue < 0 {
-		discountValue = 0
-	}
-	discountAmount, lineTotal := submittedDirectShipLineDiscount(baseLineTotal, discountType, discountValue)
-	return submittedDirectShipQuotedItem{
-		ProductID:      item.ProductID,
-		ProductName:    productName,
-		Spec:           specText,
-		SpecG:          specG,
-		QuantityUnits:  item.QuantityUnits,
-		UnitPrice:      unitPrice,
-		DiscountType:   discountType,
-		DiscountValue:  discountValue,
-		DiscountAmount: discountAmount,
-		BaseLineTotal:  baseLineTotal,
-		LineTotal:      lineTotal,
-		Note:           item.Note,
-	}, true, nil
+	return quoted, true, nil
 }
 
 func normalizeSubmittedDirectShipDiscountType(value string) string {
@@ -1027,46 +980,53 @@ func (r *Repository) productionBOMConfiguredForProductTx(ctx context.Context, tx
 	return exists, err
 }
 
-func (r *Repository) customerFulfillmentDripUnitPriceTiersTx(ctx context.Context, tx pgx.Tx, productID int64) ([]salesdomain.UnitPriceTier, error) {
-	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
-		       COALESCE(NULLIF(sales_unit,''), ''),
-		       COALESCE(NULLIF(min_qty_units,0), 0)::float8,
-		       COALESCE(price_per_unit,0)::float8,
-		       COALESCE(NULLIF(unit_bag_count,0), 0)::float8
-		FROM %s.product_price_tiers
-		WHERE product_id=$1
-		  AND active=true
-		  AND COALESCE(NULLIF(product_kind,''), 'roasted_bean')='drip_bag'
-		  AND COALESCE(NULLIF(sales_unit,''), '') IN ('bag','box')
-		  AND COALESCE(price_per_unit,0)>0
-		ORDER BY COALESCE(NULLIF(sales_unit,''), ''), COALESCE(NULLIF(min_qty_units,0), 0)
-	`, r.schema), productID)
+func (r *Repository) customerFulfillmentPublishedPricingTx(ctx context.Context, tx pgx.Tx, customerID, productID int64, productKind string, specG, qty int64, salesUnit string, unitBagCount int64) (orderbeans.Usage, orderbeans.PublishedPricing, error) {
+	listType := orderbeans.ListTypeForProductKind(productKind, false)
+	usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, customerID, productID, listType, 0)
 	if err != nil {
-		return nil, err
+		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, err
 	}
-	defer rows.Close()
-	tiers := make([]salesdomain.UnitPriceTier, 0)
-	for rows.Next() {
-		var tier salesdomain.UnitPriceTier
-		if err := rows.Scan(&tier.ProductKind, &tier.SalesUnit, &tier.MinQty, &tier.PricePerUnit, &tier.UnitBagCount); err != nil {
-			return nil, err
-		}
-		tiers = append(tiers, tier)
+	if usage.PublicationID <= 0 {
+		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, fmt.Errorf(customerFulfillmentMissingPublishedPriceMessage(listType))
 	}
-	return tiers, rows.Err()
+	pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, customerID, productID, listType, usage.PublicationID, specG, qty, salesUnit, unitBagCount)
+	if err != nil {
+		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, err
+	}
+	if pricing.UnitPrice <= 0 {
+		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, fmt.Errorf(customerFulfillmentMissingPublishedPriceMessage(listType))
+	}
+	return usage, pricing, nil
 }
 
-func customerFulfillmentPriceSourceSnapshot(result salesdomain.UnitLineResult) string {
+func customerFulfillmentMissingPublishedPriceMessage(listType string) string {
+	switch strings.TrimSpace(listType) {
+	case orderbeans.ListTypeDrip:
+		return "缺少挂耳价格表价格"
+	case orderbeans.ListTypeGreen:
+		return "缺少生豆豆单价格"
+	default:
+		return "缺少商品价格表价格"
+	}
+}
+
+func customerFulfillmentPublishedPriceSourceSnapshot(listType string, usage orderbeans.Usage, productID int64, pricing orderbeans.PublishedPricing) string {
+	conversion := json.RawMessage(`{}`)
+	if raw := strings.TrimSpace(pricing.InventoryConversionJSON); raw != "" && json.Valid([]byte(raw)) {
+		conversion = json.RawMessage(raw)
+	}
 	b, _ := json.Marshal(map[string]any{
-		"price_source":         "published_unit_price",
-		"product_kind":         result.Tier.ProductKind,
-		"sales_unit":           result.Tier.SalesUnit,
-		"min_qty":              result.Tier.MinQty,
-		"unit_price":           result.UnitPrice,
-		"tier_price_per_unit":  result.Tier.PricePerUnit,
-		"tier_unit_bag_count":  result.Tier.UnitBagCount,
-		"matched_qty_for_tier": result.MatchedQtyForTier,
+		"source":                    "published_price_snapshot",
+		"price_source":              "published_price_snapshot",
+		"list_type":                 strings.TrimSpace(listType),
+		"product_id":                productID,
+		"bean_list_publication_id":  usage.PublicationID,
+		"bean_list_version_no":      usage.VersionNo,
+		"unit_price":                pricing.UnitPrice,
+		"price_unit":                pricing.PriceUnit,
+		"source_price_record_id":    pricing.SourcePriceRecordID,
+		"inventory_unit":            pricing.InventoryUnit,
+		"inventory_conversion_json": conversion,
 	})
 	return string(b)
 }
@@ -1132,86 +1092,6 @@ func customerFulfillmentProductVisibleToCustomerSQL(productTable, customerPlaceh
 	)`, customerPlaceholder, productTable)
 }
 
-func (r *Repository) customerFulfillmentSubmittedUnitPriceTx(ctx context.Context, tx pgx.Tx, customerID, productID, specG int64, qty int64, defaultPrice float64) float64 {
-	if productID <= 0 || specG <= 0 || qty <= 0 {
-		return defaultPrice
-	}
-	rule := r.customerFulfillmentDirectShipSmallBatchPriceRuleTx(ctx, tx, customerID)
-	tierQty := customerFulfillmentTierQuantityForSpec(specG, qty)
-	qtyLb := float64(specG*qty) / 454.0
-	tierQtyLb := qtyLb
-	if adjustedQty, ok := customerFulfillmentSmallBatchTierQuantity(specG, qtyLb, rule); ok {
-		tierQty = customerFulfillmentTierQuantityForSpec(specG, adjustedQty)
-		tierQtyLb = float64(specG*adjustedQty) / 454.0
-	}
-	var packagePrice, pricePerLb float64
-	q := fmt.Sprintf(`
-		SELECT
-			COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0),
-			COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
-		FROM %s.product_price_tiers
-		WHERE product_id=$1 AND active=true
-		  AND COALESCE(NULLIF(spec_g,0),454)=$2
-		  AND COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) <= $3
-		  AND (COALESCE(NULLIF(max_qty_units,0), max_qty_lb) IS NULL OR COALESCE(NULLIF(max_qty_units,0), max_qty_lb) >= $3)
-		ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) DESC
-		LIMIT 1
-	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID, specG, tierQty).Scan(&packagePrice, &pricePerLb); err == nil && pricePerLb > 0 {
-		return customerFulfillmentDisplayUnitPriceFromLb(pricePerLb, specG)
-	}
-	q = fmt.Sprintf(`
-		SELECT
-			COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0),
-			COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
-		FROM %s.product_price_tiers
-		WHERE product_id=$1 AND active=true
-		  AND COALESCE(NULLIF(spec_g,0),454)=$2
-		ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) ASC
-		LIMIT 1
-	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID, specG).Scan(&packagePrice, &pricePerLb); err == nil && pricePerLb > 0 {
-		return customerFulfillmentDisplayUnitPriceFromLb(pricePerLb, specG)
-	}
-	q = fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
-		FROM %s.product_price_tiers
-		WHERE product_id=$1 AND active=true
-		  AND COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) <= $2
-		  AND (
-		    COALESCE(NULLIF(max_qty_lb,0), NULLIF(max_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0) IS NULL
-		    OR COALESCE(NULLIF(max_qty_lb,0), NULLIF(max_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0) >= $2
-		  )
-		ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) DESC
-		LIMIT 1
-	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID, tierQtyLb).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
-		return customerFulfillmentDisplayUnitPriceFromLb(pricePerLb, specG)
-	}
-	q = fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
-		FROM %s.product_price_tiers
-		WHERE product_id=$1 AND active=true
-		  AND COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) <= $2
-		ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) DESC
-		LIMIT 1
-	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID, tierQtyLb).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
-		return customerFulfillmentDisplayUnitPriceFromLb(pricePerLb, specG)
-	}
-	q = fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
-		FROM %s.product_price_tiers
-		WHERE product_id=$1 AND active=true
-		ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) ASC
-		LIMIT 1
-	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
-		return customerFulfillmentDisplayUnitPriceFromLb(pricePerLb, specG)
-	}
-	return defaultPrice
-}
-
 func customerFulfillmentTierQuantityForSpec(specG int64, units int64) float64 {
 	if specG >= 1000 {
 		return float64(specG*units) / 1000.0
@@ -1243,6 +1123,16 @@ func customerFulfillmentLineTotalFromDisplayUnit(unitPrice float64, specG int64,
 		return 0
 	}
 	return unitPrice * float64(specG*units) / customerFulfillmentDisplayUnitG(specG)
+}
+
+func customerFulfillmentLineTotalFromPriceUnit(unitPrice float64, specG int64, units int64, unitG float64) float64 {
+	if unitPrice <= 0 || specG <= 0 || units <= 0 {
+		return 0
+	}
+	if unitG <= 0 {
+		unitG = customerFulfillmentDisplayUnitG(specG)
+	}
+	return unitPrice * float64(specG*units) / unitG
 }
 
 func (r *Repository) customerFulfillmentDirectShipSmallBatchPriceRuleTx(ctx context.Context, tx pgx.Tx, customerID int64) customerportalapp.SmallBatchPriceRule {
@@ -1745,6 +1635,10 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		unitBeanG := payloadFloat(payload, "unit_bean_g")
 		matchedPriceQty := payloadFloat(payload, "matched_price_qty")
 		priceSourceSnapshot := payloadString(payload, "price_source_snapshot")
+		beanListUsage := orderbeans.Usage{
+			PublicationID: payloadInt64(payload, "bean_list_publication_id"),
+			VersionNo:     payloadString(payload, "bean_list_version_no"),
+		}
 		unitPrice := payloadFloat(payload, "unit_price")
 		baseLineTotal := payloadFloat(payload, "line_total_before_discount")
 		lineTotal := payloadFloat(payload, "line_total")
@@ -1780,6 +1674,7 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 			unitBeanG:                          unitBeanG,
 			matchedPriceQty:                    matchedPriceQty,
 			priceSourceSnapshot:                priceSourceSnapshot,
+			beanListUsage:                      beanListUsage,
 			unitPrice:                          unitPrice,
 			baseLineTotal:                      baseLineTotal,
 			discountType:                       discountType,
@@ -1853,11 +1748,7 @@ func (r *Repository) submittedDirectShipERPItemSeedsTx(ctx context.Context, tx p
 		items[idx].discountValue = quoted.DiscountValue
 		items[idx].discountAmount = quoted.DiscountAmount
 		items[idx].lineTotal = quoted.LineTotal
-		usage, err := orderbeans.ResolveUsage(ctx, tx, r.schema, customerID, items[idx].productID, orderbeans.ListTypeCommercial)
-		if err != nil {
-			return nil, err
-		}
-		items[idx].beanListUsage = usage
+		items[idx].beanListUsage = quoted.BeanListUsage
 	}
 	return items, nil
 }
@@ -2553,7 +2444,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 			return nil, err
 		}
 	}
-	tiersByProduct, err := r.listProductTierOptions(ctx, out)
+	tiersByProduct, err := r.listProductTierOptions(ctx, customerID, out)
 	if err != nil {
 		return nil, err
 	}
@@ -2565,7 +2456,7 @@ func (r *Repository) listCustomerSKUOptions(ctx context.Context, customerID int6
 	return out, nil
 }
 
-func (r *Repository) listProductTierOptions(ctx context.Context, options []app.CustomerSKUOption) (map[int64][]app.CustomerSKUPriceTier, error) {
+func (r *Repository) listProductTierOptions(ctx context.Context, customerID int64, options []app.CustomerSKUOption) (map[int64][]app.CustomerSKUPriceTier, error) {
 	productIDs := make([]int64, 0)
 	seen := map[int64]struct{}{}
 	for _, row := range options {
@@ -2581,51 +2472,188 @@ func (r *Repository) listProductTierOptions(ctx context.Context, options []app.C
 	if len(productIDs) == 0 {
 		return map[int64][]app.CustomerSKUPriceTier{}, nil
 	}
+	if !relationExists(ctx, r.pool, fmt.Sprintf("%s.bean_list_publications", r.schema)) {
+		return map[int64][]app.CustomerSKUPriceTier{}, nil
+	}
+	productSet := map[int64]struct{}{}
+	for _, id := range productIDs {
+		productSet[id] = struct{}{}
+	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT product_id,
-		       id,
-		       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
-		       COALESCE(NULLIF(sales_unit,''), ''),
-		       COALESCE(NULLIF(spec_g,0),454),
-		       COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0),
-		       COALESCE(NULLIF(max_qty_units,0), max_qty_lb),
-		       COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0),
-		       COALESCE(NULLIF(unit_bag_count,0), 0),
-		       CASE WHEN COALESCE(price_source_json,'{}'::jsonb) <> '{}'::jsonb THEN 'published_unit_price' ELSE '' END
-		FROM %s.product_price_tiers
-		WHERE active=true
-		  AND product_id = ANY($1)
-		ORDER BY product_id, COALESCE(NULLIF(product_kind,''), 'roasted_bean'), COALESCE(NULLIF(sales_unit,''), ''), COALESCE(NULLIF(spec_g,0),454), COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0)
-	`, r.schema), productIDs)
+			SELECT id, list_type, COALESCE(content_json, '{}'::jsonb)
+			FROM %s.bean_list_publications
+			WHERE status='published'
+			  AND list_type IN ('commercial','retail','green','drip')
+			  AND (
+			    (owner_type='customer' AND owner_key=$1)
+			    OR owner_type='official'
+			  )
+			ORDER BY CASE WHEN owner_type='customer' AND owner_key=$1 THEN 0 ELSE 1 END,
+			         published_at DESC,
+			         id DESC
+			LIMIT 50
+		`, r.schema), fmt.Sprint(customerID))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := make(map[int64][]app.CustomerSKUPriceTier, len(productIDs))
+	seenPublicationType := map[string]struct{}{}
 	for rows.Next() {
-		var productID, tierID, specG int64
-		var productKind, salesUnit string
-		var min float64
-		var max *float64
-		var unitPrice float64
-		var unitBagCount float64
-		var priceSource string
-		if err := rows.Scan(&productID, &tierID, &productKind, &salesUnit, &specG, &min, &max, &unitPrice, &unitBagCount, &priceSource); err != nil {
+		var publicationID int64
+		var listType string
+		var content []byte
+		if err := rows.Scan(&publicationID, &listType, &content); err != nil {
 			return nil, err
 		}
-		out[productID] = append(out[productID], app.CustomerSKUPriceTier{
-			ID:           tierID,
-			ProductKind:  catalogdomain.NormalizeProductKind(productKind),
-			SalesUnit:    strings.TrimSpace(salesUnit),
-			SpecG:        specG,
-			Min:          min,
-			Max:          max,
-			UnitPrice:    unitPrice,
-			UnitBagCount: unitBagCount,
-			PriceSource:  strings.TrimSpace(priceSource),
-		})
+		for productID, tiers := range customerFulfillmentPriceTiersFromPublication(publicationID, listType, content, productSet) {
+			key := fmt.Sprintf("%d|%s", productID, strings.TrimSpace(listType))
+			if _, ok := seenPublicationType[key]; ok {
+				continue
+			}
+			seenPublicationType[key] = struct{}{}
+			out[productID] = append(out[productID], tiers...)
+		}
 	}
 	return out, rows.Err()
+}
+
+type customerFulfillmentPublishedContent struct {
+	Groups []struct {
+		Items []json.RawMessage `json:"items"`
+	} `json:"groups"`
+}
+
+type customerFulfillmentPublishedTier struct {
+	SourcePriceRecordID int64    `json:"source_price_record_id"`
+	SpecG               int64    `json:"spec_g"`
+	MinQty              float64  `json:"min_qty"`
+	MaxQty              *float64 `json:"max_qty"`
+	MinLb               float64  `json:"min_lb"`
+	MaxLb               *float64 `json:"max_lb"`
+	FinalUnitPrice      float64  `json:"final_unit_price"`
+	PricePerUnit        float64  `json:"price_per_unit"`
+	PricePerKg          float64  `json:"price_per_kg"`
+	PricePerLb          float64  `json:"price_per_lb"`
+	SalesUnit           string   `json:"sales_unit"`
+	UnitBagCount        float64  `json:"unit_bag_count"`
+	PackedPricePerBag   float64  `json:"packed_price_per_bag"`
+	PackedPricePerBox   float64  `json:"packed_price_per_box"`
+	PriceUnit           string   `json:"price_unit"`
+	DisplayUnit         string   `json:"display_unit"`
+}
+
+func customerFulfillmentPriceTiersFromPublication(publicationID int64, listType string, content []byte, productSet map[int64]struct{}) map[int64][]app.CustomerSKUPriceTier {
+	var parsed customerFulfillmentPublishedContent
+	if len(content) == 0 || json.Unmarshal(content, &parsed) != nil {
+		return nil
+	}
+	out := map[int64][]app.CustomerSKUPriceTier{}
+	for _, group := range parsed.Groups {
+		for _, item := range group.Items {
+			productID := customerFulfillmentPublishedItemProductID(item)
+			if productID <= 0 {
+				continue
+			}
+			if _, ok := productSet[productID]; !ok {
+				continue
+			}
+			tiers := customerFulfillmentPublishedItemTiers(item, listType)
+			for _, tier := range tiers {
+				option := customerFulfillmentPublishedTierOption(publicationID, listType, tier)
+				if option.UnitPrice <= 0 {
+					continue
+				}
+				out[productID] = append(out[productID], option)
+			}
+		}
+	}
+	return out
+}
+
+func customerFulfillmentPublishedItemProductID(raw json.RawMessage) int64 {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return 0
+	}
+	for _, key := range []string{"productId", "product_id", "productID"} {
+		var id int64
+		if data, ok := fields[key]; ok && json.Unmarshal(data, &id) == nil && id > 0 {
+			return id
+		}
+	}
+	return 0
+}
+
+func customerFulfillmentPublishedItemTiers(raw json.RawMessage, listType string) []customerFulfillmentPublishedTier {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return nil
+	}
+	key := "commercial_wholesale_tiers"
+	switch strings.TrimSpace(listType) {
+	case orderbeans.ListTypeRetail:
+		key = "retail_bean_tiers"
+	case orderbeans.ListTypeGreen:
+		key = "green_bean_sale_tiers"
+	case orderbeans.ListTypeDrip:
+		key = "drip_wholesale_tiers"
+	}
+	var tiers []customerFulfillmentPublishedTier
+	if data, ok := fields[key]; ok {
+		_ = json.Unmarshal(data, &tiers)
+	}
+	return tiers
+}
+
+func customerFulfillmentPublishedTierOption(publicationID int64, listType string, tier customerFulfillmentPublishedTier) app.CustomerSKUPriceTier {
+	specG := tier.SpecG
+	if specG <= 0 {
+		specG = 1000
+	}
+	productKind := catalogdomain.ProductKindRoastedBean
+	if strings.TrimSpace(listType) == orderbeans.ListTypeGreen {
+		productKind = catalogdomain.ProductKindGreenBean
+	}
+	if strings.TrimSpace(listType) == orderbeans.ListTypeDrip {
+		productKind = catalogdomain.ProductKindDripBag
+	}
+	min := tier.MinQty
+	if min <= 0 {
+		min = tier.MinLb
+	}
+	unitPrice := tier.FinalUnitPrice
+	if unitPrice <= 0 {
+		unitPrice = tier.PricePerUnit
+	}
+	if unitPrice <= 0 && strings.TrimSpace(listType) == orderbeans.ListTypeDrip {
+		if strings.TrimSpace(tier.SalesUnit) == "box" {
+			unitPrice = tier.PackedPricePerBox
+		} else {
+			unitPrice = tier.PackedPricePerBag
+		}
+	}
+	if unitPrice <= 0 {
+		unitPrice = tier.PricePerKg
+	}
+	if unitPrice <= 0 {
+		unitPrice = tier.PricePerLb
+	}
+	id := tier.SourcePriceRecordID
+	if id <= 0 {
+		id = publicationID
+	}
+	return app.CustomerSKUPriceTier{
+		ID:           id,
+		ProductKind:  productKind,
+		SalesUnit:    strings.TrimSpace(tier.SalesUnit),
+		SpecG:        specG,
+		Min:          min,
+		Max:          tier.MaxQty,
+		UnitPrice:    unitPrice,
+		UnitBagCount: tier.UnitBagCount,
+		PriceSource:  "published_price_snapshot",
+	}
 }
 
 type queryRower interface {

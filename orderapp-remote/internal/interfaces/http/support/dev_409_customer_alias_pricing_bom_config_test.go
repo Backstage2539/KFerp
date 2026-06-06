@@ -27,8 +27,8 @@ func TestDev409CustomerAliasPricingBomConfigSeeds(t *testing.T) {
 func TestDev409CustomerAliasPricingBomConfigSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"customerProductAliasForm.product_config_template_id",
-			"aliasProductConfigTemplateOptions",
+			"价格摘要",
+			"aliasPriceSummaryLabel",
 			"BOM 使用",
 			"bomUsageRelationLabel",
 			"ensureProductBomUsage",
@@ -52,6 +52,16 @@ func TestDev409CustomerAliasPricingBomConfigSourceMarkers(t *testing.T) {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing customer alias pricing/BOM config marker %q", rel, want)
 			}
+		}
+	}
+
+	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
+	for _, forbidden := range []string{
+		"customerProductAliasForm.product_config_template_id",
+		"aliasProductConfigTemplateOptions",
+	} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("frontend-vue-shell/src/views/ProductSettingsView.vue must retire customer alias product config marker %q", forbidden)
 		}
 	}
 }

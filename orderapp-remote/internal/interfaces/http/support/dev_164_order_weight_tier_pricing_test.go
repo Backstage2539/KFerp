@@ -48,16 +48,16 @@ func TestDev164OrderEntryFallsBackToBeanListWeightTiers(t *testing.T) {
 	}
 }
 
-func TestDev164SaveOrderUsesBeanListWeightTierFallback(t *testing.T) {
+func TestDev164SaveOrderUsesPublishedPriceSnapshots(t *testing.T) {
 	repo := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "sales", "repository.go")))
 	for _, want := range []string{
-		"bean-list weight tiers",
-		"COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) <= $2",
-		"wholesaleLineTotalFromDisplayUnit",
-		"WHERE id=$1 AND active=true",
+		"ResolveUsageForPublication",
+		"ResolvePublishedPricingForPublicationWithUnit",
+		"beanListPriceSourceJSONWithPricing",
+		"缺少商品价格表价格",
 	} {
 		if !strings.Contains(repo, want) {
-			t.Fatalf("sales repository missing weight-tier fallback marker %q", want)
+			t.Fatalf("sales repository missing published snapshot pricing marker %q", want)
 		}
 	}
 }

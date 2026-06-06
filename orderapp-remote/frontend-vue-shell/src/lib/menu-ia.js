@@ -56,6 +56,7 @@ export const menuGroups = [
     items: [
       { key: 'productMaster', label: '商品档案', title: '商品档案' },
       { key: 'customerProductAliases', label: '客户商品', title: '客户商品' },
+      { key: 'productPriceManagement', label: '商品价格管理', title: '商品价格管理' },
       { key: 'productConfigTemplates', label: '商品配置和分类模板', title: '商品配置和分类模板' },
       { key: 'pricingGradientTemplates', label: '阶梯价模板', title: '阶梯价模板' },
       { key: 'productUnitTemplates', label: '单位模板', title: '单位模板' },

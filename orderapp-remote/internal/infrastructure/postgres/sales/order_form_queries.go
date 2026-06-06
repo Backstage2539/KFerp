@@ -315,11 +315,11 @@ func (r Repository) fetchOrderCustomerProductUsages(ctx context.Context) ([]sale
 }
 
 func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductOption, error) {
-	sqlstr := fmt.Sprintf(`SELECT p.id, p.name, COALESCE(p.roast_level,''), p.default_price,
-		COALESCE(p.retail_price_100g, 0),
-		COALESCE(p.retail_price_200g, 0),
-		COALESCE(p.retail_price_227g, p.default_price, 0),
-		COALESCE(p.retail_price_250g, 0),
+	sqlstr := fmt.Sprintf(`SELECT p.id, p.name, COALESCE(p.roast_level,''), 0::numeric AS default_price,
+		0::numeric AS retail_price_100g,
+		0::numeric AS retail_price_200g,
+		0::numeric AS retail_price_227g,
+		0::numeric AS retail_price_250g,
 		COALESCE(p.customer_id, 0),
 		COALESCE(p.base_product_id, 0),
 		COALESCE(NULLIF(p.visibility,''), 'public'),
@@ -374,61 +374,6 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 		out = append(out, aliasProducts...)
 	}
 
-	tierSQL := fmt.Sprintf(`
-		SELECT id, product_id,
-		       spec_g,
-		       min_qty,
-		       max_qty,
-		       unit_price,
-		       product_kind,
-		       sales_unit,
-		       unit_bag_count,
-		       display_unit,
-		       price_source_json::text
-		FROM (
-			SELECT id,
-			       product_id,
-			       COALESCE(NULLIF(spec_g,0), 454) AS spec_g,
-			       COALESCE(min_qty_units, min_qty_lb) AS min_qty,
-			       COALESCE(max_qty_units, max_qty_lb) AS max_qty,
-			       COALESCE(price_per_unit, price_per_lb) AS unit_price,
-			       COALESCE(NULLIF(product_kind,''), 'roasted_bean') AS product_kind,
-			       COALESCE(sales_unit, '') AS sales_unit,
-			       COALESCE(unit_bag_count, 0) AS unit_bag_count,
-			       COALESCE(price_source_json->>'price_unit', price_source_json->>'display_unit', '') AS display_unit,
-			       COALESCE(price_source_json, '{}'::jsonb) AS price_source_json
-			FROM %[1]s.product_price_tiers
-			WHERE active=true
-		) direct_tiers
-		ORDER BY product_id, spec_g, min_qty
-	`, r.schema)
-	trs, err := r.pool.Query(ctx, tierSQL)
-	if err != nil {
-		return out, nil
-	}
-	defer trs.Close()
-
-	tierMap := map[int64][]salesapp.ProductTierOption{}
-	for trs.Next() {
-		var tid, pid int64
-		var specG int64
-		var min float64
-		var max *float64
-		var price float64
-		var productKind, salesUnit, displayUnit, priceSourceJSON string
-		var unitBagCount int64
-		if err := trs.Scan(&tid, &pid, &specG, &min, &max, &price, &productKind, &salesUnit, &unitBagCount, &displayUnit, &priceSourceJSON); err != nil {
-			return nil, err
-		}
-		tierMap[pid] = append(tierMap[pid], salesapp.ProductTierOption{ID: tid, SpecG: specG, MinQty: min, MaxQty: max, UnitPrice: price, DisplayUnit: displayUnit, ProductKind: productKind, SalesUnit: salesUnit, UnitBagCount: unitBagCount, PriceSourceJSON: priceSourceJSON})
-	}
-	if err := trs.Err(); err != nil {
-		return nil, err
-	}
-
-	for i := range out {
-		out[i].Tiers = tierMap[out[i].ID]
-	}
 	commercialPublicationTiers, err := r.fetchCommercialOrderPublicationTiers(ctx, out)
 	if err != nil {
 		return nil, err
@@ -450,11 +395,11 @@ func (r Repository) fetchOrderCustomerAliasProducts(ctx context.Context) ([]sale
 	sqlstr := fmt.Sprintf(`SELECT p.id,
 		COALESCE(NULLIF(a.display_name,''), p.name, ''),
 		COALESCE(p.roast_level,''),
-		p.default_price,
-		COALESCE(p.retail_price_100g, 0),
-		COALESCE(p.retail_price_200g, 0),
-		COALESCE(p.retail_price_227g, p.default_price, 0),
-		COALESCE(p.retail_price_250g, 0),
+		0::numeric AS default_price,
+		0::numeric AS retail_price_100g,
+		0::numeric AS retail_price_200g,
+		0::numeric AS retail_price_227g,
+		0::numeric AS retail_price_250g,
 		a.customer_id,
 		COALESCE(p.base_product_id, 0),
 		'customer_alias',
@@ -760,17 +705,21 @@ type orderBeanListPublicationContent struct {
 }
 
 type orderGreenBeanPublicationTier struct {
-	Label          string   `json:"label"`
-	SpecG          int64    `json:"spec_g"`
-	MinQty         float64  `json:"min_qty"`
-	MaxQty         *float64 `json:"max_qty"`
-	PricePerUnit   float64  `json:"price_per_unit"`
-	PricePerKg     float64  `json:"price_per_kg"`
-	PricePerLb     float64  `json:"price_per_lb"`
-	TemplateID     int64    `json:"template_id"`
-	TemplateTierID int64    `json:"template_tier_id"`
-	DisplayUnit    string   `json:"display_unit"`
-	PriceUnit      string   `json:"price_unit"`
+	Label                   string          `json:"label"`
+	SourcePriceRecordID     int64           `json:"source_price_record_id"`
+	FinalUnitPrice          float64         `json:"final_unit_price"`
+	SpecG                   int64           `json:"spec_g"`
+	MinQty                  float64         `json:"min_qty"`
+	MaxQty                  *float64        `json:"max_qty"`
+	PricePerUnit            float64         `json:"price_per_unit"`
+	PricePerKg              float64         `json:"price_per_kg"`
+	PricePerLb              float64         `json:"price_per_lb"`
+	TemplateID              int64           `json:"template_id"`
+	TemplateTierID          int64           `json:"template_tier_id"`
+	DisplayUnit             string          `json:"display_unit"`
+	PriceUnit               string          `json:"price_unit"`
+	InventoryUnit           string          `json:"inventory_unit"`
+	InventoryConversionJSON json.RawMessage `json:"inventory_conversion_json"`
 }
 
 type orderCommercialPublicationTier = orderGreenBeanPublicationTier
@@ -978,20 +927,25 @@ func commercialOrderTierOption(publicationID int64, versionNo string, idx int, t
 	}
 	priceUnit = greenBeanOrderPriceUnit(displayUnit, priceUnit, false)
 	unitPrice := greenBeanOrderTierPrice(orderGreenBeanPublicationTier(tier), specG, displayUnit, priceUnit)
+	if tier.FinalUnitPrice > 0 {
+		unitPrice = roundOrderPrice(tier.FinalUnitPrice)
+	}
 	id := tier.TemplateTierID
 	if id <= 0 {
 		id = publicationID*100000 + int64(idx+1)
 	}
 	source := map[string]any{
-		"source":           "published_bean_list",
-		"list_type":        "commercial",
-		"publication_id":   publicationID,
-		"version_no":       versionNo,
-		"template_id":      tier.TemplateID,
-		"template_tier_id": tier.TemplateTierID,
-		"display_unit":     displayUnit,
-		"price_unit":       priceUnit,
+		"source":                   "published_bean_list",
+		"published_price_snapshot": true,
+		"list_type":                "commercial",
+		"publication_id":           publicationID,
+		"version_no":               versionNo,
+		"template_id":              tier.TemplateID,
+		"template_tier_id":         tier.TemplateTierID,
+		"display_unit":             displayUnit,
+		"price_unit":               priceUnit,
 	}
+	addOrderPublicationSnapshotSource(source, tier.SourcePriceRecordID, tier.InventoryUnit, tier.InventoryConversionJSON)
 	sourceJSON, _ := json.Marshal(source)
 	return salesapp.ProductTierOption{
 		ID:              id,
@@ -1028,20 +982,25 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 	}
 	priceUnit = greenBeanOrderPriceUnit(displayUnit, priceUnit, false)
 	unitPrice := greenBeanOrderTierPrice(tier, specG, displayUnit, priceUnit)
+	if tier.FinalUnitPrice > 0 {
+		unitPrice = roundOrderPrice(tier.FinalUnitPrice)
+	}
 	id := tier.TemplateTierID
 	if id <= 0 {
 		id = publicationID*100000 + int64(idx+1)
 	}
 	source := map[string]any{
-		"source":           "published_bean_list",
-		"list_type":        "green",
-		"publication_id":   publicationID,
-		"version_no":       versionNo,
-		"template_id":      tier.TemplateID,
-		"template_tier_id": tier.TemplateTierID,
-		"display_unit":     displayUnit,
-		"price_unit":       priceUnit,
+		"source":                   "published_bean_list",
+		"published_price_snapshot": true,
+		"list_type":                "green",
+		"publication_id":           publicationID,
+		"version_no":               versionNo,
+		"template_id":              tier.TemplateID,
+		"template_tier_id":         tier.TemplateTierID,
+		"display_unit":             displayUnit,
+		"price_unit":               priceUnit,
 	}
+	addOrderPublicationSnapshotSource(source, tier.SourcePriceRecordID, tier.InventoryUnit, tier.InventoryConversionJSON)
 	sourceJSON, _ := json.Marshal(source)
 	return salesapp.ProductTierOption{
 		ID:              id,
@@ -1052,6 +1011,22 @@ func greenBeanOrderTierOption(publicationID int64, versionNo string, idx int, ti
 		DisplayUnit:     priceUnit,
 		ProductKind:     "green_bean",
 		PriceSourceJSON: string(sourceJSON),
+	}
+}
+
+func addOrderPublicationSnapshotSource(source map[string]any, sourcePriceRecordID int64, inventoryUnit string, conversionJSON json.RawMessage) {
+	if sourcePriceRecordID > 0 {
+		source["source_price_record_id"] = sourcePriceRecordID
+	}
+	if strings.TrimSpace(inventoryUnit) != "" {
+		source["inventory_unit"] = strings.TrimSpace(inventoryUnit)
+	}
+	if len(conversionJSON) == 0 || string(conversionJSON) == "null" {
+		return
+	}
+	var conversion map[string]any
+	if err := json.Unmarshal(conversionJSON, &conversion); err == nil && len(conversion) > 0 {
+		source["inventory_conversion_json"] = conversion
 	}
 }
 

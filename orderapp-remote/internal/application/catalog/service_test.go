@@ -32,6 +32,9 @@ type fakeRepo struct {
 	ruleBinding        CustomerProductRuleTemplateBindingCommand
 	configTemplate     SaveProductConfigTemplateCommand
 	deleteConfig       DeleteProductConfigTemplateCommand
+	priceGroup         SaveProductPriceGroupCommand
+	priceRecord        SaveProductPriceRecordCommand
+	tierPriceScheme    SaveProductTierPriceSchemeCommand
 	classTemplate      SaveProductClassificationTemplateCommand
 	classCategory      SaveProductClassificationCategoryCommand
 	classAssign        SaveProductClassificationAssignmentCommand
@@ -39,12 +42,19 @@ type fakeRepo struct {
 	unitDefinition     SaveProductUnitDefinitionCommand
 	unitTemplate       SaveProductUnitTemplateCommand
 	deactivate         DeactivateProductsCommand
+	priceGroups        []ProductPriceGroup
+	priceRecords       []ProductPriceRecord
+	priceRecordByID    map[int64]ProductPriceRecord
+	tierPriceSchemes   []ProductTierPriceScheme
 	products           map[int64]Product
 	publicUsages       []CustomerPublicUsage
 	deactivated        bool
 	usageSaved         bool
 	skuCreated         bool
 	productCopied      bool
+	priceGroupSaved    bool
+	priceRecordSaved   bool
+	tierSchemeSaved    bool
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
@@ -143,6 +153,78 @@ func (r *fakeRepo) ListProductConfigTemplates(ctx context.Context) ([]ProductCon
 		IntegerUnit:         true,
 		Active:              true,
 	}}, nil
+}
+
+func (r *fakeRepo) ListProductPriceGroups(ctx context.Context) ([]ProductPriceGroup, error) {
+	return r.priceGroups, nil
+}
+
+func (r *fakeRepo) SaveProductPriceGroup(ctx context.Context, cmd SaveProductPriceGroupCommand) (ProductPriceGroup, error) {
+	r.priceGroup = cmd
+	r.priceGroupSaved = true
+	id := cmd.ID
+	if id == 0 {
+		id = 31
+	}
+	return ProductPriceGroup{ID: id, Name: cmd.Name, SortOrder: cmd.SortOrder, Active: true}, nil
+}
+
+func (r *fakeRepo) ListProductPriceRecords(ctx context.Context, query ProductPriceRecordQuery) ([]ProductPriceRecord, error) {
+	if len(r.priceRecords) > 0 {
+		return r.priceRecords, nil
+	}
+	out := make([]ProductPriceRecord, 0, len(r.priceRecordByID))
+	for _, row := range r.priceRecordByID {
+		out = append(out, row)
+	}
+	return out, nil
+}
+
+func (r *fakeRepo) GetProductPriceRecord(ctx context.Context, id int64) (ProductPriceRecord, error) {
+	if r.priceRecordByID != nil {
+		if row, ok := r.priceRecordByID[id]; ok {
+			return row, nil
+		}
+	}
+	return ProductPriceRecord{}, nil
+}
+
+func (r *fakeRepo) SaveProductPriceRecord(ctx context.Context, cmd SaveProductPriceRecordCommand) (ProductPriceRecord, error) {
+	r.priceRecord = cmd
+	r.priceRecordSaved = true
+	id := cmd.ID
+	if id == 0 {
+		id = 41
+	}
+	return ProductPriceRecord{
+		ID:                      id,
+		ProductID:               cmd.ProductID,
+		CustomerProductAliasID:  cmd.CustomerProductAliasID,
+		FinalUnitPrice:          cmd.FinalUnitPrice,
+		PriceUnit:               cmd.PriceUnit,
+		Currency:                cmd.Currency,
+		PriceGroupID:            cmd.PriceGroupID,
+		PriceGroupName:          cmd.PriceGroupName,
+		InventoryUnit:           cmd.InventoryUnit,
+		InventoryConversionJSON: cmd.InventoryConversionJSON,
+		Status:                  cmd.Status,
+		Remark:                  cmd.Remark,
+		Active:                  true,
+	}, nil
+}
+
+func (r *fakeRepo) ListProductTierPriceSchemes(ctx context.Context, query ProductTierPriceSchemeQuery) ([]ProductTierPriceScheme, error) {
+	return r.tierPriceSchemes, nil
+}
+
+func (r *fakeRepo) SaveProductTierPriceScheme(ctx context.Context, cmd SaveProductTierPriceSchemeCommand) (ProductTierPriceScheme, error) {
+	r.tierPriceScheme = cmd
+	r.tierSchemeSaved = true
+	id := cmd.ID
+	if id == 0 {
+		id = 51
+	}
+	return ProductTierPriceScheme{ID: id, Name: cmd.Name, ProductID: cmd.ProductID, CustomerProductAliasID: cmd.CustomerProductAliasID, PriceGroupID: cmd.PriceGroupID, Active: true, Tiers: cmd.Tiers}, nil
 }
 
 func (r *fakeRepo) ListProductClassificationTemplates(ctx context.Context) ([]ProductClassificationTemplate, error) {
@@ -482,6 +564,79 @@ func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	settings, err := svc.ProductSettings(context.Background())
 	if err != nil || len(settings.Categories) != 1 || len(settings.Products) != 1 {
 		t.Fatalf("ProductSettings() = %+v, %v", settings, err)
+	}
+}
+
+func TestProductPriceRecordIsFinalPriceMasterData(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	got, err := svc.SaveProductPriceRecord(context.Background(), SaveProductPriceRecordCommand{
+		Actor:                   " tester ",
+		ProductID:               7,
+		FinalUnitPrice:          88.5,
+		PriceUnit:               " kg ",
+		Currency:                "",
+		PriceGroupName:          " 常规批发 ",
+		InventoryUnit:           "kg",
+		InventoryConversionJSON: `{"kg":{"kg":1}}`,
+		Status:                  "published",
+		Remark:                  " 直接最终价 ",
+	})
+	if err != nil {
+		t.Fatalf("SaveProductPriceRecord() err=%v", err)
+	}
+	if !repo.priceRecordSaved {
+		t.Fatalf("price record should be saved")
+	}
+	if repo.priceRecord.Actor != "tester" || repo.priceRecord.ProductID != 7 || repo.priceRecord.FinalUnitPrice != 88.5 {
+		t.Fatalf("price record command = %+v", repo.priceRecord)
+	}
+	if repo.priceRecord.PriceUnit != "kg" || repo.priceRecord.Currency != "CNY" || repo.priceRecord.PriceGroupName != "常规批发" || repo.priceRecord.Status != "published" {
+		t.Fatalf("normalized price record command = %+v", repo.priceRecord)
+	}
+	if got.FinalUnitPrice != 88.5 || got.PriceUnit != "kg" {
+		t.Fatalf("saved price record = %+v", got)
+	}
+
+	if _, err := svc.SaveProductPriceRecord(context.Background(), SaveProductPriceRecordCommand{ProductID: 7, FinalUnitPrice: -1, PriceUnit: "kg"}); err == nil {
+		t.Fatalf("negative final price should be rejected")
+	}
+}
+
+func TestProductTierPriceSchemeCopiesFinalPriceRecordsWithoutRecalculation(t *testing.T) {
+	repo := &fakeRepo{priceRecordByID: map[int64]ProductPriceRecord{
+		11: {ID: 11, ProductID: 7, FinalUnitPrice: 88, PriceUnit: "kg", Currency: "CNY", Active: true},
+		12: {ID: 12, ProductID: 7, FinalUnitPrice: 82, PriceUnit: "kg", Currency: "CNY", Active: true},
+	}}
+	svc := NewService(repo)
+
+	got, err := svc.SaveProductTierPriceScheme(context.Background(), SaveProductTierPriceSchemeCommand{
+		Actor:        "tester",
+		Name:         "批发阶梯",
+		ProductID:    7,
+		PriceGroupID: 3,
+		Tiers: []ProductTierPriceSchemeTier{
+			{Label: "1kg+", MinQty: 1, SourcePriceRecordID: 11, FinalUnitPrice: 999, PriceUnit: "箱", Currency: "USD", Position: 2},
+			{Label: "10kg+", MinQty: 10, SourcePriceRecordID: 12, FinalUnitPrice: 999, PriceUnit: "箱", Currency: "USD", Position: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SaveProductTierPriceScheme() err=%v", err)
+	}
+	if !repo.tierSchemeSaved || len(repo.tierPriceScheme.Tiers) != 2 {
+		t.Fatalf("tier scheme command = %+v saved=%v", repo.tierPriceScheme, repo.tierSchemeSaved)
+	}
+	first := repo.tierPriceScheme.Tiers[0]
+	second := repo.tierPriceScheme.Tiers[1]
+	if first.SourcePriceRecordID != 12 || first.FinalUnitPrice != 82 || first.PriceUnit != "kg" || first.Currency != "CNY" {
+		t.Fatalf("first tier should copy final price record without recalculation, got %+v", first)
+	}
+	if second.SourcePriceRecordID != 11 || second.FinalUnitPrice != 88 || second.PriceUnit != "kg" || second.Currency != "CNY" {
+		t.Fatalf("second tier should copy final price record without recalculation, got %+v", second)
+	}
+	if got.Tiers[0].FinalUnitPrice != 82 || got.Tiers[1].FinalUnitPrice != 88 {
+		t.Fatalf("saved scheme = %+v", got)
 	}
 }
 

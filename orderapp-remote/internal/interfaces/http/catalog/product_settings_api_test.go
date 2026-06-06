@@ -23,6 +23,10 @@ type productSettingsRepo struct {
 	productConfigTemplates              []catalogapp.ProductConfigTemplate
 	productUnitDefinitions              []catalogapp.ProductUnitDefinition
 	productUnitTemplates                []catalogapp.ProductUnitTemplate
+	productPriceGroups                  []catalogapp.ProductPriceGroup
+	productPriceRecords                 []catalogapp.ProductPriceRecord
+	productPriceRecordByID              map[int64]catalogapp.ProductPriceRecord
+	productTierPriceSchemes             []catalogapp.ProductTierPriceScheme
 	productProductionConfigs            []catalogapp.ProductProductionConfig
 	savedCategory                       catalogapp.SaveProductCategoryCommand
 	movedCategory                       catalogapp.MoveProductCategoryCommand
@@ -38,6 +42,9 @@ type productSettingsRepo struct {
 	deletedConfigTemplate               catalogapp.DeleteProductConfigTemplateCommand
 	savedUnitDefinition                 catalogapp.SaveProductUnitDefinitionCommand
 	savedUnitTemplate                   catalogapp.SaveProductUnitTemplateCommand
+	savedProductPriceGroup              catalogapp.SaveProductPriceGroupCommand
+	savedProductPriceRecord             catalogapp.SaveProductPriceRecordCommand
+	savedProductTierPriceScheme         catalogapp.SaveProductTierPriceSchemeCommand
 	deletedUnitDefinition               catalogapp.DeleteProductUnitDefinitionCommand
 	deletedUnitTemplate                 catalogapp.DeleteProductUnitTemplateCommand
 	savedProductionConfig               catalogapp.SaveProductProductionConfigCommand
@@ -91,6 +98,9 @@ type productSettingsRepo struct {
 	configTemplateDeleted               bool
 	unitDefinitionSaved                 bool
 	unitTemplateSaved                   bool
+	productPriceGroupSaved              bool
+	productPriceRecordSaved             bool
+	productTierPriceSchemeSaved         bool
 	unitDefinitionDeleted               bool
 	unitTemplateDeleted                 bool
 	productionConfigSaved               bool
@@ -290,6 +300,78 @@ func (r *productSettingsRepo) ListProductUnitDefinitions(ctx context.Context) ([
 
 func (r *productSettingsRepo) ListProductUnitTemplates(ctx context.Context) ([]catalogapp.ProductUnitTemplate, error) {
 	return r.productUnitTemplates, nil
+}
+
+func (r *productSettingsRepo) ListProductPriceGroups(ctx context.Context) ([]catalogapp.ProductPriceGroup, error) {
+	return r.productPriceGroups, nil
+}
+
+func (r *productSettingsRepo) SaveProductPriceGroup(ctx context.Context, cmd catalogapp.SaveProductPriceGroupCommand) (catalogapp.ProductPriceGroup, error) {
+	r.savedProductPriceGroup = cmd
+	r.productPriceGroupSaved = true
+	id := cmd.ID
+	if id == 0 {
+		id = 31
+	}
+	return catalogapp.ProductPriceGroup{ID: id, Name: cmd.Name, SortOrder: cmd.SortOrder, Active: true}, nil
+}
+
+func (r *productSettingsRepo) ListProductPriceRecords(ctx context.Context, query catalogapp.ProductPriceRecordQuery) ([]catalogapp.ProductPriceRecord, error) {
+	if r.productPriceRecords != nil {
+		return r.productPriceRecords, nil
+	}
+	out := make([]catalogapp.ProductPriceRecord, 0, len(r.productPriceRecordByID))
+	for _, row := range r.productPriceRecordByID {
+		out = append(out, row)
+	}
+	return out, nil
+}
+
+func (r *productSettingsRepo) GetProductPriceRecord(ctx context.Context, id int64) (catalogapp.ProductPriceRecord, error) {
+	if r.productPriceRecordByID != nil {
+		if row, ok := r.productPriceRecordByID[id]; ok {
+			return row, nil
+		}
+	}
+	return catalogapp.ProductPriceRecord{}, nil
+}
+
+func (r *productSettingsRepo) SaveProductPriceRecord(ctx context.Context, cmd catalogapp.SaveProductPriceRecordCommand) (catalogapp.ProductPriceRecord, error) {
+	r.savedProductPriceRecord = cmd
+	r.productPriceRecordSaved = true
+	id := cmd.ID
+	if id == 0 {
+		id = 41
+	}
+	return catalogapp.ProductPriceRecord{
+		ID:                      id,
+		ProductID:               cmd.ProductID,
+		CustomerProductAliasID:  cmd.CustomerProductAliasID,
+		FinalUnitPrice:          cmd.FinalUnitPrice,
+		PriceUnit:               cmd.PriceUnit,
+		Currency:                cmd.Currency,
+		PriceGroupID:            cmd.PriceGroupID,
+		PriceGroupName:          cmd.PriceGroupName,
+		InventoryUnit:           cmd.InventoryUnit,
+		InventoryConversionJSON: cmd.InventoryConversionJSON,
+		Status:                  cmd.Status,
+		Remark:                  cmd.Remark,
+		Active:                  true,
+	}, nil
+}
+
+func (r *productSettingsRepo) ListProductTierPriceSchemes(ctx context.Context, query catalogapp.ProductTierPriceSchemeQuery) ([]catalogapp.ProductTierPriceScheme, error) {
+	return r.productTierPriceSchemes, nil
+}
+
+func (r *productSettingsRepo) SaveProductTierPriceScheme(ctx context.Context, cmd catalogapp.SaveProductTierPriceSchemeCommand) (catalogapp.ProductTierPriceScheme, error) {
+	r.savedProductTierPriceScheme = cmd
+	r.productTierPriceSchemeSaved = true
+	id := cmd.ID
+	if id == 0 {
+		id = 51
+	}
+	return catalogapp.ProductTierPriceScheme{ID: id, Name: cmd.Name, ProductID: cmd.ProductID, CustomerProductAliasID: cmd.CustomerProductAliasID, PriceGroupID: cmd.PriceGroupID, Active: true, Tiers: cmd.Tiers}, nil
 }
 
 func (r *productSettingsRepo) ListCustomerPublicUsages(ctx context.Context) ([]catalogapp.CustomerPublicUsage, error) {
@@ -848,7 +930,7 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST alias status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.customerAliasSaved || repo.savedCustomerAlias.CustomerID != 42 || repo.savedCustomerAlias.ProductID != 88 || repo.savedCustomerAlias.DisplayName != "Karen 精品拼配" || repo.savedCustomerAlias.CustomerItemCode != "KAREN-ESP-001" || repo.savedCustomerAlias.ProductConfigTemplateID != 301 || repo.savedCustomerAlias.GradientTemplateID != 0 || repo.savedCustomerAlias.UnitTemplateID != 0 || !repo.savedCustomerAlias.IncludeInPriceList {
+	if !repo.customerAliasSaved || repo.savedCustomerAlias.CustomerID != 42 || repo.savedCustomerAlias.ProductID != 88 || repo.savedCustomerAlias.DisplayName != "Karen 精品拼配" || repo.savedCustomerAlias.CustomerItemCode != "KAREN-ESP-001" || repo.savedCustomerAlias.ProductConfigTemplateID != 0 || repo.savedCustomerAlias.GradientTemplateID != 0 || repo.savedCustomerAlias.UnitTemplateID != 0 || repo.savedCustomerAlias.ClassificationTemplateID != 0 || !repo.savedCustomerAlias.IncludeInPriceList {
 		t.Fatalf("save alias command = %+v saved=%v", repo.savedCustomerAlias, repo.customerAliasSaved)
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"customer_item_code":"KAREN-ESP-001"`)) {
@@ -870,7 +952,7 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT alias status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.savedCustomerAlias.ID != 11 || repo.savedCustomerAlias.CustomerItemCode != "KAREN-ESP-002" || repo.savedCustomerAlias.ProductConfigTemplateID != 302 || repo.savedCustomerAlias.GradientTemplateID != 0 || repo.savedCustomerAlias.UnitTemplateID != 0 || repo.savedCustomerAlias.IncludeInPriceList {
+	if repo.savedCustomerAlias.ID != 11 || repo.savedCustomerAlias.CustomerItemCode != "KAREN-ESP-002" || repo.savedCustomerAlias.ProductConfigTemplateID != 0 || repo.savedCustomerAlias.GradientTemplateID != 0 || repo.savedCustomerAlias.UnitTemplateID != 0 || repo.savedCustomerAlias.ClassificationTemplateID != 0 || repo.savedCustomerAlias.IncludeInPriceList {
 		t.Fatalf("update alias command = %+v", repo.savedCustomerAlias)
 	}
 
@@ -1833,7 +1915,7 @@ func TestProductSettingsAPIDeletesProductConfigTemplate(t *testing.T) {
 	}
 }
 
-func TestProductSettingsAPIUpdatesProductTemplateAndProductionConfigIndustryFields(t *testing.T) {
+func TestProductSettingsAPIUpdatesProductIndustryFieldsWithoutLegacyTemplateWrites(t *testing.T) {
 	repo := &productSettingsRepo{
 		products: []catalogapp.Product{{
 			ID: 91, Name: "旧SKU名", ProductKind: "roasted", RoastLevel: "中烘", Remark: "旧备注", YieldRate: 0.8,
@@ -1873,7 +1955,17 @@ func TestProductSettingsAPIUpdatesProductTemplateAndProductionConfigIndustryFiel
 		}
 	}
 
-	body := bytes.NewBufferString(`{"name":"新SKU名","product_kind":"roasted","yield_rate":0.81,"remark":"门店常用奶咖","product_config_template_id":301}`)
+	body := bytes.NewBufferString(`{
+		"name":"新SKU名",
+		"product_kind":"roasted",
+		"yield_rate":0.81,
+		"remark":"门店常用奶咖",
+		"product_config_template_id":301,
+		"classification_template_id":401,
+		"gradient_template_id_override":18,
+		"operation_template_id_override":19,
+		"unit_rule_override_json":"{\"order_unit\":\"盒\"}"
+	}`)
 	req = httptest.NewRequest(http.MethodPut, "/api/products/91", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
@@ -1881,7 +1973,7 @@ func TestProductSettingsAPIUpdatesProductTemplateAndProductionConfigIndustryFiel
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT product status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.productUpdated || repo.updated.ProductConfigTemplateID != 301 {
+	if !repo.productUpdated || repo.updated.ProductConfigTemplateID != 0 || repo.updated.ClassificationTemplateID != 0 || repo.updated.GradientTemplateIDOverride != 0 || repo.updated.OperationTemplateIDOverride != 0 || repo.updated.UnitRuleOverrideJSON != "{}" {
 		t.Fatalf("updated product template command=%+v updated=%v", repo.updated, repo.productUpdated)
 	}
 
@@ -2188,7 +2280,7 @@ func TestProductSettingsAPICreatesPublicProduct(t *testing.T) {
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(repo))
 
-	body := `{"name":"新公共拼配","remark":"奶咖主推","roast_level":"中深烘","default_price":88,"yield_rate":0.805}`
+	body := `{"name":"新公共拼配","remark":"奶咖主推","roast_level":"中深烘","default_price":88,"yield_rate":0.805,"product_config_template_id":301,"classification_template_id":401,"tiers":[{"spec_g":227,"min_qty":1,"unit_price":88}]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -2202,6 +2294,9 @@ func TestProductSettingsAPICreatesPublicProduct(t *testing.T) {
 	}
 	if repo.createdPublic.Remark != "奶咖主推" {
 		t.Fatalf("public product remark not passed: %+v", repo.createdPublic)
+	}
+	if repo.createdPublic.ProductConfigTemplateID != 0 || repo.createdPublic.ClassificationTemplateID != 0 || len(repo.createdPublic.Tiers) != 0 {
+		t.Fatalf("public product create should not carry legacy template or price tiers, command=%+v", repo.createdPublic)
 	}
 	for _, want := range []string{`"product"`, `"name":"新公共拼配"`, `"remark":"奶咖主推"`, `"customer_id":0`, `"visibility":"public"`, `"bom_item_count":0`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
@@ -2564,7 +2659,7 @@ func TestProductSettingsAPIReturnsInternalErrorForProductUpdatePersistenceFailur
 	}
 }
 
-func TestProductSettingsAPISavesAndReturnsProductMarginOverride(t *testing.T) {
+func TestProductSettingsAPIReturnsLegacyProductMarginOverrideButIgnoresWrites(t *testing.T) {
 	margin := 0.235
 	product := catalogapp.Product{ID: 7, Name: "曲奇拼配", RoastLevel: "中烘", YieldRate: 0.82}
 	setFloat64PtrField(t, &product, "MarginRateOverride", margin)
@@ -2595,9 +2690,8 @@ func TestProductSettingsAPISavesAndReturnsProductMarginOverride(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT product status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	got := float64PtrField(t, repo.updated, "MarginRateOverride")
-	if got == nil || *got != 0.31 {
-		t.Fatalf("margin override command = %+v, got %v", repo.updated, got)
+	if got := float64PtrField(t, repo.updated, "MarginRateOverride"); got != nil {
+		t.Fatalf("product margin override write should be ignored, got %v in %+v", *got, repo.updated)
 	}
 
 	req = httptest.NewRequest(http.MethodPut, "/api/products/7", bytes.NewBufferString(`{"roast_level":"中烘","yield_rate":0.82,"margin_rate_override":null}`))
@@ -2612,7 +2706,7 @@ func TestProductSettingsAPISavesAndReturnsProductMarginOverride(t *testing.T) {
 	}
 }
 
-func TestProductSettingsAPISavesCustomerSkuMarginOverride(t *testing.T) {
+func TestProductSettingsAPIReturnsLegacyCustomerSkuMarginOverrideButIgnoresWrites(t *testing.T) {
 	margin := 0.275
 	product := catalogapp.Product{
 		ID: 17, Name: "芬纳咖啡-曲奇拼配-深烘", ProductKind: "roasted", RoastLevel: "深烘", YieldRate: 0.8,
@@ -2642,9 +2736,87 @@ func TestProductSettingsAPISavesCustomerSkuMarginOverride(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT customer SKU product status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	got := float64PtrField(t, repo.updated, "MarginRateOverride")
-	if got == nil || *got != 0.33 {
-		t.Fatalf("customer SKU margin override command = %+v, got %v", repo.updated, got)
+	if got := float64PtrField(t, repo.updated, "MarginRateOverride"); got != nil {
+		t.Fatalf("customer SKU margin override write should be ignored, got %v in %+v", *got, repo.updated)
+	}
+}
+
+func TestProductPriceRecordAPISavesFinalPriceMasterData(t *testing.T) {
+	repo := &productSettingsRepo{
+		productPriceGroups: []catalogapp.ProductPriceGroup{{ID: 3, Name: "常规批发", SortOrder: 10, Active: true}},
+		productPriceRecords: []catalogapp.ProductPriceRecord{{
+			ID: 9, ProductID: 7, FinalUnitPrice: 88.5, PriceUnit: "kg", Currency: "CNY",
+			PriceGroupID: 3, PriceGroupName: "常规批发", InventoryUnit: "kg", InventoryConversionJSON: "{}", Status: "published", Active: true,
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-price-records", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET product price records status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"final_unit_price":88.5`, `"price_unit":"kg"`, `"price_group_name":"常规批发"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("price records response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-price-records", bytes.NewBufferString(`{
+		"product_id":7,
+		"final_unit_price":91.25,
+		"price_unit":"kg",
+		"currency":"CNY",
+		"price_group_name":"客户A常规",
+		"inventory_unit":"kg",
+		"inventory_conversion_json":{"kg":{"kg":1}},
+		"status":"published",
+		"remark":"最终价"
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST product price record status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productPriceRecordSaved || repo.savedProductPriceRecord.ProductID != 7 || repo.savedProductPriceRecord.FinalUnitPrice != 91.25 {
+		t.Fatalf("saved product price record command=%+v saved=%v", repo.savedProductPriceRecord, repo.productPriceRecordSaved)
+	}
+	if repo.savedProductPriceRecord.PriceGroupName != "客户A常规" || repo.savedProductPriceRecord.InventoryConversionJSON != `{"kg":{"kg":1}}` {
+		t.Fatalf("saved product price record normalized fields = %+v", repo.savedProductPriceRecord)
+	}
+}
+
+func TestProductTierPriceSchemeAPIReferencesFinalPriceRecords(t *testing.T) {
+	repo := &productSettingsRepo{productPriceRecordByID: map[int64]catalogapp.ProductPriceRecord{
+		11: {ID: 11, ProductID: 7, FinalUnitPrice: 88, PriceUnit: "kg", Currency: "CNY", Active: true},
+	}}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-tier-price-schemes", bytes.NewBufferString(`{
+		"name":"批发阶梯",
+		"product_id":7,
+		"price_group_id":3,
+		"tiers":[{"label":"1kg+","min_qty":1,"source_price_record_id":11,"final_unit_price":999,"price_unit":"箱","currency":"USD","position":1}]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST tier price scheme status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.productTierPriceSchemeSaved || len(repo.savedProductTierPriceScheme.Tiers) != 1 {
+		t.Fatalf("saved tier price scheme command=%+v saved=%v", repo.savedProductTierPriceScheme, repo.productTierPriceSchemeSaved)
+	}
+	tier := repo.savedProductTierPriceScheme.Tiers[0]
+	if tier.SourcePriceRecordID != 11 || tier.FinalUnitPrice != 88 || tier.PriceUnit != "kg" || tier.Currency != "CNY" {
+		t.Fatalf("tier should use source final price record, got %+v", tier)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"final_unit_price":88`)) {
+		t.Fatalf("tier price scheme response should expose copied final price: %s", rec.Body.String())
 	}
 }
 

@@ -142,6 +142,35 @@ test('PDF bean-list helper builds separate commercial and retail groups from Exc
   assert.equal(buildBeanListPdfTitle('retail'), '棵凡咖啡零售产品价格表')
 })
 
+test('PDF bean-list helper freezes final price record snapshots on each published tier', () => {
+  const groups = buildBeanListPdfGroups([{
+    product_id: 44,
+    name: '快照测试商品',
+    inventory_unit: 'kg',
+    commercial_bean_list: {
+      code: '1.1',
+      category: '1、工厂量单',
+      display_name: '快照测试商品',
+    },
+    product_price_snapshots: [{
+      source_price_record_id: 701,
+      final_unit_price: 82,
+      price_unit: 'kg',
+      currency: 'CNY',
+      inventory_unit: 'kg',
+      inventory_conversion_json: { kg: { kg: 1 } },
+      product_id: 44,
+    }],
+    commercial_wholesale_tiers: [{ label: '24kg+', spec_g: 1000, min_qty: 24, price_per_unit: 82, display_unit: 'kg', price_unit: 'kg' }],
+  }], 'commercial')
+
+  const tier = groups[0].items[0].commercial_wholesale_tiers[0]
+  assert.equal(tier.source_price_record_id, 701)
+  assert.equal(tier.final_unit_price, 82)
+  assert.equal(tier.price_unit, 'kg')
+  assert.deepEqual(tier.inventory_conversion_json, { kg: { kg: 1 } })
+})
+
 test('PDF bean-list helper builds a green bean list from template tiers and quality data', () => {
   const groups = buildBeanListPdfGroups([{
     product_id: 90,

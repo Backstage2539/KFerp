@@ -49,17 +49,17 @@ func TestDev166OrderEntryUsesSpecDisplayPriceUnit(t *testing.T) {
 	}
 }
 
-func TestDev166SaveOrderStoresDisplayUnitPrice(t *testing.T) {
+func TestDev166SaveOrderStoresPublishedSnapshotPriceUnit(t *testing.T) {
 	repo := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "sales", "repository.go")))
 	for _, want := range []string{
-		"func wholesaleDisplayUnitG",
-		"return math.Round(price)",
-		"wholesaleDisplayUnitPriceFromLb(pricePerLb, items[idx].specG)",
-		"wholesaleLineTotalFromDisplayUnit(items[idx].unitPrice, items[idx].specG, items[idx].units)",
-		"wholesaleLineTotalFromDisplayUnit(*items[idx].manualPrice, items[idx].specG, items[idx].units)",
+		"beanListPriceSourceJSONWithPricing",
+		"source[\"price_unit\"]",
+		"source[\"source_price_record_id\"]",
+		"inventory_conversion_json",
+		"ResolvePublishedPricingForPublicationWithUnit",
 	} {
 		if !strings.Contains(repo, want) {
-			t.Fatalf("sales repository missing display unit price marker %q", want)
+			t.Fatalf("sales repository missing published snapshot price-unit marker %q", want)
 		}
 	}
 }

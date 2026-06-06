@@ -6,6 +6,42 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-439-PRODUCT-PRICE-MASTER-REMODEL
+- Branch: codex/product-price-master-remodel-20260606
+- Owner/session: Codex / 2026-06-06
+- Status: local full verification passed; pending merge, development deploy, and browser product acceptance; Product Design brief accepted from Van's plan
+- Scope: 商品档案和客户商品从旧模板价格模型切到主数据/展示关系；价格、报价单位、录单单位进入商品价格管理和已发布商品价格表快照；旧模板表保留历史兼容，不再作为普通商品/客户商品新写入来源。
+- Product Design:
+  - Brief: 采用现有 KFerp 后台密集表格 + 右侧抽屉；商品档案、客户商品、商品分类管理、商品价格管理、商品价格表、录单取价入口关系按 Van 提供计划锁定。
+  - Implementation source: 当前 Product Design 没有保存的 KFerp 上下文，本轮以现有 Vue 后台视觉和 Van 的字段文案作为确认稿。
+- DEV:
+  - DEV-439-PRODUCT-ARCHIVE-MASTER-DATA：商品档案普通 UI 删除商品配置模板、利润率覆盖等旧价格字段，展示库存单位、整数库存、BOM 使用摘要和价格摘要。
+  - DEV-439-CUSTOMER-PRODUCT-SNAPSHOT-SUMMARY：客户商品保存只维护客户、绑定商品、展示名、排序、启停、备注和是否进入价格表；价格摘要来自商品价格表快照。
+  - DEV-439-LEGACY-TEMPLATE-WRITE-CUTOFF：普通商品和客户商品保存不再写入旧模板字段，旧字段只保留历史兼容读取和迁移报告。
+  - DEV-439-COPY-NO-PRICE-BOM：复制为商品档案只复制基础资料和行业字段，不复制 BOM、价格、价格表快照或客户商品关系。
+  - DEV-439-PRICE-MASTER-DATA：商品价格管理维护最终价格记录、价格单位、币种、价格分组、库存单位和库存换算。
+  - DEV-439-TIER-SCHEME-FINAL-PRICE-REFERENCE：阶梯价格方案每档引用最终价格记录，保存档位时固化最终价且不二次计算。
+  - DEV-439-PRICE-LIST-SNAPSHOT-ENFORCEMENT：商品价格表发布价格档必须固化最终价、价格单位、来源价格记录、库存单位和库存换算。
+  - DEV-439-ORDER-SNAPSHOT-PRICING：ERP 录单只按已发布商品价格表快照取价取单位，不再从商品档案、客户商品或旧阶梯模板兜底。
+  - DEV-439-CHANNEL-CUSTOMER-SNAPSHOT-PRICING：渠道客户履约下单、订单行价格来源和结算金额只按已发布商品价格表快照生成。
+  - DEV-439-MINIAPP-SNAPSHOT-PRICING：小程序服务页不展示默认价，履约订单后端只按已发布商品价格表快照生成 ERP 订单行和结算数据。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-settings.test.js` failed on customer alias still submitting `product_config_template_id`, normal UI missing price-summary markers, and old margin/template assertions.
+  - RED API/repository: targeted catalog API failed on customer/product save still passing旧模板字段；repository guard failed because `CopyProduct` still copied `product_config_template_id`, `product_price_tiers`, `product_production_configs`, and BOM bindings.
+  - GREEN targeted frontend: `node --test src/lib/product-settings.test.js` passed 117/117.
+  - GREEN targeted API/repository: `go test ./internal/interfaces/http/catalog -run 'TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames|TestProductSettingsAPIUpdatesProductIndustryFieldsWithoutLegacyTemplateWrites|TestProductSettingsAPICreatesPublicProduct'`; `go test ./internal/infrastructure/postgres/catalog -run TestCopyProductArchiveCopiesOnlyMasterDataNotPriceOrBomTemplates`.
+  - GREEN broader: `npm run build` in `frontend-vue-shell`; `go test ./...` in `orderapp-remote`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN browser smoke: local Vue shell with mocked API on `http://127.0.0.1:5173/vue-shell/?view=productSettings` rendered 商品档案; visible markers included `商品档案只维护商品资料`, `价格摘要`, `库存单位`, `整数库存`, `暂无价格表价格`; no visible `利润率覆盖` or customer 商品配置模板 marker; no console errors.
+  - RED second slice: price master data tests failed on missing price record/tier scheme application types, API routes, schema/repository markers, Vue helpers, and DEV seed entries.
+  - GREEN second slice targeted: product price record/final tier scheme application tests, catalog API tests, postgres schema guard, support wiring, and `node --test src/lib/product-settings.test.js` all passed.
+  - GREEN second slice broader: `npm run build` in `frontend-vue-shell` passed with existing chunk-size warning; `go test ./...` in `orderapp-remote` passed; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+  - GREEN second slice browser smoke: local Vue shell with mocked API on `http://127.0.0.1:5173/vue-shell/?view=productPriceManagement` rendered the independent 商品价格管理 menu/page; visible markers included `商品价格记录`, `常规批发 · CNY 88/kg`, `阶梯价格方案`, and `引用价格记录`; the pane did not expose `利润率` or `成本加成`; screenshot `/tmp/pr439-product-price-management-smoke.png`.
+  - RED third slice: costing/orderbeans/sales/customerfulfillment/customerportal/miniapp tests failed before implementation because price table tiers did not carry final snapshot metadata, ERP/channel/miniapp could still fall back to legacy product prices or product tiers, and miniapp service copy still showed default price wording.
+  - GREEN third slice targeted: `go test ./internal/application/costing -run TestPublishBeanListRequiresFinalPriceSnapshotOnPriceTiers -count=1`; `go test ./internal/infrastructure/postgres/orderbeans -run TestPublishedPricingCarriesFinalPriceSnapshotMetadata -count=1`; `go test ./internal/infrastructure/postgres/sales -run 'TestOrderFormProductsUsePublishedPriceSnapshotsOnly|TestOrderSaveRequiresPublishedPriceSnapshotInsteadOfLegacyTierFallback' -count=1`; `go test ./internal/infrastructure/postgres/customerfulfillment -run 'TestCustomerDirectShipPricingUsesPublishedSnapshotsOnly|TestCustomerFulfillmentPublishedPriceUnitTotals|TestSubmitCustomerDirectShipOrderUsesPublishedPriceSnapshot|TestSubmitCustomerDirectShipOrderRejectsLegacyPriceFallbackWithoutSnapshot' -count=1`; `go test ./internal/infrastructure/postgres/customerportal -run 'TestCustomerPortalFulfillmentPricingUsesPublishedSnapshotsOnly|TestCreateFulfillmentOrder|TestPortalMallLinePricingUsesBagQuoteForDripBoxOrders' -count=1`; `npm test -- src/utils/mall.test.ts src/utils/servicePage.test.ts`.
+  - GREEN full local: `npm run build` in `frontend-vue-shell` passed with existing chunk-size warning; `npm test -- src/utils/mall.test.ts src/utils/servicePage.test.ts`, `npm run typecheck`, and `npm run build:mp-weixin` in `miniapp` passed; `go test ./...` in `orderapp-remote` passed; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-product-price-master-remodel.md`.
+- Last update: 2026-06-07 Asia/Shanghai
+
 ### PR-438-PRODUCT-TEMPLATE-DELETE-PRICE-LIST-UI
 - Branch: codex/product-settings-delete-price-list-ui-20260606
 - Owner/session: Codex / 2026-06-06

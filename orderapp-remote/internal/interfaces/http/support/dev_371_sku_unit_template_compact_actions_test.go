@@ -25,7 +25,7 @@ func TestDev371SkuUnitTemplateCompactActionsUI(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
 		"sku-page-summary",
-		"商品档案承载库存",
+		"商品档案只维护商品资料",
 		"kferp:notify",
 		"新增单位模板",
 		"成品库存单位",
@@ -41,9 +41,6 @@ func TestDev371SkuUnitTemplateCompactActionsUI(t *testing.T) {
 	}
 	if !strings.Contains(src, "globalUnitEditingCode ? '保存' : '新增'") {
 		t.Fatal("global unit dictionary submit button should switch between 新增 and 保存 by edit state")
-	}
-	if strings.Contains(src, ">库存单位<") {
-		t.Fatal("unit template form should rename 库存单位 to 成品库存单位")
 	}
 }
 

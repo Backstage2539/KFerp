@@ -84,6 +84,27 @@ func TestPublishedPricingKeepsKgDisplayUnitForSmallCommercialPack(t *testing.T) 
 	}
 }
 
+func TestPublishedPricingCarriesFinalPriceSnapshotMetadata(t *testing.T) {
+	content := []byte(`{
+		"groups":[{
+			"items":[{
+				"productId":11,
+				"commercial_wholesale_tiers":[
+					{"label":"25kg+","source_price_record_id":701,"spec_g":1000,"min_qty":25,"final_unit_price":82,"price_per_unit":82,"display_unit":"kg","price_unit":"kg","inventory_unit":"kg","inventory_conversion_json":{"kg":{"kg":1}}}
+				]
+			}]
+		}]
+	}`)
+
+	got, ok := publishedPricingFromContentForListType(content, 11, ListTypeCommercial, 1000, 25, "", 0)
+	if !ok {
+		t.Fatalf("published pricing missing")
+	}
+	if got.SourcePriceRecordID != 701 || got.InventoryUnit != "kg" || !strings.Contains(got.InventoryConversionJSON, `"kg"`) {
+		t.Fatalf("published pricing snapshot metadata = %+v", got)
+	}
+}
+
 func TestExplicitPublicationSelectionRequiresPublishedSnapshots(t *testing.T) {
 	source, err := os.ReadFile("usage.go")
 	if err != nil {

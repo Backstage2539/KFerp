@@ -123,6 +123,79 @@ WHERE active=true;
 INSERT INTO %[1]s.product_unit_templates(name, inventory_unit, quote_unit, order_unit, unit_conversion_json, integer_unit, active)
 VALUES ('默认kg单位','kg','kg','kg','{}'::jsonb,false,true)
 ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS %[1]s.product_price_groups (
+	id BIGSERIAL PRIMARY KEY,
+	name TEXT NOT NULL,
+	sort_order INT NOT NULL DEFAULT 100,
+	active BOOLEAN NOT NULL DEFAULT true,
+	deleted_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS product_price_groups_name_active_uniq
+ON %[1]s.product_price_groups(lower(name))
+WHERE active=true AND deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS product_price_groups_sort_idx
+ON %[1]s.product_price_groups(active, sort_order, id);
+CREATE TABLE IF NOT EXISTS %[1]s.product_price_records (
+	id BIGSERIAL PRIMARY KEY,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	customer_product_alias_id BIGINT NOT NULL DEFAULT 0,
+	final_unit_price NUMERIC(14,4) NOT NULL,
+	price_unit TEXT NOT NULL,
+	currency TEXT NOT NULL DEFAULT 'CNY',
+	price_group_id BIGINT NOT NULL DEFAULT 0,
+	price_group_name TEXT NOT NULL DEFAULT '',
+	inventory_unit TEXT NOT NULL DEFAULT 'kg',
+	inventory_conversion_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	status TEXT NOT NULL DEFAULT 'draft',
+	active BOOLEAN NOT NULL DEFAULT true,
+	remark TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS product_price_records_product_idx
+ON %[1]s.product_price_records(product_id, active, status, price_group_id, id);
+CREATE INDEX IF NOT EXISTS product_price_records_alias_idx
+ON %[1]s.product_price_records(customer_product_alias_id, active, status, price_group_id, id);
+CREATE TABLE IF NOT EXISTS %[1]s.product_tier_price_schemes (
+	id BIGSERIAL PRIMARY KEY,
+	name TEXT NOT NULL,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	customer_product_alias_id BIGINT NOT NULL DEFAULT 0,
+	price_group_id BIGINT NOT NULL DEFAULT 0,
+	active BOOLEAN NOT NULL DEFAULT true,
+	remark TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS product_tier_price_schemes_product_idx
+ON %[1]s.product_tier_price_schemes(product_id, active, price_group_id, id);
+CREATE INDEX IF NOT EXISTS product_tier_price_schemes_alias_idx
+ON %[1]s.product_tier_price_schemes(customer_product_alias_id, active, price_group_id, id);
+CREATE TABLE IF NOT EXISTS %[1]s.product_tier_price_scheme_tiers (
+	id BIGSERIAL PRIMARY KEY,
+	scheme_id BIGINT NOT NULL,
+	label TEXT NOT NULL DEFAULT '',
+	min_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
+	max_qty NUMERIC(14,4),
+	source_price_record_id BIGINT NOT NULL,
+	final_unit_price NUMERIC(14,4) NOT NULL,
+	price_unit TEXT NOT NULL,
+	currency TEXT NOT NULL DEFAULT 'CNY',
+	position INT NOT NULL DEFAULT 100,
+	active BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS product_tier_price_scheme_tiers_scheme_idx
+ON %[1]s.product_tier_price_scheme_tiers(scheme_id, active, position, id);
 INSERT INTO %[1]s.customers(name, raw_name, customer_type, active, created_at, updated_at)
 SELECT '工厂自营', '工厂自营', 'wholesale', true, now(), now()
 WHERE NOT EXISTS (

@@ -22,19 +22,19 @@ func TestDev287OrderFeeKgRepairRequirementSeeds(t *testing.T) {
 func TestDev287OrderFeeKgRepairSourceWiring(t *testing.T) {
 	checks := map[string][]string{
 		filepath.Join("internal", "infrastructure", "postgres", "customerfulfillment", "repository.go"): {
-			"customerFulfillmentTierQuantityForSpec",
-			"customerFulfillmentDisplayUnitPriceFromLb",
-			"customerFulfillmentLineTotalFromDisplayUnit(unitPrice, specG, item.QuantityUnits)",
+			"customerFulfillmentPublishedPricingTx",
+			"ResolvePublishedPricingForPublicationWithUnit",
+			"customerFulfillmentLineTotalFromPriceUnit(pricing.UnitPrice, specG, item.QuantityUnits, pricing.UnitG)",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "customerfulfillment", "repository_test.go"): {
-			"TestCustomerFulfillmentSubmittedPricingUsesKgDisplayUnitAndTotals",
-			"TestSubmitCustomerDirectShipOrderUsesKgTierPriceAsDisplayUnit",
+			"TestSubmitCustomerDirectShipOrderUsesPublishedPriceSnapshot",
+			"TestCustomerFulfillmentPublishedPriceUnitTotals",
 			"1000g x 25",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "customerportal", "business_repository.go"): {
-			"portalTierQuantityForSpec",
-			"portalDisplayUnitPriceFromLb",
-			"portalLineTotalFromDisplayUnit",
+			"portalPublishedPricingTx",
+			"ResolvePublishedPricingForPublicationWithUnit",
+			"portalLineTotalFromPriceUnit",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "customerportal", "repository_test.go"): {
 			"TestCreateFulfillmentOrderUsesKgExactTierWithoutSmallBatchRule",
@@ -66,12 +66,12 @@ func TestDev287OrderFeeKgRepairManualsAndAcceptanceDocs(t *testing.T) {
 	checks := map[string][]string{
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-287-ORDER-LIST-FEE-KG-SUBMISSION-REPAIR",
-			"按该行总 KG 匹配梯度",
+			"快照中的价格单位",
 			"履约运营台订单费用一致",
 		},
 		filepath.Join("..", "REQUIREMENTS.md"): {
 			"PR-287-ORDER-LIST-FEE-KG-SUBMISSION-REPAIR",
-			"按该行总 KG 匹配梯度",
+			"快照中的价格单位",
 			"履约运营台订单费用一致",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {

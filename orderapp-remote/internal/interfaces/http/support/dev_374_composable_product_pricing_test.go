@@ -40,9 +40,9 @@ func TestDev374ComposableProductPricingSourceMarkers(t *testing.T) {
 			"&input.PriceListRuleJSON",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "sales", "order_form_queries.go"): {
-			"price_source_json->>'price_unit'",
-			"DisplayUnit:     priceUnit",
-			"normalizeGreenBeanOrderPriceUnit",
+			"PriceUnit               string",
+			"published_price_snapshot",
+			"inventory_conversion_json",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "bean-list-pdf.js"): {
 			"const displayUnit = String(tier.display_unit || '').trim()",
@@ -77,13 +77,13 @@ func TestDev374ComposableProductPricingDocs(t *testing.T) {
 			"display_unit=盒",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-374-COMPOSABLE-PRODUCT-PRICING",
-			"速溶盒装示例",
-			"每盒 BOM 成本",
+			"商品价格管理",
+			"库存换算",
+			"价格表快照",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"PR-374-COMPOSABLE-PRODUCT-PRICING",
-			"速溶咖啡条装原料",
+			"商品价格管理",
+			"库存换算",
 			"全局单位字典",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-25-composable-product-pricing.md"): {

@@ -425,7 +425,7 @@ func TestProductSettingsDragEndAndBomYieldAreWiredToSingleSource(t *testing.T) {
 		"selectedProductClassificationCategoryID",
 		"预期损耗率",
 		"buildProductCreatePayload(productForm.value)",
-		"buildProductBasicsPayload(row, marginOverride.value)",
+		"buildProductBasicsPayload(row)",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("product settings drag/yield wiring missing %q", want)

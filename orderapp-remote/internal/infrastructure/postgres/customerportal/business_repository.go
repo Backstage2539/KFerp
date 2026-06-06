@@ -12,7 +12,6 @@ import (
 
 	customerportalapp "orderapp/internal/application/customerportal"
 	catalogdomain "orderapp/internal/domain/catalog"
-	salesdomain "orderapp/internal/domain/sales"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"orderapp/internal/infrastructure/postgres/orderbeans"
 
@@ -1680,7 +1679,7 @@ func (r Repository) listProducts(ctx context.Context, customerID int64, limit in
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	gradients, err := r.portalUnitPriceGradients(ctx, productSummaryIDs(out))
+	gradients, err := r.portalUnitPriceGradients(ctx, customerID, productSummaryIDs(out))
 	if err != nil {
 		return nil, err
 	}
@@ -1700,41 +1699,173 @@ func productSummaryIDs(rows []customerportalapp.ProductSummary) []int64 {
 	return out
 }
 
-func (r Repository) portalUnitPriceGradients(ctx context.Context, productIDs []int64) (map[int64][]customerportalapp.UnitPriceGradient, error) {
+func (r Repository) portalUnitPriceGradients(ctx context.Context, customerID int64, productIDs []int64) (map[int64][]customerportalapp.UnitPriceGradient, error) {
 	if len(productIDs) == 0 {
 		return map[int64][]customerportalapp.UnitPriceGradient{}, nil
 	}
+	if !portalRelationExists(ctx, r.pool, fmt.Sprintf("%s.bean_list_publications", r.schema)) {
+		return map[int64][]customerportalapp.UnitPriceGradient{}, nil
+	}
+	productSet := map[int64]struct{}{}
+	for _, id := range productIDs {
+		productSet[id] = struct{}{}
+	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT product_id, id,
-		       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
-		       COALESCE(NULLIF(sales_unit,''), ''),
-		       COALESCE(NULLIF(min_qty_units,0),0)::float8,
-		       COALESCE(NULLIF(max_qty_units,0), max_qty_lb),
-		       COALESCE(price_per_unit,0)::float8,
-		       COALESCE(NULLIF(unit_bag_count,0),0)::float8,
-		       CASE WHEN COALESCE(price_source_json,'{}'::jsonb) <> '{}'::jsonb THEN 'published_unit_price' ELSE '' END
-		FROM %s.product_price_tiers
-		WHERE active=true
-		  AND product_id=ANY($1)
-		  AND COALESCE(NULLIF(product_kind,''), 'roasted_bean')='drip_bag'
-		  AND COALESCE(NULLIF(sales_unit,''), '') IN ('bag','box')
-		ORDER BY product_id, COALESCE(NULLIF(sales_unit,''), ''), COALESCE(NULLIF(min_qty_units,0),0)
-	`, r.schema), productIDs)
+			SELECT id, content_json
+			FROM %s.bean_list_publications
+			WHERE status='published'
+			  AND list_type='drip'
+			  AND (
+			    (owner_type='customer' AND owner_key=$1)
+			    OR owner_type='official'
+			  )
+			ORDER BY CASE WHEN owner_type='customer' AND owner_key=$1 THEN 0 ELSE 1 END,
+			         published_at DESC,
+			         id DESC
+			LIMIT 20
+		`, r.schema), fmt.Sprint(customerID))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := map[int64][]customerportalapp.UnitPriceGradient{}
+	seenProduct := map[int64]struct{}{}
 	for rows.Next() {
-		var productID int64
-		var row customerportalapp.UnitPriceGradient
-		if err := rows.Scan(&productID, &row.ID, &row.ProductKind, &row.SalesUnit, &row.MinQty, &row.MaxQty, &row.UnitPrice, &row.UnitBagCount, &row.PriceSource); err != nil {
+		var publicationID int64
+		var content []byte
+		if err := rows.Scan(&publicationID, &content); err != nil {
 			return nil, err
 		}
-		row.ProductKind = catalogdomain.NormalizeProductKind(row.ProductKind)
-		out[productID] = append(out[productID], row)
+		for productID, rows := range portalUnitPriceGradientsFromPublication(publicationID, content, productSet) {
+			if _, ok := seenProduct[productID]; ok {
+				continue
+			}
+			seenProduct[productID] = struct{}{}
+			out[productID] = append(out[productID], rows...)
+		}
 	}
 	return out, rows.Err()
+}
+
+type portalPublishedContent struct {
+	Groups []struct {
+		Items []json.RawMessage `json:"items"`
+	} `json:"groups"`
+}
+
+type portalPublishedTier struct {
+	SourcePriceRecordID int64    `json:"source_price_record_id"`
+	SpecG               int64    `json:"spec_g"`
+	MinQty              float64  `json:"min_qty"`
+	MaxQty              *float64 `json:"max_qty"`
+	FinalUnitPrice      float64  `json:"final_unit_price"`
+	PricePerUnit        float64  `json:"price_per_unit"`
+	PricePerKg          float64  `json:"price_per_kg"`
+	PricePerLb          float64  `json:"price_per_lb"`
+	SalesUnit           string   `json:"sales_unit"`
+	UnitBagCount        float64  `json:"unit_bag_count"`
+	PackedPricePerBag   float64  `json:"packed_price_per_bag"`
+	PackedPricePerBox   float64  `json:"packed_price_per_box"`
+}
+
+func portalUnitPriceGradientsFromPublication(publicationID int64, content []byte, productSet map[int64]struct{}) map[int64][]customerportalapp.UnitPriceGradient {
+	var parsed portalPublishedContent
+	if len(content) == 0 || json.Unmarshal(content, &parsed) != nil {
+		return nil
+	}
+	out := map[int64][]customerportalapp.UnitPriceGradient{}
+	for _, group := range parsed.Groups {
+		for _, item := range group.Items {
+			productID := portalPublishedItemProductID(item)
+			if productID <= 0 {
+				continue
+			}
+			if _, ok := productSet[productID]; !ok {
+				continue
+			}
+			for _, tier := range portalPublishedItemTiers(item, orderbeans.ListTypeDrip) {
+				price := portalPublishedTierUnitPrice(orderbeans.ListTypeDrip, tier)
+				if price <= 0 {
+					continue
+				}
+				id := tier.SourcePriceRecordID
+				if id <= 0 {
+					id = publicationID
+				}
+				out[productID] = append(out[productID], customerportalapp.UnitPriceGradient{
+					ID:           id,
+					ProductKind:  catalogdomain.ProductKindDripBag,
+					SalesUnit:    strings.TrimSpace(tier.SalesUnit),
+					MinQty:       tier.MinQty,
+					MaxQty:       tier.MaxQty,
+					UnitPrice:    price,
+					UnitBagCount: tier.UnitBagCount,
+					PriceSource:  "published_price_snapshot",
+				})
+			}
+		}
+	}
+	return out
+}
+
+func portalPublishedItemProductID(raw json.RawMessage) int64 {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return 0
+	}
+	for _, key := range []string{"productId", "product_id", "productID"} {
+		var id int64
+		if data, ok := fields[key]; ok && json.Unmarshal(data, &id) == nil && id > 0 {
+			return id
+		}
+	}
+	return 0
+}
+
+func portalPublishedItemTiers(raw json.RawMessage, listType string) []portalPublishedTier {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return nil
+	}
+	key := "commercial_wholesale_tiers"
+	switch strings.TrimSpace(listType) {
+	case orderbeans.ListTypeRetail:
+		key = "retail_bean_tiers"
+	case orderbeans.ListTypeGreen:
+		key = "green_bean_sale_tiers"
+	case orderbeans.ListTypeDrip:
+		key = "drip_wholesale_tiers"
+	}
+	var tiers []portalPublishedTier
+	if data, ok := fields[key]; ok {
+		_ = json.Unmarshal(data, &tiers)
+	}
+	return tiers
+}
+
+func portalPublishedTierUnitPrice(listType string, tier portalPublishedTier) float64 {
+	if tier.FinalUnitPrice > 0 {
+		return tier.FinalUnitPrice
+	}
+	if strings.TrimSpace(listType) == orderbeans.ListTypeDrip {
+		if strings.TrimSpace(tier.SalesUnit) == "box" {
+			if tier.PricePerUnit > 0 {
+				return tier.PricePerUnit
+			}
+			return tier.PackedPricePerBox
+		}
+		if tier.PricePerUnit > 0 {
+			return tier.PricePerUnit
+		}
+		return tier.PackedPricePerBag
+	}
+	if tier.PricePerUnit > 0 {
+		return tier.PricePerUnit
+	}
+	if tier.PricePerKg > 0 {
+		return tier.PricePerKg
+	}
+	return tier.PricePerLb
 }
 
 func portalProductVisibleToCustomerSQL(productTable, customerPlaceholder string) string {
@@ -2436,18 +2567,17 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 	}
 
 	var productName, productKind string
-	var defaultPrice float64
 	var dripBagGrams float64
 	var dripBoxBagCount int
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(name,''), COALESCE(default_price,0),
-		       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
-		       COALESCE(drip_bag_grams,10)::float8,
-		       COALESCE(drip_box_bag_count,10)
+			SELECT COALESCE(name,''),
+			       COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
+			       COALESCE(drip_bag_grams,10)::float8,
+			       COALESCE(drip_box_bag_count,10)
 		FROM %s.products
 		WHERE id=$1 AND active=true
 		  AND %s
-	`, r.schema, portalProductVisibleToCustomerSQL(r.schema+".products", "$2")), cmd.ProductID, cmd.CustomerID).Scan(&productName, &defaultPrice, &productKind, &dripBagGrams, &dripBoxBagCount); err != nil {
+		`, r.schema, portalProductVisibleToCustomerSQL(r.schema+".products", "$2")), cmd.ProductID, cmd.CustomerID).Scan(&productName, &productKind, &dripBagGrams, &dripBoxBagCount); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return customerportalapp.FulfillmentOrder{}, fmt.Errorf("product unavailable")
 		}
@@ -2459,22 +2589,13 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 	unitBagCount := 0.0
 	unitBeanG := 0.0
 	matchedPriceQty := 0.0
-	priceSourceName := ""
+	priceSourceName := "published_price_snapshot"
 	priceSourceSnapshot := "{}"
 	specText := fmt.Sprintf("%dg", cmd.SpecG)
 	var unitPrice, totalAmount float64
-	if productKind == catalogdomain.ProductKindGreenBean {
-		publishedPrice, err := orderbeans.ResolvePublishedUnitPrice(ctx, tx, r.schema, cmd.CustomerID, cmd.ProductID, orderbeans.ListTypeGreen, cmd.SpecG, cmd.Qty)
-		if err != nil {
-			return customerportalapp.FulfillmentOrder{}, err
-		}
-		unitPrice = publishedPrice
-		if unitPrice <= 0 {
-			unitPrice = r.portalFulfillmentUnitPriceTx(ctx, tx, cmd.CustomerID, cmd.ProductID, cmd.SpecG, cmd.Qty, defaultPrice)
-		}
-		totalAmount = portalLineTotalFromDisplayUnit(unitPrice, cmd.SpecG, cmd.Qty)
-		priceSourceName = "green_bean_list"
-	} else if productKind == catalogdomain.ProductKindDripBag {
+	var usage orderbeans.Usage
+	var pricing orderbeans.PublishedPricing
+	if productKind == catalogdomain.ProductKindDripBag {
 		if err := r.ensurePortalDripProductHasActiveBOMTx(ctx, tx, cmd.ProductID); err != nil {
 			return customerportalapp.FulfillmentOrder{}, err
 		}
@@ -2490,29 +2611,19 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 		}
 		unitBeanG = dripBagGrams
 		specText = portalDripSpecText(salesUnit, dripBagGrams, dripBoxBagCount)
-		tiers, err := r.portalDripUnitPriceTiersTx(ctx, tx, cmd.ProductID)
-		if err != nil {
-			return customerportalapp.FulfillmentOrder{}, err
-		}
-		result, err := salesdomain.CalculateUnitLineTotal(salesdomain.UnitLineInput{
-			ProductKind:  productKind,
-			SalesUnit:    salesUnit,
-			Quantity:     float64(cmd.Qty),
-			UnitBagCount: unitBagCount,
-			Tiers:        tiers,
-		})
-		if err != nil {
-			return customerportalapp.FulfillmentOrder{}, fmt.Errorf("drip price unpublished")
-		}
-		unitPrice = result.UnitPrice
-		totalAmount = result.LineTotal
-		matchedPriceQty = result.MatchedQtyForTier
-		priceSourceName = "published_unit_price"
-		priceSourceSnapshot = portalUnitLinePriceSourceSnapshot(result)
-	} else {
-		unitPrice = r.portalFulfillmentUnitPriceTx(ctx, tx, cmd.CustomerID, cmd.ProductID, cmd.SpecG, cmd.Qty, defaultPrice)
-		totalAmount = portalLineTotalFromDisplayUnit(unitPrice, cmd.SpecG, cmd.Qty)
 	}
+	usage, pricing, err = r.portalPublishedPricingTx(ctx, tx, cmd.CustomerID, cmd.ProductID, productKind, cmd.SpecG, cmd.Qty, salesUnit, int64(math.Round(unitBagCount)))
+	if err != nil {
+		return customerportalapp.FulfillmentOrder{}, err
+	}
+	unitPrice = pricing.UnitPrice
+	if productKind == catalogdomain.ProductKindDripBag {
+		totalAmount = pricing.UnitPrice * float64(cmd.Qty)
+		matchedPriceQty = float64(cmd.Qty)
+	} else {
+		totalAmount = portalLineTotalFromPriceUnit(pricing.UnitPrice, cmd.SpecG, cmd.Qty, pricing.UnitG)
+	}
+	priceSourceSnapshot = portalPublishedPriceSourceSnapshot(orderbeans.ListTypeForProductKind(productKind, false), usage, cmd.ProductID, pricing)
 	shippingAmount := cmd.ShippingAmount
 	if shippingAmount < 0 {
 		shippingAmount = 0
@@ -2564,13 +2675,9 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 	).Scan(&orderID); err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
-	usage, err := orderbeans.ResolveUsage(ctx, tx, r.schema, cmd.CustomerID, cmd.ProductID, orderbeans.ListTypeForProductKind(productKind, false))
-	if err != nil {
-		return customerportalapp.FulfillmentOrder{}, err
-	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total,product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json,bean_list_publication_id,bean_list_version_no)
-		VALUES($1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,NULLIF($15,0),$16)
+			INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total,product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json,bean_list_publication_id,bean_list_version_no)
+			VALUES($1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,NULLIF($15,0),$16)
 	`, r.schema), orderID, cmd.ProductID, productName, cmd.Qty, portalDisplayUnit(salesUnit), specText, unitPrice, totalAmount, productKind, salesUnit, unitBagCount, unitBeanG, matchedPriceQty, priceSourceSnapshot, usage.PublicationID, usage.VersionNo); err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
@@ -2647,46 +2754,67 @@ func (r Repository) portalProductionBOMConfiguredForProductTx(ctx context.Contex
 	return exists, err
 }
 
-func portalRelationExists(ctx context.Context, tx pgx.Tx, relation string) bool {
+type portalQueryRower interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func portalRelationExists(ctx context.Context, q portalQueryRower, relation string) bool {
 	var exists bool
-	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, relation).Scan(&exists); err != nil {
+	if err := q.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, relation).Scan(&exists); err != nil {
 		return false
 	}
 	return exists
 }
 
-func (r Repository) portalDripUnitPriceTiersTx(ctx context.Context, tx pgx.Tx, productID int64) ([]salesdomain.UnitPriceTier, error) {
-	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(product_kind,''), 'roasted_bean'),
-		       COALESCE(NULLIF(sales_unit,''), ''),
-		       COALESCE(NULLIF(min_qty_units,0),0)::float8,
-		       COALESCE(price_per_unit,0)::float8,
-		       COALESCE(NULLIF(unit_bag_count,0),0)::float8
-		FROM %s.product_price_tiers
-		WHERE product_id=$1
-		  AND active=true
-		  AND COALESCE(NULLIF(product_kind,''), 'roasted_bean')='drip_bag'
-		  AND COALESCE(NULLIF(sales_unit,''), '') IN ('bag','box')
-		  AND COALESCE(price_per_unit,0)>0
-		ORDER BY COALESCE(NULLIF(sales_unit,''), ''), COALESCE(NULLIF(min_qty_units,0),0)
-	`, r.schema), productID)
+func (r Repository) portalPublishedPricingTx(ctx context.Context, tx pgx.Tx, customerID, productID int64, productKind string, specG, qty int64, salesUnit string, unitBagCount int64) (orderbeans.Usage, orderbeans.PublishedPricing, error) {
+	listType := orderbeans.ListTypeForProductKind(productKind, false)
+	usage, err := orderbeans.ResolveUsageForPublication(ctx, tx, r.schema, customerID, productID, listType, 0)
 	if err != nil {
-		return nil, err
+		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, err
 	}
-	defer rows.Close()
-	tiers := make([]salesdomain.UnitPriceTier, 0)
-	for rows.Next() {
-		var tier salesdomain.UnitPriceTier
-		if err := rows.Scan(&tier.ProductKind, &tier.SalesUnit, &tier.MinQty, &tier.PricePerUnit, &tier.UnitBagCount); err != nil {
-			return nil, err
-		}
-		tiers = append(tiers, tier)
+	if usage.PublicationID <= 0 {
+		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, fmt.Errorf(portalMissingPublishedPriceMessage(listType))
 	}
-	return tiers, rows.Err()
+	pricing, err := orderbeans.ResolvePublishedPricingForPublicationWithUnit(ctx, tx, r.schema, customerID, productID, listType, usage.PublicationID, specG, qty, salesUnit, unitBagCount)
+	if err != nil {
+		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, err
+	}
+	if pricing.UnitPrice <= 0 {
+		return orderbeans.Usage{}, orderbeans.PublishedPricing{}, fmt.Errorf(portalMissingPublishedPriceMessage(listType))
+	}
+	return usage, pricing, nil
 }
 
-func portalUnitLinePriceSourceSnapshot(result salesdomain.UnitLineResult) string {
-	return portalPriceSourceSnapshot("published_unit_price", result.Tier.ProductKind, result.Tier.SalesUnit, result.UnitPrice, result.MatchedQtyForTier, result.Tier.PricePerUnit, result.LineTotal, result.Tier.UnitBagCount)
+func portalMissingPublishedPriceMessage(listType string) string {
+	switch strings.TrimSpace(listType) {
+	case orderbeans.ListTypeDrip:
+		return "缺少挂耳价格表价格"
+	case orderbeans.ListTypeGreen:
+		return "缺少生豆豆单价格"
+	default:
+		return "缺少商品价格表价格"
+	}
+}
+
+func portalPublishedPriceSourceSnapshot(listType string, usage orderbeans.Usage, productID int64, pricing orderbeans.PublishedPricing) string {
+	conversion := json.RawMessage(`{}`)
+	if raw := strings.TrimSpace(pricing.InventoryConversionJSON); raw != "" && json.Valid([]byte(raw)) {
+		conversion = json.RawMessage(raw)
+	}
+	b, _ := json.Marshal(map[string]any{
+		"source":                    "published_price_snapshot",
+		"price_source":              "published_price_snapshot",
+		"list_type":                 strings.TrimSpace(listType),
+		"product_id":                productID,
+		"bean_list_publication_id":  usage.PublicationID,
+		"bean_list_version_no":      usage.VersionNo,
+		"unit_price":                pricing.UnitPrice,
+		"price_unit":                pricing.PriceUnit,
+		"source_price_record_id":    pricing.SourcePriceRecordID,
+		"inventory_unit":            pricing.InventoryUnit,
+		"inventory_conversion_json": conversion,
+	})
+	return string(b)
 }
 
 func portalPriceSourceSnapshot(source, productKind, salesUnit string, unitPrice, matchedQty, tierPrice, lineTotal, unitBagCount float64) string {
@@ -2749,86 +2877,6 @@ func portalMiniActor(miniUserID int64) string {
 	return "miniapp"
 }
 
-func (r Repository) portalFulfillmentUnitPriceTx(ctx context.Context, tx pgx.Tx, customerID, productID, specG int64, qty int64, defaultPrice float64) float64 {
-	if productID <= 0 || specG <= 0 || qty <= 0 {
-		return defaultPrice
-	}
-	rule := r.portalDirectShipSmallBatchPriceRuleTx(ctx, tx, customerID)
-	tierQty := portalTierQuantityForSpec(specG, qty)
-	qtyLb := float64(specG*qty) / 454.0
-	tierQtyLb := qtyLb
-	if adjustedQty, ok := portalSmallBatchTierQuantity(specG, qtyLb, rule); ok {
-		tierQty = portalTierQuantityForSpec(specG, adjustedQty)
-		tierQtyLb = float64(specG*adjustedQty) / 454.0
-	}
-	var packagePrice, pricePerLb float64
-	q := fmt.Sprintf(`
-		SELECT
-			COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0),
-			COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
-		FROM %s.product_price_tiers
-		WHERE product_id=$1 AND active=true
-		  AND COALESCE(NULLIF(spec_g,0),454)=$2
-		  AND COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) <= $3
-		  AND (COALESCE(NULLIF(max_qty_units,0), max_qty_lb) IS NULL OR COALESCE(NULLIF(max_qty_units,0), max_qty_lb) >= $3)
-		ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) DESC
-		LIMIT 1
-	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID, specG, tierQty).Scan(&packagePrice, &pricePerLb); err == nil && pricePerLb > 0 {
-		return portalDisplayUnitPriceFromLb(pricePerLb, specG)
-	}
-	q = fmt.Sprintf(`
-		SELECT
-			COALESCE(NULLIF(price_per_unit,0), NULLIF(price_per_lb,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0),
-			COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
-		FROM %s.product_price_tiers
-		WHERE product_id=$1 AND active=true
-		  AND COALESCE(NULLIF(spec_g,0),454)=$2
-		ORDER BY COALESCE(NULLIF(min_qty_units,0), min_qty_lb, 0) ASC
-		LIMIT 1
-	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID, specG).Scan(&packagePrice, &pricePerLb); err == nil && pricePerLb > 0 {
-		return portalDisplayUnitPriceFromLb(pricePerLb, specG)
-	}
-	q = fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
-		FROM %s.product_price_tiers
-		WHERE product_id=$1 AND active=true
-		  AND COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) <= $2
-		  AND (
-		    COALESCE(NULLIF(max_qty_lb,0), NULLIF(max_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0) IS NULL
-		    OR COALESCE(NULLIF(max_qty_lb,0), NULLIF(max_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0) >= $2
-		  )
-		ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) DESC
-		LIMIT 1
-	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID, tierQtyLb).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
-		return portalDisplayUnitPriceFromLb(pricePerLb, specG)
-	}
-	q = fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
-		FROM %s.product_price_tiers
-		WHERE product_id=$1 AND active=true
-		  AND COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) <= $2
-		ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) DESC
-		LIMIT 1
-	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID, tierQtyLb).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
-		return portalDisplayUnitPriceFromLb(pricePerLb, specG)
-	}
-	q = fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(price_per_lb,0), NULLIF(price_per_unit,0) * 454.0 / COALESCE(NULLIF(spec_g,0),454), 0)
-		FROM %s.product_price_tiers
-		WHERE product_id=$1 AND active=true
-		ORDER BY COALESCE(NULLIF(min_qty_lb,0), NULLIF(min_qty_units,0) * COALESCE(NULLIF(spec_g,0),454) / 454.0, 0) ASC
-		LIMIT 1
-	`, r.schema)
-	if err := tx.QueryRow(ctx, q, productID).Scan(&pricePerLb); err == nil && pricePerLb > 0 {
-		return portalDisplayUnitPriceFromLb(pricePerLb, specG)
-	}
-	return defaultPrice
-}
-
 func portalTierQuantityForSpec(specG int64, units int64) float64 {
 	if specG >= 1000 {
 		return float64(specG*units) / 1000.0
@@ -2860,6 +2908,16 @@ func portalLineTotalFromDisplayUnit(unitPrice float64, specG int64, units int64)
 		return 0
 	}
 	return unitPrice * float64(specG*units) / portalDisplayUnitG(specG)
+}
+
+func portalLineTotalFromPriceUnit(unitPrice float64, specG int64, units int64, unitG float64) float64 {
+	if unitPrice <= 0 || specG <= 0 || units <= 0 {
+		return 0
+	}
+	if unitG <= 0 {
+		unitG = portalDisplayUnitG(specG)
+	}
+	return unitPrice * float64(specG*units) / unitG
 }
 
 func (r Repository) portalDirectShipSmallBatchPriceRuleTx(ctx context.Context, tx pgx.Tx, customerID int64) customerportalapp.SmallBatchPriceRule {

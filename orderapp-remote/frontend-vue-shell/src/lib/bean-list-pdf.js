@@ -164,8 +164,8 @@ function buildPdfItem(item, metaKey, tierKey, listType, code, customizers) {
   const badge = normalizeBadge(customizer.badge)
   const beanListQuality = normalizeBeanListQuality(item.bean_list_quality || item.beanListQuality)
   const productAttributes = normalizeProductAttributes(item.product_attributes || item.productAttributes)
-  const tierSnapshots = pdfTierSnapshots(item, tierKey, listType, customizer)
-  const prices = pdfPriceRows(item, tierKey, listType, customizer)
+  const tierSnapshots = attachProductPriceSnapshotsToTiers(item, pdfTierSnapshots(item, tierKey, listType, customizer), listType)
+  const prices = pdfPriceRows(item, tierKey, listType, customizer, tierSnapshots)
   const displayName = stringField(item.customer_product_display_name ?? item.customerProductDisplayName ?? meta.display_name ?? item.name)
   const productID = firstNumber(item.product_id, item.productID, item.productId, item.id)
   return {
@@ -223,8 +223,8 @@ function pdfTierSnapshots(item, tierKey, listType, customizer = {}) {
   })
 }
 
-function pdfPriceRows(item, tierKey, listType, customizer = {}) {
-  const tiers = pdfTierSnapshots(item, tierKey, listType, customizer)
+function pdfPriceRows(item, tierKey, listType, customizer = {}, tierSnapshots = null) {
+  const tiers = Array.isArray(tierSnapshots) ? tierSnapshots : pdfTierSnapshots(item, tierKey, listType, customizer)
   if (listType === 'drip') {
     return tiers.flatMap((tier) => dripPdfPriceRows(tier, item))
   }
@@ -245,6 +245,90 @@ function pdfPriceRows(item, tierKey, listType, customizer = {}) {
       red: false,
     }
   })
+}
+
+function attachProductPriceSnapshotsToTiers(item, tiers = [], listType = 'commercial') {
+  if (!Array.isArray(tiers) || !tiers.length) return []
+  return tiers.map((tier) => {
+    const snapshot = productPriceSnapshotForTier(item, tier, listType)
+    if (!snapshot) return { ...tier }
+    const priceUnit = stringField(snapshot.price_unit || tier.price_unit || tier.display_unit)
+    const inventoryUnit = stringField(snapshot.inventory_unit || item.inventory_unit || item.inventoryUnit || 'kg')
+    return {
+      ...tier,
+      source_price_record_id: firstNumber(snapshot.source_price_record_id, snapshot.id),
+      final_unit_price: firstNumber(snapshot.final_unit_price, tier.final_unit_price, tier.price_per_unit),
+      price_unit: priceUnit || stringField(tier.price_unit || tier.display_unit),
+      currency: stringField(snapshot.currency) || 'CNY',
+      inventory_unit: inventoryUnit,
+      inventory_conversion_json: inventoryConversionSnapshot(snapshot, priceUnit, inventoryUnit),
+    }
+  })
+}
+
+function productPriceSnapshotForTier(item, tier = {}, listType = 'commercial') {
+  const snapshots = productPriceSnapshotsForItem(item)
+  if (!snapshots.length) return null
+  const tierPrice = tierFinalPrice(tier, listType)
+  const tierUnit = normalizeComparableUnit(tier.price_unit || tier.display_unit || (listType === 'green' ? greenPriceUnitLabel(tier) : priceUnit(tier)))
+  const productID = firstNumber(item.product_id, item.productID, item.productId, item.id)
+  const aliasID = firstNumber(item.customer_product_alias_id, item.customerProductAliasID)
+  const candidates = snapshots.filter((snapshot) => {
+    const snapshotAliasID = firstNumber(snapshot.customer_product_alias_id, snapshot.customerProductAliasID)
+    const snapshotProductID = firstNumber(snapshot.product_id, snapshot.productID, snapshot.productId)
+    if (aliasID > 0 && snapshotAliasID > 0) return snapshotAliasID === aliasID
+    return snapshotProductID <= 0 || productID <= 0 || snapshotProductID === productID
+  })
+  return candidates.find((snapshot) => {
+    const price = firstNumber(snapshot.final_unit_price, snapshot.finalUnitPrice)
+    const unit = normalizeComparableUnit(snapshot.price_unit || snapshot.priceUnit)
+    return pricesClose(price, tierPrice) && (!tierUnit || !unit || unit === tierUnit)
+  }) || candidates.find((snapshot) => pricesClose(firstNumber(snapshot.final_unit_price, snapshot.finalUnitPrice), tierPrice)) || null
+}
+
+function productPriceSnapshotsForItem(item = {}) {
+  const rows = item.product_price_snapshots || item.productPriceSnapshots || item.price_records_snapshot || item.priceRecordsSnapshot || []
+  return Array.isArray(rows) ? rows : []
+}
+
+function tierFinalPrice(tier = {}, listType = 'commercial') {
+  if (listType === 'green') return greenDisplayPrice(tier)
+  return firstNumber(tier.final_unit_price, tier.finalUnitPrice, tier.price_per_unit, tier.pricePerUnit, tier.packed_price_per_bag, tier.packedPricePerBag, tier.packed_price_per_box, tier.packedPricePerBox, tier.price_per_kg, tier.pricePerKg, tier.price_per_lb, tier.pricePerLb)
+}
+
+function pricesClose(a, b) {
+  return Number.isFinite(Number(a)) && Number.isFinite(Number(b)) && Math.abs(Number(a) - Number(b)) < 0.005
+}
+
+function inventoryConversionSnapshot(snapshot = {}, priceUnit = '', inventoryUnit = '') {
+  const parsed = parseJSONObject(snapshot.inventory_conversion_json ?? snapshot.inventoryConversionJSON)
+  if (Object.keys(parsed).length) return parsed
+  const source = stringField(priceUnit)
+  const target = stringField(inventoryUnit)
+  if (source && target && source === target) return { [source]: { [target]: 1 } }
+  return {}
+}
+
+function parseJSONObject(value) {
+  if (!value) return {}
+  if (typeof value === 'object' && !Array.isArray(value)) return value
+  try {
+    const parsed = JSON.parse(String(value))
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function normalizeComparableUnit(unit) {
+  const value = stringField(unit)
+  const lower = value.toLowerCase()
+  if (['kg', 'lb', 'g100', 'g227', 'g250'].includes(lower)) return lower
+  if (value === '100g') return 'g100'
+  if (value === '227g') return 'g227'
+  if (value === '250g') return 'g250'
+  if (value === '磅') return 'lb'
+  return value
 }
 
 function applyGreenTierPrice(tier, price) {

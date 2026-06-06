@@ -252,6 +252,16 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-439-PRODUCT-PRICE-MASTER-REMODEL", title: "商品档案和客户商品只维护主数据与展示关系；价格、报价单位、录单单位进入商品价格管理和已发布价格表快照", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; ProductSettingsView.vue; catalog API/repository"},
+		{table: "req_dev", code: "DEV-439-PRODUCT-ARCHIVE-MASTER-DATA", title: "商品档案普通 UI 删除商品配置模板、利润率覆盖等旧价格字段，展示库存单位、整数库存、BOM 使用摘要和价格摘要", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; product-settings.test.js"},
+		{table: "req_dev", code: "DEV-439-CUSTOMER-PRODUCT-SNAPSHOT-SUMMARY", title: "客户商品保存只维护客户、绑定商品、展示名、排序、启停、备注和是否进入价格表；价格摘要来自商品价格表快照", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; product-settings.js"},
+		{table: "req_dev", code: "DEV-439-LEGACY-TEMPLATE-WRITE-CUTOFF", title: "普通商品和客户商品保存不再写入旧模板字段，旧字段只保留历史兼容读取和迁移报告", status: "doing", assignee: "Codex", evidence: "product_routes.go; service.go; product_settings_api_test.go"},
+		{table: "req_dev", code: "DEV-439-COPY-NO-PRICE-BOM", title: "复制为商品档案只复制基础资料和行业字段，不复制 BOM、价格、价格表快照或客户商品关系", status: "doing", assignee: "Codex", evidence: "catalog repository; repository_test.go"},
+		{table: "req_dev", code: "DEV-439-PRICE-MASTER-DATA", title: "商品价格管理维护最终价格记录、价格单位、币种、价格分组、库存单位和库存换算", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; product_routes.go; catalog service/repository"},
+		{table: "req_dev", code: "DEV-439-TIER-SCHEME-FINAL-PRICE-REFERENCE", title: "阶梯价格方案每档引用最终价格记录，保存档位时固化最终价且不二次计算", status: "doing", assignee: "Codex", evidence: "service_test.go; product_settings_api_test.go; repository_test.go"},
+		{table: "req_unit", code: "UT-439-PRODUCT-PRICE-MASTER-REMODEL", title: "前端测试覆盖普通商品/客户商品不提交旧模板字段、价格摘要和库存字段展示", status: "doing", assignee: "Codex", evidence: "node --test src/lib/product-settings.test.js"},
+		{table: "req_api", code: "API-439-PRODUCT-PRICE-MASTER-REMODEL", title: "Catalog API/仓库测试覆盖商品保存旧字段归零、客户商品旧字段归零、新增商品不带价格阶梯、复制不复制价格/BOM", status: "doing", assignee: "Codex", evidence: "go test catalog targeted; go test postgres/catalog targeted"},
+		{table: "req_review", code: "REV-439-PRODUCT-PRICE-MASTER-REMODEL", prCode: "PR-439-PRODUCT-PRICE-MASTER-REMODEL", title: "验收：商品档案/客户商品无旧模板字段；价格摘要读快照；复制商品不复制 BOM、价格和价格表快照", status: "todo", assignee: "VA", evidence: "docs/acceptance/2026-06-06-product-price-master-remodel.md"},
 		{table: "req_product", code: "PR-438-PRODUCT-TEMPLATE-DELETE-PRICE-LIST-UI", title: "已发布价格表支持分页、搜索和收缩；字典和模板删除后不再展示，商品配置模板可删除且停用不再报单位模板失效", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; CostingView.vue; ProductSettingsView.vue; catalog repository"},
 		{table: "req_dev", code: "DEV-438-PRICE-LIST-PUBLICATION-UI", title: "已发布价格表版本列表增加搜索、分页和收起/展开状态", status: "doing", assignee: "Codex", evidence: "CostingView.vue; product-price-list-types.test.js"},
 		{table: "req_dev", code: "DEV-438-DELETED-TEMPLATE-HIDDEN", title: "全局单位字典、单位模板、分类模板和商品配置模板使用删除态隐藏，删除不等于失效", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; UISettingsView.vue; catalog schema/repository"},

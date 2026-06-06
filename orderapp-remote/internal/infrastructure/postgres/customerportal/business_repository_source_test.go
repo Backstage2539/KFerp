@@ -171,6 +171,36 @@ func TestBusinessRepositoryCreatesMallOrdersFromPublishedMallProducts(t *testing
 	}
 }
 
+func TestCustomerPortalFulfillmentPricingUsesPublishedSnapshotsOnly(t *testing.T) {
+	body, err := os.ReadFile("business_repository.go")
+	if err != nil {
+		t.Fatalf("read business_repository.go: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"ResolvePublishedPricingForPublicationWithUnit",
+		"ResolveUsageForPublication",
+		"published_price_snapshot",
+		"source_price_record_id",
+		"inventory_conversion_json",
+		"bean_list_publication_id,bean_list_version_no",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("customer portal fulfillment pricing missing published snapshot marker %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"portalFulfillmentUnitPriceTx",
+		"portalDripUnitPriceTiersTx",
+		"FROM %s.product_price_tiers",
+		"published_unit_price",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("customer portal fulfillment pricing should not keep legacy price fallback %q", forbidden)
+		}
+	}
+}
+
 func TestPortalMallLinePricingUsesBagQuoteForDripBoxOrders(t *testing.T) {
 	got, err := portalMallLinePricingFor(mallOrderLine{
 		ProductID:       18,
