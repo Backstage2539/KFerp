@@ -26,7 +26,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-431-CUSTOMER-RESALE-BEAN-LIST
 - Branch: codex/customer-resale-bean-list-20260606
 - Owner/session: Codex / 2026-06-06
-- Status: local implementation verified; pending merge/rebase with latest `origin/develop`, development deploy and live ERP/miniapp acceptance
+- Status: merged to `develop`, deployed to development, smoke verified; pending Van product acceptance with a bound mini customer token
 - Scope: 小程序客户可基于自己可见的工厂供货豆单制作“客户转售豆单”，选择商品、授权阶梯价模板、统一加价/倍率加价/单品覆盖，编辑版本号、品牌名、豆单说明、样式、背景和标签，发布后生成 PDF 和服务端长图 PNG；客户转售豆单只用于对外分享，不参与向工厂下单、结算或履约计价。
 - DEV:
   - DEV-431-BEAN-LIST-PURPOSE-SNAPSHOT：`bean_list_publications` 增加 `publication_purpose`，现有记录默认 `factory_supply`，小程序客户发布保存为 `customer_resale` 并记录来源供货豆单版本。
@@ -40,7 +40,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN local targeted: `go test ./internal/application/customerportal -run 'TestPublishResaleBeanList' -count=1`; `go test ./internal/interfaces/http/customerportal -run 'TestMiniResaleBeanList|TestMiniBeanListPDF' -count=1`; `go test ./internal/interfaces/http/costing -run 'TestBeanListPublicationAPISupportsPurposeFilter|TestBeanListPublicationAPI' -count=1`; `go test ./internal/infrastructure/postgres/customerportal -run TestResaleBeanListPageSeparatesFactorySupplySnapshotsAndAuthorizedTemplates -count=1`; `go test ./internal/infrastructure/pdf -run TestBeanListRendererRenderPNGProducesLongShareImage -count=1`; `node --test src/lib/gradient-templates.test.js src/lib/costing-bean-list-version-ui.test.js`; `npm test -- src/utils/mainTabs.test.ts src/utils/resaleBeanList.test.ts`; `npm run typecheck` in miniapp.
   - GREEN local broader: `go test ./internal/application/customerportal ./internal/interfaces/http/customerportal ./internal/interfaces/http/costing ./internal/infrastructure/postgres/customerportal ./internal/infrastructure/pdf ./internal/interfaces/http/support ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/costing -count=1`; `npm run build` in `orderapp-remote/frontend-vue-shell`; `scripts/verify_kferp.sh frontend-build`; `npm run build:mp-weixin` in `miniapp`.
   - Visual artifacts: rendered `../customer-resale-bean-list-artifacts/customer-resale-bean-list.pdf`, `../customer-resale-bean-list-artifacts/customer-resale-bean-list.pdf.png`, and `../customer-resale-bean-list-artifacts/customer-resale-bean-list.png`; Quick Look PDF screenshot and long PNG show version, brand/intro, recommendation tag, price and changelog without overlap.
-  - Pending: `git diff --check`, merge/rebase with latest `origin/develop`, development deploy and live browser/miniapp acceptance if Van confirms deployment window.
+  - GREEN integration/deploy: merged via `1eb60a84` into `develop`; feature branch pushed to `origin/codex/customer-resale-bean-list-20260606`; development stack later advanced to `b3306afb` and still contains PR-431 markers.
+  - GREEN deploy smoke: `/app/` returned 303 to `/app/orders`; `/app/vue-shell/` returned 200 with BasicAuth; unauthenticated `GET /app/api/mini/resale-bean-lists`, `.pdf`, and `.png` returned 401; `erp_orderapp` container is up; deployed source contains `PR-431-CUSTOMER-RESALE-BEAN-LIST`.
+  - Pending: Van product acceptance with real customer binding/mini token on 产品价格表、阶梯价模板、小程序“我的豆单”和操作日志.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/customer-portal-miniapp-test.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-customer-resale-bean-list.md`.
 - Last update: 2026-06-06 Asia/Shanghai
 

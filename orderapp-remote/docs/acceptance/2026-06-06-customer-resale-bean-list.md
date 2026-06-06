@@ -35,6 +35,10 @@
   - PDF screenshot: `../customer-resale-bean-list-artifacts/customer-resale-bean-list.pdf.png`
   - Long PNG: `../customer-resale-bean-list-artifacts/customer-resale-bean-list.png`
   - Quick Look PDF screenshot and long PNG show version, brand/intro, recommendation tag, price and changelog without overlap.
+- Integration/deploy:
+  - Feature branch `codex/customer-resale-bean-list-20260606` pushed to origin.
+  - Merged into `develop` via `1eb60a84`; development stack later advanced to `b3306afb` and still contains PR-431 source markers.
+  - Smoke checks passed: `/app/` returns 303 to `/app/orders`, `/app/vue-shell/` returns 200 with BasicAuth, unauthenticated mini resale list/PDF/PNG endpoints return 401, and `erp_orderapp` is up.
 
 ## Manual Updates
 - `orderapp-remote/docs/OP_MANUAL_COSTING.md`
@@ -44,6 +48,5 @@
 - `orderapp-remote/docs/REQUIREMENTS.md`
 - `orderapp-remote/docs/ACCEPTANCE_TESTS.md`
 
-## Pending Before Product Acceptance
-- Deploy to development only after feature branch verification and integration decision.
-- Perform live ERP/miniapp acceptance on 产品价格表、阶梯价模板、小程序“我的豆单”和操作日志.
+## Pending Product Acceptance
+- Perform live ERP/miniapp acceptance with a real customer binding and mini token on 产品价格表、阶梯价模板、小程序“我的豆单”和操作日志.
