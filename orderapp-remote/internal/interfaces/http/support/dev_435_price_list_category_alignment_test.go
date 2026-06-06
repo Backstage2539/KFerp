@@ -33,6 +33,7 @@ func TestDev435PriceListCategoryAlignmentWiringAndDocs(t *testing.T) {
 			"buildClassificationPriceListTypeOptionsFromItems",
 			"priceListRenderTypeForItem(item) === 'green'",
 			"metaKeyForItem(item)",
+			"未归类统一进入未分类商品",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-price-list-types.test.js"): {
 			"legacy product type id does not count as current product archive classification",
