@@ -19,36 +19,41 @@ import (
 )
 
 type fakeService struct {
-	login            customerportalapp.LoginResult
-	loginCmd         *customerportalapp.LoginCommand
-	passwordLoginCmd *customerportalapp.PasswordLoginCommand
-	me               customerportalapp.CurrentContext
-	service          customerportalapp.ServicePage
-	filter           *customerportalapp.ServicePageFilter
-	customers        []customerportalapp.PortalAdminCustomer
-	detail           customerportalapp.PortalAdminDetail
-	saveCmd          *customerportalapp.UpdatePortalVisibilityCommand
-	templates        []customerportalapp.CapabilityTemplate
-	templateSaveCmd  *customerportalapp.SaveCapabilityTemplateCommand
-	templateCopyCmd  *customerportalapp.CopyCapabilityTemplateCommand
-	templateCmd      *customerportalapp.ApplyCapabilityTemplateCommand
-	erpBindingCmd    *customerportalapp.UpsertPortalERPBindingCommand
-	mallRows         []customerportalapp.MallProduct
-	mallOptions      []customerportalapp.MallProductOption
-	mallSaveCmd      *customerportalapp.SaveMallProductCommand
-	mallImageCmd     *customerportalapp.UpdateMallProductImageCommand
-	mallImageErr     error
-	mallPage         customerportalapp.MallPage
-	mallOrder        customerportalapp.FulfillmentOrder
-	mallOrderCmd     *customerportalapp.CreateMallOrderCommand
-	directShip       customerportalapp.DirectShipBatch
-	processing       customerportalapp.ProcessingRequest
-	fulfillment      customerportalapp.FulfillmentOrder
-	fulfillmentCmd   *customerportalapp.CreateFulfillmentOrderCommand
-	beanList         customerportalapp.BeanListSummary
-	orderAccessToken *string
-	orderAccessID    *int64
-	err              error
+	login             customerportalapp.LoginResult
+	loginCmd          *customerportalapp.LoginCommand
+	passwordLoginCmd  *customerportalapp.PasswordLoginCommand
+	me                customerportalapp.CurrentContext
+	service           customerportalapp.ServicePage
+	filter            *customerportalapp.ServicePageFilter
+	customers         []customerportalapp.PortalAdminCustomer
+	detail            customerportalapp.PortalAdminDetail
+	saveCmd           *customerportalapp.UpdatePortalVisibilityCommand
+	templates         []customerportalapp.CapabilityTemplate
+	templateSaveCmd   *customerportalapp.SaveCapabilityTemplateCommand
+	templateCopyCmd   *customerportalapp.CopyCapabilityTemplateCommand
+	templateCmd       *customerportalapp.ApplyCapabilityTemplateCommand
+	erpBindingCmd     *customerportalapp.UpsertPortalERPBindingCommand
+	mallRows          []customerportalapp.MallProduct
+	mallOptions       []customerportalapp.MallProductOption
+	mallSaveCmd       *customerportalapp.SaveMallProductCommand
+	mallImageCmd      *customerportalapp.UpdateMallProductImageCommand
+	mallImageErr      error
+	mallPage          customerportalapp.MallPage
+	mallOrder         customerportalapp.FulfillmentOrder
+	mallOrderCmd      *customerportalapp.CreateMallOrderCommand
+	directShip        customerportalapp.DirectShipBatch
+	processing        customerportalapp.ProcessingRequest
+	fulfillment       customerportalapp.FulfillmentOrder
+	fulfillmentCmd    *customerportalapp.CreateFulfillmentOrderCommand
+	beanList          customerportalapp.BeanListSummary
+	resalePage        customerportalapp.ResaleBeanListPage
+	resaleEditor      customerportalapp.ResaleBeanListEditor
+	resalePublication customerportalapp.BeanListSummary
+	resalePublishCmd  *customerportalapp.ResaleBeanListCommand
+	resalePNG         []byte
+	orderAccessToken  *string
+	orderAccessID     *int64
+	err               error
 }
 
 func (s fakeService) Login(_ context.Context, cmd customerportalapp.LoginCommand) (customerportalapp.LoginResult, error) {
@@ -104,6 +109,58 @@ func (s fakeService) GetBeanListPublication(context.Context, string, int64) (cus
 
 func (s fakeService) AcknowledgeBeanListPublication(context.Context, string, int64) error {
 	return s.err
+}
+
+func (s fakeService) GetResaleBeanLists(context.Context, string) (customerportalapp.ResaleBeanListPage, error) {
+	if s.err != nil {
+		return customerportalapp.ResaleBeanListPage{}, s.err
+	}
+	return s.resalePage, nil
+}
+
+func (s fakeService) GetResaleBeanListEditor(context.Context, string, int64) (customerportalapp.ResaleBeanListEditor, error) {
+	if s.err != nil {
+		return customerportalapp.ResaleBeanListEditor{}, s.err
+	}
+	return s.resaleEditor, nil
+}
+
+func (s fakeService) SaveResaleBeanListDraft(_ context.Context, _ string, cmd customerportalapp.ResaleBeanListCommand) (customerportalapp.BeanListSummary, error) {
+	if s.err != nil {
+		return customerportalapp.BeanListSummary{}, s.err
+	}
+	if s.resalePublishCmd != nil {
+		*s.resalePublishCmd = cmd
+	}
+	return s.resalePublication, nil
+}
+
+func (s fakeService) PublishResaleBeanList(_ context.Context, _ string, cmd customerportalapp.ResaleBeanListCommand) (customerportalapp.BeanListSummary, error) {
+	if s.err != nil {
+		return customerportalapp.BeanListSummary{}, s.err
+	}
+	if s.resalePublishCmd != nil {
+		*s.resalePublishCmd = cmd
+	}
+	return s.resalePublication, nil
+}
+
+func (s fakeService) GetResaleBeanListPublicationPDF(context.Context, string, int64, func(customerportalapp.BeanListSummary) ([]byte, error)) (customerportalapp.BeanListSummary, []byte, error) {
+	if s.err != nil {
+		return customerportalapp.BeanListSummary{}, nil, s.err
+	}
+	return s.resalePublication, []byte("%PDF resale"), nil
+}
+
+func (s fakeService) GetResaleBeanListPublicationPNG(context.Context, string, int64, func(customerportalapp.BeanListSummary) ([]byte, error)) (customerportalapp.BeanListSummary, []byte, error) {
+	if s.err != nil {
+		return customerportalapp.BeanListSummary{}, nil, s.err
+	}
+	body := s.resalePNG
+	if len(body) == 0 {
+		body = []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+	}
+	return s.resalePublication, body, nil
 }
 
 func (s fakeService) ListPortalAdminCustomers(context.Context, customerportalapp.PortalAdminCustomerQuery) ([]customerportalapp.PortalAdminCustomer, error) {
@@ -911,6 +968,67 @@ func TestMiniBeanListPDFPublicationNotFoundMapsToNotFound(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `"error":"bean list publication not found"`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiniResaleBeanListAPIsExposeEditorPublishAndPNG(t *testing.T) {
+	var publishCmd customerportalapp.ResaleBeanListCommand
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		resalePage: customerportalapp.ResaleBeanListPage{
+			FactorySupplyBeanLists:  []customerportalapp.BeanListSummary{{ID: 11, Title: "工厂供货豆单", VersionNo: "G-1"}},
+			CustomerResaleBeanLists: []customerportalapp.BeanListSummary{{ID: 21, Title: "我的销售豆单", VersionNo: "V1"}},
+			GradientTemplates:       []customerportalapp.ResaleGradientTemplate{{ID: 5, Name: "授权 kg 模板", DisplayUnit: "kg"}},
+		},
+		resaleEditor: customerportalapp.ResaleBeanListEditor{
+			Source:        customerportalapp.BeanListSummary{ID: 11, Title: "工厂供货豆单", VersionNo: "G-1"},
+			NextVersionNo: "V2",
+		},
+		resalePublication: customerportalapp.BeanListSummary{ID: 33, Title: "客户品牌销售豆单", VersionNo: "V2"},
+		resalePublishCmd:  &publishCmd,
+	}})
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/mini/resale-bean-lists", nil)
+	listReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	listRec := httptest.NewRecorder()
+	e.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK ||
+		!strings.Contains(listRec.Body.String(), `"factory_supply_bean_lists":[`) ||
+		!strings.Contains(listRec.Body.String(), `"customer_resale_bean_lists":[`) ||
+		!strings.Contains(listRec.Body.String(), `"gradient_templates":[`) {
+		t.Fatalf("list status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	editorReq := httptest.NewRequest(http.MethodGet, "/api/mini/resale-bean-lists/11/editor", nil)
+	editorReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	editorRec := httptest.NewRecorder()
+	e.ServeHTTP(editorRec, editorReq)
+	if editorRec.Code != http.StatusOK || !strings.Contains(editorRec.Body.String(), `"next_version_no":"V2"`) {
+		t.Fatalf("editor status=%d body=%s", editorRec.Code, editorRec.Body.String())
+	}
+
+	publishReq := httptest.NewRequest(http.MethodPost, "/api/mini/resale-bean-lists/publications", strings.NewReader(`{
+		"source_publication_id":11,
+		"version_no":"V2",
+		"gradient_template_id":5,
+		"selected_item_codes":["ETH-G1"],
+		"price_rule":{"add_amount":2,"multiplier":1.1},
+		"config":{"brandName":"客户品牌"}
+	}`))
+	publishReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	publishReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	publishRec := httptest.NewRecorder()
+	e.ServeHTTP(publishRec, publishReq)
+	if publishRec.Code != http.StatusOK || publishCmd.SourcePublicationID != 11 || publishCmd.GradientTemplateID != 5 {
+		t.Fatalf("publish status=%d cmd=%+v body=%s", publishRec.Code, publishCmd, publishRec.Body.String())
+	}
+
+	pngReq := httptest.NewRequest(http.MethodGet, "/api/mini/resale-bean-lists/33.png", nil)
+	pngReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	pngRec := httptest.NewRecorder()
+	e.ServeHTTP(pngRec, pngReq)
+	if pngRec.Code != http.StatusOK || pngRec.Header().Get(echo.HeaderContentType) != "image/png" || !bytes.HasPrefix(pngRec.Body.Bytes(), []byte{0x89, 'P', 'N', 'G'}) {
+		t.Fatalf("png status=%d content-type=%q body=%q", pngRec.Code, pngRec.Header().Get(echo.HeaderContentType), pngRec.Body.Bytes())
 	}
 }
 
@@ -1807,6 +1925,30 @@ func (r *templateContractRepository) SaveBeanListPublicationAsset(_ context.Cont
 
 func (r *templateContractRepository) AcknowledgeBeanListPublication(context.Context, int64, int64, string) error {
 	return nil
+}
+
+func (r *templateContractRepository) LoadResaleBeanListPage(context.Context, int64) (customerportalapp.ResaleBeanListPage, error) {
+	return customerportalapp.ResaleBeanListPage{}, nil
+}
+
+func (r *templateContractRepository) LoadResaleBeanListEditor(context.Context, int64, int64) (customerportalapp.ResaleBeanListEditor, error) {
+	return customerportalapp.ResaleBeanListEditor{}, nil
+}
+
+func (r *templateContractRepository) LoadResaleBeanListPublication(context.Context, int64, int64) (customerportalapp.BeanListSummary, error) {
+	return customerportalapp.BeanListSummary{}, nil
+}
+
+func (r *templateContractRepository) LoadAuthorizedResaleGradientTemplate(context.Context, int64, int64) (customerportalapp.ResaleGradientTemplate, error) {
+	return customerportalapp.ResaleGradientTemplate{}, customerportalapp.ErrResaleGradientTemplateNotFound
+}
+
+func (r *templateContractRepository) ListCustomerResaleBeanListVersions(context.Context, int64, int) ([]customerportalapp.BeanListSummary, error) {
+	return nil, nil
+}
+
+func (r *templateContractRepository) SaveCustomerResaleBeanListPublication(context.Context, customerportalapp.SaveCustomerResaleBeanListPublicationCommand) (customerportalapp.BeanListSummary, error) {
+	return customerportalapp.BeanListSummary{}, nil
 }
 
 func (r *templateContractRepository) ListPortalAdminCustomers(context.Context, customerportalapp.PortalAdminCustomerQuery) ([]customerportalapp.PortalAdminCustomer, error) {

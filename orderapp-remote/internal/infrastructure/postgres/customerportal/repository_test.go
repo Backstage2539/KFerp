@@ -12,6 +12,7 @@ import (
 	"time"
 
 	customerportalapp "orderapp/internal/application/customerportal"
+	postgrescatalog "orderapp/internal/infrastructure/postgres/catalog"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
 	postgrescore "orderapp/internal/infrastructure/postgres/core"
 	postgrescosting "orderapp/internal/infrastructure/postgres/costing"
@@ -2320,6 +2321,73 @@ func TestLoadBeanListServicePageUsesFixedCustomerPublication(t *testing.T) {
 	}
 	if !page.HasBeanListVersions || len(page.BeanListVersions) != 2 {
 		t.Fatalf("version metadata has_customer=%v options=%+v", page.HasBeanListVersions, page.BeanListVersions)
+	}
+}
+
+func TestResaleBeanListPageSeparatesFactorySupplySnapshotsAndAuthorizedTemplates(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	ensureCustomerPortalCostingSchema(t, ctx, pool, schema)
+	if err := postgrescatalog.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("catalog.EnsureSchema: %v", err)
+	}
+	repo := NewRepository(pool, schema)
+
+	var customerID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name) VALUES('转售客户') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	var factoryID, resaleID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(
+			publication_purpose, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor
+		)
+		VALUES('factory_supply','green','G-1','published','official','','{}'::jsonb,'{"title":"工厂供货豆单"}'::jsonb,'工厂版本','codex')
+		RETURNING id
+	`, schema)).Scan(&factoryID); err != nil {
+		t.Fatalf("insert factory supply: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(
+			publication_purpose, list_type, version_no, status, owner_type, owner_key, price_source_publication_id, source_version_no, config_json, content_json, changelog, actor
+		)
+		VALUES('customer_resale','green','V1','published','customer',$1,$2,'G-1','{"brandName":"客户品牌"}'::jsonb,'{"title":"我的销售豆单"}'::jsonb,'客户首版','miniapp')
+		RETURNING id
+	`, schema), fmt.Sprintf("%d", customerID), factoryID).Scan(&resaleID); err != nil {
+		t.Fatalf("insert resale: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.pricing_gradient_templates(name, display_unit, customer_id, template_state, active, allow_customer_resale)
+		VALUES
+			('授权转售模板','kg',0,'public_template',true,true),
+			('内部成本模板','kg',0,'public_template',true,false),
+			('停用授权模板','kg',0,'public_template',false,true)
+	`, schema)); err != nil {
+		t.Fatalf("insert templates: %v", err)
+	}
+
+	page, err := repo.LoadResaleBeanListPage(ctx, customerID)
+	if err != nil {
+		t.Fatalf("LoadResaleBeanListPage: %v", err)
+	}
+	if len(page.FactorySupplyBeanLists) != 1 || page.FactorySupplyBeanLists[0].ID != factoryID {
+		t.Fatalf("factory sources=%+v, want factory supply %d only", page.FactorySupplyBeanLists, factoryID)
+	}
+	if len(page.CustomerResaleBeanLists) != 1 || page.CustomerResaleBeanLists[0].ID != resaleID || page.CustomerResaleBeanLists[0].VersionNo != "V1" {
+		t.Fatalf("resale versions=%+v, want resale %d", page.CustomerResaleBeanLists, resaleID)
+	}
+	if len(page.GradientTemplates) != 1 || page.GradientTemplates[0].Name != "授权转售模板" {
+		t.Fatalf("gradient templates=%+v, want only authorized active template", page.GradientTemplates)
+	}
+
+	servicePage, err := repo.LoadServicePage(ctx, customerportalapp.ServicePageQuery{CustomerID: customerID, Key: customerportalapp.ServiceKeyBeanList, Limit: 20})
+	if err != nil {
+		t.Fatalf("LoadServicePage: %v", err)
+	}
+	if len(servicePage.BeanLists) != 1 || servicePage.BeanLists[0].ID != factoryID {
+		t.Fatalf("service bean lists=%+v, want old bean-list service to ignore customer_resale", servicePage.BeanLists)
 	}
 }
 

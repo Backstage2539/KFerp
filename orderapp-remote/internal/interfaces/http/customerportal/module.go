@@ -25,6 +25,12 @@ type Service interface {
 	GetServicePage(context.Context, string, string, customerportalapp.ServicePageFilter) (customerportalapp.ServicePage, error)
 	GetBeanListPublication(context.Context, string, int64) (customerportalapp.BeanListSummary, error)
 	AcknowledgeBeanListPublication(context.Context, string, int64) error
+	GetResaleBeanLists(context.Context, string) (customerportalapp.ResaleBeanListPage, error)
+	GetResaleBeanListEditor(context.Context, string, int64) (customerportalapp.ResaleBeanListEditor, error)
+	SaveResaleBeanListDraft(context.Context, string, customerportalapp.ResaleBeanListCommand) (customerportalapp.BeanListSummary, error)
+	PublishResaleBeanList(context.Context, string, customerportalapp.ResaleBeanListCommand) (customerportalapp.BeanListSummary, error)
+	GetResaleBeanListPublicationPDF(context.Context, string, int64, func(customerportalapp.BeanListSummary) ([]byte, error)) (customerportalapp.BeanListSummary, []byte, error)
+	GetResaleBeanListPublicationPNG(context.Context, string, int64, func(customerportalapp.BeanListSummary) ([]byte, error)) (customerportalapp.BeanListSummary, []byte, error)
 	ListPortalAdminCustomers(context.Context, customerportalapp.PortalAdminCustomerQuery) ([]customerportalapp.PortalAdminCustomer, error)
 	PortalAdminDetail(context.Context, int64) (customerportalapp.PortalAdminDetail, error)
 	UpdatePortalVisibility(context.Context, customerportalapp.UpdatePortalVisibilityCommand) (customerportalapp.PortalAdminDetail, error)

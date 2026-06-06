@@ -86,7 +86,7 @@ test('product bean-list generate PDF saves preview snapshot through backend inst
     'beanListPublicationPayload()',
     "apiSend(`/api/costing/bean-list/publications/${row.id}/pdf?${params.toString()}`",
     'await downloadBeanListPublicationPDF(document)',
-    'await loadBeanListPublications(listType, publicationScope.value, productTypeCategoryID)',
+    "await loadBeanListPublications(listType, publicationScope.value, productTypeCategoryID, 'factory_supply')",
     'await loadBeanListPublications(listType, versionListScope.value, productTypeCategoryID)',
   ]) {
     assert.ok(generateSource.includes(expected), `missing backend preview PDF generation behavior: ${expected}`)
@@ -130,6 +130,24 @@ test('product bean-list version scope selector lists public and each fulfillment
   assert.match(viewSource, /const versionListCurrentPublication = computed/)
   assert.match(viewSource, /const publicationScopeRows = computed/)
   assert.match(viewSource, /function syncPublicationScopeFromPageContext/)
+})
+
+test('product bean-list version list supports factory supply and customer resale purpose filter', () => {
+  const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
+  const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
+  assert.ok(versionListStart > -1 && versionListEnd > versionListStart, 'missing bean-list version panel')
+  const versionListSource = viewSource.slice(versionListStart, versionListEnd)
+
+  for (const expected of [
+    'v-model="publicationPurposeFilter"',
+    '<option value="factory_supply">工厂供货豆单</option>',
+    '<option value="customer_resale">客户转售豆单</option>',
+    'function beanListPublicationPurposeLabel',
+    'publication_purpose',
+    "params.set('publication_purpose', publicationPurposeFilter.value)",
+  ]) {
+    assert.ok(viewSource.includes(expected) || versionListSource.includes(expected), `missing publication purpose filter behavior: ${expected}`)
+  }
 })
 
 test('product bean-list generate area uses dynamic collapsible product-type sections including green beans', () => {

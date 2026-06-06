@@ -65,6 +65,41 @@ miniapp/dist/build/mp-weixin
 6. 需要换另一个账号时，进入个人中心，点击“切换用户”，回登录页重新输入。
 7. 小程序客户侧提单只按实价提交，不显示运费和优惠输入；如需做优惠或运费调整，转到 ERP 内部录单或改单处理。
 
+## 客户自有销售豆单联调
+
+前置数据：
+
+1. ERP 产品价格表已为该客户或公共兜底发布可见的工厂供货豆单。
+2. ERP 阶梯价模板已打开“允许客户转售豆单使用”，且模板展示单位能匹配来源豆单价格单位。
+3. 客户门户能力模板启用 `bean_list`，当前小程序账号绑定该客户。
+
+接口检查：
+
+```text
+GET /app/api/mini/resale-bean-lists
+GET /app/api/mini/resale-bean-lists/:source_id/editor
+POST /app/api/mini/resale-bean-lists/drafts
+POST /app/api/mini/resale-bean-lists/publications
+GET /app/api/mini/resale-bean-lists/:id.pdf
+GET /app/api/mini/resale-bean-lists/:id.png
+```
+
+开发者工具操作：
+
+1. 登录小程序后进入 首页 → 我的豆单。
+2. 确认页面同时展示工厂供货豆单和“我的销售豆单”编辑区。
+3. 选择来源工厂供货豆单、授权阶梯价模板，修改版本号、品牌名、豆单说明、版本说明、背景色、样式、商品勾选、统一加价、倍率加价和上新/推荐标签。
+4. 点击“保存草稿”，确认接口返回当前客户草稿，ERP 操作日志可查。
+5. 点击“发布销售豆单”，确认“我的销售豆单”列表出现新版本，来源工厂供货豆单未被改写。
+6. 点击 PDF 和长图，确认能打开 PDF、预览 PNG 长图；背景、logo、标签、价格、版本号和分页/长图布局不重叠。
+7. 用另一个客户账号登录，确认不能读取或下载上一个客户的销售豆单。
+
+失败排查：
+
+- 如果列表没有授权模板：检查 ERP 阶梯价模板是否 active 且已打开“允许客户转售豆单使用”。
+- 如果发布提示价格不匹配：检查来源供货豆单是否有对应档位价格，以及模板展示单位是否与来源价格单位一致。
+- 如果 PDF/长图打不开：检查 mini token、当前客户绑定、`bean_list` 能力和 `bean_list_publication_assets` 缓存记录。
+
 ## 旧 openid 客户绑定 SQL
 
 以下 SQL 只用于排查历史 openid 登录或旧测试数据；新登录链路会由 `/api/mini/login/password` 根据 ERP 渠道客户账号自动同步小程序用户绑定。

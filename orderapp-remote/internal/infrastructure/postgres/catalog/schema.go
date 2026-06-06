@@ -359,6 +359,7 @@ ALTER TABLE %[1]s.pricing_gradient_templates ADD COLUMN IF NOT EXISTS customer_i
 ALTER TABLE %[1]s.pricing_gradient_templates ADD COLUMN IF NOT EXISTS source_template_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.pricing_gradient_templates ADD COLUMN IF NOT EXISTS template_state TEXT NOT NULL DEFAULT 'customer_owned';
 ALTER TABLE %[1]s.pricing_gradient_templates ADD COLUMN IF NOT EXISTS unit_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.pricing_gradient_templates ADD COLUMN IF NOT EXISTS allow_customer_resale BOOLEAN NOT NULL DEFAULT false;
 DROP INDEX IF EXISTS %[1]s.pricing_gradient_templates_name_active_uniq;
 CREATE UNIQUE INDEX IF NOT EXISTS pricing_gradient_templates_customer_name_active_uniq
 ON %[1]s.pricing_gradient_templates (customer_id, lower(name))

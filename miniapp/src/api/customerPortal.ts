@@ -120,6 +120,61 @@ export type BeanListPriceSummary = {
   red?: boolean
 }
 
+export type ResaleGradientTemplateTier = {
+  id: number
+  label: string
+  min_weight_g: number
+  max_weight_g?: number | null
+  position?: number
+}
+
+export type ResaleGradientTemplate = {
+  id: number
+  name: string
+  display_unit: string
+  tiers?: ResaleGradientTemplateTier[]
+}
+
+export type ResaleBeanListPage = {
+  factory_supply_bean_lists: BeanListSummary[]
+  customer_resale_bean_lists: BeanListSummary[]
+  gradient_templates: ResaleGradientTemplate[]
+  current_customer_id?: number
+  current_customer_name?: string
+}
+
+export type ResaleBeanListEditor = {
+  source: BeanListSummary
+  next_version_no: string
+  gradient_templates?: ResaleGradientTemplate[]
+}
+
+export type ResaleBeanListPriceRule = {
+  add_amount: number
+  multiplier: number
+}
+
+export type ResaleBeanListItemOverride = {
+  code: string
+  label?: string
+  price?: number
+  badge_label?: string
+  recommended_use?: string
+  description?: string
+  highlight_terms?: string[]
+}
+
+export type ResaleBeanListCommand = {
+  source_publication_id: number
+  version_no: string
+  gradient_template_id: number
+  selected_item_codes: string[]
+  config: Record<string, unknown>
+  price_rule: ResaleBeanListPriceRule
+  item_overrides?: ResaleBeanListItemOverride[]
+  changelog?: string
+}
+
 export type ProductSummary = {
   id: number
   name: string
@@ -385,6 +440,22 @@ export function buildBeanListAckPath(publicationID: number): string {
   return `/api/mini/bean-lists/${Number(publicationID || 0)}/ack`
 }
 
+export function buildResaleBeanListsPath(): string {
+  return '/api/mini/resale-bean-lists'
+}
+
+export function buildResaleBeanListEditorPath(sourcePublicationID: number): string {
+  return `/api/mini/resale-bean-lists/${Number(sourcePublicationID || 0)}/editor`
+}
+
+export function buildResaleBeanListPDFPath(publicationID: number): string {
+  return `/api/mini/resale-bean-lists/${Number(publicationID || 0)}.pdf`
+}
+
+export function buildResaleBeanListPNGPath(publicationID: number): string {
+  return `/api/mini/resale-bean-lists/${Number(publicationID || 0)}.png`
+}
+
 export function buildSwitchCustomerPath(): string {
   return '/api/mini/current-customer'
 }
@@ -450,5 +521,29 @@ export function acknowledgeBeanListVersion(token: string, publicationID: number)
   return miniRequest<{ acknowledged: boolean }>(buildBeanListAckPath(publicationID), {
     method: 'POST',
     token,
+  })
+}
+
+export function fetchResaleBeanLists(token: string): Promise<ResaleBeanListPage> {
+  return miniRequest<ResaleBeanListPage>(buildResaleBeanListsPath(), { token })
+}
+
+export function fetchResaleBeanListEditor(token: string, sourcePublicationID: number): Promise<ResaleBeanListEditor> {
+  return miniRequest<ResaleBeanListEditor>(buildResaleBeanListEditorPath(sourcePublicationID), { token })
+}
+
+export function saveResaleBeanListDraft(token: string, payload: ResaleBeanListCommand): Promise<BeanListSummary> {
+  return miniRequest<BeanListSummary>('/api/mini/resale-bean-lists/drafts', {
+    method: 'POST',
+    token,
+    data: payload,
+  })
+}
+
+export function publishResaleBeanList(token: string, payload: ResaleBeanListCommand): Promise<BeanListSummary> {
+  return miniRequest<BeanListSummary>('/api/mini/resale-bean-lists/publications', {
+    method: 'POST',
+    token,
+    data: payload,
   })
 }

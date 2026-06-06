@@ -103,11 +103,12 @@ func (fakeService) PublishedBeanList(context.Context, appcosting.BeanListPublica
 
 func fakePublishedBeanListPublication() appcosting.BeanListPublication {
 	return appcosting.BeanListPublication{
-		ID:        7,
-		ListType:  "commercial",
-		Version:   "V3.0.5",
-		Status:    "published",
-		OwnerType: "official",
+		ID:                 7,
+		PublicationPurpose: appcosting.BeanListPublicationPurposeFactorySupply,
+		ListType:           "commercial",
+		Version:            "V3.0.5",
+		Status:             "published",
+		OwnerType:          "official",
 		Config: map[string]any{
 			"layoutStyle":     "card",
 			"cardsPerRow":     float64(2),
@@ -143,12 +144,13 @@ func fakePublishedBeanListPublication() appcosting.BeanListPublication {
 	}
 }
 
-func (fakeService) PublishBeanList(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
+func (fakeService) PublishBeanList(_ context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
 	return &appcosting.BeanListPublication{
 		ID:                       8,
 		ListType:                 "commercial",
 		Version:                  "V3.0.6",
 		Status:                   "published",
+		PublicationPurpose:       cmd.PublicationPurpose,
 		OwnerType:                "actor",
 		OwnerKey:                 "employee:7",
 		PriceSourcePublicationID: 7,
@@ -156,14 +158,15 @@ func (fakeService) PublishBeanList(context.Context, appcosting.PublishBeanListCo
 	}, nil
 }
 
-func (fakeService) SaveBeanListDraft(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
+func (fakeService) SaveBeanListDraft(_ context.Context, cmd appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error) {
 	return &appcosting.BeanListPublication{
-		ID:        9,
-		ListType:  "commercial",
-		Version:   "V3.0.6",
-		Status:    "draft",
-		OwnerType: "actor",
-		OwnerKey:  "employee:7",
+		ID:                 9,
+		ListType:           "commercial",
+		Version:            "V3.0.6",
+		Status:             "draft",
+		PublicationPurpose: cmd.PublicationPurpose,
+		OwnerType:          "actor",
+		OwnerKey:           "employee:7",
 	}, nil
 }
 
@@ -240,6 +243,7 @@ func (s *recordingBeanListService) PublishBeanList(ctx context.Context, cmd appc
 		ClassificationCategoryName: cmd.ClassificationCategoryName,
 		Version:                    cmd.Version,
 		Status:                     "published",
+		PublicationPurpose:         cmd.PublicationPurpose,
 		OwnerType:                  cmd.OwnerType,
 		OwnerKey:                   cmd.OwnerKey,
 	}, nil
@@ -259,6 +263,7 @@ func (s *recordingBeanListService) SaveBeanListDraft(ctx context.Context, cmd ap
 		ClassificationCategoryName: cmd.ClassificationCategoryName,
 		Version:                    cmd.Version,
 		Status:                     "draft",
+		PublicationPurpose:         cmd.PublicationPurpose,
 		OwnerType:                  cmd.OwnerType,
 		OwnerKey:                   cmd.OwnerKey,
 	}, nil
@@ -1121,6 +1126,9 @@ func TestBeanListPublicationAPI(t *testing.T) {
 	if len(listed.Rows) != 1 || listed.Rows[0].Version != "V3.0.5" || listed.Rows[0].Config["layoutStyle"] != "card" {
 		t.Fatalf("publications = %+v", listed.Rows)
 	}
+	if listed.Rows[0].PublicationPurpose != "factory_supply" {
+		t.Fatalf("publication purpose=%q, want factory_supply", listed.Rows[0].PublicationPurpose)
+	}
 
 	body := bytes.NewBufferString(`{"list_type":"commercial","version":"V3.0.6","scope":"mine","price_source_publication_id":7,"style_source_publication_id":6,"config":{"layoutStyle":"table"},"content":{"totalItems":25},"changelog":"补充标签和筛选"}`)
 	req = httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications", body)
@@ -1139,6 +1147,9 @@ func TestBeanListPublicationAPI(t *testing.T) {
 	}
 	if published.OwnerType != "actor" || published.OwnerKey == "" || published.PriceSourcePublicationID != 7 || published.StyleSourcePublicationID != 6 {
 		t.Fatalf("published owner/source = %+v", published)
+	}
+	if published.PublicationPurpose != "factory_supply" {
+		t.Fatalf("published purpose=%q, want factory_supply", published.PublicationPurpose)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications/8/withdraw", nil)
@@ -1181,6 +1192,41 @@ func TestBeanListPublicationAPISupportsCustomerScope(t *testing.T) {
 	}
 	if svc.lastPublish.OwnerType != "customer" || svc.lastPublish.OwnerKey != "42" {
 		t.Fatalf("customer publish owner = %+v", svc.lastPublish)
+	}
+}
+
+func TestBeanListPublicationAPISupportsPurposeFilter(t *testing.T) {
+	svc := &recordingBeanListService{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("basic_auth_admin", true)
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Costing: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/bean-list/publications?list_type=green&scope=customer&customer_id=42&publication_purpose=customer_resale", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.lastQuery.PublicationPurpose != "customer_resale" || svc.lastQuery.OwnerType != "customer" || svc.lastQuery.OwnerKey != "42" {
+		t.Fatalf("query = %+v, want customer_resale customer 42", svc.lastQuery)
+	}
+
+	body := bytes.NewBufferString(`{"list_type":"green","version":"V2","scope":"customer","customer_id":42,"publication_purpose":"customer_resale","price_source_publication_id":11,"source_version":"G-1","config":{"brandName":"客户品牌"},"content":{"totalItems":1},"changelog":"客户转售豆单"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.lastPublish.PublicationPurpose != "customer_resale" || svc.lastPublish.PriceSourcePublicationID != 11 || svc.lastPublish.SourceVersion != "G-1" {
+		t.Fatalf("publish = %+v, want customer_resale source trace", svc.lastPublish)
 	}
 }
 

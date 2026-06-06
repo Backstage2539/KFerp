@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.cost_calculation_items (
 CREATE INDEX IF NOT EXISTS cost_calculation_items_run_idx ON %[1]s.cost_calculation_items(run_id, id);
 CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publications (
 	id BIGSERIAL PRIMARY KEY,
+	publication_purpose TEXT NOT NULL DEFAULT 'factory_supply',
 	list_type TEXT NOT NULL,
 	product_type_category_id BIGINT NOT NULL DEFAULT 0,
 	product_type_name TEXT NOT NULL DEFAULT '',
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publications (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS publication_purpose TEXT NOT NULL DEFAULT 'factory_supply';
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS product_type_category_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS product_type_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS classification_template_id BIGINT NOT NULL DEFAULT 0;
@@ -73,6 +75,7 @@ ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS owner_key TEXT
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS price_source_publication_id BIGINT NULL;
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS style_source_publication_id BIGINT NULL;
 ALTER TABLE %[1]s.bean_list_publications ADD COLUMN IF NOT EXISTS source_version_no TEXT NOT NULL DEFAULT '';
+UPDATE %[1]s.bean_list_publications SET publication_purpose='factory_supply' WHERE COALESCE(publication_purpose,'')='';
 UPDATE %[1]s.bean_list_publications
 SET product_type_name = CASE
 	WHEN list_type IN ('commercial','retail') THEN '熟豆'
@@ -95,12 +98,14 @@ BEGIN
 	END IF;
 END $$;
 CREATE INDEX IF NOT EXISTS bean_list_publications_type_created_idx ON %[1]s.bean_list_publications(list_type, created_at DESC);
+DROP INDEX IF EXISTS %[1]s.bean_list_publications_product_type_owner_status_idx;
 CREATE INDEX IF NOT EXISTS bean_list_publications_product_type_owner_status_idx
-	ON %[1]s.bean_list_publications(product_type_category_id, owner_type, owner_key, status, published_at DESC, id DESC);
+	ON %[1]s.bean_list_publications(publication_purpose, product_type_category_id, owner_type, owner_key, status, published_at DESC, id DESC);
 DROP INDEX IF EXISTS %[1]s.bean_list_publications_one_published_idx;
 DROP INDEX IF EXISTS %[1]s.bean_list_publications_one_published_owner_idx;
+DROP INDEX IF EXISTS %[1]s.bean_list_publications_owner_status_idx;
 CREATE INDEX IF NOT EXISTS bean_list_publications_owner_status_idx
-	ON %[1]s.bean_list_publications(owner_type, owner_key, status, published_at DESC, id DESC);
+	ON %[1]s.bean_list_publications(publication_purpose, owner_type, owner_key, status, published_at DESC, id DESC);
 CREATE TABLE IF NOT EXISTS %[1]s.bean_list_publication_assets (
 	id BIGSERIAL PRIMARY KEY,
 	publication_id BIGINT NOT NULL REFERENCES %[1]s.bean_list_publications(id) ON DELETE CASCADE,

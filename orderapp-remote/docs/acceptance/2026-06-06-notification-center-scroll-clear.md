@@ -9,9 +9,9 @@
 ## 测试证据
 
 - RED：`node --test src/lib/global-notifications.test.js` 在实现前失败，因为 `clampNotificationWindowStart`、`notificationWindow` 和 `notificationBackendIDs` 尚未导出。
-- RED：`go test ./internal/interfaces/http/support -run TestDev431NotificationCenterScrollClear -count=1` 在实现前失败，因为 PR-431 种子、App 接线和通知手册缺失。
+- RED：`go test ./internal/interfaces/http/support -run TestDev432NotificationCenterScrollClear -count=1` 在实现前失败，因为 PR-432 种子、App 接线和通知手册缺失。
 - GREEN：`node --test src/lib/global-notifications.test.js` 覆盖通知窗口分页、后端通知 ID 去重、清空通知接线。
-- GREEN：`go test ./internal/interfaces/http/support -run TestDev431NotificationCenterScrollClear -count=1` 覆盖需求种子、Vue 接线、API 拉取上限和文档。
+- GREEN：`go test ./internal/interfaces/http/support -run TestDev432NotificationCenterScrollClear -count=1` 覆盖需求种子、Vue 接线、API 拉取上限和文档。
 
 ## 验收口径
 

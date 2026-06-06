@@ -529,7 +529,7 @@ func TestPublishedBeanListReadsOnlyCurrentPublishedSnapshot(t *testing.T) {
 	}
 	body := src[start:end]
 	for _, want := range []string{
-		`whereClause := "list_type=$1 AND owner_type=$2 AND owner_key=$3"`,
+		`whereClause := "publication_purpose=$1 AND list_type=$2 AND owner_type=$3 AND owner_key=$4"`,
 		"WHERE %s AND status='published'",
 		"ORDER BY published_at DESC, id DESC",
 		"LIMIT 1",
@@ -602,7 +602,7 @@ func TestBeanListPublicationRepositoryQueriesByProductType(t *testing.T) {
 			t.Fatalf("bean list publication repository must preserve product price list fields; missing %q", want)
 		}
 	}
-	if !strings.Contains(src, "product_type_category_id=$1 AND owner_type=$2 AND owner_key=$3") {
+	if !strings.Contains(src, "product_type_category_id=$2 AND owner_type=$3 AND owner_key=$4") {
 		t.Fatalf("ListBeanListPublications must allow product_type_category_id lookup while legacy list_type remains available")
 	}
 }
@@ -717,9 +717,10 @@ func TestSaveBeanListDraftInsertsCustomerDraftWithoutPublishing(t *testing.T) {
 	}
 	body := src[start:end]
 	for _, want := range []string{
+		"publication_purpose",
 		"classification_template_id",
 		"classification_category_id",
-		"VALUES($1,$2,$3,$4,$5,$6,$7,$8,'draft'",
+		"VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft'",
 		"owner_type",
 		"owner_key",
 		"price_source_publication_id",

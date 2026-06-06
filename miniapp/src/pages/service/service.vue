@@ -3,13 +3,24 @@ import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
   acknowledgeBeanListVersion,
+  type BeanListProductSummary,
   type BeanListSummary,
+  buildResaleBeanListPDFPath,
+  buildResaleBeanListPNGPath,
   createDirectShipBatch,
   createFulfillmentOrder,
   createProcessingRequest,
+  fetchResaleBeanListEditor,
+  fetchResaleBeanLists,
   fetchServicePage,
   type InventoryItem,
   type ProductSummary,
+  publishResaleBeanList,
+  type ResaleBeanListCommand,
+  type ResaleBeanListEditor,
+  type ResaleBeanListPage,
+  type ResaleGradientTemplate,
+  saveResaleBeanListDraft,
   type ServicePageResponse,
 } from '../../api/customerPortal'
 import { buildAPIURL } from '../../api/client'
@@ -23,6 +34,7 @@ import {
   type BeanListPageCacheRecord,
 } from '../../utils/beanListPageCache'
 import { buildOrderServiceFilters, datePresetRange, normalizeDateRange, type OrderDatePreset } from '../../utils/orderFilters'
+import { buildResaleBeanListPublishPayload, defaultResaleBeanListDraft, resaleBeanListItemKey } from '../../utils/resaleBeanList'
 import {
   buildFulfillmentOrderPayload,
   fulfillmentSalesUnitOptions,
@@ -60,6 +72,10 @@ const submitting = ref(false)
 const errorMessage = ref('')
 const cachedBeanList = ref<BeanListSummary | null>(null)
 const beanListCacheStatus = ref('')
+const resalePage = ref<ResaleBeanListPage | null>(null)
+const resaleEditor = ref<ResaleBeanListEditor | null>(null)
+const resaleDraft = ref<ResaleBeanListCommand | null>(null)
+const resaleLoading = ref(false)
 const orderSearch = ref<OrderSearchForm>(emptyOrderSearch())
 
 const defaultProcessStatusOptions = ['待处理', '生产中', '生产完成', '库存待发货', '无需生产']
@@ -106,7 +122,28 @@ const beanListsForDisplay = computed(() => {
   if (page.value?.bean_lists?.length) return page.value.bean_lists
   return cachedBeanList.value ? [cachedBeanList.value] : []
 })
-const hasDisplayData = computed(() => sections.value.length > 0 || (serviceKey.value === 'beanList' && beanListsForDisplay.value.length > 0))
+const resaleFactorySources = computed(() => resalePage.value?.factory_supply_bean_lists || [])
+const resaleCustomerVersions = computed(() => resalePage.value?.customer_resale_bean_lists || [])
+const resaleGradientTemplates = computed(() => {
+  if (resaleEditor.value?.gradient_templates?.length) return resaleEditor.value.gradient_templates
+  return resalePage.value?.gradient_templates || []
+})
+const resaleSourceLabels = computed(() => resaleFactorySources.value.length ? resaleFactorySources.value.map(resaleSourceLabel) : ['暂无工厂供货豆单'])
+const resaleTemplateLabels = computed(() => resaleGradientTemplates.value.length ? resaleGradientTemplates.value.map(resaleTemplateLabel) : ['暂无授权阶梯价模板'])
+const resaleSourcePickerValue = computed(() => Math.max(0, resaleFactorySources.value.findIndex((item) => item.id === resaleDraft.value?.source_publication_id)))
+const resaleTemplatePickerValue = computed(() => Math.max(0, resaleGradientTemplates.value.findIndex((item) => item.id === resaleDraft.value?.gradient_template_id)))
+const selectedResaleSourceLabel = computed(() => {
+  const source = resaleFactorySources.value.find((item) => item.id === resaleDraft.value?.source_publication_id)
+  return source ? resaleSourceLabel(source) : '选择工厂供货豆单'
+})
+const selectedResaleTemplateLabel = computed(() => {
+  const template = resaleGradientTemplates.value.find((item) => item.id === resaleDraft.value?.gradient_template_id)
+  return template ? resaleTemplateLabel(template) : '选择授权阶梯价模板'
+})
+const resaleDraftItems = computed(() => flattenBeanListItems(resaleEditor.value?.source))
+const resaleSelectedCount = computed(() => resaleDraft.value?.selected_item_codes?.length || 0)
+const resaleSelectedAll = computed(() => resaleDraftItems.value.length > 0 && resaleSelectedCount.value >= resaleDraftItems.value.length)
+const hasDisplayData = computed(() => sections.value.length > 0 || (serviceKey.value === 'beanList' && (beanListsForDisplay.value.length > 0 || resaleFactorySources.value.length > 0 || resaleCustomerVersions.value.length > 0)))
 const processStatusPickerOptions = computed(() => orderStatusOptions('process_status', defaultProcessStatusOptions, '全部生产状态'))
 const payStatusPickerOptions = computed(() => orderStatusOptions('pay_status', defaultPayStatusOptions, '全部收款状态'))
 const shipStatusPickerOptions = computed(() => orderStatusOptions('ship_status', defaultShipStatusOptions, '全部发货状态'))
@@ -151,6 +188,7 @@ async function loadPage() {
     }
     if (serviceKey.value === 'beanList') {
       cacheBeanListPages(page.value.bean_lists || [])
+      await loadResaleBeanListWorkspace()
     }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '服务数据加载失败'
@@ -230,6 +268,9 @@ function resetLocalForms() {
   }
   orderSearch.value = emptyOrderSearch()
   page.value = null
+  resalePage.value = null
+  resaleEditor.value = null
+  resaleDraft.value = null
 }
 
 async function applyOrderFilters() {
@@ -296,6 +337,232 @@ function openOrderDocument(path?: string) {
     },
     fail: () => {
       uni.showToast({ title: '单据下载失败', icon: 'none' })
+    },
+    complete: () => {
+      uni.hideLoading()
+    },
+  })
+}
+
+async function loadResaleBeanListWorkspace() {
+  if (!session.token || serviceKey.value !== 'beanList') return
+  resaleLoading.value = true
+  try {
+    const result = await fetchResaleBeanLists(session.token)
+    resalePage.value = result
+    const sourceID = resaleDraft.value?.source_publication_id || result.factory_supply_bean_lists?.[0]?.id || 0
+    if (sourceID > 0 && (!resaleEditor.value || resaleEditor.value.source.id !== sourceID)) {
+      await openResaleEditor(sourceID, false)
+    }
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '客户销售豆单加载失败'
+  } finally {
+    resaleLoading.value = false
+  }
+}
+
+async function openResaleEditor(sourceID: number, showLoading = true) {
+  if (!session.token || sourceID <= 0) return
+  if (showLoading) resaleLoading.value = true
+  try {
+    const editor = await fetchResaleBeanListEditor(session.token, sourceID)
+    resaleEditor.value = editor
+    const draft = defaultResaleBeanListDraft(editor.source, editor.next_version_no || 'V1')
+    const template = (editor.gradient_templates || resalePage.value?.gradient_templates || [])[0]
+    if (template) draft.gradient_template_id = template.id
+    resaleDraft.value = draft
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '编辑器加载失败'
+  } finally {
+    if (showLoading) resaleLoading.value = false
+  }
+}
+
+function setResaleSource(event: { detail?: { value?: number | string } }) {
+  const source = resaleFactorySources.value[Number(event.detail?.value ?? -1)]
+  if (source) {
+    void openResaleEditor(source.id)
+  }
+}
+
+function setResaleTemplate(event: { detail?: { value?: number | string } }) {
+  const template = resaleGradientTemplates.value[Number(event.detail?.value ?? -1)]
+  if (template && resaleDraft.value) {
+    resaleDraft.value.gradient_template_id = template.id
+  }
+}
+
+function setResaleLayoutStyle(style: 'card' | 'table') {
+  if (resaleDraft.value) resaleDraft.value.config.layoutStyle = style
+}
+
+function resaleConfigText(key: string): string {
+  const value = resaleDraft.value?.config?.[key]
+  return value == null ? '' : String(value)
+}
+
+function setResaleConfigText(key: string, event: unknown) {
+  if (!resaleDraft.value) return
+  resaleDraft.value.config[key] = inputEventValue(event)
+}
+
+function setResaleConfigNumber(key: string, event: unknown) {
+  if (!resaleDraft.value) return
+  const value = Number(inputEventValue(event))
+  resaleDraft.value.config[key] = Number.isFinite(value) ? value : 0
+}
+
+function flattenBeanListItems(item?: BeanListSummary | null): BeanListProductSummary[] {
+  const out: BeanListProductSummary[] = []
+  for (const group of item?.groups || []) {
+    out.push(...(group.items || []))
+  }
+  return out
+}
+
+function resaleSourceLabel(item: BeanListSummary): string {
+  return `${item.title || item.list_type_label || item.list_type} / ${item.version_no || '未标版本'}`
+}
+
+function resaleTemplateLabel(item: ResaleGradientTemplate): string {
+  const unit = item.display_unit ? ` / ${item.display_unit}` : ''
+  return `${item.name}${unit}`
+}
+
+function resaleItemSelected(item: BeanListProductSummary): boolean {
+  const key = resaleBeanListItemKey(item)
+  return Boolean(key && resaleDraft.value?.selected_item_codes?.includes(key))
+}
+
+function toggleResaleItem(item: BeanListProductSummary) {
+  if (!resaleDraft.value) return
+  const key = resaleBeanListItemKey(item)
+  if (!key) return
+  const selected = new Set(resaleDraft.value.selected_item_codes || [])
+  if (selected.has(key)) selected.delete(key)
+  else selected.add(key)
+  resaleDraft.value.selected_item_codes = Array.from(selected)
+}
+
+function setAllResaleItems(selected: boolean) {
+  if (!resaleDraft.value) return
+  resaleDraft.value.selected_item_codes = selected ? resaleDraftItems.value.map(resaleBeanListItemKey).filter(Boolean) : []
+}
+
+function resaleItemOverride(item: BeanListProductSummary) {
+  if (!resaleDraft.value) return null
+  const key = resaleBeanListItemKey(item)
+  if (!key) return null
+  if (!resaleDraft.value.item_overrides) resaleDraft.value.item_overrides = []
+  let row = resaleDraft.value.item_overrides.find((override) => override.code === key)
+  if (!row) {
+    row = { code: key }
+    resaleDraft.value.item_overrides.push(row)
+  }
+  return row
+}
+
+function setResaleItemBadge(item: BeanListProductSummary, label: string) {
+  const row = resaleItemOverride(item)
+  if (!row) return
+  row.badge_label = label
+  row.highlight_terms = label ? [label] : []
+}
+
+function setResaleItemPrice(item: BeanListProductSummary, event: unknown) {
+  const row = resaleItemOverride(item)
+  if (!row) return
+  const raw = inputEventValue(event)
+  row.price = raw ? Number(raw) : undefined
+  row.label = row.label || item.prices?.[0]?.label || ''
+}
+
+function setResaleItemTierLabel(item: BeanListProductSummary, event: unknown) {
+  const row = resaleItemOverride(item)
+  if (!row) return
+  row.label = inputEventValue(event)
+}
+
+function inputEventValue(event: unknown): string {
+  const candidate = event as { detail?: unknown; target?: { value?: unknown } }
+  const detail = candidate?.detail
+  if (detail && typeof detail === 'object' && 'value' in detail) {
+    return String((detail as { value?: unknown }).value ?? '').trim()
+  }
+  return String(candidate?.target?.value ?? '').trim()
+}
+
+async function submitResaleBeanListDraft() {
+  await submitResaleBeanList('draft')
+}
+
+async function submitResaleBeanListPublication() {
+  await submitResaleBeanList('published')
+}
+
+async function submitResaleBeanList(status: 'draft' | 'published') {
+  if (!resaleDraft.value) return
+  if (!resaleDraft.value.source_publication_id || !resaleSelectedCount.value) {
+    errorMessage.value = '请选择来源豆单和商品'
+    return
+  }
+  if (resaleGradientTemplates.value.length > 0 && !resaleDraft.value.gradient_template_id) {
+    errorMessage.value = '请选择授权阶梯价模板'
+    return
+  }
+  submitting.value = true
+  errorMessage.value = ''
+  try {
+    const payload = buildResaleBeanListPublishPayload(resaleDraft.value)
+    const sourceID = payload.source_publication_id
+    if (status === 'published') {
+      await publishResaleBeanList(session.token, payload)
+    } else {
+      await saveResaleBeanListDraft(session.token, payload)
+    }
+    uni.showToast({ title: status === 'published' ? '已发布' : '草稿已保存', icon: 'success' })
+    await loadResaleBeanListWorkspace()
+    if (sourceID > 0) {
+      await openResaleEditor(sourceID, false)
+    }
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '保存失败'
+  } finally {
+    submitting.value = false
+  }
+}
+
+function openResaleOutput(item: BeanListSummary, kind: 'pdf' | 'png') {
+  if (!session.token) {
+    uni.reLaunch({ url: '/pages/login/login' })
+    return
+  }
+  const path = kind === 'pdf' ? buildResaleBeanListPDFPath(item.id) : buildResaleBeanListPNGPath(item.id)
+  uni.showLoading({ title: '生成中' })
+  uni.downloadFile({
+    url: buildAPIURL(path),
+    header: { Authorization: `Bearer ${session.token}` },
+    success: (res) => {
+      if (res.statusCode !== 200 || !res.tempFilePath) {
+        uni.showToast({ title: '文件暂不可用', icon: 'none' })
+        return
+      }
+      if (kind === 'pdf') {
+        uni.openDocument({
+          filePath: res.tempFilePath,
+          fileType: 'pdf',
+          showMenu: true,
+          fail: () => uni.showToast({ title: 'PDF 打开失败', icon: 'none' }),
+        })
+      } else {
+        uni.previewImage({
+          urls: [res.tempFilePath],
+          fail: () => uni.showToast({ title: '图片预览失败', icon: 'none' }),
+        })
+      }
+    },
+    fail: () => {
+      uni.showToast({ title: '文件下载失败', icon: 'none' })
     },
     complete: () => {
       uni.hideLoading()
@@ -662,6 +929,83 @@ onShow(() => {
         <view v-for="section in sections" :key="section.title" class="section-row">
           <text class="section-title">{{ section.title }}</text>
           <text class="section-count">{{ section.count }}</text>
+        </view>
+      </view>
+
+      <view v-if="serviceKey === 'beanList'" class="panel resale-editor">
+        <view class="panel-heading">
+          <text class="panel-title">我的销售豆单</text>
+          <button class="secondary compact refresh-button" :disabled="resaleLoading" @tap="loadResaleBeanListWorkspace">刷新</button>
+        </view>
+
+        <view v-if="resaleCustomerVersions.length" class="resale-version-list">
+          <view v-for="item in resaleCustomerVersions" :key="`resale-${item.id}`" class="resale-version-row">
+            <view class="resale-version-main">
+              <text class="row-main">{{ item.title || '销售豆单' }}</text>
+              <text class="row-sub">{{ item.version_no || '未标版本' }} / 来源 {{ item.changelog || item.published_at || '已发布' }}</text>
+            </view>
+            <view class="resale-output-actions">
+              <button class="secondary compact" @tap="openResaleOutput(item, 'pdf')">PDF</button>
+              <button class="secondary compact" @tap="openResaleOutput(item, 'png')">长图</button>
+            </view>
+          </view>
+        </view>
+        <text v-else class="row-sub">还没有发布自己的销售豆单，可以先从工厂供货豆单复制一版。</text>
+
+        <view class="resale-editor-form">
+          <picker mode="selector" :range="resaleSourceLabels" :value="resaleSourcePickerValue" @change="setResaleSource">
+            <view class="picker-field">{{ selectedResaleSourceLabel }}</view>
+          </picker>
+          <picker mode="selector" :range="resaleTemplateLabels" :value="resaleTemplatePickerValue" @change="setResaleTemplate">
+            <view class="picker-field">{{ selectedResaleTemplateLabel }}</view>
+          </picker>
+
+          <view v-if="resaleDraft" class="resale-form-grid">
+            <input v-model="resaleDraft.version_no" class="input" placeholder="版本号，例如 V1" />
+            <input class="input" :value="resaleConfigText('brandName')" placeholder="品牌名" @input="setResaleConfigText('brandName', $event)" />
+            <textarea class="textarea full" :value="resaleConfigText('brandIntro')" placeholder="豆单说明/品牌介绍" @input="setResaleConfigText('brandIntro', $event)" />
+            <textarea v-model="resaleDraft.changelog" class="textarea full" placeholder="版本说明" />
+            <input v-model.number="resaleDraft.price_rule.add_amount" class="input" type="number" placeholder="统一加价" />
+            <input v-model.number="resaleDraft.price_rule.multiplier" class="input" type="number" placeholder="倍率加价，例如 1.1" />
+            <input class="input" :value="resaleConfigText('backgroundColor')" placeholder="背景色 #f8f1e5" @input="setResaleConfigText('backgroundColor', $event)" />
+            <input class="input" :value="resaleConfigText('fontColor')" placeholder="文字色 #171717" @input="setResaleConfigText('fontColor', $event)" />
+            <input class="input full" :value="resaleConfigText('backgroundImage')" placeholder="背景图 URL，可选" @input="setResaleConfigText('backgroundImage', $event)" />
+            <input class="input full" :value="resaleConfigText('logoImage')" placeholder="Logo URL，可选" @input="setResaleConfigText('logoImage', $event)" />
+            <view class="segmented full">
+              <button :class="['chip', { active: resaleDraft.config.layoutStyle !== 'table' }]" @tap="setResaleLayoutStyle('card')">卡片</button>
+              <button :class="['chip', { active: resaleDraft.config.layoutStyle === 'table' }]" @tap="setResaleLayoutStyle('table')">表格</button>
+            </view>
+            <input class="input" type="number" :value="resaleConfigText('cardsPerRow')" placeholder="每行卡片数" @input="setResaleConfigNumber('cardsPerRow', $event)" />
+          </view>
+
+          <view v-if="resaleDraft" class="resale-item-panel">
+            <view class="resale-item-head">
+              <text class="panel-title">选择商品</text>
+              <button class="secondary compact" @tap="setAllResaleItems(!resaleSelectedAll)">{{ resaleSelectedAll ? '取消全选' : '全选' }}</button>
+            </view>
+            <text class="row-sub">已选 {{ resaleSelectedCount }} / {{ resaleDraftItems.length }}</text>
+            <view v-for="bean in resaleDraftItems" :key="resaleBeanListItemKey(bean)" class="resale-item-row">
+              <label class="resale-item-check" @tap="toggleResaleItem(bean)">
+                <checkbox :checked="resaleItemSelected(bean)" color="#171717" />
+                <text class="row-main">{{ bean.name }}</text>
+              </label>
+              <text class="row-sub">{{ bean.code || '无编号' }} / {{ bean.prices?.[0]?.label || '原档位' }} {{ bean.prices?.[0]?.value || '' }}</text>
+              <view class="resale-tag-actions">
+                <button class="chip" @tap="setResaleItemBadge(bean, '上新')">上新</button>
+                <button class="chip" @tap="setResaleItemBadge(bean, '推荐')">推荐</button>
+                <button class="chip" @tap="setResaleItemBadge(bean, '')">清除</button>
+              </view>
+              <view class="resale-override-row">
+                <input class="input compact-input" :value="resaleItemOverride(bean)?.label || ''" placeholder="覆盖档位" @input="setResaleItemTierLabel(bean, $event)" />
+                <input class="input compact-input" type="number" :value="resaleItemOverride(bean)?.price || ''" placeholder="单品价" @input="setResaleItemPrice(bean, $event)" />
+              </view>
+            </view>
+          </view>
+
+          <view v-if="resaleDraft" class="resale-actions">
+            <button class="secondary" :disabled="submitting" @tap="submitResaleBeanListDraft">保存草稿</button>
+            <button class="primary compact" :disabled="submitting" @tap="submitResaleBeanListPublication">发布销售豆单</button>
+          </view>
         </view>
       </view>
 
@@ -1321,6 +1665,115 @@ onShow(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12rpx;
+}
+
+.panel-heading,
+.resale-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.refresh-button {
+  width: 144rpx;
+  flex: 0 0 auto;
+}
+
+.resale-editor {
+  gap: 20rpx;
+}
+
+.resale-version-list,
+.resale-editor-form,
+.resale-item-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
+.resale-version-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 190rpx;
+  align-items: center;
+  gap: 14rpx;
+  padding: 16rpx 0;
+  border-top: 1rpx solid #eeeeee;
+}
+
+.resale-version-row:first-child {
+  border-top: 0;
+}
+
+.resale-version-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.resale-output-actions,
+.resale-actions,
+.segmented,
+.resale-tag-actions,
+.resale-override-row {
+  display: grid;
+  gap: 10rpx;
+}
+
+.resale-output-actions,
+.resale-actions,
+.resale-override-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.resale-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14rpx;
+}
+
+.resale-form-grid .full,
+.segmented {
+  grid-column: 1 / -1;
+}
+
+.segmented {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chip.active {
+  background: #171717;
+  color: #ffffff;
+  border-color: #171717;
+}
+
+.resale-item-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  padding: 16rpx 0;
+  border-top: 1rpx solid #eeeeee;
+}
+
+.resale-item-row:first-of-type {
+  border-top: 0;
+}
+
+.resale-item-check {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.resale-tag-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.compact-input {
+  min-height: 68rpx;
+  font-size: 24rpx;
 }
 
 .bean-list-native {

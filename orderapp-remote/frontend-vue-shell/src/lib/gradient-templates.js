@@ -88,6 +88,7 @@ export function normalizeGradientTemplate(template = {}) {
     template_state: String(template.template_state || '').trim(),
     display_unit: displayUnit,
     unit_template_id: Number(template.unit_template_id || 0),
+    allow_customer_resale: Boolean(template.allow_customer_resale),
     active: template.active !== false,
     tiers,
   }
@@ -101,6 +102,7 @@ export function buildGradientTemplatePayload(template = {}) {
     name: row.name,
     display_unit: row.display_unit,
     unit_template_id: row.unit_template_id,
+    allow_customer_resale: row.allow_customer_resale,
     active: row.active,
     tiers: row.tiers.map((tier) => ({
       id: tier.id,

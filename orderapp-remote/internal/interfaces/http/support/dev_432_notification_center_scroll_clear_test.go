@@ -6,15 +6,15 @@ import (
 	"testing"
 )
 
-func TestDev431NotificationCenterScrollClearSeeds(t *testing.T) {
+func TestDev432NotificationCenterScrollClearSeeds(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-431-NOTIFICATION-CENTER-SCROLL-CLEAR",
-		"DEV-431-NOTIFICATION-WINDOW-CONTROLS",
-		"DEV-431-NOTIFICATION-CLEAR-READ-SYNC",
-		"UT-431-NOTIFICATION-CENTER-SCROLL-CLEAR",
-		"API-431-NOTIFICATION-CENTER-SCROLL-CLEAR",
-		"REV-431-NOTIFICATION-CENTER-SCROLL-CLEAR",
+		"PR-432-NOTIFICATION-CENTER-SCROLL-CLEAR",
+		"DEV-432-NOTIFICATION-WINDOW-CONTROLS",
+		"DEV-432-NOTIFICATION-CLEAR-READ-SYNC",
+		"UT-432-NOTIFICATION-CENTER-SCROLL-CLEAR",
+		"API-432-NOTIFICATION-CENTER-SCROLL-CLEAR",
+		"REV-432-NOTIFICATION-CENTER-SCROLL-CLEAR",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("PR-431 requirement seed missing %q", want)
@@ -22,7 +22,7 @@ func TestDev431NotificationCenterScrollClearSeeds(t *testing.T) {
 	}
 }
 
-func TestDev431NotificationCenterScrollClearWiring(t *testing.T) {
+func TestDev432NotificationCenterScrollClearWiring(t *testing.T) {
 	app := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "App.vue")))
 	lib := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "global-notifications.js")))
 	api := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "api", "message-center.js")))
@@ -56,20 +56,20 @@ func TestDev431NotificationCenterScrollClearWiring(t *testing.T) {
 	}
 }
 
-func TestDev431NotificationCenterScrollClearDocs(t *testing.T) {
+func TestDev432NotificationCenterScrollClearDocs(t *testing.T) {
 	for rel, wants := range map[string][]string{
 		filepath.Join("docs", "REQUIREMENTS.md"): {
-			"PR-431-NOTIFICATION-CENTER-SCROLL-CLEAR",
+			"PR-432-NOTIFICATION-CENTER-SCROLL-CLEAR",
 			"上下箭头",
 			"一键清空",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"PR-431-NOTIFICATION-CENTER-SCROLL-CLEAR",
+			"PR-432-NOTIFICATION-CENTER-SCROLL-CLEAR",
 			"清空通知",
 			"不再回弹",
 		},
 		filepath.Join("docs", "OP_MANUAL_NOTIFICATIONS.md"): {
-			"PR-431-NOTIFICATION-CENTER-SCROLL-CLEAR",
+			"PR-432-NOTIFICATION-CENTER-SCROLL-CLEAR",
 			"清空",
 			"上下箭头",
 		},
