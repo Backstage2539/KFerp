@@ -139,8 +139,77 @@ export type ResaleBeanListPage = {
   factory_supply_bean_lists: BeanListSummary[]
   customer_resale_bean_lists: BeanListSummary[]
   gradient_templates: ResaleGradientTemplate[]
+  factory_price_table_groups?: CustomerPriceTableGroup[]
+  customer_price_table_groups?: CustomerPriceTableGroup[]
   current_customer_id?: number
   current_customer_name?: string
+}
+
+export type CustomerProductClassificationTemplate = {
+  id: number
+  customer_id: number
+  derived_from_template_id?: number
+  name: string
+  read_only?: boolean
+}
+
+export type CustomerProductCategory = {
+  id: number
+  template_id: number
+  parent_id: number
+  name: string
+  level: number
+  sort_order: number
+  product_count?: number
+}
+
+export type CustomerProductSummary = {
+  id: number
+  product_id: number
+  code?: string
+  name: string
+  product_kind?: string
+  list_type: string
+  list_type_label: string
+  category_id?: number
+  category_name?: string
+  sort_order?: number
+}
+
+export type CustomerPriceTableGroup = {
+  list_type: string
+  list_type_label: string
+  product_count: number
+  price_table_count: number
+  latest_version?: BeanListSummary
+  versions?: BeanListSummary[]
+}
+
+export type CustomerProductsPage = {
+  current_customer_id?: number
+  current_customer_name?: string
+  classification_template?: CustomerProductClassificationTemplate
+  categories: CustomerProductCategory[]
+  products: CustomerProductSummary[]
+  factory_price_table_groups: CustomerPriceTableGroup[]
+  customer_price_table_groups: CustomerPriceTableGroup[]
+}
+
+export type CustomerProductCategoryPayload = {
+  name?: string
+  parent_id?: number
+  sort_order?: number
+}
+
+export type CustomerProductCategoryMovePayload = {
+  direction?: 'up' | 'down' | string
+  parent_id?: number
+  sort_order?: number
+}
+
+export type CustomerProductCategoryAssignPayload = {
+  category_id: number
+  sort_order?: number
 }
 
 export type ResaleBeanListEditor = {
@@ -456,6 +525,26 @@ export function buildResaleBeanListPNGPath(publicationID: number): string {
   return `/api/mini/resale-bean-lists/${Number(publicationID || 0)}.png`
 }
 
+export function buildCustomerProductsPath(): string {
+  return '/api/mini/customer-products'
+}
+
+export function buildCustomerProductCategoriesPath(): string {
+  return '/api/mini/customer-products/categories'
+}
+
+export function buildCustomerProductCategoryPath(categoryID: number): string {
+  return `/api/mini/customer-products/categories/${Number(categoryID || 0)}`
+}
+
+export function buildCustomerProductCategoryMovePath(categoryID: number): string {
+  return `/api/mini/customer-products/categories/${Number(categoryID || 0)}/move`
+}
+
+export function buildCustomerProductCategoryAssignPath(productID: number): string {
+  return `/api/mini/customer-products/${Number(productID || 0)}/category`
+}
+
 export function buildSwitchCustomerPath(): string {
   return '/api/mini/current-customer'
 }
@@ -526,6 +615,49 @@ export function acknowledgeBeanListVersion(token: string, publicationID: number)
 
 export function fetchResaleBeanLists(token: string): Promise<ResaleBeanListPage> {
   return miniRequest<ResaleBeanListPage>(buildResaleBeanListsPath(), { token })
+}
+
+export function fetchCustomerProducts(token: string): Promise<CustomerProductsPage> {
+  return miniRequest<CustomerProductsPage>(buildCustomerProductsPath(), { token })
+}
+
+export function createCustomerProductCategory(token: string, payload: CustomerProductCategoryPayload): Promise<CustomerProductCategory> {
+  return miniRequest<CustomerProductCategory>(buildCustomerProductCategoriesPath(), {
+    method: 'POST',
+    token,
+    data: payload,
+  })
+}
+
+export function updateCustomerProductCategory(token: string, categoryID: number, payload: CustomerProductCategoryPayload): Promise<CustomerProductCategory> {
+  return miniRequest<CustomerProductCategory>(buildCustomerProductCategoryPath(categoryID), {
+    method: 'PUT',
+    token,
+    data: payload,
+  })
+}
+
+export function deleteCustomerProductCategory(token: string, categoryID: number): Promise<{ deleted: boolean }> {
+  return miniRequest<{ deleted: boolean }>(buildCustomerProductCategoryPath(categoryID), {
+    method: 'DELETE',
+    token,
+  })
+}
+
+export function moveCustomerProductCategory(token: string, categoryID: number, payload: CustomerProductCategoryMovePayload): Promise<CustomerProductCategory> {
+  return miniRequest<CustomerProductCategory>(buildCustomerProductCategoryMovePath(categoryID), {
+    method: 'POST',
+    token,
+    data: payload,
+  })
+}
+
+export function assignCustomerProductCategory(token: string, productID: number, payload: CustomerProductCategoryAssignPayload): Promise<CustomerProductSummary> {
+  return miniRequest<CustomerProductSummary>(buildCustomerProductCategoryAssignPath(productID), {
+    method: 'POST',
+    token,
+    data: payload,
+  })
 }
 
 export function fetchResaleBeanListEditor(token: string, sourcePublicationID: number): Promise<ResaleBeanListEditor> {

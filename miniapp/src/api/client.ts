@@ -1,7 +1,7 @@
 const DEFAULT_API_BASE = 'https://erp.qacoohee.com/app'
 
 export type RequestOptions = {
-  method?: 'GET' | 'POST'
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   token?: string
   data?: UniNamespace.RequestOptions['data']
 }

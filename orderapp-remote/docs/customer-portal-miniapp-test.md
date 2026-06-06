@@ -44,7 +44,10 @@ CUSTOMER_PORTAL_DEV_UNIONID=
 默认接口地址是线上开发栈：
 
 ```bash
-VITE_KFERP_API_BASE=https://erp.qacoohee.com/app npm run build:mp-weixin --prefix miniapp
+cd miniapp
+npm ci
+npm run typecheck
+VITE_KFERP_API_BASE=https://erp.qacoohee.com/app npm run build:mp-weixin
 ```
 
 微信开发者工具导入：
@@ -65,11 +68,11 @@ miniapp/dist/build/mp-weixin
 6. 需要换另一个账号时，进入个人中心，点击“切换用户”，回登录页重新输入。
 7. 小程序客户侧提单只按实价提交，不显示运费和优惠输入；如需做优惠或运费调整，转到 ERP 内部录单或改单处理。
 
-## 客户自有销售豆单联调
+## 我的商品联调
 
 前置数据：
 
-1. ERP 产品价格表已为该客户或公共兜底发布可见的工厂供货豆单。
+1. ERP 产品价格表已为该客户或公共兜底发布可见的工厂供货商品价格表。
 2. ERP 阶梯价模板已打开“允许客户转售豆单使用”，且模板展示单位能匹配来源豆单价格单位。
 3. 客户门户能力模板启用 `bean_list`，当前小程序账号绑定该客户。
 
@@ -77,6 +80,12 @@ miniapp/dist/build/mp-weixin
 
 ```text
 GET /app/api/mini/resale-bean-lists
+GET /app/api/mini/customer-products
+POST /app/api/mini/customer-products/categories
+PUT /app/api/mini/customer-products/categories/:id
+DELETE /app/api/mini/customer-products/categories/:id
+POST /app/api/mini/customer-products/categories/:id/move
+POST /app/api/mini/customer-products/:id/category
 GET /app/api/mini/resale-bean-lists/:source_id/editor
 POST /app/api/mini/resale-bean-lists/drafts
 POST /app/api/mini/resale-bean-lists/publications
@@ -86,13 +95,16 @@ GET /app/api/mini/resale-bean-lists/:id.png
 
 开发者工具操作：
 
-1. 登录小程序后进入 首页 → 我的豆单。
-2. 确认页面同时展示工厂供货豆单和“我的销售豆单”编辑区。
-3. 选择来源工厂供货豆单、授权阶梯价模板，修改版本号、品牌名、豆单说明、版本说明、背景色、样式、商品勾选、统一加价、倍率加价和上新/推荐标签。
-4. 点击“保存草稿”，确认接口返回当前客户草稿，ERP 操作日志可查。
-5. 点击“发布销售豆单”，确认“我的销售豆单”列表出现新版本，来源工厂供货豆单未被改写。
-6. 点击 PDF 和长图，确认能打开 PDF、预览 PNG 长图；背景、logo、标签、价格、版本号和分页/长图布局不重叠。
-7. 用另一个客户账号登录，确认不能读取或下载上一个客户的销售豆单。
+1. 登录小程序后确认首页不显示“我的商品”，进入 个人中心 → 我的商品。
+2. 确认页面展示“商品分类”“商品价格表”“已发布商品价格表”和“我的价格表设置”。
+3. 在“商品分类”新增一级/二级分类，改名、上移/下移、删除，并把客户商品归类；第一次编辑公共分类时，ERP 应派生客户专属分类模板。
+4. 确认“商品价格表”按 `list_type/list_type_label` 分组显示商品数量、价格表数量和当前工厂供货版本。
+5. 确认“已发布商品价格表”按类型折叠，默认只显示最新版本摘要。
+6. 在“我的价格表设置”选择来源工厂供货商品价格表、授权阶梯价模板，修改版本号、品牌名、价格表说明、版本说明、预设背景色/文字色、样式、商品勾选、统一加价、倍率加价和上新/推荐标签；页面不能出现覆盖档位、单品价或裸色值输入。
+7. 点击“保存草稿”，确认接口返回当前客户草稿，ERP 操作日志可查。
+8. 点击“发布商品价格表”，确认“已发布商品价格表”出现新版本，来源工厂供货商品价格表未被改写。
+9. 点击“预览 PDF”和“预览长图”，确认 PDF 可打开并显示菜单、PNG 长图可预览；背景、logo、标签、价格、版本号和分页/长图布局不重叠。
+10. 用另一个客户账号登录，确认不能读取或下载上一个客户的商品价格表。
 
 失败排查：
 

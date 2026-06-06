@@ -71,7 +71,7 @@ func TestCustomerResaleBeanListWiringAndManuals(t *testing.T) {
 		{
 			path: "orderapp-remote/docs/customer-portal-miniapp-test.md",
 			want: []string{
-				"客户自有销售豆单联调",
+				"我的商品联调",
 				"GET /app/api/mini/resale-bean-lists",
 				"GET /app/api/mini/resale-bean-lists/:id.png",
 			},
@@ -79,8 +79,8 @@ func TestCustomerResaleBeanListWiringAndManuals(t *testing.T) {
 		{
 			path: "miniapp/src/pages/service/service.vue",
 			want: []string{
-				"我的销售豆单",
-				"发布销售豆单",
+				"已发布商品价格表",
+				"发布商品价格表",
 				"openResaleOutput(item, 'png')",
 			},
 		},

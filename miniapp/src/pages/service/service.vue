@@ -3,16 +3,25 @@ import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import {
   acknowledgeBeanListVersion,
+  assignCustomerProductCategory,
   type BeanListProductSummary,
   type BeanListSummary,
   buildResaleBeanListPDFPath,
   buildResaleBeanListPNGPath,
+  createCustomerProductCategory,
   createDirectShipBatch,
   createFulfillmentOrder,
   createProcessingRequest,
+  deleteCustomerProductCategory,
+  fetchCustomerProducts,
   fetchResaleBeanListEditor,
   fetchResaleBeanLists,
   fetchServicePage,
+  moveCustomerProductCategory,
+  type CustomerPriceTableGroup,
+  type CustomerProductCategory,
+  type CustomerProductsPage,
+  type CustomerProductSummary,
   type InventoryItem,
   type ProductSummary,
   publishResaleBeanList,
@@ -22,6 +31,7 @@ import {
   type ResaleGradientTemplate,
   saveResaleBeanListDraft,
   type ServicePageResponse,
+  updateCustomerProductCategory,
 } from '../../api/customerPortal'
 import { buildAPIURL } from '../../api/client'
 import MainTabBar from '../../components/MainTabBar.vue'
@@ -34,7 +44,8 @@ import {
   type BeanListPageCacheRecord,
 } from '../../utils/beanListPageCache'
 import { buildOrderServiceFilters, datePresetRange, normalizeDateRange, type OrderDatePreset } from '../../utils/orderFilters'
-import { buildResaleBeanListPublishPayload, defaultResaleBeanListDraft, resaleBeanListItemKey } from '../../utils/resaleBeanList'
+import { priceTableGroupLabel } from '../../utils/customerProducts'
+import { buildResaleBeanListPublishPayload, defaultResaleBeanListDraft, resaleBeanListItemKey, resaleCardsPerRowOptions, resaleStyleColorPresets } from '../../utils/resaleBeanList'
 import {
   buildFulfillmentOrderPayload,
   fulfillmentSalesUnitOptions,
@@ -73,9 +84,15 @@ const errorMessage = ref('')
 const cachedBeanList = ref<BeanListSummary | null>(null)
 const beanListCacheStatus = ref('')
 const resalePage = ref<ResaleBeanListPage | null>(null)
+const customerProductsPage = ref<CustomerProductsPage | null>(null)
 const resaleEditor = ref<ResaleBeanListEditor | null>(null)
 const resaleDraft = ref<ResaleBeanListCommand | null>(null)
 const resaleLoading = ref(false)
+const customerProductLoading = ref(false)
+const customerCategoryName = ref('')
+const selectedCustomerCategoryID = ref(0)
+const categoryNameEdits = ref<Record<number, string>>({})
+const expandedCustomerPriceTableTypes = ref<string[]>([])
 const orderSearch = ref<OrderSearchForm>(emptyOrderSearch())
 
 const defaultProcessStatusOptions = ['待处理', '生产中', '生产完成', '库存待发货', '无需生产']
@@ -110,6 +127,7 @@ const title = computed(() => page.value?.title || serviceTitle(serviceKey.value)
 const mainTab = computed(() => {
   if (serviceKey.value === 'orders') return 'orders'
   if (serviceKey.value === 'settlement') return 'billing'
+  if (serviceKey.value === 'beanList') return 'mine'
   return 'home'
 })
 const activeThemeKey = computed(() => page.value?.theme_key || session.themeKey)
@@ -124,17 +142,26 @@ const beanListsForDisplay = computed(() => {
 })
 const resaleFactorySources = computed(() => resalePage.value?.factory_supply_bean_lists || [])
 const resaleCustomerVersions = computed(() => resalePage.value?.customer_resale_bean_lists || [])
+const customerCategories = computed(() => customerProductsPage.value?.categories || [])
+const customerProducts = computed(() => customerProductsPage.value?.products || [])
+const customerCategoryPickerLabels = computed(() => ['未分类', ...customerCategories.value.map((item) => item.name)])
+const selectedCustomerCategoryLabel = computed(() => {
+  if (!selectedCustomerCategoryID.value) return '选择归类'
+  return customerCategories.value.find((item) => item.id === selectedCustomerCategoryID.value)?.name || '选择归类'
+})
+const factoryPriceTableGroups = computed(() => customerProductsPage.value?.factory_price_table_groups || resalePage.value?.factory_price_table_groups || [])
+const customerPriceTableGroups = computed(() => customerProductsPage.value?.customer_price_table_groups || resalePage.value?.customer_price_table_groups || [])
 const resaleGradientTemplates = computed(() => {
   if (resaleEditor.value?.gradient_templates?.length) return resaleEditor.value.gradient_templates
   return resalePage.value?.gradient_templates || []
 })
-const resaleSourceLabels = computed(() => resaleFactorySources.value.length ? resaleFactorySources.value.map(resaleSourceLabel) : ['暂无工厂供货豆单'])
+const resaleSourceLabels = computed(() => resaleFactorySources.value.length ? resaleFactorySources.value.map(resaleSourceLabel) : ['暂无工厂供货价格表'])
 const resaleTemplateLabels = computed(() => resaleGradientTemplates.value.length ? resaleGradientTemplates.value.map(resaleTemplateLabel) : ['暂无授权阶梯价模板'])
 const resaleSourcePickerValue = computed(() => Math.max(0, resaleFactorySources.value.findIndex((item) => item.id === resaleDraft.value?.source_publication_id)))
 const resaleTemplatePickerValue = computed(() => Math.max(0, resaleGradientTemplates.value.findIndex((item) => item.id === resaleDraft.value?.gradient_template_id)))
 const selectedResaleSourceLabel = computed(() => {
   const source = resaleFactorySources.value.find((item) => item.id === resaleDraft.value?.source_publication_id)
-  return source ? resaleSourceLabel(source) : '选择工厂供货豆单'
+  return source ? resaleSourceLabel(source) : '选择工厂供货价格表'
 })
 const selectedResaleTemplateLabel = computed(() => {
   const template = resaleGradientTemplates.value.find((item) => item.id === resaleDraft.value?.gradient_template_id)
@@ -143,7 +170,7 @@ const selectedResaleTemplateLabel = computed(() => {
 const resaleDraftItems = computed(() => flattenBeanListItems(resaleEditor.value?.source))
 const resaleSelectedCount = computed(() => resaleDraft.value?.selected_item_codes?.length || 0)
 const resaleSelectedAll = computed(() => resaleDraftItems.value.length > 0 && resaleSelectedCount.value >= resaleDraftItems.value.length)
-const hasDisplayData = computed(() => sections.value.length > 0 || (serviceKey.value === 'beanList' && (beanListsForDisplay.value.length > 0 || resaleFactorySources.value.length > 0 || resaleCustomerVersions.value.length > 0)))
+const hasDisplayData = computed(() => sections.value.length > 0 || (serviceKey.value === 'beanList' && (customerProducts.value.length > 0 || factoryPriceTableGroups.value.length > 0 || customerPriceTableGroups.value.length > 0 || beanListsForDisplay.value.length > 0 || resaleFactorySources.value.length > 0 || resaleCustomerVersions.value.length > 0)))
 const processStatusPickerOptions = computed(() => orderStatusOptions('process_status', defaultProcessStatusOptions, '全部生产状态'))
 const payStatusPickerOptions = computed(() => orderStatusOptions('pay_status', defaultPayStatusOptions, '全部收款状态'))
 const shipStatusPickerOptions = computed(() => orderStatusOptions('ship_status', defaultShipStatusOptions, '全部发货状态'))
@@ -187,6 +214,7 @@ async function loadPage() {
       })
     }
     if (serviceKey.value === 'beanList') {
+      await loadCustomerProductsWorkspace()
       cacheBeanListPages(page.value.bean_lists || [])
       await loadResaleBeanListWorkspace()
     }
@@ -218,7 +246,7 @@ function cachedBeanListPage(item: BeanListSummary): BeanListPageCacheRecord | nu
 
 function cacheBeanListPages(items: BeanListSummary[]) {
   if (!items.length) {
-    if (!cachedBeanList.value) beanListCacheStatus.value = '暂无已发布豆单'
+    if (!cachedBeanList.value) beanListCacheStatus.value = '暂无已发布商品价格表'
     return
   }
   let updated = false
@@ -226,7 +254,7 @@ function cacheBeanListPages(items: BeanListSummary[]) {
     updated = cacheBeanListPage(item) || updated
   }
   cachedBeanList.value = items[0]
-  beanListCacheStatus.value = updated ? '检测到新版豆单，已更新本地缓存' : '已使用本地缓存，发布新版后自动更新'
+  beanListCacheStatus.value = updated ? '检测到新版商品价格表，已更新本地缓存' : '已使用本地缓存，发布新版后自动更新'
 }
 
 function cacheBeanListPage(item: BeanListSummary): boolean {
@@ -269,8 +297,12 @@ function resetLocalForms() {
   orderSearch.value = emptyOrderSearch()
   page.value = null
   resalePage.value = null
+  customerProductsPage.value = null
   resaleEditor.value = null
   resaleDraft.value = null
+  customerCategoryName.value = ''
+  selectedCustomerCategoryID.value = 0
+  categoryNameEdits.value = {}
 }
 
 async function applyOrderFilters() {
@@ -344,6 +376,139 @@ function openOrderDocument(path?: string) {
   })
 }
 
+async function loadCustomerProductsWorkspace() {
+  if (!session.token || serviceKey.value !== 'beanList') return
+  customerProductLoading.value = true
+  try {
+    customerProductsPage.value = await fetchCustomerProducts(session.token)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '客户商品加载失败'
+  } finally {
+    customerProductLoading.value = false
+  }
+}
+
+function setSelectedCustomerCategory(event: { detail?: { value?: number | string } }) {
+  const index = Number(event.detail?.value ?? 0)
+  selectedCustomerCategoryID.value = index <= 0 ? 0 : customerCategories.value[index - 1]?.id || 0
+}
+
+async function createCustomerCategory(parentID = 0) {
+  if (!session.token) return
+  const name = customerCategoryName.value.trim()
+  if (!name) {
+    errorMessage.value = '请填写分类名称'
+    return
+  }
+  submitting.value = true
+  errorMessage.value = ''
+  try {
+    await createCustomerProductCategory(session.token, { name, parent_id: parentID })
+    customerCategoryName.value = ''
+    await loadCustomerProductsWorkspace()
+    uni.showToast({ title: '分类已保存', icon: 'success' })
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '分类保存失败'
+  } finally {
+    submitting.value = false
+  }
+}
+
+function categoryEditName(item: CustomerProductCategory): string {
+  return categoryNameEdits.value[item.id] ?? item.name
+}
+
+function setCategoryEditName(item: CustomerProductCategory, event: unknown) {
+  categoryNameEdits.value = { ...categoryNameEdits.value, [item.id]: inputEventValue(event) }
+}
+
+async function saveCategoryName(item: CustomerProductCategory) {
+  if (!session.token) return
+  const name = categoryEditName(item).trim()
+  if (!name) {
+    errorMessage.value = '请填写分类名称'
+    return
+  }
+  submitting.value = true
+  errorMessage.value = ''
+  try {
+    await updateCustomerProductCategory(session.token, item.id, { name, parent_id: item.parent_id, sort_order: item.sort_order })
+    await loadCustomerProductsWorkspace()
+    uni.showToast({ title: '分类已更新', icon: 'success' })
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '分类更新失败'
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function removeCustomerCategory(item: CustomerProductCategory) {
+  if (!session.token) return
+  uni.showModal({
+    title: '删除分类',
+    content: `删除 ${item.name} 后，该分类下商品会回到未分类。`,
+    confirmText: '删除',
+    success: async (res) => {
+      if (!res.confirm) return
+      submitting.value = true
+      errorMessage.value = ''
+      try {
+        await deleteCustomerProductCategory(session.token, item.id)
+        await loadCustomerProductsWorkspace()
+        uni.showToast({ title: '分类已删除', icon: 'success' })
+      } catch (error) {
+        errorMessage.value = error instanceof Error ? error.message : '分类删除失败'
+      } finally {
+        submitting.value = false
+      }
+    },
+  })
+}
+
+async function moveCustomerCategory(item: CustomerProductCategory, direction: 'up' | 'down') {
+  if (!session.token) return
+  submitting.value = true
+  errorMessage.value = ''
+  try {
+    await moveCustomerProductCategory(session.token, item.id, { direction, parent_id: item.parent_id })
+    await loadCustomerProductsWorkspace()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '分类排序失败'
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function assignProductToSelectedCategory(item: CustomerProductSummary) {
+  if (!session.token) return
+  submitting.value = true
+  errorMessage.value = ''
+  try {
+    await assignCustomerProductCategory(session.token, item.id, { category_id: selectedCustomerCategoryID.value })
+    await loadCustomerProductsWorkspace()
+    uni.showToast({ title: '已归类', icon: 'success' })
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '商品归类失败'
+  } finally {
+    submitting.value = false
+  }
+}
+
+function priceTableGroupTitle(group: CustomerPriceTableGroup): string {
+  return priceTableGroupLabel(group)
+}
+
+function customerPriceTableExpanded(group: CustomerPriceTableGroup): boolean {
+  return expandedCustomerPriceTableTypes.value.includes(group.list_type)
+}
+
+function toggleCustomerPriceTableGroup(group: CustomerPriceTableGroup) {
+  const set = new Set(expandedCustomerPriceTableTypes.value)
+  if (set.has(group.list_type)) set.delete(group.list_type)
+  else set.add(group.list_type)
+  expandedCustomerPriceTableTypes.value = Array.from(set)
+}
+
 async function loadResaleBeanListWorkspace() {
   if (!session.token || serviceKey.value !== 'beanList') return
   resaleLoading.value = true
@@ -355,7 +520,7 @@ async function loadResaleBeanListWorkspace() {
       await openResaleEditor(sourceID, false)
     }
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '客户销售豆单加载失败'
+    errorMessage.value = error instanceof Error ? error.message : '客户商品价格表加载失败'
   } finally {
     resaleLoading.value = false
   }
@@ -396,6 +561,24 @@ function setResaleLayoutStyle(style: 'card' | 'table') {
   if (resaleDraft.value) resaleDraft.value.config.layoutStyle = style
 }
 
+function setResaleStylePreset(preset: { backgroundColor: string; fontColor: string }) {
+  if (!resaleDraft.value) return
+  resaleDraft.value.config.backgroundColor = preset.backgroundColor
+  resaleDraft.value.config.fontColor = preset.fontColor
+}
+
+function resaleStylePresetActive(preset: { backgroundColor: string; fontColor: string }): boolean {
+  return resaleConfigText('backgroundColor') === preset.backgroundColor && resaleConfigText('fontColor') === preset.fontColor
+}
+
+function setResaleCardsPerRow(value: number) {
+  if (resaleDraft.value) resaleDraft.value.config.cardsPerRow = value
+}
+
+function resaleCardsPerRowActive(value: number): boolean {
+  return Number(resaleDraft.value?.config.cardsPerRow || 0) === value
+}
+
 function resaleConfigText(key: string): string {
   const value = resaleDraft.value?.config?.[key]
   return value == null ? '' : String(value)
@@ -404,12 +587,6 @@ function resaleConfigText(key: string): string {
 function setResaleConfigText(key: string, event: unknown) {
   if (!resaleDraft.value) return
   resaleDraft.value.config[key] = inputEventValue(event)
-}
-
-function setResaleConfigNumber(key: string, event: unknown) {
-  if (!resaleDraft.value) return
-  const value = Number(inputEventValue(event))
-  resaleDraft.value.config[key] = Number.isFinite(value) ? value : 0
 }
 
 function flattenBeanListItems(item?: BeanListSummary | null): BeanListProductSummary[] {
@@ -469,20 +646,6 @@ function setResaleItemBadge(item: BeanListProductSummary, label: string) {
   row.highlight_terms = label ? [label] : []
 }
 
-function setResaleItemPrice(item: BeanListProductSummary, event: unknown) {
-  const row = resaleItemOverride(item)
-  if (!row) return
-  const raw = inputEventValue(event)
-  row.price = raw ? Number(raw) : undefined
-  row.label = row.label || item.prices?.[0]?.label || ''
-}
-
-function setResaleItemTierLabel(item: BeanListProductSummary, event: unknown) {
-  const row = resaleItemOverride(item)
-  if (!row) return
-  row.label = inputEventValue(event)
-}
-
 function inputEventValue(event: unknown): string {
   const candidate = event as { detail?: unknown; target?: { value?: unknown } }
   const detail = candidate?.detail
@@ -503,7 +666,7 @@ async function submitResaleBeanListPublication() {
 async function submitResaleBeanList(status: 'draft' | 'published') {
   if (!resaleDraft.value) return
   if (!resaleDraft.value.source_publication_id || !resaleSelectedCount.value) {
-    errorMessage.value = '请选择来源豆单和商品'
+    errorMessage.value = '请选择来源价格表和商品'
     return
   }
   if (resaleGradientTemplates.value.length > 0 && !resaleDraft.value.gradient_template_id) {
@@ -814,7 +977,7 @@ function beanListDiffText(item: BeanListSummary | null): string {
   if (diff.added?.length) lines.push(`新增：${diff.added.map((bean) => bean.name).slice(0, 4).join('、')}`)
   if (diff.removed?.length) lines.push(`下架：${diff.removed.map((bean) => bean.name).slice(0, 4).join('、')}`)
   if (diff.changed?.length) lines.push(`调整：${diff.changed.map((bean) => bean.name).slice(0, 4).join('、')}`)
-  return lines.filter(Boolean).join('\n') || '豆单已更新，请确认后继续下单。'
+  return lines.filter(Boolean).join('\n') || '商品价格表已更新，请确认后继续下单。'
 }
 
 function showConfirmModal(title: string, content: string): Promise<boolean> {
@@ -833,7 +996,7 @@ function showConfirmModal(title: string, content: string): Promise<boolean> {
 async function confirmBeanListUpdateIfNeeded(): Promise<boolean> {
   const target = beanListPromptTarget()
   if (!target || !session.token) return true
-  const confirmed = await showConfirmModal('豆单已更新', beanListDiffText(target))
+  const confirmed = await showConfirmModal('商品价格表已更新', beanListDiffText(target))
   if (!confirmed) return false
   try {
     await acknowledgeBeanListVersion(session.token, target.id)
@@ -841,7 +1004,7 @@ async function confirmBeanListUpdateIfNeeded(): Promise<boolean> {
     if (cachedBeanList.value?.id === target.id) cachedBeanList.value.requires_acknowledgement = false
     return true
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '豆单确认失败'
+    errorMessage.value = error instanceof Error ? error.message : '商品价格表确认失败'
     return false
   }
 }
@@ -932,25 +1095,94 @@ onShow(() => {
         </view>
       </view>
 
-      <view v-if="serviceKey === 'beanList'" class="panel resale-editor">
+      <view v-if="serviceKey === 'beanList'" class="panel">
         <view class="panel-heading">
-          <text class="panel-title">我的销售豆单</text>
-          <button class="secondary compact refresh-button" :disabled="resaleLoading" @tap="loadResaleBeanListWorkspace">刷新</button>
+          <text class="panel-title">商品分类</text>
+          <button class="secondary compact refresh-button" :disabled="customerProductLoading" @tap="loadCustomerProductsWorkspace">刷新</button>
         </view>
-
-        <view v-if="resaleCustomerVersions.length" class="resale-version-list">
-          <view v-for="item in resaleCustomerVersions" :key="`resale-${item.id}`" class="resale-version-row">
-            <view class="resale-version-main">
-              <text class="row-main">{{ item.title || '销售豆单' }}</text>
-              <text class="row-sub">{{ item.version_no || '未标版本' }} / 来源 {{ item.changelog || item.published_at || '已发布' }}</text>
-            </view>
-            <view class="resale-output-actions">
-              <button class="secondary compact" @tap="openResaleOutput(item, 'pdf')">PDF</button>
-              <button class="secondary compact" @tap="openResaleOutput(item, 'png')">长图</button>
+        <view class="category-editor-row">
+          <input v-model="customerCategoryName" class="input" placeholder="分类名称" />
+          <button class="secondary compact" :disabled="submitting" @tap="createCustomerCategory(0)">新增一级</button>
+        </view>
+        <picker mode="selector" :range="customerCategoryPickerLabels" @change="setSelectedCustomerCategory">
+          <view class="picker-field">{{ selectedCustomerCategoryLabel }}</view>
+        </picker>
+        <button class="secondary" :disabled="submitting || !selectedCustomerCategoryID" @tap="createCustomerCategory(selectedCustomerCategoryID)">新增二级分类</button>
+        <view v-if="customerCategories.length" class="category-list">
+          <view v-for="item in customerCategories" :key="`category-${item.id}`" class="category-row" :class="{ child: item.parent_id > 0 }">
+            <input class="input category-name-input" :value="categoryEditName(item)" @input="setCategoryEditName(item, $event)" />
+            <text class="row-sub">{{ item.level === 2 ? '二级' : '一级' }} / {{ item.product_count || 0 }} 个商品</text>
+            <view class="row-actions">
+              <button class="secondary compact" :disabled="submitting" @tap="saveCategoryName(item)">保存</button>
+              <button class="secondary compact" :disabled="submitting" @tap="moveCustomerCategory(item, 'up')">上移</button>
+              <button class="secondary compact" :disabled="submitting" @tap="moveCustomerCategory(item, 'down')">下移</button>
+              <button class="secondary compact" :disabled="submitting" @tap="removeCustomerCategory(item)">删除</button>
             </view>
           </view>
         </view>
-        <text v-else class="row-sub">还没有发布自己的销售豆单，可以先从工厂供货豆单复制一版。</text>
+        <text v-else class="row-sub">暂无分类，可先新增一级分类。</text>
+      </view>
+
+      <view v-if="serviceKey === 'beanList'" class="panel">
+        <text class="panel-title">商品价格表</text>
+        <view v-if="factoryPriceTableGroups.length" class="price-table-groups">
+          <view v-for="group in factoryPriceTableGroups" :key="`factory-${group.list_type}`" class="list-row">
+            <view class="row-head">
+              <text class="row-main">{{ group.list_type_label || group.list_type }}</text>
+              <text class="status-pill">{{ group.latest_version?.version_no || '暂无版本' }}</text>
+            </view>
+            <text class="row-sub">{{ priceTableGroupTitle(group) }}</text>
+          </view>
+        </view>
+        <text v-else class="row-sub">暂无工厂供货商品价格表。</text>
+      </view>
+
+      <view v-if="serviceKey === 'beanList'" class="panel">
+        <text class="panel-title">已发布商品价格表</text>
+        <view v-if="customerPriceTableGroups.length" class="price-table-groups">
+          <view v-for="group in customerPriceTableGroups" :key="`customer-${group.list_type}`" class="list-row">
+            <view class="row-head" @tap="toggleCustomerPriceTableGroup(group)">
+              <view class="resale-version-main">
+                <text class="row-main">{{ group.list_type_label || group.list_type }}</text>
+                <text class="row-sub">最新 {{ group.latest_version?.version_no || '暂无版本' }} / 共 {{ group.price_table_count }} 个版本</text>
+              </view>
+              <button class="secondary compact">{{ customerPriceTableExpanded(group) ? '收起' : '展开' }}</button>
+            </view>
+            <view v-if="customerPriceTableExpanded(group)" class="resale-version-list">
+              <view v-for="item in group.versions || []" :key="`resale-${item.id}`" class="resale-version-row">
+                <view class="resale-version-main">
+                  <text class="row-main">{{ item.title || '商品价格表' }}</text>
+                  <text class="row-sub">{{ item.version_no || '未标版本' }} / {{ item.published_at || '已发布' }}</text>
+                </view>
+                <view class="resale-output-actions">
+                  <button class="secondary compact" @tap="openResaleOutput(item, 'pdf')">预览 PDF</button>
+                  <button class="secondary compact" @tap="openResaleOutput(item, 'png')">预览长图</button>
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
+        <text v-else class="row-sub">还没有发布自己的商品价格表，可以在下方设置里发布。</text>
+      </view>
+
+      <view v-if="serviceKey === 'beanList' && customerProducts.length" class="panel">
+        <text class="panel-title">我的商品</text>
+        <view v-for="item in customerProducts" :key="`customer-product-${item.id}`" class="list-row">
+          <view class="row-head">
+            <text class="row-main">{{ item.name }}</text>
+            <text class="status-pill">{{ item.list_type_label || item.list_type }}</text>
+          </view>
+          <text class="row-sub">{{ item.code || '无编号' }} / {{ item.category_name || '未分类' }}</text>
+          <button class="secondary compact" :disabled="submitting" @tap="assignProductToSelectedCategory(item)">归类到：{{ selectedCustomerCategoryLabel }}</button>
+        </view>
+      </view>
+
+      <view v-if="serviceKey === 'beanList'" class="panel resale-editor">
+        <view class="panel-heading">
+          <text class="panel-title">我的价格表设置</text>
+          <button class="secondary compact refresh-button" :disabled="resaleLoading" @tap="loadResaleBeanListWorkspace">刷新</button>
+        </view>
+        <text class="row-sub">从工厂给客户的价格表复制，选择客户自己的商品和授权阶梯价模板后发布。</text>
 
         <view class="resale-editor-form">
           <picker mode="selector" :range="resaleSourceLabels" :value="resaleSourcePickerValue" @change="setResaleSource">
@@ -963,19 +1195,25 @@ onShow(() => {
           <view v-if="resaleDraft" class="resale-form-grid">
             <input v-model="resaleDraft.version_no" class="input" placeholder="版本号，例如 V1" />
             <input class="input" :value="resaleConfigText('brandName')" placeholder="品牌名" @input="setResaleConfigText('brandName', $event)" />
-            <textarea class="textarea full" :value="resaleConfigText('brandIntro')" placeholder="豆单说明/品牌介绍" @input="setResaleConfigText('brandIntro', $event)" />
+            <textarea class="textarea full" :value="resaleConfigText('brandIntro')" placeholder="价格表说明/品牌介绍" @input="setResaleConfigText('brandIntro', $event)" />
             <textarea v-model="resaleDraft.changelog" class="textarea full" placeholder="版本说明" />
             <input v-model.number="resaleDraft.price_rule.add_amount" class="input" type="number" placeholder="统一加价" />
             <input v-model.number="resaleDraft.price_rule.multiplier" class="input" type="number" placeholder="倍率加价，例如 1.1" />
-            <input class="input" :value="resaleConfigText('backgroundColor')" placeholder="背景色 #f8f1e5" @input="setResaleConfigText('backgroundColor', $event)" />
-            <input class="input" :value="resaleConfigText('fontColor')" placeholder="文字色 #171717" @input="setResaleConfigText('fontColor', $event)" />
+            <view class="color-presets full">
+              <button v-for="preset in resaleStyleColorPresets" :key="preset.key" :class="['color-chip', { active: resaleStylePresetActive(preset) }]" @tap="setResaleStylePreset(preset)">
+                <text class="swatch" :style="{ backgroundColor: preset.backgroundColor, color: preset.fontColor }">A</text>
+                <text>{{ preset.label }}</text>
+              </button>
+            </view>
             <input class="input full" :value="resaleConfigText('backgroundImage')" placeholder="背景图 URL，可选" @input="setResaleConfigText('backgroundImage', $event)" />
             <input class="input full" :value="resaleConfigText('logoImage')" placeholder="Logo URL，可选" @input="setResaleConfigText('logoImage', $event)" />
             <view class="segmented full">
               <button :class="['chip', { active: resaleDraft.config.layoutStyle !== 'table' }]" @tap="setResaleLayoutStyle('card')">卡片</button>
               <button :class="['chip', { active: resaleDraft.config.layoutStyle === 'table' }]" @tap="setResaleLayoutStyle('table')">表格</button>
             </view>
-            <input class="input" type="number" :value="resaleConfigText('cardsPerRow')" placeholder="每行卡片数" @input="setResaleConfigNumber('cardsPerRow', $event)" />
+            <view class="segmented full">
+              <button v-for="count in resaleCardsPerRowOptions" :key="`cards-${count}`" :class="['chip', { active: resaleCardsPerRowActive(count) }]" @tap="setResaleCardsPerRow(count)">{{ count }} 列</button>
+            </view>
           </view>
 
           <view v-if="resaleDraft" class="resale-item-panel">
@@ -995,16 +1233,12 @@ onShow(() => {
                 <button class="chip" @tap="setResaleItemBadge(bean, '推荐')">推荐</button>
                 <button class="chip" @tap="setResaleItemBadge(bean, '')">清除</button>
               </view>
-              <view class="resale-override-row">
-                <input class="input compact-input" :value="resaleItemOverride(bean)?.label || ''" placeholder="覆盖档位" @input="setResaleItemTierLabel(bean, $event)" />
-                <input class="input compact-input" type="number" :value="resaleItemOverride(bean)?.price || ''" placeholder="单品价" @input="setResaleItemPrice(bean, $event)" />
-              </view>
             </view>
           </view>
 
           <view v-if="resaleDraft" class="resale-actions">
             <button class="secondary" :disabled="submitting" @tap="submitResaleBeanListDraft">保存草稿</button>
-            <button class="primary compact" :disabled="submitting" @tap="submitResaleBeanListPublication">发布销售豆单</button>
+            <button class="primary compact" :disabled="submitting" @tap="submitResaleBeanListPublication">发布商品价格表</button>
           </view>
         </view>
       </view>
@@ -1015,7 +1249,7 @@ onShow(() => {
             <view class="bean-list-cover-main">
               <image v-if="item.logo_image" class="bean-list-logo" :src="item.logo_image" mode="aspectFit" />
               <text v-if="item.show_version !== false" class="bean-list-version">{{ item.version_no || '当前版本' }}</text>
-              <text class="bean-list-title">{{ item.title || '我的豆单' }}</text>
+              <text class="bean-list-title">{{ item.title || '商品价格表' }}</text>
               <text v-if="item.subtitle" class="bean-list-subtitle">{{ item.subtitle }}</text>
               <text v-if="item.brand_intro" class="bean-list-brand-intro">{{ item.brand_intro }}</text>
             </view>
@@ -1220,7 +1454,7 @@ onShow(() => {
             <view v-for="line in item.items" :key="line.id" class="item-line">
               <text>{{ line.item_name }} {{ line.spec }}</text>
               <text>{{ line.qty }}{{ line.unit }} x ¥{{ line.unit_price }} = ¥{{ line.line_total }}</text>
-              <text v-if="line.bean_list_version_no" class="line-meta">豆单版本：{{ line.bean_list_version_no }}</text>
+              <text v-if="line.bean_list_version_no" class="line-meta">价格表版本：{{ line.bean_list_version_no }}</text>
             </view>
           </view>
           <text class="row-sub">运费：¥{{ item.shipping_amount || '0.00' }}</text>
@@ -1668,11 +1902,46 @@ onShow(() => {
 }
 
 .panel-heading,
-.resale-item-head {
+.resale-item-head,
+.category-editor-row,
+.row-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16rpx;
+}
+
+.category-editor-row .input {
+  flex: 1;
+}
+
+.category-list,
+.price-table-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.category-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  padding: 14rpx 0;
+  border-top: 1rpx solid #eeeeee;
+}
+
+.category-row.child {
+  padding-left: 24rpx;
+}
+
+.category-name-input {
+  min-height: 68rpx;
+}
+
+.row-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8rpx;
 }
 
 .refresh-button {
@@ -1716,14 +1985,13 @@ onShow(() => {
 .resale-actions,
 .segmented,
 .resale-tag-actions,
-.resale-override-row {
+.color-presets {
   display: grid;
   gap: 10rpx;
 }
 
 .resale-output-actions,
-.resale-actions,
-.resale-override-row {
+.resale-actions {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -1739,7 +2007,43 @@ onShow(() => {
 }
 
 .segmented {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.color-presets {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.color-chip {
+  min-height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  margin: 0;
+  padding: 0 10rpx;
+  background: #ffffff;
+  border: 1rpx solid #e2e2e2;
+  border-radius: 8rpx;
+  color: #171717;
+  font-size: 24rpx;
+}
+
+.color-chip.active {
+  border-color: #171717;
+  box-shadow: inset 0 0 0 2rpx #171717;
+}
+
+.swatch {
+  width: 42rpx;
+  height: 42rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1rpx solid rgba(0, 0, 0, 0.14);
+  font-size: 22rpx;
+  font-weight: 800;
 }
 
 .chip.active {
@@ -1769,11 +2073,6 @@ onShow(() => {
 
 .resale-tag-actions {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.compact-input {
-  min-height: 68rpx;
-  font-size: 24rpx;
 }
 
 .bean-list-native {

@@ -45,6 +45,16 @@ npm ci 2>/dev/null || npm install
 npm run build
 cd ../..
 
+if [ -d miniapp ]; then
+  echo "Building miniapp mp-weixin..."
+  cd miniapp
+  npm ci
+  npm run typecheck
+  npm run build:mp-weixin
+  test -d dist/build/mp-weixin
+  cd ..
+fi
+
 # 2) Replace app source so deleted files do not linger on the server.
 BACKUP="$APP_DIR.backup.deploy-$(date +%Y%m%d%H%M%S)"
 ssh -i "$KEY" "$SERVER" "set -e; cd /opt/stacks/erp; if [ -d orderapp ]; then mv orderapp $BACKUP; fi; mkdir -p orderapp"
@@ -65,7 +75,7 @@ if [ -d docs/acceptance ]; then
 fi
 if [ -d miniapp ]; then
   ssh -i "$KEY" "$SERVER" "rm -rf $APP_DIR/miniapp && mkdir -p $APP_DIR/miniapp"
-  COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --exclude='._*' --exclude='*/._*' --exclude='./node_modules' --exclude='./dist' -C miniapp -cf - . | ssh -i "$KEY" "$SERVER" "tar -C $APP_DIR/miniapp -xf -"
+  COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --exclude='._*' --exclude='*/._*' --exclude='./node_modules' -C miniapp -cf - . | ssh -i "$KEY" "$SERVER" "tar -C $APP_DIR/miniapp -xf - && test -d $APP_DIR/miniapp/dist/build/mp-weixin"
 fi
 ssh -i "$KEY" "$SERVER" "set -e; mkdir -p /opt/stacks/erp/orderapp_data/shipping_exports; if [ -f /data/ship_temp.xlsx ]; then cp /data/ship_temp.xlsx /opt/stacks/erp/orderapp_data/ship_temp.xlsx; fi"
 

@@ -71,19 +71,39 @@ describe('miniapp startup route and main tabs', () => {
     expect(servicePage).toContain('Authorization: `Bearer ${session.token}`')
   })
 
-  it('renders a lightweight customer resale bean list editor on the bean-list tab', () => {
+  it('places my products in profile instead of the home shortcuts', () => {
+    const capabilities = readSource('src/utils/capabilities.ts')
+    const profile = readSource('src/pages/profile/profile.vue')
+
+    expect(capabilities).not.toContain('beanList')
+    expect(capabilities).not.toContain('我的商品')
+    expect(profile).toContain('我的商品')
+    expect(profile).toContain('/pages/service/service?key=beanList')
+  })
+
+  it('renders the customer products and price list workspace on the bean-list tab', () => {
     const servicePage = readSource('src/pages/service/service.vue')
 
+    expect(servicePage).toContain('fetchCustomerProducts')
     expect(servicePage).toContain('fetchResaleBeanLists')
     expect(servicePage).toContain('fetchResaleBeanListEditor')
     expect(servicePage).toContain('saveResaleBeanListDraft')
     expect(servicePage).toContain('publishResaleBeanList')
     expect(servicePage).toContain('buildResaleBeanListPDFPath')
     expect(servicePage).toContain('buildResaleBeanListPNGPath')
-    expect(servicePage).toContain('我的销售豆单')
-    expect(servicePage).toContain('发布销售豆单')
+    expect(servicePage).toContain('商品分类')
+    expect(servicePage).toContain('商品价格表')
+    expect(servicePage).toContain('我的价格表设置')
+    expect(servicePage).toContain('已发布商品价格表')
+    expect(servicePage).toContain('发布商品价格表')
     expect(servicePage).toContain('保存草稿')
     expect(servicePage).toContain('选择商品')
+    expect(servicePage).toContain('预览 PDF')
+    expect(servicePage).toContain('预览长图')
+    expect(servicePage).not.toContain('覆盖档位')
+    expect(servicePage).not.toContain('单品价')
+    expect(servicePage).not.toContain('placeholder="背景色 #f8f1e5"')
+    expect(servicePage).not.toContain('placeholder="每行卡片数"')
   })
 
   it('removes top profile links from content pages', () => {

@@ -5,6 +5,15 @@ import type {
   ResaleBeanListItemOverride,
 } from '../api/customerPortal'
 
+export const resaleStyleColorPresets = [
+  { key: 'warm', label: '暖米', backgroundColor: '#f8f1e5', fontColor: '#171717' },
+  { key: 'clean', label: '清白', backgroundColor: '#f7faf8', fontColor: '#18352a' },
+  { key: 'dark', label: '深色', backgroundColor: '#171717', fontColor: '#f8f1e5' },
+  { key: 'gold', label: '金棕', backgroundColor: '#fff8ec', fontColor: '#5a3a18' },
+]
+
+export const resaleCardsPerRowOptions = [1, 2, 3]
+
 export function resaleBeanListItemKey(item: Pick<BeanListProductSummary, 'code' | 'name'>): string {
   return String(item.code || '').trim() || String(item.name || '').trim()
 }
@@ -85,8 +94,6 @@ function normalizeItemOverrides(rows: ResaleBeanListItemOverride[]): ResaleBeanL
   return rows
     .map((row) => ({
       code: String(row.code || '').trim(),
-      label: String(row.label || '').trim() || undefined,
-      price: row.price == null ? undefined : normalizeNumber(row.price, 0),
       badge_label: String(row.badge_label || '').trim() || undefined,
       recommended_use: String(row.recommended_use || '').trim() || undefined,
       description: String(row.description || '').trim() || undefined,
@@ -102,9 +109,7 @@ function normalizeNumber(value: unknown, fallback: number): number {
 
 function hasMeaningfulItemOverride(row: ResaleBeanListItemOverride): boolean {
   return Boolean(
-    row.label ||
-      row.price != null ||
-      row.badge_label ||
+    row.badge_label ||
       row.recommended_use ||
       row.description ||
       (row.highlight_terms && row.highlight_terms.length > 0),

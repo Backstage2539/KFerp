@@ -263,10 +263,292 @@ func (r Repository) LoadResaleBeanListPage(ctx context.Context, customerID int64
 		return customerportalapp.ResaleBeanListPage{}, err
 	}
 	return customerportalapp.ResaleBeanListPage{
-		FactorySupplyBeanLists:  factoryRows,
-		CustomerResaleBeanLists: resaleRows,
-		GradientTemplates:       templates,
+		FactorySupplyBeanLists:   factoryRows,
+		CustomerResaleBeanLists:  resaleRows,
+		GradientTemplates:        templates,
+		FactoryPriceTableGroups:  customerPriceTableGroups(factoryRows, nil, false),
+		CustomerPriceTableGroups: customerPriceTableGroups(resaleRows, nil, true),
 	}, nil
+}
+
+func (r Repository) LoadCustomerProductsPage(ctx context.Context, customerID int64) (customerportalapp.CustomerProductsPage, error) {
+	template, err := r.currentCustomerProductClassificationTemplate(ctx, customerID)
+	if err != nil {
+		return customerportalapp.CustomerProductsPage{}, err
+	}
+	categories, err := r.listCustomerProductCategories(ctx, template.ID)
+	if err != nil {
+		return customerportalapp.CustomerProductsPage{}, err
+	}
+	products, err := r.listCustomerProductSummaries(ctx, customerID, template.ID)
+	if err != nil {
+		return customerportalapp.CustomerProductsPage{}, err
+	}
+	categories = attachCustomerProductCategoryCounts(categories, products)
+	productCounts := customerProductCountsByListType(products)
+	factoryRows, err := r.listFactorySupplyBeanLists(ctx, customerID, 50)
+	if err != nil {
+		return customerportalapp.CustomerProductsPage{}, err
+	}
+	resaleRows, err := r.ListCustomerResaleBeanListVersions(ctx, customerID, 100)
+	if err != nil {
+		return customerportalapp.CustomerProductsPage{}, err
+	}
+	return customerportalapp.CustomerProductsPage{
+		ClassificationTemplate:   template,
+		Categories:               categories,
+		Products:                 products,
+		FactoryPriceTableGroups:  customerPriceTableGroups(factoryRows, productCounts, false),
+		CustomerPriceTableGroups: customerPriceTableGroups(resaleRows, productCounts, true),
+	}, nil
+}
+
+func (r Repository) CreateCustomerProductCategory(ctx context.Context, cmd customerportalapp.CustomerProductCategoryCommand) (customerportalapp.CustomerProductCategory, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	template, idMap, err := r.ensureCustomerProductClassificationTemplate(ctx, tx, cmd.CustomerID, cmd.Actor)
+	if err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	parentID := cmd.ParentID
+	if parentID > 0 {
+		if mapped := idMap[parentID]; mapped > 0 {
+			parentID = mapped
+		}
+	}
+	level := 1
+	if parentID > 0 {
+		level = 2
+		if err := r.ensureCustomerCategoryBelongsToTemplate(ctx, tx, template.ID, parentID); err != nil {
+			return customerportalapp.CustomerProductCategory{}, err
+		}
+	}
+	sortOrder := cmd.SortOrder
+	if sortOrder <= 0 {
+		sortOrder = r.nextCustomerCategorySortOrder(ctx, tx, template.ID, parentID)
+	}
+	var id int64
+	name := strings.TrimSpace(cmd.Name)
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_classification_template_categories(template_id, parent_id, name, level, sort_order, active)
+		VALUES($1,$2,$3,$4,$5,true)
+		RETURNING id
+	`, r.schema), template.ID, parentID, name, level, sortOrder).Scan(&id); err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_classification_category", &id, "mini_create_customer_product_category", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{"customer_id": cmd.CustomerID, "template_id": template.ID, "parent_id": parentID, "sort_order": sortOrder}); err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	return customerportalapp.CustomerProductCategory{ID: id, TemplateID: template.ID, ParentID: parentID, Name: name, Level: level, SortOrder: sortOrder}, nil
+}
+
+func (r Repository) UpdateCustomerProductCategory(ctx context.Context, cmd customerportalapp.CustomerProductCategoryCommand) (customerportalapp.CustomerProductCategory, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	template, idMap, err := r.ensureCustomerProductClassificationTemplate(ctx, tx, cmd.CustomerID, cmd.Actor)
+	if err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	categoryID := customerCategoryIDAfterDerive(cmd.ID, idMap)
+	name := strings.TrimSpace(cmd.Name)
+	var row customerportalapp.CustomerProductCategory
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		UPDATE %s.product_classification_template_categories
+		SET name=$3, updated_at=now()
+		WHERE id=$1 AND template_id=$2 AND active=true
+		RETURNING id, template_id, COALESCE(parent_id,0), name, COALESCE(level,1), COALESCE(sort_order,100)
+	`, r.schema), categoryID, template.ID, name).Scan(&row.ID, &row.TemplateID, &row.ParentID, &row.Name, &row.Level, &row.SortOrder); err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_classification_category", &row.ID, "mini_update_customer_product_category", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{"customer_id": cmd.CustomerID, "template_id": template.ID}); err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	return row, nil
+}
+
+func (r Repository) DeleteCustomerProductCategory(ctx context.Context, customerID, categoryID int64, actor string) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	template, idMap, err := r.ensureCustomerProductClassificationTemplate(ctx, tx, customerID, actor)
+	if err != nil {
+		return err
+	}
+	categoryID = customerCategoryIDAfterDerive(categoryID, idMap)
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.product_classification_template_categories
+		SET active=false, updated_at=now()
+		WHERE id=$1 AND template_id=$2 AND active=true
+	`, r.schema), categoryID, template.ID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("classification category not found")
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.customer_product_alias_classification_assignments
+		SET category_id=0, updated_at=now(), updated_by=$3
+		WHERE template_id=$1 AND category_id=$2
+	`, r.schema), template.ID, categoryID, actor); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "product_classification_category", &categoryID, "mini_delete_customer_product_category", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"customer_id": customerID, "template_id": template.ID}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) MoveCustomerProductCategory(ctx context.Context, cmd customerportalapp.CustomerProductCategoryMoveCommand) (customerportalapp.CustomerProductCategory, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	template, idMap, err := r.ensureCustomerProductClassificationTemplate(ctx, tx, cmd.CustomerID, cmd.Actor)
+	if err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	categoryID := customerCategoryIDAfterDerive(cmd.ID, idMap)
+	parentID := cmd.ParentID
+	if parentID > 0 {
+		if mapped := idMap[parentID]; mapped > 0 {
+			parentID = mapped
+		}
+		if err := r.ensureCustomerCategoryBelongsToTemplate(ctx, tx, template.ID, parentID); err != nil {
+			return customerportalapp.CustomerProductCategory{}, err
+		}
+	}
+	var currentParent int64
+	var currentSort int
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(parent_id,0), COALESCE(sort_order,100)
+		FROM %s.product_classification_template_categories
+		WHERE id=$1 AND template_id=$2 AND active=true
+	`, r.schema), categoryID, template.ID).Scan(&currentParent, &currentSort); err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	if strings.TrimSpace(cmd.Direction) == "" && cmd.SortOrder <= 0 && cmd.ParentID <= 0 {
+		return customerportalapp.CustomerProductCategory{}, fmt.Errorf("move direction required")
+	}
+	if cmd.ParentID <= 0 {
+		parentID = currentParent
+	}
+	sortOrder := cmd.SortOrder
+	if sortOrder <= 0 {
+		sortOrder = currentSort
+		switch strings.TrimSpace(cmd.Direction) {
+		case "up":
+			sortOrder -= 10
+		case "down":
+			sortOrder += 10
+		}
+		if sortOrder <= 0 {
+			sortOrder = 10
+		}
+	}
+	level := 1
+	if parentID > 0 {
+		level = 2
+	}
+	var row customerportalapp.CustomerProductCategory
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		UPDATE %s.product_classification_template_categories
+		SET parent_id=$3, level=$4, sort_order=$5, updated_at=now()
+		WHERE id=$1 AND template_id=$2 AND active=true
+		RETURNING id, template_id, COALESCE(parent_id,0), name, COALESCE(level,1), COALESCE(sort_order,100)
+	`, r.schema), categoryID, template.ID, parentID, level, sortOrder).Scan(&row.ID, &row.TemplateID, &row.ParentID, &row.Name, &row.Level, &row.SortOrder); err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_classification_category", &row.ID, "mini_move_customer_product_category", postgresinfra.StrPtr("sort_order"), postgresinfra.StrPtr(fmt.Sprintf("%d", currentSort)), postgresinfra.StrPtr(fmt.Sprintf("%d", sortOrder)), postgresinfra.AuditMeta{"customer_id": cmd.CustomerID, "template_id": template.ID, "parent_id": parentID, "direction": cmd.Direction}); err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.CustomerProductCategory{}, err
+	}
+	return row, nil
+}
+
+func (r Repository) AssignCustomerProductCategory(ctx context.Context, cmd customerportalapp.CustomerProductCategoryAssignmentCommand) (customerportalapp.CustomerProductSummary, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return customerportalapp.CustomerProductSummary{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	template, idMap, err := r.ensureCustomerProductClassificationTemplate(ctx, tx, cmd.CustomerID, cmd.Actor)
+	if err != nil {
+		return customerportalapp.CustomerProductSummary{}, err
+	}
+	categoryID := cmd.CategoryID
+	if categoryID > 0 {
+		if mapped := idMap[categoryID]; mapped > 0 {
+			categoryID = mapped
+		}
+		if err := r.ensureCustomerCategoryBelongsToTemplate(ctx, tx, template.ID, categoryID); err != nil {
+			return customerportalapp.CustomerProductSummary{}, err
+		}
+	}
+	var aliasCustomerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT customer_id FROM %s.customer_product_aliases
+		WHERE id=$1 AND active=true
+	`, r.schema), cmd.ProductID).Scan(&aliasCustomerID); err != nil {
+		return customerportalapp.CustomerProductSummary{}, err
+	}
+	if aliasCustomerID != cmd.CustomerID {
+		return customerportalapp.CustomerProductSummary{}, fmt.Errorf("customer product not found")
+	}
+	sortOrder := cmd.SortOrder
+	if sortOrder <= 0 {
+		sortOrder = 100
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM %s.customer_product_alias_classification_assignments
+		WHERE alias_id=$1 AND template_id<>$2
+	`, r.schema), cmd.ProductID, template.ID); err != nil {
+		return customerportalapp.CustomerProductSummary{}, err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_product_alias_classification_assignments(alias_id, template_id, category_id, sort_order, updated_by, created_at, updated_at)
+		VALUES($1,$2,$3,$4,$5,now(),now())
+		ON CONFLICT(alias_id, template_id) DO UPDATE SET
+			category_id=excluded.category_id,
+			sort_order=excluded.sort_order,
+			updated_by=excluded.updated_by,
+			updated_at=now()
+	`, r.schema), cmd.ProductID, template.ID, categoryID, sortOrder, cmd.Actor); err != nil {
+		return customerportalapp.CustomerProductSummary{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "customer_product_alias_classification_assignment", &cmd.ProductID, "mini_assign_customer_product_category", postgresinfra.StrPtr("category_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", categoryID)), postgresinfra.AuditMeta{"customer_id": cmd.CustomerID, "template_id": template.ID, "category_id": categoryID}); err != nil {
+		return customerportalapp.CustomerProductSummary{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.CustomerProductSummary{}, err
+	}
+	products, err := r.listCustomerProductSummaries(ctx, cmd.CustomerID, template.ID)
+	if err != nil {
+		return customerportalapp.CustomerProductSummary{}, err
+	}
+	for _, product := range products {
+		if product.ID == cmd.ProductID {
+			return product, nil
+		}
+	}
+	return customerportalapp.CustomerProductSummary{ID: cmd.ProductID, CategoryID: categoryID}, nil
 }
 
 func (r Repository) LoadResaleBeanListEditor(ctx context.Context, customerID, sourcePublicationID int64) (customerportalapp.ResaleBeanListEditor, error) {
@@ -554,15 +836,324 @@ func (r Repository) listFactorySupplyBeanLists(ctx context.Context, customerID i
 	return scanBeanListSummaries(rows)
 }
 
+func (r Repository) currentCustomerProductClassificationTemplate(ctx context.Context, customerID int64) (customerportalapp.CustomerProductClassificationTemplate, error) {
+	var row customerportalapp.CustomerProductClassificationTemplate
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT t.id, COALESCE(t.customer_id,0), COALESCE(t.source_template_id,0), t.name, false
+		FROM %s.customer_product_alias_classification_template_usages u
+		JOIN %s.product_classification_templates t ON t.id=u.classification_template_id AND t.active=true
+		WHERE u.customer_id=$1 AND u.active=true AND COALESCE(t.customer_id,0)=$1
+		ORDER BY COALESCE(u.sort_order,100), t.id
+		LIMIT 1
+	`, r.schema, r.schema), customerID).Scan(&row.ID, &row.CustomerID, &row.DerivedFromTemplateID, &row.Name, &row.ReadOnly)
+	if err == nil {
+		return row, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return customerportalapp.CustomerProductClassificationTemplate{}, err
+	}
+	err = r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT t.id, COALESCE(t.customer_id,0), COALESCE(t.source_template_id,0), t.name, true
+		FROM %s.product_classification_template_usages u
+		JOIN %s.product_classification_templates t ON t.id=u.classification_template_id AND t.active=true
+		WHERE u.active=true
+		ORDER BY COALESCE(u.sort_order,100), t.id
+		LIMIT 1
+	`, r.schema, r.schema)).Scan(&row.ID, &row.CustomerID, &row.DerivedFromTemplateID, &row.Name, &row.ReadOnly)
+	if err == nil {
+		return row, nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return customerportalapp.CustomerProductClassificationTemplate{}, nil
+	}
+	return customerportalapp.CustomerProductClassificationTemplate{}, err
+}
+
+func (r Repository) listCustomerProductCategories(ctx context.Context, templateID int64) ([]customerportalapp.CustomerProductCategory, error) {
+	if templateID <= 0 {
+		return []customerportalapp.CustomerProductCategory{}, nil
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, template_id, COALESCE(parent_id,0), name, COALESCE(level,1), COALESCE(sort_order,100)
+		FROM %s.product_classification_template_categories
+		WHERE template_id=$1 AND active=true
+		ORDER BY COALESCE(parent_id,0), COALESCE(sort_order,100), id
+	`, r.schema), templateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []customerportalapp.CustomerProductCategory{}
+	for rows.Next() {
+		var row customerportalapp.CustomerProductCategory
+		if err := rows.Scan(&row.ID, &row.TemplateID, &row.ParentID, &row.Name, &row.Level, &row.SortOrder); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) listCustomerProductSummaries(ctx context.Context, customerID, templateID int64) ([]customerportalapp.CustomerProductSummary, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT a.id,
+		       a.product_id,
+		       COALESCE(NULLIF(a.customer_item_code,''), 'SKU-' || LPAD(a.product_id::text, 6, '0')),
+		       COALESCE(NULLIF(a.display_name,''), p.name, ''),
+		       COALESCE(NULLIF(p.product_kind,''),'roasted_bean'),
+		       COALESCE(ass.category_id,0),
+		       COALESCE(cat.name,''),
+		       COALESCE(a.sort_order,0)
+		FROM %s.customer_product_aliases a
+		JOIN %s.products p ON p.id=a.product_id
+		LEFT JOIN %s.customer_product_alias_classification_assignments ass
+		  ON ass.alias_id=a.id AND ass.template_id=$2
+		LEFT JOIN %s.product_classification_template_categories cat
+		  ON cat.id=ass.category_id AND cat.template_id=$2 AND cat.active=true
+		WHERE a.customer_id=$1
+		  AND a.active=true
+		  AND COALESCE(a.include_in_price_list,true)=true
+		  AND COALESCE(p.active,true)=true
+		ORDER BY COALESCE(cat.sort_order,9999), COALESCE(a.sort_order,0), a.id
+	`, r.schema, r.schema, r.schema, r.schema), customerID, templateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []customerportalapp.CustomerProductSummary{}
+	for rows.Next() {
+		var row customerportalapp.CustomerProductSummary
+		if err := rows.Scan(&row.ID, &row.ProductID, &row.Code, &row.Name, &row.ProductKind, &row.CategoryID, &row.CategoryName, &row.SortOrder); err != nil {
+			return nil, err
+		}
+		row.ListType = customerProductListType(row.ProductKind)
+		row.ListTypeLabel = beanListTypeLabel(row.ListType)
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) ensureCustomerProductClassificationTemplate(ctx context.Context, tx pgx.Tx, customerID int64, actor string) (customerportalapp.CustomerProductClassificationTemplate, map[int64]int64, error) {
+	var row customerportalapp.CustomerProductClassificationTemplate
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT t.id, COALESCE(t.customer_id,0), COALESCE(t.source_template_id,0), t.name, false
+		FROM %s.customer_product_alias_classification_template_usages u
+		JOIN %s.product_classification_templates t ON t.id=u.classification_template_id AND t.active=true
+		WHERE u.customer_id=$1 AND u.active=true AND COALESCE(t.customer_id,0)=$1
+		ORDER BY COALESCE(u.sort_order,100), t.id
+		LIMIT 1
+	`, r.schema, r.schema), customerID).Scan(&row.ID, &row.CustomerID, &row.DerivedFromTemplateID, &row.Name, &row.ReadOnly)
+	if err == nil {
+		return row, map[int64]int64{}, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return customerportalapp.CustomerProductClassificationTemplate{}, nil, err
+	}
+
+	source := customerportalapp.CustomerProductClassificationTemplate{}
+	_ = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT t.id, COALESCE(t.customer_id,0), COALESCE(t.source_template_id,0), t.name, false
+		FROM %s.product_classification_template_usages u
+		JOIN %s.product_classification_templates t ON t.id=u.classification_template_id AND t.active=true
+		WHERE u.active=true
+		ORDER BY COALESCE(u.sort_order,100), t.id
+		LIMIT 1
+	`, r.schema, r.schema)).Scan(&source.ID, &source.CustomerID, &source.DerivedFromTemplateID, &source.Name, &source.ReadOnly)
+
+	var customerName string
+	_ = tx.QueryRow(ctx, fmt.Sprintf(`SELECT COALESCE(NULLIF(name,''),'客户') FROM %s.customers WHERE id=$1`, r.schema), customerID).Scan(&customerName)
+	name := strings.TrimSpace(customerName)
+	if name == "" {
+		name = fmt.Sprintf("客户%d", customerID)
+	}
+	name = fmt.Sprintf("%s 商品分类", name)
+	var templateID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_classification_templates(customer_id, source_template_id, template_state, name, remark, active, sort_order, created_by, updated_by)
+		VALUES($1,$2,'customer_derived',$3,'miniapp derived customer product categories',true,100,$4,$4)
+			ON CONFLICT (customer_id, (lower(name))) DO UPDATE SET updated_at=now(), updated_by=excluded.updated_by
+		RETURNING id
+	`, r.schema), customerID, source.ID, name, actor).Scan(&templateID); err != nil {
+		return customerportalapp.CustomerProductClassificationTemplate{}, nil, err
+	}
+	idMap := map[int64]int64{}
+	if source.ID > 0 {
+		rows, err := tx.Query(ctx, fmt.Sprintf(`
+			SELECT id, COALESCE(parent_id,0), name, COALESCE(level,1), COALESCE(sort_order,100), COALESCE(product_config_template_id,0), COALESCE(gradient_template_id,0), COALESCE(unit_template_id,0)
+			FROM %s.product_classification_template_categories
+			WHERE template_id=$1 AND active=true
+			ORDER BY COALESCE(level,1), COALESCE(parent_id,0), COALESCE(sort_order,100), id
+		`, r.schema), source.ID)
+		if err != nil {
+			return customerportalapp.CustomerProductClassificationTemplate{}, nil, err
+		}
+		type srcCategory struct {
+			id, parentID, productConfigTemplateID, gradientTemplateID, unitTemplateID int64
+			name                                                                      string
+			level, sortOrder                                                          int
+		}
+		sourceRows := []srcCategory{}
+		for rows.Next() {
+			var c srcCategory
+			if err := rows.Scan(&c.id, &c.parentID, &c.name, &c.level, &c.sortOrder, &c.productConfigTemplateID, &c.gradientTemplateID, &c.unitTemplateID); err != nil {
+				rows.Close()
+				return customerportalapp.CustomerProductClassificationTemplate{}, nil, err
+			}
+			sourceRows = append(sourceRows, c)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return customerportalapp.CustomerProductClassificationTemplate{}, nil, err
+		}
+		rows.Close()
+		for _, c := range sourceRows {
+			parentID := int64(0)
+			if c.parentID > 0 {
+				parentID = idMap[c.parentID]
+			}
+			var newID int64
+			if err := tx.QueryRow(ctx, fmt.Sprintf(`
+				INSERT INTO %s.product_classification_template_categories(template_id, parent_id, name, level, sort_order, product_config_template_id, gradient_template_id, unit_template_id, active)
+				VALUES($1,$2,$3,$4,$5,$6,$7,$8,true)
+					ON CONFLICT (template_id, parent_id, (lower(name))) DO UPDATE SET updated_at=now()
+				RETURNING id
+			`, r.schema), templateID, parentID, c.name, c.level, c.sortOrder, c.productConfigTemplateID, c.gradientTemplateID, c.unitTemplateID).Scan(&newID); err != nil {
+				return customerportalapp.CustomerProductClassificationTemplate{}, nil, err
+			}
+			idMap[c.id] = newID
+		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_product_alias_classification_template_usages(customer_id, classification_template_id, active, sort_order, created_by, updated_by)
+		VALUES($1,$2,true,100,$3,$3)
+		ON CONFLICT(customer_id, classification_template_id) DO UPDATE SET active=true, updated_at=now(), updated_by=excluded.updated_by
+	`, r.schema), customerID, templateID, actor); err != nil {
+		return customerportalapp.CustomerProductClassificationTemplate{}, nil, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, actor, "product_classification_template", &templateID, "mini_derive_customer_product_classification_template", postgresinfra.StrPtr("source_template_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", source.ID)), postgresinfra.StrPtr(fmt.Sprintf("%d", templateID)), postgresinfra.AuditMeta{"customer_id": customerID, "source_template_id": source.ID, "template_id": templateID}); err != nil {
+		return customerportalapp.CustomerProductClassificationTemplate{}, nil, err
+	}
+	row = customerportalapp.CustomerProductClassificationTemplate{ID: templateID, CustomerID: customerID, DerivedFromTemplateID: source.ID, Name: name}
+	return row, idMap, nil
+}
+
+func (r Repository) ensureCustomerCategoryBelongsToTemplate(ctx context.Context, tx pgx.Tx, templateID, categoryID int64) error {
+	var ok bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.product_classification_template_categories WHERE id=$1 AND template_id=$2 AND active=true)`, r.schema), categoryID, templateID).Scan(&ok); err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("classification category not found")
+	}
+	return nil
+}
+
+func (r Repository) nextCustomerCategorySortOrder(ctx context.Context, tx pgx.Tx, templateID, parentID int64) int {
+	var maxSort int
+	_ = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(MAX(sort_order),0)
+		FROM %s.product_classification_template_categories
+		WHERE template_id=$1 AND parent_id=$2 AND active=true
+	`, r.schema), templateID, parentID).Scan(&maxSort)
+	return maxSort + 100
+}
+
+func customerCategoryIDAfterDerive(categoryID int64, idMap map[int64]int64) int64 {
+	if mapped := idMap[categoryID]; mapped > 0 {
+		return mapped
+	}
+	return categoryID
+}
+
+func attachCustomerProductCategoryCounts(categories []customerportalapp.CustomerProductCategory, products []customerportalapp.CustomerProductSummary) []customerportalapp.CustomerProductCategory {
+	counts := map[int64]int{}
+	for _, product := range products {
+		if product.CategoryID > 0 {
+			counts[product.CategoryID]++
+		}
+	}
+	for i := range categories {
+		categories[i].ProductCount = counts[categories[i].ID]
+	}
+	return categories
+}
+
+func customerProductCountsByListType(products []customerportalapp.CustomerProductSummary) map[string]int {
+	out := map[string]int{}
+	for _, product := range products {
+		listType := strings.TrimSpace(product.ListType)
+		if listType == "" {
+			listType = customerProductListType(product.ProductKind)
+		}
+		out[listType]++
+	}
+	return out
+}
+
+func customerPriceTableGroups(rows []customerportalapp.BeanListSummary, productCounts map[string]int, includeVersions bool) []customerportalapp.CustomerPriceTableGroup {
+	index := map[string]int{}
+	out := []customerportalapp.CustomerPriceTableGroup{}
+	for _, row := range rows {
+		listType := strings.TrimSpace(row.ListType)
+		if listType == "" {
+			listType = "commercial"
+		}
+		idx, ok := index[listType]
+		if !ok {
+			group := customerportalapp.CustomerPriceTableGroup{
+				ListType:        listType,
+				ListTypeLabel:   firstNonEmpty(row.ListTypeLabel, beanListTypeLabel(listType)),
+				ProductCount:    productCounts[listType],
+				PriceTableCount: 0,
+				LatestVersion:   row,
+			}
+			index[listType] = len(out)
+			out = append(out, group)
+			idx = len(out) - 1
+		}
+		out[idx].PriceTableCount++
+		if includeVersions {
+			out[idx].Versions = append(out[idx].Versions, row)
+		}
+	}
+	for listType, count := range productCounts {
+		if _, ok := index[listType]; ok {
+			continue
+		}
+		out = append(out, customerportalapp.CustomerPriceTableGroup{
+			ListType:        listType,
+			ListTypeLabel:   beanListTypeLabel(listType),
+			ProductCount:    count,
+			PriceTableCount: 0,
+		})
+	}
+	return out
+}
+
+func customerProductListType(productKind string) string {
+	switch strings.TrimSpace(productKind) {
+	case "green_bean", "green":
+		return "green"
+	case "retail":
+		return "retail"
+	default:
+		return "commercial"
+	}
+}
+
 func (r Repository) listAuthorizedResaleGradientTemplates(ctx context.Context, customerID int64) ([]customerportalapp.ResaleGradientTemplate, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, name, display_unit
-		FROM %s.pricing_gradient_templates
-		WHERE active=true
-		  AND COALESCE(allow_customer_resale,false)=true
-		  AND COALESCE(customer_id,0) IN (0, $1)
-		ORDER BY COALESCE(customer_id,0), name, id
-	`, r.schema), customerID)
+		FROM %s.pricing_gradient_templates t
+		LEFT JOIN %s.customer_sku_public_usage u ON u.customer_id=$1
+		WHERE t.active=true
+		  AND COALESCE(t.allow_customer_resale,false)=true
+		  AND (
+		    COALESCE(t.customer_id,0)=$1
+		    OR (COALESCE(t.customer_id,0)=0 AND COALESCE(u.use_public_gradient_templates,true)=true)
+		  )
+		ORDER BY COALESCE(t.customer_id,0) DESC, t.name, t.id
+	`, r.schema, r.schema), customerID)
 	if err != nil {
 		return nil, err
 	}

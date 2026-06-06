@@ -3,7 +3,9 @@ import type { BeanListSummary, ResaleBeanListCommand } from '../api/customerPort
 import {
   buildResaleBeanListPublishPayload,
   defaultResaleBeanListDraft,
+  resaleCardsPerRowOptions,
   resaleBeanListItemKey,
+  resaleStyleColorPresets,
 } from './resaleBeanList'
 import {
   buildResaleBeanListEditorPath,
@@ -53,8 +55,8 @@ describe('customer resale bean list helpers', () => {
       price_rule: { add_amount: 2, multiplier: 1.1 },
       config: { brandName: '客户品牌', brandIntro: '销售说明', backgroundColor: '#fff8ee', layoutStyle: 'card' },
       item_overrides: [
-        { code: 'ETH-G1', badge_label: '推荐', recommended_use: '手冲', highlight_terms: ['推荐'] },
-        { code: 'BRA-1', label: '', highlight_terms: [] },
+        { code: 'ETH-G1', label: '1kg+', price: 999, badge_label: '推荐', recommended_use: '手冲', highlight_terms: ['推荐'] },
+        { code: 'BRA-1', label: '1kg+', price: 888, highlight_terms: [] },
       ],
       changelog: '首版转售豆单',
     }
@@ -71,6 +73,12 @@ describe('customer resale bean list helpers', () => {
       item_overrides: [{ code: 'ETH-G1', badge_label: '推荐', recommended_use: '手冲', highlight_terms: ['推荐'] }],
       changelog: '首版转售豆单',
     })
+  })
+
+  it('uses preset colors and 1/2/3 card count controls instead of raw numeric/color fields', () => {
+    expect(resaleStyleColorPresets.map((preset) => preset.key)).toContain('warm')
+    expect(resaleStyleColorPresets.every((preset) => preset.backgroundColor.startsWith('#') && preset.fontColor.startsWith('#'))).toBe(true)
+    expect(resaleCardsPerRowOptions).toEqual([1, 2, 3])
   })
 
   it('builds stable item keys and mini API paths', () => {

@@ -56,7 +56,7 @@ export type FulfillmentOrderForm = {
 type FulfillmentProductLike = Partial<ProductSummary>
 
 const labels: Record<ServiceKey, string> = {
-  beanList: '我的豆单',
+  beanList: '我的商品',
   orders: '订单中心',
   productOrder: '现货下单',
   directShip: '一件代发',
@@ -91,7 +91,7 @@ export function serviceCapability(key: ServiceKey | string): string {
 
 export function visibleServiceSections(payload: ServicePayload): ServiceSection[] {
   const sections: ServiceSection[] = []
-  addSection(sections, '豆单', payload.bean_lists)
+  addSection(sections, '商品价格表', payload.bean_lists)
   addSection(sections, '现货商品', payload.products)
   addSection(sections, orderSectionTitle(normalizeServiceKey(String(payload.key))), payload.orders)
   addSection(sections, '一件代发批次', payload.direct_ship_batches)

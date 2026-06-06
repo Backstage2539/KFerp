@@ -742,3 +742,14 @@
 - ERP 顶部通知区域仍保持最多 3 条紧凑展示窗口，避免挤占页面主体；当未读通知超过 3 条时，必须显示当前位置计数，并提供上下箭头浏览后续通知。
 - 顶部通知必须拉取足够的当前未读队列，不能只因为前 3 条未清理就让第 4 条以后的新订单通知不可见。
 - 通知区域必须提供“一键清空”能力；清空后应同时清除本地临时通知、记录当前已拉取后端通知 dismissed id，并调用服务端已读接口。刷新页面或等待轮询时，已清空通知不得重新回弹。
+
+## 39. 小程序我的商品与客户商品价格表（PR-433-MINIAPP-CUSTOMER-PRODUCTS-PRICE-LISTS）
+- 小程序首页主入口继续围绕订单中心和服务入口，不展示“我的商品”快捷入口；“我的商品”放在个人中心，进入后管理客户自己的商品、商品分类、工厂给客户的商品价格表和客户自己发布的商品价格表。
+- 新增 `GET` `/api/mini/customer-products`，返回当前客户商品、客户商品分类模板、分类树、商品归类、按 `list_type/list_type_label` 分组的工厂商品价格表和客户发布商品价格表。
+- 新增 `/api/mini/customer-products/categories`、`/api/mini/customer-products/categories/:id`、`/api/mini/customer-products/categories/:id/move`、`/api/mini/customer-products/:id/category`，用于手机端新增/改名/删除/上移下移分类和商品归类；所有写操作必须校验 mini token、当前客户绑定和 `bean_list` 能力，并写操作日志。
+- 客户首次编辑公共分类时，系统必须派生客户专属商品分类模板，复用 ERP `product_classification_templates`、`customer_product_alias_classification_template_usages` 和 `customer_product_alias_classification_assignments`，不得污染公共模板；ERP 后台仍可看到该客户模板并复制使用。
+- 商品价格表页面按 `list_type/list_type_label` 分组展示客户自己的商品价格表入口；每个类型显示商品数量、价格表数量和当前工厂价格表版本。客户自己发布的商品价格表在“已发布商品价格表”中按类型折叠，默认只显示最新版本摘要。
+- “我的价格表设置”保留选择商品、选择授权阶梯价模板、统一加价、倍率加价、品牌名、说明、版本说明、背景、样式和上新/推荐标签；去掉覆盖档位和单品价，后端忽略旧 payload 的 `label`/`price` 单品覆盖字段。
+- 背景色/文字色只能通过预设色板选择，每行卡片数通过 1/2/3 按钮选择；手机端不显示裸色值、`0/1/2` 编号或数字输入。
+- 小程序输出按钮改为“预览 PDF”和“预览长图”；PDF 使用 `uni.openDocument({ showMenu: true })`，长图使用 `uni.previewImage`，下载失败时给明确提示。
+- 部署到 development 前必须构建小程序：`npm ci`、`npm run typecheck`、`npm run build:mp-weixin`。构建失败视为部署失败；远端必须包含 `miniapp/dist/build/mp-weixin`。

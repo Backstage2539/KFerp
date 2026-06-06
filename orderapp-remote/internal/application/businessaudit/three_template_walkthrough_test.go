@@ -569,6 +569,30 @@ func (s *threeTemplateWalkthroughStore) LoadResaleBeanListPage(context.Context, 
 	return customerportalapp.ResaleBeanListPage{}, nil
 }
 
+func (s *threeTemplateWalkthroughStore) LoadCustomerProductsPage(context.Context, int64) (customerportalapp.CustomerProductsPage, error) {
+	return customerportalapp.CustomerProductsPage{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) CreateCustomerProductCategory(context.Context, customerportalapp.CustomerProductCategoryCommand) (customerportalapp.CustomerProductCategory, error) {
+	return customerportalapp.CustomerProductCategory{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) UpdateCustomerProductCategory(context.Context, customerportalapp.CustomerProductCategoryCommand) (customerportalapp.CustomerProductCategory, error) {
+	return customerportalapp.CustomerProductCategory{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) DeleteCustomerProductCategory(context.Context, int64, int64, string) error {
+	return nil
+}
+
+func (s *threeTemplateWalkthroughStore) MoveCustomerProductCategory(context.Context, customerportalapp.CustomerProductCategoryMoveCommand) (customerportalapp.CustomerProductCategory, error) {
+	return customerportalapp.CustomerProductCategory{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) AssignCustomerProductCategory(context.Context, customerportalapp.CustomerProductCategoryAssignmentCommand) (customerportalapp.CustomerProductSummary, error) {
+	return customerportalapp.CustomerProductSummary{}, nil
+}
+
 func (s *threeTemplateWalkthroughStore) LoadResaleBeanListEditor(context.Context, int64, int64) (customerportalapp.ResaleBeanListEditor, error) {
 	return customerportalapp.ResaleBeanListEditor{}, nil
 }

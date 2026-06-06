@@ -26,6 +26,12 @@ type Service interface {
 	GetBeanListPublication(context.Context, string, int64) (customerportalapp.BeanListSummary, error)
 	AcknowledgeBeanListPublication(context.Context, string, int64) error
 	GetResaleBeanLists(context.Context, string) (customerportalapp.ResaleBeanListPage, error)
+	GetCustomerProducts(context.Context, string) (customerportalapp.CustomerProductsPage, error)
+	CreateCustomerProductCategory(context.Context, string, customerportalapp.CustomerProductCategoryCommand) (customerportalapp.CustomerProductCategory, error)
+	UpdateCustomerProductCategory(context.Context, string, int64, customerportalapp.CustomerProductCategoryCommand) (customerportalapp.CustomerProductCategory, error)
+	DeleteCustomerProductCategory(context.Context, string, int64) error
+	MoveCustomerProductCategory(context.Context, string, int64, customerportalapp.CustomerProductCategoryMoveCommand) (customerportalapp.CustomerProductCategory, error)
+	AssignCustomerProductCategory(context.Context, string, int64, customerportalapp.CustomerProductCategoryAssignmentCommand) (customerportalapp.CustomerProductSummary, error)
 	GetResaleBeanListEditor(context.Context, string, int64) (customerportalapp.ResaleBeanListEditor, error)
 	SaveResaleBeanListDraft(context.Context, string, customerportalapp.ResaleBeanListCommand) (customerportalapp.BeanListSummary, error)
 	PublishResaleBeanList(context.Context, string, customerportalapp.ResaleBeanListCommand) (customerportalapp.BeanListSummary, error)

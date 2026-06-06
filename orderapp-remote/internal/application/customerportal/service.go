@@ -212,11 +212,89 @@ type BeanListPublicationAsset struct {
 }
 
 type ResaleBeanListPage struct {
-	FactorySupplyBeanLists  []BeanListSummary        `json:"factory_supply_bean_lists"`
-	CustomerResaleBeanLists []BeanListSummary        `json:"customer_resale_bean_lists"`
-	GradientTemplates       []ResaleGradientTemplate `json:"gradient_templates"`
-	CurrentCustomerID       int64                    `json:"current_customer_id,omitempty"`
-	CurrentCustomerName     string                   `json:"current_customer_name,omitempty"`
+	FactorySupplyBeanLists   []BeanListSummary         `json:"factory_supply_bean_lists"`
+	CustomerResaleBeanLists  []BeanListSummary         `json:"customer_resale_bean_lists"`
+	GradientTemplates        []ResaleGradientTemplate  `json:"gradient_templates"`
+	FactoryPriceTableGroups  []CustomerPriceTableGroup `json:"factory_price_table_groups,omitempty"`
+	CustomerPriceTableGroups []CustomerPriceTableGroup `json:"customer_price_table_groups,omitempty"`
+	CurrentCustomerID        int64                     `json:"current_customer_id,omitempty"`
+	CurrentCustomerName      string                    `json:"current_customer_name,omitempty"`
+}
+
+type CustomerProductsPage struct {
+	CurrentCustomerID        int64                                 `json:"current_customer_id,omitempty"`
+	CurrentCustomerName      string                                `json:"current_customer_name,omitempty"`
+	ClassificationTemplate   CustomerProductClassificationTemplate `json:"classification_template"`
+	Categories               []CustomerProductCategory             `json:"categories"`
+	Products                 []CustomerProductSummary              `json:"products"`
+	FactoryPriceTableGroups  []CustomerPriceTableGroup             `json:"factory_price_table_groups"`
+	CustomerPriceTableGroups []CustomerPriceTableGroup             `json:"customer_price_table_groups"`
+}
+
+type CustomerProductClassificationTemplate struct {
+	ID                    int64  `json:"id"`
+	CustomerID            int64  `json:"customer_id"`
+	DerivedFromTemplateID int64  `json:"derived_from_template_id,omitempty"`
+	Name                  string `json:"name"`
+	ReadOnly              bool   `json:"read_only,omitempty"`
+}
+
+type CustomerProductCategory struct {
+	ID           int64  `json:"id"`
+	TemplateID   int64  `json:"template_id"`
+	ParentID     int64  `json:"parent_id"`
+	Name         string `json:"name"`
+	Level        int    `json:"level"`
+	SortOrder    int    `json:"sort_order"`
+	ProductCount int    `json:"product_count,omitempty"`
+}
+
+type CustomerProductSummary struct {
+	ID            int64  `json:"id"`
+	ProductID     int64  `json:"product_id"`
+	Code          string `json:"code,omitempty"`
+	Name          string `json:"name"`
+	ProductKind   string `json:"product_kind,omitempty"`
+	ListType      string `json:"list_type"`
+	ListTypeLabel string `json:"list_type_label"`
+	CategoryID    int64  `json:"category_id,omitempty"`
+	CategoryName  string `json:"category_name,omitempty"`
+	SortOrder     int    `json:"sort_order,omitempty"`
+}
+
+type CustomerPriceTableGroup struct {
+	ListType        string            `json:"list_type"`
+	ListTypeLabel   string            `json:"list_type_label"`
+	ProductCount    int               `json:"product_count"`
+	PriceTableCount int               `json:"price_table_count"`
+	LatestVersion   BeanListSummary   `json:"latest_version,omitempty"`
+	Versions        []BeanListSummary `json:"versions,omitempty"`
+}
+
+type CustomerProductCategoryCommand struct {
+	ID         int64  `json:"id,omitempty"`
+	CustomerID int64  `json:"customer_id,omitempty"`
+	ParentID   int64  `json:"parent_id"`
+	Name       string `json:"name"`
+	SortOrder  int    `json:"sort_order,omitempty"`
+	Actor      string `json:"actor,omitempty"`
+}
+
+type CustomerProductCategoryMoveCommand struct {
+	ID         int64  `json:"id,omitempty"`
+	CustomerID int64  `json:"customer_id,omitempty"`
+	ParentID   int64  `json:"parent_id"`
+	Direction  string `json:"direction,omitempty"`
+	SortOrder  int    `json:"sort_order,omitempty"`
+	Actor      string `json:"actor,omitempty"`
+}
+
+type CustomerProductCategoryAssignmentCommand struct {
+	ProductID  int64  `json:"product_id,omitempty"`
+	CustomerID int64  `json:"customer_id,omitempty"`
+	CategoryID int64  `json:"category_id"`
+	SortOrder  int    `json:"sort_order,omitempty"`
+	Actor      string `json:"actor,omitempty"`
 }
 
 type ResaleBeanListEditor struct {
@@ -890,6 +968,12 @@ type Repository interface {
 	SaveBeanListPublicationAsset(ctx context.Context, asset BeanListPublicationAsset, actor string) (BeanListPublicationAsset, error)
 	AcknowledgeBeanListPublication(ctx context.Context, customerID, publicationID int64, actor string) error
 	LoadResaleBeanListPage(ctx context.Context, customerID int64) (ResaleBeanListPage, error)
+	LoadCustomerProductsPage(ctx context.Context, customerID int64) (CustomerProductsPage, error)
+	CreateCustomerProductCategory(ctx context.Context, cmd CustomerProductCategoryCommand) (CustomerProductCategory, error)
+	UpdateCustomerProductCategory(ctx context.Context, cmd CustomerProductCategoryCommand) (CustomerProductCategory, error)
+	DeleteCustomerProductCategory(ctx context.Context, customerID, categoryID int64, actor string) error
+	MoveCustomerProductCategory(ctx context.Context, cmd CustomerProductCategoryMoveCommand) (CustomerProductCategory, error)
+	AssignCustomerProductCategory(ctx context.Context, cmd CustomerProductCategoryAssignmentCommand) (CustomerProductSummary, error)
 	LoadResaleBeanListEditor(ctx context.Context, customerID, sourcePublicationID int64) (ResaleBeanListEditor, error)
 	LoadResaleBeanListPublication(ctx context.Context, customerID, publicationID int64) (BeanListSummary, error)
 	LoadAuthorizedResaleGradientTemplate(ctx context.Context, customerID, templateID int64) (ResaleGradientTemplate, error)
@@ -1204,6 +1288,107 @@ func (s *Service) GetResaleBeanLists(ctx context.Context, token string) (ResaleB
 	page.CurrentCustomerID = current.CurrentCustomerID
 	page.CurrentCustomerName = current.CurrentCustomerName
 	return page, nil
+}
+
+func (s *Service) GetCustomerProducts(ctx context.Context, token string) (CustomerProductsPage, error) {
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	if err != nil {
+		return CustomerProductsPage{}, err
+	}
+	if s.repo == nil {
+		return CustomerProductsPage{}, fmt.Errorf("repository required")
+	}
+	page, err := s.repo.LoadCustomerProductsPage(ctx, current.CurrentCustomerID)
+	if err != nil {
+		return CustomerProductsPage{}, err
+	}
+	page.CurrentCustomerID = current.CurrentCustomerID
+	page.CurrentCustomerName = current.CurrentCustomerName
+	return page, nil
+}
+
+func (s *Service) CreateCustomerProductCategory(ctx context.Context, token string, cmd CustomerProductCategoryCommand) (CustomerProductCategory, error) {
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	if err != nil {
+		return CustomerProductCategory{}, err
+	}
+	if strings.TrimSpace(cmd.Name) == "" {
+		return CustomerProductCategory{}, fmt.Errorf("category name required")
+	}
+	if s.repo == nil {
+		return CustomerProductCategory{}, fmt.Errorf("repository required")
+	}
+	cmd.CustomerID = current.CurrentCustomerID
+	cmd.Actor = "miniapp"
+	return s.repo.CreateCustomerProductCategory(ctx, cmd)
+}
+
+func (s *Service) UpdateCustomerProductCategory(ctx context.Context, token string, categoryID int64, cmd CustomerProductCategoryCommand) (CustomerProductCategory, error) {
+	if categoryID <= 0 {
+		return CustomerProductCategory{}, fmt.Errorf("category required")
+	}
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	if err != nil {
+		return CustomerProductCategory{}, err
+	}
+	if strings.TrimSpace(cmd.Name) == "" {
+		return CustomerProductCategory{}, fmt.Errorf("category name required")
+	}
+	if s.repo == nil {
+		return CustomerProductCategory{}, fmt.Errorf("repository required")
+	}
+	cmd.ID = categoryID
+	cmd.CustomerID = current.CurrentCustomerID
+	cmd.Actor = "miniapp"
+	return s.repo.UpdateCustomerProductCategory(ctx, cmd)
+}
+
+func (s *Service) DeleteCustomerProductCategory(ctx context.Context, token string, categoryID int64) error {
+	if categoryID <= 0 {
+		return fmt.Errorf("category required")
+	}
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	if err != nil {
+		return err
+	}
+	if s.repo == nil {
+		return fmt.Errorf("repository required")
+	}
+	return s.repo.DeleteCustomerProductCategory(ctx, current.CurrentCustomerID, categoryID, "miniapp")
+}
+
+func (s *Service) MoveCustomerProductCategory(ctx context.Context, token string, categoryID int64, cmd CustomerProductCategoryMoveCommand) (CustomerProductCategory, error) {
+	if categoryID <= 0 {
+		return CustomerProductCategory{}, fmt.Errorf("category required")
+	}
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	if err != nil {
+		return CustomerProductCategory{}, err
+	}
+	if s.repo == nil {
+		return CustomerProductCategory{}, fmt.Errorf("repository required")
+	}
+	cmd.ID = categoryID
+	cmd.CustomerID = current.CurrentCustomerID
+	cmd.Actor = "miniapp"
+	return s.repo.MoveCustomerProductCategory(ctx, cmd)
+}
+
+func (s *Service) AssignCustomerProductCategory(ctx context.Context, token string, productID int64, cmd CustomerProductCategoryAssignmentCommand) (CustomerProductSummary, error) {
+	if productID <= 0 {
+		return CustomerProductSummary{}, fmt.Errorf("product required")
+	}
+	current, err := s.requireCustomerCapability(ctx, token, CapabilityBeanList)
+	if err != nil {
+		return CustomerProductSummary{}, err
+	}
+	if s.repo == nil {
+		return CustomerProductSummary{}, fmt.Errorf("repository required")
+	}
+	cmd.ProductID = productID
+	cmd.CustomerID = current.CurrentCustomerID
+	cmd.Actor = "miniapp"
+	return s.repo.AssignCustomerProductCategory(ctx, cmd)
 }
 
 func (s *Service) GetResaleBeanListEditor(ctx context.Context, token string, sourcePublicationID int64) (ResaleBeanListEditor, error) {
@@ -1571,9 +1756,6 @@ func resaleSourcePriceForTier(rows []resaleSourcePrice, tier ResaleGradientTempl
 
 func resalePriceRow(source resaleSourcePrice, label string, override ResaleBeanListItemOverride, rule ResaleBeanListPriceRule) map[string]any {
 	price := finalResalePrice(source.Price, rule)
-	if strings.TrimSpace(override.Label) == strings.TrimSpace(label) && override.Price > 0 {
-		price = roundResalePrice(override.Price)
-	}
 	value := formatResalePriceValue(price, source.Unit)
 	return map[string]any{
 		"label": strings.TrimSpace(label),

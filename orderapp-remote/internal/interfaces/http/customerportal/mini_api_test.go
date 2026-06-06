@@ -47,6 +47,10 @@ type fakeService struct {
 	fulfillmentCmd    *customerportalapp.CreateFulfillmentOrderCommand
 	beanList          customerportalapp.BeanListSummary
 	resalePage        customerportalapp.ResaleBeanListPage
+	customerProducts  customerportalapp.CustomerProductsPage
+	customerCatCmd    *customerportalapp.CustomerProductCategoryCommand
+	customerMoveCmd   *customerportalapp.CustomerProductCategoryMoveCommand
+	customerAssignCmd *customerportalapp.CustomerProductCategoryAssignmentCommand
 	resaleEditor      customerportalapp.ResaleBeanListEditor
 	resalePublication customerportalapp.BeanListSummary
 	resalePublishCmd  *customerportalapp.ResaleBeanListCommand
@@ -116,6 +120,60 @@ func (s fakeService) GetResaleBeanLists(context.Context, string) (customerportal
 		return customerportalapp.ResaleBeanListPage{}, s.err
 	}
 	return s.resalePage, nil
+}
+
+func (s fakeService) GetCustomerProducts(context.Context, string) (customerportalapp.CustomerProductsPage, error) {
+	if s.err != nil {
+		return customerportalapp.CustomerProductsPage{}, s.err
+	}
+	return s.customerProducts, nil
+}
+
+func (s fakeService) CreateCustomerProductCategory(_ context.Context, _ string, cmd customerportalapp.CustomerProductCategoryCommand) (customerportalapp.CustomerProductCategory, error) {
+	if s.err != nil {
+		return customerportalapp.CustomerProductCategory{}, s.err
+	}
+	if s.customerCatCmd != nil {
+		*s.customerCatCmd = cmd
+	}
+	return customerportalapp.CustomerProductCategory{ID: 51, Name: cmd.Name, ParentID: cmd.ParentID, Level: 1}, nil
+}
+
+func (s fakeService) UpdateCustomerProductCategory(_ context.Context, _ string, categoryID int64, cmd customerportalapp.CustomerProductCategoryCommand) (customerportalapp.CustomerProductCategory, error) {
+	if s.err != nil {
+		return customerportalapp.CustomerProductCategory{}, s.err
+	}
+	if s.customerCatCmd != nil {
+		cmd.ID = categoryID
+		*s.customerCatCmd = cmd
+	}
+	return customerportalapp.CustomerProductCategory{ID: categoryID, Name: cmd.Name, ParentID: cmd.ParentID, Level: 1}, nil
+}
+
+func (s fakeService) DeleteCustomerProductCategory(context.Context, string, int64) error {
+	return s.err
+}
+
+func (s fakeService) MoveCustomerProductCategory(_ context.Context, _ string, categoryID int64, cmd customerportalapp.CustomerProductCategoryMoveCommand) (customerportalapp.CustomerProductCategory, error) {
+	if s.err != nil {
+		return customerportalapp.CustomerProductCategory{}, s.err
+	}
+	if s.customerMoveCmd != nil {
+		cmd.ID = categoryID
+		*s.customerMoveCmd = cmd
+	}
+	return customerportalapp.CustomerProductCategory{ID: categoryID, ParentID: cmd.ParentID, SortOrder: cmd.SortOrder}, nil
+}
+
+func (s fakeService) AssignCustomerProductCategory(_ context.Context, _ string, productID int64, cmd customerportalapp.CustomerProductCategoryAssignmentCommand) (customerportalapp.CustomerProductSummary, error) {
+	if s.err != nil {
+		return customerportalapp.CustomerProductSummary{}, s.err
+	}
+	if s.customerAssignCmd != nil {
+		cmd.ProductID = productID
+		*s.customerAssignCmd = cmd
+	}
+	return customerportalapp.CustomerProductSummary{ID: productID, CategoryID: cmd.CategoryID}, nil
 }
 
 func (s fakeService) GetResaleBeanListEditor(context.Context, string, int64) (customerportalapp.ResaleBeanListEditor, error) {
@@ -1032,6 +1090,82 @@ func TestMiniResaleBeanListAPIsExposeEditorPublishAndPNG(t *testing.T) {
 	}
 }
 
+func TestMiniCustomerProductsAPIsExposeProductsCategoriesAndAssignments(t *testing.T) {
+	var createCmd customerportalapp.CustomerProductCategoryCommand
+	var moveCmd customerportalapp.CustomerProductCategoryMoveCommand
+	var assignCmd customerportalapp.CustomerProductCategoryAssignmentCommand
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		customerProducts: customerportalapp.CustomerProductsPage{
+			CurrentCustomerID:   77,
+			CurrentCustomerName: "渠道客户",
+			ClassificationTemplate: customerportalapp.CustomerProductClassificationTemplate{
+				ID: 9, Name: "渠道客户商品分类", CustomerID: 77, DerivedFromTemplateID: 3,
+			},
+			Categories: []customerportalapp.CustomerProductCategory{{ID: 31, Name: "生豆", Level: 1}},
+			Products:   []customerportalapp.CustomerProductSummary{{ID: 501, Name: "埃塞瑰夏", ListType: "green", ListTypeLabel: "生豆", CategoryID: 31}},
+			FactoryPriceTableGroups: []customerportalapp.CustomerPriceTableGroup{{
+				ListType: "green", ListTypeLabel: "生豆", ProductCount: 1, PriceTableCount: 1,
+				LatestVersion: customerportalapp.BeanListSummary{ID: 11, VersionNo: "G-1"},
+			}},
+			CustomerPriceTableGroups: []customerportalapp.CustomerPriceTableGroup{{
+				ListType: "green", ListTypeLabel: "生豆", ProductCount: 1, PriceTableCount: 2,
+				LatestVersion: customerportalapp.BeanListSummary{ID: 21, VersionNo: "V2"},
+				Versions:      []customerportalapp.BeanListSummary{{ID: 21, VersionNo: "V2"}, {ID: 20, VersionNo: "V1"}},
+			}},
+		},
+		customerCatCmd:    &createCmd,
+		customerMoveCmd:   &moveCmd,
+		customerAssignCmd: &assignCmd,
+	}})
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/mini/customer-products", nil)
+	listReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	listRec := httptest.NewRecorder()
+	e.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK ||
+		!strings.Contains(listRec.Body.String(), `"products":[`) ||
+		!strings.Contains(listRec.Body.String(), `"factory_price_table_groups":[`) ||
+		!strings.Contains(listRec.Body.String(), `"customer_price_table_groups":[`) ||
+		!strings.Contains(listRec.Body.String(), `"list_type_label":"生豆"`) {
+		t.Fatalf("list status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/api/mini/customer-products/categories", strings.NewReader(`{"name":"熟豆","parent_id":0}`))
+	createReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	createReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	createRec := httptest.NewRecorder()
+	e.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusOK || createCmd.Name != "熟豆" {
+		t.Fatalf("create status=%d cmd=%+v body=%s", createRec.Code, createCmd, createRec.Body.String())
+	}
+
+	moveReq := httptest.NewRequest(http.MethodPost, "/api/mini/customer-products/categories/31/move", strings.NewReader(`{"direction":"down","sort_order":200}`))
+	moveReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	moveReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	moveRec := httptest.NewRecorder()
+	e.ServeHTTP(moveRec, moveReq)
+	if moveRec.Code != http.StatusOK || moveCmd.ID != 31 || moveCmd.Direction != "down" {
+		t.Fatalf("move status=%d cmd=%+v body=%s", moveRec.Code, moveCmd, moveRec.Body.String())
+	}
+
+	assignReq := httptest.NewRequest(http.MethodPost, "/api/mini/customer-products/501/category", strings.NewReader(`{"category_id":31}`))
+	assignReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	assignReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	assignRec := httptest.NewRecorder()
+	e.ServeHTTP(assignRec, assignReq)
+	if assignRec.Code != http.StatusOK || assignCmd.ProductID != 501 || assignCmd.CategoryID != 31 {
+		t.Fatalf("assign status=%d cmd=%+v body=%s", assignRec.Code, assignCmd, assignRec.Body.String())
+	}
+
+	unauthReq := httptest.NewRequest(http.MethodGet, "/api/mini/customer-products", nil)
+	unauthRec := httptest.NewRecorder()
+	e.ServeHTTP(unauthRec, unauthReq)
+	if unauthRec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauth status=%d body=%s", unauthRec.Code, unauthRec.Body.String())
+	}
+}
+
 func TestPortalAdminVisibilityAPIsExposeAndSaveCustomerCapabilities(t *testing.T) {
 	var saveCmd customerportalapp.UpdatePortalVisibilityCommand
 	e := echo.New()
@@ -1929,6 +2063,30 @@ func (r *templateContractRepository) AcknowledgeBeanListPublication(context.Cont
 
 func (r *templateContractRepository) LoadResaleBeanListPage(context.Context, int64) (customerportalapp.ResaleBeanListPage, error) {
 	return customerportalapp.ResaleBeanListPage{}, nil
+}
+
+func (r *templateContractRepository) LoadCustomerProductsPage(context.Context, int64) (customerportalapp.CustomerProductsPage, error) {
+	return customerportalapp.CustomerProductsPage{}, nil
+}
+
+func (r *templateContractRepository) CreateCustomerProductCategory(context.Context, customerportalapp.CustomerProductCategoryCommand) (customerportalapp.CustomerProductCategory, error) {
+	return customerportalapp.CustomerProductCategory{}, nil
+}
+
+func (r *templateContractRepository) UpdateCustomerProductCategory(context.Context, customerportalapp.CustomerProductCategoryCommand) (customerportalapp.CustomerProductCategory, error) {
+	return customerportalapp.CustomerProductCategory{}, nil
+}
+
+func (r *templateContractRepository) DeleteCustomerProductCategory(context.Context, int64, int64, string) error {
+	return nil
+}
+
+func (r *templateContractRepository) MoveCustomerProductCategory(context.Context, customerportalapp.CustomerProductCategoryMoveCommand) (customerportalapp.CustomerProductCategory, error) {
+	return customerportalapp.CustomerProductCategory{}, nil
+}
+
+func (r *templateContractRepository) AssignCustomerProductCategory(context.Context, customerportalapp.CustomerProductCategoryAssignmentCommand) (customerportalapp.CustomerProductSummary, error) {
+	return customerportalapp.CustomerProductSummary{}, nil
 }
 
 func (r *templateContractRepository) LoadResaleBeanListEditor(context.Context, int64, int64) (customerportalapp.ResaleBeanListEditor, error) {

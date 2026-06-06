@@ -26,14 +26,13 @@ describe('visibleHomeEntries', () => {
     })
   })
 
-  it('gives every visible entry a service detail URL for tap navigation', () => {
+  it('does not expose bean-list as a home shortcut because my products live in profile', () => {
     const entries = visibleHomeEntries([
       { code: 'bean_list', enabled: true },
       { code: 'direct_ship', enabled: true },
     ])
 
     expect(entries.map((entry) => entry.url)).toEqual([
-      '/pages/service/service?key=beanList',
       '/pages/service/service?key=directShip',
     ])
   })

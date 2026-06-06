@@ -5,6 +5,11 @@ import {
   buildBeanListAckPath,
   buildMiniLoginPayload,
   buildPasswordLoginPath,
+  buildCustomerProductsPath,
+  buildCustomerProductCategoriesPath,
+  buildCustomerProductCategoryPath,
+  buildCustomerProductCategoryMovePath,
+  buildCustomerProductCategoryAssignPath,
   buildServicePagePath,
   buildSwitchCustomerPath,
 } from './customerPortal'
@@ -48,6 +53,14 @@ describe('customer portal API helpers', () => {
 
   it('exposes the ERP password login API path', () => {
     expect(buildPasswordLoginPath()).toBe('/api/mini/login/password')
+  })
+
+  it('exposes customer products and category management mini API paths', () => {
+    expect(buildCustomerProductsPath()).toBe('/api/mini/customer-products')
+    expect(buildCustomerProductCategoriesPath()).toBe('/api/mini/customer-products/categories')
+    expect(buildCustomerProductCategoryPath(31)).toBe('/api/mini/customer-products/categories/31')
+    expect(buildCustomerProductCategoryMovePath(31)).toBe('/api/mini/customer-products/categories/31/move')
+    expect(buildCustomerProductCategoryAssignPath(501)).toBe('/api/mini/customer-products/501/category')
   })
 
   it('types mini product and fulfillment payload drip unit metadata', () => {

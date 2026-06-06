@@ -269,6 +269,127 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		return c.JSON(http.StatusOK, result)
 	})
 
+	e.GET("/api/mini/customer-products", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		result, err := svc.GetCustomerProducts(c.Request().Context(), token)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.POST("/api/mini/customer-products/categories", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		var req customerportalapp.CustomerProductCategoryCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		result, err := svc.CreateCustomerProductCategory(c.Request().Context(), token, req)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.PUT("/api/mini/customer-products/categories/:id", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		categoryID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || categoryID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		var req customerportalapp.CustomerProductCategoryCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		result, err := svc.UpdateCustomerProductCategory(c.Request().Context(), token, categoryID, req)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.DELETE("/api/mini/customer-products/categories/:id", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		categoryID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || categoryID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		if err := svc.DeleteCustomerProductCategory(c.Request().Context(), token, categoryID); err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, map[string]bool{"deleted": true})
+	})
+
+	e.POST("/api/mini/customer-products/categories/:id/move", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		categoryID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || categoryID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		var req customerportalapp.CustomerProductCategoryMoveCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		result, err := svc.MoveCustomerProductCategory(c.Request().Context(), token, categoryID, req)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.POST("/api/mini/customer-products/:id/category", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		productID, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
+		if err != nil || productID <= 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		var req customerportalapp.CustomerProductCategoryAssignmentCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		result, err := svc.AssignCustomerProductCategory(c.Request().Context(), token, productID, req)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
 	e.GET("/api/mini/resale-bean-lists/:id/editor", func(c echo.Context) error {
 		if svc == nil {
 			return miniInternalError(c)

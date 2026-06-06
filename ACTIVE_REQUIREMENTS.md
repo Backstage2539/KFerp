@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-433-MINIAPP-CUSTOMER-PRODUCTS-PRICE-LISTS
+- Branch: codex/miniapp-customer-products-price-lists-20260606
+- Owner/session: Codex / 2026-06-06
+- Status: local green; pending merge, development deploy, and smoke acceptance
+- Scope: 小程序首页不放“我的商品”，个人中心进入“我的商品”；“我的商品”管理客户自己的商品、商品分类、工厂给客户的商品价格表和客户自己发布的商品价格表。商品价格表按 `list_type/list_type_label` 分组，客户发布版本在“我的价格表”折叠展示；编辑器移到“我的价格表设置”，去掉覆盖档位和单品价，保留统一加价/倍率加价、品牌、说明、样式、背景、标签和 PDF/长图预览。
+- DEV:
+  - DEV-433-MINIAPP-CUSTOMER-PRODUCTS-API：新增 `/api/mini/customer-products` 和客户商品分类 CRUD/移动/归类接口，写操作校验 mini token、当前客户绑定、`bean_list` 能力并写操作日志。
+  - DEV-433-CUSTOMER-CATEGORY-TEMPLATE-MINI：小程序编辑分类时自动派生客户专属商品分类模板，不污染公共模板；ERP 后台仍可看到并复制客户模板。
+  - DEV-433-PRICE-TABLE-GROUPED-UI：小程序“我的商品”按 `list_type/list_type_label` 展示商品价格表分组，工厂价格表和客户发布价格表分开追溯。
+  - DEV-433-RESALE-EDITOR-SIMPLIFY-PRICE-STYLE：编辑器移到“我的价格表设置”，去掉覆盖档位/单品价，后端忽略旧 payload 的单品 label/price 覆盖；颜色改预设色板，每行卡片数改 1/2/3 按钮。
+  - DEV-433-MINIAPP-OUTPUT-PREVIEW：发布版本操作改为“预览 PDF”和“预览长图”，PDF 使用 `uni.openDocument({ showMenu: true })`，长图使用 `uni.previewImage`。
+  - DEV-433-MINIAPP-BUILD-DEPLOY：部署脚本在部署前执行小程序 `npm ci`、`npm run typecheck`、`npm run build:mp-weixin`，并同步 `miniapp/dist/build/mp-weixin` 到远端。
+- Verifier:
+  - RED captured: Go/API、miniapp、部署脚本和手册守卫先失败于缺失客户商品接口、分类编辑、miniapp 构建门禁和新页面文案。
+  - GREEN local: `go test ./...` in `orderapp-remote`; `npm test` in `miniapp`; `npm run typecheck` in `miniapp`; `npm run build:mp-weixin` in `miniapp`; `npm run build` in `orderapp-remote/frontend-vue-shell`; `git diff --check`.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/customer-portal-miniapp-test.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-miniapp-customer-products-price-lists.md`.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-432-NOTIFICATION-CENTER-SCROLL-CLEAR
 - Branch: codex/notification-center-scroll-clear-20260606
 - Owner/session: Codex / 2026-06-06

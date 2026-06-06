@@ -30,6 +30,10 @@ function clearAndLogin() {
   uni.reLaunch({ url: '/pages/login/login' })
 }
 
+function openCustomerProducts() {
+  uni.navigateTo({ url: '/pages/service/service?key=beanList' })
+}
+
 async function handleCustomerSwitch(event: { detail?: { value?: number | string } }) {
   if (switching.value || !session.token) return
   const customerID = selectedCustomerID(session.bindings, Number(event.detail?.value ?? -1))
@@ -97,6 +101,7 @@ onShow(() => {
 
       <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
 
+      <button class="secondary-button" @tap="openCustomerProducts">我的商品</button>
       <button class="secondary-button" @tap="clearAndLogin">切换用户</button>
       <button class="danger-button" @tap="clearAndLogin">退出登录</button>
     </view>

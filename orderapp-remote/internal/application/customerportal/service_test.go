@@ -39,6 +39,7 @@ type fakeRepository struct {
 	servicePage              ServicePage
 	beanList                 BeanListSummary
 	resalePage               ResaleBeanListPage
+	customerProductsPage     CustomerProductsPage
 	resaleEditor             ResaleBeanListEditor
 	resaleSource             BeanListSummary
 	resalePublication        BeanListSummary
@@ -146,6 +147,45 @@ func (r *fakeRepository) LoadResaleBeanListPage(ctx context.Context, customerID 
 		return ResaleBeanListPage{}, r.err
 	}
 	return r.resalePage, nil
+}
+
+func (r *fakeRepository) LoadCustomerProductsPage(ctx context.Context, customerID int64) (CustomerProductsPage, error) {
+	if r.err != nil {
+		return CustomerProductsPage{}, r.err
+	}
+	return r.customerProductsPage, nil
+}
+
+func (r *fakeRepository) CreateCustomerProductCategory(ctx context.Context, cmd CustomerProductCategoryCommand) (CustomerProductCategory, error) {
+	if r.err != nil {
+		return CustomerProductCategory{}, r.err
+	}
+	return CustomerProductCategory{ID: 1, Name: cmd.Name, ParentID: cmd.ParentID}, nil
+}
+
+func (r *fakeRepository) UpdateCustomerProductCategory(ctx context.Context, cmd CustomerProductCategoryCommand) (CustomerProductCategory, error) {
+	if r.err != nil {
+		return CustomerProductCategory{}, r.err
+	}
+	return CustomerProductCategory{ID: cmd.ID, Name: cmd.Name, ParentID: cmd.ParentID}, nil
+}
+
+func (r *fakeRepository) DeleteCustomerProductCategory(ctx context.Context, customerID, categoryID int64, actor string) error {
+	return r.err
+}
+
+func (r *fakeRepository) MoveCustomerProductCategory(ctx context.Context, cmd CustomerProductCategoryMoveCommand) (CustomerProductCategory, error) {
+	if r.err != nil {
+		return CustomerProductCategory{}, r.err
+	}
+	return CustomerProductCategory{ID: cmd.ID, ParentID: cmd.ParentID, SortOrder: cmd.SortOrder}, nil
+}
+
+func (r *fakeRepository) AssignCustomerProductCategory(ctx context.Context, cmd CustomerProductCategoryAssignmentCommand) (CustomerProductSummary, error) {
+	if r.err != nil {
+		return CustomerProductSummary{}, r.err
+	}
+	return CustomerProductSummary{ID: cmd.ProductID, CategoryID: cmd.CategoryID}, nil
 }
 
 func (r *fakeRepository) LoadResaleBeanListEditor(ctx context.Context, customerID, sourcePublicationID int64) (ResaleBeanListEditor, error) {
@@ -329,6 +369,77 @@ func TestPublishResaleBeanListBuildsCustomerSnapshotFromFactorySource(t *testing
 	price := prices[0].(map[string]any)
 	if price["label"] != "1kg+" || price["value"] != "112/kg" {
 		t.Fatalf("price=%+v, want 100*1.1+2 => 112/kg", price)
+	}
+}
+
+func TestPublishResaleBeanListIgnoresLegacyItemPriceOverrides(t *testing.T) {
+	repo := &fakeRepository{
+		context: CurrentContext{
+			CurrentCustomerID: 77,
+			Capabilities:      []Capability{{Code: CapabilityBeanList, Enabled: true}},
+		},
+		resaleSource: BeanListSummary{
+			ID:        11,
+			ListType:  "green",
+			VersionNo: "G-2026-06",
+			Groups: []BeanListGroupSummary{{
+				Category: "生豆",
+				Items: []BeanListProductSummary{{
+					Code: "ETH-G1", Name: "埃塞瑰夏",
+					Prices: []BeanListPriceSummary{{Label: "1kg+", Value: "100/kg"}},
+				}},
+			}},
+		},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	_, err := svc.PublishResaleBeanList(context.Background(), "mini-token", ResaleBeanListCommand{
+		SourcePublicationID: 11,
+		SelectedItemCodes:   []string{"ETH-G1"},
+		PriceRule:           ResaleBeanListPriceRule{AddAmount: 2, Multiplier: 1.1},
+		ItemOverrides: []ResaleBeanListItemOverride{{
+			Code:  "ETH-G1",
+			Label: "1kg+",
+			Price: 999,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PublishResaleBeanList: %v", err)
+	}
+	groups := repo.resaleSaveCommand.Content["groups"].([]any)
+	items := groups[0].(map[string]any)["items"].([]any)
+	prices := items[0].(map[string]any)["prices"].([]any)
+	price := prices[0].(map[string]any)
+	if price["value"] != "112/kg" {
+		t.Fatalf("legacy single-item override changed price=%+v, want unified markup 112/kg", price)
+	}
+}
+
+func TestGetCustomerProductsUsesCurrentCustomerAndBeanListCapability(t *testing.T) {
+	repo := &fakeRepository{
+		context: CurrentContext{
+			CurrentCustomerID:   77,
+			CurrentCustomerName: "渠道客户",
+			Capabilities:        []Capability{{Code: CapabilityBeanList, Enabled: true}},
+		},
+		customerProductsPage: CustomerProductsPage{
+			Products: []CustomerProductSummary{{ID: 501, Name: "客户商品", ListType: "green", ListTypeLabel: "生豆"}},
+		},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	page, err := svc.GetCustomerProducts(context.Background(), "mini-token")
+	if err != nil {
+		t.Fatalf("GetCustomerProducts: %v", err)
+	}
+	if page.CurrentCustomerID != 77 || page.CurrentCustomerName != "渠道客户" || len(page.Products) != 1 {
+		t.Fatalf("page=%+v, want current customer context and customer products", page)
+	}
+
+	repo.context.Capabilities = []Capability{{Code: CapabilityBeanList, Enabled: false}}
+	_, err = svc.GetCustomerProducts(context.Background(), "mini-token")
+	if !errors.Is(err, ErrCapabilityNotEnabled) {
+		t.Fatalf("err=%v, want ErrCapabilityNotEnabled", err)
 	}
 }
 
