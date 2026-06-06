@@ -10,6 +10,7 @@ import (
 
 	customerportalapp "orderapp/internal/application/customerportal"
 	messagecenterapp "orderapp/internal/application/messagecenter"
+	pdfinfra "orderapp/internal/infrastructure/pdf"
 
 	"github.com/labstack/echo/v4"
 )
@@ -253,6 +254,122 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		return c.Blob(http.StatusOK, "application/pdf", body)
 	})
 
+	e.GET("/api/mini/resale-bean-lists", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		result, err := svc.GetResaleBeanLists(c.Request().Context(), token)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.GET("/api/mini/resale-bean-lists/:id/editor", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		sourceID, err := miniPublicationIDParam(c, "")
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		result, err := svc.GetResaleBeanListEditor(c.Request().Context(), token, sourceID)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.POST("/api/mini/resale-bean-lists/drafts", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		var req customerportalapp.ResaleBeanListCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		result, err := svc.SaveResaleBeanListDraft(c.Request().Context(), token, req)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.POST("/api/mini/resale-bean-lists/publications", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		var req customerportalapp.ResaleBeanListCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		result, err := svc.PublishResaleBeanList(c.Request().Context(), token, req)
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
+	e.GET("/api/mini/resale-bean-lists/:id.pdf", func(c echo.Context) error {
+		if svc == nil || beanListPDFRenderer == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		publicationID, err := miniPublicationIDParam(c, ".pdf")
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		row, body, err := svc.GetResaleBeanListPublicationPDF(c.Request().Context(), token, publicationID, func(row customerportalapp.BeanListSummary) ([]byte, error) {
+			return beanListPDFRenderer.Render(beanListPDFDocument(row))
+		})
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf(`inline; filename="%s"`, beanListPDFFilename(row)))
+		return c.Blob(http.StatusOK, "application/pdf", body)
+	})
+
+	e.GET("/api/mini/resale-bean-lists/:id.png", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		publicationID, err := miniPublicationIDParam(c, ".png")
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		row, body, err := svc.GetResaleBeanListPublicationPNG(c.Request().Context(), token, publicationID, func(row customerportalapp.BeanListSummary) ([]byte, error) {
+			return pdfinfra.BeanListRenderer{}.RenderPNG(beanListPDFDocument(row))
+		})
+		if err != nil {
+			return miniBusinessError(c, err)
+		}
+		c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf(`inline; filename="%s"`, beanListPNGFilename(row)))
+		return c.Blob(http.StatusOK, "image/png", body)
+	})
+
 	e.POST("/api/mini/bean-lists/:id/ack", func(c echo.Context) error {
 		if svc == nil {
 			return miniInternalError(c)
@@ -359,6 +476,21 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		publishMiniOrderCreated(c, messages, result, req.ServiceCode)
 		return c.JSON(http.StatusOK, result)
 	})
+}
+
+func miniPublicationIDParam(c echo.Context, suffix string) (int64, error) {
+	raw := strings.TrimSpace(c.Param("id"))
+	if raw == "" && suffix != "" {
+		raw = strings.TrimSpace(c.Param("id" + suffix))
+	}
+	if suffix != "" {
+		raw = strings.TrimSuffix(raw, suffix)
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, fmt.Errorf("invalid id")
+	}
+	return id, nil
 }
 
 func miniOrderDocument(c echo.Context, svc Service, salesDocs SalesDocuments, kind string) error {
@@ -516,6 +648,9 @@ func miniBusinessError(c echo.Context, err error) error {
 	}
 	if errors.Is(err, customerportalapp.ErrBeanListPublicationNotFound) {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "bean list publication not found"})
+	}
+	if errors.Is(err, customerportalapp.ErrResaleGradientTemplateNotFound) {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "resale gradient template not found"})
 	}
 	if errors.Is(err, customerportalapp.ErrCapabilityTemplateInvalid) {
 		return miniCustomerConfigUpdatedError(c)

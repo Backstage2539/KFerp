@@ -1573,7 +1573,7 @@ func (r Repository) ListGradientTemplates(ctx context.Context) ([]catalogapp.Gra
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, name, COALESCE(customer_id,0), COALESCE(source_template_id,0),
 		       COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END),
-		       display_unit, COALESCE(unit_template_id,0), active
+		       display_unit, COALESCE(unit_template_id,0), COALESCE(allow_customer_resale,false), active
 		FROM %s.pricing_gradient_templates
 		ORDER BY active DESC, COALESCE(customer_id,0), name, id
 	`, r.schema))
@@ -1584,7 +1584,7 @@ func (r Repository) ListGradientTemplates(ctx context.Context) ([]catalogapp.Gra
 	out := make([]catalogapp.GradientTemplate, 0)
 	for rows.Next() {
 		var row catalogapp.GradientTemplate
-		if err := rows.Scan(&row.ID, &row.Name, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.DisplayUnit, &row.UnitTemplateID, &row.Active); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.DisplayUnit, &row.UnitTemplateID, &row.AllowCustomerResale, &row.Active); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -1641,11 +1641,11 @@ func (r Repository) SaveGradientTemplate(ctx context.Context, cmd catalogapp.Sav
 	if cmd.ID > 0 {
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.pricing_gradient_templates
-			SET name=$2, display_unit=$3, unit_template_id=$4, active=true, updated_at=now()
+			SET name=$2, display_unit=$3, unit_template_id=$4, allow_customer_resale=$5, active=true, updated_at=now()
 			WHERE id=$1
 			RETURNING id, COALESCE(customer_id,0), COALESCE(source_template_id,0),
 			          COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END)
-		`, r.schema), cmd.ID, cmd.Name, cmd.DisplayUnit, cmd.UnitTemplateID).Scan(&id, &customerID, &sourceTemplateID, &templateState); err != nil {
+		`, r.schema), cmd.ID, cmd.Name, cmd.DisplayUnit, cmd.UnitTemplateID, cmd.AllowCustomerResale).Scan(&id, &customerID, &sourceTemplateID, &templateState); err != nil {
 			return catalogapp.GradientTemplate{}, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.pricing_gradient_template_tiers SET active=false, updated_at=now() WHERE template_id=$1`, r.schema), id); err != nil {
@@ -1661,10 +1661,10 @@ func (r Repository) SaveGradientTemplate(ctx context.Context, cmd catalogapp.Sav
 			templateState = catalogapp.TemplateStatePublic
 		}
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			INSERT INTO %s.pricing_gradient_templates(name, display_unit, unit_template_id, customer_id, source_template_id, template_state, active)
-			VALUES($1,$2,$3,$4,0,$5,true)
+			INSERT INTO %s.pricing_gradient_templates(name, display_unit, unit_template_id, customer_id, source_template_id, template_state, allow_customer_resale, active)
+			VALUES($1,$2,$3,$4,0,$5,$6,true)
 			RETURNING id, COALESCE(customer_id,0), COALESCE(source_template_id,0), template_state
-		`, r.schema), cmd.Name, cmd.DisplayUnit, cmd.UnitTemplateID, customerID, templateState).Scan(&id, &customerID, &sourceTemplateID, &templateState); err != nil {
+		`, r.schema), cmd.Name, cmd.DisplayUnit, cmd.UnitTemplateID, customerID, templateState, cmd.AllowCustomerResale).Scan(&id, &customerID, &sourceTemplateID, &templateState); err != nil {
 			return catalogapp.GradientTemplate{}, err
 		}
 	}
@@ -1680,17 +1680,18 @@ func (r Repository) SaveGradientTemplate(ctx context.Context, cmd catalogapp.Sav
 		}
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "pricing_gradient_template", &id, "update", postgresinfra.StrPtr("template"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{
-		"customer_id":      customerID,
-		"display_unit":     cmd.DisplayUnit,
-		"unit_template_id": cmd.UnitTemplateID,
-		"tier_count":       len(cmd.Tiers),
+		"customer_id":           customerID,
+		"display_unit":          cmd.DisplayUnit,
+		"unit_template_id":      cmd.UnitTemplateID,
+		"allow_customer_resale": cmd.AllowCustomerResale,
+		"tier_count":            len(cmd.Tiers),
 	}); err != nil {
 		return catalogapp.GradientTemplate{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return catalogapp.GradientTemplate{}, err
 	}
-	return catalogapp.GradientTemplate{ID: id, Name: cmd.Name, CustomerID: customerID, SourceTemplateID: sourceTemplateID, TemplateState: templateState, DisplayUnit: cmd.DisplayUnit, UnitTemplateID: cmd.UnitTemplateID, Active: true, Tiers: cmd.Tiers}, nil
+	return catalogapp.GradientTemplate{ID: id, Name: cmd.Name, CustomerID: customerID, SourceTemplateID: sourceTemplateID, TemplateState: templateState, DisplayUnit: cmd.DisplayUnit, UnitTemplateID: cmd.UnitTemplateID, AllowCustomerResale: cmd.AllowCustomerResale, Active: true, Tiers: cmd.Tiers}, nil
 }
 
 func (r Repository) DeactivateGradientTemplate(ctx context.Context, cmd catalogapp.DeactivateGradientTemplateCommand) error {
@@ -2832,10 +2833,10 @@ func ensureGradientTemplateForTargetTx(ctx context.Context, tx pgx.Tx, schema st
 	}
 	var id int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.pricing_gradient_templates(name, display_unit, unit_template_id, customer_id, source_template_id, template_state, active)
-		VALUES($1,$2,$3,$4,$5,$6,true)
+		INSERT INTO %s.pricing_gradient_templates(name, display_unit, unit_template_id, customer_id, source_template_id, template_state, allow_customer_resale, active)
+		VALUES($1,$2,$3,$4,$5,$6,$7,true)
 		RETURNING id
-	`, schema), source.Name, source.DisplayUnit, source.UnitTemplateID, targetCustomerID, sourceTemplateIDForTarget, templateState).Scan(&id); err != nil {
+	`, schema), source.Name, source.DisplayUnit, source.UnitTemplateID, targetCustomerID, sourceTemplateIDForTarget, templateState, source.AllowCustomerResale).Scan(&id); err != nil {
 		return 0, err
 	}
 	if err := copyGradientTemplateTiersTx(ctx, tx, schema, source.ID, id); err != nil {
@@ -2848,9 +2849,9 @@ func overwriteGradientTemplateTx(ctx context.Context, tx pgx.Tx, schema string, 
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.pricing_gradient_templates
 		SET name=$2, display_unit=$3, unit_template_id=$4, customer_id=$5, source_template_id=$6,
-		    template_state=$7, active=true, updated_at=now()
+		    template_state=$7, allow_customer_resale=$8, active=true, updated_at=now()
 		WHERE id=$1
-	`, schema), targetID, source.Name, source.DisplayUnit, source.UnitTemplateID, targetCustomerID, sourceTemplateIDForTarget, templateState); err != nil {
+	`, schema), targetID, source.Name, source.DisplayUnit, source.UnitTemplateID, targetCustomerID, sourceTemplateIDForTarget, templateState, source.AllowCustomerResale); err != nil {
 		return err
 	}
 	return copyGradientTemplateTiersTx(ctx, tx, schema, source.ID, targetID)
@@ -3084,10 +3085,10 @@ func deriveGradientTemplateTx(ctx context.Context, tx pgx.Tx, schema string, cmd
 	}
 	var id int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.pricing_gradient_templates(name, display_unit, unit_template_id, customer_id, source_template_id, template_state, active)
-		VALUES($1,$2,$3,$4,$5,'derived_from_public',true)
+		INSERT INTO %s.pricing_gradient_templates(name, display_unit, unit_template_id, customer_id, source_template_id, template_state, allow_customer_resale, active)
+		VALUES($1,$2,$3,$4,$5,'derived_from_public',$6,true)
 		RETURNING id
-	`, schema), name, source.DisplayUnit, source.UnitTemplateID, cmd.CustomerID, source.ID).Scan(&id); err != nil {
+	`, schema), name, source.DisplayUnit, source.UnitTemplateID, cmd.CustomerID, source.ID, source.AllowCustomerResale).Scan(&id); err != nil {
 		return catalogapp.GradientTemplate{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
@@ -3110,10 +3111,10 @@ func fetchGradientTemplateTx(ctx context.Context, tx pgx.Tx, schema string, id i
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id, name, COALESCE(customer_id,0), COALESCE(source_template_id,0),
 		       COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END),
-		       display_unit, COALESCE(unit_template_id,0), active
+		       display_unit, COALESCE(unit_template_id,0), COALESCE(allow_customer_resale,false), active
 		FROM %s.pricing_gradient_templates
 		WHERE id=$1 AND active=true
-	`, schema), id).Scan(&row.ID, &row.Name, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.DisplayUnit, &row.UnitTemplateID, &row.Active); err != nil {
+	`, schema), id).Scan(&row.ID, &row.Name, &row.CustomerID, &row.SourceTemplateID, &row.TemplateState, &row.DisplayUnit, &row.UnitTemplateID, &row.AllowCustomerResale, &row.Active); err != nil {
 		return catalogapp.GradientTemplate{}, err
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`

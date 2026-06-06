@@ -318,11 +318,12 @@ type deriveProductConfigTemplateAPIRequest struct {
 }
 
 type gradientTemplateAPIRequest struct {
-	CustomerID     int64                             `json:"customer_id"`
-	Name           string                            `json:"name"`
-	DisplayUnit    string                            `json:"display_unit"`
-	UnitTemplateID int64                             `json:"unit_template_id"`
-	Tiers          []catalogapp.GradientTemplateTier `json:"tiers"`
+	CustomerID          int64                             `json:"customer_id"`
+	Name                string                            `json:"name"`
+	DisplayUnit         string                            `json:"display_unit"`
+	UnitTemplateID      int64                             `json:"unit_template_id"`
+	AllowCustomerResale bool                              `json:"allow_customer_resale"`
+	Tiers               []catalogapp.GradientTemplateTier `json:"tiers"`
 }
 
 type productConfigTemplateAPIRequest struct {
@@ -1343,13 +1344,14 @@ func (h productHandler) saveGradientTemplateAPI(c echo.Context) error {
 		id = parsed
 	}
 	row, err := h.catalog.SaveGradientTemplate(c.Request().Context(), catalogapp.SaveGradientTemplateCommand{
-		Actor:          support.ActorOf(c),
-		ID:             id,
-		CustomerID:     req.CustomerID,
-		Name:           req.Name,
-		DisplayUnit:    req.DisplayUnit,
-		UnitTemplateID: req.UnitTemplateID,
-		Tiers:          req.Tiers,
+		Actor:               support.ActorOf(c),
+		ID:                  id,
+		CustomerID:          req.CustomerID,
+		Name:                req.Name,
+		DisplayUnit:         req.DisplayUnit,
+		UnitTemplateID:      req.UnitTemplateID,
+		AllowCustomerResale: req.AllowCustomerResale,
+		Tiers:               req.Tiers,
 	})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})

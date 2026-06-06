@@ -128,6 +128,9 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		}
+		if strings.TrimSpace(req.PublicationPurpose) == "" {
+			req.PublicationPurpose = appcosting.BeanListPublicationPurposeFactorySupply
+		}
 		req.Actor = support.ActorOf(c)
 		ownerType, ownerKey, err := beanListOwnerFromScope(c, req.Scope, req.CustomerID)
 		if err != nil {
@@ -153,6 +156,9 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		var req appcosting.PublishBeanListCommand
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		if strings.TrimSpace(req.PublicationPurpose) == "" {
+			req.PublicationPurpose = appcosting.BeanListPublicationPurposeFactorySupply
 		}
 		req.Actor = support.ActorOf(c)
 		scope := req.Scope
@@ -221,10 +227,11 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
 		if err := svc.WithdrawBeanList(c.Request().Context(), appcosting.WithdrawBeanListCommand{
-			ID:        id,
-			OwnerType: query.OwnerType,
-			OwnerKey:  query.OwnerKey,
-			Actor:     support.ActorOf(c),
+			ID:                 id,
+			PublicationPurpose: query.PublicationPurpose,
+			OwnerType:          query.OwnerType,
+			OwnerKey:           query.OwnerKey,
+			Actor:              support.ActorOf(c),
 		}); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 		}
@@ -351,8 +358,13 @@ func beanListPublicationQueryFromRequest(c echo.Context) (appcosting.BeanListPub
 	if err != nil {
 		return appcosting.BeanListPublicationQuery{}, err
 	}
+	purpose := strings.TrimSpace(c.QueryParam("publication_purpose"))
+	if purpose == "" {
+		purpose = appcosting.BeanListPublicationPurposeFactorySupply
+	}
 	return appcosting.BeanListPublicationQuery{
 		ListType:                 c.QueryParam("list_type"),
+		PublicationPurpose:       purpose,
 		ProductTypeCategoryID:    productTypeCategoryID,
 		ClassificationTemplateID: classificationTemplateID,
 		Scope:                    scope,

@@ -16,6 +16,11 @@ import (
 
 var ErrBeanListPublicationNotFound = errors.New("bean list publication not found")
 
+const (
+	BeanListPublicationPurposeFactorySupply  = "factory_supply"
+	BeanListPublicationPurposeCustomerResale = "customer_resale"
+)
+
 type CalculateRequest struct {
 	Products []domain.ProductInput `json:"products"`
 }
@@ -89,6 +94,7 @@ type UpdateParameterCommand struct {
 
 type BeanListPublication struct {
 	ID                         int64          `json:"id"`
+	PublicationPurpose         string         `json:"publication_purpose"`
 	ListType                   string         `json:"list_type"`
 	ProductTypeCategoryID      int64          `json:"product_type_category_id,omitempty"`
 	ProductTypeName            string         `json:"product_type_name,omitempty"`
@@ -113,6 +119,7 @@ type BeanListPublication struct {
 
 type BeanListPublicationQuery struct {
 	ListType                 string `json:"list_type"`
+	PublicationPurpose       string `json:"publication_purpose,omitempty"`
 	ProductTypeCategoryID    int64  `json:"product_type_category_id,omitempty"`
 	ClassificationTemplateID int64  `json:"classification_template_id,omitempty"`
 	Scope                    string `json:"scope,omitempty"`
@@ -149,6 +156,7 @@ type BeanListPublicationPDFFile struct {
 
 type PublishBeanListCommand struct {
 	ListType                   string         `json:"list_type"`
+	PublicationPurpose         string         `json:"publication_purpose,omitempty"`
 	ProductTypeCategoryID      int64          `json:"product_type_category_id,omitempty"`
 	ProductTypeName            string         `json:"product_type_name,omitempty"`
 	ClassificationTemplateID   int64          `json:"classification_template_id,omitempty"`
@@ -170,11 +178,12 @@ type PublishBeanListCommand struct {
 }
 
 type WithdrawBeanListCommand struct {
-	ID        int64  `json:"id"`
-	Scope     string `json:"scope,omitempty"`
-	OwnerType string `json:"owner_type,omitempty"`
-	OwnerKey  string `json:"owner_key,omitempty"`
-	Actor     string `json:"actor,omitempty"`
+	ID                 int64  `json:"id"`
+	PublicationPurpose string `json:"publication_purpose,omitempty"`
+	Scope              string `json:"scope,omitempty"`
+	OwnerType          string `json:"owner_type,omitempty"`
+	OwnerKey           string `json:"owner_key,omitempty"`
+	Actor              string `json:"actor,omitempty"`
 }
 
 type Repository interface {
@@ -576,6 +585,11 @@ func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListComman
 	cmd.Version = strings.TrimSpace(cmd.Version)
 	cmd.Changelog = strings.TrimSpace(cmd.Changelog)
 	cmd.SourceVersion = strings.TrimSpace(cmd.SourceVersion)
+	purpose, err := NormalizeBeanListPublicationPurpose(cmd.PublicationPurpose)
+	if err != nil {
+		return PublishBeanListCommand{}, err
+	}
+	cmd.PublicationPurpose = purpose
 	if cmd.Version == "" {
 		return PublishBeanListCommand{}, fmt.Errorf("version required")
 	}
@@ -917,6 +931,11 @@ func (s *Service) WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListComm
 	}
 	cmd.OwnerType = ownerType
 	cmd.OwnerKey = ownerKey
+	purpose, err := NormalizeBeanListPublicationPurpose(cmd.PublicationPurpose)
+	if err != nil {
+		return err
+	}
+	cmd.PublicationPurpose = purpose
 	if s.repo == nil {
 		return fmt.Errorf("repository required")
 	}
@@ -978,14 +997,30 @@ func normalizeBeanListPublicationQuery(query BeanListPublicationQuery) (BeanList
 	if query.ProductTypeCategoryID == 0 && query.ClassificationTemplateID > 0 {
 		query.ProductTypeCategoryID = query.ClassificationTemplateID
 	}
+	purpose, err := NormalizeBeanListPublicationPurpose(query.PublicationPurpose)
+	if err != nil {
+		return BeanListPublicationQuery{}, err
+	}
 	ownerType, ownerKey, err := normalizeBeanListOwner(query.OwnerType, query.OwnerKey)
 	if err != nil {
 		return BeanListPublicationQuery{}, err
 	}
 	query.ListType = listType
+	query.PublicationPurpose = purpose
 	query.OwnerType = ownerType
 	query.OwnerKey = ownerKey
 	return query, nil
+}
+
+func NormalizeBeanListPublicationPurpose(value string) (string, error) {
+	switch strings.TrimSpace(value) {
+	case "", BeanListPublicationPurposeFactorySupply:
+		return BeanListPublicationPurposeFactorySupply, nil
+	case BeanListPublicationPurposeCustomerResale:
+		return BeanListPublicationPurposeCustomerResale, nil
+	default:
+		return "", fmt.Errorf("invalid publication_purpose")
+	}
 }
 
 func normalizeBeanListPublicationPDFCommand(cmd BeanListPublicationPDFCommand) (BeanListPublicationPDFCommand, error) {

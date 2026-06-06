@@ -38,6 +38,13 @@ type fakeRepository struct {
 	serviceQuery             ServicePageQuery
 	servicePage              ServicePage
 	beanList                 BeanListSummary
+	resalePage               ResaleBeanListPage
+	resaleEditor             ResaleBeanListEditor
+	resaleSource             BeanListSummary
+	resalePublication        BeanListSummary
+	resaleVersions           []BeanListSummary
+	resaleTemplate           ResaleGradientTemplate
+	resaleSaveCommand        SaveCustomerResaleBeanListPublicationCommand
 	portalCustomers          []PortalAdminCustomer
 	portalDetail             PortalAdminDetail
 	visibilityCommand        UpdatePortalVisibilityCommand
@@ -134,6 +141,71 @@ func (r *fakeRepository) AcknowledgeBeanListPublication(ctx context.Context, cus
 	return nil
 }
 
+func (r *fakeRepository) LoadResaleBeanListPage(ctx context.Context, customerID int64) (ResaleBeanListPage, error) {
+	if r.err != nil {
+		return ResaleBeanListPage{}, r.err
+	}
+	return r.resalePage, nil
+}
+
+func (r *fakeRepository) LoadResaleBeanListEditor(ctx context.Context, customerID, sourcePublicationID int64) (ResaleBeanListEditor, error) {
+	if r.err != nil {
+		return ResaleBeanListEditor{}, r.err
+	}
+	if r.resaleEditor.Source.ID > 0 {
+		return r.resaleEditor, nil
+	}
+	return ResaleBeanListEditor{Source: r.resaleSource, GradientTemplates: []ResaleGradientTemplate{r.resaleTemplate}}, nil
+}
+
+func (r *fakeRepository) LoadResaleBeanListPublication(ctx context.Context, customerID, publicationID int64) (BeanListSummary, error) {
+	if r.err != nil {
+		return BeanListSummary{}, r.err
+	}
+	return r.resalePublication, nil
+}
+
+func (r *fakeRepository) LoadAuthorizedResaleGradientTemplate(ctx context.Context, customerID, templateID int64) (ResaleGradientTemplate, error) {
+	if r.err != nil {
+		return ResaleGradientTemplate{}, r.err
+	}
+	if r.resaleTemplate.ID == templateID {
+		return r.resaleTemplate, nil
+	}
+	return ResaleGradientTemplate{}, ErrResaleGradientTemplateNotFound
+}
+
+func (r *fakeRepository) ListCustomerResaleBeanListVersions(ctx context.Context, customerID int64, limit int) ([]BeanListSummary, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.resaleVersions, nil
+}
+
+func (r *fakeRepository) SaveCustomerResaleBeanListPublication(ctx context.Context, cmd SaveCustomerResaleBeanListPublicationCommand) (BeanListSummary, error) {
+	if r.err != nil {
+		return BeanListSummary{}, r.err
+	}
+	r.resaleSaveCommand = cmd
+	row := BeanListSummary{
+		ID:          93,
+		ListType:    cmd.ListType,
+		VersionNo:   cmd.VersionNo,
+		Status:      cmd.Status,
+		Changelog:   cmd.Changelog,
+		Title:       stringValue(cmd.Content["title"]),
+		BrandName:   stringValue(cmd.Config["brandName"]),
+		BrandIntro:  stringValue(cmd.Config["brandIntro"]),
+		Groups:      beanListGroupsFromContentForTest(cmd.Content),
+		PublishedAt: "2026-06-06 14:00",
+		CacheKey:    "bean-list:93:" + cmd.VersionNo,
+	}
+	if row.Title == "" {
+		row.Title = "客户销售豆单"
+	}
+	return row, nil
+}
+
 func TestBeanListDiffDetectsAddedRemovedAndChangedItems(t *testing.T) {
 	oldList := BeanListSummary{Groups: []BeanListGroupSummary{{
 		Category: "经典拼配",
@@ -170,6 +242,150 @@ func TestBeanListDiffDetectsAddedRemovedAndChangedItems(t *testing.T) {
 	if !diff.Changed[0].HasField("prices") || !diff.Changed[0].HasField("flavor") {
 		t.Fatalf("changed fields=%+v, want prices and flavor", diff.Changed[0].Fields)
 	}
+}
+
+func TestPublishResaleBeanListBuildsCustomerSnapshotFromFactorySource(t *testing.T) {
+	repo := &fakeRepository{
+		context: CurrentContext{
+			CurrentCustomerID:   77,
+			CurrentCustomerName: "转售客户",
+			Capabilities:        []Capability{{Code: CapabilityBeanList, Enabled: true}},
+		},
+		resaleSource: BeanListSummary{
+			ID:        11,
+			ListType:  "green",
+			VersionNo: "G-2026-06",
+			Title:     "工厂供货豆单",
+			Groups: []BeanListGroupSummary{{
+				Category: "生豆",
+				Items: []BeanListProductSummary{{
+					Code: "ETH-G1", Name: "埃塞瑰夏", BadgeLabel: "上新",
+					Prices: []BeanListPriceSummary{{Label: "1kg+", Value: "100/kg"}},
+				}, {
+					Code: "BRA-G2", Name: "巴西黄波旁",
+					Prices: []BeanListPriceSummary{{Label: "1kg+", Value: "80/kg"}},
+				}},
+			}},
+		},
+		resaleTemplate: ResaleGradientTemplate{
+			ID:          5,
+			Name:        "客户转售 kg 模板",
+			DisplayUnit: "kg",
+			Tiers: []ResaleGradientTemplateTier{{
+				ID: 21, Label: "1kg+", MinWeightG: 1000,
+			}},
+		},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	got, err := svc.PublishResaleBeanList(context.Background(), "mini-token", ResaleBeanListCommand{
+		SourcePublicationID: 11,
+		GradientTemplateID:  5,
+		SelectedItemCodes:   []string{"ETH-G1"},
+		Config: map[string]any{
+			"brandName":       "客户自己的品牌",
+			"brandIntro":      "面向门店客户的销售豆单",
+			"backgroundColor": "#fff8ee",
+			"layoutStyle":     "card",
+		},
+		Changelog: "首版转售豆单",
+		PriceRule: ResaleBeanListPriceRule{
+			AddAmount:  2,
+			Multiplier: 1.1,
+		},
+		ItemOverrides: []ResaleBeanListItemOverride{{
+			Code:           "ETH-G1",
+			BadgeLabel:     "推荐",
+			RecommendedUse: "手冲",
+			HighlightTerms: []string{"推荐"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PublishResaleBeanList: %v", err)
+	}
+	if got.VersionNo != "V1" || got.BrandName != "客户自己的品牌" {
+		t.Fatalf("published row=%+v, want V1 customer brand", got)
+	}
+	if repo.resaleSaveCommand.PublicationPurpose != "customer_resale" ||
+		repo.resaleSaveCommand.CustomerID != 77 ||
+		repo.resaleSaveCommand.PriceSourcePublicationID != 11 ||
+		repo.resaleSaveCommand.SourceVersionNo != "G-2026-06" ||
+		repo.resaleSaveCommand.Status != "published" {
+		t.Fatalf("save command=%+v, want customer_resale source trace", repo.resaleSaveCommand)
+	}
+	groups, ok := repo.resaleSaveCommand.Content["groups"].([]any)
+	if !ok || len(groups) != 1 {
+		t.Fatalf("content groups=%+v, want one group", repo.resaleSaveCommand.Content["groups"])
+	}
+	items := groups[0].(map[string]any)["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("items=%+v, want selected subset only", items)
+	}
+	item := items[0].(map[string]any)
+	if item["code"] != "ETH-G1" || item["badgeLabel"] != "推荐" || item["recommendedUse"] != "手冲" {
+		t.Fatalf("item=%+v, want selected item with resale tags", item)
+	}
+	prices := item["prices"].([]any)
+	price := prices[0].(map[string]any)
+	if price["label"] != "1kg+" || price["value"] != "112/kg" {
+		t.Fatalf("price=%+v, want 100*1.1+2 => 112/kg", price)
+	}
+}
+
+func TestPublishResaleBeanListRejectsUnauthorizedTemplate(t *testing.T) {
+	repo := &fakeRepository{
+		context: CurrentContext{
+			CurrentCustomerID: 77,
+			Capabilities:      []Capability{{Code: CapabilityBeanList, Enabled: true}},
+		},
+		resaleSource: BeanListSummary{
+			ID:        11,
+			ListType:  "green",
+			VersionNo: "G-2026-06",
+			Groups: []BeanListGroupSummary{{Items: []BeanListProductSummary{{
+				Code: "ETH-G1", Name: "埃塞瑰夏", Prices: []BeanListPriceSummary{{Label: "1kg+", Value: "100/kg"}},
+			}}}},
+		},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	_, err := svc.PublishResaleBeanList(context.Background(), "mini-token", ResaleBeanListCommand{
+		SourcePublicationID: 11,
+		GradientTemplateID:  99,
+	})
+	if !errors.Is(err, ErrResaleGradientTemplateNotFound) {
+		t.Fatalf("err=%v, want ErrResaleGradientTemplateNotFound", err)
+	}
+}
+
+func beanListGroupsFromContentForTest(content map[string]any) []BeanListGroupSummary {
+	rawGroups, _ := content["groups"].([]any)
+	out := make([]BeanListGroupSummary, 0, len(rawGroups))
+	for _, rawGroup := range rawGroups {
+		groupMap, _ := rawGroup.(map[string]any)
+		group := BeanListGroupSummary{Category: stringValue(groupMap["category"])}
+		rawItems, _ := groupMap["items"].([]any)
+		for _, rawItem := range rawItems {
+			itemMap, _ := rawItem.(map[string]any)
+			item := BeanListProductSummary{
+				Code:           stringValue(itemMap["code"]),
+				Name:           stringValue(itemMap["name"]),
+				BadgeLabel:     stringValue(itemMap["badgeLabel"]),
+				RecommendedUse: stringValue(itemMap["recommendedUse"]),
+			}
+			rawPrices, _ := itemMap["prices"].([]any)
+			for _, rawPrice := range rawPrices {
+				priceMap, _ := rawPrice.(map[string]any)
+				item.Prices = append(item.Prices, BeanListPriceSummary{
+					Label: stringValue(priceMap["label"]),
+					Value: stringValue(priceMap["value"]),
+				})
+			}
+			group.Items = append(group.Items, item)
+		}
+		out = append(out, group)
+	}
+	return out
 }
 
 func (r *fakeRepository) ListPortalAdminCustomers(ctx context.Context, query PortalAdminCustomerQuery) ([]PortalAdminCustomer, error) {

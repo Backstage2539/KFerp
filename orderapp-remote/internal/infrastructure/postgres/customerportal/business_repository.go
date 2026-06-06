@@ -142,6 +142,7 @@ func (r Repository) LoadBeanListPublication(ctx context.Context, customerID, pub
 		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, config_json, content_json
 		FROM %s.bean_list_publications
 		WHERE id=$1
+		  AND COALESCE(NULLIF(publication_purpose,''),'factory_supply')='factory_supply'
 		  AND status='published'
 		  AND ((owner_type='customer' AND owner_key=$2) OR owner_type='official')
 	`, r.schema), publicationID, fmt.Sprintf("%d", customerID)).
@@ -248,6 +249,157 @@ func (r Repository) AcknowledgeBeanListPublication(ctx context.Context, customer
 	return tx.Commit(ctx)
 }
 
+func (r Repository) LoadResaleBeanListPage(ctx context.Context, customerID int64) (customerportalapp.ResaleBeanListPage, error) {
+	factoryRows, err := r.listFactorySupplyBeanLists(ctx, customerID, 50)
+	if err != nil {
+		return customerportalapp.ResaleBeanListPage{}, err
+	}
+	resaleRows, err := r.ListCustomerResaleBeanListVersions(ctx, customerID, 50)
+	if err != nil {
+		return customerportalapp.ResaleBeanListPage{}, err
+	}
+	templates, err := r.listAuthorizedResaleGradientTemplates(ctx, customerID)
+	if err != nil {
+		return customerportalapp.ResaleBeanListPage{}, err
+	}
+	return customerportalapp.ResaleBeanListPage{
+		FactorySupplyBeanLists:  factoryRows,
+		CustomerResaleBeanLists: resaleRows,
+		GradientTemplates:       templates,
+	}, nil
+}
+
+func (r Repository) LoadResaleBeanListEditor(ctx context.Context, customerID, sourcePublicationID int64) (customerportalapp.ResaleBeanListEditor, error) {
+	source, err := r.loadFactorySupplyBeanListPublication(ctx, customerID, sourcePublicationID)
+	if err != nil {
+		return customerportalapp.ResaleBeanListEditor{}, err
+	}
+	versions, err := r.ListCustomerResaleBeanListVersions(ctx, customerID, 100)
+	if err != nil {
+		return customerportalapp.ResaleBeanListEditor{}, err
+	}
+	templates, err := r.listAuthorizedResaleGradientTemplates(ctx, customerID)
+	if err != nil {
+		return customerportalapp.ResaleBeanListEditor{}, err
+	}
+	return customerportalapp.ResaleBeanListEditor{
+		Source:            source,
+		NextVersionNo:     nextResaleBeanListVersionForRepository(versions),
+		GradientTemplates: templates,
+	}, nil
+}
+
+func (r Repository) LoadResaleBeanListPublication(ctx context.Context, customerID, publicationID int64) (customerportalapp.BeanListSummary, error) {
+	var row customerportalapp.BeanListSummary
+	var configJSON []byte
+	var contentJSON []byte
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, config_json, content_json
+		FROM %s.bean_list_publications
+		WHERE id=$1
+		  AND COALESCE(NULLIF(publication_purpose,''),'factory_supply')='customer_resale'
+		  AND owner_type='customer'
+		  AND owner_key=$2
+		  AND status='published'
+	`, r.schema), publicationID, fmt.Sprintf("%d", customerID)).
+		Scan(&row.ID, &row.ListType, &row.VersionNo, &row.Status, &row.PublishedAt, &row.Changelog, &configJSON, &contentJSON)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return customerportalapp.BeanListSummary{}, customerportalapp.ErrBeanListPublicationNotFound
+		}
+		return customerportalapp.BeanListSummary{}, err
+	}
+	if err := parseBeanListDisplaySummary(configJSON, contentJSON, &row); err != nil {
+		return customerportalapp.BeanListSummary{}, err
+	}
+	return row, nil
+}
+
+func (r Repository) LoadAuthorizedResaleGradientTemplate(ctx context.Context, customerID, templateID int64) (customerportalapp.ResaleGradientTemplate, error) {
+	templates, err := r.listAuthorizedResaleGradientTemplates(ctx, customerID)
+	if err != nil {
+		return customerportalapp.ResaleGradientTemplate{}, err
+	}
+	for _, row := range templates {
+		if row.ID == templateID {
+			return row, nil
+		}
+	}
+	return customerportalapp.ResaleGradientTemplate{}, customerportalapp.ErrResaleGradientTemplateNotFound
+}
+
+func (r Repository) ListCustomerResaleBeanListVersions(ctx context.Context, customerID int64, limit int) ([]customerportalapp.BeanListSummary, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, config_json, content_json
+		FROM %s.bean_list_publications
+		WHERE COALESCE(NULLIF(publication_purpose,''),'factory_supply')='customer_resale'
+		  AND owner_type='customer'
+		  AND owner_key=$1
+		  AND status IN ('published','draft')
+		ORDER BY CASE WHEN status='published' THEN 0 ELSE 1 END, published_at DESC, id DESC
+		LIMIT $2
+	`, r.schema), fmt.Sprintf("%d", customerID), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanBeanListSummaries(rows)
+}
+
+func (r Repository) SaveCustomerResaleBeanListPublication(ctx context.Context, cmd customerportalapp.SaveCustomerResaleBeanListPublicationCommand) (customerportalapp.BeanListSummary, error) {
+	status := strings.TrimSpace(cmd.Status)
+	if status != "draft" {
+		status = "published"
+	}
+	config, err := json.Marshal(cmd.Config)
+	if err != nil {
+		return customerportalapp.BeanListSummary{}, err
+	}
+	content, err := json.Marshal(cmd.Content)
+	if err != nil {
+		return customerportalapp.BeanListSummary{}, err
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return customerportalapp.BeanListSummary{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var row customerportalapp.BeanListSummary
+	var configJSON []byte
+	var contentJSON []byte
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.bean_list_publications(
+			publication_purpose, list_type, version_no, status, owner_type, owner_key,
+			price_source_publication_id, style_source_publication_id, source_version_no,
+			config_json, content_json, changelog, actor
+		)
+		VALUES('customer_resale',$1,$2,$3,'customer',$4,NULLIF($5,0),NULLIF($6,0),$7,$8::jsonb,$9::jsonb,$10,$11)
+		RETURNING id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, config_json, content_json
+	`, r.schema), cmd.ListType, cmd.VersionNo, status, fmt.Sprintf("%d", cmd.CustomerID), cmd.PriceSourcePublicationID, cmd.StyleSourcePublicationID, cmd.SourceVersionNo, config, content, cmd.Changelog, strings.TrimSpace(cmd.Actor)).
+		Scan(&row.ID, &row.ListType, &row.VersionNo, &row.Status, &row.PublishedAt, &row.Changelog, &configJSON, &contentJSON); err != nil {
+		return customerportalapp.BeanListSummary{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, strings.TrimSpace(cmd.Actor), "bean_list_publication", &row.ID, status, postgresinfra.StrPtr("publication_purpose"), nil, postgresinfra.StrPtr("customer_resale"), postgresinfra.AuditMeta{
+		"customer_id":                 cmd.CustomerID,
+		"publication_purpose":         "customer_resale",
+		"price_source_publication_id": cmd.PriceSourcePublicationID,
+		"source_version_no":           cmd.SourceVersionNo,
+		"version_no":                  cmd.VersionNo,
+	}); err != nil {
+		return customerportalapp.BeanListSummary{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return customerportalapp.BeanListSummary{}, err
+	}
+	if err := parseBeanListDisplaySummary(configJSON, contentJSON, &row); err != nil {
+		return customerportalapp.BeanListSummary{}, err
+	}
+	return row, nil
+}
+
 func (r Repository) loadBeanListServiceData(ctx context.Context, customerID int64, limit int) ([]customerportalapp.BeanListSummary, []customerportalapp.BeanListVersionOption, bool, error) {
 	customerRows, err := r.listCustomerBeanListVersions(ctx, customerID, limit)
 	if err != nil {
@@ -292,7 +444,8 @@ func (r Repository) listCustomerBeanListVersions(ctx context.Context, customerID
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, config_json, content_json
 		FROM %s.bean_list_publications
-		WHERE owner_type='customer' AND owner_key=$1 AND status='published'
+		WHERE COALESCE(NULLIF(publication_purpose,''),'factory_supply')='factory_supply'
+		  AND owner_type='customer' AND owner_key=$1 AND status='published'
 		ORDER BY published_at DESC, id DESC
 		LIMIT $2
 	`, r.schema), fmt.Sprintf("%d", customerID), limit)
@@ -342,7 +495,8 @@ func (r Repository) listLatestOfficialBeanLists(ctx context.Context, limit int) 
 		FROM (
 			SELECT DISTINCT ON (list_type) id, list_type, version_no, status, published_at, changelog, config_json, content_json
 			FROM %s.bean_list_publications
-			WHERE owner_type='official' AND status='published'
+			WHERE COALESCE(NULLIF(publication_purpose,''),'factory_supply')='factory_supply'
+			  AND owner_type='official' AND status='published'
 			ORDER BY list_type, published_at DESC, id DESC
 		) latest
 		ORDER BY published_at DESC, id DESC
@@ -353,6 +507,122 @@ func (r Repository) listLatestOfficialBeanLists(ctx context.Context, limit int) 
 	}
 	defer rows.Close()
 	return scanBeanListSummaries(rows)
+}
+
+func (r Repository) loadFactorySupplyBeanListPublication(ctx context.Context, customerID, publicationID int64) (customerportalapp.BeanListSummary, error) {
+	var row customerportalapp.BeanListSummary
+	var configJSON []byte
+	var contentJSON []byte
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, config_json, content_json
+		FROM %s.bean_list_publications
+		WHERE id=$1
+		  AND COALESCE(NULLIF(publication_purpose,''),'factory_supply')='factory_supply'
+		  AND status='published'
+		  AND ((owner_type='customer' AND owner_key=$2) OR owner_type='official')
+	`, r.schema), publicationID, fmt.Sprintf("%d", customerID)).
+		Scan(&row.ID, &row.ListType, &row.VersionNo, &row.Status, &row.PublishedAt, &row.Changelog, &configJSON, &contentJSON)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return customerportalapp.BeanListSummary{}, customerportalapp.ErrBeanListPublicationNotFound
+		}
+		return customerportalapp.BeanListSummary{}, err
+	}
+	if err := parseBeanListDisplaySummary(configJSON, contentJSON, &row); err != nil {
+		return customerportalapp.BeanListSummary{}, err
+	}
+	return row, nil
+}
+
+func (r Repository) listFactorySupplyBeanLists(ctx context.Context, customerID int64, limit int) ([]customerportalapp.BeanListSummary, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, config_json, content_json
+		FROM %s.bean_list_publications
+		WHERE COALESCE(NULLIF(publication_purpose,''),'factory_supply')='factory_supply'
+		  AND status='published'
+		  AND ((owner_type='customer' AND owner_key=$1) OR owner_type='official')
+		ORDER BY CASE WHEN owner_type='customer' THEN 0 ELSE 1 END, published_at DESC, id DESC
+		LIMIT $2
+	`, r.schema), fmt.Sprintf("%d", customerID), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanBeanListSummaries(rows)
+}
+
+func (r Repository) listAuthorizedResaleGradientTemplates(ctx context.Context, customerID int64) ([]customerportalapp.ResaleGradientTemplate, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, name, display_unit
+		FROM %s.pricing_gradient_templates
+		WHERE active=true
+		  AND COALESCE(allow_customer_resale,false)=true
+		  AND COALESCE(customer_id,0) IN (0, $1)
+		ORDER BY COALESCE(customer_id,0), name, id
+	`, r.schema), customerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]customerportalapp.ResaleGradientTemplate, 0)
+	index := map[int64]int{}
+	for rows.Next() {
+		var row customerportalapp.ResaleGradientTemplate
+		if err := rows.Scan(&row.ID, &row.Name, &row.DisplayUnit); err != nil {
+			return nil, err
+		}
+		row.Tiers = []customerportalapp.ResaleGradientTemplateTier{}
+		index[row.ID] = len(out)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+	ids := make([]int64, 0, len(out))
+	for _, row := range out {
+		ids = append(ids, row.ID)
+	}
+	tierRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, template_id, label, min_weight_g::float8, max_weight_g::float8, position
+		FROM %s.pricing_gradient_template_tiers
+		WHERE active=true AND template_id = ANY($1)
+		ORDER BY template_id, position, min_weight_g, id
+	`, r.schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	defer tierRows.Close()
+	for tierRows.Next() {
+		var templateID int64
+		var tier customerportalapp.ResaleGradientTemplateTier
+		if err := tierRows.Scan(&tier.ID, &templateID, &tier.Label, &tier.MinWeightG, &tier.MaxWeightG, &tier.Position); err != nil {
+			return nil, err
+		}
+		if idx, ok := index[templateID]; ok {
+			out[idx].Tiers = append(out[idx].Tiers, tier)
+		}
+	}
+	return out, tierRows.Err()
+}
+
+func nextResaleBeanListVersionForRepository(rows []customerportalapp.BeanListSummary) string {
+	maxVersion := 0
+	for _, row := range rows {
+		text := strings.TrimSpace(row.VersionNo)
+		if len(text) < 2 || (text[0] != 'V' && text[0] != 'v') {
+			continue
+		}
+		if n, err := strconv.Atoi(strings.TrimSpace(text[1:])); err == nil && n > maxVersion {
+			maxVersion = n
+		}
+	}
+	return fmt.Sprintf("V%d", maxVersion+1)
 }
 
 type beanListRows interface {

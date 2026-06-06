@@ -390,6 +390,10 @@
                   <option v-for="unit in gradientDisplayUnitOptions" :key="unit.value" :value="unit.value">{{ unit.label }}</option>
                 </select>
               </label>
+              <label class="checkline">
+                <input v-model="templateForm.allow_customer_resale" type="checkbox" :disabled="!canEditCurrentTemplate" />
+                <span>允许客户转售豆单使用</span>
+              </label>
             </div>
             <div class="template-tier-head">
               <strong>梯度档位</strong>

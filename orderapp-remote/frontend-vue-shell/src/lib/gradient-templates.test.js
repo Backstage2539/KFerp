@@ -47,6 +47,7 @@ test('buildGradientTemplatePayload converts display quantities to backend gram r
   const got = buildGradientTemplatePayload({
     name: '小包装模板',
     display_unit: 'g227',
+    allow_customer_resale: true,
     tiers: [
       { label: '2-7份', min_display_qty: '2', max_display_qty: '7', margin_rate: '0.3', position: 1 },
       { label: '8份+', min_display_qty: '8', max_display_qty: '', margin_rate: '0.2', position: 2 },
@@ -58,6 +59,7 @@ test('buildGradientTemplatePayload converts display quantities to backend gram r
   assert.equal(got.tiers[0].max_weight_g, 1589)
   assert.equal(got.tiers[1].min_weight_g, 1816)
   assert.equal(got.tiers[1].max_weight_g, null)
+  assert.equal(got.allow_customer_resale, true)
 })
 
 test('normalizeGradientTemplate exposes stored grams in the selected display unit', () => {

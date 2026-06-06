@@ -11,12 +11,22 @@ import (
 
 func beanListPDFDocument(row customerportalapp.BeanListSummary) pdfinfra.BeanListDocument {
 	doc := pdfinfra.BeanListDocument{
-		Title:       beanListPDFTitle(row),
-		ListType:    row.ListType,
-		VersionNo:   row.VersionNo,
-		PublishedAt: row.PublishedAt,
-		Changelog:   row.Changelog,
-		Groups:      make([]pdfinfra.BeanListGroup, 0, len(row.Groups)),
+		Title:               beanListPDFTitle(row),
+		Subtitle:            row.Subtitle,
+		ListType:            row.ListType,
+		VersionNo:           row.VersionNo,
+		PublishedAt:         row.PublishedAt,
+		BrandName:           row.BrandName,
+		BrandIntro:          row.BrandIntro,
+		BackgroundColor:     row.BackgroundColor,
+		FontColor:           row.FontColor,
+		LayoutStyle:         row.LayoutStyle,
+		CardsPerRow:         row.CardsPerRow,
+		ShowVersion:         row.ShowVersion,
+		ShowChangelog:       row.ShowChangelog,
+		ShowCategoryNumbers: row.ShowCategoryNumbers,
+		Changelog:           row.Changelog,
+		Groups:              make([]pdfinfra.BeanListGroup, 0, len(row.Groups)),
 	}
 	for _, group := range row.Groups {
 		nextGroup := pdfinfra.BeanListGroup{
@@ -68,6 +78,9 @@ func beanListPDFQualityLines(quality customerportalapp.BeanListQualitySummary) [
 }
 
 func beanListPDFTitle(row customerportalapp.BeanListSummary) string {
+	if strings.TrimSpace(row.Title) != "" {
+		return strings.TrimSpace(row.Title)
+	}
 	switch strings.TrimSpace(row.ListType) {
 	case "retail":
 		return "零售豆单"
@@ -92,4 +105,16 @@ func beanListPDFFilename(row customerportalapp.BeanListSummary) string {
 		version = fmt.Sprintf("%d", row.ID)
 	}
 	return "bean-list-" + beanListPDFFilenameUnsafeChars.ReplaceAllString(listType+"-"+version, "-") + ".pdf"
+}
+
+func beanListPNGFilename(row customerportalapp.BeanListSummary) string {
+	listType := strings.TrimSpace(row.ListType)
+	if listType == "" {
+		listType = "bean-list"
+	}
+	version := strings.TrimSpace(row.VersionNo)
+	if version == "" {
+		version = fmt.Sprintf("%d", row.ID)
+	}
+	return "bean-list-" + beanListPDFFilenameUnsafeChars.ReplaceAllString(listType+"-"+version, "-") + ".png"
 }

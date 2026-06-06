@@ -317,15 +317,16 @@ type ProductUnitTemplate struct {
 }
 
 type GradientTemplate struct {
-	ID               int64                  `json:"id"`
-	Name             string                 `json:"name"`
-	CustomerID       int64                  `json:"customer_id"`
-	SourceTemplateID int64                  `json:"source_template_id"`
-	TemplateState    string                 `json:"template_state"`
-	DisplayUnit      string                 `json:"display_unit"`
-	UnitTemplateID   int64                  `json:"unit_template_id"`
-	Active           bool                   `json:"active"`
-	Tiers            []GradientTemplateTier `json:"tiers"`
+	ID                  int64                  `json:"id"`
+	Name                string                 `json:"name"`
+	CustomerID          int64                  `json:"customer_id"`
+	SourceTemplateID    int64                  `json:"source_template_id"`
+	TemplateState       string                 `json:"template_state"`
+	DisplayUnit         string                 `json:"display_unit"`
+	UnitTemplateID      int64                  `json:"unit_template_id"`
+	AllowCustomerResale bool                   `json:"allow_customer_resale"`
+	Active              bool                   `json:"active"`
+	Tiers               []GradientTemplateTier `json:"tiers"`
 }
 
 type GradientTemplateTier struct {
@@ -861,13 +862,14 @@ type DeriveGradientTemplateCommand struct {
 }
 
 type SaveGradientTemplateCommand struct {
-	Actor          string
-	ID             int64
-	CustomerID     int64
-	Name           string
-	DisplayUnit    string
-	UnitTemplateID int64
-	Tiers          []GradientTemplateTier
+	Actor               string
+	ID                  int64
+	CustomerID          int64
+	Name                string
+	DisplayUnit         string
+	UnitTemplateID      int64
+	AllowCustomerResale bool
+	Tiers               []GradientTemplateTier
 }
 
 type DeactivateGradientTemplateCommand struct {

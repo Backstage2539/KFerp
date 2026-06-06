@@ -71,6 +71,21 @@ describe('miniapp startup route and main tabs', () => {
     expect(servicePage).toContain('Authorization: `Bearer ${session.token}`')
   })
 
+  it('renders a lightweight customer resale bean list editor on the bean-list tab', () => {
+    const servicePage = readSource('src/pages/service/service.vue')
+
+    expect(servicePage).toContain('fetchResaleBeanLists')
+    expect(servicePage).toContain('fetchResaleBeanListEditor')
+    expect(servicePage).toContain('saveResaleBeanListDraft')
+    expect(servicePage).toContain('publishResaleBeanList')
+    expect(servicePage).toContain('buildResaleBeanListPDFPath')
+    expect(servicePage).toContain('buildResaleBeanListPNGPath')
+    expect(servicePage).toContain('我的销售豆单')
+    expect(servicePage).toContain('发布销售豆单')
+    expect(servicePage).toContain('保存草稿')
+    expect(servicePage).toContain('选择商品')
+  })
+
   it('removes top profile links from content pages', () => {
     for (const path of ['src/pages/home/home.vue', 'src/pages/mall/mall.vue', 'src/pages/service/service.vue']) {
       const source = readSource(path)
