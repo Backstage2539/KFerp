@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-435-PRICE-LIST-CATEGORY-ALIGNMENT
+- Branch: codex/price-table-category-align-20260606
+- Owner/session: Codex / 2026-06-06
+- Status: local fix verified; pending merge, development deploy, and browser acceptance
+- Scope: 商品价格表商品类型和商品档案当前分类 Tab 对齐；只读取当前 `classification_template_id/name` 作为价格表分类，旧 `product_type_category_id/product_type_name` 不再生成价格表分类，未归类商品统一合并为 `未分类商品`，避免多个“其他”。
+- DEV:
+  - DEV-435-PRICE-LIST-CURRENT-CLASSIFICATION：价格表分类 helper 只读取当前商品档案分类字段，不再把旧产品类型字段当作当前分类。
+  - DEV-435-PRICE-LIST-UNCLASSIFIED-MERGE：缺少当前分类的商品统一进入 `未分类商品`，预览卡片按单个商品渲染生豆/零售/普通价格行。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-price-list-types.test.js` failed before helper existed.
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev435PriceListCategoryAlignment -count=1` failed before PR-435 seeds/docs.
+  - GREEN frontend: `node --test src/lib/product-price-list-types.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js` passed 143/143.
+  - GREEN support: `go test ./internal/interfaces/http/support -run TestDev435PriceListCategoryAlignment -count=1`.
+  - GREEN broader: `npm run build` in `orderapp-remote/frontend-vue-shell`; `go test ./...` in `orderapp-remote`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Pending: merge, development deploy, browser acceptance.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-price-list-category-alignment.md`.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-433-MINIAPP-CUSTOMER-PRODUCTS-PRICE-LISTS
 - Branch: codex/miniapp-customer-products-price-lists-20260606
 - Owner/session: Codex / 2026-06-06

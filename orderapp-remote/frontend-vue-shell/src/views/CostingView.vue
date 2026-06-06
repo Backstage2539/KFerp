@@ -151,11 +151,11 @@
           <div class="bean-grid">
             <article v-for="item in group.items" :key="`${section.key}-${item.product_id || item.name}`">
               <div class="bean-heading">
-                <span class="bean-code">{{ beanMeta(item, section.metaKey).code }}</span>
+                <span class="bean-code">{{ beanMetaForItem(item).code }}</span>
                 <div>
-                  <div class="bean-title">{{ beanName(item, section.metaKey) }}</div>
-                  <div v-if="beanMeta(item, section.metaKey).recommended_use" class="bean-use">
-                    {{ beanMeta(item, section.metaKey).recommended_use }}
+                  <div class="bean-title">{{ beanName(item, metaKeyForItem(item)) }}</div>
+                  <div v-if="beanMetaForItem(item).recommended_use" class="bean-use">
+                    {{ beanMetaForItem(item).recommended_use }}
                   </div>
                 </div>
               </div>
@@ -177,15 +177,15 @@
               <div v-if="itemProductAttributeLines(item).length" class="bean-attrs">
                 <span v-for="line in itemProductAttributeLines(item)" :key="`${section.key}-attr-${item.product_id || item.name}-${line}`">{{ line }}</span>
               </div>
-              <div v-if="beanFlavor(item, section.metaKey)" class="bean-note">{{ beanFlavor(item, section.metaKey) }}</div>
-              <div v-if="beanDescription(item, section.metaKey)" class="bean-desc">{{ beanDescription(item, section.metaKey) }}</div>
-              <template v-if="section.listType === 'retail'">
+              <div v-if="beanFlavor(item, metaKeyForItem(item))" class="bean-note">{{ beanFlavor(item, metaKeyForItem(item)) }}</div>
+              <div v-if="beanDescription(item, metaKeyForItem(item))" class="bean-desc">{{ beanDescription(item, metaKeyForItem(item)) }}</div>
+              <template v-if="priceListRenderTypeForItem(item) === 'retail'">
                 <div class="bean-row" v-for="tier in item.retail_bean_tiers || []" :key="`retail-tier-${tier.label}`">
                   <span>{{ tier.label }}</span><strong>{{ price(tier.price_per_unit) }}</strong>
                 </div>
                 <div class="bean-row"><span>挂耳10袋</span><strong>{{ price(item.retail_drip_10_bag_price) }}</strong></div>
               </template>
-              <template v-else-if="section.listType === 'green'">
+              <template v-else-if="priceListRenderTypeForItem(item) === 'green'">
                 <div class="bean-row green-inline-price-editor" v-for="tier in greenTierPriceRows(item)" :key="`green-tier-${greenTierOverrideKey(tier)}`">
                   <span>{{ tier.label }}</span>
                   <label>
@@ -692,6 +692,21 @@ import {
   buildPriceExplanationRequest,
   gradientDisplayUnitLabel,
 } from '../lib/gradient-templates'
+import {
+  UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID,
+  buildClassificationPriceListTypeOptions as buildClassificationPriceListTypeOptionsFromItems,
+  classificationCategoryIDOfItem as currentClassificationCategoryIDOfItem,
+  classificationCategoryNameOfItem as currentClassificationCategoryNameOfItem,
+  classificationTemplateIDOfItem as currentClassificationTemplateIDOfItem,
+  classificationTemplateIDOfPublication as currentClassificationTemplateIDOfPublication,
+  classificationTemplateNameOfItem as currentClassificationTemplateNameOfItem,
+  classificationTemplateNameOfPublication as currentClassificationTemplateNameOfPublication,
+  matchesPublicationProductType as matchesCurrentPublicationProductType,
+  matchesProductTypeCategory as matchesCurrentProductTypeCategory,
+  priceListRenderTypeForItem as currentPriceListRenderTypeForItem,
+  productTypeCategoryIDOfItem as currentProductTypeCategoryIDOfItem,
+  productTypeNameOfItem as currentProductTypeNameOfItem,
+} from '../lib/product-price-list-types'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
@@ -870,7 +885,7 @@ const currentPublicationScopeDescription = computed(() => {
 const publicBeanListURL = computed(() => {
   if (publicationScope.value !== 'official' || !currentBeanListPublication.value) return ''
   const params = new URLSearchParams()
-  const productTypeCategoryID = Number(currentBeanListPublication.value?.product_type_category_id || activeProductTypeCategoryID.value || 0)
+  const productTypeCategoryID = currentClassificationTemplateIDOfPublication(currentBeanListPublication.value)
   if (productTypeCategoryID > 0) params.set('product_type_category_id', String(productTypeCategoryID))
   const query = params.toString()
   return `${window.location.origin}/public/bean-list/${pdfTheme.value.listType}${query ? `?${query}` : ''}`
@@ -1015,32 +1030,7 @@ function customerOptionLabel(customer) {
 }
 
 function buildClassificationPriceListTypeOptions(sourceItems = []) {
-  const seen = new Map()
-  ;(Array.isArray(sourceItems) ? sourceItems : []).forEach((item) => {
-    const id = classificationTemplateIDOfItem(item)
-    const listType = priceListRenderTypeForItem(item)
-    const fallbackID = fallbackProductTypeID(listType)
-    const key = id > 0 ? `classification-template:${id}` : `classification:other:${listType}`
-    const label = classificationTemplateNameOfItem(item) || '其他'
-    const current = seen.get(key) || {
-      id: id > 0 ? id : fallbackID,
-      categoryID: id,
-      key,
-      label,
-      listType,
-      position: productTypePositionOfItem(item),
-      itemCount: 0,
-    }
-    current.itemCount += 1
-    current.position = Math.min(current.position || 999999, productTypePositionOfItem(item))
-    seen.set(key, current)
-  })
-  return Array.from(seen.values())
-    .sort((a, b) => {
-      const positionDelta = Number(a.position || 999999) - Number(b.position || 999999)
-      if (positionDelta !== 0) return positionDelta
-      return String(a.label || '').localeCompare(String(b.label || ''), 'zh-Hans-CN')
-    })
+  return buildClassificationPriceListTypeOptionsFromItems(sourceItems)
 }
 
 function buildProductPriceListTypeOptions(sourceItems = []) {
@@ -1048,23 +1038,23 @@ function buildProductPriceListTypeOptions(sourceItems = []) {
 }
 
 function classificationTemplateIDOfItem(item) {
-  return Number(item?.classification_template_id || item?.classificationTemplateID || item?.classification_template_id_snapshot || item?.product_type_category_id || item?.productTypeCategoryID || 0)
+  return currentClassificationTemplateIDOfItem(item)
 }
 
 function classificationCategoryIDOfItem(item) {
-  return Number(item?.classification_category_id || item?.classificationCategoryID || item?.classification_category_id_snapshot || 0)
+  return currentClassificationCategoryIDOfItem(item)
 }
 
 function classificationTemplateNameOfItem(item) {
-  return String(item?.classification_template_name || item?.classificationTemplateName || item?.classification_template_name_snapshot || '').trim()
+  return currentClassificationTemplateNameOfItem(item)
 }
 
 function classificationCategoryNameOfItem(item) {
-  return String(item?.classification_category_name || item?.classificationCategoryName || item?.classification_category_name_snapshot || '').trim()
+  return currentClassificationCategoryNameOfItem(item)
 }
 
 function productTypeCategoryIDOfItem(item) {
-  return classificationTemplateIDOfItem(item)
+  return currentProductTypeCategoryIDOfItem(item)
 }
 
 function productTypePositionOfItem(item) {
@@ -1072,22 +1062,11 @@ function productTypePositionOfItem(item) {
 }
 
 function productTypeNameOfItem(item) {
-  return classificationTemplateNameOfItem(item)
+  return currentProductTypeNameOfItem(item)
 }
 
 function priceListRenderTypeForItem(item) {
-  const subtypeName = String(classificationCategoryNameOfItem(item) || item?.product_subtype_name || item?.productSubtypeName || '').trim()
-  const typeName = String(classificationTemplateNameOfItem(item) || '').trim()
-  const kind = String(item?.product_kind || item?.productKind || '').trim().toLowerCase()
-
-  // 按分类项/旧产品类型名称推断价格表渲染模式
-  const categoryHint = (subtypeName + typeName).toLowerCase()
-  if (categoryHint.includes('生豆') || categoryHint.includes('green')) return 'green'
-  if (categoryHint.includes('零售') || categoryHint.includes('retail')) return 'retail'
-
-  // fallback to product_kind for backward compatibility
-  if (kind === 'green_bean') return 'green'
-  return 'commercial'
+  return currentPriceListRenderTypeForItem(item)
 }
 
 function fallbackProductTypeID(listType) {
@@ -1100,11 +1079,13 @@ function fallbackProductTypeID(listType) {
 
 function productPriceListTypeKey(type, listType = 'commercial') {
   const id = Number(type?.categoryID || type?.id || 0)
+  if (id === UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID) return 'classification:unclassified'
   if (id > 0) return `product-type:${id}`
   return `legacy:${normalizeBeanListType(type?.listType || listType)}`
 }
 
 function beanListPublicationTypeKey(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
+  if (Number(productTypeCategoryID || 0) === UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID) return 'classification:unclassified'
   const id = activePublicationProductTypeCategoryID(productTypeCategoryID)
   if (id > 0) return `product-type:${id}`
   return `legacy:${normalizeBeanListType(listType)}`
@@ -1257,10 +1238,12 @@ function beanMetaForItem(item) {
   return meta || {}
 }
 
+function metaKeyForItem(item) {
+  return metaKeyForListType(priceListRenderTypeForItem(item))
+}
+
 function matchesProductTypeCategory(item, productTypeCategoryID = activeProductTypeCategoryID.value) {
-  const id = Number(productTypeCategoryID || 0)
-  if (id <= 0) return true
-  return productTypeCategoryIDOfItem(item) === id
+  return matchesCurrentProductTypeCategory(item, productTypeCategoryID)
 }
 
 function priceListScopedItems() {
@@ -1308,7 +1291,8 @@ function categoryCodeOfItem(item, listType = pdfTheme.value.listType) {
 function publicationRows(scope, listType, productTypeCategoryID = activeProductTypeCategoryID.value, purpose = publicationPurposeFilter.value) {
   const cacheKey = beanListPublicationCacheKey(scope, purpose)
   const typeKey = beanListPublicationTypeKey(listType, productTypeCategoryID)
-  return beanListPublications.value?.[cacheKey]?.[typeKey] || []
+  const rows = beanListPublications.value?.[cacheKey]?.[typeKey] || []
+  return rows.filter((row) => matchesCurrentPublicationProductType(row, productTypeCategoryID))
 }
 
 function initializePdfDefaults() {
@@ -1487,7 +1471,7 @@ function beanListPublicationDownloadParams(row) {
   const params = beanListWithdrawScopeParams(row)
   params.set('list_type', normalizeBeanListType(row?.list_type || pdfTheme.value.listType))
   params.set('publication_purpose', row?.publication_purpose || 'factory_supply')
-  const productTypeCategoryID = activePublicationProductTypeCategoryID(row?.product_type_category_id || activeProductTypeCategoryID.value)
+  const productTypeCategoryID = currentClassificationTemplateIDOfPublication(row)
   if (productTypeCategoryID > 0) params.set('product_type_category_id', String(productTypeCategoryID))
   return params
 }
@@ -1538,11 +1522,12 @@ function applyCopiedBeanListPriceSource(row = selectedPriceSourcePublication.val
   if (!row) return
   const listType = normalizeBeanListType(row.list_type)
   selectProductTypeFromPublication(row)
-  const key = beanListPublicationTypeKey(listType, row.product_type_category_id || activeProductTypeCategoryID.value)
+  const keyProductTypeID = currentClassificationTemplateIDOfPublication(row) || UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID
+  const key = beanListPublicationTypeKey(listType, keyProductTypeID)
   downloadSourcePublication.value = null
   priceSourcePublicationByType.value = { ...priceSourcePublicationByType.value, [key]: row }
   selectedPriceSourcePublicationID.value = String(row.id)
-  pdfOptions.value = { ...pdfOptions.value, listType, version: defaultBeanListVersionForScope(listType, row.product_type_category_id || activeProductTypeCategoryID.value) }
+  pdfOptions.value = { ...pdfOptions.value, listType, version: defaultBeanListVersionForScope(listType, keyProductTypeID) }
   message.value = `已复制${beanListPublicationLabel(row)}价格来源，发布后会锁定为客户豆单快照`
 }
 
@@ -1554,32 +1539,23 @@ function beanListTypeLabel(listType) {
 }
 
 function beanListPublicationTypeLabel(row) {
-  const classificationName = String(row?.classification_template_name || row?.classification_template_name_snapshot || '').trim()
+  const classificationName = currentClassificationTemplateNameOfPublication(row)
   if (classificationName) return classificationName
-  const productTypeName = String(row?.product_type_name || '').trim()
-  if (productTypeName) return productTypeName
-  const productTypeCategoryID = Number(row?.product_type_category_id || 0)
-  if (productTypeCategoryID > 0) {
-    const option = productPriceListTypeOptions.value.find((type) => Number(type.categoryID || type.id || 0) === productTypeCategoryID)
+  const classificationID = currentClassificationTemplateIDOfPublication(row)
+  if (classificationID > 0) {
+    const option = productPriceListTypeOptions.value.find((type) => Number(type.categoryID || type.id || 0) === classificationID)
     if (option?.label) return option.label
   }
-  return beanListTypeLabel(row?.list_type)
+  return '未分类商品'
 }
 
 function selectProductTypeFromPublication(row) {
-  const classificationTemplateID = Number(row?.classification_template_id || row?.classification_template_id_snapshot || 0)
+  const classificationTemplateID = currentClassificationTemplateIDOfPublication(row)
   if (classificationTemplateID > 0) {
     selectedProductTypeCategoryID.value = classificationTemplateID
     return
   }
-  const productTypeCategoryID = Number(row?.product_type_category_id || 0)
-  if (productTypeCategoryID > 0) {
-    selectedProductTypeCategoryID.value = productTypeCategoryID
-    return
-  }
-  const listType = normalizeBeanListType(row?.list_type || pdfTheme.value.listType)
-  const option = productPriceListTypeOptions.value.find((type) => type.listType === listType)
-  if (option) selectedProductTypeCategoryID.value = Number(option.id || 0)
+  selectedProductTypeCategoryID.value = UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID
 }
 
 function isPdfProductSelected(id) {
@@ -2149,8 +2125,9 @@ async function saveGreenBeanPriceDraftForSection(section) {
 
 function beanListPublicationPayload() {
   const listType = pdfTheme.value.listType
-  const productTypeCategoryID = activePublicationProductTypeCategoryID(activeProductTypeCategoryID.value)
-  const selectedItems = beanListItemsForType(listType, productTypeCategoryID)
+  const selectedProductTypeCategoryID = activeProductTypeCategoryID.value
+  const productTypeCategoryID = activePublicationProductTypeCategoryID(selectedProductTypeCategoryID)
+  const selectedItems = beanListItemsForType(listType, selectedProductTypeCategoryID)
   const firstClassifiedItem = selectedItems.find((item) => classificationTemplateIDOfItem(item) > 0 || classificationCategoryIDOfItem(item) > 0) || {}
   return {
     list_type: listType,
