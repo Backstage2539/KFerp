@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-438-PRODUCT-TEMPLATE-DELETE-PRICE-LIST-UI
 - Branch: codex/product-settings-delete-price-list-ui-20260606
 - Owner/session: Codex / 2026-06-06
-- Status: local implementation verified; pending merge to develop, development deploy, and browser acceptance
+- Status: merged to develop and deployed to development; smoke and browser acceptance passed
 - Scope: 已发布价格表支持分页、搜索和收缩；全局单位字典、单位模板、分类模板和商品配置模板删除后不再按失效项展示；生产 BOM 产出商品选择过滤失效商品；阶梯价模板展示单位来自全局单位字典；商品配置模板停用不得报 `unit template inactive`。
 - DEV:
   - DEV-438-PRICE-LIST-PUBLICATION-UI：已发布价格表列表增加搜索、分页和收缩状态。
@@ -23,7 +23,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN frontend: `node --test src/lib/product-price-list-types.test.js src/lib/product-settings.test.js src/lib/bom.test.js` passed 132/132.
   - GREEN targeted: `go test ./internal/interfaces/http/catalog -run 'TestProductSettingsAPIDeletesProductConfigTemplate|TestProductSettingsAPIDeletesGlobalUnitsAndUnitTemplates' -count=1`; `go test ./internal/infrastructure/postgres/catalog -run 'TestTemplateDeletesUseDeletedStateAndHideFromLists|TestProductUnitDeletesSoftDisableAndAudit' -count=1`; `go test ./internal/interfaces/http/support -run TestDev438ProductTemplateDeletePriceListUI -count=1`.
   - GREEN broader: `npm run build` in `frontend-vue-shell`; `go test ./...` in `orderapp-remote`; `scripts/verify_kferp.sh changed`; `git diff --check`.
-  - Pending: merge to `develop`, development deploy, smoke, and browser acceptance.
+  - GREEN merge/deploy: feature branch pushed; `develop` fast-forwarded to `580c670d6b6dffcb5769bc63e6ad99d03a24c6d3` and pushed; `./deploy_orderapp.sh development` deployed the same commit. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606220848`.
+  - GREEN smoke/browser: Docker build ran `go test ./...`; `erp_orderapp` restarted and is running; unauthenticated `/app/` returned 303; authenticated `/app/vue-shell/?view=costing` returned 200; requirement API exposes PR-438; browser 商品价格表 page supports 已发布价格表 search, pagination and collapse; browser 商品配置模板 page shows `停用配置` and `删除配置`; browser 阶梯价模板 visible form has `展示单位` from global units and no visible unit-template selector; `/api/bom/products` returned 20 candidate rows with `inactive_rows=0`.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-product-template-delete-price-list-ui.md`.
 - Last update: 2026-06-06 Asia/Shanghai
 
