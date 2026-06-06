@@ -942,7 +942,7 @@ func (h productHandler) saveCustomerProductAliasAPI(c echo.Context) error {
 		CustomerID:               req.CustomerID,
 		ProductID:                req.ProductID,
 		DisplayName:              req.DisplayName,
-		CustomerItemCode:         "",
+		CustomerItemCode:         req.CustomerItemCode,
 		BrandName:                req.BrandName,
 		DisplayCategoryID:        req.DisplayCategoryID,
 		ClassificationTemplateID: req.ClassificationTemplateID,

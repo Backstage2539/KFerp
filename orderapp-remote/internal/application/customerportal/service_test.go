@@ -598,7 +598,7 @@ func TestGetSettlementServicePageSummaryShowsReceivableLedger(t *testing.T) {
 	}
 	want := []ServiceMetric{
 		{Label: "应收总额", Value: "2258.00"},
-		{Label: "未付款金额", Value: "2109.00"},
+		{Label: "待结算金额", Value: "2109.00"},
 		{Label: "未付款订单", Value: "1"},
 		{Label: "已付款金额", Value: "149.00"},
 	}

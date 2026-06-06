@@ -1061,6 +1061,8 @@ func TestCustomerFulfillmentOptionsUseCustomerProductAliases(t *testing.T) {
 		"CustomerProductAliasID",
 		"CustomerProductDisplayName",
 		"CustomerItemCode",
+		"if row.CustomerProductAliasID > 0",
+		`key = fmt.Sprintf("alias:%d", row.CustomerProductAliasID)`,
 		"validateCustomerProductAliasForDirectShipTx",
 	} {
 		if !strings.Contains(src, want) {

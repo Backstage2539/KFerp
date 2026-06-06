@@ -480,6 +480,51 @@ func TestMiniappCurrentCustomerSwitchScopesOrderServicePage(t *testing.T) {
 	}
 }
 
+func TestLoadOrdersServicePageUsesOrderReceiverForDirectShipOrders(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerPortalTestDB(t)
+	repo := NewRepository(pool, schema)
+
+	var customerID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, contact, phone, address)
+		VALUES('渠道客户','渠道账号','13900000000','渠道地址') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.orders(
+			order_no, order_date, customer_id, grand_total, is_void, portal_service_code,
+			receiver_name, receiver_phone, receiver_address
+		) VALUES(
+			'SO-DIRECT-RECEIVER','2026-06-06',$1,58,false,'direct_ship',
+			'终端客户一','13800000001','终端地址一'
+		)
+	`, schema), customerID); err != nil {
+		t.Fatalf("insert direct ship order: %v", err)
+	}
+
+	got, err := repo.LoadServicePage(ctx, customerportalapp.ServicePageQuery{
+		CustomerID: customerID,
+		Key:        customerportalapp.ServiceKeyOrders,
+		Query:      "终端客户一",
+		Limit:      20,
+	})
+	if err != nil {
+		t.Fatalf("LoadServicePage(orders): %v", err)
+	}
+	if len(got.Orders) != 1 {
+		t.Fatalf("orders=%+v, want one order searchable by receiver", got.Orders)
+	}
+	order := got.Orders[0]
+	if order.ReceiverName != "终端客户一" || order.ReceiverPhone != "13800000001" || order.ReceiverAddress != "终端地址一" {
+		t.Fatalf("receiver=%q/%q/%q, want order receiver fields", order.ReceiverName, order.ReceiverPhone, order.ReceiverAddress)
+	}
+	if strings.Contains(fmt.Sprintf("%+v", got.Orders), "渠道账号") {
+		t.Fatalf("orders page should not show account contact as direct-ship receiver: %+v", got.Orders)
+	}
+}
+
 func TestCustomerOwnsOrderChecksActiveCustomerOrder(t *testing.T) {
 	ctx := context.Background()
 	pool, schema := newCustomerPortalTestDB(t)

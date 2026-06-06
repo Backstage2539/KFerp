@@ -2432,7 +2432,7 @@ func settlementAccountingSummary(orders []CustomerOrderSummary) []ServiceMetric 
 	}
 	return []ServiceMetric{
 		{Label: "应收总额", Value: formatAccountingAmount(total)},
-		{Label: "未付款金额", Value: formatAccountingAmount(unpaid)},
+		{Label: "待结算金额", Value: formatAccountingAmount(unpaid)},
 		{Label: "未付款订单", Value: fmt.Sprintf("%d", unpaidOrders)},
 		{Label: "已付款金额", Value: formatAccountingAmount(paid)},
 	}

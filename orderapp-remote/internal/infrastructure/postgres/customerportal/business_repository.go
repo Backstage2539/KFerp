@@ -877,11 +877,14 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 		args = append(args, "%"+strings.ToLower(keyword)+"%")
 		placeholder := fmt.Sprintf("$%d", len(args))
 		where = append(where, fmt.Sprintf(`(
-			LOWER(COALESCE(o.order_no,'')) LIKE %[1]s
-			OR LOWER(COALESCE(c.contact,'')) LIKE %[1]s
-			OR LOWER(COALESCE(c.name,'')) LIKE %[1]s
-			OR LOWER(COALESCE(c.phone,'')) LIKE %[1]s
-			OR LOWER(COALESCE(c.address,'')) LIKE %[1]s
+				LOWER(COALESCE(o.order_no,'')) LIKE %[1]s
+				OR LOWER(COALESCE(o.receiver_name,'')) LIKE %[1]s
+				OR LOWER(COALESCE(o.receiver_phone,'')) LIKE %[1]s
+				OR LOWER(COALESCE(o.receiver_address,'')) LIKE %[1]s
+				OR LOWER(COALESCE(c.contact,'')) LIKE %[1]s
+				OR LOWER(COALESCE(c.name,'')) LIKE %[1]s
+				OR LOWER(COALESCE(c.phone,'')) LIKE %[1]s
+				OR LOWER(COALESCE(c.address,'')) LIKE %[1]s
 			OR LOWER(COALESCE(c.company_address,'')) LIKE %[1]s
 			OR EXISTS (SELECT 1 FROM %s.order_items oi2
 				WHERE oi2.order_id=o.id
@@ -911,12 +914,12 @@ func (r Repository) listCustomerOrders(ctx context.Context, query customerportal
 	args = append(args, limit)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT o.id,
-		       COALESCE(o.order_no,''),
-		       COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''),
-		       COALESCE(NULLIF(c.contact,''), c.name, ''),
-		       COALESCE(c.phone,''),
-		       COALESCE(NULLIF(c.address,''), c.company_address, ''),
-		       COALESCE(ops.name,''),
+			       COALESCE(o.order_no,''),
+			       COALESCE(to_char(o.order_date,'YYYY-MM-DD'),''),
+			       COALESCE(NULLIF(o.receiver_name,''), NULLIF(c.contact,''), c.name, ''),
+			       COALESCE(NULLIF(o.receiver_phone,''), c.phone, ''),
+			       COALESCE(NULLIF(o.receiver_address,''), NULLIF(c.address,''), c.company_address, ''),
+			       COALESCE(ops.name,''),
 		       COALESCE(ps.name,''),
 		       COALESCE(o.payment_method,''),
 		       COALESCE(ss.name,''),
@@ -1702,10 +1705,45 @@ func (r Repository) ensurePortalDripProductHasActiveBOMTx(ctx context.Context, t
 	`, r.schema, r.schema), productID).Scan(&exists); err != nil {
 		return err
 	}
-	if !exists {
-		return fmt.Errorf("product BOM not configured")
+	if exists {
+		return nil
 	}
-	return nil
+	productionBomExists, err := r.portalProductionBOMConfiguredForProductTx(ctx, tx, productID)
+	if err != nil {
+		return err
+	}
+	if productionBomExists {
+		return nil
+	}
+	return fmt.Errorf("product BOM not configured")
+}
+
+func (r Repository) portalProductionBOMConfiguredForProductTx(ctx context.Context, tx pgx.Tx, productID int64) (bool, error) {
+	for _, relation := range []string{"production_boms", "production_bom_versions", "production_bom_version_items"} {
+		if !portalRelationExists(ctx, tx, fmt.Sprintf("%s.%s", r.schema, relation)) {
+			return false, nil
+		}
+	}
+	var exists bool
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM %[1]s.production_boms pb
+			JOIN %[1]s.production_bom_versions v ON v.bom_id=pb.id AND v.status='published'
+			JOIN %[1]s.production_bom_version_items i ON i.version_id=v.id
+			WHERE pb.status='active'
+			  AND (pb.output_product_id=$1 OR pb.legacy_product_id=$1)
+		)
+	`, r.schema), productID).Scan(&exists)
+	return exists, err
+}
+
+func portalRelationExists(ctx context.Context, tx pgx.Tx, relation string) bool {
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, relation).Scan(&exists); err != nil {
+		return false
+	}
+	return exists
 }
 
 func (r Repository) portalDripUnitPriceTiersTx(ctx context.Context, tx pgx.Tx, productID int64) ([]salesdomain.UnitPriceTier, error) {

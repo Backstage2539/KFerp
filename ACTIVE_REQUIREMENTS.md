@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-426-CHANNEL-CUSTOMER-E2E-SETTLEMENT-STATUS
+- Branch: codex/channel-customer-e2e-20260606
+- Owner/session: Codex goal channel customer E2E / 2026-06-06
+- Status: in progress; local RED/GREEN done, pending build/changed verifier/development deploy/live E2E
+- Scope: 跑通测试渠道客户从客户工作台/小程序给 10 个终端收件人下单、进入生产、发货和客户侧查看状态的 E2E；客户侧订单列表必须能看到生产状态、发货状态和待结算金额。
+- DEV:
+  - DEV-426-ORDER-SUMMARY-PENDING-SETTLEMENT：履约订单 summary 增加待结算金额，客户侧工作台显示“待结算金额”；小程序费用中心用同一口径展示。
+  - DEV-426-CUSTOMER-SKU-ALIAS-DIRECT-SHIP：客户工作台下单保留 `customer_product_alias_id` 和客户商品快照；客户商品选项按 alias 去重，允许同一商品档案下多个客户 SKU 同时出现。
+  - DEV-426-DRIP-PRODUCTION-BOM-COMPAT：客户工作台/小程序挂耳商品下单识别新 `production_boms` 模型，不再只检查旧 `product_bom`。
+- Verifier:
+  - RED local: `go test ./internal/infrastructure/postgres/sales ./internal/application/customerportal -run 'TestOrdersSummaryExposesPendingSettlementAmount|TestGetSettlementServicePageSummaryShowsReceivableLedger' -count=1`; `node --test src/lib/customer-portal-theme.test.js`; `go test ./internal/infrastructure/postgres/customerfulfillment -run TestCustomerFulfillmentOptionsUseCustomerProductAliases -count=1`; `go test ./internal/interfaces/http/catalog -run TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames -count=1`.
+  - RED live/local blocker: development 客户工作台提交挂耳客户 SKU 返回 `product BOM not configured`; `go test ./internal/interfaces/http/support -run TestDev426DripCustomerOrderAcceptsProductionBOMModel -count=1` failed before implementation.
+  - GREEN local: targeted commands above passed after implementation.
+  - GREEN blocker fix: `go test ./internal/interfaces/http/support -run TestDev426DripCustomerOrderAcceptsProductionBOMModel -count=1`; `go test ./internal/infrastructure/postgres/customerfulfillment ./internal/infrastructure/postgres/customerportal -count=1`.
+  - GREEN broader: `go test ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/customerfulfillment ./internal/infrastructure/postgres/sales ./internal/application/customerportal ./internal/interfaces/http/support -count=1`; `go test ./...`; `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Manual/docs: REQUIREMENTS.md, ACCEPTANCE_TESTS.md, OP_MANUAL_CUSTOMER_FULFILLMENT.md, docs/acceptance/2026-06-06-channel-customer-e2e-settlement-status.md.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-425-SHIPPING-DEDUCT-PRODUCED-STOCK-BATCHES
 - Branch: codex/shipment-deduct-produced-stock-batches-20260606
 - Owner/session: Codex goal E2E / 2026-06-06
