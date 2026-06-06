@@ -603,6 +603,25 @@ func TestCopyProductArchiveCopiesOnlyMasterDataNotPriceOrBomTemplates(t *testing
 	}
 }
 
+func TestUpdateProductBasicsClearsLegacyTemplateColumns(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	fn := catalogRepositoryFunctionForTest(t, src, "func (r Repository) UpdateProductBasics", "func (r Repository) DeactivateProducts")
+	for _, want := range []string{
+		"product_config_template_id=$17",
+		"classification_template_id=$18",
+		"cmd.ProductConfigTemplateID",
+		"cmd.ClassificationTemplateID",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("UpdateProductBasics must persist cleared legacy template column marker %q", want)
+		}
+	}
+}
+
 func TestLegacySKUCopyRepositoryCodeIsRemoved(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {
