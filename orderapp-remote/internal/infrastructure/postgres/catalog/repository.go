@@ -36,7 +36,11 @@ func (r Repository) ListProducts(ctx context.Context) ([]catalogapp.Product, err
 	if err != nil {
 		return nil, err
 	}
-	return catalogProductsFromOptions(ps), nil
+	out := catalogProductsFromOptions(ps)
+	if err := r.attachProductPriceSummaries(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r Repository) GetProduct(ctx context.Context, id int64) (*catalogapp.Product, error) {
@@ -3875,7 +3879,164 @@ func (r Repository) ListCustomerProductAliases(ctx context.Context, query catalo
 	if err := r.attachCustomerProductAliasIndustryFields(ctx, out); err != nil {
 		return nil, err
 	}
+	if err := r.attachCustomerProductAliasPriceSummaries(ctx, out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+type publishedPriceSummaryKey struct {
+	ProductID  int64
+	CustomerID int64
+}
+
+func (r Repository) attachProductPriceSummaries(ctx context.Context, products []catalogapp.Product) error {
+	if len(products) == 0 {
+		return nil
+	}
+	keys := make([]publishedPriceSummaryKey, 0, len(products))
+	for _, product := range products {
+		if product.ID <= 0 {
+			continue
+		}
+		keys = append(keys, publishedPriceSummaryKey{ProductID: product.ID})
+	}
+	summaries, err := r.loadPublishedPriceSummaries(ctx, keys, false)
+	if err != nil {
+		return err
+	}
+	for i := range products {
+		if summary, ok := summaries[publishedPriceSummaryKey{ProductID: products[i].ID}]; ok {
+			products[i].PriceSummary = summary
+		}
+	}
+	return nil
+}
+
+func (r Repository) attachCustomerProductAliasPriceSummaries(ctx context.Context, aliases []catalogapp.CustomerProductAlias) error {
+	if len(aliases) == 0 {
+		return nil
+	}
+	keys := make([]publishedPriceSummaryKey, 0, len(aliases))
+	for _, alias := range aliases {
+		if alias.ProductID <= 0 || alias.CustomerID <= 0 {
+			continue
+		}
+		keys = append(keys, publishedPriceSummaryKey{ProductID: alias.ProductID, CustomerID: alias.CustomerID})
+	}
+	summaries, err := r.loadPublishedPriceSummaries(ctx, keys, true)
+	if err != nil {
+		return err
+	}
+	for i := range aliases {
+		key := publishedPriceSummaryKey{ProductID: aliases[i].ProductID, CustomerID: aliases[i].CustomerID}
+		if summary, ok := summaries[key]; ok {
+			aliases[i].PriceSummary = summary
+		}
+	}
+	return nil
+}
+
+func (r Repository) loadPublishedPriceSummaries(ctx context.Context, keys []publishedPriceSummaryKey, customerScoped bool) (map[publishedPriceSummaryKey]catalogapp.PriceSummary, error) {
+	out := map[publishedPriceSummaryKey]catalogapp.PriceSummary{}
+	if len(keys) == 0 {
+		return out, nil
+	}
+	if !catalogRelationExists(ctx, r.pool, fmt.Sprintf("%s.bean_list_publications", r.schema)) {
+		return out, nil
+	}
+	productIDs := make([]int64, 0, len(keys))
+	customerIDs := make([]int64, 0, len(keys))
+	seen := map[publishedPriceSummaryKey]struct{}{}
+	for _, key := range keys {
+		if key.ProductID <= 0 {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		productIDs = append(productIDs, key.ProductID)
+		customerIDs = append(customerIDs, key.CustomerID)
+	}
+	if len(productIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		WITH wanted AS (
+			SELECT DISTINCT product_id, customer_id
+			FROM unnest($1::bigint[], $2::bigint[]) AS w(product_id, customer_id)
+			WHERE product_id > 0
+		), candidates AS (
+			SELECT w.product_id,
+			       w.customer_id,
+			       blp.id AS publication_id,
+			       COALESCE(blp.version_no, '') AS price_table_version,
+			       COALESCE(blp.published_at::text, blp.updated_at::text, '') AS updated_at,
+			       COALESCE(tier.tier_json->>'label', '') AS tier_label,
+			       COALESCE(NULLIF(tier.tier_json->>'price_unit', ''), NULLIF(tier.tier_json->>'display_unit', ''), '') AS price_unit,
+			       COALESCE(NULLIF(tier.tier_json->>'source_price_record_id', '')::bigint, 0) AS source_price_record_id,
+			       COALESCE(
+			         NULLIF(tier.tier_json->>'final_unit_price', '')::float8,
+			         NULLIF(tier.tier_json->>'price_per_unit', '')::float8,
+			         NULLIF(tier.tier_json->>'price_per_kg', '')::float8,
+			         NULLIF(tier.tier_json->>'price_per_lb', '')::float8,
+			         0
+			       ) AS final_price,
+			       CASE WHEN $3::boolean AND blp.owner_type='customer' AND blp.owner_key=w.customer_id::text THEN 0 ELSE 1 END AS owner_priority,
+			       COALESCE(NULLIF(tier.tier_json->>'min_qty', '')::float8, 0) AS min_qty
+			FROM wanted w
+			JOIN %[1]s.bean_list_publications blp ON blp.status='published' AND blp.list_type='commercial'
+			CROSS JOIN LATERAL jsonb_array_elements(COALESCE(blp.content_json->'groups', '[]'::jsonb)) AS grp(group_json)
+			CROSS JOIN LATERAL jsonb_array_elements(COALESCE(grp.group_json->'items', '[]'::jsonb)) AS item(item_json)
+			CROSS JOIN LATERAL jsonb_array_elements(COALESCE(item.item_json->'commercial_wholesale_tiers', '[]'::jsonb)) AS tier(tier_json)
+			WHERE COALESCE(
+			        NULLIF(item.item_json->>'productId', '')::bigint,
+			        NULLIF(item.item_json->>'product_id', '')::bigint,
+			        NULLIF(item.item_json->>'productID', '')::bigint,
+			        0
+			      ) = w.product_id
+			  AND (
+			    (NOT $3::boolean AND blp.owner_type='official')
+			    OR (
+			      $3::boolean
+			      AND (
+			        (blp.owner_type='customer' AND blp.owner_key=w.customer_id::text)
+			        OR blp.owner_type='official'
+			      )
+			    )
+			  )
+		)
+		SELECT DISTINCT ON (product_id, customer_id)
+		       product_id, customer_id, publication_id, price_table_version, updated_at, tier_label,
+		       price_unit, source_price_record_id, final_price
+		FROM candidates
+		WHERE final_price > 0
+		ORDER BY product_id, customer_id, owner_priority, updated_at DESC, publication_id DESC, min_qty ASC
+	`, r.schema), productIDs, customerIDs, customerScoped)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key publishedPriceSummaryKey
+		var summary catalogapp.PriceSummary
+		if err := rows.Scan(
+			&key.ProductID,
+			&key.CustomerID,
+			&summary.PublicationID,
+			&summary.PriceTableVersion,
+			&summary.UpdatedAt,
+			&summary.TierLabel,
+			&summary.PriceUnit,
+			&summary.SourcePriceRecordID,
+			&summary.FinalPrice,
+		); err != nil {
+			return nil, err
+		}
+		out[key] = summary
+	}
+	return out, rows.Err()
 }
 
 func (r Repository) attachCustomerProductAliasIndustryFields(ctx context.Context, aliases []catalogapp.CustomerProductAlias) error {

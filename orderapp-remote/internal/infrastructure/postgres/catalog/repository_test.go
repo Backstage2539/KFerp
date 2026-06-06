@@ -972,3 +972,24 @@ func TestProductPriceMasterSchemaPersistsFinalRecordsAndReferenceSchemes(t *test
 		t.Fatalf("tier price scheme tiers must reference final price records, not store calculation fields: %s", schemeTable)
 	}
 }
+
+func TestProductSettingsRepositoryAttachesPublishedPriceSummaries(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"attachProductPriceSummaries",
+		"attachCustomerProductAliasPriceSummaries",
+		"loadPublishedPriceSummaries",
+		"bean_list_publications",
+		"commercial_wholesale_tiers",
+		"source_price_record_id",
+		"price_table_version",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product settings repository price summary missing marker %q", want)
+		}
+	}
+}
