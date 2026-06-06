@@ -164,36 +164,6 @@
                       @change="saveProductBasics(row, 'SKU备注已保存')"></textarea>
                   </td>
                 </tr>
-                <tr v-if="row.product_kind === 'green_bean'" class="green-bean-detail-row">
-                  <td :colspan="13">
-                    <div class="green-bean-detail-fields">
-                      <label>
-                        <span>生豆属性</span>
-                        <select
-                          class="green-type-select"
-                          v-model="row.green_bean_type"
-                          :disabled="!canEditSkuRow(row)"
-                          @change="saveProductBasics(row)">
-                          <option v-for="option in greenBeanTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                        </select>
-                      </label>
-                      <label class="green-bom-field">
-                        <span>绑定熟豆</span>
-                        <SearchableSelect
-                          class="bom-product-select"
-                          v-model="row.green_bean_bom_product_id"
-                          :options="roastedBomProductsForRow(row)"
-                          :option-label="baseProductOptionLabel"
-                          :option-meta="baseProductOptionMeta"
-                          :option-value="optionNumericValue"
-                          :disabled="!canEditSkuRow(row)"
-                          placeholder="选择熟豆"
-                          empty-text="暂无熟豆产品"
-                          @select="saveProductBasics(row)" />
-                      </label>
-                    </div>
-                  </td>
-                </tr>
                 <tr v-if="row.product_kind === 'drip_bag'" class="green-bean-detail-row">
                   <td :colspan="13">
                     <div class="green-bean-detail-fields">
@@ -1215,7 +1185,6 @@ import {
   groupRowsByClassificationCategory,
   industryFieldSummary,
   gradientTemplateBelongsToSkuContext,
-  greenBeanTypeOptions,
   integerUnitModeOptions,
   inferProductKindFromProductTypeCategory,
   isPublicReferenceRow,
@@ -1234,7 +1203,6 @@ import {
   productionBomOptionLabel,
   resolveCreatedProductForConfig,
   productSubtypeCategoryOptionsForType,
-  roastedBomProductOptions,
   specialAttrValuesFromJSON,
   skuTableState,
   sortRowsForCustomerSkuPriority,
@@ -1802,11 +1770,6 @@ const selectedAliasRowsAlreadyInCurrentCategory = computed(() => {
   const assignments = currentAliasClassificationTemplate.value?.customer_alias_assignments || []
   return [...selected].every((aliasID) => assignments.some((assignment) => Number(assignment.alias_id || 0) === aliasID && Number(assignment.template_id || templateID) === templateID && Number(assignment.category_id || 0) === categoryID))
 })
-const publicRoastedBomProducts = computed(() => roastedBomProductOptions(products.value))
-const customRoastedBomProducts = computed(() => roastedBomProductOptions(products.value, {
-  customerID: selectedCustomerSkuCustomerID.value,
-}))
-
 function defaultSkuFilters() {
   return normalizeVisibleSkuFilters()
 }
@@ -1934,8 +1897,6 @@ function defaultProductForm() {
     product_subtype_category_id: 0,
     product_kind: 'roasted',
     remark: '',
-    green_bean_type: 'single_origin',
-    green_bean_bom_product_id: 0,
     drip_bag_grams: 10,
     drip_box_bag_count: 10,
     special_attr_values: {},
@@ -1972,8 +1933,6 @@ function defaultCustomForm() {
     product_type_category_id: 0,
     product_subtype_category_id: 0,
     product_kind: 'roasted',
-    green_bean_type: 'single_origin',
-    green_bean_bom_product_id: 0,
     drip_bag_grams: 10,
     drip_box_bag_count: 10,
     special_attr_values: {},
@@ -2188,8 +2147,6 @@ function decorateProduct(product) {
     product_code: product.product_code || productCodeLabel(product),
     remark: product.remark || '',
     product_kind: productKind,
-    green_bean_type: product.green_bean_type || 'single_origin',
-    green_bean_bom_product_id: Number(product.green_bean_bom_product_id || 0),
     drip_bag_grams: Number(product.drip_bag_grams || 10),
     drip_box_bag_count: Number(product.drip_box_bag_count || 10),
     roast_level: product.roast_level || '',
@@ -3504,16 +3461,10 @@ function baseProductName(id) {
   return products.value.find((product) => Number(product.id) === Number(id))?.name || '-'
 }
 
-function roastedBomProductsForRow(row) {
-  return roastedBomProductOptions(products.value, { customerID: Number(row?.customer_id || 0) })
-}
-
 function fillCustomProductName() {
   if (customForm.value.name) return
   const customer = customerName(selectedCustomerSkuCustomerID.value || customForm.value.customer_id)
-  const base = customForm.value.product_kind === 'green_bean'
-    ? products.value.find((product) => Number(product.id) === Number(customForm.value.green_bean_bom_product_id))
-    : selectedBaseProduct()
+  const base = selectedBaseProduct()
   if (!customer || !base) return
   const attrSuffix = Object.values(customForm.value.special_attr_values || {}).find(Boolean)
   customForm.value.name = attrSuffix ? `${customer}-${base.name}-${attrSuffix}` : `${customer}-${base.name}`
@@ -3525,8 +3476,6 @@ function syncCustomFormFromBaseProduct(product) {
   customForm.value.product_kind = kind
   customForm.value.special_attr_values = { ...specialAttrValuesFromJSON(product.special_attrs_json || '{}') }
   customForm.value.yield_percent = productKindSupportsBomParams(kind) ? Number(((Number(product.yield_rate || 0.8)) * 100).toFixed(2)) : 0
-  customForm.value.green_bean_type = product.green_bean_type || 'single_origin'
-  customForm.value.green_bean_bom_product_id = Number(product.green_bean_bom_product_id || 0)
   customForm.value.drip_bag_grams = Number(product.drip_bag_grams || 10)
   customForm.value.drip_box_bag_count = Number(product.drip_box_bag_count || 10)
   if (kind !== 'roasted') customForm.value.copy_bom = false
@@ -4075,10 +4024,6 @@ async function createProduct() {
     error.value = '历史 BOM 参数异常，请到商品生产配置维护预期损耗率'
     return
   }
-  if (productForm.value.product_kind === 'green_bean' && Number(productForm.value.green_bean_bom_product_id || 0) <= 0) {
-    error.value = '生豆 SKU 必须绑定对应熟豆 BOM'
-    return
-  }
   if (productForm.value.product_kind === 'drip_bag' && Number(productForm.value.drip_bag_grams || 0) <= 0) {
     error.value = '挂耳每袋克重必须大于 0'
     return
@@ -4127,10 +4072,6 @@ async function createCustomProduct() {
   }
   if (!customForm.value.name) {
     error.value = '请填写专属 SKU 名称'
-    return
-  }
-  if (customForm.value.product_kind === 'green_bean' && Number(customForm.value.green_bean_bom_product_id || 0) <= 0) {
-    error.value = '生豆 SKU 必须绑定对应熟豆 BOM'
     return
   }
   if (customForm.value.product_kind === 'drip_bag' && Number(customForm.value.drip_bag_grams || 0) <= 0) {
@@ -4977,10 +4918,6 @@ async function saveProductBasics(row, successMessage = '商品基础信息已保
   const yieldPercent = Number(row.yield_percent || 0)
   if (productKindSupportsBomParams(productKind) && (yieldPercent <= 0 || yieldPercent > 100)) {
     error.value = '历史 BOM 参数异常，请到商品生产配置维护预期损耗率'
-    return
-  }
-  if (productKind === 'green_bean' && Number(row.green_bean_bom_product_id || 0) <= 0) {
-    error.value = '生豆 SKU 必须绑定对应熟豆 BOM'
     return
   }
   if (productKind === 'drip_bag' && Number(row.drip_bag_grams || 0) <= 0) {

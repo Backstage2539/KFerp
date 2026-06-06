@@ -31,6 +31,26 @@ func TestGreenBeanSalesRequirementSeedsExist(t *testing.T) {
 	}
 }
 
+func TestProductArchiveNoGreenBeanBindingRequirementSeedsExist(t *testing.T) {
+	body, err := os.ReadFile(supportFilePath(t, "req_store.go"))
+	if err != nil {
+		t.Fatalf("read req_store.go: %v", err)
+	}
+	src := string(body)
+	for _, want := range []string{
+		"PR-428-PRODUCT-ARCHIVE-NO-GREEN-BEAN-BINDING",
+		"DEV-428-PRODUCT-ARCHIVE-NO-GREEN-BEAN-BINDING",
+		"UT-428-PRODUCT-ARCHIVE-NO-GREEN-BEAN-BINDING",
+		"API-428-PRODUCT-ARCHIVE-NO-GREEN-BEAN-BINDING",
+		"REV-428-PRODUCT-ARCHIVE-NO-GREEN-BEAN-BINDING",
+		"商品档案列表去掉生豆属性和绑定熟豆功能",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product archive no green binding requirement seed missing %q", want)
+		}
+	}
+}
+
 func TestGreenBeanSalesWiringAndManuals(t *testing.T) {
 	checks := []struct {
 		path string
@@ -74,11 +94,11 @@ func TestGreenBeanSalesWiringAndManuals(t *testing.T) {
 		},
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/lib/product-settings.js",
-			want: []string{"filterSkuRows", "paginatedSkuRows", "buildProductCreatePayload", "green_bean_type", "green_bean_bom_product_id"},
+			want: []string{"filterSkuRows", "paginatedSkuRows", "buildProductCreatePayload", "normalizedProductKind"},
 		},
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/views/ProductSettingsView.vue",
-			want: []string{"skuFilters", "skuVisibleTableState", "displaySkuRows", "skuDisplayTotal", "data-auto-pagination=\"off\"", "PaginationControls", "green_bean_type", "green_bean_bom_product_id"},
+			want: []string{"skuFilters", "skuVisibleTableState", "displaySkuRows", "skuDisplayTotal", "data-auto-pagination=\"off\"", "PaginationControls", "被哪些 BOM 使用", "行业字段"},
 		},
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/views/OrderEntryView.vue",
@@ -118,7 +138,7 @@ func TestGreenBeanSalesWiringAndManuals(t *testing.T) {
 		},
 		{
 			path: "orderapp-remote/docs/OP_MANUAL_GREEN_BEAN_SALES.md",
-			want: []string{"生豆销售", "SKU设置", "绑定熟豆 BOM", "生豆豆单", "最新通过生产质检", "小程序"},
+			want: []string{"生豆销售", "SKU设置", "商品档案列表不再维护生豆属性或绑定熟豆", "生豆豆单", "小程序"},
 		},
 		{
 			path: "orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md",
@@ -134,6 +154,44 @@ func TestGreenBeanSalesWiringAndManuals(t *testing.T) {
 		for _, want := range check.want {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing %q", check.path, want)
+			}
+		}
+	}
+}
+
+func TestProductArchiveNoLongerExposesGreenBeanBindingEditors(t *testing.T) {
+	for _, check := range []struct {
+		path      string
+		forbidden []string
+	}{
+		{
+			path: "orderapp-remote/frontend-vue-shell/src/views/ProductSettingsView.vue",
+			forbidden: []string{
+				"生豆属性",
+				"绑定熟豆",
+				"greenBeanTypeOptions",
+				"roastedBomProductsForRow",
+				"v-model=\"row.green_bean_type\"",
+				"v-model=\"row.green_bean_bom_product_id\"",
+			},
+		},
+		{
+			path: "orderapp-remote/frontend-vue-shell/src/lib/product-settings.js",
+			forbidden: []string{
+				"greenBeanTypeOptions",
+				"greenBeanTypeLabel",
+				"roastedBomProductOptions",
+			},
+		},
+	} {
+		body, err := os.ReadFile(repoFilePath(t, check.path))
+		if err != nil {
+			t.Fatalf("read %s: %v", check.path, err)
+		}
+		src := string(body)
+		for _, forbidden := range check.forbidden {
+			if strings.Contains(src, forbidden) {
+				t.Fatalf("%s should not expose removed green bean binding marker %q", check.path, forbidden)
 			}
 		}
 	}

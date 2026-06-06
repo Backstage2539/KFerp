@@ -6,6 +6,20 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-428-PRODUCT-ARCHIVE-NO-GREEN-BEAN-BINDING
+- Branch: codex/product-archive-remove-green-bind-20260606
+- Owner/session: Codex / 2026-06-06
+- Status: local fix verified; pending merge and development deploy
+- Scope: 商品档案列表去掉“生豆属性”和“绑定熟豆”两个功能，不再在前端写死单品/拼配枚举或绑定熟豆候选；旧 `green_bean_type`、`green_bean_bom_product_id` 后端字段保留历史兼容，不做破坏性删除。
+- DEV:
+  - DEV-428-PRODUCT-ARCHIVE-NO-GREEN-BEAN-BINDING：`ProductSettingsView.vue` 删除生豆行详情里的“生豆属性”“绑定熟豆”控件；商品创建、客户商品创建和基础信息保存 payload 不再提交 `green_bean_type` / `green_bean_bom_product_id`。
+- Verifier:
+  - RED local: `node --test src/lib/product-settings.test.js` failed before implementation because green bean payload still emitted `green_bean_type` / `green_bean_bom_product_id` and the Vue view still exposed the removed controls.
+  - GREEN local: `node --test src/lib/product-settings.test.js` passed 108/108 after implementation; `go test ./internal/interfaces/http/support -run 'TestProductArchiveNoGreenBeanBindingRequirementSeedsExist|TestProductArchiveNoLongerExposesGreenBeanBindingEditors|TestGreenBeanSalesWiringAndManuals' -count=1`; `go test ./internal/interfaces/http/support ./internal/interfaces/http/catalog -run 'TestProductArchiveNoGreenBeanBindingRequirementSeedsExist|TestProductArchiveNoLongerExposesGreenBeanBindingEditors|TestGreenBeanSalesWiringAndManuals|TestProductSettingsAPI' -count=1`; `go test ./...`; `npm run build` in `orderapp-remote/frontend-vue-shell`; `git diff --check`.
+  - Pending: changed verifier, merge to `develop`, development deploy and browser 商品档案 acceptance.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_GREEN_BEAN_SALES.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `docs/acceptance/2026-06-06-product-archive-no-green-binding.md`.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-427-MINIAPP-BILLING-DEFAULT-ALL-PENDING
 - Branch: codex/miniapp-settlement-all-pending
 - Owner/session: Codex / 2026-06-06

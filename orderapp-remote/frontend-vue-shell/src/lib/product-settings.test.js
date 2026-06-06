@@ -49,7 +49,6 @@ import {
   productCodeLabel,
   priceListRuleFormFromJSON,
   priceListRuleJSONFromForm,
-  greenBeanTypeLabel,
   productBelongsToSkuContext,
   productConfigTemplateBelongsToSkuContext,
   productConfigTemplateNeedsGradientTemplate,
@@ -58,7 +57,6 @@ import {
   resolveCreatedProductForConfig,
   productSubtypeCategoryOptionsForType,
   primaryCategoryOptions,
-  roastedBomProductOptions,
   secondaryCategoryOptions,
   specialAttrSchemaJSONFromRows,
   specialAttrSchemaRowsFromJSON,
@@ -873,7 +871,7 @@ test('category filter options are derived from current SKU rows', () => {
   assert.deepEqual(secondaryCategoryOptions(rows, '生豆'), ['单品生豆', '拼配生豆'])
 })
 
-test('product create payload carries SKU remark without direct green bean prices', () => {
+test('product create payload carries SKU remark without direct green bean prices or hard-coded green bean attributes', () => {
   const roasted = buildProductCreatePayload({ name: '暖阳拼配', product_kind: 'roasted', roast_level: '中烘', yield_percent: 82, remark: '奶咖主推' })
   assert.deepEqual(roasted, {
     name: '暖阳拼配',
@@ -894,12 +892,12 @@ test('product create payload carries SKU remark without direct green bean prices
     name: '巴拿马生豆',
     product_kind: 'green_bean',
     remark: '新季生豆',
-    green_bean_type: 'blend',
-    green_bean_bom_product_id: 7,
   })
+  assert.equal(Object.hasOwn(green, 'green_bean_type'), false)
+  assert.equal(Object.hasOwn(green, 'green_bean_bom_product_id'), false)
 })
 
-test('product basics payload preserves remark, green bean type, and BOM binding without direct prices', () => {
+test('product basics payload preserves remark without hard-coded green bean attributes', () => {
   const payload = buildProductBasicsPayload({
     id: 9,
     product_kind: 'green_bean',
@@ -913,10 +911,10 @@ test('product basics payload preserves remark, green bean type, and BOM binding 
   assert.deepEqual(payload, {
     product_kind: 'green_bean',
     remark: '仅作生豆销售',
-    green_bean_type: 'single_origin',
-    green_bean_bom_product_id: 7,
     margin_rate_override: null,
   })
+  assert.equal(Object.hasOwn(payload, 'green_bean_type'), false)
+  assert.equal(Object.hasOwn(payload, 'green_bean_bom_product_id'), false)
 })
 
 test('product basics payload carries customer SKU margin override', () => {
@@ -972,7 +970,7 @@ test('customer SKU rows sort customer-owned products before frequent public prod
   assert.deepEqual(sorted.map((row) => row.id), [4, 2, 3, 1])
 })
 
-test('customer custom SKU payload supports green bean and drip bag product settings', () => {
+test('customer custom SKU payload supports green bean without hard-coded green attributes and keeps drip bag settings', () => {
   assert.deepEqual(buildCustomProductCreatePayload(42, {
     name: '客户A-巴拿马生豆',
     remark: '客户生豆',
@@ -990,8 +988,6 @@ test('customer custom SKU payload supports green bean and drip bag product setti
     name: '客户A-巴拿马生豆',
     remark: '客户生豆',
     product_kind: 'green_bean',
-    green_bean_type: 'blend',
-    green_bean_bom_product_id: 9,
     custom_type: 'public_sku_alias',
     copy_bom: false,
     copy_price_tiers: false,
@@ -1040,27 +1036,25 @@ test('customer custom roast SKU payload does not carry base product or copy flag
   })
 })
 
-test('green bean labels and BOM product options stay fused with existing product model', () => {
-  assert.equal(greenBeanTypeLabel('blend'), '拼配')
-  assert.equal(greenBeanTypeLabel('single_origin'), '单品')
-  assert.deepEqual(roastedBomProductOptions([
-    ...rows,
-    { id: 4, name: '历史缺形态 SKU', product_kind: '' },
-    { id: 5, name: '异常缺形态生豆', product_kind: '', green_bean_bom_product_id: 1 },
-  ]).map((row) => row.id), [1])
-})
+test('product archive list does not expose hard-coded green bean attributes or bound roasted controls', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const helperSource = fs.readFileSync(new URL('./product-settings.js', import.meta.url), 'utf8')
 
-test('roasted BOM options exclude duplicate public SKU aliases and other customers', () => {
-  const candidates = [
-    { id: 21, name: '初晓', product_kind: 'roasted', customer_id: 0, visibility: 'public' },
-    { id: 386, name: '初晓', product_kind: 'roasted', customer_id: 149, visibility: 'customer_only', custom_type: 'public_sku_alias', base_product_id: 21 },
-    { id: 420, name: '初晓-客户拼配', product_kind: 'roasted', customer_id: 149, visibility: 'customer_only', custom_type: 'custom_blend', base_product_id: 21 },
-    { id: 421, name: '初晓-别的客户', product_kind: 'roasted', customer_id: 150, visibility: 'customer_only', custom_type: 'custom_blend', base_product_id: 21 },
-    { id: 422, name: '初晓生豆', product_kind: 'green_bean', customer_id: 149 },
-  ]
-
-  assert.deepEqual(roastedBomProductOptions(candidates).map((row) => row.id), [21])
-  assert.deepEqual(roastedBomProductOptions(candidates, { customerID: 149 }).map((row) => row.id), [21, 420])
+  for (const removed of [
+    '生豆属性',
+    '绑定熟豆',
+    'greenBeanTypeOptions',
+    'roastedBomProductsForRow',
+    'roastedBomProductOptions',
+  ]) {
+    assert.doesNotMatch(source, new RegExp(removed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+  assert.doesNotMatch(template, /v-model="row\.green_bean_type"/)
+  assert.doesNotMatch(template, /v-model="row\.green_bean_bom_product_id"/)
+  assert.doesNotMatch(helperSource, /greenBeanTypeOptions/)
+  assert.doesNotMatch(helperSource, /greenBeanTypeLabel/)
+  assert.doesNotMatch(helperSource, /roastedBomProductOptions/)
 })
 
 test('customer SKU customer options include active customers before they have copied SKUs', () => {

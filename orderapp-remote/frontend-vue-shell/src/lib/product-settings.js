@@ -29,11 +29,6 @@ export const integerUnitModeOptions = [
   { value: 'decimal', label: '允许小数' },
 ]
 
-export const greenBeanTypeOptions = [
-  { value: 'single_origin', label: '单品' },
-  { value: 'blend', label: '拼配' },
-]
-
 export function normalizedProductKind(row = {}) {
   const kind = String(row?.product_kind || '').trim()
   if (kind === 'green_bean') return 'green_bean'
@@ -59,15 +54,6 @@ export function productKindRequiresRoast(kindOrRow = {}) {
 export function productKindSupportsBomParams(kindOrRow = {}) {
   const kind = typeof kindOrRow === 'object' ? normalizedProductKind(kindOrRow) : normalizedProductKind({ product_kind: kindOrRow })
   return kind !== 'green_bean'
-}
-
-export function normalizedGreenBeanType(value) {
-  return String(value || '').trim() === 'blend' ? 'blend' : 'single_origin'
-}
-
-export function greenBeanTypeLabel(value) {
-  const normalized = normalizedGreenBeanType(value)
-  return greenBeanTypeOptions.find((item) => item.value === normalized)?.label || '单品'
 }
 
 export function skuTypeValue(row = {}) {
@@ -962,20 +948,6 @@ export function productSubtypeCategoryOptionsForType(categoryTree = [], productT
 	}))
 }
 
-export function roastedBomProductOptions(products = [], { customerID = 0 } = {}) {
-  const scopedCustomerID = Number(customerID || 0)
-  return (products || [])
-    .filter((row) => {
-      if (Number(row.id || 0) <= 0 || String(row?.product_kind || '').trim() !== 'roasted') return false
-      const rowCustomerID = Number(row.customer_id || 0)
-      if (rowCustomerID > 0 && rowCustomerID !== scopedCustomerID) return false
-      if (rowCustomerID > 0 && String(row.custom_type || '').trim() === 'public_sku_alias') return false
-      return true
-    })
-    .slice()
-    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')) || Number(a.customer_id || 0) - Number(b.customer_id || 0) || Number(a.id || 0) - Number(b.id || 0))
-}
-
 export function buildProductCreatePayload(form = {}) {
   const kind = normalizedProductKind(form)
   const payload = {
@@ -985,11 +957,7 @@ export function buildProductCreatePayload(form = {}) {
   }
   const configTemplateID = Number(form.product_config_template_id || 0)
   if (configTemplateID > 0) payload.product_config_template_id = configTemplateID
-  if (kind === 'green_bean') {
-    payload.green_bean_type = normalizedGreenBeanType(form.green_bean_type)
-    payload.green_bean_bom_product_id = Number(form.green_bean_bom_product_id || 0)
-    return payload
-  }
+  if (kind === 'green_bean') return payload
   const yieldRate = normalizedYieldRateFromPercent(form)
   if (yieldRate !== null) payload.yield_rate = yieldRate
   if (kind === 'drip_bag') {
@@ -1015,8 +983,6 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
     payload.base_product_id = 0
     payload.copy_bom = false
     payload.copy_price_tiers = false
-    payload.green_bean_type = normalizedGreenBeanType(form.green_bean_type)
-    payload.green_bean_bom_product_id = Number(form.green_bean_bom_product_id || 0)
     return payload
   }
   if (payload.custom_type === 'custom_roast') {
@@ -1129,10 +1095,7 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   if (Object.prototype.hasOwnProperty.call(row, 'product_config_template_id')) {
     payload.product_config_template_id = Number(row.product_config_template_id || 0)
   }
-  if (kind === 'green_bean') {
-    payload.green_bean_type = normalizedGreenBeanType(row.green_bean_type)
-    payload.green_bean_bom_product_id = Number(row.green_bean_bom_product_id || 0)
-  } else {
+  if (kind !== 'green_bean') {
     const yieldRate = normalizedYieldRateFromPercent(row)
     if (yieldRate !== null) payload.yield_rate = yieldRate
     if (kind === 'drip_bag') {
