@@ -1105,7 +1105,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-434-MINIAPP-FACTORY-PRODUCT-TABLES-SPLIT
 - Branch: codex/factory-product-tables-my-products-20260606
 - Owner/session: Codex / 2026-06-06
-- Status: implementing
+- Status: deployed
 - Scope: 小程序个人中心拆分 `工厂商品表` 和 `我的商品`；工厂商品表只读展示当前客户可见的最新工厂商品价格表并支持 PDF/长图；我的商品只展示客户自发商品价格表摘要和折叠版本，价格表设置独立成页，支持从工厂价格表或本人已发布版本复制后编辑分类、标签、标红词、品牌、说明、加价和样式。
 - Verifier:
   - Unit: npm test -- src/utils/mainTabs.test.ts src/api/customerPortal.test.ts
@@ -1113,9 +1113,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend/build: npm --prefix miniapp run typecheck; npm --prefix miniapp run build:mp-weixin; npm --prefix orderapp-remote/frontend-vue-shell run build
   - Manual: orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md; orderapp-remote/docs/customer-portal-miniapp-test.md
   - Review/acceptance: orderapp-remote/docs/ACCEPTANCE_TESTS.md; orderapp-remote/docs/acceptance/2026-06-06-miniapp-factory-product-tables-split.md
-- Deployment: pending
-- Last update: 2026-06-06 18:01 Asia/Shanghai
-- Notes: 必须在部署阶段构建小程序；发布客户价格表时若复制来源是本人旧 customer_resale 版本，价格来源仍追溯原 factory_supply，避免重复加价。
+- Deployment: development deployed at origin/develop aba635303ee0a0cbb04232c30a8e9fc93c9cc292; backup root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606181028
+- Last update: 2026-06-06 18:13 Asia/Shanghai
+- Notes: 必须在部署阶段构建小程序；发布客户价格表时若复制来源是本人旧 customer_resale 版本，价格来源仍追溯原 factory_supply，避免重复加价。Smoke: erp_orderapp up, /app/ GET 303, /app/vue-shell/ 200 with BasicAuth, PR-434 req marker visible, /api/mini/customer-products and /api/mini/bean-lists/1.png without mini token return 401, remote miniapp/dist/build/mp-weixin app.json/app.js exists.
 
 ## Template
 

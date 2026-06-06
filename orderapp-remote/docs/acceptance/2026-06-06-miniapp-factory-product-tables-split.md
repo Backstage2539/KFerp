@@ -15,6 +15,13 @@ Requirement: PR-434-MINIAPP-FACTORY-PRODUCT-TABLES-SPLIT
 - [x] RED: `npm test -- src/utils/mainTabs.test.ts src/api/customerPortal.test.ts` initially failed because new pages and factory PDF/PNG helpers were absent.
 - [x] Miniapp unit: `npm test -- src/utils/mainTabs.test.ts src/api/customerPortal.test.ts`.
 
+## Development Deployment Evidence
+- [x] Deployed `origin/develop` `aba635303ee0a0cbb04232c30a8e9fc93c9cc292` to development.
+- [x] Previous app backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606181028`.
+- [x] Server Docker build ran `go test ./...` inside the orderapp image.
+- [x] Remote miniapp build output exists at `/opt/stacks/erp/orderapp/miniapp/dist/build/mp-weixin`.
+- [x] Smoke: `erp_orderapp` running; `/app/vue-shell/` returns 200 with BasicAuth; PR-434 marker visible in `/app/api/req/product?limit=500`; mini API endpoints without mini token return 401.
+
 ## Acceptance Checklist
 - [ ] 个人中心显示 `工厂商品表` 和 `我的商品`，首页不出现 `我的商品` 主入口。
 - [ ] 工厂商品表按 `list_type/list_type_label` 展示最新 factory_supply 价格表，并按快照分类收起展开。
