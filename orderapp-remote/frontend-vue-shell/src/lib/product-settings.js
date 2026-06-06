@@ -363,6 +363,24 @@ export function classificationAssignmentLabel(row = {}, templates = [], options 
   return `${templateName} / ${categoryName}`
 }
 
+export function productCategoryAssignmentLabel(row = {}, categoryTree = [], fallback = '未分类') {
+  const primaryName = String(row?.primary_name || '').trim()
+  const secondaryName = String(row?.secondary_name || '').trim()
+  if (primaryName && secondaryName) return `${primaryName} / ${secondaryName}`
+  if (primaryName) return primaryName
+
+  const categoryID = Number(row?.product_category_id || row?.productCategoryID || row?.category_id || 0)
+  if (categoryID > 0) {
+    const meta = categoryPathMetaByID(categoryTree).get(categoryID)
+    const metaPrimaryName = String(meta?.primary_name || '').trim()
+    const metaSecondaryName = String(meta?.secondary_name || '').trim()
+    if (metaPrimaryName && metaSecondaryName) return `${metaPrimaryName} / ${metaSecondaryName}`
+    if (metaPrimaryName) return metaPrimaryName
+  }
+
+  return fallback
+}
+
 export function classificationAssignmentConflict(row = {}, targetTemplateID = 0, templates = [], options = {}) {
   return null
 }

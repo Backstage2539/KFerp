@@ -16,6 +16,7 @@ import {
   classificationAssignmentConflict,
   classificationAssignmentLabel,
   classificationTemplateUnitPriceWarnings,
+  productCategoryAssignmentLabel,
   customerProductAliasRowsForCustomer,
   industryFieldOptionsJSONFromText,
   industryFieldOptionsTextFromJSON,
@@ -2640,6 +2641,25 @@ test('classification assignment helpers allow direct move overwrite and expose l
   assert.equal(classificationAssignmentConflict({ id: 89 }, 10, templates, { assignmentType: 'product' }), null)
 })
 
+test('product category assignment label prefers direct product category ownership', () => {
+  const categoryTree = [{
+    id: 3,
+    name: '咖啡烘焙豆',
+    children: [{ id: 7, name: '精品意式拼配' }],
+  }]
+
+  assert.equal(
+    productCategoryAssignmentLabel({ product_category_id: 7 }, categoryTree),
+    '咖啡烘焙豆 / 精品意式拼配',
+  )
+  assert.equal(
+    productCategoryAssignmentLabel({ primary_name: '咖啡烘焙豆', secondary_name: '工厂量单' }, categoryTree),
+    '咖啡烘焙豆 / 工厂量单',
+  )
+  assert.equal(productCategoryAssignmentLabel({}, categoryTree), '未分类')
+  assert.equal(productCategoryAssignmentLabel({}, categoryTree, ''), '')
+})
+
 test('product archive and customer alias classification UX uses big-category tabs and current classification labels', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
@@ -2653,6 +2673,7 @@ test('product archive and customer alias classification UX uses big-category tab
   assert.match(source, /productAddClassificationOptions/)
   assert.match(source, /aliasAddClassificationOptions/)
   assert.match(template, /当前归类/)
+  assert.match(script, /productCategoryAssignmentLabel\(row,\s*categoryTreeForSkuContext\.value,\s*''\)/)
   assert.match(script, /selectedProductRowsAlreadyInCurrentCategory/)
   assert.match(script, /selectedAliasRowsAlreadyInCurrentCategory/)
   assert.doesNotMatch(source, /已归类，需先移出当前分类/)

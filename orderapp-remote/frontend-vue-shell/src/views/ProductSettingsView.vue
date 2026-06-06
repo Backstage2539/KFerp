@@ -1336,6 +1336,7 @@ import {
   productBelongsToSkuContext as productBelongsToContext,
   productConfigTemplateBelongsToSkuContext,
   productConfigTemplateNeedsGradientTemplate,
+  productCategoryAssignmentLabel,
   productDisplayState,
   productPriceRecordLabel,
   productKindSupportsBomParams,
@@ -3806,6 +3807,8 @@ function productConfigTemplateByID(templateID) {
 }
 
 function productClassificationLabel(row) {
+  const categoryLabel = productCategoryAssignmentLabel(row, categoryTreeForSkuContext.value, '')
+  if (categoryLabel) return categoryLabel
   return classificationAssignmentLabel(row, productClassificationTemplates.value, { assignmentType: 'product' })
 }
 
