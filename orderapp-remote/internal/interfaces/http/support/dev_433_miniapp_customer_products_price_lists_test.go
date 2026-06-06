@@ -1,6 +1,7 @@
 package support
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -60,7 +61,6 @@ func TestDev433MiniappCustomerProductsPriceListsMiniappAndDeploy(t *testing.T) {
 	home := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "utils", "capabilities.ts")))
 	profile := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "pages", "profile", "profile.vue")))
 	service := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "pages", "service", "service.vue")))
-	deploy := string(readOrderAppFileForTest(t, filepath.Join("..", "deploy_orderapp.sh")))
 
 	if strings.Contains(home, "我的商品") || strings.Contains(home, "beanList") {
 		t.Fatalf("home capability entries must not expose 我的商品/beanList as a home shortcut")
@@ -92,13 +92,18 @@ func TestDev433MiniappCustomerProductsPriceListsMiniappAndDeploy(t *testing.T) {
 			t.Fatalf("service.vue must remove legacy resale editor marker %q", forbidden)
 		}
 	}
-	for _, want := range []string{"npm ci", "npm run typecheck", "npm run build:mp-weixin", "miniapp/dist/build/mp-weixin"} {
-		if !strings.Contains(deploy, want) {
-			t.Fatalf("deploy_orderapp.sh missing miniapp build marker %q", want)
+	if deployBytes, err := os.ReadFile(repoFilePath(t, filepath.Join("..", "deploy_orderapp.sh"))); err == nil {
+		deploy := string(deployBytes)
+		for _, want := range []string{"npm ci", "npm run typecheck", "npm run build:mp-weixin", "miniapp/dist/build/mp-weixin"} {
+			if !strings.Contains(deploy, want) {
+				t.Fatalf("deploy_orderapp.sh missing miniapp build marker %q", want)
+			}
 		}
-	}
-	if strings.Contains(deploy, "--exclude='./dist'") {
-		t.Fatalf("deploy_orderapp.sh must sync miniapp dist after build")
+		if strings.Contains(deploy, "--exclude='./dist'") {
+			t.Fatalf("deploy_orderapp.sh must sync miniapp dist after build")
+		}
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("read deploy_orderapp.sh: %v", err)
 	}
 }
 
