@@ -17,5 +17,14 @@
 - `scripts/verify_kferp.sh changed` passed.
 - `git diff --check` passed.
 
-## Pending
-- Merge to `develop`, development deploy, and browser acceptance on 商品档案.
+## Deploy
+- Merged and pushed `develop` at `7b4e113ec910cb2ce41fed860e7842717899ee17`.
+- `./deploy_orderapp.sh` deployed development successfully.
+- Previous app backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606131523`.
+- Smoke: `/vue-shell?view=productMaster&view_context=customer&workspace=customer&customer_id=169` returned 200; `erp_orderapp` restarted and logs showed `orderapp listening on :8080`.
+
+## Browser Acceptance
+- 商品档案表头为 `商品名 / 商品编号 / 当前归类 / 行业字段 / 归属 / 新增动作 / 预期损耗率 / 利润率覆盖 / 商品状态 / 处理 / 备注`，不再有 `BOM 使用`。
+- 商品档案页面不再出现 `查看使用关系`、`每袋克重`、`每袋克数` 或 `每盒袋数`。
+- 点击商品名仍能打开“商品档案配置”抽屉，并显示“被哪些 BOM 使用”。
+- 关闭 `SO-20260606-0013` 顶部新订单通知并等待超过一次 15 秒轮询后，该通知未重新出现；当前可见通知补位为 `SO-20260606-0012`、`SO-20260606-0011`、`SO-20260606-0010`。

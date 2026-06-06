@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-429-PRODUCT-ARCHIVE-LIST-NOTICE-CLEANUP
 - Branch: codex/product-archive-list-notice-cleanup-20260606
 - Owner/session: Codex / 2026-06-06
-- Status: local fix verified; pending merge and development deploy
+- Status: merged and deployed to development; browser 商品档案/notification acceptance passed
 - Scope: 商品档案列表删除独立 `BOM 使用` 列、行内“查看使用关系”按钮、挂耳 `每袋克重` / `每盒袋数` 行内编辑；顶部新订单通知关闭后在当前浏览器本地兜底过滤，避免轮询重新弹出同一通知。
 - DEV:
   - DEV-429-PRODUCT-ARCHIVE-LIST-NO-HARDCODED-FIELDS：`ProductSettingsView.vue` 删除商品档案列表硬编码 BOM 使用列和挂耳包装字段；`product-settings.js` 不再提交 `drip_bag_grams` / `drip_box_bag_count` 默认值。
@@ -19,7 +19,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN local: `node --test src/lib/global-notifications.test.js src/lib/product-settings.test.js` passed 115/115 after implementation.
   - GREEN support: `go test ./internal/interfaces/http/support -run 'TestProductArchiveListNoticeCleanup' -count=1`.
   - GREEN broader: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size/plugin timing warning; `go test ./internal/interfaces/http/support -count=1`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
-  - Pending: merge to `develop`, development deploy and browser 商品档案/notification acceptance.
+  - Deploy/live smoke: deployed `origin/develop=7b4e113ec910cb2ce41fed860e7842717899ee17`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606131523`; `/vue-shell?view=productMaster&view_context=customer&workspace=customer&customer_id=169` returned 200; `erp_orderapp` restarted healthy.
+  - Browser acceptance: 商品档案表头为 `商品名/商品编号/当前归类/行业字段/归属/新增动作/预期损耗率/利润率覆盖/商品状态/处理/备注`，不含 `BOM 使用`；页面不含 `查看使用关系`、`每袋克重/每袋克数`、`每盒袋数`；点击商品名仍打开配置抽屉并显示“被哪些 BOM 使用”；关闭 `SO-20260606-0013` 新订单通知后等过轮询未重新出现。
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_NOTIFICATIONS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `docs/acceptance/2026-06-06-product-archive-list-notice-cleanup.md`.
 - Last update: 2026-06-06 Asia/Shanghai
 
