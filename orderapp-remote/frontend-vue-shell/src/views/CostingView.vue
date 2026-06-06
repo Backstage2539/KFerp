@@ -1583,6 +1583,10 @@ function beanListPublicationTypeLabel(row) {
     const option = productPriceListTypeOptions.value.find((type) => Number(type.categoryID || type.id || 0) === classificationID)
     if (option?.label) return option.label
   }
+  const activeTypeID = Number(activeProductTypeCategoryID.value || 0)
+  if (activeTypeID > 0 && matchesCurrentPublicationProductType(row, activeTypeID)) {
+    return selectedProductPriceListLabel.value || '商品价格表'
+  }
   return '未分类商品'
 }
 

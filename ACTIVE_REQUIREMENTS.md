@@ -52,6 +52,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN follow-up 2 local: `go test ./internal/infrastructure/postgres/costing ./internal/application/costing ./internal/interfaces/http/costing -count=1`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
   - RED browser follow-up 3: 后端已返回历史 `product_type_category_id=0` 发布行后，前端 `matchesPublicationProductType` 仍按当前分类二次过滤，导致公共 `PR439-20260606182321-OFFICIAL` 版本没有进入已发布版本区。
   - GREEN follow-up 3 frontend: `node --test src/lib/product-price-list-types.test.js`; `node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/product-price-list-types.test.js`; `npm run build` in `frontend-vue-shell`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - RED browser follow-up 4: 公共 `PR439-20260606182321-OFFICIAL` 兼容版本已进入 `咖啡烘焙豆` 筛选，但版本表“类型”列仍显示历史 `未分类商品`，容易误导为商品仍被归到未分类。
+  - GREEN follow-up 4 frontend: `node --test src/lib/costing-bean-list-version-ui.test.js`; `node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/product-price-list-types.test.js src/lib/costing-bean-list-version-ui.test.js`; `npm run build` in `frontend-vue-shell`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-product-price-master-remodel.md`.
 - Last update: 2026-06-07 Asia/Shanghai
 

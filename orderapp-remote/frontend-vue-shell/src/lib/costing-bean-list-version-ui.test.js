@@ -132,6 +132,17 @@ test('product bean-list version scope selector lists public and each fulfillment
   assert.match(viewSource, /function syncPublicationScopeFromPageContext/)
 })
 
+test('product bean-list legacy global publication row displays as current selected product type', () => {
+  const labelStart = viewSource.indexOf('function beanListPublicationTypeLabel(row)')
+  const labelEnd = viewSource.indexOf('function selectProductTypeFromPublication', labelStart)
+  assert.ok(labelStart > -1 && labelEnd > labelStart, 'beanListPublicationTypeLabel function not found')
+  const labelSource = viewSource.slice(labelStart, labelEnd)
+
+  assert.match(labelSource, /activeProductTypeCategoryID\.value/)
+  assert.match(labelSource, /matchesCurrentPublicationProductType\(row, activeTypeID\)/)
+  assert.match(labelSource, /selectedProductPriceListLabel\.value/)
+})
+
 test('product bean-list version list supports factory supply and customer resale purpose filter', () => {
   const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
@@ -181,7 +192,7 @@ test('product price list uses classification templates and categories instead of
     'buildClassificationPriceListTypeOptions',
     'classificationCategoryIDOfItem',
     'classificationTemplateNameOfItem',
-    '未归类统一进入其他',
+    '未归类统一进入未分类商品',
   ]) {
     assert.ok(viewSource.includes(expected), `missing classification price-list behavior: ${expected}`)
   }
