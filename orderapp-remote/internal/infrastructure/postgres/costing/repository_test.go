@@ -195,6 +195,25 @@ func TestLoadProductInputsReadsFinalPriceTierSchemes(t *testing.T) {
 	}
 }
 
+func TestBeanListPublicationQueriesFallbackToLegacyListTypeRows(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"COALESCE(product_type_category_id,0)=$2",
+		"COALESCE(product_type_category_id,0)=0 AND list_type=$5",
+		"COALESCE(product_type_category_id,0)=$3",
+		"COALESCE(product_type_category_id,0)=0 AND list_type=$6",
+		"CASE WHEN COALESCE(product_type_category_id,0)=",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("bean-list publication queries must fall back to legacy list_type rows; missing %q", want)
+		}
+	}
+}
+
 func TestCommercialTiersForPublishDoesNotInventDefaultTiers(t *testing.T) {
 	item := domain.ProductResult{
 		ProductID:         434,
@@ -550,8 +569,10 @@ func TestPublishedBeanListReadsOnlyCurrentPublishedSnapshot(t *testing.T) {
 	body := src[start:end]
 	for _, want := range []string{
 		`whereClause := "publication_purpose=$1 AND list_type=$2 AND owner_type=$3 AND owner_key=$4"`,
+		`orderClause := "published_at DESC, id DESC"`,
+		"COALESCE(product_type_category_id,0)=0 AND list_type=$5",
 		"WHERE %s AND status='published'",
-		"ORDER BY published_at DESC, id DESC",
+		"ORDER BY %s",
 		"LIMIT 1",
 		"pgx.ErrNoRows",
 	} {
@@ -622,7 +643,7 @@ func TestBeanListPublicationRepositoryQueriesByProductType(t *testing.T) {
 			t.Fatalf("bean list publication repository must preserve product price list fields; missing %q", want)
 		}
 	}
-	if !strings.Contains(src, "product_type_category_id=$2 AND owner_type=$3 AND owner_key=$4") {
+	if !strings.Contains(src, "COALESCE(product_type_category_id,0)=$2 OR (COALESCE(product_type_category_id,0)=0 AND list_type=$5)") {
 		t.Fatalf("ListBeanListPublications must allow product_type_category_id lookup while legacy list_type remains available")
 	}
 }

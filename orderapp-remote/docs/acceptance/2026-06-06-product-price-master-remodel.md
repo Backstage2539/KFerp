@@ -43,6 +43,8 @@
 - `node --test src/lib/product-price-list-types.test.js`：前端价格表类型 helper 只认旧 `classification_template_id/name`，未把直接 `product_category_id` 投影为当前价格表分类。
 - `go test ./internal/domain/costing -run TestProductPriceSnapshotsPublishCommercialTiersWithoutLegacyTemplate -count=1`：领域层已有最终价快照时仍不生成可发布价格档，并继续报旧缺计价方式 warning。
 - `go test ./internal/infrastructure/postgres/costing -run TestLoadProductInputsReadsFinalPriceTierSchemes -count=1`：costing 查询尚未把阶梯价格方案及来源最终价记录投影到价格表快照。
+- 浏览器 follow-up 2：已部署 商品价格表 已能按 `咖啡烘焙豆` 展示商品和最终价档，但 PR-439 历史发布版本仍是 `product_type_category_id=0`，按直接分类查看时已发布版本区仍显示 `当前发布 暂无`。
+- `go test ./internal/infrastructure/postgres/costing -run TestBeanListPublicationQueriesFallbackToLegacyListTypeRows -count=1`：发布版本查询尚未在按直接分类查找时兼容历史 `list_type=commercial` 发布行。
 
 ## GREEN
 - `node --test src/lib/product-settings.test.js`：117/117 通过。
@@ -74,6 +76,8 @@
 - follow-up：`node --test src/lib/product-price-list-types.test.js`：通过。
 - follow-up：`node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/product-price-list-types.test.js`：47/47 通过。
 - follow-up：`go test ./internal/domain/costing ./internal/application/costing ./internal/infrastructure/postgres/costing -count=1`：通过。
+- follow-up 2：`go test ./internal/infrastructure/postgres/costing ./internal/application/costing ./internal/interfaces/http/costing -count=1`：通过。
+- follow-up 2：`go test ./...`、`scripts/verify_kferp.sh changed`、`git diff --check`：通过。
 
 ## Development 部署与现场验收
 - 代码部署基线：`3cfe484e851ae91552ce73cfe5dc3f6667de90ef`。
@@ -89,3 +93,4 @@
 
 ## 兼容说明
 - 旧商品配置模板、单位模板、阶梯价模板和分类模板仍作为历史兼容、迁移排查或 admin 兼容入口保留；普通商品档案、客户商品和新录单取价不再从这些字段写入或决定价格/单位。
+- PR-439 前后过渡期内，历史已发布商品价格表可能仍保存为 `product_type_category_id=0`。新页面按商品直接分类查看时，系统优先读取同分类发布版本；没有同分类版本时，仍兼容读取同归属、同用途的历史 `commercial` 已发布版本。

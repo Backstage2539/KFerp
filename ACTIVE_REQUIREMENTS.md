@@ -23,6 +23,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-439-TIER-SCHEME-FINAL-PRICE-REFERENCE：阶梯价格方案每档引用最终价格记录，保存档位时固化最终价且不二次计算。
   - DEV-439-PRICE-LIST-SNAPSHOT-ENFORCEMENT：商品价格表发布价格档必须固化最终价、价格单位、来源价格记录、库存单位和库存换算。
   - DEV-439-COSTING-DIRECT-CATEGORY-FINAL-PRICE-TIERS：商品价格表候选按商品档案/客户商品直接分类生成商品类型；已发布最终价记录和阶梯方案投影成可发布价格档，不再把已有最终价的商品提示到旧商品配置模板。
+  - DEV-439-PRICE-LIST-PUBLICATION-LEGACY-CATEGORY-FALLBACK：按直接分类查看商品价格表时，优先读取同分类发布版本；历史 `product_type_category_id=0` 且 `list_type=commercial` 的已发布版本仍作为兼容版本展示和读取。
   - DEV-439-ORDER-SNAPSHOT-PRICING：ERP 录单只按已发布商品价格表快照取价取单位，不再从商品档案、客户商品或旧阶梯模板兜底。
   - DEV-439-CHANNEL-CUSTOMER-SNAPSHOT-PRICING：渠道客户履约下单、订单行价格来源和结算金额只按已发布商品价格表快照生成。
   - DEV-439-MINIAPP-SNAPSHOT-PRICING：小程序服务页不展示默认价，履约订单后端只按已发布商品价格表快照生成 ERP 订单行和结算数据。
@@ -47,6 +48,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED browser follow-up: deployed 商品价格表 page still grouped PR-439 products under `未分类商品`, 已发布价格表 showed `暂无`, preview cards warned `未设置计价方式。请到 商品与配方 → 商品配置和分类模板...` even though商品档案价格摘要 and 商品价格管理 already had final price records/snapshots.
   - RED follow-up tests: `node --test src/lib/product-price-list-types.test.js` failed before direct `product_category_id` fallback; `go test ./internal/domain/costing -run TestProductPriceSnapshotsPublishCommercialTiersWithoutLegacyTemplate -count=1` failed before final price snapshots could produce publishable tiers; `go test ./internal/infrastructure/postgres/costing -run TestLoadProductInputsReadsFinalPriceTierSchemes -count=1` failed before costing projected tier price schemes.
   - GREEN follow-up local: `node --test src/lib/product-price-list-types.test.js`; `node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/product-price-list-types.test.js`; `go test ./internal/domain/costing ./internal/application/costing ./internal/infrastructure/postgres/costing -count=1`.
+  - RED browser follow-up 2: deployed 商品价格表已按直接分类展示 `咖啡烘焙豆` 和最终价档，但已发布版本查询仍只按分类 id 查找，历史 PR-439 发布行 `product_type_category_id=0` 导致 `当前发布 暂无`、版本数为 0。
+  - GREEN follow-up 2 local: `go test ./internal/infrastructure/postgres/costing ./internal/application/costing ./internal/interfaces/http/costing -count=1`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-product-price-master-remodel.md`.
 - Last update: 2026-06-07 Asia/Shanghai
 

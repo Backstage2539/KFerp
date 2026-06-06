@@ -1075,9 +1075,11 @@ func (r Repository) DeactivateDripPriceTemplate(ctx context.Context, cmd appcost
 func (r Repository) ListBeanListPublications(ctx context.Context, query appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error) {
 	whereClause := "WHERE publication_purpose=$1 AND list_type=$2 AND owner_type=$3 AND owner_key=$4"
 	args := []any{strings.TrimSpace(query.PublicationPurpose), strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+	orderClause := "ORDER BY CASE WHEN status='published' THEN 0 ELSE 1 END, created_at DESC, id DESC"
 	if query.ProductTypeCategoryID > 0 {
-		whereClause = "WHERE publication_purpose=$1 AND product_type_category_id=$2 AND owner_type=$3 AND owner_key=$4"
-		args = []any{strings.TrimSpace(query.PublicationPurpose), query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+		whereClause = "WHERE publication_purpose=$1 AND owner_type=$3 AND owner_key=$4 AND (COALESCE(product_type_category_id,0)=$2 OR (COALESCE(product_type_category_id,0)=0 AND list_type=$5))"
+		args = []any{strings.TrimSpace(query.PublicationPurpose), query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey), strings.TrimSpace(query.ListType)}
+		orderClause = "ORDER BY CASE WHEN status='published' THEN 0 ELSE 1 END, CASE WHEN COALESCE(product_type_category_id,0)=$2 THEN 0 ELSE 1 END, created_at DESC, id DESC"
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id,
@@ -1104,8 +1106,8 @@ func (r Repository) ListBeanListPublications(ctx context.Context, query appcosti
 		       to_char(created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.bean_list_publications
 		%s
-		ORDER BY CASE WHEN status='published' THEN 0 ELSE 1 END, created_at DESC, id DESC
-	`, r.schema, whereClause), args...)
+		%s
+	`, r.schema, whereClause, orderClause), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1124,9 +1126,11 @@ func (r Repository) ListBeanListPublications(ctx context.Context, query appcosti
 func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error) {
 	whereClause := "publication_purpose=$1 AND list_type=$2 AND owner_type=$3 AND owner_key=$4"
 	args := []any{strings.TrimSpace(query.PublicationPurpose), strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+	orderClause := "published_at DESC, id DESC"
 	if query.ProductTypeCategoryID > 0 {
-		whereClause = "publication_purpose=$1 AND product_type_category_id=$2 AND owner_type=$3 AND owner_key=$4"
-		args = []any{strings.TrimSpace(query.PublicationPurpose), query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+		whereClause = "publication_purpose=$1 AND owner_type=$3 AND owner_key=$4 AND (COALESCE(product_type_category_id,0)=$2 OR (COALESCE(product_type_category_id,0)=0 AND list_type=$5))"
+		args = []any{strings.TrimSpace(query.PublicationPurpose), query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey), strings.TrimSpace(query.ListType)}
+		orderClause = "CASE WHEN COALESCE(product_type_category_id,0)=$2 THEN 0 ELSE 1 END, published_at DESC, id DESC"
 	}
 	row, err := scanBeanListPublication(r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,
@@ -1153,9 +1157,9 @@ func (r Repository) PublishedBeanList(ctx context.Context, query appcosting.Bean
 		       to_char(created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.bean_list_publications
 		WHERE %s AND status='published'
-		ORDER BY published_at DESC, id DESC
+		ORDER BY %s
 		LIMIT 1
-	`, r.schema, whereClause), args...))
+	`, r.schema, whereClause, orderClause), args...))
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -1169,8 +1173,8 @@ func (r Repository) LoadBeanListPublication(ctx context.Context, query appcostin
 	whereClause := "id=$1 AND publication_purpose=$2 AND list_type=$3 AND owner_type=$4 AND owner_key=$5"
 	args := []any{publicationID, strings.TrimSpace(query.PublicationPurpose), strings.TrimSpace(query.ListType), strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
 	if query.ProductTypeCategoryID > 0 {
-		whereClause = "id=$1 AND publication_purpose=$2 AND product_type_category_id=$3 AND owner_type=$4 AND owner_key=$5"
-		args = []any{publicationID, strings.TrimSpace(query.PublicationPurpose), query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey)}
+		whereClause = "id=$1 AND publication_purpose=$2 AND owner_type=$4 AND owner_key=$5 AND (COALESCE(product_type_category_id,0)=$3 OR (COALESCE(product_type_category_id,0)=0 AND list_type=$6))"
+		args = []any{publicationID, strings.TrimSpace(query.PublicationPurpose), query.ProductTypeCategoryID, strings.TrimSpace(query.OwnerType), strings.TrimSpace(query.OwnerKey), strings.TrimSpace(query.ListType)}
 	}
 	row, err := scanBeanListPublication(r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,
