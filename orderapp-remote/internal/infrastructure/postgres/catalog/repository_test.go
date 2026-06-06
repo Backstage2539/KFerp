@@ -679,6 +679,29 @@ func TestCustomerPublicUsagePersistsReferenceSwitchesAndAudits(t *testing.T) {
 	}
 }
 
+func TestProductUnitDeletesSoftDisableAndAudit(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"DeleteProductUnitDefinition",
+		"DeleteProductUnitTemplate",
+		"UPDATE %s.product_unit_definitions",
+		"UPDATE %s.product_unit_templates",
+		"active=false",
+		`"delete_product_unit_definition"`,
+		`"delete_product_unit_template"`,
+		"AuditInsertTx(ctx, tx, r.schema, cmd.Actor, \"product_unit_definition\"",
+		"AuditInsertTx(ctx, tx, r.schema, cmd.Actor, \"product_unit_template\"",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product unit delete soft-disable/audit implementation missing marker %q", want)
+		}
+	}
+}
+
 func TestCustomerPublicUsageDoesNotInsertCopiedPublicProductsOrCategories(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {

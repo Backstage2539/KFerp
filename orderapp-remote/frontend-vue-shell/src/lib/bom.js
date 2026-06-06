@@ -3,8 +3,15 @@ export function normalizedBomProductKind(row = {}) {
   return kind || 'roasted_bean'
 }
 
+export function isActiveBomProductOption(row = {}) {
+  if (row.active === false || row.active === 0) return false
+  const status = String(row.status || row.product_status || row.productStatus || '').trim().toLowerCase()
+  if (['inactive', 'disabled', 'deprecated', 'deactivated', 'archived', 'false', '0', '失效'].includes(status)) return false
+  return true
+}
+
 export function isBomProductCandidate(row = {}) {
-  return normalizedBomProductKind(row) !== 'green_bean'
+  return isActiveBomProductOption(row) && normalizedBomProductKind(row) !== 'green_bean'
 }
 
 export function bomProductCode(row = {}) {

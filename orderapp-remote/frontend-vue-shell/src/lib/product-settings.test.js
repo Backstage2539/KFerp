@@ -2319,6 +2319,28 @@ test('SKU unit template workspace uses left list right editor and opens global u
   assert.match(style, /\.unit-template-layout\s*\{[^}]*grid-template-columns:\s*minmax\(220px,\s*280px\)\s+minmax\(0,\s*1fr\);/s)
 })
 
+test('SKU unit templates and global unit dictionary expose delete actions', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const settingsSource = fs.readFileSync(new URL('../views/UISettingsView.vue', import.meta.url), 'utf8')
+  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'classification-template'"/)?.[0] || ''
+  const globalUnitDrawer = source.match(/<div v-if="globalUnitDrawerOpen"[\s\S]*?<\/aside>\s*<\/div>/)?.[0] || ''
+
+  assert.match(unitTemplatePane, /deleteProductUnitTemplate/)
+  assert.match(source, /\/api\/product-settings\/unit-templates\/\$\{templateID\}/)
+  assert.match(unitTemplatePane, />删除<\/button>/)
+  assert.match(source, /async function deleteProductUnitTemplate\(template\)/)
+  assert.match(source, /method:\s*'DELETE'/)
+
+  assert.match(globalUnitDrawer, /deleteGlobalUnitDefinitionFromDrawer/)
+  assert.match(globalUnitDrawer, /globalUnitEditingCode[\s\S]*删除/)
+  assert.match(source, /\/api\/product-settings\/units\/\$\{encodeURIComponent\(editingCode\)\}/)
+
+  assert.match(settingsSource, /deleteGlobalUnitDefinition/)
+  assert.match(settingsSource, /unitEditingCode[\s\S]*删除/)
+  assert.match(settingsSource, /\/api\/product-settings\/units\/\$\{encodeURIComponent\(editingCode\)\}/)
+  assert.match(settingsSource, /method:\s*'DELETE'/)
+})
+
 test('product archive config drawer does not bind classification templates or direct category dropdowns', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const drawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''

@@ -1460,6 +1460,49 @@ func (r Repository) SaveProductUnitTemplate(ctx context.Context, cmd catalogapp.
 	return row, nil
 }
 
+func (r Repository) DeleteProductUnitDefinition(ctx context.Context, cmd catalogapp.DeleteProductUnitDefinitionCommand) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var code, name, unitType string
+	var allowDecimal, active bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		UPDATE %s.product_unit_definitions
+		SET active=false, updated_at=now()
+		WHERE code=$1 AND active=true
+		RETURNING code, name, unit_type, allow_decimal, active
+	`, r.schema), cmd.Code).Scan(&code, &name, &unitType, &allowDecimal, &active); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_unit_definition", nil, "delete_product_unit_definition", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"code": code, "name": name, "unit_type": unitType, "allow_decimal": allowDecimal, "active": active}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) DeleteProductUnitTemplate(ctx context.Context, cmd catalogapp.DeleteProductUnitTemplateCommand) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var row catalogapp.ProductUnitTemplate
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		UPDATE %s.product_unit_templates
+		SET active=false, updated_at=now()
+		WHERE id=$1 AND active=true
+		RETURNING id, name, inventory_unit, quote_unit, order_unit, COALESCE(unit_conversion_json::text,'{}'), integer_unit, active
+	`, r.schema), cmd.ID).Scan(&row.ID, &row.Name, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.Active); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_unit_template", &cmd.ID, "delete_product_unit_template", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"template_id": row.ID, "name": row.Name, "inventory_unit": row.InventoryUnit, "quote_unit": row.QuoteUnit, "order_unit": row.OrderUnit, "integer_unit": row.IntegerUnit}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (r Repository) SaveProductConfigTemplate(ctx context.Context, cmd catalogapp.SaveProductConfigTemplateCommand) (catalogapp.ProductConfigTemplate, error) {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {

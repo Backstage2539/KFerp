@@ -50,7 +50,10 @@
           <button class="primary compact-action" type="button" @click="openNewProductionBomRecord">新建生产 BOM</button>
         </div>
         <div class="bom-list-toolbar">
-          <button class="secondary compact-action" type="button" @click="openGroupDrawer">增加分组</button>
+          <button class="secondary compact-action" type="button" @click="openGroupDrawer">管理分组</button>
+          <button class="secondary compact-action" type="button" :disabled="!canMoveSelectedBoms || loading" @click="moveSelectedProductBomsToGroup">
+            移动到分组
+          </button>
           <label>
             <span>目标分组</span>
             <select v-model.number="selectedBomMoveGroupID">
@@ -58,13 +61,13 @@
               <option v-for="group in productionBomGroups" :key="group.id" :value="Number(group.id || 0)">{{ group.name }}</option>
             </select>
           </label>
-          <button class="secondary compact-action" type="button" :disabled="!canMoveSelectedBoms || loading" @click="moveSelectedProductBomsToGroup">
-            移动到分组
-          </button>
           <template v-if="isCustomProductionBomGroupSelected">
             <span class="toolbar-divider">组内分类</span>
             <div class="group-category-move-controls">
               <button class="secondary compact-action" type="button" @click="openGroupCategoryDrawer">新增小分类</button>
+              <button class="secondary compact-action" type="button" :disabled="!canMoveSelectedBomsToGroupCategory || loading" @click="moveSelectedProductBomsToGroupCategory">
+                移动到小分类
+              </button>
               <label>
                 <span>目标小分类</span>
                 <select v-model.number="selectedProductionBomGroupCategoryID">
@@ -73,9 +76,6 @@
                 </select>
               </label>
             </div>
-            <button class="secondary compact-action" type="button" :disabled="!canMoveSelectedBomsToGroupCategory || loading" @click="moveSelectedProductBomsToGroupCategory">
-              移动到小分类
-            </button>
           </template>
           <span class="muted left">已选 {{ selectedBomRecordsForMove.length }} 个可移动 BOM</span>
         </div>
@@ -529,7 +529,7 @@
                     class="text-button danger-text"
                     type="button"
                     @click="deleteProductionBomGroup(group)">
-                    DELETE
+                    删除
                   </button>
                 </td>
               </tr>
@@ -548,7 +548,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
-import { bomProductOptionLabel, filterProductionBomCatalog, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
+import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
 import { componentTypeLabel } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -691,8 +691,8 @@ const selectedProductionBomDraftVersion = computed(() => versions.value.find((ve
 const canEditCurrentBomItems = computed(() => canEditCurrentBomProduct.value && Number(selectedProductionBomDraftVersion.value?.id || 0) > 0)
 const canCopyCurrentVersionAsDraft = computed(() => canEditCurrentBomProduct.value && currentProductionBomID.value > 0 && selectedProductionBomVersion.value?.status === 'published')
 const canEditBomFormOutputBasis = computed(() => bomForm.mode !== 'edit' || canEditCurrentBomItems.value)
-const outputProductOptions = computed(() => products.value)
-const productComponentOptions = computed(() => products.value.filter((product) => Number(product.id || 0) !== Number(detail.value?.output_product_id || productionBomDetail.value?.output_product_id || 0)))
+const outputProductOptions = computed(() => products.value.filter(isBomProductCandidate))
+const productComponentOptions = computed(() => products.value.filter(isBomProductCandidate).filter((product) => Number(product.id || 0) !== Number(detail.value?.output_product_id || productionBomDetail.value?.output_product_id || 0)))
 const ratioConsumeUnitOption = { value: 'ratio_pct', label: '比例 %' }
 const legacyConsumeUnitLabels = {
   g_per_bag: '克/袋',

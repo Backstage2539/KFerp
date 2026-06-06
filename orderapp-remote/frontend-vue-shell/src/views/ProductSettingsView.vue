@@ -449,6 +449,7 @@
                   <strong>{{ unitTemplate.name }}</strong>
                   <small>{{ productUnitTemplateSummary(unitTemplate) }}</small>
                 </button>
+                <button class="text-button danger-text" type="button" :disabled="unitTemplate.active === false" @click="deleteProductUnitTemplate(unitTemplate)">删除</button>
               </div>
               <p v-if="!productUnitTemplates.length" class="muted">暂无单位模板</p>
             </div>
@@ -1109,6 +1110,7 @@
                 <span>启用</span>
               </label>
               <div class="form-actions">
+                <button v-if="globalUnitEditingCode" class="text-button danger-text" type="button" :disabled="globalUnitSaving || loading" @click="deleteGlobalUnitDefinitionFromDrawer">删除</button>
                 <button class="primary" type="submit" :disabled="globalUnitSaving || loading">
                   {{ globalUnitSaving ? '保存中' : (globalUnitEditingCode ? '保存' : '新增') }}
                 </button>
@@ -2738,6 +2740,25 @@ async function saveGlobalUnitDefinitionFromDrawer() {
   }
 }
 
+async function deleteGlobalUnitDefinitionFromDrawer() {
+  const editingCode = globalUnitEditingCode.value
+  if (!editingCode) return
+  if (typeof window !== 'undefined' && !window.confirm(`确认删除全局单位「${globalUnitForm.value.name || editingCode}」？已引用该单位的历史配置不会被物理删除。`)) return
+  globalUnitSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/product-settings/units/${encodeURIComponent(editingCode)}`, { method: 'DELETE' })
+    ok.value = '全局单位已删除，新的单位模板将不再引用该单位'
+    await loadAll()
+    resetGlobalUnitDefinitionForm()
+  } catch (err) {
+    error.value = err.message || '删除全局单位失败'
+  } finally {
+    globalUnitSaving.value = false
+  }
+}
+
 function startProductUnitTemplateEdit(template) {
   productUnitTemplateForm.value = defaultProductUnitTemplateForm(JSON.parse(JSON.stringify(template || {})))
 }
@@ -2773,6 +2794,25 @@ async function saveProductUnitTemplate() {
     resetProductUnitTemplateForm()
   } catch (err) {
     error.value = err.message || '保存单位模板失败'
+  } finally {
+    productUnitSaving.value = false
+  }
+}
+
+async function deleteProductUnitTemplate(template) {
+  const templateID = Number(template?.id || 0)
+  if (templateID <= 0) return
+  if (typeof window !== 'undefined' && !window.confirm(`确认删除单位模板「${template?.name || templateID}」？已绑定的历史商品配置不会被物理删除。`)) return
+  productUnitSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/product-settings/unit-templates/${templateID}`, { method: 'DELETE' })
+    ok.value = '单位模板已删除，新的商品配置不再引用该模板'
+    await loadAll()
+    if (Number(productUnitTemplateForm.value.id || 0) === templateID) resetProductUnitTemplateForm()
+  } catch (err) {
+    error.value = err.message || '删除单位模板失败'
   } finally {
     productUnitSaving.value = false
   }

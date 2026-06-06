@@ -258,6 +258,14 @@ func (r *fakeRepo) SaveProductUnitTemplate(ctx context.Context, cmd SaveProductU
 	return ProductUnitTemplate{ID: 12, Name: cmd.Name, InventoryUnit: cmd.InventoryUnit, QuoteUnit: cmd.QuoteUnit, OrderUnit: cmd.OrderUnit, UnitConversionJSON: cmd.UnitConversionJSON, IntegerUnit: cmd.IntegerUnit, Active: true}, nil
 }
 
+func (r *fakeRepo) DeleteProductUnitDefinition(ctx context.Context, cmd DeleteProductUnitDefinitionCommand) error {
+	return nil
+}
+
+func (r *fakeRepo) DeleteProductUnitTemplate(ctx context.Context, cmd DeleteProductUnitTemplateCommand) error {
+	return nil
+}
+
 func (r *fakeRepo) DeriveProductConfigTemplate(ctx context.Context, cmd DeriveProductConfigTemplateCommand) (ProductConfigTemplate, error) {
 	r.derivedConfig = cmd
 	return ProductConfigTemplate{ID: 702, CustomerID: cmd.CustomerID, SourceTemplateID: cmd.SourceTemplateID, TemplateState: TemplateStateDerived, Name: cmd.Name, Active: true}, nil
