@@ -2,7 +2,7 @@
 
 ## 范围
 - Product Design brief 已由 Van 在计划中确认：采用现有 KFerp Vue 后台密集表格 + 右侧抽屉，不做营销式页面；字段文案、入口关系、空状态和旧模板兼容提示按计划执行。
-- 本轮工程已完成三片：商品档案/客户商品普通新写入不再写旧模板字段；商品档案和客户商品列表展示价格摘要占位；复制为商品档案不复制 BOM、价格或价格表快照；商品价格管理有独立菜单入口，可维护最终价格记录和阶梯价格方案；商品价格表发布快照固化最终价、价格单位、来源价格记录和库存换算；ERP 录单、渠道客户下单和小程序履约订单只按已发布快照取价取单位。
+- 本轮工程已完成三片：商品档案/客户商品普通新写入不再写旧模板字段；商品档案和客户商品列表展示价格摘要占位；复制为商品档案不复制 BOM、价格或价格表快照；商品分类管理和商品价格管理有独立菜单入口；旧商品配置模板、阶梯价模板、单位模板不再出现在普通主菜单和客户工作区；商品价格管理可维护最终价格记录和阶梯价格方案；商品价格表发布快照固化最终价、价格单位、来源价格记录和库存换算；ERP 录单、渠道客户下单和小程序履约订单只按已发布快照取价取单位。
 - 旧模板字段不再进入新业务写入；旧表和旧字段保留用于历史兼容、迁移报告和旧数据查询。
 
 ## 验收点
@@ -15,7 +15,8 @@
 - 商品价格管理维护最终价格记录，字段包含关联商品/客户商品、最终单价、价格单位、币种、价格分组、库存单位、库存换算、状态和备注。
 - 阶梯价格方案的每个档位引用一条商品价格记录；保存时服务层从价格记录复制最终价、价格单位和币种，不接受档位提交的二次价格字段。
 - 商品价格分组只作为页面组织和筛选，不参与业务取价。
-- 商品与配方菜单提供 `商品价格管理` 独立入口；该入口复用 Vue 商品设置页并直接进入价格主数据 pane。
+- 商品与配方菜单提供 `商品分类管理` 和 `商品价格管理` 独立入口；价格入口复用 Vue 商品设置页并直接进入价格主数据 pane。
+- 普通主菜单和客户工作区不再展示 `商品配置和分类模板`、`阶梯价模板`、`单位模板` 旧入口；旧 view key 只保留为历史直达链接兼容。
 - 商品价格表发布价格档时必须带最终价、价格单位、来源价格记录、库存单位和库存换算；没有换算时禁止发布。
 - 商品价格表候选和已发布版本入口按商品档案/客户商品直接分类生成商品类型；旧 `product_type_category_id/product_type_name` 仍只作为历史兼容字段，不把已有直接分类的商品打到 `未分类商品`。
 - 商品价格表预览把商品价格管理里的最终价记录和阶梯价格方案投影成可发布价格档；已有最终价记录的商品不再显示旧“未设置计价方式，请到商品配置模板”提示。
@@ -49,6 +50,10 @@
 - `node --test src/lib/product-price-list-types.test.js`：历史全局 `commercial` 发布行尚不能作为直接分类下的兼容版本展示。
 - 浏览器 follow-up 4：公共 `PR439-20260606182321-OFFICIAL` 版本进入 `咖啡烘焙豆` 筛选后，版本表“类型”列仍显示历史 `未分类商品`。
 - `node --test src/lib/costing-bean-list-version-ui.test.js`：兼容历史全局发布行尚未在当前筛选下显示当前商品类型名称。
+- 现场 follow-up 5：商品 `539` 的 `product_config_template_id` 清为 0 后，部署/重启又从分类 `7` 的历史 `product_config_template_id=4` 回填，说明启动迁移仍把旧分类模板字段写回商品档案。
+- `go test ./internal/infrastructure/postgres/catalog -run TestProductConfigTemplateDoesNotBackfillFromCategoryOnStartup -count=1`：实现前失败于 `schema.go` 仍存在 `SET product_config_template_id=COALESCE(pc.product_config_template_id,0)`。
+- 浏览器 follow-up 6：商品档案内容和价格摘要正确，但左侧商品与配方主菜单仍展示 `商品配置和分类模板`、`阶梯价模板`、`单位模板` 旧入口。
+- `node --test src/lib/menu-ia.test.js src/lib/workspace-mode.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js`：实现前失败于主菜单和客户工作区仍把旧模板入口作为普通页面。
 
 ## GREEN
 - `node --test src/lib/product-settings.test.js`：117/117 通过。
@@ -88,6 +93,11 @@
 - follow-up 4：`node --test src/lib/costing-bean-list-version-ui.test.js`：13/13 通过。
 - follow-up 4：`node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/product-price-list-types.test.js src/lib/costing-bean-list-version-ui.test.js`：60/60 通过。
 - follow-up 4：`npm run build` in `frontend-vue-shell`、`go test ./...`、`scripts/verify_kferp.sh changed`、`git diff --check`：通过。
+- follow-up 5：`go test ./internal/infrastructure/postgres/catalog -run 'TestProductConfigTemplateDoesNotBackfillFromCategoryOnStartup|TestUpdateProductBasicsClearsLegacyTemplateColumns|TestProductConfigOverridesRemainReadableButProductUpdateDoesNotWrite' -count=1`：通过。
+- follow-up 5：`go test ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/catalog -count=1`、`go test ./...`、`scripts/verify_kferp.sh changed`、`git diff --check`：通过。
+- follow-up 6：`node --test src/lib/menu-ia.test.js src/lib/workspace-mode.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js`：155/155 通过。
+- follow-up 6：`node --test src/lib/menu-ia.test.js src/lib/workspace-mode.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js src/lib/product-price-list-types.test.js src/lib/costing-bean-list-version-ui.test.js`：174/174 通过。
+- follow-up 6：`npm run build` in `frontend-vue-shell`、`go test ./...`、`scripts/verify_kferp.sh changed`：通过。
 
 ## Development 部署与现场验收
 - 代码部署基线：`3cfe484e851ae91552ce73cfe5dc3f6667de90ef`。
@@ -105,8 +115,9 @@
 - follow-up 浏览器验收：商品价格表加载 `index-B7GjMOL8.js`；公共豆单显示 `咖啡烘焙豆（2款）`、当前发布 `PR439-20260606182321-OFFICIAL`，版本表类型列显示 `咖啡烘焙豆`，无旧 `未设置计价方式` 提示；客户范围分别显示 `PR439-20260606182321-KAREN` 和 `PR439-20260606182321-CHANNEL`。
 - follow-up 商品档案验收：商品档案页面显示商品 `538/539` 归类为 `咖啡烘焙豆 / 精品意式拼配`、`咖啡烘焙豆 / 工厂量单`，价格摘要来自官方快照 `57`；数据库确认 `538/539` 的 `product_config_template_id=0`、`classification_template_id=0`、`gradient_template_id_override=0`。
 - follow-up 客户商品/渠道验收：客户商品 `82/83` 旧模板字段均为 0，分别进入 Karen 和渠道客户价格表；ERP 订单 `1523` 和渠道/小程序履约订单 `1525` 均为 `unit=kg`、`unit_price=88.50`、`line_total=177.00`、来源价格记录 `1`，订单行价格表快照分别为 `56 / PR439-...-KAREN` 和 `55 / PR439-...-CHANNEL`。
-- follow-up 页面验收：客户履约运营台和客户履约工作台均显示 `SO-20260606-0023` 与 `177.00`；客户履约运营台显示客户豆单 `PR439-20260606182321-CHANNEL`。商品 `539` 的历史 `product_config_template_id` 残留已清理为 0，操作日志 `4739` 记录 `4 -> 0`。
+- follow-up 页面验收：客户履约运营台和客户履约工作台均显示 `SO-20260606-0023` 与 `177.00`；客户履约运营台显示客户豆单 `PR439-20260606182321-CHANNEL`。
+- follow-up 数据修复验收：启动迁移回填已删除后，商品 `539` 的历史 `product_config_template_id` 再次从 `4` 清理为 `0`，操作日志 `4740` 记录 `4 -> 0`；随后重启 `erp_orderapp`，DB 仍显示商品 `538/539` 的 `product_config_template_id=0`、`classification_template_id=0`、`gradient_template_id_override=0`，即使分类 `7` 仍保留历史 `product_config_template_id=4` 也不会回填商品。
 
 ## 兼容说明
-- 旧商品配置模板、单位模板、阶梯价模板和分类模板仍作为历史兼容、迁移排查或 admin 兼容入口保留；普通商品档案、客户商品和新录单取价不再从这些字段写入或决定价格/单位。
+- 旧商品配置模板、单位模板、阶梯价模板和分类模板仍作为历史兼容、迁移排查或直达 URL 兼容入口保留；普通主菜单、客户工作区、商品档案、客户商品和新录单取价不再从这些字段写入或决定价格/单位。
 - PR-439 前后过渡期内，历史已发布商品价格表可能仍保存为 `product_type_category_id=0`。新页面按商品直接分类查看时，系统优先读取同分类发布版本；没有同分类版本时，仍兼容读取同归属、同用途的历史 `commercial` 已发布版本。

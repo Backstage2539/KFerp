@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-439-PRODUCT-PRICE-MASTER-REMODEL
 - Branch: codex/product-price-master-remodel-20260606
 - Owner/session: Codex / 2026-06-06
-- Status: merged to develop and deployed to development; PR-439 follow-up browser acceptance passed on 商品档案、商品价格表、客户价格表、ERP 订单、渠道履约订单和客户侧结算金额
+- Status: merged to develop and deployed to development; PR-439 follow-up browser acceptance passed on 商品档案、商品分类管理、商品价格表、客户价格表、ERP 订单、渠道履约订单和客户侧结算金额；latest follow-up hides old template menu entries and stops startup backfill from category templates
 - Scope: 商品档案和客户商品从旧模板价格模型切到主数据/展示关系；价格、报价单位、录单单位进入商品价格管理和已发布商品价格表快照；旧模板表保留历史兼容，不再作为普通商品/客户商品新写入来源。
 - Product Design:
   - Brief: 采用现有 KFerp 后台密集表格 + 右侧抽屉；商品档案、客户商品、商品分类管理、商品价格管理、商品价格表、录单取价入口关系按 Van 提供计划锁定。
@@ -24,6 +24,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-439-PRICE-LIST-SNAPSHOT-ENFORCEMENT：商品价格表发布价格档必须固化最终价、价格单位、来源价格记录、库存单位和库存换算。
   - DEV-439-COSTING-DIRECT-CATEGORY-FINAL-PRICE-TIERS：商品价格表候选按商品档案/客户商品直接分类生成商品类型；已发布最终价记录和阶梯方案投影成可发布价格档，不再把已有最终价的商品提示到旧商品配置模板。
   - DEV-439-PRICE-LIST-PUBLICATION-LEGACY-CATEGORY-FALLBACK：按直接分类查看商品价格表时，优先读取同分类发布版本；历史 `product_type_category_id=0` 且 `list_type=commercial` 的已发布版本仍作为兼容版本展示和读取。
+  - DEV-439-LEGACY-TEMPLATE-MENU-RETIREMENT：普通主菜单和客户工作区隐藏旧 `商品配置和分类模板`、`阶梯价模板`、`单位模板` 入口；历史 view key 只保留直达兼容。
+  - DEV-439-STARTUP-BACKFILL-CUTOFF：启动 schema 不再从商品分类历史 `product_config_template_id` 回填商品档案旧模板字段。
   - DEV-439-ORDER-SNAPSHOT-PRICING：ERP 录单只按已发布商品价格表快照取价取单位，不再从商品档案、客户商品或旧阶梯模板兜底。
   - DEV-439-CHANNEL-CUSTOMER-SNAPSHOT-PRICING：渠道客户履约下单、订单行价格来源和结算金额只按已发布商品价格表快照生成。
   - DEV-439-MINIAPP-SNAPSHOT-PRICING：小程序服务页不展示默认价，履约订单后端只按已发布商品价格表快照生成 ERP 订单行和结算数据。
@@ -57,7 +59,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN final deploy: feature branch pushed; `origin/develop=22577913175a4f76ce387cc6b7d1a8900cd5ccdf` deployed to development. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260607043416`. Deploy script ran Vue build, miniapp typecheck/build, Docker image build, and container-internal `go test ./...`.
   - GREEN final smoke/browser: `erp_orderapp` Up, `erp_postgres` healthy, `/app/` returned 303. Browser 商品价格表 loaded `index-B7GjMOL8.js`; 公共豆单 shows `咖啡烘焙豆（2款）`, current `PR439-20260606182321-OFFICIAL`, no old missing-pricing warning, version type column `咖啡烘焙豆`; customer scopes show `PR439-20260606182321-KAREN` and `PR439-20260606182321-CHANNEL`.
   - GREEN final live data: products `538/539` are directly categorized as `精品意式拼配` / `工厂量单` with `product_config_template_id=0`, `classification_template_id=0`, `gradient_template_id_override=0`; customer aliases `82/83` old template fields are 0. ERP order `1523` and channel/miniapp direct-ship order `1525` both use `kg`, `88.5`, total `177`, source price record `1`, and customer publication snapshots `56` / `55`. Customer fulfillment and customer processing portal pages show order `SO-20260606-0023` and `177.00`.
-  - Data repair: live product `539` legacy `product_config_template_id` was cleared from `4` to `0`; operation log `4739` records `product_config_template_id 4 -> 0` with PR-439 cleanup metadata.
+  - RED final follow-up 5: live product `539` legacy `product_config_template_id` was cleared but restarted/deployed back to `4`; root cause was startup schema backfilling `products.product_config_template_id` from `product_categories.product_config_template_id`.
+  - GREEN final follow-up 5: `go test ./internal/infrastructure/postgres/catalog -run 'TestProductConfigTemplateDoesNotBackfillFromCategoryOnStartup|TestUpdateProductBasicsClearsLegacyTemplateColumns|TestProductConfigOverridesRemainReadableButProductUpdateDoesNotWrite' -count=1`; `go test ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/catalog -count=1`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Data repair: after the startup backfill fix, live product `539` legacy `product_config_template_id` was cleared from `4` to `0`; operation log `4740` records `product_config_template_id 4 -> 0` with PR-439 cleanup metadata. Restart proof: after `docker compose restart orderapp`, products `538/539` stayed at `product_config_template_id=0`, while category `7` still retained historical `product_config_template_id=4` without rehydrating the product.
+  - RED final follow-up 6: browser 商品档案 page still showed old menu entries `商品配置和分类模板`、`阶梯价模板`、`单位模板` in 商品与配方.
+  - GREEN final follow-up 6: `node --test src/lib/menu-ia.test.js src/lib/workspace-mode.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js` passed 155/155 after RED; broader `node --test src/lib/menu-ia.test.js src/lib/workspace-mode.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js src/lib/product-price-list-types.test.js src/lib/costing-bean-list-version-ui.test.js` passed 174/174; `npm run build` passed with existing chunk-size warning; `go test ./...` and `scripts/verify_kferp.sh changed` passed.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-product-price-master-remodel.md`.
 - Last update: 2026-06-07 Asia/Shanghai
 

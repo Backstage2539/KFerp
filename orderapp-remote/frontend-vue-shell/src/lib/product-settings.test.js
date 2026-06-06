@@ -246,7 +246,12 @@ test('product settings view exposes direct category and price management while r
     assert.match(source, new RegExp(want))
   }
   assert.match(appSource, /productPriceManagement/)
+  assert.match(appSource, /productCategoryManagement/)
+  assert.match(menuSource, /key: 'productCategoryManagement', label: '商品分类管理'/)
   assert.match(menuSource, /key: 'productPriceManagement', label: '商品价格管理'/)
+  assert.doesNotMatch(menuSource, /label: '商品配置和分类模板'/)
+  assert.doesNotMatch(menuSource, /label: '阶梯价模板'/)
+  assert.doesNotMatch(menuSource, /label: '单位模板'/)
 
   for (const forbidden of [
     '商品配置模板',
@@ -1513,7 +1518,7 @@ test('SKU settings no longer renders special KV template definitions or SKU valu
   assert.doesNotMatch(template, /v-model="customForm\.roast_level"/)
 })
 
-test('product pages split product archive, aliases and config templates without workspace tabs', () => {
+test('product pages split product archive, aliases, category management and pricing without workspace tabs', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const app = fs.readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
@@ -1521,6 +1526,8 @@ test('product pages split product archive, aliases and config templates without 
   for (const expected of [
     'productMaster',
     'customerProductAliases',
+    'productCategoryManagement',
+    'productPriceManagement',
     'productConfigTemplates',
     '商品档案',
     '客户商品',
@@ -1950,6 +1957,7 @@ test('SKU settings keeps only the product creation drawer while classification t
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
+  const productArchiveWorkspace = template.match(/<div v-show="currentSettingsSection === 'master'"[\s\S]*?<div v-show="currentSettingsSection === 'templates'"/)?.[0] || template
 
   for (const expected of [
     'productClassificationTabs',
@@ -1970,8 +1978,9 @@ test('SKU settings keeps only the product creation drawer while classification t
   assert.match(template, /class="sku-filters product-filter-row"[\s\S]*@click="openProductDrawer"[\s\S]*deactivateProducts/)
   assert.doesNotMatch(template, /@click="openSkuCopyDrawer"/)
   assert.doesNotMatch(template, />分类设置</)
-  assert.doesNotMatch(template, /v-for="primary in visibleCategoryManagementTreeForSkuContext"/)
-  assert.doesNotMatch(template, /class="category-panel category-drawer-panel category-management-panel"/)
+  assert.match(template, /data-section-mode="productCategoryManagement"/)
+  assert.doesNotMatch(productArchiveWorkspace, /v-for="primary in visibleCategoryManagementTreeForSkuContext"/)
+  assert.doesNotMatch(productArchiveWorkspace, /class="category-panel category-drawer-panel category-management-panel"/)
   assert.doesNotMatch(template, /<aside class="settings-drawer sku-copy-drawer"/)
   assert.doesNotMatch(template, /当前SKU \{\{ skuDisplayTotal \}\}/)
   assert.match(template, /:total="skuDisplayTotal"/)
@@ -2158,11 +2167,12 @@ test('SKU table groups rows by enabled classification template tabs without prod
 test('legacy product type category drag UI is not present in the new product archive template', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
+  const productArchiveWorkspace = template.match(/<div v-show="currentSettingsSection === 'master'"[\s\S]*?<div v-show="currentSettingsSection === 'templates'"/)?.[0] || template
 
-  assert.doesNotMatch(template, /产品类型操作/)
-  assert.doesNotMatch(template, /产品子类型操作/)
-  assert.doesNotMatch(template, /拖入产品子类型后才参与产品价格表生成/)
-  assert.doesNotMatch(template, /v-for="\(secondary, index\) in primary\.children"/)
+  assert.doesNotMatch(productArchiveWorkspace, /产品类型操作/)
+  assert.doesNotMatch(productArchiveWorkspace, /产品子类型操作/)
+  assert.doesNotMatch(productArchiveWorkspace, /拖入产品子类型后才参与产品价格表生成/)
+  assert.doesNotMatch(productArchiveWorkspace, /v-for="\(secondary, index\) in primary\.children"/)
 })
 
 test('SKU settings no longer binds product config templates on the product record', () => {
@@ -2279,11 +2289,11 @@ test('SKU settings separates global unit templates into a peer configuration tab
   assert.doesNotMatch(template, /<strong>单位字典<\/strong>/)
   assert.doesNotMatch(source, /saveProductUnitDefinition/)
 
-  assert.ok(
-    menuSource.indexOf("label: '商品配置和分类模板'") < menuSource.indexOf("label: '阶梯价模板'")
-      && menuSource.indexOf("label: '阶梯价模板'") < menuSource.indexOf("label: '单位模板'"),
-    'unit and gradient templates should be peer product menu functions',
-  )
+  assert.match(menuSource, /key: 'productCategoryManagement', label: '商品分类管理'/)
+  assert.match(menuSource, /key: 'productPriceManagement', label: '商品价格管理'/)
+  assert.doesNotMatch(menuSource, /label: '商品配置和分类模板'/)
+  assert.doesNotMatch(menuSource, /label: '阶梯价模板'/)
+  assert.doesNotMatch(menuSource, /label: '单位模板'/)
   assert.doesNotMatch(template, /<div class="field-group-title">单位规则<\/div>[\s\S]*productConfigTemplateForm\.unit_conversion_rows/)
   assert.match(script, /buildProductConfigTemplatePayload\([\s\S]*unit_template_id/)
 })
@@ -2538,22 +2548,24 @@ test('product archive config drawer only shows BOM usage relation instead of bin
   assert.doesNotMatch(drawer, /BOM版本/)
 })
 
-test('product menus split config, gradient, unit templates and rename product price list', () => {
+test('product menus expose direct category, price management and renamed product price list', () => {
   const menuSource = fs.readFileSync(new URL('./menu-ia.js', import.meta.url), 'utf8')
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const costingSource = fs.readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
   const configWorkspace = source.match(/<div v-show="currentSettingsSection === 'templates'"[\s\S]*?<div v-if="classificationTemplateCreateDrawerOpen"/)?.[0] || ''
 
   for (const expected of [
-    "label: '商品配置和分类模板'",
-    "key: 'pricingGradientTemplates'",
-    "label: '阶梯价模板'",
-    "key: 'productUnitTemplates'",
-    "label: '单位模板'",
+    "key: 'productCategoryManagement'",
+    "label: '商品分类管理'",
+    "key: 'productPriceManagement'",
+    "label: '商品价格管理'",
     "label: '商品价格表'",
   ]) {
     assert.match(menuSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  assert.doesNotMatch(menuSource, /label: '商品配置和分类模板'/)
+  assert.doesNotMatch(menuSource, /label: '阶梯价模板'/)
+  assert.doesNotMatch(menuSource, /label: '单位模板'/)
   assert.doesNotMatch(menuSource, /label: '产品价格表'/)
   assert.match(costingSource, /<h2>商品价格表<\/h2>/)
   assert.doesNotMatch(costingSource, /<h2>产品价格表<\/h2>/)

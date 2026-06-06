@@ -15,11 +15,15 @@ function menuItem(key) {
   return menuGroups.flatMap((group) => group.items).find((item) => item.key === key)
 }
 
-test('product menu is split into product archive, customer products, template and price-list pages', () => {
+test('product menu is split into product archive, customer products, category, pricing and price-list pages', () => {
   assert.equal(menuItem('productMaster')?.label, '商品档案')
   assert.equal(menuItem('productMaster')?.title, '商品档案')
   assert.equal(menuItem('customerProductAliases')?.label, '客户商品')
-  assert.equal(menuItem('productConfigTemplates')?.label, '商品配置和分类模板')
+  assert.equal(menuItem('productCategoryManagement')?.label, '商品分类管理')
+  assert.equal(menuItem('productPriceManagement')?.label, '商品价格管理')
+  assert.equal(menuItem('productConfigTemplates'), undefined)
+  assert.equal(menuItem('pricingGradientTemplates'), undefined)
+  assert.equal(menuItem('productUnitTemplates'), undefined)
   assert.equal(menuItem('costing')?.label, '商品价格表')
   assert.equal(menuItem('costing')?.title, '商品价格表')
   assert.equal(menuItem('industryFieldTemplates')?.label, '行业设置')

@@ -352,6 +352,7 @@ const internalViews = {
   industryFieldTemplates: IndustryFieldTemplatesView,
   productMaster: ProductSettingsView,
   customerProductAliases: ProductSettingsView,
+  productCategoryManagement: ProductSettingsView,
   productPriceManagement: ProductSettingsView,
   productConfigTemplates: ProductSettingsView,
   pricingGradientTemplates: ProductSettingsView,
@@ -547,7 +548,7 @@ function applyKeyToUrl(key, params = {}) {
 }
 
 function isProductSettingsKey(key) {
-  return ['productMaster', 'customerProductAliases', 'productPriceManagement', 'productConfigTemplates', 'pricingGradientTemplates', 'productUnitTemplates', 'productSettings', 'products'].includes(key)
+  return ['productMaster', 'customerProductAliases', 'productCategoryManagement', 'productPriceManagement', 'productConfigTemplates', 'pricingGradientTemplates', 'productUnitTemplates', 'productSettings', 'products'].includes(key)
 }
 
 function hardNavigateToView(key, params = {}) {
@@ -1125,6 +1126,7 @@ const isCurrentAllowed = computed(() => menuMap[currentKey.value] && isViewAllow
 const isProductSettingsView = computed(() => isProductSettingsKey(currentKey.value))
 const productSettingsSectionMode = computed(() => {
   if (currentKey.value === 'customerProductAliases') return 'aliases'
+  if (currentKey.value === 'productCategoryManagement') return 'productCategoryManagement'
   if (currentKey.value === 'productPriceManagement') return 'productPriceManagement'
   if (currentKey.value === 'productConfigTemplates') return 'templates'
   if (currentKey.value === 'pricingGradientTemplates') return 'pricingGradientTemplates'
