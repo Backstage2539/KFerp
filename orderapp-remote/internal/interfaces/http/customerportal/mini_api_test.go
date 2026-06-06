@@ -1108,6 +1108,14 @@ func TestMiniResaleBeanListAPIsExposeEditorPublishAndPNG(t *testing.T) {
 		t.Fatalf("publish status=%d cmd=%+v body=%s", publishRec.Code, publishCmd, publishRec.Body.String())
 	}
 
+	pdfReq := httptest.NewRequest(http.MethodGet, "/api/mini/resale-bean-lists/33.pdf", nil)
+	pdfReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	pdfRec := httptest.NewRecorder()
+	e.ServeHTTP(pdfRec, pdfReq)
+	if pdfRec.Code != http.StatusOK || pdfRec.Header().Get(echo.HeaderContentType) != "application/pdf" || !bytes.HasPrefix(pdfRec.Body.Bytes(), []byte("%PDF")) {
+		t.Fatalf("pdf status=%d content-type=%q body=%q", pdfRec.Code, pdfRec.Header().Get(echo.HeaderContentType), pdfRec.Body.Bytes())
+	}
+
 	pngReq := httptest.NewRequest(http.MethodGet, "/api/mini/resale-bean-lists/33.png", nil)
 	pngReq.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
 	pngRec := httptest.NewRecorder()

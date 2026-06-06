@@ -96,7 +96,7 @@ func TestCustomerResaleBeanListWiringAndManuals(t *testing.T) {
 			path: "orderapp-remote/internal/interfaces/http/customerportal/mini_api.go",
 			want: []string{
 				"/api/mini/resale-bean-lists",
-				`/api/mini/resale-bean-lists/:id.png`,
+				`/api/mini/resale-bean-lists/:file`,
 				"RenderPNG",
 			},
 		},
