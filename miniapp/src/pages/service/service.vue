@@ -1155,8 +1155,8 @@ onShow(() => {
                   <text class="row-sub">{{ item.version_no || '未标版本' }} / {{ item.published_at || '已发布' }}</text>
                 </view>
                 <view class="resale-output-actions">
-                  <button class="secondary compact" @tap="openResaleOutput(item, 'pdf')">预览 PDF</button>
-                  <button class="secondary compact" @tap="openResaleOutput(item, 'png')">预览长图</button>
+                  <button class="secondary compact" @tap="openResaleOutput(item, 'pdf')">PDF</button>
+                  <button class="secondary compact" @tap="openResaleOutput(item, 'png')">长图</button>
                 </view>
               </view>
             </view>

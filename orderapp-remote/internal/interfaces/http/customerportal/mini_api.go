@@ -77,6 +77,10 @@ type beanListPDFCacheService interface {
 	GetBeanListPublicationPDF(context.Context, string, int64, func(customerportalapp.BeanListSummary) ([]byte, error)) (customerportalapp.BeanListSummary, []byte, error)
 }
 
+type beanListPNGCacheService interface {
+	GetBeanListPublicationPNG(context.Context, string, int64, func(customerportalapp.BeanListSummary) ([]byte, error)) (customerportalapp.BeanListSummary, []byte, error)
+}
+
 func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanListPDFRenderer BeanListPDFRenderer, salesDocs SalesDocuments) {
 	e.POST("/api/mini/login", func(c echo.Context) error {
 		if svc == nil {
@@ -217,6 +221,43 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		return c.JSON(http.StatusOK, result)
 	})
 
+	e.GET("/api/mini/bean-lists/:id.png", func(c echo.Context) error {
+		if svc == nil {
+			return miniInternalError(c)
+		}
+		token := miniTokenFromHeader(c.Request().Header.Get(echo.HeaderAuthorization))
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
+		}
+		publicationID, err := miniPublicationIDParam(c, ".png")
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		var row customerportalapp.BeanListSummary
+		var body []byte
+		if cachedSvc, ok := svc.(beanListPNGCacheService); ok {
+			var err error
+			row, body, err = cachedSvc.GetBeanListPublicationPNG(c.Request().Context(), token, publicationID, func(row customerportalapp.BeanListSummary) ([]byte, error) {
+				return pdfinfra.BeanListRenderer{}.RenderPNG(beanListPDFDocument(row))
+			})
+			if err != nil {
+				return miniBusinessError(c, err)
+			}
+		} else {
+			var err error
+			row, err = svc.GetBeanListPublication(c.Request().Context(), token, publicationID)
+			if err != nil {
+				return miniBusinessError(c, err)
+			}
+			body, err = pdfinfra.BeanListRenderer{}.RenderPNG(beanListPDFDocument(row))
+			if err != nil {
+				return miniInternalError(c)
+			}
+		}
+		c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf(`inline; filename="%s"`, beanListPNGFilename(row)))
+		return c.Blob(http.StatusOK, "image/png", body)
+	})
+
 	e.GET("/api/mini/bean-lists/:id", func(c echo.Context) error {
 		if svc == nil || beanListPDFRenderer == nil {
 			return miniInternalError(c)
@@ -225,7 +266,37 @@ func registerMiniAPI(e *echo.Echo, svc Service, messages MessagePublisher, beanL
 		if token == "" {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "mini token required"})
 		}
-		publicationID, err := strconv.ParseInt(strings.TrimSuffix(c.Param("id"), ".pdf"), 10, 64)
+		rawID := strings.TrimSpace(c.Param("id"))
+		if strings.HasSuffix(rawID, ".png") {
+			publicationID, err := strconv.ParseInt(strings.TrimSuffix(rawID, ".png"), 10, 64)
+			if err != nil || publicationID <= 0 {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+			}
+			var row customerportalapp.BeanListSummary
+			var body []byte
+			if cachedSvc, ok := svc.(beanListPNGCacheService); ok {
+				var err error
+				row, body, err = cachedSvc.GetBeanListPublicationPNG(c.Request().Context(), token, publicationID, func(row customerportalapp.BeanListSummary) ([]byte, error) {
+					return pdfinfra.BeanListRenderer{}.RenderPNG(beanListPDFDocument(row))
+				})
+				if err != nil {
+					return miniBusinessError(c, err)
+				}
+			} else {
+				var err error
+				row, err = svc.GetBeanListPublication(c.Request().Context(), token, publicationID)
+				if err != nil {
+					return miniBusinessError(c, err)
+				}
+				body, err = pdfinfra.BeanListRenderer{}.RenderPNG(beanListPDFDocument(row))
+				if err != nil {
+					return miniInternalError(c)
+				}
+			}
+			c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf(`inline; filename="%s"`, beanListPNGFilename(row)))
+			return c.Blob(http.StatusOK, "image/png", body)
+		}
+		publicationID, err := strconv.ParseInt(strings.TrimSuffix(rawID, ".pdf"), 10, 64)
 		if err != nil || publicationID <= 0 {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		}
@@ -603,6 +674,12 @@ func miniPublicationIDParam(c echo.Context, suffix string) (int64, error) {
 	raw := strings.TrimSpace(c.Param("id"))
 	if raw == "" && suffix != "" {
 		raw = strings.TrimSpace(c.Param("id" + suffix))
+	}
+	if raw == "" {
+		path := strings.TrimSpace(c.Request().URL.Path)
+		if idx := strings.LastIndex(path, "/"); idx >= 0 {
+			raw = strings.TrimSpace(path[idx+1:])
+		}
 	}
 	if suffix != "" {
 		raw = strings.TrimSuffix(raw, suffix)

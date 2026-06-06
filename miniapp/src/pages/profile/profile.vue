@@ -31,7 +31,11 @@ function clearAndLogin() {
 }
 
 function openCustomerProducts() {
-  uni.navigateTo({ url: '/pages/service/service?key=beanList' })
+  uni.navigateTo({ url: '/pages/customer-products/customer-products' })
+}
+
+function openFactoryProducts() {
+  uni.navigateTo({ url: '/pages/factory-products/factory-products' })
 }
 
 async function handleCustomerSwitch(event: { detail?: { value?: number | string } }) {
@@ -101,6 +105,7 @@ onShow(() => {
 
       <text v-if="errorMessage" class="error">{{ errorMessage }}</text>
 
+      <button class="secondary-button" @tap="openFactoryProducts">工厂商品表</button>
       <button class="secondary-button" @tap="openCustomerProducts">我的商品</button>
       <button class="secondary-button" @tap="clearAndLogin">切换用户</button>
       <button class="danger-button" @tap="clearAndLogin">退出登录</button>

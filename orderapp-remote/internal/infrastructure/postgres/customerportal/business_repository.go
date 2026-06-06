@@ -554,8 +554,24 @@ func (r Repository) AssignCustomerProductCategory(ctx context.Context, cmd custo
 func (r Repository) LoadResaleBeanListEditor(ctx context.Context, customerID, sourcePublicationID int64) (customerportalapp.ResaleBeanListEditor, error) {
 	source, err := r.loadFactorySupplyBeanListPublication(ctx, customerID, sourcePublicationID)
 	if err != nil {
-		return customerportalapp.ResaleBeanListEditor{}, err
+		if !errors.Is(err, customerportalapp.ErrBeanListPublicationNotFound) {
+			return customerportalapp.ResaleBeanListEditor{}, err
+		}
+		var priceSourceID int64
+		source, priceSourceID, err = r.loadCustomerResaleBeanListPublicationForEditor(ctx, customerID, sourcePublicationID)
+		if err != nil {
+			return customerportalapp.ResaleBeanListEditor{}, err
+		}
+		priceSource, err := r.loadFactorySupplyBeanListPublication(ctx, customerID, priceSourceID)
+		if err != nil {
+			return customerportalapp.ResaleBeanListEditor{}, err
+		}
+		return r.resaleBeanListEditor(ctx, customerID, "customer_resale", source, priceSource)
 	}
+	return r.resaleBeanListEditor(ctx, customerID, "factory_supply", source, source)
+}
+
+func (r Repository) resaleBeanListEditor(ctx context.Context, customerID int64, copySourceType string, source, priceSource customerportalapp.BeanListSummary) (customerportalapp.ResaleBeanListEditor, error) {
 	versions, err := r.ListCustomerResaleBeanListVersions(ctx, customerID, 100)
 	if err != nil {
 		return customerportalapp.ResaleBeanListEditor{}, err
@@ -565,10 +581,42 @@ func (r Repository) LoadResaleBeanListEditor(ctx context.Context, customerID, so
 		return customerportalapp.ResaleBeanListEditor{}, err
 	}
 	return customerportalapp.ResaleBeanListEditor{
+		CopySourceType:    copySourceType,
 		Source:            source,
+		PriceSource:       priceSource,
 		NextVersionNo:     nextResaleBeanListVersionForRepository(versions),
 		GradientTemplates: templates,
 	}, nil
+}
+
+func (r Repository) loadCustomerResaleBeanListPublicationForEditor(ctx context.Context, customerID, publicationID int64) (customerportalapp.BeanListSummary, int64, error) {
+	var row customerportalapp.BeanListSummary
+	var priceSourceID int64
+	var configJSON []byte
+	var contentJSON []byte
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, list_type, version_no, status, to_char(published_at,'YYYY-MM-DD HH24:MI'), changelog, COALESCE(price_source_publication_id,0), config_json, content_json
+		FROM %s.bean_list_publications
+		WHERE id=$1
+		  AND COALESCE(NULLIF(publication_purpose,''),'factory_supply')='customer_resale'
+		  AND owner_type='customer'
+		  AND owner_key=$2
+		  AND status='published'
+	`, r.schema), publicationID, fmt.Sprintf("%d", customerID)).
+		Scan(&row.ID, &row.ListType, &row.VersionNo, &row.Status, &row.PublishedAt, &row.Changelog, &priceSourceID, &configJSON, &contentJSON)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return customerportalapp.BeanListSummary{}, 0, customerportalapp.ErrBeanListPublicationNotFound
+		}
+		return customerportalapp.BeanListSummary{}, 0, err
+	}
+	if priceSourceID <= 0 {
+		return customerportalapp.BeanListSummary{}, 0, fmt.Errorf("customer resale bean list missing factory price source")
+	}
+	if err := parseBeanListDisplaySummary(configJSON, contentJSON, &row); err != nil {
+		return customerportalapp.BeanListSummary{}, 0, err
+	}
+	return row, priceSourceID, nil
 }
 
 func (r Repository) LoadResaleBeanListPublication(ctx context.Context, customerID, publicationID int64) (customerportalapp.BeanListSummary, error) {

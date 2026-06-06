@@ -415,6 +415,79 @@ func TestPublishResaleBeanListIgnoresLegacyItemPriceOverrides(t *testing.T) {
 	}
 }
 
+func TestPublishResaleBeanListCopiedFromCustomerVersionKeepsFactoryPriceSource(t *testing.T) {
+	repo := &fakeRepository{
+		context: CurrentContext{
+			CurrentCustomerID:   77,
+			CurrentCustomerName: "渠道客户",
+			Capabilities:        []Capability{{Code: CapabilityBeanList, Enabled: true}},
+		},
+		resaleEditor: ResaleBeanListEditor{
+			CopySourceType: "customer_resale",
+			Source: BeanListSummary{
+				ID:        21,
+				ListType:  "green",
+				VersionNo: "V1",
+				Title:     "客户旧版商品价格表",
+				BrandName: "旧版品牌",
+				Groups: []BeanListGroupSummary{{
+					Category: "精品生豆",
+					Items: []BeanListProductSummary{{
+						Code: "ETH-G1", Name: "埃塞瑰夏", BadgeLabel: "推荐", HighlightTerms: []string{"瑰夏"},
+						Prices: []BeanListPriceSummary{{Label: "1kg+", Value: "140/kg"}},
+					}},
+				}},
+			},
+			PriceSource: BeanListSummary{
+				ID:        11,
+				ListType:  "green",
+				VersionNo: "G-2026-06",
+				Title:     "工厂供货价格表",
+				Groups: []BeanListGroupSummary{{
+					Category: "生豆",
+					Items: []BeanListProductSummary{{
+						Code: "ETH-G1", Name: "埃塞瑰夏",
+						Prices: []BeanListPriceSummary{{Label: "1kg+", Value: "100/kg"}},
+					}},
+				}},
+			},
+			NextVersionNo: "V2",
+		},
+	}
+	svc := NewService(repo, fakeIdentityProvider{})
+
+	got, err := svc.PublishResaleBeanList(context.Background(), "mini-token", ResaleBeanListCommand{
+		SourcePublicationID: 21,
+		SelectedItemCodes:   []string{"ETH-G1"},
+		PriceRule:           ResaleBeanListPriceRule{AddAmount: 0, Multiplier: 1},
+		Config:              map[string]any{"brandName": "新版品牌"},
+	})
+	if err != nil {
+		t.Fatalf("PublishResaleBeanList copied customer version: %v", err)
+	}
+	if got.VersionNo != "V2" {
+		t.Fatalf("version=%s, want copied next version V2", got.VersionNo)
+	}
+	if repo.resaleSaveCommand.PriceSourcePublicationID != 11 ||
+		repo.resaleSaveCommand.StyleSourcePublicationID != 21 ||
+		repo.resaleSaveCommand.SourceVersionNo != "G-2026-06" {
+		t.Fatalf("save trace=%+v, want factory price source and customer style source", repo.resaleSaveCommand)
+	}
+	groups := repo.resaleSaveCommand.Content["groups"].([]any)
+	group := groups[0].(map[string]any)
+	if group["category"] != "精品生豆" {
+		t.Fatalf("group=%+v, want copied customer category", group)
+	}
+	item := group["items"].([]any)[0].(map[string]any)
+	if item["badgeLabel"] != "推荐" {
+		t.Fatalf("item=%+v, want copied badge", item)
+	}
+	price := item["prices"].([]any)[0].(map[string]any)
+	if price["value"] != "100/kg" {
+		t.Fatalf("price=%+v, want factory base price without repeated customer markup", price)
+	}
+}
+
 func TestGetCustomerProductsUsesCurrentCustomerAndBeanListCapability(t *testing.T) {
 	repo := &fakeRepository{
 		context: CurrentContext{

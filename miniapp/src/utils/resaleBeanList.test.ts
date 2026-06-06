@@ -45,6 +45,14 @@ describe('customer resale bean list helpers', () => {
     expect(draft.config.brandIntro).toBe('源头工厂')
     expect(draft.price_rule.multiplier).toBe(1)
     expect(draft.price_rule.add_amount).toBe(0)
+    expect(draft.category_drafts).toEqual([{
+      id: 'category-1',
+      source_category: '生豆',
+      name: '生豆',
+      item_codes: ['ETH-G1', '巴西黄波旁'],
+      collapsed: false,
+      sort_order: 100,
+    }])
   })
 
   it('normalizes publish payload for source, template, style and markup fields', () => {
@@ -70,6 +78,15 @@ describe('customer resale bean list helpers', () => {
       selected_item_codes: ['ETH-G1'],
       price_rule: { add_amount: 2, multiplier: 1.1 },
       config: { brandName: '客户品牌', brandIntro: '销售说明', backgroundColor: '#fff8ee', layoutStyle: 'card' },
+      category_drafts: [{
+        id: 'category-1',
+        source_category: '生豆',
+        name: '生豆',
+        item_codes: ['ETH-G1', '巴西黄波旁'],
+        collapsed: false,
+        deleted: false,
+        sort_order: 100,
+      }],
       item_overrides: [{ code: 'ETH-G1', badge_label: '推荐', recommended_use: '手冲', highlight_terms: ['推荐'] }],
       changelog: '首版转售豆单',
     })

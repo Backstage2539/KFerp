@@ -1016,6 +1016,33 @@ func TestMiniBeanListPDFAPIReturnsPDFDownload(t *testing.T) {
 	}
 }
 
+func TestMiniBeanListPNGAPIReturnsFactoryLongImage(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{
+		beanList: customerportalapp.BeanListSummary{
+			ID: 1, ListType: "green", VersionNo: "G-2026-06", Status: "published", PublishedAt: "2026-06-06 12:00",
+			Groups: []customerportalapp.BeanListGroupSummary{{
+				Category: "精品生豆",
+				Items: []customerportalapp.BeanListProductSummary{{
+					Code: "ETH-G1", Name: "埃塞瑰夏",
+					Prices: []customerportalapp.BeanListPriceSummary{{Label: "1kg+", Value: "¥100/kg"}},
+				}},
+			}},
+		},
+	}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mini/bean-lists/1.png", nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer mini-token")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Header().Get(echo.HeaderContentType) != "image/png" || !bytes.HasPrefix(rec.Body.Bytes(), []byte{0x89, 'P', 'N', 'G'}) {
+		t.Fatalf("status=%d content-type=%q body=%q", rec.Code, rec.Header().Get(echo.HeaderContentType), rec.Body.Bytes())
+	}
+	if !strings.Contains(rec.Header().Get(echo.HeaderContentDisposition), "bean-list-green-G-2026-06.png") {
+		t.Fatalf("content-disposition=%q", rec.Header().Get(echo.HeaderContentDisposition))
+	}
+}
+
 func TestMiniBeanListPDFPublicationNotFoundMapsToNotFound(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{CustomerPortal: fakeService{err: customerportalapp.ErrBeanListPublicationNotFound}})

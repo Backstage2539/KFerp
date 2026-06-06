@@ -213,7 +213,9 @@ export type CustomerProductCategoryAssignPayload = {
 }
 
 export type ResaleBeanListEditor = {
+  copy_source_type?: 'factory_supply' | 'customer_resale' | string
   source: BeanListSummary
+  price_source?: BeanListSummary
   next_version_no: string
   gradient_templates?: ResaleGradientTemplate[]
 }
@@ -228,9 +230,21 @@ export type ResaleBeanListItemOverride = {
   label?: string
   price?: number
   badge_label?: string
+  clear_badge?: boolean
   recommended_use?: string
   description?: string
   highlight_terms?: string[]
+  clear_highlight_terms?: boolean
+}
+
+export type ResaleBeanListCategoryDraft = {
+  id?: string
+  source_category?: string
+  name: string
+  item_codes?: string[]
+  collapsed?: boolean
+  deleted?: boolean
+  sort_order?: number
 }
 
 export type ResaleBeanListCommand = {
@@ -238,6 +252,7 @@ export type ResaleBeanListCommand = {
   version_no: string
   gradient_template_id: number
   selected_item_codes: string[]
+  category_drafts?: ResaleBeanListCategoryDraft[]
   config: Record<string, unknown>
   price_rule: ResaleBeanListPriceRule
   item_overrides?: ResaleBeanListItemOverride[]
@@ -507,6 +522,14 @@ export function buildMallOrderPath(): string {
 
 export function buildBeanListAckPath(publicationID: number): string {
   return `/api/mini/bean-lists/${Number(publicationID || 0)}/ack`
+}
+
+export function buildBeanListPDFPath(publicationID: number): string {
+  return `/api/mini/bean-lists/${Number(publicationID || 0)}.pdf`
+}
+
+export function buildBeanListPNGPath(publicationID: number): string {
+  return `/api/mini/bean-lists/${Number(publicationID || 0)}.png`
 }
 
 export function buildResaleBeanListsPath(): string {

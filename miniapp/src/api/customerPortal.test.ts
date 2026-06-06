@@ -3,6 +3,8 @@ import {
   buildMallOrderPath,
   buildMallPagePath,
   buildBeanListAckPath,
+  buildBeanListPDFPath,
+  buildBeanListPNGPath,
   buildMiniLoginPayload,
   buildPasswordLoginPath,
   buildCustomerProductsPath,
@@ -61,6 +63,8 @@ describe('customer portal API helpers', () => {
     expect(buildCustomerProductCategoryPath(31)).toBe('/api/mini/customer-products/categories/31')
     expect(buildCustomerProductCategoryMovePath(31)).toBe('/api/mini/customer-products/categories/31/move')
     expect(buildCustomerProductCategoryAssignPath(501)).toBe('/api/mini/customer-products/501/category')
+    expect(buildBeanListPDFPath(11)).toBe('/api/mini/bean-lists/11.pdf')
+    expect(buildBeanListPNGPath(11)).toBe('/api/mini/bean-lists/11.png')
   })
 
   it('types mini product and fulfillment payload drip unit metadata', () => {

@@ -65,7 +65,7 @@ func TestDev433MiniappCustomerProductsPriceListsMiniappAndDeploy(t *testing.T) {
 	if strings.Contains(home, "我的商品") || strings.Contains(home, "beanList") {
 		t.Fatalf("home capability entries must not expose 我的商品/beanList as a home shortcut")
 	}
-	for _, want := range []string{"我的商品", "/pages/service/service?key=beanList"} {
+	for _, want := range []string{"我的商品", "/pages/customer-products/customer-products"} {
 		if !strings.Contains(profile, want) {
 			t.Fatalf("profile.vue missing customer product entry marker %q", want)
 		}
@@ -75,8 +75,8 @@ func TestDev433MiniappCustomerProductsPriceListsMiniappAndDeploy(t *testing.T) {
 		"商品价格表",
 		"我的价格表设置",
 		"已发布商品价格表",
-		"预览 PDF",
-		"预览长图",
+		"PDF",
+		"长图",
 		"resaleStyleColorPresets",
 		"resaleCardsPerRowOptions",
 		"uni.openDocument",

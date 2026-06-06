@@ -2,6 +2,7 @@ import type {
   BeanListProductSummary,
   BeanListSummary,
   ResaleBeanListCommand,
+  ResaleBeanListCategoryDraft,
   ResaleBeanListItemOverride,
 } from '../api/customerPortal'
 
@@ -45,6 +46,7 @@ export function defaultResaleBeanListDraft(source: BeanListSummary, nextVersionN
       showCategoryNumbers: source.show_category_numbers !== false,
     },
     price_rule: { add_amount: 0, multiplier: 1 },
+    category_drafts: defaultResaleCategoryDrafts(source),
     item_overrides: [],
     changelog: '',
   }
@@ -61,9 +63,21 @@ export function buildResaleBeanListPublishPayload(draft: ResaleBeanListCommand):
       multiplier: normalizeNumber(draft.price_rule?.multiplier, 1),
     },
     config: normalizeConfig(draft.config),
+    category_drafts: normalizeCategoryDrafts(draft.category_drafts || []),
     item_overrides: normalizeItemOverrides(draft.item_overrides || []),
     changelog: String(draft.changelog || '').trim(),
   }
+}
+
+export function defaultResaleCategoryDrafts(source: BeanListSummary): ResaleBeanListCategoryDraft[] {
+  return (source.groups || []).map((group, index) => ({
+    id: `category-${index + 1}`,
+    source_category: String(group.category || '').trim(),
+    name: String(group.category || '').trim() || '未分类',
+    item_codes: normalizeStringList((group.items || []).map((item) => resaleBeanListItemKey(item))),
+    collapsed: index > 0,
+    sort_order: (index + 1) * 100,
+  }))
 }
 
 function normalizeStringList(rows: string[] = []): string[] {
@@ -92,14 +106,36 @@ function normalizeConfig(config: Record<string, unknown> = {}): Record<string, u
 
 function normalizeItemOverrides(rows: ResaleBeanListItemOverride[]): ResaleBeanListItemOverride[] {
   return rows
-    .map((row) => ({
-      code: String(row.code || '').trim(),
-      badge_label: String(row.badge_label || '').trim() || undefined,
-      recommended_use: String(row.recommended_use || '').trim() || undefined,
-      description: String(row.description || '').trim() || undefined,
-      highlight_terms: normalizeStringList(row.highlight_terms || []),
-    }))
+    .map((row) => {
+      const out: ResaleBeanListItemOverride = {
+        code: String(row.code || '').trim(),
+        highlight_terms: normalizeStringList(row.highlight_terms || []),
+      }
+      const badgeLabel = String(row.badge_label || '').trim()
+      const recommendedUse = String(row.recommended_use || '').trim()
+      const description = String(row.description || '').trim()
+      if (badgeLabel) out.badge_label = badgeLabel
+      if (row.clear_badge) out.clear_badge = true
+      if (recommendedUse) out.recommended_use = recommendedUse
+      if (description) out.description = description
+      if (row.clear_highlight_terms) out.clear_highlight_terms = true
+      return out
+    })
     .filter((row) => row.code && hasMeaningfulItemOverride(row))
+}
+
+function normalizeCategoryDrafts(rows: ResaleBeanListCategoryDraft[]): ResaleBeanListCategoryDraft[] {
+  return rows
+    .map((row, index) => ({
+      id: String(row.id || '').trim() || `category-${index + 1}`,
+      source_category: String(row.source_category || '').trim() || undefined,
+      name: String(row.name || '').trim() || '未分类',
+      item_codes: normalizeStringList(row.item_codes || []),
+      collapsed: Boolean(row.collapsed),
+      deleted: Boolean(row.deleted),
+      sort_order: Number(row.sort_order || (index + 1) * 100),
+    }))
+    .filter((row) => !row.deleted && (row.name || row.item_codes.length > 0))
 }
 
 function normalizeNumber(value: unknown, fallback: number): number {
@@ -109,9 +145,11 @@ function normalizeNumber(value: unknown, fallback: number): number {
 
 function hasMeaningfulItemOverride(row: ResaleBeanListItemOverride): boolean {
   return Boolean(
-    row.badge_label ||
+      row.badge_label ||
+      row.clear_badge ||
       row.recommended_use ||
       row.description ||
-      (row.highlight_terms && row.highlight_terms.length > 0),
+      (row.highlight_terms && row.highlight_terms.length > 0) ||
+      row.clear_highlight_terms,
   )
 }

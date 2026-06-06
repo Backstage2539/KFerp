@@ -31,6 +31,24 @@
       }
     },
     {
+      "path": "pages/factory-products/factory-products",
+      "style": {
+        "navigationBarTitleText": "工厂商品表"
+      }
+    },
+    {
+      "path": "pages/customer-products/customer-products",
+      "style": {
+        "navigationBarTitleText": "我的商品"
+      }
+    },
+    {
+      "path": "pages/price-table-settings/price-table-settings",
+      "style": {
+        "navigationBarTitleText": "价格表设置"
+      }
+    },
+    {
       "path": "pages/profile/profile",
       "style": {
         "navigationBarTitleText": "个人中心"

@@ -298,7 +298,9 @@ type CustomerProductCategoryAssignmentCommand struct {
 }
 
 type ResaleBeanListEditor struct {
+	CopySourceType    string                   `json:"copy_source_type,omitempty"`
 	Source            BeanListSummary          `json:"source"`
+	PriceSource       BeanListSummary          `json:"price_source,omitempty"`
 	NextVersionNo     string                   `json:"next_version_no"`
 	GradientTemplates []ResaleGradientTemplate `json:"gradient_templates"`
 }
@@ -319,14 +321,15 @@ type ResaleGradientTemplateTier struct {
 }
 
 type ResaleBeanListCommand struct {
-	SourcePublicationID int64                        `json:"source_publication_id"`
-	VersionNo           string                       `json:"version_no"`
-	GradientTemplateID  int64                        `json:"gradient_template_id"`
-	SelectedItemCodes   []string                     `json:"selected_item_codes"`
-	Config              map[string]any               `json:"config"`
-	PriceRule           ResaleBeanListPriceRule      `json:"price_rule"`
-	ItemOverrides       []ResaleBeanListItemOverride `json:"item_overrides"`
-	Changelog           string                       `json:"changelog"`
+	SourcePublicationID int64                         `json:"source_publication_id"`
+	VersionNo           string                        `json:"version_no"`
+	GradientTemplateID  int64                         `json:"gradient_template_id"`
+	SelectedItemCodes   []string                      `json:"selected_item_codes"`
+	CategoryDrafts      []ResaleBeanListCategoryDraft `json:"category_drafts,omitempty"`
+	Config              map[string]any                `json:"config"`
+	PriceRule           ResaleBeanListPriceRule       `json:"price_rule"`
+	ItemOverrides       []ResaleBeanListItemOverride  `json:"item_overrides"`
+	Changelog           string                        `json:"changelog"`
 }
 
 type ResaleBeanListPriceRule struct {
@@ -335,13 +338,25 @@ type ResaleBeanListPriceRule struct {
 }
 
 type ResaleBeanListItemOverride struct {
-	Code           string   `json:"code"`
-	Label          string   `json:"label,omitempty"`
-	Price          float64  `json:"price,omitempty"`
-	BadgeLabel     string   `json:"badge_label,omitempty"`
-	RecommendedUse string   `json:"recommended_use,omitempty"`
-	Description    string   `json:"description,omitempty"`
-	HighlightTerms []string `json:"highlight_terms,omitempty"`
+	Code                string   `json:"code"`
+	Label               string   `json:"label,omitempty"`
+	Price               float64  `json:"price,omitempty"`
+	BadgeLabel          string   `json:"badge_label,omitempty"`
+	ClearBadge          bool     `json:"clear_badge,omitempty"`
+	RecommendedUse      string   `json:"recommended_use,omitempty"`
+	Description         string   `json:"description,omitempty"`
+	HighlightTerms      []string `json:"highlight_terms,omitempty"`
+	ClearHighlightTerms bool     `json:"clear_highlight_terms,omitempty"`
+}
+
+type ResaleBeanListCategoryDraft struct {
+	ID             string   `json:"id,omitempty"`
+	SourceCategory string   `json:"source_category,omitempty"`
+	Name           string   `json:"name"`
+	ItemCodes      []string `json:"item_codes,omitempty"`
+	Collapsed      bool     `json:"collapsed,omitempty"`
+	Deleted        bool     `json:"deleted,omitempty"`
+	SortOrder      int      `json:"sort_order,omitempty"`
 }
 
 type SaveCustomerResaleBeanListPublicationCommand struct {
@@ -1226,6 +1241,14 @@ func (s *Service) GetBeanListPublication(ctx context.Context, token string, publ
 }
 
 func (s *Service) GetBeanListPublicationPDF(ctx context.Context, token string, publicationID int64, render func(BeanListSummary) ([]byte, error)) (BeanListSummary, []byte, error) {
+	return s.getBeanListPublicationAsset(ctx, token, publicationID, "pdf", "application/pdf", render)
+}
+
+func (s *Service) GetBeanListPublicationPNG(ctx context.Context, token string, publicationID int64, render func(BeanListSummary) ([]byte, error)) (BeanListSummary, []byte, error) {
+	return s.getBeanListPublicationAsset(ctx, token, publicationID, "png", "image/png", render)
+}
+
+func (s *Service) getBeanListPublicationAsset(ctx context.Context, token string, publicationID int64, assetType, contentType string, render func(BeanListSummary) ([]byte, error)) (BeanListSummary, []byte, error) {
 	if render == nil {
 		return BeanListSummary{}, nil, fmt.Errorf("bean list renderer required")
 	}
@@ -1236,17 +1259,20 @@ func (s *Service) GetBeanListPublicationPDF(ctx context.Context, token string, p
 	if s.repo == nil {
 		return BeanListSummary{}, nil, fmt.Errorf("repository required")
 	}
-	if asset, err := s.repo.LoadBeanListPublicationAsset(ctx, row.ID, "pdf"); err == nil && len(asset.Payload) > 0 {
+	if asset, err := s.repo.LoadBeanListPublicationAsset(ctx, row.ID, assetType); err == nil && len(asset.Payload) > 0 && (strings.TrimSpace(asset.CacheKey) == "" || strings.TrimSpace(asset.CacheKey) == row.CacheKey) {
 		return row, asset.Payload, nil
 	}
 	body, err := render(row)
 	if err != nil {
 		return BeanListSummary{}, nil, err
 	}
+	if len(body) == 0 {
+		return BeanListSummary{}, nil, fmt.Errorf("bean list asset is empty")
+	}
 	asset, err := s.repo.SaveBeanListPublicationAsset(ctx, BeanListPublicationAsset{
 		PublicationID: row.ID,
-		AssetType:     "pdf",
-		ContentType:   "application/pdf",
+		AssetType:     assetType,
+		ContentType:   contentType,
 		CacheKey:      row.CacheKey,
 		Payload:       body,
 	}, "miniapp")
@@ -1409,6 +1435,12 @@ func (s *Service) GetResaleBeanListEditor(ctx context.Context, token string, sou
 	if editor.Source.ID <= 0 {
 		return ResaleBeanListEditor{}, ErrBeanListPublicationNotFound
 	}
+	if editor.PriceSource.ID <= 0 {
+		editor.PriceSource = editor.Source
+	}
+	if strings.TrimSpace(editor.CopySourceType) == "" {
+		editor.CopySourceType = "factory_supply"
+	}
 	if strings.TrimSpace(editor.NextVersionNo) == "" {
 		versions, err := s.repo.ListCustomerResaleBeanListVersions(ctx, current.CurrentCustomerID, 100)
 		if err != nil {
@@ -1446,6 +1478,10 @@ func (s *Service) saveResaleBeanList(ctx context.Context, token string, cmd Resa
 	if source.ID <= 0 {
 		return BeanListSummary{}, ErrBeanListPublicationNotFound
 	}
+	priceSource := editor.PriceSource
+	if priceSource.ID <= 0 {
+		priceSource = source
+	}
 	var template ResaleGradientTemplate
 	if cmd.GradientTemplateID > 0 {
 		template, err = s.repo.LoadAuthorizedResaleGradientTemplate(ctx, current.CurrentCustomerID, cmd.GradientTemplateID)
@@ -1458,6 +1494,9 @@ func (s *Service) saveResaleBeanList(ctx context.Context, token string, cmd Resa
 	}
 	version := strings.TrimSpace(cmd.VersionNo)
 	if version == "" {
+		version = strings.TrimSpace(editor.NextVersionNo)
+	}
+	if version == "" {
 		versions, err := s.repo.ListCustomerResaleBeanListVersions(ctx, current.CurrentCustomerID, 100)
 		if err != nil {
 			return BeanListSummary{}, err
@@ -1465,7 +1504,7 @@ func (s *Service) saveResaleBeanList(ctx context.Context, token string, cmd Resa
 		version = nextResaleBeanListVersion(versions)
 	}
 	config := resaleBeanListConfig(source, current, cmd)
-	content, err := buildResaleBeanListContent(source, cmd, template, config)
+	content, err := buildResaleBeanListContent(source, priceSource, cmd, template, config)
 	if err != nil {
 		return BeanListSummary{}, err
 	}
@@ -1475,9 +1514,9 @@ func (s *Service) saveResaleBeanList(ctx context.Context, token string, cmd Resa
 		CustomerID:               current.CurrentCustomerID,
 		ListType:                 source.ListType,
 		VersionNo:                version,
-		PriceSourcePublicationID: source.ID,
+		PriceSourcePublicationID: priceSource.ID,
 		StyleSourcePublicationID: source.ID,
-		SourceVersionNo:          source.VersionNo,
+		SourceVersionNo:          priceSource.VersionNo,
 		Config:                   config,
 		Content:                  content,
 		Changelog:                strings.TrimSpace(cmd.Changelog),
@@ -1610,22 +1649,27 @@ func resaleBeanListConfig(source BeanListSummary, current CurrentContext, cmd Re
 	return config
 }
 
-func buildResaleBeanListContent(source BeanListSummary, cmd ResaleBeanListCommand, template ResaleGradientTemplate, config map[string]any) (map[string]any, error) {
+func buildResaleBeanListContent(source BeanListSummary, priceSource BeanListSummary, cmd ResaleBeanListCommand, template ResaleGradientTemplate, config map[string]any) (map[string]any, error) {
 	selected := resaleSelectedItemSet(cmd.SelectedItemCodes)
 	overrides := resaleItemOverrides(cmd.ItemOverrides)
+	priceItems := resaleBeanListItemsByKey(priceSource)
 	brandName := stringValue(config["brandName"])
 	content := map[string]any{
-		"title":         brandName + "销售豆单",
-		"subtitle":      source.Subtitle,
-		"source_id":     source.ID,
-		"sourceVersion": source.VersionNo,
+		"title":              brandName + "销售豆单",
+		"subtitle":           source.Subtitle,
+		"source_id":          source.ID,
+		"sourceVersion":      source.VersionNo,
+		"priceSourceId":      priceSource.ID,
+		"priceSourceVersion": priceSource.VersionNo,
 	}
-	groups := make([]any, 0, len(source.Groups))
+	draftGroups := resaleBeanListDraftGroups(source, cmd.CategoryDrafts)
+	groups := make([]any, 0, len(draftGroups))
 	total := 0
-	for _, sourceGroup := range source.Groups {
+	for _, sourceGroup := range draftGroups {
 		group := map[string]any{
 			"category":     sourceGroup.Category,
 			"showCategory": sourceGroup.ShowCategory,
+			"collapsed":    sourceGroup.Collapsed,
 		}
 		items := make([]any, 0, len(sourceGroup.Items))
 		for _, sourceItem := range sourceGroup.Items {
@@ -1634,7 +1678,11 @@ func buildResaleBeanListContent(source BeanListSummary, cmd ResaleBeanListComman
 				continue
 			}
 			itemOverride := overrides[key]
-			item, err := resaleBeanListContentItem(sourceItem, itemOverride, cmd.PriceRule, template)
+			priceItem := priceItems[key]
+			if strings.TrimSpace(resaleBeanListItemKey(priceItem)) == "" {
+				priceItem = sourceItem
+			}
+			item, err := resaleBeanListContentItem(sourceItem, priceItem, itemOverride, cmd.PriceRule, template)
 			if err != nil {
 				return nil, err
 			}
@@ -1654,20 +1702,128 @@ func buildResaleBeanListContent(source BeanListSummary, cmd ResaleBeanListComman
 	return content, nil
 }
 
-func resaleBeanListContentItem(source BeanListProductSummary, override ResaleBeanListItemOverride, rule ResaleBeanListPriceRule, template ResaleGradientTemplate) (map[string]any, error) {
-	prices, err := resaleBeanListPriceRows(source, override, rule, template)
+type resaleBeanListDraftGroup struct {
+	Category     string
+	ShowCategory bool
+	Collapsed    bool
+	Items        []BeanListProductSummary
+}
+
+func resaleBeanListDraftGroups(source BeanListSummary, drafts []ResaleBeanListCategoryDraft) []resaleBeanListDraftGroup {
+	if len(drafts) == 0 {
+		out := make([]resaleBeanListDraftGroup, 0, len(source.Groups))
+		for _, group := range source.Groups {
+			out = append(out, resaleBeanListDraftGroup{
+				Category:     group.Category,
+				ShowCategory: group.ShowCategory,
+				Items:        group.Items,
+			})
+		}
+		return out
+	}
+	sourceItems := resaleBeanListItemsByKey(source)
+	sourceGroups := resaleBeanListSourceGroupsByCategory(source)
+	out := make([]resaleBeanListDraftGroup, 0, len(drafts)+len(source.Groups))
+	seen := map[string]bool{}
+	for _, draft := range drafts {
+		if draft.Deleted {
+			continue
+		}
+		name := strings.TrimSpace(draft.Name)
+		sourceCategory := strings.TrimSpace(draft.SourceCategory)
+		if name == "" {
+			name = sourceCategory
+		}
+		if name == "" {
+			name = "未分类"
+		}
+		keys := cleanStringList(draft.ItemCodes)
+		if len(keys) == 0 && sourceCategory != "" {
+			keys = sourceGroups[sourceCategory]
+		}
+		items := make([]BeanListProductSummary, 0, len(keys))
+		for _, key := range keys {
+			item, ok := sourceItems[key]
+			if !ok {
+				continue
+			}
+			items = append(items, item)
+			seen[key] = true
+		}
+		out = append(out, resaleBeanListDraftGroup{
+			Category:     name,
+			ShowCategory: true,
+			Collapsed:    draft.Collapsed,
+			Items:        items,
+		})
+	}
+	for _, group := range source.Groups {
+		items := make([]BeanListProductSummary, 0, len(group.Items))
+		for _, item := range group.Items {
+			key := resaleBeanListItemKey(item)
+			if key == "" || seen[key] {
+				continue
+			}
+			items = append(items, item)
+			seen[key] = true
+		}
+		if len(items) == 0 {
+			continue
+		}
+		out = append(out, resaleBeanListDraftGroup{
+			Category:     group.Category,
+			ShowCategory: group.ShowCategory,
+			Items:        items,
+		})
+	}
+	return out
+}
+
+func resaleBeanListItemsByKey(source BeanListSummary) map[string]BeanListProductSummary {
+	out := map[string]BeanListProductSummary{}
+	for _, group := range source.Groups {
+		for _, item := range group.Items {
+			if key := resaleBeanListItemKey(item); key != "" {
+				out[key] = item
+			}
+		}
+	}
+	return out
+}
+
+func resaleBeanListSourceGroupsByCategory(source BeanListSummary) map[string][]string {
+	out := map[string][]string{}
+	for _, group := range source.Groups {
+		category := strings.TrimSpace(group.Category)
+		for _, item := range group.Items {
+			if key := resaleBeanListItemKey(item); key != "" {
+				out[category] = append(out[category], key)
+			}
+		}
+	}
+	return out
+}
+
+func resaleBeanListContentItem(source BeanListProductSummary, priceSource BeanListProductSummary, override ResaleBeanListItemOverride, rule ResaleBeanListPriceRule, template ResaleGradientTemplate) (map[string]any, error) {
+	prices, err := resaleBeanListPriceRows(priceSource, override, rule, template)
 	if err != nil {
 		return nil, err
+	}
+	badge := source.Badge
+	badgeLabel := firstNonEmpty(override.BadgeLabel, source.BadgeLabel)
+	if override.ClearBadge {
+		badge = ""
+		badgeLabel = ""
 	}
 	item := map[string]any{
 		"code":           source.Code,
 		"name":           source.Name,
-		"badge":          source.Badge,
-		"badgeLabel":     firstNonEmpty(override.BadgeLabel, source.BadgeLabel),
+		"badge":          badge,
+		"badgeLabel":     badgeLabel,
 		"recommendedUse": firstNonEmpty(override.RecommendedUse, source.RecommendedUse),
 		"flavor":         source.Flavor,
 		"description":    firstNonEmpty(override.Description, source.Description),
-		"highlightTerms": resaleHighlightTerms(override.HighlightTerms, source.HighlightTerms),
+		"highlightTerms": resaleHighlightTerms(override, source.HighlightTerms),
 		"prices":         prices,
 	}
 	return item, nil
@@ -1861,9 +2017,12 @@ func resaleBeanListItemKey(item BeanListProductSummary) string {
 	return strings.TrimSpace(item.Name)
 }
 
-func resaleHighlightTerms(override []string, source []string) []string {
-	if len(override) > 0 {
-		return cleanStringList(override)
+func resaleHighlightTerms(override ResaleBeanListItemOverride, source []string) []string {
+	if override.ClearHighlightTerms {
+		return []string{}
+	}
+	if len(override.HighlightTerms) > 0 {
+		return cleanStringList(override.HighlightTerms)
 	}
 	return cleanStringList(source)
 }

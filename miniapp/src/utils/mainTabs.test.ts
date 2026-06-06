@@ -15,6 +15,9 @@ describe('miniapp startup route and main tabs', () => {
       expect.arrayContaining([
         'pages/home/home',
         'pages/service/service',
+        'pages/factory-products/factory-products',
+        'pages/customer-products/customer-products',
+        'pages/price-table-settings/price-table-settings',
         'pages/profile/profile',
       ]),
     )
@@ -77,33 +80,46 @@ describe('miniapp startup route and main tabs', () => {
 
     expect(capabilities).not.toContain('beanList')
     expect(capabilities).not.toContain('我的商品')
+    expect(profile).toContain('工厂商品表')
     expect(profile).toContain('我的商品')
-    expect(profile).toContain('/pages/service/service?key=beanList')
+    expect(profile).toContain('/pages/factory-products/factory-products')
+    expect(profile).toContain('/pages/customer-products/customer-products')
   })
 
-  it('renders the customer products and price list workspace on the bean-list tab', () => {
+  it('splits factory product tables, my products, and price table settings into focused pages', () => {
+    const factoryPage = readSource('src/pages/factory-products/factory-products.vue')
+    const customerPage = readSource('src/pages/customer-products/customer-products.vue')
+    const settingsPage = readSource('src/pages/price-table-settings/price-table-settings.vue')
     const servicePage = readSource('src/pages/service/service.vue')
 
-    expect(servicePage).toContain('fetchCustomerProducts')
-    expect(servicePage).toContain('fetchResaleBeanLists')
-    expect(servicePage).toContain('fetchResaleBeanListEditor')
-    expect(servicePage).toContain('saveResaleBeanListDraft')
-    expect(servicePage).toContain('publishResaleBeanList')
-    expect(servicePage).toContain('buildResaleBeanListPDFPath')
-    expect(servicePage).toContain('buildResaleBeanListPNGPath')
-    expect(servicePage).toContain('商品分类')
-    expect(servicePage).toContain('商品价格表')
-    expect(servicePage).toContain('我的价格表设置')
-    expect(servicePage).toContain('已发布商品价格表')
-    expect(servicePage).toContain('发布商品价格表')
-    expect(servicePage).toContain('保存草稿')
-    expect(servicePage).toContain('选择商品')
-    expect(servicePage).toContain('预览 PDF')
-    expect(servicePage).toContain('预览长图')
-    expect(servicePage).not.toContain('覆盖档位')
-    expect(servicePage).not.toContain('单品价')
-    expect(servicePage).not.toContain('placeholder="背景色 #f8f1e5"')
-    expect(servicePage).not.toContain('placeholder="每行卡片数"')
+    expect(factoryPage).toContain('工厂商品表')
+    expect(factoryPage).toContain('factory_price_table_groups')
+    expect(factoryPage).toContain('PDF')
+    expect(factoryPage).toContain('长图')
+    expect(factoryPage).toContain('openBeanListOutput')
+
+    expect(customerPage).toContain('我的商品')
+    expect(customerPage).toContain('已发布商品价格表')
+    expect(customerPage).toContain('价格表设置')
+    expect(customerPage).toContain('/pages/price-table-settings/price-table-settings')
+    expect(customerPage).not.toContain('统一加价')
+    expect(customerPage).not.toContain('倍率加价')
+
+    expect(settingsPage).toContain('复制来源')
+    expect(settingsPage).toContain('工厂价格表')
+    expect(settingsPage).toContain('我的已发布价格表')
+    expect(settingsPage).toContain('商品配置')
+    expect(settingsPage).toContain('标红词')
+    expect(settingsPage).toContain('发布商品价格表')
+
+    for (const source of [factoryPage, customerPage, settingsPage, servicePage]) {
+      expect(source).not.toContain('预览 PDF')
+      expect(source).not.toContain('预览长图')
+      expect(source).not.toContain('覆盖档位')
+      expect(source).not.toContain('单品价')
+      expect(source).not.toContain('placeholder="背景色 #f8f1e5"')
+      expect(source).not.toContain('placeholder="每行卡片数"')
+    }
   })
 
   it('removes top profile links from content pages', () => {
