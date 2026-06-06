@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-430-BOM-USAGE-CURRENT-VERSION
+- Branch: codex/bom-usage-component-strict-20260606
+- Owner/session: Codex / 2026-06-06
+- Status: local fix verified; pending merge, development deploy, and live GoalE2E data repair/acceptance
+- Scope: 商品档案和生产 BOM 详情的组件反查只读取每个生产 BOM 当前有效版本，避免旧发布版本的组件行继续污染“被哪些 BOM 使用”。用户指出 `GoalE2E-0605-234447 咖啡熟豆` 不应显示 `BOM-001435 GoalE2E-0605-234447 咖啡挂耳 BOM · 作为组件`。
+- DEV:
+  - DEV-430-BOM-USAGE-CURRENT-VERSION：`listProductionBomUsageByProduct` 和 `listProductionBomComponentUsedByBoms` 先选 current draft/latest published version，再匹配 `production_bom_version_items` 商品组件。
+- Verifier:
+  - RED live: development DB confirmed `BOM-001435` V001 item `61` had `component_type=product` and `component_product_id=532`, causing product `532` reverse lookup to show the挂耳 BOM as component usage.
+  - RED local: `go test ./internal/infrastructure/postgres/bom -run TestProductionBomUsageLookupsUseCurrentVersionOnly -count=1` failed before implementation because `current_usage_versions` was missing.
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev430BomUsageCurrentVersion -count=1` failed before requirement seed/docs were added.
+  - GREEN targeted: `go test ./internal/infrastructure/postgres/bom -run 'TestProductionBomUsageLookupsUseCurrentVersionOnly|TestProductionBomOutputProductAndMultiLevelPublishValidationMarkers' -count=1`.
+  - GREEN support: `go test ./internal/interfaces/http/support -run TestDev430BomUsageCurrentVersion -count=1`.
+  - GREEN broader: `go test ./internal/infrastructure/postgres/bom ./internal/interfaces/http/bom ./internal/interfaces/http/support -count=1`; `go test ./...`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Pending: merge to `develop`, development deploy, create/repair GoalE2E current挂耳 BOM version, and browser/API acceptance.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `docs/acceptance/2026-06-06-bom-usage-current-version.md`.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-429-PRODUCT-ARCHIVE-LIST-NOTICE-CLEANUP
 - Branch: codex/product-archive-list-notice-cleanup-20260606
 - Owner/session: Codex / 2026-06-06

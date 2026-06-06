@@ -156,6 +156,20 @@ func TestProductionBomOutputProductAndMultiLevelPublishValidationMarkers(t *test
 	}
 }
 
+func TestProductionBomUsageLookupsUseCurrentVersionOnly(t *testing.T) {
+	repository := readRepositorySource(t)
+	for _, want := range []string{
+		"current_usage_versions AS (",
+		"current_component_versions AS (",
+		"JOIN current_usage_versions cv ON cv.bom_id=pb.id",
+		"JOIN current_component_versions cv ON cv.bom_id=pb.id",
+	} {
+		if !strings.Contains(repository, want) {
+			t.Fatalf("production BOM usage lookup must inspect only each BOM current draft/published version; missing marker %q", want)
+		}
+	}
+}
+
 func TestProductionBomVersionSpecialAttrsSchemaBackfillAndAuditMarkers(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {
