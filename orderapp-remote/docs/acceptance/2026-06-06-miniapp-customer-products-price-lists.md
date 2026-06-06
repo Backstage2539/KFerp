@@ -14,4 +14,4 @@
 - [x] Go/API：客户商品接口、分类写接口、旧单品覆盖忽略、授权模板过滤。证据：`go test ./...`。
 - [x] Miniapp：入口、分类、分组、折叠、编辑器和输出预览。证据：`npm test`。
 - [x] Build：`npm run typecheck`、`npm run build:mp-weixin`、Vue shell `npm run build`。
-- [ ] Deploy smoke：远端 `miniapp/dist/build/mp-weixin` 存在，小程序接口无 token 返回 401。
+- [x] Deploy smoke：远端 `miniapp/dist/build/mp-weixin` 存在；部署文档含 PR-433；`/app/vue-shell/` 与 `/app/api/req/product?limit=500` 返回 200；小程序接口无 mini token 返回 401。

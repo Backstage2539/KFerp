@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-433-MINIAPP-CUSTOMER-PRODUCTS-PRICE-LISTS
 - Branch: codex/miniapp-customer-products-price-lists-20260606
 - Owner/session: Codex / 2026-06-06
-- Status: local green; pending merge, development deploy, and smoke acceptance
+- Status: merged to develop and deployed to development; pending Van product acceptance
 - Scope: 小程序首页不放“我的商品”，个人中心进入“我的商品”；“我的商品”管理客户自己的商品、商品分类、工厂给客户的商品价格表和客户自己发布的商品价格表。商品价格表按 `list_type/list_type_label` 分组，客户发布版本在“我的价格表”折叠展示；编辑器移到“我的价格表设置”，去掉覆盖档位和单品价，保留统一加价/倍率加价、品牌、说明、样式、背景、标签和 PDF/长图预览。
 - DEV:
   - DEV-433-MINIAPP-CUSTOMER-PRODUCTS-API：新增 `/api/mini/customer-products` 和客户商品分类 CRUD/移动/归类接口，写操作校验 mini token、当前客户绑定、`bean_list` 能力并写操作日志。
@@ -21,6 +21,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - RED captured: Go/API、miniapp、部署脚本和手册守卫先失败于缺失客户商品接口、分类编辑、miniapp 构建门禁和新页面文案。
   - GREEN local: `go test ./...` in `orderapp-remote`; `npm test` in `miniapp`; `npm run typecheck` in `miniapp`; `npm run build:mp-weixin` in `miniapp`; `npm run build` in `orderapp-remote/frontend-vue-shell`; `git diff --check`.
+  - GREEN deploy: `./deploy_orderapp.sh` completed; script ran Vue shell build, miniapp `npm ci`/`typecheck`/`build:mp-weixin`, Docker `go test ./...`, and restarted `erp_orderapp`.
+  - GREEN smoke: containers running; `/opt/stacks/erp/orderapp/miniapp/dist/build/mp-weixin` exists; deployed docs contain PR-433; authenticated `/app/vue-shell/` and `/app/api/req/product?limit=500` return 200; `/app/api/mini/customer-products` without mini token returns 401.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/customer-portal-miniapp-test.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-miniapp-customer-products-price-lists.md`.
 - Last update: 2026-06-06 Asia/Shanghai
 
