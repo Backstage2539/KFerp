@@ -409,6 +409,28 @@ func TestCostingCalculateAPI(t *testing.T) {
 	}
 }
 
+func TestBeanListAPIReturnsEmptyItemsWhenCatalogHasNoProducts(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: appcosting.NewService(fakeRepo{})})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/costing/bean-list", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var body appcosting.CalculateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) != 0 {
+		t.Fatalf("items = %+v, want empty list", body.Items)
+	}
+	if strings.Contains(rec.Body.String(), "products required") {
+		t.Fatalf("response must not expose products required: %s", rec.Body.String())
+	}
+}
+
 func TestCostingCalculateAPICustomerSkuWithoutCategoryDoesNotReturnExcelCategory(t *testing.T) {
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Costing: fakeService{}})

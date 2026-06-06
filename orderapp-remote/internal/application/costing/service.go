@@ -376,6 +376,9 @@ func (s *Service) BeanList(ctx context.Context, query BeanListQuery) (*Calculate
 	if err != nil {
 		return nil, err
 	}
+	if len(inputs) == 0 {
+		return &CalculateResponse{Parameters: params, Items: []domain.ProductResult{}}, nil
+	}
 	items, err := calculate(CalculateRequest{Products: inputs}, params)
 	if err != nil {
 		return nil, err

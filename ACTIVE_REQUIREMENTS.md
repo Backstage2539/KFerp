@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-437-PRICE-LIST-EMPTY-PRODUCTS
+- Branch: codex/price-table-empty-products-20260606
+- Owner/session: Codex / 2026-06-06
+- Status: local fix verified; pending merge, development deploy, and browser acceptance
+- Scope: 商品价格表当前归属或分类没有可用商品时不得报 `products required`；价格表候选接口返回空 items 和参数，发布/生成仍由空内容禁用逻辑保护。
+- DEV:
+  - DEV-437-BEAN-LIST-EMPTY-CATALOG：`BeanList` 在商品目录为空时返回空 `items`，不复用通用成本试算的空 products 错误。
+- Verifier:
+  - RED service: `go test ./internal/application/costing -run TestBeanListAllowsEmptyProductCatalog -count=1` failed with `BeanList() error = products required, want empty response`.
+  - GREEN service: `go test ./internal/application/costing -run 'TestBeanListAllowsEmptyProductCatalog|TestCalculateRejectsEmptyProducts|TestBeanListPreservesCustomerAliasAndProductSnapshots' -count=1`.
+  - GREEN API: `go test ./internal/interfaces/http/costing -run TestBeanListAPIReturnsEmptyItemsWhenCatalogHasNoProducts -count=1`.
+  - GREEN support: `go test ./internal/interfaces/http/support -run TestDev437PriceListEmptyProducts -count=1`.
+  - GREEN broader: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1`; `go test ./...` in `orderapp-remote`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-price-list-empty-products.md`.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-435-PRICE-LIST-CATEGORY-ALIGNMENT
 - Branch: codex/price-table-category-align-20260606
 - Owner/session: Codex / 2026-06-06

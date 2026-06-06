@@ -142,6 +142,22 @@ func TestCalculateRejectsEmptyProducts(t *testing.T) {
 	}
 }
 
+func TestBeanListAllowsEmptyProductCatalog(t *testing.T) {
+	resp, err := NewService(&fakeRepo{}).BeanList(context.Background(), BeanListQuery{})
+	if err != nil {
+		t.Fatalf("BeanList() error = %v, want empty response", err)
+	}
+	if resp == nil {
+		t.Fatal("BeanList() response is nil")
+	}
+	if len(resp.Items) != 0 {
+		t.Fatalf("items = %+v, want empty list", resp.Items)
+	}
+	if resp.Parameters.RoastYieldRate == 0 {
+		t.Fatalf("parameters not populated: %+v", resp.Parameters)
+	}
+}
+
 func TestBeanListPreservesCustomerAliasAndProductSnapshots(t *testing.T) {
 	repo := &fakeRepo{customerInputs: []domain.ProductInput{{
 		ProductID:                  10,
