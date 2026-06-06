@@ -1,4 +1,4 @@
-# PR-430-CUSTOMER-RESALE-BEAN-LIST Acceptance
+# PR-431-CUSTOMER-RESALE-BEAN-LIST Acceptance
 
 ## Scope
 - 小程序客户可基于可见的工厂供货豆单生成自己的客户销售豆单。

@@ -2231,13 +2231,30 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 			WHERE pb.output_product_id=$1
 			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
 		),
+		current_usage_versions AS (
+			SELECT pb.id AS bom_id,
+			       v.id AS bom_version_id,
+			       COALESCE(v.version_no,'') AS bom_version_no
+			FROM %[1]s.production_boms pb
+			JOIN LATERAL (
+				SELECT id, version_no, status, published_at, created_at
+				FROM %[1]s.production_bom_versions v
+				WHERE v.bom_id=pb.id AND v.status IN ('draft','published')
+				ORDER BY CASE WHEN v.status='draft' THEN 0 ELSE 1 END,
+				         v.published_at DESC NULLS LAST,
+				         v.created_at DESC,
+				         v.id DESC
+				LIMIT 1
+			) v ON true
+			WHERE COALESCE(NULLIF(pb.status,''),'active')='active'
+		),
 		component_usage AS (
 			SELECT DISTINCT ON (pb.id)
 			       pb.id AS bom_id,
 			       COALESCE(pb.code,'') AS bom_code,
 			       COALESCE(pb.name,'') AS bom_name,
-			       v.id AS bom_version_id,
-			       COALESCE(v.version_no,'') AS bom_version_no,
+			       cv.bom_version_id AS bom_version_id,
+			       cv.bom_version_no AS bom_version_no,
 			       COALESCE(pb.output_product_id,0) AS output_product_id,
 			       COALESCE(op.name,'') AS output_product_name,
 			       'component' AS relation_type,
@@ -2245,19 +2262,15 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 			       COALESCE(i.qty_per_unit,0)::float8 AS qty_per_unit,
 			       1 AS relation_sort,
 			       i.id AS sort_item_id
-			FROM %[1]s.production_bom_version_items i
-			JOIN %[1]s.production_bom_versions v ON v.id=i.version_id AND v.status IN ('draft','published')
-			JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
+			FROM %[1]s.production_boms pb
+			JOIN current_usage_versions cv ON cv.bom_id=pb.id
+			JOIN %[1]s.production_bom_version_items i ON i.version_id=cv.bom_version_id
 			JOIN %[1]s.products cp ON cp.id=i.component_product_id AND cp.active=true
 			LEFT JOIN %[1]s.products op ON op.id=pb.output_product_id
 			WHERE i.component_type IN ('product','finished_product')
 			  AND i.component_product_id=$1
 			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
 			ORDER BY pb.id,
-			         CASE WHEN v.status='draft' THEN 0 ELSE 1 END,
-			         v.published_at DESC NULLS LAST,
-			         v.created_at DESC,
-			         v.id DESC,
 			         i.id
 		),
 		usage AS (
@@ -2289,22 +2302,39 @@ func (r Repository) listProductionBomComponentUsedByBoms(ctx context.Context, co
 		return []bomapp.ProductionBomUsedByBom{}, nil
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		WITH usage AS (
+		WITH current_component_versions AS (
+			SELECT pb.id AS bom_id,
+			       v.id AS bom_version_id,
+			       COALESCE(v.version_no,'') AS bom_version_no
+			FROM %[1]s.production_boms pb
+			JOIN LATERAL (
+				SELECT id, version_no, status, published_at, created_at
+				FROM %[1]s.production_bom_versions v
+				WHERE v.bom_id=pb.id AND v.status IN ('draft','published')
+				ORDER BY CASE WHEN v.status='draft' THEN 0 ELSE 1 END,
+				         v.published_at DESC NULLS LAST,
+				         v.created_at DESC,
+				         v.id DESC
+				LIMIT 1
+			) v ON true
+			WHERE COALESCE(NULLIF(pb.status,''),'active')='active'
+		),
+		usage AS (
 			SELECT DISTINCT ON (pb.id)
 			       pb.id AS bom_id,
 			       COALESCE(pb.code,'') AS bom_code,
 			       COALESCE(pb.name,'') AS bom_name,
-			       v.id AS bom_version_id,
-			       COALESCE(v.version_no,'') AS bom_version_no,
+			       cv.bom_version_id AS bom_version_id,
+			       cv.bom_version_no AS bom_version_no,
 			       COALESCE(pb.output_product_id,0) AS output_product_id,
 			       COALESCE(op.name,'') AS output_product_name,
 			       'component' AS relation_type,
 			       COALESCE(i.consume_unit,'') AS consume_unit,
 			       COALESCE(i.qty_per_unit,0)::float8 AS qty_per_unit,
 			       i.id AS sort_item_id
-			FROM %[1]s.production_bom_version_items i
-			JOIN %[1]s.production_bom_versions v ON v.id=i.version_id AND v.status IN ('draft','published')
-			JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
+			FROM %[1]s.production_boms pb
+			JOIN current_component_versions cv ON cv.bom_id=pb.id
+			JOIN %[1]s.production_bom_version_items i ON i.version_id=cv.bom_version_id
 			JOIN %[1]s.products cp ON cp.id=i.component_product_id AND cp.active=true
 			LEFT JOIN %[1]s.products op ON op.id=pb.output_product_id
 			WHERE i.component_type IN ('product','finished_product')
@@ -2312,10 +2342,6 @@ func (r Repository) listProductionBomComponentUsedByBoms(ctx context.Context, co
 			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
 			  AND COALESCE(pb.output_product_id,0)<>$1
 			ORDER BY pb.id,
-			         CASE WHEN v.status='draft' THEN 0 ELSE 1 END,
-			         v.published_at DESC NULLS LAST,
-			         v.created_at DESC,
-			         v.id DESC,
 			         i.id
 		)
 		SELECT bom_id,

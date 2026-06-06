@@ -6,18 +6,18 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
-### PR-430-CUSTOMER-RESALE-BEAN-LIST
+### PR-431-CUSTOMER-RESALE-BEAN-LIST
 - Branch: codex/customer-resale-bean-list-20260606
 - Owner/session: Codex / 2026-06-06
 - Status: local implementation verified; pending merge/rebase with latest `origin/develop`, development deploy and live ERP/miniapp acceptance
 - Scope: 小程序客户可基于自己可见的工厂供货豆单制作“客户转售豆单”，选择商品、授权阶梯价模板、统一加价/倍率加价/单品覆盖，编辑版本号、品牌名、豆单说明、样式、背景和标签，发布后生成 PDF 和服务端长图 PNG；客户转售豆单只用于对外分享，不参与向工厂下单、结算或履约计价。
 - DEV:
-  - DEV-430-BEAN-LIST-PURPOSE-SNAPSHOT：`bean_list_publications` 增加 `publication_purpose`，现有记录默认 `factory_supply`，小程序客户发布保存为 `customer_resale` 并记录来源供货豆单版本。
-  - DEV-430-GRADIENT-TEMPLATE-AUTHORIZATION：阶梯价模板增加“允许客户转售豆单使用”开关，小程序只返回 active 且授权模板。
-  - DEV-430-MINI-RESALE-BEAN-LIST-API：新增小程序转售豆单列表、编辑器草稿、草稿保存、发布、PDF 和 PNG 输出接口，所有写操作校验 mini token、当前客户绑定、`bean_list` 能力并写操作日志。
-  - DEV-430-RESALE-PRICE-CALCULATION：客户转售价格只基于客户可见工厂供货快照，按授权模板档位匹配来源价格后应用统一加价、倍率和单品覆盖；单位不一致或缺少可匹配价格时拒绝发布。
-  - DEV-430-MINIAPP-LIGHT-EDITOR：小程序“我的豆单”页增加轻量编辑面板，支持来源豆单、模板、商品勾选、品牌/说明、样式/背景、标签、草稿、发布和 PDF/长图分享。
-  - DEV-430-COSTING-PURPOSE-FILTER：ERP 产品价格表版本列表增加用途筛选，管理员可查看工厂供货豆单和客户转售豆单，客户转售版本不进入录单默认价格版本。
+  - DEV-431-BEAN-LIST-PURPOSE-SNAPSHOT：`bean_list_publications` 增加 `publication_purpose`，现有记录默认 `factory_supply`，小程序客户发布保存为 `customer_resale` 并记录来源供货豆单版本。
+  - DEV-431-GRADIENT-TEMPLATE-AUTHORIZATION：阶梯价模板增加“允许客户转售豆单使用”开关，小程序只返回 active 且授权模板。
+  - DEV-431-MINI-RESALE-BEAN-LIST-API：新增小程序转售豆单列表、编辑器草稿、草稿保存、发布、PDF 和 PNG 输出接口，所有写操作校验 mini token、当前客户绑定、`bean_list` 能力并写操作日志。
+  - DEV-431-RESALE-PRICE-CALCULATION：客户转售价格只基于客户可见工厂供货快照，按授权模板档位匹配来源价格后应用统一加价、倍率和单品覆盖；单位不一致或缺少可匹配价格时拒绝发布。
+  - DEV-431-MINIAPP-LIGHT-EDITOR：小程序“我的豆单”页增加轻量编辑面板，支持来源豆单、模板、商品勾选、品牌/说明、样式/背景、标签、草稿、发布和 PDF/长图分享。
+  - DEV-431-COSTING-PURPOSE-FILTER：ERP 产品价格表版本列表增加用途筛选，管理员可查看工厂供货豆单和客户转售豆单，客户转售版本不进入录单默认价格版本。
 - Verifier:
   - RED local: added failing Go/API/PDF/frontend/miniapp tests before implementation for resale publication calculation, Mini API routes, repository purpose filtering, PNG renderer, costing purpose filter, gradient template authorization, and miniapp editor helpers/UI anchors.
   - GREEN local targeted: `go test ./internal/application/customerportal -run 'TestPublishResaleBeanList' -count=1`; `go test ./internal/interfaces/http/customerportal -run 'TestMiniResaleBeanList|TestMiniBeanListPDF' -count=1`; `go test ./internal/interfaces/http/costing -run 'TestBeanListPublicationAPISupportsPurposeFilter|TestBeanListPublicationAPI' -count=1`; `go test ./internal/infrastructure/postgres/customerportal -run TestResaleBeanListPageSeparatesFactorySupplySnapshotsAndAuthorizedTemplates -count=1`; `go test ./internal/infrastructure/pdf -run TestBeanListRendererRenderPNGProducesLongShareImage -count=1`; `node --test src/lib/gradient-templates.test.js src/lib/costing-bean-list-version-ui.test.js`; `npm test -- src/utils/mainTabs.test.ts src/utils/resaleBeanList.test.ts`; `npm run typecheck` in miniapp.
@@ -25,6 +25,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Visual artifacts: rendered `../customer-resale-bean-list-artifacts/customer-resale-bean-list.pdf`, `../customer-resale-bean-list-artifacts/customer-resale-bean-list.pdf.png`, and `../customer-resale-bean-list-artifacts/customer-resale-bean-list.png`; Quick Look PDF screenshot and long PNG show version, brand/intro, recommendation tag, price and changelog without overlap.
   - Pending: `git diff --check`, merge/rebase with latest `origin/develop`, development deploy and live browser/miniapp acceptance if Van confirms deployment window.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_FULFILLMENT.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/customer-portal-miniapp-test.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-customer-resale-bean-list.md`.
+- Last update: 2026-06-06 Asia/Shanghai
+
+### PR-430-BOM-USAGE-CURRENT-VERSION
+- Branch: codex/bom-usage-component-strict-20260606
+- Owner/session: Codex / 2026-06-06
+- Status: local fix verified; pending merge, development deploy, and live GoalE2E data repair/acceptance
+- Scope: 商品档案和生产 BOM 详情的组件反查只读取每个生产 BOM 当前有效版本，避免旧发布版本的组件行继续污染“被哪些 BOM 使用”。用户指出 `GoalE2E-0605-234447 咖啡熟豆` 不应显示 `BOM-001435 GoalE2E-0605-234447 咖啡挂耳 BOM · 作为组件`。
+- DEV:
+  - DEV-430-BOM-USAGE-CURRENT-VERSION：`listProductionBomUsageByProduct` 和 `listProductionBomComponentUsedByBoms` 先选 current draft/latest published version，再匹配 `production_bom_version_items` 商品组件。
+- Verifier:
+  - RED live: development DB confirmed `BOM-001435` V001 item `61` had `component_type=product` and `component_product_id=532`, causing product `532` reverse lookup to show the挂耳 BOM as component usage.
+  - RED local: `go test ./internal/infrastructure/postgres/bom -run TestProductionBomUsageLookupsUseCurrentVersionOnly -count=1` failed before implementation because `current_usage_versions` was missing.
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev430BomUsageCurrentVersion -count=1` failed before requirement seed/docs were added.
+  - GREEN targeted: `go test ./internal/infrastructure/postgres/bom -run 'TestProductionBomUsageLookupsUseCurrentVersionOnly|TestProductionBomOutputProductAndMultiLevelPublishValidationMarkers' -count=1`.
+  - GREEN support: `go test ./internal/interfaces/http/support -run TestDev430BomUsageCurrentVersion -count=1`.
+  - GREEN broader: `go test ./internal/infrastructure/postgres/bom ./internal/interfaces/http/bom ./internal/interfaces/http/support -count=1`; `go test ./...`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Pending: merge to `develop`, development deploy, create/repair GoalE2E current挂耳 BOM version, and browser/API acceptance.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `docs/acceptance/2026-06-06-bom-usage-current-version.md`.
 - Last update: 2026-06-06 Asia/Shanghai
 
 ### PR-429-PRODUCT-ARCHIVE-LIST-NOTICE-CLEANUP

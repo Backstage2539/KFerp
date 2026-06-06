@@ -13,14 +13,14 @@ func TestCustomerResaleBeanListRequirementSeedsExist(t *testing.T) {
 	}
 	src := string(body)
 	for _, want := range []string{
-		"PR-430-CUSTOMER-RESALE-BEAN-LIST",
-		"DEV-430-BEAN-LIST-PURPOSE-SNAPSHOT",
-		"DEV-430-GRADIENT-TEMPLATE-AUTHORIZATION",
-		"DEV-430-MINI-RESALE-BEAN-LIST-API",
-		"DEV-430-RESALE-PRICE-CALCULATION",
-		"DEV-430-MINIAPP-LIGHT-EDITOR",
-		"DEV-430-COSTING-PURPOSE-FILTER",
-		"REV-430-CUSTOMER-RESALE-BEAN-LIST",
+		"PR-431-CUSTOMER-RESALE-BEAN-LIST",
+		"DEV-431-BEAN-LIST-PURPOSE-SNAPSHOT",
+		"DEV-431-GRADIENT-TEMPLATE-AUTHORIZATION",
+		"DEV-431-MINI-RESALE-BEAN-LIST-API",
+		"DEV-431-RESALE-PRICE-CALCULATION",
+		"DEV-431-MINIAPP-LIGHT-EDITOR",
+		"DEV-431-COSTING-PURPOSE-FILTER",
+		"REV-431-CUSTOMER-RESALE-BEAN-LIST",
 		"生成 PDF 和长图分享",
 		"不影响工厂履约计价",
 	} {
@@ -38,7 +38,7 @@ func TestCustomerResaleBeanListWiringAndManuals(t *testing.T) {
 		{
 			path: "orderapp-remote/docs/REQUIREMENTS.md",
 			want: []string{
-				"PR-430-CUSTOMER-RESALE-BEAN-LIST",
+				"PR-431-CUSTOMER-RESALE-BEAN-LIST",
 				"publication_purpose=factory_supply",
 				"publication_purpose=customer_resale",
 				"允许客户转售豆单使用",

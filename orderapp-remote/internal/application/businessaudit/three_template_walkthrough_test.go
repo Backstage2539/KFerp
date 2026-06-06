@@ -565,6 +565,30 @@ func (s *threeTemplateWalkthroughStore) AcknowledgeBeanListPublication(context.C
 	return nil
 }
 
+func (s *threeTemplateWalkthroughStore) LoadResaleBeanListPage(context.Context, int64) (customerportalapp.ResaleBeanListPage, error) {
+	return customerportalapp.ResaleBeanListPage{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) LoadResaleBeanListEditor(context.Context, int64, int64) (customerportalapp.ResaleBeanListEditor, error) {
+	return customerportalapp.ResaleBeanListEditor{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) LoadResaleBeanListPublication(context.Context, int64, int64) (customerportalapp.BeanListSummary, error) {
+	return customerportalapp.BeanListSummary{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) LoadAuthorizedResaleGradientTemplate(context.Context, int64, int64) (customerportalapp.ResaleGradientTemplate, error) {
+	return customerportalapp.ResaleGradientTemplate{}, customerportalapp.ErrResaleGradientTemplateNotFound
+}
+
+func (s *threeTemplateWalkthroughStore) ListCustomerResaleBeanListVersions(context.Context, int64, int) ([]customerportalapp.BeanListSummary, error) {
+	return nil, nil
+}
+
+func (s *threeTemplateWalkthroughStore) SaveCustomerResaleBeanListPublication(context.Context, customerportalapp.SaveCustomerResaleBeanListPublicationCommand) (customerportalapp.BeanListSummary, error) {
+	return customerportalapp.BeanListSummary{}, nil
+}
+
 func (s *threeTemplateWalkthroughStore) ListPortalAdminCustomers(context.Context, customerportalapp.PortalAdminCustomerQuery) ([]customerportalapp.PortalAdminCustomer, error) {
 	rows := make([]customerportalapp.PortalAdminCustomer, 0, len(s.customers))
 	for _, customer := range s.customers {
