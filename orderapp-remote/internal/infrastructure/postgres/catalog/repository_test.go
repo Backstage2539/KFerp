@@ -130,6 +130,22 @@ func TestProductConfigOverridesRemainReadableButProductUpdateDoesNotWrite(t *tes
 	}
 }
 
+func TestProductConfigTemplateDoesNotBackfillFromCategoryOnStartup(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, banned := range []string{
+		"SET product_config_template_id=COALESCE(pc.product_config_template_id,0)",
+		"COALESCE(p.product_category_id,0)=pc.id",
+		"COALESCE(pc.product_config_template_id,0)>0",
+	} {
+		if strings.Contains(string(schema), banned) {
+			t.Fatalf("startup schema must not backfill product template state from categories; found %q", banned)
+		}
+	}
+}
+
 func TestCustomerProductRuleTemplateSchemaPersistsTemplatesAndOverrides(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

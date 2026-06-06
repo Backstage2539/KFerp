@@ -81,12 +81,6 @@ ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS order_unit TEXT NO
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS unit_conversion_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS integer_unit BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0;
-UPDATE %[1]s.products p
-SET product_config_template_id=COALESCE(pc.product_config_template_id,0)
-FROM %[1]s.product_categories pc
-WHERE COALESCE(p.product_config_template_id,0)=0
-	AND COALESCE(p.product_category_id,0)=pc.id
-	AND COALESCE(pc.product_config_template_id,0)>0;
 CREATE TABLE IF NOT EXISTS %[1]s.product_unit_definitions (
 	code TEXT PRIMARY KEY,
 	name TEXT NOT NULL,
