@@ -1,0 +1,71 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+
+import {
+  UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID,
+  buildClassificationPriceListTypeOptions,
+  classificationTemplateIDOfItem,
+  classificationTemplateIDOfPublication,
+  classificationTemplateNameOfPublication,
+  matchesPublicationProductType,
+  matchesProductTypeCategory,
+  priceListRenderTypeForItem,
+} from './product-price-list-types.js'
+
+test('price list type options mirror product archive classification tabs', () => {
+  const options = buildClassificationPriceListTypeOptions([
+    { product_id: 1, name: '未归类生豆', product_kind: 'green_bean', product_type_category_id: 19, product_type_name: '咖啡生豆' },
+    { product_id: 2, name: '未归类挂耳', product_kind: 'drip_bag', product_type_category_id: 2, product_type_name: '挂耳' },
+    { product_id: 3, name: '挂耳 A', classification_template_id: 2, classification_template_name: '咖啡挂耳', classification_category_id: 0, classification_category_name: '未分类', product_type_category_id: 182 },
+    { product_id: 4, name: '挂耳 B', classification_template_id: 2, classification_template_name: '咖啡挂耳', classification_category_id: 0, classification_category_name: '未分类', product_type_category_id: 182 },
+    { product_id: 5, name: '速溶 A', classification_template_id: 3, classification_template_name: '速溶咖啡', classification_category_id: 0, classification_category_name: '未分类', product_type_category_id: 182 },
+  ])
+
+  assert.deepEqual(options.map((option) => option.label), ['未分类商品', '咖啡挂耳', '速溶咖啡'])
+  assert.equal(options[0].id, UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID)
+  assert.equal(options[0].itemCount, 2)
+  assert.equal(options.find((option) => option.label === '咖啡挂耳')?.itemCount, 2)
+  assert.equal(options.find((option) => option.label === '速溶咖啡')?.itemCount, 1)
+})
+
+test('legacy product type id does not count as current product archive classification', () => {
+  const legacyOnly = { product_id: 1, product_type_category_id: 19, product_type_name: '咖啡生豆', product_kind: 'green_bean' }
+  const classified = { product_id: 2, classification_template_id: 3, classification_template_name: '速溶咖啡', product_type_category_id: 182 }
+
+  assert.equal(classificationTemplateIDOfItem(legacyOnly), 0)
+  assert.equal(matchesProductTypeCategory(legacyOnly, UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID), true)
+  assert.equal(matchesProductTypeCategory(legacyOnly, 3), false)
+  assert.equal(matchesProductTypeCategory(classified, UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID), false)
+  assert.equal(matchesProductTypeCategory(classified, 3), true)
+})
+
+test('unclassified legacy green bean still renders with green bean price rows', () => {
+  const legacyGreen = { product_id: 1, product_type_category_id: 19, product_type_name: '咖啡生豆', product_kind: 'green_bean' }
+  const classifiedDrip = { product_id: 2, classification_template_id: 2, classification_template_name: '咖啡挂耳', product_kind: 'drip_bag' }
+
+  assert.equal(classificationTemplateIDOfItem(legacyGreen), 0)
+  assert.equal(priceListRenderTypeForItem(legacyGreen), 'green')
+  assert.equal(priceListRenderTypeForItem(classifiedDrip), 'commercial')
+})
+
+test('published price list rows use current classification instead of legacy product type labels', () => {
+  const legacyOther = { product_type_category_id: 154, product_type_name: '其他', list_type: 'commercial', content: { groups: [] } }
+  const classified = { classification_template_id: 3, classification_template_name: '速溶咖啡', product_type_category_id: 154, product_type_name: '其他' }
+  const inferredFromContent = {
+    product_type_category_id: 0,
+    product_type_name: '其他',
+    content: {
+      groups: [
+        { items: [{ classification_template_id: 2, classification_template_name: '咖啡挂耳' }] },
+      ],
+    },
+  }
+
+  assert.equal(classificationTemplateIDOfPublication(legacyOther), 0)
+  assert.equal(matchesPublicationProductType(legacyOther, UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID), true)
+  assert.equal(matchesPublicationProductType(legacyOther, 3), false)
+  assert.equal(classificationTemplateNameOfPublication(classified), '速溶咖啡')
+  assert.equal(matchesPublicationProductType(classified, 3), true)
+  assert.equal(classificationTemplateIDOfPublication(inferredFromContent), 2)
+  assert.equal(classificationTemplateNameOfPublication(inferredFromContent), '咖啡挂耳')
+})
