@@ -865,12 +865,30 @@ func (r *Repository) quoteSubmittedDirectShipItemForERPRebuildTx(ctx context.Con
 	}
 	quoted, err := r.quoteSubmittedDirectShipItemTx(ctx, tx, customerID, item)
 	if err != nil {
-		if strings.Contains(err.Error(), "product unavailable") {
+		if submittedDirectShipERPRebuildKeepsHistoricalPricing(err) {
 			return submittedDirectShipQuotedItem{}, false, nil
 		}
 		return submittedDirectShipQuotedItem{}, false, err
 	}
 	return quoted, true, nil
+}
+
+func submittedDirectShipERPRebuildKeepsHistoricalPricing(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	for _, marker := range []string{
+		"product unavailable",
+		"customer_product_alias invalid",
+		"customer product price unpublished",
+		"缺少商品价格表价格",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeSubmittedDirectShipDiscountType(value string) string {

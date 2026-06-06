@@ -3461,6 +3461,126 @@ func TestSubmitCustomerDirectShipOrderRejectsLegacyPriceFallbackWithoutSnapshot(
 	assertCustomerFulfillmentCount(t, pool, schema, "orders", "customer_id=$1 AND portal_service_code='direct_ship'", customerID, 0)
 }
 
+func TestRepairSubmittedDirectShipERPOrderDiscountsKeepsHistoricalPricingForInactiveAlias(t *testing.T) {
+	ctx := context.Background()
+	pool, schema := newCustomerFulfillmentTestDB(t)
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %[1]s.customer_product_aliases (
+			id BIGSERIAL PRIMARY KEY,
+			customer_id BIGINT NOT NULL DEFAULT 0,
+			product_id BIGINT NOT NULL DEFAULT 0,
+			display_name TEXT NOT NULL DEFAULT '',
+			customer_item_code TEXT NOT NULL DEFAULT '',
+			brand_name TEXT NOT NULL DEFAULT '',
+			display_category_id BIGINT NOT NULL DEFAULT 0,
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			include_in_price_list BOOLEAN NOT NULL DEFAULT true,
+			active BOOLEAN NOT NULL DEFAULT true
+		)
+	`, schema)); err != nil {
+		t.Fatalf("create alias table: %v", err)
+	}
+
+	var customerID, productID, aliasID, orderID, importOrderID int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customers(name, customer_type) VALUES('历史代发客户','wholesale') RETURNING id
+	`, schema)).Scan(&customerID); err != nil {
+		t.Fatalf("insert customer: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.products(name, default_price, active, visibility, product_kind)
+		VALUES('历史代发商品', 0, true, 'public', 'roasted_bean')
+		RETURNING id
+	`, schema)).Scan(&productID); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %[1]s.customer_product_aliases(
+			customer_id, product_id, display_name, customer_item_code,
+			display_category_id, sort_order, include_in_price_list, active
+		)
+		VALUES($1,$2,'历史客户商品名','HISTORY-ALIAS',0,1,true,false)
+		RETURNING id
+	`, schema), customerID, productID).Scan(&aliasID); err != nil {
+		t.Fatalf("insert inactive alias: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.orders(order_no, order_date, customer_id, portal_service_code, total_amount, grand_total)
+		VALUES('HISTORY-CDS-001','2026-06-05',$1,'direct_ship',58,58)
+		RETURNING id
+	`, schema), customerID).Scan(&orderID); err != nil {
+		t.Fatalf("insert order: %v", err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_direct_ship_import_orders(
+			batch_id, customer_id, external_order_no, external_seq, order_date,
+			receiver_address, status, order_id, payload
+		)
+		VALUES(0,$1,'HISTORY-CDS-001','1','2026-06-05','历史收件人 13800000000 云南昆明','submitted',$2,$3::jsonb)
+		RETURNING id
+	`, schema), customerID, orderID, mustPayloadJSON(map[string]any{
+		"receiver_name":    "历史收件人",
+		"receiver_phone":   "13800000000",
+		"receiver_address": "云南昆明",
+	})).Scan(&importOrderID); err != nil {
+		t.Fatalf("insert import order: %v", err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.customer_direct_ship_import_order_items(
+			import_order_id, batch_id, customer_id, line_no, product_title, spec, quantity_units, payload
+		)
+		VALUES($1,0,$2,1,'历史客户商品名','500g',1,$3::jsonb)
+	`, schema), importOrderID, customerID, mustPayloadJSON(map[string]any{
+		"product_id":                             productID,
+		"customer_product_alias_id":              aliasID,
+		"customer_product_display_name_snapshot": "历史客户商品名",
+		"customer_item_code_snapshot":            "HISTORY-ALIAS",
+		"product_code_snapshot":                  fmt.Sprintf("SKU-%d", productID),
+		"product_name_snapshot":                  "历史代发商品",
+		"product_kind":                           "roasted_bean",
+		"unit_price":                             58,
+		"line_total_before_discount":             58,
+		"line_total":                             58,
+		"price_source_snapshot":                  `{"price_source":"historical_snapshot","unit_price":58}`,
+	})); err != nil {
+		t.Fatalf("insert import item: %v", err)
+	}
+
+	if err := repairSubmittedDirectShipERPOrderDiscounts(ctx, pool, schema); err != nil {
+		t.Fatalf("repairSubmittedDirectShipERPOrderDiscounts: %v", err)
+	}
+
+	var gotProductID, gotAliasID int64
+	var itemName string
+	var unitPrice, lineTotal float64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(product_id,0), COALESCE(customer_product_alias_id,0), item_name, unit_price::float8, line_total::float8
+		FROM %s.order_items
+		WHERE order_id=$1
+	`, schema), orderID).Scan(&gotProductID, &gotAliasID, &itemName, &unitPrice, &lineTotal); err != nil {
+		t.Fatalf("load repaired order item: %v", err)
+	}
+	if gotProductID != productID || gotAliasID != aliasID || itemName != "历史客户商品名" || unitPrice != 58 || lineTotal != 58 {
+		t.Fatalf("repaired historical item product/alias/name/price = %d/%d/%q/%.2f/%.2f, want %d/%d/历史客户商品名/58/58", gotProductID, gotAliasID, itemName, unitPrice, lineTotal, productID, aliasID)
+	}
+}
+
+func TestSubmittedDirectShipERPRebuildKeepsHistoricalPricingErrors(t *testing.T) {
+	for _, msg := range []string{
+		"product unavailable",
+		"customer_product_alias invalid",
+		"customer product price unpublished",
+		"缺少商品价格表价格",
+	} {
+		if !submittedDirectShipERPRebuildKeepsHistoricalPricing(errors.New(msg)) {
+			t.Fatalf("submittedDirectShipERPRebuildKeepsHistoricalPricing(%q) = false, want true", msg)
+		}
+	}
+	if submittedDirectShipERPRebuildKeepsHistoricalPricing(errors.New("database unavailable")) {
+		t.Fatalf("submittedDirectShipERPRebuildKeepsHistoricalPricing(database unavailable) = true, want false")
+	}
+}
+
 func TestCustomerFulfillmentPublishedPriceUnitTotals(t *testing.T) {
 	if got := customerFulfillmentLineTotalFromPriceUnit(82, 1000, 25, 1000); got != 2050 {
 		t.Fatalf("1000g x 25 at 82/kg = %v, want 2050", got)
