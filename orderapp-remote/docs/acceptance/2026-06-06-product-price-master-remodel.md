@@ -100,6 +100,12 @@
 - ERP 录单验收：`1523 / SO-20260607-0001`，客户 `19`，商品 `538`，数量 `2kg`，单价 `88.50`，金额 `177.00`，价格来源为 Karen 发布快照 `56` 和来源价格记录 `1`。
 - 小程序履约验收：`1525 / SO-20260606-0023`，客户 `122`，服务 `direct_ship`，商品 `538`，数量 `2`，订单行 `unit=kg`、`spec=1000g`、`unit_price=88.50`、`line_total=177.00`、`bean_list_publication_id=55`、`source_price_record_id=1`、库存换算 `{"kg":{"kg":1}}`；小程序订单页和结算页按订单号均返回 `177.00`。
 - 操作日志：商品 `539` 通过 `PUT /api/products/539` 清理旧模板字段，操作日志 `4738` 记录 `product update / product_basics`。
+- follow-up 最终部署：`origin/develop=22577913175a4f76ce387cc6b7d1a8900cd5ccdf` 已部署到 development；备份 `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260607043416`。部署脚本完成 Vue build、小程序 `typecheck` / `build:mp-weixin`、Docker build 和镜像内 `go test ./...`。
+- follow-up smoke：`erp_orderapp` Up，`erp_postgres` healthy，`https://erp.qacoohee.com/app/` 返回 303；服务器验收文档可检索 follow-up 4 证据。
+- follow-up 浏览器验收：商品价格表加载 `index-B7GjMOL8.js`；公共豆单显示 `咖啡烘焙豆（2款）`、当前发布 `PR439-20260606182321-OFFICIAL`，版本表类型列显示 `咖啡烘焙豆`，无旧 `未设置计价方式` 提示；客户范围分别显示 `PR439-20260606182321-KAREN` 和 `PR439-20260606182321-CHANNEL`。
+- follow-up 商品档案验收：商品档案页面显示商品 `538/539` 归类为 `咖啡烘焙豆 / 精品意式拼配`、`咖啡烘焙豆 / 工厂量单`，价格摘要来自官方快照 `57`；数据库确认 `538/539` 的 `product_config_template_id=0`、`classification_template_id=0`、`gradient_template_id_override=0`。
+- follow-up 客户商品/渠道验收：客户商品 `82/83` 旧模板字段均为 0，分别进入 Karen 和渠道客户价格表；ERP 订单 `1523` 和渠道/小程序履约订单 `1525` 均为 `unit=kg`、`unit_price=88.50`、`line_total=177.00`、来源价格记录 `1`，订单行价格表快照分别为 `56 / PR439-...-KAREN` 和 `55 / PR439-...-CHANNEL`。
+- follow-up 页面验收：客户履约运营台和客户履约工作台均显示 `SO-20260606-0023` 与 `177.00`；客户履约运营台显示客户豆单 `PR439-20260606182321-CHANNEL`。商品 `539` 的历史 `product_config_template_id` 残留已清理为 0，操作日志 `4739` 记录 `4 -> 0`。
 
 ## 兼容说明
 - 旧商品配置模板、单位模板、阶梯价模板和分类模板仍作为历史兼容、迁移排查或 admin 兼容入口保留；普通商品档案、客户商品和新录单取价不再从这些字段写入或决定价格/单位。

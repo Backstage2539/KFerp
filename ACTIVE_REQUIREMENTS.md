@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-439-PRODUCT-PRICE-MASTER-REMODEL
 - Branch: codex/product-price-master-remodel-20260606
 - Owner/session: Codex / 2026-06-06
-- Status: follow-up fix in progress after browser acceptance found 商品价格表 still reading legacy classification/pricing hints; previous baseline merged to develop and deployed to development
+- Status: merged to develop and deployed to development; PR-439 follow-up browser acceptance passed on 商品档案、商品价格表、客户价格表、ERP 订单、渠道履约订单和客户侧结算金额
 - Scope: 商品档案和客户商品从旧模板价格模型切到主数据/展示关系；价格、报价单位、录单单位进入商品价格管理和已发布商品价格表快照；旧模板表保留历史兼容，不再作为普通商品/客户商品新写入来源。
 - Product Design:
   - Brief: 采用现有 KFerp 后台密集表格 + 右侧抽屉；商品档案、客户商品、商品分类管理、商品价格管理、商品价格表、录单取价入口关系按 Van 提供计划锁定。
@@ -54,6 +54,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN follow-up 3 frontend: `node --test src/lib/product-price-list-types.test.js`; `node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/product-price-list-types.test.js`; `npm run build` in `frontend-vue-shell`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
   - RED browser follow-up 4: 公共 `PR439-20260606182321-OFFICIAL` 兼容版本已进入 `咖啡烘焙豆` 筛选，但版本表“类型”列仍显示历史 `未分类商品`，容易误导为商品仍被归到未分类。
   - GREEN follow-up 4 frontend: `node --test src/lib/costing-bean-list-version-ui.test.js`; `node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/product-price-list-types.test.js src/lib/costing-bean-list-version-ui.test.js`; `npm run build` in `frontend-vue-shell`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN final deploy: feature branch pushed; `origin/develop=22577913175a4f76ce387cc6b7d1a8900cd5ccdf` deployed to development. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260607043416`. Deploy script ran Vue build, miniapp typecheck/build, Docker image build, and container-internal `go test ./...`.
+  - GREEN final smoke/browser: `erp_orderapp` Up, `erp_postgres` healthy, `/app/` returned 303. Browser 商品价格表 loaded `index-B7GjMOL8.js`; 公共豆单 shows `咖啡烘焙豆（2款）`, current `PR439-20260606182321-OFFICIAL`, no old missing-pricing warning, version type column `咖啡烘焙豆`; customer scopes show `PR439-20260606182321-KAREN` and `PR439-20260606182321-CHANNEL`.
+  - GREEN final live data: products `538/539` are directly categorized as `精品意式拼配` / `工厂量单` with `product_config_template_id=0`, `classification_template_id=0`, `gradient_template_id_override=0`; customer aliases `82/83` old template fields are 0. ERP order `1523` and channel/miniapp direct-ship order `1525` both use `kg`, `88.5`, total `177`, source price record `1`, and customer publication snapshots `56` / `55`. Customer fulfillment and customer processing portal pages show order `SO-20260606-0023` and `177.00`.
+  - Data repair: live product `539` legacy `product_config_template_id` was cleared from `4` to `0`; operation log `4739` records `product_config_template_id 4 -> 0` with PR-439 cleanup metadata.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-product-price-master-remodel.md`.
 - Last update: 2026-06-07 Asia/Shanghai
 
