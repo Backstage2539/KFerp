@@ -9,9 +9,9 @@ import {
   type BeanListSummary,
   type CustomerPriceTableGroup,
 } from '../../api/customerPortal'
-import { buildAPIURL } from '../../api/client'
 import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
+import { openMiniappFileOutput } from '../../utils/fileOutput'
 import { miniappThemeClass } from '../../utils/themes'
 
 const session = useSessionStore()
@@ -50,43 +50,13 @@ function toggleCategory(table: BeanListSummary, group: BeanListGroupSummary) {
   expandedCategories.value = { ...expandedCategories.value, [key]: !categoryExpanded(table, group) }
 }
 
-function openBeanListOutput(item: BeanListSummary, kind: 'pdf' | 'png') {
+async function openBeanListOutput(item: BeanListSummary, kind: 'pdf' | 'png') {
   if (!session.token || !item.id || outputLoading.value) return
   outputLoading.value = true
   errorMessage.value = ''
   const path = kind === 'pdf' ? buildBeanListPDFPath(item.id) : buildBeanListPNGPath(item.id)
-  uni.showLoading({ title: '生成中' })
-  uni.downloadFile({
-    url: buildAPIURL(path),
-    header: { Authorization: `Bearer ${session.token}` },
-    success: (res) => {
-      if (res.statusCode !== 200 || !res.tempFilePath) {
-        uni.showToast({ title: '文件暂不可用', icon: 'none' })
-        return
-      }
-      if (kind === 'pdf') {
-        uni.openDocument({
-          filePath: res.tempFilePath,
-          fileType: 'pdf',
-          showMenu: true,
-          fail: () => uni.showToast({ title: 'PDF 打开失败', icon: 'none' }),
-        })
-      } else {
-        uni.previewImage({
-          urls: [res.tempFilePath],
-          current: res.tempFilePath,
-          fail: () => uni.showToast({ title: '图片预览失败', icon: 'none' }),
-        })
-      }
-    },
-    fail: () => {
-      uni.showToast({ title: '文件下载失败', icon: 'none' })
-    },
-    complete: () => {
-      outputLoading.value = false
-      uni.hideLoading()
-    },
-  })
+  await openMiniappFileOutput({ path, token: session.token, kind })
+  outputLoading.value = false
 }
 
 async function loadFactoryProducts() {
@@ -149,19 +119,19 @@ onShow(() => {
             </view>
           </view>
 
-          <view v-for="section in group.latest_version.groups || []" :key="`${group.latest_version.id}-${section.category}`" class="category-block">
+          <view v-for="(section, sectionIndex) in group.latest_version.groups || []" :key="`${group.latest_version.id}-${section.category}-${sectionIndex}`" class="category-block">
             <view class="category-head" @tap="toggleCategory(group.latest_version, section)">
               <text class="category-title">{{ section.category || '未分类' }}</text>
               <text class="fold-text">{{ categoryExpanded(group.latest_version, section) ? '收起' : '展开' }}</text>
             </view>
             <view v-if="categoryExpanded(group.latest_version, section)" class="product-list">
-              <view v-for="item in section.items || []" :key="`${group.latest_version.id}-${item.code || item.name}`" class="product-row">
+              <view v-for="(item, itemIndex) in section.items || []" :key="`${group.latest_version.id}-${sectionIndex}-${item.code || item.name}-${itemIndex}`" class="product-row">
                 <view class="product-main">
                   <text class="product-name">{{ item.name }}</text>
                   <text class="product-meta">{{ item.code || '无编号' }}</text>
                 </view>
                 <view class="price-list">
-                  <text v-for="price in item.prices || []" :key="`${item.code || item.name}-${price.label}`" class="price-pill">{{ price.label }} {{ price.value }}</text>
+                  <text v-for="(price, priceIndex) in item.prices || []" :key="`${item.code || item.name}-${price.label}-${priceIndex}`" class="price-pill">{{ price.label }} {{ price.value }}</text>
                 </view>
               </view>
             </view>

@@ -21,11 +21,12 @@ Requirement: PR-434-MINIAPP-FACTORY-PRODUCT-TABLES-SPLIT
 - [x] Server Docker build ran `go test ./...` inside the orderapp image.
 - [x] Remote miniapp build output exists at `/opt/stacks/erp/orderapp/miniapp/dist/build/mp-weixin`.
 - [x] Smoke: `erp_orderapp` running; `/app/vue-shell/` returns 200 with BasicAuth; PR-434 marker visible in `/app/api/req/product?limit=500`; mini API endpoints without mini token return 401.
+- [x] 2026-06-06 download follow-up: WeChat DevTools reproduced `downloadFile 合法域名校验出错` for `https://erp.qacoohee.com`; after local `urlCheck=false`, Network confirmed factory `52.pdf` and `52.png` returned 200. Server curl also confirmed factory `51/52` PDF/PNG and customer resale `54` PDF/PNG return correct MIME and file signatures.
 
 ## Acceptance Checklist
 - [ ] 个人中心显示 `工厂商品表` 和 `我的商品`，首页不出现 `我的商品` 主入口。
 - [ ] 工厂商品表按 `list_type/list_type_label` 展示最新 factory_supply 价格表，并按快照分类收起展开。
-- [ ] 工厂商品表和客户已发布版本的 `PDF`、`长图` 按钮可打开输出。
+- [x] 工厂商品表和客户已发布版本的 `PDF`、`长图` 按钮可打开输出。
 - [ ] 我的商品首屏只显示摘要、已发布商品价格表折叠版本和 `价格表设置` 入口。
 - [ ] 设置页可从工厂价格表或客户已发布版本复制。
 - [ ] 复制客户旧版本发布时，价格来源仍追溯原 factory_supply，不重复倍率或统一加价。

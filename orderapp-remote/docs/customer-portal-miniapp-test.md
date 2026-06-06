@@ -56,7 +56,7 @@ VITE_KFERP_API_BASE=https://erp.qacoohee.com/app npm run build:mp-weixin
 miniapp/dist/build/mp-weixin
 ```
 
-开发者工具里填测试小程序 AppID。联调阶段可在“详情 -> 本地设置”勾选“不校验合法域名、web-view、TLS 版本以及 HTTPS 证书”。如果不勾选，需要在小程序后台把 `https://erp.qacoohee.com` 加入 request 合法域名。
+开发者工具里填测试小程序 AppID。联调阶段可在“详情 -> 本地设置”勾选“不校验合法域名、web-view、TLS 版本以及 HTTPS 证书”。如果不勾选，需要在小程序后台把 `https://erp.qacoohee.com` 同时加入 request 合法域名和 downloadFile 合法域名；商品价格表 `PDF`、`长图` 都走 `downloadFile`。
 
 ## 客户账号准备
 
@@ -103,14 +103,14 @@ GET /app/api/mini/resale-bean-lists/:id.png
 6. 在“我的价格表设置”选择来源工厂供货商品价格表、授权阶梯价模板，修改版本号、品牌名、价格表说明、版本说明、预设背景色/文字色、样式、商品勾选、统一加价、倍率加价和上新/推荐标签；页面不能出现覆盖档位、单品价或裸色值输入。
 7. 点击“保存草稿”，确认接口返回当前客户草稿，ERP 操作日志可查。
 8. 点击“发布商品价格表”，确认“已发布商品价格表”出现新版本，来源工厂供货商品价格表未被改写。
-9. 点击“预览 PDF”和“预览长图”，确认 PDF 可打开并显示菜单、PNG 长图可预览；背景、logo、标签、价格、版本号和分页/长图布局不重叠。
+9. 点击“PDF”和“长图”，确认 PDF 可打开并显示菜单、PNG 长图可预览；背景、logo、标签、价格、版本号和分页/长图布局不重叠。
 10. 用另一个客户账号登录，确认不能读取或下载上一个客户的商品价格表。
 
 失败排查：
 
 - 如果列表没有授权模板：检查 ERP 阶梯价模板是否 active 且已打开“允许客户转售豆单使用”。
 - 如果发布提示价格不匹配：检查来源供货豆单是否有对应档位价格，以及模板展示单位是否与来源价格单位一致。
-- 如果 PDF/长图打不开：检查 mini token、当前客户绑定、`bean_list` 能力和 `bean_list_publication_assets` 缓存记录。
+- 如果 PDF/长图打不开：先看开发者工具 Console 是否出现 `downloadFile 合法域名校验出错`。出现该错误时，在微信后台把 `https://erp.qacoohee.com` 加入 downloadFile 合法域名，或在开发者工具“详情 -> 本地设置”关闭合法域名校验后重新编译。域名无误后，再检查 mini token、当前客户绑定、`bean_list` 能力和 `bean_list_publication_assets` 缓存记录。
 
 ## 旧 openid 客户绑定 SQL
 

@@ -9,9 +9,9 @@ import {
   type CustomerPriceTableGroup,
   type CustomerProductSummary,
 } from '../../api/customerPortal'
-import { buildAPIURL } from '../../api/client'
 import MainTabBar from '../../components/MainTabBar.vue'
 import { useSessionStore } from '../../stores/session'
+import { openMiniappFileOutput } from '../../utils/fileOutput'
 import { miniappThemeClass } from '../../utils/themes'
 
 const session = useSessionStore()
@@ -41,42 +41,12 @@ function openSettings() {
   uni.navigateTo({ url: '/pages/price-table-settings/price-table-settings' })
 }
 
-function openResaleOutput(item: BeanListSummary, kind: 'pdf' | 'png') {
+async function openResaleOutput(item: BeanListSummary, kind: 'pdf' | 'png') {
   if (!session.token || !item.id || outputLoading.value) return
   outputLoading.value = true
   const path = kind === 'pdf' ? buildResaleBeanListPDFPath(item.id) : buildResaleBeanListPNGPath(item.id)
-  uni.showLoading({ title: '生成中' })
-  uni.downloadFile({
-    url: buildAPIURL(path),
-    header: { Authorization: `Bearer ${session.token}` },
-    success: (res) => {
-      if (res.statusCode !== 200 || !res.tempFilePath) {
-        uni.showToast({ title: '文件暂不可用', icon: 'none' })
-        return
-      }
-      if (kind === 'pdf') {
-        uni.openDocument({
-          filePath: res.tempFilePath,
-          fileType: 'pdf',
-          showMenu: true,
-          fail: () => uni.showToast({ title: 'PDF 打开失败', icon: 'none' }),
-        })
-      } else {
-        uni.previewImage({
-          urls: [res.tempFilePath],
-          current: res.tempFilePath,
-          fail: () => uni.showToast({ title: '图片预览失败', icon: 'none' }),
-        })
-      }
-    },
-    fail: () => {
-      uni.showToast({ title: '文件下载失败', icon: 'none' })
-    },
-    complete: () => {
-      outputLoading.value = false
-      uni.hideLoading()
-    },
-  })
+  await openMiniappFileOutput({ path, token: session.token, kind })
+  outputLoading.value = false
 }
 
 async function loadCustomerProducts() {

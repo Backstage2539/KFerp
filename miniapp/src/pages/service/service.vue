@@ -45,6 +45,7 @@ import {
 } from '../../utils/beanListPageCache'
 import { buildOrderServiceFilters, datePresetRange, normalizeDateRange, type OrderDatePreset } from '../../utils/orderFilters'
 import { priceTableGroupLabel } from '../../utils/customerProducts'
+import { openMiniappFileOutput } from '../../utils/fileOutput'
 import { buildResaleBeanListPublishPayload, defaultResaleBeanListDraft, resaleBeanListItemKey, resaleCardsPerRowOptions, resaleStyleColorPresets } from '../../utils/resaleBeanList'
 import {
   buildFulfillmentOrderPayload,
@@ -701,36 +702,7 @@ function openResaleOutput(item: BeanListSummary, kind: 'pdf' | 'png') {
     return
   }
   const path = kind === 'pdf' ? buildResaleBeanListPDFPath(item.id) : buildResaleBeanListPNGPath(item.id)
-  uni.showLoading({ title: '生成中' })
-  uni.downloadFile({
-    url: buildAPIURL(path),
-    header: { Authorization: `Bearer ${session.token}` },
-    success: (res) => {
-      if (res.statusCode !== 200 || !res.tempFilePath) {
-        uni.showToast({ title: '文件暂不可用', icon: 'none' })
-        return
-      }
-      if (kind === 'pdf') {
-        uni.openDocument({
-          filePath: res.tempFilePath,
-          fileType: 'pdf',
-          showMenu: true,
-          fail: () => uni.showToast({ title: 'PDF 打开失败', icon: 'none' }),
-        })
-      } else {
-        uni.previewImage({
-          urls: [res.tempFilePath],
-          fail: () => uni.showToast({ title: '图片预览失败', icon: 'none' }),
-        })
-      }
-    },
-    fail: () => {
-      uni.showToast({ title: '文件下载失败', icon: 'none' })
-    },
-    complete: () => {
-      uni.hideLoading()
-    },
-  })
+  void openMiniappFileOutput({ path, token: session.token, kind })
 }
 
 function setOrderDateFrom(event: { detail?: { value?: string } }) {
