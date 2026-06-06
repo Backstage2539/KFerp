@@ -35,6 +35,7 @@
 - `go test ./internal/infrastructure/postgres/sales -run 'TestOrderFormProductsUsePublishedPriceSnapshotsOnly|TestOrderSaveRequiresPublishedPriceSnapshotInsteadOfLegacyTierFallback' -count=1`：ERP 录单仍可能从商品默认价或旧阶梯价兜底。
 - `go test ./internal/infrastructure/postgres/customerfulfillment -run 'TestCustomerDirectShipPricingUsesPublishedSnapshotsOnly|TestSubmitCustomerDirectShipOrderRejectsLegacyPriceFallbackWithoutSnapshot' -count=1`：渠道客户下单仍可能读取旧商品阶梯价或商品默认价。
 - `go test ./internal/infrastructure/postgres/customerportal -run TestCustomerPortalFulfillmentPricingUsesPublishedSnapshotsOnly -count=1`：小程序履约仍可能读取旧商品阶梯价或旧默认价。
+- `go test ./internal/infrastructure/postgres/customerportal -run TestCustomerPortalFulfillmentOrderLineUnitComesFromPublishedPriceUnit -count=1`：部署验收中小程序订单 `1524 / SO-20260606-0022` 已按发布快照计算 `88.5/kg` 和 `177.00`，但订单行 `unit` 仍写成旧展示单位 `件`。
 - `npm test -- src/utils/mall.test.ts src/utils/servicePage.test.ts`：小程序服务页仍展示默认价格文案。
 
 ## GREEN
@@ -55,7 +56,27 @@
 - `go test ./internal/infrastructure/postgres/customerfulfillment -run 'TestCustomerDirectShipPricingUsesPublishedSnapshotsOnly|TestCustomerFulfillmentPublishedPriceUnitTotals|TestSubmitCustomerDirectShipOrderUsesPublishedPriceSnapshot|TestSubmitCustomerDirectShipOrderRejectsLegacyPriceFallbackWithoutSnapshot' -count=1`：通过。
 - `go test ./internal/infrastructure/postgres/customerportal -run 'TestCustomerPortalFulfillmentPricingUsesPublishedSnapshotsOnly|TestCreateFulfillmentOrder|TestPortalMallLinePricingUsesBagQuoteForDripBoxOrders' -count=1`：通过。
 - `npm test -- src/utils/mall.test.ts src/utils/servicePage.test.ts`：20/20 通过。
+- `go test ./internal/infrastructure/postgres/customerportal -run TestCustomerPortalFulfillmentOrderLineUnitComesFromPublishedPriceUnit -count=1`：通过。
+- `go test ./internal/infrastructure/postgres/customerportal ./internal/interfaces/http/customerportal ./internal/application/customerportal -count=1`：通过。
+- `go test ./internal/infrastructure/postgres/customerfulfillment ./internal/interfaces/http/customerfulfillment ./internal/application/customerfulfillment -count=1`：通过。
+- `go test ./internal/infrastructure/postgres/sales ./internal/interfaces/http/sales ./internal/application/sales -count=1`：通过。
+- `go test ./...`：通过。
+- `node --test src/lib/product-settings.test.js`：118/118 通过。
+- `npm run build` in `frontend-vue-shell`：通过，仅保留既有 chunk-size warning。
+- `npm test -- src/utils/mall.test.ts src/utils/servicePage.test.ts`、`npm run typecheck`、`npm run build:mp-weixin` in `miniapp`：通过。
+- `scripts/verify_kferp.sh changed`、`git diff --check`：通过。
 
-## 待后续验收
-- 商品分类模板物理入口下线和分类树独立页面。
-- development 环境部署后的浏览器业务验收：新增商品分类和价格表、ERP 下单到账单、渠道客户下单到结算、小程序价格/结算与 ERP 一致。
+## Development 部署与现场验收
+- 代码部署基线：`3cfe484e851ae91552ce73cfe5dc3f6667de90ef`。
+- 部署备份：`root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260607033448`。
+- 部署脚本证据：Vue shell build、小程序 `typecheck` / `build:mp-weixin`、Docker build、镜像内 `go test ./...` 均完成；`erp_orderapp` 重新创建并启动。
+- Smoke：`docker compose ps` 显示 `erp_orderapp` Up、`erp_postgres` healthy；`https://erp.qacoohee.com/app/` 返回 303；部署文档中可检索 `PR-439-PRODUCT-PRICE-MASTER-REMODEL`。
+- 商品档案 API：商品 `538`、`539` 的 `product_config_template_id=0`，价格摘要分别来自官方价格表 `57 / PR439-20260606182321-OFFICIAL`；`538` 为 `88.5/kg · 1kg+`，`539` 为 `39.9/lb · 2lb+`。
+- 客户商品 API：客户商品 `82`（Karen）和 `83`（渠道）旧模板字段均为 0，价格摘要分别来自 `56 / PR439-20260606182321-KAREN` 和 `55 / PR439-20260606182321-CHANNEL`。
+- 商品价格管理 API：价格记录 `1` 为 `88.5/kg`、库存单位 `kg`、换算 `{"kg":{"kg":1}}`；价格记录 `2` 为 `39.9/lb`、库存单位 `kg`、换算 `{"lb":{"kg":0.454}}`。
+- ERP 录单验收：`1523 / SO-20260607-0001`，客户 `19`，商品 `538`，数量 `2kg`，单价 `88.50`，金额 `177.00`，价格来源为 Karen 发布快照 `56` 和来源价格记录 `1`。
+- 小程序履约验收：`1525 / SO-20260606-0023`，客户 `122`，服务 `direct_ship`，商品 `538`，数量 `2`，订单行 `unit=kg`、`spec=1000g`、`unit_price=88.50`、`line_total=177.00`、`bean_list_publication_id=55`、`source_price_record_id=1`、库存换算 `{"kg":{"kg":1}}`；小程序订单页和结算页按订单号均返回 `177.00`。
+- 操作日志：商品 `539` 通过 `PUT /api/products/539` 清理旧模板字段，操作日志 `4738` 记录 `product update / product_basics`。
+
+## 兼容说明
+- 旧商品配置模板、单位模板、阶梯价模板和分类模板仍作为历史兼容、迁移排查或 admin 兼容入口保留；普通商品档案、客户商品和新录单取价不再从这些字段写入或决定价格/单位。
