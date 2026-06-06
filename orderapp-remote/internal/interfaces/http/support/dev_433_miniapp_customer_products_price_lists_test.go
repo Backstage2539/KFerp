@@ -61,6 +61,7 @@ func TestDev433MiniappCustomerProductsPriceListsMiniappAndDeploy(t *testing.T) {
 	home := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "utils", "capabilities.ts")))
 	profile := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "pages", "profile", "profile.vue")))
 	service := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "pages", "service", "service.vue")))
+	fileOutput := string(readOrderAppFileForTest(t, filepath.Join("..", "miniapp", "src", "utils", "fileOutput.ts")))
 
 	if strings.Contains(home, "我的商品") || strings.Contains(home, "beanList") {
 		t.Fatalf("home capability entries must not expose 我的商品/beanList as a home shortcut")
@@ -79,12 +80,15 @@ func TestDev433MiniappCustomerProductsPriceListsMiniappAndDeploy(t *testing.T) {
 		"长图",
 		"resaleStyleColorPresets",
 		"resaleCardsPerRowOptions",
-		"uni.openDocument",
-		"showMenu: true",
-		"uni.previewImage",
+		"openMiniappFileOutput",
 	} {
 		if !strings.Contains(service, want) {
 			t.Fatalf("service.vue missing PR-433 miniapp marker %q", want)
+		}
+	}
+	for _, want := range []string{"uni.openDocument", "showMenu: true", "uni.previewImage", "downloadFile 合法域名"} {
+		if !strings.Contains(fileOutput, want) {
+			t.Fatalf("fileOutput.ts missing PR-433 output marker %q", want)
 		}
 	}
 	for _, forbidden := range []string{"覆盖档位", "单品价", `placeholder="背景色 #f8f1e5"`, `placeholder="每行卡片数"`} {
@@ -131,8 +135,9 @@ func TestDev433MiniappCustomerProductsPriceListsDocs(t *testing.T) {
 		},
 		filepath.Join("docs", "customer-portal-miniapp-test.md"): {
 			"我的商品联调",
-			"预览 PDF",
-			"预览长图",
+			"PDF",
+			"长图",
+			"downloadFile 合法域名",
 			"npm run build:mp-weixin",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-06-miniapp-customer-products-price-lists.md"): {
