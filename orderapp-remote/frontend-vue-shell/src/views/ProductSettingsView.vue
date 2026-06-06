@@ -1004,7 +1004,7 @@
             <div class="field-group-head">
               <div class="field-group-copy">
                 <strong>被哪些 BOM 使用</strong>
-                <small>BOM 在生产模块维护；这里仅只读查看把这个商品当作组件消耗的上层 BOM。</small>
+                <small>BOM 在生产模块维护；这里只读查看产出该商品或把该商品当作组件消耗的生产 BOM。</small>
               </div>
             </div>
             <div class="production-config-grid reverse-bom-grid single-column">
@@ -3582,7 +3582,10 @@ function bomUsageRelationLabel(row = {}) {
   const bomID = bomUsageBomID(row)
   const code = String(row.bom_code || row.production_bom_code || row.code || '').trim()
   const name = String(row.bom_name || row.production_bom_name || row.name || '').trim()
-  return [code, name].filter(Boolean).join(' ') || (bomID > 0 ? `BOM #${bomID}` : '生产 BOM')
+  const label = [code, name].filter(Boolean).join(' ') || (bomID > 0 ? `BOM #${bomID}` : '生产 BOM')
+  if (row.relation_type === 'output') return `${label} · 产出商品`
+  if (row.relation_type === 'component') return `${label} · 作为组件`
+  return label
 }
 
 function navigateCurrentProductBom() {

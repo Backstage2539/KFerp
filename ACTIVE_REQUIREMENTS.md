@@ -94,11 +94,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-419-BOM-USAGE-LOOKUP-CLEANUP
 - Branch: codex/bom-usage-main-followup-20260605
 - Owner/session: Codex / 2026-06-05
-- Status: merged to origin/develop; pending development deploy/browser acceptance
-- Scope: 收敛商品档案和生产 BOM 的“被哪些 BOM 使用”口径：商品档案只展示把该商品作为组件消耗的上层生产 BOM，不展示产出该商品的 BOM；列表删除重复标题、关系前缀和版本号，失效商品不展示且同一 BOM 只展示一次；生产 BOM 列表删除“编辑”按钮，点击 BOM 名称直接打开设置抽屉；修复 `BOM-000884 初晓拼配 / V002` 不应被自己或 `BOM-000518 初晓 生产 BOM` 使用的问题。
+- Status: merged to origin/develop; PR-420 follow-up restores product archive output relation after server RED
+- Scope: 清理生产 BOM 列表交互和 BOM 详情上层使用关系：BOM 详情 `used_by_boms` 只展示把当前产出商品作为组件消耗的上层生产 BOM，避免自引用；生产 BOM 列表删除“编辑”按钮，点击 BOM 名称直接打开设置抽屉。商品档案“被哪些 BOM 使用”由 PR-420 恢复为 output/component 两类关系。
 - DEV:
-  - DEV-419-BOM-USAGE-BACKEND-COMPONENT-ONLY：`/api/production-bom-product-usage/:product_id` 和 BOM 详情 `used_by_boms` 使用组件反查，过滤失效商品/失效上层 BOM，排除自引用并按上层 BOM 去重，不再返回 `relation_type=output`。
-  - DEV-419-BOM-USAGE-UI-CLEANUP：商品档案使用关系列表只展示 `BOM编号 BOM名称`，不展示“产出该商品 / 作为组件”和版本号；生产 BOM 列表去掉行内“编辑”按钮，BOM 名称作为设置抽屉入口。
+  - DEV-419-BOM-USAGE-BACKEND-COMPONENT-ONLY：BOM 详情 `used_by_boms` 使用组件反查，过滤失效商品/失效上层 BOM，排除自引用并按上层 BOM 去重。
+  - DEV-419-BOM-USAGE-UI-CLEANUP：生产 BOM 列表去掉行内“编辑”按钮，BOM 名称作为设置抽屉入口；商品档案 output/component 关系由 PR-420 展示。
   - DEV-419-MANUAL-DOCS-PROGRESS：更新需求 seed、操作手册、验收清单和 acceptance 记录，让 Van 能在前端需求表看到当前 PR/DEV/UT/API/REV 进度。
 - Verifier:
   - RED: remote deployed `/api/production-bom-product-usage/518` returned output rows including `BOM-000518 初晓 生产 BOM` and `BOM-000884 初晓拼配`; remote `/api/production-boms/884` `used_by_boms` also included self/output rows.
@@ -116,16 +116,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-420-BOM-PRODUCT-SKU-SELECTOR
 - Branch: codex/bom-output-product-sku-label-20260605
 - Owner/session: Codex / 2026-06-05
-- Status: verified locally; pending push, develop merge and development deploy
-- Scope: 继续处理 Van 对 `BOM-000884 初晓拼配 / V002` 和 `SKU-000518 初晓` 的反馈：PR-419 已把“被哪些 BOM 使用”收敛为组件反查并合入 develop；本轮补 BOM 编辑/新建抽屉的产出商品和商品组件候选显示 SKU 编号，避免同名“初晓”无法区分，并修正商品档案反查说明文案。
+- Status: server RED found after first development deploy; implementing output relation follow-up before final deploy
+- Scope: 继续处理 Van 对 `BOM-000884 初晓拼配 / V002` 和 `SKU-000518 初晓` 的反馈：BOM 编辑/新建抽屉的产出商品和商品组件候选显示 SKU 编号，避免同名“初晓”无法区分；商品档案 `SKU-000518 初晓` 的“被哪些 BOM 使用”必须显示产出该商品的 `BOM-000884 初晓拼配`，并区分 `output/component` 关系。
 - DEV:
   - DEV-420-BOM-PRODUCT-SKU-LABEL：`/api/bom/products` 返回 `product_code`；`BomView.vue` 的产出商品和商品组件 `SearchableSelect` 主标签显示 `SKU编号 商品名`，无显式编号时按商品 id 生成 `SKU-000xxx` 兜底。
-  - DEV-420-PRODUCT-USAGE-COPY：商品档案“被哪些 BOM 使用”说明改为组件反查口径，不再写“产出或消耗”。
+  - DEV-420-PRODUCT-USAGE-OUTPUT-LOOKUP：`/api/production-bom-product-usage/:product_id` 给商品档案返回产出该商品的 `output` BOM 和消耗该商品的 `component` BOM；BOM 详情继续只用组件反查，避免自引用。
   - DEV-420-MANUAL-DOCS-PROGRESS：更新需求 seed、生产手册、验收清单和 acceptance 记录。
 - Verifier:
   - RED frontend: `node --test src/lib/bom.test.js` failed because `bomProductOptionLabel` was not exported.
   - RED API: `go test ./internal/interfaces/http/bom -run TestBomListAndProductsExposeCustomerID -count=1` failed because `Option` lacked `ProductCode`.
   - RED copy: `node --test src/lib/product-settings.test.js` failed because the drawer still said `产出或消耗`.
+  - RED server: after first development deploy `origin/develop=d37f9bf76887971a63841edf31386d5a4b36b855`, `/api/production-bom-product-usage/518` returned `[]`; direct server SQL confirmed `BOM-000884.output_product_id=518` and V002 only has material components.
   - GREEN frontend: `node --test src/lib/bom.test.js` passed 12/12.
   - GREEN product settings: `node --test src/lib/product-settings.test.js` passed 109/109.
   - GREEN API: `go test ./internal/interfaces/http/bom -run TestBomListAndProductsExposeCustomerID -count=1` passed.
@@ -136,8 +137,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN changed verifier: `scripts/verify_kferp.sh changed` exited 0.
   - GREEN diff check: `git diff --check` exited 0.
   - Browser QA: pending development deploy.
-- Manual/docs: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-05-bom-product-sku-selector.md`.
-- Last update: 2026-06-05 Asia/Shanghai
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-05-bom-product-sku-selector.md`.
+- First deploy/server RED: `origin/develop=d37f9bf76887971a63841edf31386d5a4b36b855`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606013535`.
+- Last update: 2026-06-06 Asia/Shanghai
 
 ### PR-418-BOM-FOLLOWUP-USAGE-UNITS
 - Branch: codex/bom-followup-usage-units-20260605

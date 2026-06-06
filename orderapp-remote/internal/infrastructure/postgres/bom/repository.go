@@ -1610,7 +1610,7 @@ func (r Repository) GetProductionBomDetail(ctx context.Context, id int64, versio
 	if err != nil {
 		return bomapp.ProductionBomDetail{}, err
 	}
-	usedByBoms, err := r.listProductionBomUsedByBoms(ctx, summary.OutputProductID)
+	usedByBoms, err := r.listProductionBomComponentUsedByBoms(ctx, summary.OutputProductID)
 	if err != nil {
 		return bomapp.ProductionBomDetail{}, err
 	}
@@ -1618,7 +1618,7 @@ func (r Repository) GetProductionBomDetail(ctx context.Context, id int64, versio
 }
 
 func (r Repository) ListProductionBomUsageByProduct(ctx context.Context, productID int64) ([]bomapp.ProductionBomUsedByBom, error) {
-	return r.listProductionBomUsedByBoms(ctx, productID)
+	return r.listProductionBomUsageByProduct(ctx, productID)
 }
 
 func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreateProductionBomCommand) (bomapp.ProductionBomSummary, error) {
@@ -2198,7 +2198,93 @@ func (r Repository) listProductionBomReferencedProducts(ctx context.Context, bom
 	return out, rows.Err()
 }
 
-func (r Repository) listProductionBomUsedByBoms(ctx context.Context, componentProductID int64) ([]bomapp.ProductionBomUsedByBom, error) {
+func (r Repository) listProductionBomUsageByProduct(ctx context.Context, productID int64) ([]bomapp.ProductionBomUsedByBom, error) {
+	if productID <= 0 {
+		return []bomapp.ProductionBomUsedByBom{}, nil
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		WITH output_usage AS (
+			SELECT pb.id AS bom_id,
+			       COALESCE(pb.code,'') AS bom_code,
+			       COALESCE(pb.name,'') AS bom_name,
+			       COALESCE(v.id,0) AS bom_version_id,
+			       COALESCE(v.version_no,'') AS bom_version_no,
+			       COALESCE(pb.output_product_id,0) AS output_product_id,
+			       COALESCE(op.name,'') AS output_product_name,
+			       'output' AS relation_type,
+			       '' AS consume_unit,
+			       0::float8 AS qty_per_unit,
+			       0 AS relation_sort,
+			       0 AS sort_item_id
+			FROM %[1]s.production_boms pb
+			JOIN %[1]s.products op ON op.id=pb.output_product_id AND op.active=true
+			LEFT JOIN LATERAL (
+				SELECT id, version_no
+				FROM %[1]s.production_bom_versions v
+				WHERE v.bom_id=pb.id AND v.status IN ('draft','published')
+				ORDER BY CASE WHEN v.status='draft' THEN 0 ELSE 1 END,
+				         v.published_at DESC NULLS LAST,
+				         v.created_at DESC,
+				         v.id DESC
+				LIMIT 1
+			) v ON true
+			WHERE pb.output_product_id=$1
+			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+		),
+		component_usage AS (
+			SELECT DISTINCT ON (pb.id)
+			       pb.id AS bom_id,
+			       COALESCE(pb.code,'') AS bom_code,
+			       COALESCE(pb.name,'') AS bom_name,
+			       v.id AS bom_version_id,
+			       COALESCE(v.version_no,'') AS bom_version_no,
+			       COALESCE(pb.output_product_id,0) AS output_product_id,
+			       COALESCE(op.name,'') AS output_product_name,
+			       'component' AS relation_type,
+			       COALESCE(i.consume_unit,'') AS consume_unit,
+			       COALESCE(i.qty_per_unit,0)::float8 AS qty_per_unit,
+			       1 AS relation_sort,
+			       i.id AS sort_item_id
+			FROM %[1]s.production_bom_version_items i
+			JOIN %[1]s.production_bom_versions v ON v.id=i.version_id AND v.status IN ('draft','published')
+			JOIN %[1]s.production_boms pb ON pb.id=v.bom_id
+			JOIN %[1]s.products cp ON cp.id=i.component_product_id AND cp.active=true
+			LEFT JOIN %[1]s.products op ON op.id=pb.output_product_id
+			WHERE i.component_type IN ('product','finished_product')
+			  AND i.component_product_id=$1
+			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+			ORDER BY pb.id,
+			         CASE WHEN v.status='draft' THEN 0 ELSE 1 END,
+			         v.published_at DESC NULLS LAST,
+			         v.created_at DESC,
+			         v.id DESC,
+			         i.id
+		),
+		usage AS (
+			SELECT * FROM output_usage
+			UNION ALL
+			SELECT * FROM component_usage
+		)
+		SELECT bom_id,
+		       bom_code,
+		       bom_name,
+		       bom_version_id,
+		       bom_version_no,
+		       output_product_id,
+		       output_product_name,
+		       relation_type,
+		       consume_unit,
+		       qty_per_unit
+		FROM usage
+		ORDER BY bom_name, relation_sort, bom_version_id DESC, sort_item_id
+	`, r.schema), productID)
+	if err != nil {
+		return nil, err
+	}
+	return scanProductionBomUsedByBomRows(rows)
+}
+
+func (r Repository) listProductionBomComponentUsedByBoms(ctx context.Context, componentProductID int64) ([]bomapp.ProductionBomUsedByBom, error) {
 	if componentProductID <= 0 {
 		return []bomapp.ProductionBomUsedByBom{}, nil
 	}
@@ -2248,6 +2334,10 @@ func (r Repository) listProductionBomUsedByBoms(ctx context.Context, componentPr
 	if err != nil {
 		return nil, err
 	}
+	return scanProductionBomUsedByBomRows(rows)
+}
+
+func scanProductionBomUsedByBomRows(rows pgx.Rows) ([]bomapp.ProductionBomUsedByBom, error) {
 	defer rows.Close()
 	out := make([]bomapp.ProductionBomUsedByBom, 0)
 	for rows.Next() {

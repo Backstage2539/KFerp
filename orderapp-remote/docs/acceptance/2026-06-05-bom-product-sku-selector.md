@@ -4,18 +4,20 @@
 - 生产 BOM 编辑/新建抽屉的产出商品候选显示 `SKU编号 商品名`。
 - BOM 版本明细中商品组件候选复用同一显示口径。
 - `/api/bom/products` 返回 `product_code`，前端仍按商品 id 生成 `SKU-000xxx` 兜底。
-- 商品档案“被哪些 BOM 使用”说明同步为组件反查口径，不再写“产出或消耗”。
+- 商品档案“被哪些 BOM 使用”展示产出该商品的 BOM，也展示把该商品作为组件消耗的上层 BOM，并用关系标签区分。
 
 ## 验收项
 - 编辑 `BOM-000884 初晓拼配 / V002` 时，产出商品候选可看到类似 `SKU-000518 初晓` 的主标签。
 - 下拉中出现同名“初晓”时，用户能通过 SKU 编号区分。
 - 可按 `SKU-000518` 搜索商品候选。
-- 商品档案 `SKU-000518 初晓` 的“被哪些 BOM 使用”只表示把它作为组件消耗的上层 BOM。
+- 商品档案 `SKU-000518 初晓` 的“被哪些 BOM 使用”显示产出该商品的 `BOM-000884 初晓拼配`，接口返回 `relation_type=output`。
+- BOM 详情页的 `used_by_boms` 仍只显示把当前产出商品作为组件消耗的上层 BOM，不因为产出关系显示自引用。
 
 ## 证据
 - RED frontend：`node --test src/lib/bom.test.js` 因 `bomProductOptionLabel` 未导出失败。
 - RED API：`go test ./internal/interfaces/http/bom -run TestBomListAndProductsExposeCustomerID -count=1` 因 `Option` 缺少 `ProductCode` 字段失败。
 - RED copy：`node --test src/lib/product-settings.test.js` 因抽屉说明仍含“产出或消耗”失败。
+- RED server：development `/api/production-bom-product-usage/518` 返回 `[]`，但服务器数据确认 `BOM-000884.output_product_id=518`。
 - GREEN frontend：`node --test src/lib/bom.test.js` 通过 12/12。
 - GREEN product settings：`node --test src/lib/product-settings.test.js` 通过 109/109。
 - GREEN API：`go test ./internal/interfaces/http/bom -run TestBomListAndProductsExposeCustomerID -count=1` 通过。

@@ -11,6 +11,7 @@ func TestDev420BomProductSkuSelectorRequirementSeeds(t *testing.T) {
 	for _, want := range []string{
 		"PR-420-BOM-PRODUCT-SKU-SELECTOR",
 		"DEV-420-BOM-PRODUCT-SKU-LABEL",
+		"DEV-420-PRODUCT-USAGE-OUTPUT-LOOKUP",
 		"UT-420-BOM-PRODUCT-SKU-SELECTOR",
 		"API-420-BOM-PRODUCT-SKU-SELECTOR",
 		"REV-420-BOM-PRODUCT-SKU-SELECTOR",
@@ -26,6 +27,7 @@ func TestDev420BomProductSkuSelectorDocs(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-420-BOM-PRODUCT-SKU-SELECTOR",
 			"BOM 编辑抽屉选择产出商品和商品组件时必须显示商品 SKU 编号",
+			"BOM-000884 初晓拼配",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-420-BOM-PRODUCT-SKU-SELECTOR",
@@ -38,6 +40,7 @@ func TestDev420BomProductSkuSelectorDocs(t *testing.T) {
 		filepath.Join("docs", "acceptance", "2026-06-05-bom-product-sku-selector.md"): {
 			"PR-420",
 			"node --test src/lib/bom.test.js",
+			"relation_type=output",
 		},
 	}
 	for rel, wants := range docs {

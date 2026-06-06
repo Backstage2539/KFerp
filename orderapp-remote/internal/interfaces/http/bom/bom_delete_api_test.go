@@ -263,19 +263,31 @@ func TestBomDeleteItemAPIRequiresProductID(t *testing.T) {
 	}
 }
 
-func TestProductionBomProductUsageAPIReturnsUpperBomsForProductComponent(t *testing.T) {
-	repo := &apiFakeRepo{productionBomUsageRows: []bomapp.ProductionBomUsedByBom{{
-		BomID:             8,
-		BomCode:           "BOM-000008",
-		BomName:           "10条盒装速溶",
-		BomVersionID:      81,
-		BomVersionNo:      "V001",
-		OutputProductID:   88,
-		OutputProductName: "10条盒装速溶咖啡",
-		RelationType:      "component",
-		ConsumeUnit:       "unit",
-		QtyPerUnit:        10,
-	}}}
+func TestProductionBomProductUsageAPIReturnsOutputAndComponentBoms(t *testing.T) {
+	repo := &apiFakeRepo{productionBomUsageRows: []bomapp.ProductionBomUsedByBom{
+		{
+			BomID:             884,
+			BomCode:           "BOM-000884",
+			BomName:           "初晓拼配",
+			BomVersionID:      246,
+			BomVersionNo:      "V002",
+			OutputProductID:   77,
+			OutputProductName: "初晓",
+			RelationType:      "output",
+		},
+		{
+			BomID:             8,
+			BomCode:           "BOM-000008",
+			BomName:           "10条盒装速溶",
+			BomVersionID:      81,
+			BomVersionNo:      "V001",
+			OutputProductID:   88,
+			OutputProductName: "10条盒装速溶咖啡",
+			RelationType:      "component",
+			ConsumeUnit:       "unit",
+			QtyPerUnit:        10,
+		},
+	}}
 	e := echo.New()
 	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
 
@@ -289,10 +301,10 @@ func TestProductionBomProductUsageAPIReturnsUpperBomsForProductComponent(t *test
 	if repo.productionBomUsageProductID != 77 {
 		t.Fatalf("usage product id = %d, want 77", repo.productionBomUsageProductID)
 	}
+	if !strings.Contains(rec.Body.String(), `"bom_name":"初晓拼配"`) || !strings.Contains(rec.Body.String(), `"relation_type":"output"`) {
+		t.Fatalf("body missing output usage row: %s", rec.Body.String())
+	}
 	if !strings.Contains(rec.Body.String(), `"bom_name":"10条盒装速溶"`) || !strings.Contains(rec.Body.String(), `"relation_type":"component"`) || !strings.Contains(rec.Body.String(), `"qty_per_unit":10`) {
 		t.Fatalf("body missing component usage row: %s", rec.Body.String())
-	}
-	if strings.Contains(rec.Body.String(), `"relation_type":"output"`) {
-		t.Fatalf("usage API must not return output-product rows: %s", rec.Body.String())
 	}
 }

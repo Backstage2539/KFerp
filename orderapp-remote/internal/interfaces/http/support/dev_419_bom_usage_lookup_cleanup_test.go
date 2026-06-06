@@ -20,14 +20,6 @@ func TestDev419BomUsageLookupCleanupRequirementSeeds(t *testing.T) {
 			t.Fatalf("PR-419 requirement seed missing %q", want)
 		}
 	}
-	for _, legacy := range []string{
-		"并区分产出该商品/作为组件",
-		"output/component 关系",
-	} {
-		if strings.Contains(src, legacy) {
-			t.Fatalf("PR-419 requirement seed should not keep legacy BOM usage wording %q", legacy)
-		}
-	}
 }
 
 func TestDev419BomUsageLookupCleanupSourceMarkers(t *testing.T) {
@@ -38,6 +30,10 @@ func TestDev419BomUsageLookupCleanupSourceMarkers(t *testing.T) {
 		{
 			rel: filepath.Join("internal", "infrastructure", "postgres", "bom", "repository.go"),
 			markers: []string{
+				"listProductionBomUsageByProduct",
+				"'output' AS relation_type",
+				"WHERE pb.output_product_id=$1",
+				"listProductionBomComponentUsedByBoms",
 				"SELECT DISTINCT ON (pb.id)",
 				"COALESCE(pb.output_product_id,0)<>$1",
 				"component_type IN ('product','finished_product')",
@@ -70,8 +66,8 @@ func TestDev419BomUsageLookupCleanupSourceMarkers(t *testing.T) {
 		}
 	}
 	repo := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "bom", "repository.go")))
-	if strings.Contains(repo, "'output' AS relation_type") {
-		t.Fatal("BOM usage lookup should not return output relation rows")
+	if !strings.Contains(repo, "usedByBoms, err := r.listProductionBomComponentUsedByBoms(ctx, summary.OutputProductID)") {
+		t.Fatal("BOM detail should keep upper-BOM component lookup separate from product archive output usage")
 	}
 }
 
@@ -79,25 +75,25 @@ func TestDev419BomUsageLookupCleanupDocs(t *testing.T) {
 	docs := map[string][]string{
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-419-BOM-USAGE-LOOKUP-CLEANUP",
-			"不展示产出该商品的 BOM",
+			"产出该商品或把该商品作为组件消耗",
 			"点击 BOM 名称直接打开该 BOM 的设置抽屉",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-419-BOM-USAGE-LOOKUP-CLEANUP",
 			"BOM-000884 初晓拼配",
-			"点击 BOM 名称直接打开设置抽屉",
+			"SKU-000518 初晓",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"只表示这个商品被哪些上层生产 BOM 作为组件消耗",
+			"产出该商品的有效生产 BOM",
 			"点击 BOM 名称直接打开该 BOM 的设置抽屉",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
-			"PR-419",
-			"生产 BOM 列表点击 BOM 名称直接打开设置抽屉",
+			"PR-420",
+			"SKU-000518 初晓",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-05-bom-usage-lookup-cleanup.md"): {
 			"PR-419",
-			"不返回 `relation_type=output`",
+			"商品档案 API 已由 PR-420 恢复返回 `relation_type=output`",
 		},
 	}
 	for rel, wants := range docs {

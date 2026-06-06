@@ -1,17 +1,17 @@
 # PR-419 BOM 使用关系收敛验收记录
 
 ## 范围
-- 商品档案“被哪些 BOM 使用”只展示把该商品作为组件消耗的上层有效生产 BOM。
-- 产出该商品的 BOM 不再混入商品档案使用关系列表；生产关系回到生产 BOM 的产出商品和 BOM 详情中查看。
-- 列表不展示“产出该商品 / 作为组件”前缀，不展示版本号，同一上层 BOM 只展示一次，失效商品或失效 BOM 不展示。
+- PR-419 当时收敛了 BOM 详情的上层使用关系：`used_by_boms` 只展示把当前 BOM 产出商品作为组件消耗的上层有效生产 BOM。
+- 商品档案 API 已由 PR-420 恢复返回 `relation_type=output`，用于展示产出该商品的生产 BOM；组件消耗关系继续返回 `relation_type=component`。
+- 列表不展示版本号，同一 BOM 只展示一次，失效商品或失效 BOM 不展示。
 - 生产 BOM 列表删除独立“编辑”按钮；点击 BOM 名称直接打开 BOM 设置抽屉。
 
 ## 验收项
 - `BOM-000884 初晓拼配 / V002` 的“被哪些 BOM 使用”不能包含自己。
 - `BOM-000884 初晓拼配 / V002` 的“被哪些 BOM 使用”不能包含未把它作为组件消耗的 `BOM-000518 初晓 生产 BOM`。
-- 商品档案配置抽屉只出现一处“被哪些 BOM 使用”标题，列表行只展示 `BOM编号 BOM名称`。
-- `/api/production-bom-product-usage/:product_id` 不返回 `relation_type=output`。
-- `used_by_boms` 只来自组件行反查，并过滤失效商品、失效上层 BOM 和自引用。
+- 商品档案配置抽屉只出现一处“被哪些 BOM 使用”标题，列表行展示 `BOM编号 BOM名称` 和关系标签。
+- `/api/production-bom-product-usage/:product_id` 返回商品档案需要的 `relation_type=output` 与 `relation_type=component`。
+- BOM 详情 `used_by_boms` 只来自组件行反查，并过滤失效商品、失效上层 BOM 和自引用。
 
 ## 证据
 - RED：development 旧版本 `/api/production-bom-product-usage/518` 返回 `BOM-000518` 与 `BOM-000884` 的 `output` 关系；`/api/production-boms/884` 的 `used_by_boms` 同样包含自引用和错误 output 行。

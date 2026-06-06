@@ -137,9 +137,12 @@ func TestProductionBomOutputProductAndMultiLevelPublishValidationMarkers(t *test
 		"cycle detected",
 		"component_type IN ('product','finished_product')",
 		"ListProductionBomUsageByProduct",
-		"listProductionBomUsedByBoms",
+		"listProductionBomUsageByProduct",
+		"listProductionBomComponentUsedByBoms",
 		"UsedByBoms: usedByBoms",
+		"'output' AS relation_type",
 		"'component' AS relation_type",
+		"WHERE pb.output_product_id=$1",
 		"COALESCE(NULLIF(pb.status,''),'active')='active'",
 		"COALESCE(pb.output_product_id,0)<>$1",
 		"SELECT DISTINCT ON (pb.id)",
@@ -148,8 +151,8 @@ func TestProductionBomOutputProductAndMultiLevelPublishValidationMarkers(t *test
 			t.Fatalf("production BOM output/multi-level implementation missing marker %q", want)
 		}
 	}
-	if strings.Contains(repository, "'output' AS relation_type") {
-		t.Fatalf("production BOM usage lookup must not return output-product rows as BOM usage")
+	if !strings.Contains(repository, "usedByBoms, err := r.listProductionBomComponentUsedByBoms(ctx, summary.OutputProductID)") {
+		t.Fatalf("production BOM detail must keep upper-BOM component lookup separate from product archive output usage")
 	}
 }
 
