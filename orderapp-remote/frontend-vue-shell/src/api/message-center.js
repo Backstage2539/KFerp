@@ -1,6 +1,6 @@
 import { apiGet, apiSend } from './client'
 
-export function fetchERPNotifications(limit = 5) {
+export function fetchERPNotifications(limit = 100) {
   const url = new URL('/api/message-center/notifications', window.location.origin)
   url.searchParams.set('channel', 'erp_platform')
   url.searchParams.set('status', 'unread')

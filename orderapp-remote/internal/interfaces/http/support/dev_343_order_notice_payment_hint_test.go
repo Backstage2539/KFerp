@@ -28,7 +28,8 @@ func TestDev343OrderNoticePaymentHintWiring(t *testing.T) {
 	messageRepoSrc := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "messagecenter", "repository.go")))
 	for _, want := range []string{
 		"dedupeNotifications",
-		"visibleNotifications = computed(() => dedupeNotifications([...localNotifications.value, ...filterDismissedNotifications(notifications.value, dismissedNotificationIDs.value)]).slice(0, 3))",
+		"allNotifications = computed(() => dedupeNotifications([...localNotifications.value, ...filterDismissedNotifications(notifications.value, dismissedNotificationIDs.value)]))",
+		"visibleNotifications = computed(() => notificationWindow(allNotifications.value, notificationWindowStart.value, notificationWindowSize))",
 		"dedupeNotificationRows",
 		"SELECT DISTINCT ON (e.id)",
 	} {

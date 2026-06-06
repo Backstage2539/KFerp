@@ -28,3 +28,32 @@ export function filterDismissedNotifications(rows = [], dismissedIDs = []) {
   if (!dismissed.size) return [...(rows || [])]
   return (rows || []).filter((row) => !dismissed.has(Number(row?.id || 0)))
 }
+
+export function clampNotificationWindowStart(start = 0, total = 0, size = 3) {
+  const totalCount = Math.max(0, Number(total || 0))
+  const windowSize = Math.max(1, Number(size || 1))
+  const maxStart = Math.max(0, totalCount - windowSize)
+  const next = Math.trunc(Number(start || 0))
+  if (!Number.isFinite(next) || next <= 0) return 0
+  return Math.min(next, maxStart)
+}
+
+export function notificationWindow(rows = [], start = 0, size = 3) {
+  const source = [...(rows || [])]
+  const windowSize = Math.max(1, Number(size || 1))
+  const safeStart = clampNotificationWindowStart(start, source.length, windowSize)
+  return source.slice(safeStart, safeStart + windowSize)
+}
+
+export function notificationBackendIDs(rows = []) {
+  const seen = new Set()
+  const out = []
+  for (const row of rows || []) {
+    if (row?.local_notice) continue
+    const id = Number(row?.id || 0)
+    if (id <= 0 || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
+}

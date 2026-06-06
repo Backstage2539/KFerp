@@ -90,21 +90,41 @@
         <button v-if="currentActor" class="logout" type="button" @click="logout">退出</button>
       </header>
       <div
-        v-if="visibleNotifications.length"
+        v-if="allNotifications.length"
         ref="notificationStack"
         class="global-notification-stack"
         :class="{ layered: visibleNotifications.length > 1 }">
-        <div
-          v-for="(item, idx) in visibleNotifications"
-          :key="item.id || idx"
-          class="global-notification"
-          :class="notificationToneClass(item)"
-          :style="{ '--stack-index': idx }">
-          <button class="notification-main" type="button" @click="openNotification(item)">
-            <strong>{{ item.title }}</strong>
-            <span>{{ item.body || '点击查看订单' }}</span>
-          </button>
-          <button class="notification-close" type="button" aria-label="关闭通知" @click="dismissNotification(item)">x</button>
+        <div class="notification-window-toolbar">
+          <span class="notification-window-count">{{ notificationWindowSummary }}</span>
+          <div class="notification-window-actions">
+            <button
+              class="notification-arrow"
+              type="button"
+              aria-label="上一条通知"
+              :disabled="!canScrollNotificationUp"
+              @click="scrollNotificationWindow(-1)">↑</button>
+            <button
+              class="notification-arrow"
+              type="button"
+              aria-label="下一条通知"
+              :disabled="!canScrollNotificationDown"
+              @click="scrollNotificationWindow(1)">↓</button>
+            <button class="notification-clear" type="button" @click="clearAllNotifications">清空</button>
+          </div>
+        </div>
+        <div class="notification-window-list">
+          <div
+            v-for="(item, idx) in visibleNotifications"
+            :key="item.id || idx"
+            class="global-notification"
+            :class="notificationToneClass(item)"
+            :style="{ '--stack-index': idx }">
+            <button class="notification-main" type="button" @click="openNotification(item)">
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.body || '点击查看订单' }}</span>
+            </button>
+            <button class="notification-close" type="button" aria-label="关闭通知" @click="dismissNotification(item)">x</button>
+          </div>
         </div>
       </div>
       <div v-if="authLoading" class="status">加载中</div>
@@ -204,7 +224,13 @@ import { apiGet, apiSend, appURL } from './api/client.js'
 import { fetchCustomerProcessingPortalOverview } from './api/customer-fulfillment.js'
 import { fetchERPNotifications, markNotificationRead } from './api/message-center.js'
 import { fetchUISettings } from './api/ui-settings.js'
-import { dedupeNotifications, filterDismissedNotifications } from './lib/global-notifications.js'
+import {
+  clampNotificationWindowStart,
+  dedupeNotifications,
+  filterDismissedNotifications,
+  notificationBackendIDs,
+  notificationWindow,
+} from './lib/global-notifications.js'
 import { relativeURLForHistory, replaceHistoryURL, viewNavigationURL } from './lib/url-state.js'
 import { installTableAutoPagination } from './lib/table-auto-pagination.js'
 import SearchableSelect from './components/SearchableSelect.vue'
@@ -290,9 +316,12 @@ const currentActor = ref(null)
 const customerAccountContext = ref(null)
 const uiSettings = ref({ hide_customer_account_fulfillment: true })
 const dismissedNotificationStorageKey = 'kferp.dismissed-notifications.v1'
+const notificationFetchLimit = 100
+const notificationWindowSize = 3
 const notifications = ref([])
 const localNotifications = ref([])
 const dismissedNotificationIDs = ref(readDismissedNotificationIDs())
+const notificationWindowStart = ref(0)
 const notificationStackSpace = ref(0)
 const workspaceCustomersRefreshEventName = WORKSPACE_CUSTOMERS_REFRESH_EVENT
 let notificationTimer = 0
@@ -478,6 +507,15 @@ function rememberDismissedNotification(item) {
   const id = Number(item?.id || 0)
   if (id <= 0) return
   const next = [id, ...dismissedNotificationIDs.value.filter((existing) => Number(existing) !== id)]
+  dismissedNotificationIDs.value = next.slice(0, 200)
+  saveDismissedNotificationIDs(dismissedNotificationIDs.value)
+}
+
+function rememberDismissedNotificationIDs(ids = []) {
+  const next = [
+    ...notificationBackendIDs((ids || []).map((id) => ({ id }))),
+    ...dismissedNotificationIDs.value,
+  ]
   dismissedNotificationIDs.value = next.slice(0, 200)
   saveDismissedNotificationIDs(dismissedNotificationIDs.value)
 }
@@ -835,10 +873,24 @@ async function loadCustomerAccountContext() {
 async function loadNotifications() {
   if (!currentActor.value || !isViewAllowed('orders', allowedViewKeys.value)) return
   try {
-    const data = await fetchERPNotifications(5)
+    const data = await fetchERPNotifications(notificationFetchLimit)
     notifications.value = dedupeNotifications(filterDismissedNotifications(data.notifications || [], dismissedNotificationIDs.value))
   } catch {
     // Notification polling must not block the main ERP workspace.
+  }
+}
+
+async function clearAllNotifications() {
+  const ids = notificationBackendIDs(allNotifications.value)
+  rememberDismissedNotificationIDs(ids)
+  localNotifications.value = []
+  notifications.value = []
+  notificationWindowStart.value = 0
+  if (!ids.length) return
+  try {
+    await Promise.allSettled(ids.map((id) => markNotificationRead(id)))
+  } catch {
+    // Local dismissal already clears the stack; server read sync can retry on future item-level closes.
   }
 }
 
@@ -897,6 +949,14 @@ async function openNotification(item) {
 
 function notificationToneClass(item) {
   return `tone-${item?.tone || 'info'}`
+}
+
+function scrollNotificationWindow(delta) {
+  notificationWindowStart.value = clampNotificationWindowStart(
+    notificationWindowStart.value + Number(delta || 0),
+    allNotifications.value.length,
+    notificationWindowSize,
+  )
 }
 
 function handleLocalNotification(event) {
@@ -1077,7 +1137,17 @@ const renderedViewParams = computed(() => {
   }
   return params
 })
-const visibleNotifications = computed(() => dedupeNotifications([...localNotifications.value, ...filterDismissedNotifications(notifications.value, dismissedNotificationIDs.value)]).slice(0, 3))
+const allNotifications = computed(() => dedupeNotifications([...localNotifications.value, ...filterDismissedNotifications(notifications.value, dismissedNotificationIDs.value)]))
+const visibleNotifications = computed(() => notificationWindow(allNotifications.value, notificationWindowStart.value, notificationWindowSize))
+const canScrollNotificationUp = computed(() => notificationWindowStart.value > 0)
+const canScrollNotificationDown = computed(() => notificationWindowStart.value + notificationWindowSize < allNotifications.value.length)
+const notificationWindowSummary = computed(() => {
+  const total = allNotifications.value.length
+  if (!total) return '0 / 0'
+  const start = clampNotificationWindowStart(notificationWindowStart.value, total, notificationWindowSize)
+  const end = Math.min(total, start + notificationWindowSize)
+  return `${start + 1}-${end} / ${total}`
+})
 const notificationStackStyle = computed(() => ({
   '--kferp-notice-stack-space': isMobile.value && visibleNotifications.value.length
     ? `${notificationStackSpace.value}px`
@@ -1122,6 +1192,10 @@ watch(workspaceOrderId, (next) => {
   currentViewParams.value = viewContextViewParams(currentViewParams.value, currentViewContext.value)
   applyKeyToUrl(currentKey.value, currentViewParams.value)
 })
+
+watch(allNotifications, (rows) => {
+  notificationWindowStart.value = clampNotificationWindowStart(notificationWindowStart.value, rows.length, notificationWindowSize)
+}, { flush: 'post' })
 
 watch([visibleNotifications, isMobile], syncNotificationStackSpace, { flush: 'post' })
 </script>
@@ -1250,6 +1324,44 @@ watch([visibleNotifications, isMobile], syncNotificationStackSpace, { flush: 'po
   border-bottom: 1px solid #eef0f5;
   background: #fff;
 }
+.notification-window-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.notification-window-count {
+  color: #5f6368;
+  font-size: 12px;
+}
+.notification-window-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.notification-window-actions button {
+  min-height: 28px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #1f2937;
+  cursor: pointer;
+}
+.notification-window-actions button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.notification-arrow {
+  width: 30px;
+  padding: 0;
+}
+.notification-clear {
+  padding: 3px 9px;
+}
+.notification-window-list {
+  display: grid;
+  gap: 8px;
+}
 .global-notification {
   display: flex;
   align-items: stretch;
@@ -1340,10 +1452,19 @@ watch([visibleNotifications, isMobile], syncNotificationStackSpace, { flush: 'po
   .global-notification-stack {
     position: relative;
     z-index: 65;
-    gap: 0;
+    gap: 6px;
     padding: 8px max(12px, env(safe-area-inset-right)) 10px max(12px, env(safe-area-inset-left));
     border-bottom: 0;
     background: transparent;
+  }
+  .notification-window-toolbar {
+    padding: 0 2px;
+  }
+  .notification-window-actions button {
+    min-height: 32px;
+  }
+  .notification-window-list {
+    gap: 0;
   }
   .global-notification-stack .global-notification {
     min-height: 64px;

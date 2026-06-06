@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-431-NOTIFICATION-CENTER-SCROLL-CLEAR
+- Branch: codex/notification-center-scroll-clear-20260606
+- Owner/session: Codex / 2026-06-06
+- Status: local fix verified; pending merge, development deploy, and browser acceptance
+- Scope: ERP 顶部通知不能只让用户看到前 3 条；通知区域需要可用上下箭头浏览当前未读通知队列，并提供一键清空，清空后轮询或刷新页面不再把已清空通知重新弹出。
+- DEV:
+  - DEV-431-NOTIFICATION-WINDOW-CONTROLS：Vue 壳层保留 3 条紧凑展示窗口，但增加全部通知队列、上下箭头窗口移动、计数提示和一键清空按钮。
+  - DEV-431-NOTIFICATION-CLEAR-READ-SYNC：清空通知时本地记录所有后端通知 dismissed id，并逐条调用服务端已读接口；本地临时通知同步清除。
+- Verifier:
+  - RED frontend: `node --test src/lib/global-notifications.test.js` failed before implementation because `clampNotificationWindowStart` was not exported.
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev431NotificationCenterScrollClear -count=1` failed before PR-431 seeds/App wiring/docs.
+  - GREEN frontend: `node --test src/lib/global-notifications.test.js` passed 8/8.
+  - GREEN targeted: `node --test src/lib/global-notifications.test.js src/lib/order-entry.test.js` passed 85/85; `go test ./internal/interfaces/http/support -count=1`; `go test ./...`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Pending: merge to `develop`, development deploy, smoke and browser acceptance.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_NOTIFICATIONS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `docs/acceptance/2026-06-06-notification-center-scroll-clear.md`.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-430-BOM-USAGE-CURRENT-VERSION
 - Branch: codex/bom-usage-component-strict-20260606
 - Owner/session: Codex / 2026-06-06
