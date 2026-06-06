@@ -6,6 +6,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-427-MINIAPP-BILLING-DEFAULT-ALL-PENDING
+- Branch: codex/miniapp-settlement-all-pending
+- Owner/session: Codex / 2026-06-06
+- Status: local fix verified; pending merge/deploy or miniapp package publish decision
+- Scope: 曹杰渠道客户小程序费用中心默认汇总必须包含历史未付款订单；`SO-20260513-0001` 不能因为费用中心默认“本月”账期而从待结算汇总里消失。费用中心默认展示全部未失效订单账单和待结算金额，用户仍可手动切换本周/本月/本年或自定义账期。
+- DEV:
+  - DEV-427-MINIAPP-SETTLEMENT-NO-DEFAULT-MONTH：小程序费用中心进入页面和重置筛选时不自动写入本月 `date_from/date_to`；账期快捷按钮保持手动筛选。
+- Verifier:
+  - RED live/API: 曹杰 mini settlement 无筛选返回 3 单待结算 7422.00，6 月账期只返回 2 单 4085.00，5 月订单 `SO-20260513-0001` 被默认本月账期排除。
+  - RED local: `npm test -- src/utils/servicePage.test.ts` failed before implementation because `service.vue` still contained `applyBillingDefaultPeriod`.
+  - GREEN local: `npm test -- src/utils/servicePage.test.ts`; `npm test -- src/utils/orderFilters.test.ts src/utils/servicePage.test.ts`; `npm test`; `npm run typecheck`; `npm run build:mp-weixin`; `git diff --check`.
+  - GREEN live/API: 曹杰 mini settlement 无筛选返回 `SO-20260603-0001`、`SO-20260601-0001`、`SO-20260513-0001`，应收/待结算 7422.00；6 月账期返回前两单 4085.00；按 `SO-20260513-0001` 查询返回 3337.00。
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-426-CHANNEL-CUSTOMER-E2E-SETTLEMENT-STATUS
 - Branch: codex/channel-customer-e2e-20260606
 - Owner/session: Codex goal channel customer E2E / 2026-06-06

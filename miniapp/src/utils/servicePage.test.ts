@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   buildFulfillmentOrderPayload,
@@ -8,6 +10,10 @@ import {
 } from './servicePage'
 
 describe('service page helpers', () => {
+  function readSource(path: string): string {
+    return readFileSync(resolve(path), 'utf8')
+  }
+
   it('maps mini service keys to capability codes and titles', () => {
     expect(serviceCapability('directShip')).toBe('direct_ship')
     expect(serviceCapability('orders')).toBe('product_order')
@@ -40,6 +46,15 @@ describe('service page helpers', () => {
     })
 
     expect(sections.map((section) => section.title)).toEqual(['订单账单'])
+  })
+
+  it('keeps settlement billing unfiltered by default so older unpaid orders stay in the summary', () => {
+    const servicePage = readSource('src/pages/service/service.vue')
+
+    expect(servicePage).toContain("serviceKey.value === 'settlement'")
+    expect(servicePage).toContain('buildOrderServiceFilters(orderSearch.value)')
+    expect(servicePage).toContain('账期筛选')
+    expect(servicePage).not.toContain('applyBillingDefaultPeriod')
   })
 
   it('maps drip fulfillment products to bag and box options', () => {

@@ -91,7 +91,6 @@ const fulfillmentForm = ref({
 })
 
 const title = computed(() => page.value?.title || serviceTitle(serviceKey.value))
-const isBillingPage = computed(() => serviceKey.value === 'settlement')
 const mainTab = computed(() => {
   if (serviceKey.value === 'orders') return 'orders'
   if (serviceKey.value === 'settlement') return 'billing'
@@ -249,16 +248,7 @@ async function applyDatePreset(preset: OrderDatePreset) {
 
 async function clearOrderFilters() {
   orderSearch.value = emptyOrderSearch()
-  if (isBillingPage.value) {
-    applyBillingDefaultPeriod()
-  }
   await loadPage()
-}
-
-function applyBillingDefaultPeriod() {
-  const range = datePresetRange('month')
-  orderSearch.value.date_from = range.date_from
-  orderSearch.value.date_to = range.date_to
 }
 
 function openOrderFromBill(orderNo?: string) {
@@ -592,9 +582,6 @@ async function confirmBeanListUpdateIfNeeded(): Promise<boolean> {
 onLoad((query) => {
   serviceKey.value = normalizeServiceKey(String(query?.key || 'beanList'))
   orderSearch.value = emptyOrderSearch()
-  if (serviceKey.value === 'settlement') {
-    applyBillingDefaultPeriod()
-  }
   const keyword = String(query?.q || '').trim()
   if (keyword) {
     orderSearch.value.keyword = keyword
