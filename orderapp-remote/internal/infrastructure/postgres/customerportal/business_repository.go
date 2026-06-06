@@ -2623,6 +2623,10 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 	} else {
 		totalAmount = portalLineTotalFromPriceUnit(pricing.UnitPrice, cmd.SpecG, cmd.Qty, pricing.UnitG)
 	}
+	orderLineUnit := strings.TrimSpace(pricing.PriceUnit)
+	if orderLineUnit == "" {
+		orderLineUnit = portalDisplayUnit(salesUnit)
+	}
 	priceSourceSnapshot = portalPublishedPriceSourceSnapshot(orderbeans.ListTypeForProductKind(productKind, false), usage, cmd.ProductID, pricing)
 	shippingAmount := cmd.ShippingAmount
 	if shippingAmount < 0 {
@@ -2678,7 +2682,7 @@ func (r Repository) CreateFulfillmentOrder(ctx context.Context, cmd customerport
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.order_items(order_id,line_no,product_id,item_name,qty,unit,spec,unit_price,line_total,product_kind,sales_unit,unit_bag_count,unit_bean_g,matched_price_qty,price_source_json,bean_list_publication_id,bean_list_version_no)
 			VALUES($1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,NULLIF($15,0),$16)
-	`, r.schema), orderID, cmd.ProductID, productName, cmd.Qty, portalDisplayUnit(salesUnit), specText, unitPrice, totalAmount, productKind, salesUnit, unitBagCount, unitBeanG, matchedPriceQty, priceSourceSnapshot, usage.PublicationID, usage.VersionNo); err != nil {
+	`, r.schema), orderID, cmd.ProductID, productName, cmd.Qty, orderLineUnit, specText, unitPrice, totalAmount, productKind, salesUnit, unitBagCount, unitBeanG, matchedPriceQty, priceSourceSnapshot, usage.PublicationID, usage.VersionNo); err != nil {
 		return customerportalapp.FulfillmentOrder{}, err
 	}
 	if productKind == catalogdomain.ProductKindDripBag {

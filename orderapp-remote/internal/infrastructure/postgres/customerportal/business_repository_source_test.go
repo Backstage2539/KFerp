@@ -201,6 +201,26 @@ func TestCustomerPortalFulfillmentPricingUsesPublishedSnapshotsOnly(t *testing.T
 	}
 }
 
+func TestCustomerPortalFulfillmentOrderLineUnitComesFromPublishedPriceUnit(t *testing.T) {
+	body, err := os.ReadFile("business_repository.go")
+	if err != nil {
+		t.Fatalf("read business_repository.go: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"orderLineUnit := strings.TrimSpace(pricing.PriceUnit)",
+		"orderLineUnit = portalDisplayUnit(salesUnit)",
+		"cmd.Qty, orderLineUnit, specText",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("customer portal fulfillment order line unit must come from published price unit, missing %q", want)
+		}
+	}
+	if strings.Contains(text, "cmd.Qty, portalDisplayUnit(salesUnit), specText") {
+		t.Fatalf("customer portal fulfillment order line unit still writes legacy display unit instead of snapshot price unit")
+	}
+}
+
 func TestPortalMallLinePricingUsesBagQuoteForDripBoxOrders(t *testing.T) {
 	got, err := portalMallLinePricingFor(mallOrderLine{
 		ProductID:       18,

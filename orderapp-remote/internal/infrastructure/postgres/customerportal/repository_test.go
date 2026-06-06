@@ -1115,19 +1115,19 @@ func TestCreateFulfillmentOrderSavesGreenBeanKindAndPublishedBeanListPrice(t *te
 		t.Fatalf("CreateFulfillmentOrder: %v", err)
 	}
 
-	var productKind string
+	var productKind, unit string
 	var unitPrice, lineTotal float64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(product_kind,''), COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8
+		SELECT COALESCE(product_kind,''), COALESCE(unit,''), COALESCE(unit_price,0)::float8, COALESCE(line_total,0)::float8
 		FROM %s.order_items
 		WHERE product_id=$1
 		ORDER BY id DESC
 		LIMIT 1
-	`, schema), productID).Scan(&productKind, &unitPrice, &lineTotal); err != nil {
+	`, schema), productID).Scan(&productKind, &unit, &unitPrice, &lineTotal); err != nil {
 		t.Fatalf("query order item: %v", err)
 	}
-	if productKind != "green_bean" || unitPrice != 128 || lineTotal != 256 {
-		t.Fatalf("product_kind/unit_price/line_total=%q/%.2f/%.2f, want green_bean/128.00/256.00", productKind, unitPrice, lineTotal)
+	if productKind != "green_bean" || unit != "kg" || unitPrice != 128 || lineTotal != 256 {
+		t.Fatalf("product_kind/unit/unit_price/line_total=%q/%q/%.2f/%.2f, want green_bean/kg/128.00/256.00", productKind, unit, unitPrice, lineTotal)
 	}
 }
 
