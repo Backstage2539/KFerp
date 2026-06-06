@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-436-BOM-UNIT-DELETION-POLISH
 - Branch: codex/bom-units-delete-20260606
 - Owner/session: Codex / 2026-06-06
-- Status: local fix and browser harness acceptance verified; pending merge, development deploy, and live acceptance
+- Status: merged to develop and deployed to development; smoke passed; pending Van product acceptance
 - Scope: 生产 BOM 支持大分组和组内小分类删除入口；`移动到分组`、`移动到小分类` 按钮放到目标选择左边；BOM 产出商品选择器过滤失效商品；单位模板和全局单位字典支持删除。
 - DEV:
   - DEV-436-BOM-GROUP-DELETE-AND-MOVE-LAYOUT：生产 BOM 大组/组内小分类删除入口中文化，并调整移动按钮与目标选择器顺序。
@@ -25,7 +25,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN targeted: `go test ./internal/interfaces/http/catalog -run 'TestProductSettingsAPIDeletesGlobalUnitsAndUnitTemplates|TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates' -count=1`; `go test ./internal/infrastructure/postgres/catalog -run TestProductUnitDeletesSoftDisableAndAudit -count=1`; `go test ./internal/interfaces/http/support -run TestDev436BomUnitDeletionPolish -count=1`.
   - GREEN broader: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/support -count=1`; `go test ./...`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
   - Browser harness acceptance: real Vue SFCs mounted with read-only mock APIs confirmed 生产 BOM `移动到小分类` is left of `目标小分类`, small-category and big-group delete entries are visible, inactive output product is absent from new BOM candidate UI, 单位模板 delete is visible, and 全局单位字典 delete is visible in both SKU 设置 drawer and 全局设置.
-  - Pending: merge to develop; development deploy; live acceptance on deployed ERP data.
+  - GREEN deploy: feature branch pushed at `a79262b06ba9481180bd3684d94c988ef01d899d`; `develop` fast-forwarded and pushed; `./deploy_orderapp.sh` deployed `origin/develop=a79262b06ba9481180bd3684d94c988ef01d899d` to development. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606202820`.
+  - GREEN smoke: Docker build ran `go test ./...`; `erp_orderapp` restarted and is running; unauthenticated `/app/` returned 303; authenticated `/app/vue-shell/` returned 200; requirement API exposed `PR-436-BOM-UNIT-DELETION-POLISH`; deployed source contains `delete_product_unit_template` and PR-436 docs/source markers.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-bom-unit-deletion-polish.md`.
 - Last update: 2026-06-06 Asia/Shanghai
 

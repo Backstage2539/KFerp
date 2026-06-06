@@ -24,9 +24,10 @@
 - `scripts/verify_kferp.sh changed`：passed。
 - `git diff --check`：passed。
 - Browser harness acceptance：用真实 Vue SFC 和只读 mock API 挂载 生产 BOM、单位模板、全局设置；确认 `移动到小分类` 位于 `目标小分类` 左侧，大组和小分类删除入口可见，失效商品不出现在新建 BOM 产出候选，单位模板删除按钮可见，SKU 设置抽屉和全局设置页都能在编辑基础单位时看到删除按钮。
-- Pending development deploy and live ERP acceptance on deployed data.
+- Development deploy: `./deploy_orderapp.sh` deployed `origin/develop=a79262b06ba9481180bd3684d94c988ef01d899d` to the development stack. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260606202820`.
+- Deployment smoke: Docker build ran `go test ./...`; `erp_orderapp` restarted and is running; unauthenticated `/app/` returned 303; authenticated `/app/vue-shell/` returned 200; requirement API exposes `PR-436-BOM-UNIT-DELETION-POLISH`; deployed source contains `delete_product_unit_template` and PR-436 docs/source markers.
 
 ## 手册与验收口径
 - `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`：补充 BOM 分组删除、移动按钮顺序、失效商品过滤和单位模板删除。
 - `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`：补充全局单位字典删除和历史引用不回改。
-- `orderapp-remote/docs/REQUIREMENTS.md` 与 `orderapp-remote/docs/ACCEPTANCE_TESTS.md`：登记 PR-436 需求和 K40 验收项。
+- `orderapp-remote/docs/REQUIREMENTS.md` 与 `orderapp-remote/docs/ACCEPTANCE_TESTS.md`：登记 PR-436 需求和 K41 验收项。
