@@ -775,6 +775,11 @@ type SaveProductUnitDefinitionCommand struct {
 	Active       *bool
 }
 
+type DeleteProductUnitDefinitionCommand struct {
+	Actor string
+	Code  string
+}
+
 type SaveProductUnitTemplateCommand struct {
 	Actor              string
 	ID                 int64
@@ -785,6 +790,11 @@ type SaveProductUnitTemplateCommand struct {
 	UnitConversionJSON string
 	IntegerUnit        bool
 	Active             *bool
+}
+
+type DeleteProductUnitTemplateCommand struct {
+	Actor string
+	ID    int64
 }
 
 type SaveProductProductionConfigCommand struct {
@@ -917,6 +927,8 @@ type Repository interface {
 	SaveProductConfigTemplate(ctx context.Context, cmd SaveProductConfigTemplateCommand) (ProductConfigTemplate, error)
 	SaveProductUnitDefinition(ctx context.Context, cmd SaveProductUnitDefinitionCommand) (ProductUnitDefinition, error)
 	SaveProductUnitTemplate(ctx context.Context, cmd SaveProductUnitTemplateCommand) (ProductUnitTemplate, error)
+	DeleteProductUnitDefinition(ctx context.Context, cmd DeleteProductUnitDefinitionCommand) error
+	DeleteProductUnitTemplate(ctx context.Context, cmd DeleteProductUnitTemplateCommand) error
 	DeriveProductConfigTemplate(ctx context.Context, cmd DeriveProductConfigTemplateCommand) (ProductConfigTemplate, error)
 	DeactivateGradientTemplate(ctx context.Context, cmd DeactivateGradientTemplateCommand) error
 	BindCategoryGradientTemplate(ctx context.Context, cmd BindCategoryGradientTemplateCommand) error
@@ -1469,6 +1481,22 @@ func (s *Service) SaveProductUnitTemplate(ctx context.Context, cmd SaveProductUn
 		return ProductUnitTemplate{}, err
 	}
 	return s.repo.SaveProductUnitTemplate(ctx, normalized)
+}
+
+func (s *Service) DeleteProductUnitDefinition(ctx context.Context, cmd DeleteProductUnitDefinitionCommand) error {
+	normalized, err := normalizeDeleteProductUnitDefinitionCommand(cmd)
+	if err != nil {
+		return err
+	}
+	return s.repo.DeleteProductUnitDefinition(ctx, normalized)
+}
+
+func (s *Service) DeleteProductUnitTemplate(ctx context.Context, cmd DeleteProductUnitTemplateCommand) error {
+	normalized, err := normalizeDeleteProductUnitTemplateCommand(cmd)
+	if err != nil {
+		return err
+	}
+	return s.repo.DeleteProductUnitTemplate(ctx, normalized)
 }
 
 func (s *Service) SaveProductConfigTemplate(ctx context.Context, cmd SaveProductConfigTemplateCommand) (ProductConfigTemplate, error) {
@@ -2130,6 +2158,23 @@ func normalizeProductUnitTemplateCommand(cmd SaveProductUnitTemplateCommand) (Sa
 	cmd.OrderUnit = unitRule.OrderUnit
 	cmd.UnitConversionJSON = unitConversionJSON
 	cmd.IntegerUnit = unitRule.IntegerUnit
+	return cmd, nil
+}
+
+func normalizeDeleteProductUnitDefinitionCommand(cmd DeleteProductUnitDefinitionCommand) (DeleteProductUnitDefinitionCommand, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Code = strings.TrimSpace(cmd.Code)
+	if cmd.Code == "" {
+		return DeleteProductUnitDefinitionCommand{}, ValidationError{Message: "unit code required"}
+	}
+	return cmd, nil
+}
+
+func normalizeDeleteProductUnitTemplateCommand(cmd DeleteProductUnitTemplateCommand) (DeleteProductUnitTemplateCommand, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ID <= 0 {
+		return DeleteProductUnitTemplateCommand{}, ValidationError{Message: "invalid id"}
+	}
 	return cmd, nil
 }
 

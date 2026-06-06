@@ -37,6 +37,8 @@ type productSettingsRepo struct {
 	savedConfigTemplate                 catalogapp.SaveProductConfigTemplateCommand
 	savedUnitDefinition                 catalogapp.SaveProductUnitDefinitionCommand
 	savedUnitTemplate                   catalogapp.SaveProductUnitTemplateCommand
+	deletedUnitDefinition               catalogapp.DeleteProductUnitDefinitionCommand
+	deletedUnitTemplate                 catalogapp.DeleteProductUnitTemplateCommand
 	savedProductionConfig               catalogapp.SaveProductProductionConfigCommand
 	deactivatedTemplate                 catalogapp.DeactivateGradientTemplateCommand
 	boundTemplate                       catalogapp.BindCategoryGradientTemplateCommand
@@ -87,6 +89,8 @@ type productSettingsRepo struct {
 	configTemplateSaved                 bool
 	unitDefinitionSaved                 bool
 	unitTemplateSaved                   bool
+	unitDefinitionDeleted               bool
+	unitTemplateDeleted                 bool
 	productionConfigSaved               bool
 	templateDeactivated                 bool
 	templateBound                       bool
@@ -348,6 +352,18 @@ func (r *productSettingsRepo) SaveProductUnitTemplate(ctx context.Context, cmd c
 		IntegerUnit:        cmd.IntegerUnit,
 		Active:             true,
 	}, nil
+}
+
+func (r *productSettingsRepo) DeleteProductUnitDefinition(ctx context.Context, cmd catalogapp.DeleteProductUnitDefinitionCommand) error {
+	r.deletedUnitDefinition = cmd
+	r.unitDefinitionDeleted = true
+	return nil
+}
+
+func (r *productSettingsRepo) DeleteProductUnitTemplate(ctx context.Context, cmd catalogapp.DeleteProductUnitTemplateCommand) error {
+	r.deletedUnitTemplate = cmd
+	r.unitTemplateDeleted = true
+	return nil
 }
 
 func (r *productSettingsRepo) DeactivateGradientTemplate(ctx context.Context, cmd catalogapp.DeactivateGradientTemplateCommand) error {
@@ -1755,6 +1771,38 @@ func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.
 	}
 	if !repo.unitTemplateSaved || repo.savedUnitTemplate.Name != "盒装200g" || repo.savedUnitTemplate.QuoteUnit != "盒" || repo.savedUnitTemplate.UnitConversionJSON != `{"盒":{"kg":0.2}}` || !repo.savedUnitTemplate.IntegerUnit {
 		t.Fatalf("saved unit template = %+v saved=%v", repo.savedUnitTemplate, repo.unitTemplateSaved)
+	}
+}
+
+func TestProductSettingsAPIDeletesGlobalUnitsAndUnitTemplates(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/product-settings/units/%E7%9B%92", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE unit status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.unitDefinitionDeleted || repo.deletedUnitDefinition.Code != "盒" {
+		t.Fatalf("deleted unit definition = %+v deleted=%v", repo.deletedUnitDefinition, repo.unitDefinitionDeleted)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"ok":true`)) {
+		t.Fatalf("DELETE unit response should include ok=true: %s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/product-settings/unit-templates/12", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE unit template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.unitTemplateDeleted || repo.deletedUnitTemplate.ID != 12 {
+		t.Fatalf("deleted unit template = %+v deleted=%v", repo.deletedUnitTemplate, repo.unitTemplateDeleted)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"ok":true`)) {
+		t.Fatalf("DELETE unit template response should include ok=true: %s", rec.Body.String())
 	}
 }
 

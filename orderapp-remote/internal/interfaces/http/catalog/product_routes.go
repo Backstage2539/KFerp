@@ -62,8 +62,10 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/product-settings/units", h.productUnitDefinitionsAPI)
 	e.POST("/api/product-settings/units", h.saveProductUnitDefinitionAPI)
 	e.PUT("/api/product-settings/units/:code", h.saveProductUnitDefinitionAPI)
+	e.DELETE("/api/product-settings/units/:code", h.deleteProductUnitDefinitionAPI)
 	e.POST("/api/product-settings/unit-templates", h.saveProductUnitTemplateAPI)
 	e.PUT("/api/product-settings/unit-templates/:id", h.saveProductUnitTemplateAPI)
+	e.DELETE("/api/product-settings/unit-templates/:id", h.deleteProductUnitTemplateAPI)
 	e.POST("/api/pricing-gradient-templates/:id/deactivate", h.deactivateGradientTemplateAPI)
 	e.POST("/api/product-settings/skus", h.createSKUAPI)
 	e.POST("/api/product-settings/products", h.createProductAPI)
@@ -1445,6 +1447,35 @@ func (h productHandler) saveProductUnitTemplateAPI(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"template": template})
+}
+
+func (h productHandler) deleteProductUnitDefinitionAPI(c echo.Context) error {
+	code := strings.TrimSpace(c.Param("code"))
+	if code == "" {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "unit code required"})
+	}
+	if err := h.catalog.DeleteProductUnitDefinition(c.Request().Context(), catalogapp.DeleteProductUnitDefinitionCommand{
+		Actor: support.ActorOf(c),
+		Code:  code,
+	}); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h productHandler) deleteProductUnitTemplateAPI(c echo.Context) error {
+	idText := strings.TrimSpace(c.Param("id"))
+	id, err := strconv.ParseInt(idText, 10, 64)
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	if err := h.catalog.DeleteProductUnitTemplate(c.Request().Context(), catalogapp.DeleteProductUnitTemplateCommand{
+		Actor: support.ActorOf(c),
+		ID:    id,
+	}); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
 
 func (h productHandler) deactivateGradientTemplateAPI(c echo.Context) error {

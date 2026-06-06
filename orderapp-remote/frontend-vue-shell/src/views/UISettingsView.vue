@@ -83,6 +83,7 @@
             <span>启用</span>
           </label>
           <div class="actions unit-actions">
+            <button v-if="unitEditingCode" class="text-button danger-text" type="button" :disabled="unitSaving || loading" @click="deleteGlobalUnitDefinition">删除</button>
             <button class="primary" type="submit" :disabled="unitSaving || loading">
               {{ unitSaving ? '保存中' : (unitEditingCode ? '保存' : '新增') }}
             </button>
@@ -218,6 +219,25 @@ async function saveGlobalUnitDefinition() {
   }
 }
 
+async function deleteGlobalUnitDefinition() {
+  const editingCode = unitEditingCode.value
+  if (!editingCode) return
+  if (typeof window !== 'undefined' && !window.confirm(`确认删除全局单位「${unitForm.name || editingCode}」？已引用该单位的历史配置不会被物理删除。`)) return
+  unitSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/product-settings/units/${encodeURIComponent(editingCode)}`, { method: 'DELETE' })
+    ok.value = '全局单位已删除，新的单位模板将不再引用该单位'
+    resetGlobalUnitDefinitionForm()
+    await loadProductUnitDefinitions()
+  } catch (err) {
+    error.value = err.message || '删除全局单位失败'
+  } finally {
+    unitSaving.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -238,6 +258,8 @@ button.primary { background: #111827; color: #fff; border-color: #111827; }
 button:disabled { opacity: .55; cursor: not-allowed; }
 .secondary { background: #fff; color: #111827; }
 .compact-action { min-height: 30px; padding: 5px 10px; font-size: 12px; }
+.text-button { border: 0; background: transparent; padding: 0; color: #1f4f82; }
+.danger-text { color: #a33; }
 .ok { color: #0f766e; font-size: 13px; }
 .error { color: #b91c1c; font-size: 13px; }
 .unit-layout { display: grid; grid-template-columns: minmax(260px, .8fr) minmax(320px, 1.2fr); gap: 14px; align-items: start; }

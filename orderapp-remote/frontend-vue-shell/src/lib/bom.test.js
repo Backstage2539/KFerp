@@ -57,6 +57,27 @@ test('BOM product selector labels include stable SKU codes before duplicate name
   assert.equal(bomProductOptionLabel({ id: 518, product_code: 'SKU-000518', name: 'SKU-000518 初晓' }), 'SKU-000518 初晓')
 })
 
+test('BOM output selector hides inactive products and move actions precede target selectors', async () => {
+  assert.equal(isBomProductCandidate({ id: 8, product_kind: 'roasted_bean', active: false }), false)
+  assert.equal(isBomProductCandidate({ id: 9, product_kind: 'roasted_bean', status: 'inactive' }), false)
+  assert.equal(isBomProductCandidate({ id: 10, product_kind: 'drip_bag', active: true }), true)
+
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const toolbar = source.match(/<div class="bom-list-toolbar"[\s\S]*?<div class="bom-list-filters">/)?.[0] || ''
+  const groupDrawer = source.match(/<div v-if="groupDrawerOpen"[\s\S]*?<\/aside>\s*<\/div>/)?.[0] || ''
+
+  assert.ok(toolbar.indexOf('移动到分组') !== -1 && toolbar.indexOf('目标分组') !== -1, 'group move controls should be in toolbar')
+  assert.ok(toolbar.indexOf('移动到分组') < toolbar.indexOf('目标分组'), '移动到分组 button should be left of 目标分组')
+  assert.ok(toolbar.indexOf('移动到小分类') !== -1 && toolbar.indexOf('目标小分类') !== -1, 'category move controls should be in toolbar')
+  assert.ok(toolbar.indexOf('移动到小分类') < toolbar.indexOf('目标小分类'), '移动到小分类 button should be left of 目标小分类')
+  assert.match(source, /outputProductOptions = computed\(\(\) => products\.value\.filter\(isBomProductCandidate\)/)
+  assert.match(source, /productComponentOptions = computed\(\(\) => products\.value\.filter\(isBomProductCandidate\)/)
+  assert.match(source, /管理分组/)
+  assert.match(groupDrawer, /deleteProductionBomGroup\(group\)[\s\S]*删除/)
+  assert.doesNotMatch(groupDrawer, />DELETE</)
+})
+
 test('production BOM detail is projected as recipe detail with output product label', () => {
   const detail = productionBomDetailAsRecipeDetail({
     id: 186,
@@ -152,7 +173,7 @@ test('BOM view exposes grouped manufacturing BOM library and no longer edits pro
   assert.doesNotMatch(source, /searchParams\.get\('return_product_id'\)/)
   assert.match(appSource, /transientReturnNavigation/)
   assert.match(appSource, /returnNavigation/)
-  assert.match(source, /增加分组/)
+  assert.match(source, /管理分组/)
   assert.match(source, /全部分组/)
   assert.match(source, /未分类/)
   assert.match(source, /移动到分组/)
@@ -300,7 +321,7 @@ test('production BOM list supports status filters name search group tabs and ina
   assert.match(tabRow, /bom-list-tabs/)
   assert.match(tabRow, /新建生产 BOM/)
   assert.match(toolbar, /移动到分组/)
-  assert.match(toolbar, /增加分组/)
+  assert.match(toolbar, /管理分组/)
   assert.doesNotMatch(source, /商品 BOM列表/)
   assert.doesNotMatch(source, /商品过滤/)
   assert.doesNotMatch(source, /createProductionBomForProductRow/)
@@ -362,7 +383,7 @@ test('production BOM custom groups expose inner category grouping and version dr
   }
   assert.match(
     template,
-    /<div class="group-category-move-controls"[\s\S]*?<button class="secondary compact-action" type="button" @click="openGroupCategoryDrawer">新增小分类<\/button>\s*<label>[\s\S]*?<span>目标小分类<\/span>[\s\S]*?<select v-model\.number="selectedProductionBomGroupCategoryID">/
+    /<div class="group-category-move-controls"[\s\S]*?<button class="secondary compact-action" type="button" @click="openGroupCategoryDrawer">新增小分类<\/button>[\s\S]*?<button class="secondary compact-action" type="button"[\s\S]*?>\s*移动到小分类\s*<\/button>\s*<label>[\s\S]*?<span>目标小分类<\/span>[\s\S]*?<select v-model\.number="selectedProductionBomGroupCategoryID">/
   )
   assert.match(tabRow, /全部分组/)
   assert.match(tabRow, /未分类/)

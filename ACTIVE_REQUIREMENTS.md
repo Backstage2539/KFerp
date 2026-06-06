@@ -6,6 +6,29 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-436-BOM-UNIT-DELETION-POLISH
+- Branch: codex/bom-units-delete-20260606
+- Owner/session: Codex / 2026-06-06
+- Status: local fix and browser harness acceptance verified; pending merge, development deploy, and live acceptance
+- Scope: 生产 BOM 支持大分组和组内小分类删除入口；`移动到分组`、`移动到小分类` 按钮放到目标选择左边；BOM 产出商品选择器过滤失效商品；单位模板和全局单位字典支持删除。
+- DEV:
+  - DEV-436-BOM-GROUP-DELETE-AND-MOVE-LAYOUT：生产 BOM 大组/组内小分类删除入口中文化，并调整移动按钮与目标选择器顺序。
+  - DEV-436-BOM-ACTIVE-OUTPUT-PRODUCTS：BOM 产出商品和商品组件候选过滤失效商品，不影响历史 BOM 展示。
+  - DEV-436-UNIT-TEMPLATE-DELETE：单位模板增加删除 API 和 Vue 删除按钮，删除走软失效并写操作日志。
+  - DEV-436-GLOBAL-UNIT-DICTIONARY-DELETE：全局单位字典增加删除 API，并在全局设置与 SKU 设置抽屉提供删除入口，删除走软失效并写操作日志。
+- Verifier:
+  - RED frontend: `node --test src/lib/bom.test.js src/lib/product-settings.test.js` failed before implementation on inactive BOM output products and missing unit delete UI.
+  - RED API: `go test ./internal/interfaces/http/catalog -run 'TestProductSettingsAPIDeletesGlobalUnitsAndUnitTemplates|TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates' -count=1` failed before delete commands existed.
+  - RED repository: `go test ./internal/infrastructure/postgres/catalog -run TestProductUnitDeletesSoftDisableAndAudit -count=1` failed before delete persistence existed.
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev436BomUnitDeletionPolish -count=1` failed before PR-436 seeds/docs/source markers.
+  - GREEN frontend: `node --test src/lib/bom.test.js src/lib/product-settings.test.js` passed 124/124.
+  - GREEN targeted: `go test ./internal/interfaces/http/catalog -run 'TestProductSettingsAPIDeletesGlobalUnitsAndUnitTemplates|TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates' -count=1`; `go test ./internal/infrastructure/postgres/catalog -run TestProductUnitDeletesSoftDisableAndAudit -count=1`; `go test ./internal/interfaces/http/support -run TestDev436BomUnitDeletionPolish -count=1`.
+  - GREEN broader: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/support -count=1`; `go test ./...`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Browser harness acceptance: real Vue SFCs mounted with read-only mock APIs confirmed 生产 BOM `移动到小分类` is left of `目标小分类`, small-category and big-group delete entries are visible, inactive output product is absent from new BOM candidate UI, 单位模板 delete is visible, and 全局单位字典 delete is visible in both SKU 设置 drawer and 全局设置.
+  - Pending: merge to develop; development deploy; live acceptance on deployed ERP data.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-bom-unit-deletion-polish.md`.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-433-MINIAPP-CUSTOMER-PRODUCTS-PRICE-LISTS
 - Branch: codex/miniapp-customer-products-price-lists-20260606
 - Owner/session: Codex / 2026-06-06
