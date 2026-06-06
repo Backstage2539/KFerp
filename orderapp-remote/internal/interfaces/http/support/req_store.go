@@ -252,6 +252,15 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-438-PRODUCT-TEMPLATE-DELETE-PRICE-LIST-UI", title: "已发布价格表支持分页、搜索和收缩；字典和模板删除后不再展示，商品配置模板可删除且停用不再报单位模板失效", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; CostingView.vue; ProductSettingsView.vue; catalog repository"},
+		{table: "req_dev", code: "DEV-438-PRICE-LIST-PUBLICATION-UI", title: "已发布价格表版本列表增加搜索、分页和收起/展开状态", status: "doing", assignee: "Codex", evidence: "CostingView.vue; product-price-list-types.test.js"},
+		{table: "req_dev", code: "DEV-438-DELETED-TEMPLATE-HIDDEN", title: "全局单位字典、单位模板、分类模板和商品配置模板使用删除态隐藏，删除不等于失效", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; UISettingsView.vue; catalog schema/repository"},
+		{table: "req_dev", code: "DEV-438-BOM-ACTIVE-OUTPUT-PRODUCTS", title: "生产 BOM 新建/编辑产出商品候选继续过滤失效商品，后端商品候选保持 active=true", status: "done", assignee: "Codex", evidence: "bom.js; bom.test.js; bom repository p.active=true"},
+		{table: "req_dev", code: "DEV-438-GRADIENT-UNIT-DICTIONARY", title: "阶梯价模板不再选择单位模板，展示单位候选来自全局单位字典", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; product-settings.test.js"},
+		{table: "req_dev", code: "DEV-438-CONFIG-TEMPLATE-DELETE-DEACTIVATE", title: "商品配置模板支持删除 API 和按钮；停用时跳过已删除/停用单位模板的阻断校验", status: "doing", assignee: "Codex", evidence: "product_routes.go; catalog repository; product_settings_api_test.go"},
+		{table: "req_unit", code: "UT-438-PRODUCT-TEMPLATE-DELETE-PRICE-LIST-UI", title: "前端纯函数和源码守卫覆盖价格表分页搜索收缩、删除态过滤和阶梯价单位字典来源", status: "doing", assignee: "Codex", evidence: "node --test product-price-list-types.test.js product-settings.test.js bom.test.js"},
+		{table: "req_api", code: "API-438-PRODUCT-TEMPLATE-DELETE-PRICE-LIST-UI", title: "Catalog API/仓库测试覆盖商品配置模板删除、删除态字段、列表过滤和停用单位模板 inactive 兜底", status: "doing", assignee: "Codex", evidence: "go test catalog/support targeted"},
+		{table: "req_review", code: "REV-438-PRODUCT-TEMPLATE-DELETE-PRICE-LIST-UI", prCode: "PR-438-PRODUCT-TEMPLATE-DELETE-PRICE-LIST-UI", title: "验收：价格表版本可搜索分页收起；删除的字典/模板不再展示；商品配置模板可删除且停用不报 unit template inactive", status: "todo", assignee: "VA", evidence: "docs/acceptance/2026-06-06-product-template-delete-price-list-ui.md"},
 		{table: "req_product", code: "PR-416-MATERIALS-LIST-LAYOUT-BATCH-DEPRECATE", title: "物料档案列表去掉物料类型列，列表内搜索过滤、全选和批量失效，并支持横向滚动", status: "review", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; MaterialsView.vue; OP_MANUAL_INVENTORY_MATERIALS.md"},
 		{table: "req_dev", code: "DEV-416-MATERIALS-LIST-LAYOUT", title: "物料列表工具栏承载搜索、状态、新建和批量失效；删除物料类型列，增加表头全选和横向滚动", status: "done", assignee: "Codex", evidence: "MaterialsView.vue; materials-ui.test.js"},
 		{table: "req_dev", code: "DEV-416-MATERIALS-BATCH-DEPRECATE", title: "批量失效读取勾选物料并逐条调用现有失效接口，继续复用物料操作日志", status: "done", assignee: "Codex", evidence: "deprecateSelectedMaterials; /api/materials/:id/deprecate"},

@@ -1,4 +1,7 @@
+import { normalizePageSize } from './pagination.js'
+
 export const UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID = -1
+export const PUBLICATION_VERSION_PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100]
 
 export function buildClassificationPriceListTypeOptions(sourceItems = []) {
   const seen = new Map()
@@ -132,6 +135,32 @@ export function matchesPublicationProductType(publication = {}, productTypeCateg
   return classificationID === id
 }
 
+export function publicationVersionListState(rows = [], options = {}) {
+  const sourceRows = Array.isArray(rows) ? rows : []
+  const query = stringField(options.query).toLowerCase()
+  const terms = query.split(/\s+/).filter(Boolean)
+  const filteredRows = terms.length
+    ? sourceRows.filter((row) => {
+      const haystack = publicationSearchText(row)
+      return terms.every((term) => haystack.includes(term))
+    })
+    : sourceRows
+  const pageSize = normalizePageSize(options.pageSize, PUBLICATION_VERSION_PAGE_SIZE_OPTIONS)
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize))
+  const page = Math.min(Math.max(Number.parseInt(String(options.page || 1), 10) || 1, 1), totalPages)
+  const start = (page - 1) * pageSize
+  const collapsed = Boolean(options.collapsed)
+  return {
+    query,
+    collapsed,
+    total: filteredRows.length,
+    page,
+    pageSize,
+    totalPages,
+    rows: collapsed ? [] : filteredRows.slice(start, start + pageSize),
+  }
+}
+
 export function priceListRenderTypeForItem(item = {}) {
   const subtypeName = String(classificationCategoryNameOfItem(item) || item?.product_subtype_name || item?.productSubtypeName || '').trim()
   const typeName = String(classificationTemplateNameOfItem(item) || '').trim()
@@ -162,6 +191,23 @@ function productTypePositionOfItem(item = {}) {
 function publicationItems(publication = {}) {
   const groups = Array.isArray(publication?.content?.groups) ? publication.content.groups : []
   return groups.flatMap((group) => (Array.isArray(group?.items) ? group.items : []))
+}
+
+function publicationSearchText(row = {}) {
+  return [
+    row.id,
+    row.version,
+    row.version_no,
+    row.changelog,
+    row.owner_type,
+    row.owner_key,
+    row.status,
+    row.publication_purpose,
+    row.source_version,
+    row.price_source_publication_id,
+    row.style_source_publication_id,
+    classificationTemplateNameOfPublication(row),
+  ].map((item) => String(item || '').trim().toLowerCase()).filter(Boolean).join(' ')
 }
 
 function stringField(value) {

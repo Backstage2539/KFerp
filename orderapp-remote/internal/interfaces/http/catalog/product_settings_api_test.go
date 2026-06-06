@@ -35,6 +35,7 @@ type productSettingsRepo struct {
 	derivedConfig                       catalogapp.DeriveProductConfigTemplateCommand
 	savedTemplate                       catalogapp.SaveGradientTemplateCommand
 	savedConfigTemplate                 catalogapp.SaveProductConfigTemplateCommand
+	deletedConfigTemplate               catalogapp.DeleteProductConfigTemplateCommand
 	savedUnitDefinition                 catalogapp.SaveProductUnitDefinitionCommand
 	savedUnitTemplate                   catalogapp.SaveProductUnitTemplateCommand
 	deletedUnitDefinition               catalogapp.DeleteProductUnitDefinitionCommand
@@ -87,6 +88,7 @@ type productSettingsRepo struct {
 	configTemplateDerived               bool
 	templateSaved                       bool
 	configTemplateSaved                 bool
+	configTemplateDeleted               bool
 	unitDefinitionSaved                 bool
 	unitTemplateSaved                   bool
 	unitDefinitionDeleted               bool
@@ -331,6 +333,12 @@ func (r *productSettingsRepo) SaveProductConfigTemplate(ctx context.Context, cmd
 		IntegerUnit:            cmd.IntegerUnit,
 		Active:                 true,
 	}, nil
+}
+
+func (r *productSettingsRepo) DeleteProductConfigTemplate(ctx context.Context, cmd catalogapp.DeleteProductConfigTemplateCommand) error {
+	r.deletedConfigTemplate = cmd
+	r.configTemplateDeleted = true
+	return nil
 }
 
 func (r *productSettingsRepo) SaveProductUnitDefinition(ctx context.Context, cmd catalogapp.SaveProductUnitDefinitionCommand) (catalogapp.ProductUnitDefinition, error) {
@@ -1803,6 +1811,25 @@ func TestProductSettingsAPIDeletesGlobalUnitsAndUnitTemplates(t *testing.T) {
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"ok":true`)) {
 		t.Fatalf("DELETE unit template response should include ok=true: %s", rec.Body.String())
+	}
+}
+
+func TestProductSettingsAPIDeletesProductConfigTemplate(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/product-settings/product-config-templates/377", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE product config template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.configTemplateDeleted || repo.deletedConfigTemplate.ID != 377 {
+		t.Fatalf("deleted product config template = %+v deleted=%v", repo.deletedConfigTemplate, repo.configTemplateDeleted)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"ok":true`)) {
+		t.Fatalf("DELETE product config template response should include ok=true: %s", rec.Body.String())
 	}
 }
 

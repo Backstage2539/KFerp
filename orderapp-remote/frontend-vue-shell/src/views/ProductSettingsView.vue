@@ -378,13 +378,6 @@
                 <input v-model.trim="templateForm.name" :disabled="!canEditCurrentTemplate" placeholder="如 工厂量单模板" />
               </label>
               <label>
-                <span>单位模板</span>
-                <select v-model.number="templateForm.unit_template_id" :disabled="!canEditCurrentTemplate" @change="syncGradientDisplayUnitFromUnitTemplate">
-                  <option value="0">未绑定单位模板</option>
-                  <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="unitTemplate.id">{{ productUnitTemplateSummary(unitTemplate) }}</option>
-                </select>
-              </label>
-              <label>
                 <span>展示单位</span>
                 <select v-model="templateForm.display_unit" :disabled="!canEditCurrentTemplate">
                   <option v-for="unit in gradientDisplayUnitOptions" :key="unit.value" :value="unit.value">{{ unit.label }}</option>
@@ -442,7 +435,7 @@
             </div>
             <div class="template-list compact-template-list">
               <div
-                v-for="unitTemplate in productUnitTemplates"
+                v-for="unitTemplate in visibleProductUnitTemplates"
                 :key="unitTemplate.id"
                 :class="['template-row', { active: Number(unitTemplate.id) === Number(productUnitTemplateForm.id), inactive: unitTemplate.active === false }]">
                 <button class="template-row-main" type="button" @click="startProductUnitTemplateEdit(unitTemplate)">
@@ -451,7 +444,7 @@
                 </button>
                 <button class="text-button danger-text" type="button" :disabled="unitTemplate.active === false" @click="deleteProductUnitTemplate(unitTemplate)">删除</button>
               </div>
-              <p v-if="!productUnitTemplates.length" class="muted">暂无单位模板</p>
+              <p v-if="!visibleProductUnitTemplates.length" class="muted">暂无单位模板</p>
             </div>
           </section>
           <section class="unit-template-card unit-template-editor-panel">
@@ -704,6 +697,7 @@
             <div class="form-actions">
               <button class="primary" type="submit" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate">保存商品配置</button>
               <button v-if="productConfigTemplateForm.id" class="secondary" type="button" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate" @click="deactivateProductConfigTemplate(productConfigTemplateForm.id)">停用配置</button>
+              <button v-if="productConfigTemplateForm.id" class="secondary danger-outline" type="button" :disabled="productConfigSaving || !canEditCurrentProductConfigTemplate" @click="deleteProductConfigTemplate(productConfigTemplateForm.id)">删除配置</button>
             </div>
           </form>
         </div>
@@ -1062,7 +1056,7 @@
             </div>
             <div class="unit-chip-list global-unit-chip-list">
               <button
-                v-for="unit in productUnitDefinitions"
+                v-for="unit in visibleProductUnitDefinitions"
                 :key="unit.code"
                 class="unit-chip global-unit-chip"
                 :class="{ inactive: unit.active === false }"
@@ -1071,7 +1065,7 @@
                 <strong>{{ unit.name || unit.code }}</strong>
                 <small>{{ unit.code }} · {{ unitTypeLabel(unit.unit_type) }} · {{ unit.allow_decimal ? '允许小数' : '整数优先' }}</small>
               </button>
-              <p v-if="!productUnitDefinitions.length" class="muted">暂无单位，直接在右侧表单填写并保存。</p>
+              <p v-if="!visibleProductUnitDefinitions.length" class="muted">暂无单位，直接在右侧表单填写并保存。</p>
             </div>
           </section>
 
@@ -1198,6 +1192,7 @@ import {
   skuTypeOptions,
   unitConversionRowsFromJSON,
   unitRuleFormFromJSON,
+  visibleNonDeletedRows,
 } from '../lib/product-settings'
 import { normalizePageSize } from '../lib/pagination'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
@@ -1356,7 +1351,7 @@ const flatCustomerCategories = computed(() => flattenCategoryNodes(categories.va
 const publicProducts = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === 0))
 const customerProductsForContext = computed(() => products.value.filter((product) => Number(product.customer_id || 0) === skuContextCustomerID.value))
 const customerGradientTemplatesForContext = computed(() => gradientTemplates.value.filter((template) => Number(template.customer_id || 0) === skuContextCustomerID.value))
-const customerProductConfigTemplatesForContext = computed(() => productConfigTemplates.value.filter((template) => Number(template.customer_id || 0) === skuContextCustomerID.value))
+const customerProductConfigTemplatesForContext = computed(() => visibleProductConfigTemplates.value.filter((template) => Number(template.customer_id || 0) === skuContextCustomerID.value))
 const selectedCustomerPublicUsage = computed(() => {
   const customerID = skuContextCustomerID.value
   return customerPublicUsages.value.find((row) => Number(row.customer_id || 0) === customerID) || {
@@ -1625,8 +1620,12 @@ const selectableGradientTemplatesForProductConfig = computed(() => gradientTempl
     if (!customerID) return templateCustomerID === 0
     return templateCustomerID === 0 || templateCustomerID === customerID
   }))
-const activeProductUnitDefinitions = computed(() => productUnitDefinitions.value.filter((unit) => unit.active !== false))
-const activeProductUnitTemplates = computed(() => productUnitTemplates.value.filter((template) => template.active !== false))
+const visibleProductUnitDefinitions = computed(() => visibleNonDeletedRows(productUnitDefinitions.value))
+const visibleProductUnitTemplates = computed(() => visibleNonDeletedRows(productUnitTemplates.value))
+const visibleProductConfigTemplates = computed(() => visibleNonDeletedRows(productConfigTemplates.value))
+const visibleProductClassificationTemplates = computed(() => visibleNonDeletedRows(productClassificationTemplates.value))
+const activeProductUnitDefinitions = computed(() => visibleProductUnitDefinitions.value.filter((unit) => unit.active !== false))
+const activeProductUnitTemplates = computed(() => visibleProductUnitTemplates.value.filter((template) => template.active !== false))
 const gradientDisplayUnitOptions = computed(() => {
   const out = baseGradientDisplayUnitOptions.map((unit) => ({ ...unit }))
   const seen = new Set(out.map((unit) => unit.value))
@@ -1638,13 +1637,13 @@ const gradientDisplayUnitOptions = computed(() => {
   }
   return out
 })
-const productConfigTemplatesForContext = computed(() => productConfigTemplates.value
+const productConfigTemplatesForContext = computed(() => visibleProductConfigTemplates.value
   .filter((template) => template.active !== false)
   .filter((template) => productConfigTemplateBelongsToSkuContext(template, {
     customerID: skuContextCustomerID.value,
     customerTemplates: customerProductConfigTemplatesForContext.value,
   })))
-const activeProductClassificationTemplates = computed(() => productClassificationTemplates.value
+const activeProductClassificationTemplates = computed(() => visibleProductClassificationTemplates.value
   .filter((template) => template.active !== false)
   .slice()
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name || '').localeCompare(String(b.name || ''))))
@@ -1675,7 +1674,7 @@ const aliasMoveClassificationOptions = computed(() => {
   if (isAliasAllOrUnclassifiedTab.value) return aliasMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
 })
-const classificationTemplateEditorTemplate = computed(() => productClassificationTemplates.value.find((template) => Number(template.id || 0) === Number(classificationTemplateForm.value.id || 0)) || null)
+const classificationTemplateEditorTemplate = computed(() => visibleProductClassificationTemplates.value.find((template) => Number(template.id || 0) === Number(classificationTemplateForm.value.id || 0)) || null)
 const classificationTemplateEditorCategories = computed(() => (classificationTemplateEditorTemplate.value?.categories || [])
   .filter((category) => category.active !== false)
   .slice()
@@ -2589,6 +2588,25 @@ async function deactivateProductConfigTemplate(id) {
   await saveProductConfigTemplate()
 }
 
+async function deleteProductConfigTemplate(id) {
+  const templateID = Number(id || 0)
+  if (!templateID) return
+  if (typeof window !== 'undefined' && !window.confirm(`确认删除商品配置模板「${productConfigTemplateForm.value.name || templateID}」？已引用该模板的历史商品档案和价格表不会回改。`)) return
+  productConfigSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/product-settings/product-config-templates/${templateID}`, { method: 'DELETE' })
+    ok.value = '商品配置模板已删除，新的商品档案和客户商品不再引用该模板'
+    resetProductConfigTemplateForm()
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '删除商品配置模板失败'
+  } finally {
+    productConfigSaving.value = false
+  }
+}
+
 function resetClassificationTemplateForm() {
   classificationTemplateForm.value = defaultClassificationTemplateForm()
   classificationCategoryForm.value = defaultClassificationCategoryForm()
@@ -3210,13 +3228,13 @@ function productConfigTemplateLabel(template) {
 function productUnitName(code) {
   const normalized = String(code || '').trim()
   if (!normalized) return '-'
-  return productUnitDefinitions.value.find((unit) => unit.code === normalized)?.name || normalized
+  return visibleProductUnitDefinitions.value.find((unit) => unit.code === normalized)?.name || normalized
 }
 
 function findProductUnitTemplate(id) {
   const templateID = Number(id || 0)
   if (!templateID) return null
-  return productUnitTemplates.value.find((template) => Number(template.id || 0) === templateID) || null
+  return visibleProductUnitTemplates.value.find((template) => Number(template.id || 0) === templateID) || null
 }
 
 function findGradientTemplate(id) {

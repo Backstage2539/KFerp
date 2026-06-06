@@ -23,6 +23,17 @@ export const priceListRuleRoundingOptions = [
   { value: 'yuan', label: '保留到元' },
 ]
 
+export function rowIsDeleted(row = {}) {
+  if (row?.deleted === true) return true
+  if (row?.deleted_at || row?.deletedAt) return true
+  const state = String(row?.template_state || row?.templateState || '').trim().toLowerCase()
+  return state === 'deleted'
+}
+
+export function visibleNonDeletedRows(rows = []) {
+  return (Array.isArray(rows) ? rows : []).filter((row) => !rowIsDeleted(row))
+}
+
 export const integerUnitModeOptions = [
   { value: 'inherit', label: '继承子类型' },
   { value: 'integer', label: '只允许整数' },

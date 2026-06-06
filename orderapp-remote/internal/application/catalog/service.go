@@ -707,6 +707,11 @@ type DeleteProductClassificationTemplateCommand struct {
 	ID    int64
 }
 
+type DeleteProductConfigTemplateCommand struct {
+	Actor string
+	ID    int64
+}
+
 type SaveProductClassificationCategoryCommand struct {
 	Actor                   string
 	ID                      int64
@@ -925,6 +930,7 @@ type Repository interface {
 	ListProductUnitTemplates(ctx context.Context) ([]ProductUnitTemplate, error)
 	SaveGradientTemplate(ctx context.Context, cmd SaveGradientTemplateCommand) (GradientTemplate, error)
 	SaveProductConfigTemplate(ctx context.Context, cmd SaveProductConfigTemplateCommand) (ProductConfigTemplate, error)
+	DeleteProductConfigTemplate(ctx context.Context, cmd DeleteProductConfigTemplateCommand) error
 	SaveProductUnitDefinition(ctx context.Context, cmd SaveProductUnitDefinitionCommand) (ProductUnitDefinition, error)
 	SaveProductUnitTemplate(ctx context.Context, cmd SaveProductUnitTemplateCommand) (ProductUnitTemplate, error)
 	DeleteProductUnitDefinition(ctx context.Context, cmd DeleteProductUnitDefinitionCommand) error
@@ -1505,6 +1511,13 @@ func (s *Service) SaveProductConfigTemplate(ctx context.Context, cmd SaveProduct
 		return ProductConfigTemplate{}, err
 	}
 	return s.repo.SaveProductConfigTemplate(ctx, normalized)
+}
+
+func (s *Service) DeleteProductConfigTemplate(ctx context.Context, cmd DeleteProductConfigTemplateCommand) error {
+	if cmd.ID <= 0 {
+		return ValidationError{Message: "invalid id"}
+	}
+	return s.repo.DeleteProductConfigTemplate(ctx, cmd)
 }
 
 func (s *Service) DeriveProductConfigTemplate(ctx context.Context, cmd DeriveProductConfigTemplateCommand) (ProductConfigTemplate, error) {

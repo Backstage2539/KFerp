@@ -37,7 +37,7 @@
       <div class="unit-layout">
         <div class="unit-list">
           <button
-            v-for="unit in productUnitDefinitions"
+            v-for="unit in visibleProductUnitDefinitions"
             :key="unit.code"
             class="unit-chip"
             :class="{ inactive: unit.active === false }"
@@ -46,7 +46,7 @@
             <strong>{{ unit.name || unit.code }}</strong>
             <small>{{ unit.code }} · {{ unitTypeLabel(unit.unit_type) }} · {{ unit.allow_decimal ? '允许小数' : '整数优先' }}</small>
           </button>
-          <p v-if="!productUnitDefinitions.length" class="muted">暂无单位，先新增 kg、盒、箱等基础单位。</p>
+          <p v-if="!visibleProductUnitDefinitions.length" class="muted">暂无单位，先新增 kg、盒、箱等基础单位。</p>
         </div>
 
         <form class="unit-definition-form" @submit.prevent="saveGlobalUnitDefinition">
@@ -95,10 +95,10 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { fetchUISettings, saveUISettings } from '../api/ui-settings'
-import { buildProductUnitDefinitionPayload } from '../lib/product-settings'
+import { buildProductUnitDefinitionPayload, visibleNonDeletedRows } from '../lib/product-settings'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -106,6 +106,7 @@ const unitSaving = ref(false)
 const ok = ref('')
 const error = ref('')
 const productUnitDefinitions = ref([])
+const visibleProductUnitDefinitions = computed(() => visibleNonDeletedRows(productUnitDefinitions.value))
 const unitEditingCode = ref('')
 const form = reactive({
   hide_customer_account_fulfillment: true,

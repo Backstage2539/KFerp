@@ -6,6 +6,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-438-PRODUCT-TEMPLATE-DELETE-PRICE-LIST-UI
+- Branch: codex/product-settings-delete-price-list-ui-20260606
+- Owner/session: Codex / 2026-06-06
+- Status: local implementation verified; pending merge to develop, development deploy, and browser acceptance
+- Scope: 已发布价格表支持分页、搜索和收缩；全局单位字典、单位模板、分类模板和商品配置模板删除后不再按失效项展示；生产 BOM 产出商品选择过滤失效商品；阶梯价模板展示单位来自全局单位字典；商品配置模板停用不得报 `unit template inactive`。
+- DEV:
+  - DEV-438-PRICE-LIST-PUBLICATION-UI：已发布价格表列表增加搜索、分页和收缩状态。
+  - DEV-438-DELETED-TEMPLATE-HIDDEN：全局单位字典、单位模板、分类模板和商品配置模板删除走删除动作并从可见列表/候选中隐藏，和停用语义分开。
+  - DEV-438-BOM-ACTIVE-OUTPUT-PRODUCTS：生产 BOM 新建/编辑产出商品候选继续过滤失效商品，后端和前端双层保护。
+  - DEV-438-GRADIENT-UNIT-DICTIONARY：阶梯价模板展示单位不再依赖单位模板，单位候选来自全局单位字典。
+  - DEV-438-CONFIG-TEMPLATE-DELETE-DEACTIVATE：商品配置模板支持删除；停用商品配置模板不再因引用的单位模板已删除/停用而失败。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-price-list-types.test.js src/lib/product-settings.test.js src/lib/bom.test.js` failed before implementation on missing `publicationVersionListState` and `visibleNonDeletedRows`.
+  - RED API/repository/support: catalog API failed before `DeleteProductConfigTemplateCommand`; repository/support guards failed before delete-state schema/query/docs markers.
+  - GREEN frontend: `node --test src/lib/product-price-list-types.test.js src/lib/product-settings.test.js src/lib/bom.test.js` passed 132/132.
+  - GREEN targeted: `go test ./internal/interfaces/http/catalog -run 'TestProductSettingsAPIDeletesProductConfigTemplate|TestProductSettingsAPIDeletesGlobalUnitsAndUnitTemplates' -count=1`; `go test ./internal/infrastructure/postgres/catalog -run 'TestTemplateDeletesUseDeletedStateAndHideFromLists|TestProductUnitDeletesSoftDisableAndAudit' -count=1`; `go test ./internal/interfaces/http/support -run TestDev438ProductTemplateDeletePriceListUI -count=1`.
+  - GREEN broader: `npm run build` in `frontend-vue-shell`; `go test ./...` in `orderapp-remote`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Pending: merge to `develop`, development deploy, smoke, and browser acceptance.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_SETTINGS_AUDIT.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-product-template-delete-price-list-ui.md`.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-437-PRICE-LIST-EMPTY-PRODUCTS
 - Branch: codex/price-table-empty-products-20260606
 - Owner/session: Codex / 2026-06-06

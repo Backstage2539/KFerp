@@ -849,7 +849,7 @@ func (r Repository) ListProductClassificationTemplates(ctx context.Context) ([]c
 		       COALESCE(NULLIF(template_state,''), CASE WHEN COALESCE(customer_id,0)=0 THEN 'public_template' ELSE 'customer_owned' END),
 			       name, COALESCE(remark,''), COALESCE(product_config_template_id,0), COALESCE(gradient_template_id,0), COALESCE(unit_template_id,0), active, COALESCE(sort_order,100)
 		FROM %s.product_classification_templates
-		WHERE active=true
+		WHERE active=true AND deleted_at IS NULL
 		ORDER BY COALESCE(customer_id,0), COALESCE(sort_order,100), name, id
 	`, r.schema))
 	if err != nil {
@@ -1016,8 +1016,8 @@ func (r Repository) DeleteProductClassificationTemplate(ctx context.Context, cmd
 	defer func() { _ = tx.Rollback(ctx) }()
 	tag, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE %s.product_classification_templates
-		SET active=false, updated_at=now(), updated_by=$2
-		WHERE id=$1 AND active=true
+		SET active=false, deleted_at=now(), updated_at=now(), updated_by=$2
+		WHERE id=$1 AND deleted_at IS NULL
 	`, r.schema), cmd.ID, cmd.Actor)
 	if err != nil {
 		return err
@@ -1346,6 +1346,7 @@ func (r Repository) ListProductConfigTemplates(ctx context.Context) ([]catalogap
 		       COALESCE(inventory_unit,'kg'), COALESCE(quote_unit,'kg'), COALESCE(order_unit,'kg'),
 		       COALESCE(unit_conversion_json::text,'{}'), COALESCE(integer_unit,false), active
 		FROM %s.product_config_templates
+		WHERE deleted_at IS NULL
 		ORDER BY active DESC, COALESCE(customer_id,0), name, id
 	`, r.schema))
 	if err != nil {
@@ -1367,6 +1368,7 @@ func (r Repository) ListProductUnitDefinitions(ctx context.Context) ([]catalogap
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT code, name, unit_type, allow_decimal, active
 		FROM %s.product_unit_definitions
+		WHERE deleted_at IS NULL
 		ORDER BY active DESC, unit_type, code
 	`, r.schema))
 	if err != nil {
@@ -1389,6 +1391,7 @@ func (r Repository) ListProductUnitTemplates(ctx context.Context) ([]catalogapp.
 		SELECT id, name, inventory_unit, quote_unit, order_unit,
 		       COALESCE(unit_conversion_json::text,'{}'), integer_unit, active
 		FROM %s.product_unit_templates
+		WHERE deleted_at IS NULL
 		ORDER BY active DESC, name, id
 	`, r.schema))
 	if err != nil {
@@ -1420,6 +1423,7 @@ func (r Repository) SaveProductUnitDefinition(ctx context.Context, cmd catalogap
 		    unit_type=EXCLUDED.unit_type,
 		    allow_decimal=EXCLUDED.allow_decimal,
 		    active=EXCLUDED.active,
+		    deleted_at=NULL,
 		    updated_at=now()
 		RETURNING code, name, unit_type, allow_decimal, active
 	`, r.schema), cmd.Code, cmd.Name, cmd.UnitType, cmd.AllowDecimal, active).Scan(&row.Code, &row.Name, &row.UnitType, &row.AllowDecimal, &row.Active); err != nil {
@@ -1470,8 +1474,8 @@ func (r Repository) DeleteProductUnitDefinition(ctx context.Context, cmd catalog
 	var allowDecimal, active bool
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE %s.product_unit_definitions
-		SET active=false, updated_at=now()
-		WHERE code=$1 AND active=true
+		SET active=false, deleted_at=now(), updated_at=now()
+		WHERE code=$1 AND deleted_at IS NULL
 		RETURNING code, name, unit_type, allow_decimal, active
 	`, r.schema), cmd.Code).Scan(&code, &name, &unitType, &allowDecimal, &active); err != nil {
 		return err
@@ -1491,13 +1495,35 @@ func (r Repository) DeleteProductUnitTemplate(ctx context.Context, cmd catalogap
 	var row catalogapp.ProductUnitTemplate
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE %s.product_unit_templates
-		SET active=false, updated_at=now()
-		WHERE id=$1 AND active=true
+		SET active=false, deleted_at=now(), updated_at=now()
+		WHERE id=$1 AND deleted_at IS NULL
 		RETURNING id, name, inventory_unit, quote_unit, order_unit, COALESCE(unit_conversion_json::text,'{}'), integer_unit, active
 	`, r.schema), cmd.ID).Scan(&row.ID, &row.Name, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.Active); err != nil {
 		return err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_unit_template", &cmd.ID, "delete_product_unit_template", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"template_id": row.ID, "name": row.Name, "inventory_unit": row.InventoryUnit, "quote_unit": row.QuoteUnit, "order_unit": row.OrderUnit, "integer_unit": row.IntegerUnit}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) DeleteProductConfigTemplate(ctx context.Context, cmd catalogapp.DeleteProductConfigTemplateCommand) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var name string
+	var customerID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		UPDATE %s.product_config_templates
+		SET active=false, deleted_at=now(), updated_at=now()
+		WHERE id=$1 AND deleted_at IS NULL
+		RETURNING name, COALESCE(customer_id,0)
+	`, r.schema), cmd.ID).Scan(&name, &customerID); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product_config_template", &cmd.ID, "delete_product_config_template", postgresinfra.StrPtr("deleted_at"), nil, postgresinfra.StrPtr("now"), postgresinfra.AuditMeta{"template_id": cmd.ID, "name": name, "customer_id": customerID}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -1527,13 +1553,17 @@ func (r Repository) SaveProductConfigTemplate(ctx context.Context, cmd catalogap
 	if customerID == 0 {
 		templateState = catalogapp.TemplateStatePublic
 	}
+	deactivating := cmd.Active != nil && !*cmd.Active
 	if cmd.UnitTemplateID > 0 {
 		unitTemplate, err := fetchProductUnitTemplateTx(ctx, tx, r.schema, cmd.UnitTemplateID)
 		if err != nil {
 			return catalogapp.ProductConfigTemplate{}, err
 		}
-		if !unitTemplate.Active {
+		if !unitTemplate.Active && !deactivating {
 			return catalogapp.ProductConfigTemplate{}, fmt.Errorf("unit template inactive")
+		}
+		if !unitTemplate.Active && deactivating {
+			// unit_template_inactive_skipped_for_deactivate: 状态变更保留历史单位快照，不因已删除/停用单位模板阻断停用。
 		}
 		cmd.InventoryUnit = unitTemplate.InventoryUnit
 		cmd.QuoteUnit = unitTemplate.QuoteUnit

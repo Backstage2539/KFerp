@@ -31,6 +31,7 @@ type fakeRepo struct {
 	ruleOverride       SaveCustomerProductRuleOverrideCommand
 	ruleBinding        CustomerProductRuleTemplateBindingCommand
 	configTemplate     SaveProductConfigTemplateCommand
+	deleteConfig       DeleteProductConfigTemplateCommand
 	classTemplate      SaveProductClassificationTemplateCommand
 	classCategory      SaveProductClassificationCategoryCommand
 	classAssign        SaveProductClassificationAssignmentCommand
@@ -246,6 +247,11 @@ func (r *fakeRepo) SaveProductConfigTemplate(ctx context.Context, cmd SaveProduc
 		IntegerUnit:            cmd.IntegerUnit,
 		Active:                 true,
 	}, nil
+}
+
+func (r *fakeRepo) DeleteProductConfigTemplate(ctx context.Context, cmd DeleteProductConfigTemplateCommand) error {
+	r.deleteConfig = cmd
+	return nil
 }
 
 func (r *fakeRepo) SaveProductUnitDefinition(ctx context.Context, cmd SaveProductUnitDefinitionCommand) (ProductUnitDefinition, error) {

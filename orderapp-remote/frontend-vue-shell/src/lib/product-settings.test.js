@@ -71,6 +71,7 @@ import {
   unitConversionRowsFromJSON,
   unitRuleFormFromJSON,
   unitRuleJSONFromForm,
+  visibleNonDeletedRows,
 } from './product-settings.js'
 
 const rows = [
@@ -2485,6 +2486,45 @@ test('classification templates and categories reference product config templates
   assert.doesNotMatch(classificationPane, /classificationTemplateForm\.unit_template_id/)
   assert.doesNotMatch(classificationPane, /classificationCategoryForm\.gradient_template_id/)
   assert.doesNotMatch(classificationPane, /classificationCategoryForm\.unit_template_id/)
+})
+
+test('deleted template rows are hidden without treating inactive rows as deleted', () => {
+  const rows = [
+    { id: 1, name: '启用模板', active: true },
+    { id: 2, name: '停用模板', active: false },
+    { id: 3, name: '删除模板', active: false, deleted_at: '2026-06-06T10:00:00Z' },
+    { id: 4, name: '删除模板状态', active: true, template_state: 'deleted' },
+  ]
+
+  assert.deepEqual(visibleNonDeletedRows(rows).map((row) => row.id), [1, 2])
+})
+
+test('gradient templates choose display units from global unit dictionary instead of unit templates', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const gradientPane = source.match(/<div v-show="showGradientTemplatePane"[\s\S]*?<div v-show="showUnitTemplatePane"/)?.[0] || ''
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+
+  assert.match(gradientPane, /展示单位/)
+  assert.match(gradientPane, /v-for="unit in gradientDisplayUnitOptions"/)
+  assert.match(script, /for \(const unit of activeProductUnitDefinitions\.value\)/)
+  assert.doesNotMatch(gradientPane, /单位模板/)
+  assert.doesNotMatch(gradientPane, /templateForm\.unit_template_id/)
+  assert.doesNotMatch(gradientPane, /syncGradientDisplayUnitFromUnitTemplate/)
+})
+
+test('product settings UI hides deleted dictionaries and supports product config template delete', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const productConfigPane = source.match(/<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"[\s\S]*?<div v-if="classificationTemplateCreateDrawerOpen"/)?.[0] || ''
+
+  assert.match(script, /const visibleProductUnitDefinitions = computed\(\(\) => visibleNonDeletedRows\(productUnitDefinitions\.value\)\)/)
+  assert.match(script, /const visibleProductUnitTemplates = computed\(\(\) => visibleNonDeletedRows\(productUnitTemplates\.value\)\)/)
+  assert.match(script, /const visibleProductConfigTemplates = computed\(\(\) => visibleNonDeletedRows\(productConfigTemplates\.value\)\)/)
+  assert.match(script, /const visibleProductClassificationTemplates = computed\(\(\) => visibleNonDeletedRows\(productClassificationTemplates\.value\)\)/)
+  assert.match(productConfigPane, /@click="deleteProductConfigTemplate\(productConfigTemplateForm\.id\)"/)
+  assert.match(script, /async function deleteProductConfigTemplate/)
+  assert.match(script, /\/api\/product-settings\/product-config-templates\/\$\{templateID\}/)
+  assert.match(script, /method: 'DELETE'/)
 })
 
 test('classification assignment helpers allow direct move overwrite and expose labels', () => {

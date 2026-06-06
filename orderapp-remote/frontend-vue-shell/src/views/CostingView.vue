@@ -41,11 +41,16 @@
           <p class="muted">查看当前范围下的已发布价格表、生成新版和撤回。</p>
         </div>
         <div class="actions">
+          <button class="secondary compact" type="button" @click="publicationListCollapsed = !publicationListCollapsed">{{ publicationListCollapsed ? '展开' : '收起' }}</button>
           <button class="secondary compact" type="button" :disabled="beanListVersionListLoading" @click="refreshBeanListVersionList">刷新版本</button>
         </div>
       </div>
 
-      <div class="version-controls">
+      <div v-show="!publicationListCollapsed" class="version-controls">
+        <label>
+          <span>搜索</span>
+          <input v-model.trim="publicationListSearch" type="search" placeholder="搜索版本/客户/说明" />
+        </label>
         <label>
           <span>商品类型</span>
           <select v-model.number="selectedProductTypeCategoryID" :disabled="!productPriceListTypeOptions.length">
@@ -67,11 +72,15 @@
         </div>
         <div class="version-summary">
           <span>版本数</span>
-          <strong>{{ currentScopePublicationRows.length }}</strong>
+          <strong>{{ publicationListState.total }} / {{ currentScopePublicationRows.length }}</strong>
         </div>
       </div>
 
-      <div v-if="currentScopePublicationRows.length" class="version-table-wrap">
+      <div v-if="publicationListCollapsed && currentScopePublicationRows.length" class="muted empty">
+        已收起 {{ currentScopePublicationRows.length }} 个价格表版本。
+      </div>
+
+      <div v-else-if="paginatedCurrentScopePublicationRows.length" class="version-table-wrap">
         <table class="version-table">
           <thead>
             <tr>
@@ -87,7 +96,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in currentScopePublicationRows" :key="`bean-list-version-${row.id}`">
+            <tr v-for="row in paginatedCurrentScopePublicationRows" :key="`bean-list-version-${row.id}`">
               <td class="version-main">
                 <strong>{{ row.version || '未命名版本' }}</strong>
                 <small>#{{ row.id }}</small>
@@ -113,6 +122,16 @@
             </tr>
           </tbody>
         </table>
+        <PaginationControls
+          v-model:page="publicationListPage"
+          v-model:pageSize="publicationListPageSize"
+          :total="publicationListState.total"
+          :page-size-options="[5, 10, 20, 50, 100]"
+          :disabled="beanListVersionListLoading"
+        />
+      </div>
+      <div v-else-if="currentScopePublicationRows.length" class="muted empty">
+        当前搜索没有匹配的价格表版本。
       </div>
       <div v-else class="muted empty">
         当前{{ publicationScopeLabel(versionListScope) }}暂无{{ selectedProductPriceListLabel }}价格表版本。
@@ -674,6 +693,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchCurrentActor } from '../api/auth'
 import { apiFetch, apiGet, apiSend } from '../api/client'
 import CostingSettingsPanel from '../components/CostingSettingsPanel.vue'
+import PaginationControls from '../components/PaginationControls.vue'
 import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
   applyCustomerProductAliasesToBeanListItems,
@@ -703,6 +723,7 @@ import {
   classificationTemplateNameOfPublication as currentClassificationTemplateNameOfPublication,
   matchesPublicationProductType as matchesCurrentPublicationProductType,
   matchesProductTypeCategory as matchesCurrentProductTypeCategory,
+  publicationVersionListState,
   priceListRenderTypeForItem as currentPriceListRenderTypeForItem,
   productTypeCategoryIDOfItem as currentProductTypeCategoryIDOfItem,
   productTypeNameOfItem as currentProductTypeNameOfItem,
@@ -727,6 +748,10 @@ const pdfDrawerOpen = ref(false)
 const pdfPrinting = ref(false)
 const versionListScope = ref('official')
 const publicationPurposeFilter = ref('factory_supply')
+const publicationListSearch = ref('')
+const publicationListPage = ref(1)
+const publicationListPageSize = ref(10)
+const publicationListCollapsed = ref(false)
 const publicationScope = ref('official')
 const selectedBeanListCustomerID = ref(0)
 const actorLoaded = ref(false)
@@ -871,6 +896,13 @@ const isBeanListAdmin = computed(() => {
 })
 const customerScopeReady = computed(() => publicationScope.value !== 'customer' || Number(selectedBeanListCustomerID.value || 0) > 0)
 const currentScopePublicationRows = computed(() => publicationRows(versionListScope.value, pdfTheme.value.listType, activeProductTypeCategoryID.value, publicationPurposeFilter.value))
+const publicationListState = computed(() => publicationVersionListState(currentScopePublicationRows.value, {
+  query: publicationListSearch.value,
+  page: publicationListPage.value,
+  pageSize: publicationListPageSize.value,
+  collapsed: publicationListCollapsed.value,
+}))
+const paginatedCurrentScopePublicationRows = computed(() => publicationListState.value.rows)
 const versionListCurrentPublication = computed(() => currentScopePublicationRows.value.find((row) => row.status === 'published') || null)
 const publicationScopeRows = computed(() => publicationRows(publicationScope.value, pdfTheme.value.listType, activeProductTypeCategoryID.value, 'factory_supply'))
 const currentBeanListPublication = computed(() => publicationScopeRows.value.find((row) => row.status === 'published') || null)
@@ -945,7 +977,12 @@ watch(versionListScope, (scope) => {
 })
 
 watch(publicationPurposeFilter, () => {
+  publicationListPage.value = 1
   loadBeanListPublications(pdfTheme.value.listType, versionListScope.value, activeProductTypeCategoryID.value)
+})
+
+watch([versionListScope, selectedProductTypeCategoryID, publicationListSearch], () => {
+  publicationListPage.value = 1
 })
 
 watch(activeBeanListCustomerID, () => {

@@ -702,6 +702,45 @@ func TestProductUnitDeletesSoftDisableAndAudit(t *testing.T) {
 	}
 }
 
+func TestTemplateDeletesUseDeletedStateAndHideFromLists(t *testing.T) {
+	schemaBytes, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repositoryBytes, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := string(schemaBytes)
+	repository := string(repositoryBytes)
+	for _, want := range []string{
+		"ALTER TABLE %[1]s.product_unit_definitions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+		"ALTER TABLE %[1]s.product_unit_templates ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+		"ALTER TABLE %[1]s.product_classification_templates ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+		"ALTER TABLE %[1]s.product_config_templates ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+	} {
+		if !strings.Contains(schema, want) {
+			t.Fatalf("schema missing deleted-state column marker %q", want)
+		}
+	}
+	for _, want := range []string{
+		"WHERE deleted_at IS NULL",
+		"SET active=false, deleted_at=now(), updated_at=now()",
+		"func (r Repository) DeleteProductConfigTemplate",
+		"delete_product_config_template",
+		"delete_product_classification_template",
+		"delete_product_unit_definition",
+		"delete_product_unit_template",
+		"deleted_at=NULL",
+		"cmd.Active != nil && !*cmd.Active",
+		"unit_template_inactive_skipped_for_deactivate",
+	} {
+		if !strings.Contains(repository, want) {
+			t.Fatalf("repository missing delete-state/deactivate marker %q", want)
+		}
+	}
+}
+
 func TestCustomerPublicUsageDoesNotInsertCopiedPublicProductsOrCategories(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {

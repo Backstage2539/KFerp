@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_unit_definitions (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %[1]s.product_unit_definitions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 INSERT INTO %[1]s.product_unit_definitions(code,name,unit_type,allow_decimal,active)
 VALUES
 	('kg','kg','weight',true,true),
@@ -115,6 +116,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_unit_templates (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE %[1]s.product_unit_templates ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 CREATE UNIQUE INDEX IF NOT EXISTS product_unit_templates_name_active_uniq
 ON %[1]s.product_unit_templates (lower(name))
 WHERE active=true;
@@ -174,6 +176,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_classification_templates (
 	created_by TEXT NOT NULL DEFAULT '',
 	updated_by TEXT NOT NULL DEFAULT ''
 );
+ALTER TABLE %[1]s.product_classification_templates ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 CREATE UNIQUE INDEX IF NOT EXISTS product_classification_templates_customer_name_active_uniq
 ON %[1]s.product_classification_templates(customer_id, lower(name))
 WHERE active=true;
@@ -344,6 +347,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_config_templates (
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_config_templates ADD COLUMN IF NOT EXISTS unit_template_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_config_templates ADD COLUMN IF NOT EXISTS special_attrs_schema_json JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE %[1]s.product_config_templates ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 CREATE UNIQUE INDEX IF NOT EXISTS product_config_templates_customer_source_active_uniq
 ON %[1]s.product_config_templates (customer_id, source_template_id)
 WHERE active=true AND source_template_id > 0;
