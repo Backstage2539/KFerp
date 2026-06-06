@@ -45,6 +45,8 @@
 - `go test ./internal/infrastructure/postgres/costing -run TestLoadProductInputsReadsFinalPriceTierSchemes -count=1`：costing 查询尚未把阶梯价格方案及来源最终价记录投影到价格表快照。
 - 浏览器 follow-up 2：已部署 商品价格表 已能按 `咖啡烘焙豆` 展示商品和最终价档，但 PR-439 历史发布版本仍是 `product_type_category_id=0`，按直接分类查看时已发布版本区仍显示 `当前发布 暂无`。
 - `go test ./internal/infrastructure/postgres/costing -run TestBeanListPublicationQueriesFallbackToLegacyListTypeRows -count=1`：发布版本查询尚未在按直接分类查找时兼容历史 `list_type=commercial` 发布行。
+- 浏览器 follow-up 3：后端兼容返回历史 `product_type_category_id=0` 发布行后，前端发布版本列表仍按当前分类二次过滤掉该行。
+- `node --test src/lib/product-price-list-types.test.js`：历史全局 `commercial` 发布行尚不能作为直接分类下的兼容版本展示。
 
 ## GREEN
 - `node --test src/lib/product-settings.test.js`：117/117 通过。
@@ -78,6 +80,9 @@
 - follow-up：`go test ./internal/domain/costing ./internal/application/costing ./internal/infrastructure/postgres/costing -count=1`：通过。
 - follow-up 2：`go test ./internal/infrastructure/postgres/costing ./internal/application/costing ./internal/interfaces/http/costing -count=1`：通过。
 - follow-up 2：`go test ./...`、`scripts/verify_kferp.sh changed`、`git diff --check`：通过。
+- follow-up 3：`node --test src/lib/product-price-list-types.test.js`：6/6 通过。
+- follow-up 3：`node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/product-price-list-types.test.js`：47/47 通过。
+- follow-up 3：`npm run build` in `frontend-vue-shell`、`go test ./...`、`scripts/verify_kferp.sh changed`、`git diff --check`：通过。
 
 ## Development 部署与现场验收
 - 代码部署基线：`3cfe484e851ae91552ce73cfe5dc3f6667de90ef`。

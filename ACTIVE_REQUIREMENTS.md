@@ -50,6 +50,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN follow-up local: `node --test src/lib/product-price-list-types.test.js`; `node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/product-price-list-types.test.js`; `go test ./internal/domain/costing ./internal/application/costing ./internal/infrastructure/postgres/costing -count=1`.
   - RED browser follow-up 2: deployed 商品价格表已按直接分类展示 `咖啡烘焙豆` 和最终价档，但已发布版本查询仍只按分类 id 查找，历史 PR-439 发布行 `product_type_category_id=0` 导致 `当前发布 暂无`、版本数为 0。
   - GREEN follow-up 2 local: `go test ./internal/infrastructure/postgres/costing ./internal/application/costing ./internal/interfaces/http/costing -count=1`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - RED browser follow-up 3: 后端已返回历史 `product_type_category_id=0` 发布行后，前端 `matchesPublicationProductType` 仍按当前分类二次过滤，导致公共 `PR439-20260606182321-OFFICIAL` 版本没有进入已发布版本区。
+  - GREEN follow-up 3 frontend: `node --test src/lib/product-price-list-types.test.js`; `node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/product-price-list-types.test.js`; `npm run build` in `frontend-vue-shell`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-product-price-master-remodel.md`.
 - Last update: 2026-06-07 Asia/Shanghai
 

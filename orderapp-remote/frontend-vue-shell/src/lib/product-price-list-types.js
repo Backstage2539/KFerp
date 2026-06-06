@@ -148,7 +148,14 @@ export function matchesPublicationProductType(publication = {}, productTypeCateg
   const classificationID = classificationTemplateIDOfPublication(publication)
   if (id === UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID) return classificationID <= 0
   if (id <= 0) return true
-  return classificationID === id
+  if (classificationID === id) return true
+  return isLegacyGlobalCommercialPublication(publication, classificationID)
+}
+
+function isLegacyGlobalCommercialPublication(publication = {}, classificationID = classificationTemplateIDOfPublication(publication)) {
+  const storedProductTypeID = Number(publication?.product_type_category_id || publication?.productTypeCategoryID || 0)
+  const listType = stringField((publication?.list_type ?? publication?.listType) || 'commercial')
+  return storedProductTypeID <= 0 && classificationID <= 0 && listType === 'commercial'
 }
 
 export function publicationVersionListState(rows = [], options = {}) {

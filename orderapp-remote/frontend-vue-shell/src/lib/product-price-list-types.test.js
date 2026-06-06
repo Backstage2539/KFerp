@@ -83,6 +83,7 @@ test('unclassified legacy green bean still renders with green bean price rows', 
 
 test('published price list rows use current classification instead of legacy product type labels', () => {
   const legacyOther = { product_type_category_id: 154, product_type_name: '其他', list_type: 'commercial', content: { groups: [] } }
+  const legacyGlobalCommercial = { product_type_category_id: 0, product_type_name: '商品价格表', list_type: 'commercial', publication_purpose: 'factory_supply', content: { groups: [] } }
   const classified = { classification_template_id: 3, classification_template_name: '速溶咖啡', product_type_category_id: 154, product_type_name: '其他' }
   const inferredFromContent = {
     product_type_category_id: 0,
@@ -97,6 +98,7 @@ test('published price list rows use current classification instead of legacy pro
   assert.equal(classificationTemplateIDOfPublication(legacyOther), 0)
   assert.equal(matchesPublicationProductType(legacyOther, UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID), true)
   assert.equal(matchesPublicationProductType(legacyOther, 3), false)
+  assert.equal(matchesPublicationProductType(legacyGlobalCommercial, 3), true)
   assert.equal(classificationTemplateNameOfPublication(classified), '速溶咖啡')
   assert.equal(matchesPublicationProductType(classified, 3), true)
   assert.equal(classificationTemplateIDOfPublication(inferredFromContent), 2)
