@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-437-PRICE-LIST-EMPTY-PRODUCTS
 - Branch: codex/price-table-empty-products-20260606
 - Owner/session: Codex / 2026-06-06
-- Status: local fix verified; pending merge, development deploy, and browser acceptance
+- Status: merged to develop and deployed to development; smoke and browser acceptance passed
 - Scope: 商品价格表当前归属或分类没有可用商品时不得报 `products required`；价格表候选接口返回空 items 和参数，发布/生成仍由空内容禁用逻辑保护。
 - DEV:
   - DEV-437-BEAN-LIST-EMPTY-CATALOG：`BeanList` 在商品目录为空时返回空 `items`，不复用通用成本试算的空 products 错误。
@@ -18,7 +18,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN service: `go test ./internal/application/costing -run 'TestBeanListAllowsEmptyProductCatalog|TestCalculateRejectsEmptyProducts|TestBeanListPreservesCustomerAliasAndProductSnapshots' -count=1`.
   - GREEN API: `go test ./internal/interfaces/http/costing -run TestBeanListAPIReturnsEmptyItemsWhenCatalogHasNoProducts -count=1`.
   - GREEN support: `go test ./internal/interfaces/http/support -run TestDev437PriceListEmptyProducts -count=1`.
-- GREEN broader: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1`; `go test ./...` in `orderapp-remote`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN broader: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -count=1`; `go test ./...` in `orderapp-remote`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN merge/deploy: after merging latest `origin/develop`, `node --test src/lib/bom.test.js src/lib/product-settings.test.js`, `npm run build`, `go test ./...`, `scripts/verify_kferp.sh changed`, and deployment Docker `go test ./...` passed.
+  - GREEN smoke/browser: `erp_orderapp` running; authenticated Vue shell 200; requirement API exposes `PR-437-PRICE-LIST-EMPTY-PRODUCTS`; `/api/costing/bean-list` returns 200 without `products required`; browser 商品价格表 page has no error alert and empty-content publish action remains disabled.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-price-list-empty-products.md`.
 - Last update: 2026-06-06 Asia/Shanghai
 
