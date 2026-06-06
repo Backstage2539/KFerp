@@ -960,10 +960,6 @@ export function buildProductCreatePayload(form = {}) {
   if (kind === 'green_bean') return payload
   const yieldRate = normalizedYieldRateFromPercent(form)
   if (yieldRate !== null) payload.yield_rate = yieldRate
-  if (kind === 'drip_bag') {
-    payload.drip_bag_grams = Number(form.drip_bag_grams || 10)
-    payload.drip_box_bag_count = Number(form.drip_box_bag_count || 10)
-  }
   return payload
 }
 
@@ -995,10 +991,6 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
   if (kind === 'instant_coffee') {
     payload.copy_bom = false
     return payload
-  }
-  if (kind === 'drip_bag') {
-    payload.drip_bag_grams = Number(form.drip_bag_grams || 10)
-    payload.drip_box_bag_count = Number(form.drip_box_bag_count || 10)
   }
   return payload
 }
@@ -1098,10 +1090,6 @@ export function buildProductBasicsPayload(row = {}, marginRateOverride = null) {
   if (kind !== 'green_bean') {
     const yieldRate = normalizedYieldRateFromPercent(row)
     if (yieldRate !== null) payload.yield_rate = yieldRate
-    if (kind === 'drip_bag') {
-      payload.drip_bag_grams = Number(row.drip_bag_grams || 10)
-      payload.drip_box_bag_count = Number(row.drip_box_bag_count || 10)
-    }
   }
   payload.margin_rate_override = marginRateOverride
   return payload

@@ -26,7 +26,7 @@ func TestDev336MobileNoticeStackWiring(t *testing.T) {
 	for _, want := range []string{
 		`class="global-notification-stack"`,
 		`localNotifications = ref([])`,
-		`visibleNotifications = computed(() => dedupeNotifications([...localNotifications.value, ...notifications.value]).slice(0, 3))`,
+		`visibleNotifications = computed(() => dedupeNotifications([...localNotifications.value, ...filterDismissedNotifications(notifications.value, dismissedNotificationIDs.value)]).slice(0, 3))`,
 		`notificationStack = ref(null)`,
 		`getBoundingClientRect().bottom`,
 		`notificationStackStyle = computed`,

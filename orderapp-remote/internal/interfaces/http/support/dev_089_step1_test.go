@@ -382,7 +382,7 @@ func TestProductSettingsCategoryDragYieldAndCollapseRefinements(t *testing.T) {
 		"classification-group-toggle",
 		"displaySkuGroups",
 		"yield_percent",
-		"saveProductBasics(row)",
+		"saveProductBasics(row, 'SKU备注已保存')",
 		"activeProductClassificationTab",
 		"productsCollapsed",
 		"toggle-section",

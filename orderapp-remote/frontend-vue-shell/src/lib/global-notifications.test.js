@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { dedupeNotifications } from './global-notifications.js'
+import { dedupeNotifications, filterDismissedNotifications } from './global-notifications.js'
 
 function appSource() {
   return readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
@@ -25,8 +25,8 @@ test('mobile notification stack reserves space for page-level error toasts', () 
   const source = appSource()
   const mobileStyles = sourceAfter(source, '@media (max-width: 900px)')
 
-  assert.match(source, /import \{ dedupeNotifications \} from '\.\/lib\/global-notifications\.js'/)
-  assert.match(source, /const visibleNotifications = computed\(\(\) => dedupeNotifications\(notifications\.value\)\.slice\(0,\s*3\)\)/)
+  assert.match(source, /import \{[^}]*dedupeNotifications[^}]*filterDismissedNotifications[^}]*\} from '\.\/lib\/global-notifications\.js'/s)
+  assert.match(source, /const visibleNotifications = computed\(\(\) => dedupeNotifications\(\[\.{3}localNotifications\.value,\s*\.{3}filterDismissedNotifications\(notifications\.value,\s*dismissedNotificationIDs\.value\)\]\)\.slice\(0,\s*3\)\)/)
   assert.match(source, /ref="notificationStack"/)
   assert.match(source, /notificationStackSpace/)
   assert.match(source, /getBoundingClientRect\(\)\.bottom/)
@@ -44,4 +44,23 @@ test('global notifications collapse duplicate order-created events', () => {
   ])
 
   assert.deepEqual(rows.map((row) => row.id), [11, 12])
+})
+
+test('dismissed backend notifications are hidden from later polling results', () => {
+  const rows = filterDismissedNotifications([
+    { id: 11, event_type: 'order.created', title: '新订单 SO-001' },
+    { id: 12, event_type: 'order.created', title: '新订单 SO-002' },
+  ], [11])
+
+  assert.deepEqual(rows.map((row) => row.id), [12])
+})
+
+test('closing a backend notification records the dismissal before server read sync', () => {
+  const source = appSource()
+  const dismissSource = sourceAfter(source, 'async function dismissNotification(item)')
+
+  assert.match(source, /const dismissedNotificationIDs = ref/)
+  assert.match(dismissSource, /rememberDismissedNotification\(item\)[\s\S]*markNotificationRead\(item\.id\)/)
+  assert.match(dismissSource, /notifications\.value = filterDismissedNotifications\(notifications\.value,\s*dismissedNotificationIDs\.value\)/)
+  assert.doesNotMatch(dismissSource, /The next poll will reconcile read state/)
 })

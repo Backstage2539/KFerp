@@ -204,7 +204,7 @@ import { apiGet, apiSend, appURL } from './api/client.js'
 import { fetchCustomerProcessingPortalOverview } from './api/customer-fulfillment.js'
 import { fetchERPNotifications, markNotificationRead } from './api/message-center.js'
 import { fetchUISettings } from './api/ui-settings.js'
-import { dedupeNotifications } from './lib/global-notifications.js'
+import { dedupeNotifications, filterDismissedNotifications } from './lib/global-notifications.js'
 import { relativeURLForHistory, replaceHistoryURL, viewNavigationURL } from './lib/url-state.js'
 import { installTableAutoPagination } from './lib/table-auto-pagination.js'
 import SearchableSelect from './components/SearchableSelect.vue'
@@ -289,8 +289,10 @@ const authError = ref('')
 const currentActor = ref(null)
 const customerAccountContext = ref(null)
 const uiSettings = ref({ hide_customer_account_fulfillment: true })
+const dismissedNotificationStorageKey = 'kferp.dismissed-notifications.v1'
 const notifications = ref([])
 const localNotifications = ref([])
+const dismissedNotificationIDs = ref(readDismissedNotificationIDs())
 const notificationStackSpace = ref(0)
 const workspaceCustomersRefreshEventName = WORKSPACE_CUSTOMERS_REFRESH_EVENT
 let notificationTimer = 0
@@ -443,6 +445,41 @@ function writeStorage(key, value) {
   } catch {
     // Workspace preferences are a convenience; private mode should not block navigation.
   }
+}
+
+function dismissedNotificationIDList(value) {
+  try {
+    const raw = typeof value === 'string' ? JSON.parse(value || '[]') : value
+    return Array.isArray(raw)
+      ? raw.map((id) => Number(id || 0)).filter((id) => id > 0)
+      : []
+  } catch {
+    return []
+  }
+}
+
+function readDismissedNotificationIDs() {
+  return dismissedNotificationIDList(readStorage(dismissedNotificationStorageKey))
+}
+
+function saveDismissedNotificationIDs(ids = []) {
+  const unique = []
+  const seen = new Set()
+  for (const id of dismissedNotificationIDList(ids)) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    unique.push(id)
+    if (unique.length >= 200) break
+  }
+  writeStorage(dismissedNotificationStorageKey, JSON.stringify(unique))
+}
+
+function rememberDismissedNotification(item) {
+  const id = Number(item?.id || 0)
+  if (id <= 0) return
+  const next = [id, ...dismissedNotificationIDs.value.filter((existing) => Number(existing) !== id)]
+  dismissedNotificationIDs.value = next.slice(0, 200)
+  saveDismissedNotificationIDs(dismissedNotificationIDs.value)
 }
 
 function workspaceContext() {
@@ -799,7 +836,7 @@ async function loadNotifications() {
   if (!currentActor.value || !isViewAllowed('orders', allowedViewKeys.value)) return
   try {
     const data = await fetchERPNotifications(5)
-    notifications.value = dedupeNotifications(data.notifications || [])
+    notifications.value = dedupeNotifications(filterDismissedNotifications(data.notifications || [], dismissedNotificationIDs.value))
   } catch {
     // Notification polling must not block the main ERP workspace.
   }
@@ -833,12 +870,13 @@ async function dismissNotification(item) {
     localNotifications.value = localNotifications.value.filter((row) => String(row.id) !== String(item?.id))
     return
   }
-  notifications.value = notifications.value.filter((row) => Number(row.id) !== Number(item?.id))
+  rememberDismissedNotification(item)
+  notifications.value = filterDismissedNotifications(notifications.value, dismissedNotificationIDs.value)
   if (item?.id) {
     try {
       await markNotificationRead(item.id)
     } catch {
-      // The next poll will reconcile read state.
+      // Local dismissal already hides the notice; server read sync can recover on the next close/open cycle.
     }
   }
 }
@@ -1039,7 +1077,7 @@ const renderedViewParams = computed(() => {
   }
   return params
 })
-const visibleNotifications = computed(() => dedupeNotifications([...localNotifications.value, ...notifications.value]).slice(0, 3))
+const visibleNotifications = computed(() => dedupeNotifications([...localNotifications.value, ...filterDismissedNotifications(notifications.value, dismissedNotificationIDs.value)]).slice(0, 3))
 const notificationStackStyle = computed(() => ({
   '--kferp-notice-stack-space': isMobile.value && visibleNotifications.value.length
     ? `${notificationStackSpace.value}px`

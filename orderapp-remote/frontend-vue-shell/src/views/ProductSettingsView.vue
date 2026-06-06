@@ -93,7 +93,6 @@
                 <th class="action-cell">新增动作</th>
                 <th>预期损耗率</th>
                 <th>利润率覆盖</th>
-                <th>BOM 使用</th>
                 <th>商品状态</th>
                 <th>处理</th>
                 <th class="remark-cell">备注</th>
@@ -102,7 +101,7 @@
             <tbody>
               <template v-for="group in displaySkuGroups" :key="group.key">
                 <tr v-if="!group.all" class="classification-group-row">
-                    <td :colspan="13">
+                    <td :colspan="12">
                     <button class="classification-group-toggle" type="button" @click="toggleProductClassificationGroup(group.key)">
                       {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
                     </button>
@@ -146,9 +145,6 @@
                       :disabled="!canEditSkuRow(row) || row.active === false"
                       @change="saveProductMarginOverride(row)" />
                   </td>
-                  <td class="bom-source-cell">
-                    <button class="text-button" type="button" @click="openProductProductionConfig(row)">查看使用关系</button>
-                  </td>
                   <td>
                     <span :class="['status-pill', row.active === false ? 'inactive' : '']">{{ skuStatusLabel(row) }}</span>
                   </td>
@@ -164,25 +160,11 @@
                       @change="saveProductBasics(row, 'SKU备注已保存')"></textarea>
                   </td>
                 </tr>
-                <tr v-if="row.product_kind === 'drip_bag'" class="green-bean-detail-row">
-                  <td :colspan="13">
-                    <div class="green-bean-detail-fields">
-                      <label>
-                        <span>每袋克重</span>
-                        <input v-model.number="row.drip_bag_grams" type="number" min="0.01" step="0.01" :disabled="!canEditSkuRow(row)" @change="saveProductBasics(row)" />
-                      </label>
-                      <label>
-                        <span>每盒袋数</span>
-                        <input v-model.number="row.drip_box_bag_count" type="number" min="1" step="1" :disabled="!canEditSkuRow(row)" @change="saveProductBasics(row)" />
-                      </label>
-                    </div>
-                  </td>
-                </tr>
               </template>
                 </template>
               </template>
               <tr v-if="!displaySkuRows.length">
-                <td :colspan="13" class="muted">暂无商品档案</td>
+                <td :colspan="12" class="muted">暂无商品档案</td>
               </tr>
             </tbody>
           </table>
@@ -1897,8 +1879,6 @@ function defaultProductForm() {
     product_subtype_category_id: 0,
     product_kind: 'roasted',
     remark: '',
-    drip_bag_grams: 10,
-    drip_box_bag_count: 10,
     special_attr_values: {},
     yield_percent: 80,
   }
@@ -1933,8 +1913,6 @@ function defaultCustomForm() {
     product_type_category_id: 0,
     product_subtype_category_id: 0,
     product_kind: 'roasted',
-    drip_bag_grams: 10,
-    drip_box_bag_count: 10,
     special_attr_values: {},
     yield_percent: 80,
     custom_type: 'public_sku_alias',
@@ -2147,8 +2125,6 @@ function decorateProduct(product) {
     product_code: product.product_code || productCodeLabel(product),
     remark: product.remark || '',
     product_kind: productKind,
-    drip_bag_grams: Number(product.drip_bag_grams || 10),
-    drip_box_bag_count: Number(product.drip_box_bag_count || 10),
     roast_level: product.roast_level || '',
     special_attrs_json: product.special_attrs_json || '{}',
     special_attr_values: {
@@ -3476,8 +3452,6 @@ function syncCustomFormFromBaseProduct(product) {
   customForm.value.product_kind = kind
   customForm.value.special_attr_values = { ...specialAttrValuesFromJSON(product.special_attrs_json || '{}') }
   customForm.value.yield_percent = productKindSupportsBomParams(kind) ? Number(((Number(product.yield_rate || 0.8)) * 100).toFixed(2)) : 0
-  customForm.value.drip_bag_grams = Number(product.drip_bag_grams || 10)
-  customForm.value.drip_box_bag_count = Number(product.drip_box_bag_count || 10)
   if (kind !== 'roasted') customForm.value.copy_bom = false
 }
 
@@ -4024,14 +3998,6 @@ async function createProduct() {
     error.value = '历史 BOM 参数异常，请到商品生产配置维护预期损耗率'
     return
   }
-  if (productForm.value.product_kind === 'drip_bag' && Number(productForm.value.drip_bag_grams || 0) <= 0) {
-    error.value = '挂耳每袋克重必须大于 0'
-    return
-  }
-  if (productForm.value.product_kind === 'drip_bag' && Number(productForm.value.drip_box_bag_count || 0) <= 0) {
-    error.value = '挂耳每盒袋数必须大于 0'
-    return
-  }
   productSaving.value = true
   error.value = ''
   ok.value = ''
@@ -4072,14 +4038,6 @@ async function createCustomProduct() {
   }
   if (!customForm.value.name) {
     error.value = '请填写专属 SKU 名称'
-    return
-  }
-  if (customForm.value.product_kind === 'drip_bag' && Number(customForm.value.drip_bag_grams || 0) <= 0) {
-    error.value = '挂耳每袋克重必须大于 0'
-    return
-  }
-  if (customForm.value.product_kind === 'drip_bag' && Number(customForm.value.drip_box_bag_count || 0) <= 0) {
-    error.value = '挂耳每盒袋数必须大于 0'
     return
   }
   customSaving.value = true
@@ -4920,14 +4878,6 @@ async function saveProductBasics(row, successMessage = '商品基础信息已保
     error.value = '历史 BOM 参数异常，请到商品生产配置维护预期损耗率'
     return
   }
-  if (productKind === 'drip_bag' && Number(row.drip_bag_grams || 0) <= 0) {
-    error.value = '挂耳每袋克重必须大于 0'
-    return
-  }
-  if (productKind === 'drip_bag' && Number(row.drip_box_bag_count || 0) <= 0) {
-    error.value = '挂耳每盒袋数必须大于 0'
-    return
-  }
   const marginOverride = normalizeMarginRateOverride(row)
   if (!marginOverride.ok) {
     error.value = '利润率覆盖必须为 0 或正数'
@@ -5285,7 +5235,6 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .select-col { width: 42px; text-align: center; }
 .select-col input { width: 16px; min-height: 16px; }
 .sku-category-cell { min-width: 112px; max-width: 220px; white-space: nowrap; }
-    .bom-source-cell { min-width: 180px; color: #3f3a34; }
     .bom-version-warning { display: block; margin-top: 3px; color: #9a5b13; font-size: 12px; white-space: nowrap; }
 .sku-name-cell { min-width: 300px; }
 .action-cell { min-width: 150px; }

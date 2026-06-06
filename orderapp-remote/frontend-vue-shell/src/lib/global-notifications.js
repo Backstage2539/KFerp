@@ -20,3 +20,11 @@ export function dedupeNotifications(rows = []) {
   }
   return out
 }
+
+export function filterDismissedNotifications(rows = [], dismissedIDs = []) {
+  const dismissed = new Set((dismissedIDs || [])
+    .map((id) => Number(id || 0))
+    .filter((id) => id > 0))
+  if (!dismissed.size) return [...(rows || [])]
+  return (rows || []).filter((row) => !dismissed.has(Number(row?.id || 0)))
+}

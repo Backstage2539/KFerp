@@ -917,6 +917,23 @@ test('product basics payload preserves remark without hard-coded green bean attr
   assert.equal(Object.hasOwn(payload, 'green_bean_bom_product_id'), false)
 })
 
+test('product basics payload no longer writes hard-coded drip bag package fields', () => {
+  const payload = buildProductBasicsPayload({
+    id: 10,
+    product_kind: 'drip_bag',
+    drip_bag_grams: 12,
+    drip_box_bag_count: 8,
+    yield_percent: 82,
+    remark: '挂耳由商品配置模板承载规格',
+  }, null)
+
+  assert.equal(payload.product_kind, 'drip_bag')
+  assert.equal(payload.remark, '挂耳由商品配置模板承载规格')
+  assert.equal(payload.yield_rate, 0.82)
+  assert.equal(Object.hasOwn(payload, 'drip_bag_grams'), false)
+  assert.equal(Object.hasOwn(payload, 'drip_box_bag_count'), false)
+})
+
 test('product basics payload carries customer SKU margin override', () => {
   const payload = buildProductBasicsPayload({
     id: 17,
@@ -970,7 +987,7 @@ test('customer SKU rows sort customer-owned products before frequent public prod
   assert.deepEqual(sorted.map((row) => row.id), [4, 2, 3, 1])
 })
 
-test('customer custom SKU payload supports green bean without hard-coded green attributes and keeps drip bag settings', () => {
+test('customer custom SKU payload supports green bean and drip bag without hard-coded product archive fields', () => {
   assert.deepEqual(buildCustomProductCreatePayload(42, {
     name: '客户A-巴拿马生豆',
     remark: '客户生豆',
@@ -1007,8 +1024,6 @@ test('customer custom SKU payload supports green bean without hard-coded green a
     name: '客户A-耶加挂耳',
     remark: '',
     product_kind: 'drip_bag',
-    drip_bag_grams: 12,
-    drip_box_bag_count: 8,
     custom_type: 'custom_roast',
     copy_bom: false,
     copy_price_tiers: false,
@@ -1055,6 +1070,22 @@ test('product archive list does not expose hard-coded green bean attributes or b
   assert.doesNotMatch(helperSource, /greenBeanTypeOptions/)
   assert.doesNotMatch(helperSource, /greenBeanTypeLabel/)
   assert.doesNotMatch(helperSource, /roastedBomProductOptions/)
+})
+
+test('product archive list does not expose BOM usage column or hard-coded drip package editors', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+
+  assert.match(template, /class="[^"]*sku-name-button[^"]*"[\s\S]*@click="openProductProductionConfig\(row\)"/)
+  assert.match(template, /被哪些 BOM 使用/)
+  assert.doesNotMatch(template, /<th>BOM 使用<\/th>/)
+  assert.doesNotMatch(template, /查看使用关系/)
+  assert.doesNotMatch(template, /bom-source-cell/)
+  assert.doesNotMatch(template, /每袋克[重数]/)
+  assert.doesNotMatch(template, /每盒袋数/)
+  assert.doesNotMatch(template, /v-model\.number="row\.drip_bag_grams"/)
+  assert.doesNotMatch(template, /v-model\.number="row\.drip_box_bag_count"/)
+  assert.doesNotMatch(template, /row\.product_kind === 'drip_bag'/)
 })
 
 test('customer SKU customer options include active customers before they have copied SKUs', () => {
@@ -1645,12 +1676,13 @@ test('SKU settings removes public SKU references from the customer SKU list and 
 test('product archive list uses the product name as the only production config entry', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
+  const skuTable = template.match(/<table :key="skuTableKey"[\s\S]*?<\/table>/)?.[0] || template
 
   assert.match(template, /生产 BOM/)
-  assert.match(template, /BOM 使用/)
-  assert.match(template, /查看使用关系/)
   assert.match(template, /class="[^"]*sku-name-button[^"]*"[\s\S]*@click="openProductProductionConfig\(row\)"/)
   assert.ok(template.indexOf('<th class="sku-name-cell">商品名</th>') < template.indexOf('<th>商品编号</th>'), '商品名 must be the first business column before 商品编号')
+  assert.doesNotMatch(skuTable, /BOM 使用/)
+  assert.doesNotMatch(skuTable, /查看使用关系/)
   assert.doesNotMatch(source, /productionBomLabel\(row\)/)
   assert.doesNotMatch(source, /productionBomVersionWarning\(row\)/)
   assert.doesNotMatch(template, /当前引用/)

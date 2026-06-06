@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-429-PRODUCT-ARCHIVE-LIST-NOTICE-CLEANUP
+- Branch: codex/product-archive-list-notice-cleanup-20260606
+- Owner/session: Codex / 2026-06-06
+- Status: local fix verified; pending merge and development deploy
+- Scope: 商品档案列表删除独立 `BOM 使用` 列、行内“查看使用关系”按钮、挂耳 `每袋克重` / `每盒袋数` 行内编辑；顶部新订单通知关闭后在当前浏览器本地兜底过滤，避免轮询重新弹出同一通知。
+- DEV:
+  - DEV-429-PRODUCT-ARCHIVE-LIST-NO-HARDCODED-FIELDS：`ProductSettingsView.vue` 删除商品档案列表硬编码 BOM 使用列和挂耳包装字段；`product-settings.js` 不再提交 `drip_bag_grams` / `drip_box_bag_count` 默认值。
+  - DEV-429-NOTIFICATION-DISMISS-PERSISTENCE：`App.vue` 关闭后记录本地 dismissed notification id，并继续调用服务端已读接口；轮询和展示都过滤已关闭通知。
+- Verifier:
+  - RED local: `node --test src/lib/global-notifications.test.js src/lib/product-settings.test.js` failed before implementation because notification dismissal helper was missing, product payload still emitted drip package fields, and 商品档案 table still rendered `BOM 使用` / `查看使用关系`.
+  - GREEN local: `node --test src/lib/global-notifications.test.js src/lib/product-settings.test.js` passed 115/115 after implementation.
+  - GREEN support: `go test ./internal/interfaces/http/support -run 'TestProductArchiveListNoticeCleanup' -count=1`.
+  - GREEN broader: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size/plugin timing warning; `go test ./internal/interfaces/http/support -count=1`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Pending: merge to `develop`, development deploy and browser 商品档案/notification acceptance.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_NOTIFICATIONS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `docs/acceptance/2026-06-06-product-archive-list-notice-cleanup.md`.
+- Last update: 2026-06-06 Asia/Shanghai
+
 ### PR-428-PRODUCT-ARCHIVE-NO-GREEN-BEAN-BINDING
 - Branch: codex/product-archive-remove-green-bind-20260606
 - Owner/session: Codex / 2026-06-06
