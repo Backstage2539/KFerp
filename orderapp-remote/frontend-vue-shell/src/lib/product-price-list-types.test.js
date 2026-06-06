@@ -40,6 +40,38 @@ test('legacy product type id does not count as current product archive classific
   assert.equal(matchesProductTypeCategory(classified, 3), true)
 })
 
+test('direct product categories drive price list type options after template removal', () => {
+  const legacyOnly = { product_id: 1, product_type_category_id: 19, product_type_name: '咖啡生豆', product_kind: 'green_bean' }
+  const directLeaf = {
+    product_id: 2,
+    product_category_id: 7,
+    product_type_category_id: 3,
+    product_type_name: '咖啡烘焙豆',
+    product_subtype_category_id: 7,
+    product_subtype_name: '工厂量单',
+    category_primary_name: '咖啡烘焙豆',
+    category_secondary_name: '工厂量单',
+    category_primary_position: 20,
+  }
+  const directParent = {
+    product_id: 3,
+    product_category_id: 8,
+    product_type_category_id: 8,
+    product_type_name: '周边商品',
+    category_primary_name: '周边商品',
+    category_primary_position: 30,
+  }
+
+  const options = buildClassificationPriceListTypeOptions([legacyOnly, directParent, directLeaf])
+
+  assert.equal(classificationTemplateIDOfItem(legacyOnly), 0)
+  assert.equal(classificationTemplateIDOfItem(directLeaf), 3)
+  assert.equal(matchesProductTypeCategory(directLeaf, 3), true)
+  assert.equal(matchesProductTypeCategory(directLeaf, UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID), false)
+  assert.deepEqual(options.map((option) => option.label), ['未分类商品', '咖啡烘焙豆', '周边商品'])
+  assert.equal(options.find((option) => option.label === '咖啡烘焙豆')?.itemCount, 1)
+})
+
 test('unclassified legacy green bean still renders with green bean price rows', () => {
   const legacyGreen = { product_id: 1, product_type_category_id: 19, product_type_name: '咖啡生豆', product_kind: 'green_bean' }
   const classifiedDrip = { product_id: 2, classification_template_id: 2, classification_template_name: '咖啡挂耳', product_kind: 'drip_bag' }

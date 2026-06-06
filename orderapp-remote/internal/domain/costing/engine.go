@@ -121,6 +121,9 @@ type ProductInput struct {
 
 type ProductPriceSnapshot struct {
 	SourcePriceRecordID     int64           `json:"source_price_record_id"`
+	Label                   string          `json:"tier_label,omitempty"`
+	MinQty                  float64         `json:"min_qty,omitempty"`
+	MaxQty                  *float64        `json:"max_qty,omitempty"`
 	FinalUnitPrice          float64         `json:"final_unit_price"`
 	PriceUnit               string          `json:"price_unit"`
 	Currency                string          `json:"currency"`
@@ -130,26 +133,32 @@ type ProductPriceSnapshot struct {
 	InventoryConversionJSON json.RawMessage `json:"inventory_conversion_json"`
 	ProductID               int64           `json:"product_id,omitempty"`
 	CustomerProductAliasID  int64           `json:"customer_product_alias_id,omitempty"`
+	Position                int             `json:"position,omitempty"`
 }
 
 type CommercialWholesaleTier struct {
-	Label          string   `json:"label"`
-	Scheme         string   `json:"scheme,omitempty"`
-	SpecG          int64    `json:"spec_g,omitempty"`
-	MinQty         float64  `json:"min_qty,omitempty"`
-	MaxQty         *float64 `json:"max_qty,omitempty"`
-	PricePerUnit   float64  `json:"price_per_unit"`
-	MinLb          float64  `json:"min_lb"`
-	MaxLb          *float64 `json:"max_lb,omitempty"`
-	PricePerKg     float64  `json:"price_per_kg"`
-	PricePerLb     float64  `json:"price_per_lb"`
-	TemplateID     int64    `json:"template_id,omitempty"`
-	TemplateTierID int64    `json:"template_tier_id,omitempty"`
-	DisplayUnit    string   `json:"display_unit,omitempty"`
-	PriceUnit      string   `json:"price_unit,omitempty"`
-	MinWeightG     float64  `json:"min_weight_g,omitempty"`
-	MaxWeightG     *float64 `json:"max_weight_g,omitempty"`
-	MarginRate     float64  `json:"margin_rate,omitempty"`
+	Label                   string          `json:"label"`
+	Scheme                  string          `json:"scheme,omitempty"`
+	SpecG                   int64           `json:"spec_g,omitempty"`
+	MinQty                  float64         `json:"min_qty,omitempty"`
+	MaxQty                  *float64        `json:"max_qty,omitempty"`
+	PricePerUnit            float64         `json:"price_per_unit"`
+	MinLb                   float64         `json:"min_lb"`
+	MaxLb                   *float64        `json:"max_lb,omitempty"`
+	PricePerKg              float64         `json:"price_per_kg"`
+	PricePerLb              float64         `json:"price_per_lb"`
+	TemplateID              int64           `json:"template_id,omitempty"`
+	TemplateTierID          int64           `json:"template_tier_id,omitempty"`
+	DisplayUnit             string          `json:"display_unit,omitempty"`
+	PriceUnit               string          `json:"price_unit,omitempty"`
+	SourcePriceRecordID     int64           `json:"source_price_record_id,omitempty"`
+	FinalUnitPrice          float64         `json:"final_unit_price,omitempty"`
+	Currency                string          `json:"currency,omitempty"`
+	InventoryUnit           string          `json:"inventory_unit,omitempty"`
+	InventoryConversionJSON json.RawMessage `json:"inventory_conversion_json,omitempty"`
+	MinWeightG              float64         `json:"min_weight_g,omitempty"`
+	MaxWeightG              *float64        `json:"max_weight_g,omitempty"`
+	MarginRate              float64         `json:"margin_rate,omitempty"`
 }
 
 type DripWholesaleTier struct {
@@ -709,13 +718,17 @@ func calculateGreenBeanProduct(params Parameters, in ProductInput) ProductResult
 	if in.ProductID <= 0 {
 		code = "G.0"
 	}
-	tiers := buildGreenBeanTemplateSaleTiers(params, in)
-	bomStatus := "bom_cost_template_price"
+	tiers := buildProductPriceSnapshotCommercialTiers(params, in)
+	bomStatus := "direct_sale_price"
 	if len(tiers) == 0 {
-		tiers = normalizeLegacyGreenBeanSaleTiers(in.GreenBeanSaleTiers)
-		bomStatus = "missing_green_bean_template"
-		if len(tiers) > 0 {
-			bomStatus = "direct_sale_price"
+		tiers = buildGreenBeanTemplateSaleTiers(params, in)
+		bomStatus = "bom_cost_template_price"
+		if len(tiers) == 0 {
+			tiers = normalizeLegacyGreenBeanSaleTiers(in.GreenBeanSaleTiers)
+			bomStatus = "missing_green_bean_template"
+			if len(tiers) > 0 {
+				bomStatus = "direct_sale_price"
+			}
 		}
 	}
 	out := ProductResult{
@@ -1130,10 +1143,178 @@ func normalizeWarnings(warnings []string) []string {
 }
 
 func buildCommercialWholesaleTiers(params Parameters, in ProductInput, kgPrices, lbPrices []float64) []CommercialWholesaleTier {
+	if tiers := buildProductPriceSnapshotCommercialTiers(params, in); len(tiers) > 0 {
+		return tiers
+	}
 	if template := normalizeGradientTemplate(in.GradientTemplate); template != nil {
 		return buildGradientTemplateCommercialTiers(params, in, *template)
 	}
 	return nil
+}
+
+func buildProductPriceSnapshotCommercialTiers(params Parameters, in ProductInput) []CommercialWholesaleTier {
+	snapshots := normalizedProductPriceSnapshots(in.ProductPriceSnapshots)
+	if len(snapshots) == 0 {
+		return nil
+	}
+	out := make([]CommercialWholesaleTier, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		displayUnit := normalizeProductPriceSnapshotDisplayUnit(snapshot.PriceUnit)
+		specG := physicalSpecGForDisplayUnit(displayUnit, in.UnitConversionJSON)
+		if specG <= 0 {
+			specG = specGForGradientDisplayUnit(displayUnit)
+		}
+		pricePerUnit := roundPriceTo(snapshot.FinalUnitPrice, 2)
+		pricePerKg, pricePerLb := productPriceSnapshotUnitPrices(params, displayUnit, pricePerUnit, specG)
+		minQty := roundQuantity(snapshot.MinQty)
+		var maxQty *float64
+		if snapshot.MaxQty != nil {
+			v := roundQuantity(*snapshot.MaxQty)
+			maxQty = &v
+		}
+		minWeightG := minQty * float64(specG)
+		var maxWeightG *float64
+		if maxQty != nil {
+			v := *maxQty * float64(specG)
+			maxWeightG = &v
+		}
+		minLb := roundQuantity(minWeightG / 454.0)
+		var maxLb *float64
+		if maxWeightG != nil {
+			v := roundQuantity(*maxWeightG / 454.0)
+			maxLb = &v
+		}
+		label := strings.TrimSpace(snapshot.Label)
+		if label == "" {
+			label = strings.TrimSpace(snapshot.PriceGroupName)
+		}
+		if label == "" {
+			label = fmt.Sprintf("价格记录 %d", snapshot.SourcePriceRecordID)
+		}
+		out = append(out, CommercialWholesaleTier{
+			Label:                   label,
+			Scheme:                  "product_price_record",
+			SpecG:                   int64(specG),
+			MinQty:                  minQty,
+			MaxQty:                  maxQty,
+			PricePerUnit:            pricePerUnit,
+			MinLb:                   minLb,
+			MaxLb:                   maxLb,
+			PricePerKg:              pricePerKg,
+			PricePerLb:              pricePerLb,
+			DisplayUnit:             displayUnit,
+			PriceUnit:               snapshot.PriceUnit,
+			SourcePriceRecordID:     snapshot.SourcePriceRecordID,
+			FinalUnitPrice:          pricePerUnit,
+			Currency:                snapshot.Currency,
+			InventoryUnit:           snapshot.InventoryUnit,
+			InventoryConversionJSON: cloneRawJSON(snapshot.InventoryConversionJSON),
+			MinWeightG:              minWeightG,
+			MaxWeightG:              maxWeightG,
+		})
+	}
+	return out
+}
+
+func productPriceSnapshotUnitPrices(params Parameters, displayUnit string, finalUnitPrice float64, specG int) (float64, float64) {
+	if finalUnitPrice <= 0 {
+		return 0, 0
+	}
+	kgToLb := params.KgToLbFactor
+	if kgToLb <= 0 {
+		kgToLb = DefaultParameters().KgToLbFactor
+	}
+	switch normalizeProductPriceSnapshotDisplayUnit(displayUnit) {
+	case GradientDisplayUnitKg:
+		return finalUnitPrice, roundPriceTo(finalUnitPrice*kgToLb, 2)
+	case GradientDisplayUnitLb:
+		return roundPriceTo(finalUnitPrice/kgToLb, 2), finalUnitPrice
+	default:
+		if specG > 0 {
+			pricePerKg := roundPriceTo(finalUnitPrice*1000.0/float64(specG), 2)
+			return pricePerKg, roundPriceTo(pricePerKg*kgToLb, 2)
+		}
+		return 0, 0
+	}
+}
+
+func normalizedProductPriceSnapshots(source []ProductPriceSnapshot) []ProductPriceSnapshot {
+	out := make([]ProductPriceSnapshot, 0, len(source))
+	for _, row := range source {
+		row.Label = strings.TrimSpace(row.Label)
+		row.PriceUnit = strings.TrimSpace(row.PriceUnit)
+		row.Currency = strings.TrimSpace(row.Currency)
+		row.PriceGroupName = strings.TrimSpace(row.PriceGroupName)
+		row.InventoryUnit = strings.TrimSpace(row.InventoryUnit)
+		if row.SourcePriceRecordID <= 0 || row.FinalUnitPrice <= 0 || row.PriceUnit == "" {
+			continue
+		}
+		if row.Currency == "" {
+			row.Currency = "CNY"
+		}
+		if row.InventoryUnit == "" {
+			row.InventoryUnit = row.PriceUnit
+		}
+		if len(row.InventoryConversionJSON) == 0 || string(row.InventoryConversionJSON) == "null" {
+			if strings.TrimSpace(row.PriceUnit) == strings.TrimSpace(row.InventoryUnit) {
+				row.InventoryConversionJSON = defaultInventoryConversionJSON(row.PriceUnit, row.InventoryUnit)
+			} else {
+				row.InventoryConversionJSON = json.RawMessage(`{}`)
+			}
+		}
+		out = append(out, row)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Position != out[j].Position {
+			return out[i].Position < out[j].Position
+		}
+		if out[i].MinQty != out[j].MinQty {
+			return out[i].MinQty < out[j].MinQty
+		}
+		return out[i].SourcePriceRecordID < out[j].SourcePriceRecordID
+	})
+	return out
+}
+
+func defaultInventoryConversionJSON(priceUnit, inventoryUnit string) json.RawMessage {
+	payload, err := json.Marshal(map[string]map[string]float64{
+		priceUnit: {inventoryUnit: 1},
+	})
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return payload
+}
+
+func normalizeProductPriceSnapshotDisplayUnit(unit string) string {
+	value := strings.TrimSpace(unit)
+	switch strings.ToLower(value) {
+	case GradientDisplayUnitKg:
+		return GradientDisplayUnitKg
+	case GradientDisplayUnitLb:
+		return GradientDisplayUnitLb
+	case GradientDisplayUnit227G:
+		return GradientDisplayUnit227G
+	case GradientDisplayUnit100G:
+		return GradientDisplayUnit100G
+	case GradientDisplayUnit250G:
+		return GradientDisplayUnit250G
+	}
+	switch value {
+	case "公斤", "千克":
+		return GradientDisplayUnitKg
+	case "磅":
+		return GradientDisplayUnitLb
+	default:
+		return normalizeGradientDisplayUnit(value)
+	}
+}
+
+func cloneRawJSON(value json.RawMessage) json.RawMessage {
+	if len(value) == 0 {
+		return nil
+	}
+	return append(json.RawMessage(nil), value...)
 }
 
 func shouldWarnMissingPricingMethod(in ProductInput) bool {
@@ -1141,6 +1322,9 @@ func shouldWarnMissingPricingMethod(in ProductInput) bool {
 }
 
 func hasEffectivePricingMethod(in ProductInput) bool {
+	if len(normalizedProductPriceSnapshots(in.ProductPriceSnapshots)) > 0 {
+		return true
+	}
 	rule := parseProductPriceRuleJSON(in.PriceListRuleJSON)
 	switch rule.PricingMode {
 	case "fixed_unit_price":

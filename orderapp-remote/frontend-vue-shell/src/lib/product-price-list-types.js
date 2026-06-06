@@ -48,7 +48,7 @@ export function buildClassificationPriceListTypeOptions(sourceItems = []) {
 }
 
 export function classificationTemplateIDOfItem(item = {}) {
-  return Number(
+  const currentID = Number(
     item?.classification_template_id ||
     item?.classificationTemplateID ||
     item?.current_classification_template_id ||
@@ -56,10 +56,13 @@ export function classificationTemplateIDOfItem(item = {}) {
     item?.classification_template_id_snapshot ||
     0,
   )
+  if (currentID > 0) return currentID
+  if (directProductCategoryIDOfItem(item) <= 0) return 0
+  return directProductTypeCategoryIDOfItem(item) || directProductCategoryIDOfItem(item)
 }
 
 export function classificationCategoryIDOfItem(item = {}) {
-  return Number(
+  const currentID = Number(
     item?.classification_category_id ||
     item?.classificationCategoryID ||
     item?.current_classification_category_id ||
@@ -67,26 +70,39 @@ export function classificationCategoryIDOfItem(item = {}) {
     item?.classification_category_id_snapshot ||
     0,
   )
+  if (currentID > 0) return currentID
+  const categoryID = directProductCategoryIDOfItem(item)
+  if (categoryID <= 0) return 0
+  const subtypeID = Number(item?.product_subtype_category_id || item?.productSubtypeCategoryID || 0)
+  if (subtypeID > 0) return subtypeID
+  const typeID = directProductTypeCategoryIDOfItem(item)
+  return typeID > 0 && categoryID === typeID ? 0 : categoryID
 }
 
 export function classificationTemplateNameOfItem(item = {}) {
-  return stringField(
+  const currentName = stringField(
     item?.classification_template_name ??
     item?.classificationTemplateName ??
     item?.current_classification_template_name ??
     item?.currentClassificationTemplateName ??
     item?.classification_template_name_snapshot,
   )
+  if (currentName) return currentName
+  if (directProductCategoryIDOfItem(item) <= 0) return ''
+  return stringField(item?.category_primary_name ?? item?.categoryPrimaryName ?? item?.product_type_name ?? item?.productTypeName)
 }
 
 export function classificationCategoryNameOfItem(item = {}) {
-  return stringField(
+  const currentName = stringField(
     item?.classification_category_name ??
     item?.classificationCategoryName ??
     item?.current_classification_category_name ??
     item?.currentClassificationCategoryName ??
     item?.classification_category_name_snapshot,
   )
+  if (currentName) return currentName
+  if (directProductCategoryIDOfItem(item) <= 0) return ''
+  return stringField(item?.category_secondary_name ?? item?.categorySecondaryName ?? item?.product_subtype_name ?? item?.productSubtypeName)
 }
 
 export function productTypeCategoryIDOfItem(item = {}) {
@@ -186,6 +202,14 @@ function dominantPriceListRenderType(items = []) {
 
 function productTypePositionOfItem(item = {}) {
   return Number(item?.category_primary_position || item?.product_type_position || item?.productTypePosition || 999999)
+}
+
+function directProductCategoryIDOfItem(item = {}) {
+  return Number(item?.product_category_id || item?.productCategoryID || 0)
+}
+
+function directProductTypeCategoryIDOfItem(item = {}) {
+  return Number(item?.product_type_category_id || item?.productTypeCategoryID || 0)
 }
 
 function publicationItems(publication = {}) {

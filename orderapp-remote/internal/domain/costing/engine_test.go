@@ -1,6 +1,7 @@
 package costing
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -144,6 +145,41 @@ func TestProductWithGradientTemplateDoesNotWarnMissingPricingMethod(t *testing.T
 
 	if containsString(got.Warnings, MissingPricingMethodWarning) {
 		t.Fatalf("warnings = %+v, want no missing pricing method warning", got.Warnings)
+	}
+}
+
+func TestProductPriceSnapshotsPublishCommercialTiersWithoutLegacyTemplate(t *testing.T) {
+	params := DefaultParameters()
+	got := CalculateProduct(params, ProductInput{
+		ProductID:          439,
+		Name:               "PR439 最终价商品",
+		GreenBeanCostPerKg: 62,
+		YieldRate:          params.RoastYieldRate,
+		ProductPriceSnapshots: []ProductPriceSnapshot{{
+			SourcePriceRecordID:     701,
+			Label:                   "1kg+",
+			MinQty:                  1,
+			FinalUnitPrice:          88.5,
+			PriceUnit:               "kg",
+			Currency:                "CNY",
+			InventoryUnit:           "kg",
+			InventoryConversionJSON: json.RawMessage(`{"kg":{"kg":1}}`),
+			ProductID:               439,
+		}},
+	})
+
+	if containsString(got.Warnings, MissingPricingMethodWarning) {
+		t.Fatalf("warnings = %+v, want no missing pricing method warning", got.Warnings)
+	}
+	if len(got.CommercialWholesaleTiers) != 1 {
+		t.Fatalf("commercial tiers = %+v, want one final-price tier", got.CommercialWholesaleTiers)
+	}
+	tier := got.CommercialWholesaleTiers[0]
+	if tier.Label != "1kg+" || tier.SourcePriceRecordID != 701 || tier.FinalUnitPrice != 88.5 || tier.PriceUnit != "kg" || tier.InventoryUnit != "kg" {
+		t.Fatalf("final-price tier = %+v", tier)
+	}
+	if string(tier.InventoryConversionJSON) != `{"kg":{"kg":1}}` {
+		t.Fatalf("inventory conversion = %s", string(tier.InventoryConversionJSON))
 	}
 }
 

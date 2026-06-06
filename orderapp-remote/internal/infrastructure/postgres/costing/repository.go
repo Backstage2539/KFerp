@@ -509,33 +509,110 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			LIMIT 1
 		) qc ON true
 		LEFT JOIN LATERAL (
+			WITH price_records AS (
+				SELECT ppr.id,
+				       ppr.final_unit_price,
+				       ppr.price_unit,
+				       ppr.currency,
+				       COALESCE(ppr.price_group_id,0) AS price_group_id,
+				       COALESCE(ppr.price_group_name,'') AS price_group_name,
+				       ppr.inventory_unit,
+				       COALESCE(ppr.inventory_conversion_json, '{}'::jsonb) AS inventory_conversion_json,
+				       COALESCE(ppr.product_id,0) AS product_id,
+				       COALESCE(ppr.customer_product_alias_id,0) AS customer_product_alias_id
+				FROM %[1]s.product_price_records ppr
+				WHERE ppr.active=true
+				  AND ppr.status='published'
+				  AND (
+				    (COALESCE(p.customer_product_alias_id,0)>0 AND COALESCE(ppr.customer_product_alias_id,0)=COALESCE(p.customer_product_alias_id,0))
+				    OR (COALESCE(ppr.customer_product_alias_id,0)=0 AND COALESCE(ppr.product_id,0)=p.id)
+				  )
+			),
+			tier_rows AS (
+				SELECT pr.id AS source_price_record_id,
+				       COALESCE(NULLIF(ptst.label,''), NULLIF(pts.name,''), pr.price_group_name, '') AS tier_label,
+				       COALESCE(ptst.min_qty,0)::float8 AS min_qty,
+				       ptst.max_qty::float8 AS max_qty,
+				       ptst.final_unit_price,
+				       ptst.price_unit,
+				       ptst.currency,
+				       COALESCE(NULLIF(pts.price_group_id,0), pr.price_group_id,0) AS price_group_id,
+				       pr.price_group_name,
+				       pr.inventory_unit,
+				       pr.inventory_conversion_json,
+				       pr.product_id,
+				       pr.customer_product_alias_id,
+				       COALESCE(NULLIF(ptst.position,0),100) AS position
+				FROM %[1]s.product_tier_price_schemes pts
+				JOIN %[1]s.product_tier_price_scheme_tiers ptst
+				  ON ptst.scheme_id=pts.id
+				 AND ptst.active=true
+				JOIN price_records pr ON pr.id=ptst.source_price_record_id
+				WHERE pts.active=true
+				  AND (
+				    (COALESCE(p.customer_product_alias_id,0)>0 AND COALESCE(pts.customer_product_alias_id,0)=COALESCE(p.customer_product_alias_id,0))
+				    OR (COALESCE(pts.customer_product_alias_id,0)=0 AND COALESCE(pts.product_id,0)=p.id)
+				  )
+			),
+			source_rows AS (
+				SELECT source_price_record_id,
+				       tier_label,
+				       min_qty,
+				       max_qty,
+				       final_unit_price,
+				       price_unit,
+				       currency,
+				       price_group_id,
+				       price_group_name,
+				       inventory_unit,
+				       inventory_conversion_json,
+				       product_id,
+				       customer_product_alias_id,
+				       position
+				FROM tier_rows
+				UNION ALL
+				SELECT pr.id AS source_price_record_id,
+				       pr.price_group_name AS tier_label,
+				       0::float8 AS min_qty,
+				       NULL::float8 AS max_qty,
+				       pr.final_unit_price,
+				       pr.price_unit,
+				       pr.currency,
+				       pr.price_group_id,
+				       pr.price_group_name,
+				       pr.inventory_unit,
+				       pr.inventory_conversion_json,
+				       pr.product_id,
+				       pr.customer_product_alias_id,
+				       1000 + (row_number() OVER (ORDER BY
+					       CASE
+						       WHEN COALESCE(p.customer_product_alias_id,0)>0 AND pr.customer_product_alias_id=COALESCE(p.customer_product_alias_id,0) THEN 0
+						       WHEN pr.product_id=p.id THEN 1
+						       ELSE 2
+					       END,
+					       pr.price_group_id,
+					       pr.id
+				       ))::int AS position
+				FROM price_records pr
+				WHERE NOT EXISTS (SELECT 1 FROM tier_rows)
+			)
 			SELECT COALESCE(jsonb_agg(jsonb_build_object(
-				'source_price_record_id', ppr.id,
-				'final_unit_price', ppr.final_unit_price,
-				'price_unit', ppr.price_unit,
-				'currency', ppr.currency,
-				'price_group_id', COALESCE(ppr.price_group_id,0),
-				'price_group_name', COALESCE(ppr.price_group_name,''),
-				'inventory_unit', ppr.inventory_unit,
-				'inventory_conversion_json', COALESCE(ppr.inventory_conversion_json, '{}'::jsonb),
-				'product_id', COALESCE(ppr.product_id,0),
-				'customer_product_alias_id', COALESCE(ppr.customer_product_alias_id,0)
-			) ORDER BY
-				CASE
-					WHEN COALESCE(p.customer_product_alias_id,0)>0 AND COALESCE(ppr.customer_product_alias_id,0)=COALESCE(p.customer_product_alias_id,0) THEN 0
-					WHEN COALESCE(ppr.product_id,0)=p.id THEN 1
-					ELSE 2
-				END,
-				COALESCE(ppr.price_group_id,0),
-				ppr.id
-			), '[]'::jsonb)::text AS product_price_snapshots_json
-			FROM %[1]s.product_price_records ppr
-			WHERE ppr.active=true
-			  AND ppr.status='published'
-			  AND (
-			    (COALESCE(p.customer_product_alias_id,0)>0 AND COALESCE(ppr.customer_product_alias_id,0)=COALESCE(p.customer_product_alias_id,0))
-			    OR (COALESCE(ppr.customer_product_alias_id,0)=0 AND COALESCE(ppr.product_id,0)=p.id)
-			  )
+				'source_price_record_id', source_price_record_id,
+				'tier_label', tier_label,
+				'min_qty', min_qty,
+				'max_qty', max_qty,
+				'final_unit_price', final_unit_price,
+				'price_unit', price_unit,
+				'currency', currency,
+				'price_group_id', price_group_id,
+				'price_group_name', price_group_name,
+				'inventory_unit', inventory_unit,
+				'inventory_conversion_json', inventory_conversion_json,
+				'product_id', product_id,
+				'customer_product_alias_id', customer_product_alias_id,
+				'position', position
+			) ORDER BY position, min_qty, source_price_record_id), '[]'::jsonb)::text AS product_price_snapshots_json
+			FROM source_rows
 		) pps ON true
 		WHERE p.active = true
 			GROUP BY p.id, p.name, p.customer_product_alias_id, p.customer_product_display_name, p.customer_item_code, p.brand_name, p.display_category_id, p.display_category_name, p.customer_product_alias_product_config_template_id, p.customer_product_alias_gradient_template_id, p.customer_product_alias_unit_template_id, p.current_classification_template_id, p.current_classification_template_name, p.current_classification_category_id, p.current_classification_category_name, p.current_classification_category_product_config_template_id, p.current_classification_template_product_config_template_id, p.bom_usage_mode, p.production_bom_id, p.production_bom_version_id, p.production_config_yield_rate, base_p.name, p.roast_level, p.special_attrs_json, p.customer_id, p.base_product_id, p.visibility, p.custom_type, p.product_kind, p.drip_bag_grams, p.drip_box_bag_count, p.product_category_id, p.product_category_position, p.product_config_template_id, p.gradient_template_id_override, p.operation_template_id_override, p.unit_rule_override_json, alias_config.gradient_template_id, alias_config.operation_template_id, alias_config.price_list_rule_json, alias_config.inventory_unit, alias_config.quote_unit, alias_config.order_unit, alias_config.unit_conversion_json, alias_config.integer_unit, alias_config.special_attrs_schema_json, p_config.gradient_template_id, p_config.operation_template_id, p_config.price_list_rule_json, p_config.inventory_unit, p_config.quote_unit, p_config.order_unit, p_config.unit_conversion_json, p_config.integer_unit, p_config.special_attrs_schema_json, classification_category_config.gradient_template_id, classification_category_config.operation_template_id, classification_category_config.price_list_rule_json, classification_category_config.inventory_unit, classification_category_config.quote_unit, classification_category_config.order_unit, classification_category_config.unit_conversion_json, classification_category_config.integer_unit, classification_category_config.special_attrs_schema_json, classification_template_config.gradient_template_id, classification_template_config.operation_template_id, classification_template_config.price_list_rule_json, classification_template_config.inventory_unit, classification_template_config.quote_unit, classification_template_config.order_unit, classification_template_config.unit_conversion_json, classification_template_config.integer_unit, classification_template_config.special_attrs_schema_json, pc.id, pc.level, pc.name, pc.position, pc.gradient_template_id, pc.operation_template_id, pc.price_list_rule_json, pc.inventory_unit, pc.quote_unit, pc.order_unit, pc.unit_conversion_json, pc.integer_unit, pc_config.special_attrs_schema_json, parent_pc.id, parent_pc.name, parent_pc.position, parent_pc.gradient_template_id, parent_pc.operation_template_id, parent_pc.price_list_rule_json, parent_pc.inventory_unit, parent_pc.quote_unit, parent_pc.order_unit, parent_pc.unit_conversion_json, parent_pc.integer_unit, parent_pc_config.special_attrs_schema_json, alias_legacy_unit.inventory_unit, alias_legacy_unit.quote_unit, alias_legacy_unit.order_unit, alias_legacy_unit.unit_conversion_json, alias_legacy_unit.integer_unit, pca.production_config_attrs_json, pca.production_config_attrs_schema_json, alias_attrs.alias_attrs_json, cpti.gradient_template_id, cpti.operation_template_id, cpti.price_list_rule_json, cpti.unit_rule_json, cpro.gradient_template_id, cpro.operation_template_id, cpro.price_list_rule_json, cpro.unit_rule_json, pps.product_price_snapshots_json, p.margin_rate_override, p.bom_product_id, b.yield_rate, b.status, b.product_id, active_bv.id, active_bv.version_no, bound_bom.id, bound_bom.status, bound_bv.id, bound_bv.version_no, bound_bv.yield_rate, bound_bv.special_attrs_json, bound_bv.special_attrs_schema_json, fcc.finished_green_cost_per_kg, qc.factory_flavor_description, qc.moisture, qc.density, qc.inspection_created_at, qc.inspection_reference_no
@@ -669,6 +746,7 @@ func productPriceSnapshotsFromJSON(raw string) []domain.ProductPriceSnapshot {
 	}
 	out := make([]domain.ProductPriceSnapshot, 0, len(rows))
 	for _, row := range rows {
+		row.Label = strings.TrimSpace(row.Label)
 		row.PriceUnit = strings.TrimSpace(row.PriceUnit)
 		row.Currency = strings.TrimSpace(row.Currency)
 		row.PriceGroupName = strings.TrimSpace(row.PriceGroupName)

@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-439-PRODUCT-PRICE-MASTER-REMODEL
 - Branch: codex/product-price-master-remodel-20260606
 - Owner/session: Codex / 2026-06-06
-- Status: merged to develop and deployed to development; smoke, API, browser/product-data and live order acceptance passed; pending Van product acceptance
+- Status: follow-up fix in progress after browser acceptance found 商品价格表 still reading legacy classification/pricing hints; previous baseline merged to develop and deployed to development
 - Scope: 商品档案和客户商品从旧模板价格模型切到主数据/展示关系；价格、报价单位、录单单位进入商品价格管理和已发布商品价格表快照；旧模板表保留历史兼容，不再作为普通商品/客户商品新写入来源。
 - Product Design:
   - Brief: 采用现有 KFerp 后台密集表格 + 右侧抽屉；商品档案、客户商品、商品分类管理、商品价格管理、商品价格表、录单取价入口关系按 Van 提供计划锁定。
@@ -22,6 +22,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-439-PRICE-MASTER-DATA：商品价格管理维护最终价格记录、价格单位、币种、价格分组、库存单位和库存换算。
   - DEV-439-TIER-SCHEME-FINAL-PRICE-REFERENCE：阶梯价格方案每档引用最终价格记录，保存档位时固化最终价且不二次计算。
   - DEV-439-PRICE-LIST-SNAPSHOT-ENFORCEMENT：商品价格表发布价格档必须固化最终价、价格单位、来源价格记录、库存单位和库存换算。
+  - DEV-439-COSTING-DIRECT-CATEGORY-FINAL-PRICE-TIERS：商品价格表候选按商品档案/客户商品直接分类生成商品类型；已发布最终价记录和阶梯方案投影成可发布价格档，不再把已有最终价的商品提示到旧商品配置模板。
   - DEV-439-ORDER-SNAPSHOT-PRICING：ERP 录单只按已发布商品价格表快照取价取单位，不再从商品档案、客户商品或旧阶梯模板兜底。
   - DEV-439-CHANNEL-CUSTOMER-SNAPSHOT-PRICING：渠道客户履约下单、订单行价格来源和结算金额只按已发布商品价格表快照生成。
   - DEV-439-MINIAPP-SNAPSHOT-PRICING：小程序服务页不展示默认价，履约订单后端只按已发布商品价格表快照生成 ERP 订单行和结算数据。
@@ -43,6 +44,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN final local: `go test ./internal/infrastructure/postgres/customerportal ./internal/interfaces/http/customerportal ./internal/application/customerportal -count=1`; `go test ./internal/infrastructure/postgres/customerfulfillment ./internal/interfaces/http/customerfulfillment ./internal/application/customerfulfillment -count=1`; `go test ./internal/infrastructure/postgres/sales ./internal/interfaces/http/sales ./internal/application/sales -count=1`; `go test ./...`; `node --test src/lib/product-settings.test.js` (118/118); `npm run build` in `frontend-vue-shell`; `npm test -- src/utils/mall.test.ts src/utils/servicePage.test.ts`; `npm run typecheck`; `npm run build:mp-weixin`; `scripts/verify_kferp.sh changed`; `git diff --check`.
   - GREEN deploy: feature branch `codex/product-price-master-remodel-20260606` pushed; code deployment base `3cfe484e851ae91552ce73cfe5dc3f6667de90ef` deployed to development. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260607033448`. Deploy script ran Vue build, miniapp typecheck/build, Docker image build, and container-internal `go test ./...`.
   - GREEN smoke/live: containers running; `/app/` returned 303; deployed docs expose PR-439. Product settings API shows products `538/539` with old template fields cleared and price summaries from official publication `57`; customer aliases `82/83` show old template fields cleared and price summaries from Karen `56` / channel `55`; product price records `1/2` are final prices with `kg` and `lb` inventory conversions. ERP order `1523 / SO-20260607-0001` and miniapp direct-ship order `1525 / SO-20260606-0023` both use published snapshots; miniapp order `1525` writes `unit=kg`, `unit_price=88.50`, `line_total=177.00`, `bean_list_publication_id=55`, `source_price_record_id=1`, `inventory_conversion_json={"kg":{"kg":1}}`; miniapp orders and settlement pages both return `177.00`.
+  - RED browser follow-up: deployed 商品价格表 page still grouped PR-439 products under `未分类商品`, 已发布价格表 showed `暂无`, preview cards warned `未设置计价方式。请到 商品与配方 → 商品配置和分类模板...` even though商品档案价格摘要 and 商品价格管理 already had final price records/snapshots.
+  - RED follow-up tests: `node --test src/lib/product-price-list-types.test.js` failed before direct `product_category_id` fallback; `go test ./internal/domain/costing -run TestProductPriceSnapshotsPublishCommercialTiersWithoutLegacyTemplate -count=1` failed before final price snapshots could produce publishable tiers; `go test ./internal/infrastructure/postgres/costing -run TestLoadProductInputsReadsFinalPriceTierSchemes -count=1` failed before costing projected tier price schemes.
+  - GREEN follow-up local: `node --test src/lib/product-price-list-types.test.js`; `node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/product-price-list-types.test.js`; `go test ./internal/domain/costing ./internal/application/costing ./internal/infrastructure/postgres/costing -count=1`.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`; `orderapp-remote/docs/OP_MANUAL_CUSTOMER_PORTAL.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-product-price-master-remodel.md`.
 - Last update: 2026-06-07 Asia/Shanghai
 

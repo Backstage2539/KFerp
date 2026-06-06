@@ -17,6 +17,8 @@
 - 商品价格分组只作为页面组织和筛选，不参与业务取价。
 - 商品与配方菜单提供 `商品价格管理` 独立入口；该入口复用 Vue 商品设置页并直接进入价格主数据 pane。
 - 商品价格表发布价格档时必须带最终价、价格单位、来源价格记录、库存单位和库存换算；没有换算时禁止发布。
+- 商品价格表候选和已发布版本入口按商品档案/客户商品直接分类生成商品类型；旧 `product_type_category_id/product_type_name` 仍只作为历史兼容字段，不把已有直接分类的商品打到 `未分类商品`。
+- 商品价格表预览把商品价格管理里的最终价记录和阶梯价格方案投影成可发布价格档；已有最终价记录的商品不再显示旧“未设置计价方式，请到商品配置模板”提示。
 - ERP 录单不再从商品档案、客户商品或旧阶梯模板兜底取价；订单行单位、单价和价格来源来自已发布商品价格表快照。
 - 渠道客户下单不再读商品默认价或旧商品阶梯价；订单行、价格来源和结算金额来自已发布商品价格表快照，缺少快照时拒绝提交。
 - 小程序履约订单不展示或提交默认价；后端按已发布商品价格表快照写入 ERP 订单行、价格来源和结算数据，缺少快照或库存换算时拒绝提交。
@@ -37,6 +39,10 @@
 - `go test ./internal/infrastructure/postgres/customerportal -run TestCustomerPortalFulfillmentPricingUsesPublishedSnapshotsOnly -count=1`：小程序履约仍可能读取旧商品阶梯价或旧默认价。
 - `go test ./internal/infrastructure/postgres/customerportal -run TestCustomerPortalFulfillmentOrderLineUnitComesFromPublishedPriceUnit -count=1`：部署验收中小程序订单 `1524 / SO-20260606-0022` 已按发布快照计算 `88.5/kg` 和 `177.00`，但订单行 `unit` 仍写成旧展示单位 `件`。
 - `npm test -- src/utils/mall.test.ts src/utils/servicePage.test.ts`：小程序服务页仍展示默认价格文案。
+- 浏览器 follow-up：已部署 商品价格表 页面仍把 PR-439 商品 `538/539` 放在 `未分类商品`，已发布版本区显示 `暂无`，预览卡片仍提示到旧 `商品配置和分类模板` 设置计价方式。
+- `node --test src/lib/product-price-list-types.test.js`：前端价格表类型 helper 只认旧 `classification_template_id/name`，未把直接 `product_category_id` 投影为当前价格表分类。
+- `go test ./internal/domain/costing -run TestProductPriceSnapshotsPublishCommercialTiersWithoutLegacyTemplate -count=1`：领域层已有最终价快照时仍不生成可发布价格档，并继续报旧缺计价方式 warning。
+- `go test ./internal/infrastructure/postgres/costing -run TestLoadProductInputsReadsFinalPriceTierSchemes -count=1`：costing 查询尚未把阶梯价格方案及来源最终价记录投影到价格表快照。
 
 ## GREEN
 - `node --test src/lib/product-settings.test.js`：117/117 通过。
@@ -65,6 +71,9 @@
 - `npm run build` in `frontend-vue-shell`：通过，仅保留既有 chunk-size warning。
 - `npm test -- src/utils/mall.test.ts src/utils/servicePage.test.ts`、`npm run typecheck`、`npm run build:mp-weixin` in `miniapp`：通过。
 - `scripts/verify_kferp.sh changed`、`git diff --check`：通过。
+- follow-up：`node --test src/lib/product-price-list-types.test.js`：通过。
+- follow-up：`node --test src/lib/product-bean-list-split.test.js src/lib/bean-list-pdf.test.js src/lib/product-price-list-types.test.js`：47/47 通过。
+- follow-up：`go test ./internal/domain/costing ./internal/application/costing ./internal/infrastructure/postgres/costing -count=1`：通过。
 
 ## Development 部署与现场验收
 - 代码部署基线：`3cfe484e851ae91552ce73cfe5dc3f6667de90ef`。

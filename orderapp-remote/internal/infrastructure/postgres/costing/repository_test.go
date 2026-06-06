@@ -175,6 +175,26 @@ func TestLoadProductInputsDoesNotFallbackToCategoryGradientTemplates(t *testing.
 	}
 }
 
+func TestLoadProductInputsReadsFinalPriceTierSchemes(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"product_tier_price_schemes",
+		"product_tier_price_scheme_tiers",
+		"tier_label",
+		"min_qty",
+		"source_price_record_id",
+		"inventory_conversion_json",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must project final price tier schemes into price snapshots; missing %q", want)
+		}
+	}
+}
+
 func TestCommercialTiersForPublishDoesNotInventDefaultTiers(t *testing.T) {
 	item := domain.ProductResult{
 		ProductID:         434,
