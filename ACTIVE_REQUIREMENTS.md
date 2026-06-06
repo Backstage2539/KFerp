@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-435-PRICE-LIST-CATEGORY-ALIGNMENT
 - Branch: codex/price-table-category-align-20260606
 - Owner/session: Codex / 2026-06-06
-- Status: local fix verified; pending merge, development deploy, and browser acceptance
+- Status: merged to develop and deployed to development; browser acceptance passed
 - Scope: 商品价格表商品类型和商品档案当前分类 Tab 对齐；只读取当前 `classification_template_id/name` 作为价格表分类，旧 `product_type_category_id/product_type_name` 不再生成价格表分类，未归类商品统一合并为 `未分类商品`，避免多个“其他”。
 - DEV:
   - DEV-435-PRICE-LIST-CURRENT-CLASSIFICATION：价格表分类 helper 只读取当前商品档案分类字段，不再把旧产品类型字段当作当前分类。
@@ -20,7 +20,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN frontend: `node --test src/lib/product-price-list-types.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js` passed 143/143.
   - GREEN support: `go test ./internal/interfaces/http/support -run TestDev435PriceListCategoryAlignment -count=1`.
   - GREEN broader: `npm run build` in `orderapp-remote/frontend-vue-shell`; `go test ./...` in `orderapp-remote`; `scripts/verify_kferp.sh changed`; `git diff --check`.
-  - Pending: merge, development deploy, browser acceptance.
+  - GREEN deploy: deployed `origin/develop=f5ce3d7f0c6f44d5bff9523d30a32498da02aa04`; Docker build ran `go test ./...`; containers running; `/app/` 303; authenticated `/app/vue-shell/` 200; PR-435 req marker, source marker and copy marker present on server.
+  - GREEN browser: 工厂总览 / 商品价格表 page showed published version type rows as `未分类商品`, `otherInVersionTypes=0`, and visible copy `未归类统一进入未分类商品`.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-06-price-list-category-alignment.md`.
 - Last update: 2026-06-06 Asia/Shanghai
 
