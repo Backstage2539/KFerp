@@ -111,6 +111,26 @@ func TestProductCategoriesSchemaBackfillsActiveForLegacyTables(t *testing.T) {
 	}
 }
 
+func TestWarehouseBusinessGroupMigrationUsesStaticItemRows(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"item_rows AS (",
+		"UNION ALL SELECT '客户仓库', 'customer_warehouses', 20",
+		"UNION ALL SELECT '损耗/报废', 'loss_scrap_warehouses', 30",
+		"CROSS JOIN item_rows ir",
+	} {
+		if !strings.Contains(string(schema), want) {
+			t.Fatalf("warehouse migration must create static group item rows before assignment; missing %q", want)
+		}
+	}
+	if strings.Contains(string(schema), "GROUP BY tg.id, 1, 2, 3, 4, 5, 6") {
+		t.Fatalf("warehouse migration must not group by SELECT ordinals from warehouses; it fails on w.kind")
+	}
+}
+
 func TestProductConfigOverridesRemainReadableButProductUpdateDoesNotWrite(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

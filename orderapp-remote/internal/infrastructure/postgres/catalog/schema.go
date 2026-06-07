@@ -1006,27 +1006,17 @@ usage_upsert AS (
 	ON CONFLICT DO NOTHING
 	RETURNING id
 ),
-items AS (
+item_rows AS (
+	SELECT '普通仓库' AS name, 'normal_warehouses' AS code, 10 AS sort_order
+	UNION ALL SELECT '客户仓库', 'customer_warehouses', 20
+	UNION ALL SELECT '损耗/报废', 'loss_scrap_warehouses', 30
+),
+item_upsert AS (
 	INSERT INTO %[1]s.business_group_items(group_id, parent_id, name, code, remark, active, sort_order)
-	SELECT tg.id, 0,
-	       CASE
-	         WHEN COALESCE(w.kind,'')='customer' THEN '客户仓库'
-	         WHEN COALESCE(w.kind,'') IN ('scrap','loss','waste') THEN '损耗/报废'
-	         ELSE '普通仓库'
-	       END,
-	       CASE
-	         WHEN COALESCE(w.kind,'')='customer' THEN 'customer_warehouses'
-	         WHEN COALESCE(w.kind,'') IN ('scrap','loss','waste') THEN 'loss_scrap_warehouses'
-	         ELSE 'normal_warehouses'
-	       END,
-	       'PR-442 默认库存仓库分组',
-	       true,
-	       CASE WHEN COALESCE(w.kind,'')='customer' THEN 20 WHEN COALESCE(w.kind,'') IN ('scrap','loss','waste') THEN 30 ELSE 10 END
-	FROM %[1]s.warehouses w
-	CROSS JOIN target_group tg
-	GROUP BY tg.id, 1, 2, 3, 4, 5, 6
+	SELECT tg.id, 0, ir.name, ir.code, 'PR-442 默认库存仓库分组', true, ir.sort_order
+	FROM target_group tg
+	CROSS JOIN item_rows ir
 	ON CONFLICT DO NOTHING
-	RETURNING id
 )
 INSERT INTO %[1]s.business_group_assignments(group_id, group_item_id, usage_key, object_key, object_id, object_ref, sort_order, created_by, updated_by)
 SELECT tg.id,
