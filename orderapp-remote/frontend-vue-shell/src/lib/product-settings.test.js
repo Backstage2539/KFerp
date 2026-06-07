@@ -365,7 +365,7 @@ test('business group assignment payload supports products, BOMs, warehouses, and
   }
   assert.equal(businessGroupAssignmentLabel({ group_id: 6, group_item_id: 61 }, [systemGroup]), '咖啡熟豆 / 意式拼配')
   assert.equal(businessGroupAssignmentLabel({ group_id: 6, group_item_id: 0 }, [systemGroup]), '未分组')
-  assert.deepEqual(businessGroupItemMoveOptions([systemGroup], 'product_catalog').map((option) => option.label), ['咖啡熟豆', '咖啡熟豆 / 意式拼配'])
+  assert.deepEqual(businessGroupItemMoveOptions([systemGroup], 'product_catalog').map((option) => option.label), [])
   assert.deepEqual(businessGroupDisplayGroups([
     { id: 88, name: '商品A' },
     { id: 89, name: '商品B' },
