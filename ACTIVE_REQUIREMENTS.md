@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-440-PRODUCT-GROUP-PRICE-REMODEL
 - Branch: codex/product-group-price-remodel-20260607
 - Owner/session: Codex / 2026-06-07
-- Status: local PR-440 implementation and full code verification passed for the remaining three development slices; pending merge to develop, DEV deploy, post-deploy scenario/browser/API acceptance and Van product acceptance
+- Status: merged to develop and deployed to development; post-deploy self-cleaning API scenario, smoke, browser/API acceptance passed; pending Van product acceptance
 - Scope: 商品、分组、价格模型按 ERPNext 口径二次修正。商品档案是 Item；系统不再有独立客户商品主数据；客户差异进入商品档案的客户引用子表；分类管理改为泛化分组管理；商品价格管理改为价格计算模板 / Pricing Rule；商品价格表改为 Price List / Item Price 平铺价格行。
 - Product Design:
   - Brief: Product Design preflight found no saved KFerp context. This PR uses the existing KFerp Vue backend style: dense tables, focused filters, right-side drawers, no marketing/hero surfaces.
@@ -31,7 +31,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN backend targeted/full: `go test ./internal/interfaces/http/support -count=1`; `go test ./...` in `orderapp-remote`.
   - GREEN repository verifier: `git diff --check`; `scripts/verify_kferp.sh changed`.
   - Local browser note: Vite dev server opened on `http://127.0.0.1:5177/vue-shell/`, but without a local API/auth backend the shell remained in `请求失败`; do not count local browser as PR-440 acceptance. Browser/API acceptance must run after deployment against the development stack.
-  - Pending integration: merge latest `origin/develop`, push branch, merge to develop, deploy development, run self-cleaning scenario script and browser/API acceptance.
+  - RED post-deploy scenario: first live `scripts/scenario_acceptance.py --allow-writes` run created data and cleaned it up, but failed publishing because the old customer price-list public SKU guard rejected PR-440 public product archive rows. Added `TestBeanListProductScopeAllowsPR440CustomerPriceRowsForPublicProducts`, then deployed `f08a806596887e210930534fb00aaeb4085e4dcc`.
+  - RED post-deploy scenario 2: publishing succeeded, but live order creation still failed with `缺少商品价格表价格` because order pricing read legacy `commercial_wholesale_tiers` and did not parse PR-440 `price_rows`. Added `TestPublishedPricingMatchesPR440FlatPriceRows` and `TestOrderAPICreatesCommercialOrderFromPR440FlatPriceRows`; GREEN targeted `go test ./internal/infrastructure/postgres/orderbeans ./internal/infrastructure/postgres/sales ./internal/interfaces/http/sales ./internal/infrastructure/postgres/customerfulfillment ./internal/infrastructure/postgres/customerportal -count=1`.
+  - GREEN final local: `go test ./...`; `npm run build` in `frontend-vue-shell`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN final deploy: feature branch pushed; `origin/develop=64837101570b60e9d10730cf6e9b03554eb58649` deployed to development. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260607151119`. Deploy script ran Vue build, miniapp typecheck/build, Docker build, and container-internal `go test ./...`.
+  - GREEN smoke/API: `erp_orderapp` Up, `erp_postgres` healthy, `/app/` returned 303, authenticated `/app/vue-shell/?view=costing` returned 200, deployed docs expose PR-440 and deployed script exposes `POST_DEPLOY_ACCEPTANCE_SCENARIOS`.
+  - GREEN post-deploy scenario: `python3 scripts/scenario_acceptance.py --base-url https://erp.qacoohee.com/app --basic-auth <redacted> --allow-writes` passed with run `PR440-SCENARIO-20260607-5HR4C6`; created customer `172`, material `48`, product `542`, group `3`, Pricing Rule `3`, tier template `3`, customer reference `3`, price-list publication `59`, order `1526`; all cleanup actions returned 200.
+  - GREEN cleanup evidence: database check confirmed order `1526` voided, publication `59` withdrawn, product `542` inactive, customer `172` inactive, material `48` deprecated, group/Pricing Rule/tier template/customer reference `3` inactive.
+  - GREEN browser acceptance: Browser opened deployed Vue shell with no console errors or `请求失败` on 商品档案, 分组管理, 商品价格管理, 商品价格表, 录单, and 销售单 `order_id=1526`; 商品价格管理 shows Pricing Rule/阶梯价模板; 商品价格表 shows Price List/平铺价格行; 销售单 shows 报价来源 and 生产来源 with version `PR440-SCENARIO-20260607-5HR4C6-PRICE`, final price `88/kg`, tier `1kg+`, Pricing Rule version `PR440-SCENARIO-20260607-5HR4C6-v1`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-07-product-group-price-remodel.md`.
 - Last update: 2026-06-07 Asia/Shanghai
 

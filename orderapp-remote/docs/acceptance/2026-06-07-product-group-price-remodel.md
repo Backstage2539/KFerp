@@ -39,4 +39,9 @@
 - Broader: `scripts/verify_kferp.sh changed` from repository root
 
 ## 当前状态
-- 2026-06-07：本地 PR-440 剩余三项开发切片已完成。Product Design 没有已保存 KFerp 设计上下文，本轮按现有 KFerp Vue 后台密集表格 + 右侧抽屉风格落地；后续状态为完整 verification、合并 develop、部署 development，并运行场景脚本和浏览器/API 验收。
+- 2026-06-07：PR-440 剩余三项开发切片已完成并部署到 development。Product Design 没有已保存 KFerp 设计上下文，本轮按现有 KFerp Vue 后台密集表格 + 右侧抽屉风格落地。
+- 2026-06-07：部署后第一次场景脚本验证暴露旧客户价格表 public SKU 校验仍按独立客户商品模型拒绝 PR-440 公共商品档案行；已补 `TestBeanListProductScopeAllowsPR440CustomerPriceRowsForPublicProducts` 并部署修复。
+- 2026-06-07：部署后第二次场景脚本验证暴露录单价格解析只读旧 `commercial_wholesale_tiers`，未读取 PR-440 `price_rows`；已补 `TestPublishedPricingMatchesPR440FlatPriceRows` 和 `TestOrderAPICreatesCommercialOrderFromPR440FlatPriceRows` 并部署修复。
+- 2026-06-07：最终部署 `origin/develop=64837101570b60e9d10730cf6e9b03554eb58649` 到 development，备份 `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260607151119`。部署脚本通过 Vue build、miniapp typecheck/build、Docker build 和容器内 `go test ./...`。
+- 2026-06-07：部署后 `scripts/scenario_acceptance.py --allow-writes` 通过，run `PR440-SCENARIO-20260607-5HR4C6` 自造客户 `172`、原料 `48`、商品 `542`、分组 `3`、Pricing Rule `3`、阶梯价模板 `3`、客户引用 `3`、价格表发布 `59`、订单 `1526`；脚本结束后订单作废、价格表撤回、商品/客户/分组/Pricing Rule/阶梯价模板/客户引用停用、原料废弃。
+- 2026-06-07：浏览器验收通过：商品档案、分组管理、商品价格管理、商品价格表、录单和销售单 `order_id=1526` 均无 `请求失败` 和 console error；销售单追溯展示报价来源 `PR440-SCENARIO-20260607-5HR4C6-PRICE`、最终价 `88/kg`、档位 `1kg+`、Pricing Rule `PR440-SCENARIO-20260607-5HR4C6-v1`，并展示生产来源。
