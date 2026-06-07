@@ -23,28 +23,34 @@ func TestDev365SkuCategoryInlineEditRequirementSeeds(t *testing.T) {
 
 func TestDev365SkuCategoryInlineEditUI(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
+	template := strings.Split(src, "<script setup>")[0]
 	for _, want := range []string{
-		"classification-template-list",
-		"classification-category-editor",
-		"saveClassificationCategory",
-		"moveClassificationCategory",
-		"deleteClassificationCategory",
-		"openClassificationTemplateCreateDrawer",
-		"分类模板只定义分类结构",
-		"排序值越小越靠前",
+		"sku-category-management-workspace",
+		"createPrimaryCategoryInline",
+		"createSecondaryCategoryInline",
+		"saveProductCatalogBusinessGroupItem",
+		"moveProductCatalogBusinessGroupItem",
+		"deleteCategory",
+		"/api/business-group-items",
+		"新增大类",
+		"停用大类",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("ProductSettingsView.vue missing classification template edit marker %q", want)
+			t.Fatalf("ProductSettingsView.vue missing business group edit marker %q", want)
 		}
 	}
 	for _, forbidden := range []string{
+		"classification-template-list",
+		"classification-category-editor",
+		"openClassificationTemplateCreateDrawer",
+		"分类模板只定义分类结构",
 		"category-editor-drawer",
 		"openCategoryDrawer",
 		">编辑产品类型<",
 		">改名<",
 	} {
-		if strings.Contains(src, forbidden) {
-			t.Fatalf("ProductSettingsView.vue should not keep drawer/edit-button marker %q", forbidden)
+		if strings.Contains(template, forbidden) {
+			t.Fatalf("ProductSettingsView.vue should not render legacy category edit marker %q", forbidden)
 		}
 	}
 }
