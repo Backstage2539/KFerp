@@ -745,6 +745,49 @@ func TestDripPriceTemplateSchemaIsLegacyOnlyAndDoesNotSeedDefaultTemplate(t *tes
 	}
 }
 
+func TestBeanListProductScopeAllowsPR440CustomerPriceRowsForPublicProducts(t *testing.T) {
+	content := map[string]any{
+		"groups": []any{
+			map[string]any{
+				"items": []any{
+					map[string]any{"productId": float64(540), "name": "PR-440 商品档案"},
+				},
+			},
+		},
+		"price_rows": []any{
+			map[string]any{
+				"product_id":                   float64(540),
+				"final_unit_price":             float64(88),
+				"price_unit":                   "kg",
+				"customer_reference_snapshot":  map[string]any{"customer_id": float64(170), "customer_display_name": "客户展示名"},
+				"pricing_rule_version":         "PR440/v1",
+				"tier_template_source":         "product",
+				"pricing_rule_source":          "product",
+				"cost_source_snapshot":         map[string]any{"material_id": float64(46)},
+				"group_snapshot":               map[string]any{"group_id": float64(1), "group_item_id": float64(2)},
+				"manual_adjusted":              false,
+				"inventory_conversion_json":    map[string]any{"kg": float64(1)},
+				"inventory_unit":               "kg",
+				"tier_template_id":             float64(1),
+				"pricing_rule_id":              float64(1),
+				"original_final_unit_price":    float64(88),
+			},
+		},
+	}
+
+	if !beanListContentHasPR440FlatRowsForProducts(content, []int64{540}) {
+		t.Fatalf("PR-440 customer price list should allow public product archive rows when flat price rows freeze product pricing metadata")
+	}
+
+	missing := map[string]any{
+		"groups": []any{map[string]any{"items": []any{map[string]any{"productId": float64(541)}}}},
+		"price_rows": []any{map[string]any{"product_id": float64(540)}},
+	}
+	if beanListContentHasPR440FlatRowsForProducts(missing, []int64{541}) {
+		t.Fatalf("public product should still be rejected when the customer price list lacks a matching PR-440 flat row")
+	}
+}
+
 func TestSaveBeanListDraftInsertsCustomerDraftWithoutPublishing(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

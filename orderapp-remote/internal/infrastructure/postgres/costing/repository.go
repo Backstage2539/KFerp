@@ -1876,6 +1876,7 @@ func validateBeanListProductScope(ctx context.Context, tx pgx.Tx, schema string,
 		return err
 	}
 	defer rows.Close()
+	allowPublicProductArchiveRows := ownerType == "customer" && beanListContentHasPR440FlatRowsForProducts(cmd.Content, ids)
 	seen := map[int64]bool{}
 	for rows.Next() {
 		var productID, productCustomerID int64
@@ -1889,7 +1890,7 @@ func validateBeanListProductScope(ctx context.Context, tx pgx.Tx, schema string,
 		if ownerType == "customer" && productCustomerID > 0 && productCustomerID != customerID {
 			return fmt.Errorf("customer bean list cannot include another customer's SKU")
 		}
-		if ownerType == "customer" && productCustomerID <= 0 {
+		if ownerType == "customer" && productCustomerID <= 0 && !allowPublicProductArchiveRows {
 			return fmt.Errorf("customer bean list cannot include public SKU")
 		}
 	}
@@ -1939,6 +1940,47 @@ func beanListContentProductIDs(content map[string]any) []int64 {
 		}
 	}
 	return out
+}
+
+func beanListContentHasPR440FlatRowsForProducts(content map[string]any, productIDs []int64) bool {
+	if len(productIDs) == 0 {
+		return false
+	}
+	rows, ok := anySlice(content["price_rows"])
+	if !ok || len(rows) == 0 {
+		return false
+	}
+	needed := make(map[int64]bool, len(productIDs))
+	for _, id := range productIDs {
+		if id > 0 {
+			needed[id] = false
+		}
+	}
+	if len(needed) == 0 {
+		return false
+	}
+	for _, raw := range rows {
+		row, ok := anyMap(raw)
+		if !ok {
+			continue
+		}
+		id := anyInt64(row["product_id"])
+		if id <= 0 {
+			id = anyInt64(row["productId"])
+		}
+		if id <= 0 {
+			id = anyInt64(row["productID"])
+		}
+		if _, exists := needed[id]; exists {
+			needed[id] = true
+		}
+	}
+	for _, found := range needed {
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 func anySlice(value any) ([]any, bool) {
