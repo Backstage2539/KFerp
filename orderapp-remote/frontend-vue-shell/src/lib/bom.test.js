@@ -89,8 +89,10 @@ test('production BOM detail is projected as recipe detail with output product la
     output_product_id: 88,
     output_product_name: '10条盒装挂耳',
     output_product_code: 'SKU-000088',
-    group_id: 8,
-    group_name: '客户配方',
+    business_group_id: 8,
+    business_group_name: '客户配方',
+    group_item_id: 31,
+    group_item_name: '浅烘',
     status: 'active',
     latest_version_id: 901,
     latest_version_no: 'V001',
@@ -111,7 +113,10 @@ test('production BOM detail is projected as recipe detail with output product la
   assert.equal(detail.production_bom_name, 'Nenka嫩咖 生产 BOM')
   assert.equal(detail.production_bom_version_id, 901)
   assert.equal(detail.production_bom_version_no, 'V001')
+  assert.equal(detail.production_bom_group_id, 8)
   assert.equal(detail.production_bom_group_name, '客户配方')
+  assert.equal(detail.production_bom_group_category_id, 31)
+  assert.equal(detail.production_bom_group_category_name, '浅烘')
   assert.equal(detail.expected_loss_rate, 0.12)
   assert.equal(detail.expected_yield_rate, 0.88)
   assert.equal(detail.total_ratio, 60)

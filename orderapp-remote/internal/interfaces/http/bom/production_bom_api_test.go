@@ -97,7 +97,7 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 		want   []string
 	}{
 		{method: http.MethodGet, path: "/api/production-bom-groups", want: []string{`"name":"常用配方"`, `"categories"`, `"name":"浅烘"`}},
-		{method: http.MethodGet, path: "/api/production-boms", want: []string{`"code":"BOM-001"`, `"latest_version_no":"V003"`, `"reference_product_count":2`, `"output_product_id":7`, `"output_product_name":"10条盒装速溶咖啡"`, `"group_category_id":31`, `"group_category_name":"浅烘"`}},
+		{method: http.MethodGet, path: "/api/production-boms", want: []string{`"code":"BOM-001"`, `"latest_version_no":"V003"`, `"reference_product_count":2`, `"output_product_id":7`, `"output_product_name":"10条盒装速溶咖啡"`, `"business_group_id":1`, `"group_item_id":31`, `"group_category_id":31`, `"group_category_name":"浅烘"`}},
 		{method: http.MethodPost, path: "/api/production-boms", body: `{"name":"新配方","output_product_id":7,"output_qty":1,"output_unit":"盒","group_id":1,"group_category_id":31}`, want: []string{`"code":"BOM-003"`, `"name":"新配方"`, `"output_product_id":7`, `"status":"active"`, `"latest_version_status":"draft"`}},
 		{method: http.MethodGet, path: "/api/production-boms/11?version_id=101", want: []string{`"versions"`, `"version_no":"V003"`, `"output_qty":1`, `"output_unit":"盒"`, `"special_attrs_schema_json"`, `"special_attrs_json"`, `"is_latest":true`, `"referenced_products"`, `"product_name":"初晓2.5kg装"`, `"active":false`, `"group_category_name":"浅烘"`}},
 		{method: http.MethodPut, path: "/api/production-boms/11", body: `{"name":"精品拼配改名","group_id":1,"group_category_id":0,"status":"inactive"}`, want: []string{`"name":"精品拼配改名"`, `"status":"inactive"`}},

@@ -582,7 +582,7 @@ function bomRowKey(row) {
 }
 
 function productionBomGroupID(row = {}) {
-  return Number(row.group_id ?? row.production_bom_group_id ?? row.business_group_id ?? 0) || 0
+  return Number(row.business_group_id ?? row.group_id ?? row.production_bom_group_id ?? 0) || 0
 }
 
 function productionBomGroupItemID(row = {}) {
@@ -692,7 +692,7 @@ function normalizeBomProduct(product) {
 }
 
 function normalizeProductionBomRecord(row = {}) {
-  const groupID = Number(row.group_id ?? row.production_bom_group_id ?? row.business_group_id ?? 0) || 0
+  const groupID = Number(row.business_group_id ?? row.group_id ?? row.production_bom_group_id ?? 0) || 0
   const groupItemID = Number(row.group_item_id ?? row.business_group_item_id ?? row.group_category_id ?? row.production_bom_group_category_id ?? 0) || 0
   return {
     ...row,
@@ -701,14 +701,17 @@ function normalizeProductionBomRecord(row = {}) {
     output_product_id: Number(row.output_product_id || 0),
     output_product_name: row.output_product_name || '',
     output_product_code: row.output_product_code || '',
+    business_group_id: groupID,
+    business_group_name: row.business_group_name || row.group_name || row.production_bom_group_name || '',
     group_id: groupID,
     production_bom_group_id: groupID,
     group_item_id: groupItemID,
     business_group_item_id: groupItemID,
     group_category_id: groupItemID,
     production_bom_group_category_id: groupItemID,
-    group_category_name: row.group_category_name || row.production_bom_group_category_name || '',
-    production_bom_group_category_name: row.production_bom_group_category_name || row.group_category_name || '',
+    group_item_name: row.group_item_name || row.group_category_name || row.production_bom_group_category_name || '',
+    group_category_name: row.group_item_name || row.group_category_name || row.production_bom_group_category_name || '',
+    production_bom_group_category_name: row.production_bom_group_category_name || row.group_item_name || row.group_category_name || '',
     item_count: Number(row.item_count || row.material_count || 0),
     reference_product_count: Number(row.reference_product_count || 0),
     latest_version_status: row.latest_version_status || '',
@@ -823,11 +826,14 @@ function bomRecordFromRow(row = {}) {
     output_product_id: Number(row.output_product_id || 0),
     output_product_name: row.output_product_name || '',
     output_product_code: row.output_product_code || '',
+    business_group_id: groupID,
+    business_group_name: row.business_group_name || row.production_bom_group_name || row.group_name || '',
     group_id: groupID,
-    group_name: row.production_bom_group_name || row.group_name || '',
+    group_name: row.business_group_name || row.production_bom_group_name || row.group_name || '',
     group_item_id: groupItemID,
     group_category_id: groupItemID,
-    group_category_name: row.production_bom_group_category_name || row.group_category_name || '',
+    group_item_name: row.group_item_name || row.production_bom_group_category_name || row.group_category_name || '',
+    group_category_name: row.group_item_name || row.production_bom_group_category_name || row.group_category_name || '',
     status: row.status === 'inactive' ? 'inactive' : 'active',
   }
 }

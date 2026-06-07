@@ -106,10 +106,10 @@ export function productionBomDetailAsRecipeDetail(detail = {}, fallback = {}) {
     production_bom_id: bomID,
     production_bom_code: detail.code || detail.production_bom_code || fallback.production_bom_code || fallback.code || '',
     production_bom_name: detail.name || detail.production_bom_name || fallback.production_bom_name || fallback.name || '',
-    production_bom_group_id: Number(firstPresent(detail.group_id, detail.production_bom_group_id, fallback.production_bom_group_id, fallback.group_id, 0)),
-    production_bom_group_name: detail.group_name || detail.production_bom_group_name || fallback.production_bom_group_name || fallback.group_name || '',
-    production_bom_group_category_id: Number(firstPresent(detail.group_category_id, detail.production_bom_group_category_id, fallback.production_bom_group_category_id, fallback.group_category_id, 0)),
-    production_bom_group_category_name: detail.group_category_name || detail.production_bom_group_category_name || fallback.production_bom_group_category_name || fallback.group_category_name || '',
+    production_bom_group_id: Number(firstPresent(detail.business_group_id, detail.group_id, detail.production_bom_group_id, fallback.business_group_id, fallback.production_bom_group_id, fallback.group_id, 0)),
+    production_bom_group_name: detail.business_group_name || detail.group_name || detail.production_bom_group_name || fallback.business_group_name || fallback.production_bom_group_name || fallback.group_name || '',
+    production_bom_group_category_id: Number(firstPresent(detail.group_item_id, detail.business_group_item_id, detail.group_category_id, detail.production_bom_group_category_id, fallback.group_item_id, fallback.business_group_item_id, fallback.production_bom_group_category_id, fallback.group_category_id, 0)),
+    production_bom_group_category_name: detail.group_item_name || detail.group_category_name || detail.production_bom_group_category_name || fallback.group_item_name || fallback.production_bom_group_category_name || fallback.group_category_name || '',
     production_bom_version_id: versionID,
     production_bom_version_no: versionNo,
     latest_bom_version_id: versionID,
@@ -129,7 +129,7 @@ export function filterProductionBomCatalog(rows = [], { status = 'active', query
     const rowStatus = String(row.status || 'active').trim().toLowerCase()
     if (statusMode === 'active' && rowStatus === 'inactive') return false
     if (statusMode === 'inactive' && rowStatus !== 'inactive') return false
-    const rowGroupID = Number(row.group_id || row.production_bom_group_id || 0)
+    const rowGroupID = Number(row.business_group_id || row.group_id || row.production_bom_group_id || 0)
     const rowGroupItemID = Number(row.group_item_id || row.business_group_item_id || row.group_category_id || row.production_bom_group_category_id || 0)
     if (selectedGroupItemID > 0 && rowGroupItemID !== selectedGroupItemID) return false
     if (selectedGroupItemID === -1 && rowGroupItemID > 0) return false

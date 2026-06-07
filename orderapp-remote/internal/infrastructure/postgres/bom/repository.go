@@ -2155,10 +2155,10 @@ func scanProductionBomSummaries(rows pgx.Rows) ([]bomapp.ProductionBomSummary, e
 			&row.OutputProductID,
 			&row.OutputProductName,
 			&row.OutputProductCode,
-			&row.GroupID,
-			&row.GroupName,
-			&row.GroupCategoryID,
-			&row.GroupCategoryName,
+			&row.BusinessGroupID,
+			&row.BusinessGroupName,
+			&row.GroupItemID,
+			&row.GroupItemName,
 			&row.Status,
 			&row.LatestVersionID,
 			&row.LatestVersionNo,
@@ -2169,6 +2169,10 @@ func scanProductionBomSummaries(rows pgx.Rows) ([]bomapp.ProductionBomSummary, e
 		); err != nil {
 			return nil, err
 		}
+		row.GroupID = row.BusinessGroupID
+		row.GroupName = row.BusinessGroupName
+		row.GroupCategoryID = row.GroupItemID
+		row.GroupCategoryName = row.GroupItemName
 		out = append(out, row)
 	}
 	return out, rows.Err()

@@ -142,6 +142,10 @@ type ProductionBomSummary struct {
 	OutputProductID       int64   `json:"output_product_id"`
 	OutputProductName     string  `json:"output_product_name"`
 	OutputProductCode     string  `json:"output_product_code"`
+	BusinessGroupID       int64   `json:"business_group_id"`
+	BusinessGroupName     string  `json:"business_group_name"`
+	GroupItemID           int64   `json:"group_item_id"`
+	GroupItemName         string  `json:"group_item_name"`
 	GroupID               int64   `json:"group_id"`
 	GroupName             string  `json:"group_name"`
 	GroupCategoryID       int64   `json:"group_category_id"`
@@ -665,6 +669,33 @@ func enrichProductionBomSummaryYield(row *ProductionBomSummary) {
 	row.ExpectedLossRate = productiondomain.ExpectedLossRate(row.ExpectedYieldRate)
 }
 
+func normalizeProductionBomSummaryGroups(row *ProductionBomSummary) {
+	if row.BusinessGroupID <= 0 {
+		row.BusinessGroupID = row.GroupID
+	}
+	if row.BusinessGroupName == "" {
+		row.BusinessGroupName = row.GroupName
+	}
+	if row.GroupItemID <= 0 {
+		row.GroupItemID = row.GroupCategoryID
+	}
+	if row.GroupItemName == "" {
+		row.GroupItemName = row.GroupCategoryName
+	}
+	if row.GroupID <= 0 {
+		row.GroupID = row.BusinessGroupID
+	}
+	if row.GroupName == "" {
+		row.GroupName = row.BusinessGroupName
+	}
+	if row.GroupCategoryID <= 0 {
+		row.GroupCategoryID = row.GroupItemID
+	}
+	if row.GroupCategoryName == "" {
+		row.GroupCategoryName = row.GroupItemName
+	}
+}
+
 func enrichProductionBomVersionYield(row *ProductionBomVersion) {
 	row.ExpectedYieldRate = productiondomain.NormalizeYieldRate(row.YieldRate)
 	row.ExpectedLossRate = productiondomain.ExpectedLossRate(row.ExpectedYieldRate)
@@ -757,6 +788,7 @@ func (s *Service) ListProductionBoms(ctx context.Context) ([]ProductionBomSummar
 		return nil, err
 	}
 	for i := range rows {
+		normalizeProductionBomSummaryGroups(&rows[i])
 		enrichProductionBomSummaryYield(&rows[i])
 	}
 	return rows, nil
@@ -770,6 +802,7 @@ func (s *Service) GetProductionBomDetail(ctx context.Context, id int64, versionI
 	if err != nil {
 		return ProductionBomDetail{}, err
 	}
+	normalizeProductionBomSummaryGroups(&row.ProductionBomSummary)
 	enrichProductionBomSummaryYield(&row.ProductionBomSummary)
 	for i := range row.Versions {
 		enrichProductionBomVersionYield(&row.Versions[i])
@@ -804,6 +837,7 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	if err != nil {
 		return ProductionBomSummary{}, err
 	}
+	normalizeProductionBomSummaryGroups(&row)
 	enrichProductionBomSummaryYield(&row)
 	return row, nil
 }
@@ -819,6 +853,7 @@ func (s *Service) UpdateProductionBom(ctx context.Context, cmd UpdateProductionB
 	if err != nil {
 		return ProductionBomSummary{}, err
 	}
+	normalizeProductionBomSummaryGroups(&row)
 	enrichProductionBomSummaryYield(&row)
 	return row, nil
 }
@@ -833,6 +868,7 @@ func (s *Service) CopyProductionBom(ctx context.Context, cmd CopyProductionBomCo
 	if err != nil {
 		return ProductionBomSummary{}, err
 	}
+	normalizeProductionBomSummaryGroups(&row)
 	enrichProductionBomSummaryYield(&row)
 	return row, nil
 }
