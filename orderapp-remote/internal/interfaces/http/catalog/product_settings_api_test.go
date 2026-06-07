@@ -31,6 +31,7 @@ type productSettingsRepo struct {
 	productUnitDefinitions              []catalogapp.ProductUnitDefinition
 	productUnitTemplates                []catalogapp.ProductUnitTemplate
 	productPriceGroups                  []catalogapp.ProductPriceGroup
+	businessGroups                      []catalogapp.BusinessGroup
 	productPriceRecords                 []catalogapp.ProductPriceRecord
 	productPriceRecordByID              map[int64]catalogapp.ProductPriceRecord
 	productTierPriceSchemes             []catalogapp.ProductTierPriceScheme
@@ -325,7 +326,7 @@ func (r *productSettingsRepo) SaveProductPriceGroup(ctx context.Context, cmd cat
 }
 
 func (r *productSettingsRepo) ListBusinessGroups(ctx context.Context) ([]catalogapp.BusinessGroup, error) {
-	return []catalogapp.BusinessGroup{}, nil
+	return r.businessGroups, nil
 }
 
 func (r *productSettingsRepo) SaveBusinessGroup(ctx context.Context, cmd catalogapp.BusinessGroup) (catalogapp.BusinessGroup, error) {
@@ -348,6 +349,67 @@ func (r *productSettingsRepo) SaveBusinessGroupAssignment(ctx context.Context, c
 
 func (r *productSettingsRepo) DeleteBusinessGroupAssignment(ctx context.Context, cmd catalogapp.DeleteBusinessGroupAssignmentCommand) error {
 	return nil
+}
+
+func TestBusinessGroupsAPIUsageFilterHidesInactiveGroups(t *testing.T) {
+	repo := &productSettingsRepo{
+		businessGroups: []catalogapp.BusinessGroup{
+			{
+				ID:     63,
+				Name:   "PR442-SCENARIO-20260607-H4Z5JC Group",
+				Active: false,
+				Usages: []catalogapp.BusinessGroupUsage{{
+					UsageKey: catalogapp.BusinessGroupUsageWarehouseInventory,
+					Active:   true,
+				}},
+			},
+			{
+				ID:     64,
+				Name:   "仓库库存默认分组",
+				Active: true,
+				Usages: []catalogapp.BusinessGroupUsage{{
+					UsageKey: catalogapp.BusinessGroupUsageWarehouseInventory,
+					Active:   true,
+				}},
+			},
+			{
+				ID:     65,
+				Name:   "停用用途分组",
+				Active: true,
+				Usages: []catalogapp.BusinessGroupUsage{{
+					UsageKey: catalogapp.BusinessGroupUsageWarehouseInventory,
+					Active:   false,
+				}},
+			},
+			{
+				ID:     66,
+				Name:   "商品档案分组",
+				Active: true,
+				Usages: []catalogapp.BusinessGroupUsage{{
+					UsageKey: catalogapp.BusinessGroupUsageProductCatalog,
+					Active:   true,
+				}},
+			},
+		},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/business-groups?usage_key=warehouse_inventory", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("business groups status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.Bytes()
+	if !bytes.Contains(body, []byte(`"name":"仓库库存默认分组"`)) {
+		t.Fatalf("active warehouse group missing: %s", rec.Body.String())
+	}
+	for _, unexpected := range []string{"PR442-SCENARIO-20260607-H4Z5JC Group", "停用用途分组", "商品档案分组"} {
+		if bytes.Contains(body, []byte(unexpected)) {
+			t.Fatalf("business group usage filter leaked %q: %s", unexpected, rec.Body.String())
+		}
+	}
 }
 
 func (r *productSettingsRepo) ListProductCustomerReferences(ctx context.Context, productID int64) ([]catalogapp.ProductCustomerReference, error) {

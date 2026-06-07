@@ -852,6 +852,9 @@ func (h productHandler) businessGroupsAPI(c echo.Context) error {
 	if usageKey != "" {
 		filtered := make([]catalogapp.BusinessGroup, 0, len(rows))
 		for _, row := range rows {
+			if !row.Active {
+				continue
+			}
 			for _, usage := range row.Usages {
 				if strings.EqualFold(usage.UsageKey, usageKey) && usage.Active {
 					filtered = append(filtered, row)
