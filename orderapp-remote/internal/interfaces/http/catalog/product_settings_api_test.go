@@ -316,6 +316,50 @@ func (r *productSettingsRepo) SaveProductPriceGroup(ctx context.Context, cmd cat
 	return catalogapp.ProductPriceGroup{ID: id, Name: cmd.Name, SortOrder: cmd.SortOrder, Active: true}, nil
 }
 
+func (r *productSettingsRepo) ListBusinessGroups(ctx context.Context) ([]catalogapp.BusinessGroup, error) {
+	return []catalogapp.BusinessGroup{}, nil
+}
+
+func (r *productSettingsRepo) SaveBusinessGroup(ctx context.Context, cmd catalogapp.BusinessGroup) (catalogapp.BusinessGroup, error) {
+	if cmd.ID == 0 {
+		cmd.ID = 61
+	}
+	return cmd, nil
+}
+
+func (r *productSettingsRepo) ListProductCustomerReferences(ctx context.Context, productID int64) ([]catalogapp.ProductCustomerReference, error) {
+	return []catalogapp.ProductCustomerReference{}, nil
+}
+
+func (r *productSettingsRepo) SaveProductCustomerReference(ctx context.Context, cmd catalogapp.ProductCustomerReference) (catalogapp.ProductCustomerReference, error) {
+	if cmd.ID == 0 {
+		cmd.ID = 62
+	}
+	return cmd, nil
+}
+
+func (r *productSettingsRepo) ListProductPricingRules(ctx context.Context) ([]catalogapp.ProductPricingRule, error) {
+	return []catalogapp.ProductPricingRule{}, nil
+}
+
+func (r *productSettingsRepo) SaveProductPricingRule(ctx context.Context, cmd catalogapp.ProductPricingRule) (catalogapp.ProductPricingRule, error) {
+	if cmd.ID == 0 {
+		cmd.ID = 63
+	}
+	return cmd, nil
+}
+
+func (r *productSettingsRepo) ListPriceTierTemplates(ctx context.Context) ([]catalogapp.PriceTierTemplate, error) {
+	return []catalogapp.PriceTierTemplate{}, nil
+}
+
+func (r *productSettingsRepo) SavePriceTierTemplate(ctx context.Context, cmd catalogapp.PriceTierTemplate) (catalogapp.PriceTierTemplate, error) {
+	if cmd.ID == 0 {
+		cmd.ID = 64
+	}
+	return cmd, nil
+}
+
 func (r *productSettingsRepo) ListProductPriceRecords(ctx context.Context, query catalogapp.ProductPriceRecordQuery) ([]catalogapp.ProductPriceRecord, error) {
 	if r.productPriceRecords != nil {
 		return r.productPriceRecords, nil
@@ -869,7 +913,7 @@ func (r *productSettingsRepo) BindCustomerProductRuleTemplate(ctx context.Contex
 	return catalogapp.CustomerProductRuleBinding{CustomerID: cmd.CustomerID, TemplateID: cmd.TemplateID}, nil
 }
 
-func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
+func TestCustomerProductAliasAPIsReadLegacyRowsAndRejectNewWrites(t *testing.T) {
 	repo := &productSettingsRepo{
 		customerProductAliases: []catalogapp.CustomerProductAlias{{
 			ID:                      11,
@@ -927,14 +971,11 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST alias status=%d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("customer products are legacy readonly")) {
+		t.Fatalf("POST legacy alias should be readonly, status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.customerAliasSaved || repo.savedCustomerAlias.CustomerID != 42 || repo.savedCustomerAlias.ProductID != 88 || repo.savedCustomerAlias.DisplayName != "Karen 精品拼配" || repo.savedCustomerAlias.CustomerItemCode != "KAREN-ESP-001" || repo.savedCustomerAlias.ProductConfigTemplateID != 0 || repo.savedCustomerAlias.GradientTemplateID != 0 || repo.savedCustomerAlias.UnitTemplateID != 0 || repo.savedCustomerAlias.ClassificationTemplateID != 0 || !repo.savedCustomerAlias.IncludeInPriceList {
-		t.Fatalf("save alias command = %+v saved=%v", repo.savedCustomerAlias, repo.customerAliasSaved)
-	}
-	if !bytes.Contains(rec.Body.Bytes(), []byte(`"customer_item_code":"KAREN-ESP-001"`)) {
-		t.Fatalf("POST alias response should preserve customer item code: %s", rec.Body.String())
+	if repo.customerAliasSaved {
+		t.Fatalf("legacy alias write should not reach repo")
 	}
 
 	req = httptest.NewRequest(http.MethodPut, "/api/customer-product-aliases/11", bytes.NewBufferString(`{
@@ -949,11 +990,8 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("PUT alias status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if repo.savedCustomerAlias.ID != 11 || repo.savedCustomerAlias.CustomerItemCode != "KAREN-ESP-002" || repo.savedCustomerAlias.ProductConfigTemplateID != 0 || repo.savedCustomerAlias.GradientTemplateID != 0 || repo.savedCustomerAlias.UnitTemplateID != 0 || repo.savedCustomerAlias.ClassificationTemplateID != 0 || repo.savedCustomerAlias.IncludeInPriceList {
-		t.Fatalf("update alias command = %+v", repo.savedCustomerAlias)
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("customer products are legacy readonly")) {
+		t.Fatalf("PUT legacy alias should be readonly, status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/customer-product-aliases/11/disable", nil)
@@ -988,6 +1026,31 @@ func TestCustomerProductAliasAPIsListSaveAndDisableCustomerNames(t *testing.T) {
 	}
 }
 
+func TestProductCustomerReferenceAPIReplacesCustomerProductMasterWrites(t *testing.T) {
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(&productSettingsRepo{}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-customer-references", bytes.NewBufferString(`{
+		"product_id":88,
+		"customer_id":42,
+		"customer_item_code":"KAREN-ESP-001",
+		"customer_display_name":"Karen 精品拼配",
+		"active":true,
+		"remark":"打印和搜索使用"
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST product customer reference status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"product_id":88`, `"customer_id":42`, `"customer_item_code":"KAREN-ESP-001"`, `"customer_display_name":"Karen 精品拼配"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("customer reference response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
 func TestCustomerProductAliasIndustryFieldAPIsListAndSaveOverrides(t *testing.T) {
 	repo := &productSettingsRepo{}
 	e := echo.New()
@@ -1018,7 +1081,7 @@ func TestCustomerProductAliasIndustryFieldAPIsListAndSaveOverrides(t *testing.T)
 	}
 }
 
-func TestCustomerProductAliasBatchAPICreatesAndSkipsExistingCustomerNames(t *testing.T) {
+func TestCustomerProductAliasBatchAPIRejectsLegacyCustomerProductWrites(t *testing.T) {
 	repo := &productSettingsRepo{
 		customerProductAliases: []catalogapp.CustomerProductAlias{{
 			ID:         11,
@@ -1042,19 +1105,11 @@ func TestCustomerProductAliasBatchAPICreatesAndSkipsExistingCustomerNames(t *tes
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST batch alias status=%d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("customer products are legacy readonly")) {
+		t.Fatalf("POST legacy batch alias should be readonly, status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.customerAliasBatchSaved || repo.batchCustomerAliases.CustomerID != 42 || !reflect.DeepEqual(repo.batchCustomerAliases.ProductIDs, []int64{88, 89, 90}) || !repo.batchCustomerAliases.IncludeInPriceList || repo.batchCustomerAliases.ClassificationTemplateID != 0 {
-		t.Fatalf("batch alias command=%+v saved=%v", repo.batchCustomerAliases, repo.customerAliasBatchSaved)
-	}
-	for _, want := range []string{`"created_count":2`, `"skipped_count":1`, `"reason":"exists"`} {
-		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
-			t.Fatalf("batch alias response missing %s: %s", want, rec.Body.String())
-		}
-	}
-	if bytes.Contains(rec.Body.Bytes(), []byte(`"customer_item_code":"SKU"`)) {
-		t.Fatalf("batch alias response must not copy product code as customer item code: %s", rec.Body.String())
+	if repo.customerAliasBatchSaved {
+		t.Fatalf("legacy batch alias write should not reach repo")
 	}
 }
 
@@ -2747,7 +2802,7 @@ func TestProductSettingsAPIReturnsLegacyCustomerSkuMarginOverrideButIgnoresWrite
 	}
 }
 
-func TestProductPriceRecordAPISavesFinalPriceMasterData(t *testing.T) {
+func TestProductPriceRecordAPIReadsLegacyRowsAndRejectsWrites(t *testing.T) {
 	repo := &productSettingsRepo{
 		productPriceGroups: []catalogapp.ProductPriceGroup{{ID: 3, Name: "常规批发", SortOrder: 10, Active: true}},
 		productPriceRecords: []catalogapp.ProductPriceRecord{{
@@ -2784,18 +2839,41 @@ func TestProductPriceRecordAPISavesFinalPriceMasterData(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST product price record status=%d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("product price records are legacy readonly")) {
+		t.Fatalf("POST legacy product price record should be readonly, status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.productPriceRecordSaved || repo.savedProductPriceRecord.ProductID != 7 || repo.savedProductPriceRecord.FinalUnitPrice != 91.25 {
-		t.Fatalf("saved product price record command=%+v saved=%v", repo.savedProductPriceRecord, repo.productPriceRecordSaved)
-	}
-	if repo.savedProductPriceRecord.PriceGroupName != "客户A常规" || repo.savedProductPriceRecord.InventoryConversionJSON != `{"kg":{"kg":1}}` {
-		t.Fatalf("saved product price record normalized fields = %+v", repo.savedProductPriceRecord)
+	if repo.productPriceRecordSaved {
+		t.Fatalf("legacy product price record write should not reach repo")
 	}
 }
 
-func TestProductTierPriceSchemeAPIReferencesFinalPriceRecords(t *testing.T) {
+func TestProductPricingRuleAPIReplacesFinalPriceRecordMasterData(t *testing.T) {
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(&productSettingsRepo{}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-pricing-rules", bytes.NewBufferString(`{
+		"name":"成本加成模板",
+		"code":"RULE-001",
+		"cost_source_mode":"",
+		"margin_rate":0.18,
+		"tax_rate":0.06,
+		"rounding_mode":"",
+		"remark":"价格表引用"
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST pricing rule status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"name":"成本加成模板"`, `"code":"RULE-001"`, `"cost_source_mode":"product_cost_context"`, `"rounding_mode":"none"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("pricing rule response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestProductTierPriceSchemeAPIRejectsLegacyWrites(t *testing.T) {
 	repo := &productSettingsRepo{productPriceRecordByID: map[int64]catalogapp.ProductPriceRecord{
 		11: {ID: 11, ProductID: 7, FinalUnitPrice: 88, PriceUnit: "kg", Currency: "CNY", Active: true},
 	}}
@@ -2811,18 +2889,35 @@ func TestProductTierPriceSchemeAPIReferencesFinalPriceRecords(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("product tier price schemes are legacy readonly")) {
+		t.Fatalf("POST legacy tier price scheme should be readonly, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.productTierPriceSchemeSaved {
+		t.Fatalf("legacy tier price scheme write should not reach repo")
+	}
+}
+
+func TestPriceTierTemplateAPIUsesReusableQuantityTiers(t *testing.T) {
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(&productSettingsRepo{}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/price-tier-templates", bytes.NewBufferString(`{
+		"name":"批发档位",
+		"tiers":[
+			{"label":"10kg+","min_qty":10,"quantity_unit":"kg","position":2},
+			{"label":"1kg+","min_qty":1,"max_qty":10,"position":1}
+		]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("POST tier price scheme status=%d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("POST price tier template status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.productTierPriceSchemeSaved || len(repo.savedProductTierPriceScheme.Tiers) != 1 {
-		t.Fatalf("saved tier price scheme command=%+v saved=%v", repo.savedProductTierPriceScheme, repo.productTierPriceSchemeSaved)
-	}
-	tier := repo.savedProductTierPriceScheme.Tiers[0]
-	if tier.SourcePriceRecordID != 11 || tier.FinalUnitPrice != 88 || tier.PriceUnit != "kg" || tier.Currency != "CNY" {
-		t.Fatalf("tier should use source final price record, got %+v", tier)
-	}
-	if !bytes.Contains(rec.Body.Bytes(), []byte(`"final_unit_price":88`)) {
-		t.Fatalf("tier price scheme response should expose copied final price: %s", rec.Body.String())
+	for _, want := range []string{`"name":"批发档位"`, `"label":"1kg+"`, `"quantity_unit":"kg"`, `"label":"10kg+"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("price tier template response missing %s: %s", want, rec.Body.String())
+		}
 	}
 }
 

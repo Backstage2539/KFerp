@@ -8,17 +8,17 @@
       <div class="panel-head">
         <div>
           <h2>{{ productSectionTitle }}</h2>
-          <p>商品档案只维护商品资料、商品分类管理、库存单位、整数库存、行业字段和 BOM 使用摘要；商品价格管理与商品价格表快照提供价格摘要，缺失时显示暂无价格表价格。</p>
+          <p>商品档案只维护商品资料、商品分组、库存单位、整数库存、行业字段、客户引用和 BOM 使用摘要；商品价格管理维护价格计算模板，商品价格表快照提供价格摘要，缺失时显示暂无价格表价格。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
     </section>
 
     <section class="settings-workbench">
-      <div v-show="currentSettingsSection === 'category-management'" class="sku-category-management-workspace" data-section-mode="productCategoryManagement">
+      <div v-show="currentSettingsSection === 'category-management'" class="sku-category-management-workspace" data-section-mode="groupManagement">
         <section class="panel category-management-panel">
           <div class="panel-title sku-panel-title">
-            <span>商品分类管理</span>
+            <span>分组管理</span>
             <div class="filter-actions">
               <button class="secondary compact-action" type="button" @click="createPrimaryCategoryInline">新增大类</button>
               <button
@@ -30,7 +30,7 @@
               </button>
             </div>
           </div>
-          <p class="muted">分类只用于组织、筛选和报表分组。商品档案和客户商品直接保存当前分类；价格、录单单位和阶梯价由商品价格管理与商品价格表决定。</p>
+          <p class="muted">分组是泛化主数据能力，可被商品档案归类、商品价格表选品、物料档案归类、生产 BOM 分组和报表分组复用。分组项不参与 BOM、库存、录单单位；商品价格表引用分组时只用于选品、筛选、分组展示和模板继承。</p>
           <label class="category-search">
             <span>搜索分类/商品</span>
             <input v-model.trim="categorySearchQuery" placeholder="搜索大类、小类或商品名称" />
@@ -823,157 +823,118 @@
         <div class="panel-title">
           <span>商品价格管理</span>
           <div class="panel-actions">
-            <button class="secondary compact-action" type="button" @click="resetProductPriceRecordForm">新建价格记录</button>
-            <button class="secondary compact-action" type="button" @click="resetProductTierPriceSchemeForm">新建阶梯方案</button>
+            <button class="secondary compact-action" type="button" @click="resetPricingRuleForm">新建价格计算模板</button>
+            <button class="secondary compact-action" type="button" @click="resetPriceTierTemplateForm">新建阶梯价模板</button>
           </div>
         </div>
         <div class="product-price-management-layout">
-          <section class="product-price-records-panel">
+          <section class="product-price-records-panel pricing-rule-management-panel">
             <div class="field-group-head">
-              <strong>商品价格记录</strong>
-              <small>价格记录保存最终单价，价格表发布时会固化价格单位和库存换算。</small>
+              <strong>价格计算模板 / Pricing Rule</strong>
+              <small>模板只负责成本来源、利润率、税率和取整规则；不绑定商品，不保存最终成交价。商品价格表引用模板后生成平铺价格行。</small>
             </div>
             <div class="table-wrap compact-table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>价格分组</th>
-                    <th>商品</th>
-                    <th>最终单价</th>
-                    <th>价格单位</th>
+                    <th>模板</th>
+                    <th>成本来源</th>
+                    <th>利润率</th>
+                    <th>税率</th>
+                    <th>取整规则</th>
                     <th>状态</th>
-                    <th>操作</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="record in productPriceRecords" :key="record.id">
-                    <td>{{ record.price_group_name || productPriceGroupName(record.price_group_id) || '未分组' }}</td>
-                    <td>{{ priceRecordTargetLabel(record) }}</td>
-                    <td>{{ productPriceRecordLabel(record) }}</td>
-                    <td>{{ record.price_unit || '-' }}</td>
-                    <td><span :class="['status-pill', record.active === false ? 'inactive' : '']">{{ productPriceRecordStatusLabel(record) }}</span></td>
-                    <td><button class="text-button" type="button" @click="startProductPriceRecordEdit(record)">编辑价格记录</button></td>
+                  <tr v-for="rule in pricingRules" :key="rule.id">
+                    <td>{{ rule.name || rule.code || `Pricing Rule #${rule.id}` }}</td>
+                    <td>{{ pricingRuleCostSourceLabel(rule.cost_source_mode) }}</td>
+                    <td>{{ percentDisplay(rule.margin_rate) }}</td>
+                    <td>{{ percentDisplay(rule.tax_rate) }}</td>
+                    <td>{{ pricingRuleRoundingLabel(rule.rounding_mode) }}</td>
+                    <td><span :class="['status-pill', rule.active === false ? 'inactive' : '']">{{ rule.active === false ? '停用' : '启用' }}</span></td>
                   </tr>
-                  <tr v-if="!productPriceRecords.length">
-                    <td colspan="6" class="muted">暂无价格记录</td>
+                  <tr v-if="!pricingRules.length">
+                    <td colspan="6" class="muted">暂无价格计算模板。可先新建模板，再在商品价格表生成时引用。</td>
                   </tr>
                 </tbody>
               </table>
             </div>
-            <form class="template-editor product-price-record-form" @submit.prevent="saveProductPriceRecord">
+            <form class="template-editor pricing-rule-form" @submit.prevent="savePricingRule">
               <div class="template-editor-grid">
                 <label>
-                  <span>商品</span>
-                  <select v-model.number="productPriceRecordForm.product_id">
-                    <option value="0">不绑定商品档案</option>
-                    <option v-for="product in products" :key="product.id" :value="product.id">{{ product.name }}</option>
+                  <span>模板名称</span>
+                  <input v-model.trim="pricingRuleForm.name" placeholder="如 成本加成含税" />
+                </label>
+                <label>
+                  <span>模板编号</span>
+                  <input v-model.trim="pricingRuleForm.code" placeholder="如 PR-COST-PLUS" />
+                </label>
+                <label>
+                  <span>成本来源</span>
+                  <select v-model="pricingRuleForm.cost_source_mode">
+                    <option value="product_cost_context">商品成本上下文</option>
+                    <option value="manual_cost">手工成本</option>
+                    <option value="last_purchase_cost">最近采购成本</option>
                   </select>
                 </label>
                 <label>
-                  <span>客户商品</span>
-                  <select v-model.number="productPriceRecordForm.customer_product_alias_id">
-                    <option value="0">不绑定客户商品</option>
-                    <option v-for="alias in customerProductAliases" :key="alias.id" :value="alias.id">{{ customerAliasEffectiveDisplayName(alias) }}</option>
-                  </select>
+                  <span>利润率</span>
+                  <input v-model.number="pricingRuleForm.margin_rate" type="number" min="0" step="0.0001" placeholder="0.3" />
                 </label>
                 <label>
-                  <span>价格分组</span>
-                  <input v-model.trim="productPriceRecordForm.price_group_name" placeholder="如 常规批发" />
+                  <span>税率</span>
+                  <input v-model.number="pricingRuleForm.tax_rate" type="number" min="0" step="0.0001" placeholder="0.06" />
                 </label>
                 <label>
-                  <span>最终单价</span>
-                  <input v-model.number="productPriceRecordForm.final_unit_price" type="number" min="0" step="0.0001" />
-                </label>
-                <label>
-                  <span>价格单位</span>
-                  <select v-model="productPriceRecordForm.price_unit">
-                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>币种</span>
-                  <input v-model.trim="productPriceRecordForm.currency" placeholder="CNY" />
-                </label>
-                <label>
-                  <span>库存单位</span>
-                  <select v-model="productPriceRecordForm.inventory_unit">
-                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>状态</span>
-                  <select v-model="productPriceRecordForm.status">
-                    <option value="draft">草稿</option>
-                    <option value="published">已发布</option>
-                    <option value="inactive">停用</option>
+                  <span>取整规则</span>
+                  <select v-model="pricingRuleForm.rounding_mode">
+                    <option value="none">不取整</option>
+                    <option value="jiao">保留到角</option>
+                    <option value="yuan">保留到元</option>
                   </select>
                 </label>
               </div>
               <label class="wide-field">
-                <span>库存换算 JSON</span>
-                <textarea v-model.trim="productPriceRecordForm.inventory_conversion_json" rows="2" placeholder="{&quot;kg&quot;:{&quot;kg&quot;:1}}"></textarea>
-              </label>
-              <label class="wide-field">
                 <span>备注</span>
-                <textarea v-model.trim="productPriceRecordForm.remark" rows="2"></textarea>
+                <textarea v-model.trim="pricingRuleForm.remark" rows="2" placeholder="说明 BOM/耗材/工艺成本如何参与试算"></textarea>
               </label>
               <div class="form-actions">
-                <button class="primary" type="submit" :disabled="productPriceSaving">保存价格记录</button>
+                <button class="primary" type="submit" :disabled="productPriceSaving">保存价格计算模板</button>
               </div>
             </form>
           </section>
 
-          <section class="product-tier-price-schemes-panel">
+          <section class="product-tier-price-schemes-panel price-tier-template-panel">
             <div class="field-group-head">
-              <strong>阶梯价格方案</strong>
-              <small>每个档位只引用价格记录，保存后档位即为该记录的最终价。</small>
+              <strong>阶梯价模板</strong>
+              <small>阶梯价模板只定义数量档位，不保存最终价或成本公式。商品价格表默认、分组引用和商品行都可以引用它。</small>
             </div>
             <div class="template-list compact-template-list">
               <div
-                v-for="scheme in productTierPriceSchemes"
-                :key="scheme.id"
-                :class="['template-row', { active: Number(scheme.id || 0) === Number(productTierPriceSchemeForm.id || 0), inactive: scheme.active === false }]">
-                <button class="template-row-main" type="button" @click="startProductTierPriceSchemeEdit(scheme)">
-                  <strong>{{ scheme.name }}</strong>
-                  <small>{{ scheme.tiers?.length || 0 }} 档 · {{ productPriceGroupName(scheme.price_group_id) || '未分组' }}</small>
+                v-for="template in priceTierTemplates"
+                :key="template.id"
+                :class="['template-row', { active: Number(template.id || 0) === Number(priceTierTemplateForm.id || 0), inactive: template.active === false }]">
+                <button class="template-row-main" type="button" @click="startPriceTierTemplateEdit(template)">
+                  <strong>{{ template.name }}</strong>
+                  <small>{{ template.tiers?.length || 0 }} 档 · 商品 &gt; 子组 &gt; 父组 &gt; 默认</small>
                 </button>
               </div>
-              <p v-if="!productTierPriceSchemes.length" class="muted">暂无阶梯价格方案</p>
+              <p v-if="!priceTierTemplates.length" class="muted">暂无阶梯价模板</p>
             </div>
-            <form class="template-editor product-tier-price-scheme-form" @submit.prevent="saveProductTierPriceScheme">
+            <form class="template-editor product-tier-price-scheme-form" @submit.prevent="savePriceTierTemplate">
               <div class="template-editor-grid">
                 <label>
-                  <span>方案名称</span>
-                  <input v-model.trim="productTierPriceSchemeForm.name" placeholder="如 批发阶梯" />
-                </label>
-                <label>
-                  <span>商品</span>
-                  <select v-model.number="productTierPriceSchemeForm.product_id">
-                    <option value="0">不绑定商品档案</option>
-                    <option v-for="product in products" :key="product.id" :value="product.id">{{ product.name }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>客户商品</span>
-                  <select v-model.number="productTierPriceSchemeForm.customer_product_alias_id">
-                    <option value="0">不绑定客户商品</option>
-                    <option v-for="alias in customerProductAliases" :key="alias.id" :value="alias.id">{{ customerAliasEffectiveDisplayName(alias) }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>价格分组</span>
-                  <select v-model.number="productTierPriceSchemeForm.price_group_id">
-                    <option value="0">未分组</option>
-                    <option v-for="group in productPriceGroups" :key="group.id" :value="group.id">{{ group.name }}</option>
-                  </select>
+                  <span>模板名称</span>
+                  <input v-model.trim="priceTierTemplateForm.name" placeholder="如 批发阶梯" />
                 </label>
               </div>
               <div class="template-tier-head">
                 <strong>档位</strong>
-                <button class="secondary compact-action" type="button" @click="addProductTierPriceSchemeTier">新增档位</button>
+                <button class="secondary compact-action" type="button" @click="addPriceTierTemplateTier">新增档位</button>
               </div>
               <div class="template-tier-list">
-                <div v-for="(tier, index) in productTierPriceSchemeForm.tiers" :key="`tier-price-${index}`" class="template-tier-row product-tier-price-row">
+                <div v-for="(tier, index) in priceTierTemplateForm.tiers" :key="`price-tier-template-${index}`" class="template-tier-row product-tier-price-row">
                   <label>
                     <span>档位名</span>
                     <input v-model.trim="tier.label" placeholder="1kg+" />
@@ -987,25 +948,25 @@
                     <input v-model="tier.max_qty" type="number" min="0" step="0.0001" placeholder="无上限" />
                   </label>
                   <label>
-                    <span>引用价格记录</span>
-                    <select v-model.number="tier.source_price_record_id">
-                      <option value="0">请选择</option>
-                      <option v-for="record in productPriceRecords" :key="record.id" :value="record.id">{{ productPriceRecordLabel(record) }}</option>
+                    <span>数量单位</span>
+                    <select v-model="tier.quantity_unit">
+                      <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
                     </select>
                   </label>
-                  <button class="text-button danger-text" type="button" @click="removeProductTierPriceSchemeTier(index)">删除</button>
+                  <button class="text-button danger-text" type="button" @click="removePriceTierTemplateTier(index)">删除</button>
                 </div>
               </div>
               <label class="wide-field">
                 <span>备注</span>
-                <textarea v-model.trim="productTierPriceSchemeForm.remark" rows="2"></textarea>
+                <textarea v-model.trim="priceTierTemplateForm.remark" rows="2"></textarea>
               </label>
               <div class="form-actions">
-                <button class="primary" type="submit" :disabled="productPriceSaving">保存阶梯方案</button>
+                <button class="primary" type="submit" :disabled="productPriceSaving">保存阶梯价模板</button>
               </div>
             </form>
           </section>
         </div>
+        <p class="muted price-list-flat-row-note" aria-label="商品 > 子组 > 父组 > 默认">商品价格表按分组勾选商品后生成平铺价格行；阶梯价模板和价格计算模板继承规则固定为：商品 &gt; 子组 &gt; 父组 &gt; 默认。</p>
       </div>
         </div>
       </div>
@@ -1214,7 +1175,7 @@
             <div class="field-group-head">
               <div class="field-group-copy">
                 <strong>基础信息</strong>
-                <small>商品档案是库存、成本、生产和成品批次对象；客户对外名称在客户商品维护。</small>
+                <small>商品档案是库存、成本、生产和成品批次对象；客户对外名称在客户引用维护。</small>
               </div>
             </div>
             <div class="production-config-grid">
@@ -1429,8 +1390,10 @@ import {
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
   buildProductConfigTemplatePayload,
+  buildPriceTierTemplatePayload,
   buildProductPriceRecordPayload,
   buildProductTierPriceSchemePayload,
+  buildPricingRulePayload,
   buildProductProductionConfigField,
   buildProductProductionConfigForm,
   buildProductUnitDefinitionPayload,
@@ -1505,6 +1468,8 @@ const productUnitTemplates = ref([])
 const productPriceGroups = ref([])
 const productPriceRecords = ref([])
 const productTierPriceSchemes = ref([])
+const pricingRules = ref([])
+const priceTierTemplates = ref([])
 const customerPublicUsages = ref([])
 const customerProductAliases = ref([])
 const customerProductRuleTemplates = ref([])
@@ -1546,6 +1511,7 @@ const PRODUCT_SECTION_MODES = {
   master: 'master',
   customerProductAliases: 'aliases',
   aliases: 'aliases',
+  groupManagement: 'category-management',
   productCategoryManagement: 'category-management',
   categoryManagement: 'category-management',
   productConfigTemplates: 'templates',
@@ -1569,7 +1535,7 @@ const productReturnNavigation = computed(() => props.viewParams?.return_navigati
 const productReturnLabel = computed(() => String(productReturnNavigation.value?.label || '返回上一步'))
 const productSectionTitle = computed(() => {
   if (currentSettingsSection.value === 'aliases') return '客户商品'
-  if (currentSettingsSection.value === 'category-management') return '商品分类管理'
+  if (currentSettingsSection.value === 'category-management') return '分组管理'
   if (forcedConfigTemplateSection.value === 'gradient') return '阶梯价模板'
   if (forcedConfigTemplateSection.value === 'unit-template') return '单位模板'
   if (forcedConfigTemplateSection.value === 'product-price-management') return '商品价格管理'
@@ -1616,6 +1582,8 @@ const templateForm = ref(defaultGradientTemplateForm())
 const productUnitTemplateForm = ref(defaultProductUnitTemplateForm())
 const productPriceRecordForm = ref(defaultProductPriceRecordForm())
 const productTierPriceSchemeForm = ref(defaultProductTierPriceSchemeForm())
+const pricingRuleForm = ref(defaultPricingRuleForm())
+const priceTierTemplateForm = ref(defaultPriceTierTemplateForm())
 const globalUnitForm = ref(defaultProductUnitDefinitionForm())
 const globalUnitEditingCode = ref('')
 const customerRuleTemplateForm = ref(defaultCustomerProductRuleTemplateForm())
@@ -2345,6 +2313,44 @@ function defaultProductTierPriceSchemeTier(tier = {}, index = 0) {
   }
 }
 
+function defaultPricingRuleForm(rule = {}) {
+  return {
+    id: Number(rule.id || 0),
+    name: rule.name || '',
+    code: rule.code || '',
+    cost_source_mode: rule.cost_source_mode || 'product_cost_context',
+    margin_rate: Number(rule.margin_rate || 0),
+    tax_rate: Number(rule.tax_rate || 0),
+    rounding_mode: rule.rounding_mode || 'none',
+    active: rule.active !== false,
+    remark: rule.remark || '',
+  }
+}
+
+function defaultPriceTierTemplateForm(template = {}) {
+  return {
+    id: Number(template.id || 0),
+    name: template.name || '',
+    active: template.active !== false,
+    remark: template.remark || '',
+    tiers: Array.isArray(template.tiers) && template.tiers.length
+      ? template.tiers.map((tier, index) => defaultPriceTierTemplateTier(tier, index))
+      : [defaultPriceTierTemplateTier({}, 0)],
+  }
+}
+
+function defaultPriceTierTemplateTier(tier = {}, index = 0) {
+  return {
+    label: tier.label || '',
+    min_qty: Number(tier.min_qty || 0),
+    max_qty: tier.max_qty === null || typeof tier.max_qty === 'undefined' ? '' : tier.max_qty,
+    quantity_unit: tier.quantity_unit || 'kg',
+    position: Number(tier.position || 0) || index + 1,
+    active: tier.active !== false,
+    remark: tier.remark || '',
+  }
+}
+
 function defaultCustomerProductRuleTemplateForm() {
   return {
     id: 0,
@@ -2719,6 +2725,8 @@ async function loadAll() {
     productPriceGroups.value = (data.product_price_groups || []).map(decorateProductPriceGroup)
     productPriceRecords.value = (data.product_price_records || []).map(decorateProductPriceRecord)
     productTierPriceSchemes.value = (data.product_tier_price_schemes || []).map(decorateProductTierPriceScheme)
+    pricingRules.value = (data.product_pricing_rules || data.pricing_rules || []).map((rule) => defaultPricingRuleForm(rule))
+    priceTierTemplates.value = (data.price_tier_templates || []).map((template) => defaultPriceTierTemplateForm(template))
     customerProductRuleTemplates.value = (data.customer_product_rule_templates || []).map(decorateCustomerProductRuleTemplate)
     customerProductRuleOverrides.value = (data.customer_product_rule_overrides || []).map(decorateCustomerProductRuleOverride)
     customerProductRuleBindings.value = (data.customer_product_rule_bindings || []).map((row) => ({
@@ -2992,6 +3000,108 @@ function resetProductPriceRecordForm() {
 
 function startProductPriceRecordEdit(record) {
   productPriceRecordForm.value = defaultProductPriceRecordForm(JSON.parse(JSON.stringify(record || {})))
+}
+
+function resetPricingRuleForm() {
+  pricingRuleForm.value = defaultPricingRuleForm()
+}
+
+function resetPriceTierTemplateForm() {
+  priceTierTemplateForm.value = defaultPriceTierTemplateForm()
+}
+
+function startPriceTierTemplateEdit(template) {
+  priceTierTemplateForm.value = defaultPriceTierTemplateForm(JSON.parse(JSON.stringify(template || {})))
+}
+
+function addPriceTierTemplateTier() {
+  priceTierTemplateForm.value.tiers.push(defaultPriceTierTemplateTier({}, priceTierTemplateForm.value.tiers.length))
+}
+
+function removePriceTierTemplateTier(index) {
+  priceTierTemplateForm.value.tiers.splice(index, 1)
+  if (!priceTierTemplateForm.value.tiers.length) {
+    addPriceTierTemplateTier()
+  }
+}
+
+function pricingRuleCostSourceLabel(value) {
+  return {
+    product_cost_context: '商品成本上下文',
+    manual_cost: '手工成本',
+    last_purchase_cost: '最近采购成本',
+  }[String(value || '')] || '商品成本上下文'
+}
+
+function pricingRuleRoundingLabel(value) {
+  return {
+    none: '不取整',
+    jiao: '保留到角',
+    yuan: '保留到元',
+  }[String(value || '')] || '不取整'
+}
+
+function percentDisplay(value) {
+  const n = Number(value || 0)
+  return n > 0 ? `${(n * 100).toFixed(2).replace(/\.?0+$/, '')}%` : '-'
+}
+
+async function savePricingRule() {
+  const payload = buildPricingRulePayload(pricingRuleForm.value)
+  if (!payload.name) {
+    error.value = '请填写价格计算模板名称'
+    return
+  }
+  productPriceSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const url = payload.id ? `/api/product-pricing-rules/${payload.id}` : '/api/product-pricing-rules'
+    const method = payload.id ? 'PUT' : 'POST'
+    const result = await apiSend(url, { method, body: payload })
+    const row = defaultPricingRuleForm(result.rule || payload)
+    pricingRules.value = [
+      row,
+      ...pricingRules.value.filter((item) => Number(item.id || 0) !== Number(row.id || 0)),
+    ]
+    pricingRuleForm.value = row
+    ok.value = '价格计算模板已保存'
+  } catch (err) {
+    error.value = err.message || '保存价格计算模板失败'
+  } finally {
+    productPriceSaving.value = false
+  }
+}
+
+async function savePriceTierTemplate() {
+  const payload = buildPriceTierTemplatePayload(priceTierTemplateForm.value)
+  if (!payload.name) {
+    error.value = '请填写阶梯价模板名称'
+    return
+  }
+  if (!payload.tiers.length) {
+    error.value = '请至少维护一个档位'
+    return
+  }
+  productPriceSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const url = payload.id ? `/api/price-tier-templates/${payload.id}` : '/api/price-tier-templates'
+    const method = payload.id ? 'PUT' : 'POST'
+    const result = await apiSend(url, { method, body: payload })
+    const row = defaultPriceTierTemplateForm(result.template || payload)
+    priceTierTemplates.value = [
+      row,
+      ...priceTierTemplates.value.filter((item) => Number(item.id || 0) !== Number(row.id || 0)),
+    ]
+    priceTierTemplateForm.value = row
+    ok.value = '阶梯价模板已保存'
+  } catch (err) {
+    error.value = err.message || '保存阶梯价模板失败'
+  } finally {
+    productPriceSaving.value = false
+  }
 }
 
 function validateProductPriceRecordPayload(payload) {

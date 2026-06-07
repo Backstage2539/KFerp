@@ -853,6 +853,143 @@ func productVisibilityForAPI(visibility string, customerID int64) string {
 	return "public"
 }
 
+func orderQuoteSourceTrace(ed *OrderEditData) []map[string]any {
+	if ed == nil {
+		return nil
+	}
+	rows := make([]map[string]any, 0, len(ed.Items))
+	for _, it := range ed.Items {
+		source := orderPriceSourceSnapshot(it.PriceSourceJSON)
+		version := orderTraceString(source["version"])
+		if version == "" {
+			version = it.BeanListVersionNo
+		}
+		publicationID := int64(orderTraceNumber(source["publication_id"]))
+		if publicationID <= 0 {
+			publicationID = it.BeanListPublicationID
+		}
+		rows = append(rows, map[string]any{
+			"product_id":                it.ProductID,
+			"product_name":              it.Product,
+			"price_list_publication_id": publicationID,
+			"price_list_version":        version,
+			"tier_label":                orderTraceString(source["tier_label"]),
+			"price_unit":                orderTraceString(source["price_unit"]),
+			"final_unit_price":          orderTraceNumber(source["final_unit_price"]),
+			"pricing_rule_version":      orderTraceString(source["pricing_rule_version"]),
+			"manual_adjusted":           orderTraceBool(source["manual_adjusted"]),
+			"source_label":              "已发布商品价格表快照",
+		})
+	}
+	return rows
+}
+
+func orderProductionSourceTrace(ed *OrderEditData) []map[string]any {
+	if ed == nil {
+		return nil
+	}
+	rows := make([]map[string]any, 0, len(ed.Items))
+	for _, it := range ed.Items {
+		source := orderPriceSourceSnapshot(it.PriceSourceJSON)
+		costSource := orderTraceObject(source["cost_source_snapshot"])
+		if len(costSource) == 0 {
+			costSource = orderTraceObject(source["production_source_snapshot"])
+		}
+		if len(costSource) == 0 {
+			continue
+		}
+		row := map[string]any{
+			"product_id":    it.ProductID,
+			"product_name":  it.Product,
+			"source_label":  "工单/工序卡冻结快照",
+			"work_order_no": orderTraceString(costSource["work_order_no"]),
+		}
+		for _, key := range []string{"bom_version_no", "bom_version_id", "process_route_name", "process_card_no", "material_batch_no"} {
+			if value, ok := costSource[key]; ok {
+				row[key] = value
+			}
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func orderPriceSourceSnapshot(value string) map[string]any {
+	source := map[string]any{}
+	if strings.TrimSpace(value) == "" {
+		return source
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(value)), &source); err != nil {
+		return map[string]any{}
+	}
+	return source
+}
+
+func orderTraceObject(value any) map[string]any {
+	switch v := value.(type) {
+	case map[string]any:
+		return v
+	case string:
+		out := map[string]any{}
+		if strings.TrimSpace(v) == "" {
+			return out
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(v)), &out); err != nil {
+			return map[string]any{}
+		}
+		return out
+	default:
+		return map[string]any{}
+	}
+}
+
+func orderTraceString(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(v)
+	case json.Number:
+		return v.String()
+	case float64, float32, int, int64:
+		return strings.TrimSpace(strconv.FormatFloat(orderTraceNumber(value), 'f', -1, 64))
+	default:
+		return ""
+	}
+}
+
+func orderTraceNumber(value any) float64 {
+	switch v := value.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case json.Number:
+		n, _ := v.Float64()
+		return n
+	case string:
+		n, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return n
+	default:
+		return 0
+	}
+}
+
+func orderTraceBool(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(strings.TrimSpace(v), "true") || strings.TrimSpace(v) == "1"
+	default:
+		return orderTraceNumber(value) != 0
+	}
+}
+
 func editDataForAPI(ed *OrderEditData) map[string]any {
 	type editItem struct {
 		ProductID                          int64  `json:"product_id"`
@@ -981,5 +1118,7 @@ func editDataForAPI(ed *OrderEditData) map[string]any {
 		"outsource_other_fee":                 ed.OutsourceOtherFee,
 		"outsource_total_fee":                 ed.OutsourceTotalFee,
 		"items":                               items,
+		"quote_source_trace":                  orderQuoteSourceTrace(ed),
+		"production_source_trace":             orderProductionSourceTrace(ed),
 	}
 }

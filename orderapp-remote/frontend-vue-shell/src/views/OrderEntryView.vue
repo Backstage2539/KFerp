@@ -227,7 +227,7 @@
       <div class="section-row">
         <div class="section-title">商品明细</div>
         <div class="section-actions">
-          <button class="secondary" type="button" @click="openBeanListDrawer" :disabled="!canOpenBeanListDrawer">选择豆单</button>
+          <button class="secondary" type="button" @click="openBeanListDrawer" :disabled="!canOpenBeanListDrawer">选择价格表</button>
           <div class="bean-list-summary-list">
             <small v-for="item in selectedBeanListSummaryItems" :key="item.type" class="bean-list-summary">
               <span class="bean-list-summary-label">{{ item.label }}：</span>
@@ -340,16 +340,16 @@
               class="bean-list-version-meta"
               :class="{ stale: isRowBeanListVersionStale(row), open: row.bean_list_version_tip_open }"
             >
-              <span>豆单版本：{{ row.bean_list_version_no }}</span>
+              <span>报价来源：价格表 {{ row.bean_list_version_no }}</span>
               <button
                 v-if="isRowBeanListVersionStale(row)"
                 class="bean-list-version-warning"
                 type="button"
-                aria-label="非新版本豆单"
-                title="非新版本豆单"
+                aria-label="非最新价格表"
+                title="非最新价格表"
                 @click.stop="toggleBeanListVersionTip(row)"
               >!</button>
-              <span v-if="isRowBeanListVersionStale(row)" class="bean-list-version-tip" role="tooltip">非新版本豆单</span>
+              <span v-if="isRowBeanListVersionStale(row)" class="bean-list-version-tip" role="tooltip">非最新价格表</span>
             </small>
           </div>
 
@@ -444,7 +444,7 @@
           <li>选择客户后会带入客户档案中的默认来源和订单类型。</li>
           <li>客户有历史订单时，商品下拉会把常用商品排在最前面。</li>
           <li>来源、客户类型和订单类型只在客户资料维护，录单选择客户后只读展示。</li>
-          <li>商品明细区点击“选择豆单”可切换熟豆、生豆、挂耳已发布豆单；客户没有自定义豆单时使用公共豆单。</li>
+          <li>商品明细区点击“选择价格表”可切换熟豆、生豆、挂耳已发布价格表；客户没有自定义价格表时使用公共价格表。</li>
           <li>常用规格：36g、80g、100g、227g、454g、500g、1000g、2.5kg。</li>
           <li>挂耳产品可按袋或盒录单，盒价会按发布的挂耳价格梯度自动匹配。</li>
           <li>新订单默认已付款、未发货；商品单价会随规格和数量匹配价格梯度。</li>

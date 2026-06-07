@@ -11,6 +11,7 @@ import {
   copyBeanListPublicationConfig,
   defaultBeanListDraftVersion,
   filterBeanListItemsForScope,
+  buildPriceListGenerationSnapshot,
   nextBeanListVersion,
   priceUnit,
   sanitizeBeanListPdfTheme,
@@ -169,6 +170,53 @@ test('PDF bean-list helper freezes final price record snapshots on each publishe
   assert.equal(tier.final_unit_price, 82)
   assert.equal(tier.price_unit, 'kg')
   assert.deepEqual(tier.inventory_conversion_json, { kg: { kg: 1 } })
+})
+
+test('price-list generation snapshot persists template inheritance, editable flat rows, and trace metadata', () => {
+  const snapshot = buildPriceListGenerationSnapshot({
+    defaults: { tier_template_id: 7, pricing_rule_id: 70 },
+    groupSelections: [
+      { group_item_id: 100, group_item_name: '商用豆', level: 1, tier_template_id: 8, pricing_rule_id: 80 },
+      { group_item_id: 101, parent_group_item_id: 100, group_item_name: '大客户', level: 2, tier_template_id: 9, pricing_rule_id: 0 },
+    ],
+    productOverrides: [
+      { product_id: 44, tier_template_id: 0, pricing_rule_id: 90 },
+    ],
+    rows: [{
+      product_id: 44,
+      product_name: '快照测试商品',
+      group_snapshot: { group_id: 3, group_name: '价格表分组', group_item_id: 101, group_item_name: '大客户', parent_group_item_id: 100, parent_group_item_name: '商用豆' },
+      tier_label: '24kg+',
+      min_qty: 24,
+      final_unit_price: 82,
+      original_final_unit_price: 80,
+      price_unit: 'kg',
+      currency: 'CNY',
+      inventory_unit: 'kg',
+      inventory_conversion_json: { kg: { kg: 1 } },
+      tier_template_id: 9,
+      tier_template_source: 'subgroup',
+      pricing_rule_id: 90,
+      pricing_rule_source: 'product',
+      pricing_rule_version: 'PR-COST/v3',
+      cost_source_snapshot: { bom_version_no: 'BOM-A1/V002', process_route_name: '标准烘焙' },
+      customer_reference_snapshot: { customer_id: 5, customer_display_name: 'Karen 拼配', customer_item_code: 'K-ESP' },
+    }],
+  })
+
+  assert.deepEqual(snapshot.config.price_list_template_selection.defaults, { tier_template_id: 7, pricing_rule_id: 70 })
+  assert.equal(snapshot.config.price_list_template_selection.group_selections[1].parent_group_item_id, 100)
+  assert.equal(snapshot.config.price_list_template_selection.product_overrides[0].pricing_rule_id, 90)
+  assert.equal(snapshot.content.price_rows.length, 1)
+  const row = snapshot.content.price_rows[0]
+  assert.equal(row.manual_adjusted, true)
+  assert.equal(row.manual_adjustment_label, '人工调整')
+  assert.equal(row.group_snapshot.group_item_name, '大客户')
+  assert.equal(row.tier_template_source, 'subgroup')
+  assert.equal(row.pricing_rule_source, 'product')
+  assert.equal(row.pricing_rule_version, 'PR-COST/v3')
+  assert.equal(row.cost_source_snapshot.bom_version_no, 'BOM-A1/V002')
+  assert.equal(row.customer_reference_snapshot.customer_display_name, 'Karen 拼配')
 })
 
 test('PDF bean-list helper builds a green bean list from template tiers and quality data', () => {

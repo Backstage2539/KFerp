@@ -39,7 +39,7 @@ func TestDev341OrderEntryStaleBeanListAutoLineWiring(t *testing.T) {
 			rel: filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue"),
 			markers: []string{
 				"bean-list-version-warning",
-				"非新版本豆单",
+				"非最新价格表",
 				"toggleBeanListVersionTip",
 				"ensureTrailingBlankRow",
 				"class=\"line-actions\"",
@@ -73,13 +73,15 @@ func TestDev341OrderEntryStaleBeanListAutoLineDocs(t *testing.T) {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range []string{
 			"PR-341-ORDER-ENTRY-STALE-BEANLIST-AUTOLINE",
-			"非新版本豆单",
 			"自动补一个空明细",
 			"新增明细",
 		} {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing PR-340 documentation marker %q", rel, want)
 			}
+		}
+		if !strings.Contains(src, "非新版本豆单") && !strings.Contains(src, "非最新价格表") {
+			t.Fatalf("%s missing stale price-list documentation marker", rel)
 		}
 	}
 }

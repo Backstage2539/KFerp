@@ -637,6 +637,54 @@ func TestPublishBeanListRequiresFinalPriceSnapshotOnPriceTiers(t *testing.T) {
 	}
 }
 
+func TestPublishBeanListRequiresPR440PriceListSnapshotMetadata(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	content := map[string]any{
+		"price_rows": []any{
+			map[string]any{
+				"product_id":                float64(414),
+				"product_name":              "曲奇拼配",
+				"tier_label":                "24kg+",
+				"min_qty":                   float64(24),
+				"final_unit_price":          float64(82),
+				"price_unit":                "kg",
+				"currency":                  "CNY",
+				"inventory_unit":            "kg",
+				"inventory_conversion_json": map[string]any{"kg": map[string]any{"kg": float64(1)}},
+				"source_price_record_id":    float64(901),
+			},
+		},
+	}
+
+	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.1.0", Content: content}); err == nil {
+		t.Fatalf("expected publish to reject price rows without PR-440 snapshot metadata")
+	}
+
+	row := content["price_rows"].([]any)[0].(map[string]any)
+	row["group_snapshot"] = map[string]any{
+		"group_id":                float64(3),
+		"group_name":              "商品价格表分组",
+		"group_item_id":           float64(101),
+		"group_item_name":         "大客户",
+		"parent_group_item_id":    float64(100),
+		"parent_group_item_name":  "商用豆",
+		"classification_snapshot": "PR-440",
+	}
+	row["tier_template_id"] = float64(9)
+	row["tier_template_source"] = "subgroup"
+	row["pricing_rule_id"] = float64(90)
+	row["pricing_rule_source"] = "product"
+	row["pricing_rule_version"] = "PR-COST/v3"
+	row["cost_source_snapshot"] = map[string]any{"bom_version_no": "BOM-A1/V002", "process_route_name": "标准烘焙"}
+	row["customer_reference_snapshot"] = map[string]any{"customer_id": float64(5), "customer_display_name": "Karen 拼配", "customer_item_code": "K-ESP"}
+	row["manual_adjusted"] = true
+
+	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.1.1", Content: content}); err != nil {
+		t.Fatalf("PublishBeanList() with PR-440 snapshot metadata error = %v", err)
+	}
+}
+
 func TestPublishBeanListKeepsCustomerSnapshotOwnerAndSources(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

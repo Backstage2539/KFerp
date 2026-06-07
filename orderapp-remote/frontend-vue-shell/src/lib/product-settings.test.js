@@ -10,6 +10,7 @@ import {
   buildCustomerProductAliasPayload,
   buildCustomerProductAliasBatchPayload,
   customerAliasEffectiveDisplayName,
+  buildProductCustomerReferencePayload,
   activeProductionBomOptions,
   buildClassificationTemplateUsagePayload,
   buildCustomerProductAliasIndustryFieldPayload,
@@ -27,8 +28,11 @@ import {
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
   buildProductConfigTemplatePayload,
+  buildPriceTableRowsFromTemplateResolution,
+  buildPriceTierTemplatePayload,
   buildProductPriceRecordPayload,
   buildProductTierPriceSchemePayload,
+  buildPricingRulePayload,
   buildProductProductionConfigForm,
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
@@ -58,6 +62,7 @@ import {
   productCreationActionOptions,
   productDisplayState,
   productPriceRecordLabel,
+  resolvePriceTableTemplateInheritance,
   resolveCreatedProductForConfig,
   productSubtypeCategoryOptionsForType,
   primaryCategoryOptions,
@@ -233,7 +238,7 @@ test('customer product aliases no longer submit template or pricing overrides', 
   assert.equal(Object.hasOwn(payload, 'classification_template_id'), false)
 })
 
-test('product settings view exposes direct category and price management while retiring normal template entry points', () => {
+test('product settings view exposes group and pricing rule management while retiring customer product and old template entry points', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const appSource = fs.readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
   const menuSource = fs.readFileSync(new URL('./menu-ia.js', import.meta.url), 'utf8')
@@ -242,15 +247,17 @@ test('product settings view exposes direct category and price management while r
   const productConfigDrawer = source.slice(source.indexOf('product-production-config-drawer'), source.indexOf('<script setup>'))
   const normalFormSurface = [productCreateDrawer, aliasCreateDrawer, productConfigDrawer].join('\n')
 
-  for (const want of ['商品分类管理', '商品价格管理', '价格摘要', '暂无价格表价格', '库存单位', '整数库存']) {
+  for (const want of ['分组管理', '商品价格管理', '价格计算模板', '客户引用', '价格摘要', '暂无价格表价格', '库存单位', '整数库存']) {
     assert.match(source, new RegExp(want))
   }
   assert.match(appSource, /productPriceManagement/)
-  assert.match(appSource, /productCategoryManagement/)
-  assert.match(menuSource, /key: 'productCategoryManagement', label: '商品分类管理'/)
+  assert.match(appSource, /groupManagement/)
+  assert.match(menuSource, /key: 'groupManagement', label: '分组管理'/)
   assert.match(menuSource, /key: 'productPriceManagement', label: '商品价格管理'/)
+  assert.doesNotMatch(menuSource, /key: 'customerProductAliases'/)
+  assert.doesNotMatch(menuSource, /label: '客户商品'/)
+  assert.doesNotMatch(menuSource, /label: '商品分类管理'/)
   assert.doesNotMatch(menuSource, /label: '商品配置和分类模板'/)
-  assert.doesNotMatch(menuSource, /label: '阶梯价模板'/)
   assert.doesNotMatch(menuSource, /label: '单位模板'/)
 
   for (const forbidden of [
@@ -263,73 +270,129 @@ test('product settings view exposes direct category and price management while r
   }
 })
 
-test('product price management records final prices and tier schemes only reference records', () => {
-  assert.deepEqual(buildProductPriceRecordPayload({
+test('product customer references replace customer product master data for display only', () => {
+  assert.deepEqual(buildProductCustomerReferencePayload({
+    id: '12',
+    product_id: '88',
+    customer_id: '42',
+    customer_item_code: ' KAREN-ESP ',
+    customer_display_name: ' Karen 精品拼配 ',
+    display_name: 'old alias',
+    price_unit: 'kg',
+    gradient_template_id: '18',
+    product_config_template_id: '31',
+    active: false,
+    remark: ' 客户自己的叫法 ',
+  }), {
+    id: 12,
+    product_id: 88,
+    customer_id: 42,
+    customer_item_code: 'KAREN-ESP',
+    customer_display_name: 'Karen 精品拼配',
+    active: false,
+    remark: '客户自己的叫法',
+  })
+})
+
+test('pricing rules and tier templates are independent templates used by price lists', () => {
+  assert.deepEqual(buildPricingRulePayload({
     id: 5,
-    product_id: 7,
-    customer_product_alias_id: 0,
-    final_unit_price: '88.50',
-    price_unit: ' kg ',
-    currency: '',
-    price_group_name: ' 常规批发 ',
-    inventory_unit: 'kg',
-    inventory_conversion_json: { kg: { kg: 1 } },
-    status: 'published',
-    remark: ' 最终价 ',
-    margin_rate: 0.3,
-    cost_plus_rate: 0.2,
+    name: ' 成本加成含税 ',
+    code: ' PR-COST ',
+    cost_source_mode: 'product_cost_context',
+    margin_rate: '0.32',
+    tax_rate: '0.06',
+    rounding_mode: 'yuan',
+    product_id: 88,
+    customer_product_alias_id: 99,
+    final_unit_price: 88,
+    tiers: [{ label: '10kg+' }],
+    active: false,
+    remark: ' 用 BOM 和工艺成本试算 ',
   }), {
     id: 5,
-    product_id: 7,
-    customer_product_alias_id: 0,
-    final_unit_price: 88.5,
-    price_unit: 'kg',
-    currency: 'CNY',
-    price_group_id: 0,
-    price_group_name: '常规批发',
-    inventory_unit: 'kg',
-    inventory_conversion_json: { kg: { kg: 1 } },
-    status: 'published',
-    remark: '最终价',
+    name: '成本加成含税',
+    code: 'PR-COST',
+    cost_source_mode: 'product_cost_context',
+    margin_rate: 0.32,
+    tax_rate: 0.06,
+    rounding_mode: 'yuan',
+    active: false,
+    remark: '用 BOM 和工艺成本试算',
   })
 
-  assert.deepEqual(buildProductTierPriceSchemePayload({
+  assert.deepEqual(buildPriceTierTemplatePayload({
+    id: 7,
     name: ' 批发阶梯 ',
-    product_id: 7,
-    price_group_id: 3,
+    product_id: 88,
+    final_unit_price: 88,
+    cost_formula: 'cost_plus',
     tiers: [
-      { label: '10kg+', min_qty: '10', max_qty: '', source_price_record_id: 11, final_unit_price: 999, price_unit: '箱', currency: 'USD', position: 2, margin_rate: 0.3 },
-      { label: '1kg+', min_qty: '1', max_qty: '9', source_price_record_id: 10, position: 1 },
+      { label: '10kg+', min_qty: '10', max_qty: '', quantity_unit: ' kg ', position: 2, final_unit_price: 66 },
+      { label: '1kg+', min_qty: '1', max_qty: '9', quantity_unit: 'kg', position: 1 },
     ],
   }), {
-    id: 0,
+    id: 7,
     name: '批发阶梯',
-    product_id: 7,
-    customer_product_alias_id: 0,
-    price_group_id: 3,
     active: true,
     remark: '',
     tiers: [
-      { label: '1kg+', min_qty: 1, max_qty: 9, source_price_record_id: 10, position: 1 },
-      { label: '10kg+', min_qty: 10, max_qty: null, source_price_record_id: 11, position: 2 },
+      { label: '1kg+', min_qty: 1, max_qty: 9, quantity_unit: 'kg', position: 1, active: true, remark: '' },
+      { label: '10kg+', min_qty: 10, max_qty: null, quantity_unit: 'kg', position: 2, active: true, remark: '' },
     ],
   })
-
-  assert.equal(productPriceRecordLabel({ final_unit_price: 88, price_unit: 'kg', currency: 'CNY', price_group_name: '常规批发' }), '常规批发 · CNY 88/kg')
 })
 
-test('product settings exposes product price management pane without margin or cost-plus calculation fields', () => {
+test('price table resolves tier and pricing rule templates by product, subgroup, parent group, default', () => {
+  const resolved = resolvePriceTableTemplateInheritance({
+    defaults: { tier_template_id: 1, pricing_rule_id: 10 },
+    groupAssignments: [
+      { group_item_id: 100, tier_template_id: 2, pricing_rule_id: 20, parent_group_item_id: 0 },
+      { group_item_id: 101, tier_template_id: 3, pricing_rule_id: 0, parent_group_item_id: 100 },
+    ],
+    productOverrides: [
+      { product_id: 88, group_item_id: 101, tier_template_id: 0, pricing_rule_id: 40 },
+    ],
+    product: { id: 88, group_item_id: 101 },
+  })
+
+  assert.deepEqual(resolved, {
+    tier_template_id: 3,
+    tier_template_source: 'subgroup',
+    pricing_rule_id: 40,
+    pricing_rule_source: 'product',
+  })
+
+  assert.deepEqual(buildPriceTableRowsFromTemplateResolution({
+    product: { id: 88, name: '初晓拼配', inventory_unit: 'kg' },
+    tierTemplate: {
+      id: 3,
+      name: '批发阶梯',
+      tiers: [
+        { label: '1kg+', min_qty: 1, max_qty: 9, quantity_unit: 'kg' },
+        { label: '10kg+', min_qty: 10, max_qty: null, quantity_unit: 'kg' },
+      ],
+    },
+    pricingRule: { id: 40, name: '成本加成' },
+    unitPriceByTier: { '1kg+': 88, '10kg+': 78 },
+  }), [
+    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', tier_label: '1kg+', min_qty: 1, max_qty: 9, final_unit_price: 88, tier_template_id: 3, pricing_rule_id: 40 },
+    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', tier_label: '10kg+', min_qty: 10, max_qty: null, final_unit_price: 78, tier_template_id: 3, pricing_rule_id: 40 },
+  ])
+})
+
+test('product settings exposes pricing rule pane instead of final price records', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const pane = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<div v-if="classificationTemplateCreateDrawerOpen"/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
-  for (const want of ['product-price-management-pane', '商品价格管理', '商品价格记录', '最终单价', '价格单位', '价格分组', '阶梯价格方案', '引用价格记录']) {
+  for (const want of ['product-price-management-pane', '商品价格管理', '价格计算模板', 'Pricing Rule', '成本来源', '利润率', '税率', '取整规则']) {
     assert.match(pane, new RegExp(want))
   }
-  for (const want of ['productPriceRecords', 'productPriceGroups', 'productTierPriceSchemes', 'buildProductPriceRecordPayload', 'buildProductTierPriceSchemePayload']) {
+  for (const want of ['pricingRules', 'priceTierTemplates', 'buildPricingRulePayload', 'buildPriceTierTemplatePayload']) {
     assert.match(script, new RegExp(want))
   }
-  for (const forbidden of ['利润率', '成本加成', 'margin_rate', 'cost_plus']) {
+  for (const forbidden of ['商品价格记录', '最终单价', '引用价格记录', 'source_price_record_id']) {
     assert.equal(pane.includes(forbidden), false, `product price management pane should not expose ${forbidden}`)
   }
 })
@@ -1978,7 +2041,7 @@ test('SKU settings keeps only the product creation drawer while classification t
   assert.match(template, /class="sku-filters product-filter-row"[\s\S]*@click="openProductDrawer"[\s\S]*deactivateProducts/)
   assert.doesNotMatch(template, /@click="openSkuCopyDrawer"/)
   assert.doesNotMatch(template, />分类设置</)
-  assert.match(template, /data-section-mode="productCategoryManagement"/)
+  assert.match(template, /data-section-mode="groupManagement"/)
   assert.doesNotMatch(productArchiveWorkspace, /v-for="primary in visibleCategoryManagementTreeForSkuContext"/)
   assert.doesNotMatch(productArchiveWorkspace, /class="category-panel category-drawer-panel category-management-panel"/)
   assert.doesNotMatch(template, /<aside class="settings-drawer sku-copy-drawer"/)
@@ -2289,8 +2352,9 @@ test('SKU settings separates global unit templates into a peer configuration tab
   assert.doesNotMatch(template, /<strong>单位字典<\/strong>/)
   assert.doesNotMatch(source, /saveProductUnitDefinition/)
 
-  assert.match(menuSource, /key: 'productCategoryManagement', label: '商品分类管理'/)
+  assert.match(menuSource, /key: 'groupManagement', label: '分组管理'/)
   assert.match(menuSource, /key: 'productPriceManagement', label: '商品价格管理'/)
+  assert.doesNotMatch(menuSource, /key: 'productCategoryManagement', label: '商品分类管理'/)
   assert.doesNotMatch(menuSource, /label: '商品配置和分类模板'/)
   assert.doesNotMatch(menuSource, /label: '阶梯价模板'/)
   assert.doesNotMatch(menuSource, /label: '单位模板'/)
@@ -2555,14 +2619,15 @@ test('product menus expose direct category, price management and renamed product
   const configWorkspace = source.match(/<div v-show="currentSettingsSection === 'templates'"[\s\S]*?<div v-if="classificationTemplateCreateDrawerOpen"/)?.[0] || ''
 
   for (const expected of [
-    "key: 'productCategoryManagement'",
-    "label: '商品分类管理'",
+    "key: 'groupManagement'",
+    "label: '分组管理'",
     "key: 'productPriceManagement'",
     "label: '商品价格管理'",
     "label: '商品价格表'",
   ]) {
     assert.match(menuSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  assert.doesNotMatch(menuSource, /key: 'productCategoryManagement', label: '商品分类管理'/)
   assert.doesNotMatch(menuSource, /label: '商品配置和分类模板'/)
   assert.doesNotMatch(menuSource, /label: '阶梯价模板'/)
   assert.doesNotMatch(menuSource, /label: '单位模板'/)

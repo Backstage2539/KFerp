@@ -39,11 +39,12 @@ test('expanded menu groups persist and keep current group open', () => {
   assert.deepEqual(restored, ['sales', 'inventory'])
 })
 
-test('product menu exposes master data, direct category management and price pages without legacy templates', () => {
+test('product menu exposes product archive, group management and price pages without legacy templates', () => {
   const keys = primaryMenuKeys(menuGroups)
   assert.ok(keys.includes('productMaster'))
-  assert.ok(keys.includes('customerProductAliases'))
-  assert.ok(keys.includes('productCategoryManagement'))
+  assert.equal(keys.includes('customerProductAliases'), false)
+  assert.ok(keys.includes('groupManagement'))
+  assert.equal(keys.includes('productCategoryManagement'), false)
   assert.ok(keys.includes('productPriceManagement'))
   assert.equal(keys.includes('productConfigTemplates'), false)
   assert.equal(keys.includes('pricingGradientTemplates'), false)
@@ -52,15 +53,16 @@ test('product menu exposes master data, direct category management and price pag
   assert.ok(keys.includes('costing'))
   assert.equal(keys.includes('products'), false)
   assert.equal(groupForView(menuGroups, 'productMaster')?.id, 'product')
-  assert.equal(groupForView(menuGroups, 'customerProductAliases')?.id, 'product')
-  assert.equal(groupForView(menuGroups, 'productCategoryManagement')?.id, 'product')
+  assert.equal(groupForView(menuGroups, 'customerProductAliases'), null)
+  assert.equal(groupForView(menuGroups, 'groupManagement')?.id, 'product')
+  assert.equal(groupForView(menuGroups, 'productCategoryManagement'), null)
   assert.equal(groupForView(menuGroups, 'productPriceManagement')?.id, 'product')
   assert.equal(groupForView(menuGroups, 'productConfigTemplates'), null)
   assert.equal(groupForView(menuGroups, 'pricingGradientTemplates'), null)
   assert.equal(groupForView(menuGroups, 'productUnitTemplates'), null)
   assert.equal(groupForView(menuGroups, 'bom')?.id, 'production')
   assert.equal(groupForView(menuGroups, 'costing')?.id, 'product')
-  assert.equal(menuGroups.find((group) => group.id === 'product')?.items.map((item) => item.label).join(' / '), '商品档案 / 客户商品 / 商品分类管理 / 商品价格管理 / 商品价格表 / 成本核价手册 / 生豆销售手册')
+  assert.equal(menuGroups.find((group) => group.id === 'product')?.items.map((item) => item.label).join(' / '), '商品档案 / 分组管理 / 商品价格管理 / 商品价格表 / 成本核价手册 / 生豆销售手册')
 })
 
 test('production menu exposes the production flow manual as a primary page', () => {
@@ -172,8 +174,7 @@ test('remaining ERP click-matrix targets reference real Vue shell views', () => 
     'purchase',
     'materials',
     'productMaster',
-    'customerProductAliases',
-    'productCategoryManagement',
+    'groupManagement',
     'productPriceManagement',
     'costing',
     'bom',

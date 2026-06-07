@@ -49,6 +49,35 @@
       <textarea v-model.trim="salesOrderNote" rows="2" :disabled="isCombinedSalesOrder" :placeholder="isCombinedSalesOrder ? '组合销售单读取各订单已保存的销售单备注' : '只显示在销售单最后一行，不影响订单列表内部备注'"></textarea>
     </section>
 
+    <section v-if="!isCombinedSalesOrder" class="panel sales-trace-panel">
+      <div class="panel-head">
+        <h3>销售单追溯</h3>
+        <button class="secondary" type="button" @click="loadSalesOrderTrace" :disabled="salesOrderTraceLoading || !orderID">{{ salesOrderTraceLoading ? '加载中' : '刷新追溯' }}</button>
+      </div>
+      <div class="sales-trace-grid">
+        <section class="sales-trace-block">
+          <h4>报价来源</h4>
+          <div v-if="salesOrderTrace.quote_source_trace?.length" class="sales-trace-list">
+            <article v-for="row in salesOrderTrace.quote_source_trace" :key="`quote-${row.product_id}-${row.price_list_publication_id}-${row.tier_label}`" class="sales-trace-row">
+              <strong>{{ salesOrderTraceLineLabel(row) }}</strong>
+              <span v-for="line in salesOrderTraceLines(row, 'quote')" :key="line">{{ line }}</span>
+            </article>
+          </div>
+          <p v-else class="muted sales-trace-empty">暂无报价来源</p>
+        </section>
+        <section class="sales-trace-block">
+          <h4>生产来源</h4>
+          <div v-if="salesOrderTrace.production_source_trace?.length" class="sales-trace-list">
+            <article v-for="row in salesOrderTrace.production_source_trace" :key="`production-${row.product_id}-${row.bom_version_no}-${row.work_order_no}`" class="sales-trace-row">
+              <strong>{{ salesOrderTraceLineLabel(row) }}</strong>
+              <span v-for="line in salesOrderTraceLines(row, 'production')" :key="line">{{ line }}</span>
+            </article>
+          </div>
+          <p v-else class="muted sales-trace-empty">暂无生产来源</p>
+        </section>
+      </div>
+    </section>
+
     <section class="panel preview-panel">
       <div class="panel-head">
         <h3>销售单预览 <span v-if="preview" class="version-tag">V{{ preview.next_version_no }}</span></h3>
@@ -229,6 +258,8 @@ const customerSummary = reactive(emptyCustomer())
 const customerForm = reactive(emptyCustomer())
 const employees = ref([])
 const salesOrderNote = ref('')
+const salesOrderTraceLoading = ref(false)
+const salesOrderTrace = ref({ quote_source_trace: [], production_source_trace: [] })
 
 const orderID = computed(() => Number(props.orderId || new URL(window.location.href).searchParams.get('order_id') || 0))
 const combinedOrderIDs = computed(() => uniquePositiveIDs(props.orderIds))
@@ -327,7 +358,30 @@ async function load() {
 
 async function loadPage() {
   await load()
+  await loadSalesOrderTrace()
   await loadPreview()
+}
+
+async function loadSalesOrderTrace() {
+  if (!orderID.value || isCombinedSalesOrder.value) {
+    salesOrderTrace.value = { quote_source_trace: [], production_source_trace: [] }
+    return
+  }
+  salesOrderTraceLoading.value = true
+  error.value = ''
+  try {
+    const data = await apiGet(`/api/orders/${orderID.value}/detail`)
+    const editData = data?.edit_data || {}
+    salesOrderTrace.value = {
+      quote_source_trace: editData.quote_source_trace || [],
+      production_source_trace: editData.production_source_trace || [],
+    }
+  } catch (err) {
+    salesOrderTrace.value = { quote_source_trace: [], production_source_trace: [] }
+    error.value = err.message || '加载销售单追溯失败'
+  } finally {
+    salesOrderTraceLoading.value = false
+  }
 }
 
 async function loadPreview() {
@@ -477,6 +531,32 @@ function combinedSalesOrderNotes(groups = []) {
     })
     .filter(Boolean)
     .join('\n')
+}
+
+function salesOrderTraceLineLabel(row = {}) {
+  const name = row.product_name || row.productName || '-'
+  const tier = row.tier_label || row.tierLabel || ''
+  return tier ? `${name} / ${tier}` : name
+}
+
+function salesOrderTraceLines(row = {}, type = 'quote') {
+  if (type === 'production') {
+    return [
+      row.bom_version_no ? `BOM：${row.bom_version_no}` : '',
+      row.process_route_name ? `工艺：${row.process_route_name}` : '',
+      row.process_card_no ? `工序卡：${row.process_card_no}` : '',
+      row.work_order_no ? `工单：${row.work_order_no}` : '',
+      row.source_label ? `来源：${row.source_label}` : '',
+    ].filter(Boolean)
+  }
+  return [
+    row.price_list_version ? `价格表：${row.price_list_version}` : '',
+    row.price_unit ? `单位：${row.price_unit}` : '',
+    row.final_unit_price ? `最终价：${row.final_unit_price}` : '',
+    row.pricing_rule_version ? `Pricing Rule：${row.pricing_rule_version}` : '',
+    row.manual_adjusted ? '人工调整' : '',
+    row.source_label ? `来源：${row.source_label}` : '',
+  ].filter(Boolean)
 }
 
 function assignCustomer(target, data = {}) {
@@ -744,6 +824,14 @@ onMounted(loadPage)
 .panel-head, .actions, .summary { display: flex; align-items: center; gap: 12px; }
 .panel-head { justify-content: space-between; margin-bottom: 12px; }
 .sales-order-note-panel textarea { width: 100%; min-height: 76px; resize: vertical; border: 1px solid #d6cec3; border-radius: 6px; padding: 10px 12px; font: inherit; line-height: 1.6; background: #fff; }
+.sales-trace-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.sales-trace-block { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; background: #fbfaf8; }
+.sales-trace-block h4 { margin: 0 0 10px; font-size: 14px; }
+.sales-trace-list { display: grid; gap: 8px; }
+.sales-trace-row { display: grid; gap: 4px; border-bottom: 1px solid #ece5dc; padding-bottom: 8px; color: #4b5563; font-size: 13px; line-height: 1.45; }
+.sales-trace-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.sales-trace-row strong { color: #171717; font-size: 14px; }
+.sales-trace-empty { padding: 10px 0; }
 .actions { flex-wrap: wrap; justify-content: flex-end; }
 .preview-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: -4px 0 12px; }
 .layout-drag-hint { color: #4b5563; font-size: 13px; line-height: 1.5; }
@@ -814,6 +902,7 @@ th { background: #fbfaf8; }
   .actions { justify-content: flex-start; }
   .preview-tools { justify-content: flex-start; }
   .seal-size-slider { grid-template-columns: 1fr; }
+  .sales-trace-grid { grid-template-columns: 1fr; }
   table { min-width: 760px; }
   .panel { overflow: auto; }
   .preview-meta { grid-template-columns: 1fr; }

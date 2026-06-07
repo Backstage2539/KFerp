@@ -16,6 +16,10 @@
           <span>商品数</span>
           <strong>{{ customerScopedSkuCount }}</strong>
         </div>
+        <div>
+          <span>模型</span>
+          <strong>Price List / Item Price</strong>
+        </div>
       </div>
       <div class="bean-list-global-scope">
         <div>
@@ -24,7 +28,7 @@
         </div>
         <label v-if="!isWorkspaceCustomerLocked" class="scope-select">
           <select v-model="versionListScope" aria-label="价格表归属">
-            <option value="official">公共豆单</option>
+            <option value="official">公共价格表</option>
             <option v-for="customer in customers" :key="`version-scope-${customer.id}`" :value="`customer:${customer.id}`">
               {{ customerOptionLabel(customer) }}
             </option>
@@ -62,8 +66,8 @@
         <label>
           <span>用途</span>
           <select v-model="publicationPurposeFilter">
-            <option value="factory_supply">工厂供货豆单</option>
-            <option value="customer_resale">客户转售豆单</option>
+            <option value="factory_supply">工厂供货价格表</option>
+            <option value="customer_resale">客户转售价格表</option>
           </select>
         </label>
         <div class="version-summary">
@@ -142,9 +146,43 @@
       <div class="bean-list-generate-bar">
         <div>
           <div class="section-title">生成价格表</div>
-          <p class="muted">按当前价格表归属、商品当前归类和客户商品生成商品价格表；未归类统一进入未分类商品。</p>
+          <p class="muted">商品价格表是 Price List / Item Price 平铺价格行。生成时选择分组并勾选分组项选品；默认、父组、子组和商品行都可以设置阶梯价模板和价格计算模板。</p>
         </div>
         <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">生成价格表</button>
+      </div>
+      <div class="price-list-model-panel" data-pr440-price-list-model>
+        <div>
+          <strong>模板继承规则</strong>
+          <p>阶梯价模板和价格计算模板分别按 <b>商品 &gt; 子组 &gt; 父组 &gt; 默认</b> 解析。系统按解析出的阶梯价模板展开商品 + 档位，形成平铺价格行。</p>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>层级</th>
+              <th>用途</th>
+              <th>发布快照</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>默认</td>
+              <td>价格表默认阶梯价模板、默认价格计算模板</td>
+              <td rowspan="4">固化最终价、价格单位、库存换算、分组快照、模板来源和 Pricing Rule 版本</td>
+            </tr>
+            <tr>
+              <td>父组 / 子组</td>
+              <td>按分组项覆盖模板，用于批量选品和分组展示</td>
+            </tr>
+            <tr>
+              <td>商品行</td>
+              <td>单品覆盖阶梯价模板、价格计算模板或最终价</td>
+            </tr>
+            <tr>
+              <td>录单</td>
+              <td>订单单位和价格只读取已发布价格表快照</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -159,7 +197,7 @@
         </button>
       </div>
       <div v-show="!section.collapsed && section.listType === 'green'" class="green-price-save-bar">
-        <p class="muted">梯度按 KG，单价按元/KG；这里修改的是草稿价，生成并发布新版豆单后，录单才会使用新价格。</p>
+        <p class="muted">梯度按 KG，单价按元/KG；这里修改的是草稿价，生成并发布新版价格表后，录单才会使用新价格。</p>
         <button class="secondary compact" type="button" :disabled="beanListPublishing || !section.groups.length || !customerScopeReady" @click="saveGreenBeanPriceDraftForSection(section)">
           {{ beanListPublishing ? '保存中' : '保存生豆价格' }}
         </button>
@@ -234,7 +272,7 @@
         <div class="drawer-head">
           <div>
             <h3>快速成本参数设置</h3>
-            <p>保存单个参数后，豆单数据会自动刷新。</p>
+            <p>保存单个参数后，价格表数据会自动刷新。</p>
           </div>
           <button class="secondary" type="button" @click="settingsOpen = false">关闭</button>
         </div>
@@ -297,7 +335,7 @@
         <div class="drawer-head">
           <div>
             <h3>生成价格表</h3>
-            <p>按手机查看宽度预览，发布后保留版本记录，也可在浏览器打印窗口保存为 PDF。</p>
+            <p>按 Price List 平铺价格行预览；发布后保留版本记录，也可在浏览器打印窗口保存为 PDF。</p>
             <p v-if="currentBeanListPublication" class="publish-state">当前已发布：{{ currentBeanListPublication.version }} · {{ currentBeanListPublication.published_at }}</p>
             <p v-else class="publish-state">当前暂无已发布版本</p>
             <div v-if="publicBeanListURL" class="public-link-box">
@@ -315,14 +353,14 @@
             <p>{{ currentPublicationScopeDescription }}</p>
           </div>
           <div class="current-owner-pill">{{ currentPublicationOwnerLabel }}</div>
-          <p v-if="actorLoaded && !isBeanListAdmin" class="muted">客户账号只能保存修改和下载豆单，发布由管理员执行。</p>
+          <p v-if="actorLoaded && !isBeanListAdmin" class="muted">客户账号只能保存修改和下载价格表，发布由管理员执行。</p>
         </div>
 
         <div class="copy-config-box bean-list-publish-reminder">
           <div>
             <strong>发布提醒</strong>
             <p v-if="pdfTheme.listType === 'green'">梯度按 KG，单价按元/KG；生成并发布新版价格表后，录单才会使用新价格。</p>
-            <p v-else>生成并发布新版豆单后，录单和客户侧才会使用新价格。</p>
+            <p v-else>生成并发布新版价格表后，录单和客户侧才会使用新价格。</p>
           </div>
         </div>
 
@@ -333,7 +371,7 @@
           </div>
           <div class="copy-config-actions">
             <select v-model="selectedPriceSourcePublicationID">
-              <option value="">选择官方豆单价格</option>
+              <option value="">选择官方价格表价格</option>
               <option v-for="row in officialPriceSourcePublications" :key="`price-source-${row.id}`" :value="String(row.id)">
                 {{ beanListPublicationLabel(row) }}
               </option>
@@ -412,6 +450,77 @@
           </div>
         </div>
 
+        <div class="pdf-picker price-list-template-builder" data-pr440-price-list-model>
+          <div class="picker-head">
+            <strong>Price List / Item Price 生成规则</strong>
+            <span class="muted">商品 &gt; 子组 &gt; 父组 &gt; 默认</span>
+          </div>
+          <div class="template-default-grid">
+            <label>
+              <span>默认阶梯价模板</span>
+              <select :value="priceListTemplateDefaults.tier_template_id" @change="setPriceListDefaultTemplate('tier_template_id', $event.target.value)">
+                <option :value="0">请选择</option>
+                <option v-for="template in priceTierTemplates" :key="`default-tier-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
+              </select>
+            </label>
+            <label>
+              <span>默认价格计算模板</span>
+              <select :value="priceListTemplateDefaults.pricing_rule_id" @change="setPriceListDefaultTemplate('pricing_rule_id', $event.target.value)">
+                <option :value="0">请选择</option>
+                <option v-for="rule in pricingRules" :key="`default-rule-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
+              </select>
+            </label>
+          </div>
+          <div class="template-table" v-if="priceListGroupTemplateRows.length">
+            <div class="template-table-head">
+              <span>分组项选品</span>
+              <span>父组阶梯/计算模板</span>
+              <span>子组阶梯/计算模板</span>
+            </div>
+            <div v-for="group in priceListGroupTemplateRows" :key="`template-group-${group.key}`" class="template-table-row">
+              <strong>{{ group.label }}</strong>
+              <div class="template-select-pair">
+                <select :value="priceListParentTemplateSelection(group).tier_template_id" @change="setPriceListParentTemplate(group, 'tier_template_id', $event.target.value)">
+                  <option :value="0">继承默认阶梯</option>
+                  <option v-for="template in priceTierTemplates" :key="`parent-tier-${group.key}-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
+                </select>
+                <select :value="priceListParentTemplateSelection(group).pricing_rule_id" @change="setPriceListParentTemplate(group, 'pricing_rule_id', $event.target.value)">
+                  <option :value="0">继承默认计算</option>
+                  <option v-for="rule in pricingRules" :key="`parent-rule-${group.key}-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
+                </select>
+              </div>
+              <div class="template-select-pair">
+                <select :value="priceListGroupTemplateSelection(group).tier_template_id" @change="setPriceListGroupTemplate(group, 'tier_template_id', $event.target.value)">
+                  <option :value="0">继承父组阶梯</option>
+                  <option v-for="template in priceTierTemplates" :key="`group-tier-${group.key}-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
+                </select>
+                <select :value="priceListGroupTemplateSelection(group).pricing_rule_id" @change="setPriceListGroupTemplate(group, 'pricing_rule_id', $event.target.value)">
+                  <option :value="0">继承父组计算</option>
+                  <option v-for="rule in pricingRules" :key="`group-rule-${group.key}-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="template-table" v-if="priceListProductOverrideRows.length">
+            <div class="template-table-head product-override-head">
+              <span>商品行可覆盖模板</span>
+              <span>阶梯价模板</span>
+              <span>价格计算模板</span>
+            </div>
+            <div v-for="row in priceListProductOverrideRows" :key="`template-product-${row.product_id}`" class="template-table-row product-override-row">
+              <strong>{{ row.product_name }}</strong>
+              <select :value="priceListProductTemplateOverride(row).tier_template_id" @change="setPriceListProductTemplate(row, 'tier_template_id', $event.target.value)">
+                <option :value="0">继承分组阶梯</option>
+                <option v-for="template in priceTierTemplates" :key="`product-tier-${row.product_id}-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
+              </select>
+              <select :value="priceListProductTemplateOverride(row).pricing_rule_id" @change="setPriceListProductTemplate(row, 'pricing_rule_id', $event.target.value)">
+                <option :value="0">继承分组计算</option>
+                <option v-for="rule in pricingRules" :key="`product-rule-${row.product_id}-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         <div class="pdf-picker productSelection">
           <div class="picker-head">
             <strong>选择分类和产品</strong>
@@ -456,12 +565,47 @@
           </div>
         </div>
 
+        <div class="pdf-picker flat-price-row-editor">
+          <div class="picker-head">
+            <strong>平铺价格行</strong>
+            <span class="muted">{{ priceListFlatRows.length }} 行，发布快照固化分组、模板来源、Pricing Rule 版本、成本来源和客户引用</span>
+          </div>
+          <div class="flat-price-table" v-if="priceListFlatRows.length">
+            <div class="flat-price-head">
+              <span>商品 / 档位</span>
+              <span>模板来源</span>
+              <span>最终价</span>
+              <span>快照</span>
+            </div>
+            <div v-for="row in priceListFlatRows" :key="row.row_key" class="flat-price-row">
+              <div>
+                <strong>{{ row.product_name }}</strong>
+                <span>{{ row.group_snapshot.group_item_name || '-' }} · {{ row.tier_label || '-' }}</span>
+              </div>
+              <div>
+                <span>阶梯：{{ priceListSourceLabel(row.tier_template_source) }}</span>
+                <span>计算：{{ priceListSourceLabel(row.pricing_rule_source) }}</span>
+              </div>
+              <label>
+                <input type="number" min="0" step="0.01" :value="row.final_unit_price" @input="setPriceListFlatRowPrice(row, $event.target.value)" />
+                <small>/{{ row.price_unit || '-' }}</small>
+              </label>
+              <div>
+                <span>{{ row.pricing_rule_version || '未选择 Pricing Rule' }}</span>
+                <span :class="{ adjusted: row.manual_adjusted }">{{ row.manual_adjusted ? '人工调整' : '自动计算' }}</span>
+              </div>
+            </div>
+          </div>
+          <p v-else class="muted">暂无平铺价格行</p>
+          <p v-if="priceListFlatRows.length && !priceListFlatRowsReady" class="muted">发布前需要为价格表选择阶梯价模板和价格计算模板，并保证价格单位到库存单位换算可追溯。</p>
+        </div>
+
         <div class="pdf-preview-title">
           <strong>预览</strong>
           <span>{{ pdfTotalItems }} 款</span>
           <div class="pdf-actions">
             <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList()">撤回发布</button>
-            <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="publishBeanList">发布价格表</button>
+            <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady || !priceListFlatRowsReady" @click="publishBeanList">发布价格表</button>
             <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
             <button class="secondary" type="button" :disabled="beanListPdfGenerating || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
           </div>
@@ -698,6 +842,7 @@ import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
   applyCustomerProductAliasesToBeanListItems,
   beanListPublicationPdfOptions,
+  buildPriceListGenerationSnapshot,
   buildBeanListPdfGroups,
   buildBeanListPdfSubtitle,
   buildBeanListPdfTitle,
@@ -728,6 +873,9 @@ import {
   productTypeCategoryIDOfItem as currentProductTypeCategoryIDOfItem,
   productTypeNameOfItem as currentProductTypeNameOfItem,
 } from '../lib/product-price-list-types'
+import {
+  resolvePriceTableTemplateInheritance,
+} from '../lib/product-settings'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
@@ -808,6 +956,13 @@ const pdfOptions = ref({
   showChangelog: true,
   changelog: '',
 })
+const priceTierTemplates = ref([])
+const pricingRules = ref([])
+const priceListTemplateDefaults = ref({ tier_template_id: 0, pricing_rule_id: 0 })
+const priceListParentTemplateSelections = ref({})
+const priceListGroupTemplateSelections = ref({})
+const priceListProductTemplateOverrides = ref({})
+const priceListFlatRowOverrides = ref({})
 
 const normalizedCustomerContextID = computed(() => Number(props.customerContextId || 0))
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && normalizedCustomerContextID.value > 0)
@@ -881,6 +1036,19 @@ const pdfGroups = computed(() => {
   }
   return buildBeanListPdfGroups(pdfAvailableItems.value, pdfTheme.value.listType, pdfGenerationOptions.value)
 })
+const priceListGroupTemplateRows = computed(() => priceListTemplateGroupRows(categoryProductGroups.value))
+const priceListProductOverrideRows = computed(() => priceListTemplateProductRows(pdfAvailableItems.value))
+const priceListFlatRows = computed(() => priceListFlatRowsFromGroups(pdfGroups.value))
+const priceListFlatRowsReady = computed(() => priceListFlatRows.value.every((row) => {
+  return Number(row.tier_template_id || 0) > 0 &&
+    Number(row.pricing_rule_id || 0) > 0 &&
+    row.pricing_rule_version &&
+    row.price_unit &&
+    row.inventory_unit &&
+    Object.keys(row.inventory_conversion_json || {}).length > 0 &&
+    Object.keys(row.group_snapshot || {}).length > 0 &&
+    Object.keys(row.cost_source_snapshot || {}).length > 0
+}))
 const pdfTotalItems = computed(() => pdfGroups.value.reduce((sum, group) => sum + group.items.length, 0))
 const pdfTitle = computed(() => buildProductPriceListTitle(pdfTheme.value.brandName, selectedProductPriceListLabel.value, pdfTheme.value.listType))
 const pdfSubtitle = computed(() => buildProductPriceListSubtitle(selectedProductPriceListLabel.value, pdfTheme.value.listType))
@@ -911,8 +1079,8 @@ const selectedPriceSourcePublication = computed(() => officialPriceSourcePublica
 const currentPublicationOwnerLabel = computed(() => publicationScopeLabel(publicationScope.value))
 const currentPublicationScopeDescription = computed(() => {
   if (publicationScope.value === 'customer') return '生成和发布会保存到当前价格表归属对应的履约客户。'
-  if (publicationScope.value === 'mine') return '当前客户账号保存自己的豆单修改。'
-  return '生成和发布会保存到公共豆单。'
+  if (publicationScope.value === 'mine') return '当前客户账号保存自己的价格表修改。'
+  return '生成和发布会保存到公共价格表。'
 })
 const publicBeanListURL = computed(() => {
   if (publicationScope.value !== 'official' || !currentBeanListPublication.value) return ''
@@ -1244,6 +1412,321 @@ function tierKeyForListType(listType) {
   return listType === 'retail' ? 'retail_bean_tiers' : 'commercial_wholesale_tiers'
 }
 
+function priceListTemplateGroupRows(groups = []) {
+  return (Array.isArray(groups) ? groups : []).map((category, index) => {
+    const firstItem = Array.isArray(category.items) ? (category.items[0] || {}) : {}
+    const groupID = classificationTemplateIDOfItem(firstItem) || activeProductTypeCategoryID.value || 1
+    const parentGroupItemID = activeProductTypeCategoryID.value > 0 ? activeProductTypeCategoryID.value : groupID
+    const classificationCategoryID = classificationCategoryIDOfItem(firstItem)
+    const groupItemID = classificationCategoryID > 0 ? classificationCategoryID : syntheticGroupItemID(category.code || category.label || index)
+    return {
+      key: String(category.code || groupItemID || index),
+      label: category.label || category.category || '未分组',
+      group_id: groupID,
+      group_name: selectedProductPriceListLabel.value || '商品价格表分组',
+      group_item_id: groupItemID,
+      group_item_name: category.label || category.category || '未分组',
+      parent_group_item_id: parentGroupItemID,
+      parent_group_item_name: selectedProductPriceListLabel.value || '父组',
+      items: Array.isArray(category.items) ? category.items : [],
+    }
+  })
+}
+
+function syntheticGroupItemID(value) {
+  const text = String(value || 'group')
+  let hash = 0
+  for (let i = 0; i < text.length; i += 1) hash = ((hash * 31) + text.charCodeAt(i)) % 900000
+  return 100000 + hash
+}
+
+function priceListTemplateProductRows(sourceItems = []) {
+  return (Array.isArray(sourceItems) ? sourceItems : [])
+    .filter((item) => isPdfProductSelected(itemProductID(item)))
+    .map((item) => {
+      const group = priceListGroupForItem(item)
+      return {
+        product_id: Number(itemProductID(item) || 0),
+        product_key: itemProductID(item),
+        product_name: beanName(item, metaKeyForItem(item)) || item?.name || '',
+        group_item_id: group.group_item_id,
+        parent_group_item_id: group.parent_group_item_id,
+      }
+    })
+}
+
+function priceListGroupForItem(item = {}) {
+  const code = categoryCodeOfItem(item, pdfTheme.value.listType)
+  return priceListGroupTemplateRows.value.find((row) => row.key === String(code)) || priceListGroupTemplateRows.value[0] || {
+    key: 'default',
+    group_id: activeProductTypeCategoryID.value || 1,
+    group_name: selectedProductPriceListLabel.value || '商品价格表分组',
+    group_item_id: 1,
+    group_item_name: '未分组',
+    parent_group_item_id: activeProductTypeCategoryID.value || 1,
+    parent_group_item_name: selectedProductPriceListLabel.value || '父组',
+  }
+}
+
+function priceListParentTemplateSelection(group = {}) {
+  return priceListParentTemplateSelections.value[String(group.parent_group_item_id || group.key || '')] || { tier_template_id: 0, pricing_rule_id: 0 }
+}
+
+function priceListGroupTemplateSelection(group = {}) {
+  return priceListGroupTemplateSelections.value[String(group.key || group.group_item_id || '')] || { tier_template_id: 0, pricing_rule_id: 0 }
+}
+
+function priceListProductTemplateOverride(row = {}) {
+  return priceListProductTemplateOverrides.value[String(row.product_id || row.product_key || '')] || { tier_template_id: 0, pricing_rule_id: 0 }
+}
+
+function setPriceListDefaultTemplate(field, value) {
+  priceListTemplateDefaults.value = {
+    ...priceListTemplateDefaults.value,
+    [field]: Number(value || 0),
+  }
+}
+
+function setPriceListParentTemplate(group = {}, field, value) {
+  const key = String(group.parent_group_item_id || group.key || '')
+  priceListParentTemplateSelections.value = {
+    ...priceListParentTemplateSelections.value,
+    [key]: {
+      ...priceListParentTemplateSelection(group),
+      [field]: Number(value || 0),
+    },
+  }
+}
+
+function setPriceListGroupTemplate(group = {}, field, value) {
+  const key = String(group.key || group.group_item_id || '')
+  priceListGroupTemplateSelections.value = {
+    ...priceListGroupTemplateSelections.value,
+    [key]: {
+      ...priceListGroupTemplateSelection(group),
+      [field]: Number(value || 0),
+    },
+  }
+}
+
+function setPriceListProductTemplate(row = {}, field, value) {
+  const key = String(row.product_id || row.product_key || '')
+  priceListProductTemplateOverrides.value = {
+    ...priceListProductTemplateOverrides.value,
+    [key]: {
+      ...priceListProductTemplateOverride(row),
+      product_id: Number(row.product_id || 0),
+      product_key: String(row.product_key || ''),
+      product_name: row.product_name || '',
+      [field]: Number(value || 0),
+    },
+  }
+}
+
+function priceListTemplateAssignments() {
+  const rows = []
+  const seenParents = new Set()
+  priceListGroupTemplateRows.value.forEach((group) => {
+    const parentKey = String(group.parent_group_item_id || '')
+    const parentSelection = priceListParentTemplateSelection(group)
+    if (parentKey && !seenParents.has(parentKey) && (parentSelection.tier_template_id > 0 || parentSelection.pricing_rule_id > 0)) {
+      seenParents.add(parentKey)
+      rows.push({
+        group_id: group.group_id,
+        group_name: group.group_name,
+        group_item_id: group.parent_group_item_id,
+        group_item_name: group.parent_group_item_name,
+        parent_group_item_id: 0,
+        parent_group_item_name: '',
+        level: 1,
+        ...parentSelection,
+      })
+    }
+    const selection = priceListGroupTemplateSelection(group)
+    rows.push({
+      group_id: group.group_id,
+      group_name: group.group_name,
+      group_item_id: group.group_item_id,
+      group_item_name: group.group_item_name,
+      parent_group_item_id: group.parent_group_item_id,
+      parent_group_item_name: group.parent_group_item_name,
+      level: 2,
+      ...selection,
+    })
+  })
+  return rows
+}
+
+function priceListProductOverridesForSnapshot() {
+  return Object.values(priceListProductTemplateOverrides.value || {})
+    .filter((row) => Number(row?.product_id || 0) > 0 || String(row?.product_key || '').trim())
+}
+
+function priceListFlatRowsFromGroups(groups = []) {
+  const tierKey = tierKeyForListType(pdfTheme.value.listType)
+  const rows = []
+  ;(Array.isArray(groups) ? groups : []).forEach((group) => {
+    ;(Array.isArray(group?.items) ? group.items : []).forEach((item) => {
+      const productID = Number(item?.product_id || item?.productId || item?.productID || item?.productId || 0)
+      const groupRow = priceListGroupForItem(item)
+      const product = {
+        id: productID,
+        product_id: productID,
+        group_item_id: groupRow.group_item_id,
+        parent_group_item_id: groupRow.parent_group_item_id,
+      }
+      const resolved = resolvePriceTableTemplateInheritance({
+        defaults: priceListTemplateDefaults.value,
+        groupAssignments: priceListTemplateAssignments(),
+        productOverrides: priceListProductOverridesForSnapshot(),
+        product,
+      })
+      const tiers = Array.isArray(item?.[tierKey]) ? item[tierKey] : []
+      tiers.forEach((tier, tierIndex) => {
+        const originalPrice = tierFlatFinalPrice(tier)
+        const rowKey = `${productID || itemProductID(item)}:${tier.label || tierIndex}:${tierIndex}`
+        const override = Number(priceListFlatRowOverrides.value[rowKey])
+        const finalPrice = Number.isFinite(override) && override > 0 ? override : originalPrice
+        const priceUnit = flatRowPriceUnit(tier, item)
+        const inventoryUnit = String(item?.inventory_unit || item?.inventoryUnit || tier?.inventory_unit || 'kg').trim() || 'kg'
+        const pricingRule = pricingRuleByID(resolved.pricing_rule_id)
+        rows.push({
+          row_key: rowKey,
+          product_id: productID,
+          product_key: itemProductID(item),
+          product_name: item.name || item.display_name_snapshot || item.product_name_snapshot || '',
+          group_snapshot: priceListGroupSnapshot(groupRow),
+          tier_label: tier.label || '',
+          min_qty: Number(tier.min_qty ?? tier.minQty ?? 0) || 0,
+          max_qty: tier.max_qty === undefined || tier.max_qty === null || tier.max_qty === '' ? null : Number(tier.max_qty),
+          price_unit: priceUnit,
+          final_unit_price: finalPrice,
+          original_final_unit_price: originalPrice,
+          currency: tier.currency || 'CNY',
+          inventory_unit: inventoryUnit,
+          inventory_conversion_json: flatRowInventoryConversion(tier, priceUnit, inventoryUnit),
+          source_price_record_id: Number(tier.source_price_record_id || tier.sourcePriceRecordID || 0),
+          tier_template_id: resolved.tier_template_id,
+          tier_template_source: resolved.tier_template_source,
+          pricing_rule_id: resolved.pricing_rule_id,
+          pricing_rule_source: resolved.pricing_rule_source,
+          pricing_rule_version: pricingRuleVersion(pricingRule),
+          cost_source_snapshot: costSourceSnapshotForPriceRow(item, tier, pricingRule),
+          customer_reference_snapshot: customerReferenceSnapshotForPriceRow(item),
+          manual_adjusted: Number.isFinite(override) && override > 0 && Math.abs(override - originalPrice) > 0.005,
+        })
+      })
+    })
+  })
+  return rows
+}
+
+function priceListGroupSnapshot(group = {}) {
+  return {
+    group_id: Number(group.group_id || 0),
+    group_name: group.group_name || '商品价格表分组',
+    group_item_id: Number(group.group_item_id || 0),
+    group_item_name: group.group_item_name || '未分组',
+    parent_group_item_id: Number(group.parent_group_item_id || 0),
+    parent_group_item_name: group.parent_group_item_name || '',
+    classification_snapshot: selectedProductPriceListLabel.value || '',
+  }
+}
+
+function tierFlatFinalPrice(tier = {}) {
+  return firstPositiveNumber(tier.final_unit_price, tier.finalUnitPrice, tier.price_per_unit, tier.pricePerUnit, tier.price_per_kg, tier.pricePerKg, tier.price_per_lb, tier.pricePerLb, tier.packed_price_per_bag, tier.packedPricePerBag, tier.packed_price_per_box, tier.packedPricePerBox)
+}
+
+function flatRowPriceUnit(tier = {}, item = {}) {
+  const raw = String(tier.price_unit || tier.priceUnit || tier.display_unit || tier.displayUnit || item.price_unit_snapshot || '').trim()
+  if (raw === '磅') return 'lb'
+  if (raw) return raw
+  return Number(tier.spec_g || tier.specG || 0) === 1000 ? 'kg' : 'lb'
+}
+
+function flatRowInventoryConversion(tier = {}, priceUnit = '', inventoryUnit = '') {
+  const raw = tier.inventory_conversion_json ?? tier.inventoryConversionJSON
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+    } catch {
+      // fall through to known unit conversions
+    }
+  }
+  const source = String(priceUnit || '').trim()
+  const target = String(inventoryUnit || '').trim()
+  if (!source || !target) return {}
+  if (source === target) return { [source]: { [target]: 1 } }
+  if ((source === 'lb' || source === '磅') && target === 'kg') return { lb: { kg: 0.454 } }
+  if (source === 'kg' && (target === 'lb' || target === '磅')) return { kg: { lb: 2.20462 } }
+  return {}
+}
+
+function pricingRuleByID(id) {
+  return pricingRules.value.find((row) => Number(row.id || 0) === Number(id || 0)) || null
+}
+
+function pricingRuleVersion(rule = null) {
+  if (!rule) return ''
+  return String(rule.code || rule.version || rule.name || `PR-${rule.id || 0}`).trim()
+}
+
+function costSourceSnapshotForPriceRow(item = {}, tier = {}, pricingRule = null) {
+  return {
+    cost_source_mode: pricingRule?.cost_source_mode || pricingRule?.costSourceMode || 'pricing_rule',
+    bom_version_id: Number(item.bom_version_id_snapshot || item.bom_version_id || item.bomVersionID || 0),
+    bom_version_no: item.bom_version_no_snapshot || item.bom_version_no || item.bomVersionNo || '',
+    bom_usage_mode: item.bom_usage_mode_snapshot || item.bom_usage_mode || item.bomUsageMode || '',
+    process_route_name: item.process_route_name || item.processRouteName || item.operation_template_name || item.operationTemplateName || '',
+    tier_label: tier.label || '',
+  }
+}
+
+function customerReferenceSnapshotForPriceRow(item = {}) {
+  return {
+    customer_id: Number(item.customer_id || item.customerID || 0),
+    customer_display_name: item.display_name_snapshot || item.customer_product_display_name || item.customerProductDisplayName || '',
+    customer_item_code: item.customer_item_code_snapshot || item.customer_item_code || item.customerItemCode || '',
+    brand_name: item.brand_name_snapshot || item.brand_name || item.brandName || '',
+  }
+}
+
+function setPriceListFlatRowPrice(row = {}, value) {
+  const key = String(row.row_key || '')
+  if (!key) return
+  const numeric = Number(value)
+  const next = { ...priceListFlatRowOverrides.value }
+  if (Number.isFinite(numeric) && numeric > 0) next[key] = numeric
+  else delete next[key]
+  priceListFlatRowOverrides.value = next
+}
+
+function priceTierTemplateLabel(template = {}) {
+  return template.name || `阶梯价模板 ${template.id || ''}`
+}
+
+function pricingRuleLabel(rule = {}) {
+  const code = rule.code ? `${rule.code} · ` : ''
+  return `${code}${rule.name || `Pricing Rule ${rule.id || ''}`}`
+}
+
+function priceListSourceLabel(source) {
+  switch (String(source || '').trim()) {
+  case 'product':
+    return '商品'
+  case 'subgroup':
+    return '子组'
+  case 'parent_group':
+    return '父组'
+  case 'default':
+    return '默认'
+  default:
+    return source || '-'
+  }
+}
+
 function beanListItemsForType(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
   void listType
   return priceListScopedItems()
@@ -1441,10 +1924,10 @@ function publicationScopeLabel(scope) {
     const customer = customers.value.find((item) => Number(item?.id || 0) === customerID)
     return customer ? customerOptionLabel(customer) : `客户 ${customerID}`
   }
-  if (scope === 'official') return '公共豆单'
-  if (scope === 'mine') return '我的客户豆单'
-  if (scope === 'customer') return '指定客户豆单'
-  return '棵凡官方豆单'
+  if (scope === 'official') return '公共价格表'
+  if (scope === 'mine') return '我的客户价格表'
+  if (scope === 'customer') return '指定客户价格表'
+  return '棵凡官方价格表'
 }
 
 function beanListPublicationOwnerLabel(row) {
@@ -1453,13 +1936,13 @@ function beanListPublicationOwnerLabel(row) {
     const customer = customers.value.find((item) => Number(item?.id || 0) === customerID)
     return customer ? customerOptionLabel(customer) : `客户 ${row.owner_key || '-'}`
   }
-  if (row?.owner_type === 'actor') return '我的客户豆单'
-  return '棵凡官方豆单'
+  if (row?.owner_type === 'actor') return '我的客户价格表'
+  return '棵凡官方价格表'
 }
 
 function beanListPublicationPurposeLabel(row) {
-  if (row?.publication_purpose === 'customer_resale') return '客户转售豆单'
-  return '工厂供货豆单'
+  if (row?.publication_purpose === 'customer_resale') return '客户转售价格表'
+  return '工厂供货价格表'
 }
 
 function beanListPublicationSourceLabel(row) {
@@ -1565,7 +2048,7 @@ function applyCopiedBeanListPriceSource(row = selectedPriceSourcePublication.val
   priceSourcePublicationByType.value = { ...priceSourcePublicationByType.value, [key]: row }
   selectedPriceSourcePublicationID.value = String(row.id)
   pdfOptions.value = { ...pdfOptions.value, listType, version: defaultBeanListVersionForScope(listType, keyProductTypeID) }
-  message.value = `已复制${beanListPublicationLabel(row)}价格来源，发布后会锁定为客户豆单快照`
+  message.value = `已复制${beanListPublicationLabel(row)}价格来源，发布后会锁定为客户价格表快照`
 }
 
 function beanListTypeLabel(listType) {
@@ -1894,6 +2377,32 @@ async function loadCustomerProductAliases() {
   }
 }
 
+async function loadPriceListTemplateOptions() {
+  try {
+    const [tierData, ruleData] = await Promise.all([
+      apiGet('/api/price-tier-templates'),
+      apiGet('/api/product-pricing-rules'),
+    ])
+    priceTierTemplates.value = (tierData.templates || tierData.rows || []).filter((row) => row?.active !== false)
+    pricingRules.value = (ruleData.rules || ruleData.rows || []).filter((row) => row?.active !== false)
+    if (!priceListTemplateDefaults.value.tier_template_id && priceTierTemplates.value.length) {
+      priceListTemplateDefaults.value = {
+        ...priceListTemplateDefaults.value,
+        tier_template_id: Number(priceTierTemplates.value[0].id || 0),
+      }
+    }
+    if (!priceListTemplateDefaults.value.pricing_rule_id && pricingRules.value.length) {
+      priceListTemplateDefaults.value = {
+        ...priceListTemplateDefaults.value,
+        pricing_rule_id: Number(pricingRules.value[0].id || 0),
+      }
+    }
+  } catch (err) {
+    priceTierTemplates.value = []
+    pricingRules.value = []
+  }
+}
+
 async function loadCurrentActor() {
   try {
     currentActor.value = await fetchCurrentActor()
@@ -2170,6 +2679,12 @@ function beanListPublicationPayload() {
   const productTypeCategoryID = activePublicationProductTypeCategoryID(selectedProductTypeCategoryID)
   const selectedItems = beanListItemsForType(listType, selectedProductTypeCategoryID)
   const firstClassifiedItem = selectedItems.find((item) => classificationTemplateIDOfItem(item) > 0 || classificationCategoryIDOfItem(item) > 0) || {}
+  const generationSnapshot = buildPriceListGenerationSnapshot({
+    defaults: priceListTemplateDefaults.value,
+    groupSelections: priceListTemplateAssignments(),
+    productOverrides: priceListProductOverridesForSnapshot(),
+    rows: priceListFlatRows.value,
+  })
   return {
     list_type: listType,
     publication_purpose: 'factory_supply',
@@ -2191,12 +2706,14 @@ function beanListPublicationPayload() {
       showCategoryNumbers: pdfOptions.value.showCategoryNumbers,
       visibleCategoryCodes: pdfVisibleCategoryCodes.value,
       customizers: pdfCustomizers.value,
+      ...generationSnapshot.config,
     },
     content: {
       title: pdfTitle.value,
       subtitle: pdfSubtitle.value,
       totalItems: pdfTotalItems.value,
       groups: pdfGroups.value,
+      ...generationSnapshot.content,
     },
     changelog: pdfOptions.value.changelog,
   }
@@ -2249,6 +2766,7 @@ onMounted(() => {
   loadBeanList()
   loadCustomers()
   loadCustomerProductAliases()
+  loadPriceListTemplateOptions()
   loadBeanListPublications(pdfTheme.value.listType, 'official', activeProductTypeCategoryID.value, 'factory_supply')
   loadBeanListPublications(pdfTheme.value.listType, 'mine', activeProductTypeCategoryID.value, 'factory_supply')
   window.addEventListener('afterprint', clearPdfPrintMode)
@@ -2378,6 +2896,25 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .pdf-picker { margin-top: 12px; border: 1px solid #e4e4e4; border-radius: 8px; background: #fff; padding: 10px; }
 .picker-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .picker-actions { margin-left: auto; display: flex; gap: 6px; }
+.template-default-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.template-default-grid span, .template-table span, .flat-price-table span { color: #666; font-size: 12px; line-height: 1.35; }
+.template-default-grid select, .template-table select, .flat-price-row input { width: 100%; min-height: 34px; border: 1px solid #ddd; border-radius: 7px; padding: 6px 8px; background: #fff; font: inherit; box-sizing: border-box; }
+.template-table { display: grid; gap: 6px; margin-top: 10px; }
+.template-table-head, .template-table-row { display: grid; grid-template-columns: minmax(120px, .8fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: center; }
+.template-table-head { border-bottom: 1px solid #eee; padding-bottom: 5px; font-weight: 700; }
+.template-table-row { border: 1px solid #eee; border-radius: 7px; background: #fafafa; padding: 8px; }
+.template-table-row strong { min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.template-select-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.product-override-head, .product-override-row { grid-template-columns: minmax(160px, 1fr) minmax(0, .8fr) minmax(0, .8fr); }
+.flat-price-table { display: grid; gap: 6px; max-height: 360px; overflow: auto; }
+.flat-price-head, .flat-price-row { display: grid; grid-template-columns: minmax(150px, 1.1fr) minmax(130px, .8fr) minmax(110px, .55fr) minmax(150px, .9fr); gap: 8px; align-items: center; }
+.flat-price-head { border-bottom: 1px solid #eee; padding-bottom: 5px; font-weight: 700; }
+.flat-price-row { border: 1px solid #eee; border-radius: 7px; background: #fafafa; padding: 8px; }
+.flat-price-row > div { display: grid; gap: 3px; min-width: 0; }
+.flat-price-row strong { min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.flat-price-row label { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 5px; margin: 0; }
+.flat-price-row small { color: #666; font-size: 12px; }
+.flat-price-row .adjusted { color: #8a4b00; font-weight: 700; }
 .checkbox-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; }
 .product-picker-list { display: grid; gap: 10px; max-height: 420px; overflow: auto; }
 .product-picker-category { display: grid; gap: 8px; border: 1px solid #ddd; border-radius: 8px; padding: 10px; background: #fff; }
@@ -2461,6 +2998,12 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
 .bean-row span { color: #666; font-size: 12px; }
 .bean-row strong { font-size: 13px; }
 .bean-list-pdf-page { display: none; }
+.price-list-model-panel { display: grid; gap: 10px; margin-top: 12px; border-top: 1px solid #eee; padding-top: 12px; }
+.price-list-model-panel p { margin: 4px 0 0; color: #555; font-size: 13px; line-height: 1.55; }
+.price-list-model-panel table { width: 100%; border-collapse: collapse; background: #fff; font-size: 13px; }
+.price-list-model-panel th, .price-list-model-panel td { border: 1px solid #eee; padding: 8px 10px; text-align: left; vertical-align: top; }
+.price-list-model-panel th { background: #f7f7f7; color: #555; font-weight: 650; }
+.price-list-model-panel td:first-child { width: 110px; font-weight: 650; color: #111; }
 
 @media (max-width: 900px) {
   .page { padding: 12px; }
@@ -2480,6 +3023,12 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .copy-config-box, .copy-config-actions { grid-template-columns: 1fr; }
   .current-owner-pill { justify-self: start; }
   .pdf-form { grid-template-columns: 1fr; }
+  .template-default-grid,
+  .template-table-head,
+  .template-table-row,
+  .template-select-pair,
+  .flat-price-head,
+  .flat-price-row { grid-template-columns: 1fr; }
   .checkbox-grid, .customizer-row { grid-template-columns: 1fr; }
   .bean-list-generate-bar { align-items: flex-start; flex-direction: column; }
 }

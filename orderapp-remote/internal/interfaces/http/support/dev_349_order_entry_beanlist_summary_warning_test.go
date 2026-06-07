@@ -31,8 +31,8 @@ func TestDev349OrderEntryBeanListSummaryWarning(t *testing.T) {
 		"右侧“豆单版本”标红并显示感叹号",
 	)
 	requireDev349Contains(t, "docs/OP_MANUAL_ORDER_SALES.md",
-		"标题区会把当前使用的三个豆单按行展示",
-		"切换熟豆、生豆或挂耳豆单版本后，已有商品行会按当前选择的豆单发布 ID 重新取价",
+		"标题区会把当前使用的三个价格表按行展示",
+		"切换熟豆、生豆或挂耳价格表版本后，已有商品行会按当前选择的价格表发布 ID 重新取价",
 	)
 	requireDev349Contains(t, "docs/acceptance/2026-05-23-order-entry-beanlist-summary-warning.md",
 		"商品明细标题区能同时看到熟豆豆单、生豆豆单、挂耳豆单三行完整版本信息",

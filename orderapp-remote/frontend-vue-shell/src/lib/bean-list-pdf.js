@@ -309,6 +309,91 @@ function inventoryConversionSnapshot(snapshot = {}, priceUnit = '', inventoryUni
   return {}
 }
 
+export function buildPriceListGenerationSnapshot(input = {}) {
+  const defaults = normalizeTemplateSelection(input.defaults)
+  const groupSelections = (Array.isArray(input.groupSelections) ? input.groupSelections : [])
+    .map(normalizeGroupTemplateSelection)
+  const productOverrides = (Array.isArray(input.productOverrides) ? input.productOverrides : [])
+    .map(normalizeProductTemplateOverride)
+    .filter((row) => row.product_id > 0 || row.product_key)
+  const priceRows = (Array.isArray(input.rows) ? input.rows : [])
+    .map(normalizePriceListFlatRow)
+    .filter((row) => row.product_id > 0 || row.product_key || row.product_name)
+  return {
+    config: {
+      price_list_template_selection: {
+        defaults,
+        group_selections: groupSelections,
+        product_overrides: productOverrides,
+      },
+    },
+    content: {
+      price_rows: priceRows,
+    },
+  }
+}
+
+function normalizeTemplateSelection(value = {}) {
+  return {
+    tier_template_id: firstNumber(value.tier_template_id, value.tierTemplateID),
+    pricing_rule_id: firstNumber(value.pricing_rule_id, value.pricingRuleID),
+  }
+}
+
+function normalizeGroupTemplateSelection(row = {}) {
+  return {
+    group_id: firstNumber(row.group_id, row.groupID),
+    group_name: stringField(row.group_name ?? row.groupName),
+    group_item_id: firstNumber(row.group_item_id, row.groupItemID),
+    group_item_name: stringField(row.group_item_name ?? row.groupItemName),
+    parent_group_item_id: firstNumber(row.parent_group_item_id, row.parentGroupItemID),
+    parent_group_item_name: stringField(row.parent_group_item_name ?? row.parentGroupItemName),
+    level: firstNumber(row.level),
+    ...normalizeTemplateSelection(row),
+  }
+}
+
+function normalizeProductTemplateOverride(row = {}) {
+  return {
+    product_id: firstNumber(row.product_id, row.productID, row.productId),
+    product_key: stringField(row.product_key ?? row.productKey),
+    product_name: stringField(row.product_name ?? row.productName),
+    ...normalizeTemplateSelection(row),
+    final_unit_price: firstNumber(row.final_unit_price, row.finalUnitPrice),
+  }
+}
+
+function normalizePriceListFlatRow(row = {}) {
+  const finalUnitPrice = firstNumber(row.final_unit_price, row.finalUnitPrice, row.price_per_unit, row.pricePerUnit)
+  const originalFinalUnitPrice = firstNumber(row.original_final_unit_price, row.originalFinalUnitPrice, row.source_final_unit_price, row.sourceFinalUnitPrice, finalUnitPrice)
+  const manualAdjusted = row.manual_adjusted === true || row.manualAdjusted === true || !pricesClose(finalUnitPrice, originalFinalUnitPrice)
+  return {
+    product_id: firstNumber(row.product_id, row.productID, row.productId),
+    product_key: stringField(row.product_key ?? row.productKey),
+    product_name: stringField(row.product_name ?? row.productName ?? row.name),
+    group_snapshot: parseJSONObject(row.group_snapshot ?? row.groupSnapshot),
+    tier_label: stringField(row.tier_label ?? row.tierLabel ?? row.label),
+    min_qty: firstNumber(row.min_qty, row.minQty),
+    max_qty: firstNumber(row.max_qty, row.maxQty),
+    price_unit: stringField(row.price_unit ?? row.priceUnit),
+    final_unit_price: finalUnitPrice,
+    original_final_unit_price: originalFinalUnitPrice,
+    currency: stringField(row.currency) || 'CNY',
+    inventory_unit: stringField(row.inventory_unit ?? row.inventoryUnit),
+    inventory_conversion_json: inventoryConversionSnapshot(row, row.price_unit ?? row.priceUnit, row.inventory_unit ?? row.inventoryUnit),
+    source_price_record_id: firstNumber(row.source_price_record_id, row.sourcePriceRecordID),
+    tier_template_id: firstNumber(row.tier_template_id, row.tierTemplateID),
+    tier_template_source: stringField(row.tier_template_source ?? row.tierTemplateSource),
+    pricing_rule_id: firstNumber(row.pricing_rule_id, row.pricingRuleID),
+    pricing_rule_source: stringField(row.pricing_rule_source ?? row.pricingRuleSource),
+    pricing_rule_version: stringField(row.pricing_rule_version ?? row.pricingRuleVersion),
+    cost_source_snapshot: parseJSONObject(row.cost_source_snapshot ?? row.costSourceSnapshot),
+    customer_reference_snapshot: parseJSONObject(row.customer_reference_snapshot ?? row.customerReferenceSnapshot),
+    manual_adjusted: manualAdjusted,
+    manual_adjustment_label: manualAdjusted ? '人工调整' : '',
+  }
+}
+
 function parseJSONObject(value) {
   if (!value) return {}
   if (typeof value === 'object' && !Array.isArray(value)) return value

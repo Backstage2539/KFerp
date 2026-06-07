@@ -96,7 +96,7 @@ test('product bean-list generate PDF saves preview snapshot through backend inst
   assert.doesNotMatch(generateSource, /bean-list-pdf-printing/)
 })
 
-test('product bean-list version scope selector lists public and each fulfillment customer', () => {
+test('product price-list version scope selector lists public and each fulfillment customer', () => {
   const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
   assert.ok(versionListStart > -1 && versionListEnd > versionListStart, 'missing bean-list version panel')
@@ -108,7 +108,7 @@ test('product bean-list version scope selector lists public and each fulfillment
   const pageScopeSource = viewSource.slice(pageScopeStart, pageScopeEnd)
 
   assert.match(pageScopeSource, /v-model="versionListScope"/)
-  assert.match(pageScopeSource, /<option value="official">公共豆单<\/option>/)
+  assert.match(pageScopeSource, /<option value="official">公共价格表<\/option>/)
   assert.match(pageScopeSource, /v-for="customer in customers"/)
   assert.match(pageScopeSource, /:value="`customer:\$\{customer\.id\}`"/)
   assert.match(pageScopeSource, /customerOptionLabel\(customer\)/)
@@ -143,7 +143,7 @@ test('product bean-list legacy global publication row displays as current select
   assert.match(labelSource, /selectedProductPriceListLabel\.value/)
 })
 
-test('product bean-list version list supports factory supply and customer resale purpose filter', () => {
+test('product price-list version list supports factory supply and customer resale purpose filter', () => {
   const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
   assert.ok(versionListStart > -1 && versionListEnd > versionListStart, 'missing bean-list version panel')
@@ -151,8 +151,8 @@ test('product bean-list version list supports factory supply and customer resale
 
   for (const expected of [
     'v-model="publicationPurposeFilter"',
-    '<option value="factory_supply">工厂供货豆单</option>',
-    '<option value="customer_resale">客户转售豆单</option>',
+    '<option value="factory_supply">工厂供货价格表</option>',
+    '<option value="customer_resale">客户转售价格表</option>',
     'function beanListPublicationPurposeLabel',
     'publication_purpose',
     "params.set('publication_purpose', publicationPurposeFilter.value)",
@@ -185,6 +185,11 @@ test('product bean-list generate area uses dynamic collapsible product-type sect
 test('product price list uses classification templates and categories instead of legacy product types', () => {
   for (const expected of [
     '<h2>商品价格表</h2>',
+    'Price List / Item Price',
+    'data-pr440-price-list-model',
+    '商品 &gt; 子组 &gt; 父组 &gt; 默认',
+    '平铺价格行',
+    '分组项选品',
     'classification_template_id',
     'classification_template_name',
     'classification_category_id',
@@ -192,13 +197,13 @@ test('product price list uses classification templates and categories instead of
     'buildClassificationPriceListTypeOptions',
     'classificationCategoryIDOfItem',
     'classificationTemplateNameOfItem',
-    '未归类统一进入未分类商品',
   ]) {
     assert.ok(viewSource.includes(expected), `missing classification price-list behavior: ${expected}`)
   }
   assert.doesNotMatch(viewSource, /<h2>产品价格表<\/h2>/)
   assert.doesNotMatch(viewSource, /<span>产品类型<\/span>/)
   assert.doesNotMatch(viewSource, /按当前价格表归属和商品管理里的产品类型生成/)
+  assert.doesNotMatch(viewSource, /按当前价格表归属、商品当前归类和客户商品生成商品价格表/)
 })
 
 test('product bean-list drawer derives publication owner from current page scope', () => {
@@ -245,7 +250,7 @@ test('product bean-list view exposes manual green bean tier price editing', () =
     'green-tier-price-editor',
     'green-inline-price-editor',
     '梯度按 KG，单价按元/KG',
-    '生成并发布新版豆单后，录单才会使用新价格',
+    '生成并发布新版价格表后，录单才会使用新价格',
     '保存生豆价格',
     'saveGreenBeanPriceDraft',
     'greenTierPriceRows(row)',

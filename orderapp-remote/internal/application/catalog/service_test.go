@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -167,6 +168,50 @@ func (r *fakeRepo) SaveProductPriceGroup(ctx context.Context, cmd SaveProductPri
 		id = 31
 	}
 	return ProductPriceGroup{ID: id, Name: cmd.Name, SortOrder: cmd.SortOrder, Active: true}, nil
+}
+
+func (r *fakeRepo) ListBusinessGroups(ctx context.Context) ([]BusinessGroup, error) {
+	return []BusinessGroup{}, nil
+}
+
+func (r *fakeRepo) SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (BusinessGroup, error) {
+	if cmd.ID == 0 {
+		cmd.ID = 61
+	}
+	return cmd, nil
+}
+
+func (r *fakeRepo) ListProductCustomerReferences(ctx context.Context, productID int64) ([]ProductCustomerReference, error) {
+	return []ProductCustomerReference{}, nil
+}
+
+func (r *fakeRepo) SaveProductCustomerReference(ctx context.Context, cmd ProductCustomerReference) (ProductCustomerReference, error) {
+	if cmd.ID == 0 {
+		cmd.ID = 62
+	}
+	return cmd, nil
+}
+
+func (r *fakeRepo) ListProductPricingRules(ctx context.Context) ([]ProductPricingRule, error) {
+	return []ProductPricingRule{}, nil
+}
+
+func (r *fakeRepo) SaveProductPricingRule(ctx context.Context, cmd ProductPricingRule) (ProductPricingRule, error) {
+	if cmd.ID == 0 {
+		cmd.ID = 63
+	}
+	return cmd, nil
+}
+
+func (r *fakeRepo) ListPriceTierTemplates(ctx context.Context) ([]PriceTierTemplate, error) {
+	return []PriceTierTemplate{}, nil
+}
+
+func (r *fakeRepo) SavePriceTierTemplate(ctx context.Context, cmd PriceTierTemplate) (PriceTierTemplate, error) {
+	if cmd.ID == 0 {
+		cmd.ID = 64
+	}
+	return cmd, nil
 }
 
 func (r *fakeRepo) ListProductPriceRecords(ctx context.Context, query ProductPriceRecordQuery) ([]ProductPriceRecord, error) {
@@ -567,11 +612,11 @@ func TestServiceDelegatesCatalogOperations(t *testing.T) {
 	}
 }
 
-func TestProductPriceRecordIsFinalPriceMasterData(t *testing.T) {
+func TestLegacyProductPriceRecordWritesAreReadonly(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)
 
-	got, err := svc.SaveProductPriceRecord(context.Background(), SaveProductPriceRecordCommand{
+	_, err := svc.SaveProductPriceRecord(context.Background(), SaveProductPriceRecordCommand{
 		Actor:                   " tester ",
 		ProductID:               7,
 		FinalUnitPrice:          88.5,
@@ -583,35 +628,22 @@ func TestProductPriceRecordIsFinalPriceMasterData(t *testing.T) {
 		Status:                  "published",
 		Remark:                  " 直接最终价 ",
 	})
-	if err != nil {
-		t.Fatalf("SaveProductPriceRecord() err=%v", err)
+	if err == nil || !strings.Contains(err.Error(), "product price records are legacy readonly") {
+		t.Fatalf("SaveProductPriceRecord() err=%v, want legacy readonly", err)
 	}
-	if !repo.priceRecordSaved {
-		t.Fatalf("price record should be saved")
-	}
-	if repo.priceRecord.Actor != "tester" || repo.priceRecord.ProductID != 7 || repo.priceRecord.FinalUnitPrice != 88.5 {
-		t.Fatalf("price record command = %+v", repo.priceRecord)
-	}
-	if repo.priceRecord.PriceUnit != "kg" || repo.priceRecord.Currency != "CNY" || repo.priceRecord.PriceGroupName != "常规批发" || repo.priceRecord.Status != "published" {
-		t.Fatalf("normalized price record command = %+v", repo.priceRecord)
-	}
-	if got.FinalUnitPrice != 88.5 || got.PriceUnit != "kg" {
-		t.Fatalf("saved price record = %+v", got)
-	}
-
-	if _, err := svc.SaveProductPriceRecord(context.Background(), SaveProductPriceRecordCommand{ProductID: 7, FinalUnitPrice: -1, PriceUnit: "kg"}); err == nil {
-		t.Fatalf("negative final price should be rejected")
+	if repo.priceRecordSaved {
+		t.Fatalf("legacy price record write should not reach repo")
 	}
 }
 
-func TestProductTierPriceSchemeCopiesFinalPriceRecordsWithoutRecalculation(t *testing.T) {
+func TestLegacyProductTierPriceSchemeWritesAreReadonly(t *testing.T) {
 	repo := &fakeRepo{priceRecordByID: map[int64]ProductPriceRecord{
 		11: {ID: 11, ProductID: 7, FinalUnitPrice: 88, PriceUnit: "kg", Currency: "CNY", Active: true},
 		12: {ID: 12, ProductID: 7, FinalUnitPrice: 82, PriceUnit: "kg", Currency: "CNY", Active: true},
 	}}
 	svc := NewService(repo)
 
-	got, err := svc.SaveProductTierPriceScheme(context.Background(), SaveProductTierPriceSchemeCommand{
+	_, err := svc.SaveProductTierPriceScheme(context.Background(), SaveProductTierPriceSchemeCommand{
 		Actor:        "tester",
 		Name:         "批发阶梯",
 		ProductID:    7,
@@ -621,22 +653,48 @@ func TestProductTierPriceSchemeCopiesFinalPriceRecordsWithoutRecalculation(t *te
 			{Label: "10kg+", MinQty: 10, SourcePriceRecordID: 12, FinalUnitPrice: 999, PriceUnit: "箱", Currency: "USD", Position: 1},
 		},
 	})
+	if err == nil || !strings.Contains(err.Error(), "product tier price schemes are legacy readonly") {
+		t.Fatalf("SaveProductTierPriceScheme() err=%v, want legacy readonly", err)
+	}
+	if repo.tierSchemeSaved {
+		t.Fatalf("legacy tier scheme write should not reach repo")
+	}
+}
+
+func TestPricingRuleAndPriceTierTemplateServicesUseNewPriceListModel(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+
+	rule, err := svc.SaveProductPricingRule(context.Background(), ProductPricingRule{
+		Name:         " 成本加成模板 ",
+		Code:         " RULE-001 ",
+		MarginRate:   0.18,
+		TaxRate:      0.06,
+		RoundingMode: "",
+		Remark:       " 后续价格表引用 ",
+	})
 	if err != nil {
-		t.Fatalf("SaveProductTierPriceScheme() err=%v", err)
+		t.Fatalf("SaveProductPricingRule() err=%v", err)
 	}
-	if !repo.tierSchemeSaved || len(repo.tierPriceScheme.Tiers) != 2 {
-		t.Fatalf("tier scheme command = %+v saved=%v", repo.tierPriceScheme, repo.tierSchemeSaved)
+	if rule.ID <= 0 || rule.Name != "成本加成模板" || rule.Code != "RULE-001" || rule.CostSourceMode != "product_cost_context" || rule.RoundingMode != "none" {
+		t.Fatalf("pricing rule not normalized: %+v", rule)
 	}
-	first := repo.tierPriceScheme.Tiers[0]
-	second := repo.tierPriceScheme.Tiers[1]
-	if first.SourcePriceRecordID != 12 || first.FinalUnitPrice != 82 || first.PriceUnit != "kg" || first.Currency != "CNY" {
-		t.Fatalf("first tier should copy final price record without recalculation, got %+v", first)
+
+	maxQty := 10.0
+	template, err := svc.SavePriceTierTemplate(context.Background(), PriceTierTemplate{
+		Name: " 批发档位 ",
+		Tiers: []PriceTierTemplateTier{
+			{Label: "10kg+", MinQty: 10, QuantityUnit: " kg ", Position: 2},
+			{Label: "1kg+", MinQty: 1, MaxQty: &maxQty, QuantityUnit: "", Position: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SavePriceTierTemplate() err=%v", err)
 	}
-	if second.SourcePriceRecordID != 11 || second.FinalUnitPrice != 88 || second.PriceUnit != "kg" || second.Currency != "CNY" {
-		t.Fatalf("second tier should copy final price record without recalculation, got %+v", second)
+	if template.ID <= 0 || template.Name != "批发档位" || len(template.Tiers) != 2 {
+		t.Fatalf("price tier template = %+v", template)
 	}
-	if got.Tiers[0].FinalUnitPrice != 82 || got.Tiers[1].FinalUnitPrice != 88 {
-		t.Fatalf("saved scheme = %+v", got)
+	if template.Tiers[0].Label != "1kg+" || template.Tiers[0].QuantityUnit != "kg" || template.Tiers[1].Label != "10kg+" || template.Tiers[1].QuantityUnit != "kg" {
+		t.Fatalf("price tier template tiers not normalized/sorted: %+v", template.Tiers)
 	}
 }
 

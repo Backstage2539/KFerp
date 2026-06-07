@@ -117,6 +117,122 @@ WHERE active=true;
 INSERT INTO %[1]s.product_unit_templates(name, inventory_unit, quote_unit, order_unit, unit_conversion_json, integer_unit, active)
 VALUES ('默认kg单位','kg','kg','kg','{}'::jsonb,false,true)
 ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS %[1]s.business_groups (
+	id BIGSERIAL PRIMARY KEY,
+	name TEXT NOT NULL,
+	code TEXT NOT NULL DEFAULT '',
+	remark TEXT NOT NULL DEFAULT '',
+	active BOOLEAN NOT NULL DEFAULT true,
+	sort_order INT NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS business_groups_name_active_uniq
+ON %[1]s.business_groups(lower(name))
+WHERE active=true;
+CREATE TABLE IF NOT EXISTS %[1]s.business_group_items (
+	id BIGSERIAL PRIMARY KEY,
+	group_id BIGINT NOT NULL,
+	parent_id BIGINT NOT NULL DEFAULT 0,
+	name TEXT NOT NULL,
+	code TEXT NOT NULL DEFAULT '',
+	remark TEXT NOT NULL DEFAULT '',
+	active BOOLEAN NOT NULL DEFAULT true,
+	sort_order INT NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS business_group_items_group_parent_idx
+ON %[1]s.business_group_items(group_id, parent_id, active, sort_order, id);
+CREATE TABLE IF NOT EXISTS %[1]s.business_group_usages (
+	id BIGSERIAL PRIMARY KEY,
+	group_id BIGINT NOT NULL,
+	usage_key TEXT NOT NULL,
+	usage_label TEXT NOT NULL DEFAULT '',
+	active BOOLEAN NOT NULL DEFAULT true,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS business_group_usages_group_key_uq
+ON %[1]s.business_group_usages(group_id, lower(usage_key))
+WHERE active=true;
+CREATE TABLE IF NOT EXISTS %[1]s.business_group_assignments (
+	id BIGSERIAL PRIMARY KEY,
+	group_id BIGINT NOT NULL,
+	group_item_id BIGINT NOT NULL DEFAULT 0,
+	usage_key TEXT NOT NULL,
+	object_key TEXT NOT NULL,
+	object_id BIGINT NOT NULL,
+	sort_order INT NOT NULL DEFAULT 100,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS business_group_assignments_object_uq
+ON %[1]s.business_group_assignments(group_id, lower(usage_key), lower(object_key), object_id);
+CREATE TABLE IF NOT EXISTS %[1]s.product_customer_references (
+	id BIGSERIAL PRIMARY KEY,
+	product_id BIGINT NOT NULL,
+	customer_id BIGINT NOT NULL,
+	customer_item_code TEXT NOT NULL DEFAULT '',
+	customer_display_name TEXT NOT NULL DEFAULT '',
+	active BOOLEAN NOT NULL DEFAULT true,
+	remark TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS product_customer_references_product_customer_uq
+ON %[1]s.product_customer_references(product_id, customer_id)
+WHERE active=true;
+CREATE TABLE IF NOT EXISTS %[1]s.product_pricing_rules (
+	id BIGSERIAL PRIMARY KEY,
+	name TEXT NOT NULL,
+	code TEXT NOT NULL DEFAULT '',
+	cost_source_mode TEXT NOT NULL DEFAULT 'product_cost_context',
+	margin_rate NUMERIC(14,6) NOT NULL DEFAULT 0,
+	tax_rate NUMERIC(14,6) NOT NULL DEFAULT 0,
+	rounding_mode TEXT NOT NULL DEFAULT 'none',
+	active BOOLEAN NOT NULL DEFAULT true,
+	remark TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS product_pricing_rules_active_idx
+ON %[1]s.product_pricing_rules(active, id);
+CREATE TABLE IF NOT EXISTS %[1]s.price_tier_templates (
+	id BIGSERIAL PRIMARY KEY,
+	name TEXT NOT NULL,
+	active BOOLEAN NOT NULL DEFAULT true,
+	remark TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	created_by TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS %[1]s.price_tier_template_tiers (
+	id BIGSERIAL PRIMARY KEY,
+	template_id BIGINT NOT NULL,
+	label TEXT NOT NULL DEFAULT '',
+	min_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
+	max_qty NUMERIC(14,4),
+	quantity_unit TEXT NOT NULL DEFAULT 'kg',
+	position INT NOT NULL DEFAULT 100,
+	active BOOLEAN NOT NULL DEFAULT true,
+	remark TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS price_tier_template_tiers_template_idx
+ON %[1]s.price_tier_template_tiers(template_id, active, position, id);
 CREATE TABLE IF NOT EXISTS %[1]s.product_price_groups (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,
@@ -226,6 +342,8 @@ CREATE INDEX IF NOT EXISTS customer_product_aliases_product_idx
 ON %[1]s.customer_product_aliases(product_id, active);
 CREATE INDEX IF NOT EXISTS customer_product_aliases_classification_template_idx
 ON %[1]s.customer_product_aliases(classification_template_id, active);
+CREATE INDEX IF NOT EXISTS customer_product_aliases_legacy_readonly_idx
+ON %[1]s.customer_product_aliases(customer_id, product_id, active);
 CREATE TABLE IF NOT EXISTS %[1]s.product_classification_templates (
 	id BIGSERIAL PRIMARY KEY,
 	customer_id BIGINT NOT NULL DEFAULT 0,

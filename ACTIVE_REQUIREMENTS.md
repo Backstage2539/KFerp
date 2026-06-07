@@ -6,6 +6,35 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-440-PRODUCT-GROUP-PRICE-REMODEL
+- Branch: codex/product-group-price-remodel-20260607
+- Owner/session: Codex / 2026-06-07
+- Status: local PR-440 implementation and full code verification passed for the remaining three development slices; pending merge to develop, DEV deploy, post-deploy scenario/browser/API acceptance and Van product acceptance
+- Scope: 商品、分组、价格模型按 ERPNext 口径二次修正。商品档案是 Item；系统不再有独立客户商品主数据；客户差异进入商品档案的客户引用子表；分类管理改为泛化分组管理；商品价格管理改为价格计算模板 / Pricing Rule；商品价格表改为 Price List / Item Price 平铺价格行。
+- Product Design:
+  - Brief: Product Design preflight found no saved KFerp context. This PR uses the existing KFerp Vue backend style: dense tables, focused filters, right-side drawers, no marketing/hero surfaces.
+  - Locked UI language: `分组管理` replaces `商品分类管理`; left menu must not show `客户商品`; product archive drawer shows `客户引用`; 商品价格管理 shows `价格计算模板 / Pricing Rule` and 新版 `阶梯价模板`; 商品价格表 generation resolves templates by `商品 > 子组 > 父组 > 默认`.
+- DEV:
+  - DEV-440-GENERIC-GROUP-MANAGEMENT：新增泛化分组 API/schema/UI 入口，分组包含分组项树、使用功能、排序、启停和备注；不在分组表写死商品、物料或 BOM 对象。
+  - DEV-440-PRODUCT-CUSTOMER-REFERENCES：商品档案增加客户引用子表；旧客户商品写接口下线或只读兼容；客户引用只影响展示、搜索、打印和客户侧识别。
+  - DEV-440-PRICING-RULES：商品价格管理改为 Pricing Rule 管理和试算；模板不绑定商品、不维护阶梯档位、不保存最终成交价。
+  - DEV-440-PRICE-TIER-TEMPLATES：新版阶梯价模板只定义数量档位结构，属于商品价格表模块；不保存商品、最终价或成本公式。
+  - DEV-440-PRICE-LIST-FLAT-ROWS：商品价格表作为 Price List 平铺价格行，支持默认、父组、子组、商品行设置阶梯价模板和 Pricing Rule；发布快照固化价格、单位、分组、模板来源、Pricing Rule 版本、成本来源和客户引用展示快照。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because ProductSettings helpers did not export PR-440 customer-reference, Pricing Rule, tier-template, and price-list inheritance builders.
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev440 -count=1` failed before implementation because PR-440 seeds, schema/service contracts, menu markers, and docs markers were absent.
+  - RED deeper frontend/API: `node --test src/lib/bean-list-pdf.test.js src/lib/order-entry.test.js` failed before implementation because the price-list generation snapshot helper and order/sales trace markers were missing; `go test ./internal/application/costing -run TestPublishBeanListRequiresPR440PriceListSnapshotMetadata -count=1` failed because publishing did not reject incomplete PR-440 flat price rows; `go test ./internal/interfaces/http/sales -run TestOrderAPIDetailAllowsCustomerWorkbenchBoundOrder -count=1` failed because order detail API did not return quote/production trace blocks; `go test ./internal/interfaces/http/support -run TestDev440ProductGroupPriceRemodelFrontendAndDocs -count=1` failed because the post-deploy scenario script was absent.
+  - GREEN frontend targeted: `node --test src/lib/bean-list-pdf.test.js src/lib/order-entry.test.js src/lib/menu-ia.test.js src/lib/product-settings.test.js src/lib/product-bean-list-split.test.js src/lib/costing-bean-list-version-ui.test.js` passed 268/268.
+  - GREEN deeper frontend/API: `node --test src/lib/bean-list-pdf.test.js src/lib/order-entry.test.js` passed; `go test ./internal/application/costing -run TestPublishBeanListRequiresPR440PriceListSnapshotMetadata -count=1` passed; `go test ./internal/interfaces/http/sales -run TestOrderAPIDetailAllowsCustomerWorkbenchBoundOrder -count=1` passed; `go test ./internal/interfaces/http/support -run TestDev440ProductGroupPriceRemodelFrontendAndDocs -count=1` passed.
+  - GREEN scenario script: `python3 scripts/scenario_acceptance.py --dry-run` passed and prints the bounded `POST_DEPLOY_ACCEPTANCE_SCENARIOS` plan for self-created material/product/customer/group/Pricing Rule/tier/customer-reference/price-list/order data and automatic cleanup; `python3 -m py_compile scripts/scenario_acceptance.py` passed.
+  - GREEN build: `npm run build` in `frontend-vue-shell` passed with existing chunk-size and plugin timing warnings.
+  - GREEN backend targeted/full: `go test ./internal/interfaces/http/support -count=1`; `go test ./...` in `orderapp-remote`.
+  - GREEN repository verifier: `git diff --check`; `scripts/verify_kferp.sh changed`.
+  - Local browser note: Vite dev server opened on `http://127.0.0.1:5177/vue-shell/`, but without a local API/auth backend the shell remained in `请求失败`; do not count local browser as PR-440 acceptance. Browser/API acceptance must run after deployment against the development stack.
+  - Pending integration: merge latest `origin/develop`, push branch, merge to develop, deploy development, run self-cleaning scenario script and browser/API acceptance.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-07-product-group-price-remodel.md`.
+- Last update: 2026-06-07 Asia/Shanghai
+
 ### PR-439-PRODUCT-PRICE-MASTER-REMODEL
 - Branch: codex/product-price-master-remodel-20260606
 - Owner/session: Codex / 2026-06-06

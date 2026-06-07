@@ -45,7 +45,7 @@ func TestDev345OrderCustomerProfileBeanListWiring(t *testing.T) {
 		"openBeanListDrawer",
 		"bean-list-drawer",
 		"bean-list-picker-list",
-		"选择豆单",
+		"选择价格表",
 		"请选择客户类型",
 		"请选择客户来源",
 		"请选择客户订单类型",

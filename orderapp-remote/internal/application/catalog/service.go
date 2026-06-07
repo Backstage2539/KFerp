@@ -92,6 +92,123 @@ type PriceSummary struct {
 	PublicationID       int64   `json:"publication_id,omitempty"`
 }
 
+type BusinessGroup struct {
+	ID        int64                `json:"id"`
+	Actor     string               `json:"-"`
+	Name      string               `json:"name"`
+	Code      string               `json:"code"`
+	Remark    string               `json:"remark"`
+	Active    bool                 `json:"active"`
+	SortOrder int                  `json:"sort_order"`
+	Usages    []BusinessGroupUsage `json:"usages,omitempty"`
+	Items     []BusinessGroupItem  `json:"items,omitempty"`
+}
+
+type BusinessGroupUsage struct {
+	ID         int64  `json:"id"`
+	GroupID    int64  `json:"group_id"`
+	UsageKey   string `json:"usage_key"`
+	UsageLabel string `json:"usage_label"`
+	Active     bool   `json:"active"`
+}
+
+type BusinessGroupItem struct {
+	ID        int64               `json:"id"`
+	GroupID   int64               `json:"group_id"`
+	ParentID  int64               `json:"parent_id"`
+	Name      string              `json:"name"`
+	Code      string              `json:"code"`
+	Remark    string              `json:"remark"`
+	Active    bool                `json:"active"`
+	SortOrder int                 `json:"sort_order"`
+	Children  []BusinessGroupItem `json:"children,omitempty"`
+}
+
+type BusinessGroupAssignment struct {
+	ID          int64  `json:"id"`
+	GroupID     int64  `json:"group_id"`
+	GroupItemID int64  `json:"group_item_id"`
+	UsageKey    string `json:"usage_key"`
+	ObjectKey   string `json:"object_key"`
+	ObjectID    int64  `json:"object_id"`
+	SortOrder   int    `json:"sort_order"`
+}
+
+type ProductCustomerReference struct {
+	ID                  int64  `json:"id"`
+	Actor               string `json:"-"`
+	ProductID           int64  `json:"product_id"`
+	CustomerID          int64  `json:"customer_id"`
+	CustomerItemCode    string `json:"customer_item_code"`
+	CustomerDisplayName string `json:"customer_display_name"`
+	Active              bool   `json:"active"`
+	Remark              string `json:"remark"`
+}
+
+type ProductPricingRule struct {
+	ID             int64   `json:"id"`
+	Actor          string  `json:"-"`
+	Name           string  `json:"name"`
+	Code           string  `json:"code"`
+	CostSourceMode string  `json:"cost_source_mode"`
+	MarginRate     float64 `json:"margin_rate"`
+	TaxRate        float64 `json:"tax_rate"`
+	RoundingMode   string  `json:"rounding_mode"`
+	Active         bool    `json:"active"`
+	Remark         string  `json:"remark"`
+}
+
+type PriceTierTemplate struct {
+	ID     int64                   `json:"id"`
+	Actor  string                  `json:"-"`
+	Name   string                  `json:"name"`
+	Active bool                    `json:"active"`
+	Remark string                  `json:"remark"`
+	Tiers  []PriceTierTemplateTier `json:"tiers"`
+}
+
+type PriceTierTemplateTier struct {
+	ID           int64    `json:"id"`
+	TemplateID   int64    `json:"template_id"`
+	Label        string   `json:"label"`
+	MinQty       float64  `json:"min_qty"`
+	MaxQty       *float64 `json:"max_qty,omitempty"`
+	QuantityUnit string   `json:"quantity_unit"`
+	Position     int      `json:"position"`
+	Active       bool     `json:"active"`
+	Remark       string   `json:"remark"`
+}
+
+type PriceTableTemplateResolutionInput struct {
+	DefaultTierTemplateID int64
+	DefaultPricingRuleID  int64
+	GroupAssignments      []PriceTableGroupTemplateAssignment
+	ProductOverrides      []PriceTableProductTemplateOverride
+	ProductID             int64
+	GroupItemID           int64
+}
+
+type PriceTableGroupTemplateAssignment struct {
+	GroupItemID       int64
+	ParentGroupItemID int64
+	TierTemplateID    int64
+	PricingRuleID     int64
+}
+
+type PriceTableProductTemplateOverride struct {
+	ProductID      int64
+	GroupItemID    int64
+	TierTemplateID int64
+	PricingRuleID  int64
+}
+
+type PriceTableTemplateResolution struct {
+	TierTemplateID     int64  `json:"tier_template_id"`
+	TierTemplateSource string `json:"tier_template_source"`
+	PricingRuleID      int64  `json:"pricing_rule_id"`
+	PricingRuleSource  string `json:"pricing_rule_source"`
+}
+
 const (
 	TemplateStatePublic   = "public_template"
 	TemplateStateDerived  = "derived_from_public"
@@ -202,6 +319,10 @@ type ProductSettingsData struct {
 	ProductPriceGroups                  []ProductPriceGroup                  `json:"product_price_groups"`
 	ProductPriceRecords                 []ProductPriceRecord                 `json:"product_price_records"`
 	ProductTierPriceSchemes             []ProductTierPriceScheme             `json:"product_tier_price_schemes"`
+	BusinessGroups                      []BusinessGroup                      `json:"business_groups"`
+	ProductCustomerReferences           []ProductCustomerReference           `json:"product_customer_references"`
+	ProductPricingRules                 []ProductPricingRule                 `json:"product_pricing_rules"`
+	PriceTierTemplates                  []PriceTierTemplate                  `json:"price_tier_templates"`
 	CustomerPublicUsages                []CustomerPublicUsage                `json:"customer_public_usages"`
 	CustomerProductRuleTemplates        []CustomerProductRuleTemplate        `json:"customer_product_rule_templates"`
 	CustomerProductRuleOverrides        []CustomerProductRuleOverride        `json:"customer_product_rule_overrides"`
@@ -1045,6 +1166,14 @@ type Repository interface {
 	ListProductUnitTemplates(ctx context.Context) ([]ProductUnitTemplate, error)
 	ListProductPriceGroups(ctx context.Context) ([]ProductPriceGroup, error)
 	SaveProductPriceGroup(ctx context.Context, cmd SaveProductPriceGroupCommand) (ProductPriceGroup, error)
+	ListBusinessGroups(ctx context.Context) ([]BusinessGroup, error)
+	SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (BusinessGroup, error)
+	ListProductCustomerReferences(ctx context.Context, productID int64) ([]ProductCustomerReference, error)
+	SaveProductCustomerReference(ctx context.Context, cmd ProductCustomerReference) (ProductCustomerReference, error)
+	ListProductPricingRules(ctx context.Context) ([]ProductPricingRule, error)
+	SaveProductPricingRule(ctx context.Context, cmd ProductPricingRule) (ProductPricingRule, error)
+	ListPriceTierTemplates(ctx context.Context) ([]PriceTierTemplate, error)
+	SavePriceTierTemplate(ctx context.Context, cmd PriceTierTemplate) (PriceTierTemplate, error)
 	ListProductPriceRecords(ctx context.Context, query ProductPriceRecordQuery) ([]ProductPriceRecord, error)
 	GetProductPriceRecord(ctx context.Context, id int64) (ProductPriceRecord, error)
 	SaveProductPriceRecord(ctx context.Context, cmd SaveProductPriceRecordCommand) (ProductPriceRecord, error)
@@ -1462,11 +1591,196 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	data.ProductPriceGroups = priceGroups
 	data.ProductPriceRecords = priceRecords
 	data.ProductTierPriceSchemes = tierPriceSchemes
+	data.BusinessGroups = []BusinessGroup{}
+	data.ProductCustomerReferences = []ProductCustomerReference{}
+	data.ProductPricingRules = []ProductPricingRule{}
+	data.PriceTierTemplates = []PriceTierTemplate{}
 	data.CustomerPublicUsages = usages
 	data.CustomerProductRuleTemplates = ruleTemplates
 	data.CustomerProductRuleOverrides = ruleOverrides
 	data.CustomerProductRuleBindings = ruleBindings
 	return data, nil
+}
+
+func (s *Service) ListBusinessGroups(ctx context.Context) ([]BusinessGroup, error) {
+	return s.repo.ListBusinessGroups(ctx)
+}
+
+func (s *Service) SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (BusinessGroup, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Code = strings.TrimSpace(cmd.Code)
+	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	if cmd.ID < 0 {
+		return BusinessGroup{}, ValidationError{Message: "invalid group"}
+	}
+	if cmd.Name == "" {
+		return BusinessGroup{}, ValidationError{Message: "name required"}
+	}
+	if cmd.SortOrder <= 0 {
+		cmd.SortOrder = 100
+	}
+	if cmd.ID == 0 {
+		cmd.Active = true
+	}
+	return s.repo.SaveBusinessGroup(ctx, cmd)
+}
+
+func (s *Service) ListProductCustomerReferences(ctx context.Context, productID int64) ([]ProductCustomerReference, error) {
+	if productID < 0 {
+		return nil, ValidationError{Message: "invalid product_id"}
+	}
+	return s.repo.ListProductCustomerReferences(ctx, productID)
+}
+
+func (s *Service) SaveProductCustomerReference(ctx context.Context, cmd ProductCustomerReference) (ProductCustomerReference, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.CustomerItemCode = strings.TrimSpace(cmd.CustomerItemCode)
+	cmd.CustomerDisplayName = strings.TrimSpace(cmd.CustomerDisplayName)
+	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	if cmd.ID < 0 || cmd.ProductID <= 0 || cmd.CustomerID <= 0 {
+		return ProductCustomerReference{}, ValidationError{Message: "invalid product customer reference"}
+	}
+	if cmd.CustomerItemCode == "" && cmd.CustomerDisplayName == "" {
+		return ProductCustomerReference{}, ValidationError{Message: "customer reference required"}
+	}
+	if cmd.ID == 0 {
+		cmd.Active = true
+	}
+	return s.repo.SaveProductCustomerReference(ctx, cmd)
+}
+
+func (s *Service) ListProductPricingRules(ctx context.Context) ([]ProductPricingRule, error) {
+	return s.repo.ListProductPricingRules(ctx)
+}
+
+func (s *Service) SaveProductPricingRule(ctx context.Context, cmd ProductPricingRule) (ProductPricingRule, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Code = strings.TrimSpace(cmd.Code)
+	cmd.CostSourceMode = strings.TrimSpace(cmd.CostSourceMode)
+	cmd.RoundingMode = strings.TrimSpace(cmd.RoundingMode)
+	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	if cmd.ID < 0 {
+		return ProductPricingRule{}, ValidationError{Message: "invalid pricing rule"}
+	}
+	if cmd.Name == "" {
+		return ProductPricingRule{}, ValidationError{Message: "name required"}
+	}
+	if cmd.CostSourceMode == "" {
+		cmd.CostSourceMode = "product_cost_context"
+	}
+	if cmd.RoundingMode == "" {
+		cmd.RoundingMode = "none"
+	}
+	if cmd.MarginRate < 0 || cmd.TaxRate < 0 {
+		return ProductPricingRule{}, ValidationError{Message: "rate must not be negative"}
+	}
+	if cmd.ID == 0 {
+		cmd.Active = true
+	}
+	return s.repo.SaveProductPricingRule(ctx, cmd)
+}
+
+func (s *Service) ListPriceTierTemplates(ctx context.Context) ([]PriceTierTemplate, error) {
+	return s.repo.ListPriceTierTemplates(ctx)
+}
+
+func (s *Service) SavePriceTierTemplate(ctx context.Context, cmd PriceTierTemplate) (PriceTierTemplate, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	if cmd.ID < 0 {
+		return PriceTierTemplate{}, ValidationError{Message: "invalid price tier template"}
+	}
+	if cmd.Name == "" {
+		return PriceTierTemplate{}, ValidationError{Message: "name required"}
+	}
+	if len(cmd.Tiers) == 0 {
+		return PriceTierTemplate{}, ValidationError{Message: "tiers required"}
+	}
+	for i := range cmd.Tiers {
+		cmd.Tiers[i].Label = strings.TrimSpace(cmd.Tiers[i].Label)
+		cmd.Tiers[i].QuantityUnit = strings.TrimSpace(cmd.Tiers[i].QuantityUnit)
+		cmd.Tiers[i].Remark = strings.TrimSpace(cmd.Tiers[i].Remark)
+		if cmd.Tiers[i].MinQty < 0 {
+			return PriceTierTemplate{}, ValidationError{Message: "min_qty must not be negative"}
+		}
+		if cmd.Tiers[i].MaxQty != nil && *cmd.Tiers[i].MaxQty <= cmd.Tiers[i].MinQty {
+			return PriceTierTemplate{}, ValidationError{Message: "max_qty must be greater than min_qty"}
+		}
+		if cmd.Tiers[i].QuantityUnit == "" {
+			cmd.Tiers[i].QuantityUnit = "kg"
+		}
+		if cmd.Tiers[i].Position <= 0 {
+			cmd.Tiers[i].Position = i + 1
+		}
+		if cmd.Tiers[i].ID == 0 && !cmd.Tiers[i].Active {
+			cmd.Tiers[i].Active = true
+		}
+	}
+	sort.SliceStable(cmd.Tiers, func(i, j int) bool {
+		if cmd.Tiers[i].Position != cmd.Tiers[j].Position {
+			return cmd.Tiers[i].Position < cmd.Tiers[j].Position
+		}
+		return cmd.Tiers[i].MinQty < cmd.Tiers[j].MinQty
+	})
+	if cmd.ID == 0 {
+		cmd.Active = true
+	}
+	return s.repo.SavePriceTierTemplate(ctx, cmd)
+}
+
+func ResolvePriceTableTemplateInheritance(input PriceTableTemplateResolutionInput) PriceTableTemplateResolution {
+	findGroup := func(id int64) (PriceTableGroupTemplateAssignment, bool) {
+		for _, item := range input.GroupAssignments {
+			if item.GroupItemID == id {
+				return item, true
+			}
+		}
+		return PriceTableGroupTemplateAssignment{}, false
+	}
+	var override PriceTableProductTemplateOverride
+	for _, item := range input.ProductOverrides {
+		if item.ProductID == input.ProductID {
+			override = item
+			break
+		}
+	}
+	subgroup, _ := findGroup(input.GroupItemID)
+	parent, _ := findGroup(subgroup.ParentGroupItemID)
+	tierID, tierSource := firstTemplateSource(
+		templateCandidate{"product", override.TierTemplateID},
+		templateCandidate{"subgroup", subgroup.TierTemplateID},
+		templateCandidate{"parent_group", parent.TierTemplateID},
+		templateCandidate{"default", input.DefaultTierTemplateID},
+	)
+	ruleID, ruleSource := firstTemplateSource(
+		templateCandidate{"product", override.PricingRuleID},
+		templateCandidate{"subgroup", subgroup.PricingRuleID},
+		templateCandidate{"parent_group", parent.PricingRuleID},
+		templateCandidate{"default", input.DefaultPricingRuleID},
+	)
+	return PriceTableTemplateResolution{
+		TierTemplateID:     tierID,
+		TierTemplateSource: tierSource,
+		PricingRuleID:      ruleID,
+		PricingRuleSource:  ruleSource,
+	}
+}
+
+type templateCandidate struct {
+	source string
+	id     int64
+}
+
+func firstTemplateSource(candidates ...templateCandidate) (int64, string) {
+	for _, candidate := range candidates {
+		if candidate.id > 0 {
+			return candidate.id, candidate.source
+		}
+	}
+	return 0, "default"
 }
 
 func (s *Service) ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error) {
@@ -1648,6 +1962,7 @@ func (s *Service) ListProductPriceRecords(ctx context.Context, query ProductPric
 }
 
 func (s *Service) SaveProductPriceRecord(ctx context.Context, cmd SaveProductPriceRecordCommand) (ProductPriceRecord, error) {
+	return ProductPriceRecord{}, ValidationError{Message: "product price records are legacy readonly; use product pricing rules and price lists"}
 	normalized, err := normalizeProductPriceRecordCommand(cmd)
 	if err != nil {
 		return ProductPriceRecord{}, err
@@ -1664,6 +1979,7 @@ func (s *Service) ListProductTierPriceSchemes(ctx context.Context, query Product
 }
 
 func (s *Service) SaveProductTierPriceScheme(ctx context.Context, cmd SaveProductTierPriceSchemeCommand) (ProductTierPriceScheme, error) {
+	return ProductTierPriceScheme{}, ValidationError{Message: "product tier price schemes are legacy readonly; use price tier templates on price lists"}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	cmd.Remark = strings.TrimSpace(cmd.Remark)
@@ -2076,6 +2392,7 @@ func (s *Service) ListCustomerProductAliases(ctx context.Context, query Customer
 }
 
 func (s *Service) SaveCustomerProductAlias(ctx context.Context, cmd CustomerProductAliasCommand) (CustomerProductAlias, error) {
+	return CustomerProductAlias{}, ValidationError{Message: "customer products are legacy readonly; use product customer references"}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	cmd.DisplayName = strings.TrimSpace(cmd.DisplayName)
 	cmd.CustomerItemCode = strings.TrimSpace(cmd.CustomerItemCode)
@@ -2167,6 +2484,7 @@ func (s *Service) SaveCustomerProductAliasIndustryFields(ctx context.Context, cm
 }
 
 func (s *Service) BatchCreateCustomerProductAliases(ctx context.Context, cmd BatchCustomerProductAliasesCommand) (BatchCustomerProductAliasesResult, error) {
+	return BatchCustomerProductAliasesResult{}, ValidationError{Message: "customer products are legacy readonly; use product customer references"}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	cmd.BrandName = strings.TrimSpace(cmd.BrandName)
 	if cmd.CustomerID <= 0 {

@@ -88,7 +88,7 @@ func TestCustomerResaleBeanListWiringAndManuals(t *testing.T) {
 			path: "orderapp-remote/frontend-vue-shell/src/views/CostingView.vue",
 			want: []string{
 				"publicationPurposeFilter",
-				"客户转售豆单",
+				"客户转售价格表",
 				"factory_supply",
 			},
 		},

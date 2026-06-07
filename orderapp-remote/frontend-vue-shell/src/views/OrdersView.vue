@@ -307,6 +307,26 @@
               </div>
             </div>
           </section>
+          <section class="drawer-section trace-section">
+            <h4>报价来源</h4>
+            <div v-if="activeOrderDetail.quote_source_trace?.length" class="trace-list">
+              <article v-for="row in activeOrderDetail.quote_source_trace" :key="`quote-${row.product_id}-${row.price_list_publication_id}-${row.tier_label}`" class="trace-row">
+                <strong>{{ orderTraceLineLabel(row) }}</strong>
+                <span v-for="line in orderTraceSourceLines(row, 'quote')" :key="`quote-line-${row.product_id}-${line}`">{{ line }}</span>
+              </article>
+            </div>
+            <p v-else class="muted">暂无报价来源</p>
+          </section>
+          <section class="drawer-section trace-section">
+            <h4>生产来源</h4>
+            <div v-if="activeOrderDetail.production_source_trace?.length" class="trace-list">
+              <article v-for="row in activeOrderDetail.production_source_trace" :key="`production-${row.product_id}-${row.bom_version_no}-${row.work_order_no}`" class="trace-row">
+                <strong>{{ orderTraceLineLabel(row) }}</strong>
+                <span v-for="line in orderTraceSourceLines(row, 'production')" :key="`production-line-${row.product_id}-${line}`">{{ line }}</span>
+              </article>
+            </div>
+            <p v-else class="muted">暂无生产追溯</p>
+          </section>
           <section class="drawer-section">
             <h4>订单信息</h4>
             <div class="drawer-status-grid">
@@ -679,6 +699,33 @@ function orderItemPriceSourceLabel(sourceJSON) {
     return '价格来源快照'
   }
   return '价格来源快照'
+}
+
+function orderTraceLineLabel(row = {}) {
+  const name = row.product_name || row.productName || '-'
+  const tier = row.tier_label || row.tierLabel || ''
+  return tier ? `${name} · ${tier}` : name
+}
+
+function orderTraceSourceLines(row = {}, type = 'quote') {
+  if (type === 'production') {
+    return [
+      row.bom_version_no ? `BOM：${row.bom_version_no}` : '',
+      row.process_route_name ? `工艺：${row.process_route_name}` : '',
+      row.process_card_no ? `工序卡：${row.process_card_no}` : '',
+      row.work_order_no ? `工单：${row.work_order_no}` : '',
+      row.material_batch_no ? `物料批次：${row.material_batch_no}` : '',
+      row.source_label || '',
+    ].filter(Boolean)
+  }
+  const priceText = row.final_unit_price ? `${moneyLabel(row.final_unit_price)}/${row.price_unit || '-'}` : ''
+  return [
+    row.price_list_version ? `价格表：${row.price_list_version}` : (row.price_list_publication_id ? `价格表：#${row.price_list_publication_id}` : ''),
+    priceText ? `最终价：${priceText}` : '',
+    row.pricing_rule_version ? `Pricing Rule：${row.pricing_rule_version}` : '',
+    row.manual_adjusted ? '人工调整' : '',
+    row.source_label || '',
+  ].filter(Boolean)
 }
 
 function orderEntryPanelKey() {
@@ -1167,6 +1214,11 @@ a, .text-link { color: #1f4f82; text-decoration: none; }
 .detail-item div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .detail-item strong { min-width: 120px; }
 .detail-item span { color: #4b5563; font-size: 12px; }
+.trace-section { background: #fbfcfd; }
+.trace-list { display: grid; gap: 8px; }
+.trace-row { display: grid; gap: 5px; border: 1px solid #e4e9f0; border-radius: 7px; background: #fff; padding: 8px 10px; }
+.trace-row strong { font-size: 13px; color: #1f2937; }
+.trace-row span { color: #4b5563; font-size: 12px; }
 .drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .sales-order-drawer-mask { position: fixed; inset: 0; z-index: 35; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, .24); }
 .sales-order-drawer { width: min(1160px, calc(100vw - 28px)); height: 100%; overflow: auto; background: #f8f7f4; border-left: 1px solid #e6e0d8; box-shadow: -10px 0 24px rgba(0, 0, 0, .14); }

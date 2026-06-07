@@ -2179,6 +2179,12 @@ func TestOrderAPIDetailAllowsCustomerWorkbenchBoundOrder(t *testing.T) {
 		`"receiver_phone":"13800000002"`,
 		`"bean_list_publication_id":7`,
 		`"bean_list_version_no":"V3.0.8"`,
+		`"quote_source_trace"`,
+		`"price_list_version":"V3.0.8"`,
+		`"pricing_rule_version":"PR-COST/v3"`,
+		`"production_source_trace"`,
+		`"bom_version_no":"BOM-A1/V002"`,
+		`"process_route_name":"标准烘焙"`,
 	} {
 		if !strings.Contains(body, needle) {
 			t.Fatalf("GET /api/orders/88/detail missing %s: %s", needle, body)
@@ -2408,6 +2414,7 @@ func (r *capturingOrderDetailRepo) OrderForm(ctx context.Context, editID int64) 
 				LineTotal:             "164.00",
 				BeanListPublicationID: 7,
 				BeanListVersionNo:     "V3.0.8",
+				PriceSourceJSON:       `{"source":"published_bean_list","publication_id":7,"version":"V3.0.8","tier_label":"24kg+","price_unit":"kg","final_unit_price":82,"pricing_rule_version":"PR-COST/v3","manual_adjusted":true,"cost_source_snapshot":{"bom_version_no":"BOM-A1/V002","process_route_name":"标准烘焙"}}`,
 			}},
 		},
 	}, nil

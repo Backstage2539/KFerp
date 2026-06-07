@@ -252,6 +252,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-440-PRODUCT-GROUP-PRICE-REMODEL", title: "商品、分组、价格模型二次修正：去掉客户商品主数据，分组管理泛化，商品价格管理改为 Pricing Rule，商品价格表按分组和模板生成平铺价格行", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; ProductSettingsView.vue; catalog API/schema; docs"},
+		{table: "req_dev", code: "DEV-440-GENERIC-GROUP-MANAGEMENT", title: "新增泛化分组管理：分组列表、分组项树、功能用途引用、对象归组，不写死商品/物料/BOM 对象", status: "doing", assignee: "Codex", evidence: "schema.go; product_routes.go; ProductSettingsView.vue"},
+		{table: "req_dev", code: "DEV-440-PRODUCT-CUSTOMER-REFERENCES", title: "去掉独立客户商品新业务入口，商品档案增加客户引用子表；历史客户商品只读兼容", status: "doing", assignee: "Codex", evidence: "service.go; product_routes.go; ProductSettingsView.vue"},
+		{table: "req_dev", code: "DEV-440-PRICING-RULES", title: "商品价格管理改为价格计算模板 / Pricing Rule，不绑定商品、不维护阶梯、不保存最终成交价", status: "doing", assignee: "Codex", evidence: "product-settings.js; ProductSettingsView.vue; service.go"},
+		{table: "req_dev", code: "DEV-440-PRICE-TIER-TEMPLATES", title: "新版阶梯价模板只定义数量档位，可被商品价格表默认、分组引用和商品行覆盖使用", status: "doing", assignee: "Codex", evidence: "product-settings.js; schema.go; product_routes.go"},
+		{table: "req_dev", code: "DEV-440-PRICE-LIST-FLAT-ROWS", title: "商品价格表作为 Price List 平铺价格行，按商品 > 子组 > 父组 > 默认解析阶梯价模板和价格计算模板", status: "doing", assignee: "Codex", evidence: "product-settings.test.js; service.go; OP_MANUAL_COSTING.md"},
+		{table: "req_review", code: "REV-440-PRODUCT-GROUP-PRICE-REMODEL", prCode: "PR-440-PRODUCT-GROUP-PRICE-REMODEL", title: "验收：菜单无客户商品/分类管理；分组管理可用；商品价格管理只显示 Pricing Rule；商品价格表按分组生成平铺价格行", status: "todo", assignee: "VA", evidence: "docs/acceptance/2026-06-07-product-group-price-remodel.md"},
 		{table: "req_product", code: "PR-439-PRODUCT-PRICE-MASTER-REMODEL", title: "商品档案和客户商品只维护主数据与展示关系；价格、报价单位、录单单位进入商品价格管理和已发布价格表快照", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; ProductSettingsView.vue; catalog API/repository"},
 		{table: "req_dev", code: "DEV-439-PRODUCT-ARCHIVE-MASTER-DATA", title: "商品档案普通 UI 删除商品配置模板、利润率覆盖等旧价格字段，展示库存单位、整数库存、BOM 使用摘要和价格摘要", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; product-settings.test.js"},
 		{table: "req_dev", code: "DEV-439-CUSTOMER-PRODUCT-SNAPSHOT-SUMMARY", title: "客户商品保存只维护客户、绑定商品、展示名、排序、启停、备注和是否进入价格表；价格摘要来自商品价格表快照", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; product-settings.js"},

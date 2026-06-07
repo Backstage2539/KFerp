@@ -24,6 +24,18 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/products/:id", h.detailAPI)
 	e.PUT("/api/products/:id", h.updateAPI)
 	e.GET("/api/product-settings", h.productSettingsAPI)
+	e.GET("/api/business-groups", h.businessGroupsAPI)
+	e.POST("/api/business-groups", h.saveBusinessGroupAPI)
+	e.PUT("/api/business-groups/:id", h.saveBusinessGroupAPI)
+	e.GET("/api/product-customer-references", h.productCustomerReferencesAPI)
+	e.POST("/api/product-customer-references", h.saveProductCustomerReferenceAPI)
+	e.PUT("/api/product-customer-references/:id", h.saveProductCustomerReferenceAPI)
+	e.GET("/api/product-pricing-rules", h.productPricingRulesAPI)
+	e.POST("/api/product-pricing-rules", h.saveProductPricingRuleAPI)
+	e.PUT("/api/product-pricing-rules/:id", h.saveProductPricingRuleAPI)
+	e.GET("/api/price-tier-templates", h.priceTierTemplatesAPI)
+	e.POST("/api/price-tier-templates", h.savePriceTierTemplateAPI)
+	e.PUT("/api/price-tier-templates/:id", h.savePriceTierTemplateAPI)
 	e.GET("/api/customer-product-aliases", h.customerProductAliasesAPI)
 	e.GET("/api/customer-product-aliases/migration-candidates", h.customerProductAliasMigrationCandidatesAPI)
 	e.POST("/api/customer-product-aliases/batch", h.batchCustomerProductAliasesAPI)
@@ -118,6 +130,11 @@ func (o *optionalNullableFloat64) UnmarshalJSON(data []byte) error {
 type productHandler struct {
 	catalog *catalogapp.Service
 }
+
+const (
+	customerProductsLegacyReadonlyError    = "customer products are legacy readonly"
+	productPriceRecordsLegacyReadonlyError = "product price records are legacy readonly"
+)
 
 type productUpdateAPIRequest struct {
 	Name                        *string                   `json:"name"`
@@ -818,6 +835,129 @@ func (h productHandler) productSettingsAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, data)
+}
+
+func (h productHandler) businessGroupsAPI(c echo.Context) error {
+	rows, err := h.catalog.ListBusinessGroups(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"groups": rows, "rows": rows})
+}
+
+func (h productHandler) saveBusinessGroupAPI(c echo.Context) error {
+	var req catalogapp.BusinessGroup
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	req.ID = id
+	req.Actor = support.ActorOf(c)
+	row, err := h.catalog.SaveBusinessGroup(c.Request().Context(), req)
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"group": row})
+}
+
+func (h productHandler) productCustomerReferencesAPI(c echo.Context) error {
+	productID, err := parseOptionalInt64(c.QueryParam("product_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid product_id"})
+	}
+	rows, err := h.catalog.ListProductCustomerReferences(c.Request().Context(), productID)
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"references": rows, "rows": rows})
+}
+
+func (h productHandler) saveProductCustomerReferenceAPI(c echo.Context) error {
+	var req catalogapp.ProductCustomerReference
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	req.ID = id
+	req.Actor = support.ActorOf(c)
+	row, err := h.catalog.SaveProductCustomerReference(c.Request().Context(), req)
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"reference": row})
+}
+
+func (h productHandler) productPricingRulesAPI(c echo.Context) error {
+	rows, err := h.catalog.ListProductPricingRules(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"rules": rows, "rows": rows})
+}
+
+func (h productHandler) saveProductPricingRuleAPI(c echo.Context) error {
+	var req catalogapp.ProductPricingRule
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	req.ID = id
+	req.Actor = support.ActorOf(c)
+	row, err := h.catalog.SaveProductPricingRule(c.Request().Context(), req)
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"rule": row})
+}
+
+func (h productHandler) priceTierTemplatesAPI(c echo.Context) error {
+	rows, err := h.catalog.ListPriceTierTemplates(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"templates": rows, "rows": rows})
+}
+
+func (h productHandler) savePriceTierTemplateAPI(c echo.Context) error {
+	var req catalogapp.PriceTierTemplate
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	req.ID = id
+	req.Actor = support.ActorOf(c)
+	row, err := h.catalog.SavePriceTierTemplate(c.Request().Context(), req)
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"template": row})
 }
 
 func (h productHandler) productUnitDefinitionsAPI(c echo.Context) error {

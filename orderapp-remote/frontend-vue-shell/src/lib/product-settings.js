@@ -190,6 +190,119 @@ export function buildCustomerProductAliasPayload(form = {}) {
   }
 }
 
+export function buildProductCustomerReferencePayload(form = {}) {
+  return {
+    id: Number(form.id || 0),
+    product_id: Number(form.product_id || form.productID || 0),
+    customer_id: Number(form.customer_id || form.customerID || 0),
+    customer_item_code: String(form.customer_item_code ?? form.customerItemCode ?? form.ref_code ?? '').trim(),
+    customer_display_name: String(form.customer_display_name ?? form.customerDisplayName ?? form.display_name ?? '').trim(),
+    active: Boolean(form.active ?? true),
+    remark: String(form.remark ?? '').trim(),
+  }
+}
+
+export function buildPricingRulePayload(form = {}) {
+  return {
+    id: Number(form.id || 0),
+    name: String(form.name ?? '').trim(),
+    code: String(form.code ?? '').trim(),
+    cost_source_mode: String(form.cost_source_mode ?? form.costSourceMode ?? 'product_cost_context').trim() || 'product_cost_context',
+    margin_rate: Number(form.margin_rate ?? form.marginRate ?? 0) || 0,
+    tax_rate: Number(form.tax_rate ?? form.taxRate ?? 0) || 0,
+    rounding_mode: String(form.rounding_mode ?? form.roundingMode ?? 'none').trim() || 'none',
+    active: Boolean(form.active ?? true),
+    remark: String(form.remark ?? '').trim(),
+  }
+}
+
+export function buildPriceTierTemplatePayload(form = {}) {
+  const tiers = Array.isArray(form.tiers) ? form.tiers : []
+  return {
+    id: Number(form.id || 0),
+    name: String(form.name ?? '').trim(),
+    active: Boolean(form.active ?? true),
+    remark: String(form.remark ?? '').trim(),
+    tiers: tiers
+      .map((tier, index) => ({
+        label: String(tier.label ?? '').trim(),
+        min_qty: Number(tier.min_qty ?? tier.minQty ?? 0) || 0,
+        max_qty: tier.max_qty === '' || tier.max_qty === null || tier.max_qty === undefined
+          ? null
+          : Number(tier.max_qty ?? tier.maxQty ?? 0),
+        quantity_unit: String(tier.quantity_unit ?? tier.quantityUnit ?? 'kg').trim() || 'kg',
+        position: Number(tier.position || index + 1),
+        active: Boolean(tier.active ?? true),
+        remark: String(tier.remark ?? '').trim(),
+      }))
+      .sort((a, b) => a.position - b.position || a.min_qty - b.min_qty),
+  }
+}
+
+export function resolvePriceTableTemplateInheritance({
+  defaults = {},
+  groupAssignments = [],
+  productOverrides = [],
+  product = {},
+} = {}) {
+  const productID = Number(product.id || product.product_id || 0)
+  const groupItemID = Number(product.group_item_id || product.groupItemID || 0)
+  const override = (productOverrides || []).find((row) => Number(row.product_id || row.productID || 0) === productID)
+  const subgroup = (groupAssignments || []).find((row) => Number(row.group_item_id || row.groupItemID || 0) === groupItemID)
+  const parentID = Number(subgroup?.parent_group_item_id || subgroup?.parentGroupItemID || product.parent_group_item_id || 0)
+  const parent = (groupAssignments || []).find((row) => Number(row.group_item_id || row.groupItemID || 0) === parentID)
+
+  const tierCandidates = [
+    { source: 'product', value: Number(override?.tier_template_id || override?.tierTemplateID || 0) },
+    { source: 'subgroup', value: Number(subgroup?.tier_template_id || subgroup?.tierTemplateID || 0) },
+    { source: 'parent_group', value: Number(parent?.tier_template_id || parent?.tierTemplateID || 0) },
+    { source: 'default', value: Number(defaults.tier_template_id || defaults.tierTemplateID || 0) },
+  ]
+  const pricingCandidates = [
+    { source: 'product', value: Number(override?.pricing_rule_id || override?.pricingRuleID || 0) },
+    { source: 'subgroup', value: Number(subgroup?.pricing_rule_id || subgroup?.pricingRuleID || 0) },
+    { source: 'parent_group', value: Number(parent?.pricing_rule_id || parent?.pricingRuleID || 0) },
+    { source: 'default', value: Number(defaults.pricing_rule_id || defaults.pricingRuleID || 0) },
+  ]
+  const tier = tierCandidates.find((item) => item.value > 0) || { source: 'default', value: 0 }
+  const pricing = pricingCandidates.find((item) => item.value > 0) || { source: 'default', value: 0 }
+  return {
+    tier_template_id: tier.value,
+    tier_template_source: tier.source,
+    pricing_rule_id: pricing.value,
+    pricing_rule_source: pricing.source,
+  }
+}
+
+export function buildPriceTableRowsFromTemplateResolution({
+  product = {},
+  tierTemplate = {},
+  pricingRule = {},
+  unitPriceByTier = {},
+} = {}) {
+  const productID = Number(product.id || product.product_id || 0)
+  const productName = String(product.name || product.product_name || '').trim()
+  const priceUnit = String(product.price_unit || product.inventory_unit || product.inventoryUnit || 'kg').trim() || 'kg'
+  const tierTemplateID = Number(tierTemplate.id || 0)
+  const pricingRuleID = Number(pricingRule.id || 0)
+  return (Array.isArray(tierTemplate.tiers) ? tierTemplate.tiers : []).map((tier) => {
+    const label = String(tier.label || '').trim()
+    return {
+      product_id: productID,
+      product_name: productName,
+      price_unit: priceUnit,
+      tier_label: label,
+      min_qty: Number(tier.min_qty ?? tier.minQty ?? 0) || 0,
+      max_qty: tier.max_qty === null || tier.max_qty === undefined || tier.max_qty === ''
+        ? null
+        : Number(tier.max_qty ?? tier.maxQty ?? 0),
+      final_unit_price: Number(unitPriceByTier[label] ?? tier.final_unit_price ?? tier.finalUnitPrice ?? 0) || 0,
+      tier_template_id: tierTemplateID,
+      pricing_rule_id: pricingRuleID,
+    }
+  })
+}
+
 export function customerAliasEffectiveDisplayName(alias = {}) {
   const renamed = String(alias.brand_name ?? alias.brandName ?? '').trim()
   if (renamed) return renamed

@@ -55,8 +55,7 @@ export const menuGroups = [
     name: '商品与配方',
     items: [
       { key: 'productMaster', label: '商品档案', title: '商品档案' },
-      { key: 'customerProductAliases', label: '客户商品', title: '客户商品' },
-      { key: 'productCategoryManagement', label: '商品分类管理', title: '商品分类管理' },
+      { key: 'groupManagement', label: '分组管理', title: '分组管理' },
       { key: 'productPriceManagement', label: '商品价格管理', title: '商品价格管理' },
       { key: 'costing', label: '商品价格表', title: '商品价格表' },
       { key: 'costingManual', label: '成本核价手册', title: '成本核价手册' },
@@ -131,6 +130,7 @@ export const hiddenViewTitles = {
   allocationLogs: '分配批次查看',
   products: '商品档案',
   productSettings: '商品档案',
+  productCategoryManagement: '分组管理',
   productConfigTemplates: '商品配置和分类模板',
   pricingGradientTemplates: '阶梯价模板',
   productUnitTemplates: '单位模板',

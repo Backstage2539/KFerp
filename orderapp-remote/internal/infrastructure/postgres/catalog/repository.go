@@ -1426,6 +1426,433 @@ func (r Repository) findProductPriceGroup(ctx context.Context, id int64) (catalo
 	return row, err
 }
 
+func (r Repository) ListBusinessGroups(ctx context.Context) ([]catalogapp.BusinessGroup, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, name, code, remark, active, sort_order
+		FROM %s.business_groups
+		ORDER BY active DESC, sort_order, id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.BusinessGroup, 0)
+	index := map[int64]int{}
+	for rows.Next() {
+		var row catalogapp.BusinessGroup
+		if err := rows.Scan(&row.ID, &row.Name, &row.Code, &row.Remark, &row.Active, &row.SortOrder); err != nil {
+			return nil, err
+		}
+		row.Usages = []catalogapp.BusinessGroupUsage{}
+		row.Items = []catalogapp.BusinessGroupItem{}
+		index[row.ID] = len(out)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+	ids := make([]int64, 0, len(out))
+	for _, row := range out {
+		ids = append(ids, row.ID)
+	}
+	usageRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, group_id, usage_key, usage_label, active
+		FROM %s.business_group_usages
+		WHERE group_id=ANY($1) AND active=true
+		ORDER BY group_id, id
+	`, r.schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	defer usageRows.Close()
+	for usageRows.Next() {
+		var row catalogapp.BusinessGroupUsage
+		if err := usageRows.Scan(&row.ID, &row.GroupID, &row.UsageKey, &row.UsageLabel, &row.Active); err != nil {
+			return nil, err
+		}
+		if i, ok := index[row.GroupID]; ok {
+			out[i].Usages = append(out[i].Usages, row)
+		}
+	}
+	if err := usageRows.Err(); err != nil {
+		return nil, err
+	}
+	itemRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, group_id, parent_id, name, code, remark, active, sort_order
+		FROM %s.business_group_items
+		WHERE group_id=ANY($1) AND active=true
+		ORDER BY group_id, parent_id, sort_order, id
+	`, r.schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	defer itemRows.Close()
+	itemsByGroup := map[int64][]catalogapp.BusinessGroupItem{}
+	for itemRows.Next() {
+		var row catalogapp.BusinessGroupItem
+		if err := itemRows.Scan(&row.ID, &row.GroupID, &row.ParentID, &row.Name, &row.Code, &row.Remark, &row.Active, &row.SortOrder); err != nil {
+			return nil, err
+		}
+		itemsByGroup[row.GroupID] = append(itemsByGroup[row.GroupID], row)
+	}
+	if err := itemRows.Err(); err != nil {
+		return nil, err
+	}
+	for groupID, items := range itemsByGroup {
+		if i, ok := index[groupID]; ok {
+			out[i].Items = businessGroupItemTree(items)
+		}
+	}
+	return out, nil
+}
+
+func (r Repository) SaveBusinessGroup(ctx context.Context, cmd catalogapp.BusinessGroup) (catalogapp.BusinessGroup, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.BusinessGroup{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.BusinessGroup{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var id int64
+	if cmd.ID > 0 {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.business_groups
+			SET name=$2, code=$3, remark=$4, active=$5, sort_order=$6, updated_at=now(), updated_by=$7
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.Name, cmd.Code, cmd.Remark, cmd.Active, cmd.SortOrder, cmd.Actor).Scan(&id)
+	} else {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.business_groups(name, code, remark, active, sort_order, created_by, updated_by)
+			VALUES($1,$2,$3,$4,$5,$6,$6)
+			RETURNING id
+		`, r.schema), cmd.Name, cmd.Code, cmd.Remark, cmd.Active, cmd.SortOrder, cmd.Actor).Scan(&id)
+	}
+	if err != nil {
+		return catalogapp.BusinessGroup{}, err
+	}
+	if len(cmd.Usages) > 0 {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.business_group_usages SET active=false, updated_at=now() WHERE group_id=$1`, r.schema), id); err != nil {
+			return catalogapp.BusinessGroup{}, err
+		}
+		for _, usage := range cmd.Usages {
+			usage.UsageKey = strings.TrimSpace(usage.UsageKey)
+			usage.UsageLabel = strings.TrimSpace(usage.UsageLabel)
+			if usage.UsageKey == "" {
+				continue
+			}
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s.business_group_usages(group_id, usage_key, usage_label, active, created_by, updated_by)
+				VALUES($1,$2,$3,true,$4,$4)
+			`, r.schema), id, usage.UsageKey, usage.UsageLabel, cmd.Actor); err != nil {
+				return catalogapp.BusinessGroup{}, err
+			}
+		}
+	}
+	if len(cmd.Items) > 0 {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.business_group_items SET active=false, updated_at=now() WHERE group_id=$1`, r.schema), id); err != nil {
+			return catalogapp.BusinessGroup{}, err
+		}
+		flat := make([]catalogapp.BusinessGroupItem, 0)
+		flattenBusinessGroupItems(id, 0, cmd.Items, &flat)
+		for _, item := range flat {
+			if item.Name == "" {
+				continue
+			}
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`
+				INSERT INTO %s.business_group_items(group_id, parent_id, name, code, remark, active, sort_order)
+				VALUES($1,$2,$3,$4,$5,true,$6)
+			`, r.schema), id, item.ParentID, item.Name, item.Code, item.Remark, item.SortOrder); err != nil {
+				return catalogapp.BusinessGroup{}, err
+			}
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "business_group", &id, "save_business_group", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"active": cmd.Active, "sort_order": cmd.SortOrder}); err != nil {
+		return catalogapp.BusinessGroup{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.BusinessGroup{}, err
+	}
+	rows, err := r.ListBusinessGroups(ctx)
+	if err != nil {
+		return catalogapp.BusinessGroup{}, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, nil
+		}
+	}
+	return catalogapp.BusinessGroup{}, fmt.Errorf("business group not found")
+}
+
+func businessGroupItemTree(items []catalogapp.BusinessGroupItem) []catalogapp.BusinessGroupItem {
+	nodes := map[int64]*catalogapp.BusinessGroupItem{}
+	for _, item := range items {
+		item.Children = []catalogapp.BusinessGroupItem{}
+		copyItem := item
+		nodes[item.ID] = &copyItem
+	}
+	roots := make([]catalogapp.BusinessGroupItem, 0)
+	for _, item := range items {
+		node := nodes[item.ID]
+		if item.ParentID > 0 {
+			if parent, ok := nodes[item.ParentID]; ok {
+				parent.Children = append(parent.Children, *node)
+				continue
+			}
+		}
+		roots = append(roots, *node)
+	}
+	return roots
+}
+
+func flattenBusinessGroupItems(groupID, parentID int64, items []catalogapp.BusinessGroupItem, out *[]catalogapp.BusinessGroupItem) {
+	for i, item := range items {
+		item.GroupID = groupID
+		item.ParentID = parentID
+		item.Name = strings.TrimSpace(item.Name)
+		item.Code = strings.TrimSpace(item.Code)
+		item.Remark = strings.TrimSpace(item.Remark)
+		if item.SortOrder <= 0 {
+			item.SortOrder = (i + 1) * 10
+		}
+		*out = append(*out, item)
+		// Newly saved nested items are reinserted, so child parent IDs cannot be
+		// preserved until the UI grows item-level edit endpoints.
+		if len(item.Children) > 0 && item.ID > 0 {
+			flattenBusinessGroupItems(groupID, item.ID, item.Children, out)
+		}
+	}
+}
+
+func (r Repository) ListProductCustomerReferences(ctx context.Context, productID int64) ([]catalogapp.ProductCustomerReference, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, product_id, customer_id, customer_item_code, customer_display_name, active, remark
+		FROM %s.product_customer_references
+		WHERE ($1::bigint=0 OR product_id=$1)
+		ORDER BY active DESC, product_id, customer_id, id
+	`, r.schema), productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.ProductCustomerReference, 0)
+	for rows.Next() {
+		var row catalogapp.ProductCustomerReference
+		if err := rows.Scan(&row.ID, &row.ProductID, &row.CustomerID, &row.CustomerItemCode, &row.CustomerDisplayName, &row.Active, &row.Remark); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveProductCustomerReference(ctx context.Context, cmd catalogapp.ProductCustomerReference) (catalogapp.ProductCustomerReference, error) {
+	var id int64
+	var err error
+	if cmd.ID > 0 {
+		err = r.pool.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.product_customer_references
+			SET product_id=$2, customer_id=$3, customer_item_code=$4, customer_display_name=$5, active=$6, remark=$7, updated_at=now(), updated_by=$8
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+	} else {
+		err = r.pool.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.product_customer_references(product_id, customer_id, customer_item_code, customer_display_name, active, remark, created_by, updated_by)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$7)
+			RETURNING id
+		`, r.schema), cmd.ProductID, cmd.CustomerID, cmd.CustomerItemCode, cmd.CustomerDisplayName, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+	}
+	if err != nil {
+		return catalogapp.ProductCustomerReference{}, err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_customer_reference", &id, "save_product_customer_reference", postgresinfra.StrPtr("customer_display_name"), nil, postgresinfra.StrPtr(cmd.CustomerDisplayName), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "customer_id": cmd.CustomerID, "customer_item_code": cmd.CustomerItemCode, "active": cmd.Active})
+	rows, err := r.ListProductCustomerReferences(ctx, cmd.ProductID)
+	if err != nil {
+		return catalogapp.ProductCustomerReference{}, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, nil
+		}
+	}
+	return catalogapp.ProductCustomerReference{}, fmt.Errorf("product customer reference not found")
+}
+
+func (r Repository) ListProductPricingRules(ctx context.Context) ([]catalogapp.ProductPricingRule, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, name, code, cost_source_mode, margin_rate::float8, tax_rate::float8, rounding_mode, active, remark
+		FROM %s.product_pricing_rules
+		ORDER BY active DESC, id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.ProductPricingRule, 0)
+	for rows.Next() {
+		var row catalogapp.ProductPricingRule
+		if err := rows.Scan(&row.ID, &row.Name, &row.Code, &row.CostSourceMode, &row.MarginRate, &row.TaxRate, &row.RoundingMode, &row.Active, &row.Remark); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveProductPricingRule(ctx context.Context, cmd catalogapp.ProductPricingRule) (catalogapp.ProductPricingRule, error) {
+	var id int64
+	var err error
+	if cmd.ID > 0 {
+		err = r.pool.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.product_pricing_rules
+			SET name=$2, code=$3, cost_source_mode=$4, margin_rate=$5, tax_rate=$6, rounding_mode=$7, active=$8, remark=$9, updated_at=now(), updated_by=$10
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.Name, cmd.Code, cmd.CostSourceMode, cmd.MarginRate, cmd.TaxRate, cmd.RoundingMode, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+	} else {
+		err = r.pool.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.product_pricing_rules(name, code, cost_source_mode, margin_rate, tax_rate, rounding_mode, active, remark, created_by, updated_by)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
+			RETURNING id
+		`, r.schema), cmd.Name, cmd.Code, cmd.CostSourceMode, cmd.MarginRate, cmd.TaxRate, cmd.RoundingMode, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+	}
+	if err != nil {
+		return catalogapp.ProductPricingRule{}, err
+	}
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_pricing_rule", &id, "save_product_pricing_rule", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"margin_rate": cmd.MarginRate, "tax_rate": cmd.TaxRate, "rounding_mode": cmd.RoundingMode, "active": cmd.Active})
+	rows, err := r.ListProductPricingRules(ctx)
+	if err != nil {
+		return catalogapp.ProductPricingRule{}, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, nil
+		}
+	}
+	return catalogapp.ProductPricingRule{}, fmt.Errorf("product pricing rule not found")
+}
+
+func (r Repository) ListPriceTierTemplates(ctx context.Context) ([]catalogapp.PriceTierTemplate, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, name, active, remark
+		FROM %s.price_tier_templates
+		ORDER BY active DESC, id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.PriceTierTemplate, 0)
+	index := map[int64]int{}
+	for rows.Next() {
+		var row catalogapp.PriceTierTemplate
+		if err := rows.Scan(&row.ID, &row.Name, &row.Active, &row.Remark); err != nil {
+			return nil, err
+		}
+		row.Tiers = []catalogapp.PriceTierTemplateTier{}
+		index[row.ID] = len(out)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+	ids := make([]int64, 0, len(out))
+	for _, row := range out {
+		ids = append(ids, row.ID)
+	}
+	tierRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, template_id, label, min_qty::float8, max_qty::float8, quantity_unit, position, active, remark
+		FROM %s.price_tier_template_tiers
+		WHERE active=true AND template_id=ANY($1)
+		ORDER BY template_id, position, min_qty, id
+	`, r.schema), ids)
+	if err != nil {
+		return nil, err
+	}
+	defer tierRows.Close()
+	for tierRows.Next() {
+		var row catalogapp.PriceTierTemplateTier
+		if err := tierRows.Scan(&row.ID, &row.TemplateID, &row.Label, &row.MinQty, &row.MaxQty, &row.QuantityUnit, &row.Position, &row.Active, &row.Remark); err != nil {
+			return nil, err
+		}
+		if i, ok := index[row.TemplateID]; ok {
+			out[i].Tiers = append(out[i].Tiers, row)
+		}
+	}
+	return out, tierRows.Err()
+}
+
+func (r Repository) SavePriceTierTemplate(ctx context.Context, cmd catalogapp.PriceTierTemplate) (catalogapp.PriceTierTemplate, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.PriceTierTemplate{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.PriceTierTemplate{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var id int64
+	if cmd.ID > 0 {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.price_tier_templates
+			SET name=$2, active=$3, remark=$4, updated_at=now(), updated_by=$5
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.Name, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+		if err == nil {
+			_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.price_tier_template_tiers SET active=false, updated_at=now() WHERE template_id=$1`, r.schema), id)
+		}
+	} else {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.price_tier_templates(name, active, remark, created_by, updated_by)
+			VALUES($1,$2,$3,$4,$4)
+			RETURNING id
+		`, r.schema), cmd.Name, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+	}
+	if err != nil {
+		return catalogapp.PriceTierTemplate{}, err
+	}
+	for i := range cmd.Tiers {
+		cmd.Tiers[i].TemplateID = id
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.price_tier_template_tiers(template_id, label, min_qty, max_qty, quantity_unit, position, active, remark)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+		`, r.schema), id, cmd.Tiers[i].Label, cmd.Tiers[i].MinQty, cmd.Tiers[i].MaxQty, cmd.Tiers[i].QuantityUnit, cmd.Tiers[i].Position, cmd.Tiers[i].Active, cmd.Tiers[i].Remark); err != nil {
+			return catalogapp.PriceTierTemplate{}, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "price_tier_template", &id, "save_price_tier_template", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"tier_count": len(cmd.Tiers), "active": cmd.Active}); err != nil {
+		return catalogapp.PriceTierTemplate{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.PriceTierTemplate{}, err
+	}
+	rows, err := r.ListPriceTierTemplates(ctx)
+	if err != nil {
+		return catalogapp.PriceTierTemplate{}, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, nil
+		}
+	}
+	return catalogapp.PriceTierTemplate{}, fmt.Errorf("price tier template not found")
+}
+
 func (r Repository) ListProductPriceRecords(ctx context.Context, query catalogapp.ProductPriceRecordQuery) ([]catalogapp.ProductPriceRecord, error) {
 	activeMode := strings.ToLower(strings.TrimSpace(query.ActiveMode))
 	status := strings.TrimSpace(query.Status)

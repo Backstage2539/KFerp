@@ -35,7 +35,7 @@ func TestDev351OrderEntryPublicBeanListNoCustomer(t *testing.T) {
 	requireDev351Contains(t, "docs/OP_MANUAL_ORDER_SALES.md",
 		"PR-351-ORDER-ENTRY-PUBLIC-BEANLIST-NO-CUSTOMER",
 		"尚未选择客户",
-		"公共已发布豆单版本",
+		"公共已发布价格表版本",
 	)
 	requireDev351Contains(t, "docs/acceptance/2026-05-24-order-entry-public-beanlist-no-customer.md",
 		"customer_id=0",

@@ -41,6 +41,14 @@ function orderEntryViewSource() {
   return readFileSync(new URL('../views/OrderEntryView.vue', import.meta.url), 'utf8')
 }
 
+function ordersViewSource() {
+  return readFileSync(new URL('../views/OrdersView.vue', import.meta.url), 'utf8')
+}
+
+function salesOrderViewSource() {
+  return readFileSync(new URL('../views/SalesOrderView.vue', import.meta.url), 'utf8')
+}
+
 function cssBlock(source, selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const match = source.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 's'))
@@ -551,13 +559,43 @@ test('resolveWholesaleTierPrice keeps kg tier unit, source version, and below-mi
   assert.equal(Number(lineTotal({ tiers: [] }, pricedRow, false).toFixed(2)), 6.56)
 })
 
-test('OrderEntryView shows tier unit price, bean list version without unrecorded fallback, and below-min warning', () => {
+test('OrderEntryView shows tier unit price, price-list source without unrecorded fallback, and below-min warning', () => {
   const source = orderEntryViewSource()
 
   assert.match(source, /tier_price_label/)
   assert.match(source, /低于最低梯度/)
   assert.match(source, /\.tier-warning/)
+  assert.match(source, /报价来源：价格表/)
   assert.doesNotMatch(source, /豆单版本：\{\{\s*row\.bean_list_version_no\s*\|\|\s*'未记录'\s*\}\}/)
+})
+
+test('OrdersView detail shows read-only quote source and production source trace blocks', () => {
+  const source = ordersViewSource()
+  for (const expected of [
+    '报价来源',
+    '生产来源',
+    'quote_source_trace',
+    'production_source_trace',
+    'orderTraceLineLabel',
+    'orderTraceSourceLines',
+  ]) {
+    assert.match(source, new RegExp(expected))
+  }
+})
+
+test('SalesOrderView shows read-only quote source and production source trace blocks', () => {
+  const source = salesOrderViewSource()
+  for (const expected of [
+    '报价来源',
+    '生产来源',
+    'quote_source_trace',
+    'production_source_trace',
+    'salesOrderTraceLineLabel',
+    'salesOrderTraceLines',
+    'loadSalesOrderTrace',
+  ]) {
+    assert.match(source, new RegExp(expected))
+  }
 })
 
 test('rowUsesStaleBeanListPublication flags product rows whose publication is not the latest version', () => {
@@ -704,13 +742,13 @@ test('needsTrailingBlankOrderLine only requests one empty detail row after produ
   ]), true)
 })
 
-test('OrderEntryView puts add detail below the list and renders stale bean list warning icon', () => {
+test('OrderEntryView puts add detail below the list and renders stale price-list warning icon', () => {
   const source = orderEntryViewSource()
   const headerBlock = source.slice(source.indexOf('<section class="panel"'), source.indexOf('<div class="line-list">'))
   assert.doesNotMatch(headerBlock, /新增明细/)
   assert.ok(source.indexOf('class="line-actions"') > source.indexOf('<div class="line-list">'))
   assert.match(source, /rowUsesStaleBeanListPublication/)
-  assert.match(source, /非新版本豆单/)
+  assert.match(source, /非最新价格表/)
   assert.match(source, /bean-list-version-warning/)
 })
 
@@ -956,13 +994,13 @@ test('order entry customer drawer requires customer type source and order type f
   assert.doesNotMatch(source, /请选择能力模板/)
 })
 
-test('order entry moves bean list selection from order information to product details drawer', () => {
+test('order entry moves price-list selection from order information to product details drawer', () => {
   const source = orderEntryViewSource()
   const orderInfoBlock = source.slice(source.indexOf('<section class="panel order-fields"'), source.indexOf('<section class="panel" :class'))
   const lineSection = source.slice(source.indexOf('<section class="panel" :class'))
 
   assert.doesNotMatch(orderInfoBlock, /showBeanListVersionPickerByType/)
-  assert.match(lineSection, /选择豆单/)
+  assert.match(lineSection, /选择价格表/)
   assert.match(source, /bean-list-drawer/)
   assert.match(source, /openBeanListDrawer/)
 })

@@ -621,6 +621,9 @@ func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListComman
 }
 
 func validateBeanListFinalPriceSnapshots(cmd PublishBeanListCommand) error {
+	if err := validateBeanListFlatPriceRows(cmd); err != nil {
+		return err
+	}
 	groups, ok := cmd.Content["groups"].([]any)
 	if !ok || len(groups) == 0 {
 		return nil
@@ -672,6 +675,55 @@ func validateBeanListFinalPriceSnapshots(cmd PublishBeanListCommand) error {
 	return nil
 }
 
+func validateBeanListFlatPriceRows(cmd PublishBeanListCommand) error {
+	rows, ok := cmd.Content["price_rows"].([]any)
+	if !ok || len(rows) == 0 {
+		return nil
+	}
+	for idx, rawRow := range rows {
+		row, ok := rawRow.(map[string]any)
+		if !ok || !beanListFlatPriceRowHasPrice(row) {
+			continue
+		}
+		position := idx + 1
+		if numberValue(row["final_unit_price"]) <= 0 {
+			return fmt.Errorf("价格表平铺行缺少最终价：第%d行", position)
+		}
+		if stringValue(row["price_unit"]) == "" {
+			return fmt.Errorf("价格表平铺行缺少价格单位：第%d行", position)
+		}
+		if stringValue(row["inventory_unit"]) == "" {
+			return fmt.Errorf("价格表平铺行缺少库存单位：第%d行", position)
+		}
+		if !hasBeanListInventoryConversion(row["inventory_conversion_json"]) {
+			return fmt.Errorf("价格表平铺行缺少价格单位到库存单位换算：第%d行", position)
+		}
+		if !hasNonEmptyObjectSnapshot(row["group_snapshot"]) {
+			return fmt.Errorf("价格表平铺行缺少分组快照：第%d行", position)
+		}
+		if numberValue(row["tier_template_id"]) <= 0 || stringValue(row["tier_template_source"]) == "" {
+			return fmt.Errorf("价格表平铺行缺少阶梯价模板来源：第%d行", position)
+		}
+		if numberValue(row["pricing_rule_id"]) <= 0 || stringValue(row["pricing_rule_source"]) == "" || stringValue(row["pricing_rule_version"]) == "" {
+			return fmt.Errorf("价格表平铺行缺少 Pricing Rule 来源：第%d行", position)
+		}
+		if !hasNonEmptyObjectSnapshot(row["cost_source_snapshot"]) {
+			return fmt.Errorf("价格表平铺行缺少成本来源快照：第%d行", position)
+		}
+		if _, exists := row["customer_reference_snapshot"]; !exists || !hasObjectSnapshot(row["customer_reference_snapshot"]) {
+			return fmt.Errorf("价格表平铺行缺少客户引用展示快照：第%d行", position)
+		}
+		if _, exists := row["manual_adjusted"]; !exists {
+			return fmt.Errorf("价格表平铺行缺少人工调整标记：第%d行", position)
+		}
+	}
+	return nil
+}
+
+func beanListFlatPriceRowHasPrice(row map[string]any) bool {
+	return numberValue(row["final_unit_price"]) > 0 || numberValue(row["original_final_unit_price"]) > 0
+}
+
 func beanListTierHasPrice(tier map[string]any) bool {
 	for _, key := range []string{"final_unit_price", "price_per_unit", "price_per_kg", "price_per_lb", "packed_price_per_bag", "packed_price_per_box"} {
 		if numberValue(tier[key]) > 0 {
@@ -691,6 +743,52 @@ func hasBeanListInventoryConversion(value any) bool {
 		return hasBeanListInventoryConversion(string(v))
 	case []byte:
 		return hasBeanListInventoryConversion(string(v))
+	case string:
+		v = strings.TrimSpace(v)
+		if v == "" || v == "{}" || v == "null" {
+			return false
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(v), &decoded); err != nil {
+			return false
+		}
+		return len(decoded) > 0
+	default:
+		return false
+	}
+}
+
+func hasObjectSnapshot(value any) bool {
+	switch v := value.(type) {
+	case map[string]any:
+		return true
+	case json.RawMessage:
+		return hasObjectSnapshot(string(v))
+	case []byte:
+		return hasObjectSnapshot(string(v))
+	case string:
+		v = strings.TrimSpace(v)
+		if v == "" || v == "null" {
+			return false
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(v), &decoded); err != nil {
+			return false
+		}
+		return decoded != nil
+	default:
+		return false
+	}
+}
+
+func hasNonEmptyObjectSnapshot(value any) bool {
+	switch v := value.(type) {
+	case map[string]any:
+		return len(v) > 0
+	case json.RawMessage:
+		return hasNonEmptyObjectSnapshot(string(v))
+	case []byte:
+		return hasNonEmptyObjectSnapshot(string(v))
 	case string:
 		v = strings.TrimSpace(v)
 		if v == "" || v == "{}" || v == "null" {
