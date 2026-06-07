@@ -30,10 +30,16 @@
 - [x] 部署后运行 `scripts/scenario_acceptance.py --allow-writes` 的 `POST_DEPLOY_ACCEPTANCE_SCENARIOS`。脚本必须自造测试客户、原料、商品、分组、Pricing Rule、阶梯模板、客户引用、商品价格表和订单；结束时必须撤回价格表、失效订单、停用/废弃测试主数据，清理失败则验收失败。
 
 ## 0.0.2 PR-443 Pricing Rule 公式配置
-- [ ] `商品价格管理` 的 Pricing Rule 可维护成本来源、成本项、损耗/出率、利润方式、税费方式、最低毛利、取整、公式版本和试算说明。
+- [ ] `商品价格管理` 的 Pricing Rule 可维护基础成本、其他成本、损耗/出率、利润方式、税费方式、最低毛利、取整、公式版本和试算说明。
 - [ ] Pricing Rule 不保存数量档位，不出现 `min_qty`、`max_qty`、档位标签、档位排序、每档最终价或客户专属档位字段；数量档位继续只在 `阶梯模板` 或商品价格表生成上下文中出现。
 - [ ] 保存 Pricing Rule 时，API 返回 `calculation_json` 和 `formula_version`；向 `calculation_json` 写入阶梯档位字段必须被拒绝。
 - [ ] 商品价格表生成平铺价格行时，价格行成本来源快照冻结 Pricing Rule 公式版本和公式配置；发布后不回写 Pricing Rule。
+
+## 0.0.2 PR-444 Pricing Rule 成本配置简化
+- [ ] `商品价格管理` 的基础成本只展示 `生产 BOM 成本（物料+工序）`，不再展示商品成本上下文、成本取数口径、库存成本、手工成本或最近采购成本。
+- [ ] Pricing Rule 保存时，旧成本来源值归一为 `bom_current_cost`；`calculation_json` 不再保存 `cost_components`。
+- [ ] Pricing Rule 可维护 `其他成本` KV，成本名为空时忽略，同名键以后写入为准，成本价格必须是非负数字。
+- [ ] 价格计算模板支持编辑和失效；失效不回写已发布商品价格表快照。
 
 ## 0.0.2 PR-441 商品价格表阶梯模板与三种计价模式
 - [x] 商品价格管理只显示 `价格计算模板 / Pricing Rule`，不再提供阶梯模板维护入口。

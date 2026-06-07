@@ -717,7 +717,7 @@ func TestPricingRuleAndPriceTierTemplateServicesUseNewPriceListModel(t *testing.
 	if err != nil {
 		t.Fatalf("SaveProductPricingRule() err=%v", err)
 	}
-	if rule.ID <= 0 || rule.Name != "成本加成模板" || rule.Code != "RULE-001" || rule.CostSourceMode != "product_cost_context" || rule.RoundingMode != "none" {
+	if rule.ID <= 0 || rule.Name != "成本加成模板" || rule.Code != "RULE-001" || rule.CostSourceMode != "bom_current_cost" || rule.RoundingMode != "none" {
 		t.Fatalf("pricing rule not normalized: %+v", rule)
 	}
 

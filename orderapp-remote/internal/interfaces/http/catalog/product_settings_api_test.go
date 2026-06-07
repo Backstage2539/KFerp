@@ -2977,7 +2977,7 @@ func TestProductPricingRuleAPIReplacesFinalPriceRecordMasterData(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST pricing rule status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"name":"成本加成模板"`, `"code":"RULE-001"`, `"cost_source_mode":"product_cost_context"`, `"rounding_mode":"none"`} {
+	for _, want := range []string{`"name":"成本加成模板"`, `"code":"RULE-001"`, `"cost_source_mode":"bom_current_cost"`, `"rounding_mode":"none"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("pricing rule response missing %s: %s", want, rec.Body.String())
 		}
@@ -3002,6 +3002,7 @@ func TestProductPricingRuleAPISavesCalculationTemplateWithoutQuantityTiers(t *te
 			"profit_method":"gross_margin",
 			"tax_mode":"tax_included",
 			"minimum_margin_rate":0.18,
+			"other_costs":{"包装贴标":1.25,"认证费":2.5},
 			"trial_note":"选择商品、报价单位后试算"
 		},
 		"min_qty":10,
@@ -3018,21 +3019,39 @@ func TestProductPricingRuleAPISavesCalculationTemplateWithoutQuantityTiers(t *te
 	for _, want := range []string{
 		`"cost_source_mode":"bom_current_cost"`,
 		`"formula_version":"v2"`,
-		`"cost_components":["material","operation","labor","equipment_energy","packaging","logistics"]`,
 		`"yield_loss_mode":"bom_or_product"`,
 		`"profit_method":"gross_margin"`,
 		`"tax_mode":"tax_included"`,
 		`"minimum_margin_rate":0.18`,
+		`"other_costs":{"包装贴标":1.25,"认证费":2.5}`,
 		`"trial_note":"选择商品、报价单位后试算"`,
 	} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("pricing rule calculation response missing %s: %s", want, rec.Body.String())
 		}
 	}
-	for _, forbidden := range []string{`"min_qty"`, `"max_qty"`, `"tier_label"`, `"tiers"`} {
+	for _, forbidden := range []string{`"cost_components"`, `"min_qty"`, `"max_qty"`, `"tier_label"`, `"tiers"`} {
 		if bytes.Contains(rec.Body.Bytes(), []byte(forbidden)) {
-			t.Fatalf("pricing rule response must not carry quantity tier field %s: %s", forbidden, rec.Body.String())
+			t.Fatalf("pricing rule response must not carry removed field %s: %s", forbidden, rec.Body.String())
 		}
+	}
+}
+
+func TestProductPricingRuleAPICanDeactivateExistingTemplate(t *testing.T) {
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(&productSettingsRepo{}))
+
+	req := httptest.NewRequest(http.MethodPut, "/api/product-pricing-rules/63", bytes.NewBufferString(`{
+		"name":"停用模板",
+		"code":"RULE-INACTIVE",
+		"cost_source_mode":"bom_current_cost",
+		"active":false
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"active":false`)) {
+		t.Fatalf("PUT pricing rule inactive status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

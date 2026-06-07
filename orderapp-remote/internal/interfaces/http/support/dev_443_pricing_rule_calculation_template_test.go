@@ -18,7 +18,9 @@ func TestDev443PricingRuleCalculationTemplateContracts(t *testing.T) {
 			"pricing rule must not contain quantity tiers",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"成本项配置",
+			"基础成本",
+			"生产 BOM 成本（物料+工序）",
+			"其他成本",
 			"利润方式",
 			"税费方式",
 			"最低毛利",
@@ -52,4 +54,24 @@ func TestDev443PricingRuleCalculationTemplateContracts(t *testing.T) {
 		strings.Contains(schema, "product_pricing_rules (\n\tid BIGSERIAL PRIMARY KEY,\n\ttier_label") {
 		t.Fatalf("product_pricing_rules must not add quantity tier columns")
 	}
+
+	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
+	pane := productPriceManagementPaneForDev443(view)
+	for _, forbidden := range []string{"商品成本上下文", "成本取数口径", "成本项配置", "库存成本", "手工成本", "最近采购成本"} {
+		if strings.Contains(pane, forbidden) {
+			t.Fatalf("pricing rule pane must not expose removed cost marker %q", forbidden)
+		}
+	}
+}
+
+func productPriceManagementPaneForDev443(source string) string {
+	start := strings.Index(source, `<div v-show="showProductPriceManagementPane"`)
+	if start < 0 {
+		return ""
+	}
+	end := strings.Index(source[start:], `<div v-if="classificationTemplateCreateDrawerOpen"`)
+	if end < 0 {
+		return source[start:]
+	}
+	return source[start : start+end]
 }

@@ -367,8 +367,15 @@ test('pricing rules and tier templates are independent templates used by price l
       tax_mode: 'tax_included',
       minimum_margin_rate: '0.18',
       trial_note: '选择商品、报价单位后试算',
+      other_costs: { '认证费': '2.5' },
       tier_label: 'should be ignored',
     },
+    other_cost_rows: [
+      { key: ' 包装贴标 ', value: '1.25' },
+      { key: '认证费', value: '2.5' },
+      { key: '认证费', value: '3.5' },
+      { key: '', value: '99' },
+    ],
     product_id: 88,
     customer_product_alias_id: 99,
     final_unit_price: 88,
@@ -382,18 +389,21 @@ test('pricing rules and tier templates are independent templates used by price l
     id: 5,
     name: '成本加成含税',
     code: 'PR-COST',
-    cost_source_mode: 'product_cost_context',
+    cost_source_mode: 'bom_current_cost',
     margin_rate: 0.32,
     tax_rate: 0.06,
     rounding_mode: 'yuan',
     formula_version: 'v2',
     calculation_json: {
-      cost_components: ['material', 'operation', 'packaging', 'logistics'],
       yield_loss_mode: 'bom_or_product',
       profit_method: 'gross_margin',
       tax_mode: 'tax_included',
       minimum_margin_rate: 0.18,
       trial_note: '选择商品、报价单位后试算',
+      other_costs: {
+        '包装贴标': 1.25,
+        '认证费': 3.5,
+      },
     },
     active: false,
     remark: '用 BOM 和工艺成本试算',
@@ -501,13 +511,13 @@ test('product settings exposes pricing rule pane instead of final price records'
   const pane = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<div v-if="classificationTemplateCreateDrawerOpen"/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
-  for (const want of ['product-price-management-pane', '商品价格管理', '价格计算模板', 'Pricing Rule', '成本来源', '成本项配置', '利润方式', '税费方式', '最低毛利', '公式版本', '试算说明', '利润率', '税率', '取整规则']) {
-    assert.match(pane, new RegExp(want))
+  for (const want of ['product-price-management-pane', '商品价格管理', '价格计算模板', 'Pricing Rule', '基础成本', '生产 BOM 成本（物料+工序）', '其他成本', '成本名', '成本价格', '全局币种配置', '利润方式', '税费方式', '最低毛利', '公式版本', '试算说明', '利润率', '税率', '取整规则', '编辑', '失效']) {
+    assert.equal(pane.includes(want), true, `product price management pane should expose ${want}`)
   }
-  for (const want of ['pricingRules', 'buildPricingRulePayload']) {
+  for (const want of ['pricingRules', 'buildPricingRulePayload', 'startPricingRuleEdit', 'deactivatePricingRule', 'addPricingRuleOtherCostRow']) {
     assert.match(script, new RegExp(want))
   }
-  for (const forbidden of ['商品价格记录', '最终单价', '引用价格记录', 'source_price_record_id', '阶梯价模板', 'priceTierTemplateForm', 'savePriceTierTemplate', 'min_qty', 'max_qty', 'tier_label']) {
+  for (const forbidden of ['商品成本上下文', '成本项配置', '库存成本', '手工成本', '最近采购成本', '成本取数口径', '商品价格记录', '最终单价', '引用价格记录', 'source_price_record_id', '阶梯价模板', 'priceTierTemplateForm', 'savePriceTierTemplate', 'min_qty', 'max_qty', 'tier_label']) {
     assert.equal(pane.includes(forbidden), false, `product price management pane should not expose ${forbidden}`)
   }
 })
