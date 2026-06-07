@@ -84,8 +84,8 @@ type createProductionBomRequest struct {
 type updateProductionBomRequest struct {
 	Name            string `json:"name"`
 	OutputProductID int64  `json:"output_product_id"`
-	GroupID         int64  `json:"group_id"`
-	GroupCategoryID int64  `json:"group_category_id"`
+	GroupID         *int64 `json:"group_id"`
+	GroupCategoryID *int64 `json:"group_category_id"`
 	Status          string `json:"status"`
 }
 
@@ -295,7 +295,16 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.UpdateProductionBom(c.Request().Context(), bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, OutputProductID: req.OutputProductID, GroupID: req.GroupID, GroupCategoryID: req.GroupCategoryID, Status: req.Status, Actor: support.ActorOf(c)})
+		cmd := bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, OutputProductID: req.OutputProductID, Status: req.Status, Actor: support.ActorOf(c)}
+		if req.GroupID != nil {
+			cmd.GroupID = *req.GroupID
+			cmd.UpdateGroupAssignment = true
+		}
+		if req.GroupCategoryID != nil {
+			cmd.GroupCategoryID = *req.GroupCategoryID
+			cmd.UpdateGroupAssignment = true
+		}
+		row, err := bomSvc.UpdateProductionBom(c.Request().Context(), cmd)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}

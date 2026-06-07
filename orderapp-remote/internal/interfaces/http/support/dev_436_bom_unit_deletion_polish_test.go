@@ -24,9 +24,9 @@ func TestDev436BomUnitDeletionPolishRequirementSeeds(t *testing.T) {
 func TestDev436BomUnitDeletionPolishSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"管理分组",
-			"deleteProductionBomGroup",
-			"deleteProductionBomGroupCategory",
+			"前往分组管理",
+			"businessGroupItemMoveOptions",
+			"buildBusinessGroupAssignmentPayload",
 			"outputProductOptions = computed(() => products.value.filter(isBomProductCandidate)",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {

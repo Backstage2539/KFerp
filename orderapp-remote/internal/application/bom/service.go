@@ -274,13 +274,14 @@ type CreateProductionBomCommand struct {
 }
 
 type UpdateProductionBomCommand struct {
-	ID              int64  `json:"id"`
-	Name            string `json:"name"`
-	OutputProductID int64  `json:"output_product_id"`
-	GroupID         int64  `json:"group_id"`
-	GroupCategoryID int64  `json:"group_category_id"`
-	Status          string `json:"status"`
-	Actor           string `json:"actor"`
+	ID                    int64  `json:"id"`
+	Name                  string `json:"name"`
+	OutputProductID       int64  `json:"output_product_id"`
+	GroupID               int64  `json:"group_id"`
+	GroupCategoryID       int64  `json:"group_category_id"`
+	UpdateGroupAssignment bool   `json:"-"`
+	Status                string `json:"status"`
+	Actor                 string `json:"actor"`
 }
 
 type CopyProductionBomCommand struct {

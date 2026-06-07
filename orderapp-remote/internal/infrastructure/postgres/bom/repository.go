@@ -1696,11 +1696,18 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Name), cmd.OutputProductID, status, strings.TrimSpace(cmd.Actor)); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &cmd.ID, "update", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr(status), postgresinfra.AuditMeta{"bom_id": cmd.ID, "name": strings.TrimSpace(cmd.Name), "group_id": groupID, "group_category_id": groupCategoryID, "status": status}); err != nil {
+	auditMeta := postgresinfra.AuditMeta{"bom_id": cmd.ID, "name": strings.TrimSpace(cmd.Name), "status": status}
+	if cmd.UpdateGroupAssignment {
+		auditMeta["group_id"] = groupID
+		auditMeta["group_category_id"] = groupCategoryID
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &cmd.ID, "update", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr(status), auditMeta); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
-	if err := saveBusinessGroupAssignmentForProductionBomTx(ctx, tx, r.schema, strings.TrimSpace(cmd.Actor), cmd.ID, groupID, groupCategoryID); err != nil {
-		return bomapp.ProductionBomSummary{}, err
+	if cmd.UpdateGroupAssignment {
+		if err := saveBusinessGroupAssignmentForProductionBomTx(ctx, tx, r.schema, strings.TrimSpace(cmd.Actor), cmd.ID, groupID, groupCategoryID); err != nil {
+			return bomapp.ProductionBomSummary{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return bomapp.ProductionBomSummary{}, err

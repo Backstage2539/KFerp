@@ -163,3 +163,29 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 		t.Fatalf("draft product component command = %+v", repo.updatedProductionDraftCommand)
 	}
 }
+
+func TestProductionBomUpdateDoesNotTouchGroupAssignmentWhenGroupFieldsOmitted(t *testing.T) {
+	repo := &apiFakeRepo{
+		updatedProductionBom: bomapp.ProductionBomSummary{
+			ID: 11, Code: "BOM-001", Name: "只改名称", GroupID: 1, GroupName: "常用配方",
+			GroupCategoryID: 31, GroupCategoryName: "浅烘", Status: "active",
+		},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Bom: bomapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/production-boms/11", strings.NewReader(`{"name":"只改名称","status":"active"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update production bom status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.updatedProductionBomCommand.ID != 11 || repo.updatedProductionBomCommand.Name != "只改名称" {
+		t.Fatalf("updated production bom command = %+v", repo.updatedProductionBomCommand)
+	}
+	if repo.updatedProductionBomCommand.UpdateGroupAssignment {
+		t.Fatalf("omitted group fields must not update business group assignment: %+v", repo.updatedProductionBomCommand)
+	}
+}

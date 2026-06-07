@@ -27,56 +27,40 @@
         <div class="bom-list-tabs-row">
           <div class="bom-list-tabs">
             <button
-              :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === 0 }]"
+              :class="['secondary', 'compact-action', { active: selectedProductionBomGroupItemID === 0 }]"
               type="button"
-              @click="selectProductionBomGroup(0)">
+              @click="selectProductionBomGroupItem(0)">
               全部分组
             </button>
             <button
-              :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === -1 }]"
+              :class="['secondary', 'compact-action', { active: selectedProductionBomGroupItemID === -1 }]"
               type="button"
-              @click="selectProductionBomGroup(-1)">
+              @click="selectProductionBomGroupItem(-1)">
               未分类
             </button>
             <button
-              v-for="group in productionBomGroups"
-              :key="group.id"
-              :class="['secondary', 'compact-action', { active: selectedProductionBomGroupID === Number(group.id || 0) }]"
+              v-for="option in productionBomGroupOptions"
+              :key="option.id"
+              :class="['secondary', 'compact-action', { active: selectedProductionBomGroupItemID === Number(option.group_item_id || 0) }]"
               type="button"
-              @click="selectProductionBomGroup(Number(group.id || 0))">
-              {{ group.name }}
+              @click="selectProductionBomGroupItem(Number(option.group_item_id || 0))">
+              {{ option.label }}
             </button>
           </div>
           <button class="primary compact-action" type="button" @click="openNewProductionBomRecord">新建生产 BOM</button>
         </div>
         <div class="bom-list-toolbar">
-          <button class="secondary compact-action" type="button" @click="openGroupDrawer">查看分组</button>
+          <button class="secondary compact-action" type="button" @click="openBusinessGroupManagement">前往分组管理</button>
           <button class="secondary compact-action" type="button" :disabled="!canMoveSelectedBoms || loading" @click="moveSelectedProductBomsToGroup">
             移动到分组
           </button>
           <label>
             <span>目标分组</span>
-            <select v-model.number="selectedBomMoveGroupID">
-              <option :value="0">未分类</option>
-              <option v-for="group in productionBomGroups" :key="group.id" :value="Number(group.id || 0)">{{ group.name }}</option>
+            <select v-model.number="selectedBomMoveGroupItemID">
+              <option :value="0">未分组</option>
+              <option v-for="option in productionBomGroupOptions" :key="option.id" :value="Number(option.group_item_id || 0)">{{ option.label }}</option>
             </select>
           </label>
-          <template v-if="isCustomProductionBomGroupSelected">
-            <span class="toolbar-divider">组内分类</span>
-            <div class="group-category-move-controls">
-              <button class="secondary compact-action" type="button" @click="openGroupCategoryDrawer">新增小分类</button>
-              <button class="secondary compact-action" type="button" :disabled="!canMoveSelectedBomsToGroupCategory || loading" @click="moveSelectedProductBomsToGroupCategory">
-                移动到小分类
-              </button>
-              <label>
-                <span>目标小分类</span>
-                <select v-model.number="selectedProductionBomGroupCategoryID">
-                  <option :value="0">未分类</option>
-                  <option v-for="category in productionBomGroupCategories" :key="category.id" :value="Number(category.id || 0)">{{ category.name }}</option>
-                </select>
-              </label>
-            </div>
-          </template>
           <span class="muted left">已选 {{ selectedBomRecordsForMove.length }} 个可移动 BOM</span>
         </div>
         <div class="bom-list-filters">
@@ -110,58 +94,7 @@
                 <th>操作</th>
               </tr>
             </thead>
-            <tbody v-if="isCustomProductionBomGroupSelected">
-              <template v-for="group in groupProductionBomRowsByInnerCategory" :key="group.key">
-                <tr class="classification-group-row">
-                  <td colspan="8">
-                    <button class="text-button category-toggle" type="button" @click.stop="toggleBomGroupCategory(group.key)">
-                      {{ isBomGroupCategoryCollapsed(group.key) ? '展开' : '收起' }}
-                    </button>
-                    <strong>{{ group.name }}</strong>
-                    <span class="muted left">{{ group.rows.length }} 个 BOM</span>
-                    <template v-if="group.category_id > 0">
-                      <button class="text-button" type="button" @click.stop="openGroupCategoryDrawer(group.category)">改名</button>
-                      <button class="text-button danger-text" type="button" @click.stop="deleteProductionBomGroupCategory(group.category)">删除</button>
-                    </template>
-                  </td>
-                </tr>
-                <template v-if="!isBomGroupCategoryCollapsed(group.key)">
-                  <tr
-                    v-for="row in group.rows"
-                    :key="bomRowKey(row)"
-                    :class="{ active: bomRowKey(row) === activeBomRowKey }"
-                    @click="selectBomRow(row)">
-                    <td class="select-col">
-                      <input
-                        v-model="selectedBomRowKeys"
-                        type="checkbox"
-                        :value="bomRowKey(row)"
-                        :disabled="!isMovableBomRow(row)"
-                        @click.stop />
-                    </td>
-                    <td>
-                      <button class="text-button bom-name-button" type="button" @click.stop="openBomRowPrimary(row)">
-                        {{ productionBomLabel(row) }}
-                      </button>
-                      <small v-if="productionBomVersionWarning(row)" class="bom-version-warning" data-warning-prefix="当前引用">{{ productionBomVersionWarning(row) }}</small>
-                    </td>
-                    <td>{{ bomGroupLabel(row) }}</td>
-                    <td><span :class="['status-pill', row.status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.status) }}</span></td>
-                    <td>{{ row.item_count || row.material_count || 0 }}</td>
-                    <td>{{ row.output_product_name || '-' }}</td>
-                    <td>{{ row.updated_at }}</td>
-                    <td>
-                      <button class="text-button" type="button" :disabled="!Number(row.production_bom_id || row.id || 0)" @click.stop="copyProductionBomRecord(bomRecordFromRow(row))">复制</button>
-                      <button class="text-button danger-text" type="button" :disabled="!Number(row.production_bom_id || row.id || 0) || row.status === 'inactive'" @click.stop="deactivateProductionBomRecord(bomRecordFromRow(row))">失效</button>
-                    </td>
-                  </tr>
-                </template>
-              </template>
-              <tr v-if="!productionBomRows.length">
-                <td colspan="8" class="muted">暂无配方档案</td>
-              </tr>
-            </tbody>
-            <tbody v-else>
+            <tbody>
               <tr
                 v-for="row in productionBomRows"
                 :key="bomRowKey(row)"
@@ -438,20 +371,6 @@
             <span>产出单位</span>
             <input v-model.trim="bomForm.output_unit" placeholder="例如 盒 / 条 / kg" :disabled="!canEditBomFormOutputBasis" />
           </label>
-          <label>
-            <span>分组</span>
-            <select v-model.number="bomForm.group_id" @change="bomForm.group_category_id = 0">
-              <option :value="0">未分类</option>
-              <option v-for="group in productionBomGroups" :key="group.id" :value="Number(group.id || 0)">{{ group.name }}</option>
-            </select>
-          </label>
-          <label v-if="Number(bomForm.group_id || 0) > 0">
-            <span>组内分类</span>
-            <select v-model.number="bomForm.group_category_id">
-              <option :value="0">未分类</option>
-              <option v-for="category in bomFormGroupCategories" :key="category.id" :value="Number(category.id || 0)">{{ category.name }}</option>
-            </select>
-          </label>
           <label v-if="bomForm.mode === 'edit'">
             <span>状态</span>
             <select v-model="bomForm.status">
@@ -461,84 +380,6 @@
           </label>
           <button class="primary" type="submit" :disabled="loading || !bomForm.name || !Number(bomForm.output_product_id || 0)">{{ bomForm.mode === 'copy' ? '复制 BOM' : '保存 BOM' }}</button>
         </form>
-      </aside>
-    </div>
-
-    <div v-if="groupCategoryDrawerOpen" class="drawer-mask" @click.self="closeGroupCategoryDrawer">
-      <aside class="drawer">
-        <div class="drawer-head">
-          <div>
-            <h3>{{ categoryForm.id ? '编辑组内分类' : '新增组内分类' }}</h3>
-            <p class="muted left">当前分组集：{{ selectedProductionBomGroup?.name || '-' }}。分组项在分组管理维护，BOM 页只保存对象归组。</p>
-          </div>
-          <button class="secondary compact-action" type="button" @click="closeGroupCategoryDrawer">关闭</button>
-        </div>
-        <form class="inline-form" @submit.prevent="saveProductionBomGroupCategory">
-          <label>
-            <span>分类名称</span>
-            <input v-model.trim="categoryForm.name" placeholder="例如 浅烘 / 深烘 / 常规" />
-          </label>
-          <label>
-            <span>排序</span>
-            <input v-model.number="categoryForm.sort_order" type="number" min="0" step="1" />
-          </label>
-          <button class="primary" type="submit" :disabled="loading || !categoryForm.name || !selectedProductionBomGroup">保存小分类</button>
-        </form>
-      </aside>
-    </div>
-
-    <div v-if="groupDrawerOpen" class="drawer-mask" @click.self="closeGroupDrawer">
-      <aside class="drawer">
-        <div class="drawer-head">
-          <div>
-            <h3>管理分组</h3>
-            <p class="muted left">生产 BOM 分组统一来自分组管理；这里只读展示 production_bom 用途的分组集和分组项。</p>
-          </div>
-          <button class="secondary compact-action" type="button" @click="closeGroupDrawer">关闭</button>
-        </div>
-        <form class="inline-form" @submit.prevent="saveProductionBomGroup">
-          <label>
-            <span>分组名称</span>
-            <input v-model.trim="groupForm.name" placeholder="例如 常用配方" />
-          </label>
-          <label>
-            <span>排序</span>
-            <input v-model.number="groupForm.sort_order" type="number" min="0" step="1" />
-          </label>
-          <button class="primary" type="submit" :disabled="true">{{ groupForm.id ? '保存分组' : '新增分组' }}</button>
-          <button class="secondary" type="button" @click="resetGroupForm">清空</button>
-        </form>
-        <div class="table-wrap compact">
-          <table>
-            <thead>
-              <tr>
-                <th>分组</th>
-                <th>排序</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="group in managedProductionBomGroups" :key="group.id">
-                <td>{{ group.name }}</td>
-                <td>{{ group.sort_order }}</td>
-                <td>
-                  <button class="text-button" type="button" @click="editProductionBomGroup(group)">编辑</button>
-                  <button class="text-button" type="button" @click="moveProductionBomGroup(group, -1)">上移</button>
-                  <button class="text-button" type="button" @click="moveProductionBomGroup(group, 1)">下移</button>
-                  <button
-                    class="text-button danger-text"
-                    type="button"
-                    @click="deleteProductionBomGroup(group)">
-                    删除
-                  </button>
-                </td>
-              </tr>
-              <tr v-if="!managedProductionBomGroups.length">
-                <td colspan="3" class="muted">暂无分组</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
       </aside>
     </div>
   </div>
@@ -551,7 +392,7 @@ import SearchableSelect from '../components/SearchableSelect.vue'
 import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
 import { componentTypeLabel } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
-import { businessGroupVisibleName, isSystemDefaultBusinessGroup } from '../lib/product-settings'
+import { businessGroupAssignmentLabel, businessGroupItemMoveOptions, buildBusinessGroupAssignmentPayload, isSystemDefaultBusinessGroup } from '../lib/product-settings'
 import { replaceHistoryURL } from '../lib/url-state'
 import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode'
 
@@ -569,28 +410,22 @@ const materials = ref([])
 const productUnitDefinitions = ref([])
 const versions = ref([])
 const processTemplates = ref([])
-const productionBomGroups = ref([])
 const productionBomBusinessGroups = ref([])
 const productionBomDetail = ref(null)
 const selectedProductionBomRecord = ref(null)
 const detail = ref(null)
 const selectedProductId = ref(0)
-const selectedProductionBomGroupID = ref(0)
+const selectedProductionBomGroupItemID = ref(0)
 const selectedProductionBomVersionID = ref(0)
-const selectedBomMoveGroupID = ref(0)
-const selectedProductionBomGroupCategoryID = ref(0)
+const selectedBomMoveGroupItemID = ref(0)
 const selectedBomRowKeys = ref([])
-const collapsedBomGroupCategoryKeys = ref([])
 const pendingProductionBomID = ref(0)
 const bomReturnNavigation = computed(() => props.viewParams?.return_navigation || null)
 const bomReturnProductID = computed(() => Number(bomReturnNavigation.value?.params?.open_product_config_id || 0))
 const bomReturnLabel = computed(() => String(bomReturnNavigation.value?.label || '返回商品档案配置'))
-const groupDrawerOpen = ref(false)
-const groupCategoryDrawerOpen = ref(false)
 const bomDrawerOpen = ref(false)
 const productionBomStatusFilter = ref('active')
 const productionBomSearchQuery = ref('')
-const managedProductionBomGroups = ref([])
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -603,83 +438,18 @@ const itemForm = reactive({
   qty_per_unit: '',
   ratio_pct: '',
 })
-const groupForm = reactive({ id: 0, name: '', sort_order: 100 })
-const categoryForm = reactive({ id: 0, name: '', sort_order: 100 })
-const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', output_product_id: 0, output_qty: 1, output_unit: 'unit', group_id: 0, group_category_id: 0, status: 'active' })
+const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', output_product_id: 0, output_qty: 1, output_unit: 'unit', status: 'active' })
 const versionNote = ref('')
-
-function flattenBusinessGroupItems(items = [], parent = null, out = []) {
-  for (const item of Array.isArray(items) ? items : []) {
-    const row = {
-      ...item,
-      parent_id: Number(item.parent_id || parent?.id || 0),
-      parent_name: parent?.name || '',
-    }
-    out.push(row)
-    flattenBusinessGroupItems(item.children || [], row, out)
-  }
-  return out
-}
-
-function businessGroupToProductionBomGroup(group = {}) {
-  const items = flattenBusinessGroupItems(group.items || [])
-  const visibleName = businessGroupVisibleName(group)
-  return {
-    id: Number(group.id || 0),
-    name: visibleName || '生产 BOM 分组',
-    sort_order: Number(group.sort_order || 100),
-    active: group.active !== false,
-    categories: items.map((item, index) => ({
-      id: Number(item.id || 0),
-      group_id: Number(group.id || 0),
-      name: [item.parent_name, item.name || `分组项 #${item.id || index + 1}`].filter(Boolean).join(' / '),
-      sort_order: Number(item.sort_order || index + 1),
-    })).filter((item) => item.id > 0),
-  }
-}
-
-function defaultProductionBomGroupItemID(groupID) {
-  const group = productionBomGroups.value.find((row) => Number(row.id || 0) === Number(groupID || 0))
-  return Number(group?.categories?.[0]?.id || 0)
-}
 
 const detailItems = computed(() => detail.value?.items || [])
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
+const productionBomGroupOptions = computed(() => businessGroupItemMoveOptions(productionBomBusinessGroups.value, 'production_bom'))
 const productionBomRows = computed(() => {
   return filterProductionBomCatalog(productionBoms.value, {
     status: productionBomStatusFilter.value,
     query: productionBomSearchQuery.value,
-    groupID: Number(selectedProductionBomGroupID.value || 0),
+    groupItemID: Number(selectedProductionBomGroupItemID.value || 0),
   })
-})
-const selectedProductionBomGroup = computed(() => {
-  const groupID = Number(selectedProductionBomGroupID.value || 0)
-  return productionBomGroups.value.find((group) => Number(group.id || 0) === groupID) || null
-})
-const isCustomProductionBomGroupSelected = computed(() => Number(selectedProductionBomGroupID.value || 0) > 0)
-const productionBomGroupCategories = computed(() => Array.isArray(selectedProductionBomGroup.value?.categories) ? selectedProductionBomGroup.value.categories : [])
-const bomFormGroupCategories = computed(() => {
-  const groupID = Number(bomForm.group_id || 0)
-  return productionBomGroups.value.find((group) => Number(group.id || 0) === groupID)?.categories || []
-})
-const groupProductionBomRowsByInnerCategory = computed(() => {
-  if (!isCustomProductionBomGroupSelected.value) return []
-  const buckets = new Map()
-  const ensureBucket = (categoryID, name, category = null) => {
-    const key = `category:${Number(categoryID || 0)}`
-    if (!buckets.has(key)) buckets.set(key, { key, category_id: Number(categoryID || 0), name, category, rows: [] })
-    return buckets.get(key)
-  }
-  ensureBucket(0, '未分类')
-  for (const category of productionBomGroupCategories.value) {
-    ensureBucket(Number(category.id || 0), category.name || '未命名分类', category)
-  }
-  for (const row of productionBomRows.value) {
-    const categoryID = Number(row.group_category_id || row.production_bom_group_category_id || 0)
-    const bucket = buckets.get(`category:${categoryID}`) || buckets.get('category:0')
-    bucket.rows.push(row)
-  }
-  return [...buckets.values()].filter((bucket) => bucket.category_id === 0 || bucket.rows.length > 0)
 })
 const linkedProcessTemplates = computed(() => processTemplates.value.filter((template) => Number(template.product_id || 0) === Number(selectedProductId.value || 0)))
 const selectedProduct = computed(() => productByID(selectedProductId.value))
@@ -783,16 +553,13 @@ const selectedActiveBomRecordsForDeactivate = computed(() => {
   return [...byBomID.values()]
 })
 const canMoveSelectedBoms = computed(() => {
-  const targetGroupID = Number(selectedBomMoveGroupID.value || 0)
-  const targetGroupItemID = targetGroupID > 0 ? defaultProductionBomGroupItemID(targetGroupID) : 0
-  return selectedBomRecordsForMove.value.some((bom) => Number(bom.group_id || 0) !== targetGroupID || Number(bom.group_category_id || 0) !== targetGroupItemID)
-})
-const canMoveSelectedBomsToGroupCategory = computed(() => {
-  if (!isCustomProductionBomGroupSelected.value) return false
-  const targetGroupID = Number(selectedProductionBomGroupID.value || 0)
-  const targetCategoryID = Number(selectedProductionBomGroupCategoryID.value || 0)
+  if (!selectedBomRecordsForMove.value.length) return false
+  const targetGroupItemID = Number(selectedBomMoveGroupItemID.value || 0)
+  const targetOption = targetGroupItemID > 0 ? productionBomGroupOptionByItemID(targetGroupItemID) : null
+  if (targetGroupItemID > 0 && !targetOption) return false
   return selectedBomRecordsForMove.value.some((bom) => {
-    return Number(bom.group_id || 0) !== targetGroupID || Number(bom.group_category_id || 0) !== targetCategoryID
+    if (!targetOption) return productionBomGroupID(bom) > 0 || productionBomGroupItemID(bom) > 0
+    return productionBomGroupID(bom) !== Number(targetOption.group_id || 0) || productionBomGroupItemID(bom) !== Number(targetOption.group_item_id || 0)
   })
 })
 const canDeactivateSelectedBoms = computed(() => selectedActiveBomRecordsForDeactivate.value.length > 0)
@@ -812,6 +579,34 @@ function bomRowKey(row) {
   const bomID = Number(row?.production_bom_id || row?.id || 0)
   if (bomID > 0) return `bom:${bomID}`
   return `product:${Number(row?.product_id || 0)}`
+}
+
+function productionBomGroupID(row = {}) {
+  return Number(row.group_id ?? row.production_bom_group_id ?? row.business_group_id ?? 0) || 0
+}
+
+function productionBomGroupItemID(row = {}) {
+  return Number(row.group_item_id ?? row.business_group_item_id ?? row.group_category_id ?? row.production_bom_group_category_id ?? 0) || 0
+}
+
+function productionBomGroupOptionByItemID(groupItemID) {
+  const id = Number(groupItemID || 0)
+  return productionBomGroupOptions.value.find((option) => Number(option.group_item_id || 0) === id) || null
+}
+
+function productionBomBusinessGroupAssignment(row = {}) {
+  const groupID = productionBomGroupID(row)
+  const group = productionBomBusinessGroups.value.find((item) => Number(item.id || 0) === groupID) || null
+  if (!group || isSystemDefaultBusinessGroup(group)) {
+    return { usage_key: 'production_bom', object_key: 'production_bom', object_id: Number(row.production_bom_id || row.id || 0), group_id: 0, group_item_id: 0 }
+  }
+  return {
+    usage_key: 'production_bom',
+    object_key: 'production_bom',
+    object_id: Number(row.production_bom_id || row.id || 0),
+    group_id: groupID,
+    group_item_id: productionBomGroupItemID(row),
+  }
 }
 
 function isInactiveMarker(value) {
@@ -897,6 +692,8 @@ function normalizeBomProduct(product) {
 }
 
 function normalizeProductionBomRecord(row = {}) {
+  const groupID = Number(row.group_id ?? row.production_bom_group_id ?? row.business_group_id ?? 0) || 0
+  const groupItemID = Number(row.group_item_id ?? row.business_group_item_id ?? row.group_category_id ?? row.production_bom_group_category_id ?? 0) || 0
   return {
     ...row,
     id: Number(row.id || row.production_bom_id || 0),
@@ -904,10 +701,12 @@ function normalizeProductionBomRecord(row = {}) {
     output_product_id: Number(row.output_product_id || 0),
     output_product_name: row.output_product_name || '',
     output_product_code: row.output_product_code || '',
-    group_id: Number(row.group_id || 0),
-    production_bom_group_id: Number(row.production_bom_group_id ?? row.group_id ?? 0),
-    group_category_id: Number(row.group_category_id || row.production_bom_group_category_id || 0),
-    production_bom_group_category_id: Number(row.production_bom_group_category_id ?? row.group_category_id ?? 0),
+    group_id: groupID,
+    production_bom_group_id: groupID,
+    group_item_id: groupItemID,
+    business_group_item_id: groupItemID,
+    group_category_id: groupItemID,
+    production_bom_group_category_id: groupItemID,
     group_category_name: row.group_category_name || row.production_bom_group_category_name || '',
     production_bom_group_category_name: row.production_bom_group_category_name || row.group_category_name || '',
     item_count: Number(row.item_count || row.material_count || 0),
@@ -996,12 +795,12 @@ function productionBomVersionStatusLabel(status) {
   return status || '-'
 }
 
-function selectProductionBomGroup(groupID) {
-  selectedProductionBomGroupID.value = Number(groupID || 0)
+function selectProductionBomGroupItem(groupItemID) {
+  selectedProductionBomGroupItemID.value = Number(groupItemID || 0)
   const groupOnlyRows = filterProductionBomCatalog(productionBoms.value, {
     status: 'all',
     query: '',
-    groupID: Number(selectedProductionBomGroupID.value || 0),
+    groupItemID: Number(selectedProductionBomGroupItemID.value || 0),
   })
   const visibleBomIDs = new Set(groupOnlyRows.map((bom) => Number(bom.production_bom_id || bom.id || 0)))
   const selectedBomID = Number(selectedProductionBomRecord.value?.id || selectedProductionBomRecord.value?.production_bom_id || detail.value?.production_bom_id || 0)
@@ -1011,14 +810,12 @@ function selectProductionBomGroup(groupID) {
 }
 
 function bomGroupLabel(row) {
-  const rawGroupName = String(row?.production_bom_group_name || row?.group_name || '').trim()
-  const groupName = isSystemDefaultBusinessGroup({ name: rawGroupName }) ? '' : rawGroupName
-  const categoryName = String(row?.production_bom_group_category_name || row?.group_category_name || '').trim()
-  if (groupName && categoryName) return `${groupName} / ${categoryName}`
-  return categoryName || groupName || '未分类'
+  return businessGroupAssignmentLabel(productionBomBusinessGroupAssignment(row), productionBomBusinessGroups.value)
 }
 
 function bomRecordFromRow(row = {}) {
+  const groupID = productionBomGroupID(row)
+  const groupItemID = productionBomGroupItemID(row)
   return {
     id: Number(row.production_bom_id || row.id || 0),
     code: row.production_bom_code || row.code || '',
@@ -1026,9 +823,10 @@ function bomRecordFromRow(row = {}) {
     output_product_id: Number(row.output_product_id || 0),
     output_product_name: row.output_product_name || '',
     output_product_code: row.output_product_code || '',
-    group_id: Number(row.production_bom_group_id ?? row.group_id ?? 0),
+    group_id: groupID,
     group_name: row.production_bom_group_name || row.group_name || '',
-    group_category_id: Number(row.production_bom_group_category_id ?? row.group_category_id ?? 0),
+    group_item_id: groupItemID,
+    group_category_id: groupItemID,
     group_category_name: row.production_bom_group_category_name || row.group_category_name || '',
     status: row.status === 'inactive' ? 'inactive' : 'active',
   }
@@ -1063,18 +861,6 @@ function syncSelectedProductionBomVersion() {
   selectedProductionBomVersionID.value = Number(selected?.id || 0)
 }
 
-function resetGroupForm() {
-  groupForm.id = 0
-  groupForm.name = ''
-  groupForm.sort_order = 100
-}
-
-function resetCategoryForm() {
-  categoryForm.id = 0
-  categoryForm.name = ''
-  categoryForm.sort_order = 100
-}
-
 function resetBomForm() {
   bomForm.id = 0
   bomForm.source_id = 0
@@ -1083,8 +869,6 @@ function resetBomForm() {
   bomForm.output_product_id = 0
   bomForm.output_qty = 1
   bomForm.output_unit = 'unit'
-  bomForm.group_id = Number(selectedProductionBomGroupID.value || 0) > 0 ? Number(selectedProductionBomGroupID.value || 0) : 0
-  bomForm.group_category_id = 0
   bomForm.status = 'active'
 }
 
@@ -1101,8 +885,6 @@ async function openEditProductionBomRecord(bom) {
   bomForm.id = record.id
   bomForm.name = record.name || ''
   bomForm.output_product_id = Number(record.output_product_id || 0)
-  bomForm.group_id = Number(record.group_id || 0)
-  bomForm.group_category_id = Number(record.group_category_id || 0)
   bomForm.status = record.status === 'inactive' ? 'inactive' : 'active'
   bomDrawerOpen.value = true
   if (record.id > 0 && Number(currentProductionBomID.value || 0) !== record.id) {
@@ -1120,8 +902,6 @@ function copyProductionBomRecord(bom) {
   bomForm.output_product_id = Number(bom?.output_product_id || 0)
   bomForm.output_qty = Number(selectedProductionBomVersion.value?.output_qty || 1)
   bomForm.output_unit = selectedProductionBomVersion.value?.output_unit || 'unit'
-  bomForm.group_id = Number(bom?.group_id || 0)
-  bomForm.group_category_id = Number(bom?.group_category_id || 0)
   bomForm.status = 'active'
   bomDrawerOpen.value = true
 }
@@ -1129,42 +909,6 @@ function copyProductionBomRecord(bom) {
 function closeBomDrawer() {
   bomDrawerOpen.value = false
   resetBomForm()
-}
-
-function openGroupCategoryDrawer(category = null) {
-  if (!selectedProductionBomGroup.value) return
-  if (category?.id) {
-    categoryForm.id = Number(category.id || 0)
-    categoryForm.name = category.name || ''
-    categoryForm.sort_order = Number(category.sort_order || 100)
-  } else {
-    resetCategoryForm()
-  }
-  groupCategoryDrawerOpen.value = true
-}
-
-function closeGroupCategoryDrawer() {
-  groupCategoryDrawerOpen.value = false
-  resetCategoryForm()
-}
-
-function toggleBomGroupCategory(key) {
-  const value = String(key || '')
-  if (!value) return
-  const next = new Set(collapsedBomGroupCategoryKeys.value)
-  if (next.has(value)) next.delete(value)
-  else next.add(value)
-  collapsedBomGroupCategoryKeys.value = [...next]
-}
-
-function isBomGroupCategoryCollapsed(key) {
-  return collapsedBomGroupCategoryKeys.value.includes(String(key || ''))
-}
-
-function editProductionBomGroup(group) {
-  groupForm.id = Number(group?.id || 0)
-  groupForm.name = group?.name || ''
-  groupForm.sort_order = Number(group?.sort_order || 0)
 }
 
 function syncComponentTypeDefaults() {
@@ -1265,7 +1009,6 @@ async function loadAll() {
     productUnitDefinitions.value = unitData || []
     processTemplates.value = processData.rows || []
     productionBomBusinessGroups.value = Array.isArray(productionGroupData?.rows) ? productionGroupData.rows : (Array.isArray(productionGroupData) ? productionGroupData : [])
-    productionBomGroups.value = productionBomBusinessGroups.value.map(businessGroupToProductionBomGroup)
     productionBoms.value = (productionBomData.rows || productionBomData || []).map(normalizeProductionBomRecord)
     if (pendingProductionBomID.value > 0) {
       const pendingID = pendingProductionBomID.value
@@ -1414,85 +1157,57 @@ async function deleteItem(id) {
   })
 }
 
-async function loadProductionBomGroupsForManagement() {
-  const data = await apiGet('/api/business-groups?usage_key=production_bom')
-  const rows = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data) ? data : [])
-  managedProductionBomGroups.value = rows.map(businessGroupToProductionBomGroup)
+function openBusinessGroupManagement() {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'groupManagement',
+      returnNavigation: {
+        key: 'bom',
+        label: '返回生产 BOM',
+      },
+    },
+  }))
 }
 
-async function openGroupDrawer() {
-  groupDrawerOpen.value = true
-  resetGroupForm()
-  await mutate(async () => {
-    await loadProductionBomGroupsForManagement()
-  })
-}
-
-function closeGroupDrawer() {
-  groupDrawerOpen.value = false
-  resetGroupForm()
-}
-
-async function saveProductionBomGroup() {
-  error.value = '生产 BOM 分组项请在分组管理维护；BOM 页只负责把 BOM 移动到已有分组。'
-}
-
-async function saveProductionBomGroupCategory() {
-  error.value = '组内分类已改为通用分组项，请到分组管理维护。'
-}
-
-async function deleteProductionBomGroupCategory(category) {
-  error.value = `分组项「${category?.name || ''}」请在分组管理停用。`
-}
-
-async function deleteProductionBomGroup(group) {
-  error.value = `分组集「${group?.name || ''}」请在分组管理停用。`
+async function clearProductionBomBusinessGroupAssignment(bomID) {
+  const id = Number(bomID || 0)
+  if (!id) return
+  const url = new URL('/api/business-group-assignments', window.location.origin)
+  url.searchParams.set('usage_key', 'production_bom')
+  url.searchParams.set('object_key', 'production_bom')
+  url.searchParams.set('object_id', String(id))
+  const data = await apiGet(url)
+  const rows = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data?.assignments) ? data.assignments : [])
+  await Promise.all(rows.map((row) => apiSend(`/api/business-group-assignments/${row.id}`, { method: 'DELETE' })))
 }
 
 async function moveSelectedProductBomsToGroup() {
-  const targetGroupID = Number(selectedBomMoveGroupID.value || 0)
-  const targetGroupItemID = targetGroupID > 0 ? defaultProductionBomGroupItemID(targetGroupID) : 0
-  const records = selectedBomRecordsForMove.value.filter((bom) => Number(bom.group_id || 0) !== targetGroupID || Number(bom.group_category_id || 0) !== targetGroupItemID)
+  const targetGroupItemID = Number(selectedBomMoveGroupItemID.value || 0)
+  const targetOption = targetGroupItemID > 0 ? productionBomGroupOptionByItemID(targetGroupItemID) : null
+  if (targetGroupItemID > 0 && !targetOption) return
+  const records = selectedBomRecordsForMove.value.filter((bom) => {
+    if (!targetOption) return productionBomGroupID(bom) > 0 || productionBomGroupItemID(bom) > 0
+    return productionBomGroupID(bom) !== Number(targetOption.group_id || 0) || productionBomGroupItemID(bom) !== Number(targetOption.group_item_id || 0)
+  })
   if (!records.length) return
   await mutate(async () => {
     for (const bom of records) {
-      await apiSend(`/api/production-boms/${bom.id}`, {
-        method: 'PUT',
-        body: {
-          name: bom.name,
-          group_id: targetGroupID,
-          group_category_id: targetGroupItemID,
-          status: bom.status === 'inactive' ? 'inactive' : 'active',
-        },
+      if (!targetOption) {
+        await clearProductionBomBusinessGroupAssignment(bom.id)
+        continue
+      }
+      await apiSend('/api/business-group-assignments', {
+        body: buildBusinessGroupAssignmentPayload({
+          usage_key: 'production_bom',
+          object_key: 'production_bom',
+          object_id: Number(bom.id || 0),
+          group_id: Number(targetOption.group_id || 0),
+          group_item_id: Number(targetOption.group_item_id || 0),
+          sort_order: 100,
+        }),
       })
     }
     ok.value = `已移动 ${records.length} 个 BOM`
-    selectedBomRowKeys.value = []
-    await loadAll()
-  })
-}
-
-async function moveSelectedProductBomsToGroupCategory() {
-  const targetGroupID = Number(selectedProductionBomGroupID.value || 0)
-  const targetCategoryID = Number(selectedProductionBomGroupCategoryID.value || 0)
-  if (!targetGroupID) return
-  const records = selectedBomRecordsForMove.value.filter((bom) => {
-    return Number(bom.group_id || 0) !== targetGroupID || Number(bom.group_category_id || 0) !== targetCategoryID
-  })
-  if (!records.length) return
-  await mutate(async () => {
-    for (const bom of records) {
-      await apiSend(`/api/production-boms/${bom.id}`, {
-        method: 'PUT',
-        body: {
-          name: bom.name,
-          group_id: targetGroupID,
-          group_category_id: targetCategoryID,
-          status: bom.status === 'inactive' ? 'inactive' : 'active',
-        },
-      })
-    }
-    ok.value = `已移动 ${records.length} 个 BOM 到小分类`
     selectedBomRowKeys.value = []
     await loadAll()
   })
@@ -1505,8 +1220,6 @@ async function deactivateProductionBomRecords(records, successText) {
         method: 'PUT',
         body: {
           name: bom?.name || '',
-          group_id: Number(bom?.group_id || 0),
-          group_category_id: Number(bom?.group_category_id || 0),
           status: 'inactive',
         },
       })
@@ -1524,10 +1237,6 @@ async function deactivateSelectedProductionBoms() {
   await deactivateProductionBomRecords(records, `已失效 ${records.length} 个生产 BOM`)
 }
 
-async function moveProductionBomGroup(group, direction) {
-  error.value = `分组集「${group?.name || ''}」排序请在分组管理维护。`
-}
-
 async function saveProductionBomRecord() {
   const name = String(bomForm.name || '').trim()
   const outputProductID = Number(bomForm.output_product_id || 0)
@@ -1537,8 +1246,6 @@ async function saveProductionBomRecord() {
     output_product_id: outputProductID,
     output_qty: Number(bomForm.output_qty || 1),
     output_unit: String(bomForm.output_unit || 'unit').trim() || 'unit',
-    group_id: Number(bomForm.group_id || 0),
-    group_category_id: Number(bomForm.group_category_id || 0) || defaultProductionBomGroupItemID(Number(bomForm.group_id || 0)),
     status: bomForm.status === 'inactive' ? 'inactive' : 'active',
   }
 	await mutate(async () => {
@@ -1552,11 +1259,11 @@ async function saveProductionBomRecord() {
 	    }
 	    ok.value = '已保存生产 BOM'
 	  } else if (bomForm.mode === 'copy') {
-      const copied = await apiSend(`/api/production-boms/${bomForm.source_id}/copy`, { body: { name: payload.name, output_product_id: payload.output_product_id, group_id: payload.group_id, group_category_id: payload.group_category_id } })
+      const copied = await apiSend(`/api/production-boms/${bomForm.source_id}/copy`, { body: { name: payload.name, output_product_id: payload.output_product_id } })
       ok.value = '已复制生产 BOM'
       pendingProductionBomID.value = Number(copied?.id || 0)
     } else {
-      const created = await apiSend('/api/production-boms', { body: { name: payload.name, output_product_id: payload.output_product_id, output_qty: payload.output_qty, output_unit: payload.output_unit, group_id: payload.group_id, group_category_id: payload.group_category_id } })
+      const created = await apiSend('/api/production-boms', { body: { name: payload.name, output_product_id: payload.output_product_id, output_qty: payload.output_qty, output_unit: payload.output_unit } })
       ok.value = '已新建生产 BOM'
       pendingProductionBomID.value = Number(created?.id || 0)
     }
@@ -1630,10 +1337,9 @@ onMounted(async () => {
 
 onBeforeUnmount(saveBomFormDraft)
 
-watch(selectedProductionBomGroupID, (groupID) => {
+watch(selectedProductionBomGroupItemID, (groupItemID) => {
   selectedBomRowKeys.value = []
-  selectedBomMoveGroupID.value = Number(groupID || 0) > 0 ? Number(groupID || 0) : 0
-  selectedProductionBomGroupCategoryID.value = 0
+  selectedBomMoveGroupItemID.value = Number(groupItemID || 0) > 0 ? Number(groupItemID || 0) : 0
 })
 
 watch([productionBomStatusFilter, productionBomSearchQuery], () => {
@@ -1687,8 +1393,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .bom-batch-deactivate-action { margin-left: auto; }
 .bom-list-tabs-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
 .bom-list-toolbar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; padding: 10px; margin: 8px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
-.toolbar-divider { align-self: center; color: #666; font-size: 12px; font-weight: 700; padding-left: 8px; border-left: 1px solid #ddd6ce; }
-.group-category-move-controls { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
 .bom-list-tabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .bom-list-panel-scroll { max-height: min(62vh, 720px); overflow: auto; }
 .bom-name-button { height: auto; min-height: 30px; text-align: left; font-weight: 700; }

@@ -65,17 +65,18 @@ test('BOM output selector hides inactive products and move actions precede targe
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const toolbar = source.match(/<div class="bom-list-toolbar"[\s\S]*?<div class="bom-list-filters">/)?.[0] || ''
-  const groupDrawer = source.match(/<div v-if="groupDrawerOpen"[\s\S]*?<\/aside>\s*<\/div>/)?.[0] || ''
 
   assert.ok(toolbar.indexOf('移动到分组') !== -1 && toolbar.indexOf('目标分组') !== -1, 'group move controls should be in toolbar')
   assert.ok(toolbar.indexOf('移动到分组') < toolbar.indexOf('目标分组'), '移动到分组 button should be left of 目标分组')
-  assert.ok(toolbar.indexOf('移动到小分类') !== -1 && toolbar.indexOf('目标小分类') !== -1, 'category move controls should be in toolbar')
-  assert.ok(toolbar.indexOf('移动到小分类') < toolbar.indexOf('目标小分类'), '移动到小分类 button should be left of 目标小分类')
   assert.match(source, /outputProductOptions = computed\(\(\) => products\.value\.filter\(isBomProductCandidate\)/)
   assert.match(source, /productComponentOptions = computed\(\(\) => products\.value\.filter\(isBomProductCandidate\)/)
-  assert.match(source, /管理分组/)
-  assert.match(groupDrawer, /deleteProductionBomGroup\(group\)[\s\S]*删除/)
-  assert.doesNotMatch(groupDrawer, />DELETE</)
+  assert.match(source, /前往分组管理/)
+  assert.match(source, /\/api\/business-group-assignments/)
+  assert.match(source, /buildBusinessGroupAssignmentPayload/)
+  assert.match(source, /businessGroupItemMoveOptions/)
+  assert.doesNotMatch(toolbar, /组内分类|新增小分类|移动到小分类|目标小分类/)
+  assert.doesNotMatch(source, /groupDrawerOpen/)
+  assert.doesNotMatch(source, /groupCategoryDrawerOpen/)
   assert.match(source, /isSystemDefaultBusinessGroup/)
   assert.doesNotMatch(source, /name:\s*group\.name \|\| '生产 BOM 分组'/)
 })
@@ -175,10 +176,12 @@ test('BOM view exposes grouped manufacturing BOM library and no longer edits pro
   assert.doesNotMatch(source, /searchParams\.get\('return_product_id'\)/)
   assert.match(appSource, /transientReturnNavigation/)
   assert.match(appSource, /returnNavigation/)
-  assert.match(source, /管理分组/)
+  assert.match(source, /前往分组管理/)
   assert.match(source, /全部分组/)
   assert.match(source, /未分类/)
   assert.match(source, /移动到分组/)
+  assert.match(source, /key:\s*'groupManagement'/)
+  assert.match(source, /returnNavigation/)
   assert.match(source, /bom-list-toolbar/)
   assert.match(source, /bom-list-tabs-row/)
   assert.match(source, /bom-list-filters/)
@@ -200,7 +203,7 @@ test('BOM view exposes grouped manufacturing BOM library and no longer edits pro
   assert.match(source, /open_product_config_id/)
   assert.match(source, /当前引用/)
   assert.match(source, /删除/)
-  assert.match(source, /分组管理维护/)
+  assert.match(source, /前往分组管理/)
   assert.doesNotMatch(source, /openEditProductionBomRecord\(bomRecordFromRow\(row\)\)\s*await selectUnboundProductionBom\(row\)/)
   assert.doesNotMatch(source, /失效当前 BOM/)
   assert.doesNotMatch(source, /async function deleteBom/)
@@ -215,6 +218,8 @@ test('BOM view exposes grouped manufacturing BOM library and no longer edits pro
   assert.doesNotMatch(source, /保存预期损耗率/)
   assert.doesNotMatch(source, /include_inactive=1/)
   assert.doesNotMatch(source, /production-bom-groups\/\$\{group\.id\}\/disable/)
+  assert.doesNotMatch(source, /groupDrawerOpen/)
+  assert.doesNotMatch(source, /groupCategoryDrawerOpen/)
   assert.doesNotMatch(source, /跟随默认 BOM/)
   assert.doesNotMatch(source, /固定 BOM 版本/)
   assert.doesNotMatch(source, /复制为单独维护 BOM/)
@@ -275,16 +280,17 @@ test('production BOM name opens the settings drawer and list no longer shows edi
 
 test('production BOM list supports status filters name search group tabs and inactive copy actions', async () => {
   const rows = [
-    { id: 1, code: 'BOM-001', name: '精品拼配', status: 'active', group_id: 2 },
-    { id: 2, code: 'BOM-002', name: '旧版深烘', status: 'inactive', group_id: 2 },
-    { id: 3, code: 'BOM-003', name: '挂耳配方', status: 'active', group_id: 3 },
-    { id: 4, code: 'BOM-004', name: '未分类配方', status: 'active', group_id: 0 },
+    { id: 1, code: 'BOM-001', name: '精品拼配', status: 'active', group_id: 2, group_item_id: 21 },
+    { id: 2, code: 'BOM-002', name: '旧版深烘', status: 'inactive', group_id: 2, group_item_id: 21 },
+    { id: 3, code: 'BOM-003', name: '挂耳配方', status: 'active', group_id: 3, group_item_id: 31 },
+    { id: 4, code: 'BOM-004', name: '未分类配方', status: 'active', group_id: 0, group_item_id: 0 },
   ]
 
   assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', query: 'BOM-00' }).map((row) => row.id), [1, 3, 4])
   assert.deepEqual(filterProductionBomCatalog(rows, { status: 'inactive', query: '深烘' }).map((row) => row.id), [2])
   assert.deepEqual(filterProductionBomCatalog(rows, { status: 'all', query: '拼配' }).map((row) => row.id), [1])
-  assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', groupID: -1 }).map((row) => row.id), [4])
+  assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', groupItemID: -1 }).map((row) => row.id), [4])
+  assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', groupItemID: 21 }).map((row) => row.id), [1])
 
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
@@ -324,7 +330,7 @@ test('production BOM list supports status filters name search group tabs and ina
   assert.match(tabRow, /bom-list-tabs/)
   assert.match(tabRow, /新建生产 BOM/)
   assert.match(toolbar, /移动到分组/)
-  assert.match(toolbar, /查看分组/)
+  assert.match(toolbar, /前往分组管理/)
   assert.doesNotMatch(source, /商品 BOM列表/)
   assert.doesNotMatch(source, /商品过滤/)
   assert.doesNotMatch(source, /createProductionBomForProductRow/)
@@ -362,34 +368,56 @@ test('production BOM list supports status filters name search group tabs and ina
   assert.doesNotMatch(source, /<section v-if="!isWorkspaceCustomerLocked" class="panel">\s*<div class="panel-title">规格袋材映射<\/div>/)
 })
 
-test('production BOM custom groups expose inner category grouping and version draft editing affordances', async () => {
+test('production BOM uses generic business group assignment instead of its own group logic', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
+  const moveStart = source.indexOf('async function moveSelectedProductBomsToGroup')
+  const moveEnd = source.indexOf('async function deactivateProductionBomRecords', moveStart)
+  const saveStart = source.indexOf('async function saveProductionBomRecord')
+  const saveEnd = source.indexOf('async function deactivateProductionBomRecord', saveStart)
+  const moveSource = source.slice(moveStart, moveEnd)
+  const saveSource = source.slice(saveStart, saveEnd)
   const tabRow = template.match(/<div class="bom-list-tabs-row"[\s\S]*?<\/div>\s*<div class="bom-list-toolbar">/)?.[0] || ''
 
+  for (const marker of [
+    '/api/business-group-assignments',
+    'buildBusinessGroupAssignmentPayload',
+    'businessGroupItemMoveOptions',
+    "usage_key: 'production_bom'",
+    "object_key: 'production_bom'",
+    'openBusinessGroupManagement',
+  ]) {
+    assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
   for (const marker of [
     '组内分类',
     '新增小分类',
     '移动到小分类',
+    '目标小分类',
     'productionBomGroupCategories',
     'groupProductionBomRowsByInnerCategory',
     'moveSelectedProductBomsToGroupCategory',
     'openGroupCategoryDrawer',
     'deleteProductionBomGroupCategory',
     'selectedProductionBomGroupCategoryID',
-    'group_category_id',
-    '生产 BOM 分组项请在分组管理维护',
-    '组内分类已改为通用分组项',
+    'groupCategoryDrawerOpen',
+    'groupDrawerOpen',
+    'saveProductionBomGroup',
+    'saveProductionBomGroupCategory',
   ]) {
-    assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    assert.doesNotMatch(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  assert.notEqual(moveStart, -1)
+  assert.notEqual(moveEnd, -1)
+  assert.notEqual(saveStart, -1)
+  assert.notEqual(saveEnd, -1)
+  assert.match(moveSource, /apiSend\('\/api\/business-group-assignments'/)
+  assert.doesNotMatch(moveSource, /\/api\/production-boms\/\$\{bom\.id\}/)
+  assert.doesNotMatch(saveSource, /group_id:/)
+  assert.doesNotMatch(saveSource, /group_category_id:/)
   assert.doesNotMatch(source, /\/api\/production-bom-groups\/\$\{groupID\}\/categories/)
   assert.doesNotMatch(source, /\/api\/production-bom-group-categories\/\$\{categoryForm\.id\}/)
-  assert.match(
-    template,
-    /<div class="group-category-move-controls"[\s\S]*?<button class="secondary compact-action" type="button" @click="openGroupCategoryDrawer">新增小分类<\/button>[\s\S]*?<button class="secondary compact-action" type="button"[\s\S]*?>\s*移动到小分类\s*<\/button>\s*<label>[\s\S]*?<span>目标小分类<\/span>[\s\S]*?<select v-model\.number="selectedProductionBomGroupCategoryID">/
-  )
   assert.match(tabRow, /全部分组/)
   assert.match(tabRow, /未分类/)
   assert.match(source, /version\.status === 'published'/)

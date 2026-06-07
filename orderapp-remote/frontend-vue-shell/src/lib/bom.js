@@ -120,15 +120,19 @@ export function productionBomDetailAsRecipeDetail(detail = {}, fallback = {}) {
   }
 }
 
-export function filterProductionBomCatalog(rows = [], { status = 'active', query = '', groupID = 0 } = {}) {
+export function filterProductionBomCatalog(rows = [], { status = 'active', query = '', groupID = 0, groupItemID = 0 } = {}) {
   const statusMode = String(status || 'active').trim().toLowerCase()
   const keyword = String(query || '').trim().toLowerCase()
   const selectedGroupID = Number(groupID || 0)
+  const selectedGroupItemID = Number(groupItemID || 0)
   return rows.filter((row) => {
     const rowStatus = String(row.status || 'active').trim().toLowerCase()
     if (statusMode === 'active' && rowStatus === 'inactive') return false
     if (statusMode === 'inactive' && rowStatus !== 'inactive') return false
     const rowGroupID = Number(row.group_id || row.production_bom_group_id || 0)
+    const rowGroupItemID = Number(row.group_item_id || row.business_group_item_id || row.group_category_id || row.production_bom_group_category_id || 0)
+    if (selectedGroupItemID > 0 && rowGroupItemID !== selectedGroupItemID) return false
+    if (selectedGroupItemID === -1 && rowGroupItemID > 0) return false
     if (selectedGroupID > 0 && rowGroupID !== selectedGroupID) return false
     if (selectedGroupID === -1 && rowGroupID > 0) return false
     if (!keyword) return true
