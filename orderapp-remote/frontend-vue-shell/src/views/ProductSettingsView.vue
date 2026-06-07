@@ -1236,6 +1236,7 @@ import {
   buildCustomerProductRuleOverridePayload,
   buildCustomerProductRuleTemplatePayload,
   buildBusinessGroupAssignmentPayload,
+  businessGroupItemsTree,
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
   buildProductConfigTemplatePayload,
@@ -4027,18 +4028,10 @@ function buildProductCatalogBusinessGroupTree() {
       number: index + 1,
       business_group_item: true,
       products: itemProducts,
-      children: (item.children || [])
-        .filter((child) => child.active !== false)
-        .slice()
-        .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
-        .map((child, childIndex) => project(child, { ...item, id: itemID }, childIndex)),
+      children: (item.children || []).map((child, childIndex) => project(child, { ...item, id: itemID }, childIndex)),
     }
   }
-  return (group.items || [])
-    .filter((item) => item.active !== false)
-    .slice()
-    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
-    .map((item, index) => project(item, null, index))
+  return businessGroupItemsTree(group.items || []).map((item, index) => project(item, null, index))
 }
 
 function productBusinessGroupLabel(row) {
