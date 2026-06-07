@@ -76,6 +76,8 @@ test('BOM output selector hides inactive products and move actions precede targe
   assert.match(source, /管理分组/)
   assert.match(groupDrawer, /deleteProductionBomGroup\(group\)[\s\S]*删除/)
   assert.doesNotMatch(groupDrawer, />DELETE</)
+  assert.match(source, /isSystemDefaultBusinessGroup/)
+  assert.doesNotMatch(source, /name:\s*group\.name \|\| '生产 BOM 分组'/)
 })
 
 test('production BOM detail is projected as recipe detail with output product label', () => {
@@ -197,7 +199,8 @@ test('BOM view exposes grouped manufacturing BOM library and no longer edits pro
   assert.match(source, /targetKey:\s*'productMaster'/)
   assert.match(source, /open_product_config_id/)
   assert.match(source, /当前引用/)
-  assert.match(source, /DELETE/)
+  assert.match(source, /删除/)
+  assert.match(source, /分组管理维护/)
   assert.doesNotMatch(source, /openEditProductionBomRecord\(bomRecordFromRow\(row\)\)\s*await selectUnboundProductionBom\(row\)/)
   assert.doesNotMatch(source, /失效当前 BOM/)
   assert.doesNotMatch(source, /async function deleteBom/)
@@ -321,7 +324,7 @@ test('production BOM list supports status filters name search group tabs and ina
   assert.match(tabRow, /bom-list-tabs/)
   assert.match(tabRow, /新建生产 BOM/)
   assert.match(toolbar, /移动到分组/)
-  assert.match(toolbar, /管理分组/)
+  assert.match(toolbar, /查看分组/)
   assert.doesNotMatch(source, /商品 BOM列表/)
   assert.doesNotMatch(source, /商品过滤/)
   assert.doesNotMatch(source, /createProductionBomForProductRow/)
@@ -376,11 +379,13 @@ test('production BOM custom groups expose inner category grouping and version dr
     'deleteProductionBomGroupCategory',
     'selectedProductionBomGroupCategoryID',
     'group_category_id',
-    '/api/production-bom-groups/${groupID}/categories',
-    '/api/production-bom-group-categories/${categoryForm.id}',
+    '生产 BOM 分组项请在分组管理维护',
+    '组内分类已改为通用分组项',
   ]) {
     assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  assert.doesNotMatch(source, /\/api\/production-bom-groups\/\$\{groupID\}\/categories/)
+  assert.doesNotMatch(source, /\/api\/production-bom-group-categories\/\$\{categoryForm\.id\}/)
   assert.match(
     template,
     /<div class="group-category-move-controls"[\s\S]*?<button class="secondary compact-action" type="button" @click="openGroupCategoryDrawer">新增小分类<\/button>[\s\S]*?<button class="secondary compact-action" type="button"[\s\S]*?>\s*移动到小分类\s*<\/button>\s*<label>[\s\S]*?<span>目标小分类<\/span>[\s\S]*?<select v-model\.number="selectedProductionBomGroupCategoryID">/

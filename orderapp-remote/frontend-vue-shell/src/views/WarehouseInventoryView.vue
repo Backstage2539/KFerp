@@ -322,6 +322,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
+import { businessGroupItemMoveOptions, isSystemDefaultBusinessGroup } from '../lib/product-settings'
 import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode'
 
 const props = defineProps({
@@ -389,23 +390,11 @@ const warehouseGroupItemOptions = computed(() => {
     const itemID = Number(row.group_item_id || 0)
     if (itemID > 0) counts.set(itemID, (counts.get(itemID) || 0) + 1)
   }
-  const out = []
-  for (const group of warehouseBusinessGroups.value) {
-    flattenBusinessGroupItems(group.items || []).forEach((item) => {
-      const itemID = Number(item.id || 0)
-      if (!itemID) return
-      const parentName = item.parent_name || ''
-      const label = [group.name || '库存分组', parentName, item.name || `分组项 #${itemID}`].filter(Boolean).join(' / ')
-      out.push({
-        key: `${group.id}:${itemID}`,
-        group_id: Number(group.id || 0),
-        group_item_id: itemID,
-        label,
-        count: counts.get(itemID) || 0,
-      })
-    })
-  }
-  return out
+  return businessGroupItemMoveOptions(warehouseBusinessGroups.value, 'warehouse_inventory').map((option) => ({
+    ...option,
+    key: `${option.group_id}:${option.group_item_id}`,
+    count: counts.get(Number(option.group_item_id || 0)) || 0,
+  }))
 })
 
 function kindLabel(kind) {
@@ -460,24 +449,13 @@ function rowKey(row) {
   return `${row.warehouse}-${row.item_type}-${row.item_id}-${row.spec_g || 0}-${row.batch_id || row.batch_code || 'summary'}`
 }
 
-function flattenBusinessGroupItems(items = [], parent = null, out = []) {
-  for (const item of Array.isArray(items) ? items : []) {
-    const row = {
-      ...item,
-      parent_id: Number(item.parent_id || parent?.id || 0),
-      parent_name: parent?.name || '',
-    }
-    out.push(row)
-    flattenBusinessGroupItems(item.children || [], row, out)
-  }
-  return out
-}
-
 function warehouseGroupLabel(row = {}) {
   const groupName = String(row.group_name || '').trim()
   const itemName = String(row.group_item_name || '').trim()
-  if (groupName && itemName) return `${groupName} / ${itemName}`
-  return groupName || itemName || '未分组'
+  const visibleGroupName = isSystemDefaultBusinessGroup({ name: groupName }) ? '' : groupName
+  if (visibleGroupName && itemName) return `${visibleGroupName} / ${itemName}`
+  if (itemName) return itemName
+  return visibleGroupName || '未分组'
 }
 
 function selectWarehouse(code) {

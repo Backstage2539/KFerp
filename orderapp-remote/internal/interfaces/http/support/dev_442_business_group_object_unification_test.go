@@ -105,7 +105,9 @@ func TestDev442BusinessGroupAssignmentFrontendAndDocs(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"data-pr442-product-group-assignments",
 			"/api/business-group-assignments",
-			"分组集 / 父组 / 子组",
+			"目标分组",
+			"businessGroupItemMoveOptions",
+			"businessGroupDisplayGroups",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
 			"data-pr442-bom-business-groups",

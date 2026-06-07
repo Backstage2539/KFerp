@@ -72,10 +72,11 @@ test('product grouping uses business group select while customer alias keeps leg
   assert.notEqual(toolbarStart, -1)
   assert.notEqual(toolbarEnd, -1)
   const toolbar = productSettingsSource.slice(toolbarStart, toolbarEnd)
-  assert.match(toolbar, /product-classification-selects/)
-  assert.match(toolbar, /data-pr442-product-group-assignments/)
-  assert.match(toolbar, /分组集 \/ 父组 \/ 子组/)
-  assert.match(toolbar, /@change="saveSelectedProductBusinessGroupAssignment"/)
+	  assert.match(toolbar, /product-classification-selects/)
+	  assert.match(toolbar, /data-pr442-product-group-assignments/)
+	  assert.match(toolbar, /目标分组/)
+	  assert.doesNotMatch(toolbar, /分组集 \/ 父组 \/ 子组/)
+	  assert.match(toolbar, /@change="saveSelectedProductBusinessGroupAssignment"/)
   assert.doesNotMatch(toolbar, /placeholder="增加分类"/)
   assert.doesNotMatch(toolbar, /placeholder="移动到分类"/)
   assert.match(productSettingsSource, /alias-classification-selects/)
@@ -94,13 +95,14 @@ test('customer alias list has shared filters batch disable and industry field co
   assert.match(productSettingsSource, /openAliasIndustryFieldDrawer/)
 })
 
-test('classification template editor keeps template actions at bottom and category product config template controls', () => {
-  assert.match(productSettingsSource, /classification-template-actions-bottom[\s\S]*保存分类模板[\s\S]*删除模板/)
-  assert.match(productSettingsSource, /classification-category-template-row[\s\S]*分类项商品配置模板/)
-  assert.match(productSettingsSource, /商品单独选择商品配置模板时会覆盖分类配置/)
+test('legacy classification template editor stays retired from product settings', () => {
+  assert.match(productSettingsSource, /data-section-mode="groupManagement"/)
+  assert.match(productSettingsSource, /\/api\/business-group-items/)
+  assert.doesNotMatch(productSettingsSource, /classification-template-actions-bottom[\s\S]*保存分类模板[\s\S]*删除模板/)
+  assert.doesNotMatch(productSettingsSource, /classification-category-template-row[\s\S]*分类项商品配置模板/)
   assert.doesNotMatch(productSettingsSource, /分类项阶梯价模板/)
   assert.doesNotMatch(productSettingsSource, /分类项单位模板/)
-  assert.match(productSettingsSource, /classification-template-create-fields/)
+  assert.doesNotMatch(productSettingsSource, /classification-template-create-fields/)
 })
 
 test('industry field template page uses simplified key-only fields and space separated select options', () => {

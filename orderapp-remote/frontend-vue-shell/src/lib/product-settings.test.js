@@ -20,6 +20,8 @@ import {
   classificationTemplateUnitPriceWarnings,
   productCategoryAssignmentLabel,
   businessGroupAssignmentLabel,
+  businessGroupDisplayGroups,
+  businessGroupItemMoveOptions,
   businessGroupItemsTree,
   productCatalogGroupOfProduct,
   customerProductAliasRowsForCustomer,
@@ -349,6 +351,30 @@ test('business group assignment payload supports products, BOMs, warehouses, and
   assert.equal(productCatalogGroupOfProduct({ id: 88 }, [
     { usage_key: 'product_catalog', object_key: 'product', object_id: 88, group_id: 5, group_item_id: 51 },
   ], [group]).label, '商品业务线 / 咖啡 / 熟豆')
+
+  const systemGroup = {
+    id: 6,
+    name: '商品默认分组',
+    code: 'default_product_catalog',
+    active: true,
+    usages: [{ usage_key: 'product_catalog', active: true }],
+    items: [
+      { id: 60, group_id: 6, parent_id: 0, name: '咖啡熟豆', active: true, sort_order: 10 },
+      { id: 61, group_id: 6, parent_id: 60, name: '意式拼配', active: true, sort_order: 20 },
+    ],
+  }
+  assert.equal(businessGroupAssignmentLabel({ group_id: 6, group_item_id: 61 }, [systemGroup]), '咖啡熟豆 / 意式拼配')
+  assert.equal(businessGroupAssignmentLabel({ group_id: 6, group_item_id: 0 }, [systemGroup]), '未分组')
+  assert.deepEqual(businessGroupItemMoveOptions([systemGroup], 'product_catalog').map((option) => option.label), ['咖啡熟豆', '咖啡熟豆 / 意式拼配'])
+  assert.deepEqual(businessGroupDisplayGroups([
+    { id: 88, name: '商品A' },
+    { id: 89, name: '商品B' },
+  ], [
+    { usage_key: 'product_catalog', object_key: 'product', object_id: 88, group_id: 6, group_item_id: 61 },
+  ], [systemGroup]).map((row) => ({ label: row.label, count: row.rows.length })), [
+    { label: '咖啡熟豆 / 意式拼配', count: 1 },
+    { label: '未分组', count: 1 },
+  ])
 })
 
 test('pricing rules and tier templates are independent templates used by price lists', () => {
@@ -2268,12 +2294,12 @@ test('product list moves selected rows through business group assignments while 
     "usage_key: 'product_catalog'",
     "object_key: 'product'",
     'productBusinessGroupItemOptions',
-    'productCatalogGroupOfProduct',
-    'business-group-move',
-    '商品档案分组视图',
-    '分组集 / 父组 / 子组',
-    '商品分组',
-  ]) {
+	    'productCatalogGroupOfProduct',
+	    'business-group-move',
+	    '商品档案分组视图',
+	    '目标分组',
+	    '商品分组',
+	  ]) {
     assert.ok(source.includes(expected), `missing product business group marker: ${expected}`)
   }
 
@@ -2290,10 +2316,11 @@ test('product list moves selected rows through business group assignments while 
     assert.ok(source.includes(expected), `missing alias legacy classification marker: ${expected}`)
   }
 
-  const productToolbar = template.match(/<div class="classification-view-toolbar product-classification-tabs"[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || ''
-  assert.match(productToolbar, /data-pr442-product-group-assignments/)
-  assert.match(productToolbar, /分组集 \/ 父组 \/ 子组/)
-  assert.match(productToolbar, /@change="saveSelectedProductBusinessGroupAssignment"/)
+	  const productToolbar = template.match(/<div class="classification-view-toolbar product-classification-tabs"[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || ''
+	  assert.match(productToolbar, /data-pr442-product-group-assignments/)
+	  assert.match(productToolbar, /目标分组/)
+	  assert.doesNotMatch(productToolbar, /分组集 \/ 父组 \/ 子组/)
+	  assert.match(productToolbar, /@change="saveSelectedProductBusinessGroupAssignment"/)
   assert.doesNotMatch(productToolbar, /placeholder="增加分类"/)
   assert.doesNotMatch(productToolbar, /placeholder="移动到分类"/)
   assert.doesNotMatch(productToolbar, /confirmProductClassificationTemplateUsage/)
@@ -2709,18 +2736,19 @@ test('product settings uses product business groups instead of product classific
     'productBusinessGroupItemOptions',
     'selectedProductBusinessGroupItemID',
     'saveSelectedProductBusinessGroupAssignment',
-    'productCatalogGroupOfProduct',
-    'data-pr442-product-group-assignments',
-    '商品档案分组视图',
-    '分组集 / 父组 / 子组',
-    '商品分组',
-  ]) {
+	    'productCatalogGroupOfProduct',
+	    'data-pr442-product-group-assignments',
+	    '商品档案分组视图',
+	    '目标分组',
+	    '商品分组',
+	  ]) {
     assert.ok(source.includes(expected), `missing product business group marker: ${expected}`)
   }
   assert.doesNotMatch(productToolbar, /placeholder="增加分类"/)
   assert.doesNotMatch(productToolbar, /placeholder="移动到分类"/)
   assert.match(groupManagementWorkspace, /新增大类/)
   assert.match(source, /\/api\/business-group-items/)
+  assert.doesNotMatch(source, /商品默认分组/)
   assert.doesNotMatch(groupManagementWorkspace, /\/api\/product-settings\/categories/)
   assert.doesNotMatch(source, /classification-config-drawer/)
   assert.doesNotMatch(source, /aria-label="分类配置"/)

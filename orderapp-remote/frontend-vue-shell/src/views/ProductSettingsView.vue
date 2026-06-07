@@ -154,7 +154,7 @@
             </div>
             <div class="classification-select-row product-classification-selects">
               <label class="business-group-move">
-                <span>分组集 / 父组 / 子组</span>
+                <span>目标分组</span>
                 <select v-model.number="selectedProductBusinessGroupItemID" :disabled="!selectedProductIds.length || !productBusinessGroupItemOptions.length" @change="saveSelectedProductBusinessGroupAssignment">
                   <option :value="0">移动到商品分组</option>
                   <option v-for="option in productBusinessGroupItemOptions" :key="option.id" :value="option.group_item_id">{{ option.label }}</option>
@@ -1249,6 +1249,8 @@ import {
   buildCustomerProductRuleOverridePayload,
   buildCustomerProductRuleTemplatePayload,
   buildBusinessGroupAssignmentPayload,
+  businessGroupDisplayGroups,
+  businessGroupItemMoveOptions,
   businessGroupItemsTree,
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
@@ -1785,22 +1787,7 @@ const productMoveClassificationOptions = computed(() => {
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...productClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
 })
 const productCatalogBusinessGroups = computed(() => productCatalogBusinessGroupRows())
-const productBusinessGroupItemOptions = computed(() => {
-  const out = []
-  for (const group of productCatalogBusinessGroups.value) {
-    for (const item of flattenBusinessGroupItemsForView(group.items || [])) {
-      const itemID = Number(item.id || 0)
-      if (!itemID) continue
-      out.push({
-        id: itemID,
-        group_id: Number(group.id || 0),
-        group_item_id: itemID,
-        label: [group.name || '商品分组', item.parent_name, item.name || `分组项 #${itemID}`].filter(Boolean).join(' / '),
-      })
-    }
-  }
-  return out
-})
+const productBusinessGroupItemOptions = computed(() => businessGroupItemMoveOptions(productCatalogBusinessGroups.value, 'product_catalog'))
 const aliasMoveClassificationOptions = computed(() => {
   if (isAliasAllOrUnclassifiedTab.value) return aliasMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
@@ -1812,25 +1799,7 @@ const classificationTemplateEditorCategories = computed(() => (classificationTem
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
 const productClassificationCategories = computed(() => (currentProductClassificationTemplate.value?.categories || []).filter((category) => category.active !== false).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
 const aliasClassificationCategories = computed(() => (currentAliasClassificationTemplate.value?.categories || []).filter((category) => category.active !== false).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
-const displaySkuGroups = computed(() => {
-  const groups = new Map()
-  for (const row of displaySkuRows.value) {
-    const assignment = productCatalogGroupOfProduct(row, businessGroupAssignments.value, businessGroups.value)
-    const key = assignment.group_item_id ? `business-group-${assignment.group_id}-${assignment.group_item_id}` : 'business-group-unassigned'
-    const label = assignment.group_item_id ? assignment.label : '未分组'
-    if (!groups.has(key)) {
-      groups.set(key, {
-        key,
-        label,
-        rows: [],
-        all: false,
-        sort_order: assignment.group_item_id ? 10 : 9999,
-      })
-    }
-    groups.get(key).rows.push(row)
-  }
-  return [...groups.values()].sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.label).localeCompare(String(b.label), 'zh-Hans-CN'))
-})
+const displaySkuGroups = computed(() => businessGroupDisplayGroups(displaySkuRows.value, businessGroupAssignments.value, businessGroups.value))
 const visibleCustomerAliasGroups = computed(() => {
   const tab = currentAliasClassificationTab.value
   if (!tab || tab.all) return [{ key: 'all-aliases', label: '全部客户商品', rows: visibleCustomerProductAliases.value, all: true }]
@@ -5250,9 +5219,9 @@ async function ensureProductCatalogBusinessGroupForEdit() {
   if (current) return current
   const result = await apiSend('/api/business-groups', {
     body: {
-      name: '商品默认分组',
-      code: 'default_product_catalog',
-      remark: '商品档案归组默认分组集',
+      name: '商品分组',
+      code: 'product_catalog',
+      remark: '商品档案归组分组集',
       active: true,
       sort_order: 10,
       usages: [{ usage_key: 'product_catalog', usage_label: '商品档案归组', active: true }],

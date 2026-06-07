@@ -266,24 +266,104 @@ function businessGroupByID(groups = [], groupID = 0) {
   return (Array.isArray(groups) ? groups : []).find((group) => Number(group?.id || 0) === id) || null
 }
 
+export function isSystemDefaultBusinessGroup(group = {}) {
+  const code = String(group.code || '').trim().toLowerCase()
+  if (code.startsWith('default_')) return true
+  return ['商品默认分组', '生产 BOM 默认分组', '仓库库存默认分组'].includes(String(group.name || '').trim())
+}
+
+export function businessGroupVisibleName(group = {}) {
+  if (!group || isSystemDefaultBusinessGroup(group)) return ''
+  return String(group.name || '').trim()
+}
+
+function businessGroupItemPath(group = {}, groupItemID = 0) {
+  const items = flattenBusinessGroupItems(businessGroupItemsTree(group.items || []))
+  const byID = new Map(items.map((item) => [Number(item.id || 0), item]))
+  let cursor = byID.get(Number(groupItemID || 0))
+  if (!cursor) return []
+  const path = []
+  const seen = new Set()
+  while (cursor && Number(cursor.id || 0) > 0 && !seen.has(Number(cursor.id || 0))) {
+    seen.add(Number(cursor.id || 0))
+    const name = String(cursor.name || '').trim()
+    if (name) path.unshift(name)
+    cursor = byID.get(Number(cursor.parent_id || cursor.parentID || 0))
+  }
+  return path
+}
+
+export function businessGroupItemLabel(group = {}, groupItemID = 0) {
+  const groupName = businessGroupVisibleName(group)
+  const path = businessGroupItemPath(group, groupItemID)
+  if (!path.length) return groupName || '未分组'
+  return [groupName, ...path].filter(Boolean).join(' / ')
+}
+
 export function businessGroupAssignmentLabel(assignment = {}, groups = []) {
   const group = businessGroupByID(groups, assignment.group_id ?? assignment.groupID)
   if (!group) return '未分组'
   const groupItemID = Number(assignment.group_item_id ?? assignment.groupItemID ?? 0)
-  if (groupItemID <= 0) return String(group.name || '未分组')
-  const items = flattenBusinessGroupItems(group.items || [])
-  const byID = new Map(items.map((item) => [Number(item.id || 0), item]))
-  const item = byID.get(groupItemID)
-  if (!item) return String(group.name || '未分组')
-  const path = []
-  let cursor = item
-  const seen = new Set()
-  while (cursor && Number(cursor.id || 0) > 0 && !seen.has(Number(cursor.id || 0))) {
-    seen.add(Number(cursor.id || 0))
-    path.unshift(String(cursor.name || '').trim())
-    cursor = byID.get(Number(cursor.parent_id || cursor.parentID || 0))
+  if (groupItemID <= 0) return businessGroupVisibleName(group) || '未分组'
+  return businessGroupItemLabel(group, groupItemID)
+}
+
+export function businessGroupItemMoveOptions(groups = [], usageKey = '') {
+  const normalizedUsage = String(usageKey || '').trim().toLowerCase()
+  const out = []
+  for (const group of (Array.isArray(groups) ? groups : [])
+    .filter((row) => row?.active !== false)
+    .filter((row) => !normalizedUsage || (row.usages || []).some((usage) => String(usage.usage_key || usage.usageKey || '').toLowerCase() === normalizedUsage && usage.active !== false))
+    .slice()
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))) {
+    for (const item of flattenBusinessGroupItems(businessGroupItemsTree(group.items || []))) {
+      const itemID = Number(item.id || 0)
+      if (!itemID) continue
+      out.push({
+        id: itemID,
+        group_id: Number(group.id || 0),
+        group_item_id: itemID,
+        parent_group_item_id: Number(item.parent_id || item.parentID || 0),
+        label: businessGroupItemLabel(group, itemID),
+      })
+    }
   }
-  return [group.name, ...path].filter(Boolean).join(' / ')
+  return out
+}
+
+export function businessGroupDisplayGroups(rows = [], assignments = [], groups = [], {
+  usageKey = 'product_catalog',
+  objectKey = 'product',
+  objectIDForRow = (row = {}) => Number(row.id || row.product_id || row.productID || 0),
+} = {}) {
+  const normalizedUsage = String(usageKey || '').trim()
+  const normalizedObjectKey = String(objectKey || '').trim()
+  const byRowID = new Map()
+  for (const assignment of Array.isArray(assignments) ? assignments : []) {
+    if (String(assignment.usage_key || assignment.usageKey || '') !== normalizedUsage) continue
+    if (String(assignment.object_key || assignment.objectKey || '') !== normalizedObjectKey) continue
+    const objectID = Number(assignment.object_id || assignment.objectID || 0)
+    if (!objectID) continue
+    byRowID.set(objectID, assignment)
+  }
+  const displayGroups = new Map()
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const assignment = byRowID.get(Number(objectIDForRow(row) || 0)) || null
+    const groupItemID = Number(assignment?.group_item_id ?? assignment?.groupItemID ?? 0)
+    const key = groupItemID ? `business-group-${Number(assignment.group_id || assignment.groupID || 0)}-${groupItemID}` : 'business-group-unassigned'
+    const label = groupItemID ? businessGroupAssignmentLabel(assignment, groups) : '未分组'
+    if (!displayGroups.has(key)) {
+      displayGroups.set(key, {
+        key,
+        label,
+        rows: [],
+        all: false,
+        sort_order: groupItemID ? 10 : 9999,
+      })
+    }
+    displayGroups.get(key).rows.push(row)
+  }
+  return [...displayGroups.values()].sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.label).localeCompare(String(b.label), 'zh-Hans-CN'))
 }
 
 export function productCatalogGroupOfProduct(product = {}, assignments = [], groups = []) {

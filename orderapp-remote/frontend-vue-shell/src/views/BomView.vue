@@ -551,6 +551,7 @@ import SearchableSelect from '../components/SearchableSelect.vue'
 import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
 import { componentTypeLabel } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
+import { businessGroupVisibleName, isSystemDefaultBusinessGroup } from '../lib/product-settings'
 import { replaceHistoryURL } from '../lib/url-state'
 import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode'
 
@@ -622,9 +623,10 @@ function flattenBusinessGroupItems(items = [], parent = null, out = []) {
 
 function businessGroupToProductionBomGroup(group = {}) {
   const items = flattenBusinessGroupItems(group.items || [])
+  const visibleName = businessGroupVisibleName(group)
   return {
     id: Number(group.id || 0),
-    name: group.name || '生产 BOM 分组',
+    name: visibleName || '生产 BOM 分组',
     sort_order: Number(group.sort_order || 100),
     active: group.active !== false,
     categories: items.map((item, index) => ({
@@ -1009,10 +1011,11 @@ function selectProductionBomGroup(groupID) {
 }
 
 function bomGroupLabel(row) {
-  const groupName = String(row?.production_bom_group_name || row?.group_name || '').trim() || '未分类'
+  const rawGroupName = String(row?.production_bom_group_name || row?.group_name || '').trim()
+  const groupName = isSystemDefaultBusinessGroup({ name: rawGroupName }) ? '' : rawGroupName
   const categoryName = String(row?.production_bom_group_category_name || row?.group_category_name || '').trim()
-  if (categoryName && groupName !== '未分类') return `${groupName} / ${categoryName}`
-  return groupName
+  if (groupName && categoryName) return `${groupName} / ${categoryName}`
+  return categoryName || groupName || '未分类'
 }
 
 function bomRecordFromRow(row = {}) {

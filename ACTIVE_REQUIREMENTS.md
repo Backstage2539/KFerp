@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-445-GROUP-DEFAULT-LABEL-HIDE-FOLLOWUP
+- Branch: codex/group-assignment-display-move
+- Owner/session: Codex / 2026-06-07
+- Status: implementation complete locally; pending full verification, merge to develop, deploy, and browser acceptance
+- Scope: 商品档案、生产 BOM、仓库库存普通页面使用泛化分组时，不再把迁移兼容用的“商品默认分组 / 生产 BOM 默认分组 / 仓库库存默认分组”作为业务选项或列表标签展示。商品档案按业务分组路径展示商品，勾选商品后通过“目标分组”移动到已有分组项；仓库库存和 BOM 使用相同的默认容器隐藏规则。
+- DEV:
+  - DEV-445-BUSINESS-GROUP-LABELS：抽出通用分组显示 helper，系统默认分组集名称隐藏，只显示父组/子组路径或“未分组”。
+  - DEV-445-PRODUCT-GROUPED-MOVE：商品档案分组展示和移动选项复用通用 helper，工具栏文案改为“目标分组”，不再出现“分组集 / 父组 / 子组”或“商品默认分组”。
+  - DEV-445-WAREHOUSE-BOM-LABELS：仓库库存和生产 BOM 展示层复用默认容器隐藏规则，旧专用 BOM 分组写入口测试口径收敛到“到分组管理维护”。
+- Verifier:
+  - RED product helper/UI: `node --test src/lib/product-settings.test.js` failed before implementation because `businessGroupDisplayGroups` export缺失；追加文案测试后同命令 failed because Vue 仍显示“分组集 / 父组 / 子组”。
+  - RED BOM/warehouse: `node --test src/lib/materials-ui.test.js` and `node --test src/lib/bom.test.js` failed before implementation because仓库库存仍手拼 `group.name / 父组 / 子组`，BOM 未接入 `isSystemDefaultBusinessGroup`，且旧测试仍要求已下线的专用分组写 API/旧文案。
+  - GREEN targeted: `node --test src/lib/product-settings.test.js` passed 124/124; `node --test src/lib/materials-ui.test.js` passed 5/5; `node --test src/lib/bom.test.js` passed 13/13.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/acceptance/2026-06-07-business-group-object-unification.md`.
+- Last update: 2026-06-07 Asia/Shanghai
+
 ### PR-444-PRICING-RULE-COST-SOURCE-UX
 - Branch: codex/pricing-rule-cost-source-ux
 - Owner/session: Codex / 2026-06-07
@@ -72,7 +88,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN post-deploy scenario: `python3 orderapp-remote/scripts/scenario_acceptance.py --base-url https://erp.qacoohee.com/app --basic-auth <redacted> --allow-writes` passed with run `PR442-SCENARIO-20260607-BNQEZR`; created customer `177`, material `53`, product `547`, business group `77`, assignments `19439/19441/19442`, production BOM `3262`, Pricing Rule `8`, tier template `8`, customer reference `8`, price-list publication `64`, order `1531`.
   - GREEN cleanup evidence: scenario cleanup voided order `1531`, withdrew publication `64`, deleted product/BOM/warehouse assignments, deactivated generated group/BOM/product/customer/Pricing Rule/tier/customer reference, and deprecated material `53`; database and API checks confirmed material `53` has `onhand_g=0` and batch location sum `0`, `/api/stock/warehouse-inventory?q=PR442-SCENARIO-20260607-BNQEZR` returns `0` rows, and `/api/business-groups?usage_key=warehouse_inventory` returns no `PR442-SCENARIO` group.
   - GREEN data repair: earlier PR-440/PR-442 scenario material batch locations with generated codes were reset to zero in a scoped transaction and audit logs were inserted (`locations_cleaned=6`, `batches_cleaned=6`, `materials_cleaned=7`, `audit_logs_inserted=19`). The scenario script now creates generated materials with `onhand_g=0` to avoid future warehouse inventory residue.
-  - GREEN browser acceptance: deployed Vue shell loaded 商品档案 (`分组集 / 父组 / 子组`), 分组管理, 生产 BOM (`view=bom`, PR-442分组 marker), 仓库库存 (`库存分组`, `仓库库存默认分组`, no `PR442-SCENARIO` residue), 商品价格表, and 录单 with no console errors or SQL/TypeError/加载失败 text.
+  - GREEN browser acceptance: deployed Vue shell loaded 商品档案、分组管理、生产 BOM (`view=bom`, PR-442分组 marker)、仓库库存、商品价格表和录单 with no console errors or SQL/TypeError/加载失败 text. PR-445 follow-up later hides system default group-set names from ordinary business labels.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-07-business-group-object-unification.md`.
 - Last update: 2026-06-07 Asia/Shanghai
 

@@ -9,10 +9,18 @@ const materialsSource = readFileSync(resolve(here, '../views/MaterialsView.vue')
 const warehouseSource = readFileSync(resolve(here, '../views/WarehouseInventoryView.vue'), 'utf8')
 const stockAdjustmentsSource = readFileSync(resolve(here, '../views/StockAdjustmentsView.vue'), 'utf8')
 
-test('warehouse settings opens for ordinary warehouses and shows empty state', () => {
+test('warehouse settings opens for ordinary warehouses and exposes inventory grouping', () => {
   assert.doesNotMatch(warehouseSource, /:disabled="!selectedWarehouse \|\| !isExternalWarehouse"/)
   assert.match(warehouseSource, /openWarehouseSettingsDrawer/)
-  assert.match(warehouseSource, /当前仓库暂无可配置项/)
+  assert.match(warehouseSource, /库存分组/)
+  assert.match(warehouseSource, /\/api\/business-group-assignments/)
+})
+
+test('warehouse inventory group labels hide system default group sets', () => {
+  assert.match(warehouseSource, /businessGroupItemMoveOptions/)
+  assert.match(warehouseSource, /isSystemDefaultBusinessGroup/)
+  assert.doesNotMatch(warehouseSource, /\[group\.name \|\| '库存分组', parentName, item\.name/)
+  assert.doesNotMatch(warehouseSource, /仓库库存默认分组/)
 })
 
 test('materials view uses classification tabs and editable material records', () => {
