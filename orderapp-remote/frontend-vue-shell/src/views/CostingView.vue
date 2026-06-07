@@ -1931,12 +1931,43 @@ function costSourceSnapshotForPriceRow(item = {}, tier = {}, pricingRule = null,
   return {
     cost_source_mode: pricingMode === 'fixed_price' ? 'fixed_price' : (pricingRule?.cost_source_mode || pricingRule?.costSourceMode || 'pricing_rule'),
     pricing_mode: pricingMode || '',
+    pricing_rule_id: Number(pricingRule?.id || 0),
+    pricing_rule_code: pricingRule?.code || '',
+    pricing_rule_name: pricingRule?.name || '',
+    pricing_rule_formula_version: pricingRule?.formula_version || pricingRule?.formulaVersion || '',
+    pricing_rule_calculation: pricingRuleCalculationSnapshot(pricingRule),
     bom_version_id: Number(item.bom_version_id_snapshot || item.bom_version_id || item.bomVersionID || 0),
     bom_version_no: item.bom_version_no_snapshot || item.bom_version_no || item.bomVersionNo || '',
     bom_usage_mode: item.bom_usage_mode_snapshot || item.bom_usage_mode || item.bomUsageMode || '',
     process_route_name: item.process_route_name || item.processRouteName || item.operation_template_name || item.operationTemplateName || '',
     tier_label: tier.label || '',
   }
+}
+
+function pricingRuleCalculationSnapshot(rule = null) {
+  if (!rule) return {}
+  const raw = rule.calculation_json ?? rule.calculationJSON ?? {}
+  let parsed = {}
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    parsed = raw
+  } else if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const decoded = JSON.parse(raw)
+      parsed = decoded && typeof decoded === 'object' && !Array.isArray(decoded) ? decoded : {}
+    } catch {
+      parsed = {}
+    }
+  }
+  return stripPricingRuleQuantityFields(parsed)
+}
+
+function stripPricingRuleQuantityFields(value) {
+  if (Array.isArray(value)) return value.map((item) => stripPricingRuleQuantityFields(item))
+  if (!value || typeof value !== 'object') return value
+  const forbidden = new Set(['min_qty', 'minQty', 'max_qty', 'maxQty', 'tier_label', 'tierLabel', 'tier_name', 'tierName', 'tiers', 'quantity_unit', 'quantityUnit', 'position', 'final_unit_price', 'finalUnitPrice', 'customer_tiers', 'customerTiers'])
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !forbidden.has(String(key || '').trim()))
+    .map(([key, child]) => [key, stripPricingRuleQuantityFields(child)]))
 }
 
 function customerReferenceSnapshotForPriceRow(item = {}) {

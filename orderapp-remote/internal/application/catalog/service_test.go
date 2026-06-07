@@ -185,6 +185,21 @@ func (r *fakeRepo) SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (Bu
 	return cmd, nil
 }
 
+func (r *fakeRepo) SaveBusinessGroupItem(ctx context.Context, cmd BusinessGroupItem) (BusinessGroupItem, error) {
+	if cmd.ID == 0 {
+		cmd.ID = 66
+	}
+	return cmd, nil
+}
+
+func (r *fakeRepo) DeleteBusinessGroupItem(ctx context.Context, cmd DeleteBusinessGroupItemCommand) error {
+	return nil
+}
+
+func (r *fakeRepo) MoveBusinessGroupItem(ctx context.Context, cmd MoveBusinessGroupItemCommand) (BusinessGroupItem, error) {
+	return BusinessGroupItem{ID: cmd.ID, ParentID: cmd.ParentID, SortOrder: cmd.Position * 10, Active: true}, nil
+}
+
 func (r *fakeRepo) ListBusinessGroupAssignments(ctx context.Context, query BusinessGroupAssignmentQuery) ([]BusinessGroupAssignment, error) {
 	return nil, nil
 }

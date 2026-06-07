@@ -32,6 +32,9 @@ type productSettingsRepo struct {
 	productUnitTemplates                []catalogapp.ProductUnitTemplate
 	productPriceGroups                  []catalogapp.ProductPriceGroup
 	businessGroups                      []catalogapp.BusinessGroup
+	savedBusinessGroupItem              catalogapp.BusinessGroupItem
+	deletedBusinessGroupItem            catalogapp.DeleteBusinessGroupItemCommand
+	movedBusinessGroupItem              catalogapp.MoveBusinessGroupItemCommand
 	productPriceRecords                 []catalogapp.ProductPriceRecord
 	productPriceRecordByID              map[int64]catalogapp.ProductPriceRecord
 	productTierPriceSchemes             []catalogapp.ProductTierPriceScheme
@@ -336,6 +339,27 @@ func (r *productSettingsRepo) SaveBusinessGroup(ctx context.Context, cmd catalog
 	return cmd, nil
 }
 
+func (r *productSettingsRepo) SaveBusinessGroupItem(ctx context.Context, cmd catalogapp.BusinessGroupItem) (catalogapp.BusinessGroupItem, error) {
+	r.savedBusinessGroupItem = cmd
+	if cmd.ID == 0 {
+		cmd.ID = 67
+	}
+	if cmd.Active == false {
+		cmd.Active = true
+	}
+	return cmd, nil
+}
+
+func (r *productSettingsRepo) DeleteBusinessGroupItem(ctx context.Context, cmd catalogapp.DeleteBusinessGroupItemCommand) error {
+	r.deletedBusinessGroupItem = cmd
+	return nil
+}
+
+func (r *productSettingsRepo) MoveBusinessGroupItem(ctx context.Context, cmd catalogapp.MoveBusinessGroupItemCommand) (catalogapp.BusinessGroupItem, error) {
+	r.movedBusinessGroupItem = cmd
+	return catalogapp.BusinessGroupItem{ID: cmd.ID, ParentID: cmd.ParentID, SortOrder: cmd.Position * 10, Active: true}, nil
+}
+
 func (r *productSettingsRepo) ListBusinessGroupAssignments(ctx context.Context, query catalogapp.BusinessGroupAssignmentQuery) ([]catalogapp.BusinessGroupAssignment, error) {
 	return []catalogapp.BusinessGroupAssignment{}, nil
 }
@@ -409,6 +433,44 @@ func TestBusinessGroupsAPIUsageFilterHidesInactiveGroups(t *testing.T) {
 		if bytes.Contains(body, []byte(unexpected)) {
 			t.Fatalf("business group usage filter leaked %q: %s", unexpected, rec.Body.String())
 		}
+	}
+}
+
+func TestBusinessGroupItemsAPIWritesGenericGroupItems(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/business-group-items", strings.NewReader(`{"group_id":66,"parent_id":0,"name":"新大类","sort_order":10}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("business group item create status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.savedBusinessGroupItem.GroupID != 66 || repo.savedBusinessGroupItem.Name != "新大类" || repo.savedBusinessGroupItem.SortOrder != 10 {
+		t.Fatalf("unexpected saved business group item: %+v", repo.savedBusinessGroupItem)
+	}
+
+	moveReq := httptest.NewRequest(http.MethodPost, "/api/business-group-items/67/move", strings.NewReader(`{"parent_id":68,"position":2}`))
+	moveReq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	moveRec := httptest.NewRecorder()
+	e.ServeHTTP(moveRec, moveReq)
+	if moveRec.Code != http.StatusOK {
+		t.Fatalf("business group item move status=%d body=%s", moveRec.Code, moveRec.Body.String())
+	}
+	if repo.movedBusinessGroupItem.ID != 67 || repo.movedBusinessGroupItem.ParentID != 68 || repo.movedBusinessGroupItem.Position != 2 {
+		t.Fatalf("unexpected moved business group item: %+v", repo.movedBusinessGroupItem)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/business-group-items/67", nil)
+	deleteRec := httptest.NewRecorder()
+	e.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("business group item delete status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+	if repo.deletedBusinessGroupItem.ID != 67 {
+		t.Fatalf("unexpected deleted business group item: %+v", repo.deletedBusinessGroupItem)
 	}
 }
 
@@ -2919,6 +2981,75 @@ func TestProductPricingRuleAPIReplacesFinalPriceRecordMasterData(t *testing.T) {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("pricing rule response missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestProductPricingRuleAPISavesCalculationTemplateWithoutQuantityTiers(t *testing.T) {
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(&productSettingsRepo{}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-pricing-rules", bytes.NewBufferString(`{
+		"name":"通用 BOM 成本含税模板",
+		"code":"RULE-BOM-GENERIC",
+		"cost_source_mode":"bom_current_cost",
+		"margin_rate":0.35,
+		"tax_rate":0.13,
+		"rounding_mode":"jiao",
+		"formula_version":"v2",
+		"calculation_json":{
+			"cost_components":["material","operation","labor","equipment_energy","packaging","logistics"],
+			"yield_loss_mode":"bom_or_product",
+			"profit_method":"gross_margin",
+			"tax_mode":"tax_included",
+			"minimum_margin_rate":0.18,
+			"trial_note":"选择商品、报价单位后试算"
+		},
+		"min_qty":10,
+		"max_qty":60,
+		"tier_label":"10kg+",
+		"tiers":[{"label":"10kg+"}]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST pricing rule calculation template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"cost_source_mode":"bom_current_cost"`,
+		`"formula_version":"v2"`,
+		`"cost_components":["material","operation","labor","equipment_energy","packaging","logistics"]`,
+		`"yield_loss_mode":"bom_or_product"`,
+		`"profit_method":"gross_margin"`,
+		`"tax_mode":"tax_included"`,
+		`"minimum_margin_rate":0.18`,
+		`"trial_note":"选择商品、报价单位后试算"`,
+	} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("pricing rule calculation response missing %s: %s", want, rec.Body.String())
+		}
+	}
+	for _, forbidden := range []string{`"min_qty"`, `"max_qty"`, `"tier_label"`, `"tiers"`} {
+		if bytes.Contains(rec.Body.Bytes(), []byte(forbidden)) {
+			t.Fatalf("pricing rule response must not carry quantity tier field %s: %s", forbidden, rec.Body.String())
+		}
+	}
+}
+
+func TestProductPricingRuleAPIRejectsQuantityTierFieldsInsideCalculationTemplate(t *testing.T) {
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(&productSettingsRepo{}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-pricing-rules", bytes.NewBufferString(`{
+		"name":"错误档位模板",
+		"code":"RULE-BAD-TIER",
+		"calculation_json":{"tiers":[{"label":"10kg+","min_qty":10}]}
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("pricing rule must not contain quantity tiers")) {
+		t.Fatalf("POST pricing rule with tier fields should fail, status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

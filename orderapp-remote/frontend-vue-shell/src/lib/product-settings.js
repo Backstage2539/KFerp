@@ -270,6 +270,7 @@ export function productCatalogGroupOfProduct(product = {}, assignments = [], gro
 }
 
 export function buildPricingRulePayload(form = {}) {
+  const calculationJSON = pricingRuleCalculationJSONFromForm(form)
   return {
     id: Number(form.id || 0),
     name: String(form.name ?? '').trim(),
@@ -278,9 +279,44 @@ export function buildPricingRulePayload(form = {}) {
     margin_rate: Number(form.margin_rate ?? form.marginRate ?? 0) || 0,
     tax_rate: Number(form.tax_rate ?? form.taxRate ?? 0) || 0,
     rounding_mode: String(form.rounding_mode ?? form.roundingMode ?? 'none').trim() || 'none',
+    formula_version: String(form.formula_version ?? form.formulaVersion ?? 'v1').trim() || 'v1',
+    calculation_json: calculationJSON,
     active: Boolean(form.active ?? true),
     remark: String(form.remark ?? '').trim(),
   }
+}
+
+function pricingRuleCalculationJSONFromForm(form = {}) {
+  const raw = form.calculation_json ?? form.calculationJSON ?? {}
+  const base = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+  const costComponents = Array.isArray(form.cost_components ?? form.costComponents)
+    ? (form.cost_components ?? form.costComponents)
+    : (Array.isArray(base.cost_components) ? base.cost_components : [])
+  const normalized = {
+    ...stripPricingRuleQuantityFields(base),
+    cost_components: costComponents
+      .map((component) => String(component || '').trim())
+      .filter(Boolean)
+      .filter((component, index, rows) => rows.indexOf(component) === index),
+    yield_loss_mode: String(form.yield_loss_mode ?? form.yieldLossMode ?? base.yield_loss_mode ?? 'bom_or_product').trim() || 'bom_or_product',
+    profit_method: String(form.profit_method ?? form.profitMethod ?? base.profit_method ?? 'gross_margin').trim() || 'gross_margin',
+    tax_mode: String(form.tax_mode ?? form.taxMode ?? base.tax_mode ?? 'tax_included').trim() || 'tax_included',
+    minimum_margin_rate: Number(form.minimum_margin_rate ?? form.minimumMarginRate ?? base.minimum_margin_rate ?? 0) || 0,
+    trial_note: String(form.trial_note ?? form.trialNote ?? base.trial_note ?? '').trim(),
+  }
+  if (!normalized.cost_components.length) {
+    normalized.cost_components = ['material', 'operation', 'packaging', 'logistics']
+  }
+  return stripPricingRuleQuantityFields(normalized)
+}
+
+function stripPricingRuleQuantityFields(value) {
+  if (Array.isArray(value)) return value.map((item) => stripPricingRuleQuantityFields(item))
+  if (!value || typeof value !== 'object') return value
+  const forbidden = new Set(['min_qty', 'minQty', 'max_qty', 'maxQty', 'tier_label', 'tierLabel', 'tier_name', 'tierName', 'tiers', 'quantity_unit', 'quantityUnit', 'position', 'final_unit_price', 'finalUnitPrice', 'customer_tiers', 'customerTiers'])
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !forbidden.has(String(key || '').trim()))
+    .map(([key, child]) => [key, stripPricingRuleQuantityFields(child)]))
 }
 
 export function buildPriceTierTemplatePayload(form = {}) {

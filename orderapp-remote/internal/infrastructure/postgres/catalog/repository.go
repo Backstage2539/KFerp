@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -25,6 +26,17 @@ func jsonTextOrDefaultArray(raw string) string {
 		return "[]"
 	}
 	return raw
+}
+
+func jsonMapOrEmpty(raw []byte) map[string]any {
+	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" {
+		return map[string]any{}
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil || out == nil {
+		return map[string]any{}
+	}
+	return out
 }
 
 func NewRepository(pool *pgxpool.Pool, schema string) Repository {
@@ -1586,6 +1598,183 @@ func (r Repository) SaveBusinessGroup(ctx context.Context, cmd catalogapp.Busine
 	return catalogapp.BusinessGroup{}, fmt.Errorf("business group not found")
 }
 
+func (r Repository) SaveBusinessGroupItem(ctx context.Context, cmd catalogapp.BusinessGroupItem) (catalogapp.BusinessGroupItem, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.BusinessGroupItem{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.BusinessGroupItem{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	name := strings.TrimSpace(cmd.Name)
+	code := strings.TrimSpace(cmd.Code)
+	remark := strings.TrimSpace(cmd.Remark)
+	var id int64
+	var oldName string
+	if cmd.ID > 0 {
+		var existing catalogapp.BusinessGroupItem
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT id, group_id, parent_id, name, code, remark, active, sort_order
+			FROM %s.business_group_items
+			WHERE id=$1
+		`, r.schema), cmd.ID).Scan(&existing.ID, &existing.GroupID, &existing.ParentID, &existing.Name, &existing.Code, &existing.Remark, &existing.Active, &existing.SortOrder); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return catalogapp.BusinessGroupItem{}, fmt.Errorf("business group item not found")
+			}
+			return catalogapp.BusinessGroupItem{}, err
+		}
+		if cmd.GroupID > 0 && cmd.GroupID != existing.GroupID {
+			return catalogapp.BusinessGroupItem{}, fmt.Errorf("business group item group mismatch")
+		}
+		if err := validateBusinessGroupItemParentTx(ctx, tx, r.schema, existing.GroupID, cmd.ParentID, cmd.ID); err != nil {
+			return catalogapp.BusinessGroupItem{}, err
+		}
+		sortOrder := cmd.SortOrder
+		if sortOrder <= 0 {
+			sortOrder = existing.SortOrder
+		}
+		oldName = existing.Name
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.business_group_items
+			SET parent_id=$2, name=$3, code=$4, remark=$5, active=$6, sort_order=$7, updated_at=now()
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.ParentID, name, code, remark, existing.Active, sortOrder).Scan(&id); err != nil {
+			return catalogapp.BusinessGroupItem{}, err
+		}
+	} else {
+		if err := validateBusinessGroupItemParentTx(ctx, tx, r.schema, cmd.GroupID, cmd.ParentID, 0); err != nil {
+			return catalogapp.BusinessGroupItem{}, err
+		}
+		sortOrder := cmd.SortOrder
+		if sortOrder <= 0 {
+			sortOrder, err = nextBusinessGroupItemSortOrderTx(ctx, tx, r.schema, cmd.GroupID, cmd.ParentID)
+			if err != nil {
+				return catalogapp.BusinessGroupItem{}, err
+			}
+		}
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.business_group_items(group_id, parent_id, name, code, remark, active, sort_order)
+			VALUES($1,$2,$3,$4,$5,true,$6)
+			RETURNING id
+		`, r.schema), cmd.GroupID, cmd.ParentID, name, code, remark, sortOrder).Scan(&id); err != nil {
+			return catalogapp.BusinessGroupItem{}, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "business_group_item", &id, "save_business_group_item", postgresinfra.StrPtr("name"), postgresinfra.StrPtr(oldName), postgresinfra.StrPtr(name), postgresinfra.AuditMeta{"group_id": cmd.GroupID, "parent_id": cmd.ParentID, "sort_order": cmd.SortOrder}); err != nil {
+		return catalogapp.BusinessGroupItem{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.BusinessGroupItem{}, err
+	}
+	return r.businessGroupItemByID(ctx, id)
+}
+
+func (r Repository) DeleteBusinessGroupItem(ctx context.Context, cmd catalogapp.DeleteBusinessGroupItemCommand) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var ids []int64
+	var groupID int64
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		WITH RECURSIVE targets AS (
+			SELECT id, group_id
+			FROM %s.business_group_items
+			WHERE id=$1
+			UNION ALL
+			SELECT child.id, child.group_id
+			FROM %s.business_group_items child
+			JOIN targets parent ON parent.id=child.parent_id AND parent.group_id=child.group_id
+		)
+		SELECT id, group_id FROM targets
+	`, r.schema, r.schema), cmd.ID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id int64
+		var rowGroupID int64
+		if err := rows.Scan(&id, &rowGroupID); err != nil {
+			rows.Close()
+			return err
+		}
+		if groupID == 0 {
+			groupID = rowGroupID
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(ids) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.business_group_items SET active=false, updated_at=now() WHERE id=ANY($1)`, r.schema), ids); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.business_group_assignments
+		SET group_item_id=0, updated_at=now(), updated_by=$2
+		WHERE group_id=$1 AND group_item_id=ANY($3)
+	`, r.schema), groupID, cmd.Actor, ids); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "business_group_item", &cmd.ID, "delete_business_group_item", postgresinfra.StrPtr("active"), postgresinfra.StrPtr("true"), postgresinfra.StrPtr("false"), postgresinfra.AuditMeta{"group_id": groupID, "item_ids": ids}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) MoveBusinessGroupItem(ctx context.Context, cmd catalogapp.MoveBusinessGroupItemCommand) (catalogapp.BusinessGroupItem, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.BusinessGroupItem{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.BusinessGroupItem{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var groupID int64
+	var oldParentID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT group_id, parent_id
+		FROM %s.business_group_items
+		WHERE id=$1 AND active=true
+	`, r.schema), cmd.ID).Scan(&groupID, &oldParentID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return catalogapp.BusinessGroupItem{}, fmt.Errorf("business group item not found")
+		}
+		return catalogapp.BusinessGroupItem{}, err
+	}
+	if err := validateBusinessGroupItemParentTx(ctx, tx, r.schema, groupID, cmd.ParentID, cmd.ID); err != nil {
+		return catalogapp.BusinessGroupItem{}, err
+	}
+	if err := reorderBusinessGroupItemSiblingsTx(ctx, tx, r.schema, groupID, cmd.ParentID, cmd.ID, cmd.Position); err != nil {
+		return catalogapp.BusinessGroupItem{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "business_group_item", &cmd.ID, "move_business_group_item", postgresinfra.StrPtr("parent_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", oldParentID)), postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.ParentID)), postgresinfra.AuditMeta{"group_id": groupID, "position": cmd.Position}); err != nil {
+		return catalogapp.BusinessGroupItem{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.BusinessGroupItem{}, err
+	}
+	return r.businessGroupItemByID(ctx, cmd.ID)
+}
+
 func (r Repository) ListBusinessGroupAssignments(ctx context.Context, query catalogapp.BusinessGroupAssignmentQuery) ([]catalogapp.BusinessGroupAssignment, error) {
 	where := []string{"1=1"}
 	args := []any{}
@@ -1779,6 +1968,121 @@ func flattenBusinessGroupItems(groupID, parentID int64, items []catalogapp.Busin
 	}
 }
 
+func (r Repository) businessGroupItemByID(ctx context.Context, id int64) (catalogapp.BusinessGroupItem, error) {
+	var item catalogapp.BusinessGroupItem
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, group_id, parent_id, name, code, remark, active, sort_order
+		FROM %s.business_group_items
+		WHERE id=$1
+	`, r.schema), id).Scan(&item.ID, &item.GroupID, &item.ParentID, &item.Name, &item.Code, &item.Remark, &item.Active, &item.SortOrder); err != nil {
+		return catalogapp.BusinessGroupItem{}, err
+	}
+	return item, nil
+}
+
+func validateBusinessGroupItemParentTx(ctx context.Context, tx pgx.Tx, schema string, groupID int64, parentID int64, itemID int64) error {
+	var groupOK bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.business_groups WHERE id=$1 AND active=true)`, schema), groupID).Scan(&groupOK); err != nil {
+		return err
+	}
+	if !groupOK {
+		return fmt.Errorf("business group not found")
+	}
+	if parentID == 0 {
+		return nil
+	}
+	if parentID == itemID {
+		return fmt.Errorf("business group item cannot be its own parent")
+	}
+	var parentOK bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.business_group_items WHERE id=$1 AND group_id=$2 AND active=true)`, schema), parentID, groupID).Scan(&parentOK); err != nil {
+		return err
+	}
+	if !parentOK {
+		return fmt.Errorf("business group parent item not found")
+	}
+	if itemID > 0 {
+		var descendant bool
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			WITH RECURSIVE descendants AS (
+				SELECT id
+				FROM %s.business_group_items
+				WHERE parent_id=$1 AND group_id=$2 AND active=true
+				UNION ALL
+				SELECT child.id
+				FROM %s.business_group_items child
+				JOIN descendants parent ON parent.id=child.parent_id
+				WHERE child.group_id=$2 AND child.active=true
+			)
+			SELECT EXISTS(SELECT 1 FROM descendants WHERE id=$3)
+		`, schema, schema), itemID, groupID, parentID).Scan(&descendant); err != nil {
+			return err
+		}
+		if descendant {
+			return fmt.Errorf("business group item cannot move under its descendant")
+		}
+	}
+	return nil
+}
+
+func nextBusinessGroupItemSortOrderTx(ctx context.Context, tx pgx.Tx, schema string, groupID int64, parentID int64) (int, error) {
+	var maxSort int
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(MAX(sort_order),0)
+		FROM %s.business_group_items
+		WHERE group_id=$1 AND parent_id=$2 AND active=true
+	`, schema), groupID, parentID).Scan(&maxSort); err != nil {
+		return 0, err
+	}
+	return maxSort + 10, nil
+}
+
+func reorderBusinessGroupItemSiblingsTx(ctx context.Context, tx pgx.Tx, schema string, groupID int64, parentID int64, itemID int64, position int) error {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id
+		FROM %s.business_group_items
+		WHERE group_id=$1 AND parent_id=$2 AND active=true AND id<>$3
+		ORDER BY sort_order, id
+	`, schema), groupID, parentID, itemID)
+	if err != nil {
+		return err
+	}
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if position < 1 {
+		position = 1
+	}
+	if position > len(ids)+1 {
+		position = len(ids) + 1
+	}
+	ordered := make([]int64, 0, len(ids)+1)
+	ordered = append(ordered, ids[:position-1]...)
+	ordered = append(ordered, itemID)
+	ordered = append(ordered, ids[position-1:]...)
+	for index, id := range ordered {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.business_group_items
+			SET parent_id=$2, sort_order=$3, updated_at=now()
+			WHERE id=$1
+		`, schema), id, parentID, (index+1)*10); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r Repository) ListProductCustomerReferences(ctx context.Context, productID int64) ([]catalogapp.ProductCustomerReference, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id, product_id, customer_id, customer_item_code, customer_display_name, active, remark
@@ -1836,7 +2140,7 @@ func (r Repository) SaveProductCustomerReference(ctx context.Context, cmd catalo
 
 func (r Repository) ListProductPricingRules(ctx context.Context) ([]catalogapp.ProductPricingRule, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, name, code, cost_source_mode, margin_rate::float8, tax_rate::float8, rounding_mode, active, remark
+		SELECT id, name, code, cost_source_mode, margin_rate::float8, tax_rate::float8, rounding_mode, calculation_json, formula_version, active, remark
 		FROM %s.product_pricing_rules
 		ORDER BY active DESC, id
 	`, r.schema))
@@ -1847,9 +2151,11 @@ func (r Repository) ListProductPricingRules(ctx context.Context) ([]catalogapp.P
 	out := make([]catalogapp.ProductPricingRule, 0)
 	for rows.Next() {
 		var row catalogapp.ProductPricingRule
-		if err := rows.Scan(&row.ID, &row.Name, &row.Code, &row.CostSourceMode, &row.MarginRate, &row.TaxRate, &row.RoundingMode, &row.Active, &row.Remark); err != nil {
+		var calculationJSON []byte
+		if err := rows.Scan(&row.ID, &row.Name, &row.Code, &row.CostSourceMode, &row.MarginRate, &row.TaxRate, &row.RoundingMode, &calculationJSON, &row.FormulaVersion, &row.Active, &row.Remark); err != nil {
 			return nil, err
 		}
+		row.CalculationJSON = jsonMapOrEmpty(calculationJSON)
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -1858,24 +2164,28 @@ func (r Repository) ListProductPricingRules(ctx context.Context) ([]catalogapp.P
 func (r Repository) SaveProductPricingRule(ctx context.Context, cmd catalogapp.ProductPricingRule) (catalogapp.ProductPricingRule, error) {
 	var id int64
 	var err error
+	calculationJSON, marshalErr := json.Marshal(cmd.CalculationJSON)
+	if marshalErr != nil {
+		return catalogapp.ProductPricingRule{}, marshalErr
+	}
 	if cmd.ID > 0 {
 		err = r.pool.QueryRow(ctx, fmt.Sprintf(`
 			UPDATE %s.product_pricing_rules
-			SET name=$2, code=$3, cost_source_mode=$4, margin_rate=$5, tax_rate=$6, rounding_mode=$7, active=$8, remark=$9, updated_at=now(), updated_by=$10
+			SET name=$2, code=$3, cost_source_mode=$4, margin_rate=$5, tax_rate=$6, rounding_mode=$7, calculation_json=$8, formula_version=$9, active=$10, remark=$11, updated_at=now(), updated_by=$12
 			WHERE id=$1
 			RETURNING id
-		`, r.schema), cmd.ID, cmd.Name, cmd.Code, cmd.CostSourceMode, cmd.MarginRate, cmd.TaxRate, cmd.RoundingMode, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+		`, r.schema), cmd.ID, cmd.Name, cmd.Code, cmd.CostSourceMode, cmd.MarginRate, cmd.TaxRate, cmd.RoundingMode, calculationJSON, cmd.FormulaVersion, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
 	} else {
 		err = r.pool.QueryRow(ctx, fmt.Sprintf(`
-			INSERT INTO %s.product_pricing_rules(name, code, cost_source_mode, margin_rate, tax_rate, rounding_mode, active, remark, created_by, updated_by)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
+			INSERT INTO %s.product_pricing_rules(name, code, cost_source_mode, margin_rate, tax_rate, rounding_mode, calculation_json, formula_version, active, remark, created_by, updated_by)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)
 			RETURNING id
-		`, r.schema), cmd.Name, cmd.Code, cmd.CostSourceMode, cmd.MarginRate, cmd.TaxRate, cmd.RoundingMode, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
+		`, r.schema), cmd.Name, cmd.Code, cmd.CostSourceMode, cmd.MarginRate, cmd.TaxRate, cmd.RoundingMode, calculationJSON, cmd.FormulaVersion, cmd.Active, cmd.Remark, cmd.Actor).Scan(&id)
 	}
 	if err != nil {
 		return catalogapp.ProductPricingRule{}, err
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_pricing_rule", &id, "save_product_pricing_rule", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"margin_rate": cmd.MarginRate, "tax_rate": cmd.TaxRate, "rounding_mode": cmd.RoundingMode, "active": cmd.Active})
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_pricing_rule", &id, "save_product_pricing_rule", postgresinfra.StrPtr("name"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"margin_rate": cmd.MarginRate, "tax_rate": cmd.TaxRate, "rounding_mode": cmd.RoundingMode, "formula_version": cmd.FormulaVersion, "active": cmd.Active})
 	rows, err := r.ListProductPricingRules(ctx)
 	if err != nil {
 		return catalogapp.ProductPricingRule{}, err

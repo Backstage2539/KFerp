@@ -27,6 +27,10 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/business-groups", h.businessGroupsAPI)
 	e.POST("/api/business-groups", h.saveBusinessGroupAPI)
 	e.PUT("/api/business-groups/:id", h.saveBusinessGroupAPI)
+	e.POST("/api/business-group-items", h.saveBusinessGroupItemAPI)
+	e.PUT("/api/business-group-items/:id", h.saveBusinessGroupItemAPI)
+	e.DELETE("/api/business-group-items/:id", h.deleteBusinessGroupItemAPI)
+	e.POST("/api/business-group-items/:id/move", h.moveBusinessGroupItemAPI)
 	e.GET("/api/business-group-assignments", h.businessGroupAssignmentsAPI)
 	e.POST("/api/business-group-assignments", h.saveBusinessGroupAssignmentAPI)
 	e.PUT("/api/business-group-assignments/:id", h.saveBusinessGroupAssignmentAPI)
@@ -886,6 +890,62 @@ func (h productHandler) saveBusinessGroupAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"group": row})
+}
+
+func (h productHandler) saveBusinessGroupItemAPI(c echo.Context) error {
+	var req catalogapp.BusinessGroupItem
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	req.ID = id
+	req.Actor = support.ActorOf(c)
+	row, err := h.catalog.SaveBusinessGroupItem(c.Request().Context(), req)
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"item": row})
+}
+
+func (h productHandler) deleteBusinessGroupItemAPI(c echo.Context) error {
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	if err := h.catalog.DeleteBusinessGroupItem(c.Request().Context(), catalogapp.DeleteBusinessGroupItemCommand{ID: id, Actor: support.ActorOf(c)}); err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+func (h productHandler) moveBusinessGroupItemAPI(c echo.Context) error {
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	var req catalogapp.MoveBusinessGroupItemCommand
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	req.ID = id
+	req.Actor = support.ActorOf(c)
+	row, err := h.catalog.MoveBusinessGroupItem(c.Request().Context(), req)
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"item": row})
 }
 
 func (h productHandler) businessGroupAssignmentsAPI(c echo.Context) error {

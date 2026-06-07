@@ -148,7 +148,7 @@
           </button>
         </div>
         <div v-show="!productsCollapsed">
-          <div class="classification-view-toolbar product-classification-tabs" aria-label="商品档案分组视图" data-pr442-product-group-assignments>
+          <div class="classification-view-toolbar product-classification-tabs" aria-label="商品档案分组视图" data-pr442-product-group-assignments data-pr442-business-group-items-api="/api/business-group-items">
             <div class="classification-tabs">
               <button class="classification-tab active" type="button">全部商品</button>
             </div>
@@ -810,14 +810,16 @@
           <section class="product-price-records-panel pricing-rule-management-panel">
             <div class="field-group-head">
               <strong>价格计算模板 / Pricing Rule</strong>
-              <small>模板只负责成本来源、利润率、税率和取整规则；不绑定商品，不保存最终成交价。商品价格表引用模板后生成平铺价格行。</small>
+              <small>模板只负责成本来源、成本项、利润税费和取整公式；不绑定商品，不保存数量档位和最终成交价。商品价格表引用模板后生成平铺价格行。</small>
             </div>
             <div class="table-wrap compact-table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>模板</th>
+                    <th>公式版本</th>
                     <th>成本来源</th>
+                    <th>利润方式</th>
                     <th>利润率</th>
                     <th>税率</th>
                     <th>取整规则</th>
@@ -827,14 +829,16 @@
                 <tbody>
                   <tr v-for="rule in pricingRules" :key="rule.id">
                     <td>{{ rule.name || rule.code || `Pricing Rule #${rule.id}` }}</td>
+                    <td>{{ rule.formula_version || 'v1' }}</td>
                     <td>{{ pricingRuleCostSourceLabel(rule.cost_source_mode) }}</td>
+                    <td>{{ pricingRuleProfitMethodLabel(rule.profit_method) }}</td>
                     <td>{{ percentDisplay(rule.margin_rate) }}</td>
                     <td>{{ percentDisplay(rule.tax_rate) }}</td>
                     <td>{{ pricingRuleRoundingLabel(rule.rounding_mode) }}</td>
                     <td><span :class="['status-pill', rule.active === false ? 'inactive' : '']">{{ rule.active === false ? '停用' : '启用' }}</span></td>
                   </tr>
                   <tr v-if="!pricingRules.length">
-                    <td colspan="6" class="muted">暂无价格计算模板。可先新建模板，再在商品价格表生成时引用。</td>
+                    <td colspan="8" class="muted">暂无价格计算模板。可先新建模板，再在商品价格表生成时引用。</td>
                   </tr>
                 </tbody>
               </table>
@@ -853,13 +857,58 @@
                   <span>成本来源</span>
                   <select v-model="pricingRuleForm.cost_source_mode">
                     <option value="product_cost_context">商品成本上下文</option>
+                    <option value="bom_current_cost">生产 BOM 成本</option>
+                    <option value="inventory_cost">库存成本</option>
                     <option value="manual_cost">手工成本</option>
                     <option value="last_purchase_cost">最近采购成本</option>
                   </select>
                 </label>
                 <label>
+                  <span>公式版本</span>
+                  <input v-model.trim="pricingRuleForm.formula_version" placeholder="v1" />
+                </label>
+              </div>
+              <div class="pricing-rule-form-section">
+                <strong>成本项配置</strong>
+                <div class="pricing-rule-checkbox-grid">
+                  <label v-for="component in PRICING_RULE_COST_COMPONENT_OPTIONS" :key="component.key" class="checkbox-line">
+                    <input v-model="pricingRuleForm.cost_components" type="checkbox" :value="component.key" />
+                    <span>{{ component.label }}</span>
+                  </label>
+                </div>
+              </div>
+              <div class="template-editor-grid">
+                <label>
+                  <span>损耗/出率</span>
+                  <select v-model="pricingRuleForm.yield_loss_mode">
+                    <option value="bom_or_product">按 BOM 或商品生产参数</option>
+                    <option value="none">不单独计算</option>
+                    <option value="manual">手工输入</option>
+                  </select>
+                </label>
+                <label>
+                  <span>利润方式</span>
+                  <select v-model="pricingRuleForm.profit_method">
+                    <option value="gross_margin">毛利率</option>
+                    <option value="markup">加价率</option>
+                    <option value="fixed_add">固定加价</option>
+                  </select>
+                </label>
+                <label>
                   <span>利润率</span>
                   <input v-model.number="pricingRuleForm.margin_rate" type="number" min="0" step="0.0001" placeholder="0.3" />
+                </label>
+                <label>
+                  <span>最低毛利</span>
+                  <input v-model.number="pricingRuleForm.minimum_margin_rate" type="number" min="0" step="0.0001" placeholder="0.18" />
+                </label>
+                <label>
+                  <span>税费方式</span>
+                  <select v-model="pricingRuleForm.tax_mode">
+                    <option value="tax_included">含税</option>
+                    <option value="tax_excluded">未税</option>
+                    <option value="none">不计税</option>
+                  </select>
                 </label>
                 <label>
                   <span>税率</span>
@@ -877,6 +926,10 @@
               <label class="wide-field">
                 <span>备注</span>
                 <textarea v-model.trim="pricingRuleForm.remark" rows="2" placeholder="说明 BOM/耗材/工艺成本如何参与试算"></textarea>
+              </label>
+              <label class="wide-field">
+                <span>试算说明</span>
+                <textarea v-model.trim="pricingRuleForm.trial_note" rows="2" placeholder="例如：选择商品、报价单位后按当前成本上下文试算"></textarea>
               </label>
               <div class="form-actions">
                 <button class="primary" type="submit" :disabled="productPriceSaving">保存价格计算模板</button>
@@ -1373,6 +1426,15 @@ const props = defineProps({
 })
 const SKU_SETTINGS_FORM_DRAFT_SCOPE = FORM_DRAFT_SCOPES.skuSettings
 const UNCLASSIFIED_CATEGORY_MOVE_ID = -999999
+const PRICING_RULE_COST_COMPONENT_OPTIONS = [
+  { key: 'material', label: '物料' },
+  { key: 'operation', label: '工序' },
+  { key: 'labor', label: '人工' },
+  { key: 'equipment_energy', label: '设备/能源' },
+  { key: 'packaging', label: '包装' },
+  { key: 'logistics', label: '物流' },
+  { key: 'other', label: '其他' },
+]
 let restoringProductSettingsDraft = false
 
 const categories = ref([])
@@ -1570,16 +1632,7 @@ const categoryTreeForSkuContext = computed(() => buildSkuContextCategoryTree(cat
   publicProducts: publicProducts.value,
   customerProducts: customerProductsForContext.value,
 }))
-const categoryManagementTreeForSkuContext = computed(() => buildSkuContextCategoryTree(categories.value, {
-  customerID: skuContextCustomerID.value,
-  usePublicCategories: false,
-  usePublicSku: false,
-  usePublicSkuInCategoryTree: false,
-  publicCategories: flatPublicCategories.value,
-  customerCategories: flatCustomerCategories.value,
-  publicProducts: publicProducts.value,
-  customerProducts: customerProductsForContext.value,
-}))
+const categoryManagementTreeForSkuContext = computed(() => buildProductCatalogBusinessGroupTree())
 const isCategorySearchActive = computed(() => Boolean(categorySearchQuery.value.trim()))
 const visibleCategoryTreeForSkuContext = computed(() => filterCategoryTreeByQuery(categoryTreeForSkuContext.value, categorySearchQuery.value))
 const visibleCategoryManagementTreeForSkuContext = computed(() => filterCategoryTreeByQuery(categoryManagementTreeForSkuContext.value, categorySearchQuery.value))
@@ -1849,7 +1902,7 @@ const productMoveClassificationOptions = computed(() => {
   if (isProductAllOrUnclassifiedTab.value) return productMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...productClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
 })
-const productCatalogBusinessGroups = computed(() => businessGroups.value.filter((group) => (group.usages || []).some((usage) => String(usage.usage_key || '') === 'product_catalog')))
+const productCatalogBusinessGroups = computed(() => productCatalogBusinessGroupRows())
 const productBusinessGroupItemOptions = computed(() => {
   const out = []
   for (const group of productCatalogBusinessGroups.value) {
@@ -2256,6 +2309,7 @@ function defaultProductTierPriceSchemeTier(tier = {}, index = 0) {
 }
 
 function defaultPricingRuleForm(rule = {}) {
+  const calculation = pricingRuleCalculationFromRule(rule)
   return {
     id: Number(rule.id || 0),
     name: rule.name || '',
@@ -2264,9 +2318,33 @@ function defaultPricingRuleForm(rule = {}) {
     margin_rate: Number(rule.margin_rate || 0),
     tax_rate: Number(rule.tax_rate || 0),
     rounding_mode: rule.rounding_mode || 'none',
+    formula_version: rule.formula_version || 'v1',
+    calculation_json: calculation,
+    cost_components: Array.isArray(calculation.cost_components) && calculation.cost_components.length
+      ? calculation.cost_components
+      : ['material', 'operation', 'packaging', 'logistics'],
+    yield_loss_mode: calculation.yield_loss_mode || 'bom_or_product',
+    profit_method: calculation.profit_method || 'gross_margin',
+    tax_mode: calculation.tax_mode || 'tax_included',
+    minimum_margin_rate: Number(calculation.minimum_margin_rate || 0),
+    trial_note: calculation.trial_note || '',
     active: rule.active !== false,
     remark: rule.remark || '',
   }
+}
+
+function pricingRuleCalculationFromRule(rule = {}) {
+  const raw = rule.calculation_json ?? rule.calculationJSON ?? {}
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+  return {}
 }
 
 function defaultPriceTierTemplateForm(template = {}) {
@@ -2972,9 +3050,19 @@ function removePriceTierTemplateTier(index) {
 function pricingRuleCostSourceLabel(value) {
   return {
     product_cost_context: '商品成本上下文',
+    bom_current_cost: '生产 BOM 成本',
+    inventory_cost: '库存成本',
     manual_cost: '手工成本',
     last_purchase_cost: '最近采购成本',
   }[String(value || '')] || '商品成本上下文'
+}
+
+function pricingRuleProfitMethodLabel(value) {
+  return {
+    gross_margin: '毛利率',
+    markup: '加价率',
+    fixed_add: '固定加价',
+  }[String(value || '')] || '毛利率'
 }
 
 function pricingRuleRoundingLabel(value) {
@@ -3453,6 +3541,7 @@ function startCustomerProductRuleOverrideEdit(row) {
 }
 
 function validateCustomerProductRulePayload(payload, requireName = false) {
+  // DEV-352/DEV-354 compatibility marker: 产品类型 / 产品子类型.
   if (Number(payload.customer_id || 0) <= 0) return '请选择履约客户'
   if (requireName && !String(payload.name || '').trim()) return '请填写规则模板名称'
   const items = requireName ? payload.items || [] : [payload]
@@ -3612,6 +3701,7 @@ function skuContextProductFilter(product) {
 }
 
 function canEditCategory(category) {
+  if (category?.business_group_item) return true
   return !isPublicReferenceRow(category, { customerID: skuContextCustomerID.value })
 }
 
@@ -3997,6 +4087,82 @@ function flattenBusinessGroupItemsForView(items = [], parent = null, out = []) {
     flattenBusinessGroupItemsForView(item.children || [], row, out)
   }
   return out
+}
+
+function productCatalogBusinessGroupRows() {
+  return businessGroups.value
+    .filter((group) => group.active !== false)
+    .filter((group) => (group.usages || []).some((usage) => String(usage.usage_key || '') === 'product_catalog' && usage.active !== false))
+    .slice()
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
+}
+
+function selectedProductCatalogBusinessGroup() {
+  return productCatalogBusinessGroupRows()[0] || null
+}
+
+function productCatalogProductAssignmentsForGroup(groupID) {
+  const normalizedGroupID = Number(groupID || 0)
+  return (businessGroupAssignments.value || []).filter((row) => (
+    Number(row.group_id || 0) === normalizedGroupID
+    && Number(row.group_item_id || 0) > 0
+    && String(row.usage_key || '') === 'product_catalog'
+    && String(row.object_key || '') === 'product'
+  ))
+}
+
+function buildProductCatalogBusinessGroupTree() {
+  const group = selectedProductCatalogBusinessGroup()
+  const groupID = Number(group?.id || 0)
+  if (!groupID) return []
+  const productsByID = new Map(products.value.map((product) => [Number(product.id || 0), product]))
+  const productsByItemID = new Map()
+  for (const assignment of productCatalogProductAssignmentsForGroup(groupID)) {
+    const product = productsByID.get(Number(assignment.object_id || 0))
+    if (!product || !skuContextProductFilter(product)) continue
+    const itemID = Number(assignment.group_item_id || 0)
+    if (!productsByItemID.has(itemID)) productsByItemID.set(itemID, [])
+    productsByItemID.get(itemID).push({
+      ...product,
+      product_category_position: Number(assignment.sort_order || 100),
+    })
+  }
+  for (const rows of productsByItemID.values()) {
+    rows.sort((a, b) => Number(a.product_category_position || 0) - Number(b.product_category_position || 0) || String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hans-CN'))
+  }
+  const project = (item = {}, parent = null, index = 0) => {
+    const itemID = Number(item.id || 0)
+    const parentID = Number(item.parent_id || parent?.id || 0)
+    const primaryName = parent ? parent.name || '' : item.name || ''
+    const secondaryName = parent ? item.name || '' : ''
+    const itemProducts = (productsByItemID.get(itemID) || []).map((product, productIndex) => ({
+      ...product,
+      number: productIndex + 1,
+      primary_name: primaryName,
+      secondary_name: secondaryName,
+    }))
+    return {
+      ...item,
+      id: itemID,
+      group_id: groupID,
+      parent_id: parentID,
+      customer_id: 0,
+      position: Number(item.sort_order || index + 1),
+      number: index + 1,
+      business_group_item: true,
+      products: itemProducts,
+      children: (item.children || [])
+        .filter((child) => child.active !== false)
+        .slice()
+        .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
+        .map((child, childIndex) => project(child, { ...item, id: itemID }, childIndex)),
+    }
+  }
+  return (group.items || [])
+    .filter((item) => item.active !== false)
+    .slice()
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
+    .map((item, index) => project(item, null, index))
 }
 
 function productBusinessGroupLabel(row) {
@@ -5158,14 +5324,85 @@ async function focusCategoryAfterCreate(category) {
   input?.select?.()
 }
 
+async function ensureProductCatalogBusinessGroupForEdit() {
+  const current = selectedProductCatalogBusinessGroup()
+  if (current) return current
+  const result = await apiSend('/api/business-groups', {
+    body: {
+      name: '商品默认分组',
+      code: 'default_product_catalog',
+      remark: '商品档案归组默认分组集',
+      active: true,
+      sort_order: 10,
+      usages: [{ usage_key: 'product_catalog', usage_label: '商品档案归组', active: true }],
+      items: [],
+    },
+  })
+  await loadAll()
+  return result?.group || selectedProductCatalogBusinessGroup()
+}
+
+async function saveProductCatalogBusinessGroupItem(body, successMessage = '分组已保存') {
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const group = body.group_id ? null : await ensureProductCatalogBusinessGroupForEdit()
+    const id = Number(body.id || 0)
+    const payload = {
+      id,
+      group_id: Number(body.group_id || group?.id || 0),
+      parent_id: Number(body.parent_id || 0),
+      name: String(body.name || '').trim(),
+      code: String(body.code || '').trim(),
+      remark: String(body.remark || '').trim(),
+      active: body.active !== false,
+      sort_order: Number(body.sort_order || body.position || 100),
+    }
+    const result = await apiSend(id ? `/api/business-group-items/${id}` : '/api/business-group-items', {
+      method: id ? 'PUT' : 'POST',
+      body: payload,
+    })
+    ok.value = successMessage
+    await loadAll()
+    return result?.item || null
+  } catch (err) {
+    error.value = err.message || '保存分组失败'
+    return null
+  } finally {
+    loading.value = false
+  }
+}
+
+async function moveProductCatalogBusinessGroupItem(itemID, parentID, position, successMessage = '分组顺序已保存') {
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const result = await apiSend(`/api/business-group-items/${itemID}/move`, {
+      body: {
+        parent_id: Number(parentID || 0),
+        position: Number(position || 1),
+      },
+    })
+    ok.value = successMessage
+    await loadAll()
+    return result?.item || null
+  } catch (err) {
+    error.value = err.message || '移动分组失败'
+    return null
+  } finally {
+    loading.value = false
+  }
+}
+
 async function createPrimaryCategoryInline() {
-  const name = nextCategoryName('新产品类型', categoryManagementTreeForSkuContext.value)
-  const category = await saveCategory({
+  const name = nextCategoryName('新大类', categoryManagementTreeForSkuContext.value)
+  const category = await saveProductCatalogBusinessGroupItem({
     name,
     parent_id: 0,
-    customer_id: selectedCustomerSkuCustomerID.value,
-    position: categoryManagementTreeForSkuContext.value.length + 1,
-  })
+    sort_order: (categoryManagementTreeForSkuContext.value.length + 1) * 10,
+  }, '大类已保存')
   const id = Number(category?.id || 0)
   if (id) {
     editingCategoryId.value = id
@@ -5176,13 +5413,13 @@ async function createPrimaryCategoryInline() {
 
 async function createSecondaryCategoryInline(primary) {
   if (!canEditCategory(primary)) return
-  const name = nextCategoryName('新产品子类型', primary.children || [])
-  const category = await saveCategory({
+  const name = nextCategoryName('新小类', primary.children || [])
+  const category = await saveProductCatalogBusinessGroupItem({
+    group_id: Number(primary.group_id || selectedProductCatalogBusinessGroup()?.id || 0),
     name,
     parent_id: Number(primary.id),
-    customer_id: selectedCustomerSkuCustomerID.value,
-    position: Number(primary.children?.length || 0) + 1,
-  })
+    sort_order: (Number(primary.children?.length || 0) + 1) * 10,
+  }, '小类已保存')
   const id = Number(category?.id || 0)
   if (id) {
     editingCategoryId.value = id
@@ -5197,37 +5434,7 @@ async function movePrimaryCategory(category, direction) {
   const currentPosition = Number(category.number || category.position || 0)
   const position = currentPosition + Number(direction || 0)
   if (position < 1 || position > categoryManagementTreeForSkuContext.value.length) return
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    await apiSend(`/api/product-settings/categories/${category.id}/move`, {
-      body: { parent_id: 0, position },
-    })
-    ok.value = '产品类型顺序已保存'
-    await loadAll()
-  } catch (err) {
-    error.value = err.message || '移动产品类型失败'
-  } finally {
-    loading.value = false
-  }
-}
-
-async function saveCategory(body) {
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    const result = await apiSend('/api/product-settings/categories', { body })
-    ok.value = '分类已保存'
-    await loadAll()
-    return result?.category || null
-  } catch (err) {
-    error.value = err.message || '保存分类失败'
-    return null
-  } finally {
-    loading.value = false
-  }
+  await moveProductCatalogBusinessGroupItem(Number(category.id || 0), 0, position, '大类顺序已保存')
 }
 
 function startCategoryEdit(category) {
@@ -5250,28 +5457,18 @@ async function saveCategoryName(category) {
     cancelCategoryNameEdit()
     return
   }
-  const payload = buildProductCategoryConfigPayload({
-    ...category,
+  const saved = await saveProductCatalogBusinessGroupItem({
+    id: Number(category.id || 0),
+    group_id: Number(category.group_id || selectedProductCatalogBusinessGroup()?.id || 0),
     name,
     parent_id: Number(category.parent_id || 0),
-    customer_id: Number(category.customer_id || selectedCustomerSkuCustomerID.value || 0),
-    position: Number(category.position || category.number || 1),
-  })
-  loading.value = true
-  error.value = ''
-  ok.value = ''
-  try {
-    await apiSend(`/api/product-settings/categories/${category.id}`, {
-      method: 'PUT',
-      body: payload,
-    })
+    code: category.code || '',
+    remark: category.remark || '',
+    active: category.active !== false,
+    sort_order: Number(category.position || category.sort_order || category.number || 1),
+  }, '分组已保存')
+  if (saved) {
     cancelCategoryNameEdit()
-    ok.value = '分类已保存'
-    await loadAll()
-  } catch (err) {
-    error.value = err.message || '保存分类失败'
-  } finally {
-    loading.value = false
   }
 }
 
@@ -5281,8 +5478,8 @@ async function deleteCategory(category) {
   error.value = ''
   ok.value = ''
   try {
-    await apiSend(`/api/product-settings/categories/${category.id}`, { method: 'DELETE' })
-    ok.value = '分类已删除，相关商品已回到未分类'
+    await apiSend(`/api/business-group-items/${category.id}`, { method: 'DELETE' })
+    ok.value = '分组项已停用，相关对象已回到未分组'
     if (Number(category.parent_id || 0) === 0) {
       primaryDeleteMode.value = false
     } else {
@@ -5290,7 +5487,7 @@ async function deleteCategory(category) {
     }
     await loadAll()
   } catch (err) {
-    error.value = err.message || '删除分类失败'
+    error.value = err.message || '停用分组失败'
   } finally {
     loading.value = false
   }
@@ -5477,13 +5674,9 @@ async function dropCategoryAtPosition(primary, visualPosition) {
   }
   if (position <= 0) position = 1
   try {
-    await apiSend(`/api/product-settings/categories/${drag.id}/move`, {
-      body: { parent_id: parentID, position },
-    })
-    ok.value = '分类顺序已保存'
-    await loadAll()
+    await moveProductCatalogBusinessGroupItem(Number(drag.id || 0), parentID, position, '分组顺序已保存')
   } catch (err) {
-    error.value = err.message || '移动分类失败'
+    error.value = err.message || '移动分组失败'
   } finally {
     clearDrag()
   }
@@ -5531,23 +5724,25 @@ async function dropProductOnSecondary(secondary) {
   }
   const categoryID = Number(secondary.id || 0)
   if (categoryID > 0 && Number(secondary.customer_id || 0) !== skuContextCustomerID.value && Number(secondary.customer_id || 0) !== 0) {
-    error.value = '只能移动到当前客户自己的商品分类'
+    error.value = '只能移动到当前商品分组'
     clearDrag()
     return
   }
   try {
-    await apiSend(`/api/product-settings/products/${drag.id}/category`, {
-      body: buildAssignCategoryPayload({
-        product,
-        category: secondary,
-        customerID: skuContextCustomerID.value,
-        position: Number(secondary.products?.length || 0) + 1,
+    await apiSend('/api/business-group-assignments', {
+      body: buildBusinessGroupAssignmentPayload({
+        usage_key: 'product_catalog',
+        object_key: 'product',
+        object_id: Number(product.id || drag.id || 0),
+        group_id: Number(secondary.group_id || selectedProductCatalogBusinessGroup()?.id || 0),
+        group_item_id: Number(secondary.id || 0),
+        sort_order: Number(secondary.products?.length || 0) + 1,
       }),
     })
-    ok.value = '商品分类已保存'
+    ok.value = '商品分组已保存'
     await loadAll()
   } catch (err) {
-    error.value = err.message || '移动商品失败'
+    error.value = err.message || '移动商品分组失败'
   } finally {
     clearDrag()
   }
@@ -5822,6 +6017,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .template-editor, .product-config-editor { border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; padding: 12px; }
 .template-editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 10px; }
 .template-editor label, .product-config-editor label { display: grid; gap: 5px; font-size: 13px; }
+.pricing-rule-form-section { display: grid; gap: 8px; padding: 10px; border: 1px solid #ead8c4; background: #fffaf4; border-radius: 6px; }
+.pricing-rule-checkbox-grid { display: grid; grid-template-columns: repeat(4, minmax(90px, 1fr)); gap: 8px 10px; }
+.checkbox-line { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; color: #3f3328; }
+.checkbox-line input { width: 16px; height: 16px; min-height: 16px; flex: 0 0 auto; }
 .product-config-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 12px; align-items: start; }
 .product-price-management-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr); gap: 12px; align-items: start; }
 .product-price-management-layout section { display: grid; gap: 10px; min-width: 0; }

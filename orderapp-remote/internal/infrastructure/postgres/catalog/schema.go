@@ -208,6 +208,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_pricing_rules (
 	margin_rate NUMERIC(14,6) NOT NULL DEFAULT 0,
 	tax_rate NUMERIC(14,6) NOT NULL DEFAULT 0,
 	rounding_mode TEXT NOT NULL DEFAULT 'none',
+	calculation_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	formula_version TEXT NOT NULL DEFAULT 'v1',
 	active BOOLEAN NOT NULL DEFAULT true,
 	remark TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -217,6 +219,8 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_pricing_rules (
 );
 CREATE INDEX IF NOT EXISTS product_pricing_rules_active_idx
 ON %[1]s.product_pricing_rules(active, id);
+ALTER TABLE %[1]s.product_pricing_rules ADD COLUMN IF NOT EXISTS calculation_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE %[1]s.product_pricing_rules ADD COLUMN IF NOT EXISTS formula_version TEXT NOT NULL DEFAULT 'v1';
 CREATE TABLE IF NOT EXISTS %[1]s.price_tier_templates (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,

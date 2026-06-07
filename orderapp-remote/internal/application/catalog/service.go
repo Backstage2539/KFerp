@@ -121,6 +121,7 @@ type BusinessGroupUsage struct {
 
 type BusinessGroupItem struct {
 	ID        int64               `json:"id"`
+	Actor     string              `json:"-"`
 	GroupID   int64               `json:"group_id"`
 	ParentID  int64               `json:"parent_id"`
 	Name      string              `json:"name"`
@@ -168,6 +169,18 @@ type DeleteBusinessGroupAssignmentCommand struct {
 	ID    int64
 }
 
+type DeleteBusinessGroupItemCommand struct {
+	Actor string
+	ID    int64
+}
+
+type MoveBusinessGroupItemCommand struct {
+	Actor    string
+	ID       int64
+	ParentID int64 `json:"parent_id"`
+	Position int   `json:"position"`
+}
+
 type ProductCustomerReference struct {
 	ID                  int64  `json:"id"`
 	Actor               string `json:"-"`
@@ -180,16 +193,18 @@ type ProductCustomerReference struct {
 }
 
 type ProductPricingRule struct {
-	ID             int64   `json:"id"`
-	Actor          string  `json:"-"`
-	Name           string  `json:"name"`
-	Code           string  `json:"code"`
-	CostSourceMode string  `json:"cost_source_mode"`
-	MarginRate     float64 `json:"margin_rate"`
-	TaxRate        float64 `json:"tax_rate"`
-	RoundingMode   string  `json:"rounding_mode"`
-	Active         bool    `json:"active"`
-	Remark         string  `json:"remark"`
+	ID              int64          `json:"id"`
+	Actor           string         `json:"-"`
+	Name            string         `json:"name"`
+	Code            string         `json:"code"`
+	CostSourceMode  string         `json:"cost_source_mode"`
+	MarginRate      float64        `json:"margin_rate"`
+	TaxRate         float64        `json:"tax_rate"`
+	RoundingMode    string         `json:"rounding_mode"`
+	FormulaVersion  string         `json:"formula_version"`
+	CalculationJSON map[string]any `json:"calculation_json"`
+	Active          bool           `json:"active"`
+	Remark          string         `json:"remark"`
 }
 
 type PriceTierTemplate struct {
@@ -1221,6 +1236,9 @@ type Repository interface {
 	SaveProductPriceGroup(ctx context.Context, cmd SaveProductPriceGroupCommand) (ProductPriceGroup, error)
 	ListBusinessGroups(ctx context.Context) ([]BusinessGroup, error)
 	SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (BusinessGroup, error)
+	SaveBusinessGroupItem(ctx context.Context, cmd BusinessGroupItem) (BusinessGroupItem, error)
+	DeleteBusinessGroupItem(ctx context.Context, cmd DeleteBusinessGroupItemCommand) error
+	MoveBusinessGroupItem(ctx context.Context, cmd MoveBusinessGroupItemCommand) (BusinessGroupItem, error)
 	ListBusinessGroupAssignments(ctx context.Context, query BusinessGroupAssignmentQuery) ([]BusinessGroupAssignment, error)
 	SaveBusinessGroupAssignment(ctx context.Context, cmd BusinessGroupAssignment) (BusinessGroupAssignment, error)
 	DeleteBusinessGroupAssignment(ctx context.Context, cmd DeleteBusinessGroupAssignmentCommand) error
@@ -1704,6 +1722,48 @@ func (s *Service) SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (Bus
 	return s.repo.SaveBusinessGroup(ctx, cmd)
 }
 
+func (s *Service) SaveBusinessGroupItem(ctx context.Context, cmd BusinessGroupItem) (BusinessGroupItem, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Code = strings.TrimSpace(cmd.Code)
+	cmd.Remark = strings.TrimSpace(cmd.Remark)
+	if cmd.ID < 0 || cmd.GroupID < 0 || cmd.ParentID < 0 {
+		return BusinessGroupItem{}, ValidationError{Message: "invalid business group item"}
+	}
+	if cmd.Name == "" {
+		return BusinessGroupItem{}, ValidationError{Message: "name required"}
+	}
+	if cmd.ID == 0 && cmd.GroupID <= 0 {
+		return BusinessGroupItem{}, ValidationError{Message: "group required"}
+	}
+	if cmd.SortOrder <= 0 {
+		cmd.SortOrder = 100
+	}
+	if cmd.ID == 0 {
+		cmd.Active = true
+	}
+	return s.repo.SaveBusinessGroupItem(ctx, cmd)
+}
+
+func (s *Service) DeleteBusinessGroupItem(ctx context.Context, cmd DeleteBusinessGroupItemCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ID <= 0 {
+		return ValidationError{Message: "invalid business group item"}
+	}
+	return s.repo.DeleteBusinessGroupItem(ctx, cmd)
+}
+
+func (s *Service) MoveBusinessGroupItem(ctx context.Context, cmd MoveBusinessGroupItemCommand) (BusinessGroupItem, error) {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ID <= 0 || cmd.ParentID < 0 {
+		return BusinessGroupItem{}, ValidationError{Message: "invalid business group item"}
+	}
+	if cmd.Position <= 0 {
+		cmd.Position = 1
+	}
+	return s.repo.MoveBusinessGroupItem(ctx, cmd)
+}
+
 func (s *Service) ListBusinessGroupAssignments(ctx context.Context, query BusinessGroupAssignmentQuery) ([]BusinessGroupAssignment, error) {
 	query.UsageKey = strings.TrimSpace(query.UsageKey)
 	query.ObjectKey = strings.TrimSpace(query.ObjectKey)
@@ -1778,6 +1838,7 @@ func (s *Service) SaveProductPricingRule(ctx context.Context, cmd ProductPricing
 	cmd.Code = strings.TrimSpace(cmd.Code)
 	cmd.CostSourceMode = strings.TrimSpace(cmd.CostSourceMode)
 	cmd.RoundingMode = strings.TrimSpace(cmd.RoundingMode)
+	cmd.FormulaVersion = strings.TrimSpace(cmd.FormulaVersion)
 	cmd.Remark = strings.TrimSpace(cmd.Remark)
 	if cmd.ID < 0 {
 		return ProductPricingRule{}, ValidationError{Message: "invalid pricing rule"}
@@ -1791,9 +1852,17 @@ func (s *Service) SaveProductPricingRule(ctx context.Context, cmd ProductPricing
 	if cmd.RoundingMode == "" {
 		cmd.RoundingMode = "none"
 	}
+	if cmd.FormulaVersion == "" {
+		cmd.FormulaVersion = "v1"
+	}
 	if cmd.MarginRate < 0 || cmd.TaxRate < 0 {
 		return ProductPricingRule{}, ValidationError{Message: "rate must not be negative"}
 	}
+	calculationJSON, err := normalizePricingRuleCalculationJSON(cmd.CalculationJSON)
+	if err != nil {
+		return ProductPricingRule{}, ValidationError{Message: err.Error()}
+	}
+	cmd.CalculationJSON = calculationJSON
 	if cmd.ID == 0 {
 		cmd.Active = true
 	}
@@ -3075,6 +3144,49 @@ func normalizeJSONArrayText(raw string) (string, error) {
 		return "", err
 	}
 	return string(encoded), nil
+}
+
+func normalizePricingRuleCalculationJSON(raw map[string]any) (map[string]any, error) {
+	if raw == nil {
+		return map[string]any{}, nil
+	}
+	if pricingRuleCalculationContainsQuantityTierField(raw) {
+		return nil, fmt.Errorf("pricing rule must not contain quantity tiers")
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid calculation_json")
+	}
+	var normalized map[string]any
+	if err := json.Unmarshal(encoded, &normalized); err != nil {
+		return nil, fmt.Errorf("invalid calculation_json")
+	}
+	if normalized == nil {
+		normalized = map[string]any{}
+	}
+	return normalized, nil
+}
+
+func pricingRuleCalculationContainsQuantityTierField(value any) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			switch strings.ToLower(strings.TrimSpace(key)) {
+			case "min_qty", "minqty", "max_qty", "maxqty", "tier_label", "tierlabel", "tier_name", "tiername", "tiers", "quantity_unit", "quantityunit", "position", "final_unit_price", "finalunitprice", "customer_tiers", "customertiers":
+				return true
+			}
+			if pricingRuleCalculationContainsQuantityTierField(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if pricingRuleCalculationContainsQuantityTierField(child) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func validateProductConfigPriceRule(raw string) error {

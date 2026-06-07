@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-443-PRICING-RULE-CALCULATION-TEMPLATE", title: "商品价格管理的 Pricing Rule 升级为通用价格计算模板，只保存公式配置，不保存数量档位或最终成交价", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; product_pricing_rules.calculation_json; ProductSettingsView.vue"},
+		{table: "req_dev", code: "DEV-443-PRICING-RULE-SCHEMA", title: "product_pricing_rules 增加 calculation_json 和 formula_version，API 保存前拒绝把数量档位字段写进 Pricing Rule", status: "doing", assignee: "Codex", evidence: "catalog schema/service/repository; product_settings_api_test.go"},
+		{table: "req_dev", code: "DEV-443-PRICING-RULE-UI", title: "商品价格管理表单展示成本来源、成本项、损耗出率、利润税费、最低毛利、取整、公式版本和试算说明", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; product-settings.test.js"},
+		{table: "req_dev", code: "DEV-443-PRICE-LIST-FORMULA-SNAPSHOT", title: "商品价格表平铺价格行冻结 Pricing Rule 公式版本和公式配置，档位上下文仍只保存在价格行和阶梯模板中", status: "doing", assignee: "Codex", evidence: "CostingView.vue"},
+		{table: "req_review", code: "REV-443-PRICING-RULE-CALCULATION-TEMPLATE", prCode: "PR-443-PRICING-RULE-CALCULATION-TEMPLATE", title: "验收：Pricing Rule 可维护通用公式配置；阶梯模板继续维护数量档位；发布价格表冻结公式快照但不回写 Pricing Rule", status: "todo", assignee: "VA", evidence: "docs/acceptance/2026-06-07-pricing-rule-calculation-template.md"},
 		{table: "req_product", code: "PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION", title: "商品管理、生产 BOM、仓库库存统一使用泛化分组管理，普通新业务不再写旧商品分类或 BOM 专用分组", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; business_group_assignments; ProductSettingsView.vue; BomView.vue; WarehouseInventoryView.vue"},
 		{table: "req_dev", code: "DEV-442-GENERIC-GROUP-ASSIGNMENTS", title: "补齐通用对象归组 API 和 schema，支持商品/BOM 数字 id 与仓库 code 字符串对象引用，写操作留操作日志", status: "doing", assignee: "Codex", evidence: "catalog service/repository/schema; /api/business-group-assignments"},
 		{table: "req_dev", code: "DEV-442-PRODUCT-GROUP-ASSIGNMENT", title: "商品档案列表、展示和批量移动改用 product_catalog 归组关系，不再写 product_category_id 或 classification_template_id", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; catalog repository tests"},

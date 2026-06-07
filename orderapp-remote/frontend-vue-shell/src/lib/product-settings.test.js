@@ -359,10 +359,23 @@ test('pricing rules and tier templates are independent templates used by price l
     margin_rate: '0.32',
     tax_rate: '0.06',
     rounding_mode: 'yuan',
+    formula_version: ' v2 ',
+    calculation_json: {
+      cost_components: ['material', 'operation', 'packaging', 'logistics'],
+      yield_loss_mode: 'bom_or_product',
+      profit_method: 'gross_margin',
+      tax_mode: 'tax_included',
+      minimum_margin_rate: '0.18',
+      trial_note: '选择商品、报价单位后试算',
+      tier_label: 'should be ignored',
+    },
     product_id: 88,
     customer_product_alias_id: 99,
     final_unit_price: 88,
     tiers: [{ label: '10kg+' }],
+    min_qty: 1,
+    max_qty: 10,
+    tier_label: '1kg+',
     active: false,
     remark: ' 用 BOM 和工艺成本试算 ',
   }), {
@@ -373,6 +386,15 @@ test('pricing rules and tier templates are independent templates used by price l
     margin_rate: 0.32,
     tax_rate: 0.06,
     rounding_mode: 'yuan',
+    formula_version: 'v2',
+    calculation_json: {
+      cost_components: ['material', 'operation', 'packaging', 'logistics'],
+      yield_loss_mode: 'bom_or_product',
+      profit_method: 'gross_margin',
+      tax_mode: 'tax_included',
+      minimum_margin_rate: 0.18,
+      trial_note: '选择商品、报价单位后试算',
+    },
     active: false,
     remark: '用 BOM 和工艺成本试算',
   })
@@ -479,13 +501,13 @@ test('product settings exposes pricing rule pane instead of final price records'
   const pane = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<div v-if="classificationTemplateCreateDrawerOpen"/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
-  for (const want of ['product-price-management-pane', '商品价格管理', '价格计算模板', 'Pricing Rule', '成本来源', '利润率', '税率', '取整规则']) {
+  for (const want of ['product-price-management-pane', '商品价格管理', '价格计算模板', 'Pricing Rule', '成本来源', '成本项配置', '利润方式', '税费方式', '最低毛利', '公式版本', '试算说明', '利润率', '税率', '取整规则']) {
     assert.match(pane, new RegExp(want))
   }
   for (const want of ['pricingRules', 'buildPricingRulePayload']) {
     assert.match(script, new RegExp(want))
   }
-  for (const forbidden of ['商品价格记录', '最终单价', '引用价格记录', 'source_price_record_id', '阶梯价模板', 'priceTierTemplateForm', 'savePriceTierTemplate']) {
+  for (const forbidden of ['商品价格记录', '最终单价', '引用价格记录', 'source_price_record_id', '阶梯价模板', 'priceTierTemplateForm', 'savePriceTierTemplate', 'min_qty', 'max_qty', 'tier_label']) {
     assert.equal(pane.includes(forbidden), false, `product price management pane should not expose ${forbidden}`)
   }
 })
@@ -1809,11 +1831,11 @@ test('SKU settings exposes an explicit copy action for public gradient templates
   assert.match(source, /customer-gradient-templates\/derive/)
 })
 
-test('SKU settings labels category levels as product type and subtype', () => {
+test('SKU settings labels group levels as large and small group items', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
 
-  assert.match(source, /产品类型/)
-  assert.match(source, /产品子类型/)
+  assert.match(source, /新增大类/)
+  assert.match(source, /个小类/)
   assert.doesNotMatch(source, /一级分类/)
   assert.doesNotMatch(source, /二级分类/)
 })
@@ -2680,6 +2702,7 @@ test('product settings uses product business groups instead of product classific
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const productToolbar = template.match(/<div class="classification-view-toolbar product-classification-tabs"[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || ''
+  const groupManagementWorkspace = template.match(/<div v-show="currentSettingsSection === 'category-management'"[\s\S]*?<div v-show="currentSettingsSection === 'master'"/)?.[0] || ''
 
   for (const expected of [
     'businessGroupAssignments',
@@ -2698,6 +2721,9 @@ test('product settings uses product business groups instead of product classific
   }
   assert.doesNotMatch(productToolbar, /placeholder="增加分类"/)
   assert.doesNotMatch(productToolbar, /placeholder="移动到分类"/)
+  assert.match(groupManagementWorkspace, /新增大类/)
+  assert.match(source, /\/api\/business-group-items/)
+  assert.doesNotMatch(groupManagementWorkspace, /\/api\/product-settings\/categories/)
   assert.doesNotMatch(source, /classification-config-drawer/)
   assert.doesNotMatch(source, /aria-label="分类配置"/)
 })

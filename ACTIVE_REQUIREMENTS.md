@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-443-PRICING-RULE-CALCULATION-TEMPLATE
+- Branch: codex/pricing-rule-calculation-template
+- Owner/session: Codex / 2026-06-07
+- Status: implemented locally; pending deploy/live ERP acceptance
+- Scope: 商品价格管理的 Pricing Rule 从薄利润/税率模板升级为通用价格计算模板；Pricing Rule 只保存公式配置和公式版本，不保存数量档位、每档最终价或客户专属档位。商品价格表生成平铺价格行时冻结 Pricing Rule 公式快照，数量档位继续属于阶梯模板或价格表生成上下文。
+- DEV:
+  - DEV-443-PRICING-RULE-SCHEMA：`product_pricing_rules` 增加 `calculation_json` 和 `formula_version`；API 保存前拒绝把数量档位字段写入 Pricing Rule。
+  - DEV-443-PRICING-RULE-UI：商品价格管理表单展示成本来源、成本项、损耗/出率、利润方式、税费方式、最低毛利、取整、公式版本和试算说明。
+  - DEV-443-PRICE-LIST-FORMULA-SNAPSHOT：商品价格表平铺价格行冻结 Pricing Rule 公式版本和公式配置，档位上下文仍只保存在价格行和阶梯模板中。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because Pricing Rule payload and 商品价格管理 UI lacked `calculation_json/formula_version` and formula fields.
+  - RED API: `go test ./internal/interfaces/http/catalog -run 'TestProductPricingRuleAPI(ReplacesFinalPriceRecordMasterData|SavesCalculationTemplateWithoutQuantityTiers)' -count=1` failed before implementation because API response missed `formula_version`.
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev443PricingRuleCalculationTemplateContracts -count=1` failed before implementation because schema/docs/UI contract markers were absent.
+  - GREEN targeted: `node --test src/lib/product-settings.test.js` passed 123/123; `go test ./internal/interfaces/http/catalog -run 'TestProductPricingRuleAPI(ReplacesFinalPriceRecordMasterData|SavesCalculationTemplateWithoutQuantityTiers|RejectsQuantityTierFieldsInsideCalculationTemplate)' -count=1`; `go test ./internal/interfaces/http/support -run TestDev443PricingRuleCalculationTemplateContracts -count=1`.
+  - GREEN broader: `go test ./internal/application/catalog ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/catalog ./internal/interfaces/http/support ./internal/application/costing -count=1`; `npm run build` in `frontend-vue-shell`; `git diff --check`; `scripts/verify_kferp.sh changed`; `go test ./...` in `orderapp-remote`.
+  - GREEN local browser: Vite dev server `http://127.0.0.1:5173/vue-shell/` with mocked auth/API rendered 商品价格管理 and showed `成本项配置`、`利润方式`、`税费方式`、`最低毛利`、`公式版本`、`试算说明` plus formula version `v2` with no console/page errors. Screenshot: `/tmp/pr443-price-management-local.png`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-07-pricing-rule-calculation-template.md`.
+- Last update: 2026-06-07 Asia/Shanghai
+
 ### PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION
 - Branch: codex/business-group-object-unification
 - Owner/session: Codex / 2026-06-07
