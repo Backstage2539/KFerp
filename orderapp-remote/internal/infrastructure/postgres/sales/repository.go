@@ -499,6 +499,8 @@ func beanListPriceSourceJSON(listType string, usage orderbeans.Usage, productID 
 		"list_type":                strings.TrimSpace(listType),
 		"bean_list_publication_id": usage.PublicationID,
 		"bean_list_version_no":     usage.VersionNo,
+		"publication_id":           usage.PublicationID,
+		"version":                  usage.VersionNo,
 		"product_id":               productID,
 	}
 	buf, err := json.Marshal(source)
@@ -525,6 +527,16 @@ func beanListPriceSourceJSONWithPricing(listType string, usage orderbeans.Usage,
 	if pricing.SourcePriceRecordID > 0 {
 		source["source_price_record_id"] = pricing.SourcePriceRecordID
 	}
+	if strings.TrimSpace(pricing.TierLabel) != "" {
+		source["tier_label"] = strings.TrimSpace(pricing.TierLabel)
+	}
+	if pricing.FinalUnitPrice > 0 {
+		source["final_unit_price"] = pricing.FinalUnitPrice
+	}
+	if strings.TrimSpace(pricing.PricingRuleVersion) != "" {
+		source["pricing_rule_version"] = strings.TrimSpace(pricing.PricingRuleVersion)
+	}
+	source["manual_adjusted"] = pricing.ManualAdjusted
 	if strings.TrimSpace(pricing.InventoryUnit) != "" {
 		source["inventory_unit"] = strings.TrimSpace(pricing.InventoryUnit)
 	}
@@ -532,6 +544,18 @@ func beanListPriceSourceJSONWithPricing(listType string, usage orderbeans.Usage,
 		var conversion map[string]any
 		if err := json.Unmarshal([]byte(pricing.InventoryConversionJSON), &conversion); err == nil && len(conversion) > 0 {
 			source["inventory_conversion_json"] = conversion
+		}
+	}
+	if strings.TrimSpace(pricing.CostSourceSnapshotJSON) != "" {
+		var snapshot map[string]any
+		if err := json.Unmarshal([]byte(pricing.CostSourceSnapshotJSON), &snapshot); err == nil && len(snapshot) > 0 {
+			source["cost_source_snapshot"] = snapshot
+		}
+	}
+	if strings.TrimSpace(pricing.CustomerSnapshotJSON) != "" {
+		var snapshot map[string]any
+		if err := json.Unmarshal([]byte(pricing.CustomerSnapshotJSON), &snapshot); err == nil && len(snapshot) > 0 {
+			source["customer_reference_snapshot"] = snapshot
 		}
 	}
 	buf, err := json.Marshal(source)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -31,6 +32,12 @@ type PublishedPricing struct {
 	SourcePriceRecordID     int64
 	InventoryUnit           string
 	InventoryConversionJSON string
+	TierLabel               string
+	FinalUnitPrice          float64
+	PricingRuleVersion      string
+	ManualAdjusted          bool
+	CostSourceSnapshotJSON  string
+	CustomerSnapshotJSON    string
 }
 
 type rowQuerier interface {
@@ -163,6 +170,8 @@ type publishedBeanListContent struct {
 }
 
 type publishedPriceTier struct {
+	Label                   string          `json:"label"`
+	TierLabel               string          `json:"tier_label"`
 	SourcePriceRecordID     int64           `json:"source_price_record_id"`
 	FinalUnitPrice          float64         `json:"final_unit_price"`
 	SpecG                   int64           `json:"spec_g"`
@@ -183,6 +192,10 @@ type publishedPriceTier struct {
 	PriceUnit               string          `json:"price_unit"`
 	InventoryUnit           string          `json:"inventory_unit"`
 	InventoryConversionJSON json.RawMessage `json:"inventory_conversion_json"`
+	PricingRuleVersion      string          `json:"pricing_rule_version"`
+	ManualAdjusted          bool            `json:"manual_adjusted"`
+	CostSourceSnapshot      json.RawMessage `json:"cost_source_snapshot"`
+	CustomerSnapshot        json.RawMessage `json:"customer_reference_snapshot"`
 }
 
 func publishedUnitPriceFromContent(raw []byte, productID int64, specG int64, qty int64) (float64, bool) {
@@ -197,6 +210,12 @@ func publishedUnitPriceFromContentForListType(raw []byte, productID int64, listT
 func publishedPricingFromContentForListType(raw []byte, productID int64, listType string, specG int64, qty int64, salesUnit string, unitBagCount int64) (PublishedPricing, bool) {
 	if productID <= 0 || specG <= 0 || qty <= 0 || len(raw) == 0 {
 		return PublishedPricing{}, false
+	}
+	if tiers := publishedFlatPriceRows(raw, productID); len(tiers) > 0 {
+		if tier, ok := matchPublishedPriceTier(tiers, specG, qty); ok {
+			price := publishedTierPricing(tier, specG)
+			return price, price.UnitPrice > 0
+		}
 	}
 	var content publishedBeanListContent
 	if err := json.Unmarshal(raw, &content); err != nil {
@@ -232,13 +251,7 @@ func publishedItemMatchesProduct(raw json.RawMessage, productID int64) bool {
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return false
 	}
-	for _, key := range []string{"productId", "product_id", "productID"} {
-		var id int64
-		if data, ok := fields[key]; ok && json.Unmarshal(data, &id) == nil && id == productID {
-			return true
-		}
-	}
-	return false
+	return publishedJSONInt64Field(fields, "productId", "product_id", "productID") == productID
 }
 
 func publishedItemTiers(raw json.RawMessage, listType string) []publishedPriceTier {
@@ -260,6 +273,56 @@ func publishedItemTiers(raw json.RawMessage, listType string) []publishedPriceTi
 		_ = json.Unmarshal(data, &tiers)
 	}
 	return tiers
+}
+
+func publishedFlatPriceRows(raw []byte, productID int64) []publishedPriceTier {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil
+	}
+	var rows []json.RawMessage
+	if data, ok := fields["price_rows"]; !ok || json.Unmarshal(data, &rows) != nil {
+		return nil
+	}
+	out := make([]publishedPriceTier, 0, len(rows))
+	for _, rowRaw := range rows {
+		var rowFields map[string]json.RawMessage
+		if err := json.Unmarshal(rowRaw, &rowFields); err != nil {
+			continue
+		}
+		if publishedJSONInt64Field(rowFields, "product_id", "productId", "productID") != productID {
+			continue
+		}
+		var tier publishedPriceTier
+		if err := json.Unmarshal(rowRaw, &tier); err != nil {
+			continue
+		}
+		if tier.SpecG <= 0 {
+			tier.SpecG = int64(publishedPriceUnitG(tier.PriceUnit, 0))
+		}
+		out = append(out, tier)
+	}
+	return out
+}
+
+func publishedJSONInt64Field(fields map[string]json.RawMessage, keys ...string) int64 {
+	for _, key := range keys {
+		data, ok := fields[key]
+		if !ok {
+			continue
+		}
+		var id int64
+		if json.Unmarshal(data, &id) == nil {
+			return id
+		}
+		var text string
+		if json.Unmarshal(data, &text) == nil {
+			if id, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64); err == nil {
+				return id
+			}
+		}
+	}
+	return 0
 }
 
 func matchPublishedPriceTier(tiers []publishedPriceTier, specG int64, qty int64) (publishedPriceTier, bool) {
@@ -440,11 +503,28 @@ func publishedTierPricing(tier publishedPriceTier, specG int64) PublishedPricing
 func publishedPricingWithSnapshot(pricing PublishedPricing, tier publishedPriceTier) PublishedPricing {
 	pricing.SourcePriceRecordID = tier.SourcePriceRecordID
 	pricing.InventoryUnit = strings.TrimSpace(tier.InventoryUnit)
+	pricing.TierLabel = strings.TrimSpace(tier.TierLabel)
+	if pricing.TierLabel == "" {
+		pricing.TierLabel = strings.TrimSpace(tier.Label)
+	}
+	if tier.FinalUnitPrice > 0 {
+		pricing.FinalUnitPrice = roundPublishedPrice(tier.FinalUnitPrice)
+	} else if pricing.UnitPrice > 0 {
+		pricing.FinalUnitPrice = roundPublishedPrice(pricing.UnitPrice)
+	}
+	pricing.PricingRuleVersion = strings.TrimSpace(tier.PricingRuleVersion)
+	pricing.ManualAdjusted = tier.ManualAdjusted
 	if len(tier.InventoryConversionJSON) > 0 && string(tier.InventoryConversionJSON) != "null" {
 		pricing.InventoryConversionJSON = strings.TrimSpace(string(tier.InventoryConversionJSON))
 	}
 	if pricing.InventoryConversionJSON == "" {
 		pricing.InventoryConversionJSON = "{}"
+	}
+	if len(tier.CostSourceSnapshot) > 0 && string(tier.CostSourceSnapshot) != "null" {
+		pricing.CostSourceSnapshotJSON = strings.TrimSpace(string(tier.CostSourceSnapshot))
+	}
+	if len(tier.CustomerSnapshot) > 0 && string(tier.CustomerSnapshot) != "null" {
+		pricing.CustomerSnapshotJSON = strings.TrimSpace(string(tier.CustomerSnapshot))
 	}
 	return pricing
 }

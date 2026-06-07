@@ -1408,6 +1408,72 @@ func TestOrderAPISavesBeanListKgDisplayUnitForSmallPackageOrder(t *testing.T) {
 	}
 }
 
+func TestOrderAPICreatesCommercialOrderFromPR440FlatPriceRows(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active,retail_price_227g,customer_id,base_product_id,visibility,custom_type,product_kind)
+		VALUES (809,'PR440 平铺价格商品',0,true,0,0,0,'public','','roasted_bean');
+		INSERT INTO %[1]s.bean_list_publications(id, list_type, version_no, status, owner_type, owner_key, config_json, content_json, changelog, actor, published_at)
+		VALUES
+			(9919,'commercial','PR440-FLAT-1','published','customer','3','{}'::jsonb,
+			'{"groups":[{"items":[{"productId":809,"name":"PR440 平铺价格商品"}]}],"price_rows":[{"product_id":809,"product_name":"PR440 平铺价格商品","tier_label":"1kg+","min_qty":1,"final_unit_price":88,"original_final_unit_price":88,"price_unit":"kg","currency":"CNY","inventory_unit":"kg","inventory_conversion_json":{"kg":1},"source_price_record_id":0,"tier_template_id":1,"tier_template_source":"product","pricing_rule_id":1,"pricing_rule_source":"product","pricing_rule_version":"PR440/v1","cost_source_snapshot":{"material_id":1},"customer_reference_snapshot":{"customer_id":3,"customer_display_name":"客户显示名"},"manual_adjusted":false}]}'::jsonb,
+			'PR440 平铺价格','codex','2026-06-07 09:00:00+08');
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	payload := map[string]any{
+		"order_date":                          "2026-06-07",
+		"customer_id":                         3,
+		"source_id":                           1,
+		"order_type_id":                       1,
+		"pay_status_id":                       2,
+		"payment_method":                      "微信支付",
+		"ship_status_id":                      1,
+		"commercial_bean_list_publication_id": 9919,
+		"product_id":                          []string{"809"},
+		"tier_id":                             []string{"pr440-flat"},
+		"unit_price":                          []string{"88"},
+		"item_name":                           []string{"客户显示名"},
+		"qty":                                 []string{"1"},
+		"unit":                                []string{"kg"},
+		"spec":                                []string{"1000"},
+		"product_kind":                        []string{"roasted_bean"},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/order", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/order status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var unitPrice, lineTotal float64
+	var version, priceSource string
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(unit_price,0)::float8,
+		       COALESCE(line_total,0)::float8,
+		       COALESCE(bean_list_version_no,''),
+		       COALESCE(price_source_json,'{}'::jsonb)::text
+		FROM %s.order_items
+		WHERE product_id=809
+		ORDER BY id DESC
+		LIMIT 1
+	`, schema)).Scan(&unitPrice, &lineTotal, &version, &priceSource); err != nil {
+		t.Fatalf("query order item: %v", err)
+	}
+	if unitPrice != 88 || lineTotal != 88 || version != "PR440-FLAT-1" {
+		t.Fatalf("unit_price/line_total/version=%.2f/%.2f/%q, want 88.00/88.00/PR440-FLAT-1", unitPrice, lineTotal, version)
+	}
+	for _, want := range []string{`"price_unit":"kg"`, `"pricing_rule_version":"PR440/v1"`, `"customer_reference_snapshot"`} {
+		if !strings.Contains(priceSource, want) {
+			t.Fatalf("price_source_json missing %s: %s", want, priceSource)
+		}
+	}
+}
+
 func TestOrderAPICreatesDripBagOrderSavesUnitMetadataPriceAndAudit(t *testing.T) {
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()

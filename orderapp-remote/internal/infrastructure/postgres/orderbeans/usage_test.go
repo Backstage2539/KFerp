@@ -105,6 +105,36 @@ func TestPublishedPricingCarriesFinalPriceSnapshotMetadata(t *testing.T) {
 	}
 }
 
+func TestPublishedPricingMatchesPR440FlatPriceRows(t *testing.T) {
+	content := []byte(`{
+		"groups":[{
+			"items":[{
+				"productId":11,
+				"name":"PR440 平铺价格商品"
+			}]
+		}],
+		"price_rows":[{
+			"product_id":11,
+			"tier_label":"1kg+",
+			"min_qty":1,
+			"final_unit_price":88,
+			"price_unit":"kg",
+			"inventory_unit":"kg",
+			"inventory_conversion_json":{"kg":1},
+			"pricing_rule_version":"PR440/v1",
+			"customer_reference_snapshot":{"customer_id":3,"customer_display_name":"客户显示名"}
+		}]
+	}`)
+
+	got, ok := publishedPricingFromContentForListType(content, 11, ListTypeCommercial, 1000, 1, "", 0)
+	if !ok {
+		t.Fatalf("PR-440 flat price row should resolve published pricing")
+	}
+	if got.UnitPrice != 88 || got.PriceUnit != "kg" || got.UnitG != 1000 || got.InventoryUnit != "kg" || !strings.Contains(got.InventoryConversionJSON, `"kg"`) {
+		t.Fatalf("published PR-440 flat pricing = %+v, want 88 kg with inventory snapshot", got)
+	}
+}
+
 func TestExplicitPublicationSelectionRequiresPublishedSnapshots(t *testing.T) {
 	source, err := os.ReadFile("usage.go")
 	if err != nil {
