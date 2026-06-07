@@ -1550,7 +1550,7 @@ func (r Repository) ListProductionBoms(ctx context.Context) ([]bomapp.Production
 	if err := repairLegacyProductionBomBindings(ctx, r.pool, r.schema); err != nil {
 		return nil, err
 	}
-	rows, err := r.pool.Query(ctx, productionBomSummarySQL(r.schema, "1=1")+" ORDER BY COALESCE(g.sort_order,100), pb.name, pb.id")
+	rows, err := r.pool.Query(ctx, productionBomSummarySQL(r.schema, "1=1")+" ORDER BY COALESCE(bga.sort_order,100), pb.name, pb.id")
 	if err != nil {
 		return nil, err
 	}

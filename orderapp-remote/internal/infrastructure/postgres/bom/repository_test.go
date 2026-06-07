@@ -321,12 +321,16 @@ func TestProductionBomGroupingUsesBusinessGroupAssignments(t *testing.T) {
 		"LEFT JOIN %[1]s.business_group_assignments bga",
 		"lower(bga.usage_key)='production_bom'",
 		"lower(bga.object_key)='production_bom'",
+		"ORDER BY COALESCE(bga.sort_order,100), pb.name, pb.id",
 		"saveBusinessGroupAssignmentForProductionBomTx",
 		`"save_business_group_assignment"`,
 	} {
 		if !strings.Contains(repository, want) {
 			t.Fatalf("production BOM generic group assignment implementation missing marker %q", want)
 		}
+	}
+	if strings.Contains(repository, "ORDER BY COALESCE(g.sort_order,100), pb.name, pb.id") {
+		t.Fatalf("production BOM list must not order by legacy group alias g after PR-442 generic grouping")
 	}
 	for _, fn := range []string{"func (r Repository) CreateProductionBom", "func (r Repository) UpdateProductionBom", "func (r Repository) CopyProductionBom"} {
 		start := strings.Index(repository, fn)
