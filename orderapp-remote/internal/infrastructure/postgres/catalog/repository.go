@@ -1929,22 +1929,43 @@ func (r Repository) DeleteBusinessGroupAssignment(ctx context.Context, cmd catal
 }
 
 func businessGroupItemTree(items []catalogapp.BusinessGroupItem) []catalogapp.BusinessGroupItem {
-	nodes := map[int64]*catalogapp.BusinessGroupItem{}
+	nodes := map[int64]catalogapp.BusinessGroupItem{}
+	childrenByParent := map[int64][]int64{}
+	rootIDs := make([]int64, 0)
 	for _, item := range items {
 		item.Children = []catalogapp.BusinessGroupItem{}
-		copyItem := item
-		nodes[item.ID] = &copyItem
+		nodes[item.ID] = item
 	}
-	roots := make([]catalogapp.BusinessGroupItem, 0)
 	for _, item := range items {
-		node := nodes[item.ID]
 		if item.ParentID > 0 {
-			if parent, ok := nodes[item.ParentID]; ok {
-				parent.Children = append(parent.Children, *node)
+			if _, ok := nodes[item.ParentID]; ok && item.ParentID != item.ID {
+				childrenByParent[item.ParentID] = append(childrenByParent[item.ParentID], item.ID)
 				continue
 			}
 		}
-		roots = append(roots, *node)
+		rootIDs = append(rootIDs, item.ID)
+	}
+	var build func(id int64, seen map[int64]bool) catalogapp.BusinessGroupItem
+	build = func(id int64, seen map[int64]bool) catalogapp.BusinessGroupItem {
+		row := nodes[id]
+		if seen[id] {
+			row.Children = []catalogapp.BusinessGroupItem{}
+			return row
+		}
+		nextSeen := make(map[int64]bool, len(seen)+1)
+		for key, value := range seen {
+			nextSeen[key] = value
+		}
+		nextSeen[id] = true
+		row.Children = make([]catalogapp.BusinessGroupItem, 0, len(childrenByParent[id]))
+		for _, childID := range childrenByParent[id] {
+			row.Children = append(row.Children, build(childID, nextSeen))
+		}
+		return row
+	}
+	roots := make([]catalogapp.BusinessGroupItem, 0, len(rootIDs))
+	for _, id := range rootIDs {
+		roots = append(roots, build(id, map[int64]bool{}))
 	}
 	return roots
 }
