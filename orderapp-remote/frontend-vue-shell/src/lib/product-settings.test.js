@@ -363,7 +363,7 @@ test('business group assignment payload supports products, BOMs, warehouses, and
       { id: 61, group_id: 6, parent_id: 60, name: '意式拼配', active: true, sort_order: 20 },
     ],
   }
-  assert.equal(businessGroupAssignmentLabel({ group_id: 6, group_item_id: 61 }, [systemGroup]), '咖啡熟豆 / 意式拼配')
+  assert.equal(businessGroupAssignmentLabel({ group_id: 6, group_item_id: 61 }, [systemGroup]), '未分组')
   assert.equal(businessGroupAssignmentLabel({ group_id: 6, group_item_id: 0 }, [systemGroup]), '未分组')
   assert.deepEqual(businessGroupItemMoveOptions([systemGroup], 'product_catalog').map((option) => option.label), [])
   assert.deepEqual(businessGroupDisplayGroups([
@@ -372,8 +372,7 @@ test('business group assignment payload supports products, BOMs, warehouses, and
   ], [
     { usage_key: 'product_catalog', object_key: 'product', object_id: 88, group_id: 6, group_item_id: 61 },
   ], [systemGroup]).map((row) => ({ label: row.label, count: row.rows.length })), [
-    { label: '咖啡熟豆 / 意式拼配', count: 1 },
-    { label: '未分组', count: 1 },
+    { label: '未分组', count: 2 },
   ])
 })
 
@@ -2370,6 +2369,8 @@ test('product archive uses business groups while customer alias keeps legacy pag
   assert.match(script, /apiGet\('\/api\/product-settings'\)/)
   assert.match(source, /business_groups/)
   assert.match(source, /productCatalogBusinessGroups/)
+  assert.match(source, /isSystemDefaultBusinessGroup/)
+  assert.match(source, /!isSystemDefaultBusinessGroup\(group\)/)
   assert.match(source, /buildBusinessGroupAssignmentPayload/)
   assert.match(source, /apiSend\('\/api\/business-group-assignments'/)
   assert.match(template, /data-pr442-product-group-assignments/)

@@ -303,6 +303,7 @@ export function businessGroupItemLabel(group = {}, groupItemID = 0) {
 export function businessGroupAssignmentLabel(assignment = {}, groups = []) {
   const group = businessGroupByID(groups, assignment.group_id ?? assignment.groupID)
   if (!group) return '未分组'
+  if (isSystemDefaultBusinessGroup(group)) return '未分组'
   const groupItemID = Number(assignment.group_item_id ?? assignment.groupItemID ?? 0)
   if (groupItemID <= 0) return businessGroupVisibleName(group) || '未分组'
   return businessGroupItemLabel(group, groupItemID)
@@ -349,7 +350,9 @@ export function businessGroupDisplayGroups(rows = [], assignments = [], groups =
   }
   const displayGroups = new Map()
   for (const row of Array.isArray(rows) ? rows : []) {
-    const assignment = byRowID.get(Number(objectIDForRow(row) || 0)) || null
+    const rawAssignment = byRowID.get(Number(objectIDForRow(row) || 0)) || null
+    const assignmentGroup = rawAssignment ? businessGroupByID(groups, rawAssignment.group_id ?? rawAssignment.groupID) : null
+    const assignment = assignmentGroup && !isSystemDefaultBusinessGroup(assignmentGroup) ? rawAssignment : null
     const groupItemID = Number(assignment?.group_item_id ?? assignment?.groupItemID ?? 0)
     const key = groupItemID ? `business-group-${Number(assignment.group_id || assignment.groupID || 0)}-${groupItemID}` : 'business-group-unassigned'
     const label = groupItemID ? businessGroupAssignmentLabel(assignment, groups) : '未分组'

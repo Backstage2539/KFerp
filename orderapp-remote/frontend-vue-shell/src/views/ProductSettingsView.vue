@@ -1252,6 +1252,7 @@ import {
   businessGroupDisplayGroups,
   businessGroupItemMoveOptions,
   businessGroupItemsTree,
+  isSystemDefaultBusinessGroup,
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
   buildProductConfigTemplatePayload,
@@ -3990,6 +3991,7 @@ function flattenBusinessGroupItemsForView(items = [], parent = null, out = []) {
 function productCatalogBusinessGroupRows() {
   return businessGroups.value
     .filter((group) => group.active !== false)
+    .filter((group) => !isSystemDefaultBusinessGroup(group))
     .filter((group) => (group.usages || []).some((usage) => String(usage.usage_key || '') === 'product_catalog' && usage.active !== false))
     .slice()
     .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
