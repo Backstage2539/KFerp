@@ -915,6 +915,9 @@ func migrateProductionBomGroupsToBusinessGroups(ctx context.Context, pool *pgxpo
 	if !hasBomGroups {
 		return nil
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %[1]s.production_bom_group_categories ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true`, schema)); err != nil {
+		return err
+	}
 	q := fmt.Sprintf(`
 WITH group_row AS (
 	INSERT INTO %[1]s.business_groups(name, code, remark, active, sort_order, created_by, updated_by)

@@ -210,11 +210,13 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_bom_group_categories (
 	group_id BIGINT NOT NULL,
 	name TEXT NOT NULL DEFAULT '',
 	sort_order INTEGER NOT NULL DEFAULT 100,
+	active BOOLEAN NOT NULL DEFAULT true,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	created_by TEXT NOT NULL DEFAULT '',
 	updated_by TEXT NOT NULL DEFAULT ''
 );
+ALTER TABLE %[1]s.production_bom_group_categories ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true;
 CREATE UNIQUE INDEX IF NOT EXISTS production_bom_group_categories_name_uq
 	ON %[1]s.production_bom_group_categories(group_id, lower(name));
 CREATE INDEX IF NOT EXISTS production_bom_group_categories_group_sort_idx

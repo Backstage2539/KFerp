@@ -101,9 +101,13 @@ func TestProductCategoriesSchemaBackfillsActiveForLegacyTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true"
-	if !strings.Contains(string(schema), want) {
-		t.Fatalf("legacy product_categories tables must backfill active column before PR-442 migration; missing %q", want)
+	for _, want := range []string{
+		"ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true",
+		"ALTER TABLE %[1]s.production_bom_group_categories ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true",
+	} {
+		if !strings.Contains(string(schema), want) {
+			t.Fatalf("legacy classification/group tables must backfill active columns before PR-442 migration; missing %q", want)
+		}
 	}
 }
 
