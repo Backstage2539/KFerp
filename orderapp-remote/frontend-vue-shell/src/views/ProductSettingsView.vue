@@ -2957,8 +2957,8 @@ function removePriceTierTemplateTier(index) {
   }
 }
 
-function pricingRuleCostSourceLabel(value) {
-  return normalizePricingRuleCostSourceMode(value) === 'bom_current_cost' ? '生产 BOM 成本（物料+工序）' : '生产 BOM 成本（物料+工序）'
+function pricingRuleCostSourceLabel() {
+  return '生产 BOM 成本（物料+工序）'
 }
 
 function pricingRuleProfitMethodLabel(value) {

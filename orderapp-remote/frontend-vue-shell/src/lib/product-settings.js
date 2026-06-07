@@ -286,7 +286,7 @@ export function buildPricingRulePayload(form = {}) {
   }
 }
 
-export function normalizePricingRuleCostSourceMode() {
+export function normalizePricingRuleCostSourceMode(value) {
   return 'bom_current_cost'
 }
 
