@@ -394,7 +394,7 @@ def create_material(
         "batch_no": context["run_id"],
         "purchase_price": 42.0,
         "sale_price": 0,
-        "onhand_g": 50000,
+        "onhand_g": 0,
         "onhand_units": 0,
         "min_level_g": 0,
         "min_level_units": 0,

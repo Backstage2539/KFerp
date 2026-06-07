@@ -157,6 +157,7 @@ func TestDev442BusinessGroupAssignmentFrontendAndDocs(t *testing.T) {
 			"assign existing warehouse code to warehouse_inventory group",
 			"/api/stock/warehouse-inventory?group_id={group_id}&group_item_id={group_item_id}",
 			"group_source",
+			`"onhand_g": 0`,
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
