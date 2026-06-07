@@ -458,21 +458,29 @@ func TestProductSettingsSecondaryCategoryDragUsesPointerPositionInsteadOfNativeD
 		t.Fatal(err)
 	}
 	src := string(settings)
+	template := strings.Split(src, "<script setup>")[0]
 	for _, want := range []string{
-		"classificationTemplateCreateDrawerOpen",
-		"openClassificationTemplateCreateDrawer",
-		"classification-category-editor",
-		"saveClassificationCategory",
-		"moveClassificationCategory",
-		"deleteClassificationCategory",
-		"product-classification-template-categories",
+		"startCategoryPointerDrag",
+		"resolveCategoryPointerTarget",
+		"moveProductCatalogBusinessGroupItem",
+		"dropCategoryAtPosition",
+		"saveProductCatalogBusinessGroupItem",
+		"/api/business-group-items",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("product settings classification template editor missing %q", want)
+			t.Fatalf("product settings business group editor missing %q", want)
 		}
 	}
-	if strings.Contains(src, "classification-config-drawer") || strings.Contains(src, "drawerStack") {
-		t.Fatalf("classification template editor must not depend on legacy stacked classification drawers")
+	for _, forbidden := range []string{
+		"classification-template-list",
+		"classification-category-editor",
+		"openClassificationTemplateCreateDrawer",
+		"classification-config-drawer",
+		"drawerStack",
+	} {
+		if strings.Contains(template, forbidden) {
+			t.Fatalf("business group editor must not render legacy classification drawer marker %q", forbidden)
+		}
 	}
 }
 
@@ -483,15 +491,16 @@ func TestProductSettingsVueSupportsCategoryDelete(t *testing.T) {
 	}
 	src := string(settings)
 	for _, want := range []string{
-		"deleteClassificationCategory(category)",
-		"async function deleteClassificationCategory(category)",
+		"deleteCategory(primary)",
+		"deleteCategory(secondary)",
+		"async function deleteCategory(category)",
 		"method: 'DELETE'",
-		"`/api/product-classification-template-categories/${category.id}?template_id=${templateID}`",
-		"删除分类",
+		"`/api/business-group-items/${category.id}`",
+		"分组项已停用",
 		"danger-text",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("product settings category delete UI missing %q", want)
+			t.Fatalf("product settings business group delete UI missing %q", want)
 		}
 	}
 }

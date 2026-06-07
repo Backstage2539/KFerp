@@ -423,12 +423,6 @@
             </button>
             <button
               type="button"
-              :class="['config-template-tab', { active: activeConfigTemplateSection === 'classification-template' }]"
-              @click="activeConfigTemplateSection = 'classification-template'">
-              分类模板
-            </button>
-            <button
-              type="button"
               :class="['config-template-tab', { active: activeConfigTemplateSection === 'product-price-management' }]"
               @click="activeConfigTemplateSection = 'product-price-management'">
               商品价格管理
@@ -606,86 +600,6 @@
               </div>
             </form>
           </section>
-        </div>
-      </div>
-
-      <div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'classification-template'" class="panel classification-template-panel">
-        <div class="panel-title">
-          <span>分类模板</span>
-          <button class="secondary compact-action" type="button" @click="openClassificationTemplateCreateDrawer">新建分类模板</button>
-        </div>
-        <p class="muted">分类模板只定义分类结构。点击左侧模板后，在右侧维护分类项；商品归类在商品档案或客户商品列表中完成。排序值越小越靠前，默认 100；建议按 10 递增，方便中间插入。</p>
-        <div class="product-config-layout">
-          <div class="template-list product-config-list classification-template-list">
-            <div
-              v-for="template in activeProductClassificationTemplates"
-              :key="template.id"
-              :class="['template-row', 'product-config-row', { active: Number(template.id || 0) === Number(classificationTemplateForm.id || 0) }]">
-              <button class="template-row-main" type="button" @click="startClassificationTemplateEdit(template)">
-                <strong>{{ template.name }}</strong>
-                <small>{{ template.categories.length }} 个分类 · 排序 {{ template.sort_order || 100 }}</small>
-              </button>
-            </div>
-            <p v-if="!activeProductClassificationTemplates.length" class="muted">暂无分类模板</p>
-          </div>
-          <div class="product-config-editor classification-template-editor">
-            <form @submit.prevent="saveClassificationTemplate">
-              <label>
-                <span>模板名称</span>
-                <input v-model.trim="classificationTemplateForm.name" placeholder="如 门店展示分类 / 报价分类" />
-              </label>
-              <label>
-                <span>排序</span>
-                <input v-model.number="classificationTemplateForm.sort_order" type="number" min="1" step="1" />
-                <small>排序值越小越靠前，默认 100；建议按 10 递增。</small>
-              </label>
-              <label>
-                <span>备注</span>
-                <textarea v-model.trim="classificationTemplateForm.remark" rows="2" placeholder="用于说明这套分类视图的使用场景"></textarea>
-              </label>
-              <label>
-                <span>模板默认商品配置模板</span>
-                <select v-model.number="classificationTemplateForm.product_config_template_id">
-                  <option value="0">不引用</option>
-                  <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">{{ config.name }}</option>
-                </select>
-                <small>商品未单独选择商品配置模板时，先使用分类项配置；分类项未配置时使用这里。</small>
-              </label>
-            </form>
-            <div v-if="classificationTemplateForm.id" class="classification-category-editor">
-              <div class="field-group-head">
-                <strong>分类项</strong>
-                <small>点击左侧模板后，在这里维护该模板下的分类。</small>
-              </div>
-              <form class="classification-category-form" @submit.prevent="saveClassificationCategory">
-                <input v-model.trim="classificationCategoryForm.name" placeholder="分类名称" />
-                <input v-model.number="classificationCategoryForm.sort_order" type="number" min="1" step="1" placeholder="排序" />
-                <div class="classification-category-template-row">
-                  <select v-model.number="classificationCategoryForm.product_config_template_id" aria-label="分类项商品配置模板">
-                    <option value="0">分类项商品配置模板：继承模板</option>
-                    <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">{{ config.name }}</option>
-                  </select>
-                </div>
-                <small class="muted">商品单独选择商品配置模板时会覆盖分类配置。</small>
-                <button class="primary compact-action" type="submit">{{ classificationCategoryForm.id ? '保存分类' : '新增分类' }}</button>
-              </form>
-              <div class="classification-category-list">
-                <div v-for="category in classificationTemplateEditorCategories" :key="category.id" class="classification-category-row">
-                  <button class="text-button" type="button" @click="editClassificationCategory(category)">{{ category.name }}</button>
-                  <span class="muted">排序 {{ category.sort_order }}</span>
-                  <button class="secondary compact-action" type="button" @click="moveClassificationCategory(category, -1)">上移</button>
-                  <button class="secondary compact-action" type="button" @click="moveClassificationCategory(category, 1)">下移</button>
-                  <button class="text-button danger-text" type="button" @click="deleteClassificationCategory(category)">删除分类</button>
-                </div>
-                <p v-if="!classificationTemplateEditorCategories.length" class="muted">暂无分类项，先新增分类。</p>
-              </div>
-            </div>
-            <p v-else class="muted">请先选择或新建一个分类模板。</p>
-            <div class="form-actions classification-template-actions-bottom">
-              <button class="primary" type="button" :disabled="classificationTemplateSaving" @click="saveClassificationTemplate">{{ classificationTemplateSaving ? '保存中' : '保存分类模板' }}</button>
-              <button v-if="classificationTemplateForm.id" class="secondary danger-outline" type="button" :disabled="classificationTemplateSaving" @click="deleteClassificationTemplate(classificationTemplateForm.id)">删除模板</button>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -943,44 +857,6 @@
         </div>
       </div>
     </section>
-
-    <div v-if="classificationTemplateCreateDrawerOpen" class="settings-drawer-mask" @click.self="closeClassificationTemplateCreateDrawer">
-      <aside class="settings-drawer classification-template-create-drawer" aria-label="新建分类模板">
-        <div class="drawer-head">
-          <div>
-            <h3>新建分类模板</h3>
-            <p>只创建分类结构模板；商品档案和客户商品是否使用该模板，在各自列表页启用。</p>
-          </div>
-          <button class="secondary compact-action" type="button" @click="closeClassificationTemplateCreateDrawer">关闭</button>
-        </div>
-        <form class="drawer-body template-editor classification-template-create-fields" @submit.prevent="saveClassificationTemplateCreate">
-          <label>
-            <span>模板名称</span>
-            <input v-model.trim="classificationTemplateCreateForm.name" required placeholder="如 门店展示分类 / 报价分类" />
-          </label>
-          <label>
-            <span>排序</span>
-            <input v-model.number="classificationTemplateCreateForm.sort_order" type="number" min="1" step="1" />
-            <small>排序值越小越靠前，默认 100；建议按 10 递增，方便中间插入。</small>
-          </label>
-          <label>
-            <span>备注</span>
-            <textarea v-model.trim="classificationTemplateCreateForm.remark" rows="3" placeholder="可选，用于说明这套分类视图的使用场景"></textarea>
-          </label>
-          <label>
-            <span>模板默认商品配置模板</span>
-            <select v-model.number="classificationTemplateCreateForm.product_config_template_id">
-              <option value="0">不引用</option>
-              <option v-for="config in activeProductConfigTemplates" :key="config.id" :value="config.id">{{ config.name }}</option>
-            </select>
-            <small>商品未单独选择商品配置模板时，先使用分类项配置；分类项未配置时使用这里。</small>
-          </label>
-          <div class="form-actions">
-            <button class="primary" type="submit" :disabled="classificationTemplateSaving">{{ classificationTemplateSaving ? '保存中' : '创建分类模板' }}</button>
-          </div>
-        </form>
-      </aside>
-    </div>
 
     <div v-if="productDrawerOpen" class="settings-drawer-mask" @click.self="closeProductDrawer">
       <aside class="settings-drawer product-editor-drawer" aria-label="新增SKU">
@@ -1524,7 +1400,7 @@ const productSectionTitle = computed(() => {
   if (forcedConfigTemplateSection.value === 'gradient') return '阶梯价模板'
   if (forcedConfigTemplateSection.value === 'unit-template') return '单位模板'
   if (forcedConfigTemplateSection.value === 'product-price-management') return '商品价格管理'
-  if (currentSettingsSection.value === 'templates') return '商品配置和分类模板'
+  if (currentSettingsSection.value === 'templates') return '商品配置模板'
   return '商品档案'
 })
 const showGradientTemplatePane = computed(() => currentSettingsSection.value === 'templates' && effectiveConfigTemplateSection.value === 'gradient')
@@ -2472,7 +2348,7 @@ async function restoreProductSettingsDraft() {
   collapsedSecondaryCategoryIds.value = normalizeCategoryIdList(draft.collapsedSecondaryCategoryIds)
   productsCollapsed.value = Boolean(draft.productsCollapsed)
   activeSettingsSection.value = ['master', 'templates', 'aliases'].includes(draft.activeSettingsSection) ? draft.activeSettingsSection : 'master'
-  activeConfigTemplateSection.value = ['product-config', 'classification-template', 'unit-template', 'gradient', 'product-price-management'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
+  activeConfigTemplateSection.value = ['product-config', 'product-price-management'].includes(draft.activeConfigTemplateSection) ? draft.activeConfigTemplateSection : 'product-config'
   categorySearchQuery.value = draft.categorySearchQuery || ''
   skuFilters.value = normalizeSkuFiltersForCurrentRows(draft.skuFilters || {})
   skuPage.value = Number(draft.skuPage || 1)

@@ -60,6 +60,10 @@ SCENARIOS = [
         steps=[
             Step("read order form defaults", "GET", "/api/order/form"),
             Step("create generated customer", "POST", "/api/customers", write=True),
+            Step("create generated customer capability template", "PUT", "/api/customer-portal/admin/capability-templates/{template_key}", write=True),
+            Step("enable generated customer miniapp access", "PUT", "/api/customer-portal/admin/customers/{customer_id}/visibility", write=True),
+            Step("create generated customer external user", "POST", "/api/customer-fulfillment/{customer_id}/external-users", write=True),
+            Step("login generated customer miniapp user", "POST", "/api/mini/login/password", write=True),
             Step("create generated material", "POST", "/api/materials", write=True),
             Step("create generated product", "POST", "/api/product-settings/products", write=True),
             Step("create generated generic group", "POST", "/api/business-groups", write=True),
@@ -78,8 +82,8 @@ SCENARIOS = [
             Step("create generated order", "POST", "/api/order", write=True),
             Step("read generated order trace", "GET", "/api/orders/{order_id}/detail"),
             Step("read generated sales preview", "GET", "/api/orders/{order_id}/sales-order-preview", expect_status=(200, 400, 401, 403, 404)),
-            Step("read customer mini-facing products", "GET", "/api/mini/customer-products", expect_status=(200, 401, 403)),
-            Step("read customer settlement service", "GET", "/api/mini/services/settlement", expect_status=(200, 401, 403, 404)),
+            Step("read customer mini-facing products", "GET", "/api/mini/customer-products"),
+            Step("read customer settlement service", "GET", "/api/mini/services/settlement"),
         ],
     ),
     Scenario(
@@ -110,19 +114,21 @@ class Client:
         self.cookie = cookie
         self.basic_auth = basic_auth
 
-    def request(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    def request(self, method: str, path: str, body: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> dict[str, Any]:
         url = urllib.parse.urljoin(self.base_url + "/", path.lstrip("/"))
         data = None
-        headers = {"Accept": "application/json"}
+        request_headers = {"Accept": "application/json"}
         if body is not None:
             data = json.dumps(body, ensure_ascii=False).encode("utf-8")
-            headers["Content-Type"] = "application/json"
+            request_headers["Content-Type"] = "application/json"
         if self.cookie:
-            headers["Cookie"] = self.cookie
+            request_headers["Cookie"] = self.cookie
         if self.basic_auth:
             encoded = base64.b64encode(self.basic_auth.encode("utf-8")).decode("ascii")
-            headers["Authorization"] = f"Basic {encoded}"
-        req = urllib.request.Request(url, data=data, method=method.upper(), headers=headers)
+            request_headers["Authorization"] = f"Basic {encoded}"
+        if headers:
+            request_headers.update(headers)
+        req = urllib.request.Request(url, data=data, method=method.upper(), headers=request_headers)
         started = time.time()
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
@@ -164,7 +170,7 @@ def dry_run_payload(scenarios: list[Scenario]) -> dict[str, Any]:
         "marker": MARKER,
         "mode": "dry-run",
         "data_prefix": SCENARIO_DATA_PREFIX,
-        "cleanup": "generated orders are voided; price lists withdrawn; generated group assignments are deleted; generated master data is deactivated/deprecated",
+        "cleanup": "generated orders are voided; price lists withdrawn; miniapp login/portal/template access is disabled; generated group assignments are deleted; generated master data is deactivated/deprecated",
         "scenarios": [
             {
                 "name": scenario.name,
@@ -255,6 +261,10 @@ def run_generated_main_flow(
         return
 
     customer = create_customer(client, context, cleanup_stack, results, failures, form)
+    capability_template = create_customer_capability_template(client, context, cleanup_stack, results, failures)
+    configure_customer_miniapp_access(client, context, cleanup_stack, results, failures, customer, capability_template)
+    external_user = create_customer_external_user(client, context, cleanup_stack, results, failures, customer)
+    mini_token = login_generated_mini_user(client, context, results, failures, external_user)
     material = create_material(client, context, cleanup_stack, results, failures)
     product = create_product(client, context, cleanup_stack, results, failures)
     group = create_business_group(client, context, cleanup_stack, results, failures)
@@ -293,8 +303,7 @@ def run_generated_main_flow(
         context["order_id"] = int_value(order.get("order_id"))
     request_step(client, context, results, failures, "read generated order trace", "GET", "/api/orders/{order_id}/detail")
     request_step(client, context, results, failures, "read generated sales preview", "GET", "/api/orders/{order_id}/sales-order-preview", expect=(200, 400, 401, 403, 404))
-    request_step(client, context, results, failures, "read customer mini-facing products", "GET", "/api/mini/customer-products", expect=(200, 401, 403))
-    request_step(client, context, results, failures, "read customer settlement service", "GET", "/api/mini/services/settlement", expect=(200, 401, 403, 404))
+    read_customer_miniapp_surfaces(client, context, results, failures, mini_token)
 
 
 def run_read_probe_scenario(
@@ -323,12 +332,13 @@ def request_step(
     body: dict[str, Any] | None = None,
     expect: tuple[int, ...] = (200,),
     scenario: str = "material_to_price_list_order_settlement",
+    headers: dict[str, str] | None = None,
 ) -> Any:
     resolved = resolve_path(path, context)
     if not resolved:
         results.append({"scenario": scenario, "step": name, "path": path, "skipped": "missing dynamic context"})
         return None
-    outcome = client.request(method, resolved, body=body)
+    outcome = client.request(method, resolved, body=body, headers=headers)
     ok = outcome["status"] in expect
     results.append({"scenario": scenario, "step": name, "path": resolved, "status": outcome["status"], "ok": ok, "ms": outcome["ms"]})
     if not ok:
@@ -355,7 +365,7 @@ def create_customer(
     body = {
         "name": name,
         "raw_name": name,
-        "customer_type": "wholesale",
+        "customer_type": "channel",
         "company_name": name,
         "company_address": "Scenario cleanup address",
         "company_phone": "00000000000",
@@ -365,7 +375,7 @@ def create_customer(
         "default_source_id": source_id,
         "default_order_type_id": order_type_id,
         "responsible_employee_id": employee_id,
-        "portal_enabled": False,
+        "portal_enabled": True,
         "active": True,
     }
     resp = request_step(client, context, results, failures, "create generated customer", "POST", "/api/customers", body=body)
@@ -377,6 +387,189 @@ def create_customer(
         cleanup_body = {**body, "active": False}
         cleanup_stack.append(CleanupAction("deactivate generated customer", "PUT", f"/api/customers/{customer_id}", cleanup_body))
     return customer
+
+
+def create_customer_capability_template(
+    client: Client,
+    context: dict[str, Any],
+    cleanup_stack: list[CleanupAction],
+    results: list[dict[str, Any]],
+    failures: list[str],
+) -> dict[str, Any]:
+    key = scenario_template_key(context)
+    context["capability_template_key"] = key
+    body = customer_capability_template_payload(context, active=True)
+    template = request_step(
+        client,
+        context,
+        results,
+        failures,
+        "create generated customer capability template",
+        "PUT",
+        f"/api/customer-portal/admin/capability-templates/{key}",
+        body=body,
+    )
+    if isinstance(template, dict):
+        context["created"]["capability_template_key"] = key
+        cleanup_stack.append(
+            CleanupAction(
+                "deactivate generated customer capability template",
+                "PUT",
+                f"/api/customer-portal/admin/capability-templates/{key}",
+                customer_capability_template_payload(context, active=False),
+            )
+        )
+        return template
+    return {}
+
+
+def configure_customer_miniapp_access(
+    client: Client,
+    context: dict[str, Any],
+    cleanup_stack: list[CleanupAction],
+    results: list[dict[str, Any]],
+    failures: list[str],
+    customer: dict[str, Any],
+    capability_template: dict[str, Any],
+) -> None:
+    customer_id = int_value(customer.get("id") or context.get("customer_id"))
+    template_key = str(capability_template.get("key") or context.get("capability_template_key") or "")
+    if customer_id <= 0 or not template_key:
+        failures.append("cannot configure miniapp access: missing customer or capability template")
+        return
+    body = customer_portal_visibility_payload(context, enabled=True)
+    request_step(
+        client,
+        context,
+        results,
+        failures,
+        "enable generated customer miniapp access",
+        "PUT",
+        f"/api/customer-portal/admin/customers/{customer_id}/visibility",
+        body=body,
+    )
+    cleanup_stack.append(
+        CleanupAction(
+            "disable generated customer portal visibility",
+            "PUT",
+            f"/api/customer-portal/admin/customers/{customer_id}/visibility",
+            customer_portal_visibility_payload(context, enabled=False),
+        )
+    )
+
+
+def create_customer_external_user(
+    client: Client,
+    context: dict[str, Any],
+    cleanup_stack: list[CleanupAction],
+    results: list[dict[str, Any]],
+    failures: list[str],
+    customer: dict[str, Any],
+) -> dict[str, Any]:
+    customer_id = int_value(customer.get("id") or context.get("customer_id"))
+    if customer_id <= 0:
+        failures.append("cannot create external user: missing generated customer")
+        return {}
+    body = {
+        "name": f"{context['run_id']} Mini User",
+        "phone": scenario_phone(context),
+        "password": scenario_password(context),
+    }
+    row = request_step(
+        client,
+        context,
+        results,
+        failures,
+        "create generated customer external user",
+        "POST",
+        f"/api/customer-fulfillment/{customer_id}/external-users",
+        body=body,
+    )
+    external_user = dict_value(row)
+    employee_id = int_value(external_user.get("employee_id"))
+    if employee_id > 0:
+        context["external_user_employee_id"] = employee_id
+        context["external_user_phone"] = body["phone"]
+        context["created"]["external_user_employee_id"] = employee_id
+        cleanup_stack.append(
+            CleanupAction(
+                "disable generated external user login",
+                "POST",
+                f"/api/customer-fulfillment/{customer_id}/external-users/{employee_id}/login-enabled",
+                {"login_enabled": False},
+            )
+        )
+    return external_user
+
+
+def login_generated_mini_user(
+    client: Client,
+    context: dict[str, Any],
+    results: list[dict[str, Any]],
+    failures: list[str],
+    external_user: dict[str, Any],
+) -> str:
+    login = str(external_user.get("phone") or context.get("external_user_phone") or "")
+    password = scenario_password(context)
+    if not login:
+        failures.append("cannot login generated mini user: missing external user phone")
+        return ""
+    body = {"login": login, "password": password}
+    resp = request_step(
+        client,
+        context,
+        results,
+        failures,
+        "login generated customer miniapp user",
+        "POST",
+        "/api/mini/login/password",
+        body=body,
+    )
+    token = ""
+    if isinstance(resp, dict):
+        token = str(resp.get("token") or "")
+        current_customer_id = int_value(resp.get("current_customer_id"))
+        if current_customer_id > 0:
+            context["mini_current_customer_id"] = current_customer_id
+    if not token:
+        failures.append("generated miniapp login did not return token")
+    context["mini_token"] = token
+    return token
+
+
+def read_customer_miniapp_surfaces(
+    client: Client,
+    context: dict[str, Any],
+    results: list[dict[str, Any]],
+    failures: list[str],
+    mini_token: str,
+) -> None:
+    if not mini_token:
+        failures.append("cannot read customer miniapp surfaces: missing mini token")
+        return
+    headers = {"Authorization": f"Bearer {mini_token}"}
+    products = request_step(
+        client,
+        context,
+        results,
+        failures,
+        "read customer mini-facing products",
+        "GET",
+        "/api/mini/customer-products",
+        headers=headers,
+    )
+    assert_mini_customer_products(products, context, failures)
+    settlement = request_step(
+        client,
+        context,
+        results,
+        failures,
+        "read customer settlement service",
+        "GET",
+        "/api/mini/services/settlement",
+        headers=headers,
+    )
+    assert_mini_settlement_page(settlement, context, failures)
 
 
 def create_material(
@@ -827,6 +1020,76 @@ def business_group_payload(context: dict[str, Any], active: bool) -> dict[str, A
     }
 
 
+def customer_capability_template_payload(context: dict[str, Any], active: bool) -> dict[str, Any]:
+    key = scenario_template_key(context)
+    return {
+        "key": key,
+        "parent_template_key": "channel_direct_ship",
+        "label": f"{context['run_id']} 验收模板",
+        "description": "Generated by post-deploy scenario acceptance; should be deactivated automatically.",
+        "theme_key": "clean_ops",
+        "miniapp_entry_mode": "services",
+        "erp_role_codes": [],
+        "erp_permissions": ["customer_processing.read", "customer_processing.submit"],
+        "erp_view_keys": ["customerProcessingPortal"],
+        "capabilities": [
+            {"code": "bean_list", "label": "豆单/商品", "enabled": True, "config": {}},
+            {"code": "product_order", "label": "商品下单", "enabled": True, "config": {"public_sku_aliases": True}},
+            {
+                "code": "direct_ship",
+                "label": "代发",
+                "enabled": True,
+                "config": {
+                    "public_sku_aliases": True,
+                    "customer_sender": True,
+                    "external_recipients": True,
+                    "small_batch_price_rule": {
+                        "enabled": True,
+                        "threshold_lb": 14,
+                        "tier_min_lb": 15,
+                        "tier_max_lb": 28,
+                    },
+                },
+            },
+            {"code": "settlement", "label": "结算中心", "enabled": True, "config": {}},
+        ],
+        "active": active,
+        "sort_order": 9999,
+    }
+
+
+def customer_portal_visibility_payload(context: dict[str, Any], enabled: bool) -> dict[str, Any]:
+    return {
+        "display_name": f"{context['run_id']} Portal",
+        "default_sender_id": 0,
+        "enabled": enabled,
+        "theme_key": "clean_ops",
+        "miniapp_entry_mode": "services",
+        "capability_template_key": scenario_template_key(context),
+        "capabilities": customer_capability_template_payload(context, active=True)["capabilities"],
+    }
+
+
+def scenario_template_key(context: dict[str, Any]) -> str:
+    raw = str(context.get("run_id") or SCENARIO_DATA_PREFIX).lower()
+    chars = [ch if ("a" <= ch <= "z" or "0" <= ch <= "9") else "_" for ch in raw]
+    key = "_".join(part for part in "".join(chars).split("_") if part)
+    if len(key) > 60:
+        key = key[:60].rstrip("_")
+    if len(key) < 2:
+        key = "scenario_acceptance"
+    return key
+
+
+def scenario_phone(context: dict[str, Any]) -> str:
+    digits = "".join(str(ord(ch) % 10) for ch in str(context.get("run_id") or SCENARIO_DATA_PREFIX))
+    return "19" + (digits + "0" * 9)[:9]
+
+
+def scenario_password(context: dict[str, Any]) -> str:
+    return f"Kf{scenario_phone(context)[-6:]}!"
+
+
 def deactivate_business_group_payload(group: dict[str, Any]) -> dict[str, Any]:
     if not group:
         return {}
@@ -1004,6 +1267,38 @@ def production_source_snapshot(context: dict[str, Any]) -> dict[str, Any]:
         "work_order_no": f"{context['run_id']}-WO",
         "source_label": "scenario production snapshot",
     }
+
+
+def assert_mini_customer_products(body: Any, context: dict[str, Any], failures: list[str]) -> None:
+    page = dict_value(body)
+    customer_id = int_value(page.get("current_customer_id"))
+    expected_customer_id = int_value(context.get("customer_id") or context.get("mini_current_customer_id"))
+    if expected_customer_id > 0 and customer_id > 0 and customer_id != expected_customer_id:
+        failures.append(f"mini customer products current_customer_id={customer_id}, want {expected_customer_id}")
+    if "products" not in page or not isinstance(page.get("products"), list):
+        failures.append("mini customer products response missing products list")
+
+
+def assert_mini_settlement_page(body: Any, context: dict[str, Any], failures: list[str]) -> None:
+    page = dict_value(body)
+    customer_id = int_value(page.get("current_customer_id"))
+    expected_customer_id = int_value(context.get("customer_id") or context.get("mini_current_customer_id"))
+    if expected_customer_id > 0 and customer_id > 0 and customer_id != expected_customer_id:
+        failures.append(f"mini settlement current_customer_id={customer_id}, want {expected_customer_id}")
+    orders = page.get("orders")
+    if not isinstance(orders, list):
+        failures.append("mini settlement response missing orders list")
+        return
+    order_id = int_value(context.get("order_id"))
+    order_no = str(context.get("order_no") or "")
+    for row in orders:
+        if not isinstance(row, dict):
+            continue
+        if order_id > 0 and int_value(row.get("id") or row.get("order_id")) == order_id:
+            return
+        if order_no and str(row.get("order_no") or "") == order_no:
+            return
+    failures.append(f"mini settlement did not expose generated order {order_id or order_no}")
 
 
 def cleanup_generated_data(client: Client, cleanup_stack: list[CleanupAction], cleanup_results: list[dict[str, Any]]) -> None:

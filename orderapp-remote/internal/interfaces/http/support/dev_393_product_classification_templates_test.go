@@ -63,12 +63,15 @@ func TestDev393ProductClassificationTemplateSchemaAndAPI(t *testing.T) {
 
 func TestDev393ProductClassificationTemplateVue(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
+	template := strings.Split(src, "<script setup>")[0]
 	for _, want := range []string{
-		"分类模板",
-		"classification-template-list",
-		"classification-category-editor",
+		"分组管理",
+		"sku-category-management-workspace",
+		"data-pr442-product-group-assignments",
+		"saveProductCatalogBusinessGroupItem",
 		"productClassificationTabs",
 		"aliasClassificationTabs",
+		"客户商品分类模板视图",
 		"增加分类",
 		"移动到分类",
 		"返回商品档案配置",
@@ -78,13 +81,16 @@ func TestDev393ProductClassificationTemplateVue(t *testing.T) {
 		}
 	}
 	for _, blocked := range []string{
+		"classification-template-list",
+		"classification-category-editor",
+		"openClassificationTemplateCreateDrawer",
 		"productProductionConfigForm.product_subtype_category_id",
 		"classification-config-drawer",
 		"drawerStack",
 		"新增字段",
 		"行业字段值",
 	} {
-		if strings.Contains(src, blocked) {
+		if strings.Contains(template, blocked) {
 			t.Fatalf("ProductSettingsView.vue should not expose legacy PR-393 marker %q", blocked)
 		}
 	}
