@@ -96,6 +96,17 @@ func TestProductSubtypeConfigAndUnitRulesPersistOnCategories(t *testing.T) {
 	}
 }
 
+func TestProductCategoriesSchemaBackfillsActiveForLegacyTables(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true"
+	if !strings.Contains(string(schema), want) {
+		t.Fatalf("legacy product_categories tables must backfill active column before PR-442 migration; missing %q", want)
+	}
+}
+
 func TestProductConfigOverridesRemainReadableButProductUpdateDoesNotWrite(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

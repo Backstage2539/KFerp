@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.product_categories (
 );
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS customer_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS gradient_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS source_category_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS template_state TEXT NOT NULL DEFAULT 'customer_owned';
 ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS operation_template_id BIGINT NOT NULL DEFAULT 0;
