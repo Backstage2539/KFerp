@@ -10,6 +10,7 @@ import {
   buildCustomerProductAliasPayload,
   buildCustomerProductAliasBatchPayload,
   customerAliasEffectiveDisplayName,
+  buildBusinessGroupAssignmentPayload,
   buildProductCustomerReferencePayload,
   activeProductionBomOptions,
   buildClassificationTemplateUsagePayload,
@@ -18,6 +19,8 @@ import {
   classificationAssignmentLabel,
   classificationTemplateUnitPriceWarnings,
   productCategoryAssignmentLabel,
+  businessGroupAssignmentLabel,
+  productCatalogGroupOfProduct,
   customerProductAliasRowsForCustomer,
   industryFieldOptionsJSONFromText,
   industryFieldOptionsTextFromJSON,
@@ -292,6 +295,59 @@ test('product customer references replace customer product master data for displ
     active: false,
     remark: '客户自己的叫法',
   })
+})
+
+test('business group assignment payload supports products, BOMs, warehouses, and display labels', () => {
+  assert.deepEqual(buildBusinessGroupAssignmentPayload({
+    id: '9',
+    usage_key: 'product_catalog',
+    object_key: 'product',
+    object_id: '88',
+    object_ref: 'SHOULD_NOT_BE_USED',
+    group_id: '5',
+    group_item_id: '51',
+    sort_order: '20',
+  }), {
+    id: 9,
+    usage_key: 'product_catalog',
+    object_key: 'product',
+    object_id: 88,
+    object_ref: '',
+    group_id: 5,
+    group_item_id: 51,
+    sort_order: 20,
+  })
+
+  assert.deepEqual(buildBusinessGroupAssignmentPayload({
+    usageKey: 'warehouse_inventory',
+    objectKey: 'warehouse',
+    objectRef: ' finished_goods ',
+    object_id: 0,
+    groupID: 7,
+    groupItemID: 71,
+  }), {
+    id: 0,
+    usage_key: 'warehouse_inventory',
+    object_key: 'warehouse',
+    object_id: 0,
+    object_ref: 'finished_goods',
+    group_id: 7,
+    group_item_id: 71,
+    sort_order: 100,
+  })
+
+  const group = {
+    id: 5,
+    name: '商品业务线',
+    items: [
+      { id: 50, name: '咖啡', parent_id: 0 },
+      { id: 51, name: '熟豆', parent_id: 50 },
+    ],
+  }
+  assert.equal(businessGroupAssignmentLabel({ group_id: 5, group_item_id: 51 }, [group]), '商品业务线 / 咖啡 / 熟豆')
+  assert.equal(productCatalogGroupOfProduct({ id: 88 }, [
+    { usage_key: 'product_catalog', object_key: 'product', object_id: 88, group_id: 5, group_item_id: 51 },
+  ], [group]).label, '商品业务线 / 咖啡 / 熟豆')
 })
 
 test('pricing rules and tier templates are independent templates used by price lists', () => {
@@ -2179,35 +2235,51 @@ test('classification template page edits only template structure, not object ass
   assert.match(style, /\.classification-category-editor\s*\{/)
 })
 
-test('product and customer alias lists move selected rows within the active classification tab', () => {
+test('product list moves selected rows through business group assignments while alias classification stays legacy-compatible', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
-    'saveSelectedProductClassificationAssignment',
+    'data-pr442-product-group-assignments',
+    'saveSelectedProductBusinessGroupAssignment',
+    '/api/business-group-assignments',
+    "usage_key: 'product_catalog'",
+    "object_key: 'product'",
+    'productBusinessGroupItemOptions',
+    'productCatalogGroupOfProduct',
+    'business-group-move',
+    '商品档案分组视图',
+    '分组集 / 父组 / 子组',
+    '商品分组',
+  ]) {
+    assert.ok(source.includes(expected), `missing product business group marker: ${expected}`)
+  }
+
+  for (const expected of [
     'saveSelectedAliasClassificationAssignment',
-    'confirmProductClassificationTemplateUsage',
     'confirmAliasClassificationTemplateUsage',
-    'confirmSelectedProductClassificationMove',
     'confirmSelectedAliasClassificationMove',
-    '/api/product-classification-assignments/products',
     '/api/product-classification-assignments/customer-aliases',
-    'currentProductClassificationTemplate',
     'currentAliasClassificationTemplate',
-    'selectedProductClassificationCategoryID',
     'selectedAliasClassificationCategoryID',
     'UNCLASSIFIED_CATEGORY_MOVE_ID',
     'classificationMoveCategoryID',
   ]) {
-    assert.ok(source.includes(expected), `missing classification assignment marker: ${expected}`)
+    assert.ok(source.includes(expected), `missing alias legacy classification marker: ${expected}`)
   }
 
-  assert.match(template, /product-classification-tabs[\s\S]*classification-tabs[\s\S]*product-classification-selects[\s\S]*增加分类[\s\S]*移动到分类/)
+  const productToolbar = template.match(/<div class="classification-view-toolbar product-classification-tabs"[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || ''
+  assert.match(productToolbar, /data-pr442-product-group-assignments/)
+  assert.match(productToolbar, /分组集 \/ 父组 \/ 子组/)
+  assert.match(productToolbar, /@change="saveSelectedProductBusinessGroupAssignment"/)
+  assert.doesNotMatch(productToolbar, /placeholder="增加分类"/)
+  assert.doesNotMatch(productToolbar, /placeholder="移动到分类"/)
+  assert.doesNotMatch(productToolbar, /confirmProductClassificationTemplateUsage/)
+  assert.doesNotMatch(productToolbar, /confirmSelectedProductClassificationMove/)
+
   assert.match(template, /alias-classification-tabs[\s\S]*classification-tabs[\s\S]*alias-classification-selects[\s\S]*增加分类[\s\S]*移动到分类/)
-  assert.match(template, /SearchableSelect[\s\S]*placeholder="增加分类"[\s\S]*@select="confirmProductClassificationTemplateUsage"/)
-  assert.match(template, /SearchableSelect[\s\S]*placeholder="移动到分类"[\s\S]*@select="confirmSelectedProductClassificationMove"/)
   assert.match(template, /SearchableSelect[\s\S]*placeholder="增加分类"[\s\S]*@select="confirmAliasClassificationTemplateUsage"/)
   assert.match(template, /SearchableSelect[\s\S]*placeholder="移动到分类"[\s\S]*@select="confirmSelectedAliasClassificationMove"/)
   assert.doesNotMatch(template, /move-classification-card/)
@@ -2242,18 +2314,25 @@ test('classification group rows support collapse and indentation in product and 
   assert.match(style, /\.classification-tab\.active\s*\{/)
 })
 
-test('product archive and customer alias pages enable classification templates as page-level tabs', () => {
+test('product archive uses business groups while customer alias keeps legacy page-level classification tabs', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
-  assert.match(source, /product_classification_template_usages/)
+  assert.match(source, /businessGroupAssignments/)
+  assert.match(script, /apiGet\('\/api\/product-settings'\)/)
+  assert.match(source, /business_groups/)
+  assert.match(source, /productCatalogBusinessGroups/)
+  assert.match(source, /buildBusinessGroupAssignmentPayload/)
+  assert.match(source, /apiSend\('\/api\/business-group-assignments'/)
+  assert.match(template, /data-pr442-product-group-assignments/)
+  assert.match(template, /商品档案分组视图/)
+  assert.match(template, /商品分组/)
+  assert.doesNotMatch(template.match(/<div class="classification-view-toolbar product-classification-tabs"[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || '', /增加分类|移动到分类/)
+
   assert.match(source, /aliasClassificationTemplateUsages/)
-  assert.match(script, /apiGet\('\/api\/product-classification-template-usages\/products'\)/)
   assert.match(script, /apiGet\('\/api\/product-classification-template-usages\/customer-aliases'\)/)
-  assert.match(script, /saveProductClassificationTemplateUsage/)
   assert.match(script, /saveAliasClassificationTemplateUsage/)
-  assert.match(template, /productClassificationTabs/)
   assert.match(template, /aliasClassificationTabs/)
   assert.doesNotMatch(template, /复制为客户分类/)
 })
@@ -2597,23 +2676,28 @@ test('product archive industry fields are generated from templates without ad-ho
   assert.doesNotMatch(drawer, />类型</)
 })
 
-test('product settings uses classification tabs and page-level assignment controls', () => {
+test('product settings uses product business groups instead of product classification page controls', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const productToolbar = template.match(/<div class="classification-view-toolbar product-classification-tabs"[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || ''
 
   for (const expected of [
-    'productClassificationTabs',
-    'aliasClassificationTabs',
-    'activeProductClassificationTab',
-    'activeAliasClassificationTab',
-    'saveSelectedProductClassificationAssignment',
-    'saveSelectedAliasClassificationAssignment',
-    '未分类商品',
-    '未分类客户商品',
-    '增加分类',
-    '移动到分类',
+    'businessGroupAssignments',
+    'businessGroups',
+    'productCatalogBusinessGroups',
+    'productBusinessGroupItemOptions',
+    'selectedProductBusinessGroupItemID',
+    'saveSelectedProductBusinessGroupAssignment',
+    'productCatalogGroupOfProduct',
+    'data-pr442-product-group-assignments',
+    '商品档案分组视图',
+    '分组集 / 父组 / 子组',
+    '商品分组',
   ]) {
-    assert.ok(source.includes(expected), `missing classification tab marker: ${expected}`)
+    assert.ok(source.includes(expected), `missing product business group marker: ${expected}`)
   }
+  assert.doesNotMatch(productToolbar, /placeholder="增加分类"/)
+  assert.doesNotMatch(productToolbar, /placeholder="移动到分类"/)
   assert.doesNotMatch(source, /classification-config-drawer/)
   assert.doesNotMatch(source, /aria-label="分类配置"/)
 })

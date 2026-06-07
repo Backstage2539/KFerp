@@ -7,55 +7,59 @@ import (
 )
 
 type fakeRepo struct {
-	replace            ReplacePriceTiersCommand
-	update             UpdateProductBasicsCommand
-	create             CreateProductCommand
-	copyProduct        CopyProductCommand
-	skuCreate          CreateSKUCommand
-	custom             CreateCustomProductCommand
-	derivedProduct     DeriveCustomerProductCommand
-	derivedCategory    DeriveProductCategoryCommand
-	derivedTemplate    DeriveGradientTemplateCommand
-	derivedConfig      DeriveProductConfigTemplateCommand
-	assigned           AssignProductCategoryCommand
-	assignResult       AssignProductCategoryResult
-	publicUsage        CustomerPublicUsageCommand
-	aliasQuery         CustomerProductAliasQuery
-	aliasCommand       CustomerProductAliasCommand
-	aliasBatch         BatchCustomerProductAliasesCommand
-	aliasBatchDisable  BatchDisableCustomerProductAliasesCommand
-	disabledAlias      DisableCustomerProductAliasCommand
-	aliasIndustryQuery CustomerProductAliasIndustryFieldQuery
-	aliasIndustrySave  SaveCustomerProductAliasIndustryFieldsCommand
-	aliasCandidates    CustomerProductAliasMigrationCandidateQuery
-	ruleTemplate       SaveCustomerProductRuleTemplateCommand
-	ruleOverride       SaveCustomerProductRuleOverrideCommand
-	ruleBinding        CustomerProductRuleTemplateBindingCommand
-	configTemplate     SaveProductConfigTemplateCommand
-	deleteConfig       DeleteProductConfigTemplateCommand
-	priceGroup         SaveProductPriceGroupCommand
-	priceRecord        SaveProductPriceRecordCommand
-	tierPriceScheme    SaveProductTierPriceSchemeCommand
-	classTemplate      SaveProductClassificationTemplateCommand
-	classCategory      SaveProductClassificationCategoryCommand
-	classAssign        SaveProductClassificationAssignmentCommand
-	aliasClassAssign   SaveCustomerProductAliasClassificationAssignmentCommand
-	unitDefinition     SaveProductUnitDefinitionCommand
-	unitTemplate       SaveProductUnitTemplateCommand
-	deactivate         DeactivateProductsCommand
-	priceGroups        []ProductPriceGroup
-	priceRecords       []ProductPriceRecord
-	priceRecordByID    map[int64]ProductPriceRecord
-	tierPriceSchemes   []ProductTierPriceScheme
-	products           map[int64]Product
-	publicUsages       []CustomerPublicUsage
-	deactivated        bool
-	usageSaved         bool
-	skuCreated         bool
-	productCopied      bool
-	priceGroupSaved    bool
-	priceRecordSaved   bool
-	tierSchemeSaved    bool
+	replace                ReplacePriceTiersCommand
+	update                 UpdateProductBasicsCommand
+	create                 CreateProductCommand
+	copyProduct            CopyProductCommand
+	skuCreate              CreateSKUCommand
+	custom                 CreateCustomProductCommand
+	derivedProduct         DeriveCustomerProductCommand
+	derivedCategory        DeriveProductCategoryCommand
+	derivedTemplate        DeriveGradientTemplateCommand
+	derivedConfig          DeriveProductConfigTemplateCommand
+	assigned               AssignProductCategoryCommand
+	assignResult           AssignProductCategoryResult
+	publicUsage            CustomerPublicUsageCommand
+	aliasQuery             CustomerProductAliasQuery
+	aliasCommand           CustomerProductAliasCommand
+	aliasBatch             BatchCustomerProductAliasesCommand
+	aliasBatchDisable      BatchDisableCustomerProductAliasesCommand
+	disabledAlias          DisableCustomerProductAliasCommand
+	aliasIndustryQuery     CustomerProductAliasIndustryFieldQuery
+	aliasIndustrySave      SaveCustomerProductAliasIndustryFieldsCommand
+	aliasCandidates        CustomerProductAliasMigrationCandidateQuery
+	ruleTemplate           SaveCustomerProductRuleTemplateCommand
+	ruleOverride           SaveCustomerProductRuleOverrideCommand
+	ruleBinding            CustomerProductRuleTemplateBindingCommand
+	configTemplate         SaveProductConfigTemplateCommand
+	deleteConfig           DeleteProductConfigTemplateCommand
+	priceGroup             SaveProductPriceGroupCommand
+	groupAssignment        BusinessGroupAssignment
+	deleteAssignment       DeleteBusinessGroupAssignmentCommand
+	priceRecord            SaveProductPriceRecordCommand
+	tierPriceScheme        SaveProductTierPriceSchemeCommand
+	classTemplate          SaveProductClassificationTemplateCommand
+	classCategory          SaveProductClassificationCategoryCommand
+	classAssign            SaveProductClassificationAssignmentCommand
+	aliasClassAssign       SaveCustomerProductAliasClassificationAssignmentCommand
+	unitDefinition         SaveProductUnitDefinitionCommand
+	unitTemplate           SaveProductUnitTemplateCommand
+	deactivate             DeactivateProductsCommand
+	priceGroups            []ProductPriceGroup
+	priceRecords           []ProductPriceRecord
+	priceRecordByID        map[int64]ProductPriceRecord
+	tierPriceSchemes       []ProductTierPriceScheme
+	products               map[int64]Product
+	publicUsages           []CustomerPublicUsage
+	deactivated            bool
+	usageSaved             bool
+	skuCreated             bool
+	productCopied          bool
+	priceGroupSaved        bool
+	groupAssigned          bool
+	groupAssignmentDeleted bool
+	priceRecordSaved       bool
+	tierSchemeSaved        bool
 }
 
 func (r *fakeRepo) ListProducts(ctx context.Context) ([]Product, error) {
@@ -179,6 +183,25 @@ func (r *fakeRepo) SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (Bu
 		cmd.ID = 61
 	}
 	return cmd, nil
+}
+
+func (r *fakeRepo) ListBusinessGroupAssignments(ctx context.Context, query BusinessGroupAssignmentQuery) ([]BusinessGroupAssignment, error) {
+	return nil, nil
+}
+
+func (r *fakeRepo) SaveBusinessGroupAssignment(ctx context.Context, cmd BusinessGroupAssignment) (BusinessGroupAssignment, error) {
+	r.groupAssignment = cmd
+	r.groupAssigned = true
+	if cmd.ID == 0 {
+		cmd.ID = 65
+	}
+	return cmd, nil
+}
+
+func (r *fakeRepo) DeleteBusinessGroupAssignment(ctx context.Context, cmd DeleteBusinessGroupAssignmentCommand) error {
+	r.deleteAssignment = cmd
+	r.groupAssignmentDeleted = true
+	return nil
 }
 
 func (r *fakeRepo) ListProductCustomerReferences(ctx context.Context, productID int64) ([]ProductCustomerReference, error) {

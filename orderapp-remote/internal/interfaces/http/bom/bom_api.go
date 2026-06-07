@@ -119,6 +119,12 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+const legacyProductionBomGroupsReadonlyError = "production BOM groups are legacy readonly; use business_group_assignments"
+
+func legacyProductionBomGroupsReadonlyAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, ErrorResponse{Error: legacyProductionBomGroupsReadonlyError})
+}
+
 func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 	e.GET("/api/production-bom-groups", func(c echo.Context) error {
 		rows, err := bomSvc.ListProductionBomGroups(c.Request().Context(), false)
@@ -129,6 +135,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 	})
 
 	e.POST("/api/production-bom-groups", func(c echo.Context) error {
+		return legacyProductionBomGroupsReadonlyAPI(c)
 		var req createProductionBomGroupRequest
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
@@ -141,6 +148,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 	})
 
 	e.PUT("/api/production-bom-groups/:id", func(c echo.Context) error {
+		return legacyProductionBomGroupsReadonlyAPI(c)
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid group_id"})
@@ -157,6 +165,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 	})
 
 	e.DELETE("/api/production-bom-groups/:id", func(c echo.Context) error {
+		return legacyProductionBomGroupsReadonlyAPI(c)
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid group_id"})
@@ -168,6 +177,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 	})
 
 	e.POST("/api/production-bom-groups/:id/move", func(c echo.Context) error {
+		return legacyProductionBomGroupsReadonlyAPI(c)
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid group_id"})
@@ -183,6 +193,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 	})
 
 	e.POST("/api/production-bom-groups/:id/categories", func(c echo.Context) error {
+		return legacyProductionBomGroupsReadonlyAPI(c)
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid group_id"})
@@ -199,6 +210,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 	})
 
 	e.PUT("/api/production-bom-group-categories/:id", func(c echo.Context) error {
+		return legacyProductionBomGroupsReadonlyAPI(c)
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid category_id"})
@@ -215,6 +227,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 	})
 
 	e.DELETE("/api/production-bom-group-categories/:id", func(c echo.Context) error {
+		return legacyProductionBomGroupsReadonlyAPI(c)
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid category_id"})

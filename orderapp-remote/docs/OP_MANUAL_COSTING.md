@@ -8,6 +8,11 @@
 - 物料管理：成本核算
 - 设置：成本参数设置
 
+## PR-442 价格表分组来源
+- PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：商品价格表默认使用商品档案分组，也就是 `product_catalog` 归组。生成抽屉按商品档案分组展示选品和继承关系。
+- 如果客户/价格表本次需要调整展示分组，可在价格表生成时做价格表覆盖；价格表覆盖只写入该价格表版本快照，发布后固化 `group_id/group_item_id/parent_group_item_id/group_source=price_list`，不回写商品档案分组。
+- 已发布价格表、录单和客户侧展示读取价格表快照中的分组来源、最终价、价格单位和库存换算。商品档案后续改分组不会自动改变历史价格表或已成交订单。
+
 ## 流程图
 ```mermaid
 flowchart TD

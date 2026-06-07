@@ -13,6 +13,11 @@
   - 操作审计日志（全量留痕）
 - 凡用户触发的业务写操作，包括新增、修改、删除、提交、导入、发布、作废、调整、转仓、上传和状态变更，都必须写入操作审计日志，并能在操作日志页面按类型、日期或关键字查到。
 - 所有涉及业务列表的 Vue/Vite 页面都必须支持分页展示，至少包含总条数/总页数、当前页、跳转到指定页、每页显示条数；服务端分页接口必须返回 `total`、`total_pages`、`page`、`limit` 等元数据。
+- PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：商品管理、生产 BOM、仓库库存的分类/分组统一收敛到泛化 `分组管理`。`business_groups / business_group_items / business_group_usages` 继续作为分组主数据，`business_group_assignments` 正式作为对象归组关系；商品使用 `product_catalog`，生产 BOM 使用 `production_bom`，仓库库存使用 `warehouse_inventory`，商品价格表快照覆盖使用 `price_list`。用户触发的归组新增、修改、移除都必须写操作日志。
+- PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：商品档案列表、抽屉、批量移动和分组展示改用 `business_group_assignments`，显示为“分组集 / 父组 / 子组”。新业务保存商品不得写 `product_category_id`、`classification_template_id`、`product_classification_templates` 或 `product_classification_assignments`；旧商品分类和分类模板只保留迁移、历史查询和回滚缓冲。
+- PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：生产 BOM 的“全部分组 / 未分类 / 管理分组 / 移动到分组 / 组内分类”改用泛化分组。生产 BOM 保存、复制、移动只写 `business_group_assignments`，不得再写 `production_boms.group_id/group_category_id`；`production_bom_groups` 和 `production_bom_group_categories` 普通写 API 下线为只读兼容。
+- PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：仓库库存分组对象是仓库，不是库存批次、库存行、商品或物料。仓库设置抽屉保存 `warehouse_inventory` 归组，对象引用使用仓库 code；`/api/stock/warehouses` 返回仓库分组字段，`/api/stock/warehouse-inventory` 支持按 `group_id/group_item_id` 过滤仓库，但不改变库存数量、批次、成本或追溯。
+- PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：商品价格表默认读取商品档案 `product_catalog` 归组；客户/价格表生成时如覆盖分组，只固化到该价格表版本快照，记录 `group_id/group_item_id/parent_group_item_id/group_source`，不得回写商品档案分组。
 - PR-440-PRODUCT-GROUP-PRICE-REMODEL：商品、分组、价格模型按 ERPNext 口径二次修正。商品档案是 Item；分组管理是泛化业务分组能力，不写死商品、物料或 BOM 对象；商品价格表是 Price List / Item Price 平铺价格行；商品价格管理只维护价格计算模板 / Pricing Rule。系统不再有独立客户商品主数据，新业务只使用商品档案 `product_id`；客户差异维护在商品档案的客户引用子表，用于客户料号、客户显示名、打印和搜索，不参与价格、单位、BOM、库存或分组。
 - PR-440-PRODUCT-GROUP-PRICE-REMODEL：左侧菜单必须出现 `分组管理`，不得出现 `客户商品` 或 `商品分类管理`。分组管理维护分组列表、分组项树、排序、启停、备注和使用功能；同一个分组可以被商品档案归类、商品价格表选品、物料档案归类、生产 BOM 分组和报表分组复用。功能页面只引用分组管理中的分组，不各自创建写死分类树。
 - PR-440-PRODUCT-GROUP-PRICE-REMODEL / PR-441-PRICE-LIST-TIER-TEMPLATE-MODES：商品价格管理页面只显示价格计算模板 / Pricing Rule。Pricing Rule 不绑定商品、不维护阶梯档位、不保存最终成交价；字段包含成本来源、BOM/耗材成本口径、工艺/工序成本口径、损耗/产出率、利润率或加价、税率、取整规则、最低毛利提示和备注。阶梯模板属于商品价格表模块，每个档位可引用一个价格计算模板。

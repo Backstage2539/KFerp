@@ -18,10 +18,10 @@
 
     <div class="grid">
       <section class="panel list-panel">
-        <div class="panel-head bom-list-head">
+        <div class="panel-head bom-list-head" data-pr442-bom-business-groups>
           <div>
             <div class="panel-title compact-title">生产 BOM列表</div>
-            <p class="muted left">生产 BOM 是生产端主档案；产出商品和上层引用在详情里查看。</p>
+            <p class="muted left">生产 BOM 是生产端主档案；分组来自泛化分组管理，保存到 /api/business-group-assignments，usage_key=production_bom。</p>
           </div>
         </div>
         <div class="bom-list-tabs-row">
@@ -50,7 +50,7 @@
           <button class="primary compact-action" type="button" @click="openNewProductionBomRecord">新建生产 BOM</button>
         </div>
         <div class="bom-list-toolbar">
-          <button class="secondary compact-action" type="button" @click="openGroupDrawer">管理分组</button>
+          <button class="secondary compact-action" type="button" @click="openGroupDrawer">查看分组</button>
           <button class="secondary compact-action" type="button" :disabled="!canMoveSelectedBoms || loading" @click="moveSelectedProductBomsToGroup">
             移动到分组
           </button>
@@ -469,7 +469,7 @@
         <div class="drawer-head">
           <div>
             <h3>{{ categoryForm.id ? '编辑组内分类' : '新增组内分类' }}</h3>
-            <p class="muted left">当前大组：{{ selectedProductionBomGroup?.name || '-' }}。组内分类只用于当前大组下的 BOM 归类。</p>
+            <p class="muted left">当前分组集：{{ selectedProductionBomGroup?.name || '-' }}。分组项在分组管理维护，BOM 页只保存对象归组。</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closeGroupCategoryDrawer">关闭</button>
         </div>
@@ -492,7 +492,7 @@
         <div class="drawer-head">
           <div>
             <h3>管理分组</h3>
-            <p class="muted left">分组只用于制造 BOM 归类。删除分组时，组内 BOM 会回到未分类。</p>
+            <p class="muted left">生产 BOM 分组统一来自分组管理；这里只读展示 production_bom 用途的分组集和分组项。</p>
           </div>
           <button class="secondary compact-action" type="button" @click="closeGroupDrawer">关闭</button>
         </div>
@@ -505,7 +505,7 @@
             <span>排序</span>
             <input v-model.number="groupForm.sort_order" type="number" min="0" step="1" />
           </label>
-          <button class="primary" type="submit" :disabled="loading || !groupForm.name">{{ groupForm.id ? '保存分组' : '新增分组' }}</button>
+          <button class="primary" type="submit" :disabled="true">{{ groupForm.id ? '保存分组' : '新增分组' }}</button>
           <button class="secondary" type="button" @click="resetGroupForm">清空</button>
         </form>
         <div class="table-wrap compact">
@@ -569,6 +569,7 @@ const productUnitDefinitions = ref([])
 const versions = ref([])
 const processTemplates = ref([])
 const productionBomGroups = ref([])
+const productionBomBusinessGroups = ref([])
 const productionBomDetail = ref(null)
 const selectedProductionBomRecord = ref(null)
 const detail = ref(null)
@@ -605,6 +606,40 @@ const groupForm = reactive({ id: 0, name: '', sort_order: 100 })
 const categoryForm = reactive({ id: 0, name: '', sort_order: 100 })
 const bomForm = reactive({ id: 0, source_id: 0, mode: 'create', name: '', output_product_id: 0, output_qty: 1, output_unit: 'unit', group_id: 0, group_category_id: 0, status: 'active' })
 const versionNote = ref('')
+
+function flattenBusinessGroupItems(items = [], parent = null, out = []) {
+  for (const item of Array.isArray(items) ? items : []) {
+    const row = {
+      ...item,
+      parent_id: Number(item.parent_id || parent?.id || 0),
+      parent_name: parent?.name || '',
+    }
+    out.push(row)
+    flattenBusinessGroupItems(item.children || [], row, out)
+  }
+  return out
+}
+
+function businessGroupToProductionBomGroup(group = {}) {
+  const items = flattenBusinessGroupItems(group.items || [])
+  return {
+    id: Number(group.id || 0),
+    name: group.name || '生产 BOM 分组',
+    sort_order: Number(group.sort_order || 100),
+    active: group.active !== false,
+    categories: items.map((item, index) => ({
+      id: Number(item.id || 0),
+      group_id: Number(group.id || 0),
+      name: [item.parent_name, item.name || `分组项 #${item.id || index + 1}`].filter(Boolean).join(' / '),
+      sort_order: Number(item.sort_order || index + 1),
+    })).filter((item) => item.id > 0),
+  }
+}
+
+function defaultProductionBomGroupItemID(groupID) {
+  const group = productionBomGroups.value.find((row) => Number(row.id || 0) === Number(groupID || 0))
+  return Number(group?.categories?.[0]?.id || 0)
+}
 
 const detailItems = computed(() => detail.value?.items || [])
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
@@ -747,7 +782,8 @@ const selectedActiveBomRecordsForDeactivate = computed(() => {
 })
 const canMoveSelectedBoms = computed(() => {
   const targetGroupID = Number(selectedBomMoveGroupID.value || 0)
-  return selectedBomRecordsForMove.value.some((bom) => Number(bom.group_id || 0) !== targetGroupID)
+  const targetGroupItemID = targetGroupID > 0 ? defaultProductionBomGroupItemID(targetGroupID) : 0
+  return selectedBomRecordsForMove.value.some((bom) => Number(bom.group_id || 0) !== targetGroupID || Number(bom.group_category_id || 0) !== targetGroupItemID)
 })
 const canMoveSelectedBomsToGroupCategory = computed(() => {
   if (!isCustomProductionBomGroupSelected.value) return false
@@ -1217,7 +1253,7 @@ async function loadAll() {
       apiGet('/api/bom/materials'),
       loadProductUnitDefinitions(),
       apiGet('/api/process-templates'),
-      apiGet('/api/production-bom-groups'),
+      apiGet('/api/business-groups?usage_key=production_bom'),
       apiGet('/api/production-boms?status=all'),
     ])
 
@@ -1225,7 +1261,8 @@ async function loadAll() {
     materials.value = materialData || []
     productUnitDefinitions.value = unitData || []
     processTemplates.value = processData.rows || []
-    productionBomGroups.value = productionGroupData || []
+    productionBomBusinessGroups.value = Array.isArray(productionGroupData?.rows) ? productionGroupData.rows : (Array.isArray(productionGroupData) ? productionGroupData : [])
+    productionBomGroups.value = productionBomBusinessGroups.value.map(businessGroupToProductionBomGroup)
     productionBoms.value = (productionBomData.rows || productionBomData || []).map(normalizeProductionBomRecord)
     if (pendingProductionBomID.value > 0) {
       const pendingID = pendingProductionBomID.value
@@ -1375,7 +1412,9 @@ async function deleteItem(id) {
 }
 
 async function loadProductionBomGroupsForManagement() {
-  managedProductionBomGroups.value = await apiGet('/api/production-bom-groups') || []
+  const data = await apiGet('/api/business-groups?usage_key=production_bom')
+  const rows = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data) ? data : [])
+  managedProductionBomGroups.value = rows.map(businessGroupToProductionBomGroup)
 }
 
 async function openGroupDrawer() {
@@ -1392,66 +1431,25 @@ function closeGroupDrawer() {
 }
 
 async function saveProductionBomGroup() {
-  const payload = { name: groupForm.name, sort_order: Number(groupForm.sort_order || 0) }
-  await mutate(async () => {
-    if (groupForm.id) {
-      await apiSend(`/api/production-bom-groups/${groupForm.id}`, { method: 'PUT', body: payload })
-      ok.value = '已保存分组'
-    } else {
-      await apiSend('/api/production-bom-groups', { body: payload })
-      ok.value = '已新增分组'
-    }
-    resetGroupForm()
-    await Promise.all([loadProductionBomGroupsForManagement(), loadAll()])
-  })
+  error.value = '生产 BOM 分组项请在分组管理维护；BOM 页只负责把 BOM 移动到已有分组。'
 }
 
 async function saveProductionBomGroupCategory() {
-  const groupID = Number(selectedProductionBomGroupID.value || 0)
-  const payload = { name: categoryForm.name, sort_order: Number(categoryForm.sort_order || 0) }
-  if (!groupID || !payload.name) return
-  await mutate(async () => {
-    if (categoryForm.id) {
-      await apiSend(`/api/production-bom-group-categories/${categoryForm.id}`, { method: 'PUT', body: payload })
-      ok.value = '已保存小分类'
-    } else {
-      await apiSend(`/api/production-bom-groups/${groupID}/categories`, { body: payload })
-      ok.value = '已新增小分类'
-    }
-    closeGroupCategoryDrawer()
-    await loadAll()
-  })
+  error.value = '组内分类已改为通用分组项，请到分组管理维护。'
 }
 
 async function deleteProductionBomGroupCategory(category) {
-  const categoryID = Number(category?.id || 0)
-  if (!categoryID) return
-  const okToDelete = window.confirm(`确认删除组内分类「${category?.name || categoryID}」？分类下 BOM 会回到该大组的未分类。`)
-  if (!okToDelete) return
-  await mutate(async () => {
-    await apiSend(`/api/production-bom-group-categories/${categoryID}`, { method: 'DELETE' })
-    ok.value = '已删除小分类'
-    if (Number(selectedProductionBomGroupCategoryID.value || 0) === categoryID) selectedProductionBomGroupCategoryID.value = 0
-    await loadAll()
-  })
+  error.value = `分组项「${category?.name || ''}」请在分组管理停用。`
 }
 
 async function deleteProductionBomGroup(group) {
-  const groupID = Number(group?.id || 0)
-  if (!groupID) return
-  const okToDelete = window.confirm(`确认删除分组「${group?.name || groupID}」？分组下 BOM 会移到未分类，BOM 版本和产出商品不受影响。`)
-  if (!okToDelete) return
-  await mutate(async () => {
-    await apiSend(`/api/production-bom-groups/${group.id}`, { method: 'DELETE' })
-    ok.value = '已删除分组'
-    if (selectedProductionBomGroupID.value === groupID) selectedProductionBomGroupID.value = 0
-    await Promise.all([loadProductionBomGroupsForManagement(), loadAll()])
-  })
+  error.value = `分组集「${group?.name || ''}」请在分组管理停用。`
 }
 
 async function moveSelectedProductBomsToGroup() {
   const targetGroupID = Number(selectedBomMoveGroupID.value || 0)
-  const records = selectedBomRecordsForMove.value.filter((bom) => Number(bom.group_id || 0) !== targetGroupID)
+  const targetGroupItemID = targetGroupID > 0 ? defaultProductionBomGroupItemID(targetGroupID) : 0
+  const records = selectedBomRecordsForMove.value.filter((bom) => Number(bom.group_id || 0) !== targetGroupID || Number(bom.group_category_id || 0) !== targetGroupItemID)
   if (!records.length) return
   await mutate(async () => {
     for (const bom of records) {
@@ -1460,7 +1458,7 @@ async function moveSelectedProductBomsToGroup() {
         body: {
           name: bom.name,
           group_id: targetGroupID,
-          group_category_id: 0,
+          group_category_id: targetGroupItemID,
           status: bom.status === 'inactive' ? 'inactive' : 'active',
         },
       })
@@ -1524,15 +1522,7 @@ async function deactivateSelectedProductionBoms() {
 }
 
 async function moveProductionBomGroup(group, direction) {
-  const groupID = Number(group?.id || 0)
-  if (!groupID) return
-  await mutate(async () => {
-    await apiSend(`/api/production-bom-groups/${groupID}/move`, {
-      body: { sort_order: Math.max(0, Number(group?.sort_order || 0) + Number(direction || 0)) },
-    })
-    ok.value = '已调整分组顺序'
-    await Promise.all([loadProductionBomGroupsForManagement(), loadAll()])
-  })
+  error.value = `分组集「${group?.name || ''}」排序请在分组管理维护。`
 }
 
 async function saveProductionBomRecord() {
@@ -1545,7 +1535,7 @@ async function saveProductionBomRecord() {
     output_qty: Number(bomForm.output_qty || 1),
     output_unit: String(bomForm.output_unit || 'unit').trim() || 'unit',
     group_id: Number(bomForm.group_id || 0),
-    group_category_id: Number(bomForm.group_category_id || 0),
+    group_category_id: Number(bomForm.group_category_id || 0) || defaultProductionBomGroupItemID(Number(bomForm.group_id || 0)),
     status: bomForm.status === 'inactive' ? 'inactive' : 'active',
   }
 	await mutate(async () => {

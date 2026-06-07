@@ -315,6 +315,53 @@ func TestProductionBomCanDeactivateWhenActiveProductsReferenceIt(t *testing.T) {
 	}
 }
 
+func TestProductionBomGroupingUsesBusinessGroupAssignments(t *testing.T) {
+	repository := readRepositorySource(t)
+	for _, want := range []string{
+		"LEFT JOIN %[1]s.business_group_assignments bga",
+		"lower(bga.usage_key)='production_bom'",
+		"lower(bga.object_key)='production_bom'",
+		"saveBusinessGroupAssignmentForProductionBomTx",
+		`"save_business_group_assignment"`,
+	} {
+		if !strings.Contains(repository, want) {
+			t.Fatalf("production BOM generic group assignment implementation missing marker %q", want)
+		}
+	}
+	for _, fn := range []string{"func (r Repository) CreateProductionBom", "func (r Repository) UpdateProductionBom", "func (r Repository) CopyProductionBom"} {
+		start := strings.Index(repository, fn)
+		if start == -1 {
+			t.Fatalf("cannot locate %s", fn)
+		}
+		next := strings.Index(repository[start+len(fn):], "\nfunc ")
+		body := repository[start:]
+		if next >= 0 {
+			body = repository[start : start+len(fn)+next]
+		}
+		for _, forbidden := range []string{
+			"group_id=$",
+			"group_category_id=$",
+			"INSERT INTO %s.production_boms(code, name, output_product_id, group_id, group_category_id",
+		} {
+			if strings.Contains(body, forbidden) {
+				t.Fatalf("%s should not write legacy production_boms group columns; found %q", fn, forbidden)
+			}
+		}
+	}
+}
+
+func TestProductionBomLegacyGroupWritesAreReadonlyCompatibility(t *testing.T) {
+	repository := readRepositorySource(t)
+	for _, want := range []string{
+		"production BOM groups are legacy readonly",
+		"ErrLegacyProductionBomGroupsReadonly",
+	} {
+		if !strings.Contains(repository, want) {
+			t.Fatalf("legacy production BOM group write guard missing marker %q", want)
+		}
+	}
+}
+
 func readRepositorySource(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile("repository.go")

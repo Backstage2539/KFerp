@@ -17,6 +17,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureWarehouseTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := migrateWarehousesToBusinessGroups(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureFinishedInventoryWarehouse(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -275,6 +278,75 @@ ON CONFLICT (code) DO UPDATE SET
 	active=excluded.active,
 	description=excluded.description
 `, schema))
+	return err
+}
+
+func migrateWarehousesToBusinessGroups(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	var hasWarehouses, hasGroups, hasItems, hasUsages, hasAssignments bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL, to_regclass($2) IS NOT NULL, to_regclass($3) IS NOT NULL, to_regclass($4) IS NOT NULL, to_regclass($5) IS NOT NULL`,
+		schema+".warehouses",
+		schema+".business_groups",
+		schema+".business_group_items",
+		schema+".business_group_usages",
+		schema+".business_group_assignments",
+	).Scan(&hasWarehouses, &hasGroups, &hasItems, &hasUsages, &hasAssignments); err != nil {
+		return err
+	}
+	if !hasWarehouses || !hasGroups || !hasItems || !hasUsages || !hasAssignments {
+		return nil
+	}
+	q := fmt.Sprintf(`
+WITH group_row AS (
+	INSERT INTO %[1]s.business_groups(name, code, remark, active, sort_order, created_by, updated_by)
+	VALUES('仓库库存默认分组','default_warehouse_inventory','PR-442: warehouses migrated to generic business group assignments by warehouse code',true,30,'system-pr442-migration','system-pr442-migration')
+	ON CONFLICT DO NOTHING
+	RETURNING id
+),
+target_group AS (
+	SELECT id FROM group_row
+	UNION ALL
+	SELECT id FROM %[1]s.business_groups WHERE code='default_warehouse_inventory' OR name='仓库库存默认分组'
+	ORDER BY id
+	LIMIT 1
+),
+usage_upsert AS (
+	INSERT INTO %[1]s.business_group_usages(group_id, usage_key, usage_label, active, created_by, updated_by)
+	SELECT id, 'warehouse_inventory', '仓库库存视图仓库归组', true, 'system-pr442-migration', 'system-pr442-migration'
+	FROM target_group
+	ON CONFLICT DO NOTHING
+),
+item_rows AS (
+	SELECT '普通仓库' AS name, 'normal_warehouses' AS code, 10 AS sort_order
+	UNION ALL SELECT '客户仓库', 'customer_warehouses', 20
+	UNION ALL SELECT '损耗/报废', 'loss_scrap_warehouses', 30
+),
+item_upsert AS (
+	INSERT INTO %[1]s.business_group_items(group_id, parent_id, name, code, remark, active, sort_order)
+	SELECT tg.id, 0, ir.name, ir.code, 'PR-442 默认库存仓库分组', true, ir.sort_order
+	FROM target_group tg
+	CROSS JOIN item_rows ir
+	ON CONFLICT DO NOTHING
+)
+INSERT INTO %[1]s.business_group_assignments(group_id, group_item_id, usage_key, object_key, object_id, object_ref, sort_order, created_by, updated_by)
+SELECT tg.id,
+       item.id,
+       'warehouse_inventory',
+       'warehouse',
+       0,
+       w.code,
+       COALESCE(w.sort_order,100),
+       'system-pr442-migration',
+       'system-pr442-migration'
+FROM %[1]s.warehouses w
+CROSS JOIN target_group tg
+JOIN %[1]s.business_group_items item ON item.group_id=tg.id AND item.code = CASE
+	WHEN COALESCE(w.kind,'')='customer' THEN 'customer_warehouses'
+	WHEN COALESCE(w.kind,'') IN ('scrap','loss','waste') THEN 'loss_scrap_warehouses'
+	ELSE 'normal_warehouses'
+END
+ON CONFLICT DO NOTHING;
+`, schema)
+	_, err := pool.Exec(ctx, q)
 	return err
 }
 

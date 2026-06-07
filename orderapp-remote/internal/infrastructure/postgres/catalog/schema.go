@@ -146,6 +146,9 @@ CREATE TABLE IF NOT EXISTS %[1]s.business_group_items (
 );
 CREATE INDEX IF NOT EXISTS business_group_items_group_parent_idx
 ON %[1]s.business_group_items(group_id, parent_id, active, sort_order, id);
+CREATE UNIQUE INDEX IF NOT EXISTS business_group_items_group_code_active_uniq
+ON %[1]s.business_group_items(group_id, lower(code))
+WHERE active=true AND code <> '';
 CREATE TABLE IF NOT EXISTS %[1]s.business_group_usages (
 	id BIGSERIAL PRIMARY KEY,
 	group_id BIGINT NOT NULL,
@@ -167,14 +170,19 @@ CREATE TABLE IF NOT EXISTS %[1]s.business_group_assignments (
 	usage_key TEXT NOT NULL,
 	object_key TEXT NOT NULL,
 	object_id BIGINT NOT NULL,
+	object_ref TEXT NOT NULL DEFAULT '',
 	sort_order INT NOT NULL DEFAULT 100,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	created_by TEXT NOT NULL DEFAULT '',
 	updated_by TEXT NOT NULL DEFAULT ''
 );
+ALTER TABLE %[1]s.business_group_assignments ADD COLUMN IF NOT EXISTS object_ref TEXT NOT NULL DEFAULT '';
+DROP INDEX IF EXISTS %[1]s.business_group_assignments_object_uq;
 CREATE UNIQUE INDEX IF NOT EXISTS business_group_assignments_object_uq
-ON %[1]s.business_group_assignments(group_id, lower(usage_key), lower(object_key), object_id);
+ON %[1]s.business_group_assignments(group_id, lower(usage_key), lower(object_key), object_id, lower(object_ref));
+CREATE INDEX IF NOT EXISTS business_group_assignments_object_ref_idx
+ON %[1]s.business_group_assignments(lower(usage_key), lower(object_key), object_id, lower(object_ref));
 CREATE TABLE IF NOT EXISTS %[1]s.product_customer_references (
 	id BIGSERIAL PRIMARY KEY,
 	product_id BIGINT NOT NULL,
@@ -834,7 +842,209 @@ ALTER TABLE %[1]s.product_price_tiers ALTER COLUMN price_per_unit SET NOT NULL;
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
+	if err := migrateProductCategoriesToBusinessGroups(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := migrateProductionBomGroupsToBusinessGroups(ctx, pool, schema); err != nil {
+		return err
+	}
+	if err := migrateWarehousesToBusinessGroups(ctx, pool, schema); err != nil {
+		return err
+	}
 	return backfillProductProductionConfigs(ctx, pool, schema)
+}
+
+func migrateProductCategoriesToBusinessGroups(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+WITH group_row AS (
+	INSERT INTO %[1]s.business_groups(name, code, remark, active, sort_order, created_by, updated_by)
+	VALUES('商品默认分组','default_product_catalog','PR-442: legacy product categories migrated to generic business group assignments',true,10,'system-pr442-migration','system-pr442-migration')
+	ON CONFLICT DO NOTHING
+	RETURNING id
+),
+target_group AS (
+	SELECT id FROM group_row
+	UNION ALL
+	SELECT id FROM %[1]s.business_groups WHERE code='default_product_catalog' OR name='商品默认分组'
+	ORDER BY id
+	LIMIT 1
+),
+usage_upsert AS (
+	INSERT INTO %[1]s.business_group_usages(group_id, usage_key, usage_label, active, created_by, updated_by)
+	SELECT id, 'product_catalog', '商品档案归组', true, 'system-pr442-migration', 'system-pr442-migration'
+	FROM target_group
+	ON CONFLICT DO NOTHING
+	RETURNING id
+),
+root_items AS (
+	INSERT INTO %[1]s.business_group_items(group_id, parent_id, name, code, remark, active, sort_order)
+	SELECT tg.id, 0, pc.name, 'legacy_product_category_' || pc.id::text, '旧商品分类迁移', pc.active, COALESCE(pc.position,100)
+	FROM %[1]s.product_categories pc
+	CROSS JOIN target_group tg
+	WHERE COALESCE(pc.parent_id,0)=0
+	ON CONFLICT DO NOTHING
+	RETURNING id
+)
+INSERT INTO %[1]s.business_group_assignments(group_id, group_item_id, usage_key, object_key, object_id, object_ref, sort_order, created_by, updated_by)
+SELECT tg.id,
+       COALESCE(item.id,0),
+       'product_catalog',
+       'product',
+       p.id,
+       '',
+       COALESCE(p.product_category_position,100),
+       'system-pr442-migration',
+       'system-pr442-migration'
+FROM %[1]s.products p
+CROSS JOIN target_group tg
+LEFT JOIN %[1]s.product_categories pc ON pc.id=COALESCE(p.product_category_id,0)
+LEFT JOIN %[1]s.business_group_items item ON item.group_id=tg.id AND item.code='legacy_product_category_' || COALESCE(pc.id,0)::text
+WHERE COALESCE(p.product_category_id,0)>0
+ON CONFLICT DO NOTHING;
+`, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
+}
+
+func migrateProductionBomGroupsToBusinessGroups(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	var hasBomGroups bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".production_bom_groups").Scan(&hasBomGroups); err != nil {
+		return err
+	}
+	if !hasBomGroups {
+		return nil
+	}
+	q := fmt.Sprintf(`
+WITH group_row AS (
+	INSERT INTO %[1]s.business_groups(name, code, remark, active, sort_order, created_by, updated_by)
+	VALUES('生产 BOM 默认分组','default_production_bom','PR-442: legacy production BOM groups migrated to generic business group assignments',true,20,'system-pr442-migration','system-pr442-migration')
+	ON CONFLICT DO NOTHING
+	RETURNING id
+),
+target_group AS (
+	SELECT id FROM group_row
+	UNION ALL
+	SELECT id FROM %[1]s.business_groups WHERE code='default_production_bom' OR name='生产 BOM 默认分组'
+	ORDER BY id
+	LIMIT 1
+),
+usage_upsert AS (
+	INSERT INTO %[1]s.business_group_usages(group_id, usage_key, usage_label, active, created_by, updated_by)
+	SELECT id, 'production_bom', '生产 BOM 归组', true, 'system-pr442-migration', 'system-pr442-migration'
+	FROM target_group
+	ON CONFLICT DO NOTHING
+	RETURNING id
+),
+group_items AS (
+	INSERT INTO %[1]s.business_group_items(group_id, parent_id, name, code, remark, active, sort_order)
+	SELECT tg.id, 0, g.name, 'legacy_production_bom_group_' || g.id::text, '旧生产 BOM 大组迁移', g.active, COALESCE(g.sort_order,100)
+	FROM %[1]s.production_bom_groups g
+	CROSS JOIN target_group tg
+	ON CONFLICT DO NOTHING
+	RETURNING id
+),
+category_items AS (
+	INSERT INTO %[1]s.business_group_items(group_id, parent_id, name, code, remark, active, sort_order)
+	SELECT tg.id, parent_item.id, c.name, 'legacy_production_bom_group_category_' || c.id::text, '旧生产 BOM 组内分类迁移', c.active, COALESCE(c.sort_order,100)
+	FROM %[1]s.production_bom_group_categories c
+	CROSS JOIN target_group tg
+	JOIN %[1]s.business_group_items parent_item ON parent_item.group_id=tg.id AND parent_item.code='legacy_production_bom_group_' || c.group_id::text
+	ON CONFLICT DO NOTHING
+	RETURNING id
+)
+INSERT INTO %[1]s.business_group_assignments(group_id, group_item_id, usage_key, object_key, object_id, object_ref, sort_order, created_by, updated_by)
+SELECT tg.id,
+       COALESCE(category_item.id, group_item.id, 0),
+       'production_bom',
+       'production_bom',
+       pb.id,
+       '',
+       100,
+       'system-pr442-migration',
+       'system-pr442-migration'
+FROM %[1]s.production_boms pb
+CROSS JOIN target_group tg
+LEFT JOIN %[1]s.business_group_items group_item ON group_item.group_id=tg.id AND group_item.code='legacy_production_bom_group_' || COALESCE(pb.group_id,0)::text
+LEFT JOIN %[1]s.business_group_items category_item ON category_item.group_id=tg.id AND category_item.code='legacy_production_bom_group_category_' || COALESCE(pb.group_category_id,0)::text
+WHERE COALESCE(pb.group_id,0)>0 OR COALESCE(pb.group_category_id,0)>0
+ON CONFLICT DO NOTHING;
+`, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
+}
+
+func migrateWarehousesToBusinessGroups(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	var hasWarehouses bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, schema+".warehouses").Scan(&hasWarehouses); err != nil {
+		return err
+	}
+	if !hasWarehouses {
+		return nil
+	}
+	q := fmt.Sprintf(`
+WITH group_row AS (
+	INSERT INTO %[1]s.business_groups(name, code, remark, active, sort_order, created_by, updated_by)
+	VALUES('仓库库存默认分组','default_warehouse_inventory','PR-442: warehouses migrated to generic business group assignments by warehouse code',true,30,'system-pr442-migration','system-pr442-migration')
+	ON CONFLICT DO NOTHING
+	RETURNING id
+),
+target_group AS (
+	SELECT id FROM group_row
+	UNION ALL
+	SELECT id FROM %[1]s.business_groups WHERE code='default_warehouse_inventory' OR name='仓库库存默认分组'
+	ORDER BY id
+	LIMIT 1
+),
+usage_upsert AS (
+	INSERT INTO %[1]s.business_group_usages(group_id, usage_key, usage_label, active, created_by, updated_by)
+	SELECT id, 'warehouse_inventory', '仓库库存视图仓库归组', true, 'system-pr442-migration', 'system-pr442-migration'
+	FROM target_group
+	ON CONFLICT DO NOTHING
+	RETURNING id
+),
+items AS (
+	INSERT INTO %[1]s.business_group_items(group_id, parent_id, name, code, remark, active, sort_order)
+	SELECT tg.id, 0,
+	       CASE
+	         WHEN COALESCE(w.kind,'')='customer' THEN '客户仓库'
+	         WHEN COALESCE(w.kind,'') IN ('scrap','loss','waste') THEN '损耗/报废'
+	         ELSE '普通仓库'
+	       END,
+	       CASE
+	         WHEN COALESCE(w.kind,'')='customer' THEN 'customer_warehouses'
+	         WHEN COALESCE(w.kind,'') IN ('scrap','loss','waste') THEN 'loss_scrap_warehouses'
+	         ELSE 'normal_warehouses'
+	       END,
+	       'PR-442 默认库存仓库分组',
+	       true,
+	       CASE WHEN COALESCE(w.kind,'')='customer' THEN 20 WHEN COALESCE(w.kind,'') IN ('scrap','loss','waste') THEN 30 ELSE 10 END
+	FROM %[1]s.warehouses w
+	CROSS JOIN target_group tg
+	GROUP BY tg.id, 1, 2, 3, 4, 5, 6
+	ON CONFLICT DO NOTHING
+	RETURNING id
+)
+INSERT INTO %[1]s.business_group_assignments(group_id, group_item_id, usage_key, object_key, object_id, object_ref, sort_order, created_by, updated_by)
+SELECT tg.id,
+       item.id,
+       'warehouse_inventory',
+       'warehouse',
+       0,
+       w.code,
+       COALESCE(w.sort_order,100),
+       'system-pr442-migration',
+       'system-pr442-migration'
+FROM %[1]s.warehouses w
+CROSS JOIN target_group tg
+JOIN %[1]s.business_group_items item ON item.group_id=tg.id AND item.code = CASE
+	WHEN COALESCE(w.kind,'')='customer' THEN 'customer_warehouses'
+	WHEN COALESCE(w.kind,'') IN ('scrap','loss','waste') THEN 'loss_scrap_warehouses'
+	ELSE 'normal_warehouses'
+END
+ON CONFLICT DO NOTHING;
+`, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
 }
 
 func backfillProductProductionConfigs(ctx context.Context, pool *pgxpool.Pool, schema string) error {

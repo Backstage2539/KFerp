@@ -252,6 +252,13 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION", title: "商品管理、生产 BOM、仓库库存统一使用泛化分组管理，普通新业务不再写旧商品分类或 BOM 专用分组", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; business_group_assignments; ProductSettingsView.vue; BomView.vue; WarehouseInventoryView.vue"},
+		{table: "req_dev", code: "DEV-442-GENERIC-GROUP-ASSIGNMENTS", title: "补齐通用对象归组 API 和 schema，支持商品/BOM 数字 id 与仓库 code 字符串对象引用，写操作留操作日志", status: "doing", assignee: "Codex", evidence: "catalog service/repository/schema; /api/business-group-assignments"},
+		{table: "req_dev", code: "DEV-442-PRODUCT-GROUP-ASSIGNMENT", title: "商品档案列表、展示和批量移动改用 product_catalog 归组关系，不再写 product_category_id 或 classification_template_id", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; catalog repository tests"},
+		{table: "req_dev", code: "DEV-442-BOM-GROUP-ASSIGNMENT", title: "生产 BOM 列表、保存、复制和移动改用 production_bom 归组关系，旧 production_bom_groups 写入口下线为只读兼容", status: "doing", assignee: "Codex", evidence: "BomView.vue; bom repository/API tests"},
+		{table: "req_dev", code: "DEV-442-WAREHOUSE-GROUP-ASSIGNMENT", title: "仓库库存按仓库 code 归组，仓库列表返回分组，库存查询支持 group_id/group_item_id 过滤", status: "doing", assignee: "Codex", evidence: "WarehouseInventoryView.vue; stock repository/API tests"},
+		{table: "req_dev", code: "DEV-442-PRICE-LIST-GROUP-SNAPSHOT", title: "商品价格表默认读取商品档案分组；价格表覆盖只固化 group_source 到快照，不回写商品档案", status: "doing", assignee: "Codex", evidence: "CostingView.vue; costing service; bean-list-pdf.js"},
+		{table: "req_review", code: "REV-442-BUSINESS-GROUP-OBJECT-UNIFICATION", prCode: "PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION", title: "验收：分组管理统一服务商品、生产 BOM、仓库库存和价格表快照；旧分类/专用分组写入口不再用于新业务", status: "todo", assignee: "VA", evidence: "docs/acceptance/2026-06-07-business-group-object-unification.md"},
 		{table: "req_product", code: "PR-441-PRICE-LIST-TIER-TEMPLATE-MODES", title: "商品价格表接管阶梯模板，并支持按阶梯模板计算、按价格计算模板计算和固定价三种计价模式", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; CostingView.vue; catalog API/schema; OP_MANUAL_COSTING.md"},
 		{table: "req_dev", code: "DEV-441-TIER-TEMPLATE-DRAWER", title: "阶梯价模板改名阶梯模板并移动到商品价格表抽屉，支持新增、查看、编辑和软删除", status: "doing", assignee: "Codex", evidence: "CostingView.vue; /api/price-tier-templates"},
 		{table: "req_dev", code: "DEV-441-THREE-PRICE-LIST-MODES", title: "价格表、父类、子类和商品行支持三种计价模式，并按商品 > 子类 > 父类 > 价格表继承", status: "doing", assignee: "Codex", evidence: "product-settings.js; CostingView.vue"},

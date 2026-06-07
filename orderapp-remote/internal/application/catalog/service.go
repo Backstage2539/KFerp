@@ -77,6 +77,13 @@ type Product struct {
 	IsLatestBomVersion          bool
 	ProductionBomGroupID        int64
 	ProductionBomGroupName      string
+	GroupID                     int64
+	GroupName                   string
+	GroupItemID                 int64
+	GroupItemName               string
+	ParentGroupItemID           int64
+	ParentGroupItemName         string
+	GroupSource                 string
 	OrderUsageCount             int
 	Tiers                       []PriceTier
 	PriceSummary                PriceSummary
@@ -125,13 +132,40 @@ type BusinessGroupItem struct {
 }
 
 type BusinessGroupAssignment struct {
-	ID          int64  `json:"id"`
-	GroupID     int64  `json:"group_id"`
-	GroupItemID int64  `json:"group_item_id"`
-	UsageKey    string `json:"usage_key"`
-	ObjectKey   string `json:"object_key"`
-	ObjectID    int64  `json:"object_id"`
-	SortOrder   int    `json:"sort_order"`
+	ID                  int64  `json:"id"`
+	Actor               string `json:"-"`
+	GroupID             int64  `json:"group_id"`
+	GroupName           string `json:"group_name,omitempty"`
+	GroupItemID         int64  `json:"group_item_id"`
+	GroupItemName       string `json:"group_item_name,omitempty"`
+	ParentGroupItemID   int64  `json:"parent_group_item_id,omitempty"`
+	ParentGroupItemName string `json:"parent_group_item_name,omitempty"`
+	UsageKey            string `json:"usage_key"`
+	ObjectKey           string `json:"object_key"`
+	ObjectID            int64  `json:"object_id"`
+	ObjectRef           string `json:"object_ref"`
+	SortOrder           int    `json:"sort_order"`
+}
+
+const (
+	BusinessGroupUsageProductCatalog     = "product_catalog"
+	BusinessGroupUsageProductionBOM      = "production_bom"
+	BusinessGroupUsageWarehouseInventory = "warehouse_inventory"
+	BusinessGroupUsagePriceList          = "price_list"
+)
+
+type BusinessGroupAssignmentQuery struct {
+	UsageKey    string
+	ObjectKey   string
+	ObjectID    int64
+	ObjectRef   string
+	GroupID     int64
+	GroupItemID int64
+}
+
+type DeleteBusinessGroupAssignmentCommand struct {
+	Actor string
+	ID    int64
 }
 
 type ProductCustomerReference struct {
@@ -306,6 +340,13 @@ type ProductSettingsProduct struct {
 	IsLatestBomVersion          bool         `json:"is_latest_bom_version"`
 	ProductionBomGroupID        int64        `json:"production_bom_group_id"`
 	ProductionBomGroupName      string       `json:"production_bom_group_name"`
+	GroupID                     int64        `json:"group_id"`
+	GroupName                   string       `json:"group_name"`
+	GroupItemID                 int64        `json:"group_item_id"`
+	GroupItemName               string       `json:"group_item_name"`
+	ParentGroupItemID           int64        `json:"parent_group_item_id"`
+	ParentGroupItemName         string       `json:"parent_group_item_name"`
+	GroupSource                 string       `json:"group_source"`
 	OrderUsageCount             int          `json:"order_usage_count"`
 	Number                      int          `json:"number"`
 	PriceSummary                PriceSummary `json:"price_summary,omitempty"`
@@ -331,6 +372,7 @@ type ProductSettingsData struct {
 	ProductPriceRecords                 []ProductPriceRecord                 `json:"product_price_records"`
 	ProductTierPriceSchemes             []ProductTierPriceScheme             `json:"product_tier_price_schemes"`
 	BusinessGroups                      []BusinessGroup                      `json:"business_groups"`
+	BusinessGroupAssignments            []BusinessGroupAssignment            `json:"business_group_assignments"`
 	ProductCustomerReferences           []ProductCustomerReference           `json:"product_customer_references"`
 	ProductPricingRules                 []ProductPricingRule                 `json:"product_pricing_rules"`
 	PriceTierTemplates                  []PriceTierTemplate                  `json:"price_tier_templates"`
@@ -1179,6 +1221,9 @@ type Repository interface {
 	SaveProductPriceGroup(ctx context.Context, cmd SaveProductPriceGroupCommand) (ProductPriceGroup, error)
 	ListBusinessGroups(ctx context.Context) ([]BusinessGroup, error)
 	SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (BusinessGroup, error)
+	ListBusinessGroupAssignments(ctx context.Context, query BusinessGroupAssignmentQuery) ([]BusinessGroupAssignment, error)
+	SaveBusinessGroupAssignment(ctx context.Context, cmd BusinessGroupAssignment) (BusinessGroupAssignment, error)
+	DeleteBusinessGroupAssignment(ctx context.Context, cmd DeleteBusinessGroupAssignmentCommand) error
 	ListProductCustomerReferences(ctx context.Context, productID int64) ([]ProductCustomerReference, error)
 	SaveProductCustomerReference(ctx context.Context, cmd ProductCustomerReference) (ProductCustomerReference, error)
 	ListProductPricingRules(ctx context.Context) ([]ProductPricingRule, error)
@@ -1592,6 +1637,26 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
+	businessGroups, err := s.repo.ListBusinessGroups(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
+	businessGroupAssignments, err := s.repo.ListBusinessGroupAssignments(ctx, BusinessGroupAssignmentQuery{})
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
+	productCustomerReferences, err := s.repo.ListProductCustomerReferences(ctx, 0)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
+	productPricingRules, err := s.repo.ListProductPricingRules(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
+	priceTierTemplates, err := s.repo.ListPriceTierTemplates(ctx)
+	if err != nil {
+		return ProductSettingsData{}, err
+	}
 	data := BuildProductSettings(categories, products)
 	data.ProductProductionConfigs = productionConfigs
 	data.ProductClassificationTemplates = classificationTemplates
@@ -1603,10 +1668,11 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	data.ProductPriceGroups = priceGroups
 	data.ProductPriceRecords = priceRecords
 	data.ProductTierPriceSchemes = tierPriceSchemes
-	data.BusinessGroups = []BusinessGroup{}
-	data.ProductCustomerReferences = []ProductCustomerReference{}
-	data.ProductPricingRules = []ProductPricingRule{}
-	data.PriceTierTemplates = []PriceTierTemplate{}
+	data.BusinessGroups = businessGroups
+	data.BusinessGroupAssignments = businessGroupAssignments
+	data.ProductCustomerReferences = productCustomerReferences
+	data.ProductPricingRules = productPricingRules
+	data.PriceTierTemplates = priceTierTemplates
 	data.CustomerPublicUsages = usages
 	data.CustomerProductRuleTemplates = ruleTemplates
 	data.CustomerProductRuleOverrides = ruleOverrides
@@ -1636,6 +1702,46 @@ func (s *Service) SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (Bus
 		cmd.Active = true
 	}
 	return s.repo.SaveBusinessGroup(ctx, cmd)
+}
+
+func (s *Service) ListBusinessGroupAssignments(ctx context.Context, query BusinessGroupAssignmentQuery) ([]BusinessGroupAssignment, error) {
+	query.UsageKey = strings.TrimSpace(query.UsageKey)
+	query.ObjectKey = strings.TrimSpace(query.ObjectKey)
+	query.ObjectRef = strings.TrimSpace(query.ObjectRef)
+	if query.ObjectID < 0 || query.GroupID < 0 || query.GroupItemID < 0 {
+		return nil, ValidationError{Message: "invalid business group assignment query"}
+	}
+	return s.repo.ListBusinessGroupAssignments(ctx, query)
+}
+
+func (s *Service) SaveBusinessGroupAssignment(ctx context.Context, cmd BusinessGroupAssignment) (BusinessGroupAssignment, error) {
+	cmd.UsageKey = strings.TrimSpace(cmd.UsageKey)
+	cmd.ObjectKey = strings.TrimSpace(cmd.ObjectKey)
+	cmd.ObjectRef = strings.TrimSpace(cmd.ObjectRef)
+	if cmd.ID < 0 || cmd.GroupID <= 0 || cmd.GroupItemID <= 0 {
+		return BusinessGroupAssignment{}, ValidationError{Message: "invalid business group assignment"}
+	}
+	if cmd.UsageKey == "" || cmd.ObjectKey == "" {
+		return BusinessGroupAssignment{}, ValidationError{Message: "invalid business group assignment"}
+	}
+	if cmd.ObjectID <= 0 && cmd.ObjectRef == "" {
+		return BusinessGroupAssignment{}, ValidationError{Message: "object required"}
+	}
+	if cmd.ObjectID > 0 {
+		cmd.ObjectRef = ""
+	}
+	if cmd.SortOrder <= 0 {
+		cmd.SortOrder = 100
+	}
+	return s.repo.SaveBusinessGroupAssignment(ctx, cmd)
+}
+
+func (s *Service) DeleteBusinessGroupAssignment(ctx context.Context, cmd DeleteBusinessGroupAssignmentCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ID <= 0 {
+		return ValidationError{Message: "invalid business group assignment"}
+	}
+	return s.repo.DeleteBusinessGroupAssignment(ctx, cmd)
 }
 
 func (s *Service) ListProductCustomerReferences(ctx context.Context, productID int64) ([]ProductCustomerReference, error) {
@@ -3186,6 +3292,13 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		IsLatestBomVersion:          p.IsLatestBomVersion,
 		ProductionBomGroupID:        p.ProductionBomGroupID,
 		ProductionBomGroupName:      p.ProductionBomGroupName,
+		GroupID:                     p.GroupID,
+		GroupName:                   p.GroupName,
+		GroupItemID:                 p.GroupItemID,
+		GroupItemName:               p.GroupItemName,
+		ParentGroupItemID:           p.ParentGroupItemID,
+		ParentGroupItemName:         p.ParentGroupItemName,
+		GroupSource:                 p.GroupSource,
 		OrderUsageCount:             p.OrderUsageCount,
 		PriceSummary:                p.PriceSummary,
 	}

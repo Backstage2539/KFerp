@@ -37,6 +37,9 @@ func (r Repository) ListProducts(ctx context.Context) ([]catalogapp.Product, err
 		return nil, err
 	}
 	out := catalogProductsFromOptions(ps)
+	if err := r.attachProductGroupSummaries(ctx, out); err != nil {
+		return nil, err
+	}
 	if err := r.attachProductPriceSummaries(ctx, out); err != nil {
 		return nil, err
 	}
@@ -49,6 +52,11 @@ func (r Repository) GetProduct(ctx context.Context, id int64) (*catalogapp.Produ
 		return nil, err
 	}
 	out := catalogProductFromOption(*p)
+	rows := []catalogapp.Product{out}
+	if err := r.attachProductGroupSummaries(ctx, rows); err != nil {
+		return nil, err
+	}
+	out = rows[0]
 	return &out, nil
 }
 
@@ -177,8 +185,8 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 		SET roast_level=$2, retail_price_100g=$3, retail_price_200g=$4, retail_price_227g=$5, retail_price_250g=$6,
 		    product_kind=$7, drip_bag_grams=$8, drip_box_bag_count=$9, allow_fulfillment_order=$10, allow_mall_order=$11,
 		    green_bean_type=$12, green_bean_bom_product_id=$13, remark=$14, name=COALESCE(NULLIF($15,''), name),
-		    special_attrs_json=$16::jsonb, product_config_template_id=$17, classification_template_id=$18
-		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.Remark, cmd.Name, cmd.SpecialAttrsJSON, cmd.ProductConfigTemplateID, cmd.ClassificationTemplateID); err != nil {
+		    special_attrs_json=$16::jsonb
+		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.Remark, cmd.Name, cmd.SpecialAttrsJSON); err != nil {
 		return err
 	}
 	if catalogdomain.ProductKindSupportsBomParams(productKind) && yieldRate > 0 {
@@ -370,7 +378,6 @@ func (r Repository) CopyProduct(ctx context.Context, cmd catalogapp.CopyProductC
 			name, remark, product_kind, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
 			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
-			product_category_id, product_category_position,
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
 			special_attrs_json, created_at
 		)
@@ -378,7 +385,6 @@ func (r Repository) CopyProduct(ctx context.Context, cmd catalogapp.CopyProductC
 			$2, remark, product_kind, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
 			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
-			product_category_id, product_category_position,
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
 			special_attrs_json, now()
 		FROM %s.products
@@ -491,10 +497,6 @@ func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUComma
 		}
 		productKind = catalogdomain.NormalizeProductKind(typeName)
 	}
-	position, err := nextProductPositionTx(ctx, tx, r.schema, categoryID, cmd.CustomerID, 0)
-	if err != nil {
-		return catalogapp.Product{}, err
-	}
 	visibility := "public"
 	if cmd.CustomerID > 0 {
 		visibility = "customer_only"
@@ -505,26 +507,18 @@ func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUComma
 			name, remark, product_kind, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
 			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
-			product_category_id, product_category_position,
-			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id, special_attrs_json, product_config_template_id, classification_template_id, created_at
+			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id, special_attrs_json, created_at
 		)
-		VALUES($1,$2,$3,'',0,$4,0,0,0,0,10,10,true,false,NULLIF($5,0),$6,$7,0,$8,'','',0,$9::jsonb,$10,$11,now())
+		VALUES($1,$2,$3,'',0,$4,0,0,0,0,10,10,true,false,$5,0,$6,'','',0,$7::jsonb,now())
 		RETURNING id
-	`, r.schema), strings.TrimSpace(cmd.Name), strings.TrimSpace(cmd.Remark), productKind, cmd.Active, categoryID, position, cmd.CustomerID, visibility, cmd.SpecialAttrsJSON, cmd.ProductConfigTemplateID, cmd.ClassificationTemplateID).Scan(&productID); err != nil {
+	`, r.schema), strings.TrimSpace(cmd.Name), strings.TrimSpace(cmd.Remark), productKind, cmd.Active, cmd.CustomerID, visibility, cmd.SpecialAttrsJSON).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
-	}
-	if categoryID > 0 {
-		if err := normalizeProductPositions(ctx, tx, r.schema, categoryID, cmd.CustomerID); err != nil {
-			return catalogapp.Product{}, err
-		}
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "create_sku", postgresinfra.StrPtr("sku"), nil, postgresinfra.StrPtr(strings.TrimSpace(cmd.Name)), postgresinfra.AuditMeta{
 		"customer_id":                  cmd.CustomerID,
 		"product_type_category_id":     cmd.ProductTypeCategoryID,
 		"product_subtype_category_id":  categoryID,
 		"legacy_product_kind_snapshot": productKind,
-		"product_config_template_id":   cmd.ProductConfigTemplateID,
-		"classification_template_id":   cmd.ClassificationTemplateID,
 	}); err != nil {
 		return catalogapp.Product{}, err
 	}
@@ -1590,6 +1584,159 @@ func (r Repository) SaveBusinessGroup(ctx context.Context, cmd catalogapp.Busine
 		}
 	}
 	return catalogapp.BusinessGroup{}, fmt.Errorf("business group not found")
+}
+
+func (r Repository) ListBusinessGroupAssignments(ctx context.Context, query catalogapp.BusinessGroupAssignmentQuery) ([]catalogapp.BusinessGroupAssignment, error) {
+	where := []string{"1=1"}
+	args := []any{}
+	add := func(clause string, value any) {
+		args = append(args, value)
+		where = append(where, fmt.Sprintf(clause, len(args)))
+	}
+	if strings.TrimSpace(query.UsageKey) != "" {
+		add("lower(bga.usage_key)=lower($%d)", strings.TrimSpace(query.UsageKey))
+	}
+	if strings.TrimSpace(query.ObjectKey) != "" {
+		add("lower(bga.object_key)=lower($%d)", strings.TrimSpace(query.ObjectKey))
+	}
+	if query.ObjectID > 0 {
+		add("bga.object_id=$%d", query.ObjectID)
+	}
+	if strings.TrimSpace(query.ObjectRef) != "" {
+		add("lower(bga.object_ref)=lower($%d)", strings.TrimSpace(query.ObjectRef))
+	}
+	if query.GroupID > 0 {
+		add("bga.group_id=$%d", query.GroupID)
+	}
+	if query.GroupItemID > 0 {
+		add("bga.group_item_id=$%d", query.GroupItemID)
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT bga.id, bga.group_id, COALESCE(bg.name,''), bga.group_item_id, COALESCE(item.name,''),
+		       COALESCE(parent.id,0), COALESCE(parent.name,''),
+		       bga.usage_key, bga.object_key, bga.object_id, COALESCE(bga.object_ref,''), bga.sort_order
+		FROM %s.business_group_assignments bga
+		JOIN %s.business_groups bg ON bg.id=bga.group_id
+		LEFT JOIN %s.business_group_items item ON item.id=bga.group_item_id
+		LEFT JOIN %s.business_group_items parent ON parent.id=item.parent_id
+		WHERE %s
+		ORDER BY bg.sort_order, bg.id, parent.sort_order, parent.id, item.sort_order, item.id, bga.sort_order, bga.id
+	`, r.schema, r.schema, r.schema, r.schema, strings.Join(where, " AND ")), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]catalogapp.BusinessGroupAssignment, 0)
+	for rows.Next() {
+		var row catalogapp.BusinessGroupAssignment
+		if err := rows.Scan(&row.ID, &row.GroupID, &row.GroupName, &row.GroupItemID, &row.GroupItemName, &row.ParentGroupItemID, &row.ParentGroupItemName, &row.UsageKey, &row.ObjectKey, &row.ObjectID, &row.ObjectRef, &row.SortOrder); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveBusinessGroupAssignment(ctx context.Context, cmd catalogapp.BusinessGroupAssignment) (catalogapp.BusinessGroupAssignment, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return catalogapp.BusinessGroupAssignment{}, err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return catalogapp.BusinessGroupAssignment{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	usageKey := strings.TrimSpace(cmd.UsageKey)
+	objectKey := strings.TrimSpace(cmd.ObjectKey)
+	objectRef := strings.TrimSpace(cmd.ObjectRef)
+	if cmd.ObjectID > 0 {
+		objectRef = ""
+	}
+	var usageOK bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM %s.business_groups bg
+			JOIN %s.business_group_usages bgu ON bgu.group_id=bg.id
+			WHERE bg.id=$1 AND bg.active=true AND bgu.active=true AND lower(bgu.usage_key)=lower($2)
+		)
+	`, r.schema, r.schema), cmd.GroupID, usageKey).Scan(&usageOK); err != nil {
+		return catalogapp.BusinessGroupAssignment{}, err
+	}
+	if !usageOK {
+		return catalogapp.BusinessGroupAssignment{}, fmt.Errorf("business group usage mismatch")
+	}
+	var itemOK bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.business_group_items WHERE id=$1 AND group_id=$2 AND active=true)`, r.schema), cmd.GroupItemID, cmd.GroupID).Scan(&itemOK); err != nil {
+		return catalogapp.BusinessGroupAssignment{}, err
+	}
+	if !itemOK {
+		return catalogapp.BusinessGroupAssignment{}, fmt.Errorf("business group item mismatch")
+	}
+	if cmd.ID > 0 {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.business_group_assignments WHERE id=$1`, r.schema), cmd.ID); err != nil {
+			return catalogapp.BusinessGroupAssignment{}, err
+		}
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM %s.business_group_assignments
+		WHERE lower(usage_key)=lower($1) AND lower(object_key)=lower($2) AND object_id=$3 AND lower(object_ref)=lower($4)
+	`, r.schema), usageKey, objectKey, cmd.ObjectID, objectRef); err != nil {
+		return catalogapp.BusinessGroupAssignment{}, err
+	}
+	var id int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.business_group_assignments(group_id, group_item_id, usage_key, object_key, object_id, object_ref, sort_order, created_by, updated_by)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8)
+		RETURNING id
+	`, r.schema), cmd.GroupID, cmd.GroupItemID, usageKey, objectKey, cmd.ObjectID, objectRef, cmd.SortOrder, cmd.Actor).Scan(&id); err != nil {
+		return catalogapp.BusinessGroupAssignment{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "business_group_assignment", &id, "save_business_group_assignment", postgresinfra.StrPtr("group_item_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.GroupItemID)), postgresinfra.AuditMeta{"group_id": cmd.GroupID, "group_item_id": cmd.GroupItemID, "usage_key": usageKey, "object_key": objectKey, "object_id": cmd.ObjectID, "object_ref": objectRef}); err != nil {
+		return catalogapp.BusinessGroupAssignment{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return catalogapp.BusinessGroupAssignment{}, err
+	}
+	rows, err := r.ListBusinessGroupAssignments(ctx, catalogapp.BusinessGroupAssignmentQuery{UsageKey: usageKey, ObjectKey: objectKey, ObjectID: cmd.ObjectID, ObjectRef: objectRef})
+	if err != nil {
+		return catalogapp.BusinessGroupAssignment{}, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, nil
+		}
+	}
+	return catalogapp.BusinessGroupAssignment{}, fmt.Errorf("business group assignment not found")
+}
+
+func (r Repository) DeleteBusinessGroupAssignment(ctx context.Context, cmd catalogapp.DeleteBusinessGroupAssignmentCommand) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var row catalogapp.BusinessGroupAssignment
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT id, group_id, group_item_id, usage_key, object_key, object_id, COALESCE(object_ref,''), sort_order FROM %s.business_group_assignments WHERE id=$1`, r.schema), cmd.ID).Scan(&row.ID, &row.GroupID, &row.GroupItemID, &row.UsageKey, &row.ObjectKey, &row.ObjectID, &row.ObjectRef, &row.SortOrder); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.business_group_assignments WHERE id=$1`, r.schema), cmd.ID); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "business_group_assignment", &cmd.ID, "delete_business_group_assignment", postgresinfra.StrPtr("group_item_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", row.GroupItemID)), nil, postgresinfra.AuditMeta{"group_id": row.GroupID, "group_item_id": row.GroupItemID, "usage_key": row.UsageKey, "object_key": row.ObjectKey, "object_id": row.ObjectID, "object_ref": row.ObjectRef}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func businessGroupItemTree(items []catalogapp.BusinessGroupItem) []catalogapp.BusinessGroupItem {
@@ -4350,6 +4497,65 @@ func (r Repository) ListCustomerProductAliases(ctx context.Context, query catalo
 type publishedPriceSummaryKey struct {
 	ProductID  int64
 	CustomerID int64
+}
+
+func (r Repository) attachProductGroupSummaries(ctx context.Context, products []catalogapp.Product) error {
+	if len(products) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(products))
+	index := map[int64]int{}
+	for i, product := range products {
+		if product.ID <= 0 {
+			continue
+		}
+		ids = append(ids, product.ID)
+		index[product.ID] = i
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT product_ids.id,
+		       COALESCE(bga.group_id,0),
+		       COALESCE(bg.name,''),
+		       COALESCE(bga.group_item_id,0),
+		       COALESCE(item.name,''),
+		       COALESCE(parent.id,0),
+		       COALESCE(parent.name,'')
+		FROM unnest($1::bigint[]) AS product_ids(id)
+		LEFT JOIN %[1]s.business_group_assignments bga ON bga.object_id=product_ids.id
+		  AND lower(bga.usage_key)='product_catalog'
+		  AND lower(bga.object_key)='product'
+		LEFT JOIN %[1]s.business_groups bg ON bg.id=bga.group_id
+		LEFT JOIN %[1]s.business_group_items item ON item.id=bga.group_item_id
+		LEFT JOIN %[1]s.business_group_items parent ON parent.id=item.parent_id
+	`, r.schema), ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var productID int64
+		var groupID, groupItemID, parentGroupItemID int64
+		var groupName, groupItemName, parentGroupItemName string
+		if err := rows.Scan(&productID, &groupID, &groupName, &groupItemID, &groupItemName, &parentGroupItemID, &parentGroupItemName); err != nil {
+			return err
+		}
+		if groupID <= 0 {
+			continue
+		}
+		if i, ok := index[productID]; ok {
+			products[i].GroupID = groupID
+			products[i].GroupName = groupName
+			products[i].GroupItemID = groupItemID
+			products[i].GroupItemName = groupItemName
+			products[i].ParentGroupItemID = parentGroupItemID
+			products[i].ParentGroupItemName = parentGroupItemName
+			products[i].GroupSource = "product_catalog"
+		}
+	}
+	return rows.Err()
 }
 
 func (r Repository) attachProductPriceSummaries(ctx context.Context, products []catalogapp.Product) error {

@@ -226,13 +226,19 @@ func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.Mate
 func (r Repository) ListWarehouses(ctx context.Context, query stockapp.WarehouseListQuery) ([]stockapp.WarehouseRow, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT w.code,w.name,w.kind,w.parent_code,w.sort_order,w.is_default,w.active,w.description,
-		       COALESCE(w.customer_id,0), COALESCE(c.name,'')
+		       COALESCE(w.customer_id,0), COALESCE(c.name,''),
+		       COALESCE(bga.group_id,0), COALESCE(bg.name,''),
+		       COALESCE(bga.group_item_id,0), COALESCE(item.name,''),
+		       CASE WHEN bga.id IS NULL THEN '' ELSE 'warehouse_inventory' END
 		FROM %s.warehouses w
 		LEFT JOIN %s.customers c ON c.id=w.customer_id
+		LEFT JOIN %s.business_group_assignments bga ON bga.object_ref=w.code AND bga.object_id=0 AND lower(bga.usage_key)='warehouse_inventory' AND lower(bga.object_key)='warehouse'
+		LEFT JOIN %s.business_groups bg ON bg.id=bga.group_id
+		LEFT JOIN %s.business_group_items item ON item.id=bga.group_item_id
 		WHERE w.active=true
 		  AND ($1::bigint=0 OR COALESCE(w.customer_id,0) IN (0, $1::bigint))
 		ORDER BY w.sort_order, w.code
-	`, r.schema, r.schema), query.CustomerID)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema), query.CustomerID)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +246,7 @@ func (r Repository) ListWarehouses(ctx context.Context, query stockapp.Warehouse
 	out := make([]stockapp.WarehouseRow, 0)
 	for rows.Next() {
 		var row stockapp.WarehouseRow
-		if err := rows.Scan(&row.Code, &row.Name, &row.Kind, &row.ParentCode, &row.SortOrder, &row.IsDefault, &row.Active, &row.Description, &row.CustomerID, &row.CustomerName); err != nil {
+		if err := rows.Scan(&row.Code, &row.Name, &row.Kind, &row.ParentCode, &row.SortOrder, &row.IsDefault, &row.Active, &row.Description, &row.CustomerID, &row.CustomerName, &row.GroupID, &row.GroupName, &row.GroupItemID, &row.GroupItemName, &row.GroupSource); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -462,13 +468,22 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			      AND (b.remaining_g <> 0 OR b.remaining_units <> 0)
 			  )
 		)
-		SELECT warehouse,warehouse_name,warehouse_kind,item_type,item_id,item_name,spec_g,batch_id,batch_code,
-		       qty_g,qty_units,COALESCE(unit_cost,0),quality_status,to_char(updated_at,'YYYY-MM-DD HH24:MI'),
+		SELECT wi.warehouse,wi.warehouse_name,wi.warehouse_kind,
+		       COALESCE(bga.group_id,0), COALESCE(bg.name,''),
+		       COALESCE(bga.group_item_id,0), COALESCE(item.name,''),
+		       CASE WHEN bga.id IS NULL THEN '' ELSE 'warehouse_inventory' END,
+		       wi.item_type,wi.item_id,wi.item_name,wi.spec_g,wi.batch_id,wi.batch_code,
+		       wi.qty_g,wi.qty_units,COALESCE(wi.unit_cost,0),wi.quality_status,to_char(wi.updated_at,'YYYY-MM-DD HH24:MI'),
 		       count(*) OVER()::int AS total_count
-		FROM warehouse_inventory
-		ORDER BY warehouse_name,item_type,item_name,spec_g,batch_code
+		FROM warehouse_inventory wi
+		LEFT JOIN %[1]s.business_group_assignments bga ON bga.object_ref=wi.warehouse AND bga.object_id=0 AND lower(bga.usage_key)='warehouse_inventory' AND lower(bga.object_key)='warehouse'
+		LEFT JOIN %[1]s.business_groups bg ON bg.id=bga.group_id
+		LEFT JOIN %[1]s.business_group_items item ON item.id=bga.group_item_id
+		WHERE ($8::bigint=0 OR bga.group_id=$8::bigint)
+		  AND ($9::bigint=0 OR bga.group_item_id=$9::bigint)
+		ORDER BY wi.warehouse_name,wi.item_type,wi.item_name,wi.spec_g,wi.batch_code
 		LIMIT $5 OFFSET $6
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), q, qLike, query.Warehouse, query.ItemType, query.Limit+1, query.Offset, query.CustomerID)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema), q, qLike, query.Warehouse, query.ItemType, query.Limit+1, query.Offset, query.CustomerID, query.GroupID, query.GroupItemID)
 	if err != nil {
 		return stockapp.WarehouseInventoryResult{}, err
 	}
@@ -477,7 +492,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 	total := 0
 	for rows.Next() {
 		var row stockapp.WarehouseInventoryRow
-		if err := rows.Scan(&row.Warehouse, &row.WarehouseName, &row.WarehouseKind, &row.ItemType, &row.ItemID, &row.ItemName, &row.SpecG, &row.BatchID, &row.BatchCode, &row.QtyG, &row.QtyUnits, &row.UnitCost, &row.QualityStatus, &row.UpdatedAt, &total); err != nil {
+		if err := rows.Scan(&row.Warehouse, &row.WarehouseName, &row.WarehouseKind, &row.GroupID, &row.GroupName, &row.GroupItemID, &row.GroupItemName, &row.GroupSource, &row.ItemType, &row.ItemID, &row.ItemName, &row.SpecG, &row.BatchID, &row.BatchCode, &row.QtyG, &row.QtyUnits, &row.UnitCost, &row.QualityStatus, &row.UpdatedAt, &total); err != nil {
 			return stockapp.WarehouseInventoryResult{}, err
 		}
 		out = append(out, row)

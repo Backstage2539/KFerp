@@ -16,6 +16,13 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+func expectLegacyClassificationWriteGone(t *testing.T, rec *httptest.ResponseRecorder, label string) {
+	t.Helper()
+	if rec.Code != http.StatusGone || !bytes.Contains(rec.Body.Bytes(), []byte("classification write APIs are legacy readonly")) {
+		t.Fatalf("%s should be legacy readonly, status=%d body=%s", label, rec.Code, rec.Body.String())
+	}
+}
+
 type productSettingsRepo struct {
 	products                            []catalogapp.Product
 	categories                          []catalogapp.ProductCategory
@@ -326,6 +333,21 @@ func (r *productSettingsRepo) SaveBusinessGroup(ctx context.Context, cmd catalog
 		cmd.ID = 61
 	}
 	return cmd, nil
+}
+
+func (r *productSettingsRepo) ListBusinessGroupAssignments(ctx context.Context, query catalogapp.BusinessGroupAssignmentQuery) ([]catalogapp.BusinessGroupAssignment, error) {
+	return []catalogapp.BusinessGroupAssignment{}, nil
+}
+
+func (r *productSettingsRepo) SaveBusinessGroupAssignment(ctx context.Context, cmd catalogapp.BusinessGroupAssignment) (catalogapp.BusinessGroupAssignment, error) {
+	if cmd.ID == 0 {
+		cmd.ID = 65
+	}
+	return cmd, nil
+}
+
+func (r *productSettingsRepo) DeleteBusinessGroupAssignment(ctx context.Context, cmd catalogapp.DeleteBusinessGroupAssignmentCommand) error {
+	return nil
 }
 
 func (r *productSettingsRepo) ListProductCustomerReferences(ctx context.Context, productID int64) ([]catalogapp.ProductCustomerReference, error) {
@@ -1135,9 +1157,7 @@ func TestClassificationTemplateUsageAPIsExposePageLevelTabs(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST product template usage status=%d body=%s", rec.Code, rec.Body.String())
-	}
+	expectLegacyClassificationWriteGone(t, rec, "POST product template usage")
 
 	req = httptest.NewRequest(http.MethodGet, "/api/product-classification-template-usages/customer-aliases?customer_id=42", nil)
 	rec = httptest.NewRecorder()
@@ -1150,8 +1170,9 @@ func TestClassificationTemplateUsageAPIsExposePageLevelTabs(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST alias template usage status=%d body=%s", rec.Code, rec.Body.String())
+	expectLegacyClassificationWriteGone(t, rec, "POST alias template usage")
+	if repo.productClassificationUsageSaved || repo.aliasClassificationUsageSaved {
+		t.Fatalf("legacy classification usage writes should not reach repo: product=%v alias=%v", repo.productClassificationUsageSaved, repo.aliasClassificationUsageSaved)
 	}
 }
 
@@ -1185,55 +1206,44 @@ func TestProductClassificationTemplateAPIsSaveCategoriesAndAssignments(t *testin
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !repo.classificationTemplateSaved || repo.savedClassificationTemplate.CustomerID != 0 || repo.savedClassificationTemplate.Name != "客户侧价格表分类" || repo.savedClassificationTemplate.ProductConfigTemplateID != 701 || repo.savedClassificationTemplate.GradientTemplateID != 0 || repo.savedClassificationTemplate.UnitTemplateID != 0 {
-		t.Fatalf("POST classification template status=%d body=%s cmd=%+v saved=%v", rec.Code, rec.Body.String(), repo.savedClassificationTemplate, repo.classificationTemplateSaved)
-	}
+	expectLegacyClassificationWriteGone(t, rec, "POST classification template")
 
 	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-template-categories", bytes.NewBufferString(`{"template_id":501,"name":"新品","level":1,"sort_order":3,"product_config_template_id":702}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !repo.classificationCategorySaved || repo.savedClassificationCategory.TemplateID != 501 || repo.savedClassificationCategory.Name != "新品" || repo.savedClassificationCategory.ProductConfigTemplateID != 702 || repo.savedClassificationCategory.GradientTemplateID != 0 || repo.savedClassificationCategory.UnitTemplateID != 0 {
-		t.Fatalf("POST classification category status=%d body=%s cmd=%+v saved=%v", rec.Code, rec.Body.String(), repo.savedClassificationCategory, repo.classificationCategorySaved)
-	}
+	expectLegacyClassificationWriteGone(t, rec, "POST classification category")
 
 	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-assignments/products", bytes.NewBufferString(`{"product_id":88,"template_id":501,"category_id":502,"sort_order":4}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !repo.classificationAssignmentSaved || repo.savedClassificationAssignment.ProductID != 88 || repo.savedClassificationAssignment.CategoryID != 502 {
-		t.Fatalf("POST product classification assignment status=%d body=%s cmd=%+v saved=%v", rec.Code, rec.Body.String(), repo.savedClassificationAssignment, repo.classificationAssignmentSaved)
-	}
+	expectLegacyClassificationWriteGone(t, rec, "POST product classification assignment")
 
 	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-assignments/products", bytes.NewBufferString(`{"product_id":88,"template_id":601,"category_id":0,"sort_order":6}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || repo.savedClassificationAssignment.TemplateID != 601 || repo.savedClassificationAssignment.CategoryID != 0 {
-		t.Fatalf("POST product classification reassignment should overwrite without move-out status=%d body=%s cmd=%+v", rec.Code, rec.Body.String(), repo.savedClassificationAssignment)
-	}
+	expectLegacyClassificationWriteGone(t, rec, "POST product classification reassignment")
 
 	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-assignments/customer-aliases", bytes.NewBufferString(`{"alias_id":77,"template_id":501,"category_id":502,"sort_order":5}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !repo.aliasClassificationAssignmentSaved || repo.savedAliasClassificationAssignment.AliasID != 77 || repo.savedAliasClassificationAssignment.CategoryID != 502 {
-		t.Fatalf("POST alias classification assignment status=%d body=%s cmd=%+v saved=%v", rec.Code, rec.Body.String(), repo.savedAliasClassificationAssignment, repo.aliasClassificationAssignmentSaved)
-	}
+	expectLegacyClassificationWriteGone(t, rec, "POST alias classification assignment")
 
 	req = httptest.NewRequest(http.MethodPost, "/api/product-classification-assignments/customer-aliases", bytes.NewBufferString(`{"alias_id":77,"template_id":602,"category_id":0,"sort_order":6}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || repo.savedAliasClassificationAssignment.TemplateID != 602 || repo.savedAliasClassificationAssignment.CategoryID != 0 {
-		t.Fatalf("POST alias classification reassignment should overwrite without move-out status=%d body=%s cmd=%+v", rec.Code, rec.Body.String(), repo.savedAliasClassificationAssignment)
-	}
+	expectLegacyClassificationWriteGone(t, rec, "POST alias classification reassignment")
 
 	req = httptest.NewRequest(http.MethodDelete, "/api/product-classification-template-categories/502?template_id=501", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !repo.classificationCategoryDeleted {
-		t.Fatalf("DELETE classification category status=%d body=%s deleted=%v", rec.Code, rec.Body.String(), repo.classificationCategoryDeleted)
+	expectLegacyClassificationWriteGone(t, rec, "DELETE classification category")
+	if repo.classificationTemplateSaved || repo.classificationCategorySaved || repo.classificationAssignmentSaved || repo.aliasClassificationAssignmentSaved || repo.classificationCategoryDeleted {
+		t.Fatalf("legacy classification writes should not reach repo: template=%v category=%v product=%v alias=%v deleted=%v", repo.classificationTemplateSaved, repo.classificationCategorySaved, repo.classificationAssignmentSaved, repo.aliasClassificationAssignmentSaved, repo.classificationCategoryDeleted)
 	}
 }
 
@@ -1339,43 +1349,26 @@ func TestProductSettingsAPISupportsCategoryTreeAndDragAssignments(t *testing.T) 
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST category status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if !repo.categoryCreated || repo.savedCategory.Name != "单品豆" || repo.savedCategory.ParentID != 1 || repo.savedCategory.Position != 2 || repo.savedCategory.CustomerID != 3 {
-		t.Fatalf("category command = %+v created=%v", repo.savedCategory, repo.categoryCreated)
-	}
+	expectLegacyClassificationWriteGone(t, rec, "POST category")
 
 	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/categories/2/move", bytes.NewBufferString(`{"parent_id":1,"position":1}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST move category status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if !repo.categoryMoved || repo.movedCategory.ID != 2 || repo.movedCategory.ParentID != 1 || repo.movedCategory.Position != 1 {
-		t.Fatalf("move category command = %+v moved=%v", repo.movedCategory, repo.categoryMoved)
-	}
+	expectLegacyClassificationWriteGone(t, rec, "POST move category")
 
 	req = httptest.NewRequest(http.MethodDelete, "/api/product-settings/categories/2", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("DELETE category status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if !repo.categoryDeleted || repo.deletedCategory.ID != 2 {
-		t.Fatalf("delete category command = %+v deleted=%v", repo.deletedCategory, repo.categoryDeleted)
-	}
+	expectLegacyClassificationWriteGone(t, rec, "DELETE category")
 
 	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/products/7/category", bytes.NewBufferString(`{"category_id":2,"position":3}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST assign product status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if !repo.productAssigned || repo.assigned.ProductID != 7 || repo.assigned.CategoryID != 2 || repo.assigned.Position != 3 {
-		t.Fatalf("assign product command = %+v assigned=%v", repo.assigned, repo.productAssigned)
+	expectLegacyClassificationWriteGone(t, rec, "POST assign product")
+	if repo.categoryCreated || repo.categoryMoved || repo.categoryDeleted || repo.productAssigned {
+		t.Fatalf("legacy product category writes should not reach repo: created=%v moved=%v deleted=%v assigned=%v", repo.categoryCreated, repo.categoryMoved, repo.categoryDeleted, repo.productAssigned)
 	}
 }
 
@@ -1430,14 +1423,9 @@ func TestProductSettingsAPIExposesAndSavesSubtypeConfigAndUnitRules(t *testing.T
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST category config status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if !repo.categoryCreated || repo.savedCategory.GradientTemplateID != 9 || repo.savedCategory.OperationTemplateID != 19 || repo.savedCategory.PriceListRuleJSON != `{"generator":"instant"}` {
-		t.Fatalf("category config command = %+v created=%v", repo.savedCategory, repo.categoryCreated)
-	}
-	if repo.savedCategory.InventoryUnit != "kg" || repo.savedCategory.QuoteUnit != "盒" || repo.savedCategory.OrderUnit != "盒" || repo.savedCategory.UnitConversionJSON != `{"盒":{"kg":0.2}}` || !repo.savedCategory.IntegerUnit {
-		t.Fatalf("category unit rule command = %+v", repo.savedCategory)
+	expectLegacyClassificationWriteGone(t, rec, "POST category config")
+	if repo.categoryCreated {
+		t.Fatalf("legacy category config write should not reach repo: %+v", repo.savedCategory)
 	}
 }
 
@@ -2285,16 +2273,9 @@ func TestProductSettingsAPIAssignProductCategoryCarriesCustomerContext(t *testin
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST assign with context status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if !repo.productAssigned || repo.assigned.ProductID != 21 || repo.assigned.CategoryID != 17 || repo.assigned.CustomerID != 42 || !repo.assigned.DerivePublicCategory || !repo.assigned.DerivePublicProduct || repo.assigned.Position != 3 {
-		t.Fatalf("assign command = %+v assigned=%v", repo.assigned, repo.productAssigned)
-	}
-	for _, want := range []string{`"assignment"`, `"product_id":188`, `"category_id":199`, `"derived_product_id":188`, `"derived_category_id":199`, `"used_public_product":true`, `"used_public_category":true`} {
-		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
-			t.Fatalf("assign response missing %s: %s", want, rec.Body.String())
-		}
+	expectLegacyClassificationWriteGone(t, rec, "POST assign with context")
+	if repo.productAssigned {
+		t.Fatalf("legacy product category assignment should not reach repo: %+v", repo.assigned)
 	}
 }
 

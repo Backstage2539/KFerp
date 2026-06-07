@@ -28,10 +28,11 @@ func TestDev389BomVersionSpecialAttrsRequirementSeeds(t *testing.T) {
 func TestDev389BomVersionSpecialAttrsSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"管理分组",
+			"查看分组",
 			"deleteProductionBomGroup",
 			"moveProductionBomGroup",
-			"/api/production-bom-groups",
+			"/api/business-groups?usage_key=production_bom",
+			"/api/business-group-assignments",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"生产 BOM",

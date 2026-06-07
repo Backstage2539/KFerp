@@ -154,6 +154,11 @@ type BeanListPublicationPDFFile struct {
 	Payload       []byte `json:"-"`
 }
 
+const (
+	PriceListGroupSourceProductCatalog = "product_catalog"
+	PriceListGroupSourcePriceList      = "price_list"
+)
+
 type PublishBeanListCommand struct {
 	ListType                   string         `json:"list_type"`
 	PublicationPurpose         string         `json:"publication_purpose,omitempty"`
@@ -617,7 +622,32 @@ func normalizeBeanListCommand(cmd PublishBeanListCommand) (PublishBeanListComman
 	if cmd.ListType == "green" {
 		applyGreenBeanListManualPriceOverrides(cmd.Config, cmd.Content)
 	}
+	normalizeBeanListGroupSourceSnapshots(cmd.Content)
 	return cmd, nil
+}
+
+func normalizeBeanListGroupSourceSnapshots(content map[string]any) {
+	rows, ok := content["price_rows"].([]any)
+	if !ok {
+		return
+	}
+	for _, rawRow := range rows {
+		row, ok := rawRow.(map[string]any)
+		if !ok {
+			continue
+		}
+		source := strings.TrimSpace(stringValue(row["group_source"]))
+		switch source {
+		case PriceListGroupSourcePriceList:
+			row["group_source"] = PriceListGroupSourcePriceList
+		case PriceListGroupSourceProductCatalog:
+			row["group_source"] = PriceListGroupSourceProductCatalog
+		default:
+			if hasNonEmptyObjectSnapshot(row["group_snapshot"]) {
+				row["group_source"] = PriceListGroupSourceProductCatalog
+			}
+		}
+	}
 }
 
 func validateBeanListFinalPriceSnapshots(cmd PublishBeanListCommand) error {
@@ -700,6 +730,10 @@ func validateBeanListFlatPriceRows(cmd PublishBeanListCommand) error {
 		}
 		if !hasNonEmptyObjectSnapshot(row["group_snapshot"]) {
 			return fmt.Errorf("价格表平铺行缺少分组快照：第%d行", position)
+		}
+		groupSource := strings.TrimSpace(stringValue(row["group_source"]))
+		if groupSource != PriceListGroupSourceProductCatalog && groupSource != PriceListGroupSourcePriceList {
+			return fmt.Errorf("价格表平铺行缺少分组来源：第%d行", position)
 		}
 		mode := normalizePriceRowPricingMode(row)
 		if mode == "" || stringValue(row["pricing_mode_source"]) == "" {

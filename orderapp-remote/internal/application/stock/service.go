@@ -125,16 +125,21 @@ type MaterialBatchResult struct {
 }
 
 type WarehouseRow struct {
-	Code         string `json:"code"`
-	Name         string `json:"name"`
-	Kind         string `json:"kind"`
-	ParentCode   string `json:"parent_code"`
-	SortOrder    int    `json:"sort_order"`
-	IsDefault    bool   `json:"is_default"`
-	Active       bool   `json:"active"`
-	Description  string `json:"description"`
-	CustomerID   int64  `json:"customer_id"`
-	CustomerName string `json:"customer_name"`
+	Code          string `json:"code"`
+	Name          string `json:"name"`
+	Kind          string `json:"kind"`
+	ParentCode    string `json:"parent_code"`
+	SortOrder     int    `json:"sort_order"`
+	IsDefault     bool   `json:"is_default"`
+	Active        bool   `json:"active"`
+	Description   string `json:"description"`
+	CustomerID    int64  `json:"customer_id"`
+	CustomerName  string `json:"customer_name"`
+	GroupID       int64  `json:"group_id"`
+	GroupName     string `json:"group_name"`
+	GroupItemID   int64  `json:"group_item_id"`
+	GroupItemName string `json:"group_item_name"`
+	GroupSource   string `json:"group_source"`
 }
 
 type WarehouseListQuery struct {
@@ -174,18 +179,25 @@ type MaterialBatchLocationResult struct {
 }
 
 type WarehouseInventoryQuery struct {
-	Q          string
-	Warehouse  string
-	ItemType   string
-	CustomerID int64
-	Limit      int
-	Offset     int
+	Q           string
+	Warehouse   string
+	ItemType    string
+	CustomerID  int64
+	GroupID     int64
+	GroupItemID int64
+	Limit       int
+	Offset      int
 }
 
 type WarehouseInventoryRow struct {
 	Warehouse     string  `json:"warehouse"`
 	WarehouseName string  `json:"warehouse_name"`
 	WarehouseKind string  `json:"warehouse_kind"`
+	GroupID       int64   `json:"group_id"`
+	GroupName     string  `json:"group_name"`
+	GroupItemID   int64   `json:"group_item_id"`
+	GroupItemName string  `json:"group_item_name"`
+	GroupSource   string  `json:"group_source"`
 	ItemType      string  `json:"item_type"`
 	ItemID        int64   `json:"item_id"`
 	ItemName      string  `json:"item_name"`
@@ -471,6 +483,12 @@ func (s *Service) ListWarehouseInventory(ctx context.Context, query WarehouseInv
 	query.ItemType = strings.TrimSpace(query.ItemType)
 	if query.CustomerID < 0 {
 		query.CustomerID = 0
+	}
+	if query.GroupID < 0 {
+		query.GroupID = 0
+	}
+	if query.GroupItemID < 0 {
+		query.GroupItemID = 0
 	}
 	query.Limit, query.Offset = normalizePage(query.Limit, query.Offset, 100, 500)
 	return s.repo.ListWarehouseInventory(ctx, query)

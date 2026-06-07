@@ -71,15 +71,32 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 		method string
 		path   string
 		body   string
+	}{
+		{method: http.MethodPut, path: "/api/production-bom-groups/1", body: `{"name":"常用配方改名","sort_order":20}`},
+		{method: http.MethodPost, path: "/api/production-bom-groups/1/categories", body: `{"name":"中烘","sort_order":20}`},
+		{method: http.MethodPut, path: "/api/production-bom-group-categories/31", body: `{"name":"浅中烘","sort_order":15}`},
+		{method: http.MethodDelete, path: "/api/production-bom-group-categories/31"},
+		{method: http.MethodPost, path: "/api/production-bom-groups/1/move", body: `{"sort_order":5}`},
+		{method: http.MethodDelete, path: "/api/production-bom-groups/1"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		if tc.body != "" {
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		}
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusGone || !strings.Contains(rec.Body.String(), "production BOM groups are legacy readonly") {
+			t.Fatalf("%s %s should be legacy readonly, status=%d body=%s", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
 		want   []string
 	}{
 		{method: http.MethodGet, path: "/api/production-bom-groups", want: []string{`"name":"常用配方"`, `"categories"`, `"name":"浅烘"`}},
-		{method: http.MethodPut, path: "/api/production-bom-groups/1", body: `{"name":"常用配方改名","sort_order":20}`, want: []string{`"name":"常用配方改名"`, `"sort_order":20`}},
-		{method: http.MethodPost, path: "/api/production-bom-groups/1/categories", body: `{"name":"中烘","sort_order":20}`, want: []string{`"name":"中烘"`, `"group_id":1`}},
-		{method: http.MethodPut, path: "/api/production-bom-group-categories/31", body: `{"name":"浅中烘","sort_order":15}`, want: []string{`"name":"浅中烘"`, `"sort_order":15`}},
-		{method: http.MethodDelete, path: "/api/production-bom-group-categories/31", want: []string{`"ok":true`}},
-		{method: http.MethodPost, path: "/api/production-bom-groups/1/move", body: `{"sort_order":5}`, want: []string{`"ok":true`}},
-		{method: http.MethodDelete, path: "/api/production-bom-groups/1", want: []string{`"ok":true`}},
 		{method: http.MethodGet, path: "/api/production-boms", want: []string{`"code":"BOM-001"`, `"latest_version_no":"V003"`, `"reference_product_count":2`, `"output_product_id":7`, `"output_product_name":"10条盒装速溶咖啡"`, `"group_category_id":31`, `"group_category_name":"浅烘"`}},
 		{method: http.MethodPost, path: "/api/production-boms", body: `{"name":"新配方","output_product_id":7,"output_qty":1,"output_unit":"盒","group_id":1,"group_category_id":31}`, want: []string{`"code":"BOM-003"`, `"name":"新配方"`, `"output_product_id":7`, `"status":"active"`, `"latest_version_status":"draft"`}},
 		{method: http.MethodGet, path: "/api/production-boms/11?version_id=101", want: []string{`"versions"`, `"version_no":"V003"`, `"output_qty":1`, `"output_unit":"盒"`, `"special_attrs_schema_json"`, `"special_attrs_json"`, `"is_latest":true`, `"referenced_products"`, `"product_name":"初晓2.5kg装"`, `"active":false`, `"group_category_name":"浅烘"`}},
@@ -112,14 +129,8 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	if repo.publishedProductionVersionID != 103 {
 		t.Fatalf("published version id = %d, want 103", repo.publishedProductionVersionID)
 	}
-	if repo.updatedProductionBomGroup.ID != 1 || repo.updatedProductionBomGroup.Name != "常用配方改名" || repo.updatedProductionBomGroup.SortOrder != 20 {
-		t.Fatalf("updated group command = %+v", repo.updatedProductionBomGroup)
-	}
-	if repo.movedProductionBomGroup.ID != 1 || repo.movedProductionBomGroup.SortOrder != 5 {
-		t.Fatalf("moved group command = %+v", repo.movedProductionBomGroup)
-	}
-	if repo.deletedProductionBomGroupID != 1 {
-		t.Fatalf("deleted group id = %d, want 1", repo.deletedProductionBomGroupID)
+	if repo.updatedProductionBomGroup.ID != 0 || repo.movedProductionBomGroup.ID != 0 || repo.deletedProductionBomGroupID != 0 {
+		t.Fatalf("legacy production BOM group writes should not reach repo: update=%+v move=%+v delete=%d", repo.updatedProductionBomGroup, repo.movedProductionBomGroup, repo.deletedProductionBomGroupID)
 	}
 	if repo.createdProductionBomCommand.Name != "新配方" || repo.createdProductionBomCommand.GroupID != 1 {
 		t.Fatalf("created production bom command = %+v", repo.createdProductionBomCommand)
@@ -136,14 +147,8 @@ func TestProductionBomAPIsExposeGroupsCopyVersionsAndBinding(t *testing.T) {
 	if repo.updatedProductionBomCommand.GroupCategoryID != 0 {
 		t.Fatalf("updated production bom group category = %d, want 0", repo.updatedProductionBomCommand.GroupCategoryID)
 	}
-	if repo.createdProductionBomGroupCategoryCommand.GroupID != 1 || repo.createdProductionBomGroupCategoryCommand.Name != "中烘" {
-		t.Fatalf("created production bom group category command = %+v", repo.createdProductionBomGroupCategoryCommand)
-	}
-	if repo.updatedProductionBomGroupCategoryCommand.ID != 31 || repo.updatedProductionBomGroupCategoryCommand.Name != "浅中烘" {
-		t.Fatalf("updated production bom group category command = %+v", repo.updatedProductionBomGroupCategoryCommand)
-	}
-	if repo.deletedProductionBomGroupCategoryID != 31 {
-		t.Fatalf("deleted category id = %d, want 31", repo.deletedProductionBomGroupCategoryID)
+	if repo.createdProductionBomGroupCategoryCommand.GroupID != 0 || repo.updatedProductionBomGroupCategoryCommand.ID != 0 || repo.deletedProductionBomGroupCategoryID != 0 {
+		t.Fatalf("legacy production BOM group category writes should not reach repo: create=%+v update=%+v delete=%d", repo.createdProductionBomGroupCategoryCommand, repo.updatedProductionBomGroupCategoryCommand, repo.deletedProductionBomGroupCategoryID)
 	}
 	if repo.copiedProductionBomCommand.ID != 11 || repo.copiedProductionBomCommand.Name != "精品拼配-包装改版" || repo.copiedProductionBomCommand.GroupID != 1 {
 		t.Fatalf("copied production bom command = %+v", repo.copiedProductionBomCommand)

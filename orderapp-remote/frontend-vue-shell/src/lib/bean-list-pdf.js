@@ -374,6 +374,7 @@ function normalizePriceListFlatRow(row = {}) {
     product_key: stringField(row.product_key ?? row.productKey),
     product_name: stringField(row.product_name ?? row.productName ?? row.name),
     group_snapshot: parseJSONObject(row.group_snapshot ?? row.groupSnapshot),
+    group_source: stringField(row.group_source ?? row.groupSource) || 'product_catalog',
     pricing_mode: stringField(row.pricing_mode ?? row.pricingMode),
     pricing_mode_source: stringField(row.pricing_mode_source ?? row.pricingModeSource),
     tier_label: stringField(row.tier_label ?? row.tierLabel ?? row.label),

@@ -21,6 +21,8 @@ type Repository struct {
 	schema string
 }
 
+var ErrLegacyProductionBomGroupsReadonly = fmt.Errorf("production BOM groups are legacy readonly")
+
 func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 	return Repository{pool: pool, schema: schema}
 }
@@ -1354,6 +1356,7 @@ func (r Repository) ListProductionBomGroups(ctx context.Context, _ bool) ([]boma
 }
 
 func (r Repository) CreateProductionBomGroup(ctx context.Context, cmd bomapp.CreateProductionBomGroupCommand) (bomapp.ProductionBomGroup, error) {
+	return bomapp.ProductionBomGroup{}, ErrLegacyProductionBomGroupsReadonly
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return bomapp.ProductionBomGroup{}, err
@@ -1377,6 +1380,7 @@ func (r Repository) CreateProductionBomGroup(ctx context.Context, cmd bomapp.Cre
 }
 
 func (r Repository) UpdateProductionBomGroup(ctx context.Context, cmd bomapp.UpdateProductionBomGroupCommand) (bomapp.ProductionBomGroup, error) {
+	return bomapp.ProductionBomGroup{}, ErrLegacyProductionBomGroupsReadonly
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return bomapp.ProductionBomGroup{}, err
@@ -1403,6 +1407,7 @@ func (r Repository) UpdateProductionBomGroup(ctx context.Context, cmd bomapp.Upd
 }
 
 func (r Repository) DeleteProductionBomGroup(ctx context.Context, cmd bomapp.DeleteProductionBomGroupCommand) error {
+	return ErrLegacyProductionBomGroupsReadonly
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -1437,6 +1442,7 @@ func (r Repository) DeleteProductionBomGroup(ctx context.Context, cmd bomapp.Del
 }
 
 func (r Repository) MoveProductionBomGroup(ctx context.Context, cmd bomapp.MoveProductionBomGroupCommand) error {
+	return ErrLegacyProductionBomGroupsReadonly
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -1456,6 +1462,7 @@ func (r Repository) MoveProductionBomGroup(ctx context.Context, cmd bomapp.MoveP
 }
 
 func (r Repository) CreateProductionBomGroupCategory(ctx context.Context, cmd bomapp.CreateProductionBomGroupCategoryCommand) (bomapp.ProductionBomGroupCategory, error) {
+	return bomapp.ProductionBomGroupCategory{}, ErrLegacyProductionBomGroupsReadonly
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return bomapp.ProductionBomGroupCategory{}, err
@@ -1486,6 +1493,7 @@ func (r Repository) CreateProductionBomGroupCategory(ctx context.Context, cmd bo
 }
 
 func (r Repository) UpdateProductionBomGroupCategory(ctx context.Context, cmd bomapp.UpdateProductionBomGroupCategoryCommand) (bomapp.ProductionBomGroupCategory, error) {
+	return bomapp.ProductionBomGroupCategory{}, ErrLegacyProductionBomGroupsReadonly
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return bomapp.ProductionBomGroupCategory{}, err
@@ -1512,6 +1520,7 @@ func (r Repository) UpdateProductionBomGroupCategory(ctx context.Context, cmd bo
 }
 
 func (r Repository) DeleteProductionBomGroupCategory(ctx context.Context, cmd bomapp.DeleteProductionBomGroupCategoryCommand) error {
+	return ErrLegacyProductionBomGroupsReadonly
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -1627,21 +1636,15 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 		return bomapp.ProductionBomSummary{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	groupID, err := ensureProductionBomGroupTx(ctx, tx, r.schema, cmd.GroupID)
-	if err != nil {
-		return bomapp.ProductionBomSummary{}, err
-	}
-	groupCategoryID, err := validateProductionBomGroupCategoryTx(ctx, tx, r.schema, groupID, cmd.GroupCategoryID)
-	if err != nil {
-		return bomapp.ProductionBomSummary{}, err
-	}
+	groupID := cmd.GroupID
+	groupCategoryID := cmd.GroupCategoryID
 	tempCode := fmt.Sprintf("PENDING-%d", time.Now().UnixNano())
 	var bomID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_boms(code, name, output_product_id, group_id, group_category_id, status, created_by, updated_by)
-		VALUES($1,$2,$3,$4,$5,'active',$6,$6)
+		INSERT INTO %s.production_boms(code, name, output_product_id, status, created_by, updated_by)
+		VALUES($1,$2,$3,'active',$4,$4)
 		RETURNING id
-	`, r.schema), tempCode, strings.TrimSpace(cmd.Name), cmd.OutputProductID, groupID, groupCategoryID, strings.TrimSpace(cmd.Actor)).Scan(&bomID); err != nil {
+	`, r.schema), tempCode, strings.TrimSpace(cmd.Name), cmd.OutputProductID, strings.TrimSpace(cmd.Actor)).Scan(&bomID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	code := fmt.Sprintf("BOM-%06d", bomID)
@@ -1663,6 +1666,9 @@ func (r Repository) CreateProductionBom(ctx context.Context, cmd bomapp.CreatePr
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &bomID, "create", postgresinfra.StrPtr("code"), nil, postgresinfra.StrPtr(code), postgresinfra.AuditMeta{"bom_id": bomID, "bom_version_id": versionID, "name": strings.TrimSpace(cmd.Name), "output_product_id": cmd.OutputProductID, "output_qty": cmd.OutputQty, "output_unit": strings.TrimSpace(cmd.OutputUnit), "group_id": groupID, "group_category_id": groupCategoryID}); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
+	if err := saveBusinessGroupAssignmentForProductionBomTx(ctx, tx, r.schema, strings.TrimSpace(cmd.Actor), bomID, groupID, groupCategoryID); err != nil {
+		return bomapp.ProductionBomSummary{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
@@ -1675,14 +1681,8 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 		return bomapp.ProductionBomSummary{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	groupID, err := ensureProductionBomGroupTx(ctx, tx, r.schema, cmd.GroupID)
-	if err != nil {
-		return bomapp.ProductionBomSummary{}, err
-	}
-	groupCategoryID, err := validateProductionBomGroupCategoryTx(ctx, tx, r.schema, groupID, cmd.GroupCategoryID)
-	if err != nil {
-		return bomapp.ProductionBomSummary{}, err
-	}
+	groupID := cmd.GroupID
+	groupCategoryID := cmd.GroupCategoryID
 	status := strings.TrimSpace(cmd.Status)
 	if status == "" {
 		status = "active"
@@ -1691,12 +1691,15 @@ func (r Repository) UpdateProductionBom(ctx context.Context, cmd bomapp.UpdatePr
 		UPDATE %s.production_boms
 		SET name=COALESCE(NULLIF($2,''), name),
 		    output_product_id=COALESCE(NULLIF($3,0), output_product_id),
-		    group_id=$4, group_category_id=$5, status=$6, updated_at=now(), updated_by=$7
+		    status=$4, updated_at=now(), updated_by=$5
 		WHERE id=$1
-	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Name), cmd.OutputProductID, groupID, groupCategoryID, status, strings.TrimSpace(cmd.Actor)); err != nil {
+	`, r.schema), cmd.ID, strings.TrimSpace(cmd.Name), cmd.OutputProductID, status, strings.TrimSpace(cmd.Actor)); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &cmd.ID, "update", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr(status), postgresinfra.AuditMeta{"bom_id": cmd.ID, "name": strings.TrimSpace(cmd.Name), "group_id": groupID, "group_category_id": groupCategoryID, "status": status}); err != nil {
+		return bomapp.ProductionBomSummary{}, err
+	}
+	if err := saveBusinessGroupAssignmentForProductionBomTx(ctx, tx, r.schema, strings.TrimSpace(cmd.Actor), cmd.ID, groupID, groupCategoryID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1711,14 +1714,8 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 		return bomapp.ProductionBomSummary{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	groupID, err := ensureProductionBomGroupTx(ctx, tx, r.schema, cmd.GroupID)
-	if err != nil {
-		return bomapp.ProductionBomSummary{}, err
-	}
-	groupCategoryID, err := validateProductionBomGroupCategoryTx(ctx, tx, r.schema, groupID, cmd.GroupCategoryID)
-	if err != nil {
-		return bomapp.ProductionBomSummary{}, err
-	}
+	groupID := cmd.GroupID
+	groupCategoryID := cmd.GroupCategoryID
 	var sourceName string
 	var sourceOutputProductID int64
 	var sourceVersionID int64
@@ -1752,10 +1749,10 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 		outputProductID = cmd.OutputProductID
 	}
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.production_boms(code, name, output_product_id, group_id, group_category_id, status, source_bom_id, source_bom_version_id, created_by, updated_by)
-		VALUES($1,$2,$3,$4,$5,'active',$6,$7,$8,$8)
+		INSERT INTO %s.production_boms(code, name, output_product_id, status, source_bom_id, source_bom_version_id, created_by, updated_by)
+		VALUES($1,$2,$3,'active',$4,$5,$6,$6)
 		RETURNING id
-	`, r.schema), tempCode, name, outputProductID, groupID, groupCategoryID, cmd.ID, sourceVersionID, strings.TrimSpace(cmd.Actor)).Scan(&newBomID); err != nil {
+	`, r.schema), tempCode, name, outputProductID, cmd.ID, sourceVersionID, strings.TrimSpace(cmd.Actor)).Scan(&newBomID); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	code := fmt.Sprintf("BOM-%06d", newBomID)
@@ -1782,10 +1779,63 @@ func (r Repository) CopyProductionBom(ctx context.Context, cmd bomapp.CopyProduc
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "production_bom", &newBomID, "copy_production_bom", postgresinfra.StrPtr("source_bom_id"), postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.ID)), postgresinfra.StrPtr(fmt.Sprintf("%d", newBomID)), postgresinfra.AuditMeta{"source_bom_id": cmd.ID, "source_bom_version_id": sourceVersionID, "target_bom_id": newBomID, "target_bom_version_id": newVersionID, "group_id": groupID, "group_category_id": groupCategoryID}); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
+	if err := saveBusinessGroupAssignmentForProductionBomTx(ctx, tx, r.schema, strings.TrimSpace(cmd.Actor), newBomID, groupID, groupCategoryID); err != nil {
+		return bomapp.ProductionBomSummary{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return bomapp.ProductionBomSummary{}, err
 	}
 	return r.productionBomSummaryByID(ctx, newBomID)
+}
+
+func saveBusinessGroupAssignmentForProductionBomTx(ctx context.Context, tx pgx.Tx, schema string, actor string, bomID int64, groupID int64, groupItemID int64) error {
+	if bomID <= 0 {
+		return nil
+	}
+	if groupID <= 0 || groupItemID <= 0 {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			DELETE FROM %s.business_group_assignments
+			WHERE lower(usage_key)='production_bom' AND lower(object_key)='production_bom' AND object_id=$1 AND object_ref=''
+		`, schema), bomID); err != nil {
+			return err
+		}
+		return nil
+	}
+	var ok bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM %s.business_groups bg
+			JOIN %s.business_group_usages bgu ON bgu.group_id=bg.id
+			JOIN %s.business_group_items item ON item.group_id=bg.id
+			WHERE bg.id=$1
+			  AND item.id=$2
+			  AND bg.active=true
+			  AND item.active=true
+			  AND bgu.active=true
+			  AND lower(bgu.usage_key)='production_bom'
+		)
+	`, schema, schema, schema), groupID, groupItemID).Scan(&ok); err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("business group item mismatch")
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		DELETE FROM %s.business_group_assignments
+		WHERE lower(usage_key)='production_bom' AND lower(object_key)='production_bom' AND object_id=$1 AND object_ref=''
+	`, schema), bomID); err != nil {
+		return err
+	}
+	var assignmentID int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.business_group_assignments(group_id, group_item_id, usage_key, object_key, object_id, object_ref, sort_order, created_by, updated_by)
+		VALUES($1,$2,'production_bom','production_bom',$3,'',100,$4,$4)
+		RETURNING id
+	`, schema), groupID, groupItemID, bomID, actor).Scan(&assignmentID); err != nil {
+		return err
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "business_group_assignment", &assignmentID, "save_business_group_assignment", postgresinfra.StrPtr("production_bom"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", groupItemID)), postgresinfra.AuditMeta{"bom_id": bomID, "group_id": groupID, "group_item_id": groupItemID, "usage_key": "production_bom", "object_key": "production_bom"})
 }
 
 func (r Repository) CreateProductionBomVersion(ctx context.Context, cmd bomapp.CreateProductionBomVersionCommand) (bomapp.ProductionBomVersion, error) {
@@ -2054,10 +2104,10 @@ func productionBomSummarySQL(schema, where string) string {
 		       COALESCE(pb.output_product_id,0),
 		       COALESCE(op.name,''),
 		       CASE WHEN COALESCE(pb.output_product_id,0)>0 THEN 'SKU-' || lpad(pb.output_product_id::text,6,'0') ELSE '' END,
-		       COALESCE(g.id,0),
-		       COALESCE(g.name,''),
-		       COALESCE(c.id,0),
-		       COALESCE(c.name,''),
+		       COALESCE(bga.group_id,0),
+		       COALESCE(bg.name,''),
+		       COALESCE(bga.group_item_id,0),
+		       COALESCE(item.name,''),
 		       COALESCE(NULLIF(pb.status,''),'active'),
 		       COALESCE(latest.id,0),
 		       COALESCE(latest.version_no,''),
@@ -2071,8 +2121,9 @@ func productionBomSummarySQL(schema, where string) string {
 		       COALESCE(to_char(pb.updated_at,'YYYY-MM-DD HH24:MI'),'-')
 		FROM %[1]s.production_boms pb
 		LEFT JOIN %[1]s.products op ON op.id=pb.output_product_id
-		LEFT JOIN %[1]s.production_bom_groups g ON g.id=pb.group_id
-		LEFT JOIN %[1]s.production_bom_group_categories c ON c.id=pb.group_category_id AND c.group_id=pb.group_id
+		LEFT JOIN %[1]s.business_group_assignments bga ON bga.object_id=pb.id AND lower(bga.usage_key)='production_bom' AND lower(bga.object_key)='production_bom'
+		LEFT JOIN %[1]s.business_groups bg ON bg.id=bga.group_id
+		LEFT JOIN %[1]s.business_group_items item ON item.id=bga.group_item_id
 		LEFT JOIN LATERAL (
 			SELECT id, version_no, status, yield_rate
 			FROM %[1]s.production_bom_versions v

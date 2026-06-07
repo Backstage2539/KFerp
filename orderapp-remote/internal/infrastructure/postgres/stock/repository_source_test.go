@@ -19,6 +19,36 @@ func TestWarehouseCustomerFilterIncludesGlobalWarehouses(t *testing.T) {
 	}
 }
 
+func TestWarehouseInventoryGroupingUsesWarehouseBusinessGroupAssignments(t *testing.T) {
+	repository := string(readStockSourceForTest(t, "repository.go"))
+	service := string(readStockSourceForTest(t, filepath.Join("..", "..", "..", "application", "stock", "service.go")))
+	combined := repository + "\n" + service
+	for _, want := range []string{
+		"GroupID",
+		"GroupItemID",
+		"GroupSource",
+		"business_group_assignments",
+		"lower(bga.usage_key)='warehouse_inventory'",
+		"lower(bga.object_key)='warehouse'",
+		"object_ref=w.code",
+		"query.GroupID",
+		"query.GroupItemID",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("warehouse inventory group assignment implementation missing marker %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"object_id=w.id",
+		"object_key='warehouse_inventory_row'",
+		"object_key='stock_batch'",
+	} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("warehouse inventory grouping must be by warehouse code, not row/batch; found %q", forbidden)
+		}
+	}
+}
+
 func readStockSourceForTest(t *testing.T, name string) []byte {
 	t.Helper()
 	path := filepath.Join(".", name)

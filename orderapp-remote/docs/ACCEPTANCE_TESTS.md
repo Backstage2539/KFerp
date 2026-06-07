@@ -7,6 +7,15 @@
 - [ ] 修改筛选条件或每页显示条数后，列表从第一页重新查询；翻页后仍保留当前筛选、客户范围或订单范围。
 - [ ] 其他一次性加载的 Vue/Vite 表格列表由统一自动分页增强补齐同样的分页控件，不再各页面重复实现自定义 pager。
 
+## 0.0.0 PR-442 商品 / BOM / 仓库库存分组逻辑重构
+- [x] PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：分组管理维护泛化分组集、分组项树、分组用途、排序和启停；商品管理、生产 BOM、仓库库存不再各自维护独立分类树或专用分组表。
+- [x] 商品档案不再写旧商品分类字段：保存、复制和批量移动商品时不写 `product_category_id`、`classification_template_id` 或旧 classification assignment；列表分组展示来自 `business_group_assignments` 的 `product_catalog` 归组。
+- [x] 生产 BOM 保存、复制、移动不再写 `production_boms.group_id/group_category_id`；旧 `production_bom_groups` 和 `production_bom_group_categories` 写入口返回下线/只读兼容结果，页面只通过泛化分组归组。
+- [x] 仓库库存按仓库分组过滤：仓库设置把库存分组保存到 `warehouse_inventory` 归组，`/api/stock/warehouses` 返回分组摘要，`/api/stock/warehouse-inventory?group_id=...&group_item_id=...` 只筛选仓库范围，不改变库存行、批次、数量、成本或追溯。
+- [x] 商品价格表默认读取商品档案 `product_catalog` 归组；生成价格表时允许本次覆盖分组来源，发布快照固化 `group_source=product_catalog` 或 `group_source=price_list`，覆盖不回写商品档案。
+- [x] 迁移脚本幂等生成默认商品分组、默认 BOM 分组和默认库存分组；旧表保留历史查询和回滚缓冲，不作为新业务写入口。
+- [ ] 部署后运行自清理场景脚本：自造分组、商品、BOM、仓库归组和商品价格表，发布后录单验证快照取价，结束时撤回价格表、失效测试商品/BOM/分组并清理或停用归组。
+
 ## 0.0.1 PR-440 商品、分组、价格模型二次修正
 - [x] PR-440-PRODUCT-GROUP-PRICE-REMODEL：菜单出现 `分组管理`，菜单不出现 `客户商品`、`商品分类管理`、旧商品配置模板、旧单位模板或旧阶梯价模板普通入口。
 - [x] 商品档案只维护商品资料、商品分组、库存单位、整数库存、行业字段、状态、备注、BOM 使用摘要、价格摘要和 `客户引用` 子表；页面不出现报价单位、录单单位、商品配置模板、单位模板、计价方式、固定价、成本加成或利润率覆盖字段。

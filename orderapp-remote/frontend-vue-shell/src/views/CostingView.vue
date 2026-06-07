@@ -153,10 +153,10 @@
           <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">生成价格表</button>
         </div>
       </div>
-      <div class="price-list-model-panel" data-pr440-price-list-model>
+      <div class="price-list-model-panel" data-pr440-price-list-model data-pr442-price-list-group-source>
         <div>
           <strong>模板继承规则</strong>
-          <p>计价模式按 <b>商品 &gt; 子类 &gt; 父类 &gt; 价格表</b> 解析。按阶梯模板计算时，每个档位引用自己的价格计算模板；也可以直接按价格计算模板或固定价生成基础价格行。</p>
+          <p>计价模式按 <b>商品 &gt; 子类 &gt; 父类 &gt; 价格表</b> 解析。生成价格表默认使用商品档案分组；本次价格表覆盖只写入快照 group_source=price_list，不回写商品档案分组。</p>
         </div>
         <table>
           <thead>
@@ -169,7 +169,7 @@
           <tbody>
             <tr>
               <td>价格表</td>
-              <td>价格表默认计价模式、阶梯模板、价格计算模板或固定价</td>
+              <td>价格表默认计价模式、阶梯模板、价格计算模板或固定价；分组来源可为商品档案分组或价格表覆盖</td>
               <td rowspan="4">固化计价模式、最终价、价格单位、库存换算、分组快照、模板来源和 Pricing Rule 版本</td>
             </tr>
             <tr>
@@ -710,7 +710,7 @@
             <div v-for="row in priceListFlatRows" :key="row.row_key" class="flat-price-row">
               <div>
                 <strong>{{ row.product_name }}</strong>
-                <span>{{ row.group_snapshot.group_item_name || '-' }} · {{ row.tier_label || '-' }}</span>
+                <span>{{ row.group_snapshot.group_item_name || '-' }} · {{ row.tier_label || '-' }} · {{ row.group_source === 'price_list' ? '价格表覆盖' : '商品档案分组' }}</span>
               </div>
               <div>
                 <span>{{ priceTablePricingModeLabel(row.pricing_mode) }}：{{ priceListSourceLabel(row.pricing_mode_source) }}</span>
@@ -1833,6 +1833,7 @@ function priceListFlatRowFromSource({
     product_key: itemProductID(item),
     product_name: item.name || item.display_name_snapshot || item.product_name_snapshot || '',
     group_snapshot: priceListGroupSnapshot(groupRow),
+    group_source: 'product_catalog',
     pricing_mode: mode,
     pricing_mode_source: resolved.pricing_mode_source || 'default',
     tier_label: tierLabel,

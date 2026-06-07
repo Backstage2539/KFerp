@@ -27,6 +27,10 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/business-groups", h.businessGroupsAPI)
 	e.POST("/api/business-groups", h.saveBusinessGroupAPI)
 	e.PUT("/api/business-groups/:id", h.saveBusinessGroupAPI)
+	e.GET("/api/business-group-assignments", h.businessGroupAssignmentsAPI)
+	e.POST("/api/business-group-assignments", h.saveBusinessGroupAssignmentAPI)
+	e.PUT("/api/business-group-assignments/:id", h.saveBusinessGroupAssignmentAPI)
+	e.DELETE("/api/business-group-assignments/:id", h.deleteBusinessGroupAssignmentAPI)
 	e.GET("/api/product-customer-references", h.productCustomerReferencesAPI)
 	e.POST("/api/product-customer-references", h.saveProductCustomerReferenceAPI)
 	e.PUT("/api/product-customer-references/:id", h.saveProductCustomerReferenceAPI)
@@ -133,8 +137,9 @@ type productHandler struct {
 }
 
 const (
-	customerProductsLegacyReadonlyError    = "customer products are legacy readonly"
-	productPriceRecordsLegacyReadonlyError = "product price records are legacy readonly"
+	customerProductsLegacyReadonlyError      = "customer products are legacy readonly"
+	productPriceRecordsLegacyReadonlyError   = "product price records are legacy readonly"
+	productClassificationLegacyReadonlyError = "classification write APIs are legacy readonly"
 )
 
 type productUpdateAPIRequest struct {
@@ -843,6 +848,19 @@ func (h productHandler) businessGroupsAPI(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
+	usageKey := strings.TrimSpace(c.QueryParam("usage_key"))
+	if usageKey != "" {
+		filtered := make([]catalogapp.BusinessGroup, 0, len(rows))
+		for _, row := range rows {
+			for _, usage := range row.Usages {
+				if strings.EqualFold(usage.UsageKey, usageKey) && usage.Active {
+					filtered = append(filtered, row)
+					break
+				}
+			}
+		}
+		rows = filtered
+	}
 	return c.JSON(http.StatusOK, map[string]any{"groups": rows, "rows": rows})
 }
 
@@ -865,6 +883,71 @@ func (h productHandler) saveBusinessGroupAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"group": row})
+}
+
+func (h productHandler) businessGroupAssignmentsAPI(c echo.Context) error {
+	objectID, err := parseOptionalInt64(c.QueryParam("object_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid object_id"})
+	}
+	groupID, err := parseOptionalInt64(c.QueryParam("group_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid group_id"})
+	}
+	groupItemID, err := parseOptionalInt64(c.QueryParam("group_item_id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid group_item_id"})
+	}
+	rows, err := h.catalog.ListBusinessGroupAssignments(c.Request().Context(), catalogapp.BusinessGroupAssignmentQuery{
+		UsageKey:    c.QueryParam("usage_key"),
+		ObjectKey:   c.QueryParam("object_key"),
+		ObjectID:    objectID,
+		ObjectRef:   c.QueryParam("object_ref"),
+		GroupID:     groupID,
+		GroupItemID: groupItemID,
+	})
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"assignments": rows, "rows": rows})
+}
+
+func (h productHandler) saveBusinessGroupAssignmentAPI(c echo.Context) error {
+	var req catalogapp.BusinessGroupAssignment
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	req.ID = id
+	req.Actor = support.ActorOf(c)
+	row, err := h.catalog.SaveBusinessGroupAssignment(c.Request().Context(), req)
+	if err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"assignment": row})
+}
+
+func (h productHandler) deleteBusinessGroupAssignmentAPI(c echo.Context) error {
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	if err := h.catalog.DeleteBusinessGroupAssignment(c.Request().Context(), catalogapp.DeleteBusinessGroupAssignmentCommand{ID: id, Actor: support.ActorOf(c)}); err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
 
 func (h productHandler) productCustomerReferencesAPI(c echo.Context) error {
@@ -1428,6 +1511,7 @@ func (h productHandler) productClassificationTemplatesAPI(c echo.Context) error 
 }
 
 func (h productHandler) saveProductClassificationTemplateAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{"error": productClassificationLegacyReadonlyError})
 	var req productClassificationTemplateAPIRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
@@ -1467,6 +1551,7 @@ func (h productHandler) saveProductClassificationTemplateAPI(c echo.Context) err
 }
 
 func (h productHandler) deleteProductClassificationTemplateAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{"error": productClassificationLegacyReadonlyError})
 	id, err := parseOptionalInt64(c.Param("id"))
 	if err != nil || id <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
@@ -1481,6 +1566,7 @@ func (h productHandler) deleteProductClassificationTemplateAPI(c echo.Context) e
 }
 
 func (h productHandler) saveProductClassificationCategoryAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{"error": productClassificationLegacyReadonlyError})
 	var req productClassificationCategoryAPIRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
@@ -1515,6 +1601,7 @@ func (h productHandler) saveProductClassificationCategoryAPI(c echo.Context) err
 }
 
 func (h productHandler) deleteProductClassificationCategoryAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{"error": productClassificationLegacyReadonlyError})
 	id, err := parseOptionalInt64(c.Param("id"))
 	if err != nil || id <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
@@ -1541,6 +1628,7 @@ func (h productHandler) productClassificationTemplateUsagesAPI(c echo.Context) e
 }
 
 func (h productHandler) saveProductClassificationTemplateUsageAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{"error": productClassificationLegacyReadonlyError})
 	var req productClassificationTemplateUsageAPIRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
@@ -1560,6 +1648,7 @@ func (h productHandler) saveProductClassificationTemplateUsageAPI(c echo.Context
 }
 
 func (h productHandler) deleteProductClassificationTemplateUsageAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{"error": productClassificationLegacyReadonlyError})
 	templateID, err := parseOptionalInt64(c.Param("template_id"))
 	if err != nil || templateID <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid classification_template_id"})
@@ -1589,6 +1678,7 @@ func (h productHandler) customerProductAliasClassificationTemplateUsagesAPI(c ec
 }
 
 func (h productHandler) saveCustomerProductAliasClassificationTemplateUsageAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{"error": productClassificationLegacyReadonlyError})
 	var req productClassificationTemplateUsageAPIRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
@@ -1609,6 +1699,7 @@ func (h productHandler) saveCustomerProductAliasClassificationTemplateUsageAPI(c
 }
 
 func (h productHandler) deleteCustomerProductAliasClassificationTemplateUsageAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{"error": productClassificationLegacyReadonlyError})
 	templateID, err := parseOptionalInt64(c.Param("template_id"))
 	if err != nil || templateID <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid classification_template_id"})
@@ -1627,6 +1718,7 @@ func (h productHandler) deleteCustomerProductAliasClassificationTemplateUsageAPI
 }
 
 func (h productHandler) saveProductClassificationAssignmentAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{"error": productClassificationLegacyReadonlyError})
 	var req productClassificationAssignmentAPIRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
@@ -1648,6 +1740,7 @@ func (h productHandler) saveProductClassificationAssignmentAPI(c echo.Context) e
 }
 
 func (h productHandler) saveCustomerProductAliasClassificationAssignmentAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{"error": productClassificationLegacyReadonlyError})
 	var req customerProductAliasClassificationAssignmentAPIRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
@@ -1851,6 +1944,7 @@ func (h productHandler) deactivateGradientTemplateAPI(c echo.Context) error {
 }
 
 func (h productHandler) saveProductCategoryAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{"error": productClassificationLegacyReadonlyError})
 	var req productCategoryAPIRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
@@ -2084,6 +2178,7 @@ func (h productHandler) bindCustomerProductRuleTemplateAPI(c echo.Context) error
 }
 
 func (h productHandler) moveProductCategoryAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{"error": productClassificationLegacyReadonlyError})
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
@@ -2123,6 +2218,7 @@ func (h productHandler) bindCategoryGradientTemplateAPI(c echo.Context) error {
 }
 
 func (h productHandler) deleteProductCategoryAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{"error": productClassificationLegacyReadonlyError})
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
@@ -2137,6 +2233,7 @@ func (h productHandler) deleteProductCategoryAPI(c echo.Context) error {
 }
 
 func (h productHandler) assignProductCategoryAPI(c echo.Context) error {
+	return c.JSON(http.StatusGone, map[string]any{"error": productClassificationLegacyReadonlyError})
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})

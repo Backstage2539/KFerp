@@ -23,6 +23,15 @@
             <option value="finished_product">成品</option>
           </select>
         </label>
+        <label data-pr442-warehouse-business-groups>
+          <span>库存分组</span>
+          <select v-model.number="selectedWarehouseGroupItemID" @change="loadInventoryPage(1)">
+            <option :value="0">全部仓库分组</option>
+            <option v-for="option in warehouseGroupItemOptions" :key="option.key" :value="option.group_item_id">
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
         <button class="primary" type="button" @click="loadInventoryPage(1)" :disabled="loading">查询</button>
       </div>
     </section>
@@ -34,6 +43,17 @@
           <strong>全部仓库</strong>
           <small>跨仓库汇总查询</small>
         </button>
+        <div v-if="warehouseGroupItemOptions.length" class="warehouse-group-list">
+          <button
+            v-for="option in warehouseGroupItemOptions"
+            :key="`warehouse-group-${option.key}`"
+            class="warehouse-section-toggle"
+            type="button"
+            :class="{ active: Number(selectedWarehouseGroupItemID || 0) === Number(option.group_item_id || 0) }"
+            @click="selectWarehouseGroup(option)">
+            <span>{{ option.label }}</span><b>{{ option.count || 0 }}</b>
+          </button>
+        </div>
 
         <template v-if="generalWarehouses.length">
           <button class="warehouse-section-toggle" type="button" @click="warehouseSections.general = !warehouseSections.general">
@@ -49,6 +69,7 @@
               @click="selectWarehouse(row.code)">
               <strong>{{ row.name }}</strong>
               <small>{{ kindLabel(row.kind) }} · {{ row.description || row.code }}</small>
+              <small>库存分组：{{ warehouseGroupLabel(row) }}</small>
               <small v-if="row.customer_name">绑定客户：{{ row.customer_name }}</small>
             </button>
           </template>
@@ -68,6 +89,7 @@
               @click="selectWarehouse(row.code)">
               <strong>{{ row.name }}</strong>
               <small>{{ kindLabel(row.kind) }} · {{ row.description || row.code }}</small>
+              <small>库存分组：{{ warehouseGroupLabel(row) }}</small>
               <small v-if="row.customer_name">绑定客户：{{ row.customer_name }}</small>
             </button>
           </template>
@@ -168,13 +190,22 @@
             </label>
             <p class="muted setting-note">绑定客户后，只有该客户可查看此外部库存。</p>
           </template>
-          <p v-else class="muted setting-note">当前仓库暂无可配置项。</p>
+          <label data-pr442-warehouse-business-groups>
+            <span>库存分组</span>
+            <select v-model.number="warehouseGroupFormItemID">
+              <option :value="0">未分组</option>
+              <option v-for="option in warehouseGroupItemOptions" :key="`settings-${option.key}`" :value="option.group_item_id">
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+          <p class="muted setting-note">仓库库存分组对象是仓库，保存时使用仓库 code 写入 /api/business-group-assignments；不会改变库存数量、批次、成本或追溯。</p>
           <div class="binding-status" v-if="warehouseBindCustomerID">
             已绑定客户：{{ selectedBindCustomerName }}
             <button class="link" type="button" @click="clearCustomerBinding">取消绑定</button>
           </div>
-          <button v-if="isExternalWarehouse" class="primary" type="button" @click="saveWarehouseCustomerBinding" :disabled="warehouseBindingSaving">
-            {{ warehouseBindingSaving ? '保存中' : '保存绑定' }}
+          <button class="primary" type="button" @click="saveWarehouseSettings" :disabled="warehouseBindingSaving">
+            {{ warehouseBindingSaving ? '保存中' : '保存仓库设置' }}
           </button>
         </div>
       </aside>
@@ -301,11 +332,14 @@ const props = defineProps({
 })
 
 const warehouses = ref([])
+const warehouseBusinessGroups = ref([])
 const customerOptions = ref([])
 const rows = ref([])
 const q = ref('')
 const itemType = ref('')
 const selectedWarehouse = ref('')
+const selectedWarehouseGroupID = ref(0)
+const selectedWarehouseGroupItemID = ref(0)
 const page = ref(1)
 const limit = ref(50)
 const total = ref(0)
@@ -323,6 +357,7 @@ const reservationWorkOrderNo = ref('')
 const reservations = ref([])
 const reservationTotals = ref({})
 const warehouseBindCustomerID = ref(0)
+const warehouseGroupFormItemID = ref(0)
 const warehouseBindingSaving = ref(false)
 const warehouseSettingsDrawerOpen = ref(false)
 const customerSearch = ref('')
@@ -348,6 +383,30 @@ const warehouseSections = ref({ general: true, customer: true })
 const customerWarehouses = computed(() => warehouses.value.filter((row) => isCustomerWarehouse(row)))
 const generalWarehouses = computed(() => warehouses.value.filter((row) => !isCustomerWarehouse(row)))
 const totalG = computed(() => rows.value.reduce((sum, row) => sum + Number(row.qty_g || 0), 0))
+const warehouseGroupItemOptions = computed(() => {
+  const counts = new Map()
+  for (const row of warehouses.value) {
+    const itemID = Number(row.group_item_id || 0)
+    if (itemID > 0) counts.set(itemID, (counts.get(itemID) || 0) + 1)
+  }
+  const out = []
+  for (const group of warehouseBusinessGroups.value) {
+    flattenBusinessGroupItems(group.items || []).forEach((item) => {
+      const itemID = Number(item.id || 0)
+      if (!itemID) return
+      const parentName = item.parent_name || ''
+      const label = [group.name || '库存分组', parentName, item.name || `分组项 #${itemID}`].filter(Boolean).join(' / ')
+      out.push({
+        key: `${group.id}:${itemID}`,
+        group_id: Number(group.id || 0),
+        group_item_id: itemID,
+        label,
+        count: counts.get(itemID) || 0,
+      })
+    })
+  }
+  return out
+})
 
 function kindLabel(kind) {
   return {
@@ -401,9 +460,36 @@ function rowKey(row) {
   return `${row.warehouse}-${row.item_type}-${row.item_id}-${row.spec_g || 0}-${row.batch_id || row.batch_code || 'summary'}`
 }
 
+function flattenBusinessGroupItems(items = [], parent = null, out = []) {
+  for (const item of Array.isArray(items) ? items : []) {
+    const row = {
+      ...item,
+      parent_id: Number(item.parent_id || parent?.id || 0),
+      parent_name: parent?.name || '',
+    }
+    out.push(row)
+    flattenBusinessGroupItems(item.children || [], row, out)
+  }
+  return out
+}
+
+function warehouseGroupLabel(row = {}) {
+  const groupName = String(row.group_name || '').trim()
+  const itemName = String(row.group_item_name || '').trim()
+  if (groupName && itemName) return `${groupName} / ${itemName}`
+  return groupName || itemName || '未分组'
+}
+
 function selectWarehouse(code) {
   selectedWarehouse.value = code
   syncWarehouseBinding()
+  loadInventoryPage(1)
+}
+
+function selectWarehouseGroup(option = {}) {
+  selectedWarehouseGroupID.value = Number(option.group_id || 0)
+  selectedWarehouseGroupItemID.value = Number(option.group_item_id || 0)
+  selectedWarehouse.value = ''
   loadInventoryPage(1)
 }
 
@@ -428,6 +514,12 @@ async function loadWarehouses() {
   const data = await apiGet(url)
   warehouses.value = data.rows || []
   syncWarehouseBinding()
+}
+
+async function loadWarehouseBusinessGroups() {
+  if (isCustomerInventoryContext.value) return
+  const data = await apiGet('/api/business-groups?usage_key=warehouse_inventory')
+  warehouseBusinessGroups.value = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data) ? data : [])
 }
 
 async function loadCustomers() {
@@ -468,6 +560,7 @@ function clearCustomerBinding() {
 function syncWarehouseBinding() {
   const customerID = Number(selectedWarehouseRow.value?.customer_id || 0)
   warehouseBindCustomerID.value = customerID
+  warehouseGroupFormItemID.value = Number(selectedWarehouseRow.value?.group_item_id || 0)
   customerSearch.value = ''
   if (customerID > 0) {
     const customer = customerOptions.value.find((c) => Number(c.id) === customerID)
@@ -501,6 +594,56 @@ async function saveWarehouseCustomerBinding() {
   }
 }
 
+async function saveWarehouseGroupAssignment() {
+  if (!selectedWarehouse.value) return
+  const option = warehouseGroupItemOptions.value.find((row) => Number(row.group_item_id || 0) === Number(warehouseGroupFormItemID.value || 0))
+  if (option) {
+    await apiSend('/api/business-group-assignments', {
+      body: {
+        usage_key: 'warehouse_inventory',
+        object_key: 'warehouse',
+        object_id: 0,
+        object_ref: selectedWarehouse.value,
+        group_id: option.group_id,
+        group_item_id: option.group_item_id,
+        sort_order: 100,
+      },
+    })
+    return
+  }
+  const url = new URL('/api/business-group-assignments', window.location.origin)
+  url.searchParams.set('usage_key', 'warehouse_inventory')
+  url.searchParams.set('object_key', 'warehouse')
+  url.searchParams.set('object_ref', selectedWarehouse.value)
+  const data = await apiGet(url)
+  const assignments = Array.isArray(data?.rows) ? data.rows : []
+  await Promise.all(assignments.map((row) => apiSend(`/api/business-group-assignments/${row.id}`, { method: 'DELETE' })))
+}
+
+async function saveWarehouseSettings() {
+  if (!selectedWarehouse.value) return
+  warehouseBindingSaving.value = true
+  error.value = ''
+  try {
+    if (isExternalWarehouse.value) {
+      const customerID = Number(warehouseBindCustomerID.value || 0)
+      const row = await apiSend(`/api/stock/warehouses/${encodeURIComponent(selectedWarehouse.value)}/customer`, {
+        method: 'PUT',
+        body: { customer_id: customerID },
+      })
+      warehouses.value = warehouses.value.map((item) => (item.code === row.code ? row : item))
+    }
+    await saveWarehouseGroupAssignment()
+    await loadWarehouses()
+    syncWarehouseBinding()
+    warehouseSettingsDrawerOpen.value = false
+  } catch (err) {
+    error.value = err.message || '保存仓库设置失败'
+  } finally {
+    warehouseBindingSaving.value = false
+  }
+}
+
 async function loadInventory() {
   loading.value = true
   error.value = ''
@@ -509,6 +652,10 @@ async function loadInventory() {
     if (q.value) url.searchParams.set('q', q.value)
     if (selectedWarehouse.value) url.searchParams.set('warehouse', selectedWarehouse.value)
     if (itemType.value) url.searchParams.set('item_type', itemType.value)
+    const selectedOption = warehouseGroupItemOptions.value.find((row) => Number(row.group_item_id || 0) === Number(selectedWarehouseGroupItemID.value || 0))
+    selectedWarehouseGroupID.value = Number(selectedOption?.group_id || 0)
+    if (selectedWarehouseGroupID.value > 0) url.searchParams.set('group_id', String(selectedWarehouseGroupID.value))
+    if (selectedWarehouseGroupItemID.value > 0) url.searchParams.set('group_item_id', String(selectedWarehouseGroupItemID.value))
     if (isCustomerInventoryContext.value) url.searchParams.set('customer_id', String(contextCustomerID.value))
     url.searchParams.set('page', String(page.value))
     url.searchParams.set('limit', String(limit.value))
@@ -613,7 +760,7 @@ async function loadAll() {
   loading.value = true
   error.value = ''
   try {
-    await Promise.all([loadWarehouses(), loadCustomers()])
+    await Promise.all([loadWarehouseBusinessGroups(), loadWarehouses(), loadCustomers()])
     await loadInventory()
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -635,6 +782,6 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p{margin:0;color:#6b7280;font-size:13px}.head-actions{display:flex;gap:8px;align-items:center}.filters{display:grid;grid-template-columns:minmax(220px,1fr) 150px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}input,select,button{font:inherit;min-height:36px;border-radius:6px}input,select{width:100%;border:1px solid #d1d5db;padding:7px 9px}button{cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff;padding:8px 12px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111;padding:8px 12px}.link{border:0;background:transparent;color:#111;text-decoration:underline;padding:0;min-height:0}.workspace{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px}.warehouse-panel{align-self:start}.panel-title{font-weight:700;margin-bottom:10px}.warehouse{width:100%;text-align:left;border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:9px;margin-bottom:8px}.warehouse strong{display:block}.warehouse small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.warehouse.active{border-color:#111;background:#111;color:#fff}.warehouse.active small{color:#e5e7eb}.warehouse-section-toggle{width:100%;text-align:left;border:1px solid #e5e7eb;background:#f5f5f5;border-radius:8px;padding:7px 9px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:13px}.warehouse-section-toggle b{font-size:11px;color:#999}.warehouse-binding-card{display:grid;gap:8px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;padding:10px;margin-top:10px}.warehouse-binding-card button{width:100%}.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:10px;margin-bottom:12px}.summary div{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.summary span{display:block;color:#6b7280;font-size:12px;margin-bottom:4px}.summary strong{font-size:18px}.table-wrap{overflow:auto}table{width:100%;min-width:1100px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.pill,.quality-pill{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb;white-space:nowrap}.quality-pass{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.quality-hold{border-color:#fde68a;background:#fffbeb;color:#92400e}.quality-reject{border-color:#fecaca;background:#fef2f2;color:#991b1b}.quality-unchecked{border-color:#d1d5db;background:#f9fafb;color:#4b5563}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.tip{border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:8px;padding:9px 10px;margin-bottom:12px;font-size:13px;line-height:1.45}.drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.22);display:flex;justify-content:flex-end;z-index:40}.drawer{width:min(460px,100%);height:100%;background:#fff;border-left:1px solid #d1d5db;padding:16px;overflow:auto}.drawer.wide{width:min(760px,100%)}.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.drawer h3{margin:0;font-size:18px}.trace-search{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:end;margin-bottom:12px}.trace-title{font-weight:700;margin-bottom:10px}dl{display:grid;gap:8px;margin:0 0 14px}dl div{display:grid;grid-template-columns:88px 1fr;gap:8px}dt{color:#6b7280}dd{margin:0}.trace-block h4{margin:14px 0 8px;font-size:14px}.trace-table{min-width:0}.reservation-summary{margin-bottom:12px}.reservation-table input{min-width:110px}.danger{color:#b91c1c;margin-left:8px}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:12px}.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.panel-head h2{margin:0 0 4px;font-size:18px}.panel-head p{margin:0;color:#6b7280;font-size:13px}.head-actions{display:flex;gap:8px;align-items:center}.filters{display:grid;grid-template-columns:minmax(220px,1fr) 150px minmax(180px,240px) 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}input,select,button{font:inherit;min-height:36px;border-radius:6px}input,select{width:100%;border:1px solid #d1d5db;padding:7px 9px}button{cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff;padding:8px 12px}.secondary{border:1px solid #9ca3af;background:#fff;color:#111;padding:8px 12px}.link{border:0;background:transparent;color:#111;text-decoration:underline;padding:0;min-height:0}.workspace{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px}.warehouse-panel{align-self:start}.panel-title{font-weight:700;margin-bottom:10px}.warehouse{width:100%;text-align:left;border:1px solid #e5e7eb;background:#fff;border-radius:8px;padding:9px;margin-bottom:8px}.warehouse strong{display:block}.warehouse small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.warehouse.active{border-color:#111;background:#111;color:#fff}.warehouse.active small{color:#e5e7eb}.warehouse-group-list{display:grid;gap:4px;margin:8px 0 10px}.warehouse-section-toggle{width:100%;text-align:left;border:1px solid #e5e7eb;background:#f5f5f5;border-radius:8px;padding:7px 9px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:13px}.warehouse-section-toggle.active{border-color:#111;background:#111;color:#fff}.warehouse-section-toggle b{font-size:11px;color:#999}.warehouse-binding-card{display:grid;gap:8px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;padding:10px;margin-top:10px}.warehouse-binding-card button{width:100%}.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:10px;margin-bottom:12px}.summary div{border:1px solid #e5e7eb;border-radius:8px;padding:10px}.summary span{display:block;color:#6b7280;font-size:12px;margin-bottom:4px}.summary strong{font-size:18px}.table-wrap{overflow:auto}table{width:100%;min-width:1100px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px;line-height:1.35}.pill,.quality-pill{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb;white-space:nowrap}.quality-pass{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.quality-hold{border-color:#fde68a;background:#fffbeb;color:#92400e}.quality-reject{border-color:#fecaca;background:#fef2f2;color:#991b1b}.quality-unchecked{border-color:#d1d5db;background:#f9fafb;color:#4b5563}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.tip{border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:8px;padding:9px 10px;margin-bottom:12px;font-size:13px;line-height:1.45}.drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.22);display:flex;justify-content:flex-end;z-index:40}.drawer{width:min(460px,100%);height:100%;background:#fff;border-left:1px solid #d1d5db;padding:16px;overflow:auto}.drawer.wide{width:min(760px,100%)}.drawer-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.drawer h3{margin:0;font-size:18px}.trace-search{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:end;margin-bottom:12px}.trace-title{font-weight:700;margin-bottom:10px}dl{display:grid;gap:8px;margin:0 0 14px}dl div{display:grid;grid-template-columns:88px 1fr;gap:8px}dt{color:#6b7280}dd{margin:0}.trace-block h4{margin:14px 0 8px;font-size:14px}.trace-table{min-width:0}.reservation-summary{margin-bottom:12px}.reservation-table input{min-width:110px}.danger{color:#b91c1c;margin-left:8px}
 @media (max-width:900px){.page{padding:12px}.filters,.workspace,.summary{grid-template-columns:1fr}}
 </style>

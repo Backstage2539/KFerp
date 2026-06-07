@@ -148,37 +148,18 @@
           </button>
         </div>
         <div v-show="!productsCollapsed">
-          <div class="classification-view-toolbar product-classification-tabs" aria-label="商品档案分类模板视图">
+          <div class="classification-view-toolbar product-classification-tabs" aria-label="商品档案分组视图" data-pr442-product-group-assignments>
             <div class="classification-tabs">
-              <button
-                v-for="tab in productClassificationTabs"
-                :key="tab.key"
-                :class="['classification-tab', { active: tab.key === activeProductClassificationTab }]"
-                type="button"
-                @click="activeProductClassificationTab = tab.key">
-                {{ tab.label }}
-              </button>
+              <button class="classification-tab active" type="button">全部商品</button>
             </div>
             <div class="classification-select-row product-classification-selects">
-              <SearchableSelect
-                v-model="selectedProductClassificationTemplateID"
-                :options="productAddClassificationOptions"
-                :option-label="classificationTemplateOptionLabel"
-                :option-meta="classificationTemplateOptionMeta"
-                :option-value="optionNumericValue"
-                placeholder="增加分类"
-                empty-text="没有可增加的分类"
-                @select="confirmProductClassificationTemplateUsage" />
-              <SearchableSelect
-                v-model="selectedProductClassificationMoveID"
-                :options="productMoveClassificationOptions"
-                :option-label="classificationMoveOptionLabel"
-                :option-meta="classificationMoveOptionMeta"
-                :option-value="optionNumericValue"
-                placeholder="移动到分类"
-                empty-text="没有可移动的分类"
-                :disabled="!selectedProductIds.length"
-                @select="confirmSelectedProductClassificationMove" />
+              <label class="business-group-move">
+                <span>分组集 / 父组 / 子组</span>
+                <select v-model.number="selectedProductBusinessGroupItemID" :disabled="!selectedProductIds.length || !productBusinessGroupItemOptions.length" @change="saveSelectedProductBusinessGroupAssignment">
+                  <option :value="0">移动到商品分组</option>
+                  <option v-for="option in productBusinessGroupItemOptions" :key="option.id" :value="option.group_item_id">{{ option.label }}</option>
+                </select>
+              </label>
             </div>
           </div>
           <div class="table-wrap sku-table-wrap">
@@ -210,7 +191,7 @@
                 </th>
                 <th class="sku-name-cell">商品名</th>
                 <th>商品编号</th>
-                <th>当前归类</th>
+                <th>商品分组</th>
                 <th>行业字段</th>
                 <th>归属</th>
                 <th class="action-cell">新增动作</th>
@@ -245,7 +226,6 @@
                   <td>{{ productCodeLabel(row) }}</td>
                   <td>
                     <div>{{ productClassificationLabel(row) }}</div>
-                    <small v-for="warning in classificationWarningsForProduct(row)" :key="warning" class="bom-version-warning">{{ warning }}</small>
                   </td>
                   <td class="industry-field-cell">
                     <span>{{ industryFieldSummary(productionConfigPriceListFields(row)) }}</span>
@@ -1326,6 +1306,7 @@ import {
   buildCustomerProductRuleBindingPayload,
   buildCustomerProductRuleOverridePayload,
   buildCustomerProductRuleTemplatePayload,
+  buildBusinessGroupAssignmentPayload,
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
   buildProductConfigTemplatePayload,
@@ -1362,6 +1343,7 @@ import {
   productConfigTemplateBelongsToSkuContext,
   productConfigTemplateNeedsGradientTemplate,
   productCategoryAssignmentLabel,
+  productCatalogGroupOfProduct,
   productDisplayState,
   productPriceRecordLabel,
   productKindSupportsBomParams,
@@ -1400,6 +1382,8 @@ const productConfigTemplates = ref([])
 const productClassificationTemplates = ref([])
 const productClassificationTemplateUsages = ref([])
 const aliasClassificationTemplateUsages = ref([])
+const businessGroups = ref([])
+const businessGroupAssignments = ref([])
 const productProductionConfigs = ref([])
 const industryFieldTemplates = ref([])
 const productUnitDefinitions = ref([])
@@ -1506,6 +1490,7 @@ const selectedProductClassificationMoveID = ref(0)
 const selectedAliasClassificationMoveID = ref(0)
 const selectedProductClassificationCategoryID = ref(0)
 const selectedAliasClassificationCategoryID = ref(0)
+const selectedProductBusinessGroupItemID = ref(0)
 const collapsedProductClassificationGroups = ref([])
 const collapsedAliasClassificationGroups = ref([])
 const skuFilters = ref(defaultSkuFilters())
@@ -1864,6 +1849,23 @@ const productMoveClassificationOptions = computed(() => {
   if (isProductAllOrUnclassifiedTab.value) return productMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...productClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
 })
+const productCatalogBusinessGroups = computed(() => businessGroups.value.filter((group) => (group.usages || []).some((usage) => String(usage.usage_key || '') === 'product_catalog')))
+const productBusinessGroupItemOptions = computed(() => {
+  const out = []
+  for (const group of productCatalogBusinessGroups.value) {
+    for (const item of flattenBusinessGroupItemsForView(group.items || [])) {
+      const itemID = Number(item.id || 0)
+      if (!itemID) continue
+      out.push({
+        id: itemID,
+        group_id: Number(group.id || 0),
+        group_item_id: itemID,
+        label: [group.name || '商品分组', item.parent_name, item.name || `分组项 #${itemID}`].filter(Boolean).join(' / '),
+      })
+    }
+  }
+  return out
+})
 const aliasMoveClassificationOptions = computed(() => {
   if (isAliasAllOrUnclassifiedTab.value) return aliasMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
@@ -1876,22 +1878,23 @@ const classificationTemplateEditorCategories = computed(() => (classificationTem
 const productClassificationCategories = computed(() => (currentProductClassificationTemplate.value?.categories || []).filter((category) => category.active !== false).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
 const aliasClassificationCategories = computed(() => (currentAliasClassificationTemplate.value?.categories || []).filter((category) => category.active !== false).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
 const displaySkuGroups = computed(() => {
-  const tab = currentProductClassificationTab.value
-  if (!tab || tab.all) return [{ key: 'all-products', label: '全部商品', rows: displaySkuRows.value, all: true }]
-  if (tab.unclassified) {
-    return [{
-      key: 'unclassified-products',
-      label: '未分类商品',
-      rows: displaySkuRows.value.filter((row) => !classificationAssignmentForRow(row, productClassificationTemplates.value, { assignmentType: 'product' })),
-      all: true,
-    }]
+  const groups = new Map()
+  for (const row of displaySkuRows.value) {
+    const assignment = productCatalogGroupOfProduct(row, businessGroupAssignments.value, businessGroups.value)
+    const key = assignment.group_item_id ? `business-group-${assignment.group_id}-${assignment.group_item_id}` : 'business-group-unassigned'
+    const label = assignment.group_item_id ? assignment.label : '未分组'
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        label,
+        rows: [],
+        all: false,
+        sort_order: assignment.group_item_id ? 10 : 9999,
+      })
+    }
+    groups.get(key).rows.push(row)
   }
-  return groupRowsByClassificationCategory(displaySkuRows.value, tab.template, {
-    idKey: 'id',
-    assignmentKey: 'product_id',
-    assignmentsKey: 'product_assignments',
-    onlyAssigned: true,
-  })
+  return [...groups.values()].sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.label).localeCompare(String(b.label), 'zh-Hans-CN'))
 })
 const visibleCustomerAliasGroups = computed(() => {
   const tab = currentAliasClassificationTab.value
@@ -2657,6 +2660,8 @@ async function loadAll() {
     productClassificationTemplates.value = (data.product_classification_templates || []).map(decorateProductClassificationTemplate)
     productClassificationTemplateUsages.value = (productUsageData.rows || data.product_classification_template_usages || []).map(decorateClassificationTemplateUsage)
     aliasClassificationTemplateUsages.value = (aliasUsageData.rows || []).map(decorateAliasClassificationTemplateUsage)
+    businessGroups.value = Array.isArray(data.business_groups) ? data.business_groups : []
+    businessGroupAssignments.value = Array.isArray(data.business_group_assignments) ? data.business_group_assignments : []
     productProductionConfigs.value = data.product_production_configs || []
     industryFieldTemplates.value = industryData?.rows || []
     productUnitDefinitions.value = (data.product_unit_definitions || []).map(decorateProductUnitDefinition)
@@ -3981,7 +3986,26 @@ function productConfigTemplateByID(templateID) {
   return productConfigTemplates.value.find((template) => Number(template.id || 0) === id) || null
 }
 
+function flattenBusinessGroupItemsForView(items = [], parent = null, out = []) {
+  for (const item of Array.isArray(items) ? items : []) {
+    const row = {
+      ...item,
+      parent_id: Number(item.parent_id || parent?.id || 0),
+      parent_name: parent?.name || '',
+    }
+    out.push(row)
+    flattenBusinessGroupItemsForView(item.children || [], row, out)
+  }
+  return out
+}
+
+function productBusinessGroupLabel(row) {
+  return productCatalogGroupOfProduct(row, businessGroupAssignments.value, businessGroups.value).label || '未分组'
+}
+
 function productClassificationLabel(row) {
+  const businessGroupLabel = productBusinessGroupLabel(row)
+  if (businessGroupLabel && businessGroupLabel !== '未分组') return businessGroupLabel
   const categoryLabel = productCategoryAssignmentLabel(row, categoryTreeForSkuContext.value, '')
   if (categoryLabel) return categoryLabel
   return classificationAssignmentLabel(row, productClassificationTemplates.value, { assignmentType: 'product' })
@@ -4474,6 +4498,36 @@ async function saveSelectedProductClassificationAssignment() {
   selectedProductClassificationCategoryID.value = 0
   await refreshClassificationTemplates()
   activeProductClassificationTab.value = `template-${templateID}`
+}
+
+async function saveSelectedProductBusinessGroupAssignment() {
+  const option = productBusinessGroupItemOptions.value.find((row) => Number(row.group_item_id || 0) === Number(selectedProductBusinessGroupItemID.value || 0))
+  if (!option || !selectedProductIds.value.length) return
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    for (const productID of selectedProductIds.value) {
+      await apiSend('/api/business-group-assignments', {
+        body: buildBusinessGroupAssignmentPayload({
+          usage_key: 'product_catalog',
+          object_key: 'product',
+          object_id: Number(productID || 0),
+          group_id: option.group_id,
+          group_item_id: option.group_item_id,
+          sort_order: 100,
+        }),
+      })
+    }
+    ok.value = `已移动 ${selectedProductIds.value.length} 个商品到分组`
+    selectedProductIds.value = []
+    selectedProductBusinessGroupItemID.value = 0
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '移动商品分组失败'
+  } finally {
+    loading.value = false
+  }
 }
 
 async function confirmSelectedProductClassificationMove(option) {
@@ -5968,6 +6022,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .classification-tab { height: 32px; border-color: #d8cec2; background: #fff; color: #2f2a25; }
 .classification-tab.active { border-color: #1f1f1f; background: #1f1f1f; color: #fff; }
 .classification-select-row { display: grid; grid-template-columns: minmax(160px, 210px) minmax(170px, 230px); gap: 8px; margin-left: auto; align-items: end; }
+.product-classification-selects { grid-template-columns: minmax(240px, 360px); }
 .classification-template-actions-bottom { justify-content: flex-end; margin-top: 14px; padding-top: 12px; border-top: 1px solid #eee8df; }
 .industry-field-cell { max-width: 260px; }
 .industry-field-cell span { display: block; line-height: 1.35; color: #3f3a33; }

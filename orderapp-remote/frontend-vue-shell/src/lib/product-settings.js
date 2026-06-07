@@ -208,6 +208,67 @@ export function buildProductCustomerReferencePayload(form = {}) {
   }
 }
 
+export function buildBusinessGroupAssignmentPayload(form = {}) {
+  const objectID = Number(form.object_id ?? form.objectID ?? 0) || 0
+  return {
+    id: Number(form.id || 0),
+    usage_key: String(form.usage_key ?? form.usageKey ?? '').trim(),
+    object_key: String(form.object_key ?? form.objectKey ?? '').trim(),
+    object_id: objectID,
+    object_ref: objectID > 0 ? '' : String(form.object_ref ?? form.objectRef ?? '').trim(),
+    group_id: Number(form.group_id ?? form.groupID ?? 0) || 0,
+    group_item_id: Number(form.group_item_id ?? form.groupItemID ?? 0) || 0,
+    sort_order: Number(form.sort_order ?? form.sortOrder ?? 100) || 100,
+  }
+}
+
+function flattenBusinessGroupItems(items = [], parent = null, out = []) {
+  for (const item of Array.isArray(items) ? items : []) {
+    const row = { ...item, parent_id: Number(item.parent_id ?? item.parentID ?? parent?.id ?? 0) || 0 }
+    out.push(row)
+    flattenBusinessGroupItems(item.children || item.Children || [], row, out)
+  }
+  return out
+}
+
+function businessGroupByID(groups = [], groupID = 0) {
+  const id = Number(groupID || 0)
+  return (Array.isArray(groups) ? groups : []).find((group) => Number(group?.id || 0) === id) || null
+}
+
+export function businessGroupAssignmentLabel(assignment = {}, groups = []) {
+  const group = businessGroupByID(groups, assignment.group_id ?? assignment.groupID)
+  if (!group) return '未分组'
+  const groupItemID = Number(assignment.group_item_id ?? assignment.groupItemID ?? 0)
+  if (groupItemID <= 0) return String(group.name || '未分组')
+  const items = flattenBusinessGroupItems(group.items || [])
+  const byID = new Map(items.map((item) => [Number(item.id || 0), item]))
+  const item = byID.get(groupItemID)
+  if (!item) return String(group.name || '未分组')
+  const path = []
+  let cursor = item
+  const seen = new Set()
+  while (cursor && Number(cursor.id || 0) > 0 && !seen.has(Number(cursor.id || 0))) {
+    seen.add(Number(cursor.id || 0))
+    path.unshift(String(cursor.name || '').trim())
+    cursor = byID.get(Number(cursor.parent_id || cursor.parentID || 0))
+  }
+  return [group.name, ...path].filter(Boolean).join(' / ')
+}
+
+export function productCatalogGroupOfProduct(product = {}, assignments = [], groups = []) {
+  const productID = Number(product.id || product.product_id || product.productID || 0)
+  const assignment = (Array.isArray(assignments) ? assignments : []).find((row) => (
+    String(row.usage_key || row.usageKey || '') === 'product_catalog'
+    && String(row.object_key || row.objectKey || '') === 'product'
+    && Number(row.object_id || row.objectID || 0) === productID
+  )) || null
+  return {
+    assignment,
+    label: assignment ? businessGroupAssignmentLabel(assignment, groups) : '未分组',
+  }
+}
+
 export function buildPricingRulePayload(form = {}) {
   return {
     id: Number(form.id || 0),

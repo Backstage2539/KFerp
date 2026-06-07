@@ -146,6 +146,75 @@ func TestProductConfigTemplateDoesNotBackfillFromCategoryOnStartup(t *testing.T)
 	}
 }
 
+func TestBusinessGroupAssignmentsSupportStringObjectRefsAndAudit(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := string(schema) + "\n" + string(repository)
+	for _, want := range []string{
+		"ALTER TABLE %[1]s.business_group_assignments ADD COLUMN IF NOT EXISTS object_ref TEXT NOT NULL DEFAULT ''",
+		"business_group_assignments_object_ref_idx",
+		"lower(object_ref)",
+		"func (r Repository) ListBusinessGroupAssignments",
+		"func (r Repository) SaveBusinessGroupAssignment",
+		"func (r Repository) DeleteBusinessGroupAssignment",
+		"object_ref",
+		"save_business_group_assignment",
+		"delete_business_group_assignment",
+		"usage_key",
+		"object_key",
+		"warehouse_inventory",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("business group assignment implementation missing marker %q", want)
+		}
+	}
+}
+
+func TestProductWritesUseBusinessGroupAssignmentsInsteadOfLegacyCategoryColumns(t *testing.T) {
+	repository, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(repository)
+	for _, want := range []string{
+		"LEFT JOIN %[1]s.business_group_assignments bga",
+		"lower(bga.usage_key)='product_catalog'",
+		"lower(bga.object_key)='product'",
+		"func (r Repository) SaveBusinessGroupAssignment",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("product repository must use generic business group assignments; missing %q", want)
+		}
+	}
+	for _, fn := range []string{"func (r Repository) UpdateProductBasics", "func (r Repository) CreateProduct", "func (r Repository) CreateSKU"} {
+		start := strings.Index(src, fn)
+		if start == -1 {
+			t.Fatalf("cannot locate %s", fn)
+		}
+		next := strings.Index(src[start+len(fn):], "\nfunc ")
+		body := src[start:]
+		if next >= 0 {
+			body = src[start : start+len(fn)+next]
+		}
+		for _, forbidden := range []string{
+			"product_category_id=$",
+			"classification_template_id=$",
+			"ProductCategoryID",
+			"ClassificationTemplateID",
+		} {
+			if strings.Contains(body, forbidden) {
+				t.Fatalf("%s should not write legacy product category/classification state; found %q", fn, forbidden)
+			}
+		}
+	}
+}
+
 func TestCustomerProductRuleTemplateSchemaPersistsTemplatesAndOverrides(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {
@@ -619,21 +688,21 @@ func TestCopyProductArchiveCopiesOnlyMasterDataNotPriceOrBomTemplates(t *testing
 	}
 }
 
-func TestUpdateProductBasicsClearsLegacyTemplateColumns(t *testing.T) {
+func TestUpdateProductBasicsDoesNotWriteLegacyTemplateColumns(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(repository)
 	fn := catalogRepositoryFunctionForTest(t, src, "func (r Repository) UpdateProductBasics", "func (r Repository) DeactivateProducts")
-	for _, want := range []string{
-		"product_config_template_id=$17",
-		"classification_template_id=$18",
+	for _, forbidden := range []string{
+		"product_config_template_id=$",
+		"classification_template_id=$",
 		"cmd.ProductConfigTemplateID",
 		"cmd.ClassificationTemplateID",
 	} {
-		if !strings.Contains(fn, want) {
-			t.Fatalf("UpdateProductBasics must persist cleared legacy template column marker %q", want)
+		if strings.Contains(fn, forbidden) {
+			t.Fatalf("UpdateProductBasics must not write legacy template columns; found %q", forbidden)
 		}
 	}
 }

@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION
+- Branch: codex/business-group-object-unification
+- Owner/session: Codex / 2026-06-07
+- Status: local implementation verified; pending merge, deploy, post-deploy scenario and browser acceptance
+- Scope: 商品管理、生产 BOM、仓库库存的分类/分组统一收敛到泛化 `分组管理` 和 `business_group_assignments`；商品、BOM、仓库使用通用归组 API，旧商品分类模板、商品分类写入、生产 BOM 专用大组/组内分类普通写入口下线；商品价格表默认读取商品档案分组，价格表覆盖只固化到价格表版本快照。
+- DEV:
+  - DEV-442-GENERIC-GROUP-ASSIGNMENTS：补齐通用对象归组 schema/service/API，支持数字对象 id 和仓库 code 字符串对象引用，写操作留操作日志。
+  - DEV-442-PRODUCT-GROUP-ASSIGNMENT：商品档案列表、保存、移动和展示改用 `business_group_assignments`，不再写 `product_category_id` 或 `classification_template_id`。
+  - DEV-442-BOM-GROUP-ASSIGNMENT：生产 BOM 列表、保存、复制和移动改用泛化分组，旧 `production_bom_groups/group_categories` 写入口下线。
+  - DEV-442-WAREHOUSE-GROUP-ASSIGNMENT：仓库库存按仓库 code 归组，仓库列表返回分组，库存查询可按分组过滤仓库。
+  - DEV-442-PRICE-LIST-GROUP-SNAPSHOT：商品价格表默认读取商品档案分组，价格表覆盖固化到发布快照且不回写商品档案。
+- Verifier:
+  - RED targeted: `go test ./internal/infrastructure/postgres/catalog -run 'TestBusinessGroupAssignmentsSupportStringObjectRefsAndAudit|TestProductWritesUseBusinessGroupAssignmentsInsteadOfLegacyCategoryColumns' -count=1`; `go test ./internal/infrastructure/postgres/bom -run 'TestProductionBomGroupingUsesBusinessGroupAssignments|TestProductionBomLegacyGroupWritesAreReadonlyCompatibility' -count=1`; `go test ./internal/infrastructure/postgres/stock -run TestWarehouseInventoryGroupingUsesWarehouseBusinessGroupAssignments -count=1`; `go test ./internal/interfaces/http/support -run TestDev442 -count=1`; `node --test src/lib/product-settings.test.js` initially failed before implementation on missing PR-442 source/docs/API markers or legacy grouping expectations.
+  - GREEN targeted: `go test ./internal/infrastructure/postgres/catalog -run 'TestBusinessGroupAssignmentsSupportStringObjectRefsAndAudit|TestProductWritesUseBusinessGroupAssignmentsInsteadOfLegacyCategoryColumns' -count=1`; `go test ./internal/infrastructure/postgres/bom -run 'TestProductionBomGroupingUsesBusinessGroupAssignments|TestProductionBomLegacyGroupWritesAreReadonlyCompatibility' -count=1`; `go test ./internal/infrastructure/postgres/stock -run TestWarehouseInventoryGroupingUsesWarehouseBusinessGroupAssignments -count=1`; `go test ./internal/interfaces/http/support -run TestDev442 -count=1`; `go test ./internal/interfaces/http/catalog ./internal/interfaces/http/bom ./internal/interfaces/http/stock ./internal/interfaces/http/support -count=1`; `node --test src/lib/product-settings.test.js src/lib/bean-list-pdf.test.js src/lib/product-bean-list-split.test.js src/lib/costing-bean-list-version-ui.test.js` passed 178/178.
+  - GREEN scenario dry-run: `python3 -m py_compile scripts/scenario_acceptance.py`; `python3 scripts/scenario_acceptance.py --dry-run` prints `POST_DEPLOY_ACCEPTANCE_SCENARIOS` with `PR442-SCENARIO`, product_catalog / production_bom / warehouse_inventory assignments, price-list group_source, generated BOM, price list, order, cleanup.
+  - GREEN full local: `npm run build` in `frontend-vue-shell`; `go test ./...` in `orderapp-remote`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Browser acceptance: pending deployment
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-07-business-group-object-unification.md`.
+- Last update: 2026-06-07 Asia/Shanghai
+
 ### PR-441-PRICE-LIST-TIER-TEMPLATE-MODES
 - Branch: codex/price-list-tier-template-modes
 - Owner/session: Codex / 2026-06-07
