@@ -23,31 +23,45 @@ func TestDev367SkuCategoryActionPolishRequirementSeeds(t *testing.T) {
 
 func TestDev367SkuCategoryActionPolishUI(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
+	template := strings.Split(src, "<script setup>")[0]
 	for _, want := range []string{
+		"category-action-button",
+		"movePrimaryCategory(primary, -1)",
+		"movePrimaryCategory(primary, 1)",
+		"deleteCategory(primary)",
+		"deleteCategory(secondary)",
+		"danger-toggle",
+		"danger-text",
+		"/api/business-group-items",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("ProductSettingsView.vue missing business group action marker %q", want)
+		}
+	}
+	if strings.Contains(template, `class="icon-action`) {
+		t.Fatal("business group controls should not use the old square icon-action buttons")
+	}
+	for _, forbidden := range []string{
 		"classification-category-row",
 		"moveClassificationCategory(category, -1)",
 		"moveClassificationCategory(category, 1)",
 		"deleteClassificationCategory(category)",
-		"danger-text",
 	} {
-		if !strings.Contains(src, want) {
-			t.Fatalf("ProductSettingsView.vue missing classification action marker %q", want)
+		if strings.Contains(template, forbidden) {
+			t.Fatalf("ProductSettingsView.vue should not render legacy classification action marker %q", forbidden)
 		}
 	}
-	if strings.Contains(src, `class="icon-action`) {
-		t.Fatal("classification template controls should not use the old square icon-action buttons")
-	}
-	deleteStart := strings.Index(src, "async function deleteClassificationCategory(category)")
+	deleteStart := strings.Index(src, "async function deleteCategory(category)")
 	if deleteStart < 0 {
-		t.Fatal("deleteClassificationCategory function missing")
+		t.Fatal("deleteCategory function missing")
 	}
-	deleteEnd := strings.Index(src[deleteStart:], "async function saveProductClassificationTemplateUsage")
+	deleteEnd := strings.Index(src[deleteStart:], "function startCategoryDrag")
 	if deleteEnd < 0 {
-		t.Fatal("deleteClassificationCategory function end marker missing")
+		t.Fatal("deleteCategory function end marker missing")
 	}
 	deleteFunction := src[deleteStart : deleteStart+deleteEnd]
-	if !strings.Contains(deleteFunction, "product-classification-template-categories") {
-		t.Fatal("deleteClassificationCategory should call classification template category API")
+	if !strings.Contains(deleteFunction, "/api/business-group-items") {
+		t.Fatal("deleteCategory should call business group item API")
 	}
 }
 

@@ -23,17 +23,19 @@ func TestDev370UnitTemplateDrawerSkuCategoryLayoutRequirementSeeds(t *testing.T)
 
 func TestDev370UnitTemplateDrawerAndCategoryLayoutUI(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
+	template := strings.Split(src, "<script setup>")[0]
 	for _, want := range []string{
 		"unit-template-list-panel",
 		"unit-template-editor-panel",
 		"globalUnitDrawerOpen",
 		"global-unit-dictionary-drawer",
-			"openGlobalUnitDictionaryDrawer",
-			"saveGlobalUnitDefinitionFromDrawer",
-			"buildProductUnitDefinitionPayload",
-			"classification-template-list",
-			"classification-category-editor",
-		} {
+		"openGlobalUnitDictionaryDrawer",
+		"saveGlobalUnitDefinitionFromDrawer",
+		"buildProductUnitDefinitionPayload",
+		"sku-category-management-workspace",
+		"saveProductCatalogBusinessGroupItem",
+		"moveProductCatalogBusinessGroupItem",
+	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("ProductSettingsView.vue missing drawer/layout marker %q", want)
 		}
@@ -43,10 +45,14 @@ func TestDev370UnitTemplateDrawerAndCategoryLayoutUI(t *testing.T) {
 	if unitListPos < 0 || unitEditorPos < 0 || unitListPos > unitEditorPos {
 		t.Fatal("unit template list should be before editor for left-list/right-editor layout")
 	}
-	listPos := strings.Index(src, `classification-template-list`)
-	editorPos := strings.Index(src, `classification-category-editor`)
-	if listPos < 0 || editorPos < 0 || listPos > editorPos {
-		t.Fatal("classification template list should render before category editor")
+	for _, forbidden := range []string{
+		"classification-template-list",
+		"classification-category-editor",
+		"openClassificationTemplateCreateDrawer",
+	} {
+		if strings.Contains(template, forbidden) {
+			t.Fatalf("ProductSettingsView.vue should not render legacy classification template layout marker %q", forbidden)
+		}
 	}
 }
 

@@ -498,7 +498,7 @@ test('price table can generate a single row from pricing rule mode or fixed pric
 
 test('product settings exposes pricing rule pane instead of final price records', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const pane = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<div v-if="classificationTemplateCreateDrawerOpen"/)?.[0] || ''
+  const pane = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<p class="muted price-list-flat-row-note"/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
   for (const want of ['product-price-management-pane', '商品价格管理', '价格计算模板', 'Pricing Rule', '成本来源', '成本项配置', '利润方式', '税费方式', '最低毛利', '公式版本', '试算说明', '利润率', '税率', '取整规则']) {
@@ -1751,7 +1751,7 @@ test('product config template page no longer contains product category managemen
   assert.doesNotMatch(configPageBlock, /<label>\s*<span>阶梯价模板<\/span>\s*<select v-model\.number="productConfigTemplateForm\.gradient_template_id"/)
   assert.doesNotMatch(configPageBlock, />商品分类管理</)
   assert.doesNotMatch(template, /currentSettingsSection === 'master'[\s\S]*class="category-panel category-drawer-panel category-management-panel/)
-  assert.match(template, /activeConfigTemplateSection === 'classification-template'/)
+  assert.doesNotMatch(template, /activeConfigTemplateSection === 'classification-template'/)
 })
 
 test('BOM view no longer exposes special attributes from BOM version detail', () => {
@@ -2225,36 +2225,23 @@ test('legacy SKU category management is not rendered as the product archive clas
   assert.match(template, /class="classification-view-toolbar alias-classification-tabs"/)
 })
 
-test('classification template page edits only template structure, not object assignments', () => {
+test('legacy classification template editors are not rendered in product settings UI', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
-  const style = source.split('<style scoped>')[1] || ''
 
-  for (const expected of [
-    'classification-template-pane',
-    'classification-template-list',
-    'classification-category-editor',
-    'classificationCategoryForm',
-    'saveClassificationCategory',
-    'moveClassificationCategory',
-    'deleteClassificationCategory',
-    '排序值越小越靠前',
-  ]) {
-    assert.ok(source.includes(expected), `missing classification template structure marker: ${expected}`)
-  }
-
-  assert.match(template, /activeConfigTemplateSection === 'classification-template'/)
-  assert.match(template, /点击左侧模板后，在右侧维护分类项；商品归类在商品档案或客户商品列表中完成/)
-  assert.match(template, /<button class="secondary compact-action" type="button" @click="openClassificationTemplateCreateDrawer"/)
+  assert.doesNotMatch(template, /activeConfigTemplateSection === 'classification-template'/)
+  assert.doesNotMatch(template, /classification-template-pane/)
+  assert.doesNotMatch(template, /classification-category-editor/)
+  assert.doesNotMatch(template, /openClassificationTemplateCreateDrawer/)
+  assert.doesNotMatch(template, /saveClassificationCategory/)
+  assert.doesNotMatch(template, /product-classification-template-categories/)
+  assert.doesNotMatch(template, /新建分类模板/)
   assert.doesNotMatch(source, /category-editor-drawer/)
   assert.doesNotMatch(source, /openCategoryDrawer/)
   assert.doesNotMatch(source, /openCategorySettingsDrawer/)
   assert.doesNotMatch(template, /归属客户/)
   assert.doesNotMatch(template, /对象归类/)
   assert.doesNotMatch(template, /配置分类/)
-  assert.match(script, /apiSend\(id \? `\/api\/product-classification-template-categories\/\$\{id\}` : '\/api\/product-classification-template-categories'/)
-  assert.match(style, /\.classification-category-editor\s*\{/)
 })
 
 test('product list moves selected rows through business group assignments while alias classification stays legacy-compatible', () => {
@@ -2573,7 +2560,7 @@ test('SKU product config template list and price rule controls are visually stru
 
 test('SKU unit template save creates or updates without a separate new-template button', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'classification-template'"/)?.[0] || ''
+  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"/)?.[0] || ''
 
   assert.ok(unitTemplatePane, 'unit template pane should exist')
   assert.doesNotMatch(unitTemplatePane, />新建模板</)
@@ -2589,7 +2576,7 @@ test('SKU settings compacts context area and uses create edit labels for unit di
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
-  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'classification-template'"/)?.[0] || ''
+  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"/)?.[0] || ''
   const globalUnitDrawer = source.match(/<div v-if="globalUnitDrawerOpen"[\s\S]*?<\/aside>\s*<\/div>/)?.[0] || ''
 
   for (const expected of [
@@ -2623,7 +2610,7 @@ test('SKU settings compacts context area and uses create edit labels for unit di
 
 test('SKU unit template workspace uses left list right editor and opens global unit dictionary drawer', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'classification-template'"/)?.[0] || ''
+  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"/)?.[0] || ''
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
@@ -2652,7 +2639,7 @@ test('SKU unit template workspace uses left list right editor and opens global u
 test('SKU unit templates and global unit dictionary expose delete actions', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const settingsSource = fs.readFileSync(new URL('../views/UISettingsView.vue', import.meta.url), 'utf8')
-  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'classification-template'"/)?.[0] || ''
+  const unitTemplatePane = source.match(/<div v-show="showUnitTemplatePane"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"/)?.[0] || ''
   const globalUnitDrawer = source.match(/<div v-if="globalUnitDrawerOpen"[\s\S]*?<\/aside>\s*<\/div>/)?.[0] || ''
 
   assert.match(unitTemplatePane, /deleteProductUnitTemplate/)
@@ -2782,7 +2769,7 @@ test('product menus expose direct category, price management and renamed product
   const menuSource = fs.readFileSync(new URL('./menu-ia.js', import.meta.url), 'utf8')
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const costingSource = fs.readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
-  const configWorkspace = source.match(/<div v-show="currentSettingsSection === 'templates'"[\s\S]*?<div v-if="classificationTemplateCreateDrawerOpen"/)?.[0] || ''
+  const configWorkspace = source.match(/<div v-show="currentSettingsSection === 'templates'"[\s\S]*?<div v-if="productDrawerOpen"/)?.[0] || ''
 
   for (const expected of [
     "key: 'groupManagement'",
@@ -2801,32 +2788,18 @@ test('product menus expose direct category, price management and renamed product
   assert.match(costingSource, /<h2>商品价格表<\/h2>/)
   assert.doesNotMatch(costingSource, /<h2>产品价格表<\/h2>/)
   assert.match(configWorkspace, /商品配置模板/)
-  assert.match(configWorkspace, /分类模板/)
+  assert.doesNotMatch(configWorkspace, /分类模板/)
+  assert.doesNotMatch(configWorkspace, /classification-template/)
   assert.doesNotMatch(configWorkspace, /activeConfigTemplateSection === 'gradient'/)
   assert.doesNotMatch(configWorkspace, /activeConfigTemplateSection === 'unit-template'/)
 })
 
-test('classification templates and categories reference product config templates instead of direct gradient and unit templates', () => {
+test('legacy classification template tab is not restored from saved product settings drafts', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
-  const classificationPane = source.match(/<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'classification-template'"[\s\S]*?<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
-  assert.match(classificationPane, /模板默认商品配置模板/)
-  assert.match(classificationPane, /分类项商品配置模板/)
-  assert.match(classificationPane, /商品单独选择商品配置模板时会覆盖分类配置/)
-  assert.match(script, /classificationTemplateForm\.value[\s\S]*product_config_template_id/)
-  assert.match(script, /classificationCategoryForm\.value[\s\S]*product_config_template_id/)
-  assert.match(script, /product_config_template_id: Number\(form\.product_config_template_id \|\| 0\)/)
-  assert.match(script, /gradient_template_id: 0/)
-  assert.match(script, /unit_template_id: 0/)
-  assert.doesNotMatch(classificationPane, /模板默认阶梯价模板/)
-  assert.doesNotMatch(classificationPane, /模板默认单位模板/)
-  assert.doesNotMatch(classificationPane, /分类项阶梯价模板/)
-  assert.doesNotMatch(classificationPane, /分类项单位模板/)
-  assert.doesNotMatch(classificationPane, /classificationTemplateForm\.gradient_template_id/)
-  assert.doesNotMatch(classificationPane, /classificationTemplateForm\.unit_template_id/)
-  assert.doesNotMatch(classificationPane, /classificationCategoryForm\.gradient_template_id/)
-  assert.doesNotMatch(classificationPane, /classificationCategoryForm\.unit_template_id/)
+  assert.match(script, /activeConfigTemplateSection\.value = \['product-config', 'product-price-management'\]\.includes\(draft\.activeConfigTemplateSection\) \? draft\.activeConfigTemplateSection : 'product-config'/)
+  assert.doesNotMatch(script, /activeConfigTemplateSection\.value = \[[^\]]*'classification-template'/)
 })
 
 test('deleted template rows are hidden without treating inactive rows as deleted', () => {
@@ -2856,7 +2829,7 @@ test('gradient templates choose display units from global unit dictionary instea
 test('product settings UI hides deleted dictionaries and supports product config template delete', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
-  const productConfigPane = source.match(/<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"[\s\S]*?<div v-if="classificationTemplateCreateDrawerOpen"/)?.[0] || ''
+  const productConfigPane = source.match(/<div v-show="currentSettingsSection === 'templates' && effectiveConfigTemplateSection === 'product-config'"[\s\S]*?<div v-show="showProductPriceManagementPane"/)?.[0] || ''
 
   assert.match(script, /const visibleProductUnitDefinitions = computed\(\(\) => visibleNonDeletedRows\(productUnitDefinitions\.value\)\)/)
   assert.match(script, /const visibleProductUnitTemplates = computed\(\(\) => visibleNonDeletedRows\(productUnitTemplates\.value\)\)/)

@@ -131,7 +131,7 @@ export const hiddenViewTitles = {
   products: '商品档案',
   productSettings: '商品档案',
   productCategoryManagement: '分组管理',
-  productConfigTemplates: '商品配置和分类模板',
+  productConfigTemplates: '商品配置模板',
   pricingGradientTemplates: '阶梯价模板',
   productUnitTemplates: '单位模板',
   salesOrder: '销售单',
