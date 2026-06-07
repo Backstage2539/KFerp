@@ -174,18 +174,20 @@ test('PDF bean-list helper freezes final price record snapshots on each publishe
 
 test('price-list generation snapshot persists template inheritance, editable flat rows, and trace metadata', () => {
   const snapshot = buildPriceListGenerationSnapshot({
-    defaults: { tier_template_id: 7, pricing_rule_id: 70 },
+    defaults: { pricing_mode: 'tier_template', tier_template_id: 7, pricing_rule_id: 70, fixed_unit_price: 0 },
     groupSelections: [
-      { group_item_id: 100, group_item_name: '商用豆', level: 1, tier_template_id: 8, pricing_rule_id: 80 },
-      { group_item_id: 101, parent_group_item_id: 100, group_item_name: '大客户', level: 2, tier_template_id: 9, pricing_rule_id: 0 },
+      { group_item_id: 100, group_item_name: '商用豆', level: 1, pricing_mode: 'pricing_rule', tier_template_id: 8, pricing_rule_id: 80, fixed_unit_price: 0 },
+      { group_item_id: 101, parent_group_item_id: 100, group_item_name: '大客户', level: 2, pricing_mode: 'tier_template', tier_template_id: 9, pricing_rule_id: 0, fixed_unit_price: 0 },
     ],
     productOverrides: [
-      { product_id: 44, tier_template_id: 0, pricing_rule_id: 90 },
+      { product_id: 44, pricing_mode: '', tier_template_id: 0, pricing_rule_id: 90, fixed_unit_price: 0 },
     ],
     rows: [{
       product_id: 44,
       product_name: '快照测试商品',
       group_snapshot: { group_id: 3, group_name: '价格表分组', group_item_id: 101, group_item_name: '大客户', parent_group_item_id: 100, parent_group_item_name: '商用豆' },
+      pricing_mode: 'tier_template',
+      pricing_mode_source: 'subgroup',
       tier_label: '24kg+',
       min_qty: 24,
       final_unit_price: 82,
@@ -196,15 +198,18 @@ test('price-list generation snapshot persists template inheritance, editable fla
       inventory_conversion_json: { kg: { kg: 1 } },
       tier_template_id: 9,
       tier_template_source: 'subgroup',
+      template_tier_id: 91,
       pricing_rule_id: 90,
       pricing_rule_source: 'product',
       pricing_rule_version: 'PR-COST/v3',
+      tier_pricing_rule_id: 90,
+      tier_pricing_rule_version: 'PR-COST/v3',
       cost_source_snapshot: { bom_version_no: 'BOM-A1/V002', process_route_name: '标准烘焙' },
       customer_reference_snapshot: { customer_id: 5, customer_display_name: 'Karen 拼配', customer_item_code: 'K-ESP' },
     }],
   })
 
-  assert.deepEqual(snapshot.config.price_list_template_selection.defaults, { tier_template_id: 7, pricing_rule_id: 70 })
+  assert.deepEqual(snapshot.config.price_list_template_selection.defaults, { pricing_mode: 'tier_template', tier_template_id: 7, pricing_rule_id: 70, fixed_unit_price: 0 })
   assert.equal(snapshot.config.price_list_template_selection.group_selections[1].parent_group_item_id, 100)
   assert.equal(snapshot.config.price_list_template_selection.product_overrides[0].pricing_rule_id, 90)
   assert.equal(snapshot.content.price_rows.length, 1)
@@ -212,9 +217,14 @@ test('price-list generation snapshot persists template inheritance, editable fla
   assert.equal(row.manual_adjusted, true)
   assert.equal(row.manual_adjustment_label, '人工调整')
   assert.equal(row.group_snapshot.group_item_name, '大客户')
+  assert.equal(row.pricing_mode, 'tier_template')
+  assert.equal(row.pricing_mode_source, 'subgroup')
   assert.equal(row.tier_template_source, 'subgroup')
+  assert.equal(row.template_tier_id, 91)
   assert.equal(row.pricing_rule_source, 'product')
   assert.equal(row.pricing_rule_version, 'PR-COST/v3')
+  assert.equal(row.tier_pricing_rule_id, 90)
+  assert.equal(row.tier_pricing_rule_version, 'PR-COST/v3')
   assert.equal(row.cost_source_snapshot.bom_version_no, 'BOM-A1/V002')
   assert.equal(row.customer_reference_snapshot.customer_display_name, 'Karen 拼配')
 })

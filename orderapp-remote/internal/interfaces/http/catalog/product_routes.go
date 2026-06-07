@@ -36,6 +36,7 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/price-tier-templates", h.priceTierTemplatesAPI)
 	e.POST("/api/price-tier-templates", h.savePriceTierTemplateAPI)
 	e.PUT("/api/price-tier-templates/:id", h.savePriceTierTemplateAPI)
+	e.DELETE("/api/price-tier-templates/:id", h.deletePriceTierTemplateAPI)
 	e.GET("/api/customer-product-aliases", h.customerProductAliasesAPI)
 	e.GET("/api/customer-product-aliases/migration-candidates", h.customerProductAliasMigrationCandidatesAPI)
 	e.POST("/api/customer-product-aliases/batch", h.batchCustomerProductAliasesAPI)
@@ -958,6 +959,20 @@ func (h productHandler) savePriceTierTemplateAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"template": row})
+}
+
+func (h productHandler) deletePriceTierTemplateAPI(c echo.Context) error {
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	if err := h.catalog.DeletePriceTierTemplate(c.Request().Context(), id, support.ActorOf(c)); err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true, "id": id, "active": false})
 }
 
 func (h productHandler) productUnitDefinitionsAPI(c echo.Context) error {

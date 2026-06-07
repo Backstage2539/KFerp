@@ -328,8 +328,8 @@ test('pricing rules and tier templates are independent templates used by price l
     final_unit_price: 88,
     cost_formula: 'cost_plus',
     tiers: [
-      { label: '10kg+', min_qty: '10', max_qty: '', quantity_unit: ' kg ', position: 2, final_unit_price: 66 },
-      { label: '1kg+', min_qty: '1', max_qty: '9', quantity_unit: 'kg', position: 1 },
+      { label: '10kg+', min_qty: '10', max_qty: '', quantity_unit: ' kg ', position: 2, pricing_rule_id: '20', final_unit_price: 66 },
+      { label: '1kg+', min_qty: '1', max_qty: '9', quantity_unit: 'kg', position: 1, pricing_rule_id: '10' },
     ],
   }), {
     id: 7,
@@ -337,18 +337,18 @@ test('pricing rules and tier templates are independent templates used by price l
     active: true,
     remark: '',
     tiers: [
-      { label: '1kg+', min_qty: 1, max_qty: 9, quantity_unit: 'kg', position: 1, active: true, remark: '' },
-      { label: '10kg+', min_qty: 10, max_qty: null, quantity_unit: 'kg', position: 2, active: true, remark: '' },
+      { label: '1kg+', min_qty: 1, max_qty: 9, quantity_unit: 'kg', pricing_rule_id: 10, position: 1, active: true, remark: '' },
+      { label: '10kg+', min_qty: 10, max_qty: null, quantity_unit: 'kg', pricing_rule_id: 20, position: 2, active: true, remark: '' },
     ],
   })
 })
 
-test('price table resolves tier and pricing rule templates by product, subgroup, parent group, default', () => {
+test('price table resolves pricing mode by product, subgroup, parent group, price list', () => {
   const resolved = resolvePriceTableTemplateInheritance({
-    defaults: { tier_template_id: 1, pricing_rule_id: 10 },
+    defaults: { pricing_mode: 'fixed_price', tier_template_id: 1, pricing_rule_id: 10, fixed_unit_price: 99 },
     groupAssignments: [
-      { group_item_id: 100, tier_template_id: 2, pricing_rule_id: 20, parent_group_item_id: 0 },
-      { group_item_id: 101, tier_template_id: 3, pricing_rule_id: 0, parent_group_item_id: 100 },
+      { group_item_id: 100, pricing_mode: 'pricing_rule', tier_template_id: 2, pricing_rule_id: 20, fixed_unit_price: 0, parent_group_item_id: 0 },
+      { group_item_id: 101, pricing_mode: 'tier_template', tier_template_id: 3, pricing_rule_id: 0, fixed_unit_price: 0, parent_group_item_id: 100 },
     ],
     productOverrides: [
       { product_id: 88, group_item_id: 101, tier_template_id: 0, pricing_rule_id: 40 },
@@ -357,27 +357,64 @@ test('price table resolves tier and pricing rule templates by product, subgroup,
   })
 
   assert.deepEqual(resolved, {
+    pricing_mode: 'tier_template',
+    pricing_mode_source: 'subgroup',
     tier_template_id: 3,
     tier_template_source: 'subgroup',
     pricing_rule_id: 40,
     pricing_rule_source: 'product',
+    fixed_unit_price: 99,
+    fixed_unit_price_source: 'default',
   })
 
   assert.deepEqual(buildPriceTableRowsFromTemplateResolution({
     product: { id: 88, name: '初晓拼配', inventory_unit: 'kg' },
+    resolution: resolved,
     tierTemplate: {
       id: 3,
       name: '批发阶梯',
       tiers: [
-        { label: '1kg+', min_qty: 1, max_qty: 9, quantity_unit: 'kg' },
-        { label: '10kg+', min_qty: 10, max_qty: null, quantity_unit: 'kg' },
+        { id: 31, label: '1kg+', min_qty: 1, max_qty: 9, quantity_unit: 'kg', pricing_rule_id: 41 },
+        { id: 32, label: '10kg+', min_qty: 10, max_qty: null, quantity_unit: 'kg', pricing_rule_id: 42 },
       ],
     },
     pricingRule: { id: 40, name: '成本加成' },
+    pricingRulesByID: {
+      41: { id: 41, code: 'PR-1KG' },
+      42: { id: 42, code: 'PR-10KG' },
+    },
     unitPriceByTier: { '1kg+': 88, '10kg+': 78 },
   }), [
-    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', tier_label: '1kg+', min_qty: 1, max_qty: 9, final_unit_price: 88, tier_template_id: 3, pricing_rule_id: 40 },
-    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', tier_label: '10kg+', min_qty: 10, max_qty: null, final_unit_price: 78, tier_template_id: 3, pricing_rule_id: 40 },
+    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', tier_label: '1kg+', min_qty: 1, max_qty: 9, final_unit_price: 88, pricing_mode: 'tier_template', pricing_mode_source: 'subgroup', tier_template_id: 3, tier_template_source: 'subgroup', template_tier_id: 31, pricing_rule_id: 41, pricing_rule_source: 'subgroup', pricing_rule_version: 'PR-1KG', tier_pricing_rule_id: 41, tier_pricing_rule_version: 'PR-1KG' },
+    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', tier_label: '10kg+', min_qty: 10, max_qty: null, final_unit_price: 78, pricing_mode: 'tier_template', pricing_mode_source: 'subgroup', tier_template_id: 3, tier_template_source: 'subgroup', template_tier_id: 32, pricing_rule_id: 42, pricing_rule_source: 'subgroup', pricing_rule_version: 'PR-10KG', tier_pricing_rule_id: 42, tier_pricing_rule_version: 'PR-10KG' },
+  ])
+})
+
+test('price table can generate a single row from pricing rule mode or fixed price mode', () => {
+  assert.deepEqual(buildPriceTableRowsFromTemplateResolution({
+    product: { id: 88, name: '初晓拼配', inventory_unit: 'kg' },
+    resolution: {
+      pricing_mode: 'pricing_rule',
+      pricing_mode_source: 'parent_group',
+      pricing_rule_id: 40,
+      pricing_rule_source: 'parent_group',
+    },
+    pricingRule: { id: 40, code: 'PR-BASE' },
+    unitPriceByTier: { default: 86 },
+  }), [
+    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', tier_label: '基础价', min_qty: 0, max_qty: null, final_unit_price: 86, pricing_mode: 'pricing_rule', pricing_mode_source: 'parent_group', tier_template_id: 0, tier_template_source: '', template_tier_id: 0, pricing_rule_id: 40, pricing_rule_source: 'parent_group', pricing_rule_version: 'PR-BASE', tier_pricing_rule_id: 0, tier_pricing_rule_version: '' },
+  ])
+
+  assert.deepEqual(buildPriceTableRowsFromTemplateResolution({
+    product: { id: 88, name: '初晓拼配', inventory_unit: 'kg' },
+    resolution: {
+      pricing_mode: 'fixed_price',
+      pricing_mode_source: 'product',
+      fixed_unit_price: 73.5,
+      fixed_unit_price_source: 'product',
+    },
+  }), [
+    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', tier_label: '固定价', min_qty: 0, max_qty: null, final_unit_price: 73.5, pricing_mode: 'fixed_price', pricing_mode_source: 'product', tier_template_id: 0, tier_template_source: '', template_tier_id: 0, pricing_rule_id: 0, pricing_rule_source: '', pricing_rule_version: '', tier_pricing_rule_id: 0, tier_pricing_rule_version: '', fixed_unit_price: 73.5 },
   ])
 })
 
@@ -389,12 +426,31 @@ test('product settings exposes pricing rule pane instead of final price records'
   for (const want of ['product-price-management-pane', '商品价格管理', '价格计算模板', 'Pricing Rule', '成本来源', '利润率', '税率', '取整规则']) {
     assert.match(pane, new RegExp(want))
   }
-  for (const want of ['pricingRules', 'priceTierTemplates', 'buildPricingRulePayload', 'buildPriceTierTemplatePayload']) {
+  for (const want of ['pricingRules', 'buildPricingRulePayload']) {
     assert.match(script, new RegExp(want))
   }
-  for (const forbidden of ['商品价格记录', '最终单价', '引用价格记录', 'source_price_record_id']) {
+  for (const forbidden of ['商品价格记录', '最终单价', '引用价格记录', 'source_price_record_id', '阶梯价模板', 'priceTierTemplateForm', 'savePriceTierTemplate']) {
     assert.equal(pane.includes(forbidden), false, `product price management pane should not expose ${forbidden}`)
   }
+})
+
+test('product price list owns tier template drawer and three pricing modes', () => {
+  const source = fs.readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
+  for (const want of [
+    '管理阶梯模板',
+    'tierTemplateDrawerOpen',
+    '保存阶梯模板',
+    '删除阶梯模板',
+    '按阶梯模板计算',
+    '按价格计算模板计算',
+    '固定价',
+    '商品 &gt; 子类 &gt; 父类 &gt; 价格表',
+    'pricing_rule_id',
+  ]) {
+    assert.ok(source.includes(want), `CostingView missing marker: ${want}`)
+  }
+  assert.doesNotMatch(source, /默认阶梯价模板/)
+  assert.doesNotMatch(source, /子组/)
 })
 
 test('customer alias rename overrides list display while preserving customer product name field', () => {

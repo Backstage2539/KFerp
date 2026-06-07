@@ -17,6 +17,12 @@ export const priceListRulePricingModeOptions = [
   { value: 'cost_plus', label: '成本加成' },
 ]
 
+export const priceTablePricingModeOptions = [
+  { value: 'tier_template', label: '按阶梯模板计算' },
+  { value: 'pricing_rule', label: '按价格计算模板计算' },
+  { value: 'fixed_price', label: '固定价' },
+]
+
 export const priceListRuleRoundingOptions = [
   { value: 'none', label: '不取整' },
   { value: 'jiao', label: '保留到角' },
@@ -231,6 +237,7 @@ export function buildPriceTierTemplatePayload(form = {}) {
           ? null
           : Number(tier.max_qty ?? tier.maxQty ?? 0),
         quantity_unit: String(tier.quantity_unit ?? tier.quantityUnit ?? 'kg').trim() || 'kg',
+        pricing_rule_id: Number(tier.pricing_rule_id ?? tier.pricingRuleID ?? 0) || 0,
         position: Number(tier.position || index + 1),
         active: Boolean(tier.active ?? true),
         remark: String(tier.remark ?? '').trim(),
@@ -252,6 +259,12 @@ export function resolvePriceTableTemplateInheritance({
   const parentID = Number(subgroup?.parent_group_item_id || subgroup?.parentGroupItemID || product.parent_group_item_id || 0)
   const parent = (groupAssignments || []).find((row) => Number(row.group_item_id || row.groupItemID || 0) === parentID)
 
+  const modeCandidates = [
+    { source: 'product', value: normalizePriceTablePricingMode(override?.pricing_mode ?? override?.pricingMode) },
+    { source: 'subgroup', value: normalizePriceTablePricingMode(subgroup?.pricing_mode ?? subgroup?.pricingMode) },
+    { source: 'parent_group', value: normalizePriceTablePricingMode(parent?.pricing_mode ?? parent?.pricingMode) },
+    { source: 'default', value: normalizePriceTablePricingMode(defaults.pricing_mode ?? defaults.pricingMode) },
+  ]
   const tierCandidates = [
     { source: 'product', value: Number(override?.tier_template_id || override?.tierTemplateID || 0) },
     { source: 'subgroup', value: Number(subgroup?.tier_template_id || subgroup?.tierTemplateID || 0) },
@@ -264,13 +277,31 @@ export function resolvePriceTableTemplateInheritance({
     { source: 'parent_group', value: Number(parent?.pricing_rule_id || parent?.pricingRuleID || 0) },
     { source: 'default', value: Number(defaults.pricing_rule_id || defaults.pricingRuleID || 0) },
   ]
+  const fixedCandidates = [
+    { source: 'product', value: Number(override?.fixed_unit_price ?? override?.fixedUnitPrice ?? 0) || 0 },
+    { source: 'subgroup', value: Number(subgroup?.fixed_unit_price ?? subgroup?.fixedUnitPrice ?? 0) || 0 },
+    { source: 'parent_group', value: Number(parent?.fixed_unit_price ?? parent?.fixedUnitPrice ?? 0) || 0 },
+    { source: 'default', value: Number(defaults.fixed_unit_price ?? defaults.fixedUnitPrice ?? 0) || 0 },
+  ]
   const tier = tierCandidates.find((item) => item.value > 0) || { source: 'default', value: 0 }
   const pricing = pricingCandidates.find((item) => item.value > 0) || { source: 'default', value: 0 }
+  const fixed = fixedCandidates.find((item) => item.value > 0) || { source: 'default', value: 0 }
+  let mode = modeCandidates.find((item) => item.value)
+  if (!mode) {
+    if (tier.value > 0) mode = { source: tier.source, value: 'tier_template' }
+    else if (pricing.value > 0) mode = { source: pricing.source, value: 'pricing_rule' }
+    else if (fixed.value > 0) mode = { source: fixed.source, value: 'fixed_price' }
+    else mode = { source: 'default', value: 'tier_template' }
+  }
   return {
+    pricing_mode: mode.value,
+    pricing_mode_source: mode.source,
     tier_template_id: tier.value,
     tier_template_source: tier.source,
     pricing_rule_id: pricing.value,
     pricing_rule_source: pricing.source,
+    fixed_unit_price: fixed.value,
+    fixed_unit_price_source: fixed.source,
   }
 }
 
@@ -278,19 +309,64 @@ export function buildPriceTableRowsFromTemplateResolution({
   product = {},
   tierTemplate = {},
   pricingRule = {},
+  pricingRulesByID = {},
+  resolution = {},
   unitPriceByTier = {},
 } = {}) {
   const productID = Number(product.id || product.product_id || 0)
   const productName = String(product.name || product.product_name || '').trim()
   const priceUnit = String(product.price_unit || product.inventory_unit || product.inventoryUnit || 'kg').trim() || 'kg'
   const tierTemplateID = Number(tierTemplate.id || 0)
-  const pricingRuleID = Number(pricingRule.id || 0)
+  const mode = normalizePriceTablePricingMode(resolution.pricing_mode ?? resolution.pricingMode) || (tierTemplateID > 0 ? 'tier_template' : Number(pricingRule.id || resolution.pricing_rule_id || 0) > 0 ? 'pricing_rule' : Number(resolution.fixed_unit_price || 0) > 0 ? 'fixed_price' : 'tier_template')
+  const modeSource = String(resolution.pricing_mode_source || resolution.pricingModeSource || 'default').trim() || 'default'
+  const tierSource = String(resolution.tier_template_source || resolution.tierTemplateSource || '').trim()
+  const pricingSource = String(resolution.pricing_rule_source || resolution.pricingRuleSource || modeSource).trim()
+  const versionForRule = (rule) => String(rule?.code || rule?.version || rule?.name || (rule?.id ? `PR-${rule.id}` : '')).trim()
+  const baseRow = {
+    product_id: productID,
+    product_name: productName,
+    price_unit: priceUnit,
+    min_qty: 0,
+    max_qty: null,
+    pricing_mode: mode,
+    pricing_mode_source: modeSource,
+    tier_template_id: 0,
+    tier_template_source: '',
+    template_tier_id: 0,
+    pricing_rule_id: 0,
+    pricing_rule_source: '',
+    pricing_rule_version: '',
+    tier_pricing_rule_id: 0,
+    tier_pricing_rule_version: '',
+  }
+  if (mode === 'pricing_rule') {
+    const ruleID = Number(resolution.pricing_rule_id || pricingRule.id || 0)
+    const rule = pricingRule.id ? pricingRule : pricingRulesByID[ruleID]
+    return [{
+      ...baseRow,
+      tier_label: '基础价',
+      final_unit_price: Number(unitPriceByTier.default ?? unitPriceByTier['基础价'] ?? pricingRule.final_unit_price ?? 0) || 0,
+      pricing_rule_id: ruleID,
+      pricing_rule_source: pricingSource,
+      pricing_rule_version: versionForRule(rule),
+    }]
+  }
+  if (mode === 'fixed_price') {
+    const fixedPrice = Number(resolution.fixed_unit_price ?? resolution.fixedUnitPrice ?? 0) || 0
+    return [{
+      ...baseRow,
+      tier_label: '固定价',
+      final_unit_price: fixedPrice,
+      fixed_unit_price: fixedPrice,
+    }]
+  }
   return (Array.isArray(tierTemplate.tiers) ? tierTemplate.tiers : []).map((tier) => {
     const label = String(tier.label || '').trim()
+    const tierPricingRuleID = Number(tier.pricing_rule_id ?? tier.pricingRuleID ?? resolution.pricing_rule_id ?? pricingRule.id ?? 0) || 0
+    const tierRule = pricingRulesByID[tierPricingRuleID] || (Number(pricingRule.id || 0) === tierPricingRuleID ? pricingRule : null)
+    const version = versionForRule(tierRule)
     return {
-      product_id: productID,
-      product_name: productName,
-      price_unit: priceUnit,
+      ...baseRow,
       tier_label: label,
       min_qty: Number(tier.min_qty ?? tier.minQty ?? 0) || 0,
       max_qty: tier.max_qty === null || tier.max_qty === undefined || tier.max_qty === ''
@@ -298,9 +374,23 @@ export function buildPriceTableRowsFromTemplateResolution({
         : Number(tier.max_qty ?? tier.maxQty ?? 0),
       final_unit_price: Number(unitPriceByTier[label] ?? tier.final_unit_price ?? tier.finalUnitPrice ?? 0) || 0,
       tier_template_id: tierTemplateID,
-      pricing_rule_id: pricingRuleID,
+      tier_template_source: tierSource,
+      template_tier_id: Number(tier.id ?? tier.template_tier_id ?? tier.templateTierID ?? 0) || 0,
+      pricing_rule_id: tierPricingRuleID,
+      pricing_rule_source: tierSource || pricingSource,
+      pricing_rule_version: version,
+      tier_pricing_rule_id: tierPricingRuleID,
+      tier_pricing_rule_version: version,
     }
   })
+}
+
+function normalizePriceTablePricingMode(value) {
+  const raw = String(value ?? '').trim()
+  if (raw === 'tier_template' || raw === 'inherit_gradient_template') return 'tier_template'
+  if (raw === 'pricing_rule' || raw === 'cost_plus') return 'pricing_rule'
+  if (raw === 'fixed_price' || raw === 'fixed_unit_price') return 'fixed_price'
+  return ''
 }
 
 export function customerAliasEffectiveDisplayName(alias = {}) {

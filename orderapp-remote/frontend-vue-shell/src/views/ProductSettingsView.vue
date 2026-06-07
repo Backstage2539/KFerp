@@ -824,7 +824,6 @@
           <span>商品价格管理</span>
           <div class="panel-actions">
             <button class="secondary compact-action" type="button" @click="resetPricingRuleForm">新建价格计算模板</button>
-            <button class="secondary compact-action" type="button" @click="resetPriceTierTemplateForm">新建阶梯价模板</button>
           </div>
         </div>
         <div class="product-price-management-layout">
@@ -905,68 +904,8 @@
             </form>
           </section>
 
-          <section class="product-tier-price-schemes-panel price-tier-template-panel">
-            <div class="field-group-head">
-              <strong>阶梯价模板</strong>
-              <small>阶梯价模板只定义数量档位，不保存最终价或成本公式。商品价格表默认、分组引用和商品行都可以引用它。</small>
-            </div>
-            <div class="template-list compact-template-list">
-              <div
-                v-for="template in priceTierTemplates"
-                :key="template.id"
-                :class="['template-row', { active: Number(template.id || 0) === Number(priceTierTemplateForm.id || 0), inactive: template.active === false }]">
-                <button class="template-row-main" type="button" @click="startPriceTierTemplateEdit(template)">
-                  <strong>{{ template.name }}</strong>
-                  <small>{{ template.tiers?.length || 0 }} 档 · 商品 &gt; 子组 &gt; 父组 &gt; 默认</small>
-                </button>
-              </div>
-              <p v-if="!priceTierTemplates.length" class="muted">暂无阶梯价模板</p>
-            </div>
-            <form class="template-editor product-tier-price-scheme-form" @submit.prevent="savePriceTierTemplate">
-              <div class="template-editor-grid">
-                <label>
-                  <span>模板名称</span>
-                  <input v-model.trim="priceTierTemplateForm.name" placeholder="如 批发阶梯" />
-                </label>
-              </div>
-              <div class="template-tier-head">
-                <strong>档位</strong>
-                <button class="secondary compact-action" type="button" @click="addPriceTierTemplateTier">新增档位</button>
-              </div>
-              <div class="template-tier-list">
-                <div v-for="(tier, index) in priceTierTemplateForm.tiers" :key="`price-tier-template-${index}`" class="template-tier-row product-tier-price-row">
-                  <label>
-                    <span>档位名</span>
-                    <input v-model.trim="tier.label" placeholder="1kg+" />
-                  </label>
-                  <label>
-                    <span>最小数量</span>
-                    <input v-model.number="tier.min_qty" type="number" min="0" step="0.0001" />
-                  </label>
-                  <label>
-                    <span>最大数量</span>
-                    <input v-model="tier.max_qty" type="number" min="0" step="0.0001" placeholder="无上限" />
-                  </label>
-                  <label>
-                    <span>数量单位</span>
-                    <select v-model="tier.quantity_unit">
-                      <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-                    </select>
-                  </label>
-                  <button class="text-button danger-text" type="button" @click="removePriceTierTemplateTier(index)">删除</button>
-                </div>
-              </div>
-              <label class="wide-field">
-                <span>备注</span>
-                <textarea v-model.trim="priceTierTemplateForm.remark" rows="2"></textarea>
-              </label>
-              <div class="form-actions">
-                <button class="primary" type="submit" :disabled="productPriceSaving">保存阶梯价模板</button>
-              </div>
-            </form>
-          </section>
         </div>
-        <p class="muted price-list-flat-row-note" aria-label="商品 > 子组 > 父组 > 默认">商品价格表按分组勾选商品后生成平铺价格行；阶梯价模板和价格计算模板继承规则固定为：商品 &gt; 子组 &gt; 父组 &gt; 默认。</p>
+        <p class="muted price-list-flat-row-note" aria-label="商品 > 子类 > 父类 > 价格表">商品价格表按分组勾选商品后生成平铺价格行；计价模式继承规则固定为：商品 &gt; 子类 &gt; 父类 &gt; 价格表。阶梯模板在商品价格表维护。</p>
       </div>
         </div>
       </div>
@@ -3076,7 +3015,7 @@ async function savePricingRule() {
 async function savePriceTierTemplate() {
   const payload = buildPriceTierTemplatePayload(priceTierTemplateForm.value)
   if (!payload.name) {
-    error.value = '请填写阶梯价模板名称'
+    error.value = '请填写阶梯模板名称'
     return
   }
   if (!payload.tiers.length) {
@@ -3096,9 +3035,9 @@ async function savePriceTierTemplate() {
       ...priceTierTemplates.value.filter((item) => Number(item.id || 0) !== Number(row.id || 0)),
     ]
     priceTierTemplateForm.value = row
-    ok.value = '阶梯价模板已保存'
+    ok.value = '阶梯模板已保存'
   } catch (err) {
-    error.value = err.message || '保存阶梯价模板失败'
+    error.value = err.message || '阶梯模板保存失败'
   } finally {
     productPriceSaving.value = false
   }

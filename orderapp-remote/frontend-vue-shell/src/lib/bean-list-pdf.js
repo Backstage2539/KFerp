@@ -335,8 +335,10 @@ export function buildPriceListGenerationSnapshot(input = {}) {
 
 function normalizeTemplateSelection(value = {}) {
   return {
+    pricing_mode: stringField(value.pricing_mode ?? value.pricingMode),
     tier_template_id: firstNumber(value.tier_template_id, value.tierTemplateID),
     pricing_rule_id: firstNumber(value.pricing_rule_id, value.pricingRuleID),
+    fixed_unit_price: firstNumber(value.fixed_unit_price, value.fixedUnitPrice),
   }
 }
 
@@ -372,6 +374,8 @@ function normalizePriceListFlatRow(row = {}) {
     product_key: stringField(row.product_key ?? row.productKey),
     product_name: stringField(row.product_name ?? row.productName ?? row.name),
     group_snapshot: parseJSONObject(row.group_snapshot ?? row.groupSnapshot),
+    pricing_mode: stringField(row.pricing_mode ?? row.pricingMode),
+    pricing_mode_source: stringField(row.pricing_mode_source ?? row.pricingModeSource),
     tier_label: stringField(row.tier_label ?? row.tierLabel ?? row.label),
     min_qty: firstNumber(row.min_qty, row.minQty),
     max_qty: firstNumber(row.max_qty, row.maxQty),
@@ -384,9 +388,13 @@ function normalizePriceListFlatRow(row = {}) {
     source_price_record_id: firstNumber(row.source_price_record_id, row.sourcePriceRecordID),
     tier_template_id: firstNumber(row.tier_template_id, row.tierTemplateID),
     tier_template_source: stringField(row.tier_template_source ?? row.tierTemplateSource),
+    template_tier_id: firstNumber(row.template_tier_id, row.templateTierID),
     pricing_rule_id: firstNumber(row.pricing_rule_id, row.pricingRuleID),
     pricing_rule_source: stringField(row.pricing_rule_source ?? row.pricingRuleSource),
     pricing_rule_version: stringField(row.pricing_rule_version ?? row.pricingRuleVersion),
+    tier_pricing_rule_id: firstNumber(row.tier_pricing_rule_id, row.tierPricingRuleID),
+    tier_pricing_rule_version: stringField(row.tier_pricing_rule_version ?? row.tierPricingRuleVersion),
+    fixed_unit_price: firstNumber(row.fixed_unit_price, row.fixedUnitPrice),
     cost_source_snapshot: parseJSONObject(row.cost_source_snapshot ?? row.costSourceSnapshot),
     customer_reference_snapshot: parseJSONObject(row.customer_reference_snapshot ?? row.customerReferenceSnapshot),
     manual_adjusted: manualAdjusted,

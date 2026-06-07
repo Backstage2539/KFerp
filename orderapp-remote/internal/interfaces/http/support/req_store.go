@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-441-PRICE-LIST-TIER-TEMPLATE-MODES", title: "商品价格表接管阶梯模板，并支持按阶梯模板计算、按价格计算模板计算和固定价三种计价模式", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; CostingView.vue; catalog API/schema; OP_MANUAL_COSTING.md"},
+		{table: "req_dev", code: "DEV-441-TIER-TEMPLATE-DRAWER", title: "阶梯价模板改名阶梯模板并移动到商品价格表抽屉，支持新增、查看、编辑和软删除", status: "doing", assignee: "Codex", evidence: "CostingView.vue; /api/price-tier-templates"},
+		{table: "req_dev", code: "DEV-441-THREE-PRICE-LIST-MODES", title: "价格表、父类、子类和商品行支持三种计价模式，并按商品 > 子类 > 父类 > 价格表继承", status: "doing", assignee: "Codex", evidence: "product-settings.js; CostingView.vue"},
+		{table: "req_dev", code: "DEV-441-PRICE-LIST-SNAPSHOT-MODES", title: "价格表发布快照固化计价模式、模板来源、档位 Pricing Rule、固定价和最终价，固定价模式不强制 Pricing Rule", status: "doing", assignee: "Codex", evidence: "costing service; bean-list-pdf.js; scenario_acceptance.py"},
+		{table: "req_review", code: "REV-441-PRICE-LIST-TIER-TEMPLATE-MODES", prCode: "PR-441-PRICE-LIST-TIER-TEMPLATE-MODES", title: "验收：商品价格管理只显示价格计算模板；商品价格表可维护阶梯模板并按三种模式发布和录单取价", status: "todo", assignee: "VA", evidence: "docs/acceptance/2026-06-07-price-list-tier-template-modes.md"},
 		{table: "req_product", code: "PR-440-PRODUCT-GROUP-PRICE-REMODEL", title: "商品、分组、价格模型二次修正：去掉客户商品主数据，分组管理泛化，商品价格管理改为 Pricing Rule，商品价格表按分组和模板生成平铺价格行", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; ProductSettingsView.vue; catalog API/schema; docs"},
 		{table: "req_dev", code: "DEV-440-GENERIC-GROUP-MANAGEMENT", title: "新增泛化分组管理：分组列表、分组项树、功能用途引用、对象归组，不写死商品/物料/BOM 对象", status: "doing", assignee: "Codex", evidence: "schema.go; product_routes.go; ProductSettingsView.vue"},
 		{table: "req_dev", code: "DEV-440-PRODUCT-CUSTOMER-REFERENCES", title: "去掉独立客户商品新业务入口，商品档案增加客户引用子表；历史客户商品只读兼容", status: "doing", assignee: "Codex", evidence: "service.go; product_routes.go; ProductSettingsView.vue"},

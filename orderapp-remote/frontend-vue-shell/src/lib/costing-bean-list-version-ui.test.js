@@ -187,7 +187,7 @@ test('product price list uses classification templates and categories instead of
     '<h2>商品价格表</h2>',
     'Price List / Item Price',
     'data-pr440-price-list-model',
-    '商品 &gt; 子组 &gt; 父组 &gt; 默认',
+    '商品 &gt; 子类 &gt; 父类 &gt; 价格表',
     '平铺价格行',
     '分组项选品',
     'classification_template_id',

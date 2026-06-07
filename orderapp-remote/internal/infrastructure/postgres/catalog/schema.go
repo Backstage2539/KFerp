@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS %[1]s.price_tier_template_tiers (
 );
 CREATE INDEX IF NOT EXISTS price_tier_template_tiers_template_idx
 ON %[1]s.price_tier_template_tiers(template_id, active, position, id);
+ALTER TABLE %[1]s.price_tier_template_tiers ADD COLUMN IF NOT EXISTS pricing_rule_id BIGINT NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS %[1]s.product_price_groups (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL,

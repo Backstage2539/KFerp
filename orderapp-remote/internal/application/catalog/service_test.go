@@ -214,6 +214,10 @@ func (r *fakeRepo) SavePriceTierTemplate(ctx context.Context, cmd PriceTierTempl
 	return cmd, nil
 }
 
+func (r *fakeRepo) DeletePriceTierTemplate(ctx context.Context, id int64, actor string) error {
+	return nil
+}
+
 func (r *fakeRepo) ListProductPriceRecords(ctx context.Context, query ProductPriceRecordQuery) ([]ProductPriceRecord, error) {
 	if len(r.priceRecords) > 0 {
 		return r.priceRecords, nil
@@ -683,8 +687,8 @@ func TestPricingRuleAndPriceTierTemplateServicesUseNewPriceListModel(t *testing.
 	template, err := svc.SavePriceTierTemplate(context.Background(), PriceTierTemplate{
 		Name: " 批发档位 ",
 		Tiers: []PriceTierTemplateTier{
-			{Label: "10kg+", MinQty: 10, QuantityUnit: " kg ", Position: 2},
-			{Label: "1kg+", MinQty: 1, MaxQty: &maxQty, QuantityUnit: "", Position: 1},
+			{Label: "10kg+", MinQty: 10, QuantityUnit: " kg ", PricingRuleID: rule.ID, Position: 2},
+			{Label: "1kg+", MinQty: 1, MaxQty: &maxQty, QuantityUnit: "", PricingRuleID: rule.ID, Position: 1},
 		},
 	})
 	if err != nil {
@@ -695,6 +699,14 @@ func TestPricingRuleAndPriceTierTemplateServicesUseNewPriceListModel(t *testing.
 	}
 	if template.Tiers[0].Label != "1kg+" || template.Tiers[0].QuantityUnit != "kg" || template.Tiers[1].Label != "10kg+" || template.Tiers[1].QuantityUnit != "kg" {
 		t.Fatalf("price tier template tiers not normalized/sorted: %+v", template.Tiers)
+	}
+	if _, err := svc.SavePriceTierTemplate(context.Background(), PriceTierTemplate{
+		Name: " 缺少计算模板 ",
+		Tiers: []PriceTierTemplateTier{
+			{Label: "1kg+", MinQty: 1, QuantityUnit: "kg"},
+		},
+	}); err == nil {
+		t.Fatalf("SavePriceTierTemplate() must reject enabled tiers without pricing_rule_id")
 	}
 }
 

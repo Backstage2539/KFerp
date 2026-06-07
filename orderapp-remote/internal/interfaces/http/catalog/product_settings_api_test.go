@@ -27,6 +27,7 @@ type productSettingsRepo struct {
 	productPriceRecords                 []catalogapp.ProductPriceRecord
 	productPriceRecordByID              map[int64]catalogapp.ProductPriceRecord
 	productTierPriceSchemes             []catalogapp.ProductTierPriceScheme
+	deletedPriceTierTemplateID          int64
 	productProductionConfigs            []catalogapp.ProductProductionConfig
 	savedCategory                       catalogapp.SaveProductCategoryCommand
 	movedCategory                       catalogapp.MoveProductCategoryCommand
@@ -358,6 +359,11 @@ func (r *productSettingsRepo) SavePriceTierTemplate(ctx context.Context, cmd cat
 		cmd.ID = 64
 	}
 	return cmd, nil
+}
+
+func (r *productSettingsRepo) DeletePriceTierTemplate(ctx context.Context, id int64, actor string) error {
+	r.deletedPriceTierTemplateID = id
+	return nil
 }
 
 func (r *productSettingsRepo) ListProductPriceRecords(ctx context.Context, query catalogapp.ProductPriceRecordQuery) ([]catalogapp.ProductPriceRecord, error) {
@@ -2904,8 +2910,8 @@ func TestPriceTierTemplateAPIUsesReusableQuantityTiers(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/price-tier-templates", bytes.NewBufferString(`{
 		"name":"批发档位",
 		"tiers":[
-			{"label":"10kg+","min_qty":10,"quantity_unit":"kg","position":2},
-			{"label":"1kg+","min_qty":1,"max_qty":10,"position":1}
+			{"label":"10kg+","min_qty":10,"quantity_unit":"kg","pricing_rule_id":20,"position":2},
+			{"label":"1kg+","min_qty":1,"max_qty":10,"pricing_rule_id":10,"position":1}
 		]
 	}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -2914,10 +2920,37 @@ func TestPriceTierTemplateAPIUsesReusableQuantityTiers(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST price tier template status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"name":"批发档位"`, `"label":"1kg+"`, `"quantity_unit":"kg"`, `"label":"10kg+"`} {
+	for _, want := range []string{`"name":"批发档位"`, `"label":"1kg+"`, `"pricing_rule_id":10`, `"quantity_unit":"kg"`, `"label":"10kg+"`, `"pricing_rule_id":20`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("price tier template response missing %s: %s", want, rec.Body.String())
 		}
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/price-tier-templates", bytes.NewBufferString(`{
+		"name":"缺少计算模板",
+		"tiers":[{"label":"1kg+","min_qty":1,"quantity_unit":"kg","position":1}]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST price tier template without pricing_rule_id status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPriceTierTemplateAPISoftDeletesTemplate(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/price-tier-templates/64", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE price tier template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.deletedPriceTierTemplateID != 64 {
+		t.Fatalf("deleted price tier template id=%d", repo.deletedPriceTierTemplateID)
 	}
 }
 

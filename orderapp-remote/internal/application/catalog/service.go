@@ -168,20 +168,23 @@ type PriceTierTemplate struct {
 }
 
 type PriceTierTemplateTier struct {
-	ID           int64    `json:"id"`
-	TemplateID   int64    `json:"template_id"`
-	Label        string   `json:"label"`
-	MinQty       float64  `json:"min_qty"`
-	MaxQty       *float64 `json:"max_qty,omitempty"`
-	QuantityUnit string   `json:"quantity_unit"`
-	Position     int      `json:"position"`
-	Active       bool     `json:"active"`
-	Remark       string   `json:"remark"`
+	ID            int64    `json:"id"`
+	TemplateID    int64    `json:"template_id"`
+	Label         string   `json:"label"`
+	MinQty        float64  `json:"min_qty"`
+	MaxQty        *float64 `json:"max_qty,omitempty"`
+	QuantityUnit  string   `json:"quantity_unit"`
+	PricingRuleID int64    `json:"pricing_rule_id"`
+	Position      int      `json:"position"`
+	Active        bool     `json:"active"`
+	Remark        string   `json:"remark"`
 }
 
 type PriceTableTemplateResolutionInput struct {
+	DefaultPricingMode    string
 	DefaultTierTemplateID int64
 	DefaultPricingRuleID  int64
+	DefaultFixedUnitPrice float64
 	GroupAssignments      []PriceTableGroupTemplateAssignment
 	ProductOverrides      []PriceTableProductTemplateOverride
 	ProductID             int64
@@ -191,22 +194,30 @@ type PriceTableTemplateResolutionInput struct {
 type PriceTableGroupTemplateAssignment struct {
 	GroupItemID       int64
 	ParentGroupItemID int64
+	PricingMode       string
 	TierTemplateID    int64
 	PricingRuleID     int64
+	FixedUnitPrice    float64
 }
 
 type PriceTableProductTemplateOverride struct {
 	ProductID      int64
 	GroupItemID    int64
+	PricingMode    string
 	TierTemplateID int64
 	PricingRuleID  int64
+	FixedUnitPrice float64
 }
 
 type PriceTableTemplateResolution struct {
-	TierTemplateID     int64  `json:"tier_template_id"`
-	TierTemplateSource string `json:"tier_template_source"`
-	PricingRuleID      int64  `json:"pricing_rule_id"`
-	PricingRuleSource  string `json:"pricing_rule_source"`
+	PricingMode          string  `json:"pricing_mode"`
+	PricingModeSource    string  `json:"pricing_mode_source"`
+	TierTemplateID       int64   `json:"tier_template_id"`
+	TierTemplateSource   string  `json:"tier_template_source"`
+	PricingRuleID        int64   `json:"pricing_rule_id"`
+	PricingRuleSource    string  `json:"pricing_rule_source"`
+	FixedUnitPrice       float64 `json:"fixed_unit_price"`
+	FixedUnitPriceSource string  `json:"fixed_unit_price_source"`
 }
 
 const (
@@ -1174,6 +1185,7 @@ type Repository interface {
 	SaveProductPricingRule(ctx context.Context, cmd ProductPricingRule) (ProductPricingRule, error)
 	ListPriceTierTemplates(ctx context.Context) ([]PriceTierTemplate, error)
 	SavePriceTierTemplate(ctx context.Context, cmd PriceTierTemplate) (PriceTierTemplate, error)
+	DeletePriceTierTemplate(ctx context.Context, id int64, actor string) error
 	ListProductPriceRecords(ctx context.Context, query ProductPriceRecordQuery) ([]ProductPriceRecord, error)
 	GetProductPriceRecord(ctx context.Context, id int64) (ProductPriceRecord, error)
 	SaveProductPriceRecord(ctx context.Context, cmd SaveProductPriceRecordCommand) (ProductPriceRecord, error)
@@ -1718,6 +1730,9 @@ func (s *Service) SavePriceTierTemplate(ctx context.Context, cmd PriceTierTempla
 		if cmd.Tiers[i].ID == 0 && !cmd.Tiers[i].Active {
 			cmd.Tiers[i].Active = true
 		}
+		if cmd.Tiers[i].Active && cmd.Tiers[i].PricingRuleID <= 0 {
+			return PriceTierTemplate{}, ValidationError{Message: "pricing_rule_id required"}
+		}
 	}
 	sort.SliceStable(cmd.Tiers, func(i, j int) bool {
 		if cmd.Tiers[i].Position != cmd.Tiers[j].Position {
@@ -1729,6 +1744,13 @@ func (s *Service) SavePriceTierTemplate(ctx context.Context, cmd PriceTierTempla
 		cmd.Active = true
 	}
 	return s.repo.SavePriceTierTemplate(ctx, cmd)
+}
+
+func (s *Service) DeletePriceTierTemplate(ctx context.Context, id int64, actor string) error {
+	if id <= 0 {
+		return ValidationError{Message: "invalid price tier template"}
+	}
+	return s.repo.DeletePriceTierTemplate(ctx, id, strings.TrimSpace(actor))
 }
 
 func ResolvePriceTableTemplateInheritance(input PriceTableTemplateResolutionInput) PriceTableTemplateResolution {
@@ -1761,11 +1783,39 @@ func ResolvePriceTableTemplateInheritance(input PriceTableTemplateResolutionInpu
 		templateCandidate{"parent_group", parent.PricingRuleID},
 		templateCandidate{"default", input.DefaultPricingRuleID},
 	)
+	fixedPrice, fixedSource := firstNumberSource(
+		numberCandidate{"product", override.FixedUnitPrice},
+		numberCandidate{"subgroup", subgroup.FixedUnitPrice},
+		numberCandidate{"parent_group", parent.FixedUnitPrice},
+		numberCandidate{"default", input.DefaultFixedUnitPrice},
+	)
+	mode, modeSource := firstTextSource(
+		textCandidate{"product", normalizePriceTablePricingMode(override.PricingMode)},
+		textCandidate{"subgroup", normalizePriceTablePricingMode(subgroup.PricingMode)},
+		textCandidate{"parent_group", normalizePriceTablePricingMode(parent.PricingMode)},
+		textCandidate{"default", normalizePriceTablePricingMode(input.DefaultPricingMode)},
+	)
+	if mode == "" {
+		switch {
+		case tierID > 0:
+			mode, modeSource = "tier_template", tierSource
+		case ruleID > 0:
+			mode, modeSource = "pricing_rule", ruleSource
+		case fixedPrice > 0:
+			mode, modeSource = "fixed_price", fixedSource
+		default:
+			mode, modeSource = "tier_template", "default"
+		}
+	}
 	return PriceTableTemplateResolution{
-		TierTemplateID:     tierID,
-		TierTemplateSource: tierSource,
-		PricingRuleID:      ruleID,
-		PricingRuleSource:  ruleSource,
+		PricingMode:          mode,
+		PricingModeSource:    modeSource,
+		TierTemplateID:       tierID,
+		TierTemplateSource:   tierSource,
+		PricingRuleID:        ruleID,
+		PricingRuleSource:    ruleSource,
+		FixedUnitPrice:       fixedPrice,
+		FixedUnitPriceSource: fixedSource,
 	}
 }
 
@@ -1781,6 +1831,47 @@ func firstTemplateSource(candidates ...templateCandidate) (int64, string) {
 		}
 	}
 	return 0, "default"
+}
+
+type numberCandidate struct {
+	source string
+	value  float64
+}
+
+func firstNumberSource(candidates ...numberCandidate) (float64, string) {
+	for _, candidate := range candidates {
+		if candidate.value > 0 {
+			return candidate.value, candidate.source
+		}
+	}
+	return 0, "default"
+}
+
+type textCandidate struct {
+	source string
+	value  string
+}
+
+func firstTextSource(candidates ...textCandidate) (string, string) {
+	for _, candidate := range candidates {
+		if candidate.value != "" {
+			return candidate.value, candidate.source
+		}
+	}
+	return "", "default"
+}
+
+func normalizePriceTablePricingMode(value string) string {
+	switch strings.TrimSpace(value) {
+	case "tier_template", "inherit_gradient_template":
+		return "tier_template"
+	case "pricing_rule", "cost_plus":
+		return "pricing_rule"
+	case "fixed_price", "fixed_unit_price":
+		return "fixed_price"
+	default:
+		return ""
+	}
 }
 
 func (s *Service) ListGradientTemplates(ctx context.Context) ([]GradientTemplate, error) {

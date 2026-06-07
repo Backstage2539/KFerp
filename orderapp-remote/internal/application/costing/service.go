@@ -701,11 +701,34 @@ func validateBeanListFlatPriceRows(cmd PublishBeanListCommand) error {
 		if !hasNonEmptyObjectSnapshot(row["group_snapshot"]) {
 			return fmt.Errorf("价格表平铺行缺少分组快照：第%d行", position)
 		}
-		if numberValue(row["tier_template_id"]) <= 0 || stringValue(row["tier_template_source"]) == "" {
-			return fmt.Errorf("价格表平铺行缺少阶梯价模板来源：第%d行", position)
+		mode := normalizePriceRowPricingMode(row)
+		if mode == "" || stringValue(row["pricing_mode_source"]) == "" {
+			return fmt.Errorf("价格表平铺行缺少计价模式来源：第%d行", position)
 		}
-		if numberValue(row["pricing_rule_id"]) <= 0 || stringValue(row["pricing_rule_source"]) == "" || stringValue(row["pricing_rule_version"]) == "" {
-			return fmt.Errorf("价格表平铺行缺少 Pricing Rule 来源：第%d行", position)
+		switch mode {
+		case "tier_template":
+			if numberValue(row["tier_template_id"]) <= 0 || stringValue(row["tier_template_source"]) == "" {
+				return fmt.Errorf("价格表平铺行缺少阶梯模板来源：第%d行", position)
+			}
+			if numberValue(row["template_tier_id"]) <= 0 {
+				return fmt.Errorf("价格表平铺行缺少阶梯模板档位：第%d行", position)
+			}
+			if numberValue(row["pricing_rule_id"]) <= 0 || stringValue(row["pricing_rule_source"]) == "" || stringValue(row["pricing_rule_version"]) == "" {
+				return fmt.Errorf("价格表平铺行缺少 Pricing Rule 来源：第%d行", position)
+			}
+			if numberValue(row["tier_pricing_rule_id"]) <= 0 || stringValue(row["tier_pricing_rule_version"]) == "" {
+				return fmt.Errorf("价格表平铺行缺少档位 Pricing Rule 来源：第%d行", position)
+			}
+		case "pricing_rule":
+			if numberValue(row["pricing_rule_id"]) <= 0 || stringValue(row["pricing_rule_source"]) == "" || stringValue(row["pricing_rule_version"]) == "" {
+				return fmt.Errorf("价格表平铺行缺少 Pricing Rule 来源：第%d行", position)
+			}
+		case "fixed_price":
+			if numberValue(row["fixed_unit_price"]) <= 0 {
+				return fmt.Errorf("价格表平铺行缺少固定价：第%d行", position)
+			}
+		default:
+			return fmt.Errorf("价格表平铺行计价模式无效：第%d行", position)
 		}
 		if !hasNonEmptyObjectSnapshot(row["cost_source_snapshot"]) {
 			return fmt.Errorf("价格表平铺行缺少成本来源快照：第%d行", position)
@@ -718,6 +741,27 @@ func validateBeanListFlatPriceRows(cmd PublishBeanListCommand) error {
 		}
 	}
 	return nil
+}
+
+func normalizePriceRowPricingMode(row map[string]any) string {
+	switch strings.TrimSpace(stringValue(row["pricing_mode"])) {
+	case "tier_template", "inherit_gradient_template":
+		return "tier_template"
+	case "pricing_rule", "cost_plus":
+		return "pricing_rule"
+	case "fixed_price", "fixed_unit_price":
+		return "fixed_price"
+	}
+	switch {
+	case numberValue(row["tier_template_id"]) > 0:
+		return "tier_template"
+	case numberValue(row["pricing_rule_id"]) > 0:
+		return "pricing_rule"
+	case numberValue(row["fixed_unit_price"]) > 0:
+		return "fixed_price"
+	default:
+		return ""
+	}
 }
 
 func beanListFlatPriceRowHasPrice(row map[string]any) bool {

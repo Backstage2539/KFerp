@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-441-PRICE-LIST-TIER-TEMPLATE-MODES
+- Branch: codex/price-list-tier-template-modes
+- Owner/session: Codex / 2026-06-07
+- Status: local implementation verified; pending feature-branch integration, development deploy, scenario acceptance, and browser acceptance
+- Scope: “阶梯价模板”改名为“阶梯模板”并移动到商品价格表；商品价格管理只维护价格计算模板。商品价格表默认、父类、子类、商品行支持三种计价模式：按阶梯模板计算、按价格计算模板计算、固定价；继承顺序固定为 `商品 > 子类 > 父类 > 价格表`。
+- DEV:
+  - DEV-441-TIER-TEMPLATE-DRAWER：商品价格表新增阶梯模板抽屉，支持新增、查看、编辑、软删除；每个档位引用一个价格计算模板。
+  - DEV-441-THREE-PRICE-LIST-MODES：价格表、父类、子类、商品行可设置计价模式，并按 `商品 > 子类 > 父类 > 价格表` 继承。
+  - DEV-441-PRICE-LIST-SNAPSHOT-MODES：发布快照固化计价模式、来源、模板档位、档位 Pricing Rule 版本、固定价、最终价、价格单位和库存换算；固定价模式不强制 Pricing Rule。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-settings.test.js src/lib/bean-list-pdf.test.js` failed before implementation because阶梯模板档位未携带 `pricing_rule_id`，价格表未解析三种计价模式，商品价格管理仍维护阶梯价模板，商品价格表没有阶梯模板抽屉。
+  - RED API/support: `go test ./internal/application/catalog ./internal/application/costing ./internal/interfaces/http/catalog ./internal/interfaces/http/support -run 'TestPricingRuleAndPriceTierTemplateServicesUseNewPriceListModel|TestPublishBeanListAcceptsPricingRuleAndFixedPriceModes|TestPublishBeanListRequiresPR440PriceListSnapshotMetadata|TestPriceTierTemplateAPIUsesReusableQuantityTiers|TestPriceTierTemplateAPISoftDeletesTemplate|TestDev441' -count=1` failed before implementation because后端缺少档位 Pricing Rule 字段、删除 API、模式化发布校验和 PR-441 文档/种子。
+  - GREEN targeted frontend: `node --test src/lib/product-settings.test.js src/lib/bean-list-pdf.test.js` passed 147/147; broader `node --test src/lib/product-settings.test.js src/lib/bean-list-pdf.test.js src/lib/product-bean-list-split.test.js src/lib/costing-bean-list-version-ui.test.js` passed 177/177.
+  - GREEN targeted backend/support: `go test ./internal/application/catalog ./internal/application/costing ./internal/interfaces/http/catalog ./internal/interfaces/http/support -run 'TestPricingRuleAndPriceTierTemplateServicesUseNewPriceListModel|TestPublishBeanListAcceptsPricingRuleAndFixedPriceModes|TestPublishBeanListRequiresPR440PriceListSnapshotMetadata|TestPriceTierTemplateAPIUsesReusableQuantityTiers|TestPriceTierTemplateAPISoftDeletesTemplate|TestDev441' -count=1`; broader `go test ./internal/application/catalog ./internal/application/costing ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1`; `go test ./internal/interfaces/http/support -count=1`.
+  - GREEN scenario dry-run: `python3 scripts/scenario_acceptance.py --dry-run` prints the bounded `POST_DEPLOY_ACCEPTANCE_SCENARIOS` with generated customer/material/product/group/Pricing Rule/阶梯模板/customer-reference/price-list/order data and cleanup.
+  - GREEN full local: `npm run build` in `frontend-vue-shell`; `go test ./...` in `orderapp-remote`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-07-price-list-tier-template-modes.md`.
+- Last update: 2026-06-07 Asia/Shanghai
+
 ### PR-440-PRODUCT-GROUP-PRICE-REMODEL
 - Branch: codex/product-group-price-remodel-20260607
 - Owner/session: Codex / 2026-06-07

@@ -83,14 +83,14 @@ func TestDev440ProductGroupPriceRemodelFrontendAndDocs(t *testing.T) {
 			"客户引用",
 			"分组管理",
 			"价格计算模板 / Pricing Rule",
-			"商品 > 子组 > 父组 > 默认",
+			"商品 > 子类 > 父类 > 价格表",
 			"平铺价格行",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"Price List / Item Price",
 			"data-pr440-price-list-model",
 			"分组项选品",
-			"商品 &gt; 子组 &gt; 父组 &gt; 默认",
+			"商品 &gt; 子类 &gt; 父类 &gt; 价格表",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "OrderEntryView.vue"): {
 			"选择价格表",
@@ -119,7 +119,7 @@ func TestDev440ProductGroupPriceRemodelFrontendAndDocs(t *testing.T) {
 			"PR-440-PRODUCT-GROUP-PRICE-REMODEL",
 			"分组管理",
 			"价格计算模板",
-			"商品 > 子组 > 父组 > 默认",
+			"商品 > 子类 > 父类 > 价格表",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-440-PRODUCT-GROUP-PRICE-REMODEL",
