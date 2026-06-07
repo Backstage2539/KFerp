@@ -17,4 +17,8 @@
 ## 证据
 - Target Go/API: `go test ./internal/infrastructure/postgres/catalog ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/stock ./internal/interfaces/http/support -run 'TestBusinessGroupAssignmentsSupportStringObjectRefsAndAudit|TestProductWritesUseBusinessGroupAssignmentsInsteadOfLegacyCategoryColumns|TestProductionBomGroupingUsesBusinessGroupAssignments|TestProductionBomLegacyGroupWritesAreReadonlyCompatibility|TestWarehouseInventoryGroupingUsesWarehouseBusinessGroupAssignments|TestDev442' -count=1`
 - Frontend: `node --test src/lib/product-settings.test.js`
-- Full verification and browser acceptance are recorded in `ACTIVE_REQUIREMENTS.md` after deployment.
+- Full verification: `node --test src/lib/product-settings.test.js src/lib/bean-list-pdf.test.js src/lib/product-bean-list-split.test.js src/lib/costing-bean-list-version-ui.test.js`, `npm run build`, `go test ./...`, `scripts/verify_kferp.sh changed`, `git diff --check`.
+- Deploy: `origin/develop=627c1befccfaad0de9a7592ff2fa09d00d80423c` deployed to development. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260607205547`.
+- Post-deploy scenario: `PR442-SCENARIO-20260607-BNQEZR` passed through generated customer/material/product/group/BOM/warehouse归组/Pricing Rule/阶梯模板/customer reference/price list/order, then cleanup returned OK for all generated data.
+- Cleanup verification: `/api/stock/warehouse-inventory?q=PR442-SCENARIO-20260607-BNQEZR` returned 0 rows; generated material `53` has `onhand_g=0` and batch-location sum `0`; `/api/business-groups?usage_key=warehouse_inventory` returned no `PR442-SCENARIO` groups.
+- Browser acceptance: 商品档案、分组管理、生产 BOM、仓库库存、商品价格表、录单 all loaded in deployed Vue shell with no SQL/TypeError/加载失败 text; 仓库库存 displayed `库存分组` and no `PR442-SCENARIO` residue.
