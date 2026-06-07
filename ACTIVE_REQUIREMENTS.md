@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-447-PRICE-LIST-SELECTION-COMPACT
 - Branch: codex/price-list-selection-compact
 - Owner/session: Codex / 2026-06-08
-- Status: local verified; pending review/merge/development deploy
+- Status: merged to develop and deployed to development; pending Van product acceptance
 - Scope: PR-445 验收反馈。商品价格表生成抽屉的“选择分类和产品”区域继续保留 A/B 位置，但默认只显示勾选、名称、款数和计价/展示状态摘要；父类/子类计价、商品行计价、标签和标红词改为按需展开编辑，避免选品区看起来像配置表。
 - DEV:
   - DEV-447-PRICE-LIST-CATEGORY-COMPACT：分类头默认显示父类/子类计价摘要和覆盖状态，点开“计价”后才展示父类计价、子类计价下拉。
@@ -20,6 +20,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Support/API contract: `go test ./internal/interfaces/http/support -run TestDev447PriceListSelectionCompactContracts -count=1` passed; `go test ./internal/interfaces/http/support -run 'TestDev44(5|7)PriceList' -count=1` passed.
   - Build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
   - Browser: local mocked Vue shell `http://127.0.0.1:5182/vue-shell/?view=costing` rendered 商品价格表生成抽屉; default state showed 1 category summary and 1 product summary with 0 category/product pricing/display config panels; clicking category `计价` showed 父类计价/子类计价; clicking product `计价` showed 商品行计价; clicking product `展示` showed label and 标红词 input; browser console errors 0. Screenshot: `/tmp/pr447-price-list-selection-compact.png`.
+  - Deployment smoke: development stack deployed and rendered `https://erp.qacoohee.com/app/vue-shell/?view=costing`; deployed drawer default state showed category/product summaries with 0 pricing/display config panels, interaction opened category `计价`, product `计价`, and product `展示`, browser console errors 0. Screenshot: `/tmp/pr447-deployed-price-list-selection-compact.png`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
