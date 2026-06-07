@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-447-PRICE-LIST-SELECTION-COMPACT
+- Branch: codex/price-list-selection-compact
+- Owner/session: Codex / 2026-06-08
+- Status: local verified; pending review/merge/development deploy
+- Scope: PR-445 验收反馈。商品价格表生成抽屉的“选择分类和产品”区域继续保留 A/B 位置，但默认只显示勾选、名称、款数和计价/展示状态摘要；父类/子类计价、商品行计价、标签和标红词改为按需展开编辑，避免选品区看起来像配置表。
+- DEV:
+  - DEV-447-PRICE-LIST-CATEGORY-COMPACT：分类头默认显示父类/子类计价摘要和覆盖状态，点开“计价”后才展示父类计价、子类计价下拉。
+  - DEV-447-PRICE-LIST-PRODUCT-COMPACT：商品行默认显示商品行计价和展示摘要，点开“计价”后才展示商品行计价下拉，点开“展示”后才展示标签和标红词。
+- Verifier:
+  - Frontend RED: `node --test src/lib/costing-bean-list-version-ui.test.js` failed before implementation because `category-pricing-summary` was missing.
+  - Frontend GREEN: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 15/15; `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/bean-list-pdf.test.js src/lib/product-settings.test.js` passed 164/164.
+  - Support/API contract: `go test ./internal/interfaces/http/support -run TestDev447PriceListSelectionCompactContracts -count=1` passed; `go test ./internal/interfaces/http/support -run 'TestDev44(5|7)PriceList' -count=1` passed.
+  - Build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Browser: local mocked Vue shell `http://127.0.0.1:5182/vue-shell/?view=costing` rendered 商品价格表生成抽屉; default state showed 1 category summary and 1 product summary with 0 category/product pricing/display config panels; clicking category `计价` showed 父类计价/子类计价; clicking product `计价` showed 商品行计价; clicking product `展示` showed label and 标红词 input; browser console errors 0. Screenshot: `/tmp/pr447-price-list-selection-compact.png`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
 ### PR-446-GROUP-DEFAULT-LABEL-HIDE-FOLLOWUP
 - Branch: codex/group-assignment-display-move
 - Owner/session: Codex / 2026-06-07

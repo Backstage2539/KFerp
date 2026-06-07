@@ -252,6 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-447-PRICE-LIST-SELECTION-COMPACT", title: "商品价格表生成抽屉选品区降噪：分类和商品默认显示摘要，计价和展示配置按需展开", status: "review", assignee: "VA", evidence: "ACTIVE_REQUIREMENTS.md; CostingView.vue; costing-bean-list-version-ui.test.js; docs/acceptance/2026-06-08-price-list-selection-compact.md"},
+		{table: "req_dev", code: "DEV-447-PRICE-LIST-CATEGORY-COMPACT", title: "分类头 A 位置默认显示父类/子类计价摘要和覆盖状态，点击计价后展开父类计价和子类计价配置", status: "done", assignee: "Codex", evidence: "CostingView.vue; costing-bean-list-version-ui.test.js"},
+		{table: "req_dev", code: "DEV-447-PRICE-LIST-PRODUCT-COMPACT", title: "商品勾选行 B 位置默认显示商品行计价和展示摘要，点击计价或展示后展开商品行计价、标签和标红词配置", status: "done", assignee: "Codex", evidence: "CostingView.vue; costing-bean-list-version-ui.test.js"},
+		{table: "req_review", code: "REV-447-PRICE-LIST-SELECTION-COMPACT", prCode: "PR-447-PRICE-LIST-SELECTION-COMPACT", title: "验收：选品区默认不常驻配置表，分类和商品按需展开计价/展示配置", status: "todo", assignee: "VA", evidence: "docs/acceptance/2026-06-08-price-list-selection-compact.md"},
 		{table: "req_product", code: "PR-445-PRICE-LIST-INLINE-SELECTION-CONFIG", title: "商品价格表生成抽屉计价配置内联到选品位置：分类头处理父类/子类，商品行处理单品覆盖", status: "review", assignee: "VA", evidence: "ACTIVE_REQUIREMENTS.md; CostingView.vue; costing-bean-list-version-ui.test.js; docs/acceptance/2026-06-07-price-list-inline-selection-config.md"},
 		{table: "req_dev", code: "DEV-445-PRICE-LIST-CATEGORY-INLINE-CONFIG", title: "生成价格表抽屉取消独立父类/子类配置表，在分类头 A 位置直接维护父类和子类计价配置", status: "done", assignee: "Codex", evidence: "CostingView.vue; costing-bean-list-version-ui.test.js"},
 		{table: "req_dev", code: "DEV-445-PRICE-LIST-PRODUCT-INLINE-CONFIG", title: "生成价格表抽屉取消独立商品行覆盖表，在商品勾选行 B 位置直接维护商品计价覆盖", status: "done", assignee: "Codex", evidence: "CostingView.vue; costing-bean-list-version-ui.test.js"},

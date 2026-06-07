@@ -593,7 +593,18 @@
                   <span>{{ category.label }}</span>
                 </label>
                 <span class="muted">{{ selectedCountForCategory(category.code) }}/{{ category.items.length }} 款</span>
-                <div class="category-inline-pricing-config">
+                <div class="category-pricing-summary">
+                  <button
+                    type="button"
+                    :class="['price-list-summary-button', { active: isPriceListCategoryPricingOpen(category), overridden: priceListCategoryPricingHasOverride(category) }]"
+                    @click.stop="togglePriceListCategoryPricingPanel(category)"
+                  >
+                    <span>计价</span>
+                    <strong>{{ priceListCategoryPricingSummary(category) }}</strong>
+                    <small v-if="priceListCategoryPricingHasOverride(category)">已覆盖</small>
+                  </button>
+                </div>
+                <div v-if="isPriceListCategoryPricingOpen(category)" class="category-inline-pricing-config">
                   <label class="inline-price-config">
                     <span>父类计价</span>
                     <div class="inline-price-config-controls">
@@ -646,7 +657,27 @@
                     <input type="checkbox" :checked="isPdfProductSelected(itemProductID(row))" @change="togglePdfProduct(itemProductID(row), $event.target.checked)" />
                     <span>{{ beanMeta(row, metaKeyForListType(pdfTheme.listType)).code }} {{ beanName(row, metaKeyForListType(pdfTheme.listType)) }}</span>
                   </label>
-                  <div v-if="isPdfProductSelected(itemProductID(row))" class="product-inline-pricing-config">
+                  <div v-if="isPdfProductSelected(itemProductID(row))" class="product-compact-status">
+                    <button
+                      type="button"
+                      :class="['price-list-summary-button', { active: isPriceListProductPanelOpen(priceListProductRowForItem(row), 'pricing'), overridden: priceListProductPricingHasOverride(priceListProductRowForItem(row)) }]"
+                      @click.stop="togglePriceListProductPanel(priceListProductRowForItem(row), 'pricing')"
+                    >
+                      <span>计价</span>
+                      <strong>{{ priceListProductPricingSummary(priceListProductRowForItem(row)) }}</strong>
+                      <small v-if="priceListProductPricingHasOverride(priceListProductRowForItem(row))">已覆盖</small>
+                    </button>
+                    <button
+                      type="button"
+                      :class="['price-list-summary-button', { active: isPriceListProductPanelOpen(priceListProductRowForItem(row), 'display'), overridden: priceListProductDisplayHasOverride(itemProductID(row)) }]"
+                      @click.stop="togglePriceListProductPanel(priceListProductRowForItem(row), 'display')"
+                    >
+                      <span>展示</span>
+                      <strong>{{ priceListProductDisplaySummary(itemProductID(row)) }}</strong>
+                      <small v-if="priceListProductDisplayHasOverride(itemProductID(row))">已设置</small>
+                    </button>
+                  </div>
+                  <div v-if="isPdfProductSelected(itemProductID(row)) && isPriceListProductPanelOpen(priceListProductRowForItem(row), 'pricing')" class="product-inline-pricing-config">
                     <span>商品行计价</span>
                     <select :value="priceListProductTemplateOverride(priceListProductRowForItem(row)).pricing_mode" @change="setPriceListProductTemplate(priceListProductRowForItem(row), 'pricing_mode', $event.target.value)">
                       <option value="">继承子类</option>
@@ -668,7 +699,7 @@
                     <span v-else class="muted">继承子类配置</span>
                   </div>
                 </div>
-                <div class="customizer-row">
+                <div v-if="isPdfProductSelected(itemProductID(row)) && isPriceListProductPanelOpen(priceListProductRowForItem(row), 'display')" class="customizer-row product-display-config">
                   <select :value="customizerField(itemProductID(row), 'badge')" @change="setCustomizerField(itemProductID(row), 'badge', $event.target.value)">
                     <option value="">无标签</option>
                     <option value="new">NEW 上新</option>
@@ -1090,6 +1121,8 @@ const priceListParentTemplateSelections = ref({})
 const priceListGroupTemplateSelections = ref({})
 const priceListProductTemplateOverrides = ref({})
 const priceListFlatRowOverrides = ref({})
+const priceListCategoryPricingOpen = ref({})
+const priceListProductPanelsOpen = ref({})
 const tierTemplateDrawerOpen = ref(false)
 const tierTemplateSaving = ref(false)
 const priceTierTemplateForm = ref(defaultPriceTierTemplateForm())
@@ -1630,6 +1663,104 @@ function priceListGroupTemplateSelection(group = {}) {
 
 function priceListProductTemplateOverride(row = {}) {
   return priceListProductTemplateOverrides.value[String(row.product_id || row.product_key || '')] || defaultPriceListTemplateSelection()
+}
+
+function priceListCategoryPricingPanelKey(group = {}) {
+  const row = priceListGroupConfigRow(group)
+  return String(row.key || row.group_item_id || row.parent_group_item_id || '')
+}
+
+function isPriceListCategoryPricingOpen(group = {}) {
+  return Boolean(priceListCategoryPricingOpen.value[priceListCategoryPricingPanelKey(group)])
+}
+
+function togglePriceListCategoryPricingPanel(group = {}) {
+  const key = priceListCategoryPricingPanelKey(group)
+  const next = { ...priceListCategoryPricingOpen.value }
+  if (next[key]) delete next[key]
+  else next[key] = true
+  priceListCategoryPricingOpen.value = next
+}
+
+function priceListProductPanelKey(row = {}, panel = '') {
+  return `${String(row.product_id || row.product_key || '')}:${String(panel || '')}`
+}
+
+function isPriceListProductPanelOpen(row = {}, panel = '') {
+  return Boolean(priceListProductPanelsOpen.value[priceListProductPanelKey(row, panel)])
+}
+
+function togglePriceListProductPanel(row = {}, panel = '') {
+  const key = priceListProductPanelKey(row, panel)
+  const productKey = String(row.product_id || row.product_key || '')
+  const next = { ...priceListProductPanelsOpen.value }
+  const shouldOpen = !next[key]
+  Object.keys(next).forEach((openKey) => {
+    if (openKey.startsWith(`${productKey}:`)) delete next[openKey]
+  })
+  if (shouldOpen) next[key] = true
+  priceListProductPanelsOpen.value = next
+}
+
+function priceListCategoryPricingHasOverride(group = {}) {
+  return priceListTemplateHasOverride(priceListParentTemplateSelection(group)) || priceListTemplateHasOverride(priceListGroupTemplateSelection(group))
+}
+
+function priceListProductPricingHasOverride(row = {}) {
+  return priceListTemplateHasOverride(priceListProductTemplateOverride(row))
+}
+
+function priceListTemplateSummary(selection = {}, fallback = '继承') {
+  if (!priceListTemplateHasOverride(selection)) return fallback
+  const mode = String(selection.pricing_mode || '').trim()
+  if (mode === 'tier_template') {
+    const templateID = Number(selection.tier_template_id || 0)
+    const template = priceTierTemplates.value.find((row) => Number(row.id || 0) === templateID)
+    return template ? priceTierTemplateLabel(template) : priceTablePricingModeLabel(mode)
+  }
+  if (mode === 'pricing_rule') {
+    const ruleID = Number(selection.pricing_rule_id || 0)
+    const rule = pricingRules.value.find((row) => Number(row.id || 0) === ruleID)
+    return rule ? pricingRuleLabel(rule) : priceTablePricingModeLabel(mode)
+  }
+  if (mode === 'fixed_price') {
+    const price = Number(selection.fixed_unit_price || 0)
+    return price > 0 ? `固定价 ${price}` : priceTablePricingModeLabel(mode)
+  }
+  return priceTablePricingModeLabel(mode)
+}
+
+function priceListCategoryPricingSummary(group = {}) {
+  return `父类：${priceListTemplateSummary(priceListParentTemplateSelection(group), '继承价格表')}；子类：${priceListTemplateSummary(priceListGroupTemplateSelection(group), '继承父类')}`
+}
+
+function priceListProductPricingSummary(row = {}) {
+  return priceListTemplateSummary(priceListProductTemplateOverride(row), '继承子类')
+}
+
+function priceListBadgeLabel(value) {
+  switch (String(value || '').trim()) {
+  case 'new':
+    return 'NEW 上新'
+  case 'thumb':
+  case 'medal':
+    return '推荐'
+  default:
+    return ''
+  }
+}
+
+function priceListProductDisplayHasOverride(id) {
+  return Boolean(String(customizerField(id, 'badge') || '').trim() || String(customizerField(id, 'highlightTerms') || '').trim())
+}
+
+function priceListProductDisplaySummary(id) {
+  const parts = []
+  const badge = priceListBadgeLabel(customizerField(id, 'badge'))
+  const highlight = String(customizerField(id, 'highlightTerms') || '').trim()
+  if (badge) parts.push(badge)
+  if (highlight) parts.push('标红词')
+  return parts.length ? parts.join(' / ') : '无标签'
 }
 
 function setPriceListDefaultTemplate(field, value) {
@@ -3333,6 +3464,13 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .product-picker-list { display: grid; gap: 10px; max-height: 420px; overflow: auto; }
 .product-picker-category { display: grid; gap: 8px; border: 1px solid #ddd; border-radius: 8px; padding: 10px; background: #fff; }
 .product-picker-category-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; align-items: start; padding-bottom: 8px; border-bottom: 1px solid #eee; }
+.category-pricing-summary, .product-compact-status { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.price-list-summary-button { min-height: 34px; border: 1px solid #ddd; border-radius: 7px; background: #fff; color: inherit; padding: 5px 8px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px; text-align: left; cursor: pointer; min-width: min(100%, 240px); max-width: 100%; }
+.price-list-summary-button span { color: #666; font-size: 12px; line-height: 1.2; }
+.price-list-summary-button strong { color: #222; font-size: 12px; line-height: 1.25; font-weight: 700; overflow-wrap: anywhere; }
+.price-list-summary-button small { border: 1px solid #f0d6a8; border-radius: 999px; background: #fff7e8; color: #8a4b00; padding: 2px 6px; font-size: 11px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
+.price-list-summary-button.active { border-color: #86afe8; background: #f5f9ff; }
+.price-list-summary-button.overridden:not(.active) { border-color: #f0d6a8; background: #fffaf0; }
 .category-inline-pricing-config { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .inline-price-config { display: grid; gap: 5px; margin: 0; min-width: 0; }
 .inline-price-config > span, .product-inline-pricing-config > span { color: #666; font-size: 12px; line-height: 1.35; }

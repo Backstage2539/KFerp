@@ -249,6 +249,45 @@ test('price list generation config is edited inline at category and product sele
   }
 })
 
+test('price list product selection keeps pricing and display controls collapsed until requested', () => {
+  const productSelectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
+  const flatRowStart = viewSource.indexOf('<div class="pdf-picker flat-price-row-editor">')
+  assert.ok(productSelectionStart > -1 && flatRowStart > productSelectionStart, 'missing product selection block')
+
+  const selectionSource = viewSource.slice(productSelectionStart, flatRowStart)
+  const categoryHeadStart = selectionSource.indexOf('class="product-picker-category-head"')
+  const categoryHeadEnd = selectionSource.indexOf('<article v-for="row in category.items"', categoryHeadStart)
+  const productRowStart = selectionSource.indexOf('<article v-for="row in category.items"')
+  const productRowEnd = selectionSource.indexOf('<div v-if="pdfTheme.listType ===', productRowStart)
+  assert.ok(categoryHeadStart > -1 && categoryHeadEnd > categoryHeadStart, 'missing category selection head block')
+  assert.ok(productRowStart > -1 && productRowEnd > productRowStart, 'missing product selection row block')
+
+  const categoryHeadSource = selectionSource.slice(categoryHeadStart, categoryHeadEnd)
+  const productRowSource = selectionSource.slice(productRowStart, productRowEnd)
+
+  for (const expected of [
+    'category-pricing-summary',
+    'priceListCategoryPricingSummary(category)',
+    'priceListCategoryPricingHasOverride(category)',
+    'togglePriceListCategoryPricingPanel(category)',
+    'isPriceListCategoryPricingOpen(category)',
+  ]) {
+    assert.ok(categoryHeadSource.includes(expected), `missing collapsed category pricing behavior: ${expected}`)
+  }
+
+  for (const expected of [
+    'product-compact-status',
+    'priceListProductPricingSummary(priceListProductRowForItem(row))',
+    'priceListProductDisplaySummary(itemProductID(row))',
+    "togglePriceListProductPanel(priceListProductRowForItem(row), 'pricing')",
+    "togglePriceListProductPanel(priceListProductRowForItem(row), 'display')",
+    "isPriceListProductPanelOpen(priceListProductRowForItem(row), 'pricing')",
+    "isPriceListProductPanelOpen(priceListProductRowForItem(row), 'display')",
+  ]) {
+    assert.ok(productRowSource.includes(expected), `missing collapsed product row behavior: ${expected}`)
+  }
+})
+
 test('product bean-list drawer derives publication owner from current page scope', () => {
   for (const expected of [
     '当前归属',
