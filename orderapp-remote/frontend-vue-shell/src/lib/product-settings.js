@@ -231,6 +231,36 @@ function flattenBusinessGroupItems(items = [], parent = null, out = []) {
   return out
 }
 
+export function businessGroupItemsTree(items = []) {
+  const flat = flattenBusinessGroupItems(items)
+    .filter((item) => item?.active !== false)
+    .map((item) => ({
+      ...item,
+      id: Number(item.id || 0),
+      group_id: Number(item.group_id ?? item.groupID ?? 0) || 0,
+      parent_id: Number(item.parent_id ?? item.parentID ?? 0) || 0,
+      sort_order: Number(item.sort_order ?? item.sortOrder ?? item.position ?? 100) || 100,
+      children: [],
+    }))
+    .filter((item) => item.id > 0)
+  const byID = new Map(flat.map((item) => [Number(item.id || 0), item]))
+  const roots = []
+  for (const item of flat) {
+    const parent = byID.get(Number(item.parent_id || 0))
+    if (parent && Number(parent.id || 0) !== Number(item.id || 0)) {
+      parent.children.push(item)
+    } else {
+      roots.push(item)
+    }
+  }
+  const sortItems = (rows = []) => {
+    rows.sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
+    for (const row of rows) sortItems(row.children || [])
+    return rows
+  }
+  return sortItems(roots)
+}
+
 function businessGroupByID(groups = [], groupID = 0) {
   const id = Number(groupID || 0)
   return (Array.isArray(groups) ? groups : []).find((group) => Number(group?.id || 0) === id) || null

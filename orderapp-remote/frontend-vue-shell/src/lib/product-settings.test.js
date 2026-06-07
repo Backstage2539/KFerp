@@ -20,6 +20,7 @@ import {
   classificationTemplateUnitPriceWarnings,
   productCategoryAssignmentLabel,
   businessGroupAssignmentLabel,
+  businessGroupItemsTree,
   productCatalogGroupOfProduct,
   customerProductAliasRowsForCustomer,
   industryFieldOptionsJSONFromText,
@@ -2723,6 +2724,19 @@ test('product settings uses product business groups instead of product classific
   assert.doesNotMatch(groupManagementWorkspace, /\/api\/product-settings\/categories/)
   assert.doesNotMatch(source, /classification-config-drawer/)
   assert.doesNotMatch(source, /aria-label="分类配置"/)
+})
+
+test('business group management rebuilds flat parent-child items for subcategory display', () => {
+  const tree = businessGroupItemsTree([
+    { id: 11, group_id: 6, parent_id: 0, name: '熟豆', sort_order: 20, active: true },
+    { id: 12, group_id: 6, parent_id: 11, name: '意式拼配', sort_order: 10, active: true },
+    { id: 13, group_id: 6, parent_id: 0, name: '生豆', sort_order: 10, active: true },
+    { id: 14, group_id: 6, parent_id: 11, name: '单品豆', sort_order: 20, active: false },
+  ])
+
+  assert.deepEqual(tree.map((item) => item.name), ['生豆', '熟豆'])
+  assert.deepEqual(tree.find((item) => item.id === 11)?.children.map((item) => item.name), ['意式拼配'])
+  assert.equal(tree.find((item) => item.id === 12), undefined, 'child items must not render as top-level big groups')
 })
 
 test('customer product aliases use page-level classification templates, not single or batch fields', () => {
