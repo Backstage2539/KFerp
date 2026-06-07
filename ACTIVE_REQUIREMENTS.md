@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-441-PRICE-LIST-TIER-TEMPLATE-MODES
 - Branch: codex/price-list-tier-template-modes
 - Owner/session: Codex / 2026-06-07
-- Status: local implementation verified; pending feature-branch integration, development deploy, scenario acceptance, and browser acceptance
+- Status: merged to develop and deployed to development; post-deploy self-cleaning API scenario, smoke, and browser acceptance passed; pending Van product acceptance
 - Scope: “阶梯价模板”改名为“阶梯模板”并移动到商品价格表；商品价格管理只维护价格计算模板。商品价格表默认、父类、子类、商品行支持三种计价模式：按阶梯模板计算、按价格计算模板计算、固定价；继承顺序固定为 `商品 > 子类 > 父类 > 价格表`。
 - DEV:
   - DEV-441-TIER-TEMPLATE-DRAWER：商品价格表新增阶梯模板抽屉，支持新增、查看、编辑、软删除；每个档位引用一个价格计算模板。
@@ -22,6 +22,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN targeted backend/support: `go test ./internal/application/catalog ./internal/application/costing ./internal/interfaces/http/catalog ./internal/interfaces/http/support -run 'TestPricingRuleAndPriceTierTemplateServicesUseNewPriceListModel|TestPublishBeanListAcceptsPricingRuleAndFixedPriceModes|TestPublishBeanListRequiresPR440PriceListSnapshotMetadata|TestPriceTierTemplateAPIUsesReusableQuantityTiers|TestPriceTierTemplateAPISoftDeletesTemplate|TestDev441' -count=1`; broader `go test ./internal/application/catalog ./internal/application/costing ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1`; `go test ./internal/interfaces/http/support -count=1`.
   - GREEN scenario dry-run: `python3 scripts/scenario_acceptance.py --dry-run` prints the bounded `POST_DEPLOY_ACCEPTANCE_SCENARIOS` with generated customer/material/product/group/Pricing Rule/阶梯模板/customer-reference/price-list/order data and cleanup.
   - GREEN full local: `npm run build` in `frontend-vue-shell`; `go test ./...` in `orderapp-remote`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN integration/deploy: feature branch pushed; `origin/develop=1e08dccc401c9a4d7c4f450e463eba2133c1134b` deployed to development. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260607164915`. Deploy script ran Vue build, miniapp typecheck/build, Docker image build, and container-internal `go test ./...`.
+  - GREEN smoke/docs: `erp_orderapp` Up, `erp_postgres` healthy, `/app/` returned 303, authenticated `/app/vue-shell/?view=costing` returned 200, deployed docs expose `PR-441-PRICE-LIST-TIER-TEMPLATE-MODES`.
+  - GREEN post-deploy scenario: `python3 scripts/scenario_acceptance.py --base-url https://erp.qacoohee.com/app --basic-auth <redacted> --allow-writes` passed with run `PR440-SCENARIO-20260607-OYCLY6`; created customer `174`, material `50`, product `544`, group `5`, Pricing Rule `5`, tier template `5`, customer reference `5`, price-list publication `61`, order `1528`.
+  - GREEN cleanup evidence: database check confirmed order `1528` voided, publication `61` withdrawn, product `544` inactive, customer `174` inactive, material `50` deprecated, group/Pricing Rule/tier template/customer reference `5` inactive, and temporary `pr441-browser-*` login sessions count is `0`.
+  - GREEN browser acceptance: deployed Vue shell shows 商品价格管理 only has `价格计算模板 / Pricing Rule`; 商品价格表 generation drawer exposes `按阶梯模板计算`、`按价格计算模板计算`、`固定价` and `商品 > 子类 > 父类 > 价格表`; `管理阶梯模板` drawer supports new/save/delete and tier Pricing Rule selection; 录单 shows price-list entry; 销售单 `order_id=1528` shows `报价来源` and `生产来源`. Screenshots: `/tmp/pr441-price-management.png`, `/tmp/pr441-price-list.png`, `/tmp/pr441-price-list-tier-drawer.png`, `/tmp/pr441-order-entry.png`, `/tmp/pr441-sales-order.png`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-07-price-list-tier-template-modes.md`.
 - Last update: 2026-06-07 Asia/Shanghai
 
