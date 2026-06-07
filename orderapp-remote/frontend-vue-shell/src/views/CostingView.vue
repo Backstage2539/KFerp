@@ -573,82 +573,7 @@
               <input type="number" min="0" step="0.01" :value="priceListTemplateDefaults.fixed_unit_price" @input="setPriceListDefaultTemplate('fixed_unit_price', $event.target.value)" />
             </label>
           </div>
-          <div class="template-table" v-if="priceListGroupTemplateRows.length">
-            <div class="template-table-head">
-              <span>分组项选品</span>
-              <span>父类计价配置</span>
-              <span>子类计价配置</span>
-            </div>
-            <div v-for="group in priceListGroupTemplateRows" :key="`template-group-${group.key}`" class="template-table-row">
-              <strong>{{ group.label }}</strong>
-              <div class="template-select-pair">
-                <select :value="priceListParentTemplateSelection(group).pricing_mode" @change="setPriceListParentTemplate(group, 'pricing_mode', $event.target.value)">
-                  <option value="">继承价格表</option>
-                  <option v-for="mode in priceTablePricingModeOptions" :key="`parent-mode-${group.key}-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
-                </select>
-                <template v-if="priceListParentTemplateSelection(group).pricing_mode === 'tier_template'">
-                  <select :value="priceListParentTemplateSelection(group).tier_template_id" @change="setPriceListParentTemplate(group, 'tier_template_id', $event.target.value)">
-                    <option :value="0">继承价格表阶梯</option>
-                    <option v-for="template in priceTierTemplates" :key="`parent-tier-${group.key}-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
-                  </select>
-                </template>
-                <template v-else-if="priceListParentTemplateSelection(group).pricing_mode === 'pricing_rule'">
-                  <select :value="priceListParentTemplateSelection(group).pricing_rule_id" @change="setPriceListParentTemplate(group, 'pricing_rule_id', $event.target.value)">
-                    <option :value="0">继承价格表计算</option>
-                    <option v-for="rule in pricingRules" :key="`parent-rule-${group.key}-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
-                  </select>
-                </template>
-                <input v-else-if="priceListParentTemplateSelection(group).pricing_mode === 'fixed_price'" type="number" min="0" step="0.01" :value="priceListParentTemplateSelection(group).fixed_unit_price" placeholder="固定价" @input="setPriceListParentTemplate(group, 'fixed_unit_price', $event.target.value)" />
-              </div>
-              <div class="template-select-pair">
-                <select :value="priceListGroupTemplateSelection(group).pricing_mode" @change="setPriceListGroupTemplate(group, 'pricing_mode', $event.target.value)">
-                  <option value="">继承父类</option>
-                  <option v-for="mode in priceTablePricingModeOptions" :key="`group-mode-${group.key}-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
-                </select>
-                <template v-if="priceListGroupTemplateSelection(group).pricing_mode === 'tier_template'">
-                  <select :value="priceListGroupTemplateSelection(group).tier_template_id" @change="setPriceListGroupTemplate(group, 'tier_template_id', $event.target.value)">
-                    <option :value="0">继承父类阶梯</option>
-                    <option v-for="template in priceTierTemplates" :key="`group-tier-${group.key}-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
-                  </select>
-                </template>
-                <template v-else-if="priceListGroupTemplateSelection(group).pricing_mode === 'pricing_rule'">
-                  <select :value="priceListGroupTemplateSelection(group).pricing_rule_id" @change="setPriceListGroupTemplate(group, 'pricing_rule_id', $event.target.value)">
-                    <option :value="0">继承父类计算</option>
-                    <option v-for="rule in pricingRules" :key="`group-rule-${group.key}-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
-                  </select>
-                </template>
-                <input v-else-if="priceListGroupTemplateSelection(group).pricing_mode === 'fixed_price'" type="number" min="0" step="0.01" :value="priceListGroupTemplateSelection(group).fixed_unit_price" placeholder="固定价" @input="setPriceListGroupTemplate(group, 'fixed_unit_price', $event.target.value)" />
-              </div>
-            </div>
-          </div>
-          <div class="template-table" v-if="priceListProductOverrideRows.length">
-            <div class="template-table-head product-override-head">
-              <span>商品行</span>
-              <span>计价模式</span>
-              <span>计价参数</span>
-            </div>
-            <div v-for="row in priceListProductOverrideRows" :key="`template-product-${row.product_id}`" class="template-table-row product-override-row">
-              <strong>{{ row.product_name }}</strong>
-              <select :value="priceListProductTemplateOverride(row).pricing_mode" @change="setPriceListProductTemplate(row, 'pricing_mode', $event.target.value)">
-                <option value="">继承子类</option>
-                <option v-for="mode in priceTablePricingModeOptions" :key="`product-mode-${row.product_id}-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
-              </select>
-              <template v-if="priceListProductTemplateOverride(row).pricing_mode === 'tier_template'">
-                <select :value="priceListProductTemplateOverride(row).tier_template_id" @change="setPriceListProductTemplate(row, 'tier_template_id', $event.target.value)">
-                  <option :value="0">继承子类阶梯</option>
-                  <option v-for="template in priceTierTemplates" :key="`product-tier-${row.product_id}-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
-                </select>
-              </template>
-              <template v-else-if="priceListProductTemplateOverride(row).pricing_mode === 'pricing_rule'">
-                <select :value="priceListProductTemplateOverride(row).pricing_rule_id" @change="setPriceListProductTemplate(row, 'pricing_rule_id', $event.target.value)">
-                  <option :value="0">继承子类计算</option>
-                  <option v-for="rule in pricingRules" :key="`product-rule-${row.product_id}-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
-                </select>
-              </template>
-              <input v-else-if="priceListProductTemplateOverride(row).pricing_mode === 'fixed_price'" type="number" min="0" step="0.01" :value="priceListProductTemplateOverride(row).fixed_unit_price" placeholder="固定价" @input="setPriceListProductTemplate(row, 'fixed_unit_price', $event.target.value)" />
-              <span v-else class="muted">继承子类配置</span>
-            </div>
-          </div>
+          <p class="muted inline-pricing-config-note">分类和单品计价直接在下方选品位置处理，发布时仍按 商品 &gt; 子类 &gt; 父类 &gt; 价格表 解析。</p>
         </div>
 
         <div class="pdf-picker productSelection">
@@ -668,12 +593,81 @@
                   <span>{{ category.label }}</span>
                 </label>
                 <span class="muted">{{ selectedCountForCategory(category.code) }}/{{ category.items.length }} 款</span>
+                <div class="category-inline-pricing-config">
+                  <label class="inline-price-config">
+                    <span>父类计价</span>
+                    <div class="inline-price-config-controls">
+                      <select :value="priceListParentTemplateSelection(category).pricing_mode" @change="setPriceListParentTemplate(category, 'pricing_mode', $event.target.value)">
+                        <option value="">继承价格表</option>
+                        <option v-for="mode in priceTablePricingModeOptions" :key="`parent-mode-${category.code}-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
+                      </select>
+                      <template v-if="priceListParentTemplateSelection(category).pricing_mode === 'tier_template'">
+                        <select :value="priceListParentTemplateSelection(category).tier_template_id" @change="setPriceListParentTemplate(category, 'tier_template_id', $event.target.value)">
+                          <option :value="0">继承价格表阶梯</option>
+                          <option v-for="template in priceTierTemplates" :key="`parent-tier-${category.code}-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
+                        </select>
+                      </template>
+                      <template v-else-if="priceListParentTemplateSelection(category).pricing_mode === 'pricing_rule'">
+                        <select :value="priceListParentTemplateSelection(category).pricing_rule_id" @change="setPriceListParentTemplate(category, 'pricing_rule_id', $event.target.value)">
+                          <option :value="0">继承价格表计算</option>
+                          <option v-for="rule in pricingRules" :key="`parent-rule-${category.code}-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
+                        </select>
+                      </template>
+                      <input v-else-if="priceListParentTemplateSelection(category).pricing_mode === 'fixed_price'" type="number" min="0" step="0.01" :value="priceListParentTemplateSelection(category).fixed_unit_price" placeholder="固定价" @input="setPriceListParentTemplate(category, 'fixed_unit_price', $event.target.value)" />
+                    </div>
+                  </label>
+                  <label class="inline-price-config">
+                    <span>子类计价</span>
+                    <div class="inline-price-config-controls">
+                      <select :value="priceListGroupTemplateSelection(category).pricing_mode" @change="setPriceListGroupTemplate(category, 'pricing_mode', $event.target.value)">
+                        <option value="">继承父类</option>
+                        <option v-for="mode in priceTablePricingModeOptions" :key="`group-mode-${category.code}-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
+                      </select>
+                      <template v-if="priceListGroupTemplateSelection(category).pricing_mode === 'tier_template'">
+                        <select :value="priceListGroupTemplateSelection(category).tier_template_id" @change="setPriceListGroupTemplate(category, 'tier_template_id', $event.target.value)">
+                          <option :value="0">继承父类阶梯</option>
+                          <option v-for="template in priceTierTemplates" :key="`group-tier-${category.code}-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
+                        </select>
+                      </template>
+                      <template v-else-if="priceListGroupTemplateSelection(category).pricing_mode === 'pricing_rule'">
+                        <select :value="priceListGroupTemplateSelection(category).pricing_rule_id" @change="setPriceListGroupTemplate(category, 'pricing_rule_id', $event.target.value)">
+                          <option :value="0">继承父类计算</option>
+                          <option v-for="rule in pricingRules" :key="`group-rule-${category.code}-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
+                        </select>
+                      </template>
+                      <input v-else-if="priceListGroupTemplateSelection(category).pricing_mode === 'fixed_price'" type="number" min="0" step="0.01" :value="priceListGroupTemplateSelection(category).fixed_unit_price" placeholder="固定价" @input="setPriceListGroupTemplate(category, 'fixed_unit_price', $event.target.value)" />
+                    </div>
+                  </label>
+                </div>
               </div>
               <article v-for="row in category.items" :key="`pick-${itemProductID(row)}`" class="product-picker-row">
-                <label class="check-line">
-                  <input type="checkbox" :checked="isPdfProductSelected(itemProductID(row))" @change="togglePdfProduct(itemProductID(row), $event.target.checked)" />
-                  <span>{{ beanMeta(row, metaKeyForListType(pdfTheme.listType)).code }} {{ beanName(row, metaKeyForListType(pdfTheme.listType)) }}</span>
-                </label>
+                <div class="product-picker-row-head">
+                  <label class="check-line">
+                    <input type="checkbox" :checked="isPdfProductSelected(itemProductID(row))" @change="togglePdfProduct(itemProductID(row), $event.target.checked)" />
+                    <span>{{ beanMeta(row, metaKeyForListType(pdfTheme.listType)).code }} {{ beanName(row, metaKeyForListType(pdfTheme.listType)) }}</span>
+                  </label>
+                  <div v-if="isPdfProductSelected(itemProductID(row))" class="product-inline-pricing-config">
+                    <span>商品行计价</span>
+                    <select :value="priceListProductTemplateOverride(priceListProductRowForItem(row)).pricing_mode" @change="setPriceListProductTemplate(priceListProductRowForItem(row), 'pricing_mode', $event.target.value)">
+                      <option value="">继承子类</option>
+                      <option v-for="mode in priceTablePricingModeOptions" :key="`product-mode-${itemProductID(row)}-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
+                    </select>
+                    <template v-if="priceListProductTemplateOverride(priceListProductRowForItem(row)).pricing_mode === 'tier_template'">
+                      <select :value="priceListProductTemplateOverride(priceListProductRowForItem(row)).tier_template_id" @change="setPriceListProductTemplate(priceListProductRowForItem(row), 'tier_template_id', $event.target.value)">
+                        <option :value="0">继承子类阶梯</option>
+                        <option v-for="template in priceTierTemplates" :key="`product-tier-${itemProductID(row)}-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
+                      </select>
+                    </template>
+                    <template v-else-if="priceListProductTemplateOverride(priceListProductRowForItem(row)).pricing_mode === 'pricing_rule'">
+                      <select :value="priceListProductTemplateOverride(priceListProductRowForItem(row)).pricing_rule_id" @change="setPriceListProductTemplate(priceListProductRowForItem(row), 'pricing_rule_id', $event.target.value)">
+                        <option :value="0">继承子类计算</option>
+                        <option v-for="rule in pricingRules" :key="`product-rule-${itemProductID(row)}-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
+                      </select>
+                    </template>
+                    <input v-else-if="priceListProductTemplateOverride(priceListProductRowForItem(row)).pricing_mode === 'fixed_price'" type="number" min="0" step="0.01" :value="priceListProductTemplateOverride(priceListProductRowForItem(row)).fixed_unit_price" placeholder="固定价" @input="setPriceListProductTemplate(priceListProductRowForItem(row), 'fixed_unit_price', $event.target.value)" />
+                    <span v-else class="muted">继承子类配置</span>
+                  </div>
+                </div>
                 <div class="customizer-row">
                   <select :value="customizerField(itemProductID(row), 'badge')" @change="setCustomizerField(itemProductID(row), 'badge', $event.target.value)">
                     <option value="">无标签</option>
@@ -1173,7 +1167,6 @@ const pdfGroups = computed(() => {
   return buildBeanListPdfGroups(pdfAvailableItems.value, pdfTheme.value.listType, pdfGenerationOptions.value)
 })
 const priceListGroupTemplateRows = computed(() => priceListTemplateGroupRows(categoryProductGroups.value))
-const priceListProductOverrideRows = computed(() => priceListTemplateProductRows(pdfAvailableItems.value))
 const priceListFlatRows = computed(() => priceListFlatRowsFromGroups(pdfGroups.value))
 const priceListFlatRowsReady = computed(() => priceListFlatRows.value.every((row) => {
   const mode = String(row.pricing_mode || '').trim()
@@ -1583,21 +1576,6 @@ function syntheticGroupItemID(value) {
   return 100000 + hash
 }
 
-function priceListTemplateProductRows(sourceItems = []) {
-  return (Array.isArray(sourceItems) ? sourceItems : [])
-    .filter((item) => isPdfProductSelected(itemProductID(item)))
-    .map((item) => {
-      const group = priceListGroupForItem(item)
-      return {
-        product_id: Number(itemProductID(item) || 0),
-        product_key: itemProductID(item),
-        product_name: beanName(item, metaKeyForItem(item)) || item?.name || '',
-        group_item_id: group.group_item_id,
-        parent_group_item_id: group.parent_group_item_id,
-      }
-    })
-}
-
 function priceListGroupForItem(item = {}) {
   const code = categoryCodeOfItem(item, pdfTheme.value.listType)
   return priceListGroupTemplateRows.value.find((row) => row.key === String(code)) || priceListGroupTemplateRows.value[0] || {
@@ -1611,12 +1589,43 @@ function priceListGroupForItem(item = {}) {
   }
 }
 
+function priceListGroupConfigRow(group = {}) {
+  const key = String(group.key || group.code || group.group_item_id || '')
+  const groupItemID = Number(group.group_item_id || 0)
+  return priceListGroupTemplateRows.value.find((row) => (
+    String(row.key || '') === key ||
+    (groupItemID > 0 && Number(row.group_item_id || 0) === groupItemID)
+  )) || {
+    key: key || 'default',
+    group_id: Number(group.group_id || activeProductTypeCategoryID.value || 1),
+    group_name: group.group_name || selectedProductPriceListLabel.value || '商品价格表分组',
+    group_item_id: groupItemID || syntheticGroupItemID(group.code || group.label || 'default'),
+    group_item_name: group.group_item_name || group.label || group.category || '未分组',
+    parent_group_item_id: Number(group.parent_group_item_id || activeProductTypeCategoryID.value || 1),
+    parent_group_item_name: group.parent_group_item_name || selectedProductPriceListLabel.value || '父类',
+    items: Array.isArray(group.items) ? group.items : [],
+  }
+}
+
+function priceListProductRowForItem(item = {}) {
+  const group = priceListGroupForItem(item)
+  return {
+    product_id: Number(itemProductID(item) || 0),
+    product_key: itemProductID(item),
+    product_name: beanName(item, metaKeyForItem(item)) || item?.name || '',
+    group_item_id: group.group_item_id,
+    parent_group_item_id: group.parent_group_item_id,
+  }
+}
+
 function priceListParentTemplateSelection(group = {}) {
-  return priceListParentTemplateSelections.value[String(group.parent_group_item_id || group.key || '')] || defaultPriceListTemplateSelection()
+  const row = priceListGroupConfigRow(group)
+  return priceListParentTemplateSelections.value[String(row.parent_group_item_id || row.key || '')] || defaultPriceListTemplateSelection()
 }
 
 function priceListGroupTemplateSelection(group = {}) {
-  return priceListGroupTemplateSelections.value[String(group.key || group.group_item_id || '')] || defaultPriceListTemplateSelection()
+  const row = priceListGroupConfigRow(group)
+  return priceListGroupTemplateSelections.value[String(row.key || row.group_item_id || '')] || defaultPriceListTemplateSelection()
 }
 
 function priceListProductTemplateOverride(row = {}) {
@@ -1631,7 +1640,8 @@ function setPriceListDefaultTemplate(field, value) {
 }
 
 function setPriceListParentTemplate(group = {}, field, value) {
-  const key = String(group.parent_group_item_id || group.key || '')
+  const row = priceListGroupConfigRow(group)
+  const key = String(row.parent_group_item_id || row.key || '')
   priceListParentTemplateSelections.value = {
     ...priceListParentTemplateSelections.value,
     [key]: {
@@ -1642,7 +1652,8 @@ function setPriceListParentTemplate(group = {}, field, value) {
 }
 
 function setPriceListGroupTemplate(group = {}, field, value) {
-  const key = String(group.key || group.group_item_id || '')
+  const row = priceListGroupConfigRow(group)
+  const key = String(row.key || row.group_item_id || '')
   priceListGroupTemplateSelections.value = {
     ...priceListGroupTemplateSelections.value,
     [key]: {
@@ -3283,7 +3294,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .pdf-drawer { width: min(760px, 100vw); }
 .pdf-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .pdf-form label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
-.pdf-form input, .pdf-form select, .pdf-form textarea, .product-picker-row input, .product-picker-row select { width: 100%; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
+.pdf-form input, .pdf-form select, .pdf-form textarea, .product-picker-row input, .product-picker-row select, .category-inline-pricing-config select, .category-inline-pricing-config input { width: 100%; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
 .pdf-form textarea { resize: vertical; line-height: 1.45; }
 .pdf-form input[type="color"] { padding: 4px; }
 .pdf-form .wide, .pdf-actions { grid-column: 1 / -1; }
@@ -3294,6 +3305,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .picker-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .picker-actions { margin-left: auto; display: flex; gap: 6px; }
 .template-default-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.inline-pricing-config-note { margin: 4px 0 0; }
 .template-default-grid span, .template-table span, .flat-price-table span { color: #666; font-size: 12px; line-height: 1.35; }
 .template-default-grid select, .template-default-grid input, .template-table select, .template-table input, .flat-price-row input, .template-editor-grid input, .template-editor-grid select, .template-tier-row input, .template-tier-row select { width: 100%; min-height: 34px; border: 1px solid #ddd; border-radius: 7px; padding: 6px 8px; background: #fff; font: inherit; box-sizing: border-box; }
 .template-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -3308,7 +3320,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .template-table-row { border: 1px solid #eee; border-radius: 7px; background: #fafafa; padding: 8px; }
 .template-table-row strong { min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
 .template-select-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.product-override-head, .product-override-row { grid-template-columns: minmax(160px, 1fr) minmax(0, .8fr) minmax(0, .8fr); }
 .flat-price-table { display: grid; gap: 6px; max-height: 360px; overflow: auto; }
 .flat-price-head, .flat-price-row { display: grid; grid-template-columns: minmax(150px, 1.1fr) minmax(130px, .8fr) minmax(110px, .55fr) minmax(150px, .9fr); gap: 8px; align-items: center; }
 .flat-price-head { border-bottom: 1px solid #eee; padding-bottom: 5px; font-weight: 700; }
@@ -3321,8 +3332,14 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .checkbox-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; }
 .product-picker-list { display: grid; gap: 10px; max-height: 420px; overflow: auto; }
 .product-picker-category { display: grid; gap: 8px; border: 1px solid #ddd; border-radius: 8px; padding: 10px; background: #fff; }
-.product-picker-category-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid #eee; }
+.product-picker-category-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; align-items: start; padding-bottom: 8px; border-bottom: 1px solid #eee; }
+.category-inline-pricing-config { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.inline-price-config { display: grid; gap: 5px; margin: 0; min-width: 0; }
+.inline-price-config > span, .product-inline-pricing-config > span { color: #666; font-size: 12px; line-height: 1.35; }
+.inline-price-config-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; min-width: 0; }
 .product-picker-row { display: grid; gap: 7px; border: 1px solid #eee; border-radius: 8px; padding: 9px; background: #fafafa; }
+.product-picker-row-head { display: grid; gap: 7px; min-width: 0; }
+.product-inline-pricing-config { display: grid; grid-template-columns: minmax(82px, .45fr) minmax(0, .8fr) minmax(0, .8fr); gap: 6px; align-items: center; min-width: 0; }
 .customizer-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 7px; }
 .green-tier-price-editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 7px; }
 .green-tier-price-editor label { display: grid; grid-template-columns: minmax(0, 1fr) 82px; align-items: center; gap: 6px; font-size: 12px; color: #555; }
@@ -3436,6 +3453,9 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .current-owner-pill { justify-self: start; }
   .pdf-form { grid-template-columns: 1fr; }
   .template-default-grid,
+  .category-inline-pricing-config,
+  .inline-price-config-controls,
+  .product-inline-pricing-config,
   .template-table-head,
   .template-table-row,
   .template-select-pair,

@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-445-PRICE-LIST-INLINE-SELECTION-CONFIG
+- Branch: codex/price-list-config-inline-selection
+- Owner/session: Codex / 2026-06-07
+- Status: local verified; merge/deploy pending
+- Scope: 商品价格表生成抽屉的计价配置挪位。旧的独立父类计价配置、子类计价配置和商品行覆盖配置表下线；父类/子类配置直接放到“选择分类和产品”的分类头 A 位置，商品覆盖配置直接放到商品勾选行 B 位置；继承解析仍是 `商品 > 子类 > 父类 > 价格表`。
+- DEV:
+  - DEV-445-PRICE-LIST-CATEGORY-INLINE-CONFIG：分类头 A 位置直接维护父类计价和子类计价，继续写入原有父类/子类选择状态。
+  - DEV-445-PRICE-LIST-PRODUCT-INLINE-CONFIG：商品勾选行 B 位置直接维护商品计价覆盖，继续写入原有商品覆盖状态。
+- Verifier:
+  - RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed before implementation because old standalone pricing config still appeared in the builder and A/B positions had no pricing controls.
+  - GREEN frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 14/14; `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/bean-list-pdf.test.js src/lib/product-settings.test.js` passed 163/163.
+  - GREEN support/API contract: `go test ./internal/interfaces/http/support -run TestDev445PriceListInlineSelectionConfigContracts -count=1`; `go test ./internal/interfaces/http/support -count=1`.
+  - GREEN build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning.
+  - GREEN local browser: mocked local Vue shell on `http://127.0.0.1:5178/vue-shell/?view=costing` rendered 商品价格表; 生成抽屉 `Price List / Item Price 生成规则` no longer contained independent 父类计价配置/子类计价配置/product-override-row; 分类头 A 位置 showed 父类计价 and 子类计价; 商品勾选行 B 位置 showed 商品行计价; no console/page errors. Screenshot: `/tmp/pr445-price-list-inline-selection-config.png`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-07-price-list-inline-selection-config.md`.
+- Last update: 2026-06-07 Asia/Shanghai
+
 ### PR-444-PRICING-RULE-COST-SOURCE-UX
 - Branch: codex/pricing-rule-cost-source-ux
 - Owner/session: Codex / 2026-06-07

@@ -206,6 +206,49 @@ test('product price list uses classification templates and categories instead of
   assert.doesNotMatch(viewSource, /按当前价格表归属、商品当前归类和客户商品生成商品价格表/)
 })
 
+test('price list generation config is edited inline at category and product selection positions', () => {
+  const builderStart = viewSource.indexOf('<div class="pdf-picker price-list-template-builder"')
+  const productSelectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
+  const flatRowStart = viewSource.indexOf('<div class="pdf-picker flat-price-row-editor">')
+  assert.ok(builderStart > -1 && productSelectionStart > builderStart, 'missing price-list builder followed by product selection')
+  assert.ok(flatRowStart > productSelectionStart, 'missing flat-row editor after product selection')
+
+  const builderSource = viewSource.slice(builderStart, productSelectionStart)
+  const selectionSource = viewSource.slice(productSelectionStart, flatRowStart)
+  const categoryHeadStart = selectionSource.indexOf('class="product-picker-category-head"')
+  const categoryHeadEnd = selectionSource.indexOf('<article v-for="row in category.items"', categoryHeadStart)
+  const productRowStart = selectionSource.indexOf('<article v-for="row in category.items"')
+  const productRowEnd = selectionSource.indexOf('<div v-if="pdfTheme.listType ===', productRowStart)
+  assert.ok(categoryHeadStart > -1 && categoryHeadEnd > categoryHeadStart, 'missing category selection head block')
+  assert.ok(productRowStart > -1 && productRowEnd > productRowStart, 'missing product selection row block')
+
+  const categoryHeadSource = selectionSource.slice(categoryHeadStart, categoryHeadEnd)
+  const productRowSource = selectionSource.slice(productRowStart, productRowEnd)
+
+  for (const forbidden of ['父类计价配置', '子类计价配置', '商品行', 'product-override-row']) {
+    assert.equal(builderSource.includes(forbidden), false, `old standalone pricing config should be removed from builder: ${forbidden}`)
+  }
+  for (const expected of [
+    'category-inline-pricing-config',
+    '父类计价',
+    '子类计价',
+    'priceListParentTemplateSelection(category)',
+    "setPriceListParentTemplate(category, 'pricing_mode'",
+    'priceListGroupTemplateSelection(category)',
+    "setPriceListGroupTemplate(category, 'pricing_mode'",
+  ]) {
+    assert.ok(categoryHeadSource.includes(expected), `missing A-position category pricing config: ${expected}`)
+  }
+  for (const expected of [
+    'product-inline-pricing-config',
+    '商品行计价',
+    'priceListProductTemplateOverride(priceListProductRowForItem(row))',
+    "setPriceListProductTemplate(priceListProductRowForItem(row), 'pricing_mode'",
+  ]) {
+    assert.ok(productRowSource.includes(expected), `missing B-position product pricing config: ${expected}`)
+  }
+})
+
 test('product bean-list drawer derives publication owner from current page scope', () => {
   for (const expected of [
     '当前归属',
