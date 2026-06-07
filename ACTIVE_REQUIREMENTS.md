@@ -6,20 +6,37 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
-### PR-445-GROUP-DEFAULT-LABEL-HIDE-FOLLOWUP
+### PR-446-GROUP-DEFAULT-LABEL-HIDE-FOLLOWUP
 - Branch: codex/group-assignment-display-move
 - Owner/session: Codex / 2026-06-07
 - Status: implementation complete locally; pending full verification, merge to develop, deploy, and browser acceptance
 - Scope: 商品档案、生产 BOM、仓库库存普通页面使用泛化分组时，不再把迁移兼容用的“商品默认分组 / 生产 BOM 默认分组 / 仓库库存默认分组”作为业务选项或列表标签展示。商品档案按业务分组路径展示商品，勾选商品后通过“目标分组”移动到已有分组项；仓库库存和 BOM 使用相同的默认容器隐藏规则。
 - DEV:
-  - DEV-445-BUSINESS-GROUP-LABELS：抽出通用分组显示 helper，系统默认分组集名称隐藏，只显示父组/子组路径或“未分组”。
-  - DEV-445-PRODUCT-GROUPED-MOVE：商品档案分组展示和移动选项复用通用 helper，工具栏文案改为“目标分组”，不再出现“分组集 / 父组 / 子组”或“商品默认分组”。
-  - DEV-445-WAREHOUSE-BOM-LABELS：仓库库存和生产 BOM 展示层复用默认容器隐藏规则，旧专用 BOM 分组写入口测试口径收敛到“到分组管理维护”。
+  - DEV-446-BUSINESS-GROUP-LABELS：抽出通用分组显示 helper，系统默认分组集名称隐藏，只显示父组/子组路径或“未分组”。
+  - DEV-446-PRODUCT-GROUPED-MOVE：商品档案分组展示和移动选项复用通用 helper，工具栏文案改为“目标分组”，不再出现“分组集 / 父组 / 子组”或“商品默认分组”。
+  - DEV-446-WAREHOUSE-BOM-LABELS：仓库库存和生产 BOM 展示层复用默认容器隐藏规则，旧专用 BOM 分组写入口测试口径收敛到“到分组管理维护”。
 - Verifier:
   - RED product helper/UI: `node --test src/lib/product-settings.test.js` failed before implementation because `businessGroupDisplayGroups` export缺失；追加文案测试后同命令 failed because Vue 仍显示“分组集 / 父组 / 子组”。
   - RED BOM/warehouse: `node --test src/lib/materials-ui.test.js` and `node --test src/lib/bom.test.js` failed before implementation because仓库库存仍手拼 `group.name / 父组 / 子组`，BOM 未接入 `isSystemDefaultBusinessGroup`，且旧测试仍要求已下线的专用分组写 API/旧文案。
   - GREEN targeted: `node --test src/lib/product-settings.test.js` passed 124/124; `node --test src/lib/materials-ui.test.js` passed 5/5; `node --test src/lib/bom.test.js` passed 13/13.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/acceptance/2026-06-07-business-group-object-unification.md`.
+- Last update: 2026-06-07 Asia/Shanghai
+
+### PR-445-PRICE-LIST-INLINE-SELECTION-CONFIG
+- Branch: codex/price-list-config-inline-selection
+- Owner/session: Codex / 2026-06-07
+- Status: local verified; merge/deploy pending
+- Scope: 商品价格表生成抽屉的计价配置挪位。旧的独立父类计价配置、子类计价配置和商品行覆盖配置表下线；父类/子类配置直接放到“选择分类和产品”的分类头 A 位置，商品覆盖配置直接放到商品勾选行 B 位置；继承解析仍是 `商品 > 子类 > 父类 > 价格表`。
+- DEV:
+  - DEV-445-PRICE-LIST-CATEGORY-INLINE-CONFIG：分类头 A 位置直接维护父类计价和子类计价，继续写入原有父类/子类选择状态。
+  - DEV-445-PRICE-LIST-PRODUCT-INLINE-CONFIG：商品勾选行 B 位置直接维护商品计价覆盖，继续写入原有商品覆盖状态。
+- Verifier:
+  - RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed before implementation because old standalone pricing config still appeared in the builder and A/B positions had no pricing controls.
+  - GREEN frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 14/14; `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/bean-list-pdf.test.js src/lib/product-settings.test.js` passed 163/163.
+  - GREEN support/API contract: `go test ./internal/interfaces/http/support -run TestDev445PriceListInlineSelectionConfigContracts -count=1`; `go test ./internal/interfaces/http/support -count=1`.
+  - GREEN build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning.
+  - GREEN local browser: mocked local Vue shell on `http://127.0.0.1:5178/vue-shell/?view=costing` rendered 商品价格表; 生成抽屉 `Price List / Item Price 生成规则` no longer contained independent 父类计价配置/子类计价配置/product-override-row; 分类头 A 位置 showed 父类计价 and 子类计价; 商品勾选行 B 位置 showed 商品行计价; no console/page errors. Screenshot: `/tmp/pr445-price-list-inline-selection-config.png`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-07-price-list-inline-selection-config.md`.
 - Last update: 2026-06-07 Asia/Shanghai
 
 ### PR-444-PRICING-RULE-COST-SOURCE-UX
