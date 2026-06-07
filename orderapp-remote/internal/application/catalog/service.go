@@ -8,6 +8,7 @@ import (
 	"math"
 	catalogdomain "orderapp/internal/domain/catalog"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -1836,7 +1837,7 @@ func (s *Service) SaveProductPricingRule(ctx context.Context, cmd ProductPricing
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	cmd.Name = strings.TrimSpace(cmd.Name)
 	cmd.Code = strings.TrimSpace(cmd.Code)
-	cmd.CostSourceMode = strings.TrimSpace(cmd.CostSourceMode)
+	cmd.CostSourceMode = normalizePricingRuleCostSourceMode(cmd.CostSourceMode)
 	cmd.RoundingMode = strings.TrimSpace(cmd.RoundingMode)
 	cmd.FormulaVersion = strings.TrimSpace(cmd.FormulaVersion)
 	cmd.Remark = strings.TrimSpace(cmd.Remark)
@@ -1845,9 +1846,6 @@ func (s *Service) SaveProductPricingRule(ctx context.Context, cmd ProductPricing
 	}
 	if cmd.Name == "" {
 		return ProductPricingRule{}, ValidationError{Message: "name required"}
-	}
-	if cmd.CostSourceMode == "" {
-		cmd.CostSourceMode = "product_cost_context"
 	}
 	if cmd.RoundingMode == "" {
 		cmd.RoundingMode = "none"
@@ -3164,7 +3162,101 @@ func normalizePricingRuleCalculationJSON(raw map[string]any) (map[string]any, er
 	if normalized == nil {
 		normalized = map[string]any{}
 	}
+	stripPricingRuleRemovedCostFields(normalized)
+	otherCosts, err := normalizePricingRuleOtherCosts(normalized["other_costs"])
+	if err != nil {
+		return nil, err
+	}
+	if otherCosts == nil {
+		otherCosts, err = normalizePricingRuleOtherCosts(normalized["otherCosts"])
+		if err != nil {
+			return nil, err
+		}
+	}
+	delete(normalized, "otherCosts")
+	if otherCosts != nil {
+		normalized["other_costs"] = otherCosts
+	}
 	return normalized, nil
+}
+
+func normalizePricingRuleCostSourceMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "product_cost_context", "bom_current_cost", "inventory_cost", "manual_cost", "last_purchase_cost":
+		return "bom_current_cost"
+	default:
+		return "bom_current_cost"
+	}
+}
+
+func stripPricingRuleRemovedCostFields(value any) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			switch strings.ToLower(strings.TrimSpace(key)) {
+			case "cost_components", "costcomponents":
+				delete(typed, key)
+				continue
+			}
+			stripPricingRuleRemovedCostFields(child)
+		}
+	case []any:
+		for _, child := range typed {
+			stripPricingRuleRemovedCostFields(child)
+		}
+	}
+}
+
+func normalizePricingRuleOtherCosts(value any) (map[string]any, error) {
+	if value == nil {
+		return nil, nil
+	}
+	typed, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("other costs must be key-value pairs")
+	}
+	out := map[string]any{}
+	for rawKey, rawValue := range typed {
+		key := strings.TrimSpace(rawKey)
+		if key == "" {
+			continue
+		}
+		amount, ok := pricingRuleCostAmount(rawValue)
+		if !ok {
+			return nil, fmt.Errorf("other cost must be numeric")
+		}
+		if amount < 0 {
+			return nil, fmt.Errorf("other cost must not be negative")
+		}
+		out[key] = amount
+	}
+	if len(out) == 0 {
+		return map[string]any{}, nil
+	}
+	return out, nil
+}
+
+func pricingRuleCostAmount(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case json.Number:
+		amount, err := typed.Float64()
+		return amount, err == nil
+	case string:
+		amount, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		return amount, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func pricingRuleCalculationContainsQuantityTierField(value any) bool {

@@ -724,7 +724,7 @@
           <section class="product-price-records-panel pricing-rule-management-panel">
             <div class="field-group-head">
               <strong>价格计算模板 / Pricing Rule</strong>
-              <small>模板只负责成本来源、成本项、利润税费和取整公式；不绑定商品，不保存数量档位和最终成交价。商品价格表引用模板后生成平铺价格行。</small>
+              <small>模板只负责基础成本、其他成本、利润税费和取整公式；不绑定商品，不保存数量档位和最终成交价。商品价格表引用模板后生成平铺价格行。</small>
             </div>
             <div class="table-wrap compact-table-wrap">
               <table>
@@ -732,12 +732,13 @@
                   <tr>
                     <th>模板</th>
                     <th>公式版本</th>
-                    <th>成本来源</th>
+                    <th>基础成本</th>
                     <th>利润方式</th>
                     <th>利润率</th>
                     <th>税率</th>
                     <th>取整规则</th>
                     <th>状态</th>
+                    <th>操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -750,9 +751,13 @@
                     <td>{{ percentDisplay(rule.tax_rate) }}</td>
                     <td>{{ pricingRuleRoundingLabel(rule.rounding_mode) }}</td>
                     <td><span :class="['status-pill', rule.active === false ? 'inactive' : '']">{{ rule.active === false ? '停用' : '启用' }}</span></td>
+                    <td class="table-actions">
+                      <button class="secondary compact-action" type="button" @click="startPricingRuleEdit(rule)">编辑模板</button>
+                      <button v-if="rule.active !== false" class="secondary compact-action danger-outline" type="button" :disabled="productPriceSaving" @click="deactivatePricingRule(rule)">失效</button>
+                    </td>
                   </tr>
                   <tr v-if="!pricingRules.length">
-                    <td colspan="8" class="muted">暂无价格计算模板。可先新建模板，再在商品价格表生成时引用。</td>
+                    <td colspan="9" class="muted">暂无价格计算模板。可先新建模板，再在商品价格表生成时引用。</td>
                   </tr>
                 </tbody>
               </table>
@@ -768,13 +773,9 @@
                   <input v-model.trim="pricingRuleForm.code" placeholder="如 PR-COST-PLUS" />
                 </label>
                 <label>
-                  <span>成本来源</span>
+                  <span>基础成本</span>
                   <select v-model="pricingRuleForm.cost_source_mode">
-                    <option value="product_cost_context">商品成本上下文</option>
-                    <option value="bom_current_cost">生产 BOM 成本</option>
-                    <option value="inventory_cost">库存成本</option>
-                    <option value="manual_cost">手工成本</option>
-                    <option value="last_purchase_cost">最近采购成本</option>
+                    <option value="bom_current_cost">生产 BOM 成本（物料+工序）</option>
                   </select>
                 </label>
                 <label>
@@ -783,12 +784,23 @@
                 </label>
               </div>
               <div class="pricing-rule-form-section">
-                <strong>成本项配置</strong>
-                <div class="pricing-rule-checkbox-grid">
-                  <label v-for="component in PRICING_RULE_COST_COMPONENT_OPTIONS" :key="component.key" class="checkbox-line">
-                    <input v-model="pricingRuleForm.cost_components" type="checkbox" :value="component.key" />
-                    <span>{{ component.label }}</span>
-                  </label>
+                <div class="pricing-rule-section-head">
+                  <strong>其他成本</strong>
+                  <button class="secondary compact-action" type="button" @click="addPricingRuleOtherCostRow">新增其他成本</button>
+                </div>
+                <small class="muted">生产 BOM 成本已包含物料采购成本和已选择工序成本；货币使用全局币种配置，当前不在价格模板中单独设置。</small>
+                <div class="pricing-rule-other-cost-list">
+                  <div v-for="(row, index) in pricingRuleForm.other_cost_rows" :key="index" class="pricing-rule-other-cost-row">
+                    <label>
+                      <span>成本名</span>
+                      <input v-model.trim="row.key" placeholder="如 包装贴标" />
+                    </label>
+                    <label>
+                      <span>成本价格</span>
+                      <input v-model.number="row.value" type="number" min="0" step="0.0001" placeholder="0" />
+                    </label>
+                    <button class="secondary compact-action" type="button" @click="removePricingRuleOtherCostRow(index)">删除</button>
+                  </div>
                 </div>
               </div>
               <div class="template-editor-grid">
@@ -843,10 +855,11 @@
               </label>
               <label class="wide-field">
                 <span>试算说明</span>
-                <textarea v-model.trim="pricingRuleForm.trial_note" rows="2" placeholder="例如：选择商品、报价单位后按当前成本上下文试算"></textarea>
+                <textarea v-model.trim="pricingRuleForm.trial_note" rows="2" placeholder="例如：选择商品、报价单位后按生产 BOM 成本试算"></textarea>
               </label>
               <div class="form-actions">
                 <button class="primary" type="submit" :disabled="productPriceSaving">保存价格计算模板</button>
+                <button v-if="pricingRuleForm.id && pricingRuleForm.active !== false" class="secondary danger-outline" type="button" :disabled="productPriceSaving" @click="deactivatePricingRule(pricingRuleForm)">失效</button>
               </div>
             </form>
           </section>
@@ -1264,6 +1277,7 @@ import {
   inferProductKindFromProductTypeCategory,
   isPublicReferenceRow,
   nextSkuContextCustomerID,
+  normalizePricingRuleCostSourceMode,
   normalizeVisibleSkuFilters,
   normalizedProductKind,
   priceListRuleFormFromJSON,
@@ -1303,15 +1317,6 @@ const props = defineProps({
 })
 const SKU_SETTINGS_FORM_DRAFT_SCOPE = FORM_DRAFT_SCOPES.skuSettings
 const UNCLASSIFIED_CATEGORY_MOVE_ID = -999999
-const PRICING_RULE_COST_COMPONENT_OPTIONS = [
-  { key: 'material', label: '物料' },
-  { key: 'operation', label: '工序' },
-  { key: 'labor', label: '人工' },
-  { key: 'equipment_energy', label: '设备/能源' },
-  { key: 'packaging', label: '包装' },
-  { key: 'logistics', label: '物流' },
-  { key: 'other', label: '其他' },
-]
 let restoringProductSettingsDraft = false
 
 const categories = ref([])
@@ -2191,15 +2196,13 @@ function defaultPricingRuleForm(rule = {}) {
     id: Number(rule.id || 0),
     name: rule.name || '',
     code: rule.code || '',
-    cost_source_mode: rule.cost_source_mode || 'product_cost_context',
+    cost_source_mode: normalizePricingRuleCostSourceMode(rule.cost_source_mode),
     margin_rate: Number(rule.margin_rate || 0),
     tax_rate: Number(rule.tax_rate || 0),
     rounding_mode: rule.rounding_mode || 'none',
     formula_version: rule.formula_version || 'v1',
     calculation_json: calculation,
-    cost_components: Array.isArray(calculation.cost_components) && calculation.cost_components.length
-      ? calculation.cost_components
-      : ['material', 'operation', 'packaging', 'logistics'],
+    other_cost_rows: pricingRuleOtherCostRowsFromCalculation(calculation),
     yield_loss_mode: calculation.yield_loss_mode || 'bom_or_product',
     profit_method: calculation.profit_method || 'gross_margin',
     tax_mode: calculation.tax_mode || 'tax_included',
@@ -2208,6 +2211,22 @@ function defaultPricingRuleForm(rule = {}) {
     active: rule.active !== false,
     remark: rule.remark || '',
   }
+}
+
+function pricingRuleOtherCostRowsFromCalculation(calculation = {}) {
+  const raw = calculation.other_costs ?? calculation.otherCosts ?? {}
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [defaultPricingRuleOtherCostRow()]
+  const rows = Object.entries(raw)
+    .map(([key, value]) => ({
+      key: String(key || '').trim(),
+      value: Number(value || 0),
+    }))
+    .filter((row) => row.key)
+  return rows.length ? rows : [defaultPricingRuleOtherCostRow()]
+}
+
+function defaultPricingRuleOtherCostRow() {
+  return { key: '', value: 0 }
 }
 
 function pricingRuleCalculationFromRule(rule = {}) {
@@ -2905,6 +2924,21 @@ function resetPricingRuleForm() {
   pricingRuleForm.value = defaultPricingRuleForm()
 }
 
+function startPricingRuleEdit(rule) {
+  pricingRuleForm.value = defaultPricingRuleForm(JSON.parse(JSON.stringify(rule || {})))
+}
+
+function addPricingRuleOtherCostRow() {
+  pricingRuleForm.value.other_cost_rows.push(defaultPricingRuleOtherCostRow())
+}
+
+function removePricingRuleOtherCostRow(index) {
+  pricingRuleForm.value.other_cost_rows.splice(index, 1)
+  if (!pricingRuleForm.value.other_cost_rows.length) {
+    addPricingRuleOtherCostRow()
+  }
+}
+
 function resetPriceTierTemplateForm() {
   priceTierTemplateForm.value = defaultPriceTierTemplateForm()
 }
@@ -2924,14 +2958,8 @@ function removePriceTierTemplateTier(index) {
   }
 }
 
-function pricingRuleCostSourceLabel(value) {
-  return {
-    product_cost_context: '商品成本上下文',
-    bom_current_cost: '生产 BOM 成本',
-    inventory_cost: '库存成本',
-    manual_cost: '手工成本',
-    last_purchase_cost: '最近采购成本',
-  }[String(value || '')] || '商品成本上下文'
+function pricingRuleCostSourceLabel() {
+  return '生产 BOM 成本（物料+工序）'
 }
 
 function pricingRuleProfitMethodLabel(value) {
@@ -2977,6 +3005,30 @@ async function savePricingRule() {
     ok.value = '价格计算模板已保存'
   } catch (err) {
     error.value = err.message || '保存价格计算模板失败'
+  } finally {
+    productPriceSaving.value = false
+  }
+}
+
+async function deactivatePricingRule(rule) {
+  const form = defaultPricingRuleForm(JSON.parse(JSON.stringify(rule || {})))
+  if (!form.id) return
+  form.active = false
+  const payload = buildPricingRulePayload(form)
+  productPriceSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const result = await apiSend(`/api/product-pricing-rules/${payload.id}`, { method: 'PUT', body: payload })
+    const row = defaultPricingRuleForm(result.rule || payload)
+    pricingRules.value = [
+      row,
+      ...pricingRules.value.filter((item) => Number(item.id || 0) !== Number(row.id || 0)),
+    ]
+    pricingRuleForm.value = row
+    ok.value = '价格计算模板已失效'
+  } catch (err) {
+    error.value = err.message || '价格计算模板失效失败'
   } finally {
     productPriceSaving.value = false
   }
@@ -5887,11 +5939,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .template-editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 10px; }
 .template-editor label, .product-config-editor label { display: grid; gap: 5px; font-size: 13px; }
 .pricing-rule-form-section { display: grid; gap: 8px; padding: 10px; border: 1px solid #ead8c4; background: #fffaf4; border-radius: 6px; }
-.pricing-rule-checkbox-grid { display: grid; grid-template-columns: repeat(4, minmax(90px, 1fr)); gap: 8px 10px; }
+.pricing-rule-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.pricing-rule-other-cost-list { display: grid; gap: 8px; }
+.pricing-rule-other-cost-row { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(120px, 180px) auto; gap: 8px; align-items: end; }
 .checkbox-line { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; color: #3f3328; }
 .checkbox-line input { width: 16px; height: 16px; min-height: 16px; flex: 0 0 auto; }
 .product-config-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 12px; align-items: start; }
-.product-price-management-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr); gap: 12px; align-items: start; }
+.product-price-management-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
 .product-price-management-layout section { display: grid; gap: 10px; min-width: 0; }
 .product-price-record-form, .product-tier-price-scheme-form { display: grid; gap: 10px; }
 .product-price-record-form .template-editor-grid, .product-tier-price-scheme-form .template-editor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -6110,7 +6164,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .product-price-management-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .product-tier-price-row, .product-price-record-form .template-editor-grid, .product-tier-price-scheme-form .template-editor-grid, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .customer-alias-form, .production-config-grid, .production-config-field-row { grid-template-columns: 1fr; }
+  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .product-price-management-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .product-tier-price-row, .pricing-rule-other-cost-row, .product-price-record-form .template-editor-grid, .product-tier-price-scheme-form .template-editor-grid, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .customer-alias-form, .production-config-grid, .production-config-field-row { grid-template-columns: 1fr; }
   .product-section-tabs-legacy { width: 100%; }
   .workspace-tab { flex: 1; }
   .panel-actions { justify-content: flex-start; }

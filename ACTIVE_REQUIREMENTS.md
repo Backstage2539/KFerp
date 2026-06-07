@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-444-PRICING-RULE-COST-SOURCE-UX
+- Branch: codex/pricing-rule-cost-source-ux
+- Owner/session: Codex / 2026-06-07
+- Status: local verification passed; integration/deploy pending
+- Scope: 商品价格管理的 Pricing Rule 成本配置修正版。基础成本固定为 `生产 BOM 成本（物料+工序）`；删除商品成本上下文、成本取数口径、库存成本、手工成本和最近采购成本配置；其他成本通过 KV 输入；价格计算模板支持编辑和失效。
+- DEV:
+  - DEV-444-PRICING-RULE-COST-SOURCE：旧 `product_cost_context/inventory_cost/manual_cost/last_purchase_cost` 保存时归一为 `bom_current_cost`，前端只显示 `生产 BOM 成本（物料+工序）`。
+  - DEV-444-PRICING-RULE-OTHER-COSTS：`calculation_json` 不再保存 `cost_components`，改为保存 `other_costs` KV。
+  - DEV-444-PRICING-RULE-EDIT-DEACTIVATE：商品价格管理模板列表支持 `编辑模板` 和 `失效`。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because Pricing Rule payload still returned `product_cost_context/cost_components` and 商品价格管理 UI still exposed旧成本来源/成本项配置 while lacking 其他成本、编辑、失效。
+  - RED API: `go test ./internal/interfaces/http/catalog -run 'TestProductPricingRuleAPI(ReplacesFinalPriceRecordMasterData|SavesCalculationTemplateWithoutQuantityTiers|CanDeactivateExistingTemplate)' -count=1` failed before implementation because API defaulted to `product_cost_context` and response kept `cost_components`.
+  - GREEN targeted: `node --test src/lib/product-settings.test.js` passed 123/123; `go test ./internal/interfaces/http/catalog -run 'TestProductPricingRuleAPI(ReplacesFinalPriceRecordMasterData|SavesCalculationTemplateWithoutQuantityTiers|CanDeactivateExistingTemplate|RejectsQuantityTierFieldsInsideCalculationTemplate)' -count=1`; `go test ./internal/application/catalog -run 'TestPricingRuleAndPriceTierTemplateServicesUseNewPriceListModel' -count=1`.
+  - GREEN support/broader: `go test ./internal/interfaces/http/support -run 'TestDev443PricingRuleCalculationTemplateContracts|TestDev444PricingRuleCostSourceUXContracts' -count=1`; `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1`; `go test ./...` in `orderapp-remote`; `npm run build` in `frontend-vue-shell`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN local browser: mocked read-only API smoke rendered 商品价格管理 with `基础成本`、`生产 BOM 成本（物料+工序）`、`其他成本`、`全局币种配置`、`编辑模板`、`失效`; removed markers were absent; console errors `0`; screenshot `/tmp/pr444-pricing-rule-cost-source-ux.png`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-07-pricing-rule-cost-source-ux.md`.
+- Last update: 2026-06-07 Asia/Shanghai
+
 ### PR-443-PRICING-RULE-CALCULATION-TEMPLATE
 - Branch: codex/pricing-rule-calculation-template
 - Owner/session: Codex / 2026-06-07
@@ -13,7 +31,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Scope: 商品价格管理的 Pricing Rule 从薄利润/税率模板升级为通用价格计算模板；Pricing Rule 只保存公式配置和公式版本，不保存数量档位、每档最终价或客户专属档位。商品价格表生成平铺价格行时冻结 Pricing Rule 公式快照，数量档位继续属于阶梯模板或价格表生成上下文。
 - DEV:
   - DEV-443-PRICING-RULE-SCHEMA：`product_pricing_rules` 增加 `calculation_json` 和 `formula_version`；API 保存前拒绝把数量档位字段写入 Pricing Rule。
-  - DEV-443-PRICING-RULE-UI：商品价格管理表单展示成本来源、成本项、损耗/出率、利润方式、税费方式、最低毛利、取整、公式版本和试算说明。
+  - DEV-443-PRICING-RULE-UI：商品价格管理表单展示基础成本、其他成本、损耗/出率、利润方式、税费方式、最低毛利、取整、公式版本和试算说明。
   - DEV-443-PRICE-LIST-FORMULA-SNAPSHOT：商品价格表平铺价格行冻结 Pricing Rule 公式版本和公式配置，档位上下文仍只保存在价格行和阶梯模板中。
 - Verifier:
   - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because Pricing Rule payload and 商品价格管理 UI lacked `calculation_json/formula_version` and formula fields.
@@ -21,7 +39,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED support: `go test ./internal/interfaces/http/support -run TestDev443PricingRuleCalculationTemplateContracts -count=1` failed before implementation because schema/docs/UI contract markers were absent.
   - GREEN targeted: `node --test src/lib/product-settings.test.js` passed 123/123; `go test ./internal/interfaces/http/catalog -run 'TestProductPricingRuleAPI(ReplacesFinalPriceRecordMasterData|SavesCalculationTemplateWithoutQuantityTiers|RejectsQuantityTierFieldsInsideCalculationTemplate)' -count=1`; `go test ./internal/interfaces/http/support -run TestDev443PricingRuleCalculationTemplateContracts -count=1`.
   - GREEN broader: `go test ./internal/application/catalog ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/catalog ./internal/interfaces/http/support ./internal/application/costing -count=1`; `npm run build` in `frontend-vue-shell`; `git diff --check`; `scripts/verify_kferp.sh changed`; `go test ./...` in `orderapp-remote`.
-  - GREEN local browser: Vite dev server `http://127.0.0.1:5173/vue-shell/` with mocked auth/API rendered 商品价格管理 and showed `成本项配置`、`利润方式`、`税费方式`、`最低毛利`、`公式版本`、`试算说明` plus formula version `v2` with no console/page errors. Screenshot: `/tmp/pr443-price-management-local.png`.
+  - GREEN local browser: Vite dev server `http://127.0.0.1:5173/vue-shell/` with mocked auth/API rendered 商品价格管理 and showed formula fields plus formula version `v2` with no console/page errors. Screenshot: `/tmp/pr443-price-management-local.png`.
   - GREEN deploy gate: feature branch pushed; `origin/develop=c08b0aa88aaddea2a5dd724590998a7242ba3e74` deployed to development. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260607214343`. Deploy script ran Vue shell build, miniapp typecheck/build, Docker build, and container-internal `go test ./...`.
   - GREEN smoke: `erp_orderapp` Up, `erp_postgres` healthy, unauthenticated `/app/` returned 303, authenticated `/app/vue-shell/?view=productPriceManagement` returned 200, deployed docs/schema expose `PR-443`/`calculation_json`/`formula_version`, deployed `/api/product-settings` returns Pricing Rules with `formula_version` and `calculation_json`, and invalid Pricing Rule `calculation_json.min_qty` was rejected with 400.
   - GREEN follow-up local: `node --test src/lib/product-settings.test.js` passed 123/123; `PYTHONPYCACHEPREFIX=/tmp/kferp_pycache python3 -m unittest scripts.scenario_acceptance_test -v`; `PYTHONPYCACHEPREFIX=/tmp/kferp_pycache python3 scripts/scenario_acceptance.py --dry-run`; `go test ./internal/interfaces/http/support -count=1`; `go test ./...`; `npm run build` in `frontend-vue-shell`; `scripts/verify_kferp.sh changed`; `git diff --check`.

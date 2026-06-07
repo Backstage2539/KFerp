@@ -305,7 +305,7 @@ export function buildPricingRulePayload(form = {}) {
     id: Number(form.id || 0),
     name: String(form.name ?? '').trim(),
     code: String(form.code ?? '').trim(),
-    cost_source_mode: String(form.cost_source_mode ?? form.costSourceMode ?? 'product_cost_context').trim() || 'product_cost_context',
+    cost_source_mode: normalizePricingRuleCostSourceMode(form.cost_source_mode ?? form.costSourceMode),
     margin_rate: Number(form.margin_rate ?? form.marginRate ?? 0) || 0,
     tax_rate: Number(form.tax_rate ?? form.taxRate ?? 0) || 0,
     rounding_mode: String(form.rounding_mode ?? form.roundingMode ?? 'none').trim() || 'none',
@@ -316,34 +316,49 @@ export function buildPricingRulePayload(form = {}) {
   }
 }
 
+export function normalizePricingRuleCostSourceMode(value) {
+  return 'bom_current_cost'
+}
+
 function pricingRuleCalculationJSONFromForm(form = {}) {
   const raw = form.calculation_json ?? form.calculationJSON ?? {}
   const base = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
-  const costComponents = Array.isArray(form.cost_components ?? form.costComponents)
-    ? (form.cost_components ?? form.costComponents)
-    : (Array.isArray(base.cost_components) ? base.cost_components : [])
   const normalized = {
     ...stripPricingRuleQuantityFields(base),
-    cost_components: costComponents
-      .map((component) => String(component || '').trim())
-      .filter(Boolean)
-      .filter((component, index, rows) => rows.indexOf(component) === index),
     yield_loss_mode: String(form.yield_loss_mode ?? form.yieldLossMode ?? base.yield_loss_mode ?? 'bom_or_product').trim() || 'bom_or_product',
     profit_method: String(form.profit_method ?? form.profitMethod ?? base.profit_method ?? 'gross_margin').trim() || 'gross_margin',
     tax_mode: String(form.tax_mode ?? form.taxMode ?? base.tax_mode ?? 'tax_included').trim() || 'tax_included',
     minimum_margin_rate: Number(form.minimum_margin_rate ?? form.minimumMarginRate ?? base.minimum_margin_rate ?? 0) || 0,
     trial_note: String(form.trial_note ?? form.trialNote ?? base.trial_note ?? '').trim(),
   }
-  if (!normalized.cost_components.length) {
-    normalized.cost_components = ['material', 'operation', 'packaging', 'logistics']
-  }
+  normalized.other_costs = pricingRuleOtherCostMapFromForm(form, base)
   return stripPricingRuleQuantityFields(normalized)
+}
+
+function pricingRuleOtherCostMapFromForm(form = {}, base = {}) {
+  const rowSource = form.other_cost_rows ?? form.otherCostRows
+  if (Array.isArray(rowSource)) {
+    return rowSource.reduce((acc, row) => {
+      const key = String(row?.key ?? row?.name ?? row?.cost_name ?? row?.costName ?? '').trim()
+      const value = Number(row?.value ?? row?.price ?? row?.cost_price ?? row?.costPrice ?? row?.cost ?? 0)
+      if (key && Number.isFinite(value)) acc[key] = value
+      return acc
+    }, {})
+  }
+  const mapSource = form.other_costs ?? form.otherCosts ?? base.other_costs ?? base.otherCosts
+  if (!mapSource || typeof mapSource !== 'object' || Array.isArray(mapSource)) return {}
+  return Object.entries(mapSource).reduce((acc, [rawKey, rawValue]) => {
+    const key = String(rawKey || '').trim()
+    const value = Number(rawValue)
+    if (key && Number.isFinite(value)) acc[key] = value
+    return acc
+  }, {})
 }
 
 function stripPricingRuleQuantityFields(value) {
   if (Array.isArray(value)) return value.map((item) => stripPricingRuleQuantityFields(item))
   if (!value || typeof value !== 'object') return value
-  const forbidden = new Set(['min_qty', 'minQty', 'max_qty', 'maxQty', 'tier_label', 'tierLabel', 'tier_name', 'tierName', 'tiers', 'quantity_unit', 'quantityUnit', 'position', 'final_unit_price', 'finalUnitPrice', 'customer_tiers', 'customerTiers'])
+  const forbidden = new Set(['min_qty', 'minQty', 'max_qty', 'maxQty', 'tier_label', 'tierLabel', 'tier_name', 'tierName', 'tiers', 'quantity_unit', 'quantityUnit', 'position', 'final_unit_price', 'finalUnitPrice', 'customer_tiers', 'customerTiers', 'cost_components', 'costComponents'])
   return Object.fromEntries(Object.entries(value)
     .filter(([key]) => !forbidden.has(String(key || '').trim()))
     .map(([key, child]) => [key, stripPricingRuleQuantityFields(child)]))
