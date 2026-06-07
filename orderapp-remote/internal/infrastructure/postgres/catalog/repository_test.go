@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	catalogapp "orderapp/internal/application/catalog"
 )
 
 func TestInsertIDAtPositionReordersWithoutDuplicatePositionTie(t *testing.T) {
@@ -26,6 +28,21 @@ func TestInsertIDAtPositionReordersWithoutDuplicatePositionTie(t *testing.T) {
 				t.Fatalf("insertIDAtPosition() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestBusinessGroupItemTreeKeepsChildrenWhenParentRowsComeFirst(t *testing.T) {
+	items := []catalogapp.BusinessGroupItem{
+		{ID: 10, GroupID: 3, ParentID: 0, Name: "大类", Active: true, SortOrder: 10},
+		{ID: 11, GroupID: 3, ParentID: 10, Name: "小类", Active: true, SortOrder: 10},
+	}
+
+	tree := businessGroupItemTree(items)
+	if len(tree) != 1 {
+		t.Fatalf("businessGroupItemTree() roots = %d, want 1: %+v", len(tree), tree)
+	}
+	if len(tree[0].Children) != 1 || tree[0].Children[0].ID != 11 {
+		t.Fatalf("businessGroupItemTree() parent children = %+v, want child 11", tree[0].Children)
 	}
 }
 
