@@ -4062,11 +4062,7 @@ function productBusinessGroupLabel(row) {
 }
 
 function productClassificationLabel(row) {
-  const businessGroupLabel = productBusinessGroupLabel(row)
-  if (businessGroupLabel && businessGroupLabel !== '未分组') return businessGroupLabel
-  const categoryLabel = productCategoryAssignmentLabel(row, categoryTreeForSkuContext.value, '')
-  if (categoryLabel) return categoryLabel
-  return classificationAssignmentLabel(row, productClassificationTemplates.value, { assignmentType: 'product' })
+  return productBusinessGroupLabel(row)
 }
 
 function aliasClassificationLabel(row) {

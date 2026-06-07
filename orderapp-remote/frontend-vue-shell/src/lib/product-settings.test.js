@@ -2376,6 +2376,7 @@ test('product archive uses business groups while customer alias keeps legacy pag
   assert.match(template, /data-pr442-product-group-assignments/)
   assert.match(template, /商品档案分组视图/)
   assert.match(template, /商品分组/)
+  assert.match(script, /function productClassificationLabel\(row\)\s*\{\s*return productBusinessGroupLabel\(row\)\s*\}/)
   assert.doesNotMatch(template.match(/<div class="classification-view-toolbar product-classification-tabs"[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || '', /增加分类|移动到分类/)
 
   assert.match(source, /aliasClassificationTemplateUsages/)
@@ -2942,7 +2943,7 @@ test('product archive and customer alias classification UX uses big-category tab
   assert.match(source, /productAddClassificationOptions/)
   assert.match(source, /aliasAddClassificationOptions/)
   assert.match(template, /当前归类/)
-  assert.match(script, /productCategoryAssignmentLabel\(row,\s*categoryTreeForSkuContext\.value,\s*''\)/)
+  assert.doesNotMatch(script, /productCategoryAssignmentLabel\(row,\s*categoryTreeForSkuContext\.value,\s*''\)/)
   assert.match(script, /selectedProductRowsAlreadyInCurrentCategory/)
   assert.match(script, /selectedAliasRowsAlreadyInCurrentCategory/)
   assert.doesNotMatch(source, /已归类，需先移出当前分类/)
