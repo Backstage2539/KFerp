@@ -252,10 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
-		{table: "req_product", code: "PR-444-PRICING-RULE-COST-SOURCE-UX", title: "商品价格管理的 Pricing Rule 简化成本配置：基础成本固定为生产 BOM 成本，其他成本用 KV，模板可编辑和失效", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; ProductSettingsView.vue; product_settings_api_test.go"},
-		{table: "req_dev", code: "DEV-444-PRICING-RULE-COST-SOURCE", title: "Pricing Rule 保存时移除商品成本上下文、库存成本、手工成本和最近采购成本，旧成本来源归一为 bom_current_cost", status: "doing", assignee: "Codex", evidence: "catalog service; product-settings.js"},
-		{table: "req_dev", code: "DEV-444-PRICING-RULE-OTHER-COSTS", title: "价格计算模板支持其他成本 KV，成本名作为键，成本价格作为值，并从 calculation_json 删除 cost_components", status: "doing", assignee: "Codex", evidence: "product-settings.test.js; product_settings_api_test.go"},
-		{table: "req_dev", code: "DEV-444-PRICING-RULE-EDIT-DEACTIVATE", title: "商品价格管理模板列表支持编辑模板和失效模板，失效不回写已发布商品价格表快照", status: "doing", assignee: "Codex", evidence: "ProductSettingsView.vue; product_settings_api_test.go"},
+		{table: "req_product", code: "PR-444-PRICING-RULE-COST-SOURCE-UX", title: "商品价格管理的 Pricing Rule 简化成本配置：基础成本固定为生产 BOM 成本，其他成本用 KV，模板可编辑和失效", status: "review", assignee: "VA", evidence: "ACTIVE_REQUIREMENTS.md; ProductSettingsView.vue; product_settings_api_test.go"},
+		{table: "req_dev", code: "DEV-444-PRICING-RULE-COST-SOURCE", title: "Pricing Rule 保存时移除商品成本上下文、库存成本、手工成本和最近采购成本，旧成本来源归一为 bom_current_cost", status: "done", assignee: "Codex", evidence: "catalog service; product-settings.js"},
+		{table: "req_dev", code: "DEV-444-PRICING-RULE-OTHER-COSTS", title: "价格计算模板支持其他成本 KV，成本名作为键，成本价格作为值，并从 calculation_json 删除 cost_components", status: "done", assignee: "Codex", evidence: "product-settings.test.js; product_settings_api_test.go"},
+		{table: "req_dev", code: "DEV-444-PRICING-RULE-EDIT-DEACTIVATE", title: "商品价格管理模板列表支持编辑模板和失效模板，失效不回写已发布商品价格表快照", status: "done", assignee: "Codex", evidence: "ProductSettingsView.vue; product_settings_api_test.go"},
 		{table: "req_review", code: "REV-444-PRICING-RULE-COST-SOURCE-UX", prCode: "PR-444-PRICING-RULE-COST-SOURCE-UX", title: "验收：Pricing Rule 只显示生产 BOM 基础成本和其他成本 KV，模板可编辑和失效", status: "todo", assignee: "VA", evidence: "docs/acceptance/2026-06-07-pricing-rule-cost-source-ux.md"},
 		{table: "req_product", code: "PR-443-PRICING-RULE-CALCULATION-TEMPLATE", title: "商品价格管理的 Pricing Rule 升级为通用价格计算模板，只保存公式配置，不保存数量档位或最终成交价", status: "doing", assignee: "Codex", evidence: "ACTIVE_REQUIREMENTS.md; product_pricing_rules.calculation_json; ProductSettingsView.vue"},
 		{table: "req_dev", code: "DEV-443-PRICING-RULE-SCHEMA", title: "product_pricing_rules 增加 calculation_json 和 formula_version，API 保存前拒绝把数量档位字段写进 Pricing Rule", status: "doing", assignee: "Codex", evidence: "catalog schema/service/repository; product_settings_api_test.go"},

@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-444-PRICING-RULE-COST-SOURCE-UX
 - Branch: codex/pricing-rule-cost-source-ux
 - Owner/session: Codex / 2026-06-07
-- Status: local verification passed; integration/deploy pending
+- Status: merged to develop and deployed to development; pending Van product acceptance
 - Scope: 商品价格管理的 Pricing Rule 成本配置修正版。基础成本固定为 `生产 BOM 成本（物料+工序）`；删除商品成本上下文、成本取数口径、库存成本、手工成本和最近采购成本配置；其他成本通过 KV 输入；价格计算模板支持编辑和失效。
 - DEV:
   - DEV-444-PRICING-RULE-COST-SOURCE：旧 `product_cost_context/inventory_cost/manual_cost/last_purchase_cost` 保存时归一为 `bom_current_cost`，前端只显示 `生产 BOM 成本（物料+工序）`。
