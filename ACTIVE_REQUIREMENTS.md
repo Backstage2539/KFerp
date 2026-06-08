@@ -28,7 +28,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS
 - Branch: codex/product-master-subcategory-headers-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: follow-up implemented locally; pending merge, deploy and browser acceptance
+- Status: merged to develop and deployed to development; follow-up browser acceptance passed; pending Van product acceptance
 - Scope: Van 浏览器验收反馈。商品档案列表使用 `product_catalog` 业务分组时，父组和子组都要作为分类标题展示；子组标题独立成行、缩进显示，只显示子组名，完整父/子路径作为上下文；商品行跟随所在父组/子组缩进；`目标分组` 候选支持父组和子组，普通业务标签不显示“商品分组 /”分组集名称前缀，支持把商品移动到具体子类里面。
 - DEV:
   - DEV-451-PRODUCT-GROUP-SUBCATEGORY-HEADERS：商品档案分组列表读取分组项层级，父组、子组分别生成分组标题，子组标题用缩进和完整路径 title 表达层级。
@@ -39,6 +39,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED follow-up frontend: `node --test src/lib/product-settings.test.js` failed before implementation because 商品行缺少 `classificationItemIndentStyle(group)`，CSS 仍只靠紧邻分组标题的固定缩进。
   - GREEN follow-up targeted: `node --test src/lib/product-settings.test.js` passed 124/124.
   - GREEN follow-up broader: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 137/137; `go test ./internal/interfaces/http/support -run TestDev451ProductMasterSubcategoryHeadersContracts -count=1` passed; `npm run build` in `frontend-vue-shell` passed with existing Vite chunk-size warning; `go test ./...` in `orderapp-remote` passed; `scripts/verify_kferp.sh changed` passed.
+  - GREEN follow-up deploy: feature branch `codex/product-group-row-indent-20260608` pushed and fast-forward merged; implementation commit `origin/develop=d95e3b50c34bc4b8ae3b236c2bfddd0d5721f0f3` deployed to development. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608141222`. Deploy script ran Vue shell build, miniapp typecheck/build, miniapp `build:mp-weixin`, Docker build, and container-internal `go test ./...`.
+  - GREEN follow-up smoke/browser: `erp_orderapp` Up, `erp_postgres` healthy, unauthenticated `/app/` returned 303 to `/app/orders`, authenticated `/app/vue-shell/?view=productMaster&pr451_indent_smoke=1` returned 200, support API exposed `DEV-451-PRODUCT-GROUP-ITEM-INDENT`, server docs exposed `商品行跟随所在父组/子组缩进`. Browser `商品档案` console errors 0; child group `意式拼配豆` header had `--classification-group-indent: 40px` and its product row had `--classification-item-indent: 42px` / computed padding `42px`; parent group `BOM-咖啡熟豆` header had `--classification-group-indent: 16px` and its product row had `--classification-item-indent: 18px` / computed padding `18px`. Screenshot: `/tmp/pr451-deployed-product-indent.png`.
   - GREEN targeted: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 137/137; `go test ./internal/interfaces/http/support -run 'TestDev451ProductMasterSubcategoryHeadersContracts|TestDev450BomGroupUsageSelectionContracts' -count=1` passed.
   - GREEN broader: `go test ./internal/interfaces/http/support -count=1` passed; `go test ./...` in `orderapp-remote` passed; `npm run build` in `frontend-vue-shell` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
   - GREEN post-merge: after merging latest `origin/develop=d7f93748`, `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 137/137; targeted support tests passed; `scripts/verify_kferp.sh changed` passed; `npm run build` passed with existing Vite chunk-size warning; `go test ./...` passed; `git diff --check` passed.
