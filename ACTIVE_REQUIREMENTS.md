@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-458-GROUP-TEMPLATE-BUSINESS-LISTING
 - Branch: codex/group-template-business-listing-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: implementation in progress; frontend helper tests green; docs/support/build/browser/deploy verification pending
+- Status: merged with latest `origin/develop` in progress; implementation/docs/support/build/go verification passed before merge; post-merge verification, browser acceptance and development deploy pending
 - Scope: 分组模板驱动业务列表整理。商品档案、生产 BOM、仓库库存统一选择 `分组模板` 后，业务列表按该模板完整大类/小类树自动整理展示，空大类/小类也显示，未归类对象进入 `未分类`；三处业务页共用 `BusinessGroupControls` 和 `business-grouping` helper，通过同一套 `移动到分类` 写 `business_group_assignments`。删除商品/BOM 分类过滤 Tab，删除商品列表 `分类` 列；仓库库存删除 `普通仓库` / `客户仓库` 固定分段，仓库按模板作为可归类对象展示。
 - DEV:
   - DEV-458-GROUPING-HELPER-CONTROL：抽出 `business-grouping` helper 和 `BusinessGroupControls`，统一模板选项、移动分类选项、完整分类树、未分类分组、缩进样式和移动 payload。
@@ -20,8 +20,33 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Verifier:
   - RED frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/business-grouping.test.js orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js orderapp-remote/frontend-vue-shell/src/lib/bom.test.js orderapp-remote/frontend-vue-shell/src/lib/materials-ui.test.js` failed before implementation because共享 helper/control、完整模板分类树、商品/BOM去 Tab、仓库去固定分段 marker 缺失。
   - GREEN frontend targeted: `node --test orderapp-remote/frontend-vue-shell/src/lib/business-grouping.test.js orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js orderapp-remote/frontend-vue-shell/src/lib/bom.test.js orderapp-remote/frontend-vue-shell/src/lib/materials-ui.test.js` passed 151/151.
-  - Pending: support/API docs contract, Vue build, broader Go verification, browser acceptance and development deploy.
-- Manual/docs: pending `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-08-group-template-business-listing.md`.
+  - GREEN support/API contracts: `go test ./internal/interfaces/http/support -run 'TestDev45(3|5|6|7|8)' -count=1` passed; `go test ./internal/interfaces/http/support -count=1` passed before merging latest `origin/develop`.
+  - GREEN build/backend pre-merge: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning; `go test ./...` in `orderapp-remote` passed; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+  - Local Browser: mocked Vue shell URL `http://127.0.0.1:5197/vue-shell` was blocked by Browser Use URL policy, so browser acceptance must run against deployed HTTPS development ERP after deploy.
+  - Pending: post-merge targeted/frontend/build/backend verification, browser acceptance and development deploy.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-08-group-template-business-listing.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
+### PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION
+- Branch: codex/pricing-rule-trial-formula-expression-20260608
+- Owner/session: Codex / 2026-06-08
+- Status: deployed to development; automated verification, API smoke and live ERP browser acceptance passed
+- Scope: 商品价格管理价格计算模板试算结果必须展示可读的完整计算公式。选择商品试算后，抽屉在公式步骤表前显示 `计算公式`，包含 `最终售价 = (BOM+工序成本 + 其他成本) / 损耗 / 利润 * 税费 -> 取整 = 售价` 以及逐节点公式行；PR439 发布售价快照 fallback 要展示 `发布售价快照反推` 和 `最终售价 = 88.5/kg`。结果仍只读，不保存到模板、商品价格表、发布快照或订单。
+- DEV:
+  - DEV-457-TRIAL-FORMULA-API：`POST /api/costing/pricing-rule-trial` 返回 `formula_expression` 和 `formula_expression_lines`，覆盖标准模板、发布售价快照反推和 Excel 供应售价兼容口径。
+  - DEV-457-TRIAL-FORMULA-UI：商品价格管理试算抽屉在公式步骤表前展示 `计算公式` 和节点行，保留全局单位字典下拉、自动试算、无 `重新试算` / `售价后附加成本`。
+  - DEV-457-DOCS-ACCEPTANCE：同步成本手册、需求/验收清单、PR/DEV UI 种子和本次公式展示验收记录。
+- Verifier:
+  - RED backend: `go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|InfersCostFromPublishedPriceSnapshotWhenBomCostMissing)' -count=1` failed before implementation because `PricingRuleTrialResult` lacked `FormulaExpression` / `FormulaExpressionLines`.
+  - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because ProductSettingsView lacked `计算公式` / `formula_expression_lines` markers.
+  - GREEN targeted: `go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|InfersCostFromPublishedPriceSnapshotWhenBomCostMissing)' -count=1`; `go test ./internal/interfaces/http/costing -run TestPricingRuleTrialAPI -count=1`; `go test ./internal/interfaces/http/support -run TestDev457PricingRuleTrialFormulaExpressionContracts -count=1`; `node --test src/lib/product-settings.test.js`.
+  - GREEN broader: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev45(2|4|6|7)|TestPricingRuleTrialPermissionIsReadOnly' -count=1`; `npm run build`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Deployment:
+  - GREEN deploy: development deploy completed from `origin/develop=a1eaf2535fac1fe66483b80c61237061a68bb3d2`; Vue shell build, miniapp typecheck/build, miniapp `build:mp-weixin`, Docker build and container-internal `go test ./...` passed. Previous app backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608191229`.
+  - GREEN smoke: `erp_orderapp` up and `erp_postgres` healthy; unauthenticated `/app/` returned `303` to `/app/orders`; authenticated `/app/vue-shell/?view=productPriceManagement&pr457=1` returned `200`; `/app/api/req/product?limit=500` exposed `PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION`.
+  - GREEN API: `POST /app/api/costing/pricing-rule-trial` with `pricing_rule_id=1`, `product_id=538`, `quote_unit=kg` returned `88.5/kg`, `formula_expression` containing `发布售价快照反推` and `最终售价 = 88.5/kg`, 6 formula lines and the expected fallback warnings.
+  - GREEN browser: deployed 商品价格管理 opened the first template `试算`; selected `PR439-20260606182321 熟豆下单商品`, quote unit auto-selected `kg`, UI showed `88.5/kg`, `计算公式`, formula main line,逐节点公式行, `发布售价快照反推`, formula steps, no `重新试算` / `售价后附加成本`, and console errors 0. Screenshot: `/tmp/pr457-deployed-pricing-rule-formula.png`.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial-formula-expression.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
 ### PR-456-PRICING-RULE-TRIAL-PR439-UNIT

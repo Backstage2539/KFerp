@@ -670,6 +670,8 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '其他成本',
     '加价后价格',
     '试算单价',
+    '计算公式',
+    'formula_expression_lines',
     '公式步骤',
     'pricingRuleTrialQuoteUnitOptions',
     'schedulePricingRuleTrial',

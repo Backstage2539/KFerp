@@ -71,6 +71,11 @@ func (fakeService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrial
 		FinalUnitPrice:    110.4,
 		GrossMarginRate:   0.25,
 		MinimumMarginRate: 0.18,
+		FormulaExpression: "最终售价 = (BOM+工序成本 60/kg + 其他成本 2.5/kg) / (1 - 损耗率 20%) / (1 - 毛利率 25%) * (1 + 税率 6%) = 110.4/kg",
+		FormulaExpressionLines: []string{
+			"成本基数 = BOM+工序成本 60/kg + 其他成本 2.5/kg = 62.5/kg",
+			"最终售价 = 110.4/kg",
+		},
 		Steps: []domain.PriceExplanationStep{
 			{Key: "final_unit_price", Label: "试算单价", Value: 110.4, Unit: "kg"},
 		},
@@ -100,6 +105,11 @@ func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, c
 		FinalUnitPrice:      116.7092,
 		GrossMarginRate:     0.3684,
 		MinimumMarginRate:   0,
+		FormulaExpression:   "最终售价 = (BOM+工序成本 67.5/kg + 生产项目成本 6.2625/kg) * (1 + 档位利润率/加价率 54.21%) = 116.7092/kg",
+		FormulaExpressionLines: []string{
+			"成本基数 = BOM+工序成本 67.5/kg + 生产项目成本 6.2625/kg = 73.7625/kg",
+			"最终售价 = 116.7092/kg",
+		},
 		Steps: []domain.PriceExplanationStep{
 			{Key: "price_after_markup", Label: "加价后价格", Value: 113.7495, Unit: "kg"},
 			{Key: "post_markup_cost_total", Label: "售价后附加成本", Value: 2.9596, Unit: "kg"},
@@ -685,8 +695,16 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	if got.PriceAfterMarkup <= 0 || got.PostMarkupCostTotal <= 0 {
 		t.Fatalf("trial response missing supplier formula fields: %+v", got)
 	}
+	if got.FormulaExpression == "" || len(got.FormulaExpressionLines) == 0 {
+		t.Fatalf("trial response missing formula expression: %+v", got)
+	}
 	if !strings.Contains(rec.Body.String(), `"key":"post_markup_cost_total"`) || !strings.Contains(rec.Body.String(), `"key":"final_unit_price"`) {
 		t.Fatalf("response missing formula steps: %s", rec.Body.String())
+	}
+	for _, want := range []string{`"formula_expression"`, `"formula_expression_lines"`, `最终售价 = 116.7092/kg`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("response missing formula expression marker %s: %s", want, rec.Body.String())
+		}
 	}
 }
 

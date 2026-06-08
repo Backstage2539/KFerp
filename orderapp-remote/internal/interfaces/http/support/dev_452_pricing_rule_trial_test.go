@@ -225,3 +225,71 @@ func TestDev456PricingRuleTrialPr439UnitContracts(t *testing.T) {
 		}
 	}
 }
+
+func TestDev457PricingRuleTrialFormulaExpressionContracts(t *testing.T) {
+	for rel, wants := range map[string][]string{
+		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
+			"PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION",
+			"DEV-457-TRIAL-FORMULA-API",
+			"DEV-457-TRIAL-FORMULA-UI",
+			"DEV-457-DOCS-ACCEPTANCE",
+			"REV-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION",
+		},
+		filepath.Join("internal", "application", "costing", "service.go"): {
+			"FormulaExpression",
+			"formula_expression_lines",
+			"pricingRuleTrialFormulaExpression",
+			"最终售价 =",
+			"发布售价快照反推",
+		},
+		filepath.Join("internal", "application", "costing", "service_test.go"): {
+			"FormulaExpression",
+			"FormulaExpressionLines",
+			"最终售价 = 88.5/kg",
+			"(BOM+工序成本 60/kg + 其他成本 2.5/kg)",
+		},
+		filepath.Join("internal", "interfaces", "http", "costing", "costing_api_test.go"): {
+			"FormulaExpression",
+			"FormulaExpressionLines",
+			"formula_expression",
+			"formula_expression_lines",
+		},
+		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
+			"计算公式",
+			"pricing-rule-trial-formula",
+			"formula_expression",
+			"formula_expression_lines",
+		},
+		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.test.js"): {
+			"计算公式",
+			"formula_expression_lines",
+		},
+		filepath.Join("docs", "REQUIREMENTS.md"): {
+			"PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION",
+			"计算公式",
+			"最终售价 = 88.5/kg",
+		},
+		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
+			"PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION",
+			"`计算公式`",
+			"`最终售价 = 88.5/kg`",
+		},
+		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
+			"PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION",
+			"计算公式",
+			"逐节点公式行",
+		},
+		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-formula-expression.md"): {
+			"PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION",
+			"计算公式",
+			"88.5/kg",
+		},
+	} {
+		src := string(readOrderAppFileForTest(t, rel))
+		for _, want := range wants {
+			if !strings.Contains(src, want) {
+				t.Fatalf("%s missing PR-457 marker %q", rel, want)
+			}
+		}
+	}
+}
