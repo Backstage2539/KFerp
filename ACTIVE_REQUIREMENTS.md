@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT
 - Branch: codex/pricing-rule-trial-waterfall-bom-detail
 - Owner/session: Codex / 2026-06-08
-- Status: development complete; local automated verification green; commit/push pending. Van explicitly requested no merge and no deploy.
+- Status: development complete; local automated verification green; branch committed and pushed. Van explicitly requested no merge and no deploy.
 - Scope: 商品价格管理价格计算模板试算支持选择 `试算BOM版本` 和 `工序`。BOM 版本只按 `production_boms.output_product_id` 查找产出当前商品的 active BOM / published 版本，默认最新发布版本；试算明细和试算基数删除商品绑定 BOM、旧 `product_bom_sources`、旧 `product_bom_items` 兜底。缺产出 BOM 明细时 `BOM+工序成本` 为 0 和警告。
 - DEV:
   - DEV-460-TRIAL-OUTPUT-BOM-OPTIONS：试算 API 返回产出当前商品的 BOM 版本选项，默认最新发布版本，支持选择其他 active/published 版本。
