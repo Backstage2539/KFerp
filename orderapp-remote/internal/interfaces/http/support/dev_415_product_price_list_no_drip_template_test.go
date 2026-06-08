@@ -39,7 +39,7 @@ func TestDev415ProductPriceListNoDedicatedDripView(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"productPriceListPreviewSections",
+		"price-list-page-config",
 		"priceListRenderTypeForItem",
 		"commercial_wholesale_tiers",
 		"openPriceExplanation",

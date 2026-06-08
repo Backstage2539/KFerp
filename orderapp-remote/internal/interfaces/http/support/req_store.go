@@ -252,9 +252,10 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
-		{table: "req_product", code: "PR-449-PRICE-LIST-SELECTION-FEEDBACK", title: "商品价格表生成抽屉验收反馈：摘要不展示父类子类字样，计价展示改弹窗编辑，空价格行隐藏，预览按当前选品生成", status: "review", assignee: "VA", evidence: "ACTIVE_REQUIREMENTS.md; CostingView.vue; costing-bean-list-version-ui.test.js; docs/acceptance/2026-06-08-price-list-selection-feedback.md"},
+		{table: "req_product", code: "PR-449-PRICE-LIST-SELECTION-FEEDBACK", title: "商品价格表验收反馈：生成规则外提到主页面，摘要不展示父类子类字样，计价展示改弹窗编辑，规则说明改按钮弹窗", status: "review", assignee: "VA", evidence: "ACTIVE_REQUIREMENTS.md; CostingView.vue; costing-bean-list-version-ui.test.js; docs/acceptance/2026-06-08-price-list-selection-feedback.md"},
 		{table: "req_dev", code: "DEV-449-PRICE-LIST-SUMMARY-DIALOG", title: "选品区 A/B 位置只显示继承分类或实际模板方式摘要，点击摘要进入计价或展示弹窗编辑", status: "done", assignee: "Codex", evidence: "CostingView.vue; costing-bean-list-version-ui.test.js"},
 		{table: "req_dev", code: "DEV-449-PRICE-LIST-PREVIEW-CURRENT-SELECTION", title: "生成抽屉预览按当前勾选商品生成，空平铺价格行不显示，历史发布内容只用于下载快照", status: "done", assignee: "Codex", evidence: "CostingView.vue; costing-bean-list-version-ui.test.js"},
+		{table: "req_dev", code: "DEV-449-PRICE-LIST-PAGE-CONFIG", title: "商品价格表主页面删除旧预览卡，直接展示 Price List 生成规则、选品、平铺价格行和预览；计价模式规则改按钮弹窗", status: "done", assignee: "Codex", evidence: "CostingView.vue; costing-bean-list-version-ui.test.js"},
 		{table: "req_review", code: "REV-449-PRICE-LIST-SELECTION-FEEDBACK", prCode: "PR-449-PRICE-LIST-SELECTION-FEEDBACK", title: "验收：摘要文案、弹窗编辑、空价格行隐藏和当前选品预览符合浏览器反馈", status: "todo", assignee: "VA", evidence: "docs/acceptance/2026-06-08-price-list-selection-feedback.md"},
 		{table: "req_product", code: "PR-447-PRICE-LIST-SELECTION-COMPACT", title: "商品价格表生成抽屉选品区降噪：分类和商品默认显示摘要，计价和展示配置按需展开", status: "review", assignee: "VA", evidence: "ACTIVE_REQUIREMENTS.md; CostingView.vue; costing-bean-list-version-ui.test.js; docs/acceptance/2026-06-08-price-list-selection-compact.md"},
 		{table: "req_dev", code: "DEV-447-PRICE-LIST-CATEGORY-COMPACT", title: "分类头 A 位置默认显示分类计价摘要和覆盖状态，点击计价后弹窗编辑分类计价配置", status: "done", assignee: "Codex", evidence: "CostingView.vue; costing-bean-list-version-ui.test.js"},
