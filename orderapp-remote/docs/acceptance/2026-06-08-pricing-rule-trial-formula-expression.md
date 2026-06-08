@@ -1,0 +1,33 @@
+# PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION 验收记录
+
+## 范围
+- 需求：PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION。
+- 商品价格管理的 `价格计算模板试算` 在公式步骤表前展示 `计算公式` 主行和逐节点公式行。
+- 公式展示覆盖标准模板、Excel 供应售价兼容口径和 PR439 发布售价快照反推场景。
+- 试算仍是只读结果，不保存到 Pricing Rule 模板、商品价格表、发布快照或订单。
+
+## RED 证据
+- 后端：`go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|InfersCostFromPublishedPriceSnapshotWhenBomCostMissing)' -count=1` 曾失败，因为 `PricingRuleTrialResult` 缺少 `FormulaExpression` / `FormulaExpressionLines`。
+- 前端：`node --test src/lib/product-settings.test.js` 曾失败，因为商品价格管理试算抽屉缺少 `计算公式` / `formula_expression_lines` 展示标记。
+
+## 验收点
+- API 返回 `formula_expression` 和 `formula_expression_lines`。
+- 标准模板公式可见 `(BOM+工序成本 60/kg + 其他成本 2.5/kg)`、损耗率、毛利率、税率和最终售价。
+- PR439 fallback 公式可见 `发布售价快照反推` 和 `最终售价 = 88.5/kg`。
+- 前端结果区显示 `计算公式`，下方再显示公式步骤表。
+- 前端不恢复 `重新试算` 或 `售价后附加成本`。
+
+## 自动化验证
+- 通过：`go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|InfersCostFromPublishedPriceSnapshotWhenBomCostMissing)' -count=1`
+- 通过：`go test ./internal/interfaces/http/costing -run TestPricingRuleTrialAPI -count=1`
+- 通过：`go test ./internal/interfaces/http/support -run TestDev457PricingRuleTrialFormulaExpressionContracts -count=1`
+- 通过：`go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev45(2|4|6|7)|TestPricingRuleTrialPermissionIsReadOnly' -count=1`
+- 通过：`node --test src/lib/product-settings.test.js`
+- 通过：`npm run build`，仅有既有 Vite chunk-size warning。
+- 通过：`go test ./...`
+- 通过：`scripts/verify_kferp.sh changed`
+- 通过：`git diff --check`
+
+## 浏览器验收
+- Pending：进入商品价格管理，模板行点击 `试算`，选择 `PR439-20260606182321 熟豆下单商品` 和 `kg`。
+- Pending：确认试算单价 `88.5/kg`、`计算公式`、逐节点公式行、`发布售价快照反推` 和公式步骤表可见，控制台错误 0。

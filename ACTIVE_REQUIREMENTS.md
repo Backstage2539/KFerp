@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION
+- Branch: codex/pricing-rule-trial-formula-expression-20260608
+- Owner/session: Codex / 2026-06-08
+- Status: implemented locally; automated verification passed, integration/deploy pending
+- Scope: 商品价格管理价格计算模板试算结果必须展示可读的完整计算公式。选择商品试算后，抽屉在公式步骤表前显示 `计算公式`，包含 `最终售价 = (BOM+工序成本 + 其他成本) / 损耗 / 利润 * 税费 -> 取整 = 售价` 以及逐节点公式行；PR439 发布售价快照 fallback 要展示 `发布售价快照反推` 和 `最终售价 = 88.5/kg`。结果仍只读，不保存到模板、商品价格表、发布快照或订单。
+- DEV:
+  - DEV-457-TRIAL-FORMULA-API：`POST /api/costing/pricing-rule-trial` 返回 `formula_expression` 和 `formula_expression_lines`，覆盖标准模板、发布售价快照反推和 Excel 供应售价兼容口径。
+  - DEV-457-TRIAL-FORMULA-UI：商品价格管理试算抽屉在公式步骤表前展示 `计算公式` 和节点行，保留全局单位字典下拉、自动试算、无 `重新试算` / `售价后附加成本`。
+  - DEV-457-DOCS-ACCEPTANCE：同步成本手册、需求/验收清单、PR/DEV UI 种子和本次公式展示验收记录。
+- Verifier:
+  - RED backend: `go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|InfersCostFromPublishedPriceSnapshotWhenBomCostMissing)' -count=1` failed before implementation because `PricingRuleTrialResult` lacked `FormulaExpression` / `FormulaExpressionLines`.
+  - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because ProductSettingsView lacked `计算公式` / `formula_expression_lines` markers.
+  - GREEN targeted: `go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|InfersCostFromPublishedPriceSnapshotWhenBomCostMissing)' -count=1`; `go test ./internal/interfaces/http/costing -run TestPricingRuleTrialAPI -count=1`; `go test ./internal/interfaces/http/support -run TestDev457PricingRuleTrialFormulaExpressionContracts -count=1`; `node --test src/lib/product-settings.test.js`.
+  - GREEN broader: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev45(2|4|6|7)|TestPricingRuleTrialPermissionIsReadOnly' -count=1`; `npm run build`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Deployment:
+  - Pending.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial-formula-expression.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
 ### PR-456-PRICING-RULE-TRIAL-PR439-UNIT
 - Branch: codex/pricing-rule-trial-pr439-unit-20260608
 - Owner/session: Codex / 2026-06-08

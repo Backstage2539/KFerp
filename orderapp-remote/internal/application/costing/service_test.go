@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 
 	domain "orderapp/internal/domain/costing"
@@ -269,6 +270,14 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 	if got.PreTaxPrice != 104.17 || got.TaxAmount != 6.25 || got.FinalUnitPrice != 110.4 {
 		t.Fatalf("trial prices = preTax %.2f tax %.2f final %.2f", got.PreTaxPrice, got.TaxAmount, got.FinalUnitPrice)
 	}
+	if got.FormulaExpression == "" || !sliceContains(got.FormulaExpressionLines, "最终售价 = 110.4/kg") {
+		t.Fatalf("formula expression = %q lines = %+v, want final price line", got.FormulaExpression, got.FormulaExpressionLines)
+	}
+	for _, want := range []string{"(BOM+工序成本 60/kg + 其他成本 2.5/kg)", "/ (1 - 损耗率 20%)", "/ (1 - 毛利率 25%)", "* (1 + 税率 6%)"} {
+		if !strings.Contains(got.FormulaExpression, want) {
+			t.Fatalf("formula expression = %q, want %q", got.FormulaExpression, want)
+		}
+	}
 	for _, key := range []string{"bom_operation_cost", "other_cost_total", "expected_loss_rate", "profit_method", "tax_rate", "rounding_rule", "final_unit_price"} {
 		if !pricingRuleTrialHasStep(got.Steps, key) {
 			t.Fatalf("steps missing %q: %+v", key, got.Steps)
@@ -326,6 +335,9 @@ func TestPricingRuleTrialInfersCostFromPublishedPriceSnapshotWhenBomCostMissing(
 	}
 	if got.BaseCost != 50.12 || got.CostAfterYield != 62.65 || got.PreTaxPrice != 78.32 || got.TaxAmount != 10.18 || got.FinalUnitPrice != 88.5 {
 		t.Fatalf("trial from snapshot = base %.2f after yield %.2f preTax %.2f tax %.2f final %.2f", got.BaseCost, got.CostAfterYield, got.PreTaxPrice, got.TaxAmount, got.FinalUnitPrice)
+	}
+	if !strings.Contains(got.FormulaExpression, "最终售价 = 88.5/kg") || !strings.Contains(got.FormulaExpression, "发布售价快照反推") {
+		t.Fatalf("formula expression = %q, want final price and published snapshot inference", got.FormulaExpression)
 	}
 	if !pricingRuleTrialHasStep(got.Steps, "published_price_snapshot") {
 		t.Fatalf("steps missing published price snapshot source: %+v", got.Steps)

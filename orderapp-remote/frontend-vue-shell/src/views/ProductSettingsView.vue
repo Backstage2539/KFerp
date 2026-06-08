@@ -1015,6 +1015,13 @@
                 <li v-for="warning in pricingRuleTrialResult.warnings" :key="warning">{{ warning }}</li>
               </ul>
             </div>
+            <div v-if="pricingRuleTrialResult.formula_expression || pricingRuleTrialResult.formula_expression_lines?.length" class="pricing-rule-trial-formula">
+              <strong>计算公式</strong>
+              <p v-if="pricingRuleTrialResult.formula_expression" class="pricing-rule-trial-formula-main">{{ pricingRuleTrialResult.formula_expression }}</p>
+              <ol v-if="pricingRuleTrialResult.formula_expression_lines?.length">
+                <li v-for="line in pricingRuleTrialResult.formula_expression_lines" :key="line">{{ line }}</li>
+              </ol>
+            </div>
             <div class="field-group-head">
               <strong>公式步骤</strong>
               <small>试算结果不写入商品价格表、发布快照或订单。</small>
@@ -6500,6 +6507,10 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .pricing-rule-trial-metrics .final { border-color: #b8d0f0; background: #f2f7ff; }
 .pricing-rule-trial-warnings { border: 1px solid #f1c27d; border-radius: 8px; background: #fff8ec; padding: 10px; color: #7a4a08; }
 .pricing-rule-trial-warnings ul { margin: 6px 0 0; padding-left: 18px; }
+.pricing-rule-trial-formula { border: 1px solid #d7e3d5; border-radius: 8px; background: #f7fbf6; padding: 10px 12px; color: #2f4631; display: grid; gap: 8px; }
+.pricing-rule-trial-formula strong { color: #213d25; }
+.pricing-rule-trial-formula-main { margin: 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.pricing-rule-trial-formula ol { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 12px; line-height: 1.5; }
 .product-production-config-body { gap: 14px; }
 .production-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: end; }
 .production-config-grid label, .production-config-field-row label { display: grid; gap: 5px; min-width: 0; font-size: 13px; }
