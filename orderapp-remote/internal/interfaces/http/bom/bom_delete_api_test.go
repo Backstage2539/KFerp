@@ -274,6 +274,8 @@ func TestProductionBomProductUsageAPIReturnsOutputAndComponentBoms(t *testing.T)
 			OutputProductID:   77,
 			OutputProductName: "初晓",
 			RelationType:      "output",
+			BomStatus:         "active",
+			IsDefault:         true,
 		},
 		{
 			BomID:             8,
@@ -286,6 +288,7 @@ func TestProductionBomProductUsageAPIReturnsOutputAndComponentBoms(t *testing.T)
 			RelationType:      "component",
 			ConsumeUnit:       "unit",
 			QtyPerUnit:        10,
+			BomStatus:         "inactive",
 		},
 	}}
 	e := echo.New()
@@ -304,7 +307,13 @@ func TestProductionBomProductUsageAPIReturnsOutputAndComponentBoms(t *testing.T)
 	if !strings.Contains(rec.Body.String(), `"bom_name":"初晓拼配"`) || !strings.Contains(rec.Body.String(), `"relation_type":"output"`) {
 		t.Fatalf("body missing output usage row: %s", rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), `"bom_name":"初晓拼配"`) || !strings.Contains(rec.Body.String(), `"bom_status":"active"`) || !strings.Contains(rec.Body.String(), `"is_default":true`) {
+		t.Fatalf("body missing default BOM status: %s", rec.Body.String())
+	}
 	if !strings.Contains(rec.Body.String(), `"bom_name":"10条盒装速溶"`) || !strings.Contains(rec.Body.String(), `"relation_type":"component"`) || !strings.Contains(rec.Body.String(), `"qty_per_unit":10`) {
 		t.Fatalf("body missing component usage row: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"bom_name":"10条盒装速溶"`) || !strings.Contains(rec.Body.String(), `"bom_status":"inactive"`) || !strings.Contains(rec.Body.String(), `"is_default":false`) {
+		t.Fatalf("body missing inactive BOM status: %s", rec.Body.String())
 	}
 }

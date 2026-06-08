@@ -366,6 +366,15 @@ test('business group assignment payload supports products, BOMs, warehouses, and
   assert.equal(businessGroupAssignmentLabel({ group_id: 6, group_item_id: 61 }, [systemGroup]), '未分组')
   assert.equal(businessGroupAssignmentLabel({ group_id: 6, group_item_id: 0 }, [systemGroup]), '未分组')
   assert.deepEqual(businessGroupItemMoveOptions([systemGroup], 'product_catalog').map((option) => option.label), [])
+  assert.deepEqual(businessGroupItemMoveOptions([{
+    id: 7,
+    name: '生产线分组',
+    active: true,
+    usages: [{ usage_key: 'product_catalog', active: true }],
+    items: [
+      { id: 70, group_id: 7, parent_id: 0, name: '速溶线', active: true, sort_order: 10 },
+    ],
+  }], 'production_bom', { includeGroupsWithoutUsage: true }).map((option) => option.label), ['生产线分组 / 速溶线'])
   assert.deepEqual(businessGroupDisplayGroups([
     { id: 88, name: '商品A' },
     { id: 89, name: '商品B' },
@@ -1815,6 +1824,11 @@ test('product archive config drawer owns template and industry fields while BOM 
   assert.match(source, /被哪些 BOM 使用/)
   assert.match(source, /productProductionConfigUsedByBomRows/)
   assert.match(source, /bomUsageRelationLabel/)
+  assert.match(source, /bomUsageStatusLabel/)
+  assert.match(source, /BOM状态/)
+  assert.match(source, /默认状态/)
+  assert.match(source, /启用状态/)
+  assert.match(source, /失效状态/)
   assert.match(source, /ensureProductBomUsage/)
   assert.match(source, /\/api\/production-bom-product-usage\/\$\{id\}/)
   assert.match(source, /show_in_price_list/)
@@ -2031,9 +2045,9 @@ test('product archive list uses the product name as the only production config e
   assert.doesNotMatch(template, /<th>BOM<\/th>/)
   assert.doesNotMatch(template, /product-action-guide/)
   assert.doesNotMatch(template, /production-config-summary/)
-  assert.doesNotMatch(source, /BOM已失效/)
+  assert.match(source, /bomUsageStatusLabel/)
+  assert.match(template, /BOM状态/)
   assert.doesNotMatch(source, /缺BOM/)
-  assert.doesNotMatch(source, /row\.bom_status/)
   assert.doesNotMatch(template, /特殊属性/)
   assert.doesNotMatch(template, /special-attr-editor/)
   assert.doesNotMatch(template, /产品信息字段（特殊属性KV）/)
@@ -2801,6 +2815,8 @@ test('product archive config drawer only shows BOM usage relation instead of bin
   assert.match(drawer, /被哪些 BOM 使用/)
   assert.match(drawer, /productProductionConfigUsedByBomRows/)
   assert.match(drawer, /bomUsageRelationLabel/)
+  assert.match(drawer, /bomUsageStatusLabel/)
+  assert.match(drawer, /BOM状态/)
   assert.match(drawer, /bomUsageRowKey\(row\)/)
   assert.match(source, /productBomUsageByProductID/)
   assert.doesNotMatch(drawer, /生产反查/)

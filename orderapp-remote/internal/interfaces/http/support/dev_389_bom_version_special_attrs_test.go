@@ -31,7 +31,7 @@ func TestDev389BomVersionSpecialAttrsSourceMarkers(t *testing.T) {
 			"前往分组管理",
 			"openBusinessGroupManagement",
 			"businessGroupItemMoveOptions",
-			"/api/business-groups?usage_key=production_bom",
+			"apiGet('/api/business-groups')",
 			"/api/business-group-assignments",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {

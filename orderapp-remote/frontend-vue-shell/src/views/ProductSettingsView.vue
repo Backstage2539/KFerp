@@ -1066,7 +1066,8 @@
                   class="text-button readonly-link-button"
                   type="button"
                   @click="navigateProductBom({ production_bom_id: bomUsageBomID(row), id: bomUsageBomID(row), name: row.bom_name })">
-                  {{ bomUsageRelationLabel(row) }}
+                  <span>{{ bomUsageRelationLabel(row) }}</span>
+                  <small :class="['bom-usage-status', bomUsageStatusClass(row)]">BOM状态：{{ bomUsageStatusLabel(row) }}</small>
                 </button>
                 <small v-if="!productProductionConfigUsedByBomRows.length" class="muted">暂无 BOM 使用该商品</small>
               </div>
@@ -4234,6 +4235,18 @@ function bomUsageRelationLabel(row = {}) {
   return label
 }
 
+function bomUsageStatusLabel(row = {}) {
+  if (row.is_default === true || row.isDefault === true) return '默认状态'
+  if (isInactiveMarker(row.bom_status ?? row.status ?? row.active)) return '失效状态'
+  return '启用状态'
+}
+
+function bomUsageStatusClass(row = {}) {
+  if (row.is_default === true || row.isDefault === true) return 'default'
+  if (isInactiveMarker(row.bom_status ?? row.status ?? row.active)) return 'inactive'
+  return 'active'
+}
+
 function navigateCurrentProductBom() {
   navigateProductBom({ id: productProductionConfigForm.value.product_id || productProductionConfigProduct.value?.id || 0 })
 }
@@ -6089,6 +6102,11 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .production-config-grid label, .production-config-field-row label { display: grid; gap: 5px; min-width: 0; font-size: 13px; }
 .production-config-grid label span, .production-config-field-row label span { color: #5f5a52; font-weight: 600; }
 .production-config-grid .wide-field { grid-column: 1 / -1; }
+.readonly-link-button { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; text-align: left; }
+.bom-usage-status { display: inline-flex; align-items: center; min-height: 22px; padding: 1px 7px; border: 1px solid #d8cbb8; border-radius: 999px; background: #fffaf2; color: #755116; font-size: 12px; line-height: 1.4; white-space: nowrap; }
+.bom-usage-status.default { border-color: #b8d0f0; background: #f2f7ff; color: #25568d; }
+.bom-usage-status.active { border-color: #cddfc9; background: #f5fbf3; color: #2f6c2f; }
+.bom-usage-status.inactive { border-color: #e1b6b6; background: #fff0f0; color: #8a1f1f; }
 .production-config-fields { display: grid; gap: 10px; }
 .production-config-field-row { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(112px, .7fr) minmax(76px, .5fr); gap: 8px; align-items: end; padding: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; }
 .production-config-field-row .checkline { align-self: center; }
