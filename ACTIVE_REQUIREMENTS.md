@@ -25,6 +25,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-price-list-follow-product-group.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
+### PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL
+- Branch: codex/pricing-rule-trial-waterfall-bom-detail
+- Owner/session: Codex / 2026-06-08
+- Status: development complete; local automated verification green; merge/deploy requested and in progress; live browser/product acceptance will be performed manually by Van.
+- Scope: 商品价格管理价格计算模板试算结果展示价格瀑布和 `BOM+工序成本明细`。价格瀑布按 `BOM+工序成本 + 其他成本 + 损耗增加 + 加价增加 + 税额 + 取整调整 = 试算单价` 展示金额节点；BOM+工序成本展开物料成本明细和工序成本明细。缺 BOM/工序成本时显示 0、感叹号和警告，不再按发布售价快照反推。
+- DEV:
+  - DEV-460-TRIAL-WATERFALL-API：`POST /api/costing/pricing-rule-trial` 返回 `bom_cost_total`、`operation_cost_total`、`base_cost_details`、`cost_base_total`、`yield_loss_amount`、`profit_markup_amount`、`tax_in_price_amount`、`final_before_rounding`、`rounding_adjustment`。
+  - DEV-460-TRIAL-BOM-OPERATION-DETAILS：costing 仓储只读读取有效 BOM 物料/组件行和 `operation_template_steps` 工序行，服务层按报价单位换算明细金额。
+  - DEV-460-TRIAL-WATERFALL-UI：商品价格管理试算抽屉用加号/等号展示价格瀑布，展示物料成本明细和工序成本明细，删除英文来源/状态和反推文案。
+  - DEV-460-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和验收记录。
+- Verifier:
+  - RED backend/API: `go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|DoesNotInferCostFromPublishedPriceSnapshotWhenBomCostMissing)' -count=1` and `go test ./internal/interfaces/http/costing -run TestPricingRuleTrialAPI -count=1` failed before implementation because `PricingRuleTrialBaseCostDetail`, `base_cost_details`, `yield_loss_amount`, `profit_markup_amount` and related result fields were missing.
+  - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because ProductSettingsView lacked `BOM+工序成本明细`, `损耗增加`, `加价增加`, `pricing-rule-trial-waterfall` and `pricing-rule-trial-operator`.
+  - GREEN targeted before merge: `go test ./internal/application/costing -run 'TestPricingRuleTrial' -count=1`; `go test ./internal/interfaces/http/costing -run 'TestPricingRuleTrialAPI|TestPricingRuleTrialPermissionIsReadOnly' -count=1`; `go test ./internal/interfaces/http/support -run 'TestDev4(5(4|6|7)|60)' -count=1`; `node --test src/lib/product-settings.test.js`.
+  - GREEN broader before merge: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev4(5(2|4|6|7)|60)|TestLoadProductInputs' -count=1`; `npm run build`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Deployment:
+  - Pending merge to `develop`, push, development deploy and smoke. Live browser/product acceptance is assigned to Van for this merge.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial-waterfall-bom-detail.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
 ### PR-458-GROUP-TEMPLATE-BUSINESS-LISTING
 - Branch: codex/group-template-business-listing-20260608
 - Owner/session: Codex / 2026-06-08

@@ -26,6 +26,7 @@ type fakeRepo struct {
 	beanListAsset       BeanListPublicationAsset
 	savedBeanListAsset  BeanListPublicationAsset
 	pricingRules        map[int64]ProductPricingRule
+	costDetails         []PricingRuleTrialBaseCostDetail
 }
 
 func sliceContains(values []string, want string) bool {
@@ -60,6 +61,10 @@ func (r *fakeRepo) LoadProductPricingRule(_ context.Context, id int64) (ProductP
 		}
 	}
 	return ProductPricingRule{}, ErrProductPricingRuleNotFound
+}
+
+func (r *fakeRepo) LoadPricingRuleTrialBaseCostDetails(_ context.Context, _ domain.ProductInput) ([]PricingRuleTrialBaseCostDetail, error) {
+	return r.costDetails, nil
 }
 
 func (r *fakeRepo) CreateRun(_ context.Context, actor string, items []domain.ProductResult) (*Run, error) {
@@ -229,6 +234,10 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 			ProductCategoryID:        91,
 			ProductSubtypeCategoryID: 92,
 		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:1", Type: "material", TypeLabel: "物料", Name: "拼配熟豆原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 50, Amount: 50, Unit: "kg", Description: "物料成本 50/kg"},
+			{Key: "operation:7:1", Type: "operation", TypeLabel: "工序", Name: "烘焙", ConsumeUnit: "per_kg", UnitCost: 10, Amount: 10, Unit: "kg", Description: "工序成本 10/kg"},
+		},
 		pricingRules: map[int64]ProductPricingRule{
 			10: {
 				ID:             10,
@@ -267,8 +276,18 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 	if got.BaseCost != 60 || got.OtherCostTotal != 2.5 || got.CostAfterYield != 78.13 {
 		t.Fatalf("trial costs = base %.2f other %.2f after yield %.2f", got.BaseCost, got.OtherCostTotal, got.CostAfterYield)
 	}
+	if got.BomCostTotal != 50 || got.OperationCostTotal != 10 || len(got.BaseCostDetails) != 2 {
+		t.Fatalf("base details = bom %.2f operation %.2f rows %+v", got.BomCostTotal, got.OperationCostTotal, got.BaseCostDetails)
+	}
+	if got.CostBaseTotal != 62.5 || got.YieldLossAmount != 15.63 || got.ProfitMarkupAmount != 26.04 || got.TaxInPriceAmount != 6.25 || got.FinalBeforeRounding != 110.42 || got.RoundingAdjustment != -0.02 {
+		t.Fatalf("waterfall = base %.2f loss %.2f profit %.2f taxInPrice %.2f finalBefore %.2f rounding %.2f", got.CostBaseTotal, got.YieldLossAmount, got.ProfitMarkupAmount, got.TaxInPriceAmount, got.FinalBeforeRounding, got.RoundingAdjustment)
+	}
 	if got.PreTaxPrice != 104.17 || got.TaxAmount != 6.25 || got.FinalUnitPrice != 110.4 {
 		t.Fatalf("trial prices = preTax %.2f tax %.2f final %.2f", got.PreTaxPrice, got.TaxAmount, got.FinalUnitPrice)
+	}
+	waterfallTotal := got.CostBaseTotal + got.YieldLossAmount + got.ProfitMarkupAmount + got.TaxInPriceAmount + got.RoundingAdjustment
+	if math.Abs(waterfallTotal-got.FinalUnitPrice) > 0.001 {
+		t.Fatalf("waterfall total %.4f must equal final unit price %.4f", waterfallTotal, got.FinalUnitPrice)
 	}
 	if got.FormulaExpression == "" || !sliceContains(got.FormulaExpressionLines, "最终售价 = 110.4/kg") {
 		t.Fatalf("formula expression = %q lines = %+v, want final price line", got.FormulaExpression, got.FormulaExpressionLines)
@@ -285,7 +304,7 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 	}
 }
 
-func TestPricingRuleTrialInfersCostFromPublishedPriceSnapshotWhenBomCostMissing(t *testing.T) {
+func TestPricingRuleTrialDoesNotInferCostFromPublishedPriceSnapshotWhenBomCostMissing(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
 			ProductID:        538,
@@ -333,17 +352,20 @@ func TestPricingRuleTrialInfersCostFromPublishedPriceSnapshotWhenBomCostMissing(
 	if err != nil {
 		t.Fatalf("PricingRuleTrial() error = %v", err)
 	}
-	if got.BaseCost != 50.12 || got.CostAfterYield != 62.65 || got.PreTaxPrice != 78.32 || got.TaxAmount != 10.18 || got.FinalUnitPrice != 88.5 {
-		t.Fatalf("trial from snapshot = base %.2f after yield %.2f preTax %.2f tax %.2f final %.2f", got.BaseCost, got.CostAfterYield, got.PreTaxPrice, got.TaxAmount, got.FinalUnitPrice)
+	if got.BaseCost != 0 || got.BomCostTotal != 0 || got.OperationCostTotal != 0 || got.CostAfterYield != 0 || got.PreTaxPrice != 0 || got.TaxAmount != 0 || got.FinalUnitPrice != 0 {
+		t.Fatalf("trial must not infer from snapshot = base %.2f bom %.2f operation %.2f after yield %.2f preTax %.2f tax %.2f final %.2f", got.BaseCost, got.BomCostTotal, got.OperationCostTotal, got.CostAfterYield, got.PreTaxPrice, got.TaxAmount, got.FinalUnitPrice)
 	}
-	if !strings.Contains(got.FormulaExpression, "最终售价 = 88.5/kg") || !strings.Contains(got.FormulaExpression, "发布售价快照反推") {
-		t.Fatalf("formula expression = %q, want final price and published snapshot inference", got.FormulaExpression)
+	if strings.Contains(got.FormulaExpression, "发布售价快照反推") || strings.Contains(strings.Join(got.FormulaExpressionLines, "\n"), "发布售价快照反推") {
+		t.Fatalf("formula expression should not mention published snapshot inference: %q lines=%+v", got.FormulaExpression, got.FormulaExpressionLines)
 	}
-	if !pricingRuleTrialHasStep(got.Steps, "published_price_snapshot") {
-		t.Fatalf("steps missing published price snapshot source: %+v", got.Steps)
+	if pricingRuleTrialHasStep(got.Steps, "published_price_snapshot") {
+		t.Fatalf("steps must not include published price snapshot source: %+v", got.Steps)
 	}
-	if !pricingRuleTrialWarningsContain(got.Warnings, "未找到BOM/工序成本，已按发布售价快照反推成本基数") {
-		t.Fatalf("warnings = %+v, want published snapshot fallback warning", got.Warnings)
+	if !pricingRuleTrialWarningsContain(got.Warnings, "该商品暂无可试算的 BOM/工序成本") {
+		t.Fatalf("warnings = %+v, want missing BOM warning", got.Warnings)
+	}
+	if strings.Contains(strings.Join(got.Warnings, "\n"), "反推") {
+		t.Fatalf("warnings must not mention snapshot inference: %+v", got.Warnings)
 	}
 }
 
@@ -637,6 +659,13 @@ func TestPricingRuleTrialSupportsMarkupTaxExcludedAndYuanRounding(t *testing.T) 
 	}
 	if got.PreTaxPrice != 46.8 || got.TaxAmount != 4.68 || got.FinalUnitPrice != 47 {
 		t.Fatalf("trial prices = preTax %.2f tax %.2f final %.2f", got.PreTaxPrice, got.TaxAmount, got.FinalUnitPrice)
+	}
+	if got.TaxInPriceAmount != 0 || got.FinalBeforeRounding != 46.8 || got.RoundingAdjustment != 0.2 {
+		t.Fatalf("tax excluded waterfall = taxInPrice %.2f finalBefore %.2f rounding %.2f", got.TaxInPriceAmount, got.FinalBeforeRounding, got.RoundingAdjustment)
+	}
+	waterfallTotal := got.CostBaseTotal + got.YieldLossAmount + got.ProfitMarkupAmount + got.TaxInPriceAmount + got.RoundingAdjustment
+	if math.Abs(waterfallTotal-got.FinalUnitPrice) > 0.001 {
+		t.Fatalf("waterfall total %.4f must equal final unit price %.4f", waterfallTotal, got.FinalUnitPrice)
 	}
 }
 

@@ -963,32 +963,51 @@
           </section>
 
           <section v-if="pricingRuleTrialResult" class="drawer-section pricing-rule-trial-result">
-            <div class="pricing-rule-trial-metrics">
-              <div>
-                <small>BOM+工序成本</small>
+            <div class="pricing-rule-trial-waterfall">
+              <div :class="['pricing-rule-trial-waterfall-card', { warning: pricingRuleTrialBaseCostMissing(pricingRuleTrialResult) }]">
+                <small>BOM+工序成本 <span v-if="pricingRuleTrialBaseCostMissing(pricingRuleTrialResult)" title="该商品暂无可试算的 BOM/工序成本">!</span></small>
                 <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.base_cost, pricingRuleTrialResult.quote_unit) }}</strong>
+                <em>物料 {{ trialMoneyDisplay(pricingRuleTrialResult.bom_cost_total, pricingRuleTrialResult.quote_unit) }} / 工序 {{ trialMoneyDisplay(pricingRuleTrialResult.operation_cost_total, pricingRuleTrialResult.quote_unit) }}</em>
               </div>
-              <div>
+              <span class="pricing-rule-trial-operator">+</span>
+              <div class="pricing-rule-trial-waterfall-card">
                 <small>其他成本</small>
                 <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.other_cost_total, pricingRuleTrialResult.quote_unit) }}</strong>
+                <em>成本基数 {{ trialMoneyDisplay(pricingRuleTrialResult.cost_base_total, pricingRuleTrialResult.quote_unit) }}</em>
               </div>
-              <div>
-                <small>损耗后成本</small>
-                <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.cost_after_yield, pricingRuleTrialResult.quote_unit) }}</strong>
+              <span class="pricing-rule-trial-operator">+</span>
+              <div class="pricing-rule-trial-waterfall-card">
+                <small>损耗增加</small>
+                <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.yield_loss_amount, pricingRuleTrialResult.quote_unit) }}</strong>
+                <em>{{ trialMoneyDisplay(pricingRuleTrialResult.cost_base_total, pricingRuleTrialResult.quote_unit) }} → {{ trialMoneyDisplay(pricingRuleTrialResult.cost_after_yield, pricingRuleTrialResult.quote_unit) }}</em>
               </div>
-              <div>
-                <small>加价后价格</small>
-                <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.price_after_markup, pricingRuleTrialResult.quote_unit) }}</strong>
+              <span class="pricing-rule-trial-operator">+</span>
+              <div class="pricing-rule-trial-waterfall-card">
+                <small>加价增加</small>
+                <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.profit_markup_amount, pricingRuleTrialResult.quote_unit) }}</strong>
+                <em>加价后价格 {{ trialMoneyDisplay(pricingRuleTrialResult.pre_tax_price, pricingRuleTrialResult.quote_unit) }}</em>
               </div>
-              <div class="final">
+              <span class="pricing-rule-trial-operator">+</span>
+              <div class="pricing-rule-trial-waterfall-card">
+                <small>税额</small>
+                <strong>{{ trialMoneyDisplay(pricingRuleTrialTaxInPriceAmount(pricingRuleTrialResult), pricingRuleTrialResult.quote_unit) }}</strong>
+                <em>{{ pricingRuleTrialTaxWaterfallNote(pricingRuleTrialResult) }}</em>
+              </div>
+              <span class="pricing-rule-trial-operator">+</span>
+              <div class="pricing-rule-trial-waterfall-card">
+                <small>取整调整</small>
+                <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.rounding_adjustment, pricingRuleTrialResult.quote_unit) }}</strong>
+                <em>按模板取整</em>
+              </div>
+              <span class="pricing-rule-trial-operator equals">=</span>
+              <div class="pricing-rule-trial-waterfall-card final">
                 <small>试算单价</small>
                 <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.final_unit_price, pricingRuleTrialResult.quote_unit) }}</strong>
+                <em>试算结果只读</em>
               </div>
             </div>
-            <div class="pricing-rule-trial-source">
+            <div class="pricing-rule-trial-result-meta">
               <span>BOM版本：{{ pricingRuleTrialResult.bom_version_no || pricingRuleTrialResult.bom_version_id || '-' }}</span>
-              <span>来源：{{ pricingRuleTrialResult.bom_usage_mode || '-' }}</span>
-              <span>状态：{{ pricingRuleTrialResult.bom_status || '-' }}</span>
               <span>毛利率：{{ percentDisplay(pricingRuleTrialResult.gross_margin_rate) }}</span>
             </div>
             <div v-if="pricingRuleTrialResult.warnings?.length" class="pricing-rule-trial-warnings">
@@ -1004,6 +1023,74 @@
                 <li v-for="line in pricingRuleTrialResult.formula_expression_lines" :key="line">{{ line }}</li>
               </ol>
             </div>
+            <div class="pricing-rule-trial-base-detail">
+              <div class="field-group-head">
+                <strong>BOM+工序成本明细</strong>
+                <small>物料合计 {{ trialMoneyDisplay(pricingRuleTrialResult.bom_cost_total, pricingRuleTrialResult.quote_unit) }}；工序合计 {{ trialMoneyDisplay(pricingRuleTrialResult.operation_cost_total, pricingRuleTrialResult.quote_unit) }}；总计 {{ trialMoneyDisplay(pricingRuleTrialResult.base_cost, pricingRuleTrialResult.quote_unit) }}</small>
+              </div>
+              <div class="pricing-rule-trial-detail-group">
+                <strong>物料成本明细</strong>
+                <div class="table-wrap compact-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>类型</th>
+                        <th>名称</th>
+                        <th>用量</th>
+                        <th>单位成本</th>
+                        <th>金额</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="row in pricingRuleTrialBaseCostRows(pricingRuleTrialResult, 'material')" :key="row.key || row.name">
+                        <td>{{ row.type_label || pricingRuleTrialBaseCostTypeLabel(row.type) }}</td>
+                        <td>
+                          <span>{{ row.name || '-' }}</span>
+                          <small v-if="row.description">{{ row.description }}</small>
+                        </td>
+                        <td>{{ pricingRuleTrialBaseCostUsage(row) }}</td>
+                        <td>{{ trialMoneyDisplay(row.unit_cost, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
+                        <td>{{ trialMoneyDisplay(row.amount, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
+                      </tr>
+                      <tr v-if="!pricingRuleTrialBaseCostRows(pricingRuleTrialResult, 'material').length">
+                        <td colspan="5" class="muted">暂无物料成本明细。</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="pricing-rule-trial-detail-group">
+                <strong>工序成本明细</strong>
+                <div class="table-wrap compact-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>类型</th>
+                        <th>名称</th>
+                        <th>计费口径</th>
+                        <th>成本率</th>
+                        <th>金额</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="row in pricingRuleTrialBaseCostRows(pricingRuleTrialResult, 'operation')" :key="row.key || row.name">
+                        <td>{{ row.type_label || pricingRuleTrialBaseCostTypeLabel(row.type) }}</td>
+                        <td>
+                          <span>{{ row.name || '-' }}</span>
+                          <small v-if="row.description">{{ row.description }}</small>
+                        </td>
+                        <td>{{ pricingRuleTrialBaseCostUsage(row) }}</td>
+                        <td>{{ trialMoneyDisplay(row.unit_cost, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
+                        <td>{{ trialMoneyDisplay(row.amount, row.unit || pricingRuleTrialResult.quote_unit) }}</td>
+                      </tr>
+                      <tr v-if="!pricingRuleTrialBaseCostRows(pricingRuleTrialResult, 'operation').length">
+                        <td colspan="5" class="muted">暂无工序成本明细。</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
             <div class="field-group-head">
               <strong>公式步骤</strong>
               <small>试算结果不写入商品价格表、发布快照或订单。</small>
@@ -1013,7 +1100,7 @@
                 <thead>
                   <tr>
                     <th>步骤</th>
-                    <th>来源</th>
+                    <th>说明</th>
                     <th>数值</th>
                     <th>临时覆盖</th>
                   </tr>
@@ -1021,7 +1108,7 @@
                 <tbody>
                   <tr v-for="step in pricingRuleTrialResult.steps || []" :key="step.key">
                     <td>{{ step.label || step.key }}</td>
-                    <td>{{ step.source || '-' }}</td>
+                    <td>{{ pricingRuleTrialStepSourceDisplay(step) }}</td>
                     <td>{{ pricingRuleTrialStepDisplay(step) }}</td>
                     <td>{{ step.changed ? '是' : '否' }}</td>
                   </tr>
@@ -3306,6 +3393,91 @@ function pricingRuleTrialStepDisplay(step = {}) {
   if (!Number.isFinite(n)) return '-'
   if (step.unit === 'ratio') return percentDisplay(n)
   return trialMoneyDisplay(n, step.unit)
+}
+
+function pricingRuleTrialStepSourceDisplay(step = {}) {
+  const source = String(step.source || '').trim()
+  if (!source) return '-'
+  const sourceMap = {
+    product_bom_operation_cost: '当前商品 BOM/工序成本',
+    pricing_rule: '价格计算模板',
+    formula: '公式计算',
+    temporary_override: '本次临时录入',
+    temporary_other_costs: '本次临时录入',
+    temporary_post_markup_costs: '本次临时录入',
+    pricing_rule_other_costs: '价格计算模板',
+    pricing_rule_post_markup_costs: '价格计算模板',
+    override: '本次临时录入',
+    product_bom: '当前商品 BOM',
+    product_expected_loss: '当前商品损耗率',
+    no_loss: '不计损耗',
+  }
+  if (sourceMap[source]) return sourceMap[source]
+  if (/^[a-z0-9_:. -]+$/i.test(source)) return '-'
+  return source
+}
+
+function pricingRuleTrialBaseCostRows(result = {}, kind = 'material') {
+  const rows = Array.isArray(result?.base_cost_details) ? result.base_cost_details : []
+  if (kind === 'operation') return rows.filter((row) => String(row?.type || '') === 'operation')
+  return rows.filter((row) => String(row?.type || '') !== 'operation')
+}
+
+function pricingRuleTrialBaseCostTypeLabel(type = '') {
+  const value = String(type || '').trim()
+  if (value === 'operation') return '工序'
+  if (value === 'component_product' || value === 'product' || value === 'finished_product') return '成品组件'
+  if (value === 'temporary_override') return '临时覆盖'
+  return '物料'
+}
+
+function pricingRuleTrialBaseCostUsage(row = {}) {
+  const consumeUnit = String(row.consume_unit || '').trim()
+  const quantity = Number(row.quantity || 0)
+  const ratioPct = Number(row.ratio_pct || 0)
+  if (consumeUnit === 'ratio_pct') return `比例 ${percentDisplay(ratioPct / 100)}`
+  if (quantity > 0) return `${pricingRuleTrialConsumeUnitLabel(consumeUnit)} ${quantity.toFixed(4).replace(/\.?0+$/, '')}`
+  return pricingRuleTrialConsumeUnitLabel(consumeUnit) || '-'
+}
+
+function pricingRuleTrialConsumeUnitLabel(value = '') {
+  return {
+    ratio_pct: '比例',
+    g_per_bag: '每袋克数',
+    unit_per_bag: '每袋数量',
+    unit_per_box: '每盒数量',
+    fixed_qty: '固定数量',
+    unit: '数量',
+    g: '克',
+    kg: '千克',
+    length: '长度',
+    area: '面积',
+    per_kg: '每 kg',
+    per_kg_output: '每 kg 成品',
+    per_finished_kg: '每 kg 成品',
+    fixed: '固定',
+    per_unit: '每单位',
+    per_quote_unit: '每报价单位',
+  }[String(value || '').trim()] || String(value || '').trim()
+}
+
+function pricingRuleTrialBaseCostMissing(result = {}) {
+  return Number(result?.base_cost || 0) <= 0
+}
+
+function pricingRuleTrialTaxInPriceAmount(result = {}) {
+  if (Object.prototype.hasOwnProperty.call(result || {}, 'tax_in_price_amount')) return Number(result.tax_in_price_amount || 0)
+  return Number(result?.tax_amount || 0)
+}
+
+function pricingRuleTrialTaxWaterfallNote(result = {}) {
+  const unit = result?.quote_unit
+  const taxAmount = Number(result?.tax_amount || 0)
+  const taxInPriceAmount = pricingRuleTrialTaxInPriceAmount(result)
+  if (taxAmount > 0 && Math.abs(taxAmount - taxInPriceAmount) > 0.0001) {
+    return `税额另计 ${trialMoneyDisplay(taxAmount, unit)}；取整前 ${trialMoneyDisplay(result?.final_before_rounding, unit)}`
+  }
+  return `取整前 ${trialMoneyDisplay(result?.final_before_rounding, unit)}`
 }
 
 async function savePricingRule() {
@@ -6504,6 +6676,22 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .pricing-rule-trial-form-section { display: grid; gap: 12px; }
 .pricing-rule-trial-grid .wide-field { grid-column: 1 / -1; }
 .pricing-rule-trial-result { display: grid; gap: 12px; }
+.pricing-rule-trial-waterfall { display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; }
+.pricing-rule-trial-waterfall-card { min-width: 118px; flex: 1 1 132px; border: 1px solid #e2dacd; border-radius: 8px; background: #fff; padding: 10px; display: grid; gap: 4px; align-content: start; }
+.pricing-rule-trial-waterfall-card small { color: #6d665c; }
+.pricing-rule-trial-waterfall-card small span { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: 4px; border-radius: 999px; background: #fff0d9; color: #8a5400; font-weight: 800; }
+.pricing-rule-trial-waterfall-card strong { font-size: 18px; color: #2f2a25; overflow-wrap: anywhere; }
+.pricing-rule-trial-waterfall-card em { font-style: normal; font-size: 12px; color: #7c7064; line-height: 1.35; }
+.pricing-rule-trial-waterfall-card.warning { border-color: #f1c27d; background: #fffaf1; }
+.pricing-rule-trial-waterfall-card.final { border-color: #b8d0f0; background: #f2f7ff; }
+.pricing-rule-trial-operator { flex: 0 0 18px; min-height: 76px; display: inline-flex; align-items: center; justify-content: center; color: #6d665c; font-weight: 800; }
+.pricing-rule-trial-operator.equals { color: #25568d; }
+.pricing-rule-trial-result-meta { display: flex; flex-wrap: wrap; gap: 8px 14px; color: #5f5a52; font-size: 13px; }
+.pricing-rule-trial-base-detail { display: grid; gap: 10px; border: 1px solid #eee8df; border-radius: 8px; padding: 10px; background: #fff; }
+.pricing-rule-trial-detail-group { display: grid; gap: 8px; }
+.pricing-rule-trial-detail-group > strong { color: #2f2a25; }
+.pricing-rule-trial-detail-group td span { display: block; }
+.pricing-rule-trial-detail-group td small { display: block; margin-top: 2px; color: #7c7064; line-height: 1.35; }
 .pricing-rule-trial-metrics > div { min-width: 0; border: 1px solid #e2dacd; border-radius: 8px; background: #fff; padding: 10px; display: grid; gap: 4px; }
 .pricing-rule-trial-metrics small { color: #6d665c; }
 .pricing-rule-trial-metrics strong { font-size: 18px; color: #2f2a25; overflow-wrap: anywhere; }

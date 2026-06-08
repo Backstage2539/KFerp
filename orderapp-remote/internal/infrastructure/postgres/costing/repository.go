@@ -84,6 +84,124 @@ func (r Repository) LoadProductPricingRule(ctx context.Context, id int64) (appco
 	return row, nil
 }
 
+func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, input domain.ProductInput) ([]appcosting.PricingRuleTrialBaseCostDetail, error) {
+	if r.pool == nil || input.ProductID <= 0 {
+		return nil, nil
+	}
+	out := make([]appcosting.PricingRuleTrialBaseCostDetail, 0)
+	bomRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		WITH material_valuation AS (
+			SELECT l.material_id,
+			       SUM(l.qty_g::numeric * COALESCE(b.unit_cost,0)) / NULLIF(SUM(l.qty_g),0) AS weighted_unit_cost
+			FROM %[1]s.material_batch_locations l
+			JOIN %[1]s.material_batches b ON b.id = l.material_batch_id
+			WHERE l.qty_g > 0
+			  AND b.status='active'
+			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
+			GROUP BY l.material_id
+		),
+		bom_items AS (
+			SELECT pbi.id, pbi.material_id, pbi.component_type, pbi.component_product_id, pbi.component_spec_g,
+			       pbi.consume_unit, pbi.qty_per_unit::float8, pbi.ratio_pct::float8, pbi.unit_cost_snapshot::float8
+			FROM %[1]s.production_bom_version_items pbi
+			WHERE $1 > 0 AND pbi.version_id=$1
+			UNION ALL
+			SELECT bi.id, bi.material_id, bi.component_type, bi.component_product_id, bi.component_spec_g,
+			       bi.consume_unit, bi.qty_per_unit::float8, bi.ratio_pct::float8, bi.unit_cost_snapshot::float8
+			FROM %[1]s.product_bom_items bi
+			LEFT JOIN %[1]s.product_bom_sources bs ON bs.product_id=$2
+			WHERE $1 <= 0
+			  AND bi.product_id=CASE
+			    WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
+			    ELSE $2
+			  END
+		)
+		SELECT bi.id,
+		       COALESCE(NULLIF(bi.component_type,''),'material') AS component_type,
+		       COALESCE(NULLIF(m.name,''), NULLIF(cp.name,''), 'BOM项目') AS name,
+		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') AS consume_unit,
+		       COALESCE(bi.qty_per_unit,0)::float8,
+		       COALESCE(bi.ratio_pct,0)::float8,
+		       COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)::float8 AS unit_cost,
+		       CASE
+		         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct')='ratio_pct'
+		         THEN COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0) * COALESCE(bi.ratio_pct,0) / 100.0
+		         ELSE 0
+		       END::float8 AS amount_per_kg,
+		       CASE
+		         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct')='g_per_bag'
+		         THEN COALESCE(bi.qty_per_unit,0) / 1000.0 * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)
+		         WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') IN ('unit_per_bag','unit_per_box','fixed_qty','unit','g','kg','length','area')
+		         THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(m.purchase_price,0), NULLIF(mv.weighted_unit_cost,0), NULLIF(bi.unit_cost_snapshot,0), 0)
+		         ELSE 0
+		       END::float8 AS amount_per_unit
+		FROM bom_items bi
+		LEFT JOIN %[1]s.materials m ON m.id=bi.material_id
+		LEFT JOIN material_valuation mv ON mv.material_id=bi.material_id
+		LEFT JOIN %[1]s.products cp ON cp.id=bi.component_product_id
+		ORDER BY bi.id
+	`, r.schema), input.BomVersionID, input.ProductID)
+	if err != nil {
+		return nil, err
+	}
+	defer bomRows.Close()
+	for bomRows.Next() {
+		var row appcosting.PricingRuleTrialBaseCostDetail
+		var id int64
+		var componentType string
+		if err := bomRows.Scan(&id, &componentType, &row.Name, &row.ConsumeUnit, &row.Quantity, &row.RatioPct, &row.UnitCost, &row.AmountPerKg, &row.AmountPerUnit); err != nil {
+			return nil, err
+		}
+		row.Type = "material"
+		if componentType == "product" || componentType == "finished_product" {
+			row.Type = "component_product"
+		}
+		row.Key = fmt.Sprintf("%s:%d", row.Type, id)
+		out = append(out, row)
+	}
+	if err := bomRows.Err(); err != nil {
+		return nil, err
+	}
+
+	if input.OperationTemplateID <= 0 {
+		return out, nil
+	}
+	opRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id,
+		       COALESCE(NULLIF(operation,''), NULLIF(workstation,''), '工序') AS name,
+		       COALESCE(NULLIF(cost_type,''),'fixed') AS cost_type,
+		       COALESCE(cost_rate,0)::float8
+		FROM %s.operation_template_steps
+		WHERE template_id=$1 AND active=true
+		ORDER BY position, id
+	`, r.schema), input.OperationTemplateID)
+	if err != nil {
+		return nil, err
+	}
+	defer opRows.Close()
+	for opRows.Next() {
+		var row appcosting.PricingRuleTrialBaseCostDetail
+		var id int64
+		if err := opRows.Scan(&id, &row.Name, &row.ConsumeUnit, &row.UnitCost); err != nil {
+			return nil, err
+		}
+		row.Key = fmt.Sprintf("operation:%d", id)
+		row.Type = "operation"
+		row.Quantity = 1
+		switch row.ConsumeUnit {
+		case "per_kg", "per_kg_output", "per_finished_kg":
+			row.AmountPerKg = row.UnitCost
+		default:
+			row.AmountPerUnit = row.UnitCost
+		}
+		out = append(out, row)
+	}
+	if err := opRows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (r Repository) loadProductInputs(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error) {
 	q := fmt.Sprintf(`
 		WITH material_valuation AS (

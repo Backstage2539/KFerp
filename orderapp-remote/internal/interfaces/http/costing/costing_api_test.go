@@ -52,26 +52,38 @@ func (fakeService) ExplainPrice(ctx context.Context, req appcosting.PriceExplana
 
 func (fakeService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrialCommand) (*appcosting.PricingRuleTrialResult, error) {
 	return &appcosting.PricingRuleTrialResult{
-		PricingRuleID:     10,
-		PricingRuleName:   "PR452 毛利含税",
-		FormulaVersion:    "v2",
-		ProductID:         549,
-		ProductName:       "PR452 试算商品",
-		QuoteUnit:         "kg",
-		InventoryUnit:     "kg",
-		BomVersionID:      3315,
-		BomVersionNo:      "BOM-v1",
-		BomUsageMode:      "product_production_config",
-		BomStatus:         "active",
-		BaseCost:          60,
-		OtherCostTotal:    2.5,
-		CostAfterYield:    78.13,
-		PreTaxPrice:       104.17,
-		TaxAmount:         6.25,
-		FinalUnitPrice:    110.4,
-		GrossMarginRate:   0.25,
-		MinimumMarginRate: 0.18,
-		FormulaExpression: "最终售价 = (BOM+工序成本 60/kg + 其他成本 2.5/kg) / (1 - 损耗率 20%) / (1 - 毛利率 25%) * (1 + 税率 6%) = 110.4/kg",
+		PricingRuleID:      10,
+		PricingRuleName:    "PR452 毛利含税",
+		FormulaVersion:     "v2",
+		ProductID:          549,
+		ProductName:        "PR452 试算商品",
+		QuoteUnit:          "kg",
+		InventoryUnit:      "kg",
+		BomVersionID:       3315,
+		BomVersionNo:       "BOM-v1",
+		BomUsageMode:       "product_production_config",
+		BomStatus:          "active",
+		BaseCost:           60,
+		BomCostTotal:       50,
+		OperationCostTotal: 10,
+		BaseCostDetails: []appcosting.PricingRuleTrialBaseCostDetail{
+			{Key: "material:1", Type: "material", TypeLabel: "物料", Name: "拼配熟豆原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 50, Amount: 50, Unit: "kg", Description: "物料成本 50/kg"},
+			{Key: "operation:7:1", Type: "operation", TypeLabel: "工序", Name: "烘焙", ConsumeUnit: "per_kg", UnitCost: 10, Amount: 10, Unit: "kg", Description: "工序成本 10/kg"},
+		},
+		OtherCostTotal:      2.5,
+		CostBaseTotal:       62.5,
+		CostAfterYield:      78.13,
+		YieldLossAmount:     15.63,
+		ProfitMarkupAmount:  26.04,
+		PreTaxPrice:         104.17,
+		TaxAmount:           6.25,
+		TaxInPriceAmount:    6.25,
+		FinalBeforeRounding: 110.42,
+		RoundingAdjustment:  -0.02,
+		FinalUnitPrice:      110.4,
+		GrossMarginRate:     0.25,
+		MinimumMarginRate:   0.18,
+		FormulaExpression:   "最终售价 = (BOM+工序成本 60/kg + 其他成本 2.5/kg) / (1 - 损耗率 20%) / (1 - 毛利率 25%) * (1 + 税率 6%) = 110.4/kg",
 		FormulaExpressionLines: []string{
 			"成本基数 = BOM+工序成本 60/kg + 其他成本 2.5/kg = 62.5/kg",
 			"最终售价 = 110.4/kg",
@@ -89,19 +101,28 @@ func (fakePricingRuleTrialErrorService) PricingRuleTrial(context.Context, appcos
 func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, cmd appcosting.PricingRuleTrialCommand) (*appcosting.PricingRuleTrialResult, error) {
 	s.last = cmd
 	return &appcosting.PricingRuleTrialResult{
-		PricingRuleID:       cmd.PricingRuleID,
-		PricingRuleName:     "PR453 Excel 供应售价",
-		FormulaVersion:      "excel-202604-v3",
-		ProductID:           cmd.ProductID,
-		ProductName:         "测试用",
-		QuoteUnit:           cmd.QuoteUnit,
-		InventoryUnit:       "kg",
-		BaseCost:            67.5,
+		PricingRuleID:      cmd.PricingRuleID,
+		PricingRuleName:    "PR453 Excel 供应售价",
+		FormulaVersion:     "excel-202604-v3",
+		ProductID:          cmd.ProductID,
+		ProductName:        "测试用",
+		QuoteUnit:          cmd.QuoteUnit,
+		InventoryUnit:      "kg",
+		BaseCost:           67.5,
+		BomCostTotal:       67.5,
+		OperationCostTotal: 0,
+		BaseCostDetails: []appcosting.PricingRuleTrialBaseCostDetail{
+			{Key: "material:1", Type: "material", TypeLabel: "物料", Name: "测试原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 67.5, Amount: 67.5, Unit: "kg", Description: "物料成本 67.5/kg"},
+		},
 		OtherCostTotal:      6.2625,
+		CostBaseTotal:       73.7625,
 		CostAfterYield:      73.7625,
 		PriceAfterMarkup:    113.7495,
+		ProfitMarkupAmount:  39.987,
 		PostMarkupCostTotal: 2.9596,
 		PreTaxPrice:         116.7092,
+		TaxInPriceAmount:    0,
+		FinalBeforeRounding: 116.7092,
 		FinalUnitPrice:      116.7092,
 		GrossMarginRate:     0.3684,
 		MinimumMarginRate:   0,
@@ -112,7 +133,7 @@ func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, c
 		},
 		Steps: []domain.PriceExplanationStep{
 			{Key: "price_after_markup", Label: "加价后价格", Value: 113.7495, Unit: "kg"},
-			{Key: "post_markup_cost_total", Label: "售价后附加成本", Value: 2.9596, Unit: "kg"},
+			{Key: "post_markup_cost_total", Label: "加价附加成本", Value: 2.9596, Unit: "kg"},
 			{Key: "final_unit_price", Label: "试算单价", Value: 116.7092, Unit: "kg"},
 		},
 	}, nil
@@ -695,13 +716,16 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	if got.PriceAfterMarkup <= 0 || got.PostMarkupCostTotal <= 0 {
 		t.Fatalf("trial response missing supplier formula fields: %+v", got)
 	}
+	if got.BomCostTotal != 67.5 || len(got.BaseCostDetails) != 1 || got.CostBaseTotal != 73.7625 || got.ProfitMarkupAmount != 39.987 || got.TaxInPriceAmount != 0 {
+		t.Fatalf("trial response missing waterfall/detail fields: %+v", got)
+	}
 	if got.FormulaExpression == "" || len(got.FormulaExpressionLines) == 0 {
 		t.Fatalf("trial response missing formula expression: %+v", got)
 	}
 	if !strings.Contains(rec.Body.String(), `"key":"post_markup_cost_total"`) || !strings.Contains(rec.Body.String(), `"key":"final_unit_price"`) {
 		t.Fatalf("response missing formula steps: %s", rec.Body.String())
 	}
-	for _, want := range []string{`"formula_expression"`, `"formula_expression_lines"`, `最终售价 = 116.7092/kg`} {
+	for _, want := range []string{`"formula_expression"`, `"formula_expression_lines"`, `"base_cost_details"`, `"yield_loss_amount"`, `"profit_markup_amount"`, `"tax_in_price_amount"`, `最终售价 = 116.7092/kg`} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("response missing formula expression marker %s: %s", want, rec.Body.String())
 		}
