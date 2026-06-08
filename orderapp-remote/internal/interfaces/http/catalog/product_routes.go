@@ -27,6 +27,7 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/business-groups", h.businessGroupsAPI)
 	e.POST("/api/business-groups", h.saveBusinessGroupAPI)
 	e.PUT("/api/business-groups/:id", h.saveBusinessGroupAPI)
+	e.POST("/api/business-groups/:id/usages", h.ensureBusinessGroupUsageAPI)
 	e.POST("/api/business-group-items", h.saveBusinessGroupItemAPI)
 	e.PUT("/api/business-group-items/:id", h.saveBusinessGroupItemAPI)
 	e.DELETE("/api/business-group-items/:id", h.deleteBusinessGroupItemAPI)
@@ -946,6 +947,29 @@ func (h productHandler) moveBusinessGroupItemAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"item": row})
+}
+
+func (h productHandler) ensureBusinessGroupUsageAPI(c echo.Context) error {
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	var req struct {
+		UsageKey string `json:"usage_key"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "bad request"})
+	}
+	if req.UsageKey == "" {
+		req.UsageKey = c.QueryParam("usage_key")
+	}
+	if err := h.catalog.EnsureBusinessGroupUsage(c.Request().Context(), id, req.UsageKey, support.ActorOf(c)); err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
 
 func (h productHandler) businessGroupAssignmentsAPI(c echo.Context) error {

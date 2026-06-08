@@ -39,7 +39,7 @@
               未分类
             </button>
             <button
-              v-for="option in productionBomGroupOptions"
+              v-for="option in productionBomMoveGroupOptions"
               :key="option.id"
               :class="['secondary', 'compact-action', { active: selectedProductionBomGroupItemID === Number(option.group_item_id || 0) }]"
               type="button"
@@ -51,6 +51,14 @@
         </div>
         <div class="bom-list-toolbar">
           <button class="secondary compact-action" type="button" @click="openBusinessGroupManagement">前往分组管理</button>
+          <label>
+            <span>可用分组</span>
+            <select v-model.number="selectedProductionBomUseGroupID">
+              <option :value="0">{{ productionBomUseGroupOptions.length ? '选择分组' : '暂无可使用分组' }}</option>
+              <option v-for="option in productionBomUseGroupOptions" :key="option.id" :value="Number(option.id || 0)">{{ option.label }}</option>
+            </select>
+          </label>
+          <button class="secondary compact-action" type="button" :disabled="!selectedProductionBomUseGroupID || loading" @click="useSelectedProductionBomGroup">使用分组</button>
           <button class="secondary compact-action" type="button" :disabled="!canMoveSelectedBoms || loading" @click="moveSelectedProductBomsToGroup">
             移动到分组
           </button>
@@ -58,7 +66,7 @@
             <span>目标分组</span>
             <select v-model.number="selectedBomMoveGroupItemID">
               <option :value="0">未分组</option>
-              <option v-for="option in productionBomGroupOptions" :key="option.id" :value="Number(option.group_item_id || 0)">{{ option.label }}</option>
+              <option v-for="option in productionBomMoveGroupOptions" :key="option.id" :value="Number(option.group_item_id || 0)">{{ option.label }}</option>
             </select>
           </label>
           <span class="muted left">已选 {{ selectedBomRecordsForMove.length }} 个可移动 BOM</span>
@@ -392,7 +400,7 @@ import SearchableSelect from '../components/SearchableSelect.vue'
 import { bomProductOptionLabel, filterProductionBomCatalog, isBomProductCandidate, productionBomDetailAsRecipeDetail, productionBomLabel, productionBomVersionWarning } from '../lib/bom'
 import { componentTypeLabel } from '../lib/drip-product'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
-import { businessGroupAssignmentLabel, businessGroupItemMoveOptions, buildBusinessGroupAssignmentPayload, isSystemDefaultBusinessGroup } from '../lib/product-settings'
+import { businessGroupAssignmentLabel, businessGroupItemMoveOptions, businessGroupVisibleName, buildBusinessGroupAssignmentPayload, isSystemDefaultBusinessGroup } from '../lib/product-settings'
 import { replaceHistoryURL } from '../lib/url-state'
 import { CUSTOMER_WORKSPACE_MODE } from '../lib/workspace-mode'
 
@@ -418,6 +426,7 @@ const selectedProductId = ref(0)
 const selectedProductionBomGroupItemID = ref(0)
 const selectedProductionBomVersionID = ref(0)
 const selectedBomMoveGroupItemID = ref(0)
+const selectedProductionBomUseGroupID = ref(0)
 const selectedBomRowKeys = ref([])
 const pendingProductionBomID = ref(0)
 const bomReturnNavigation = computed(() => props.viewParams?.return_navigation || null)
@@ -443,7 +452,13 @@ const versionNote = ref('')
 
 const detailItems = computed(() => detail.value?.items || [])
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
-const productionBomGroupOptions = computed(() => businessGroupItemMoveOptions(productionBomBusinessGroups.value, 'production_bom', { includeGroupsWithoutUsage: true }))
+const productionBomMoveGroupOptions = computed(() => businessGroupItemMoveOptions(productionBomBusinessGroups.value, 'production_bom', { includeGroupName: false }))
+const productionBomUseGroupOptions = computed(() => (productionBomBusinessGroups.value || [])
+  .filter((group) => group?.active !== false)
+  .filter((group) => !isSystemDefaultBusinessGroup(group))
+  .filter((group) => !businessGroupHasUsage(group, 'production_bom'))
+  .map((group) => ({ id: Number(group.id || 0), label: businessGroupVisibleName(group) || String(group.name || '').trim() || `分组 #${Number(group.id || 0)}` }))
+  .filter((group) => group.id > 0))
 const productionBomRows = computed(() => {
   return filterProductionBomCatalog(productionBoms.value, {
     status: productionBomStatusFilter.value,
@@ -591,7 +606,7 @@ function productionBomGroupItemID(row = {}) {
 
 function productionBomGroupOptionByItemID(groupItemID) {
   const id = Number(groupItemID || 0)
-  return productionBomGroupOptions.value.find((option) => Number(option.group_item_id || 0) === id) || null
+  return productionBomMoveGroupOptions.value.find((option) => Number(option.group_item_id || 0) === id) || null
 }
 
 function productionBomBusinessGroupAssignment(row = {}) {
@@ -617,6 +632,15 @@ function isInactiveMarker(value) {
 
 function isActiveReferencedProduct(product = {}) {
   return !isInactiveMarker(product.active) && !isInactiveMarker(product.status) && !isInactiveMarker(product.product_status)
+}
+
+function businessGroupHasUsage(group = {}, usageKey = '') {
+  const normalized = String(usageKey || '').trim().toLowerCase()
+  if (!normalized) return false
+  return (Array.isArray(group.usages) ? group.usages : []).some((usage) => (
+    String(usage.usage_key || usage.usageKey || '').trim().toLowerCase() === normalized
+    && usage.active !== false
+  ))
 }
 
 function referencedProductKey(product = {}) {
@@ -813,7 +837,7 @@ function selectProductionBomGroupItem(groupItemID) {
 }
 
 function bomGroupLabel(row) {
-  return businessGroupAssignmentLabel(productionBomBusinessGroupAssignment(row), productionBomBusinessGroups.value)
+  return businessGroupAssignmentLabel(productionBomBusinessGroupAssignment(row), productionBomBusinessGroups.value, { includeGroupName: false })
 }
 
 function bomRecordFromRow(row = {}) {
@@ -1175,6 +1199,19 @@ function openBusinessGroupManagement() {
   }))
 }
 
+async function useSelectedProductionBomGroup() {
+  const groupID = Number(selectedProductionBomUseGroupID.value || 0)
+  if (!groupID) return
+  await mutate(async () => {
+    await apiSend(`/api/business-groups/${selectedProductionBomUseGroupID.value}/usages`, {
+      body: { usage_key: 'production_bom' },
+    })
+    selectedProductionBomUseGroupID.value = 0
+    ok.value = '已使用分组'
+    await loadAll()
+  })
+}
+
 async function clearProductionBomBusinessGroupAssignment(bomID) {
   const id = Number(bomID || 0)
   if (!id) return
@@ -1350,6 +1387,13 @@ watch(selectedProductionBomGroupItemID, (groupItemID) => {
 
 watch([productionBomStatusFilter, productionBomSearchQuery], () => {
   selectedBomRowKeys.value = []
+})
+
+watch(productionBomMoveGroupOptions, (options) => {
+  const selected = Number(selectedProductionBomGroupItemID.value || 0)
+  if (selected > 0 && !options.some((option) => Number(option.group_item_id || 0) === selected)) {
+    selectedProductionBomGroupItemID.value = 0
+  }
 })
 
 function outputProductLabel(row = {}) {

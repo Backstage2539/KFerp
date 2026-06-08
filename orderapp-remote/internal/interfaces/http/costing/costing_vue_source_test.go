@@ -17,6 +17,7 @@ func TestCostingViewGroupsBeanListsByExcelCategoryAndShowsMetadata(t *testing.T)
 	for _, want := range []string{
 		"price-list-page-config",
 		"categoryProductGroups",
+		"pdfGroups",
 		"productGroupsForType",
 		"commercial_bean_list",
 		"retail_bean_list",
@@ -39,6 +40,7 @@ func TestCostingViewDoesNotExposeDedicatedDripTemplateSource(t *testing.T) {
 	src := string(b)
 	for _, want := range []string{
 		"price-list-page-config",
+		"pdfGroups",
 		"productPriceListTypeOptions",
 		"priceListRenderTypeForItem",
 		"商品价格表",
@@ -83,9 +85,12 @@ func TestCostingPreviewSectionsUseProductTypesInsteadOfLegacyCards(t *testing.T)
 	}
 	for _, want := range []string{
 		"price-list-page-config",
+		"v-for=\"group in pdfGroups\"",
 		"selectedProductPriceListLabel",
+		"categoryProductGroups",
 		"productPriceListTypeOptions",
 		"productGroupsForType",
+		"pdfTheme.value.listType",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("CostingView.vue missing inline product-type price-list marker %q", want)

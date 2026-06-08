@@ -348,6 +348,7 @@ test('business group assignment payload supports products, BOMs, warehouses, and
     ],
   }
   assert.equal(businessGroupAssignmentLabel({ group_id: 5, group_item_id: 51 }, [group]), '商品业务线 / 咖啡 / 熟豆')
+  assert.equal(businessGroupAssignmentLabel({ group_id: 5, group_item_id: 51 }, [group], { includeGroupName: false }), '咖啡 / 熟豆')
   assert.equal(productCatalogGroupOfProduct({ id: 88 }, [
     { usage_key: 'product_catalog', object_key: 'product', object_id: 88, group_id: 5, group_item_id: 51 },
   ], [group]).label, '商品业务线 / 咖啡 / 熟豆')
@@ -375,6 +376,16 @@ test('business group assignment payload supports products, BOMs, warehouses, and
       { id: 70, group_id: 7, parent_id: 0, name: '速溶线', active: true, sort_order: 10 },
     ],
   }], 'production_bom', { includeGroupsWithoutUsage: true }).map((option) => option.label), ['生产线分组 / 速溶线'])
+  assert.deepEqual(businessGroupItemMoveOptions([{
+    id: 8,
+    name: '商品分组',
+    active: true,
+    usages: [{ usage_key: 'production_bom', active: true }],
+    items: [
+      { id: 80, group_id: 8, parent_id: 0, name: 'BOM-咖啡熟豆', active: true, sort_order: 10 },
+      { id: 81, group_id: 8, parent_id: 80, name: '拼配豆', active: true, sort_order: 20 },
+    ],
+  }], 'production_bom', { includeGroupName: false }).map((option) => option.label), ['BOM-咖啡熟豆', 'BOM-咖啡熟豆 / 拼配豆'])
   assert.deepEqual(businessGroupDisplayGroups([
     { id: 88, name: '商品A' },
     { id: 89, name: '商品B' },

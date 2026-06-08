@@ -1775,6 +1775,30 @@ func (r Repository) MoveBusinessGroupItem(ctx context.Context, cmd catalogapp.Mo
 	return r.businessGroupItemByID(ctx, cmd.ID)
 }
 
+func (r Repository) EnsureBusinessGroupUsage(ctx context.Context, groupID int64, usageKey string, actor string) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var groupOK bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.business_groups WHERE id=$1 AND active=true)`, r.schema), groupID).Scan(&groupOK); err != nil {
+		return err
+	}
+	if !groupOK {
+		return fmt.Errorf("business group usage mismatch")
+	}
+	if err := ensureBusinessGroupUsageForAssignmentTx(ctx, tx, r.schema, groupID, usageKey, actor); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (r Repository) ListBusinessGroupAssignments(ctx context.Context, query catalogapp.BusinessGroupAssignmentQuery) ([]catalogapp.BusinessGroupAssignment, error) {
 	where := []string{"1=1"}
 	args := []any{}

@@ -35,6 +35,9 @@ type productSettingsRepo struct {
 	savedBusinessGroupItem              catalogapp.BusinessGroupItem
 	deletedBusinessGroupItem            catalogapp.DeleteBusinessGroupItemCommand
 	movedBusinessGroupItem              catalogapp.MoveBusinessGroupItemCommand
+	ensuredBusinessGroupID              int64
+	ensuredBusinessGroupUsageKey        string
+	ensuredBusinessGroupActor           string
 	productPriceRecords                 []catalogapp.ProductPriceRecord
 	productPriceRecordByID              map[int64]catalogapp.ProductPriceRecord
 	productTierPriceSchemes             []catalogapp.ProductTierPriceScheme
@@ -360,6 +363,13 @@ func (r *productSettingsRepo) MoveBusinessGroupItem(ctx context.Context, cmd cat
 	return catalogapp.BusinessGroupItem{ID: cmd.ID, ParentID: cmd.ParentID, SortOrder: cmd.Position * 10, Active: true}, nil
 }
 
+func (r *productSettingsRepo) EnsureBusinessGroupUsage(ctx context.Context, groupID int64, usageKey string, actor string) error {
+	r.ensuredBusinessGroupID = groupID
+	r.ensuredBusinessGroupUsageKey = usageKey
+	r.ensuredBusinessGroupActor = actor
+	return nil
+}
+
 func (r *productSettingsRepo) ListBusinessGroupAssignments(ctx context.Context, query catalogapp.BusinessGroupAssignmentQuery) ([]catalogapp.BusinessGroupAssignment, error) {
 	return []catalogapp.BusinessGroupAssignment{}, nil
 }
@@ -471,6 +481,23 @@ func TestBusinessGroupItemsAPIWritesGenericGroupItems(t *testing.T) {
 	}
 	if repo.deletedBusinessGroupItem.ID != 67 {
 		t.Fatalf("unexpected deleted business group item: %+v", repo.deletedBusinessGroupItem)
+	}
+}
+
+func TestBusinessGroupUsageAPIEnablesGenericGroupForProductionBOM(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/business-groups/72/usages", strings.NewReader(`{"usage_key":"production_bom"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("business group usage status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.ensuredBusinessGroupID != 72 || repo.ensuredBusinessGroupUsageKey != catalogapp.BusinessGroupUsageProductionBOM {
+		t.Fatalf("unexpected ensured business group usage id=%d key=%q", repo.ensuredBusinessGroupID, repo.ensuredBusinessGroupUsageKey)
 	}
 }
 

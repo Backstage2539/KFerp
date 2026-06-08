@@ -1240,6 +1240,7 @@ type Repository interface {
 	SaveBusinessGroupItem(ctx context.Context, cmd BusinessGroupItem) (BusinessGroupItem, error)
 	DeleteBusinessGroupItem(ctx context.Context, cmd DeleteBusinessGroupItemCommand) error
 	MoveBusinessGroupItem(ctx context.Context, cmd MoveBusinessGroupItemCommand) (BusinessGroupItem, error)
+	EnsureBusinessGroupUsage(ctx context.Context, groupID int64, usageKey string, actor string) error
 	ListBusinessGroupAssignments(ctx context.Context, query BusinessGroupAssignmentQuery) ([]BusinessGroupAssignment, error)
 	SaveBusinessGroupAssignment(ctx context.Context, cmd BusinessGroupAssignment) (BusinessGroupAssignment, error)
 	DeleteBusinessGroupAssignment(ctx context.Context, cmd DeleteBusinessGroupAssignmentCommand) error
@@ -1763,6 +1764,20 @@ func (s *Service) MoveBusinessGroupItem(ctx context.Context, cmd MoveBusinessGro
 		cmd.Position = 1
 	}
 	return s.repo.MoveBusinessGroupItem(ctx, cmd)
+}
+
+func (s *Service) EnsureBusinessGroupUsage(ctx context.Context, groupID int64, usageKey string, actor string) error {
+	usageKey = strings.TrimSpace(usageKey)
+	actor = strings.TrimSpace(actor)
+	if groupID <= 0 || usageKey == "" {
+		return ValidationError{Message: "invalid business group usage"}
+	}
+	switch usageKey {
+	case BusinessGroupUsageProductCatalog, BusinessGroupUsageProductionBOM, BusinessGroupUsageWarehouseInventory, BusinessGroupUsagePriceList:
+	default:
+		return ValidationError{Message: "invalid business group usage"}
+	}
+	return s.repo.EnsureBusinessGroupUsage(ctx, groupID, usageKey, actor)
 }
 
 func (s *Service) ListBusinessGroupAssignments(ctx context.Context, query BusinessGroupAssignmentQuery) ([]BusinessGroupAssignment, error) {

@@ -11,6 +11,7 @@
 - [x] PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：分组管理维护泛化分组集、分组项树、分组用途、排序和启停；商品管理、生产 BOM、仓库库存不再各自维护独立分类树或专用分组表。
 - [x] 商品档案不再写旧商品分类字段：保存、复制和批量移动商品时不写 `product_category_id`、`classification_template_id` 或旧 classification assignment；列表分组展示来自 `business_group_assignments` 的 `product_catalog` 归组。
 - [x] 生产 BOM 保存、复制、移动不再写 `production_boms.group_id/group_category_id`；旧 `production_bom_groups` 和 `production_bom_group_categories` 写入口返回下线/只读兼容结果，页面只通过泛化分组归组。
+- [x] PR-450-BOM-GROUP-USAGE-SELECTION：生产 BOM 页面必须先通过 `使用分组` 启用分组管理中的某套分组，`目标分组` 和顶部分组 Tab 才显示该分组下的分组项；未被生产 BOM 启用的分组不展示，且标签只显示父组 / 子组路径，不带分组集名称前缀。
 - [x] 仓库库存按仓库分组过滤：仓库设置把库存分组保存到 `warehouse_inventory` 归组，`/api/stock/warehouses` 返回分组摘要，`/api/stock/warehouse-inventory?group_id=...&group_item_id=...` 只筛选仓库范围，不改变库存行、批次、数量、成本或追溯。
 - [x] 商品价格表默认读取商品档案 `product_catalog` 归组；生成价格表时允许本次覆盖分组来源，发布快照固化 `group_source=product_catalog` 或 `group_source=price_list`，覆盖不回写商品档案。
 - [x] 迁移脚本可幂等创建兼容用系统分组集以承接旧数据；普通商品、BOM、仓库库存页面不得把“商品默认分组”“生产 BOM 默认分组”“仓库库存默认分组”等系统分组集名称作为用户可选项或列表标签展示，也不得把系统默认迁移分组下的旧分组项展开成分组管理或普通移动候选；系统默认迁移归组在普通列表按未分组处理。旧表保留历史查询和回滚缓冲，不作为新业务写入口。
@@ -1036,7 +1037,7 @@
 
 ### K21. 生产 BOM 分组 Tab 与未分类（PR-402-PRODUCTION-BOM-GROUP-TABS）
 - [ ] 生产 BOM 页面不显示“默认分组/默认配方组”，新建、复制或删除分组后的未归组 BOM 都进入“未分类”。
-- [ ] 生产 BOM 新建、状态过滤、搜索、分组 Tab 和“移动到分组”卡片位于生产 BOM 列表与编辑详情共同顶部，不塞在列表内部；生产 BOM列表和右侧编辑详情顶部对齐，列表区域可独立上下滚动。
+- [ ] 生产 BOM 新建、状态过滤、搜索、分组 Tab 和“使用分组 / 移动到分组”工具区位于生产 BOM 列表与编辑详情共同顶部，不塞在列表内部；生产 BOM列表和右侧编辑详情顶部对齐，列表区域可独立上下滚动。
 - [ ] 共同顶部显示“全部分组”“未分类”和用户新增分组 Tab；全部分组显示所有 BOM，未分类只显示未归组 BOM。
 - [ ] 勾选商品 BOM 后可以在“移动到分组”卡片中移动到未分类或某个分组，移动会覆盖旧分组且写操作日志。
 - [ ] 删除分组只把该组 BOM 迁回未分类，不删除 BOM、不改变商品绑定、版本或配方明细。
