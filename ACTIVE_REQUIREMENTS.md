@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION
 - Branch: codex/pricing-rule-trial-formula-expression-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: implemented locally; automated verification passed, integration/deploy pending
+- Status: deployed to development; automated verification, API smoke and live ERP browser acceptance passed
 - Scope: 商品价格管理价格计算模板试算结果必须展示可读的完整计算公式。选择商品试算后，抽屉在公式步骤表前显示 `计算公式`，包含 `最终售价 = (BOM+工序成本 + 其他成本) / 损耗 / 利润 * 税费 -> 取整 = 售价` 以及逐节点公式行；PR439 发布售价快照 fallback 要展示 `发布售价快照反推` 和 `最终售价 = 88.5/kg`。结果仍只读，不保存到模板、商品价格表、发布快照或订单。
 - DEV:
   - DEV-457-TRIAL-FORMULA-API：`POST /api/costing/pricing-rule-trial` 返回 `formula_expression` 和 `formula_expression_lines`，覆盖标准模板、发布售价快照反推和 Excel 供应售价兼容口径。
@@ -21,7 +21,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN targeted: `go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|InfersCostFromPublishedPriceSnapshotWhenBomCostMissing)' -count=1`; `go test ./internal/interfaces/http/costing -run TestPricingRuleTrialAPI -count=1`; `go test ./internal/interfaces/http/support -run TestDev457PricingRuleTrialFormulaExpressionContracts -count=1`; `node --test src/lib/product-settings.test.js`.
   - GREEN broader: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev45(2|4|6|7)|TestPricingRuleTrialPermissionIsReadOnly' -count=1`; `npm run build`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Deployment:
-  - Pending.
+  - GREEN deploy: development deploy completed from `origin/develop=a1eaf2535fac1fe66483b80c61237061a68bb3d2`; Vue shell build, miniapp typecheck/build, miniapp `build:mp-weixin`, Docker build and container-internal `go test ./...` passed. Previous app backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608191229`.
+  - GREEN smoke: `erp_orderapp` up and `erp_postgres` healthy; unauthenticated `/app/` returned `303` to `/app/orders`; authenticated `/app/vue-shell/?view=productPriceManagement&pr457=1` returned `200`; `/app/api/req/product?limit=500` exposed `PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION`.
+  - GREEN API: `POST /app/api/costing/pricing-rule-trial` with `pricing_rule_id=1`, `product_id=538`, `quote_unit=kg` returned `88.5/kg`, `formula_expression` containing `发布售价快照反推` and `最终售价 = 88.5/kg`, 6 formula lines and the expected fallback warnings.
+  - GREEN browser: deployed 商品价格管理 opened the first template `试算`; selected `PR439-20260606182321 熟豆下单商品`, quote unit auto-selected `kg`, UI showed `88.5/kg`, `计算公式`, formula main line,逐节点公式行, `发布售价快照反推`, formula steps, no `重新试算` / `售价后附加成本`, and console errors 0. Screenshot: `/tmp/pr457-deployed-pricing-rule-formula.png`.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial-formula-expression.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 

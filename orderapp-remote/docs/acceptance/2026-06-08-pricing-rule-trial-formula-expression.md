@@ -29,5 +29,8 @@
 - 通过：`git diff --check`
 
 ## 浏览器验收
-- Pending：进入商品价格管理，模板行点击 `试算`，选择 `PR439-20260606182321 熟豆下单商品` 和 `kg`。
-- Pending：确认试算单价 `88.5/kg`、`计算公式`、逐节点公式行、`发布售价快照反推` 和公式步骤表可见，控制台错误 0。
+- 通过：development 部署 `origin/develop=a1eaf2535fac1fe66483b80c61237061a68bb3d2`，备份 `/opt/stacks/erp/orderapp.backup.deploy-20260608191229`。
+- 通过：容器 `erp_orderapp` 正常启动，`erp_postgres` healthy；`/app/vue-shell/?view=productPriceManagement&pr457=1` 认证访问返回 200，需求 API 可见 PR-457。
+- 通过：`POST /app/api/costing/pricing-rule-trial` 使用 `pricing_rule_id=1`、`product_id=538`、`quote_unit=kg`，返回 `88.5/kg`、`formula_expression` 含 `发布售价快照反推` 和 `最终售价 = 88.5/kg`，并返回 6 行逐节点公式。
+- 通过：商品价格管理模板行点击 `试算`，选择 `PR439-20260606182321 熟豆下单商品` 后报价单位自动为 `kg`；结果区显示 `88.5/kg`、`计算公式`、逐节点公式行、`发布售价快照反推` 和公式步骤表。
+- 通过：页面不显示 `重新试算` / `售价后附加成本`，控制台错误 0。截图：`/tmp/pr457-deployed-pricing-rule-formula.png`。
