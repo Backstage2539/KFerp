@@ -6,15 +6,15 @@ import (
 	"testing"
 )
 
-func TestDev460PriceListPickerTreePricingPopoverContracts(t *testing.T) {
+func TestDev461PriceListPickerTreePricingPopoverContracts(t *testing.T) {
 	for rel, wants := range map[string][]string{
 		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
-			"PR-460-PRICE-LIST-PICKER-TREE-PRICING-POPOVER",
-			"DEV-460-PRICE-LIST-PICKER-TREE",
-			"DEV-460-PRICE-LIST-PRICING-POPOVER",
-			"DEV-460-PRICE-LIST-CATEGORY-TARGET",
-			"DEV-460-DOCS-ACCEPTANCE",
-			"REV-460-PRICE-LIST-PICKER-TREE-PRICING-POPOVER",
+			"PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER",
+			"DEV-461-PRICE-LIST-PICKER-TREE",
+			"DEV-461-PRICE-LIST-PRICING-POPOVER",
+			"DEV-461-PRICE-LIST-CATEGORY-TARGET",
+			"DEV-461-DOCS-ACCEPTANCE",
+			"REV-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"productPickerCategoryStyle",
@@ -35,22 +35,22 @@ func TestDev460PriceListPickerTreePricingPopoverContracts(t *testing.T) {
 			"separates parent, subgroup and product overrides",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
-			"PR-460-PRICE-LIST-PICKER-TREE-PRICING-POPOVER",
+			"PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER",
 			"父类、子类、商品逐级缩进",
 			"点击分类或商品的 `计价`",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"PR-460-PRICE-LIST-PICKER-TREE-PRICING-POPOVER",
+			"PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER",
 			"父类、子类和商品逐级缩进",
 			"按钮附近弹出四项计价菜单",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-460-PRICE-LIST-PICKER-TREE-PRICING-POPOVER",
+			"PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER",
 			"父类、子类、商品逐级缩进",
 			"按钮附近修改计价模式",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-price-list-picker-tree-pricing-popover.md"): {
-			"PR-460 商品价格表选品树与计价弹出优化",
+			"PR-461 商品价格表选品树与计价弹出优化",
 			"父类、子类、商品逐级缩进",
 			"继承分类",
 		},
@@ -58,7 +58,7 @@ func TestDev460PriceListPickerTreePricingPopoverContracts(t *testing.T) {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range wants {
 			if !strings.Contains(src, want) {
-				t.Fatalf("%s missing PR-460 marker %q", rel, want)
+				t.Fatalf("%s missing PR-461 marker %q", rel, want)
 			}
 		}
 	}

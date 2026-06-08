@@ -1,4 +1,4 @@
-# PR-460 商品价格表选品树与计价弹出优化
+# PR-461 商品价格表选品树与计价弹出优化
 
 ## 范围
 - 商品价格表“选择分类和产品”按商品分组模板显示树形选品：父类、子类、商品逐级缩进，分类支持收缩/展开。
@@ -14,10 +14,10 @@
 
 ## 本地验证
 - RED：`node --test src/lib/costing-bean-list-version-ui.test.js` 先失败，缺少树形缩进、收缩、计价 popover 和分类 target helper。
-- RED：`go test ./internal/interfaces/http/support -run TestDev460 -count=1` 先失败，缺少 PR-460 种子和文档标记。
+- RED：`go test ./internal/interfaces/http/support -run TestDev461 -count=1` 先失败，缺少 PR-461 种子和文档标记。
 - GREEN：`node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js` 通过 163/163。
-- GREEN：`go test ./internal/interfaces/http/support -run TestDev460 -count=1` 通过。
-- GREEN：`go test ./internal/interfaces/http/support -run 'TestDev(449|460)' -count=1` 通过，确认 PR-449 合同已跟随新计价 popover 语义。
+- GREEN：`go test ./internal/interfaces/http/support -run TestDev461 -count=1` 通过。
+- GREEN：`go test ./internal/interfaces/http/support -run 'TestDev(449|461)' -count=1` 通过，确认 PR-449 合同已跟随新计价 popover 语义。
 - GREEN：`npm run build` 通过，保留既有 Vite chunk-size warning。
 - GREEN：`git diff --check` 通过。
 - Browser：本轮按 Van 要求不合并、不部署，未做 development ERP 业务数据验收；本地 Vite mock 页面尝试使用 bundled Playwright + 本机 Chrome 渲染，但本地 mock 未成功出现选品分类，因此不声明浏览器验收通过。
