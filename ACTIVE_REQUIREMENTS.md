@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-450-BOM-GROUP-USAGE-SELECTION
 - Branch: codex/bom-group-list-layout-followup-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: browser follow-up local verified; pending merge to develop, deploy, and browser acceptance
+- Status: merged to develop and deployed to development; browser acceptance passed; pending Van product acceptance
 - Scope: Van 浏览器验收反馈。生产 BOM 功能先通过 `使用分组` 启用某套通用分组，`目标分组` 下拉展示已启用用途的可移动分组项；顶部分组 Tab 只展示当前 BOM 列表中已经被 BOM 实际归组使用的分组项，没被 BOM 使用的分组项不展示；业务标签去掉“商品分组 /”这类分组集名称前缀；表格不再单独展示“分组”列，分组分类由 Tab/列表范围体现。
 - DEV:
   - DEV-450-BOM-GROUP-USAGE-ENABLE：新增 `POST /api/business-groups/:id/usages`，幂等启用通用分组用途并写操作日志。
@@ -24,6 +24,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN follow-up broader: `node --test src/lib/bom.test.js src/lib/product-settings.test.js` passed 137/137; `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning; `go test ./internal/interfaces/http/support -count=1` passed; `go test ./...` in `orderapp-remote` passed; `scripts/verify_kferp.sh changed`; `git diff --check`.
   - GREEN targeted: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 137/137; `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/support -count=1` passed.
   - GREEN broader: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning; `go test ./...` in `orderapp-remote` passed; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN deploy/browser: feature branch pushed and merged; development deploy ran from `origin/develop=a78f927a9fe1a7105d4360e80eb3b85bfc14ceaa` before this evidence note. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608131152`. Deploy script ran Vue shell build, miniapp typecheck/build, miniapp `build:mp-weixin`, Docker image build, and container-internal `go test ./...`.
+  - GREEN smoke/browser: `erp_orderapp` Up, `erp_postgres` healthy, unauthenticated `/app/` returned 303 to `/app/orders`, authenticated `/app/vue-shell/?view=bom` returned 200, support API exposed `PR-450-BOM-GROUP-USAGE-SELECTION` and `DEV-450-BOM-GROUP-LIST-LAYOUT`, deployed source exposed `productionBomUsedGroupOptions` and `bom-group-use-row`. Browser 生产 BOM page showed tabs `全部分组 / 未分类 / BOM-咖啡熟豆`, no `商品分组 /` prefix, toolbar order checks true, table headers omitted `分组`, console logs empty. Screenshots: `/tmp/pr450-deployed-bom-group-toolbar.png`, `/tmp/pr450-deployed-bom-group-table.png`.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-08-production-bom-group-usage-selection.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
