@@ -293,20 +293,21 @@ function businessGroupItemPath(group = {}, groupItemID = 0) {
   return path
 }
 
-export function businessGroupItemLabel(group = {}, groupItemID = 0) {
+export function businessGroupItemLabel(group = {}, groupItemID = 0, options = {}) {
+  const includeGroupName = options.includeGroupName !== false
   const groupName = businessGroupVisibleName(group)
   const path = businessGroupItemPath(group, groupItemID)
-  if (!path.length) return groupName || '未分组'
-  return [groupName, ...path].filter(Boolean).join(' / ')
+  if (!path.length) return includeGroupName ? (groupName || '未分组') : '未分组'
+  return [includeGroupName ? groupName : '', ...path].filter(Boolean).join(' / ')
 }
 
-export function businessGroupAssignmentLabel(assignment = {}, groups = []) {
+export function businessGroupAssignmentLabel(assignment = {}, groups = [], options = {}) {
   const group = businessGroupByID(groups, assignment.group_id ?? assignment.groupID)
   if (!group) return '未分组'
   if (isSystemDefaultBusinessGroup(group)) return '未分组'
   const groupItemID = Number(assignment.group_item_id ?? assignment.groupItemID ?? 0)
   if (groupItemID <= 0) return businessGroupVisibleName(group) || '未分组'
-  return businessGroupItemLabel(group, groupItemID)
+  return businessGroupItemLabel(group, groupItemID, options)
 }
 
 export function businessGroupItemMoveOptions(groups = [], usageKey = '', options = {}) {
@@ -332,7 +333,7 @@ export function businessGroupItemMoveOptions(groups = [], usageKey = '', options
         group_id: Number(group.id || 0),
         group_item_id: itemID,
         parent_group_item_id: Number(item.parent_id || item.parentID || 0),
-        label: businessGroupItemLabel(group, itemID),
+        label: businessGroupItemLabel(group, itemID, { includeGroupName: options.includeGroupName !== false }),
       })
     }
   }

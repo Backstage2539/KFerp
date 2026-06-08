@@ -200,6 +200,10 @@ func (r *fakeRepo) MoveBusinessGroupItem(ctx context.Context, cmd MoveBusinessGr
 	return BusinessGroupItem{ID: cmd.ID, ParentID: cmd.ParentID, SortOrder: cmd.Position * 10, Active: true}, nil
 }
 
+func (r *fakeRepo) EnsureBusinessGroupUsage(ctx context.Context, groupID int64, usageKey string, actor string) error {
+	return nil
+}
+
 func (r *fakeRepo) ListBusinessGroupAssignments(ctx context.Context, query BusinessGroupAssignmentQuery) ([]BusinessGroupAssignment, error) {
 	return nil, nil
 }

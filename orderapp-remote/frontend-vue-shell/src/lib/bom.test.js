@@ -384,17 +384,28 @@ test('production BOM uses generic business group assignment instead of its own g
   const moveSource = source.slice(moveStart, moveEnd)
   const saveSource = source.slice(saveStart, saveEnd)
   const tabRow = template.match(/<div class="bom-list-tabs-row"[\s\S]*?<\/div>\s*<div class="bom-list-toolbar">/)?.[0] || ''
+  const toolbar = template.match(/<div class="bom-list-toolbar"[\s\S]*?<div class="bom-list-filters">/)?.[0] || ''
 
   for (const marker of [
     '/api/business-group-assignments',
+    '/api/business-groups/${selectedProductionBomUseGroupID.value}/usages',
     'buildBusinessGroupAssignmentPayload',
     'businessGroupItemMoveOptions',
+    'productionBomMoveGroupOptions',
+    'selectedProductionBomUseGroupID',
+    'useSelectedProductionBomGroup',
     "usage_key: 'production_bom'",
     "object_key: 'production_bom'",
     'openBusinessGroupManagement',
+    '使用分组',
   ]) {
     assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  assert.match(tabRow, /v-for="option in productionBomMoveGroupOptions"/)
+  assert.match(toolbar, /v-for="option in productionBomMoveGroupOptions"/)
+  assert.match(source, /businessGroupItemMoveOptions\(productionBomBusinessGroups\.value,\s*'production_bom',\s*\{\s*includeGroupName:\s*false\s*\}\)/)
+  assert.doesNotMatch(source, /productionBomUsedGroupOptions/)
+  assert.doesNotMatch(source, /includeGroupsWithoutUsage:\s*true/)
   for (const marker of [
     '组内分类',
     '新增小分类',

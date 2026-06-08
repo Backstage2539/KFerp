@@ -15,7 +15,7 @@
 - 所有涉及业务列表的 Vue/Vite 页面都必须支持分页展示，至少包含总条数/总页数、当前页、跳转到指定页、每页显示条数；服务端分页接口必须返回 `total`、`total_pages`、`page`、`limit` 等元数据。
 - PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：商品管理、生产 BOM、仓库库存的分类/分组统一收敛到泛化 `分组管理`。`business_groups / business_group_items / business_group_usages` 继续作为分组主数据，`business_group_assignments` 正式作为对象归组关系；商品使用 `product_catalog`，生产 BOM 使用 `production_bom`，仓库库存使用 `warehouse_inventory`，商品价格表快照覆盖使用 `price_list`。用户触发的归组新增、修改、移除都必须写操作日志。
 - PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：商品档案列表、抽屉、批量移动和分组展示改用 `business_group_assignments`，普通页面只显示用户维护的业务分组路径（父组 / 子组），不得把迁移兼容用的“商品默认分组”等系统分组集名称作为可选项或列表标签展示，也不得在分组管理或“移动到分组”中展开系统默认迁移分组下的旧分组项；系统默认迁移归组在普通商品列表按未分组处理。新业务保存商品不得写 `product_category_id`、`classification_template_id`、`product_classification_templates` 或 `product_classification_assignments`；旧商品分类和分类模板只保留迁移、历史查询和回滚缓冲。
-- PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：生产 BOM 的“全部分组 / 未分类 / 管理分组 / 移动到分组 / 组内分类”改用泛化分组。生产 BOM 保存、复制、移动只写 `business_group_assignments`，不得再写 `production_boms.group_id/group_category_id`；`production_bom_groups` 和 `production_bom_group_categories` 普通写 API 下线为只读兼容。
+- PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION / PR-450-BOM-GROUP-USAGE-SELECTION：生产 BOM 的“全部分组 / 未分类 / 管理分组 / 移动到分组 / 组内分类”改用泛化分组。生产 BOM 保存、复制、移动只写 `business_group_assignments`，不得再写 `production_boms.group_id/group_category_id`；`production_bom_groups` 和 `production_bom_group_categories` 普通写 API 下线为只读兼容。生产 BOM 功能使用某套通用分组前，必须先通过 `使用分组` 把分组管理中的分组集启用到 `production_bom` 用途；目标分组只列出已启用分组集下的分组项，顶部分组 Tab 只展示已经被 BOM 归组使用的分组项，业务标签不得带分组集名称前缀。
 - PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：仓库库存分组对象是仓库，不是库存批次、库存行、商品或物料。仓库设置抽屉保存 `warehouse_inventory` 归组，对象引用使用仓库 code；`/api/stock/warehouses` 返回仓库分组字段，`/api/stock/warehouse-inventory` 支持按 `group_id/group_item_id` 过滤仓库，但不改变库存数量、批次、成本或追溯。
 - PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：商品价格表默认读取商品档案 `product_catalog` 归组；客户/价格表生成时如覆盖分组，只固化到该价格表版本快照，记录 `group_id/group_item_id/parent_group_item_id/group_source`，不得回写商品档案分组。
 - PR-440-PRODUCT-GROUP-PRICE-REMODEL：商品、分组、价格模型按 ERPNext 口径二次修正。商品档案是 Item；分组管理是泛化业务分组能力，不写死商品、物料或 BOM 对象；商品价格表是 Price List / Item Price 平铺价格行；商品价格管理只维护价格计算模板 / Pricing Rule。系统不再有独立客户商品主数据，新业务只使用商品档案 `product_id`；客户差异维护在商品档案的客户引用子表，用于客户料号、客户显示名、打印和搜索，不参与价格、单位、BOM、库存或分组。
@@ -586,8 +586,8 @@
 
 ## 17. 生产 BOM 分组 Tab 与未分类（PR-402-PRODUCTION-BOM-GROUP-TABS）
 - 生产 BOM 分组不再创建或展示默认分组；旧“默认分组/默认配方组”迁回 `group_id=0` 的未分类并从分组列表移除。
-- 生产 BOM 页面只保留“生产 BOM列表”作为主列表。PR-406 后，顶部不再展示 `SKU归属` 或独立商品选择区；列表不再有商品列或商品过滤；状态过滤、BOM 搜索和 `批量失效` 放在生产 BOM 列表标题下方同一过滤行；分组 Tab 行左侧展示“全部分组”“未分类”和用户新增分组，右侧放 `新建生产 BOM`。BOM 列表本身必须有独立上下滚动窗口；一个 BOM 只能属于一个分组 Tab，全部分组显示所有 BOM，未分类只显示未归组 BOM。
-- 用户可在生产 BOM列表勾选一个或多个生产 BOM，通过“移动到分组”卡片移动到未分类或某个分组；移动直接覆盖旧分组，每个被移动 BOM 继续走生产 BOM 更新接口并写操作日志。
+- 生产 BOM 页面只保留“生产 BOM列表”作为主列表。PR-406 后，顶部不再展示 `SKU归属` 或独立商品选择区；列表不再有商品列或商品过滤；状态过滤、BOM 搜索和 `批量失效` 放在生产 BOM 列表标题下方同一过滤行；分组 Tab 行左侧固定展示“全部分组”“未分类”，并只追加已经被生产 BOM 使用的分组项，右侧放 `新建生产 BOM`。BOM 列表本身必须有独立上下滚动窗口；一个 BOM 只能属于一个分组 Tab，全部分组显示所有 BOM，未分类只显示未归组 BOM。
+- 用户可在生产 BOM列表勾选一个或多个生产 BOM，通过工具区 `使用分组` 先启用某套通用分组，再通过“移动到分组”移动到未分类或已启用分组下的分组项；移动直接覆盖旧分组，每个被移动 BOM 写入 `business_group_assignments` 并写操作日志。
 - 删除分组时，该分组下 BOM 回到未分类，不删除 BOM、不改变商品绑定、版本或配方明细。
 - 生产 BOM 名称仍是编辑入口；操作列使用短按钮文案，只保留列表级 `复制` 和红色 `失效`，不再显示“编辑 BOM / 复制 BOM / 失效 BOM”冗余文案，也不再把 `BOM版本` 和 `规格袋材映射` 放在列表行。
 
