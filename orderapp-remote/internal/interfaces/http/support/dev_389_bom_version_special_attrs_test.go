@@ -28,7 +28,7 @@ func TestDev389BomVersionSpecialAttrsRequirementSeeds(t *testing.T) {
 func TestDev389BomVersionSpecialAttrsSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"前往分组管理",
+			"前往分组模板",
 			"openBusinessGroupManagement",
 			"businessGroupItemMoveOptions",
 			"apiGet('/api/business-groups')",
@@ -84,7 +84,7 @@ func TestDev389BomVersionSpecialAttrsDocs(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-389",
-			"前往分组管理",
+			"前往分组模板",
 			"BOM 版本特殊属性",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {

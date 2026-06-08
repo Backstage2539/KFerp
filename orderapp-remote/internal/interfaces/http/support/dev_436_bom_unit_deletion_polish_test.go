@@ -24,7 +24,7 @@ func TestDev436BomUnitDeletionPolishRequirementSeeds(t *testing.T) {
 func TestDev436BomUnitDeletionPolishSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"前往分组管理",
+			"前往分组模板",
 			"businessGroupItemMoveOptions",
 			"buildBusinessGroupAssignmentPayload",
 			"outputProductOptions = computed(() => products.value.filter(isBomProductCandidate)",
@@ -71,7 +71,7 @@ func TestDev436BomUnitDeletionPolishDocs(t *testing.T) {
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-436-BOM-UNIT-DELETION-POLISH",
-			"移动到分组",
+			"移动到分类",
 			"失效商品不出现在产出商品选择器",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {

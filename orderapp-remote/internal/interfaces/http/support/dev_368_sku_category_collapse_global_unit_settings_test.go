@@ -31,7 +31,7 @@ func TestDev368SkuCategoryCollapseAndFocusUI(t *testing.T) {
 		"focusCategoryAfterCreate",
 		"scrollIntoView",
 		"category-collapse-button",
-		"基础单位在“全局设置”维护",
+		"基础单位在“系统设置”维护",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("ProductSettingsView.vue missing collapse/focus marker %q", want)
@@ -53,7 +53,7 @@ func TestDev368GlobalUnitDictionarySettingsUI(t *testing.T) {
 	settings := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "UISettingsView.vue")))
 	menu := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js")))
 	for _, want := range []string{
-		"全局设置",
+		"系统设置",
 		"全局单位字典",
 		"productUnitDefinitions",
 		"saveGlobalUnitDefinition",
@@ -64,8 +64,8 @@ func TestDev368GlobalUnitDictionarySettingsUI(t *testing.T) {
 			t.Fatalf("UISettingsView.vue missing global unit dictionary marker %q", want)
 		}
 	}
-	if !strings.Contains(menu, "label: '全局设置'") {
-		t.Fatal("settings menu should expose UISettingsView as 全局设置")
+	if !strings.Contains(menu, "label: '系统设置'") {
+		t.Fatal("settings menu should expose UISettingsView as 系统设置")
 	}
 }
 
@@ -83,7 +83,7 @@ func TestDev368SkuCategoryCollapseGlobalUnitDocs(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-368-SKU-CATEGORY-COLLAPSE-GLOBAL-UNIT",
-			"基础单位在 设置 → 全局设置",
+			"基础单位在 设置 → 系统设置",
 			"商品分类的大类和小类都可以折叠",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-25-sku-category-collapse-global-unit.md"): {

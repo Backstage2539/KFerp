@@ -8,17 +8,17 @@
       <div class="panel-head">
         <div>
           <h2>{{ productSectionTitle }}</h2>
-          <p>商品档案只维护商品资料、商品分组、库存单位、整数库存、行业字段、客户引用和 BOM 使用摘要；商品价格管理维护价格计算模板，商品价格表快照提供价格摘要，缺失时显示暂无价格表价格。</p>
+          <p>商品档案维护商品资料、分组模板分类结果、库存单位、整数库存、行业字段、客户引用和 BOM 使用摘要；商品价格管理维护价格计算模板，商品价格表快照提供价格摘要，缺失时显示暂无价格表价格。</p>
         </div>
         <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
       </div>
     </section>
 
     <section class="settings-workbench">
-      <div v-show="currentSettingsSection === 'category-management'" class="sku-category-management-workspace" data-section-mode="groupManagement">
+      <div v-if="false" class="sku-category-management-workspace" data-section-mode="groupTemplatesRetired">
         <section class="panel category-management-panel">
           <div class="panel-title sku-panel-title">
-            <span>分组管理</span>
+            <span>模板分类维护已迁移</span>
             <div class="filter-actions">
               <button class="secondary compact-action" type="button" @click="createPrimaryCategoryInline">新增大类</button>
               <button
@@ -149,14 +149,28 @@
         </div>
         <div v-show="!productsCollapsed">
           <div class="classification-view-toolbar product-classification-tabs" aria-label="商品档案分组视图" data-pr442-product-group-assignments data-pr442-business-group-items-api="/api/business-group-items">
-            <div class="classification-tabs">
+            <div v-if="selectedProductGroupTemplate" class="classification-tabs">
               <button class="classification-tab active" type="button">全部商品</button>
+              <button
+                v-for="group in displaySkuGroups"
+                :key="`product-tab-${group.key}`"
+                class="classification-tab"
+                type="button">
+                {{ group.label }}
+              </button>
             </div>
             <div class="classification-select-row product-classification-selects">
+              <label class="business-group-template-select">
+                <span>选择分组模板</span>
+                <select v-model.number="selectedProductGroupTemplateID">
+                  <option :value="0">选择分组模板</option>
+                  <option v-for="group in productCatalogBusinessGroups" :key="group.id" :value="Number(group.id || 0)">{{ businessGroupDisplayName(group) }}</option>
+                </select>
+              </label>
               <label class="business-group-move">
-                <span>目标分组</span>
-                <select v-model.number="selectedProductBusinessGroupItemID" :disabled="!selectedProductIds.length || !productBusinessGroupItemOptions.length" @change="saveSelectedProductBusinessGroupAssignment">
-                  <option :value="0">移动到商品分组</option>
+                <span>移动到分类</span>
+                <select v-model.number="selectedProductBusinessGroupItemID" :disabled="!selectedProductGroupTemplate || !selectedProductIds.length" @change="saveSelectedProductBusinessGroupAssignment">
+                  <option :value="0">未分类</option>
                   <option v-for="option in productBusinessGroupItemOptions" :key="option.id" :value="option.group_item_id">{{ option.label }}</option>
                 </select>
               </label>
@@ -191,7 +205,7 @@
                 </th>
                 <th class="sku-name-cell">商品名</th>
                 <th>商品编号</th>
-                <th>商品分组</th>
+                <th>分类</th>
                 <th>行业字段</th>
                 <th>归属</th>
                 <th class="action-cell">新增动作</th>
@@ -521,7 +535,7 @@
           <span>单位模板</span>
           <button class="secondary compact-action" type="button" @click="openGlobalUnitDictionaryDrawer">全局单位字典</button>
         </div>
-        <p class="muted unit-template-note">基础单位在“全局设置”维护；这里配置成品库存单位、报价单位、录单单位之间的换算模板。</p>
+        <p class="muted unit-template-note">基础单位在“系统设置”维护；这里配置成品库存单位、报价单位、录单单位之间的换算模板。</p>
         <div class="unit-template-layout">
           <section class="unit-template-card unit-template-list-panel">
             <div class="field-group-head">
@@ -1404,6 +1418,7 @@ import {
   businessGroupDisplayGroups,
   businessGroupItemMoveOptions,
   businessGroupItemsTree,
+  businessGroupVisibleName,
   isSystemDefaultBusinessGroup,
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
@@ -1540,9 +1555,6 @@ const PRODUCT_SECTION_MODES = {
   master: 'master',
   customerProductAliases: 'aliases',
   aliases: 'aliases',
-  groupManagement: 'category-management',
-  productCategoryManagement: 'category-management',
-  categoryManagement: 'category-management',
   productConfigTemplates: 'templates',
   productPriceManagement: 'templates',
   productPrices: 'templates',
@@ -1564,7 +1576,6 @@ const productReturnNavigation = computed(() => props.viewParams?.return_navigati
 const productReturnLabel = computed(() => String(productReturnNavigation.value?.label || '返回上一步'))
 const productSectionTitle = computed(() => {
   if (currentSettingsSection.value === 'aliases') return '客户商品'
-  if (currentSettingsSection.value === 'category-management') return '分组管理'
   if (forcedConfigTemplateSection.value === 'gradient') return '阶梯价模板'
   if (forcedConfigTemplateSection.value === 'unit-template') return '单位模板'
   if (forcedConfigTemplateSection.value === 'product-price-management') return '商品价格管理'
@@ -1597,6 +1608,7 @@ const selectedAliasClassificationMoveID = ref(0)
 const selectedProductClassificationCategoryID = ref(0)
 const selectedAliasClassificationCategoryID = ref(0)
 const selectedProductBusinessGroupItemID = ref(0)
+const selectedProductGroupTemplateID = ref(0)
 const collapsedProductClassificationGroups = ref([])
 const collapsedAliasClassificationGroups = ref([])
 const skuFilters = ref(defaultSkuFilters())
@@ -1952,7 +1964,8 @@ const productMoveClassificationOptions = computed(() => {
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...productClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
 })
 const productCatalogBusinessGroups = computed(() => productCatalogBusinessGroupRows())
-const productBusinessGroupItemOptions = computed(() => businessGroupItemMoveOptions(productCatalogBusinessGroups.value, 'product_catalog', { includeGroupName: false }))
+const selectedProductGroupTemplate = computed(() => productCatalogBusinessGroups.value.find((group) => Number(group.id || 0) === Number(selectedProductGroupTemplateID.value || 0)) || null)
+const productBusinessGroupItemOptions = computed(() => businessGroupItemMoveOptions(selectedProductGroupTemplate.value ? [selectedProductGroupTemplate.value] : [], 'product_catalog', { includeGroupName: false, includeGroupsWithoutUsage: true }))
 const aliasMoveClassificationOptions = computed(() => {
   if (isAliasAllOrUnclassifiedTab.value) return aliasMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
@@ -1964,7 +1977,7 @@ const classificationTemplateEditorCategories = computed(() => (classificationTem
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
 const productClassificationCategories = computed(() => (currentProductClassificationTemplate.value?.categories || []).filter((category) => category.active !== false).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
 const aliasClassificationCategories = computed(() => (currentAliasClassificationTemplate.value?.categories || []).filter((category) => category.active !== false).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
-const displaySkuGroups = computed(() => businessGroupDisplayGroups(displaySkuRows.value, businessGroupAssignments.value, businessGroups.value))
+const displaySkuGroups = computed(() => businessGroupDisplayGroups(displaySkuRows.value, businessGroupAssignments.value, selectedProductGroupTemplate.value ? [selectedProductGroupTemplate.value] : []))
 const visibleCustomerAliasGroups = computed(() => {
   const tab = currentAliasClassificationTab.value
   if (!tab || tab.all) return [{ key: 'all-aliases', label: '全部客户商品', rows: visibleCustomerProductAliases.value, all: true }]
@@ -2798,6 +2811,9 @@ async function loadAll() {
     aliasClassificationTemplateUsages.value = (aliasUsageData.rows || []).map(decorateAliasClassificationTemplateUsage)
     businessGroups.value = Array.isArray(data.business_groups) ? data.business_groups : []
     businessGroupAssignments.value = Array.isArray(data.business_group_assignments) ? data.business_group_assignments : []
+    if (!selectedProductGroupTemplateID.value && productCatalogBusinessGroupRows().length) {
+      selectedProductGroupTemplateID.value = Number(productCatalogBusinessGroupRows()[0].id || 0)
+    }
     productProductionConfigs.value = data.product_production_configs || []
     industryFieldTemplates.value = industryData?.rows || []
     productUnitDefinitions.value = (data.product_unit_definitions || []).map(decorateProductUnitDefinition)
@@ -4248,13 +4264,16 @@ function productCatalogBusinessGroupRows() {
   return businessGroups.value
     .filter((group) => group.active !== false)
     .filter((group) => !isSystemDefaultBusinessGroup(group))
-    .filter((group) => (group.usages || []).some((usage) => String(usage.usage_key || '') === 'product_catalog' && usage.active !== false))
     .slice()
     .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
 }
 
 function selectedProductCatalogBusinessGroup() {
-  return productCatalogBusinessGroupRows()[0] || null
+  return selectedProductGroupTemplate.value || productCatalogBusinessGroupRows()[0] || null
+}
+
+function businessGroupDisplayName(group = {}) {
+  return businessGroupVisibleName(group) || String(group.name || '').trim() || `分组模板 #${Number(group.id || 0)}`
 }
 
 function productCatalogProductAssignmentsForGroup(groupID) {
@@ -4314,7 +4333,8 @@ function buildProductCatalogBusinessGroupTree() {
 }
 
 function productBusinessGroupLabel(row) {
-  return productCatalogGroupOfProduct(row, businessGroupAssignments.value, businessGroups.value).label || '未分组'
+  const label = productCatalogGroupOfProduct(row, businessGroupAssignments.value, selectedProductGroupTemplate.value ? [selectedProductGroupTemplate.value] : []).label
+  return !label || label === '未分组' ? '未分类' : label
 }
 
 function productClassificationLabel(row) {
@@ -4823,13 +4843,19 @@ async function saveSelectedProductClassificationAssignment() {
 }
 
 async function saveSelectedProductBusinessGroupAssignment() {
-  const option = productBusinessGroupItemOptions.value.find((row) => Number(row.group_item_id || 0) === Number(selectedProductBusinessGroupItemID.value || 0))
-  if (!option || !selectedProductIds.value.length) return
+  const targetGroupItemID = Number(selectedProductBusinessGroupItemID.value || 0)
+  const option = targetGroupItemID > 0 ? productBusinessGroupItemOptions.value.find((row) => Number(row.group_item_id || 0) === targetGroupItemID) : null
+  if (targetGroupItemID > 0 && !option) return
+  if (!selectedProductGroupTemplate.value || !selectedProductIds.value.length) return
   loading.value = true
   error.value = ''
   ok.value = ''
   try {
     for (const productID of selectedProductIds.value) {
+      if (!option) {
+        await clearProductBusinessGroupAssignment(productID)
+        continue
+      }
       await apiSend('/api/business-group-assignments', {
         body: buildBusinessGroupAssignmentPayload({
           usage_key: 'product_catalog',
@@ -4841,15 +4867,27 @@ async function saveSelectedProductBusinessGroupAssignment() {
         }),
       })
     }
-    ok.value = `已移动 ${selectedProductIds.value.length} 个商品到分组`
+    ok.value = `已移动 ${selectedProductIds.value.length} 个商品到分类`
     selectedProductIds.value = []
     selectedProductBusinessGroupItemID.value = 0
     await loadAll()
   } catch (err) {
-    error.value = err.message || '移动商品分组失败'
+    error.value = err.message || '移动商品分类失败'
   } finally {
     loading.value = false
   }
+}
+
+async function clearProductBusinessGroupAssignment(productID) {
+  const id = Number(productID || 0)
+  if (!id) return
+  const url = new URL('/api/business-group-assignments', window.location.origin)
+  url.searchParams.set('usage_key', 'product_catalog')
+  url.searchParams.set('object_key', 'product')
+  url.searchParams.set('object_id', String(id))
+  const data = await apiGet(url)
+  const rows = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data?.assignments) ? data.assignments : [])
+  await Promise.all(rows.map((row) => apiSend(`/api/business-group-assignments/${row.id}`, { method: 'DELETE' })))
 }
 
 async function confirmSelectedProductClassificationMove(option) {
@@ -5485,7 +5523,7 @@ async function ensureProductCatalogBusinessGroupForEdit() {
   if (current) return current
   const result = await apiSend('/api/business-groups', {
     body: {
-      name: '商品分组',
+      name: '默认分组模板',
       code: 'product_catalog',
       remark: '商品档案归组分组集',
       active: true,
@@ -5880,7 +5918,7 @@ async function dropProductOnSecondary(secondary) {
   }
   const categoryID = Number(secondary.id || 0)
   if (categoryID > 0 && Number(secondary.customer_id || 0) !== skuContextCustomerID.value && Number(secondary.customer_id || 0) !== 0) {
-    error.value = '只能移动到当前商品分组'
+    error.value = '只能移动到当前分组模板'
     clearDrag()
     return
   }
@@ -5895,10 +5933,10 @@ async function dropProductOnSecondary(secondary) {
         sort_order: Number(secondary.products?.length || 0) + 1,
       }),
     })
-    ok.value = '商品分组已保存'
+    ok.value = '分类已保存'
     await loadAll()
   } catch (err) {
-    error.value = err.message || '移动商品分组失败'
+    error.value = err.message || '移动分类失败'
   } finally {
     clearDrag()
   }
@@ -6062,6 +6100,10 @@ watch(currentSkuSourceRows, () => {
 
 watch(displaySkuRows, (rows) => {
   pruneSelectedProducts(rows)
+})
+
+watch(selectedProductGroupTemplateID, () => {
+  selectedProductBusinessGroupItemID.value = 0
 })
 
 async function applyProductSettingsViewParams(params = {}) {

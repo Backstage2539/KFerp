@@ -31,15 +31,15 @@ func TestDev450BomGroupUsageSelectionContracts(t *testing.T) {
 			"ensure_business_group_usage",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"selectedProductionBomUseGroupID",
-			"productionBomUseGroupOptions",
+			"selectedProductionBomTemplateID",
+			"productionBomTemplateOptions",
 			"productionBomMoveGroupOptions",
 			"productionBomUsedGroupOptions",
 			"productionBomUsedGroupItemIDs",
 			"bom-group-use-row",
 			"bom-group-move-row",
-			"useSelectedProductionBomGroup",
-			"使用分组",
+			"前往分组模板",
+			"移动到分类",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
 			"includeGroupName",
@@ -47,14 +47,15 @@ func TestDev450BomGroupUsageSelectionContracts(t *testing.T) {
 			"businessGroupItemMoveOptions",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"使用分组",
-			"顶部分组 Tab 只展示当前 BOM 列表中实际归组使用过的分组项",
-			"生产 BOM 表格不再单独展示“分组”列",
-			"不显示“商品分组 /”这类分组集名称",
+			"生产 BOM 页面不再维护自己的大组、组内分类或小分类，也不再显示 `使用分组`",
+			"当前所选模板下当前 BOM 列表实际使用过的分类项",
+			"旧 `production_bom_groups` / `production_bom_group_categories` 只用于历史只读兼容",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-production-bom-group-usage-selection.md"): {
 			"PR-450",
+			"历史兼容",
 			"POST /api/business-groups/:id/usages",
+			"普通生产 BOM 页面不再暴露 `使用分组`",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))

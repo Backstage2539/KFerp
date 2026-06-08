@@ -76,12 +76,13 @@ func TestDev440ProductGroupPriceRemodelSchemaAndServiceContracts(t *testing.T) {
 func TestDev440ProductGroupPriceRemodelFrontendAndDocs(t *testing.T) {
 	for rel, wants := range map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "lib", "menu-ia.js"): {
-			"key: 'groupManagement', label: '分组管理'",
+			"key: 'groupTemplates', label: '分组模板'",
+			"groupManagement: '分组模板'",
 			"key: 'productPriceManagement', label: '商品价格管理'",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"客户引用",
-			"分组管理",
+			"分组模板分类结果",
 			"价格计算模板 / Pricing Rule",
 			"商品 > 子类 > 父类 > 价格表",
 			"平铺价格行",
@@ -117,13 +118,13 @@ func TestDev440ProductGroupPriceRemodelFrontendAndDocs(t *testing.T) {
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-440-PRODUCT-GROUP-PRICE-REMODEL",
-			"分组管理",
+			"分组模板",
 			"价格计算模板",
 			"商品 > 子类 > 父类 > 价格表",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"PR-440-PRODUCT-GROUP-PRICE-REMODEL",
-			"菜单出现 `分组管理`",
+			"PR-440 / PR-453",
+			"分组模板入口在 `系统设置 / 分组模板`",
 			"菜单不出现 `客户商品`",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {

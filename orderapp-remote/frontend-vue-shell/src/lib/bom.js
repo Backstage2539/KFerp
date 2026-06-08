@@ -131,10 +131,15 @@ export function filterProductionBomCatalog(rows = [], { status = 'active', query
     if (statusMode === 'inactive' && rowStatus !== 'inactive') return false
     const rowGroupID = Number(row.business_group_id || row.group_id || row.production_bom_group_id || 0)
     const rowGroupItemID = Number(row.group_item_id || row.business_group_item_id || row.group_category_id || row.production_bom_group_category_id || 0)
-    if (selectedGroupItemID > 0 && rowGroupItemID !== selectedGroupItemID) return false
-    if (selectedGroupItemID === -1 && rowGroupItemID > 0) return false
-    if (selectedGroupID > 0 && rowGroupID !== selectedGroupID) return false
-    if (selectedGroupID === -1 && rowGroupID > 0) return false
+    if (selectedGroupID > 0 && selectedGroupItemID > 0 && (rowGroupID !== selectedGroupID || rowGroupItemID !== selectedGroupItemID)) return false
+    if (selectedGroupID > 0 && selectedGroupItemID === -1 && rowGroupID === selectedGroupID && rowGroupItemID > 0) return false
+    if (selectedGroupID > 0) {
+      if (!keyword) return true
+    } else {
+      if (selectedGroupItemID > 0 && rowGroupItemID !== selectedGroupItemID) return false
+      if (selectedGroupItemID === -1 && rowGroupItemID > 0) return false
+      if (selectedGroupID === -1 && rowGroupID > 0) return false
+    }
     if (!keyword) return true
     const haystack = [
       row.product,

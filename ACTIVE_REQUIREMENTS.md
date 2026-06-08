@@ -6,6 +6,30 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS
+- Branch: codex/group-template-system-settings-20260608
+- Owner/session: Codex / 2026-06-08
+- Status: implemented locally; automated verification passed; local Browser blocked by auth/API; pending integration, deploy and live ERP browser acceptance
+- Scope: 分组模板作为系统级基础资料移入 `系统设置 / 分组模板`；模板只维护模板名、大类、小类，不维护商品、BOM、仓库等对象。商品档案、生产 BOM、仓库库存先选择分组模板，再显示分类 Tab 和 `移动到分类`；生产 BOM 取消 `使用分组`。对象归类仍写入 `business_group_assignments`。
+- DEV:
+  - DEV-453-GROUP-TEMPLATE-SETTINGS-UI：系统设置增加分组模板区块，管理模板和大类/小类；商品模块普通菜单移除分组管理，旧 `groupManagement` 路由兼容打开系统设置分组模板区块。
+  - DEV-453-GROUP-TEMPLATE-CONSUMER-PAGES：商品档案、生产 BOM、仓库库存改为先选分组模板，再移动到 `未分类`、大类或小类；模板页不反向管理对象。
+  - DEV-453-GROUP-TEMPLATE-DOWNSTREAM：商品价格表、BOM/工单选择和仓库选择继续读取同一套分组模板/归类数据；本地前端先覆盖商品价格表和仓库库存入口，后续浏览器验收确认完整链路。
+  - DEV-453-GROUP-TEMPLATE-DOCS：同步需求、验收清单和操作手册，用户可见文案统一为 `分组模板`、`大类`、`小类`、`移动到分类`。
+- Verifier:
+  - RED frontend: `node --test src/lib/menu-ia.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js src/lib/bom.test.js src/lib/materials-ui.test.js` failed before implementation because菜单/页面仍缺少系统设置分组模板和模板先选流程。
+  - GREEN frontend targeted: `node --test src/lib/menu-ia.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js src/lib/bom.test.js src/lib/materials-ui.test.js` passed 176/176.
+  - GREEN build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning.
+  - GREEN support/API contracts: `go test ./internal/interfaces/http/support -run 'TestDev453|TestDev442|TestDev450|TestDev451' -count=1` passed.
+  - GREEN support suite: `go test ./internal/interfaces/http/support -count=1` passed.
+  - GREEN backend: `go test ./...` passed.
+  - GREEN verifier: `scripts/verify_kferp.sh changed` passed.
+  - GREEN diff: `git diff --check` passed.
+  - Local Browser: Vite `http://127.0.0.1:5194/vue-shell/?view=groupTemplates` redirected to `/login`; no local API/auth proxy is available, so live ERP browser acceptance must run after development deploy.
+- Deployment:
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-group-template-system-settings.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
 ### PR-452-PRICING-RULE-TRIAL
 - Branch: codex/pricing-rule-trial-20260608
 - Owner/session: Codex / 2026-06-08

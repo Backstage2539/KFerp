@@ -59,7 +59,7 @@ func TestDev366GlobalUnitTemplatesUI(t *testing.T) {
 		"productUnitTemplates",
 		"saveProductUnitTemplate",
 		"productConfigTemplateForm.unit_template_id",
-		"基础单位在“全局设置”维护",
+		"基础单位在“系统设置”维护",
 		"单位模板",
 	} {
 		if !strings.Contains(src, want) {

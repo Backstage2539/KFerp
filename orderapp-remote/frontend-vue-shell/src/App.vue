@@ -351,7 +351,8 @@ const internalViews = {
   processTemplates: ProcessTemplatesView,
   industryFieldTemplates: IndustryFieldTemplatesView,
   productMaster: ProductSettingsView,
-  groupManagement: ProductSettingsView,
+  groupManagement: UISettingsView,
+  groupTemplates: UISettingsView,
   productCategoryManagement: ProductSettingsView,
   productPriceManagement: ProductSettingsView,
   productConfigTemplates: ProductSettingsView,
@@ -548,7 +549,7 @@ function applyKeyToUrl(key, params = {}) {
 }
 
 function isProductSettingsKey(key) {
-  return ['productMaster', 'groupManagement', 'productCategoryManagement', 'productPriceManagement', 'productConfigTemplates', 'pricingGradientTemplates', 'productUnitTemplates', 'productSettings', 'products'].includes(key)
+  return ['productMaster', 'productPriceManagement', 'productConfigTemplates', 'pricingGradientTemplates', 'productUnitTemplates', 'productSettings', 'products'].includes(key)
 }
 
 function hardNavigateToView(key, params = {}) {
@@ -1125,7 +1126,6 @@ const actorName = computed(() => currentActor.value?.name || '')
 const isCurrentAllowed = computed(() => menuMap[currentKey.value] && isViewAllowed(currentKey.value, allowedViewKeys.value))
 const isProductSettingsView = computed(() => isProductSettingsKey(currentKey.value))
 const productSettingsSectionMode = computed(() => {
-  if (currentKey.value === 'groupManagement') return 'groupManagement'
   if (currentKey.value === 'productCategoryManagement') return 'productCategoryManagement'
   if (currentKey.value === 'productPriceManagement') return 'productPriceManagement'
   if (currentKey.value === 'productConfigTemplates') return 'templates'

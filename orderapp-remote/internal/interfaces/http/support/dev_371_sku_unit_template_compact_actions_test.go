@@ -25,7 +25,7 @@ func TestDev371SkuUnitTemplateCompactActionsUI(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
 		"sku-page-summary",
-		"商品档案只维护商品资料",
+		"商品档案维护商品资料",
 		"kferp:notify",
 		"新增单位模板",
 		"成品库存单位",

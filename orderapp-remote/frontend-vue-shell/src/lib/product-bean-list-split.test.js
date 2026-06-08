@@ -15,11 +15,12 @@ function menuItem(key) {
   return menuGroups.flatMap((group) => group.items).find((item) => item.key === key)
 }
 
-test('product menu is split into product archive, group management, pricing and price-list pages', () => {
+test('product menu keeps product archive and pricing while group templates live in settings', () => {
   assert.equal(menuItem('productMaster')?.label, '商品档案')
   assert.equal(menuItem('productMaster')?.title, '商品档案')
   assert.equal(menuItem('customerProductAliases'), undefined)
-  assert.equal(menuItem('groupManagement')?.label, '分组管理')
+  assert.equal(menuItem('groupManagement'), undefined)
+  assert.equal(menuItem('groupTemplates')?.label, '分组模板')
   assert.equal(menuItem('productCategoryManagement'), undefined)
   assert.equal(menuItem('productPriceManagement')?.label, '商品价格管理')
   assert.equal(menuItem('productConfigTemplates'), undefined)
@@ -74,7 +75,8 @@ test('product grouping uses business group select while customer alias keeps leg
   const toolbar = productSettingsSource.slice(toolbarStart, toolbarEnd)
 	  assert.match(toolbar, /product-classification-selects/)
 	  assert.match(toolbar, /data-pr442-product-group-assignments/)
-	  assert.match(toolbar, /目标分组/)
+	  assert.match(toolbar, /选择分组模板/)
+	  assert.match(toolbar, /移动到分类/)
 	  assert.doesNotMatch(toolbar, /分组集 \/ 父组 \/ 子组/)
 	  assert.match(toolbar, /@change="saveSelectedProductBusinessGroupAssignment"/)
   assert.doesNotMatch(toolbar, /placeholder="增加分类"/)
@@ -96,7 +98,9 @@ test('customer alias list has shared filters batch disable and industry field co
 })
 
 test('legacy classification template editor stays retired from product settings', () => {
-  assert.match(productSettingsSource, /data-section-mode="groupManagement"/)
+  const settingsSource = readFileSync(resolve(here, '../views/UISettingsView.vue'), 'utf8')
+  assert.match(settingsSource, /data-section-mode="groupTemplates"/)
+  assert.doesNotMatch(productSettingsSource, /data-section-mode="groupManagement"/)
   assert.match(productSettingsSource, /\/api\/business-group-items/)
   assert.doesNotMatch(productSettingsSource, /classification-template-actions-bottom[\s\S]*保存分类模板[\s\S]*删除模板/)
   assert.doesNotMatch(productSettingsSource, /classification-category-template-row[\s\S]*分类项商品配置模板/)
@@ -200,7 +204,7 @@ test('product bean-list warnings render as icon tooltips instead of inline long 
   assert.match(costingSource, /function warningTooltip/)
   assert.match(costingSource, /未设置计价方式。请到 商品与配方 → 商品价格表 → 生成价格表/)
   assert.match(costingSource, /按阶梯模板计算、按价格计算模板计算或固定价/)
-  const warningBlockStart = costingSource.indexOf('bean-warning-list')
+  const warningBlockStart = costingSource.indexOf('function warningTooltip')
   const warningBlockEnd = costingSource.indexOf('itemProductAttributeLines', warningBlockStart)
   assert.notEqual(warningBlockStart, -1)
   assert.notEqual(warningBlockEnd, -1)

@@ -66,11 +66,11 @@ test('BOM output selector hides inactive products and move actions precede targe
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const toolbar = source.match(/<div class="bom-list-toolbar"[\s\S]*?<div class="bom-list-filters">/)?.[0] || ''
 
-  assert.ok(toolbar.indexOf('移动到分组') !== -1 && toolbar.indexOf('目标分组') !== -1, 'group move controls should be in toolbar')
-  assert.ok(toolbar.indexOf('移动到分组') < toolbar.indexOf('目标分组'), '移动到分组 button should be left of 目标分组')
+  assert.ok(toolbar.indexOf('移动到分类') !== -1 && toolbar.indexOf('目标分类') !== -1, 'group move controls should be in toolbar')
+  assert.ok(toolbar.indexOf('移动到分类') < toolbar.indexOf('目标分类'), '移动到分类 button should be left of 目标分类')
   assert.match(source, /outputProductOptions = computed\(\(\) => products\.value\.filter\(isBomProductCandidate\)/)
   assert.match(source, /productComponentOptions = computed\(\(\) => products\.value\.filter\(isBomProductCandidate\)/)
-  assert.match(source, /前往分组管理/)
+  assert.match(source, /前往分组模板/)
   assert.match(source, /\/api\/business-group-assignments/)
   assert.match(source, /buildBusinessGroupAssignmentPayload/)
   assert.match(source, /businessGroupItemMoveOptions/)
@@ -181,11 +181,11 @@ test('BOM view exposes grouped manufacturing BOM library and no longer edits pro
   assert.doesNotMatch(source, /searchParams\.get\('return_product_id'\)/)
   assert.match(appSource, /transientReturnNavigation/)
   assert.match(appSource, /returnNavigation/)
-  assert.match(source, /前往分组管理/)
-  assert.match(source, /全部分组/)
+  assert.match(source, /前往分组模板/)
+  assert.match(source, /全部分类/)
   assert.match(source, /未分类/)
-  assert.match(source, /移动到分组/)
-  assert.match(source, /key:\s*'groupManagement'/)
+  assert.match(source, /移动到分类/)
+  assert.match(source, /key:\s*'groupTemplates'/)
   assert.match(source, /returnNavigation/)
   assert.match(source, /bom-list-toolbar/)
   assert.match(source, /bom-list-tabs-row/)
@@ -208,7 +208,7 @@ test('BOM view exposes grouped manufacturing BOM library and no longer edits pro
   assert.match(source, /open_product_config_id/)
   assert.match(source, /当前引用/)
   assert.match(source, /删除/)
-  assert.match(source, /前往分组管理/)
+  assert.match(source, /前往分组模板/)
   assert.doesNotMatch(source, /openEditProductionBomRecord\(bomRecordFromRow\(row\)\)\s*await selectUnboundProductionBom\(row\)/)
   assert.doesNotMatch(source, /失效当前 BOM/)
   assert.doesNotMatch(source, /async function deleteBom/)
@@ -296,6 +296,8 @@ test('production BOM list supports status filters name search group tabs and ina
   assert.deepEqual(filterProductionBomCatalog(rows, { status: 'all', query: '拼配' }).map((row) => row.id), [1])
   assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', groupItemID: -1 }).map((row) => row.id), [4])
   assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', groupItemID: 21 }).map((row) => row.id), [1])
+  assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', groupID: 2, groupItemID: -1 }).map((row) => row.id), [3, 4])
+  assert.deepEqual(filterProductionBomCatalog(rows, { status: 'active', groupID: 2, groupItemID: 21 }).map((row) => row.id), [1])
 
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
@@ -344,13 +346,13 @@ test('production BOM list supports status filters name search group tabs and ina
   assert.ok(toolbarStart < tabStart && tabStart < filtersStart, 'group tabs should render below group operations and above list filters')
   assert.match(tabRow, /bom-list-tabs/)
   assert.match(source, /新建生产 BOM/)
-  assert.match(toolbar, /移动到分组/)
-  assert.match(toolbar, /前往分组管理/)
+  assert.match(toolbar, /移动到分类/)
+  assert.match(toolbar, /前往分组模板/)
   assert.match(toolbar, /bom-group-use-row/)
   assert.match(toolbar, /bom-group-move-row/)
-  assert.ok(toolbar.indexOf('使用分组') < toolbar.indexOf('可用分组'), '使用分组 should be left of the available-group select')
-  assert.ok(toolbar.indexOf('移动到分组') > toolbar.indexOf('使用分组'), '移动到分组 should be below/after 使用分组')
-  assert.ok(toolbar.indexOf('移动到分组') < toolbar.indexOf('目标分组'), '移动到分组 should be left of target-group select')
+  assert.match(source, /groupID:\s*Number\(selectedProductionBomTemplateID\.value \|\| 0\)/)
+  assert.ok(toolbar.indexOf('选择分组模板') < toolbar.indexOf('移动到分类'), 'template select should render before category move controls')
+  assert.ok(toolbar.indexOf('移动到分类') < toolbar.indexOf('目标分类'), '移动到分类 should be left of target category select')
   assert.match(tabRow, /v-for="option in productionBomUsedGroupOptions"/)
   assert.doesNotMatch(tabRow, /productionBomMoveGroupOptions/)
   assert.doesNotMatch(tableBlock, /<th>分组<\/th>/)
@@ -413,25 +415,27 @@ test('production BOM uses generic business group assignment instead of its own g
 
   for (const marker of [
     '/api/business-group-assignments',
-    '/api/business-groups/${selectedProductionBomUseGroupID.value}/usages',
     'buildBusinessGroupAssignmentPayload',
     'businessGroupItemMoveOptions',
     'productionBomMoveGroupOptions',
     'productionBomUsedGroupOptions',
     'productionBomUsedGroupItemIDs',
-    'selectedProductionBomUseGroupID',
-    'useSelectedProductionBomGroup',
+    'selectedProductionBomTemplateID',
     "usage_key: 'production_bom'",
     "object_key: 'production_bom'",
     'openBusinessGroupManagement',
-    '使用分组',
+    '选择分组模板',
+    '移动到分类',
   ]) {
     assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
   assert.match(tabRow, /v-for="option in productionBomUsedGroupOptions"/)
   assert.match(toolbar, /v-for="option in productionBomMoveGroupOptions"/)
-  assert.match(source, /businessGroupItemMoveOptions\(productionBomBusinessGroups\.value,\s*'production_bom',\s*\{\s*includeGroupName:\s*false\s*\}\)/)
-  assert.doesNotMatch(source, /includeGroupsWithoutUsage:\s*true/)
+  assert.match(source, /businessGroupItemMoveOptions\(selectedProductionBomTemplate\.value \? \[selectedProductionBomTemplate\.value\] : \[\],\s*'production_bom',\s*\{\s*includeGroupName:\s*false,\s*includeGroupsWithoutUsage:\s*true\s*\}\)/)
+  assert.match(source, /includeGroupsWithoutUsage:\s*true/)
+  assert.doesNotMatch(source, /selectedProductionBomUseGroupID/)
+  assert.doesNotMatch(source, /useSelectedProductionBomGroup/)
+  assert.doesNotMatch(source, /\/usages/)
   for (const marker of [
     '组内分类',
     '新增小分类',
@@ -460,7 +464,7 @@ test('production BOM uses generic business group assignment instead of its own g
   assert.doesNotMatch(saveSource, /group_category_id:/)
   assert.doesNotMatch(source, /\/api\/production-bom-groups\/\$\{groupID\}\/categories/)
   assert.doesNotMatch(source, /\/api\/production-bom-group-categories\/\$\{categoryForm\.id\}/)
-  assert.match(tabRow, /全部分组/)
+  assert.match(tabRow, /全部分类/)
   assert.match(tabRow, /未分类/)
   assert.match(source, /version\.status === 'published'/)
   assert.match(source, /copyVersionAsDraft/)

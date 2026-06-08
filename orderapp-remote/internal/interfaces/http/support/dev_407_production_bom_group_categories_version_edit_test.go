@@ -29,7 +29,7 @@ func TestDev407ProductionBomGroupCategoriesVersionEditSourceMarkers(t *testing.T
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
 			"businessGroupItemMoveOptions",
 			"buildBusinessGroupAssignmentPayload",
-			"前往分组管理",
+			"前往分组模板",
 			"已发布版本只读，复制为新版草稿后编辑",
 			"version-recipe-panel",
 		},
