@@ -6,6 +6,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS
+- Branch: codex/product-master-subcategory-headers-20260608
+- Owner/session: Codex / 2026-06-08
+- Status: local verified; pending merge to develop, deploy, and browser acceptance
+- Scope: Van 浏览器验收反馈。商品档案列表使用 `product_catalog` 业务分组时，父组和子组都要作为分类标题展示；子组标题独立成行、缩进显示，只显示子组名，完整父/子路径作为上下文；`目标分组` 候选支持父组和子组，普通业务标签不显示“商品分组 /”分组集名称前缀，支持把商品移动到具体子类里面。
+- DEV:
+  - DEV-451-PRODUCT-GROUP-SUBCATEGORY-HEADERS：商品档案分组列表读取分组项层级，父组、子组分别生成分组标题，子组标题用缩进和完整路径 title 表达层级。
+  - DEV-451-PRODUCT-GROUP-MOVE-SUBCATEGORY：`目标分组` 下拉列出父组和子组，移动候选显示父组 / 子组路径但不显示分组集名称。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because `businessGroupItemMoveOptions(..., { includeGroupName: false })` did not expose child depth/parent metadata and 商品档案分组标题没有子组层级信息。
+  - GREEN targeted: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 137/137; `go test ./internal/interfaces/http/support -run 'TestDev451ProductMasterSubcategoryHeadersContracts|TestDev450BomGroupUsageSelectionContracts' -count=1` passed.
+  - GREEN broader: `go test ./internal/interfaces/http/support -count=1` passed; `go test ./...` in `orderapp-remote` passed; `npm run build` in `frontend-vue-shell` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-08-product-master-subcategory-headers.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
 ### PR-450-BOM-GROUP-USAGE-SELECTION
 - Branch: codex/bom-group-list-layout-followup-20260608
 - Owner/session: Codex / 2026-06-08

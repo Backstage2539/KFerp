@@ -278,19 +278,31 @@ export function businessGroupVisibleName(group = {}) {
 }
 
 function businessGroupItemPath(group = {}, groupItemID = 0) {
+  return businessGroupItemInfo(group, groupItemID).path
+}
+
+function businessGroupItemInfo(group = {}, groupItemID = 0) {
   const items = flattenBusinessGroupItems(businessGroupItemsTree(group.items || []))
   const byID = new Map(items.map((item) => [Number(item.id || 0), item]))
   let cursor = byID.get(Number(groupItemID || 0))
-  if (!cursor) return []
+  if (!cursor) return { item: null, path: [], depth: 0, order: 9999, parent_group_item_id: 0 }
   const path = []
   const seen = new Set()
+  const order = items.findIndex((item) => Number(item.id || 0) === Number(groupItemID || 0))
+  let item = cursor
   while (cursor && Number(cursor.id || 0) > 0 && !seen.has(Number(cursor.id || 0))) {
     seen.add(Number(cursor.id || 0))
     const name = String(cursor.name || '').trim()
     if (name) path.unshift(name)
     cursor = byID.get(Number(cursor.parent_id || cursor.parentID || 0))
   }
-  return path
+  return {
+    item,
+    path,
+    depth: Math.max(path.length - 1, 0),
+    order: order >= 0 ? order : 9999,
+    parent_group_item_id: Number(item.parent_id || item.parentID || 0),
+  }
 }
 
 export function businessGroupItemLabel(group = {}, groupItemID = 0, options = {}) {
@@ -328,12 +340,16 @@ export function businessGroupItemMoveOptions(groups = [], usageKey = '', options
     for (const item of flattenBusinessGroupItems(businessGroupItemsTree(group.items || []))) {
       const itemID = Number(item.id || 0)
       if (!itemID) continue
+      const itemInfo = businessGroupItemInfo(group, itemID)
       out.push({
         id: itemID,
         group_id: Number(group.id || 0),
         group_item_id: itemID,
         parent_group_item_id: Number(item.parent_id || item.parentID || 0),
         label: businessGroupItemLabel(group, itemID, { includeGroupName: options.includeGroupName !== false }),
+        path_label: businessGroupItemLabel(group, itemID, { includeGroupName: false }),
+        title_label: itemInfo.path[itemInfo.path.length - 1] || businessGroupItemLabel(group, itemID, { includeGroupName: false }),
+        depth: itemInfo.depth,
       })
     }
   }
@@ -362,14 +378,19 @@ export function businessGroupDisplayGroups(rows = [], assignments = [], groups =
     const assignment = assignmentGroup && !isSystemDefaultBusinessGroup(assignmentGroup) ? rawAssignment : null
     const groupItemID = Number(assignment?.group_item_id ?? assignment?.groupItemID ?? 0)
     const key = groupItemID ? `business-group-${Number(assignment.group_id || assignment.groupID || 0)}-${groupItemID}` : 'business-group-unassigned'
-    const label = groupItemID ? businessGroupAssignmentLabel(assignment, groups) : '未分组'
+    const itemInfo = groupItemID ? businessGroupItemInfo(assignmentGroup, groupItemID) : { path: [], depth: 0, order: 9999, parent_group_item_id: 0 }
+    const pathLabel = groupItemID ? businessGroupItemLabel(assignmentGroup, groupItemID, { includeGroupName: false }) : '未分组'
+    const label = groupItemID ? (itemInfo.path[itemInfo.path.length - 1] || pathLabel) : '未分组'
     if (!displayGroups.has(key)) {
       displayGroups.set(key, {
         key,
         label,
+        path_label: pathLabel,
+        depth: itemInfo.depth,
+        parent_group_item_id: itemInfo.parent_group_item_id,
         rows: [],
         all: false,
-        sort_order: groupItemID ? 10 : 9999,
+        sort_order: groupItemID ? (Number(assignmentGroup?.sort_order || 0) * 10000 + itemInfo.order) : 999999,
       })
     }
     displayGroups.get(key).rows.push(row)

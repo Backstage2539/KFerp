@@ -205,12 +205,15 @@
             </thead>
             <tbody>
               <template v-for="group in displaySkuGroups" :key="group.key">
-                <tr v-if="!group.all" class="classification-group-row">
+                <tr
+                  v-if="!group.all"
+                  :class="['classification-group-row', { 'classification-subgroup-row': Number(group.depth || 0) > 0 }]"
+                  :style="classificationGroupIndentStyle(group)">
                     <td :colspan="13">
                     <button class="classification-group-toggle" type="button" @click="toggleProductClassificationGroup(group.key)">
                       {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
                     </button>
-                    <strong>{{ group.label }}</strong>
+                    <strong :title="group.path_label || group.label">{{ group.label }}</strong>
                     <small>{{ group.rows.length }} 款</small>
                   </td>
                 </tr>
@@ -1789,7 +1792,7 @@ const productMoveClassificationOptions = computed(() => {
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...productClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
 })
 const productCatalogBusinessGroups = computed(() => productCatalogBusinessGroupRows())
-const productBusinessGroupItemOptions = computed(() => businessGroupItemMoveOptions(productCatalogBusinessGroups.value, 'product_catalog'))
+const productBusinessGroupItemOptions = computed(() => businessGroupItemMoveOptions(productCatalogBusinessGroups.value, 'product_catalog', { includeGroupName: false }))
 const aliasMoveClassificationOptions = computed(() => {
   if (isAliasAllOrUnclassifiedTab.value) return aliasMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
@@ -1943,6 +1946,11 @@ function toggleProductClassificationGroup(key) {
   collapsedProductClassificationGroups.value = isProductClassificationGroupCollapsed(groupKey)
     ? collapsedProductClassificationGroups.value.filter((item) => item !== groupKey)
     : [...collapsedProductClassificationGroups.value, groupKey]
+}
+
+function classificationGroupIndentStyle(group = {}) {
+  const depth = Math.max(Number(group.depth || 0), 0)
+  return { '--classification-group-indent': `${16 + depth * 24}px` }
 }
 
 function isAliasClassificationGroupCollapsed(key) {
@@ -6133,7 +6141,8 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .classification-template-actions-bottom { justify-content: flex-end; margin-top: 14px; padding-top: 12px; border-top: 1px solid #eee8df; }
 .industry-field-cell { max-width: 260px; }
 .industry-field-cell span { display: block; line-height: 1.35; color: #3f3a33; }
-.classification-group-row td { background: #f6f1ea; border-top: 1px solid #e5ded4; border-bottom: 1px solid #e5ded4; color: #3b332a; }
+.classification-group-row td { background: #f6f1ea; border-top: 1px solid #e5ded4; border-bottom: 1px solid #e5ded4; color: #3b332a; padding-left: var(--classification-group-indent, 16px); }
+.classification-subgroup-row td { background: #fbf7f1; }
 .classification-group-row strong { margin: 0 8px; }
 .classification-group-row small { color: #7c7064; }
 .classification-group-toggle { height: 28px; border: 0; background: transparent; color: #1f4f82; padding: 0 4px; }

@@ -394,6 +394,47 @@ test('business group assignment payload supports products, BOMs, warehouses, and
   ], [systemGroup]).map((row) => ({ label: row.label, count: row.rows.length })), [
     { label: '未分组', count: 2 },
   ])
+  assert.deepEqual(businessGroupItemMoveOptions([{
+    id: 9,
+    name: '商品分组',
+    active: true,
+    usages: [{ usage_key: 'product_catalog', active: true }],
+    items: [
+      { id: 90, group_id: 9, parent_id: 0, name: '商品-咖啡熟豆', active: true, sort_order: 10 },
+      { id: 91, group_id: 9, parent_id: 90, name: '意式拼配豆', active: true, sort_order: 20 },
+    ],
+  }], 'product_catalog', { includeGroupName: false }).map((option) => ({
+    label: option.label,
+    depth: option.depth,
+    parent: option.parent_group_item_id,
+  })), [
+    { label: '商品-咖啡熟豆', depth: 0, parent: 0 },
+    { label: '商品-咖啡熟豆 / 意式拼配豆', depth: 1, parent: 90 },
+  ])
+  assert.deepEqual(businessGroupDisplayGroups([
+    { id: 90, name: '熟豆商品' },
+    { id: 91, name: '意式商品' },
+  ], [
+    { usage_key: 'product_catalog', object_key: 'product', object_id: 90, group_id: 9, group_item_id: 90 },
+    { usage_key: 'product_catalog', object_key: 'product', object_id: 91, group_id: 9, group_item_id: 91 },
+  ], [{
+    id: 9,
+    name: '商品分组',
+    active: true,
+    usages: [{ usage_key: 'product_catalog', active: true }],
+    items: [
+      { id: 90, group_id: 9, parent_id: 0, name: '商品-咖啡熟豆', active: true, sort_order: 10 },
+      { id: 91, group_id: 9, parent_id: 90, name: '意式拼配豆', active: true, sort_order: 20 },
+    ],
+  }]).map((row) => ({
+    label: row.label,
+    path: row.path_label,
+    depth: row.depth,
+    count: row.rows.length,
+  })), [
+    { label: '商品-咖啡熟豆', path: '商品-咖啡熟豆', depth: 0, count: 1 },
+    { label: '意式拼配豆', path: '商品-咖啡熟豆 / 意式拼配豆', depth: 1, count: 1 },
+  ])
 })
 
 test('pricing rules and tier templates are independent templates used by price lists', () => {
@@ -2366,6 +2407,7 @@ test('product list moves selected rows through business group assignments while 
 test('classification group rows support collapse and indentation in product and alias lists', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
 
   for (const expected of [
@@ -2373,6 +2415,9 @@ test('classification group rows support collapse and indentation in product and 
     'toggleAliasClassificationGroup',
     'isProductClassificationGroupCollapsed',
     'isAliasClassificationGroupCollapsed',
+    'classificationGroupIndentStyle',
+    'classification-subgroup-row',
+    '--classification-group-indent',
     'classification-item-row',
     'classification-group-toggle',
   ]) {
@@ -2380,8 +2425,16 @@ test('classification group rows support collapse and indentation in product and 
   }
 
   assert.match(template, /isProductClassificationGroupCollapsed\(group\.key\)\s*\?\s*'展开'\s*:\s*'收起'/)
+  assert.match(template, /:class="\['classification-group-row', \{ 'classification-subgroup-row': Number\(group\.depth \|\| 0\) > 0 \}\]"/)
+  assert.match(template, /:style="classificationGroupIndentStyle\(group\)"/)
+  assert.match(template, /<strong\s+:title="group\.path_label \|\| group\.label">\{\{ group\.label \}\}<\/strong>/)
   assert.match(template, /isAliasClassificationGroupCollapsed\(group\.key\)\s*\?\s*'展开'\s*:\s*'收起'/)
+  assert.match(script, /function classificationGroupIndentStyle\(group = \{\}\)/)
+  assert.ok(script.includes('depth * 24'), 'missing classification group depth indent calculation')
+  assert.ok(script.includes("'--classification-group-indent'"), 'missing classification group indent variable')
   assert.match(style, /\.classification-item-row\s+td:first-child \+ td,[\s\S]*padding-left:/)
+  assert.match(style, /\.classification-group-row\s+td\s*\{[^}]*padding-left:\s*var\(--classification-group-indent,\s*16px\);/s)
+  assert.match(style, /\.classification-subgroup-row\s+td\s*\{/)
   assert.match(style, /\.classification-tab\.active\s*\{/)
 })
 
