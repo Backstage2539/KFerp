@@ -417,7 +417,7 @@ const warehouseGroupItemOptions = computed(() => {
     if (itemID > 0) counts.set(itemID, (counts.get(itemID) || 0) + 1)
   }
   const group = selectedWarehouseGroupTemplate.value
-  return businessGroupItemMoveOptions(group ? [group] : [], 'warehouse_inventory', { includeGroupsWithoutUsage: true }).map((option) => ({
+  return businessGroupItemMoveOptions(group ? [group] : [], 'warehouse_inventory', { includeGroupsWithoutUsage: true, includeGroupName: false }).map((option) => ({
     ...option,
     key: `${option.group_id}:${option.group_item_id}`,
     count: counts.get(Number(option.group_item_id || 0)) || 0,
@@ -425,7 +425,7 @@ const warehouseGroupItemOptions = computed(() => {
 })
 const warehouseFormGroupItemOptions = computed(() => {
   const group = warehouseBusinessGroups.value.find((row) => Number(row.id || 0) === Number(warehouseGroupFormTemplateID.value || 0)) || null
-  return businessGroupItemMoveOptions(group ? [group] : [], 'warehouse_inventory', { includeGroupsWithoutUsage: true }).map((option) => ({
+  return businessGroupItemMoveOptions(group ? [group] : [], 'warehouse_inventory', { includeGroupsWithoutUsage: true, includeGroupName: false }).map((option) => ({
     ...option,
     key: `${option.group_id}:${option.group_item_id}`,
   }))
@@ -489,6 +489,7 @@ function warehouseGroupLabel(row = {}) {
   if (selectedTemplateID > 0 && rowGroupID > 0 && rowGroupID !== selectedTemplateID) return '未分类'
   const groupName = String(row.group_name || '').trim()
   const itemName = String(row.group_item_name || '').trim()
+  if (selectedTemplateID > 0) return itemName || '未分类'
   const visibleGroupName = isSystemDefaultBusinessGroup({ name: groupName }) ? '' : groupName
   if (visibleGroupName && itemName) return `${visibleGroupName} / ${itemName}`
   if (itemName) return itemName

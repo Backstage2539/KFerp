@@ -21,6 +21,7 @@ test('warehouse inventory group labels hide system default group sets', () => {
   assert.match(warehouseSource, /businessGroupItemMoveOptions/)
   assert.match(warehouseSource, /isSystemDefaultBusinessGroup/)
   assert.match(warehouseSource, /includeGroupsWithoutUsage:\s*true/)
+  assert.match(warehouseSource, /includeGroupName:\s*false/)
   assert.doesNotMatch(warehouseSource, /\[group\.name \|\| '库存分组', parentName, item\.name/)
   assert.doesNotMatch(warehouseSource, /仓库库存默认分组/)
 })
