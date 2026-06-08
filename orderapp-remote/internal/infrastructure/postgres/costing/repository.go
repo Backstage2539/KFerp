@@ -100,17 +100,30 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 			GROUP BY l.material_id
 		),
+		output_bom_version AS (
+			SELECT v.id
+			FROM %[1]s.production_boms pb
+			JOIN %[1]s.production_bom_versions v ON v.bom_id=pb.id
+			WHERE $1 <= 0
+			  AND pb.output_product_id=$2
+			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+			  AND v.status='published'
+			ORDER BY v.published_at DESC NULLS LAST, v.id DESC
+			LIMIT 1
+		),
 		bom_items AS (
 			SELECT pbi.id, pbi.material_id, pbi.component_type, pbi.component_product_id, pbi.component_spec_g,
 			       pbi.consume_unit, pbi.qty_per_unit::float8, pbi.ratio_pct::float8, pbi.unit_cost_snapshot::float8
 			FROM %[1]s.production_bom_version_items pbi
-			WHERE $1 > 0 AND pbi.version_id=$1
+			WHERE ($1 > 0 AND pbi.version_id=$1)
+			   OR ($1 <= 0 AND pbi.version_id=(SELECT id FROM output_bom_version))
 			UNION ALL
 			SELECT bi.id, bi.material_id, bi.component_type, bi.component_product_id, bi.component_spec_g,
 			       bi.consume_unit, bi.qty_per_unit::float8, bi.ratio_pct::float8, bi.unit_cost_snapshot::float8
 			FROM %[1]s.product_bom_items bi
 			LEFT JOIN %[1]s.product_bom_sources bs ON bs.product_id=$2
 			WHERE $1 <= 0
+			  AND NOT EXISTS (SELECT 1 FROM output_bom_version)
 			  AND bi.product_id=CASE
 			    WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
 			    ELSE $2
@@ -236,9 +249,9 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			       END,'') AS current_classification_category_name,
 			       COALESCE(CASE WHEN $2 > 0 THEN alias_cc.product_config_template_id ELSE product_cc.product_config_template_id END,0) AS current_classification_category_product_config_template_id,
 			       COALESCE(CASE WHEN $2 > 0 THEN alias_ct.product_config_template_id ELSE product_ct.product_config_template_id END,0) AS current_classification_template_product_config_template_id,
-			       CASE WHEN ppc.product_id IS NOT NULL THEN 'product_production_config' WHEN pbb.product_id IS NOT NULL THEN 'production_bom' ELSE COALESCE(NULLIF(bs.source_type,''), '') END AS bom_usage_mode,
-			       COALESCE(NULLIF(ppc.production_bom_id,0), pbb.bom_id,0) AS production_bom_id,
-			       COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id,0) AS production_bom_version_id,
+			       CASE WHEN ppc.product_id IS NOT NULL THEN 'product_production_config' WHEN pbb.product_id IS NOT NULL THEN 'production_bom' WHEN output_bom.bom_id IS NOT NULL THEN 'production_bom_output' ELSE COALESCE(NULLIF(bs.source_type,''), '') END AS bom_usage_mode,
+			       COALESCE(NULLIF(ppc.production_bom_id,0), NULLIF(pbb.bom_id,0), NULLIF(output_bom.bom_id,0),0) AS production_bom_id,
+			       COALESCE(NULLIF(ppc.production_bom_version_id,0), NULLIF(pbb.bom_version_id,0), NULLIF(output_bom.bom_version_id,0),0) AS production_bom_version_id,
 			       COALESCE(NULLIF(ppc.expected_loss_rate,0), -1)::float8 AS expected_loss_rate,
 			       CASE WHEN ppc.product_id IS NOT NULL THEN 1 - COALESCE(NULLIF(ppc.expected_loss_rate,0), 0) ELSE 0 END::float8 AS production_config_yield_rate,
 			       COALESCE(NULLIF(ppc.process_route_id,0),0) AS process_route_id,
@@ -255,6 +268,21 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			LEFT JOIN %[1]s.product_production_configs ppc ON ppc.product_id = p.id
 			LEFT JOIN %[1]s.product_bom_sources bs ON bs.product_id = p.id
 			LEFT JOIN %[1]s.product_production_bom_bindings pbb ON pbb.product_id = p.id
+			LEFT JOIN LATERAL (
+				SELECT pb.id AS bom_id, latest.id AS bom_version_id
+				FROM %[1]s.production_boms pb
+				JOIN LATERAL (
+					SELECT v.id, v.published_at
+					FROM %[1]s.production_bom_versions v
+					WHERE v.bom_id=pb.id AND v.status='published'
+					ORDER BY v.published_at DESC NULLS LAST, v.id DESC
+					LIMIT 1
+				) latest ON true
+				WHERE pb.output_product_id=p.id
+				  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+				ORDER BY latest.published_at DESC NULLS LAST, latest.id DESC, pb.id DESC
+				LIMIT 1
+			) output_bom ON true
 			LEFT JOIN %[1]s.customer_product_aliases cpa
 			  ON $2 > 0
 			 AND cpa.product_id = p.id

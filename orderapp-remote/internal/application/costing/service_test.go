@@ -369,6 +369,61 @@ func TestPricingRuleTrialDoesNotInferCostFromPublishedPriceSnapshotWhenBomCostMi
 	}
 }
 
+func TestPricingRuleTrialUsesBaseCostDetailsWhenProductInputSummaryMissing(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:        539,
+			Name:             "PR439-20260606182321 工厂量单商品",
+			InventoryUnit:    "kg",
+			QuoteUnit:        "kg",
+			YieldRate:        0.8,
+			ExpectedLossRate: 0.2,
+			BomStatus:        "active",
+			BomVersionID:     5392,
+			BomVersionNo:     "V002",
+		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:1001", Type: "material", TypeLabel: "物料", Name: "BOM-000539 原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 42, AmountPerKg: 42, Unit: "kg"},
+			{Key: "operation:2001", Type: "operation", TypeLabel: "工序", Name: "工厂量单工序", ConsumeUnit: "per_kg", UnitCost: 8, AmountPerKg: 8, Unit: "kg"},
+		},
+		pricingRules: map[int64]ProductPricingRule{
+			10: {
+				ID:             10,
+				Name:           "PR459 明细补成本",
+				CostSourceMode: "bom_current_cost",
+				MarginRate:     0.2,
+				TaxRate:        0,
+				RoundingMode:   "cent",
+				FormulaVersion: "v1",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "none",
+				},
+			},
+		},
+	}
+
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 10,
+		ProductID:     539,
+		QuoteUnit:     "kg",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if got.BaseCost != 50 || got.BomCostTotal != 42 || got.OperationCostTotal != 8 {
+		t.Fatalf("trial must use BOM detail costs when summary is missing: base %.2f bom %.2f operation %.2f rows %+v", got.BaseCost, got.BomCostTotal, got.OperationCostTotal, got.BaseCostDetails)
+	}
+	if got.FinalUnitPrice != 60 {
+		t.Fatalf("final price = %.2f, want 60", got.FinalUnitPrice)
+	}
+	if pricingRuleTrialWarningsContain(got.Warnings, "该商品暂无可试算的 BOM/工序成本") {
+		t.Fatalf("warnings should not claim missing cost when details exist: %+v", got.Warnings)
+	}
+}
+
 func TestPricingRuleTrialMatchesExcelSupplierPriceSamples(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{

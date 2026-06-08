@@ -440,6 +440,53 @@ func TestLoadProductInputsReadsOperationTemplateCosts(t *testing.T) {
 	}
 }
 
+func TestLoadProductInputsUsesProductionBomOutputProductFallback(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"output_bom",
+		"pb.output_product_id=p.id",
+		"output_bom.bom_version_id",
+		"NULLIF(output_bom.bom_version_id,0)",
+		"NULLIF(output_bom.bom_id,0)",
+		"production_bom_output",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must treat production BOM output product as an effective BOM source; missing %q", want)
+		}
+	}
+}
+
+func TestPricingRuleTrialDetailsUseProductionBomOutputProductFallback(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	fnStart := strings.Index(src, "func (r Repository) LoadPricingRuleTrialBaseCostDetails")
+	if fnStart < 0 {
+		t.Fatal("LoadPricingRuleTrialBaseCostDetails not found")
+	}
+	fnEnd := strings.Index(src[fnStart:], "func (r Repository) loadProductInputs")
+	if fnEnd < 0 {
+		t.Fatal("loadProductInputs not found after LoadPricingRuleTrialBaseCostDetails")
+	}
+	fn := src[fnStart : fnStart+fnEnd]
+	for _, want := range []string{
+		"production_boms",
+		"output_product_id=$2",
+		"production_bom_versions",
+		"production_bom_version_items",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("pricing rule trial BOM details must fall back to production BOM output product; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsSkuCategoryPathForCustomerBeanLists(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
@@ -756,21 +803,21 @@ func TestBeanListProductScopeAllowsPR440CustomerPriceRowsForPublicProducts(t *te
 		},
 		"price_rows": []any{
 			map[string]any{
-				"product_id":                   float64(540),
-				"final_unit_price":             float64(88),
-				"price_unit":                   "kg",
-				"customer_reference_snapshot":  map[string]any{"customer_id": float64(170), "customer_display_name": "客户展示名"},
-				"pricing_rule_version":         "PR440/v1",
-				"tier_template_source":         "product",
-				"pricing_rule_source":          "product",
-				"cost_source_snapshot":         map[string]any{"material_id": float64(46)},
-				"group_snapshot":               map[string]any{"group_id": float64(1), "group_item_id": float64(2)},
-				"manual_adjusted":              false,
-				"inventory_conversion_json":    map[string]any{"kg": float64(1)},
-				"inventory_unit":               "kg",
-				"tier_template_id":             float64(1),
-				"pricing_rule_id":              float64(1),
-				"original_final_unit_price":    float64(88),
+				"product_id":                  float64(540),
+				"final_unit_price":            float64(88),
+				"price_unit":                  "kg",
+				"customer_reference_snapshot": map[string]any{"customer_id": float64(170), "customer_display_name": "客户展示名"},
+				"pricing_rule_version":        "PR440/v1",
+				"tier_template_source":        "product",
+				"pricing_rule_source":         "product",
+				"cost_source_snapshot":        map[string]any{"material_id": float64(46)},
+				"group_snapshot":              map[string]any{"group_id": float64(1), "group_item_id": float64(2)},
+				"manual_adjusted":             false,
+				"inventory_conversion_json":   map[string]any{"kg": float64(1)},
+				"inventory_unit":              "kg",
+				"tier_template_id":            float64(1),
+				"pricing_rule_id":             float64(1),
+				"original_final_unit_price":   float64(88),
 			},
 		},
 	}
@@ -780,7 +827,7 @@ func TestBeanListProductScopeAllowsPR440CustomerPriceRowsForPublicProducts(t *te
 	}
 
 	missing := map[string]any{
-		"groups": []any{map[string]any{"items": []any{map[string]any{"productId": float64(541)}}}},
+		"groups":     []any{map[string]any{"items": []any{map[string]any{"productId": float64(541)}}}},
 		"price_rows": []any{map[string]any{"product_id": float64(540)}},
 	}
 	if beanListContentHasPR440FlatRowsForProducts(missing, []int64{541}) {
