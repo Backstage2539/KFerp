@@ -24,6 +24,35 @@
             <p class="muted left">生产 BOM 是生产端主档案；分组来自泛化分组管理，保存到 /api/business-group-assignments，usage_key=production_bom。</p>
           </div>
         </div>
+        <div class="bom-list-actions-row">
+          <button class="primary compact-action" type="button" @click="openNewProductionBomRecord">新建生产 BOM</button>
+        </div>
+        <div class="bom-list-toolbar">
+          <div class="bom-group-operation-row bom-group-use-row">
+            <button class="secondary compact-action" type="button" @click="openBusinessGroupManagement">前往分组管理</button>
+            <button class="secondary compact-action" type="button" :disabled="!selectedProductionBomUseGroupID || loading" @click="useSelectedProductionBomGroup">使用分组</button>
+            <label>
+              <span>可用分组</span>
+              <select v-model.number="selectedProductionBomUseGroupID">
+                <option :value="0">{{ productionBomUseGroupOptions.length ? '选择分组' : '暂无可使用分组' }}</option>
+                <option v-for="option in productionBomUseGroupOptions" :key="option.id" :value="Number(option.id || 0)">{{ option.label }}</option>
+              </select>
+            </label>
+          </div>
+          <div class="bom-group-operation-row bom-group-move-row">
+            <button class="secondary compact-action" type="button" :disabled="!canMoveSelectedBoms || loading" @click="moveSelectedProductBomsToGroup">
+              移动到分组
+            </button>
+            <label>
+              <span>目标分组</span>
+              <select v-model.number="selectedBomMoveGroupItemID">
+                <option :value="0">未分组</option>
+                <option v-for="option in productionBomMoveGroupOptions" :key="option.id" :value="Number(option.group_item_id || 0)">{{ option.label }}</option>
+              </select>
+            </label>
+            <span class="muted left">已选 {{ selectedBomRecordsForMove.length }} 个可移动 BOM</span>
+          </div>
+        </div>
         <div class="bom-list-tabs-row">
           <div class="bom-list-tabs">
             <button
@@ -39,7 +68,7 @@
               未分类
             </button>
             <button
-              v-for="option in productionBomMoveGroupOptions"
+              v-for="option in productionBomUsedGroupOptions"
               :key="option.id"
               :class="['secondary', 'compact-action', { active: selectedProductionBomGroupItemID === Number(option.group_item_id || 0) }]"
               type="button"
@@ -47,29 +76,6 @@
               {{ option.label }}
             </button>
           </div>
-          <button class="primary compact-action" type="button" @click="openNewProductionBomRecord">新建生产 BOM</button>
-        </div>
-        <div class="bom-list-toolbar">
-          <button class="secondary compact-action" type="button" @click="openBusinessGroupManagement">前往分组管理</button>
-          <label>
-            <span>可用分组</span>
-            <select v-model.number="selectedProductionBomUseGroupID">
-              <option :value="0">{{ productionBomUseGroupOptions.length ? '选择分组' : '暂无可使用分组' }}</option>
-              <option v-for="option in productionBomUseGroupOptions" :key="option.id" :value="Number(option.id || 0)">{{ option.label }}</option>
-            </select>
-          </label>
-          <button class="secondary compact-action" type="button" :disabled="!selectedProductionBomUseGroupID || loading" @click="useSelectedProductionBomGroup">使用分组</button>
-          <button class="secondary compact-action" type="button" :disabled="!canMoveSelectedBoms || loading" @click="moveSelectedProductBomsToGroup">
-            移动到分组
-          </button>
-          <label>
-            <span>目标分组</span>
-            <select v-model.number="selectedBomMoveGroupItemID">
-              <option :value="0">未分组</option>
-              <option v-for="option in productionBomMoveGroupOptions" :key="option.id" :value="Number(option.group_item_id || 0)">{{ option.label }}</option>
-            </select>
-          </label>
-          <span class="muted left">已选 {{ selectedBomRecordsForMove.length }} 个可移动 BOM</span>
         </div>
         <div class="bom-list-filters">
           <label>
@@ -94,7 +100,6 @@
               <tr>
                 <th class="select-col"><input type="checkbox" :checked="isAllVisibleBomsSelected" :indeterminate.prop="isSomeVisibleBomsSelected" @change="toggleAllVisibleBoms" /></th>
                 <th>BOM名称</th>
-                <th>分组</th>
                 <th>状态</th>
                 <th>组件数</th>
                 <th>产出商品</th>
@@ -122,7 +127,6 @@
                   </button>
                   <small v-if="productionBomVersionWarning(row)" class="bom-version-warning" data-warning-prefix="当前引用">{{ productionBomVersionWarning(row) }}</small>
                 </td>
-                <td>{{ bomGroupLabel(row) }}</td>
                 <td><span :class="['status-pill', row.status === 'inactive' ? 'inactive' : '']">{{ bomStatusLabel(row.status) }}</span></td>
                 <td>{{ row.item_count || row.material_count || 0 }}</td>
                 <td>{{ row.output_product_name || '-' }}</td>
@@ -133,7 +137,7 @@
                 </td>
               </tr>
               <tr v-if="!productionBomRows.length">
-                <td colspan="8" class="muted">暂无配方档案</td>
+                <td colspan="7" class="muted">暂无配方档案</td>
               </tr>
             </tbody>
           </table>
@@ -453,6 +457,21 @@ const versionNote = ref('')
 const detailItems = computed(() => detail.value?.items || [])
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
 const productionBomMoveGroupOptions = computed(() => businessGroupItemMoveOptions(productionBomBusinessGroups.value, 'production_bom', { includeGroupName: false }))
+const productionBomRowsForGroupTabs = computed(() => filterProductionBomCatalog(productionBoms.value, {
+  status: productionBomStatusFilter.value,
+}))
+const productionBomUsedGroupItemIDs = computed(() => {
+  const out = new Set()
+  for (const row of productionBomRowsForGroupTabs.value || []) {
+    const itemID = productionBomGroupItemID(row)
+    if (itemID > 0) out.add(itemID)
+  }
+  return out
+})
+const productionBomUsedGroupOptions = computed(() => {
+  const used = productionBomUsedGroupItemIDs.value
+  return productionBomMoveGroupOptions.value.filter((option) => used.has(Number(option.group_item_id || 0)))
+})
 const productionBomUseGroupOptions = computed(() => (productionBomBusinessGroups.value || [])
   .filter((group) => group?.active !== false)
   .filter((group) => !isSystemDefaultBusinessGroup(group))
@@ -1389,7 +1408,7 @@ watch([productionBomStatusFilter, productionBomSearchQuery], () => {
   selectedBomRowKeys.value = []
 })
 
-watch(productionBomMoveGroupOptions, (options) => {
+watch(productionBomUsedGroupOptions, (options) => {
   const selected = Number(selectedProductionBomGroupItemID.value || 0)
   if (selected > 0 && !options.some((option) => Number(option.group_item_id || 0) === selected)) {
     selectedProductionBomGroupItemID.value = 0
@@ -1441,8 +1460,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .bom-list-head { align-items: flex-start; }
 .bom-list-filters { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin: 6px 0 12px; padding-top: 10px; border-top: 1px solid #eee8df; }
 .bom-batch-deactivate-action { margin-left: auto; }
-.bom-list-tabs-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
-.bom-list-toolbar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; padding: 10px; margin: 8px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
+.bom-list-actions-row { display: flex; align-items: center; justify-content: flex-start; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
+.bom-list-tabs-row { display: flex; align-items: center; justify-content: flex-start; gap: 12px; flex-wrap: wrap; margin: 8px 0 10px; }
+.bom-list-toolbar { display: grid; gap: 10px; padding: 10px; margin: 8px 0; border: 1px solid #eee8df; border-radius: 8px; background: #fbfaf8; }
+.bom-group-operation-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.bom-group-operation-row label { margin: 0; }
 .bom-list-tabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .bom-list-panel-scroll { max-height: min(62vh, 720px); overflow: auto; }
 .bom-name-button { height: auto; min-height: 30px; text-align: left; font-weight: 700; }

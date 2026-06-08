@@ -11,7 +11,7 @@
 - [x] PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：分组管理维护泛化分组集、分组项树、分组用途、排序和启停；商品管理、生产 BOM、仓库库存不再各自维护独立分类树或专用分组表。
 - [x] 商品档案不再写旧商品分类字段：保存、复制和批量移动商品时不写 `product_category_id`、`classification_template_id` 或旧 classification assignment；列表分组展示来自 `business_group_assignments` 的 `product_catalog` 归组。
 - [x] 生产 BOM 保存、复制、移动不再写 `production_boms.group_id/group_category_id`；旧 `production_bom_groups` 和 `production_bom_group_categories` 写入口返回下线/只读兼容结果，页面只通过泛化分组归组。
-- [x] PR-450-BOM-GROUP-USAGE-SELECTION：生产 BOM 页面必须先通过 `使用分组` 启用分组管理中的某套分组，`目标分组` 和顶部分组 Tab 才显示该分组下的分组项；未被生产 BOM 启用的分组不展示，且标签只显示父组 / 子组路径，不带分组集名称前缀。
+- [x] PR-450-BOM-GROUP-USAGE-SELECTION：生产 BOM 页面必须先通过 `使用分组` 启用分组管理中的某套分组，`目标分组` 才显示该分组下的分组项；顶部分组 Tab 只显示当前 BOM 列表中实际归组使用过的分组项，没被 BOM 使用的分组项不展示；标签只显示父组 / 子组路径，不带分组集名称前缀，表格不再单独展示“分组”列。
 - [x] 仓库库存按仓库分组过滤：仓库设置把库存分组保存到 `warehouse_inventory` 归组，`/api/stock/warehouses` 返回分组摘要，`/api/stock/warehouse-inventory?group_id=...&group_item_id=...` 只筛选仓库范围，不改变库存行、批次、数量、成本或追溯。
 - [x] 商品价格表默认读取商品档案 `product_catalog` 归组；生成价格表时允许本次覆盖分组来源，发布快照固化 `group_source=product_catalog` 或 `group_source=price_list`，覆盖不回写商品档案。
 - [x] 迁移脚本可幂等创建兼容用系统分组集以承接旧数据；普通商品、BOM、仓库库存页面不得把“商品默认分组”“生产 BOM 默认分组”“仓库库存默认分组”等系统分组集名称作为用户可选项或列表标签展示，也不得把系统默认迁移分组下的旧分组项展开成分组管理或普通移动候选；系统默认迁移归组在普通列表按未分组处理。旧表保留历史查询和回滚缓冲，不作为新业务写入口。
@@ -81,7 +81,7 @@
 - [ ] PR-394-PRODUCT-CLASSIFICATION-VIEW-TABS：客户商品页启用一个分类模板后新增一个客户商品 Tab；模板 Tab 内只展示当前客户客户商品，按分类项和“未分类”分组，客户商品列表不出现“展示分类”、编辑生产、BOM 或生产 BOM 操作。
 - [ ] PR-394-PRODUCT-CLASSIFICATION-VIEW-TABS / PR-410：批量添加客户商品只支持商品名称/编号搜索和多选商品档案；不出现产品类型、产品子类型、分类模板选择、品牌名或手填客户商品编号。
 - [ ] PR-394-PRODUCT-CLASSIFICATION-VIEW-TABS / PR-417：商品档案配置不再提供“维护当前 BOM 明细”编辑入口；从 BOM 详情点击产出商品或组件商品进入商品档案时，商品档案只显示临时返回来源和 BOM 使用关系。
-- [ ] PR-406-BOM-PRODUCT-ALIAS-LAYOUT：生产 BOM 页面无顶部 `SKU归属`、顶部商品选择区、商品列和商品过滤；状态、搜索和批量失效在生产 BOM列表标题下方同一过滤行；分组 Tab 行右侧是 `新建生产 BOM`。
+- [ ] PR-406-BOM-PRODUCT-ALIAS-LAYOUT / PR-450：生产 BOM 页面无顶部 `SKU归属`、顶部商品选择区、商品列和商品过滤；状态、搜索和批量失效在生产 BOM列表标题下方同一过滤行；`新建生产 BOM` 位于分组操作区上方，分组 Tab 位于分组操作区下方。
 - [ ] PR-406-BOM-PRODUCT-ALIAS-LAYOUT / PR-417：生产 BOM列表只展示独立 BOM 档案，点击任意 BOM 名称都能显示右侧制造明细；BOM 行必须展示产出商品、版本和组件数。
 - [ ] PR-417-MULTILEVEL-MANUFACTURING-BOM：BOM 详情展示产出商品、产出数量、组件清单、被哪些上层 BOM 使用；商品组件可以继续展开到下层 BOM，不在商品档案里编辑 BOM。
 - [ ] PR-407-PRODUCTION-BOM-GROUP-CATEGORIES-VERSION-EDIT：生产 BOM 自定义大组 Tab 下展示组内分类分组，支持新增、改名、删除组内分类；删除组内分类后，该分类下 BOM 回到当前大组内的“未分类”。
@@ -1038,8 +1038,8 @@
 ### K21. 生产 BOM 分组 Tab 与未分类（PR-402-PRODUCTION-BOM-GROUP-TABS）
 - [ ] 生产 BOM 页面不显示“默认分组/默认配方组”，新建、复制或删除分组后的未归组 BOM 都进入“未分类”。
 - [ ] 生产 BOM 新建、状态过滤、搜索、分组 Tab 和“使用分组 / 移动到分组”工具区位于生产 BOM 列表与编辑详情共同顶部，不塞在列表内部；生产 BOM列表和右侧编辑详情顶部对齐，列表区域可独立上下滚动。
-- [ ] 共同顶部显示“全部分组”“未分类”和用户新增分组 Tab；全部分组显示所有 BOM，未分类只显示未归组 BOM。
-- [ ] 勾选商品 BOM 后可以在“移动到分组”卡片中移动到未分类或某个分组，移动会覆盖旧分组且写操作日志。
+- [ ] 共同顶部显示“全部分组”“未分类”和已被当前 BOM 列表实际归组使用的分组 Tab；全部分组显示所有 BOM，未分类只显示未归组 BOM，未被任何 BOM 使用的分组项不展示为 Tab。
+- [ ] 勾选商品 BOM 后可以先通过左侧 `使用分组` 启用分组，再通过下一行左侧 `移动到分组` 移动到未分类或某个已启用分组项，移动会覆盖旧分组且写操作日志。
 - [ ] 删除分组只把该组 BOM 迁回未分类，不删除 BOM、不改变商品绑定、版本或配方明细。
 - [ ] 页面不再保留独立“生产 BOM 档案”列表；BOM 名称是编辑入口，操作列只显示 `复制` 和红色 `失效` 等列表级动作。
 - [ ] API 返回的 `warnings` 与 Vue 产品价格表 warning chip 使用同一口径；已有 BOM 失效等 warning 继续保留。
@@ -1054,7 +1054,7 @@
 - [ ] 产品价格表 API 对未选择有效计价方式的商品返回短 warning `未设置计价方式`；`product_kind=green_bean` 和 `product_kind=drip_bag` 不再豁免该 warning。
 - [ ] 商品已配置有效阶梯价模板、固定单价或成本加成时，不返回 `未设置计价方式` warning。
 - [ ] 产品价格表卡片上只显示感叹号 warning 图标，不直接展开长文案；hover/focus 感叹号时 tooltip 包含“计价方式 / 阶梯价模板 / 固定单价 / 成本加成”。
-- [ ] 生产 BOM 页面新建按钮位于分组 Tab 行右侧；状态过滤和搜索位于“生产 BOM列表”标题下方；列表上方显示“移动到分组”与“增加分组”，不出现商品列或商品过滤。
+- [ ] 生产 BOM 页面新建按钮位于分组操作区上方；状态过滤和搜索位于“生产 BOM列表”标题下方；列表上方显示“使用分组”与“移动到分组”，分组 Tab 在分组操作区下方且表格不出现商品列、商品过滤或独立“分组”列。
 - [ ] BOM 编辑详情内有 `BOM版本` 区，版本列表、复制为新版草稿和发布草稿都在详情内完成；PR-418 后不再显示 `全局规格袋材映射` 区，列表行和页面底部也不再显示独立 `BOM版本` 或 `规格袋材映射` panel。
 
 ### K24. 客户商品配置模板与商品配置模板计价方式（PR-411-CUSTOMER-PRODUCT-CONFIG-TEMPLATE-PRICING）

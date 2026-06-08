@@ -7,17 +7,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-450-BOM-GROUP-USAGE-SELECTION
-- Branch: codex/bom-group-usage-selection-display
+- Branch: codex/bom-group-list-layout-followup-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: local verified; pending merge to develop, deploy, and browser acceptance
-- Scope: Van 浏览器验收反馈。生产 BOM 顶部分组 Tab 和目标下拉只展示已经被生产 BOM 启用的分组项，未启用的通用分组不展示；业务标签去掉“商品分组 /”这类分组集名称前缀；新增 `使用分组`，由生产 BOM 功能显式启用某套通用分组后，才能把 BOM 移动到该分组项。
+- Status: browser follow-up local verified; pending merge to develop, deploy, and browser acceptance
+- Scope: Van 浏览器验收反馈。生产 BOM 功能先通过 `使用分组` 启用某套通用分组，`目标分组` 下拉展示已启用用途的可移动分组项；顶部分组 Tab 只展示当前 BOM 列表中已经被 BOM 实际归组使用的分组项，没被 BOM 使用的分组项不展示；业务标签去掉“商品分组 /”这类分组集名称前缀；表格不再单独展示“分组”列，分组分类由 Tab/列表范围体现。
 - DEV:
   - DEV-450-BOM-GROUP-USAGE-ENABLE：新增 `POST /api/business-groups/:id/usages`，幂等启用通用分组用途并写操作日志。
-  - DEV-450-BOM-GROUP-USED-TABS：生产 BOM 顶部 Tab 和目标下拉只显示已启用 `production_bom` 用途的分组项。
+  - DEV-450-BOM-GROUP-USED-TABS：生产 BOM 顶部 Tab 只从已有 BOM 归组派生，目标分组只列出已启用 `production_bom` 用途的分组项。
   - DEV-450-BOM-GROUP-LABELS：生产 BOM 分组标签只显示父组 / 子组路径，不显示分组集名称。
+  - DEV-450-BOM-GROUP-LIST-LAYOUT：`使用分组` 放在可用分组选择左侧；`移动到分组` 放在目标分组选择左侧并位于使用分组下一行；分组 Tab 位于分组操作区下方、列表过滤区上方；生产 BOM 表格删除独立“分组”列。
 - Verifier:
   - RED frontend: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` failed before implementation because BOM 页面缺少 `使用分组` 入口，Tab 和目标分组仍共用所有分组选项，标签仍带分组集前缀。
   - RED API: `go test ./internal/interfaces/http/catalog -run 'TestBusinessGroup(ItemsAPIWritesGenericGroupItems|UsageAPIEnablesGenericGroupForProductionBOM)$' -count=1` failed because `POST /api/business-groups/:id/usages` returned 405.
+  - RED follow-up frontend: `node --test src/lib/bom.test.js` failed because分组 Tab 仍在操作区上方、仍从可移动分组候选派生，并且表格仍展示独立“分组”列。
+  - GREEN follow-up frontend: `node --test src/lib/bom.test.js` passed 13/13.
+  - GREEN follow-up broader: `node --test src/lib/bom.test.js src/lib/product-settings.test.js` passed 137/137; `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning; `go test ./internal/interfaces/http/support -count=1` passed; `go test ./...` in `orderapp-remote` passed; `scripts/verify_kferp.sh changed`; `git diff --check`.
   - GREEN targeted: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 137/137; `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/support -count=1` passed.
   - GREEN broader: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning; `go test ./...` in `orderapp-remote` passed; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-08-production-bom-group-usage-selection.md`.

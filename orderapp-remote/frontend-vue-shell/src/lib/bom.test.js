@@ -300,9 +300,18 @@ test('production BOM list supports status filters name search group tabs and ina
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const listFilters = template.match(/<div class="bom-list-filters"[\s\S]*?<\/div>\s*<div class="table-wrap bom-list-panel-scroll">/)?.[0] || ''
-  const tabRow = template.match(/<div class="bom-list-tabs-row"[\s\S]*?<\/div>\s*<div class="bom-list-toolbar">/)?.[0] || ''
-	  const toolbar = template.match(/<div class="bom-list-toolbar"[\s\S]*?<div class="bom-list-filters">/)?.[0] || ''
+  const toolbarStart = template.indexOf('<div class="bom-list-toolbar"')
+  const tabStart = template.indexOf('<div class="bom-list-tabs-row"')
+  const filtersStart = template.indexOf('<div class="bom-list-filters"')
+  const tableStart = template.indexOf('<div class="table-wrap bom-list-panel-scroll"')
+  assert.notEqual(toolbarStart, -1)
+  assert.notEqual(tabStart, -1)
+  assert.notEqual(filtersStart, -1)
+  assert.notEqual(tableStart, -1)
+  const toolbar = template.slice(toolbarStart, tabStart)
+  const tabRow = template.slice(tabStart, filtersStart)
+  const listFilters = template.slice(filtersStart, tableStart)
+  const tableBlock = template.slice(tableStart, template.indexOf('</table>', tableStart))
   const bomRecordForm = template.match(/<form class="inline-form bom-record-form"[\s\S]*?<\/form>/)?.[0] || ''
   for (const marker of [
     'bom-list-toolbar',
@@ -332,10 +341,20 @@ test('production BOM list supports status filters name search group tabs and ina
   assert.match(bomRecordForm, /产出数量/)
   assert.match(bomRecordForm, /产出单位/)
   assert.doesNotMatch(bomRecordForm, /v-if="bomForm\.mode !== 'edit'"/)
+  assert.ok(toolbarStart < tabStart && tabStart < filtersStart, 'group tabs should render below group operations and above list filters')
   assert.match(tabRow, /bom-list-tabs/)
-  assert.match(tabRow, /新建生产 BOM/)
+  assert.match(source, /新建生产 BOM/)
   assert.match(toolbar, /移动到分组/)
   assert.match(toolbar, /前往分组管理/)
+  assert.match(toolbar, /bom-group-use-row/)
+  assert.match(toolbar, /bom-group-move-row/)
+  assert.ok(toolbar.indexOf('使用分组') < toolbar.indexOf('可用分组'), '使用分组 should be left of the available-group select')
+  assert.ok(toolbar.indexOf('移动到分组') > toolbar.indexOf('使用分组'), '移动到分组 should be below/after 使用分组')
+  assert.ok(toolbar.indexOf('移动到分组') < toolbar.indexOf('目标分组'), '移动到分组 should be left of target-group select')
+  assert.match(tabRow, /v-for="option in productionBomUsedGroupOptions"/)
+  assert.doesNotMatch(tabRow, /productionBomMoveGroupOptions/)
+  assert.doesNotMatch(tableBlock, /<th>分组<\/th>/)
+  assert.doesNotMatch(tableBlock, /bomGroupLabel\(row\)/)
   assert.doesNotMatch(source, /商品 BOM列表/)
   assert.doesNotMatch(source, /商品过滤/)
   assert.doesNotMatch(source, /createProductionBomForProductRow/)
@@ -383,8 +402,14 @@ test('production BOM uses generic business group assignment instead of its own g
   const saveEnd = source.indexOf('async function deactivateProductionBomRecord', saveStart)
   const moveSource = source.slice(moveStart, moveEnd)
   const saveSource = source.slice(saveStart, saveEnd)
-  const tabRow = template.match(/<div class="bom-list-tabs-row"[\s\S]*?<\/div>\s*<div class="bom-list-toolbar">/)?.[0] || ''
-  const toolbar = template.match(/<div class="bom-list-toolbar"[\s\S]*?<div class="bom-list-filters">/)?.[0] || ''
+  const toolbarStart = template.indexOf('<div class="bom-list-toolbar"')
+  const tabStart = template.indexOf('<div class="bom-list-tabs-row"')
+  const filtersStart = template.indexOf('<div class="bom-list-filters"')
+  assert.notEqual(toolbarStart, -1)
+  assert.notEqual(tabStart, -1)
+  assert.notEqual(filtersStart, -1)
+  const toolbar = template.slice(toolbarStart, tabStart)
+  const tabRow = template.slice(tabStart, filtersStart)
 
   for (const marker of [
     '/api/business-group-assignments',
@@ -392,6 +417,8 @@ test('production BOM uses generic business group assignment instead of its own g
     'buildBusinessGroupAssignmentPayload',
     'businessGroupItemMoveOptions',
     'productionBomMoveGroupOptions',
+    'productionBomUsedGroupOptions',
+    'productionBomUsedGroupItemIDs',
     'selectedProductionBomUseGroupID',
     'useSelectedProductionBomGroup',
     "usage_key: 'production_bom'",
@@ -401,10 +428,9 @@ test('production BOM uses generic business group assignment instead of its own g
   ]) {
     assert.match(source, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
-  assert.match(tabRow, /v-for="option in productionBomMoveGroupOptions"/)
+  assert.match(tabRow, /v-for="option in productionBomUsedGroupOptions"/)
   assert.match(toolbar, /v-for="option in productionBomMoveGroupOptions"/)
   assert.match(source, /businessGroupItemMoveOptions\(productionBomBusinessGroups\.value,\s*'production_bom',\s*\{\s*includeGroupName:\s*false\s*\}\)/)
-  assert.doesNotMatch(source, /productionBomUsedGroupOptions/)
   assert.doesNotMatch(source, /includeGroupsWithoutUsage:\s*true/)
   for (const marker of [
     '组内分类',
