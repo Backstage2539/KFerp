@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS
 - Branch: codex/product-master-subcategory-headers-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: local verified; pending merge to develop, deploy, and browser acceptance
+- Status: merged to develop and deployed to development; browser acceptance passed; pending Van product acceptance
 - Scope: Van 浏览器验收反馈。商品档案列表使用 `product_catalog` 业务分组时，父组和子组都要作为分类标题展示；子组标题独立成行、缩进显示，只显示子组名，完整父/子路径作为上下文；`目标分组` 候选支持父组和子组，普通业务标签不显示“商品分组 /”分组集名称前缀，支持把商品移动到具体子类里面。
 - DEV:
   - DEV-451-PRODUCT-GROUP-SUBCATEGORY-HEADERS：商品档案分组列表读取分组项层级，父组、子组分别生成分组标题，子组标题用缩进和完整路径 title 表达层级。
@@ -18,6 +18,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because `businessGroupItemMoveOptions(..., { includeGroupName: false })` did not expose child depth/parent metadata and 商品档案分组标题没有子组层级信息。
   - GREEN targeted: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 137/137; `go test ./internal/interfaces/http/support -run 'TestDev451ProductMasterSubcategoryHeadersContracts|TestDev450BomGroupUsageSelectionContracts' -count=1` passed.
   - GREEN broader: `go test ./internal/interfaces/http/support -count=1` passed; `go test ./...` in `orderapp-remote` passed; `npm run build` in `frontend-vue-shell` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+  - GREEN post-merge: after merging latest `origin/develop=d7f93748`, `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 137/137; targeted support tests passed; `scripts/verify_kferp.sh changed` passed; `npm run build` passed with existing Vite chunk-size warning; `go test ./...` passed; `git diff --check` passed.
+  - GREEN deploy: feature branch pushed and merged; implementation commit `origin/develop=f4cebbeb6a00ba20736c2293c6ce5f3cdf7083b9` deployed to development. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608134526`. Deploy script ran Vue shell build, miniapp typecheck/build, miniapp `build:mp-weixin`, Docker build, and container-internal `go test ./...`.
+  - GREEN smoke/browser: `erp_orderapp` Up, `erp_postgres` healthy, unauthenticated `/app/` returned 303 to `/app/orders`, authenticated `/app/vue-shell/?view=productMaster` returned 200, support API exposed `PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS`, deployed docs/source exposed PR-451 markers. Browser `商品档案` showed parent header `商品-咖啡熟豆` with 16px indent and child header `意式拼配豆` with `classification-subgroup-row`, title `商品-咖啡熟豆 / 意式拼配豆`, 40px indent, target group option `商品-咖啡熟豆 / 意式拼配豆`, no `商品分组 /` prefix in headers/options, and console errors 0. Browser screenshot capture timed out in the in-app Browser after DOM/console acceptance.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-08-product-master-subcategory-headers.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 

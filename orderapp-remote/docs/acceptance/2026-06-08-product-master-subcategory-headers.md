@@ -21,5 +21,9 @@
 - 页面普通标签不显示 `商品分组 / 商品-咖啡熟豆 / 意式拼配豆` 这类分组集前缀。
 
 ## Deployment
-- Pending merge to `develop`.
-- Pending development deploy and browser screenshot.
+- Feature branch pushed and merged to `develop`.
+- Implementation commit `origin/develop=f4cebbeb6a00ba20736c2293c6ce5f3cdf7083b9` deployed to development.
+- Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608134526`.
+- Smoke: containers running; `/app/vue-shell/?view=productMaster` authenticated 200; requirement API exposes `PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS`; deployed docs/source expose PR-451 markers.
+- Browser DOM acceptance: parent header `商品-咖啡熟豆` uses 16px indent; child header `意式拼配豆` uses `classification-subgroup-row`, full-path title `商品-咖啡熟豆 / 意式拼配豆`, and 40px indent; `目标分组` includes `商品-咖啡熟豆 / 意式拼配豆`; headers/options do not include `商品分组 /`; console errors 0.
+- Note: in-app Browser screenshot capture timed out after DOM and console acceptance.
