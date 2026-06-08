@@ -15,12 +15,12 @@ func TestCostingViewGroupsBeanListsByExcelCategoryAndShowsMetadata(t *testing.T)
 	}
 	src := string(b)
 	for _, want := range []string{
-		"productPriceListPreviewSections",
+		"pdfGroups",
 		"productGroupsForType",
 		"commercial_bean_list",
 		"retail_bean_list",
 		"bean-code",
-		"recommended_use",
+		"recommendedUse",
 		"description",
 	} {
 		if !strings.Contains(src, want) {
@@ -37,7 +37,7 @@ func TestCostingViewDoesNotExposeDedicatedDripTemplateSource(t *testing.T) {
 	}
 	src := string(b)
 	for _, want := range []string{
-		"productPriceListPreviewSections",
+		"pdfGroups",
 		"productPriceListTypeOptions",
 		"priceListRenderTypeForItem",
 		"商品价格表",
@@ -81,10 +81,10 @@ func TestCostingPreviewSectionsUseProductTypesInsteadOfLegacyCards(t *testing.T)
 		}
 	}
 	for _, want := range []string{
-		"v-for=\"section in productPriceListPreviewSections\"",
-		"section.label",
-		"section.groups",
-		"section.listType",
+		"v-for=\"group in pdfGroups\"",
+		"selectedProductPriceListLabel",
+		"categoryProductGroups",
+		"pdfTheme.value.listType",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("CostingView.vue missing dynamic product-type preview marker %q", want)
