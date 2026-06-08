@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-448-PRODUCTION-BOM-GROUP-OPTIONS-STATUS
+- Branch: codex/production-bom-group-options-status
+- Owner/session: Codex / 2026-06-08
+- Status: local verification complete; pending merge to develop, deploy, and browser acceptance
+- Scope: 修复生产 BOM 批量移动时“目标分组”只剩“未分组”、选不到分组管理里已有业务分组的问题；商品档案配置抽屉的“被哪些 BOM 使用”增加 `BOM状态`，区分 `默认状态`、`启用状态`、`失效状态`。
+- DEV:
+  - DEV-448-BOM-GROUP-TARGET-OPTIONS：生产 BOM 页面加载全部可用业务分组，目标分组选项不再被 `production_bom` 用途预过滤；保存归组时若分组尚未声明 `production_bom` 用途，自动补充用途并写操作日志。
+  - DEV-448-PRODUCT-BOM-USAGE-STATUS：生产 BOM 使用查询返回 `bom_status` 和 `is_default`，商品档案只读 BOM 使用列表展示默认/启用/失效状态。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-settings.test.js` 曾失败，因为 `businessGroupItemMoveOptions(..., 'production_bom', { includeGroupsWithoutUsage: true })` 对已有非 BOM 用途分组返回空，并且商品档案抽屉没有 `BOM状态` / `bomUsageStatusLabel`。
+  - RED API: `go test ./internal/interfaces/http/bom -run TestProductionBomProductUsageAPIReturnsOutputAndComponentBoms -count=1` 曾因 `ProductionBomUsedByBom` 缺少 `BomStatus` / `IsDefault` 编译失败。
+  - RED repository marker: `go test ./internal/infrastructure/postgres/catalog -run TestBusinessGroupAssignmentsSupportStringObjectRefsAndAudit -count=1` 曾因缺少 assignment 保存时补用途逻辑失败。
+  - GREEN targeted: `node --test src/lib/product-settings.test.js` passed 124/124; `go test ./internal/interfaces/http/bom -run TestProductionBomProductUsageAPIReturnsOutputAndComponentBoms -count=1`; `go test ./internal/infrastructure/postgres/catalog -run TestBusinessGroupAssignmentsSupportStringObjectRefsAndAudit -count=1`.
+  - GREEN broader: `node --test src/lib/bom.test.js src/lib/product-settings.test.js` passed 137/137; `go test ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1`; `npm run build` in `frontend-vue-shell`; `go test ./...` in `orderapp-remote`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-08-production-bom-group-options-status.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
 ### PR-447-PRICE-LIST-SELECTION-COMPACT
 - Branch: codex/price-list-selection-compact
 - Owner/session: Codex / 2026-06-08

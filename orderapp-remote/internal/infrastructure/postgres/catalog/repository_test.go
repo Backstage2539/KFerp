@@ -215,6 +215,7 @@ func TestBusinessGroupAssignmentsSupportStringObjectRefsAndAudit(t *testing.T) {
 		"func (r Repository) ListBusinessGroupAssignments",
 		"func (r Repository) SaveBusinessGroupAssignment",
 		"func (r Repository) DeleteBusinessGroupAssignment",
+		"ensureBusinessGroupUsageForAssignmentTx",
 		"object_ref",
 		"save_business_group_assignment",
 		"delete_business_group_assignment",

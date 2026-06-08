@@ -309,13 +309,19 @@ export function businessGroupAssignmentLabel(assignment = {}, groups = []) {
   return businessGroupItemLabel(group, groupItemID)
 }
 
-export function businessGroupItemMoveOptions(groups = [], usageKey = '') {
+export function businessGroupItemMoveOptions(groups = [], usageKey = '', options = {}) {
   const normalizedUsage = String(usageKey || '').trim().toLowerCase()
+  const includeGroupsWithoutUsage = Boolean(options.includeGroupsWithoutUsage)
   const out = []
   for (const group of (Array.isArray(groups) ? groups : [])
     .filter((row) => row?.active !== false)
     .filter((row) => !isSystemDefaultBusinessGroup(row))
-    .filter((row) => !normalizedUsage || (row.usages || []).some((usage) => String(usage.usage_key || usage.usageKey || '').toLowerCase() === normalizedUsage && usage.active !== false))
+    .filter((row) => {
+      if (!normalizedUsage) return true
+      if (includeGroupsWithoutUsage) return true
+      const usages = Array.isArray(row.usages) ? row.usages : []
+      return usages.some((usage) => String(usage.usage_key || usage.usageKey || '').toLowerCase() === normalizedUsage && usage.active !== false)
+    })
     .slice()
     .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))) {
     for (const item of flattenBusinessGroupItems(businessGroupItemsTree(group.items || []))) {

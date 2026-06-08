@@ -143,7 +143,8 @@ func TestProductionBomOutputProductAndMultiLevelPublishValidationMarkers(t *test
 		"'output' AS relation_type",
 		"'component' AS relation_type",
 		"WHERE pb.output_product_id=$1",
-		"COALESCE(NULLIF(pb.status,''),'active')='active'",
+		"COALESCE(NULLIF(pb.status,''),'active') AS bom_status",
+		"AS is_default",
 		"COALESCE(pb.output_product_id,0)<>$1",
 		"SELECT DISTINCT ON (pb.id)",
 	} {

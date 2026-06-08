@@ -1843,18 +1843,11 @@ func (r Repository) SaveBusinessGroupAssignment(ctx context.Context, cmd catalog
 	if cmd.ObjectID > 0 {
 		objectRef = ""
 	}
-	var usageOK bool
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT EXISTS(
-			SELECT 1
-			FROM %s.business_groups bg
-			JOIN %s.business_group_usages bgu ON bgu.group_id=bg.id
-			WHERE bg.id=$1 AND bg.active=true AND bgu.active=true AND lower(bgu.usage_key)=lower($2)
-		)
-	`, r.schema, r.schema), cmd.GroupID, usageKey).Scan(&usageOK); err != nil {
+	var groupOK bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s.business_groups WHERE id=$1 AND active=true)`, r.schema), cmd.GroupID).Scan(&groupOK); err != nil {
 		return catalogapp.BusinessGroupAssignment{}, err
 	}
-	if !usageOK {
+	if !groupOK {
 		return catalogapp.BusinessGroupAssignment{}, fmt.Errorf("business group usage mismatch")
 	}
 	var itemOK bool
@@ -1863,6 +1856,9 @@ func (r Repository) SaveBusinessGroupAssignment(ctx context.Context, cmd catalog
 	}
 	if !itemOK {
 		return catalogapp.BusinessGroupAssignment{}, fmt.Errorf("business group item mismatch")
+	}
+	if err := ensureBusinessGroupUsageForAssignmentTx(ctx, tx, r.schema, cmd.GroupID, usageKey, cmd.Actor); err != nil {
+		return catalogapp.BusinessGroupAssignment{}, err
 	}
 	if cmd.ID > 0 {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.business_group_assignments WHERE id=$1`, r.schema), cmd.ID); err != nil {
@@ -2822,6 +2818,43 @@ func (r Repository) SaveProductConfigTemplate(ctx context.Context, cmd catalogap
 		return catalogapp.ProductConfigTemplate{}, err
 	}
 	return row, nil
+}
+
+func ensureBusinessGroupUsageForAssignmentTx(ctx context.Context, tx pgx.Tx, schema string, groupID int64, usageKey string, actor string) error {
+	usageKey = strings.TrimSpace(usageKey)
+	if groupID <= 0 || usageKey == "" {
+		return fmt.Errorf("business group usage mismatch")
+	}
+	if tag, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.business_group_usages
+		SET active=true, updated_at=now(), updated_by=$3
+		WHERE group_id=$1 AND lower(usage_key)=lower($2) AND active=false
+	`, schema), groupID, usageKey, actor); err != nil {
+		return err
+	} else if tag.RowsAffected() > 0 {
+		if err := postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "business_group_usage", &groupID, "ensure_business_group_usage", postgresinfra.StrPtr("usage_key"), nil, postgresinfra.StrPtr(usageKey), postgresinfra.AuditMeta{"group_id": groupID, "usage_key": usageKey}); err != nil {
+			return err
+		}
+	}
+	var activeOK bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS(
+			SELECT 1 FROM %s.business_group_usages
+			WHERE group_id=$1 AND lower(usage_key)=lower($2) AND active=true
+		)
+	`, schema), groupID, usageKey).Scan(&activeOK); err != nil {
+		return err
+	}
+	if activeOK {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.business_group_usages(group_id, usage_key, usage_label, active, created_by, updated_by)
+		VALUES($1,$2,$2,true,$3,$3)
+	`, schema), groupID, usageKey, actor); err != nil {
+		return err
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, actor, "business_group_usage", &groupID, "ensure_business_group_usage", postgresinfra.StrPtr("usage_key"), nil, postgresinfra.StrPtr(usageKey), postgresinfra.AuditMeta{"group_id": groupID, "usage_key": usageKey})
 }
 
 func (r Repository) DeriveProductConfigTemplate(ctx context.Context, cmd catalogapp.DeriveProductConfigTemplateCommand) (catalogapp.ProductConfigTemplate, error) {
