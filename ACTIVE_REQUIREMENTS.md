@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT
 - Branch: codex/pricing-rule-trial-waterfall-bom-detail
 - Owner/session: Codex / 2026-06-08
-- Status: merge/deploy requested by Van; resolving latest origin/develop and rerunning integration verification.
+- Status: merged to develop and deployed to development; automated verification, deploy smoke, API smoke and browser acceptance passed.
 - Scope: 商品价格管理价格计算模板试算支持选择 `试算BOM版本` 和 `工序`。BOM 版本只按 `production_boms.output_product_id` 查找产出当前商品的 active BOM / published 版本，默认最新发布版本；试算明细和试算基数删除商品绑定 BOM、旧 `product_bom_sources`、旧 `product_bom_items` 兜底。缺产出 BOM 明细时 `BOM+工序成本` 为 0 和警告。
 - DEV:
   - DEV-462-TRIAL-OUTPUT-BOM-OPTIONS：试算 API 返回产出当前商品的 BOM 版本选项，默认最新发布版本，支持选择其他 active/published 版本。
@@ -23,9 +23,14 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED frontend: `node --test src/lib/product-settings.test.js` initially failed because trial payload/drawer lacked BOM version and operation selection.
   - GREEN targeted: `go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|DoesNotInferCostFromPublishedPriceSnapshotWhenBomCostMissing|IgnoresLegacySummaryCostWithoutOutputBomDetails|UsesBaseCostDetailsWhenProductInputSummaryMissing|UsesSelectedOutputBomVersionAndOperationTemplate|MatchesExcelSupplierPriceSamples|SupportsOverridesAndMinimumMarginWarning|SupportsMarkupTaxExcludedAndYuanRounding|ValidatesRuleAndProduct)' -count=1`; `go test ./internal/infrastructure/postgres/costing -run 'TestPricingRuleTrialProductionCostUsesOutputProductBomOnly|TestPricingRuleTrialDetailsUseProductionBomOutputProductFallback' -count=1`.
   - GREEN frontend: `node --test src/lib/product-settings.test.js`; `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size/plugin timing warnings.
-  - GREEN broader: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev45(2|4|6|7|9)|TestDev462|TestLoadProductInputs' -count=1`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN broader before merge: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev45(2|4|6|7|9)|TestDev462|TestLoadProductInputs' -count=1`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN post-merge verification: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev4(5(2|4|6|7|9)|60|61|62)|TestDev(449|461|462)|TestLoadProductInputs|TestPricingRuleTrialPermissionIsReadOnly' -count=1`; `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js src/lib/bean-list-pdf.test.js`; `go test ./...`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Deployment:
-  - Pending current merge/deploy run.
+  - GREEN merge/deploy: feature branch pushed at `e76e667bc64a5448098c63dd37c182dca511df6f`, fast-forward merged to `develop`, pushed to `origin/develop=e76e667bc64a5448098c63dd37c182dca511df6f`, and deployed to development.
+  - GREEN deploy evidence: backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608233336`; deploy ran Vue shell build, miniapp typecheck/build, miniapp `build:mp-weixin`, Docker build and container-internal `go test ./...`.
+  - GREEN smoke/markers: `erp_orderapp`, `erp_docconvert`, `erp_caddy` up; `erp_postgres` healthy; authenticated `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell/?view=productPriceManagement&pr462=1` returned 200; `/app/api/req/product?limit=500` exposed `PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT` and `PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL`.
+  - GREEN PR439 API smoke: `POST /app/api/costing/pricing-rule-trial` with `pricing_rule_id=1`, `product_id=539`, `quote_unit=kg` returned `bom_version_id=696`, `bom_version_no=V002`, `base_cost=54`, `bom_cost_total=54`, `final_unit_price=94.17`, two `bom_version_options` for `BOM-000539 V002/V001`, and no published-price reverse inference.
+  - GREEN browser acceptance: 商品价格管理试算抽屉 for `PR439-20260606182321 工厂量单商品` displayed `试算BOM版本`, `工序`, default `BOM-000539 / V002`, price waterfall with `54/kg + 0/kg + 12.67/kg + 16.67/kg + 10.83/kg + 0/kg = 94.17/kg`, material detail `孟连水洗A`, no `product_production_config`/`missing`/`发布售价快照反推`, and console errors `0`. Switching to `V001` displayed `0/kg` with warning, then switching back to `V002` restored `54/kg`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial-output-bom-operation-select.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 

@@ -18,4 +18,7 @@
 - GREEN：仓储试算明细函数不包含 `product_bom_sources`、`product_bom_items`、`inherit_current` 或 `inherit_version` 兜底。
 
 ## 部署状态
-- 按 Van 要求，本次只提交功能分支，不合并、不部署。
+- 已合并并部署到 development：`origin/develop=e76e667bc64a5448098c63dd37c182dca511df6f`，部署备份 `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608233336`。
+- 部署 smoke：`erp_orderapp` 启动正常，`/app/vue-shell/?view=productPriceManagement&pr462=1` 返回 200，需求 API 暴露 `PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT`。
+- API 验收：`pricing_rule_id=1/product_id=539/quote_unit=kg` 返回 `BOM-000539 V002`、`base_cost=54`、`bom_cost_total=54`、`final_unit_price=94.17`，并返回可选 `V002/V001`。
+- 浏览器验收：商品价格管理试算抽屉可见 `试算BOM版本`、`工序`、价格瀑布、公式、物料明细 `孟连水洗A`；V001 可切换且无明细时显示 0 和警告；控制台错误 0。
