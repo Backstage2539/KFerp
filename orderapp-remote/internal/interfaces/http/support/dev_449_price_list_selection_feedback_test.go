@@ -26,14 +26,14 @@ func TestDev449PriceListSelectionFeedbackContracts(t *testing.T) {
 			"openPriceListProductDisplayDialog",
 			"return '继承分类'",
 			"downloadSourcePublication.value?.content?.groups",
-			"pdfCategoryCodesForVisibleSelection",
-			"visibleCategoryCodes: pdfVisiblePreviewCategoryCodes.value",
+			"buildBeanListPdfGroupsFromCategoryRows(categoryProductGroups.value",
+			"visibleCategoryCodes: pdfVisibleCategoryCodes.value",
 			"v-if=\"priceListFlatRows.length\" class=\"pdf-picker flat-price-row-editor\"",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-449-PRICE-LIST-SELECTION-FEEDBACK",
 			"继承状态统一显示 `继承分类`",
-			"生成抽屉预览必须按当前勾选商品生成",
+			"生成抽屉预览必须按当前勾选商品和选品区分类生成",
 			"主页面直接展示 `Price List / Item Price 生成规则`",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {

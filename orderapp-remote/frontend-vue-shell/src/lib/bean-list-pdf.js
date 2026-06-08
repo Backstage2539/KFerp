@@ -150,6 +150,60 @@ export function buildBeanListPdfGroups(items = [], listType = 'commercial', opti
   return Array.from(groups.values())
 }
 
+export function buildBeanListPdfGroupsFromCategoryRows(categoryRows = [], listType = 'commercial', options = {}) {
+  const normalizedListType = normalizeBeanListType(listType)
+  const metaKey = normalizedListType === 'green' ? 'green_bean_list' : normalizedListType === 'retail' ? 'retail_bean_list' : normalizedListType === 'drip' ? 'drip_bean_list' : 'commercial_bean_list'
+  const tierKey = normalizedListType === 'green' ? 'green_bean_sale_tiers' : normalizedListType === 'retail' ? 'retail_bean_tiers' : normalizedListType === 'drip' ? 'drip_wholesale_tiers' : 'commercial_wholesale_tiers'
+  const selectedIDs = normalizeStringSet(options.selectedProductIDs)
+  const hasProductFilter = Object.prototype.hasOwnProperty.call(options, 'selectedProductIDs')
+  const visibleCategoryCodes = normalizeStringSet(options.visibleCategoryCodes)
+  const hasCategoryFilter = Object.prototype.hasOwnProperty.call(options, 'visibleCategoryCodes')
+  const showCategoryNumbers = options.showCategoryNumbers !== false
+  const customizers = options.customizers && typeof options.customizers === 'object' ? options.customizers : {}
+  const rows = (Array.isArray(categoryRows) ? categoryRows : [])
+    .map((row, index) => {
+      const categoryCode = String(row?.code || row?.key || row?.group_item_id || index + 1).trim()
+      const categoryLabel = String(row?.label || row?.category || row?.group_item_name || row?.path_label || '未分类').trim() || '未分类'
+      const sourceItems = Array.isArray(row?.items) ? row.items : (Array.isArray(row?.rows) ? row.rows : [])
+      const items = sourceItems
+        .filter((item) => item?.[metaKey]?.code)
+        .filter((item) => !hasProductFilter || selectedIDs.has(productIDOf(item)))
+      return {
+        categoryCode,
+        categoryLabel,
+        items,
+      }
+    })
+    .filter((row) => (!hasCategoryFilter || visibleCategoryCodes.has(row.categoryCode)) && row.items.length > 0)
+
+  if (!showCategoryNumbers) {
+    let itemIndex = 0
+    const items = rows.flatMap((row) => row.items.map((item) => {
+      itemIndex += 1
+      return buildPdfItem(item, metaKey, tierKey, normalizedListType, String(itemIndex), customizers)
+    }))
+    if (!items.length) return []
+    return [{
+      category: '全部产品',
+      categoryCode: '',
+      originalCategoryCode: '',
+      showCategory: false,
+      items,
+    }]
+  }
+
+  return rows.map((row, index) => ({
+    category: renumberCategory(row.categoryLabel, String(index + 1)),
+    categoryCode: row.categoryCode,
+    originalCategoryCode: row.categoryCode,
+    showCategory: true,
+    items: row.items.map((item) => {
+      const meta = item?.[metaKey] || {}
+      return buildPdfItem(item, metaKey, tierKey, normalizedListType, meta.code || '', customizers)
+    }),
+  }))
+}
+
 function normalizeBeanListType(listType) {
   if (listType === 'retail') return 'retail'
   if (listType === 'drip') return 'drip'
