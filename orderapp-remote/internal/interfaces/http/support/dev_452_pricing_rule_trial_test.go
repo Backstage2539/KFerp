@@ -93,7 +93,7 @@ func TestDev454PricingRuleTrialExcelParityContracts(t *testing.T) {
 			"supplier_tier_markup",
 			"price_after_markup",
 			"post_markup_cost_total",
-			"售价后附加成本",
+			"加价附加成本",
 		},
 		filepath.Join("internal", "application", "costing", "service_test.go"): {
 			"TestPricingRuleTrialMatchesExcelSupplierPriceSamples",
@@ -154,14 +154,14 @@ func TestDev456PricingRuleTrialPr439UnitContracts(t *testing.T) {
 			"REV-456-PRICING-RULE-TRIAL-PR439-UNIT",
 		},
 		filepath.Join("internal", "application", "costing", "service.go"): {
-			"pricingRuleTrialInferBaseCostFromPublishedSnapshot",
-			"published_price_snapshot",
-			"未找到BOM/工序成本，已按发布售价快照反推成本基数",
+			"PricingRuleTrialBaseCostDetail",
+			"base_cost_details",
+			"该商品暂无可试算的 BOM/工序成本",
 		},
 		filepath.Join("internal", "application", "costing", "service_test.go"): {
-			"TestPricingRuleTrialInfersCostFromPublishedPriceSnapshotWhenBomCostMissing",
+			"TestPricingRuleTrialDoesNotInferCostFromPublishedPriceSnapshotWhenBomCostMissing",
 			"PR439-20260606182321 熟豆下单商品",
-			"88.5",
+			"must not infer from snapshot",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
 			"buildPricingRuleTrialPayload",
@@ -175,26 +175,25 @@ func TestDev456PricingRuleTrialPr439UnitContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-456-PRICING-RULE-TRIAL-PR439-UNIT",
-			"PR439-20260606182321 熟豆下单商品",
 			"全局单位字典",
-			"发布售价快照",
+			"当前缺 BOM/工序成本时不再反推",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-456-PRICING-RULE-TRIAL-PR439-UNIT",
 			"不显示 `重新试算`",
 			"不显示 `售价后附加成本`",
-			"88.5/kg",
+			"不再反推 `88.5/kg`",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-456-PRICING-RULE-TRIAL-PR439-UNIT",
 			"全局单位字典",
 			"自动试算",
-			"发布售价快照反推成本基数",
+			"不再按已发布售价反推成本",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-pr439-unit.md"): {
 			"PR-456-PRICING-RULE-TRIAL-PR439-UNIT",
-			"PR439-20260606182321 熟豆下单商品",
-			"88.5/kg",
+			"PR-459",
+			"不再反推",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
@@ -240,12 +239,11 @@ func TestDev457PricingRuleTrialFormulaExpressionContracts(t *testing.T) {
 			"formula_expression_lines",
 			"pricingRuleTrialFormulaExpression",
 			"最终售价 =",
-			"发布售价快照反推",
 		},
 		filepath.Join("internal", "application", "costing", "service_test.go"): {
 			"FormulaExpression",
 			"FormulaExpressionLines",
-			"最终售价 = 88.5/kg",
+			"最终售价 = 110.4/kg",
 			"(BOM+工序成本 60/kg + 其他成本 2.5/kg)",
 		},
 		filepath.Join("internal", "interfaces", "http", "costing", "costing_api_test.go"): {
@@ -267,12 +265,12 @@ func TestDev457PricingRuleTrialFormulaExpressionContracts(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION",
 			"计算公式",
-			"最终售价 = 88.5/kg",
+			"最终售价串起来",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION",
 			"`计算公式`",
-			"`最终售价 = 88.5/kg`",
+			"逐节点公式行",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION",
@@ -282,7 +280,7 @@ func TestDev457PricingRuleTrialFormulaExpressionContracts(t *testing.T) {
 		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-formula-expression.md"): {
 			"PR-457-PRICING-RULE-TRIAL-FORMULA-EXPRESSION",
 			"计算公式",
-			"88.5/kg",
+			"逐节点公式行",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
@@ -290,6 +288,78 @@ func TestDev457PricingRuleTrialFormulaExpressionContracts(t *testing.T) {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing PR-457 marker %q", rel, want)
 			}
+		}
+	}
+}
+
+func TestDev459PricingRuleTrialWaterfallBomDetailContracts(t *testing.T) {
+	for rel, wants := range map[string][]string{
+		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
+			"PR-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
+			"DEV-459-TRIAL-WATERFALL-API",
+			"DEV-459-TRIAL-BOM-OPERATION-DETAILS",
+			"DEV-459-TRIAL-WATERFALL-UI",
+			"DEV-459-DOCS-ACCEPTANCE",
+			"REV-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
+		},
+		filepath.Join("internal", "application", "costing", "service.go"): {
+			"PricingRuleTrialBaseCostDetail",
+			"BaseCostDetails",
+			"YieldLossAmount",
+			"ProfitMarkupAmount",
+			"TaxInPriceAmount",
+			"RoundingAdjustment",
+			"LoadPricingRuleTrialBaseCostDetails",
+		},
+		filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go"): {
+			"LoadPricingRuleTrialBaseCostDetails",
+			"production_bom_version_items",
+			"operation_template_steps",
+		},
+		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
+			"BOM+工序成本明细",
+			"物料成本明细",
+			"工序成本明细",
+			"损耗增加",
+			"加价增加",
+			"tax_in_price_amount",
+			"pricing-rule-trial-waterfall",
+			"pricing-rule-trial-operator",
+		},
+		filepath.Join("docs", "REQUIREMENTS.md"): {
+			"PR-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
+			"价格瀑布",
+			"BOM+工序成本明细",
+		},
+		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
+			"PR-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
+			"不再按发布售价快照反推",
+			"BOM+工序成本明细",
+		},
+		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
+			"PR-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
+			"价格瀑布",
+			"BOM+工序成本明细",
+		},
+		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-waterfall-bom-detail.md"): {
+			"PR-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
+			"BOM+工序成本明细",
+			"不反推",
+		},
+	} {
+		src := string(readOrderAppFileForTest(t, rel))
+		for _, want := range wants {
+			if !strings.Contains(src, want) {
+				t.Fatalf("%s missing %q", rel, want)
+			}
+		}
+	}
+
+	trialDrawer := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
+	trialDrawer = trialDrawer[strings.Index(trialDrawer, `pricingRuleTrialDrawerOpen`):strings.Index(trialDrawer, `customerAliasCreateDrawerOpen`)]
+	for _, forbidden := range []string{"来源：", "状态：", "发布售价快照反推"} {
+		if strings.Contains(trialDrawer, forbidden) {
+			t.Fatalf("pricing rule trial drawer should not expose %q", forbidden)
 		}
 	}
 }

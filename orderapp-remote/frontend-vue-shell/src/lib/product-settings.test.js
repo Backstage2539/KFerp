@@ -652,6 +652,7 @@ test('product settings exposes pricing rule pane instead of final price records'
 test('product price management exposes pricing rule trial drawer and API wiring', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const pane = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<p class="muted price-list-flat-row-note"/)?.[0] || ''
+  const trialDrawer = source.match(/<div v-if="pricingRuleTrialDrawerOpen"[\s\S]*?<div v-if="customerAliasCreateDrawerOpen"/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
 
@@ -670,6 +671,17 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '其他成本',
     '加价后价格',
     '试算单价',
+    'BOM+工序成本明细',
+    '物料成本明细',
+    '工序成本明细',
+    '损耗增加',
+    '加价增加',
+    '税额',
+    '取整调整',
+    'base_cost_details',
+    'tax_in_price_amount',
+    'pricing-rule-trial-waterfall',
+    'pricing-rule-trial-operator',
     '计算公式',
     'formula_expression_lines',
     '公式步骤',
@@ -684,8 +696,13 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'post_markup_cost_rows',
     'addPricingRuleTrialPostMarkupCostRow',
     'removePricingRuleTrialPostMarkupCostRow',
+    '来源：',
+    '状态：',
+    'product_production_config',
+    'missing',
+    '发布售价快照反推',
   ]) {
-    assert.equal(source.includes(forbidden), false, `pricing rule trial drawer should not expose ${forbidden}`)
+    assert.equal(trialDrawer.includes(forbidden), false, `pricing rule trial drawer should not expose ${forbidden}`)
   }
   assert.match(pane, /@click="openPricingRuleTrial\(rule\)"[^>]*>试算<\/button>/)
   assert.match(source, /<select v-model="pricingRuleTrialForm\.quote_unit"[\s\S]*pricingRuleTrialQuoteUnitOptions/)
@@ -693,6 +710,8 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   assert.match(script, /apiSend\('\/api\/costing\/pricing-rule-trial'/)
   assert.match(script, /watch\(\(\) => pricingRuleTrialAutoRunSignature\.value/)
   assert.match(style, /\.pricing-rule-trial-drawer/)
+  assert.match(source, /pricing-rule-trial-operator[\s\S]*\+/)
+  assert.match(source, /pricing-rule-trial-operator[\s\S]*=/)
 })
 
 test('product price list owns tier template drawer and three pricing modes', () => {
