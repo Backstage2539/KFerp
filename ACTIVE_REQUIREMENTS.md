@@ -25,7 +25,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-448-PRODUCTION-BOM-GROUP-OPTIONS-STATUS
 - Branch: codex/production-bom-group-options-status
 - Owner/session: Codex / 2026-06-08
-- Status: local verification complete; pending merge to develop, deploy, and browser acceptance
+- Status: merged to develop and deployed to development; browser acceptance passed; pending Van product acceptance
 - Scope: 修复生产 BOM 批量移动时“目标分组”只剩“未分组”、选不到分组管理里已有业务分组的问题；商品档案配置抽屉的“被哪些 BOM 使用”增加 `BOM状态`，区分 `默认状态`、`启用状态`、`失效状态`。
 - DEV:
   - DEV-448-BOM-GROUP-TARGET-OPTIONS：生产 BOM 页面加载全部可用业务分组，目标分组选项不再被 `production_bom` 用途预过滤；保存归组时若分组尚未声明 `production_bom` 用途，自动补充用途并写操作日志。
@@ -36,6 +36,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED repository marker: `go test ./internal/infrastructure/postgres/catalog -run TestBusinessGroupAssignmentsSupportStringObjectRefsAndAudit -count=1` 曾因缺少 assignment 保存时补用途逻辑失败。
   - GREEN targeted: `node --test src/lib/product-settings.test.js` passed 124/124; `go test ./internal/interfaces/http/bom -run TestProductionBomProductUsageAPIReturnsOutputAndComponentBoms -count=1`; `go test ./internal/infrastructure/postgres/catalog -run TestBusinessGroupAssignmentsSupportStringObjectRefsAndAudit -count=1`.
   - GREEN broader: `node --test src/lib/bom.test.js src/lib/product-settings.test.js` passed 137/137; `go test ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1`; `npm run build` in `frontend-vue-shell`; `go test ./...` in `orderapp-remote`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN post-merge: after merging latest `origin/develop`, `node --test src/lib/bom.test.js src/lib/product-settings.test.js` passed 137/137; related Go package tests passed; `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed.
+  - GREEN deploy: feature branch pushed; `origin/develop=49ca2224c7ae4d166e3573a050f1455c7578a1cf` deployed to development. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608112250`. Deploy script ran Vue shell build, miniapp typecheck/build, miniapp `build:mp-weixin`, Docker build, and container-internal `go test ./...`.
+  - GREEN smoke/browser: `erp_orderapp` Up, `erp_postgres` healthy, unauthenticated `/app/` returned 303 to `/app/orders`, authenticated `/app/vue-shell/?view=bom` returned 200. Deployed docs/source expose `PR-448`, `BOM状态`, and `apiGet('/api/business-groups')`. Browser 生产 BOM 页面目标分组选项 included `商品分组 / 商品-咖啡熟豆`, `商品分组 / BOM-咖啡熟豆`, `商品分组 / BOM1`; 商品档案配置抽屉 for product `539` showed `BOM状态：默认状态`; console errors 0. Screenshots: `/tmp/pr448-bom-target-group.png`, `/tmp/pr448-product-bom-status.png`.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-08-production-bom-group-options-status.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
