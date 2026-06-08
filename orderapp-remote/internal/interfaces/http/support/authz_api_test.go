@@ -270,6 +270,12 @@ func TestBeanListPublicationPermissionsSeparatePublishAndDraft(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialPermissionIsReadOnly(t *testing.T) {
+	if got := requiredPermissionForRequest(http.MethodPost, "/api/costing/pricing-rule-trial"); got != "costing.read" {
+		t.Fatalf("POST /api/costing/pricing-rule-trial permission = %q, want costing.read", got)
+	}
+}
+
 func TestContractStampingAPIRequiresOrderPermissions(t *testing.T) {
 	cases := []struct {
 		method string

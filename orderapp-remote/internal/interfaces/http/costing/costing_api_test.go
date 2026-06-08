@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +18,10 @@ import (
 )
 
 type fakeService struct{}
+
+type fakePricingRuleTrialErrorService struct {
+	fakeService
+}
 
 func containsWarning(values []string, want string) bool {
 	for _, value := range values {
@@ -38,6 +43,37 @@ func (fakeService) Calculate(ctx context.Context, req appcosting.CalculateReques
 
 func (fakeService) ExplainPrice(ctx context.Context, req appcosting.PriceExplanationCommand) (*domain.PriceExplanation, error) {
 	return appcosting.NewService(&fakeRepo{}).ExplainPrice(ctx, req)
+}
+
+func (fakeService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrialCommand) (*appcosting.PricingRuleTrialResult, error) {
+	return &appcosting.PricingRuleTrialResult{
+		PricingRuleID:     10,
+		PricingRuleName:   "PR452 毛利含税",
+		FormulaVersion:    "v2",
+		ProductID:         549,
+		ProductName:       "PR452 试算商品",
+		QuoteUnit:         "kg",
+		InventoryUnit:     "kg",
+		BomVersionID:      3315,
+		BomVersionNo:      "BOM-v1",
+		BomUsageMode:      "product_production_config",
+		BomStatus:         "active",
+		BaseCost:          60,
+		OtherCostTotal:    2.5,
+		CostAfterYield:    78.13,
+		PreTaxPrice:       104.17,
+		TaxAmount:         6.25,
+		FinalUnitPrice:    110.4,
+		GrossMarginRate:   0.25,
+		MinimumMarginRate: 0.18,
+		Steps: []domain.PriceExplanationStep{
+			{Key: "final_unit_price", Label: "试算单价", Value: 110.4, Unit: "kg"},
+		},
+	}, nil
+}
+
+func (fakePricingRuleTrialErrorService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrialCommand) (*appcosting.PricingRuleTrialResult, error) {
+	return nil, errors.New("product not found")
 }
 
 func (fakeService) BeanList(context.Context, appcosting.BeanListQuery) (*appcosting.CalculateResponse, error) {
@@ -317,6 +353,10 @@ func (fakeRepo) LoadProductInputs(context.Context, domain.Parameters) ([]domain.
 	return nil, nil
 }
 
+func (fakeRepo) LoadProductPricingRule(context.Context, int64) (appcosting.ProductPricingRule, error) {
+	return appcosting.ProductPricingRule{}, appcosting.ErrProductPricingRuleNotFound
+}
+
 func (fakeRepo) CreateRun(context.Context, string, []domain.ProductResult) (*appcosting.Run, error) {
 	return nil, nil
 }
@@ -564,6 +604,66 @@ func TestCostingPriceExplanationAPIIncludesFastCostParameters(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("response missing %s: %s", want, rec.Body.String())
 		}
+	}
+}
+
+func TestPricingRuleTrialAPI(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+
+	body, err := json.Marshal(appcosting.PricingRuleTrialCommand{
+		PricingRuleID: 10,
+		ProductID:     549,
+		QuoteUnit:     "kg",
+		Overrides: appcosting.PricingRuleTrialOverrides{
+			ExpectedLossRate: floatPtr(0.12),
+			MarginRate:       floatPtr(0.3),
+			TaxRate:          floatPtr(0.06),
+			OtherCosts: map[string]float64{
+				"包装贴标": 1.25,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/pricing-rule-trial", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got appcosting.PricingRuleTrialResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if got.PricingRuleID != 10 || got.ProductID != 549 || got.FinalUnitPrice != 110.4 {
+		t.Fatalf("trial response = %+v", got)
+	}
+	if !strings.Contains(rec.Body.String(), `"key":"final_unit_price"`) {
+		t.Fatalf("response missing formula steps: %s", rec.Body.String())
+	}
+}
+
+func TestPricingRuleTrialAPIReturnsBadRequestOnServiceError(t *testing.T) {
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Costing: fakePricingRuleTrialErrorService{}})
+
+	body := bytes.NewBufferString(`{"pricing_rule_id":10,"product_id":999}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/pricing-rule-trial", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "product not found") {
+		t.Fatalf("response missing service error: %s", rec.Body.String())
 	}
 }
 

@@ -96,6 +96,18 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		return c.JSON(http.StatusOK, resp)
 	})
 
+	e.POST("/api/costing/pricing-rule-trial", func(c echo.Context) error {
+		var req appcosting.PricingRuleTrialCommand
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		resp, err := svc.PricingRuleTrial(c.Request().Context(), req)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, resp)
+	})
+
 	e.GET("/api/costing/bean-list", func(c echo.Context) error {
 		customerID, err := parseOptionalInt64(c.QueryParam("customer_id"))
 		if err != nil {

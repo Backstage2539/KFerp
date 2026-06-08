@@ -428,8 +428,56 @@ export function buildPricingRulePayload(form = {}) {
   }
 }
 
+export function buildPricingRuleTrialPayload(form = {}) {
+  const overrides = {}
+  const expectedLossRate = optionalNumberFromForm(form.expected_loss_rate ?? form.expectedLossRate)
+  if (expectedLossRate !== null) overrides.expected_loss_rate = expectedLossRate
+  const baseCost = optionalNumberFromForm(form.base_cost ?? form.baseCost)
+  if (baseCost !== null) overrides.base_cost = baseCost
+  const marginRate = optionalNumberFromForm(form.margin_rate ?? form.marginRate)
+  if (marginRate !== null) overrides.margin_rate = marginRate
+  const taxRate = optionalNumberFromForm(form.tax_rate ?? form.taxRate)
+  if (taxRate !== null) overrides.tax_rate = taxRate
+  const otherCosts = pricingRuleTrialOtherCostMapFromForm(form)
+  if (Object.keys(otherCosts).length) overrides.other_costs = otherCosts
+
+  return {
+    pricing_rule_id: Number(form.pricing_rule_id ?? form.pricingRuleID ?? form.rule_id ?? form.ruleID ?? 0) || 0,
+    product_id: Number(form.product_id ?? form.productID ?? 0) || 0,
+    customer_id: Number(form.customer_id ?? form.customerID ?? 0) || 0,
+    quote_unit: String(form.quote_unit ?? form.quoteUnit ?? '').trim(),
+    overrides,
+  }
+}
+
 export function normalizePricingRuleCostSourceMode(value) {
   return 'bom_current_cost'
+}
+
+function optionalNumberFromForm(value) {
+  if (value === '' || value === null || typeof value === 'undefined') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function pricingRuleTrialOtherCostMapFromForm(form = {}) {
+  const rowSource = form.other_cost_rows ?? form.otherCostRows
+  if (Array.isArray(rowSource)) {
+    return rowSource.reduce((acc, row) => {
+      const key = String(row?.key ?? row?.name ?? row?.cost_name ?? row?.costName ?? '').trim()
+      const value = Number(row?.value ?? row?.price ?? row?.cost_price ?? row?.costPrice ?? row?.cost ?? 0)
+      if (key && Number.isFinite(value)) acc[key] = value
+      return acc
+    }, {})
+  }
+  const mapSource = form.other_costs ?? form.otherCosts
+  if (!mapSource || typeof mapSource !== 'object' || Array.isArray(mapSource)) return {}
+  return Object.entries(mapSource).reduce((acc, [rawKey, rawValue]) => {
+    const key = String(rawKey || '').trim()
+    const value = Number(rawValue)
+    if (key && Number.isFinite(value)) acc[key] = value
+    return acc
+  }, {})
 }
 
 function pricingRuleCalculationJSONFromForm(form = {}) {

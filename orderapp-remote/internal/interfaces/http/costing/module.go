@@ -16,6 +16,7 @@ type Service interface {
 	UpdateSetting(context.Context, appcosting.UpdateParameterCommand) (appcosting.ParameterSetting, error)
 	Calculate(context.Context, appcosting.CalculateRequest) (*appcosting.CalculateResponse, error)
 	ExplainPrice(context.Context, appcosting.PriceExplanationCommand) (*domain.PriceExplanation, error)
+	PricingRuleTrial(context.Context, appcosting.PricingRuleTrialCommand) (*appcosting.PricingRuleTrialResult, error)
 	BeanList(context.Context, appcosting.BeanListQuery) (*appcosting.CalculateResponse, error)
 	ListBeanListPublications(context.Context, appcosting.BeanListPublicationQuery) ([]appcosting.BeanListPublication, error)
 	PublishedBeanList(context.Context, appcosting.BeanListPublicationQuery) (*appcosting.BeanListPublication, error)

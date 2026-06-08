@@ -3,6 +3,7 @@ package costing
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -55,6 +56,32 @@ func (r Repository) LoadProductInputsForCustomer(ctx context.Context, params dom
 		customerID = 0
 	}
 	return r.loadProductInputs(ctx, params, customerID)
+}
+
+func (r Repository) LoadProductPricingRule(ctx context.Context, id int64) (appcosting.ProductPricingRule, error) {
+	if id <= 0 {
+		return appcosting.ProductPricingRule{}, appcosting.ErrProductPricingRuleNotFound
+	}
+	var row appcosting.ProductPricingRule
+	var calculationJSON []byte
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT id, name, code, cost_source_mode, margin_rate::float8, tax_rate::float8, rounding_mode, calculation_json, formula_version, active, remark
+		FROM %s.product_pricing_rules
+		WHERE id=$1
+	`, r.schema), id).Scan(&row.ID, &row.Name, &row.Code, &row.CostSourceMode, &row.MarginRate, &row.TaxRate, &row.RoundingMode, &calculationJSON, &row.FormulaVersion, &row.Active, &row.Remark)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return appcosting.ProductPricingRule{}, appcosting.ErrProductPricingRuleNotFound
+		}
+		return appcosting.ProductPricingRule{}, err
+	}
+	row.CalculationJSON = map[string]any{}
+	if len(calculationJSON) > 0 {
+		if err := json.Unmarshal(calculationJSON, &row.CalculationJSON); err != nil {
+			return appcosting.ProductPricingRule{}, err
+		}
+	}
+	return row, nil
 }
 
 func (r Repository) loadProductInputs(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error) {

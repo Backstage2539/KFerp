@@ -23,6 +23,7 @@ type fakeRepo struct {
 	beanListPublication *BeanListPublication
 	beanListAsset       BeanListPublicationAsset
 	savedBeanListAsset  BeanListPublicationAsset
+	pricingRules        map[int64]ProductPricingRule
 }
 
 func sliceContains(values []string, want string) bool {
@@ -48,6 +49,15 @@ func (r *fakeRepo) LoadProductInputs(context.Context, domain.Parameters) ([]doma
 func (r *fakeRepo) LoadProductInputsForCustomer(_ context.Context, _ domain.Parameters, customerID int64) ([]domain.ProductInput, error) {
 	r.lastCustomerID = customerID
 	return r.customerInputs, nil
+}
+
+func (r *fakeRepo) LoadProductPricingRule(_ context.Context, id int64) (ProductPricingRule, error) {
+	if r.pricingRules != nil {
+		if row, ok := r.pricingRules[id]; ok {
+			return row, nil
+		}
+	}
+	return ProductPricingRule{}, ErrProductPricingRuleNotFound
 }
 
 func (r *fakeRepo) CreateRun(_ context.Context, actor string, items []domain.ProductResult) (*Run, error) {
@@ -194,6 +204,198 @@ func TestBeanListPreservesCustomerAliasAndProductSnapshots(t *testing.T) {
 		item.BomUsageMode != "inherit_current" {
 		t.Fatalf("alias/product snapshots = %+v", item)
 	}
+}
+
+func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:                549,
+			Name:                     "PR452 试算商品",
+			InventoryUnit:            "kg",
+			QuoteUnit:                "kg",
+			GreenBeanCostPerKg:       50,
+			OperationCostPerKg:       10,
+			YieldRate:                0.8,
+			ExpectedLossRate:         0.2,
+			BomVersionID:             3315,
+			BomVersionNo:             "BOM-v1",
+			BomUsageMode:             "product_production_config",
+			BomStatus:                "active",
+			OperationTemplateID:      7,
+			ProductSubtypeName:       "商用拼配",
+			ProductTypeName:          "咖啡豆",
+			ProductCategoryID:        91,
+			ProductSubtypeCategoryID: 92,
+		}},
+		pricingRules: map[int64]ProductPricingRule{
+			10: {
+				ID:             10,
+				Name:           "PR452 毛利含税",
+				Code:           "PR452-GM",
+				CostSourceMode: "bom_current_cost",
+				MarginRate:     0.25,
+				TaxRate:        0.06,
+				RoundingMode:   "jiao",
+				FormulaVersion: "v2",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode":     "bom_or_product",
+					"profit_method":       "gross_margin",
+					"tax_mode":            "tax_included",
+					"minimum_margin_rate": 0.18,
+					"other_costs": map[string]any{
+						"包装贴标": 2.5,
+					},
+				},
+			},
+		},
+	}
+
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 10,
+		ProductID:     549,
+		QuoteUnit:     "kg",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if got.PricingRuleID != 10 || got.ProductID != 549 || got.BomVersionID != 3315 {
+		t.Fatalf("trial identity = %+v", got)
+	}
+	if got.BaseCost != 60 || got.OtherCostTotal != 2.5 || got.CostAfterYield != 78.13 {
+		t.Fatalf("trial costs = base %.2f other %.2f after yield %.2f", got.BaseCost, got.OtherCostTotal, got.CostAfterYield)
+	}
+	if got.PreTaxPrice != 104.17 || got.TaxAmount != 6.25 || got.FinalUnitPrice != 110.4 {
+		t.Fatalf("trial prices = preTax %.2f tax %.2f final %.2f", got.PreTaxPrice, got.TaxAmount, got.FinalUnitPrice)
+	}
+	for _, key := range []string{"bom_operation_cost", "other_cost_total", "expected_loss_rate", "profit_method", "tax_rate", "rounding_rule", "final_unit_price"} {
+		if !pricingRuleTrialHasStep(got.Steps, key) {
+			t.Fatalf("steps missing %q: %+v", key, got.Steps)
+		}
+	}
+}
+
+func TestPricingRuleTrialSupportsOverridesAndMinimumMarginWarning(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:          550,
+			Name:               "PR452 固定加价商品",
+			InventoryUnit:      "kg",
+			QuoteUnit:          "kg",
+			GreenBeanCostPerKg: 90,
+			OperationCostPerKg: 10,
+			YieldRate:          1,
+		}},
+		pricingRules: map[int64]ProductPricingRule{
+			11: {
+				ID:             11,
+				Name:           "PR452 固定加价",
+				MarginRate:     10,
+				TaxRate:        0,
+				RoundingMode:   "none",
+				FormulaVersion: "v1",
+				Active:         false,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode":     "none",
+					"profit_method":       "fixed_add",
+					"tax_mode":            "none",
+					"minimum_margin_rate": 0.3,
+				},
+			},
+		},
+	}
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 11,
+		ProductID:     550,
+		Overrides: PricingRuleTrialOverrides{
+			MarginRate: floatPtr(10),
+		},
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if got.FinalUnitPrice != 110 || got.GrossMarginRate >= 0.3 {
+		t.Fatalf("trial = %+v, want fixed add final price and low margin", got)
+	}
+	if !sliceContains(got.Warnings, "停用模板：试算仅供查看，不能作为新发布价格来源") {
+		t.Fatalf("warnings = %+v, want inactive template warning", got.Warnings)
+	}
+	if !sliceContains(got.Warnings, "试算毛利率低于最低毛利") {
+		t.Fatalf("warnings = %+v, want minimum margin warning", got.Warnings)
+	}
+}
+
+func TestPricingRuleTrialSupportsMarkupTaxExcludedAndYuanRounding(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:          551,
+			Name:               "PR452 加价未税商品",
+			InventoryUnit:      "kg",
+			QuoteUnit:          "kg",
+			GreenBeanCostPerKg: 30,
+			OperationCostPerKg: 5,
+			YieldRate:          1,
+		}},
+		pricingRules: map[int64]ProductPricingRule{
+			12: {
+				ID:           12,
+				Name:         "PR452 加价未税",
+				MarginRate:   0.2,
+				TaxRate:      0.1,
+				RoundingMode: "yuan",
+				Active:       true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "tax_excluded",
+					"other_costs": map[string]any{
+						"包装": 4,
+					},
+				},
+			},
+		},
+	}
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 12,
+		ProductID:     551,
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if got.BaseCost != 35 || got.OtherCostTotal != 4 || got.CostAfterYield != 39 {
+		t.Fatalf("trial costs = base %.2f other %.2f after yield %.2f", got.BaseCost, got.OtherCostTotal, got.CostAfterYield)
+	}
+	if got.PreTaxPrice != 46.8 || got.TaxAmount != 4.68 || got.FinalUnitPrice != 47 {
+		t.Fatalf("trial prices = preTax %.2f tax %.2f final %.2f", got.PreTaxPrice, got.TaxAmount, got.FinalUnitPrice)
+	}
+}
+
+func TestPricingRuleTrialValidatesRuleAndProduct(t *testing.T) {
+	svc := NewService(&fakeRepo{pricingRules: map[int64]ProductPricingRule{}})
+	if _, err := svc.PricingRuleTrial(context.Background(), PricingRuleTrialCommand{PricingRuleID: 0, ProductID: 1}); err == nil {
+		t.Fatal("expected pricing_rule_id required error")
+	}
+	if _, err := svc.PricingRuleTrial(context.Background(), PricingRuleTrialCommand{PricingRuleID: 99, ProductID: 1}); err == nil {
+		t.Fatal("expected missing pricing rule error")
+	}
+	svc = NewService(&fakeRepo{
+		inputs: []domain.ProductInput{},
+		pricingRules: map[int64]ProductPricingRule{
+			10: {ID: 10, Name: "PR452"},
+		},
+	})
+	if _, err := svc.PricingRuleTrial(context.Background(), PricingRuleTrialCommand{PricingRuleID: 10, ProductID: 999}); err == nil {
+		t.Fatal("expected missing product error")
+	}
+}
+
+func pricingRuleTrialHasStep(steps []domain.PriceExplanationStep, key string) bool {
+	for _, step := range steps {
+		if step.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 func TestGenerateBeanListPublicationPDFSavesAndReusesAsset(t *testing.T) {

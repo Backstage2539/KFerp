@@ -9,19 +9,21 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-452-PRICING-RULE-TRIAL
 - Branch: codex/pricing-rule-trial-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: in progress
+- Status: implemented locally; automated verification passed; local mocked browser acceptance passed; pending integration/deploy and real ERP BOM-data acceptance
 - Scope: 商品价格管理在每个价格计算模板 / Pricing Rule 行增加 `试算`，选择商品读取当前生产 BOM/工序成本，按模板公式和临时录入口计算试算单价；试算只读，不保存到模板、商品价格表、发布快照或订单。
 - DEV:
   - DEV-452-PRICING-RULE-TRIAL-API：新增 `POST /api/costing/pricing-rule-trial`，读取 Pricing Rule 和商品成本输入，返回公式步骤、试算单价、BOM/工序成本、警告和只读结果。
   - DEV-452-PRICING-RULE-TRIAL-UI：商品价格管理模板行增加 `试算`，打开右侧抽屉选择商品、报价单位和临时覆盖项并展示试算结果。
   - DEV-452-PRICING-RULE-TRIAL-DOCS：同步商品价格管理/产品价格表边界、试算入口、异常处理和验收证据。
 - Verifier:
-  - Unit:
-  - API:
-  - Frontend/build:
-  - Manual:
-  - Review/acceptance:
+  - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because `buildPricingRuleTrialPayload`、模板行 `试算`、试算抽屉和 `/api/costing/pricing-rule-trial` wiring were missing.
+  - RED backend/API: `go test ./internal/application/costing -run 'TestPricingRuleTrial' -count=1` and `go test ./internal/interfaces/http/costing -run TestPricingRuleTrialAPI -count=1` failed before implementation because Pricing Rule trial service/API contracts were missing.
+  - RED support/authz: `go test ./internal/interfaces/http/support -run TestDev452PricingRuleTrialContracts -count=1` failed before docs/API/UI markers existed; `go test ./internal/interfaces/http/support -run TestPricingRuleTrialPermissionIsReadOnly -count=1` failed because `POST /api/costing/pricing-rule-trial` was mapped to `costing.write`.
+  - GREEN targeted: `node --test src/lib/product-settings.test.js` passed 126/126; `go test ./internal/application/costing -run 'TestPricingRuleTrial' -count=1` passed; `go test ./internal/interfaces/http/costing -run TestPricingRuleTrialAPI -count=1` passed; `go test ./internal/interfaces/http/support -run 'TestDev452PricingRuleTrialContracts|TestPricingRuleTrialPermissionIsReadOnly' -count=1` passed.
+  - GREEN broader: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -count=1` passed; `go test ./...` in `orderapp-remote` passed; `npm run build` in `frontend-vue-shell` passed with the existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+  - Browser/local: local mock ERP served the current Vue production build at `http://127.0.0.1:5192/vue-shell?view=productPriceManagement`; 商品价格管理 showed template row `试算`; drawer selected `真实BOM试算商品`, auto-filled `kg`, posted only `{pricing_rule_id, product_id, customer_id, quote_unit, overrides}` to `/api/costing/pricing-rule-trial`; result showed BOM+工序成本 `48.85/kg`, 其他成本 `10/kg`, 损耗后成本 `66.88/kg`, 试算单价 `94.52/kg`, BOM版本 `v3`, 公式步骤 and warning; console errors 0.
 - Deployment:
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 - Notes: Existing uncommitted row-indent changes in `ProductSettingsView.vue` and `product-settings.test.js` are preserved as separate adjacent work.
 

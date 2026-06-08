@@ -39,6 +39,7 @@ import {
   buildProductPriceRecordPayload,
   buildProductTierPriceSchemePayload,
   buildPricingRulePayload,
+  buildPricingRuleTrialPayload,
   buildProductProductionConfigForm,
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
@@ -518,6 +519,39 @@ test('pricing rules and tier templates are independent templates used by price l
   })
 })
 
+test('pricing rule trial payload is temporary and does not save price rows', () => {
+  assert.deepEqual(buildPricingRuleTrialPayload({
+    pricing_rule_id: '10',
+    product_id: '549',
+    customer_id: '',
+    quote_unit: ' kg ',
+    expected_loss_rate: '0.12',
+    margin_rate: '0.30',
+    tax_rate: '0.06',
+    other_cost_rows: [
+      { key: ' 包装贴标 ', value: '1.25' },
+      { key: '认证费', value: '2.5' },
+      { key: '', value: '99' },
+    ],
+    final_unit_price: 88,
+    price_rows: [{ final_unit_price: 88 }],
+  }), {
+    pricing_rule_id: 10,
+    product_id: 549,
+    customer_id: 0,
+    quote_unit: 'kg',
+    overrides: {
+      expected_loss_rate: 0.12,
+      margin_rate: 0.3,
+      tax_rate: 0.06,
+      other_costs: {
+        '包装贴标': 1.25,
+        '认证费': 2.5,
+      },
+    },
+  })
+})
+
 test('price table resolves pricing mode by product, subgroup, parent group, price list', () => {
   const resolved = resolvePriceTableTemplateInheritance({
     defaults: { pricing_mode: 'fixed_price', tier_template_id: 1, pricing_rule_id: 10, fixed_unit_price: 99 },
@@ -607,6 +641,36 @@ test('product settings exposes pricing rule pane instead of final price records'
   for (const forbidden of ['商品成本上下文', '成本项配置', '库存成本', '手工成本', '最近采购成本', '成本取数口径', '商品价格记录', '最终单价', '引用价格记录', 'source_price_record_id', '阶梯价模板', 'priceTierTemplateForm', 'savePriceTierTemplate', 'min_qty', 'max_qty', 'tier_label']) {
     assert.equal(pane.includes(forbidden), false, `product price management pane should not expose ${forbidden}`)
   }
+})
+
+test('product price management exposes pricing rule trial drawer and API wiring', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const pane = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<p class="muted price-list-flat-row-note"/)?.[0] || ''
+  const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
+  const style = source.split('<style scoped>')[1] || ''
+
+  for (const want of [
+    '价格计算模板试算',
+    'openPricingRuleTrial',
+    'pricingRuleTrialDrawerOpen',
+    'pricingRuleTrialForm',
+    'buildPricingRuleTrialPayload',
+    '/api/costing/pricing-rule-trial',
+    '试算商品',
+    '报价单位',
+    '临时损耗率',
+    '临时利润/加价',
+    '临时税率',
+    '其他成本',
+    '重新试算',
+    '试算单价',
+    '公式步骤',
+  ]) {
+    assert.ok(source.includes(want), `missing pricing rule trial marker: ${want}`)
+  }
+  assert.match(pane, /@click="openPricingRuleTrial\(rule\)"[^>]*>试算<\/button>/)
+  assert.match(script, /apiSend\('\/api\/costing\/pricing-rule-trial'/)
+  assert.match(style, /\.pricing-rule-trial-drawer/)
 })
 
 test('product price list owns tier template drawer and three pricing modes', () => {

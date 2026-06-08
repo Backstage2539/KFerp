@@ -14,7 +14,10 @@ import (
 	domain "orderapp/internal/domain/costing"
 )
 
-var ErrBeanListPublicationNotFound = errors.New("bean list publication not found")
+var (
+	ErrBeanListPublicationNotFound = errors.New("bean list publication not found")
+	ErrProductPricingRuleNotFound  = errors.New("product pricing rule not found")
+)
 
 const (
 	BeanListPublicationPurposeFactorySupply  = "factory_supply"
@@ -29,6 +32,60 @@ type PriceExplanationCommand struct {
 	Product   domain.ProductInput              `json:"product"`
 	TierLabel string                           `json:"tier_label"`
 	Overrides domain.PriceExplanationOverrides `json:"overrides,omitempty"`
+}
+
+type ProductPricingRule struct {
+	ID              int64          `json:"id"`
+	Name            string         `json:"name"`
+	Code            string         `json:"code,omitempty"`
+	CostSourceMode  string         `json:"cost_source_mode"`
+	MarginRate      float64        `json:"margin_rate"`
+	TaxRate         float64        `json:"tax_rate"`
+	RoundingMode    string         `json:"rounding_mode"`
+	CalculationJSON map[string]any `json:"calculation_json"`
+	FormulaVersion  string         `json:"formula_version"`
+	Active          bool           `json:"active"`
+	Remark          string         `json:"remark,omitempty"`
+}
+
+type PricingRuleTrialCommand struct {
+	PricingRuleID int64                     `json:"pricing_rule_id"`
+	ProductID     int64                     `json:"product_id"`
+	CustomerID    int64                     `json:"customer_id,omitempty"`
+	QuoteUnit     string                    `json:"quote_unit,omitempty"`
+	Overrides     PricingRuleTrialOverrides `json:"overrides,omitempty"`
+}
+
+type PricingRuleTrialOverrides struct {
+	ExpectedLossRate *float64           `json:"expected_loss_rate,omitempty"`
+	BaseCost         *float64           `json:"base_cost,omitempty"`
+	MarginRate       *float64           `json:"margin_rate,omitempty"`
+	TaxRate          *float64           `json:"tax_rate,omitempty"`
+	OtherCosts       map[string]float64 `json:"other_costs,omitempty"`
+}
+
+type PricingRuleTrialResult struct {
+	PricingRuleID     int64                         `json:"pricing_rule_id"`
+	PricingRuleName   string                        `json:"pricing_rule_name"`
+	FormulaVersion    string                        `json:"formula_version"`
+	ProductID         int64                         `json:"product_id"`
+	ProductName       string                        `json:"product_name"`
+	QuoteUnit         string                        `json:"quote_unit"`
+	InventoryUnit     string                        `json:"inventory_unit"`
+	BomVersionID      int64                         `json:"bom_version_id,omitempty"`
+	BomVersionNo      string                        `json:"bom_version_no,omitempty"`
+	BomUsageMode      string                        `json:"bom_usage_mode,omitempty"`
+	BomStatus         string                        `json:"bom_status,omitempty"`
+	BaseCost          float64                       `json:"base_cost"`
+	OtherCostTotal    float64                       `json:"other_cost_total"`
+	CostAfterYield    float64                       `json:"cost_after_yield"`
+	PreTaxPrice       float64                       `json:"pre_tax_price"`
+	TaxAmount         float64                       `json:"tax_amount"`
+	FinalUnitPrice    float64                       `json:"final_unit_price"`
+	GrossMarginRate   float64                       `json:"gross_margin_rate"`
+	MinimumMarginRate float64                       `json:"minimum_margin_rate"`
+	Steps             []domain.PriceExplanationStep `json:"steps"`
+	Warnings          []string                      `json:"warnings,omitempty"`
 }
 
 type DripPriceExplanationCommand struct {
@@ -194,6 +251,7 @@ type WithdrawBeanListCommand struct {
 type Repository interface {
 	LoadParameters(ctx context.Context) (domain.Parameters, error)
 	LoadProductInputs(ctx context.Context, params domain.Parameters) ([]domain.ProductInput, error)
+	LoadProductPricingRule(ctx context.Context, id int64) (ProductPricingRule, error)
 	CreateRun(ctx context.Context, actor string, items []domain.ProductResult) (*Run, error)
 	PublishRun(ctx context.Context, actor string, runID int64) error
 	ListParameterSettings(ctx context.Context) ([]ParameterSetting, error)
@@ -315,6 +373,459 @@ func (s *Service) ExplainPrice(ctx context.Context, req PriceExplanationCommand)
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (s *Service) PricingRuleTrial(ctx context.Context, cmd PricingRuleTrialCommand) (*PricingRuleTrialResult, error) {
+	if cmd.PricingRuleID <= 0 {
+		return nil, fmt.Errorf("pricing_rule_id required")
+	}
+	if cmd.ProductID <= 0 {
+		return nil, fmt.Errorf("product_id required")
+	}
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository required")
+	}
+	params, err := s.Parameters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rule, err := s.repo.LoadProductPricingRule(ctx, cmd.PricingRuleID)
+	if err != nil {
+		if errors.Is(err, ErrProductPricingRuleNotFound) {
+			return nil, ErrProductPricingRuleNotFound
+		}
+		return nil, err
+	}
+	inputs, err := s.pricingRuleTrialProductInputs(ctx, params, cmd.CustomerID)
+	if err != nil {
+		return nil, err
+	}
+	var input domain.ProductInput
+	found := false
+	for _, row := range inputs {
+		if row.ProductID == cmd.ProductID {
+			input = row
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("product not found")
+	}
+	return calculatePricingRuleTrial(rule, input, cmd)
+}
+
+func (s *Service) pricingRuleTrialProductInputs(ctx context.Context, params domain.Parameters, customerID int64) ([]domain.ProductInput, error) {
+	if customerID > 0 {
+		if scoped, ok := s.repo.(customerScopedProductInputRepository); ok {
+			return scoped.LoadProductInputsForCustomer(ctx, params, customerID)
+		}
+	}
+	return s.repo.LoadProductInputs(ctx, params)
+}
+
+func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInput, cmd PricingRuleTrialCommand) (*PricingRuleTrialResult, error) {
+	calc := rule.CalculationJSON
+	if calc == nil {
+		calc = map[string]any{}
+	}
+	quoteUnit := strings.TrimSpace(cmd.QuoteUnit)
+	if quoteUnit == "" {
+		quoteUnit = strings.TrimSpace(input.QuoteUnit)
+	}
+	if quoteUnit == "" {
+		quoteUnit = strings.TrimSpace(input.InventoryUnit)
+	}
+	if quoteUnit == "" {
+		quoteUnit = "kg"
+	}
+	warnings := append([]string{}, input.Warnings...)
+	bomStatus := strings.TrimSpace(input.BomStatus)
+	switch bomStatus {
+	case "inactive", "disabled":
+		warnings = appendUniqueString(warnings, "BOM已失效：试算结果仅供参考")
+	case "missing":
+		warnings = appendUniqueString(warnings, "该商品暂无可试算的 BOM/工序成本")
+	}
+	if !rule.Active {
+		warnings = appendUniqueString(warnings, "停用模板：试算仅供查看，不能作为新发布价格来源")
+	}
+
+	baseCost, baseSource, baseWarning := pricingRuleTrialBaseCost(input, quoteUnit)
+	if cmd.Overrides.BaseCost != nil {
+		if *cmd.Overrides.BaseCost < 0 {
+			return nil, fmt.Errorf("base_cost must be >= 0")
+		}
+		baseCost = *cmd.Overrides.BaseCost
+		baseSource = "temporary_override"
+	}
+	if baseWarning != "" {
+		warnings = appendUniqueString(warnings, baseWarning)
+	}
+	if baseCost <= 0 {
+		return nil, fmt.Errorf("product cost required")
+	}
+	otherCosts := pricingRuleTrialOtherCostMap(calc)
+	if cmd.Overrides.OtherCosts != nil {
+		otherCosts = cmd.Overrides.OtherCosts
+	}
+	otherCostTotal := 0.0
+	for _, value := range otherCosts {
+		if value < 0 {
+			return nil, fmt.Errorf("other_costs must be >= 0")
+		}
+		otherCostTotal += value
+	}
+	costBeforeYield := baseCost + otherCostTotal
+	yieldMode := pricingRuleTrialString(calc, "yield_loss_mode", "bom_or_product")
+	expectedLossRate, lossChanged, err := pricingRuleTrialExpectedLossRate(input, cmd.Overrides.ExpectedLossRate, yieldMode)
+	if err != nil {
+		return nil, err
+	}
+	costAfterYield := costBeforeYield
+	if yieldMode != "none" && expectedLossRate > 0 {
+		costAfterYield = costBeforeYield / (1 - expectedLossRate)
+	}
+
+	profitMethod := pricingRuleTrialString(calc, "profit_method", "gross_margin")
+	marginRate := rule.MarginRate
+	if cmd.Overrides.MarginRate != nil {
+		marginRate = *cmd.Overrides.MarginRate
+	}
+	if marginRate < 0 {
+		return nil, fmt.Errorf("margin_rate must be >= 0")
+	}
+	preTaxPrice, err := pricingRuleTrialPreTaxPrice(costAfterYield, marginRate, profitMethod)
+	if err != nil {
+		return nil, err
+	}
+
+	taxMode := pricingRuleTrialString(calc, "tax_mode", "tax_included")
+	taxRate := rule.TaxRate
+	if cmd.Overrides.TaxRate != nil {
+		taxRate = *cmd.Overrides.TaxRate
+	}
+	if taxRate < 0 {
+		return nil, fmt.Errorf("tax_rate must be >= 0")
+	}
+	finalBeforeRounding, taxAmount := pricingRuleTrialTax(preTaxPrice, taxRate, taxMode)
+	finalUnitPrice := pricingRuleTrialRoundedPrice(finalBeforeRounding, rule.RoundingMode)
+	grossMarginRate := 0.0
+	if preTaxPrice > 0 {
+		grossMarginRate = (preTaxPrice - costAfterYield) / preTaxPrice
+	}
+	minimumMarginRate := pricingRuleTrialNumber(calc, "minimum_margin_rate", 0)
+	if minimumMarginRate > 0 && grossMarginRate < minimumMarginRate {
+		warnings = appendUniqueString(warnings, "试算毛利率低于最低毛利")
+	}
+
+	productName := strings.TrimSpace(input.Name)
+	if productName == "" {
+		productName = strings.TrimSpace(input.ProductName)
+	}
+	result := &PricingRuleTrialResult{
+		PricingRuleID:     rule.ID,
+		PricingRuleName:   firstNonEmptyString(rule.Name, rule.Code),
+		FormulaVersion:    firstNonEmptyString(rule.FormulaVersion, "v1"),
+		ProductID:         input.ProductID,
+		ProductName:       productName,
+		QuoteUnit:         quoteUnit,
+		InventoryUnit:     strings.TrimSpace(input.InventoryUnit),
+		BomVersionID:      input.BomVersionID,
+		BomVersionNo:      input.BomVersionNo,
+		BomUsageMode:      input.BomUsageMode,
+		BomStatus:         input.BomStatus,
+		BaseCost:          roundBeanListPrice(baseCost),
+		OtherCostTotal:    roundBeanListPrice(otherCostTotal),
+		CostAfterYield:    roundBeanListPrice(costAfterYield),
+		PreTaxPrice:       roundBeanListPrice(preTaxPrice),
+		TaxAmount:         roundBeanListPrice(taxAmount),
+		FinalUnitPrice:    finalUnitPrice,
+		GrossMarginRate:   roundRatio(grossMarginRate),
+		MinimumMarginRate: roundRatio(minimumMarginRate),
+		Warnings:          warnings,
+	}
+	result.Steps = []domain.PriceExplanationStep{
+		{Key: "bom_operation_cost", Label: "BOM+工序成本", Source: baseSource, Value: result.BaseCost, Unit: quoteUnit, Changed: cmd.Overrides.BaseCost != nil},
+		{Key: "other_cost_total", Label: "其他成本", Source: pricingRuleTrialOtherCostSource(cmd.Overrides.OtherCosts), Value: result.OtherCostTotal, Unit: quoteUnit, Changed: cmd.Overrides.OtherCosts != nil},
+		{Key: "expected_loss_rate", Label: "预期损耗率", Source: pricingRuleTrialLossSource(cmd.Overrides.ExpectedLossRate, yieldMode), Value: roundRatio(expectedLossRate), Unit: "ratio", Changed: lossChanged},
+		{Key: "cost_after_yield", Label: "损耗后成本", Source: "formula", Value: result.CostAfterYield, Unit: quoteUnit, Changed: expectedLossRate > 0 && yieldMode != "none"},
+		{Key: "profit_method", Label: pricingRuleTrialProfitLabel(profitMethod), Source: pricingRuleTrialOverrideSource(cmd.Overrides.MarginRate), Value: roundBeanListPrice(preTaxPrice), Unit: quoteUnit, Changed: cmd.Overrides.MarginRate != nil},
+		{Key: "tax_rate", Label: pricingRuleTrialTaxLabel(taxMode), Source: pricingRuleTrialOverrideSource(cmd.Overrides.TaxRate), Value: roundRatio(taxRate), Unit: "ratio", Changed: cmd.Overrides.TaxRate != nil},
+		{Key: "rounding_rule", Label: "取整规则", Source: "pricing_rule", Value: finalBeforeRounding, Unit: quoteUnit, Changed: finalUnitPrice != roundBeanListPrice(finalBeforeRounding)},
+		{Key: "final_unit_price", Label: "试算单价", Source: "formula", Value: finalUnitPrice, Unit: quoteUnit, Changed: true},
+	}
+	return result, nil
+}
+
+func pricingRuleTrialBaseCost(input domain.ProductInput, quoteUnit string) (float64, string, string) {
+	perKgCost := input.GreenBeanCostPerKg + input.OperationCostPerKg
+	perUnitCost := input.BomCostPerUnit + input.OperationCostPerUnit
+	factor := pricingRuleTrialUnitKgFactor(quoteUnit, input.UnitConversionJSON)
+	if perKgCost > 0 && factor > 0 {
+		return perKgCost * factor, "product_bom_operation_cost", ""
+	}
+	if perUnitCost > 0 {
+		return perUnitCost, "product_bom_operation_cost", ""
+	}
+	if perKgCost > 0 {
+		return perKgCost, "product_bom_operation_cost", "报价单位无法换算，已按 kg 试算"
+	}
+	return 0, "product_bom_operation_cost", ""
+}
+
+func pricingRuleTrialUnitKgFactor(unit string, conversionJSON string) float64 {
+	normalized := strings.ToLower(strings.TrimSpace(unit))
+	switch normalized {
+	case "", "kg", "公斤", "千克":
+		return 1
+	case "g", "克":
+		return 0.001
+	case "lb", "磅":
+		return 0.454
+	}
+	conversionJSON = strings.TrimSpace(conversionJSON)
+	if conversionJSON == "" {
+		return 0
+	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(conversionJSON), &raw); err != nil {
+		return 0
+	}
+	row, ok := raw[unit]
+	if !ok {
+		row, ok = raw[normalized]
+	}
+	if !ok {
+		return 0
+	}
+	return pricingRuleTrialConversionToKg(row)
+}
+
+func pricingRuleTrialConversionToKg(value any) float64 {
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case int:
+		return float64(typed)
+	case map[string]any:
+		for key, raw := range typed {
+			n := numberFromAny(raw)
+			switch strings.ToLower(strings.TrimSpace(key)) {
+			case "kg", "公斤", "千克":
+				return n
+			case "g", "克":
+				return n / 1000
+			case "lb", "磅":
+				return n * 0.454
+			}
+		}
+	}
+	return 0
+}
+
+func pricingRuleTrialOtherCostMap(calc map[string]any) map[string]float64 {
+	out := map[string]float64{}
+	raw, ok := calc["other_costs"]
+	if !ok {
+		raw = calc["otherCosts"]
+	}
+	switch typed := raw.(type) {
+	case map[string]any:
+		for key, value := range typed {
+			name := strings.TrimSpace(key)
+			if name == "" {
+				continue
+			}
+			out[name] = numberFromAny(value)
+		}
+	case map[string]float64:
+		for key, value := range typed {
+			name := strings.TrimSpace(key)
+			if name == "" {
+				continue
+			}
+			out[name] = value
+		}
+	}
+	return out
+}
+
+func pricingRuleTrialExpectedLossRate(input domain.ProductInput, override *float64, mode string) (float64, bool, error) {
+	normalizedMode := strings.TrimSpace(mode)
+	if normalizedMode == "" {
+		normalizedMode = "bom_or_product"
+	}
+	if normalizedMode == "none" {
+		return 0, false, nil
+	}
+	loss := 0.0
+	changed := false
+	if override != nil {
+		loss = *override
+		changed = true
+	} else if input.ExpectedLossRate > 0 {
+		loss = input.ExpectedLossRate
+	} else if input.YieldRate > 0 && input.YieldRate < 1 {
+		loss = 1 - input.YieldRate
+	}
+	if loss < 0 || loss >= 1 {
+		return 0, changed, fmt.Errorf("expected_loss_rate must be >= 0 and < 1")
+	}
+	return loss, changed, nil
+}
+
+func pricingRuleTrialPreTaxPrice(cost float64, marginRate float64, method string) (float64, error) {
+	switch strings.TrimSpace(method) {
+	case "", "gross_margin":
+		if marginRate >= 1 {
+			return 0, fmt.Errorf("margin_rate must be < 1 for gross_margin")
+		}
+		return cost / (1 - marginRate), nil
+	case "markup":
+		return cost * (1 + marginRate), nil
+	case "fixed_add":
+		return cost + marginRate, nil
+	default:
+		return 0, fmt.Errorf("invalid profit_method")
+	}
+}
+
+func pricingRuleTrialTax(preTaxPrice float64, taxRate float64, mode string) (float64, float64) {
+	switch strings.TrimSpace(mode) {
+	case "tax_included":
+		final := preTaxPrice * (1 + taxRate)
+		return final, final - preTaxPrice
+	case "tax_excluded":
+		return preTaxPrice, preTaxPrice * taxRate
+	default:
+		return preTaxPrice, 0
+	}
+}
+
+func pricingRuleTrialRoundedPrice(value float64, rounding string) float64 {
+	switch strings.TrimSpace(rounding) {
+	case "yuan":
+		return math.Round(value)
+	case "jiao":
+		return math.Round(value*10) / 10
+	default:
+		return roundBeanListPrice(value)
+	}
+}
+
+func pricingRuleTrialString(calc map[string]any, key string, fallback string) string {
+	if calc == nil {
+		return fallback
+	}
+	value := strings.TrimSpace(fmt.Sprint(calc[key]))
+	if value == "" || value == "<nil>" {
+		return fallback
+	}
+	return value
+}
+
+func pricingRuleTrialNumber(calc map[string]any, key string, fallback float64) float64 {
+	if calc == nil {
+		return fallback
+	}
+	if value, ok := calc[key]; ok {
+		return numberFromAny(value)
+	}
+	return fallback
+}
+
+func numberFromAny(value any) float64 {
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case float32:
+		return float64(typed)
+	case int:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	case json.Number:
+		n, _ := typed.Float64()
+		return n
+	case string:
+		n, _ := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		return n
+	default:
+		return 0
+	}
+}
+
+func pricingRuleTrialOtherCostSource(overrides map[string]float64) string {
+	if overrides != nil {
+		return "temporary_override"
+	}
+	return "pricing_rule"
+}
+
+func pricingRuleTrialLossSource(override *float64, mode string) string {
+	if override != nil {
+		return "temporary_override"
+	}
+	if strings.TrimSpace(mode) == "none" {
+		return "pricing_rule"
+	}
+	return "product_bom"
+}
+
+func pricingRuleTrialOverrideSource(value *float64) string {
+	if value != nil {
+		return "temporary_override"
+	}
+	return "pricing_rule"
+}
+
+func pricingRuleTrialProfitLabel(method string) string {
+	switch strings.TrimSpace(method) {
+	case "markup":
+		return "加价率"
+	case "fixed_add":
+		return "固定加价"
+	default:
+		return "毛利率"
+	}
+}
+
+func pricingRuleTrialTaxLabel(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case "tax_excluded":
+		return "未税税额"
+	case "none":
+		return "不计税"
+	default:
+		return "含税税率"
+	}
+}
+
+func appendUniqueString(values []string, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return values
+	}
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
+func roundRatio(value float64) float64 {
+	return math.Round((value+1e-12)*10000) / 10000
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func (s *Service) ExplainDripPrice(ctx context.Context, req DripPriceExplanationCommand) (*domain.DripPriceExplanation, error) {
