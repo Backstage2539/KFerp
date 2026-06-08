@@ -20,7 +20,12 @@
 - GREEN：`go test ./internal/interfaces/http/support -run 'TestDev(449|461)' -count=1` 通过，确认 PR-449 合同已跟随新计价 popover 语义。
 - GREEN：`npm run build` 通过，保留既有 Vite chunk-size warning。
 - GREEN：`git diff --check` 通过。
-- Browser：本轮按 Van 要求不合并、不部署，未做 development ERP 业务数据验收；本地 Vite mock 页面尝试使用 bundled Playwright + 本机 Chrome 渲染，但本地 mock 未成功出现选品分类，因此不声明浏览器验收通过。
+- GREEN post-merge：`node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js` 通过 163/163；`go test ./internal/interfaces/http/support -count=1`、`go test ./...`、`npm run build`、`scripts/verify_kferp.sh changed`、`git diff --check` 均已通过。
+- Browser：本地 Vite mock 页面尝试使用 bundled Playwright + 本机 Chrome 渲染，但本地 mock 未成功出现选品分类；本次合并部署只做 HTTPS development smoke，不声明业务浏览器验收通过。
 
 ## 部署状态
-- Van 要求本轮开发完不合并、不部署；development 浏览器验收需在后续合并部署后执行。
+- 已合并到 `develop` 并部署到 development：`origin/develop=47d90a37590c92d439fffdbcfc48873aca99f2ff`。
+- 部署备份：`root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608213219`。
+- 部署脚本完成 Vue shell build、miniapp typecheck/build、miniapp `build:mp-weixin`、Docker build 和容器内 `go test ./...`。
+- Smoke：`erp_orderapp`、`erp_docconvert`、`erp_caddy` 正常，`erp_postgres` healthy；`/app/` 返回 303 到 `/app/orders`；认证访问 `/app/vue-shell/?view=costing&merge=pricing-20260608` 返回 200；需求 API 暴露 `PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER`，状态 `review`，负责人 `VA`。
+- 人工验收：Van 负责在 deployed 商品价格表页面确认树形缩进、收缩/展开和按钮附近计价 popover。

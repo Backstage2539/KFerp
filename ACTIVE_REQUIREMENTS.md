@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER
 - Branch: codex/price-list-picker-tree-pricing-popover-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: implemented and verified on feature branch; Van explicitly requested no merge and no deployment
+- Status: merged to develop and deployed to development; automated verification, deploy smoke and system PR marker checks passed; live browser/product acceptance is assigned to Van.
 - Scope: 商品价格表“选择分类和产品”改成清晰树形选品，父类、子类、商品逐级缩进；分类支持收缩/展开且只影响当前前端显示。分类和商品 `计价` 摘要改为按钮附近轻量菜单，四项为 `继承分类`、`按阶梯模板价计算`、`按价格模板计算`、`固定价`；商品 `展示` 仍走原展示弹窗。分类计价写入按目标层级拆分：父类按钮写父类选择，子类按钮写子类选择，商品按钮写商品覆盖；发布解析仍为 `商品 > 子类 > 父类 > 价格表`。
 - DEV:
   - DEV-461-PRICE-LIST-PICKER-TREE：选品区按商品分组模板深度渲染父类/子类/商品缩进，分类标题增加收缩/展开按钮并保留选中数。
@@ -22,9 +22,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN frontend targeted: `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js` passed 163/163.
   - GREEN support/contracts: `go test ./internal/interfaces/http/support -run TestDev461 -count=1`; `go test ./internal/interfaces/http/support -run 'TestDev(449|461)' -count=1` passed.
   - GREEN build/check: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning; `git diff --check` passed.
-  - Browser: local Vite served at `http://127.0.0.1:5196/vue-shell/`; bundled Playwright initially lacked browser binary, then used `/Applications/Google Chrome.app`. Mocked local API page did not render `.product-picker-category` within timeout, so no browser acceptance is claimed. Development ERP browser acceptance remains pending because this PR is not deployed.
+  - Browser: local Vite served at `http://127.0.0.1:5196/vue-shell/`; bundled Playwright initially lacked browser binary, then used `/Applications/Google Chrome.app`. Mocked local API page did not render `.product-picker-category` within timeout, so no local browser acceptance is claimed. Deployed ERP business browser acceptance is assigned to Van.
+  - GREEN post-merge verification: `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js` passed 163/163; `go test ./internal/interfaces/http/support -count=1`; `go test ./...`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Deployment:
-  - Not requested. Do not merge to develop and do not deploy for this PR unless Van asks later.
+  - GREEN merge/deploy: merged into `develop`, pushed to `origin/develop=47d90a37590c92d439fffdbcfc48873aca99f2ff`, and deployed to development.
+  - GREEN deploy evidence: backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608213219`; deploy ran Vue shell build, miniapp typecheck/build, miniapp `build:mp-weixin`, Docker build and container-internal `go test ./...`.
+  - GREEN smoke/markers: `erp_orderapp`, `erp_docconvert` and `erp_caddy` up; `erp_postgres` healthy; `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell/?view=costing&merge=pricing-20260608` returned 200; `/app/api/req/product?limit=500` exposed `PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER` with status `review` and assignee `VA`.
+  - Manual acceptance: Van will validate the deployed 商品价格表 selection tree, collapse behavior and pricing popover in the browser.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-price-list-picker-tree-pricing-popover.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
@@ -52,7 +56,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL
 - Branch: codex/pricing-rule-trial-waterfall-bom-detail
 - Owner/session: Codex / 2026-06-08
-- Status: development complete; local automated verification green; merge/deploy requested and in progress; live browser/product acceptance will be performed manually by Van.
+- Status: merged to develop and deployed to development; automated verification, deploy smoke and system PR marker checks passed; live browser/product acceptance is assigned to Van.
 - Scope: 商品价格管理价格计算模板试算结果展示价格瀑布和 `BOM+工序成本明细`。价格瀑布按 `BOM+工序成本 + 其他成本 + 损耗增加 + 加价增加 + 税额 + 取整调整 = 试算单价` 展示金额节点；BOM+工序成本展开物料成本明细和工序成本明细。缺 BOM/工序成本时显示 0、感叹号和警告，不再按发布售价快照反推。
 - DEV:
   - DEV-460-TRIAL-WATERFALL-API：`POST /api/costing/pricing-rule-trial` 返回 `bom_cost_total`、`operation_cost_total`、`base_cost_details`、`cost_base_total`、`yield_loss_amount`、`profit_markup_amount`、`tax_in_price_amount`、`final_before_rounding`、`rounding_adjustment`。
@@ -64,8 +68,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because ProductSettingsView lacked `BOM+工序成本明细`, `损耗增加`, `加价增加`, `pricing-rule-trial-waterfall` and `pricing-rule-trial-operator`.
   - GREEN targeted before merge: `go test ./internal/application/costing -run 'TestPricingRuleTrial' -count=1`; `go test ./internal/interfaces/http/costing -run 'TestPricingRuleTrialAPI|TestPricingRuleTrialPermissionIsReadOnly' -count=1`; `go test ./internal/interfaces/http/support -run 'TestDev4(5(4|6|7)|60)' -count=1`; `node --test src/lib/product-settings.test.js`.
   - GREEN broader before merge: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev4(5(2|4|6|7)|60)|TestLoadProductInputs' -count=1`; `npm run build`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN post-merge verification: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev4(5(2|4|6|7|9)|60|61)|TestDev(449|461)|TestLoadProductInputs|TestPricingRuleTrialPermissionIsReadOnly' -count=1`; `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js`; `go test ./...`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Deployment:
-  - Pending merge to `develop`, push, development deploy and smoke. Live browser/product acceptance is assigned to Van for this merge.
+  - GREEN merge/deploy: merged into `develop`, pushed to `origin/develop=47d90a37590c92d439fffdbcfc48873aca99f2ff`, and deployed to development.
+  - GREEN deploy evidence: backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608213219`; deploy ran Vue shell build, miniapp typecheck/build, miniapp `build:mp-weixin`, Docker build and container-internal `go test ./...`.
+  - GREEN smoke/markers: `erp_orderapp`, `erp_docconvert` and `erp_caddy` up; `erp_postgres` healthy; `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell/?view=productPriceManagement&merge=pricing-20260608` returned 200; `/app/api/req/product?limit=500` exposed `PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL` with status `review` and assignee `VA`.
+  - Manual acceptance: Van will validate the deployed 商品价格管理试算瀑布、BOM+工序成本明细、缺 BOM 不反推和只读性 in the browser.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial-waterfall-bom-detail.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
