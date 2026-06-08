@@ -971,10 +971,15 @@ import {
   productTypeNameOfItem as currentProductTypeNameOfItem,
 } from '../lib/product-price-list-types'
 import {
+  businessGroupControlOptions,
+  groupRowsByBusinessGroupTemplate,
+} from '../lib/business-grouping'
+import {
   buildPriceTierTemplatePayload,
   priceTablePricingModeOptions,
   resolvePriceTableTemplateInheritance,
 } from '../lib/product-settings'
+import { FORM_DRAFT_SCOPES, readFormDraft } from '../lib/form-draft-cache'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
 const props = defineProps({
@@ -982,6 +987,8 @@ const props = defineProps({
   customerContextId: { type: [Number, String], default: 0 },
   customerContextLabel: { type: String, default: '' },
 })
+
+const SKU_SETTINGS_FORM_DRAFT_SCOPE = FORM_DRAFT_SCOPES.skuSettings
 
 const loading = ref(false)
 const beanListPublishing = ref(false)
@@ -1056,6 +1063,9 @@ const priceListParentTemplateSelections = ref({})
 const priceListGroupTemplateSelections = ref({})
 const priceListProductTemplateOverrides = ref({})
 const priceListFlatRowOverrides = ref({})
+const priceListProductBusinessGroups = ref([])
+const priceListProductBusinessGroupAssignments = ref([])
+const selectedProductCatalogGroupTemplateID = ref(0)
 const priceListConfigDialog = ref(defaultPriceListConfigDialog())
 const priceListRulesDialogOpen = ref(false)
 const tierTemplateDrawerOpen = ref(false)
@@ -1093,6 +1103,20 @@ const selectedProductPriceListType = computed(() => {
 const activeProductTypeCategoryID = computed(() => Number(selectedProductPriceListType.value?.id || selectedProductTypeCategoryID.value || 0))
 const selectedProductPriceListLabel = computed(() => selectedProductPriceListType.value?.label || beanListTypeLabel(pdfTheme.value.listType))
 const activePriceListTypeKey = computed(() => productPriceListTypeKey(selectedProductPriceListType.value, pdfTheme.value.listType))
+const productCatalogBusinessGroupControls = computed(() => businessGroupControlOptions(priceListProductBusinessGroups.value, {
+  selectedTemplateID: selectedProductCatalogGroupTemplateID.value,
+  usageKey: 'product_catalog',
+}))
+const selectedProductCatalogGroupTemplate = computed(() => (
+  productCatalogBusinessGroupControls.value.selectedTemplate ||
+  productCatalogBusinessGroupControls.value.templateOptions[0]?.group ||
+  null
+))
+const selectedProductCatalogGroupItemIDs = computed(() => new Set(
+  productCatalogBusinessGroupControls.value.moveOptions
+    .map((option) => Number(option.group_item_id || 0))
+    .filter(Boolean),
+))
 const pdfTheme = computed(() => sanitizeBeanListPdfTheme(pdfOptions.value))
 const pdfAvailableItems = computed(() => beanListItemsForType(pdfTheme.value.listType, activeProductTypeCategoryID.value))
 const pdfCategoryOptions = computed(() => beanListCategoryOptions(pdfTheme.value.listType, activeProductTypeCategoryID.value))
@@ -1490,19 +1514,20 @@ function tierKeyForListType(listType) {
 function priceListTemplateGroupRows(groups = []) {
   return (Array.isArray(groups) ? groups : []).map((category, index) => {
     const firstItem = Array.isArray(category.items) ? (category.items[0] || {}) : {}
-    const groupID = classificationTemplateIDOfItem(firstItem) || activeProductTypeCategoryID.value || 1
-    const parentGroupItemID = activeProductTypeCategoryID.value > 0 ? activeProductTypeCategoryID.value : groupID
+    const usesBusinessGroupTemplate = String(category.code || '').startsWith('business-group-') || Number(category.group_id || 0) > 0
+    const groupID = Number(category.group_id || 0) || classificationTemplateIDOfItem(firstItem) || activeProductTypeCategoryID.value || 1
+    const parentGroupItemID = Number(category.parent_group_item_id || 0) || (usesBusinessGroupTemplate ? 0 : (activeProductTypeCategoryID.value > 0 ? activeProductTypeCategoryID.value : groupID))
     const classificationCategoryID = classificationCategoryIDOfItem(firstItem)
-    const groupItemID = classificationCategoryID > 0 ? classificationCategoryID : syntheticGroupItemID(category.code || category.label || index)
+    const groupItemID = Number(category.group_item_id || 0) || (classificationCategoryID > 0 ? classificationCategoryID : syntheticGroupItemID(category.code || category.label || index))
     return {
       key: String(category.code || groupItemID || index),
       label: category.label || category.category || '未分组',
       group_id: groupID,
-      group_name: selectedProductPriceListLabel.value || '商品价格表分组',
+      group_name: category.group_name || selectedProductCatalogGroupTemplate.value?.name || selectedProductPriceListLabel.value || '商品价格表分组',
       group_item_id: groupItemID,
-      group_item_name: category.label || category.category || '未分组',
+      group_item_name: category.group_item_name || category.label || category.category || '未分组',
       parent_group_item_id: parentGroupItemID,
-      parent_group_item_name: selectedProductPriceListLabel.value || '父类',
+      parent_group_item_name: category.parent_group_item_name || selectedProductCatalogGroupTemplate.value?.name || selectedProductPriceListLabel.value || '父类',
       items: Array.isArray(category.items) ? category.items : [],
     }
   })
@@ -1517,14 +1542,18 @@ function syntheticGroupItemID(value) {
 
 function priceListGroupForItem(item = {}) {
   const code = categoryCodeOfItem(item, pdfTheme.value.listType)
-  return priceListGroupTemplateRows.value.find((row) => row.key === String(code)) || priceListGroupTemplateRows.value[0] || {
+  const groupItemID = productCatalogGroupItemIDOfItem(item)
+  return priceListGroupTemplateRows.value.find((row) => (
+    row.key === String(code) ||
+    (groupItemID > 0 && Number(row.group_item_id || 0) === groupItemID)
+  )) || priceListGroupTemplateRows.value[0] || {
     key: 'default',
-    group_id: activeProductTypeCategoryID.value || 1,
-    group_name: selectedProductPriceListLabel.value || '商品价格表分组',
+    group_id: Number(selectedProductCatalogGroupTemplate.value?.id || 0) || activeProductTypeCategoryID.value || 1,
+    group_name: selectedProductCatalogGroupTemplate.value?.name || selectedProductPriceListLabel.value || '商品价格表分组',
     group_item_id: 1,
     group_item_name: '未分组',
-    parent_group_item_id: activeProductTypeCategoryID.value || 1,
-    parent_group_item_name: selectedProductPriceListLabel.value || '父类',
+    parent_group_item_id: Number(selectedProductCatalogGroupTemplate.value?.id || 0) || activeProductTypeCategoryID.value || 1,
+    parent_group_item_name: selectedProductCatalogGroupTemplate.value?.name || selectedProductPriceListLabel.value || '父类',
   }
 }
 
@@ -2262,35 +2291,65 @@ function scopedBeanListItems(scope, listType) {
 }
 
 function beanListCategoryOptions(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
-  const seen = new Map()
-  beanListItemsForType(listType, productTypeCategoryID).forEach((item) => {
-    const meta = beanMetaForItem(item)
-    const classificationCategoryID = classificationCategoryIDOfItem(item)
-    const category = (classificationCategoryNameOfItem(item) || meta.category || '').replace(/^\d+[、.．\-\s]+/, '') || '未分类'
-    const code = classificationCategoryID > 0 ? `classification-category-${classificationCategoryID}` : (String(meta.code || '').split('.')[0] || category || '未分类')
-    const key = code
-    if (!seen.has(key)) {
-      seen.set(key, { code, category, label: category })
-    }
-  })
-  return Array.from(seen.values())
-}
-
-function productGroupsForType(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
-  return beanListCategoryOptions(listType, productTypeCategoryID).map((category) => ({
-    ...category,
-    items: beanListItemsForType(listType, productTypeCategoryID).filter((item) => 
-      categoryCodeOfItem(item, listType) === category.code
-    ),
+  return productGroupsForType(listType, productTypeCategoryID).map((group) => ({
+    code: group.code,
+    category: group.category,
+    label: group.label,
   }))
 }
 
+function productGroupsForType(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
+  const template = selectedProductCatalogGroupTemplate.value
+  return groupRowsByBusinessGroupTemplate(beanListItemsForType(listType, productTypeCategoryID), {
+    template,
+    assignments: priceListProductBusinessGroupAssignments.value,
+    usageKey: 'product_catalog',
+    objectKey: 'product',
+    objectIDForRow: (item) => Number(item?.product_id ?? item?.productID ?? item?.id ?? 0),
+    unclassifiedLabel: '未分类',
+  }).map((group) => {
+    const label = group.label || group.path_label || '未分类'
+    const pathLabel = group.path_label || label
+    const parentName = pathLabel.includes(' / ') ? pathLabel.split(' / ')[0] : ''
+    return {
+      code: String(group.key || `business-group-${group.group_id || 0}-${group.group_item_id || 0}`),
+      category: label,
+      label,
+      path_label: pathLabel,
+      depth: Number(group.depth || 0),
+      group_id: Number(group.group_id || template?.id || 0),
+      group_name: template?.name || selectedProductPriceListLabel.value || '商品分组',
+      group_item_id: Number(group.group_item_id || 0),
+      group_item_name: label,
+      parent_group_item_id: Number(group.parent_group_item_id || 0),
+      parent_group_item_name: parentName,
+      items: Array.isArray(group.rows) ? group.rows : [],
+      unclassified: Boolean(group.unclassified),
+    }
+  })
+}
+
 function categoryCodeOfItem(item, listType = pdfTheme.value.listType) {
-  const classificationCategoryID = classificationCategoryIDOfItem(item)
-  if (classificationCategoryID > 0) return `classification-category-${classificationCategoryID}`
-  const meta = beanMetaForItem(item)
-  const category = (meta.category || '').replace(/^\d+[、.．\-\s]+/, '')
-  return String(meta.code || '').split('.')[0] || category || '未分类'
+  void listType
+  const groupItemID = productCatalogGroupItemIDOfItem(item)
+  const templateID = Number(selectedProductCatalogGroupTemplate.value?.id || 0)
+  if (templateID > 0 && groupItemID > 0) return `business-group-${templateID}-${groupItemID}`
+  return 'business-group-unclassified'
+}
+
+function productCatalogGroupItemIDOfItem(item = {}) {
+  const templateID = Number(selectedProductCatalogGroupTemplate.value?.id || 0)
+  if (!templateID) return 0
+  const objectID = Number(item?.product_id ?? item?.productID ?? item?.id ?? 0)
+  if (!objectID) return 0
+  const assignment = (priceListProductBusinessGroupAssignments.value || []).find((row) => (
+    String(row?.usage_key ?? row?.usageKey ?? '') === 'product_catalog' &&
+    String(row?.object_key ?? row?.objectKey ?? '') === 'product' &&
+    Number(row?.object_id ?? row?.objectID ?? 0) === objectID
+  ))
+  if (Number(assignment?.group_id ?? assignment?.groupID ?? 0) !== templateID) return 0
+  const groupItemID = Number(assignment?.group_item_id ?? assignment?.groupItemID ?? 0)
+  return selectedProductCatalogGroupItemIDs.value.has(groupItemID) ? groupItemID : 0
 }
 
 function pdfCategoryCodeOfItem(item, listType = pdfTheme.value.listType) {
@@ -2839,7 +2898,10 @@ async function loadBeanList() {
   error.value = ''
   message.value = ''
   try {
-    const data = await apiGet(beanListURLForCustomerRules())
+    const [data] = await Promise.all([
+      apiGet(beanListURLForCustomerRules()),
+      loadPriceListProductBusinessGroups(),
+    ])
     parameters.value = data.parameters
     items.value = Array.isArray(data.items) ? data.items : []
     syncSelectedProductTypeCategoryFromOptions()
@@ -2849,6 +2911,49 @@ async function loadBeanList() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadPriceListProductBusinessGroups() {
+  try {
+    const [groupsData, assignmentsData] = await Promise.all([
+      apiGet('/api/business-groups'),
+      apiGet('/api/business-group-assignments?usage_key=product_catalog&object_key=product'),
+    ])
+    priceListProductBusinessGroups.value = Array.isArray(groupsData?.rows)
+      ? groupsData.rows
+      : (Array.isArray(groupsData?.groups) ? groupsData.groups : (Array.isArray(groupsData) ? groupsData : []))
+    priceListProductBusinessGroupAssignments.value = Array.isArray(assignmentsData?.rows)
+      ? assignmentsData.rows
+      : (Array.isArray(assignmentsData?.assignments) ? assignmentsData.assignments : (Array.isArray(assignmentsData) ? assignmentsData : []))
+    const templateOptions = productCatalogBusinessGroupControls.value.templateOptions
+    if (!templateOptions.length) {
+      selectedProductCatalogGroupTemplateID.value = 0
+      return
+    }
+    const preferredTemplateID = productSettingsSelectedProductGroupTemplateID()
+    if (preferredTemplateID && templateOptions.some((option) => Number(option.id || 0) === preferredTemplateID)) {
+      selectedProductCatalogGroupTemplateID.value = preferredTemplateID
+      return
+    }
+    if (!templateOptions.some((option) => Number(option.id || 0) === Number(selectedProductCatalogGroupTemplateID.value || 0))) {
+      selectedProductCatalogGroupTemplateID.value = Number(templateOptions[0].id || 0)
+    }
+  } catch (err) {
+    priceListProductBusinessGroups.value = []
+    priceListProductBusinessGroupAssignments.value = []
+    selectedProductCatalogGroupTemplateID.value = 0
+  }
+}
+
+function productSettingsDraftKeyForPriceList() {
+  const workspace = props.workspaceMode || 'factory'
+  const customerID = Number(props.customerContextId || 0)
+  return `${SKU_SETTINGS_FORM_DRAFT_SCOPE}:${workspace}:${customerID || 'all'}`
+}
+
+function productSettingsSelectedProductGroupTemplateID() {
+  const draft = readFormDraft(productSettingsDraftKeyForPriceList())
+  return Number(draft?.selectedProductGroupTemplateID || 0)
 }
 
 function beanListURLForCustomerRules() {

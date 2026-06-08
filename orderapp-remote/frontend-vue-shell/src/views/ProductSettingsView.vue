@@ -2539,6 +2539,7 @@ function saveProductSettingsDraft() {
     skuFilters: skuFilters.value,
     skuPage: skuPage.value,
     skuPageSize: skuPageSize.value,
+    selectedProductGroupTemplateID: selectedProductGroupTemplateID.value,
   })
 }
 
@@ -2566,6 +2567,10 @@ async function restoreProductSettingsDraft() {
   productUnitTemplateForm.value = defaultProductUnitTemplateForm(draft.productUnitTemplateForm || {})
   productPriceRecordForm.value = defaultProductPriceRecordForm(draft.productPriceRecordForm || {})
   productTierPriceSchemeForm.value = defaultProductTierPriceSchemeForm(draft.productTierPriceSchemeForm || {})
+  const draftProductGroupTemplateID = Number(draft.selectedProductGroupTemplateID || 0)
+  if (draftProductGroupTemplateID && productCatalogBusinessGroupRows().some((group) => Number(group.id || 0) === draftProductGroupTemplateID)) {
+    selectedProductGroupTemplateID.value = draftProductGroupTemplateID
+  }
   editingCategoryId.value = Number(draft.editingCategoryId || 0)
   editingCategoryName.value = draft.editingCategoryName || ''
   categoryCollapsed.value = Boolean(draft.categoryCollapsed)

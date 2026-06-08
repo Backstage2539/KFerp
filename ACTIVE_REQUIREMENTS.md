@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-459-PRICE-LIST-FOLLOW-PRODUCT-GROUP
+- Branch: codex/price-list-follow-product-group-20260608
+- Owner/session: Codex / 2026-06-08
+- Status: implementation complete on feature branch; merge/deploy requested and in progress
+- Scope: 商品档案选择的 `商品分组` 必须同步影响商品价格表。商品价格表进入时优先读取商品档案页面草稿中的 `selectedProductGroupTemplateID`，再按该分组模板加载 `product_catalog/product` 归类，使用共享 `business-grouping` 生成选品分类、空分类和 `未分类`；平铺价格行快照使用 `group_source=product_catalog`。价格表覆盖分组仍只写入价格表版本快照，不回写商品档案归类。
+- DEV:
+  - DEV-459-PRICE-LIST-PRODUCT-GROUP-LOAD：商品价格表读取 `business_groups` 和 `business_group_assignments?usage_key=product_catalog&object_key=product`，用 `groupRowsByBusinessGroupTemplate` 组织商品选品分类。
+  - DEV-459-PRODUCT-GROUP-DRAFT-BRIDGE：商品档案所选分组模板写入现有页面草稿，商品价格表进入时优先使用该模板；无草稿时回退启用模板。
+  - DEV-459-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和验收记录。
+- Verifier:
+  - GREEN targeted before merge: `go test ./internal/interfaces/http/costing -run TestCostingViewFollowsProductCatalogBusinessGroupTemplate -count=1`; `go test ./internal/interfaces/http/costing -count=1`; `node --test src/lib/product-settings.test.js`; `node --test src/lib/business-grouping.test.js`; `node --test src/lib/bean-list-pdf.test.js`; `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-price-list-types.test.js`; `npm run build`; `git diff --check`.
+  - GREEN PR/DEV contract: `go test ./internal/interfaces/http/support -run TestDev459PriceListFollowProductGroupContracts -count=1` passed.
+  - GREEN broader pre-merge: `go test ./internal/interfaces/http/support -run 'TestDev45(3|5|8|9)' -count=1`; `go test ./...`; `scripts/verify_kferp.sh changed` passed. Vue build passed with existing Vite chunk-size warning.
+  - Local Browser: Vite opened `http://127.0.0.1:5173/vue-shell/?view=costing` but local auth/backend redirected to `/login`; no local browser business acceptance was claimed. Deploy acceptance must verify on HTTPS development ERP.
+- Deployment:
+  - Pending merge to `develop`, push, development deploy, smoke and browser acceptance.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-price-list-follow-product-group.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
 ### PR-458-GROUP-TEMPLATE-BUSINESS-LISTING
 - Branch: codex/group-template-business-listing-20260608
 - Owner/session: Codex / 2026-06-08

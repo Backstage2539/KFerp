@@ -18,6 +18,7 @@
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：仓库库存不出现 `普通仓库`、`客户仓库` 固定分段；仓库按库存分组模板的大类/小类和 `未分类` 整理，仓库行可勾选后通过同一套 `移动到分类` 移动，归类对象是仓库 code，不改变库存数量、批次、成本或追溯。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案、生产 BOM、仓库库存三处页面都引用共享 `BusinessGroupControls` 和 `business-grouping` helper，不再各自手写模板选择、移动分类、未分类分组和移动 payload。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品价格表按所选商品分组模板生成选品分类和发布快照；价格表覆盖只写入快照，不回写商品档案分类。
+- [ ] PR-459-PRICE-LIST-FOLLOW-PRODUCT-GROUP：商品档案选择 `商品分组` 后切到商品价格表，选品分类显示该模板的大类/小类和 `未分类`；平铺价格行快照写入 `group_source=product_catalog`，未归类、其他模板归类和已删除分类归类统一进入 `未分类`。
 
 ## 0.0.0 PR-442 商品 / BOM / 仓库库存分组逻辑重构
 - [x] PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：`business_groups / business_group_items` 作为分组模板和分类项，`business_group_assignments` 作为对象归类关系；商品管理、生产 BOM、仓库库存不再各自维护独立分类树或专用分组表。
