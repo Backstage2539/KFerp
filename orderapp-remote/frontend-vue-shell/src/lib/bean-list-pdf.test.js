@@ -5,6 +5,7 @@ import {
   DEFAULT_BEAN_LIST_PDF_VERSION,
   applyCustomerProductAliasesToBeanListItems,
   buildBeanListPdfGroups,
+  buildBeanListPdfGroupsFromCategoryRows,
   buildBeanListPdfTitle,
   beanListPublicationPdfOptions,
   copyBeanListPublicationContentGroups,
@@ -441,6 +442,31 @@ test('PDF bean-list helper supports product selection, category filtering, and E
     visibleCategoryCodes: [],
   })
   assert.deepEqual(none, [])
+})
+
+test('PDF bean-list helper can follow explicit picker category rows', () => {
+  const groups = buildBeanListPdfGroupsFromCategoryRows([
+    {
+      code: 'business-group-7-101',
+      label: '意式拼配豆',
+      items: [rows[0], rows[2]],
+    },
+    {
+      code: 'business-group-7-102',
+      label: '挂耳咖啡',
+      items: [rows[1]],
+    },
+  ], 'commercial', {
+    selectedProductIDs: [10, 30],
+    visibleCategoryCodes: ['business-group-7-101'],
+    showCategoryNumbers: true,
+  })
+
+  assert.equal(groups.length, 1)
+  assert.equal(groups[0].category, '1、意式拼配豆')
+  assert.equal(groups[0].categoryCode, 'business-group-7-101')
+  assert.deepEqual(groups[0].items.map((item) => item.product_id), [10, 30])
+  assert.deepEqual(groups[0].items.map((item) => item.code), ['5.2', '6.1'])
 })
 
 test('PDF bean-list helper preserves layout, brand, changelog, badge, and red-highlight settings', () => {

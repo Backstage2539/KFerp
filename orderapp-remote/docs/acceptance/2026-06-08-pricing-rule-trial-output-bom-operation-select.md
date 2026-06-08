@@ -1,4 +1,4 @@
-# PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT 商品价格管理试算 BOM 版本与工序选择验收记录
+# PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT 商品价格管理试算 BOM 版本与工序选择验收记录
 
 ## 范围
 - 商品价格管理的价格计算模板试算支持选择 `试算BOM版本` 和 `工序`。

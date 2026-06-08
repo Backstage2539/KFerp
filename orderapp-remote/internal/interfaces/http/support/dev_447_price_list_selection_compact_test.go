@@ -19,8 +19,8 @@ func TestDev447PriceListSelectionCompactContracts(t *testing.T) {
 			"product-compact-status",
 			"priceListCategoryPricingSummary",
 			"priceListProductDisplaySummary",
-			"openPriceListCategoryPricingDialog",
-			"openPriceListProductPricingDialog",
+			"openPriceListPricingPopover",
+			"price-list-pricing-popover",
 			"openPriceListProductDisplayDialog",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
@@ -35,7 +35,7 @@ func TestDev447PriceListSelectionCompactContracts(t *testing.T) {
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-447",
 			"默认只显示分类/商品选择和计价、展示摘要",
-			"点击分类或商品行的 `计价 / 展示` 摘要后",
+			"点击分类或商品行的 `计价` 摘要后",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-price-list-selection-compact.md"): {
 			"PR-447 商品价格表选品区降噪",

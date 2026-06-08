@@ -6,47 +6,101 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
-### PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT
+### PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT
 - Branch: codex/pricing-rule-trial-waterfall-bom-detail
 - Owner/session: Codex / 2026-06-08
-- Status: development complete; local automated verification green; branch committed and pushed. Van explicitly requested no merge and no deploy.
+- Status: merge/deploy requested by Van; resolving latest origin/develop and rerunning integration verification.
 - Scope: 商品价格管理价格计算模板试算支持选择 `试算BOM版本` 和 `工序`。BOM 版本只按 `production_boms.output_product_id` 查找产出当前商品的 active BOM / published 版本，默认最新发布版本；试算明细和试算基数删除商品绑定 BOM、旧 `product_bom_sources`、旧 `product_bom_items` 兜底。缺产出 BOM 明细时 `BOM+工序成本` 为 0 和警告。
 - DEV:
-  - DEV-460-TRIAL-OUTPUT-BOM-OPTIONS：试算 API 返回产出当前商品的 BOM 版本选项，默认最新发布版本，支持选择其他 active/published 版本。
-  - DEV-460-TRIAL-NO-PRODUCT-BOM-FALLBACK：试算明细 SQL 和服务层基数不再读取商品绑定 BOM、`product_bom_sources` 或 `product_bom_items`；无产出 BOM 明细时不从旧商品汇总成本试算。
-  - DEV-460-TRIAL-OPERATION-OPTIONS：试算 API 返回 active 工序模板选项并支持 `operation_template_id` 只读试算。
-  - DEV-460-TRIAL-SELECTION-UI：商品价格管理试算抽屉显示 `试算BOM版本` 和 `工序` 下拉，payload 提交 `bom_version_id` / `operation_template_id`。
-  - DEV-460-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和验收记录。
+  - DEV-462-TRIAL-OUTPUT-BOM-OPTIONS：试算 API 返回产出当前商品的 BOM 版本选项，默认最新发布版本，支持选择其他 active/published 版本。
+  - DEV-462-TRIAL-NO-PRODUCT-BOM-FALLBACK：试算明细 SQL 和服务层基数不再读取商品绑定 BOM、`product_bom_sources` 或 `product_bom_items`；无产出 BOM 明细时不从旧商品汇总成本试算。
+  - DEV-462-TRIAL-OPERATION-OPTIONS：试算 API 返回 active 工序模板选项并支持 `operation_template_id` 只读试算。
+  - DEV-462-TRIAL-SELECTION-UI：商品价格管理试算抽屉显示 `试算BOM版本` 和 `工序` 下拉，payload 提交 `bom_version_id` / `operation_template_id`。
+  - DEV-462-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和验收记录。
 - Verifier:
   - RED backend/service: `go test ./internal/application/costing -run 'TestPricingRuleTrialUsesSelectedOutputBomVersionAndOperationTemplate' -count=1` initially failed before new result fields/options and selection logic existed.
   - RED repository: `go test ./internal/infrastructure/postgres/costing -run TestPricingRuleTrialProductionCostUsesOutputProductBomOnly -count=1` initially failed before production option lookup existed.
   - RED frontend: `node --test src/lib/product-settings.test.js` initially failed because trial payload/drawer lacked BOM version and operation selection.
   - GREEN targeted: `go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|DoesNotInferCostFromPublishedPriceSnapshotWhenBomCostMissing|IgnoresLegacySummaryCostWithoutOutputBomDetails|UsesBaseCostDetailsWhenProductInputSummaryMissing|UsesSelectedOutputBomVersionAndOperationTemplate|MatchesExcelSupplierPriceSamples|SupportsOverridesAndMinimumMarginWarning|SupportsMarkupTaxExcludedAndYuanRounding|ValidatesRuleAndProduct)' -count=1`; `go test ./internal/infrastructure/postgres/costing -run 'TestPricingRuleTrialProductionCostUsesOutputProductBomOnly|TestPricingRuleTrialDetailsUseProductionBomOutputProductFallback' -count=1`.
   - GREEN frontend: `node --test src/lib/product-settings.test.js`; `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size/plugin timing warnings.
-  - GREEN broader: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev45(2|4|6|7|9)|TestDev460|TestLoadProductInputs' -count=1`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN broader: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev45(2|4|6|7|9)|TestDev462|TestLoadProductInputs' -count=1`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Deployment:
-  - Not merged and not deployed by request on 2026-06-08.
+  - Pending current merge/deploy run.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial-output-bom-operation-select.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
-### PR-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL
+### PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER
+- Branch: codex/price-list-picker-tree-pricing-popover-20260608
+- Owner/session: Codex / 2026-06-08
+- Status: merged to develop and deployed to development; automated verification, deploy smoke and system PR marker checks passed; live browser/product acceptance is assigned to Van.
+- Scope: 商品价格表“选择分类和产品”改成清晰树形选品，父类、子类、商品逐级缩进；分类支持收缩/展开且只影响当前前端显示。分类和商品 `计价` 摘要改为按钮附近轻量菜单，四项为 `继承分类`、`按阶梯模板价计算`、`按价格模板计算`、`固定价`；商品 `展示` 仍走原展示弹窗。分类计价写入按目标层级拆分：父类按钮写父类选择，子类按钮写子类选择，商品按钮写商品覆盖；预览和生成 PDF 使用与选品树同源的分类行和商品行，避免旧 bean-list 分类把同一选品分类拆散；发布解析仍为 `商品 > 子类 > 父类 > 价格表`。
+- DEV:
+  - DEV-461-PRICE-LIST-PICKER-TREE：选品区按商品分组模板深度渲染父类/子类/商品缩进，分类标题增加收缩/展开按钮并保留选中数。
+  - DEV-461-PRICE-LIST-PRICING-POPOVER：分类/商品计价摘要打开按钮附近 popover，支持继承、阶梯模板、价格模板和固定价，并移除右下角计价弹窗。
+  - DEV-461-PRICE-LIST-CATEGORY-TARGET：新增分类计价目标 helper，父类、子类和商品覆盖分别写入对应 map，保持发布快照输入语义。
+  - DEV-461-PRICE-LIST-PREVIEW-PICKER-GROUPS：预览和生成 PDF 从 `categoryProductGroups` 显式分类行构建，分类标题、分类过滤和商品归属保持与“选择分类和产品”一致。
+  - DEV-461-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和验收记录。
+- Verifier:
+  - RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed before implementation because tree indentation/collapse, anchored pricing popover and category target helper markers were missing.
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev461 -count=1` failed before implementation because PR-461 seeds/docs were missing.
+  - RED preview follow-up: `node --test src/lib/bean-list-pdf.test.js` failed because `buildBeanListPdfGroupsFromCategoryRows` was not exported; `node --test src/lib/costing-bean-list-version-ui.test.js` failed because `pdfGroups` still used legacy PDF category mapping.
+  - GREEN frontend targeted: `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js` passed 163/163 before preview follow-up; `node --test src/lib/bean-list-pdf.test.js src/lib/costing-bean-list-version-ui.test.js` passed after preview follow-up.
+  - GREEN support/contracts: `go test ./internal/interfaces/http/support -run TestDev461 -count=1`; `go test ./internal/interfaces/http/support -run 'TestDev(449|461)' -count=1` passed.
+  - GREEN build/check: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning; `git diff --check` passed.
+  - Browser: local Vite served at `http://127.0.0.1:5196/vue-shell/`; bundled Playwright initially lacked browser binary, then used `/Applications/Google Chrome.app`. Mocked local API page did not render `.product-picker-category` within timeout, so no local browser acceptance is claimed. Deployed ERP business browser acceptance is assigned to Van.
+  - GREEN post-merge verification: `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js` passed 163/163; `go test ./internal/interfaces/http/support -count=1`; `go test ./...`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Deployment:
+  - GREEN merge/deploy: merged into `develop`, pushed to `origin/develop=47d90a37590c92d439fffdbcfc48873aca99f2ff`, and deployed to development.
+  - GREEN deploy evidence: backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608213219`; deploy ran Vue shell build, miniapp typecheck/build, miniapp `build:mp-weixin`, Docker build and container-internal `go test ./...`.
+  - GREEN smoke/markers: `erp_orderapp`, `erp_docconvert` and `erp_caddy` up; `erp_postgres` healthy; `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell/?view=costing&merge=pricing-20260608` returned 200; `/app/api/req/product?limit=500` exposed `PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER` with status `review` and assignee `VA`.
+  - Manual acceptance: Van will validate the deployed 商品价格表 selection tree, collapse behavior and pricing popover in the browser.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-price-list-picker-tree-pricing-popover.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
+### PR-459-PRICE-LIST-FOLLOW-PRODUCT-GROUP
+- Branch: codex/price-list-follow-product-group-20260608
+- Owner/session: Codex / 2026-06-08
+- Status: merged to develop and deployed to development; automated verification, smoke and deployment marker checks passed
+- Scope: 商品档案选择的 `商品分组` 必须同步影响商品价格表。商品价格表进入时优先读取商品档案页面草稿中的 `selectedProductGroupTemplateID`，再按该分组模板加载 `product_catalog/product` 归类，使用共享 `business-grouping` 生成选品分类、空分类和 `未分类`；平铺价格行快照使用 `group_source=product_catalog`。价格表覆盖分组仍只写入价格表版本快照，不回写商品档案归类。
+- DEV:
+  - DEV-459-PRICE-LIST-PRODUCT-GROUP-LOAD：商品价格表读取 `business_groups` 和 `business_group_assignments?usage_key=product_catalog&object_key=product`，用 `groupRowsByBusinessGroupTemplate` 组织商品选品分类。
+  - DEV-459-PRODUCT-GROUP-DRAFT-BRIDGE：商品档案所选分组模板写入现有页面草稿，商品价格表进入时优先使用该模板；无草稿时回退启用模板。
+  - DEV-459-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和验收记录。
+- Verifier:
+  - GREEN targeted before merge: `go test ./internal/interfaces/http/costing -run TestCostingViewFollowsProductCatalogBusinessGroupTemplate -count=1`; `go test ./internal/interfaces/http/costing -count=1`; `node --test src/lib/product-settings.test.js`; `node --test src/lib/business-grouping.test.js`; `node --test src/lib/bean-list-pdf.test.js`; `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-price-list-types.test.js`; `npm run build`; `git diff --check`.
+  - GREEN PR/DEV contract: `go test ./internal/interfaces/http/support -run TestDev459PriceListFollowProductGroupContracts -count=1` passed.
+  - GREEN broader pre-merge: `go test ./internal/interfaces/http/support -run 'TestDev45(3|5|8|9)' -count=1`; `go test ./...`; `scripts/verify_kferp.sh changed` passed. Vue build passed with existing Vite chunk-size warning.
+  - Local Browser: Vite opened `http://127.0.0.1:5173/vue-shell/?view=costing` but local auth/backend redirected to `/login`; no local browser business acceptance was claimed. Deploy acceptance must verify on HTTPS development ERP.
+- Deployment:
+  - GREEN merge/deploy: feature commit `40c023adaab60100fa04d37f6571bb5eb0a892af` fast-forward merged to `develop`, pushed to `origin/develop`, and deployed to development.
+  - GREEN deploy evidence: backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608202931`; deploy ran Vue shell build, miniapp typecheck/build, Docker build and container-internal `go test ./...`.
+  - GREEN smoke/markers: `erp_orderapp` up and `erp_postgres` healthy; `/app/` returned 303; authenticated `/app/vue-shell/?view=costing&pr459=1` returned 200; requirement API exposed `PR-459-PRICE-LIST-FOLLOW-PRODUCT-GROUP`; deployed source/docs contained `selectedProductCatalogGroupTemplate` and `business-group-unclassified`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-price-list-follow-product-group.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
+### PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL
 - Branch: codex/pricing-rule-trial-waterfall-bom-detail
 - Owner/session: Codex / 2026-06-08
-- Status: development complete; local automated verification green; merge/deploy/browser acceptance intentionally pending because Van requested not to merge or deploy.
+- Status: merged to develop and deployed to development; automated verification, deploy smoke and system PR marker checks passed; live browser/product acceptance is assigned to Van.
 - Scope: 商品价格管理价格计算模板试算结果展示价格瀑布和 `BOM+工序成本明细`。价格瀑布按 `BOM+工序成本 + 其他成本 + 损耗增加 + 加价增加 + 税额 + 取整调整 = 试算单价` 展示金额节点；BOM+工序成本展开物料成本明细和工序成本明细。生产 BOM 通过 `production_boms.output_product_id` 声明产出当前商品时也作为试算成本来源，覆盖 `PR439-20260606182321 工厂量单商品` / `BOM-000539 V002` 这类无旧绑定场景。缺 BOM/工序成本时显示 0、感叹号和警告，不再按发布售价快照反推。
 - DEV:
-  - DEV-459-TRIAL-WATERFALL-API：`POST /api/costing/pricing-rule-trial` 返回 `bom_cost_total`、`operation_cost_total`、`base_cost_details`、`cost_base_total`、`yield_loss_amount`、`profit_markup_amount`、`tax_in_price_amount`、`final_before_rounding`、`rounding_adjustment`。
-  - DEV-459-TRIAL-BOM-OPERATION-DETAILS：costing 仓储只读读取有效 BOM 物料/组件行和 `operation_template_steps` 工序行；无旧商品 BOM 绑定时，通过 `production_boms.output_product_id` 读取产出当前商品的已发布生产 BOM 版本，服务层按报价单位换算明细金额并可由明细反填成本基数。
-  - DEV-459-TRIAL-WATERFALL-UI：商品价格管理试算抽屉用加号/等号展示价格瀑布，展示物料成本明细和工序成本明细，删除英文来源/状态和反推文案。
-  - DEV-459-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和验收记录。
+  - DEV-460-TRIAL-WATERFALL-API：`POST /api/costing/pricing-rule-trial` 返回 `bom_cost_total`、`operation_cost_total`、`base_cost_details`、`cost_base_total`、`yield_loss_amount`、`profit_markup_amount`、`tax_in_price_amount`、`final_before_rounding`、`rounding_adjustment`。
+  - DEV-460-TRIAL-BOM-OPERATION-DETAILS：costing 仓储只读读取有效 BOM 物料/组件行和 `operation_template_steps` 工序行；无旧商品 BOM 绑定时，通过 `production_boms.output_product_id` 读取产出当前商品的已发布生产 BOM 版本，服务层按报价单位换算明细金额并可由明细反填成本基数。
+  - DEV-460-TRIAL-WATERFALL-UI：商品价格管理试算抽屉用加号/等号展示价格瀑布，展示物料成本明细和工序成本明细，删除英文来源/状态和反推文案。
+  - DEV-460-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和验收记录。
 - Verifier:
   - RED backend/API: `go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|DoesNotInferCostFromPublishedPriceSnapshotWhenBomCostMissing)' -count=1` and `go test ./internal/interfaces/http/costing -run TestPricingRuleTrialAPI -count=1` failed before implementation because `PricingRuleTrialBaseCostDetail`, `base_cost_details`, `yield_loss_amount`, `profit_markup_amount` and related result fields were missing.
   - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because ProductSettingsView lacked `BOM+工序成本明细`, `损耗增加`, `加价增加`, `pricing-rule-trial-waterfall` and `pricing-rule-trial-operator`.
   - RED PR439 factory product regression: `go test ./internal/application/costing -run 'TestPricingRuleTrialUsesBaseCostDetailsWhenProductInputSummaryMissing' -count=1` failed with detail rows `42+8` but `base_cost=0`; `go test ./internal/infrastructure/postgres/costing -run 'TestLoadProductInputsUsesProductionBomOutputProductFallback|TestPricingRuleTrialDetailsUseProductionBomOutputProductFallback' -count=1` failed because `production_boms.output_product_id` fallback was missing.
-  - GREEN targeted: `go test ./internal/application/costing -run 'TestPricingRuleTrial' -count=1`; `go test ./internal/infrastructure/postgres/costing -run 'TestLoadProductInputsUsesProductionBomOutputProductFallback|TestPricingRuleTrialDetailsUseProductionBomOutputProductFallback' -count=1`; `go test ./internal/interfaces/http/costing -run 'TestPricingRuleTrialAPI|TestPricingRuleTrialPermissionIsReadOnly' -count=1`; `go test ./internal/interfaces/http/support -run 'TestDev45(4|6|7|9)' -count=1`; `node --test src/lib/product-settings.test.js`.
-  - GREEN broader: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev45(2|4|6|7|9)|TestLoadProductInputs' -count=1`; `npm run build`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN targeted before merge: `go test ./internal/application/costing -run 'TestPricingRuleTrial' -count=1`; `go test ./internal/interfaces/http/costing -run 'TestPricingRuleTrialAPI|TestPricingRuleTrialPermissionIsReadOnly' -count=1`; `go test ./internal/interfaces/http/support -run 'TestDev4(5(4|6|7)|60)' -count=1`; `node --test src/lib/product-settings.test.js`.
+  - GREEN targeted after output-product follow-up: `go test ./internal/application/costing -run 'TestPricingRuleTrial' -count=1`; `go test ./internal/infrastructure/postgres/costing -run 'TestLoadProductInputsUsesProductionBomOutputProductFallback|TestPricingRuleTrialDetailsUseProductionBomOutputProductFallback' -count=1`; `go test ./internal/interfaces/http/costing -run 'TestPricingRuleTrialAPI|TestPricingRuleTrialPermissionIsReadOnly' -count=1`; `go test ./internal/interfaces/http/support -run 'TestDev45(4|6|7|9)' -count=1`; `node --test src/lib/product-settings.test.js`.
+  - GREEN broader before merge: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev4(5(2|4|6|7)|60)|TestLoadProductInputs' -count=1`; `npm run build`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN post-merge verification: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev4(5(2|4|6|7|9)|60|61)|TestDev(449|461)|TestLoadProductInputs|TestPricingRuleTrialPermissionIsReadOnly' -count=1`; `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js`; `go test ./...`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Deployment:
-  - Not merged and not deployed by request on 2026-06-08.
+  - GREEN merge/deploy: merged into `develop`, pushed to `origin/develop=47d90a37590c92d439fffdbcfc48873aca99f2ff`, and deployed to development.
+  - GREEN deploy evidence: backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608213219`; deploy ran Vue shell build, miniapp typecheck/build, miniapp `build:mp-weixin`, Docker build and container-internal `go test ./...`.
+  - GREEN smoke/markers: `erp_orderapp`, `erp_docconvert` and `erp_caddy` up; `erp_postgres` healthy; `/app/` returned 303 to `/app/orders`; authenticated `/app/vue-shell/?view=productPriceManagement&merge=pricing-20260608` returned 200; `/app/api/req/product?limit=500` exposed `PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL` with status `review` and assignee `VA`.
+  - Manual acceptance: Van will validate the deployed 商品价格管理试算瀑布、BOM+工序成本明细、缺 BOM 不反推和只读性 in the browser.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial-waterfall-bom-detail.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 

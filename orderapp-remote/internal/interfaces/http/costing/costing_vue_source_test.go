@@ -100,3 +100,32 @@ func TestCostingPreviewSectionsUseProductTypesInsteadOfLegacyCards(t *testing.T)
 		t.Fatalf("CostingView.vue should not restore old product-type preview cards")
 	}
 }
+
+func TestCostingViewFollowsProductCatalogBusinessGroupTemplate(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "views", "CostingView.vue")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"apiGet('/api/business-groups')",
+		"apiGet('/api/business-group-assignments?usage_key=product_catalog&object_key=product')",
+		"groupRowsByBusinessGroupTemplate",
+		"selectedProductCatalogGroupTemplate",
+		"priceListProductBusinessGroups",
+		"priceListProductBusinessGroupAssignments",
+		"group_source: 'product_catalog'",
+		"business-group-unclassified",
+		"usageKey: 'product_catalog'",
+		"readFormDraft(productSettingsDraftKeyForPriceList())",
+		"selectedProductGroupTemplateID",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("CostingView.vue must follow product catalog business group template; missing %q", want)
+		}
+	}
+	if strings.Contains(src, "categoryCodeOfItem(item, listType) === category.code") {
+		t.Fatalf("CostingView.vue should not group price-list products by legacy classification category code")
+	}
+}

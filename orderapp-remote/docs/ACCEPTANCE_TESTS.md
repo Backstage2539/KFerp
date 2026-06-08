@@ -18,6 +18,10 @@
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：仓库库存不出现 `普通仓库`、`客户仓库` 固定分段；仓库按库存分组模板的大类/小类和 `未分类` 整理，仓库行可勾选后通过同一套 `移动到分类` 移动，归类对象是仓库 code，不改变库存数量、批次、成本或追溯。
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案、生产 BOM、仓库库存三处页面都引用共享 `BusinessGroupControls` 和 `business-grouping` helper，不再各自手写模板选择、移动分类、未分类分组和移动 payload。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品价格表按所选商品分组模板生成选品分类和发布快照；价格表覆盖只写入快照，不回写商品档案分类。
+- [ ] PR-459-PRICE-LIST-FOLLOW-PRODUCT-GROUP：商品档案选择 `商品分组` 后切到商品价格表，选品分类显示该模板的大类/小类和 `未分类`；平铺价格行快照写入 `group_source=product_catalog`，未归类、其他模板归类和已删除分类归类统一进入 `未分类`。
+- [ ] PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：商品价格表“选择分类和产品”中父类、子类和商品逐级缩进；父类和子类都支持收缩/展开，收缩后仍保留分类勾选、计价按钮和选中数/总数，已勾选商品和生成结果不被清空。
+- [ ] PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：点击父类、子类或商品行的 `计价 继承分类`，在按钮附近弹出四项计价菜单：`继承分类`、`按阶梯模板价计算`、`按价格模板计算`、`固定价`；不得出现右下角计价弹窗。选择父类只覆盖父类，选择子类只覆盖子类，选择商品只覆盖商品；商品行 `展示 无标签` 仍按原展示弹窗维护。
+- [ ] PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：商品价格表下方预览和生成 PDF 的分类标题、商品归属、过滤结果和商品顺序必须与“选择分类和产品”保持一致；同一选品分类下的商品不得被旧 bean-list 分类拆成多个预览分类。
 
 ## 0.0.0 PR-442 商品 / BOM / 仓库库存分组逻辑重构
 - [x] PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：`business_groups / business_group_items` 作为分组模板和分类项，`business_group_assignments` 作为对象归类关系；商品管理、生产 BOM、仓库库存不再各自维护独立分类树或专用分组表。
@@ -82,7 +86,7 @@
 - [ ] 公式展示仍为只读：不得恢复 `重新试算` 或 `售价后附加成本` 前端入口，不得写商品价格表、发布快照、Pricing Rule 模板或订单。
 
 ## 0.0.2 PR-459 商品价格管理试算价格瀑布与 BOM/工序明细
-- [ ] PR-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL：商品价格管理模板行点击 `试算` 后，结果区显示价格瀑布，按 `BOM+工序成本 + 其他成本 + 损耗增加 + 加价增加 + 税额 + 取整调整 = 试算单价` 展示。
+- [ ] PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL：商品价格管理模板行点击 `试算` 后，结果区显示价格瀑布，按 `BOM+工序成本 + 其他成本 + 损耗增加 + 加价增加 + 税额 + 取整调整 = 试算单价` 展示。
 - [ ] 未税模板的税额只作为另计提示，不加进最终单价；价格瀑布各金额节点相加必须对上 `试算单价`。
 - [ ] `BOM+工序成本明细` 展示物料成本明细和工序成本明细，物料合计、工序合计、总计与 `BOM+工序成本` 卡片一致。
 - [ ] `PR439-20260606182321 工厂量单商品` 这类由生产 BOM 通过 `output_product_id` 声明产出的商品，选择 `BOM-000539 / V002` 后试算必须读取 BOM 物料/工序成本，不得显示全 0。
@@ -91,7 +95,7 @@
 - [ ] 试算仍只读，不写商品价格表、发布快照、Pricing Rule 模板、订单或操作日志业务写记录。
 
 ## 0.0.3 PR-460 商品价格管理试算 BOM 版本与工序选择
-- [ ] PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT：试算 API 只按 `production_boms.output_product_id=product_id` 查找生产 BOM 成本，不使用商品绑定 BOM、旧 `product_bom_sources` 或旧 `product_bom_items` 路径。
+- [ ] PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT：试算 API 只按 `production_boms.output_product_id=product_id` 查找生产 BOM 成本，不使用商品绑定 BOM、旧 `product_bom_sources` 或旧 `product_bom_items` 路径。
 - [ ] 价格计算模板试算抽屉在选择商品后显示 `试算BOM版本` 下拉，默认值为默认/最新已发布版本，可切换其他可用已发布版本。
 - [ ] 试算抽屉显示 `工序` 下拉，默认值为商品/配置解析出的活跃工序模板，可切换其他活跃工序模板。
 - [ ] 切换 BOM 版本或工序后，BOM+工序成本明细、价格瀑布、公式步骤和试算单价按所选版本重新计算。

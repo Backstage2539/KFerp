@@ -192,7 +192,7 @@ func TestDev456PricingRuleTrialPr439UnitContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-pr439-unit.md"): {
 			"PR-456-PRICING-RULE-TRIAL-PR439-UNIT",
-			"PR-459",
+			"PR-460",
 			"不再反推",
 		},
 	} {
@@ -292,15 +292,15 @@ func TestDev457PricingRuleTrialFormulaExpressionContracts(t *testing.T) {
 	}
 }
 
-func TestDev459PricingRuleTrialWaterfallBomDetailContracts(t *testing.T) {
+func TestDev460PricingRuleTrialWaterfallBomDetailContracts(t *testing.T) {
 	for rel, wants := range map[string][]string{
 		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
-			"PR-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
-			"DEV-459-TRIAL-WATERFALL-API",
-			"DEV-459-TRIAL-BOM-OPERATION-DETAILS",
-			"DEV-459-TRIAL-WATERFALL-UI",
-			"DEV-459-DOCS-ACCEPTANCE",
-			"REV-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
+			"PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
+			"DEV-460-TRIAL-WATERFALL-API",
+			"DEV-460-TRIAL-BOM-OPERATION-DETAILS",
+			"DEV-460-TRIAL-WATERFALL-UI",
+			"DEV-460-DOCS-ACCEPTANCE",
+			"REV-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
 		},
 		filepath.Join("internal", "application", "costing", "service.go"): {
 			"PricingRuleTrialBaseCostDetail",
@@ -327,22 +327,22 @@ func TestDev459PricingRuleTrialWaterfallBomDetailContracts(t *testing.T) {
 			"pricing-rule-trial-operator",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
-			"PR-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
+			"PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
 			"价格瀑布",
 			"BOM+工序成本明细",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"PR-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
+			"PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
 			"不再按发布售价快照反推",
 			"BOM+工序成本明细",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
+			"PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
 			"价格瀑布",
 			"BOM+工序成本明细",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-waterfall-bom-detail.md"): {
-			"PR-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
+			"PR-460-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL",
 			"BOM+工序成本明细",
 			"不反推",
 		},
@@ -364,16 +364,16 @@ func TestDev459PricingRuleTrialWaterfallBomDetailContracts(t *testing.T) {
 	}
 }
 
-func TestDev460PricingRuleTrialOutputBomOperationSelectionContracts(t *testing.T) {
+func TestDev462PricingRuleTrialOutputBomOperationSelectionContracts(t *testing.T) {
 	for rel, wants := range map[string][]string{
 		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
-			"PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
-			"DEV-460-TRIAL-OUTPUT-BOM-OPTIONS",
-			"DEV-460-TRIAL-NO-PRODUCT-BOM-FALLBACK",
-			"DEV-460-TRIAL-OPERATION-OPTIONS",
-			"DEV-460-TRIAL-SELECTION-UI",
-			"DEV-460-DOCS-ACCEPTANCE",
-			"REV-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
+			"PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
+			"DEV-462-TRIAL-OUTPUT-BOM-OPTIONS",
+			"DEV-462-TRIAL-NO-PRODUCT-BOM-FALLBACK",
+			"DEV-462-TRIAL-OPERATION-OPTIONS",
+			"DEV-462-TRIAL-SELECTION-UI",
+			"DEV-462-DOCS-ACCEPTANCE",
+			"REV-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
 		},
 		filepath.Join("internal", "application", "costing", "service.go"): {
 			"BomVersionOptions",
@@ -402,23 +402,23 @@ func TestDev460PricingRuleTrialOutputBomOperationSelectionContracts(t *testing.T
 			"pricingRuleTrialForm.operation_template_id",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
-			"PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
+			"PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
 			"production_boms.output_product_id=product_id",
 			"product_bom_sources",
 			"product_bom_items",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
+			"PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
 			"试算BOM版本",
 			"PR439-20260606182321 工厂量单商品",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
+			"PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
 			"试算BOM版本",
 			"production_boms.output_product_id",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-output-bom-operation-select.md"): {
-			"PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
+			"PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
 			"BOM-000539",
 			"不读商品绑定 BOM",
 		},
