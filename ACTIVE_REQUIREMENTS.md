@@ -10,16 +10,17 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Branch: codex/pricing-rule-trial-waterfall-bom-detail
 - Owner/session: Codex / 2026-06-08
 - Status: development complete; local automated verification green; merge/deploy/browser acceptance intentionally pending because Van requested not to merge or deploy.
-- Scope: 商品价格管理价格计算模板试算结果展示价格瀑布和 `BOM+工序成本明细`。价格瀑布按 `BOM+工序成本 + 其他成本 + 损耗增加 + 加价增加 + 税额 + 取整调整 = 试算单价` 展示金额节点；BOM+工序成本展开物料成本明细和工序成本明细。缺 BOM/工序成本时显示 0、感叹号和警告，不再按发布售价快照反推。
+- Scope: 商品价格管理价格计算模板试算结果展示价格瀑布和 `BOM+工序成本明细`。价格瀑布按 `BOM+工序成本 + 其他成本 + 损耗增加 + 加价增加 + 税额 + 取整调整 = 试算单价` 展示金额节点；BOM+工序成本展开物料成本明细和工序成本明细。生产 BOM 通过 `production_boms.output_product_id` 声明产出当前商品时也作为试算成本来源，覆盖 `PR439-20260606182321 工厂量单商品` / `BOM-000539 V002` 这类无旧绑定场景。缺 BOM/工序成本时显示 0、感叹号和警告，不再按发布售价快照反推。
 - DEV:
   - DEV-459-TRIAL-WATERFALL-API：`POST /api/costing/pricing-rule-trial` 返回 `bom_cost_total`、`operation_cost_total`、`base_cost_details`、`cost_base_total`、`yield_loss_amount`、`profit_markup_amount`、`tax_in_price_amount`、`final_before_rounding`、`rounding_adjustment`。
-  - DEV-459-TRIAL-BOM-OPERATION-DETAILS：costing 仓储只读读取有效 BOM 物料/组件行和 `operation_template_steps` 工序行，服务层按报价单位换算明细金额。
+  - DEV-459-TRIAL-BOM-OPERATION-DETAILS：costing 仓储只读读取有效 BOM 物料/组件行和 `operation_template_steps` 工序行；无旧商品 BOM 绑定时，通过 `production_boms.output_product_id` 读取产出当前商品的已发布生产 BOM 版本，服务层按报价单位换算明细金额并可由明细反填成本基数。
   - DEV-459-TRIAL-WATERFALL-UI：商品价格管理试算抽屉用加号/等号展示价格瀑布，展示物料成本明细和工序成本明细，删除英文来源/状态和反推文案。
   - DEV-459-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和验收记录。
 - Verifier:
   - RED backend/API: `go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|DoesNotInferCostFromPublishedPriceSnapshotWhenBomCostMissing)' -count=1` and `go test ./internal/interfaces/http/costing -run TestPricingRuleTrialAPI -count=1` failed before implementation because `PricingRuleTrialBaseCostDetail`, `base_cost_details`, `yield_loss_amount`, `profit_markup_amount` and related result fields were missing.
   - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because ProductSettingsView lacked `BOM+工序成本明细`, `损耗增加`, `加价增加`, `pricing-rule-trial-waterfall` and `pricing-rule-trial-operator`.
-  - GREEN targeted: `go test ./internal/application/costing -run 'TestPricingRuleTrial' -count=1`; `go test ./internal/interfaces/http/costing -run 'TestPricingRuleTrialAPI|TestPricingRuleTrialPermissionIsReadOnly' -count=1`; `go test ./internal/interfaces/http/support -run 'TestDev45(4|6|7|9)' -count=1`; `node --test src/lib/product-settings.test.js`.
+  - RED PR439 factory product regression: `go test ./internal/application/costing -run 'TestPricingRuleTrialUsesBaseCostDetailsWhenProductInputSummaryMissing' -count=1` failed with detail rows `42+8` but `base_cost=0`; `go test ./internal/infrastructure/postgres/costing -run 'TestLoadProductInputsUsesProductionBomOutputProductFallback|TestPricingRuleTrialDetailsUseProductionBomOutputProductFallback' -count=1` failed because `production_boms.output_product_id` fallback was missing.
+  - GREEN targeted: `go test ./internal/application/costing -run 'TestPricingRuleTrial' -count=1`; `go test ./internal/infrastructure/postgres/costing -run 'TestLoadProductInputsUsesProductionBomOutputProductFallback|TestPricingRuleTrialDetailsUseProductionBomOutputProductFallback' -count=1`; `go test ./internal/interfaces/http/costing -run 'TestPricingRuleTrialAPI|TestPricingRuleTrialPermissionIsReadOnly' -count=1`; `go test ./internal/interfaces/http/support -run 'TestDev45(4|6|7|9)' -count=1`; `node --test src/lib/product-settings.test.js`.
   - GREEN broader: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev45(2|4|6|7|9)|TestLoadProductInputs' -count=1`; `npm run build`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Deployment:
   - Not merged and not deployed by request on 2026-06-08.

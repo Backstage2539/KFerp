@@ -503,9 +503,6 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 	if baseWarning != "" {
 		warnings = appendUniqueString(warnings, baseWarning)
 	}
-	if baseCost <= 0 {
-		warnings = appendUniqueString(warnings, "该商品暂无可试算的 BOM/工序成本")
-	}
 	otherCosts := pricingRuleTrialOtherCostMap(calc)
 	if cmd.Overrides.OtherCosts != nil {
 		otherCosts = cmd.Overrides.OtherCosts
@@ -557,6 +554,15 @@ func calculatePricingRuleTrial(rule ProductPricingRule, input domain.ProductInpu
 		}
 	}
 	baseCostDetails, bomCostTotal, operationCostTotal := pricingRuleTrialNormalizeBaseCostDetails(input, quoteUnit, formulaMode, baseCost, cmd.Overrides.BaseCost != nil, rawBaseCostDetails)
+	if baseCost <= 0 && cmd.Overrides.BaseCost == nil {
+		detailBaseCost := bomCostTotal + operationCostTotal
+		if detailBaseCost > 0 {
+			baseCost = detailBaseCost
+		}
+	}
+	if baseCost <= 0 {
+		warnings = appendUniqueString(warnings, "该商品暂无可试算的 BOM/工序成本")
+	}
 	costBeforeYield := baseCost + otherCostTotal
 	costAfterYield := costBeforeYield
 	if yieldMode != "none" && expectedLossRate > 0 {
