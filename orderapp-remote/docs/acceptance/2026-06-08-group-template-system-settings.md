@@ -19,6 +19,9 @@
 - Backend: `go test ./...` 通过。
 - Verifier: `scripts/verify_kferp.sh changed` 通过。
 - Diff hygiene: `git diff --check` 通过。
+- Final post-fix frontend targeted: `node --test src/lib/materials-ui.test.js src/lib/bom.test.js src/lib/product-settings.test.js src/lib/menu-ia.test.js src/lib/product-bean-list-split.test.js` 通过 176/176；覆盖仓库分类候选不再重复显示模板名。
+- Final deploy build: `./deploy_orderapp.sh` 完成 Vue shell build、miniapp typecheck/build、Docker build 内 `go test ./...` 和 orderapp 镜像构建；最终 `erp_orderapp` 已用新镜像启动。
+- Development smoke: `origin/develop=56d44772b45223c5deb8339761ea77019c5b0cf2`；备份 `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608161536`；`erp_orderapp` up，`erp_postgres` healthy；未认证 `/app/` 返回 `303` 到 `/app/orders`；认证 `groupTemplates`、`productSettings`、`bom`、`warehouseInventory` 均返回 `200`；需求 API 暴露 PR-453；`/app/api/business-groups` 返回 `200`。
 
 ## Manual
 - `orderapp-remote/docs/REQUIREMENTS.md`
@@ -29,4 +32,8 @@
 
 ## Browser Acceptance
 - Local Browser: Vite `http://127.0.0.1:5194/vue-shell/?view=groupTemplates` 跳转到 `/login`；本地前端没有可用 `/api/auth/me` 和业务 API 代理，不能作为真实页面验收。
-- Development deploy 后验收：系统设置、商品档案、生产 BOM、仓库库存、商品价格表、工单 BOM 选择、仓库下拉。
+- Development Browser: `groupTemplates` 和旧 `groupManagement` 路由都显示 `系统设置 / 分组模板` 区块；区块只维护模板、大类、小类，不显示对象列表、勾选或移动对象入口。
+- Development Browser: 商品档案显示 `选择分组模板` 后才进入分类和 `移动到分类` 流程；页面无 `目标分组` / `移动到分组`。
+- Development Browser: 生产 BOM 显示 `选择分组模板`、`移动到分类`、`目标分类`；页面不出现 `使用分组`。
+- Development Browser: 仓库库存显示 `库存分组模板` 和分类候选，分类候选为大类/小类路径，不再重复显示模板名前缀；页面无旧移动分组文案。
+- Development Browser: 商品价格表显示 `价格表配置` 按钮和 `计价模式规则` 弹窗按钮，`模板继承规则` 不再常驻。

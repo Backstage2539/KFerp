@@ -9,12 +9,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS
 - Branch: codex/group-template-system-settings-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: implemented locally; automated verification passed; local Browser blocked by auth/API; pending integration, deploy and live ERP browser acceptance
+- Status: deployed to development; automated verification and live ERP browser acceptance passed
 - Scope: 分组模板作为系统级基础资料移入 `系统设置 / 分组模板`；模板只维护模板名、大类、小类，不维护商品、BOM、仓库等对象。商品档案、生产 BOM、仓库库存先选择分组模板，再显示分类 Tab 和 `移动到分类`；生产 BOM 取消 `使用分组`。对象归类仍写入 `business_group_assignments`。
 - DEV:
   - DEV-453-GROUP-TEMPLATE-SETTINGS-UI：系统设置增加分组模板区块，管理模板和大类/小类；商品模块普通菜单移除分组管理，旧 `groupManagement` 路由兼容打开系统设置分组模板区块。
   - DEV-453-GROUP-TEMPLATE-CONSUMER-PAGES：商品档案、生产 BOM、仓库库存改为先选分组模板，再移动到 `未分类`、大类或小类；模板页不反向管理对象。
-  - DEV-453-GROUP-TEMPLATE-DOWNSTREAM：商品价格表、BOM/工单选择和仓库选择继续读取同一套分组模板/归类数据；本地前端先覆盖商品价格表和仓库库存入口，后续浏览器验收确认完整链路。
+  - DEV-453-GROUP-TEMPLATE-DOWNSTREAM：商品价格表、BOM/工单选择和仓库选择继续读取同一套分组模板/归类数据；浏览器验收覆盖商品价格表配置入口、仓库库存分组模板和分类候选。
   - DEV-453-GROUP-TEMPLATE-DOCS：同步需求、验收清单和操作手册，用户可见文案统一为 `分组模板`、`大类`、`小类`、`移动到分类`。
 - Verifier:
   - RED frontend: `node --test src/lib/menu-ia.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js src/lib/bom.test.js src/lib/materials-ui.test.js` failed before implementation because菜单/页面仍缺少系统设置分组模板和模板先选流程。
@@ -27,13 +27,16 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN diff: `git diff --check` passed.
   - Local Browser: Vite `http://127.0.0.1:5194/vue-shell/?view=groupTemplates` redirected to `/login`; no local API/auth proxy is available, so live ERP browser acceptance must run after development deploy.
 - Deployment:
+  - GREEN deploy: `origin/develop=56d44772b45223c5deb8339761ea77019c5b0cf2` deployed to development. Latest backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608161536`.
+  - GREEN smoke: `erp_orderapp` up, `erp_postgres` healthy; unauthenticated `/app/` returned `303` to `/app/orders`; authenticated `/app/vue-shell/?view=groupTemplates`, `productSettings`, `bom`, `warehouseInventory` returned `200`; `/app/api/req/product?limit=500` exposed `PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS`; `/app/api/business-groups` returned `200`.
+  - GREEN browser: deployed `groupTemplates` and legacy `groupManagement` route render the system 分组模板 section with no object list/move words; 商品档案 shows `选择分组模板` then `移动到分类` and no `目标分组`; 生产 BOM shows `选择分组模板` / `移动到分类` and no `使用分组`; 仓库库存 shows `库存分组模板`, category candidates without template-name prefix, and no old move wording; 商品价格表 shows `价格表配置` and `计价模式规则` dialog button, with no `模板继承规则`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-group-template-system-settings.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
 ### PR-454-PRICING-RULE-TRIAL-EXCEL-PARITY
 - Branch: codex/pricing-rule-trial-excel-parity-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: implemented locally; latest `origin/develop` merged; post-merge verification passed; pending integration/deploy and live ERP data acceptance
+- Status: deployed to development as part of `origin/develop=56d44772`; pending live ERP Excel-data acceptance
 - Scope: 商品价格管理的价格计算模板试算按 Van 提供的 `刘豪-成本核算3(已自动还原).xlsx` 对齐 Excel 成本核算；从 `物料成本`、`生产项目` 和供应售价档位中抽 2 个产品 × 2 个档位，要求试算售价与 Excel 一致，并在试算结果中展示完整公式节点。
 - DEV:
   - DEV-454-EXCEL-PARITY-ANALYSIS：解析 Excel 中原料成本、生产项目其他成本、供应售价档位和公式口径，固化 2 个产品 × 2 个档位样本。
@@ -49,6 +52,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN post-merge with `origin/develop=71adae31`: `node --test src/lib/product-settings.test.js src/lib/bom.test.js src/lib/materials-ui.test.js src/lib/menu-ia.test.js src/lib/product-bean-list-split.test.js` passed 176/176; `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev45(2|3|4)|TestPricingRuleTrialPermissionIsReadOnly' -count=1` passed; `go test ./...` passed; `npm run build` passed with existing Vite chunk-size/plugin timing warnings; `scripts/verify_kferp.sh changed`; `git diff --cached --check`.
   - Browser/local: local production Vue build served at `http://127.0.0.1:55191/app/vue-shell?view=productPriceManagement&pr454=1` with mocked API. 商品价格管理 showed `Excel供应售价模板` row `试算`; drawer selected product `测试用`, sent payload `{pricing_rule_id:453, product_id:45301, quote_unit:"kg", overrides:{margin_rate, tax_rate, other_costs, post_markup_costs}}`; result showed `加价后价格`, `售价后附加成本`, `公式步骤`, `物料/BOM成本`, `生产项目成本`, `档位利润率/加价率`, `试算单价 116.71/kg`; console errors 0; non-trial write requests 0. Screenshot: `/tmp/pr454-pricing-rule-trial-excel-parity.png`.
 - Deployment:
+  - Deployed with PR-453 final development deploy at `origin/develop=56d44772b45223c5deb8339761ea77019c5b0cf2`; live PR-454 Excel-data acceptance still pending.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial-excel-parity.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 - Notes: 当前 `scripts/reserve_req_id.sh --claim` 在本 worktree 因 awk 多行变量报错；本条由 Codex 手工登记后因 `origin/develop` 已占用 PR-453，合并时顺延为 PR-454。后端在模板显式 `supplier_tier_markup` 或本次试算带 `post_markup_costs` 时使用 Excel 供应售价口径，未录入售价后附加成本的标准模板不受影响。
