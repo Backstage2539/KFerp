@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-449-PRICE-LIST-SELECTION-FEEDBACK
 - Branch: codex/price-list-selection-feedback-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: local verified; pending merge to develop, deploy, and deployed browser acceptance
+- Status: merged to develop and deployed to development; deployed browser acceptance passed; pending Van product acceptance
 - Scope: 商品价格表生成抽屉继续降噪：分类/商品行摘要不再展示“父类/子类”层级字样，继承态统一显示“继承分类”；不继承时直接显示实际计价模板或方式；点击摘要后用弹窗编辑计价或展示配置。没有生成价格行时隐藏“平铺价格行”块；预览必须按当前勾选商品生成，不能因为当前已发布版本内容为空而显示空封面。
 - DEV:
   - DEV-449-PRICE-LIST-SUMMARY-DIALOG：A/B 位置只显示摘要和覆盖状态，分类计价、商品计价、商品展示统一进入弹窗编辑。
@@ -19,6 +19,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Frontend GREEN: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 16/16; `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/bean-list-pdf.test.js src/lib/product-settings.test.js` passed 165/165.
   - Support/API contract: `go test ./internal/interfaces/http/support -run 'TestDev449PriceListSelectionFeedbackContracts|TestDev447PriceListSelectionCompactContracts|TestDev445PriceListInlineSelectionConfigContracts|TestDev309BeanListVersionDownloadDocsAndWiring' -count=1` passed; `go test ./internal/interfaces/http/support -count=1` passed.
   - Build/browser: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning. Local browser `http://127.0.0.1:5185/vue-shell/?view=costing` loaded current branch with development API; 生成价格表抽屉 showed 2 category summaries and 2 product summaries, no inline config panels, no `父类/子类` wording in selection summaries, no empty flat-row block, preview showed 2 products, category/product/display dialogs opened, console errors for the verification URL were 0. Screenshot: `/tmp/pr448-local-price-list-selection-feedback.png`.
+  - GREEN post-merge: after merging latest `origin/develop`, `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+  - GREEN deploy: feature branch pushed; `origin/develop=f15d99508044c0b90dc85c4ef3c272f039a61644` deployed to development. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608113859`. Deploy script ran Vue shell build, miniapp typecheck/build, miniapp `build:mp-weixin`, Docker build, and container-internal `go test ./...`.
+  - GREEN smoke/browser: `erp_orderapp` Up, `erp_postgres` healthy, unauthenticated `/app/` returned 303, authenticated `/app/vue-shell/?view=costing` returned 200, deployed docs/source expose `PR-449-PRICE-LIST-SELECTION-FEEDBACK`. Browser 商品价格表生成抽屉 showed only `计价 继承分类` / `展示 无标签` summaries in selection, no `父类/子类` wording in selection summaries, no empty `平铺价格行` block, preview rendered 2 selected products with prices, category/product pricing dialogs and product display dialog opened, console errors 0. Screenshot: `/tmp/pr449-deployed-price-list-selection-feedback.png`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
