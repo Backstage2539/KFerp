@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-456-PRICING-RULE-TRIAL-PR439-UNIT
 - Branch: codex/pricing-rule-trial-pr439-unit-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: implemented on feature branch; post-merge automated verification passed; pending development deploy and browser acceptance
+- Status: deployed to development; automated verification, API smoke, read-only check and live ERP browser acceptance passed
 - Scope: 商品价格管理价格计算模板试算跟进。抽屉删除 `重新试算` 按钮和 `售价后附加成本`；报价单位来自全局单位字典下拉；选择 `PR439-20260606182321 熟豆下单商品` 时，即使当前商品没有 BOM/工序成本，也可利用已发布 `88.5/kg` 发布售价快照按模板公式反推成本基数并展示公式节点，试算仍只读不保存。
 - DEV:
   - DEV-456-TRIAL-AUTO-UNIT-UI：试算抽屉改为选择商品/报价单位/临时输入后自动试算，报价单位下拉读取全局单位字典，移除 `重新试算` 和 `售价后附加成本` UI/payload。
@@ -23,6 +23,12 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN broader: `go test ./...` in `orderapp-remote` passed; `npm run build` in `frontend-vue-shell` passed after `npm ci`, with existing Vite chunk-size/plugin timing warnings.
   - GREEN verifier: `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
   - GREEN post-merge with `origin/develop=645c9712`: `node --test src/lib/product-settings.test.js src/lib/materials-ui.test.js src/lib/bom.test.js src/lib/menu-ia.test.js src/lib/product-bean-list-split.test.js` passed 176/176; `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support ./internal/interfaces/http/catalog ./internal/application/catalog ./internal/infrastructure/postgres/catalog -run 'TestPricingRuleTrial|TestDev45(2|4|5|6)|TestBusinessGroupsAPIDeletesTemplate|TestBusinessGroupItemsAPIWritesGenericGroupItems|TestPricingRuleTrialPermissionIsReadOnly' -count=1` passed; `go test ./...` passed; `npm run build` passed with existing Vite chunk-size/plugin timing warnings; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Deployment:
+  - GREEN deploy: development deploy completed from `origin/develop=3e83ab9ea33b239d20cd2ffe80f070c695b7a44e`; Vue shell build, miniapp typecheck/build, miniapp `build:mp-weixin`, Docker build and container-internal `go test ./...` passed. Previous app backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608175237`.
+  - GREEN smoke: `erp_orderapp` up and `erp_postgres` healthy; unauthenticated `/app/` returned `303` to `/app/orders`; authenticated `/app/vue-shell/?view=productPriceManagement&pr456=1` returned `200`; `/app/api/req/product?limit=500` exposed `PR-456-PRICING-RULE-TRIAL-PR439-UNIT`.
+  - GREEN API: `POST /app/api/costing/pricing-rule-trial` with `pricing_rule_id=1`, `product_id=538`, `quote_unit=kg` returned `88.5/kg`, `base_cost=50.12/kg`, warning `未找到BOM/工序成本，已按发布售价快照反推成本基数`, and `published_price_snapshot` formula step.
+  - GREEN read-only: repeating the trial kept counts unchanged for `product_price_records`, `product_price_tiers`, `bean_list_publications`, `orders`, `order_items`, and `order_audit_logs`.
+  - GREEN browser: deployed 商品价格管理 displayed 10 template rows with `试算`; drawer selected `PR439-20260606182321 熟豆下单商品`, quote unit global dictionary select showed `条/盒/袋/g/kg/磅` and value `kg`; UI hid `重新试算` and `售价后附加成本`, showed `88.5/kg`, `发布售价快照`, formula steps, read-only note, and console errors 0. Screenshot: `/tmp/pr456-deployed-pricing-rule-trial-pr439.png`.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial-pr439-unit.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
