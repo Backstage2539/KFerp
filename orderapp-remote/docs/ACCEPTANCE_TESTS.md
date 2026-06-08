@@ -19,6 +19,8 @@
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案、生产 BOM、仓库库存三处页面都引用共享 `BusinessGroupControls` 和 `business-grouping` helper，不再各自手写模板选择、移动分类、未分类分组和移动 payload。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品价格表按所选商品分组模板生成选品分类和发布快照；价格表覆盖只写入快照，不回写商品档案分类。
 - [ ] PR-459-PRICE-LIST-FOLLOW-PRODUCT-GROUP：商品档案选择 `商品分组` 后切到商品价格表，选品分类显示该模板的大类/小类和 `未分类`；平铺价格行快照写入 `group_source=product_catalog`，未归类、其他模板归类和已删除分类归类统一进入 `未分类`。
+- [ ] PR-460-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：商品价格表“选择分类和产品”中父类、子类和商品逐级缩进；父类和子类都支持收缩/展开，收缩后仍保留分类勾选、计价按钮和选中数/总数，已勾选商品和生成结果不被清空。
+- [ ] PR-460-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：点击父类、子类或商品行的 `计价 继承分类`，在按钮附近弹出四项计价菜单：`继承分类`、`按阶梯模板价计算`、`按价格模板计算`、`固定价`；不得出现右下角计价弹窗。选择父类只覆盖父类，选择子类只覆盖子类，选择商品只覆盖商品；商品行 `展示 无标签` 仍按原展示弹窗维护。
 
 ## 0.0.0 PR-442 商品 / BOM / 仓库库存分组逻辑重构
 - [x] PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：`business_groups / business_group_items` 作为分组模板和分类项，`business_group_assignments` 作为对象归类关系；商品管理、生产 BOM、仓库库存不再各自维护独立分类树或专用分组表。
