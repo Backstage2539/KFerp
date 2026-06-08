@@ -443,7 +443,7 @@ const versionNote = ref('')
 
 const detailItems = computed(() => detail.value?.items || [])
 const isWorkspaceCustomerLocked = computed(() => props.workspaceMode === CUSTOMER_WORKSPACE_MODE && Number(props.customerContextId || 0) > 0)
-const productionBomGroupOptions = computed(() => businessGroupItemMoveOptions(productionBomBusinessGroups.value, 'production_bom'))
+const productionBomGroupOptions = computed(() => businessGroupItemMoveOptions(productionBomBusinessGroups.value, 'production_bom', { includeGroupsWithoutUsage: true }))
 const productionBomRows = computed(() => {
   return filterProductionBomCatalog(productionBoms.value, {
     status: productionBomStatusFilter.value,
@@ -1006,7 +1006,7 @@ async function loadAll() {
       apiGet('/api/bom/materials'),
       loadProductUnitDefinitions(),
       apiGet('/api/process-templates'),
-      apiGet('/api/business-groups?usage_key=production_bom'),
+      apiGet('/api/business-groups'),
       apiGet('/api/production-boms?status=all'),
     ])
 

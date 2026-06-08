@@ -1,4 +1,4 @@
-# PR-448 商品价格表选品区验收反馈
+# PR-449 商品价格表选品区验收反馈
 
 ## 范围
 - 分类和商品行摘要不再展示父类/子类字样。
@@ -17,7 +17,7 @@
 - RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed before implementation because config dialog, inherited summary and current-selection preview behavior were missing.
 - GREEN frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 16/16; `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/bean-list-pdf.test.js src/lib/product-settings.test.js` passed 165/165.
 - RED support: support contracts failed before update because old PR-309/PR-445/PR-447 markers still expected current publication content, inline parent/child wording, or old panel toggles.
-- GREEN support: `go test ./internal/interfaces/http/support -run 'TestDev448PriceListSelectionFeedbackContracts|TestDev447PriceListSelectionCompactContracts|TestDev445PriceListInlineSelectionConfigContracts|TestDev309BeanListVersionDownloadDocsAndWiring' -count=1` passed; `go test ./internal/interfaces/http/support -count=1` passed.
+- GREEN support: `go test ./internal/interfaces/http/support -run 'TestDev449PriceListSelectionFeedbackContracts|TestDev447PriceListSelectionCompactContracts|TestDev445PriceListInlineSelectionConfigContracts|TestDev309BeanListVersionDownloadDocsAndWiring' -count=1` passed; `go test ./internal/interfaces/http/support -count=1` passed.
 - Build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with the existing Vite chunk-size warning.
 - Local browser: `http://127.0.0.1:5185/vue-shell/?view=costing` loaded current branch through development API. 生成价格表抽屉 showed `category-pricing-summary=2`、`product-compact-status=2`、inline config panels `0`、empty `flat-price-row-editor=0`；选品摘要只显示 `继承分类` 或实际摘要，不出现 `父类：`、`子类：`、`继承父类`、`继承子类`；预览从 `0 款` 修正为 `2 款`，显示两个商品；分类计价、商品计价、商品展示弹窗均可打开；当前验收 URL console errors `0`。截图：`/tmp/pr448-local-price-list-selection-feedback.png`。
 - Pending: merge to `develop`, deploy development stack, and run deployed browser acceptance on `https://erp.qacoohee.com/app/vue-shell/?view=costing`.

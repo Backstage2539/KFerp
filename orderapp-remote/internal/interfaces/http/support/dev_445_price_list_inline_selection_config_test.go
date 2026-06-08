@@ -27,7 +27,7 @@ func TestDev445PriceListInlineSelectionConfigContracts(t *testing.T) {
 			"商品勾选行 B 位置",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-441 / PR-445 / PR-447 / PR-448",
+			"PR-441 / PR-445 / PR-447 / PR-449",
 			"分类计价放在分类头 A 位置",
 			"商品行覆盖放在商品勾选行 B 位置",
 		},

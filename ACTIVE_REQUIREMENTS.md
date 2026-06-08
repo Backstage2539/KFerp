@@ -6,20 +6,37 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
-### PR-448-PRICE-LIST-SELECTION-FEEDBACK
+### PR-449-PRICE-LIST-SELECTION-FEEDBACK
 - Branch: codex/price-list-selection-feedback-20260608
 - Owner/session: Codex / 2026-06-08
 - Status: local verified; pending merge to develop, deploy, and deployed browser acceptance
 - Scope: 商品价格表生成抽屉继续降噪：分类/商品行摘要不再展示“父类/子类”层级字样，继承态统一显示“继承分类”；不继承时直接显示实际计价模板或方式；点击摘要后用弹窗编辑计价或展示配置。没有生成价格行时隐藏“平铺价格行”块；预览必须按当前勾选商品生成，不能因为当前已发布版本内容为空而显示空封面。
 - DEV:
-  - DEV-448-PRICE-LIST-SUMMARY-DIALOG：A/B 位置只显示摘要和覆盖状态，分类计价、商品计价、商品展示统一进入弹窗编辑。
-  - DEV-448-PRICE-LIST-PREVIEW-CURRENT-SELECTION：生成抽屉预览使用当前选品；仅下载历史发布快照时复用该发布版本内容；空平铺价格行不显示。
+  - DEV-449-PRICE-LIST-SUMMARY-DIALOG：A/B 位置只显示摘要和覆盖状态，分类计价、商品计价、商品展示统一进入弹窗编辑。
+  - DEV-449-PRICE-LIST-PREVIEW-CURRENT-SELECTION：生成抽屉预览使用当前选品；仅下载历史发布快照时复用该发布版本内容；空平铺价格行不显示。
 - Verifier:
   - Frontend RED: `node --test src/lib/costing-bean-list-version-ui.test.js` failed before implementation because config dialog, inherited summary and current-selection preview behavior were missing.
   - Frontend GREEN: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 16/16; `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/bean-list-pdf.test.js src/lib/product-settings.test.js` passed 165/165.
-  - Support/API contract: `go test ./internal/interfaces/http/support -run 'TestDev448PriceListSelectionFeedbackContracts|TestDev447PriceListSelectionCompactContracts|TestDev445PriceListInlineSelectionConfigContracts|TestDev309BeanListVersionDownloadDocsAndWiring' -count=1` passed; `go test ./internal/interfaces/http/support -count=1` passed.
+  - Support/API contract: `go test ./internal/interfaces/http/support -run 'TestDev449PriceListSelectionFeedbackContracts|TestDev447PriceListSelectionCompactContracts|TestDev445PriceListInlineSelectionConfigContracts|TestDev309BeanListVersionDownloadDocsAndWiring' -count=1` passed; `go test ./internal/interfaces/http/support -count=1` passed.
   - Build/browser: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning. Local browser `http://127.0.0.1:5185/vue-shell/?view=costing` loaded current branch with development API; 生成价格表抽屉 showed 2 category summaries and 2 product summaries, no inline config panels, no `父类/子类` wording in selection summaries, no empty flat-row block, preview showed 2 products, category/product/display dialogs opened, console errors for the verification URL were 0. Screenshot: `/tmp/pr448-local-price-list-selection-feedback.png`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
+### PR-448-PRODUCTION-BOM-GROUP-OPTIONS-STATUS
+- Branch: codex/production-bom-group-options-status
+- Owner/session: Codex / 2026-06-08
+- Status: local verification complete; pending merge to develop, deploy, and browser acceptance
+- Scope: 修复生产 BOM 批量移动时“目标分组”只剩“未分组”、选不到分组管理里已有业务分组的问题；商品档案配置抽屉的“被哪些 BOM 使用”增加 `BOM状态`，区分 `默认状态`、`启用状态`、`失效状态`。
+- DEV:
+  - DEV-448-BOM-GROUP-TARGET-OPTIONS：生产 BOM 页面加载全部可用业务分组，目标分组选项不再被 `production_bom` 用途预过滤；保存归组时若分组尚未声明 `production_bom` 用途，自动补充用途并写操作日志。
+  - DEV-448-PRODUCT-BOM-USAGE-STATUS：生产 BOM 使用查询返回 `bom_status` 和 `is_default`，商品档案只读 BOM 使用列表展示默认/启用/失效状态。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-settings.test.js` 曾失败，因为 `businessGroupItemMoveOptions(..., 'production_bom', { includeGroupsWithoutUsage: true })` 对已有非 BOM 用途分组返回空，并且商品档案抽屉没有 `BOM状态` / `bomUsageStatusLabel`。
+  - RED API: `go test ./internal/interfaces/http/bom -run TestProductionBomProductUsageAPIReturnsOutputAndComponentBoms -count=1` 曾因 `ProductionBomUsedByBom` 缺少 `BomStatus` / `IsDefault` 编译失败。
+  - RED repository marker: `go test ./internal/infrastructure/postgres/catalog -run TestBusinessGroupAssignmentsSupportStringObjectRefsAndAudit -count=1` 曾因缺少 assignment 保存时补用途逻辑失败。
+  - GREEN targeted: `node --test src/lib/product-settings.test.js` passed 124/124; `go test ./internal/interfaces/http/bom -run TestProductionBomProductUsageAPIReturnsOutputAndComponentBoms -count=1`; `go test ./internal/infrastructure/postgres/catalog -run TestBusinessGroupAssignmentsSupportStringObjectRefsAndAudit -count=1`.
+  - GREEN broader: `node --test src/lib/bom.test.js src/lib/product-settings.test.js` passed 137/137; `go test ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/catalog ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1`; `npm run build` in `frontend-vue-shell`; `go test ./...` in `orderapp-remote`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-08-production-bom-group-options-status.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
 ### PR-447-PRICE-LIST-SELECTION-COMPACT

@@ -79,7 +79,7 @@ func TestProductFormulaMenuClickMatrixViewsExposeActions(t *testing.T) {
 			"/api/production-boms?status=all",
 			"/api/production-boms/${id}${query}",
 			"/api/production-bom-versions/${draftVersionID}/draft",
-			"/api/business-groups?usage_key=production_bom",
+			"apiGet('/api/business-groups')",
 			"/api/business-group-assignments",
 			"/api/production-boms/${bomID}/versions",
 			"/api/product-settings/units",

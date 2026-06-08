@@ -2273,6 +2273,11 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 			       COALESCE(v.version_no,'') AS bom_version_no,
 			       COALESCE(pb.output_product_id,0) AS output_product_id,
 			       COALESCE(op.name,'') AS output_product_name,
+			       COALESCE(NULLIF(pb.status,''),'active') AS bom_status,
+			       EXISTS(
+			           SELECT 1 FROM %[1]s.product_production_bom_bindings b
+			           WHERE b.product_id=$1 AND b.bom_id=pb.id
+			       ) AS is_default,
 			       'output' AS relation_type,
 			       '' AS consume_unit,
 			       0::float8 AS qty_per_unit,
@@ -2291,7 +2296,6 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 				LIMIT 1
 			) v ON true
 			WHERE pb.output_product_id=$1
-			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
 		),
 		current_usage_versions AS (
 			SELECT pb.id AS bom_id,
@@ -2308,7 +2312,6 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 				         v.id DESC
 				LIMIT 1
 			) v ON true
-			WHERE COALESCE(NULLIF(pb.status,''),'active')='active'
 		),
 		component_usage AS (
 			SELECT DISTINCT ON (pb.id)
@@ -2319,6 +2322,11 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 			       cv.bom_version_no AS bom_version_no,
 			       COALESCE(pb.output_product_id,0) AS output_product_id,
 			       COALESCE(op.name,'') AS output_product_name,
+			       COALESCE(NULLIF(pb.status,''),'active') AS bom_status,
+			       EXISTS(
+			           SELECT 1 FROM %[1]s.product_production_bom_bindings b
+			           WHERE b.product_id=COALESCE(pb.output_product_id,0) AND b.bom_id=pb.id
+			       ) AS is_default,
 			       'component' AS relation_type,
 			       COALESCE(i.consume_unit,'') AS consume_unit,
 			       COALESCE(i.qty_per_unit,0)::float8 AS qty_per_unit,
@@ -2331,7 +2339,6 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 			LEFT JOIN %[1]s.products op ON op.id=pb.output_product_id
 			WHERE i.component_type IN ('product','finished_product')
 			  AND i.component_product_id=$1
-			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
 			ORDER BY pb.id,
 			         i.id
 		),
@@ -2347,6 +2354,8 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 		       bom_version_no,
 		       output_product_id,
 		       output_product_name,
+		       bom_status,
+		       is_default,
 		       relation_type,
 		       consume_unit,
 		       qty_per_unit
@@ -2379,7 +2388,6 @@ func (r Repository) listProductionBomComponentUsedByBoms(ctx context.Context, co
 				         v.id DESC
 				LIMIT 1
 			) v ON true
-			WHERE COALESCE(NULLIF(pb.status,''),'active')='active'
 		),
 		usage AS (
 			SELECT DISTINCT ON (pb.id)
@@ -2390,6 +2398,11 @@ func (r Repository) listProductionBomComponentUsedByBoms(ctx context.Context, co
 			       cv.bom_version_no AS bom_version_no,
 			       COALESCE(pb.output_product_id,0) AS output_product_id,
 			       COALESCE(op.name,'') AS output_product_name,
+			       COALESCE(NULLIF(pb.status,''),'active') AS bom_status,
+			       EXISTS(
+			           SELECT 1 FROM %[1]s.product_production_bom_bindings b
+			           WHERE b.product_id=COALESCE(pb.output_product_id,0) AND b.bom_id=pb.id
+			       ) AS is_default,
 			       'component' AS relation_type,
 			       COALESCE(i.consume_unit,'') AS consume_unit,
 			       COALESCE(i.qty_per_unit,0)::float8 AS qty_per_unit,
@@ -2401,7 +2414,6 @@ func (r Repository) listProductionBomComponentUsedByBoms(ctx context.Context, co
 			LEFT JOIN %[1]s.products op ON op.id=pb.output_product_id
 			WHERE i.component_type IN ('product','finished_product')
 			  AND i.component_product_id=$1
-			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
 			  AND COALESCE(pb.output_product_id,0)<>$1
 			ORDER BY pb.id,
 			         i.id
@@ -2413,6 +2425,8 @@ func (r Repository) listProductionBomComponentUsedByBoms(ctx context.Context, co
 		       bom_version_no,
 		       output_product_id,
 		       output_product_name,
+		       bom_status,
+		       is_default,
 		       relation_type,
 		       consume_unit,
 		       qty_per_unit
@@ -2430,7 +2444,7 @@ func scanProductionBomUsedByBomRows(rows pgx.Rows) ([]bomapp.ProductionBomUsedBy
 	out := make([]bomapp.ProductionBomUsedByBom, 0)
 	for rows.Next() {
 		var row bomapp.ProductionBomUsedByBom
-		if err := rows.Scan(&row.BomID, &row.BomCode, &row.BomName, &row.BomVersionID, &row.BomVersionNo, &row.OutputProductID, &row.OutputProductName, &row.RelationType, &row.ConsumeUnit, &row.QtyPerUnit); err != nil {
+		if err := rows.Scan(&row.BomID, &row.BomCode, &row.BomName, &row.BomVersionID, &row.BomVersionNo, &row.OutputProductID, &row.OutputProductName, &row.BomStatus, &row.IsDefault, &row.RelationType, &row.ConsumeUnit, &row.QtyPerUnit); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
