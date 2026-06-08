@@ -26,7 +26,7 @@ func TestDev309BeanListVersionDownloadDocsAndWiring(t *testing.T) {
 		"frontend-vue-shell/src/views/CostingView.vue": {
 			"下载 PDF",
 			"downloadBeanListPublication(row)",
-			"downloadSourcePublication.value || currentPriceSourcePublication.value",
+			"downloadSourcePublication.value?.content?.groups",
 			"beanListPublicationHasContent(row)",
 			"apiSend(`/api/costing/bean-list/publications/${row.id}/pdf?${params.toString()}`",
 			"downloadBeanListPublicationPDF(document)",

@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-448-PRICE-LIST-SELECTION-FEEDBACK
+- Branch: codex/price-list-selection-feedback-20260608
+- Owner/session: Codex / 2026-06-08
+- Status: local verified; pending merge to develop, deploy, and deployed browser acceptance
+- Scope: 商品价格表生成抽屉继续降噪：分类/商品行摘要不再展示“父类/子类”层级字样，继承态统一显示“继承分类”；不继承时直接显示实际计价模板或方式；点击摘要后用弹窗编辑计价或展示配置。没有生成价格行时隐藏“平铺价格行”块；预览必须按当前勾选商品生成，不能因为当前已发布版本内容为空而显示空封面。
+- DEV:
+  - DEV-448-PRICE-LIST-SUMMARY-DIALOG：A/B 位置只显示摘要和覆盖状态，分类计价、商品计价、商品展示统一进入弹窗编辑。
+  - DEV-448-PRICE-LIST-PREVIEW-CURRENT-SELECTION：生成抽屉预览使用当前选品；仅下载历史发布快照时复用该发布版本内容；空平铺价格行不显示。
+- Verifier:
+  - Frontend RED: `node --test src/lib/costing-bean-list-version-ui.test.js` failed before implementation because config dialog, inherited summary and current-selection preview behavior were missing.
+  - Frontend GREEN: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 16/16; `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/bean-list-pdf.test.js src/lib/product-settings.test.js` passed 165/165.
+  - Support/API contract: `go test ./internal/interfaces/http/support -run 'TestDev448PriceListSelectionFeedbackContracts|TestDev447PriceListSelectionCompactContracts|TestDev445PriceListInlineSelectionConfigContracts|TestDev309BeanListVersionDownloadDocsAndWiring' -count=1` passed; `go test ./internal/interfaces/http/support -count=1` passed.
+  - Build/browser: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning. Local browser `http://127.0.0.1:5185/vue-shell/?view=costing` loaded current branch with development API; 生成价格表抽屉 showed 2 category summaries and 2 product summaries, no inline config panels, no `父类/子类` wording in selection summaries, no empty flat-row block, preview showed 2 products, category/product/display dialogs opened, console errors for the verification URL were 0. Screenshot: `/tmp/pr448-local-price-list-selection-feedback.png`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
 ### PR-447-PRICE-LIST-SELECTION-COMPACT
 - Branch: codex/price-list-selection-compact
 - Owner/session: Codex / 2026-06-08

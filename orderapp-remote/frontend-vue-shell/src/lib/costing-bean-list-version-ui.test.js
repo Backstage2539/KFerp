@@ -56,7 +56,7 @@ test('product bean-list version list downloads the selected publication snapshot
   }
   for (const expected of [
     'const downloadSourcePublication = ref(null)',
-    'downloadSourcePublication.value || currentPriceSourcePublication.value',
+    'downloadSourcePublication.value?.content?.groups',
     'function downloadBeanListPublication',
     "apiSend(`/api/costing/bean-list/publications/${row.id}/pdf?${params.toString()}`",
     'await downloadBeanListPublicationPDF(document)',
@@ -206,15 +206,18 @@ test('product price list uses classification templates and categories instead of
   assert.doesNotMatch(viewSource, /按当前价格表归属、商品当前归类和客户商品生成商品价格表/)
 })
 
-test('price list generation config is edited inline at category and product selection positions', () => {
+test('price list generation keeps A/B positions as summaries and edits in a config dialog', () => {
   const builderStart = viewSource.indexOf('<div class="pdf-picker price-list-template-builder"')
   const productSelectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
-  const flatRowStart = viewSource.indexOf('<div class="pdf-picker flat-price-row-editor">')
+  const dialogStart = viewSource.indexOf('class="price-list-config-dialog"')
+  const flatRowStart = viewSource.indexOf('<div v-if="priceListFlatRows.length" class="pdf-picker flat-price-row-editor">')
   assert.ok(builderStart > -1 && productSelectionStart > builderStart, 'missing price-list builder followed by product selection')
-  assert.ok(flatRowStart > productSelectionStart, 'missing flat-row editor after product selection')
+  assert.ok(dialogStart > productSelectionStart, 'missing config dialog after product selection')
+  assert.ok(flatRowStart > productSelectionStart, 'missing conditional flat-row editor after product selection')
 
   const builderSource = viewSource.slice(builderStart, productSelectionStart)
-  const selectionSource = viewSource.slice(productSelectionStart, flatRowStart)
+  const selectionSource = viewSource.slice(productSelectionStart, dialogStart)
+  const dialogSource = viewSource.slice(dialogStart, flatRowStart)
   const categoryHeadStart = selectionSource.indexOf('class="product-picker-category-head"')
   const categoryHeadEnd = selectionSource.indexOf('<article v-for="row in category.items"', categoryHeadStart)
   const productRowStart = selectionSource.indexOf('<article v-for="row in category.items"')
@@ -228,33 +231,60 @@ test('price list generation config is edited inline at category and product sele
   for (const forbidden of ['父类计价配置', '子类计价配置', '商品行', 'product-override-row']) {
     assert.equal(builderSource.includes(forbidden), false, `old standalone pricing config should be removed from builder: ${forbidden}`)
   }
+
   for (const expected of [
+    'category-pricing-summary',
+    'priceListCategoryPricingSummary(category)',
+    'openPriceListCategoryPricingDialog(category)',
+  ]) {
+    assert.ok(categoryHeadSource.includes(expected), `missing A-position category summary: ${expected}`)
+  }
+
+  for (const expected of [
+    'product-compact-status',
+    'priceListProductPricingSummary(priceListProductRowForItem(row))',
+    'priceListProductDisplaySummary(itemProductID(row))',
+    'openPriceListProductPricingDialog(priceListProductRowForItem(row))',
+    'openPriceListProductDisplayDialog(itemProductID(row))',
+  ]) {
+    assert.ok(productRowSource.includes(expected), `missing B-position product summary: ${expected}`)
+  }
+
+  for (const forbidden of [
     'category-inline-pricing-config',
+    'product-inline-pricing-config',
+    'product-display-config',
     '父类计价',
     '子类计价',
-    'priceListParentTemplateSelection(category)',
-    "setPriceListParentTemplate(category, 'pricing_mode'",
-    'priceListGroupTemplateSelection(category)',
-    "setPriceListGroupTemplate(category, 'pricing_mode'",
-  ]) {
-    assert.ok(categoryHeadSource.includes(expected), `missing A-position category pricing config: ${expected}`)
-  }
-  for (const expected of [
-    'product-inline-pricing-config',
     '商品行计价',
-    'priceListProductTemplateOverride(priceListProductRowForItem(row))',
-    "setPriceListProductTemplate(priceListProductRowForItem(row), 'pricing_mode'",
   ]) {
-    assert.ok(productRowSource.includes(expected), `missing B-position product pricing config: ${expected}`)
+    assert.equal(selectionSource.includes(forbidden), false, `selection list should not render inline config: ${forbidden}`)
+  }
+
+  for (const expected of [
+    'price-list-config-dialog',
+    '上级分类计价',
+    '本分类计价',
+    '商品计价',
+    '商品展示',
+    'priceListParentTemplateSelection(priceListConfigDialog.group)',
+    "setPriceListParentTemplate(priceListConfigDialog.group, 'pricing_mode'",
+    'priceListGroupTemplateSelection(priceListConfigDialog.group)',
+    "setPriceListGroupTemplate(priceListConfigDialog.group, 'pricing_mode'",
+    'priceListProductTemplateOverride(priceListConfigDialog.productRow)',
+    "setPriceListProductTemplate(priceListConfigDialog.productRow, 'pricing_mode'",
+    'setCustomizerField(priceListConfigDialog.productId',
+  ]) {
+    assert.ok(dialogSource.includes(expected), `missing config dialog behavior: ${expected}`)
   }
 })
 
-test('price list product selection keeps pricing and display controls collapsed until requested', () => {
+test('price list product selection summaries avoid parent child wording and inherited rows say category inheritance', () => {
   const productSelectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
-  const flatRowStart = viewSource.indexOf('<div class="pdf-picker flat-price-row-editor">')
-  assert.ok(productSelectionStart > -1 && flatRowStart > productSelectionStart, 'missing product selection block')
+  const dialogStart = viewSource.indexOf('class="price-list-config-dialog"')
+  assert.ok(productSelectionStart > -1 && dialogStart > productSelectionStart, 'missing product selection block')
 
-  const selectionSource = viewSource.slice(productSelectionStart, flatRowStart)
+  const selectionSource = viewSource.slice(productSelectionStart, dialogStart)
   const categoryHeadStart = selectionSource.indexOf('class="product-picker-category-head"')
   const categoryHeadEnd = selectionSource.indexOf('<article v-for="row in category.items"', categoryHeadStart)
   const productRowStart = selectionSource.indexOf('<article v-for="row in category.items"')
@@ -266,26 +296,48 @@ test('price list product selection keeps pricing and display controls collapsed 
   const productRowSource = selectionSource.slice(productRowStart, productRowEnd)
 
   for (const expected of [
-    'category-pricing-summary',
-    'priceListCategoryPricingSummary(category)',
-    'priceListCategoryPricingHasOverride(category)',
-    'togglePriceListCategoryPricingPanel(category)',
-    'isPriceListCategoryPricingOpen(category)',
+    "return '继承分类'",
+    "priceListTemplateSummary(priceListGroupTemplateSelection(group), '')",
+    "priceListTemplateSummary(priceListProductTemplateOverride(row), '继承分类')",
   ]) {
-    assert.ok(categoryHeadSource.includes(expected), `missing collapsed category pricing behavior: ${expected}`)
+    assert.ok(viewSource.includes(expected), `missing category inheritance summary behavior: ${expected}`)
+  }
+
+  for (const forbidden of [
+    '父类：',
+    '子类：',
+    '继承子类',
+    '继承父类',
+  ]) {
+    assert.equal(categoryHeadSource.includes(forbidden), false, `category summary should hide parent/child wording: ${forbidden}`)
+    assert.equal(productRowSource.includes(forbidden), false, `product summary should hide parent/child wording: ${forbidden}`)
   }
 
   for (const expected of [
+    'category-pricing-summary',
     'product-compact-status',
+    'priceListCategoryPricingSummary(category)',
     'priceListProductPricingSummary(priceListProductRowForItem(row))',
     'priceListProductDisplaySummary(itemProductID(row))',
-    "togglePriceListProductPanel(priceListProductRowForItem(row), 'pricing')",
-    "togglePriceListProductPanel(priceListProductRowForItem(row), 'display')",
-    "isPriceListProductPanelOpen(priceListProductRowForItem(row), 'pricing')",
-    "isPriceListProductPanelOpen(priceListProductRowForItem(row), 'display')",
   ]) {
-    assert.ok(productRowSource.includes(expected), `missing collapsed product row behavior: ${expected}`)
+    assert.ok(selectionSource.includes(expected), `missing compact summary behavior: ${expected}`)
   }
+})
+
+test('price list preview builds from current selected products instead of empty current publication content', () => {
+  const groupsStart = viewSource.indexOf('const pdfGroups = computed(() => {')
+  const groupsEnd = viewSource.indexOf('const priceListGroupTemplateRows', groupsStart)
+  assert.ok(groupsStart > -1 && groupsEnd > groupsStart, 'missing pdfGroups computed block')
+  const groupsSource = viewSource.slice(groupsStart, groupsEnd)
+
+  assert.ok(groupsSource.includes('downloadSourcePublication.value?.content?.groups'), 'download action should still render stored publication content')
+  assert.ok(groupsSource.includes('buildBeanListPdfGroups(pdfAvailableItems.value'), 'generate drawer should render current selected products')
+  assert.equal(groupsSource.includes('currentPriceSourcePublication.value?.content?.groups'), false, 'current price source must not replace current selected products')
+  assert.equal(viewSource.includes('const pdfVisiblePreviewCategoryCodes = computed(() => pdfCategoryCodesForVisibleSelection'), true, 'preview category filter should translate business category codes')
+  assert.equal(viewSource.includes('visibleCategoryCodes: pdfVisiblePreviewCategoryCodes.value'), true, 'preview should use PDF category codes instead of business group codes')
+  assert.equal(viewSource.includes('function pdfCategoryCodesForVisibleSelection'), true, 'missing preview category code mapper')
+  assert.equal(viewSource.includes('<div v-if="priceListFlatRows.length" class="pdf-picker flat-price-row-editor">'), true, 'empty flat price rows should stay hidden')
+  assert.equal(viewSource.includes('priceListFlatRows.value.length > 0 && priceListFlatRows.value.every'), true, 'empty flat price rows should not be publish-ready')
 })
 
 test('product bean-list drawer derives publication owner from current page scope', () => {

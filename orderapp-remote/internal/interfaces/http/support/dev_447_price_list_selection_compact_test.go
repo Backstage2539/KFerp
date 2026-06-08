@@ -19,8 +19,9 @@ func TestDev447PriceListSelectionCompactContracts(t *testing.T) {
 			"product-compact-status",
 			"priceListCategoryPricingSummary",
 			"priceListProductDisplaySummary",
-			"togglePriceListCategoryPricingPanel",
-			"togglePriceListProductPanel",
+			"openPriceListCategoryPricingDialog",
+			"openPriceListProductPricingDialog",
+			"openPriceListProductDisplayDialog",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-447-PRICE-LIST-SELECTION-COMPACT",
@@ -29,16 +30,16 @@ func TestDev447PriceListSelectionCompactContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-447-PRICE-LIST-SELECTION-COMPACT",
-			"父类/子类计价、商品行计价、标签和标红词不常驻展开",
+			"分类计价、商品行计价、标签和标红词不常驻展开",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-447",
 			"默认只显示分类/商品选择和计价、展示摘要",
-			"点击分类或商品行的“计价 / 展示”",
+			"点击分类或商品行的 `计价 / 展示` 摘要后",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-price-list-selection-compact.md"): {
 			"PR-447 商品价格表选品区降噪",
-			"默认不常驻显示父类计价、子类计价、商品行计价、标签和标红词配置",
+			"默认不常驻显示分类计价、商品行计价、标签和标红词配置",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))

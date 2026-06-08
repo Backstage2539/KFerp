@@ -14,10 +14,12 @@ func TestDev445PriceListInlineSelectionConfigContracts(t *testing.T) {
 			"DEV-445-PRICE-LIST-PRODUCT-INLINE-CONFIG",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
-			"category-inline-pricing-config",
-			"product-inline-pricing-config",
+			"category-pricing-summary",
+			"product-compact-status",
+			"price-list-config-dialog",
 			"priceListProductRowForItem",
-			"分类和单品计价直接在下方选品位置处理",
+			"openPriceListCategoryPricingDialog",
+			"openPriceListProductPricingDialog",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-445-PRICE-LIST-INLINE-SELECTION-CONFIG",
@@ -25,8 +27,8 @@ func TestDev445PriceListInlineSelectionConfigContracts(t *testing.T) {
 			"商品勾选行 B 位置",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-441 / PR-445",
-			"父类/子类计价放在分类头 A 位置",
+			"PR-441 / PR-445 / PR-447 / PR-448",
+			"分类计价放在分类头 A 位置",
 			"商品行覆盖放在商品勾选行 B 位置",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-07-price-list-inline-selection-config.md"): {
