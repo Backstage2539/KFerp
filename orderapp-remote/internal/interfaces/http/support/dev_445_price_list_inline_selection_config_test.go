@@ -18,8 +18,8 @@ func TestDev445PriceListInlineSelectionConfigContracts(t *testing.T) {
 			"product-compact-status",
 			"price-list-config-dialog",
 			"priceListProductRowForItem",
-			"openPriceListCategoryPricingDialog",
-			"openPriceListProductPricingDialog",
+			"openPriceListPricingPopover",
+			"price-list-pricing-popover",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-445-PRICE-LIST-INLINE-SELECTION-CONFIG",

@@ -192,7 +192,7 @@ func TestDev456PricingRuleTrialPr439UnitContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-pr439-unit.md"): {
 			"PR-456-PRICING-RULE-TRIAL-PR439-UNIT",
-			"PR-459",
+			"PR-460",
 			"不再反推",
 		},
 	} {
