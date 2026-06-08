@@ -958,6 +958,7 @@ import {
   beanListPublicationPdfOptions,
   buildPriceListGenerationSnapshot,
   buildBeanListPdfGroups,
+  buildBeanListPdfGroupsFromCategoryRows,
   buildBeanListPdfSubtitle,
   buildBeanListPdfTitle,
   copyBeanListPublicationContentGroups,
@@ -1147,12 +1148,11 @@ const pdfAvailableItems = computed(() => beanListItemsForType(pdfTheme.value.lis
 const pdfCategoryOptions = computed(() => beanListCategoryOptions(pdfTheme.value.listType, activeProductTypeCategoryID.value))
 const pdfSelectedProductIDs = computed(() => selectedProductIDsByType.value[activePriceListTypeKey.value] || [])
 const pdfVisibleCategoryCodes = computed(() => visibleCategoryCodesByType.value[activePriceListTypeKey.value] || [])
-const pdfVisiblePreviewCategoryCodes = computed(() => pdfCategoryCodesForVisibleSelection(pdfTheme.value.listType, activeProductTypeCategoryID.value, pdfVisibleCategoryCodes.value))
 const categoryProductGroups = computed(() => productGroupsForType(pdfTheme.value.listType, activeProductTypeCategoryID.value))
 const pdfGenerationOptions = computed(() => ({
   selectedProductIDs: pdfSelectedProductIDs.value,
   showCategoryNumbers: pdfOptions.value.showCategoryNumbers,
-  visibleCategoryCodes: pdfVisiblePreviewCategoryCodes.value,
+  visibleCategoryCodes: pdfVisibleCategoryCodes.value,
   customizers: pdfCustomizers.value,
 }))
 const currentPriceSourcePublication = computed(() => (publicationScope.value === 'mine' || publicationScope.value === 'customer' ? priceSourcePublicationByType.value[activePriceListTypeKey.value] : null))
@@ -1163,7 +1163,7 @@ const pdfGroups = computed(() => {
       customizers: pdfCustomizers.value,
     })
   }
-  return buildBeanListPdfGroups(pdfAvailableItems.value, pdfTheme.value.listType, pdfGenerationOptions.value)
+  return buildBeanListPdfGroupsFromCategoryRows(categoryProductGroups.value, pdfTheme.value.listType, pdfGenerationOptions.value)
 })
 const priceListGroupTemplateRows = computed(() => priceListTemplateGroupRows(categoryProductGroups.value))
 const priceListFlatRows = computed(() => priceListFlatRowsFromGroups(pdfGroups.value))
@@ -2558,22 +2558,6 @@ function productCatalogGroupItemIDOfItem(item = {}) {
   if (Number(assignment?.group_id ?? assignment?.groupID ?? 0) !== templateID) return 0
   const groupItemID = Number(assignment?.group_item_id ?? assignment?.groupItemID ?? 0)
   return selectedProductCatalogGroupItemIDs.value.has(groupItemID) ? groupItemID : 0
-}
-
-function pdfCategoryCodeOfItem(item, listType = pdfTheme.value.listType) {
-  const meta = beanMeta(item, metaKeyForListType(listType))
-  return String(meta.code || '').split('.')[0] || ''
-}
-
-function pdfCategoryCodesForVisibleSelection(listType, productTypeCategoryID, visibleCodes = []) {
-  const visibleSet = new Set((Array.isArray(visibleCodes) ? visibleCodes : []).map((code) => String(code)))
-  const codes = []
-  beanListItemsForType(listType, productTypeCategoryID).forEach((item) => {
-    if (!visibleSet.has(categoryCodeOfItem(item, listType))) return
-    const code = pdfCategoryCodeOfItem(item, listType)
-    if (code && !codes.includes(code)) codes.push(code)
-  })
-  return codes
 }
 
 function publicationRows(scope, listType, productTypeCategoryID = activeProductTypeCategoryID.value, purpose = publicationPurposeFilter.value) {

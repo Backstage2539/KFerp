@@ -10,16 +10,18 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Branch: codex/price-list-picker-tree-pricing-popover-20260608
 - Owner/session: Codex / 2026-06-08
 - Status: implemented and verified on feature branch; Van explicitly requested no merge and no deployment
-- Scope: 商品价格表“选择分类和产品”改成清晰树形选品，父类、子类、商品逐级缩进；分类支持收缩/展开且只影响当前前端显示。分类和商品 `计价` 摘要改为按钮附近轻量菜单，四项为 `继承分类`、`按阶梯模板价计算`、`按价格模板计算`、`固定价`；商品 `展示` 仍走原展示弹窗。分类计价写入按目标层级拆分：父类按钮写父类选择，子类按钮写子类选择，商品按钮写商品覆盖；发布解析仍为 `商品 > 子类 > 父类 > 价格表`。
+- Scope: 商品价格表“选择分类和产品”改成清晰树形选品，父类、子类、商品逐级缩进；分类支持收缩/展开且只影响当前前端显示。分类和商品 `计价` 摘要改为按钮附近轻量菜单，四项为 `继承分类`、`按阶梯模板价计算`、`按价格模板计算`、`固定价`；商品 `展示` 仍走原展示弹窗。分类计价写入按目标层级拆分：父类按钮写父类选择，子类按钮写子类选择，商品按钮写商品覆盖；预览和生成 PDF 使用与选品树同源的分类行和商品行，避免旧 bean-list 分类把同一选品分类拆散；发布解析仍为 `商品 > 子类 > 父类 > 价格表`。
 - DEV:
   - DEV-460-PRICE-LIST-PICKER-TREE：选品区按商品分组模板深度渲染父类/子类/商品缩进，分类标题增加收缩/展开按钮并保留选中数。
   - DEV-460-PRICE-LIST-PRICING-POPOVER：分类/商品计价摘要打开按钮附近 popover，支持继承、阶梯模板、价格模板和固定价，并移除右下角计价弹窗。
   - DEV-460-PRICE-LIST-CATEGORY-TARGET：新增分类计价目标 helper，父类、子类和商品覆盖分别写入对应 map，保持发布快照输入语义。
+  - DEV-460-PRICE-LIST-PREVIEW-PICKER-GROUPS：预览和生成 PDF 从 `categoryProductGroups` 显式分类行构建，分类标题、分类过滤和商品归属保持与“选择分类和产品”一致。
   - DEV-460-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和验收记录。
 - Verifier:
   - RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed before implementation because tree indentation/collapse, anchored pricing popover and category target helper markers were missing.
   - RED support: `go test ./internal/interfaces/http/support -run TestDev460 -count=1` failed before implementation because PR-460 seeds/docs were missing.
-  - GREEN frontend targeted: `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js` passed 163/163.
+  - RED preview follow-up: `node --test src/lib/bean-list-pdf.test.js` failed because `buildBeanListPdfGroupsFromCategoryRows` was not exported; `node --test src/lib/costing-bean-list-version-ui.test.js` failed because `pdfGroups` still used legacy PDF category mapping.
+  - GREEN frontend targeted: `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js` passed 163/163 before preview follow-up; `node --test src/lib/bean-list-pdf.test.js src/lib/costing-bean-list-version-ui.test.js` passed after preview follow-up.
   - GREEN support/contracts: `go test ./internal/interfaces/http/support -run TestDev460 -count=1`; `go test ./internal/interfaces/http/support -run 'TestDev(449|460)' -count=1` passed.
   - GREEN build/check: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning; `git diff --check` passed.
   - Browser: local Vite served at `http://127.0.0.1:5196/vue-shell/`; bundled Playwright initially lacked browser binary, then used `/Applications/Google Chrome.app`. Mocked local API page did not render `.product-picker-category` within timeout, so no browser acceptance is claimed. Development ERP browser acceptance remains pending because this PR is not deployed.

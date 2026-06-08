@@ -13,6 +13,7 @@ func TestDev460PriceListPickerTreePricingPopoverContracts(t *testing.T) {
 			"DEV-460-PRICE-LIST-PICKER-TREE",
 			"DEV-460-PRICE-LIST-PRICING-POPOVER",
 			"DEV-460-PRICE-LIST-CATEGORY-TARGET",
+			"DEV-460-PRICE-LIST-PREVIEW-PICKER-GROUPS",
 			"DEV-460-DOCS-ACCEPTANCE",
 			"REV-460-PRICE-LIST-PICKER-TREE-PRICING-POPOVER",
 		},
@@ -28,31 +29,46 @@ func TestDev460PriceListPickerTreePricingPopoverContracts(t *testing.T) {
 			"priceListCategoryTemplateTarget",
 			"priceListCategoryTemplateSelection",
 			"setPriceListCategoryTemplate",
+			"buildBeanListPdfGroupsFromCategoryRows(categoryProductGroups.value",
+			"visibleCategoryCodes: pdfVisibleCategoryCodes.value",
+		},
+		filepath.Join("frontend-vue-shell", "src", "lib", "bean-list-pdf.js"): {
+			"buildBeanListPdfGroupsFromCategoryRows",
+			"categoryCode: row.categoryCode",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "costing-bean-list-version-ui.test.js"): {
 			"product picker as an indented collapsible tree",
 			"edits pricing in an anchored popover",
 			"separates parent, subgroup and product overrides",
+			"generate drawer should render from the same category rows as product picker",
+		},
+		filepath.Join("frontend-vue-shell", "src", "lib", "bean-list-pdf.test.js"): {
+			"explicit picker category rows",
+			"1、意式拼配豆",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-460-PRICE-LIST-PICKER-TREE-PRICING-POPOVER",
 			"父类、子类、商品逐级缩进",
 			"点击分类或商品的 `计价`",
+			"预览和生成 PDF",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-460-PRICE-LIST-PICKER-TREE-PRICING-POPOVER",
 			"父类、子类和商品逐级缩进",
 			"按钮附近弹出四项计价菜单",
+			"同一选品分类下的商品不得被旧 bean-list 分类拆成多个预览分类",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-460-PRICE-LIST-PICKER-TREE-PRICING-POPOVER",
 			"父类、子类、商品逐级缩进",
 			"按钮附近修改计价模式",
+			"下方预览和生成 PDF",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-price-list-picker-tree-pricing-popover.md"): {
 			"PR-460 商品价格表选品树与计价弹出优化",
 			"父类、子类、商品逐级缩进",
 			"继承分类",
+			"GREEN follow-up",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))
