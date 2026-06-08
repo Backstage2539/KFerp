@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-453-PRICING-RULE-TRIAL-EXCEL-PARITY
+- Branch: codex/pricing-rule-trial-excel-parity-20260608
+- Owner/session: Codex / 2026-06-08
+- Status: implemented locally; automated verification passed; local mocked browser acceptance passed; pending integration/deploy and live ERP data acceptance
+- Scope: 商品价格管理的价格计算模板试算按 Van 提供的 `刘豪-成本核算3(已自动还原).xlsx` 对齐 Excel 成本核算；从 `物料成本`、`生产项目` 和供应售价档位中抽 2 个产品 × 2 个档位，要求试算售价与 Excel 一致，并在试算结果中展示完整公式节点。
+- DEV:
+  - DEV-453-EXCEL-PARITY-ANALYSIS：解析 Excel 中原料成本、生产项目其他成本、供应售价档位和公式口径，固化 2 个产品 × 2 个档位样本。
+  - DEV-453-TRIAL-FORMULA-PARITY：补齐后端试算公式/输入结构，使模板内临时录入口可表达 Excel 生产项目成本和档位供应售价口径。
+  - DEV-453-TRIAL-FORMULA-NODES：商品价格管理试算抽屉展示从物料成本、生产项目成本、损耗/利润/税费/取整到供应售价的公式节点。
+  - DEV-453-DOCS-ACCEPTANCE：更新成本手册、需求/验收文档和本次 Excel 对账验收记录。
+- Verifier:
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev453PricingRuleTrialExcelParityContracts -count=1` failed before docs/acceptance updates because `docs/REQUIREMENTS.md` lacked `PR-453-PRICING-RULE-TRIAL-EXCEL-PARITY`.
+  - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because `buildPricingRuleTrialPayload` did not include `post_markup_costs` and `ProductSettingsView.vue` did not expose `售价后附加成本` / `加价后价格`.
+  - RED backend: `go test ./internal/application/costing -run TestPricingRuleTrialMatchesExcelSupplierPriceSamples -count=1` failed before implementation because `PricingRuleTrialOverrides.PostMarkupCosts` and supplier formula result fields were missing.
+  - GREEN targeted: `go test ./internal/application/costing -run 'TestPricingRuleTrial(MatchesExcelSupplierPriceSamples|UsesBomCostTemplateFormula|SupportsOverridesAndMinimumMarginWarning|SupportsMarkupTaxExcludedAndYuanRounding|ValidatesRuleAndProduct)' -count=1`; `go test ./internal/interfaces/http/costing -run 'TestPricingRuleTrialAPI|TestPricingRuleTrialAPIReturnsBadRequestOnServiceError' -count=1`; `go test ./internal/interfaces/http/support -run 'TestDev45(2|3)PricingRuleTrial|TestPricingRuleTrialPermissionIsReadOnly' -count=1`; `node --test src/lib/product-settings.test.js`.
+  - GREEN broader: `go test ./...` in `orderapp-remote`; `npm run build` in `frontend-vue-shell` after `npm ci` installed missing worktree deps, with existing Vite chunk-size/plugin timing warnings; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Browser/local: local production Vue build served at `http://127.0.0.1:55191/app/vue-shell?view=productPriceManagement&pr453=1` with mocked API. 商品价格管理 showed `Excel供应售价模板` row `试算`; drawer selected product `测试用`, sent payload `{pricing_rule_id:453, product_id:45301, quote_unit:"kg", overrides:{margin_rate, tax_rate, other_costs, post_markup_costs}}`; result showed `加价后价格`, `售价后附加成本`, `公式步骤`, `物料/BOM成本`, `生产项目成本`, `档位利润率/加价率`, `试算单价 116.71/kg`; console errors 0; non-trial write requests 0. Screenshot: `/tmp/pr453-pricing-rule-trial-excel-parity.png`.
+- Deployment:
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial-excel-parity.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+- Notes: 当前 `scripts/reserve_req_id.sh --claim` 在本 worktree 因 awk 多行变量报错；本条由 Codex 手工登记。后端在模板显式 `supplier_tier_markup` 或本次试算带 `post_markup_costs` 时使用 Excel 供应售价口径，未录入售价后附加成本的标准模板不受影响。
+
 ### PR-452-PRICING-RULE-TRIAL
 - Branch: codex/pricing-rule-trial-20260608
 - Owner/session: Codex / 2026-06-08

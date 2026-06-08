@@ -956,6 +956,24 @@
               </div>
             </div>
 
+            <div class="pricing-rule-section-head">
+              <strong>售价后附加成本</strong>
+              <button class="secondary compact-action" type="button" @click="addPricingRuleTrialPostMarkupCostRow">新增售价后成本</button>
+            </div>
+            <div class="pricing-rule-other-cost-list">
+              <div v-for="(row, index) in pricingRuleTrialForm.post_markup_cost_rows" :key="`post-${index}`" class="pricing-rule-other-cost-row">
+                <label>
+                  <span>成本名</span>
+                  <input v-model.trim="row.key" placeholder="如 包装 / 产品损耗 / 利润税额" />
+                </label>
+                <label>
+                  <span>成本价格</span>
+                  <input v-model.number="row.value" type="number" min="0" step="0.0001" placeholder="0" />
+                </label>
+                <button class="secondary compact-action" type="button" @click="removePricingRuleTrialPostMarkupCostRow(index)">删除</button>
+              </div>
+            </div>
+
             <div v-if="pricingRuleTrialError" class="error">{{ pricingRuleTrialError }}</div>
             <div class="form-actions">
               <button class="primary" type="button" :disabled="pricingRuleTrialLoading" @click="runPricingRuleTrial">重新试算</button>
@@ -975,6 +993,14 @@
               <div>
                 <small>损耗后成本</small>
                 <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.cost_after_yield, pricingRuleTrialResult.quote_unit) }}</strong>
+              </div>
+              <div>
+                <small>加价后价格</small>
+                <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.price_after_markup, pricingRuleTrialResult.quote_unit) }}</strong>
+              </div>
+              <div>
+                <small>售价后附加成本</small>
+                <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.post_markup_cost_total, pricingRuleTrialResult.quote_unit) }}</strong>
               </div>
               <div class="final">
                 <small>试算单价</small>
@@ -2358,15 +2384,22 @@ function defaultPricingRuleForm(rule = {}) {
 }
 
 function pricingRuleOtherCostRowsFromCalculation(calculation = {}) {
-  const raw = calculation.other_costs ?? calculation.otherCosts ?? {}
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [defaultPricingRuleOtherCostRow()]
+  return pricingRuleCostRowsFromMap(calculation.other_costs ?? calculation.otherCosts ?? {}, defaultPricingRuleOtherCostRow)
+}
+
+function pricingRulePostMarkupCostRowsFromCalculation(calculation = {}) {
+  return pricingRuleCostRowsFromMap(calculation.post_markup_costs ?? calculation.postMarkupCosts ?? {}, defaultPricingRuleTrialPostMarkupCostRow)
+}
+
+function pricingRuleCostRowsFromMap(raw = {}, defaultRow) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [defaultRow()]
   const rows = Object.entries(raw)
     .map(([key, value]) => ({
       key: String(key || '').trim(),
       value: Number(value || 0),
     }))
     .filter((row) => row.key)
-  return rows.length ? rows : [defaultPricingRuleOtherCostRow()]
+  return rows.length ? rows : [defaultRow()]
 }
 
 function defaultPricingRuleOtherCostRow() {
@@ -2384,10 +2417,15 @@ function defaultPricingRuleTrialForm(rule = {}) {
     margin_rate: form.margin_rate,
     tax_rate: form.tax_rate,
     other_cost_rows: form.other_cost_rows.map((row) => ({ ...row })),
+    post_markup_cost_rows: pricingRulePostMarkupCostRowsFromCalculation(form.calculation_json).map((row) => ({ ...row })),
   }
 }
 
 function defaultPricingRuleTrialOtherCostRow() {
+  return { key: '', value: 0 }
+}
+
+function defaultPricingRuleTrialPostMarkupCostRow() {
   return { key: '', value: 0 }
 }
 
@@ -3114,6 +3152,17 @@ function removePricingRuleTrialOtherCostRow(index) {
   pricingRuleTrialForm.value.other_cost_rows.splice(index, 1)
   if (!pricingRuleTrialForm.value.other_cost_rows.length) {
     addPricingRuleTrialOtherCostRow()
+  }
+}
+
+function addPricingRuleTrialPostMarkupCostRow() {
+  pricingRuleTrialForm.value.post_markup_cost_rows.push(defaultPricingRuleTrialPostMarkupCostRow())
+}
+
+function removePricingRuleTrialPostMarkupCostRow(index) {
+  pricingRuleTrialForm.value.post_markup_cost_rows.splice(index, 1)
+  if (!pricingRuleTrialForm.value.post_markup_cost_rows.length) {
+    addPricingRuleTrialPostMarkupCostRow()
   }
 }
 

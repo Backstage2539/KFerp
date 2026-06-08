@@ -2,6 +2,7 @@ package costing
 
 import (
 	"context"
+	"math"
 	"reflect"
 	"testing"
 
@@ -273,6 +274,204 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 			t.Fatalf("steps missing %q: %+v", key, got.Steps)
 		}
 	}
+}
+
+func TestPricingRuleTrialMatchesExcelSupplierPriceSamples(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{
+			{
+				ProductID:          45301,
+				Name:               "测试用",
+				InventoryUnit:      "kg",
+				QuoteUnit:          "kg",
+				GreenBeanCostPerKg: 67.5, // 物料成本!C4 / 生产项目!H3 = 54 / 0.8
+				YieldRate:          1,
+			},
+			{
+				ProductID:          45302,
+				Name:               "单品：孟连红果厌氧慢速日晒",
+				InventoryUnit:      "kg",
+				QuoteUnit:          "kg",
+				GreenBeanCostPerKg: 131.25, // 物料成本!C5 / 生产项目!H3 = 105 / 0.8
+				YieldRate:          1,
+			},
+		},
+		pricingRules: map[int64]ProductPricingRule{
+			453: {
+				ID:             453,
+				Name:           "PR453 Excel 供应售价",
+				CostSourceMode: "bom_current_cost",
+				MarginRate:     0,
+				TaxRate:        0,
+				RoundingMode:   "none",
+				FormulaVersion: "excel-202604-v3",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"formula_mode":    "supplier_tier_markup",
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "none",
+				},
+			},
+			454: {
+				ID:             454,
+				Name:           "PR453 Excel 供应售价自动口径",
+				CostSourceMode: "bom_current_cost",
+				MarginRate:     0,
+				TaxRate:        0,
+				RoundingMode:   "none",
+				FormulaVersion: "excel-202604-v3",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "none",
+				},
+			},
+		},
+	}
+	cases := []struct {
+		name         string
+		productID    int64
+		tierRate     float64
+		preCosts     map[string]float64
+		postCosts    map[string]float64
+		wantFinal    float64
+		wantCostBase float64
+	}{
+		{
+			name:      "测试用 1kg-2磅",
+			productID: 45301,
+			tierRate:  0.5421052631578949,
+			preCosts: map[string]float64{
+				"电力":     1.875,
+				"租金":     0.1375,
+				"生产损耗":   0.5,
+				"人力（智烘）": 3.75,
+			},
+			postCosts: map[string]float64{
+				"包装":   1.7,
+				"产品损耗": 0.06,
+				"利润税额": 1.1996111842105266,
+			},
+			wantCostBase: 73.7625,
+			wantFinal:    116.70915065789475,
+		},
+		{
+			name:      "测试用 100kg-200磅",
+			productID: 45301,
+			tierRate:  0.045,
+			preCosts: map[string]float64{
+				"燃气":     1.025,
+				"租金":     0.1375,
+				"生产损耗":   0.5,
+				"人力（布勒）": 1.5,
+			},
+			postCosts: map[string]float64{
+				"包装":   1.7,
+				"产品损耗": 0.06,
+			},
+			wantCostBase: 70.6625,
+			wantFinal:    75.6023125,
+		},
+		{
+			name:      "单品：孟连红果厌氧慢速日晒 1kg-2磅",
+			productID: 45302,
+			tierRate:  0.8131578947368422,
+			preCosts: map[string]float64{
+				"电力":     1.875,
+				"租金":     0.1375,
+				"生产损耗":   0.5,
+				"人力（智烘）": 3.75,
+			},
+			postCosts: map[string]float64{
+				"包装":   1.7,
+				"产品损耗": 0.06,
+				"利润税额": 2.2363875,
+			},
+			wantCostBase: 137.5125,
+			wantFinal:    253.3282625,
+		},
+		{
+			name:      "单品：孟连红果厌氧慢速日晒 24kg-48磅",
+			productID: 45302,
+			tierRate:  0.3,
+			preCosts: map[string]float64{
+				"燃气":     1.025,
+				"租金":     0.1375,
+				"生产损耗":   0.5,
+				"人力（布勒）": 1.5,
+			},
+			postCosts: map[string]float64{
+				"包装":   1.7,
+				"产品损耗": 0.06,
+				"利润税额": 0.61880625,
+			},
+			wantCostBase: 134.4125,
+			wantFinal:    177.11505625,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+				PricingRuleID: 453,
+				ProductID:     tc.productID,
+				QuoteUnit:     "kg",
+				Overrides: PricingRuleTrialOverrides{
+					MarginRate:      floatPtr(tc.tierRate),
+					OtherCosts:      tc.preCosts,
+					PostMarkupCosts: tc.postCosts,
+				},
+			})
+			if err != nil {
+				t.Fatalf("PricingRuleTrial() error = %v", err)
+			}
+			if math.Abs(got.CostAfterYield-tc.wantCostBase) > 0.0001 {
+				t.Fatalf("cost base = %.10f, want %.10f", got.CostAfterYield, tc.wantCostBase)
+			}
+			if math.Abs(got.FinalUnitPrice-tc.wantFinal) > 0.0001 {
+				t.Fatalf("final unit price = %.10f, want Excel %.10f", got.FinalUnitPrice, tc.wantFinal)
+			}
+			if got.PostMarkupCostTotal <= 0 || got.PriceAfterMarkup <= 0 {
+				t.Fatalf("supplier formula nodes missing totals: %+v", got)
+			}
+			for _, key := range []string{"material_cost", "other_cost_total", "price_after_markup", "post_markup_cost_total", "final_unit_price"} {
+				if !pricingRuleTrialHasStep(got.Steps, key) {
+					t.Fatalf("steps missing %q: %+v", key, got.Steps)
+				}
+			}
+		})
+	}
+	t.Run("post markup override activates supplier formula", func(t *testing.T) {
+		got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+			PricingRuleID: 454,
+			ProductID:     45301,
+			QuoteUnit:     "kg",
+			Overrides: PricingRuleTrialOverrides{
+				MarginRate: floatPtr(0.5421052631578949),
+				OtherCosts: map[string]float64{
+					"电力":     1.875,
+					"租金":     0.1375,
+					"生产损耗":   0.5,
+					"人力（智烘）": 3.75,
+				},
+				PostMarkupCosts: map[string]float64{
+					"包装":   1.7,
+					"产品损耗": 0.06,
+					"利润税额": 1.1996111842105266,
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("PricingRuleTrial() error = %v", err)
+		}
+		if math.Abs(got.FinalUnitPrice-116.70915065789475) > 0.0001 {
+			t.Fatalf("final unit price = %.10f, want Excel %.10f", got.FinalUnitPrice, 116.70915065789475)
+		}
+		if !pricingRuleTrialHasStep(got.Steps, "post_markup_cost_total") {
+			t.Fatalf("steps missing post markup total: %+v", got.Steps)
+		}
+	})
 }
 
 func TestPricingRuleTrialSupportsOverridesAndMinimumMarginWarning(t *testing.T) {

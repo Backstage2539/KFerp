@@ -23,6 +23,11 @@ type fakePricingRuleTrialErrorService struct {
 	fakeService
 }
 
+type capturingPricingRuleTrialService struct {
+	fakeService
+	last appcosting.PricingRuleTrialCommand
+}
+
 func containsWarning(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
@@ -74,6 +79,33 @@ func (fakeService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrial
 
 func (fakePricingRuleTrialErrorService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrialCommand) (*appcosting.PricingRuleTrialResult, error) {
 	return nil, errors.New("product not found")
+}
+
+func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, cmd appcosting.PricingRuleTrialCommand) (*appcosting.PricingRuleTrialResult, error) {
+	s.last = cmd
+	return &appcosting.PricingRuleTrialResult{
+		PricingRuleID:       cmd.PricingRuleID,
+		PricingRuleName:     "PR453 Excel 供应售价",
+		FormulaVersion:      "excel-202604-v3",
+		ProductID:           cmd.ProductID,
+		ProductName:         "测试用",
+		QuoteUnit:           cmd.QuoteUnit,
+		InventoryUnit:       "kg",
+		BaseCost:            67.5,
+		OtherCostTotal:      6.2625,
+		CostAfterYield:      73.7625,
+		PriceAfterMarkup:    113.7495,
+		PostMarkupCostTotal: 2.9596,
+		PreTaxPrice:         116.7092,
+		FinalUnitPrice:      116.7092,
+		GrossMarginRate:     0.3684,
+		MinimumMarginRate:   0,
+		Steps: []domain.PriceExplanationStep{
+			{Key: "price_after_markup", Label: "加价后价格", Value: 113.7495, Unit: "kg"},
+			{Key: "post_markup_cost_total", Label: "售价后附加成本", Value: 2.9596, Unit: "kg"},
+			{Key: "final_unit_price", Label: "试算单价", Value: 116.7092, Unit: "kg"},
+		},
+	}, nil
 }
 
 func (fakeService) BeanList(context.Context, appcosting.BeanListQuery) (*appcosting.CalculateResponse, error) {
@@ -609,7 +641,8 @@ func TestCostingPriceExplanationAPIIncludesFastCostParameters(t *testing.T) {
 
 func TestPricingRuleTrialAPI(t *testing.T) {
 	e := echo.New()
-	RegisterRoutes(e, Dependencies{Costing: fakeService{}})
+	svc := &capturingPricingRuleTrialService{}
+	RegisterRoutes(e, Dependencies{Costing: svc})
 
 	body, err := json.Marshal(appcosting.PricingRuleTrialCommand{
 		PricingRuleID: 10,
@@ -621,6 +654,9 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 			TaxRate:          floatPtr(0.06),
 			OtherCosts: map[string]float64{
 				"包装贴标": 1.25,
+			},
+			PostMarkupCosts: map[string]float64{
+				"利润税额": 1.1996,
 			},
 		},
 	})
@@ -640,10 +676,16 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
-	if got.PricingRuleID != 10 || got.ProductID != 549 || got.FinalUnitPrice != 110.4 {
+	if got.PricingRuleID != 10 || got.ProductID != 549 || got.FinalUnitPrice != 116.7092 {
 		t.Fatalf("trial response = %+v", got)
 	}
-	if !strings.Contains(rec.Body.String(), `"key":"final_unit_price"`) {
+	if svc.last.Overrides.PostMarkupCosts["利润税额"] != 1.1996 {
+		t.Fatalf("post markup costs not bound: %+v", svc.last.Overrides.PostMarkupCosts)
+	}
+	if got.PriceAfterMarkup <= 0 || got.PostMarkupCostTotal <= 0 {
+		t.Fatalf("trial response missing supplier formula fields: %+v", got)
+	}
+	if !strings.Contains(rec.Body.String(), `"key":"post_markup_cost_total"`) || !strings.Contains(rec.Body.String(), `"key":"final_unit_price"`) {
 		t.Fatalf("response missing formula steps: %s", rec.Body.String())
 	}
 }

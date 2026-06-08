@@ -440,6 +440,8 @@ export function buildPricingRuleTrialPayload(form = {}) {
   if (taxRate !== null) overrides.tax_rate = taxRate
   const otherCosts = pricingRuleTrialOtherCostMapFromForm(form)
   if (Object.keys(otherCosts).length) overrides.other_costs = otherCosts
+  const postMarkupCosts = pricingRuleTrialPostMarkupCostMapFromForm(form)
+  if (Object.keys(postMarkupCosts).length) overrides.post_markup_costs = postMarkupCosts
 
   return {
     pricing_rule_id: Number(form.pricing_rule_id ?? form.pricingRuleID ?? form.rule_id ?? form.ruleID ?? 0) || 0,
@@ -461,7 +463,15 @@ function optionalNumberFromForm(value) {
 }
 
 function pricingRuleTrialOtherCostMapFromForm(form = {}) {
-  const rowSource = form.other_cost_rows ?? form.otherCostRows
+  return pricingRuleTrialCostMapFromForm(form, ['other_cost_rows', 'otherCostRows'], ['other_costs', 'otherCosts'])
+}
+
+function pricingRuleTrialPostMarkupCostMapFromForm(form = {}) {
+  return pricingRuleTrialCostMapFromForm(form, ['post_markup_cost_rows', 'postMarkupCostRows'], ['post_markup_costs', 'postMarkupCosts'])
+}
+
+function pricingRuleTrialCostMapFromForm(form = {}, rowKeys = [], mapKeys = []) {
+  const rowSource = rowKeys.map((key) => form[key]).find((value) => typeof value !== 'undefined')
   if (Array.isArray(rowSource)) {
     return rowSource.reduce((acc, row) => {
       const key = String(row?.key ?? row?.name ?? row?.cost_name ?? row?.costName ?? '').trim()
@@ -470,7 +480,7 @@ function pricingRuleTrialOtherCostMapFromForm(form = {}) {
       return acc
     }, {})
   }
-  const mapSource = form.other_costs ?? form.otherCosts
+  const mapSource = mapKeys.map((key) => form[key]).find((value) => typeof value !== 'undefined')
   if (!mapSource || typeof mapSource !== 'object' || Array.isArray(mapSource)) return {}
   return Object.entries(mapSource).reduce((acc, [rawKey, rawValue]) => {
     const key = String(rawKey || '').trim()

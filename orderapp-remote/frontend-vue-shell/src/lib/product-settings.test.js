@@ -533,6 +533,11 @@ test('pricing rule trial payload is temporary and does not save price rows', () 
       { key: '认证费', value: '2.5' },
       { key: '', value: '99' },
     ],
+    post_markup_cost_rows: [
+      { key: ' 包装 ', value: '1.7' },
+      { key: '产品损耗', value: '0.06' },
+      { key: '利润税额', value: '1.1996' },
+    ],
     final_unit_price: 88,
     price_rows: [{ final_unit_price: 88 }],
   }), {
@@ -547,6 +552,11 @@ test('pricing rule trial payload is temporary and does not save price rows', () 
       other_costs: {
         '包装贴标': 1.25,
         '认证费': 2.5,
+      },
+      post_markup_costs: {
+        '包装': 1.7,
+        '产品损耗': 0.06,
+        '利润税额': 1.1996,
       },
     },
   })
@@ -662,7 +672,9 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '临时利润/加价',
     '临时税率',
     '其他成本',
+    '售价后附加成本',
     '重新试算',
+    '加价后价格',
     '试算单价',
     '公式步骤',
   ]) {
