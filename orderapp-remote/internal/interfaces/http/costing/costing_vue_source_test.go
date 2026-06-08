@@ -15,12 +15,13 @@ func TestCostingViewGroupsBeanListsByExcelCategoryAndShowsMetadata(t *testing.T)
 	}
 	src := string(b)
 	for _, want := range []string{
-		"productPriceListPreviewSections",
+		"price-list-page-config",
+		"categoryProductGroups",
 		"productGroupsForType",
 		"commercial_bean_list",
 		"retail_bean_list",
 		"bean-code",
-		"recommended_use",
+		"recommendedUse",
 		"description",
 	} {
 		if !strings.Contains(src, want) {
@@ -37,7 +38,7 @@ func TestCostingViewDoesNotExposeDedicatedDripTemplateSource(t *testing.T) {
 	}
 	src := string(b)
 	for _, want := range []string{
-		"productPriceListPreviewSections",
+		"price-list-page-config",
 		"productPriceListTypeOptions",
 		"priceListRenderTypeForItem",
 		"商品价格表",
@@ -81,13 +82,16 @@ func TestCostingPreviewSectionsUseProductTypesInsteadOfLegacyCards(t *testing.T)
 		}
 	}
 	for _, want := range []string{
-		"v-for=\"section in productPriceListPreviewSections\"",
-		"section.label",
-		"section.groups",
-		"section.listType",
+		"price-list-page-config",
+		"selectedProductPriceListLabel",
+		"productPriceListTypeOptions",
+		"productGroupsForType",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("CostingView.vue missing dynamic product-type preview marker %q", want)
+			t.Fatalf("CostingView.vue missing inline product-type price-list marker %q", want)
 		}
+	}
+	if strings.Contains(src, "productPriceListPreviewSections") || strings.Contains(src, "collapsible-bean-section") {
+		t.Fatalf("CostingView.vue should not restore old product-type preview cards")
 	}
 }

@@ -192,7 +192,7 @@ func TestBeanListPDFKeepsLegacyDripSnapshotsButViewDoesNotInferDripType(t *testi
 		"drip_wholesale_tiers",
 		"productPriceListTypeOptions",
 		"priceListRenderTypeForItem",
-		"productPriceListPreviewSections",
+		"price-list-page-config",
 		"sales_unit",
 		"unit_bag_count",
 		"packed_price_per_bag",
@@ -216,18 +216,18 @@ func TestBeanListPDFKeepsLegacyDripSnapshotsButViewDoesNotInferDripType(t *testi
 	}
 }
 
-func TestCostingViewHasCollapsibleBeanListPreviewSections(t *testing.T) {
+func TestCostingViewHasInlineBeanListConfiguration(t *testing.T) {
 	view, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "frontend-vue-shell", "src", "views", "CostingView.vue"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(view)
 	for _, want := range []string{
-		"collapsible-bean-section",
-		"beanListPreviewCollapsed",
-		"toggleBeanListPreviewSection(section.key)",
-		"section.label",
-		"section.groups",
+		"price-list-page-config",
+		"Price List / Item Price 生成规则",
+		"productSelection",
+		"categoryProductGroups",
+		"price-list-rules-dialog",
 		"productGroupsForType",
 		"green_bean_list",
 		"green_bean_sale_tiers",
@@ -239,5 +239,8 @@ func TestCostingViewHasCollapsibleBeanListPreviewSections(t *testing.T) {
 	}
 	if strings.Contains(src, "生成挂耳豆单") {
 		t.Fatalf("outer drip bean-list button should be removed; use the drawer list type selector")
+	}
+	if strings.Contains(src, "collapsible-bean-section") {
+		t.Fatalf("old collapsible preview sections should not return; use the inline price-list configuration")
 	}
 }
