@@ -28,12 +28,12 @@ func TestDev171BomSkuContextRequirementSeeds(t *testing.T) {
 func TestDev171BomViewFiltersBySkuContext(t *testing.T) {
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue")))
 	for _, want := range []string{
-		"bom-list-tabs-row",
+		"productionBomDisplayGroups",
 		"bom-list-filters",
 		"生产 BOM列表",
 		"批量失效",
 		"productionBomRows",
-		"v-for=\"row in productionBomRows\"",
+		"v-for=\"row in group.rows\"",
 		"产出商品",
 		"usedByBoms",
 		"apiGet('/api/production-boms?status=all')",
@@ -60,10 +60,10 @@ func TestDev171BomViewFiltersBySkuContext(t *testing.T) {
 			t.Fatalf("BomView.vue should not keep product-context BOM marker %q", unwanted)
 		}
 	}
-	tabRow := strings.Index(view, "bom-list-tabs-row")
+	groupRow := strings.Index(view, "productionBomDisplayGroups")
 	filterRow := strings.Index(view, "bom-list-filters")
-	if tabRow < 0 || filterRow < 0 || tabRow > filterRow {
-		t.Fatalf("BOM group tab row must appear above list filters: tab=%d filter=%d", tabRow, filterRow)
+	if groupRow < 0 || filterRow < 0 || groupRow < filterRow {
+		t.Fatalf("BOM template grouping must render after list filters: group=%d filter=%d", groupRow, filterRow)
 	}
 }
 

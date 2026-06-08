@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-458-GROUP-TEMPLATE-BUSINESS-LISTING
+- Branch: codex/group-template-business-listing-20260608
+- Owner/session: Codex / 2026-06-08
+- Status: implementation in progress; frontend helper tests green; docs/support/build/browser/deploy verification pending
+- Scope: 分组模板驱动业务列表整理。商品档案、生产 BOM、仓库库存统一选择 `分组模板` 后，业务列表按该模板完整大类/小类树自动整理展示，空大类/小类也显示，未归类对象进入 `未分类`；三处业务页共用 `BusinessGroupControls` 和 `business-grouping` helper，通过同一套 `移动到分类` 写 `business_group_assignments`。删除商品/BOM 分类过滤 Tab，删除商品列表 `分类` 列；仓库库存删除 `普通仓库` / `客户仓库` 固定分段，仓库按模板作为可归类对象展示。
+- DEV:
+  - DEV-458-GROUPING-HELPER-CONTROL：抽出 `business-grouping` helper 和 `BusinessGroupControls`，统一模板选项、移动分类选项、完整分类树、未分类分组、缩进样式和移动 payload。
+  - DEV-458-PRODUCT-LIST-TEMPLATE-TREE：商品档案选择商品分组模板后，列表按模板大类/小类展示空分类和未分类，移除分类过滤 Tab 与商品表格 `分类` 列。
+  - DEV-458-BOM-LIST-TEMPLATE-TREE：生产 BOM 选择分组模板后按模板大类/小类展示空分类和未分类，移除 `全部分类 / 未分类 / 分类项` Tab，保留状态、搜索、批量失效和批量移动。
+  - DEV-458-WAREHOUSE-LIST-TEMPLATE-TREE：仓库库存按库存分组模板整理仓库列表，仓库行支持选择和批量移动；仓库类型、客户绑定只作行内信息，不再作为页面分段逻辑。
+  - DEV-458-DOCS-ACCEPTANCE：同步需求、验收清单、操作手册、PR/DEV 种子和验收记录。
+- Verifier:
+  - RED frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/business-grouping.test.js orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js orderapp-remote/frontend-vue-shell/src/lib/bom.test.js orderapp-remote/frontend-vue-shell/src/lib/materials-ui.test.js` failed before implementation because共享 helper/control、完整模板分类树、商品/BOM去 Tab、仓库去固定分段 marker 缺失。
+  - GREEN frontend targeted: `node --test orderapp-remote/frontend-vue-shell/src/lib/business-grouping.test.js orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js orderapp-remote/frontend-vue-shell/src/lib/bom.test.js orderapp-remote/frontend-vue-shell/src/lib/materials-ui.test.js` passed 151/151.
+  - Pending: support/API docs contract, Vue build, broader Go verification, browser acceptance and development deploy.
+- Manual/docs: pending `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-08-group-template-business-listing.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
 ### PR-456-PRICING-RULE-TRIAL-PR439-UNIT
 - Branch: codex/pricing-rule-trial-pr439-unit-20260608
 - Owner/session: Codex / 2026-06-08

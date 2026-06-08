@@ -148,34 +148,20 @@
           </button>
         </div>
         <div v-show="!productsCollapsed">
-          <div class="classification-view-toolbar product-classification-tabs" aria-label="商品档案分组视图" data-pr442-product-group-assignments data-pr442-business-group-items-api="/api/business-group-items">
-            <div v-if="selectedProductGroupTemplate" class="classification-tabs">
-              <button class="classification-tab active" type="button">全部商品</button>
-              <button
-                v-for="group in displaySkuGroups"
-                :key="`product-tab-${group.key}`"
-                class="classification-tab"
-                type="button">
-                {{ group.label }}
-              </button>
-            </div>
-            <div class="classification-select-row product-classification-selects">
-              <label class="business-group-template-select">
-                <span>选择分组模板</span>
-                <select v-model.number="selectedProductGroupTemplateID">
-                  <option :value="0">选择分组模板</option>
-                  <option v-for="group in productCatalogBusinessGroups" :key="group.id" :value="Number(group.id || 0)">{{ businessGroupDisplayName(group) }}</option>
-                </select>
-              </label>
-              <label class="business-group-move">
-                <span>移动到分类</span>
-                <select v-model.number="selectedProductBusinessGroupItemID" :disabled="!selectedProductGroupTemplate || !selectedProductIds.length" @change="saveSelectedProductBusinessGroupAssignment">
-                  <option :value="0">未分类</option>
-                  <option v-for="option in productBusinessGroupItemOptions" :key="option.id" :value="option.group_item_id">{{ option.label }}</option>
-                </select>
-              </label>
-            </div>
-          </div>
+          <BusinessGroupControls
+            v-model="selectedProductGroupTemplateID"
+            v-model:move-model-value="selectedProductBusinessGroupItemID"
+            class="classification-view-toolbar product-business-group-controls"
+            data-pr442-product-group-assignments
+            data-pr442-business-group-items-api="/api/business-group-items"
+            :template-options="productBusinessGroupControls.templateOptions"
+            :move-options="productBusinessGroupItemOptions"
+            :selected-template="selectedProductGroupTemplate"
+            :selected-count="selectedProductIds.length"
+            :can-move="canMoveSelectedProductsToBusinessGroup"
+            :loading="loading"
+            @manage="openProductBusinessGroupManagement"
+            @move="saveSelectedProductBusinessGroupAssignment" />
           <div class="table-wrap sku-table-wrap">
           <div class="sku-filters product-filter-row">
             <label>
@@ -205,7 +191,6 @@
                 </th>
                 <th class="sku-name-cell">商品名</th>
                 <th>商品编号</th>
-                <th>分类</th>
                 <th>行业字段</th>
                 <th>归属</th>
                 <th class="action-cell">新增动作</th>
@@ -223,7 +208,7 @@
                   v-if="!group.all"
                   :class="['classification-group-row', { 'classification-subgroup-row': Number(group.depth || 0) > 0 }]"
                   :style="classificationGroupIndentStyle(group)">
-                    <td :colspan="13">
+                    <td :colspan="12">
                     <button class="classification-group-toggle" type="button" @click="toggleProductClassificationGroup(group.key)">
                       {{ isProductClassificationGroupCollapsed(group.key) ? '展开' : '收起' }}
                     </button>
@@ -243,9 +228,6 @@
                     <button class="text-button sku-name-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">{{ row.name || '未命名商品' }}</button>
                   </td>
                   <td>{{ productCodeLabel(row) }}</td>
-                  <td>
-                    <div>{{ productClassificationLabel(row) }}</div>
-                  </td>
                   <td class="industry-field-cell">
                     <span>{{ industryFieldSummary(productionConfigPriceListFields(row)) }}</span>
                     <button class="text-button" type="button" :disabled="row.active === false" @click="openProductProductionConfig(row)">设置</button>
@@ -276,7 +258,7 @@
                 </template>
               </template>
               <tr v-if="!displaySkuRows.length">
-                <td :colspan="13" class="muted">暂无商品档案</td>
+                <td :colspan="12" class="muted">暂无商品档案</td>
               </tr>
             </tbody>
           </table>
@@ -1395,8 +1377,16 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import BusinessGroupControls from '../components/BusinessGroupControls.vue'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import {
+  businessGroupControlOptions,
+  businessGroupItemIndentStyle,
+  businessGroupHeaderIndentStyle,
+  businessGroupMoveAssignmentPayload,
+  groupRowsByBusinessGroupTemplate,
+} from '../lib/business-grouping'
 import { FORM_DRAFT_SCOPES, readFormDraft, saveFormDraft } from '../lib/form-draft-cache'
 import {
   buildGradientTemplatePayload,
@@ -1423,8 +1413,6 @@ import {
   buildCustomerProductRuleOverridePayload,
   buildCustomerProductRuleTemplatePayload,
   buildBusinessGroupAssignmentPayload,
-  businessGroupDisplayGroups,
-  businessGroupItemMoveOptions,
   businessGroupItemsTree,
   businessGroupVisibleName,
   isSystemDefaultBusinessGroup,
@@ -1466,7 +1454,6 @@ import {
   productConfigTemplateBelongsToSkuContext,
   productConfigTemplateNeedsGradientTemplate,
   productCategoryAssignmentLabel,
-  productCatalogGroupOfProduct,
   productDisplayState,
   productPriceRecordLabel,
   productKindSupportsBomParams,
@@ -1988,8 +1975,13 @@ const productMoveClassificationOptions = computed(() => {
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...productClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
 })
 const productCatalogBusinessGroups = computed(() => productCatalogBusinessGroupRows())
-const selectedProductGroupTemplate = computed(() => productCatalogBusinessGroups.value.find((group) => Number(group.id || 0) === Number(selectedProductGroupTemplateID.value || 0)) || null)
-const productBusinessGroupItemOptions = computed(() => businessGroupItemMoveOptions(selectedProductGroupTemplate.value ? [selectedProductGroupTemplate.value] : [], 'product_catalog', { includeGroupName: false, includeGroupsWithoutUsage: true }))
+const productBusinessGroupControls = computed(() => businessGroupControlOptions(productCatalogBusinessGroups.value, {
+  selectedTemplateID: selectedProductGroupTemplateID.value,
+  usageKey: 'product_catalog',
+}))
+const selectedProductGroupTemplate = computed(() => productBusinessGroupControls.value.selectedTemplate)
+const productBusinessGroupItemOptions = computed(() => productBusinessGroupControls.value.moveOptions)
+const canMoveSelectedProductsToBusinessGroup = computed(() => Boolean(selectedProductGroupTemplate.value && selectedProductIds.value.length))
 const aliasMoveClassificationOptions = computed(() => {
   if (isAliasAllOrUnclassifiedTab.value) return aliasMovableClassificationTabs.value.map((tab) => ({ ...tab, move_type: 'template' }))
   return [{ id: UNCLASSIFIED_CATEGORY_MOVE_ID, category_id: 0, name: '未分类', move_type: 'category' }, ...aliasClassificationCategories.value.map((category) => ({ ...category, category_id: Number(category.id || 0), move_type: 'category' }))]
@@ -2001,7 +1993,13 @@ const classificationTemplateEditorCategories = computed(() => (classificationTem
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
 const productClassificationCategories = computed(() => (currentProductClassificationTemplate.value?.categories || []).filter((category) => category.active !== false).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
 const aliasClassificationCategories = computed(() => (currentAliasClassificationTemplate.value?.categories || []).filter((category) => category.active !== false).slice().sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
-const displaySkuGroups = computed(() => businessGroupDisplayGroups(displaySkuRows.value, businessGroupAssignments.value, selectedProductGroupTemplate.value ? [selectedProductGroupTemplate.value] : []))
+const displaySkuGroups = computed(() => groupRowsByBusinessGroupTemplate(displaySkuRows.value, {
+  template: selectedProductGroupTemplate.value,
+  assignments: businessGroupAssignments.value,
+  usageKey: 'product_catalog',
+  objectKey: 'product',
+  objectIDForRow: (row) => Number(row.id || 0),
+}))
 const visibleCustomerAliasGroups = computed(() => {
   const tab = currentAliasClassificationTab.value
   if (!tab || tab.all) return [{ key: 'all-aliases', label: '全部客户商品', rows: visibleCustomerProductAliases.value, all: true }]
@@ -2146,13 +2144,11 @@ function toggleProductClassificationGroup(key) {
 }
 
 function classificationGroupIndentStyle(group = {}) {
-  const depth = Math.max(Number(group.depth || 0), 0)
-  return { '--classification-group-indent': `${16 + depth * 24}px` }
+  return businessGroupHeaderIndentStyle(group)
 }
 
 function classificationItemIndentStyle(group = {}) {
-  const depth = Math.max(Number(group.depth || 0), 0)
-  return { '--classification-item-indent': `${18 + depth * 24}px` }
+  return businessGroupItemIndentStyle(group)
 }
 
 function isAliasClassificationGroupCollapsed(key) {
@@ -4407,15 +4403,6 @@ function buildProductCatalogBusinessGroupTree() {
   return businessGroupItemsTree(group.items || []).map((item, index) => project(item, null, index))
 }
 
-function productBusinessGroupLabel(row) {
-  const label = productCatalogGroupOfProduct(row, businessGroupAssignments.value, selectedProductGroupTemplate.value ? [selectedProductGroupTemplate.value] : []).label
-  return !label || label === '未分组' ? '未分类' : label
-}
-
-function productClassificationLabel(row) {
-  return productBusinessGroupLabel(row)
-}
-
 function aliasClassificationLabel(row) {
   return classificationAssignmentLabel(row, productClassificationTemplates.value, { assignmentType: 'alias' })
 }
@@ -4932,13 +4919,12 @@ async function saveSelectedProductBusinessGroupAssignment() {
         continue
       }
       await apiSend('/api/business-group-assignments', {
-        body: buildBusinessGroupAssignmentPayload({
-          usage_key: 'product_catalog',
-          object_key: 'product',
-          object_id: Number(productID || 0),
-          group_id: option.group_id,
-          group_item_id: option.group_item_id,
-          sort_order: 100,
+        body: businessGroupMoveAssignmentPayload({
+          usageKey: 'product_catalog',
+          objectKey: 'product',
+          objectID: Number(productID || 0),
+          option,
+          sortOrder: 100,
         }),
       })
     }
@@ -4963,6 +4949,18 @@ async function clearProductBusinessGroupAssignment(productID) {
   const data = await apiGet(url)
   const rows = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data?.assignments) ? data.assignments : [])
   await Promise.all(rows.map((row) => apiSend(`/api/business-group-assignments/${row.id}`, { method: 'DELETE' })))
+}
+
+function openProductBusinessGroupManagement() {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'groupTemplates',
+      returnNavigation: {
+        key: 'productMaster',
+        label: '返回商品档案',
+      },
+    },
+  }))
 }
 
 async function confirmSelectedProductClassificationMove(option) {

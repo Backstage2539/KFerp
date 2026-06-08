@@ -34,12 +34,10 @@ func TestDev450BomGroupUsageSelectionContracts(t *testing.T) {
 			"selectedProductionBomTemplateID",
 			"productionBomTemplateOptions",
 			"productionBomMoveGroupOptions",
-			"productionBomUsedGroupOptions",
-			"productionBomUsedGroupItemIDs",
-			"bom-group-use-row",
-			"bom-group-move-row",
-			"前往分组模板",
-			"移动到分类",
+			"productionBomDisplayGroups",
+			"BusinessGroupControls",
+			"groupRowsByBusinessGroupTemplate",
+			"businessGroupMoveAssignmentPayload",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
 			"includeGroupName",
@@ -48,7 +46,7 @@ func TestDev450BomGroupUsageSelectionContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"生产 BOM 页面不再维护自己的大组、组内分类或小分类，也不再显示 `使用分组`",
-			"当前所选模板下当前 BOM 列表实际使用过的分类项",
+			"列表会按模板完整大类 / 小类树和 `未分类` 自动整理",
 			"旧 `production_bom_groups` / `production_bom_group_categories` 只用于历史只读兼容",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-production-bom-group-usage-selection.md"): {

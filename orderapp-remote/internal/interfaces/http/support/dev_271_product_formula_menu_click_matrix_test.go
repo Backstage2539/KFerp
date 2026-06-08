@@ -84,7 +84,7 @@ func TestProductFormulaMenuClickMatrixViewsExposeActions(t *testing.T) {
 			"/api/production-boms/${bomID}/versions",
 			"/api/product-settings/units",
 			"保存组件",
-			"前往分组模板",
+			"BusinessGroupControls",
 			"复制为新版草稿",
 			"产出数量",
 		},

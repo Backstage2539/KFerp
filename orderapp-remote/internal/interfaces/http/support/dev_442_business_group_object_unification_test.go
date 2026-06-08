@@ -105,10 +105,10 @@ func TestDev442BusinessGroupAssignmentFrontendAndDocs(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"data-pr442-product-group-assignments",
 			"/api/business-group-assignments",
-			"选择分组模板",
-			"移动到分类",
+			"BusinessGroupControls",
+			"businessGroupMoveAssignmentPayload",
 			"selectedProductGroupTemplateID",
-			"businessGroupDisplayGroups",
+			"displaySkuGroups",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
 			"data-pr442-bom-business-groups",
@@ -119,7 +119,7 @@ func TestDev442BusinessGroupAssignmentFrontendAndDocs(t *testing.T) {
 			"data-pr442-warehouse-business-groups",
 			"/api/business-group-assignments",
 			"warehouse_inventory",
-			"库存分组模板",
+			"BusinessGroupControls",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"price-list-rules-dialog",

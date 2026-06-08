@@ -27,9 +27,9 @@ func TestDev407ProductionBomGroupCategoriesVersionEditSeeds(t *testing.T) {
 func TestDev407ProductionBomGroupCategoriesVersionEditSourceMarkers(t *testing.T) {
 	sources := map[string][]string{
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
-			"businessGroupItemMoveOptions",
-			"buildBusinessGroupAssignmentPayload",
-			"前往分组模板",
+			"groupRowsByBusinessGroupTemplate",
+			"businessGroupMoveAssignmentPayload",
+			"BusinessGroupControls",
 			"已发布版本只读，复制为新版草稿后编辑",
 			"version-recipe-panel",
 		},

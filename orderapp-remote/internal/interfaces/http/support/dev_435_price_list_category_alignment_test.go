@@ -42,7 +42,7 @@ func TestDev435PriceListCategoryAlignmentWiringAndDocs(t *testing.T) {
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-435-PRICE-LIST-CATEGORY-ALIGNMENT",
-			"商品价格表的商品类型必须和商品档案当前分类 Tab 保持一致",
+			"商品价格表的商品类型必须和所选商品分组模板保持一致",
 			"旧 product_type_category_id",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {

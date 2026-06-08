@@ -32,7 +32,7 @@ func TestDev451ProductMasterSubcategoryHeadersContracts(t *testing.T) {
 			"classification-item-row",
 			"path_label",
 			"productBusinessGroupItemOptions",
-			"includeGroupName: false",
+			"BusinessGroupControls",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.test.js"): {
 			"商品-咖啡熟豆 / 意式拼配豆",
@@ -55,8 +55,8 @@ func TestDev451ProductMasterSubcategoryHeadersContracts(t *testing.T) {
 			"移动商品到子类后列表在子类标题下显示",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"父组和子组都可以形成分类标题",
-			"商品行跟随所在父组/子组缩进",
+			"空大类和空小类也显示",
+			"商品表格不再显示独立 `分类` 列",
 			"移动目标可选 `未分类`、大类或小类",
 			"移动会覆盖旧归类",
 		},

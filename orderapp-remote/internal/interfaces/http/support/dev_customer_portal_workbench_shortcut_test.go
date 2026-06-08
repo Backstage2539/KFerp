@@ -94,14 +94,19 @@ func TestDevCustomerPortalWorkbenchShortcut(t *testing.T) {
 
 	wh := readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "WarehouseInventoryView.vue"))
 	for _, want := range []string{
-		"客户仓库",
-		"warehouseSections",
-		"customerWarehouses",
-		"generalWarehouses",
-		"isCustomerWarehouse",
+		"CUSTOMER_WORKSPACE_MODE",
+		"isCustomerInventoryContext",
+		"url.searchParams.set('customer_id'",
+		"绑定客户后，只有该客户可查看此外部库存。",
+		"kindLabel(row.kind)",
 	} {
 		if !strings.Contains(string(wh), want) {
 			t.Fatalf("WarehouseInventoryView.vue missing %q", want)
+		}
+	}
+	for _, removed := range []string{"warehouseSections", "customerWarehouses", "generalWarehouses", "普通仓库", "客户仓库"} {
+		if strings.Contains(string(wh), removed) {
+			t.Fatalf("WarehouseInventoryView.vue should not restore fixed warehouse section %q", removed)
 		}
 	}
 }

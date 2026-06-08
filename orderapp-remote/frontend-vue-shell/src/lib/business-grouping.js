@@ -1,0 +1,188 @@
+import {
+  businessGroupItemMoveOptions,
+  businessGroupVisibleName,
+  buildBusinessGroupAssignmentPayload,
+  isSystemDefaultBusinessGroup,
+} from './product-settings.js'
+
+function toNumber(value) {
+  const n = Number(value || 0)
+  return Number.isFinite(n) ? n : 0
+}
+
+function normalizedText(value) {
+  return String(value ?? '').trim()
+}
+
+function assignmentUsage(row = {}) {
+  return normalizedText(row.usage_key ?? row.usageKey)
+}
+
+function assignmentObjectKey(row = {}) {
+  return normalizedText(row.object_key ?? row.objectKey)
+}
+
+function assignmentObjectID(row = {}) {
+  return toNumber(row.object_id ?? row.objectID)
+}
+
+function assignmentObjectRef(row = {}) {
+  return normalizedText(row.object_ref ?? row.objectRef)
+}
+
+export function businessGroupControlOptions(groups = [], {
+  selectedTemplateID = 0,
+  usageKey = '',
+} = {}) {
+  const templateOptions = (Array.isArray(groups) ? groups : [])
+    .filter((group) => group?.active !== false)
+    .filter((group) => !isSystemDefaultBusinessGroup(group))
+    .slice()
+    .sort((a, b) => toNumber(a.sort_order) - toNumber(b.sort_order) || toNumber(a.id) - toNumber(b.id))
+    .map((group) => ({
+      id: toNumber(group.id),
+      label: businessGroupVisibleName(group) || normalizedText(group.name) || `分组模板 #${toNumber(group.id)}`,
+      group,
+    }))
+    .filter((option) => option.id > 0)
+  const selectedTemplate = templateOptions.find((option) => option.id === toNumber(selectedTemplateID))?.group || null
+  const moveOptions = businessGroupItemMoveOptions(selectedTemplate ? [selectedTemplate] : [], usageKey, {
+    includeGroupName: false,
+    includeGroupsWithoutUsage: true,
+  }).map((option, index) => ({
+    ...option,
+    key: `${option.group_id}:${option.group_item_id}`,
+    sort_order: index,
+  }))
+  return { templateOptions, selectedTemplate, moveOptions }
+}
+
+export function findBusinessGroupAssignmentForRow(row = {}, {
+  assignments = [],
+  usageKey = '',
+  objectKey = '',
+  objectIDForRow = (item = {}) => toNumber(item.id ?? item.product_id ?? item.productID),
+  objectRefForRow = null,
+  rowAssignment = null,
+} = {}) {
+  if (typeof rowAssignment === 'function') return rowAssignment(row) || null
+  const normalizedUsage = normalizedText(usageKey)
+  const normalizedObjectKey = normalizedText(objectKey)
+  const objectID = toNumber(objectIDForRow(row))
+  const objectRef = typeof objectRefForRow === 'function' ? normalizedText(objectRefForRow(row)) : ''
+  return (Array.isArray(assignments) ? assignments : []).find((assignment) => {
+    if (normalizedUsage && assignmentUsage(assignment) !== normalizedUsage) return false
+    if (normalizedObjectKey && assignmentObjectKey(assignment) !== normalizedObjectKey) return false
+    if (objectRef) return assignmentObjectRef(assignment) === objectRef
+    return objectID > 0 && assignmentObjectID(assignment) === objectID
+  }) || null
+}
+
+export function groupRowsByBusinessGroupTemplate(rows = [], {
+  template = null,
+  assignments = [],
+  usageKey = '',
+  objectKey = '',
+  objectIDForRow = (row = {}) => toNumber(row.id ?? row.product_id ?? row.productID),
+  objectRefForRow = null,
+  rowAssignment = null,
+  unclassifiedLabel = '未分类',
+  includeUnclassified = true,
+} = {}) {
+  if (!template || isSystemDefaultBusinessGroup(template)) {
+    return [{
+      key: 'business-group-unclassified',
+      label: unclassifiedLabel,
+      path_label: unclassifiedLabel,
+      depth: 0,
+      group_id: 0,
+      group_item_id: 0,
+      rows: Array.isArray(rows) ? rows : [],
+      all: false,
+      unclassified: true,
+      sort_order: 999999,
+    }]
+  }
+
+  const templateID = toNumber(template.id)
+  const moveOptions = businessGroupItemMoveOptions([template], usageKey, {
+    includeGroupName: false,
+    includeGroupsWithoutUsage: true,
+  })
+  const itemIDs = new Set(moveOptions.map((option) => toNumber(option.group_item_id)).filter(Boolean))
+  const groups = moveOptions.map((option, index) => ({
+    key: `business-group-${templateID}-${toNumber(option.group_item_id)}`,
+    label: option.title_label || option.path_label || option.label,
+    path_label: option.path_label || option.label,
+    depth: toNumber(option.depth),
+    parent_group_item_id: toNumber(option.parent_group_item_id),
+    group_id: templateID,
+    group_item_id: toNumber(option.group_item_id),
+    rows: [],
+    all: false,
+    unclassified: false,
+    sort_order: index,
+  }))
+  const byItemID = new Map(groups.map((group) => [toNumber(group.group_item_id), group]))
+  const unclassified = {
+    key: 'business-group-unclassified',
+    label: unclassifiedLabel,
+    path_label: unclassifiedLabel,
+    depth: 0,
+    parent_group_item_id: 0,
+    group_id: templateID,
+    group_item_id: 0,
+    rows: [],
+    all: false,
+    unclassified: true,
+    sort_order: 999999,
+  }
+
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const assignment = findBusinessGroupAssignmentForRow(row, {
+      assignments,
+      usageKey,
+      objectKey,
+      objectIDForRow,
+      objectRefForRow,
+      rowAssignment,
+    })
+    const assignmentGroupID = toNumber(assignment?.group_id ?? assignment?.groupID)
+    const assignmentItemID = toNumber(assignment?.group_item_id ?? assignment?.groupItemID)
+    const target = assignmentGroupID === templateID && itemIDs.has(assignmentItemID)
+      ? byItemID.get(assignmentItemID)
+      : unclassified
+    target.rows.push(row)
+  }
+
+  return includeUnclassified ? [...groups, unclassified] : groups
+}
+
+export function businessGroupMoveAssignmentPayload({
+  usageKey = '',
+  objectKey = '',
+  objectID = 0,
+  objectRef = '',
+  option = null,
+  groupID = 0,
+  groupItemID = 0,
+  sortOrder = 100,
+} = {}) {
+  return buildBusinessGroupAssignmentPayload({
+    usage_key: usageKey,
+    object_key: objectKey,
+    object_id: objectID,
+    object_ref: objectRef,
+    group_id: option ? option.group_id : groupID,
+    group_item_id: option ? option.group_item_id : groupItemID,
+    sort_order: sortOrder,
+  })
+}
+
+export function businessGroupHeaderIndentStyle(group = {}) {
+  return { '--classification-group-indent': `${16 + toNumber(group.depth) * 24}px` }
+}
+
+export function businessGroupItemIndentStyle(group = {}) {
+  return { '--classification-item-indent': `${18 + toNumber(group.depth) * 24}px` }
+}

@@ -2274,7 +2274,7 @@ test('product pages group product archive and template configuration into separa
   assert.match(template, /class="sku-filters product-filter-row"[\s\S]*@click="openProductDrawer"/)
   assert.doesNotMatch(template, /@click="openSkuCopyDrawer"/)
   assert.doesNotMatch(template, /v-if="currentSettingsSection === 'master'"[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
-  assert.match(template, /class="classification-view-toolbar product-classification-tabs"/)
+  assert.match(template, /class="classification-view-toolbar product-business-group-controls"/)
   assert.match(style, /\.master-data-layout\s*\{\s*display:\s*grid;\s*grid-template-columns:\s*minmax\(0,\s*1fr\);/)
   assert.match(style, /\.template-workspace-stack\s*\{\s*display:\s*grid;\s*gap:\s*14px;/)
   assert.match(style, /@media\s*\(max-width:\s*1100px\)/)
@@ -2407,7 +2407,7 @@ test('legacy SKU category management is not rendered as the product archive clas
   assert.doesNotMatch(template, /<Teleport\s+to="#sku-category-management-target"/)
   assert.doesNotMatch(template, /id="sku-category-management-target"/)
   assert.doesNotMatch(template, /currentSettingsSection === 'master'[\s\S]*class="category-panel category-drawer-panel category-management-panel"/)
-  assert.match(template, /class="classification-view-toolbar product-classification-tabs"/)
+  assert.match(template, /class="classification-view-toolbar product-business-group-controls"/)
   assert.match(template, /class="classification-view-toolbar alias-classification-tabs"/)
 })
 
@@ -2432,6 +2432,7 @@ test('legacy classification template editors are not rendered in product setting
 
 test('product list moves selected rows through business group assignments while alias classification stays legacy-compatible', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
@@ -2443,14 +2444,14 @@ test('product list moves selected rows through business group assignments while 
     "usage_key: 'product_catalog'",
     "object_key: 'product'",
     'productBusinessGroupItemOptions',
-	    'productCatalogGroupOfProduct',
-	    'business-group-move',
-	    '商品档案分组视图',
-	    '选择分组模板',
-	    '移动到分类',
-	  ]) {
+    'BusinessGroupControls',
+    'businessGroupMoveAssignmentPayload',
+    'groupRowsByBusinessGroupTemplate',
+  ]) {
     assert.ok(source.includes(expected), `missing product business group marker: ${expected}`)
   }
+  assert.match(componentSource, /选择分组模板/)
+  assert.match(componentSource, /移动到分类/)
 
   for (const expected of [
     'saveSelectedAliasClassificationAssignment',
@@ -2465,12 +2466,10 @@ test('product list moves selected rows through business group assignments while 
     assert.ok(source.includes(expected), `missing alias legacy classification marker: ${expected}`)
   }
 
-	  const productToolbar = template.match(/<div class="classification-view-toolbar product-classification-tabs"[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || ''
-	  assert.match(productToolbar, /data-pr442-product-group-assignments/)
-	  assert.match(productToolbar, /选择分组模板/)
-	  assert.match(productToolbar, /移动到分类/)
-	  assert.doesNotMatch(productToolbar, /分组集 \/ 父组 \/ 子组/)
-	  assert.match(productToolbar, /@change="saveSelectedProductBusinessGroupAssignment"/)
+  const productToolbar = template.match(/<BusinessGroupControls[\s\S]*?\/>/)?.[0] || ''
+  assert.match(productToolbar, /data-pr442-product-group-assignments/)
+  assert.match(productToolbar, /@move="saveSelectedProductBusinessGroupAssignment"/)
+  assert.doesNotMatch(productToolbar, /分组集 \/ 父组 \/ 子组/)
   assert.doesNotMatch(productToolbar, /placeholder="增加分类"/)
   assert.doesNotMatch(productToolbar, /placeholder="移动到分类"/)
   assert.doesNotMatch(productToolbar, /confirmProductClassificationTemplateUsage/)
@@ -2491,6 +2490,7 @@ test('product list moves selected rows through business group assignments while 
 
 test('classification group rows support collapse and indentation in product and alias lists', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const helperSource = fs.readFileSync(new URL('./business-grouping.js', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
   const style = source.split('<style scoped>')[1] || ''
@@ -2517,8 +2517,10 @@ test('classification group rows support collapse and indentation in product and 
   assert.match(template, /isAliasClassificationGroupCollapsed\(group\.key\)\s*\?\s*'展开'\s*:\s*'收起'/)
   assert.match(script, /function classificationGroupIndentStyle\(group = \{\}\)/)
   assert.match(script, /function classificationItemIndentStyle\(group = \{\}\)/)
-  assert.ok(script.includes('depth * 24'), 'missing classification group depth indent calculation')
-  assert.ok(script.includes("'--classification-group-indent'"), 'missing classification group indent variable')
+  assert.match(script, /businessGroupHeaderIndentStyle\(group\)/)
+  assert.match(script, /businessGroupItemIndentStyle\(group\)/)
+  assert.ok(helperSource.includes('toNumber(group.depth) * 24'), 'missing shared classification group depth indent calculation')
+  assert.ok(helperSource.includes("'--classification-group-indent'"), 'missing shared classification group indent variable')
   assert.match(style, /\.classification-item-row\s+td:first-child \+ td\s*\{[^}]*padding-left:\s*var\(--classification-item-indent,\s*18px\);/s)
   assert.match(style, /\.classification-group-row\s+td\s*\{[^}]*padding-left:\s*var\(--classification-group-indent,\s*16px\);/s)
   assert.match(style, /\.classification-subgroup-row\s+td\s*\{/)
@@ -2527,6 +2529,7 @@ test('classification group rows support collapse and indentation in product and 
 
 test('product archive uses business groups while customer alias keeps legacy page-level classification tabs', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
@@ -2536,14 +2539,15 @@ test('product archive uses business groups while customer alias keeps legacy pag
   assert.match(source, /productCatalogBusinessGroups/)
   assert.match(source, /isSystemDefaultBusinessGroup/)
   assert.match(source, /!isSystemDefaultBusinessGroup\(group\)/)
-  assert.match(source, /buildBusinessGroupAssignmentPayload/)
+  assert.match(source, /businessGroupMoveAssignmentPayload/)
+  assert.match(source, /groupRowsByBusinessGroupTemplate/)
   assert.match(source, /apiSend\('\/api\/business-group-assignments'/)
   assert.match(template, /data-pr442-product-group-assignments/)
-  assert.match(template, /商品档案分组视图/)
-  assert.match(template, /选择分组模板/)
-  assert.match(template, /移动到分类/)
-  assert.match(script, /function productClassificationLabel\(row\)\s*\{\s*return productBusinessGroupLabel\(row\)\s*\}/)
-  assert.doesNotMatch(template.match(/<div class="classification-view-toolbar product-classification-tabs"[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || '', /增加分类/)
+  assert.match(template, /BusinessGroupControls/)
+  assert.match(componentSource, /选择分组模板/)
+  assert.match(componentSource, /移动到分类/)
+  assert.doesNotMatch(script, /function productClassificationLabel/)
+  assert.doesNotMatch(template.match(/<BusinessGroupControls[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || '', /增加分类/)
 
   assert.match(source, /aliasClassificationTemplateUsages/)
   assert.match(script, /apiGet\('\/api\/product-classification-template-usages\/customer-aliases'\)/)
@@ -2552,7 +2556,7 @@ test('product archive uses business groups while customer alias keeps legacy pag
   assert.doesNotMatch(template, /复制为客户分类/)
 })
 
-test('SKU table groups rows by enabled classification template tabs without product type columns', () => {
+test('SKU table groups rows by selected business group template without product type columns', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
   const style = source.split('<style scoped>')[1] || ''
@@ -2561,7 +2565,7 @@ test('SKU table groups rows by enabled classification template tabs without prod
     'sku-table-wrap',
     'class="sku-table"',
     'classification-view-toolbar',
-    'product-classification-tabs',
+    'product-business-group-controls',
     'classification-group-row',
     'sku-name-cell',
     'action-cell',
@@ -2894,8 +2898,9 @@ test('product archive industry fields are generated from templates without ad-ho
 
 test('product settings uses product business groups instead of product classification page controls', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
   const template = source.split('<script setup>')[0] || source
-  const productToolbar = template.match(/<div class="classification-view-toolbar product-classification-tabs"[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || ''
+  const productToolbar = template.match(/<BusinessGroupControls[\s\S]*?\/>/)?.[0] || ''
   const groupManagementWorkspace = template.match(/<div v-show="currentSettingsSection === 'category-management'"[\s\S]*?<div v-show="currentSettingsSection === 'master'"/)?.[0] || ''
 
   for (const expected of [
@@ -2905,14 +2910,16 @@ test('product settings uses product business groups instead of product classific
     'productBusinessGroupItemOptions',
     'selectedProductBusinessGroupItemID',
     'saveSelectedProductBusinessGroupAssignment',
-	    'productCatalogGroupOfProduct',
-	    'data-pr442-product-group-assignments',
-	    '商品档案分组视图',
-	    '选择分组模板',
-	    '移动到分类',
+    'BusinessGroupControls',
+    'groupRowsByBusinessGroupTemplate',
+    'businessGroupMoveAssignmentPayload',
+    'data-pr442-product-group-assignments',
 	  ]) {
     assert.ok(source.includes(expected), `missing product business group marker: ${expected}`)
   }
+  assert.match(componentSource, /选择分组模板/)
+  assert.match(componentSource, /移动到分类/)
+  assert.match(productToolbar, /@move="saveSelectedProductBusinessGroupAssignment"/)
   assert.doesNotMatch(productToolbar, /placeholder="增加分类"/)
   assert.doesNotMatch(productToolbar, /placeholder="移动到分类"/)
   assert.equal(groupManagementWorkspace, '')
@@ -3169,4 +3176,22 @@ test('assign category payload carries customer context for public template deriv
     derive_public_category: false,
     derive_public_product: true,
   })
+})
+
+test('product archive grouping is template-driven without category tabs or category column', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
+  const productArchiveBlock = source.slice(
+    source.indexOf('data-section-mode="productMaster"'),
+    source.indexOf('aria-label="客户商品分类模板视图"'),
+  )
+
+  assert.match(source, /BusinessGroupControls/)
+  assert.match(source, /groupRowsByBusinessGroupTemplate/)
+  assert.match(componentSource, /选择分组模板/)
+  assert.match(componentSource, /移动到分类/)
+  assert.doesNotMatch(productArchiveBlock, /<div v-if="selectedProductGroupTemplate" class="classification-tabs">/)
+  assert.doesNotMatch(productArchiveBlock, /<button[^>]*class="classification-tab"/)
+  assert.doesNotMatch(productArchiveBlock, /<th>分类<\/th>/)
+  assert.doesNotMatch(productArchiveBlock, /productClassificationLabel\(row\)/)
 })

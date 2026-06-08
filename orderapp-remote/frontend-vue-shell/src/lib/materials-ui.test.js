@@ -9,21 +9,45 @@ const materialsSource = readFileSync(resolve(here, '../views/MaterialsView.vue')
 const warehouseSource = readFileSync(resolve(here, '../views/WarehouseInventoryView.vue'), 'utf8')
 const stockAdjustmentsSource = readFileSync(resolve(here, '../views/StockAdjustmentsView.vue'), 'utf8')
 
-test('warehouse settings opens for ordinary warehouses and exposes inventory grouping', () => {
+test('warehouse settings opens from selected warehouse while grouping is handled by shared controls', () => {
+  const componentSource = readFileSync(resolve(here, '../components/BusinessGroupControls.vue'), 'utf8')
+
   assert.doesNotMatch(warehouseSource, /:disabled="!selectedWarehouse \|\| !isExternalWarehouse"/)
   assert.match(warehouseSource, /openWarehouseSettingsDrawer/)
-  assert.match(warehouseSource, /库存分组模板/)
-  assert.match(warehouseSource, /移动到分类/)
+  assert.match(warehouseSource, /BusinessGroupControls/)
+  assert.match(componentSource, /选择分组模板/)
+  assert.match(componentSource, /移动到分类/)
   assert.match(warehouseSource, /\/api\/business-group-assignments/)
+  assert.doesNotMatch(warehouseSource, /warehouseGroupForm/)
 })
 
-test('warehouse inventory group labels hide system default group sets', () => {
-  assert.match(warehouseSource, /businessGroupItemMoveOptions/)
-  assert.match(warehouseSource, /isSystemDefaultBusinessGroup/)
-  assert.match(warehouseSource, /includeGroupsWithoutUsage:\s*true/)
-  assert.match(warehouseSource, /includeGroupName:\s*false/)
+test('warehouse inventory uses shared business grouping helpers', () => {
+  assert.match(warehouseSource, /businessGroupControlOptions/)
+  assert.match(warehouseSource, /groupRowsByBusinessGroupTemplate/)
+  assert.match(warehouseSource, /businessGroupMoveAssignmentPayload/)
+  assert.match(warehouseSource, /objectKey:\s*'warehouse'/)
+  assert.match(warehouseSource, /objectRef:\s*code/)
   assert.doesNotMatch(warehouseSource, /\[group\.name \|\| '库存分组', parentName, item\.name/)
   assert.doesNotMatch(warehouseSource, /仓库库存默认分组/)
+  assert.doesNotMatch(warehouseSource, /businessGroupItemMoveOptions/)
+})
+
+test('warehouse inventory groups warehouses by template without ordinary customer warehouse sections', () => {
+  const componentSource = readFileSync(resolve(here, '../components/BusinessGroupControls.vue'), 'utf8')
+  const template = warehouseSource.split('<script setup>')[0] || warehouseSource
+  const warehousePanel = template.match(/<aside class="panel warehouse-panel">[\s\S]*?<\/aside>/)?.[0] || template
+
+  assert.match(warehouseSource, /BusinessGroupControls/)
+  assert.match(warehouseSource, /groupRowsByBusinessGroupTemplate/)
+  assert.match(componentSource, /选择分组模板/)
+  assert.match(componentSource, /移动到分类/)
+  assert.match(warehousePanel, /v-for="group in warehouseDisplayGroups"/)
+  assert.match(warehousePanel, /toggleWarehouseSelection/)
+  assert.doesNotMatch(warehousePanel, /普通仓库/)
+  assert.doesNotMatch(warehousePanel, /客户仓库/)
+  assert.doesNotMatch(warehouseSource, /generalWarehouses/)
+  assert.doesNotMatch(warehouseSource, /customerWarehouses/)
+  assert.doesNotMatch(warehouseSource, /warehouseSections/)
 })
 
 test('system settings group templates manage categories without business objects', () => {
