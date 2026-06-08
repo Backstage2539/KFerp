@@ -554,11 +554,6 @@ test('pricing rule trial payload is temporary and does not save price rows', () 
         '包装贴标': 1.25,
         '认证费': 2.5,
       },
-      post_markup_costs: {
-        '包装': 1.7,
-        '产品损耗': 0.06,
-        '利润税额': 1.1996,
-      },
     },
   })
 })
@@ -673,16 +668,28 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '临时利润/加价',
     '临时税率',
     '其他成本',
-    '售价后附加成本',
-    '重新试算',
     '加价后价格',
     '试算单价',
     '公式步骤',
+    'pricingRuleTrialQuoteUnitOptions',
+    'schedulePricingRuleTrial',
   ]) {
     assert.ok(source.includes(want), `missing pricing rule trial marker: ${want}`)
   }
+  for (const forbidden of [
+    '售价后附加成本',
+    '重新试算',
+    'post_markup_cost_rows',
+    'addPricingRuleTrialPostMarkupCostRow',
+    'removePricingRuleTrialPostMarkupCostRow',
+  ]) {
+    assert.equal(source.includes(forbidden), false, `pricing rule trial drawer should not expose ${forbidden}`)
+  }
   assert.match(pane, /@click="openPricingRuleTrial\(rule\)"[^>]*>试算<\/button>/)
+  assert.match(source, /<select v-model="pricingRuleTrialForm\.quote_unit"[\s\S]*pricingRuleTrialQuoteUnitOptions/)
+  assert.doesNotMatch(pane, /@click="runPricingRuleTrial"/)
   assert.match(script, /apiSend\('\/api\/costing\/pricing-rule-trial'/)
+  assert.match(script, /watch\(\(\) => pricingRuleTrialAutoRunSignature\.value/)
   assert.match(style, /\.pricing-rule-trial-drawer/)
 })
 

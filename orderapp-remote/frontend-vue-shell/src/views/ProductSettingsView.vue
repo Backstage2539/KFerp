@@ -936,7 +936,10 @@
               </label>
               <label>
                 <span>报价单位</span>
-                <input v-model.trim="pricingRuleTrialForm.quote_unit" placeholder="kg" />
+                <select v-model="pricingRuleTrialForm.quote_unit">
+                  <option value="">请选择报价单位</option>
+                  <option v-for="unit in pricingRuleTrialQuoteUnitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                </select>
               </label>
               <label>
                 <span>临时损耗率</span>
@@ -970,27 +973,10 @@
               </div>
             </div>
 
-            <div class="pricing-rule-section-head">
-              <strong>售价后附加成本</strong>
-              <button class="secondary compact-action" type="button" @click="addPricingRuleTrialPostMarkupCostRow">新增售价后成本</button>
-            </div>
-            <div class="pricing-rule-other-cost-list">
-              <div v-for="(row, index) in pricingRuleTrialForm.post_markup_cost_rows" :key="`post-${index}`" class="pricing-rule-other-cost-row">
-                <label>
-                  <span>成本名</span>
-                  <input v-model.trim="row.key" placeholder="如 包装 / 产品损耗 / 利润税额" />
-                </label>
-                <label>
-                  <span>成本价格</span>
-                  <input v-model.number="row.value" type="number" min="0" step="0.0001" placeholder="0" />
-                </label>
-                <button class="secondary compact-action" type="button" @click="removePricingRuleTrialPostMarkupCostRow(index)">删除</button>
-              </div>
-            </div>
-
             <div v-if="pricingRuleTrialError" class="error">{{ pricingRuleTrialError }}</div>
             <div class="form-actions">
-              <button class="primary" type="button" :disabled="pricingRuleTrialLoading" @click="runPricingRuleTrial">重新试算</button>
+              <span v-if="pricingRuleTrialLoading" class="muted">试算中...</span>
+              <button class="secondary" type="button" @click="closePricingRuleTrial">关闭</button>
             </div>
           </section>
 
@@ -1011,10 +997,6 @@
               <div>
                 <small>加价后价格</small>
                 <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.price_after_markup, pricingRuleTrialResult.quote_unit) }}</strong>
-              </div>
-              <div>
-                <small>售价后附加成本</small>
-                <strong>{{ trialMoneyDisplay(pricingRuleTrialResult.post_markup_cost_total, pricingRuleTrialResult.quote_unit) }}</strong>
               </div>
               <div class="final">
                 <small>试算单价</small>
@@ -1540,6 +1522,8 @@ const pricingRuleTrialRule = ref(null)
 const pricingRuleTrialForm = ref(defaultPricingRuleTrialForm())
 const pricingRuleTrialResult = ref(null)
 const pricingRuleTrialError = ref('')
+let pricingRuleTrialAutoRunTimer = null
+let pricingRuleTrialRunID = 0
 const customerPublicUsages = ref([])
 const customerProductAliases = ref([])
 const customerProductRuleTemplates = ref([])
@@ -1752,6 +1736,17 @@ const pricingRuleTrialProductOptions = computed(() => productRows.value
   .slice()
   .sort((a, b) => productOptionLabel(a).localeCompare(productOptionLabel(b))))
 const selectedPricingRuleTrialProduct = computed(() => pricingRuleTrialProductOptions.value.find((product) => Number(product.id || 0) === Number(pricingRuleTrialForm.value.product_id || 0)) || null)
+const pricingRuleTrialAutoRunSignature = computed(() => JSON.stringify({
+  open: pricingRuleTrialDrawerOpen.value,
+  pricing_rule_id: pricingRuleTrialForm.value.pricing_rule_id,
+  product_id: pricingRuleTrialForm.value.product_id,
+  customer_id: pricingRuleTrialForm.value.customer_id,
+  quote_unit: pricingRuleTrialForm.value.quote_unit,
+  expected_loss_rate: pricingRuleTrialForm.value.expected_loss_rate,
+  margin_rate: pricingRuleTrialForm.value.margin_rate,
+  tax_rate: pricingRuleTrialForm.value.tax_rate,
+  other_cost_rows: pricingRuleTrialForm.value.other_cost_rows,
+}))
 
 const contextCategorizedProductIDs = computed(() => {
   const ids = new Set()
@@ -1945,6 +1940,9 @@ const visibleProductConfigTemplates = computed(() => visibleNonDeletedRows(produ
 const visibleProductClassificationTemplates = computed(() => visibleNonDeletedRows(productClassificationTemplates.value))
 const activeProductUnitDefinitions = computed(() => visibleProductUnitDefinitions.value.filter((unit) => unit.active !== false))
 const activeProductUnitTemplates = computed(() => visibleProductUnitTemplates.value.filter((template) => template.active !== false))
+const pricingRuleTrialQuoteUnitOptions = computed(() => activeProductUnitDefinitions.value
+  .map((unit) => ({ code: String(unit.code || '').trim(), name: String(unit.name || unit.code || '').trim() }))
+  .filter((unit) => unit.code))
 const gradientDisplayUnitOptions = computed(() => {
   const out = baseGradientDisplayUnitOptions.map((unit) => ({ ...unit }))
   const seen = new Set(out.map((unit) => unit.value))
@@ -2400,10 +2398,6 @@ function pricingRuleOtherCostRowsFromCalculation(calculation = {}) {
   return pricingRuleCostRowsFromMap(calculation.other_costs ?? calculation.otherCosts ?? {}, defaultPricingRuleOtherCostRow)
 }
 
-function pricingRulePostMarkupCostRowsFromCalculation(calculation = {}) {
-  return pricingRuleCostRowsFromMap(calculation.post_markup_costs ?? calculation.postMarkupCosts ?? {}, defaultPricingRuleTrialPostMarkupCostRow)
-}
-
 function pricingRuleCostRowsFromMap(raw = {}, defaultRow) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [defaultRow()]
   const rows = Object.entries(raw)
@@ -2430,15 +2424,10 @@ function defaultPricingRuleTrialForm(rule = {}) {
     margin_rate: form.margin_rate,
     tax_rate: form.tax_rate,
     other_cost_rows: form.other_cost_rows.map((row) => ({ ...row })),
-    post_markup_cost_rows: pricingRulePostMarkupCostRowsFromCalculation(form.calculation_json).map((row) => ({ ...row })),
   }
 }
 
 function defaultPricingRuleTrialOtherCostRow() {
-  return { key: '', value: 0 }
-}
-
-function defaultPricingRuleTrialPostMarkupCostRow() {
   return { key: '', value: 0 }
 }
 
@@ -3155,6 +3144,12 @@ function openPricingRuleTrial(rule) {
 
 function closePricingRuleTrial() {
   pricingRuleTrialDrawerOpen.value = false
+  if (pricingRuleTrialAutoRunTimer) {
+    clearTimeout(pricingRuleTrialAutoRunTimer)
+    pricingRuleTrialAutoRunTimer = null
+  }
+  pricingRuleTrialRunID++
+  pricingRuleTrialLoading.value = false
   pricingRuleTrialRule.value = null
   pricingRuleTrialResult.value = null
   pricingRuleTrialError.value = ''
@@ -3171,15 +3166,38 @@ function removePricingRuleTrialOtherCostRow(index) {
   }
 }
 
-function addPricingRuleTrialPostMarkupCostRow() {
-  pricingRuleTrialForm.value.post_markup_cost_rows.push(defaultPricingRuleTrialPostMarkupCostRow())
+function preferredPricingRuleTrialQuoteUnit(product = {}) {
+  const available = new Set(pricingRuleTrialQuoteUnitOptions.value.map((unit) => unit.code))
+  const candidates = [
+    product.quote_unit,
+    product.quoteUnit,
+    product.inventory_unit,
+    product.inventoryUnit,
+    pricingRuleTrialQuoteUnitOptions.value.find((unit) => unit.code === 'kg')?.code,
+    pricingRuleTrialQuoteUnitOptions.value[0]?.code,
+  ]
+  for (const candidate of candidates) {
+    const code = String(candidate || '').trim()
+    if (code && available.has(code)) return code
+  }
+  return String(candidates.find((candidate) => String(candidate || '').trim()) || '').trim()
 }
 
-function removePricingRuleTrialPostMarkupCostRow(index) {
-  pricingRuleTrialForm.value.post_markup_cost_rows.splice(index, 1)
-  if (!pricingRuleTrialForm.value.post_markup_cost_rows.length) {
-    addPricingRuleTrialPostMarkupCostRow()
+function schedulePricingRuleTrial() {
+  if (pricingRuleTrialAutoRunTimer) {
+    clearTimeout(pricingRuleTrialAutoRunTimer)
+    pricingRuleTrialAutoRunTimer = null
   }
+  if (!pricingRuleTrialDrawerOpen.value) return
+  const payload = buildPricingRuleTrialPayload(pricingRuleTrialForm.value)
+  if (!payload.pricing_rule_id || !payload.product_id || !String(payload.quote_unit || '').trim()) {
+    pricingRuleTrialResult.value = null
+    return
+  }
+  pricingRuleTrialAutoRunTimer = setTimeout(() => {
+    pricingRuleTrialAutoRunTimer = null
+    runPricingRuleTrial()
+  }, 250)
 }
 
 async function runPricingRuleTrial() {
@@ -3192,15 +3210,23 @@ async function runPricingRuleTrial() {
     pricingRuleTrialError.value = '请选择试算商品'
     return
   }
+  if (!String(payload.quote_unit || '').trim()) {
+    pricingRuleTrialError.value = '请选择报价单位'
+    return
+  }
+  const runID = ++pricingRuleTrialRunID
   pricingRuleTrialLoading.value = true
   pricingRuleTrialError.value = ''
   try {
-    pricingRuleTrialResult.value = await apiSend('/api/costing/pricing-rule-trial', { method: 'POST', body: payload })
+    const result = await apiSend('/api/costing/pricing-rule-trial', { method: 'POST', body: payload })
+    if (runID === pricingRuleTrialRunID) pricingRuleTrialResult.value = result
   } catch (err) {
-    pricingRuleTrialResult.value = null
-    pricingRuleTrialError.value = err.message || '价格计算模板试算失败'
+    if (runID === pricingRuleTrialRunID) {
+      pricingRuleTrialResult.value = null
+      pricingRuleTrialError.value = err.message || '价格计算模板试算失败'
+    }
   } finally {
-    pricingRuleTrialLoading.value = false
+    if (runID === pricingRuleTrialRunID) pricingRuleTrialLoading.value = false
   }
 }
 
@@ -6128,9 +6154,7 @@ watch(() => skuFilters.value.primaryCategory, () => {
 watch(() => pricingRuleTrialForm.value.product_id, () => {
   const product = selectedPricingRuleTrialProduct.value
   if (!product) return
-  if (!String(pricingRuleTrialForm.value.quote_unit || '').trim()) {
-    pricingRuleTrialForm.value.quote_unit = product.quote_unit || product.inventory_unit || 'kg'
-  }
+  pricingRuleTrialForm.value.quote_unit = preferredPricingRuleTrialQuoteUnit(product)
   pricingRuleTrialResult.value = null
 })
 
@@ -6138,6 +6162,10 @@ watch(() => pricingRuleTrialForm.value.customer_id, () => {
   pricingRuleTrialForm.value.product_id = 0
   pricingRuleTrialForm.value.quote_unit = ''
   pricingRuleTrialResult.value = null
+})
+
+watch(() => pricingRuleTrialAutoRunSignature.value, () => {
+  schedulePricingRuleTrial()
 })
 
 watch(currentSkuSourceRows, () => {

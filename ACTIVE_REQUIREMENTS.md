@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-455-PRICING-RULE-TRIAL-PR439-UNIT
+- Branch: codex/pricing-rule-trial-pr439-unit-20260608
+- Owner/session: Codex / 2026-06-08
+- Status: implementation in progress; targeted RED/GREEN complete; pending broader verification, merge, deploy, and browser acceptance
+- Scope: 商品价格管理价格计算模板试算跟进。抽屉删除 `重新试算` 按钮和 `售价后附加成本`；报价单位来自全局单位字典下拉；选择 `PR439-20260606182321 熟豆下单商品` 时，即使当前商品没有 BOM/工序成本，也可利用已发布 `88.5/kg` 发布售价快照按模板公式反推成本基数并展示公式节点，试算仍只读不保存。
+- DEV:
+  - DEV-455-TRIAL-AUTO-UNIT-UI：试算抽屉改为选择商品/报价单位/临时输入后自动试算，报价单位下拉读取全局单位字典，移除 `重新试算` 和 `售价后附加成本` UI/payload。
+  - DEV-455-TRIAL-PUBLISHED-SNAPSHOT-FALLBACK：后端试算在无 BOM/工序成本但存在已发布价格快照时，按模板公式反推成本基数，返回 `发布售价快照` 节点和明确预警。
+  - DEV-455-DOCS-ACCEPTANCE：同步成本手册、需求/验收清单、PR/DEV UI 种子和本次验收记录。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because trial payload still sent `post_markup_costs` and ProductSettingsView lacked `pricingRuleTrialQuoteUnitOptions` / auto trial markers.
+  - RED backend: `go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|InfersCostFromPublishedPriceSnapshotWhenBomCostMissing)' -count=1` failed before implementation with `product cost required`.
+  - GREEN targeted: `node --test src/lib/product-settings.test.js` passed 126/126; `go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|InfersCostFromPublishedPriceSnapshotWhenBomCostMissing)' -count=1` passed.
+  - GREEN support/API: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev45(2|4|5)|TestPricingRuleTrialPermissionIsReadOnly' -count=1` passed.
+  - GREEN broader: `go test ./...` in `orderapp-remote` passed; `npm run build` in `frontend-vue-shell` passed after `npm ci`, with existing Vite chunk-size/plugin timing warnings.
+  - GREEN verifier: `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+- Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial-pr439-unit.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
 ### PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS
 - Branch: codex/group-template-system-settings-20260608
 - Owner/session: Codex / 2026-06-08

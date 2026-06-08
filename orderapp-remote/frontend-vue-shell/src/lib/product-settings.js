@@ -440,8 +440,6 @@ export function buildPricingRuleTrialPayload(form = {}) {
   if (taxRate !== null) overrides.tax_rate = taxRate
   const otherCosts = pricingRuleTrialOtherCostMapFromForm(form)
   if (Object.keys(otherCosts).length) overrides.other_costs = otherCosts
-  const postMarkupCosts = pricingRuleTrialPostMarkupCostMapFromForm(form)
-  if (Object.keys(postMarkupCosts).length) overrides.post_markup_costs = postMarkupCosts
 
   return {
     pricing_rule_id: Number(form.pricing_rule_id ?? form.pricingRuleID ?? form.rule_id ?? form.ruleID ?? 0) || 0,
@@ -464,10 +462,6 @@ function optionalNumberFromForm(value) {
 
 function pricingRuleTrialOtherCostMapFromForm(form = {}) {
   return pricingRuleTrialCostMapFromForm(form, ['other_cost_rows', 'otherCostRows'], ['other_costs', 'otherCosts'])
-}
-
-function pricingRuleTrialPostMarkupCostMapFromForm(form = {}) {
-  return pricingRuleTrialCostMapFromForm(form, ['post_markup_cost_rows', 'postMarkupCostRows'], ['post_markup_costs', 'postMarkupCosts'])
 }
 
 function pricingRuleTrialCostMapFromForm(form = {}, rowKeys = [], mapKeys = []) {

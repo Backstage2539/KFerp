@@ -276,6 +276,65 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 	}
 }
 
+func TestPricingRuleTrialInfersCostFromPublishedPriceSnapshotWhenBomCostMissing(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:        538,
+			Name:             "PR439-20260606182321 熟豆下单商品",
+			InventoryUnit:    "kg",
+			QuoteUnit:        "kg",
+			YieldRate:        0.8,
+			ExpectedLossRate: 0.2,
+			BomStatus:        "missing",
+			ProductPriceSnapshots: []domain.ProductPriceSnapshot{{
+				SourcePriceRecordID: 1,
+				Label:               "1kg+",
+				MinQty:              1,
+				FinalUnitPrice:      88.5,
+				PriceUnit:           "kg",
+				Currency:            "CNY",
+				PriceGroupName:      "PR439 常规批发",
+				InventoryUnit:       "kg",
+			}},
+		}},
+		pricingRules: map[int64]ProductPricingRule{
+			10: {
+				ID:             10,
+				Name:           "PR455 快照反推",
+				CostSourceMode: "bom_current_cost",
+				MarginRate:     0.2,
+				TaxRate:        0.13,
+				RoundingMode:   "cent",
+				FormulaVersion: "v1",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "bom_or_product",
+					"profit_method":   "gross_margin",
+					"tax_mode":        "tax_included",
+				},
+			},
+		},
+	}
+
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 10,
+		ProductID:     538,
+		QuoteUnit:     "kg",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if got.BaseCost != 50.12 || got.CostAfterYield != 62.65 || got.PreTaxPrice != 78.32 || got.TaxAmount != 10.18 || got.FinalUnitPrice != 88.5 {
+		t.Fatalf("trial from snapshot = base %.2f after yield %.2f preTax %.2f tax %.2f final %.2f", got.BaseCost, got.CostAfterYield, got.PreTaxPrice, got.TaxAmount, got.FinalUnitPrice)
+	}
+	if !pricingRuleTrialHasStep(got.Steps, "published_price_snapshot") {
+		t.Fatalf("steps missing published price snapshot source: %+v", got.Steps)
+	}
+	if !pricingRuleTrialWarningsContain(got.Warnings, "未找到BOM/工序成本，已按发布售价快照反推成本基数") {
+		t.Fatalf("warnings = %+v, want published snapshot fallback warning", got.Warnings)
+	}
+}
+
 func TestPricingRuleTrialMatchesExcelSupplierPriceSamples(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{
@@ -591,6 +650,15 @@ func TestPricingRuleTrialValidatesRuleAndProduct(t *testing.T) {
 func pricingRuleTrialHasStep(steps []domain.PriceExplanationStep, key string) bool {
 	for _, step := range steps {
 		if step.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+func pricingRuleTrialWarningsContain(warnings []string, want string) bool {
+	for _, warning := range warnings {
+		if warning == want {
 			return true
 		}
 	}

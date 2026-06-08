@@ -60,7 +60,7 @@ func TestDev452PricingRuleTrialContracts(t *testing.T) {
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"价格计算模板试算",
 			"选择商品",
-			"重新试算",
+			"自动试算",
 			"只读结果",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial.md"): {
@@ -108,17 +108,10 @@ func TestDev454PricingRuleTrialExcelParityContracts(t *testing.T) {
 			"PostMarkupCostTotal",
 			"post_markup_cost_total",
 		},
-		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
-			"post_markup_costs",
-			"postMarkupCosts",
-			"post_markup_cost_rows",
-			"pricingRuleTrialPostMarkupCostMapFromForm",
-		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
-			"售价后附加成本",
 			"加价后价格",
-			"post_markup_cost_rows",
-			"addPricingRuleTrialPostMarkupCostRow",
+			"pricingRuleTrialQuoteUnitOptions",
+			"schedulePricingRuleTrial",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-454-PRICING-RULE-TRIAL-EXCEL-PARITY",
@@ -127,14 +120,14 @@ func TestDev454PricingRuleTrialExcelParityContracts(t *testing.T) {
 			"供应售价",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"PR-453 商品价格管理试算 Excel 对账",
+			"PR-454 商品价格管理试算 Excel 对账",
 			"2 个产品 × 2 个供应售价档位",
-			"售价后附加成本",
+			"生产项目",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"Excel 供应售价对账",
 			"加价前生产项目成本",
-			"售价后附加成本",
+			"前端试算抽屉不再提供售价后附加成本录入口",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-excel-parity.md"): {
 			"PR-453",
@@ -147,6 +140,87 @@ func TestDev454PricingRuleTrialExcelParityContracts(t *testing.T) {
 		for _, want := range wants {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing PR-453 marker %q", rel, want)
+			}
+		}
+	}
+}
+
+func TestDev455PricingRuleTrialPr439UnitContracts(t *testing.T) {
+	for rel, wants := range map[string][]string{
+		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
+			"PR-455-PRICING-RULE-TRIAL-PR439-UNIT",
+			"DEV-455-TRIAL-AUTO-UNIT-UI",
+			"DEV-455-TRIAL-PUBLISHED-SNAPSHOT-FALLBACK",
+			"REV-455-PRICING-RULE-TRIAL-PR439-UNIT",
+		},
+		filepath.Join("internal", "application", "costing", "service.go"): {
+			"pricingRuleTrialInferBaseCostFromPublishedSnapshot",
+			"published_price_snapshot",
+			"未找到BOM/工序成本，已按发布售价快照反推成本基数",
+		},
+		filepath.Join("internal", "application", "costing", "service_test.go"): {
+			"TestPricingRuleTrialInfersCostFromPublishedPriceSnapshotWhenBomCostMissing",
+			"PR439-20260606182321 熟豆下单商品",
+			"88.5",
+		},
+		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
+			"buildPricingRuleTrialPayload",
+			"other_costs",
+		},
+		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
+			"pricingRuleTrialQuoteUnitOptions",
+			"schedulePricingRuleTrial",
+			"activeProductUnitDefinitions",
+			"试算中...",
+		},
+		filepath.Join("docs", "REQUIREMENTS.md"): {
+			"PR-455-PRICING-RULE-TRIAL-PR439-UNIT",
+			"PR439-20260606182321 熟豆下单商品",
+			"全局单位字典",
+			"发布售价快照",
+		},
+		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
+			"PR-455-PRICING-RULE-TRIAL-PR439-UNIT",
+			"不显示 `重新试算`",
+			"不显示 `售价后附加成本`",
+			"88.5/kg",
+		},
+		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
+			"PR-455-PRICING-RULE-TRIAL-PR439-UNIT",
+			"全局单位字典",
+			"自动试算",
+			"发布售价快照反推成本基数",
+		},
+		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-pr439-unit.md"): {
+			"PR-455-PRICING-RULE-TRIAL-PR439-UNIT",
+			"PR439-20260606182321 熟豆下单商品",
+			"88.5/kg",
+		},
+	} {
+		src := string(readOrderAppFileForTest(t, rel))
+		for _, want := range wants {
+			if !strings.Contains(src, want) {
+				t.Fatalf("%s missing PR-455 marker %q", rel, want)
+			}
+		}
+	}
+
+	for rel, forbidden := range map[string][]string{
+		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
+			"重新试算",
+			"售价后附加成本",
+			"post_markup_cost_rows",
+		},
+		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
+			"post_markup_costs",
+			"postMarkupCosts",
+			"post_markup_cost_rows",
+		},
+	} {
+		src := string(readOrderAppFileForTest(t, rel))
+		for _, value := range forbidden {
+			if strings.Contains(src, value) {
+				t.Fatalf("%s should not expose PR-455 removed marker %q", rel, value)
 			}
 		}
 	}
