@@ -29,4 +29,10 @@
 ## Browser Acceptance
 - Local Browser: mocked Vue shell at `http://127.0.0.1:5196/vue-shell/?view=groupTemplates&pr455=delete2` rendered the system `分组模板` section. Template panel showed `删除模板`, did not show template `启用/停用` status, and did not expose `移动到分类` / object assignment controls.
 - Local Browser: clicking `删除模板` with local mock confirmation sent `DELETE /api/business-groups/901`; after reload, `.template-chip` count was 0, `.category-editor` count was 0, `删除模板` button count was 0, and empty template notice was visible. Browser console error count was 0.
-- Pending development browser acceptance after deploy.
+
+## Development Deploy
+- Deploy: `./deploy_orderapp.sh` completed for development from `origin/develop=645c97123dca1a2879e213bc289a65c5fc0c9ea3`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260608174415`.
+- Deploy checks: Vue shell build, miniapp `vue-tsc --noEmit`, miniapp `uni build -p mp-weixin`, Docker build and container-internal `go test ./...` passed.
+- Smoke: `erp_orderapp` was up, `erp_postgres` was healthy, `/app/` returned `303` to `/app/orders`, and `/app/vue-shell/?view=groupTemplates&pr455_smoke=1` returned `200`.
+- Source/docs smoke: deployed docs exposed `PR-455-GROUP-TEMPLATE-DELETE`; deployed binary/source marker exposed `delete_business_group`; authenticated product requirement page showed `PR-455-GROUP-TEMPLATE-DELETE`.
+- Deployed Browser: `https://erp.qacoohee.com/app/vue-shell/?view=groupTemplates&pr455_deployed=1` rendered `系统设置 / 分组模板` without login redirect. The page did not show template `启用/停用` status, did not show object `移动到分类` controls, and browser console error count was 0. Current development data had no user-created template, so the real-data delete click was not executed on the deployed page; the local browser mock covers the delete-click UI contract.

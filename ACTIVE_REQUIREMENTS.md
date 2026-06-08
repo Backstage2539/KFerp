@@ -29,7 +29,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-455-GROUP-TEMPLATE-DELETE
 - Branch: codex/group-template-delete-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: implemented locally; automated verification passed; pending browser acceptance and development deploy
+- Status: merged to develop and deployed to development; automated verification, local browser acceptance and development smoke passed
 - Scope: 系统设置里的分组模板不再提供模板启用/停用；编辑已有模板时提供 `删除模板`。删除模板物理删除该模板、分类项、用途和对象归类并写操作日志；删除后商品档案、生产 BOM、仓库库存和商品价格表不再能选择该模板。
 - DEV:
   - DEV-455-GROUP-TEMPLATE-DELETE-UI：系统设置分组模板表单移除模板启用勾选和列表启停状态展示，编辑已有模板时显示 `删除模板`。
@@ -43,6 +43,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN broader: `node --test src/lib/materials-ui.test.js src/lib/product-settings.test.js src/lib/bom.test.js src/lib/menu-ia.test.js src/lib/product-bean-list-split.test.js` passed 176/176; `npm run build` passed with existing Vite chunk-size warning; `go test ./...` passed; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
   - GREEN local browser: mocked Vue shell rendered `系统设置 / 分组模板` with `删除模板`, no template `启用/停用` status and no object move controls. Clicking `删除模板` sent DELETE, then template chip count, category editor count and delete button count were all 0; console errors 0.
 - Deployment:
+  - GREEN deploy: development deploy completed from `origin/develop`; Vue shell build, miniapp typecheck/build, miniapp `build:mp-weixin`, Docker build and container-internal `go test ./...` passed.
+  - GREEN smoke: `erp_orderapp` up and `erp_postgres` healthy; unauthenticated `/app/` returned `303` to `/app/orders`; `/app/vue-shell/?view=groupTemplates` returned `200`; deployed docs/source expose `PR-455-GROUP-TEMPLATE-DELETE` and binary/source marker `delete_business_group`; authenticated product requirement page shows `PR-455-GROUP-TEMPLATE-DELETE`.
+  - GREEN deployed browser: `系统设置 / 分组模板` rendered without login redirect, no template `启用/停用` status, no object `移动到分类`, and console errors 0. Current development data had no user template, so deployed delete-click flow was not run against real data; local browser mock covered the actual delete click.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/acceptance/2026-06-08-group-template-delete.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
