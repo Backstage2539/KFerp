@@ -47,8 +47,8 @@ func TestDev389BomVersionSpecialAttrsSourceMarkers(t *testing.T) {
 			"copyProductionBomForSpecialAttrsConflict",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go"): {
-			"bound_bv.special_attrs_json",
-			"bound_bv.special_attrs_schema_json",
+			"current_bv.special_attrs_json",
+			"current_bv.special_attrs_schema_json",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "production", "work_order.go"): {
 			"bound_bv.special_attrs_json->>'roast_level'",

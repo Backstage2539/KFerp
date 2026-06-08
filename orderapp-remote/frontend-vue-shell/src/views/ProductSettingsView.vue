@@ -910,6 +910,24 @@
                   empty-text="暂无可试算商品" />
               </label>
               <label>
+                <span>试算BOM版本</span>
+                <select v-model.number="pricingRuleTrialForm.bom_version_id" :disabled="!pricingRuleTrialBomVersionOptions.length">
+                  <option :value="0">按默认版本</option>
+                  <option v-for="option in pricingRuleTrialBomVersionOptions" :key="option.version_id" :value="Number(option.version_id || 0)">
+                    {{ pricingRuleTrialBomVersionOptionLabel(option) }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span>工序</span>
+                <select v-model.number="pricingRuleTrialForm.operation_template_id" :disabled="!pricingRuleTrialOperationTemplateOptions.length">
+                  <option :value="0">按默认工序</option>
+                  <option v-for="option in pricingRuleTrialOperationTemplateOptions" :key="option.id" :value="Number(option.id || 0)">
+                    {{ pricingRuleTrialOperationTemplateOptionLabel(option) }}
+                  </option>
+                </select>
+              </label>
+              <label>
                 <span>客户范围（可选）</span>
                 <select v-model.number="pricingRuleTrialForm.customer_id">
                   <option value="0">公共商品档案</option>
@@ -1008,6 +1026,7 @@
             </div>
             <div class="pricing-rule-trial-result-meta">
               <span>BOM版本：{{ pricingRuleTrialResult.bom_version_no || pricingRuleTrialResult.bom_version_id || '-' }}</span>
+              <span>工序：{{ pricingRuleTrialResult.operation_template_name || pricingRuleTrialResult.operation_template_id || '-' }}</span>
               <span>毛利率：{{ percentDisplay(pricingRuleTrialResult.gross_margin_rate) }}</span>
             </div>
             <div v-if="pricingRuleTrialResult.warnings?.length" class="pricing-rule-trial-warnings">
@@ -1817,11 +1836,15 @@ const pricingRuleTrialProductOptions = computed(() => productRows.value
   .slice()
   .sort((a, b) => productOptionLabel(a).localeCompare(productOptionLabel(b))))
 const selectedPricingRuleTrialProduct = computed(() => pricingRuleTrialProductOptions.value.find((product) => Number(product.id || 0) === Number(pricingRuleTrialForm.value.product_id || 0)) || null)
+const pricingRuleTrialBomVersionOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.bom_version_options) ? pricingRuleTrialResult.value.bom_version_options : [])
+const pricingRuleTrialOperationTemplateOptions = computed(() => Array.isArray(pricingRuleTrialResult.value?.operation_template_options) ? pricingRuleTrialResult.value.operation_template_options : [])
 const pricingRuleTrialAutoRunSignature = computed(() => JSON.stringify({
   open: pricingRuleTrialDrawerOpen.value,
   pricing_rule_id: pricingRuleTrialForm.value.pricing_rule_id,
   product_id: pricingRuleTrialForm.value.product_id,
   customer_id: pricingRuleTrialForm.value.customer_id,
+  bom_version_id: pricingRuleTrialForm.value.bom_version_id,
+  operation_template_id: pricingRuleTrialForm.value.operation_template_id,
   quote_unit: pricingRuleTrialForm.value.quote_unit,
   expected_loss_rate: pricingRuleTrialForm.value.expected_loss_rate,
   margin_rate: pricingRuleTrialForm.value.margin_rate,
@@ -2509,6 +2532,8 @@ function defaultPricingRuleTrialForm(rule = {}) {
     pricing_rule_id: Number(form.id || 0),
     product_id: 0,
     customer_id: 0,
+    bom_version_id: 0,
+    operation_template_id: 0,
     quote_unit: '',
     expected_loss_rate: '',
     margin_rate: form.margin_rate,
@@ -3273,6 +3298,37 @@ function preferredPricingRuleTrialQuoteUnit(product = {}) {
   return String(candidates.find((candidate) => String(candidate || '').trim()) || '').trim()
 }
 
+function syncPricingRuleTrialProductionSelections(result = {}) {
+  if (!result || Number(result.product_id || 0) !== Number(pricingRuleTrialForm.value.product_id || 0)) return
+  const bomOptions = Array.isArray(result.bom_version_options) ? result.bom_version_options : []
+  const selectedBomID = Number(result.bom_version_id || 0)
+  if (selectedBomID > 0 && !Number(pricingRuleTrialForm.value.bom_version_id || 0)) {
+    pricingRuleTrialForm.value.bom_version_id = selectedBomID
+  } else if (Number(pricingRuleTrialForm.value.bom_version_id || 0) > 0 && !bomOptions.some((option) => Number(option.version_id || 0) === Number(pricingRuleTrialForm.value.bom_version_id || 0))) {
+    pricingRuleTrialForm.value.bom_version_id = selectedBomID || 0
+  }
+  const operationOptions = Array.isArray(result.operation_template_options) ? result.operation_template_options : []
+  const selectedOperationID = Number(result.operation_template_id || 0)
+  if (selectedOperationID > 0 && !Number(pricingRuleTrialForm.value.operation_template_id || 0)) {
+    pricingRuleTrialForm.value.operation_template_id = selectedOperationID
+  } else if (Number(pricingRuleTrialForm.value.operation_template_id || 0) > 0 && !operationOptions.some((option) => Number(option.id || 0) === Number(pricingRuleTrialForm.value.operation_template_id || 0))) {
+    pricingRuleTrialForm.value.operation_template_id = selectedOperationID || 0
+  }
+}
+
+function pricingRuleTrialBomVersionOptionLabel(option = {}) {
+  const code = String(option.bom_code || '').trim()
+  const name = String(option.bom_name || '').trim()
+  const version = String(option.version_no || '').trim()
+  const defaultText = option.is_default ? ' 默认' : ''
+  return `${[code, name].filter(Boolean).join(' ')}${version ? ` / ${version}` : ''}${defaultText}`.trim() || `BOM版本 #${option.version_id || ''}`
+}
+
+function pricingRuleTrialOperationTemplateOptionLabel(option = {}) {
+  const name = String(option.name || '').trim() || `工序模板 #${option.id || ''}`
+  return option.is_default ? `${name} 默认` : name
+}
+
 function schedulePricingRuleTrial() {
   if (pricingRuleTrialAutoRunTimer) {
     clearTimeout(pricingRuleTrialAutoRunTimer)
@@ -3309,7 +3365,10 @@ async function runPricingRuleTrial() {
   pricingRuleTrialError.value = ''
   try {
     const result = await apiSend('/api/costing/pricing-rule-trial', { method: 'POST', body: payload })
-    if (runID === pricingRuleTrialRunID) pricingRuleTrialResult.value = result
+    if (runID === pricingRuleTrialRunID) {
+      pricingRuleTrialResult.value = result
+      syncPricingRuleTrialProductionSelections(result)
+    }
   } catch (err) {
     if (runID === pricingRuleTrialRunID) {
       pricingRuleTrialResult.value = null
@@ -6332,11 +6391,15 @@ watch(() => pricingRuleTrialForm.value.product_id, () => {
   const product = selectedPricingRuleTrialProduct.value
   if (!product) return
   pricingRuleTrialForm.value.quote_unit = preferredPricingRuleTrialQuoteUnit(product)
+  pricingRuleTrialForm.value.bom_version_id = 0
+  pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialResult.value = null
 })
 
 watch(() => pricingRuleTrialForm.value.customer_id, () => {
   pricingRuleTrialForm.value.product_id = 0
+  pricingRuleTrialForm.value.bom_version_id = 0
+  pricingRuleTrialForm.value.operation_template_id = 0
   pricingRuleTrialForm.value.quote_unit = ''
   pricingRuleTrialResult.value = null
 })

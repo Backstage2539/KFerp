@@ -27,6 +27,9 @@ type fakeRepo struct {
 	savedBeanListAsset  BeanListPublicationAsset
 	pricingRules        map[int64]ProductPricingRule
 	costDetails         []PricingRuleTrialBaseCostDetail
+	costDetailsByBom    map[int64][]PricingRuleTrialBaseCostDetail
+	productionOptions   PricingRuleTrialProductionOptions
+	lastDetailInput     domain.ProductInput
 }
 
 func sliceContains(values []string, want string) bool {
@@ -63,8 +66,18 @@ func (r *fakeRepo) LoadProductPricingRule(_ context.Context, id int64) (ProductP
 	return ProductPricingRule{}, ErrProductPricingRuleNotFound
 }
 
-func (r *fakeRepo) LoadPricingRuleTrialBaseCostDetails(_ context.Context, _ domain.ProductInput) ([]PricingRuleTrialBaseCostDetail, error) {
+func (r *fakeRepo) LoadPricingRuleTrialBaseCostDetails(_ context.Context, input domain.ProductInput) ([]PricingRuleTrialBaseCostDetail, error) {
+	r.lastDetailInput = input
+	if r.costDetailsByBom != nil {
+		if rows, ok := r.costDetailsByBom[input.BomVersionID]; ok {
+			return rows, nil
+		}
+	}
 	return r.costDetails, nil
+}
+
+func (r *fakeRepo) LoadPricingRuleTrialProductionOptions(_ context.Context, _ domain.ProductInput) (PricingRuleTrialProductionOptions, error) {
+	return r.productionOptions, nil
 }
 
 func (r *fakeRepo) CreateRun(_ context.Context, actor string, items []domain.ProductResult) (*Run, error) {
@@ -226,7 +239,7 @@ func TestPricingRuleTrialUsesBomCostTemplateFormula(t *testing.T) {
 			ExpectedLossRate:         0.2,
 			BomVersionID:             3315,
 			BomVersionNo:             "BOM-v1",
-			BomUsageMode:             "product_production_config",
+			BomUsageMode:             "production_bom_output",
 			BomStatus:                "active",
 			OperationTemplateID:      7,
 			ProductSubtypeName:       "商用拼配",
@@ -369,6 +382,52 @@ func TestPricingRuleTrialDoesNotInferCostFromPublishedPriceSnapshotWhenBomCostMi
 	}
 }
 
+func TestPricingRuleTrialIgnoresLegacySummaryCostWithoutOutputBomDetails(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:          540,
+			Name:               "旧商品成本汇总商品",
+			InventoryUnit:      "kg",
+			QuoteUnit:          "kg",
+			GreenBeanCostPerKg: 999,
+			OperationCostPerKg: 1,
+			YieldRate:          1,
+			BomUsageMode:       "legacy_product_summary",
+			BomStatus:          "missing",
+		}},
+		pricingRules: map[int64]ProductPricingRule{
+			10: {
+				ID:           10,
+				Name:         "PR460 不读旧商品汇总",
+				MarginRate:   0.2,
+				TaxRate:      0,
+				RoundingMode: "none",
+				Active:       true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "none",
+				},
+			},
+		},
+	}
+
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID: 10,
+		ProductID:     540,
+		QuoteUnit:     "kg",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if got.BaseCost != 0 || got.BomCostTotal != 0 || got.OperationCostTotal != 0 || got.FinalUnitPrice != 0 || len(got.BaseCostDetails) != 0 {
+		t.Fatalf("trial must not use legacy product summary costs: base %.2f bom %.2f op %.2f final %.2f details %+v", got.BaseCost, got.BomCostTotal, got.OperationCostTotal, got.FinalUnitPrice, got.BaseCostDetails)
+	}
+	if !pricingRuleTrialWarningsContain(got.Warnings, "该商品暂无可试算的 BOM/工序成本") {
+		t.Fatalf("warnings = %+v, want missing BOM/operation cost warning", got.Warnings)
+	}
+}
+
 func TestPricingRuleTrialUsesBaseCostDetailsWhenProductInputSummaryMissing(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{{
@@ -424,6 +483,82 @@ func TestPricingRuleTrialUsesBaseCostDetailsWhenProductInputSummaryMissing(t *te
 	}
 }
 
+func TestPricingRuleTrialUsesSelectedOutputBomVersionAndOperationTemplate(t *testing.T) {
+	repo := &fakeRepo{
+		inputs: []domain.ProductInput{{
+			ProductID:           539,
+			Name:                "PR439-20260606182321 工厂量单商品",
+			InventoryUnit:       "kg",
+			QuoteUnit:           "kg",
+			GreenBeanCostPerKg:  999,
+			OperationCostPerKg:  999,
+			YieldRate:           0.8,
+			ExpectedLossRate:    0.2,
+			BomStatus:           "active",
+			BomVersionID:        5391,
+			BomVersionNo:        "V001",
+			BomUsageMode:        "production_bom_output",
+			OperationTemplateID: 7,
+		}},
+		productionOptions: PricingRuleTrialProductionOptions{
+			BomVersions: []PricingRuleTrialBomVersionOption{
+				{BomID: 539, BomCode: "BOM-000539", BomName: "PR439-20260606182321 工厂量单商品 生产 BOM", VersionID: 5391, VersionNo: "V001", Status: "published", IsDefault: false},
+				{BomID: 539, BomCode: "BOM-000539", BomName: "PR439-20260606182321 工厂量单商品 生产 BOM", VersionID: 5392, VersionNo: "V002", Status: "published", IsDefault: true},
+			},
+			OperationTemplates: []PricingRuleTrialOperationTemplateOption{
+				{ID: 7, Name: "旧工序", IsDefault: true},
+				{ID: 9, Name: "新版工序", IsDefault: false},
+			},
+		},
+		costDetailsByBom: map[int64][]PricingRuleTrialBaseCostDetail{
+			5392: {
+				{Key: "material:1001", Type: "material", TypeLabel: "物料", Name: "V002 原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 42, AmountPerKg: 42, Unit: "kg"},
+				{Key: "operation:9001", Type: "operation", TypeLabel: "工序", Name: "新版工序", ConsumeUnit: "per_kg", UnitCost: 8, AmountPerKg: 8, Unit: "kg"},
+			},
+		},
+		pricingRules: map[int64]ProductPricingRule{
+			10: {
+				ID:             10,
+				Name:           "PR460 输出 BOM 试算",
+				CostSourceMode: "bom_current_cost",
+				MarginRate:     0.2,
+				TaxRate:        0,
+				RoundingMode:   "cent",
+				FormulaVersion: "v1",
+				Active:         true,
+				CalculationJSON: map[string]any{
+					"yield_loss_mode": "none",
+					"profit_method":   "markup",
+					"tax_mode":        "none",
+				},
+			},
+		},
+	}
+
+	got, err := NewService(repo).PricingRuleTrial(context.Background(), PricingRuleTrialCommand{
+		PricingRuleID:       10,
+		ProductID:           539,
+		BomVersionID:        5392,
+		OperationTemplateID: 9,
+		QuoteUnit:           "kg",
+	})
+	if err != nil {
+		t.Fatalf("PricingRuleTrial() error = %v", err)
+	}
+	if repo.lastDetailInput.BomVersionID != 5392 || repo.lastDetailInput.OperationTemplateID != 9 {
+		t.Fatalf("detail input = %+v, want selected BOM version 5392 and operation template 9", repo.lastDetailInput)
+	}
+	if got.BomVersionID != 5392 || got.BomVersionNo != "V002" || got.OperationTemplateID != 9 || got.OperationTemplateName != "新版工序" {
+		t.Fatalf("selected production sources = %+v", got)
+	}
+	if got.BaseCost != 50 || got.BomCostTotal != 42 || got.OperationCostTotal != 8 || got.FinalUnitPrice != 60 {
+		t.Fatalf("trial must price from selected detail rows, got base %.2f bom %.2f op %.2f final %.2f", got.BaseCost, got.BomCostTotal, got.OperationCostTotal, got.FinalUnitPrice)
+	}
+	if len(got.BomVersionOptions) != 2 || !got.BomVersionOptions[1].IsDefault || len(got.OperationTemplateOptions) != 2 {
+		t.Fatalf("options missing = %+v / %+v", got.BomVersionOptions, got.OperationTemplateOptions)
+	}
+}
+
 func TestPricingRuleTrialMatchesExcelSupplierPriceSamples(t *testing.T) {
 	repo := &fakeRepo{
 		inputs: []domain.ProductInput{
@@ -432,6 +567,7 @@ func TestPricingRuleTrialMatchesExcelSupplierPriceSamples(t *testing.T) {
 				Name:               "测试用",
 				InventoryUnit:      "kg",
 				QuoteUnit:          "kg",
+				BomVersionID:       453011,
 				GreenBeanCostPerKg: 67.5, // 物料成本!C4 / 生产项目!H3 = 54 / 0.8
 				YieldRate:          1,
 			},
@@ -440,8 +576,17 @@ func TestPricingRuleTrialMatchesExcelSupplierPriceSamples(t *testing.T) {
 				Name:               "单品：孟连红果厌氧慢速日晒",
 				InventoryUnit:      "kg",
 				QuoteUnit:          "kg",
+				BomVersionID:       453022,
 				GreenBeanCostPerKg: 131.25, // 物料成本!C5 / 生产项目!H3 = 105 / 0.8
 				YieldRate:          1,
+			},
+		},
+		costDetailsByBom: map[int64][]PricingRuleTrialBaseCostDetail{
+			453011: {
+				{Key: "material:excel:45301", Type: "material", TypeLabel: "物料", Name: "测试用原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 67.5, AmountPerKg: 67.5, Unit: "kg"},
+			},
+			453022: {
+				{Key: "material:excel:45302", Type: "material", TypeLabel: "物料", Name: "孟连红果厌氧慢速日晒原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 131.25, AmountPerKg: 131.25, Unit: "kg"},
 			},
 		},
 		pricingRules: map[int64]ProductPricingRule{
@@ -629,10 +774,15 @@ func TestPricingRuleTrialSupportsOverridesAndMinimumMarginWarning(t *testing.T) 
 			Name:               "PR452 固定加价商品",
 			InventoryUnit:      "kg",
 			QuoteUnit:          "kg",
+			BomVersionID:       5501,
 			GreenBeanCostPerKg: 90,
 			OperationCostPerKg: 10,
 			YieldRate:          1,
 		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:550", Type: "material", TypeLabel: "物料", Name: "固定加价原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 90, AmountPerKg: 90, Unit: "kg"},
+			{Key: "operation:550", Type: "operation", TypeLabel: "工序", Name: "固定加价工序", ConsumeUnit: "per_kg", UnitCost: 10, AmountPerKg: 10, Unit: "kg"},
+		},
 		pricingRules: map[int64]ProductPricingRule{
 			11: {
 				ID:             11,
@@ -679,10 +829,15 @@ func TestPricingRuleTrialSupportsMarkupTaxExcludedAndYuanRounding(t *testing.T) 
 			Name:               "PR452 加价未税商品",
 			InventoryUnit:      "kg",
 			QuoteUnit:          "kg",
+			BomVersionID:       5511,
 			GreenBeanCostPerKg: 30,
 			OperationCostPerKg: 5,
 			YieldRate:          1,
 		}},
+		costDetails: []PricingRuleTrialBaseCostDetail{
+			{Key: "material:551", Type: "material", TypeLabel: "物料", Name: "未税加价原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 30, AmountPerKg: 30, Unit: "kg"},
+			{Key: "operation:551", Type: "operation", TypeLabel: "工序", Name: "未税加价工序", ConsumeUnit: "per_kg", UnitCost: 5, AmountPerKg: 5, Unit: "kg"},
+		},
 		pricingRules: map[int64]ProductPricingRule{
 			12: {
 				ID:           12,

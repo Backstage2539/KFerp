@@ -525,6 +525,8 @@ test('pricing rule trial payload is temporary and does not save price rows', () 
     pricing_rule_id: '10',
     product_id: '549',
     customer_id: '',
+    bom_version_id: '5392',
+    operation_template_id: '27',
     quote_unit: ' kg ',
     expected_loss_rate: '0.12',
     margin_rate: '0.30',
@@ -545,6 +547,8 @@ test('pricing rule trial payload is temporary and does not save price rows', () 
     pricing_rule_id: 10,
     product_id: 549,
     customer_id: 0,
+    bom_version_id: 5392,
+    operation_template_id: 27,
     quote_unit: 'kg',
     overrides: {
       expected_loss_rate: 0.12,
@@ -664,6 +668,8 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'buildPricingRuleTrialPayload',
     '/api/costing/pricing-rule-trial',
     '试算商品',
+    'BOM版本',
+    '工序',
     '报价单位',
     '临时损耗率',
     '临时利润/加价',
@@ -686,6 +692,8 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     'formula_expression_lines',
     '公式步骤',
     'pricingRuleTrialQuoteUnitOptions',
+    'pricingRuleTrialBomVersionOptions',
+    'pricingRuleTrialOperationTemplateOptions',
     'schedulePricingRuleTrial',
   ]) {
     assert.ok(source.includes(want), `missing pricing rule trial marker: ${want}`)
@@ -705,6 +713,8 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     assert.equal(trialDrawer.includes(forbidden), false, `pricing rule trial drawer should not expose ${forbidden}`)
   }
   assert.match(pane, /@click="openPricingRuleTrial\(rule\)"[^>]*>试算<\/button>/)
+  assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.bom_version_id"[\s\S]*pricingRuleTrialBomVersionOptions/)
+  assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.operation_template_id"[\s\S]*pricingRuleTrialOperationTemplateOptions/)
   assert.match(source, /<select v-model="pricingRuleTrialForm\.quote_unit"[\s\S]*pricingRuleTrialQuoteUnitOptions/)
   assert.doesNotMatch(pane, /@click="runPricingRuleTrial"/)
   assert.match(script, /apiSend\('\/api\/costing\/pricing-rule-trial'/)

@@ -61,7 +61,7 @@ func (fakeService) PricingRuleTrial(context.Context, appcosting.PricingRuleTrial
 		InventoryUnit:      "kg",
 		BomVersionID:       3315,
 		BomVersionNo:       "BOM-v1",
-		BomUsageMode:       "product_production_config",
+		BomUsageMode:       "production_bom_output",
 		BomStatus:          "active",
 		BaseCost:           60,
 		BomCostTotal:       50,
@@ -101,16 +101,20 @@ func (fakePricingRuleTrialErrorService) PricingRuleTrial(context.Context, appcos
 func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, cmd appcosting.PricingRuleTrialCommand) (*appcosting.PricingRuleTrialResult, error) {
 	s.last = cmd
 	return &appcosting.PricingRuleTrialResult{
-		PricingRuleID:      cmd.PricingRuleID,
-		PricingRuleName:    "PR453 Excel 供应售价",
-		FormulaVersion:     "excel-202604-v3",
-		ProductID:          cmd.ProductID,
-		ProductName:        "测试用",
-		QuoteUnit:          cmd.QuoteUnit,
-		InventoryUnit:      "kg",
-		BaseCost:           67.5,
-		BomCostTotal:       67.5,
-		OperationCostTotal: 0,
+		PricingRuleID:         cmd.PricingRuleID,
+		PricingRuleName:       "PR453 Excel 供应售价",
+		FormulaVersion:        "excel-202604-v3",
+		ProductID:             cmd.ProductID,
+		ProductName:           "测试用",
+		QuoteUnit:             cmd.QuoteUnit,
+		InventoryUnit:         "kg",
+		BomVersionID:          cmd.BomVersionID,
+		BomVersionNo:          "V002",
+		OperationTemplateID:   cmd.OperationTemplateID,
+		OperationTemplateName: "新版工序",
+		BaseCost:              67.5,
+		BomCostTotal:          67.5,
+		OperationCostTotal:    0,
 		BaseCostDetails: []appcosting.PricingRuleTrialBaseCostDetail{
 			{Key: "material:1", Type: "material", TypeLabel: "物料", Name: "测试原料", ConsumeUnit: "ratio_pct", RatioPct: 100, UnitCost: 67.5, Amount: 67.5, Unit: "kg", Description: "物料成本 67.5/kg"},
 		},
@@ -130,6 +134,14 @@ func (s *capturingPricingRuleTrialService) PricingRuleTrial(_ context.Context, c
 		FormulaExpressionLines: []string{
 			"成本基数 = BOM+工序成本 67.5/kg + 生产项目成本 6.2625/kg = 73.7625/kg",
 			"最终售价 = 116.7092/kg",
+		},
+		BomVersionOptions: []appcosting.PricingRuleTrialBomVersionOption{
+			{BomID: 539, BomCode: "BOM-000539", BomName: "PR439-20260606182321 工厂量单商品 生产 BOM", VersionID: 5391, VersionNo: "V001", Status: "published", IsDefault: false},
+			{BomID: 539, BomCode: "BOM-000539", BomName: "PR439-20260606182321 工厂量单商品 生产 BOM", VersionID: 5392, VersionNo: "V002", Status: "published", IsDefault: true},
+		},
+		OperationTemplateOptions: []appcosting.PricingRuleTrialOperationTemplateOption{
+			{ID: 7, Name: "旧工序", IsDefault: false},
+			{ID: 9, Name: "新版工序", IsDefault: true},
 		},
 		Steps: []domain.PriceExplanationStep{
 			{Key: "price_after_markup", Label: "加价后价格", Value: 113.7495, Unit: "kg"},
@@ -676,9 +688,11 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	RegisterRoutes(e, Dependencies{Costing: svc})
 
 	body, err := json.Marshal(appcosting.PricingRuleTrialCommand{
-		PricingRuleID: 10,
-		ProductID:     549,
-		QuoteUnit:     "kg",
+		PricingRuleID:       10,
+		ProductID:           549,
+		BomVersionID:        5392,
+		OperationTemplateID: 9,
+		QuoteUnit:           "kg",
 		Overrides: appcosting.PricingRuleTrialOverrides{
 			ExpectedLossRate: floatPtr(0.12),
 			MarginRate:       floatPtr(0.3),
@@ -709,6 +723,12 @@ func TestPricingRuleTrialAPI(t *testing.T) {
 	}
 	if got.PricingRuleID != 10 || got.ProductID != 549 || got.FinalUnitPrice != 116.7092 {
 		t.Fatalf("trial response = %+v", got)
+	}
+	if svc.last.BomVersionID != 5392 || svc.last.OperationTemplateID != 9 {
+		t.Fatalf("selected production sources not bound: %+v", svc.last)
+	}
+	if got.BomVersionID != 5392 || got.OperationTemplateID != 9 || len(got.BomVersionOptions) != 2 || len(got.OperationTemplateOptions) != 2 {
+		t.Fatalf("trial response missing selected production source options: %+v", got)
 	}
 	if svc.last.Overrides.PostMarkupCosts["利润税额"] != 1.1996 {
 		t.Fatalf("post markup costs not bound: %+v", svc.last.Overrides.PostMarkupCosts)

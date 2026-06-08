@@ -6,6 +6,29 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT
+- Branch: codex/pricing-rule-trial-waterfall-bom-detail
+- Owner/session: Codex / 2026-06-08
+- Status: development complete; local automated verification green; commit/push pending. Van explicitly requested no merge and no deploy.
+- Scope: 商品价格管理价格计算模板试算支持选择 `试算BOM版本` 和 `工序`。BOM 版本只按 `production_boms.output_product_id` 查找产出当前商品的 active BOM / published 版本，默认最新发布版本；试算明细和试算基数删除商品绑定 BOM、旧 `product_bom_sources`、旧 `product_bom_items` 兜底。缺产出 BOM 明细时 `BOM+工序成本` 为 0 和警告。
+- DEV:
+  - DEV-460-TRIAL-OUTPUT-BOM-OPTIONS：试算 API 返回产出当前商品的 BOM 版本选项，默认最新发布版本，支持选择其他 active/published 版本。
+  - DEV-460-TRIAL-NO-PRODUCT-BOM-FALLBACK：试算明细 SQL 和服务层基数不再读取商品绑定 BOM、`product_bom_sources` 或 `product_bom_items`；无产出 BOM 明细时不从旧商品汇总成本试算。
+  - DEV-460-TRIAL-OPERATION-OPTIONS：试算 API 返回 active 工序模板选项并支持 `operation_template_id` 只读试算。
+  - DEV-460-TRIAL-SELECTION-UI：商品价格管理试算抽屉显示 `试算BOM版本` 和 `工序` 下拉，payload 提交 `bom_version_id` / `operation_template_id`。
+  - DEV-460-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和验收记录。
+- Verifier:
+  - RED backend/service: `go test ./internal/application/costing -run 'TestPricingRuleTrialUsesSelectedOutputBomVersionAndOperationTemplate' -count=1` initially failed before new result fields/options and selection logic existed.
+  - RED repository: `go test ./internal/infrastructure/postgres/costing -run TestPricingRuleTrialProductionCostUsesOutputProductBomOnly -count=1` initially failed before production option lookup existed.
+  - RED frontend: `node --test src/lib/product-settings.test.js` initially failed because trial payload/drawer lacked BOM version and operation selection.
+  - GREEN targeted: `go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|DoesNotInferCostFromPublishedPriceSnapshotWhenBomCostMissing|IgnoresLegacySummaryCostWithoutOutputBomDetails|UsesBaseCostDetailsWhenProductInputSummaryMissing|UsesSelectedOutputBomVersionAndOperationTemplate|MatchesExcelSupplierPriceSamples|SupportsOverridesAndMinimumMarginWarning|SupportsMarkupTaxExcludedAndYuanRounding|ValidatesRuleAndProduct)' -count=1`; `go test ./internal/infrastructure/postgres/costing -run 'TestPricingRuleTrialProductionCostUsesOutputProductBomOnly|TestPricingRuleTrialDetailsUseProductionBomOutputProductFallback' -count=1`.
+  - GREEN frontend: `node --test src/lib/product-settings.test.js`; `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size/plugin timing warnings.
+  - GREEN broader: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev45(2|4|6|7|9)|TestDev460|TestLoadProductInputs' -count=1`; `go test ./...`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Deployment:
+  - Not merged and not deployed by request on 2026-06-08.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial-output-bom-operation-select.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
 ### PR-459-PRICING-RULE-TRIAL-WATERFALL-BOM-DETAIL
 - Branch: codex/pricing-rule-trial-waterfall-bom-detail
 - Owner/session: Codex / 2026-06-08

@@ -445,6 +445,8 @@ export function buildPricingRuleTrialPayload(form = {}) {
     pricing_rule_id: Number(form.pricing_rule_id ?? form.pricingRuleID ?? form.rule_id ?? form.ruleID ?? 0) || 0,
     product_id: Number(form.product_id ?? form.productID ?? 0) || 0,
     customer_id: Number(form.customer_id ?? form.customerID ?? 0) || 0,
+    bom_version_id: Number(form.bom_version_id ?? form.bomVersionID ?? 0) || 0,
+    operation_template_id: Number(form.operation_template_id ?? form.operationTemplateID ?? 0) || 0,
     quote_unit: String(form.quote_unit ?? form.quoteUnit ?? '').trim(),
     overrides,
   }

@@ -363,3 +363,92 @@ func TestDev459PricingRuleTrialWaterfallBomDetailContracts(t *testing.T) {
 		}
 	}
 }
+
+func TestDev460PricingRuleTrialOutputBomOperationSelectionContracts(t *testing.T) {
+	for rel, wants := range map[string][]string{
+		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
+			"PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
+			"DEV-460-TRIAL-OUTPUT-BOM-OPTIONS",
+			"DEV-460-TRIAL-NO-PRODUCT-BOM-FALLBACK",
+			"DEV-460-TRIAL-OPERATION-OPTIONS",
+			"DEV-460-TRIAL-SELECTION-UI",
+			"DEV-460-DOCS-ACCEPTANCE",
+			"REV-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
+		},
+		filepath.Join("internal", "application", "costing", "service.go"): {
+			"BomVersionOptions",
+			"OperationTemplateOptions",
+			"pricingRuleTrialApplyProductionSelection",
+			"pricingRuleTrialDefaultBomVersionOption",
+			"production BOM version not found for product",
+			"operation template not found",
+		},
+		filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go"): {
+			"LoadPricingRuleTrialProductionOptions",
+			"pricing_rule_trial_bom_versions",
+			"pb.output_product_id=$1",
+			"pb.output_product_id=$2",
+			"operation_templates",
+		},
+		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
+			"bom_version_id",
+			"operation_template_id",
+		},
+		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
+			"试算BOM版本",
+			"pricingRuleTrialBomVersionOptions",
+			"pricingRuleTrialOperationTemplateOptions",
+			"pricingRuleTrialForm.bom_version_id",
+			"pricingRuleTrialForm.operation_template_id",
+		},
+		filepath.Join("docs", "REQUIREMENTS.md"): {
+			"PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
+			"production_boms.output_product_id=product_id",
+			"product_bom_sources",
+			"product_bom_items",
+		},
+		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
+			"PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
+			"试算BOM版本",
+			"PR439-20260606182321 工厂量单商品",
+		},
+		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
+			"PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
+			"试算BOM版本",
+			"production_boms.output_product_id",
+		},
+		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-output-bom-operation-select.md"): {
+			"PR-460-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT",
+			"BOM-000539",
+			"不读商品绑定 BOM",
+		},
+	} {
+		src := string(readOrderAppFileForTest(t, rel))
+		for _, want := range wants {
+			if !strings.Contains(src, want) {
+				t.Fatalf("%s missing %q", rel, want)
+			}
+		}
+	}
+
+	src := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "costing", "repository.go")))
+	fnStart := strings.Index(src, "func (r Repository) LoadPricingRuleTrialBaseCostDetails")
+	if fnStart < 0 {
+		t.Fatal("LoadPricingRuleTrialBaseCostDetails not found")
+	}
+	fnEnd := strings.Index(src[fnStart:], "func (r Repository) loadProductInputs")
+	if fnEnd < 0 {
+		t.Fatal("loadProductInputs not found after LoadPricingRuleTrialBaseCostDetails")
+	}
+	fn := src[fnStart : fnStart+fnEnd]
+	for _, forbidden := range []string{
+		"product_bom_sources",
+		"product_bom_items",
+		"inherit_current",
+		"inherit_version",
+	} {
+		if strings.Contains(fn, forbidden) {
+			t.Fatalf("pricing trial details must not keep product-bound BOM fallback %q", forbidden)
+		}
+	}
+}
