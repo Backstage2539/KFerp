@@ -27,6 +27,7 @@ func registerProductRoutes(e *echo.Echo, catalogSvc *catalogapp.Service) {
 	e.GET("/api/business-groups", h.businessGroupsAPI)
 	e.POST("/api/business-groups", h.saveBusinessGroupAPI)
 	e.PUT("/api/business-groups/:id", h.saveBusinessGroupAPI)
+	e.DELETE("/api/business-groups/:id", h.deleteBusinessGroupAPI)
 	e.POST("/api/business-groups/:id/usages", h.ensureBusinessGroupUsageAPI)
 	e.POST("/api/business-group-items", h.saveBusinessGroupItemAPI)
 	e.PUT("/api/business-group-items/:id", h.saveBusinessGroupItemAPI)
@@ -891,6 +892,20 @@ func (h productHandler) saveBusinessGroupAPI(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"group": row})
+}
+
+func (h productHandler) deleteBusinessGroupAPI(c echo.Context) error {
+	id, err := parseOptionalInt64(c.Param("id"))
+	if err != nil || id <= 0 {
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid id"})
+	}
+	if err := h.catalog.DeleteBusinessGroup(c.Request().Context(), catalogapp.DeleteBusinessGroupCommand{ID: id, Actor: support.ActorOf(c)}); err != nil {
+		if catalogapp.IsValidationError(err) {
+			return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
 
 func (h productHandler) saveBusinessGroupItemAPI(c echo.Context) error {

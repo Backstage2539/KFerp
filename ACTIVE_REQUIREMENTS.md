@@ -6,15 +6,15 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
-### PR-455-PRICING-RULE-TRIAL-PR439-UNIT
+### PR-456-PRICING-RULE-TRIAL-PR439-UNIT
 - Branch: codex/pricing-rule-trial-pr439-unit-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: implementation in progress; targeted RED/GREEN complete; pending broader verification, merge, deploy, and browser acceptance
+- Status: implemented on feature branch; post-merge automated verification passed; pending development deploy and browser acceptance
 - Scope: 商品价格管理价格计算模板试算跟进。抽屉删除 `重新试算` 按钮和 `售价后附加成本`；报价单位来自全局单位字典下拉；选择 `PR439-20260606182321 熟豆下单商品` 时，即使当前商品没有 BOM/工序成本，也可利用已发布 `88.5/kg` 发布售价快照按模板公式反推成本基数并展示公式节点，试算仍只读不保存。
 - DEV:
-  - DEV-455-TRIAL-AUTO-UNIT-UI：试算抽屉改为选择商品/报价单位/临时输入后自动试算，报价单位下拉读取全局单位字典，移除 `重新试算` 和 `售价后附加成本` UI/payload。
-  - DEV-455-TRIAL-PUBLISHED-SNAPSHOT-FALLBACK：后端试算在无 BOM/工序成本但存在已发布价格快照时，按模板公式反推成本基数，返回 `发布售价快照` 节点和明确预警。
-  - DEV-455-DOCS-ACCEPTANCE：同步成本手册、需求/验收清单、PR/DEV UI 种子和本次验收记录。
+  - DEV-456-TRIAL-AUTO-UNIT-UI：试算抽屉改为选择商品/报价单位/临时输入后自动试算，报价单位下拉读取全局单位字典，移除 `重新试算` 和 `售价后附加成本` UI/payload。
+  - DEV-456-TRIAL-PUBLISHED-SNAPSHOT-FALLBACK：后端试算在无 BOM/工序成本但存在已发布价格快照时，按模板公式反推成本基数，返回 `发布售价快照` 节点和明确预警。
+  - DEV-456-DOCS-ACCEPTANCE：同步成本手册、需求/验收清单、PR/DEV UI 种子和本次验收记录。
 - Verifier:
   - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because trial payload still sent `post_markup_costs` and ProductSettingsView lacked `pricingRuleTrialQuoteUnitOptions` / auto trial markers.
   - RED backend: `go test ./internal/application/costing -run 'TestPricingRuleTrial(UsesBomCostTemplateFormula|InfersCostFromPublishedPriceSnapshotWhenBomCostMissing)' -count=1` failed before implementation with `product cost required`.
@@ -22,7 +22,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN support/API: `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support -run 'TestPricingRuleTrial|TestDev45(2|4|5)|TestPricingRuleTrialPermissionIsReadOnly' -count=1` passed.
   - GREEN broader: `go test ./...` in `orderapp-remote` passed; `npm run build` in `frontend-vue-shell` passed after `npm ci`, with existing Vite chunk-size/plugin timing warnings.
   - GREEN verifier: `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+  - GREEN post-merge with `origin/develop=645c9712`: `node --test src/lib/product-settings.test.js src/lib/materials-ui.test.js src/lib/bom.test.js src/lib/menu-ia.test.js src/lib/product-bean-list-split.test.js` passed 176/176; `go test ./internal/application/costing ./internal/interfaces/http/costing ./internal/interfaces/http/support ./internal/interfaces/http/catalog ./internal/application/catalog ./internal/infrastructure/postgres/catalog -run 'TestPricingRuleTrial|TestDev45(2|4|5|6)|TestBusinessGroupsAPIDeletesTemplate|TestBusinessGroupItemsAPIWritesGenericGroupItems|TestPricingRuleTrialPermissionIsReadOnly' -count=1` passed; `go test ./...` passed; `npm run build` passed with existing Vite chunk-size/plugin timing warnings; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Manual/docs: `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-08-pricing-rule-trial-pr439-unit.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
+### PR-455-GROUP-TEMPLATE-DELETE
+- Branch: codex/group-template-delete-20260608
+- Owner/session: Codex / 2026-06-08
+- Status: implemented locally; automated verification passed; pending browser acceptance and development deploy
+- Scope: 系统设置里的分组模板不再提供模板启用/停用；编辑已有模板时提供 `删除模板`。删除模板物理删除该模板、分类项、用途和对象归类并写操作日志；删除后商品档案、生产 BOM、仓库库存和商品价格表不再能选择该模板。
+- DEV:
+  - DEV-455-GROUP-TEMPLATE-DELETE-UI：系统设置分组模板表单移除模板启用勾选和列表启停状态展示，编辑已有模板时显示 `删除模板`。
+  - DEV-455-GROUP-TEMPLATE-DELETE-API：新增 `DELETE /api/business-groups/:id`，清理 `business_group_assignments`、`business_group_usages`、`business_group_items` 和 `business_groups`，并写操作日志。
+  - DEV-455-GROUP-TEMPLATE-DELETE-DOCS：同步需求、验收清单、操作手册和 PR-455 验收记录。
+- Verifier:
+  - RED frontend: `node --test src/lib/materials-ui.test.js` failed before implementation because系统设置分组模板页缺少 `删除模板`，且仍有模板 `启用/停用` 状态。
+  - RED API: `go test ./internal/interfaces/http/catalog -run TestBusinessGroupsAPIDeletesTemplate -count=1` failed before implementation because `DeleteBusinessGroupCommand` / delete API were missing.
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev455GroupTemplate -count=1` failed before implementation because PR-455 seeds/docs/API/UI markers were missing.
+  - GREEN targeted: `node --test src/lib/materials-ui.test.js`; `go test ./internal/interfaces/http/catalog -run 'TestBusinessGroupsAPIDeletesTemplate|TestBusinessGroupItemsAPIWritesGenericGroupItems' -count=1`; `go test ./internal/interfaces/http/support -run TestDev455GroupTemplate -count=1`.
+  - GREEN broader: `node --test src/lib/materials-ui.test.js src/lib/product-settings.test.js src/lib/bom.test.js src/lib/menu-ia.test.js src/lib/product-bean-list-split.test.js` passed 176/176; `npm run build` passed with existing Vite chunk-size warning; `go test ./...` passed; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+  - GREEN local browser: mocked Vue shell rendered `系统设置 / 分组模板` with `删除模板`, no template `启用/停用` status and no object move controls. Clicking `删除模板` sent DELETE, then template chip count, category editor count and delete button count were all 0; console errors 0.
+- Deployment:
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/acceptance/2026-06-08-group-template-delete.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
 ### PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS

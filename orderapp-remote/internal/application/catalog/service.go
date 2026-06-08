@@ -170,6 +170,11 @@ type DeleteBusinessGroupAssignmentCommand struct {
 	ID    int64
 }
 
+type DeleteBusinessGroupCommand struct {
+	Actor string
+	ID    int64
+}
+
 type DeleteBusinessGroupItemCommand struct {
 	Actor string
 	ID    int64
@@ -1237,6 +1242,7 @@ type Repository interface {
 	SaveProductPriceGroup(ctx context.Context, cmd SaveProductPriceGroupCommand) (ProductPriceGroup, error)
 	ListBusinessGroups(ctx context.Context) ([]BusinessGroup, error)
 	SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (BusinessGroup, error)
+	DeleteBusinessGroup(ctx context.Context, cmd DeleteBusinessGroupCommand) error
 	SaveBusinessGroupItem(ctx context.Context, cmd BusinessGroupItem) (BusinessGroupItem, error)
 	DeleteBusinessGroupItem(ctx context.Context, cmd DeleteBusinessGroupItemCommand) error
 	MoveBusinessGroupItem(ctx context.Context, cmd MoveBusinessGroupItemCommand) (BusinessGroupItem, error)
@@ -1722,6 +1728,14 @@ func (s *Service) SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (Bus
 		cmd.Active = true
 	}
 	return s.repo.SaveBusinessGroup(ctx, cmd)
+}
+
+func (s *Service) DeleteBusinessGroup(ctx context.Context, cmd DeleteBusinessGroupCommand) error {
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.ID <= 0 {
+		return ValidationError{Message: "invalid business group"}
+	}
+	return s.repo.DeleteBusinessGroup(ctx, cmd)
 }
 
 func (s *Service) SaveBusinessGroupItem(ctx context.Context, cmd BusinessGroupItem) (BusinessGroupItem, error) {

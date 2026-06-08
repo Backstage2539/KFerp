@@ -34,6 +34,7 @@ type fakeRepo struct {
 	configTemplate         SaveProductConfigTemplateCommand
 	deleteConfig           DeleteProductConfigTemplateCommand
 	priceGroup             SaveProductPriceGroupCommand
+	deleteGroup            DeleteBusinessGroupCommand
 	groupAssignment        BusinessGroupAssignment
 	deleteAssignment       DeleteBusinessGroupAssignmentCommand
 	priceRecord            SaveProductPriceRecordCommand
@@ -183,6 +184,11 @@ func (r *fakeRepo) SaveBusinessGroup(ctx context.Context, cmd BusinessGroup) (Bu
 		cmd.ID = 61
 	}
 	return cmd, nil
+}
+
+func (r *fakeRepo) DeleteBusinessGroup(ctx context.Context, cmd DeleteBusinessGroupCommand) error {
+	r.deleteGroup = cmd
+	return nil
 }
 
 func (r *fakeRepo) SaveBusinessGroupItem(ctx context.Context, cmd BusinessGroupItem) (BusinessGroupItem, error) {

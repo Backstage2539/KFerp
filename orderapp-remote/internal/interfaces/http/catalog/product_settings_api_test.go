@@ -32,6 +32,7 @@ type productSettingsRepo struct {
 	productUnitTemplates                []catalogapp.ProductUnitTemplate
 	productPriceGroups                  []catalogapp.ProductPriceGroup
 	businessGroups                      []catalogapp.BusinessGroup
+	deletedBusinessGroup                catalogapp.DeleteBusinessGroupCommand
 	savedBusinessGroupItem              catalogapp.BusinessGroupItem
 	deletedBusinessGroupItem            catalogapp.DeleteBusinessGroupItemCommand
 	movedBusinessGroupItem              catalogapp.MoveBusinessGroupItemCommand
@@ -342,6 +343,11 @@ func (r *productSettingsRepo) SaveBusinessGroup(ctx context.Context, cmd catalog
 	return cmd, nil
 }
 
+func (r *productSettingsRepo) DeleteBusinessGroup(ctx context.Context, cmd catalogapp.DeleteBusinessGroupCommand) error {
+	r.deletedBusinessGroup = cmd
+	return nil
+}
+
 func (r *productSettingsRepo) SaveBusinessGroupItem(ctx context.Context, cmd catalogapp.BusinessGroupItem) (catalogapp.BusinessGroupItem, error) {
 	r.savedBusinessGroupItem = cmd
 	if cmd.ID == 0 {
@@ -481,6 +487,22 @@ func TestBusinessGroupItemsAPIWritesGenericGroupItems(t *testing.T) {
 	}
 	if repo.deletedBusinessGroupItem.ID != 67 {
 		t.Fatalf("unexpected deleted business group item: %+v", repo.deletedBusinessGroupItem)
+	}
+}
+
+func TestBusinessGroupsAPIDeletesTemplate(t *testing.T) {
+	repo := &productSettingsRepo{}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/business-groups/66", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("business group delete status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.deletedBusinessGroup.ID != 66 {
+		t.Fatalf("unexpected deleted business group: %+v", repo.deletedBusinessGroup)
 	}
 }
 

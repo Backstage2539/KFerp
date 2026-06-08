@@ -1598,6 +1598,78 @@ func (r Repository) SaveBusinessGroup(ctx context.Context, cmd catalogapp.Busine
 	return catalogapp.BusinessGroup{}, fmt.Errorf("business group not found")
 }
 
+func (r Repository) DeleteBusinessGroup(ctx context.Context, cmd catalogapp.DeleteBusinessGroupCommand) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var name string
+	var code string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT name, code
+		FROM %s.business_groups
+		WHERE id=$1
+	`, r.schema), cmd.ID).Scan(&name, &code); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if protectedBusinessGroupTemplate(name, code) {
+		return catalogapp.ValidationError{Message: "system business group cannot be deleted"}
+	}
+
+	assignmentsDeleted, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.business_group_assignments WHERE group_id=$1`, r.schema), cmd.ID)
+	if err != nil {
+		return err
+	}
+	usagesDeleted, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.business_group_usages WHERE group_id=$1`, r.schema), cmd.ID)
+	if err != nil {
+		return err
+	}
+	itemsDeleted, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.business_group_items WHERE group_id=$1`, r.schema), cmd.ID)
+	if err != nil {
+		return err
+	}
+	groupDeleted, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.business_groups WHERE id=$1`, r.schema), cmd.ID)
+	if err != nil {
+		return err
+	}
+	if groupDeleted.RowsAffected() == 0 {
+		return nil
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "business_group", &cmd.ID, "delete_business_group", postgresinfra.StrPtr("name"), postgresinfra.StrPtr(name), nil, postgresinfra.AuditMeta{
+		"code":                code,
+		"assignments_deleted": assignmentsDeleted.RowsAffected(),
+		"usages_deleted":      usagesDeleted.RowsAffected(),
+		"items_deleted":       itemsDeleted.RowsAffected(),
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func protectedBusinessGroupTemplate(name string, code string) bool {
+	normalizedCode := strings.ToLower(strings.TrimSpace(code))
+	normalizedName := strings.TrimSpace(name)
+	if strings.HasPrefix(normalizedCode, "default_") {
+		return true
+	}
+	switch normalizedName {
+	case "商品默认分组", "生产 BOM 默认分组", "仓库库存默认分组":
+		return true
+	default:
+		return false
+	}
+}
+
 func (r Repository) SaveBusinessGroupItem(ctx context.Context, cmd catalogapp.BusinessGroupItem) (catalogapp.BusinessGroupItem, error) {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {

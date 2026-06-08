@@ -145,13 +145,13 @@ func TestDev454PricingRuleTrialExcelParityContracts(t *testing.T) {
 	}
 }
 
-func TestDev455PricingRuleTrialPr439UnitContracts(t *testing.T) {
+func TestDev456PricingRuleTrialPr439UnitContracts(t *testing.T) {
 	for rel, wants := range map[string][]string{
 		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
-			"PR-455-PRICING-RULE-TRIAL-PR439-UNIT",
-			"DEV-455-TRIAL-AUTO-UNIT-UI",
-			"DEV-455-TRIAL-PUBLISHED-SNAPSHOT-FALLBACK",
-			"REV-455-PRICING-RULE-TRIAL-PR439-UNIT",
+			"PR-456-PRICING-RULE-TRIAL-PR439-UNIT",
+			"DEV-456-TRIAL-AUTO-UNIT-UI",
+			"DEV-456-TRIAL-PUBLISHED-SNAPSHOT-FALLBACK",
+			"REV-456-PRICING-RULE-TRIAL-PR439-UNIT",
 		},
 		filepath.Join("internal", "application", "costing", "service.go"): {
 			"pricingRuleTrialInferBaseCostFromPublishedSnapshot",
@@ -174,25 +174,25 @@ func TestDev455PricingRuleTrialPr439UnitContracts(t *testing.T) {
 			"试算中...",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
-			"PR-455-PRICING-RULE-TRIAL-PR439-UNIT",
+			"PR-456-PRICING-RULE-TRIAL-PR439-UNIT",
 			"PR439-20260606182321 熟豆下单商品",
 			"全局单位字典",
 			"发布售价快照",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"PR-455-PRICING-RULE-TRIAL-PR439-UNIT",
+			"PR-456-PRICING-RULE-TRIAL-PR439-UNIT",
 			"不显示 `重新试算`",
 			"不显示 `售价后附加成本`",
 			"88.5/kg",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
-			"PR-455-PRICING-RULE-TRIAL-PR439-UNIT",
+			"PR-456-PRICING-RULE-TRIAL-PR439-UNIT",
 			"全局单位字典",
 			"自动试算",
 			"发布售价快照反推成本基数",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-08-pricing-rule-trial-pr439-unit.md"): {
-			"PR-455-PRICING-RULE-TRIAL-PR439-UNIT",
+			"PR-456-PRICING-RULE-TRIAL-PR439-UNIT",
 			"PR439-20260606182321 熟豆下单商品",
 			"88.5/kg",
 		},

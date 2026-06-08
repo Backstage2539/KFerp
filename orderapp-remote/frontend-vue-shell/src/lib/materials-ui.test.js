@@ -32,10 +32,16 @@ test('system settings group templates manage categories without business objects
 
   assert.match(settingsSource, /分组模板/)
   assert.match(settingsSource, /新增分组模板/)
+  assert.match(settingsSource, /删除模板/)
+  assert.match(settingsSource, /deleteGroupTemplate/)
+  assert.match(settingsSource, /\/api\/business-groups\/\$\{id\}/)
+  assert.match(settingsSource, /method:\s*'DELETE'/)
   assert.match(settingsSource, /新增大类/)
   assert.match(settingsSource, /新增小类/)
   assert.match(settingsSource, /\/api\/business-groups/)
   assert.match(settingsSource, /\/api\/business-group-items/)
+  assert.doesNotMatch(templatePanel, /groupTemplateForm\.active/)
+  assert.doesNotMatch(templatePanel, /template\.active === false \? '停用' : '启用'/)
   assert.doesNotMatch(templatePanel, /已选|勾选|移动到分类|\/api\/business-group-assignments/)
 })
 

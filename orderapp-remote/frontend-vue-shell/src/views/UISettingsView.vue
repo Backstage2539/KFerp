@@ -41,11 +41,11 @@
             v-for="template in activeGroupTemplates"
             :key="template.id"
             class="template-chip"
-            :class="{ active: Number(template.id || 0) === selectedGroupTemplateID, inactive: template.active === false }"
+            :class="{ active: Number(template.id || 0) === selectedGroupTemplateID }"
             type="button"
             @click="selectGroupTemplate(template)">
             <strong>{{ groupTemplateName(template) }}</strong>
-            <small>{{ template.active === false ? '停用' : '启用' }} · {{ businessGroupItemsTree(template.items || []).length }} 个大类</small>
+            <small>{{ businessGroupItemsTree(template.items || []).length }} 个大类</small>
           </button>
           <p v-if="!activeGroupTemplates.length" class="muted">暂无模板，先新增一个分组模板，例如“咖啡挂耳”。</p>
         </aside>
@@ -69,15 +69,12 @@
             <span>排序</span>
             <input v-model.number="groupTemplateForm.sort_order" type="number" min="0" step="1" />
           </label>
-          <label class="checkline">
-            <input v-model="groupTemplateForm.active" type="checkbox" />
-            <span>启用</span>
-          </label>
           <label class="wide-field">
             <span>备注</span>
             <input v-model.trim="groupTemplateForm.remark" placeholder="用于商品、BOM、库存选择分类" />
           </label>
           <div class="actions unit-actions">
+            <button v-if="groupTemplateForm.id" class="text-button danger-text" type="button" :disabled="groupTemplateSaving || loading" @click="deleteGroupTemplate">删除模板</button>
             <button class="primary" type="submit" :disabled="groupTemplateSaving || loading">
               {{ groupTemplateSaving ? '保存中' : (groupTemplateForm.id ? '保存模板' : '新增分组模板') }}
             </button>
@@ -250,7 +247,7 @@ const selectedGroupTemplateID = ref(0)
 const originalGroupTemplateCategoryParentID = ref(0)
 const visibleProductUnitDefinitions = computed(() => visibleNonDeletedRows(productUnitDefinitions.value))
 const activeGroupTemplates = computed(() => groupTemplates.value
-  .filter((group) => !isSystemDefaultBusinessGroup(group))
+  .filter((group) => !isSystemDefaultBusinessGroup(group) && group.active !== false)
   .slice()
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0)))
 const selectedGroupTemplate = computed(() => activeGroupTemplates.value.find((group) => Number(group.id || 0) === Number(selectedGroupTemplateID.value || 0)) || null)
@@ -279,7 +276,6 @@ function defaultGroupTemplate(group = {}) {
     name: String(group.name || '').trim(),
     code: String(group.code || '').trim(),
     remark: String(group.remark || '').trim(),
-    active: group.active !== false,
     sort_order: Number(group.sort_order || 100),
   }
 }
@@ -436,7 +432,7 @@ async function saveGroupTemplate() {
     name: String(groupTemplateForm.name || '').trim(),
     code: String(groupTemplateForm.code || '').trim(),
     remark: String(groupTemplateForm.remark || '').trim(),
-    active: groupTemplateForm.active !== false,
+    active: true,
     sort_order: Number(groupTemplateForm.sort_order || 100),
     usages: [],
   }
@@ -458,6 +454,28 @@ async function saveGroupTemplate() {
     await loadGroupTemplates()
   } catch (err) {
     error.value = err.message || '保存分组模板失败'
+  } finally {
+    groupTemplateSaving.value = false
+  }
+}
+
+async function deleteGroupTemplate() {
+  const id = Number(groupTemplateForm.id || 0)
+  if (!id) return
+  const name = groupTemplateForm.name || `#${id}`
+  if (typeof window !== 'undefined' && !window.confirm(`确认删除分组模板「${name}」？模板下的大类、小类和已移动对象的分类关系会一并删除。`)) return
+  groupTemplateSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend(`/api/business-groups/${id}`, { method: 'DELETE' })
+    ok.value = '分组模板已删除'
+    selectedGroupTemplateID.value = 0
+    resetGroupTemplateForm()
+    resetGroupTemplateCategoryForm()
+    await loadGroupTemplates()
+  } catch (err) {
+    error.value = err.message || '删除分组模板失败'
   } finally {
     groupTemplateSaving.value = false
   }
@@ -594,7 +612,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .template-chip, .unit-chip { min-height: 48px; display: grid; gap: 2px; text-align: left; border-color: #d9d2c8; background: #fbfaf8; }
 .template-chip.active { border-color: #111827; box-shadow: 0 0 0 1px #111827 inset; }
 .template-chip small, .unit-chip small { color: #666; font-size: 12px; }
-.template-chip.inactive, .unit-chip.inactive { opacity: .55; }
+.unit-chip.inactive { opacity: .55; }
 .group-template-form, .category-form, .unit-definition-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; border: 1px solid #e6eaf0; border-radius: 8px; padding: 12px; background: #fbfcfe; }
 .unit-form-head { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .unit-form-head div { display: grid; gap: 2px; }
