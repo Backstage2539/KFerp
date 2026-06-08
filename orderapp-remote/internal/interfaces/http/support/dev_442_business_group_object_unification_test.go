@@ -105,8 +105,9 @@ func TestDev442BusinessGroupAssignmentFrontendAndDocs(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"data-pr442-product-group-assignments",
 			"/api/business-group-assignments",
-			"目标分组",
-			"businessGroupItemMoveOptions",
+			"选择分组模板",
+			"移动到分类",
+			"selectedProductGroupTemplateID",
 			"businessGroupDisplayGroups",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
@@ -118,7 +119,7 @@ func TestDev442BusinessGroupAssignmentFrontendAndDocs(t *testing.T) {
 			"data-pr442-warehouse-business-groups",
 			"/api/business-group-assignments",
 			"warehouse_inventory",
-			"库存分组",
+			"库存分组模板",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"price-list-rules-dialog",
@@ -140,12 +141,12 @@ func TestDev442BusinessGroupAssignmentFrontendAndDocs(t *testing.T) {
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION",
 			"商品档案不再写旧商品分类字段",
-			"仓库库存按仓库分组过滤",
+			"仓库库存按仓库分类过滤",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
-			"PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION",
-			"分组管理",
-			"仓库库存分组对象是仓库",
+			"PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS",
+			"business_group_assignments",
+			"仓库库存归类对象是仓库",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION",

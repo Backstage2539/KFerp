@@ -12,15 +12,30 @@ const stockAdjustmentsSource = readFileSync(resolve(here, '../views/StockAdjustm
 test('warehouse settings opens for ordinary warehouses and exposes inventory grouping', () => {
   assert.doesNotMatch(warehouseSource, /:disabled="!selectedWarehouse \|\| !isExternalWarehouse"/)
   assert.match(warehouseSource, /openWarehouseSettingsDrawer/)
-  assert.match(warehouseSource, /库存分组/)
+  assert.match(warehouseSource, /库存分组模板/)
+  assert.match(warehouseSource, /移动到分类/)
   assert.match(warehouseSource, /\/api\/business-group-assignments/)
 })
 
 test('warehouse inventory group labels hide system default group sets', () => {
   assert.match(warehouseSource, /businessGroupItemMoveOptions/)
   assert.match(warehouseSource, /isSystemDefaultBusinessGroup/)
+  assert.match(warehouseSource, /includeGroupsWithoutUsage:\s*true/)
   assert.doesNotMatch(warehouseSource, /\[group\.name \|\| '库存分组', parentName, item\.name/)
   assert.doesNotMatch(warehouseSource, /仓库库存默认分组/)
+})
+
+test('system settings group templates manage categories without business objects', () => {
+  const settingsSource = readFileSync(resolve(here, '../views/UISettingsView.vue'), 'utf8')
+  const templatePanel = settingsSource.match(/data-section-mode="groupTemplates"[\s\S]*?<section class="panel">/)?.[0] || settingsSource
+
+  assert.match(settingsSource, /分组模板/)
+  assert.match(settingsSource, /新增分组模板/)
+  assert.match(settingsSource, /新增大类/)
+  assert.match(settingsSource, /新增小类/)
+  assert.match(settingsSource, /\/api\/business-groups/)
+  assert.match(settingsSource, /\/api\/business-group-items/)
+  assert.doesNotMatch(templatePanel, /已选|勾选|移动到分类|\/api\/business-group-assignments/)
 })
 
 test('materials view uses classification tabs and editable material records', () => {

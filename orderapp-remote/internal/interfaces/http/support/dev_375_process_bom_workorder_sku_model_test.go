@@ -46,7 +46,7 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "BomView.vue"): {
 			"生产 BOM（制造主档）",
-			"前往分组管理",
+			"前往分组模板",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProcessTemplatesView.vue"): {
 			"工艺模板",

@@ -1,7 +1,7 @@
 # PR-453 商品价格管理模板试算 Excel 对账验收记录
 
 ## 范围
-- 需求：PR-453-PRICING-RULE-TRIAL-EXCEL-PARITY。
+- 需求：PR-454-PRICING-RULE-TRIAL-EXCEL-PARITY。
 - Excel：`刘豪-成本核算3(已自动还原).xlsx`。
 - 目标：商品价格管理模板试算能按 Excel `物料成本`、`生产项目` 和 `供应售价` 口径计算，并在试算抽屉展示完整公式节点。
 

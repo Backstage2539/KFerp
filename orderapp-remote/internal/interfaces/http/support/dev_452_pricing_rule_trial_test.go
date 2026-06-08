@@ -79,14 +79,14 @@ func TestDev452PricingRuleTrialContracts(t *testing.T) {
 	}
 }
 
-func TestDev453PricingRuleTrialExcelParityContracts(t *testing.T) {
+func TestDev454PricingRuleTrialExcelParityContracts(t *testing.T) {
 	for rel, wants := range map[string][]string{
 		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
-			"PR-453-PRICING-RULE-TRIAL-EXCEL-PARITY",
-			"DEV-453-EXCEL-PARITY-ANALYSIS",
-			"DEV-453-TRIAL-FORMULA-PARITY",
-			"DEV-453-TRIAL-FORMULA-NODES",
-			"REV-453-PRICING-RULE-TRIAL-EXCEL-PARITY",
+			"PR-454-PRICING-RULE-TRIAL-EXCEL-PARITY",
+			"DEV-454-EXCEL-PARITY-ANALYSIS",
+			"DEV-454-TRIAL-FORMULA-PARITY",
+			"DEV-454-TRIAL-FORMULA-NODES",
+			"REV-454-PRICING-RULE-TRIAL-EXCEL-PARITY",
 		},
 		filepath.Join("internal", "application", "costing", "service.go"): {
 			"PostMarkupCosts",
@@ -121,7 +121,7 @@ func TestDev453PricingRuleTrialExcelParityContracts(t *testing.T) {
 			"addPricingRuleTrialPostMarkupCostRow",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
-			"PR-453-PRICING-RULE-TRIAL-EXCEL-PARITY",
+			"PR-454-PRICING-RULE-TRIAL-EXCEL-PARITY",
 			"物料成本",
 			"生产项目",
 			"供应售价",

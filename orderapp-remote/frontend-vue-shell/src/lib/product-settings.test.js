@@ -254,12 +254,13 @@ test('product settings view exposes group and pricing rule management while reti
   const productConfigDrawer = source.slice(source.indexOf('product-production-config-drawer'), source.indexOf('<script setup>'))
   const normalFormSurface = [productCreateDrawer, aliasCreateDrawer, productConfigDrawer].join('\n')
 
-  for (const want of ['分组管理', '商品价格管理', '价格计算模板', '客户引用', '价格摘要', '暂无价格表价格', '库存单位', '整数库存']) {
+  for (const want of ['商品价格管理', '价格计算模板', '客户引用', '价格摘要', '暂无价格表价格', '库存单位', '整数库存']) {
     assert.match(source, new RegExp(want))
   }
   assert.match(appSource, /productPriceManagement/)
   assert.match(appSource, /groupManagement/)
-  assert.match(menuSource, /key: 'groupManagement', label: '分组管理'/)
+  assert.match(menuSource, /key: 'groupTemplates', label: '分组模板'/)
+  assert.match(menuSource, /groupManagement:\s*'分组模板'/)
   assert.match(menuSource, /key: 'productPriceManagement', label: '商品价格管理'/)
   assert.doesNotMatch(menuSource, /key: 'customerProductAliases'/)
   assert.doesNotMatch(menuSource, /label: '客户商品'/)
@@ -2353,7 +2354,7 @@ test('SKU settings keeps only the product creation drawer while classification t
   assert.match(template, /class="sku-filters product-filter-row"[\s\S]*@click="openProductDrawer"[\s\S]*deactivateProducts/)
   assert.doesNotMatch(template, /@click="openSkuCopyDrawer"/)
   assert.doesNotMatch(template, />分类设置</)
-  assert.match(template, /data-section-mode="groupManagement"/)
+  assert.doesNotMatch(template, /data-section-mode="groupManagement"/)
   assert.doesNotMatch(productArchiveWorkspace, /v-for="primary in visibleCategoryManagementTreeForSkuContext"/)
   assert.doesNotMatch(productArchiveWorkspace, /class="category-panel category-drawer-panel category-management-panel"/)
   assert.doesNotMatch(template, /<aside class="settings-drawer sku-copy-drawer"/)
@@ -2438,8 +2439,8 @@ test('product list moves selected rows through business group assignments while 
 	    'productCatalogGroupOfProduct',
 	    'business-group-move',
 	    '商品档案分组视图',
-	    '目标分组',
-	    '商品分组',
+	    '选择分组模板',
+	    '移动到分类',
 	  ]) {
     assert.ok(source.includes(expected), `missing product business group marker: ${expected}`)
   }
@@ -2459,7 +2460,8 @@ test('product list moves selected rows through business group assignments while 
 
 	  const productToolbar = template.match(/<div class="classification-view-toolbar product-classification-tabs"[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || ''
 	  assert.match(productToolbar, /data-pr442-product-group-assignments/)
-	  assert.match(productToolbar, /目标分组/)
+	  assert.match(productToolbar, /选择分组模板/)
+	  assert.match(productToolbar, /移动到分类/)
 	  assert.doesNotMatch(productToolbar, /分组集 \/ 父组 \/ 子组/)
 	  assert.match(productToolbar, /@change="saveSelectedProductBusinessGroupAssignment"/)
   assert.doesNotMatch(productToolbar, /placeholder="增加分类"/)
@@ -2531,9 +2533,10 @@ test('product archive uses business groups while customer alias keeps legacy pag
   assert.match(source, /apiSend\('\/api\/business-group-assignments'/)
   assert.match(template, /data-pr442-product-group-assignments/)
   assert.match(template, /商品档案分组视图/)
-  assert.match(template, /商品分组/)
+  assert.match(template, /选择分组模板/)
+  assert.match(template, /移动到分类/)
   assert.match(script, /function productClassificationLabel\(row\)\s*\{\s*return productBusinessGroupLabel\(row\)\s*\}/)
-  assert.doesNotMatch(template.match(/<div class="classification-view-toolbar product-classification-tabs"[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || '', /增加分类|移动到分类/)
+  assert.doesNotMatch(template.match(/<div class="classification-view-toolbar product-classification-tabs"[\s\S]*?<div class="table-wrap sku-table-wrap">/)?.[0] || '', /增加分类/)
 
   assert.match(source, /aliasClassificationTemplateUsages/)
   assert.match(script, /apiGet\('\/api\/product-classification-template-usages\/customer-aliases'\)/)
@@ -2625,7 +2628,7 @@ test('global unit dictionary is managed from global settings instead of SKU sett
   const menuSource = fs.readFileSync(new URL('../lib/menu-ia.js', import.meta.url), 'utf8')
 
   for (const expected of [
-    '全局设置',
+    '系统设置',
     '全局单位字典',
     'productUnitDefinitions',
     'saveGlobalUnitDefinition',
@@ -2635,11 +2638,11 @@ test('global unit dictionary is managed from global settings instead of SKU sett
     assert.ok(globalSettings.includes(expected), `missing global unit dictionary marker: ${expected}`)
   }
 
-  assert.match(menuSource, /key:\s*'uiSettings'[\s\S]*label:\s*'全局设置'/)
+  assert.match(menuSource, /key:\s*'uiSettings'[\s\S]*label:\s*'系统设置'/)
   assert.doesNotMatch(globalSettings, />新建单位</)
   assert.doesNotMatch(productTemplate, /<strong>单位字典<\/strong>/)
   assert.doesNotMatch(productTemplate, /@submit\.prevent="saveProductUnitDefinition"/)
-  assert.match(productTemplate, /基础单位在“全局设置”维护/)
+  assert.match(productTemplate, /基础单位在“系统设置”维护/)
 })
 
 test('SKU settings splits product config templates and gradient templates into nested tabs', () => {
@@ -2681,7 +2684,7 @@ test('SKU settings separates global unit templates into a peer configuration tab
     'productUnitTemplates',
     'saveProductUnitTemplate',
     'productConfigTemplateForm.unit_template_id',
-    '基础单位在“全局设置”维护',
+    '基础单位在“系统设置”维护',
     '/api/product-settings/unit-templates',
   ]) {
     assert.ok(source.includes(expected), `missing global unit template marker: ${expected}`)
@@ -2692,7 +2695,8 @@ test('SKU settings separates global unit templates into a peer configuration tab
   assert.doesNotMatch(template, /<strong>单位字典<\/strong>/)
   assert.doesNotMatch(source, /saveProductUnitDefinition/)
 
-  assert.match(menuSource, /key: 'groupManagement', label: '分组管理'/)
+  assert.match(menuSource, /key: 'groupTemplates', label: '分组模板'/)
+  assert.match(menuSource, /groupManagement:\s*'分组模板'/)
   assert.match(menuSource, /key: 'productPriceManagement', label: '商品价格管理'/)
   assert.doesNotMatch(menuSource, /key: 'productCategoryManagement', label: '商品分类管理'/)
   assert.doesNotMatch(menuSource, /label: '商品配置和分类模板'/)
@@ -2897,17 +2901,21 @@ test('product settings uses product business groups instead of product classific
 	    'productCatalogGroupOfProduct',
 	    'data-pr442-product-group-assignments',
 	    '商品档案分组视图',
-	    '目标分组',
-	    '商品分组',
+	    '选择分组模板',
+	    '移动到分类',
 	  ]) {
     assert.ok(source.includes(expected), `missing product business group marker: ${expected}`)
   }
   assert.doesNotMatch(productToolbar, /placeholder="增加分类"/)
   assert.doesNotMatch(productToolbar, /placeholder="移动到分类"/)
-  assert.match(groupManagementWorkspace, /新增大类/)
+  assert.equal(groupManagementWorkspace, '')
+  const settingsSource = fs.readFileSync(new URL('../views/UISettingsView.vue', import.meta.url), 'utf8')
+  assert.match(settingsSource, /data-section-mode="groupTemplates"/)
+  assert.match(settingsSource, /新增大类/)
+  assert.match(settingsSource, /新增小类/)
   assert.match(source, /\/api\/business-group-items/)
   assert.doesNotMatch(source, /商品默认分组/)
-  assert.doesNotMatch(groupManagementWorkspace, /\/api\/product-settings\/categories/)
+  assert.doesNotMatch(settingsSource, /\/api\/product-settings\/categories/)
   assert.doesNotMatch(source, /classification-config-drawer/)
   assert.doesNotMatch(source, /aria-label="分类配置"/)
 })
@@ -2984,14 +2992,15 @@ test('product menus expose direct category, price management and renamed product
   const configWorkspace = source.match(/<div v-show="currentSettingsSection === 'templates'"[\s\S]*?<div v-if="productDrawerOpen"/)?.[0] || ''
 
   for (const expected of [
-    "key: 'groupManagement'",
-    "label: '分组管理'",
+    "key: 'groupTemplates'",
+    "label: '分组模板'",
     "key: 'productPriceManagement'",
     "label: '商品价格管理'",
     "label: '商品价格表'",
   ]) {
     assert.match(menuSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  assert.match(menuSource, /groupManagement:\s*'分组模板'/)
   assert.doesNotMatch(menuSource, /key: 'productCategoryManagement', label: '商品分类管理'/)
   assert.doesNotMatch(menuSource, /label: '商品配置和分类模板'/)
   assert.doesNotMatch(menuSource, /label: '阶梯价模板'/)
