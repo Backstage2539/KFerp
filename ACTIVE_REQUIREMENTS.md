@@ -6,16 +6,39 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-452-PRICING-RULE-TRIAL
+- Branch: codex/pricing-rule-trial-20260608
+- Owner/session: Codex / 2026-06-08
+- Status: in progress
+- Scope: 商品价格管理在每个价格计算模板 / Pricing Rule 行增加 `试算`，选择商品读取当前生产 BOM/工序成本，按模板公式和临时录入口计算试算单价；试算只读，不保存到模板、商品价格表、发布快照或订单。
+- DEV:
+  - DEV-452-PRICING-RULE-TRIAL-API：新增 `POST /api/costing/pricing-rule-trial`，读取 Pricing Rule 和商品成本输入，返回公式步骤、试算单价、BOM/工序成本、警告和只读结果。
+  - DEV-452-PRICING-RULE-TRIAL-UI：商品价格管理模板行增加 `试算`，打开右侧抽屉选择商品、报价单位和临时覆盖项并展示试算结果。
+  - DEV-452-PRICING-RULE-TRIAL-DOCS：同步商品价格管理/产品价格表边界、试算入口、异常处理和验收证据。
+- Verifier:
+  - Unit:
+  - API:
+  - Frontend/build:
+  - Manual:
+  - Review/acceptance:
+- Deployment:
+- Last update: 2026-06-08 Asia/Shanghai
+- Notes: Existing uncommitted row-indent changes in `ProductSettingsView.vue` and `product-settings.test.js` are preserved as separate adjacent work.
+
 ### PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS
 - Branch: codex/product-master-subcategory-headers-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: merged to develop and deployed to development; browser acceptance passed; pending Van product acceptance
-- Scope: Van 浏览器验收反馈。商品档案列表使用 `product_catalog` 业务分组时，父组和子组都要作为分类标题展示；子组标题独立成行、缩进显示，只显示子组名，完整父/子路径作为上下文；`目标分组` 候选支持父组和子组，普通业务标签不显示“商品分组 /”分组集名称前缀，支持把商品移动到具体子类里面。
+- Status: follow-up implemented locally; pending merge, deploy and browser acceptance
+- Scope: Van 浏览器验收反馈。商品档案列表使用 `product_catalog` 业务分组时，父组和子组都要作为分类标题展示；子组标题独立成行、缩进显示，只显示子组名，完整父/子路径作为上下文；商品行跟随所在父组/子组缩进；`目标分组` 候选支持父组和子组，普通业务标签不显示“商品分组 /”分组集名称前缀，支持把商品移动到具体子类里面。
 - DEV:
   - DEV-451-PRODUCT-GROUP-SUBCATEGORY-HEADERS：商品档案分组列表读取分组项层级，父组、子组分别生成分组标题，子组标题用缩进和完整路径 title 表达层级。
   - DEV-451-PRODUCT-GROUP-MOVE-SUBCATEGORY：`目标分组` 下拉列出父组和子组，移动候选显示父组 / 子组路径但不显示分组集名称。
+  - DEV-451-PRODUCT-GROUP-ITEM-INDENT：商品档案商品行使用所在分组 depth 计算缩进，连续商品行都跟随父组/子组缩进，不再只缩进紧跟标题的第一行。
 - Verifier:
   - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because `businessGroupItemMoveOptions(..., { includeGroupName: false })` did not expose child depth/parent metadata and 商品档案分组标题没有子组层级信息。
+  - RED follow-up frontend: `node --test src/lib/product-settings.test.js` failed before implementation because 商品行缺少 `classificationItemIndentStyle(group)`，CSS 仍只靠紧邻分组标题的固定缩进。
+  - GREEN follow-up targeted: `node --test src/lib/product-settings.test.js` passed 124/124.
+  - GREEN follow-up broader: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 137/137; `go test ./internal/interfaces/http/support -run TestDev451ProductMasterSubcategoryHeadersContracts -count=1` passed; `npm run build` in `frontend-vue-shell` passed with existing Vite chunk-size warning; `go test ./...` in `orderapp-remote` passed; `scripts/verify_kferp.sh changed` passed.
   - GREEN targeted: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 137/137; `go test ./internal/interfaces/http/support -run 'TestDev451ProductMasterSubcategoryHeadersContracts|TestDev450BomGroupUsageSelectionContracts' -count=1` passed.
   - GREEN broader: `go test ./internal/interfaces/http/support -count=1` passed; `go test ./...` in `orderapp-remote` passed; `npm run build` in `frontend-vue-shell` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
   - GREEN post-merge: after merging latest `origin/develop=d7f93748`, `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 137/137; targeted support tests passed; `scripts/verify_kferp.sh changed` passed; `npm run build` passed with existing Vite chunk-size warning; `go test ./...` passed; `git diff --check` passed.

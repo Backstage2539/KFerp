@@ -3,12 +3,15 @@
 ## Scope
 - 商品档案列表使用 `product_catalog` 业务分组展示时，父组和子组都作为分类标题。
 - 子组标题独立成行、缩进展示，只显示子组名；完整父/子路径作为标题上下文。
+- 商品行跟随所在父组/子组缩进；同一分组下连续多条商品行都使用该分组深度，不只缩进紧跟标题的第一行。
 - `目标分组` 支持选择父组和子组，移动候选不显示“商品分组 /”分组集名称前缀。
 - 不新增 API、不新增数据库字段，继续复用 `business_group_assignments` 和现有商品移动接口。
 
 ## Local Evidence
 - RED frontend：`node --test src/lib/product-settings.test.js` 在实现前失败，因为 `businessGroupItemMoveOptions(..., { includeGroupName: false })` 缺少子组 depth/parent 元数据，商品档案分组标题没有子组层级信息。
+- RED follow-up frontend：`node --test src/lib/product-settings.test.js` 在商品行缩进修复前失败，因为商品行没有绑定 `classificationItemIndentStyle(group)`，CSS 仍只靠紧邻分组标题的固定缩进。
 - GREEN frontend：`node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed 137/137。
+- GREEN follow-up：`node --test src/lib/product-settings.test.js` passed 124/124；`go test ./internal/interfaces/http/support -run TestDev451ProductMasterSubcategoryHeadersContracts -count=1` passed。
 - Support contract：`go test ./internal/interfaces/http/support -run 'TestDev451ProductMasterSubcategoryHeadersContracts|TestDev450BomGroupUsageSelectionContracts' -count=1` passed。
 - Broader checks：`go test ./internal/interfaces/http/support -count=1`、`go test ./...`、`npm run build`、`scripts/verify_kferp.sh changed`、`git diff --check` passed。Vue build 仅保留既有 chunk-size warning。
 
@@ -16,6 +19,7 @@
 - 打开 development `商品档案`。
 - 有父组商品时，分组标题显示父组名，例如 `商品-咖啡熟豆`。
 - 有子组商品时，分组标题独立显示子组名，例如 `意式拼配豆`，并缩进显示。
+- 子组标题下的商品行继续跟随该子组缩进；父组标题下的商品行跟随父组缩进。
 - 分组标题上下文保留完整路径 `商品-咖啡熟豆 / 意式拼配豆`。
 - `目标分组` 下拉包含父组和子组，可把商品移动到具体子类。
 - 页面普通标签不显示 `商品分组 / 商品-咖啡熟豆 / 意式拼配豆` 这类分组集前缀。

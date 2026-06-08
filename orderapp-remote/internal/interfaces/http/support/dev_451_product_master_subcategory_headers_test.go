@@ -12,6 +12,7 @@ func TestDev451ProductMasterSubcategoryHeadersContracts(t *testing.T) {
 			"PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS",
 			"DEV-451-PRODUCT-GROUP-SUBCATEGORY-HEADERS",
 			"DEV-451-PRODUCT-GROUP-MOVE-SUBCATEGORY",
+			"DEV-451-PRODUCT-GROUP-ITEM-INDENT",
 			"REV-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS",
 		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "product-settings.js"): {
@@ -25,7 +26,10 @@ func TestDev451ProductMasterSubcategoryHeadersContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"classification-subgroup-row",
 			"classificationGroupIndentStyle",
+			"classificationItemIndentStyle",
 			"--classification-group-indent",
+			"--classification-item-indent",
+			"classification-item-row",
 			"path_label",
 			"productBusinessGroupItemOptions",
 			"includeGroupName: false",
@@ -35,19 +39,24 @@ func TestDev451ProductMasterSubcategoryHeadersContracts(t *testing.T) {
 			"depth: 1",
 			"parent: 90",
 			"classification-subgroup-row",
+			"classificationItemIndentStyle",
+			"classification-item-row",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS",
 			"父组和子组都可以成为分类标题",
+			"商品行跟随所在父组/子组缩进",
 			"可把商品移动到具体子类",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS",
 			"子组作为独立分类标题缩进展示",
+			"商品行跟随所在父组/子组缩进",
 			"目标分组可选择父组或子组",
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"父组和子组都可以形成分组标题",
+			"商品行跟随所在父组/子组缩进",
 			"目标分组",
 			"选择子组会把商品移动到该子类",
 			"不显示“商品分组 /”",
@@ -56,6 +65,7 @@ func TestDev451ProductMasterSubcategoryHeadersContracts(t *testing.T) {
 			"PR-451",
 			"商品档案子类分组标题",
 			"商品-咖啡熟豆 / 意式拼配豆",
+			"商品行跟随所在父组/子组缩进",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))

@@ -219,7 +219,9 @@
                 </tr>
                 <template v-if="!isProductClassificationGroupCollapsed(group.key)">
               <template v-for="row in group.rows" :key="`${group.key}-${row.id}`">
-                <tr :class="{ 'inactive-sku': row.active === false, 'sku-highlight': row.id === highlightedSkuId }">
+                <tr
+                  :class="[{ 'inactive-sku': row.active === false, 'sku-highlight': row.id === highlightedSkuId }, 'classification-item-row']"
+                  :style="classificationItemIndentStyle(group)">
                   <td class="select-col">
                     <input type="checkbox" :checked="isProductSelected(row)" :disabled="!canEditSkuRow(row) || row.active === false" @change="toggleProductSelection(row, $event.target.checked)" />
                   </td>
@@ -1951,6 +1953,11 @@ function toggleProductClassificationGroup(key) {
 function classificationGroupIndentStyle(group = {}) {
   const depth = Math.max(Number(group.depth || 0), 0)
   return { '--classification-group-indent': `${16 + depth * 24}px` }
+}
+
+function classificationItemIndentStyle(group = {}) {
+  const depth = Math.max(Number(group.depth || 0), 0)
+  return { '--classification-item-indent': `${18 + depth * 24}px` }
 }
 
 function isAliasClassificationGroupCollapsed(key) {
@@ -6146,8 +6153,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .classification-group-row strong { margin: 0 8px; }
 .classification-group-row small { color: #7c7064; }
 .classification-group-toggle { height: 28px; border: 0; background: transparent; color: #1f4f82; padding: 0 4px; }
-.classification-item-row td:first-child + td,
-.classification-group-row + tr td:first-child + td { padding-left: 18px; }
+.classification-item-row td:first-child + td { padding-left: var(--classification-item-indent, 18px); }
 @media (max-width: 1100px) {
   .custom-product-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .customer-rule-item { grid-template-columns: repeat(2, minmax(0, 1fr)); }

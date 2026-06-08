@@ -10,7 +10,7 @@
 ## 0.0.0 PR-442 商品 / BOM / 仓库库存分组逻辑重构
 - [x] PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION：分组管理维护泛化分组集、分组项树、分组用途、排序和启停；商品管理、生产 BOM、仓库库存不再各自维护独立分类树或专用分组表。
 - [x] 商品档案不再写旧商品分类字段：保存、复制和批量移动商品时不写 `product_category_id`、`classification_template_id` 或旧 classification assignment；列表分组展示来自 `business_group_assignments` 的 `product_catalog` 归组。
-- [x] PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS：商品档案分组标题支持父组/子组层级，子组作为独立分类标题缩进展示；目标分组可选择父组或子组，移动商品到子类后列表在子类标题下显示，普通标签不显示“商品分组 /”分组集名称前缀。
+- [x] PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS：商品档案分组标题支持父组/子组层级，子组作为独立分类标题缩进展示，商品行跟随所在父组/子组缩进；目标分组可选择父组或子组，移动商品到子类后列表在子类标题下显示，普通标签不显示“商品分组 /”分组集名称前缀。
 - [x] 生产 BOM 保存、复制、移动不再写 `production_boms.group_id/group_category_id`；旧 `production_bom_groups` 和 `production_bom_group_categories` 写入口返回下线/只读兼容结果，页面只通过泛化分组归组。
 - [x] PR-450-BOM-GROUP-USAGE-SELECTION：生产 BOM 页面必须先通过 `使用分组` 启用分组管理中的某套分组，`目标分组` 才显示该分组下的分组项；顶部分组 Tab 只显示当前 BOM 列表中实际归组使用过的分组项，没被 BOM 使用的分组项不展示；标签只显示父组 / 子组路径，不带分组集名称前缀，表格不再单独展示“分组”列。
 - [x] 仓库库存按仓库分组过滤：仓库设置把库存分组保存到 `warehouse_inventory` 归组，`/api/stock/warehouses` 返回分组摘要，`/api/stock/warehouse-inventory?group_id=...&group_item_id=...` 只筛选仓库范围，不改变库存行、批次、数量、成本或追溯。
