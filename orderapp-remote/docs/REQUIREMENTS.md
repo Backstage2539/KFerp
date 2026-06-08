@@ -13,11 +13,11 @@
   - 操作审计日志（全量留痕）
 - 凡用户触发的业务写操作，包括新增、修改、删除、提交、导入、发布、作废、调整、转仓、上传和状态变更，都必须写入操作审计日志，并能在操作日志页面按类型、日期或关键字查到。
 - 所有涉及业务列表的 Vue/Vite 页面都必须支持分页展示，至少包含总条数/总页数、当前页、跳转到指定页、每页显示条数；服务端分页接口必须返回 `total`、`total_pages`、`page`、`limit` 等元数据。
-- PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：`分组模板` 是系统级基础资料，入口为 `系统设置 / 分组模板`。模板只维护模板名、大类、小类、排序、启停和备注，不展示对象数量、对象列表、勾选对象或对象移动入口；旧 `groupManagement` 路由保留兼容并跳到系统设置的分组模板区块。商品模块普通菜单不再显示 `分组管理`。
+- PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-455-GROUP-TEMPLATE-DELETE：`分组模板` 是系统级基础资料，入口为 `系统设置 / 分组模板`。模板只维护模板名、大类、小类、排序和备注，不展示对象数量、对象列表、勾选对象或对象移动入口；模板不提供启用/停用，编辑已有模板时可 `删除模板`。删除模板会删除该模板、分类项、用途和对象归类，并写操作日志；旧 `groupManagement` 路由保留兼容并跳到系统设置的分组模板区块。商品模块普通菜单不再显示 `分组管理`。
 - PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品档案、生产 BOM、仓库库存页面必须先选择 `分组模板`，选择后才显示分类 Tab 和 `移动到分类`。移动目标支持 `未分类`、大类和小类，移动直接覆盖该使用场景下的旧归类并写入 `business_group_assignments`。`usage_key` 只表示内部使用场景：`product_catalog`、`production_bom`、`warehouse_inventory`、`price_list`。
 - PR-442-BUSINESS-GROUP-OBJECT-UNIFICATION / PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：`business_groups / business_group_items` 继续作为分组模板和分类项，`business_group_assignments` 作为对象归类关系；不新增第三套表。用户触发的归类新增、修改、移除都必须写操作日志。
 - PR-451-PRODUCT-MASTER-SUBCATEGORY-HEADERS / PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品档案按所选商品分组模板展示分类结果；父组和子组都可以成为分类标题，子组标题缩进显示，标题只显示子组名，完整父/子路径作为上下文；商品行跟随所在父组/子组缩进。`移动到分类` 下拉必须列出大类和小类，可把商品移动到具体小类，普通标签不带模板名称前缀。
-- PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：生产 BOM 取消 `使用分组`；所有启用分组模板都可直接选择。生产 BOM 保存、复制、移动只写 `business_group_assignments`，不得再写 `production_boms.group_id/group_category_id`；`production_bom_groups` 和 `production_bom_group_categories` 普通写 API 下线为只读兼容。顶部分组 Tab 只展示当前所选模板下当前 BOM 列表实际归组使用过的分类项，表格不得再单独展示“分组”列。
+- PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-455-GROUP-TEMPLATE-DELETE：生产 BOM 取消 `使用分组`；所有可用分组模板都可直接选择。生产 BOM 保存、复制、移动只写 `business_group_assignments`，不得再写 `production_boms.group_id/group_category_id`；`production_bom_groups` 和 `production_bom_group_categories` 普通写 API 下线为只读兼容。顶部分组 Tab 只展示当前所选模板下当前 BOM 列表实际归组使用过的分类项，表格不得再单独展示“分组”列。
 - PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：仓库库存分组对象是仓库，不是库存批次、库存行、商品或物料。仓库库存页选择 `库存分组模板` 后显示分类筛选；仓库设置抽屉先选择模板再 `移动到分类`，对象引用使用仓库 code，不改变库存数量、批次、成本或追溯。
 - PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品价格表按所选商品分组模板生成选品分类和发布快照；客户/价格表生成时如覆盖分组，只固化到该价格表版本快照，记录 `group_id/group_item_id/parent_group_item_id/group_source`，不得回写商品档案分类。
 - PR-440-PRODUCT-GROUP-PRICE-REMODEL / PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品档案是 Item；系统不再有独立客户商品主数据，新业务只使用商品档案 `product_id`。客户差异维护在商品档案的客户引用子表，用于客户料号、客户显示名、打印和搜索，不参与价格、单位、BOM、库存或分类。

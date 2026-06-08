@@ -8,10 +8,11 @@
 - [ ] 其他一次性加载的 Vue/Vite 表格列表由统一自动分页增强补齐同样的分页控件，不再各页面重复实现自定义 pager。
 
 ## 0.0.0 PR-453 商品 / BOM / 仓库库存分组模板统一
-- [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：系统设置出现 `分组模板` 区块；模板只维护模板名、大类、小类、排序、启停和备注，不展示对象列表、对象勾选、对象数量或 `移动到分类`。
+- [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-455-GROUP-TEMPLATE-DELETE：系统设置出现 `分组模板` 区块；模板只维护模板名、大类、小类、排序和备注，不展示对象列表、对象勾选、对象数量或 `移动到分类`；模板表单不出现启用/停用，编辑已有模板时出现 `删除模板`。
+- [ ] PR-455-GROUP-TEMPLATE-DELETE：点击 `删除模板` 会删除模板、该模板下大类/小类、用途和对象归类并写操作日志；删除后商品档案、生产 BOM、仓库库存和商品价格表不再能选择该模板。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品模块普通菜单不显示 `分组管理`；旧 `groupManagement` 路由仍能兼容打开系统设置的分组模板区块。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品档案、生产 BOM、仓库库存页面先选择 `分组模板`，选择后才显示分类 Tab 和 `移动到分类`；移动目标支持 `未分类`、大类、小类，保存覆盖旧归类并写操作日志。
-- [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：生产 BOM 页面不出现 `使用分组`；所有启用分组模板都可直接选择，顶部分组 Tab 只展示当前模板下已被当前 BOM 列表实际使用的分类项。
+- [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS / PR-455-GROUP-TEMPLATE-DELETE：生产 BOM 页面不出现 `使用分组`；所有可用分组模板都可直接选择，顶部分组 Tab 只展示当前模板下已被当前 BOM 列表实际使用的分类项。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：仓库库存按 `库存分组模板` 组织仓库；仓库设置抽屉先选模板再移动到分类，归类对象是仓库 code，不改变库存数量、批次、成本或追溯。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品价格表按所选商品分组模板生成选品分类和发布快照；价格表覆盖只写入快照，不回写商品档案分类。
 

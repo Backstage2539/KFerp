@@ -252,6 +252,11 @@ func seedReqWorkflowA(ctx context.Context, pool *pgxpool.Pool, schema string) er
 		}
 	}
 	for _, row := range []reqSeedRow{
+		{table: "req_product", code: "PR-455-GROUP-TEMPLATE-DELETE", title: "分组模板删除：系统设置不提供模板启停，编辑模板时可删除模板并清理分类和对象归类", status: "review", assignee: "VA", evidence: "ACTIVE_REQUIREMENTS.md; UISettingsView.vue; product_routes.go; repository.go; docs/acceptance/2026-06-08-group-template-delete.md"},
+		{table: "req_dev", code: "DEV-455-GROUP-TEMPLATE-DELETE-UI", title: "系统设置分组模板表单移除模板启用勾选和启停状态展示，编辑已有模板时提供删除模板按钮", status: "done", assignee: "Codex", evidence: "UISettingsView.vue; materials-ui.test.js"},
+		{table: "req_dev", code: "DEV-455-GROUP-TEMPLATE-DELETE-API", title: "新增 DELETE /api/business-groups/:id，物理删除模板、分类项、用途和对象归类并写操作日志", status: "done", assignee: "Codex", evidence: "product_routes.go; service.go; repository.go; product_settings_api_test.go"},
+		{table: "req_dev", code: "DEV-455-GROUP-TEMPLATE-DELETE-DOCS", title: "同步需求、验收清单和操作手册，明确分组模板删除不是停用", status: "done", assignee: "Codex", evidence: "docs/REQUIREMENTS.md; docs/ACCEPTANCE_TESTS.md; docs/OP_MANUAL_INVENTORY_MATERIALS.md; docs/acceptance/2026-06-08-group-template-delete.md"},
+		{table: "req_review", code: "REV-455-GROUP-TEMPLATE-DELETE", prCode: "PR-455-GROUP-TEMPLATE-DELETE", title: "验收：系统设置分组模板只能保存或删除，不出现模板启停；删除后模板不可再选择", status: "todo", assignee: "VA", evidence: "docs/acceptance/2026-06-08-group-template-delete.md"},
 		{table: "req_product", code: "PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS", title: "分组模板移入系统设置：模板只维护大类小类，商品/BOM/仓库先选模板再移动到分类", status: "review", assignee: "VA", evidence: "ACTIVE_REQUIREMENTS.md; UISettingsView.vue; ProductSettingsView.vue; BomView.vue; WarehouseInventoryView.vue; docs/acceptance/2026-06-08-group-template-system-settings.md"},
 		{table: "req_dev", code: "DEV-453-GROUP-TEMPLATE-SETTINGS-UI", title: "系统设置增加分组模板区块，模板只维护模板名、大类、小类；商品模块移除普通分组管理入口并保留兼容路由", status: "done", assignee: "Codex", evidence: "menu-ia.js; App.vue; UISettingsView.vue; menu-ia.test.js"},
 		{table: "req_dev", code: "DEV-453-GROUP-TEMPLATE-CONSUMER-PAGES", title: "商品档案、生产 BOM、仓库库存先选择分组模板，再显示分类 Tab 和移动到分类", status: "done", assignee: "Codex", evidence: "ProductSettingsView.vue; BomView.vue; WarehouseInventoryView.vue; product-settings.test.js; bom.test.js; materials-ui.test.js"},
