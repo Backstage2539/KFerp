@@ -6,10 +6,32 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-460-PRICE-LIST-PICKER-TREE-PRICING-POPOVER
+- Branch: codex/price-list-picker-tree-pricing-popover-20260608
+- Owner/session: Codex / 2026-06-08
+- Status: implemented and verified on feature branch; Van explicitly requested no merge and no deployment
+- Scope: 商品价格表“选择分类和产品”改成清晰树形选品，父类、子类、商品逐级缩进；分类支持收缩/展开且只影响当前前端显示。分类和商品 `计价` 摘要改为按钮附近轻量菜单，四项为 `继承分类`、`按阶梯模板价计算`、`按价格模板计算`、`固定价`；商品 `展示` 仍走原展示弹窗。分类计价写入按目标层级拆分：父类按钮写父类选择，子类按钮写子类选择，商品按钮写商品覆盖；发布解析仍为 `商品 > 子类 > 父类 > 价格表`。
+- DEV:
+  - DEV-460-PRICE-LIST-PICKER-TREE：选品区按商品分组模板深度渲染父类/子类/商品缩进，分类标题增加收缩/展开按钮并保留选中数。
+  - DEV-460-PRICE-LIST-PRICING-POPOVER：分类/商品计价摘要打开按钮附近 popover，支持继承、阶梯模板、价格模板和固定价，并移除右下角计价弹窗。
+  - DEV-460-PRICE-LIST-CATEGORY-TARGET：新增分类计价目标 helper，父类、子类和商品覆盖分别写入对应 map，保持发布快照输入语义。
+  - DEV-460-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和验收记录。
+- Verifier:
+  - RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed before implementation because tree indentation/collapse, anchored pricing popover and category target helper markers were missing.
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev460 -count=1` failed before implementation because PR-460 seeds/docs were missing.
+  - GREEN frontend targeted: `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js src/lib/product-settings.test.js` passed 163/163.
+  - GREEN support/contracts: `go test ./internal/interfaces/http/support -run TestDev460 -count=1`; `go test ./internal/interfaces/http/support -run 'TestDev(449|460)' -count=1` passed.
+  - GREEN build/check: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning; `git diff --check` passed.
+  - Browser: local Vite served at `http://127.0.0.1:5196/vue-shell/`; bundled Playwright initially lacked browser binary, then used `/Applications/Google Chrome.app`. Mocked local API page did not render `.product-picker-category` within timeout, so no browser acceptance is claimed. Development ERP browser acceptance remains pending because this PR is not deployed.
+- Deployment:
+  - Not requested. Do not merge to develop and do not deploy for this PR unless Van asks later.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-price-list-picker-tree-pricing-popover.md`.
+- Last update: 2026-06-08 Asia/Shanghai
+
 ### PR-459-PRICE-LIST-FOLLOW-PRODUCT-GROUP
 - Branch: codex/price-list-follow-product-group-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: implementation complete on feature branch; merge/deploy requested and in progress
+- Status: merged to develop and deployed to development; automated verification, smoke and deployment marker checks passed
 - Scope: 商品档案选择的 `商品分组` 必须同步影响商品价格表。商品价格表进入时优先读取商品档案页面草稿中的 `selectedProductGroupTemplateID`，再按该分组模板加载 `product_catalog/product` 归类，使用共享 `business-grouping` 生成选品分类、空分类和 `未分类`；平铺价格行快照使用 `group_source=product_catalog`。价格表覆盖分组仍只写入价格表版本快照，不回写商品档案归类。
 - DEV:
   - DEV-459-PRICE-LIST-PRODUCT-GROUP-LOAD：商品价格表读取 `business_groups` 和 `business_group_assignments?usage_key=product_catalog&object_key=product`，用 `groupRowsByBusinessGroupTemplate` 组织商品选品分类。
@@ -21,7 +43,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN broader pre-merge: `go test ./internal/interfaces/http/support -run 'TestDev45(3|5|8|9)' -count=1`; `go test ./...`; `scripts/verify_kferp.sh changed` passed. Vue build passed with existing Vite chunk-size warning.
   - Local Browser: Vite opened `http://127.0.0.1:5173/vue-shell/?view=costing` but local auth/backend redirected to `/login`; no local browser business acceptance was claimed. Deploy acceptance must verify on HTTPS development ERP.
 - Deployment:
-  - Pending merge to `develop`, push, development deploy, smoke and browser acceptance.
+  - GREEN merge/deploy: feature commit `40c023adaab60100fa04d37f6571bb5eb0a892af` fast-forward merged to `develop`, pushed to `origin/develop`, and deployed to development.
+  - GREEN deploy evidence: backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608202931`; deploy ran Vue shell build, miniapp typecheck/build, Docker build and container-internal `go test ./...`.
+  - GREEN smoke/markers: `erp_orderapp` up and `erp_postgres` healthy; `/app/` returned 303; authenticated `/app/vue-shell/?view=costing&pr459=1` returned 200; requirement API exposed `PR-459-PRICE-LIST-FOLLOW-PRODUCT-GROUP`; deployed source/docs contained `selectedProductCatalogGroupTemplate` and `business-group-unclassified`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-08-price-list-follow-product-group.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
