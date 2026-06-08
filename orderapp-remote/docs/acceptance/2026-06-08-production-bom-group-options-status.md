@@ -30,5 +30,17 @@
 
 ## Pending
 
-- Broader verification、merge to `develop`、development deployment。
-- 浏览器验收：生产 BOM 目标分组下拉可看到用户分组；商品档案配置抽屉展示 `BOM状态`。
+- Van product acceptance。
+
+## Deployment
+
+- Feature branch pushed and merged to `develop`。
+- `origin/develop=49ca2224c7ae4d166e3573a050f1455c7578a1cf` deployed to development.
+- Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260608112250`。
+- Deploy script evidence: Vue shell build passed, miniapp typecheck/build and `build:mp-weixin` passed, Docker build ran container-internal `go test ./...` and restarted `erp_orderapp`。
+
+## Browser Acceptance
+
+- 生产 BOM：目标分组选项包含 `商品分组 / 商品-咖啡熟豆`、`商品分组 / BOM-咖啡熟豆`、`商品分组 / BOM1`，不再只有 `未分组`。Screenshot: `/tmp/pr448-bom-target-group.png`。
+- 商品档案：打开 `SKU-000539` 商品档案配置抽屉，`被哪些 BOM 使用` 区展示 `BOM状态：默认状态`。Screenshot: `/tmp/pr448-product-bom-status.png`。
+- Browser console errors: 0。
