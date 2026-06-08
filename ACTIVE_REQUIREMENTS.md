@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-458-GROUP-TEMPLATE-BUSINESS-LISTING
 - Branch: codex/group-template-business-listing-20260608
 - Owner/session: Codex / 2026-06-08
-- Status: merged with latest `origin/develop` in progress; implementation/docs/support/build/go verification passed before merge; post-merge verification, browser acceptance and development deploy pending
+- Status: feature branch verified after merging latest `origin/develop`; development merge/deploy and live browser acceptance pending
 - Scope: 分组模板驱动业务列表整理。商品档案、生产 BOM、仓库库存统一选择 `分组模板` 后，业务列表按该模板完整大类/小类树自动整理展示，空大类/小类也显示，未归类对象进入 `未分类`；三处业务页共用 `BusinessGroupControls` 和 `business-grouping` helper，通过同一套 `移动到分类` 写 `business_group_assignments`。删除商品/BOM 分类过滤 Tab，删除商品列表 `分类` 列；仓库库存删除 `普通仓库` / `客户仓库` 固定分段，仓库按模板作为可归类对象展示。
 - DEV:
   - DEV-458-GROUPING-HELPER-CONTROL：抽出 `business-grouping` helper 和 `BusinessGroupControls`，统一模板选项、移动分类选项、完整分类树、未分类分组、缩进样式和移动 payload。
@@ -23,7 +23,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN support/API contracts: `go test ./internal/interfaces/http/support -run 'TestDev45(3|5|6|7|8)' -count=1` passed; `go test ./internal/interfaces/http/support -count=1` passed before merging latest `origin/develop`.
   - GREEN build/backend pre-merge: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning; `go test ./...` in `orderapp-remote` passed; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
   - Local Browser: mocked Vue shell URL `http://127.0.0.1:5197/vue-shell` was blocked by Browser Use URL policy, so browser acceptance must run against deployed HTTPS development ERP after deploy.
-  - Pending: post-merge targeted/frontend/build/backend verification, browser acceptance and development deploy.
+  - GREEN post-merge frontend/support: `node --test src/lib/business-grouping.test.js src/lib/product-settings.test.js src/lib/bom.test.js src/lib/materials-ui.test.js` passed 151/151 in `orderapp-remote/frontend-vue-shell`; `go test ./internal/interfaces/http/support -run 'TestDev45(3|5|6|7|8)' -count=1` passed; `go test ./internal/interfaces/http/support -count=1` passed.
+  - GREEN post-merge build/backend: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size warning; `go test ./...` in `orderapp-remote` passed; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+  - Pending: development merge/deploy and deployed HTTPS browser acceptance.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-08-group-template-business-listing.md`.
 - Last update: 2026-06-08 Asia/Shanghai
 
