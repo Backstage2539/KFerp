@@ -35,11 +35,11 @@ func TestDev376ProductConfigSpecialKVSourceMarkers(t *testing.T) {
 			"/api/product-production-configs",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
-			"productPriceListPreviewSections",
+			"price-list-page-config",
 			"attributeLines",
 			"itemProductAttributeLines",
 			"bean-attrs",
-			"v-for=\"section in productPriceListPreviewSections\"",
+			"product-picker-row",
 		},
 		filepath.Join("internal", "application", "catalog", "service.go"): {
 			"SpecialAttrsSchemaJSON",

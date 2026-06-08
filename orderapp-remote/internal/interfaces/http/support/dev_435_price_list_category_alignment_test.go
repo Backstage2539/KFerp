@@ -31,7 +31,7 @@ func TestDev435PriceListCategoryAlignmentWiringAndDocs(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"buildClassificationPriceListTypeOptionsFromItems",
-			"priceListRenderTypeForItem(item) === 'green'",
+			"greenTierPriceRows(item)",
 			"metaKeyForItem(item)",
 			"Price List / Item Price",
 			"商品 &gt; 子类 &gt; 父类 &gt; 价格表",

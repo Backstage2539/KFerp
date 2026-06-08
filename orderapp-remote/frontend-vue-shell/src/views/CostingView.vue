@@ -150,15 +150,369 @@
         </div>
         <div class="generate-actions">
           <button class="secondary" type="button" @click="openTierTemplateDrawer()">管理阶梯模板</button>
-          <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">生成价格表</button>
+          <button class="secondary" type="button" @click="priceListRulesDialogOpen = true">计价模式规则</button>
+          <button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">价格表配置</button>
         </div>
       </div>
-      <div class="price-list-model-panel" data-pr440-price-list-model data-pr442-price-list-group-source>
-        <div>
-          <strong>模板继承规则</strong>
-          <p>计价模式按 <b>商品 &gt; 子类 &gt; 父类 &gt; 价格表</b> 解析。生成价格表默认使用商品档案分组；本次价格表覆盖只写入快照 group_source=price_list，不回写商品档案分组。</p>
+    </section>
+
+    <section class="panel price-list-page-config">
+      <div class="pdf-picker price-list-template-builder" data-pr440-price-list-model>
+        <div class="picker-head">
+          <strong>Price List / Item Price 生成规则</strong>
+          <span class="muted">商品 &gt; 子类 &gt; 父类 &gt; 价格表</span>
         </div>
-        <table>
+        <div class="template-default-grid">
+          <label>
+            <span>价格表计价模式</span>
+            <select :value="priceListTemplateDefaults.pricing_mode" @change="setPriceListDefaultTemplate('pricing_mode', $event.target.value)">
+              <option v-for="mode in priceTablePricingModeOptions" :key="`default-mode-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
+            </select>
+          </label>
+          <label v-if="priceListTemplateDefaults.pricing_mode === 'tier_template'">
+            <span>价格表阶梯模板</span>
+            <select :value="priceListTemplateDefaults.tier_template_id" @change="setPriceListDefaultTemplate('tier_template_id', $event.target.value)">
+              <option :value="0">请选择阶梯模板</option>
+              <option v-for="template in priceTierTemplates" :key="`default-tier-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
+            </select>
+          </label>
+          <label v-else-if="priceListTemplateDefaults.pricing_mode === 'pricing_rule'">
+            <span>价格表价格计算模板</span>
+            <select :value="priceListTemplateDefaults.pricing_rule_id" @change="setPriceListDefaultTemplate('pricing_rule_id', $event.target.value)">
+              <option :value="0">请选择价格计算模板</option>
+              <option v-for="rule in pricingRules" :key="`default-rule-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
+            </select>
+          </label>
+          <label v-else>
+            <span>价格表固定价</span>
+            <input type="number" min="0" step="0.01" :value="priceListTemplateDefaults.fixed_unit_price" @input="setPriceListDefaultTemplate('fixed_unit_price', $event.target.value)" />
+          </label>
+        </div>
+        <p class="muted inline-pricing-config-note">分类和单品计价直接在下方选品位置处理，发布时仍按 商品 &gt; 子类 &gt; 父类 &gt; 价格表 解析。</p>
+      </div>
+
+      <div class="pdf-picker productSelection">
+        <div class="picker-head">
+          <strong>选择分类和产品</strong>
+          <span class="muted">{{ pdfSelectedProductIDs.length }}/{{ pdfAvailableItems.length }} 款</span>
+          <div class="picker-actions">
+            <button class="secondary compact" type="button" @click="setAllPdfProducts(true)">全选</button>
+            <button class="secondary compact" type="button" @click="setAllPdfProducts(false)">清空</button>
+          </div>
+        </div>
+        <div class="product-picker-list categoryProductGroups">
+          <section v-for="category in categoryProductGroups" :key="`pick-cat-${category.code}`" class="product-picker-category">
+            <div class="product-picker-category-head">
+              <label class="check-line">
+                <input type="checkbox" :checked="isPdfCategorySelected(category.code)" @change="togglePdfCategoryProducts(category.code, $event.target.checked)" />
+                <span>{{ category.label }}</span>
+              </label>
+              <span class="muted">{{ selectedCountForCategory(category.code) }}/{{ category.items.length }} 款</span>
+              <div class="category-pricing-summary">
+                <button
+                  type="button"
+                  :class="['price-list-summary-button', { active: isPriceListCategoryPricingDialogOpen(category), overridden: priceListCategoryPricingHasOverride(category) }]"
+                  @click.stop="openPriceListCategoryPricingDialog(category)"
+                >
+                  <span>计价</span>
+                  <strong>{{ priceListCategoryPricingSummary(category) }}</strong>
+                  <small v-if="priceListCategoryPricingHasOverride(category)">已覆盖</small>
+                </button>
+              </div>
+            </div>
+            <article v-for="row in category.items" :key="`pick-${itemProductID(row)}`" class="product-picker-row">
+              <div class="product-picker-row-head">
+                <label class="check-line">
+                  <input type="checkbox" :checked="isPdfProductSelected(itemProductID(row))" @change="togglePdfProduct(itemProductID(row), $event.target.checked)" />
+                  <span>{{ beanMeta(row, metaKeyForListType(pdfTheme.listType)).code }} {{ beanName(row, metaKeyForListType(pdfTheme.listType)) }}</span>
+                </label>
+                <div v-if="isPdfProductSelected(itemProductID(row))" class="product-compact-status">
+                  <button
+                    type="button"
+                    :class="['price-list-summary-button', { active: isPriceListProductPricingDialogOpen(priceListProductRowForItem(row)), overridden: priceListProductPricingHasOverride(priceListProductRowForItem(row)) }]"
+                    @click.stop="openPriceListProductPricingDialog(priceListProductRowForItem(row))"
+                  >
+                    <span>计价</span>
+                    <strong>{{ priceListProductPricingSummary(priceListProductRowForItem(row)) }}</strong>
+                    <small v-if="priceListProductPricingHasOverride(priceListProductRowForItem(row))">已覆盖</small>
+                  </button>
+                  <button
+                    type="button"
+                    :class="['price-list-summary-button', { active: isPriceListProductDisplayDialogOpen(itemProductID(row)), overridden: priceListProductDisplayHasOverride(itemProductID(row)) }]"
+                    @click.stop="openPriceListProductDisplayDialog(itemProductID(row))"
+                  >
+                    <span>展示</span>
+                    <strong>{{ priceListProductDisplaySummary(itemProductID(row)) }}</strong>
+                    <small v-if="priceListProductDisplayHasOverride(itemProductID(row))">已设置</small>
+                  </button>
+                </div>
+              </div>
+              <div v-if="pdfTheme.listType === 'green' && greenTierPriceRows(row).length" class="green-tier-price-editor">
+                <label v-for="tier in greenTierPriceRows(row)" :key="`green-price-${itemProductID(row)}-${greenTierOverrideKey(tier)}`">
+                  <span>{{ tier.label }}</span>
+                  <input type="number" min="0" step="0.01" :value="greenTierPriceValue(itemProductID(row), tier)" @input="setGreenBeanTierPrice(itemProductID(row), tier, $event.target.value)" />
+                  <small>/{{ greenTierPriceUnit(tier) }}</small>
+                </label>
+              </div>
+            </article>
+          </section>
+        </div>
+      </div>
+
+      <div v-if="priceListConfigDialog.open" class="price-list-config-dialog-backdrop" @click.self="closePriceListConfigDialog">
+        <section class="price-list-config-dialog" role="dialog" aria-modal="true">
+          <div class="price-list-config-dialog-head">
+            <strong>{{ priceListConfigDialogTitle }}</strong>
+            <button type="button" class="secondary compact" @click="closePriceListConfigDialog">关闭</button>
+          </div>
+          <template v-if="priceListConfigDialog.type === 'category-pricing'">
+            <p class="muted">{{ priceListConfigDialog.group?.group_item_name || '当前分类' }}</p>
+            <label class="inline-price-config">
+              <span>上级分类计价</span>
+              <div class="inline-price-config-controls">
+                <select :value="priceListParentTemplateSelection(priceListConfigDialog.group).pricing_mode" @change="setPriceListParentTemplate(priceListConfigDialog.group, 'pricing_mode', $event.target.value)">
+                  <option value="">继承价格表</option>
+                  <option v-for="mode in priceTablePricingModeOptions" :key="`dialog-parent-mode-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
+                </select>
+                <template v-if="priceListParentTemplateSelection(priceListConfigDialog.group).pricing_mode === 'tier_template'">
+                  <select :value="priceListParentTemplateSelection(priceListConfigDialog.group).tier_template_id" @change="setPriceListParentTemplate(priceListConfigDialog.group, 'tier_template_id', $event.target.value)">
+                    <option :value="0">继承价格表阶梯</option>
+                    <option v-for="template in priceTierTemplates" :key="`dialog-parent-tier-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
+                  </select>
+                </template>
+                <template v-else-if="priceListParentTemplateSelection(priceListConfigDialog.group).pricing_mode === 'pricing_rule'">
+                  <select :value="priceListParentTemplateSelection(priceListConfigDialog.group).pricing_rule_id" @change="setPriceListParentTemplate(priceListConfigDialog.group, 'pricing_rule_id', $event.target.value)">
+                    <option :value="0">继承价格表计算</option>
+                    <option v-for="rule in pricingRules" :key="`dialog-parent-rule-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
+                  </select>
+                </template>
+                <input v-else-if="priceListParentTemplateSelection(priceListConfigDialog.group).pricing_mode === 'fixed_price'" type="number" min="0" step="0.01" :value="priceListParentTemplateSelection(priceListConfigDialog.group).fixed_unit_price" placeholder="固定价" @input="setPriceListParentTemplate(priceListConfigDialog.group, 'fixed_unit_price', $event.target.value)" />
+              </div>
+            </label>
+            <label class="inline-price-config">
+              <span>本分类计价</span>
+              <div class="inline-price-config-controls">
+                <select :value="priceListGroupTemplateSelection(priceListConfigDialog.group).pricing_mode" @change="setPriceListGroupTemplate(priceListConfigDialog.group, 'pricing_mode', $event.target.value)">
+                  <option value="">继承分类</option>
+                  <option v-for="mode in priceTablePricingModeOptions" :key="`dialog-group-mode-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
+                </select>
+                <template v-if="priceListGroupTemplateSelection(priceListConfigDialog.group).pricing_mode === 'tier_template'">
+                  <select :value="priceListGroupTemplateSelection(priceListConfigDialog.group).tier_template_id" @change="setPriceListGroupTemplate(priceListConfigDialog.group, 'tier_template_id', $event.target.value)">
+                    <option :value="0">继承分类阶梯</option>
+                    <option v-for="template in priceTierTemplates" :key="`dialog-group-tier-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
+                  </select>
+                </template>
+                <template v-else-if="priceListGroupTemplateSelection(priceListConfigDialog.group).pricing_mode === 'pricing_rule'">
+                  <select :value="priceListGroupTemplateSelection(priceListConfigDialog.group).pricing_rule_id" @change="setPriceListGroupTemplate(priceListConfigDialog.group, 'pricing_rule_id', $event.target.value)">
+                    <option :value="0">继承分类计算</option>
+                    <option v-for="rule in pricingRules" :key="`dialog-group-rule-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
+                  </select>
+                </template>
+                <input v-else-if="priceListGroupTemplateSelection(priceListConfigDialog.group).pricing_mode === 'fixed_price'" type="number" min="0" step="0.01" :value="priceListGroupTemplateSelection(priceListConfigDialog.group).fixed_unit_price" placeholder="固定价" @input="setPriceListGroupTemplate(priceListConfigDialog.group, 'fixed_unit_price', $event.target.value)" />
+              </div>
+            </label>
+          </template>
+          <template v-else-if="priceListConfigDialog.type === 'product-pricing'">
+            <p class="muted">{{ priceListConfigDialog.productRow?.product_name || '当前商品' }}</p>
+            <label class="inline-price-config">
+              <span>商品计价</span>
+              <div class="inline-price-config-controls">
+                <select :value="priceListProductTemplateOverride(priceListConfigDialog.productRow).pricing_mode" @change="setPriceListProductTemplate(priceListConfigDialog.productRow, 'pricing_mode', $event.target.value)">
+                  <option value="">继承分类</option>
+                  <option v-for="mode in priceTablePricingModeOptions" :key="`dialog-product-mode-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
+                </select>
+                <template v-if="priceListProductTemplateOverride(priceListConfigDialog.productRow).pricing_mode === 'tier_template'">
+                  <select :value="priceListProductTemplateOverride(priceListConfigDialog.productRow).tier_template_id" @change="setPriceListProductTemplate(priceListConfigDialog.productRow, 'tier_template_id', $event.target.value)">
+                    <option :value="0">继承分类阶梯</option>
+                    <option v-for="template in priceTierTemplates" :key="`dialog-product-tier-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
+                  </select>
+                </template>
+                <template v-else-if="priceListProductTemplateOverride(priceListConfigDialog.productRow).pricing_mode === 'pricing_rule'">
+                  <select :value="priceListProductTemplateOverride(priceListConfigDialog.productRow).pricing_rule_id" @change="setPriceListProductTemplate(priceListConfigDialog.productRow, 'pricing_rule_id', $event.target.value)">
+                    <option :value="0">继承分类计算</option>
+                    <option v-for="rule in pricingRules" :key="`dialog-product-rule-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
+                  </select>
+                </template>
+                <input v-else-if="priceListProductTemplateOverride(priceListConfigDialog.productRow).pricing_mode === 'fixed_price'" type="number" min="0" step="0.01" :value="priceListProductTemplateOverride(priceListConfigDialog.productRow).fixed_unit_price" placeholder="固定价" @input="setPriceListProductTemplate(priceListConfigDialog.productRow, 'fixed_unit_price', $event.target.value)" />
+              </div>
+            </label>
+          </template>
+          <template v-else-if="priceListConfigDialog.type === 'product-display'">
+            <p class="muted">商品展示</p>
+            <div class="customizer-row">
+              <select :value="customizerField(priceListConfigDialog.productId, 'badge')" @change="setCustomizerField(priceListConfigDialog.productId, 'badge', $event.target.value)">
+                <option value="">无标签</option>
+                <option value="new">NEW 上新</option>
+                <option value="thumb">推荐</option>
+                <option value="medal">推荐</option>
+              </select>
+              <input :value="customizerField(priceListConfigDialog.productId, 'highlightTerms')" placeholder="标红词，用逗号分隔" @input="setCustomizerField(priceListConfigDialog.productId, 'highlightTerms', $event.target.value)" />
+            </div>
+          </template>
+        </section>
+      </div>
+
+      <div v-if="priceListFlatRows.length" class="pdf-picker flat-price-row-editor">
+        <div class="picker-head">
+          <strong>平铺价格行</strong>
+          <span class="muted">{{ priceListFlatRows.length }} 行，发布快照固化分组、模板来源、Pricing Rule 版本、成本来源和客户引用</span>
+        </div>
+        <div class="flat-price-table" v-if="priceListFlatRows.length">
+          <div class="flat-price-head">
+            <span>商品 / 档位</span>
+            <span>计价来源</span>
+            <span>最终价</span>
+            <span>快照</span>
+          </div>
+          <div v-for="row in priceListFlatRows" :key="row.row_key" class="flat-price-row">
+            <div>
+              <strong>{{ row.product_name }}</strong>
+              <span>{{ row.group_snapshot.group_item_name || '-' }} · {{ row.tier_label || '-' }} · {{ row.group_source === 'price_list' ? '价格表覆盖' : '商品档案分组' }}</span>
+            </div>
+            <div>
+              <span>{{ priceTablePricingModeLabel(row.pricing_mode) }}：{{ priceListSourceLabel(row.pricing_mode_source) }}</span>
+              <span v-if="row.tier_template_id">阶梯模板：{{ priceListSourceLabel(row.tier_template_source) }}</span>
+              <span v-if="row.pricing_rule_id">计算模板：{{ priceListSourceLabel(row.pricing_rule_source) }}</span>
+            </div>
+            <label>
+              <input type="number" min="0" step="0.01" :value="row.final_unit_price" @input="setPriceListFlatRowPrice(row, $event.target.value)" />
+              <small>/{{ row.price_unit || '-' }}</small>
+            </label>
+            <div>
+              <span>{{ row.pricing_rule_version || (row.pricing_mode === 'fixed_price' ? '固定价' : '未选择 Pricing Rule') }}</span>
+              <span :class="{ adjusted: row.manual_adjusted }">{{ row.manual_adjusted ? '人工调整' : '自动计算' }}</span>
+            </div>
+          </div>
+        </div>
+        <p v-if="priceListFlatRows.length && !priceListFlatRowsReady" class="muted">发布前需要为每行补齐计价模式、对应模板或固定价，并保证价格单位到库存单位换算可追溯。</p>
+      </div>
+
+      <div class="pdf-preview-title">
+        <strong>预览</strong>
+        <span>{{ pdfTotalItems }} 款</span>
+        <div class="pdf-actions">
+          <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList()">撤回发布</button>
+          <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady || !priceListFlatRowsReady" @click="publishBeanList">发布价格表</button>
+          <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
+          <button class="secondary" type="button" :disabled="beanListPdfGenerating || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
+        </div>
+      </div>
+      <div class="pdf-preview-phone bean-list-pdf-surface" :style="pdfPageStyle">
+        <header class="pdf-cover">
+          <div>
+            <img v-if="pdfTheme.logoImage" class="pdf-logo" :src="pdfTheme.logoImage" alt="logo" />
+            <p v-if="pdfTheme.showVersion" class="pdf-version">{{ pdfTheme.version }}</p>
+            <h1>{{ pdfTitle }}</h1>
+            <p>{{ pdfSubtitle }}</p>
+            <p v-if="pdfTheme.brandIntro" class="pdf-brand-intro">{{ pdfTheme.brandIntro }}</p>
+          </div>
+          <div class="pdf-badge">{{ selectedProductPriceListLabel }}</div>
+        </header>
+
+        <section v-for="group in pdfGroups" :key="`preview-${group.category}`" class="pdf-group">
+          <h2 v-if="group.showCategory && pdfOptions.showCategoryNumbers">{{ group.category }}</h2>
+
+          <table v-if="pdfTheme.layoutStyle === 'table'" class="pdf-compact-table">
+            <tbody>
+              <tr v-for="item in group.items" :key="`preview-table-${group.category}-${item.code}`">
+                <td class="pdf-code-cell">{{ item.code }}</td>
+                <td>
+                  <div class="pdf-table-name">
+                    <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`pn-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                    <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
+                  </div>
+                  <div v-if="item.flavor" class="pdf-table-line">
+                    <span v-for="(part, idx) in highlightedParts(item.flavor, item)" :key="`pf-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                  </div>
+                  <div v-if="item.description" class="pdf-table-line">
+                    <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`pd-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                  </div>
+                  <div v-for="line in item.attributeLines || []" :key="`pa-${item.code}-${line}`" class="pdf-table-line"><b>属性</b> {{ line }}</div>
+                  <div v-if="item.recommendedUse" class="pdf-table-line">
+                    <b>出品</b>
+                    <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`pu-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                  </div>
+                </td>
+                <td class="pdf-table-prices">
+                  <div v-for="priceRow in item.prices" :key="`preview-table-price-${item.code}-${priceRow.label}`">
+                    <span :class="{ 'pdf-red': priceRow.red }">
+                      <span v-for="(part, idx) in priceLabelParts(priceRow, item)" :key="`ptl-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                    </span>
+                    <strong :class="priceValueClass(priceRow, item)">
+                      <span v-for="(part, idx) in priceValueParts(priceRow, item)" :key="`ptv-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                    </strong>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div v-else class="pdf-card-grid">
+            <div v-for="(row, rowIndex) in cardRows(group)" :key="`preview-row-${group.category}-${rowIndex}`" :class="['pdf-card-row', `cards-${row.columns}`]" :style="cardRowStyle(row)">
+              <article v-for="item in row.items" :key="`preview-${group.category}-${item.code}`" class="pdf-item">
+                <div class="pdf-item-head">
+                  <span>{{ item.code }}</span>
+                  <div>
+                    <h3>
+                      <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`cn-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                      <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
+                    </h3>
+                    <p v-if="item.recommendedUse" class="pdf-meta-line">
+                      <b>出品建议</b>
+                      <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`cu-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                    </p>
+                  </div>
+                </div>
+                <p v-if="item.flavor" class="pdf-flavor">
+                  <b>风味</b>
+                  <span>
+                    <span v-for="(part, idx) in highlightedParts(item.flavor, item)" :key="`cf-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                  </span>
+                </p>
+                <p v-if="item.description" class="pdf-desc">
+                  <b>特点</b>
+                  <span>
+                    <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`cd-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                  </span>
+                </p>
+                <p v-for="line in item.attributeLines || []" :key="`card-attr-${item.code}-${line}`" class="pdf-meta-line"><b>属性</b> {{ line }}</p>
+                <div class="pdf-price-block">
+                  <div class="pdf-section-label">批发价</div>
+                  <div class="pdf-price-list">
+                    <div v-for="priceRow in item.prices" :key="`preview-price-${item.code}-${priceRow.label}`" class="pdf-price">
+                      <span :class="{ 'pdf-red': priceRow.red }">
+                        <span v-for="(part, idx) in priceLabelParts(priceRow, item)" :key="`pl-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                      </span>
+                      <strong :class="priceValueClass(priceRow, item)">
+                        <span v-for="(part, idx) in priceValueParts(priceRow, item)" :key="`pv-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <div v-if="pdfTheme.showChangelog && pdfTheme.changelog" class="pdf-changelog pdf-bottom-changelog">
+          <strong>更新</strong>
+          <span>{{ pdfTheme.changelog }}</span>
+        </div>
+        <footer class="pdf-footer">
+          <span>{{ pdfTheme.brandName || '棵凡咖啡' }}</span>
+          <span>{{ pdfTheme.version }}</span>
+        </footer>
+      </div>
+    </section>
+
+    <div v-if="priceListRulesDialogOpen" class="price-list-config-dialog-backdrop" @click.self="priceListRulesDialogOpen = false">
+      <section class="price-list-config-dialog price-list-rules-dialog" role="dialog" aria-modal="true" aria-label="计价模式规则">
+        <div class="price-list-config-dialog-head">
+          <strong>计价模式规则</strong>
+          <button type="button" class="secondary compact" @click="priceListRulesDialogOpen = false">关闭</button>
+        </div>
+        <p class="muted">计价模式按 <b>商品 &gt; 子类 &gt; 父类 &gt; 价格表</b> 解析。生成价格表默认使用商品档案分组；本次价格表覆盖只写入快照 group_source=price_list，不回写商品档案分组。</p>
+        <table class="price-list-rule-table">
           <thead>
             <tr>
               <th>层级</th>
@@ -186,89 +540,8 @@
             </tr>
           </tbody>
         </table>
-      </div>
-    </section>
-
-    <section v-for="section in productPriceListPreviewSections" :key="section.key" class="panel collapsible-bean-section">
-      <div class="collapsible-bean-head">
-        <button class="section-toggle" type="button" :aria-expanded="!section.collapsed" @click="toggleBeanListPreviewSection(section.key)">
-          <span>
-            <b>{{ section.label }}商品价格表</b>
-            <small>{{ section.groups.length }} 类 · {{ section.itemCount }} 款</small>
-          </span>
-          <span>{{ section.collapsed ? '展开' : '收起' }}</span>
-        </button>
-      </div>
-      <div v-show="!section.collapsed && section.listType === 'green'" class="green-price-save-bar">
-        <p class="muted">梯度按 KG，单价按元/KG；这里修改的是草稿价，生成并发布新版价格表后，录单才会使用新价格。</p>
-        <button class="secondary compact" type="button" :disabled="beanListPublishing || !section.groups.length || !customerScopeReady" @click="saveGreenBeanPriceDraftForSection(section)">
-          {{ beanListPublishing ? '保存中' : '保存生豆价格' }}
-        </button>
-      </div>
-      <div v-show="!section.collapsed" class="bean-groups">
-        <section v-for="group in section.groups" :key="`${section.key}-${group.category}`" class="bean-group">
-          <h3>{{ group.category }}</h3>
-          <div class="bean-grid">
-            <article v-for="item in group.items" :key="`${section.key}-${item.product_id || item.name}`">
-              <div class="bean-heading">
-                <span class="bean-code">{{ beanMetaForItem(item).code }}</span>
-                <div>
-                  <div class="bean-title">{{ beanName(item, metaKeyForItem(item)) }}</div>
-                  <div v-if="beanMetaForItem(item).recommended_use" class="bean-use">
-                    {{ beanMetaForItem(item).recommended_use }}
-                  </div>
-                </div>
-              </div>
-              <div v-if="itemWarnings(item).length" class="bean-warning-list">
-                <span
-                  v-for="warning in itemWarnings(item)"
-                  :key="`${section.key}-warning-${item.product_id || item.name}-${warning}`"
-                  class="warning-icon-wrap">
-                  <button
-                    class="warning-icon"
-                    type="button"
-                    :aria-label="warningTooltip(warning)"
-                    :title="warningTooltip(warning)">
-                    !
-                  </button>
-                  <span class="warning-tooltip" role="tooltip">{{ warningTooltip(warning) }}</span>
-                </span>
-              </div>
-              <div v-if="itemProductAttributeLines(item).length" class="bean-attrs">
-                <span v-for="line in itemProductAttributeLines(item)" :key="`${section.key}-attr-${item.product_id || item.name}-${line}`">{{ line }}</span>
-              </div>
-              <div v-if="beanFlavor(item, metaKeyForItem(item))" class="bean-note">{{ beanFlavor(item, metaKeyForItem(item)) }}</div>
-              <div v-if="beanDescription(item, metaKeyForItem(item))" class="bean-desc">{{ beanDescription(item, metaKeyForItem(item)) }}</div>
-              <template v-if="priceListRenderTypeForItem(item) === 'retail'">
-                <div class="bean-row" v-for="tier in item.retail_bean_tiers || []" :key="`retail-tier-${tier.label}`">
-                  <span>{{ tier.label }}</span><strong>{{ price(tier.price_per_unit) }}</strong>
-                </div>
-                <div class="bean-row"><span>挂耳10袋</span><strong>{{ price(item.retail_drip_10_bag_price) }}</strong></div>
-              </template>
-              <template v-else-if="priceListRenderTypeForItem(item) === 'green'">
-                <div class="bean-row green-inline-price-editor" v-for="tier in greenTierPriceRows(item)" :key="`green-tier-${greenTierOverrideKey(tier)}`">
-                  <span>{{ tier.label }}</span>
-                  <label>
-                    <input type="number" min="0" step="0.01" :value="greenTierPriceValue(itemProductID(item), tier)" @input="setGreenBeanTierPrice(itemProductID(item), tier, $event.target.value)" />
-                    <small>/{{ greenTierPriceUnit(tier) }}</small>
-                  </label>
-                </div>
-              </template>
-              <template v-else>
-                <div class="bean-row" v-for="tier in item.commercial_wholesale_tiers || []" :key="tier.label">
-                  <span>{{ tier.label }}</span>
-                  <strong>
-                    {{ price(tierPriceValue(tier)) }}/{{ tierUnit(tier) }}
-                    <button v-if="item.gradient_template" class="source-button" type="button" @click="openPriceExplanation(item, tier)">来源</button>
-                  </strong>
-                </div>
-              </template>
-            </article>
-          </div>
-        </section>
-        <div v-if="!section.groups.length" class="muted empty-card">暂无商品价格表数据</div>
-      </div>
-    </section>
+      </section>
+    </div>
 
     <div v-if="settingsOpen" class="drawer-backdrop" @click.self="settingsOpen = false">
       <aside class="settings-drawer" aria-label="快速成本参数设置">
@@ -423,11 +696,11 @@
     </div>
 
     <div v-if="pdfDrawerOpen" class="drawer-backdrop" @click.self="pdfDrawerOpen = false">
-      <aside class="settings-drawer pdf-drawer" aria-label="生成价格表 PDF">
+      <aside class="settings-drawer pdf-drawer" aria-label="价格表配置">
         <div class="drawer-head">
           <div>
-            <h3>生成价格表</h3>
-            <p>按 Price List 平铺价格行预览；发布后保留版本记录，也可在浏览器打印窗口保存为 PDF。</p>
+            <h3>价格表配置</h3>
+            <p>维护版本、样式、归属和价格来源；生成规则、选品、平铺价格行和预览已在主页面展示。</p>
             <p v-if="currentBeanListPublication" class="publish-state">当前已发布：{{ currentBeanListPublication.version }} · {{ currentBeanListPublication.published_at }}</p>
             <p v-else class="publish-state">当前暂无已发布版本</p>
             <div v-if="publicBeanListURL" class="public-link-box">
@@ -540,355 +813,6 @@
             <button class="secondary" type="button" @click="clearPdfBackground" :disabled="!pdfOptions.backgroundImage">清除背景图</button>
             <button class="secondary" type="button" @click="clearPdfLogo" :disabled="!pdfOptions.logoImage">清除logo</button>
           </div>
-        </div>
-
-        <div class="pdf-picker price-list-template-builder" data-pr440-price-list-model>
-          <div class="picker-head">
-            <strong>Price List / Item Price 生成规则</strong>
-            <span class="muted">商品 &gt; 子类 &gt; 父类 &gt; 价格表</span>
-          </div>
-          <div class="template-default-grid">
-            <label>
-              <span>价格表计价模式</span>
-              <select :value="priceListTemplateDefaults.pricing_mode" @change="setPriceListDefaultTemplate('pricing_mode', $event.target.value)">
-                <option v-for="mode in priceTablePricingModeOptions" :key="`default-mode-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
-              </select>
-            </label>
-            <label v-if="priceListTemplateDefaults.pricing_mode === 'tier_template'">
-              <span>价格表阶梯模板</span>
-              <select :value="priceListTemplateDefaults.tier_template_id" @change="setPriceListDefaultTemplate('tier_template_id', $event.target.value)">
-                <option :value="0">请选择阶梯模板</option>
-                <option v-for="template in priceTierTemplates" :key="`default-tier-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
-              </select>
-            </label>
-            <label v-else-if="priceListTemplateDefaults.pricing_mode === 'pricing_rule'">
-              <span>价格表价格计算模板</span>
-              <select :value="priceListTemplateDefaults.pricing_rule_id" @change="setPriceListDefaultTemplate('pricing_rule_id', $event.target.value)">
-                <option :value="0">请选择价格计算模板</option>
-                <option v-for="rule in pricingRules" :key="`default-rule-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
-              </select>
-            </label>
-            <label v-else>
-              <span>价格表固定价</span>
-              <input type="number" min="0" step="0.01" :value="priceListTemplateDefaults.fixed_unit_price" @input="setPriceListDefaultTemplate('fixed_unit_price', $event.target.value)" />
-            </label>
-          </div>
-          <p class="muted inline-pricing-config-note">分类和单品计价直接在下方选品位置处理，发布时仍按 商品 &gt; 子类 &gt; 父类 &gt; 价格表 解析。</p>
-        </div>
-
-        <div class="pdf-picker productSelection">
-          <div class="picker-head">
-            <strong>选择分类和产品</strong>
-            <span class="muted">{{ pdfSelectedProductIDs.length }}/{{ pdfAvailableItems.length }} 款</span>
-            <div class="picker-actions">
-              <button class="secondary compact" type="button" @click="setAllPdfProducts(true)">全选</button>
-              <button class="secondary compact" type="button" @click="setAllPdfProducts(false)">清空</button>
-            </div>
-          </div>
-          <div class="product-picker-list categoryProductGroups">
-            <section v-for="category in categoryProductGroups" :key="`pick-cat-${category.code}`" class="product-picker-category">
-              <div class="product-picker-category-head">
-                <label class="check-line">
-                  <input type="checkbox" :checked="isPdfCategorySelected(category.code)" @change="togglePdfCategoryProducts(category.code, $event.target.checked)" />
-                  <span>{{ category.label }}</span>
-                </label>
-                <span class="muted">{{ selectedCountForCategory(category.code) }}/{{ category.items.length }} 款</span>
-                <div class="category-pricing-summary">
-                  <button
-                    type="button"
-                    :class="['price-list-summary-button', { active: isPriceListCategoryPricingDialogOpen(category), overridden: priceListCategoryPricingHasOverride(category) }]"
-                    @click.stop="openPriceListCategoryPricingDialog(category)"
-                  >
-                    <span>计价</span>
-                    <strong>{{ priceListCategoryPricingSummary(category) }}</strong>
-                    <small v-if="priceListCategoryPricingHasOverride(category)">已覆盖</small>
-                  </button>
-                </div>
-              </div>
-              <article v-for="row in category.items" :key="`pick-${itemProductID(row)}`" class="product-picker-row">
-                <div class="product-picker-row-head">
-                  <label class="check-line">
-                    <input type="checkbox" :checked="isPdfProductSelected(itemProductID(row))" @change="togglePdfProduct(itemProductID(row), $event.target.checked)" />
-                    <span>{{ beanMeta(row, metaKeyForListType(pdfTheme.listType)).code }} {{ beanName(row, metaKeyForListType(pdfTheme.listType)) }}</span>
-                  </label>
-                  <div v-if="isPdfProductSelected(itemProductID(row))" class="product-compact-status">
-                    <button
-                      type="button"
-                      :class="['price-list-summary-button', { active: isPriceListProductPricingDialogOpen(priceListProductRowForItem(row)), overridden: priceListProductPricingHasOverride(priceListProductRowForItem(row)) }]"
-                      @click.stop="openPriceListProductPricingDialog(priceListProductRowForItem(row))"
-                    >
-                      <span>计价</span>
-                      <strong>{{ priceListProductPricingSummary(priceListProductRowForItem(row)) }}</strong>
-                      <small v-if="priceListProductPricingHasOverride(priceListProductRowForItem(row))">已覆盖</small>
-                    </button>
-                    <button
-                      type="button"
-                      :class="['price-list-summary-button', { active: isPriceListProductDisplayDialogOpen(itemProductID(row)), overridden: priceListProductDisplayHasOverride(itemProductID(row)) }]"
-                      @click.stop="openPriceListProductDisplayDialog(itemProductID(row))"
-                    >
-                      <span>展示</span>
-                      <strong>{{ priceListProductDisplaySummary(itemProductID(row)) }}</strong>
-                      <small v-if="priceListProductDisplayHasOverride(itemProductID(row))">已设置</small>
-                    </button>
-                  </div>
-                </div>
-                <div v-if="pdfTheme.listType === 'green' && greenTierPriceRows(row).length" class="green-tier-price-editor">
-                  <label v-for="tier in greenTierPriceRows(row)" :key="`green-price-${itemProductID(row)}-${greenTierOverrideKey(tier)}`">
-                    <span>{{ tier.label }}</span>
-                    <input type="number" min="0" step="0.01" :value="greenTierPriceValue(itemProductID(row), tier)" @input="setGreenBeanTierPrice(itemProductID(row), tier, $event.target.value)" />
-                    <small>/{{ greenTierPriceUnit(tier) }}</small>
-                  </label>
-                </div>
-              </article>
-            </section>
-          </div>
-        </div>
-
-        <div v-if="priceListConfigDialog.open" class="price-list-config-dialog-backdrop" @click.self="closePriceListConfigDialog">
-          <section class="price-list-config-dialog" role="dialog" aria-modal="true">
-            <div class="price-list-config-dialog-head">
-              <strong>{{ priceListConfigDialogTitle }}</strong>
-              <button type="button" class="secondary compact" @click="closePriceListConfigDialog">关闭</button>
-            </div>
-            <template v-if="priceListConfigDialog.type === 'category-pricing'">
-              <p class="muted">{{ priceListConfigDialog.group?.group_item_name || '当前分类' }}</p>
-              <label class="inline-price-config">
-                <span>上级分类计价</span>
-                <div class="inline-price-config-controls">
-                  <select :value="priceListParentTemplateSelection(priceListConfigDialog.group).pricing_mode" @change="setPriceListParentTemplate(priceListConfigDialog.group, 'pricing_mode', $event.target.value)">
-                    <option value="">继承价格表</option>
-                    <option v-for="mode in priceTablePricingModeOptions" :key="`dialog-parent-mode-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
-                  </select>
-                  <template v-if="priceListParentTemplateSelection(priceListConfigDialog.group).pricing_mode === 'tier_template'">
-                    <select :value="priceListParentTemplateSelection(priceListConfigDialog.group).tier_template_id" @change="setPriceListParentTemplate(priceListConfigDialog.group, 'tier_template_id', $event.target.value)">
-                      <option :value="0">继承价格表阶梯</option>
-                      <option v-for="template in priceTierTemplates" :key="`dialog-parent-tier-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
-                    </select>
-                  </template>
-                  <template v-else-if="priceListParentTemplateSelection(priceListConfigDialog.group).pricing_mode === 'pricing_rule'">
-                    <select :value="priceListParentTemplateSelection(priceListConfigDialog.group).pricing_rule_id" @change="setPriceListParentTemplate(priceListConfigDialog.group, 'pricing_rule_id', $event.target.value)">
-                      <option :value="0">继承价格表计算</option>
-                      <option v-for="rule in pricingRules" :key="`dialog-parent-rule-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
-                    </select>
-                  </template>
-                  <input v-else-if="priceListParentTemplateSelection(priceListConfigDialog.group).pricing_mode === 'fixed_price'" type="number" min="0" step="0.01" :value="priceListParentTemplateSelection(priceListConfigDialog.group).fixed_unit_price" placeholder="固定价" @input="setPriceListParentTemplate(priceListConfigDialog.group, 'fixed_unit_price', $event.target.value)" />
-                </div>
-              </label>
-              <label class="inline-price-config">
-                <span>本分类计价</span>
-                <div class="inline-price-config-controls">
-                  <select :value="priceListGroupTemplateSelection(priceListConfigDialog.group).pricing_mode" @change="setPriceListGroupTemplate(priceListConfigDialog.group, 'pricing_mode', $event.target.value)">
-                    <option value="">继承分类</option>
-                    <option v-for="mode in priceTablePricingModeOptions" :key="`dialog-group-mode-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
-                  </select>
-                  <template v-if="priceListGroupTemplateSelection(priceListConfigDialog.group).pricing_mode === 'tier_template'">
-                    <select :value="priceListGroupTemplateSelection(priceListConfigDialog.group).tier_template_id" @change="setPriceListGroupTemplate(priceListConfigDialog.group, 'tier_template_id', $event.target.value)">
-                      <option :value="0">继承分类阶梯</option>
-                      <option v-for="template in priceTierTemplates" :key="`dialog-group-tier-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
-                    </select>
-                  </template>
-                  <template v-else-if="priceListGroupTemplateSelection(priceListConfigDialog.group).pricing_mode === 'pricing_rule'">
-                    <select :value="priceListGroupTemplateSelection(priceListConfigDialog.group).pricing_rule_id" @change="setPriceListGroupTemplate(priceListConfigDialog.group, 'pricing_rule_id', $event.target.value)">
-                      <option :value="0">继承分类计算</option>
-                      <option v-for="rule in pricingRules" :key="`dialog-group-rule-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
-                    </select>
-                  </template>
-                  <input v-else-if="priceListGroupTemplateSelection(priceListConfigDialog.group).pricing_mode === 'fixed_price'" type="number" min="0" step="0.01" :value="priceListGroupTemplateSelection(priceListConfigDialog.group).fixed_unit_price" placeholder="固定价" @input="setPriceListGroupTemplate(priceListConfigDialog.group, 'fixed_unit_price', $event.target.value)" />
-                </div>
-              </label>
-            </template>
-            <template v-else-if="priceListConfigDialog.type === 'product-pricing'">
-              <p class="muted">{{ priceListConfigDialog.productRow?.product_name || '当前商品' }}</p>
-              <label class="inline-price-config">
-                <span>商品计价</span>
-                <div class="inline-price-config-controls">
-                  <select :value="priceListProductTemplateOverride(priceListConfigDialog.productRow).pricing_mode" @change="setPriceListProductTemplate(priceListConfigDialog.productRow, 'pricing_mode', $event.target.value)">
-                    <option value="">继承分类</option>
-                    <option v-for="mode in priceTablePricingModeOptions" :key="`dialog-product-mode-${mode.value}`" :value="mode.value">{{ mode.label }}</option>
-                  </select>
-                  <template v-if="priceListProductTemplateOverride(priceListConfigDialog.productRow).pricing_mode === 'tier_template'">
-                    <select :value="priceListProductTemplateOverride(priceListConfigDialog.productRow).tier_template_id" @change="setPriceListProductTemplate(priceListConfigDialog.productRow, 'tier_template_id', $event.target.value)">
-                      <option :value="0">继承分类阶梯</option>
-                      <option v-for="template in priceTierTemplates" :key="`dialog-product-tier-${template.id}`" :value="template.id">{{ priceTierTemplateLabel(template) }}</option>
-                    </select>
-                  </template>
-                  <template v-else-if="priceListProductTemplateOverride(priceListConfigDialog.productRow).pricing_mode === 'pricing_rule'">
-                    <select :value="priceListProductTemplateOverride(priceListConfigDialog.productRow).pricing_rule_id" @change="setPriceListProductTemplate(priceListConfigDialog.productRow, 'pricing_rule_id', $event.target.value)">
-                      <option :value="0">继承分类计算</option>
-                      <option v-for="rule in pricingRules" :key="`dialog-product-rule-${rule.id}`" :value="rule.id">{{ pricingRuleLabel(rule) }}</option>
-                    </select>
-                  </template>
-                  <input v-else-if="priceListProductTemplateOverride(priceListConfigDialog.productRow).pricing_mode === 'fixed_price'" type="number" min="0" step="0.01" :value="priceListProductTemplateOverride(priceListConfigDialog.productRow).fixed_unit_price" placeholder="固定价" @input="setPriceListProductTemplate(priceListConfigDialog.productRow, 'fixed_unit_price', $event.target.value)" />
-                </div>
-              </label>
-            </template>
-            <template v-else-if="priceListConfigDialog.type === 'product-display'">
-              <p class="muted">商品展示</p>
-              <div class="customizer-row">
-                <select :value="customizerField(priceListConfigDialog.productId, 'badge')" @change="setCustomizerField(priceListConfigDialog.productId, 'badge', $event.target.value)">
-                  <option value="">无标签</option>
-                  <option value="new">NEW 上新</option>
-                  <option value="thumb">推荐</option>
-                  <option value="medal">推荐</option>
-                </select>
-                <input :value="customizerField(priceListConfigDialog.productId, 'highlightTerms')" placeholder="标红词，用逗号分隔" @input="setCustomizerField(priceListConfigDialog.productId, 'highlightTerms', $event.target.value)" />
-              </div>
-            </template>
-          </section>
-        </div>
-
-        <div v-if="priceListFlatRows.length" class="pdf-picker flat-price-row-editor">
-          <div class="picker-head">
-            <strong>平铺价格行</strong>
-            <span class="muted">{{ priceListFlatRows.length }} 行，发布快照固化分组、模板来源、Pricing Rule 版本、成本来源和客户引用</span>
-          </div>
-          <div class="flat-price-table" v-if="priceListFlatRows.length">
-            <div class="flat-price-head">
-              <span>商品 / 档位</span>
-              <span>计价来源</span>
-              <span>最终价</span>
-              <span>快照</span>
-            </div>
-            <div v-for="row in priceListFlatRows" :key="row.row_key" class="flat-price-row">
-              <div>
-                <strong>{{ row.product_name }}</strong>
-                <span>{{ row.group_snapshot.group_item_name || '-' }} · {{ row.tier_label || '-' }} · {{ row.group_source === 'price_list' ? '价格表覆盖' : '商品档案分组' }}</span>
-              </div>
-              <div>
-                <span>{{ priceTablePricingModeLabel(row.pricing_mode) }}：{{ priceListSourceLabel(row.pricing_mode_source) }}</span>
-                <span v-if="row.tier_template_id">阶梯模板：{{ priceListSourceLabel(row.tier_template_source) }}</span>
-                <span v-if="row.pricing_rule_id">计算模板：{{ priceListSourceLabel(row.pricing_rule_source) }}</span>
-              </div>
-              <label>
-                <input type="number" min="0" step="0.01" :value="row.final_unit_price" @input="setPriceListFlatRowPrice(row, $event.target.value)" />
-                <small>/{{ row.price_unit || '-' }}</small>
-              </label>
-              <div>
-                <span>{{ row.pricing_rule_version || (row.pricing_mode === 'fixed_price' ? '固定价' : '未选择 Pricing Rule') }}</span>
-                <span :class="{ adjusted: row.manual_adjusted }">{{ row.manual_adjusted ? '人工调整' : '自动计算' }}</span>
-              </div>
-            </div>
-          </div>
-          <p v-else class="muted">暂无平铺价格行</p>
-          <p v-if="priceListFlatRows.length && !priceListFlatRowsReady" class="muted">发布前需要为每行补齐计价模式、对应模板或固定价，并保证价格单位到库存单位换算可追溯。</p>
-        </div>
-
-        <div class="pdf-preview-title">
-          <strong>预览</strong>
-          <span>{{ pdfTotalItems }} 款</span>
-          <div class="pdf-actions">
-            <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList()">撤回发布</button>
-            <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady || !priceListFlatRowsReady" @click="publishBeanList">发布价格表</button>
-            <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
-            <button class="secondary" type="button" :disabled="beanListPdfGenerating || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
-          </div>
-        </div>
-        <div class="pdf-preview-phone bean-list-pdf-surface" :style="pdfPageStyle">
-          <header class="pdf-cover">
-            <div>
-              <img v-if="pdfTheme.logoImage" class="pdf-logo" :src="pdfTheme.logoImage" alt="logo" />
-              <p v-if="pdfTheme.showVersion" class="pdf-version">{{ pdfTheme.version }}</p>
-              <h1>{{ pdfTitle }}</h1>
-              <p>{{ pdfSubtitle }}</p>
-              <p v-if="pdfTheme.brandIntro" class="pdf-brand-intro">{{ pdfTheme.brandIntro }}</p>
-            </div>
-            <div class="pdf-badge">{{ selectedProductPriceListLabel }}</div>
-          </header>
-
-          <section v-for="group in pdfGroups" :key="`preview-${group.category}`" class="pdf-group">
-            <h2 v-if="group.showCategory && pdfOptions.showCategoryNumbers">{{ group.category }}</h2>
-
-            <table v-if="pdfTheme.layoutStyle === 'table'" class="pdf-compact-table">
-              <tbody>
-                <tr v-for="item in group.items" :key="`preview-table-${group.category}-${item.code}`">
-                  <td class="pdf-code-cell">{{ item.code }}</td>
-                  <td>
-                    <div class="pdf-table-name">
-                      <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`pn-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                      <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
-                    </div>
-                    <div v-if="item.flavor" class="pdf-table-line">
-                      <span v-for="(part, idx) in highlightedParts(item.flavor, item)" :key="`pf-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                    </div>
-                    <div v-if="item.description" class="pdf-table-line">
-                      <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`pd-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                    </div>
-                    <div v-for="line in item.attributeLines || []" :key="`pa-${item.code}-${line}`" class="pdf-table-line"><b>属性</b> {{ line }}</div>
-                    <div v-if="item.recommendedUse" class="pdf-table-line">
-                      <b>出品</b>
-                      <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`pu-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                    </div>
-                  </td>
-                  <td class="pdf-table-prices">
-                    <div v-for="priceRow in item.prices" :key="`preview-table-price-${item.code}-${priceRow.label}`">
-                      <span :class="{ 'pdf-red': priceRow.red }">
-                        <span v-for="(part, idx) in priceLabelParts(priceRow, item)" :key="`ptl-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                      </span>
-                      <strong :class="priceValueClass(priceRow, item)">
-                        <span v-for="(part, idx) in priceValueParts(priceRow, item)" :key="`ptv-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                      </strong>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-            <div v-else class="pdf-card-grid">
-              <div v-for="(row, rowIndex) in cardRows(group)" :key="`preview-row-${group.category}-${rowIndex}`" :class="['pdf-card-row', `cards-${row.columns}`]" :style="cardRowStyle(row)">
-                <article v-for="item in row.items" :key="`preview-${group.category}-${item.code}`" class="pdf-item">
-                  <div class="pdf-item-head">
-                    <span>{{ item.code }}</span>
-                    <div>
-                      <h3>
-                        <span v-for="(part, idx) in highlightedParts(item.name, item)" :key="`cn-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                        <span v-if="item.badgeLabel" :class="badgeClass(item.badge)">{{ item.badgeLabel }}</span>
-                      </h3>
-                      <p v-if="item.recommendedUse" class="pdf-meta-line">
-                        <b>出品建议</b>
-                        <span v-for="(part, idx) in highlightedParts(item.recommendedUse, item)" :key="`cu-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                      </p>
-                    </div>
-                  </div>
-                  <p v-if="item.flavor" class="pdf-flavor">
-                    <b>风味</b>
-                    <span>
-                      <span v-for="(part, idx) in highlightedParts(item.flavor, item)" :key="`cf-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                    </span>
-                  </p>
-                  <p v-if="item.description" class="pdf-desc">
-                    <b>特点</b>
-                    <span>
-                      <span v-for="(part, idx) in highlightedParts(item.description, item)" :key="`cd-${item.code}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                    </span>
-                  </p>
-                  <p v-for="line in item.attributeLines || []" :key="`preview-attr-${item.code}-${line}`" class="pdf-meta-line"><b>属性</b><span>{{ line }}</span></p>
-                  <div class="pdf-price-block">
-                    <div class="pdf-section-label">报价</div>
-                    <div class="pdf-price-list">
-                      <div v-for="priceRow in item.prices" :key="`preview-${item.code}-${priceRow.label}`" class="pdf-price">
-                        <span class="pdf-price-label" :class="{ 'pdf-red': priceRow.red }">
-                          <span v-for="(part, idx) in priceLabelParts(priceRow, item)" :key="`cpl-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                        </span>
-                        <strong class="pdf-price-value" :class="priceValueClass(priceRow, item)">
-                          <span v-for="(part, idx) in priceValueParts(priceRow, item)" :key="`cpv-${item.code}-${priceRow.label}-${idx}`" :class="{ 'pdf-red': part.red }">{{ part.text }}</span>
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-                </article>
-              </div>
-            </div>
-          </section>
-
-          <div v-if="pdfTheme.showChangelog && pdfTheme.changelog" class="pdf-changelog pdf-bottom-changelog">
-            <b>更新</b>
-            <span>{{ pdfTheme.changelog }}</span>
-          </div>
-
-          <footer class="pdf-footer">
-            <span>{{ pdfTheme.brandName }}</span>
-            <span>联系电话：15302787466</span>
-          </footer>
         </div>
       </aside>
     </div>
@@ -1102,12 +1026,6 @@ const beanListPublications = ref({
   mine: {},
   customer: {},
 })
-const beanListPreviewCollapsed = ref({
-  commercial: false,
-  drip: true,
-  retail: true,
-  green: true,
-})
 const priceSourcePublicationByType = ref({})
 const styleSourcePublicationIDByType = ref({})
 const selectedProductIDsByType = ref({})
@@ -1139,6 +1057,7 @@ const priceListGroupTemplateSelections = ref({})
 const priceListProductTemplateOverrides = ref({})
 const priceListFlatRowOverrides = ref({})
 const priceListConfigDialog = ref(defaultPriceListConfigDialog())
+const priceListRulesDialogOpen = ref(false)
 const tierTemplateDrawerOpen = ref(false)
 const tierTemplateSaving = ref(false)
 const priceTierTemplateForm = ref(defaultPriceTierTemplateForm())
@@ -1174,24 +1093,6 @@ const selectedProductPriceListType = computed(() => {
 const activeProductTypeCategoryID = computed(() => Number(selectedProductPriceListType.value?.id || selectedProductTypeCategoryID.value || 0))
 const selectedProductPriceListLabel = computed(() => selectedProductPriceListType.value?.label || beanListTypeLabel(pdfTheme.value.listType))
 const activePriceListTypeKey = computed(() => productPriceListTypeKey(selectedProductPriceListType.value, pdfTheme.value.listType))
-const productPriceListPreviewSections = computed(() => productPriceListTypeOptions.value.map((type, index) => {
-  const listType = normalizeBeanListType(type.listType)
-  const key = productPriceListTypeKey(type, listType)
-  const groups = productGroupsForType(listType, type.id)
-  const collapsed = Object.prototype.hasOwnProperty.call(beanListPreviewCollapsed.value, key)
-    ? Boolean(beanListPreviewCollapsed.value[key])
-    : index > 0
-  return {
-    key,
-    id: Number(type.id || 0),
-    label: type.label || beanListTypeLabel(listType),
-    listType,
-    metaKey: metaKeyForListType(listType),
-    groups,
-    itemCount: beanListGroupItemCount(groups),
-    collapsed,
-  }
-}))
 const pdfTheme = computed(() => sanitizeBeanListPdfTheme(pdfOptions.value))
 const pdfAvailableItems = computed(() => beanListItemsForType(pdfTheme.value.listType, activeProductTypeCategoryID.value))
 const pdfCategoryOptions = computed(() => beanListCategoryOptions(pdfTheme.value.listType, activeProductTypeCategoryID.value))
@@ -1402,17 +1303,6 @@ function tierUnit(tier) {
   if (specG === 250) return '250g'
   if (specG === 100) return '100g'
   return '包'
-}
-
-function beanListGroupItemCount(groups) {
-  return (Array.isArray(groups) ? groups : []).reduce((sum, group) => sum + (Array.isArray(group.items) ? group.items.length : 0), 0)
-}
-
-function toggleBeanListPreviewSection(section) {
-  beanListPreviewCollapsed.value = {
-    ...beanListPreviewCollapsed.value,
-    [section]: !beanListPreviewCollapsed.value[section],
-  }
 }
 
 function customerOptionLabel(customer) {
@@ -3400,14 +3290,8 @@ onBeforeUnmount(() => {
 .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .section-bar, .bean-list-generate-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .bean-list-generate-bar p { margin: 4px 0 0; }
-.collapsible-bean-section { display: grid; gap: 10px; }
-.collapsible-bean-head { display: flex; align-items: stretch; }
-.section-toggle { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #ddd; background: #fafafa; color: #111; text-align: left; }
-.section-toggle span:first-child { display: grid; gap: 3px; min-width: 0; }
-.section-toggle b { font-size: 15px; line-height: 1.25; }
-.section-toggle small { color: #666; font-size: 12px; line-height: 1.25; }
-.green-price-save-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #e7edf3; border-radius: 8px; background: #f7fbff; padding: 8px 10px; }
-.green-price-save-bar p { margin: 0; line-height: 1.45; }
+.price-list-page-config { display: grid; gap: 12px; }
+.price-list-page-config .pdf-picker:first-child { margin-top: 0; }
 .bean-list-version-panel { display: grid; gap: 12px; }
 .bean-list-version-head { align-items: flex-start; }
 .bean-list-version-head p { margin: 4px 0 0; line-height: 1.45; }
@@ -3552,6 +3436,11 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .price-list-config-dialog-head strong { font-size: 15px; }
 .price-list-config-dialog .inline-price-config { border: 1px solid #eee; border-radius: 8px; background: #fafafa; padding: 9px; }
 .price-list-config-dialog .inline-price-config-controls { display: grid; gap: 7px; }
+.price-list-rules-dialog { width: min(720px, calc(100vw - 28px)); }
+.price-list-rule-table { width: 100%; min-width: 0; border-collapse: collapse; background: #fff; font-size: 13px; }
+.price-list-rule-table th, .price-list-rule-table td { border: 1px solid #eee; padding: 8px 10px; text-align: left; vertical-align: top; white-space: normal; }
+.price-list-rule-table th { background: #f7f7f7; color: #555; font-weight: 650; }
+.price-list-rule-table td:first-child { width: 110px; font-weight: 650; color: #111; }
 .category-inline-pricing-config { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .inline-price-config { display: grid; gap: 5px; margin: 0; min-width: 0; }
 .inline-price-config > span, .product-inline-pricing-config > span { color: #666; font-size: 12px; line-height: 1.35; }
@@ -3563,9 +3452,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .green-tier-price-editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 7px; }
 .green-tier-price-editor label { display: grid; grid-template-columns: minmax(0, 1fr) 82px; align-items: center; gap: 6px; font-size: 12px; color: #555; }
 .green-tier-price-editor input { min-width: 0; }
-.green-inline-price-editor label { display: grid; grid-template-columns: minmax(82px, 110px) auto; align-items: center; gap: 5px; margin: 0; }
-.green-inline-price-editor input { width: 100%; min-width: 0; min-height: 32px; border: 1px solid #ddd; border-radius: 7px; padding: 5px 7px; font: inherit; text-align: right; box-sizing: border-box; }
-.green-inline-price-editor small { color: #666; font-size: 12px; white-space: nowrap; }
 .pdf-preview-title { max-width: 760px; margin: 16px auto 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; color: #555; font-size: 12px; }
 .pdf-preview-title strong { color: #111; font-size: 14px; }
 .pdf-preview-phone { max-width: 430px; min-height: 360px; max-height: 72vh; overflow: auto; margin: 0 auto; border: 1px solid #ded6c9; border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.12); }
@@ -3637,12 +3523,6 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
 .bean-row span { color: #666; font-size: 12px; }
 .bean-row strong { font-size: 13px; }
 .bean-list-pdf-page { display: none; }
-.price-list-model-panel { display: grid; gap: 10px; margin-top: 12px; border-top: 1px solid #eee; padding-top: 12px; }
-.price-list-model-panel p { margin: 4px 0 0; color: #555; font-size: 13px; line-height: 1.55; }
-.price-list-model-panel table { width: 100%; border-collapse: collapse; background: #fff; font-size: 13px; }
-.price-list-model-panel th, .price-list-model-panel td { border: 1px solid #eee; padding: 8px 10px; text-align: left; vertical-align: top; }
-.price-list-model-panel th { background: #f7f7f7; color: #555; font-weight: 650; }
-.price-list-model-panel td:first-child { width: 110px; font-weight: 650; color: #111; }
 .generate-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .tier-template-drawer { width: min(1040px, 96vw); }
 .tier-template-drawer-body { display: grid; grid-template-columns: minmax(220px, .75fr) minmax(0, 1.6fr); gap: 14px; align-items: start; }

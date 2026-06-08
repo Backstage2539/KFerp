@@ -121,7 +121,7 @@ func TestDev442BusinessGroupAssignmentFrontendAndDocs(t *testing.T) {
 			"库存分组",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
-			"data-pr442-price-list-group-source",
+			"price-list-rules-dialog",
 			"group_source",
 			"商品档案分组",
 			"价格表覆盖",

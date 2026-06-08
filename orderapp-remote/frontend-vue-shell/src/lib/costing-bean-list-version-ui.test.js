@@ -161,23 +161,24 @@ test('product price-list version list supports factory supply and customer resal
   }
 })
 
-test('product bean-list generate area uses dynamic collapsible product-type sections including green beans', () => {
+test('product bean-list generate area uses inline price-list configuration instead of preview cards', () => {
   for (const expected of [
-    'collapsible-bean-section',
-    "beanListPreviewCollapsed",
-    'productPriceListPreviewSections',
     'buildProductPriceListTypeOptions',
     'priceListRenderTypeForItem',
     'productPriceListTypeKey',
-    'toggleBeanListPreviewSection(section.key)',
-    "section.listType === 'green'",
+    'price-list-page-config',
+    '<strong>Price List / Item Price 生成规则</strong>',
+    '<button class="primary" type="button" :disabled="loading || !visibleCostingItems.length || !productPriceListTypeOptions.length" @click="openBeanListDrawer()">价格表配置</button>',
+    'aria-label="价格表配置"',
     "greenTierPriceRows",
     "green_bean_list",
     "green_bean_sale_tiers",
     "beanListTypeLabel(listType)",
   ]) {
-    assert.ok(viewSource.includes(expected), `missing collapsible bean-list preview behavior: ${expected}`)
+    assert.ok(viewSource.includes(expected), `missing inline price-list configuration behavior: ${expected}`)
   }
+  assert.doesNotMatch(viewSource, /collapsible-bean-section/)
+  assert.doesNotMatch(viewSource, /productPriceListPreviewSections/)
   assert.doesNotMatch(viewSource, /生成挂耳豆单/)
   assert.doesNotMatch(viewSource, /openBeanListDrawer\('drip'\)/)
 })
@@ -204,6 +205,30 @@ test('product price list uses classification templates and categories instead of
   assert.doesNotMatch(viewSource, /<span>产品类型<\/span>/)
   assert.doesNotMatch(viewSource, /按当前价格表归属和商品管理里的产品类型生成/)
   assert.doesNotMatch(viewSource, /按当前价格表归属、商品当前归类和客户商品生成商品价格表/)
+})
+
+test('price list mode rules are opened from a button and not shown as a persistent panel', () => {
+  const generatePanelStart = viewSource.indexOf('<div class="bean-list-generate-bar">')
+  const pageDrawerStart = viewSource.indexOf('<div v-if="settingsOpen"', generatePanelStart)
+  assert.ok(generatePanelStart > -1 && pageDrawerStart > generatePanelStart, 'missing generate page block')
+  const pageSource = viewSource.slice(generatePanelStart, pageDrawerStart)
+
+  for (const expected of [
+    '计价模式规则',
+    '@click="priceListRulesDialogOpen = true"',
+    'v-if="priceListRulesDialogOpen"',
+    'aria-label="计价模式规则"',
+    'price-list-rules-dialog',
+    '商品 &gt; 子类 &gt; 父类 &gt; 价格表',
+    'group_source=price_list',
+  ]) {
+    assert.ok(pageSource.includes(expected), `missing modal price-list mode rule behavior: ${expected}`)
+  }
+
+  const oldPanelStart = pageSource.indexOf('data-pr442-price-list-group-source')
+  assert.equal(oldPanelStart, -1, 'rule table should not remain as a persistent model panel')
+  assert.doesNotMatch(pageSource, /模板继承规则/)
+  assert.doesNotMatch(pageSource, /<table>[\s\S]*<th>层级<\/th>[\s\S]*<\/table>/)
 })
 
 test('price list generation keeps A/B positions as summaries and edits in a config dialog', () => {
@@ -382,15 +407,10 @@ test('product bean-list view maps green and commercial fields without dedicated 
 test('product bean-list view exposes manual green bean tier price editing', () => {
   for (const expected of [
     'green-tier-price-editor',
-    'green-inline-price-editor',
     '梯度按 KG，单价按元/KG',
     '生成并发布新版价格表后，录单才会使用新价格',
-    '保存生豆价格',
-    'saveGreenBeanPriceDraft',
     'greenTierPriceRows(row)',
-    'greenTierPriceRows(item)',
     'setGreenBeanTierPrice(itemProductID(row), tier, $event.target.value)',
-    'setGreenBeanTierPrice(itemProductID(item), tier, $event.target.value)',
     'function setGreenBeanTierPrice',
     'greenPriceOverrides',
     "listType: 'green'",
