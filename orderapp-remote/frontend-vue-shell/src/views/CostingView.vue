@@ -1103,6 +1103,7 @@ const priceListRulesDialogOpen = ref(false)
 const tierTemplateDrawerOpen = ref(false)
 const tierTemplateSaving = ref(false)
 const priceTierTemplateForm = ref(defaultPriceTierTemplateForm())
+let priceListPricingRuleTrialRefreshScheduled = false
 const priceListPricingPopoverOptions = [
   { value: '', label: '继承分类' },
   { value: 'tier_template', label: '按阶梯模板价计算' },
@@ -1219,6 +1220,19 @@ function priceListPricingRuleTrialRequestsForRows(sourceRows = []) {
   })
   return requests
 }
+
+function schedulePriceListPricingRuleTrialRefresh() {
+  if (priceListPricingRuleTrialRefreshScheduled) return
+  priceListPricingRuleTrialRefreshScheduled = true
+  nextTick(() => {
+    priceListPricingRuleTrialRefreshScheduled = false
+    const requests = priceListPricingRuleTrialRequestsForRows(priceListFlatRows.value)
+    if (requests.length) {
+      loadPriceListPricingRuleTrials(requests)
+    }
+  })
+}
+
 const pdfTotalItems = computed(() => pdfGroups.value.reduce((sum, group) => sum + group.items.length, 0))
 const pdfTitle = computed(() => buildProductPriceListTitle(pdfTheme.value.brandName, selectedProductPriceListLabel.value, pdfTheme.value.listType))
 const pdfSubtitle = computed(() => buildProductPriceListSubtitle(selectedProductPriceListLabel.value, pdfTheme.value.listType))
@@ -1525,6 +1539,7 @@ function restorePriceListGenerationDraftForActiveType() {
   priceListGroupTemplateSelections.value = normalizePriceListSelectionDraftMap(draft.groupSelections)
   priceListProductTemplateOverrides.value = normalizePriceListSelectionDraftMap(draft.productOverrides, { includeProductMeta: true })
   priceListFlatRowOverrides.value = normalizePriceListFlatRowOverrides(draft.flatRowOverrides)
+  schedulePriceListPricingRuleTrialRefresh()
   return true
 }
 
@@ -1976,6 +1991,7 @@ function setPriceListDefaultTemplate(field, value) {
     [field]: priceListTemplateFieldValue(field, value),
   }
   savePriceListGenerationDraftForActiveType()
+  schedulePriceListPricingRuleTrialRefresh()
 }
 
 function setPriceListParentTemplate(group = {}, field, value) {
@@ -1985,6 +2001,7 @@ function setPriceListParentTemplate(group = {}, field, value) {
     delete next[key]
     priceListParentTemplateSelections.value = next
     savePriceListGenerationDraftForActiveType()
+    schedulePriceListPricingRuleTrialRefresh()
     return
   }
   priceListParentTemplateSelections.value = {
@@ -1995,6 +2012,7 @@ function setPriceListParentTemplate(group = {}, field, value) {
     },
   }
   savePriceListGenerationDraftForActiveType()
+  schedulePriceListPricingRuleTrialRefresh()
 }
 
 function setPriceListGroupTemplate(group = {}, field, value) {
@@ -2004,6 +2022,7 @@ function setPriceListGroupTemplate(group = {}, field, value) {
     delete next[key]
     priceListGroupTemplateSelections.value = next
     savePriceListGenerationDraftForActiveType()
+    schedulePriceListPricingRuleTrialRefresh()
     return
   }
   priceListGroupTemplateSelections.value = {
@@ -2014,6 +2033,7 @@ function setPriceListGroupTemplate(group = {}, field, value) {
     },
   }
   savePriceListGenerationDraftForActiveType()
+  schedulePriceListPricingRuleTrialRefresh()
 }
 
 function clearPriceListCategoryTemplate(group = {}) {
@@ -2023,12 +2043,14 @@ function clearPriceListCategoryTemplate(group = {}) {
     delete next[target.key]
     priceListParentTemplateSelections.value = next
     savePriceListGenerationDraftForActiveType()
+    schedulePriceListPricingRuleTrialRefresh()
     return
   }
   const next = { ...priceListGroupTemplateSelections.value }
   delete next[target.key]
   priceListGroupTemplateSelections.value = next
   savePriceListGenerationDraftForActiveType()
+  schedulePriceListPricingRuleTrialRefresh()
 }
 
 function setPriceListCategoryTemplate(group = {}, field, value) {
@@ -2049,6 +2071,7 @@ function setPriceListCategoryTemplate(group = {}, field, value) {
       [target.key]: selection,
     }
     savePriceListGenerationDraftForActiveType()
+    schedulePriceListPricingRuleTrialRefresh()
     return
   }
   priceListGroupTemplateSelections.value = {
@@ -2056,6 +2079,7 @@ function setPriceListCategoryTemplate(group = {}, field, value) {
     [target.key]: selection,
   }
   savePriceListGenerationDraftForActiveType()
+  schedulePriceListPricingRuleTrialRefresh()
 }
 
 function setPriceListProductTemplate(row = {}, field, value) {
@@ -2080,6 +2104,7 @@ function setPriceListProductTemplate(row = {}, field, value) {
     },
   }
   savePriceListGenerationDraftForActiveType()
+  schedulePriceListPricingRuleTrialRefresh()
 }
 
 function clearPriceListProductTemplate(row = {}) {
@@ -2089,6 +2114,7 @@ function clearPriceListProductTemplate(row = {}) {
   delete next[key]
   priceListProductTemplateOverrides.value = next
   savePriceListGenerationDraftForActiveType()
+  schedulePriceListPricingRuleTrialRefresh()
 }
 
 function priceListActivePricingSelection() {

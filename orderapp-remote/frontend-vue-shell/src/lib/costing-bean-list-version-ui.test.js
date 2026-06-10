@@ -408,6 +408,29 @@ test('price list generation persists pricing drafts and applies tier-template tr
   assert.match(flatRowSource, /mode === 'pricing_rule' \|\| mode === 'tier_template'/)
 })
 
+test('price list restored product template overrides schedule pricing-rule trial refresh', () => {
+  assert.ok(
+    viewSource.includes('function schedulePriceListPricingRuleTrialRefresh'),
+    'restored pricing-rule product overrides need an explicit post-render trial refresh scheduler',
+  )
+
+  const restoreStart = viewSource.indexOf('function restorePriceListGenerationDraftForActiveType()')
+  const restoreEnd = viewSource.indexOf('function beanListPublicationTypeKey', restoreStart)
+  assert.ok(restoreStart > -1 && restoreEnd > restoreStart, 'restorePriceListGenerationDraftForActiveType block not found')
+  assert.ok(
+    viewSource.slice(restoreStart, restoreEnd).includes('schedulePriceListPricingRuleTrialRefresh()'),
+    'restoring saved product template overrides should refresh pricing-rule trial requests',
+  )
+
+  const setProductStart = viewSource.indexOf('function setPriceListProductTemplate(row = {}, field, value)')
+  const setProductEnd = viewSource.indexOf('function clearPriceListProductTemplate', setProductStart)
+  assert.ok(setProductStart > -1 && setProductEnd > setProductStart, 'setPriceListProductTemplate block not found')
+  assert.ok(
+    viewSource.slice(setProductStart, setProductEnd).includes('schedulePriceListPricingRuleTrialRefresh()'),
+    'changing product pricing template should refresh pricing-rule trial requests',
+  )
+})
+
 test('price list product selection summaries avoid parent child wording and inherited rows say category inheritance', () => {
   const productSelectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
   const dialogStart = viewSource.indexOf('<div v-if="priceListConfigDialog.open"', productSelectionStart)

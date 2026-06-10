@@ -7,9 +7,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX
-- Branch: codex/price-list-persistence-preview-group-fix-20260610
+- Branch: codex/price-list-product-override-trial-refresh-20260610 (follow-up); previous branches codex/price-list-persistence-preview-group-fix-20260610 and codex/price-list-redrock-trial-request-fix-20260610
 - Owner/session: Codex / 2026-06-10
-- Status: ready for integration; RED/GREEN frontend tests, support contract, full Go tests, Vue build, changed verifier and diff check passed. Post-deploy browser acceptance required by Van before final handoff.
+- Status: follow-up implemented locally; restored product override browser RED reproduced, RED/GREEN frontend tests, Vue build and diff check passed. Pending changed verifier, merge to develop, development deploy and live browser acceptance.
 - Scope: 修复商品价格表生成区回归：`熟豆-红岩拼配` 选择按价格模板或按阶梯价模板计价后，价格表预览必须显示价格；修改计价方式和模板后刷新界面不能回退；商品档案中把 `熟豆-红岩拼配` 放到 `咖啡熟豆 / 意式拼配豆` 后，重新部署或刷新商品价格表不能又显示到未分类。
 - DEV:
   - DEV-467-PRICE-LIST-DRAFT-PERSISTENCE：商品价格表生成草稿按工作台、归属客户和商品类型 key 保存计价方式、默认模板、分类覆盖、商品覆盖和手工价格覆盖，切换类型或刷新后恢复。
@@ -20,6 +20,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - FOLLOW-UP RED browser/API: 线上页面只向 `/app/api/costing/pricing-rule-trial` 发送 `product_id=539` 请求；直接 API 请求 `product_id=550` + `pricing_rule_id=11` 返回 `kg=92.03`、`lb=42.64`，说明红岩缺价是页面 trial 请求队列漏触发。
   - FOLLOW-UP RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed because `CostingView.vue` lacked `priceListPricingRuleTrialRequestsForRows` / `watch(priceListFlatRows)` post/immediate guard.
   - FOLLOW-UP GREEN frontend: `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-settings.test.js` passed 150/150 after adding the flat-row watcher.
+  - FOLLOW-UP 2 RED browser/API: `node /private/tmp/kferp-pr467-pricing-rule-draft-check.mjs` against deployed development restored the `熟豆-红岩拼配` product override UI but only sent pricing-rule-trial for `product_id=539`; the redrock flat row stayed `0`.
+  - FOLLOW-UP 2 RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed because restored product template overrides had no explicit post-render pricing-rule trial refresh scheduler.
+  - FOLLOW-UP 2 GREEN frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 22/22 after adding `schedulePriceListPricingRuleTrialRefresh()` and calling it from draft restore/product/category/default pricing setters.
+  - FOLLOW-UP 2 GREEN frontend combined: `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-settings.test.js` passed 151/151.
+  - FOLLOW-UP 2 GREEN build/check: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with the existing Vite chunk-size warning; `git diff --check` passed.
   - RED support: `go test ./internal/interfaces/http/support -run TestDev467PriceListGenerationPersistencePreviewGroupFixContracts -count=1` failed because `req_store.go` lacked `PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX`.
   - GREEN frontend: `node --test src/lib/product-price-list-draft.test.js src/lib/costing-bean-list-version-ui.test.js` passed 22/22.
   - GREEN frontend: `node --test src/lib/product-price-list-selection.test.js src/lib/product-price-list-types.test.js src/lib/business-grouping.test.js src/lib/product-settings.test.js` passed 145/145.
