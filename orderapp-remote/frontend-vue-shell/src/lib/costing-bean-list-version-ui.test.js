@@ -140,25 +140,27 @@ test('product bean-list legacy global publication row displays as current select
 
   assert.match(labelSource, /activeProductTypeCategoryID\.value/)
   assert.match(labelSource, /matchesCurrentPublicationProductType\(row, activeTypeID\)/)
+  assert.match(labelSource, /activeTypeID !== 0/)
   assert.match(labelSource, /selectedProductPriceListLabel\.value/)
 })
 
-test('product price-list version list supports factory supply and customer resale purpose filter', () => {
+test('product price-list version list hides factory supply and customer resale purpose filter', () => {
   const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
   assert.ok(versionListStart > -1 && versionListEnd > versionListStart, 'missing bean-list version panel')
   const versionListSource = viewSource.slice(versionListStart, versionListEnd)
 
-  for (const expected of [
-    'v-model="publicationPurposeFilter"',
-    '<option value="factory_supply">工厂供货价格表</option>',
-    '<option value="customer_resale">客户转售价格表</option>',
-    'function beanListPublicationPurposeLabel',
-    'publication_purpose',
-    "params.set('publication_purpose', publicationPurposeFilter.value)",
-  ]) {
-    assert.ok(viewSource.includes(expected) || versionListSource.includes(expected), `missing publication purpose filter behavior: ${expected}`)
-  }
+  assert.doesNotMatch(versionListSource, /v-model="publicationPurposeFilter"/)
+  assert.doesNotMatch(versionListSource, /<span>用途<\/span>/)
+  assert.doesNotMatch(versionListSource, /<option value="factory_supply">工厂供货价格表<\/option>/)
+  assert.doesNotMatch(versionListSource, /<option value="customer_resale">客户转售价格表<\/option>/)
+  assert.doesNotMatch(versionListSource, /<th>用途<\/th>/)
+  assert.doesNotMatch(versionListSource, /beanListPublicationPurposeLabel\(row\)/)
+  assert.doesNotMatch(viewSource, /publicationPurposeFilter/)
+  assert.doesNotMatch(viewSource, /客户转售价格表/)
+  assert.doesNotMatch(viewSource, /工厂供货价格表/)
+  assert.match(viewSource, /publication_purpose/)
+  assert.match(viewSource, /FACTORY_SUPPLY_PUBLICATION_PURPOSE/)
 })
 
 test('product bean-list generate area uses inline price-list configuration instead of preview cards', () => {

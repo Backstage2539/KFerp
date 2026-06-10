@@ -19,6 +19,7 @@
 - [ ] PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：商品档案、生产 BOM、仓库库存三处页面都引用共享 `BusinessGroupControls` 和 `business-grouping` helper，不再各自手写模板选择、移动分类、未分类分组和移动 payload。
 - [ ] PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品价格表按所选商品分组模板生成选品分类和发布快照；价格表覆盖只写入快照，不回写商品档案分类。
 - [ ] PR-459-PRICE-LIST-FOLLOW-PRODUCT-GROUP：商品档案选择 `商品分组` 后切到商品价格表，选品分类显示该模板的大类/小类和 `未分类`；平铺价格行快照写入 `group_source=product_catalog`，未归类、其他模板归类和已删除分类归类统一进入 `未分类`。
+- [ ] PR-463-PRICE-LIST-PRODUCT-CATALOG-USAGE-CLEANUP：商品价格表类型按商品档案 `商品分组` 顶层大类展示；`咖啡熟豆 / 意式拼配豆` 下的 `熟豆-红岩拼配` 必须能在商品价格表中看到，不能被旧 `熟豆 / 默认熟豆` 分类藏到其他入口。商品价格表版本列表不显示用途筛选、用途列、`工厂供货价格表` 或 `客户转售价格表` 标签。
 - [ ] PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：商品价格表“选择分类和产品”中父类、子类和商品逐级缩进；父类和子类都支持收缩/展开，收缩后仍保留分类勾选、计价按钮和选中数/总数，已勾选商品和生成结果不被清空。
 - [ ] PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：点击父类、子类或商品行的 `计价 继承分类`，在按钮附近弹出四项计价菜单：`继承分类`、`按阶梯模板价计算`、`按价格模板计算`、`固定价`；不得出现右下角计价弹窗。选择父类只覆盖父类，选择子类只覆盖子类，选择商品只覆盖商品；商品行 `展示 无标签` 仍按原展示弹窗维护。
 - [ ] PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：商品价格表下方预览和生成 PDF 的分类标题、商品归属、过滤结果和商品顺序必须与“选择分类和产品”保持一致；同一选品分类下的商品不得被旧 bean-list 分类拆成多个预览分类。
@@ -488,7 +489,7 @@
 - [ ] 客户豆单发布时保存官方价格来源；不再保存历史样式来源。
 - [ ] 客户豆单发布后，内容和价格以发布时快照为准；后续官方豆单更新不会自动改写该客户豆单。
 - [ ] PR-BEANLIST-VERSION-001：产品价格表直接展示豆单版本列表，页面顶部范围下拉列出“公共豆单”和每个履约客户（如岩师傅、用户A），选择某一项后只展示该归属版本，并能按 SKU设置 中的产品类型查看历史版本；同一产品类型价格表多次发布后版本列表保留每个已发布版本；小程序或 PDF 下载第一次生成后写入 `bean_list_publication_assets`，后续同版本复用缓存。
-- [ ] PR-431-CUSTOMER-RESALE-BEAN-LIST：产品价格表版本列表可按用途筛选“工厂供货豆单 / 客户转售豆单”；默认录单和价格表生成只使用 `factory_supply`，切到 `customer_resale` 时管理员能看到客户发布版本、来源供货版本和用途标记，但这些版本不进入录单默认价格版本。
+- [ ] PR-431-CUSTOMER-RESALE-BEAN-LIST：客户转售发布仍保存为 `customer_resale` 并追溯来源供货版本；PR-463 后 ERP 商品价格表版本列表不再按用途筛选，只显示 `factory_supply` 供货版本，`customer_resale` 不进入录单默认价格版本、订单结算、费用中心或工厂履约计价。
 - [ ] PR-431-CUSTOMER-RESALE-BEAN-LIST：阶梯价模板编辑区有“允许客户转售豆单使用”开关；小程序接口只返回 active 且已授权模板，未授权模板不能被客户发布接口使用。
 - [ ] PR-431-CUSTOMER-RESALE-BEAN-LIST：客户转售发布接口只能基于当前客户可见的 `factory_supply` 豆单快照生成 `customer_resale` 快照；跨客户来源、其他客户转售版本、撤回或不可见来源都被拒绝。
 - [ ] PR-431-CUSTOMER-RESALE-BEAN-LIST：客户转售价格按授权模板档位匹配来源豆单价格，再应用统一加价、倍率加价和单品覆盖；单位不一致或来源缺少可匹配价格时发布失败，不生成 0 元价格。

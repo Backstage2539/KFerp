@@ -47,6 +47,71 @@ export function buildClassificationPriceListTypeOptions(sourceItems = []) {
     })
 }
 
+export function buildProductCatalogPriceListTypeOptions(sourceItems = [], {
+  template = null,
+  assignments = [],
+} = {}) {
+  const templateID = numberField(template?.id)
+  if (!(templateID > 0)) return []
+  const roots = topLevelBusinessGroupItems(template?.items || [])
+  if (!roots.length) return []
+  const rootByItemID = new Map()
+  roots.forEach((root, index) => {
+    businessGroupDescendantIDs(root).forEach((id) => {
+      rootByItemID.set(id, { root, index })
+    })
+  })
+  const groups = new Map()
+  ;(Array.isArray(sourceItems) ? sourceItems : []).forEach((item) => {
+    const assignment = productCatalogAssignmentForItem(item, assignments, templateID)
+    const groupItemID = numberField(assignment?.group_item_id ?? assignment?.groupItemID)
+    const match = rootByItemID.get(groupItemID)
+    if (!match) return
+    const rootID = numberField(match.root.id)
+    const key = `product-catalog:${templateID}:${rootID}`
+    const current = groups.get(key) || {
+      id: productCatalogPriceListTypeID(rootID),
+      categoryID: 0,
+      key,
+      label: stringField(match.root.name) || `分组 ${rootID}`,
+      listType: priceListRenderTypeForItem(item),
+      position: numberField(match.root.sort_order ?? match.root.sortOrder) || (match.index + 1) * 10,
+      itemCount: 0,
+      productCatalogGroupID: templateID,
+      productCatalogGroupItemID: rootID,
+      productCatalogGroupItemIDs: businessGroupDescendantIDs(match.root),
+    }
+    current.itemCount += 1
+    current.listType = dominantPriceListRenderType([
+      ...((current._items) || []),
+      item,
+    ])
+    current._items = [...((current._items) || []), item]
+    groups.set(key, current)
+  })
+  return Array.from(groups.values())
+    .map(({ _items, ...option }) => option)
+    .sort((a, b) => {
+      const positionDelta = Number(a.position || 999999) - Number(b.position || 999999)
+      if (positionDelta !== 0) return positionDelta
+      return String(a.label || '').localeCompare(String(b.label || ''), 'zh-Hans-CN')
+    })
+}
+
+export function matchesProductCatalogPriceListType(item = {}, type = {}, {
+  assignments = [],
+} = {}) {
+  const groupID = numberField(type?.productCatalogGroupID ?? type?.product_catalog_group_id)
+  if (!(groupID > 0)) return false
+  const groupItemIDs = new Set((type?.productCatalogGroupItemIDs || type?.product_catalog_group_item_ids || [])
+    .map((id) => numberField(id))
+    .filter(Boolean))
+  if (!groupItemIDs.size) return false
+  const assignment = productCatalogAssignmentForItem(item, assignments, groupID)
+  const groupItemID = numberField(assignment?.group_item_id ?? assignment?.groupItemID)
+  return groupItemIDs.has(groupItemID)
+}
+
 export function classificationTemplateIDOfItem(item = {}) {
   const currentID = Number(
     item?.classification_template_id ||
@@ -209,6 +274,77 @@ function dominantPriceListRenderType(items = []) {
 
 function productTypePositionOfItem(item = {}) {
   return Number(item?.category_primary_position || item?.product_type_position || item?.productTypePosition || 999999)
+}
+
+function productCatalogPriceListTypeID(groupItemID) {
+  return -1000000 - numberField(groupItemID)
+}
+
+function productCatalogAssignmentForItem(item = {}, assignments = [], templateID = 0) {
+  const productID = numberField(item?.product_id ?? item?.productID ?? item?.id)
+  if (!(productID > 0)) return null
+  return (Array.isArray(assignments) ? assignments : []).find((assignment) => (
+    stringField(assignment?.usage_key ?? assignment?.usageKey) === 'product_catalog' &&
+    stringField(assignment?.object_key ?? assignment?.objectKey) === 'product' &&
+    numberField(assignment?.group_id ?? assignment?.groupID) === numberField(templateID) &&
+    numberField(assignment?.object_id ?? assignment?.objectID) === productID
+  )) || null
+}
+
+function topLevelBusinessGroupItems(items = []) {
+  return businessGroupItemsTreeForPriceList(items)
+}
+
+function businessGroupDescendantIDs(root = {}) {
+  return flattenBusinessGroupItems([root]).map((item) => numberField(item.id)).filter(Boolean)
+}
+
+function flattenBusinessGroupItems(items = []) {
+  const out = []
+  const visit = (item = {}, parentID = 0) => {
+    const normalized = {
+      ...item,
+      parent_id: numberField(item.parent_id ?? item.parentID) || parentID,
+    }
+    out.push(normalized)
+    ;(Array.isArray(item.children) ? item.children : []).forEach((child) => visit(child, numberField(item.id)))
+  }
+  ;(Array.isArray(items) ? items : []).forEach((item) => visit(item))
+  return out
+}
+
+function businessGroupItemsTreeForPriceList(items = []) {
+  const flat = flattenBusinessGroupItems(items)
+    .filter((item) => item?.active !== false)
+    .map((item) => ({
+      ...item,
+      id: numberField(item.id),
+      parent_id: numberField(item.parent_id ?? item.parentID),
+      sort_order: numberField(item.sort_order ?? item.sortOrder ?? item.position) || 100,
+      children: [],
+    }))
+    .filter((item) => item.id > 0)
+  const byID = new Map(flat.map((item) => [item.id, item]))
+  const roots = []
+  flat.forEach((item) => {
+    const parent = byID.get(item.parent_id)
+    if (parent && parent.id !== item.id) {
+      parent.children.push(item)
+    } else {
+      roots.push(item)
+    }
+  })
+  const sortRows = (rows = []) => {
+    rows.sort((a, b) => numberField(a.sort_order ?? a.sortOrder) - numberField(b.sort_order ?? b.sortOrder) || numberField(a.id) - numberField(b.id))
+    rows.forEach((row) => sortRows(row.children || []))
+    return rows
+  }
+  return sortRows(roots)
+}
+
+function numberField(value) {
+  const n = Number(value || 0)
+  return Number.isFinite(n) ? n : 0
 }
 
 function directProductCategoryIDOfItem(item = {}) {

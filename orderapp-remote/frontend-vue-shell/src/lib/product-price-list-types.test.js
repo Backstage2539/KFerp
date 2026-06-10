@@ -4,9 +4,11 @@ import assert from 'node:assert/strict'
 import {
   UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID,
   buildClassificationPriceListTypeOptions,
+  buildProductCatalogPriceListTypeOptions,
   classificationTemplateIDOfItem,
   classificationTemplateIDOfPublication,
   classificationTemplateNameOfPublication,
+  matchesProductCatalogPriceListType,
   matchesPublicationProductType,
   matchesProductTypeCategory,
   publicationVersionListState,
@@ -70,6 +72,86 @@ test('direct product categories drive price list type options after template rem
   assert.equal(matchesProductTypeCategory(directLeaf, UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID), false)
   assert.deepEqual(options.map((option) => option.label), ['未分类商品', '咖啡烘焙豆', '周边商品'])
   assert.equal(options.find((option) => option.label === '咖啡烘焙豆')?.itemCount, 1)
+})
+
+test('product catalog groups drive product price-list types before legacy product categories', () => {
+  const groupTemplate = {
+    id: 128,
+    name: '商品分组',
+    items: [
+      {
+        id: 3296,
+        name: '咖啡熟豆',
+        parent_id: 0,
+        sort_order: 10,
+        children: [
+          { id: 3297, name: '意式拼配豆', parent_id: 3296, sort_order: 10 },
+        ],
+      },
+    ],
+  }
+  const rows = [
+    {
+      product_id: 538,
+      name: 'PR439-20260606182321 熟豆下单商品',
+      product_kind: 'roasted',
+      product_category_id: 3,
+      product_type_category_id: 1,
+      category_primary_name: '咖啡烘焙豆',
+      category_secondary_name: '精品意式拼配',
+    },
+    {
+      product_id: 550,
+      name: '熟豆-红岩拼配',
+      product_kind: 'roasted',
+      product_category_id: 223,
+      product_type_category_id: 221,
+      category_primary_name: '熟豆',
+      category_secondary_name: '默认熟豆',
+    },
+  ]
+  const assignments = [
+    { usage_key: 'product_catalog', object_key: 'product', object_id: 538, group_id: 128, group_item_id: 3297 },
+    { usage_key: 'product_catalog', object_key: 'product', object_id: 550, group_id: 128, group_item_id: 3297 },
+  ]
+
+  const options = buildProductCatalogPriceListTypeOptions(rows, { template: groupTemplate, assignments })
+
+  assert.deepEqual(options.map((option) => option.label), ['咖啡熟豆'])
+  assert.equal(options[0].itemCount, 2)
+  assert.equal(options[0].listType, 'commercial')
+  assert.equal(matchesProductCatalogPriceListType(rows[1], options[0], { assignments }), true)
+})
+
+test('product catalog price-list types accept flat business group items', () => {
+  const groupTemplate = {
+    id: 128,
+    name: '商品分组',
+    items: [
+      { id: 3296, name: '咖啡熟豆', parent_id: 0, sort_order: 10 },
+      { id: 3297, name: '意式拼配豆', parent_id: 3296, sort_order: 10 },
+    ],
+  }
+  const rows = [
+    {
+      product_id: 550,
+      name: '熟豆-红岩拼配',
+      product_kind: 'roasted',
+      product_category_id: 223,
+      product_type_category_id: 221,
+      category_primary_name: '熟豆',
+      category_secondary_name: '默认熟豆',
+    },
+  ]
+  const assignments = [
+    { usage_key: 'product_catalog', object_key: 'product', object_id: 550, group_id: 128, group_item_id: 3297 },
+  ]
+
+  const options = buildProductCatalogPriceListTypeOptions(rows, { template: groupTemplate, assignments })
+
+  assert.deepEqual(options.map((option) => option.label), ['咖啡熟豆'])
+  assert.equal(options[0].itemCount, 1)
+  assert.equal(matchesProductCatalogPriceListType(rows[0], options[0], { assignments }), true)
 })
 
 test('unclassified legacy green bean still renders with green bean price rows', () => {

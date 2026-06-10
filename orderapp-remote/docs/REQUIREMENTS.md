@@ -22,6 +22,7 @@
 - PR-458-GROUP-TEMPLATE-BUSINESS-LISTING：仓库库存分组对象是仓库，不是库存批次、库存行、商品或物料。仓库库存页选择库存分组模板后，左侧仓库列表按模板大类/小类和 `未分类` 整理，仓库行可勾选后用同一套 `移动到分类` 批量移动；对象引用使用仓库 code，不改变库存数量、批次、成本或追溯。仓库库存页面不再使用 `普通仓库`、`客户仓库` 固定分段；仓库类型和客户绑定只作为行内/抽屉信息保留，客户可见仓库视图后续单独设计。
 - PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品价格表按所选商品分组模板生成选品分类和发布快照；客户/价格表生成时如覆盖分组，只固化到该价格表版本快照，记录 `group_id/group_item_id/parent_group_item_id/group_source`，不得回写商品档案分类。
 - PR-459-PRICE-LIST-FOLLOW-PRODUCT-GROUP：商品档案页面当前选择的 `商品分组` 会通过页面草稿传递给商品价格表。进入商品价格表时优先使用该商品分组模板读取 `product_catalog/product` 归类，生成选品分类、未分类分组和平铺价格行 `group_source=product_catalog` 快照；其他模板、已删除分类或未归类商品统一进入 `未分类`。
+- PR-463-PRICE-LIST-PRODUCT-CATALOG-USAGE-CLEANUP：商品价格表顶部商品类型优先使用商品档案 `product_catalog` 分组模板的顶层大类生成，子类归组商品必须跟随父类入口可见。例如商品归在 `咖啡熟豆 / 意式拼配豆` 下，即使旧商品分类仍是 `熟豆 / 默认熟豆`，也必须出现在商品价格表的 `咖啡熟豆` 类型和 `意式拼配豆` 选品分类中。商品价格表版本列表固定查询 `factory_supply`，不展示用途筛选、用途列或“工厂供货价格表 / 客户转售价格表”用途标签；`customer_resale` 继续作为后台和小程序客户转售分享用途，不进入 ERP 录单默认价格版本。
 - PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：商品价格表“选择分类和产品”必须按分组模板渲染为树形列表，父类、子类、商品逐级缩进，分类标题可收缩/展开；收缩只隐藏该分类下商品行，不改变勾选、计价或发布结果。预览和生成 PDF 必须使用与“选择分类和产品”同源的分类行和商品行，分类标题、分类过滤、商品归属和行顺序保持一致，不再用旧 bean-list 分类把同一选品分类拆散。点击分类或商品的 `计价` 摘要时，在按钮附近弹出四项计价菜单：`继承分类`、`按阶梯模板价计算`、`按价格模板计算`、`固定价`；选择继承会清掉当前分类/商品自己的覆盖。父类按钮只写父类覆盖，子类按钮只写子类覆盖，商品按钮只写商品覆盖，发布解析顺序继续是 `商品 > 子类 > 父类 > 价格表`。
 - PR-440-PRODUCT-GROUP-PRICE-REMODEL / PR-453-GROUP-TEMPLATE-SYSTEM-SETTINGS：商品档案是 Item；系统不再有独立客户商品主数据，新业务只使用商品档案 `product_id`。客户差异维护在商品档案的客户引用子表，用于客户料号、客户显示名、打印和搜索，不参与价格、单位、BOM、库存或分类。
 - PR-440-PRODUCT-GROUP-PRICE-REMODEL / PR-441-PRICE-LIST-TIER-TEMPLATE-MODES：商品价格管理页面只显示价格计算模板 / Pricing Rule。Pricing Rule 不绑定商品、不维护阶梯档位、不保存最终成交价；字段包含基础成本、其他成本、损耗/出率、利润方式、税费方式、税率、取整规则、最低毛利提示、公式版本、试算说明和备注。阶梯模板属于商品价格表模块，每个档位可引用一个价格计算模板。
@@ -331,7 +332,7 @@
 - PR-BEANLIST-VERSION-002：ERP 录单必须按熟豆、生豆、挂耳分别记录本单商品行使用的豆单版本。客户有专属豆单时各类型默认选最新专属版本并允许选择历史发布版本；客户没有专属豆单时对应类型自动使用公共豆单。
 - PR-BEANLIST-VERSION-003：小程序默认展示当前客户最新可用豆单；客户首次按新版豆单下单前必须看到更新提示，提示包含新增、下架和调整摘要，确认后写入已读记录，后续不重复提示。
 - PR-431-CUSTOMER-RESALE-BEAN-LIST：`bean_list_publications` 必须区分用途。工厂给客户供货和 ERP 录单取价使用 `publication_purpose=factory_supply`；客户在小程序发布给自己客户看的销售豆单使用 `publication_purpose=customer_resale`，继续保存为 `owner_type=customer`、`owner_key=<customer_id>`，并用 `price_source_publication_id`、`style_source_publication_id`、`source_version_no` 追溯来源供货豆单和样式来源。
-- PR-431-CUSTOMER-RESALE-BEAN-LIST：客户转售豆单只用于分享，不进入 ERP 录单默认价格版本、订单结算、费用中心或工厂履约计价。ERP 产品价格表版本列表必须支持按用途筛选“工厂供货豆单 / 客户转售豆单”，管理员可查看客户转售版本及来源。
+- PR-431-CUSTOMER-RESALE-BEAN-LIST：客户转售豆单只用于分享，不进入 ERP 录单默认价格版本、订单结算、费用中心或工厂履约计价。PR-463 后 ERP 商品价格表版本列表不再提供用途筛选，只展示 `factory_supply` 工厂供货版本；管理员需要追溯客户转售版本时走小程序客户侧发布记录、后台接口或数据库中的 `publication_purpose=customer_resale` 来源字段。
 - PR-431-CUSTOMER-RESALE-BEAN-LIST：客户转售豆单发布时，版本号按当前客户自己的转售版本从 `V1` 递增；来源供货版本单独保存。发布快照必须冻结最终展示价格、品牌名、豆单说明、版本说明、背景色、背景图、logo、卡片/表格样式、每行卡片数、上新/推荐标签和标红词。
 - PR-431-CUSTOMER-RESALE-BEAN-LIST：客户转售豆单价格只能基于当前客户可见的 `factory_supply` 豆单快照。客户选择授权阶梯价模板后，系统按目标档位起订数量匹配来源豆单对应档位，再应用统一加价、倍率加价和单品覆盖；单位不一致或来源豆单缺少可匹配价格时必须拒绝发布，不能静默生成 0 元价格。
 - PR-383-CUSTOMER-MANAGEMENT-PORTAL-WAREHOUSE：门户客户配置不再提供“豆单展示版本”开关；客户侧豆单按已发布客户专属豆单和公共兜底规则读取，历史报价通过价格发布版本和订单快照追溯。

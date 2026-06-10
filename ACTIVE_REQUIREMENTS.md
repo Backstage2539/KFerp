@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-463-PRICE-LIST-PRODUCT-CATALOG-USAGE-CLEANUP
+- Branch: codex/price-list-product-usage-cleanup-20260610
+- Owner/session: Codex / 2026-06-10
+- Status: ready for integration; local unit verification passed. Browser/system acceptance intentionally skipped per Van request; Van will validate deployed UI.
+- Scope: 商品价格表顶部商品类型优先按商品档案 `product_catalog` 商品分组顶层大类生成；归在 `咖啡熟豆 / 意式拼配豆` 的 `熟豆-红岩拼配` 必须在商品价格表中可见，不再被旧 `熟豆 / 默认熟豆` 分类藏到其他入口。ERP 商品价格表版本列表删除用途筛选和用途列，固定查询 `factory_supply` 供货版本；`customer_resale` 保留后台/小程序分享语义，不进入 ERP 录单默认价格。
+- DEV:
+  - DEV-463-PRICE-LIST-TYPE-PRODUCT-CATALOG：商品价格表类型优先使用 `product_catalog/product` 归组的顶层大类，子类归组商品通过父类入口匹配。
+  - DEV-463-PRICE-LIST-HIDE-PURPOSE-UI：ERP 商品价格表版本列表隐藏用途筛选、用途列和 `工厂供货价格表 / 客户转售价格表` 标签，固定按 `factory_supply` 加载。
+  - DEV-463-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR-431 客户转售验收记录和 PR-463 验收记录。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-price-list-types.test.js` initially failed because flat `business_group_items` child assignment for `熟豆-红岩拼配` produced no `咖啡熟豆` price-list type.
+  - RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` initially failed before the version list removed purpose filter/column.
+  - GREEN targeted frontend: `node --test src/lib/product-price-list-types.test.js src/lib/costing-bean-list-version-ui.test.js` passed 27/27.
+  - GREEN backend/unit: `go test ./...` in `orderapp-remote` passed.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-10-price-list-product-catalog-usage-cleanup.md`; `orderapp-remote/docs/acceptance/2026-06-06-customer-resale-bean-list.md`.
+- Last update: 2026-06-10 Asia/Shanghai
+
 ### PR-462-PRICING-RULE-TRIAL-OUTPUT-BOM-OPERATION-SELECT
 - Branch: codex/pricing-rule-trial-waterfall-bom-detail
 - Owner/session: Codex / 2026-06-08
@@ -744,7 +761,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-431-MINI-RESALE-BEAN-LIST-API：新增小程序转售豆单列表、编辑器草稿、草稿保存、发布、PDF 和 PNG 输出接口，所有写操作校验 mini token、当前客户绑定、`bean_list` 能力并写操作日志。
   - DEV-431-RESALE-PRICE-CALCULATION：客户转售价格只基于客户可见工厂供货快照，按授权模板档位匹配来源价格后应用统一加价、倍率和单品覆盖；单位不一致或缺少可匹配价格时拒绝发布。
   - DEV-431-MINIAPP-LIGHT-EDITOR：小程序“我的豆单”页增加轻量编辑面板，支持来源豆单、模板、商品勾选、品牌/说明、样式/背景、标签、草稿、发布和 PDF/长图分享。
-  - DEV-431-COSTING-PURPOSE-FILTER：ERP 产品价格表版本列表增加用途筛选，管理员可查看工厂供货豆单和客户转售豆单，客户转售版本不进入录单默认价格版本。
+  - DEV-431-COSTING-PURPOSE-FILTER：`bean_list_publications` 保留用途字段；PR-463 后 ERP 商品价格表版本列表固定显示 `factory_supply` 供货版本，`customer_resale` 仅用于客户小程序转售分享和后台来源追溯。
 - Verifier:
   - RED local: added failing Go/API/PDF/frontend/miniapp tests before implementation for resale publication calculation, Mini API routes, repository purpose filtering, PNG renderer, costing purpose filter, gradient template authorization, and miniapp editor helpers/UI anchors.
   - GREEN local targeted: `go test ./internal/application/customerportal -run 'TestPublishResaleBeanList' -count=1`; `go test ./internal/interfaces/http/customerportal -run 'TestMiniResaleBeanList|TestMiniBeanListPDF' -count=1`; `go test ./internal/interfaces/http/costing -run 'TestBeanListPublicationAPISupportsPurposeFilter|TestBeanListPublicationAPI' -count=1`; `go test ./internal/infrastructure/postgres/customerportal -run TestResaleBeanListPageSeparatesFactorySupplySnapshotsAndAuthorizedTemplates -count=1`; `go test ./internal/infrastructure/pdf -run TestBeanListRendererRenderPNGProducesLongShareImage -count=1`; `node --test src/lib/gradient-templates.test.js src/lib/costing-bean-list-version-ui.test.js`; `npm test -- src/utils/mainTabs.test.ts src/utils/resaleBeanList.test.ts`; `npm run typecheck` in miniapp.

@@ -6,7 +6,7 @@
 - 工厂供货豆单继续使用 `publication_purpose=factory_supply`，现有记录默认回填为该用途。
 
 ## Implemented
-- `bean_list_publications` 增加用途字段，ERP 产品价格表版本列表增加“工厂供货豆单 / 客户转售豆单”用途筛选。
+- `bean_list_publications` 增加用途字段。PR-463 后 ERP 商品价格表版本列表不再展示“工厂供货豆单 / 客户转售豆单”用途筛选，固定显示 `factory_supply` 供货版本；`customer_resale` 保留给客户小程序转售分享和后台来源追溯。
 - 阶梯价模板增加“允许客户转售豆单使用”开关；小程序只返回 active 且授权的模板。
 - 小程序新增客户转售豆单接口：列表、编辑器、草稿保存、发布、PDF、PNG。
 - 客户转售发布按来源工厂供货快照、授权模板档位、统一加价、倍率加价和单品覆盖生成最终展示价格快照。
@@ -14,7 +14,7 @@
 - PDF 输出复用现有豆单 PDF 逻辑，PNG 使用服务端长图缓存。
 
 ## Evidence
-- RED tests were added before implementation for service calculation, Mini API, repository filtering, PNG renderer, costing purpose filtering, ERP Vue purpose filter, gradient template authorization and miniapp editor helpers/UI anchors.
+- RED tests were added before implementation for service calculation, Mini API, repository filtering, PNG renderer, costing purpose handling, ERP Vue version-list behavior, gradient template authorization and miniapp editor helpers/UI anchors.
 - GREEN targeted backend:
   - `go test ./internal/application/customerportal -run 'TestPublishResaleBeanList' -count=1`
   - `go test ./internal/interfaces/http/customerportal -run 'TestMiniResaleBeanList|TestMiniBeanListPDF' -count=1`

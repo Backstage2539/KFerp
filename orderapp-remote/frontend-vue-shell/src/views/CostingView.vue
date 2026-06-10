@@ -63,13 +63,6 @@
             </option>
           </select>
         </label>
-        <label>
-          <span>用途</span>
-          <select v-model="publicationPurposeFilter">
-            <option value="factory_supply">工厂供货价格表</option>
-            <option value="customer_resale">客户转售价格表</option>
-          </select>
-        </label>
         <div class="version-summary">
           <span>当前发布</span>
           <strong>{{ versionListCurrentPublication?.version || '暂无' }}</strong>
@@ -90,7 +83,6 @@
             <tr>
               <th>版本号</th>
               <th>类型</th>
-              <th>用途</th>
               <th>归属</th>
               <th>状态</th>
               <th>时间</th>
@@ -106,7 +98,6 @@
                 <small>#{{ row.id }}</small>
               </td>
               <td>{{ beanListPublicationTypeLabel(row) }}</td>
-              <td>{{ beanListPublicationPurposeLabel(row) }}</td>
               <td>{{ beanListPublicationOwnerLabel(row) }}</td>
               <td>
                 <span :class="['status-pill', beanListPublicationStatusClass(row)]">
@@ -975,6 +966,7 @@ import {
 import {
   UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID,
   buildClassificationPriceListTypeOptions as buildClassificationPriceListTypeOptionsFromItems,
+  buildProductCatalogPriceListTypeOptions,
   classificationCategoryIDOfItem as currentClassificationCategoryIDOfItem,
   classificationCategoryNameOfItem as currentClassificationCategoryNameOfItem,
   classificationTemplateIDOfItem as currentClassificationTemplateIDOfItem,
@@ -982,6 +974,7 @@ import {
   classificationTemplateNameOfItem as currentClassificationTemplateNameOfItem,
   classificationTemplateNameOfPublication as currentClassificationTemplateNameOfPublication,
   matchesPublicationProductType as matchesCurrentPublicationProductType,
+  matchesProductCatalogPriceListType,
   matchesProductTypeCategory as matchesCurrentProductTypeCategory,
   publicationVersionListState,
   priceListRenderTypeForItem as currentPriceListRenderTypeForItem,
@@ -1007,6 +1000,7 @@ const props = defineProps({
 })
 
 const SKU_SETTINGS_FORM_DRAFT_SCOPE = FORM_DRAFT_SCOPES.skuSettings
+const FACTORY_SUPPLY_PUBLICATION_PURPOSE = 'factory_supply'
 
 const loading = ref(false)
 const beanListPublishing = ref(false)
@@ -1019,7 +1013,6 @@ const priceExplanationLoading = ref(false)
 const pdfDrawerOpen = ref(false)
 const pdfPrinting = ref(false)
 const versionListScope = ref('official')
-const publicationPurposeFilter = ref('factory_supply')
 const publicationListSearch = ref('')
 const publicationListPage = ref(1)
 const publicationListPageSize = ref(10)
@@ -1121,7 +1114,13 @@ const customerScopedSkuCount = computed(() => {
   if (!customerID || activeCostingScope.value !== 'customer') return visibleCostingItems.value.length
   return activePriceListCustomerAliases.value.length
 })
-const productPriceListTypeOptions = computed(() => buildClassificationPriceListTypeOptions(visibleCostingItems.value))
+const productPriceListTypeOptions = computed(() => {
+  const productCatalogOptions = buildProductCatalogPriceListTypeOptions(visibleCostingItems.value, {
+    template: selectedProductCatalogGroupTemplate.value,
+    assignments: priceListProductBusinessGroupAssignments.value,
+  })
+  return productCatalogOptions.length ? productCatalogOptions : buildClassificationPriceListTypeOptions(visibleCostingItems.value)
+})
 const selectedProductPriceListType = computed(() => {
   const selectedID = Number(selectedProductTypeCategoryID.value || 0)
   return productPriceListTypeOptions.value.find((type) => Number(type.id || 0) === selectedID) || productPriceListTypeOptions.value[0] || null
@@ -1198,7 +1197,7 @@ const isBeanListAdmin = computed(() => {
   )
 })
 const customerScopeReady = computed(() => publicationScope.value !== 'customer' || Number(selectedBeanListCustomerID.value || 0) > 0)
-const currentScopePublicationRows = computed(() => publicationRows(versionListScope.value, pdfTheme.value.listType, activeProductTypeCategoryID.value, publicationPurposeFilter.value))
+const currentScopePublicationRows = computed(() => publicationRows(versionListScope.value, pdfTheme.value.listType, activeProductTypeCategoryID.value, FACTORY_SUPPLY_PUBLICATION_PURPOSE))
 const publicationListState = computed(() => publicationVersionListState(currentScopePublicationRows.value, {
   query: publicationListSearch.value,
   page: publicationListPage.value,
@@ -1277,11 +1276,6 @@ watch(versionListScope, (scope) => {
   initializePdfDefaultsIfItemsLoaded()
   loadBeanList()
   loadBeanListPublications(pdfTheme.value.listType, scope, activeProductTypeCategoryID.value)
-})
-
-watch(publicationPurposeFilter, () => {
-  publicationListPage.value = 1
-  loadBeanListPublications(pdfTheme.value.listType, versionListScope.value, activeProductTypeCategoryID.value)
 })
 
 watch([versionListScope, selectedProductTypeCategoryID, publicationListSearch], () => {
@@ -1407,6 +1401,8 @@ function fallbackProductTypeID(listType) {
 }
 
 function productPriceListTypeKey(type, listType = 'commercial') {
+  const explicitKey = String(type?.key || '')
+  if (explicitKey.startsWith('product-catalog:')) return explicitKey
   const id = Number(type?.categoryID || type?.id || 0)
   if (id === UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID) return 'classification:unclassified'
   if (id > 0) return `product-type:${id}`
@@ -2485,6 +2481,12 @@ function metaKeyForItem(item) {
 }
 
 function matchesProductTypeCategory(item, productTypeCategoryID = activeProductTypeCategoryID.value) {
+  const selectedType = productPriceListTypeOptions.value.find((type) => Number(type.id || 0) === Number(productTypeCategoryID || 0))
+  if (selectedType?.productCatalogGroupID) {
+    return matchesProductCatalogPriceListType(item, selectedType, {
+      assignments: priceListProductBusinessGroupAssignments.value,
+    })
+  }
   return matchesCurrentProductTypeCategory(item, productTypeCategoryID)
 }
 
@@ -2560,7 +2562,7 @@ function productCatalogGroupItemIDOfItem(item = {}) {
   return selectedProductCatalogGroupItemIDs.value.has(groupItemID) ? groupItemID : 0
 }
 
-function publicationRows(scope, listType, productTypeCategoryID = activeProductTypeCategoryID.value, purpose = publicationPurposeFilter.value) {
+function publicationRows(scope, listType, productTypeCategoryID = activeProductTypeCategoryID.value, purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE) {
   const cacheKey = beanListPublicationCacheKey(scope, purpose)
   const typeKey = beanListPublicationTypeKey(listType, productTypeCategoryID)
   const rows = beanListPublications.value?.[cacheKey]?.[typeKey] || []
@@ -2692,11 +2694,6 @@ function beanListPublicationOwnerLabel(row) {
   return '棵凡官方价格表'
 }
 
-function beanListPublicationPurposeLabel(row) {
-  if (row?.publication_purpose === 'customer_resale') return '客户转售价格表'
-  return '工厂供货价格表'
-}
-
 function beanListPublicationSourceLabel(row) {
   const parts = []
   if (row?.source_version) parts.push(`价格源 ${row.source_version}`)
@@ -2819,7 +2816,7 @@ function beanListPublicationTypeLabel(row) {
     if (option?.label) return option.label
   }
   const activeTypeID = Number(activeProductTypeCategoryID.value || 0)
-  if (activeTypeID > 0 && matchesCurrentPublicationProductType(row, activeTypeID)) {
+  if (activeTypeID !== 0 && matchesCurrentPublicationProductType(row, activeTypeID)) {
     return selectedProductPriceListLabel.value || '商品价格表'
   }
   return '未分类商品'
@@ -3215,7 +3212,7 @@ async function loadCurrentActor() {
   }
 }
 
-async function loadBeanListPublications(listType = pdfTheme.value.listType, scope = publicationScope.value, productTypeCategoryID = activeProductTypeCategoryID.value, purpose = publicationPurposeFilter.value) {
+async function loadBeanListPublications(listType = pdfTheme.value.listType, scope = publicationScope.value, productTypeCategoryID = activeProductTypeCategoryID.value, purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE) {
   const cacheKey = beanListPublicationCacheKey(scope, purpose)
   const typeKey = beanListPublicationTypeKey(listType, productTypeCategoryID)
   const requestScope = beanListPublicationRequestScope(scope)
@@ -3255,11 +3252,10 @@ async function refreshBeanListVersionList() {
   }
 }
 
-function beanListPublicationURL(listType, scope, productTypeCategoryID = activeProductTypeCategoryID.value, purpose = publicationPurposeFilter.value) {
+function beanListPublicationURL(listType, scope, productTypeCategoryID = activeProductTypeCategoryID.value, purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE) {
   const requestScope = beanListPublicationRequestScope(scope)
   const params = new URLSearchParams({ list_type: listType, scope: requestScope })
-  params.set('publication_purpose', publicationPurposeFilter.value)
-  if (purpose && purpose !== publicationPurposeFilter.value) params.set('publication_purpose', purpose)
+  params.set('publication_purpose', purpose || FACTORY_SUPPLY_PUBLICATION_PURPOSE)
   const categoryID = activePublicationProductTypeCategoryID(productTypeCategoryID)
   if (categoryID > 0) params.set('product_type_category_id', String(categoryID))
   const customerID = beanListPublicationCustomerID(scope)
@@ -3286,8 +3282,8 @@ function beanListPublicationCustomerID(scope = publicationScope.value) {
   return scope === 'customer' ? Number(selectedBeanListCustomerID.value || 0) : 0
 }
 
-function beanListPublicationCacheKey(scope = publicationScope.value, purpose = publicationPurposeFilter.value) {
-  return `${String(scope || 'official')}:${purpose || 'factory_supply'}`
+function beanListPublicationCacheKey(scope = publicationScope.value, purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE) {
+  return `${String(scope || 'official')}:${purpose || FACTORY_SUPPLY_PUBLICATION_PURPOSE}`
 }
 
 async function handleSettingSaved() {
@@ -3551,7 +3547,7 @@ async function withdrawBeanList(row = currentBeanListPublication.value) {
 }
 
 function beanListWithdrawScopeParams(row) {
-  const publicationPurpose = row?.publication_purpose || publicationPurposeFilter.value || 'factory_supply'
+  const publicationPurpose = row?.publication_purpose || FACTORY_SUPPLY_PUBLICATION_PURPOSE
   if (row?.owner_type === 'customer') {
     return new URLSearchParams({ scope: 'customer', customer_id: String(row.owner_key || selectedBeanListCustomerID.value || 0), publication_purpose: publicationPurpose })
   }

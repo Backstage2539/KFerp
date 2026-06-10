@@ -56,7 +56,7 @@ func TestCustomerResaleBeanListWiringAndManuals(t *testing.T) {
 			path: "orderapp-remote/docs/OP_MANUAL_COSTING.md",
 			want: []string{
 				"客户转售豆单的 `publication_purpose=customer_resale`",
-				"“用途”筛选",
+				"商品价格表版本列表不再提供“用途”筛选",
 				"允许客户转售豆单使用",
 			},
 		},
@@ -87,9 +87,9 @@ func TestCustomerResaleBeanListWiringAndManuals(t *testing.T) {
 		{
 			path: "orderapp-remote/frontend-vue-shell/src/views/CostingView.vue",
 			want: []string{
-				"publicationPurposeFilter",
-				"客户转售价格表",
-				"factory_supply",
+				"FACTORY_SUPPLY_PUBLICATION_PURPOSE",
+				"publication_purpose",
+				"loadBeanListPublications",
 			},
 		},
 		{
@@ -111,6 +111,17 @@ func TestCustomerResaleBeanListWiringAndManuals(t *testing.T) {
 		for _, want := range check.want {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing %q", check.path, want)
+			}
+		}
+		if check.path == "orderapp-remote/frontend-vue-shell/src/views/CostingView.vue" {
+			for _, avoid := range []string{
+				"publicationPurposeFilter",
+				"客户转售价格表",
+				"工厂供货价格表",
+			} {
+				if strings.Contains(src, avoid) {
+					t.Fatalf("%s should not expose ERP purpose UI marker %q", check.path, avoid)
+				}
 			}
 		}
 	}
