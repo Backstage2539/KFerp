@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX
+- Branch: codex/price-list-persistence-preview-group-fix-20260610
+- Owner/session: Codex / 2026-06-10
+- Status: ready for integration; RED/GREEN frontend tests, support contract, full Go tests, Vue build, changed verifier and diff check passed. Post-deploy browser acceptance required by Van before final handoff.
+- Scope: 修复商品价格表生成区回归：`熟豆-红岩拼配` 选择按价格模板或按阶梯价模板计价后，价格表预览必须显示价格；修改计价方式和模板后刷新界面不能回退；商品档案中把 `熟豆-红岩拼配` 放到 `咖啡熟豆 / 意式拼配豆` 后，重新部署或刷新商品价格表不能又显示到未分类。
+- DEV:
+  - DEV-467-PRICE-LIST-DRAFT-PERSISTENCE：商品价格表生成草稿按工作台、归属客户和商品类型 key 保存计价方式、默认模板、分类覆盖、商品覆盖和手工价格覆盖，切换类型或刷新后恢复。
+  - DEV-467-PRICE-LIST-TIER-TRIAL-APPLY：平铺价格行在 `pricing_rule` 和 `tier_template` 两种模式下都回填 pricing-rule-trial 成功结果，避免阶梯模板试算价生成了但预览仍为空。
+  - DEV-467-PRICE-LIST-PRODUCT-GROUP-TEMPLATE：商品价格表和商品档案只使用 `product_catalog` 用途的商品分组模板，并优先选择有商品归类的模板，避免错选系统默认/非商品模板导致商品看起来回到未分类。
+  - DEV-467-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和 PR-467 验收记录。
+- Verifier:
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev467PriceListGenerationPersistencePreviewGroupFixContracts -count=1` failed because `req_store.go` lacked `PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX`.
+  - GREEN frontend: `node --test src/lib/product-price-list-draft.test.js src/lib/costing-bean-list-version-ui.test.js` passed 22/22.
+  - GREEN frontend: `node --test src/lib/product-price-list-selection.test.js src/lib/product-price-list-types.test.js src/lib/business-grouping.test.js src/lib/product-settings.test.js` passed 145/145.
+  - GREEN support/API contract: `go test ./internal/interfaces/http/support -run TestDev467PriceListGenerationPersistencePreviewGroupFixContracts -count=1` passed.
+  - GREEN backend/unit: `go test ./...` in `orderapp-remote` passed.
+  - GREEN build/check: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing Vite chunk-size/plugin timing warnings; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-10-price-list-generation-persistence-preview-group-fix.md`.
+- Last update: 2026-06-10 Asia/Shanghai
+
 ### PR-466-PRICE-LIST-TIER-TEMPLATE-TRIAL-PREVIEW
 - Branch: codex/price-list-tier-template-trial-preview-20260610
 - Owner/session: Codex / 2026-06-10

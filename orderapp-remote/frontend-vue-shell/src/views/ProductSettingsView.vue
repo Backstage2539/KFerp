@@ -1495,6 +1495,7 @@ import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import {
   businessGroupControlOptions,
+  businessGroupRowsForUsage,
   businessGroupItemIndentStyle,
   businessGroupHeaderIndentStyle,
   businessGroupMoveAssignmentPayload,
@@ -1528,7 +1529,6 @@ import {
   buildBusinessGroupAssignmentPayload,
   businessGroupItemsTree,
   businessGroupVisibleName,
-  isSystemDefaultBusinessGroup,
   buildCustomProductCreatePayload,
   buildProductCategoryConfigPayload,
   buildProductConfigTemplatePayload,
@@ -4575,11 +4575,7 @@ function flattenBusinessGroupItemsForView(items = [], parent = null, out = []) {
 }
 
 function productCatalogBusinessGroupRows() {
-  return businessGroups.value
-    .filter((group) => group.active !== false)
-    .filter((group) => !isSystemDefaultBusinessGroup(group))
-    .slice()
-    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || Number(a.id || 0) - Number(b.id || 0))
+  return businessGroupRowsForUsage(businessGroups.value, 'product_catalog')
 }
 
 function selectedProductCatalogBusinessGroup() {
@@ -6426,6 +6422,7 @@ watch(displaySkuRows, (rows) => {
 
 watch(selectedProductGroupTemplateID, () => {
   selectedProductBusinessGroupItemID.value = 0
+  if (!restoringProductSettingsDraft) saveProductSettingsDraft()
 })
 
 async function applyProductSettingsViewParams(params = {}) {

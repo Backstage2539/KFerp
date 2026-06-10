@@ -992,8 +992,14 @@ import {
 } from '../lib/product-price-list-selection'
 import {
   businessGroupControlOptions,
+  businessGroupRowsForUsage,
   groupRowsByBusinessGroupTemplate,
 } from '../lib/business-grouping'
+import {
+  priceListGenerationDraftKey,
+  readPriceListGenerationDraft,
+  savePriceListGenerationDraft,
+} from '../lib/product-price-list-draft'
 import {
   applyPricingRuleTrialToPriceTableRow,
   buildPriceTierTemplatePayload,
@@ -1141,7 +1147,7 @@ const selectedProductPriceListType = computed(() => {
 const activeProductTypeCategoryID = computed(() => Number(selectedProductPriceListType.value?.id || selectedProductTypeCategoryID.value || 0))
 const selectedProductPriceListLabel = computed(() => selectedProductPriceListType.value?.label || beanListTypeLabel(pdfTheme.value.listType))
 const activePriceListTypeKey = computed(() => productPriceListTypeKey(selectedProductPriceListType.value, pdfTheme.value.listType))
-const productCatalogBusinessGroupControls = computed(() => businessGroupControlOptions(priceListProductBusinessGroups.value, {
+const productCatalogBusinessGroupControls = computed(() => businessGroupControlOptions(productCatalogBusinessGroupRowsForPriceList(), {
   selectedTemplateID: selectedProductCatalogGroupTemplateID.value,
   usageKey: 'product_catalog',
 }))
@@ -1279,6 +1285,7 @@ watch(selectedProductTypeCategoryID, () => {
   syncPdfListTypeFromSelectedProductType()
   resetPdfSelectionDefaults()
   initializePdfDefaultsIfItemsLoaded()
+  restorePriceListGenerationDraftForActiveType()
   loadBeanListPublications(pdfTheme.value.listType, versionListScope.value, activeProductTypeCategoryID.value)
   loadBeanListPublications(pdfTheme.value.listType, 'official', activeProductTypeCategoryID.value, 'factory_supply')
   loadBeanListPublications(pdfTheme.value.listType, 'mine', activeProductTypeCategoryID.value, 'factory_supply')
@@ -1290,6 +1297,7 @@ watch(selectedProductTypeCategoryID, () => {
 watch(() => pdfOptions.value.listType, (listType) => {
   selectedPriceSourcePublicationID.value = ''
   initializePdfDefaultsForType(listType, activeProductTypeCategoryID.value)
+  restorePriceListGenerationDraftForActiveType()
   loadBeanListPublications(listType, versionListScope.value, activeProductTypeCategoryID.value)
   loadBeanListPublications(listType, 'official', activeProductTypeCategoryID.value, 'factory_supply')
   loadBeanListPublications(listType, 'mine', activeProductTypeCategoryID.value, 'factory_supply')
@@ -1317,6 +1325,7 @@ watch(activeBeanListCustomerID, () => {
 watch(publicationScope, (scope) => {
   loadBeanListPublications(pdfTheme.value.listType, scope, activeProductTypeCategoryID.value, 'factory_supply')
   initializePdfDefaultsForType(pdfTheme.value.listType, activeProductTypeCategoryID.value)
+  restorePriceListGenerationDraftForActiveType()
 })
 
 watch(selectedBeanListCustomerID, () => {
@@ -1326,6 +1335,7 @@ watch(selectedBeanListCustomerID, () => {
   }
   resetPdfSelectionDefaults()
   initializePdfDefaultsIfItemsLoaded()
+  restorePriceListGenerationDraftForActiveType()
   if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
     loadBeanListPublications(pdfTheme.value.listType, 'customer', activeProductTypeCategoryID.value, 'factory_supply')
   }
@@ -1444,6 +1454,70 @@ function productPriceListTypeKey(type, listType = 'commercial') {
 
 function priceListSelectionKey(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
   return priceListSelectionStateKey(productPriceListTypeOptions.value, listType, productTypeCategoryID)
+}
+
+function priceListGenerationDraftStorageKey() {
+  return priceListGenerationDraftKey({
+    workspace: props.workspaceMode || 'factory',
+    scope: publicationScope.value || activeCostingScope.value || 'official',
+    customerID: activeBeanListCustomerID.value,
+    typeKey: activePriceListTypeKey.value,
+  })
+}
+
+function productCatalogBusinessGroupRowsForPriceList() {
+  return businessGroupRowsForUsage(priceListProductBusinessGroups.value, 'product_catalog')
+}
+
+function normalizePriceListSelectionDraftMap(rows = {}, options = {}) {
+  const includeProductMeta = Boolean(options.includeProductMeta)
+  const out = {}
+  for (const [key, value] of Object.entries(rows || {})) {
+    const selection = defaultPriceListTemplateSelection(value || {})
+    if (!priceListTemplateHasOverride(selection)) continue
+    out[key] = includeProductMeta
+      ? {
+        ...selection,
+        product_id: Number(value?.product_id ?? value?.productID ?? 0) || 0,
+        product_key: String(value?.product_key ?? value?.productKey ?? '').trim(),
+        product_name: String(value?.product_name ?? value?.productName ?? '').trim(),
+      }
+      : selection
+  }
+  return out
+}
+
+function normalizePriceListFlatRowOverrides(rows = {}) {
+  const out = {}
+  for (const [key, value] of Object.entries(rows || {})) {
+    const price = Number(value || 0)
+    if (key && Number.isFinite(price) && price > 0) out[key] = price
+  }
+  return out
+}
+
+function savePriceListGenerationDraftForActiveType() {
+  savePriceListGenerationDraft(priceListGenerationDraftStorageKey(), {
+    defaults: priceListTemplateDefaults.value,
+    parentSelections: priceListParentTemplateSelections.value,
+    groupSelections: priceListGroupTemplateSelections.value,
+    productOverrides: priceListProductTemplateOverrides.value,
+    flatRowOverrides: priceListFlatRowOverrides.value,
+  })
+}
+
+function restorePriceListGenerationDraftForActiveType() {
+  const draft = readPriceListGenerationDraft(priceListGenerationDraftStorageKey())
+  if (!draft) return false
+  priceListTemplateDefaults.value = {
+    ...priceListTemplateDefaults.value,
+    ...defaultPriceListTemplateSelection(draft.defaults || {}),
+  }
+  priceListParentTemplateSelections.value = normalizePriceListSelectionDraftMap(draft.parentSelections)
+  priceListGroupTemplateSelections.value = normalizePriceListSelectionDraftMap(draft.groupSelections)
+  priceListProductTemplateOverrides.value = normalizePriceListSelectionDraftMap(draft.productOverrides, { includeProductMeta: true })
+  priceListFlatRowOverrides.value = normalizePriceListFlatRowOverrides(draft.flatRowOverrides)
+  return true
 }
 
 function beanListPublicationTypeKey(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
@@ -1893,6 +1967,7 @@ function setPriceListDefaultTemplate(field, value) {
     ...priceListTemplateDefaults.value,
     [field]: priceListTemplateFieldValue(field, value),
   }
+  savePriceListGenerationDraftForActiveType()
 }
 
 function setPriceListParentTemplate(group = {}, field, value) {
@@ -1901,6 +1976,7 @@ function setPriceListParentTemplate(group = {}, field, value) {
     const next = { ...priceListParentTemplateSelections.value }
     delete next[key]
     priceListParentTemplateSelections.value = next
+    savePriceListGenerationDraftForActiveType()
     return
   }
   priceListParentTemplateSelections.value = {
@@ -1910,6 +1986,7 @@ function setPriceListParentTemplate(group = {}, field, value) {
       [field]: priceListTemplateFieldValue(field, value),
     },
   }
+  savePriceListGenerationDraftForActiveType()
 }
 
 function setPriceListGroupTemplate(group = {}, field, value) {
@@ -1918,6 +1995,7 @@ function setPriceListGroupTemplate(group = {}, field, value) {
     const next = { ...priceListGroupTemplateSelections.value }
     delete next[key]
     priceListGroupTemplateSelections.value = next
+    savePriceListGenerationDraftForActiveType()
     return
   }
   priceListGroupTemplateSelections.value = {
@@ -1927,6 +2005,7 @@ function setPriceListGroupTemplate(group = {}, field, value) {
       [field]: priceListTemplateFieldValue(field, value),
     },
   }
+  savePriceListGenerationDraftForActiveType()
 }
 
 function clearPriceListCategoryTemplate(group = {}) {
@@ -1935,11 +2014,13 @@ function clearPriceListCategoryTemplate(group = {}) {
     const next = { ...priceListParentTemplateSelections.value }
     delete next[target.key]
     priceListParentTemplateSelections.value = next
+    savePriceListGenerationDraftForActiveType()
     return
   }
   const next = { ...priceListGroupTemplateSelections.value }
   delete next[target.key]
   priceListGroupTemplateSelections.value = next
+  savePriceListGenerationDraftForActiveType()
 }
 
 function setPriceListCategoryTemplate(group = {}, field, value) {
@@ -1959,12 +2040,14 @@ function setPriceListCategoryTemplate(group = {}, field, value) {
       ...priceListParentTemplateSelections.value,
       [target.key]: selection,
     }
+    savePriceListGenerationDraftForActiveType()
     return
   }
   priceListGroupTemplateSelections.value = {
     ...priceListGroupTemplateSelections.value,
     [target.key]: selection,
   }
+  savePriceListGenerationDraftForActiveType()
 }
 
 function setPriceListProductTemplate(row = {}, field, value) {
@@ -1988,6 +2071,7 @@ function setPriceListProductTemplate(row = {}, field, value) {
       product_name: row.product_name || '',
     },
   }
+  savePriceListGenerationDraftForActiveType()
 }
 
 function clearPriceListProductTemplate(row = {}) {
@@ -1996,6 +2080,7 @@ function clearPriceListProductTemplate(row = {}) {
   const next = { ...priceListProductTemplateOverrides.value }
   delete next[key]
   priceListProductTemplateOverrides.value = next
+  savePriceListGenerationDraftForActiveType()
 }
 
 function priceListActivePricingSelection() {
@@ -2224,7 +2309,7 @@ function priceListFlatRowFromSource({
     customer_reference_snapshot: customerReferenceSnapshotForPriceRow(item),
     manual_adjusted: Number.isFinite(override) && override > 0 && Math.abs(override - originalPrice) > 0.005,
   }
-  const trial = mode === 'pricing_rule' ? priceListPricingRuleTrialResultForRow(row) : null
+  const trial = mode === 'pricing_rule' || mode === 'tier_template' ? priceListPricingRuleTrialResultForRow(row) : null
   return trial ? applyPricingRuleTrialToPriceTableRow(row, trial) : row
 }
 
@@ -2697,6 +2782,7 @@ function openBeanListDrawer(listType = selectedProductPriceListType.value?.listT
     brandName: isCustomerScope ? '' : '棵凡咖啡',
   }
   initializePdfDefaultsForType(resolvedListType, activeProductTypeCategoryID.value)
+  restorePriceListGenerationDraftForActiveType()
   loadBeanListPublications(resolvedListType, 'official', activeProductTypeCategoryID.value, 'factory_supply')
   loadBeanListPublications(resolvedListType, 'mine', activeProductTypeCategoryID.value, 'factory_supply')
   if (publicationScope.value === 'customer' && selectedBeanListCustomerID.value) {
@@ -3169,6 +3255,7 @@ async function loadBeanList() {
     items.value = Array.isArray(data.items) ? data.items : []
     syncSelectedProductTypeCategoryFromOptions()
     initializePdfDefaults()
+    restorePriceListGenerationDraftForActiveType()
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -3198,8 +3285,20 @@ async function loadPriceListProductBusinessGroups() {
       selectedProductCatalogGroupTemplateID.value = preferredTemplateID
       return
     }
-    if (!templateOptions.some((option) => Number(option.id || 0) === Number(selectedProductCatalogGroupTemplateID.value || 0))) {
-      selectedProductCatalogGroupTemplateID.value = Number(templateOptions[0].id || 0)
+    const selectedTemplateID = Number(selectedProductCatalogGroupTemplateID.value || 0)
+    const selectedTemplateValid = templateOptions.some((option) => Number(option.id || 0) === selectedTemplateID)
+    const assignedTemplate = templateOptions.find((option) => priceListProductBusinessGroupAssignments.value.some((row) => (
+      Number(row?.group_id ?? row?.groupID ?? 0) === Number(option.id || 0) &&
+      String(row?.usage_key ?? row?.usageKey ?? '') === 'product_catalog' &&
+      String(row?.object_key ?? row?.objectKey ?? '') === 'product'
+    )))
+    const selectedHasAssignments = priceListProductBusinessGroupAssignments.value.some((row) => (
+      Number(row?.group_id ?? row?.groupID ?? 0) === selectedTemplateID &&
+      String(row?.usage_key ?? row?.usageKey ?? '') === 'product_catalog' &&
+      String(row?.object_key ?? row?.objectKey ?? '') === 'product'
+    ))
+    if (!selectedTemplateValid || (!selectedHasAssignments && assignedTemplate)) {
+      selectedProductCatalogGroupTemplateID.value = Number(assignedTemplate?.id || templateOptions[0].id || 0)
     }
   } catch (err) {
     priceListProductBusinessGroups.value = []
@@ -3269,6 +3368,7 @@ async function loadPriceListTemplateOptions() {
         pricing_rule_id: Number(pricingRules.value[0].id || 0),
       }
     }
+    restorePriceListGenerationDraftForActiveType()
   } catch (err) {
     priceTierTemplates.value = []
     pricingRules.value = []

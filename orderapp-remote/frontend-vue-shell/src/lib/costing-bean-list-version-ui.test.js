@@ -389,6 +389,22 @@ test('price list generation keeps A/B positions as summaries and edits pricing i
   }
 })
 
+test('price list generation persists pricing drafts and applies tier-template trial results', () => {
+  for (const expected of [
+    'savePriceListGenerationDraft(',
+    'restorePriceListGenerationDraftForActiveType',
+    'productCatalogBusinessGroupRowsForPriceList',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing price-list draft/group persistence behavior: ${expected}`)
+  }
+
+  const flatRowStart = viewSource.indexOf('function priceListFlatRowFromSource')
+  const flatRowEnd = viewSource.indexOf('function priceListPricingRuleTrialResultForRow', flatRowStart)
+  assert.ok(flatRowStart > -1 && flatRowEnd > flatRowStart, 'priceListFlatRowFromSource block not found')
+  const flatRowSource = viewSource.slice(flatRowStart, flatRowEnd)
+  assert.match(flatRowSource, /mode === 'pricing_rule' \|\| mode === 'tier_template'/)
+})
+
 test('price list product selection summaries avoid parent child wording and inherited rows say category inheritance', () => {
   const productSelectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
   const dialogStart = viewSource.indexOf('<div v-if="priceListConfigDialog.open"', productSelectionStart)

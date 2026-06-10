@@ -30,6 +30,20 @@ function assignmentObjectRef(row = {}) {
   return normalizedText(row.object_ref ?? row.objectRef)
 }
 
+export function businessGroupRowsForUsage(groups = [], usageKey = '') {
+  const normalizedUsage = normalizedText(usageKey)
+  return (Array.isArray(groups) ? groups : [])
+    .filter((group) => group?.active !== false)
+    .filter((group) => !isSystemDefaultBusinessGroup(group))
+    .filter((group) => {
+      if (!normalizedUsage) return true
+      const usages = Array.isArray(group.usages) ? group.usages : []
+      return usages.some((usage) => assignmentUsage(usage) === normalizedUsage && usage.active !== false)
+    })
+    .slice()
+    .sort((a, b) => toNumber(a.sort_order ?? a.sortOrder) - toNumber(b.sort_order ?? b.sortOrder) || toNumber(a.id) - toNumber(b.id))
+}
+
 export function businessGroupControlOptions(groups = [], {
   selectedTemplateID = 0,
   usageKey = '',
