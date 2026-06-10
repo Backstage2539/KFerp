@@ -394,6 +394,9 @@ test('price list generation persists pricing drafts and applies tier-template tr
     'savePriceListGenerationDraft(',
     'restorePriceListGenerationDraftForActiveType',
     'productCatalogBusinessGroupRowsForPriceList',
+    'priceListPricingRuleTrialRequestsForRows',
+    'watch(priceListFlatRows',
+    'flush: \'post\'',
   ]) {
     assert.ok(viewSource.includes(expected), `missing price-list draft/group persistence behavior: ${expected}`)
   }

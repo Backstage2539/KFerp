@@ -1203,20 +1203,22 @@ const priceListFlatRowsReady = computed(() => priceListFlatRows.value.length > 0
     Object.keys(row.group_snapshot || {}).length > 0 &&
     Object.keys(row.cost_source_snapshot || {}).length > 0
 }))
-const priceListPricingRuleTrialRequests = computed(() => {
-  const rows = []
+const priceListPricingRuleTrialRequests = computed(() => priceListPricingRuleTrialRequestsForRows(priceListFlatRows.value))
+
+function priceListPricingRuleTrialRequestsForRows(sourceRows = []) {
+  const requests = []
   const seen = new Set()
-  priceListFlatRows.value.forEach((row) => {
+  ;(Array.isArray(sourceRows) ? sourceRows : []).forEach((row) => {
     const payload = priceTablePricingRuleTrialPayload(row, { customerID: activeBeanListCustomerID.value })
     const key = priceTablePricingRuleTrialCacheKey(payload)
     if (!key || seen.has(key)) return
     const cached = priceListPricingRuleTrialCache.value[key]
     if (cached?.status === 'loading' || cached?.status === 'success' || cached?.status === 'error') return
     seen.add(key)
-    rows.push({ key, payload })
+    requests.push({ key, payload })
   })
-  return rows
-})
+  return requests
+}
 const pdfTotalItems = computed(() => pdfGroups.value.reduce((sum, group) => sum + group.items.length, 0))
 const pdfTitle = computed(() => buildProductPriceListTitle(pdfTheme.value.brandName, selectedProductPriceListLabel.value, pdfTheme.value.listType))
 const pdfSubtitle = computed(() => buildProductPriceListSubtitle(selectedProductPriceListLabel.value, pdfTheme.value.listType))
@@ -1353,6 +1355,12 @@ watch(priceListPricingRuleTrialRequests, (requests) => {
   if (!requests.length) return
   loadPriceListPricingRuleTrials(requests)
 }, { deep: true })
+
+watch(priceListFlatRows, (rows) => {
+  const requests = priceListPricingRuleTrialRequestsForRows(rows)
+  if (!requests.length) return
+  loadPriceListPricingRuleTrials(requests)
+}, { deep: true, immediate: true, flush: 'post' })
 
 function syncPublicationScopeFromPageContext() {
   const pageCustomerID = Number(props.customerContextId || 0) || versionListScopeCustomerID(versionListScope.value)

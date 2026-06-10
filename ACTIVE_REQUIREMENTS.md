@@ -17,6 +17,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - DEV-467-PRICE-LIST-PRODUCT-GROUP-TEMPLATE：商品价格表和商品档案只使用 `product_catalog` 用途的商品分组模板，并优先选择有商品归类的模板，避免错选系统默认/非商品模板导致商品看起来回到未分类。
   - DEV-467-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和 PR-467 验收记录。
 - Verifier:
+  - FOLLOW-UP RED browser/API: 线上页面只向 `/app/api/costing/pricing-rule-trial` 发送 `product_id=539` 请求；直接 API 请求 `product_id=550` + `pricing_rule_id=11` 返回 `kg=92.03`、`lb=42.64`，说明红岩缺价是页面 trial 请求队列漏触发。
+  - FOLLOW-UP RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed because `CostingView.vue` lacked `priceListPricingRuleTrialRequestsForRows` / `watch(priceListFlatRows)` post/immediate guard.
+  - FOLLOW-UP GREEN frontend: `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-settings.test.js` passed 150/150 after adding the flat-row watcher.
   - RED support: `go test ./internal/interfaces/http/support -run TestDev467PriceListGenerationPersistencePreviewGroupFixContracts -count=1` failed because `req_store.go` lacked `PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX`.
   - GREEN frontend: `node --test src/lib/product-price-list-draft.test.js src/lib/costing-bean-list-version-ui.test.js` passed 22/22.
   - GREEN frontend: `node --test src/lib/product-price-list-selection.test.js src/lib/product-price-list-types.test.js src/lib/business-grouping.test.js src/lib/product-settings.test.js` passed 145/145.
