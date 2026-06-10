@@ -7,9 +7,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX
-- Branch: codex/price-list-product-override-trial-refresh-20260610 (follow-up); previous branches codex/price-list-persistence-preview-group-fix-20260610 and codex/price-list-redrock-trial-request-fix-20260610
+- Branch: codex/price-list-flat-row-product-id-fix-20260610 (follow-up); previous branches codex/price-list-product-override-trial-refresh-20260610, codex/price-list-persistence-preview-group-fix-20260610 and codex/price-list-redrock-trial-request-fix-20260610
 - Owner/session: Codex / 2026-06-10
-- Status: follow-up implemented locally; restored product override browser RED reproduced, RED/GREEN frontend tests, Vue build and diff check passed. Pending changed verifier, merge to develop, development deploy and live browser acceptance.
+- Status: second follow-up implementing locally after post-deploy browser validation still showed redrock product override row at 0. Pending combined tests/build/checks, merge, redeploy and live browser acceptance.
 - Scope: 修复商品价格表生成区回归：`熟豆-红岩拼配` 选择按价格模板或按阶梯价模板计价后，价格表预览必须显示价格；修改计价方式和模板后刷新界面不能回退；商品档案中把 `熟豆-红岩拼配` 放到 `咖啡熟豆 / 意式拼配豆` 后，重新部署或刷新商品价格表不能又显示到未分类。
 - DEV:
   - DEV-467-PRICE-LIST-DRAFT-PERSISTENCE：商品价格表生成草稿按工作台、归属客户和商品类型 key 保存计价方式、默认模板、分类覆盖、商品覆盖和手工价格覆盖，切换类型或刷新后恢复。
@@ -25,6 +25,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - FOLLOW-UP 2 GREEN frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 22/22 after adding `schedulePriceListPricingRuleTrialRefresh()` and calling it from draft restore/product/category/default pricing setters.
   - FOLLOW-UP 2 GREEN frontend combined: `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-settings.test.js` passed 151/151.
   - FOLLOW-UP 2 GREEN build/check: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with the existing Vite chunk-size warning; `git diff --check` passed.
+  - FOLLOW-UP 2 DEPLOYED BUT FAILED browser: deployed `origin/develop=f935e0cb86f2b9f574615d6dbb8b46cca91b6c50`; post-deploy browser scripts still showed only `product_id=539` trial requests and redrock flat row `0`.
+  - FOLLOW-UP 3 RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed because `priceListFlatRowsFromGroups` did not use `item.id` as the product id fallback, so restored product overrides could be visible in the picker but not match preview flat rows.
+  - FOLLOW-UP 3 GREEN frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 22/22 after flat rows use `item.id` fallback and `itemProductID` also recognizes `productId`.
   - RED support: `go test ./internal/interfaces/http/support -run TestDev467PriceListGenerationPersistencePreviewGroupFixContracts -count=1` failed because `req_store.go` lacked `PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX`.
   - GREEN frontend: `node --test src/lib/product-price-list-draft.test.js src/lib/costing-bean-list-version-ui.test.js` passed 22/22.
   - GREEN frontend: `node --test src/lib/product-price-list-selection.test.js src/lib/product-price-list-types.test.js src/lib/business-grouping.test.js src/lib/product-settings.test.js` passed 145/145.

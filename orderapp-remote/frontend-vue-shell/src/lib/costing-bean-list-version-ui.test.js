@@ -429,6 +429,14 @@ test('price list restored product template overrides schedule pricing-rule trial
     viewSource.slice(setProductStart, setProductEnd).includes('schedulePriceListPricingRuleTrialRefresh()'),
     'changing product pricing template should refresh pricing-rule trial requests',
   )
+
+  const flatRowsStart = viewSource.indexOf('function priceListFlatRowsFromGroups(groups = [])')
+  const flatRowsEnd = viewSource.indexOf('function priceListFlatRowFromSource', flatRowsStart)
+  assert.ok(flatRowsStart > -1 && flatRowsEnd > flatRowsStart, 'priceListFlatRowsFromGroups block not found')
+  assert.ok(
+    viewSource.slice(flatRowsStart, flatRowsEnd).includes('item?.id'),
+    'flat price rows must use item.id as a product id fallback so restored product overrides match preview items',
+  )
 })
 
 test('price list product selection summaries avoid parent child wording and inherited rows say category inheritance', () => {
