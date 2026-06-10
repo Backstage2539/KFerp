@@ -192,12 +192,12 @@
           </div>
         </div>
         <div class="product-picker-list categoryProductGroups">
-          <section
-            v-for="category in categoryProductGroups"
-            :key="`pick-cat-${category.code}`"
-            :class="['product-picker-category', { collapsed: isProductPickerCategoryCollapsed(category) }]"
-            :style="productPickerCategoryStyle(category)"
-          >
+          <template v-for="category in categoryProductGroups" :key="`pick-cat-${category.code}`">
+            <section
+              v-if="!isProductPickerCategoryHiddenByCollapsedAncestor(category)"
+              :class="['product-picker-category', { collapsed: isProductPickerCategoryCollapsed(category) }]"
+              :style="productPickerCategoryStyle(category)"
+            >
             <div class="product-picker-category-head">
               <button
                 type="button"
@@ -211,7 +211,7 @@
                 <input type="checkbox" :checked="isPdfCategorySelected(category.code)" @change="togglePdfCategoryProducts(category.code, $event.target.checked)" />
                 <span>{{ category.label }}</span>
               </label>
-              <span class="muted">{{ selectedCountForCategory(category.code) }}/{{ category.items.length }} 款</span>
+              <span class="muted">{{ selectedCountForCategory(category.code) }}/{{ productIDsForCategory(category.code).length }} 款</span>
               <div class="category-pricing-summary">
                 <button
                   type="button"
@@ -335,7 +335,8 @@
                 </label>
               </div>
             </article>
-          </section>
+            </section>
+          </template>
         </div>
       </div>
 
@@ -978,9 +979,16 @@ import {
   matchesProductTypeCategory as matchesCurrentProductTypeCategory,
   publicationVersionListState,
   priceListRenderTypeForItem as currentPriceListRenderTypeForItem,
+  priceListSelectionStateKey,
   productTypeCategoryIDOfItem as currentProductTypeCategoryIDOfItem,
   productTypeNameOfItem as currentProductTypeNameOfItem,
 } from '../lib/product-price-list-types'
+import {
+  priceListCategoryCodesForSelectedProducts,
+  priceListCategoryHiddenByCollapsedAncestor,
+  priceListCategoryProductIDs,
+  priceListVisibleCategoryRows,
+} from '../lib/product-price-list-selection'
 import {
   businessGroupControlOptions,
   groupRowsByBusinessGroupTemplate,
@@ -1409,6 +1417,10 @@ function productPriceListTypeKey(type, listType = 'commercial') {
   return `legacy:${normalizeBeanListType(type?.listType || listType)}`
 }
 
+function priceListSelectionKey(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
+  return priceListSelectionStateKey(productPriceListTypeOptions.value, listType, productTypeCategoryID)
+}
+
 function beanListPublicationTypeKey(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
   if (Number(productTypeCategoryID || 0) === UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID) return 'classification:unclassified'
   const id = activePublicationProductTypeCategoryID(productTypeCategoryID)
@@ -1624,6 +1636,10 @@ function productPickerRowStyle(category = {}) {
 function isProductPickerCategoryCollapsed(category = {}) {
   const key = productPickerCategoryCollapseKey(category)
   return Boolean(key && productPickerCollapsedCategories.value[key])
+}
+
+function isProductPickerCategoryHiddenByCollapsedAncestor(category = {}) {
+  return priceListCategoryHiddenByCollapsedAncestor(categoryProductGroups.value, category, productPickerCollapsedCategories.value)
 }
 
 function toggleProductPickerCategoryCollapse(category = {}) {
@@ -2510,7 +2526,7 @@ function beanListCategoryOptions(listType, productTypeCategoryID = activeProduct
 
 function productGroupsForType(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
   const template = selectedProductCatalogGroupTemplate.value
-  return groupRowsByBusinessGroupTemplate(beanListItemsForType(listType, productTypeCategoryID), {
+  const groups = groupRowsByBusinessGroupTemplate(beanListItemsForType(listType, productTypeCategoryID), {
     template,
     assignments: priceListProductBusinessGroupAssignments.value,
     usageKey: 'product_catalog',
@@ -2537,6 +2553,7 @@ function productGroupsForType(listType, productTypeCategoryID = activeProductTyp
       unclassified: Boolean(group.unclassified),
     }
   })
+  return priceListVisibleCategoryRows(groups)
 }
 
 function categoryCodeOfItem(item, listType = pdfTheme.value.listType) {
@@ -2588,7 +2605,7 @@ function resetPdfSelectionDefaults() {
 }
 
 function initializePdfDefaultsForType(listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
-  const cacheKey = beanListPublicationTypeKey(listType, productTypeCategoryID)
+  const cacheKey = priceListSelectionKey(listType, productTypeCategoryID)
   const validIDs = beanListItemsForType(listType, productTypeCategoryID).map((item) => itemProductID(item))
   const validCategories = beanListCategoryOptions(listType, productTypeCategoryID).map((item) => item.code)
   if (!productSelectionInitialized.value[cacheKey]) {
@@ -2866,9 +2883,9 @@ function selectedCountForCategory(code) {
 }
 
 function productIDsForCategory(code, listType = pdfTheme.value.listType, productTypeCategoryID = activeProductTypeCategoryID.value) {
-  return beanListItemsForType(listType, productTypeCategoryID)
-    .filter((item) => categoryCodeOfItem(item, listType) === String(code))
-    .map((item) => itemProductID(item))
+  void listType
+  void productTypeCategoryID
+  return priceListCategoryProductIDs(categoryProductGroups.value, code)
 }
 
 function togglePdfCategoryProducts(code, checked) {
@@ -2887,11 +2904,8 @@ function setAllPdfCategories(selected) {
 }
 
 function syncCategoryVisibilityFromSelectedProducts(listType, selectedIDs, productTypeCategoryID = activeProductTypeCategoryID.value) {
-  const key = beanListPublicationTypeKey(listType, productTypeCategoryID)
-  const selectedSet = new Set(selectedIDs.map((id) => String(id)))
-  const next = beanListCategoryOptions(listType, productTypeCategoryID)
-    .filter((category) => productIDsForCategory(category.code, listType, productTypeCategoryID).some((id) => selectedSet.has(id)))
-    .map((category) => category.code)
+  const key = priceListSelectionKey(listType, productTypeCategoryID)
+  const next = priceListCategoryCodesForSelectedProducts(categoryProductGroups.value, selectedIDs)
   visibleCategoryCodesByType.value = { ...visibleCategoryCodesByType.value, [key]: next }
 }
 

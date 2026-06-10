@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-464-PRICE-LIST-PICKER-SELECTION-PREVIEW-FIX
+- Branch: codex/price-list-selection-preview-fix-20260610
+- Owner/session: Codex / 2026-06-10
+- Status: implementing; local RED/GREEN frontend unit tests captured. Browser/system acceptance intentionally skipped per Van request; Van will validate deployed UI.
+- Scope: 修复商品价格表生成区：顶部选择商品类型后，选品状态使用该 product_catalog 类型自己的 key 默认全选当前类型商品；`选择分类和产品` 只展示当前类型相关分类/商品，不展示其他类型空分类；勾选父类会包含子类商品并驱动预览动态更新；收起父类时子类分类行一起隐藏。
+- DEV:
+  - DEV-464-PRICE-LIST-SELECTION-KEY：product_catalog 顶层类型使用 `product-catalog:*` 选择状态 key，避免默认全选写到旧 `legacy:commercial` 后预览为空。
+  - DEV-464-PRICE-LIST-PICKER-SCOPE：选品树过滤掉当前类型外的空分类，同时保留有商品子类的父类。
+  - DEV-464-PRICE-LIST-CASCADE-SELECTION-COLLAPSE：父类勾选统计包含子类商品；预览按实际选中子类分类动态更新；父类收起时隐藏子类行。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-price-list-types.test.js` initially failed because `priceListSelectionStateKey` was missing.
+  - RED frontend: `node --test src/lib/product-price-list-selection.test.js` initially failed because picker selection helper module was missing.
+  - RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` initially failed because `CostingView.vue` did not use product-catalog selection/cascade helpers.
+  - GREEN frontend: `node --test src/lib/product-price-list-types.test.js src/lib/product-price-list-selection.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/bean-list-pdf.test.js` passed 58/58.
+  - GREEN support: `go test ./internal/interfaces/http/support -run 'TestDev46[34]' -count=1` passed.
+  - GREEN build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-10-price-list-picker-selection-preview-fix.md`.
+- Last update: 2026-06-10 Asia/Shanghai
+
 ### PR-463-PRICE-LIST-PRODUCT-CATALOG-USAGE-CLEANUP
 - Branch: codex/price-list-product-usage-cleanup-20260610
 - Owner/session: Codex / 2026-06-10

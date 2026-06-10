@@ -13,6 +13,7 @@ import {
   matchesProductTypeCategory,
   publicationVersionListState,
   priceListRenderTypeForItem,
+  priceListSelectionStateKey,
 } from './product-price-list-types.js'
 
 test('price list type options mirror product archive classification tabs', () => {
@@ -152,6 +153,26 @@ test('product catalog price-list types accept flat business group items', () => 
   assert.deepEqual(options.map((option) => option.label), ['咖啡熟豆'])
   assert.equal(options[0].itemCount, 1)
   assert.equal(matchesProductCatalogPriceListType(rows[0], options[0], { assignments }), true)
+})
+
+test('product catalog price-list types keep their own selection state key', () => {
+  const productCatalogType = {
+    id: -1003296,
+    key: 'product-catalog:128:3296',
+    label: '咖啡熟豆',
+    listType: 'commercial',
+    productCatalogGroupID: 128,
+    productCatalogGroupItemID: 3296,
+  }
+
+  assert.equal(
+    priceListSelectionStateKey([productCatalogType], 'commercial', -1003296),
+    'product-catalog:128:3296',
+  )
+  assert.notEqual(
+    priceListSelectionStateKey([productCatalogType], 'commercial', -1003296),
+    'legacy:commercial',
+  )
 })
 
 test('unclassified legacy green bean still renders with green bean price rows', () => {

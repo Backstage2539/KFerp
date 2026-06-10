@@ -112,6 +112,18 @@ export function matchesProductCatalogPriceListType(item = {}, type = {}, {
   return groupItemIDs.has(groupItemID)
 }
 
+export function priceListSelectionStateKey(typeOptions = [], listType = 'commercial', productTypeCategoryID = 0) {
+  const selectedID = numberField(productTypeCategoryID)
+  const selected = (Array.isArray(typeOptions) ? typeOptions : [])
+    .find((type) => numberField(type?.id) === selectedID || numberField(type?.categoryID) === selectedID)
+  const explicitKey = stringField(selected?.key)
+  if (explicitKey.startsWith('product-catalog:')) return explicitKey
+  const id = numberField(selected?.categoryID ?? selected?.id ?? productTypeCategoryID)
+  if (id === UNCLASSIFIED_PRODUCT_PRICE_LIST_TYPE_ID) return 'classification:unclassified'
+  if (id > 0) return `product-type:${id}`
+  return `legacy:${normalizeBeanListTypeForKey(selected?.listType || listType)}`
+}
+
 export function classificationTemplateIDOfItem(item = {}) {
   const currentID = Number(
     item?.classification_template_id ||
@@ -345,6 +357,13 @@ function businessGroupItemsTreeForPriceList(items = []) {
 function numberField(value) {
   const n = Number(value || 0)
   return Number.isFinite(n) ? n : 0
+}
+
+function normalizeBeanListTypeForKey(value) {
+  if (value === 'green' || value === 'green_bean') return 'green'
+  if (value === 'drip') return 'drip'
+  if (value === 'retail') return 'retail'
+  return 'commercial'
 }
 
 function directProductCategoryIDOfItem(item = {}) {

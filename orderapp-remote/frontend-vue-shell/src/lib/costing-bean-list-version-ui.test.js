@@ -281,6 +281,24 @@ test('price list generation renders the product picker as an indented collapsibl
   }
 })
 
+test('price list product picker selection uses product-catalog state and cascades category tree behavior', () => {
+  for (const expected of [
+    'priceListSelectionStateKey',
+    'priceListVisibleCategoryRows',
+    'priceListCategoryProductIDs',
+    'priceListCategoryCodesForSelectedProducts',
+    'priceListCategoryHiddenByCollapsedAncestor',
+    'function priceListSelectionKey',
+    'return priceListVisibleCategoryRows',
+    'priceListCategoryProductIDs(categoryProductGroups.value',
+    'priceListCategoryCodesForSelectedProducts(categoryProductGroups.value',
+    'priceListCategoryHiddenByCollapsedAncestor(categoryProductGroups.value',
+    'v-if="!isProductPickerCategoryHiddenByCollapsedAncestor(category)"',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing product-catalog picker selection behavior: ${expected}`)
+  }
+})
+
 test('price list generation keeps A/B positions as summaries and edits pricing in an anchored popover', () => {
   const builderStart = viewSource.indexOf('<div class="pdf-picker price-list-template-builder"')
   const productSelectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
