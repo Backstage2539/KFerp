@@ -953,6 +953,7 @@ import {
   buildBeanListPdfGroupsFromCategoryRows,
   buildBeanListPdfSubtitle,
   buildBeanListPdfTitle,
+  applyPriceListFlatRowsToBeanListPdfGroups,
   copyBeanListPublicationContentGroups,
   defaultBeanListDraftVersion,
   filterBeanListItemsForPriceTableScope,
@@ -994,7 +995,10 @@ import {
   groupRowsByBusinessGroupTemplate,
 } from '../lib/business-grouping'
 import {
+  applyPricingRuleTrialToPriceTableRow,
   buildPriceTierTemplatePayload,
+  priceTablePricingRuleTrialCacheKey,
+  priceTablePricingRuleTrialPayload,
   priceTablePricingModeOptions,
   resolvePriceTableTemplateInheritance,
 } from '../lib/product-settings'
@@ -1082,6 +1086,7 @@ const priceListParentTemplateSelections = ref({})
 const priceListGroupTemplateSelections = ref({})
 const priceListProductTemplateOverrides = ref({})
 const priceListFlatRowOverrides = ref({})
+const priceListPricingRuleTrialCache = ref({})
 const priceListProductBusinessGroups = ref([])
 const priceListProductBusinessGroupAssignments = ref([])
 const selectedProductCatalogGroupTemplateID = ref(0)
@@ -1163,7 +1168,7 @@ const pdfGenerationOptions = computed(() => ({
   customizers: pdfCustomizers.value,
 }))
 const currentPriceSourcePublication = computed(() => (publicationScope.value === 'mine' || publicationScope.value === 'customer' ? priceSourcePublicationByType.value[activePriceListTypeKey.value] : null))
-const pdfGroups = computed(() => {
+const basePdfGroups = computed(() => {
   if (downloadSourcePublication.value?.content?.groups) {
     return copyBeanListPublicationContentGroups(downloadSourcePublication.value, {
       listType: pdfTheme.value.listType,
@@ -1173,7 +1178,8 @@ const pdfGroups = computed(() => {
   return buildBeanListPdfGroupsFromCategoryRows(categoryProductGroups.value, pdfTheme.value.listType, pdfGenerationOptions.value)
 })
 const priceListGroupTemplateRows = computed(() => priceListTemplateGroupRows(categoryProductGroups.value))
-const priceListFlatRows = computed(() => priceListFlatRowsFromGroups(pdfGroups.value))
+const priceListFlatRows = computed(() => priceListFlatRowsFromGroups(basePdfGroups.value))
+const pdfGroups = computed(() => applyPriceListFlatRowsToBeanListPdfGroups(basePdfGroups.value, priceListFlatRows.value, pdfTheme.value.listType))
 const priceListFlatRowsReady = computed(() => priceListFlatRows.value.length > 0 && priceListFlatRows.value.every((row) => {
   const mode = String(row.pricing_mode || '').trim()
   const modeReady = mode === 'tier_template'
@@ -1191,6 +1197,20 @@ const priceListFlatRowsReady = computed(() => priceListFlatRows.value.length > 0
     Object.keys(row.group_snapshot || {}).length > 0 &&
     Object.keys(row.cost_source_snapshot || {}).length > 0
 }))
+const priceListPricingRuleTrialRequests = computed(() => {
+  const rows = []
+  const seen = new Set()
+  priceListFlatRows.value.forEach((row) => {
+    const payload = priceTablePricingRuleTrialPayload(row, { customerID: activeBeanListCustomerID.value })
+    const key = priceTablePricingRuleTrialCacheKey(payload)
+    if (!key || seen.has(key)) return
+    const cached = priceListPricingRuleTrialCache.value[key]
+    if (cached?.status === 'loading' || cached?.status === 'success' || cached?.status === 'error') return
+    seen.add(key)
+    rows.push({ key, payload })
+  })
+  return rows
+})
 const pdfTotalItems = computed(() => pdfGroups.value.reduce((sum, group) => sum + group.items.length, 0))
 const pdfTitle = computed(() => buildProductPriceListTitle(pdfTheme.value.brandName, selectedProductPriceListLabel.value, pdfTheme.value.listType))
 const pdfSubtitle = computed(() => buildProductPriceListSubtitle(selectedProductPriceListLabel.value, pdfTheme.value.listType))
@@ -1318,6 +1338,11 @@ watch(isBeanListAdmin, (canPublish) => {
 })
 
 watch(() => props.customerContextId, syncPublicationScopeFromPageContext, { immediate: true })
+
+watch(priceListPricingRuleTrialRequests, (requests) => {
+  if (!requests.length) return
+  loadPriceListPricingRuleTrials(requests)
+}, { deep: true })
 
 function syncPublicationScopeFromPageContext() {
   const pageCustomerID = Number(props.customerContextId || 0) || versionListScopeCustomerID(versionListScope.value)
@@ -2167,7 +2192,7 @@ function priceListFlatRowFromSource({
   const priceUnit = flatRowPriceUnit(sourceTier, item)
   const inventoryUnit = String(item?.inventory_unit || item?.inventoryUnit || sourceTier?.inventory_unit || 'kg').trim() || 'kg'
   const ruleVersion = pricingRuleVersion(pricingRule)
-  return {
+  const row = {
     row_key: rowKey,
     product_id: productID,
     product_key: itemProductID(item),
@@ -2199,6 +2224,41 @@ function priceListFlatRowFromSource({
     customer_reference_snapshot: customerReferenceSnapshotForPriceRow(item),
     manual_adjusted: Number.isFinite(override) && override > 0 && Math.abs(override - originalPrice) > 0.005,
   }
+  const trial = mode === 'pricing_rule' ? priceListPricingRuleTrialResultForRow(row) : null
+  return trial ? applyPricingRuleTrialToPriceTableRow(row, trial) : row
+}
+
+function priceListPricingRuleTrialResultForRow(row = {}) {
+  const payload = priceTablePricingRuleTrialPayload(row, { customerID: activeBeanListCustomerID.value })
+  const key = priceTablePricingRuleTrialCacheKey(payload)
+  if (!key) return null
+  const cached = priceListPricingRuleTrialCache.value[key]
+  return cached?.status === 'success' ? cached.result : null
+}
+
+function setPriceListPricingRuleTrialCacheEntry(key, entry) {
+  if (!key) return
+  priceListPricingRuleTrialCache.value = {
+    ...priceListPricingRuleTrialCache.value,
+    [key]: entry,
+  }
+}
+
+async function loadPriceListPricingRuleTrials(requests = []) {
+  const pending = (Array.isArray(requests) ? requests : []).filter(({ key }) => {
+    const cached = priceListPricingRuleTrialCache.value[key]
+    return key && cached?.status !== 'loading' && cached?.status !== 'success' && cached?.status !== 'error'
+  })
+  if (!pending.length) return
+  pending.forEach(({ key }) => setPriceListPricingRuleTrialCacheEntry(key, { status: 'loading' }))
+  await Promise.all(pending.map(async ({ key, payload }) => {
+    try {
+      const result = await apiSend('/api/costing/pricing-rule-trial', { method: 'POST', body: payload })
+      setPriceListPricingRuleTrialCacheEntry(key, { status: 'success', result })
+    } catch (err) {
+      setPriceListPricingRuleTrialCacheEntry(key, { status: 'error', error: err.message || 'pricing rule trial failed' })
+    }
+  }))
 }
 
 function priceListGroupSnapshot(group = {}) {

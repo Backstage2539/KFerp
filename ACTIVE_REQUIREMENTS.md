@@ -6,6 +6,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-465-PRICE-LIST-PRICING-RULE-PREVIEW
+- Branch: codex/price-list-pricing-rule-preview-fix-20260610
+- Owner/session: Codex / 2026-06-10
+- Status: ready for integration; local RED/GREEN frontend unit tests, Go support contract, Go unit tests, Vue build and changed verifier passed. Browser/system acceptance intentionally skipped per Van request; Van will validate deployed UI.
+- Scope: 修复商品价格表预览：商品行选择 `按价格模板计算` / `按价格计算模板计算` 时，价格表平铺价格行必须调用与商品价格管理模板 `试算` 相同的 `/api/costing/pricing-rule-trial`，把试算出的最终价、报价单位、库存单位/换算和成本来源快照写回预览与 PDF 数据。`熟豆-红岩拼配` 选择 `咖啡熟豆磅装模板` 后，价格表预览应显示该模板试算出的价格，不再因为没有旧来源档位价而显示为空或 0。
+- DEV:
+  - DEV-465-PRICE-LIST-PRICING-RULE-TRIAL：价格表平铺价格行从 `pricing_rule_id/product_id/customer_id/bom_version_id/operation_template_id/quote_unit` 构造试算请求，并缓存成功/失败结果，失败不循环重试。
+  - DEV-465-PRICE-LIST-PREVIEW-FLAT-ROWS：预览和 PDF 从平铺价格行回填商品价格列表，让按价格模板计算出的基础价进入 `item.prices` 和价格快照。
+  - DEV-465-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册和 PR-465 验收记录。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-settings.test.js` initially failed because `applyPricingRuleTrialToPriceTableRow` export was missing.
+  - RED frontend: `node --test src/lib/bean-list-pdf.test.js` initially failed because `applyPriceListFlatRowsToBeanListPdfGroups` export was missing.
+  - RED frontend follow-up: `node --test src/lib/costing-bean-list-version-ui.test.js` failed before failed trial requests were cached as terminal error states.
+  - GREEN targeted frontend: `node --test src/lib/product-settings.test.js`; `node --test src/lib/bean-list-pdf.test.js`; `node --test src/lib/costing-bean-list-version-ui.test.js` passed.
+  - GREEN frontend combined: `node --test src/lib/product-settings.test.js src/lib/bean-list-pdf.test.js src/lib/costing-bean-list-version-ui.test.js` passed 175/175.
+  - GREEN support: `go test ./internal/interfaces/http/support -run 'TestDev46[345]' -count=1` passed.
+  - GREEN backend/unit: `go test ./...` in `orderapp-remote` passed.
+  - GREEN build/check: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size/plugin timing warnings; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-10-price-list-pricing-rule-preview.md`.
+- Last update: 2026-06-10 Asia/Shanghai
+
 ### PR-464-PRICE-LIST-PICKER-SELECTION-PREVIEW-FIX
 - Branch: codex/price-list-selection-preview-fix-20260610
 - Owner/session: Codex / 2026-06-10

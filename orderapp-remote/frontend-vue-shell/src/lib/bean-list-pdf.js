@@ -204,6 +204,35 @@ export function buildBeanListPdfGroupsFromCategoryRows(categoryRows = [], listTy
   }))
 }
 
+export function applyPriceListFlatRowsToBeanListPdfGroups(groups = [], rows = [], listType = 'commercial') {
+  const normalizedRows = (Array.isArray(rows) ? rows : [])
+    .map(normalizePriceListFlatRow)
+    .filter((row) => row.final_unit_price > 0)
+  if (!normalizedRows.length) return JSON.parse(JSON.stringify(Array.isArray(groups) ? groups : []))
+  const tierKey = priceListTierKeyForType(listType)
+  return (Array.isArray(groups) ? groups : []).map((group) => ({
+    ...group,
+    items: (Array.isArray(group?.items) ? group.items : []).map((item) => {
+      const itemRows = flatRowsForPdfItem(item, normalizedRows)
+      if (!itemRows.length) return { ...item }
+      const prices = itemRows.map((row) => ({
+        label: row.tier_label || (row.pricing_mode === 'fixed_price' ? '固定价' : '基础价'),
+        price: row.final_unit_price,
+        unit: priceUnitLabelForFlatRow(row, listType),
+        red: false,
+      }))
+      const tierSnapshots = itemRows.map((row) => flatRowTierSnapshot(row))
+      return {
+        ...item,
+        prices,
+        price_unit_snapshot: itemRows[0]?.price_unit || item.price_unit_snapshot || '',
+        tiers_snapshot: tierSnapshots,
+        [tierKey]: tierSnapshots,
+      }
+    }),
+  }))
+}
+
 function normalizeBeanListType(listType) {
   if (listType === 'retail') return 'retail'
   if (listType === 'drip') return 'drip'
@@ -477,6 +506,62 @@ function normalizeComparableUnit(unit) {
   if (value === '250g') return 'g250'
   if (value === '磅') return 'lb'
   return value
+}
+
+function priceListTierKeyForType(listType = 'commercial') {
+  const normalized = normalizeBeanListType(listType)
+  if (normalized === 'green') return 'green_bean_sale_tiers'
+  if (normalized === 'drip') return 'drip_wholesale_tiers'
+  if (normalized === 'retail') return 'retail_bean_tiers'
+  return 'commercial_wholesale_tiers'
+}
+
+function flatRowsForPdfItem(item = {}, rows = []) {
+  const productID = firstNumber(item.product_id, item.productID, item.productId, item.id)
+  const productKey = stringField(item.product_key ?? item.productKey)
+  const productName = stringField(item.product_name_snapshot ?? item.productNameSnapshot ?? item.name)
+  return rows.filter((row) => {
+    if (productID > 0 && row.product_id > 0) return row.product_id === productID
+    if (productKey && row.product_key) return row.product_key === productKey
+    return productName && row.product_name === productName
+  })
+}
+
+function priceUnitLabelForFlatRow(row = {}, listType = 'commercial') {
+  if (normalizeBeanListType(listType) === 'retail') return ''
+  const unit = stringField(row.price_unit ?? row.priceUnit)
+  if (unit === 'lb') return '磅'
+  if (unit === 'g100') return '100g'
+  if (unit === 'g227') return '227g'
+  if (unit === 'g250') return '250g'
+  return unit
+}
+
+function flatRowTierSnapshot(row = {}) {
+  return {
+    label: row.tier_label,
+    min_qty: row.min_qty,
+    max_qty: row.max_qty,
+    final_unit_price: row.final_unit_price,
+    original_final_unit_price: row.original_final_unit_price,
+    price_per_unit: row.final_unit_price,
+    price_unit: row.price_unit,
+    display_unit: row.price_unit,
+    currency: row.currency,
+    inventory_unit: row.inventory_unit,
+    inventory_conversion_json: row.inventory_conversion_json,
+    source_price_record_id: row.source_price_record_id,
+    tier_template_id: row.tier_template_id,
+    tier_template_source: row.tier_template_source,
+    template_tier_id: row.template_tier_id,
+    pricing_mode: row.pricing_mode,
+    pricing_rule_id: row.pricing_rule_id,
+    pricing_rule_source: row.pricing_rule_source,
+    pricing_rule_version: row.pricing_rule_version,
+    tier_pricing_rule_id: row.tier_pricing_rule_id,
+    tier_pricing_rule_version: row.tier_pricing_rule_version,
+    manual_adjusted: row.manual_adjusted,
+  }
 }
 
 function applyGreenTierPrice(tier, price) {

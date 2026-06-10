@@ -40,6 +40,8 @@ import {
   buildProductTierPriceSchemePayload,
   buildPricingRulePayload,
   buildPricingRuleTrialPayload,
+  applyPricingRuleTrialToPriceTableRow,
+  priceTablePricingRuleTrialPayload,
   buildProductProductionConfigForm,
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
@@ -635,6 +637,62 @@ test('price table can generate a single row from pricing rule mode or fixed pric
   }), [
     { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', tier_label: '固定价', min_qty: 0, max_qty: null, final_unit_price: 73.5, pricing_mode: 'fixed_price', pricing_mode_source: 'product', tier_template_id: 0, tier_template_source: '', template_tier_id: 0, pricing_rule_id: 0, pricing_rule_source: '', pricing_rule_version: '', tier_pricing_rule_id: 0, tier_pricing_rule_version: '', fixed_unit_price: 73.5 },
   ])
+})
+
+test('price table pricing-rule preview row uses the live trial result', () => {
+  const row = {
+    row_key: '550:pricing_rule',
+    product_id: 550,
+    product_name: '熟豆-红岩拼配',
+    pricing_mode: 'pricing_rule',
+    pricing_mode_source: 'product',
+    tier_label: '基础价',
+    price_unit: 'lb',
+    final_unit_price: 0,
+    original_final_unit_price: 0,
+    inventory_unit: 'kg',
+    inventory_conversion_json: {},
+    pricing_rule_id: 40,
+    pricing_rule_source: 'product',
+    pricing_rule_version: '咖啡熟豆磅装模板-v1',
+    cost_source_snapshot: {
+      pricing_rule_id: 40,
+      bom_version_id: 8842,
+      operation_template_id: 9,
+    },
+  }
+
+  assert.deepEqual(priceTablePricingRuleTrialPayload(row, { customerID: 0 }), {
+    pricing_rule_id: 40,
+    product_id: 550,
+    customer_id: 0,
+    bom_version_id: 8842,
+    operation_template_id: 9,
+    quote_unit: 'lb',
+    overrides: {},
+  })
+
+  const got = applyPricingRuleTrialToPriceTableRow(row, {
+    pricing_rule_id: 40,
+    product_id: 550,
+    quote_unit: 'lb',
+    inventory_unit: 'kg',
+    final_unit_price: 68.5,
+    bom_version_id: 8842,
+    bom_version_no: 'V002',
+    operation_template_id: 9,
+    operation_template_name: '标准烘焙',
+    base_cost: 42.3,
+  })
+
+  assert.equal(got.product_name, '熟豆-红岩拼配')
+  assert.equal(got.final_unit_price, 68.5)
+  assert.equal(got.original_final_unit_price, 68.5)
+  assert.equal(got.price_unit, 'lb')
+  assert.deepEqual(got.inventory_conversion_json, { lb: { kg: 0.454 } })
+  assert.equal(got.cost_source_snapshot.bom_version_no, 'V002')
+  assert.equal(got.cost_source_snapshot.operation_template_name, '标准烘焙')
+  assert.equal(got.cost_source_snapshot.pricing_rule_trial_final_unit_price, 68.5)
 })
 
 test('product settings exposes pricing rule pane instead of final price records', () => {

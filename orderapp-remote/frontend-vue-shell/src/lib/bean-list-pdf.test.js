@@ -12,6 +12,7 @@ import {
   copyBeanListPublicationConfig,
   defaultBeanListDraftVersion,
   filterBeanListItemsForScope,
+  applyPriceListFlatRowsToBeanListPdfGroups,
   buildPriceListGenerationSnapshot,
   nextBeanListVersion,
   priceUnit,
@@ -587,6 +588,47 @@ test('PDF bean-list helper copies published content groups as an immutable price
 
   assert.equal(publication.content.groups[0].items[0].prices[0].price, 127)
   assert.equal(copyBeanListPublicationContentGroups({ content: {} }).length, 0)
+})
+
+test('PDF bean-list helper renders pricing-rule flat rows into the preview prices', () => {
+  const groups = buildBeanListPdfGroupsFromCategoryRows([{
+    code: 'business-group-9-92',
+    label: '意式拼配豆',
+    items: [{
+      product_id: 550,
+      name: '熟豆-红岩拼配',
+      inventory_unit: 'kg',
+      commercial_bean_list: {
+        code: '1.1',
+        category: '意式拼配豆',
+        display_name: '熟豆-红岩拼配',
+      },
+      commercial_wholesale_tiers: [],
+    }],
+  }], 'commercial', { selectedProductIDs: ['550'] })
+
+  assert.deepEqual(groups[0].items[0].prices, [])
+
+  const previewGroups = applyPriceListFlatRowsToBeanListPdfGroups(groups, [{
+    product_id: 550,
+    product_name: '熟豆-红岩拼配',
+    pricing_mode: 'pricing_rule',
+    tier_label: '基础价',
+    price_unit: 'lb',
+    final_unit_price: 68.5,
+    original_final_unit_price: 68.5,
+    inventory_unit: 'kg',
+    inventory_conversion_json: { lb: { kg: 0.454 } },
+    pricing_rule_id: 40,
+    pricing_rule_version: '咖啡熟豆磅装模板-v1',
+  }], 'commercial')
+
+  assert.deepEqual(previewGroups[0].items[0].prices, [
+    { label: '基础价', price: 68.5, unit: '磅', red: false },
+  ])
+  assert.equal(previewGroups[0].items[0].price_unit_snapshot, 'lb')
+  assert.equal(previewGroups[0].items[0].commercial_wholesale_tiers[0].final_unit_price, 68.5)
+  assert.equal(groups[0].items[0].prices.length, 0)
 })
 
 test('PDF bean-list helper builds download options from published green bean snapshots', () => {

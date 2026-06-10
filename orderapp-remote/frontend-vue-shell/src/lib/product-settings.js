@@ -452,6 +452,82 @@ export function buildPricingRuleTrialPayload(form = {}) {
   }
 }
 
+export function priceTablePricingRuleTrialPayload(row = {}, options = {}) {
+  const pricingMode = normalizePriceTablePricingMode(row.pricing_mode ?? row.pricingMode)
+  const pricingRuleID = Number(row.pricing_rule_id ?? row.pricingRuleID ?? 0) || 0
+  const productID = Number(row.product_id ?? row.productID ?? row.productId ?? 0) || 0
+  if (pricingMode !== 'pricing_rule' || pricingRuleID <= 0 || productID <= 0) return null
+  const costSource = parseJSONObject(row.cost_source_snapshot ?? row.costSourceSnapshot)
+  const quoteUnit = [
+    row.price_unit,
+    row.priceUnit,
+    row.quote_unit,
+    row.quoteUnit,
+    costSource.quote_unit,
+    costSource.quoteUnit,
+    row.inventory_unit,
+    row.inventoryUnit,
+  ].map((value) => String(value || '').trim()).find(Boolean) || ''
+  return buildPricingRuleTrialPayload({
+    pricing_rule_id: pricingRuleID,
+    product_id: productID,
+    customer_id: Number(options.customerID ?? options.customer_id ?? row.customer_id ?? row.customerID ?? 0) || 0,
+    bom_version_id: Number(row.bom_version_id ?? row.bomVersionID ?? costSource.bom_version_id ?? costSource.bomVersionID ?? 0) || 0,
+    operation_template_id: Number(row.operation_template_id ?? row.operationTemplateID ?? costSource.operation_template_id ?? costSource.operationTemplateID ?? 0) || 0,
+    quote_unit: quoteUnit,
+  })
+}
+
+export function priceTablePricingRuleTrialCacheKey(payload = {}) {
+  if (!payload) return ''
+  return [
+    Number(payload.pricing_rule_id || 0),
+    Number(payload.product_id || 0),
+    Number(payload.customer_id || 0),
+    Number(payload.bom_version_id || 0),
+    Number(payload.operation_template_id || 0),
+    String(payload.quote_unit || '').trim(),
+  ].join(':')
+}
+
+export function applyPricingRuleTrialToPriceTableRow(row = {}, trial = {}) {
+  const pricingMode = normalizePriceTablePricingMode(row.pricing_mode ?? row.pricingMode)
+  if (pricingMode !== 'pricing_rule') return row
+  const trialPrice = normalizePositiveNumber(trial.final_unit_price ?? trial.finalUnitPrice)
+  if (trialPrice <= 0) return row
+  const rowRuleID = Number(row.pricing_rule_id ?? row.pricingRuleID ?? 0) || 0
+  const trialRuleID = Number(trial.pricing_rule_id ?? trial.pricingRuleID ?? rowRuleID) || 0
+  if (rowRuleID > 0 && trialRuleID > 0 && rowRuleID !== trialRuleID) return row
+  const rowProductID = Number(row.product_id ?? row.productID ?? row.productId ?? 0) || 0
+  const trialProductID = Number(trial.product_id ?? trial.productID ?? trial.productId ?? rowProductID) || 0
+  if (rowProductID > 0 && trialProductID > 0 && rowProductID !== trialProductID) return row
+  const priceUnit = String(trial.quote_unit ?? trial.quoteUnit ?? row.price_unit ?? row.priceUnit ?? '').trim() || 'kg'
+  const inventoryUnit = String(trial.inventory_unit ?? trial.inventoryUnit ?? row.inventory_unit ?? row.inventoryUnit ?? priceUnit).trim() || priceUnit
+  const conversion = priceTableInventoryConversion(row.inventory_conversion_json ?? row.inventoryConversionJSON, priceUnit, inventoryUnit)
+  const sourceSnapshot = parseJSONObject(row.cost_source_snapshot ?? row.costSourceSnapshot)
+  const manualFinal = row.manual_adjusted === true && normalizePositiveNumber(row.final_unit_price ?? row.finalUnitPrice) > 0
+    ? normalizePositiveNumber(row.final_unit_price ?? row.finalUnitPrice)
+    : trialPrice
+  return {
+    ...row,
+    price_unit: priceUnit,
+    final_unit_price: manualFinal,
+    original_final_unit_price: trialPrice,
+    inventory_unit: inventoryUnit,
+    inventory_conversion_json: conversion,
+    cost_source_snapshot: {
+      ...sourceSnapshot,
+      bom_version_id: Number(trial.bom_version_id ?? trial.bomVersionID ?? sourceSnapshot.bom_version_id ?? 0) || 0,
+      bom_version_no: String(trial.bom_version_no ?? trial.bomVersionNo ?? sourceSnapshot.bom_version_no ?? '').trim(),
+      operation_template_id: Number(trial.operation_template_id ?? trial.operationTemplateID ?? sourceSnapshot.operation_template_id ?? 0) || 0,
+      operation_template_name: String(trial.operation_template_name ?? trial.operationTemplateName ?? sourceSnapshot.operation_template_name ?? '').trim(),
+      pricing_rule_trial_final_unit_price: trialPrice,
+      pricing_rule_trial_quote_unit: priceUnit,
+      pricing_rule_trial_base_cost: Number(trial.base_cost ?? trial.baseCost ?? 0) || 0,
+    },
+  }
+}
+
 export function normalizePricingRuleCostSourceMode(value) {
   return 'bom_current_cost'
 }
@@ -1942,6 +2018,18 @@ function normalizeOptionalUnitText(value) {
 function normalizeInventoryConversionValue(value) {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value
   return parseJSONObject(value)
+}
+
+function priceTableInventoryConversion(value = {}, priceUnit = '', inventoryUnit = '') {
+  const parsed = normalizeInventoryConversionValue(value)
+  if (Object.keys(parsed).length) return parsed
+  const source = String(priceUnit || '').trim()
+  const target = String(inventoryUnit || '').trim()
+  if (!source || !target) return {}
+  if (source === target) return { [source]: { [target]: 1 } }
+  if ((source === 'lb' || source === '磅') && target === 'kg') return { lb: { kg: 0.454 } }
+  if (source === 'kg' && (target === 'lb' || target === '磅')) return { kg: { lb: 2.20462 } }
+  return {}
 }
 
 function formatProductFinalUnitPrice(value) {
