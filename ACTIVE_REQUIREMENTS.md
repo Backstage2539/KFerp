@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-466-PRICE-LIST-TIER-TEMPLATE-TRIAL-PREVIEW
+- Branch: codex/price-list-tier-template-trial-preview-20260610
+- Owner/session: Codex / 2026-06-10
+- Status: ready for integration; local RED/GREEN frontend unit test, support contract, Go unit tests, Vue build and changed verifier passed. Browser/system acceptance intentionally skipped per Van request; Van will validate deployed UI.
+- Scope: 修复商品价格表预览：商品使用 `按阶梯模板价计算` 时，阶梯模板的每个档位如果引用价格计算模板，也必须调用商品价格管理同一套价格计算模板试算接口。`红岩拼配` 引用 `咖啡熟豆` 阶梯价模板，两个阶梯都引用 `咖啡熟豆磅装模板` 时，两个阶梯都应显示试算单价；当前模板公式相同时两个阶梯单价一致。
+- DEV:
+  - DEV-466-TIER-TEMPLATE-TRIAL-PAYLOAD：`tier_template` 平铺价格行使用 `tier_pricing_rule_id/pricing_rule_id` 构造 pricing-rule-trial 请求。
+  - DEV-466-TIER-TEMPLATE-TRIAL-APPLY：试算成功后把最终价、报价单位和库存换算回填到该阶梯行。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-settings.test.js` failed because `priceTablePricingRuleTrialPayload` returned `null` for `pricing_mode=tier_template`.
+  - GREEN frontend: `node --test src/lib/product-settings.test.js` passed 129/129.
+  - GREEN frontend combined: `node --test src/lib/product-settings.test.js src/lib/bean-list-pdf.test.js src/lib/costing-bean-list-version-ui.test.js` passed 176/176.
+  - GREEN support: `go test ./internal/interfaces/http/support -run 'TestDev46[56]' -count=1` passed.
+  - GREEN backend/unit: `go test ./...` in `orderapp-remote` passed.
+  - GREEN build/check: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size/plugin timing warnings; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-10-price-list-tier-template-trial-preview.md`.
+- Last update: 2026-06-10 Asia/Shanghai
+
 ### PR-465-PRICE-LIST-PRICING-RULE-PREVIEW
 - Branch: codex/price-list-pricing-rule-preview-fix-20260610
 - Owner/session: Codex / 2026-06-10

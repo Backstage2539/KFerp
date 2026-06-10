@@ -695,6 +695,61 @@ test('price table pricing-rule preview row uses the live trial result', () => {
   assert.equal(got.cost_source_snapshot.pricing_rule_trial_final_unit_price, 68.5)
 })
 
+test('price table tier-template preview rows use their tier pricing rule trial result', () => {
+  const row = {
+    row_key: '550:tier-template:8:1',
+    product_id: 550,
+    product_name: '熟豆-红岩拼配',
+    pricing_mode: 'tier_template',
+    pricing_mode_source: 'product',
+    tier_label: '1磅-9磅',
+    min_qty: 1,
+    max_qty: 9,
+    price_unit: 'lb',
+    final_unit_price: 0,
+    original_final_unit_price: 0,
+    inventory_unit: 'kg',
+    inventory_conversion_json: {},
+    tier_template_id: 8,
+    template_tier_id: 1,
+    pricing_rule_id: 40,
+    pricing_rule_source: 'tier_template',
+    pricing_rule_version: '咖啡熟豆磅装模板-v1',
+    tier_pricing_rule_id: 40,
+    tier_pricing_rule_version: '咖啡熟豆磅装模板-v1',
+    cost_source_snapshot: {
+      pricing_rule_id: 40,
+      bom_version_id: 8842,
+      operation_template_id: 9,
+    },
+  }
+
+  assert.deepEqual(priceTablePricingRuleTrialPayload(row, { customerID: 0 }), {
+    pricing_rule_id: 40,
+    product_id: 550,
+    customer_id: 0,
+    bom_version_id: 8842,
+    operation_template_id: 9,
+    quote_unit: 'lb',
+    overrides: {},
+  })
+
+  const got = applyPricingRuleTrialToPriceTableRow(row, {
+    pricing_rule_id: 40,
+    product_id: 550,
+    quote_unit: 'lb',
+    inventory_unit: 'kg',
+    final_unit_price: 68.5,
+  })
+
+  assert.equal(got.pricing_mode, 'tier_template')
+  assert.equal(got.tier_label, '1磅-9磅')
+  assert.equal(got.final_unit_price, 68.5)
+  assert.equal(got.original_final_unit_price, 68.5)
+  assert.equal(got.tier_pricing_rule_id, 40)
+  assert.deepEqual(got.inventory_conversion_json, { lb: { kg: 0.454 } })
+})
+
 test('product settings exposes pricing rule pane instead of final price records', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const pane = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<p class="muted price-list-flat-row-note"/)?.[0] || ''
