@@ -10,6 +10,9 @@
 - GREEN frontend: `node --test src/lib/product-price-list-draft.test.js src/lib/costing-bean-list-version-ui.test.js`.
 - GREEN frontend: `node --test src/lib/product-price-list-selection.test.js src/lib/product-price-list-types.test.js src/lib/business-grouping.test.js src/lib/product-settings.test.js`.
 - GREEN support/API contract: `go test ./internal/interfaces/http/support -run TestDev467PriceListGenerationPersistencePreviewGroupFixContracts -count=1`.
+- 2026-06-11 follow-up API: `POST /api/costing/pricing-rule-trial` with `pricing_rule_id=11`, `product_id=550` returned `熟豆-红岩拼配`, default BOM `BOM-004014 / V002 / 723`, `42.64/lb` and `92.03/kg`.
+- 2026-06-11 follow-up browser read: deployed 商品价格表 showed 红岩平铺行 had inherited `按价格计算模板计算：价格表` and `咖啡熟豆磅装模板` with unit `/kg`, but the final price cell was empty.
+- 2026-06-11 RED/GREEN frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/costing-bean-list-version-ui.test.js` failed before the price-list preview could clear current-row pricing-rule trial error cache or derive product-level quote units, then passed 24/24 after the fix.
 
 ## 浏览器验收
 - 打开部署后的商品价格表，选择 `咖啡熟豆`。
