@@ -401,10 +401,11 @@
         <span>{{ pdfTotalItems }} 款</span>
         <div class="pdf-actions">
           <button v-if="isBeanListAdmin" class="secondary" type="button" :disabled="beanListWithdrawing || !currentBeanListPublication" @click="withdrawBeanList()">撤回发布</button>
-          <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady || !priceListFlatRowsReady" @click="publishBeanList">发布价格表</button>
+          <button v-if="isBeanListAdmin" class="primary" type="button" :disabled="beanListPublishing" @click="publishBeanList">发布价格表</button>
           <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
           <button class="secondary" type="button" :disabled="beanListPdfGenerating || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
         </div>
+        <p v-if="priceListPublishBlockedReason" class="muted price-list-publish-guard">{{ priceListPublishBlockedReason }}</p>
       </div>
       <div class="pdf-preview-phone bean-list-pdf-surface" :style="pdfPageStyle">
         <header class="pdf-cover">
@@ -1276,6 +1277,14 @@ const publicBeanListURL = computed(() => {
   return `${window.location.origin}/public/bean-list/${pdfTheme.value.listType}${query ? `?${query}` : ''}`
 })
 const inactiveBomWarningCount = computed(() => visibleCostingItems.value.filter((item) => itemWarnings(item).length).length)
+const priceListPublishBlockedReason = computed(() => {
+  if (!pdfGroups.value.length) return '暂无可发布的价格表预览'
+  if (!String(pdfTheme.value.version || '').trim()) return '请填写价格表版本号'
+  if (!customerScopeReady.value) return '请选择客户'
+  if (inactiveBomWarningCount.value > 0) return 'BOM已失效：请重新启用 BOM 后再发布价格表'
+  if (!priceListFlatRowsReady.value) return '发布前需要为每行补齐计价模式、对应模板或固定价，并保证价格单位到库存单位换算可追溯。'
+  return ''
+})
 const pdfPageStyle = computed(() => {
   const bg = pdfTheme.value.backgroundImage
   return {
@@ -3622,9 +3631,10 @@ async function generateBeanListPdf() {
 }
 
 async function publishBeanList() {
-  if (!pdfGroups.value.length) return
-  if (!customerScopeReady.value) {
-    error.value = '请选择客户'
+  const blockedReason = priceListPublishBlockedReason.value
+  if (blockedReason) {
+    error.value = blockedReason
+    message.value = ''
     return
   }
   beanListPublishing.value = true
@@ -3985,6 +3995,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .green-tier-price-editor input { min-width: 0; }
 .pdf-preview-title { max-width: 760px; margin: 16px auto 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; color: #555; font-size: 12px; }
 .pdf-preview-title strong { color: #111; font-size: 14px; }
+.price-list-publish-guard { flex-basis: 100%; margin: -4px 0 0; color: #8a5a00; }
 .pdf-preview-phone { max-width: 430px; min-height: 360px; max-height: 72vh; overflow: auto; margin: 0 auto; border: 1px solid #ded6c9; border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.12); }
 .bean-list-pdf-surface { box-sizing: border-box; padding: 16px; background-size: cover; background-position: center; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 .pdf-cover { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 2px solid currentColor; padding-bottom: 12px; margin-bottom: 14px; }

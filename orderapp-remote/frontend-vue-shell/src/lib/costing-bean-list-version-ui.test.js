@@ -96,6 +96,38 @@ test('product bean-list generate PDF saves preview snapshot through backend inst
   assert.doesNotMatch(generateSource, /bean-list-pdf-printing/)
 })
 
+test('product price-list publish action reports blocked reasons instead of doing nothing', () => {
+  const publishButtonStart = viewSource.indexOf('@click="publishBeanList"')
+  assert.ok(publishButtonStart > -1, 'publish button not found')
+  const publishButtonSource = viewSource.slice(viewSource.lastIndexOf('<button', publishButtonStart), viewSource.indexOf('</button>', publishButtonStart))
+
+  assert.match(viewSource, /const priceListPublishBlockedReason = computed\(\(\) => \{/)
+  assert.match(viewSource, /v-if="priceListPublishBlockedReason" class="muted price-list-publish-guard"/)
+  assert.match(publishButtonSource, /:disabled="beanListPublishing"/)
+  assert.doesNotMatch(publishButtonSource, /!pdfGroups\.length/)
+  assert.doesNotMatch(publishButtonSource, /!pdfTheme\.version/)
+  assert.doesNotMatch(publishButtonSource, /!customerScopeReady/)
+  assert.doesNotMatch(publishButtonSource, /!priceListFlatRowsReady/)
+
+  const publishStart = viewSource.indexOf('async function publishBeanList()')
+  const publishEnd = viewSource.indexOf('async function saveBeanListDraft()', publishStart)
+  assert.ok(publishStart > -1 && publishEnd > publishStart, 'publishBeanList function not found')
+  const publishSource = viewSource.slice(publishStart, publishEnd)
+
+  for (const expected of [
+    'const blockedReason = priceListPublishBlockedReason.value',
+    'error.value = blockedReason',
+    '暂无可发布的价格表预览',
+    '请填写价格表版本号',
+    '请选择客户',
+    'BOM已失效：请重新启用 BOM 后再发布价格表',
+    '发布前需要为每行补齐计价模式、对应模板或固定价，并保证价格单位到库存单位换算可追溯。',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing publish blocked reason behavior: ${expected}`)
+  }
+  assert.doesNotMatch(publishSource, /if \(!pdfGroups\.value\.length\) return/)
+})
+
 test('product price-list version scope selector lists public and each fulfillment customer', () => {
   const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
