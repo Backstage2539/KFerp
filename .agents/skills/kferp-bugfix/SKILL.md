@@ -15,6 +15,7 @@ Use this skill so Van can report bugs naturally while Codex supplies the verifie
 - Keep the fix scoped to the failing behavior; avoid opportunistic refactors.
 - Update manuals only when the fix changes user-visible behavior, fields, buttons, workflow order, permissions, import/export, or failure handling.
 - Do not deploy unless Van asks for deployment or the current thread already owns that deployment.
+- Simple bug mode: if Van says "简单BUG" or the expected change is local and self-contained, run only targeted TDD, merge the verified fix into `develop` after GREEN, and do not run extra system/browser acceptance or deploy.
 
 ## Workflow
 
@@ -26,9 +27,10 @@ Use this skill so Van can report bugs naturally while Codex supplies the verifie
    - frontend behavior: `node --test` test near `orderapp-remote/frontend-vue-shell/src`
    - PDF/PNG layout: generator test plus rendered artifact or page/screenshot inspection when visual overlap/spacing is the bug
 4. Run the new/changed test and confirm it fails for the reported reason.
-5. Implement the smallest fix, rerun the targeted verifier, then run broader checks for touched areas.
-6. Update `ACTIVE_REQUIREMENTS.md` with branch, requirement id if any, verifier commands, and status.
-7. Final report must include: reproduction, RED evidence, GREEN evidence, files changed, manual impact, and whether deployment was done.
+5. Implement the smallest fix and rerun the targeted verifier.
+6. For simple bug mode, stop after targeted GREEN, merge into `develop`, and do not deploy. For normal bugfixes, run broader checks for touched areas.
+7. Update `ACTIVE_REQUIREMENTS.md` with branch, requirement id if any, verifier commands, and status unless the task is simple bug mode and the update would only add process overhead.
+8. Final report must include: reproduction, RED evidence, GREEN evidence, files changed, manual impact, and whether deployment was done.
 
 ## Standard Checks
 
@@ -40,3 +42,4 @@ Use `scripts/verify_kferp.sh` when it covers the touched area:
 - `scripts/verify_kferp.sh frontend-build`
 
 For narrow fixes, run targeted tests first; use full checks before merge/deploy.
+For simple bug mode, targeted RED/GREEN evidence is enough unless the local fix grows into a broader change.
