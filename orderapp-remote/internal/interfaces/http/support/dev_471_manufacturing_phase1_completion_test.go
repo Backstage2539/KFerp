@@ -98,10 +98,16 @@ func TestDev471ManufacturingPhase1CompletionContracts(t *testing.T) {
 		"process_route_operations",
 		"operation_id",
 		"workstation_id",
-		"COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, output_bv.id, 0)",
+		"SELECT COALESCE(output_bom.bom_version_id, 0)",
+		"pb.output_product_id=p.id",
+		"EXISTS (SELECT 1 FROM %s.production_bom_version_items item WHERE item.version_id=v.id)",
+		"ORDER BY v.published_at DESC NULLS LAST, v.created_at DESC, v.id DESC",
 	} {
 		if !strings.Contains(workOrderRepository, want) {
 			t.Fatalf("work order repository missing phase1 freeze marker %q", want)
 		}
+	}
+	if strings.Contains(workOrderRepository, "COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, output_bv.id, 0)") {
+		t.Fatalf("work order repository must use the current usable production BOM version instead of the older configured BOM version")
 	}
 }
