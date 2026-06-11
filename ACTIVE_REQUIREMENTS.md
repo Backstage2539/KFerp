@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-474-PRODUCTION-PLAN-BULK-SUBMIT-FILTER
 - Branch: codex/production-plan-bulk-submit-filter-20260611
 - Owner/session: Codex / 2026-06-11
-- Status: rebased onto `origin/develop` after PR-473 generic manufacturing abstraction; PR id collision resolved as PR-474. Pending post-merge verification, merge to develop and development deploy.
+- Status: merged to `develop` and deployed to development. PR id collision with PR-473 generic manufacturing abstraction resolved as PR-474.
 - Scope: 生产计划列表提交与过滤改造。`创建生产计划` 保持只创建 draft 计划；删除旧 `生成计划` 入口和行内 `提交`；生产计划列表支持状态/时间过滤、草稿计划复选框、表头三态、批量 `提交生成工单`，批量提交只处理 draft 并生成 released 工单和 pending 工序卡。通用制造抽象、BOM、工艺路线、工序、工位、旧 `/api/produce/start` 不在本需求内。
 - DEV:
   - DEV-474-PRODUCTION-PLAN-FILTER-API：`GET /api/production-plans` 支持 `status`、`time_field=created_at|submitted_at|completed_at`、`from`、`to`、`limit`，默认最近 50 条并按创建时间倒序。
@@ -25,13 +25,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN packages/build/check: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1` passed; `go test ./...` passed; `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
   - GREEN browser/local: local production Vue build + mock API at `http://127.0.0.1:5188/vue-shell/?view=producePlan` rendered production plan page with `创建生产计划` and `提交生成工单`, no old `生成计划` button, no row-level `提交`; filter labels `状态/时间类型/开始日期/结束日期` visible; draft row `草稿` class `status-draft` selectable, submitted row `已提交工单` class `status-submitted` disabled; selecting draft enabled batch button; clicking batch submitted via `POST /api/production-plans/submit`, refreshed row to `已提交工单` and disabled checkbox; status filter sent `?status=submitted&time_field=created_at&limit=50`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-11-production-plan-bulk-submit-filter.md`.
-- Deployment: pending.
+- Deployment: deployed 2026-06-12 Asia/Shanghai at `origin/develop=0165e5aac8b88f35bb385e5e9193ce73a417a8d4`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260612012449`. Smoke: `erp_orderapp` up, unauthenticated `/app/api/req/product?limit=1` returned 401, authenticated `/?view=producePlan` returned 200, authenticated `/api/production-plans?status=draft&time_field=created_at&limit=1` returned draft plan rows, REQ API exposed PR/DEV-474 markers, deployed Vue assets contain `创建生产计划` / `提交生成工单` / `时间类型` / `已提交工单`. In-app Browser live navigation was blocked by the client before page load, so live page acceptance used authenticated curl plus deployed asset markers.
 - Last update: 2026-06-12 Asia/Shanghai
 
 ### PR-473-GENERIC-MANUFACTURING-ABSTRACTION
 - Branch: codex/generic-manufacturing-abstraction-20260612
 - Owner/session: Codex / 2026-06-12
-- Status: implemented locally; targeted frontend/API/support tests, full Go tests, Vite build, changed verifier and local browser mock acceptance passed. Pending merge to develop and development deploy.
+- Status: merged to `develop` and deployed to development; revalidated together with PR-474 production plan list changes.
 - Scope: 剥离生产计划和工单主流程里的咖啡烘焙排产表达，按 ERPNext-style 通用制造口径展示需求、库存缺口、BOM、物料需求和工艺路线摘要。生产计划创建继续生成 draft 单据，但前端不再编辑设备、单批投入、锅数或提交 `input_by_key`；后端保留旧 `roast_plans`、`RoastMachine`、`roast_machines` 和 `/api/produce/machines` 兼容，不做数据库迁移。生产计划列表批量提交、状态过滤和提交按钮由其他 worktree 负责，本需求只做去咖啡化兼容。
 - DEV:
   - DEV-473-PRODUCE-PLAN-GENERIC-UI：生产计划页移除 `生产建议` 区块、设备/锅数/最终投料编辑和 `/api/produce/machines` 请求；计划预览保留商品、订单、规格、需求、库存、缺口、BOM 预期、计划投料、物料需求和工艺路线摘要。
@@ -46,7 +46,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Build/check: `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
   - Browser: local Vite + mock API at `http://127.0.0.1:5183/vue-shell/` passed. Production plan page rendered stock shortage, material summary, `BOM摘要`, `计划投料(g)`, `工艺路线摘要`, and did not show roast suggestion words. Captured `POST /api/production-plans` body was `{"from":"","to":"","customer_id":0,"selected":["539-454"],"source_type":"erp_order"}` with no `input_by_key`. Work orders page rendered `BOM/工艺路线`, `工序摘要`, `工艺参数`, `商品生产配置快照`, packaging route operations, and did not show `工艺建议/建议设备/建议锅次`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-12-generic-manufacturing-abstraction.md`.
-- Deployment: pending.
+- Deployment: deployed with `origin/develop=0165e5aac8b88f35bb385e5e9193ce73a417a8d4`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260612012449`. Smoke shared with PR-474: production plan page route 200 under BasicAuth, production plan API readable, PR-473/PR-474 docs and req markers present, container logs clean after restart.
 - Last update: 2026-06-12 Asia/Shanghai
 
 ### PR-471-MANUFACTURING-PHASE1-COMPLETION
