@@ -3104,6 +3104,46 @@ func TestProductPricingRuleAPICanDeactivateExistingTemplate(t *testing.T) {
 	}
 }
 
+func TestProductPricingRuleAPICopyCreateActivatesCopiedTemplate(t *testing.T) {
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(&productSettingsRepo{}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-pricing-rules", bytes.NewBufferString(`{
+		"name":"停用模板 复制",
+		"code":"RULE-INACTIVE-COPY",
+		"cost_source_mode":"bom_current_cost",
+		"margin_rate":0.2,
+		"tax_rate":0.13,
+		"rounding_mode":"jiao",
+		"formula_version":"v2",
+		"active":false,
+		"calculation_json":{
+			"yield_loss_mode":"manual",
+			"profit_method":"markup",
+			"tax_mode":"tax_included",
+			"other_costs":{"包装":1.2},
+			"trial_note":"复制模板后再试算"
+		}
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST pricing rule copy status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"name":"停用模板 复制"`,
+		`"code":"RULE-INACTIVE-COPY"`,
+		`"active":true`,
+		`"formula_version":"v2"`,
+		`"other_costs":{"包装":1.2}`,
+	} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("pricing rule copy response missing %s: %s", want, rec.Body.String())
+		}
+	}
+}
+
 func TestProductPricingRuleAPIRejectsQuantityTierFieldsInsideCalculationTemplate(t *testing.T) {
 	e := echo.New()
 	registerProductRoutes(e, catalogapp.NewService(&productSettingsRepo{}))

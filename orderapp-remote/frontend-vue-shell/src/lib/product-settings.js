@@ -428,6 +428,17 @@ export function buildPricingRulePayload(form = {}) {
   }
 }
 
+export function buildPricingRuleCopyPayload(rule = {}, existingRules = []) {
+  const source = buildPricingRulePayload(rule)
+  return {
+    ...source,
+    id: 0,
+    name: pricingRuleCopyName(source.name || source.code || '价格计算模板', existingRules),
+    code: source.code ? pricingRuleCopyCode(source.code, existingRules) : '',
+    active: true,
+  }
+}
+
 export function buildPricingRuleTrialPayload(form = {}) {
   const overrides = {}
   const expectedLossRate = optionalNumberFromForm(form.expected_loss_rate ?? form.expectedLossRate)
@@ -536,6 +547,28 @@ function optionalNumberFromForm(value) {
   if (value === '' || value === null || typeof value === 'undefined') return null
   const n = Number(value)
   return Number.isFinite(n) ? n : null
+}
+
+function pricingRuleCopyName(baseName, existingRules = []) {
+  const base = String(baseName || '').trim() || '价格计算模板'
+  const used = new Set((Array.isArray(existingRules) ? existingRules : []).map((rule) => String(rule?.name || '').trim()).filter(Boolean))
+  return nextPricingRuleCopyValue(`${base} 复制`, used, ' ')
+}
+
+function pricingRuleCopyCode(baseCode, existingRules = []) {
+  const base = String(baseCode || '').trim()
+  if (!base) return ''
+  const used = new Set((Array.isArray(existingRules) ? existingRules : []).map((rule) => String(rule?.code || '').trim()).filter(Boolean))
+  return nextPricingRuleCopyValue(`${base}-COPY`, used, '-')
+}
+
+function nextPricingRuleCopyValue(firstCandidate, used, separator) {
+  if (!used.has(firstCandidate)) return firstCandidate
+  for (let index = 2; index < 1000; index += 1) {
+    const candidate = `${firstCandidate}${separator}${index}`
+    if (!used.has(candidate)) return candidate
+  }
+  return `${firstCandidate}${separator}${Date.now()}`
 }
 
 function pricingRuleTrialOtherCostMapFromForm(form = {}) {

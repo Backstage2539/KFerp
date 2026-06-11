@@ -28,7 +28,7 @@ func TestDev444PricingRuleCostSourceUXContracts(t *testing.T) {
 			"生产 BOM 成本（物料+工序）",
 			"其他成本",
 			"全局币种配置",
-			"编辑模板",
+			"pricing-rule-name-button",
 			"失效",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {

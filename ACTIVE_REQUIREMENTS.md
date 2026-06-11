@@ -6,6 +6,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-468-PRICING-RULE-LIST-ACTIONS-UX
+- Branch: codex/pricing-rule-list-actions-ux-20260611
+- Owner/session: Codex / 2026-06-11
+- Status: locally verified; pending merge to develop, deploy and live smoke.
+- Scope: 商品价格管理模板列表操作调整。价格试算从每行按钮移到顶部 `价格试算`，位于 `新建价格计算模板` 左侧；试算抽屉内选择启用的价格计算模板。模板行不再显示独立 `编辑模板`，点击模板名称进入编辑。停用模板置灰，复制按钮不置灰，复制后生成启用的新模板。
+- DEV:
+  - DEV-468-PRICING-RULE-TRIAL-LAUNCHER：顶部 `价格试算` 打开试算抽屉，抽屉内用 `试算模板` 下拉选择启用模板，移除行内 `试算`。
+  - DEV-468-PRICING-RULE-NAME-EDIT-COPY-INACTIVE：模板名称作为编辑入口；新增行内 `复制`；停用行置灰但复制按钮保持可用；复制走现有 pricing rule 创建 API 并生成启用模板。
+  - DEV-468-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和 PR-468 验收记录。
+- Verifier:
+  - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because `buildPricingRuleCopyPayload` did not exist and the ProductSettings pricing rule pane still used row-level `试算/编辑模板`.
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev468PricingRuleListActionsUXContracts -count=1` failed before implementation because PR-468 docs/markers were missing.
+  - GREEN frontend: `node --test src/lib/product-settings.test.js` passed 130/130.
+  - GREEN support: `go test ./internal/interfaces/http/support -run TestDev468PricingRuleListActionsUXContracts -count=1` passed.
+  - GREEN support compatibility: `go test ./internal/interfaces/http/support -count=1` passed after updating the older PR-444 contract from the removed row-level `编辑模板` label to the template-name edit marker.
+  - GREEN API contract: `go test ./internal/interfaces/http/catalog -run TestProductPricingRuleAPICopyCreateActivatesCopiedTemplate -count=1` passed, confirming copied pricing-rule creation returns active templates through `POST /api/product-pricing-rules`.
+  - GREEN backend/unit: `go test ./...` in `orderapp-remote` passed.
+  - GREEN build/check: `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+  - GREEN browser/local: production Vue build + mock API + Chrome DevTools Protocol rendered 商品价格管理 with top `价格试算`, no row-level `试算/编辑模板`, visible `复制`, inactive row opacity `0.42`, inactive copy button opacity `1`, and trial selector containing only active pricing templates.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-11-pricing-rule-list-actions-ux.md`.
+
 ### PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX
 - Branch: codex/price-list-flat-row-product-id-fix-20260610 (follow-up); previous branches codex/price-list-product-override-trial-refresh-20260610, codex/price-list-persistence-preview-group-fix-20260610 and codex/price-list-redrock-trial-request-fix-20260610
 - Owner/session: Codex / 2026-06-10

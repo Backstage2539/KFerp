@@ -718,6 +718,7 @@
         <div class="panel-title">
           <span>商品价格管理</span>
           <div class="panel-actions">
+            <button class="secondary compact-action" type="button" @click="openPricingRuleTrial()">价格试算</button>
             <button class="secondary compact-action" type="button" @click="resetPricingRuleForm">新建价格计算模板</button>
           </div>
         </div>
@@ -743,8 +744,12 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="rule in pricingRules" :key="rule.id">
-                    <td>{{ rule.name || rule.code || `Pricing Rule #${rule.id}` }}</td>
+                  <tr v-for="rule in pricingRules" :key="rule.id" :class="['pricing-rule-row', { inactive: rule.active === false }]">
+                    <td>
+                      <button class="text-button pricing-rule-name-button" type="button" @click="startPricingRuleEdit(rule)">
+                        {{ rule.name || rule.code || `Pricing Rule #${rule.id}` }}
+                      </button>
+                    </td>
                     <td>{{ rule.formula_version || 'v1' }}</td>
                     <td>{{ pricingRuleCostSourceLabel(rule.cost_source_mode) }}</td>
                     <td>{{ pricingRuleProfitMethodLabel(rule.profit_method) }}</td>
@@ -753,8 +758,7 @@
                     <td>{{ pricingRuleRoundingLabel(rule.rounding_mode) }}</td>
                     <td><span :class="['status-pill', rule.active === false ? 'inactive' : '']">{{ rule.active === false ? '停用' : '启用' }}</span></td>
                     <td class="table-actions">
-                      <button class="secondary compact-action" type="button" @click="startPricingRuleEdit(rule)">编辑模板</button>
-                      <button class="secondary compact-action" type="button" @click="openPricingRuleTrial(rule)">试算</button>
+                      <button class="secondary compact-action pricing-rule-copy-action" type="button" :disabled="productPriceSaving" @click="copyPricingRule(rule)">复制</button>
                       <button v-if="rule.active !== false" class="secondary compact-action danger-outline" type="button" :disabled="productPriceSaving" @click="deactivatePricingRule(rule)">失效</button>
                     </td>
                   </tr>
@@ -886,7 +890,7 @@
           <section class="drawer-section pricing-rule-trial-summary">
             <div>
               <strong>{{ pricingRuleTrialRule?.name || pricingRuleTrialRule?.code || '未命名模板' }}</strong>
-              <small>{{ pricingRuleTrialRule?.active === false ? '停用模板，本次只读试算' : '启用模板，本次只读试算' }}</small>
+              <small>{{ pricingRuleTrialRule ? '启用模板，本次只读试算' : '请先选择启用的价格计算模板' }}</small>
             </div>
             <div class="pricing-rule-trial-rule-grid">
               <span>基础成本：{{ pricingRuleCostSourceLabel(pricingRuleTrialRule?.cost_source_mode) }}</span>
@@ -898,6 +902,16 @@
 
           <section class="drawer-section pricing-rule-trial-form-section">
             <div class="template-editor-grid pricing-rule-trial-grid">
+              <label class="wide-field">
+                <span>试算模板</span>
+                <select v-model.number="pricingRuleTrialForm.pricing_rule_id" @change="handlePricingRuleTrialRuleChange">
+                  <option :value="0">请选择启用的价格计算模板</option>
+                  <option v-for="rule in activePricingRuleTrialOptions" :key="rule.id" :value="Number(rule.id || 0)">
+                    {{ pricingRuleOptionLabel(rule) }}
+                  </option>
+                </select>
+                <small v-if="!activePricingRuleTrialOptions.length" class="muted">暂无启用的价格计算模板，可先新建或复制停用模板。</small>
+              </label>
               <label class="wide-field">
                 <span>试算商品</span>
                 <SearchableSelect
@@ -1536,6 +1550,7 @@ import {
   buildProductPriceRecordPayload,
   buildProductTierPriceSchemePayload,
   buildPricingRulePayload,
+  buildPricingRuleCopyPayload,
   buildPricingRuleTrialPayload,
   buildProductProductionConfigField,
   buildProductProductionConfigForm,
@@ -1831,6 +1846,10 @@ const productRows = computed(() => {
   }
   return rows
 })
+const activePricingRuleTrialOptions = computed(() => pricingRules.value
+  .filter((rule) => rule && rule.active !== false && Number(rule.id || 0) > 0)
+  .slice()
+  .sort((a, b) => pricingRuleOptionLabel(a).localeCompare(pricingRuleOptionLabel(b))))
 const pricingRuleTrialProductOptions = computed(() => productRows.value
   .filter((product) => product && product.active !== false)
   .slice()
@@ -3253,13 +3272,39 @@ function startPricingRuleEdit(rule) {
   pricingRuleForm.value = defaultPricingRuleForm(JSON.parse(JSON.stringify(rule || {})))
 }
 
-function openPricingRuleTrial(rule) {
-  const normalized = defaultPricingRuleForm(JSON.parse(JSON.stringify(rule || {})))
+function pricingRuleOptionLabel(rule = {}) {
+  const name = String(rule.name || rule.code || `Pricing Rule #${rule.id || ''}`).trim()
+  const version = String(rule.formula_version || 'v1').trim()
+  return version ? `${name} / ${version}` : name
+}
+
+function activePricingRuleTrialOptionByID(id) {
+  const ruleID = Number(id || 0)
+  return activePricingRuleTrialOptions.value.find((rule) => Number(rule.id || 0) === ruleID) || null
+}
+
+function openPricingRuleTrial(rule = null) {
+  const normalized = rule && rule.active !== false ? defaultPricingRuleForm(JSON.parse(JSON.stringify(rule || {}))) : null
   pricingRuleTrialRule.value = normalized
-  pricingRuleTrialForm.value = defaultPricingRuleTrialForm(normalized)
+  pricingRuleTrialForm.value = defaultPricingRuleTrialForm(normalized || {})
   pricingRuleTrialResult.value = null
   pricingRuleTrialError.value = ''
   pricingRuleTrialDrawerOpen.value = true
+}
+
+function handlePricingRuleTrialRuleChange() {
+  const selected = activePricingRuleTrialOptionByID(pricingRuleTrialForm.value.pricing_rule_id)
+  const previous = { ...pricingRuleTrialForm.value }
+  pricingRuleTrialRule.value = selected ? defaultPricingRuleForm(JSON.parse(JSON.stringify(selected))) : null
+  const next = defaultPricingRuleTrialForm(pricingRuleTrialRule.value || {})
+  next.product_id = Number(previous.product_id || 0)
+  next.customer_id = Number(previous.customer_id || 0)
+  next.quote_unit = String(previous.quote_unit || '')
+  next.bom_version_id = 0
+  next.operation_template_id = 0
+  pricingRuleTrialForm.value = next
+  pricingRuleTrialResult.value = null
+  pricingRuleTrialError.value = ''
 }
 
 function closePricingRuleTrial() {
@@ -3561,6 +3606,31 @@ async function savePricingRule() {
     ok.value = '价格计算模板已保存'
   } catch (err) {
     error.value = err.message || '保存价格计算模板失败'
+  } finally {
+    productPriceSaving.value = false
+  }
+}
+
+async function copyPricingRule(rule) {
+  const payload = buildPricingRuleCopyPayload(rule || {}, pricingRules.value)
+  if (!payload.name) {
+    error.value = '请选择可复制的价格计算模板'
+    return
+  }
+  productPriceSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const result = await apiSend('/api/product-pricing-rules', { method: 'POST', body: payload })
+    const row = defaultPricingRuleForm(result.rule || payload)
+    pricingRules.value = [
+      row,
+      ...pricingRules.value.filter((item) => Number(item.id || 0) !== Number(row.id || 0)),
+    ]
+    pricingRuleForm.value = row
+    ok.value = '价格计算模板已复制'
+  } catch (err) {
+    error.value = err.message || '复制价格计算模板失败'
   } finally {
     productPriceSaving.value = false
   }
@@ -6678,6 +6748,9 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .remark-input { width: 180px; min-height: 46px; resize: vertical; }
 .status-pill { display: inline-flex; align-items: center; min-height: 24px; border: 1px solid #cfd8cf; border-radius: 999px; padding: 2px 8px; color: #27602e; background: #f2fbf2; white-space: nowrap; }
 .status-pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
+.pricing-rule-row.inactive td:not(.table-actions) { opacity: 0.42; }
+.pricing-rule-row.inactive .pricing-rule-copy-action { opacity: 1; }
+.pricing-rule-name-button { text-align: left; font-weight: 700; line-height: 1.25; white-space: normal; overflow-wrap: anywhere; }
 .product-return-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; padding: 10px 12px; border: 1px solid #dbeafe; border-radius: 8px; background: #eff6ff; color: #1e3a8a; }
 .product-return-banner span { font-size: 13px; color: #31577f; }
 .product-return-button { border-color: #1d4ed8; color: #1d4ed8; background: #fff; }

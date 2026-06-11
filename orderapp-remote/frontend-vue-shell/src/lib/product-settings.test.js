@@ -39,6 +39,7 @@ import {
   buildProductPriceRecordPayload,
   buildProductTierPriceSchemePayload,
   buildPricingRulePayload,
+  buildPricingRuleCopyPayload,
   buildPricingRuleTrialPayload,
   applyPricingRuleTrialToPriceTableRow,
   priceTablePricingRuleTrialPayload,
@@ -522,6 +523,51 @@ test('pricing rules and tier templates are independent templates used by price l
   })
 })
 
+test('pricing rule copy payload creates an active unique template from inactive source', () => {
+  assert.deepEqual(buildPricingRuleCopyPayload({
+    id: 5,
+    name: '停用模板',
+    code: 'RULE-OLD',
+    cost_source_mode: 'bom_current_cost',
+    margin_rate: 0.22,
+    tax_rate: 0.13,
+    rounding_mode: 'jiao',
+    formula_version: 'v2',
+    calculation_json: {
+      yield_loss_mode: 'manual',
+      profit_method: 'markup',
+      tax_mode: 'tax_excluded',
+      minimum_margin_rate: 0.15,
+      other_costs: { '包装': 1.2 },
+      trial_note: '复制后试算',
+    },
+    active: false,
+    remark: '原模板已停用',
+  }, [
+    { name: '停用模板', code: 'RULE-OLD' },
+    { name: '停用模板 复制', code: 'RULE-OLD-COPY' },
+  ]), {
+    id: 0,
+    name: '停用模板 复制 2',
+    code: 'RULE-OLD-COPY-2',
+    cost_source_mode: 'bom_current_cost',
+    margin_rate: 0.22,
+    tax_rate: 0.13,
+    rounding_mode: 'jiao',
+    formula_version: 'v2',
+    calculation_json: {
+      yield_loss_mode: 'manual',
+      profit_method: 'markup',
+      tax_mode: 'tax_excluded',
+      minimum_margin_rate: 0.15,
+      trial_note: '复制后试算',
+      other_costs: { '包装': 1.2 },
+    },
+    active: true,
+    remark: '原模板已停用',
+  })
+})
+
 test('pricing rule trial payload is temporary and does not save price rows', () => {
   assert.deepEqual(buildPricingRuleTrialPayload({
     pricing_rule_id: '10',
@@ -755,12 +801,18 @@ test('product settings exposes pricing rule pane instead of final price records'
   const pane = source.match(/<div v-show="showProductPriceManagementPane"[\s\S]*?<p class="muted price-list-flat-row-note"/)?.[0] || ''
   const script = source.split('<script setup>')[1]?.split('</script>')[0] || ''
 
-  for (const want of ['product-price-management-pane', '商品价格管理', '价格计算模板', 'Pricing Rule', '基础成本', '生产 BOM 成本（物料+工序）', '其他成本', '成本名', '成本价格', '全局币种配置', '利润方式', '税费方式', '最低毛利', '公式版本', '试算说明', '利润率', '税率', '取整规则', '编辑', '失效']) {
+  for (const want of ['product-price-management-pane', '商品价格管理', '价格计算模板', 'Pricing Rule', '价格试算', '新建价格计算模板', '基础成本', '生产 BOM 成本（物料+工序）', '其他成本', '成本名', '成本价格', '全局币种配置', '利润方式', '税费方式', '最低毛利', '公式版本', '试算说明', '利润率', '税率', '取整规则', '复制', '失效']) {
     assert.equal(pane.includes(want), true, `product price management pane should expose ${want}`)
   }
-  for (const want of ['pricingRules', 'buildPricingRulePayload', 'startPricingRuleEdit', 'deactivatePricingRule', 'addPricingRuleOtherCostRow']) {
+  for (const want of ['pricingRules', 'buildPricingRulePayload', 'buildPricingRuleCopyPayload', 'startPricingRuleEdit', 'copyPricingRule', 'deactivatePricingRule', 'addPricingRuleOtherCostRow']) {
     assert.match(script, new RegExp(want))
   }
+  assert.match(pane, /@click="openPricingRuleTrial\(\)"[^>]*>价格试算<\/button>[\s\S]*@click="resetPricingRuleForm"[^>]*>新建价格计算模板<\/button>/)
+  assert.match(pane, /class="text-button pricing-rule-name-button"[\s\S]*@click="startPricingRuleEdit\(rule\)"/)
+  assert.match(pane, /class="secondary compact-action pricing-rule-copy-action"[\s\S]*@click="copyPricingRule\(rule\)"[\s\S]*>复制<\/button>/)
+  assert.match(pane, /:class="\['pricing-rule-row', \{ inactive: rule\.active === false \}\]"/)
+  assert.doesNotMatch(pane, />编辑模板<\/button>/)
+  assert.doesNotMatch(pane, /@click="openPricingRuleTrial\(rule\)"/)
   for (const forbidden of ['商品成本上下文', '成本项配置', '库存成本', '手工成本', '最近采购成本', '成本取数口径', '商品价格记录', '最终单价', '引用价格记录', 'source_price_record_id', '阶梯价模板', 'priceTierTemplateForm', 'savePriceTierTemplate', 'min_qty', 'max_qty', 'tier_label']) {
     assert.equal(pane.includes(forbidden), false, `product price management pane should not expose ${forbidden}`)
   }
@@ -776,11 +828,15 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   for (const want of [
     '价格计算模板试算',
     'openPricingRuleTrial',
+    'activePricingRuleTrialOptions',
+    'handlePricingRuleTrialRuleChange',
     'pricingRuleTrialDrawerOpen',
     'pricingRuleTrialForm',
     'buildPricingRuleTrialPayload',
     '/api/costing/pricing-rule-trial',
     '试算商品',
+    '试算模板',
+    '请选择启用的价格计算模板',
     'BOM版本',
     '工序',
     '报价单位',
@@ -825,7 +881,9 @@ test('product price management exposes pricing rule trial drawer and API wiring'
   ]) {
     assert.equal(trialDrawer.includes(forbidden), false, `pricing rule trial drawer should not expose ${forbidden}`)
   }
-  assert.match(pane, /@click="openPricingRuleTrial\(rule\)"[^>]*>试算<\/button>/)
+  assert.match(pane, /@click="openPricingRuleTrial\(\)"[^>]*>价格试算<\/button>/)
+  assert.doesNotMatch(pane, /@click="openPricingRuleTrial\(rule\)"/)
+  assert.match(trialDrawer, /<select v-model\.number="pricingRuleTrialForm\.pricing_rule_id"[\s\S]*activePricingRuleTrialOptions/)
   assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.bom_version_id"[\s\S]*pricingRuleTrialBomVersionOptions/)
   assert.match(source, /<select v-model\.number="pricingRuleTrialForm\.operation_template_id"[\s\S]*pricingRuleTrialOperationTemplateOptions/)
   assert.match(source, /<select v-model="pricingRuleTrialForm\.quote_unit"[\s\S]*pricingRuleTrialQuoteUnitOptions/)
