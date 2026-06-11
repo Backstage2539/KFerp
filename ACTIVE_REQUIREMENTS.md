@@ -46,9 +46,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-11-pricing-rule-list-actions-ux.md`.
 
 ### PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX
-- Branch: codex/price-list-trial-product-key-fallback-20260611 (current follow-up); previous branches codex/price-list-pricing-rule-inherited-preview-20260611, codex/price-list-flat-row-product-id-fix-20260610, codex/price-list-product-override-trial-refresh-20260610, codex/price-list-persistence-preview-group-fix-20260610 and codex/price-list-redrock-trial-request-fix-20260610
+- Branch: codex/price-list-pricing-rule-id-positive-fallback-20260611 (current follow-up); previous branches codex/price-list-trial-product-key-fallback-20260611, codex/price-list-pricing-rule-inherited-preview-20260611, codex/price-list-flat-row-product-id-fix-20260610, codex/price-list-product-override-trial-refresh-20260610, codex/price-list-persistence-preview-group-fix-20260610 and codex/price-list-redrock-trial-request-fix-20260610
 - Owner/session: Codex / 2026-06-11
-- Status: fourth follow-up implementing locally after deployed browser validation still showed `熟豆-红岩拼配` inherited the price-list-level `咖啡熟豆磅装模板` but final price stayed `0`. Pending commit, push, merge, redeploy and live browser acceptance.
+- Status: sixth follow-up fixed locally after CDP browser validation showed the page did not send any `pricing-rule-trial` request for `熟豆-红岩拼配`; targeted tests and build/check passed. Pending commit, push, merge, redeploy and live browser acceptance.
 - Scope: 修复商品价格表生成区回归：`熟豆-红岩拼配` 选择按价格模板或按阶梯价模板计价后，价格表预览必须显示价格；修改计价方式和模板后刷新界面不能回退；商品档案中把 `熟豆-红岩拼配` 放到 `咖啡熟豆 / 意式拼配豆` 后，重新部署或刷新商品价格表不能又显示到未分类。
 - DEV:
   - DEV-467-PRICE-LIST-DRAFT-PERSISTENCE：商品价格表生成草稿按工作台、归属客户和商品类型 key 保存计价方式、默认模板、分类覆盖、商品覆盖和手工价格覆盖，切换类型或刷新后恢复。
@@ -75,6 +75,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - FOLLOW-UP 5 RED frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js orderapp-remote/frontend-vue-shell/src/lib/costing-bean-list-version-ui.test.js` failed because `priceTablePricingRuleTrialPayload` treated `product_id: 0` as terminal and did not fall back to numeric `product_key: "550"`.
   - FOLLOW-UP 5 GREEN frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js orderapp-remote/frontend-vue-shell/src/lib/costing-bean-list-version-ui.test.js` passed 155/155 after pricing-rule trial payload and flat-row product ids fall back to numeric product keys.
   - FOLLOW-UP 5 GREEN build/check: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with the existing Vite chunk-size warning; `git diff --check` passed.
+  - FOLLOW-UP 6 ROOT CAUSE: independent Chrome DevTools Protocol browser reproduction with the same `按价格计算模板计算 / 咖啡熟豆磅装模板` state showed zero `/api/costing/pricing-rule-trial` requests. The flat row carried `pricing_rule_id=11` but also `tier_pricing_rule_id=0`; `priceTablePricingRuleTrialPayload` used nullish fallback for pricing-rule id, treated `0` as terminal, returned `null`, and skipped the request queue.
+  - FOLLOW-UP 6 RED frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js` failed because a `pricing_rule` row with `tier_pricing_rule_id: 0` returned `null` instead of falling back to `pricing_rule_id`.
+  - FOLLOW-UP 6 GREEN frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js` passed 131/131 after pricing-rule id selection changed to first positive id fallback.
+  - FOLLOW-UP 6 GREEN frontend combined: `node --test orderapp-remote/frontend-vue-shell/src/lib/costing-bean-list-version-ui.test.js orderapp-remote/frontend-vue-shell/src/lib/bean-list-pdf.test.js` passed 51/51.
+  - FOLLOW-UP 6 GREEN build/check: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with the existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
   - RED support: `go test ./internal/interfaces/http/support -run TestDev467PriceListGenerationPersistencePreviewGroupFixContracts -count=1` failed because `req_store.go` lacked `PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX`.
   - GREEN frontend: `node --test src/lib/product-price-list-draft.test.js src/lib/costing-bean-list-version-ui.test.js` passed 22/22.
   - GREEN frontend: `node --test src/lib/product-price-list-selection.test.js src/lib/product-price-list-types.test.js src/lib/business-grouping.test.js src/lib/product-settings.test.js` passed 145/145.
