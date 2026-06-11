@@ -40,6 +40,10 @@
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产工单页筛选 `released` 后点击 `开始生产`，工单进入 `running`，产生 running item、WIP 占用并进入现有生产中/完工链路；重复开始生产必须返回错误，不重复开始生产、不重复写 WIP 或 running item。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：修改商品默认 BOM 或工艺路线后，已提交生产计划、已生成生产工单和工序卡仍展示提交时冻结的 BOM、BOM 版本、工艺路线、工序和工作中心快照。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：旧 `POST /api/produce/start` 入口仍可完成现有开始生产流程，但内部应形成临时生产计划并保留 duplicate-start 保护。
+- [ ] PR-473-GENERIC-MANUFACTURING-ABSTRACTION：生产计划页选择库存不足商品后，页面只展示商品、订单号、规格、需求、库存、缺口、BOM 摘要、计划投料、物料需求汇总和工艺路线摘要；不得出现 `生产建议`、`推荐机器`、`每锅数量`、`锅数`、`最终投料数` 或 `预计成品`，也不得请求 `/api/produce/machines`。
+- [ ] PR-473-GENERIC-MANUFACTURING-ABSTRACTION：点击 `创建生产计划` 时，`POST /api/production-plans` 请求只包含 `from/to/customer_id/selected/source_type`，不包含前端编辑出来的 `input_by_key`；PR439 场景 `selected=["539-454"]` 仍由后端默认 BOM 和预期损耗率计算计划投料并创建 draft 生产计划。
+- [ ] PR-473-GENERIC-MANUFACTURING-ABSTRACTION：生产工单页主列表展示 `BOM/工艺路线`、`工序摘要`、`工艺参数`、计划数量、实际损耗、WIP 和状态；历史 `roast_level` 仍可作为工艺参数兼容展示，但不作为咖啡烘焙主列，不展示建议设备或锅次。
+- [ ] PR-473-GENERIC-MANUFACTURING-ABSTRACTION：咖啡熟豆场景按 `BOM = 生豆 + 包材`、`工艺路线 = 烘焙 -> 包装 -> 质检` 创建计划和工单；包装盒场景按 `BOM = 纸板 + 油墨 + 胶水`、`工艺路线 = 印刷 -> 模切 -> 糊盒 -> 质检` 创建计划和工单；童装场景按 `BOM = 布料 + 辅料`、`工艺路线 = 裁剪 -> 缝制 -> 整烫 -> 质检` 创建计划和工单，页面不出现烘焙建议词。
 - [ ] PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：商品价格表“选择分类和产品”中父类、子类和商品逐级缩进；父类和子类都支持收缩/展开，收缩后仍保留分类勾选、计价按钮和选中数/总数，已勾选商品和生成结果不被清空。
 - [ ] PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：点击父类、子类或商品行的 `计价 继承分类`，在按钮附近弹出四项计价菜单：`继承分类`、`按阶梯模板价计算`、`按价格模板计算`、`固定价`；不得出现右下角计价弹窗。选择父类只覆盖父类，选择子类只覆盖子类，选择商品只覆盖商品；商品行 `展示 无标签` 仍按原展示弹窗维护。
 - [ ] PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：商品价格表下方预览和生成 PDF 的分类标题、商品归属、过滤结果和商品顺序必须与“选择分类和产品”保持一致；同一选品分类下的商品不得被旧 bean-list 分类拆成多个预览分类。
@@ -1150,7 +1154,7 @@
 - [ ] 打开 `归档列表` 能看到已归档版本；点击 `移出归档` 后该版本回到默认已发布价格表列表。
 - [ ] 归档和移出归档写入操作日志，历史价格表快照、PDF 下载和生成新版能力不被删除。
 
-### K50. 生产计划列表提交与过滤（PR-473-PRODUCTION-PLAN-BULK-SUBMIT-FILTER）
+### K50. 生产计划列表提交与过滤（PR-474-PRODUCTION-PLAN-BULK-SUBMIT-FILTER）
 - [ ] 选择库存不足商品后点击 `创建生产计划`，生产计划列表出现 `草稿` 状态计划；创建动作不自动提交工单。
 - [ ] 生产计划列表可按状态和创建/提交/完成时间过滤，过滤请求传递 `status/time_field/from/to/limit`。
 - [ ] 草稿计划可勾选，非草稿计划复选框置灰；表头复选框在未选、部分选中、全选草稿计划时三态正确。

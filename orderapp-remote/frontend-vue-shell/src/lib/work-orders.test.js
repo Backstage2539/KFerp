@@ -18,6 +18,17 @@ test('work orders display frozen route operations from process snapshot when no 
   assert.match(source, /workOrderStartEndpoint\(row\)/)
 })
 
+test('work order main table uses generic manufacturing columns instead of roasting advice', () => {
+  const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
+
+  for (const want of ['BOM/工艺路线', '工序摘要', '工艺参数', '商品生产配置快照']) {
+    assert.match(source, new RegExp(want))
+  }
+  for (const forbidden of ['工艺建议', '建议设备', '建议锅次', 'suggested_machine', 'suggested_batch_plan', 'suggested_batch_count']) {
+    assert.doesNotMatch(source, new RegExp(forbidden))
+  }
+})
+
 test('workOrderStatusOptions includes draft and released lifecycle states before running', () => {
   assert.deepEqual(workOrderStatusOptions().map((item) => item.value), [
     '',

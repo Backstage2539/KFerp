@@ -26,25 +26,23 @@ func TestDev273ProducePlanRoastOutputYieldAlignRequirementSeeds(t *testing.T) {
 
 func TestDev273ProducePlanRoastSuggestionUsesRealtimeOutputAndUnifiedYieldDisplay(t *testing.T) {
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue")))
-	for _, want := range []string{
+	for _, avoid := range []string{
 		"预计成品(kg)",
 		`v-model.number="row.batch_count"`,
 		"roastExpectedFinishedKg(row)",
 		"percent(row.yield_rate)",
 	} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("ProducePlanView missing %q", want)
+		if strings.Contains(view, avoid) {
+			t.Fatalf("ProducePlanView should not expose legacy roast suggestion marker %q", avoid)
 		}
 	}
-
-	lib := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "lib", "produce-plan.js")))
 	for _, want := range []string{
-		"normalizedYieldRate",
-		"roastExpectedFinishedG",
-		"gramsToKgString",
+		"BOM摘要",
+		"工艺路线摘要",
+		"buildProductionPlanCreatePayload(filters, keys)",
 	} {
-		if !strings.Contains(lib, want) {
-			t.Fatalf("produce-plan.js missing %q", want)
+		if !strings.Contains(view, want) {
+			t.Fatalf("ProducePlanView missing generic manufacturing marker %q", want)
 		}
 	}
 }

@@ -7,13 +7,7 @@ import {
   buildProductionPlanCreatePayload,
   productionPlanSubmitEndpoint,
   buildInsufficientSelection,
-  describeProducePlanRow,
-  gramsToKgString,
   insufficientSelectionState,
-  normalizeRoastPlans,
-  normalizedYieldRate,
-  roastExpectedFinishedG,
-  syncRoastPlanRow,
 } from './produce-plan.js'
 
 const rows = [
@@ -54,69 +48,10 @@ test('buildInsufficientSelection selects all insufficient rows or clears them', 
   assert.deepEqual(buildInsufficientSelection(rows, false), {})
 })
 
-test('normalizeRoastPlans normalizes batch fields and recomputes final input', () => {
-  const plans = normalizeRoastPlans([
-    { key: '1-454', machine: '  A机  ', batch_g: 0, batch_count: 0, final_input_g: 999 },
-    { key: '2-227', machine: '', batch_g: 1200.2, batch_count: 2.4, final_input_g: 0 },
-  ])
-
-  assert.deepEqual(plans, [
-    { key: '1-454', machine: 'A机', batch_g: 1, batch_count: 1, final_input_g: 1 },
-    { key: '2-227', machine: '', batch_g: 1200, batch_count: 2, final_input_g: 2400 },
-  ])
-})
-
-test('syncRoastPlanRow allows changing machine and batch count in place', () => {
-  const row = { machine: '旧机器', batch_g: 1500, batch_count: 1, final_input_g: 1500 }
-
-  syncRoastPlanRow(row, { machine: '新机器', batch_count: 3 })
-
-  assert.equal(row.machine, '新机器')
-  assert.equal(row.batch_g, 1500)
-  assert.equal(row.batch_count, 3)
-  assert.equal(row.final_input_g, 4500)
-})
-
-test('normalizedYieldRate supports ratio and percent style inputs', () => {
-  assert.equal(normalizedYieldRate(0.815), 0.815)
-  assert.equal(normalizedYieldRate(81.5), 0.815)
-  assert.equal(normalizedYieldRate(0), 0)
-})
-
-test('roastExpectedFinishedG follows editable final_input_g and yield_rate', () => {
-  assert.equal(roastExpectedFinishedG({ final_input_g: 13370, yield_rate: 0.815 }), 10897)
-  assert.equal(roastExpectedFinishedG({ final_input_g: 4000, yield_rate: 82 }), 3280)
-  assert.equal(roastExpectedFinishedG({ final_input_g: 0, yield_rate: 0.815 }), 0)
-})
-
-test('gramsToKgString keeps roast output display stable', () => {
-  assert.equal(gramsToKgString(10897), '10.90')
-  assert.equal(gramsToKgString(571), '0.57')
-  assert.equal(gramsToKgString(0), '0')
-})
-
-test('describeProducePlanRow summarizes drip bag production and upstream shortage', () => {
-  const labels = describeProducePlanRow({
-    product_name: '蓝山挂耳',
-    production_kind: 'drip_bag',
-    need_bags: 20,
-    upstream_roast_demand_g: 150,
-    upstream_shortage_g: 110,
-    finished_product_component_shortage_g: 110,
-  })
-
-  assert.deepEqual(labels, ['挂耳生产', '需求 20 袋', '熟豆组件缺口 110g', '上游烘焙需求 150g'])
-})
-
-test('buildProductionPlanCreatePayload creates a formal draft plan instead of starting production', () => {
+test('buildProductionPlanCreatePayload creates a generic draft plan and lets backend default input', () => {
   const payload = buildProductionPlanCreatePayload(
     { from: '2026-06-01', to: '2026-06-30', customer_id: '9' },
     ['1-227', '2-454'],
-    [{ key: '1-227', final_input_g: 600 }],
-    [
-      { product_id: 1, spec_g: 227, input_g: 580 },
-      { product_id: 2, spec_g: 454, input_g: 1200 },
-    ],
   )
 
   assert.deepEqual(payload, {
@@ -125,11 +60,8 @@ test('buildProductionPlanCreatePayload creates a formal draft plan instead of st
     customer_id: 9,
     source_type: 'erp_order',
     selected: ['1-227', '2-454'],
-    input_by_key: {
-      '1-227': 600,
-      '2-454': 1200,
-    },
   })
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'input_by_key'), false)
 })
 
 test('productionPlanSubmitEndpoint points submit action at the formal production plan API', () => {
@@ -214,6 +146,25 @@ test('ProducePlanView creates draft plans and batch submits checked draft plans'
   assert.doesNotMatch(source, /submitPlanRow\(plan\)/)
   assert.doesNotMatch(source, /请先选择产品并点击“生成计划”/)
   assert.doesNotMatch(source, /apiSend\('\/api\/produce\/start'/)
+})
+
+test('ProducePlanView no longer consumes roasting capacity suggestions in the main flow', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  for (const forbidden of [
+    '生产建议',
+    '推荐机器',
+    '每锅数量',
+    '锅数',
+    '最终投料数',
+    '预计成品',
+    '/api/produce/machines',
+    'roastPlans',
+    'machineRows',
+    'syncRoastPlan',
+  ]) {
+    assert.doesNotMatch(source, new RegExp(forbidden))
+  }
 })
 
 test('ProducePlanView does not leave selected rows with a disabled no-op create button', () => {

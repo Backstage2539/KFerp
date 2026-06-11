@@ -227,8 +227,9 @@
               <th>需求(g)</th>
               <th>库存(g)</th>
               <th>缺口(g)</th>
-              <th>BOM预期产出率</th>
-              <th>投料数(g)</th>
+              <th>BOM摘要</th>
+              <th>计划投料(g)</th>
+              <th>工艺路线摘要</th>
             </tr>
           </thead>
           <tbody>
@@ -238,8 +239,9 @@
               <td>{{ row.need_g }}</td>
               <td>{{ row.inv_g }}</td>
               <td><strong>{{ row.gap_g }}</strong></td>
-              <td>{{ percent(row.bom_yield_rate) }}</td>
+              <td>默认 BOM / 预期产出率 {{ percent(row.bom_yield_rate) }}</td>
               <td>{{ row.input_g }}</td>
+              <td>{{ productionRouteSummary(row) }}</td>
             </tr>
           </tbody>
         </table>
@@ -279,42 +281,6 @@
         </table>
       </div>
     </section>
-
-    <section class="panel">
-      <div class="section-title">生产建议</div>
-      <div v-if="!planReady" class="muted">选择库存不足商品后点击“创建生产计划”。</div>
-      <div v-else class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>商品</th>
-              <th>推荐机器</th>
-              <th>每锅数量(g)</th>
-              <th>锅数</th>
-              <th>最终投料数(g)</th>
-              <th>预计成品(kg)</th>
-              <th>损耗比</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in roastPlans" :key="row.key">
-              <td>{{ row.product_name }}</td>
-              <td>
-                <select v-model="row.machine" @change="syncRoastPlan(row)">
-                  <option value="">未匹配设备</option>
-                  <option v-for="name in machineOptionsForRow(row)" :key="name" :value="name">{{ name }}</option>
-                </select>
-              </td>
-              <td><input type="number" min="1" step="1" v-model.number="row.batch_g" @input="syncRoastPlan(row)" /></td>
-              <td><input type="number" min="1" step="1" v-model.number="row.batch_count" @input="syncRoastPlan(row)" /></td>
-              <td><strong>{{ row.final_input_g }}</strong></td>
-              <td>{{ roastExpectedFinishedKg(row) }}</td>
-              <td>{{ percent(row.yield_rate) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
   </div>
 </template>
 
@@ -323,23 +289,17 @@ import { computed, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import {
   buildInsufficientSelection,
-  buildMaterialSummary,
   buildProductionPlanBatchSubmitPayload,
   buildProductionPlanCreatePayload,
   buildProductionPlanListQuery,
   buildProductionPlanSelection,
-  gramsToKgString,
-  normalizeRoastPlans,
   insufficientSelectionState,
   productionPlanBatchSubmitEndpoint,
   productionPlanSelectable,
   productionPlanSelectionState,
   productionPlanStatusLabel,
   productionPlanStatusTone,
-  rebuildPlanRows,
   producePlanKey,
-  roastExpectedFinishedG,
-  syncRoastPlanRow,
 } from '../lib/produce-plan'
 import { replaceHistoryURL } from '../lib/url-state'
 
@@ -356,9 +316,6 @@ const error = ref('')
 const stockTip = ref('')
 const rows = ref([])
 const planRows = ref([])
-const roastPlans = ref([])
-const machineRows = ref([])
-const materialRatios = ref([])
 const initialMaterials = ref([])
 const productionPlans = ref([])
 const currentPlan = ref(null)
@@ -389,11 +346,9 @@ function percent(v) {
   return `${(Number(v || 0) * 100).toFixed(2)}%`
 }
 
-const planReady = computed(() => roastPlans.value.length > 0 && planRows.value.length > 0)
-const computedPlanRows = computed(() => rebuildPlanRows(planRows.value, roastPlans.value))
-const computedMaterials = computed(() =>
-  buildMaterialSummary(planRows.value, roastPlans.value, materialRatios.value, initialMaterials.value),
-)
+const planReady = computed(() => planRows.value.length > 0)
+const computedPlanRows = computed(() => planRows.value || [])
+const computedMaterials = computed(() => initialMaterials.value || [])
 const hasSelectedRows = computed(() => selectedKeys().length > 0)
 const stockInsufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) > 0))
 const stockSufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) <= 0))
@@ -402,17 +357,6 @@ const allInsufficientSelected = computed(() => insufficientSelection.value.check
 const productionPlanSelection = computed(() => productionPlanSelectionState(productionPlans.value, selectedProductionPlans))
 const allProductionPlansSelected = computed(() => productionPlanSelection.value.checked)
 const hasSelectedProductionPlans = computed(() => productionPlanSelection.value.selectedCount > 0)
-const machineNameOptions = computed(() => {
-  const out = []
-  const seen = new Set()
-  for (const row of machineRows.value) {
-    const name = String(row?.name || '').trim()
-    if (!name || seen.has(name)) continue
-    seen.add(name)
-    out.push(name)
-  }
-  return out
-})
 
 watchEffect(() => {
   if (insufficientHeaderCheckbox.value) {
@@ -470,17 +414,11 @@ async function load(plan) {
       url.searchParams.set('plan', '1')
       url.searchParams.set('selected', keys.join(','))
     }
-    const [data, machinesData] = await Promise.all([
-      apiGet(url),
-      apiGet('/api/produce/machines').catch(() => ({ rows: machineRows.value })),
-    ])
+    const data = await apiGet(url)
 
     rows.value = data.rows || []
     stockTip.value = data.stock_tip || ''
     planRows.value = data.plan_rows || []
-    roastPlans.value = normalizeRoastPlans(data.roast_plans || [])
-    machineRows.value = (machinesData.rows || []).filter((row) => row && row.active !== false)
-    materialRatios.value = data.material_ratios || []
     initialMaterials.value = data.materials || []
     if (data.selected) {
       Object.keys(selected).forEach((key) => delete selected[key])
@@ -545,19 +483,10 @@ function pruneProductionPlanSelections() {
   }
 }
 
-function syncRoastPlan(row) {
-  syncRoastPlanRow(row)
-}
-
-function roastExpectedFinishedKg(row) {
-  return gramsToKgString(roastExpectedFinishedG(row))
-}
-
-function machineOptionsForRow(row) {
-  const out = [...machineNameOptions.value]
-  const current = String(row?.machine || '').trim()
-  if (current && !out.includes(current)) out.unshift(current)
-  return out
+function productionRouteSummary(row) {
+  const templateID = Number(row?.operation_template_id || 0)
+  if (templateID > 0) return `工艺模板 #${templateID}`
+  return '按商品默认工艺路线'
 }
 
 async function createProductionPlan() {
@@ -581,10 +510,7 @@ async function createProductionPlan() {
         return
       }
     }
-    for (const row of roastPlans.value) {
-      syncRoastPlan(row)
-    }
-    const payload = buildProductionPlanCreatePayload(filters, keys, roastPlans.value, computedPlanRows.value)
+    const payload = buildProductionPlanCreatePayload(filters, keys)
     currentPlan.value = await apiSend('/api/production-plans', { body: payload })
     await loadProductionPlans()
   } catch (err) {

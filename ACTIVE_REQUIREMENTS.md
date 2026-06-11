@@ -6,25 +6,48 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
-### PR-473-PRODUCTION-PLAN-BULK-SUBMIT-FILTER
+### PR-474-PRODUCTION-PLAN-BULK-SUBMIT-FILTER
 - Branch: codex/production-plan-bulk-submit-filter-20260611
 - Owner/session: Codex / 2026-06-11
-- Status: implemented locally; targeted RED/GREEN tests, related Go packages, full Go tests, Vue build, changed verifier, diff check and local browser acceptance passed. Not merged or deployed.
+- Status: rebased onto `origin/develop` after PR-473 generic manufacturing abstraction; PR id collision resolved as PR-474. Pending post-merge verification, merge to develop and development deploy.
 - Scope: 生产计划列表提交与过滤改造。`创建生产计划` 保持只创建 draft 计划；删除旧 `生成计划` 入口和行内 `提交`；生产计划列表支持状态/时间过滤、草稿计划复选框、表头三态、批量 `提交生成工单`，批量提交只处理 draft 并生成 released 工单和 pending 工序卡。通用制造抽象、BOM、工艺路线、工序、工位、旧 `/api/produce/start` 不在本需求内。
 - DEV:
-  - DEV-473-PRODUCTION-PLAN-FILTER-API：`GET /api/production-plans` 支持 `status`、`time_field=created_at|submitted_at|completed_at`、`from`、`to`、`limit`，默认最近 50 条并按创建时间倒序。
-  - DEV-473-PRODUCTION-PLAN-BULK-SUBMIT：新增 `POST /api/production-plans/submit`，请求 `{ "ids": [...] }`，返回成功计划、失败计划和生成工单/工序卡数量；只允许 draft，非草稿和重复 ID 返回失败明细，不重复生成工单，每个成功计划沿用提交操作日志。
-  - DEV-473-VUE-PLAN-SELECTION-FILTERS：Vue 生产计划列表新增过滤区、草稿复选框、表头三态和顶部批量 `提交生成工单`；删除旧 `生成计划` 和行内 `提交`；状态中文化并按颜色区分。
-  - DEV-473-DOCS-ACCEPTANCE：同步需求、验收清单、生产手册、PR/DEV/UT/API/REV 种子和 PR-473 验收记录。
+  - DEV-474-PRODUCTION-PLAN-FILTER-API：`GET /api/production-plans` 支持 `status`、`time_field=created_at|submitted_at|completed_at`、`from`、`to`、`limit`，默认最近 50 条并按创建时间倒序。
+  - DEV-474-PRODUCTION-PLAN-BULK-SUBMIT：新增 `POST /api/production-plans/submit`，请求 `{ "ids": [...] }`，返回成功计划、失败计划和生成工单/工序卡数量；只允许 draft，非草稿和重复 ID 返回失败明细，不重复生成工单，每个成功计划沿用提交操作日志。
+  - DEV-474-VUE-PLAN-SELECTION-FILTERS：Vue 生产计划列表新增过滤区、草稿复选框、表头三态和顶部批量 `提交生成工单`；删除旧 `生成计划` 和行内 `提交`；状态中文化并按颜色区分。
+  - DEV-474-DOCS-ACCEPTANCE：同步需求、验收清单、生产手册、PR/DEV/UT/API/REV 种子和 PR-474 验收记录。
 - Verifier:
   - RED frontend: `node --test src/lib/produce-plan.test.js` failed before implementation because `buildProductionPlanListQuery`、状态中文/颜色 helper、草稿选择三态 helper、批量提交 endpoint/payload helper 不存在，且 `ProducePlanView.vue` 仍有旧 `生成计划`、行内 `提交` 和单条提交入口。
   - RED service/API/repository: `go test ./internal/application/production -run 'TestListProductionPlansNormalizesFiltersAndDefaultLimit|TestSubmitProductionPlansBatchesDraftPlansAndReportsFailures|TestServiceRejectsInvalidProductionPlanAndWorkOrderCommands' -count=1 -v` failed before implementation because `ProductionPlanQuery.TimeField/From/To` and `SubmitProductionPlans` were missing; `go test ./internal/interfaces/http/production -run 'TestProductionPlanAPIListAcceptsStatusAndTimeFilters|TestProductionPlanAPIBatchSubmitReportsPartialResults' -count=1 -v` failed for the same API contract gap; `go test ./internal/infrastructure/postgres/production -run TestProductionPlanListSupportsStatusAndTimeFilters -count=1 -v` failed because list SQL lacked `productionPlanTimeFieldColumn` and completed-time fields.
-  - RED support/docs: `go test ./internal/interfaces/http/support -run TestDev473ProductionPlanBulkSubmitFilterContracts -count=1 -v` failed before implementation because the PR-473 API, Vue and docs markers were missing.
+  - RED support/docs: `go test ./internal/interfaces/http/support -run TestDev474ProductionPlanBulkSubmitFilterContracts -count=1 -v` failed before implementation because the PR-474 API, Vue and docs markers were missing.
   - GREEN targeted frontend: `node --test src/lib/produce-plan.test.js` passed 16/16.
-  - GREEN targeted backend/support: `go test ./internal/application/production -run 'TestListProductionPlansNormalizesFiltersAndDefaultLimit|TestSubmitProductionPlansBatchesDraftPlansAndReportsFailures|TestServiceRejectsInvalidProductionPlanAndWorkOrderCommands' -count=1 -v`; `go test ./internal/interfaces/http/production -run 'TestProductionPlanAPIListAcceptsStatusAndTimeFilters|TestProductionPlanAPIBatchSubmitReportsPartialResults' -count=1 -v`; `go test ./internal/infrastructure/postgres/production -run TestProductionPlanListSupportsStatusAndTimeFilters -count=1 -v`; `go test ./internal/interfaces/http/support -run TestDev473ProductionPlanBulkSubmitFilterContracts -count=1 -v` passed.
+  - GREEN targeted backend/support: `go test ./internal/application/production -run 'TestListProductionPlansNormalizesFiltersAndDefaultLimit|TestSubmitProductionPlansBatchesDraftPlansAndReportsFailures|TestServiceRejectsInvalidProductionPlanAndWorkOrderCommands' -count=1 -v`; `go test ./internal/interfaces/http/production -run 'TestProductionPlanAPIListAcceptsStatusAndTimeFilters|TestProductionPlanAPIBatchSubmitReportsPartialResults' -count=1 -v`; `go test ./internal/infrastructure/postgres/production -run TestProductionPlanListSupportsStatusAndTimeFilters -count=1 -v`; `go test ./internal/interfaces/http/support -run TestDev474ProductionPlanBulkSubmitFilterContracts -count=1 -v` passed.
   - GREEN packages/build/check: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1` passed; `go test ./...` passed; `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
   - GREEN browser/local: local production Vue build + mock API at `http://127.0.0.1:5188/vue-shell/?view=producePlan` rendered production plan page with `创建生产计划` and `提交生成工单`, no old `生成计划` button, no row-level `提交`; filter labels `状态/时间类型/开始日期/结束日期` visible; draft row `草稿` class `status-draft` selectable, submitted row `已提交工单` class `status-submitted` disabled; selecting draft enabled batch button; clicking batch submitted via `POST /api/production-plans/submit`, refreshed row to `已提交工单` and disabled checkbox; status filter sent `?status=submitted&time_field=created_at&limit=50`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-11-production-plan-bulk-submit-filter.md`.
+- Deployment: pending.
+- Last update: 2026-06-12 Asia/Shanghai
+
+### PR-473-GENERIC-MANUFACTURING-ABSTRACTION
+- Branch: codex/generic-manufacturing-abstraction-20260612
+- Owner/session: Codex / 2026-06-12
+- Status: implemented locally; targeted frontend/API/support tests, full Go tests, Vite build, changed verifier and local browser mock acceptance passed. Pending merge to develop and development deploy.
+- Scope: 剥离生产计划和工单主流程里的咖啡烘焙排产表达，按 ERPNext-style 通用制造口径展示需求、库存缺口、BOM、物料需求和工艺路线摘要。生产计划创建继续生成 draft 单据，但前端不再编辑设备、单批投入、锅数或提交 `input_by_key`；后端保留旧 `roast_plans`、`RoastMachine`、`roast_machines` 和 `/api/produce/machines` 兼容，不做数据库迁移。生产计划列表批量提交、状态过滤和提交按钮由其他 worktree 负责，本需求只做去咖啡化兼容。
+- DEV:
+  - DEV-473-PRODUCE-PLAN-GENERIC-UI：生产计划页移除 `生产建议` 区块、设备/锅数/最终投料编辑和 `/api/produce/machines` 请求；计划预览保留商品、订单、规格、需求、库存、缺口、BOM 预期、计划投料、物料需求和工艺路线摘要。
+  - DEV-473-PRODUCTION-PLAN-CREATE-PAYLOAD：`创建生产计划` 前端只提交 `from`、`to`、`customer_id`、`selected`、`source_type`；不再由前端组装 `input_by_key`，后端继续按默认 BOM/损耗率/缺口计算计划投料和物料快照。
+  - DEV-473-WORK-ORDER-GENERIC-MAIN-COLUMNS：生产工单页主列改成工单、商品、BOM/工艺路线、工序摘要、计划数量、实际损耗、WIP、状态；历史 `roast_level` 兼容字段只作为 `工艺参数 / 商品生产配置快照` 展示，不作为咖啡烘焙主列。
+  - DEV-473-DOCS-ACCEPTANCE：同步需求、验收清单、生产手册、PR/DEV 种子和 PR-473 验收记录，明确咖啡、包装盒、童装作为配置示例。
+- Verifier:
+  - RED frontend: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js` failed before implementation because `buildProductionPlanCreatePayload` still emitted `input_by_key`, `ProducePlanView.vue` still displayed `生产建议/推荐机器/每锅数量/锅数/预计成品`, and `WorkOrdersView.vue` still displayed `工艺建议/建议设备/建议锅次`.
+  - RED support/docs: `go test ./internal/interfaces/http/support -run 'TestDev473GenericManufacturingAbstractionContracts|TestProducePlanCapacitySuggestionCompatibilitySourceGuard' -count=1` failed before implementation because production plan page still consumed roast capacity suggestions and PR-473 docs/manual markers were missing.
+  - GREEN frontend: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js` passed 12/12 after removing roast suggestion UI/data flow and changing work-order main columns to generic manufacturing.
+  - GREEN API/backend: `go test ./internal/application/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/production -count=1` passed; `go test ./internal/interfaces/http/support -count=1` passed; `go test ./...` passed.
+  - Build/check: `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+  - Browser: local Vite + mock API at `http://127.0.0.1:5183/vue-shell/` passed. Production plan page rendered stock shortage, material summary, `BOM摘要`, `计划投料(g)`, `工艺路线摘要`, and did not show roast suggestion words. Captured `POST /api/production-plans` body was `{"from":"","to":"","customer_id":0,"selected":["539-454"],"source_type":"erp_order"}` with no `input_by_key`. Work orders page rendered `BOM/工艺路线`, `工序摘要`, `工艺参数`, `商品生产配置快照`, packaging route operations, and did not show `工艺建议/建议设备/建议锅次`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-12-generic-manufacturing-abstraction.md`.
+- Deployment: pending.
+- Last update: 2026-06-12 Asia/Shanghai
 
 ### PR-471-MANUFACTURING-PHASE1-COMPLETION
 - Branch: codex/manufacturing-phase1-complete-20260611-v2

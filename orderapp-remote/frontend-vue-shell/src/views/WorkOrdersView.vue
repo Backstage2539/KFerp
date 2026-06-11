@@ -84,9 +84,10 @@
             <th>批次</th>
             <th>商品</th>
             <th>规格</th>
-            <th>计划投料</th>
-            <th>工艺建议</th>
-            <th>工艺快照</th>
+            <th>计划数量</th>
+            <th>BOM/工艺路线</th>
+            <th>工序摘要</th>
+            <th>工艺参数</th>
             <th>原料参考</th>
             <th>损耗汇总</th>
             <th>WIP占用</th>
@@ -102,17 +103,23 @@
             <td>{{ row.batch_id }}</td>
             <td>{{ row.product_name }}</td>
             <td>{{ row.spec_g }}g</td>
-            <td>{{ formatG(row.suggested_input_g || row.planned_g) }}</td>
-            <td class="advice">
-              <strong>{{ row.roast_level || '通用工艺' }} · 产出 {{ percent(expectedYield(row)) }}</strong>
-              <small>预期损耗 {{ percent(expectedLoss(row)) }}</small>
-              <small>{{ row.suggested_machine || '未匹配设备' }} · {{ row.suggested_batch_plan || '-' }}</small>
+            <td>
+              <strong>{{ formatG(row.planned_g) }}</strong>
               <small>预计 {{ row.planned_units || 0 }} 袋 + {{ row.planned_loose_g || 0 }}g</small>
             </td>
             <td class="summary">
-              <strong>{{ processSnapshotName(row) }}</strong>
+              <strong>{{ bomProcessSummary(row) }}</strong>
+              <small>{{ processSnapshotName(row) }}</small>
               <small v-if="processSnapshotSourceText(row)">{{ processSnapshotSourceText(row) }}</small>
+            </td>
+            <td class="summary">
               <small>{{ operationSummaryText(row) }}</small>
+            </td>
+            <td class="summary">
+              <strong>{{ productionParamsText(row) }}</strong>
+              <small>预期产出率 {{ percent(expectedYield(row)) }}</small>
+              <small>预期损耗率 {{ percent(expectedLoss(row)) }}</small>
+              <small>商品生产配置快照</small>
             </td>
             <td class="summary">{{ row.material_summary || '-' }}</td>
             <td class="summary">
@@ -152,10 +159,10 @@
         <div><span>商品</span><strong>{{ printRow.product_name }}</strong></div>
         <div><span>规格</span><strong>{{ printRow.spec_g }}g</strong></div>
         <div><span>订单</span><strong>{{ printRow.order_nos || '-' }}</strong></div>
-        <div><span>计划投料</span><strong>{{ formatG(printRow.suggested_input_g || printRow.planned_g) }}</strong></div>
+        <div><span>计划投料</span><strong>{{ formatG(printRow.planned_g) }}</strong></div>
         <div><span>预期损耗率</span><strong>{{ percent(expectedLoss(printRow)) }}</strong></div>
         <div><span>预期产出率</span><strong>{{ percent(expectedYield(printRow)) }}</strong></div>
-        <div><span>工艺模板</span><strong>{{ printRow.process_template_name || '默认工序' }}</strong></div>
+        <div><span>BOM/工艺路线</span><strong>{{ bomProcessSummary(printRow) }}</strong></div>
         <div><span>WIP剩余占用</span><strong>{{ formatG(printRow.remaining_reserved_g) }}</strong></div>
         <div><span>预计产出</span><strong>{{ printRow.planned_units || 0 }} 袋 + {{ printRow.planned_loose_g || 0 }}g</strong></div>
         <div><span>实际损耗</span><strong>{{ formatQty(operationActualSummary(printRow).actual_loss_qty) }}</strong></div>
@@ -163,14 +170,14 @@
         <div><span>完成时间</span><strong>{{ printRow.completed_at || '-' }}</strong></div>
       </div>
 
-      <h2>工艺与投产建议</h2>
+      <h2>工艺路线与参数</h2>
       <table class="print-table">
         <tbody>
-          <tr><th>工艺参数</th><td>{{ printRow.roast_level || '-' }}</td></tr>
+          <tr><th>工艺参数</th><td>{{ productionParamsText(printRow) }}</td></tr>
+          <tr><th>商品生产配置快照</th><td>{{ productConfigSnapshotText(printRow) }}</td></tr>
+          <tr><th>工序摘要</th><td>{{ operationSummaryText(printRow) }}</td></tr>
           <tr><th>预期产出率</th><td>{{ percent(expectedYield(printRow)) }}</td></tr>
           <tr><th>预期损耗率</th><td>{{ percent(expectedLoss(printRow)) }}</td></tr>
-          <tr><th>建议设备</th><td>{{ printRow.suggested_machine || '未匹配设备' }}</td></tr>
-          <tr><th>建议锅次</th><td>{{ printRow.suggested_batch_count || 1 }} 锅，{{ printRow.suggested_batch_plan || '-' }}</td></tr>
           <tr><th>原料参考</th><td>{{ printRow.material_summary || '-' }}</td></tr>
         </tbody>
       </table>
@@ -249,6 +256,32 @@ function processSnapshotSourceText(row) {
     return `工艺模板 #${Number(row.process_template_id || 0)}`
   }
   return ''
+}
+
+function bomProcessSummary(row) {
+  const parts = []
+  const bomVersionID = Number(row?.bom_version_id || 0)
+  if (bomVersionID > 0) parts.push(`BOM版本 #${bomVersionID}`)
+  else parts.push('默认BOM')
+  const snapshotText = processSnapshotSourceText(row)
+  if (snapshotText) parts.push(snapshotText)
+  else if (Number(row?.process_template_id || 0) > 0) parts.push(`工艺模板 #${Number(row.process_template_id || 0)}`)
+  else parts.push('默认工艺路线')
+  return parts.join(' / ')
+}
+
+function productionParamsText(row) {
+  const value = String(row?.roast_level || '').trim()
+  return value || '按商品生产配置'
+}
+
+function productConfigSnapshotText(row) {
+  const parts = []
+  const bomVersionID = Number(row?.bom_version_id || 0)
+  if (bomVersionID > 0) parts.push(`BOM版本 #${bomVersionID}`)
+  if (Number(row?.process_template_id || 0) > 0) parts.push(`工艺模板 #${Number(row.process_template_id || 0)}`)
+  if (productionParamsText(row) !== '按商品生产配置') parts.push(`工艺参数：${productionParamsText(row)}`)
+  return parts.join('；') || '按商品生产配置'
 }
 
 function operationSummaryRows(row) {
