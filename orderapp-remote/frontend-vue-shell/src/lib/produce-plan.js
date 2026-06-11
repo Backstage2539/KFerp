@@ -187,3 +187,16 @@ export function buildStartPayload(filters, selectedKeys, roastPlans, planRows) {
     input_by_key,
   }
 }
+
+export function buildProductionPlanCreatePayload(filters, selectedKeys, roastPlans, planRows) {
+  return {
+    ...buildStartPayload(filters || {}, selectedKeys || [], roastPlans || [], planRows || []),
+    source_type: 'erp_order',
+  }
+}
+
+export function productionPlanSubmitEndpoint(plan) {
+  const id = Number(plan?.id || 0)
+  if (id <= 0) return ''
+  return `/api/production-plans/${id}/submit`
+}

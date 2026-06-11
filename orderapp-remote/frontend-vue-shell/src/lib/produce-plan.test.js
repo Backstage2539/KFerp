@@ -1,7 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 
 import {
+  buildProductionPlanCreatePayload,
+  productionPlanSubmitEndpoint,
   buildInsufficientSelection,
   describeProducePlanRow,
   gramsToKgString,
@@ -102,4 +105,43 @@ test('describeProducePlanRow summarizes drip bag production and upstream shortag
   })
 
   assert.deepEqual(labels, ['挂耳生产', '需求 20 袋', '熟豆组件缺口 110g', '上游烘焙需求 150g'])
+})
+
+test('buildProductionPlanCreatePayload creates a formal draft plan instead of starting production', () => {
+  const payload = buildProductionPlanCreatePayload(
+    { from: '2026-06-01', to: '2026-06-30', customer_id: '9' },
+    ['1-227', '2-454'],
+    [{ key: '1-227', final_input_g: 600 }],
+    [
+      { product_id: 1, spec_g: 227, input_g: 580 },
+      { product_id: 2, spec_g: 454, input_g: 1200 },
+    ],
+  )
+
+  assert.deepEqual(payload, {
+    from: '2026-06-01',
+    to: '2026-06-30',
+    customer_id: 9,
+    source_type: 'erp_order',
+    selected: ['1-227', '2-454'],
+    input_by_key: {
+      '1-227': 600,
+      '2-454': 1200,
+    },
+  })
+})
+
+test('productionPlanSubmitEndpoint points submit action at the formal production plan API', () => {
+  assert.equal(productionPlanSubmitEndpoint({ id: 41 }), '/api/production-plans/41/submit')
+  assert.equal(productionPlanSubmitEndpoint({}), '')
+})
+
+test('ProducePlanView creates and submits formal production plans before work order start', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /创建生产计划/)
+  assert.match(source, /提交生成工单/)
+  assert.match(source, /apiSend\('\/api\/production-plans'/)
+  assert.match(source, /productionPlanSubmitEndpoint\(plan\)/)
+  assert.doesNotMatch(source, /apiSend\('\/api\/produce\/start'/)
 })

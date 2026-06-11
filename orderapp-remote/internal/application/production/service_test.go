@@ -61,6 +61,21 @@ func (r *fakeRepo) SaveMachine(ctx context.Context, cmd RoastMachineCommand) err
 func (r *fakeRepo) PlanSummary(ctx context.Context, query PlanSummaryQuery) (PlanSummaryData, error) {
 	return PlanSummaryData{}, nil
 }
+func (r *fakeRepo) CreateProductionPlan(ctx context.Context, cmd CreateProductionPlanCommand) (ProductionPlanDetail, error) {
+	return ProductionPlanDetail{}, nil
+}
+func (r *fakeRepo) ListProductionPlans(ctx context.Context, query ProductionPlanQuery) ([]ProductionPlanRow, error) {
+	return nil, nil
+}
+func (r *fakeRepo) GetProductionPlan(ctx context.Context, id int64) (ProductionPlanDetail, error) {
+	return ProductionPlanDetail{}, nil
+}
+func (r *fakeRepo) SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error) {
+	return ProductionPlanSubmitResult{}, nil
+}
+func (r *fakeRepo) StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand) (WorkOrderStartResult, error) {
+	return WorkOrderStartResult{}, nil
+}
 
 func (r *fakeRepo) ListProductionLogs(ctx context.Context, query ProductionLogsQuery) (ProductionLogsResult, error) {
 	return ProductionLogsResult{}, nil

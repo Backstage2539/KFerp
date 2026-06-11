@@ -11,6 +11,7 @@
           <span>状态</span>
           <select v-model="status">
             <option value="">全部</option>
+            <option value="pending">pending</option>
             <option value="running">running</option>
             <option value="completed">completed</option>
             <option value="cancelled">cancelled</option>

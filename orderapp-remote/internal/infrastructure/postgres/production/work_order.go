@@ -213,24 +213,40 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 	}
 
 	var workOrderID int64
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.work_orders(
-			work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,
-			material_snapshot,bom_version_id,operation_template_id,process_template_id,process_template_name,process_snapshot_json,production_config_snapshot_json,customer_product_snapshot_json,created_at
-		)
-		VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,$9,$10,$11,$12,$13,$14,$15,now())
-		ON CONFLICT (running_item_id) DO UPDATE SET
-			status='running',
-			material_snapshot=excluded.material_snapshot,
-			bom_version_id=excluded.bom_version_id,
-			operation_template_id=excluded.operation_template_id,
-			process_template_id=excluded.process_template_id,
-			process_template_name=excluded.process_template_name,
-			process_snapshot_json=excluded.process_snapshot_json,
-			production_config_snapshot_json=excluded.production_config_snapshot_json,
-			customer_product_snapshot_json=excluded.customer_product_snapshot_json
-		RETURNING id
-	`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG, materialSnapshot, bomVersionID, operationTemplateID, processTemplateID, processTemplateName, processSnapshotJSON, productionConfigSnapshot, customerProductSnapshot).Scan(&workOrderID); err != nil {
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT id FROM %s.work_orders WHERE running_item_id=$1 FOR UPDATE`, schema), runningItemID).Scan(&workOrderID)
+	if err == nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			UPDATE %s.work_orders
+			SET status='running',
+			    batch_id=$2,
+			    product_id=$3,
+			    product_name=$4,
+			    spec_g=$5,
+			    planned_g=$6,
+			    material_snapshot=$7,
+			    bom_version_id=$8,
+			    operation_template_id=$9,
+			    process_template_id=$10,
+			    process_template_name=$11,
+			    process_snapshot_json=$12,
+			    production_config_snapshot_json=$13,
+			    customer_product_snapshot_json=$14
+			WHERE id=$1
+		`, schema), workOrderID, batchID, productID, productName, specG, plannedG, materialSnapshot, bomVersionID, operationTemplateID, processTemplateID, processTemplateName, processSnapshotJSON, productionConfigSnapshot, customerProductSnapshot); err != nil {
+			return 0, err
+		}
+	} else if err == pgx.ErrNoRows {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.work_orders(
+				work_order_no,running_item_id,batch_id,product_id,product_name,spec_g,planned_g,status,
+				material_snapshot,bom_version_id,operation_template_id,process_template_id,process_template_name,process_snapshot_json,production_config_snapshot_json,customer_product_snapshot_json,created_at
+			)
+			VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,$9,$10,$11,$12,$13,$14,$15,now())
+			RETURNING id
+		`, schema), workOrderNo(runningItemID), runningItemID, batchID, productID, productName, specG, plannedG, materialSnapshot, bomVersionID, operationTemplateID, processTemplateID, processTemplateName, processSnapshotJSON, productionConfigSnapshot, customerProductSnapshot).Scan(&workOrderID); err != nil {
+			return 0, err
+		}
+	} else {
 		return 0, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.job_cards WHERE work_order_id=$1`, schema), workOrderID); err != nil {
@@ -648,14 +664,15 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		return nil, err
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT wo.id,wo.work_order_no,wo.running_item_id,wo.batch_id,wo.product_id,wo.product_name,wo.spec_g,wo.planned_g,wo.status,
+		SELECT wo.id,wo.work_order_no,wo.running_item_id,wo.production_plan_id,wo.production_plan_item_id,
+		       wo.batch_id,wo.product_id,wo.product_name,wo.spec_g,wo.planned_g,COALESCE(NULLIF(wo.planned_output_g,0),wo.planned_g),wo.status,
 		       COALESCE(wo.actual_cost,0),to_char(wo.created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(wo.completed_at,'YYYY-MM-DD HH24:MI'),''),
 		       COALESCE(NULLIF(wo.production_config_snapshot_json->'fields'->0->>'value_text',''), NULLIF(bound_bv.special_attrs_json->>'roast_level',''), COALESCE(p.roast_level,'')),
 		       COALESCE(NULLIF(ri.bom_yield_rate,0), CASE WHEN ppc.product_id IS NOT NULL THEN 1 - COALESCE(NULLIF(ppc.expected_loss_rate,0), 0) ELSE NULL END, bound_bv.yield_rate, pb.yield_rate, 0),
 		       COALESCE(NULLIF(ri.input_g,0), wo.planned_g, 0),
 		       COALESCE(ri.planned_units,0),
 		       COALESCE(ri.planned_loose_g,0),
-		       COALESCE(ri.order_nos,''),
+		       COALESCE(NULLIF(ri.order_nos,''), wo.order_nos, ''),
 		       COALESCE(wo.material_snapshot,'[]'::jsonb)::text,
 		       COALESCE((
 		           SELECT SUM(r.reserved_g)::bigint
@@ -728,7 +745,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		var row productionapp.WorkOrderRow
 		var snapshotText, fallbackMaterialSummary string
 		if err := rows.Scan(
-			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
+			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.ProductionPlanID, &row.ProductionPlanItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
 			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG, &row.BomVersionID, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON, &fallbackMaterialSummary,
 		); err != nil {
 			return nil, err

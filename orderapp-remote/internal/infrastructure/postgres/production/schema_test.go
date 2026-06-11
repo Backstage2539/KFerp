@@ -34,6 +34,68 @@ func TestWorkOrderSchemaCreatesMaterialSnapshotOnCleanSchema(t *testing.T) {
 	}
 }
 
+func TestProductionPlanSchemaCreatesFormalPlanTables(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS %s.production_plans",
+		"plan_no TEXT NOT NULL UNIQUE",
+		"status TEXT NOT NULL DEFAULT 'draft'",
+		"submitted_at TIMESTAMPTZ",
+		"CREATE TABLE IF NOT EXISTS %s.production_plan_items",
+		"production_plan_id BIGINT NOT NULL",
+		"component_snapshot_json JSONB NOT NULL DEFAULT '[]'::jsonb",
+		"process_route_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb",
+		"production_plan_items_plan_idx",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("production schema must create formal production plan tables; missing %q", want)
+		}
+	}
+}
+
+func TestWorkOrderSchemaAllowsReleasedOrdersBeforeRunningItem(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	start := strings.Index(text, "CREATE TABLE IF NOT EXISTS %s.work_orders")
+	if start < 0 {
+		t.Fatal("schema.go missing work_orders create table DDL")
+	}
+	end := strings.Index(text[start:], "CREATE INDEX IF NOT EXISTS work_orders_status_idx")
+	if end < 0 {
+		t.Fatal("schema.go missing work_orders status index after create table")
+	}
+	workOrdersDDL := text[start : start+end]
+	for _, forbidden := range []string{
+		"running_item_id BIGINT NOT NULL UNIQUE",
+		"ON CONFLICT (running_item_id) DO UPDATE",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("released work orders must not depend on a unique nonzero running item; found %q", forbidden)
+		}
+	}
+	for _, want := range []string{
+		"running_item_id BIGINT NOT NULL DEFAULT 0",
+		"production_plan_id BIGINT NOT NULL DEFAULT 0",
+		"production_plan_item_id BIGINT NOT NULL DEFAULT 0",
+		"planned_output_g BIGINT NOT NULL DEFAULT 0",
+		"order_nos TEXT NOT NULL DEFAULT ''",
+		"work_orders_running_item_started_uq",
+		"WHERE running_item_id > 0",
+		"DROP CONSTRAINT IF EXISTS work_orders_running_item_id_key",
+	} {
+		if !strings.Contains(text, want) && !strings.Contains(workOrdersDDL, want) {
+			t.Fatalf("work_orders schema must support released-before-start lifecycle; missing %q", want)
+		}
+	}
+}
+
 func TestJobCardsSchemaCreatesActualLossColumnsOnCleanSchema(t *testing.T) {
 	src, err := os.ReadFile("schema.go")
 	if err != nil {

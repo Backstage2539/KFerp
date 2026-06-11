@@ -269,6 +269,10 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 	if err := ensureWIPStockForStartGroupsTx(ctx, tx, r.schema, groups, yieldByProductID); err != nil {
 		return productionapp.StartResult{}, err
 	}
+	legacyPlanID, legacyPlanItemIDs, err := createLegacyProductionPlanForStartGroupsTx(ctx, tx, r.schema, groups, yieldByProductID, cmd.Operator)
+	if err != nil {
+		return productionapp.StartResult{}, err
+	}
 	for _, group := range groups {
 		if group.NeedG <= 0 {
 			continue
@@ -359,6 +363,18 @@ func (r Repository) Start(ctx context.Context, cmd productionapp.StartExecutionC
 		workOrderID, err := createWorkOrderForRunningItemTx(ctx, tx, r.schema, runningItemID, batchID, group.ProductID, group.ProductName, group.SpecG, inputG, materialSnapshot, group.OperationTemplateID, cmd.Operator)
 		if err != nil {
 			return productionapp.StartResult{}, err
+		}
+		if legacyPlanID > 0 {
+			if _, err := tx.Exec(ctx, fmt.Sprintf(`
+				UPDATE %s.work_orders
+				SET production_plan_id=$2,
+				    production_plan_item_id=$3,
+				    planned_output_g=$4,
+				    order_nos=$5
+				WHERE id=$1
+			`, r.schema), workOrderID, legacyPlanID, legacyPlanItemIDs[startRunGroupKey(group)], group.NeedG, group.OrderNos); err != nil {
+				return productionapp.StartResult{}, err
+			}
 		}
 		if err := createMaterialReservationsForRunningItemTx(ctx, tx, r.schema, workOrderID, runningItemID, reservationNeeds); err != nil {
 			return productionapp.StartResult{}, err

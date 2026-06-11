@@ -25,6 +25,34 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN browser/local: production Vue build + mock API + Chrome DevTools Protocol rendered 商品档案、工艺模板、生产工单；商品档案配置抽屉显示 `可生产该商品的 BOM` / `作为组件被哪些 BOM 使用`，点击 `设为默认` sent `PUT /api/products/1/default-production-bom` with `production_bom_id` and `production_bom_version_id`; 工艺模板页显示工序/工作中心主数据计数和快照字段；生产工单页显示冻结 BOM、`工艺路线 #30` and frozen operation/workstation text.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-11-manufacturing-phase1-completion.md`.
 
+### PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE
+- Branch: codex/manufacturing-production-plan-workorder-lifecycle-20260611
+- Owner/session: Codex / 2026-06-11
+- Status: implementing with TDD; original plan used PR-471, but latest develop already owns `PR-471-MANUFACTURING-PHASE1-COMPLETION`; `scripts/reserve_req_id.sh` now returns `PR-472`, so this lifecycle requirement is renumbered to keep PR/DEV/UT/API/REV tables unique.
+- Scope: 一期生产链路，把现有“生产计划/开始生产”前移为正式 `生产计划 -> 生产工单 -> 工序卡 -> 开始生产` 单据链。新增 production_plans / production_plan_items，计划提交生成 released 工单和 pending 工序卡，工单开始生产后才创建 produce_running_items、WIP 占用并进入 running。保留旧 `/api/produce/start` 兼容入口。二期/三期内容不做：Stock Entry 单据化、甘特图、产能排程、班组计时、工序暂停。
+- DEV:
+  - DEV-472-PRODUCTION-PLAN-SCHEMA-REPOSITORY：新增生产计划/计划行 schema、仓储和快照字段；调整 work_orders.running_item_id 为未开工可空/默认 0，并以 running_item_id > 0 partial unique 保持已开工唯一约束。
+  - DEV-472-PLAN-SUBMIT-WORKORDER-JOBCARDS：计划提交生成 released 工单，冻结商品/BOM/工艺路线/组件需求/生产配置/客户商品快照，并按冻结工艺路线生成 pending 工序卡。
+  - DEV-472-WORKORDER-START-LIFECYCLE：新增 `POST /api/work-orders/:id/start`，只允许 released 工单开始；开始后复用现有 WIP/生产中/完工链路，创建 running item、WIP 占用并把工单置为 running，重复开始 fail-closed。
+  - DEV-472-LEGACY-PRODUCE-START-COMPAT：保留旧 `POST /api/produce/start`，内部走临时计划 -> 工单 -> 开始生产，旧页面和测试语义不断裂。
+  - DEV-472-VUE-PRODUCTION-PLAN-WORKORDERS：Vue 生产计划页提供计划列表、新建计划、计划详情、提交生成工单；生产工单页支持 draft/released/running/completed/cancelled 筛选和 released 工单“开始生产”动作。
+  - DEV-472-DOCS-ACCEPTANCE：同步需求、验收清单、生产/成本手册、PR/DEV 种子和 PR-472 验收记录。
+- Verifier:
+  - RED schema: `go test ./internal/infrastructure/postgres/production -run 'TestProductionPlanSchemaCreatesFormalPlanTables|TestWorkOrderSchemaAllowsReleasedOrdersBeforeRunningItem' -count=1` failed before implementation because `production_plans` / `production_plan_items` were missing and `work_orders.running_item_id` was still `BIGINT NOT NULL UNIQUE`.
+  - RED service: `go test ./internal/application/production -run 'TestServiceOwnsFormalProductionPlanWorkOrderLifecycle|TestServiceRejectsInvalidProductionPlanAndWorkOrderCommands' -count=1` failed before implementation because plan/work-order command DTOs were undefined.
+  - RED API: `go test ./internal/interfaces/http/production -run 'TestProductionPlanAPICreatesListsAndSubmitsFormalPlan|TestWorkOrderStartAPIStartsReleasedWorkOrder|TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle|TestLegacyProduceStartAPIUsesTemporaryPlanAndStillStartsProduction' -count=1` failed before implementation because the formal plan and work-order start application/API contracts were missing.
+  - RED frontend: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js` failed before implementation because `buildProductionPlanCreatePayload` was missing and `src/lib/work-orders.js` did not exist.
+  - RED support/docs: `go test ./internal/interfaces/http/support -run TestDev472ManufacturingProductionPlanLifecycleContracts -count=1` failed because PR-472 manual/docs markers were not wired.
+  - GREEN targeted backend: `go test ./internal/application/production -count=1`; `go test ./internal/infrastructure/postgres/production -count=1`; `go test ./internal/interfaces/http/production -count=1` passed.
+  - GREEN targeted frontend: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js` passed 15/15.
+  - GREEN support/docs: `go test ./internal/interfaces/http/support -run TestDev472ManufacturingProductionPlanLifecycleContracts -count=1` passed.
+  - GREEN full/build/check: `go test ./...` passed; `npm run build` passed with existing Vite plugin-timing and chunk-size warnings; `scripts/verify_kferp.sh changed` exited 0; `git diff --check` passed.
+  - Browser: local Vue shell + mocked API at `http://127.0.0.1:5177/vue-shell/?view=producePlan` passed: created `PP-0000000001`, submitted to released `WO-PP-0000000001-0000000001`, started via `POST /api/work-orders/77/start` into `PB-PR472-001`, did not call `/api/produce/start` from new UI, and job cards showed coffee `烘焙/包装`, packaging `印刷/模切/糊盒`, clothing `裁剪/缝制/质检`. Screenshots: `/tmp/kferp-pr472-browser-evidence/01-production-plan-created.png`; `/tmp/kferp-pr472-browser-evidence/02-work-order-started.png`; `/tmp/kferp-pr472-browser-evidence/03-job-cards-routes.png`.
+  - Manual: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-11-manufacturing-production-plan-workorder-lifecycle.md`.
+  - Review/acceptance: `REV-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE` seeded; Van review pending.
+- Deployment:
+- Last update: 2026-06-11 Asia/Shanghai
+
 ### PR-469-PRICE-LIST-PUBLISH-NO-RESPONSE
 - Branch: codex/price-list-publish-no-response-20260611
 - Owner/session: Codex / 2026-06-11

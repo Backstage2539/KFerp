@@ -29,7 +29,50 @@
       </div>
       <div class="actions">
         <button class="primary" type="button" @click="buildPlan" :disabled="loading">生成计划</button>
-        <button class="primary" type="button" @click="startProduction" :disabled="saving || !planReady">开始生产</button>
+        <button class="primary" type="button" @click="createProductionPlan" :disabled="saving || !planReady">创建生产计划</button>
+        <button class="secondary" type="button" @click="submitCurrentPlan" :disabled="saving || !canSubmitCurrentPlan">提交生成工单</button>
+      </div>
+      <div v-if="currentPlan" class="ok plan-result">
+        <strong>{{ currentPlan.plan_no }} · {{ currentPlan.status }}</strong>
+        <span>计划行 {{ currentPlan.items?.length || 0 }} 条</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>生产计划单据</h2>
+        <button class="secondary" type="button" @click="loadProductionPlans" :disabled="loading">刷新单据</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>计划号</th>
+              <th>来源</th>
+              <th>状态</th>
+              <th>行数</th>
+              <th>创建人</th>
+              <th>提交人</th>
+              <th>时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="plan in productionPlans" :key="plan.id">
+              <td><strong>{{ plan.plan_no }}</strong></td>
+              <td>{{ plan.source_type || '-' }}</td>
+              <td><span class="status">{{ plan.status }}</span></td>
+              <td>{{ plan.item_count || 0 }}</td>
+              <td>{{ plan.created_by || '-' }}</td>
+              <td>{{ plan.submitted_by || '-' }}</td>
+              <td><small>建 {{ plan.created_at || '-' }}</small><small>交 {{ plan.submitted_at || '-' }}</small></td>
+              <td><button class="secondary compact" type="button" @click="submitPlanRow(plan)" :disabled="saving || plan.status !== 'draft'">提交</button></td>
+            </tr>
+            <tr v-if="!productionPlans.length">
+              <td colspan="8" class="muted">暂无生产计划单据</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -225,13 +268,14 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch, watchEffect } from 'vue'
-import { apiGet, apiSend, appURL } from '../api/client'
+import { apiGet, apiSend } from '../api/client'
 import {
   buildInsufficientSelection,
   buildMaterialSummary,
+  buildProductionPlanCreatePayload,
   gramsToKgString,
   normalizeRoastPlans,
-  buildStartPayload,
+  productionPlanSubmitEndpoint,
   insufficientSelectionState,
   rebuildPlanRows,
   producePlanKey,
@@ -257,6 +301,8 @@ const roastPlans = ref([])
 const machineRows = ref([])
 const materialRatios = ref([])
 const initialMaterials = ref([])
+const productionPlans = ref([])
+const currentPlan = ref(null)
 const insufficientHeaderCheckbox = ref(null)
 const selected = reactive({})
 
@@ -279,6 +325,7 @@ const computedPlanRows = computed(() => rebuildPlanRows(planRows.value, roastPla
 const computedMaterials = computed(() =>
   buildMaterialSummary(planRows.value, roastPlans.value, materialRatios.value, initialMaterials.value),
 )
+const canSubmitCurrentPlan = computed(() => Number(currentPlan.value?.id || 0) > 0 && currentPlan.value?.status === 'draft')
 const stockInsufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) > 0))
 const stockSufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) <= 0))
 const insufficientSelection = computed(() => insufficientSelectionState(stockInsufficientRows.value, selected))
@@ -370,6 +417,15 @@ async function load(plan) {
   }
 }
 
+async function loadProductionPlans() {
+  try {
+    const data = await apiGet('/api/production-plans?limit=50')
+    productionPlans.value = data.rows || []
+  } catch (err) {
+    error.value = err.message || '加载生产计划失败'
+  }
+}
+
 function toggleAllInsufficient(checked) {
   replaceSelected(buildInsufficientSelection(stockInsufficientRows.value, checked))
 }
@@ -410,10 +466,10 @@ function machineOptionsForRow(row) {
   return out
 }
 
-async function startProduction() {
+async function createProductionPlan() {
   const keys = selectedKeys()
   if (!keys.length) {
-    window.alert('请先选择产品后再开始生产')
+    window.alert('请先选择产品后再创建生产计划')
     return
   }
   if (!planReady.value) {
@@ -426,11 +482,35 @@ async function startProduction() {
     for (const row of roastPlans.value) {
       syncRoastPlan(row)
     }
-    const payload = buildStartPayload(filters, keys, roastPlans.value, computedPlanRows.value)
-    await apiSend('/api/produce/start', { body: payload })
-    window.location.href = appURL('/produce/running?ok=1')
+    const payload = buildProductionPlanCreatePayload(filters, keys, roastPlans.value, computedPlanRows.value)
+    currentPlan.value = await apiSend('/api/production-plans', { body: payload })
+    await loadProductionPlans()
   } catch (err) {
-    error.value = err.message || '开始生产失败'
+    error.value = err.message || '创建生产计划失败'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function submitCurrentPlan() {
+  if (!currentPlan.value) return
+  await submitPlanRow(currentPlan.value)
+}
+
+async function submitPlanRow(plan) {
+  const endpoint = productionPlanSubmitEndpoint(plan)
+  if (!endpoint) return
+  saving.value = true
+  error.value = ''
+  try {
+    const result = await apiSend(endpoint, { body: {} })
+    currentPlan.value = result.plan || currentPlan.value
+    await loadProductionPlans()
+    window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+      detail: { key: 'workOrders', params: { status: 'released' } },
+    }))
+  } catch (err) {
+    error.value = err.message || '提交生产计划失败'
   } finally {
     saving.value = false
   }
@@ -454,6 +534,7 @@ onMounted(async () => {
     }
   }
   await load(url.searchParams.get('plan') === '1')
+  await loadProductionPlans()
 })
 
 watch(() => [props.viewParams?.customer_id, props.customerContextId], async () => {
@@ -483,6 +564,9 @@ button { border-radius: 8px; padding: 10px 12px; cursor: pointer; }
 input.bulk-checkbox { width: 18px; min-width: 18px; height: 18px; padding: 0; cursor: pointer; }
 .primary { border: 1px solid #111; background: #111; color: #fff; }
 .secondary { border: 1px solid #999; background: #fff; color: #111; }
+.compact { min-height: 30px; padding: 5px 10px; }
+.status { display: inline-flex; border: 1px solid #d1d5db; border-radius: 999px; padding: 2px 8px; background: #f9fafb; }
+.plan-result { margin-top: 12px; display: flex; gap: 12px; align-items: center; }
 .table-wrap { overflow: auto; }
 table { width: 100%; border-collapse: collapse; min-width: 980px; }
 th, td { border-bottom: 1px solid #f1f1f1; padding: 10px 8px; text-align: left; vertical-align: top; }
