@@ -194,6 +194,34 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		return c.JSON(http.StatusOK, row)
 	})
 
+	e.POST("/api/costing/bean-list/publications/archive", func(c echo.Context) error {
+		if err := requireBeanListPublisher(c, authz); err != nil {
+			return err
+		}
+		cmd, err := archiveBeanListPublicationsCommandFromRequest(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		if err := svc.ArchiveBeanListPublications(c.Request().Context(), cmd); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true, "ids": cmd.IDs})
+	})
+
+	e.POST("/api/costing/bean-list/publications/unarchive", func(c echo.Context) error {
+		if err := requireBeanListPublisher(c, authz); err != nil {
+			return err
+		}
+		cmd, err := archiveBeanListPublicationsCommandFromRequest(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		if err := svc.UnarchiveBeanListPublications(c.Request().Context(), cmd); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true, "ids": cmd.IDs})
+	})
+
 	e.POST("/api/costing/bean-list/publications/:id/pdf", func(c echo.Context) error {
 		cmd, err := beanListPublicationPDFCommandFromRequest(c)
 		if err != nil {
@@ -268,6 +296,27 @@ func registerCostingAPI(e *echo.Echo, svc Service, authz support.AuthzService) {
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "id": id})
 	})
+}
+
+func archiveBeanListPublicationsCommandFromRequest(c echo.Context) (appcosting.ArchiveBeanListPublicationsCommand, error) {
+	var req struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return appcosting.ArchiveBeanListPublicationsCommand{}, fmt.Errorf("invalid request")
+	}
+	query, err := beanListPublicationQueryFromRequest(c)
+	if err != nil {
+		return appcosting.ArchiveBeanListPublicationsCommand{}, err
+	}
+	return appcosting.ArchiveBeanListPublicationsCommand{
+		IDs:                req.IDs,
+		PublicationPurpose: query.PublicationPurpose,
+		Scope:              query.Scope,
+		OwnerType:          query.OwnerType,
+		OwnerKey:           query.OwnerKey,
+		Actor:              support.ActorOf(c),
+	}, nil
 }
 
 func generateBeanListPublicationPDFAsset(c echo.Context, svc Service, row *appcosting.BeanListPublication) error {

@@ -1986,3 +1986,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Last update:
 - Notes:
 ```
+
+### PR-470-PRICE-LIST-ARCHIVE-WARNING-FALLBACK
+- Branch: codex/price-list-archive-warning-20260611
+- Owner/session: Codex / 2026-06-11
+- Status: locally verified; pending commit, merge to `develop`, development deploy, smoke and live browser acceptance.
+- Scope: 商品价格表商品行 `未设置计价方式` 按价格表最终解析结果过滤；价格表默认计价模式托底有效时不误报。已发布价格表版本支持多选归档，归档版本不再展示在默认列表，归档列表支持移出归档。
+- DEV:
+  - DEV-470-PRICE-LIST-WARNING-FALLBACK：商品行 warning 按 `商品 > 子类 > 父类 > 价格表` 解析最终计价方式；有效阶梯模板、价格计算模板或固定价托底时隐藏 `未设置计价方式`。
+  - DEV-470-PRICE-LIST-PUBLICATION-ARCHIVE：已发布价格表版本列表支持多选归档；归档状态写入 `bean_list_publications.status` 和操作日志；归档列表支持移出归档。
+  - DEV-470-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和 PR-470 验收记录。
+- Verifier:
+  - RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed because `visibleItemWarnings` and publication archive UI were missing.
+  - RED API: `go test ./internal/interfaces/http/costing -run TestBeanListPublicationArchiveAPI -count=1` failed because `ArchiveBeanListPublicationsCommand` was missing.
+  - RED service: `go test ./internal/application/costing -run TestArchiveBeanListPublicationsValidatesIDsAndOwner -count=1` failed because archive service methods were missing.
+  - RED repository: `go test ./internal/infrastructure/postgres/costing -run TestBeanListPublicationArchiveWritesStatusAndAudit -count=1` failed because archive/unarchive repository functions were missing.
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev470PriceListArchiveWarningContracts -count=1` failed because PR-470 markers were missing.
+  - GREEN frontend: `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-settings.test.js src/lib/product-price-list-types.test.js src/lib/product-price-list-selection.test.js src/lib/bean-list-pdf.test.js` passed 198/198.
+  - GREEN backend/unit/API: `go test ./...` in `orderapp-remote` passed.
+  - GREEN build/check: `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-11-price-list-archive-warning-fallback.md`.

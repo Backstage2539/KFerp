@@ -41,9 +41,10 @@
       <div class="section-bar bean-list-version-head">
         <div>
           <div class="section-title">已发布价格表</div>
-          <p class="muted">查看当前范围下的已发布价格表、生成新版和撤回。</p>
+          <p class="muted">查看当前范围下的已发布价格表、生成新版、撤回和归档。</p>
         </div>
         <div class="actions">
+          <button class="secondary compact" type="button" @click="publicationArchiveListCollapsed = !publicationArchiveListCollapsed">归档列表 {{ publicationArchiveListCollapsed ? `(${currentScopeArchivedPublicationRows.length})` : '收起' }}</button>
           <button class="secondary compact" type="button" @click="publicationListCollapsed = !publicationListCollapsed">{{ publicationListCollapsed ? '展开' : '收起' }}</button>
           <button class="secondary compact" type="button" :disabled="beanListVersionListLoading" @click="refreshBeanListVersionList">刷新版本</button>
         </div>
@@ -70,6 +71,27 @@
           <span>版本数</span>
           <strong>{{ publicationListState.total }} / {{ currentScopePublicationRows.length }}</strong>
         </div>
+        <div class="version-summary">
+          <span>已归档</span>
+          <strong>{{ currentScopeArchivedPublicationRows.length }}</strong>
+        </div>
+      </div>
+
+      <div v-if="!publicationListCollapsed && isBeanListAdmin && currentScopePublicationRows.length" class="version-bulk-actions">
+        <label class="table-select-all">
+          <input
+            type="checkbox"
+            :checked="currentPagePublicationArchiveAllSelected"
+            :aria-checked="currentPagePublicationArchiveSomeSelected && !currentPagePublicationArchiveAllSelected ? 'mixed' : String(currentPagePublicationArchiveAllSelected)"
+            :disabled="!archiveSelectableCurrentPagePublicationRows.length || beanListArchiving"
+            @change="toggleCurrentPagePublicationArchiveSelection($event.target.checked)"
+          />
+          <span>当前页可归档</span>
+        </label>
+        <button class="secondary compact" type="button" :disabled="!selectedPublicationArchiveIDs.length || beanListArchiving" @click="archiveSelectedBeanListPublications">
+          归档选中
+        </button>
+        <span class="muted">已选 {{ selectedPublicationArchiveIDs.length }} 个；当前发布版本不可归档。</span>
       </div>
 
       <div v-if="publicationListCollapsed && currentScopePublicationRows.length" class="muted empty">
@@ -80,6 +102,7 @@
         <table class="version-table">
           <thead>
             <tr>
+              <th class="select-col">选择</th>
               <th>版本号</th>
               <th>类型</th>
               <th>归属</th>
@@ -92,6 +115,16 @@
           </thead>
           <tbody>
             <tr v-for="row in paginatedCurrentScopePublicationRows" :key="`bean-list-version-${row.id}`">
+              <td class="select-col">
+                <input
+                  v-if="isBeanListAdmin"
+                  type="checkbox"
+                  :checked="isPublicationArchiveSelected(row)"
+                  :disabled="!canArchiveBeanListPublication(row) || beanListArchiving"
+                  :aria-label="`选择归档 ${row.version || row.id}`"
+                  @change="togglePublicationArchiveSelection(row)"
+                />
+              </td>
               <td class="version-main">
                 <strong>{{ row.version || '未命名版本' }}</strong>
                 <small>#{{ row.id }}</small>
@@ -129,6 +162,63 @@
       </div>
       <div v-else class="muted empty">
         当前{{ publicationScopeLabel(versionListScope) }}暂无{{ selectedProductPriceListLabel }}价格表版本。
+      </div>
+
+      <div v-if="!publicationArchiveListCollapsed" class="version-archive-panel">
+        <div class="section-bar">
+          <div>
+            <div class="section-title">归档列表</div>
+            <p class="muted">归档价格表不在已发布价格表列表展示；需要恢复时点击移出归档。</p>
+          </div>
+        </div>
+        <div v-if="paginatedArchivedPublicationRows.length" class="version-table-wrap">
+          <table class="version-table">
+            <thead>
+              <tr>
+                <th>版本号</th>
+                <th>类型</th>
+                <th>归属</th>
+                <th>状态</th>
+                <th>时间</th>
+                <th>更新说明</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in paginatedArchivedPublicationRows" :key="`bean-list-archived-version-${row.id}`">
+                <td class="version-main">
+                  <strong>{{ row.version || '未命名版本' }}</strong>
+                  <small>#{{ row.id }}</small>
+                </td>
+                <td>{{ beanListPublicationTypeLabel(row) }}</td>
+                <td>{{ beanListPublicationOwnerLabel(row) }}</td>
+                <td>
+                  <span :class="['status-pill', beanListPublicationStatusClass(row)]">
+                    {{ beanListPublicationStatusLabel(row) }}
+                  </span>
+                </td>
+                <td>{{ beanListPublicationTime(row) || '-' }}</td>
+                <td class="version-note">{{ row.changelog || '无更新说明' }}</td>
+                <td>
+                  <div class="version-actions">
+                    <button class="secondary compact" type="button" :disabled="!beanListPublicationHasContent(row)" @click="downloadBeanListPublication(row)">下载 PDF</button>
+                    <button v-if="isBeanListAdmin" class="secondary compact" type="button" :disabled="beanListArchiving" @click="restoreArchivedBeanListPublication(row)">移出归档</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <PaginationControls
+            v-model:page="publicationArchiveListPage"
+            v-model:pageSize="publicationArchiveListPageSize"
+            :total="archivedPublicationListState.total"
+            :page-size-options="[5, 10, 20, 50, 100]"
+            :disabled="beanListVersionListLoading || beanListArchiving"
+          />
+        </div>
+        <div v-else class="muted empty">
+          当前没有归档价格表版本。
+        </div>
       </div>
     </section>
 
@@ -326,8 +416,8 @@
                   </div>
                 </div>
               </div>
-              <div v-if="itemWarnings(row).length" class="item-warning-list">
-                <span v-for="warning in itemWarnings(row)" :key="warning" class="warning-icon-wrap">
+              <div v-if="visibleItemWarnings(row).length" class="item-warning-list">
+                <span v-for="warning in visibleItemWarnings(row)" :key="warning" class="warning-icon-wrap">
                   <button class="warning-icon" type="button" aria-label="查看商品警示">!</button>
                   <span class="warning-tooltip">{{ warningTooltip(warning) }}</span>
                 </span>
@@ -1040,6 +1130,7 @@ const FACTORY_SUPPLY_PUBLICATION_PURPOSE = 'factory_supply'
 const loading = ref(false)
 const beanListPublishing = ref(false)
 const beanListWithdrawing = ref(false)
+const beanListArchiving = ref(false)
 const beanListVersionListLoading = ref(false)
 const beanListPdfGenerating = ref(false)
 const settingsOpen = ref(false)
@@ -1052,6 +1143,10 @@ const publicationListSearch = ref('')
 const publicationListPage = ref(1)
 const publicationListPageSize = ref(10)
 const publicationListCollapsed = ref(false)
+const publicationArchiveListPage = ref(1)
+const publicationArchiveListPageSize = ref(10)
+const publicationArchiveListCollapsed = ref(true)
+const selectedPublicationArchiveIDs = ref([])
 const publicationScope = ref('official')
 const selectedBeanListCustomerID = ref(0)
 const actorLoaded = ref(false)
@@ -1265,7 +1360,10 @@ const isBeanListAdmin = computed(() => {
   )
 })
 const customerScopeReady = computed(() => publicationScope.value !== 'customer' || Number(selectedBeanListCustomerID.value || 0) > 0)
-const currentScopePublicationRows = computed(() => publicationRows(versionListScope.value, pdfTheme.value.listType, activeProductTypeCategoryID.value, FACTORY_SUPPLY_PUBLICATION_PURPOSE))
+const currentScopeAllPublicationRows = computed(() => publicationRows(versionListScope.value, pdfTheme.value.listType, activeProductTypeCategoryID.value, FACTORY_SUPPLY_PUBLICATION_PURPOSE))
+const currentScopeActivePublicationRows = computed(() => currentScopeAllPublicationRows.value.filter((row) => row.status !== 'archived'))
+const currentScopeArchivedPublicationRows = computed(() => currentScopeAllPublicationRows.value.filter((row) => row.status === 'archived'))
+const currentScopePublicationRows = computed(() => currentScopeActivePublicationRows.value)
 const publicationListState = computed(() => publicationVersionListState(currentScopePublicationRows.value, {
   query: publicationListSearch.value,
   page: publicationListPage.value,
@@ -1274,6 +1372,16 @@ const publicationListState = computed(() => publicationVersionListState(currentS
 }))
 const paginatedCurrentScopePublicationRows = computed(() => publicationListState.value.rows)
 const versionListCurrentPublication = computed(() => currentScopePublicationRows.value.find((row) => row.status === 'published') || null)
+const archivedPublicationListState = computed(() => publicationVersionListState(currentScopeArchivedPublicationRows.value, {
+  query: publicationListSearch.value,
+  page: publicationArchiveListPage.value,
+  pageSize: publicationArchiveListPageSize.value,
+  collapsed: publicationArchiveListCollapsed.value,
+}))
+const paginatedArchivedPublicationRows = computed(() => archivedPublicationListState.value.rows)
+const archiveSelectableCurrentPagePublicationRows = computed(() => paginatedCurrentScopePublicationRows.value.filter((row) => canArchiveBeanListPublication(row)))
+const currentPagePublicationArchiveAllSelected = computed(() => archiveSelectableCurrentPagePublicationRows.value.length > 0 && archiveSelectableCurrentPagePublicationRows.value.every((row) => isPublicationArchiveSelected(row)))
+const currentPagePublicationArchiveSomeSelected = computed(() => archiveSelectableCurrentPagePublicationRows.value.some((row) => isPublicationArchiveSelected(row)))
 const publicationScopeRows = computed(() => publicationRows(publicationScope.value, pdfTheme.value.listType, activeProductTypeCategoryID.value, 'factory_supply'))
 const currentBeanListPublication = computed(() => publicationScopeRows.value.find((row) => row.status === 'published') || null)
 const officialPriceSourcePublications = computed(() => publicationRows('official', pdfTheme.value.listType, activeProductTypeCategoryID.value, 'factory_supply').filter((row) => row.status === 'published'))
@@ -1359,6 +1467,8 @@ watch(versionListScope, (scope) => {
 
 watch([versionListScope, selectedProductTypeCategoryID, publicationListSearch], () => {
   publicationListPage.value = 1
+  publicationArchiveListPage.value = 1
+  selectedPublicationArchiveIDs.value = []
 })
 
 watch(activeBeanListCustomerID, () => {
@@ -1652,6 +1762,41 @@ function itemWarnings(item) {
     return ['未挂到带生豆模板的分类，无法生成生豆价格。请在商品管理里把该生豆商品移到带生豆模板的生豆分类。', ...warnings]
   }
   return warnings
+}
+
+function visibleItemWarnings(item) {
+  return itemWarnings(item).filter((warning) => {
+    const text = String(warning || '').trim()
+    if (text === '未设置计价方式' && itemHasResolvedPriceListPricingMethod(item)) return false
+    return true
+  })
+}
+
+function priceListResolvedTemplateForItem(item = {}) {
+  const groupRow = priceListGroupForItem(item)
+  const productID = Number(item?.product_id || item?.productID || item?.productId || item?.id || itemProductID(item) || 0)
+  const product = {
+    id: productID,
+    product_id: productID,
+    group_item_id: groupRow.group_item_id,
+    parent_group_item_id: groupRow.parent_group_item_id,
+  }
+  return resolvePriceTableTemplateInheritance({
+    defaults: priceListTemplateDefaults.value,
+    groupAssignments: priceListTemplateAssignments(),
+    productOverrides: priceListProductOverridesForSnapshot(),
+    product,
+  })
+}
+
+function itemHasResolvedPriceListPricingMethod(item) {
+  const resolved = priceListResolvedTemplateForItem(item)
+  const mode = String(resolved.pricing_mode || '').trim()
+  return Boolean(
+    (mode === 'pricing_rule' && Number(resolved.pricing_rule_id || 0) > 0) ||
+    (mode === 'tier_template' && Number(resolved.tier_template_id || 0) > 0) ||
+    (mode === 'fixed_price' && Number(resolved.fixed_unit_price || 0) > 0)
+  )
 }
 
 function isInactiveBomWarningText(warning) {
@@ -2933,6 +3078,8 @@ function beanListPublicationStatusLabel(row) {
     return '已撤回'
   case 'draft':
     return '草稿'
+  case 'archived':
+    return '已归档'
   default:
     return row?.status || '未知'
   }
@@ -2943,6 +3090,7 @@ function beanListPublicationStatusClass(row) {
   if (status === 'published') return 'status-published'
   if (status === 'draft') return 'status-draft'
   if (status === 'withdrawn') return 'status-withdrawn'
+  if (status === 'archived') return 'status-archived'
   return 'status-unknown'
 }
 
@@ -2989,6 +3137,46 @@ function startBeanListFromPublication(row) {
   setPublicationScopeFromOwner(row)
   selectProductTypeFromPublication(row)
   openBeanListDrawer(normalizeBeanListType(row.list_type))
+}
+
+function beanListPublicationIsCurrent(row) {
+  return Number(row?.id || 0) > 0 && Number(versionListCurrentPublication.value?.id || 0) === Number(row.id || 0)
+}
+
+function canArchiveBeanListPublication(row) {
+  return isBeanListAdmin.value && row?.status !== 'archived' && !beanListPublicationIsCurrent(row)
+}
+
+function isPublicationArchiveSelected(row) {
+  const id = Number(row?.id || 0)
+  return id > 0 && selectedPublicationArchiveIDs.value.includes(id)
+}
+
+function togglePublicationArchiveSelection(row) {
+  if (!canArchiveBeanListPublication(row)) return
+  const id = Number(row?.id || 0)
+  if (id <= 0) return
+  if (selectedPublicationArchiveIDs.value.includes(id)) {
+    selectedPublicationArchiveIDs.value = selectedPublicationArchiveIDs.value.filter((value) => value !== id)
+    return
+  }
+  selectedPublicationArchiveIDs.value = [...selectedPublicationArchiveIDs.value, id]
+}
+
+function toggleCurrentPagePublicationArchiveSelection(checked) {
+  const ids = archiveSelectableCurrentPagePublicationRows.value.map((row) => Number(row.id || 0)).filter((id) => id > 0)
+  if (!ids.length) return
+  const selected = new Set(selectedPublicationArchiveIDs.value)
+  ids.forEach((id) => {
+    if (checked) selected.add(id)
+    else selected.delete(id)
+  })
+  selectedPublicationArchiveIDs.value = [...selected]
+}
+
+function selectedPublicationArchiveRows() {
+  const selected = new Set(selectedPublicationArchiveIDs.value)
+  return currentScopePublicationRows.value.filter((row) => selected.has(Number(row.id || 0)) && canArchiveBeanListPublication(row))
 }
 
 function beanListPublicationHasContent(row) {
@@ -3841,6 +4029,54 @@ async function withdrawBeanList(row = currentBeanListPublication.value) {
   }
 }
 
+async function archiveSelectedBeanListPublications() {
+  const rows = selectedPublicationArchiveRows()
+  if (!rows.length) {
+    error.value = '请选择要归档的价格表版本'
+    return
+  }
+  const first = rows[0]
+  beanListArchiving.value = true
+  error.value = ''
+  message.value = ''
+  const listType = normalizeBeanListType(first.list_type || pdfTheme.value.listType)
+  const productTypeCategoryID = activePublicationProductTypeCategoryID(first?.product_type_category_id || activeProductTypeCategoryID.value)
+  try {
+    const params = beanListPublicationDownloadParams(first)
+    await apiSend('/api/costing/bean-list/publications/archive' + `?${params.toString()}`, {
+      body: { ids: rows.map((row) => Number(row.id || 0)).filter((id) => id > 0) },
+    })
+    message.value = `已归档 ${rows.length} 个价格表版本，可在归档列表移出归档`
+    selectedPublicationArchiveIDs.value = []
+    await loadBeanListPublications(listType, versionListScope.value, productTypeCategoryID, first?.publication_purpose || 'factory_supply')
+  } catch (err) {
+    error.value = err.message || '归档价格表失败'
+  } finally {
+    beanListArchiving.value = false
+  }
+}
+
+async function restoreArchivedBeanListPublication(row) {
+  if (!row?.id) return
+  beanListArchiving.value = true
+  error.value = ''
+  message.value = ''
+  const listType = normalizeBeanListType(row.list_type || pdfTheme.value.listType)
+  const productTypeCategoryID = activePublicationProductTypeCategoryID(row?.product_type_category_id || activeProductTypeCategoryID.value)
+  try {
+    const params = beanListPublicationDownloadParams(row)
+    await apiSend('/api/costing/bean-list/publications/unarchive' + `?${params.toString()}`, {
+      body: { ids: [Number(row.id || 0)] },
+    })
+    message.value = `已将价格表 ${row.version || row.id} 移出归档`
+    await loadBeanListPublications(listType, versionListScope.value, productTypeCategoryID, row?.publication_purpose || 'factory_supply')
+  } catch (err) {
+    error.value = err.message || '移出归档失败'
+  } finally {
+    beanListArchiving.value = false
+  }
+}
+
 function beanListWithdrawScopeParams(row) {
   const publicationPurpose = row?.publication_purpose || FACTORY_SUPPLY_PUBLICATION_PURPOSE
   if (row?.owner_type === 'customer') {
@@ -3883,15 +4119,20 @@ onBeforeUnmount(() => {
 .bean-list-version-panel { display: grid; gap: 12px; }
 .bean-list-version-head { align-items: flex-start; }
 .bean-list-version-head p { margin: 4px 0 0; line-height: 1.45; }
-.version-controls { display: grid; grid-template-columns: minmax(170px, .9fr) minmax(110px, .55fr) minmax(90px, .45fr); gap: 10px; align-items: end; }
+.version-controls { display: grid; grid-template-columns: minmax(170px, .9fr) minmax(110px, .55fr) repeat(3, minmax(90px, .45fr)); gap: 10px; align-items: end; }
 .version-controls label span, .version-summary span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 .version-controls select { width: 100%; min-height: 38px; border: 1px solid #ddd; border-radius: 8px; padding: 7px 9px; background: #fff; font: inherit; box-sizing: border-box; }
 .version-control-customer { grid-column: span 2; }
 .version-summary { min-height: 38px; border: 1px solid #eee; border-radius: 8px; background: #fafafa; padding: 8px 10px; box-sizing: border-box; }
 .version-summary strong { display: block; overflow-wrap: anywhere; font-size: 14px; line-height: 1.2; }
+.version-bulk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px dashed #ddd; border-radius: 8px; background: #fcfcfc; padding: 8px 10px; }
+.table-select-all { display: inline-flex; align-items: center; gap: 6px; color: #333; font-size: 13px; font-weight: 650; }
+.version-archive-panel { display: grid; gap: 10px; border-top: 1px solid #eee; padding-top: 12px; }
 .version-table-wrap { overflow: auto; }
 .version-table { min-width: 1040px; }
 .version-table th, .version-table td { text-align: left; white-space: normal; vertical-align: top; }
+.version-table .select-col { width: 56px; text-align: center; white-space: nowrap; }
+.version-table .select-col input { width: 18px; height: 18px; }
 .version-main strong { display: block; line-height: 1.25; }
 .version-main small { display: block; margin-top: 3px; color: #777; font-size: 12px; }
 .version-note { max-width: 260px; line-height: 1.45; color: #333; overflow-wrap: anywhere; }
@@ -3900,6 +4141,7 @@ onBeforeUnmount(() => {
 .status-published { border-color: #9fd0a4; background: #ecfaee; color: #176528; }
 .status-draft { border-color: #c8d4e1; background: #f7fbff; color: #1f4f82; }
 .status-withdrawn { border-color: #e0b4b4; background: #fff1f1; color: #8b1e1e; }
+.status-archived { border-color: #c8c8c8; background: #f4f4f4; color: #666; }
 .status-unknown { background: #f5f5f5; color: #555; }
 .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .metrics > div { border: 1px solid #eee; border-radius: 8px; padding: 12px; background: #fafafa; }

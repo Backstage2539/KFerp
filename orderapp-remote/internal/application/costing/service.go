@@ -305,6 +305,15 @@ type WithdrawBeanListCommand struct {
 	Actor              string `json:"actor,omitempty"`
 }
 
+type ArchiveBeanListPublicationsCommand struct {
+	IDs                []int64 `json:"ids"`
+	PublicationPurpose string  `json:"publication_purpose,omitempty"`
+	Scope              string  `json:"scope,omitempty"`
+	OwnerType          string  `json:"owner_type,omitempty"`
+	OwnerKey           string  `json:"owner_key,omitempty"`
+	Actor              string  `json:"actor,omitempty"`
+}
+
 type Repository interface {
 	LoadParameters(ctx context.Context) (domain.Parameters, error)
 	LoadProductInputs(ctx context.Context, params domain.Parameters) ([]domain.ProductInput, error)
@@ -324,6 +333,8 @@ type Repository interface {
 	PublishBeanList(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
 	SaveBeanListDraft(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error)
 	WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error
+	ArchiveBeanListPublications(ctx context.Context, cmd ArchiveBeanListPublicationsCommand) error
+	UnarchiveBeanListPublications(ctx context.Context, cmd ArchiveBeanListPublicationsCommand) error
 }
 
 type customerScopedProductInputRepository interface {
@@ -2346,6 +2357,57 @@ func (s *Service) WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListComm
 		return fmt.Errorf("repository required")
 	}
 	return s.repo.WithdrawBeanList(ctx, cmd)
+}
+
+func (s *Service) ArchiveBeanListPublications(ctx context.Context, cmd ArchiveBeanListPublicationsCommand) error {
+	normalized, err := normalizeArchiveBeanListPublicationsCommand(cmd)
+	if err != nil {
+		return err
+	}
+	if s.repo == nil {
+		return fmt.Errorf("repository required")
+	}
+	return s.repo.ArchiveBeanListPublications(ctx, normalized)
+}
+
+func (s *Service) UnarchiveBeanListPublications(ctx context.Context, cmd ArchiveBeanListPublicationsCommand) error {
+	normalized, err := normalizeArchiveBeanListPublicationsCommand(cmd)
+	if err != nil {
+		return err
+	}
+	if s.repo == nil {
+		return fmt.Errorf("repository required")
+	}
+	return s.repo.UnarchiveBeanListPublications(ctx, normalized)
+}
+
+func normalizeArchiveBeanListPublicationsCommand(cmd ArchiveBeanListPublicationsCommand) (ArchiveBeanListPublicationsCommand, error) {
+	ids := make([]int64, 0, len(cmd.IDs))
+	seen := map[int64]bool{}
+	for _, id := range cmd.IDs {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return ArchiveBeanListPublicationsCommand{}, fmt.Errorf("ids required")
+	}
+	cmd.IDs = ids
+	ownerType, ownerKey, err := normalizeBeanListOwner(cmd.OwnerType, cmd.OwnerKey)
+	if err != nil {
+		return ArchiveBeanListPublicationsCommand{}, err
+	}
+	cmd.OwnerType = ownerType
+	cmd.OwnerKey = ownerKey
+	purpose, err := NormalizeBeanListPublicationPurpose(cmd.PublicationPurpose)
+	if err != nil {
+		return ArchiveBeanListPublicationsCommand{}, err
+	}
+	cmd.PublicationPurpose = purpose
+	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	return cmd, nil
 }
 
 func calculate(req CalculateRequest, params domain.Parameters) ([]domain.ProductResult, error) {

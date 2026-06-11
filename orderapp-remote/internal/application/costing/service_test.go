@@ -22,6 +22,8 @@ type fakeRepo struct {
 	deactivatedDripID   int64
 	publishedBeanList   PublishBeanListCommand
 	draftBeanList       PublishBeanListCommand
+	archivedBeanLists   ArchiveBeanListPublicationsCommand
+	unarchivedBeanLists ArchiveBeanListPublicationsCommand
 	beanListPublication *BeanListPublication
 	beanListAsset       BeanListPublicationAsset
 	savedBeanListAsset  BeanListPublicationAsset
@@ -162,6 +164,16 @@ func (r *fakeRepo) SaveBeanListDraft(_ context.Context, cmd PublishBeanListComma
 }
 
 func (r *fakeRepo) WithdrawBeanList(context.Context, WithdrawBeanListCommand) error {
+	return nil
+}
+
+func (r *fakeRepo) ArchiveBeanListPublications(_ context.Context, cmd ArchiveBeanListPublicationsCommand) error {
+	r.archivedBeanLists = cmd
+	return nil
+}
+
+func (r *fakeRepo) UnarchiveBeanListPublications(_ context.Context, cmd ArchiveBeanListPublicationsCommand) error {
+	r.unarchivedBeanLists = cmd
 	return nil
 }
 
@@ -1309,6 +1321,42 @@ func TestPublishBeanListValidatesVersionAndListType(t *testing.T) {
 	}
 	if err := svc.WithdrawBeanList(context.Background(), WithdrawBeanListCommand{}); err == nil {
 		t.Fatalf("expected invalid id")
+	}
+}
+
+func TestArchiveBeanListPublicationsValidatesIDsAndOwner(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	if err := svc.ArchiveBeanListPublications(context.Background(), ArchiveBeanListPublicationsCommand{}); err == nil {
+		t.Fatalf("expected ids required")
+	}
+	err := svc.ArchiveBeanListPublications(context.Background(), ArchiveBeanListPublicationsCommand{
+		IDs:                []int64{7, 8},
+		PublicationPurpose: BeanListPublicationPurposeFactorySupply,
+		OwnerType:          "customer",
+		OwnerKey:           "42",
+		Actor:              "tester",
+	})
+	if err != nil {
+		t.Fatalf("ArchiveBeanListPublications() error = %v", err)
+	}
+	if !reflect.DeepEqual(repo.archivedBeanLists.IDs, []int64{7, 8}) || repo.archivedBeanLists.OwnerType != "customer" || repo.archivedBeanLists.OwnerKey != "42" || repo.archivedBeanLists.Actor != "tester" {
+		t.Fatalf("archive command = %+v", repo.archivedBeanLists)
+	}
+
+	err = svc.UnarchiveBeanListPublications(context.Background(), ArchiveBeanListPublicationsCommand{
+		IDs:                []int64{7},
+		PublicationPurpose: BeanListPublicationPurposeFactorySupply,
+		OwnerType:          "customer",
+		OwnerKey:           "42",
+		Actor:              "tester",
+	})
+	if err != nil {
+		t.Fatalf("UnarchiveBeanListPublications() error = %v", err)
+	}
+	if !reflect.DeepEqual(repo.unarchivedBeanLists.IDs, []int64{7}) || repo.unarchivedBeanLists.OwnerType != "customer" || repo.unarchivedBeanLists.OwnerKey != "42" {
+		t.Fatalf("unarchive command = %+v", repo.unarchivedBeanLists)
 	}
 }
 

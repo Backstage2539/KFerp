@@ -150,6 +150,66 @@ test('product price-list inactive BOM warnings stay on product rows with product
   }
 })
 
+test('product price-list suppresses missing pricing method warning when price-list fallback resolves', () => {
+  const selectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
+  const dialogStart = viewSource.indexOf('<div v-if="priceListConfigDialog.open"', selectionStart)
+  assert.ok(selectionStart > -1 && dialogStart > selectionStart, 'missing product selection block')
+  const selectionSource = viewSource.slice(selectionStart, dialogStart)
+
+  assert.ok(selectionSource.includes('visibleItemWarnings(row)'), 'product picker warnings should be filtered by effective price-list pricing')
+  assert.equal(selectionSource.includes('itemWarnings(row).length'), false, 'raw backend warning count should not drive product picker display')
+
+  for (const expected of [
+    'function visibleItemWarnings',
+    'function itemHasResolvedPriceListPricingMethod',
+    'function priceListResolvedTemplateForItem',
+    'resolvePriceTableTemplateInheritance({',
+    'priceListTemplateAssignments()',
+    'priceListProductOverridesForSnapshot()',
+    "text === '未设置计价方式' && itemHasResolvedPriceListPricingMethod(item)",
+    "mode === 'pricing_rule' && Number(resolved.pricing_rule_id || 0) > 0",
+    "mode === 'tier_template' && Number(resolved.tier_template_id || 0) > 0",
+    "mode === 'fixed_price' && Number(resolved.fixed_unit_price || 0) > 0",
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing resolved price-list warning fallback behavior: ${expected}`)
+  }
+})
+
+test('product price-list published versions can be archived and restored from archive list', () => {
+  const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
+  const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
+  assert.ok(versionListStart > -1 && versionListEnd > versionListStart, 'missing bean-list version panel')
+  const versionListSource = viewSource.slice(versionListStart, versionListEnd)
+
+  for (const expected of [
+    '归档选中',
+    '归档列表',
+    '移出归档',
+    'selectedPublicationArchiveIDs',
+    'toggleCurrentPagePublicationArchiveSelection',
+    'togglePublicationArchiveSelection(row)',
+    'archiveSelectedBeanListPublications',
+    'restoreArchivedBeanListPublication(row)',
+    'currentScopeActivePublicationRows',
+    'currentScopeArchivedPublicationRows',
+    "row.status !== 'archived'",
+    "row.status === 'archived'",
+    'archivedPublicationListState',
+    'paginatedArchivedPublicationRows',
+    ':disabled="!selectedPublicationArchiveIDs.length || beanListArchiving"',
+    "apiSend('/api/costing/bean-list/publications/archive'",
+    "apiSend('/api/costing/bean-list/publications/unarchive'",
+  ]) {
+    assert.ok(versionListSource.includes(expected) || viewSource.includes(expected), `missing publication archive behavior: ${expected}`)
+  }
+
+  assert.ok(viewSource.includes("case 'archived':"), 'archived status should have a visible label')
+  assert.ok(viewSource.includes("return '已归档'"), 'archived status should render 已归档')
+  assert.ok(viewSource.includes("if (status === 'archived') return 'status-archived'"), 'archived status should have its own pill class')
+  assert.ok(viewSource.includes('beanListPublicationIsCurrent(row)'), 'current publication should be protected from accidental archive')
+  assert.ok(versionListSource.includes('<th class="select-col">'), 'version list should expose a multi-select column')
+})
+
 test('product price-list version scope selector lists public and each fulfillment customer', () => {
   const versionListStart = viewSource.indexOf('<section class="panel bean-list-version-panel">')
   const versionListEnd = viewSource.indexOf('<section class="panel">', versionListStart)
