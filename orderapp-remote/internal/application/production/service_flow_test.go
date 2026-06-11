@@ -290,6 +290,33 @@ func TestServiceOwnsFormalProductionPlanWorkOrderLifecycle(t *testing.T) {
 	}
 }
 
+func TestCreateProductionPlanDefaultsSelectedNeedInputWhenPlanRowHasNoEditableRoastInput(t *testing.T) {
+	repo := &fakeFlowRepo{
+		productionPlan: ProductionPlanDetail{
+			ID:     42,
+			PlanNo: "PP-0000000042",
+			Status: "draft",
+			Items:  []ProductionPlanItem{{ID: 52, ProductID: 539, ProductName: "PR439-20260606182321 工厂量单商品", SpecG: 454, PlannedG: 554, GapG: 454, OrderNos: "SO-PR439"}},
+		},
+	}
+	svc := NewService(repo)
+
+	plan, err := svc.CreateProductionPlan(context.Background(), CreateProductionPlanCommand{
+		Selected:   map[string]bool{"539-454": true},
+		InputByKey: map[string]int64{},
+		Operator:   "计划员",
+	})
+	if err != nil {
+		t.Fatalf("selected formal production plan row without explicit input should use default input: %v", err)
+	}
+	if plan.ID != 42 || len(plan.Items) != 1 || plan.Items[0].ProductID != 539 {
+		t.Fatalf("CreateProductionPlan() = %+v, want PR439 draft plan", plan)
+	}
+	if !repo.createPlan.Selected["539-454"] || repo.createPlan.InputByKey == nil || repo.createPlan.Operator != "计划员" {
+		t.Fatalf("repo.CreateProductionPlan command = %+v", repo.createPlan)
+	}
+}
+
 func TestServiceRejectsInvalidProductionPlanAndWorkOrderCommands(t *testing.T) {
 	svc := NewService(&fakeFlowRepo{})
 	ctx := context.Background()

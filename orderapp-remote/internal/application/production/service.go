@@ -815,14 +815,11 @@ func (s *Service) CreateProductionPlan(ctx context.Context, cmd CreateProduction
 		cmd.InputByKey = map[string]int64{}
 	}
 	hasSelected := false
-	for key, selected := range cmd.Selected {
+	for _, selected := range cmd.Selected {
 		if !selected {
 			continue
 		}
 		hasSelected = true
-		if cmd.InputByKey[key] <= 0 {
-			return ProductionPlanDetail{}, fmt.Errorf("input_g required for %s", key)
-		}
 	}
 	if !hasSelected {
 		return ProductionPlanDetail{}, fmt.Errorf("selected production items required")
