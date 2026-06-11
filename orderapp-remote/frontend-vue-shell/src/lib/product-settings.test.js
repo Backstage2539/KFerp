@@ -701,6 +701,8 @@ test('price table pricing-rule preview row uses the live trial result', () => {
     pricing_rule_id: 40,
     pricing_rule_source: 'product',
     pricing_rule_version: '咖啡熟豆磅装模板-v1',
+    tier_pricing_rule_id: 0,
+    tier_pricing_rule_version: '',
     cost_source_snapshot: {
       pricing_rule_id: 40,
       bom_version_id: 8842,

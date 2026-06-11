@@ -465,7 +465,12 @@ export function buildPricingRuleTrialPayload(form = {}) {
 
 export function priceTablePricingRuleTrialPayload(row = {}, options = {}) {
   const pricingMode = normalizePriceTablePricingMode(row.pricing_mode ?? row.pricingMode)
-  const pricingRuleID = Number(row.tier_pricing_rule_id ?? row.tierPricingRuleID ?? row.pricing_rule_id ?? row.pricingRuleID ?? 0) || 0
+  const pricingRuleID = [
+    row.tier_pricing_rule_id,
+    row.tierPricingRuleID,
+    row.pricing_rule_id,
+    row.pricingRuleID,
+  ].map(normalizePositiveNumber).find((value) => value > 0) || 0
   const productID = [
     row.product_id,
     row.productID,
