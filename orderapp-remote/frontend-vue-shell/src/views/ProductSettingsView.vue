@@ -1336,8 +1336,42 @@
           <section class="drawer-section">
             <div class="field-group-head">
               <div class="field-group-copy">
-                <strong>被哪些 BOM 使用</strong>
-                <small>BOM 在生产模块维护；这里只读查看产出该商品或把该商品当作组件消耗的生产 BOM。</small>
+                <strong>可生产该商品的 BOM</strong>
+                <small>这里展示产出该商品的生产 BOM；默认 BOM 按商品保存，生产计划、试算和新工单会优先读取。</small>
+              </div>
+            </div>
+            <div class="production-config-grid reverse-bom-grid single-column">
+              <div class="readonly-link-list">
+                <div
+                  v-for="row in productProductionConfigProduceBomRows"
+                  :key="bomUsageRowKey(row)"
+                  class="bom-default-row">
+                  <button
+                    class="text-button readonly-link-button"
+                    type="button"
+                    @click="navigateProductBom({ production_bom_id: bomUsageBomID(row), id: bomUsageBomID(row), name: row.bom_name })">
+                    <span>{{ bomUsageRelationLabel(row) }}</span>
+                    <small :class="['bom-usage-status', bomUsageStatusClass(row)]">BOM状态：{{ bomUsageStatusLabel(row) }}</small>
+                    <small>当前已发布版本：{{ row.current_published_version_no || row.bom_version_no || '-' }}</small>
+                  </button>
+                  <button
+                    class="secondary compact-action"
+                    type="button"
+                    :disabled="row.is_default || !row.can_set_default || productProductionConfigSaving"
+                    @click="setDefaultProductionBom(row)">
+                    {{ row.is_default ? '默认 BOM' : '设为默认' }}
+                  </button>
+                </div>
+                <small v-if="!productProductionConfigProduceBomRows.length" class="muted">暂无可生产该商品的 BOM</small>
+              </div>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <div class="field-group-head">
+              <div class="field-group-copy">
+                <strong>作为组件被哪些 BOM 使用</strong>
+                <small>这里只读查看把当前商品当作组件消耗的生产 BOM，不参与当前商品默认 BOM 设置。</small>
               </div>
             </div>
             <div class="production-config-grid reverse-bom-grid single-column">
@@ -1351,7 +1385,7 @@
                   <span>{{ bomUsageRelationLabel(row) }}</span>
                   <small :class="['bom-usage-status', bomUsageStatusClass(row)]">BOM状态：{{ bomUsageStatusLabel(row) }}</small>
                 </button>
-                <small v-if="!productProductionConfigUsedByBomRows.length" class="muted">暂无 BOM 使用该商品</small>
+                <small v-if="!productProductionConfigUsedByBomRows.length" class="muted">暂无 BOM 把该商品作为组件</small>
               </div>
             </div>
           </section>
@@ -1959,7 +1993,7 @@ const activeIndustryFieldTemplates = computed(() => industryFieldTemplates.value
   .slice()
   .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0) || String(a.name || '').localeCompare(String(b.name || ''))))
 const productProductionConfigActiveBomOptions = computed(() => activeProductionBomOptions(productionBoms.value))
-const productProductionConfigUsedByBomRows = computed(() => {
+const productProductionConfigBomUsageRows = computed(() => {
   const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
   const seen = new Set()
   const rows = []
@@ -1973,6 +2007,10 @@ const productProductionConfigUsedByBomRows = computed(() => {
   }
   return rows
 })
+const productProductionConfigProduceBomRows = computed(() => productProductionConfigBomUsageRows.value
+  .filter((row) => String(row.relation_type || '') === 'output'))
+const productProductionConfigUsedByBomRows = computed(() => productProductionConfigBomUsageRows.value
+  .filter((row) => String(row.relation_type || '') === 'component'))
 const aliasDisplayCategoryOptions = computed(() => flattenCategoryNodes(categories.value).map((category) => ({
   id: Number(category.id || 0),
   label: `${Number(category.customer_id || 0) > 0 ? `${customerName(category.customer_id) || '客户'} / ` : ''}${category.name || ''}`,
@@ -4933,6 +4971,49 @@ async function ensureProductBomUsage(productID) {
   productBomUsageByProductID.value = { ...productBomUsageByProductID.value, [String(id)]: rows || [] }
 }
 
+async function setDefaultProductionBom(row = {}) {
+  const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
+  const bomID = bomUsageBomID(row)
+  const versionID = Number(row.current_published_version_id || row.production_bom_version_id || row.bom_version_id || 0)
+  if (!productID || !bomID || !versionID) {
+    error.value = '请选择已发布的生产 BOM 版本'
+    return
+  }
+  productProductionConfigSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    const saved = await apiSend(`/api/products/${productID}/default-production-bom`, {
+      method: 'PUT',
+      body: {
+        production_bom_id: bomID,
+        production_bom_version_id: versionID,
+      },
+    })
+    productProductionConfigForm.value.production_bom_id = Number(saved?.production_bom_id || bomID)
+    productProductionConfigForm.value.production_bom_version_id = Number(saved?.production_bom_version_id || versionID)
+    const existingConfig = productProductionConfigByProductID(productID) || { product_id: productID }
+    productProductionConfigs.value = [
+      ...productProductionConfigs.value.filter((config) => Number(config.product_id || 0) !== productID),
+      {
+        ...existingConfig,
+        production_bom_id: productProductionConfigForm.value.production_bom_id,
+        production_bom_version_id: productProductionConfigForm.value.production_bom_version_id,
+      },
+    ]
+    const key = String(productID)
+    const nextUsage = { ...productBomUsageByProductID.value }
+    delete nextUsage[key]
+    productBomUsageByProductID.value = nextUsage
+    await ensureProductBomUsage(productID)
+    ok.value = '默认生产 BOM 已更新'
+  } catch (err) {
+    error.value = err.message || '设置默认生产 BOM 失败'
+  } finally {
+    productProductionConfigSaving.value = false
+  }
+}
+
 function productProductionConfigByProductID(productID) {
   const id = Number(productID || 0)
   return productProductionConfigs.value.find((row) => Number(row.product_id || 0) === id) || null
@@ -6841,6 +6922,9 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .production-config-grid label span, .production-config-field-row label span { color: #5f5a52; font-weight: 600; }
 .production-config-grid .wide-field { grid-column: 1 / -1; }
 .readonly-link-button { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; text-align: left; }
+.bom-default-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid #f0e7d8; }
+.bom-default-row:last-child { border-bottom: 0; }
+.bom-default-row .readonly-link-button { flex: 1; min-width: 0; }
 .bom-usage-status { display: inline-flex; align-items: center; min-height: 22px; padding: 1px 7px; border: 1px solid #d8cbb8; border-radius: 999px; background: #fffaf2; color: #755116; font-size: 12px; line-height: 1.4; white-space: nowrap; }
 .bom-usage-status.default { border-color: #b8d0f0; background: #f2f7ff; color: #25568d; }
 .bom-usage-status.active { border-color: #cddfc9; background: #f5fbf3; color: #2f6c2f; }

@@ -2074,11 +2074,41 @@ func (r Repository) BindProductProductionBom(ctx context.Context, cmd bomapp.Bin
 	defer func() { _ = tx.Rollback(ctx) }()
 	var versionBomID int64
 	var versionNo string
-	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT bom_id, version_no FROM %s.production_bom_versions WHERE id=$1 AND status='published'`, r.schema), cmd.BomVersionID).Scan(&versionBomID, &versionNo); err != nil {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT v.bom_id, COALESCE(v.version_no,'')
+		FROM %s.production_bom_versions v
+		JOIN %s.production_boms pb ON pb.id=v.bom_id
+		WHERE v.id=$1
+		  AND pb.id=$2
+		  AND pb.output_product_id=$3
+		  AND (pb.status='active' OR COALESCE(NULLIF(pb.status,''),'active')='active')
+		  AND v.status='published'
+	`, r.schema, r.schema), cmd.BomVersionID, cmd.BomID, cmd.ProductID).Scan(&versionBomID, &versionNo); err != nil {
 		return bomapp.ProductProductionBomBinding{}, fmt.Errorf("published production BOM version not found")
 	}
 	if versionBomID != cmd.BomID {
 		return bomapp.ProductProductionBomBinding{}, fmt.Errorf("bom_version_id does not belong to bom_id")
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s.product_production_configs(
+			product_id,
+			production_bom_id,
+			production_bom_version_id,
+			process_route_id,
+			industry_field_template_id,
+			expected_loss_rate,
+			note,
+			created_by,
+			updated_by
+		)
+		VALUES($1,$2,$3,0,0,0,'',$4,$4)
+		ON CONFLICT (product_id) DO UPDATE SET
+			production_bom_id=excluded.production_bom_id,
+			production_bom_version_id=excluded.production_bom_version_id,
+			updated_at=now(),
+			updated_by=excluded.updated_by
+	`, r.schema), cmd.ProductID, cmd.BomID, cmd.BomVersionID, strings.TrimSpace(cmd.Actor)); err != nil {
+		return bomapp.ProductProductionBomBinding{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.product_production_bom_bindings(product_id, bom_id, bom_version_id, bound_at, bound_by)
@@ -2087,7 +2117,7 @@ func (r Repository) BindProductProductionBom(ctx context.Context, cmd bomapp.Bin
 	`, r.schema), cmd.ProductID, cmd.BomID, cmd.BomVersionID, strings.TrimSpace(cmd.Actor)); err != nil {
 		return bomapp.ProductProductionBomBinding{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &cmd.ProductID, "bind_production_bom", postgresinfra.StrPtr("production_bom_version_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.BomVersionID)), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "production_bom_id": cmd.BomID, "production_bom_version_id": cmd.BomVersionID, "production_bom_version_no": versionNo}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &cmd.ProductID, "set_default_production_bom", postgresinfra.StrPtr("production_bom_version_id"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.BomVersionID)), postgresinfra.AuditMeta{"product_id": cmd.ProductID, "production_bom_id": cmd.BomID, "production_bom_version_id": cmd.BomVersionID, "production_bom_version_no": versionNo}); err != nil {
 		return bomapp.ProductProductionBomBinding{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -2274,10 +2304,10 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 			       COALESCE(pb.output_product_id,0) AS output_product_id,
 			       COALESCE(op.name,'') AS output_product_name,
 			       COALESCE(NULLIF(pb.status,''),'active') AS bom_status,
-			       EXISTS(
-			           SELECT 1 FROM %[1]s.product_production_bom_bindings b
-			           WHERE b.product_id=$1 AND b.bom_id=pb.id
-			       ) AS is_default,
+			       COALESCE(NULLIF(ppc.production_bom_id,0), pbb.bom_id, 0)=pb.id AS is_default,
+			       COALESCE(NULLIF(pb.status,''),'active')='active' AND COALESCE(published_v.id,0)>0 AS can_set_default,
+			       COALESCE(published_v.id,0) AS current_published_version_id,
+			       COALESCE(published_v.version_no,'') AS current_published_version_no,
 			       'output' AS relation_type,
 			       '' AS consume_unit,
 			       0::float8 AS qty_per_unit,
@@ -2285,6 +2315,8 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 			       0 AS sort_item_id
 			FROM %[1]s.production_boms pb
 			JOIN %[1]s.products op ON op.id=pb.output_product_id AND op.active=true
+			LEFT JOIN %[1]s.product_production_configs ppc ON ppc.product_id=$1
+			LEFT JOIN %[1]s.product_production_bom_bindings pbb ON pbb.product_id=$1
 			LEFT JOIN LATERAL (
 				SELECT id, version_no
 				FROM %[1]s.production_bom_versions v
@@ -2295,6 +2327,15 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 				         v.id DESC
 				LIMIT 1
 			) v ON true
+			LEFT JOIN LATERAL (
+				SELECT id, version_no
+				FROM %[1]s.production_bom_versions v
+				WHERE v.bom_id=pb.id AND v.status='published'
+				ORDER BY v.published_at DESC NULLS LAST,
+				         v.created_at DESC,
+				         v.id DESC
+				LIMIT 1
+			) published_v ON true
 			WHERE pb.output_product_id=$1
 		),
 		current_usage_versions AS (
@@ -2327,6 +2368,9 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 			           SELECT 1 FROM %[1]s.product_production_bom_bindings b
 			           WHERE b.product_id=COALESCE(pb.output_product_id,0) AND b.bom_id=pb.id
 			       ) AS is_default,
+			       false AS can_set_default,
+			       0::bigint AS current_published_version_id,
+			       '' AS current_published_version_no,
 			       'component' AS relation_type,
 			       COALESCE(i.consume_unit,'') AS consume_unit,
 			       COALESCE(i.qty_per_unit,0)::float8 AS qty_per_unit,
@@ -2356,6 +2400,9 @@ func (r Repository) listProductionBomUsageByProduct(ctx context.Context, product
 		       output_product_name,
 		       bom_status,
 		       is_default,
+		       can_set_default,
+		       current_published_version_id,
+		       current_published_version_no,
 		       relation_type,
 		       consume_unit,
 		       qty_per_unit
@@ -2403,6 +2450,9 @@ func (r Repository) listProductionBomComponentUsedByBoms(ctx context.Context, co
 			           SELECT 1 FROM %[1]s.product_production_bom_bindings b
 			           WHERE b.product_id=COALESCE(pb.output_product_id,0) AND b.bom_id=pb.id
 			       ) AS is_default,
+			       false AS can_set_default,
+			       0::bigint AS current_published_version_id,
+			       '' AS current_published_version_no,
 			       'component' AS relation_type,
 			       COALESCE(i.consume_unit,'') AS consume_unit,
 			       COALESCE(i.qty_per_unit,0)::float8 AS qty_per_unit,
@@ -2427,6 +2477,9 @@ func (r Repository) listProductionBomComponentUsedByBoms(ctx context.Context, co
 		       output_product_name,
 		       bom_status,
 		       is_default,
+		       can_set_default,
+		       current_published_version_id,
+		       current_published_version_no,
 		       relation_type,
 		       consume_unit,
 		       qty_per_unit
@@ -2444,7 +2497,7 @@ func scanProductionBomUsedByBomRows(rows pgx.Rows) ([]bomapp.ProductionBomUsedBy
 	out := make([]bomapp.ProductionBomUsedByBom, 0)
 	for rows.Next() {
 		var row bomapp.ProductionBomUsedByBom
-		if err := rows.Scan(&row.BomID, &row.BomCode, &row.BomName, &row.BomVersionID, &row.BomVersionNo, &row.OutputProductID, &row.OutputProductName, &row.BomStatus, &row.IsDefault, &row.RelationType, &row.ConsumeUnit, &row.QtyPerUnit); err != nil {
+		if err := rows.Scan(&row.BomID, &row.BomCode, &row.BomName, &row.BomVersionID, &row.BomVersionNo, &row.OutputProductID, &row.OutputProductName, &row.BomStatus, &row.IsDefault, &row.CanSetDefault, &row.CurrentPublishedVersionID, &row.CurrentPublishedVersionNo, &row.RelationType, &row.ConsumeUnit, &row.QtyPerUnit); err != nil {
 			return nil, err
 		}
 		out = append(out, row)

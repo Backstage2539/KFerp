@@ -13,6 +13,24 @@ type fakeRepo struct {
 	publishedID   int64
 }
 
+func (r *fakeRepo) ListManufacturingOperations(ctx context.Context) ([]ManufacturingOperation, error) {
+	return nil, nil
+}
+func (r *fakeRepo) SaveManufacturingOperation(ctx context.Context, cmd SaveManufacturingOperationCommand) (ManufacturingOperation, error) {
+	return ManufacturingOperation{ID: 1, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes}, nil
+}
+func (r *fakeRepo) DeactivateManufacturingOperation(ctx context.Context, cmd TemplateStatusCommand) error {
+	return nil
+}
+func (r *fakeRepo) ListManufacturingWorkstations(ctx context.Context) ([]ManufacturingWorkstation, error) {
+	return nil, nil
+}
+func (r *fakeRepo) SaveManufacturingWorkstation(ctx context.Context, cmd SaveManufacturingWorkstationCommand) (ManufacturingWorkstation, error) {
+	return ManufacturingWorkstation{ID: 1, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes, HourlyRate: cmd.HourlyRate}, nil
+}
+func (r *fakeRepo) DeactivateManufacturingWorkstation(ctx context.Context, cmd TemplateStatusCommand) error {
+	return nil
+}
 func (r *fakeRepo) ListIndustryTemplates(ctx context.Context) ([]IndustryFieldTemplate, error) {
 	return nil, nil
 }

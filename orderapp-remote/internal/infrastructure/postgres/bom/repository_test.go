@@ -109,7 +109,7 @@ func TestProductionBomLibrarySchemaBackfillAndBindingMarkers(t *testing.T) {
 		"inherit_version",
 		"derived_owned",
 		"product_production_bom_bindings",
-		`"bind_production_bom"`,
+		`"set_default_production_bom"`,
 		`"copy_production_bom"`,
 		`"publish_production_bom_version"`,
 	} {

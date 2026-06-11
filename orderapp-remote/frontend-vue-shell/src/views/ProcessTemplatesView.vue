@@ -35,6 +35,34 @@
       </div>
     </section>
 
+    <section class="panel master-data-panel">
+      <div class="section-title">工序 / 工作中心主数据</div>
+      <div class="master-data-grid">
+        <label>
+          <span>新增工序</span>
+          <input v-model.trim="operationForm.name" placeholder="烘焙 / 研磨 / 包装" />
+        </label>
+        <label>
+          <span>默认分钟</span>
+          <input v-model.number="operationForm.default_minutes" type="number" min="0" step="1" />
+        </label>
+        <button class="secondary" type="button" @click="saveOperationMaster" :disabled="loading">保存工序</button>
+        <label>
+          <span>新增工作中心</span>
+          <input v-model.trim="workstationForm.name" placeholder="烘焙机 / 包装台 / 质检台" />
+        </label>
+        <label>
+          <span>默认分钟</span>
+          <input v-model.number="workstationForm.default_minutes" type="number" min="0" step="1" />
+        </label>
+        <button class="secondary" type="button" @click="saveWorkstationMaster" :disabled="loading">保存工作中心</button>
+      </div>
+      <div class="master-data-summary">
+        <span>工序 {{ activeOperations.length }} 项</span>
+        <span>工作中心 {{ activeWorkstations.length }} 项</span>
+      </div>
+    </section>
+
     <div class="grid">
       <section class="panel table-wrap">
         <div class="section-title">模板列表</div>
@@ -134,10 +162,34 @@
             </label>
             <label>
               <span>工序</span>
+              <SearchableSelect
+                v-model="op.operation_id"
+                :options="activeOperations"
+                :option-label="optionLabel"
+                :option-meta="operationMeta"
+                :option-value="optionNumericValue"
+                placeholder="选择工序"
+                empty-text="暂无工序"
+                @select="applyOperation(index, $event)" />
+            </label>
+            <label>
+              <span>工序名称快照</span>
               <input v-model.trim="op.operation" placeholder="烘焙/裁剪/去皮/包装" />
             </label>
             <label>
-              <span>工位</span>
+              <span>工作中心</span>
+              <SearchableSelect
+                v-model="op.workstation_id"
+                :options="activeWorkstations"
+                :option-label="optionLabel"
+                :option-meta="workstationMeta"
+                :option-value="optionNumericValue"
+                placeholder="选择工作中心"
+                empty-text="暂无工作中心"
+                @select="applyWorkstation(index, $event)" />
+            </label>
+            <label>
+              <span>工作中心快照</span>
               <input v-model.trim="op.workstation" placeholder="roaster/cutting/packing" />
             </label>
             <label>
@@ -186,10 +238,16 @@ const templates = ref([])
 const products = ref([])
 const industryTemplates = ref([])
 const bomVersions = ref([])
+const operations = ref([])
+const workstations = ref([])
 const filters = reactive({ product_id: 0, status: '' })
+const operationForm = reactive({ name: '', code: '', default_minutes: 0 })
+const workstationForm = reactive({ name: '', code: '', default_minutes: 0, hourly_rate: 0 })
 const form = reactive(blankForm())
 
 const activeIndustryTemplates = computed(() => industryTemplates.value.filter((row) => row.status === 'active'))
+const activeOperations = computed(() => operations.value.filter((row) => row.status === 'active'))
+const activeWorkstations = computed(() => workstations.value.filter((row) => row.status === 'active'))
 
 function blankForm() {
   return {
@@ -210,6 +268,8 @@ function blankForm() {
 function blankOperation(seq) {
   return {
     seq,
+    operation_id: 0,
+    workstation_id: 0,
     operation: '',
     workstation: '',
     default_equipment: '',
@@ -232,6 +292,21 @@ function productMeta(option) {
   const parts = []
   parts.push(Number(option?.customer_id || 0) ? `客户 #${option.customer_id}` : '公共SKU')
   if (option?.product_kind) parts.push(option.product_kind)
+  return parts.join(' / ')
+}
+
+function operationMeta(option) {
+  const parts = []
+  if (option?.code) parts.push(option.code)
+  if (Number(option?.default_minutes || 0) > 0) parts.push(`${option.default_minutes} 分钟`)
+  return parts.join(' / ')
+}
+
+function workstationMeta(option) {
+  const parts = []
+  if (option?.code) parts.push(option.code)
+  if (Number(option?.default_minutes || 0) > 0) parts.push(`${option.default_minutes} 分钟`)
+  if (Number(option?.hourly_rate || 0) > 0) parts.push(`${option.hourly_rate}/小时`)
   return parts.join(' / ')
 }
 
@@ -259,6 +334,8 @@ function normalizeTemplate(row) {
       ...blankOperation(index + 1),
       ...op,
       seq: Number(op.seq || index + 1),
+      operation_id: Number(op.operation_id || 0),
+      workstation_id: Number(op.workstation_id || 0),
       default_minutes: Number(op.default_minutes || 0),
       records_loss: !!op.records_loss,
       parameter_schema_json: op.parameter_schema_json || '{}',
@@ -274,6 +351,7 @@ async function loadAll() {
     const [productData, industryData] = await Promise.all([
       apiGet('/api/bom/products'),
       apiGet('/api/industry-field-templates'),
+      loadManufacturingMasterData(),
     ])
     products.value = productData || []
     industryTemplates.value = industryData.rows || []
@@ -283,6 +361,15 @@ async function loadAll() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadManufacturingMasterData() {
+  const [operationData, workstationData] = await Promise.all([
+    apiGet('/api/manufacturing-operations'),
+    apiGet('/api/manufacturing-workstations'),
+  ])
+  operations.value = operationData?.rows || []
+  workstations.value = workstationData?.rows || []
 }
 
 async function loadTemplates() {
@@ -328,6 +415,26 @@ function removeOperation(index) {
   if (!form.operations.length) form.operations.push(blankOperation(1))
 }
 
+function applyOperation(index, option) {
+  const op = form.operations[index]
+  if (!op || !option) return
+  op.operation_id = Number(option.id || 0)
+  op.operation = option.name || op.operation
+  if (!Number(op.default_minutes || 0) && Number(option.default_minutes || 0) > 0) {
+    op.default_minutes = Number(option.default_minutes || 0)
+  }
+}
+
+function applyWorkstation(index, option) {
+  const op = form.operations[index]
+  if (!op || !option) return
+  op.workstation_id = Number(option.id || 0)
+  op.workstation = option.name || op.workstation
+  if (!Number(op.default_minutes || 0) && Number(option.default_minutes || 0) > 0) {
+    op.default_minutes = Number(option.default_minutes || 0)
+  }
+}
+
 async function mutate(action) {
   loading.value = true
   error.value = ''
@@ -339,6 +446,52 @@ async function mutate(action) {
   } finally {
     loading.value = false
   }
+}
+
+async function saveOperationMaster() {
+  if (!operationForm.name.trim()) {
+    error.value = '请填写工序名称'
+    return
+  }
+  await mutate(async () => {
+    await apiSend('/api/manufacturing-operations', {
+      body: {
+        name: operationForm.name,
+        code: operationForm.code,
+        default_minutes: Number(operationForm.default_minutes || 0),
+        status: 'active',
+      },
+    })
+    operationForm.name = ''
+    operationForm.code = ''
+    operationForm.default_minutes = 0
+    await loadManufacturingMasterData()
+    ok.value = '已保存工序'
+  })
+}
+
+async function saveWorkstationMaster() {
+  if (!workstationForm.name.trim()) {
+    error.value = '请填写工作中心名称'
+    return
+  }
+  await mutate(async () => {
+    await apiSend('/api/manufacturing-workstations', {
+      body: {
+        name: workstationForm.name,
+        code: workstationForm.code,
+        default_minutes: Number(workstationForm.default_minutes || 0),
+        hourly_rate: Number(workstationForm.hourly_rate || 0),
+        status: 'active',
+      },
+    })
+    workstationForm.name = ''
+    workstationForm.code = ''
+    workstationForm.default_minutes = 0
+    workstationForm.hourly_rate = 0
+    await loadManufacturingMasterData()
+    ok.value = '已保存工作中心'
+  })
 }
 
 async function saveTemplate() {
@@ -384,6 +537,8 @@ onMounted(loadAll)
 h2 { margin: 0; font-size: 20px; }
 .grid { display: grid; grid-template-columns: minmax(420px, .9fr) minmax(560px, 1.1fr); gap: 14px; align-items: start; }
 .filters { align-items: end; }
+.master-data-grid { display: grid; grid-template-columns: minmax(180px, 1fr) 120px auto minmax(180px, 1fr) 120px auto; gap: 10px; align-items: end; }
+.master-data-summary { display: flex; gap: 14px; color: #666; font-size: 13px; margin-top: 10px; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, select, textarea { width: 100%; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
 input, select { height: 38px; }
@@ -407,7 +562,7 @@ tbody tr.active { background: #f3f7fb; }
 .wide { display: block; margin-top: 10px; }
 .operations-head { justify-content: space-between; margin-top: 14px; }
 .operation-list { display: grid; gap: 10px; }
-.operation-row { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; display: grid; grid-template-columns: 72px repeat(4, minmax(110px, 1fr)) 100px; gap: 8px; align-items: end; }
+.operation-row { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; display: grid; grid-template-columns: 72px repeat(6, minmax(110px, 1fr)) 100px; gap: 8px; align-items: end; }
 .operation-row .json-field { grid-column: span 3; }
 .checkbox { display: flex; align-items: center; gap: 6px; min-height: 38px; }
 .checkbox input { width: auto; height: auto; }
@@ -421,7 +576,7 @@ tbody tr.active { background: #f3f7fb; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
 @media (max-width: 1180px) {
-  .grid, .form-grid { grid-template-columns: 1fr; }
+  .grid, .form-grid, .master-data-grid { grid-template-columns: 1fr; }
   .operation-row { grid-template-columns: 1fr 1fr; }
   .operation-row .json-field { grid-column: span 2; }
 }

@@ -19,6 +19,24 @@ type apiRepo struct {
 	publishedID   int64
 }
 
+func (r *apiRepo) ListManufacturingOperations(ctx context.Context) ([]manufacturingapp.ManufacturingOperation, error) {
+	return []manufacturingapp.ManufacturingOperation{{ID: 1, Name: "烘焙", Code: "roast", Status: "active"}}, nil
+}
+func (r *apiRepo) SaveManufacturingOperation(ctx context.Context, cmd manufacturingapp.SaveManufacturingOperationCommand) (manufacturingapp.ManufacturingOperation, error) {
+	return manufacturingapp.ManufacturingOperation{ID: 1, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes}, nil
+}
+func (r *apiRepo) DeactivateManufacturingOperation(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
+	return nil
+}
+func (r *apiRepo) ListManufacturingWorkstations(ctx context.Context) ([]manufacturingapp.ManufacturingWorkstation, error) {
+	return []manufacturingapp.ManufacturingWorkstation{{ID: 2, Name: "烘焙机", Code: "roaster", Status: "active"}}, nil
+}
+func (r *apiRepo) SaveManufacturingWorkstation(ctx context.Context, cmd manufacturingapp.SaveManufacturingWorkstationCommand) (manufacturingapp.ManufacturingWorkstation, error) {
+	return manufacturingapp.ManufacturingWorkstation{ID: 2, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes, HourlyRate: cmd.HourlyRate}, nil
+}
+func (r *apiRepo) DeactivateManufacturingWorkstation(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
+	return nil
+}
 func (r *apiRepo) ListIndustryTemplates(ctx context.Context) ([]manufacturingapp.IndustryFieldTemplate, error) {
 	return []manufacturingapp.IndustryFieldTemplate{{ID: 1, Name: "咖啡参数", IndustryKey: "coffee", Status: "active"}}, nil
 }

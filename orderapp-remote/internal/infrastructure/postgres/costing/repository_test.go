@@ -52,31 +52,24 @@ func TestLoadProductInputsUsesBomCostSnapshotForGreenBeanCost(t *testing.T) {
 	}
 }
 
-func TestPricingRuleTrialProductionCostUsesOutputProductBomOnly(t *testing.T) {
+func TestPricingRuleTrialProductionCostUsesProductDefaultBomBeforeOutputFallback(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(b)
 	for _, want := range []string{
+		"product_production_configs ppc",
+		"product_production_bom_bindings pbb",
+		"COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id",
 		"pb.output_product_id=p.id",
 		"pb.output_product_id=$2",
 		"LoadPricingRuleTrialProductionOptions",
 		"pricing_rule_trial_bom_versions",
+		"is_default",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("pricing trial production cost must use output product BOM lookup; missing %q", want)
-		}
-	}
-	for _, forbidden := range []string{
-		"product_production_bom_bindings pbb",
-		"product_production_bom_bindings b",
-		"pbb.bom_version_id",
-		"pbb.bom_id",
-		"COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id",
-	} {
-		if strings.Contains(src, forbidden) {
-			t.Fatalf("pricing trial must not reserve product-bound BOM lookup; found %q", forbidden)
+			t.Fatalf("pricing trial production cost must use product default BOM before output fallback; missing %q", want)
 		}
 	}
 }
