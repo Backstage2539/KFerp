@@ -1226,6 +1226,7 @@ function schedulePriceListPricingRuleTrialRefresh() {
   priceListPricingRuleTrialRefreshScheduled = true
   nextTick(() => {
     priceListPricingRuleTrialRefreshScheduled = false
+    clearPriceListPricingRuleTrialErrorCache(priceListFlatRows.value)
     const requests = priceListPricingRuleTrialRequestsForRows(priceListFlatRows.value)
     if (requests.length) {
       loadPriceListPricingRuleTrials(requests)
@@ -2363,6 +2364,23 @@ function setPriceListPricingRuleTrialCacheEntry(key, entry) {
   }
 }
 
+function clearPriceListPricingRuleTrialErrorCache(rows = []) {
+  const keys = new Set()
+  ;(Array.isArray(rows) ? rows : []).forEach((row) => {
+    const payload = priceTablePricingRuleTrialPayload(row, { customerID: activeBeanListCustomerID.value })
+    const key = priceTablePricingRuleTrialCacheKey(payload)
+    if (key) keys.add(key)
+  })
+  const next = { ...priceListPricingRuleTrialCache.value }
+  let changed = false
+  keys.forEach((key) => {
+    if (next[key]?.status !== 'error') return
+    delete next[key]
+    changed = true
+  })
+  if (changed) priceListPricingRuleTrialCache.value = next
+}
+
 async function loadPriceListPricingRuleTrials(requests = []) {
   const pending = (Array.isArray(requests) ? requests : []).filter(({ key }) => {
     const cached = priceListPricingRuleTrialCache.value[key]
@@ -2411,8 +2429,9 @@ function tierForTemplateTier(templateTier = {}, sourceTiers = [], index = 0) {
 }
 
 function flatRowPriceUnit(tier = {}, item = {}) {
-  const raw = String(tier.price_unit || tier.priceUnit || tier.display_unit || tier.displayUnit || item.price_unit_snapshot || '').trim()
+  const raw = String(tier.price_unit || tier.priceUnit || tier.display_unit || tier.displayUnit || item.price_unit_snapshot || item.price_unit || item.priceUnit || item.quote_unit || item.quoteUnit || item.inventory_unit || item.inventoryUnit || '').trim()
   if (raw === '磅') return 'lb'
+  if (raw === '公斤' || raw === '千克') return 'kg'
   if (raw) return raw
   return Number(tier.spec_g || tier.specG || 0) === 1000 ? 'kg' : 'lb'
 }

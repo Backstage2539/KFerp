@@ -439,6 +439,50 @@ test('price list restored product template overrides schedule pricing-rule trial
   )
 })
 
+test('price list pricing-rule preview retries current rows after user pricing changes', () => {
+  assert.ok(
+    viewSource.includes('function clearPriceListPricingRuleTrialErrorCache'),
+    'pricing-rule preview should be able to clear error cache entries for current preview rows',
+  )
+
+  const scheduleStart = viewSource.indexOf('function schedulePriceListPricingRuleTrialRefresh')
+  const scheduleEnd = viewSource.indexOf('const pdfTotalItems', scheduleStart)
+  assert.ok(scheduleStart > -1 && scheduleEnd > scheduleStart, 'schedulePriceListPricingRuleTrialRefresh block not found')
+  const scheduleSource = viewSource.slice(scheduleStart, scheduleEnd)
+  assert.ok(
+    scheduleSource.includes('clearPriceListPricingRuleTrialErrorCache(priceListFlatRows.value)'),
+    'scheduled pricing changes should clear current-row errors before collecting retry requests',
+  )
+
+  const requestStart = viewSource.indexOf('function priceListPricingRuleTrialRequestsForRows')
+  const requestEnd = viewSource.indexOf('function schedulePriceListPricingRuleTrialRefresh', requestStart)
+  assert.ok(requestStart > -1 && requestEnd > requestStart, 'priceListPricingRuleTrialRequestsForRows block not found')
+  const requestSource = viewSource.slice(requestStart, requestEnd)
+  assert.ok(
+    requestSource.includes("cached?.status === 'error'"),
+    'passive watchers should still avoid immediate retry loops after a failed trial',
+  )
+})
+
+test('price list pricing-rule preview uses product quote unit before package fallback', () => {
+  const unitStart = viewSource.indexOf('function flatRowPriceUnit')
+  const unitEnd = viewSource.indexOf('function flatRowInventoryConversion', unitStart)
+  assert.ok(unitStart > -1 && unitEnd > unitStart, 'flatRowPriceUnit block not found')
+  const unitSource = viewSource.slice(unitStart, unitEnd)
+
+  for (const expected of [
+    'item.price_unit',
+    'item.priceUnit',
+    'item.quote_unit',
+    'item.quoteUnit',
+    'item.inventory_unit',
+    'item.inventoryUnit',
+  ]) {
+    assert.ok(unitSource.includes(expected), `flat row price unit should include product-level unit source: ${expected}`)
+  }
+  assert.match(unitSource, /return Number\(tier\.spec_g \|\| tier\.specG \|\| 0\) === 1000 \? 'kg' : 'lb'/)
+})
+
 test('price list product selection summaries avoid parent child wording and inherited rows say category inheritance', () => {
   const productSelectionStart = viewSource.indexOf('<div class="pdf-picker productSelection">')
   const dialogStart = viewSource.indexOf('<div v-if="priceListConfigDialog.open"', productSelectionStart)
