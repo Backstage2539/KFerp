@@ -1,4 +1,4 @@
-# PR-470 Manufacturing Phase 1 Completion
+# PR-471 Manufacturing Phase 1 Completion
 
 ## Scope
 - 商品档案按商品设置默认生产 BOM，并把产出 BOM 与组件 where-used 反查拆开。
@@ -14,7 +14,7 @@
 - 生产计划开始生产后，工单显示冻结 BOM 版本和冻结工艺来源；工序卡来自冻结路线/模板的工序与工作中心。之后修改商品默认 BOM 或路线，不回改历史工单。
 
 ## Verification
-- RED support: `go test ./internal/interfaces/http/support -run TestDev470ManufacturingPhase1CompletionContracts -count=1`
+- RED support: `go test ./internal/interfaces/http/support -run TestDev471ManufacturingPhase1CompletionContracts -count=1`
 - RED backend source: `go test ./internal/infrastructure/postgres/manufacturing ./internal/infrastructure/postgres/production ./internal/infrastructure/postgres/costing -run 'TestManufacturingSchemaAddsOperationAndWorkstationMasterData|TestWorkOrderFreezesProcessRouteAndUsesDefaultBomPriority|TestPricingRuleTrialProductionCostUsesProductDefaultBomBeforeOutputFallback' -count=1`
 - RED frontend: `node --test src/lib/product-settings.test.js`
 - GREEN backend: `go test ./...`

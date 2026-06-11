@@ -6,16 +6,16 @@ import (
 	"testing"
 )
 
-func TestDev470ManufacturingPhase1CompletionContracts(t *testing.T) {
+func TestDev471ManufacturingPhase1CompletionContracts(t *testing.T) {
 	store := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "support", "req_store.go")))
 	for _, want := range []string{
-		"PR-470-MANUFACTURING-PHASE1-COMPLETION",
-		"DEV-470-DEFAULT-PRODUCTION-BOM",
-		"DEV-470-ROUTING-MASTER-DATA",
-		"DEV-470-WORK-ORDER-FREEZE",
+		"PR-471-MANUFACTURING-PHASE1-COMPLETION",
+		"DEV-471-DEFAULT-PRODUCTION-BOM",
+		"DEV-471-ROUTING-MASTER-DATA",
+		"DEV-471-WORK-ORDER-FREEZE",
 	} {
 		if !strings.Contains(store, want) {
-			t.Fatalf("req_store.go missing PR-470 workflow marker %q", want)
+			t.Fatalf("req_store.go missing PR-471 workflow marker %q", want)
 		}
 	}
 
