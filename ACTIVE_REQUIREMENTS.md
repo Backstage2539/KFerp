@@ -9,19 +9,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-469-PRICE-LIST-PUBLISH-NO-RESPONSE
 - Branch: codex/price-list-publish-no-response-20260611
 - Owner/session: Codex / 2026-06-11
-- Status: locally verified; pending merge to latest develop, deploy and live browser acceptance.
-- Scope: 商品价格表 `发布价格表` 按钮在不可发布状态下必须显示阻断原因，修复存在 `BOM已失效` 等提示时点击发布没有任何反馈的问题。发布快照和后端发布接口不改。
+- Status: implementing follow-up from browser QA; local product-row BOM warning fix verified, pending full checks, merge, deploy and live browser acceptance.
+- Scope: 商品价格表 `发布价格表` 按钮在不可发布状态下必须反馈阻断原因，修复存在 `BOM已失效` 等提示时点击发布没有任何反馈的问题。BOM失效不在顶部汇总提示，必须下沉到具体商品行，提示去商品档案重新选择可用 BOM，并说明失效 BOM 不能重新启用、只能复制成新 BOM 后选择。发布快照和后端发布接口不改。
 - DEV:
-  - DEV-469-PRICE-LIST-PUBLISH-BLOCKED-REASON：发布按钮仅发布中禁用；点击时统一校验空预览、版本号、客户、BOM 已失效和平铺价格行完整性，并显示阻断原因。
+  - DEV-469-PRICE-LIST-PUBLISH-BLOCKED-REASON：发布按钮仅发布中禁用；点击时统一校验空预览、版本号、客户、BOM 已失效和平铺价格行完整性。BOM失效时滚动定位到具体商品行提示，并提供商品档案跳转；其他阻断原因显示在按钮附近和页面错误提示。
   - DEV-469-DOCS-ACCEPTANCE：同步需求、验收清单、成本手册、PR/DEV 种子和 PR-469 验收记录。
 - Verifier:
   - RED browser: deployed `https://erp.qacoohee.com/app/vue-shell/?view=costing&pr468=1` 存在 `BOM已失效：1 款产品依赖的 BOM 已失效...`，`发布价格表` 按钮 enabled；点击后无 `.error`、无 `.ok`、无弹窗、console error 0。
   - RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed because `CostingView.vue` lacked `priceListPublishBlockedReason`.
   - RED support: `go test ./internal/interfaces/http/support -run TestDev469PriceListPublishNoResponseContracts -count=1` failed because PR-469 docs/markers were missing.
-  - GREEN frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 25/25.
-  - GREEN frontend combined: `node --test src/lib/product-settings.test.js src/lib/costing-bean-list-version-ui.test.js` passed 156/156.
+  - RED browser follow-up: deployed `https://erp.qacoohee.com/app/vue-shell/?view=costing&pr469=1` still displayed top banner `BOM已失效：1 款产品依赖的 BOM 已失效，发布价格表前请先重新启用 BOM。`; Van要求 BOM失效不要在顶部提示，要在具体商品下提示重新选择 BOM，并跳转商品档案；BOM 不支持启用，只支持复制成新 BOM 使用。
+  - RED frontend follow-up: `node --test src/lib/costing-bean-list-version-ui.test.js` failed while the page still used top-level `inactiveBomWarningCount` and old `重新启用 BOM` wording.
+  - RED support follow-up: `go test ./internal/interfaces/http/support -run TestDev469PriceListPublishNoResponseContracts -count=1` failed because docs did not include product-row BOM warning and 商品档案 jump behavior.
+  - GREEN frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 26/26.
+  - GREEN frontend combined: `node --test src/lib/product-settings.test.js src/lib/costing-bean-list-version-ui.test.js src/lib/product-bean-list-split.test.js` passed 174/174.
   - GREEN support: `go test ./internal/interfaces/http/support -run TestDev469PriceListPublishNoResponseContracts -count=1` and `go test ./internal/interfaces/http/support -count=1` passed.
-  - GREEN backend/build/check: `go test ./...` passed; `npm run build` passed with existing Vite chunk-size/plugin timing warnings; `scripts/verify_kferp.sh changed` exited 0; `git diff --check` passed.
+  - GREEN backend/build/check: `go test ./...` passed; `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` exited 0; `git diff --check` passed.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-11-price-list-publish-no-response.md`.
 
 ### PR-468-PRICING-RULE-LIST-ACTIONS-UX

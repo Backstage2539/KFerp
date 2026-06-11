@@ -10,7 +10,6 @@
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="message" class="ok">{{ message }}</div>
-      <div v-if="inactiveBomWarningCount" class="warning-banner">BOM已失效：{{ inactiveBomWarningCount }} 款产品依赖的 BOM 已失效，发布价格表前请先重新启用 BOM。</div>
       <div class="metrics">
         <div>
           <span>商品数</span>
@@ -327,6 +326,23 @@
                   </div>
                 </div>
               </div>
+              <div v-if="itemWarnings(row).length" class="item-warning-list">
+                <span v-for="warning in itemWarnings(row)" :key="warning" class="warning-icon-wrap">
+                  <button class="warning-icon" type="button" aria-label="查看商品警示">!</button>
+                  <span class="warning-tooltip">{{ warningTooltip(warning) }}</span>
+                </span>
+              </div>
+              <div
+                v-if="itemBomWarning(row)"
+                class="product-picker-bom-warning"
+                :data-bom-warning-product-id="itemProductID(row)"
+              >
+                <div>
+                  <strong>BOM已失效</strong>
+                  <span>{{ itemBomWarning(row) }}</span>
+                </div>
+                <button class="secondary compact" type="button" @click.stop="openProductArchiveForBom(row)">去商品档案重新选择 BOM</button>
+              </div>
               <div v-if="pdfTheme.listType === 'green' && greenTierPriceRows(row).length" class="green-tier-price-editor">
                 <label v-for="tier in greenTierPriceRows(row)" :key="`green-price-${itemProductID(row)}-${greenTierOverrideKey(tier)}`">
                   <span>{{ tier.label }}</span>
@@ -405,7 +421,7 @@
           <button v-else class="primary" type="button" :disabled="beanListPublishing || !pdfGroups.length || !pdfTheme.version || !customerScopeReady" @click="saveBeanListDraft">保存修改</button>
           <button class="secondary" type="button" :disabled="beanListPdfGenerating || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
         </div>
-        <p v-if="priceListPublishBlockedReason" class="muted price-list-publish-guard">{{ priceListPublishBlockedReason }}</p>
+        <p v-if="priceListPublishBlockedReason" class="error price-list-publish-guard">{{ priceListPublishBlockedReason }}</p>
       </div>
       <div class="pdf-preview-phone bean-list-pdf-surface" :style="pdfPageStyle">
         <header class="pdf-cover">
@@ -1276,12 +1292,13 @@ const publicBeanListURL = computed(() => {
   const query = params.toString()
   return `${window.location.origin}/public/bean-list/${pdfTheme.value.listType}${query ? `?${query}` : ''}`
 })
-const inactiveBomWarningCount = computed(() => visibleCostingItems.value.filter((item) => itemWarnings(item).length).length)
+const inactiveBomItems = computed(() => visibleCostingItems.value.filter((item) => itemHasInactiveBomWarning(item)))
+const hasInactiveBomWarning = computed(() => inactiveBomItems.value.length > 0)
 const priceListPublishBlockedReason = computed(() => {
   if (!pdfGroups.value.length) return '暂无可发布的价格表预览'
   if (!String(pdfTheme.value.version || '').trim()) return '请填写价格表版本号'
   if (!customerScopeReady.value) return '请选择客户'
-  if (inactiveBomWarningCount.value > 0) return 'BOM已失效：请重新启用 BOM 后再发布价格表'
+  if (hasInactiveBomWarning.value) return '请处理商品行中的 BOM 提示后再发布价格表'
   if (!priceListFlatRowsReady.value) return '发布前需要为每行补齐计价模式、对应模板或固定价，并保证价格单位到库存单位换算可追溯。'
   return ''
 })
@@ -1628,14 +1645,28 @@ function beanDescription(item, key) {
 }
 
 function itemWarnings(item) {
-  const warnings = Array.isArray(item?.warnings) ? item.warnings.filter(Boolean) : []
+  const warnings = Array.isArray(item?.warnings)
+    ? item.warnings.filter((warning) => warning && !isInactiveBomWarningText(warning))
+    : []
   if (item?.bom_status === 'missing_green_bean_template' && !warnings.some((warning) => String(warning).includes('未挂到带生豆模板的分类'))) {
     return ['未挂到带生豆模板的分类，无法生成生豆价格。请在商品管理里把该生豆商品移到带生豆模板的生豆分类。', ...warnings]
   }
-  if (item?.bom_status === 'inactive' && !warnings.some((warning) => String(warning).includes('BOM已失效'))) {
-    return ['BOM已失效：请重新启用 BOM 后再发布价格表', ...warnings]
-  }
   return warnings
+}
+
+function isInactiveBomWarningText(warning) {
+  const text = String(warning || '')
+  return text.includes('BOM已失效') || text.includes('BOM失效')
+}
+
+function itemHasInactiveBomWarning(item) {
+  const warnings = Array.isArray(item?.warnings) ? item.warnings : []
+  return item?.bom_status === 'inactive' || warnings.some(isInactiveBomWarningText)
+}
+
+function itemBomWarning(item) {
+  if (!itemHasInactiveBomWarning(item)) return ''
+  return '请在商品档案重新选择可用 BOM。失效 BOM 不能重新启用；如需沿用旧结构，请先在生产 BOM 复制成新 BOM 后再选择。'
 }
 
 function warningTooltip(warning) {
@@ -1662,6 +1693,28 @@ function itemProductAttributeLines(item) {
 
 function itemProductID(item) {
   return String(item?.product_id ?? item?.productID ?? item?.productId ?? item?.id ?? item?.name ?? '')
+}
+
+async function scrollFirstInactiveBomWarningIntoView() {
+  await nextTick()
+  const node = document.querySelector('[data-bom-warning-product-id]')
+  if (node && typeof node.scrollIntoView === 'function') {
+    node.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }
+}
+
+function openProductArchiveForBom(item) {
+  const productID = Number(item?.product_id || item?.productID || item?.productId || item?.id || 0)
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'productMaster',
+      params: productID > 0 ? { open_product_config_id: productID } : {},
+      returnNavigation: {
+        key: 'costing',
+        label: '返回商品价格表',
+      },
+    },
+  }))
 }
 
 function metaKeyForListType(listType) {
@@ -3633,8 +3686,13 @@ async function generateBeanListPdf() {
 async function publishBeanList() {
   const blockedReason = priceListPublishBlockedReason.value
   if (blockedReason) {
-    error.value = blockedReason
     message.value = ''
+    if (hasInactiveBomWarning.value) {
+      error.value = ''
+      await scrollFirstInactiveBomWarningIntoView()
+      return
+    }
+    error.value = blockedReason
     return
   }
   beanListPublishing.value = true
@@ -3988,6 +4046,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .inline-price-config-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; min-width: 0; }
 .product-picker-row { display: grid; gap: 7px; margin-left: var(--product-picker-row-indent, 0); border: 1px solid #eee; border-radius: 8px; padding: 9px; background: #fafafa; }
 .product-picker-row-head { display: grid; gap: 7px; min-width: 0; }
+.product-picker-bom-warning { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; border: 1px solid #f0b7b7; border-radius: 8px; background: #fff1f1; color: #7d1616; padding: 8px 10px; font-size: 12px; line-height: 1.45; }
+.product-picker-bom-warning div { display: grid; gap: 2px; min-width: 0; }
+.product-picker-bom-warning strong { font-size: 13px; color: #5f0f0f; }
+.product-picker-bom-warning button { flex-shrink: 0; }
 .product-inline-pricing-config { display: grid; grid-template-columns: minmax(82px, .45fr) minmax(0, .8fr) minmax(0, .8fr); gap: 6px; align-items: center; min-width: 0; }
 .customizer-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 7px; }
 .green-tier-price-editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 7px; }
@@ -3995,7 +4057,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .green-tier-price-editor input { min-width: 0; }
 .pdf-preview-title { max-width: 760px; margin: 16px auto 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; color: #555; font-size: 12px; }
 .pdf-preview-title strong { color: #111; font-size: 14px; }
-.price-list-publish-guard { flex-basis: 100%; margin: -4px 0 0; color: #8a5a00; }
+.price-list-publish-guard { flex-basis: 100%; margin: -4px 0 0; }
 .pdf-preview-phone { max-width: 430px; min-height: 360px; max-height: 72vh; overflow: auto; margin: 0 auto; border: 1px solid #ded6c9; border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.12); }
 .bean-list-pdf-surface { box-sizing: border-box; padding: 16px; background-size: cover; background-position: center; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 .pdf-cover { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 2px solid currentColor; padding-bottom: 12px; margin-bottom: 14px; }
@@ -4105,6 +4167,7 @@ article, .empty-card { border: 1px solid #eee; border-radius: 8px; padding: 12px
   .price-list-tier-template-row,
   .flat-price-head,
   .flat-price-row { grid-template-columns: 1fr; }
+  .product-picker-bom-warning { flex-direction: column; }
   .generate-actions { justify-content: flex-start; }
   .checkbox-grid, .customizer-row { grid-template-columns: 1fr; }
   .category-pricing-summary { margin-left: 0; }

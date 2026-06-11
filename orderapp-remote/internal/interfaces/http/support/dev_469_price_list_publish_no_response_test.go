@@ -17,7 +17,9 @@ func TestDev469PriceListPublishNoResponseContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"priceListPublishBlockedReason",
 			"price-list-publish-guard",
-			"BOM已失效：请重新启用 BOM 后再发布价格表",
+			"product-picker-bom-warning",
+			"去商品档案重新选择 BOM",
+			"失效 BOM 不能重新启用",
 			"暂无可发布的价格表预览",
 			"请填写价格表版本号",
 		},
@@ -29,22 +31,25 @@ func TestDev469PriceListPublishNoResponseContracts(t *testing.T) {
 			"PR-469-PRICE-LIST-PUBLISH-NO-RESPONSE",
 			"发布价格表",
 			"BOM已失效",
+			"商品档案重新选择可用 BOM",
 			"不能静默无反馈",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-469-PRICE-LIST-PUBLISH-NO-RESPONSE",
 			"点击 `发布价格表`",
-			"阻断原因",
+			"商品行",
+			"商品档案",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-469-PRICE-LIST-PUBLISH-NO-RESPONSE",
 			"发布价格表",
-			"阻断原因",
+			"重新选择可用 BOM",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-11-price-list-publish-no-response.md"): {
 			"PR-469-PRICE-LIST-PUBLISH-NO-RESPONSE",
 			"点了发布价格表没有反应",
 			"BOM已失效",
+			"失效 BOM 不能重新启用",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))

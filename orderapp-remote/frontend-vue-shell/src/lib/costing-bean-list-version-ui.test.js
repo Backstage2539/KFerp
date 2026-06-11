@@ -102,7 +102,7 @@ test('product price-list publish action reports blocked reasons instead of doing
   const publishButtonSource = viewSource.slice(viewSource.lastIndexOf('<button', publishButtonStart), viewSource.indexOf('</button>', publishButtonStart))
 
   assert.match(viewSource, /const priceListPublishBlockedReason = computed\(\(\) => \{/)
-  assert.match(viewSource, /v-if="priceListPublishBlockedReason" class="muted price-list-publish-guard"/)
+  assert.match(viewSource, /v-if="priceListPublishBlockedReason" class="error price-list-publish-guard"/)
   assert.match(publishButtonSource, /:disabled="beanListPublishing"/)
   assert.doesNotMatch(publishButtonSource, /!pdfGroups\.length/)
   assert.doesNotMatch(publishButtonSource, /!pdfTheme\.version/)
@@ -120,12 +120,34 @@ test('product price-list publish action reports blocked reasons instead of doing
     '暂无可发布的价格表预览',
     '请填写价格表版本号',
     '请选择客户',
-    'BOM已失效：请重新启用 BOM 后再发布价格表',
+    '请处理商品行中的 BOM 提示后再发布价格表',
     '发布前需要为每行补齐计价模式、对应模板或固定价，并保证价格单位到库存单位换算可追溯。',
   ]) {
     assert.ok(viewSource.includes(expected), `missing publish blocked reason behavior: ${expected}`)
   }
   assert.doesNotMatch(publishSource, /if \(!pdfGroups\.value\.length\) return/)
+})
+
+test('product price-list inactive BOM warnings stay on product rows with product archive navigation', () => {
+  assert.doesNotMatch(viewSource, /inactiveBomWarningCount/)
+  assert.doesNotMatch(viewSource, /重新启用 BOM/)
+  assert.doesNotMatch(viewSource, /<div v-if="[^"]*inactiveBom[^"]*" class="warning-banner"/)
+
+  for (const expected of [
+    'itemBomWarning(row)',
+    'class="product-picker-bom-warning"',
+    '去商品档案重新选择 BOM',
+    '@click.stop="openProductArchiveForBom(row)"',
+    'function itemHasInactiveBomWarning',
+    'function openProductArchiveForBom',
+    "key: 'productMaster'",
+    'open_product_config_id',
+    'returnNavigation',
+    '失效 BOM 不能重新启用；如需沿用旧结构，请先在生产 BOM 复制成新 BOM 后再选择。',
+    'scrollFirstInactiveBomWarningIntoView',
+  ]) {
+    assert.ok(viewSource.includes(expected), `missing inactive BOM product-row behavior: ${expected}`)
+  }
 })
 
 test('product price-list version scope selector lists public and each fulfillment customer', () => {
