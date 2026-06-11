@@ -100,9 +100,15 @@ test('product price-list publish action reports blocked reasons instead of doing
   const publishButtonStart = viewSource.indexOf('@click="publishBeanList"')
   assert.ok(publishButtonStart > -1, 'publish button not found')
   const publishButtonSource = viewSource.slice(viewSource.lastIndexOf('<button', publishButtonStart), viewSource.indexOf('</button>', publishButtonStart))
+  const publishTitleStart = viewSource.lastIndexOf('<div class="pdf-preview-title">', publishButtonStart)
+  const publishTitleEnd = viewSource.indexOf('</div>', viewSource.indexOf('price-list-publish-guard', publishButtonStart))
+  assert.ok(publishTitleStart > -1 && publishTitleEnd > publishTitleStart, 'publish action title block not found')
+  const publishTitleSource = viewSource.slice(publishTitleStart, publishTitleEnd)
 
   assert.match(viewSource, /const priceListPublishBlockedReason = computed\(\(\) => \{/)
   assert.match(viewSource, /v-if="priceListPublishBlockedReason" class="error price-list-publish-guard"/)
+  assert.match(publishTitleSource, /v-if="error" class="error price-list-publish-feedback"/)
+  assert.match(publishTitleSource, /v-if="message" class="ok price-list-publish-feedback"/)
   assert.match(publishButtonSource, /:disabled="beanListPublishing"/)
   assert.doesNotMatch(publishButtonSource, /!pdfGroups\.length/)
   assert.doesNotMatch(publishButtonSource, /!pdfTheme\.version/)
@@ -113,6 +119,10 @@ test('product price-list publish action reports blocked reasons instead of doing
   const publishEnd = viewSource.indexOf('async function saveBeanListDraft()', publishStart)
   assert.ok(publishStart > -1 && publishEnd > publishStart, 'publishBeanList function not found')
   const publishSource = viewSource.slice(publishStart, publishEnd)
+  const blockedReasonStart = viewSource.indexOf('const priceListPublishBlockedReason = computed(() => {')
+  const blockedReasonEnd = viewSource.indexOf('const pdfPageStyle', blockedReasonStart)
+  assert.ok(blockedReasonStart > -1 && blockedReasonEnd > blockedReasonStart, 'priceListPublishBlockedReason block not found')
+  const blockedReasonSource = viewSource.slice(blockedReasonStart, blockedReasonEnd)
 
   for (const expected of [
     'const blockedReason = priceListPublishBlockedReason.value',
@@ -120,11 +130,14 @@ test('product price-list publish action reports blocked reasons instead of doing
     '暂无可发布的价格表预览',
     '请填写价格表版本号',
     '请选择客户',
-    '请处理商品行中的 BOM 提示后再发布价格表',
     '发布前需要为每行补齐计价模式、对应模板或固定价，并保证价格单位到库存单位换算可追溯。',
   ]) {
     assert.ok(viewSource.includes(expected), `missing publish blocked reason behavior: ${expected}`)
   }
+  assert.doesNotMatch(blockedReasonSource, /hasInactiveBomWarning/)
+  assert.doesNotMatch(blockedReasonSource, /BOM 提示后再发布价格表/)
+  assert.doesNotMatch(publishSource, /hasInactiveBomWarning/)
+  assert.doesNotMatch(publishSource, /if \(hasInactiveBomWarning\.value\) \{\s*error\.value = ''\s*await scrollFirstInactiveBomWarningIntoView\(\)\s*return\s*\}/)
   assert.doesNotMatch(publishSource, /if \(!pdfGroups\.value\.length\) return/)
 })
 
@@ -136,10 +149,15 @@ test('product price-list inactive BOM warnings stay on product rows with product
   for (const expected of [
     'itemBomWarning(row)',
     'class="product-picker-bom-warning"',
+    'itemBomProblemLabel(row)',
     '去商品档案重新选择 BOM',
     '@click.stop="openProductArchiveForBom(row)"',
     'function itemHasInactiveBomWarning',
+    'function itemBomProblemLabel',
     'function openProductArchiveForBom',
+    'production_bom_name',
+    'production_bom_version_no',
+    'source_bom_version_no',
     "key: 'productMaster'",
     'open_product_config_id',
     'returnNavigation',
