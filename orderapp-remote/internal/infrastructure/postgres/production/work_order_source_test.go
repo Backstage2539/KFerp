@@ -88,7 +88,7 @@ func TestWorkOrderFreezesProductProductionConfigSnapshot(t *testing.T) {
 	}
 }
 
-func TestWorkOrderFreezesProcessRouteAndUsesDefaultBomPriority(t *testing.T) {
+func TestWorkOrderFreezesProcessRouteAndUsesUsableDefaultBomPriority(t *testing.T) {
 	srcBytes, err := os.ReadFile("work_order.go")
 	if err != nil {
 		t.Fatal(err)
@@ -99,10 +99,32 @@ func TestWorkOrderFreezesProcessRouteAndUsesDefaultBomPriority(t *testing.T) {
 		"process_route_operations",
 		"operation_id",
 		"workstation_id",
-		"COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, output_bv.id, 0)",
+		"output_bom.bom_version_id",
+		"EXISTS (SELECT 1 FROM %s.production_bom_version_items item WHERE item.version_id=v.id)",
+		"CASE WHEN pb.id=COALESCE(NULLIF(ppc.production_bom_id,0), pbb.bom_id, 0)",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("work order must freeze process route and use default BOM priority; missing %q", want)
+			t.Fatalf("work order must freeze process route and use usable default BOM priority; missing %q", want)
+		}
+	}
+}
+
+func TestMaterialSnapshotsUseUsableDefaultBomPriority(t *testing.T) {
+	srcBytes, err := os.ReadFile("material_consumption.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(srcBytes)
+	for _, want := range []string{
+		"product_production_configs ppc",
+		"output_bom.bom_version_id",
+		"pb.output_product_id=p.id",
+		"EXISTS (SELECT 1 FROM %s.production_bom_version_items item WHERE item.version_id=v.id)",
+		"CASE WHEN v.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)",
+		"CASE WHEN pb.id=COALESCE(NULLIF(ppc.production_bom_id,0), pbb.bom_id, 0)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("material snapshots must use usable default BOM priority; missing %q", want)
 		}
 	}
 }

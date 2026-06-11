@@ -92,22 +92,31 @@ func defaultOperationTemplateSteps() []operationTemplateStepRow {
 func loadBoundBomVersionIDForProductTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) (int64, error) {
 	var versionID int64
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, output_bv.id, 0)
+		SELECT COALESCE(output_bom.bom_version_id, 0)
 		FROM %s.products p
 		LEFT JOIN %s.product_production_configs ppc ON ppc.product_id=p.id
 		LEFT JOIN %s.product_production_bom_bindings pbb ON pbb.product_id=p.id
 		LEFT JOIN LATERAL (
-			SELECT v.id
+			SELECT latest.id AS bom_version_id
 			FROM %s.production_boms pb
-			JOIN %s.production_bom_versions v ON v.bom_id=pb.id
+			JOIN LATERAL (
+				SELECT v.id, v.published_at, v.created_at
+				FROM %s.production_bom_versions v
+				WHERE v.bom_id=pb.id
+				  AND v.status='published'
+				  AND EXISTS (SELECT 1 FROM %s.production_bom_version_items item WHERE item.version_id=v.id)
+				ORDER BY CASE WHEN v.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0) THEN 0 ELSE 1 END,
+				         v.published_at DESC NULLS LAST, v.created_at DESC, v.id DESC
+				LIMIT 1
+			) latest ON true
 			WHERE pb.output_product_id=p.id
 			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
-			  AND v.status='published'
-			ORDER BY v.published_at DESC NULLS LAST, v.id DESC
+			ORDER BY CASE WHEN pb.id=COALESCE(NULLIF(ppc.production_bom_id,0), pbb.bom_id, 0) THEN 0 ELSE 1 END,
+			         latest.published_at DESC NULLS LAST, latest.created_at DESC, latest.id DESC, pb.id DESC
 			LIMIT 1
-		) output_bv ON true
+		) output_bom ON true
 		WHERE p.id=$1
-	`, schema, schema, schema, schema, schema), productID).Scan(&versionID)
+	`, schema, schema, schema, schema, schema, schema), productID).Scan(&versionID)
 	if err == pgx.ErrNoRows {
 		return 0, nil
 	}
