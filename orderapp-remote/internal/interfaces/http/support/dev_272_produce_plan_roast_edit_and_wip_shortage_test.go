@@ -22,9 +22,9 @@ func TestProducePlanRoastEditAndWIPShortageRequirementSeeds(t *testing.T) {
 	}
 }
 
-func TestProducePlanRoastEditSourceGuard(t *testing.T) {
+func TestProducePlanCapacitySuggestionCompatibilitySourceGuard(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue")))
-	for _, want := range []string{
+	for _, avoid := range []string{
 		"machineOptionsForRow",
 		"v-model=\"row.machine\"",
 		"v-model.number=\"row.batch_count\"",
@@ -32,8 +32,18 @@ func TestProducePlanRoastEditSourceGuard(t *testing.T) {
 		"normalizeRoastPlans",
 		"syncRoastPlanRow",
 	} {
-		if !strings.Contains(src, want) {
-			t.Fatalf("ProducePlanView.vue missing %q", want)
+		if strings.Contains(src, avoid) {
+			t.Fatalf("ProducePlanView.vue should no longer consume roast capacity suggestion marker %q", avoid)
+		}
+	}
+
+	machineAPI := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "production", "machine_capacity.go")))
+	for _, want := range []string{
+		"/api/produce/machines",
+		"RoastMachine",
+	} {
+		if !strings.Contains(machineAPI, want) {
+			t.Fatalf("machine_capacity.go must retain compatibility marker %q", want)
 		}
 	}
 }

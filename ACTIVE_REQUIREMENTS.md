@@ -6,6 +6,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-473-GENERIC-MANUFACTURING-ABSTRACTION
+- Branch: codex/generic-manufacturing-abstraction-20260612
+- Owner/session: Codex / 2026-06-12
+- Status: implemented locally; targeted frontend/API/support tests, full Go tests, Vite build, changed verifier and local browser mock acceptance passed. Pending merge to develop and development deploy.
+- Scope: 剥离生产计划和工单主流程里的咖啡烘焙排产表达，按 ERPNext-style 通用制造口径展示需求、库存缺口、BOM、物料需求和工艺路线摘要。生产计划创建继续生成 draft 单据，但前端不再编辑设备、单批投入、锅数或提交 `input_by_key`；后端保留旧 `roast_plans`、`RoastMachine`、`roast_machines` 和 `/api/produce/machines` 兼容，不做数据库迁移。生产计划列表批量提交、状态过滤和提交按钮由其他 worktree 负责，本需求只做去咖啡化兼容。
+- DEV:
+  - DEV-473-PRODUCE-PLAN-GENERIC-UI：生产计划页移除 `生产建议` 区块、设备/锅数/最终投料编辑和 `/api/produce/machines` 请求；计划预览保留商品、订单、规格、需求、库存、缺口、BOM 预期、计划投料、物料需求和工艺路线摘要。
+  - DEV-473-PRODUCTION-PLAN-CREATE-PAYLOAD：`创建生产计划` 前端只提交 `from`、`to`、`customer_id`、`selected`、`source_type`；不再由前端组装 `input_by_key`，后端继续按默认 BOM/损耗率/缺口计算计划投料和物料快照。
+  - DEV-473-WORK-ORDER-GENERIC-MAIN-COLUMNS：生产工单页主列改成工单、商品、BOM/工艺路线、工序摘要、计划数量、实际损耗、WIP、状态；历史 `roast_level` 兼容字段只作为 `工艺参数 / 商品生产配置快照` 展示，不作为咖啡烘焙主列。
+  - DEV-473-DOCS-ACCEPTANCE：同步需求、验收清单、生产手册、PR/DEV 种子和 PR-473 验收记录，明确咖啡、包装盒、童装作为配置示例。
+- Verifier:
+  - RED frontend: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js` failed before implementation because `buildProductionPlanCreatePayload` still emitted `input_by_key`, `ProducePlanView.vue` still displayed `生产建议/推荐机器/每锅数量/锅数/预计成品`, and `WorkOrdersView.vue` still displayed `工艺建议/建议设备/建议锅次`.
+  - RED support/docs: `go test ./internal/interfaces/http/support -run 'TestDev473GenericManufacturingAbstractionContracts|TestProducePlanCapacitySuggestionCompatibilitySourceGuard' -count=1` failed before implementation because production plan page still consumed roast capacity suggestions and PR-473 docs/manual markers were missing.
+  - GREEN frontend: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js` passed 12/12 after removing roast suggestion UI/data flow and changing work-order main columns to generic manufacturing.
+  - GREEN API/backend: `go test ./internal/application/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/production -count=1` passed; `go test ./internal/interfaces/http/support -count=1` passed; `go test ./...` passed.
+  - Build/check: `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+  - Browser: local Vite + mock API at `http://127.0.0.1:5183/vue-shell/` passed. Production plan page rendered stock shortage, material summary, `BOM摘要`, `计划投料(g)`, `工艺路线摘要`, and did not show roast suggestion words. Captured `POST /api/production-plans` body was `{"from":"","to":"","customer_id":0,"selected":["539-454"],"source_type":"erp_order"}` with no `input_by_key`. Work orders page rendered `BOM/工艺路线`, `工序摘要`, `工艺参数`, `商品生产配置快照`, packaging route operations, and did not show `工艺建议/建议设备/建议锅次`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-12-generic-manufacturing-abstraction.md`.
+- Deployment: pending.
+- Last update: 2026-06-12 Asia/Shanghai
+
 ### PR-471-MANUFACTURING-PHASE1-COMPLETION
 - Branch: codex/manufacturing-phase1-complete-20260611-v2
 - Owner/session: Codex / 2026-06-11

@@ -192,7 +192,7 @@ func TestProductionPlanAPICreatesListsAndSubmitsFormalPlan(t *testing.T) {
 	e := echo.New()
 	registerProductionPlanAPI(e, productionapp.NewService(repo))
 
-	createBody := `{"from":"2026-06-11","to":"2026-06-12","selected":["1-227"],"input_by_key":{"1-227":600},"source_type":"sales_order"}`
+	createBody := `{"from":"2026-06-11","to":"2026-06-12","selected":["1-227"],"source_type":"erp_order"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/production-plans", strings.NewReader(createBody))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
@@ -200,7 +200,7 @@ func TestProductionPlanAPICreatesListsAndSubmitsFormalPlan(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST /api/production-plans status = %d, body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.createPlan.InputByKey["1-227"] != 600 || !repo.createPlan.Selected["1-227"] {
+	if repo.createPlan.InputByKey == nil || len(repo.createPlan.InputByKey) != 0 || !repo.createPlan.Selected["1-227"] || repo.createPlan.SourceType != "erp_order" {
 		t.Fatalf("create plan command = %+v", repo.createPlan)
 	}
 	if body := rec.Body.String(); !strings.Contains(body, `"status":"draft"`) || !strings.Contains(body, `"plan_no":"PP-0000000041"`) {
