@@ -466,7 +466,13 @@ export function buildPricingRuleTrialPayload(form = {}) {
 export function priceTablePricingRuleTrialPayload(row = {}, options = {}) {
   const pricingMode = normalizePriceTablePricingMode(row.pricing_mode ?? row.pricingMode)
   const pricingRuleID = Number(row.tier_pricing_rule_id ?? row.tierPricingRuleID ?? row.pricing_rule_id ?? row.pricingRuleID ?? 0) || 0
-  const productID = Number(row.product_id ?? row.productID ?? row.productId ?? 0) || 0
+  const productID = [
+    row.product_id,
+    row.productID,
+    row.productId,
+    row.product_key,
+    row.productKey,
+  ].map(normalizePositiveNumber).find((value) => value > 0) || 0
   if (!['pricing_rule', 'tier_template'].includes(pricingMode) || pricingRuleID <= 0 || productID <= 0) return null
   const costSource = parseJSONObject(row.cost_source_snapshot ?? row.costSourceSnapshot)
   const quoteUnit = [

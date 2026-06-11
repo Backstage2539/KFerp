@@ -741,6 +741,32 @@ test('price table pricing-rule preview row uses the live trial result', () => {
   assert.equal(got.cost_source_snapshot.pricing_rule_trial_final_unit_price, 68.5)
 })
 
+test('price table pricing-rule preview payload falls back to numeric product key', () => {
+  const row = {
+    row_key: '550:pricing_rule',
+    product_id: 0,
+    product_key: '550',
+    product_name: '熟豆-红岩拼配',
+    pricing_mode: 'pricing_rule',
+    price_unit: 'kg',
+    inventory_unit: 'kg',
+    pricing_rule_id: 11,
+    cost_source_snapshot: {
+      bom_version_id: 723,
+    },
+  }
+
+  assert.deepEqual(priceTablePricingRuleTrialPayload(row, { customerID: 0 }), {
+    pricing_rule_id: 11,
+    product_id: 550,
+    customer_id: 0,
+    bom_version_id: 723,
+    operation_template_id: 0,
+    quote_unit: 'kg',
+    overrides: {},
+  })
+})
+
 test('price table tier-template preview rows use their tier pricing rule trial result', () => {
   const row = {
     row_key: '550:tier-template:8:1',

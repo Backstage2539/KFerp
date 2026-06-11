@@ -28,9 +28,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-11-pricing-rule-list-actions-ux.md`.
 
 ### PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX
-- Branch: codex/price-list-pricing-rule-inherited-preview-20260611 (current follow-up); previous branches codex/price-list-flat-row-product-id-fix-20260610, codex/price-list-product-override-trial-refresh-20260610, codex/price-list-persistence-preview-group-fix-20260610 and codex/price-list-redrock-trial-request-fix-20260610
+- Branch: codex/price-list-trial-product-key-fallback-20260611 (current follow-up); previous branches codex/price-list-pricing-rule-inherited-preview-20260611, codex/price-list-flat-row-product-id-fix-20260610, codex/price-list-product-override-trial-refresh-20260610, codex/price-list-persistence-preview-group-fix-20260610 and codex/price-list-redrock-trial-request-fix-20260610
 - Owner/session: Codex / 2026-06-11
-- Status: third follow-up implementing locally after Van's browser comments showed `熟豆-红岩拼配` inherited the price-list-level `咖啡熟豆磅装模板` but still had no final price. Pending build/checks, merge, redeploy and live browser acceptance.
+- Status: fourth follow-up implementing locally after deployed browser validation still showed `熟豆-红岩拼配` inherited the price-list-level `咖啡熟豆磅装模板` but final price stayed `0`. Pending commit, push, merge, redeploy and live browser acceptance.
 - Scope: 修复商品价格表生成区回归：`熟豆-红岩拼配` 选择按价格模板或按阶梯价模板计价后，价格表预览必须显示价格；修改计价方式和模板后刷新界面不能回退；商品档案中把 `熟豆-红岩拼配` 放到 `咖啡熟豆 / 意式拼配豆` 后，重新部署或刷新商品价格表不能又显示到未分类。
 - DEV:
   - DEV-467-PRICE-LIST-DRAFT-PERSISTENCE：商品价格表生成草稿按工作台、归属客户和商品类型 key 保存计价方式、默认模板、分类覆盖、商品覆盖和手工价格覆盖，切换类型或刷新后恢复。
@@ -53,6 +53,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - FOLLOW-UP 4 BROWSER READ: current deployed 商品价格表 DOM showed 红岩平铺行 already resolved to `按价格计算模板计算：价格表` + `咖啡熟豆磅装模板` + `/kg`, but final price remained empty; inheritance reached the flat row and the missing piece is trial result recovery/backfill.
   - FOLLOW-UP 4 RED frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/costing-bean-list-version-ui.test.js` failed because current-row pricing-rule trial error cache could not be cleared on user pricing changes, and flat-row price unit did not include product-level `quote_unit`/`price_unit` before package fallback.
   - FOLLOW-UP 4 GREEN frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/costing-bean-list-version-ui.test.js` passed 24/24 after scheduled pricing-rule trial refresh clears current-row error cache and flat rows derive units from product-level quote/price/inventory unit before `spec_g` fallback.
+  - FOLLOW-UP 4 DEPLOYED BUT FAILED browser: deployed `origin/develop=f88b43ba735eaaf1c4ba80663eb64ad7d9d8f148`; post-deploy browser read still showed 红岩 flat row input `0` while PR439 flat row used existing snapshot `39.9`, so pricing-rule trial was still not applied to redrock.
+  - FOLLOW-UP 5 RED frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js orderapp-remote/frontend-vue-shell/src/lib/costing-bean-list-version-ui.test.js` failed because `priceTablePricingRuleTrialPayload` treated `product_id: 0` as terminal and did not fall back to numeric `product_key: "550"`.
+  - FOLLOW-UP 5 GREEN frontend: `node --test orderapp-remote/frontend-vue-shell/src/lib/product-settings.test.js orderapp-remote/frontend-vue-shell/src/lib/costing-bean-list-version-ui.test.js` passed 155/155 after pricing-rule trial payload and flat-row product ids fall back to numeric product keys.
+  - FOLLOW-UP 5 GREEN build/check: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with the existing Vite chunk-size warning; `git diff --check` passed.
   - RED support: `go test ./internal/interfaces/http/support -run TestDev467PriceListGenerationPersistencePreviewGroupFixContracts -count=1` failed because `req_store.go` lacked `PR-467-PRICE-LIST-GENERATION-PERSISTENCE-PREVIEW-GROUP-FIX`.
   - GREEN frontend: `node --test src/lib/product-price-list-draft.test.js src/lib/costing-bean-list-version-ui.test.js` passed 22/22.
   - GREEN frontend: `node --test src/lib/product-price-list-selection.test.js src/lib/product-price-list-types.test.js src/lib/business-grouping.test.js src/lib/product-settings.test.js` passed 145/145.

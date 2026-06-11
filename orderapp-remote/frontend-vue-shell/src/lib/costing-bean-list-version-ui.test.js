@@ -437,6 +437,10 @@ test('price list restored product template overrides schedule pricing-rule trial
     viewSource.slice(flatRowsStart, flatRowsEnd).includes('item?.id'),
     'flat price rows must use item.id as a product id fallback so restored product overrides match preview items',
   )
+  assert.ok(
+    viewSource.slice(flatRowsStart, flatRowsEnd).includes('itemProductID(item)'),
+    'flat price rows must use numeric product keys as a final product id fallback for restored preview snapshots',
+  )
 })
 
 test('price list pricing-rule preview retries current rows after user pricing changes', () => {

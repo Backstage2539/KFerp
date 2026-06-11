@@ -2218,7 +2218,7 @@ function priceListFlatRowsFromGroups(groups = []) {
   const rows = []
   ;(Array.isArray(groups) ? groups : []).forEach((group) => {
     ;(Array.isArray(group?.items) ? group.items : []).forEach((item) => {
-      const productID = Number(item?.product_id || item?.productId || item?.productID || item?.id || 0)
+      const productID = Number(item?.product_id || item?.productId || item?.productID || item?.id || itemProductID(item) || 0)
       const groupRow = priceListGroupForItem(item)
       const product = {
         id: productID,
