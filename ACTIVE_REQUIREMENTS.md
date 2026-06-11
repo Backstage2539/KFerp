@@ -2009,7 +2009,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-470-PRICE-LIST-ARCHIVE-WARNING-FALLBACK
 - Branch: codex/price-list-archive-warning-20260611
 - Owner/session: Codex / 2026-06-11
-- Status: follow-up locally verified after live browser archive-list refresh gap; pending commit, merge to `develop`, redeploy, smoke and live browser acceptance.
+- Status: second follow-up locally verified after live browser unarchive cache gap; pending commit, merge to `develop`, redeploy, smoke and live browser acceptance.
 - Scope: 商品价格表商品行 `未设置计价方式` 按价格表最终解析结果过滤；价格表默认计价模式托底有效时不误报。已发布价格表版本支持多选归档，归档版本不再展示在默认列表，归档列表支持移出归档。
 - DEV:
   - DEV-470-PRICE-LIST-WARNING-FALLBACK：商品行 warning 按 `商品 > 子类 > 父类 > 价格表` 解析最终计价方式；有效阶梯模板、价格计算模板或固定价托底时隐藏 `未设置计价方式`。
@@ -2028,4 +2028,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - FOLLOW-UP RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed because `publicationArchiveRefreshProductTypeIDs` was missing.
   - FOLLOW-UP GREEN frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 28/28 after archive/unarchive refreshes both the row snapshot key and current visible product-type key.
   - FOLLOW-UP GREEN full local: `go test ./...`; `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-settings.test.js src/lib/product-price-list-types.test.js src/lib/product-price-list-selection.test.js src/lib/bean-list-pdf.test.js` passed 198/198; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - FOLLOW-UP 2 RED browser: deployed `1bd2ef90` showed `归档列表 (1)` correctly after archive, but clicking `移出归档` showed success while the default list did not immediately restore `V3.0.7 #51`; API confirmed the backend status was already restored to `published`.
+  - FOLLOW-UP 2 RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed because `setBeanListPublicationStatusInCache` was missing.
+  - FOLLOW-UP 2 GREEN frontend/build: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 28/28; targeted frontend with product/work-order tests passed 160/160; support/API contracts passed; `npm run build`, `scripts/verify_kferp.sh changed`, and `git diff --check` passed.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-11-price-list-archive-warning-fallback.md`.

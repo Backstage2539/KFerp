@@ -3195,6 +3195,29 @@ async function reloadBeanListPublicationsAfterArchiveChange(listType, scope, row
   }
 }
 
+function beanListPublicationArchivedFromStatus(row = {}) {
+  const config = row?.config || row?.config_json || row?.configJson || {}
+  return String(config.archived_from_status || config.archivedFromStatus || '').trim() || 'published'
+}
+
+function setBeanListPublicationStatusInCache(ids = [], status = '') {
+  const idSet = new Set((Array.isArray(ids) ? ids : [])
+    .map((id) => Number(id || 0))
+    .filter((id) => id > 0))
+  const nextStatus = String(status || '').trim()
+  if (!idSet.size || !nextStatus) return
+  const next = {}
+  Object.entries(beanListPublications.value || {}).forEach(([scopeKey, scopeRows]) => {
+    next[scopeKey] = {}
+    Object.entries(scopeRows || {}).forEach(([typeKey, rows]) => {
+      next[scopeKey][typeKey] = Array.isArray(rows)
+        ? rows.map((row) => (idSet.has(Number(row?.id || 0)) ? { ...row, status: nextStatus } : row))
+        : rows
+    })
+  })
+  beanListPublications.value = next
+}
+
 function beanListPublicationHasContent(row) {
   return Array.isArray(row?.content?.groups) && row.content.groups.length > 0
 }
@@ -4062,6 +4085,7 @@ async function archiveSelectedBeanListPublications() {
     await apiSend('/api/costing/bean-list/publications/archive' + `?${params.toString()}`, {
       body: { ids: rows.map((row) => Number(row.id || 0)).filter((id) => id > 0) },
     })
+    setBeanListPublicationStatusInCache(rows.map((row) => Number(row.id || 0)), 'archived')
     message.value = `已归档 ${rows.length} 个价格表版本，可在归档列表移出归档`
     selectedPublicationArchiveIDs.value = []
     await reloadBeanListPublicationsAfterArchiveChange(listType, versionListScope.value, first, productTypeCategoryID, first?.publication_purpose || 'factory_supply')
@@ -4084,6 +4108,7 @@ async function restoreArchivedBeanListPublication(row) {
     await apiSend('/api/costing/bean-list/publications/unarchive' + `?${params.toString()}`, {
       body: { ids: [Number(row.id || 0)] },
     })
+    setBeanListPublicationStatusInCache([Number(row.id || 0)], beanListPublicationArchivedFromStatus(row))
     message.value = `已将价格表 ${row.version || row.id} 移出归档`
     await reloadBeanListPublicationsAfterArchiveChange(listType, versionListScope.value, row, productTypeCategoryID, row?.publication_purpose || 'factory_supply')
   } catch (err) {
