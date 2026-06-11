@@ -1388,6 +1388,8 @@ func TestPublishBeanListRequiresFinalPriceSnapshotOnPriceTiers(t *testing.T) {
 
 	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.0.0", Content: content}); err == nil {
 		t.Fatalf("expected publish to reject price tiers without source price snapshot")
+	} else if !strings.Contains(err.Error(), "旧价格档") || strings.Contains(err.Error(), "来源价格记录") {
+		t.Fatalf("legacy price snapshot error should explain the business fix, got %q", err.Error())
 	}
 	if _, err := svc.SaveBeanListDraft(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.0.0", Content: content}); err != nil {
 		t.Fatalf("draft should allow incomplete price snapshots: %v", err)
@@ -1402,6 +1404,69 @@ func TestPublishBeanListRequiresFinalPriceSnapshotOnPriceTiers(t *testing.T) {
 
 	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.0.1", Content: content}); err != nil {
 		t.Fatalf("PublishBeanList() with final price snapshot error = %v", err)
+	}
+}
+
+func TestPublishBeanListUsesFlatPriceRowsInsteadOfLegacySourceRecordForPR440Snapshots(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	content := map[string]any{
+		"price_rows": []any{
+			map[string]any{
+				"product_id":                float64(414),
+				"product_name":              "曲奇拼配",
+				"tier_label":                "基础价",
+				"min_qty":                   float64(0),
+				"final_unit_price":          float64(88),
+				"price_unit":                "kg",
+				"currency":                  "CNY",
+				"inventory_unit":            "kg",
+				"inventory_conversion_json": map[string]any{"kg": map[string]any{"kg": float64(1)}},
+				"group_snapshot":            map[string]any{"group_id": float64(3), "group_name": "商品价格表分组", "group_item_id": float64(101), "group_item_name": "大客户"},
+				"group_source":              "product_catalog",
+				"pricing_mode":              "pricing_rule",
+				"pricing_mode_source":       "product",
+				"pricing_rule_id":           float64(90),
+				"pricing_rule_source":       "product",
+				"pricing_rule_version":      "PR-COST/v3",
+				"cost_source_snapshot":      map[string]any{"bom_version_no": "BOM-A1/V002", "process_route_name": "标准烘焙"},
+				"customer_reference_snapshot": map[string]any{
+					"customer_id":           float64(5),
+					"customer_display_name": "Karen 拼配",
+				},
+				"manual_adjusted": false,
+			},
+		},
+		"groups": []any{
+			map[string]any{
+				"items": []any{
+					map[string]any{
+						"productId": float64(414),
+						"name":      "曲奇拼配",
+						"commercial_wholesale_tiers": []any{
+							map[string]any{
+								"label":                     "基础价",
+								"min_qty":                   float64(0),
+								"price_per_unit":            float64(88),
+								"final_unit_price":          float64(88),
+								"price_unit":                "kg",
+								"currency":                  "CNY",
+								"inventory_unit":            "kg",
+								"inventory_conversion_json": map[string]any{"kg": map[string]any{"kg": float64(1)}},
+								"pricing_mode":              "pricing_rule",
+								"pricing_rule_id":           float64(90),
+								"pricing_rule_source":       "product",
+								"pricing_rule_version":      "PR-COST/v3",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.0.2", Content: content}); err != nil {
+		t.Fatalf("PublishBeanList() with PR-440 flat price row snapshot error = %v", err)
 	}
 }
 

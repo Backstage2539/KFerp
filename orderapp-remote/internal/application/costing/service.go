@@ -1802,6 +1802,7 @@ func validateBeanListFinalPriceSnapshots(cmd PublishBeanListCommand) error {
 	if err := validateBeanListFlatPriceRows(cmd); err != nil {
 		return err
 	}
+	flatPriceRowProductKeys := beanListFlatPriceRowProductKeys(cmd.Content)
 	groups, ok := cmd.Content["groups"].([]any)
 	if !ok || len(groups) == 0 {
 		return nil
@@ -1821,6 +1822,7 @@ func validateBeanListFinalPriceSnapshots(cmd PublishBeanListCommand) error {
 			if !ok {
 				continue
 			}
+			itemHasFlatPriceRows := beanListItemHasFlatPriceRows(item, flatPriceRowProductKeys)
 			for _, tierKey := range tierKeys {
 				tiers, ok := item[tierKey].([]any)
 				if !ok {
@@ -1832,7 +1834,9 @@ func validateBeanListFinalPriceSnapshots(cmd PublishBeanListCommand) error {
 						continue
 					}
 					if numberValue(tier["source_price_record_id"]) <= 0 {
-						return fmt.Errorf("价格表快照缺少来源价格记录：第%d组第%d个商品第%d档", groupIdx+1, itemIdx+1, tierIdx+1)
+						if !itemHasFlatPriceRows {
+							return fmt.Errorf("价格表旧价格档不完整：第%d组第%d个商品第%d档。请重新生成价格表预览；如果该商品仍使用旧价格记录或阶梯方案，请先在商品价格管理中补齐已发布价格记录", groupIdx+1, itemIdx+1, tierIdx+1)
+						}
 					}
 					if numberValue(tier["final_unit_price"]) <= 0 {
 						return fmt.Errorf("价格表快照缺少最终价：第%d组第%d个商品第%d档", groupIdx+1, itemIdx+1, tierIdx+1)
@@ -1948,6 +1952,40 @@ func normalizePriceRowPricingMode(row map[string]any) string {
 
 func beanListFlatPriceRowHasPrice(row map[string]any) bool {
 	return numberValue(row["final_unit_price"]) > 0 || numberValue(row["original_final_unit_price"]) > 0
+}
+
+func beanListFlatPriceRowProductKeys(content map[string]any) map[string]bool {
+	out := map[string]bool{}
+	rows, ok := content["price_rows"].([]any)
+	if !ok {
+		return out
+	}
+	for _, rawRow := range rows {
+		row, ok := rawRow.(map[string]any)
+		if !ok || !beanListFlatPriceRowHasPrice(row) {
+			continue
+		}
+		for _, key := range []string{"product_id", "productID", "productId", "product_key", "productKey", "product_name", "productName", "name"} {
+			value := stringValue(row[key])
+			if value != "" {
+				out[value] = true
+			}
+		}
+	}
+	return out
+}
+
+func beanListItemHasFlatPriceRows(item map[string]any, flatRowProductKeys map[string]bool) bool {
+	if len(flatRowProductKeys) == 0 {
+		return false
+	}
+	for _, key := range []string{"product_id", "productID", "productId", "id", "product_key", "productKey", "product_name", "productName", "name"} {
+		value := stringValue(item[key])
+		if value != "" && flatRowProductKeys[value] {
+			return true
+		}
+	}
+	return false
 }
 
 func beanListTierHasPrice(tier map[string]any) bool {
