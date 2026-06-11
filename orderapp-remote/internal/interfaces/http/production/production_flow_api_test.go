@@ -1180,7 +1180,7 @@ func TestProduceStartAPIRejectsEmptySelectionWithoutOpeningWork(t *testing.T) {
 	assertNoProductionWorkOpened(t, ctx, pool, schema)
 }
 
-func TestProduceStartAPIRejectsMissingInputWithoutOpeningWork(t *testing.T) {
+func TestProduceStartAPIDefaultsMissingInputFromPlanWithoutBlockingWork(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
 
@@ -1202,13 +1202,11 @@ func TestProduceStartAPIRejectsMissingInputWithoutOpeningWork(t *testing.T) {
 	rec := httptest.NewRecorder()
 	app.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("POST /api/produce/start missing input status = %d, want 400 body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/start missing input status = %d, want 200 body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "投料数必须大于0") {
-		t.Fatalf("missing input error = %s", rec.Body.String())
-	}
-	assertNoProductionWorkOpened(t, ctx, pool, schema)
+	assertProductionFlowCount(t, pool, schema, "produce_running_items", "order_nos='SO-API-START-NOINPUT' AND input_g > 0", 1)
+	assertProductionFlowCount(t, pool, schema, "work_orders", "batch_id IN (SELECT batch_id FROM "+schema+".produce_running_items WHERE order_nos='SO-API-START-NOINPUT')", 1)
 }
 
 func TestProduceCancelAPIReleasesWIPReservationAndCancelsWorkOrder(t *testing.T) {

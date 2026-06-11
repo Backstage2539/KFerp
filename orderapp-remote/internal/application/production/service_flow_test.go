@@ -208,21 +208,24 @@ func TestStartRejectsEmptySelectionWithoutOpeningWork(t *testing.T) {
 	}
 }
 
-func TestStartRejectsSelectedNeedWithoutPositiveInput(t *testing.T) {
+func TestStartDefaultsSelectedNeedInputWhenPlanRowHasNoEditableRoastInput(t *testing.T) {
 	repo := &fakeFlowRepo{
-		startNeeds: []StartNeed{{ProductID: 1, ProductName: "橘皮乌龙", SpecG: 227, GapG: 454, OrderNos: "SO-1"}},
+		startNeeds: []StartNeed{{ProductID: 539, ProductName: "PR439-20260606182321 工厂量单商品", SpecG: 454, GapG: 454, OrderNos: "SO-PR439"}},
 	}
 	svc := NewService(repo)
 
 	if _, err := svc.Start(context.Background(), StartCommand{
-		Selected:   map[string]bool{"1-227": true},
+		Selected:   map[string]bool{"539-454": true},
 		InputByKey: map[string]int64{},
 		Operator:   "测试员",
-	}); err == nil {
-		t.Fatal("selected production need without positive input should fail")
+	}); err != nil {
+		t.Fatalf("selected production need without explicit input should use default input: %v", err)
 	}
-	if len(repo.startExecution.Needs) != 0 || repo.startExecution.Operator != "" {
-		t.Fatalf("repo.Start should not be called when input is not positive: %+v", repo.startExecution)
+	if len(repo.startExecution.Needs) != 1 || repo.startExecution.Needs[0].ProductID != 539 || repo.startExecution.Operator != "测试员" {
+		t.Fatalf("repo.Start should receive selected need for default input handling: %+v", repo.startExecution)
+	}
+	if repo.startExecution.InputByKey == nil {
+		t.Fatal("repo.Start input map should be non-nil so repository can apply default input")
 	}
 }
 

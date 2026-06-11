@@ -26,10 +26,8 @@ func (s *Service) Start(ctx context.Context, cmd StartCommand) (StartResult, err
 	if len(plan) == 0 {
 		return StartResult{}, fmt.Errorf("没有可开始生产的数据")
 	}
-	for _, need := range plan {
-		if cmd.InputByKey[startNeedKey(need.ProductID, need.SpecG)] <= 0 {
-			return StartResult{}, fmt.Errorf("投料数必须大于0")
-		}
+	if cmd.InputByKey == nil {
+		cmd.InputByKey = map[string]int64{}
 	}
 	return s.repo.Start(ctx, StartExecutionCommand{
 		Needs:      plan,
