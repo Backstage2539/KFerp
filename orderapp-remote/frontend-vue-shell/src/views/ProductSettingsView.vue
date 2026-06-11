@@ -1352,7 +1352,7 @@
                     @click="navigateProductBom({ production_bom_id: bomUsageBomID(row), id: bomUsageBomID(row), name: row.bom_name })">
                     <span>{{ bomUsageRelationLabel(row) }}</span>
                     <small :class="['bom-usage-status', bomUsageStatusClass(row)]">BOM状态：{{ bomUsageStatusLabel(row) }}</small>
-                    <small>当前已发布版本：{{ row.current_published_version_no || row.bom_version_no || '-' }}</small>
+                    <small>BOM版本：{{ bomUsageVersionLabel(row) }}</small>
                   </button>
                   <button
                     class="secondary compact-action"
@@ -4929,6 +4929,11 @@ function bomUsageStatusClass(row = {}) {
   if (row.is_default === true || row.isDefault === true) return 'default'
   if (isInactiveMarker(row.bom_status ?? row.status ?? row.active)) return 'inactive'
   return 'active'
+}
+
+function bomUsageVersionLabel(row = {}) {
+  const version = String(row.current_published_version_no || row.currentPublishedVersionNo || row.latest_bom_version_no || row.latestBomVersionNo || row.latest_version_no || row.latestVersionNo || row.production_bom_version_no || row.productionBomVersionNo || row.bom_version_no || row.bomVersionNo || '').trim()
+  return version || '-'
 }
 
 function navigateCurrentProductBom() {

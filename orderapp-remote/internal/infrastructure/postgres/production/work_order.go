@@ -105,8 +105,7 @@ func loadBoundBomVersionIDForProductTx(ctx context.Context, tx pgx.Tx, schema st
 				WHERE v.bom_id=pb.id
 				  AND v.status='published'
 				  AND EXISTS (SELECT 1 FROM %s.production_bom_version_items item WHERE item.version_id=v.id)
-				ORDER BY CASE WHEN v.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0) THEN 0 ELSE 1 END,
-				         v.published_at DESC NULLS LAST, v.created_at DESC, v.id DESC
+				ORDER BY v.published_at DESC NULLS LAST, v.created_at DESC, v.id DESC
 				LIMIT 1
 			) latest ON true
 			WHERE pb.output_product_id=p.id

@@ -101,11 +101,15 @@ func TestWorkOrderFreezesProcessRouteAndUsesUsableDefaultBomPriority(t *testing.
 		"workstation_id",
 		"output_bom.bom_version_id",
 		"EXISTS (SELECT 1 FROM %s.production_bom_version_items item WHERE item.version_id=v.id)",
+		"ORDER BY v.published_at DESC NULLS LAST, v.created_at DESC, v.id DESC",
 		"CASE WHEN pb.id=COALESCE(NULLIF(ppc.production_bom_id,0), pbb.bom_id, 0)",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("work order must freeze process route and use usable default BOM priority; missing %q", want)
 		}
+	}
+	if strings.Contains(src, "CASE WHEN v.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)") {
+		t.Fatalf("work order BOM version selection must use the current active version, not an older configured version")
 	}
 }
 
@@ -120,11 +124,14 @@ func TestMaterialSnapshotsUseUsableDefaultBomPriority(t *testing.T) {
 		"output_bom.bom_version_id",
 		"pb.output_product_id=p.id",
 		"EXISTS (SELECT 1 FROM %s.production_bom_version_items item WHERE item.version_id=v.id)",
-		"CASE WHEN v.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)",
+		"ORDER BY v.published_at DESC NULLS LAST, v.created_at DESC, v.id DESC",
 		"CASE WHEN pb.id=COALESCE(NULLIF(ppc.production_bom_id,0), pbb.bom_id, 0)",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("material snapshots must use usable default BOM priority; missing %q", want)
 		}
+	}
+	if strings.Contains(src, "CASE WHEN v.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)") {
+		t.Fatalf("material snapshot BOM version selection must use the current active version, not an older configured version")
 	}
 }

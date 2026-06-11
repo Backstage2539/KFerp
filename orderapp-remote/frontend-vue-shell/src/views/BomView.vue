@@ -135,6 +135,10 @@
           <div><span>状态</span><strong :class="{ warn: detail.status === 'inactive' }">{{ bomStatusLabel(detail.status) }}</strong></div>
           <div><span>关联工艺</span><strong>{{ linkedProcessTemplates.length ? `${linkedProcessTemplates.length} 个模板` : '-' }}</strong></div>
         </div>
+        <div v-if="detail" class="linked-processes bom-default-actions">
+          <button class="secondary compact-action" type="button" :disabled="!canSetCurrentBomAsDefault || loading" @click="setCurrentProductionBomAsDefault">设为产出商品默认 BOM</button>
+          <span class="status-pill readonly">使用版本 {{ currentProductionBomDefaultVersion?.version_no || '-' }}</span>
+        </div>
         <div v-if="detail && linkedProcessTemplates.length" class="linked-processes">
           <span v-for="template in linkedProcessTemplates" :key="template.id" :class="['status-pill', template.status === 'inactive' ? 'inactive' : '']">
             {{ template.name }} · {{ processStatusLabel(template.status) }}
@@ -489,6 +493,7 @@ const referencedProductsLabel = computed(() => {
 const currentProductionBomLabel = computed(() => productionBomLabel(detail.value || selectedProductionBomRecord.value || {}))
 const currentProductionBomWarning = computed(() => productionBomVersionWarning(detail.value || selectedProductionBomRecord.value || {}))
 const currentProductionBomID = computed(() => Number(detail.value?.production_bom_id || selectedProductionBomRecord.value?.production_bom_id || selectedProductionBomRecord.value?.id || 0))
+const currentOutputProductID = computed(() => Number(detail.value?.output_product_id || productionBomDetail.value?.output_product_id || selectedProductionBomRecord.value?.output_product_id || 0))
 const currentOutputBasisLabel = computed(() => `${qty(selectedProductionBomVersion.value?.output_qty || 1)} ${selectedProductionBomVersion.value?.output_unit || 'unit'}`)
 const bomFormTitle = computed(() => ({
   create: '新建生产 BOM',
@@ -496,6 +501,20 @@ const bomFormTitle = computed(() => ({
   copy: '复制 BOM',
 })[bomForm.mode] || '生产 BOM')
 const selectedProductionBomVersion = computed(() => versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0)) || null)
+const currentProductionBomDefaultVersion = computed(() => {
+  const published = (versions.value || []).filter((version) => {
+    const status = String(version?.status || '').trim().toLowerCase()
+    return status === 'published' || status === 'active'
+  })
+  if (!published.length) return null
+  const latest = published.find((version) => version.is_latest === true || version.isLatest === true || version.is_latest_bom_version === true || version.isLatestBomVersion === true)
+  if (latest) return latest
+  return [...published].sort((a, b) => {
+    const aTime = Date.parse(a.published_at || a.publishedAt || a.created_at || a.createdAt || '') || 0
+    const bTime = Date.parse(b.published_at || b.publishedAt || b.created_at || b.createdAt || '') || 0
+    return bTime - aTime || Number(b.id || 0) - Number(a.id || 0)
+  })[0] || null
+})
 const activeBomRowKey = computed(() => {
   if (selectedProductionBomRecord.value) return `bom:${Number(selectedProductionBomRecord.value.id || selectedProductionBomRecord.value.production_bom_id || 0)}`
   return ''
@@ -509,6 +528,7 @@ const canEditCurrentBomProduct = computed(() => {
 const selectedProductionBomDraftVersion = computed(() => versions.value.find((version) => Number(version.id || 0) === Number(selectedProductionBomVersionID.value || 0) && version.status === 'draft') || null)
 const canEditCurrentBomItems = computed(() => canEditCurrentBomProduct.value && Number(selectedProductionBomDraftVersion.value?.id || 0) > 0)
 const canCopyCurrentVersionAsDraft = computed(() => canEditCurrentBomProduct.value && currentProductionBomID.value > 0 && selectedProductionBomVersion.value?.status === 'published')
+const canSetCurrentBomAsDefault = computed(() => currentProductionBomID.value > 0 && currentOutputProductID.value > 0 && Number(currentProductionBomDefaultVersion.value?.id || 0) > 0)
 const canEditBomFormOutputBasis = computed(() => bomForm.mode !== 'edit' || canEditCurrentBomItems.value)
 const outputProductOptions = computed(() => products.value.filter(isBomProductCandidate))
 const productComponentOptions = computed(() => products.value.filter(isBomProductCandidate).filter((product) => Number(product.id || 0) !== Number(detail.value?.output_product_id || productionBomDetail.value?.output_product_id || 0)))
@@ -1326,6 +1346,29 @@ async function activateVersion(id) {
     }
     await loadAll()
     if (bomID) await loadProductionBomDetailForVersion(bomID, id)
+  })
+}
+
+async function setCurrentProductionBomAsDefault() {
+  const productID = currentOutputProductID.value
+  const bomID = currentProductionBomID.value
+  const version = currentProductionBomDefaultVersion.value
+  const versionID = Number(version?.id || 0)
+  if (!productID || !bomID || !versionID) {
+    error.value = '当前生产 BOM 没有可用的发布版本'
+    return
+  }
+  await mutate(async () => {
+    await apiSend(`/api/products/${productID}/default-production-bom`, {
+      method: 'PUT',
+      body: {
+        production_bom_id: bomID,
+        production_bom_version_id: versionID,
+      },
+    })
+    ok.value = `已设为产出商品默认 BOM：${version?.version_no || versionID}`
+    await loadAll()
+    await loadProductionBomDetailForVersion(bomID, versionID)
   })
 }
 

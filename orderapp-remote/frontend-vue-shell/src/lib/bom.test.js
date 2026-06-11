@@ -166,6 +166,18 @@ test('production BOM label shows BOM code name and bound version without source 
   }), '')
 })
 
+test('BOM view can set the output product default BOM with the current published version', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /设为产出商品默认 BOM/)
+  assert.match(source, /currentProductionBomDefaultVersion/)
+  assert.match(source, /setCurrentProductionBomAsDefault/)
+  assert.match(source, /\/api\/products\/\$\{productID\}\/default-production-bom/)
+  assert.match(source, /production_bom_version_id:\s*versionID/)
+  assert.doesNotMatch(source, /production_bom_version_id:\s*selectedProductionBomVersionID/)
+})
+
 test('BOM view exposes grouped manufacturing BOM library and no longer edits product-bound production config fields', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
