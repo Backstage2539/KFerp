@@ -145,3 +145,10 @@ test('ProducePlanView creates and submits formal production plans before work or
   assert.match(source, /productionPlanSubmitEndpoint\(plan\)/)
   assert.doesNotMatch(source, /apiSend\('\/api\/produce\/start'/)
 })
+
+test('ProducePlanView does not leave selected rows with a disabled no-op create button', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  assert.doesNotMatch(source, /:disabled="saving \|\| !planReady"/)
+  assert.match(source, /if \(!planReady\.value\) \{[\s\S]*await load\(true\)/)
+})

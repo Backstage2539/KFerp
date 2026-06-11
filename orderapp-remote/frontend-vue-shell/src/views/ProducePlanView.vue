@@ -29,7 +29,7 @@
       </div>
       <div class="actions">
         <button class="primary" type="button" @click="buildPlan" :disabled="loading">生成计划</button>
-        <button class="primary" type="button" @click="createProductionPlan" :disabled="saving || !planReady">创建生产计划</button>
+        <button class="primary" type="button" @click="createProductionPlan" :disabled="saving || !hasSelectedRows">创建生产计划</button>
         <button class="secondary" type="button" @click="submitCurrentPlan" :disabled="saving || !canSubmitCurrentPlan">提交生成工单</button>
       </div>
       <div v-if="currentPlan" class="ok plan-result">
@@ -325,6 +325,7 @@ const computedPlanRows = computed(() => rebuildPlanRows(planRows.value, roastPla
 const computedMaterials = computed(() =>
   buildMaterialSummary(planRows.value, roastPlans.value, materialRatios.value, initialMaterials.value),
 )
+const hasSelectedRows = computed(() => selectedKeys().length > 0)
 const canSubmitCurrentPlan = computed(() => Number(currentPlan.value?.id || 0) > 0 && currentPlan.value?.status === 'draft')
 const stockInsufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) > 0))
 const stockSufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) <= 0))
@@ -467,18 +468,26 @@ function machineOptionsForRow(row) {
 }
 
 async function createProductionPlan() {
-  const keys = selectedKeys()
+  let keys = selectedKeys()
   if (!keys.length) {
     window.alert('请先选择产品后再创建生产计划')
-    return
-  }
-  if (!planReady.value) {
-    window.alert('请先生成计划')
     return
   }
   saving.value = true
   error.value = ''
   try {
+    if (!planReady.value) {
+      await load(true)
+      keys = selectedKeys()
+      if (!keys.length) {
+        window.alert('请先选择产品后再创建生产计划')
+        return
+      }
+      if (!planReady.value) {
+        if (!error.value) error.value = '生成计划后没有可创建的生产计划，请检查库存缺口或订单商品绑定'
+        return
+      }
+    }
     for (const row of roastPlans.value) {
       syncRoastPlan(row)
     }

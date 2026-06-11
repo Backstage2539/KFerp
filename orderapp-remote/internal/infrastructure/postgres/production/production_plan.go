@@ -96,9 +96,6 @@ func (r Repository) productionPlanSelectedNeeds(ctx context.Context, tx pgx.Tx, 
 		if !cmd.Selected[key] || row.GapG <= 0 {
 			continue
 		}
-		if cmd.InputByKey[key] <= 0 {
-			return nil, fmt.Errorf("input_g required for %s", key)
-		}
 		out = append(out, row)
 	}
 	return out, nil
