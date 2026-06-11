@@ -25,6 +25,8 @@ type Service interface {
 	PublishBeanList(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error)
 	SaveBeanListDraft(context.Context, appcosting.PublishBeanListCommand) (*appcosting.BeanListPublication, error)
 	WithdrawBeanList(context.Context, appcosting.WithdrawBeanListCommand) error
+	ArchiveBeanListPublications(context.Context, appcosting.ArchiveBeanListPublicationsCommand) error
+	UnarchiveBeanListPublications(context.Context, appcosting.ArchiveBeanListPublicationsCommand) error
 	CreateRun(context.Context, string) (*appcosting.Run, error)
 	PublishRun(context.Context, string, int64) error
 }

@@ -754,6 +754,53 @@ func TestPublishBeanListDoesNotWithdrawExistingPublishedSnapshots(t *testing.T) 
 	}
 }
 
+func TestBeanListPublicationArchiveWritesStatusAndAudit(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	archiveStart := strings.Index(src, "func (r Repository) ArchiveBeanListPublications")
+	unarchiveStart := strings.Index(src, "func (r Repository) UnarchiveBeanListPublications")
+	if archiveStart < 0 || unarchiveStart <= archiveStart {
+		t.Fatalf("archive and unarchive repository functions not found")
+	}
+	archiveBody := src[archiveStart:unarchiveStart]
+	for _, want := range []string{
+		"SET status='archived'",
+		"archived_from_status",
+		"jsonb_set",
+		"WHERE id=ANY($1)",
+		"status<>'archived'",
+		`"archive"`,
+		"postgresinfra.AuditInsertTx",
+	} {
+		if !strings.Contains(archiveBody, want) {
+			t.Fatalf("ArchiveBeanListPublications must write archived status and audit log; missing %q", want)
+		}
+	}
+	unarchiveEnd := strings.Index(src[unarchiveStart:], "func (r Repository) CreateRun")
+	if unarchiveEnd < 0 {
+		t.Fatalf("unarchive function end not found")
+	}
+	unarchiveBody := src[unarchiveStart : unarchiveStart+unarchiveEnd]
+	for _, want := range []string{
+		"archived_from_status",
+		"restored_status",
+		"SET status=s.restored_status",
+		"config_json = b.config_json - 'archived_from_status'",
+		"WHERE id=ANY($1)",
+		"status='archived'",
+		`"unarchive"`,
+		"postgresinfra.StrPtr(row.newStatus)",
+		"postgresinfra.AuditInsertTx",
+	} {
+		if !strings.Contains(unarchiveBody, want) {
+			t.Fatalf("UnarchiveBeanListPublications must restore published status and audit log; missing %q", want)
+		}
+	}
+}
+
 func TestPublishRunPublishesDripPriceTiersAsUnitAndBoxSnapshots(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

@@ -1770,6 +1770,146 @@ func (r Repository) WithdrawBeanList(ctx context.Context, cmd appcosting.Withdra
 	return tx.Commit(ctx)
 }
 
+func (r Repository) ArchiveBeanListPublications(ctx context.Context, cmd appcosting.ArchiveBeanListPublicationsCommand) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		WITH selected AS (
+			SELECT id, COALESCE(NULLIF(publication_purpose,''),'factory_supply') AS publication_purpose,
+			       list_type, version_no, owner_type, owner_key, status AS old_status
+			FROM %s.bean_list_publications
+			WHERE id=ANY($1) AND publication_purpose=$2 AND owner_type=$3 AND owner_key=$4 AND status<>'archived'
+		)
+		UPDATE %s.bean_list_publications b
+		SET status='archived',
+		    config_json=jsonb_set(COALESCE(b.config_json,'{}'::jsonb), '{archived_from_status}', to_jsonb(s.old_status), true),
+		    updated_at=now()
+		FROM selected s
+		WHERE b.id=s.id
+		RETURNING b.id, s.publication_purpose, s.list_type, s.version_no, s.owner_type, s.owner_key, s.old_status
+	`, r.schema, r.schema), cmd.IDs, cmd.PublicationPurpose, cmd.OwnerType, cmd.OwnerKey)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type archivedRow struct {
+		id                 int64
+		publicationPurpose string
+		listType           string
+		version            string
+		ownerType          string
+		ownerKey           string
+		oldStatus          string
+	}
+	archived := make([]archivedRow, 0)
+	for rows.Next() {
+		var row archivedRow
+		if err := rows.Scan(&row.id, &row.publicationPurpose, &row.listType, &row.version, &row.ownerType, &row.ownerKey, &row.oldStatus); err != nil {
+			return err
+		}
+		archived = append(archived, row)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(archived) == 0 {
+		return fmt.Errorf("bean list publication not found")
+	}
+	for _, row := range archived {
+		id := row.id
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &id, "archive", postgresinfra.StrPtr("status"), postgresinfra.StrPtr(row.oldStatus), postgresinfra.StrPtr("archived"), postgresinfra.AuditMeta{
+			"publication_purpose": row.publicationPurpose,
+			"list_type":           row.listType,
+			"version":             row.version,
+			"owner_type":          row.ownerType,
+			"owner_key":           row.ownerKey,
+		}); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) UnarchiveBeanListPublications(ctx context.Context, cmd appcosting.ArchiveBeanListPublicationsCommand) error {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		WITH selected AS (
+			SELECT id, COALESCE(NULLIF(publication_purpose,''),'factory_supply') AS publication_purpose,
+			       list_type, version_no, owner_type, owner_key, status AS old_status,
+			       COALESCE(NULLIF(config_json->>'archived_from_status',''), 'published') AS restored_status
+			FROM %s.bean_list_publications
+			WHERE id=ANY($1) AND publication_purpose=$2 AND owner_type=$3 AND owner_key=$4 AND status='archived'
+		)
+		UPDATE %s.bean_list_publications b
+		SET status=s.restored_status,
+		    config_json = b.config_json - 'archived_from_status',
+		    updated_at=now()
+		FROM selected s
+		WHERE b.id=s.id
+		RETURNING b.id, s.publication_purpose, s.list_type, s.version_no, s.owner_type, s.owner_key, s.old_status, s.restored_status
+	`, r.schema, r.schema), cmd.IDs, cmd.PublicationPurpose, cmd.OwnerType, cmd.OwnerKey)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type unarchivedRow struct {
+		id                 int64
+		publicationPurpose string
+		listType           string
+		version            string
+		ownerType          string
+		ownerKey           string
+		oldStatus          string
+		newStatus          string
+	}
+	unarchived := make([]unarchivedRow, 0)
+	for rows.Next() {
+		var row unarchivedRow
+		if err := rows.Scan(&row.id, &row.publicationPurpose, &row.listType, &row.version, &row.ownerType, &row.ownerKey, &row.oldStatus, &row.newStatus); err != nil {
+			return err
+		}
+		unarchived = append(unarchived, row)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(unarchived) == 0 {
+		return fmt.Errorf("archived bean list publication not found")
+	}
+	for _, row := range unarchived {
+		id := row.id
+		if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "bean_list_publication", &id, "unarchive", postgresinfra.StrPtr("status"), postgresinfra.StrPtr(row.oldStatus), postgresinfra.StrPtr(row.newStatus), postgresinfra.AuditMeta{
+			"publication_purpose": row.publicationPurpose,
+			"list_type":           row.listType,
+			"version":             row.version,
+			"owner_type":          row.ownerType,
+			"owner_key":           row.ownerKey,
+		}); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func (r Repository) CreateRun(ctx context.Context, actor string, items []domain.ProductResult) (*appcosting.Run, error) {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {

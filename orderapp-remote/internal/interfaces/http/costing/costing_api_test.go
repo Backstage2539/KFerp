@@ -285,6 +285,14 @@ func (fakeService) WithdrawBeanList(context.Context, appcosting.WithdrawBeanList
 	return nil
 }
 
+func (fakeService) ArchiveBeanListPublications(context.Context, appcosting.ArchiveBeanListPublicationsCommand) error {
+	return nil
+}
+
+func (fakeService) UnarchiveBeanListPublications(context.Context, appcosting.ArchiveBeanListPublicationsCommand) error {
+	return nil
+}
+
 func (fakeService) GenerateBeanListPublicationPDF(context.Context, appcosting.BeanListPublicationPDFCommand, func(appcosting.BeanListPublication) ([]byte, error)) (appcosting.BeanListPublicationPDFFile, error) {
 	row := fakePublishedBeanListPublication()
 	body := []byte("%PDF-1.4")
@@ -317,11 +325,15 @@ type recordingBeanListService struct {
 	fakeService
 	published      int
 	drafted        int
+	archived       int
+	unarchived     int
 	generatedPDFs  int
 	lastQuery      appcosting.BeanListPublicationQuery
 	lastBeanList   appcosting.BeanListQuery
 	lastPublish    appcosting.PublishBeanListCommand
 	lastDraft      appcosting.PublishBeanListCommand
+	lastArchive    appcosting.ArchiveBeanListPublicationsCommand
+	lastUnarchive  appcosting.ArchiveBeanListPublicationsCommand
 	lastPDFCommand appcosting.BeanListPublicationPDFCommand
 }
 
@@ -378,6 +390,18 @@ func (s *recordingBeanListService) SaveBeanListDraft(ctx context.Context, cmd ap
 		OwnerType:                  cmd.OwnerType,
 		OwnerKey:                   cmd.OwnerKey,
 	}, nil
+}
+
+func (s *recordingBeanListService) ArchiveBeanListPublications(ctx context.Context, cmd appcosting.ArchiveBeanListPublicationsCommand) error {
+	s.archived++
+	s.lastArchive = cmd
+	return nil
+}
+
+func (s *recordingBeanListService) UnarchiveBeanListPublications(ctx context.Context, cmd appcosting.ArchiveBeanListPublicationsCommand) error {
+	s.unarchived++
+	s.lastUnarchive = cmd
+	return nil
 }
 
 func (s *recordingBeanListService) GenerateBeanListPublicationPDF(ctx context.Context, cmd appcosting.BeanListPublicationPDFCommand, render func(appcosting.BeanListPublication) ([]byte, error)) (appcosting.BeanListPublicationPDFFile, error) {
@@ -490,6 +514,14 @@ func (fakeRepo) SaveBeanListDraft(context.Context, appcosting.PublishBeanListCom
 }
 
 func (fakeRepo) WithdrawBeanList(context.Context, appcosting.WithdrawBeanListCommand) error {
+	return nil
+}
+
+func (fakeRepo) ArchiveBeanListPublications(context.Context, appcosting.ArchiveBeanListPublicationsCommand) error {
+	return nil
+}
+
+func (fakeRepo) UnarchiveBeanListPublications(context.Context, appcosting.ArchiveBeanListPublicationsCommand) error {
 	return nil
 }
 
@@ -1383,6 +1415,49 @@ func TestBeanListPublicationAPI(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("withdraw status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBeanListPublicationArchiveAPI(t *testing.T) {
+	svc := &recordingBeanListService{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("basic_auth_admin", true)
+			c.Set("employee_id", int64(7))
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Costing: svc})
+
+	body := bytes.NewBufferString(`{"ids":[7,8]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications/archive?list_type=commercial&scope=customer&customer_id=42&publication_purpose=factory_supply", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("archive status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.archived != 1 || len(svc.lastArchive.IDs) != 2 || svc.lastArchive.IDs[0] != 7 || svc.lastArchive.IDs[1] != 8 {
+		t.Fatalf("archive command = %+v, count=%d", svc.lastArchive, svc.archived)
+	}
+	if svc.lastArchive.OwnerType != "customer" || svc.lastArchive.OwnerKey != "42" || svc.lastArchive.PublicationPurpose != "factory_supply" || svc.lastArchive.Actor == "" {
+		t.Fatalf("archive owner/scope = %+v", svc.lastArchive)
+	}
+
+	body = bytes.NewBufferString(`{"ids":[7]}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/costing/bean-list/publications/unarchive?list_type=commercial&scope=customer&customer_id=42&publication_purpose=factory_supply", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unarchive status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.unarchived != 1 || len(svc.lastUnarchive.IDs) != 1 || svc.lastUnarchive.IDs[0] != 7 {
+		t.Fatalf("unarchive command = %+v, count=%d", svc.lastUnarchive, svc.unarchived)
+	}
+	if svc.lastUnarchive.OwnerType != "customer" || svc.lastUnarchive.OwnerKey != "42" || svc.lastUnarchive.PublicationPurpose != "factory_supply" {
+		t.Fatalf("unarchive owner/scope = %+v", svc.lastUnarchive)
 	}
 }
 
