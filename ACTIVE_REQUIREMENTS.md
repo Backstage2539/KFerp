@@ -1990,7 +1990,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-470-PRICE-LIST-ARCHIVE-WARNING-FALLBACK
 - Branch: codex/price-list-archive-warning-20260611
 - Owner/session: Codex / 2026-06-11
-- Status: locally verified; pending commit, merge to `develop`, development deploy, smoke and live browser acceptance.
+- Status: follow-up locally verified after live browser archive-list refresh gap; pending commit, merge to `develop`, redeploy, smoke and live browser acceptance.
 - Scope: 商品价格表商品行 `未设置计价方式` 按价格表最终解析结果过滤；价格表默认计价模式托底有效时不误报。已发布价格表版本支持多选归档，归档版本不再展示在默认列表，归档列表支持移出归档。
 - DEV:
   - DEV-470-PRICE-LIST-WARNING-FALLBACK：商品行 warning 按 `商品 > 子类 > 父类 > 价格表` 解析最终计价方式；有效阶梯模板、价格计算模板或固定价托底时隐藏 `未设置计价方式`。
@@ -2005,4 +2005,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN frontend: `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-settings.test.js src/lib/product-price-list-types.test.js src/lib/product-price-list-selection.test.js src/lib/bean-list-pdf.test.js` passed 198/198.
   - GREEN backend/unit/API: `go test ./...` in `orderapp-remote` passed.
   - GREEN build/check: `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+  - FOLLOW-UP RED browser: deployed `c48536f4` allowed archiving `V3.0.7 #51`; row moved out of default list and success message appeared, but `归档列表` stayed `(0)` because archive refresh did not update the current visible product-type cache key.
+  - FOLLOW-UP RED frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` failed because `publicationArchiveRefreshProductTypeIDs` was missing.
+  - FOLLOW-UP GREEN frontend: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 28/28 after archive/unarchive refreshes both the row snapshot key and current visible product-type key.
+  - FOLLOW-UP GREEN full local: `go test ./...`; `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-settings.test.js src/lib/product-price-list-types.test.js src/lib/product-price-list-selection.test.js src/lib/bean-list-pdf.test.js` passed 198/198; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_COSTING.md`; `orderapp-remote/docs/acceptance/2026-06-11-price-list-archive-warning-fallback.md`.

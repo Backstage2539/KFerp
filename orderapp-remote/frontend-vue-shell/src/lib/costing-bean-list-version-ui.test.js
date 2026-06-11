@@ -190,6 +190,7 @@ test('product price-list published versions can be archived and restored from ar
     'togglePublicationArchiveSelection(row)',
     'archiveSelectedBeanListPublications',
     'restoreArchivedBeanListPublication(row)',
+    'publicationArchiveRefreshProductTypeIDs',
     'currentScopeActivePublicationRows',
     'currentScopeArchivedPublicationRows',
     "row.status !== 'archived'",
@@ -208,6 +209,8 @@ test('product price-list published versions can be archived and restored from ar
   assert.ok(viewSource.includes("if (status === 'archived') return 'status-archived'"), 'archived status should have its own pill class')
   assert.ok(viewSource.includes('beanListPublicationIsCurrent(row)'), 'current publication should be protected from accidental archive')
   assert.ok(versionListSource.includes('<th class="select-col">'), 'version list should expose a multi-select column')
+  assert.ok(viewSource.includes('activeProductTypeCategoryID.value'), 'archive refresh should update the current visible product type cache')
+  assert.ok(viewSource.includes('for (const refreshProductTypeID of publicationArchiveRefreshProductTypeIDs'), 'archive refresh should cover all affected cache keys')
 })
 
 test('product price-list version scope selector lists public and each fulfillment customer', () => {

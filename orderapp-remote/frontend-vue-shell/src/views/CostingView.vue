@@ -3179,6 +3179,22 @@ function selectedPublicationArchiveRows() {
   return currentScopePublicationRows.value.filter((row) => selected.has(Number(row.id || 0)) && canArchiveBeanListPublication(row))
 }
 
+function publicationArchiveRefreshProductTypeIDs(row = {}, fallbackProductTypeCategoryID = activeProductTypeCategoryID.value) {
+  return Array.from(new Set([
+    activeProductTypeCategoryID.value,
+    fallbackProductTypeCategoryID,
+    row?.product_type_category_id,
+    row?.productTypeCategoryID,
+    currentClassificationTemplateIDOfPublication(row),
+  ].map((id) => Number(id || 0)).filter((id) => Number.isFinite(id))))
+}
+
+async function reloadBeanListPublicationsAfterArchiveChange(listType, scope, row, fallbackProductTypeCategoryID, purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE) {
+  for (const refreshProductTypeID of publicationArchiveRefreshProductTypeIDs(row, fallbackProductTypeCategoryID)) {
+    await loadBeanListPublications(listType, scope, refreshProductTypeID, purpose)
+  }
+}
+
 function beanListPublicationHasContent(row) {
   return Array.isArray(row?.content?.groups) && row.content.groups.length > 0
 }
@@ -4048,7 +4064,7 @@ async function archiveSelectedBeanListPublications() {
     })
     message.value = `已归档 ${rows.length} 个价格表版本，可在归档列表移出归档`
     selectedPublicationArchiveIDs.value = []
-    await loadBeanListPublications(listType, versionListScope.value, productTypeCategoryID, first?.publication_purpose || 'factory_supply')
+    await reloadBeanListPublicationsAfterArchiveChange(listType, versionListScope.value, first, productTypeCategoryID, first?.publication_purpose || 'factory_supply')
   } catch (err) {
     error.value = err.message || '归档价格表失败'
   } finally {
@@ -4069,7 +4085,7 @@ async function restoreArchivedBeanListPublication(row) {
       body: { ids: [Number(row.id || 0)] },
     })
     message.value = `已将价格表 ${row.version || row.id} 移出归档`
-    await loadBeanListPublications(listType, versionListScope.value, productTypeCategoryID, row?.publication_purpose || 'factory_supply')
+    await reloadBeanListPublicationsAfterArchiveChange(listType, versionListScope.value, row, productTypeCategoryID, row?.publication_purpose || 'factory_supply')
   } catch (err) {
     error.value = err.message || '移出归档失败'
   } finally {
