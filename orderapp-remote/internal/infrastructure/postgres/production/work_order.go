@@ -19,6 +19,8 @@ func workOrderNo(runningItemID int64) string {
 
 type processSnapshotOperation struct {
 	Seq                  int    `json:"seq"`
+	OperationID          int64  `json:"operation_id"`
+	WorkstationID        int64  `json:"workstation_id"`
 	Operation            string `json:"operation"`
 	Workstation          string `json:"workstation"`
 	DefaultEquipment     string `json:"default_equipment"`
@@ -29,7 +31,10 @@ type processSnapshotOperation struct {
 }
 
 type processTemplateSnapshot struct {
+	Source               string                     `json:"source"`
 	ID                   int64                      `json:"id"`
+	RouteID              int64                      `json:"route_id"`
+	RouteName            string                     `json:"route_name"`
 	Name                 string                     `json:"name"`
 	ProductID            int64                      `json:"product_id"`
 	ProductName          string                     `json:"product_name"`
@@ -87,7 +92,7 @@ func defaultOperationTemplateSteps() []operationTemplateStepRow {
 func loadBoundBomVersionIDForProductTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) (int64, error) {
 	var versionID int64
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(output_bv.id, NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)
+		SELECT COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, output_bv.id, 0)
 		FROM %s.products p
 		LEFT JOIN %s.product_production_configs ppc ON ppc.product_id=p.id
 		LEFT JOIN %s.product_production_bom_bindings pbb ON pbb.product_id=p.id
@@ -169,9 +174,15 @@ func loadProductProductionConfigSnapshotForWorkOrderTx(ctx context.Context, tx p
 }
 
 func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operationTemplateID int64, operator string) (int64, error) {
-	processSnapshot, processSnapshotJSON, err := loadActiveProcessTemplateSnapshotTx(ctx, tx, schema, productID)
+	processSnapshot, processSnapshotJSON, err := loadProcessRouteSnapshotForWorkOrderTx(ctx, tx, schema, productID)
 	if err != nil {
 		return 0, err
+	}
+	if processSnapshot == nil {
+		processSnapshot, processSnapshotJSON, err = loadActiveProcessTemplateSnapshotTx(ctx, tx, schema, productID)
+		if err != nil {
+			return 0, err
+		}
 	}
 	processTemplateID := int64(0)
 	processTemplateName := ""
@@ -390,6 +401,62 @@ func cancelWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 	return releaseMaterialReservationsForRunningItemTx(ctx, tx, schema, runningItemID)
 }
 
+func loadProcessRouteSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) (*processTemplateSnapshot, []byte, error) {
+	var snapshot processTemplateSnapshot
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT pr.id, pr.name, pr.default_equipment, pr.default_minutes
+		FROM %[1]s.product_production_configs ppc
+		JOIN %[1]s.process_routes pr ON pr.id=ppc.process_route_id
+		WHERE ppc.product_id=$1
+		  AND COALESCE(ppc.process_route_id,0)>0
+		  AND pr.status='active'
+		LIMIT 1
+	`, schema), productID).Scan(&snapshot.ID, &snapshot.Name, &snapshot.DefaultEquipment, &snapshot.DefaultMinutes)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil, nil
+		}
+		if strings.Contains(err.Error(), "process_routes") || strings.Contains(err.Error(), "product_production_configs") {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	snapshot.Source = "process_route"
+	snapshot.RouteID = snapshot.ID
+	snapshot.RouteName = snapshot.Name
+	snapshot.ProductID = productID
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT seq,operation_id,workstation_id,operation,workstation,default_equipment,default_minutes,records_loss,
+		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
+		FROM %s.process_route_operations
+		WHERE route_id=$1
+		ORDER BY seq, id
+	`, schema), snapshot.ID)
+	if err != nil {
+		if strings.Contains(err.Error(), "process_route_operations") {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var op processSnapshotOperation
+		if err := rows.Scan(&op.Seq, &op.OperationID, &op.WorkstationID, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.QualityChecklistJSON); err != nil {
+			return nil, nil, err
+		}
+		op.ParameterSchemaJSON = "{}"
+		snapshot.Operations = append(snapshot.Operations, op)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	b, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &snapshot, b, nil
+}
+
 func loadActiveProcessTemplateSnapshotTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) (*processTemplateSnapshot, []byte, error) {
 	var snapshot processTemplateSnapshot
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -427,8 +494,9 @@ func loadActiveProcessTemplateSnapshotTx(ctx context.Context, tx pgx.Tx, schema 
 		}
 		return nil, nil, err
 	}
+	snapshot.Source = "process_template"
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT seq,operation,workstation,default_equipment,default_minutes,records_loss,
+		SELECT seq,operation_id,workstation_id,operation,workstation,default_equipment,default_minutes,records_loss,
 		       COALESCE(parameter_schema_json,'{}'::jsonb)::text,
 		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
 		FROM %s.process_template_operations
@@ -444,7 +512,7 @@ func loadActiveProcessTemplateSnapshotTx(ctx context.Context, tx pgx.Tx, schema 
 	defer rows.Close()
 	for rows.Next() {
 		var op processSnapshotOperation
-		if err := rows.Scan(&op.Seq, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.ParameterSchemaJSON, &op.QualityChecklistJSON); err != nil {
+		if err := rows.Scan(&op.Seq, &op.OperationID, &op.WorkstationID, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.ParameterSchemaJSON, &op.QualityChecklistJSON); err != nil {
 			return nil, nil, err
 		}
 		snapshot.Operations = append(snapshot.Operations, op)

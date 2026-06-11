@@ -21,6 +21,178 @@ func NewRepository(pool *pgxpool.Pool, schema string) Repository {
 	return Repository{pool: pool, schema: schema}
 }
 
+func (r Repository) ListManufacturingOperations(ctx context.Context) ([]manufacturingapp.ManufacturingOperation, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id,code,name,status,default_minutes,note,
+		       to_char(created_at,'YYYY-MM-DD HH24:MI'),
+		       to_char(updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.manufacturing_operations
+		ORDER BY CASE WHEN status='active' THEN 0 ELSE 1 END, name, id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]manufacturingapp.ManufacturingOperation, 0)
+	for rows.Next() {
+		var row manufacturingapp.ManufacturingOperation
+		if err := rows.Scan(&row.ID, &row.Code, &row.Name, &row.Status, &row.DefaultMinutes, &row.Note, &row.CreatedAt, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveManufacturingOperation(ctx context.Context, cmd manufacturingapp.SaveManufacturingOperationCommand) (manufacturingapp.ManufacturingOperation, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return manufacturingapp.ManufacturingOperation{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	action := "create"
+	var id int64
+	if cmd.ID > 0 {
+		action = "update"
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.manufacturing_operations
+			SET code=$2,name=$3,status=$4,default_minutes=$5,note=$6,updated_at=now()
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.Code, cmd.Name, cmd.Status, cmd.DefaultMinutes, cmd.Note).Scan(&id)
+	} else {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.manufacturing_operations(code,name,status,default_minutes,note,created_at,updated_at)
+			VALUES($1,$2,$3,$4,$5,now(),now())
+			RETURNING id
+		`, r.schema), cmd.Code, cmd.Name, cmd.Status, cmd.DefaultMinutes, cmd.Note).Scan(&id)
+	}
+	if err != nil {
+		return manufacturingapp.ManufacturingOperation{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_operation", &id, action, postgresinfra.StrPtr("operation"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"code": cmd.Code, "status": cmd.Status}); err != nil {
+		return manufacturingapp.ManufacturingOperation{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return manufacturingapp.ManufacturingOperation{}, err
+	}
+	return r.manufacturingOperationByID(ctx, id)
+}
+
+func (r Repository) DeactivateManufacturingOperation(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.manufacturing_operations SET status='inactive', updated_at=now() WHERE id=$1`, r.schema), cmd.ID); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_operation", &cmd.ID, "deactivate", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("inactive"), postgresinfra.AuditMeta{"id": cmd.ID}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) manufacturingOperationByID(ctx context.Context, id int64) (manufacturingapp.ManufacturingOperation, error) {
+	rows, err := r.ListManufacturingOperations(ctx)
+	if err != nil {
+		return manufacturingapp.ManufacturingOperation{}, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, nil
+		}
+	}
+	return manufacturingapp.ManufacturingOperation{}, pgx.ErrNoRows
+}
+
+func (r Repository) ListManufacturingWorkstations(ctx context.Context) ([]manufacturingapp.ManufacturingWorkstation, error) {
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id,code,name,status,default_minutes,COALESCE(hourly_rate,0)::float8,note,
+		       to_char(created_at,'YYYY-MM-DD HH24:MI'),
+		       to_char(updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.manufacturing_workstations
+		ORDER BY CASE WHEN status='active' THEN 0 ELSE 1 END, name, id
+	`, r.schema))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]manufacturingapp.ManufacturingWorkstation, 0)
+	for rows.Next() {
+		var row manufacturingapp.ManufacturingWorkstation
+		if err := rows.Scan(&row.ID, &row.Code, &row.Name, &row.Status, &row.DefaultMinutes, &row.HourlyRate, &row.Note, &row.CreatedAt, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveManufacturingWorkstation(ctx context.Context, cmd manufacturingapp.SaveManufacturingWorkstationCommand) (manufacturingapp.ManufacturingWorkstation, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return manufacturingapp.ManufacturingWorkstation{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	action := "create"
+	var id int64
+	if cmd.ID > 0 {
+		action = "update"
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.manufacturing_workstations
+			SET code=$2,name=$3,status=$4,default_minutes=$5,hourly_rate=$6,note=$7,updated_at=now()
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.Code, cmd.Name, cmd.Status, cmd.DefaultMinutes, cmd.HourlyRate, cmd.Note).Scan(&id)
+	} else {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.manufacturing_workstations(code,name,status,default_minutes,hourly_rate,note,created_at,updated_at)
+			VALUES($1,$2,$3,$4,$5,$6,now(),now())
+			RETURNING id
+		`, r.schema), cmd.Code, cmd.Name, cmd.Status, cmd.DefaultMinutes, cmd.HourlyRate, cmd.Note).Scan(&id)
+	}
+	if err != nil {
+		return manufacturingapp.ManufacturingWorkstation{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_workstation", &id, action, postgresinfra.StrPtr("workstation"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"code": cmd.Code, "status": cmd.Status}); err != nil {
+		return manufacturingapp.ManufacturingWorkstation{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return manufacturingapp.ManufacturingWorkstation{}, err
+	}
+	return r.manufacturingWorkstationByID(ctx, id)
+}
+
+func (r Repository) DeactivateManufacturingWorkstation(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.manufacturing_workstations SET status='inactive', updated_at=now() WHERE id=$1`, r.schema), cmd.ID); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_workstation", &cmd.ID, "deactivate", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("inactive"), postgresinfra.AuditMeta{"id": cmd.ID}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) manufacturingWorkstationByID(ctx context.Context, id int64) (manufacturingapp.ManufacturingWorkstation, error) {
+	rows, err := r.ListManufacturingWorkstations(ctx)
+	if err != nil {
+		return manufacturingapp.ManufacturingWorkstation{}, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, nil
+		}
+	}
+	return manufacturingapp.ManufacturingWorkstation{}, pgx.ErrNoRows
+}
+
 func (r Repository) ListIndustryTemplates(ctx context.Context) ([]manufacturingapp.IndustryFieldTemplate, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id,name,industry_key,description,status,
@@ -223,7 +395,7 @@ func (r Repository) attachProcessOperations(ctx context.Context, templates []man
 		index[row.ID] = i
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,template_id,seq,operation,workstation,default_equipment,default_minutes,records_loss,
+		SELECT id,template_id,seq,operation_id,workstation_id,operation,workstation,default_equipment,default_minutes,records_loss,
 		       COALESCE(parameter_schema_json,'{}'::jsonb)::text,
 		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
 		FROM %s.process_template_operations
@@ -236,7 +408,7 @@ func (r Repository) attachProcessOperations(ctx context.Context, templates []man
 	defer rows.Close()
 	for rows.Next() {
 		var op manufacturingapp.ProcessTemplateOperation
-		if err := rows.Scan(&op.ID, &op.TemplateID, &op.Seq, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.ParameterSchemaJSON, &op.QualityChecklistJSON); err != nil {
+		if err := rows.Scan(&op.ID, &op.TemplateID, &op.Seq, &op.OperationID, &op.WorkstationID, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.ParameterSchemaJSON, &op.QualityChecklistJSON); err != nil {
 			return err
 		}
 		if i, ok := index[op.TemplateID]; ok {
@@ -285,10 +457,10 @@ func (r Repository) SaveProcessTemplate(ctx context.Context, cmd manufacturingap
 	for _, op := range cmd.Operations {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.process_template_operations(
-				template_id,seq,operation,workstation,default_equipment,default_minutes,records_loss,
+				template_id,seq,operation_id,workstation_id,operation,workstation,default_equipment,default_minutes,records_loss,
 				parameter_schema_json,quality_checklist_json,created_at,updated_at
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,now(),now())
-		`, r.schema), id, op.Seq, op.Operation, op.Workstation, op.DefaultEquipment, op.DefaultMinutes, op.RecordsLoss, op.ParameterSchemaJSON, op.QualityChecklistJSON); err != nil {
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,now(),now())
+		`, r.schema), id, op.Seq, op.OperationID, op.WorkstationID, op.Operation, op.Workstation, op.DefaultEquipment, op.DefaultMinutes, op.RecordsLoss, op.ParameterSchemaJSON, op.QualityChecklistJSON); err != nil {
 			return manufacturingapp.ProcessTemplate{}, err
 		}
 	}
@@ -404,7 +576,7 @@ func (r Repository) attachProcessRouteOperations(ctx context.Context, routes []m
 		index[row.ID] = i
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,route_id,seq,operation,workstation,default_equipment,default_minutes,records_loss,
+		SELECT id,route_id,seq,operation_id,workstation_id,operation,workstation,default_equipment,default_minutes,records_loss,
 		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
 		FROM %s.process_route_operations
 		WHERE route_id = ANY($1)
@@ -416,7 +588,7 @@ func (r Repository) attachProcessRouteOperations(ctx context.Context, routes []m
 	defer rows.Close()
 	for rows.Next() {
 		var op manufacturingapp.ProcessRouteOperation
-		if err := rows.Scan(&op.ID, &op.RouteID, &op.Seq, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.QualityChecklistJSON); err != nil {
+		if err := rows.Scan(&op.ID, &op.RouteID, &op.Seq, &op.OperationID, &op.WorkstationID, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.QualityChecklistJSON); err != nil {
 			return err
 		}
 		if i, ok := index[op.RouteID]; ok {
@@ -462,10 +634,10 @@ func (r Repository) SaveProcessRoute(ctx context.Context, cmd manufacturingapp.S
 	for _, op := range cmd.Operations {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.process_route_operations(
-				route_id,seq,operation,workstation,default_equipment,default_minutes,records_loss,
+				route_id,seq,operation_id,workstation_id,operation,workstation,default_equipment,default_minutes,records_loss,
 				quality_checklist_json,created_at,updated_at
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,now(),now())
-		`, r.schema), id, op.Seq, op.Operation, op.Workstation, op.DefaultEquipment, op.DefaultMinutes, op.RecordsLoss, op.QualityChecklistJSON); err != nil {
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,now(),now())
+		`, r.schema), id, op.Seq, op.OperationID, op.WorkstationID, op.Operation, op.Workstation, op.DefaultEquipment, op.DefaultMinutes, op.RecordsLoss, op.QualityChecklistJSON); err != nil {
 			return manufacturingapp.ProcessRoute{}, err
 		}
 	}

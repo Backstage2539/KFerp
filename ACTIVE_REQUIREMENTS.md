@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-470-MANUFACTURING-PHASE1-COMPLETION
+- Branch: codex/manufacturing-phase1-complete-20260611-v2
+- Owner/session: Codex / 2026-06-11
+- Status: implemented locally; targeted tests, full Go tests, frontend build, changed verifier and local CDP browser acceptance passed. Not merged or deployed.
+- Scope: 按 ERPNext 风格补完制造 Phase 1 最小闭环：商品档案按商品设置默认生产 BOM；工序和工作中心成为主数据；工艺路线/模板操作行引用主数据并保留名称快照；价格试算、生产计划和新工单统一默认 BOM 优先级；新工单冻结 BOM 版本、工艺路线、工序和工作中心。
+- DEV:
+  - DEV-470-DEFAULT-PRODUCTION-BOM：新增 `PUT /api/products/:id/default-production-bom`，商品档案拆分 `可生产该商品的 BOM` 与 `作为组件被哪些 BOM 使用`，设默认写 `product_production_configs` 并同步 legacy binding，操作日志 action 为 `set_default_production_bom`。
+  - DEV-470-ROUTING-MASTER-DATA：新增 `manufacturing_operations`、`manufacturing_workstations`，工艺模板/路线行增加 `operation_id`、`workstation_id`，前端从主数据选择并保存名称快照。
+  - DEV-470-WORK-ORDER-FREEZE：成本试算、生产计划和工单创建统一使用 `商品生产配置默认 BOM > legacy binding > 最新 published 产出 BOM fallback`；新工单优先冻结商品生产配置绑定的工艺路线。
+- Verifier:
+  - RED support: `go test ./internal/interfaces/http/support -run TestDev470ManufacturingPhase1CompletionContracts -count=1` failed before implementation because PR-470 markers/default BOM/API/route freeze markers were missing.
+  - RED backend source: `go test ./internal/infrastructure/postgres/manufacturing ./internal/infrastructure/postgres/production ./internal/infrastructure/postgres/costing -run 'TestManufacturingSchemaAddsOperationAndWorkstationMasterData|TestWorkOrderFreezesProcessRouteAndUsesDefaultBomPriority|TestPricingRuleTrialProductionCostUsesProductDefaultBomBeforeOutputFallback' -count=1` failed before implementation.
+  - RED frontend: `node --test src/lib/product-settings.test.js` failed before implementation because 商品档案配置抽屉 still only showed `被哪些 BOM 使用`.
+  - GREEN support/backend source: the same support and backend source tests passed after implementation.
+  - GREEN backend packages: `go test ./internal/application/bom ./internal/infrastructure/postgres/bom ./internal/interfaces/http/bom -count=1`; `go test ./internal/application/manufacturing ./internal/infrastructure/postgres/manufacturing ./internal/interfaces/http/manufacturing -count=1`; `go test ./internal/infrastructure/postgres/costing ./internal/infrastructure/postgres/production -count=1`; `go test ./...` passed.
+  - GREEN frontend/build/check: `node --test src/lib/work-orders.test.js src/lib/product-settings.test.js src/lib/bom.test.js src/lib/menu-ia.test.js` passed 160/160; `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed.
+  - GREEN browser/local: production Vue build + mock API + Chrome DevTools Protocol rendered 商品档案、工艺模板、生产工单；商品档案配置抽屉显示 `可生产该商品的 BOM` / `作为组件被哪些 BOM 使用`，点击 `设为默认` sent `PUT /api/products/1/default-production-bom` with `production_bom_id` and `production_bom_version_id`; 工艺模板页显示工序/工作中心主数据计数和快照字段；生产工单页显示冻结 BOM、`工艺路线 #30` and frozen operation/workstation text.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/acceptance/2026-06-11-manufacturing-phase1-completion.md`.
+
 ### PR-469-PRICE-LIST-PUBLISH-NO-RESPONSE
 - Branch: codex/price-list-publish-no-response-20260611
 - Owner/session: Codex / 2026-06-11

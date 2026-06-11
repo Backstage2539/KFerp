@@ -178,18 +178,21 @@ type ProductionBomReferencedProduct struct {
 }
 
 type ProductionBomUsedByBom struct {
-	BomID             int64   `json:"bom_id"`
-	BomCode           string  `json:"bom_code"`
-	BomName           string  `json:"bom_name"`
-	BomVersionID      int64   `json:"bom_version_id"`
-	BomVersionNo      string  `json:"bom_version_no"`
-	OutputProductID   int64   `json:"output_product_id"`
-	OutputProductName string  `json:"output_product_name"`
-	BomStatus         string  `json:"bom_status"`
-	IsDefault         bool    `json:"is_default"`
-	RelationType      string  `json:"relation_type"`
-	ConsumeUnit       string  `json:"consume_unit"`
-	QtyPerUnit        float64 `json:"qty_per_unit"`
+	BomID                     int64   `json:"bom_id"`
+	BomCode                   string  `json:"bom_code"`
+	BomName                   string  `json:"bom_name"`
+	BomVersionID              int64   `json:"bom_version_id"`
+	BomVersionNo              string  `json:"bom_version_no"`
+	OutputProductID           int64   `json:"output_product_id"`
+	OutputProductName         string  `json:"output_product_name"`
+	BomStatus                 string  `json:"bom_status"`
+	IsDefault                 bool    `json:"is_default"`
+	CanSetDefault             bool    `json:"can_set_default"`
+	CurrentPublishedVersionID int64   `json:"current_published_version_id"`
+	CurrentPublishedVersionNo string  `json:"current_published_version_no"`
+	RelationType              string  `json:"relation_type"`
+	ConsumeUnit               string  `json:"consume_unit"`
+	QtyPerUnit                float64 `json:"qty_per_unit"`
 }
 
 type ProductionBomVersion struct {

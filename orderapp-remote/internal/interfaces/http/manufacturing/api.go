@@ -16,6 +16,25 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+type manufacturingOperationRequest struct {
+	ID             int64  `json:"id"`
+	Code           string `json:"code"`
+	Name           string `json:"name"`
+	Status         string `json:"status"`
+	DefaultMinutes int    `json:"default_minutes"`
+	Note           string `json:"note"`
+}
+
+type manufacturingWorkstationRequest struct {
+	ID             int64   `json:"id"`
+	Code           string  `json:"code"`
+	Name           string  `json:"name"`
+	Status         string  `json:"status"`
+	DefaultMinutes int     `json:"default_minutes"`
+	HourlyRate     float64 `json:"hourly_rate"`
+	Note           string  `json:"note"`
+}
+
 type industryTemplateRequest struct {
 	ID          int64                                      `json:"id"`
 	Name        string                                     `json:"name"`
@@ -50,6 +69,85 @@ type processRouteRequest struct {
 }
 
 func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
+	e.GET("/api/manufacturing-operations", func(c echo.Context) error {
+		rows, err := svc.ListManufacturingOperations(c.Request().Context())
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.POST("/api/manufacturing-operations", func(c echo.Context) error {
+		var req manufacturingOperationRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		row, err := svc.SaveManufacturingOperation(c.Request().Context(), manufacturingapp.SaveManufacturingOperationCommand{
+			ID:             req.ID,
+			Code:           req.Code,
+			Name:           req.Name,
+			Status:         req.Status,
+			DefaultMinutes: req.DefaultMinutes,
+			Note:           req.Note,
+			Actor:          support.ActorOf(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.POST("/api/manufacturing-operations/:id/deactivate", func(c echo.Context) error {
+		id, err := parseIDParam(c, "id")
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		if err := svc.DeactivateManufacturingOperation(c.Request().Context(), manufacturingapp.TemplateStatusCommand{ID: id, Actor: support.ActorOf(c)}); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+
+	e.GET("/api/manufacturing-workstations", func(c echo.Context) error {
+		rows, err := svc.ListManufacturingWorkstations(c.Request().Context())
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.POST("/api/manufacturing-workstations", func(c echo.Context) error {
+		var req manufacturingWorkstationRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		row, err := svc.SaveManufacturingWorkstation(c.Request().Context(), manufacturingapp.SaveManufacturingWorkstationCommand{
+			ID:             req.ID,
+			Code:           req.Code,
+			Name:           req.Name,
+			Status:         req.Status,
+			DefaultMinutes: req.DefaultMinutes,
+			HourlyRate:     req.HourlyRate,
+			Note:           req.Note,
+			Actor:          support.ActorOf(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.POST("/api/manufacturing-workstations/:id/deactivate", func(c echo.Context) error {
+		id, err := parseIDParam(c, "id")
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		if err := svc.DeactivateManufacturingWorkstation(c.Request().Context(), manufacturingapp.TemplateStatusCommand{ID: id, Actor: support.ActorOf(c)}); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+
 	e.GET("/api/industry-field-templates", func(c echo.Context) error {
 		rows, err := svc.ListIndustryTemplates(c.Request().Context())
 		if err != nil {

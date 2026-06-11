@@ -113,8 +113,8 @@
               <small>预计 {{ row.planned_units || 0 }} 袋 + {{ row.planned_loose_g || 0 }}g</small>
             </td>
             <td class="summary">
-              <strong>{{ row.process_template_name || '默认工序' }}</strong>
-              <small v-if="row.process_template_id">模板 #{{ row.process_template_id }}</small>
+              <strong>{{ processSnapshotName(row) }}</strong>
+              <small v-if="processSnapshotSourceText(row)">{{ processSnapshotSourceText(row) }}</small>
               <small>{{ operationSummaryText(row) }}</small>
             </td>
             <td class="summary">{{ row.material_summary || '-' }}</td>
@@ -222,16 +222,50 @@ const bomByOutputProductID = computed(() => {
 })
 const workOrderDemandRows = computed(() => buildDemandRows(selectedBomDetail.value, Number(planQty.value || 0), explodeStrategy.value))
 
-function operationSummaryRows(row) {
-  if (!row?.operation_summary_json) return []
+function processSnapshot(row) {
+  if (!row?.process_snapshot_json) return {}
   try {
-    const parsed = JSON.parse(row.operation_summary_json)
-    if (Array.isArray(parsed)) return parsed
-    if (parsed && typeof parsed === 'object') return [parsed]
-    return []
+    const parsed = JSON.parse(row.process_snapshot_json)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
   } catch {
-    return []
+    return {}
   }
+}
+
+function processSnapshotName(row) {
+  const snapshot = processSnapshot(row)
+  return snapshot.route_name || snapshot.name || row?.process_template_name || '默认工序'
+}
+
+function processSnapshotSourceText(row) {
+  const snapshot = processSnapshot(row)
+  if (snapshot.source === 'process_route' && Number(snapshot.route_id || row?.process_template_id || 0) > 0) {
+    return `工艺路线 #${Number(snapshot.route_id || row.process_template_id || 0)}`
+  }
+  if (Number(row?.process_template_id || 0) > 0) {
+    return `工艺模板 #${Number(row.process_template_id || 0)}`
+  }
+  return ''
+}
+
+function operationSummaryRows(row) {
+  if (row?.operation_summary_json) {
+    try {
+      const parsed = JSON.parse(row.operation_summary_json)
+      if (Array.isArray(parsed)) return parsed
+      if (parsed && typeof parsed === 'object') return [parsed]
+    } catch {
+      return []
+    }
+  }
+  const snapshot = processSnapshot(row)
+  if (!Array.isArray(snapshot.operations)) return []
+  return snapshot.operations.map((item) => ({
+    ...item,
+    operation: item.operation || item.operation_name || item.name || '',
+    workstation: item.workstation || item.workstation_name || '',
+    status: item.status || 'frozen',
+  }))
 }
 
 function operationActualSummary(row) {
@@ -249,7 +283,14 @@ function operationActualSummary(row) {
 function operationSummaryText(row) {
   const items = operationSummaryRows(row)
   if (!items.length) return '-'
-  return items.map((item) => `${item.operation || '-'} ${item.status || '-'}`).join(' / ')
+  return items.map((item) => {
+    const parts = [
+      item.operation || '-',
+      item.workstation || item.workstation_name || '',
+      item.status || '-',
+    ].filter(Boolean)
+    return parts.join(' ')
+  }).join(' / ')
 }
 
 async function load() {

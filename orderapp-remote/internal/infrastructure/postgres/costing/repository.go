@@ -90,19 +90,21 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 		return out, nil
 	}
 	bomRows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		WITH pricing_rule_trial_bom_versions AS (
+		WITH default_bom AS (
+			SELECT COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0) AS bom_version_id
+			FROM (SELECT $1::bigint AS product_id) selected
+			LEFT JOIN %[1]s.product_production_configs ppc ON ppc.product_id=selected.product_id
+			LEFT JOIN %[1]s.product_production_bom_bindings pbb ON pbb.product_id=selected.product_id
+		),
+		pricing_rule_trial_bom_versions AS (
 			SELECT pb.id AS bom_id,
 			       COALESCE(pb.code,'') AS bom_code,
 			       COALESCE(pb.name,'') AS bom_name,
 			       v.id AS version_id,
 			       COALESCE(v.version_no,'') AS version_no,
 			       COALESCE(v.status,'published') AS status,
-			       row_number() OVER (
-			         ORDER BY v.published_at DESC NULLS LAST,
-			                  v.created_at DESC,
-			                  v.id DESC,
-			                  pb.id DESC
-			       ) = 1 AS is_default
+			       COALESCE((SELECT bom_version_id FROM default_bom),0)>0
+			         AND v.id=COALESCE((SELECT bom_version_id FROM default_bom),0) AS is_default
 			FROM %[1]s.production_boms pb
 			JOIN %[1]s.production_bom_versions v ON v.bom_id=pb.id
 			WHERE pb.output_product_id=$1
@@ -111,7 +113,7 @@ func (r Repository) LoadPricingRuleTrialProductionOptions(ctx context.Context, i
 		)
 		SELECT bom_id, bom_code, bom_name, version_id, version_no, status, is_default
 		FROM pricing_rule_trial_bom_versions
-		ORDER BY is_default DESC, bom_code, bom_name, version_id DESC
+		ORDER BY is_default DESC, version_id DESC, bom_code, bom_name
 	`, r.schema), input.ProductID)
 	if err != nil {
 		return out, err
@@ -169,6 +171,12 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			  AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')
 			GROUP BY l.material_id
 		),
+		default_bom AS (
+			SELECT COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0) AS bom_version_id
+			FROM (SELECT $2::bigint AS product_id) selected
+			LEFT JOIN %[1]s.product_production_configs ppc ON ppc.product_id=selected.product_id
+			LEFT JOIN %[1]s.product_production_bom_bindings pbb ON pbb.product_id=selected.product_id
+		),
 		output_bom_version AS (
 			SELECT v.id
 			FROM %[1]s.production_boms pb
@@ -177,7 +185,8 @@ func (r Repository) LoadPricingRuleTrialBaseCostDetails(ctx context.Context, inp
 			  AND pb.output_product_id=$2
 			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
 			  AND v.status='published'
-			ORDER BY v.published_at DESC NULLS LAST, v.id DESC
+			ORDER BY CASE WHEN COALESCE((SELECT bom_version_id FROM default_bom),0)>0 AND v.id=(SELECT bom_version_id FROM default_bom) THEN 0 ELSE 1 END,
+			         v.published_at DESC NULLS LAST, v.id DESC
 			LIMIT 1
 		),
 		bom_items AS (
@@ -324,6 +333,7 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			       END AS bom_product_id
 			FROM %[1]s.products p
 			LEFT JOIN %[1]s.product_production_configs ppc ON ppc.product_id = p.id
+			LEFT JOIN %[1]s.product_production_bom_bindings pbb ON pbb.product_id = p.id
 			LEFT JOIN %[1]s.product_bom_sources bs ON bs.product_id = p.id
 			LEFT JOIN LATERAL (
 				SELECT pb.id AS bom_id, latest.id AS bom_version_id
@@ -337,7 +347,10 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 				) latest ON true
 				WHERE pb.output_product_id=p.id
 				  AND COALESCE(NULLIF(pb.status,''),'active')='active'
-				ORDER BY latest.published_at DESC NULLS LAST, latest.id DESC, pb.id DESC
+				ORDER BY CASE WHEN COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)>0
+				                    AND latest.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)
+				              THEN 0 ELSE 1 END,
+				         latest.published_at DESC NULLS LAST, latest.id DESC, pb.id DESC
 				LIMIT 1
 			) output_bom ON true
 			LEFT JOIN %[1]s.customer_product_aliases cpa
@@ -375,6 +388,8 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 			       pbi.material_id, pbi.component_type, pbi.component_product_id, pbi.component_spec_g,
 			       pbi.consume_unit, pbi.qty_per_unit, pbi.ratio_pct, pbi.unit_cost_snapshot
 			FROM %[1]s.products p
+			LEFT JOIN %[1]s.product_production_configs ppc ON ppc.product_id=p.id
+			LEFT JOIN %[1]s.product_production_bom_bindings pbb ON pbb.product_id=p.id
 			JOIN LATERAL (
 				SELECT latest.id AS bom_version_id
 				FROM %[1]s.production_boms pb
@@ -387,7 +402,10 @@ func (r Repository) loadProductInputs(ctx context.Context, params domain.Paramet
 				) latest ON true
 				WHERE pb.output_product_id=p.id
 				  AND COALESCE(NULLIF(pb.status,''),'active')='active'
-				ORDER BY latest.published_at DESC NULLS LAST, latest.created_at DESC, latest.id DESC, pb.id DESC
+				ORDER BY CASE WHEN COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)>0
+				                    AND latest.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)
+				              THEN 0 ELSE 1 END,
+				         latest.published_at DESC NULLS LAST, latest.created_at DESC, latest.id DESC, pb.id DESC
 				LIMIT 1
 			) output_bom ON true
 			JOIN %[1]s.production_bom_version_items pbi ON pbi.version_id=output_bom.bom_version_id

@@ -111,8 +111,22 @@ type updateProductionBomVersionDraftRequest struct {
 }
 
 type bindProductProductionBomRequest struct {
-	BomID        int64 `json:"bom_id"`
-	BomVersionID int64 `json:"bom_version_id"`
+	BomID                  int64 `json:"bom_id"`
+	BomVersionID           int64 `json:"bom_version_id"`
+	ProductionBomID        int64 `json:"production_bom_id"`
+	ProductionBomVersionID int64 `json:"production_bom_version_id"`
+}
+
+func (r bindProductProductionBomRequest) normalized() (int64, int64) {
+	bomID := r.ProductionBomID
+	if bomID <= 0 {
+		bomID = r.BomID
+	}
+	versionID := r.ProductionBomVersionID
+	if versionID <= 0 {
+		versionID = r.BomVersionID
+	}
+	return bomID, versionID
 }
 
 type ErrorResponse struct {
@@ -123,6 +137,23 @@ const legacyProductionBomGroupsReadonlyError = "production BOM groups are legacy
 
 func legacyProductionBomGroupsReadonlyAPI(c echo.Context) error {
 	return c.JSON(http.StatusGone, ErrorResponse{Error: legacyProductionBomGroupsReadonlyError})
+}
+
+func setDefaultProductionBomAPI(c echo.Context, bomSvc *bomapp.Service) error {
+	productID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || productID <= 0 {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid product_id"})
+	}
+	var req bindProductProductionBomRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+	}
+	bomID, versionID := req.normalized()
+	row, err := bomSvc.BindProductProductionBom(c.Request().Context(), bomapp.BindProductProductionBomCommand{ProductID: productID, BomID: bomID, BomVersionID: versionID, Actor: support.ActorOf(c)})
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+	}
+	return c.JSON(http.StatusOK, row)
 }
 
 func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
@@ -370,20 +401,12 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		return c.JSON(http.StatusOK, map[string]any{"ok": true})
 	})
 
+	e.PUT("/api/products/:id/default-production-bom", func(c echo.Context) error {
+		return setDefaultProductionBomAPI(c, bomSvc)
+	})
+
 	e.PUT("/api/products/:id/production-bom-binding", func(c echo.Context) error {
-		productID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-		if err != nil || productID <= 0 {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid product_id"})
-		}
-		var req bindProductProductionBomRequest
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
-		}
-		row, err := bomSvc.BindProductProductionBom(c.Request().Context(), bomapp.BindProductProductionBomCommand{ProductID: productID, BomID: req.BomID, BomVersionID: req.BomVersionID, Actor: support.ActorOf(c)})
-		if err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
-		}
-		return c.JSON(http.StatusOK, row)
+		return setDefaultProductionBomAPI(c, bomSvc)
 	})
 
 	e.GET("/api/bom/list", func(c echo.Context) error {

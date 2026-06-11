@@ -59,3 +59,23 @@ func TestManufacturingSchemaCreatesProcessRoutesWithoutProductParameters(t *test
 		}
 	}
 }
+
+func TestManufacturingSchemaAddsOperationAndWorkstationMasterData(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_operations",
+		"CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstations",
+		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS operation_id",
+		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS workstation_id",
+		"ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS operation_id",
+		"ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS workstation_id",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("manufacturing schema missing master-data marker %q", want)
+		}
+	}
+}

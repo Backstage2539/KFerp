@@ -443,16 +443,35 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 		FROM unnest($1::bigint[]) AS requested(product_id)
 		JOIN %s.products p ON p.id=requested.product_id AND p.active=true
 		LEFT JOIN %s.product_bom_sources bs ON bs.product_id=p.id
+		LEFT JOIN %s.product_production_configs ppc ON ppc.product_id=p.id
 		LEFT JOIN %s.product_production_bom_bindings pbb ON pbb.product_id=p.id
-		LEFT JOIN %s.production_bom_versions pbv ON pbv.id=pbb.bom_version_id
+		LEFT JOIN LATERAL (
+			SELECT latest.id AS bom_version_id
+			FROM %s.production_boms pbom
+			JOIN LATERAL (
+				SELECT v.id, v.published_at, v.created_at
+				FROM %s.production_bom_versions v
+				WHERE v.bom_id=pbom.id AND v.status='published'
+				ORDER BY v.published_at DESC NULLS LAST, v.created_at DESC, v.id DESC
+				LIMIT 1
+			) latest ON true
+			WHERE pbom.output_product_id=p.id
+			  AND COALESCE(NULLIF(pbom.status,''),'active')='active'
+			ORDER BY CASE WHEN COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)>0
+			                    AND latest.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)
+			              THEN 0 ELSE 1 END,
+			         latest.published_at DESC NULLS LAST, latest.created_at DESC, latest.id DESC, pbom.id DESC
+			LIMIT 1
+		) output_bom ON true
+		LEFT JOIN %s.production_bom_versions pbv ON pbv.id=output_bom.bom_version_id
 		JOIN LATERAL (
 			SELECT pbi.id, pbi.material_id, pbi.ratio_pct, pbi.component_type, pbi.component_product_id, pbi.component_spec_g, pbi.consume_unit, pbi.qty_per_unit
 			FROM %s.production_bom_version_items pbi
-			WHERE pbb.product_id IS NOT NULL AND pbi.version_id=pbb.bom_version_id
+			WHERE COALESCE(output_bom.bom_version_id,0)>0 AND pbi.version_id=output_bom.bom_version_id
 			UNION ALL
 			SELECT lbi.id, lbi.material_id, lbi.ratio_pct, lbi.component_type, lbi.component_product_id, lbi.component_spec_g, lbi.consume_unit, lbi.qty_per_unit
 			FROM %s.product_bom_items lbi
-			WHERE pbb.product_id IS NULL AND lbi.product_id=CASE
+			WHERE COALESCE(output_bom.bom_version_id,0)=0 AND lbi.product_id=CASE
 				WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
 				ELSE p.id
 			END
@@ -464,7 +483,7 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
 		LEFT JOIN %s.products cp ON cp.id=bi.component_product_id
 		ORDER BY requested.product_id, bi.id
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, productIDs)
 	if err != nil {
 		return out, err

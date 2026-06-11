@@ -87,3 +87,22 @@ func TestWorkOrderFreezesProductProductionConfigSnapshot(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkOrderFreezesProcessRouteAndUsesDefaultBomPriority(t *testing.T) {
+	srcBytes, err := os.ReadFile("work_order.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(srcBytes)
+	for _, want := range []string{
+		"loadProcessRouteSnapshotForWorkOrderTx",
+		"process_route_operations",
+		"operation_id",
+		"workstation_id",
+		"COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, output_bv.id, 0)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("work order must freeze process route and use default BOM priority; missing %q", want)
+		}
+	}
+}

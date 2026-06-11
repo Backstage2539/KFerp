@@ -30,10 +30,35 @@ type IndustryFieldTemplate struct {
 	UpdatedAt   string                    `json:"updated_at"`
 }
 
+type ManufacturingOperation struct {
+	ID             int64  `json:"id"`
+	Code           string `json:"code"`
+	Name           string `json:"name"`
+	Status         string `json:"status"`
+	DefaultMinutes int    `json:"default_minutes"`
+	Note           string `json:"note"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+}
+
+type ManufacturingWorkstation struct {
+	ID             int64   `json:"id"`
+	Code           string  `json:"code"`
+	Name           string  `json:"name"`
+	Status         string  `json:"status"`
+	DefaultMinutes int     `json:"default_minutes"`
+	HourlyRate     float64 `json:"hourly_rate"`
+	Note           string  `json:"note"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
 type ProcessTemplateOperation struct {
 	ID                   int64  `json:"id"`
 	TemplateID           int64  `json:"template_id"`
 	Seq                  int    `json:"seq"`
+	OperationID          int64  `json:"operation_id"`
+	WorkstationID        int64  `json:"workstation_id"`
 	Operation            string `json:"operation"`
 	Workstation          string `json:"workstation"`
 	DefaultEquipment     string `json:"default_equipment"`
@@ -66,6 +91,8 @@ type ProcessRouteOperation struct {
 	ID                   int64  `json:"id"`
 	RouteID              int64  `json:"route_id"`
 	Seq                  int    `json:"seq"`
+	OperationID          int64  `json:"operation_id"`
+	WorkstationID        int64  `json:"workstation_id"`
 	Operation            string `json:"operation"`
 	Workstation          string `json:"workstation"`
 	DefaultEquipment     string `json:"default_equipment"`
@@ -105,6 +132,27 @@ type SaveIndustryTemplateCommand struct {
 	Actor       string
 }
 
+type SaveManufacturingOperationCommand struct {
+	ID             int64
+	Code           string
+	Name           string
+	Status         string
+	DefaultMinutes int
+	Note           string
+	Actor          string
+}
+
+type SaveManufacturingWorkstationCommand struct {
+	ID             int64
+	Code           string
+	Name           string
+	Status         string
+	DefaultMinutes int
+	HourlyRate     float64
+	Note           string
+	Actor          string
+}
+
 type SaveProcessTemplateCommand struct {
 	ID                 int64
 	Name               string
@@ -137,6 +185,12 @@ type TemplateStatusCommand struct {
 }
 
 type Repository interface {
+	ListManufacturingOperations(ctx context.Context) ([]ManufacturingOperation, error)
+	SaveManufacturingOperation(ctx context.Context, cmd SaveManufacturingOperationCommand) (ManufacturingOperation, error)
+	DeactivateManufacturingOperation(ctx context.Context, cmd TemplateStatusCommand) error
+	ListManufacturingWorkstations(ctx context.Context) ([]ManufacturingWorkstation, error)
+	SaveManufacturingWorkstation(ctx context.Context, cmd SaveManufacturingWorkstationCommand) (ManufacturingWorkstation, error)
+	DeactivateManufacturingWorkstation(ctx context.Context, cmd TemplateStatusCommand) error
 	ListIndustryTemplates(ctx context.Context) ([]IndustryFieldTemplate, error)
 	SaveIndustryTemplate(ctx context.Context, cmd SaveIndustryTemplateCommand) (IndustryFieldTemplate, error)
 	DeactivateIndustryTemplate(ctx context.Context, cmd TemplateStatusCommand) error
@@ -156,6 +210,71 @@ type Service struct {
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
+}
+
+func (s *Service) ListManufacturingOperations(ctx context.Context) ([]ManufacturingOperation, error) {
+	return s.repo.ListManufacturingOperations(ctx)
+}
+
+func (s *Service) SaveManufacturingOperation(ctx context.Context, cmd SaveManufacturingOperationCommand) (ManufacturingOperation, error) {
+	cmd.Code = strings.TrimSpace(cmd.Code)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Status = normalizeStatus(cmd.Status, "active")
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	if cmd.Name == "" {
+		return ManufacturingOperation{}, fmt.Errorf("name required")
+	}
+	if cmd.DefaultMinutes < 0 {
+		return ManufacturingOperation{}, fmt.Errorf("default_minutes must be >= 0")
+	}
+	if cmd.Status != "active" && cmd.Status != "inactive" {
+		return ManufacturingOperation{}, fmt.Errorf("invalid status")
+	}
+	if cmd.Code == "" {
+		cmd.Code = codeFromName(cmd.Name)
+	}
+	return s.repo.SaveManufacturingOperation(ctx, cmd)
+}
+
+func (s *Service) DeactivateManufacturingOperation(ctx context.Context, cmd TemplateStatusCommand) error {
+	if cmd.ID <= 0 {
+		return fmt.Errorf("operation id required")
+	}
+	return s.repo.DeactivateManufacturingOperation(ctx, cmd)
+}
+
+func (s *Service) ListManufacturingWorkstations(ctx context.Context) ([]ManufacturingWorkstation, error) {
+	return s.repo.ListManufacturingWorkstations(ctx)
+}
+
+func (s *Service) SaveManufacturingWorkstation(ctx context.Context, cmd SaveManufacturingWorkstationCommand) (ManufacturingWorkstation, error) {
+	cmd.Code = strings.TrimSpace(cmd.Code)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Status = normalizeStatus(cmd.Status, "active")
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	if cmd.Name == "" {
+		return ManufacturingWorkstation{}, fmt.Errorf("name required")
+	}
+	if cmd.DefaultMinutes < 0 {
+		return ManufacturingWorkstation{}, fmt.Errorf("default_minutes must be >= 0")
+	}
+	if cmd.HourlyRate < 0 {
+		return ManufacturingWorkstation{}, fmt.Errorf("hourly_rate must be >= 0")
+	}
+	if cmd.Status != "active" && cmd.Status != "inactive" {
+		return ManufacturingWorkstation{}, fmt.Errorf("invalid status")
+	}
+	if cmd.Code == "" {
+		cmd.Code = codeFromName(cmd.Name)
+	}
+	return s.repo.SaveManufacturingWorkstation(ctx, cmd)
+}
+
+func (s *Service) DeactivateManufacturingWorkstation(ctx context.Context, cmd TemplateStatusCommand) error {
+	if cmd.ID <= 0 {
+		return fmt.Errorf("workstation id required")
+	}
+	return s.repo.DeactivateManufacturingWorkstation(ctx, cmd)
 }
 
 func (s *Service) ListIndustryTemplates(ctx context.Context) ([]IndustryFieldTemplate, error) {
@@ -299,6 +418,28 @@ func normalizeStatus(status, fallback string) string {
 		return fallback
 	}
 	return status
+}
+
+func codeFromName(name string) string {
+	code := strings.ToLower(strings.TrimSpace(name))
+	code = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r
+		case r >= '0' && r <= '9':
+			return r
+		case r >= '\u4e00' && r <= '\u9fa5':
+			return r
+		default:
+			return '_'
+		}
+	}, code)
+	code = strings.Trim(code, "_")
+	code = strings.Join(strings.FieldsFunc(code, func(r rune) bool { return r == '_' }), "_")
+	if code == "" {
+		return "operation"
+	}
+	return code
 }
 
 func normalizeIndustryField(field IndustryFieldDefinition, fallbackOrder int) (IndustryFieldDefinition, error) {
