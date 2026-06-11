@@ -65,6 +65,21 @@ func (r *fakeManufacturingGapRepo) SaveMachine(ctx context.Context, cmd producti
 func (r *fakeManufacturingGapRepo) PlanSummary(ctx context.Context, query productionapp.PlanSummaryQuery) (productionapp.PlanSummaryData, error) {
 	return productionapp.PlanSummaryData{}, nil
 }
+func (r *fakeManufacturingGapRepo) CreateProductionPlan(ctx context.Context, cmd productionapp.CreateProductionPlanCommand) (productionapp.ProductionPlanDetail, error) {
+	return productionapp.ProductionPlanDetail{}, nil
+}
+func (r *fakeManufacturingGapRepo) ListProductionPlans(ctx context.Context, query productionapp.ProductionPlanQuery) ([]productionapp.ProductionPlanRow, error) {
+	return nil, nil
+}
+func (r *fakeManufacturingGapRepo) GetProductionPlan(ctx context.Context, id int64) (productionapp.ProductionPlanDetail, error) {
+	return productionapp.ProductionPlanDetail{}, nil
+}
+func (r *fakeManufacturingGapRepo) SubmitProductionPlan(ctx context.Context, cmd productionapp.SubmitProductionPlanCommand) (productionapp.ProductionPlanSubmitResult, error) {
+	return productionapp.ProductionPlanSubmitResult{}, nil
+}
+func (r *fakeManufacturingGapRepo) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOrderStartCommand) (productionapp.WorkOrderStartResult, error) {
+	return productionapp.WorkOrderStartResult{}, nil
+}
 func (r *fakeManufacturingGapRepo) ListProductionLogs(ctx context.Context, query productionapp.ProductionLogsQuery) (productionapp.ProductionLogsResult, error) {
 	return productionapp.ProductionLogsResult{}, nil
 }

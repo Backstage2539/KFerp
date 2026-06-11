@@ -35,6 +35,11 @@
 - [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：商品档案配置抽屉必须拆分 `可生产该商品的 BOM` 和 `作为组件被哪些 BOM 使用`；只有产出该商品、active 且有 published 版本的 BOM 行能点击 `设为默认`，刷新后仍显示为该商品默认 BOM，组件反查列表不得出现设默认按钮。
 - [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：商品价格管理试算同一商品时，`试算BOM版本` 默认使用商品显式默认生产 BOM；无显式默认时可 fallback 最新 published 产出 BOM，但不得把 fallback 标记为默认。
 - [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：工艺模板页面可维护工序和工作中心主数据；工艺路线/模板操作行从主数据选择工序和工作中心，同时保留名称快照。开始生产后，新工单展示冻结 BOM 版本、冻结工艺路线/模板、工序和工作中心；之后修改商品默认 BOM 或路线不回改历史工单。
+- [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产计划页选择咖啡豆订单缺口后点击 `创建生产计划`，系统只生成 `draft` 生产计划和计划行，不生成生产中记录、生产日志或 WIP 占用。
+- [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：提交生产计划后，系统生成 `released` 生产工单和 `pending` 工序卡；咖啡豆工艺路线应生成烘焙/包装步骤，包装盒示例应生成印刷/模切/糊盒步骤，童装示例应生成裁剪/缝制/质检步骤。
+- [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产工单页筛选 `released` 后点击 `开始生产`，工单进入 `running`，产生 running item、WIP 占用并进入现有生产中/完工链路；重复开始生产必须返回错误，不重复开始生产、不重复写 WIP 或 running item。
+- [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：修改商品默认 BOM 或工艺路线后，已提交生产计划、已生成生产工单和工序卡仍展示提交时冻结的 BOM、BOM 版本、工艺路线、工序和工作中心快照。
+- [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：旧 `POST /api/produce/start` 入口仍可完成现有开始生产流程，但内部应形成临时生产计划并保留 duplicate-start 保护。
 - [ ] PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：商品价格表“选择分类和产品”中父类、子类和商品逐级缩进；父类和子类都支持收缩/展开，收缩后仍保留分类勾选、计价按钮和选中数/总数，已勾选商品和生成结果不被清空。
 - [ ] PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：点击父类、子类或商品行的 `计价 继承分类`，在按钮附近弹出四项计价菜单：`继承分类`、`按阶梯模板价计算`、`按价格模板计算`、`固定价`；不得出现右下角计价弹窗。选择父类只覆盖父类，选择子类只覆盖子类，选择商品只覆盖商品；商品行 `展示 无标签` 仍按原展示弹窗维护。
 - [ ] PR-461-PRICE-LIST-PICKER-TREE-PRICING-POPOVER：商品价格表下方预览和生成 PDF 的分类标题、商品归属、过滤结果和商品顺序必须与“选择分类和产品”保持一致；同一选品分类下的商品不得被旧 bean-list 分类拆成多个预览分类。

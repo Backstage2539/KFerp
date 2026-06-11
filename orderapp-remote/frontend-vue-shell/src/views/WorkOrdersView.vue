@@ -10,10 +10,7 @@
         <label>
           <span>状态</span>
           <select v-model="status">
-            <option value="">全部</option>
-            <option value="running">running</option>
-            <option value="completed">completed</option>
-            <option value="cancelled">cancelled</option>
+            <option v-for="option in statusOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </label>
         <button class="primary" @click="load">查询</button>
@@ -131,7 +128,10 @@
             <td><span class="status">{{ row.status }}</span></td>
             <td>{{ money(row.actual_cost) }}</td>
             <td><small>建 {{ row.created_at }}</small><small>完 {{ row.completed_at || '-' }}</small></td>
-            <td><button class="secondary compact" @click="printWorkOrder(row)">打印</button></td>
+            <td class="row-actions">
+              <button class="primary compact" v-if="canStartWorkOrder(row)" @click="startWorkOrder(row)" :disabled="startingId === row.id">开始生产</button>
+              <button class="secondary compact" @click="printWorkOrder(row)">打印</button>
+            </td>
           </tr>
           <tr v-if="!rows.length"><td colspan="14" class="muted">暂无工单</td></tr>
         </tbody>
@@ -180,8 +180,9 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { apiGet } from '../api/client'
+import { apiGet, apiSend } from '../api/client'
 import { expectedLossRate, formatPercent } from '../lib/manufacturing-loss'
+import { canStartWorkOrder, workOrderStartEndpoint, workOrderStatusOptions } from '../lib/work-orders'
 
 const rows = ref([])
 const productionBoms = ref([])
@@ -191,8 +192,10 @@ const planQty = ref(1)
 const explodeStrategy = ref('shortage')
 const status = ref('')
 const loading = ref(false)
+const startingId = ref(0)
 const error = ref('')
 const printRow = ref(null)
+const statusOptions = workOrderStatusOptions()
 
 const money = (v) => Number(v || 0).toFixed(2)
 const percent = (v) => formatPercent(v)
@@ -314,6 +317,22 @@ async function load() {
   }
 }
 
+async function startWorkOrder(row) {
+  const endpoint = workOrderStartEndpoint(row)
+  if (!endpoint) return
+  startingId.value = Number(row.id || 0)
+  error.value = ''
+  try {
+    await apiSend(endpoint, { body: {} })
+    status.value = 'running'
+    await load()
+  } catch (err) {
+    error.value = err.message || '开始生产失败'
+  } finally {
+    startingId.value = 0
+  }
+}
+
 async function loadSelectedBomDetail() {
   const id = Number(selectedBomID.value || 0)
   if (!id || productionBomDetails.value[String(id)]) return
@@ -384,7 +403,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}h3{margin:0;font-size:16px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.table-wrap{overflow:auto}table{width:100%;min-width:1260px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:220px;line-height:1.45}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.print-sheet{display:none}.bom-workbench{margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb;display:grid;gap:10px}.workbench-head p{margin:4px 0 0;color:#666;font-size:12px}.workbench-filters{grid-template-columns:minmax(260px,1.2fr) minmax(120px,.4fr) minmax(180px,.7fr)}.bom-freeze-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.bom-freeze-summary div{border:1px solid #e5e7eb;border-radius:6px;padding:8px;background:#fbfbfb}.bom-freeze-summary span{display:block;color:#666;font-size:12px;margin-bottom:3px}.compact-demand table{min-width:760px}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}h3{margin:0;font-size:16px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.row-actions{display:flex;gap:6px;flex-wrap:wrap}.table-wrap{overflow:auto}table{width:100%;min-width:1260px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:220px;line-height:1.45}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.print-sheet{display:none}.bom-workbench{margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb;display:grid;gap:10px}.workbench-head p{margin:4px 0 0;color:#666;font-size:12px}.workbench-filters{grid-template-columns:minmax(260px,1.2fr) minmax(120px,.4fr) minmax(180px,.7fr)}.bom-freeze-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.bom-freeze-summary div{border:1px solid #e5e7eb;border-radius:6px;padding:8px;background:#fbfbfb}.bom-freeze-summary span{display:block;color:#666;font-size:12px;margin-bottom:3px}.compact-demand table{min-width:760px}
 
 @media print{
   :global(body.work-order-printing .sidebar),:global(body.work-order-printing .top){display:none!important}

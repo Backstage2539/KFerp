@@ -428,7 +428,7 @@
                 :data-bom-warning-product-id="itemProductID(row)"
               >
                 <div>
-                  <strong>BOM已失效</strong>
+                  <strong>BOM已失效：{{ itemBomProblemLabel(row) }}</strong>
                   <span>{{ itemBomWarning(row) }}</span>
                 </div>
                 <button class="secondary compact" type="button" @click.stop="openProductArchiveForBom(row)">去商品档案重新选择 BOM</button>
@@ -512,6 +512,8 @@
           <button class="secondary" type="button" :disabled="beanListPdfGenerating || !pdfGroups.length" @click="generateBeanListPdf">{{ beanListPdfGenerating ? '生成中' : '生成 PDF' }}</button>
         </div>
         <p v-if="priceListPublishBlockedReason" class="error price-list-publish-guard">{{ priceListPublishBlockedReason }}</p>
+        <p v-if="error" class="error price-list-publish-feedback">{{ error }}</p>
+        <p v-if="message" class="ok price-list-publish-feedback">{{ message }}</p>
       </div>
       <div class="pdf-preview-phone bean-list-pdf-surface" :style="pdfPageStyle">
         <header class="pdf-cover">
@@ -1400,13 +1402,10 @@ const publicBeanListURL = computed(() => {
   const query = params.toString()
   return `${window.location.origin}/public/bean-list/${pdfTheme.value.listType}${query ? `?${query}` : ''}`
 })
-const inactiveBomItems = computed(() => visibleCostingItems.value.filter((item) => itemHasInactiveBomWarning(item)))
-const hasInactiveBomWarning = computed(() => inactiveBomItems.value.length > 0)
 const priceListPublishBlockedReason = computed(() => {
   if (!pdfGroups.value.length) return '暂无可发布的价格表预览'
   if (!String(pdfTheme.value.version || '').trim()) return '请填写价格表版本号'
   if (!customerScopeReady.value) return '请选择客户'
-  if (hasInactiveBomWarning.value) return '请处理商品行中的 BOM 提示后再发布价格表'
   if (!priceListFlatRowsReady.value) return '发布前需要为每行补齐计价模式、对应模板或固定价，并保证价格单位到库存单位换算可追溯。'
   return ''
 })
@@ -1812,6 +1811,29 @@ function itemHasInactiveBomWarning(item) {
 function itemBomWarning(item) {
   if (!itemHasInactiveBomWarning(item)) return ''
   return '请在商品档案重新选择可用 BOM。失效 BOM 不能重新启用；如需沿用旧结构，请先在生产 BOM 复制成新 BOM 后再选择。'
+}
+
+function itemBomProblemLabel(item = {}) {
+  const name = String(
+    item.production_bom_name ||
+    item.productionBomName ||
+    item.bom_name ||
+    item.bomName ||
+    ''
+  ).trim()
+  const version = String(
+    item.production_bom_version_no ||
+    item.productionBomVersionNo ||
+    item.source_bom_version_no ||
+    item.sourceBomVersionNo ||
+    item.bom_version_no ||
+    item.bomVersionNo ||
+    item.latest_bom_version_no ||
+    item.latestBomVersionNo ||
+    ''
+  ).trim()
+  const label = [name, version].filter(Boolean).join(' / ')
+  return label || '当前绑定 BOM'
 }
 
 function warningTooltip(warning) {
@@ -3179,6 +3201,45 @@ function selectedPublicationArchiveRows() {
   return currentScopePublicationRows.value.filter((row) => selected.has(Number(row.id || 0)) && canArchiveBeanListPublication(row))
 }
 
+function publicationArchiveRefreshProductTypeIDs(row = {}, fallbackProductTypeCategoryID = activeProductTypeCategoryID.value) {
+  return Array.from(new Set([
+    activeProductTypeCategoryID.value,
+    fallbackProductTypeCategoryID,
+    row?.product_type_category_id,
+    row?.productTypeCategoryID,
+    currentClassificationTemplateIDOfPublication(row),
+  ].map((id) => Number(id || 0)).filter((id) => Number.isFinite(id))))
+}
+
+async function reloadBeanListPublicationsAfterArchiveChange(listType, scope, row, fallbackProductTypeCategoryID, purpose = FACTORY_SUPPLY_PUBLICATION_PURPOSE) {
+  for (const refreshProductTypeID of publicationArchiveRefreshProductTypeIDs(row, fallbackProductTypeCategoryID)) {
+    await loadBeanListPublications(listType, scope, refreshProductTypeID, purpose)
+  }
+}
+
+function beanListPublicationArchivedFromStatus(row = {}) {
+  const config = row?.config || row?.config_json || row?.configJson || {}
+  return String(config.archived_from_status || config.archivedFromStatus || '').trim() || 'published'
+}
+
+function setBeanListPublicationStatusInCache(ids = [], status = '') {
+  const idSet = new Set((Array.isArray(ids) ? ids : [])
+    .map((id) => Number(id || 0))
+    .filter((id) => id > 0))
+  const nextStatus = String(status || '').trim()
+  if (!idSet.size || !nextStatus) return
+  const next = {}
+  Object.entries(beanListPublications.value || {}).forEach(([scopeKey, scopeRows]) => {
+    next[scopeKey] = {}
+    Object.entries(scopeRows || {}).forEach(([typeKey, rows]) => {
+      next[scopeKey][typeKey] = Array.isArray(rows)
+        ? rows.map((row) => (idSet.has(Number(row?.id || 0)) ? { ...row, status: nextStatus } : row))
+        : rows
+    })
+  })
+  beanListPublications.value = next
+}
+
 function beanListPublicationHasContent(row) {
   return Array.isArray(row?.content?.groups) && row.content.groups.length > 0
 }
@@ -3875,11 +3936,6 @@ async function publishBeanList() {
   const blockedReason = priceListPublishBlockedReason.value
   if (blockedReason) {
     message.value = ''
-    if (hasInactiveBomWarning.value) {
-      error.value = ''
-      await scrollFirstInactiveBomWarningIntoView()
-      return
-    }
     error.value = blockedReason
     return
   }
@@ -4046,9 +4102,10 @@ async function archiveSelectedBeanListPublications() {
     await apiSend('/api/costing/bean-list/publications/archive' + `?${params.toString()}`, {
       body: { ids: rows.map((row) => Number(row.id || 0)).filter((id) => id > 0) },
     })
+    setBeanListPublicationStatusInCache(rows.map((row) => Number(row.id || 0)), 'archived')
     message.value = `已归档 ${rows.length} 个价格表版本，可在归档列表移出归档`
     selectedPublicationArchiveIDs.value = []
-    await loadBeanListPublications(listType, versionListScope.value, productTypeCategoryID, first?.publication_purpose || 'factory_supply')
+    await reloadBeanListPublicationsAfterArchiveChange(listType, versionListScope.value, first, productTypeCategoryID, first?.publication_purpose || 'factory_supply')
   } catch (err) {
     error.value = err.message || '归档价格表失败'
   } finally {
@@ -4068,8 +4125,9 @@ async function restoreArchivedBeanListPublication(row) {
     await apiSend('/api/costing/bean-list/publications/unarchive' + `?${params.toString()}`, {
       body: { ids: [Number(row.id || 0)] },
     })
+    setBeanListPublicationStatusInCache([Number(row.id || 0)], beanListPublicationArchivedFromStatus(row))
     message.value = `已将价格表 ${row.version || row.id} 移出归档`
-    await loadBeanListPublications(listType, versionListScope.value, productTypeCategoryID, row?.publication_purpose || 'factory_supply')
+    await reloadBeanListPublicationsAfterArchiveChange(listType, versionListScope.value, row, productTypeCategoryID, row?.publication_purpose || 'factory_supply')
   } catch (err) {
     error.value = err.message || '移出归档失败'
   } finally {
@@ -4299,7 +4357,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .green-tier-price-editor input { min-width: 0; }
 .pdf-preview-title { max-width: 760px; margin: 16px auto 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; color: #555; font-size: 12px; }
 .pdf-preview-title strong { color: #111; font-size: 14px; }
-.price-list-publish-guard { flex-basis: 100%; margin: -4px 0 0; }
+.price-list-publish-guard, .price-list-publish-feedback { flex-basis: 100%; margin: -4px 0 0; }
 .pdf-preview-phone { max-width: 430px; min-height: 360px; max-height: 72vh; overflow: auto; margin: 0 auto; border: 1px solid #ded6c9; border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.12); }
 .bean-list-pdf-surface { box-sizing: border-box; padding: 16px; background-size: cover; background-position: center; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 .pdf-cover { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; border-bottom: 2px solid currentColor; padding-bottom: 12px; margin-bottom: 14px; }

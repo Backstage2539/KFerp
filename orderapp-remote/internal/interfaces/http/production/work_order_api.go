@@ -48,6 +48,17 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 		}
 		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
 	})
+	e.POST("/api/work-orders/:id/start", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid work_order_id"})
+		}
+		res, err := productionSvc.StartWorkOrder(c.Request().Context(), productionapp.WorkOrderStartCommand{ID: id, Operator: support.ActorOf(c)})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true, "batch_id": res.BatchID, "running_item_id": res.RunningItemID, "work_order": res.WorkOrder})
+	})
 	e.GET("/api/produce/job-cards", func(c echo.Context) error {
 		rows, err := productionSvc.ListJobCards(c.Request().Context(), productionapp.JobCardQuery{
 			Status: strings.TrimSpace(c.QueryParam("status")),

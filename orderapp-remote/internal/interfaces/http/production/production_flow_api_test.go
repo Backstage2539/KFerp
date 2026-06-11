@@ -17,8 +17,10 @@ import (
 
 	productionapp "orderapp/internal/application/production"
 	postgresbom "orderapp/internal/infrastructure/postgres/bom"
+	postgrescatalog "orderapp/internal/infrastructure/postgres/catalog"
 	postgrescompany "orderapp/internal/infrastructure/postgres/company"
 	postgresinventory "orderapp/internal/infrastructure/postgres/inventory"
+	postgresmanufacturing "orderapp/internal/infrastructure/postgres/manufacturing"
 	postgresmaterials "orderapp/internal/infrastructure/postgres/materials"
 	postgresproduction "orderapp/internal/infrastructure/postgres/production"
 	postgressales "orderapp/internal/infrastructure/postgres/sales"
@@ -1161,6 +1163,97 @@ func TestProduceStartRepositoryRejectsStaleNeedAlreadyRunning(t *testing.T) {
 	assertProductionFlowCount(t, pool, schema, "work_orders", "batch_id IN (SELECT batch_id FROM "+schema+".produce_running_items WHERE order_nos='SO-DUP-START')", 1)
 }
 
+func TestProductionPlanRepositoryCreatesSubmitsAndStartsFormalLifecycle(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-PLAN-RAW", "计划生豆", 1000)
+
+	repo := postgresproduction.NewRepository(pool, schema)
+	plan, err := repo.CreateProductionPlan(ctx, productionapp.CreateProductionPlanCommand{
+		From:       "2026-06-01",
+		To:         "2026-06-30",
+		Selected:   map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{"1-227": 600},
+		Operator:   "计划员",
+	})
+	if err != nil {
+		t.Fatalf("CreateProductionPlan: %v", err)
+	}
+	if plan.ID <= 0 || plan.Status != "draft" || len(plan.Items) != 1 {
+		t.Fatalf("created plan = %+v, want draft plan with one frozen item", plan)
+	}
+	if plan.Items[0].PlannedG != 600 || plan.Items[0].GapG != 454 || plan.Items[0].ProductName != "计划拼配" {
+		t.Fatalf("plan item = %+v, want planned_g=600 gap_g=454 product snapshot", plan.Items[0])
+	}
+	assertProductionFlowCount(t, pool, schema, "production_plans", "status='draft'", 1)
+	assertProductionFlowCount(t, pool, schema, "production_plan_items", "product_id=1 AND planned_g=600", 1)
+	assertNoProductionWorkOpened(t, ctx, pool, schema)
+	assertProductionFlowCount(t, pool, schema, "production_logs", "1=1", 0)
+
+	submitted, err := repo.SubmitProductionPlan(ctx, productionapp.SubmitProductionPlanCommand{ID: plan.ID, Operator: "审核员"})
+	if err != nil {
+		t.Fatalf("SubmitProductionPlan: %v", err)
+	}
+	if submitted.Plan.Status != "submitted" || len(submitted.WorkOrders) != 1 {
+		t.Fatalf("submitted plan = %+v, want submitted plan and one released work order", submitted)
+	}
+	workOrder := submitted.WorkOrders[0]
+	if workOrder.ID <= 0 || workOrder.Status != "released" || workOrder.RunningItemID != 0 || workOrder.PlannedG != 600 {
+		t.Fatalf("released work order = %+v, want released without running item", workOrder)
+	}
+	if workOrder.BomVersionID != 100 || !strings.Contains(workOrder.ProcessSnapshotJSON, "一期路线") {
+		t.Fatalf("work order snapshot = %+v, want frozen BOM version and process route", workOrder)
+	}
+	if len(submitted.JobCards) != 2 || submitted.JobCards[0].Status != "pending" || submitted.JobCards[0].Operation != "烘焙" || submitted.JobCards[1].Operation != "包装" {
+		t.Fatalf("submitted job cards = %+v, want pending route operations", submitted.JobCards)
+	}
+	assertProductionFlowCount(t, pool, schema, "produce_running_items", "1=1", 0)
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "1=1", 0)
+
+	started, err := repo.StartWorkOrder(ctx, productionapp.WorkOrderStartCommand{ID: workOrder.ID, Operator: "开工员"})
+	if err != nil {
+		t.Fatalf("StartWorkOrder: %v", err)
+	}
+	if started.WorkOrder.Status != "running" || started.RunningItemID <= 0 || started.BatchID == "" {
+		t.Fatalf("started result = %+v, want running work order with running item", started)
+	}
+	assertProductionFlowCount(t, pool, schema, "produce_running_items", "status='running'", 1)
+	assertProductionFlowCount(t, pool, schema, "work_orders", "status='running' AND running_item_id > 0", 1)
+	assertProductionFlowCount(t, pool, schema, "job_cards", "status='running'", 2)
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "status='reserved' AND running_item_id > 0", 1)
+
+	_, err = repo.StartWorkOrder(ctx, productionapp.WorkOrderStartCommand{ID: workOrder.ID, Operator: "重复开工员"})
+	if err == nil || !strings.Contains(err.Error(), "already started") {
+		t.Fatalf("duplicate StartWorkOrder err = %v, want already started guard", err)
+	}
+	assertProductionFlowCount(t, pool, schema, "produce_running_items", "1=1", 1)
+	assertProductionFlowCount(t, pool, schema, "work_order_material_reservations", "1=1", 1)
+}
+
+func TestLegacyProduceStartAPIUsesTemporaryPlanAndStillStartsProduction(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedProductionPlanLifecycleData(t, ctx, pool, schema)
+	seedProductionFlowWIPBatch(t, ctx, pool, schema, 10, 10, "MB-LEGACY-RAW", "计划生豆", 1000)
+
+	app := newProductionFlowTestEcho(pool, schema)
+	body := bytes.NewReader([]byte(`{"selected":["1-227"],"input_by_key":{"1-227":600}}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/start", body)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/produce/start status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	assertProductionFlowCount(t, pool, schema, "production_plans", "source_type='legacy_produce_start' AND status='in_progress'", 1)
+	assertProductionFlowCount(t, pool, schema, "production_plan_items", "product_id=1 AND planned_g=600", 1)
+	assertProductionFlowCount(t, pool, schema, "produce_running_items", "status='running'", 1)
+	assertProductionFlowCount(t, pool, schema, "work_orders", "status='running' AND running_item_id > 0", 1)
+	assertProductionFlowCount(t, pool, schema, "job_cards", "status='running' AND operation IN ('烘焙','包装')", 2)
+}
+
 func TestProduceStartAPIRejectsEmptySelectionWithoutOpeningWork(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()
@@ -1607,6 +1700,12 @@ func newProductionFlowTestDB(t *testing.T) (*pgxpool.Pool, string) {
 	if err := postgresbom.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("bom EnsureSchema: %v", err)
 	}
+	if err := postgrescatalog.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("catalog EnsureSchema: %v", err)
+	}
+	if err := postgresmanufacturing.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("manufacturing EnsureSchema: %v", err)
+	}
 	if err := postgresstock.EnsureSchema(ctx, pool, schema); err != nil {
 		t.Fatalf("stock EnsureSchema: %v", err)
 	}
@@ -1641,7 +1740,9 @@ func newProductionFlowTestEcho(pool *pgxpool.Pool, schema string) *echo.Echo {
 	productionSvc := productionapp.NewService(postgresproduction.NewRepository(pool, schema))
 	registerUnprodSummaryAPI(e, productionSvc)
 	registerManufacturingGapAPI(e, productionSvc)
+	registerProductionPlanAPI(e, productionSvc)
 	registerProductionFlowPages(e, productionSvc, nil)
+	registerWorkOrderAPI(e, productionSvc)
 	return e
 }
 
@@ -1690,6 +1791,46 @@ func assertProductionFlowCount(t *testing.T, pool *pgxpool.Pool, schema, table, 
 	if got != want {
 		t.Fatalf("%s count = %d, want %d", table, got, want)
 	}
+}
+
+func seedProductionPlanLifecycleData(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
+	t.Helper()
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'计划拼配',50,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES
+			('待处理',10,true),
+			('生产中',20,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
+			(1,'SO-PLAN-1','2026-06-10',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES (1,1,'计划拼配',2,'袋','227g',1,50,100);
+
+		INSERT INTO %s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES (10,'RAW-PLAN','计划生豆','bean','g',1000,0,54,0);
+		INSERT INTO %s.production_boms(id,code,name,output_product_id,status)
+		VALUES (100,'PBOM-PLAN','计划拼配 BOM',1,'active');
+		INSERT INTO %s.production_bom_versions(id,bom_id,version_no,status,yield_rate,published_at)
+		VALUES (100,100,'V001','published',0.8200,now());
+		INSERT INTO %s.production_bom_version_items(version_id,material_id,component_type,ratio_pct)
+		VALUES (100,10,'material',100.0000);
+		INSERT INTO %s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_by)
+		VALUES (1,100,100,'test');
+
+		INSERT INTO %s.process_routes(id,name,status,default_equipment,default_minutes)
+		VALUES (30,'一期路线','active','滚筒机',25);
+		INSERT INTO %s.process_route_operations(route_id,seq,operation,workstation,default_equipment,default_minutes,records_loss)
+		VALUES
+			(30,1,'烘焙','烘焙中心','滚筒机',25,true),
+			(30,2,'包装','包装台','封口机',10,false);
+		INSERT INTO %s.product_production_configs(product_id,production_bom_id,production_bom_version_id,process_route_id,expected_loss_rate,created_by,updated_by)
+		VALUES (1,100,100,30,0.1800,'test','test')
+		ON CONFLICT (product_id) DO UPDATE SET
+			production_bom_id=excluded.production_bom_id,
+			production_bom_version_id=excluded.production_bom_version_id,
+			process_route_id=excluded.process_route_id,
+			expected_loss_rate=excluded.expected_loss_rate;
+		`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
 }
 
 func mustExecProductionFlowTestSQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string) {

@@ -22,6 +22,7 @@ func RegisterRoutes(e *echo.Echo, deps Dependencies) {
 	registerUnprodSummaryAPI(e, deps.Production)
 	registerProducePlanPages(e)
 	registerMachineCapacityPages(e, deps.Production)
+	registerProductionPlanAPI(e, deps.Production)
 	registerProductionFlowPages(e, deps.Production, deps.MessageCenter)
 	registerProductionLogPages(e, deps.Production)
 	registerProduceBatchAPI(e, deps.Production)

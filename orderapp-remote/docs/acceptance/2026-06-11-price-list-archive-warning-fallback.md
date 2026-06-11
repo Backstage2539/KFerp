@@ -19,4 +19,8 @@
 - Frontend: `node --test src/lib/costing-bean-list-version-ui.test.js src/lib/product-settings.test.js src/lib/product-price-list-types.test.js src/lib/product-price-list-selection.test.js src/lib/bean-list-pdf.test.js` passed 198/198.
 - Backend/unit/API: `go test ./...` in `orderapp-remote` passed.
 - Build/check: `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
-- Deployment/browser acceptance: pending.
+- Follow-up RED browser: deployed `c48536f4` allowed archiving `V3.0.7 #51`; row moved out of default list and success message appeared, but `归档列表` stayed `(0)` because archive refresh did not update the current visible product-type cache key. The test row was restored through the unarchive API before the fix.
+- Follow-up GREEN local: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 28/28; full local checks passed again with `go test ./...`, frontend 198/198, `npm run build`, `scripts/verify_kferp.sh changed`, and `git diff --check`.
+- Follow-up 2 RED browser: deployed `1bd2ef90` showed `归档列表 (1)` correctly after archive, but clicking `移出归档` showed success while the default list did not immediately restore `V3.0.7 #51`; API confirmed the backend status was already restored to `published`.
+- Follow-up 2 GREEN local: `node --test src/lib/costing-bean-list-version-ui.test.js` passed 28/28 after cache status sync; targeted frontend with product/work-order tests passed 160/160; support/API contracts passed; `npm run build`, `scripts/verify_kferp.sh changed`, and `git diff --check` passed.
+- Deployment/browser acceptance: pending redeploy after follow-up 2 fix.

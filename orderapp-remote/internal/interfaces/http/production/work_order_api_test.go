@@ -15,6 +15,13 @@ type workOrderAPIRepo struct {
 	rows          []productionapp.WorkOrderRow
 	jobCards      []productionapp.JobCardRow
 	jobCardActual productionapp.JobCardActualsCommand
+
+	createPlan       productionapp.CreateProductionPlanCommand
+	submitPlan       productionapp.SubmitProductionPlanCommand
+	startWorkOrder   productionapp.WorkOrderStartCommand
+	productionPlan   productionapp.ProductionPlanDetail
+	submittedPlan    productionapp.ProductionPlanSubmitResult
+	workOrderStarted productionapp.WorkOrderStartResult
 }
 
 func (r *workOrderAPIRepo) CreateBatch(ctx context.Context, cmd productionapp.CreateBatchCommand) (productionapp.CreateBatchResult, error) {
@@ -46,6 +53,49 @@ func (r *workOrderAPIRepo) Finish(ctx context.Context, cmd productionapp.FinishC
 }
 func (r *workOrderAPIRepo) Cancel(ctx context.Context, cmd productionapp.CancelCommand) error {
 	return nil
+}
+func (r *workOrderAPIRepo) CreateProductionPlan(ctx context.Context, cmd productionapp.CreateProductionPlanCommand) (productionapp.ProductionPlanDetail, error) {
+	r.createPlan = cmd
+	if r.productionPlan.ID == 0 {
+		r.productionPlan = productionapp.ProductionPlanDetail{
+			ID:     41,
+			PlanNo: "PP-0000000041",
+			Status: "draft",
+			Items:  []productionapp.ProductionPlanItem{{ID: 51, ProductID: 1, ProductName: "计划拼配", SpecG: 227, PlannedG: 600, GapG: 454, OrderNos: "SO-PLAN-1"}},
+		}
+	}
+	return r.productionPlan, nil
+}
+func (r *workOrderAPIRepo) ListProductionPlans(ctx context.Context, query productionapp.ProductionPlanQuery) ([]productionapp.ProductionPlanRow, error) {
+	return []productionapp.ProductionPlanRow{{ID: 41, PlanNo: "PP-0000000041", Status: "draft", ItemCount: 1}}, nil
+}
+func (r *workOrderAPIRepo) GetProductionPlan(ctx context.Context, id int64) (productionapp.ProductionPlanDetail, error) {
+	if r.productionPlan.ID == 0 {
+		r.productionPlan = productionapp.ProductionPlanDetail{ID: id, PlanNo: "PP-0000000041", Status: "draft"}
+	}
+	return r.productionPlan, nil
+}
+func (r *workOrderAPIRepo) SubmitProductionPlan(ctx context.Context, cmd productionapp.SubmitProductionPlanCommand) (productionapp.ProductionPlanSubmitResult, error) {
+	r.submitPlan = cmd
+	if r.submittedPlan.Plan.ID == 0 {
+		r.submittedPlan = productionapp.ProductionPlanSubmitResult{
+			Plan:       productionapp.ProductionPlanDetail{ID: cmd.ID, PlanNo: "PP-0000000041", Status: "submitted"},
+			WorkOrders: []productionapp.WorkOrderRow{{ID: 88, WorkOrderNo: "WO-PP-0000000041-0000000051", Status: "released", RunningItemID: 0}},
+			JobCards:   []productionapp.JobCardRow{{ID: 91, WorkOrderID: 88, SequenceNo: 1, Operation: "烘焙", Workstation: "烘焙机", Status: "pending"}},
+		}
+	}
+	return r.submittedPlan, nil
+}
+func (r *workOrderAPIRepo) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOrderStartCommand) (productionapp.WorkOrderStartResult, error) {
+	r.startWorkOrder = cmd
+	if r.workOrderStarted.WorkOrder.ID == 0 {
+		r.workOrderStarted = productionapp.WorkOrderStartResult{
+			BatchID:       "BATCH-WO-88",
+			RunningItemID: 99,
+			WorkOrder:     productionapp.WorkOrderRow{ID: cmd.ID, WorkOrderNo: "WO-PP-0000000041-0000000051", Status: "running", RunningItemID: 99},
+		}
+	}
+	return r.workOrderStarted, nil
 }
 func (r *workOrderAPIRepo) ListMachines(ctx context.Context, activeOnly bool) ([]productionapp.RoastMachine, error) {
 	return nil, nil
@@ -134,6 +184,73 @@ func TestWorkOrderAPIIncludesRoastAdvice(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("response missing %s: %s", want, body)
 		}
+	}
+}
+
+func TestProductionPlanAPICreatesListsAndSubmitsFormalPlan(t *testing.T) {
+	repo := &workOrderAPIRepo{}
+	e := echo.New()
+	registerProductionPlanAPI(e, productionapp.NewService(repo))
+
+	createBody := `{"from":"2026-06-11","to":"2026-06-12","selected":["1-227"],"input_by_key":{"1-227":600},"source_type":"sales_order"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/production-plans", strings.NewReader(createBody))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/production-plans status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.createPlan.InputByKey["1-227"] != 600 || !repo.createPlan.Selected["1-227"] {
+		t.Fatalf("create plan command = %+v", repo.createPlan)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"status":"draft"`) || !strings.Contains(body, `"plan_no":"PP-0000000041"`) {
+		t.Fatalf("create plan response = %s, want draft plan", body)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/production-plans", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"plan_no":"PP-0000000041"`) {
+		t.Fatalf("GET /api/production-plans status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/production-plans/41/submit", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/production-plans/41/submit status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"status":"submitted"`, `"status":"released"`, `"status":"pending"`, `"work_order_no":"WO-PP-0000000041-0000000051"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("submit response missing %s: %s", want, body)
+		}
+	}
+	if repo.submitPlan.ID != 41 {
+		t.Fatalf("submit command = %+v, want id 41", repo.submitPlan)
+	}
+}
+
+func TestWorkOrderStartAPIStartsReleasedWorkOrder(t *testing.T) {
+	repo := &workOrderAPIRepo{}
+	e := echo.New()
+	registerWorkOrderAPI(e, productionapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/work-orders/88/start", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/work-orders/88/start status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"ok":true`, `"running_item_id":99`, `"status":"running"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("start work order response missing %s: %s", want, body)
+		}
+	}
+	if repo.startWorkOrder.ID != 88 {
+		t.Fatalf("start command = %+v, want work order id 88", repo.startWorkOrder)
 	}
 }
 

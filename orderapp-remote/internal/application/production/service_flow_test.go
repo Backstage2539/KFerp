@@ -13,6 +13,13 @@ type fakeFlowRepo struct {
 	finish         FinishCommand
 	cancel         CancelCommand
 
+	createPlan       CreateProductionPlanCommand
+	submitPlan       SubmitProductionPlanCommand
+	startWorkOrder   WorkOrderStartCommand
+	productionPlan   ProductionPlanDetail
+	submittedPlan    ProductionPlanSubmitResult
+	workOrderStarted WorkOrderStartResult
+
 	materialPlanQuery  MaterialPlanQuery
 	materialPlanResult MaterialPlanResult
 	qualityCommand     QualityInspectionCommand
@@ -71,6 +78,53 @@ func (r *fakeFlowRepo) Finish(ctx context.Context, cmd FinishCommand) (FinishRes
 func (r *fakeFlowRepo) Cancel(ctx context.Context, cmd CancelCommand) error {
 	r.cancel = cmd
 	return nil
+}
+
+func (r *fakeFlowRepo) CreateProductionPlan(ctx context.Context, cmd CreateProductionPlanCommand) (ProductionPlanDetail, error) {
+	r.createPlan = cmd
+	if r.productionPlan.ID == 0 {
+		r.productionPlan = ProductionPlanDetail{
+			ID:     41,
+			PlanNo: "PP-0000000041",
+			Status: "draft",
+			Items:  []ProductionPlanItem{{ID: 51, ProductID: 1, ProductName: "计划拼配", SpecG: 227, PlannedG: 600, GapG: 454, OrderNos: "SO-PLAN-1"}},
+		}
+	}
+	return r.productionPlan, nil
+}
+
+func (r *fakeFlowRepo) ListProductionPlans(ctx context.Context, query ProductionPlanQuery) ([]ProductionPlanRow, error) {
+	return []ProductionPlanRow{{ID: r.productionPlan.ID, PlanNo: r.productionPlan.PlanNo, Status: r.productionPlan.Status}}, nil
+}
+
+func (r *fakeFlowRepo) GetProductionPlan(ctx context.Context, id int64) (ProductionPlanDetail, error) {
+	return r.productionPlan, nil
+}
+
+func (r *fakeFlowRepo) SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error) {
+	r.submitPlan = cmd
+	if r.submittedPlan.Plan.ID == 0 {
+		r.submittedPlan = ProductionPlanSubmitResult{
+			Plan: ProductionPlanDetail{ID: cmd.ID, PlanNo: "PP-0000000041", Status: "submitted"},
+			WorkOrders: []WorkOrderRow{{
+				ID: 88, WorkOrderNo: "WO-PP-0000000041-0000000051", Status: "released", RunningItemID: 0, ProductID: 1, ProductName: "计划拼配", SpecG: 227, PlannedG: 600,
+			}},
+			JobCards: []JobCardRow{{ID: 91, WorkOrderID: 88, SequenceNo: 1, Operation: "烘焙", Workstation: "烘焙机", Status: "pending"}},
+		}
+	}
+	return r.submittedPlan, nil
+}
+
+func (r *fakeFlowRepo) StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand) (WorkOrderStartResult, error) {
+	r.startWorkOrder = cmd
+	if r.workOrderStarted.WorkOrder.ID == 0 {
+		r.workOrderStarted = WorkOrderStartResult{
+			BatchID:       "BATCH-WO-88",
+			RunningItemID: 99,
+			WorkOrder:     WorkOrderRow{ID: cmd.ID, WorkOrderNo: "WO-PP-0000000041-0000000051", Status: "running", RunningItemID: 99},
+		}
+	}
+	return r.workOrderStarted, nil
 }
 
 func (r *fakeFlowRepo) ListMachines(ctx context.Context, activeOnly bool) ([]RoastMachine, error) {
@@ -191,6 +245,63 @@ func TestServiceOwnsRunningProductionUseCases(t *testing.T) {
 	}
 	if repo.cancel.ID != 7 {
 		t.Fatalf("Cancel command = %+v", repo.cancel)
+	}
+}
+
+func TestServiceOwnsFormalProductionPlanWorkOrderLifecycle(t *testing.T) {
+	repo := &fakeFlowRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	plan, err := svc.CreateProductionPlan(ctx, CreateProductionPlanCommand{
+		From:       "2026-06-11",
+		To:         "2026-06-12",
+		Selected:   map[string]bool{"1-227": true},
+		InputByKey: map[string]int64{"1-227": 600},
+		Operator:   "计划员",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Status != "draft" || len(plan.Items) != 1 {
+		t.Fatalf("CreateProductionPlan() = %+v, want draft plan with one item", plan)
+	}
+	if repo.createPlan.Operator != "计划员" || !repo.createPlan.Selected["1-227"] || repo.createPlan.InputByKey["1-227"] != 600 {
+		t.Fatalf("create plan command = %+v", repo.createPlan)
+	}
+
+	submitted, err := svc.SubmitProductionPlan(ctx, SubmitProductionPlanCommand{ID: plan.ID, Operator: "计划员"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if submitted.Plan.Status != "submitted" || len(submitted.WorkOrders) != 1 || submitted.WorkOrders[0].Status != "released" {
+		t.Fatalf("SubmitProductionPlan() = %+v, want submitted plan and released work order", submitted)
+	}
+	if len(submitted.JobCards) != 1 || submitted.JobCards[0].Status != "pending" {
+		t.Fatalf("SubmitProductionPlan job cards = %+v, want pending job cards", submitted.JobCards)
+	}
+
+	started, err := svc.StartWorkOrder(ctx, WorkOrderStartCommand{ID: submitted.WorkOrders[0].ID, Operator: "开工员"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.RunningItemID != 99 || started.WorkOrder.Status != "running" || repo.startWorkOrder.Operator != "开工员" {
+		t.Fatalf("StartWorkOrder() = %+v command=%+v, want running work order", started, repo.startWorkOrder)
+	}
+}
+
+func TestServiceRejectsInvalidProductionPlanAndWorkOrderCommands(t *testing.T) {
+	svc := NewService(&fakeFlowRepo{})
+	ctx := context.Background()
+
+	if _, err := svc.CreateProductionPlan(ctx, CreateProductionPlanCommand{Selected: map[string]bool{}, InputByKey: map[string]int64{}, Operator: "计划员"}); err == nil {
+		t.Fatal("CreateProductionPlan should reject empty selection")
+	}
+	if _, err := svc.SubmitProductionPlan(ctx, SubmitProductionPlanCommand{ID: 0, Operator: "计划员"}); err == nil {
+		t.Fatal("SubmitProductionPlan should reject empty id")
+	}
+	if _, err := svc.StartWorkOrder(ctx, WorkOrderStartCommand{ID: 0, Operator: "开工员"}); err == nil {
+		t.Fatal("StartWorkOrder should reject empty id")
 	}
 }
 

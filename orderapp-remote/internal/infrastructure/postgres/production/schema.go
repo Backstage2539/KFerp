@@ -95,15 +95,57 @@ CREATE INDEX IF NOT EXISTS operation_template_steps_template_idx ON %s.operation
 
 func ensureWorkOrderTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	q := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s.production_plans (
+	id BIGSERIAL PRIMARY KEY,
+	plan_no TEXT NOT NULL UNIQUE,
+	source_type TEXT NOT NULL DEFAULT 'manual',
+	status TEXT NOT NULL DEFAULT 'draft',
+	from_date DATE,
+	to_date DATE,
+	customer_id BIGINT NOT NULL DEFAULT 0,
+	created_by TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	submitted_by TEXT NOT NULL DEFAULT '',
+	submitted_at TIMESTAMPTZ,
+	completed_at TIMESTAMPTZ,
+	cancelled_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS production_plans_status_idx ON %s.production_plans(status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS %s.production_plan_items (
+	id BIGSERIAL PRIMARY KEY,
+	production_plan_id BIGINT NOT NULL,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	product_name TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	planned_g BIGINT NOT NULL DEFAULT 0,
+	planned_output_g BIGINT NOT NULL DEFAULT 0,
+	gap_g BIGINT NOT NULL DEFAULT 0,
+	order_nos TEXT NOT NULL DEFAULT '',
+	bom_version_id BIGINT NOT NULL DEFAULT 0,
+	operation_template_id BIGINT NOT NULL DEFAULT 0,
+	process_route_id BIGINT NOT NULL DEFAULT 0,
+	component_snapshot_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+	process_route_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	production_config_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	customer_product_snapshot_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS production_plan_items_plan_idx ON %s.production_plan_items(production_plan_id, id);
+
 CREATE TABLE IF NOT EXISTS %s.work_orders (
 	id BIGSERIAL PRIMARY KEY,
 	work_order_no TEXT NOT NULL UNIQUE,
-	running_item_id BIGINT NOT NULL UNIQUE,
+	running_item_id BIGINT NOT NULL DEFAULT 0,
+	production_plan_id BIGINT NOT NULL DEFAULT 0,
+	production_plan_item_id BIGINT NOT NULL DEFAULT 0,
 	batch_id TEXT NOT NULL DEFAULT '',
 	product_id BIGINT NOT NULL DEFAULT 0,
 	product_name TEXT NOT NULL DEFAULT '',
 	spec_g BIGINT NOT NULL DEFAULT 0,
 	planned_g BIGINT NOT NULL DEFAULT 0,
+	planned_output_g BIGINT NOT NULL DEFAULT 0,
+	order_nos TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'running',
 	actual_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -119,6 +161,7 @@ CREATE TABLE IF NOT EXISTS %s.work_orders (
 	customer_product_snapshot_json JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 CREATE INDEX IF NOT EXISTS work_orders_status_idx ON %s.work_orders(status, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS work_orders_running_item_started_uq ON %s.work_orders(running_item_id) WHERE running_item_id > 0;
 
 CREATE TABLE IF NOT EXISTS %s.job_cards (
 	id BIGSERIAL PRIMARY KEY,
@@ -148,7 +191,7 @@ CREATE INDEX IF NOT EXISTS job_cards_status_idx ON %s.job_cards(status, started_
 
 CREATE TABLE IF NOT EXISTS %s.production_batch_costs (
 	id BIGSERIAL PRIMARY KEY,
-	running_item_id BIGINT NOT NULL UNIQUE,
+	running_item_id BIGINT NOT NULL,
 	batch_id TEXT NOT NULL DEFAULT '',
 	product_name TEXT NOT NULL DEFAULT '',
 	material_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
@@ -158,6 +201,7 @@ CREATE TABLE IF NOT EXISTS %s.production_batch_costs (
 	unit_cost_per_kg NUMERIC(12,4) NOT NULL DEFAULT 0,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS production_batch_costs_running_item_uq ON %s.production_batch_costs(running_item_id);
 CREATE INDEX IF NOT EXISTS production_batch_costs_created_idx ON %s.production_batch_costs(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS %s.work_order_material_reservations (
@@ -181,11 +225,17 @@ CREATE TABLE IF NOT EXISTS %s.work_order_material_reservations (
 );
 CREATE INDEX IF NOT EXISTS work_order_material_reservations_running_idx ON %s.work_order_material_reservations(running_item_id, status);
 CREATE INDEX IF NOT EXISTS work_order_material_reservations_material_idx ON %s.work_order_material_reservations(material_id, status);
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
 	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.work_orders DROP CONSTRAINT IF EXISTS work_orders_running_item_id_key`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ALTER COLUMN running_item_id SET DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS production_plan_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS production_plan_item_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS planned_output_g BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS order_nos TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS material_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS bom_version_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS operation_template_id BIGINT NOT NULL DEFAULT 0`, schema),
@@ -208,6 +258,7 @@ CREATE INDEX IF NOT EXISTS work_order_material_reservations_material_idx ON %s.w
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS operation_template_step_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS cost_type TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS cost_rate NUMERIC(12,4) NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS work_orders_running_item_started_uq ON %s.work_orders(running_item_id) WHERE running_item_id > 0`, schema),
 	} {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			return err

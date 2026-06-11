@@ -314,6 +314,86 @@ type PlanSummaryData struct {
 	Error          string                   `json:"error"`
 }
 
+type CreateProductionPlanCommand struct {
+	From       string
+	To         string
+	CustomerID int64
+	SourceType string
+	Selected   map[string]bool
+	InputByKey map[string]int64
+	Operator   string
+}
+
+type ProductionPlanQuery struct {
+	Status string
+	Limit  int
+}
+
+type ProductionPlanRow struct {
+	ID          int64  `json:"id"`
+	PlanNo      string `json:"plan_no"`
+	SourceType  string `json:"source_type"`
+	Status      string `json:"status"`
+	ItemCount   int64  `json:"item_count"`
+	CreatedBy   string `json:"created_by"`
+	CreatedAt   string `json:"created_at"`
+	SubmittedBy string `json:"submitted_by"`
+	SubmittedAt string `json:"submitted_at"`
+}
+
+type ProductionPlanItem struct {
+	ID                           int64  `json:"id"`
+	PlanID                       int64  `json:"plan_id"`
+	ProductID                    int64  `json:"product_id"`
+	ProductName                  string `json:"product_name"`
+	SpecG                        int64  `json:"spec_g"`
+	PlannedG                     int64  `json:"planned_g"`
+	PlannedOutputG               int64  `json:"planned_output_g"`
+	GapG                         int64  `json:"gap_g"`
+	OrderNos                     string `json:"order_nos"`
+	BomVersionID                 int64  `json:"bom_version_id"`
+	OperationTemplateID          int64  `json:"operation_template_id"`
+	ProcessRouteID               int64  `json:"process_route_id"`
+	MaterialSnapshot             string `json:"material_snapshot"`
+	ProcessSnapshotJSON          string `json:"process_snapshot_json"`
+	ProductionConfigSnapshotJSON string `json:"production_config_snapshot_json"`
+	CustomerProductSnapshotJSON  string `json:"customer_product_snapshot_json"`
+}
+
+type ProductionPlanDetail struct {
+	ID          int64                `json:"id"`
+	PlanNo      string               `json:"plan_no"`
+	SourceType  string               `json:"source_type"`
+	Status      string               `json:"status"`
+	CreatedBy   string               `json:"created_by"`
+	CreatedAt   string               `json:"created_at"`
+	SubmittedBy string               `json:"submitted_by"`
+	SubmittedAt string               `json:"submitted_at"`
+	Items       []ProductionPlanItem `json:"items"`
+}
+
+type SubmitProductionPlanCommand struct {
+	ID       int64
+	Operator string
+}
+
+type ProductionPlanSubmitResult struct {
+	Plan       ProductionPlanDetail `json:"plan"`
+	WorkOrders []WorkOrderRow       `json:"work_orders"`
+	JobCards   []JobCardRow         `json:"job_cards"`
+}
+
+type WorkOrderStartCommand struct {
+	ID       int64
+	Operator string
+}
+
+type WorkOrderStartResult struct {
+	BatchID       string       `json:"batch_id"`
+	RunningItemID int64        `json:"running_item_id"`
+	WorkOrder     WorkOrderRow `json:"work_order"`
+}
+
 type ProductionLogsQuery struct {
 	From      string
 	To        string
@@ -367,11 +447,14 @@ type WorkOrderRow struct {
 	ID                    int64   `json:"id"`
 	WorkOrderNo           string  `json:"work_order_no"`
 	RunningItemID         int64   `json:"running_item_id"`
+	ProductionPlanID      int64   `json:"production_plan_id"`
+	ProductionPlanItemID  int64   `json:"production_plan_item_id"`
 	BatchID               string  `json:"batch_id"`
 	ProductID             int64   `json:"product_id"`
 	ProductName           string  `json:"product_name"`
 	SpecG                 int64   `json:"spec_g"`
 	PlannedG              int64   `json:"planned_g"`
+	PlannedOutputG        int64   `json:"planned_output_g"`
 	Status                string  `json:"status"`
 	ActualCost            float64 `json:"actual_cost"`
 	CreatedAt             string  `json:"created_at"`
@@ -393,6 +476,7 @@ type WorkOrderRow struct {
 	WIPConsumedG          int64   `json:"wip_consumed_g"`
 	WIPRemainingReservedG int64   `json:"remaining_reserved_g"`
 	BomVersionID          int64   `json:"bom_version_id"`
+	OperationTemplateID   int64   `json:"operation_template_id"`
 	ProcessTemplateID     int64   `json:"process_template_id"`
 	ProcessTemplateName   string  `json:"process_template_name"`
 	ProcessSnapshotJSON   string  `json:"process_snapshot_json"`
@@ -604,6 +688,11 @@ type Repository interface {
 	ListMachines(ctx context.Context, activeOnly bool) ([]RoastMachine, error)
 	SaveMachine(ctx context.Context, cmd RoastMachineCommand) error
 	PlanSummary(ctx context.Context, query PlanSummaryQuery) (PlanSummaryData, error)
+	CreateProductionPlan(ctx context.Context, cmd CreateProductionPlanCommand) (ProductionPlanDetail, error)
+	ListProductionPlans(ctx context.Context, query ProductionPlanQuery) ([]ProductionPlanRow, error)
+	GetProductionPlan(ctx context.Context, id int64) (ProductionPlanDetail, error)
+	SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error)
+	StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand) (WorkOrderStartResult, error)
 	ListProductionLogs(ctx context.Context, query ProductionLogsQuery) (ProductionLogsResult, error)
 	ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]WorkOrderRow, error)
 	ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCardRow, error)
@@ -709,6 +798,67 @@ func (s *Service) PlanSummary(ctx context.Context, query PlanSummaryQuery) (Plan
 		query.Selected = map[string]bool{}
 	}
 	return s.repo.PlanSummary(ctx, query)
+}
+
+func (s *Service) CreateProductionPlan(ctx context.Context, cmd CreateProductionPlanCommand) (ProductionPlanDetail, error) {
+	cmd.From = strings.TrimSpace(cmd.From)
+	cmd.To = strings.TrimSpace(cmd.To)
+	cmd.SourceType = strings.TrimSpace(cmd.SourceType)
+	if cmd.SourceType == "" {
+		cmd.SourceType = "erp_order"
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	if cmd.Selected == nil || len(cmd.Selected) == 0 {
+		return ProductionPlanDetail{}, fmt.Errorf("selected production items required")
+	}
+	if cmd.InputByKey == nil {
+		cmd.InputByKey = map[string]int64{}
+	}
+	hasSelected := false
+	for key, selected := range cmd.Selected {
+		if !selected {
+			continue
+		}
+		hasSelected = true
+		if cmd.InputByKey[key] <= 0 {
+			return ProductionPlanDetail{}, fmt.Errorf("input_g required for %s", key)
+		}
+	}
+	if !hasSelected {
+		return ProductionPlanDetail{}, fmt.Errorf("selected production items required")
+	}
+	return s.repo.CreateProductionPlan(ctx, cmd)
+}
+
+func (s *Service) ListProductionPlans(ctx context.Context, query ProductionPlanQuery) ([]ProductionPlanRow, error) {
+	query.Status = strings.TrimSpace(query.Status)
+	if query.Limit <= 0 || query.Limit > 500 {
+		query.Limit = 200
+	}
+	return s.repo.ListProductionPlans(ctx, query)
+}
+
+func (s *Service) GetProductionPlan(ctx context.Context, id int64) (ProductionPlanDetail, error) {
+	if id <= 0 {
+		return ProductionPlanDetail{}, fmt.Errorf("production_plan_id required")
+	}
+	return s.repo.GetProductionPlan(ctx, id)
+}
+
+func (s *Service) SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error) {
+	if cmd.ID <= 0 {
+		return ProductionPlanSubmitResult{}, fmt.Errorf("production_plan_id required")
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	return s.repo.SubmitProductionPlan(ctx, cmd)
+}
+
+func (s *Service) StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand) (WorkOrderStartResult, error) {
+	if cmd.ID <= 0 {
+		return WorkOrderStartResult{}, fmt.Errorf("work_order_id required")
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	return s.repo.StartWorkOrder(ctx, cmd)
 }
 
 func (s *Service) ListProductionLogs(ctx context.Context, query ProductionLogsQuery) (ProductionLogsResult, error) {

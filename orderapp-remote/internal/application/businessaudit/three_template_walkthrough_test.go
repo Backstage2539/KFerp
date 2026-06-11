@@ -969,6 +969,26 @@ func (s *threeTemplateWalkthroughStore) PlanSummary(_ context.Context, query pro
 	return productionapp.PlanSummaryData{From: query.From, To: query.To, CustomerID: query.CustomerID, Rows: rows, Selected: map[string]bool{}, PlanReady: len(rows) > 0}, nil
 }
 
+func (s *threeTemplateWalkthroughStore) CreateProductionPlan(context.Context, productionapp.CreateProductionPlanCommand) (productionapp.ProductionPlanDetail, error) {
+	return productionapp.ProductionPlanDetail{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) ListProductionPlans(context.Context, productionapp.ProductionPlanQuery) ([]productionapp.ProductionPlanRow, error) {
+	return nil, nil
+}
+
+func (s *threeTemplateWalkthroughStore) GetProductionPlan(context.Context, int64) (productionapp.ProductionPlanDetail, error) {
+	return productionapp.ProductionPlanDetail{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) SubmitProductionPlan(context.Context, productionapp.SubmitProductionPlanCommand) (productionapp.ProductionPlanSubmitResult, error) {
+	return productionapp.ProductionPlanSubmitResult{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) StartWorkOrder(context.Context, productionapp.WorkOrderStartCommand) (productionapp.WorkOrderStartResult, error) {
+	return productionapp.WorkOrderStartResult{}, nil
+}
+
 func (s *threeTemplateWalkthroughStore) productionNeeds(customerID int64) []productionapp.UnprodNeedRow {
 	rows := []productionapp.UnprodNeedRow{}
 	for _, demand := range s.demands {
