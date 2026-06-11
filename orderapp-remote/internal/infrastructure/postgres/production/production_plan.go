@@ -211,6 +211,17 @@ func createLegacyProductionPlanForStartGroupsTx(ctx context.Context, tx pgx.Tx, 
 	return planID, itemIDs, nil
 }
 
+func productionPlanTimeFieldColumn(field string) string {
+	switch strings.TrimSpace(field) {
+	case "submitted_at":
+		return "pp.submitted_at"
+	case "completed_at":
+		return "pp.completed_at"
+	default:
+		return "pp.created_at"
+	}
+}
+
 func (r Repository) ListProductionPlans(ctx context.Context, query productionapp.ProductionPlanQuery) ([]productionapp.ProductionPlanRow, error) {
 	args := []any{}
 	where := "1=1"
@@ -218,12 +229,22 @@ func (r Repository) ListProductionPlans(ctx context.Context, query productionapp
 		args = append(args, strings.TrimSpace(query.Status))
 		where += fmt.Sprintf(" AND pp.status=$%d", len(args))
 	}
+	timeColumn := productionPlanTimeFieldColumn(query.TimeField)
+	if strings.TrimSpace(query.From) != "" {
+		args = append(args, strings.TrimSpace(query.From))
+		where += fmt.Sprintf(" AND %s >= NULLIF($%d,'')::date", timeColumn, len(args))
+	}
+	if strings.TrimSpace(query.To) != "" {
+		args = append(args, strings.TrimSpace(query.To))
+		where += fmt.Sprintf(" AND %s < (NULLIF($%d,'')::date + interval '1 day')", timeColumn, len(args))
+	}
 	args = append(args, query.Limit)
 	limitArg := len(args)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT pp.id,pp.plan_no,pp.source_type,pp.status,COUNT(pi.id)::bigint,
 		       pp.created_by,to_char(pp.created_at,'YYYY-MM-DD HH24:MI'),
-		       pp.submitted_by,COALESCE(to_char(pp.submitted_at,'YYYY-MM-DD HH24:MI'),'')
+		       pp.submitted_by,COALESCE(to_char(pp.submitted_at,'YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(to_char(pp.completed_at,'YYYY-MM-DD HH24:MI'),'')
 		FROM %s.production_plans pp
 		LEFT JOIN %s.production_plan_items pi ON pi.production_plan_id=pp.id
 		WHERE %s
@@ -238,7 +259,7 @@ func (r Repository) ListProductionPlans(ctx context.Context, query productionapp
 	out := make([]productionapp.ProductionPlanRow, 0)
 	for rows.Next() {
 		var row productionapp.ProductionPlanRow
-		if err := rows.Scan(&row.ID, &row.PlanNo, &row.SourceType, &row.Status, &row.ItemCount, &row.CreatedBy, &row.CreatedAt, &row.SubmittedBy, &row.SubmittedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.PlanNo, &row.SourceType, &row.Status, &row.ItemCount, &row.CreatedBy, &row.CreatedAt, &row.SubmittedBy, &row.SubmittedAt, &row.CompletedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -266,10 +287,11 @@ func loadProductionPlanDetailTx(ctx context.Context, tx pgx.Tx, schema string, i
 	var detail productionapp.ProductionPlanDetail
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT id,plan_no,source_type,status,created_by,to_char(created_at,'YYYY-MM-DD HH24:MI'),
-		       submitted_by,COALESCE(to_char(submitted_at,'YYYY-MM-DD HH24:MI'),'')
+		       submitted_by,COALESCE(to_char(submitted_at,'YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),'')
 		FROM %s.production_plans
 		WHERE id=$1
-	`, schema), id).Scan(&detail.ID, &detail.PlanNo, &detail.SourceType, &detail.Status, &detail.CreatedBy, &detail.CreatedAt, &detail.SubmittedBy, &detail.SubmittedAt)
+	`, schema), id).Scan(&detail.ID, &detail.PlanNo, &detail.SourceType, &detail.Status, &detail.CreatedBy, &detail.CreatedAt, &detail.SubmittedBy, &detail.SubmittedAt, &detail.CompletedAt)
 	if err == pgx.ErrNoRows {
 		return productionapp.ProductionPlanDetail{}, fmt.Errorf("production plan not found")
 	}

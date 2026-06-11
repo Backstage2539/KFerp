@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-473-PRODUCTION-PLAN-BULK-SUBMIT-FILTER
+- Branch: codex/production-plan-bulk-submit-filter-20260611
+- Owner/session: Codex / 2026-06-11
+- Status: implemented locally; targeted RED/GREEN tests, related Go packages, full Go tests, Vue build, changed verifier, diff check and local browser acceptance passed. Not merged or deployed.
+- Scope: 生产计划列表提交与过滤改造。`创建生产计划` 保持只创建 draft 计划；删除旧 `生成计划` 入口和行内 `提交`；生产计划列表支持状态/时间过滤、草稿计划复选框、表头三态、批量 `提交生成工单`，批量提交只处理 draft 并生成 released 工单和 pending 工序卡。通用制造抽象、BOM、工艺路线、工序、工位、旧 `/api/produce/start` 不在本需求内。
+- DEV:
+  - DEV-473-PRODUCTION-PLAN-FILTER-API：`GET /api/production-plans` 支持 `status`、`time_field=created_at|submitted_at|completed_at`、`from`、`to`、`limit`，默认最近 50 条并按创建时间倒序。
+  - DEV-473-PRODUCTION-PLAN-BULK-SUBMIT：新增 `POST /api/production-plans/submit`，请求 `{ "ids": [...] }`，返回成功计划、失败计划和生成工单/工序卡数量；只允许 draft，非草稿和重复 ID 返回失败明细，不重复生成工单，每个成功计划沿用提交操作日志。
+  - DEV-473-VUE-PLAN-SELECTION-FILTERS：Vue 生产计划列表新增过滤区、草稿复选框、表头三态和顶部批量 `提交生成工单`；删除旧 `生成计划` 和行内 `提交`；状态中文化并按颜色区分。
+  - DEV-473-DOCS-ACCEPTANCE：同步需求、验收清单、生产手册、PR/DEV/UT/API/REV 种子和 PR-473 验收记录。
+- Verifier:
+  - RED frontend: `node --test src/lib/produce-plan.test.js` failed before implementation because `buildProductionPlanListQuery`、状态中文/颜色 helper、草稿选择三态 helper、批量提交 endpoint/payload helper 不存在，且 `ProducePlanView.vue` 仍有旧 `生成计划`、行内 `提交` 和单条提交入口。
+  - RED service/API/repository: `go test ./internal/application/production -run 'TestListProductionPlansNormalizesFiltersAndDefaultLimit|TestSubmitProductionPlansBatchesDraftPlansAndReportsFailures|TestServiceRejectsInvalidProductionPlanAndWorkOrderCommands' -count=1 -v` failed before implementation because `ProductionPlanQuery.TimeField/From/To` and `SubmitProductionPlans` were missing; `go test ./internal/interfaces/http/production -run 'TestProductionPlanAPIListAcceptsStatusAndTimeFilters|TestProductionPlanAPIBatchSubmitReportsPartialResults' -count=1 -v` failed for the same API contract gap; `go test ./internal/infrastructure/postgres/production -run TestProductionPlanListSupportsStatusAndTimeFilters -count=1 -v` failed because list SQL lacked `productionPlanTimeFieldColumn` and completed-time fields.
+  - RED support/docs: `go test ./internal/interfaces/http/support -run TestDev473ProductionPlanBulkSubmitFilterContracts -count=1 -v` failed before implementation because the PR-473 API, Vue and docs markers were missing.
+  - GREEN targeted frontend: `node --test src/lib/produce-plan.test.js` passed 16/16.
+  - GREEN targeted backend/support: `go test ./internal/application/production -run 'TestListProductionPlansNormalizesFiltersAndDefaultLimit|TestSubmitProductionPlansBatchesDraftPlansAndReportsFailures|TestServiceRejectsInvalidProductionPlanAndWorkOrderCommands' -count=1 -v`; `go test ./internal/interfaces/http/production -run 'TestProductionPlanAPIListAcceptsStatusAndTimeFilters|TestProductionPlanAPIBatchSubmitReportsPartialResults' -count=1 -v`; `go test ./internal/infrastructure/postgres/production -run TestProductionPlanListSupportsStatusAndTimeFilters -count=1 -v`; `go test ./internal/interfaces/http/support -run TestDev473ProductionPlanBulkSubmitFilterContracts -count=1 -v` passed.
+  - GREEN packages/build/check: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1` passed; `go test ./...` passed; `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+  - GREEN browser/local: local production Vue build + mock API at `http://127.0.0.1:5188/vue-shell/?view=producePlan` rendered production plan page with `创建生产计划` and `提交生成工单`, no old `生成计划` button, no row-level `提交`; filter labels `状态/时间类型/开始日期/结束日期` visible; draft row `草稿` class `status-draft` selectable, submitted row `已提交工单` class `status-submitted` disabled; selecting draft enabled batch button; clicking batch submitted via `POST /api/production-plans/submit`, refreshed row to `已提交工单` and disabled checkbox; status filter sent `?status=submitted&time_field=created_at&limit=50`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-11-production-plan-bulk-submit-filter.md`.
+
 ### PR-471-MANUFACTURING-PHASE1-COMPLETION
 - Branch: codex/manufacturing-phase1-complete-20260611-v2
 - Owner/session: Codex / 2026-06-11

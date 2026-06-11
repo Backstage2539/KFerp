@@ -2,6 +2,7 @@ package production
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	productionapp "orderapp/internal/application/production"
@@ -16,12 +17,16 @@ type workOrderAPIRepo struct {
 	jobCards      []productionapp.JobCardRow
 	jobCardActual productionapp.JobCardActualsCommand
 
-	createPlan       productionapp.CreateProductionPlanCommand
-	submitPlan       productionapp.SubmitProductionPlanCommand
-	startWorkOrder   productionapp.WorkOrderStartCommand
-	productionPlan   productionapp.ProductionPlanDetail
-	submittedPlan    productionapp.ProductionPlanSubmitResult
-	workOrderStarted productionapp.WorkOrderStartResult
+	createPlan          productionapp.CreateProductionPlanCommand
+	submitPlan          productionapp.SubmitProductionPlanCommand
+	submitPlans         []productionapp.SubmitProductionPlanCommand
+	startWorkOrder      productionapp.WorkOrderStartCommand
+	productionPlanQuery productionapp.ProductionPlanQuery
+	productionPlan      productionapp.ProductionPlanDetail
+	submittedPlan       productionapp.ProductionPlanSubmitResult
+	submitPlanByID      map[int64]productionapp.ProductionPlanSubmitResult
+	submitPlanErrByID   map[int64]error
+	workOrderStarted    productionapp.WorkOrderStartResult
 }
 
 func (r *workOrderAPIRepo) CreateBatch(ctx context.Context, cmd productionapp.CreateBatchCommand) (productionapp.CreateBatchResult, error) {
@@ -67,6 +72,7 @@ func (r *workOrderAPIRepo) CreateProductionPlan(ctx context.Context, cmd product
 	return r.productionPlan, nil
 }
 func (r *workOrderAPIRepo) ListProductionPlans(ctx context.Context, query productionapp.ProductionPlanQuery) ([]productionapp.ProductionPlanRow, error) {
+	r.productionPlanQuery = query
 	return []productionapp.ProductionPlanRow{{ID: 41, PlanNo: "PP-0000000041", Status: "draft", ItemCount: 1}}, nil
 }
 func (r *workOrderAPIRepo) GetProductionPlan(ctx context.Context, id int64) (productionapp.ProductionPlanDetail, error) {
@@ -77,6 +83,13 @@ func (r *workOrderAPIRepo) GetProductionPlan(ctx context.Context, id int64) (pro
 }
 func (r *workOrderAPIRepo) SubmitProductionPlan(ctx context.Context, cmd productionapp.SubmitProductionPlanCommand) (productionapp.ProductionPlanSubmitResult, error) {
 	r.submitPlan = cmd
+	r.submitPlans = append(r.submitPlans, cmd)
+	if err := r.submitPlanErrByID[cmd.ID]; err != nil {
+		return productionapp.ProductionPlanSubmitResult{}, err
+	}
+	if res, ok := r.submitPlanByID[cmd.ID]; ok {
+		return res, nil
+	}
 	if r.submittedPlan.Plan.ID == 0 {
 		r.submittedPlan = productionapp.ProductionPlanSubmitResult{
 			Plan:       productionapp.ProductionPlanDetail{ID: cmd.ID, PlanNo: "PP-0000000041", Status: "submitted"},
@@ -228,6 +241,62 @@ func TestProductionPlanAPICreatesListsAndSubmitsFormalPlan(t *testing.T) {
 	}
 	if repo.submitPlan.ID != 41 {
 		t.Fatalf("submit command = %+v, want id 41", repo.submitPlan)
+	}
+}
+
+func TestProductionPlanAPIListAcceptsStatusAndTimeFilters(t *testing.T) {
+	repo := &workOrderAPIRepo{}
+	e := echo.New()
+	registerProductionPlanAPI(e, productionapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/production-plans?status=submitted&time_field=submitted_at&from=2026-06-01&to=2026-06-11&limit=50", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/production-plans status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.productionPlanQuery.Status != "submitted" ||
+		repo.productionPlanQuery.TimeField != "submitted_at" ||
+		repo.productionPlanQuery.From != "2026-06-01" ||
+		repo.productionPlanQuery.To != "2026-06-11" ||
+		repo.productionPlanQuery.Limit != 50 {
+		t.Fatalf("production plan query = %+v, want status and submitted_at date filters", repo.productionPlanQuery)
+	}
+}
+
+func TestProductionPlanAPIBatchSubmitReportsPartialResults(t *testing.T) {
+	repo := &workOrderAPIRepo{
+		submitPlanByID: map[int64]productionapp.ProductionPlanSubmitResult{
+			41: {
+				Plan:       productionapp.ProductionPlanDetail{ID: 41, PlanNo: "PP-0000000041", Status: "submitted"},
+				WorkOrders: []productionapp.WorkOrderRow{{ID: 88, WorkOrderNo: "WO-PP-0000000041-0000000051", Status: "released"}},
+				JobCards:   []productionapp.JobCardRow{{ID: 91, WorkOrderID: 88, Status: "pending"}},
+			},
+		},
+		submitPlanErrByID: map[int64]error{
+			42: fmt.Errorf("production plan must be draft to submit"),
+		},
+	}
+	e := echo.New()
+	registerProductionPlanAPI(e, productionapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/production-plans/submit", strings.NewReader(`{"ids":[41,42]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/production-plans/submit status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"work_order_count":1`, `"job_card_count":1`, `"plan_no":"PP-0000000041"`, `"id":42`, `"production plan must be draft to submit"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("batch submit response missing %s: %s", want, body)
+		}
+	}
+	if len(repo.submitPlans) != 2 || repo.submitPlans[0].ID != 41 || repo.submitPlans[1].ID != 42 {
+		t.Fatalf("batch submit commands = %+v, want 41 then 42", repo.submitPlans)
 	}
 }
 

@@ -2,6 +2,7 @@ package production
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -13,12 +14,16 @@ type fakeFlowRepo struct {
 	finish         FinishCommand
 	cancel         CancelCommand
 
-	createPlan       CreateProductionPlanCommand
-	submitPlan       SubmitProductionPlanCommand
-	startWorkOrder   WorkOrderStartCommand
-	productionPlan   ProductionPlanDetail
-	submittedPlan    ProductionPlanSubmitResult
-	workOrderStarted WorkOrderStartResult
+	createPlan          CreateProductionPlanCommand
+	submitPlan          SubmitProductionPlanCommand
+	submitPlans         []SubmitProductionPlanCommand
+	startWorkOrder      WorkOrderStartCommand
+	productionPlanQuery ProductionPlanQuery
+	productionPlan      ProductionPlanDetail
+	submittedPlan       ProductionPlanSubmitResult
+	submitPlanByID      map[int64]ProductionPlanSubmitResult
+	submitPlanErrByID   map[int64]error
+	workOrderStarted    WorkOrderStartResult
 
 	materialPlanQuery  MaterialPlanQuery
 	materialPlanResult MaterialPlanResult
@@ -94,6 +99,7 @@ func (r *fakeFlowRepo) CreateProductionPlan(ctx context.Context, cmd CreateProdu
 }
 
 func (r *fakeFlowRepo) ListProductionPlans(ctx context.Context, query ProductionPlanQuery) ([]ProductionPlanRow, error) {
+	r.productionPlanQuery = query
 	return []ProductionPlanRow{{ID: r.productionPlan.ID, PlanNo: r.productionPlan.PlanNo, Status: r.productionPlan.Status}}, nil
 }
 
@@ -103,6 +109,13 @@ func (r *fakeFlowRepo) GetProductionPlan(ctx context.Context, id int64) (Product
 
 func (r *fakeFlowRepo) SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error) {
 	r.submitPlan = cmd
+	r.submitPlans = append(r.submitPlans, cmd)
+	if err := r.submitPlanErrByID[cmd.ID]; err != nil {
+		return ProductionPlanSubmitResult{}, err
+	}
+	if res, ok := r.submitPlanByID[cmd.ID]; ok {
+		return res, nil
+	}
 	if r.submittedPlan.Plan.ID == 0 {
 		r.submittedPlan = ProductionPlanSubmitResult{
 			Plan: ProductionPlanDetail{ID: cmd.ID, PlanNo: "PP-0000000041", Status: "submitted"},
@@ -317,6 +330,67 @@ func TestCreateProductionPlanDefaultsSelectedNeedInputWhenPlanRowHasNoEditableRo
 	}
 }
 
+func TestListProductionPlansNormalizesFiltersAndDefaultLimit(t *testing.T) {
+	repo := &fakeFlowRepo{}
+	svc := NewService(repo)
+
+	if _, err := svc.ListProductionPlans(context.Background(), ProductionPlanQuery{
+		Status:    " submitted ",
+		TimeField: " submitted_at ",
+		From:      " 2026-06-01 ",
+		To:        " 2026-06-11 ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.productionPlanQuery.Status != "submitted" ||
+		repo.productionPlanQuery.TimeField != "submitted_at" ||
+		repo.productionPlanQuery.From != "2026-06-01" ||
+		repo.productionPlanQuery.To != "2026-06-11" ||
+		repo.productionPlanQuery.Limit != 50 {
+		t.Fatalf("production plan query = %+v, want normalized submitted_at date filter with default limit 50", repo.productionPlanQuery)
+	}
+
+	if _, err := svc.ListProductionPlans(context.Background(), ProductionPlanQuery{TimeField: "updated_at", Limit: 999}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.productionPlanQuery.TimeField != "created_at" || repo.productionPlanQuery.Limit != 500 {
+		t.Fatalf("fallback production plan query = %+v, want created_at with capped limit 500", repo.productionPlanQuery)
+	}
+}
+
+func TestSubmitProductionPlansBatchesDraftPlansAndReportsFailures(t *testing.T) {
+	repo := &fakeFlowRepo{
+		submitPlanByID: map[int64]ProductionPlanSubmitResult{
+			41: {
+				Plan:       ProductionPlanDetail{ID: 41, PlanNo: "PP-0000000041", Status: "submitted"},
+				WorkOrders: []WorkOrderRow{{ID: 88, WorkOrderNo: "WO-PP-0000000041-0000000051", Status: "released"}},
+				JobCards:   []JobCardRow{{ID: 91, WorkOrderID: 88, Status: "pending"}},
+			},
+		},
+		submitPlanErrByID: map[int64]error{
+			42: fmt.Errorf("production plan must be draft to submit"),
+		},
+	}
+	svc := NewService(repo)
+
+	result, err := svc.SubmitProductionPlans(context.Background(), SubmitProductionPlansCommand{
+		IDs:      []int64{41, 42, 41},
+		Operator: " 计划员 ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Success) != 1 || result.Success[0].Plan.ID != 41 || result.WorkOrderCount != 1 || result.JobCardCount != 1 {
+		t.Fatalf("batch submit result = %+v, want one submitted plan and counts", result)
+	}
+	if len(result.Failed) != 2 || result.Failed[0].ID != 42 || result.Failed[1].ID != 41 {
+		t.Fatalf("batch submit failures = %+v, want non-draft and duplicate detail", result.Failed)
+	}
+	if len(repo.submitPlans) != 2 || repo.submitPlans[0].ID != 41 || repo.submitPlans[1].ID != 42 || repo.submitPlans[0].Operator != "计划员" {
+		t.Fatalf("submit commands = %+v, want unique ids with trimmed operator", repo.submitPlans)
+	}
+}
+
 func TestServiceRejectsInvalidProductionPlanAndWorkOrderCommands(t *testing.T) {
 	svc := NewService(&fakeFlowRepo{})
 	ctx := context.Background()
@@ -326,6 +400,9 @@ func TestServiceRejectsInvalidProductionPlanAndWorkOrderCommands(t *testing.T) {
 	}
 	if _, err := svc.SubmitProductionPlan(ctx, SubmitProductionPlanCommand{ID: 0, Operator: "计划员"}); err == nil {
 		t.Fatal("SubmitProductionPlan should reject empty id")
+	}
+	if _, err := svc.SubmitProductionPlans(ctx, SubmitProductionPlansCommand{IDs: []int64{}, Operator: "计划员"}); err == nil {
+		t.Fatal("SubmitProductionPlans should reject empty ids")
 	}
 	if _, err := svc.StartWorkOrder(ctx, WorkOrderStartCommand{ID: 0, Operator: "开工员"}); err == nil {
 		t.Fatal("StartWorkOrder should reject empty id")

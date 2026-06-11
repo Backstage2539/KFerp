@@ -859,3 +859,10 @@
 - 已发布价格表版本列表必须支持多选归档。归档版本不删除历史快照和 PDF 内容，但从默认已发布价格表列表移出，不再干扰日常版本浏览。
 - 页面提供 `归档列表`，归档列表展示已归档版本并支持 `移出归档`。移出归档后版本回到已发布价格表列表，可继续下载 PDF 和生成新版。
 - 归档和移出归档都是用户触发的价格表版本状态变更，必须写操作日志，包含版本 ID、版本号、价格表归属、publication_purpose、原状态和新状态。
+
+## 50. 生产计划列表提交与过滤（PR-473-PRODUCTION-PLAN-BULK-SUBMIT-FILTER）
+- 生产计划页面流程固定为 `选择缺口商品 -> 创建生产计划 -> 在生产计划列表勾选计划 -> 提交生成工单`；`创建生产计划` 只创建 `draft` 草稿计划，不自动提交、不自动生成工单。
+- 生产计划列表勾选计划后批量提交生成工单；只有 `draft` 可勾选，`submitted/in_progress/completed/cancelled` 不可勾选。列表不再显示旧 `生成计划` 按钮，也不再显示行内 `提交` 按钮。
+- 列表顶部 `提交生成工单` 在未选草稿计划时置灰；选中一个或多个草稿计划后调用 `POST /api/production-plans/submit`，每个成功计划生成 `released` 工单和 `pending` 工序卡，非草稿或重复提交返回失败明细且不重复生成工单。
+- 生产计划状态必须中文化并用颜色区分：`draft` 草稿、`submitted` 已提交工单、`in_progress` 生产中、`completed` 已完成、`cancelled` 已取消。
+- `GET /api/production-plans` 必须支持 `status`、`time_field=created_at|submitted_at|completed_at`、`from`、`to`、`limit`；默认展示最近 50 条，按创建时间倒序。

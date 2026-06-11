@@ -19,11 +19,18 @@ type productionPlanCreateRequest struct {
 	InputByKey map[string]int64 `json:"input_by_key"`
 }
 
+type productionPlanBatchSubmitRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
 func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 	e.GET("/api/production-plans", func(c echo.Context) error {
 		rows, err := productionSvc.ListProductionPlans(c.Request().Context(), productionapp.ProductionPlanQuery{
-			Status: strings.TrimSpace(c.QueryParam("status")),
-			Limit:  support.IntParam(c, "limit", 200),
+			Status:    strings.TrimSpace(c.QueryParam("status")),
+			TimeField: strings.TrimSpace(c.QueryParam("time_field")),
+			From:      strings.TrimSpace(c.QueryParam("from")),
+			To:        strings.TrimSpace(c.QueryParam("to")),
+			Limit:     support.IntParam(c, "limit", 50),
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -55,6 +62,17 @@ func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Servic
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, plan)
+	})
+	e.POST("/api/production-plans/submit", func(c echo.Context) error {
+		var req productionPlanBatchSubmitRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		res, err := productionSvc.SubmitProductionPlans(c.Request().Context(), productionapp.SubmitProductionPlansCommand{IDs: req.IDs, Operator: support.ActorOf(c)})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, res)
 	})
 	e.GET("/api/production-plans/:id", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)

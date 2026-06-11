@@ -325,8 +325,11 @@ type CreateProductionPlanCommand struct {
 }
 
 type ProductionPlanQuery struct {
-	Status string
-	Limit  int
+	Status    string
+	TimeField string
+	From      string
+	To        string
+	Limit     int
 }
 
 type ProductionPlanRow struct {
@@ -339,6 +342,7 @@ type ProductionPlanRow struct {
 	CreatedAt   string `json:"created_at"`
 	SubmittedBy string `json:"submitted_by"`
 	SubmittedAt string `json:"submitted_at"`
+	CompletedAt string `json:"completed_at"`
 }
 
 type ProductionPlanItem struct {
@@ -369,6 +373,7 @@ type ProductionPlanDetail struct {
 	CreatedAt   string               `json:"created_at"`
 	SubmittedBy string               `json:"submitted_by"`
 	SubmittedAt string               `json:"submitted_at"`
+	CompletedAt string               `json:"completed_at"`
 	Items       []ProductionPlanItem `json:"items"`
 }
 
@@ -377,10 +382,27 @@ type SubmitProductionPlanCommand struct {
 	Operator string
 }
 
+type SubmitProductionPlansCommand struct {
+	IDs      []int64 `json:"ids"`
+	Operator string  `json:"operator"`
+}
+
 type ProductionPlanSubmitResult struct {
 	Plan       ProductionPlanDetail `json:"plan"`
 	WorkOrders []WorkOrderRow       `json:"work_orders"`
 	JobCards   []JobCardRow         `json:"job_cards"`
+}
+
+type ProductionPlanSubmitFailure struct {
+	ID    int64  `json:"id"`
+	Error string `json:"error"`
+}
+
+type ProductionPlanSubmitBatchResult struct {
+	Success        []ProductionPlanSubmitResult  `json:"success"`
+	Failed         []ProductionPlanSubmitFailure `json:"failed"`
+	WorkOrderCount int                           `json:"work_order_count"`
+	JobCardCount   int                           `json:"job_card_count"`
 }
 
 type WorkOrderStartCommand struct {
@@ -829,10 +851,27 @@ func (s *Service) CreateProductionPlan(ctx context.Context, cmd CreateProduction
 
 func (s *Service) ListProductionPlans(ctx context.Context, query ProductionPlanQuery) ([]ProductionPlanRow, error) {
 	query.Status = strings.TrimSpace(query.Status)
-	if query.Limit <= 0 || query.Limit > 500 {
-		query.Limit = 200
+	query.TimeField = normalizeProductionPlanTimeField(query.TimeField)
+	query.From = strings.TrimSpace(query.From)
+	query.To = strings.TrimSpace(query.To)
+	if query.Limit <= 0 {
+		query.Limit = 50
+	}
+	if query.Limit > 500 {
+		query.Limit = 500
 	}
 	return s.repo.ListProductionPlans(ctx, query)
+}
+
+func normalizeProductionPlanTimeField(value string) string {
+	switch strings.TrimSpace(value) {
+	case "submitted_at":
+		return "submitted_at"
+	case "completed_at":
+		return "completed_at"
+	default:
+		return "created_at"
+	}
 }
 
 func (s *Service) GetProductionPlan(ctx context.Context, id int64) (ProductionPlanDetail, error) {
@@ -848,6 +887,38 @@ func (s *Service) SubmitProductionPlan(ctx context.Context, cmd SubmitProduction
 	}
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
 	return s.repo.SubmitProductionPlan(ctx, cmd)
+}
+
+func (s *Service) SubmitProductionPlans(ctx context.Context, cmd SubmitProductionPlansCommand) (ProductionPlanSubmitBatchResult, error) {
+	if len(cmd.IDs) == 0 {
+		return ProductionPlanSubmitBatchResult{}, fmt.Errorf("production_plan_ids required")
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	result := ProductionPlanSubmitBatchResult{
+		Success: make([]ProductionPlanSubmitResult, 0),
+		Failed:  make([]ProductionPlanSubmitFailure, 0),
+	}
+	seen := map[int64]bool{}
+	for _, id := range cmd.IDs {
+		if id <= 0 {
+			result.Failed = append(result.Failed, ProductionPlanSubmitFailure{ID: id, Error: "production_plan_id required"})
+			continue
+		}
+		if seen[id] {
+			result.Failed = append(result.Failed, ProductionPlanSubmitFailure{ID: id, Error: "duplicate production_plan_id"})
+			continue
+		}
+		seen[id] = true
+		submitted, err := s.SubmitProductionPlan(ctx, SubmitProductionPlanCommand{ID: id, Operator: cmd.Operator})
+		if err != nil {
+			result.Failed = append(result.Failed, ProductionPlanSubmitFailure{ID: id, Error: err.Error()})
+			continue
+		}
+		result.WorkOrderCount += len(submitted.WorkOrders)
+		result.JobCardCount += len(submitted.JobCards)
+		result.Success = append(result.Success, submitted)
+	}
+	return result, nil
 }
 
 func (s *Service) StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand) (WorkOrderStartResult, error) {

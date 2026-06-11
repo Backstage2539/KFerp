@@ -349,12 +349,13 @@ func loadCustomerProductSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, s
 
 func completeWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, actualCost float64, actualInputQty int64, actualOutputQty int64, operator string) error {
 	var workOrderID int64
+	var productionPlanID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE %s.work_orders
 		SET status='completed', actual_cost=$2, completed_at=now()
 		WHERE running_item_id=$1
-		RETURNING id
-	`, schema), runningItemID, actualCost).Scan(&workOrderID); err != nil {
+		RETURNING id,production_plan_id
+	`, schema), runningItemID, actualCost).Scan(&workOrderID, &productionPlanID); err != nil {
 		if err == pgx.ErrNoRows {
 			return nil
 		}
@@ -397,8 +398,49 @@ func completeWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema st
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET operation_summary_json=$2::jsonb WHERE id=$1`, schema), workOrderID, summary)
-	return err
+	if _, err = tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET operation_summary_json=$2::jsonb WHERE id=$1`, schema), workOrderID, summary); err != nil {
+		return err
+	}
+	if productionPlanID > 0 {
+		return completeProductionPlanIfAllWorkOrdersDoneTx(ctx, tx, schema, productionPlanID, operator)
+	}
+	return nil
+}
+
+func completeProductionPlanIfAllWorkOrdersDoneTx(ctx context.Context, tx pgx.Tx, schema string, productionPlanID int64, operator string) error {
+	var status string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.production_plans WHERE id=$1 FOR UPDATE`, schema), productionPlanID).Scan(&status); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	if status == "completed" || status == "cancelled" {
+		return nil
+	}
+	var remaining int64
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(1)
+		FROM %s.work_orders
+		WHERE production_plan_id=$1 AND status <> 'completed'
+	`, schema), productionPlanID).Scan(&remaining); err != nil {
+		return err
+	}
+	if remaining > 0 {
+		return nil
+	}
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.production_plans
+		SET status='completed', completed_at=now()
+		WHERE id=$1 AND status <> 'completed'
+	`, schema), productionPlanID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	return postgresinfra.AuditInsertTx(ctx, tx, schema, operator, "production_plan", &productionPlanID, "complete", postgresinfra.StrPtr("status"), postgresinfra.StrPtr(status), postgresinfra.StrPtr("completed"), postgresinfra.AuditMeta{"all_work_orders_completed": true})
 }
 
 func cancelWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, operator string) error {

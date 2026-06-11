@@ -28,12 +28,11 @@
         </label>
       </div>
       <div class="actions">
-        <button class="primary" type="button" @click="buildPlan" :disabled="loading">生成计划</button>
         <button class="primary" type="button" @click="createProductionPlan" :disabled="saving || !hasSelectedRows">创建生产计划</button>
-        <button class="secondary" type="button" @click="submitCurrentPlan" :disabled="saving || !canSubmitCurrentPlan">提交生成工单</button>
       </div>
       <div v-if="currentPlan" class="ok plan-result">
-        <strong>{{ currentPlan.plan_no }} · {{ currentPlan.status }}</strong>
+        <strong>{{ currentPlan.plan_no }}</strong>
+        <span :class="['status', `status-${productionPlanStatusTone(currentPlan.status)}`]">{{ productionPlanStatusLabel(currentPlan.status) }}</span>
         <span>计划行 {{ currentPlan.items?.length || 0 }} 条</span>
       </div>
     </section>
@@ -43,10 +42,55 @@
         <h2>生产计划单据</h2>
         <button class="secondary" type="button" @click="loadProductionPlans" :disabled="loading">刷新单据</button>
       </div>
+      <div class="filters production-plan-filters">
+        <label>
+          <span>状态</span>
+          <select v-model="productionPlanFilters.status" @change="loadProductionPlans">
+            <option value="">全部</option>
+            <option value="draft">草稿</option>
+            <option value="submitted">已提交工单</option>
+            <option value="in_progress">生产中</option>
+            <option value="completed">已完成</option>
+            <option value="cancelled">已取消</option>
+          </select>
+        </label>
+        <label>
+          <span>时间类型</span>
+          <select v-model="productionPlanFilters.time_field" @change="loadProductionPlans">
+            <option value="created_at">创建时间</option>
+            <option value="submitted_at">提交时间</option>
+            <option value="completed_at">完成时间</option>
+          </select>
+        </label>
+        <label>
+          <span>开始日期</span>
+          <input v-model.trim="productionPlanFilters.from" type="date" />
+        </label>
+        <label>
+          <span>结束日期</span>
+          <input v-model.trim="productionPlanFilters.to" type="date" />
+        </label>
+        <button class="secondary filter-action" type="button" @click="loadProductionPlans" :disabled="loading">过滤</button>
+      </div>
+      <div class="actions plan-list-actions">
+        <button class="primary" type="button" @click="submitSelectedProductionPlans" :disabled="saving || !hasSelectedProductionPlans">提交生成工单</button>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
+              <th>
+                <input
+                  ref="productionPlanHeaderCheckbox"
+                  class="bulk-checkbox"
+                  type="checkbox"
+                  :checked="allProductionPlansSelected"
+                  :disabled="!productionPlanSelection.total"
+                  :aria-checked="productionPlanSelection.indeterminate ? 'mixed' : String(productionPlanSelection.checked)"
+                  aria-label="全选草稿生产计划"
+                  @change="toggleAllProductionPlans($event.target.checked)"
+                />
+              </th>
               <th>计划号</th>
               <th>来源</th>
               <th>状态</th>
@@ -54,19 +98,27 @@
               <th>创建人</th>
               <th>提交人</th>
               <th>时间</th>
-              <th>操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="plan in productionPlans" :key="plan.id">
+              <td>
+                <input
+                  class="bulk-checkbox"
+                  type="checkbox"
+                  :checked="!!selectedProductionPlans[String(plan.id)]"
+                  :disabled="!productionPlanSelectable(plan)"
+                  :aria-label="`选择生产计划 ${plan.plan_no}`"
+                  @change="toggleProductionPlan(plan, $event.target.checked)"
+                />
+              </td>
               <td><strong>{{ plan.plan_no }}</strong></td>
               <td>{{ plan.source_type || '-' }}</td>
-              <td><span class="status">{{ plan.status }}</span></td>
+              <td><span :class="['status', `status-${productionPlanStatusTone(plan.status)}`]">{{ productionPlanStatusLabel(plan.status) }}</span></td>
               <td>{{ plan.item_count || 0 }}</td>
               <td>{{ plan.created_by || '-' }}</td>
               <td>{{ plan.submitted_by || '-' }}</td>
-              <td><small>建 {{ plan.created_at || '-' }}</small><small>交 {{ plan.submitted_at || '-' }}</small></td>
-              <td><button class="secondary compact" type="button" @click="submitPlanRow(plan)" :disabled="saving || plan.status !== 'draft'">提交</button></td>
+              <td><small>建 {{ plan.created_at || '-' }}</small><small>交 {{ plan.submitted_at || '-' }}</small><small>完 {{ plan.completed_at || '-' }}</small></td>
             </tr>
             <tr v-if="!productionPlans.length">
               <td colspan="8" class="muted">暂无生产计划单据</td>
@@ -165,7 +217,7 @@
 
     <section class="panel">
       <div class="section-title">生产计划（缺口 &gt; 0）</div>
-      <div v-if="!planReady" class="muted">请先选择产品并点击“生成计划”。</div>
+      <div v-if="!planReady" class="muted">选择库存不足商品后点击“创建生产计划”。</div>
       <div v-else class="table-wrap">
         <table>
           <thead>
@@ -196,7 +248,7 @@
 
     <section class="panel">
       <div class="section-title">物料需求汇总（预计消耗）</div>
-      <div v-if="!planReady" class="muted">请先选择产品并点击“生成计划”。</div>
+      <div v-if="!planReady" class="muted">选择库存不足商品后点击“创建生产计划”。</div>
       <div v-else class="table-wrap">
         <table>
           <thead>
@@ -230,7 +282,7 @@
 
     <section class="panel">
       <div class="section-title">生产建议</div>
-      <div v-if="!planReady" class="muted">请先选择产品并点击“生成计划”。</div>
+      <div v-if="!planReady" class="muted">选择库存不足商品后点击“创建生产计划”。</div>
       <div v-else class="table-wrap">
         <table>
           <thead>
@@ -272,11 +324,18 @@ import { apiGet, apiSend } from '../api/client'
 import {
   buildInsufficientSelection,
   buildMaterialSummary,
+  buildProductionPlanBatchSubmitPayload,
   buildProductionPlanCreatePayload,
+  buildProductionPlanListQuery,
+  buildProductionPlanSelection,
   gramsToKgString,
   normalizeRoastPlans,
-  productionPlanSubmitEndpoint,
   insufficientSelectionState,
+  productionPlanBatchSubmitEndpoint,
+  productionPlanSelectable,
+  productionPlanSelectionState,
+  productionPlanStatusLabel,
+  productionPlanStatusTone,
   rebuildPlanRows,
   producePlanKey,
   roastExpectedFinishedG,
@@ -304,12 +363,22 @@ const initialMaterials = ref([])
 const productionPlans = ref([])
 const currentPlan = ref(null)
 const insufficientHeaderCheckbox = ref(null)
+const productionPlanHeaderCheckbox = ref(null)
 const selected = reactive({})
+const selectedProductionPlans = reactive({})
 
 const filters = reactive({
   from: '',
   to: '',
   customer_id: '',
+})
+
+const productionPlanFilters = reactive({
+  status: '',
+  time_field: 'created_at',
+  from: '',
+  to: '',
+  limit: 50,
 })
 
 function rowKey(row) {
@@ -326,11 +395,13 @@ const computedMaterials = computed(() =>
   buildMaterialSummary(planRows.value, roastPlans.value, materialRatios.value, initialMaterials.value),
 )
 const hasSelectedRows = computed(() => selectedKeys().length > 0)
-const canSubmitCurrentPlan = computed(() => Number(currentPlan.value?.id || 0) > 0 && currentPlan.value?.status === 'draft')
 const stockInsufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) > 0))
 const stockSufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) <= 0))
 const insufficientSelection = computed(() => insufficientSelectionState(stockInsufficientRows.value, selected))
 const allInsufficientSelected = computed(() => insufficientSelection.value.checked)
+const productionPlanSelection = computed(() => productionPlanSelectionState(productionPlans.value, selectedProductionPlans))
+const allProductionPlansSelected = computed(() => productionPlanSelection.value.checked)
+const hasSelectedProductionPlans = computed(() => productionPlanSelection.value.selectedCount > 0)
 const machineNameOptions = computed(() => {
   const out = []
   const seen = new Set()
@@ -347,6 +418,9 @@ watchEffect(() => {
   if (insufficientHeaderCheckbox.value) {
     insufficientHeaderCheckbox.value.indeterminate = insufficientSelection.value.indeterminate
   }
+  if (productionPlanHeaderCheckbox.value) {
+    productionPlanHeaderCheckbox.value.indeterminate = productionPlanSelection.value.indeterminate
+  }
 })
 
 function selectedKeys() {
@@ -356,6 +430,11 @@ function selectedKeys() {
 function replaceSelected(nextSelected) {
   Object.keys(selected).forEach((key) => delete selected[key])
   Object.assign(selected, nextSelected)
+}
+
+function replaceSelectedProductionPlans(nextSelected) {
+  Object.keys(selectedProductionPlans).forEach((key) => delete selectedProductionPlans[key])
+  Object.assign(selectedProductionPlans, nextSelected)
 }
 
 function updateUrl(plan) {
@@ -420,8 +499,9 @@ async function load(plan) {
 
 async function loadProductionPlans() {
   try {
-    const data = await apiGet('/api/production-plans?limit=50')
+    const data = await apiGet(buildProductionPlanListQuery(productionPlanFilters))
     productionPlans.value = data.rows || []
+    pruneProductionPlanSelections()
   } catch (err) {
     error.value = err.message || '加载生产计划失败'
   }
@@ -437,6 +517,20 @@ function toggleInsufficientRow(row, checked) {
   else delete selected[key]
 }
 
+function toggleAllProductionPlans(checked) {
+  replaceSelectedProductionPlans(buildProductionPlanSelection(productionPlans.value, checked))
+}
+
+function toggleProductionPlan(plan, checked) {
+  const key = String(Number(plan?.id || 0))
+  if (!productionPlanSelectable(plan)) {
+    delete selectedProductionPlans[key]
+    return
+  }
+  if (checked) selectedProductionPlans[key] = true
+  else delete selectedProductionPlans[key]
+}
+
 function pruneSufficientSelections() {
   const allowed = new Set(stockInsufficientRows.value.map((row) => rowKey(row)))
   for (const key of Object.keys(selected)) {
@@ -444,12 +538,11 @@ function pruneSufficientSelections() {
   }
 }
 
-async function buildPlan() {
-  if (!selectedKeys().length) {
-    window.alert('请先选择产品后再生成计划')
-    return
+function pruneProductionPlanSelections() {
+  const allowed = new Set(productionPlans.value.filter(productionPlanSelectable).map((plan) => String(Number(plan.id))))
+  for (const key of Object.keys(selectedProductionPlans)) {
+    if (!allowed.has(key)) delete selectedProductionPlans[key]
   }
-  await load(true)
 }
 
 function syncRoastPlan(row) {
@@ -484,7 +577,7 @@ async function createProductionPlan() {
         return
       }
       if (!planReady.value) {
-        if (!error.value) error.value = '生成计划后没有可创建的生产计划，请检查库存缺口或订单商品绑定'
+        if (!error.value) error.value = '没有可创建的生产计划，请检查库存缺口或订单商品绑定'
         return
       }
     }
@@ -501,25 +594,22 @@ async function createProductionPlan() {
   }
 }
 
-async function submitCurrentPlan() {
-  if (!currentPlan.value) return
-  await submitPlanRow(currentPlan.value)
-}
-
-async function submitPlanRow(plan) {
-  const endpoint = productionPlanSubmitEndpoint(plan)
-  if (!endpoint) return
+async function submitSelectedProductionPlans() {
+  const payload = buildProductionPlanBatchSubmitPayload(selectedProductionPlans)
+  if (!payload.ids.length) return
   saving.value = true
   error.value = ''
   try {
-    const result = await apiSend(endpoint, { body: {} })
-    currentPlan.value = result.plan || currentPlan.value
+    const result = await apiSend(productionPlanBatchSubmitEndpoint(), { body: payload })
+    const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
+    currentPlan.value = firstSuccess?.plan || currentPlan.value
+    replaceSelectedProductionPlans({})
     await loadProductionPlans()
-    window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
-      detail: { key: 'workOrders', params: { status: 'released' } },
-    }))
+    if (Array.isArray(result.failed) && result.failed.length) {
+      error.value = `部分生产计划提交失败：${result.failed.map((item) => `${item.id}: ${item.error}`).join('；')}`
+    }
   } catch (err) {
-    error.value = err.message || '提交生产计划失败'
+    error.value = err.message || '提交生成工单失败'
   } finally {
     saving.value = false
   }
@@ -560,10 +650,13 @@ watch(() => [props.viewParams?.customer_id, props.customerContextId], async () =
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .panel-head h2, .section-title { margin: 0; font-size: 18px; font-weight: 700; }
 .filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.production-plan-filters { grid-template-columns: repeat(4, minmax(0, 1fr)) auto; align-items: end; }
 .filters label, .actions { display: flex; gap: 8px; }
 .filters label { flex-direction: column; }
 .filters span { font-size: 12px; color: #666; }
 .actions { margin-top: 12px; flex-wrap: wrap; }
+.plan-list-actions { margin: 12px 0; }
+.filter-action { min-height: 42px; }
 .section-title-with-checkbox { display: inline-flex; align-items: center; gap: 8px; }
 .section-hint { margin: 6px 0 10px; }
 input, select, button { font: inherit; }
@@ -571,14 +664,22 @@ input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; 
 select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; background: #fff; }
 button { border-radius: 8px; padding: 10px 12px; cursor: pointer; }
 input.bulk-checkbox { width: 18px; min-width: 18px; height: 18px; padding: 0; cursor: pointer; }
+input.bulk-checkbox:disabled { cursor: not-allowed; opacity: 0.45; }
 .primary { border: 1px solid #111; background: #111; color: #fff; }
 .secondary { border: 1px solid #999; background: #fff; color: #111; }
 .compact { min-height: 30px; padding: 5px 10px; }
-.status { display: inline-flex; border: 1px solid #d1d5db; border-radius: 999px; padding: 2px 8px; background: #f9fafb; }
+.status { display: inline-flex; border: 1px solid #d1d5db; border-radius: 999px; padding: 2px 8px; background: #f9fafb; color: #374151; white-space: nowrap; }
+.status-draft { border-color: #d1d5db; background: #f3f4f6; color: #374151; }
+.status-submitted { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
+.status-in-progress { border-color: #fdba74; background: #fff7ed; color: #c2410c; }
+.status-completed { border-color: #86efac; background: #f0fdf4; color: #15803d; }
+.status-cancelled { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
+.status-unknown { border-color: #e5e7eb; background: #f9fafb; color: #4b5563; }
 .plan-result { margin-top: 12px; display: flex; gap: 12px; align-items: center; }
 .table-wrap { overflow: auto; }
 table { width: 100%; border-collapse: collapse; min-width: 980px; }
 th, td { border-bottom: 1px solid #f1f1f1; padding: 10px 8px; text-align: left; vertical-align: top; }
+td small { display: block; color: #666; line-height: 1.6; }
 .muted { color: #666; }
 .error, .ok { border-radius: 8px; padding: 10px; margin-bottom: 12px; }
 .error { background: #ffecec; border: 1px solid #ffb9b9; }
@@ -589,7 +690,7 @@ th, td { border-bottom: 1px solid #f1f1f1; padding: 10px 8px; text-align: left; 
 
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .filters { grid-template-columns: 1fr; }
+  .filters, .production-plan-filters { grid-template-columns: 1fr; }
   .direct-ship-tip { align-items: stretch; flex-direction: column; }
 }
 </style>

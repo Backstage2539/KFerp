@@ -43,7 +43,7 @@ func TestDev472ManufacturingProductionPlanLifecycleContracts(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
 			"/api/production-plans",
-			"productionPlanSubmitEndpoint",
+			"productionPlanBatchSubmitEndpoint",
 			"创建生产计划",
 			"提交生成工单",
 		},
