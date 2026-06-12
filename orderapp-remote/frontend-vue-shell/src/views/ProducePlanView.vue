@@ -231,6 +231,21 @@
                       <strong>{{ plannedCapacitySplitMetrics(split).planned_operation_cost || 0 }}</strong>
                     </div>
                     <button class="secondary compact danger-text" type="button" @click="removeOperationSplit(split)" :disabled="!currentPlanDraft">删除</button>
+                    <div v-if="splitBatchCards(split).length" class="split-batch-cards" aria-label="自动批次卡片">
+                      <div
+                        v-for="batch in splitBatchCards(split)"
+                        :key="`${split.local_key || split.id || splitIndex}-${batch.label}`"
+                        class="split-batch-card"
+                        :class="{ underfilled: batch.underfilled }"
+                      >
+                        <strong>{{ batch.label }}</strong>
+                        <span>{{ batch.workstation_capacity_name || split.workstation_capacity_name || '工位产能' }}</span>
+                        <small>单批标准 {{ splitQtyText(batch.batch_size_qty, batch.batch_size_unit) }}</small>
+                        <small>本批计划 {{ splitQtyText(batch.planned_qty, batch.batch_size_unit) }}</small>
+                        <small>计划分钟 {{ batch.planned_minutes || 0 }}</small>
+                        <em v-if="batch.underfilled">不足标准批量</em>
+                      </div>
+                    </div>
                   </div>
                   <div v-if="!splitRowsForOperation(row.item, row.operation).length" class="muted section-hint">暂无拆分</div>
                 </div>
@@ -547,6 +562,7 @@ import {
   buildProductionPlanSelection,
   insufficientSelectionState,
   plannedCapacitySplitMetrics,
+  productionPlanSplitBatchCards,
   productionPlanBatchSubmitEndpoint,
   productionPlanDetailEndpoint,
   productionPlanOperationSplitsEndpoint,
@@ -953,6 +969,16 @@ function splitQuantityStep(split) {
   return '0.001'
 }
 
+function splitQtyText(qty, unit) {
+  const n = Math.max(0, Number(qty || 0))
+  const value = n ? n.toLocaleString('zh-CN', { maximumFractionDigits: 3 }) : '0'
+  return `${value}${String(unit || '').trim()}`
+}
+
+function splitBatchCards(split) {
+  return productionPlanSplitBatchCards(split)
+}
+
 function qtyFromGForSplitUnit(qtyG, unit) {
   const value = Math.max(0, Number(qtyG || 0))
   const normalized = String(unit || '').trim().toLowerCase()
@@ -1348,6 +1374,14 @@ td small { display: block; color: #666; line-height: 1.6; }
 .split-row label { display: grid; gap: 5px; }
 .split-row label span, .split-metric span { font-size: 12px; color: #666; }
 .split-metric { min-height: 42px; border: 1px solid #eee; border-radius: 8px; padding: 6px 8px; display: grid; gap: 2px; background: #fafafa; }
+.split-batch-cards { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
+.split-batch-card { border: 1px solid #dbe3ef; border-radius: 8px; padding: 8px; display: grid; gap: 3px; background: #f8fbff; min-width: 0; }
+.split-batch-card strong { font-size: 13px; color: #111827; }
+.split-batch-card span, .split-batch-card small { overflow-wrap: anywhere; }
+.split-batch-card span { font-size: 12px; color: #374151; }
+.split-batch-card small { font-size: 12px; color: #6b7280; }
+.split-batch-card em { font-style: normal; font-size: 12px; color: #b45309; }
+.split-batch-card.underfilled { border-color: #f59e0b; background: #fffbeb; }
 .danger-text { color: #a33; border-color: #d8b4b4; }
 
 @media (max-width: 900px) {

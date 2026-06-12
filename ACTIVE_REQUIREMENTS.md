@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-490-JOB-CARD-BATCH-CARDS
+- Branch: codex/job-card-batch-cards-20260612
+- Owner/session: Codex / 2026-06-12
+- Status: verified locally; pending merge and development deployment.
+- Scope: 生产计划 `工序产能拆分` 保持一条拆分记录，但按自动批次数渲染 `第N批` 批次卡片；工序卡主表下线 `计划投入 / 实际投入 / 实际产出` 这三个咖啡投料出品字段，后端字段和保存接口兼容保留。
+- DEV:
+  - DEV-490-SPLIT-BATCH-CARDS：拆分行按 `planned_batch_count` 渲染批次卡片，展示工位产能、单批标准、本批计划数量、计划分钟和不足标准批量提示。
+  - DEV-490-JOB-CARD-GENERIC-ACTUALS：工序卡主表只保留工序、工位、工位产能、状态、计划/实际分钟、计划/实际工序成本、实际损耗、损耗原因、异常原因和动作按钮；保存实际 payload 继续带旧投入/产出兼容字段。
+- Verifier:
+  - RED frontend: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js` failed before implementation because `productionPlanSplitBatchCards` did not exist and JobCardsView still exposed the hidden fields.
+  - GREEN frontend: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js` passed after implementation.
+  - RED support/docs: `go test ./internal/interfaces/http/support -run TestDev490JobCardBatchCardsContracts -count=1 -v` failed before PR-490 docs/seed markers were added.
+  - GREEN targeted: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js src/lib/manufacturing-execution.test.js src/lib/operation-manuals.test.js`; `go test ./internal/interfaces/http/support -count=1`; `go test ./...`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check` passed.
+  - Browser acceptance: local mock at `http://127.0.0.1:5189/vue-shell/?view=producePlan` showed `布勒 18kg` 承担 72kg as 4 batch cards, 20kg as 2 cards with `不足标准批量`; `?view=jobCards` showed no `计划投入 / 实际投入 / 实际产出` headers and retained actual minutes/cost/loss controls.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-12-job-card-batch-cards.md`.
+- Deployment: not deployed.
+- Last update: 2026-06-12 Asia/Shanghai.
+
 ### PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT
 - Branch: codex/produce-plan-preview-layout-20260612
 - Owner/session: Codex / 2026-06-12

@@ -142,6 +142,44 @@ export function plannedCapacitySplitMetrics(split = {}) {
   }
 }
 
+function roundedSplitQty(qty) {
+  return Number(Math.max(0, Number(qty || 0)).toFixed(3))
+}
+
+export function productionPlanSplitBatchCards(split = {}) {
+  const metrics = plannedCapacitySplitMetrics(split)
+  const plannedBatchCount = Math.max(0, Math.round(Number(metrics.planned_batch_count || 0)))
+  if (plannedBatchCount <= 0) return []
+
+  const batchSizeQty = roundedSplitQty(split.batch_size_qty)
+  const standardMinutes = Math.max(0, Math.round(Number(split.standard_minutes || 0)))
+  const unit = String(split.batch_size_unit || '').trim()
+  const capacityName = String(split.workstation_capacity_name || '').trim()
+  const plannedQty = roundedSplitQty(metrics.planned_qty)
+  let remaining = plannedQty
+
+  return Array.from({ length: plannedBatchCount }, (_, index) => {
+    const isLast = index === plannedBatchCount - 1
+    let plannedQtyForBatch = batchSizeQty > 0
+      ? (isLast ? remaining : Math.min(batchSizeQty, remaining))
+      : (plannedBatchCount > 0 ? plannedQty / plannedBatchCount : 0)
+    if (isLast && plannedQtyForBatch <= 0 && batchSizeQty > 0) plannedQtyForBatch = batchSizeQty
+    plannedQtyForBatch = roundedSplitQty(plannedQtyForBatch)
+    remaining = roundedSplitQty(remaining - plannedQtyForBatch)
+
+    return {
+      label: `第${index + 1}批`,
+      workstation_capacity_name: capacityName,
+      batch_size_qty: batchSizeQty,
+      batch_size_unit: unit,
+      planned_qty: plannedQtyForBatch,
+      planned_qty_g: plannedCapacitySplitQtyG(plannedQtyForBatch, unit),
+      planned_minutes: standardMinutes,
+      underfilled: batchSizeQty > 0 && plannedQtyForBatch > 0 && plannedQtyForBatch < batchSizeQty,
+    }
+  })
+}
+
 export function buildProductionPlanOperationSplitPayload(rows = []) {
   const items = (rows || [])
     .map((row) => {

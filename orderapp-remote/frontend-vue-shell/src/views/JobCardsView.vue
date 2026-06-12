@@ -30,9 +30,6 @@
             <th>状态</th>
             <th>计划分钟</th>
             <th>计划工序成本</th>
-            <th>计划投入</th>
-            <th>实际投入</th>
-            <th>实际产出</th>
             <th>实际分钟</th>
             <th>实际工序成本</th>
             <th>实际损耗</th>
@@ -56,9 +53,6 @@
             <td><span class="status" :class="statusBadgeClass(row.status)">{{ jobCardStatusLabel(row.status) }}</span></td>
             <td>{{ row.planned_minutes || 0 }}</td>
             <td>{{ money(row.planned_operation_cost) }}</td>
-            <td><input v-model.number="draftFor(row).planned_input_qty" type="number" min="0" step="0.001" /></td>
-            <td><input v-model.number="draftFor(row).actual_input_qty" type="number" min="0" step="0.001" /></td>
-            <td><input v-model.number="draftFor(row).actual_output_qty" type="number" min="0" step="0.001" /></td>
             <td><input v-model.number="draftFor(row).actual_minutes" type="number" min="0" step="1" /></td>
             <td>{{ actualOperationCost(row) }}</td>
             <td>
@@ -82,7 +76,7 @@
               <button class="secondary compact" @click="saveActuals(row)" :disabled="loading">保存实际</button>
             </td>
           </tr>
-          <tr v-if="!rows.length"><td colspan="21" class="muted">暂无工序卡</td></tr>
+          <tr v-if="!rows.length"><td colspan="19" class="muted">暂无工序卡</td></tr>
         </tbody>
       </table>
     </section>
@@ -130,13 +124,11 @@ function money(value) {
 }
 
 function actualLossQty(row) {
-  const draft = draftFor(row)
-  return Math.max(0, Number(draft.actual_input_qty || 0) - Number(draft.actual_output_qty || 0))
+  return Math.max(0, Number(row.actual_loss_qty || 0))
 }
 
 function actualLossRate(row) {
-  const input = Number(draftFor(row).actual_input_qty || 0)
-  return input > 0 ? actualLossQty(row) / input : 0
+  return Math.max(0, Number(row.actual_loss_rate || 0))
 }
 
 function actualOperationCost(row) {
@@ -234,5 +226,5 @@ onMounted(load)
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #eee;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,button,input{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #999;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.row-actions{display:flex;gap:6px;flex-wrap:wrap;min-width:260px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.table-wrap{overflow:auto}table{width:100%;min-width:1480px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #eee;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,button,input{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #999;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.row-actions{display:flex;gap:6px;flex-wrap:wrap;min-width:260px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.table-wrap{overflow:auto}table{width:100%;min-width:1240px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}
 </style>

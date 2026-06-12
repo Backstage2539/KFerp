@@ -57,7 +57,7 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 			"字段定义",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "JobCardsView.vue"): {
-			"实际投入",
+			"实际分钟",
 			"实际损耗",
 			"保存实际",
 		},
@@ -85,7 +85,7 @@ func TestDev375ProcessBomWorkorderSkuModelDocs(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-375-PROCESS-BOM-WORKORDER-SKU-MODEL",
 			"BOM 是生产端主档案",
-			"工序卡记录实际投入",
+			"工序卡记录实际工时",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-375-PROCESS-BOM-WORKORDER-SKU-MODEL",

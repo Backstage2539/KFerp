@@ -70,6 +70,7 @@ test('buildJobCardActionPayload includes actual quantities and loss reason witho
   }), {
     actual_input_qty: 600,
     actual_output_qty: 540,
+    actual_minutes: 0,
     loss_reason: '正常损耗',
     metrics_json: { temperature: 196 },
   })

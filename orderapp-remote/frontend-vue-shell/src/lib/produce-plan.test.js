@@ -11,6 +11,7 @@ import {
   productionPlanOperationSplitsEndpoint,
   buildProductionPlanOperationSplitPayload,
   plannedCapacitySplitMetrics,
+  productionPlanSplitBatchCards,
 } from './produce-plan.js'
 
 const rows = [
@@ -194,6 +195,34 @@ test('production plan operation capacity split helpers derive batch count from a
   })
 })
 
+test('production plan operation capacity split helper renders batch cards without splitting records', () => {
+  assert.deepEqual(productionPlanSplitBatchCards({
+    workstation_capacity_name: '布勒 18kg',
+    planned_qty: 72,
+    batch_size_qty: 18,
+    batch_size_unit: 'kg',
+    standard_minutes: 15,
+    hourly_rate: 300,
+  }), [
+    { label: '第1批', workstation_capacity_name: '布勒 18kg', batch_size_qty: 18, batch_size_unit: 'kg', planned_qty: 18, planned_qty_g: 18000, planned_minutes: 15, underfilled: false },
+    { label: '第2批', workstation_capacity_name: '布勒 18kg', batch_size_qty: 18, batch_size_unit: 'kg', planned_qty: 18, planned_qty_g: 18000, planned_minutes: 15, underfilled: false },
+    { label: '第3批', workstation_capacity_name: '布勒 18kg', batch_size_qty: 18, batch_size_unit: 'kg', planned_qty: 18, planned_qty_g: 18000, planned_minutes: 15, underfilled: false },
+    { label: '第4批', workstation_capacity_name: '布勒 18kg', batch_size_qty: 18, batch_size_unit: 'kg', planned_qty: 18, planned_qty_g: 18000, planned_minutes: 15, underfilled: false },
+  ])
+
+  assert.deepEqual(productionPlanSplitBatchCards({
+    workstation_capacity_name: '布勒 18kg',
+    planned_qty: 20,
+    batch_size_qty: 18,
+    batch_size_unit: 'kg',
+    standard_minutes: 15,
+    hourly_rate: 300,
+  }), [
+    { label: '第1批', workstation_capacity_name: '布勒 18kg', batch_size_qty: 18, batch_size_unit: 'kg', planned_qty: 18, planned_qty_g: 18000, planned_minutes: 15, underfilled: false },
+    { label: '第2批', workstation_capacity_name: '布勒 18kg', batch_size_qty: 18, batch_size_unit: 'kg', planned_qty: 2, planned_qty_g: 2000, planned_minutes: 15, underfilled: true },
+  ])
+})
+
 test('ProducePlanView creates draft plans and batch submits checked draft plans', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
@@ -269,6 +298,10 @@ test('ProducePlanView owns operation capacity splits after draft plan creation',
     'planned_operation_cost',
     '布勒 18kg',
     '智烘 4kg',
+    'productionPlanSplitBatchCards',
+    'split-batch-cards',
+    'split-batch-card',
+    '不足标准批量',
   ]) {
     assert.match(source, new RegExp(marker))
   }

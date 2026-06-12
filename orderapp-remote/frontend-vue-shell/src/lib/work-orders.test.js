@@ -46,6 +46,37 @@ test('work orders and job cards surface frozen workstation capacity time and ope
   }
 })
 
+test('job card main table hides coffee-specific input and output quantity columns', () => {
+  const source = fs.readFileSync(new URL('../views/JobCardsView.vue', import.meta.url), 'utf8')
+  const template = source.slice(0, source.indexOf('<script setup>'))
+
+  for (const forbidden of [
+    '计划投入',
+    '实际投入',
+    '实际产出',
+    'v-model.number="draftFor(row).planned_input_qty"',
+    'v-model.number="draftFor(row).actual_input_qty"',
+    'v-model.number="draftFor(row).actual_output_qty"',
+  ]) {
+    assert.doesNotMatch(template, new RegExp(forbidden))
+  }
+
+  for (const required of [
+    '实际分钟',
+    '计划工序成本',
+    '实际工序成本',
+    '实际损耗',
+    '损耗原因',
+    '保存实际',
+  ]) {
+    assert.match(template, new RegExp(required))
+  }
+
+  assert.match(source, /planned_input_qty: Number\(draft\.planned_input_qty \|\| 0\)/)
+  assert.match(source, /actual_input_qty: Number\(draft\.actual_input_qty \|\| 0\)/)
+  assert.match(source, /actual_output_qty: Number\(draft\.actual_output_qty \|\| 0\)/)
+})
+
 test('work order main table uses generic manufacturing columns instead of roasting advice', () => {
   const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
 
