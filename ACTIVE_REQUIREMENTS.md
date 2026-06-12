@@ -6,10 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-488-PRODUCTION-PLAN-SPLIT-QTY-AUTOBATCH
+- Branch: codex/production-plan-split-qty-autobatch-20260612
+- Owner/session: Codex goal / 2026-06-12
+- Status: implementation verified locally; pending merge and development deployment.
+- Scope: 更正 PR-487 拆分行输入口径。生产计划 `工序产能拆分` 不再手工填写批次数；用户填写某个工位产能承担的产量，系统按该工位产能标准批量自动计算计划批次数，并据此计算计划分钟和计划工序成本。计划数量保持等于承担产量，不因最后一批不满批而放大。
+- DEV:
+  - DEV-488-SPLIT-QTY-INPUT：生产计划页面把拆分行 `批次数` 输入改为 `承担产量` 输入，展示 `自动批次数`，选择工位产能后默认填入该工序剩余未覆盖计划数量。
+  - DEV-488-AUTOBATCH-FREEZE：`POST /api/production-plans/:id/operation-splits` 保存 `planned_qty`；后端按 `ceil(planned_qty / batch_size_qty)` 计算并冻结计划批次数、计划分钟和计划工序成本。
+- Verifier:
+  - RED frontend: `node --test src/lib/produce-plan.test.js` failed before implementation because helper ignored `planned_qty` and page still displayed manual `批次数`.
+  - RED backend/API: targeted service, repository and API tests failed before implementation with `planned_batch_count required` and `PlannedBatchCount=0, want 2`.
+  - GREEN targeted: `node --test src/lib/produce-plan.test.js`; `go test ./internal/application/production -run TestSaveProductionPlanOperationSplitsAcceptsPlannedQtyInput -count=1`; `go test ./internal/infrastructure/postgres/production -run TestPlannedCapacitySplitMetricsDerivesBatchCountFromPlannedQty -count=1`; `go test ./internal/interfaces/http/production -run TestProductionPlanOperationSplitAPIReadsAndSavesDraftCapacitySplits -count=1` passed.
+  - GREEN touched packages: `node --test src/lib/produce-plan.test.js src/lib/process-routes.test.js src/lib/operation-manuals.test.js`; `go test ./internal/application/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/production ./internal/interfaces/http/support -count=1`; `go test ./...` passed.
+  - GREEN build/check: `npm run build` in `frontend-vue-shell` passed with existing chunk-size warning; `scripts/verify_kferp.sh changed`; `git diff --check` passed.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-12-production-plan-split-qty-autobatch.md`.
+- Deployment: pending merge and development deployment.
+- Last update: 2026-06-12 Asia/Shanghai.
+
 ### PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS
 - Branch: codex/production-plan-capacity-splits-20260612
 - Owner/session: Codex goal / 2026-06-12
-- Status: implementation verified locally; not merged or deployed.
+- Status: merged to `develop` and deployed to development; superseded in split input details by PR-488.
 - Scope: 更正 PR-486 旧口径。工艺路线只维护工序顺序，不保存工位、工位产能、单批标准、费率或计划成本；工位产能继续作为工位下单批标准主数据；生产计划草稿新增工序产能拆分，按计划行和工序选择工位产能并填写批次数，提交生产计划时冻结拆分到工单/工序卡。
 - DEV:
   - DEV-487-ROUTE-SEQUENCE-ONLY：工艺路线页面和服务保存路径下线工位/工位产能/批量/工时/费率/计划成本字段；旧 DB 字段保留但新保存写空值，路线快照读取时清理旧字段。
@@ -25,7 +43,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - Repository verifier: `scripts/verify_kferp.sh changed` exited 0.
   - Browser note: local Vite at `http://127.0.0.1:5177/vue-shell/?view=producePlan` loads but cannot render authenticated ERP view without a local backend session; browser-only acceptance is still needed after merge/deploy.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`.
-- Deployment: not merged/deployed yet.
+- Deployment: deployed to development at `origin/develop=dad7a1938e7787179b2a7f42d45657dac171b489`; backup `/opt/stacks/erp/orderapp.backup.deploy-20260612205101`.
 - Last update: 2026-06-12 Asia/Shanghai.
 
 ### PR-486-WORKSTATION-CAPACITY-ROUTE-COST

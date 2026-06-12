@@ -432,7 +432,7 @@ func TestProductionPlanOperationSplitAPIReadsAndSavesDraftCapacitySplits(t *test
 			ID:     41,
 			PlanNo: "PP-0000000041",
 			Status: "draft",
-			Items: []productionapp.ProductionPlanItem{{ID: 51, ProductName: "烘焙计划", PlannedG: 98000}},
+			Items:  []productionapp.ProductionPlanItem{{ID: 51, ProductName: "烘焙计划", PlannedG: 98000}},
 			OperationSplits: []productionapp.ProductionPlanOperationSplit{{
 				ID:                      1,
 				ProductionPlanID:        41,
@@ -464,8 +464,8 @@ func TestProductionPlanOperationSplitAPIReadsAndSavesDraftCapacitySplits(t *test
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/production-plans/41/operation-splits", strings.NewReader(`{"items":[
-		{"production_plan_item_id":51,"operation_seq":10,"operation":"烘焙","workstation_capacity_id":8,"planned_batch_count":5},
-		{"production_plan_item_id":51,"operation_seq":10,"operation":"烘焙","workstation_capacity_id":9,"planned_batch_count":2}
+		{"production_plan_item_id":51,"operation_seq":10,"operation":"烘焙","workstation_capacity_id":8,"planned_qty":90},
+		{"production_plan_item_id":51,"operation_seq":10,"operation":"烘焙","workstation_capacity_id":9,"planned_qty":8}
 	]}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
@@ -476,7 +476,7 @@ func TestProductionPlanOperationSplitAPIReadsAndSavesDraftCapacitySplits(t *test
 	if repo.savePlanSplits.ID != 41 || repo.savePlanSplits.Operator == "" || len(repo.savePlanSplits.Items) != 2 {
 		t.Fatalf("save split command = %+v", repo.savePlanSplits)
 	}
-	if repo.savePlanSplits.Items[0].WorkstationCapacityID != 8 || repo.savePlanSplits.Items[1].PlannedBatchCount != 2 {
+	if repo.savePlanSplits.Items[0].WorkstationCapacityID != 8 || repo.savePlanSplits.Items[1].PlannedQty != 8 {
 		t.Fatalf("saved split items = %+v", repo.savePlanSplits.Items)
 	}
 }

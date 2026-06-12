@@ -187,9 +187,13 @@
                     </select>
                   </label>
                   <label>
-                    <span>批次数</span>
-                    <input v-model.number="split.planned_batch_count" type="number" min="1" step="1" :disabled="!currentPlanDraft" />
+                    <span>承担产量{{ splitQuantityUnit(split) }}</span>
+                    <input v-model.number="split.planned_qty" type="number" min="0" :step="splitQuantityStep(split)" :disabled="!currentPlanDraft" />
                   </label>
+                  <div class="split-metric">
+                    <span>自动批次数</span>
+                    <strong>{{ plannedCapacitySplitMetrics(split).planned_batch_count || 0 }}</strong>
+                  </div>
                   <div class="split-metric">
                     <span>计划数量</span>
                     <strong>{{ plannedCapacitySplitMetrics(split).planned_qty_g || 0 }}g</strong>
@@ -846,6 +850,56 @@ function splitRowsForOperation(item, operation) {
   return operationSplits.value.filter((split) => Number(split.production_plan_item_id || 0) === itemID && splitMatchesOperation(split, operation))
 }
 
+function splitQuantityUnit(split) {
+  const unit = String(split?.batch_size_unit || '').trim()
+  return unit ? `（${unit}）` : ''
+}
+
+function splitQuantityStep(split) {
+  const unit = String(split?.batch_size_unit || '').trim().toLowerCase()
+  if (unit === 'g' || unit === '克') return '1'
+  return '0.001'
+}
+
+function qtyFromGForSplitUnit(qtyG, unit) {
+  const value = Math.max(0, Number(qtyG || 0))
+  const normalized = String(unit || '').trim().toLowerCase()
+  if (normalized === 'kg' || normalized === '千克' || normalized === '公斤') return Number((value / 1000).toFixed(3))
+  if (normalized === 'g' || normalized === '克') return Math.round(value)
+  return 0
+}
+
+function productionPlanItemTargetG(item) {
+  return Math.max(0, Number(item?.planned_g || item?.planned_output_g || item?.gap_g || 0))
+}
+
+function currentPlanItemForSplit(split) {
+  const itemID = Number(split?.production_plan_item_id || 0)
+  return (currentPlan.value?.items || []).find((item) => Number(item?.id || 0) === itemID) || null
+}
+
+function splitSameOperation(left, right) {
+  if (Number(left?.production_plan_item_id || 0) !== Number(right?.production_plan_item_id || 0)) return false
+  const leftSeq = Number(left?.operation_seq || 0)
+  const rightSeq = Number(right?.operation_seq || 0)
+  if (leftSeq > 0 || rightSeq > 0) return leftSeq === rightSeq
+  const leftID = Number(left?.operation_id || 0)
+  const rightID = Number(right?.operation_id || 0)
+  if (leftID > 0 || rightID > 0) return leftID === rightID
+  return String(left?.operation || '').trim() === String(right?.operation || '').trim()
+}
+
+function defaultPlannedQtyForSplit(split) {
+  const item = currentPlanItemForSplit(split)
+  const targetG = productionPlanItemTargetG(item)
+  if (targetG <= 0) return 0
+  const usedG = operationSplits.value.reduce((sum, row) => {
+    if (row === split || !splitSameOperation(row, split)) return sum
+    return sum + (plannedCapacitySplitMetrics(row).planned_qty_g || 0)
+  }, 0)
+  return qtyFromGForSplitUnit(Math.max(0, targetG - usedG), split.batch_size_unit)
+}
+
 function capacityOptionLabel(capacity) {
   const parts = [capacity?.name || `#${capacity?.id || ''}`]
   if (Number(capacity?.batch_size_qty || 0) > 0) parts.push(`${capacity.batch_size_qty}${capacity.batch_size_unit || ''}`)
@@ -871,7 +925,8 @@ function normalizeOperationSplit(row = {}) {
     batch_size_unit: row.batch_size_unit || '',
     standard_minutes: Number(row.standard_minutes || 0),
     hourly_rate: Number(row.hourly_rate || 0),
-    planned_batch_count: Number(row.planned_batch_count || 1),
+    planned_batch_count: Number(row.planned_batch_count || 0),
+    planned_qty: Number(row.planned_qty || qtyFromGForSplitUnit(Number(row.planned_qty_g || 0), row.batch_size_unit)),
     planned_qty_g: Number(row.planned_qty_g || 0),
     planned_minutes: Number(row.planned_minutes || 0),
     planned_operation_cost: Number(row.planned_operation_cost || 0),
@@ -887,7 +942,7 @@ function addOperationSplit(item, operation) {
     operation_seq: identity.seq,
     operation_id: identity.id,
     operation: identity.name,
-    planned_batch_count: 1,
+    planned_qty: 0,
   }))
 }
 
@@ -905,6 +960,9 @@ function applySplitCapacity(split) {
   split.batch_size_unit = capacity.batch_size_unit || ''
   split.standard_minutes = Number(capacity.standard_minutes || 0)
   split.hourly_rate = Number(capacity.hourly_rate || 0)
+  if (Number(split.planned_qty || 0) <= 0) {
+    split.planned_qty = defaultPlannedQtyForSplit(split)
+  }
 }
 
 async function loadWorkstationCapacities() {
@@ -1182,7 +1240,7 @@ td small { display: block; color: #666; line-height: 1.6; }
 .split-operation-block { border-top: 1px solid #eee; padding-top: 10px; display: grid; gap: 8px; }
 .split-operation-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .split-operation-head span { color: #374151; }
-.split-row { display: grid; grid-template-columns: minmax(220px, 1.4fr) 110px repeat(3, minmax(100px, .7fr)) auto; gap: 8px; align-items: end; }
+.split-row { display: grid; grid-template-columns: minmax(220px, 1.4fr) 120px repeat(4, minmax(96px, .65fr)) auto; gap: 8px; align-items: end; }
 .split-row label { display: grid; gap: 5px; }
 .split-row label span, .split-metric span { font-size: 12px; color: #666; }
 .split-metric { min-height: 42px; border: 1px solid #eee; border-radius: 8px; padding: 6px 8px; display: grid; gap: 2px; background: #fafafa; }
