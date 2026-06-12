@@ -98,6 +98,12 @@ export function productionPlanBatchSubmitEndpoint() {
   return '/api/production-plans/submit'
 }
 
+export function productionPlanDetailEndpoint(plan) {
+  const id = Number(plan?.id || 0)
+  if (id <= 0) return ''
+  return `/api/production-plans/${id}`
+}
+
 export function buildProductionPlanListQuery(filters = {}) {
   const params = new URLSearchParams()
   const status = String(filters.status || '').trim()

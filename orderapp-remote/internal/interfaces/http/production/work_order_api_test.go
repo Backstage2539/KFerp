@@ -265,6 +265,75 @@ func TestProductionPlanAPIListAcceptsStatusAndTimeFilters(t *testing.T) {
 	}
 }
 
+func TestProductionPlanAPIDetailIncludesDocumentSummary(t *testing.T) {
+	repo := &workOrderAPIRepo{
+		productionPlan: productionapp.ProductionPlanDetail{
+			ID:          41,
+			PlanNo:      "PP-0000000041",
+			SourceType:  "erp_order",
+			Status:      "submitted",
+			CreatedBy:   "计划员",
+			CreatedAt:   "2026-06-12 10:00",
+			SubmittedBy: "主管",
+			SubmittedAt: "2026-06-12 10:10",
+			Items: []productionapp.ProductionPlanItem{{
+				ID:                  51,
+				PlanID:              41,
+				ProductName:         "包装盒",
+				SpecG:               0,
+				PlannedG:            3000,
+				PlannedOutputG:      100,
+				GapG:                100,
+				OrderNos:            "SO-BOX-1",
+				BomVersionID:        701,
+				ProcessRouteID:      801,
+				ProcessSnapshotJSON: `{"name":"包装盒路线","operations":[{"seq":1,"operation":"印刷","workstation":"印刷工位"}]}`,
+			}},
+			MaterialSummary: []productionapp.MaterialNeed{{
+				Name: "纸板",
+				Qty:  100,
+				Unit: "张",
+			}},
+			RelatedWorkOrders: []productionapp.ProductionPlanRelatedWorkOrder{{
+				ID:                   88,
+				WorkOrderNo:          "WO-PP-0000000041-0000000051",
+				ProductionPlanID:     41,
+				ProductionPlanItemID: 51,
+				ProductName:          "包装盒",
+				PlannedG:             3000,
+				PlannedOutputG:       100,
+				Status:               "released",
+				JobCardCount:         2,
+			}},
+			JobCardCount: 2,
+		},
+	}
+	e := echo.New()
+	registerProductionPlanAPI(e, productionapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/production-plans/41", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/production-plans/41 status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`"plan_no":"PP-0000000041"`,
+		`"material_summary":[`,
+		`"name":"纸板"`,
+		`"related_work_orders":[`,
+		`"work_order_no":"WO-PP-0000000041-0000000051"`,
+		`"job_card_count":2`,
+		`"process_route_id":801`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("production plan detail missing %s: %s", want, body)
+		}
+	}
+}
+
 func TestProductionPlanAPIBatchSubmitReportsPartialResults(t *testing.T) {
 	repo := &workOrderAPIRepo{
 		submitPlanByID: map[int64]productionapp.ProductionPlanSubmitResult{

@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-478-PRODUCTION-PLAN-DOCUMENT-DETAIL
+- Branch: codex/production-plan-detail-drawer-20260612
+- Owner/session: Codex / 2026-06-12
+- Status: implemented locally on top of latest `origin/develop=e93575932ef3f3e5e9944af59a5d110b33d65bab`; targeted tests, package tests, full Go tests, Vue build, browser harness, changed verifier and diff check passed. Ready for integration. PR id was assigned as PR-478 because latest develop already uses PR-476/PR-477 for architecture remediation.
+- Scope: 增强 `生产计划单据` 明细，不改创建流程、不重做批量提交、不新增路由或产能排程。历史列表保持紧凑，点击计划号或 `详情` 打开同页生产计划单据详情抽屉，集中展示单据头、计划行、BOM/工艺路线、物料需求汇总、工艺参数/商品生产配置快照和生成工单结果。
+- DEV:
+  - DEV-478-PRODUCTION-PLAN-DETAIL-API：`GET /api/production-plans/:id` 保持兼容并新增 `material_summary`、`related_work_orders` 和 `job_card_count` 只读派生字段，后端从计划行物料快照、工单和工序卡聚合，不新增表。
+  - DEV-478-PRODUCTION-PLAN-DETAIL-DRAWER：生产计划单据列表新增计划号/详情入口；详情抽屉显示单据头、计划行、物料需求汇总、工艺路线摘要、工艺参数/商品生产配置快照和生成结果。
+  - DEV-478-DOCS-ACCEPTANCE：同步需求、验收清单、生产手册、PR/DEV/UT/API/REV 种子和 PR-478 验收记录。
+- Verifier:
+  - RED frontend: `node --test src/lib/produce-plan.test.js` failed before implementation because `productionPlanDetailEndpoint` and the detail drawer markers were missing.
+  - RED backend/API: `go test ./internal/interfaces/http/production -run TestProductionPlanAPIDetailIncludesDocumentSummary -count=1 -v` failed before implementation because production plan detail lacked material summary, related work orders and job card count fields.
+  - RED repository: `go test ./internal/infrastructure/postgres/production -run 'TestAggregateProductionPlanMaterialSummary' -count=1 -v` failed before implementation because the material snapshot aggregation helper did not exist.
+  - RED support/docs: `go test ./internal/interfaces/http/support -run TestDev478ProductionPlanDetailDrawerContracts -count=1 -v` failed before docs/seed implementation because PR-478 markers were missing.
+  - GREEN targeted: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js` passed 22/22; `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support ./internal/architecture -count=1` passed.
+  - GREEN build/check: `npm run build` in `frontend-vue-shell` passed with the existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+  - GREEN browser/local: local production Vue build + mock API at `http://127.0.0.1:5192/vue-shell/?view=producePlan` rendered the production plan page. The compact `生产计划单据` list showed plan number and `详情`; clicking `PP-PR478-SUBMITTED` opened the detail drawer with `单据头`、`计划行`、`物料需求汇总`、`工艺路线摘要`、`工艺参数 / 商品生产配置快照`、`生成结果`、`WO-PR478-001` and `工序卡 4 张`. Page text did not contain `生产建议/推荐机器/每锅数量/锅数/预计成品`. Mobile viewport 390x844 kept drawer width equal to viewport with no page-level horizontal overflow.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-12-production-plan-document-detail.md`.
+- Last update: 2026-06-12 Asia/Shanghai
+
 ### PR-477-P2-ARCHITECTURE-REMEDIATION
 - Branch: codex/p1-architecture-remediation-20260612
 - Owner/session: Codex goal / 2026-06-12

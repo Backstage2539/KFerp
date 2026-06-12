@@ -365,16 +365,34 @@ type ProductionPlanItem struct {
 }
 
 type ProductionPlanDetail struct {
-	ID          int64                `json:"id"`
-	PlanNo      string               `json:"plan_no"`
-	SourceType  string               `json:"source_type"`
-	Status      string               `json:"status"`
-	CreatedBy   string               `json:"created_by"`
-	CreatedAt   string               `json:"created_at"`
-	SubmittedBy string               `json:"submitted_by"`
-	SubmittedAt string               `json:"submitted_at"`
-	CompletedAt string               `json:"completed_at"`
-	Items       []ProductionPlanItem `json:"items"`
+	ID                int64                            `json:"id"`
+	PlanNo            string                           `json:"plan_no"`
+	SourceType        string                           `json:"source_type"`
+	Status            string                           `json:"status"`
+	CreatedBy         string                           `json:"created_by"`
+	CreatedAt         string                           `json:"created_at"`
+	SubmittedBy       string                           `json:"submitted_by"`
+	SubmittedAt       string                           `json:"submitted_at"`
+	CompletedAt       string                           `json:"completed_at"`
+	Items             []ProductionPlanItem             `json:"items"`
+	MaterialSummary   []MaterialNeed                   `json:"material_summary"`
+	RelatedWorkOrders []ProductionPlanRelatedWorkOrder `json:"related_work_orders"`
+	JobCardCount      int64                            `json:"job_card_count"`
+}
+
+type ProductionPlanRelatedWorkOrder struct {
+	ID                   int64  `json:"id"`
+	WorkOrderNo          string `json:"work_order_no"`
+	ProductionPlanID     int64  `json:"production_plan_id"`
+	ProductionPlanItemID int64  `json:"production_plan_item_id"`
+	ProductName          string `json:"product_name"`
+	SpecG                int64  `json:"spec_g"`
+	PlannedG             int64  `json:"planned_g"`
+	PlannedOutputG       int64  `json:"planned_output_g"`
+	Status               string `json:"status"`
+	CreatedAt            string `json:"created_at"`
+	CompletedAt          string `json:"completed_at"`
+	JobCardCount         int64  `json:"job_card_count"`
 }
 
 type SubmitProductionPlanCommand struct {

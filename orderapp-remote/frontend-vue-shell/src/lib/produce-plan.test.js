@@ -85,6 +85,12 @@ test('production plan list query includes status and date filters with a 50 row 
   )
 })
 
+test('production plan detail endpoint targets the formal plan document', () => {
+  assert.equal(producePlan.productionPlanDetailEndpoint({ id: 41 }), '/api/production-plans/41')
+  assert.equal(producePlan.productionPlanDetailEndpoint({ id: '42' }), '/api/production-plans/42')
+  assert.equal(producePlan.productionPlanDetailEndpoint({}), '')
+})
+
 test('production plan status labels and tones are localized for the list', () => {
   assert.equal(producePlan.productionPlanStatusLabel('draft'), '草稿')
   assert.equal(producePlan.productionPlanStatusLabel('submitted'), '已提交工单')
@@ -194,6 +200,23 @@ test('ProducePlanView submits the current draft plan through the batch submit AP
   assert.match(source, /buildCurrentProductionPlanSubmitPayload\(currentPlan\.value\)/)
   assert.match(source, /apiSend\(productionPlanBatchSubmitEndpoint\(\), \{ body: payload \}\)/)
   assert.doesNotMatch(source, /@click="submitPlanRow\(plan\)"/)
+})
+
+test('ProducePlanView opens an ERPNext-style production plan detail drawer from the compact list', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /production-plan-detail-drawer/)
+  assert.match(source, /openProductionPlanDetail/)
+  assert.match(source, /productionPlanDetailEndpoint\(plan\)/)
+  assert.match(source, /apiGet\(productionPlanDetailEndpoint\(plan\)\)/)
+  assert.match(source, /单据头/)
+  assert.match(source, /计划行/)
+  assert.match(source, /物料需求汇总/)
+  assert.match(source, /工艺路线摘要/)
+  assert.match(source, /工艺参数 \/ 商品生产配置快照/)
+  assert.match(source, /生成结果/)
+  assert.match(source, />详情</)
+  assert.doesNotMatch(source, /submitPlanRow\(plan\)/)
 })
 
 test('ProducePlanView no longer consumes roasting capacity suggestions in the main flow', () => {

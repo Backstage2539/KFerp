@@ -273,6 +273,7 @@
               <th>创建人</th>
               <th>提交人</th>
               <th>时间</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -287,21 +288,177 @@
                   @change="toggleProductionPlan(plan, $event.target.checked)"
                 />
               </td>
-              <td><strong>{{ plan.plan_no }}</strong></td>
+              <td><button class="link-button plan-no-button" type="button" @click="openProductionPlanDetail(plan)">{{ plan.plan_no }}</button></td>
               <td>{{ plan.source_type || '-' }}</td>
               <td><span :class="['status', `status-${productionPlanStatusTone(plan.status)}`]">{{ productionPlanStatusLabel(plan.status) }}</span></td>
               <td>{{ plan.item_count || 0 }}</td>
               <td>{{ plan.created_by || '-' }}</td>
               <td>{{ plan.submitted_by || '-' }}</td>
               <td><small>建 {{ plan.created_at || '-' }}</small><small>交 {{ plan.submitted_at || '-' }}</small><small>完 {{ plan.completed_at || '-' }}</small></td>
+              <td><button class="secondary compact" type="button" @click="openProductionPlanDetail(plan)">详情</button></td>
             </tr>
             <tr v-if="!productionPlans.length">
-              <td colspan="8" class="muted">暂无生产计划单据</td>
+              <td colspan="9" class="muted">暂无生产计划单据</td>
             </tr>
           </tbody>
         </table>
       </div>
     </section>
+
+    <div v-if="productionPlanDetail" class="drawer-backdrop" @click.self="closeProductionPlanDetail">
+      <aside class="production-plan-detail-drawer" aria-label="生产计划单据详情">
+        <div class="drawer-head">
+          <div>
+            <div class="muted">生产计划单据</div>
+            <h2>{{ productionPlanDetail.plan_no || '-' }}</h2>
+          </div>
+          <div class="drawer-head-actions">
+            <span :class="['status', `status-${productionPlanStatusTone(productionPlanDetail.status)}`]">{{ productionPlanStatusLabel(productionPlanDetail.status) }}</span>
+            <button class="secondary compact" type="button" @click="closeProductionPlanDetail">关闭</button>
+          </div>
+        </div>
+        <div v-if="productionPlanDetailError" class="error">{{ productionPlanDetailError }}</div>
+        <div v-if="productionPlanDetailLoading" class="muted drawer-loading">正在加载单据详情...</div>
+        <template v-else>
+          <section class="detail-section">
+            <div class="section-title">单据头</div>
+            <dl class="detail-grid">
+              <div><dt>计划号</dt><dd>{{ productionPlanDetail.plan_no || '-' }}</dd></div>
+              <div><dt>来源</dt><dd>{{ productionPlanDetail.source_type || '-' }}</dd></div>
+              <div><dt>状态</dt><dd>{{ productionPlanStatusLabel(productionPlanDetail.status) }}</dd></div>
+              <div><dt>创建</dt><dd>{{ productionPlanDetail.created_by || '-' }} / {{ productionPlanDetail.created_at || '-' }}</dd></div>
+              <div><dt>提交</dt><dd>{{ productionPlanDetail.submitted_by || '-' }} / {{ productionPlanDetail.submitted_at || '-' }}</dd></div>
+              <div><dt>完成</dt><dd>{{ productionPlanDetail.completed_at || '-' }}</dd></div>
+            </dl>
+          </section>
+
+          <section class="detail-section">
+            <div class="section-title">计划行</div>
+            <div class="table-wrap">
+              <table class="detail-table">
+                <thead>
+                  <tr>
+                    <th>商品</th>
+                    <th>来源订单</th>
+                    <th>规格/单位</th>
+                    <th>生产缺口</th>
+                    <th>计划投料</th>
+                    <th>计划产出</th>
+                    <th>BOM</th>
+                    <th>工艺路线摘要</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in productionPlanDetail.items || []" :key="item.id">
+                    <td>{{ item.product_name || '-' }}</td>
+                    <td class="muted">{{ item.order_nos || '-' }}</td>
+                    <td>{{ planItemSpecLabel(item) }}</td>
+                    <td>{{ item.gap_g || 0 }}</td>
+                    <td>{{ item.planned_g || 0 }}</td>
+                    <td>{{ item.planned_output_g || 0 }}</td>
+                    <td>{{ planItemBomLabel(item) }}</td>
+                    <td>{{ planItemRouteSummary(item) }}</td>
+                  </tr>
+                  <tr v-if="!(productionPlanDetail.items || []).length">
+                    <td colspan="8" class="muted">暂无计划行</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="detail-section">
+            <div class="section-title">物料需求汇总</div>
+            <div class="table-wrap">
+              <table class="detail-table compact-table">
+                <thead>
+                  <tr>
+                    <th>物料</th>
+                    <th>需求数量</th>
+                    <th>单位</th>
+                    <th>类型</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in productionPlanDetail.material_summary || []" :key="`${item.name}-${item.unit}-${item.component_type || ''}`">
+                    <td>{{ item.name }}</td>
+                    <td>{{ item.qty }}</td>
+                    <td>{{ item.unit || '-' }}</td>
+                    <td>{{ materialTypeLabel(item) }}</td>
+                  </tr>
+                  <tr v-if="!(productionPlanDetail.material_summary || []).length">
+                    <td colspan="4" class="muted">暂无物料需求汇总</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="detail-section">
+            <div class="section-title">工艺路线摘要</div>
+            <div v-for="item in productionPlanDetail.items || []" :key="`route-${item.id}`" class="route-block">
+              <div class="route-title">{{ item.product_name || '-' }} · {{ planItemRouteSummary(item) }}</div>
+              <div v-if="processOperations(item).length" class="operation-list">
+                <span v-for="op in processOperations(item)" :key="`${item.id}-${op.seq || op.sequence_no || op.operation}`" class="operation-pill">
+                  {{ op.seq || op.sequence_no || '-' }}. {{ op.operation || '工序' }} / {{ op.workstation || '工位' }}
+                </span>
+              </div>
+              <div v-else class="muted">暂无工序快照</div>
+            </div>
+          </section>
+
+          <section class="detail-section">
+            <div class="section-title">工艺参数 / 商品生产配置快照</div>
+            <div v-for="item in productionPlanDetail.items || []" :key="`config-${item.id}`" class="route-block">
+              <div class="route-title">{{ item.product_name || '-' }}</div>
+              <div v-if="productionConfigFields(item).length" class="operation-list">
+                <span v-for="field in productionConfigFields(item)" :key="`${item.id}-${field.field_key || field.label}`" class="operation-pill">
+                  {{ field.label || field.field_key }}：{{ productionConfigValue(field) }}
+                </span>
+              </div>
+              <div v-else class="muted">暂无商品生产配置快照</div>
+            </div>
+          </section>
+
+          <section class="detail-section">
+            <div class="section-title">生成结果</div>
+            <div class="result-summary">
+              <span>工单 {{ (productionPlanDetail.related_work_orders || []).length }} 张</span>
+              <span>工序卡 {{ productionPlanDetail.job_card_count || 0 }} 张</span>
+              <button class="secondary compact" type="button" @click="navigateProductionView('workOrders')">进入工单</button>
+              <button class="secondary compact" type="button" @click="navigateProductionView('jobCards')">进入工序卡</button>
+            </div>
+            <div class="table-wrap">
+              <table class="detail-table">
+                <thead>
+                  <tr>
+                    <th>工单号</th>
+                    <th>商品</th>
+                    <th>计划投料</th>
+                    <th>计划产出</th>
+                    <th>状态</th>
+                    <th>工序卡</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="wo in productionPlanDetail.related_work_orders || []" :key="wo.id">
+                    <td>{{ wo.work_order_no }}</td>
+                    <td>{{ wo.product_name || '-' }}</td>
+                    <td>{{ wo.planned_g || 0 }}</td>
+                    <td>{{ wo.planned_output_g || 0 }}</td>
+                    <td>{{ workOrderStatusLabel(wo.status) }}</td>
+                    <td>{{ wo.job_card_count || 0 }}</td>
+                  </tr>
+                  <tr v-if="!(productionPlanDetail.related_work_orders || []).length">
+                    <td colspan="6" class="muted">尚未生成工单</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </template>
+      </aside>
+    </div>
   </div>
 </template>
 
@@ -317,6 +474,7 @@ import {
   buildProductionPlanSelection,
   insufficientSelectionState,
   productionPlanBatchSubmitEndpoint,
+  productionPlanDetailEndpoint,
   productionPlanSelectable,
   productionPlanSelectionState,
   productionPlanStatusLabel,
@@ -343,6 +501,9 @@ const planRows = ref([])
 const initialMaterials = ref([])
 const productionPlans = ref([])
 const currentPlan = ref(null)
+const productionPlanDetail = ref(null)
+const productionPlanDetailLoading = ref(false)
+const productionPlanDetailError = ref('')
 const insufficientHeaderCheckbox = ref(null)
 const productionPlanHeaderCheckbox = ref(null)
 const selected = reactive({})
@@ -566,6 +727,98 @@ function productionRouteSummary(row) {
   return '按商品默认工艺路线'
 }
 
+function parseJSONSnapshot(raw, fallback) {
+  if (raw && typeof raw === 'object') return raw
+  const text = String(raw || '').trim()
+  if (!text) return fallback
+  try {
+    return JSON.parse(text)
+  } catch (_) {
+    return fallback
+  }
+}
+
+function planItemSpecLabel(item) {
+  const spec = Number(item?.spec_g || 0)
+  if (spec > 0) return `${spec}g`
+  return '按商品单位'
+}
+
+function planItemBomLabel(item) {
+  const id = Number(item?.bom_version_id || 0)
+  return id > 0 ? `BOM版本 #${id}` : '默认 BOM'
+}
+
+function planItemRouteSummary(item) {
+  const snapshot = parseJSONSnapshot(item?.process_snapshot_json, {})
+  const name = snapshot.route_name || snapshot.name || ''
+  if (name) return name
+  const routeID = Number(item?.process_route_id || 0)
+  if (routeID > 0) return `工艺路线 #${routeID}`
+  const templateID = Number(item?.operation_template_id || 0)
+  if (templateID > 0) return `工艺模板 #${templateID}`
+  return '按商品默认工艺路线'
+}
+
+function processOperations(item) {
+  const snapshot = parseJSONSnapshot(item?.process_snapshot_json, {})
+  return Array.isArray(snapshot.operations) ? snapshot.operations : []
+}
+
+function productionConfigFields(item) {
+  const snapshot = parseJSONSnapshot(item?.production_config_snapshot_json, {})
+  return Array.isArray(snapshot.fields) ? snapshot.fields : []
+}
+
+function productionConfigValue(field) {
+  if (field?.value_text) return field.value_text
+  if (field?.value_number !== undefined && field.value_number !== null) return field.value_number
+  if (field?.value_bool !== undefined && field.value_bool !== null) return field.value_bool ? '是' : '否'
+  return '-'
+}
+
+function materialTypeLabel(item) {
+  const type = String(item?.component_type || '').trim()
+  if (type === 'finished_product') return '半成品/成品组件'
+  if (type === 'packaging') return '包材'
+  if (type === 'material' || type === 'bom') return '物料'
+  return type || '-'
+}
+
+function workOrderStatusLabel(status) {
+  const map = {
+    draft: '草稿',
+    released: '待开工',
+    running: '生产中',
+    completed: '已完成',
+    cancelled: '已取消',
+  }
+  return map[String(status || '').trim()] || status || '-'
+}
+
+async function openProductionPlanDetail(plan) {
+  if (!productionPlanDetailEndpoint(plan)) return
+  productionPlanDetail.value = { ...plan, items: [], material_summary: [], related_work_orders: [], job_card_count: 0 }
+  productionPlanDetailLoading.value = true
+  productionPlanDetailError.value = ''
+  try {
+    productionPlanDetail.value = await apiGet(productionPlanDetailEndpoint(plan))
+  } catch (err) {
+    productionPlanDetailError.value = err.message || '加载生产计划单据详情失败'
+  } finally {
+    productionPlanDetailLoading.value = false
+  }
+}
+
+function closeProductionPlanDetail() {
+  productionPlanDetail.value = null
+  productionPlanDetailError.value = ''
+}
+
+function navigateProductionView(key) {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key } }))
+}
+
 async function createProductionPlan() {
   let keys = selectedKeys()
   if (!keys.length) {
@@ -714,6 +967,8 @@ input.bulk-checkbox:disabled { cursor: not-allowed; opacity: 0.45; }
 .primary { border: 1px solid #111; background: #111; color: #fff; }
 .secondary { border: 1px solid #999; background: #fff; color: #111; }
 .compact { min-height: 30px; padding: 5px 10px; }
+.link-button { border: 0; background: transparent; color: #111; padding: 0; text-align: left; text-decoration: underline; text-underline-offset: 3px; }
+.plan-no-button { font-weight: 700; }
 .status { display: inline-flex; border: 1px solid #d1d5db; border-radius: 999px; padding: 2px 8px; background: #f9fafb; color: #374151; white-space: nowrap; }
 .status-draft { border-color: #d1d5db; background: #f3f4f6; color: #374151; }
 .status-submitted { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
@@ -736,11 +991,33 @@ td small { display: block; color: #666; line-height: 1.6; }
 .direct-ship-tip { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .direct-ship-tip div { display: grid; gap: 4px; }
 .direct-ship-tip span { color: #28633b; font-size: 13px; }
+.drawer-backdrop { position: fixed; inset: 0; z-index: 40; background: rgba(17, 24, 39, 0.28); display: flex; justify-content: flex-end; }
+.production-plan-detail-drawer { width: min(980px, 100vw); height: 100vh; overflow: auto; background: #fff; box-shadow: -12px 0 28px rgba(15, 23, 42, 0.18); padding: 18px; display: grid; align-content: start; gap: 16px; }
+.drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; border-bottom: 1px solid #eee; padding-bottom: 12px; }
+.drawer-head h2 { margin: 4px 0 0; font-size: 22px; }
+.drawer-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.drawer-loading { padding: 12px 0; }
+.detail-section { display: grid; gap: 10px; }
+.detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.detail-grid div { border: 1px solid #eee; border-radius: 8px; padding: 10px; min-width: 0; }
+.detail-grid dt { font-size: 12px; color: #666; margin-bottom: 4px; }
+.detail-grid dd { margin: 0; overflow-wrap: anywhere; }
+.detail-table { min-width: 860px; }
+.compact-table { min-width: 560px; }
+.route-block { border: 1px solid #eee; border-radius: 8px; padding: 10px; display: grid; gap: 8px; }
+.route-title { font-weight: 700; }
+.operation-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.operation-pill { border: 1px solid #e5e7eb; border-radius: 999px; padding: 4px 8px; background: #f9fafb; color: #374151; }
+.result-summary { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.result-summary span { border: 1px solid #e5e7eb; border-radius: 999px; padding: 4px 8px; background: #f9fafb; }
 
 @media (max-width: 900px) {
   .page { padding: 12px; }
   .planning-workbench { grid-template-columns: 1fr; }
   .filters, .production-plan-filters { grid-template-columns: 1fr; }
   .direct-ship-tip { align-items: stretch; flex-direction: column; }
+  .production-plan-detail-drawer { width: 100vw; padding: 14px; }
+  .drawer-head { flex-direction: column; }
+  .detail-grid { grid-template-columns: 1fr; }
 }
 </style>

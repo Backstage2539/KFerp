@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -303,6 +305,13 @@ func loadProductionPlanDetailTx(ctx context.Context, tx pgx.Tx, schema string, i
 		return productionapp.ProductionPlanDetail{}, err
 	}
 	detail.Items = items
+	detail.MaterialSummary = aggregateProductionPlanMaterialSummary(items)
+	relatedWorkOrders, jobCardCount, err := loadProductionPlanRelatedWorkOrdersTx(ctx, tx, schema, id)
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	detail.RelatedWorkOrders = relatedWorkOrders
+	detail.JobCardCount = jobCardCount
 	return detail, nil
 }
 
@@ -331,6 +340,137 @@ func loadProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schema string, pl
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+func aggregateProductionPlanMaterialSummary(items []productionapp.ProductionPlanItem) []productionapp.MaterialNeed {
+	type key struct {
+		name              string
+		unit              string
+		componentType     string
+		upstreamProductID int64
+		upstreamShortageG int64
+	}
+	merged := map[key]productionapp.MaterialNeed{}
+	for _, item := range items {
+		raw := strings.TrimSpace(item.MaterialSnapshot)
+		if raw == "" || raw == "[]" || raw == "null" {
+			continue
+		}
+		var rows []materialSnapshotRow
+		if err := json.Unmarshal([]byte(raw), &rows); err != nil {
+			continue
+		}
+		for _, row := range rows {
+			name := strings.TrimSpace(row.MaterialName)
+			if name == "" {
+				continue
+			}
+			unit := strings.TrimSpace(row.Unit)
+			if unit == "" {
+				unit = "g"
+			}
+			qty := productionPlanMaterialSnapshotQty(item, row, unit)
+			if qty <= 0 {
+				continue
+			}
+			componentType := strings.TrimSpace(row.ComponentType)
+			if componentType == "" {
+				componentType = strings.TrimSpace(row.Source)
+			}
+			k := key{
+				name:              name,
+				unit:              unit,
+				componentType:     componentType,
+				upstreamProductID: row.ComponentProductID,
+			}
+			current := merged[k]
+			if current.Name == "" {
+				current = productionapp.MaterialNeed{
+					Name:              name,
+					Unit:              unit,
+					ComponentType:     componentType,
+					UpstreamProductID: row.ComponentProductID,
+				}
+			}
+			current.Qty += qty
+			merged[k] = current
+		}
+	}
+	out := make([]productionapp.MaterialNeed, 0, len(merged))
+	for _, item := range merged {
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name == out[j].Name {
+			return out[i].Unit < out[j].Unit
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+func productionPlanMaterialSnapshotQty(item productionapp.ProductionPlanItem, row materialSnapshotRow, unit string) int64 {
+	source := strings.TrimSpace(row.Source)
+	if source == "" {
+		source = "bom"
+	}
+	rawG := item.PlannedG
+	if rawG <= 0 {
+		rawG = item.GapG
+	}
+	packedUnits := productionPlanOutputUnits(item)
+	if source == "packaging" {
+		if row.QtyPerUnit > 0 && packedUnits > 0 {
+			return int64(math.Ceil(float64(packedUnits) * row.QtyPerUnit))
+		}
+		return packedUnits
+	}
+	return componentConsumptionQty(row.ConsumeUnit, row.QtyPerUnit, row.RatioPct, unit, rawG, packedUnits, 0)
+}
+
+func productionPlanOutputUnits(item productionapp.ProductionPlanItem) int64 {
+	if item.SpecG > 0 && item.PlannedOutputG > 0 {
+		return ceilDiv64(item.PlannedOutputG, item.SpecG)
+	}
+	if item.PlannedOutputG > 0 {
+		return item.PlannedOutputG
+	}
+	if item.GapG > 0 && item.SpecG > 0 {
+		return ceilDiv64(item.GapG, item.SpecG)
+	}
+	return 0
+}
+
+func loadProductionPlanRelatedWorkOrdersTx(ctx context.Context, tx pgx.Tx, schema string, planID int64) ([]productionapp.ProductionPlanRelatedWorkOrder, int64, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT wo.id,wo.work_order_no,wo.production_plan_id,wo.production_plan_item_id,wo.product_name,wo.spec_g,
+		       wo.planned_g,COALESCE(NULLIF(wo.planned_output_g,0),wo.planned_g),wo.status,
+		       to_char(wo.created_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(wo.completed_at,'YYYY-MM-DD HH24:MI'),''),
+		       COUNT(jc.id)::bigint
+		FROM %s.work_orders wo
+		LEFT JOIN %s.job_cards jc ON jc.work_order_id=wo.id
+		WHERE wo.production_plan_id=$1
+		GROUP BY wo.id
+		ORDER BY wo.id
+	`, schema, schema), planID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := make([]productionapp.ProductionPlanRelatedWorkOrder, 0)
+	var totalJobCards int64
+	for rows.Next() {
+		var row productionapp.ProductionPlanRelatedWorkOrder
+		if err := rows.Scan(
+			&row.ID, &row.WorkOrderNo, &row.ProductionPlanID, &row.ProductionPlanItemID, &row.ProductName, &row.SpecG,
+			&row.PlannedG, &row.PlannedOutputG, &row.Status, &row.CreatedAt, &row.CompletedAt, &row.JobCardCount,
+		); err != nil {
+			return nil, 0, err
+		}
+		totalJobCards += row.JobCardCount
+		out = append(out, row)
+	}
+	return out, totalJobCards, rows.Err()
 }
 
 func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.SubmitProductionPlanCommand) (productionapp.ProductionPlanSubmitResult, error) {
