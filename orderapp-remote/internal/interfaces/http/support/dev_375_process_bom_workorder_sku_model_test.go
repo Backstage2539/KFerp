@@ -49,8 +49,8 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 			"BusinessGroupControls",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProcessTemplatesView.vue"): {
-			"工艺模板",
 			"工艺路线",
+			"路线工序",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "IndustryFieldTemplatesView.vue"): {
 			"行业字段模板",
