@@ -41,6 +41,7 @@
 - [ ] PR-485-BOM-VERSION-ROUTE-DEFAULT：工艺路线页不出现 SKU、BOM 或 BOM 版本字段；生产菜单拆为 `工艺路线`、`工序`、`工位/设备`。生产排程 payload 不包含 `bom_id/bom_version_id/process_route_id` 覆盖字段。
 - [ ] PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS：工艺路线页只维护路线名称、状态、备注、工序顺序、工序名称快照、是否记录损耗和质检项；路线工序行不出现 `工位/设备`、`工位产能`、标准批量、标准分钟/批、小时费率、计划批次数、计划分钟或计划工序成本字段。
 - [ ] PR-488-PRODUCTION-PLAN-SPLIT-QTY-AUTOBATCH：创建草稿生产计划后，在当前生产计划的 `工序产能拆分` 中为烘焙工序添加 `布勒 18kg` 承担 90kg 和 `智烘 4kg` 承担 8kg；页面自动显示 5 批和 2 批，保存拆分后提交计划，生成的工序卡冻结对应工位产能、计划批次数、计划投入、计划分钟和计划工序成本，且再次修改工位产能主数据不回改已生成工序卡。
+- [ ] PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT：在生产计划页勾选库存不足商品后，拖拽计划预览表格可查看 BOM 摘要、计划投料和工艺路线摘要；点击 `收起待生产需求` 后当前生产计划变宽，点击 `收起当前生产计划` 后待生产需求变宽；未创建草稿前能看到 `创建草稿生产计划后可填写工序产能拆分`。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产计划页选择咖啡豆订单缺口后点击 `创建生产计划`，系统只生成 `draft` 生产计划和计划行，不生成生产中记录、生产日志或 WIP 占用。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：提交生产计划后，系统生成 `released` 生产工单和 `pending` 工序卡；咖啡豆工艺路线应生成烘焙/包装步骤，包装盒示例应生成印刷/模切/糊盒步骤，童装示例应生成裁剪/缝制/质检步骤。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产工单页筛选 `released` 后点击 `开始生产`，工单进入 `running`，产生 running item、WIP 占用并进入现有生产中/完工链路；重复开始生产必须返回错误，不重复开始生产、不重复写 WIP 或 running item。
@@ -1174,6 +1175,7 @@
 - [ ] 点击当前计划区的 `创建生产计划` 后，右侧显示草稿计划号、状态 `草稿`、计划行和物料需求；创建 payload 不包含 `input_by_key`。
 - [ ] 草稿计划详情中点击 `提交当前计划生成工单` 后，接口调用 `POST /api/production-plans/submit` 且 payload 为单个计划 id；提交成功后状态显示 `已提交工单`，按钮置灰。
 - [ ] 历史生产计划单据列表仍可按状态/时间过滤，并可勾选多个草稿批量 `提交生成工单`；页面不出现 `生产建议`、`推荐机器`、`每锅数量`、`锅数`、`预计成品`。
+- [ ] PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT：左右工作台能分别收起/展开，宽表可用鼠标拖拽横向查看；未创建草稿前显示工序产能拆分的创建草稿提示，创建草稿后显示可编辑拆分区。
 
 ### K52. 生产计划单据详情（PR-478-PRODUCTION-PLAN-DOCUMENT-DETAIL）
 - [ ] 点击计划号或详情打开生产计划单据详情抽屉，不离开生产计划页。

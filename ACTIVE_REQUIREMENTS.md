@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT
+- Branch: codex/produce-plan-preview-layout-20260612
+- Owner/session: Codex / 2026-06-12
+- Status: implementing; frontend RED/GREEN complete, docs/support checks in progress.
+- Scope: 生产计划页当前计划工作台布局修正。待生产需求和当前生产计划左右两栏支持收起/展开；待生产需求、计划预览、物料需求、生产计划单据等宽表支持鼠标拖拽横向滚动；未创建草稿前在计划预览区明确提示 `工序产能拆分` 需要先创建草稿生产计划后填写。
+- DEV:
+  - DEV-489-PREVIEW-TABLE-DRAG-COLLAPSE：生产计划工作台左右面板支持收起/展开，表格容器支持横向拖拽查看超出列。
+  - DEV-489-SPLIT-VISIBILITY-HINT：在还没有 draft 生产计划时展示 `创建草稿生产计划后可填写工序产能拆分`，创建草稿后继续展示实际拆分编辑器。
+- Verifier:
+  - RED frontend: `node --test src/lib/produce-plan.test.js` failed before implementation because layout collapse, drag scroll and split visibility hint markers were missing.
+  - GREEN frontend: `node --test src/lib/produce-plan.test.js` passed after implementation.
+  - RED support/docs: `go test ./internal/interfaces/http/support -run TestDev489ProductionPlanPreviewLayoutContracts -count=1 -v` failed before docs/seed markers were added.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-12-production-plan-preview-layout.md`.
+- Deployment: not deployed.
+- Last update: 2026-06-12 Asia/Shanghai.
+
 ### PR-488-PRODUCTION-PLAN-SPLIT-QTY-AUTOBATCH
 - Branch: codex/production-plan-split-qty-autobatch-20260612
 - Owner/session: Codex goal / 2026-06-12

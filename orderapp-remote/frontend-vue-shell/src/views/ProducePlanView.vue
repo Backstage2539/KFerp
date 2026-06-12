@@ -1,5 +1,11 @@
 <template>
-  <div class="page">
+  <div
+    class="page"
+    @pointerdown="startTableScrollDrag"
+    @pointermove="moveTableScrollDrag"
+    @pointerup="stopTableScrollDrag"
+    @pointercancel="stopTableScrollDrag"
+  >
     <section class="panel">
       <div class="panel-head">
         <h2>生产计划</h2>
@@ -29,8 +35,8 @@
       </div>
     </section>
 
-    <section class="planning-workbench">
-      <section class="panel demand-panel">
+    <section :class="['planning-workbench', { 'demand-collapsed': demandPanelCollapsed, 'current-plan-collapsed': currentPlanPanelCollapsed }]">
+      <section :class="['panel demand-panel', { 'is-collapsed': demandPanelCollapsed }]">
         <div class="panel-head">
           <div class="section-title section-title-with-checkbox">
             <input
@@ -45,9 +51,15 @@
             />
             <span>待生产需求</span>
           </div>
-          <span class="muted">已选 {{ insufficientSelection.selectedCount }} / {{ insufficientSelection.total }}</span>
+          <div class="panel-head-actions">
+            <span class="muted">已选 {{ insufficientSelection.selectedCount }} / {{ insufficientSelection.total }}</span>
+            <button class="secondary compact collapse-button" type="button" @click="toggleDemandPanelCollapsed">
+              {{ demandPanelCollapsed ? '展开待生产需求' : '收起待生产需求' }}
+            </button>
+          </div>
         </div>
-        <div class="table-wrap">
+        <div v-if="demandPanelCollapsed" class="collapsed-panel-summary">待生产需求已收起，展开后可继续勾选商品。</div>
+        <div v-else class="table-wrap drag-scroll-wrap" aria-label="待生产需求横向滚动表格">
           <table class="demand-table">
             <thead>
               <tr>
@@ -82,143 +94,156 @@
         </div>
       </section>
 
-      <section class="panel current-plan-panel">
+      <section :class="['panel current-plan-panel', { 'is-collapsed': currentPlanPanelCollapsed }]">
         <div class="panel-head">
           <h2>当前生产计划</h2>
-          <span v-if="currentPlan" :class="['status', `status-${productionPlanStatusTone(currentPlan.status)}`]">{{ productionPlanStatusLabel(currentPlan.status) }}</span>
+          <div class="panel-head-actions">
+            <span v-if="currentPlan" :class="['status', `status-${productionPlanStatusTone(currentPlan.status)}`]">{{ productionPlanStatusLabel(currentPlan.status) }}</span>
+            <button class="secondary compact collapse-button" type="button" @click="toggleCurrentPlanPanelCollapsed">
+              {{ currentPlanPanelCollapsed ? '展开当前生产计划' : '收起当前生产计划' }}
+            </button>
+          </div>
         </div>
-        <div v-if="previewError" class="error">{{ previewError }}</div>
-        <div v-if="!hasSelectedRows && !currentPlan" class="empty-state">
-          <strong>勾选库存不足商品后生成计划预览</strong>
-          <span>在左侧选择要生产的商品后，这里会集中显示 BOM、工艺路线和物料需求。</span>
-        </div>
+        <div v-if="currentPlanPanelCollapsed" class="collapsed-panel-summary">当前生产计划已收起，展开后可查看预览、拆分和提交动作。</div>
         <template v-else>
-          <div v-if="currentPlan" class="ok plan-result">
-            <strong>{{ currentPlan.plan_no }}</strong>
-            <span>计划行 {{ currentPlan.items?.length || computedPlanRows.length || 0 }} 条</span>
-            <span v-if="currentPlan.submitted_at">提交 {{ currentPlan.submitted_at }}</span>
+          <div v-if="previewError" class="error">{{ previewError }}</div>
+          <div v-if="!hasSelectedRows && !currentPlan" class="empty-state">
+            <strong>勾选库存不足商品后生成计划预览</strong>
+            <span>在左侧选择要生产的商品后，这里会集中显示 BOM、工艺路线和物料需求。</span>
           </div>
-          <div v-if="previewLoading" class="muted preview-loading">正在生成计划预览...</div>
-          <div v-if="planReady" class="current-plan-content">
-            <div>
-              <div class="section-title">计划预览（缺口 &gt; 0）</div>
-              <div class="table-wrap">
-                <table class="plan-preview-table">
-                  <thead>
-                    <tr>
-                      <th>商品</th>
-                      <th>订单号</th>
-                      <th>规格(g)</th>
-                      <th>需求(g)</th>
-                      <th>库存(g)</th>
-                      <th>缺口(g)</th>
-                      <th>BOM摘要</th>
-                      <th>计划投料(g)</th>
-                      <th>工艺路线摘要</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="row in computedPlanRows" :key="rowKey(row)">
-                      <td>{{ row.product }}</td>
-                      <td class="muted">{{ row.order_nos }}</td>
-                      <td>{{ row.spec_g }}</td>
-                      <td>{{ row.need_g }}</td>
-                      <td>{{ row.inv_g }}</td>
-                      <td><strong>{{ row.gap_g }}</strong></td>
-                      <td>默认 BOM / 预期产出率 {{ percent(row.bom_yield_rate) }}</td>
-                      <td>{{ row.input_g }}</td>
-                      <td>{{ productionRouteSummary(row) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+          <template v-else>
+            <div v-if="currentPlan" class="ok plan-result">
+              <strong>{{ currentPlan.plan_no }}</strong>
+              <span>计划行 {{ currentPlan.items?.length || computedPlanRows.length || 0 }} 条</span>
+              <span v-if="currentPlan.submitted_at">提交 {{ currentPlan.submitted_at }}</span>
             </div>
-            <div>
-              <div class="section-title">物料需求汇总（预计消耗）</div>
-              <div class="table-wrap">
-                <table class="materials-table">
-                  <thead>
-                    <tr>
-                      <th>物料</th>
-                      <th>预计消耗数量</th>
-                      <th>单位</th>
-                      <th>WIP可用(g)</th>
-                      <th>建议领到WIP(g)</th>
-                      <th>原料仓(g)</th>
-                      <th>采购建议(g)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="item in computedMaterials" :key="`${item.name}-${item.unit}`">
-                      <td>{{ item.name }}</td>
-                      <td>{{ item.qty }}</td>
-                      <td>{{ item.unit }}</td>
-                      <td>{{ item.available_g || 0 }}</td>
-                      <td><strong>{{ item.wip_transfer_suggestion_g || 0 }}</strong></td>
-                      <td>{{ item.raw_g || 0 }}</td>
-                      <td>{{ item.purchase_suggestion_g || 0 }}</td>
-                    </tr>
-                    <tr v-if="!computedMaterials.length">
-                      <td colspan="7" class="muted">暂无物料汇总</td>
-                    </tr>
-                  </tbody>
-                </table>
+            <div v-if="previewLoading" class="muted preview-loading">正在生成计划预览...</div>
+            <div v-if="planReady" class="current-plan-content">
+              <div>
+                <div class="section-title">计划预览（缺口 &gt; 0）</div>
+                <div class="table-wrap drag-scroll-wrap" aria-label="计划预览横向滚动表格">
+                  <table class="plan-preview-table">
+                    <thead>
+                      <tr>
+                        <th>商品</th>
+                        <th>订单号</th>
+                        <th>规格(g)</th>
+                        <th>需求(g)</th>
+                        <th>库存(g)</th>
+                        <th>缺口(g)</th>
+                        <th>BOM摘要</th>
+                        <th>计划投料(g)</th>
+                        <th>工艺路线摘要</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="row in computedPlanRows" :key="rowKey(row)">
+                        <td>{{ row.product }}</td>
+                        <td class="muted">{{ row.order_nos }}</td>
+                        <td>{{ row.spec_g }}</td>
+                        <td>{{ row.need_g }}</td>
+                        <td>{{ row.inv_g }}</td>
+                        <td><strong>{{ row.gap_g }}</strong></td>
+                        <td>默认 BOM / 预期产出率 {{ percent(row.bom_yield_rate) }}</td>
+                        <td>{{ row.input_g }}</td>
+                        <td>{{ productionRouteSummary(row) }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-            <div v-if="currentPlan" class="operation-split-panel">
-              <div class="panel-head compact-head">
+              <div>
+                <div class="section-title">物料需求汇总（预计消耗）</div>
+                <div class="table-wrap drag-scroll-wrap" aria-label="物料需求横向滚动表格">
+                  <table class="materials-table">
+                    <thead>
+                      <tr>
+                        <th>物料</th>
+                        <th>预计消耗数量</th>
+                        <th>单位</th>
+                        <th>WIP可用(g)</th>
+                        <th>建议领到WIP(g)</th>
+                        <th>原料仓(g)</th>
+                        <th>采购建议(g)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="item in computedMaterials" :key="`${item.name}-${item.unit}`">
+                        <td>{{ item.name }}</td>
+                        <td>{{ item.qty }}</td>
+                        <td>{{ item.unit }}</td>
+                        <td>{{ item.available_g || 0 }}</td>
+                        <td><strong>{{ item.wip_transfer_suggestion_g || 0 }}</strong></td>
+                        <td>{{ item.raw_g || 0 }}</td>
+                        <td>{{ item.purchase_suggestion_g || 0 }}</td>
+                      </tr>
+                      <tr v-if="!computedMaterials.length">
+                        <td colspan="7" class="muted">暂无物料汇总</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div v-if="!currentPlan" class="operation-split-placeholder">
                 <div class="section-title">工序产能拆分</div>
-                <button class="secondary compact" type="button" @click="saveCurrentPlanOperationSplits" :disabled="saving || !currentPlanDraft">保存拆分</button>
+                <strong>创建草稿生产计划后可填写工序产能拆分</strong>
+                <span>先点创建生产计划，生成草稿后再选择工位产能和承担产量；拆分会在提交生成工单前保存。</span>
               </div>
-              <div v-if="operationSplitError" class="error">{{ operationSplitError }}</div>
-              <div v-if="!currentPlanDraft" class="muted section-hint">已提交计划只展示已冻结拆分。</div>
-              <div v-for="row in currentPlanOperationRows" :key="`${row.item.id}-${row.operation.seq || row.operation.sequence_no || row.operation.operation}`" class="split-operation-block">
-                <div class="split-operation-head">
-                  <strong>{{ row.item.product_name || '-' }}</strong>
-                  <span>{{ row.operation.seq || row.operation.sequence_no || '-' }}. {{ row.operation.operation || '工序' }}</span>
-                  <button class="secondary compact" type="button" @click="addOperationSplit(row.item, row.operation)" :disabled="!currentPlanDraft">添加拆分</button>
+              <div v-if="currentPlan" class="operation-split-panel">
+                <div class="panel-head compact-head">
+                  <div class="section-title">工序产能拆分</div>
+                  <button class="secondary compact" type="button" @click="saveCurrentPlanOperationSplits" :disabled="saving || !currentPlanDraft">保存拆分</button>
                 </div>
-                <div class="split-row" v-for="(split, splitIndex) in splitRowsForOperation(row.item, row.operation)" :key="split.local_key || split.id || `${row.item.id}-${splitIndex}`">
-                  <label>
-                    <span>工位产能</span>
-                    <select v-model.number="split.workstation_capacity_id" :disabled="!currentPlanDraft" @change="applySplitCapacity(split)">
-                      <option value="0">选择工位产能，例如 布勒 18kg / 智烘 4kg</option>
-                      <option v-for="capacity in activeWorkstationCapacities" :key="capacity.id" :value="capacity.id">{{ capacityOptionLabel(capacity) }}</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>承担产量{{ splitQuantityUnit(split) }}</span>
-                    <input v-model.number="split.planned_qty" type="number" min="0" :step="splitQuantityStep(split)" :disabled="!currentPlanDraft" />
-                  </label>
-                  <div class="split-metric">
-                    <span>自动批次数</span>
-                    <strong>{{ plannedCapacitySplitMetrics(split).planned_batch_count || 0 }}</strong>
+                <div v-if="operationSplitError" class="error">{{ operationSplitError }}</div>
+                <div v-if="!currentPlanDraft" class="muted section-hint">已提交计划只展示已冻结拆分。</div>
+                <div v-for="row in currentPlanOperationRows" :key="`${row.item.id}-${row.operation.seq || row.operation.sequence_no || row.operation.operation}`" class="split-operation-block">
+                  <div class="split-operation-head">
+                    <strong>{{ row.item.product_name || '-' }}</strong>
+                    <span>{{ row.operation.seq || row.operation.sequence_no || '-' }}. {{ row.operation.operation || '工序' }}</span>
+                    <button class="secondary compact" type="button" @click="addOperationSplit(row.item, row.operation)" :disabled="!currentPlanDraft">添加拆分</button>
                   </div>
-                  <div class="split-metric">
-                    <span>计划数量</span>
-                    <strong>{{ plannedCapacitySplitMetrics(split).planned_qty_g || 0 }}g</strong>
+                  <div class="split-row" v-for="(split, splitIndex) in splitRowsForOperation(row.item, row.operation)" :key="split.local_key || split.id || `${row.item.id}-${splitIndex}`">
+                    <label>
+                      <span>工位产能</span>
+                      <select v-model.number="split.workstation_capacity_id" :disabled="!currentPlanDraft" @change="applySplitCapacity(split)">
+                        <option value="0">选择工位产能，例如 布勒 18kg / 智烘 4kg</option>
+                        <option v-for="capacity in activeWorkstationCapacities" :key="capacity.id" :value="capacity.id">{{ capacityOptionLabel(capacity) }}</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>承担产量{{ splitQuantityUnit(split) }}</span>
+                      <input v-model.number="split.planned_qty" type="number" min="0" :step="splitQuantityStep(split)" :disabled="!currentPlanDraft" />
+                    </label>
+                    <div class="split-metric">
+                      <span>自动批次数</span>
+                      <strong>{{ plannedCapacitySplitMetrics(split).planned_batch_count || 0 }}</strong>
+                    </div>
+                    <div class="split-metric">
+                      <span>计划数量</span>
+                      <strong>{{ plannedCapacitySplitMetrics(split).planned_qty_g || 0 }}g</strong>
+                    </div>
+                    <div class="split-metric">
+                      <span>计划分钟</span>
+                      <strong>{{ plannedCapacitySplitMetrics(split).planned_minutes || 0 }}</strong>
+                    </div>
+                    <div class="split-metric">
+                      <span>计划工序成本</span>
+                      <strong>{{ plannedCapacitySplitMetrics(split).planned_operation_cost || 0 }}</strong>
+                    </div>
+                    <button class="secondary compact danger-text" type="button" @click="removeOperationSplit(split)" :disabled="!currentPlanDraft">删除</button>
                   </div>
-                  <div class="split-metric">
-                    <span>计划分钟</span>
-                    <strong>{{ plannedCapacitySplitMetrics(split).planned_minutes || 0 }}</strong>
-                  </div>
-                  <div class="split-metric">
-                    <span>计划工序成本</span>
-                    <strong>{{ plannedCapacitySplitMetrics(split).planned_operation_cost || 0 }}</strong>
-                  </div>
-                  <button class="secondary compact danger-text" type="button" @click="removeOperationSplit(split)" :disabled="!currentPlanDraft">删除</button>
+                  <div v-if="!splitRowsForOperation(row.item, row.operation).length" class="muted section-hint">暂无拆分</div>
                 </div>
-                <div v-if="!splitRowsForOperation(row.item, row.operation).length" class="muted section-hint">暂无拆分</div>
+                <div v-if="!currentPlanOperationRows.length" class="muted section-hint">暂无工序快照</div>
               </div>
-              <div v-if="!currentPlanOperationRows.length" class="muted section-hint">暂无工序快照</div>
             </div>
-          </div>
-          <div v-else-if="hasSelectedRows && !previewLoading" class="muted empty-state">已选择商品，等待计划预览。</div>
-          <div class="actions current-plan-actions">
-            <button v-if="!currentPlan" class="primary" type="button" @click="createProductionPlan" :disabled="saving || previewLoading || !planReady">创建生产计划</button>
-            <button v-else class="primary" type="button" @click="submitCurrentProductionPlan" :disabled="saving || !currentPlanDraft">提交当前计划生成工单</button>
-            <span v-if="currentPlan && !currentPlanDraft" class="muted">当前计划状态为 {{ productionPlanStatusLabel(currentPlan.status) }}，无需重复提交。</span>
-          </div>
+            <div v-else-if="hasSelectedRows && !previewLoading" class="muted empty-state">已选择商品，等待计划预览。</div>
+            <div class="actions current-plan-actions">
+              <button v-if="!currentPlan" class="primary" type="button" @click="createProductionPlan" :disabled="saving || previewLoading || !planReady">创建生产计划</button>
+              <button v-else class="primary" type="button" @click="submitCurrentProductionPlan" :disabled="saving || !currentPlanDraft">提交当前计划生成工单</button>
+              <span v-if="currentPlan && !currentPlanDraft" class="muted">当前计划状态为 {{ productionPlanStatusLabel(currentPlan.status) }}，无需重复提交。</span>
+            </div>
+          </template>
         </template>
       </section>
     </section>
@@ -226,7 +251,7 @@
     <section class="panel">
       <div class="section-title">库存充足（只提示）</div>
       <div class="muted section-hint">以下订单已有成品库存覆盖，不进入生产计划；录单时确认使用批次后会进入库存待发货。</div>
-      <div class="table-wrap">
+      <div class="table-wrap drag-scroll-wrap" aria-label="库存充足商品横向滚动表格">
         <table>
           <thead>
             <tr>
@@ -297,7 +322,7 @@
       <div class="actions plan-list-actions">
         <button class="primary" type="button" @click="submitSelectedProductionPlans" :disabled="saving || !hasSelectedProductionPlans">提交生成工单</button>
       </div>
-      <div class="table-wrap">
+      <div class="table-wrap drag-scroll-wrap" aria-label="生产计划单据横向滚动表格">
         <table>
           <thead>
             <tr>
@@ -381,7 +406,7 @@
 
           <section class="detail-section">
             <div class="section-title">计划行</div>
-            <div class="table-wrap">
+            <div class="table-wrap drag-scroll-wrap" aria-label="计划行横向滚动表格">
               <table class="detail-table">
                 <thead>
                   <tr>
@@ -416,7 +441,7 @@
 
           <section class="detail-section">
             <div class="section-title">物料需求汇总</div>
-            <div class="table-wrap">
+            <div class="table-wrap drag-scroll-wrap" aria-label="物料需求汇总横向滚动表格">
               <table class="detail-table compact-table">
                 <thead>
                   <tr>
@@ -475,7 +500,7 @@
               <button class="secondary compact" type="button" @click="navigateProductionView('workOrders')">进入工单</button>
               <button class="secondary compact" type="button" @click="navigateProductionView('jobCards')">进入工序卡</button>
             </div>
-            <div class="table-wrap">
+            <div class="table-wrap drag-scroll-wrap" aria-label="生成结果横向滚动表格">
               <table class="detail-table">
                 <thead>
                   <tr>
@@ -559,10 +584,21 @@ const productionPlanDetailError = ref('')
 const operationSplitError = ref('')
 const insufficientHeaderCheckbox = ref(null)
 const productionPlanHeaderCheckbox = ref(null)
+const demandPanelCollapsed = ref(false)
+const currentPlanPanelCollapsed = ref(false)
 const selected = reactive({})
 const selectedProductionPlans = reactive({})
 let previewTimer = 0
 let previewRequestSeq = 0
+const tableScrollDrag = {
+  element: null,
+  pointerId: 0,
+  startX: 0,
+  startY: 0,
+  scrollLeft: 0,
+  scrollTop: 0,
+  dragging: false,
+}
 
 const filters = reactive({
   from: '',
@@ -756,6 +792,62 @@ function toggleInsufficientRow(row, checked) {
   if (checked) selected[key] = true
   else delete selected[key]
   resetCurrentPlanForSelection()
+}
+
+function toggleDemandPanelCollapsed() {
+  demandPanelCollapsed.value = !demandPanelCollapsed.value
+  if (demandPanelCollapsed.value && currentPlanPanelCollapsed.value) {
+    currentPlanPanelCollapsed.value = false
+  }
+}
+
+function toggleCurrentPlanPanelCollapsed() {
+  currentPlanPanelCollapsed.value = !currentPlanPanelCollapsed.value
+  if (currentPlanPanelCollapsed.value && demandPanelCollapsed.value) {
+    demandPanelCollapsed.value = false
+  }
+}
+
+function startTableScrollDrag(event) {
+  if (event.button !== 0) return
+  const target = event.target
+  const interactive = target?.closest?.('button,input,select,textarea,a,label')
+  if (interactive) return
+  const wrap = target?.closest?.('.drag-scroll-wrap')
+  if (!wrap || (wrap.scrollWidth <= wrap.clientWidth && wrap.scrollHeight <= wrap.clientHeight)) return
+  tableScrollDrag.element = wrap
+  tableScrollDrag.pointerId = event.pointerId
+  tableScrollDrag.startX = event.clientX
+  tableScrollDrag.startY = event.clientY
+  tableScrollDrag.scrollLeft = wrap.scrollLeft
+  tableScrollDrag.scrollTop = wrap.scrollTop
+  tableScrollDrag.dragging = false
+  wrap.classList.add('is-dragging-scroll')
+  wrap.setPointerCapture?.(event.pointerId)
+}
+
+function moveTableScrollDrag(event) {
+  const wrap = tableScrollDrag.element
+  if (!wrap || event.pointerId !== tableScrollDrag.pointerId) return
+  const deltaX = event.clientX - tableScrollDrag.startX
+  const deltaY = event.clientY - tableScrollDrag.startY
+  if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) tableScrollDrag.dragging = true
+  if (!tableScrollDrag.dragging) return
+  wrap.scrollLeft = tableScrollDrag.scrollLeft - deltaX
+  wrap.scrollTop = tableScrollDrag.scrollTop - deltaY
+  event.preventDefault()
+}
+
+function stopTableScrollDrag(event) {
+  const wrap = tableScrollDrag.element
+  if (!wrap) return
+  wrap.classList.remove('is-dragging-scroll')
+  if (event?.pointerId === tableScrollDrag.pointerId) {
+    wrap.releasePointerCapture?.(event.pointerId)
+  }
+  tableScrollDrag.element = null
+  tableScrollDrag.pointerId = 0
+  tableScrollDrag.dragging = false
 }
 
 function toggleAllProductionPlans(checked) {
@@ -1159,19 +1251,27 @@ watch(() => [filters.from, filters.to, filters.customer_id], () => {
 
 onBeforeUnmount(() => {
   if (previewTimer) clearTimeout(previewTimer)
+  stopTableScrollDrag()
 })
 </script>
 
 <style scoped>
 .page { padding: 16px; display: grid; gap: 16px; }
-.panel { border: 1px solid #eee; border-radius: 10px; padding: 12px; }
+.panel { min-width: 0; box-sizing: border-box; border: 1px solid #eee; border-radius: 10px; padding: 12px; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .panel-head h2, .section-title { margin: 0; font-size: 18px; font-weight: 700; }
-.planning-workbench { display: grid; grid-template-columns: minmax(420px, 1.05fr) minmax(480px, 1.25fr); gap: 16px; align-items: start; }
+.planning-workbench { display: grid; grid-template-columns: minmax(300px, .95fr) minmax(0, 1.35fr); gap: 16px; align-items: start; }
+.planning-workbench.demand-collapsed { grid-template-columns: minmax(150px, 180px) minmax(0, 1fr); }
+.planning-workbench.current-plan-collapsed { grid-template-columns: minmax(0, 1fr) minmax(150px, 180px); }
 .demand-panel, .current-plan-panel { min-width: 0; }
-.current-plan-content { display: grid; gap: 18px; }
+.demand-panel.is-collapsed, .current-plan-panel.is-collapsed { min-height: 116px; }
+.current-plan-content { display: grid; gap: 18px; min-width: 0; }
+.current-plan-content > div { min-width: 0; }
 .compact-head { margin-bottom: 8px; }
 .empty-state { border: 1px dashed #d1d5db; border-radius: 8px; padding: 14px; display: grid; gap: 6px; background: #fafafa; }
+.collapsed-panel-summary { border: 1px dashed #d1d5db; border-radius: 8px; padding: 10px; color: #666; background: #fafafa; font-size: 13px; }
+.panel-head-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.collapse-button { white-space: nowrap; }
 .preview-loading { margin-bottom: 10px; }
 .filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .production-plan-filters { grid-template-columns: repeat(4, minmax(0, 1fr)) auto; align-items: end; }
@@ -1203,11 +1303,13 @@ input.bulk-checkbox:disabled { cursor: not-allowed; opacity: 0.45; }
 .status-cancelled { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
 .status-unknown { border-color: #e5e7eb; background: #f9fafb; color: #4b5563; }
 .plan-result { margin-top: 12px; display: flex; gap: 12px; align-items: center; }
-.table-wrap { overflow: auto; }
+.table-wrap { overflow: auto; max-width: 100%; }
+.drag-scroll-wrap { cursor: grab; overscroll-behavior: contain; scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }
+.drag-scroll-wrap.is-dragging-scroll { cursor: grabbing; user-select: none; }
 table { width: 100%; border-collapse: collapse; min-width: 980px; }
 .demand-table { min-width: 860px; }
 .materials-table { min-width: 760px; }
-.plan-preview-table { min-width: 1020px; }
+.plan-preview-table { min-width: 1160px; }
 th, td { border-bottom: 1px solid #f1f1f1; padding: 10px 8px; text-align: left; vertical-align: top; }
 td small { display: block; color: #666; line-height: 1.6; }
 .muted { color: #666; }
@@ -1237,6 +1339,8 @@ td small { display: block; color: #666; line-height: 1.6; }
 .result-summary { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .result-summary span { border: 1px solid #e5e7eb; border-radius: 999px; padding: 4px 8px; background: #f9fafb; }
 .operation-split-panel { display: grid; gap: 10px; }
+.operation-split-placeholder { border: 1px dashed #d1d5db; border-radius: 8px; padding: 12px; display: grid; gap: 6px; background: #fafafa; }
+.operation-split-placeholder span { color: #666; }
 .split-operation-block { border-top: 1px solid #eee; padding-top: 10px; display: grid; gap: 8px; }
 .split-operation-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .split-operation-head span { color: #374151; }
@@ -1248,7 +1352,9 @@ td small { display: block; color: #666; line-height: 1.6; }
 
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .planning-workbench { grid-template-columns: 1fr; }
+  .planning-workbench,
+  .planning-workbench.demand-collapsed,
+  .planning-workbench.current-plan-collapsed { grid-template-columns: 1fr; }
   .filters, .production-plan-filters { grid-template-columns: 1fr; }
   .direct-ship-tip { align-items: stretch; flex-direction: column; }
   .production-plan-detail-drawer { width: 100vw; padding: 14px; }
