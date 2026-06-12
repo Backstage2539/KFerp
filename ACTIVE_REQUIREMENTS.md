@@ -31,7 +31,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-479-MANUFACTURING-PHASE2-EXECUTION-COST-CLOSED-LOOP
 - Branch: codex/manufacturing-phase2-execution-20260612
 - Owner/session: Codex / 2026-06-12
-- Status: implemented and locally verified on latest `origin/develop=91e5570daa4562f8292ccf1e661a969b4470b22d`; PR id renumbered from PR-478 to PR-479 after latest develop landed and deployed `PR-478-PRODUCTION-PLAN-DOCUMENT-DETAIL`; pending commit, merge to develop and development deploy.
+- Status: merged to `develop` and deployed to development at `origin/develop=48e1e650197e1e592b0d615bd67d7051df19f45e`; PR id renumbered from PR-478 to PR-479 after latest develop landed and deployed `PR-478-PRODUCTION-PLAN-DOCUMENT-DETAIL`.
 - Scope: 制造二期生产执行与库存成本闭环，不包含甘特图、自动产能排程、MRP 自动采购建议或行业计算器插件化。把一期 `生产计划 -> 工单 -> 工序卡 -> 开始生产` 升级为 `Stock Entry 单据 -> 工序执行 -> 工单完工入库 -> 成本/追溯` 的执行链。
 - DEV:
   - DEV-479-STOCK-ENTRY-DOCUMENTS：新增 Stock Entry 业务层、schema、仓储和 API，覆盖 `领料到WIP`、`WIP退料`、`工单消耗`、`完工入库`、`报废/损耗`。
@@ -47,8 +47,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN frontend targeted: `node --test src/lib/manufacturing-execution.test.js src/lib/work-orders.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js`.
   - GREEN full/build/check: `go test ./...`; `npm run build` in `frontend-vue-shell` after `npm ci`; `scripts/verify_kferp.sh changed`; `git diff --check`.
   - GREEN browser/local: built Vue assets served by a local Mock API at `http://127.0.0.1:5194/vue-shell/`. Browser verified `生产工单` contains `已领料`、`已消耗`、`可退料`、`工序进度`、`成本汇总`、`完工入库` and `WO-PR479-001` with no request failure; `工序卡` contains `开始`、`暂停`、`继续`、`完成`、`保存实际`、`损耗原因` and `loss_reason=边角料损耗` with no request failure; `库存作业 / Stock Entry单据` contains `领料到WIP`、`WIP退料`、`工单消耗`、`完工入库`、`报废/损耗` and row `SE-0000009301`.
+  - GREEN deploy build: `./deploy_orderapp.sh` from a clean temporary `develop` clone completed Vue shell build, miniapp typecheck/build, Docker build and container-internal `go test ./...`; `erp_orderapp` restarted successfully. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260612130951`.
+  - GREEN deploy smoke: `erp_orderapp`、`erp_postgres`、`erp_caddy`、`erp_docconvert` running; `docker logs --tail=160 erp_orderapp` showed startup only; unauthenticated `/app/api/req/product?limit=1` returned 401; authenticated `/app/vue-shell/?view=workOrders` returned 200; authenticated `/app/api/req/product?limit=500` returned 200 and exposed `PR-479-MANUFACTURING-PHASE2-EXECUTION-COST-CLOSED-LOOP`; authenticated `/app/api/stock-entries?limit=1` returned 200 with `{"rows":[]}`; deployed docs/assets contain `Stock Entry单据` and PR-479 markers.
+  - GREEN live browser: `https://erp.qacoohee.com/app/vue-shell/?view=workOrders` rendered `生产工单` with `领退料/WIP占用`、`已领料`、`已消耗`、`可退料`、`工序进度`、`成本汇总`; `?view=jobCards` rendered `工序卡` with `开始`、`暂停`、`继续`、`完成`、`保存实际`、`损耗原因`; `?view=stockOperations` tab `Stock Entry单据` rendered `新建 Stock Entry`、`领料到WIP`、`WIP退料`、`工单消耗`、`完工入库`、`报废/损耗` with no request failure.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_STOCK.md`; `orderapp-remote/docs/acceptance/2026-06-12-manufacturing-phase2-execution-cost-closed-loop.md`.
-- Deployment: pending.
+- Deployment: deployed 2026-06-12 Asia/Shanghai at `origin/develop=48e1e650197e1e592b0d615bd67d7051df19f45e`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260612130951`.
 - Last update: 2026-06-12 Asia/Shanghai
 
 ### PR-477-P2-ARCHITECTURE-REMEDIATION
