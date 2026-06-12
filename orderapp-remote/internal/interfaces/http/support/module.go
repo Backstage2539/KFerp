@@ -17,12 +17,10 @@ func RegisterRoutes(e *echo.Echo, pool *pgxpool.Pool, schema string, deps ...Dep
 		d = deps[0]
 	}
 	registerStaticFrontendRoutes(e)
-	registerAuthzAPI(e, d.Authz)
-	registerRequirementPages(e, pool, schema)
-	registerRequirementAPIs(e, pool, schema)
-	registerMobileAuthAPI(e, pool, schema, d.Authz)
+	registerAuthSupportRoutes(e, pool, schema, d.Authz)
+	registerRequirementSupportRoutes(e, pool, schema)
 	registerUISettingsAPI(e, newPGUISettingsStore(pool, schema), d.Authz)
-	registerViewContextAPI(e, pool, schema, d.Authz)
+	registerViewContextSupportRoutes(e, pool, schema, d.Authz)
 	registerCoreRoutes(e, pool, schema)
 	registerDocsRoutes(e)
 }
@@ -34,14 +32,11 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureAppConfigTable(ctx, pool, schema); err != nil {
 		return err
 	}
-	if err := ensureReqTables(ctx, pool, schema); err != nil {
+	if err := ensureRequirementSupportSchema(ctx, pool, schema); err != nil {
 		return err
 	}
-	if err := ensureViewContextPresetTables(ctx, pool, schema); err != nil {
+	if err := ensureViewContextSupportSchema(ctx, pool, schema); err != nil {
 		return err
 	}
-	if err := seedReqWorkflowA(ctx, pool, schema); err != nil {
-		return err
-	}
-	return ensureMobileAuthTables(ctx, pool, schema)
+	return ensureAuthSupportSchema(ctx, pool, schema)
 }

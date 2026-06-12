@@ -281,6 +281,174 @@ func TestPostgresAdaptersLiveOutsideHTTPInterface(t *testing.T) {
 	}
 }
 
+func TestAuditLogImplementationHasSingleSource(t *testing.T) {
+	root := moduleRoot(t)
+	supportRel := "internal/interfaces/http/support/audit_unified.go"
+	infraRel := "internal/infrastructure/postgres/audit.go"
+
+	supportBody, err := os.ReadFile(filepath.Join(root, supportRel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	infraBody, err := os.ReadFile(filepath.Join(root, infraRel))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(infraBody), "func (s AuditService) Insert") {
+		t.Fatalf("%s should own audit log persistence", infraRel)
+	}
+	for _, forbidden := range []string{
+		"type AuditService struct",
+		"func (s AuditService) Insert",
+		"INSERT INTO %s.audit_logs",
+		"encoding/json",
+	} {
+		if strings.Contains(string(supportBody), forbidden) {
+			t.Fatalf("%s duplicates audit persistence concern %q; delegate to infrastructure/postgres/audit.go", supportRel, forbidden)
+		}
+	}
+	for _, required := range []string{
+		"postgresinfra.AuditInsert(",
+		"postgresinfra.AuditInsertTx(",
+		"type AuditMeta = postgresinfra.AuditMeta",
+		"type AuditEntry = postgresinfra.AuditEntry",
+	} {
+		if !strings.Contains(string(supportBody), required) {
+			t.Fatalf("%s should expose support compatibility via %q", supportRel, required)
+		}
+	}
+}
+
+func TestSupportModuleUsesFocusedSubmodules(t *testing.T) {
+	root := moduleRoot(t)
+	moduleRel := "internal/interfaces/http/support/module.go"
+	body, err := os.ReadFile(filepath.Join(root, moduleRel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+	for _, rel := range []string{
+		"internal/interfaces/http/support/auth_module.go",
+		"internal/interfaces/http/support/req_module.go",
+		"internal/interfaces/http/support/view_context_module.go",
+	} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Fatalf("support boundary should have focused submodule file %s: %v", rel, err)
+		}
+	}
+	for _, required := range []string{
+		"registerAuthSupportRoutes(",
+		"registerRequirementSupportRoutes(",
+		"registerViewContextSupportRoutes(",
+		"ensureAuthSupportSchema(",
+		"ensureRequirementSupportSchema(",
+		"ensureViewContextSupportSchema(",
+	} {
+		if !strings.Contains(src, required) {
+			t.Fatalf("%s should delegate through focused support submodule %s", moduleRel, required)
+		}
+	}
+	for _, forbidden := range []string{
+		"registerAuthzAPI(",
+		"registerRequirementPages(",
+		"registerRequirementAPIs(",
+		"registerMobileAuthAPI(",
+		"registerViewContextAPI(",
+		"ensureReqTables(",
+		"ensureViewContextPresetTables(",
+		"seedReqWorkflowA(",
+		"ensureMobileAuthTables(",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("%s still wires focused support concern directly via %s", moduleRel, forbidden)
+		}
+	}
+}
+
+func TestCatalogBoundaryHasFocusedPortsAndRouteFiles(t *testing.T) {
+	root := moduleRoot(t)
+	for _, rel := range []string{
+		"internal/application/catalog/repository_ports.go",
+		"internal/interfaces/http/catalog/business_group_routes.go",
+		"internal/interfaces/http/catalog/pricing_routes.go",
+		"internal/interfaces/http/catalog/classification_routes.go",
+	} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Fatalf("catalog boundary should have focused file %s: %v", rel, err)
+		}
+	}
+	serviceBody, err := os.ReadFile(filepath.Join(root, "internal/application/catalog/service.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(serviceBody), "type Repository interface") {
+		t.Fatal("catalog Repository port should live in internal/application/catalog/repository_ports.go, not the large service file")
+	}
+	routesBody, err := os.ReadFile(filepath.Join(root, "internal/interfaces/http/catalog/product_routes.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(routesBody)
+	for _, required := range []string{
+		"registerBusinessGroupRoutes(",
+		"registerPricingRoutes(",
+		"registerClassificationRoutes(",
+	} {
+		if !strings.Contains(src, required) {
+			t.Fatalf("catalog product route registration should delegate to %s", required)
+		}
+	}
+	for _, forbidden := range []string{
+		`"/api/business-groups"`,
+		`"/api/product-pricing-rules"`,
+		`"/api/product-classification-templates"`,
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("catalog product_routes.go still owns focused route path %s", forbidden)
+		}
+	}
+}
+
+func TestPostgresMigrationLedgerExists(t *testing.T) {
+	root := moduleRoot(t)
+	for _, rel := range []string{
+		"internal/infrastructure/postgres/migrations.go",
+		"docs/migrations/README.md",
+	} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Fatalf("missing migration architecture file %s: %v", rel, err)
+		}
+	}
+	body, err := os.ReadFile(filepath.Join(root, "internal/infrastructure/postgres/migrations.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"type Migration struct",
+		"func MigrationLedgerDDL(",
+		"func ValidateMigrations(",
+		"func EnsureMigrationLedger(",
+	} {
+		if !strings.Contains(string(body), required) {
+			t.Fatalf("migration ledger API missing %s", required)
+		}
+	}
+	readme, err := os.ReadFile(filepath.Join(root, "docs/migrations/README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"schema_migrations",
+		"EnsureSchema",
+		"destructive",
+	} {
+		if !strings.Contains(string(readme), required) {
+			t.Fatalf("migration README missing architecture note %q", required)
+		}
+	}
+}
+
 func TestInfrastructureDoesNotImportHTTPInterface(t *testing.T) {
 	root := filepath.Join(moduleRoot(t), "internal", "infrastructure")
 	forbidden := "orderapp/internal/interfaces/http/"

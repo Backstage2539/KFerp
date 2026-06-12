@@ -6,6 +6,43 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-476-P1-ARCHITECTURE-REMEDIATION
+- Branch: codex/p1-architecture-remediation-20260612
+- Owner/session: Codex goal / 2026-06-12
+- Status: implemented locally; architecture/touched package tests, full Go tests, Vite build, changed verifier and diff check passed. Not merged or deployed.
+- Scope: 处理代码架构审查 P1 三项问题，保持业务行为、API 路径、数据库 schema 和用户流程不变：审计/操作日志写入收敛到单一实现；`interfaces/http/support` 的注册与建表编排拆成 focused submodules；catalog 商品/价格/分组/分类边界先拆 repository port 和 route registration 文件，后续再继续拆 service/repository 内部方法。
+- DEV:
+  - DEV-476-AUDIT-LOG-SINGLE-SOURCE：`support.AuditInsert` / `AuditInsertTx` / `AuditService` 保留兼容门面，实际委托 `internal/infrastructure/postgres/audit.go`，防止操作日志写入逻辑双源漂移。
+  - DEV-476-SUPPORT-FOCUSED-SUBMODULES：新增 auth、REQ、view-context support module 文件，`support/module.go` 只做顶层编排，不再直接串起所有 focused concern 的内部 register/ensure 调用。
+  - DEV-476-CATALOG-BOUNDARY-GUARDS：`catalog.Repository` port 移到 `repository_ports.go`；business group、pricing、classification route registration 拆出独立文件；新增 architecture tests 防止回流。
+- Verifier:
+  - RED architecture: `go test ./internal/architecture -run 'TestAuditLogImplementationHasSingleSource|TestSupportModuleUsesFocusedSubmodules|TestCatalogBoundaryHasFocusedPortsAndRouteFiles' -count=1` failed before implementation on duplicate support audit implementation and missing focused files.
+  - GREEN architecture/touched packages: same architecture test passed; `go test ./internal/interfaces/http/support ./internal/interfaces/http/catalog ./internal/application/catalog -count=1` passed.
+  - GREEN full/build/check: `go test ./internal/architecture -count=1`; `go test ./...`; `npm run build --prefix frontend-vue-shell` passed with existing large chunk warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+- Manual/docs: no user workflow, button, field, permission, import/export or operation-log behavior changed; no operation manual update needed. Implementation plan recorded in `docs/superpowers/plans/2026-06-12-p1-architecture-remediation.md`.
+- Deployment: not requested and not performed.
+- Last update: 2026-06-12 Asia/Shanghai
+
+### PR-477-P2-ARCHITECTURE-REMEDIATION
+- Branch: codex/p1-architecture-remediation-20260612
+- Owner/session: Codex goal / 2026-06-12
+- Status: implemented locally on top of PR-476; targeted tests, full Go tests, Vue build, miniapp tests/typecheck/build, changed verifier and diff check passed. Not merged or deployed.
+- Scope: 继续处理代码架构审查 P2 三项治理，保持业务语义、API 路径、用户流程和现有 `EnsureSchema` bootstrap 不变：ERP Vue view-context API 调用出页面；Costing 价格表试算请求筛选出 helper；miniapp 服务页默认表单出页面；Postgres 增加 migration ledger 架构骨架和 guard。
+- DEV:
+  - DEV-477-ERP-VUE-BOUNDARY-HELPERS：新增 `frontend-vue-shell/src/api/view-context.js`，`App.vue` 不再直接拥有 view-context endpoint/fallback 细节；新增 frontend architecture guard 防止回流。
+  - DEV-477-COSTING-PRICE-LIST-WORKFLOW-HELPER：新增 `frontend-vue-shell/src/lib/costing-price-list-workflow.js`，`CostingView.vue` 只传入当前 customer/cache/payload helpers，PR-465 静态 guard 更新到 helper 边界。
+  - DEV-477-MINIAPP-SERVICE-FORM-BOUNDARY：新增 `miniapp/src/utils/serviceForms.ts`，服务页直发、加工、发货、订单筛选默认表单统一由工厂创建，避免大页面内重复对象字面量。
+  - DEV-477-POSTGRES-MIGRATION-LEDGER：新增 `internal/infrastructure/postgres/migrations.go`、`docs/migrations/README.md` 和 architecture tests，为未来有序 migration 提供 `schema_migrations` 账本入口；不执行数据迁移。
+- Verifier:
+  - RED frontend: `node --test src/api/view-context.test.js src/lib/frontend-architecture.test.js src/lib/costing-price-list-workflow.test.js` failed before implementation because view-context/costing helpers were missing and pages still owned those boundaries.
+  - RED miniapp: `npm test -- --run src/utils/serviceForms.test.ts src/utils/servicePage.test.ts` initially could not run before `npm ci` because this worktree lacked `node_modules`; after dependencies were installed, the tests guard the extracted service form factories and service page import boundary.
+  - RED backend: `go test ./internal/infrastructure/postgres -run 'TestMigration' -count=1` failed before implementation because migration ledger APIs were undefined.
+  - GREEN targeted: frontend node tests passed; miniapp service form/page tests passed; `go test ./internal/infrastructure/postgres -run 'TestMigration|TestValidateMigrations' -count=1`; `go test ./internal/architecture -run TestPostgresMigrationLedgerExists -count=1`; `go test ./internal/interfaces/http/support ./internal/interfaces/http/catalog ./internal/application/catalog ./internal/infrastructure/postgres -count=1` passed.
+  - GREEN full/build/check: `go test ./internal/architecture -count=1`; `go test ./...`; `npm run build --prefix frontend-vue-shell`; `npm test`, `npm run typecheck` and `npm run build:mp-weixin` in `miniapp`; `scripts/verify_kferp.sh changed`; `git diff --check` passed. Vue build kept the existing large chunk warning.
+- Manual/docs: no user workflow, button, field, permission, import/export or operation-log behavior changed; no operation manual update needed. Implementation plan recorded in `docs/superpowers/plans/2026-06-12-p2-architecture-remediation.md`.
+- Deployment: not requested and not performed.
+- Last update: 2026-06-12 Asia/Shanghai
+
 ### PR-474-PRODUCTION-PLAN-BULK-SUBMIT-FILTER
 - Branch: codex/production-plan-bulk-submit-filter-20260611
 - Owner/session: Codex / 2026-06-11

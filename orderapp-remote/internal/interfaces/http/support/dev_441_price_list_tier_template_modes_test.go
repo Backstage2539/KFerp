@@ -32,7 +32,7 @@ func TestDev441PriceListTierTemplateModesContracts(t *testing.T) {
 			"pricing_rule_id required",
 			"fixed_price",
 		},
-		filepath.Join("internal", "interfaces", "http", "catalog", "product_routes.go"): {
+		filepath.Join("internal", "interfaces", "http", "catalog", "pricing_routes.go"): {
 			"DELETE",
 			"/api/price-tier-templates/:id",
 			"deletePriceTierTemplateAPI",

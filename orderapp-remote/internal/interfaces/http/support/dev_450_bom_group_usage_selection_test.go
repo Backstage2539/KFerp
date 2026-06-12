@@ -16,10 +16,9 @@ func TestDev450BomGroupUsageSelectionContracts(t *testing.T) {
 			"DEV-450-BOM-GROUP-LIST-LAYOUT",
 			"REV-450-BOM-GROUP-USAGE-SELECTION",
 		},
-		filepath.Join("internal", "interfaces", "http", "catalog", "product_routes.go"): {
+		filepath.Join("internal", "interfaces", "http", "catalog", "business_group_routes.go"): {
 			`POST("/api/business-groups/:id/usages"`,
 			"ensureBusinessGroupUsageAPI",
-			"EnsureBusinessGroupUsage",
 		},
 		filepath.Join("internal", "application", "catalog", "service.go"): {
 			"EnsureBusinessGroupUsage",

@@ -44,10 +44,12 @@ func TestDev442BusinessGroupAssignmentBackendContracts(t *testing.T) {
 			"warehouse_inventory",
 			"price_list",
 		},
-		filepath.Join("internal", "interfaces", "http", "catalog", "product_routes.go"): {
+		filepath.Join("internal", "interfaces", "http", "catalog", "business_group_routes.go"): {
 			"/api/business-group-assignments",
 			"saveBusinessGroupAssignmentAPI",
 			"deleteBusinessGroupAssignmentAPI",
+		},
+		filepath.Join("internal", "interfaces", "http", "catalog", "product_routes.go"): {
 			"classification write APIs are legacy readonly",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "catalog", "repository.go"): {

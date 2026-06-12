@@ -23,7 +23,8 @@ func TestDev393ProductClassificationTemplateRequirementSeeds(t *testing.T) {
 
 func TestDev393ProductClassificationTemplateSchemaAndAPI(t *testing.T) {
 	schema := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "catalog", "schema.go")))
-	routes := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "catalog", "product_routes.go")))
+	routes := string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "catalog", "product_routes.go"))) +
+		string(readOrderAppFileForTest(t, filepath.Join("internal", "interfaces", "http", "catalog", "classification_routes.go")))
 	repo := string(readOrderAppFileForTest(t, filepath.Join("internal", "infrastructure", "postgres", "catalog", "repository.go")))
 	for _, want := range []string{
 		"product_classification_templates",

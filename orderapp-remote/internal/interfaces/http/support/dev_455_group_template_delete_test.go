@@ -20,10 +20,9 @@ func TestDev455GroupTemplateDeleteContracts(t *testing.T) {
 			"`/api/business-groups/${id}`",
 			"method: 'DELETE'",
 		},
-		filepath.Join("internal", "interfaces", "http", "catalog", "product_routes.go"): {
+		filepath.Join("internal", "interfaces", "http", "catalog", "business_group_routes.go"): {
 			`e.DELETE("/api/business-groups/:id", h.deleteBusinessGroupAPI)`,
 			"deleteBusinessGroupAPI",
-			"DeleteBusinessGroupCommand",
 		},
 		filepath.Join("internal", "application", "catalog", "service.go"): {
 			"type DeleteBusinessGroupCommand struct",

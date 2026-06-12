@@ -6,16 +6,24 @@ import (
 	"testing"
 )
 
-func TestAuditUnifiedOwnsAuditServiceAndTxHelper(t *testing.T) {
+func TestAuditUnifiedDelegatesAuditServiceAndTxHelper(t *testing.T) {
 	body, err := os.ReadFile("internal/interfaces/http/support/audit_unified.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	content := string(body)
-	for _, want := range []string{"type AuditService struct", "type AuditEntry struct", "func AuditInsertTx"} {
+	for _, want := range []string{
+		"type AuditService = postgresinfra.AuditService",
+		"type AuditEntry = postgresinfra.AuditEntry",
+		"func AuditInsertTx",
+		"postgresinfra.AuditInsertTx(ctx, tx",
+	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("audit_unified.go missing %q", want)
 		}
+	}
+	if strings.Contains(content, "INSERT INTO %s.audit_logs") {
+		t.Fatal("support audit_unified.go should not own audit SQL")
 	}
 }
 

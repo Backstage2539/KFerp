@@ -19,6 +19,10 @@ func TestDev465PriceListPricingRulePreviewContracts(t *testing.T) {
 			"applyPricingRuleTrialToPriceTableRow",
 			"priceTablePricingRuleTrialCacheKey",
 		},
+		filepath.Join("frontend-vue-shell", "src", "lib", "costing-price-list-workflow.js"): {
+			"priceListPricingRuleTrialRequestsForRows",
+			"cached?.status === 'error'",
+		},
 		filepath.Join("frontend-vue-shell", "src", "lib", "bean-list-pdf.js"): {
 			"applyPriceListFlatRowsToBeanListPdfGroups",
 			"flatRowsForPdfItem",
@@ -26,7 +30,6 @@ func TestDev465PriceListPricingRulePreviewContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "CostingView.vue"): {
 			"priceListPricingRuleTrialRequests",
 			"/api/costing/pricing-rule-trial",
-			"cached?.status === 'error'",
 			"applyPriceListFlatRowsToBeanListPdfGroups(basePdfGroups.value, priceListFlatRows.value",
 		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {

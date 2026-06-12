@@ -45,6 +45,8 @@ func TestDev439ProductPriceMasterRemodelWiringAndDocs(t *testing.T) {
 			"ProductConfigTemplateID:  0",
 			"ClassificationTemplateID: 0",
 			"Tiers:                    nil",
+		},
+		filepath.Join("internal", "interfaces", "http", "catalog", "pricing_routes.go"): {
 			"/api/product-price-records",
 			"/api/product-tier-price-schemes",
 		},

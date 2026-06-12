@@ -220,10 +220,17 @@ import WipMaterialsView from './views/WipMaterialsView.vue'
 import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
 import { clearStoredAuthToken, fetchCurrentActor, hasStoredAuthToken, logoutCurrentSession } from './api/auth.js'
-import { apiGet, apiSend, appURL } from './api/client.js'
+import { appURL } from './api/client.js'
 import { fetchCustomerProcessingPortalOverview } from './api/customer-fulfillment.js'
 import { fetchERPNotifications, markNotificationRead } from './api/message-center.js'
 import { fetchUISettings } from './api/ui-settings.js'
+import {
+  disableViewContextPreset as disableViewContextPresetAPI,
+  fetchViewContextPresets,
+  fetchWorkspaceCustomerOptions,
+  fetchWorkspaceOrderOptions,
+  saveViewContextPreset,
+} from './api/view-context.js'
 import {
   clampNotificationWindowStart,
   dedupeNotifications,
@@ -735,40 +742,15 @@ function handleWorkspaceCustomersRefresh() {
 }
 
 async function loadWorkspaceCustomers() {
-  try {
-    const data = await apiGet('/api/view-context/options?type=customer&limit=200')
-    workspaceCustomerOptions.value = (data.options || []).map(customerOptionFromViewContextOption)
-  } catch {
-    try {
-      const data = await apiGet('/api/customer-fulfillment/customers?limit=200')
-      workspaceCustomerOptions.value = data.customers || data.items || []
-    } catch {
-      try {
-        const data = await apiGet('/api/customers?limit=200')
-        workspaceCustomerOptions.value = data.customers || data.items || []
-      } catch {
-        workspaceCustomerOptions.value = []
-      }
-    }
-  }
+  workspaceCustomerOptions.value = await fetchWorkspaceCustomerOptions()
 }
 
 async function loadWorkspaceOrders() {
-  try {
-    const data = await apiGet('/api/view-context/options?type=order&limit=80')
-    workspaceOrderOptions.value = data.options || []
-  } catch {
-    workspaceOrderOptions.value = []
-  }
+  workspaceOrderOptions.value = await fetchWorkspaceOrderOptions()
 }
 
 async function loadViewContextPresets() {
-  try {
-    const data = await apiGet('/api/view-context/presets')
-    viewContextPresets.value = data.presets || []
-  } catch {
-    viewContextPresets.value = []
-  }
+  viewContextPresets.value = await fetchViewContextPresets()
 }
 
 function presetPayloadForCurrentViewContext(name) {
@@ -796,9 +778,7 @@ async function saveCurrentViewContextPreset() {
   const name = window.prompt('保存当前视图', defaultName)
   if (!name || !name.trim()) return
   try {
-    const data = await apiSend('/api/view-context/presets', {
-      body: presetPayloadForCurrentViewContext(name.trim()),
-    })
+    const data = await saveViewContextPreset(presetPayloadForCurrentViewContext(name.trim()))
     await loadViewContextPresets()
     selectedViewContextPresetId.value = Number(data?.preset?.id || 0)
   } catch (err) {
@@ -819,7 +799,7 @@ async function disableSelectedViewContextPreset() {
   const id = Number(selectedViewContextPresetId.value || 0)
   if (!id) return
   try {
-    await apiSend(`/api/view-context/presets/${id}/disable`)
+    await disableViewContextPresetAPI(id)
     selectedViewContextPresetId.value = 0
     await loadViewContextPresets()
   } catch (err) {
@@ -830,16 +810,6 @@ async function disableSelectedViewContextPreset() {
 function resetViewContextToDefault() {
   selectedViewContextPresetId.value = 0
   setCurrentViewContext({ type: FACTORY_VIEW_CONTEXT })
-}
-
-function customerOptionFromViewContextOption(option) {
-  return {
-    id: Number(option?.customer_id || option?.id || 0),
-    name: option?.customer_name || option?.label || '',
-    company_name: option?.company_name || '',
-    contact: option?.contact || '',
-    phone: option?.phone || '',
-  }
 }
 
 function orderOptionLabel(option) {

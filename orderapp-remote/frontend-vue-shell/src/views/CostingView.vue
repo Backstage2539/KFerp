@@ -1117,6 +1117,7 @@ import {
   priceTablePricingModeOptions,
   resolvePriceTableTemplateInheritance,
 } from '../lib/product-settings'
+import { priceListPricingRuleTrialRequestsForRows as buildPriceListPricingRuleTrialRequests } from '../lib/costing-price-list-workflow.js'
 import { FORM_DRAFT_SCOPES, readFormDraft } from '../lib/form-draft-cache'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
@@ -1318,21 +1319,15 @@ const priceListFlatRowsReady = computed(() => priceListFlatRows.value.length > 0
     Object.keys(row.group_snapshot || {}).length > 0 &&
     Object.keys(row.cost_source_snapshot || {}).length > 0
 }))
-const priceListPricingRuleTrialRequests = computed(() => priceListPricingRuleTrialRequestsForRows(priceListFlatRows.value))
+const priceListPricingRuleTrialRequests = computed(() => currentPriceListPricingRuleTrialRequests(priceListFlatRows.value))
 
-function priceListPricingRuleTrialRequestsForRows(sourceRows = []) {
-  const requests = []
-  const seen = new Set()
-  ;(Array.isArray(sourceRows) ? sourceRows : []).forEach((row) => {
-    const payload = priceTablePricingRuleTrialPayload(row, { customerID: activeBeanListCustomerID.value })
-    const key = priceTablePricingRuleTrialCacheKey(payload)
-    if (!key || seen.has(key)) return
-    const cached = priceListPricingRuleTrialCache.value[key]
-    if (cached?.status === 'loading' || cached?.status === 'success' || cached?.status === 'error') return
-    seen.add(key)
-    requests.push({ key, payload })
+function currentPriceListPricingRuleTrialRequests(sourceRows = []) {
+  return buildPriceListPricingRuleTrialRequests(sourceRows, {
+    customerID: activeBeanListCustomerID.value,
+    cache: priceListPricingRuleTrialCache.value,
+    payloadForRow: priceTablePricingRuleTrialPayload,
+    cacheKeyForPayload: priceTablePricingRuleTrialCacheKey,
   })
-  return requests
 }
 
 function schedulePriceListPricingRuleTrialRefresh() {
@@ -1341,7 +1336,7 @@ function schedulePriceListPricingRuleTrialRefresh() {
   nextTick(() => {
     priceListPricingRuleTrialRefreshScheduled = false
     clearPriceListPricingRuleTrialErrorCache(priceListFlatRows.value)
-    const requests = priceListPricingRuleTrialRequestsForRows(priceListFlatRows.value)
+    const requests = currentPriceListPricingRuleTrialRequests(priceListFlatRows.value)
     if (requests.length) {
       loadPriceListPricingRuleTrials(requests)
     }
@@ -1507,7 +1502,7 @@ watch(priceListPricingRuleTrialRequests, (requests) => {
 }, { deep: true })
 
 watch(priceListFlatRows, (rows) => {
-  const requests = priceListPricingRuleTrialRequestsForRows(rows)
+  const requests = currentPriceListPricingRuleTrialRequests(rows)
   if (!requests.length) return
   loadPriceListPricingRuleTrials(requests)
 }, { deep: true, immediate: true, flush: 'post' })

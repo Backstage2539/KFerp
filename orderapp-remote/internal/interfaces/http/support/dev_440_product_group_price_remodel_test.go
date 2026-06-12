@@ -48,12 +48,16 @@ func TestDev440ProductGroupPriceRemodelSchemaAndServiceContracts(t *testing.T) {
 			"ResolvePriceTableTemplateInheritance",
 		},
 		filepath.Join("internal", "interfaces", "http", "catalog", "product_routes.go"): {
-			"/api/business-groups",
 			"/api/product-customer-references",
-			"/api/product-pricing-rules",
-			"/api/price-tier-templates",
 			"customer products are legacy readonly",
 			"product price records are legacy readonly",
+		},
+		filepath.Join("internal", "interfaces", "http", "catalog", "business_group_routes.go"): {
+			"/api/business-groups",
+		},
+		filepath.Join("internal", "interfaces", "http", "catalog", "pricing_routes.go"): {
+			"/api/product-pricing-rules",
+			"/api/price-tier-templates",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "catalog", "repository.go"): {
 			"func (r Repository) SaveBusinessGroup",

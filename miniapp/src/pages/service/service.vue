@@ -48,6 +48,14 @@ import { priceTableGroupLabel } from '../../utils/customerProducts'
 import { openMiniappFileOutput } from '../../utils/fileOutput'
 import { buildResaleBeanListPublishPayload, defaultResaleBeanListDraft, resaleBeanListItemKey, resaleCardsPerRowOptions, resaleStyleColorPresets } from '../../utils/resaleBeanList'
 import {
+  emptyDirectShipForm,
+  emptyFulfillmentForm,
+  emptyOrderSearch,
+  emptyProcessingForm,
+  type OrderSearchForm,
+  type OrderStatusField,
+} from '../../utils/serviceForms'
+import {
   buildFulfillmentOrderPayload,
   fulfillmentSalesUnitOptions,
   fulfillmentUnitOption,
@@ -58,17 +66,6 @@ import {
   type ServiceKey,
 } from '../../utils/servicePage'
 import { miniappThemeClass, miniappThemeMeta } from '../../utils/themes'
-
-type OrderSearchForm = {
-  keyword: string
-  date_from: string
-  date_to: string
-  process_status: string
-  pay_status: string
-  ship_status: string
-}
-
-type OrderStatusField = 'process_status' | 'pay_status' | 'ship_status'
 
 type PickerOption<T = unknown> = {
   label: string
@@ -100,29 +97,9 @@ const defaultProcessStatusOptions = ['待处理', '生产中', '生产完成', '
 const defaultPayStatusOptions = ['未付款', '已付款', '未收款', '已收款']
 const defaultShipStatusOptions = ['未发货', '待发货', '已发货']
 
-const directShipForm = ref({ source_name: '', total_rows: 0, note: '' })
-const processingForm = ref({
-  input_material_id: 0,
-  input_qty_g: 0,
-  target_product_id: 0,
-  target_spec_g: 454,
-  target_qty: 1,
-  note: '',
-})
-const fulfillmentForm = ref({
-  recipient_name: '',
-  recipient_phone: '',
-  recipient_address: '',
-  recipient_company: '',
-  product_id: 0,
-  product_name: '',
-  spec_g: 454,
-  qty: 1,
-  sales_unit: '',
-  unit_bag_count: 0,
-  unit_bean_g: 0,
-  note: '',
-})
+const directShipForm = ref(emptyDirectShipForm())
+const processingForm = ref(emptyProcessingForm())
+const fulfillmentForm = ref(emptyFulfillmentForm())
 
 const title = computed(() => page.value?.title || serviceTitle(serviceKey.value))
 const mainTab = computed(() => {
@@ -272,29 +249,9 @@ function showBeanListCategory(item: BeanListSummary, group: { show_category?: bo
 }
 
 function resetLocalForms() {
-  directShipForm.value = { source_name: '', total_rows: 0, note: '' }
-  processingForm.value = {
-    input_material_id: 0,
-    input_qty_g: 0,
-    target_product_id: 0,
-    target_spec_g: 454,
-    target_qty: 1,
-    note: '',
-  }
-  fulfillmentForm.value = {
-    recipient_name: '',
-    recipient_phone: '',
-    recipient_address: '',
-    recipient_company: '',
-    product_id: 0,
-    product_name: '',
-    spec_g: 454,
-    qty: 1,
-    sales_unit: '',
-    unit_bag_count: 0,
-    unit_bean_g: 0,
-    note: '',
-  }
+  directShipForm.value = emptyDirectShipForm()
+  processingForm.value = emptyProcessingForm()
+  fulfillmentForm.value = emptyFulfillmentForm()
   orderSearch.value = emptyOrderSearch()
   page.value = null
   resalePage.value = null
@@ -751,10 +708,6 @@ function normalizeStatusText(value?: string): string {
   return (value || '').trim().replace(/\s+/g, ' ')
 }
 
-function emptyOrderSearch(): OrderSearchForm {
-  return { keyword: '', date_from: '', date_to: '', process_status: '', pay_status: '', ship_status: '' }
-}
-
 function pickerLabels(options: Array<{ label: string }>, emptyLabel: string): string[] {
   return options.length ? options.map((item) => item.label) : [emptyLabel]
 }
@@ -851,7 +804,7 @@ async function submitDirectShipBatch() {
       total_rows: totalRows,
       note: directShipForm.value.note,
     })
-    directShipForm.value = { source_name: '', total_rows: 0, note: '' }
+    directShipForm.value = emptyDirectShipForm()
     uni.showToast({ title: '已提交', icon: 'success' })
     await loadPage()
   } catch (error) {
@@ -878,14 +831,7 @@ async function submitProcessingRequest() {
   errorMessage.value = ''
   try {
     await createProcessingRequest(session.token, payload)
-    processingForm.value = {
-      input_material_id: 0,
-      input_qty_g: 0,
-      target_product_id: 0,
-      target_spec_g: 454,
-      target_qty: 1,
-      note: '',
-    }
+    processingForm.value = emptyProcessingForm()
     uni.showToast({ title: '已提交', icon: 'success' })
     await loadPage()
   } catch (error) {
@@ -912,20 +858,7 @@ async function submitFulfillmentOrder() {
   errorMessage.value = ''
   try {
     await createFulfillmentOrder(session.token, payload)
-    fulfillmentForm.value = {
-      recipient_name: '',
-      recipient_phone: '',
-      recipient_address: '',
-      recipient_company: '',
-      product_id: 0,
-      product_name: '',
-      spec_g: 454,
-      qty: 1,
-      sales_unit: '',
-      unit_bag_count: 0,
-      unit_bean_g: 0,
-      note: '',
-    }
+    fulfillmentForm.value = emptyFulfillmentForm()
     uni.showToast({ title: '订单已提交', icon: 'success' })
     await loadPage()
   } catch (error) {

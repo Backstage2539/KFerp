@@ -57,6 +57,17 @@ describe('service page helpers', () => {
     expect(servicePage).not.toContain('applyBillingDefaultPeriod')
   })
 
+  it('keeps service page form defaults behind serviceForms factories', () => {
+    const servicePage = readSource('src/pages/service/service.vue')
+
+    expect(servicePage).toContain('../../utils/serviceForms')
+    expect(servicePage).toContain('emptyDirectShipForm()')
+    expect(servicePage).toContain('emptyProcessingForm()')
+    expect(servicePage).toContain('emptyFulfillmentForm()')
+    expect(servicePage).toContain('emptyOrderSearch()')
+    expect(servicePage).not.toContain("const directShipForm = ref({ source_name: '', total_rows: 0, note: '' })")
+  })
+
   it('maps drip fulfillment products to bag and box options', () => {
     const options = fulfillmentSalesUnitOptions({
       id: 8,
