@@ -276,6 +276,35 @@ test('ProducePlanView owns operation capacity splits after draft plan creation',
   assert.doesNotMatch(source, /推荐机器/)
 })
 
+test('ProducePlanView lets operators expand planning tables and drag horizontal overflow', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  for (const marker of [
+    'demandPanelCollapsed',
+    'currentPlanPanelCollapsed',
+    'toggleDemandPanelCollapsed',
+    'toggleCurrentPlanPanelCollapsed',
+    'startTableScrollDrag',
+    'drag-scroll-wrap',
+    '收起待生产需求',
+    '展开待生产需求',
+    '收起当前生产计划',
+    '展开当前生产计划',
+    'demand-collapsed',
+    'current-plan-collapsed',
+  ]) {
+    assert.match(source, new RegExp(marker))
+  }
+})
+
+test('ProducePlanView explains operation capacity splits before the draft plan exists', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /创建草稿生产计划后可填写工序产能拆分/)
+  assert.match(source, /先点创建生产计划，生成草稿后再选择工位产能和承担产量/)
+  assert.match(source, /拆分会在提交生成工单前保存/)
+})
+
 test('ProducePlanView opens an ERPNext-style production plan detail drawer from the compact list', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 

@@ -76,6 +76,7 @@
 - PR-485-BOM-VERSION-ROUTE-DEFAULT：生产 BOM 与商品的唯一生产关系来源是 `production_boms.output_product_id`。商品档案只保存默认生产 BOM 主表 ID，不保存默认 BOM 版本；旧 `product_production_bom_bindings` 仅作兼容展示/回填，不作为“可生产该商品的 BOM”关系来源。`production_bom_versions.process_route_id` 是路线绑定点，同一 BOM 只保留一个 published 最新可用版本，发布新版时旧 published 版本归档。创建生产计划时按 `商品 -> 默认生产 BOM；无默认且只有一个 active 产出 BOM 时自动使用；多个 active 产出 BOM 时要求先设置默认 -> 该 BOM 最新 published 版本 -> BOM 版本绑定工艺路线` 解析。默认 BOM 已不再产出该商品时直接报错；最新可用 BOM 版本没有路线时直接报错 `最新可用 BOM 版本未配置工艺路线: <BOM>/<版本>/<商品>`，不得 fallback 到旧版本、商品配置路线或旧工艺模板。工艺路线页面只维护路线和路线工序，不选择 SKU/BOM/BOM 版本；工序和工位/设备拆为独立页面。生产排程只排已生成工单/工序卡，可展示冻结 BOM 版本/路线摘要，但提交 payload 不允许覆盖 BOM 或路线。
 - PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS：PR-486 旧口径更正为：工艺路线只定义工序顺序，不保存工位、工位产能、标准批量、标准分钟、小时费率、计划批次数、计划分钟或计划工序成本；工位产能是工位下的单批标准主数据；生产计划草稿的工序产能拆分才决定本次用哪些工位产能和各承担多少产量。提交生产计划时，系统把拆分行的工位产能、标准批量、标准分钟、小时费率、计划批次数、计划数量、计划分钟和计划工序成本冻结到工单/工序卡；修改工位产能或工艺路线不回改已提交工单。
 - PR-488-PRODUCTION-PLAN-SPLIT-QTY-AUTOBATCH：生产计划 `工序产能拆分` 由手工填写批次数改为填写 `承担产量`。系统根据所选工位产能的标准批量自动计算 `计划批次数 = ceil(承担产量 / 标准批量)`；计划数量保持等于承担产量，不因为最后一批不满批而放大，工时和工序成本按自动批次数计算。
+- PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT：生产计划当前计划工作台必须适配宽表和窄屏使用。待生产需求与当前生产计划左右两栏支持收起和展开；计划预览表格支持横向拖拽滚动，用户能查看 `库存(g)`、`缺口(g)` 后面的 BOM 摘要、计划投料和工艺路线摘要；未创建草稿前也必须提示 `创建草稿生产计划后可填写工序产能拆分`，避免用户误以为拆分功能消失。
 - PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：一期生产链路必须是 `生产计划 -> 生产工单 -> 工序卡 -> 开始生产`。生产计划是正式单据，状态为 `draft/submitted/in_progress/completed/cancelled`，计划行冻结商品、客户/订单来源、缺口数量、默认 BOM 版本、工艺路线、组件需求和客户商品快照。提交生产计划生成 `released` 生产工单，并按冻结工艺路线生成 `pending` 工序卡；此时不得创建 `produce_running_items`、生产日志或 WIP 占用。生产工单点击 `开始生产` 后才创建 running item 和 WIP 占用，工单进入 `running`，工序卡进入可执行状态；重复开始生产必须 fail-closed，不重复写 running item、工单或 WIP 占用。旧 `POST /api/produce/start` 保留兼容，内部走临时计划 -> 工单 -> 开始生产。该期不做 Stock Entry 单据化、甘特图、产能排程、班组计时或工序暂停。
 - PR-473-GENERIC-MANUFACTURING-ABSTRACTION：生产计划和生产工单主流程必须使用 `商品 / BOM / 工艺路线 / 工序 / 工位 / 生产计划 / 工单 / 工序卡` 的通用制造口径。生产计划只展示订单需求、库存缺口、默认 BOM 或 BOM 版本、计划投料、物料需求汇总和工艺路线摘要；生产建议、建议设备、单批投入、锅数不属于一期通用生产计划主流程。创建生产计划前端只提交 `from/to/customer_id/selected/source_type`，不得再提交由前端编辑出来的 `input_by_key`；后端按默认 BOM、预期损耗率和库存缺口计算 `planned_g`、`planned_output_g` 和物料快照。旧 `roast_plans`、`RoastMachine`、`roast_machines` 和 `/api/produce/machines` 只保留兼容，不在生产计划页面消费。咖啡熟豆、包装盒、童装只是不同 BOM 和工艺路线配置示例，不得让烘焙建议词成为主流程字段。
 - PR-379-CHANNEL-PORTAL-WORKBENCH-SWITCH：客户档案必须提供“开通客户门户/工作台”开关。客户默认只是 ERP 客户；只有 active、开关打开后，才创建或启用客户门户配置并进入门户配置默认列表。客户类型新增渠道客户，但权限由门户客户配置里的能力模板决定；关闭开关不删除历史配置、订单、外部账号或操作日志，只停用访问。录单价格表/豆单选择必须按商品自定义产品类型分组并自动匹配同分类客户专属最新价格表，无专属则回退公共同分类最新版本，旧 `commercial/green/drip` 只做兼容 fallback。
@@ -878,6 +879,7 @@
 - `创建生产计划` 必须位于当前计划区，并继续只提交 `from/to/customer_id/selected/source_type`，不得提交 `input_by_key`；创建成功后右侧立即展示草稿计划号、中文状态、计划行和下一步动作。
 - 草稿计划详情必须提供 `提交当前计划生成工单`，复用 `POST /api/production-plans/submit`，payload 为单个计划 id；已提交、生产中、已完成和已取消计划不可重复提交。
 - 历史 `生产计划单据` 列表继续保留 PR-474 的状态过滤、时间过滤、草稿复选框、表头三态和批量 `提交生成工单`，但不再承担新建计划后的唯一下一步入口。
+- PR-489-PRODUCTION-PLAN-PREVIEW-LAYOUT：当前计划工作台的左右栏必须可收起/展开；待生产需求、计划预览、物料需求和生产计划单据等宽表必须能用鼠标拖拽横向滚动。未创建草稿时，当前计划预览区要显示 `工序产能拆分` 的下一步提示；创建草稿后才显示可编辑拆分行并保存到生产计划。
 
 ## 52. 生产计划单据详情（PR-478-PRODUCTION-PLAN-DOCUMENT-DETAIL）
 - 生产计划单据列表必须保持紧凑；点击计划号或详情打开生产计划单据详情抽屉，不新增独立详情路由。
