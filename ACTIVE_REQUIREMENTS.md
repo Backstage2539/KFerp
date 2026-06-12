@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-475-PRODUCTION-PLAN-ERPNEXT-WORKBENCH
 - Branch: codex/production-plan-erpnext-workbench-20260612
 - Owner/session: Codex / 2026-06-12
-- Status: locally verified with TDD, build, changed verifier and browser acceptance; pending merge to develop and development deploy.
+- Status: merged to `develop` and deployed to development.
 - Scope: 按 ERPNext 风格优化生产计划页主交互。顶部只保留筛选和刷新；主区左侧为 `待生产需求`，右侧为 `当前生产计划`，选中库存不足商品后自动生成计划预览、BOM/工艺路线摘要和物料需求汇总；`创建生产计划` 和 `提交当前计划生成工单` 都在当前计划区完成。历史 `生产计划单据` 列表继续保留 PR-474 的状态/时间过滤、草稿复选框和批量提交能力。
 - DEV:
   - DEV-475-PRODUCTION-PLAN-WORKBENCH-UI：重排 `ProducePlanView.vue` 为当前生产计划工作台；选择库存不足商品后自动调用 `/api/produce/unproduced?plan=1&selected=...` 刷新预览。
@@ -24,7 +24,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN full/build/check: `go test ./...` passed; `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
   - GREEN browser/local: local production Vue build + mock API at `http://127.0.0.1:5191/vue-shell/?view=producePlan` rendered the ERPNext-style workbench. Initial page showed top filters/refresh only, left `待生产需求`, right `当前生产计划`, lower `库存充足（只提示）` and lower `生产计划单据`; no `创建生产计划` before the workbench and no `生产建议/推荐机器/每锅数量/锅数/预计成品`. Selecting `539-454` automatically requested `/api/produce/unproduced?plan=1&selected=539-454` and displayed plan preview plus material summary. Creating draft showed `PP-PR475-001` / `草稿`; clicking `提交当前计划生成工单` called `POST /api/production-plans/submit`, changed state to `已提交工单`, and disabled the current submit button. History status/time filters and batch `提交生成工单` remained visible. Mobile viewport 390x844 stacked demand and current-plan panels without page-level horizontal overflow.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-12-production-plan-erpnext-workbench.md`.
-- Deployment:
+- Deployment: deployed 2026-06-12 Asia/Shanghai at `origin/develop=93c67fcf0625072385bd7417db32df5cf37ab6af`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260612114628`. Smoke: `erp_orderapp` rebuilt and restarted, container logs show startup only, unauthenticated `/app/api/req/product?limit=1` returned 401, authenticated `/app/vue-shell/?view=producePlan` returned 200, authenticated `/app/api/production-plans?status=draft&time_field=created_at&limit=1` returned 200 with plan rows, authenticated `/app/api/produce/unproduced?plan=1&selected=539-454` returned 200 with 1 `plan_rows` and no error, PR/DEV/UT/API/REV-475 markers are visible through req APIs, deployed Vue assets contain `当前生产计划` / `待生产需求` / `提交当前计划生成工单`.
 - Last update: 2026-06-12 Asia/Shanghai
 
 ### PR-474-PRODUCTION-PLAN-BULK-SUBMIT-FILTER
