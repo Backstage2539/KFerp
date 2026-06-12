@@ -88,6 +88,12 @@ export function buildProductionPlanBatchSubmitPayload(selected) {
   return { ids }
 }
 
+export function buildCurrentProductionPlanSubmitPayload(plan) {
+  const id = Number(plan?.id || 0)
+  if (!Number.isInteger(id) || id <= 0) return { ids: [] }
+  return { ids: [id] }
+}
+
 export function productionPlanBatchSubmitEndpoint() {
   return '/api/production-plans/submit'
 }

@@ -133,6 +133,14 @@ test('production plan batch submit payload keeps only positive selected ids', ()
   )
 })
 
+test('current production plan submit payload reuses the batch submit contract with one id', () => {
+  assert.equal(typeof producePlan.buildCurrentProductionPlanSubmitPayload, 'function')
+  assert.deepEqual(producePlan.buildCurrentProductionPlanSubmitPayload({ id: 41 }), { ids: [41] })
+  assert.deepEqual(producePlan.buildCurrentProductionPlanSubmitPayload({ id: '42' }), { ids: [42] })
+  assert.deepEqual(producePlan.buildCurrentProductionPlanSubmitPayload({ id: 0 }), { ids: [] })
+  assert.deepEqual(producePlan.buildCurrentProductionPlanSubmitPayload(null), { ids: [] })
+})
+
 test('ProducePlanView creates draft plans and batch submits checked draft plans', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
@@ -146,6 +154,46 @@ test('ProducePlanView creates draft plans and batch submits checked draft plans'
   assert.doesNotMatch(source, /submitPlanRow\(plan\)/)
   assert.doesNotMatch(source, /请先选择产品并点击“生成计划”/)
   assert.doesNotMatch(source, /apiSend\('\/api\/produce\/start'/)
+})
+
+test('ProducePlanView uses an ERPNext-style current plan workspace instead of top create and bottom details', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  const workbenchIndex = source.indexOf('planning-workbench')
+  const currentPlanIndex = source.indexOf('当前生产计划')
+  const createIndex = source.indexOf('创建生产计划')
+  const historyIndex = source.indexOf('生产计划单据')
+  const topPanel = source.slice(source.indexOf('<h2>生产计划</h2>'), workbenchIndex)
+
+  assert.ok(workbenchIndex > 0, 'production page should have a planning workbench')
+  assert.match(source, /待生产需求/)
+  assert.ok(currentPlanIndex > 0, 'current plan workspace should be visible')
+  assert.ok(createIndex > currentPlanIndex, 'create action should live in the current plan workspace')
+  assert.ok(historyIndex > currentPlanIndex, 'history list should be below the current plan workspace')
+  assert.doesNotMatch(topPanel, /创建生产计划/)
+  assert.doesNotMatch(source, /选择库存不足商品后点击“创建生产计划”/)
+  assert.match(source, /勾选库存不足商品后生成计划预览/)
+})
+
+test('ProducePlanView automatically loads selected demand into the current plan preview', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /loadSelectedPlanPreview/)
+  assert.match(source, /schedulePlanPreview/)
+  assert.match(source, /selectedSignature/)
+  assert.match(source, /url\.searchParams\.set\('plan', '1'\)/)
+  assert.match(source, /url\.searchParams\.set\('selected', keys\.join\(','\)\)/)
+  assert.match(source, /previewError/)
+})
+
+test('ProducePlanView submits the current draft plan through the batch submit API', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /提交当前计划生成工单/)
+  assert.match(source, /submitCurrentProductionPlan/)
+  assert.match(source, /buildCurrentProductionPlanSubmitPayload\(currentPlan\.value\)/)
+  assert.match(source, /apiSend\(productionPlanBatchSubmitEndpoint\(\), \{ body: payload \}\)/)
+  assert.doesNotMatch(source, /@click="submitPlanRow\(plan\)"/)
 })
 
 test('ProducePlanView no longer consumes roasting capacity suggestions in the main flow', () => {
@@ -171,5 +219,5 @@ test('ProducePlanView does not leave selected rows with a disabled no-op create 
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
   assert.doesNotMatch(source, /:disabled="saving \|\| !planReady"/)
-  assert.match(source, /if \(!planReady\.value\) \{[\s\S]*await load\(true\)/)
+  assert.match(source, /if \(!planReady\.value\) \{[\s\S]*await loadSelectedPlanPreview\(\)/)
 })

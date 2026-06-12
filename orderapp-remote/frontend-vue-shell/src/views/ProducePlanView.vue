@@ -27,13 +27,188 @@
           <input v-model.trim="filters.customer_id" placeholder="例如 123" />
         </label>
       </div>
-      <div class="actions">
-        <button class="primary" type="button" @click="createProductionPlan" :disabled="saving || !hasSelectedRows">创建生产计划</button>
-      </div>
-      <div v-if="currentPlan" class="ok plan-result">
-        <strong>{{ currentPlan.plan_no }}</strong>
-        <span :class="['status', `status-${productionPlanStatusTone(currentPlan.status)}`]">{{ productionPlanStatusLabel(currentPlan.status) }}</span>
-        <span>计划行 {{ currentPlan.items?.length || 0 }} 条</span>
+    </section>
+
+    <section class="planning-workbench">
+      <section class="panel demand-panel">
+        <div class="panel-head">
+          <div class="section-title section-title-with-checkbox">
+            <input
+              ref="insufficientHeaderCheckbox"
+              class="bulk-checkbox"
+              type="checkbox"
+              :checked="allInsufficientSelected"
+              :disabled="!stockInsufficientRows.length"
+              :aria-checked="insufficientSelection.indeterminate ? 'mixed' : String(insufficientSelection.checked)"
+              aria-label="全选库存不足商品"
+              @change="toggleAllInsufficient($event.target.checked)"
+            />
+            <span>待生产需求</span>
+          </div>
+          <span class="muted">已选 {{ insufficientSelection.selectedCount }} / {{ insufficientSelection.total }}</span>
+        </div>
+        <div class="table-wrap">
+          <table class="demand-table">
+            <thead>
+              <tr>
+                <th>选择</th>
+                <th>商品</th>
+                <th>订单号</th>
+                <th>规格(g)</th>
+                <th>需求(件)</th>
+                <th>需求(g)</th>
+                <th>库存(件)</th>
+                <th>库存合计(g)</th>
+                <th>缺口(g)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in stockInsufficientRows" :key="rowKey(row)">
+                <td><input class="bulk-checkbox" type="checkbox" :checked="!!selected[rowKey(row)]" @change="toggleInsufficientRow(row, $event.target.checked)" /></td>
+                <td>{{ row.product }}</td>
+                <td class="muted">{{ row.order_nos }}</td>
+                <td>{{ row.spec_g }}</td>
+                <td>{{ row.need_units }}</td>
+                <td>{{ row.need_g }}</td>
+                <td>{{ row.inv_units }}</td>
+                <td>{{ row.inv_g }}</td>
+                <td><strong>{{ row.gap_g }}</strong></td>
+              </tr>
+              <tr v-if="!stockInsufficientRows.length">
+                <td colspan="9" class="muted">暂无库存不足商品</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel current-plan-panel">
+        <div class="panel-head">
+          <h2>当前生产计划</h2>
+          <span v-if="currentPlan" :class="['status', `status-${productionPlanStatusTone(currentPlan.status)}`]">{{ productionPlanStatusLabel(currentPlan.status) }}</span>
+        </div>
+        <div v-if="previewError" class="error">{{ previewError }}</div>
+        <div v-if="!hasSelectedRows && !currentPlan" class="empty-state">
+          <strong>勾选库存不足商品后生成计划预览</strong>
+          <span>在左侧选择要生产的商品后，这里会集中显示 BOM、工艺路线和物料需求。</span>
+        </div>
+        <template v-else>
+          <div v-if="currentPlan" class="ok plan-result">
+            <strong>{{ currentPlan.plan_no }}</strong>
+            <span>计划行 {{ currentPlan.items?.length || computedPlanRows.length || 0 }} 条</span>
+            <span v-if="currentPlan.submitted_at">提交 {{ currentPlan.submitted_at }}</span>
+          </div>
+          <div v-if="previewLoading" class="muted preview-loading">正在生成计划预览...</div>
+          <div v-if="planReady" class="current-plan-content">
+            <div>
+              <div class="section-title">计划预览（缺口 &gt; 0）</div>
+              <div class="table-wrap">
+                <table class="plan-preview-table">
+                  <thead>
+                    <tr>
+                      <th>商品</th>
+                      <th>订单号</th>
+                      <th>规格(g)</th>
+                      <th>需求(g)</th>
+                      <th>库存(g)</th>
+                      <th>缺口(g)</th>
+                      <th>BOM摘要</th>
+                      <th>计划投料(g)</th>
+                      <th>工艺路线摘要</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in computedPlanRows" :key="rowKey(row)">
+                      <td>{{ row.product }}</td>
+                      <td class="muted">{{ row.order_nos }}</td>
+                      <td>{{ row.spec_g }}</td>
+                      <td>{{ row.need_g }}</td>
+                      <td>{{ row.inv_g }}</td>
+                      <td><strong>{{ row.gap_g }}</strong></td>
+                      <td>默认 BOM / 预期产出率 {{ percent(row.bom_yield_rate) }}</td>
+                      <td>{{ row.input_g }}</td>
+                      <td>{{ productionRouteSummary(row) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <div class="section-title">物料需求汇总（预计消耗）</div>
+              <div class="table-wrap">
+                <table class="materials-table">
+                  <thead>
+                    <tr>
+                      <th>物料</th>
+                      <th>预计消耗数量</th>
+                      <th>单位</th>
+                      <th>WIP可用(g)</th>
+                      <th>建议领到WIP(g)</th>
+                      <th>原料仓(g)</th>
+                      <th>采购建议(g)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="item in computedMaterials" :key="`${item.name}-${item.unit}`">
+                      <td>{{ item.name }}</td>
+                      <td>{{ item.qty }}</td>
+                      <td>{{ item.unit }}</td>
+                      <td>{{ item.available_g || 0 }}</td>
+                      <td><strong>{{ item.wip_transfer_suggestion_g || 0 }}</strong></td>
+                      <td>{{ item.raw_g || 0 }}</td>
+                      <td>{{ item.purchase_suggestion_g || 0 }}</td>
+                    </tr>
+                    <tr v-if="!computedMaterials.length">
+                      <td colspan="7" class="muted">暂无物料汇总</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div v-else-if="hasSelectedRows && !previewLoading" class="muted empty-state">已选择商品，等待计划预览。</div>
+          <div class="actions current-plan-actions">
+            <button v-if="!currentPlan" class="primary" type="button" @click="createProductionPlan" :disabled="saving || previewLoading || !planReady">创建生产计划</button>
+            <button v-else class="primary" type="button" @click="submitCurrentProductionPlan" :disabled="saving || !currentPlanDraft">提交当前计划生成工单</button>
+            <span v-if="currentPlan && !currentPlanDraft" class="muted">当前计划状态为 {{ productionPlanStatusLabel(currentPlan.status) }}，无需重复提交。</span>
+          </div>
+        </template>
+      </section>
+    </section>
+
+    <section class="panel">
+      <div class="section-title">库存充足（只提示）</div>
+      <div class="muted section-hint">以下订单已有成品库存覆盖，不进入生产计划；录单时确认使用批次后会进入库存待发货。</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>商品</th>
+              <th>订单号</th>
+              <th>规格(g)</th>
+              <th>需求(件)</th>
+              <th>需求(g)</th>
+              <th>库存(件)</th>
+              <th>库存散装(g)</th>
+              <th>库存合计(g)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in stockSufficientRows" :key="rowKey(row)">
+              <td>{{ row.product }}</td>
+              <td class="muted">{{ row.order_nos }}</td>
+              <td>{{ row.spec_g }}</td>
+              <td>{{ row.need_units }}</td>
+              <td>{{ row.need_g }}</td>
+              <td>{{ row.inv_units }}</td>
+              <td>{{ row.inv_loose_g }}</td>
+              <td>{{ row.inv_g }}</td>
+            </tr>
+            <tr v-if="!stockSufficientRows.length">
+              <td colspan="8" class="muted">暂无库存充足商品</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -127,167 +302,14 @@
         </table>
       </div>
     </section>
-
-    <section class="panel">
-      <div class="section-title section-title-with-checkbox">
-        <input
-          ref="insufficientHeaderCheckbox"
-          class="bulk-checkbox"
-          type="checkbox"
-          :checked="allInsufficientSelected"
-          :disabled="!stockInsufficientRows.length"
-          :aria-checked="insufficientSelection.indeterminate ? 'mixed' : String(insufficientSelection.checked)"
-          aria-label="全选库存不足商品"
-          @change="toggleAllInsufficient($event.target.checked)"
-        />
-        <span>库存不足（需生产）</span>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>选择</th>
-              <th>商品</th>
-              <th>订单号</th>
-              <th>规格(g)</th>
-              <th>需求(件)</th>
-              <th>需求(g)</th>
-              <th>库存(件)</th>
-              <th>库存散装(g)</th>
-              <th>库存合计(g)</th>
-              <th>缺口(g)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in stockInsufficientRows" :key="rowKey(row)">
-              <td><input type="checkbox" :checked="!!selected[rowKey(row)]" @change="toggleInsufficientRow(row, $event.target.checked)" /></td>
-              <td>{{ row.product }}</td>
-              <td class="muted">{{ row.order_nos }}</td>
-              <td>{{ row.spec_g }}</td>
-              <td>{{ row.need_units }}</td>
-              <td>{{ row.need_g }}</td>
-              <td>{{ row.inv_units }}</td>
-              <td>{{ row.inv_loose_g }}</td>
-              <td>{{ row.inv_g }}</td>
-              <td><strong>{{ row.gap_g }}</strong></td>
-            </tr>
-            <tr v-if="!stockInsufficientRows.length">
-              <td colspan="10" class="muted">暂无库存不足商品</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="section-title">库存充足（只提示）</div>
-      <div class="muted section-hint">以下订单已有成品库存覆盖，不进入生产计划；录单时确认使用批次后会进入库存待发货。</div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>商品</th>
-              <th>订单号</th>
-              <th>规格(g)</th>
-              <th>需求(件)</th>
-              <th>需求(g)</th>
-              <th>库存(件)</th>
-              <th>库存散装(g)</th>
-              <th>库存合计(g)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in stockSufficientRows" :key="rowKey(row)">
-              <td>{{ row.product }}</td>
-              <td class="muted">{{ row.order_nos }}</td>
-              <td>{{ row.spec_g }}</td>
-              <td>{{ row.need_units }}</td>
-              <td>{{ row.need_g }}</td>
-              <td>{{ row.inv_units }}</td>
-              <td>{{ row.inv_loose_g }}</td>
-              <td>{{ row.inv_g }}</td>
-            </tr>
-            <tr v-if="!stockSufficientRows.length">
-              <td colspan="8" class="muted">暂无库存充足商品</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="section-title">生产计划（缺口 &gt; 0）</div>
-      <div v-if="!planReady" class="muted">选择库存不足商品后点击“创建生产计划”。</div>
-      <div v-else class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>商品</th>
-              <th>规格(g)</th>
-              <th>需求(g)</th>
-              <th>库存(g)</th>
-              <th>缺口(g)</th>
-              <th>BOM摘要</th>
-              <th>计划投料(g)</th>
-              <th>工艺路线摘要</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in computedPlanRows" :key="rowKey(row)">
-              <td>{{ row.product }}</td>
-              <td>{{ row.spec_g }}</td>
-              <td>{{ row.need_g }}</td>
-              <td>{{ row.inv_g }}</td>
-              <td><strong>{{ row.gap_g }}</strong></td>
-              <td>默认 BOM / 预期产出率 {{ percent(row.bom_yield_rate) }}</td>
-              <td>{{ row.input_g }}</td>
-              <td>{{ productionRouteSummary(row) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="section-title">物料需求汇总（预计消耗）</div>
-      <div v-if="!planReady" class="muted">选择库存不足商品后点击“创建生产计划”。</div>
-      <div v-else class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>物料</th>
-              <th>预计消耗数量</th>
-              <th>单位</th>
-              <th>WIP可用(g)</th>
-              <th>建议领到WIP(g)</th>
-              <th>原料仓(g)</th>
-              <th>采购建议(g)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in computedMaterials" :key="`${item.name}-${item.unit}`">
-              <td>{{ item.name }}</td>
-              <td>{{ item.qty }}</td>
-              <td>{{ item.unit }}</td>
-              <td>{{ item.available_g || 0 }}</td>
-              <td><strong>{{ item.wip_transfer_suggestion_g || 0 }}</strong></td>
-              <td>{{ item.raw_g || 0 }}</td>
-              <td>{{ item.purchase_suggestion_g || 0 }}</td>
-            </tr>
-            <tr v-if="!computedMaterials.length">
-              <td colspan="7" class="muted">暂无物料汇总</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch, watchEffect } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import {
+  buildCurrentProductionPlanSubmitPayload,
   buildInsufficientSelection,
   buildProductionPlanBatchSubmitPayload,
   buildProductionPlanCreatePayload,
@@ -312,7 +334,9 @@ const props = defineProps({
 
 const loading = ref(false)
 const saving = ref(false)
+const previewLoading = ref(false)
 const error = ref('')
+const previewError = ref('')
 const stockTip = ref('')
 const rows = ref([])
 const planRows = ref([])
@@ -323,6 +347,8 @@ const insufficientHeaderCheckbox = ref(null)
 const productionPlanHeaderCheckbox = ref(null)
 const selected = reactive({})
 const selectedProductionPlans = reactive({})
+let previewTimer = 0
+let previewRequestSeq = 0
 
 const filters = reactive({
   from: '',
@@ -357,6 +383,8 @@ const allInsufficientSelected = computed(() => insufficientSelection.value.check
 const productionPlanSelection = computed(() => productionPlanSelectionState(productionPlans.value, selectedProductionPlans))
 const allProductionPlansSelected = computed(() => productionPlanSelection.value.checked)
 const hasSelectedProductionPlans = computed(() => productionPlanSelection.value.selectedCount > 0)
+const currentPlanDraft = computed(() => productionPlanSelectable(currentPlan.value))
+const selectedSignature = computed(() => selectedKeys().join('|'))
 
 watchEffect(() => {
   if (insufficientHeaderCheckbox.value) {
@@ -401,38 +429,80 @@ function updateUrl(plan) {
   replaceHistoryURL(url)
 }
 
+function buildUnproducedURL(plan, keys = selectedKeys()) {
+  const url = new URL('/api/produce/unproduced', window.location.origin)
+  if (filters.from) url.searchParams.set('from', filters.from)
+  if (filters.to) url.searchParams.set('to', filters.to)
+  if (filters.customer_id) url.searchParams.set('customer_id', filters.customer_id)
+  if (plan && keys.length) {
+    url.searchParams.set('plan', '1')
+    url.searchParams.set('selected', keys.join(','))
+  }
+  return url
+}
+
+function applyUnproducedData(data, plan) {
+  rows.value = data.rows || []
+  stockTip.value = data.stock_tip || ''
+  planRows.value = data.plan_rows || []
+  initialMaterials.value = data.materials || []
+  if (data.selected) {
+    Object.keys(selected).forEach((key) => delete selected[key])
+    for (const key of Object.keys(data.selected)) {
+      if (data.selected[key]) selected[key] = true
+    }
+  }
+  pruneSufficientSelections()
+  updateUrl(plan)
+}
+
 async function load(plan) {
   loading.value = true
   error.value = ''
+  previewError.value = ''
   try {
-    const url = new URL('/api/produce/unproduced', window.location.origin)
-    if (filters.from) url.searchParams.set('from', filters.from)
-    if (filters.to) url.searchParams.set('to', filters.to)
-    if (filters.customer_id) url.searchParams.set('customer_id', filters.customer_id)
-    const keys = selectedKeys()
-    if (plan && keys.length) {
-      url.searchParams.set('plan', '1')
-      url.searchParams.set('selected', keys.join(','))
-    }
-    const data = await apiGet(url)
-
-    rows.value = data.rows || []
-    stockTip.value = data.stock_tip || ''
-    planRows.value = data.plan_rows || []
-    initialMaterials.value = data.materials || []
-    if (data.selected) {
-      Object.keys(selected).forEach((key) => delete selected[key])
-      for (const key of Object.keys(data.selected)) {
-        if (data.selected[key]) selected[key] = true
-      }
-    }
-    pruneSufficientSelections()
-    updateUrl(plan)
+    const data = await apiGet(buildUnproducedURL(plan))
+    applyUnproducedData(data, plan)
+    if (!plan) currentPlan.value = null
+    if (!plan && selectedKeys().length) schedulePlanPreview()
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
     loading.value = false
   }
+}
+
+async function loadSelectedPlanPreview() {
+  const keys = selectedKeys()
+  previewError.value = ''
+  if (!keys.length) {
+    planRows.value = []
+    initialMaterials.value = []
+    updateUrl(false)
+    return
+  }
+  const requestID = ++previewRequestSeq
+  previewLoading.value = true
+  try {
+    const data = await apiGet(buildUnproducedURL(true, keys))
+    if (requestID !== previewRequestSeq) return
+    applyUnproducedData(data, true)
+  } catch (err) {
+    if (requestID !== previewRequestSeq) return
+    planRows.value = []
+    initialMaterials.value = []
+    previewError.value = err.message || '生成计划预览失败'
+  } finally {
+    if (requestID === previewRequestSeq) previewLoading.value = false
+  }
+}
+
+function schedulePlanPreview() {
+  if (previewTimer) clearTimeout(previewTimer)
+  previewTimer = setTimeout(() => {
+    previewTimer = 0
+    loadSelectedPlanPreview()
+  }, 250)
 }
 
 async function loadProductionPlans() {
@@ -445,14 +515,21 @@ async function loadProductionPlans() {
   }
 }
 
+function resetCurrentPlanForSelection() {
+  currentPlan.value = null
+  previewError.value = ''
+}
+
 function toggleAllInsufficient(checked) {
   replaceSelected(buildInsufficientSelection(stockInsufficientRows.value, checked))
+  resetCurrentPlanForSelection()
 }
 
 function toggleInsufficientRow(row, checked) {
   const key = rowKey(row)
   if (checked) selected[key] = true
   else delete selected[key]
+  resetCurrentPlanForSelection()
 }
 
 function toggleAllProductionPlans(checked) {
@@ -497,16 +574,17 @@ async function createProductionPlan() {
   }
   saving.value = true
   error.value = ''
+  previewError.value = ''
   try {
     if (!planReady.value) {
-      await load(true)
+      await loadSelectedPlanPreview()
       keys = selectedKeys()
       if (!keys.length) {
         window.alert('请先选择产品后再创建生产计划')
         return
       }
       if (!planReady.value) {
-        if (!error.value) error.value = '没有可创建的生产计划，请检查库存缺口或订单商品绑定'
+        if (!previewError.value) previewError.value = '没有可创建的生产计划，请检查库存缺口或订单商品绑定'
         return
       }
     }
@@ -514,7 +592,27 @@ async function createProductionPlan() {
     currentPlan.value = await apiSend('/api/production-plans', { body: payload })
     await loadProductionPlans()
   } catch (err) {
-    error.value = err.message || '创建生产计划失败'
+    previewError.value = err.message || '创建生产计划失败'
+  } finally {
+    saving.value = false
+  }
+}
+
+async function submitCurrentProductionPlan() {
+  const payload = buildCurrentProductionPlanSubmitPayload(currentPlan.value)
+  if (!payload.ids.length) return
+  saving.value = true
+  previewError.value = ''
+  try {
+    const result = await apiSend(productionPlanBatchSubmitEndpoint(), { body: payload })
+    const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
+    if (firstSuccess?.plan) currentPlan.value = firstSuccess.plan
+    await loadProductionPlans()
+    if (Array.isArray(result.failed) && result.failed.length) {
+      previewError.value = `当前生产计划提交失败：${result.failed.map((item) => `${item.id}: ${item.error}`).join('；')}`
+    }
+  } catch (err) {
+    previewError.value = err.message || '提交生成工单失败'
   } finally {
     saving.value = false
   }
@@ -568,6 +666,22 @@ watch(() => [props.viewParams?.customer_id, props.customerContextId], async () =
   filters.customer_id = nextCustomerID
   await load(false)
 })
+
+watch(selectedSignature, () => {
+  resetCurrentPlanForSelection()
+  schedulePlanPreview()
+})
+
+watch(() => [filters.from, filters.to, filters.customer_id], () => {
+  if (hasSelectedRows.value) {
+    resetCurrentPlanForSelection()
+    schedulePlanPreview()
+  }
+})
+
+onBeforeUnmount(() => {
+  if (previewTimer) clearTimeout(previewTimer)
+})
 </script>
 
 <style scoped>
@@ -575,6 +689,11 @@ watch(() => [props.viewParams?.customer_id, props.customerContextId], async () =
 .panel { border: 1px solid #eee; border-radius: 10px; padding: 12px; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .panel-head h2, .section-title { margin: 0; font-size: 18px; font-weight: 700; }
+.planning-workbench { display: grid; grid-template-columns: minmax(420px, 1.05fr) minmax(480px, 1.25fr); gap: 16px; align-items: start; }
+.demand-panel, .current-plan-panel { min-width: 0; }
+.current-plan-content { display: grid; gap: 18px; }
+.empty-state { border: 1px dashed #d1d5db; border-radius: 8px; padding: 14px; display: grid; gap: 6px; background: #fafafa; }
+.preview-loading { margin-bottom: 10px; }
 .filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .production-plan-filters { grid-template-columns: repeat(4, minmax(0, 1fr)) auto; align-items: end; }
 .filters label, .actions { display: flex; gap: 8px; }
@@ -582,6 +701,7 @@ watch(() => [props.viewParams?.customer_id, props.customerContextId], async () =
 .filters span { font-size: 12px; color: #666; }
 .actions { margin-top: 12px; flex-wrap: wrap; }
 .plan-list-actions { margin: 12px 0; }
+.current-plan-actions { align-items: center; }
 .filter-action { min-height: 42px; }
 .section-title-with-checkbox { display: inline-flex; align-items: center; gap: 8px; }
 .section-hint { margin: 6px 0 10px; }
@@ -604,6 +724,9 @@ input.bulk-checkbox:disabled { cursor: not-allowed; opacity: 0.45; }
 .plan-result { margin-top: 12px; display: flex; gap: 12px; align-items: center; }
 .table-wrap { overflow: auto; }
 table { width: 100%; border-collapse: collapse; min-width: 980px; }
+.demand-table { min-width: 860px; }
+.materials-table { min-width: 760px; }
+.plan-preview-table { min-width: 1020px; }
 th, td { border-bottom: 1px solid #f1f1f1; padding: 10px 8px; text-align: left; vertical-align: top; }
 td small { display: block; color: #666; line-height: 1.6; }
 .muted { color: #666; }
@@ -616,6 +739,7 @@ td small { display: block; color: #666; line-height: 1.6; }
 
 @media (max-width: 900px) {
   .page { padding: 12px; }
+  .planning-workbench { grid-template-columns: 1fr; }
   .filters, .production-plan-filters { grid-template-columns: 1fr; }
   .direct-ship-tip { align-items: stretch; flex-direction: column; }
 }
