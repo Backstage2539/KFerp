@@ -26,10 +26,15 @@
             <th>顺序</th>
             <th>工序</th>
             <th>工位</th>
+            <th>工位产能</th>
             <th>状态</th>
+            <th>计划分钟</th>
+            <th>计划工序成本</th>
             <th>计划投入</th>
             <th>实际投入</th>
             <th>实际产出</th>
+            <th>实际分钟</th>
+            <th>实际工序成本</th>
             <th>实际损耗</th>
             <th>损耗原因</th>
             <th>异常原因</th>
@@ -47,10 +52,15 @@
             <td>{{ row.sequence_no || 1 }}</td>
             <td>{{ operationLabel(row.operation) }}<small v-if="row.records_loss">记录损耗</small></td>
             <td>{{ row.workstation }}</td>
+            <td>{{ row.workstation_capacity_name || '-' }}</td>
             <td><span class="status" :class="statusBadgeClass(row.status)">{{ jobCardStatusLabel(row.status) }}</span></td>
+            <td>{{ row.planned_minutes || 0 }}</td>
+            <td>{{ money(row.planned_operation_cost) }}</td>
             <td><input v-model.number="draftFor(row).planned_input_qty" type="number" min="0" step="0.001" /></td>
             <td><input v-model.number="draftFor(row).actual_input_qty" type="number" min="0" step="0.001" /></td>
             <td><input v-model.number="draftFor(row).actual_output_qty" type="number" min="0" step="0.001" /></td>
+            <td><input v-model.number="draftFor(row).actual_minutes" type="number" min="0" step="1" /></td>
+            <td>{{ actualOperationCost(row) }}</td>
             <td>
               <strong>{{ qty(actualLossQty(row)) }}</strong>
               <small>{{ formatPercent(actualLossRate(row)) }}</small>
@@ -72,7 +82,7 @@
               <button class="secondary compact" @click="saveActuals(row)" :disabled="loading">保存实际</button>
             </td>
           </tr>
-          <tr v-if="!rows.length"><td colspan="17" class="muted">暂无工序卡</td></tr>
+          <tr v-if="!rows.length"><td colspan="21" class="muted">暂无工序卡</td></tr>
         </tbody>
       </table>
     </section>
@@ -97,6 +107,7 @@ function buildDraft(row) {
     planned_input_qty: Number(row.planned_input_qty || 0),
     actual_input_qty: Number(row.actual_input_qty || 0),
     actual_output_qty: Number(row.actual_output_qty || 0),
+    actual_minutes: Number(row.actual_minutes || 0),
     loss_reason: row.loss_reason || '',
     exception_reason: row.exception_reason || '',
     metrics_json: row.metrics_json || '{}',
@@ -114,6 +125,10 @@ function qty(value) {
   return n ? n.toLocaleString('zh-CN', { maximumFractionDigits: 3 }) : '-'
 }
 
+function money(value) {
+  return Number(value || 0).toFixed(2)
+}
+
 function actualLossQty(row) {
   const draft = draftFor(row)
   return Math.max(0, Number(draft.actual_input_qty || 0) - Number(draft.actual_output_qty || 0))
@@ -122,6 +137,14 @@ function actualLossQty(row) {
 function actualLossRate(row) {
   const input = Number(draftFor(row).actual_input_qty || 0)
   return input > 0 ? actualLossQty(row) / input : 0
+}
+
+function actualOperationCost(row) {
+  const draft = draftFor(row)
+  const minutes = Number(draft.actual_minutes || 0)
+  const hourlyRate = Number(row.hourly_rate || 0)
+  if (minutes > 0 && hourlyRate > 0) return money((minutes / 60) * hourlyRate)
+  return money(row.actual_operation_cost || 0)
 }
 
 function operationLabel(operation) {
@@ -178,6 +201,7 @@ async function saveActuals(row) {
         planned_input_qty: Number(draft.planned_input_qty || 0),
         actual_input_qty: Number(draft.actual_input_qty || 0),
         actual_output_qty: Number(draft.actual_output_qty || 0),
+        actual_minutes: Number(draft.actual_minutes || 0),
         loss_reason: draft.loss_reason || '',
         exception_reason: draft.exception_reason || '',
         metrics_json: metricsPayload(draft.metrics_json),

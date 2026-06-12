@@ -123,6 +123,50 @@ func TestJobCardsSchemaCreatesActualLossColumnsOnCleanSchema(t *testing.T) {
 	}
 }
 
+func TestJobCardsSchemaFreezesRouteOperationTimeAndCost(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	start := strings.Index(text, "CREATE TABLE IF NOT EXISTS %s.job_cards")
+	if start < 0 {
+		t.Fatal("schema.go missing job_cards create table DDL")
+	}
+	end := strings.Index(text[start:], "CREATE INDEX IF NOT EXISTS job_cards_work_order_idx")
+	if end < 0 {
+		t.Fatal("schema.go missing job_cards index after create table")
+	}
+	jobCardsDDL := text[start : start+end]
+	for _, want := range []string{
+		"operation_id BIGINT NOT NULL DEFAULT 0",
+		"workstation_id BIGINT NOT NULL DEFAULT 0",
+		"workstation_capacity_id BIGINT NOT NULL DEFAULT 0",
+		"workstation_capacity_name TEXT NOT NULL DEFAULT ''",
+		"batch_size_qty NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"batch_size_unit TEXT NOT NULL DEFAULT ''",
+		"planned_batch_count INT NOT NULL DEFAULT 0",
+		"planned_minutes INT NOT NULL DEFAULT 0",
+		"hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"planned_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"actual_minutes INT NOT NULL DEFAULT 0",
+		"actual_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0",
+	} {
+		if !strings.Contains(jobCardsDDL, want) {
+			t.Fatalf("job_cards clean-schema DDL missing route operation freeze field %q", want)
+		}
+	}
+	for _, want := range []string{
+		"ADD COLUMN IF NOT EXISTS workstation_capacity_id",
+		"ADD COLUMN IF NOT EXISTS planned_operation_cost",
+		"ADD COLUMN IF NOT EXISTS actual_operation_cost",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("job_cards migration missing route operation freeze field %q", want)
+		}
+	}
+}
+
 func TestProductionLogCompletionColumnMigratesBeforeIndex(t *testing.T) {
 	src, err := os.ReadFile("schema.go")
 	if err != nil {

@@ -35,6 +35,21 @@ type manufacturingWorkstationRequest struct {
 	Note           string  `json:"note"`
 }
 
+type workstationCapacityRequest struct {
+	ID                 int64   `json:"id"`
+	WorkstationID      int64   `json:"workstation_id"`
+	Code               string  `json:"code"`
+	Name               string  `json:"name"`
+	Status             string  `json:"status"`
+	BatchSizeQty       float64 `json:"batch_size_qty"`
+	BatchSizeUnit      string  `json:"batch_size_unit"`
+	StandardMinutes    int     `json:"standard_minutes"`
+	HourlyRate         float64 `json:"hourly_rate"`
+	ProductionCapacity int     `json:"production_capacity"`
+	SortOrder          int     `json:"sort_order"`
+	Note               string  `json:"note"`
+}
+
 type industryTemplateRequest struct {
 	ID          int64                                      `json:"id"`
 	Name        string                                     `json:"name"`
@@ -143,6 +158,62 @@ func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		if err := svc.DeactivateManufacturingWorkstation(c.Request().Context(), manufacturingapp.TemplateStatusCommand{ID: id, Actor: support.ActorOf(c)}); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true})
+	})
+
+	e.GET("/api/manufacturing-workstation-capacities", func(c echo.Context) error {
+		workstationID := int64(0)
+		if raw := strings.TrimSpace(c.QueryParam("workstation_id")); raw != "" {
+			n, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid workstation_id"})
+			}
+			workstationID = n
+		}
+		rows, err := svc.ListManufacturingWorkstationCapacities(c.Request().Context(), manufacturingapp.WorkstationCapacityQuery{
+			WorkstationID: workstationID,
+			Status:        strings.TrimSpace(c.QueryParam("status")),
+		})
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
+	})
+
+	e.POST("/api/manufacturing-workstation-capacities", func(c echo.Context) error {
+		var req workstationCapacityRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		row, err := svc.SaveManufacturingWorkstationCapacity(c.Request().Context(), manufacturingapp.SaveWorkstationCapacityCommand{
+			ID:                 req.ID,
+			WorkstationID:      req.WorkstationID,
+			Code:               req.Code,
+			Name:               req.Name,
+			Status:             req.Status,
+			BatchSizeQty:       req.BatchSizeQty,
+			BatchSizeUnit:      req.BatchSizeUnit,
+			StandardMinutes:    req.StandardMinutes,
+			HourlyRate:         req.HourlyRate,
+			ProductionCapacity: req.ProductionCapacity,
+			SortOrder:          req.SortOrder,
+			Note:               req.Note,
+			Actor:              support.ActorOf(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, row)
+	})
+
+	e.POST("/api/manufacturing-workstation-capacities/:id/deactivate", func(c echo.Context) error {
+		id, err := parseIDParam(c, "id")
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		if err := svc.DeactivateManufacturingWorkstationCapacity(c.Request().Context(), manufacturingapp.TemplateStatusCommand{ID: id, Actor: support.ActorOf(c)}); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true})

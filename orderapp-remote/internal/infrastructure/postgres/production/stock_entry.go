@@ -226,9 +226,14 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 			    actual_loss_rate=$7,
 			    loss_reason=$8,
 			    exception_reason=$9,
-			    metrics_json=$10::jsonb
+			    metrics_json=$10::jsonb,
+			    actual_minutes=$11,
+			    actual_operation_cost=CASE
+			        WHEN $11 > 0 THEN ROUND(($11::numeric / 60.0) * COALESCE(hourly_rate,0), 4)
+			        ELSE actual_operation_cost
+			    END
 			WHERE id=$1
-		`, r.schema), cmd.ID, nextStatus, cmd.Operator, cmd.ActualInputQty, cmd.ActualOutputQty, cmd.ActualLossQty, cmd.ActualLossRate, cmd.LossReason, cmd.ExceptionReason, cmd.MetricsJSON)
+		`, r.schema), cmd.ID, nextStatus, cmd.Operator, cmd.ActualInputQty, cmd.ActualOutputQty, cmd.ActualLossQty, cmd.ActualLossRate, cmd.LossReason, cmd.ExceptionReason, cmd.MetricsJSON, cmd.ActualMinutes)
 	}
 	if err != nil {
 		return productionapp.JobCardActionResult{}, err
@@ -243,7 +248,7 @@ func (r Repository) TransitionJobCard(ctx context.Context, cmd productionapp.Job
 	if err := updateWorkOrderStatusFromJobCardsTx(ctx, tx, r.schema, workOrderID); err != nil {
 		return productionapp.JobCardActionResult{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.ID, cmd.Action, postgresinfra.StrPtr("status"), postgresinfra.StrPtr(currentStatus), postgresinfra.StrPtr(nextStatus), postgresinfra.AuditMeta{"work_order_id": workOrderID, "actual_input_qty": cmd.ActualInputQty, "actual_output_qty": cmd.ActualOutputQty, "actual_loss_qty": cmd.ActualLossQty, "actual_loss_rate": cmd.ActualLossRate, "loss_reason": cmd.LossReason}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "job_card", &cmd.ID, cmd.Action, postgresinfra.StrPtr("status"), postgresinfra.StrPtr(currentStatus), postgresinfra.StrPtr(nextStatus), postgresinfra.AuditMeta{"work_order_id": workOrderID, "actual_input_qty": cmd.ActualInputQty, "actual_output_qty": cmd.ActualOutputQty, "actual_loss_qty": cmd.ActualLossQty, "actual_loss_rate": cmd.ActualLossRate, "actual_minutes": cmd.ActualMinutes, "loss_reason": cmd.LossReason}); err != nil {
 		return productionapp.JobCardActionResult{}, err
 	}
 	card, err := loadJobCardRowTx(ctx, tx, r.schema, cmd.ID)
@@ -384,7 +389,15 @@ func updateWorkOrderStatusFromJobCardsTx(ctx context.Context, tx pgx.Tx, schema 
 func loadJobCardRowTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (productionapp.JobCardRow, error) {
 	var row productionapp.JobCardRow
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id,work_order_id,sequence_no,operation,workstation,status,
+		SELECT id,work_order_id,sequence_no,
+		       COALESCE(operation_id,0),COALESCE(workstation_id,0),
+		       operation,workstation,
+		       COALESCE(workstation_capacity_id,0),COALESCE(workstation_capacity_name,''),
+		       COALESCE(batch_size_qty,0)::float8,COALESCE(batch_size_unit,''),
+		       COALESCE(planned_batch_count,0),COALESCE(planned_minutes,0),
+		       COALESCE(hourly_rate,0)::float8,COALESCE(planned_operation_cost,0)::float8,
+		       COALESCE(actual_minutes,0),COALESCE(actual_operation_cost,0)::float8,
+		       status,
 		       COALESCE(to_char(started_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(paused_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(resumed_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),operator,
 		       COALESCE(planned_input_qty,0)::float8,
 		       COALESCE(actual_input_qty,0)::float8,
@@ -398,7 +411,15 @@ func loadJobCardRowTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (
 		       COALESCE(parameter_schema_json,'{}'::jsonb)::text
 		FROM %s.job_cards
 		WHERE id=$1
-	`, schema), id).Scan(&row.ID, &row.WorkOrderID, &row.SequenceNo, &row.Operation, &row.Workstation, &row.Status, &row.StartedAt, &row.PausedAt, &row.ResumedAt, &row.CompletedAt, &row.Operator, &row.PlannedInputQty, &row.ActualInputQty, &row.ActualOutputQty, &row.ActualLossQty, &row.ActualLossRate, &row.RecordsLoss, &row.LossReason, &row.ExceptionReason, &row.MetricsJSON, &row.ParameterSchemaJSON)
+	`, schema), id).Scan(
+		&row.ID, &row.WorkOrderID, &row.SequenceNo, &row.OperationID, &row.WorkstationID,
+		&row.Operation, &row.Workstation, &row.WorkstationCapacityID, &row.WorkstationCapacityName,
+		&row.BatchSizeQty, &row.BatchSizeUnit, &row.PlannedBatchCount, &row.PlannedMinutes,
+		&row.HourlyRate, &row.PlannedOperationCost, &row.ActualMinutes, &row.ActualOperationCost,
+		&row.Status, &row.StartedAt, &row.PausedAt, &row.ResumedAt, &row.CompletedAt, &row.Operator,
+		&row.PlannedInputQty, &row.ActualInputQty, &row.ActualOutputQty, &row.ActualLossQty, &row.ActualLossRate,
+		&row.RecordsLoss, &row.LossReason, &row.ExceptionReason, &row.MetricsJSON, &row.ParameterSchemaJSON,
+	)
 	if err == pgx.ErrNoRows {
 		return productionapp.JobCardRow{}, fmt.Errorf("job card not found")
 	}

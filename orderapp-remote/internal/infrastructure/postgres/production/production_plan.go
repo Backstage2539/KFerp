@@ -588,26 +588,39 @@ func createPendingJobCardsForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema 
 	out := make([]productionapp.JobCardRow, 0, len(ops))
 	for _, op := range ops {
 		var id int64
+		metrics := plannedJobCardMetrics(op, plannedG)
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.job_cards(
-				work_order_id,sequence_no,operation,workstation,status,started_at,operator,
-				planned_input_qty,records_loss,parameter_schema_json
+				work_order_id,sequence_no,operation_id,workstation_id,operation,workstation,
+				workstation_capacity_id,workstation_capacity_name,batch_size_qty,batch_size_unit,
+				planned_batch_count,planned_minutes,hourly_rate,planned_operation_cost,
+				status,started_at,operator,planned_input_qty,records_loss,parameter_schema_json
 			)
-			VALUES($1,$2,$3,$4,'pending',now(),'',$5,$6,$7::jsonb)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending',now(),'',$15,$16,$17::jsonb)
 			RETURNING id
-		`, schema), workOrderID, op.Seq, op.Operation, op.Workstation, plannedG, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON)).Scan(&id); err != nil {
+		`, schema), workOrderID, op.Seq, op.OperationID, op.WorkstationID, op.Operation, op.Workstation, op.WorkstationCapacityID, op.WorkstationCapacityName, op.BatchSizeQty, op.BatchSizeUnit, metrics.PlannedBatchCount, metrics.PlannedMinutes, op.HourlyRate, metrics.PlannedOperationCost, plannedG, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON)).Scan(&id); err != nil {
 			return nil, err
 		}
 		out = append(out, productionapp.JobCardRow{
-			ID:                  id,
-			WorkOrderID:         workOrderID,
-			SequenceNo:          op.Seq,
-			Operation:           op.Operation,
-			Workstation:         op.Workstation,
-			Status:              "pending",
-			PlannedInputQty:     float64(plannedG),
-			RecordsLoss:         op.RecordsLoss,
-			ParameterSchemaJSON: defaultJSONObject(op.ParameterSchemaJSON),
+			ID:                      id,
+			WorkOrderID:             workOrderID,
+			SequenceNo:              op.Seq,
+			OperationID:             op.OperationID,
+			WorkstationID:           op.WorkstationID,
+			Operation:               op.Operation,
+			Workstation:             op.Workstation,
+			WorkstationCapacityID:   op.WorkstationCapacityID,
+			WorkstationCapacityName: op.WorkstationCapacityName,
+			BatchSizeQty:            op.BatchSizeQty,
+			BatchSizeUnit:           op.BatchSizeUnit,
+			PlannedBatchCount:       metrics.PlannedBatchCount,
+			PlannedMinutes:          metrics.PlannedMinutes,
+			HourlyRate:              op.HourlyRate,
+			PlannedOperationCost:    metrics.PlannedOperationCost,
+			Status:                  "pending",
+			PlannedInputQty:         float64(plannedG),
+			RecordsLoss:             op.RecordsLoss,
+			ParameterSchemaJSON:     defaultJSONObject(op.ParameterSchemaJSON),
 		})
 	}
 	return out, nil
@@ -824,13 +837,25 @@ func operationRowsJSON(cards []productionapp.JobCardRow) string {
 	rows := make([]map[string]any, 0, len(cards))
 	for _, card := range cards {
 		rows = append(rows, map[string]any{
-			"id":                card.ID,
-			"sequence_no":       card.SequenceNo,
-			"operation":         card.Operation,
-			"workstation":       card.Workstation,
-			"status":            card.Status,
-			"records_loss":      card.RecordsLoss,
-			"planned_input_qty": card.PlannedInputQty,
+			"id":                        card.ID,
+			"sequence_no":               card.SequenceNo,
+			"operation_id":              card.OperationID,
+			"workstation_id":            card.WorkstationID,
+			"operation":                 card.Operation,
+			"workstation":               card.Workstation,
+			"workstation_capacity_id":   card.WorkstationCapacityID,
+			"workstation_capacity_name": card.WorkstationCapacityName,
+			"batch_size_qty":            card.BatchSizeQty,
+			"batch_size_unit":           card.BatchSizeUnit,
+			"planned_batch_count":       card.PlannedBatchCount,
+			"planned_minutes":           card.PlannedMinutes,
+			"hourly_rate":               card.HourlyRate,
+			"planned_operation_cost":    card.PlannedOperationCost,
+			"actual_minutes":            card.ActualMinutes,
+			"actual_operation_cost":     card.ActualOperationCost,
+			"status":                    card.Status,
+			"records_loss":              card.RecordsLoss,
+			"planned_input_qty":         card.PlannedInputQty,
 		})
 	}
 	b, err := json.Marshal(rows)

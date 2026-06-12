@@ -93,6 +93,7 @@ export function buildJobCardActionPayload(draft) {
   const payload = {
     actual_input_qty: numericValue(draft?.actual_input_qty),
     actual_output_qty: numericValue(draft?.actual_output_qty),
+    actual_minutes: numericValue(draft?.actual_minutes),
     loss_reason: String(draft?.loss_reason || '').trim(),
     metrics_json: metricsObject(draft?.metrics_json),
   }

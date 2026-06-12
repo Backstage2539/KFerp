@@ -17,6 +17,7 @@ type jobCardActualsRequest struct {
 	ActualInputQty  float64         `json:"actual_input_qty"`
 	ActualOutputQty float64         `json:"actual_output_qty"`
 	ActualLossQty   float64         `json:"actual_loss_qty"`
+	ActualMinutes   int             `json:"actual_minutes"`
 	LossReason      string          `json:"loss_reason"`
 	ExceptionReason string          `json:"exception_reason"`
 	MetricsJSON     json.RawMessage `json:"metrics_json"`
@@ -120,6 +121,7 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 			PlannedInputQty: req.PlannedInputQty,
 			ActualInputQty:  req.ActualInputQty,
 			ActualOutputQty: req.ActualOutputQty,
+			ActualMinutes:   req.ActualMinutes,
 			ExceptionReason: req.ExceptionReason,
 			MetricsJSON:     metricsJSON,
 			Actor:           support.ActorOf(c),
@@ -162,6 +164,7 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 			ActualInputQty:  req.ActualInputQty,
 			ActualOutputQty: req.ActualOutputQty,
 			ActualLossQty:   req.ActualLossQty,
+			ActualMinutes:   req.ActualMinutes,
 			LossReason:      req.LossReason,
 			ExceptionReason: req.ExceptionReason,
 			MetricsJSON:     metricsJSON,

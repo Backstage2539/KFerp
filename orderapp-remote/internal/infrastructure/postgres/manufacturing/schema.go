@@ -72,6 +72,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS manufacturing_workstations_code_uq
 CREATE INDEX IF NOT EXISTS manufacturing_workstations_status_idx
 	ON %[1]s.manufacturing_workstations(status, updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstation_capacities (
+	id BIGSERIAL PRIMARY KEY,
+	workstation_id BIGINT NOT NULL DEFAULT 0,
+	code TEXT NOT NULL DEFAULT '',
+	name TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'active',
+	batch_size_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
+	batch_size_unit TEXT NOT NULL DEFAULT '',
+	standard_minutes INT NOT NULL DEFAULT 0,
+	hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0,
+	production_capacity INT NOT NULL DEFAULT 1,
+	sort_order INT NOT NULL DEFAULT 0,
+	note TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS manufacturing_workstation_capacities_code_uq
+	ON %[1]s.manufacturing_workstation_capacities(code)
+	WHERE code <> '';
+CREATE INDEX IF NOT EXISTS manufacturing_workstation_capacities_workstation_idx
+	ON %[1]s.manufacturing_workstation_capacities(workstation_id, status, sort_order, id);
+
 CREATE TABLE IF NOT EXISTS %[1]s.process_templates (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL DEFAULT '',
@@ -99,8 +121,17 @@ CREATE TABLE IF NOT EXISTS %[1]s.process_template_operations (
 	seq INT NOT NULL DEFAULT 0,
 	operation TEXT NOT NULL DEFAULT '',
 	workstation TEXT NOT NULL DEFAULT '',
+	workstation_capacity_id BIGINT NOT NULL DEFAULT 0,
+	workstation_capacity_name TEXT NOT NULL DEFAULT '',
 	default_equipment TEXT NOT NULL DEFAULT '',
 	default_minutes INT NOT NULL DEFAULT 0,
+	batch_size_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
+	batch_size_unit TEXT NOT NULL DEFAULT '',
+	standard_minutes INT NOT NULL DEFAULT 0,
+	hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0,
+	planned_batch_count INT NOT NULL DEFAULT 0,
+	planned_minutes INT NOT NULL DEFAULT 0,
+	planned_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0,
 	records_loss BOOLEAN NOT NULL DEFAULT false,
 	parameter_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	quality_checklist_json JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -113,6 +144,15 @@ CREATE INDEX IF NOT EXISTS process_template_operations_template_idx
 	ON %[1]s.process_template_operations(template_id, seq, id);
 ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS operation_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS workstation_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS workstation_capacity_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS workstation_capacity_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS batch_size_qty NUMERIC(14,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS batch_size_unit TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS standard_minutes INT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS planned_batch_count INT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS planned_minutes INT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS planned_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS process_template_operations_operation_idx
 	ON %[1]s.process_template_operations(operation_id, workstation_id);
 
@@ -135,8 +175,17 @@ CREATE TABLE IF NOT EXISTS %[1]s.process_route_operations (
 	seq INT NOT NULL DEFAULT 0,
 	operation TEXT NOT NULL DEFAULT '',
 	workstation TEXT NOT NULL DEFAULT '',
+	workstation_capacity_id BIGINT NOT NULL DEFAULT 0,
+	workstation_capacity_name TEXT NOT NULL DEFAULT '',
 	default_equipment TEXT NOT NULL DEFAULT '',
 	default_minutes INT NOT NULL DEFAULT 0,
+	batch_size_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
+	batch_size_unit TEXT NOT NULL DEFAULT '',
+	standard_minutes INT NOT NULL DEFAULT 0,
+	hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0,
+	planned_batch_count INT NOT NULL DEFAULT 0,
+	planned_minutes INT NOT NULL DEFAULT 0,
+	planned_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0,
 	records_loss BOOLEAN NOT NULL DEFAULT false,
 	quality_checklist_json JSONB NOT NULL DEFAULT '[]'::jsonb,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -148,6 +197,15 @@ CREATE INDEX IF NOT EXISTS process_route_operations_route_idx
 	ON %[1]s.process_route_operations(route_id, seq, id);
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS operation_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS workstation_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS workstation_capacity_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS workstation_capacity_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS batch_size_qty NUMERIC(14,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS batch_size_unit TEXT NOT NULL DEFAULT '';
+ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS standard_minutes INT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS planned_batch_count INT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS planned_minutes INT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS planned_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS process_route_operations_operation_idx
 	ON %[1]s.process_route_operations(operation_id, workstation_id);
 `, schema)

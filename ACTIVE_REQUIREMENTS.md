@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-486-WORKSTATION-CAPACITY-ROUTE-COST
+- Branch: codex/workstation-capacity-route-cost-20260612
+- Owner/session: Codex / 2026-06-12
+- Status: local verification passed; merge and development deployment requested.
+- Scope: 工艺路线工序行成为计划工时、批量、费率和工序成本的权威位置；工序主数据不决定工时，工位主数据不决定加工时间；新增工位产能用于给路线行带出默认批量、标准分钟/批和小时费率，提交生产计划生成工单时冻结到工序卡。
+- DEV:
+  - DEV-486-WORKSTATION-CAPACITY-MASTER：新增 `manufacturing_workstation_capacities`、API 和 Vue 工位产能维护，保存/停用写操作日志。
+  - DEV-486-ROUTE-OPERATION-COST-SNAPSHOT：工艺路线工序行选择工序、工位、工位产能，并保存标准批量、标准分钟/批、小时费率、计划批次数、计划分钟和计划工序成本快照。
+  - DEV-486-JOB-CARD-TIME-COST-FREEZE：生产计划提交生成工单时，从路线行冻结工位产能、计划分钟和工序成本到工序卡；工序卡支持实际分钟和实际工序成本。
+- Verifier:
+  - RED backend/API/schema/support tests added for workstation capacity service/API/schema, route operation snapshots, job card freeze fields, work order freeze markers, and docs/seed markers.
+  - RED frontend tests added for 工位产能 route row, hidden 默认分钟, 工单/工序卡 frozen plan cost display, and production cost markers.
+  - Targeted GREEN: `go test ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/manufacturing ./internal/infrastructure/postgres/production ./internal/application/production ./internal/interfaces/http/support -run 'TestSaveWorkstationCapacityNormalizesReusablePreset|TestSaveProcessRouteSnapshotsWorkstationCapacityValues|TestSaveProcessRouteRejectsCapacityFromDifferentWorkstation|TestWorkstationCapacityAPIListSaveAndDeactivate|TestManufacturingSchemaAddsWorkstationCapacitiesAndRouteCostSnapshots|TestJobCardsSchemaFreezesRouteOperationTimeAndCost|TestWorkOrderFreezesRouteCapacityTimeAndCostIntoJobCards|TestDev486WorkstationCapacityRouteCostContracts' -count=1` passed on 2026-06-12 CST.
+  - Frontend GREEN: `node --test src/lib/process-routes.test.js src/lib/work-orders.test.js src/lib/production-costs.test.js` passed 15/15 on 2026-06-12 CST.
+  - Full check: `go test ./...`, `npm run build`, `git diff --check`, and `scripts/verify_kferp.sh changed` passed on 2026-06-12 CST.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`.
+- Deployment: requested; pending merge to develop and development deploy.
+- Last update: 2026-06-12 Asia/Shanghai.
+
 ### PR-485-BOM-VERSION-ROUTE-DEFAULT
 - Branch: codex/bom-version-route-20260612
 - Owner/session: Codex / 2026-06-12

@@ -115,6 +115,7 @@
             <td class="summary">
               <strong>{{ operationProgressText(row) }}</strong>
               <small>工序摘要 {{ operationSummaryText(row) }}</small>
+              <small>计划 {{ operationPlanText(row) }}</small>
             </td>
             <td class="summary">
               <strong>{{ productionParamsText(row) }}</strong>
@@ -181,6 +182,7 @@
           <tr><th>工艺参数</th><td>{{ productionParamsText(printRow) }}</td></tr>
           <tr><th>商品生产配置快照</th><td>{{ productConfigSnapshotText(printRow) }}</td></tr>
           <tr><th>工序摘要</th><td>{{ operationSummaryText(printRow) }}</td></tr>
+          <tr><th>工序计划</th><td>{{ operationPlanText(printRow) }}</td></tr>
           <tr><th>预期产出率</th><td>{{ percent(expectedYield(printRow)) }}</td></tr>
           <tr><th>预期损耗率</th><td>{{ percent(expectedLoss(printRow)) }}</td></tr>
           <tr><th>原料参考</th><td>{{ printRow.material_summary || '-' }}</td></tr>
@@ -307,6 +309,9 @@ function operationSummaryRows(row) {
     ...item,
     operation: item.operation || item.operation_name || item.name || '',
     workstation: item.workstation || item.workstation_name || '',
+    workstation_capacity_name: item.workstation_capacity_name || item.capacity_name || '',
+    planned_minutes: Number(item.planned_minutes || 0),
+    planned_operation_cost: Number(item.planned_operation_cost || 0),
     status: item.status || 'frozen',
   }))
 }
@@ -337,10 +342,21 @@ function operationSummaryText(row) {
     const parts = [
       item.operation || '-',
       item.workstation || item.workstation_name || '',
+      item.workstation_capacity_name ? `工位产能 ${item.workstation_capacity_name}` : '',
       item.status || '-',
     ].filter(Boolean)
     return parts.join(' ')
   }).join(' / ')
+}
+
+function operationPlanText(row) {
+  const items = operationSummaryRows(row)
+  if (!items.length) return '-'
+  const plannedMinutes = items.reduce((sum, item) => sum + Number(item.planned_minutes || 0), 0)
+  const plannedOperationCost = items.reduce((sum, item) => sum + Number(item.planned_operation_cost || 0), 0)
+  const capacityNames = items.map((item) => String(item.workstation_capacity_name || '').trim()).filter(Boolean)
+  const capacityText = capacityNames.length ? `工位产能 ${capacityNames.join(' / ')}` : '工位产能 -'
+  return `${capacityText} · 计划分钟 ${plannedMinutes || 0} · 计划工序成本 ${money(plannedOperationCost)}`
 }
 
 function returnableWipG(row) {

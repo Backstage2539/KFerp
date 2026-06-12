@@ -79,3 +79,31 @@ func TestManufacturingSchemaAddsOperationAndWorkstationMasterData(t *testing.T) 
 		}
 	}
 }
+
+func TestManufacturingSchemaAddsWorkstationCapacitiesAndRouteCostSnapshots(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstation_capacities",
+		"workstation_id BIGINT NOT NULL DEFAULT 0",
+		"batch_size_qty NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"batch_size_unit TEXT NOT NULL DEFAULT ''",
+		"standard_minutes INT NOT NULL DEFAULT 0",
+		"hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"production_capacity INT NOT NULL DEFAULT 1",
+		"manufacturing_workstation_capacities_workstation_idx",
+		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS workstation_capacity_id",
+		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS workstation_capacity_name",
+		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS batch_size_qty",
+		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS standard_minutes",
+		"ALTER TABLE %[1]s.process_route_operations ADD COLUMN IF NOT EXISTS planned_operation_cost",
+		"ALTER TABLE %[1]s.process_template_operations ADD COLUMN IF NOT EXISTS workstation_capacity_id",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("manufacturing schema missing workstation capacity marker %q", want)
+		}
+	}
+}

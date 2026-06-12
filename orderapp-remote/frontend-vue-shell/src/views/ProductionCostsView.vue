@@ -35,10 +35,10 @@
     <section class="panel table-wrap">
       <div class="section-title">成本差异</div>
       <table>
-        <thead><tr><th>工单</th><th>商品</th><th>生产批次</th><th>计划成本</th><th>实际成本</th><th>差异</th><th>差异率</th></tr></thead>
+        <thead><tr><th>工单</th><th>商品</th><th>生产批次</th><th>计划成本</th><th>实际成本</th><th>计划工序成本</th><th>实际工序成本</th><th>差异</th><th>差异率</th></tr></thead>
         <tbody>
-          <tr v-for="row in costVarianceRows" :key="`${row.work_order_id}-${row.batch_id}`"><td>{{ row.work_order_no || row.work_order_id }}</td><td>{{ row.product_name || '-' }}</td><td>{{ row.batch_id || '-' }}</td><td>{{ money(row.planned_cost) }}</td><td>{{ money(row.actual_cost) }}</td><td>{{ money(row.variance) }}</td><td>{{ percent(row.variance_rate) }}</td></tr>
-          <tr v-if="!costVarianceRows.length"><td colspan="7" class="muted">暂无成本差异</td></tr>
+          <tr v-for="row in costVarianceRows" :key="`${row.work_order_id}-${row.batch_id}`"><td>{{ row.work_order_no || row.work_order_id }}</td><td>{{ row.product_name || '-' }}</td><td>{{ row.batch_id || '-' }}</td><td>{{ money(row.planned_cost) }}</td><td>{{ money(row.actual_cost) }}</td><td>{{ money(row.planned_operation_cost) }}</td><td>{{ money(row.actual_operation_cost) }}</td><td>{{ money(row.variance) }}</td><td>{{ percent(row.variance_rate) }}</td></tr>
+          <tr v-if="!costVarianceRows.length"><td colspan="9" class="muted">暂无成本差异</td></tr>
         </tbody>
       </table>
     </section>
