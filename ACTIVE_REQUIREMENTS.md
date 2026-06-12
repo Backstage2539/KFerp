@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-491-PRODUCTION-DEMAND-STATUS-JOBCARD-CONTEXT
 - Branch: codex/production-demand-status-jobcard-context-20260613
 - Owner/session: Codex goal / 2026-06-13
-- Status: verified locally; pending merge and development deployment.
+- Status: merged to develop and deployed to development.
 - Scope: 生产计划页待生产需求增加状态和过滤；已进入生产计划的待生产需求不可再选择生成计划；待生产需求、当前生产计划、库存充足提示和生产计划单据列表的内层滚动到底后继续让页面滚动；工序卡展示商品、BOM/配方上下文，并把工单显示为可点击链接，右侧抽屉查看工单详情。
 - DEV:
   - DEV-491-DEMAND-STATUS-FILTER：待生产需求按生产计划/工单状态展示待计划、生产中、生产完成，并支持状态过滤。
@@ -25,7 +25,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN targeted/broader: `go test ./internal/application/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/production ./internal/interfaces/http/support -count=1`; `go test ./...`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check` passed.
   - Browser/local: production Vue build + mock API + headless Chrome verified demand status filter/status text, non-repeatable planned/completed demand checkboxes, `overscroll-behavior: auto`, job-card product/BOM columns, and work-order detail drawer with material snapshot.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-13-production-demand-status-jobcard-context.md`.
-- Deployment: pending merge and development deployment.
+- Deployment: deployed 2026-06-13 Asia/Shanghai with `origin/develop=c8f27a053b11e576fbe4a8a5f98f743de311947b`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260613005126`. Smoke: `erp_orderapp` rebuilt and restarted, `/app/vue-shell?view=producePlan` and `/app/vue-shell?view=jobCards` returned 200 under auth, `/app/api/production-plans?limit=1`, `/app/api/produce/unproduced?limit=1&demand_status=unplanned`, and `/app/api/produce/job-cards?limit=1` returned 200, req API exposed `PR-491-PRODUCTION-DEMAND-STATUS-JOBCARD-CONTEXT`, deployed Vue asset contains `demand_status`, `job-card-work-order-drawer`, and `已进入生产计划的需求不可重复生成计划`.
 - Last update: 2026-06-13 Asia/Shanghai.
 
 ### PR-490-JOB-CARD-BATCH-CARDS
