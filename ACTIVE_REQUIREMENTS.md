@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-477-P2-ARCHITECTURE-REMEDIATION
 - Branch: codex/p1-architecture-remediation-20260612
 - Owner/session: Codex goal / 2026-06-12
-- Status: implemented locally on top of PR-476; targeted tests, full Go tests, Vue build, miniapp tests/typecheck/build, changed verifier and diff check passed. Not merged or deployed.
+- Status: merged to `develop` and deployed to development; targeted tests, full Go tests, Vue build, miniapp tests/typecheck/build, changed verifier, Docker build tests and smoke passed.
 - Scope: 继续处理代码架构审查 P2 三项治理，保持业务语义、API 路径、用户流程和现有 `EnsureSchema` bootstrap 不变：ERP Vue view-context API 调用出页面；Costing 价格表试算请求筛选出 helper；miniapp 服务页默认表单出页面；Postgres 增加 migration ledger 架构骨架和 guard。
 - DEV:
   - DEV-477-ERP-VUE-BOUNDARY-HELPERS：新增 `frontend-vue-shell/src/api/view-context.js`，`App.vue` 不再直接拥有 view-context endpoint/fallback 细节；新增 frontend architecture guard 防止回流。
@@ -23,13 +23,13 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN targeted: frontend node tests passed; miniapp service form/page tests passed; `go test ./internal/infrastructure/postgres -run 'TestMigration|TestValidateMigrations' -count=1`; `go test ./internal/architecture -run TestPostgresMigrationLedgerExists -count=1`; `go test ./internal/interfaces/http/support ./internal/interfaces/http/catalog ./internal/application/catalog ./internal/infrastructure/postgres -count=1` passed.
   - GREEN full/build/check: `go test ./internal/architecture -count=1`; `go test ./...`; `npm run build --prefix frontend-vue-shell`; `npm test`, `npm run typecheck` and `npm run build:mp-weixin` in `miniapp`; `scripts/verify_kferp.sh changed`; `git diff --check` passed. Vue build kept the existing large chunk warning.
 - Manual/docs: no user workflow, button, field, permission, import/export or operation-log behavior changed; no operation manual update needed. Implementation plan recorded in `docs/superpowers/plans/2026-06-12-p2-architecture-remediation.md`.
-- Deployment: not requested and not performed.
+- Deployment: deployed 2026-06-12 Asia/Shanghai at `origin/develop=3904bffd45dc7fe5d3330b131aaf4e78c29510ee`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260612122308`. Smoke: `erp_orderapp` rebuilt and restarted, container logs show startup only, unauthenticated `/app/api/req/product?limit=1` returned 401, authenticated `/app/vue-shell/?view=costing` returned 200, authenticated `/app/api/req/product?limit=5` returned 200, remote source markers exist for `migrations.go`, `view-context.js`, `costing-price-list-workflow.js`, and `miniapp/src/utils/serviceForms.ts`.
 - Last update: 2026-06-12 Asia/Shanghai
 
 ### PR-476-P1-ARCHITECTURE-REMEDIATION
 - Branch: codex/p1-architecture-remediation-20260612
 - Owner/session: Codex goal / 2026-06-12
-- Status: implemented locally; architecture/touched package tests, full Go tests, Vite build, changed verifier and diff check passed. Not merged or deployed.
+- Status: merged to `develop` and deployed to development; architecture/touched package tests, full Go tests, Vite build, changed verifier, Docker build tests and smoke passed.
 - Scope: 处理代码架构审查 P1 三项问题，保持业务行为、API 路径、数据库 schema 和用户流程不变：审计/操作日志写入收敛到单一实现；`interfaces/http/support` 的注册与建表编排拆成 focused submodules；catalog 商品/价格/分组/分类边界先拆 repository port 和 route registration 文件，后续再继续拆 service/repository 内部方法。
 - DEV:
   - DEV-476-AUDIT-LOG-SINGLE-SOURCE：`support.AuditInsert` / `AuditInsertTx` / `AuditService` 保留兼容门面，实际委托 `internal/infrastructure/postgres/audit.go`，防止操作日志写入逻辑双源漂移。
@@ -40,7 +40,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN architecture/touched packages: same architecture test passed; `go test ./internal/interfaces/http/support ./internal/interfaces/http/catalog ./internal/application/catalog -count=1` passed.
   - GREEN full/build/check: `go test ./internal/architecture -count=1`; `go test ./...`; `npm run build --prefix frontend-vue-shell` passed with existing large chunk warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
 - Manual/docs: no user workflow, button, field, permission, import/export or operation-log behavior changed; no operation manual update needed. Implementation plan recorded in `docs/superpowers/plans/2026-06-12-p1-architecture-remediation.md`.
-- Deployment: not requested and not performed.
+- Deployment: deployed 2026-06-12 Asia/Shanghai at `origin/develop=3904bffd45dc7fe5d3330b131aaf4e78c29510ee`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260612122308`. Smoke shared with PR-477: `erp_orderapp` rebuilt and restarted, container logs show startup only, unauthenticated `/app/api/req/product?limit=1` returned 401, authenticated `/app/vue-shell/?view=costing` returned 200, authenticated `/app/api/req/product?limit=5` returned 200, remote source markers exist for focused support/catalog architecture files and migration/frontend/miniapp helpers.
 - Last update: 2026-06-12 Asia/Shanghai
 
 ### PR-475-PRODUCTION-PLAN-ERPNEXT-WORKBENCH
