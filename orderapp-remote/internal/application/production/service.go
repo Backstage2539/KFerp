@@ -537,6 +537,13 @@ type WorkOrderRow struct {
 	ProcessTemplateName   string  `json:"process_template_name"`
 	ProcessSnapshotJSON   string  `json:"process_snapshot_json"`
 	OperationSummaryJSON  string  `json:"operation_summary_json"`
+	PlannedStartAt        string  `json:"planned_start_at"`
+	PlannedEndAt          string  `json:"planned_end_at"`
+	ShiftCode             string  `json:"shift_code"`
+	AssignedTo            string  `json:"assigned_to"`
+	Priority              int     `json:"priority"`
+	SchedulingNote        string  `json:"scheduling_note"`
+	WorkCenter            string  `json:"work_center"`
 }
 
 type JobCardQuery struct {
@@ -566,6 +573,172 @@ type JobCardRow struct {
 	ExceptionReason     string  `json:"exception_reason"`
 	MetricsJSON         string  `json:"metrics_json"`
 	ParameterSchemaJSON string  `json:"parameter_schema_json"`
+	PlannedStartAt      string  `json:"planned_start_at"`
+	PlannedEndAt        string  `json:"planned_end_at"`
+	ShiftCode           string  `json:"shift_code"`
+	AssignedTo          string  `json:"assigned_to"`
+	Priority            int     `json:"priority"`
+	SchedulingNote      string  `json:"scheduling_note"`
+	WorkCenter          string  `json:"work_center"`
+}
+
+type ScheduleBoardQuery struct {
+	From       string
+	To         string
+	WorkCenter string
+	Status     string
+	Limit      int
+}
+
+type ScheduleConflict struct {
+	Severity        string `json:"severity"`
+	WorkCenter      string `json:"work_center,omitempty"`
+	WorkDate        string `json:"work_date,omitempty"`
+	ShiftCode       string `json:"shift_code,omitempty"`
+	LoadMinutes     int    `json:"load_minutes,omitempty"`
+	CapacityMinutes int    `json:"capacity_minutes,omitempty"`
+	Message         string `json:"message"`
+}
+
+type CapacityCalendarCommand struct {
+	ID               int64
+	WorkCenter       string
+	WorkDate         string
+	ShiftCode        string
+	AvailableMinutes int
+	DowntimeMinutes  int
+	Note             string
+	Operator         string
+}
+
+type CapacityCalendarRow struct {
+	ID               int64  `json:"id"`
+	WorkCenter       string `json:"work_center"`
+	WorkDate         string `json:"work_date"`
+	ShiftCode        string `json:"shift_code"`
+	AvailableMinutes int    `json:"available_minutes"`
+	DowntimeMinutes  int    `json:"downtime_minutes"`
+	Note             string `json:"note"`
+	UpdatedAt        string `json:"updated_at"`
+}
+
+type ScheduleAssignmentCommand struct {
+	WorkOrderID    int64
+	JobCardID      int64
+	WorkCenter     string
+	PlannedStartAt string
+	PlannedEndAt   string
+	ShiftCode      string
+	AssignedTo     string
+	Priority       int
+	Note           string
+	Operator       string
+}
+
+type ScheduleAssignmentResult struct {
+	WorkOrder WorkOrderRow       `json:"work_order"`
+	JobCard   JobCardRow         `json:"job_card,omitempty"`
+	Conflicts []ScheduleConflict `json:"conflicts"`
+}
+
+type ScheduleBoardResult struct {
+	WorkOrders []WorkOrderRow        `json:"work_orders"`
+	JobCards   []JobCardRow          `json:"job_cards"`
+	Capacity   []CapacityCalendarRow `json:"capacity"`
+	Conflicts  []ScheduleConflict    `json:"conflicts"`
+}
+
+type MRPSuggestionQuery struct {
+	From       string
+	To         string
+	Status     string
+	WorkCenter string
+	MaterialID int64
+	Limit      int
+}
+
+type MRPSuggestionRow struct {
+	MaterialID             int64  `json:"material_id"`
+	MaterialName           string `json:"material_name"`
+	Unit                   string `json:"unit"`
+	RequiredG              int64  `json:"required_g"`
+	RequiredUnits          int64  `json:"required_units"`
+	WIPG                   int64  `json:"wip_g"`
+	RawG                   int64  `json:"raw_g"`
+	ReservedG              int64  `json:"reserved_g"`
+	ConsumedG              int64  `json:"consumed_g"`
+	ReturnedG              int64  `json:"returned_g"`
+	AvailableG             int64  `json:"available_g"`
+	WIPTransferSuggestionG int64  `json:"wip_transfer_suggestion_g"`
+	ShortageG              int64  `json:"shortage_g"`
+	PurchaseSuggestionG    int64  `json:"purchase_suggestion_g"`
+	WorkOrderCount         int64  `json:"work_order_count"`
+	SourceWorkOrders       string `json:"source_work_orders"`
+	EarliestPlannedAt      string `json:"earliest_planned_at"`
+	SuggestionType         string `json:"suggestion_type"`
+}
+
+type MRPSuggestionResult struct {
+	Rows                []MRPSuggestionRow `json:"rows"`
+	PurchaseSuggestionG int64              `json:"purchase_suggestion_g"`
+	TransferSuggestionG int64              `json:"transfer_suggestion_g"`
+}
+
+type ProductionTraceAnalyticsQuery struct {
+	WorkOrderID int64
+	BatchID     string
+	Limit       int
+}
+
+type ProductionTraceLinkRow struct {
+	WorkOrderID   int64  `json:"work_order_id"`
+	WorkOrderNo   string `json:"work_order_no"`
+	RunningItemID int64  `json:"running_item_id"`
+	BatchID       string `json:"batch_id"`
+	JobCardID     int64  `json:"job_card_id"`
+	Operation     string `json:"operation"`
+	JobCardStatus string `json:"job_card_status"`
+	StockEntryID  int64  `json:"stock_entry_id"`
+	EntryNo       string `json:"entry_no"`
+	EntryType     string `json:"entry_type"`
+	MaterialID    int64  `json:"material_id"`
+	MaterialName  string `json:"material_name"`
+	BatchCode     string `json:"batch_code"`
+	QtyG          int64  `json:"qty_g"`
+	CreatedAt     string `json:"created_at"`
+}
+
+type ProductionCostVarianceRow struct {
+	WorkOrderID  int64   `json:"work_order_id"`
+	WorkOrderNo  string  `json:"work_order_no"`
+	BatchID      string  `json:"batch_id"`
+	ProductName  string  `json:"product_name"`
+	PlannedCost  float64 `json:"planned_cost"`
+	ActualCost   float64 `json:"actual_cost"`
+	Variance     float64 `json:"variance"`
+	VarianceRate float64 `json:"variance_rate"`
+}
+
+type ProductionAbnormalLossRow struct {
+	JobCardID       int64   `json:"job_card_id"`
+	WorkOrderID     int64   `json:"work_order_id"`
+	WorkOrderNo     string  `json:"work_order_no"`
+	Operation       string  `json:"operation"`
+	ActualInputQty  float64 `json:"actual_input_qty"`
+	ActualOutputQty float64 `json:"actual_output_qty"`
+	ActualLossQty   float64 `json:"actual_loss_qty"`
+	ActualLossRate  float64 `json:"actual_loss_rate"`
+	LossReason      string  `json:"loss_reason"`
+	ExceptionReason string  `json:"exception_reason"`
+	Severity        string  `json:"severity"`
+}
+
+type ProductionTraceAnalyticsResult struct {
+	TraceLinks        []ProductionTraceLinkRow    `json:"trace_links"`
+	CostVariance      []ProductionCostVarianceRow `json:"cost_variance"`
+	AbnormalLosses    []ProductionAbnormalLossRow `json:"abnormal_losses"`
+	TotalVariance     float64                     `json:"total_variance"`
+	AbnormalLossCount int                         `json:"abnormal_loss_count"`
 }
 
 type JobCardActualsCommand struct {
@@ -856,6 +1029,11 @@ type Repository interface {
 	SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error)
 	StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand) (WorkOrderStartResult, error)
 	CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompleteCommand) (WorkOrderCompleteResult, error)
+	SaveScheduleAssignment(ctx context.Context, cmd ScheduleAssignmentCommand) (ScheduleAssignmentResult, error)
+	SaveCapacityCalendar(ctx context.Context, cmd CapacityCalendarCommand) (CapacityCalendarRow, error)
+	ScheduleBoard(ctx context.Context, query ScheduleBoardQuery) (ScheduleBoardResult, error)
+	MRPSuggestions(ctx context.Context, query MRPSuggestionQuery) (MRPSuggestionResult, error)
+	ProductionTraceAnalytics(ctx context.Context, query ProductionTraceAnalyticsQuery) (ProductionTraceAnalyticsResult, error)
 	CreateStockEntry(ctx context.Context, cmd StockEntryCommand) (StockEntryDetail, error)
 	ListStockEntries(ctx context.Context, query StockEntryQuery) ([]StockEntryRow, error)
 	GetStockEntry(ctx context.Context, id int64) (StockEntryDetail, error)
@@ -1094,6 +1272,139 @@ func (s *Service) CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompleteCo
 	}
 	cmd.Note = strings.TrimSpace(cmd.Note)
 	return s.repo.CompleteWorkOrder(ctx, cmd)
+}
+
+func (s *Service) SaveScheduleAssignment(ctx context.Context, cmd ScheduleAssignmentCommand) (ScheduleAssignmentResult, error) {
+	if cmd.WorkOrderID <= 0 {
+		return ScheduleAssignmentResult{}, fmt.Errorf("work_order_id required")
+	}
+	cmd.WorkCenter = strings.TrimSpace(cmd.WorkCenter)
+	cmd.ShiftCode = strings.TrimSpace(cmd.ShiftCode)
+	cmd.AssignedTo = strings.TrimSpace(cmd.AssignedTo)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	if cmd.Operator == "" {
+		return ScheduleAssignmentResult{}, fmt.Errorf("operator required")
+	}
+	if cmd.Priority < 0 {
+		return ScheduleAssignmentResult{}, fmt.Errorf("priority must be >= 0")
+	}
+	var err error
+	cmd.PlannedStartAt, err = normalizeScheduleTimestamp(cmd.PlannedStartAt)
+	if err != nil {
+		return ScheduleAssignmentResult{}, err
+	}
+	cmd.PlannedEndAt, err = normalizeScheduleTimestamp(cmd.PlannedEndAt)
+	if err != nil {
+		return ScheduleAssignmentResult{}, err
+	}
+	if cmd.PlannedStartAt != "" && cmd.PlannedEndAt != "" && cmd.PlannedStartAt > cmd.PlannedEndAt {
+		return ScheduleAssignmentResult{}, fmt.Errorf("planned_end_at must be after planned_start_at")
+	}
+	return s.repo.SaveScheduleAssignment(ctx, cmd)
+}
+
+func (s *Service) SaveCapacityCalendar(ctx context.Context, cmd CapacityCalendarCommand) (CapacityCalendarRow, error) {
+	cmd.WorkCenter = strings.TrimSpace(cmd.WorkCenter)
+	cmd.WorkDate = strings.TrimSpace(cmd.WorkDate)
+	cmd.ShiftCode = strings.TrimSpace(cmd.ShiftCode)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	if cmd.WorkCenter == "" {
+		return CapacityCalendarRow{}, fmt.Errorf("work_center required")
+	}
+	if cmd.WorkDate == "" {
+		return CapacityCalendarRow{}, fmt.Errorf("work_date required")
+	}
+	if _, err := time.Parse("2006-01-02", cmd.WorkDate); err != nil {
+		return CapacityCalendarRow{}, fmt.Errorf("invalid work_date")
+	}
+	if cmd.ShiftCode == "" {
+		cmd.ShiftCode = "默认"
+	}
+	if cmd.AvailableMinutes < 0 || cmd.DowntimeMinutes < 0 {
+		return CapacityCalendarRow{}, fmt.Errorf("capacity minutes must be >= 0")
+	}
+	if cmd.Operator == "" {
+		return CapacityCalendarRow{}, fmt.Errorf("operator required")
+	}
+	return s.repo.SaveCapacityCalendar(ctx, cmd)
+}
+
+func (s *Service) ScheduleBoard(ctx context.Context, query ScheduleBoardQuery) (ScheduleBoardResult, error) {
+	query.From = strings.TrimSpace(query.From)
+	query.To = strings.TrimSpace(query.To)
+	query.WorkCenter = strings.TrimSpace(query.WorkCenter)
+	query.Status = strings.TrimSpace(query.Status)
+	if query.From == "" {
+		query.From = time.Now().Format("2006-01-02")
+	}
+	if query.To == "" {
+		query.To = query.From
+	}
+	if _, err := time.Parse("2006-01-02", query.From); err != nil {
+		return ScheduleBoardResult{}, fmt.Errorf("invalid from")
+	}
+	if _, err := time.Parse("2006-01-02", query.To); err != nil {
+		return ScheduleBoardResult{}, fmt.Errorf("invalid to")
+	}
+	if query.From > query.To {
+		return ScheduleBoardResult{}, fmt.Errorf("to must be after from")
+	}
+	if query.Limit <= 0 || query.Limit > 500 {
+		query.Limit = 200
+	}
+	return s.repo.ScheduleBoard(ctx, query)
+}
+
+func (s *Service) MRPSuggestions(ctx context.Context, query MRPSuggestionQuery) (MRPSuggestionResult, error) {
+	query.From = strings.TrimSpace(query.From)
+	query.To = strings.TrimSpace(query.To)
+	query.Status = strings.TrimSpace(query.Status)
+	query.WorkCenter = strings.TrimSpace(query.WorkCenter)
+	if query.From == "" {
+		query.From = time.Now().Format("2006-01-02")
+	}
+	if query.To == "" {
+		query.To = query.From
+	}
+	if _, err := time.Parse("2006-01-02", query.From); err != nil {
+		return MRPSuggestionResult{}, fmt.Errorf("invalid from")
+	}
+	if _, err := time.Parse("2006-01-02", query.To); err != nil {
+		return MRPSuggestionResult{}, fmt.Errorf("invalid to")
+	}
+	if query.From > query.To {
+		return MRPSuggestionResult{}, fmt.Errorf("to must be after from")
+	}
+	if query.Limit <= 0 || query.Limit > 500 {
+		query.Limit = 50
+	}
+	return s.repo.MRPSuggestions(ctx, query)
+}
+
+func (s *Service) ProductionTraceAnalytics(ctx context.Context, query ProductionTraceAnalyticsQuery) (ProductionTraceAnalyticsResult, error) {
+	query.BatchID = strings.TrimSpace(query.BatchID)
+	if query.WorkOrderID < 0 {
+		return ProductionTraceAnalyticsResult{}, fmt.Errorf("work_order_id must be >= 0")
+	}
+	if query.Limit <= 0 || query.Limit > 500 {
+		query.Limit = 50
+	}
+	return s.repo.ProductionTraceAnalytics(ctx, query)
+}
+
+func normalizeScheduleTimestamp(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	for _, layout := range []string{"2006-01-02 15:04", "2006-01-02T15:04", time.RFC3339} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed.Format("2006-01-02 15:04"), nil
+		}
+	}
+	return "", fmt.Errorf("invalid schedule time")
 }
 
 func (s *Service) CreateStockEntry(ctx context.Context, cmd StockEntryCommand) (StockEntryDetail, error) {

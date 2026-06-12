@@ -83,6 +83,15 @@ func (r *fakeManufacturingGapRepo) StartWorkOrder(ctx context.Context, cmd produ
 func (r *fakeManufacturingGapRepo) CompleteWorkOrder(ctx context.Context, cmd productionapp.WorkOrderCompleteCommand) (productionapp.WorkOrderCompleteResult, error) {
 	return productionapp.WorkOrderCompleteResult{}, nil
 }
+func (r *fakeManufacturingGapRepo) SaveScheduleAssignment(ctx context.Context, cmd productionapp.ScheduleAssignmentCommand) (productionapp.ScheduleAssignmentResult, error) {
+	return productionapp.ScheduleAssignmentResult{}, nil
+}
+func (r *fakeManufacturingGapRepo) SaveCapacityCalendar(ctx context.Context, cmd productionapp.CapacityCalendarCommand) (productionapp.CapacityCalendarRow, error) {
+	return productionapp.CapacityCalendarRow{}, nil
+}
+func (r *fakeManufacturingGapRepo) ScheduleBoard(ctx context.Context, query productionapp.ScheduleBoardQuery) (productionapp.ScheduleBoardResult, error) {
+	return productionapp.ScheduleBoardResult{}, nil
+}
 func (r *fakeManufacturingGapRepo) CreateStockEntry(ctx context.Context, cmd productionapp.StockEntryCommand) (productionapp.StockEntryDetail, error) {
 	return productionapp.StockEntryDetail{}, nil
 }
@@ -128,6 +137,12 @@ func (r *fakeManufacturingGapRepo) MaterialPlan(ctx context.Context, query produ
 		ShortageG:              15000,
 		PurchaseSuggestionG:    15000,
 	}}}, nil
+}
+func (r *fakeManufacturingGapRepo) MRPSuggestions(ctx context.Context, query productionapp.MRPSuggestionQuery) (productionapp.MRPSuggestionResult, error) {
+	return productionapp.MRPSuggestionResult{}, nil
+}
+func (r *fakeManufacturingGapRepo) ProductionTraceAnalytics(ctx context.Context, query productionapp.ProductionTraceAnalyticsQuery) (productionapp.ProductionTraceAnalyticsResult, error) {
+	return productionapp.ProductionTraceAnalyticsResult{}, nil
 }
 func (r *fakeManufacturingGapRepo) CreateQualityInspection(ctx context.Context, cmd productionapp.QualityInspectionCommand) (productionapp.QualityInspectionRow, error) {
 	r.qualityCommand = cmd

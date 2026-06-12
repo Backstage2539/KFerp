@@ -161,7 +161,14 @@ CREATE TABLE IF NOT EXISTS %s.work_orders (
 	process_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb,
 	production_config_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-	customer_product_snapshot_json JSONB NOT NULL DEFAULT '[]'::jsonb
+	customer_product_snapshot_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+	planned_start_at TIMESTAMPTZ,
+	planned_end_at TIMESTAMPTZ,
+	shift_code TEXT NOT NULL DEFAULT '',
+	assigned_to TEXT NOT NULL DEFAULT '',
+	priority INT NOT NULL DEFAULT 0,
+	scheduling_note TEXT NOT NULL DEFAULT '',
+	work_center TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS work_orders_status_idx ON %s.work_orders(status, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS work_orders_running_item_started_uq ON %s.work_orders(running_item_id) WHERE running_item_id > 0;
@@ -190,7 +197,14 @@ CREATE TABLE IF NOT EXISTS %s.job_cards (
 	parameter_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	operation_template_step_id BIGINT NOT NULL DEFAULT 0,
 	cost_type TEXT NOT NULL DEFAULT '',
-	cost_rate NUMERIC(12,4) NOT NULL DEFAULT 0
+	cost_rate NUMERIC(12,4) NOT NULL DEFAULT 0,
+	planned_start_at TIMESTAMPTZ,
+	planned_end_at TIMESTAMPTZ,
+	shift_code TEXT NOT NULL DEFAULT '',
+	assigned_to TEXT NOT NULL DEFAULT '',
+	priority INT NOT NULL DEFAULT 0,
+	scheduling_note TEXT NOT NULL DEFAULT '',
+	work_center TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS job_cards_work_order_idx ON %s.job_cards(work_order_id, id);
 CREATE INDEX IF NOT EXISTS job_cards_status_idx ON %s.job_cards(status, started_at DESC);
@@ -231,7 +245,21 @@ CREATE TABLE IF NOT EXISTS %s.work_order_material_reservations (
 );
 CREATE INDEX IF NOT EXISTS work_order_material_reservations_running_idx ON %s.work_order_material_reservations(running_item_id, status);
 CREATE INDEX IF NOT EXISTS work_order_material_reservations_material_idx ON %s.work_order_material_reservations(material_id, status);
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+
+CREATE TABLE IF NOT EXISTS %s.work_center_capacity_calendar (
+	id BIGSERIAL PRIMARY KEY,
+	work_center TEXT NOT NULL DEFAULT '',
+	work_date DATE NOT NULL,
+	shift_code TEXT NOT NULL DEFAULT '',
+	available_minutes INT NOT NULL DEFAULT 0,
+	downtime_minutes INT NOT NULL DEFAULT 0,
+	note TEXT NOT NULL DEFAULT '',
+	updated_by TEXT NOT NULL DEFAULT '',
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS work_center_capacity_calendar_uq ON %s.work_center_capacity_calendar(work_center, work_date, shift_code);
+CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_center_capacity_calendar(work_date, work_center);
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}
@@ -251,6 +279,13 @@ CREATE INDEX IF NOT EXISTS work_order_material_reservations_material_idx ON %s.w
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS operation_summary_json JSONB NOT NULL DEFAULT '[]'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS production_config_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS customer_product_snapshot_json JSONB NOT NULL DEFAULT '[]'::jsonb`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS planned_start_at TIMESTAMPTZ`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS planned_end_at TIMESTAMPTZ`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS shift_code TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS assigned_to TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS priority INT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS scheduling_note TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS work_center TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS sequence_no INT NOT NULL DEFAULT 1`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ALTER COLUMN status SET DEFAULT 'pending'`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ`, schema),
@@ -268,6 +303,13 @@ CREATE INDEX IF NOT EXISTS work_order_material_reservations_material_idx ON %s.w
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS operation_template_step_id BIGINT NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS cost_type TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS cost_rate NUMERIC(12,4) NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS planned_start_at TIMESTAMPTZ`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS planned_end_at TIMESTAMPTZ`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS shift_code TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS assigned_to TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS priority INT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS scheduling_note TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS work_center TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS work_orders_running_item_started_uq ON %s.work_orders(running_item_id) WHERE running_item_id > 0`, schema),
 	} {
 		if _, err := pool.Exec(ctx, stmt); err != nil {

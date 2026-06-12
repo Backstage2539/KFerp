@@ -69,6 +69,49 @@
           <textarea v-model.trim="form.description" rows="2"></textarea>
         </label>
 
+        <div class="calculator-panel">
+          <div class="fields-head">
+            <div class="section-title">计算预览</div>
+            <button class="secondary compact" type="button" @click="runCalculatorPreview" :disabled="loading">预览</button>
+          </div>
+          <div class="form-grid">
+            <label>
+              <span>业务预设</span>
+              <select v-model="calculatorDraft.industry_key">
+                <option value="coffee">咖啡烘焙</option>
+                <option value="packaging_box">包装盒</option>
+                <option value="garment">童装</option>
+                <option value="general">通用制造</option>
+              </select>
+            </label>
+            <label>
+              <span>需求产出(g)</span>
+              <input v-model.number="calculatorDraft.demand_output_g" type="number" min="1" />
+            </label>
+            <label>
+              <span>损耗率</span>
+              <input v-model.number="calculatorDraft.loss_rate" type="number" min="0" max=".99" step=".01" />
+            </label>
+            <label>
+              <span>原料单价(元/kg)</span>
+              <input v-model.number="calculatorDraft.material_unit_cost_per_kg" type="number" min="0" step=".01" />
+            </label>
+            <label>
+              <span>工序分钟</span>
+              <input v-model.number="calculatorDraft.operation_minutes" type="number" min="0" />
+            </label>
+            <label>
+              <span>工时费(元/小时)</span>
+              <input v-model.number="calculatorDraft.hourly_rate" type="number" min="0" step=".01" />
+            </label>
+          </div>
+          <div v-if="calculatorPreview" class="calculator-preview">
+            <span>计划投入 {{ calculatorPreview.planned_input_g || 0 }}g</span>
+            <span>预计损耗 {{ calculatorPreview.expected_loss_g || 0 }}g</span>
+            <span>预计成本 {{ calculatorPreview.total_cost || 0 }}</span>
+          </div>
+        </div>
+
         <div class="fields-head">
           <div class="section-title">字段定义</div>
           <button class="secondary compact" type="button" @click="addField">新增字段</button>
@@ -116,6 +159,15 @@ const loading = ref(false)
 const error = ref('')
 const ok = ref('')
 const form = reactive(blankForm())
+const calculatorDraft = reactive({
+  industry_key: 'coffee',
+  demand_output_g: 45400,
+  loss_rate: 0.18,
+  material_unit_cost_per_kg: 42.5,
+  operation_minutes: 60,
+  hourly_rate: 90,
+})
+const calculatorPreview = ref(null)
 const industryTemplateFilters = reactive({
   query: '',
   status: 'active',
@@ -288,6 +340,26 @@ async function save() {
   })
 }
 
+async function runCalculatorPreview() {
+  await mutate(async () => {
+    calculatorPreview.value = await apiSend('/api/industry-calculators/preview', {
+      body: {
+        industry_key: calculatorDraft.industry_key,
+        inputs: {
+          demand_output_g: Number(calculatorDraft.demand_output_g || 0),
+        },
+        config: {
+          loss_rate: Number(calculatorDraft.loss_rate || 0),
+          material_unit_cost_per_kg: Number(calculatorDraft.material_unit_cost_per_kg || 0),
+          operation_minutes: Number(calculatorDraft.operation_minutes || 0),
+          hourly_rate: Number(calculatorDraft.hourly_rate || 0),
+        },
+      },
+    })
+    ok.value = '已生成计算预览'
+  })
+}
+
 async function deactivate() {
   if (!form.id) return
   await mutate(async () => {
@@ -344,6 +416,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .text.danger { color: #9d2626; }
 .wide { display: block; margin-top: 10px; }
 .fields-head { justify-content: space-between; margin-top: 14px; }
+.calculator-panel { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; margin-top: 12px; background: #fbfaf8; }
+.calculator-preview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.calculator-preview span { border: 1px solid #e6e0d8; border-radius: 6px; background: #fff; padding: 8px; font-size: 13px; }
 .field-list { display: grid; gap: 10px; }
 .field-row { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; display: grid; grid-template-columns: 70px minmax(180px, 1fr) 120px minmax(220px, 1fr) 72px; gap: 8px; align-items: end; }
 .footer-actions { justify-content: flex-end; margin-top: 14px; }
@@ -356,6 +431,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
 @media (max-width: 1180px) {
   .grid, .form-grid { grid-template-columns: 1fr; }
+  .calculator-preview { grid-template-columns: 1fr; }
   .field-row { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 760px) {

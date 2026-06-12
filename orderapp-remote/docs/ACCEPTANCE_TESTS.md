@@ -1185,3 +1185,10 @@
 - [ ] WIP 不足、质检冻结或重复完工时不能写入库存；失败后库存流水、成品批次和成本记录不增加。
 - [ ] 生产成本页能看到实际成本拆解，至少包含工单维度的实际物料消耗、工序实际成本和总成本。
 - [ ] 成品批次能追溯到工单、工序卡、物料批次和 Stock Entry；咖啡、包装盒、童装示例都不需要咖啡专用字段才能跑通主流程。
+
+### K54. 制造三期生产协调层（PR-480 至 PR-484）
+- [ ] PR-480-MANUFACTURING-PHASE3-SCHEDULE-CAPACITY：保存工单或工序卡排程后，`GET /api/production-schedule` 返回计划时间、班次、负责人、优先级、工作中心和冲突提示；保存产能日历后可在同一日期和工作中心看到可用分钟/停机分钟。
+- [ ] PR-481-MANUFACTURING-PHASE3-SCHEDULING-WORKBENCH：生产管理菜单进入 `生产排程`，打开生产排程工作台；列表、日历、甘特和工位负载四种视图都能展示同一批排程数据；移动端不出现页面级横向溢出。
+- [ ] PR-482-MANUFACTURING-PHASE3-MRP-SUGGESTIONS：排程工作台显示 MRP、采购建议、调拨建议和来源工单；建议接口支持 `from/to/status/work_center/material_id/limit`，不自动生成采购单或库存调拨单。
+- [ ] PR-483-MANUFACTURING-PHASE3-INDUSTRY-CALCULATORS：行业设置页的计算预览可选择咖啡烘焙、包装盒、童装，输入需求产出、损耗率、原料单价和工时后返回计划投入、预计损耗和预计成本。
+- [ ] PR-484-MANUFACTURING-PHASE3-TRACEABILITY-ANALYTICS：生产成本页显示成本差异、异常损耗和追溯链路；按工单 ID 或生产批次过滤后，`/api/production-trace/analytics` 返回 `trace_links`、`cost_variance` 和 `abnormal_losses`。

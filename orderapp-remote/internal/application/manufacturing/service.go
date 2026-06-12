@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -184,6 +185,33 @@ type TemplateStatusCommand struct {
 	Actor string
 }
 
+type IndustryCalculatorPreviewCommand struct {
+	IndustryKey string             `json:"industry_key"`
+	Inputs      map[string]float64 `json:"inputs"`
+	Config      map[string]float64 `json:"config"`
+}
+
+type IndustryCalculatorPreviewLine struct {
+	Key   string  `json:"key"`
+	Label string  `json:"label"`
+	Value float64 `json:"value"`
+	Unit  string  `json:"unit"`
+}
+
+type IndustryCalculatorPreviewResult struct {
+	IndustryKey    string                          `json:"industry_key"`
+	DemandOutputG  int64                           `json:"demand_output_g"`
+	PlannedInputG  int64                           `json:"planned_input_g"`
+	ExpectedLossG  int64                           `json:"expected_loss_g"`
+	LossRate       float64                         `json:"loss_rate"`
+	YieldRate      float64                         `json:"yield_rate"`
+	MaterialCost   float64                         `json:"material_cost"`
+	OperationCost  float64                         `json:"operation_cost"`
+	TotalCost      float64                         `json:"total_cost"`
+	CalculatorMode string                          `json:"calculator_mode"`
+	Lines          []IndustryCalculatorPreviewLine `json:"lines"`
+}
+
 type Repository interface {
 	ListManufacturingOperations(ctx context.Context) ([]ManufacturingOperation, error)
 	SaveManufacturingOperation(ctx context.Context, cmd SaveManufacturingOperationCommand) (ManufacturingOperation, error)
@@ -312,9 +340,100 @@ func (s *Service) DeactivateIndustryTemplate(ctx context.Context, cmd TemplateSt
 	return s.repo.DeactivateIndustryTemplate(ctx, cmd)
 }
 
+func (s *Service) PreviewIndustryCalculator(ctx context.Context, cmd IndustryCalculatorPreviewCommand) (IndustryCalculatorPreviewResult, error) {
+	industryKey := strings.TrimSpace(cmd.IndustryKey)
+	if industryKey == "" {
+		industryKey = "general"
+	}
+	demandOutputG := int64(math.Round(firstCalculatorValue(cmd.Inputs, cmd.Config, "demand_output_g", "output_g", "qty_g")))
+	if demandOutputG <= 0 {
+		return IndustryCalculatorPreviewResult{}, fmt.Errorf("demand_output_g required")
+	}
+	lossRate, hasLossRate := calculatorValue(cmd.Config, "loss_rate")
+	if !hasLossRate {
+		lossRate, hasLossRate = calculatorValue(cmd.Inputs, "loss_rate")
+	}
+	if !hasLossRate {
+		lossRate = defaultIndustryLossRate(industryKey)
+	}
+	if lossRate < 0 || lossRate >= 1 {
+		return IndustryCalculatorPreviewResult{}, fmt.Errorf("loss_rate must be between 0 and 1")
+	}
+	yieldRate := 1 - lossRate
+	plannedInputG := int64(math.Ceil(float64(demandOutputG) / yieldRate))
+	expectedLossG := plannedInputG - demandOutputG
+	unitCostPerKG := firstCalculatorValue(cmd.Config, cmd.Inputs, "material_unit_cost_per_kg", "unit_cost_per_kg")
+	operationMinutes := firstCalculatorValue(cmd.Config, cmd.Inputs, "operation_minutes", "default_minutes")
+	hourlyRate := firstCalculatorValue(cmd.Config, cmd.Inputs, "hourly_rate", "operation_hourly_rate")
+	if unitCostPerKG < 0 || operationMinutes < 0 || hourlyRate < 0 {
+		return IndustryCalculatorPreviewResult{}, fmt.Errorf("calculator cost inputs must be >= 0")
+	}
+	materialCost := roundMoney(float64(plannedInputG) / 1000 * unitCostPerKG)
+	operationCost := roundMoney(operationMinutes / 60 * hourlyRate)
+	totalCost := roundMoney(materialCost + operationCost)
+	return IndustryCalculatorPreviewResult{
+		IndustryKey:    industryKey,
+		DemandOutputG:  demandOutputG,
+		PlannedInputG:  plannedInputG,
+		ExpectedLossG:  expectedLossG,
+		LossRate:       lossRate,
+		YieldRate:      yieldRate,
+		MaterialCost:   materialCost,
+		OperationCost:  operationCost,
+		TotalCost:      totalCost,
+		CalculatorMode: "generic_manufacturing",
+		Lines: []IndustryCalculatorPreviewLine{
+			{Key: "demand_output_g", Label: "需求产出", Value: float64(demandOutputG), Unit: "g"},
+			{Key: "planned_input_g", Label: "计划投入", Value: float64(plannedInputG), Unit: "g"},
+			{Key: "expected_loss_g", Label: "预计损耗", Value: float64(expectedLossG), Unit: "g"},
+			{Key: "loss_rate", Label: "损耗率", Value: lossRate, Unit: "ratio"},
+			{Key: "total_cost", Label: "预计成本", Value: totalCost, Unit: "currency"},
+		},
+	}, nil
+}
+
 func (s *Service) ListProcessTemplates(ctx context.Context, query ProcessTemplateQuery) ([]ProcessTemplate, error) {
 	query.Status = strings.TrimSpace(query.Status)
 	return s.repo.ListProcessTemplates(ctx, query)
+}
+
+func defaultIndustryLossRate(industryKey string) float64 {
+	switch strings.TrimSpace(industryKey) {
+	case "coffee":
+		return 0.18
+	case "packaging_box":
+		return 0.03
+	case "garment", "apparel":
+		return 0.08
+	default:
+		return 0.05
+	}
+}
+
+func firstCalculatorValue(primary, fallback map[string]float64, keys ...string) float64 {
+	for _, key := range keys {
+		if value, ok := calculatorValue(primary, key); ok {
+			return value
+		}
+	}
+	for _, key := range keys {
+		if value, ok := calculatorValue(fallback, key); ok {
+			return value
+		}
+	}
+	return 0
+}
+
+func calculatorValue(values map[string]float64, key string) (float64, bool) {
+	if values == nil {
+		return 0, false
+	}
+	value, ok := values[key]
+	return value, ok
+}
+
+func roundMoney(value float64) float64 {
+	return math.Round(value*100) / 100
 }
 
 func (s *Service) SaveProcessTemplate(ctx context.Context, cmd SaveProcessTemplateCommand) (ProcessTemplate, error) {

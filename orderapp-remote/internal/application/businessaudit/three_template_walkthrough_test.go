@@ -993,6 +993,18 @@ func (s *threeTemplateWalkthroughStore) CompleteWorkOrder(context.Context, produ
 	return productionapp.WorkOrderCompleteResult{}, nil
 }
 
+func (s *threeTemplateWalkthroughStore) SaveScheduleAssignment(context.Context, productionapp.ScheduleAssignmentCommand) (productionapp.ScheduleAssignmentResult, error) {
+	return productionapp.ScheduleAssignmentResult{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) SaveCapacityCalendar(context.Context, productionapp.CapacityCalendarCommand) (productionapp.CapacityCalendarRow, error) {
+	return productionapp.CapacityCalendarRow{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) ScheduleBoard(context.Context, productionapp.ScheduleBoardQuery) (productionapp.ScheduleBoardResult, error) {
+	return productionapp.ScheduleBoardResult{}, nil
+}
+
 func (s *threeTemplateWalkthroughStore) productionNeeds(customerID int64) []productionapp.UnprodNeedRow {
 	rows := []productionapp.UnprodNeedRow{}
 	for _, demand := range s.demands {
@@ -1072,6 +1084,14 @@ func (s *threeTemplateWalkthroughStore) ReleaseWIPReservations(context.Context, 
 
 func (s *threeTemplateWalkthroughStore) AcceptanceSmoke(context.Context) (productionapp.AcceptanceSmokeResult, error) {
 	return productionapp.AcceptanceSmokeResult{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) MRPSuggestions(context.Context, productionapp.MRPSuggestionQuery) (productionapp.MRPSuggestionResult, error) {
+	return productionapp.MRPSuggestionResult{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) ProductionTraceAnalytics(context.Context, productionapp.ProductionTraceAnalyticsQuery) (productionapp.ProductionTraceAnalyticsResult, error) {
+	return productionapp.ProductionTraceAnalyticsResult{}, nil
 }
 
 func (s *threeTemplateWalkthroughStore) LoadSettings(context.Context) (financeapp.SettingsSnapshot, error) {

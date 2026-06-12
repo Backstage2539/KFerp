@@ -79,6 +79,15 @@ func (r *fakeRepo) StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand
 func (r *fakeRepo) CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompleteCommand) (WorkOrderCompleteResult, error) {
 	return WorkOrderCompleteResult{}, nil
 }
+func (r *fakeRepo) SaveScheduleAssignment(ctx context.Context, cmd ScheduleAssignmentCommand) (ScheduleAssignmentResult, error) {
+	return ScheduleAssignmentResult{}, nil
+}
+func (r *fakeRepo) SaveCapacityCalendar(ctx context.Context, cmd CapacityCalendarCommand) (CapacityCalendarRow, error) {
+	return CapacityCalendarRow{}, nil
+}
+func (r *fakeRepo) ScheduleBoard(ctx context.Context, query ScheduleBoardQuery) (ScheduleBoardResult, error) {
+	return ScheduleBoardResult{}, nil
+}
 func (r *fakeRepo) CreateStockEntry(ctx context.Context, cmd StockEntryCommand) (StockEntryDetail, error) {
 	return StockEntryDetail{}, nil
 }
@@ -109,6 +118,12 @@ func (r *fakeRepo) ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]
 }
 func (r *fakeRepo) MaterialPlan(ctx context.Context, query MaterialPlanQuery) (MaterialPlanResult, error) {
 	return MaterialPlanResult{}, nil
+}
+func (r *fakeRepo) MRPSuggestions(ctx context.Context, query MRPSuggestionQuery) (MRPSuggestionResult, error) {
+	return MRPSuggestionResult{}, nil
+}
+func (r *fakeRepo) ProductionTraceAnalytics(ctx context.Context, query ProductionTraceAnalyticsQuery) (ProductionTraceAnalyticsResult, error) {
+	return ProductionTraceAnalyticsResult{}, nil
 }
 func (r *fakeRepo) CreateQualityInspection(ctx context.Context, cmd QualityInspectionCommand) (QualityInspectionRow, error) {
 	return QualityInspectionRow{}, nil

@@ -30,6 +30,11 @@ type workOrderAPIRepo struct {
 	submitPlanErrByID   map[int64]error
 	workOrderStarted    productionapp.WorkOrderStartResult
 	workOrderCompleted  productionapp.WorkOrderCompleteResult
+	scheduleAssignment  productionapp.ScheduleAssignmentCommand
+	capacityCalendar    productionapp.CapacityCalendarCommand
+	scheduleQuery       productionapp.ScheduleBoardQuery
+	mrpQuery            productionapp.MRPSuggestionQuery
+	traceQuery          productionapp.ProductionTraceAnalyticsQuery
 	stockEntry          productionapp.StockEntryCommand
 	stockEntryQuery     productionapp.StockEntryQuery
 	stockEntryID        int64
@@ -197,6 +202,68 @@ func (r *workOrderAPIRepo) ListBatchCosts(ctx context.Context, query productiona
 }
 func (r *workOrderAPIRepo) MaterialPlan(ctx context.Context, query productionapp.MaterialPlanQuery) (productionapp.MaterialPlanResult, error) {
 	return productionapp.MaterialPlanResult{}, nil
+}
+func (r *workOrderAPIRepo) MRPSuggestions(ctx context.Context, query productionapp.MRPSuggestionQuery) (productionapp.MRPSuggestionResult, error) {
+	r.mrpQuery = query
+	return productionapp.MRPSuggestionResult{
+		Rows: []productionapp.MRPSuggestionRow{{
+			MaterialID:             10,
+			MaterialName:           "孟连水洗5T批次",
+			Unit:                   "g",
+			RequiredG:              60000,
+			WIPG:                   10000,
+			RawG:                   30000,
+			ReservedG:              5000,
+			AvailableG:             5000,
+			WIPTransferSuggestionG: 30000,
+			ShortageG:              25000,
+			PurchaseSuggestionG:    25000,
+			WorkOrderCount:         2,
+			SourceWorkOrders:       "WO-PR482-001,WO-PR482-002",
+			SuggestionType:         "purchase_suggestion",
+		}},
+		PurchaseSuggestionG: 25000,
+		TransferSuggestionG: 30000,
+	}, nil
+}
+func (r *workOrderAPIRepo) ProductionTraceAnalytics(ctx context.Context, query productionapp.ProductionTraceAnalyticsQuery) (productionapp.ProductionTraceAnalyticsResult, error) {
+	r.traceQuery = query
+	return productionapp.ProductionTraceAnalyticsResult{
+		TraceLinks: []productionapp.ProductionTraceLinkRow{{
+			WorkOrderID:   88,
+			WorkOrderNo:   "WO-PR484-001",
+			RunningItemID: 99,
+			BatchID:       "BATCH-WO-88",
+			JobCardID:     91,
+			Operation:     "烘焙",
+			StockEntryID:  7,
+			EntryNo:       "SE-0000000007",
+			EntryType:     "finished_receipt",
+			MaterialID:    10,
+			MaterialName:  "孟连水洗5T批次",
+			QtyG:          45400,
+		}},
+		CostVariance: []productionapp.ProductionCostVarianceRow{{
+			WorkOrderID:  88,
+			WorkOrderNo:  "WO-PR484-001",
+			ProductName:  "工厂量单商品",
+			PlannedCost:  100,
+			ActualCost:   118,
+			Variance:     18,
+			VarianceRate: 0.18,
+		}},
+		AbnormalLosses: []productionapp.ProductionAbnormalLossRow{{
+			JobCardID:      91,
+			WorkOrderID:    88,
+			WorkOrderNo:    "WO-PR484-001",
+			Operation:      "烘焙",
+			ActualLossQty:  1200,
+			ActualLossRate: 0.12,
+			Severity:       "warning",
+		}},
+		TotalVariance:     18,
+		AbnormalLossCount: 1,
+	}, nil
 }
 func (r *workOrderAPIRepo) CreateQualityInspection(ctx context.Context, cmd productionapp.QualityInspectionCommand) (productionapp.QualityInspectionRow, error) {
 	return productionapp.QualityInspectionRow{}, nil

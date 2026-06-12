@@ -33,6 +33,7 @@ export const menuGroups = [
       { key: 'produceRunning', label: '生产中', title: '生产中' },
       { key: 'workOrders', label: '生产工单', title: '生产工单' },
       { key: 'jobCards', label: '工序卡', title: '工序卡' },
+      { key: 'productionSchedule', label: '生产排程', title: '生产排程' },
       { key: 'qualityInspections', label: '生产质检', title: '生产质检' },
       { key: 'produceLogs', label: '生产日志', title: '生产日志' },
       { key: 'productionCosts', label: '生产成本', title: '生产成本' },

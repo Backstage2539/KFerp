@@ -26,6 +26,9 @@ type fakeFlowRepo struct {
 	submitPlanErrByID   map[int64]error
 	workOrderStarted    WorkOrderStartResult
 	workOrderCompleted  WorkOrderCompleteResult
+	scheduleAssignment  ScheduleAssignmentCommand
+	capacityCalendar    CapacityCalendarCommand
+	scheduleQuery       ScheduleBoardQuery
 	stockEntry          StockEntryCommand
 	stockEntryQuery     StockEntryQuery
 	stockEntryID        int64
@@ -159,6 +162,21 @@ func (r *fakeFlowRepo) CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompl
 	return r.workOrderCompleted, nil
 }
 
+func (r *fakeFlowRepo) SaveScheduleAssignment(ctx context.Context, cmd ScheduleAssignmentCommand) (ScheduleAssignmentResult, error) {
+	r.scheduleAssignment = cmd
+	return ScheduleAssignmentResult{WorkOrder: WorkOrderRow{ID: cmd.WorkOrderID, PlannedStartAt: cmd.PlannedStartAt, PlannedEndAt: cmd.PlannedEndAt}, JobCard: JobCardRow{ID: cmd.JobCardID, WorkOrderID: cmd.WorkOrderID}}, nil
+}
+
+func (r *fakeFlowRepo) SaveCapacityCalendar(ctx context.Context, cmd CapacityCalendarCommand) (CapacityCalendarRow, error) {
+	r.capacityCalendar = cmd
+	return CapacityCalendarRow{ID: cmd.ID, WorkCenter: cmd.WorkCenter, WorkDate: cmd.WorkDate, ShiftCode: cmd.ShiftCode, AvailableMinutes: cmd.AvailableMinutes, DowntimeMinutes: cmd.DowntimeMinutes}, nil
+}
+
+func (r *fakeFlowRepo) ScheduleBoard(ctx context.Context, query ScheduleBoardQuery) (ScheduleBoardResult, error) {
+	r.scheduleQuery = query
+	return ScheduleBoardResult{}, nil
+}
+
 func (r *fakeFlowRepo) CreateStockEntry(ctx context.Context, cmd StockEntryCommand) (StockEntryDetail, error) {
 	r.stockEntry = cmd
 	items := make([]StockEntryItemRow, 0, len(cmd.Items))
@@ -230,6 +248,14 @@ func (r *fakeFlowRepo) ListBatchCosts(ctx context.Context, query BatchCostQuery)
 func (r *fakeFlowRepo) MaterialPlan(ctx context.Context, query MaterialPlanQuery) (MaterialPlanResult, error) {
 	r.materialPlanQuery = query
 	return r.materialPlanResult, nil
+}
+
+func (r *fakeFlowRepo) MRPSuggestions(ctx context.Context, query MRPSuggestionQuery) (MRPSuggestionResult, error) {
+	return MRPSuggestionResult{}, nil
+}
+
+func (r *fakeFlowRepo) ProductionTraceAnalytics(ctx context.Context, query ProductionTraceAnalyticsQuery) (ProductionTraceAnalyticsResult, error) {
+	return ProductionTraceAnalyticsResult{}, nil
 }
 
 func (r *fakeFlowRepo) CreateQualityInspection(ctx context.Context, cmd QualityInspectionCommand) (QualityInspectionRow, error) {

@@ -6,6 +6,82 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-480-MANUFACTURING-PHASE3-SCHEDULE-CAPACITY
+- Branch: codex/manufacturing-phase3-20260612
+- Owner/session: Codex goal / 2026-06-12
+- Status: full local verification passed; pending merge and development deployment.
+- Scope: 制造三期 PR-A。建立生产排程基础字段和工作中心/工位产能日历，支撑人工排程、班次、负责人、优先级、计划开始/结束时间和容量冲突提示；不做全自动排程。
+- DEV:
+  - DEV-480-SCHEDULE-FIELDS：工单和工序卡增加计划开始/结束、班次、负责人、优先级和排程备注。
+  - DEV-480-CAPACITY-CALENDAR：新增工作中心/工位产能日历，记录日期、班次、可用分钟、停机分钟和备注。
+  - DEV-480-SCHEDULE-API：新增排程查询、工单/工序卡排程保存和产能日历保存 API，所有用户写入记录操作日志。
+- Verifier:
+  - Unit/API: RED/GREEN 覆盖排程字段校验、容量冲突提示、排程 API 和操作日志。
+  - Frontend/build: 三期排程 helper/page contract 测试、Vue build。
+  - Manual/review: 更新生产手册、需求和验收清单。
+- Deployment: pending merge and development deployment
+- Last update: 2026-06-12 Asia/Shanghai
+
+### PR-481-MANUFACTURING-PHASE3-SCHEDULING-WORKBENCH
+- Branch: codex/manufacturing-phase3-20260612
+- Owner/session: Codex goal / 2026-06-12
+- Status: full local verification passed; pending merge and development deployment.
+- Scope: 制造三期 PR-B。新增生产排程工作台，提供列表/日历/甘特式时间轴和工位负载视图；先做人工排程和冲突提示，不做自动优化算法。
+- DEV:
+  - DEV-481-SCHEDULE-WORKBENCH-UI：新增 Vue/Vite 生产排程工作台入口，展示待排/已排工单、工序卡、工位负载和冲突。
+  - DEV-481-SCHEDULE-INTERACTIONS：支持修改计划时间、班次、工位、负责人、优先级并刷新冲突提示。
+  - DEV-481-NAV-MANUAL：生产管理菜单、前端手册入口和生产手册同步排程工作台。
+- Verifier:
+  - Frontend/API: RED/GREEN 覆盖菜单入口、API 参数、按钮状态和冲突展示。
+  - Build/browser: Vue build 和本地/开发环境浏览器验收。
+- Deployment: pending merge and development deployment
+- Last update: 2026-06-12 Asia/Shanghai
+
+### PR-482-MANUFACTURING-PHASE3-MRP-SUGGESTIONS
+- Branch: codex/manufacturing-phase3-20260612
+- Owner/session: Codex goal / 2026-06-12
+- Status: full local verification passed; pending merge and development deployment.
+- Scope: 制造三期 PR-C。基于生产计划、工单、BOM、库存、WIP 占用和在途采购生成 MRP 物料缺口建议；三期只生成采购/调拨建议，不自动生成采购单。
+- DEV:
+  - DEV-482-MRP-ENGINE：新增 MRP 缺口计算，汇总需求、库存、WIP、预留、在途和净缺口。
+  - DEV-482-MRP-API：新增 MRP 建议 API，支持时间范围、计划状态、工单状态和物料过滤。
+  - DEV-482-MRP-UI：排程工作台或库存作业展示采购建议/调拨建议和追溯来源。
+- Verifier:
+  - Unit/API: RED/GREEN 覆盖净需求计算、无缺口、不足库存、在途抵扣和建议类型。
+  - Frontend/build/manual: Vue helper/page 测试、构建和库存/生产手册更新。
+- Deployment: pending merge and development deployment
+- Last update: 2026-06-12 Asia/Shanghai
+
+### PR-483-MANUFACTURING-PHASE3-INDUSTRY-CALCULATORS
+- Branch: codex/manufacturing-phase3-20260612
+- Owner/session: Codex goal / 2026-06-12
+- Status: full local verification passed; pending merge and development deployment.
+- Scope: 制造三期 PR-D。把行业字段模板升级为可配置行业参数/计算器预览，支持咖啡、包装盒、童装配置，不把行业逻辑写死进通用制造主流程。
+- DEV:
+  - DEV-483-CALCULATOR-CONFIG：行业字段模板支持计算器配置/预设，字段仍以模板和 JSON 参数表达。
+  - DEV-483-CALCULATOR-API：新增行业计算器预览 API，按模板和输入参数返回计划投入、预计产出、损耗或工艺参数建议。
+  - DEV-483-CALCULATOR-UI：行业设置页面展示计算器配置和预览，不改变生产计划创建主链路。
+- Verifier:
+  - Unit/API: RED/GREEN 覆盖咖啡/包装盒/童装示例、非法配置和通用模板 fallback。
+  - Frontend/build/manual: 行业设置页面测试、Vue build、生产/库存手册更新。
+- Deployment: pending merge and development deployment
+- Last update: 2026-06-12 Asia/Shanghai
+
+### PR-484-MANUFACTURING-PHASE3-TRACEABILITY-ANALYTICS
+- Branch: codex/manufacturing-phase3-20260612
+- Owner/session: Codex goal / 2026-06-12
+- Status: full local verification passed; pending merge and development deployment.
+- Scope: 制造三期 PR-E。补齐批次追溯、成本差异和异常损耗分析看板，从成品批次串到工单、工序卡、Stock Entry、原料批次和成本记录。
+- DEV:
+  - DEV-484-TRACE-DASHBOARD-API：新增生产追溯/异常分析 API，聚合成品批次、Stock Entry、工序卡、物料批次、计划/实际成本和损耗。
+  - DEV-484-COST-VARIANCE：生产成本页展示计划成本 vs 实际成本、异常损耗原因和工序/工位维度差异。
+  - DEV-484-TRACE-UI：生产成本或追溯入口展示批次链路、异常原因和可跳转的关联单据。
+- Verifier:
+  - Unit/API: RED/GREEN 覆盖追溯链路、成本差异、异常损耗聚合和空数据。
+  - Frontend/build/browser/manual: Vue 测试、构建、浏览器验收、生产/库存/成本手册更新。
+- Deployment: pending merge and development deployment
+- Last update: 2026-06-12 Asia/Shanghai
+
 ### PR-478-PRODUCTION-PLAN-DOCUMENT-DETAIL
 - Branch: codex/production-plan-detail-drawer-20260612
 - Owner/session: Codex / 2026-06-12
