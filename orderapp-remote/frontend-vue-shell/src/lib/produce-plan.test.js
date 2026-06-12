@@ -150,31 +150,46 @@ test('current production plan submit payload reuses the batch submit contract wi
   assert.deepEqual(producePlan.buildCurrentProductionPlanSubmitPayload(null), { ids: [] })
 })
 
-test('production plan operation capacity split helpers calculate batch quantity minutes and cost', () => {
+test('production plan operation capacity split helpers derive batch count from assigned quantity', () => {
   assert.equal(productionPlanOperationSplitsEndpoint({ id: 41 }), '/api/production-plans/41/operation-splits')
   assert.equal(productionPlanOperationSplitsEndpoint({ id: 0 }), '')
 
   assert.deepEqual(plannedCapacitySplitMetrics({
-    planned_batch_count: 5,
+    planned_qty: 90,
     batch_size_qty: 18,
     batch_size_unit: 'kg',
     standard_minutes: 15,
     hourly_rate: 300,
   }), {
+    planned_batch_count: 5,
     planned_qty: 90,
     planned_qty_g: 90000,
     planned_minutes: 75,
     planned_operation_cost: 375,
   })
 
+  assert.deepEqual(plannedCapacitySplitMetrics({
+    planned_qty: 20,
+    batch_size_qty: 18,
+    batch_size_unit: 'kg',
+    standard_minutes: 15,
+    hourly_rate: 300,
+  }), {
+    planned_batch_count: 2,
+    planned_qty: 20,
+    planned_qty_g: 20000,
+    planned_minutes: 30,
+    planned_operation_cost: 150,
+  })
+
   assert.deepEqual(buildProductionPlanOperationSplitPayload([
-    { production_plan_item_id: 51, operation_seq: 10, operation: '烘焙', workstation_capacity_id: 8, planned_batch_count: 5 },
-    { production_plan_item_id: 51, operation_seq: 10, operation: '烘焙', workstation_capacity_id: 9, planned_batch_count: 2 },
-    { production_plan_item_id: 0, operation: '忽略', planned_batch_count: 1 },
+    { production_plan_item_id: 51, operation_seq: 10, operation: '烘焙', workstation_capacity_id: 8, planned_qty: 90 },
+    { production_plan_item_id: 51, operation_seq: 10, operation: '烘焙', workstation_capacity_id: 9, planned_qty: 8 },
+    { production_plan_item_id: 0, operation: '忽略', planned_qty: 1 },
   ]), {
     items: [
-      { production_plan_item_id: 51, operation_seq: 10, operation: '烘焙', workstation_capacity_id: 8, planned_batch_count: 5 },
-      { production_plan_item_id: 51, operation_seq: 10, operation: '烘焙', workstation_capacity_id: 9, planned_batch_count: 2 },
+      { production_plan_item_id: 51, operation_seq: 10, operation: '烘焙', workstation_capacity_id: 8, planned_qty: 90 },
+      { production_plan_item_id: 51, operation_seq: 10, operation: '烘焙', workstation_capacity_id: 9, planned_qty: 8 },
     ],
   })
 })
@@ -245,6 +260,9 @@ test('ProducePlanView owns operation capacity splits after draft plan creation',
     'buildProductionPlanOperationSplitPayload',
     'plannedCapacitySplitMetrics',
     'manufacturing-workstation-capacities',
+    '承担产量',
+    '自动批次数',
+    'planned_qty',
     'planned_batch_count',
     'planned_qty_g',
     'planned_minutes',

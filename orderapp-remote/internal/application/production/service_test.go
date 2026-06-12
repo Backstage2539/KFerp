@@ -6,7 +6,8 @@ import (
 )
 
 type fakeRepo struct {
-	create CreateBatchCommand
+	create         CreateBatchCommand
+	savePlanSplits SaveProductionPlanOperationSplitsCommand
 }
 
 func (r *fakeRepo) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error) {
@@ -71,6 +72,7 @@ func (r *fakeRepo) GetProductionPlan(ctx context.Context, id int64) (ProductionP
 	return ProductionPlanDetail{}, nil
 }
 func (r *fakeRepo) SaveProductionPlanOperationSplits(ctx context.Context, cmd SaveProductionPlanOperationSplitsCommand) ([]ProductionPlanOperationSplit, error) {
+	r.savePlanSplits = cmd
 	return cmd.Items, nil
 }
 func (r *fakeRepo) SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error) {
@@ -195,6 +197,31 @@ func TestServiceNormalizesMachineCommand(t *testing.T) {
 	}
 	if repo.machine.Name != "新设备" || repo.machine.AllowedSpecs != "1000,3000" {
 		t.Fatalf("machine command = %+v", repo.machine)
+	}
+}
+
+func TestSaveProductionPlanOperationSplitsAcceptsPlannedQtyInput(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.SaveProductionPlanOperationSplits(context.Background(), SaveProductionPlanOperationSplitsCommand{
+		ID:       41,
+		Operator: " op ",
+		Items: []ProductionPlanOperationSplit{{
+			ProductionPlanItemID:  51,
+			OperationSeq:          10,
+			Operation:             " 烘焙 ",
+			WorkstationCapacityID: 8,
+			PlannedQty:            20,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SaveProductionPlanOperationSplits() error = %v", err)
+	}
+	if repo.savePlanSplits.Items[0].PlannedQty != 20 || repo.savePlanSplits.Items[0].PlannedBatchCount != 0 {
+		t.Fatalf("saved split command = %+v", repo.savePlanSplits.Items[0])
+	}
+	if repo.savePlanSplits.Items[0].Operation != "烘焙" {
+		t.Fatalf("operation was not normalized: %+v", repo.savePlanSplits.Items[0])
 	}
 }
 

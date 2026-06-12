@@ -480,9 +480,15 @@ func loadWorkstationCapacitySnapshotForSplitTx(ctx context.Context, tx pgx.Tx, s
 }
 
 func plannedCapacitySplitMetrics(split productionapp.ProductionPlanOperationSplit) productionapp.ProductionPlanOperationSplit {
-	if split.PlannedBatchCount > 0 && split.BatchSizeQty > 0 {
-		split.PlannedQty = roundProductionPlanMoney(split.BatchSizeQty * float64(split.PlannedBatchCount))
+	if split.PlannedQty <= 0 && split.PlannedBatchCount > 0 && split.BatchSizeQty > 0 {
+		split.PlannedQty = split.BatchSizeQty * float64(split.PlannedBatchCount)
+	}
+	if split.PlannedQty > 0 {
+		split.PlannedQty = roundProductionPlanQuantity(split.PlannedQty)
 		split.PlannedQtyG = plannedCapacitySplitQtyG(split.PlannedQty, split.BatchSizeUnit)
+	}
+	if split.PlannedQty > 0 && split.BatchSizeQty > 0 {
+		split.PlannedBatchCount = int(math.Ceil(split.PlannedQty / split.BatchSizeQty))
 	}
 	if split.PlannedBatchCount > 0 && split.StandardMinutes > 0 {
 		split.PlannedMinutes = split.PlannedBatchCount * split.StandardMinutes
@@ -506,6 +512,10 @@ func plannedCapacitySplitQtyG(qty float64, unit string) int64 {
 
 func roundProductionPlanMoney(v float64) float64 {
 	return math.Round(v*100) / 100
+}
+
+func roundProductionPlanQuantity(v float64) float64 {
+	return math.Round(v*10000) / 10000
 }
 
 func productionPlanSplitsByItem(splits []productionapp.ProductionPlanOperationSplit) map[int64][]productionapp.ProductionPlanOperationSplit {

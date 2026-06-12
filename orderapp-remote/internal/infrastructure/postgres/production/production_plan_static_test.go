@@ -1,6 +1,7 @@
 package production
 
 import (
+	productionapp "orderapp/internal/application/production"
 	"os"
 	"strings"
 	"testing"
@@ -104,5 +105,24 @@ func TestProductionPlanOperationSplitsOwnCapacityBatchPlanning(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("production plan must own operation capacity split planning; missing %q", want)
 		}
+	}
+}
+
+func TestPlannedCapacitySplitMetricsDerivesBatchCountFromPlannedQty(t *testing.T) {
+	got := plannedCapacitySplitMetrics(productionapp.ProductionPlanOperationSplit{
+		PlannedQty:      20,
+		BatchSizeQty:    18,
+		BatchSizeUnit:   "kg",
+		StandardMinutes: 15,
+		HourlyRate:      300,
+	})
+	if got.PlannedBatchCount != 2 {
+		t.Fatalf("PlannedBatchCount=%d, want 2", got.PlannedBatchCount)
+	}
+	if got.PlannedQty != 20 || got.PlannedQtyG != 20000 {
+		t.Fatalf("planned quantity = %v / %d, want 20kg / 20000g", got.PlannedQty, got.PlannedQtyG)
+	}
+	if got.PlannedMinutes != 30 || got.PlannedOperationCost != 150 {
+		t.Fatalf("planned cost metrics = %d / %.2f, want 30 / 150", got.PlannedMinutes, got.PlannedOperationCost)
 	}
 }

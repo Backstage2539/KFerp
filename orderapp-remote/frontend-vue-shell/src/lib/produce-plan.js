@@ -110,19 +110,31 @@ export function productionPlanOperationSplitsEndpoint(plan) {
   return `/api/production-plans/${id}/operation-splits`
 }
 
+function plannedCapacitySplitQtyG(qty, unit) {
+  const normalized = String(unit || '').trim().toLowerCase()
+  if (normalized === 'kg' || normalized === '千克' || normalized === '公斤') return Math.round(qty * 1000)
+  if (normalized === 'g' || normalized === '克') return Math.round(qty)
+  return 0
+}
+
 export function plannedCapacitySplitMetrics(split = {}) {
-  const plannedBatchCount = Math.max(0, Math.round(Number(split.planned_batch_count || 0)))
   const batchSizeQty = Math.max(0, Number(split.batch_size_qty || 0))
   const standardMinutes = Math.max(0, Math.round(Number(split.standard_minutes || 0)))
   const hourlyRate = Math.max(0, Number(split.hourly_rate || 0))
-  const plannedQty = Number((plannedBatchCount * batchSizeQty).toFixed(3))
-  const unit = String(split.batch_size_unit || '').trim().toLowerCase()
-  let plannedQtyG = 0
-  if (unit === 'kg' || unit === '千克' || unit === '公斤') plannedQtyG = Math.round(plannedQty * 1000)
-  else if (unit === 'g' || unit === '克') plannedQtyG = Math.round(plannedQty)
+  const legacyBatchCount = Math.max(0, Math.round(Number(split.planned_batch_count || 0)))
+  let plannedQty = Math.max(0, Number(split.planned_qty || 0))
+  if (plannedQty <= 0 && legacyBatchCount > 0 && batchSizeQty > 0) {
+    plannedQty = legacyBatchCount * batchSizeQty
+  }
+  plannedQty = Number(plannedQty.toFixed(3))
+  const plannedBatchCount = plannedQty > 0 && batchSizeQty > 0
+    ? Math.ceil(plannedQty / batchSizeQty)
+    : legacyBatchCount
+  const plannedQtyG = plannedCapacitySplitQtyG(plannedQty, split.batch_size_unit)
   const plannedMinutes = plannedBatchCount * standardMinutes
   const plannedOperationCost = Number(((plannedMinutes / 60) * hourlyRate).toFixed(2))
   return {
+    planned_batch_count: plannedBatchCount,
     planned_qty: plannedQty,
     planned_qty_g: plannedQtyG,
     planned_minutes: plannedMinutes,
@@ -138,10 +150,10 @@ export function buildProductionPlanOperationSplitPayload(rows = []) {
         operation_seq: Math.max(0, Math.round(Number(row.operation_seq || 0))),
         operation: String(row.operation || '').trim(),
         workstation_capacity_id: Number(row.workstation_capacity_id || 0),
-        planned_batch_count: Math.max(0, Math.round(Number(row.planned_batch_count || 0))),
+        planned_qty: plannedCapacitySplitMetrics(row).planned_qty,
       }
     })
-    .filter((row) => row.production_plan_item_id > 0 && row.workstation_capacity_id > 0 && row.planned_batch_count > 0)
+    .filter((row) => row.production_plan_item_id > 0 && row.workstation_capacity_id > 0 && row.planned_qty > 0)
   return { items }
 }
 

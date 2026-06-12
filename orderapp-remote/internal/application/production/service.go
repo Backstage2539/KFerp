@@ -1270,8 +1270,8 @@ func (s *Service) SaveProductionPlanOperationSplits(ctx context.Context, cmd Sav
 		if item.WorkstationCapacityID <= 0 {
 			return nil, fmt.Errorf("workstation_capacity_id required")
 		}
-		if item.PlannedBatchCount <= 0 {
-			return nil, fmt.Errorf("planned_batch_count required")
+		if item.PlannedQty <= 0 {
+			return nil, fmt.Errorf("planned_qty required")
 		}
 		if item.OperationSeq < 0 {
 			return nil, fmt.Errorf("operation_seq must be >= 0")
