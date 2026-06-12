@@ -117,6 +117,10 @@ func (r *fakeFlowRepo) GetProductionPlan(ctx context.Context, id int64) (Product
 	return r.productionPlan, nil
 }
 
+func (r *fakeFlowRepo) SaveProductionPlanOperationSplits(ctx context.Context, cmd SaveProductionPlanOperationSplitsCommand) ([]ProductionPlanOperationSplit, error) {
+	return cmd.Items, nil
+}
+
 func (r *fakeFlowRepo) SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error) {
 	r.submitPlan = cmd
 	r.submitPlans = append(r.submitPlans, cmd)

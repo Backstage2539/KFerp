@@ -54,19 +54,45 @@ type ManufacturingWorkstation struct {
 	UpdatedAt      string  `json:"updated_at"`
 }
 
+type ManufacturingWorkstationCapacity struct {
+	ID                 int64   `json:"id"`
+	WorkstationID      int64   `json:"workstation_id"`
+	Code               string  `json:"code"`
+	Name               string  `json:"name"`
+	Status             string  `json:"status"`
+	BatchSizeQty       float64 `json:"batch_size_qty"`
+	BatchSizeUnit      string  `json:"batch_size_unit"`
+	StandardMinutes    int     `json:"standard_minutes"`
+	HourlyRate         float64 `json:"hourly_rate"`
+	ProductionCapacity int     `json:"production_capacity"`
+	SortOrder          int     `json:"sort_order"`
+	Note               string  `json:"note"`
+	CreatedAt          string  `json:"created_at"`
+	UpdatedAt          string  `json:"updated_at"`
+}
+
 type ProcessTemplateOperation struct {
-	ID                   int64  `json:"id"`
-	TemplateID           int64  `json:"template_id"`
-	Seq                  int    `json:"seq"`
-	OperationID          int64  `json:"operation_id"`
-	WorkstationID        int64  `json:"workstation_id"`
-	Operation            string `json:"operation"`
-	Workstation          string `json:"workstation"`
-	DefaultEquipment     string `json:"default_equipment"`
-	DefaultMinutes       int    `json:"default_minutes"`
-	RecordsLoss          bool   `json:"records_loss"`
-	ParameterSchemaJSON  string `json:"parameter_schema_json"`
-	QualityChecklistJSON string `json:"quality_checklist_json"`
+	ID                      int64   `json:"id"`
+	TemplateID              int64   `json:"template_id"`
+	Seq                     int     `json:"seq"`
+	OperationID             int64   `json:"operation_id"`
+	WorkstationID           int64   `json:"workstation_id"`
+	WorkstationCapacityID   int64   `json:"workstation_capacity_id"`
+	Operation               string  `json:"operation"`
+	Workstation             string  `json:"workstation"`
+	WorkstationCapacityName string  `json:"workstation_capacity_name"`
+	DefaultEquipment        string  `json:"default_equipment"`
+	DefaultMinutes          int     `json:"default_minutes"`
+	BatchSizeQty            float64 `json:"batch_size_qty"`
+	BatchSizeUnit           string  `json:"batch_size_unit"`
+	StandardMinutes         int     `json:"standard_minutes"`
+	HourlyRate              float64 `json:"hourly_rate"`
+	PlannedBatchCount       int     `json:"planned_batch_count"`
+	PlannedMinutes          int     `json:"planned_minutes"`
+	PlannedOperationCost    float64 `json:"planned_operation_cost"`
+	RecordsLoss             bool    `json:"records_loss"`
+	ParameterSchemaJSON     string  `json:"parameter_schema_json"`
+	QualityChecklistJSON    string  `json:"quality_checklist_json"`
 }
 
 type ProcessTemplate struct {
@@ -89,17 +115,26 @@ type ProcessTemplate struct {
 }
 
 type ProcessRouteOperation struct {
-	ID                   int64  `json:"id"`
-	RouteID              int64  `json:"route_id"`
-	Seq                  int    `json:"seq"`
-	OperationID          int64  `json:"operation_id"`
-	WorkstationID        int64  `json:"workstation_id"`
-	Operation            string `json:"operation"`
-	Workstation          string `json:"workstation"`
-	DefaultEquipment     string `json:"default_equipment"`
-	DefaultMinutes       int    `json:"default_minutes"`
-	RecordsLoss          bool   `json:"records_loss"`
-	QualityChecklistJSON string `json:"quality_checklist_json"`
+	ID                      int64   `json:"id"`
+	RouteID                 int64   `json:"route_id"`
+	Seq                     int     `json:"seq"`
+	OperationID             int64   `json:"operation_id"`
+	WorkstationID           int64   `json:"workstation_id"`
+	WorkstationCapacityID   int64   `json:"workstation_capacity_id"`
+	Operation               string  `json:"operation"`
+	Workstation             string  `json:"workstation"`
+	WorkstationCapacityName string  `json:"workstation_capacity_name"`
+	DefaultEquipment        string  `json:"default_equipment"`
+	DefaultMinutes          int     `json:"default_minutes"`
+	BatchSizeQty            float64 `json:"batch_size_qty"`
+	BatchSizeUnit           string  `json:"batch_size_unit"`
+	StandardMinutes         int     `json:"standard_minutes"`
+	HourlyRate              float64 `json:"hourly_rate"`
+	PlannedBatchCount       int     `json:"planned_batch_count"`
+	PlannedMinutes          int     `json:"planned_minutes"`
+	PlannedOperationCost    float64 `json:"planned_operation_cost"`
+	RecordsLoss             bool    `json:"records_loss"`
+	QualityChecklistJSON    string  `json:"quality_checklist_json"`
 }
 
 type ProcessRoute struct {
@@ -121,6 +156,11 @@ type ProcessTemplateQuery struct {
 
 type ProcessRouteQuery struct {
 	Status string
+}
+
+type WorkstationCapacityQuery struct {
+	WorkstationID int64
+	Status        string
 }
 
 type SaveIndustryTemplateCommand struct {
@@ -152,6 +192,22 @@ type SaveManufacturingWorkstationCommand struct {
 	HourlyRate     float64
 	Note           string
 	Actor          string
+}
+
+type SaveWorkstationCapacityCommand struct {
+	ID                 int64
+	WorkstationID      int64
+	Code               string
+	Name               string
+	Status             string
+	BatchSizeQty       float64
+	BatchSizeUnit      string
+	StandardMinutes    int
+	HourlyRate         float64
+	ProductionCapacity int
+	SortOrder          int
+	Note               string
+	Actor              string
 }
 
 type SaveProcessTemplateCommand struct {
@@ -219,6 +275,9 @@ type Repository interface {
 	ListManufacturingWorkstations(ctx context.Context) ([]ManufacturingWorkstation, error)
 	SaveManufacturingWorkstation(ctx context.Context, cmd SaveManufacturingWorkstationCommand) (ManufacturingWorkstation, error)
 	DeactivateManufacturingWorkstation(ctx context.Context, cmd TemplateStatusCommand) error
+	ListManufacturingWorkstationCapacities(ctx context.Context, query WorkstationCapacityQuery) ([]ManufacturingWorkstationCapacity, error)
+	SaveManufacturingWorkstationCapacity(ctx context.Context, cmd SaveWorkstationCapacityCommand) (ManufacturingWorkstationCapacity, error)
+	DeactivateManufacturingWorkstationCapacity(ctx context.Context, cmd TemplateStatusCommand) error
 	ListIndustryTemplates(ctx context.Context) ([]IndustryFieldTemplate, error)
 	SaveIndustryTemplate(ctx context.Context, cmd SaveIndustryTemplateCommand) (IndustryFieldTemplate, error)
 	DeactivateIndustryTemplate(ctx context.Context, cmd TemplateStatusCommand) error
@@ -303,6 +362,54 @@ func (s *Service) DeactivateManufacturingWorkstation(ctx context.Context, cmd Te
 		return fmt.Errorf("workstation id required")
 	}
 	return s.repo.DeactivateManufacturingWorkstation(ctx, cmd)
+}
+
+func (s *Service) ListManufacturingWorkstationCapacities(ctx context.Context, query WorkstationCapacityQuery) ([]ManufacturingWorkstationCapacity, error) {
+	query.Status = strings.TrimSpace(query.Status)
+	return s.repo.ListManufacturingWorkstationCapacities(ctx, query)
+}
+
+func (s *Service) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd SaveWorkstationCapacityCommand) (ManufacturingWorkstationCapacity, error) {
+	cmd.Code = strings.TrimSpace(cmd.Code)
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.Status = normalizeStatus(cmd.Status, "active")
+	cmd.BatchSizeUnit = strings.TrimSpace(cmd.BatchSizeUnit)
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	if cmd.WorkstationID <= 0 {
+		return ManufacturingWorkstationCapacity{}, fmt.Errorf("workstation_id required")
+	}
+	if cmd.Name == "" {
+		return ManufacturingWorkstationCapacity{}, fmt.Errorf("name required")
+	}
+	if cmd.Status != "active" && cmd.Status != "inactive" {
+		return ManufacturingWorkstationCapacity{}, fmt.Errorf("invalid status")
+	}
+	if cmd.BatchSizeQty < 0 {
+		return ManufacturingWorkstationCapacity{}, fmt.Errorf("batch_size_qty must be >= 0")
+	}
+	if cmd.StandardMinutes < 0 {
+		return ManufacturingWorkstationCapacity{}, fmt.Errorf("standard_minutes must be >= 0")
+	}
+	if cmd.HourlyRate < 0 {
+		return ManufacturingWorkstationCapacity{}, fmt.Errorf("hourly_rate must be >= 0")
+	}
+	if cmd.ProductionCapacity <= 0 {
+		cmd.ProductionCapacity = 1
+	}
+	if cmd.BatchSizeUnit == "" {
+		cmd.BatchSizeUnit = "unit"
+	}
+	if cmd.Code == "" {
+		cmd.Code = codeFromName(cmd.Name)
+	}
+	return s.repo.SaveManufacturingWorkstationCapacity(ctx, cmd)
+}
+
+func (s *Service) DeactivateManufacturingWorkstationCapacity(ctx context.Context, cmd TemplateStatusCommand) error {
+	if cmd.ID <= 0 {
+		return fmt.Errorf("workstation capacity id required")
+	}
+	return s.repo.DeactivateManufacturingWorkstationCapacity(ctx, cmd)
 }
 
 func (s *Service) ListIndustryTemplates(ctx context.Context) ([]IndustryFieldTemplate, error) {
@@ -594,6 +701,8 @@ func normalizeIndustryField(field IndustryFieldDefinition, fallbackOrder int) (I
 func normalizeProcessOperation(op ProcessTemplateOperation, fallbackSeq int) (ProcessTemplateOperation, error) {
 	op.Operation = strings.TrimSpace(op.Operation)
 	op.Workstation = strings.TrimSpace(op.Workstation)
+	op.WorkstationCapacityName = strings.TrimSpace(op.WorkstationCapacityName)
+	op.BatchSizeUnit = strings.TrimSpace(op.BatchSizeUnit)
 	op.DefaultEquipment = strings.TrimSpace(op.DefaultEquipment)
 	if op.Seq <= 0 {
 		op.Seq = fallbackSeq
@@ -603,6 +712,21 @@ func normalizeProcessOperation(op ProcessTemplateOperation, fallbackSeq int) (Pr
 	}
 	if op.Operation == "" {
 		return op, fmt.Errorf("operation required")
+	}
+	if err := validateOperationCostSnapshot(op.BatchSizeQty, op.StandardMinutes, op.HourlyRate, op.PlannedBatchCount, op.PlannedMinutes, op.PlannedOperationCost); err != nil {
+		return op, err
+	}
+	if op.StandardMinutes == 0 && op.DefaultMinutes > 0 {
+		op.StandardMinutes = op.DefaultMinutes
+	}
+	if op.DefaultMinutes == 0 && op.StandardMinutes > 0 {
+		op.DefaultMinutes = op.StandardMinutes
+	}
+	if op.PlannedMinutes == 0 && op.PlannedBatchCount > 0 && op.StandardMinutes > 0 {
+		op.PlannedMinutes = op.PlannedBatchCount * op.StandardMinutes
+	}
+	if op.PlannedOperationCost == 0 && op.PlannedMinutes > 0 && op.HourlyRate > 0 {
+		op.PlannedOperationCost = roundMoney(float64(op.PlannedMinutes) / 60 * op.HourlyRate)
 	}
 	parameterSchemaJSON, err := normalizeJSONObject(op.ParameterSchemaJSON)
 	if err != nil {
@@ -619,13 +743,8 @@ func normalizeProcessOperation(op ProcessTemplateOperation, fallbackSeq int) (Pr
 
 func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (ProcessRouteOperation, error) {
 	op.Operation = strings.TrimSpace(op.Operation)
-	op.Workstation = strings.TrimSpace(op.Workstation)
-	op.DefaultEquipment = strings.TrimSpace(op.DefaultEquipment)
 	if op.Seq <= 0 {
 		op.Seq = fallbackSeq
-	}
-	if op.DefaultMinutes < 0 {
-		return op, fmt.Errorf("operation default_minutes must be >= 0")
 	}
 	if op.Operation == "" {
 		return op, fmt.Errorf("operation required")
@@ -634,8 +753,77 @@ func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (
 	if err != nil {
 		return op, fmt.Errorf("quality_checklist_json must be a JSON array")
 	}
+	op.WorkstationID = 0
+	op.WorkstationCapacityID = 0
+	op.Workstation = ""
+	op.WorkstationCapacityName = ""
+	op.DefaultEquipment = ""
+	op.DefaultMinutes = 0
+	op.BatchSizeQty = 0
+	op.BatchSizeUnit = ""
+	op.StandardMinutes = 0
+	op.HourlyRate = 0
+	op.PlannedBatchCount = 0
+	op.PlannedMinutes = 0
+	op.PlannedOperationCost = 0
 	op.QualityChecklistJSON = qualityChecklistJSON
 	return op, nil
+}
+
+func (s *Service) applyWorkstationCapacitySnapshot(ctx context.Context, op ProcessRouteOperation) (ProcessRouteOperation, error) {
+	if op.WorkstationCapacityID <= 0 {
+		return op, nil
+	}
+	if op.WorkstationID <= 0 {
+		return op, fmt.Errorf("workstation capacity requires workstation_id")
+	}
+	rows, err := s.repo.ListManufacturingWorkstationCapacities(ctx, WorkstationCapacityQuery{WorkstationID: op.WorkstationID, Status: "active"})
+	if err != nil {
+		return op, err
+	}
+	for _, row := range rows {
+		if row.ID != op.WorkstationCapacityID {
+			continue
+		}
+		op.WorkstationCapacityName = row.Name
+		op.BatchSizeQty = row.BatchSizeQty
+		op.BatchSizeUnit = row.BatchSizeUnit
+		op.StandardMinutes = row.StandardMinutes
+		op.HourlyRate = row.HourlyRate
+		if op.DefaultMinutes == 0 && row.StandardMinutes > 0 {
+			op.DefaultMinutes = row.StandardMinutes
+		}
+		if op.PlannedMinutes == 0 && op.PlannedBatchCount > 0 && op.StandardMinutes > 0 {
+			op.PlannedMinutes = op.PlannedBatchCount * op.StandardMinutes
+		}
+		if op.PlannedOperationCost == 0 && op.PlannedMinutes > 0 && op.HourlyRate > 0 {
+			op.PlannedOperationCost = roundMoney(float64(op.PlannedMinutes) / 60 * op.HourlyRate)
+		}
+		return op, nil
+	}
+	return op, fmt.Errorf("workstation capacity does not belong to workstation")
+}
+
+func validateOperationCostSnapshot(batchSizeQty float64, standardMinutes int, hourlyRate float64, plannedBatchCount int, plannedMinutes int, plannedOperationCost float64) error {
+	if batchSizeQty < 0 {
+		return fmt.Errorf("batch_size_qty must be >= 0")
+	}
+	if standardMinutes < 0 {
+		return fmt.Errorf("standard_minutes must be >= 0")
+	}
+	if hourlyRate < 0 {
+		return fmt.Errorf("hourly_rate must be >= 0")
+	}
+	if plannedBatchCount < 0 {
+		return fmt.Errorf("planned_batch_count must be >= 0")
+	}
+	if plannedMinutes < 0 {
+		return fmt.Errorf("planned_minutes must be >= 0")
+	}
+	if plannedOperationCost < 0 {
+		return fmt.Errorf("planned_operation_cost must be >= 0")
+	}
+	return nil
 }
 
 func normalizeJSONObject(raw string) (string, error) {

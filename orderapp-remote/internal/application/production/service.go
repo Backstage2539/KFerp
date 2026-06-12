@@ -364,6 +364,35 @@ type ProductionPlanItem struct {
 	CustomerProductSnapshotJSON  string `json:"customer_product_snapshot_json"`
 }
 
+type ProductionPlanOperationSplit struct {
+	ID                      int64   `json:"id"`
+	ProductionPlanID        int64   `json:"production_plan_id"`
+	ProductionPlanItemID    int64   `json:"production_plan_item_id"`
+	OperationSeq            int     `json:"operation_seq"`
+	OperationID             int64   `json:"operation_id"`
+	Operation               string  `json:"operation"`
+	WorkstationID           int64   `json:"workstation_id"`
+	Workstation             string  `json:"workstation"`
+	WorkstationCapacityID   int64   `json:"workstation_capacity_id"`
+	WorkstationCapacityName string  `json:"workstation_capacity_name"`
+	BatchSizeQty            float64 `json:"batch_size_qty"`
+	BatchSizeUnit           string  `json:"batch_size_unit"`
+	StandardMinutes         int     `json:"standard_minutes"`
+	HourlyRate              float64 `json:"hourly_rate"`
+	PlannedBatchCount       int     `json:"planned_batch_count"`
+	PlannedQty              float64 `json:"planned_qty"`
+	PlannedQtyG             int64   `json:"planned_qty_g"`
+	PlannedMinutes          int     `json:"planned_minutes"`
+	PlannedOperationCost    float64 `json:"planned_operation_cost"`
+	Note                    string  `json:"note"`
+}
+
+type SaveProductionPlanOperationSplitsCommand struct {
+	ID       int64
+	Items    []ProductionPlanOperationSplit
+	Operator string
+}
+
 type ProductionPlanDetail struct {
 	ID                int64                            `json:"id"`
 	PlanNo            string                           `json:"plan_no"`
@@ -375,6 +404,7 @@ type ProductionPlanDetail struct {
 	SubmittedAt       string                           `json:"submitted_at"`
 	CompletedAt       string                           `json:"completed_at"`
 	Items             []ProductionPlanItem             `json:"items"`
+	OperationSplits   []ProductionPlanOperationSplit   `json:"operation_splits"`
 	MaterialSummary   []MaterialNeed                   `json:"material_summary"`
 	RelatedWorkOrders []ProductionPlanRelatedWorkOrder `json:"related_work_orders"`
 	JobCardCount      int64                            `json:"job_card_count"`
@@ -552,34 +582,46 @@ type JobCardQuery struct {
 }
 
 type JobCardRow struct {
-	ID                  int64   `json:"id"`
-	WorkOrderID         int64   `json:"work_order_id"`
-	SequenceNo          int     `json:"sequence_no"`
-	Operation           string  `json:"operation"`
-	Workstation         string  `json:"workstation"`
-	Status              string  `json:"status"`
-	StartedAt           string  `json:"started_at"`
-	PausedAt            string  `json:"paused_at"`
-	ResumedAt           string  `json:"resumed_at"`
-	CompletedAt         string  `json:"completed_at"`
-	Operator            string  `json:"operator"`
-	PlannedInputQty     float64 `json:"planned_input_qty"`
-	ActualInputQty      float64 `json:"actual_input_qty"`
-	ActualOutputQty     float64 `json:"actual_output_qty"`
-	ActualLossQty       float64 `json:"actual_loss_qty"`
-	ActualLossRate      float64 `json:"actual_loss_rate"`
-	RecordsLoss         bool    `json:"records_loss"`
-	LossReason          string  `json:"loss_reason"`
-	ExceptionReason     string  `json:"exception_reason"`
-	MetricsJSON         string  `json:"metrics_json"`
-	ParameterSchemaJSON string  `json:"parameter_schema_json"`
-	PlannedStartAt      string  `json:"planned_start_at"`
-	PlannedEndAt        string  `json:"planned_end_at"`
-	ShiftCode           string  `json:"shift_code"`
-	AssignedTo          string  `json:"assigned_to"`
-	Priority            int     `json:"priority"`
-	SchedulingNote      string  `json:"scheduling_note"`
-	WorkCenter          string  `json:"work_center"`
+	ID                      int64   `json:"id"`
+	WorkOrderID             int64   `json:"work_order_id"`
+	SequenceNo              int     `json:"sequence_no"`
+	OperationID             int64   `json:"operation_id"`
+	WorkstationID           int64   `json:"workstation_id"`
+	Operation               string  `json:"operation"`
+	Workstation             string  `json:"workstation"`
+	WorkstationCapacityID   int64   `json:"workstation_capacity_id"`
+	WorkstationCapacityName string  `json:"workstation_capacity_name"`
+	BatchSizeQty            float64 `json:"batch_size_qty"`
+	BatchSizeUnit           string  `json:"batch_size_unit"`
+	PlannedBatchCount       int     `json:"planned_batch_count"`
+	PlannedMinutes          int     `json:"planned_minutes"`
+	HourlyRate              float64 `json:"hourly_rate"`
+	PlannedOperationCost    float64 `json:"planned_operation_cost"`
+	ActualMinutes           int     `json:"actual_minutes"`
+	ActualOperationCost     float64 `json:"actual_operation_cost"`
+	Status                  string  `json:"status"`
+	StartedAt               string  `json:"started_at"`
+	PausedAt                string  `json:"paused_at"`
+	ResumedAt               string  `json:"resumed_at"`
+	CompletedAt             string  `json:"completed_at"`
+	Operator                string  `json:"operator"`
+	PlannedInputQty         float64 `json:"planned_input_qty"`
+	ActualInputQty          float64 `json:"actual_input_qty"`
+	ActualOutputQty         float64 `json:"actual_output_qty"`
+	ActualLossQty           float64 `json:"actual_loss_qty"`
+	ActualLossRate          float64 `json:"actual_loss_rate"`
+	RecordsLoss             bool    `json:"records_loss"`
+	LossReason              string  `json:"loss_reason"`
+	ExceptionReason         string  `json:"exception_reason"`
+	MetricsJSON             string  `json:"metrics_json"`
+	ParameterSchemaJSON     string  `json:"parameter_schema_json"`
+	PlannedStartAt          string  `json:"planned_start_at"`
+	PlannedEndAt            string  `json:"planned_end_at"`
+	ShiftCode               string  `json:"shift_code"`
+	AssignedTo              string  `json:"assigned_to"`
+	Priority                int     `json:"priority"`
+	SchedulingNote          string  `json:"scheduling_note"`
+	WorkCenter              string  `json:"work_center"`
 }
 
 type ScheduleBoardQuery struct {
@@ -709,14 +751,16 @@ type ProductionTraceLinkRow struct {
 }
 
 type ProductionCostVarianceRow struct {
-	WorkOrderID  int64   `json:"work_order_id"`
-	WorkOrderNo  string  `json:"work_order_no"`
-	BatchID      string  `json:"batch_id"`
-	ProductName  string  `json:"product_name"`
-	PlannedCost  float64 `json:"planned_cost"`
-	ActualCost   float64 `json:"actual_cost"`
-	Variance     float64 `json:"variance"`
-	VarianceRate float64 `json:"variance_rate"`
+	WorkOrderID          int64   `json:"work_order_id"`
+	WorkOrderNo          string  `json:"work_order_no"`
+	BatchID              string  `json:"batch_id"`
+	ProductName          string  `json:"product_name"`
+	PlannedCost          float64 `json:"planned_cost"`
+	ActualCost           float64 `json:"actual_cost"`
+	PlannedOperationCost float64 `json:"planned_operation_cost"`
+	ActualOperationCost  float64 `json:"actual_operation_cost"`
+	Variance             float64 `json:"variance"`
+	VarianceRate         float64 `json:"variance_rate"`
 }
 
 type ProductionAbnormalLossRow struct {
@@ -748,6 +792,7 @@ type JobCardActualsCommand struct {
 	ActualOutputQty float64
 	ActualLossQty   float64
 	ActualLossRate  float64
+	ActualMinutes   int
 	ExceptionReason string
 	MetricsJSON     string
 	Actor           string
@@ -863,6 +908,7 @@ type JobCardActionCommand struct {
 	ActualOutputQty float64
 	ActualLossQty   float64
 	ActualLossRate  float64
+	ActualMinutes   int
 	LossReason      string
 	ExceptionReason string
 	MetricsJSON     string
@@ -1026,6 +1072,7 @@ type Repository interface {
 	CreateProductionPlan(ctx context.Context, cmd CreateProductionPlanCommand) (ProductionPlanDetail, error)
 	ListProductionPlans(ctx context.Context, query ProductionPlanQuery) ([]ProductionPlanRow, error)
 	GetProductionPlan(ctx context.Context, id int64) (ProductionPlanDetail, error)
+	SaveProductionPlanOperationSplits(ctx context.Context, cmd SaveProductionPlanOperationSplitsCommand) ([]ProductionPlanOperationSplit, error)
 	SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error)
 	StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand) (WorkOrderStartResult, error)
 	CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompleteCommand) (WorkOrderCompleteResult, error)
@@ -1202,6 +1249,44 @@ func (s *Service) GetProductionPlan(ctx context.Context, id int64) (ProductionPl
 		return ProductionPlanDetail{}, fmt.Errorf("production_plan_id required")
 	}
 	return s.repo.GetProductionPlan(ctx, id)
+}
+
+func (s *Service) SaveProductionPlanOperationSplits(ctx context.Context, cmd SaveProductionPlanOperationSplitsCommand) ([]ProductionPlanOperationSplit, error) {
+	if cmd.ID <= 0 {
+		return nil, fmt.Errorf("production_plan_id required")
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	for i := range cmd.Items {
+		item := &cmd.Items[i]
+		item.ProductionPlanID = cmd.ID
+		item.Operation = strings.TrimSpace(item.Operation)
+		item.Workstation = strings.TrimSpace(item.Workstation)
+		item.WorkstationCapacityName = strings.TrimSpace(item.WorkstationCapacityName)
+		item.BatchSizeUnit = strings.TrimSpace(item.BatchSizeUnit)
+		item.Note = strings.TrimSpace(item.Note)
+		if item.ProductionPlanItemID <= 0 {
+			return nil, fmt.Errorf("production_plan_item_id required")
+		}
+		if item.WorkstationCapacityID <= 0 {
+			return nil, fmt.Errorf("workstation_capacity_id required")
+		}
+		if item.PlannedBatchCount <= 0 {
+			return nil, fmt.Errorf("planned_batch_count required")
+		}
+		if item.OperationSeq < 0 {
+			return nil, fmt.Errorf("operation_seq must be >= 0")
+		}
+		if item.BatchSizeQty < 0 {
+			return nil, fmt.Errorf("batch_size_qty must be >= 0")
+		}
+		if item.StandardMinutes < 0 {
+			return nil, fmt.Errorf("standard_minutes must be >= 0")
+		}
+		if item.HourlyRate < 0 {
+			return nil, fmt.Errorf("hourly_rate must be >= 0")
+		}
+	}
+	return s.repo.SaveProductionPlanOperationSplits(ctx, cmd)
 }
 
 func (s *Service) SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error) {
@@ -1482,6 +1567,9 @@ func (s *Service) transitionJobCard(ctx context.Context, cmd JobCardActionComman
 	if cmd.ActualInputQty < 0 || cmd.ActualOutputQty < 0 || cmd.ActualLossQty < 0 {
 		return JobCardActionResult{}, fmt.Errorf("quantity must be >= 0")
 	}
+	if cmd.ActualMinutes < 0 {
+		return JobCardActionResult{}, fmt.Errorf("actual_minutes must be >= 0")
+	}
 	if cmd.ActualInputQty > 0 {
 		lossQty, lossRate, err := productiondomain.ActualLossMetrics(cmd.ActualInputQty, cmd.ActualOutputQty)
 		if err != nil {
@@ -1535,6 +1623,9 @@ func (s *Service) UpdateJobCardActuals(ctx context.Context, cmd JobCardActualsCo
 	}
 	if cmd.PlannedInputQty < 0 || cmd.ActualInputQty < 0 || cmd.ActualOutputQty < 0 || cmd.ActualLossQty < 0 {
 		return fmt.Errorf("quantity must be >= 0")
+	}
+	if cmd.ActualMinutes < 0 {
+		return fmt.Errorf("actual_minutes must be >= 0")
 	}
 	if cmd.ActualInputQty > 0 {
 		lossQty, lossRate, err := productiondomain.ActualLossMetrics(cmd.ActualInputQty, cmd.ActualOutputQty)

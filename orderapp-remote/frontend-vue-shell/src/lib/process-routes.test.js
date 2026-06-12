@@ -8,7 +8,6 @@ test('process route page is route-only and does not select SKU or BOM versions',
   assert.match(source, /<h2>工艺路线<\/h2>/)
   assert.match(source, /\/api\/process-routes/)
   assert.match(source, /路线工序/)
-  assert.match(source, /工位\/设备/)
   assert.match(source, /quality_checklist_json/)
   assert.doesNotMatch(source, /绑定 SKU/)
   assert.doesNotMatch(source, /BOM版本/)
@@ -40,6 +39,33 @@ test('process route operation editor aligns fields and hides raw quality checkli
   assert.match(source, /每行一个质检项/)
   assert.doesNotMatch(source, /质检项 JSON/)
   assert.doesNotMatch(source, /v-model\.trim="op\.quality_checklist_json"/)
+  assert.doesNotMatch(source, /工位\/设备/)
+})
+
+test('process route operation row does not own workstation capacity batch time rate or plan cost', () => {
+  const source = fs.readFileSync(new URL('../views/ProcessTemplatesView.vue', import.meta.url), 'utf8')
+
+  for (const forbidden of [
+    '/api/manufacturing-workstation-capacities',
+    '工位产能',
+    'workstation_capacity_id',
+    'workstation_capacity_name',
+    'batch_size_qty',
+    'batch_size_unit',
+    'standard_minutes',
+    'hourly_rate',
+    'planned_batch_count',
+    'planned_minutes',
+    'planned_operation_cost',
+    'applyWorkstationCapacity',
+  ]) {
+    assert.doesNotMatch(source, new RegExp(forbidden))
+  }
+  assert.doesNotMatch(source, /标准分钟\/批/)
+  assert.doesNotMatch(source, /小时费率/)
+  assert.doesNotMatch(source, /计划工序成本/)
+  assert.doesNotMatch(source, /工位能力模式/)
+  assert.doesNotMatch(source, /默认工时\(分钟\)/)
 })
 
 test('operation and workstation master data are maintained on separate pages', () => {
@@ -52,9 +78,22 @@ test('operation and workstation master data are maintained on separate pages', (
   assert.doesNotMatch(operationSource, /\/api\/manufacturing-workstations/)
   assert.match(workstationSource, /<h2>工位\/设备<\/h2>/)
   assert.match(workstationSource, /\/api\/manufacturing-workstations/)
+  assert.match(workstationSource, /\/api\/manufacturing-workstation-capacities/)
+  assert.match(workstationSource, /工位产能/)
   assert.doesNotMatch(workstationSource, /\/api\/manufacturing-operations/)
   assert.match(appSource, /manufacturingOperations:\s*ManufacturingOperationsView/)
   assert.match(appSource, /manufacturingWorkstations:\s*ManufacturingWorkstationsView/)
+})
+
+test('operation and workstation master data no longer expose default minutes as authoritative fields', () => {
+  const operationSource = fs.readFileSync(new URL('../views/ManufacturingOperationsView.vue', import.meta.url), 'utf8')
+  const workstationSource = fs.readFileSync(new URL('../views/ManufacturingWorkstationsView.vue', import.meta.url), 'utf8')
+
+  assert.doesNotMatch(operationSource, /默认工时\(分钟\)|默认分钟/)
+  assert.doesNotMatch(workstationSource, /默认工时\(分钟\)|默认分钟/)
+  assert.match(workstationSource, /默认小时费率/)
+  assert.doesNotMatch(operationSource, /工位能力模式/)
+  assert.doesNotMatch(workstationSource, /工位能力模式/)
 })
 
 test('operation and workstation pages use left list and right detail layout', () => {

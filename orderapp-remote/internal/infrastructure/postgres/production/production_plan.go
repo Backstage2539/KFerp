@@ -307,6 +307,11 @@ func loadProductionPlanDetailTx(ctx context.Context, tx pgx.Tx, schema string, i
 		return productionapp.ProductionPlanDetail{}, err
 	}
 	detail.Items = items
+	splits, err := loadProductionPlanOperationSplitsTx(ctx, tx, schema, id)
+	if err != nil {
+		return productionapp.ProductionPlanDetail{}, err
+	}
+	detail.OperationSplits = splits
 	detail.MaterialSummary = aggregateProductionPlanMaterialSummary(items)
 	relatedWorkOrders, jobCardCount, err := loadProductionPlanRelatedWorkOrdersTx(ctx, tx, schema, id)
 	if err != nil {
@@ -342,6 +347,173 @@ func loadProductionPlanItemsTx(ctx context.Context, tx pgx.Tx, schema string, pl
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+func loadProductionPlanOperationSplitsTx(ctx context.Context, tx pgx.Tx, schema string, planID int64) ([]productionapp.ProductionPlanOperationSplit, error) {
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT id,production_plan_id,production_plan_item_id,operation_seq,operation_id,operation,
+		       workstation_id,workstation,workstation_capacity_id,workstation_capacity_name,
+		       COALESCE(batch_size_qty,0)::float8,COALESCE(batch_size_unit,''),standard_minutes,
+		       COALESCE(hourly_rate,0)::float8,planned_batch_count,COALESCE(planned_qty,0)::float8,
+		       planned_qty_g,planned_minutes,COALESCE(planned_operation_cost,0)::float8,note
+		FROM %s.production_plan_operation_splits
+		WHERE production_plan_id=$1
+		ORDER BY production_plan_item_id, operation_seq, id
+	`, schema), planID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]productionapp.ProductionPlanOperationSplit, 0)
+	for rows.Next() {
+		var row productionapp.ProductionPlanOperationSplit
+		if err := rows.Scan(
+			&row.ID, &row.ProductionPlanID, &row.ProductionPlanItemID, &row.OperationSeq, &row.OperationID, &row.Operation,
+			&row.WorkstationID, &row.Workstation, &row.WorkstationCapacityID, &row.WorkstationCapacityName,
+			&row.BatchSizeQty, &row.BatchSizeUnit, &row.StandardMinutes, &row.HourlyRate, &row.PlannedBatchCount, &row.PlannedQty,
+			&row.PlannedQtyG, &row.PlannedMinutes, &row.PlannedOperationCost, &row.Note,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveProductionPlanOperationSplits(ctx context.Context, cmd productionapp.SaveProductionPlanOperationSplitsCommand) ([]productionapp.ProductionPlanOperationSplit, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var status string
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s.production_plans WHERE id=$1 FOR UPDATE`, r.schema), cmd.ID).Scan(&status); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("production plan not found")
+		}
+		return nil, err
+	}
+	if status != "draft" {
+		return nil, fmt.Errorf("production plan must be draft to edit operation splits")
+	}
+	itemRows, err := loadProductionPlanItemsTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return nil, err
+	}
+	itemIDs := map[int64]bool{}
+	for _, item := range itemRows {
+		itemIDs[item.ID] = true
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_plan_operation_splits WHERE production_plan_id=$1`, r.schema), cmd.ID); err != nil {
+		return nil, err
+	}
+	for _, item := range cmd.Items {
+		if !itemIDs[item.ProductionPlanItemID] {
+			return nil, fmt.Errorf("production_plan_item_id does not belong to production plan")
+		}
+		snapshot, err := loadWorkstationCapacitySnapshotForSplitTx(ctx, tx, r.schema, item.WorkstationCapacityID)
+		if err != nil {
+			return nil, err
+		}
+		item.ProductionPlanID = cmd.ID
+		item.WorkstationID = snapshot.WorkstationID
+		item.Workstation = snapshot.Workstation
+		item.WorkstationCapacityName = snapshot.WorkstationCapacityName
+		item.BatchSizeQty = snapshot.BatchSizeQty
+		item.BatchSizeUnit = snapshot.BatchSizeUnit
+		item.StandardMinutes = snapshot.StandardMinutes
+		item.HourlyRate = snapshot.HourlyRate
+		item = plannedCapacitySplitMetrics(item)
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.production_plan_operation_splits(
+				production_plan_id,production_plan_item_id,operation_seq,operation_id,operation,
+				workstation_id,workstation,workstation_capacity_id,workstation_capacity_name,
+				batch_size_qty,batch_size_unit,standard_minutes,hourly_rate,planned_batch_count,
+				planned_qty,planned_qty_g,planned_minutes,planned_operation_cost,note,created_at,updated_at
+			)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,now(),now())
+		`, r.schema), item.ProductionPlanID, item.ProductionPlanItemID, item.OperationSeq, item.OperationID, item.Operation,
+			item.WorkstationID, item.Workstation, item.WorkstationCapacityID, item.WorkstationCapacityName,
+			item.BatchSizeQty, item.BatchSizeUnit, item.StandardMinutes, item.HourlyRate, item.PlannedBatchCount,
+			item.PlannedQty, item.PlannedQtyG, item.PlannedMinutes, item.PlannedOperationCost, item.Note); err != nil {
+			return nil, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "production_plan", &cmd.ID, "save_operation_splits", postgresinfra.StrPtr("operation_splits"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", len(cmd.Items))), postgresinfra.AuditMeta{"split_count": len(cmd.Items)}); err != nil {
+		return nil, err
+	}
+	out, err := loadProductionPlanOperationSplitsTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+type productionPlanCapacitySnapshot struct {
+	WorkstationID           int64
+	Workstation             string
+	WorkstationCapacityName string
+	BatchSizeQty            float64
+	BatchSizeUnit           string
+	StandardMinutes         int
+	HourlyRate              float64
+}
+
+func loadWorkstationCapacitySnapshotForSplitTx(ctx context.Context, tx pgx.Tx, schema string, id int64) (productionPlanCapacitySnapshot, error) {
+	var row productionPlanCapacitySnapshot
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT c.workstation_id,COALESCE(w.name,''),c.name,
+		       COALESCE(c.batch_size_qty,0)::float8,COALESCE(c.batch_size_unit,''),
+		       c.standard_minutes,COALESCE(c.hourly_rate,0)::float8
+		FROM %s.manufacturing_workstation_capacities c
+		LEFT JOIN %s.manufacturing_workstations w ON w.id=c.workstation_id
+		WHERE c.id=$1 AND c.status='active'
+	`, schema, schema), id).Scan(&row.WorkstationID, &row.Workstation, &row.WorkstationCapacityName, &row.BatchSizeQty, &row.BatchSizeUnit, &row.StandardMinutes, &row.HourlyRate)
+	if err == pgx.ErrNoRows {
+		return productionPlanCapacitySnapshot{}, fmt.Errorf("workstation capacity not found or inactive")
+	}
+	return row, err
+}
+
+func plannedCapacitySplitMetrics(split productionapp.ProductionPlanOperationSplit) productionapp.ProductionPlanOperationSplit {
+	if split.PlannedBatchCount > 0 && split.BatchSizeQty > 0 {
+		split.PlannedQty = roundProductionPlanMoney(split.BatchSizeQty * float64(split.PlannedBatchCount))
+		split.PlannedQtyG = plannedCapacitySplitQtyG(split.PlannedQty, split.BatchSizeUnit)
+	}
+	if split.PlannedBatchCount > 0 && split.StandardMinutes > 0 {
+		split.PlannedMinutes = split.PlannedBatchCount * split.StandardMinutes
+	}
+	if split.PlannedMinutes > 0 && split.HourlyRate > 0 {
+		split.PlannedOperationCost = roundProductionPlanMoney(float64(split.PlannedMinutes) / 60 * split.HourlyRate)
+	}
+	return split
+}
+
+func plannedCapacitySplitQtyG(qty float64, unit string) int64 {
+	switch strings.ToLower(strings.TrimSpace(unit)) {
+	case "kg", "千克", "公斤":
+		return int64(math.Round(qty * 1000))
+	case "g", "克":
+		return int64(math.Round(qty))
+	default:
+		return 0
+	}
+}
+
+func roundProductionPlanMoney(v float64) float64 {
+	return math.Round(v*100) / 100
+}
+
+func productionPlanSplitsByItem(splits []productionapp.ProductionPlanOperationSplit) map[int64][]productionapp.ProductionPlanOperationSplit {
+	out := map[int64][]productionapp.ProductionPlanOperationSplit{}
+	for _, split := range splits {
+		out[split.ProductionPlanItemID] = append(out[split.ProductionPlanItemID], split)
+	}
+	return out
 }
 
 func aggregateProductionPlanMaterialSummary(items []productionapp.ProductionPlanItem) []productionapp.MaterialNeed {
@@ -502,10 +674,19 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 	if len(items) == 0 {
 		return productionapp.ProductionPlanSubmitResult{}, fmt.Errorf("production plan has no items")
 	}
+	planSplits, err := loadProductionPlanOperationSplitsTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return productionapp.ProductionPlanSubmitResult{}, err
+	}
+	splitsByItem := productionPlanSplitsByItem(planSplits)
 	workOrders := make([]productionapp.WorkOrderRow, 0, len(items))
 	jobCards := make([]productionapp.JobCardRow, 0)
 	for _, item := range items {
-		wo, cards, err := createReleasedWorkOrderForPlanItemTx(ctx, tx, r.schema, item, cmd.Operator)
+		splits := splitsByItem[item.ID]
+		if err := validateProductionPlanOperationSplitCoverage(item, splits); err != nil {
+			return productionapp.ProductionPlanSubmitResult{}, err
+		}
+		wo, cards, err := createReleasedWorkOrderForPlanItemTx(ctx, tx, r.schema, item, cmd.Operator, splits)
 		if err != nil {
 			return productionapp.ProductionPlanSubmitResult{}, err
 		}
@@ -525,7 +706,36 @@ func (r Repository) SubmitProductionPlan(ctx context.Context, cmd productionapp.
 	return productionapp.ProductionPlanSubmitResult{Plan: plan, WorkOrders: workOrders, JobCards: jobCards}, nil
 }
 
-func createReleasedWorkOrderForPlanItemTx(ctx context.Context, tx pgx.Tx, schema string, item productionapp.ProductionPlanItem, operator string) (productionapp.WorkOrderRow, []productionapp.JobCardRow, error) {
+func validateProductionPlanOperationSplitCoverage(item productionapp.ProductionPlanItem, splits []productionapp.ProductionPlanOperationSplit) error {
+	if len(splits) == 0 || item.PlannedG <= 0 {
+		return nil
+	}
+	type opKey struct {
+		seq int
+		id  int64
+		op  string
+	}
+	coverage := map[opKey]int64{}
+	for _, split := range splits {
+		if split.PlannedQtyG <= 0 {
+			continue
+		}
+		key := opKey{seq: split.OperationSeq, id: split.OperationID, op: strings.TrimSpace(split.Operation)}
+		coverage[key] += split.PlannedQtyG
+	}
+	for key, plannedG := range coverage {
+		if plannedG < item.PlannedG {
+			label := key.op
+			if label == "" {
+				label = fmt.Sprintf("operation_seq %d", key.seq)
+			}
+			return fmt.Errorf("operation capacity split for %s must cover planned_g %d", label, item.PlannedG)
+		}
+	}
+	return nil
+}
+
+func createReleasedWorkOrderForPlanItemTx(ctx context.Context, tx pgx.Tx, schema string, item productionapp.ProductionPlanItem, operator string, splits []productionapp.ProductionPlanOperationSplit) (productionapp.WorkOrderRow, []productionapp.JobCardRow, error) {
 	processTemplateID, processTemplateName := processTemplateFieldsFromSnapshot(item.ProcessSnapshotJSON)
 	var id int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -539,7 +749,7 @@ func createReleasedWorkOrderForPlanItemTx(ctx context.Context, tx pgx.Tx, schema
 	`, schema), releasedWorkOrderNo(item.PlanID, item.ID), item.PlanID, item.ID, item.ProductID, item.ProductName, item.SpecG, item.PlannedG, item.PlannedOutputG, item.OrderNos, defaultJSONArray(item.MaterialSnapshot), item.BomVersionID, item.OperationTemplateID, processTemplateID, processTemplateName, defaultJSONObject(item.ProcessSnapshotJSON), defaultJSONObject(item.ProductionConfigSnapshotJSON), defaultJSONArray(item.CustomerProductSnapshotJSON)).Scan(&id); err != nil {
 		return productionapp.WorkOrderRow{}, nil, err
 	}
-	cards, err := createPendingJobCardsForWorkOrderTx(ctx, tx, schema, id, item.ProcessSnapshotJSON, item.OperationTemplateID, item.PlannedG)
+	cards, err := createPendingJobCardsForWorkOrderTx(ctx, tx, schema, id, item.ProcessSnapshotJSON, item.OperationTemplateID, item.PlannedG, splits)
 	if err != nil {
 		return productionapp.WorkOrderRow{}, nil, err
 	}
@@ -571,7 +781,7 @@ func createReleasedWorkOrderForPlanItemTx(ctx context.Context, tx pgx.Tx, schema
 	return wo, cards, nil
 }
 
-func createPendingJobCardsForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, processSnapshotJSON string, operationTemplateID int64, plannedG int64) ([]productionapp.JobCardRow, error) {
+func createPendingJobCardsForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, processSnapshotJSON string, operationTemplateID int64, plannedG int64, splits []productionapp.ProductionPlanOperationSplit) ([]productionapp.JobCardRow, error) {
 	ops := operationsFromProcessSnapshot(processSnapshotJSON)
 	if len(ops) == 0 {
 		steps, err := loadOperationTemplateStepsTx(ctx, tx, schema, operationTemplateID)
@@ -587,30 +797,120 @@ func createPendingJobCardsForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema 
 	}
 	out := make([]productionapp.JobCardRow, 0, len(ops))
 	for _, op := range ops {
+		matchedSplits := operationSplitsForSnapshotOperation(op, splits)
+		if len(matchedSplits) > 0 {
+			for _, split := range matchedSplits {
+				card, err := insertPendingJobCardForOperationSplitTx(ctx, tx, schema, workOrderID, op, split, plannedG)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, card)
+			}
+			continue
+		}
 		var id int64
+		metrics := plannedJobCardMetrics(op, plannedG)
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO %s.job_cards(
-				work_order_id,sequence_no,operation,workstation,status,started_at,operator,
-				planned_input_qty,records_loss,parameter_schema_json
+				work_order_id,sequence_no,operation_id,workstation_id,operation,workstation,
+				workstation_capacity_id,workstation_capacity_name,batch_size_qty,batch_size_unit,
+				planned_batch_count,planned_minutes,hourly_rate,planned_operation_cost,
+				status,started_at,operator,planned_input_qty,records_loss,parameter_schema_json
 			)
-			VALUES($1,$2,$3,$4,'pending',now(),'',$5,$6,$7::jsonb)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending',now(),'',$15,$16,$17::jsonb)
 			RETURNING id
-		`, schema), workOrderID, op.Seq, op.Operation, op.Workstation, plannedG, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON)).Scan(&id); err != nil {
+		`, schema), workOrderID, op.Seq, op.OperationID, op.WorkstationID, op.Operation, op.Workstation, op.WorkstationCapacityID, op.WorkstationCapacityName, op.BatchSizeQty, op.BatchSizeUnit, metrics.PlannedBatchCount, metrics.PlannedMinutes, op.HourlyRate, metrics.PlannedOperationCost, plannedG, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON)).Scan(&id); err != nil {
 			return nil, err
 		}
 		out = append(out, productionapp.JobCardRow{
-			ID:                  id,
-			WorkOrderID:         workOrderID,
-			SequenceNo:          op.Seq,
-			Operation:           op.Operation,
-			Workstation:         op.Workstation,
-			Status:              "pending",
-			PlannedInputQty:     float64(plannedG),
-			RecordsLoss:         op.RecordsLoss,
-			ParameterSchemaJSON: defaultJSONObject(op.ParameterSchemaJSON),
+			ID:                      id,
+			WorkOrderID:             workOrderID,
+			SequenceNo:              op.Seq,
+			OperationID:             op.OperationID,
+			WorkstationID:           op.WorkstationID,
+			Operation:               op.Operation,
+			Workstation:             op.Workstation,
+			WorkstationCapacityID:   op.WorkstationCapacityID,
+			WorkstationCapacityName: op.WorkstationCapacityName,
+			BatchSizeQty:            op.BatchSizeQty,
+			BatchSizeUnit:           op.BatchSizeUnit,
+			PlannedBatchCount:       metrics.PlannedBatchCount,
+			PlannedMinutes:          metrics.PlannedMinutes,
+			HourlyRate:              op.HourlyRate,
+			PlannedOperationCost:    metrics.PlannedOperationCost,
+			Status:                  "pending",
+			PlannedInputQty:         float64(plannedG),
+			RecordsLoss:             op.RecordsLoss,
+			ParameterSchemaJSON:     defaultJSONObject(op.ParameterSchemaJSON),
 		})
 	}
 	return out, nil
+}
+
+func operationSplitsForSnapshotOperation(op processSnapshotOperation, splits []productionapp.ProductionPlanOperationSplit) []productionapp.ProductionPlanOperationSplit {
+	out := make([]productionapp.ProductionPlanOperationSplit, 0)
+	for _, split := range splits {
+		switch {
+		case split.OperationSeq > 0 && split.OperationSeq == op.Seq:
+			out = append(out, split)
+		case split.OperationID > 0 && split.OperationID == op.OperationID:
+			out = append(out, split)
+		case split.OperationSeq == 0 && strings.TrimSpace(split.Operation) != "" && strings.TrimSpace(split.Operation) == strings.TrimSpace(op.Operation):
+			out = append(out, split)
+		}
+	}
+	return out
+}
+
+func insertPendingJobCardForOperationSplitTx(ctx context.Context, tx pgx.Tx, schema string, workOrderID int64, op processSnapshotOperation, split productionapp.ProductionPlanOperationSplit, plannedG int64) (productionapp.JobCardRow, error) {
+	var id int64
+	plannedInputQty := float64(plannedG)
+	if split.PlannedQtyG > 0 {
+		plannedInputQty = float64(split.PlannedQtyG)
+	}
+	operation := firstNonEmpty(strings.TrimSpace(split.Operation), op.Operation)
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		INSERT INTO %s.job_cards(
+			work_order_id,sequence_no,operation_id,workstation_id,operation,workstation,
+			workstation_capacity_id,workstation_capacity_name,batch_size_qty,batch_size_unit,
+			planned_batch_count,planned_minutes,hourly_rate,planned_operation_cost,
+			status,started_at,operator,planned_input_qty,records_loss,parameter_schema_json
+		)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending',now(),'',$15,$16,$17::jsonb)
+		RETURNING id
+	`, schema), workOrderID, op.Seq, firstPositiveInt64(split.OperationID, op.OperationID), split.WorkstationID, operation, split.Workstation, split.WorkstationCapacityID, split.WorkstationCapacityName, split.BatchSizeQty, split.BatchSizeUnit, split.PlannedBatchCount, split.PlannedMinutes, split.HourlyRate, split.PlannedOperationCost, plannedInputQty, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON)).Scan(&id); err != nil {
+		return productionapp.JobCardRow{}, err
+	}
+	return productionapp.JobCardRow{
+		ID:                      id,
+		WorkOrderID:             workOrderID,
+		SequenceNo:              op.Seq,
+		OperationID:             firstPositiveInt64(split.OperationID, op.OperationID),
+		WorkstationID:           split.WorkstationID,
+		Operation:               operation,
+		Workstation:             split.Workstation,
+		WorkstationCapacityID:   split.WorkstationCapacityID,
+		WorkstationCapacityName: split.WorkstationCapacityName,
+		BatchSizeQty:            split.BatchSizeQty,
+		BatchSizeUnit:           split.BatchSizeUnit,
+		PlannedBatchCount:       split.PlannedBatchCount,
+		PlannedMinutes:          split.PlannedMinutes,
+		HourlyRate:              split.HourlyRate,
+		PlannedOperationCost:    split.PlannedOperationCost,
+		Status:                  "pending",
+		PlannedInputQty:         plannedInputQty,
+		RecordsLoss:             op.RecordsLoss,
+		ParameterSchemaJSON:     defaultJSONObject(op.ParameterSchemaJSON),
+	}, nil
+}
+
+func firstPositiveInt64(values ...int64) int64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func (r Repository) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOrderStartCommand) (productionapp.WorkOrderStartResult, error) {
@@ -824,13 +1124,25 @@ func operationRowsJSON(cards []productionapp.JobCardRow) string {
 	rows := make([]map[string]any, 0, len(cards))
 	for _, card := range cards {
 		rows = append(rows, map[string]any{
-			"id":                card.ID,
-			"sequence_no":       card.SequenceNo,
-			"operation":         card.Operation,
-			"workstation":       card.Workstation,
-			"status":            card.Status,
-			"records_loss":      card.RecordsLoss,
-			"planned_input_qty": card.PlannedInputQty,
+			"id":                        card.ID,
+			"sequence_no":               card.SequenceNo,
+			"operation_id":              card.OperationID,
+			"workstation_id":            card.WorkstationID,
+			"operation":                 card.Operation,
+			"workstation":               card.Workstation,
+			"workstation_capacity_id":   card.WorkstationCapacityID,
+			"workstation_capacity_name": card.WorkstationCapacityName,
+			"batch_size_qty":            card.BatchSizeQty,
+			"batch_size_unit":           card.BatchSizeUnit,
+			"planned_batch_count":       card.PlannedBatchCount,
+			"planned_minutes":           card.PlannedMinutes,
+			"hourly_rate":               card.HourlyRate,
+			"planned_operation_cost":    card.PlannedOperationCost,
+			"actual_minutes":            card.ActualMinutes,
+			"actual_operation_cost":     card.ActualOperationCost,
+			"status":                    card.Status,
+			"records_loss":              card.RecordsLoss,
+			"planned_input_qty":         card.PlannedInputQty,
 		})
 	}
 	b, err := json.Marshal(rows)

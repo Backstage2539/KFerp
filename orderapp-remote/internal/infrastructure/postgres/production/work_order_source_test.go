@@ -113,6 +113,32 @@ func TestWorkOrderFreezesProcessRouteAndUsesUsableDefaultBomPriority(t *testing.
 	}
 }
 
+func TestWorkOrderFreezesRouteCapacityTimeAndCostIntoJobCards(t *testing.T) {
+	srcBytes, err := os.ReadFile("work_order.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(srcBytes)
+	for _, want := range []string{
+		"WorkstationCapacityID",
+		"WorkstationCapacityName",
+		"BatchSizeQty",
+		"StandardMinutes",
+		"PlannedBatchCount",
+		"PlannedMinutes",
+		"PlannedOperationCost",
+		"plannedJobCardOperationCost",
+		"ceilPlannedBatchCount",
+		"planned_minutes",
+		"planned_operation_cost",
+		"actual_operation_cost",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("work order must freeze route capacity time/cost into job cards; missing %q", want)
+		}
+	}
+}
+
 func TestMaterialSnapshotsUseUsableDefaultBomPriority(t *testing.T) {
 	srcBytes, err := os.ReadFile("material_consumption.go")
 	if err != nil {

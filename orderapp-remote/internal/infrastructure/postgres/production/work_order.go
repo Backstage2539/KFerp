@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	productiondomain "orderapp/internal/domain/production"
 	postgresinfra "orderapp/internal/infrastructure/postgres"
 	"strings"
@@ -18,16 +19,73 @@ func workOrderNo(runningItemID int64) string {
 }
 
 type processSnapshotOperation struct {
-	Seq                  int    `json:"seq"`
-	OperationID          int64  `json:"operation_id"`
-	WorkstationID        int64  `json:"workstation_id"`
-	Operation            string `json:"operation"`
-	Workstation          string `json:"workstation"`
-	DefaultEquipment     string `json:"default_equipment"`
-	DefaultMinutes       int    `json:"default_minutes"`
-	RecordsLoss          bool   `json:"records_loss"`
-	ParameterSchemaJSON  string `json:"parameter_schema_json"`
-	QualityChecklistJSON string `json:"quality_checklist_json"`
+	Seq                     int     `json:"seq"`
+	OperationID             int64   `json:"operation_id"`
+	WorkstationID           int64   `json:"workstation_id"`
+	WorkstationCapacityID   int64   `json:"workstation_capacity_id"`
+	Operation               string  `json:"operation"`
+	Workstation             string  `json:"workstation"`
+	WorkstationCapacityName string  `json:"workstation_capacity_name"`
+	DefaultEquipment        string  `json:"default_equipment"`
+	DefaultMinutes          int     `json:"default_minutes"`
+	BatchSizeQty            float64 `json:"batch_size_qty"`
+	BatchSizeUnit           string  `json:"batch_size_unit"`
+	StandardMinutes         int     `json:"standard_minutes"`
+	HourlyRate              float64 `json:"hourly_rate"`
+	PlannedBatchCount       int     `json:"planned_batch_count"`
+	PlannedMinutes          int     `json:"planned_minutes"`
+	PlannedOperationCost    float64 `json:"planned_operation_cost"`
+	RecordsLoss             bool    `json:"records_loss"`
+	ParameterSchemaJSON     string  `json:"parameter_schema_json"`
+	QualityChecklistJSON    string  `json:"quality_checklist_json"`
+}
+
+type plannedOperationMetrics struct {
+	PlannedBatchCount    int
+	PlannedMinutes       int
+	PlannedOperationCost float64
+}
+
+func plannedJobCardMetrics(op processSnapshotOperation, plannedG int64) plannedOperationMetrics {
+	standardMinutes := op.StandardMinutes
+	if standardMinutes <= 0 {
+		standardMinutes = op.DefaultMinutes
+	}
+	batchCount := op.PlannedBatchCount
+	if batchCount <= 0 {
+		batchCount = ceilPlannedBatchCount(plannedG, op.BatchSizeQty, op.BatchSizeUnit)
+	}
+	plannedMinutes := op.PlannedMinutes
+	if plannedMinutes <= 0 && batchCount > 0 && standardMinutes > 0 {
+		plannedMinutes = batchCount * standardMinutes
+	}
+	plannedOperationCost := op.PlannedOperationCost
+	if plannedOperationCost <= 0 {
+		plannedOperationCost = plannedJobCardOperationCost(plannedMinutes, op.HourlyRate)
+	}
+	return plannedOperationMetrics{PlannedBatchCount: batchCount, PlannedMinutes: plannedMinutes, PlannedOperationCost: plannedOperationCost}
+}
+
+func ceilPlannedBatchCount(plannedG int64, batchSizeQty float64, batchSizeUnit string) int {
+	if plannedG <= 0 || batchSizeQty <= 0 {
+		return 0
+	}
+	plannedQty := float64(plannedG)
+	switch strings.ToLower(strings.TrimSpace(batchSizeUnit)) {
+	case "kg", "千克", "公斤":
+		plannedQty = plannedQty / 1000
+	case "g", "克":
+	default:
+		plannedQty = plannedQty / 1000
+	}
+	return int(math.Ceil(plannedQty / batchSizeQty))
+}
+
+func plannedJobCardOperationCost(plannedMinutes int, hourlyRate float64) float64 {
+	if plannedMinutes <= 0 || hourlyRate <= 0 {
+		return 0
+	}
+	return math.Round((float64(plannedMinutes)/60*hourlyRate)*100) / 100
 }
 
 type processTemplateSnapshot struct {
@@ -308,8 +366,20 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 	snapshot.RouteID = snapshot.ID
 	snapshot.RouteName = snapshot.Name
 	snapshot.ProductID = productID
+	snapshot.DefaultEquipment = ""
+	snapshot.DefaultMinutes = 0
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT seq,operation_id,workstation_id,operation,workstation,default_equipment,default_minutes,records_loss,
+		SELECT seq,operation_id,workstation_id,COALESCE(workstation_capacity_id,0),
+		       operation,workstation,COALESCE(workstation_capacity_name,''),
+		       default_equipment,default_minutes,
+		       COALESCE(batch_size_qty,0)::float8,
+		       COALESCE(batch_size_unit,''),
+		       COALESCE(standard_minutes,0),
+		       COALESCE(hourly_rate,0)::float8,
+		       COALESCE(planned_batch_count,0),
+		       COALESCE(planned_minutes,0),
+		       COALESCE(planned_operation_cost,0)::float8,
+		       records_loss,
 		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
 		FROM %s.process_route_operations
 		WHERE route_id=$1
@@ -321,9 +391,15 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 	defer rows.Close()
 	for rows.Next() {
 		var op processSnapshotOperation
-		if err := rows.Scan(&op.Seq, &op.OperationID, &op.WorkstationID, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.QualityChecklistJSON); err != nil {
+		if err := rows.Scan(
+			&op.Seq, &op.OperationID, &op.WorkstationID, &op.WorkstationCapacityID,
+			&op.Operation, &op.Workstation, &op.WorkstationCapacityName, &op.DefaultEquipment, &op.DefaultMinutes,
+			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
+			&op.RecordsLoss, &op.QualityChecklistJSON,
+		); err != nil {
 			return nil, nil, err
 		}
+		op = routeSequenceOnlyOperation(op)
 		op.ParameterSchemaJSON = "{}"
 		snapshot.Operations = append(snapshot.Operations, op)
 	}
@@ -335,6 +411,23 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 		return nil, nil, err
 	}
 	return &snapshot, b, nil
+}
+
+func routeSequenceOnlyOperation(op processSnapshotOperation) processSnapshotOperation {
+	op.WorkstationID = 0
+	op.WorkstationCapacityID = 0
+	op.Workstation = ""
+	op.WorkstationCapacityName = ""
+	op.DefaultEquipment = ""
+	op.DefaultMinutes = 0
+	op.BatchSizeQty = 0
+	op.BatchSizeUnit = ""
+	op.StandardMinutes = 0
+	op.HourlyRate = 0
+	op.PlannedBatchCount = 0
+	op.PlannedMinutes = 0
+	op.PlannedOperationCost = 0
+	return op
 }
 
 func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operationTemplateID int64, operator string) (int64, error) {
@@ -419,13 +512,16 @@ func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 
 	if processSnapshot != nil && len(processSnapshot.Operations) > 0 {
 		for _, op := range processSnapshot.Operations {
+			metrics := plannedJobCardMetrics(op, plannedG)
 			if _, err := tx.Exec(ctx, fmt.Sprintf(`
 				INSERT INTO %s.job_cards(
-					work_order_id,sequence_no,operation,workstation,status,started_at,operator,
-					planned_input_qty,records_loss,parameter_schema_json
+					work_order_id,sequence_no,operation_id,workstation_id,operation,workstation,
+					workstation_capacity_id,workstation_capacity_name,batch_size_qty,batch_size_unit,
+					planned_batch_count,planned_minutes,hourly_rate,planned_operation_cost,
+					status,started_at,operator,planned_input_qty,records_loss,parameter_schema_json
 				)
-				VALUES($1,$2,$3,$4,'running',now(),$5,$6,$7,$8::jsonb)
-			`, schema), workOrderID, op.Seq, op.Operation, op.Workstation, operator, plannedG, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON)); err != nil {
+				VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'running',now(),$15,$16,$17,$18::jsonb)
+			`, schema), workOrderID, op.Seq, op.OperationID, op.WorkstationID, op.Operation, op.Workstation, op.WorkstationCapacityID, op.WorkstationCapacityName, op.BatchSizeQty, op.BatchSizeUnit, metrics.PlannedBatchCount, metrics.PlannedMinutes, op.HourlyRate, metrics.PlannedOperationCost, operator, plannedG, op.RecordsLoss, defaultJSONObject(op.ParameterSchemaJSON)); err != nil {
 				return 0, err
 			}
 		}
@@ -647,8 +743,20 @@ func loadProcessRouteSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, sche
 	snapshot.RouteID = snapshot.ID
 	snapshot.RouteName = snapshot.Name
 	snapshot.ProductID = productID
+	snapshot.DefaultEquipment = ""
+	snapshot.DefaultMinutes = 0
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT seq,operation_id,workstation_id,operation,workstation,default_equipment,default_minutes,records_loss,
+		SELECT seq,operation_id,workstation_id,COALESCE(workstation_capacity_id,0),
+		       operation,workstation,COALESCE(workstation_capacity_name,''),
+		       default_equipment,default_minutes,
+		       COALESCE(batch_size_qty,0)::float8,
+		       COALESCE(batch_size_unit,''),
+		       COALESCE(standard_minutes,0),
+		       COALESCE(hourly_rate,0)::float8,
+		       COALESCE(planned_batch_count,0),
+		       COALESCE(planned_minutes,0),
+		       COALESCE(planned_operation_cost,0)::float8,
+		       records_loss,
 		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
 		FROM %s.process_route_operations
 		WHERE route_id=$1
@@ -663,9 +771,15 @@ func loadProcessRouteSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, sche
 	defer rows.Close()
 	for rows.Next() {
 		var op processSnapshotOperation
-		if err := rows.Scan(&op.Seq, &op.OperationID, &op.WorkstationID, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.QualityChecklistJSON); err != nil {
+		if err := rows.Scan(
+			&op.Seq, &op.OperationID, &op.WorkstationID, &op.WorkstationCapacityID,
+			&op.Operation, &op.Workstation, &op.WorkstationCapacityName, &op.DefaultEquipment, &op.DefaultMinutes,
+			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
+			&op.RecordsLoss, &op.QualityChecklistJSON,
+		); err != nil {
 			return nil, nil, err
 		}
+		op = routeSequenceOnlyOperation(op)
 		op.ParameterSchemaJSON = "{}"
 		snapshot.Operations = append(snapshot.Operations, op)
 	}
@@ -718,7 +832,17 @@ func loadActiveProcessTemplateSnapshotTx(ctx context.Context, tx pgx.Tx, schema 
 	}
 	snapshot.Source = "process_template"
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT seq,operation_id,workstation_id,operation,workstation,default_equipment,default_minutes,records_loss,
+		SELECT seq,operation_id,workstation_id,COALESCE(workstation_capacity_id,0),
+		       operation,workstation,COALESCE(workstation_capacity_name,''),
+		       default_equipment,default_minutes,
+		       COALESCE(batch_size_qty,0)::float8,
+		       COALESCE(batch_size_unit,''),
+		       COALESCE(standard_minutes,0),
+		       COALESCE(hourly_rate,0)::float8,
+		       COALESCE(planned_batch_count,0),
+		       COALESCE(planned_minutes,0),
+		       COALESCE(planned_operation_cost,0)::float8,
+		       records_loss,
 		       COALESCE(parameter_schema_json,'{}'::jsonb)::text,
 		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
 		FROM %s.process_template_operations
@@ -734,7 +858,12 @@ func loadActiveProcessTemplateSnapshotTx(ctx context.Context, tx pgx.Tx, schema 
 	defer rows.Close()
 	for rows.Next() {
 		var op processSnapshotOperation
-		if err := rows.Scan(&op.Seq, &op.OperationID, &op.WorkstationID, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.ParameterSchemaJSON, &op.QualityChecklistJSON); err != nil {
+		if err := rows.Scan(
+			&op.Seq, &op.OperationID, &op.WorkstationID, &op.WorkstationCapacityID,
+			&op.Operation, &op.Workstation, &op.WorkstationCapacityName, &op.DefaultEquipment, &op.DefaultMinutes,
+			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
+			&op.RecordsLoss, &op.ParameterSchemaJSON, &op.QualityChecklistJSON,
+		); err != nil {
 			return nil, nil, err
 		}
 		snapshot.Operations = append(snapshot.Operations, op)
@@ -767,8 +896,20 @@ func operationSummaryJSONForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema s
 		SELECT COALESCE(jsonb_agg(jsonb_build_object(
 			'id', id,
 			'sequence_no', sequence_no,
+			'operation_id', operation_id,
+			'workstation_id', workstation_id,
 			'operation', operation,
 			'workstation', workstation,
+			'workstation_capacity_id', workstation_capacity_id,
+			'workstation_capacity_name', workstation_capacity_name,
+			'batch_size_qty', batch_size_qty,
+			'batch_size_unit', batch_size_unit,
+			'planned_batch_count', planned_batch_count,
+			'planned_minutes', planned_minutes,
+			'hourly_rate', hourly_rate,
+			'planned_operation_cost', planned_operation_cost,
+			'actual_minutes', actual_minutes,
+			'actual_operation_cost', actual_operation_cost,
 			'status', status,
 			'records_loss', records_loss,
 			'planned_input_qty', planned_input_qty,
@@ -823,6 +964,10 @@ func recordBatchCostForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 	var operationCost float64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT COALESCE(SUM(CASE
+			WHEN COALESCE(jc.actual_operation_cost,0) > 0
+				THEN COALESCE(jc.actual_operation_cost,0)
+			WHEN COALESCE(jc.planned_operation_cost,0) > 0
+				THEN COALESCE(jc.planned_operation_cost,0)
 			WHEN COALESCE(NULLIF(jc.cost_type,''),'fixed') IN ('per_kg_input','per_input_kg')
 				THEN COALESCE(jc.cost_rate,0) * COALESCE(NULLIF(ri.input_g,0), $2)::numeric / 1000.0
 			WHEN COALESCE(NULLIF(jc.cost_type,''),'fixed') IN ('per_kg_output','per_finished_kg','per_kg')
@@ -904,8 +1049,20 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		           SELECT jsonb_agg(jsonb_build_object(
 		               'id', jc.id,
 		               'sequence_no', jc.sequence_no,
+		               'operation_id', jc.operation_id,
+		               'workstation_id', jc.workstation_id,
 		               'operation', jc.operation,
 		               'workstation', jc.workstation,
+		               'workstation_capacity_id', jc.workstation_capacity_id,
+		               'workstation_capacity_name', jc.workstation_capacity_name,
+		               'batch_size_qty', jc.batch_size_qty,
+		               'batch_size_unit', jc.batch_size_unit,
+		               'planned_batch_count', jc.planned_batch_count,
+		               'planned_minutes', jc.planned_minutes,
+		               'hourly_rate', jc.hourly_rate,
+		               'planned_operation_cost', jc.planned_operation_cost,
+		               'actual_minutes', jc.actual_minutes,
+		               'actual_operation_cost', jc.actual_operation_cost,
 		               'status', jc.status,
 		               'records_loss', jc.records_loss,
 		               'planned_input_qty', jc.planned_input_qty,
@@ -1053,7 +1210,15 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 	args = append(args, query.Limit)
 	limitArg := len(args)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,work_order_id,sequence_no,operation,workstation,status,
+		SELECT id,work_order_id,sequence_no,
+		       COALESCE(operation_id,0),COALESCE(workstation_id,0),
+		       operation,workstation,
+		       COALESCE(workstation_capacity_id,0),COALESCE(workstation_capacity_name,''),
+		       COALESCE(batch_size_qty,0)::float8,COALESCE(batch_size_unit,''),
+		       COALESCE(planned_batch_count,0),COALESCE(planned_minutes,0),
+		       COALESCE(hourly_rate,0)::float8,COALESCE(planned_operation_cost,0)::float8,
+		       COALESCE(actual_minutes,0),COALESCE(actual_operation_cost,0)::float8,
+		       status,
 		       COALESCE(to_char(started_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(paused_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(resumed_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),operator,
 		       COALESCE(planned_input_qty,0)::float8,
 		       COALESCE(actual_input_qty,0)::float8,
@@ -1077,7 +1242,15 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 	out := make([]productionapp.JobCardRow, 0)
 	for rows.Next() {
 		var row productionapp.JobCardRow
-		if err := rows.Scan(&row.ID, &row.WorkOrderID, &row.SequenceNo, &row.Operation, &row.Workstation, &row.Status, &row.StartedAt, &row.PausedAt, &row.ResumedAt, &row.CompletedAt, &row.Operator, &row.PlannedInputQty, &row.ActualInputQty, &row.ActualOutputQty, &row.ActualLossQty, &row.ActualLossRate, &row.RecordsLoss, &row.LossReason, &row.ExceptionReason, &row.MetricsJSON, &row.ParameterSchemaJSON); err != nil {
+		if err := rows.Scan(
+			&row.ID, &row.WorkOrderID, &row.SequenceNo, &row.OperationID, &row.WorkstationID,
+			&row.Operation, &row.Workstation, &row.WorkstationCapacityID, &row.WorkstationCapacityName,
+			&row.BatchSizeQty, &row.BatchSizeUnit, &row.PlannedBatchCount, &row.PlannedMinutes,
+			&row.HourlyRate, &row.PlannedOperationCost, &row.ActualMinutes, &row.ActualOperationCost,
+			&row.Status, &row.StartedAt, &row.PausedAt, &row.ResumedAt, &row.CompletedAt, &row.Operator,
+			&row.PlannedInputQty, &row.ActualInputQty, &row.ActualOutputQty, &row.ActualLossQty, &row.ActualLossRate,
+			&row.RecordsLoss, &row.LossReason, &row.ExceptionReason, &row.MetricsJSON, &row.ParameterSchemaJSON,
+		); err != nil {
 			return nil, err
 		}
 		out = append(out, row)
@@ -1102,10 +1275,15 @@ func (r Repository) UpdateJobCardActuals(ctx context.Context, cmd productionapp.
 		    actual_loss_rate=$6,
 		    exception_reason=$7,
 		    metrics_json=$8::jsonb,
-		    operator=COALESCE(NULLIF($9,''), operator)
+		    operator=COALESCE(NULLIF($9,''), operator),
+		    actual_minutes=$10,
+		    actual_operation_cost=CASE
+		        WHEN $10 > 0 THEN ROUND(($10::numeric / 60.0) * COALESCE(hourly_rate,0), 4)
+		        ELSE actual_operation_cost
+		    END
 		WHERE id=$1
 		RETURNING work_order_id
-	`, r.schema), cmd.ID, cmd.PlannedInputQty, cmd.ActualInputQty, cmd.ActualOutputQty, cmd.ActualLossQty, cmd.ActualLossRate, cmd.ExceptionReason, cmd.MetricsJSON, cmd.Actor).Scan(&workOrderID)
+	`, r.schema), cmd.ID, cmd.PlannedInputQty, cmd.ActualInputQty, cmd.ActualOutputQty, cmd.ActualLossQty, cmd.ActualLossRate, cmd.ExceptionReason, cmd.MetricsJSON, cmd.Actor, cmd.ActualMinutes).Scan(&workOrderID)
 	if err == pgx.ErrNoRows {
 		return fmt.Errorf("job card not found")
 	}
@@ -1119,7 +1297,7 @@ func (r Repository) UpdateJobCardActuals(ctx context.Context, cmd productionapp.
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.work_orders SET operation_summary_json=$2::jsonb WHERE id=$1`, r.schema), workOrderID, summary); err != nil {
 		return err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "job_card", &cmd.ID, "update_metrics", postgresinfra.StrPtr("actual_loss"), nil, postgresinfra.StrPtr(fmt.Sprintf("%.4f", cmd.ActualLossQty)), postgresinfra.AuditMeta{"work_order_id": workOrderID, "planned_input_qty": cmd.PlannedInputQty, "actual_input_qty": cmd.ActualInputQty, "actual_output_qty": cmd.ActualOutputQty, "actual_loss_qty": cmd.ActualLossQty, "actual_loss_rate": cmd.ActualLossRate, "exception_reason": cmd.ExceptionReason}); err != nil {
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "job_card", &cmd.ID, "update_metrics", postgresinfra.StrPtr("actual_loss"), nil, postgresinfra.StrPtr(fmt.Sprintf("%.4f", cmd.ActualLossQty)), postgresinfra.AuditMeta{"work_order_id": workOrderID, "planned_input_qty": cmd.PlannedInputQty, "actual_input_qty": cmd.ActualInputQty, "actual_output_qty": cmd.ActualOutputQty, "actual_loss_qty": cmd.ActualLossQty, "actual_loss_rate": cmd.ActualLossRate, "actual_minutes": cmd.ActualMinutes, "exception_reason": cmd.ExceptionReason}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

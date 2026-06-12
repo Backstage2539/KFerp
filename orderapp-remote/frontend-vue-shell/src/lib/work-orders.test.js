@@ -18,6 +18,34 @@ test('work orders display frozen route operations from process snapshot when no 
   assert.match(source, /workOrderStartEndpoint\(row\)/)
 })
 
+test('work orders and job cards surface frozen workstation capacity time and operation cost', () => {
+  const workOrderSource = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
+  const jobCardSource = fs.readFileSync(new URL('../views/JobCardsView.vue', import.meta.url), 'utf8')
+
+  for (const marker of [
+    '工位产能',
+    '计划分钟',
+    '计划工序成本',
+    'workstation_capacity_name',
+    'planned_minutes',
+    'planned_operation_cost',
+    'operationPlanText',
+  ]) {
+    assert.match(workOrderSource, new RegExp(marker))
+  }
+  for (const marker of [
+    '工位产能',
+    '计划分钟',
+    '实际分钟',
+    '计划工序成本',
+    '实际工序成本',
+    'actual_minutes',
+    'actual_operation_cost',
+  ]) {
+    assert.match(jobCardSource, new RegExp(marker))
+  }
+})
+
 test('work order main table uses generic manufacturing columns instead of roasting advice', () => {
   const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
 

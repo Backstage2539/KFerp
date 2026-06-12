@@ -24,7 +24,7 @@
               <td>
                 <strong>{{ row.name }}</strong>
                 <small>#{{ row.id }} · {{ row.code || '无编码' }}</small>
-                <small>{{ row.default_minutes || 0 }} 分钟 · {{ row.updated_at || '-' }}</small>
+                <small>{{ row.updated_at || '-' }}</small>
               </td>
               <td class="master-status">
                 <span :class="['pill', row.status]">{{ statusLabel(row.status) }}</span>
@@ -36,12 +36,11 @@
         </table>
       </section>
 
-      <section class="panel editor master-editor-panel operation-editor-panel">
+      <section class="panel editor master-editor-panel operation-editor-panel" data-ownership="工序不决定工时">
         <div class="section-title">{{ form.id ? '编辑工序' : '新建工序' }}</div>
         <div class="form-grid">
           <label><span>工序名称</span><input v-model.trim="form.name" placeholder="烘焙 / 研磨 / 包装" /></label>
           <label><span>编码</span><input v-model.trim="form.code" placeholder="ROAST / PACK" /></label>
-          <label><span>默认工时(分钟)</span><input v-model.number="form.default_minutes" type="number" min="0" step="1" /></label>
           <label>
             <span>状态</span>
             <select v-model="form.status">
@@ -132,7 +131,7 @@ async function saveOperation() {
     return
   }
   await mutate(async () => {
-    const saved = await apiSend('/api/manufacturing-operations', { body: { ...form, default_minutes: Number(form.default_minutes || 0) } })
+    const saved = await apiSend('/api/manufacturing-operations', { body: { ...form, default_minutes: 0 } })
     editOperation(saved)
     await loadOperations()
     ok.value = '已保存工序'

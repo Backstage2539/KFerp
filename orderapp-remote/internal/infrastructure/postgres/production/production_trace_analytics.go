@@ -79,13 +79,26 @@ func (r Repository) productionCostVariance(ctx context.Context, query production
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT wo.id,wo.work_order_no,COALESCE(NULLIF(pbc.batch_id,''), wo.batch_id, ''),wo.product_name,
 		       COALESCE(pbc.unit_cost_per_kg * (NULLIF(wo.planned_g,0)::float8 / 1000.0), 0)::float8 AS planned_cost,
-		       COALESCE(NULLIF(wo.actual_cost,0), pbc.total_cost, 0)::float8 AS actual_cost
+		       COALESCE(NULLIF(wo.actual_cost,0), pbc.total_cost, 0)::float8 AS actual_cost,
+		       COALESCE((
+		           SELECT SUM(COALESCE(jc.planned_operation_cost,0))::float8
+		           FROM %s.job_cards jc
+		           WHERE jc.work_order_id=wo.id
+		       ),0)::float8 AS planned_operation_cost,
+		       COALESCE((
+		           SELECT SUM(CASE
+		               WHEN COALESCE(jc.actual_operation_cost,0) > 0 THEN COALESCE(jc.actual_operation_cost,0)
+		               ELSE COALESCE(jc.planned_operation_cost,0)
+		           END)::float8
+		           FROM %s.job_cards jc
+		           WHERE jc.work_order_id=wo.id
+		       ),0)::float8 AS actual_operation_cost
 		FROM %s.work_orders wo
 		LEFT JOIN %s.production_batch_costs pbc ON pbc.running_item_id=wo.running_item_id OR (pbc.batch_id <> '' AND pbc.batch_id=wo.batch_id)
 		WHERE %s
 		ORDER BY wo.completed_at DESC NULLS LAST, wo.created_at DESC, wo.id DESC
 		LIMIT $%d
-	`, r.schema, r.schema, where, limitArg), args...)
+	`, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +106,7 @@ func (r Repository) productionCostVariance(ctx context.Context, query production
 	out := make([]productionapp.ProductionCostVarianceRow, 0)
 	for rows.Next() {
 		var row productionapp.ProductionCostVarianceRow
-		if err := rows.Scan(&row.WorkOrderID, &row.WorkOrderNo, &row.BatchID, &row.ProductName, &row.PlannedCost, &row.ActualCost); err != nil {
+		if err := rows.Scan(&row.WorkOrderID, &row.WorkOrderNo, &row.BatchID, &row.ProductName, &row.PlannedCost, &row.ActualCost, &row.PlannedOperationCost, &row.ActualOperationCost); err != nil {
 			return nil, err
 		}
 		row.Variance = row.ActualCost - row.PlannedCost

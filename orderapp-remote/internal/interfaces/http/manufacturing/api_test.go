@@ -13,10 +13,11 @@ import (
 )
 
 type apiRepo struct {
-	processSaved  manufacturingapp.SaveProcessTemplateCommand
-	routeSaved    manufacturingapp.SaveProcessRouteCommand
-	industrySaved manufacturingapp.SaveIndustryTemplateCommand
-	publishedID   int64
+	processSaved             manufacturingapp.SaveProcessTemplateCommand
+	routeSaved               manufacturingapp.SaveProcessRouteCommand
+	industrySaved            manufacturingapp.SaveIndustryTemplateCommand
+	workstationCapacitySaved manufacturingapp.SaveWorkstationCapacityCommand
+	publishedID              int64
 }
 
 func (r *apiRepo) ListManufacturingOperations(ctx context.Context) ([]manufacturingapp.ManufacturingOperation, error) {
@@ -35,6 +36,24 @@ func (r *apiRepo) SaveManufacturingWorkstation(ctx context.Context, cmd manufact
 	return manufacturingapp.ManufacturingWorkstation{ID: 2, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes, HourlyRate: cmd.HourlyRate}, nil
 }
 func (r *apiRepo) DeactivateManufacturingWorkstation(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
+	return nil
+}
+func (r *apiRepo) ListManufacturingWorkstationCapacities(ctx context.Context, query manufacturingapp.WorkstationCapacityQuery) ([]manufacturingapp.ManufacturingWorkstationCapacity, error) {
+	return []manufacturingapp.ManufacturingWorkstationCapacity{{
+		ID: 9, WorkstationID: query.WorkstationID, Code: "BUHLER-18KG", Name: "布勒 18kg", Status: "active",
+		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15, HourlyRate: 300, ProductionCapacity: 1,
+	}}, nil
+}
+func (r *apiRepo) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd manufacturingapp.SaveWorkstationCapacityCommand) (manufacturingapp.ManufacturingWorkstationCapacity, error) {
+	r.workstationCapacitySaved = cmd
+	return manufacturingapp.ManufacturingWorkstationCapacity{
+		ID: 9, WorkstationID: cmd.WorkstationID, Code: cmd.Code, Name: cmd.Name, Status: cmd.Status,
+		BatchSizeQty: cmd.BatchSizeQty, BatchSizeUnit: cmd.BatchSizeUnit, StandardMinutes: cmd.StandardMinutes,
+		HourlyRate: cmd.HourlyRate, ProductionCapacity: cmd.ProductionCapacity,
+	}, nil
+}
+func (r *apiRepo) DeactivateManufacturingWorkstationCapacity(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
+	r.publishedID = cmd.ID
 	return nil
 }
 func (r *apiRepo) ListIndustryTemplates(ctx context.Context) ([]manufacturingapp.IndustryFieldTemplate, error) {
@@ -216,5 +235,37 @@ func TestProcessRouteAPIListSaveAndPublish(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || repo.publishedID != 9 {
 		t.Fatalf("publish route status=%d published=%d body=%s", rec.Code, repo.publishedID, rec.Body.String())
+	}
+}
+
+func TestWorkstationCapacityAPIListSaveAndDeactivate(t *testing.T) {
+	repo := &apiRepo{}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Manufacturing: manufacturingapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/manufacturing-workstation-capacities?workstation_id=2", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"布勒 18kg"`) {
+		t.Fatalf("list capacity status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	body := `{"workstation_id":2,"name":"布勒 15kg","batch_size_qty":15,"batch_size_unit":"kg","standard_minutes":13,"hourly_rate":280}`
+	req = httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstation-capacities", strings.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save capacity status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.workstationCapacitySaved.WorkstationID != 2 || repo.workstationCapacitySaved.BatchSizeQty != 15 || repo.workstationCapacitySaved.StandardMinutes != 13 || repo.workstationCapacitySaved.HourlyRate != 280 {
+		t.Fatalf("saved workstation capacity command = %+v", repo.workstationCapacitySaved)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstation-capacities/9/deactivate", strings.NewReader(`{}`))
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.publishedID != 9 {
+		t.Fatalf("deactivate capacity status=%d id=%d body=%s", rec.Code, repo.publishedID, rec.Body.String())
 	}
 }

@@ -7,10 +7,12 @@ import (
 )
 
 type fakeRepo struct {
-	savedProcess  SaveProcessTemplateCommand
-	savedRoute    SaveProcessRouteCommand
-	savedIndustry SaveIndustryTemplateCommand
-	publishedID   int64
+	savedProcess             SaveProcessTemplateCommand
+	savedRoute               SaveProcessRouteCommand
+	savedIndustry            SaveIndustryTemplateCommand
+	savedWorkstationCapacity SaveWorkstationCapacityCommand
+	workstationCapacities    []ManufacturingWorkstationCapacity
+	publishedID              int64
 }
 
 func (r *fakeRepo) ListManufacturingOperations(ctx context.Context) ([]ManufacturingOperation, error) {
@@ -29,6 +31,39 @@ func (r *fakeRepo) SaveManufacturingWorkstation(ctx context.Context, cmd SaveMan
 	return ManufacturingWorkstation{ID: 1, Name: cmd.Name, Code: cmd.Code, Status: cmd.Status, DefaultMinutes: cmd.DefaultMinutes, HourlyRate: cmd.HourlyRate}, nil
 }
 func (r *fakeRepo) DeactivateManufacturingWorkstation(ctx context.Context, cmd TemplateStatusCommand) error {
+	return nil
+}
+func (r *fakeRepo) ListManufacturingWorkstationCapacities(ctx context.Context, query WorkstationCapacityQuery) ([]ManufacturingWorkstationCapacity, error) {
+	rows := make([]ManufacturingWorkstationCapacity, 0)
+	for _, row := range r.workstationCapacities {
+		if query.WorkstationID > 0 && row.WorkstationID != query.WorkstationID {
+			continue
+		}
+		if query.Status != "" && row.Status != query.Status {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+func (r *fakeRepo) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd SaveWorkstationCapacityCommand) (ManufacturingWorkstationCapacity, error) {
+	r.savedWorkstationCapacity = cmd
+	return ManufacturingWorkstationCapacity{
+		ID:                 9,
+		WorkstationID:      cmd.WorkstationID,
+		Code:               cmd.Code,
+		Name:               cmd.Name,
+		Status:             cmd.Status,
+		BatchSizeQty:       cmd.BatchSizeQty,
+		BatchSizeUnit:      cmd.BatchSizeUnit,
+		StandardMinutes:    cmd.StandardMinutes,
+		HourlyRate:         cmd.HourlyRate,
+		ProductionCapacity: cmd.ProductionCapacity,
+		SortOrder:          cmd.SortOrder,
+		Note:               cmd.Note,
+	}, nil
+}
+func (r *fakeRepo) DeactivateManufacturingWorkstationCapacity(ctx context.Context, cmd TemplateStatusCommand) error {
 	return nil
 }
 func (r *fakeRepo) ListIndustryTemplates(ctx context.Context) ([]IndustryFieldTemplate, error) {
@@ -217,5 +252,88 @@ func TestSaveProcessRouteKeepsRouteLeanAndNormalizesOperations(t *testing.T) {
 	}
 	if strings.Contains(repo.savedRoute.Note, "expected_loss_rate") {
 		t.Fatalf("route should not carry product parameters: %+v", repo.savedRoute)
+	}
+}
+
+func TestSaveWorkstationCapacityNormalizesReusablePreset(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	got, err := svc.SaveManufacturingWorkstationCapacity(context.Background(), SaveWorkstationCapacityCommand{
+		WorkstationID:      2,
+		Name:               "布勒 18kg",
+		BatchSizeQty:       18,
+		BatchSizeUnit:      "kg",
+		StandardMinutes:    15,
+		HourlyRate:         300,
+		ProductionCapacity: 0,
+		Actor:              "tester",
+	})
+	if err != nil {
+		t.Fatalf("SaveManufacturingWorkstationCapacity: %v", err)
+	}
+	if got.Status != "active" || got.Code == "" || got.ProductionCapacity != 1 {
+		t.Fatalf("capacity defaults not normalized: %+v", got)
+	}
+	if repo.savedWorkstationCapacity.WorkstationID != 2 || repo.savedWorkstationCapacity.BatchSizeUnit != "kg" || repo.savedWorkstationCapacity.StandardMinutes != 15 {
+		t.Fatalf("saved capacity command = %+v", repo.savedWorkstationCapacity)
+	}
+}
+
+func TestSaveProcessRouteDropsWorkstationCapacityBatchTimeRateOwnership(t *testing.T) {
+	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
+		ID: 9, WorkstationID: 2, Name: "布勒 18kg", Status: "active",
+		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15, HourlyRate: 300,
+	}}}
+	svc := NewService(repo)
+	if _, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
+		Name: "烘焙路线",
+		Operations: []ProcessRouteOperation{{
+			Operation:               "烘焙",
+			WorkstationID:           2,
+			Workstation:             "布勒烘焙机",
+			WorkstationCapacityID:   9,
+			WorkstationCapacityName: "布勒 18kg",
+			BatchSizeQty:            18,
+			BatchSizeUnit:           "kg",
+			StandardMinutes:         15,
+			HourlyRate:              300,
+			PlannedBatchCount:       5,
+			PlannedMinutes:          75,
+			PlannedOperationCost:    375,
+			RecordsLoss:             true,
+		}},
+	}); err != nil {
+		t.Fatalf("SaveProcessRoute: %v", err)
+	}
+	op := repo.savedRoute.Operations[0]
+	if op.WorkstationID != 0 || op.Workstation != "" || op.WorkstationCapacityID != 0 || op.WorkstationCapacityName != "" {
+		t.Fatalf("route operation should not own workstation capacity: %+v", op)
+	}
+	if op.BatchSizeQty != 0 || op.BatchSizeUnit != "" || op.StandardMinutes != 0 || op.HourlyRate != 0 || op.PlannedBatchCount != 0 || op.PlannedMinutes != 0 || op.PlannedOperationCost != 0 {
+		t.Fatalf("route operation should not own batch/time/rate/cost fields: %+v", op)
+	}
+}
+
+func TestSaveProcessRouteIgnoresCapacityWorkstationMismatch(t *testing.T) {
+	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
+		ID: 9, WorkstationID: 2, Name: "布勒 18kg", Status: "active",
+		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15, HourlyRate: 300,
+	}}}
+	svc := NewService(repo)
+	_, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
+		Name: "错误路线",
+		Operations: []ProcessRouteOperation{{
+			Operation:             "烘焙",
+			WorkstationID:         3,
+			Workstation:           "智烘",
+			WorkstationCapacityID: 9,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SaveProcessRoute should ignore mismatched workstation capacity fields: %v", err)
+	}
+	op := repo.savedRoute.Operations[0]
+	if op.WorkstationID != 0 || op.WorkstationCapacityID != 0 || op.Workstation != "" {
+		t.Fatalf("route operation should drop mismatched capacity fields: %+v", op)
 	}
 }

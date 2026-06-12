@@ -39,7 +39,7 @@
               <td>
                 <strong>{{ row.name }}</strong>
                 <small>#{{ row.id }} · {{ row.operations?.length || 0 }} 道工序</small>
-                <small>{{ row.default_equipment || '无默认设备' }} · {{ row.default_minutes || 0 }} 分钟 · {{ row.updated_at || '-' }}</small>
+                <small>{{ row.updated_at || '-' }}</small>
               </td>
               <td><span :class="['pill', row.status]">{{ statusLabel(row.status) }}</span></td>
             </tr>
@@ -64,14 +64,6 @@
               <option value="active">已发布</option>
               <option value="inactive">停用</option>
             </select>
-          </label>
-          <label>
-            <span>默认设备</span>
-            <input v-model.trim="form.default_equipment" placeholder="例如 烘焙机 / 包装台 / 缝制组" />
-          </label>
-          <label>
-            <span>默认工时(分钟)</span>
-            <input v-model.number="form.default_minutes" type="number" min="0" step="1" />
           </label>
         </div>
         <label class="wide">
@@ -105,30 +97,6 @@
               <label class="operation-name">
                 <span>工序名称快照</span>
                 <input v-model.trim="op.operation" placeholder="烘焙 / 裁剪 / 包装" />
-              </label>
-              <label class="workstation-select">
-                <span>工位/设备</span>
-                <SearchableSelect
-                  v-model="op.workstation_id"
-                  :options="activeWorkstations"
-                  :option-label="optionLabel"
-                  :option-meta="workstationMeta"
-                  :option-value="optionNumericValue"
-                  placeholder="选择工位/设备"
-                  empty-text="暂无工位/设备"
-                  @select="applyWorkstation(index, $event)" />
-              </label>
-              <label class="workstation-name">
-                <span>工位快照</span>
-                <input v-model.trim="op.workstation" placeholder="烘焙机 / 包装台 / 质检台" />
-              </label>
-              <label class="operation-equipment">
-                <span>设备</span>
-                <input v-model.trim="op.default_equipment" />
-              </label>
-              <label class="operation-minutes">
-                <span>分钟</span>
-                <input v-model.number="op.default_minutes" type="number" min="0" step="1" />
               </label>
               <label class="checkbox operation-loss">
                 <input v-model="op.records_loss" type="checkbox" />
@@ -165,12 +133,10 @@ const error = ref('')
 const ok = ref('')
 const routes = ref([])
 const operations = ref([])
-const workstations = ref([])
 const filters = reactive({ status: '' })
 const form = reactive(blankRoute())
 
 const activeOperations = computed(() => operations.value.filter((row) => row.status === 'active'))
-const activeWorkstations = computed(() => workstations.value.filter((row) => row.status === 'active'))
 
 function blankRoute() {
   return {
@@ -188,11 +154,7 @@ function blankOperation(seq) {
   return {
     seq,
     operation_id: 0,
-    workstation_id: 0,
     operation: '',
-    workstation: '',
-    default_equipment: '',
-    default_minutes: 0,
     records_loss: false,
     quality_checklist_json: '[]',
     quality_checklist_text: '',
@@ -210,15 +172,6 @@ function optionNumericValue(option) {
 function operationMeta(option) {
   const parts = []
   if (option?.code) parts.push(option.code)
-  if (Number(option?.default_minutes || 0) > 0) parts.push(`${option.default_minutes} 分钟`)
-  return parts.join(' / ')
-}
-
-function workstationMeta(option) {
-  const parts = []
-  if (option?.code) parts.push(option.code)
-  if (Number(option?.default_minutes || 0) > 0) parts.push(`${option.default_minutes} 分钟`)
-  if (Number(option?.hourly_rate || 0) > 0) parts.push(`${option.hourly_rate}/小时`)
   return parts.join(' / ')
 }
 
@@ -257,10 +210,15 @@ function routePayload() {
   return {
     ...form,
     status: form.status || 'draft',
+    default_equipment: '',
+    default_minutes: 0,
     operations: (form.operations || []).map((op) => {
       const { quality_checklist_text: qualityChecklistText, ...rest } = op
       return {
-        ...rest,
+        seq: Number(rest.seq || 0),
+        operation_id: Number(rest.operation_id || 0),
+        operation: rest.operation || '',
+        records_loss: !!rest.records_loss,
         quality_checklist_json: qualityChecklistJSONFromText(qualityChecklistText),
       }
     }),
@@ -276,14 +234,14 @@ function normalizeRoute(row) {
     ...blankRoute(),
     ...row,
     id: Number(row.id || 0),
+    default_equipment: '',
     default_minutes: Number(row.default_minutes || 0),
     operations: (row.operations || []).length ? row.operations.map((op, index) => ({
       ...blankOperation(index + 1),
       ...op,
       seq: Number(op.seq || index + 1),
       operation_id: Number(op.operation_id || 0),
-      workstation_id: Number(op.workstation_id || 0),
-      default_minutes: Number(op.default_minutes || 0),
+      operation: op.operation || '',
       records_loss: !!op.records_loss,
       quality_checklist_json: op.quality_checklist_json || '[]',
       quality_checklist_text: qualityChecklistTextFromJSON(op.quality_checklist_json || '[]'),
@@ -304,12 +262,8 @@ async function loadAll() {
 }
 
 async function loadManufacturingMasterData() {
-  const [operationData, workstationData] = await Promise.all([
-    apiGet('/api/manufacturing-operations'),
-    apiGet('/api/manufacturing-workstations'),
-  ])
+  const operationData = await apiGet('/api/manufacturing-operations')
   operations.value = operationData?.rows || []
-  workstations.value = workstationData?.rows || []
 }
 
 async function loadRoutes() {
@@ -345,19 +299,6 @@ function applyOperation(index, option) {
   if (!op || !option) return
   op.operation_id = Number(option.id || 0)
   op.operation = option.name || op.operation
-  if (!Number(op.default_minutes || 0) && Number(option.default_minutes || 0) > 0) {
-    op.default_minutes = Number(option.default_minutes || 0)
-  }
-}
-
-function applyWorkstation(index, option) {
-  const op = form.operations[index]
-  if (!op || !option) return
-  op.workstation_id = Number(option.id || 0)
-  op.workstation = option.name || op.workstation
-  if (!Number(op.default_minutes || 0) && Number(option.default_minutes || 0) > 0) {
-    op.default_minutes = Number(option.default_minutes || 0)
-  }
 }
 
 async function mutate(action) {

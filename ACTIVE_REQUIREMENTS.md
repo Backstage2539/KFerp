@@ -6,6 +6,47 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS
+- Branch: codex/production-plan-capacity-splits-20260612
+- Owner/session: Codex goal / 2026-06-12
+- Status: implementation verified locally; not merged or deployed.
+- Scope: 更正 PR-486 旧口径。工艺路线只维护工序顺序，不保存工位、工位产能、单批标准、费率或计划成本；工位产能继续作为工位下单批标准主数据；生产计划草稿新增工序产能拆分，按计划行和工序选择工位产能并填写批次数，提交生产计划时冻结拆分到工单/工序卡。
+- DEV:
+  - DEV-487-ROUTE-SEQUENCE-ONLY：工艺路线页面和服务保存路径下线工位/工位产能/批量/工时/费率/计划成本字段；旧 DB 字段保留但新保存写空值，路线快照读取时清理旧字段。
+  - DEV-487-PRODUCTION-PLAN-SPLITS：新增 `production_plan_operation_splits` 表、`GET/POST /api/production-plans/:id/operation-splits`，保存草稿计划的工序产能拆分并写操作日志。
+  - DEV-487-JOBCARD-FREEZE：提交生产计划时读取拆分行，生成并冻结工序卡的工位产能、标准批量、计划批次数、计划投入、计划分钟、小时费率和计划工序成本；未配置拆分的工序保留普通工序卡兼容。
+- Verifier:
+  - RED/GREEN frontend: `node --test src/lib/process-routes.test.js src/lib/produce-plan.test.js` passed 26/26 on 2026-06-12 CST.
+  - RED/GREEN backend: `go test ./internal/infrastructure/postgres/production ./internal/interfaces/http/production ./internal/application/production ./internal/application/manufacturing -run 'TestProductionPlanSchemaCreatesOperationCapacitySplitTable|TestProductionPlanOperationSplitsOwnCapacityBatchPlanning|TestProductionPlanOperationSplitAPIReadsAndSavesDraftCapacitySplits|TestSaveProcessRouteDropsWorkstationCapacityBatchTimeRateOwnership|TestSaveProcessRouteIgnoresCapacityWorkstationMismatch|TestSaveWorkstationCapacityNormalizesReusablePreset|TestProductionPlanCreateAndSubmitCreatesDraftThenReleasedWorkOrder' -count=1` passed.
+  - Targeted packages: `go test ./internal/infrastructure/postgres/production ./internal/interfaces/http/production ./internal/application/production ./internal/application/manufacturing ./internal/infrastructure/postgres/manufacturing -count=1` passed.
+  - Support contracts: `go test ./internal/interfaces/http/support -run TestDev487ProductionPlanCapacitySplitContracts -count=1` passed.
+  - Full backend: `go test ./...` passed after updating affected fake repository and superseded PR-471/486 support contracts.
+  - Frontend build: `npm run build` in `orderapp-remote/frontend-vue-shell` passed with existing chunk-size warning.
+  - Repository verifier: `scripts/verify_kferp.sh changed` exited 0.
+  - Browser note: local Vite at `http://127.0.0.1:5177/vue-shell/?view=producePlan` loads but cannot render authenticated ERP view without a local backend session; browser-only acceptance is still needed after merge/deploy.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`.
+- Deployment: not merged/deployed yet.
+- Last update: 2026-06-12 Asia/Shanghai.
+
+### PR-486-WORKSTATION-CAPACITY-ROUTE-COST
+- Branch: codex/workstation-capacity-route-cost-20260612
+- Owner/session: Codex / 2026-06-12
+- Status: superseded by PR-487 ownership correction; PR-486 kept the workstation capacity master data and freeze-field groundwork.
+- Scope: 旧口径曾把工艺路线工序行作为计划工时、批量、费率和工序成本的权威位置；PR-487 已更正为工艺路线只管工序顺序，生产计划草稿的工序产能拆分决定本次批次数并冻结到工单/工序卡。
+- DEV:
+  - DEV-486-WORKSTATION-CAPACITY-MASTER：新增 `manufacturing_workstation_capacities`、API 和 Vue 工位产能维护，保存/停用写操作日志。
+  - DEV-486-ROUTE-OPERATION-COST-SNAPSHOT：旧路线工序行成本快照已由 PR-487 下线，新保存路径清空路线工位/产能/成本字段。
+  - DEV-486-JOB-CARD-TIME-COST-FREEZE：工序卡冻结字段保留；冻结来源已由 PR-487 改为生产计划工序产能拆分。
+- Verifier:
+  - RED backend/API/schema/support tests added for workstation capacity service/API/schema, route operation snapshots, job card freeze fields, work order freeze markers, and docs/seed markers.
+  - RED frontend tests added for 工位产能 route row, hidden 默认分钟, 工单/工序卡 frozen plan cost display, and production cost markers.
+  - Targeted GREEN: `go test ./internal/application/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/manufacturing ./internal/infrastructure/postgres/production ./internal/application/production ./internal/interfaces/http/support -run 'TestSaveWorkstationCapacityNormalizesReusablePreset|TestSaveProcessRouteSnapshotsWorkstationCapacityValues|TestSaveProcessRouteRejectsCapacityFromDifferentWorkstation|TestWorkstationCapacityAPIListSaveAndDeactivate|TestManufacturingSchemaAddsWorkstationCapacitiesAndRouteCostSnapshots|TestJobCardsSchemaFreezesRouteOperationTimeAndCost|TestWorkOrderFreezesRouteCapacityTimeAndCostIntoJobCards|TestDev486WorkstationCapacityRouteCostContracts' -count=1` passed on 2026-06-12 CST.
+  - Frontend GREEN: `node --test src/lib/process-routes.test.js src/lib/work-orders.test.js src/lib/production-costs.test.js` passed 15/15 on 2026-06-12 CST.
+  - Full check: `go test ./...`, `npm run build`, `git diff --check`, and `scripts/verify_kferp.sh changed` passed on 2026-06-12 CST.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`.
+- Deployment: historical entry; current correction follows PR-487.
+- Last update: 2026-06-12 Asia/Shanghai.
+
 ### PR-485-BOM-VERSION-ROUTE-DEFAULT
 - Branch: codex/bom-version-route-20260612
 - Owner/session: Codex / 2026-06-12

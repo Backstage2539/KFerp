@@ -193,6 +193,113 @@ func (r Repository) manufacturingWorkstationByID(ctx context.Context, id int64) 
 	return manufacturingapp.ManufacturingWorkstation{}, pgx.ErrNoRows
 }
 
+func (r Repository) ListManufacturingWorkstationCapacities(ctx context.Context, query manufacturingapp.WorkstationCapacityQuery) ([]manufacturingapp.ManufacturingWorkstationCapacity, error) {
+	args := []any{}
+	where := "1=1"
+	if query.WorkstationID > 0 {
+		args = append(args, query.WorkstationID)
+		where += fmt.Sprintf(" AND workstation_id=$%d", len(args))
+	}
+	if strings.TrimSpace(query.Status) != "" {
+		args = append(args, strings.TrimSpace(query.Status))
+		where += fmt.Sprintf(" AND status=$%d", len(args))
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id,workstation_id,code,name,status,
+		       COALESCE(batch_size_qty,0)::float8,
+		       COALESCE(batch_size_unit,''),
+		       COALESCE(standard_minutes,0),
+		       COALESCE(hourly_rate,0)::float8,
+		       COALESCE(production_capacity,1),
+		       COALESCE(sort_order,0),
+		       COALESCE(note,''),
+		       to_char(created_at,'YYYY-MM-DD HH24:MI'),
+		       to_char(updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.manufacturing_workstation_capacities
+		WHERE %s
+		ORDER BY CASE WHEN status='active' THEN 0 ELSE 1 END, workstation_id, sort_order, name, id
+	`, r.schema, where), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]manufacturingapp.ManufacturingWorkstationCapacity, 0)
+	for rows.Next() {
+		var row manufacturingapp.ManufacturingWorkstationCapacity
+		if err := rows.Scan(&row.ID, &row.WorkstationID, &row.Code, &row.Name, &row.Status, &row.BatchSizeQty, &row.BatchSizeUnit, &row.StandardMinutes, &row.HourlyRate, &row.ProductionCapacity, &row.SortOrder, &row.Note, &row.CreatedAt, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (r Repository) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd manufacturingapp.SaveWorkstationCapacityCommand) (manufacturingapp.ManufacturingWorkstationCapacity, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return manufacturingapp.ManufacturingWorkstationCapacity{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	action := "create"
+	var id int64
+	if cmd.ID > 0 {
+		action = "update"
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			UPDATE %s.manufacturing_workstation_capacities
+			SET workstation_id=$2,code=$3,name=$4,status=$5,batch_size_qty=$6,batch_size_unit=$7,
+			    standard_minutes=$8,hourly_rate=$9,production_capacity=$10,sort_order=$11,note=$12,updated_at=now()
+			WHERE id=$1
+			RETURNING id
+		`, r.schema), cmd.ID, cmd.WorkstationID, cmd.Code, cmd.Name, cmd.Status, cmd.BatchSizeQty, cmd.BatchSizeUnit, cmd.StandardMinutes, cmd.HourlyRate, cmd.ProductionCapacity, cmd.SortOrder, cmd.Note).Scan(&id)
+	} else {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			INSERT INTO %s.manufacturing_workstation_capacities(
+				workstation_id,code,name,status,batch_size_qty,batch_size_unit,standard_minutes,hourly_rate,production_capacity,sort_order,note,created_at,updated_at
+			)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),now())
+			RETURNING id
+		`, r.schema), cmd.WorkstationID, cmd.Code, cmd.Name, cmd.Status, cmd.BatchSizeQty, cmd.BatchSizeUnit, cmd.StandardMinutes, cmd.HourlyRate, cmd.ProductionCapacity, cmd.SortOrder, cmd.Note).Scan(&id)
+	}
+	if err != nil {
+		return manufacturingapp.ManufacturingWorkstationCapacity{}, err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_workstation_capacity", &id, action, postgresinfra.StrPtr("workstation_capacity"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"workstation_id": cmd.WorkstationID, "batch_size_qty": cmd.BatchSizeQty, "batch_size_unit": cmd.BatchSizeUnit, "standard_minutes": cmd.StandardMinutes, "hourly_rate": cmd.HourlyRate, "status": cmd.Status}); err != nil {
+		return manufacturingapp.ManufacturingWorkstationCapacity{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return manufacturingapp.ManufacturingWorkstationCapacity{}, err
+	}
+	return r.manufacturingWorkstationCapacityByID(ctx, id)
+}
+
+func (r Repository) DeactivateManufacturingWorkstationCapacity(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.manufacturing_workstation_capacities SET status='inactive', updated_at=now() WHERE id=$1`, r.schema), cmd.ID); err != nil {
+		return err
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_workstation_capacity", &cmd.ID, "deactivate", postgresinfra.StrPtr("status"), nil, postgresinfra.StrPtr("inactive"), postgresinfra.AuditMeta{"id": cmd.ID}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r Repository) manufacturingWorkstationCapacityByID(ctx context.Context, id int64) (manufacturingapp.ManufacturingWorkstationCapacity, error) {
+	rows, err := r.ListManufacturingWorkstationCapacities(ctx, manufacturingapp.WorkstationCapacityQuery{})
+	if err != nil {
+		return manufacturingapp.ManufacturingWorkstationCapacity{}, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, nil
+		}
+	}
+	return manufacturingapp.ManufacturingWorkstationCapacity{}, pgx.ErrNoRows
+}
+
 func (r Repository) ListIndustryTemplates(ctx context.Context) ([]manufacturingapp.IndustryFieldTemplate, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id,name,industry_key,description,status,
@@ -395,7 +502,18 @@ func (r Repository) attachProcessOperations(ctx context.Context, templates []man
 		index[row.ID] = i
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,template_id,seq,operation_id,workstation_id,operation,workstation,default_equipment,default_minutes,records_loss,
+		SELECT id,template_id,seq,operation_id,workstation_id,
+		       COALESCE(workstation_capacity_id,0),
+		       operation,workstation,COALESCE(workstation_capacity_name,''),
+		       default_equipment,default_minutes,
+		       COALESCE(batch_size_qty,0)::float8,
+		       COALESCE(batch_size_unit,''),
+		       COALESCE(standard_minutes,0),
+		       COALESCE(hourly_rate,0)::float8,
+		       COALESCE(planned_batch_count,0),
+		       COALESCE(planned_minutes,0),
+		       COALESCE(planned_operation_cost,0)::float8,
+		       records_loss,
 		       COALESCE(parameter_schema_json,'{}'::jsonb)::text,
 		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
 		FROM %s.process_template_operations
@@ -408,7 +526,12 @@ func (r Repository) attachProcessOperations(ctx context.Context, templates []man
 	defer rows.Close()
 	for rows.Next() {
 		var op manufacturingapp.ProcessTemplateOperation
-		if err := rows.Scan(&op.ID, &op.TemplateID, &op.Seq, &op.OperationID, &op.WorkstationID, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.ParameterSchemaJSON, &op.QualityChecklistJSON); err != nil {
+		if err := rows.Scan(
+			&op.ID, &op.TemplateID, &op.Seq, &op.OperationID, &op.WorkstationID, &op.WorkstationCapacityID,
+			&op.Operation, &op.Workstation, &op.WorkstationCapacityName, &op.DefaultEquipment, &op.DefaultMinutes,
+			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
+			&op.RecordsLoss, &op.ParameterSchemaJSON, &op.QualityChecklistJSON,
+		); err != nil {
 			return err
 		}
 		if i, ok := index[op.TemplateID]; ok {
@@ -457,10 +580,12 @@ func (r Repository) SaveProcessTemplate(ctx context.Context, cmd manufacturingap
 	for _, op := range cmd.Operations {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.process_template_operations(
-				template_id,seq,operation_id,workstation_id,operation,workstation,default_equipment,default_minutes,records_loss,
+				template_id,seq,operation_id,workstation_id,workstation_capacity_id,operation,workstation,workstation_capacity_name,
+				default_equipment,default_minutes,batch_size_qty,batch_size_unit,standard_minutes,hourly_rate,
+				planned_batch_count,planned_minutes,planned_operation_cost,records_loss,
 				parameter_schema_json,quality_checklist_json,created_at,updated_at
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,now(),now())
-		`, r.schema), id, op.Seq, op.OperationID, op.WorkstationID, op.Operation, op.Workstation, op.DefaultEquipment, op.DefaultMinutes, op.RecordsLoss, op.ParameterSchemaJSON, op.QualityChecklistJSON); err != nil {
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,$20::jsonb,now(),now())
+		`, r.schema), id, op.Seq, op.OperationID, op.WorkstationID, op.WorkstationCapacityID, op.Operation, op.Workstation, op.WorkstationCapacityName, op.DefaultEquipment, op.DefaultMinutes, op.BatchSizeQty, op.BatchSizeUnit, op.StandardMinutes, op.HourlyRate, op.PlannedBatchCount, op.PlannedMinutes, op.PlannedOperationCost, op.RecordsLoss, op.ParameterSchemaJSON, op.QualityChecklistJSON); err != nil {
 			return manufacturingapp.ProcessTemplate{}, err
 		}
 	}
@@ -576,7 +701,18 @@ func (r Repository) attachProcessRouteOperations(ctx context.Context, routes []m
 		index[row.ID] = i
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,route_id,seq,operation_id,workstation_id,operation,workstation,default_equipment,default_minutes,records_loss,
+		SELECT id,route_id,seq,operation_id,workstation_id,
+		       COALESCE(workstation_capacity_id,0),
+		       operation,workstation,COALESCE(workstation_capacity_name,''),
+		       default_equipment,default_minutes,
+		       COALESCE(batch_size_qty,0)::float8,
+		       COALESCE(batch_size_unit,''),
+		       COALESCE(standard_minutes,0),
+		       COALESCE(hourly_rate,0)::float8,
+		       COALESCE(planned_batch_count,0),
+		       COALESCE(planned_minutes,0),
+		       COALESCE(planned_operation_cost,0)::float8,
+		       records_loss,
 		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
 		FROM %s.process_route_operations
 		WHERE route_id = ANY($1)
@@ -588,7 +724,12 @@ func (r Repository) attachProcessRouteOperations(ctx context.Context, routes []m
 	defer rows.Close()
 	for rows.Next() {
 		var op manufacturingapp.ProcessRouteOperation
-		if err := rows.Scan(&op.ID, &op.RouteID, &op.Seq, &op.OperationID, &op.WorkstationID, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.QualityChecklistJSON); err != nil {
+		if err := rows.Scan(
+			&op.ID, &op.RouteID, &op.Seq, &op.OperationID, &op.WorkstationID, &op.WorkstationCapacityID,
+			&op.Operation, &op.Workstation, &op.WorkstationCapacityName, &op.DefaultEquipment, &op.DefaultMinutes,
+			&op.BatchSizeQty, &op.BatchSizeUnit, &op.StandardMinutes, &op.HourlyRate, &op.PlannedBatchCount, &op.PlannedMinutes, &op.PlannedOperationCost,
+			&op.RecordsLoss, &op.QualityChecklistJSON,
+		); err != nil {
 			return err
 		}
 		if i, ok := index[op.RouteID]; ok {
@@ -634,10 +775,12 @@ func (r Repository) SaveProcessRoute(ctx context.Context, cmd manufacturingapp.S
 	for _, op := range cmd.Operations {
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
 			INSERT INTO %s.process_route_operations(
-				route_id,seq,operation_id,workstation_id,operation,workstation,default_equipment,default_minutes,records_loss,
+				route_id,seq,operation_id,workstation_id,workstation_capacity_id,operation,workstation,workstation_capacity_name,
+				default_equipment,default_minutes,batch_size_qty,batch_size_unit,standard_minutes,hourly_rate,
+				planned_batch_count,planned_minutes,planned_operation_cost,records_loss,
 				quality_checklist_json,created_at,updated_at
-			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,now(),now())
-		`, r.schema), id, op.Seq, op.OperationID, op.WorkstationID, op.Operation, op.Workstation, op.DefaultEquipment, op.DefaultMinutes, op.RecordsLoss, op.QualityChecklistJSON); err != nil {
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,now(),now())
+		`, r.schema), id, op.Seq, op.OperationID, op.WorkstationID, op.WorkstationCapacityID, op.Operation, op.Workstation, op.WorkstationCapacityName, op.DefaultEquipment, op.DefaultMinutes, op.BatchSizeQty, op.BatchSizeUnit, op.StandardMinutes, op.HourlyRate, op.PlannedBatchCount, op.PlannedMinutes, op.PlannedOperationCost, op.RecordsLoss, op.QualityChecklistJSON); err != nil {
 			return manufacturingapp.ProcessRoute{}, err
 		}
 	}

@@ -23,6 +23,10 @@ type productionPlanBatchSubmitRequest struct {
 	IDs []int64 `json:"ids"`
 }
 
+type productionPlanOperationSplitsRequest struct {
+	Items []productionapp.ProductionPlanOperationSplit `json:"items"`
+}
+
 func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 	e.GET("/api/production-plans", func(c echo.Context) error {
 		rows, err := productionSvc.ListProductionPlans(c.Request().Context(), productionapp.ProductionPlanQuery{
@@ -84,6 +88,36 @@ func registerProductionPlanAPI(e *echo.Echo, productionSvc *productionapp.Servic
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, plan)
+	})
+	e.GET("/api/production-plans/:id/operation-splits", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid production_plan_id"})
+		}
+		plan, err := productionSvc.GetProductionPlan(c.Request().Context(), id)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": plan.OperationSplits})
+	})
+	e.POST("/api/production-plans/:id/operation-splits", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid production_plan_id"})
+		}
+		var req productionPlanOperationSplitsRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		rows, err := productionSvc.SaveProductionPlanOperationSplits(c.Request().Context(), productionapp.SaveProductionPlanOperationSplitsCommand{
+			ID:       id,
+			Items:    req.Items,
+			Operator: support.ActorOf(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
 	})
 	e.POST("/api/production-plans/:id/submit", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)

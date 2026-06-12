@@ -81,3 +81,28 @@ func TestProductionPlanItemsResolveLatestUsableBomVersionRouteWithoutFallback(t 
 		}
 	}
 }
+
+func TestProductionPlanOperationSplitsOwnCapacityBatchPlanning(t *testing.T) {
+	src, err := os.ReadFile("production_plan.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	for _, want := range []string{
+		"SaveProductionPlanOperationSplits",
+		"loadProductionPlanOperationSplitsTx",
+		"production_plan_operation_splits",
+		"plannedCapacitySplitMetrics",
+		"validateProductionPlanOperationSplitCoverage",
+		"workstation_capacity_id",
+		"planned_batch_count",
+		"planned_qty_g",
+		"planned_minutes",
+		"planned_operation_cost",
+		"createPendingJobCardsForWorkOrderTx(ctx, tx, schema, id, item.ProcessSnapshotJSON, item.OperationTemplateID, item.PlannedG, splits)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("production plan must own operation capacity split planning; missing %q", want)
+		}
+	}
+}
