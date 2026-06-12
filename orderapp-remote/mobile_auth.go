@@ -31,27 +31,16 @@ type pwdSetReq struct {
 	Password string `json:"password"`
 }
 
-func ensureEmployeeByPhone(ctx context.Context, pool *pgxpool.Pool, schema, phone string) (int64, string, error) {
+func requireActiveEmployeeByPhone(ctx context.Context, pool *pgxpool.Pool, schema, phone string) (int64, string, error) {
 	phone = strings.TrimSpace(phone)
 	if !cnPhoneRe.MatchString(phone) {
 		return 0, "", fmt.Errorf("invalid phone")
 	}
 	var eid int64
 	var ename string
-	err := pool.QueryRow(ctx, "SELECT id,COALESCE(name,'') FROM "+schema+".company_employees WHERE phone=$1 LIMIT 1", phone).Scan(&eid, &ename)
-	if err == nil {
-		return eid, strings.TrimSpace(ename), nil
-	}
-	// auto-bind on first login: create employee by phone in first active department
-	var depID int64
-	if err := pool.QueryRow(ctx, "SELECT id FROM "+schema+".company_departments WHERE active=true ORDER BY id LIMIT 1").Scan(&depID); err != nil {
-		return 0, "", fmt.Errorf("department not found")
-	}
-	if err := pool.QueryRow(ctx,
-		"INSERT INTO "+schema+".company_employees(name,phone,department_id,active) VALUES($1,$2,$3,true) ON CONFLICT (phone) DO UPDATE SET active=true RETURNING id,COALESCE(name,'')",
-		phone, phone, depID,
-	).Scan(&eid, &ename); err != nil {
-		return 0, "", err
+	err := pool.QueryRow(ctx, "SELECT id,COALESCE(name,'') FROM "+schema+".company_employees WHERE active=true AND phone=$1 LIMIT 1", phone).Scan(&eid, &ename)
+	if err != nil {
+		return 0, "", fmt.Errorf("employee not found")
 	}
 	return eid, strings.TrimSpace(ename), nil
 }
@@ -111,7 +100,7 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if len(pwd) < 6 {
 			return c.JSON(400, map[string]string{"error": "password too short"})
 		}
-		eid, _, err := ensureEmployeeByPhone(c.Request().Context(), pool, schema, phone)
+		eid, _, err := requireActiveEmployeeByPhone(c.Request().Context(), pool, schema, phone)
 		if err != nil {
 			return c.JSON(400, map[string]string{"error": err.Error()})
 		}
@@ -134,7 +123,7 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if !cnPhoneRe.MatchString(phone) {
 			return c.JSON(400, map[string]string{"error": "invalid phone"})
 		}
-		_, _, err := ensureEmployeeByPhone(c.Request().Context(), pool, schema, phone)
+		_, _, err := requireActiveEmployeeByPhone(c.Request().Context(), pool, schema, phone)
 		if err != nil {
 			return c.JSON(400, map[string]string{"error": err.Error()})
 		}
@@ -164,8 +153,7 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if err != nil {
 			return c.JSON(500, map[string]string{"error": err.Error()})
 		}
-		// 短信通道待接入前，回显用于联调
-		return c.JSON(200, map[string]any{"ok": true, "code": code, "expire_minutes": 5})
+		return c.JSON(200, map[string]any{"ok": true, "expire_minutes": 5})
 	})
 
 	e.POST("/api/auth/login", func(c echo.Context) error {
@@ -181,7 +169,7 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		if !cnPhoneRe.MatchString(phone) {
 			return c.JSON(400, map[string]string{"error": "invalid phone"})
 		}
-		eid, ename, err := ensureEmployeeByPhone(c.Request().Context(), pool, schema, phone)
+		eid, ename, err := requireActiveEmployeeByPhone(c.Request().Context(), pool, schema, phone)
 		if err != nil {
 			return c.JSON(400, map[string]string{"error": err.Error()})
 		}
@@ -223,8 +211,8 @@ func registerMobileAuthAPI(e *echo.Echo, pool *pgxpool.Pool, schema string) {
 		}
 		auditInsert(c.Request().Context(), pool, schema, strings.TrimSpace(ename), "auth", &eid, "login", nil, nil, nil, AuditMeta{"mode": mode, "phone": phone})
 		return c.JSON(200, map[string]any{
-			"ok": true,
-			"token": token,
+			"ok":       true,
+			"token":    token,
 			"employee": map[string]any{"id": eid, "name": ename, "phone": phone},
 		})
 	})

@@ -65,7 +65,7 @@ async function sendSms(){
   const r=await fetch('/api/auth/sms/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:p})});
   const t=await r.text();
   if(!r.ok){ setMsg('发送失败: '+t, 'err'); return; }
-  setMsg('验证码已发送（联调环境会回显code）', 'ok');
+  setMsg('验证码已发送', 'ok');
 }
 async function login(){
   if(!validatePhone()) return;
