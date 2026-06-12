@@ -25,10 +25,17 @@ type UnprodNeedRow struct {
 	ProductTypeName          string `json:"product_type_name,omitempty"`
 	ProductSubtypeName       string `json:"product_subtype_name,omitempty"`
 	OperationTemplateID      int64  `json:"operation_template_id,omitempty"`
+	DemandStatus             string `json:"demand_status,omitempty"`
+	DemandStatusLabel        string `json:"demand_status_label,omitempty"`
+	DemandSelectable         bool   `json:"demand_selectable"`
+	ProductionPlanID         int64  `json:"production_plan_id,omitempty"`
+	ProductionPlanNo         string `json:"production_plan_no,omitempty"`
+	WorkOrderID              int64  `json:"work_order_id,omitempty"`
+	WorkOrderNo              string `json:"work_order_no,omitempty"`
 }
 
 func productionPlanOpenStatusNames() []string {
-	return []string{"待处理", "待生产", "生产中"}
+	return []string{"待处理", "待生产", "生产中", "生产完成", "已生产完成"}
 }
 
 func productionPlanOpenStatusFilter(schema, orderAlias string) string {

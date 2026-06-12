@@ -23,6 +23,79 @@ export function buildInsufficientSelection(rows, checked, keyForRow = defaultSel
   return Object.fromEntries((rows || []).map((row) => [keyForRow(row), true]))
 }
 
+const PRODUCTION_DEMAND_STATUS = {
+  unplanned: { label: '待计划', tone: 'unplanned' },
+  in_production: { label: '生产中', tone: 'in-production' },
+  completed: { label: '生产完成', tone: 'completed' },
+}
+
+const PRODUCTION_DEMAND_STATUS_VALUES = new Set(Object.keys(PRODUCTION_DEMAND_STATUS))
+
+export function productionDemandStatusOptions() {
+  return [
+    { value: '', label: '全部' },
+    ...Object.entries(PRODUCTION_DEMAND_STATUS).map(([value, item]) => ({ value, label: item.label })),
+  ]
+}
+
+function normalizedProductionDemandStatus(status) {
+  const value = String(status || '').trim()
+  return PRODUCTION_DEMAND_STATUS_VALUES.has(value) ? value : 'unplanned'
+}
+
+export function productionDemandStatusLabel(status) {
+  const key = normalizedProductionDemandStatus(status)
+  return PRODUCTION_DEMAND_STATUS[key]?.label || '-'
+}
+
+export function productionDemandStatusTone(status) {
+  const key = normalizedProductionDemandStatus(status)
+  return PRODUCTION_DEMAND_STATUS[key]?.tone || 'unplanned'
+}
+
+export function productionDemandSelectable(row) {
+  return Number(row?.gap_g || 0) > 0 && normalizedProductionDemandStatus(row?.demand_status) === 'unplanned'
+}
+
+function productionDemandSelectionKeys(rows) {
+  return (rows || []).filter(productionDemandSelectable).map(defaultSelectionKey)
+}
+
+export function productionDemandSelectionState(rows, selected) {
+  const keys = productionDemandSelectionKeys(rows)
+  const selectedCount = keys.filter((key) => !!selected?.[key]).length
+  const total = keys.length
+  return {
+    checked: total > 0 && selectedCount === total,
+    indeterminate: selectedCount > 0 && selectedCount < total,
+    selectedCount,
+    total,
+  }
+}
+
+export function buildProductionDemandSelection(rows, checked) {
+  if (!checked) return {}
+  return Object.fromEntries(productionDemandSelectionKeys(rows).map((key) => [key, true]))
+}
+
+export function buildProductionDemandSummaryQuery(filters = {}, plan = false, selectedKeys = []) {
+  const params = new URLSearchParams()
+  const from = String(filters.from || '').trim()
+  const to = String(filters.to || '').trim()
+  const customerID = Number(filters.customer_id || 0)
+  const demandStatus = String(filters.demand_status || '').trim()
+  if (from) params.set('from', from)
+  if (to) params.set('to', to)
+  if (customerID > 0) params.set('customer_id', String(customerID))
+  if (PRODUCTION_DEMAND_STATUS_VALUES.has(demandStatus)) params.set('demand_status', demandStatus)
+  if (plan && selectedKeys.length) {
+    params.set('plan', '1')
+    params.set('selected', selectedKeys.join(','))
+  }
+  const query = params.toString()
+  return `/api/produce/unproduced${query ? `?${query}` : ''}`
+}
+
 export function buildProductionPlanCreatePayload(filters, selectedKeys) {
   filters = filters || {}
   selectedKeys = selectedKeys || []

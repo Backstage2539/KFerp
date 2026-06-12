@@ -55,6 +55,54 @@ func TestProducePlanSummaryAPIIncludesRoastRowsAndMaterials(t *testing.T) {
 	}
 }
 
+func TestParseUnprodSummaryQueryIncludesDemandStatusFilter(t *testing.T) {
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?demand_status=in_production&selected=1-454&plan=1", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	query := parseUnprodSummaryQuery(c)
+	if query.DemandStatus != "in_production" {
+		t.Fatalf("DemandStatus = %q, want in_production", query.DemandStatus)
+	}
+	if !query.Plan || !query.Selected["1-454"] {
+		t.Fatalf("query did not preserve plan preview selection: %+v", query)
+	}
+}
+
+func TestProducePlanSummaryAPIMarksPlannedDemandAsInProductionAndFiltersIt(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'PR491 商品',50,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES ('待处理',10,true),('生产中',20,true),('生产完成',30,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES (1,'SO-PR491-001','2026-06-13',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES (1,1,'PR491 商品',2,'袋','454g',1,50,100);
+		INSERT INTO %s.production_plans(id,plan_no,source_type,status,created_by,created_at)
+		VALUES (491,'PP-PR491','erp_order','draft','tester',now());
+		INSERT INTO %s.production_plan_items(id,production_plan_id,product_id,product_name,spec_g,planned_g,planned_output_g,gap_g,order_nos,component_snapshot_json,process_route_snapshot_json,production_config_snapshot_json,customer_product_snapshot_json,created_at)
+		VALUES (492,491,1,'PR491 商品',454,908,908,908,'SO-PR491-001','[]'::jsonb,'{}'::jsonb,'{}'::jsonb,'[]'::jsonb,now());
+	`, schema, schema, schema, schema, schema, schema, schema))
+
+	e := newProducePlanTestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?demand_status=in_production", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/produce/unproduced status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, needle := range []string{`"demand_status":"in_production"`, `"demand_status_label":"生产中"`, `"production_plan_no":"PP-PR491"`, `"demand_selectable":false`} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("planned demand response missing %s: %s", needle, body)
+		}
+	}
+}
+
 func TestProducePlanSummaryAPIReturnsExactYieldRateForRoastPlans(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()

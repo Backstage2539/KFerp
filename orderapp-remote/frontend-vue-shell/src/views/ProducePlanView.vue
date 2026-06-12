@@ -32,6 +32,12 @@
           <span>客户ID</span>
           <input v-model.trim="filters.customer_id" placeholder="例如 123" />
         </label>
+        <label>
+          <span>需求状态</span>
+          <select v-model="demandStatusFilter" aria-label="需求状态：全部 / 待计划 / 生产中 / 生产完成" @change="load(false)">
+            <option v-for="option in demandStatusOptions" :key="option.value || 'all'" :value="option.value">{{ option.label }}</option>
+          </select>
+        </label>
       </div>
     </section>
 
@@ -44,7 +50,7 @@
               class="bulk-checkbox"
               type="checkbox"
               :checked="allInsufficientSelected"
-              :disabled="!stockInsufficientRows.length"
+              :disabled="!insufficientSelection.total"
               :aria-checked="insufficientSelection.indeterminate ? 'mixed' : String(insufficientSelection.checked)"
               aria-label="全选库存不足商品"
               @change="toggleAllInsufficient($event.target.checked)"
@@ -72,11 +78,22 @@
                 <th>库存(件)</th>
                 <th>库存合计(g)</th>
                 <th>缺口(g)</th>
+                <th>状态</th>
+                <th>关联计划</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="row in stockInsufficientRows" :key="rowKey(row)">
-                <td><input class="bulk-checkbox" type="checkbox" :checked="!!selected[rowKey(row)]" @change="toggleInsufficientRow(row, $event.target.checked)" /></td>
+                <td>
+                  <input
+                    class="bulk-checkbox"
+                    type="checkbox"
+                    :checked="!!selected[rowKey(row)]"
+                    :disabled="!productionDemandSelectable(row)"
+                    :title="productionDemandSelectable(row) ? '选择生成生产计划' : '已进入生产计划的需求不可重复生成计划'"
+                    @change="toggleInsufficientRow(row, $event.target.checked)"
+                  />
+                </td>
                 <td>{{ row.product }}</td>
                 <td class="muted">{{ row.order_nos }}</td>
                 <td>{{ row.spec_g }}</td>
@@ -85,9 +102,11 @@
                 <td>{{ row.inv_units }}</td>
                 <td>{{ row.inv_g }}</td>
                 <td><strong>{{ row.gap_g }}</strong></td>
+                <td><span :class="['status', `status-demand-${productionDemandStatusTone(row.demand_status)}`]">{{ productionDemandStatusLabel(row.demand_status) }}</span></td>
+                <td class="muted">{{ row.production_plan_no || '-' }}</td>
               </tr>
               <tr v-if="!stockInsufficientRows.length">
-                <td colspan="9" class="muted">暂无库存不足商品</td>
+                <td colspan="11" class="muted">暂无待生产需求</td>
               </tr>
             </tbody>
           </table>
@@ -560,8 +579,14 @@ import {
   buildProductionPlanListQuery,
   buildProductionPlanOperationSplitPayload,
   buildProductionPlanSelection,
-  insufficientSelectionState,
+  buildProductionDemandSelection,
+  buildProductionDemandSummaryQuery,
   plannedCapacitySplitMetrics,
+  productionDemandSelectable,
+  productionDemandSelectionState,
+  productionDemandStatusLabel,
+  productionDemandStatusOptions,
+  productionDemandStatusTone,
   productionPlanSplitBatchCards,
   productionPlanBatchSubmitEndpoint,
   productionPlanDetailEndpoint,
@@ -620,6 +645,13 @@ const filters = reactive({
   from: '',
   to: '',
   customer_id: '',
+  demand_status: '',
+})
+
+const demandStatusOptions = productionDemandStatusOptions()
+const demandStatusFilter = computed({
+  get: () => filters.demand_status,
+  set: (value) => { filters.demand_status = value },
 })
 
 const productionPlanFilters = reactive({
@@ -642,9 +674,9 @@ const planReady = computed(() => planRows.value.length > 0)
 const computedPlanRows = computed(() => planRows.value || [])
 const computedMaterials = computed(() => initialMaterials.value || [])
 const hasSelectedRows = computed(() => selectedKeys().length > 0)
-const stockInsufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) > 0))
-const stockSufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) <= 0))
-const insufficientSelection = computed(() => insufficientSelectionState(stockInsufficientRows.value, selected))
+const stockInsufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) > 0 || String(row.demand_status || 'unplanned') !== 'unplanned'))
+const stockSufficientRows = computed(() => rows.value.filter((row) => Number(row.gap_g || 0) <= 0 && String(row.demand_status || 'unplanned') === 'unplanned'))
+const insufficientSelection = computed(() => productionDemandSelectionState(stockInsufficientRows.value, selected))
 const allInsufficientSelected = computed(() => insufficientSelection.value.checked)
 const productionPlanSelection = computed(() => productionPlanSelectionState(productionPlans.value, selectedProductionPlans))
 const allProductionPlansSelected = computed(() => productionPlanSelection.value.checked)
@@ -694,6 +726,8 @@ function updateUrl(plan) {
   else url.searchParams.delete('to')
   if (filters.customer_id) url.searchParams.set('customer_id', filters.customer_id)
   else url.searchParams.delete('customer_id')
+  if (filters.demand_status) url.searchParams.set('demand_status', filters.demand_status)
+  else url.searchParams.delete('demand_status')
   const keys = selectedKeys()
   if (plan && keys.length) {
     url.searchParams.set('plan', '1')
@@ -706,15 +740,7 @@ function updateUrl(plan) {
 }
 
 function buildUnproducedURL(plan, keys = selectedKeys()) {
-  const url = new URL('/api/produce/unproduced', window.location.origin)
-  if (filters.from) url.searchParams.set('from', filters.from)
-  if (filters.to) url.searchParams.set('to', filters.to)
-  if (filters.customer_id) url.searchParams.set('customer_id', filters.customer_id)
-  if (plan && keys.length) {
-    url.searchParams.set('plan', '1')
-    url.searchParams.set('selected', keys.join(','))
-  }
-  return url
+  return new URL(buildProductionDemandSummaryQuery(filters, plan, keys), window.location.origin)
 }
 
 function applyUnproducedData(data, plan) {
@@ -799,12 +825,16 @@ function resetCurrentPlanForSelection() {
 }
 
 function toggleAllInsufficient(checked) {
-  replaceSelected(buildInsufficientSelection(stockInsufficientRows.value, checked))
+  replaceSelected(buildProductionDemandSelection(stockInsufficientRows.value, checked))
   resetCurrentPlanForSelection()
 }
 
 function toggleInsufficientRow(row, checked) {
   const key = rowKey(row)
+  if (!productionDemandSelectable(row)) {
+    delete selected[key]
+    return
+  }
   if (checked) selected[key] = true
   else delete selected[key]
   resetCurrentPlanForSelection()
@@ -881,7 +911,7 @@ function toggleProductionPlan(plan, checked) {
 }
 
 function pruneSufficientSelections() {
-  const allowed = new Set(stockInsufficientRows.value.map((row) => rowKey(row)))
+  const allowed = new Set(stockInsufficientRows.value.filter(productionDemandSelectable).map((row) => rowKey(row)))
   for (const key of Object.keys(selected)) {
     if (!allowed.has(key)) delete selected[key]
   }
@@ -1268,7 +1298,7 @@ watch(selectedSignature, () => {
   schedulePlanPreview()
 })
 
-watch(() => [filters.from, filters.to, filters.customer_id], () => {
+watch(() => [filters.from, filters.to, filters.customer_id, filters.demand_status], () => {
   if (hasSelectedRows.value) {
     resetCurrentPlanForSelection()
     schedulePlanPreview()
@@ -1328,9 +1358,12 @@ input.bulk-checkbox:disabled { cursor: not-allowed; opacity: 0.45; }
 .status-completed { border-color: #86efac; background: #f0fdf4; color: #15803d; }
 .status-cancelled { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
 .status-unknown { border-color: #e5e7eb; background: #f9fafb; color: #4b5563; }
+.status-demand-unplanned { border-color: #d1d5db; background: #f9fafb; color: #374151; }
+.status-demand-in-production { border-color: #fdba74; background: #fff7ed; color: #c2410c; }
+.status-demand-completed { border-color: #86efac; background: #f0fdf4; color: #15803d; }
 .plan-result { margin-top: 12px; display: flex; gap: 12px; align-items: center; }
 .table-wrap { overflow: auto; max-width: 100%; }
-.drag-scroll-wrap { cursor: grab; overscroll-behavior: contain; scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }
+.drag-scroll-wrap { cursor: grab; overscroll-behavior: auto; scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }
 .drag-scroll-wrap.is-dragging-scroll { cursor: grabbing; user-select: none; }
 table { width: 100%; border-collapse: collapse; min-width: 980px; }
 .demand-table { min-width: 860px; }

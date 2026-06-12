@@ -231,6 +231,13 @@ type UnprodNeedRow struct {
 	UpstreamRoastDemandG              int64  `json:"upstream_roast_demand_g,omitempty"`
 	UpstreamShortageG                 int64  `json:"upstream_shortage_g,omitempty"`
 	FinishedProductComponentShortageG int64  `json:"finished_product_component_shortage_g,omitempty"`
+	DemandStatus                      string `json:"demand_status,omitempty"`
+	DemandStatusLabel                 string `json:"demand_status_label,omitempty"`
+	DemandSelectable                  bool   `json:"demand_selectable"`
+	ProductionPlanID                  int64  `json:"production_plan_id,omitempty"`
+	ProductionPlanNo                  string `json:"production_plan_no,omitempty"`
+	WorkOrderID                       int64  `json:"work_order_id,omitempty"`
+	WorkOrderNo                       string `json:"work_order_no,omitempty"`
 }
 
 type MaterialNeed struct {
@@ -256,11 +263,12 @@ type ProducePlanDisplayRow struct {
 }
 
 type PlanSummaryQuery struct {
-	From       string
-	To         string
-	CustomerID int64
-	Selected   map[string]bool
-	Plan       bool
+	From         string
+	To           string
+	CustomerID   int64
+	Selected     map[string]bool
+	Plan         bool
+	DemandStatus string
 }
 
 type RoastPlanRow struct {
@@ -582,46 +590,58 @@ type JobCardQuery struct {
 }
 
 type JobCardRow struct {
-	ID                      int64   `json:"id"`
-	WorkOrderID             int64   `json:"work_order_id"`
-	SequenceNo              int     `json:"sequence_no"`
-	OperationID             int64   `json:"operation_id"`
-	WorkstationID           int64   `json:"workstation_id"`
-	Operation               string  `json:"operation"`
-	Workstation             string  `json:"workstation"`
-	WorkstationCapacityID   int64   `json:"workstation_capacity_id"`
-	WorkstationCapacityName string  `json:"workstation_capacity_name"`
-	BatchSizeQty            float64 `json:"batch_size_qty"`
-	BatchSizeUnit           string  `json:"batch_size_unit"`
-	PlannedBatchCount       int     `json:"planned_batch_count"`
-	PlannedMinutes          int     `json:"planned_minutes"`
-	HourlyRate              float64 `json:"hourly_rate"`
-	PlannedOperationCost    float64 `json:"planned_operation_cost"`
-	ActualMinutes           int     `json:"actual_minutes"`
-	ActualOperationCost     float64 `json:"actual_operation_cost"`
-	Status                  string  `json:"status"`
-	StartedAt               string  `json:"started_at"`
-	PausedAt                string  `json:"paused_at"`
-	ResumedAt               string  `json:"resumed_at"`
-	CompletedAt             string  `json:"completed_at"`
-	Operator                string  `json:"operator"`
-	PlannedInputQty         float64 `json:"planned_input_qty"`
-	ActualInputQty          float64 `json:"actual_input_qty"`
-	ActualOutputQty         float64 `json:"actual_output_qty"`
-	ActualLossQty           float64 `json:"actual_loss_qty"`
-	ActualLossRate          float64 `json:"actual_loss_rate"`
-	RecordsLoss             bool    `json:"records_loss"`
-	LossReason              string  `json:"loss_reason"`
-	ExceptionReason         string  `json:"exception_reason"`
-	MetricsJSON             string  `json:"metrics_json"`
-	ParameterSchemaJSON     string  `json:"parameter_schema_json"`
-	PlannedStartAt          string  `json:"planned_start_at"`
-	PlannedEndAt            string  `json:"planned_end_at"`
-	ShiftCode               string  `json:"shift_code"`
-	AssignedTo              string  `json:"assigned_to"`
-	Priority                int     `json:"priority"`
-	SchedulingNote          string  `json:"scheduling_note"`
-	WorkCenter              string  `json:"work_center"`
+	ID                           int64   `json:"id"`
+	WorkOrderID                  int64   `json:"work_order_id"`
+	WorkOrderNo                  string  `json:"work_order_no"`
+	ProductID                    int64   `json:"product_id"`
+	ProductName                  string  `json:"product_name"`
+	SpecG                        int64   `json:"spec_g"`
+	OrderNos                     string  `json:"order_nos"`
+	PlannedG                     int64   `json:"planned_g"`
+	PlannedOutputG               int64   `json:"planned_output_g"`
+	BomVersionID                 int64   `json:"bom_version_id"`
+	MaterialSnapshot             string  `json:"material_snapshot"`
+	ProcessSnapshotJSON          string  `json:"process_snapshot_json"`
+	ProductionConfigSnapshotJSON string  `json:"production_config_snapshot_json"`
+	CustomerProductSnapshotJSON  string  `json:"customer_product_snapshot_json"`
+	SequenceNo                   int     `json:"sequence_no"`
+	OperationID                  int64   `json:"operation_id"`
+	WorkstationID                int64   `json:"workstation_id"`
+	Operation                    string  `json:"operation"`
+	Workstation                  string  `json:"workstation"`
+	WorkstationCapacityID        int64   `json:"workstation_capacity_id"`
+	WorkstationCapacityName      string  `json:"workstation_capacity_name"`
+	BatchSizeQty                 float64 `json:"batch_size_qty"`
+	BatchSizeUnit                string  `json:"batch_size_unit"`
+	PlannedBatchCount            int     `json:"planned_batch_count"`
+	PlannedMinutes               int     `json:"planned_minutes"`
+	HourlyRate                   float64 `json:"hourly_rate"`
+	PlannedOperationCost         float64 `json:"planned_operation_cost"`
+	ActualMinutes                int     `json:"actual_minutes"`
+	ActualOperationCost          float64 `json:"actual_operation_cost"`
+	Status                       string  `json:"status"`
+	StartedAt                    string  `json:"started_at"`
+	PausedAt                     string  `json:"paused_at"`
+	ResumedAt                    string  `json:"resumed_at"`
+	CompletedAt                  string  `json:"completed_at"`
+	Operator                     string  `json:"operator"`
+	PlannedInputQty              float64 `json:"planned_input_qty"`
+	ActualInputQty               float64 `json:"actual_input_qty"`
+	ActualOutputQty              float64 `json:"actual_output_qty"`
+	ActualLossQty                float64 `json:"actual_loss_qty"`
+	ActualLossRate               float64 `json:"actual_loss_rate"`
+	RecordsLoss                  bool    `json:"records_loss"`
+	LossReason                   string  `json:"loss_reason"`
+	ExceptionReason              string  `json:"exception_reason"`
+	MetricsJSON                  string  `json:"metrics_json"`
+	ParameterSchemaJSON          string  `json:"parameter_schema_json"`
+	PlannedStartAt               string  `json:"planned_start_at"`
+	PlannedEndAt                 string  `json:"planned_end_at"`
+	ShiftCode                    string  `json:"shift_code"`
+	AssignedTo                   string  `json:"assigned_to"`
+	Priority                     int     `json:"priority"`
+	SchedulingNote               string  `json:"scheduling_note"`
+	WorkCenter                   string  `json:"work_center"`
 }
 
 type ScheduleBoardQuery struct {

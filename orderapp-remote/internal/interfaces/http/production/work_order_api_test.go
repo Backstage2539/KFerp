@@ -701,16 +701,25 @@ func TestWorkOrderAPIIncludesExpectedLossAndOperationSummary(t *testing.T) {
 func TestJobCardAPIIncludesActualLossFields(t *testing.T) {
 	e := echo.New()
 	registerWorkOrderAPI(e, productionapp.NewService(&workOrderAPIRepo{jobCards: []productionapp.JobCardRow{{
-		ID:              9,
-		WorkOrderID:     20,
-		Operation:       "cutting",
-		PlannedInputQty: 1000,
-		ActualInputQty:  1000,
-		ActualOutputQty: 815,
-		ActualLossQty:   185,
-		ActualLossRate:  0.185,
-		ExceptionReason: "裁剪边角料",
-		MetricsJSON:     `{"fabric":"cotton"}`,
+		ID:               9,
+		WorkOrderID:      20,
+		WorkOrderNo:      "WO-PR491-001",
+		ProductID:        539,
+		ProductName:      "PR491 商品",
+		SpecG:            454,
+		OrderNos:         "SO-PR491-001",
+		PlannedG:         1000,
+		PlannedOutputG:   908,
+		BomVersionID:     723,
+		MaterialSnapshot: `[{"material_name":"孟连水洗","unit":"g","ratio_pct":70},{"material_name":"包装袋","unit":"unit","qty_per_unit":1}]`,
+		Operation:        "cutting",
+		PlannedInputQty:  1000,
+		ActualInputQty:   1000,
+		ActualOutputQty:  815,
+		ActualLossQty:    185,
+		ActualLossRate:   0.185,
+		ExceptionReason:  "裁剪边角料",
+		MetricsJSON:      `{"fabric":"cotton"}`,
 	}}}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/produce/job-cards", nil)
@@ -721,7 +730,7 @@ func TestJobCardAPIIncludesActualLossFields(t *testing.T) {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{`"planned_input_qty":1000`, `"actual_input_qty":1000`, `"actual_output_qty":815`, `"actual_loss_qty":185`, `"actual_loss_rate":0.185`, `"exception_reason":"裁剪边角料"`, `"metrics_json":"{\"fabric\":\"cotton\"}"`} {
+	for _, want := range []string{`"planned_input_qty":1000`, `"actual_input_qty":1000`, `"actual_output_qty":815`, `"actual_loss_qty":185`, `"actual_loss_rate":0.185`, `"exception_reason":"裁剪边角料"`, `"metrics_json":"{\"fabric\":\"cotton\"}"`, `"work_order_no":"WO-PR491-001"`, `"product_name":"PR491 商品"`, `"bom_version_id":723`, `"material_snapshot":"[{\"material_name\":\"孟连水洗\"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("response missing %s: %s", want, body)
 		}

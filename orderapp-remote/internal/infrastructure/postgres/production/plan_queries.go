@@ -57,6 +57,10 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 		return data, err
 	}
 	appRows = mergeDripPlanRows(appRows, dripRows)
+	if err := r.attachProductionDemandStatuses(ctx, appRows); err != nil {
+		return data, err
+	}
+	appRows = filterProductionDemandRows(appRows, query.DemandStatus)
 	data.Rows = appRows
 	if !data.PlanReady {
 		return data, nil
@@ -70,7 +74,7 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 			continue
 		}
 		selectedCount++
-		if row.GapG <= 0 {
+		if row.GapG <= 0 || row.DemandStatus != "unplanned" {
 			continue
 		}
 		planRows = append(planRows, row)
@@ -134,9 +138,200 @@ func unprodRowsToApp(rows []UnprodNeedRow) []productionapp.UnprodNeedRow {
 			ProductTypeName:          row.ProductTypeName,
 			ProductSubtypeName:       row.ProductSubtypeName,
 			OperationTemplateID:      row.OperationTemplateID,
+			DemandStatus:             row.DemandStatus,
+			DemandStatusLabel:        row.DemandStatusLabel,
+			DemandSelectable:         row.DemandSelectable,
+			ProductionPlanID:         row.ProductionPlanID,
+			ProductionPlanNo:         row.ProductionPlanNo,
+			WorkOrderID:              row.WorkOrderID,
+			WorkOrderNo:              row.WorkOrderNo,
 		})
 	}
 	return out
+}
+
+type productionDemandPlanState struct {
+	Status           string
+	ProductionPlanID int64
+	ProductionPlanNo string
+	WorkOrderID      int64
+	WorkOrderNo      string
+}
+
+func filterProductionDemandRows(rows []productionapp.UnprodNeedRow, status string) []productionapp.UnprodNeedRow {
+	// demand_status is the API filter key for derived production demand state.
+	status = normalizeProductionDemandStatusFilter(status)
+	if status == "" {
+		return rows
+	}
+	out := make([]productionapp.UnprodNeedRow, 0, len(rows))
+	for _, row := range rows {
+		if row.DemandStatus == status {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+func normalizeProductionDemandStatusFilter(status string) string {
+	switch strings.TrimSpace(status) {
+	case "unplanned", "in_production", "completed":
+		return strings.TrimSpace(status)
+	default:
+		return ""
+	}
+}
+
+func productionDemandStatusLabel(status string) string {
+	switch status {
+	case "in_production":
+		return "生产中"
+	case "completed":
+		return "生产完成"
+	default:
+		return "待计划"
+	}
+}
+
+func (r Repository) attachProductionDemandStatuses(ctx context.Context, rows []productionapp.UnprodNeedRow) error {
+	states, err := r.productionDemandStatusByKey(ctx, rows)
+	if err != nil {
+		return err
+	}
+	for i := range rows {
+		key := producePlanKey(rows[i].ProductID, rows[i].SpecG)
+		state := states[key]
+		if state.Status == "" {
+			state.Status = "unplanned"
+		}
+		rows[i].DemandStatus = state.Status
+		rows[i].DemandStatusLabel = productionDemandStatusLabel(state.Status)
+		rows[i].DemandSelectable = rows[i].GapG > 0 && state.Status == "unplanned"
+		rows[i].ProductionPlanID = state.ProductionPlanID
+		rows[i].ProductionPlanNo = state.ProductionPlanNo
+		rows[i].WorkOrderID = state.WorkOrderID
+		rows[i].WorkOrderNo = state.WorkOrderNo
+	}
+	return nil
+}
+
+func (r Repository) productionDemandStatusByKey(ctx context.Context, rows []productionapp.UnprodNeedRow) (map[string]productionDemandPlanState, error) {
+	out := map[string]productionDemandPlanState{}
+	productSeen := map[int64]bool{}
+	specSeen := map[int64]bool{}
+	orderNosByKey := map[string]map[string]bool{}
+	productIDs := make([]int64, 0)
+	specGs := make([]int64, 0)
+	for _, row := range rows {
+		if row.ProductID <= 0 {
+			continue
+		}
+		key := producePlanKey(row.ProductID, row.SpecG)
+		if !productSeen[row.ProductID] {
+			productSeen[row.ProductID] = true
+			productIDs = append(productIDs, row.ProductID)
+		}
+		if !specSeen[row.SpecG] {
+			specSeen[row.SpecG] = true
+			specGs = append(specGs, row.SpecG)
+		}
+		orderNosByKey[key] = splitProductionDemandOrderNos(row.OrderNos)
+		out[key] = productionDemandPlanState{Status: "unplanned"}
+	}
+	if len(productIDs) == 0 || len(specGs) == 0 {
+		return out, nil
+	}
+	q := fmt.Sprintf(`
+		SELECT pi.product_id,pi.spec_g,COALESCE(pi.order_nos,''),
+		       pp.id,pp.plan_no,COALESCE(pp.status,''),
+		       COALESCE(wo.id,0),COALESCE(wo.work_order_no,''),COALESCE(wo.status,'')
+		FROM %s.production_plan_items pi
+		JOIN %s.production_plans pp ON pp.id=pi.production_plan_id
+		LEFT JOIN %s.work_orders wo ON wo.production_plan_item_id=pi.id
+		WHERE pi.product_id = ANY($1::bigint[])
+		  AND pi.spec_g = ANY($2::bigint[])
+		  AND COALESCE(pp.status,'') <> 'cancelled'
+		ORDER BY pp.created_at DESC,pp.id DESC,wo.id DESC
+	`, r.schema, r.schema, r.schema)
+	sqlRows, err := r.pool.Query(ctx, q, productIDs, specGs)
+	if err != nil {
+		return nil, err
+	}
+	defer sqlRows.Close()
+	for sqlRows.Next() {
+		var productID, specG, planID, workOrderID int64
+		var planOrderNos, planNo, planStatus, workOrderNo, workOrderStatus string
+		if err := sqlRows.Scan(&productID, &specG, &planOrderNos, &planID, &planNo, &planStatus, &workOrderID, &workOrderNo, &workOrderStatus); err != nil {
+			return nil, err
+		}
+		key := producePlanKey(productID, specG)
+		if !productionDemandOrderNosOverlap(orderNosByKey[key], planOrderNos) {
+			continue
+		}
+		next := productionDemandPlanState{
+			Status:           productionDemandStatusFromPlan(planStatus, workOrderStatus),
+			ProductionPlanID: planID,
+			ProductionPlanNo: planNo,
+			WorkOrderID:      workOrderID,
+			WorkOrderNo:      workOrderNo,
+		}
+		current := out[key]
+		if productionDemandStatusPriority(next.Status) >= productionDemandStatusPriority(current.Status) {
+			out[key] = next
+		}
+	}
+	return out, sqlRows.Err()
+}
+
+func productionDemandStatusFromPlan(planStatus, workOrderStatus string) string {
+	switch strings.TrimSpace(workOrderStatus) {
+	case "completed":
+		return "completed"
+	case "released", "running", "partially_completed", "paused":
+		return "in_production"
+	}
+	switch strings.TrimSpace(planStatus) {
+	case "completed":
+		return "completed"
+	case "draft", "submitted", "in_progress":
+		return "in_production"
+	default:
+		return "unplanned"
+	}
+}
+
+func splitProductionDemandOrderNos(value string) map[string]bool {
+	out := map[string]bool{}
+	for _, part := range strings.Split(strings.ReplaceAll(value, " ", ""), ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out[part] = true
+		}
+	}
+	return out
+}
+
+func productionDemandOrderNosOverlap(demandOrderNos map[string]bool, planOrderNos string) bool {
+	if len(demandOrderNos) == 0 {
+		return true
+	}
+	for orderNo := range splitProductionDemandOrderNos(planOrderNos) {
+		if demandOrderNos[orderNo] {
+			return true
+		}
+	}
+	return false
+}
+
+func productionDemandStatusPriority(status string) int {
+	switch status {
+	case "in_production":
+		return 3
+	case "completed":
+		return 2
+	default:
+		return 1
+	}
 }
 
 func mergeDripPlanRows(rows []productionapp.UnprodNeedRow, dripRows []productionapp.UnprodNeedRow) []productionapp.UnprodNeedRow {

@@ -79,10 +79,11 @@ func buildRoastPlanRows(rows []UnprodNeedRow, machines []RoastMachine, yieldByPr
 
 func parseUnprodSummaryQuery(c echo.Context) UnprodSummaryQuery {
 	q := UnprodSummaryQuery{
-		From:     strings.TrimSpace(c.QueryParam("from")),
-		To:       strings.TrimSpace(c.QueryParam("to")),
-		Selected: map[string]bool{},
-		Plan:     strings.TrimSpace(c.QueryParam("plan")) == "1",
+		From:         strings.TrimSpace(c.QueryParam("from")),
+		To:           strings.TrimSpace(c.QueryParam("to")),
+		DemandStatus: strings.TrimSpace(c.QueryParam("demand_status")),
+		Selected:     map[string]bool{},
+		Plan:         strings.TrimSpace(c.QueryParam("plan")) == "1",
 	}
 	if v := strings.TrimSpace(c.QueryParam("customer_id")); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {

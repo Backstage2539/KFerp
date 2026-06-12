@@ -1205,36 +1205,45 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 	where := "1=1"
 	if query.Status != "" {
 		args = append(args, query.Status)
-		where += fmt.Sprintf(" AND status=$%d", len(args))
+		where += fmt.Sprintf(" AND jc.status=$%d", len(args))
 	}
 	args = append(args, query.Limit)
 	limitArg := len(args)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,work_order_id,sequence_no,
-		       COALESCE(operation_id,0),COALESCE(workstation_id,0),
-		       operation,workstation,
-		       COALESCE(workstation_capacity_id,0),COALESCE(workstation_capacity_name,''),
-		       COALESCE(batch_size_qty,0)::float8,COALESCE(batch_size_unit,''),
-		       COALESCE(planned_batch_count,0),COALESCE(planned_minutes,0),
-		       COALESCE(hourly_rate,0)::float8,COALESCE(planned_operation_cost,0)::float8,
-		       COALESCE(actual_minutes,0),COALESCE(actual_operation_cost,0)::float8,
-		       status,
-		       COALESCE(to_char(started_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(paused_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(resumed_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),operator,
-		       COALESCE(planned_input_qty,0)::float8,
-		       COALESCE(actual_input_qty,0)::float8,
-		       COALESCE(actual_output_qty,0)::float8,
-		       COALESCE(actual_loss_qty,0)::float8,
-		       COALESCE(actual_loss_rate,0)::float8,
-		       COALESCE(records_loss,false),
-		       COALESCE(loss_reason,''),
-		       COALESCE(exception_reason,''),
-		       COALESCE(metrics_json,'{}'::jsonb)::text,
-		       COALESCE(parameter_schema_json,'{}'::jsonb)::text
-		FROM %s.job_cards
+		SELECT jc.id,jc.work_order_id,
+		       COALESCE(wo.work_order_no,''),COALESCE(wo.product_id,0),COALESCE(wo.product_name,''),
+		       COALESCE(wo.spec_g,0),COALESCE(wo.order_nos,''),COALESCE(wo.planned_g,0),
+		       COALESCE(NULLIF(wo.planned_output_g,0),wo.planned_g,0),COALESCE(wo.bom_version_id,0),
+		       COALESCE(wo.material_snapshot,'[]'::jsonb)::text,
+		       COALESCE(wo.process_snapshot_json,'{}'::jsonb)::text,
+		       COALESCE(wo.production_config_snapshot_json,'{}'::jsonb)::text,
+		       COALESCE(wo.customer_product_snapshot_json,'{}'::jsonb)::text,
+		       jc.sequence_no,
+		       COALESCE(jc.operation_id,0),COALESCE(jc.workstation_id,0),
+		       jc.operation,jc.workstation,
+		       COALESCE(jc.workstation_capacity_id,0),COALESCE(jc.workstation_capacity_name,''),
+		       COALESCE(jc.batch_size_qty,0)::float8,COALESCE(jc.batch_size_unit,''),
+		       COALESCE(jc.planned_batch_count,0),COALESCE(jc.planned_minutes,0),
+		       COALESCE(jc.hourly_rate,0)::float8,COALESCE(jc.planned_operation_cost,0)::float8,
+		       COALESCE(jc.actual_minutes,0),COALESCE(jc.actual_operation_cost,0)::float8,
+		       jc.status,
+		       COALESCE(to_char(jc.started_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(jc.paused_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(jc.resumed_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(jc.completed_at,'YYYY-MM-DD HH24:MI'),''),jc.operator,
+		       COALESCE(jc.planned_input_qty,0)::float8,
+		       COALESCE(jc.actual_input_qty,0)::float8,
+		       COALESCE(jc.actual_output_qty,0)::float8,
+		       COALESCE(jc.actual_loss_qty,0)::float8,
+		       COALESCE(jc.actual_loss_rate,0)::float8,
+		       COALESCE(jc.records_loss,false),
+		       COALESCE(jc.loss_reason,''),
+		       COALESCE(jc.exception_reason,''),
+		       COALESCE(jc.metrics_json,'{}'::jsonb)::text,
+		       COALESCE(jc.parameter_schema_json,'{}'::jsonb)::text
+		FROM %s.job_cards jc
+		LEFT JOIN %s.work_orders wo ON wo.id=jc.work_order_id
 		WHERE %s
-		ORDER BY started_at DESC, work_order_id DESC, sequence_no, id
+		ORDER BY jc.started_at DESC, jc.work_order_id DESC, jc.sequence_no, jc.id
 		LIMIT $%d
-	`, r.schema, where, limitArg), args...)
+	`, r.schema, r.schema, where, limitArg), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1243,7 +1252,10 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 	for rows.Next() {
 		var row productionapp.JobCardRow
 		if err := rows.Scan(
-			&row.ID, &row.WorkOrderID, &row.SequenceNo, &row.OperationID, &row.WorkstationID,
+			&row.ID, &row.WorkOrderID, &row.WorkOrderNo, &row.ProductID, &row.ProductName,
+			&row.SpecG, &row.OrderNos, &row.PlannedG, &row.PlannedOutputG, &row.BomVersionID,
+			&row.MaterialSnapshot, &row.ProcessSnapshotJSON, &row.ProductionConfigSnapshotJSON, &row.CustomerProductSnapshotJSON,
+			&row.SequenceNo, &row.OperationID, &row.WorkstationID,
 			&row.Operation, &row.Workstation, &row.WorkstationCapacityID, &row.WorkstationCapacityName,
 			&row.BatchSizeQty, &row.BatchSizeUnit, &row.PlannedBatchCount, &row.PlannedMinutes,
 			&row.HourlyRate, &row.PlannedOperationCost, &row.ActualMinutes, &row.ActualOperationCost,

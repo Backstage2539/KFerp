@@ -23,6 +23,8 @@
           <tr>
             <th>ID</th>
             <th>工单</th>
+            <th>商品</th>
+            <th>BOM/配方</th>
             <th>顺序</th>
             <th>工序</th>
             <th>工位</th>
@@ -45,7 +47,9 @@
         <tbody>
           <tr v-for="row in rows" :key="row.id">
             <td>#{{ row.id }}</td>
-            <td>#{{ row.work_order_id }}</td>
+            <td><button class="link-button work-order-link" type="button" @click="openJobCardWorkOrderDrawer(row)">{{ row.work_order_no || `#${row.work_order_id}` }}</button></td>
+            <td>{{ row.product_name || '-' }}</td>
+            <td>{{ bomRecipeLabel(row) }}</td>
             <td>{{ row.sequence_no || 1 }}</td>
             <td>{{ operationLabel(row.operation) }}<small v-if="row.records_loss">记录损耗</small></td>
             <td>{{ row.workstation }}</td>
@@ -76,10 +80,51 @@
               <button class="secondary compact" @click="saveActuals(row)" :disabled="loading">保存实际</button>
             </td>
           </tr>
-          <tr v-if="!rows.length"><td colspan="19" class="muted">暂无工序卡</td></tr>
+          <tr v-if="!rows.length"><td colspan="21" class="muted">暂无工序卡</td></tr>
         </tbody>
       </table>
     </section>
+
+    <div v-if="workOrderDrawerRow" class="drawer-backdrop job-card-work-order-drawer" @click.self="closeJobCardWorkOrderDrawer">
+      <aside class="drawer">
+        <div class="drawer-head">
+          <h3>工单详情</h3>
+          <button class="secondary compact" type="button" @click="closeJobCardWorkOrderDrawer">关闭</button>
+        </div>
+        <dl class="detail-grid">
+          <div><dt>工单</dt><dd>{{ workOrderDrawerRow.work_order_no || `#${workOrderDrawerRow.work_order_id}` }}</dd></div>
+          <div><dt>商品</dt><dd>{{ workOrderDrawerRow.product_name || '-' }}</dd></div>
+          <div><dt>规格</dt><dd>{{ workOrderDrawerRow.spec_g || '-' }}g</dd></div>
+          <div><dt>订单号</dt><dd>{{ workOrderDrawerRow.order_nos || '-' }}</dd></div>
+          <div><dt>计划数量</dt><dd>{{ workOrderDrawerRow.planned_g || 0 }}g</dd></div>
+          <div><dt>计划产出</dt><dd>{{ workOrderDrawerRow.planned_output_g || 0 }}g</dd></div>
+          <div><dt>BOM/配方</dt><dd>{{ bomRecipeLabel(workOrderDrawerRow) }}</dd></div>
+          <div><dt>当前工序</dt><dd>{{ operationLabel(workOrderDrawerRow.operation) }}</dd></div>
+        </dl>
+        <section class="drawer-section">
+          <h4>配方物料</h4>
+          <table class="mini-table">
+            <thead>
+              <tr>
+                <th>物料</th>
+                <th>数量/比例</th>
+                <th>单位</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(item, index) in materialSnapshotRows(workOrderDrawerRow)" :key="`${item.material_id || item.id || index}-${item.material_name || item.name || index}`">
+                <td>{{ item.material_name || item.name || item.material || '-' }}</td>
+                <td>{{ materialQtyText(item) }}</td>
+                <td>{{ item.unit || item.material_unit || item.consume_unit || '-' }}</td>
+              </tr>
+              <tr v-if="!materialSnapshotRows(workOrderDrawerRow).length">
+                <td colspan="3" class="muted">暂无配方物料快照</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </aside>
+    </div>
   </div>
 </template>
 
@@ -94,6 +139,7 @@ const status = ref('')
 const loading = ref(false)
 const error = ref('')
 const drafts = ref({})
+const workOrderDrawerRow = ref(null)
 const statusOptions = jobCardStatusOptions()
 
 function buildDraft(row) {
@@ -142,6 +188,43 @@ function actualOperationCost(row) {
 function operationLabel(operation) {
   if (operation === 'roast') return '生产'
   return operation || '-'
+}
+
+function parseJSONSnapshot(raw, fallback) {
+  if (raw && typeof raw === 'object') return raw
+  const text = String(raw || '').trim()
+  if (!text) return fallback
+  try {
+    return JSON.parse(text)
+  } catch {
+    return fallback
+  }
+}
+
+function bomRecipeLabel(row) {
+  const bomID = Number(row?.bom_version_id || 0)
+  return bomID > 0 ? `BOM版本 #${bomID}` : '默认 BOM/配方'
+}
+
+function materialSnapshotRows(row) {
+  const parsed = parseJSONSnapshot(row?.material_snapshot, [])
+  return Array.isArray(parsed) ? parsed : []
+}
+
+function materialQtyText(item) {
+  const qty = item.qty ?? item.qty_g ?? item.consume_qty ?? item.planned_qty ?? item.required_qty
+  if (qty !== undefined && qty !== null && String(qty) !== '') return String(qty)
+  const ratio = item.ratio_pct ?? item.ratio
+  if (ratio !== undefined && ratio !== null && String(ratio) !== '') return `${ratio}%`
+  return '-'
+}
+
+function openJobCardWorkOrderDrawer(row) {
+  workOrderDrawerRow.value = row
+}
+
+function closeJobCardWorkOrderDrawer() {
+  workOrderDrawerRow.value = null
 }
 
 function statusBadgeClass(statusValue) {
@@ -226,5 +309,5 @@ onMounted(load)
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #eee;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,button,input{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #999;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.row-actions{display:flex;gap:6px;flex-wrap:wrap;min-width:260px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.table-wrap{overflow:auto}table{width:100%;min-width:1240px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #eee;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,button,input{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #999;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.link-button{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0;text-decoration:underline}.work-order-link{font-weight:600}.row-actions{display:flex;gap:6px;flex-wrap:wrap;min-width:260px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.table-wrap{overflow:auto}table{width:100%;min-width:1420px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.drawer-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.24);z-index:30;display:flex;justify-content:flex-end}.drawer{width:min(520px,92vw);height:100%;background:#fff;border-left:1px solid #e5e7eb;padding:16px;overflow:auto;box-shadow:-10px 0 24px rgba(0,0,0,.14)}.drawer-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.drawer-head h3{margin:0;font-size:18px}.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0}.detail-grid div{border:1px solid #f0f0f0;border-radius:8px;padding:8px}.detail-grid dt{font-size:12px;color:#6b7280}.detail-grid dd{margin:3px 0 0;color:#111}.drawer-section{margin-top:16px}.drawer-section h4{margin:0 0 8px}.mini-table{min-width:0}.mini-table th,.mini-table td{font-size:12px}
 </style>

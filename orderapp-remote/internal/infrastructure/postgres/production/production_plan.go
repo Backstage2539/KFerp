@@ -92,13 +92,24 @@ func (r Repository) productionPlanSelectedNeeds(ctx context.Context, tx pgx.Tx, 
 	if err != nil {
 		return nil, err
 	}
+	appRows := unprodRowsToApp(rows)
+	if err := r.attachProductionDemandStatuses(ctx, appRows); err != nil {
+		return nil, err
+	}
 	out := make([]productionapp.StartNeed, 0)
-	for _, row := range startNeedsToApp(rows) {
+	for _, row := range appRows {
 		key := producePlanKey(row.ProductID, row.SpecG)
-		if !cmd.Selected[key] || row.GapG <= 0 {
+		if !cmd.Selected[key] || row.GapG <= 0 || row.DemandStatus != "unplanned" {
 			continue
 		}
-		out = append(out, row)
+		out = append(out, productionapp.StartNeed{
+			ProductID:           row.ProductID,
+			ProductName:         row.Product,
+			SpecG:               row.SpecG,
+			GapG:                row.GapG,
+			OrderNos:            row.OrderNos,
+			OperationTemplateID: row.OperationTemplateID,
+		})
 	}
 	return out, nil
 }

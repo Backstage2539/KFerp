@@ -5,6 +5,8 @@ import * as producePlan from './produce-plan.js'
 
 import {
   buildProductionPlanCreatePayload,
+  buildProductionDemandSelection,
+  buildProductionDemandSummaryQuery,
   productionPlanSubmitEndpoint,
   buildInsufficientSelection,
   insufficientSelectionState,
@@ -12,6 +14,10 @@ import {
   buildProductionPlanOperationSplitPayload,
   plannedCapacitySplitMetrics,
   productionPlanSplitBatchCards,
+  productionDemandSelectable,
+  productionDemandSelectionState,
+  productionDemandStatusLabel,
+  productionDemandStatusTone,
 } from './produce-plan.js'
 
 const rows = [
@@ -50,6 +56,45 @@ test('buildInsufficientSelection selects all insufficient rows or clears them', 
     '3-100': true,
   })
   assert.deepEqual(buildInsufficientSelection(rows, false), {})
+})
+
+test('production demand status helpers only allow unplanned shortage rows to be selected', () => {
+  const demandRows = [
+    { product_id: 1, spec_g: 454, gap_g: 454, demand_status: 'unplanned' },
+    { product_id: 2, spec_g: 227, gap_g: 227, demand_status: 'in_production' },
+    { product_id: 3, spec_g: 100, gap_g: 0, demand_status: 'completed' },
+  ]
+
+  assert.equal(productionDemandStatusLabel('unplanned'), '待计划')
+  assert.equal(productionDemandStatusLabel('in_production'), '生产中')
+  assert.equal(productionDemandStatusLabel('completed'), '生产完成')
+  assert.equal(productionDemandStatusTone('in_production'), 'in-production')
+  assert.equal(productionDemandSelectable(demandRows[0]), true)
+  assert.equal(productionDemandSelectable(demandRows[1]), false)
+  assert.equal(productionDemandSelectable(demandRows[2]), false)
+  assert.deepEqual(buildProductionDemandSelection(demandRows, true), { '1-454': true })
+  assert.deepEqual(productionDemandSelectionState(demandRows, { '1-454': true, '2-227': true }), {
+    checked: true,
+    indeterminate: false,
+    selectedCount: 1,
+    total: 1,
+  })
+})
+
+test('production demand summary query carries demand status filters and selected plan preview keys', () => {
+  assert.equal(
+    buildProductionDemandSummaryQuery({
+      from: '2026-06-01',
+      to: '2026-06-13',
+      customer_id: '9',
+      demand_status: 'in_production',
+    }, true, ['1-454', '2-227']),
+    '/api/produce/unproduced?from=2026-06-01&to=2026-06-13&customer_id=9&demand_status=in_production&plan=1&selected=1-454%2C2-227',
+  )
+  assert.equal(
+    buildProductionDemandSummaryQuery({ demand_status: 'bad', customer_id: '0' }, false, []),
+    '/api/produce/unproduced',
+  )
 })
 
 test('buildProductionPlanCreatePayload creates a generic draft plan and lets backend default input', () => {
@@ -325,6 +370,29 @@ test('ProducePlanView lets operators expand planning tables and drag horizontal 
     '展开当前生产计划',
     'demand-collapsed',
     'current-plan-collapsed',
+  ]) {
+    assert.match(source, new RegExp(marker))
+  }
+  assert.match(source, /overscroll-behavior:\s*auto/)
+  assert.doesNotMatch(source, /overscroll-behavior:\s*contain/)
+})
+
+test('ProducePlanView maintains production demand statuses and filters planned rows out of selection', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  for (const marker of [
+    'demandStatusFilter',
+    'demandStatusOptions',
+    'demand_status',
+    '需求状态',
+    '待计划',
+    '生产中',
+    '生产完成',
+    'productionDemandSelectable',
+    'productionDemandStatusLabel',
+    'productionDemandStatusTone',
+    'status-demand-in-production',
+    '已进入生产计划的需求不可重复生成计划',
   ]) {
     assert.match(source, new RegExp(marker))
   }

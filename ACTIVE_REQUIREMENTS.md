@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-491-PRODUCTION-DEMAND-STATUS-JOBCARD-CONTEXT
+- Branch: codex/production-demand-status-jobcard-context-20260613
+- Owner/session: Codex goal / 2026-06-13
+- Status: verified locally; pending merge and development deployment.
+- Scope: 生产计划页待生产需求增加状态和过滤；已进入生产计划的待生产需求不可再选择生成计划；待生产需求、当前生产计划、库存充足提示和生产计划单据列表的内层滚动到底后继续让页面滚动；工序卡展示商品、BOM/配方上下文，并把工单显示为可点击链接，右侧抽屉查看工单详情。
+- DEV:
+  - DEV-491-DEMAND-STATUS-FILTER：待生产需求按生产计划/工单状态展示待计划、生产中、生产完成，并支持状态过滤。
+  - DEV-491-DEMAND-PLAN-GUARD：已进入生产计划或生产中的待生产需求不再可勾选，不会重复生成计划。
+  - DEV-491-NESTED-SCROLL-PROPAGATION：生产计划页四类内层列表滚动到底或到顶时释放滚动给页面。
+  - DEV-491-JOB-CARD-CONTEXT-DRAWER：工序卡主表展示商品、规格、BOM/配方，并提供工单链接打开右侧抽屉。
+- Verifier:
+  - RED frontend: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js` failed before implementation because production demand status helpers and job-card product/BOM drawer markers were missing.
+  - RED backend/API: `go test ./internal/interfaces/http/production -run 'TestParseUnprodSummaryQueryIncludesDemandStatusFilter|TestProducePlanSummaryAPIMarksPlannedDemandAsInProductionAndFiltersIt|TestJobCardAPIIncludesActualLossFields' -count=1 -v` failed before implementation because `DemandStatus` and job-card context fields were missing.
+  - RED support/docs: `go test ./internal/interfaces/http/support -run TestDev491ProductionDemandStatusJobCardContextContracts -count=1 -v` failed before PR-491 docs/seed markers existed.
+  - GREEN frontend: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js` passed 33/33.
+  - GREEN backend/API: `go test ./internal/interfaces/http/production -run 'TestParseUnprodSummaryQueryIncludesDemandStatusFilter|TestProducePlanSummaryAPIMarksPlannedDemandAsInProductionAndFiltersIt|TestJobCardAPIIncludesActualLossFields' -count=1 -v` passed with the database-backed scenario skipped when DB env was not configured.
+  - GREEN targeted/broader: `go test ./internal/application/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/production ./internal/interfaces/http/support -count=1`; `go test ./...`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check` passed.
+  - Browser/local: production Vue build + mock API + headless Chrome verified demand status filter/status text, non-repeatable planned/completed demand checkboxes, `overscroll-behavior: auto`, job-card product/BOM columns, and work-order detail drawer with material snapshot.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-13-production-demand-status-jobcard-context.md`.
+- Deployment: pending merge and development deployment.
+- Last update: 2026-06-13 Asia/Shanghai.
+
 ### PR-490-JOB-CARD-BATCH-CARDS
 - Branch: codex/job-card-batch-cards-20260612
 - Owner/session: Codex / 2026-06-12

@@ -77,6 +77,28 @@ test('job card main table hides coffee-specific input and output quantity column
   assert.match(source, /actual_output_qty: Number\(draft\.actual_output_qty \|\| 0\)/)
 })
 
+test('job cards show product and BOM recipe context with a work order drawer link', () => {
+  const source = fs.readFileSync(new URL('../views/JobCardsView.vue', import.meta.url), 'utf8')
+  const template = source.slice(0, source.indexOf('<script setup>'))
+
+  for (const marker of [
+    '<th>商品</th>',
+    '<th>BOM/配方</th>',
+    'row.work_order_no',
+    'openJobCardWorkOrderDrawer',
+    'job-card-work-order-drawer',
+    '工单详情',
+    '配方物料',
+    'materialSnapshotRows',
+    'workOrderDrawerRow',
+    'bomRecipeLabel',
+  ]) {
+    assert.match(source, new RegExp(marker))
+  }
+  assert.match(template, /button class="link-button work-order-link"/)
+  assert.match(template, /{{ row\.product_name \|\| '-' }}/)
+})
+
 test('work order main table uses generic manufacturing columns instead of roasting advice', () => {
   const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
 
