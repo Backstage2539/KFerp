@@ -279,7 +279,7 @@ func TestSaveWorkstationCapacityNormalizesReusablePreset(t *testing.T) {
 	}
 }
 
-func TestSaveProcessRouteSnapshotsWorkstationCapacityValues(t *testing.T) {
+func TestSaveProcessRouteDropsWorkstationCapacityBatchTimeRateOwnership(t *testing.T) {
 	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
 		ID: 9, WorkstationID: 2, Name: "布勒 18kg", Status: "active",
 		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15, HourlyRate: 300,
@@ -288,22 +288,33 @@ func TestSaveProcessRouteSnapshotsWorkstationCapacityValues(t *testing.T) {
 	if _, err := svc.SaveProcessRoute(context.Background(), SaveProcessRouteCommand{
 		Name: "烘焙路线",
 		Operations: []ProcessRouteOperation{{
-			Operation:             "烘焙",
-			WorkstationID:         2,
-			Workstation:           "布勒烘焙机",
-			WorkstationCapacityID: 9,
-			RecordsLoss:           true,
+			Operation:               "烘焙",
+			WorkstationID:           2,
+			Workstation:             "布勒烘焙机",
+			WorkstationCapacityID:   9,
+			WorkstationCapacityName: "布勒 18kg",
+			BatchSizeQty:            18,
+			BatchSizeUnit:           "kg",
+			StandardMinutes:         15,
+			HourlyRate:              300,
+			PlannedBatchCount:       5,
+			PlannedMinutes:          75,
+			PlannedOperationCost:    375,
+			RecordsLoss:             true,
 		}},
 	}); err != nil {
 		t.Fatalf("SaveProcessRoute: %v", err)
 	}
 	op := repo.savedRoute.Operations[0]
-	if op.WorkstationCapacityName != "布勒 18kg" || op.BatchSizeQty != 18 || op.BatchSizeUnit != "kg" || op.StandardMinutes != 15 || op.HourlyRate != 300 {
-		t.Fatalf("route operation did not snapshot capacity values: %+v", op)
+	if op.WorkstationID != 0 || op.Workstation != "" || op.WorkstationCapacityID != 0 || op.WorkstationCapacityName != "" {
+		t.Fatalf("route operation should not own workstation capacity: %+v", op)
+	}
+	if op.BatchSizeQty != 0 || op.BatchSizeUnit != "" || op.StandardMinutes != 0 || op.HourlyRate != 0 || op.PlannedBatchCount != 0 || op.PlannedMinutes != 0 || op.PlannedOperationCost != 0 {
+		t.Fatalf("route operation should not own batch/time/rate/cost fields: %+v", op)
 	}
 }
 
-func TestSaveProcessRouteRejectsCapacityFromDifferentWorkstation(t *testing.T) {
+func TestSaveProcessRouteIgnoresCapacityWorkstationMismatch(t *testing.T) {
 	repo := &fakeRepo{workstationCapacities: []ManufacturingWorkstationCapacity{{
 		ID: 9, WorkstationID: 2, Name: "布勒 18kg", Status: "active",
 		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15, HourlyRate: 300,
@@ -318,7 +329,11 @@ func TestSaveProcessRouteRejectsCapacityFromDifferentWorkstation(t *testing.T) {
 			WorkstationCapacityID: 9,
 		}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "workstation capacity") {
-		t.Fatalf("expected workstation capacity mismatch error, got %v", err)
+	if err != nil {
+		t.Fatalf("SaveProcessRoute should ignore mismatched workstation capacity fields: %v", err)
+	}
+	op := repo.savedRoute.Operations[0]
+	if op.WorkstationID != 0 || op.WorkstationCapacityID != 0 || op.Workstation != "" {
+		t.Fatalf("route operation should drop mismatched capacity fields: %+v", op)
 	}
 }

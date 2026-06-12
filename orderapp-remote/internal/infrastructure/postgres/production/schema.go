@@ -136,6 +136,33 @@ CREATE TABLE IF NOT EXISTS %s.production_plan_items (
 );
 CREATE INDEX IF NOT EXISTS production_plan_items_plan_idx ON %s.production_plan_items(production_plan_id, id);
 
+CREATE TABLE IF NOT EXISTS %s.production_plan_operation_splits (
+	id BIGSERIAL PRIMARY KEY,
+	production_plan_id BIGINT NOT NULL,
+	production_plan_item_id BIGINT NOT NULL,
+	operation_seq INT NOT NULL DEFAULT 0,
+	operation_id BIGINT NOT NULL DEFAULT 0,
+	operation TEXT NOT NULL DEFAULT '',
+	workstation_id BIGINT NOT NULL DEFAULT 0,
+	workstation TEXT NOT NULL DEFAULT '',
+	workstation_capacity_id BIGINT NOT NULL DEFAULT 0,
+	workstation_capacity_name TEXT NOT NULL DEFAULT '',
+	batch_size_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
+	batch_size_unit TEXT NOT NULL DEFAULT '',
+	standard_minutes INT NOT NULL DEFAULT 0,
+	hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0,
+	planned_batch_count INT NOT NULL DEFAULT 0,
+	planned_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
+	planned_qty_g BIGINT NOT NULL DEFAULT 0,
+	planned_minutes INT NOT NULL DEFAULT 0,
+	planned_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0,
+	note TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS production_plan_operation_splits_plan_idx ON %s.production_plan_operation_splits(production_plan_id, id);
+CREATE INDEX IF NOT EXISTS production_plan_operation_splits_item_operation_idx ON %s.production_plan_operation_splits(production_plan_item_id, operation_seq, id);
+
 CREATE TABLE IF NOT EXISTS %s.work_orders (
 	id BIGSERIAL PRIMARY KEY,
 	work_order_no TEXT NOT NULL UNIQUE,
@@ -271,7 +298,7 @@ CREATE TABLE IF NOT EXISTS %s.work_center_capacity_calendar (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS work_center_capacity_calendar_uq ON %s.work_center_capacity_calendar(work_center, work_date, shift_code);
 CREATE INDEX IF NOT EXISTS work_center_capacity_calendar_lookup_idx ON %s.work_center_capacity_calendar(work_date, work_center);
-`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema)
 	if _, err := pool.Exec(ctx, q); err != nil {
 		return err
 	}

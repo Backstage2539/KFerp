@@ -19,6 +19,8 @@ type workOrderAPIRepo struct {
 	jobCardAction productionapp.JobCardActionCommand
 
 	createPlan          productionapp.CreateProductionPlanCommand
+	savePlanSplits      productionapp.SaveProductionPlanOperationSplitsCommand
+	planSplits          []productionapp.ProductionPlanOperationSplit
 	submitPlan          productionapp.SubmitProductionPlanCommand
 	submitPlans         []productionapp.SubmitProductionPlanCommand
 	startWorkOrder      productionapp.WorkOrderStartCommand
@@ -91,6 +93,13 @@ func (r *workOrderAPIRepo) GetProductionPlan(ctx context.Context, id int64) (pro
 		r.productionPlan = productionapp.ProductionPlanDetail{ID: id, PlanNo: "PP-0000000041", Status: "draft"}
 	}
 	return r.productionPlan, nil
+}
+func (r *workOrderAPIRepo) SaveProductionPlanOperationSplits(ctx context.Context, cmd productionapp.SaveProductionPlanOperationSplitsCommand) ([]productionapp.ProductionPlanOperationSplit, error) {
+	r.savePlanSplits = cmd
+	if len(r.planSplits) == 0 {
+		r.planSplits = cmd.Items
+	}
+	return r.planSplits, nil
 }
 func (r *workOrderAPIRepo) SubmitProductionPlan(ctx context.Context, cmd productionapp.SubmitProductionPlanCommand) (productionapp.ProductionPlanSubmitResult, error) {
 	r.submitPlan = cmd
@@ -414,6 +423,61 @@ func TestManufacturingPhase2StockEntryAndExecutionAPIs(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"stock_entries"`) || !strings.Contains(rec.Body.String(), `"total_cost":48.75`) {
 		t.Fatalf("work order complete response missing stock/cost: %s", rec.Body.String())
+	}
+}
+
+func TestProductionPlanOperationSplitAPIReadsAndSavesDraftCapacitySplits(t *testing.T) {
+	repo := &workOrderAPIRepo{
+		productionPlan: productionapp.ProductionPlanDetail{
+			ID:     41,
+			PlanNo: "PP-0000000041",
+			Status: "draft",
+			Items: []productionapp.ProductionPlanItem{{ID: 51, ProductName: "烘焙计划", PlannedG: 98000}},
+			OperationSplits: []productionapp.ProductionPlanOperationSplit{{
+				ID:                      1,
+				ProductionPlanID:        41,
+				ProductionPlanItemID:    51,
+				OperationSeq:            10,
+				Operation:               "烘焙",
+				WorkstationCapacityID:   8,
+				WorkstationCapacityName: "布勒 18kg",
+				PlannedBatchCount:       5,
+				PlannedQtyG:             90000,
+				PlannedMinutes:          75,
+				PlannedOperationCost:    375,
+			}},
+		},
+	}
+	e := echo.New()
+	RegisterRoutes(e, Dependencies{Production: productionapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/production-plans/41/operation-splits", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET operation splits status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"operation":"烘焙"`, `"workstation_capacity_name":"布勒 18kg"`, `"planned_batch_count":5`, `"planned_qty_g":90000`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("GET operation splits missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/production-plans/41/operation-splits", strings.NewReader(`{"items":[
+		{"production_plan_item_id":51,"operation_seq":10,"operation":"烘焙","workstation_capacity_id":8,"planned_batch_count":5},
+		{"production_plan_item_id":51,"operation_seq":10,"operation":"烘焙","workstation_capacity_id":9,"planned_batch_count":2}
+	]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST operation splits status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.savePlanSplits.ID != 41 || repo.savePlanSplits.Operator == "" || len(repo.savePlanSplits.Items) != 2 {
+		t.Fatalf("save split command = %+v", repo.savePlanSplits)
+	}
+	if repo.savePlanSplits.Items[0].WorkstationCapacityID != 8 || repo.savePlanSplits.Items[1].PlannedBatchCount != 2 {
+		t.Fatalf("saved split items = %+v", repo.savePlanSplits.Items)
 	}
 }
 

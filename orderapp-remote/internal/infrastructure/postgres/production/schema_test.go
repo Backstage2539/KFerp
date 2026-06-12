@@ -57,6 +57,38 @@ func TestProductionPlanSchemaCreatesFormalPlanTables(t *testing.T) {
 	}
 }
 
+func TestProductionPlanSchemaCreatesOperationCapacitySplitTable(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS %s.production_plan_operation_splits",
+		"production_plan_id BIGINT NOT NULL",
+		"production_plan_item_id BIGINT NOT NULL",
+		"operation_seq INT NOT NULL DEFAULT 0",
+		"operation_id BIGINT NOT NULL DEFAULT 0",
+		"operation TEXT NOT NULL DEFAULT ''",
+		"workstation_id BIGINT NOT NULL DEFAULT 0",
+		"workstation_capacity_id BIGINT NOT NULL DEFAULT 0",
+		"batch_size_qty NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"batch_size_unit TEXT NOT NULL DEFAULT ''",
+		"standard_minutes INT NOT NULL DEFAULT 0",
+		"hourly_rate NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"planned_batch_count INT NOT NULL DEFAULT 0",
+		"planned_qty_g BIGINT NOT NULL DEFAULT 0",
+		"planned_minutes INT NOT NULL DEFAULT 0",
+		"planned_operation_cost NUMERIC(14,4) NOT NULL DEFAULT 0",
+		"production_plan_operation_splits_plan_idx",
+		"production_plan_operation_splits_item_operation_idx",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("production plan operation split schema missing %q", want)
+		}
+	}
+}
+
 func TestWorkOrderSchemaAllowsReleasedOrdersBeforeRunningItem(t *testing.T) {
 	src, err := os.ReadFile("schema.go")
 	if err != nil {

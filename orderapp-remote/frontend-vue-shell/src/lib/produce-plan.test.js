@@ -8,6 +8,9 @@ import {
   productionPlanSubmitEndpoint,
   buildInsufficientSelection,
   insufficientSelectionState,
+  productionPlanOperationSplitsEndpoint,
+  buildProductionPlanOperationSplitPayload,
+  plannedCapacitySplitMetrics,
 } from './produce-plan.js'
 
 const rows = [
@@ -147,6 +150,35 @@ test('current production plan submit payload reuses the batch submit contract wi
   assert.deepEqual(producePlan.buildCurrentProductionPlanSubmitPayload(null), { ids: [] })
 })
 
+test('production plan operation capacity split helpers calculate batch quantity minutes and cost', () => {
+  assert.equal(productionPlanOperationSplitsEndpoint({ id: 41 }), '/api/production-plans/41/operation-splits')
+  assert.equal(productionPlanOperationSplitsEndpoint({ id: 0 }), '')
+
+  assert.deepEqual(plannedCapacitySplitMetrics({
+    planned_batch_count: 5,
+    batch_size_qty: 18,
+    batch_size_unit: 'kg',
+    standard_minutes: 15,
+    hourly_rate: 300,
+  }), {
+    planned_qty: 90,
+    planned_qty_g: 90000,
+    planned_minutes: 75,
+    planned_operation_cost: 375,
+  })
+
+  assert.deepEqual(buildProductionPlanOperationSplitPayload([
+    { production_plan_item_id: 51, operation_seq: 10, operation: '烘焙', workstation_capacity_id: 8, planned_batch_count: 5 },
+    { production_plan_item_id: 51, operation_seq: 10, operation: '烘焙', workstation_capacity_id: 9, planned_batch_count: 2 },
+    { production_plan_item_id: 0, operation: '忽略', planned_batch_count: 1 },
+  ]), {
+    items: [
+      { production_plan_item_id: 51, operation_seq: 10, operation: '烘焙', workstation_capacity_id: 8, planned_batch_count: 5 },
+      { production_plan_item_id: 51, operation_seq: 10, operation: '烘焙', workstation_capacity_id: 9, planned_batch_count: 2 },
+    ],
+  })
+})
+
 test('ProducePlanView creates draft plans and batch submits checked draft plans', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
@@ -196,10 +228,34 @@ test('ProducePlanView submits the current draft plan through the batch submit AP
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
   assert.match(source, /提交当前计划生成工单/)
+  assert.match(source, /saveCurrentPlanOperationSplits/)
   assert.match(source, /submitCurrentProductionPlan/)
   assert.match(source, /buildCurrentProductionPlanSubmitPayload\(currentPlan\.value\)/)
   assert.match(source, /apiSend\(productionPlanBatchSubmitEndpoint\(\), \{ body: payload \}\)/)
   assert.doesNotMatch(source, /@click="submitPlanRow\(plan\)"/)
+})
+
+test('ProducePlanView owns operation capacity splits after draft plan creation', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  for (const marker of [
+    '工序产能拆分',
+    '添加拆分',
+    'productionPlanOperationSplitsEndpoint',
+    'buildProductionPlanOperationSplitPayload',
+    'plannedCapacitySplitMetrics',
+    'manufacturing-workstation-capacities',
+    'planned_batch_count',
+    'planned_qty_g',
+    'planned_minutes',
+    'planned_operation_cost',
+    '布勒 18kg',
+    '智烘 4kg',
+  ]) {
+    assert.match(source, new RegExp(marker))
+  }
+  assert.doesNotMatch(source, /每锅数量/)
+  assert.doesNotMatch(source, /推荐机器/)
 })
 
 test('ProducePlanView opens an ERPNext-style production plan detail drawer from the compact list', () => {

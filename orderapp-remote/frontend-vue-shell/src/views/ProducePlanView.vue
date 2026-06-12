@@ -165,6 +165,49 @@
                 </table>
               </div>
             </div>
+            <div v-if="currentPlan" class="operation-split-panel">
+              <div class="panel-head compact-head">
+                <div class="section-title">工序产能拆分</div>
+                <button class="secondary compact" type="button" @click="saveCurrentPlanOperationSplits" :disabled="saving || !currentPlanDraft">保存拆分</button>
+              </div>
+              <div v-if="operationSplitError" class="error">{{ operationSplitError }}</div>
+              <div v-if="!currentPlanDraft" class="muted section-hint">已提交计划只展示已冻结拆分。</div>
+              <div v-for="row in currentPlanOperationRows" :key="`${row.item.id}-${row.operation.seq || row.operation.sequence_no || row.operation.operation}`" class="split-operation-block">
+                <div class="split-operation-head">
+                  <strong>{{ row.item.product_name || '-' }}</strong>
+                  <span>{{ row.operation.seq || row.operation.sequence_no || '-' }}. {{ row.operation.operation || '工序' }}</span>
+                  <button class="secondary compact" type="button" @click="addOperationSplit(row.item, row.operation)" :disabled="!currentPlanDraft">添加拆分</button>
+                </div>
+                <div class="split-row" v-for="(split, splitIndex) in splitRowsForOperation(row.item, row.operation)" :key="split.local_key || split.id || `${row.item.id}-${splitIndex}`">
+                  <label>
+                    <span>工位产能</span>
+                    <select v-model.number="split.workstation_capacity_id" :disabled="!currentPlanDraft" @change="applySplitCapacity(split)">
+                      <option value="0">选择工位产能，例如 布勒 18kg / 智烘 4kg</option>
+                      <option v-for="capacity in activeWorkstationCapacities" :key="capacity.id" :value="capacity.id">{{ capacityOptionLabel(capacity) }}</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>批次数</span>
+                    <input v-model.number="split.planned_batch_count" type="number" min="1" step="1" :disabled="!currentPlanDraft" />
+                  </label>
+                  <div class="split-metric">
+                    <span>计划数量</span>
+                    <strong>{{ plannedCapacitySplitMetrics(split).planned_qty_g || 0 }}g</strong>
+                  </div>
+                  <div class="split-metric">
+                    <span>计划分钟</span>
+                    <strong>{{ plannedCapacitySplitMetrics(split).planned_minutes || 0 }}</strong>
+                  </div>
+                  <div class="split-metric">
+                    <span>计划工序成本</span>
+                    <strong>{{ plannedCapacitySplitMetrics(split).planned_operation_cost || 0 }}</strong>
+                  </div>
+                  <button class="secondary compact danger-text" type="button" @click="removeOperationSplit(split)" :disabled="!currentPlanDraft">删除</button>
+                </div>
+                <div v-if="!splitRowsForOperation(row.item, row.operation).length" class="muted section-hint">暂无拆分</div>
+              </div>
+              <div v-if="!currentPlanOperationRows.length" class="muted section-hint">暂无工序快照</div>
+            </div>
           </div>
           <div v-else-if="hasSelectedRows && !previewLoading" class="muted empty-state">已选择商品，等待计划预览。</div>
           <div class="actions current-plan-actions">
@@ -471,10 +514,13 @@ import {
   buildProductionPlanBatchSubmitPayload,
   buildProductionPlanCreatePayload,
   buildProductionPlanListQuery,
+  buildProductionPlanOperationSplitPayload,
   buildProductionPlanSelection,
   insufficientSelectionState,
+  plannedCapacitySplitMetrics,
   productionPlanBatchSubmitEndpoint,
   productionPlanDetailEndpoint,
+  productionPlanOperationSplitsEndpoint,
   productionPlanSelectable,
   productionPlanSelectionState,
   productionPlanStatusLabel,
@@ -501,9 +547,12 @@ const planRows = ref([])
 const initialMaterials = ref([])
 const productionPlans = ref([])
 const currentPlan = ref(null)
+const workstationCapacities = ref([])
+const operationSplits = ref([])
 const productionPlanDetail = ref(null)
 const productionPlanDetailLoading = ref(false)
 const productionPlanDetailError = ref('')
+const operationSplitError = ref('')
 const insufficientHeaderCheckbox = ref(null)
 const productionPlanHeaderCheckbox = ref(null)
 const selected = reactive({})
@@ -546,6 +595,16 @@ const allProductionPlansSelected = computed(() => productionPlanSelection.value.
 const hasSelectedProductionPlans = computed(() => productionPlanSelection.value.selectedCount > 0)
 const currentPlanDraft = computed(() => productionPlanSelectable(currentPlan.value))
 const selectedSignature = computed(() => selectedKeys().join('|'))
+const activeWorkstationCapacities = computed(() => workstationCapacities.value.filter((row) => String(row.status || 'active') === 'active'))
+const currentPlanOperationRows = computed(() => {
+  const rows = []
+  for (const item of currentPlan.value?.items || []) {
+    for (const operation of processOperations(item)) {
+      rows.push({ item, operation })
+    }
+  }
+  return rows
+})
 
 watchEffect(() => {
   if (insufficientHeaderCheckbox.value) {
@@ -678,6 +737,8 @@ async function loadProductionPlans() {
 
 function resetCurrentPlanForSelection() {
   currentPlan.value = null
+  operationSplits.value = []
+  operationSplitError.value = ''
   previewError.value = ''
 }
 
@@ -765,6 +826,109 @@ function processOperations(item) {
   return Array.isArray(snapshot.operations) ? snapshot.operations : []
 }
 
+function operationIdentity(operation) {
+  return {
+    seq: Number(operation?.seq || operation?.sequence_no || 0),
+    id: Number(operation?.operation_id || 0),
+    name: String(operation?.operation || '').trim(),
+  }
+}
+
+function splitMatchesOperation(split, operation) {
+  const identity = operationIdentity(operation)
+  if (identity.seq > 0 && Number(split?.operation_seq || 0) === identity.seq) return true
+  if (identity.id > 0 && Number(split?.operation_id || 0) === identity.id) return true
+  return !identity.seq && identity.name && String(split?.operation || '').trim() === identity.name
+}
+
+function splitRowsForOperation(item, operation) {
+  const itemID = Number(item?.id || 0)
+  return operationSplits.value.filter((split) => Number(split.production_plan_item_id || 0) === itemID && splitMatchesOperation(split, operation))
+}
+
+function capacityOptionLabel(capacity) {
+  const parts = [capacity?.name || `#${capacity?.id || ''}`]
+  if (Number(capacity?.batch_size_qty || 0) > 0) parts.push(`${capacity.batch_size_qty}${capacity.batch_size_unit || ''}`)
+  if (Number(capacity?.standard_minutes || 0) > 0) parts.push(`${capacity.standard_minutes}分钟/批`)
+  if (Number(capacity?.hourly_rate || 0) > 0) parts.push(`${capacity.hourly_rate}/小时`)
+  return parts.filter(Boolean).join(' · ')
+}
+
+function normalizeOperationSplit(row = {}) {
+  return {
+    local_key: row.local_key || `split-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    id: Number(row.id || 0),
+    production_plan_id: Number(row.production_plan_id || currentPlan.value?.id || 0),
+    production_plan_item_id: Number(row.production_plan_item_id || 0),
+    operation_seq: Number(row.operation_seq || 0),
+    operation_id: Number(row.operation_id || 0),
+    operation: row.operation || '',
+    workstation_id: Number(row.workstation_id || 0),
+    workstation: row.workstation || '',
+    workstation_capacity_id: Number(row.workstation_capacity_id || 0),
+    workstation_capacity_name: row.workstation_capacity_name || '',
+    batch_size_qty: Number(row.batch_size_qty || 0),
+    batch_size_unit: row.batch_size_unit || '',
+    standard_minutes: Number(row.standard_minutes || 0),
+    hourly_rate: Number(row.hourly_rate || 0),
+    planned_batch_count: Number(row.planned_batch_count || 1),
+    planned_qty_g: Number(row.planned_qty_g || 0),
+    planned_minutes: Number(row.planned_minutes || 0),
+    planned_operation_cost: Number(row.planned_operation_cost || 0),
+    note: row.note || '',
+  }
+}
+
+function addOperationSplit(item, operation) {
+  const identity = operationIdentity(operation)
+  operationSplits.value.push(normalizeOperationSplit({
+    production_plan_id: currentPlan.value?.id || 0,
+    production_plan_item_id: item?.id || 0,
+    operation_seq: identity.seq,
+    operation_id: identity.id,
+    operation: identity.name,
+    planned_batch_count: 1,
+  }))
+}
+
+function removeOperationSplit(split) {
+  operationSplits.value = operationSplits.value.filter((row) => row !== split)
+}
+
+function applySplitCapacity(split) {
+  const capacity = workstationCapacities.value.find((row) => Number(row.id || 0) === Number(split.workstation_capacity_id || 0))
+  if (!capacity) return
+  split.workstation_id = Number(capacity.workstation_id || 0)
+  split.workstation = capacity.workstation || ''
+  split.workstation_capacity_name = capacity.name || ''
+  split.batch_size_qty = Number(capacity.batch_size_qty || 0)
+  split.batch_size_unit = capacity.batch_size_unit || ''
+  split.standard_minutes = Number(capacity.standard_minutes || 0)
+  split.hourly_rate = Number(capacity.hourly_rate || 0)
+}
+
+async function loadWorkstationCapacities() {
+  const data = await apiGet('/api/manufacturing-workstation-capacities')
+  workstationCapacities.value = data.rows || []
+}
+
+async function loadProductionPlanOperationSplits(plan = currentPlan.value) {
+  if (!productionPlanOperationSplitsEndpoint(plan)) {
+    operationSplits.value = []
+    return
+  }
+  const data = await apiGet(productionPlanOperationSplitsEndpoint(plan))
+  operationSplits.value = (data.rows || []).map(normalizeOperationSplit)
+}
+
+async function saveCurrentPlanOperationSplits() {
+  if (!productionPlanOperationSplitsEndpoint(currentPlan.value) || !currentPlanDraft.value) return
+  operationSplitError.value = ''
+  const payload = buildProductionPlanOperationSplitPayload(operationSplits.value)
+  const data = await apiSend(productionPlanOperationSplitsEndpoint(currentPlan.value), { body: payload })
+  operationSplits.value = (data.rows || []).map(normalizeOperationSplit)
+}
+
 function productionConfigFields(item) {
   const snapshot = parseJSONSnapshot(item?.production_config_snapshot_json, {})
   return Array.isArray(snapshot.fields) ? snapshot.fields : []
@@ -843,6 +1007,7 @@ async function createProductionPlan() {
     }
     const payload = buildProductionPlanCreatePayload(filters, keys)
     currentPlan.value = await apiSend('/api/production-plans', { body: payload })
+    await loadProductionPlanOperationSplits(currentPlan.value)
     await loadProductionPlans()
   } catch (err) {
     previewError.value = err.message || '创建生产计划失败'
@@ -857,6 +1022,7 @@ async function submitCurrentProductionPlan() {
   saving.value = true
   previewError.value = ''
   try {
+    await saveCurrentPlanOperationSplits()
     const result = await apiSend(productionPlanBatchSubmitEndpoint(), { body: payload })
     const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
     if (firstSuccess?.plan) currentPlan.value = firstSuccess.plan
@@ -910,6 +1076,7 @@ onMounted(async () => {
     }
   }
   await load(url.searchParams.get('plan') === '1')
+  await loadWorkstationCapacities()
   await loadProductionPlans()
 })
 
@@ -945,6 +1112,7 @@ onBeforeUnmount(() => {
 .planning-workbench { display: grid; grid-template-columns: minmax(420px, 1.05fr) minmax(480px, 1.25fr); gap: 16px; align-items: start; }
 .demand-panel, .current-plan-panel { min-width: 0; }
 .current-plan-content { display: grid; gap: 18px; }
+.compact-head { margin-bottom: 8px; }
 .empty-state { border: 1px dashed #d1d5db; border-radius: 8px; padding: 14px; display: grid; gap: 6px; background: #fafafa; }
 .preview-loading { margin-bottom: 10px; }
 .filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
@@ -1010,6 +1178,15 @@ td small { display: block; color: #666; line-height: 1.6; }
 .operation-pill { border: 1px solid #e5e7eb; border-radius: 999px; padding: 4px 8px; background: #f9fafb; color: #374151; }
 .result-summary { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .result-summary span { border: 1px solid #e5e7eb; border-radius: 999px; padding: 4px 8px; background: #f9fafb; }
+.operation-split-panel { display: grid; gap: 10px; }
+.split-operation-block { border-top: 1px solid #eee; padding-top: 10px; display: grid; gap: 8px; }
+.split-operation-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.split-operation-head span { color: #374151; }
+.split-row { display: grid; grid-template-columns: minmax(220px, 1.4fr) 110px repeat(3, minmax(100px, .7fr)) auto; gap: 8px; align-items: end; }
+.split-row label { display: grid; gap: 5px; }
+.split-row label span, .split-metric span { font-size: 12px; color: #666; }
+.split-metric { min-height: 42px; border: 1px solid #eee; border-radius: 8px; padding: 6px 8px; display: grid; gap: 2px; background: #fafafa; }
+.danger-text { color: #a33; border-color: #d8b4b4; }
 
 @media (max-width: 900px) {
   .page { padding: 12px; }
@@ -1019,5 +1196,6 @@ td small { display: block; color: #666; line-height: 1.6; }
   .production-plan-detail-drawer { width: 100vw; padding: 14px; }
   .drawer-head { flex-direction: column; }
   .detail-grid { grid-template-columns: 1fr; }
+  .split-row { grid-template-columns: 1fr; }
 }
 </style>

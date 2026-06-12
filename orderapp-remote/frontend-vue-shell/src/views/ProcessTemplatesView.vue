@@ -39,7 +39,7 @@
               <td>
                 <strong>{{ row.name }}</strong>
                 <small>#{{ row.id }} · {{ row.operations?.length || 0 }} 道工序</small>
-                <small>{{ row.default_equipment || '无默认设备' }} · {{ row.updated_at || '-' }}</small>
+                <small>{{ row.updated_at || '-' }}</small>
               </td>
               <td><span :class="['pill', row.status]">{{ statusLabel(row.status) }}</span></td>
             </tr>
@@ -64,10 +64,6 @@
               <option value="active">已发布</option>
               <option value="inactive">停用</option>
             </select>
-          </label>
-          <label>
-            <span>默认设备</span>
-            <input v-model.trim="form.default_equipment" placeholder="例如 烘焙机 / 包装台 / 缝制组" />
           </label>
         </div>
         <label class="wide">
@@ -101,70 +97,6 @@
               <label class="operation-name">
                 <span>工序名称快照</span>
                 <input v-model.trim="op.operation" placeholder="烘焙 / 裁剪 / 包装" />
-              </label>
-              <label class="workstation-select">
-                <span>工位/设备</span>
-                <SearchableSelect
-                  v-model="op.workstation_id"
-                  :options="activeWorkstations"
-                  :option-label="optionLabel"
-                  :option-meta="workstationMeta"
-                  :option-value="optionNumericValue"
-                  placeholder="选择工位/设备"
-                  empty-text="暂无工位/设备"
-                  @select="applyWorkstation(index, $event)" />
-              </label>
-              <label class="workstation-name">
-                <span>工位快照</span>
-                <input v-model.trim="op.workstation" placeholder="烘焙机 / 包装台 / 质检台" />
-              </label>
-              <label class="capacity-select">
-                <span>工位产能</span>
-                <SearchableSelect
-                  v-model="op.workstation_capacity_id"
-                  :options="capacityOptionsForOperation(op)"
-                  :option-label="optionLabel"
-                  :option-meta="workstationCapacityMeta"
-                  :option-value="optionNumericValue"
-                  placeholder="选择工位产能"
-                  empty-text="暂无工位产能"
-                  @select="applyWorkstationCapacity(index, $event)" />
-              </label>
-              <label class="capacity-name">
-                <span>产能快照</span>
-                <input v-model.trim="op.workstation_capacity_name" placeholder="布勒 18kg / 智烘 3kg" />
-              </label>
-              <label class="operation-equipment">
-                <span>设备</span>
-                <input v-model.trim="op.default_equipment" />
-              </label>
-              <label>
-                <span>标准批量</span>
-                <input v-model.number="op.batch_size_qty" type="number" min="0" step="0.001" />
-              </label>
-              <label>
-                <span>批量单位</span>
-                <input v-model.trim="op.batch_size_unit" placeholder="kg / g / 件" />
-              </label>
-              <label class="operation-minutes">
-                <span>标准分钟/批</span>
-                <input v-model.number="op.standard_minutes" type="number" min="0" step="1" />
-              </label>
-              <label>
-                <span>小时费率</span>
-                <input v-model.number="op.hourly_rate" type="number" min="0" step="0.01" />
-              </label>
-              <label>
-                <span>计划批次数</span>
-                <input v-model.number="op.planned_batch_count" type="number" min="0" step="1" />
-              </label>
-              <label>
-                <span>计划分钟</span>
-                <input v-model.number="op.planned_minutes" type="number" min="0" step="1" />
-              </label>
-              <label>
-                <span>计划工序成本</span>
-                <input :value="operationCostPreview(op)" readonly />
               </label>
               <label class="checkbox operation-loss">
                 <input v-model="op.records_loss" type="checkbox" />
@@ -201,14 +133,10 @@ const error = ref('')
 const ok = ref('')
 const routes = ref([])
 const operations = ref([])
-const workstations = ref([])
-const workstationCapacities = ref([])
 const filters = reactive({ status: '' })
 const form = reactive(blankRoute())
 
 const activeOperations = computed(() => operations.value.filter((row) => row.status === 'active'))
-const activeWorkstations = computed(() => workstations.value.filter((row) => row.status === 'active'))
-const activeWorkstationCapacities = computed(() => workstationCapacities.value.filter((row) => row.status === 'active'))
 
 function blankRoute() {
   return {
@@ -226,20 +154,7 @@ function blankOperation(seq) {
   return {
     seq,
     operation_id: 0,
-    workstation_id: 0,
-    workstation_capacity_id: 0,
     operation: '',
-    workstation: '',
-    workstation_capacity_name: '',
-    default_equipment: '',
-    default_minutes: 0,
-    batch_size_qty: 0,
-    batch_size_unit: '',
-    standard_minutes: 0,
-    hourly_rate: 0,
-    planned_batch_count: 0,
-    planned_minutes: 0,
-    planned_operation_cost: 0,
     records_loss: false,
     quality_checklist_json: '[]',
     quality_checklist_text: '',
@@ -257,21 +172,6 @@ function optionNumericValue(option) {
 function operationMeta(option) {
   const parts = []
   if (option?.code) parts.push(option.code)
-  return parts.join(' / ')
-}
-
-function workstationMeta(option) {
-  const parts = []
-  if (option?.code) parts.push(option.code)
-  if (Number(option?.hourly_rate || 0) > 0) parts.push(`默认小时费率 ${option.hourly_rate}`)
-  return parts.join(' / ')
-}
-
-function workstationCapacityMeta(option) {
-  const parts = []
-  if (Number(option?.batch_size_qty || 0) > 0) parts.push(`${option.batch_size_qty}${option.batch_size_unit || ''}`)
-  if (Number(option?.standard_minutes || 0) > 0) parts.push(`${option.standard_minutes} 分钟/批`)
-  if (Number(option?.hourly_rate || 0) > 0) parts.push(`${option.hourly_rate}/小时`)
   return parts.join(' / ')
 }
 
@@ -310,18 +210,15 @@ function routePayload() {
   return {
     ...form,
     status: form.status || 'draft',
+    default_equipment: '',
+    default_minutes: 0,
     operations: (form.operations || []).map((op) => {
       const { quality_checklist_text: qualityChecklistText, ...rest } = op
       return {
-        ...rest,
-        workstation_capacity_id: Number(rest.workstation_capacity_id || 0),
-        batch_size_qty: Number(rest.batch_size_qty || 0),
-        standard_minutes: Number(rest.standard_minutes || 0),
-        hourly_rate: Number(rest.hourly_rate || 0),
-        planned_batch_count: Number(rest.planned_batch_count || 0),
-        planned_minutes: Number(rest.planned_minutes || 0),
-        planned_operation_cost: computedOperationCost(rest),
-        default_minutes: Number(rest.standard_minutes || rest.default_minutes || 0),
+        seq: Number(rest.seq || 0),
+        operation_id: Number(rest.operation_id || 0),
+        operation: rest.operation || '',
+        records_loss: !!rest.records_loss,
         quality_checklist_json: qualityChecklistJSONFromText(qualityChecklistText),
       }
     }),
@@ -337,21 +234,14 @@ function normalizeRoute(row) {
     ...blankRoute(),
     ...row,
     id: Number(row.id || 0),
+    default_equipment: '',
     default_minutes: Number(row.default_minutes || 0),
     operations: (row.operations || []).length ? row.operations.map((op, index) => ({
       ...blankOperation(index + 1),
       ...op,
       seq: Number(op.seq || index + 1),
       operation_id: Number(op.operation_id || 0),
-      workstation_id: Number(op.workstation_id || 0),
-      workstation_capacity_id: Number(op.workstation_capacity_id || 0),
-      default_minutes: Number(op.default_minutes || 0),
-      batch_size_qty: Number(op.batch_size_qty || 0),
-      standard_minutes: Number(op.standard_minutes || op.default_minutes || 0),
-      hourly_rate: Number(op.hourly_rate || 0),
-      planned_batch_count: Number(op.planned_batch_count || 0),
-      planned_minutes: Number(op.planned_minutes || 0),
-      planned_operation_cost: Number(op.planned_operation_cost || 0),
+      operation: op.operation || '',
       records_loss: !!op.records_loss,
       quality_checklist_json: op.quality_checklist_json || '[]',
       quality_checklist_text: qualityChecklistTextFromJSON(op.quality_checklist_json || '[]'),
@@ -372,14 +262,8 @@ async function loadAll() {
 }
 
 async function loadManufacturingMasterData() {
-  const [operationData, workstationData, capacityData] = await Promise.all([
-    apiGet('/api/manufacturing-operations'),
-    apiGet('/api/manufacturing-workstations'),
-    apiGet('/api/manufacturing-workstation-capacities'),
-  ])
+  const operationData = await apiGet('/api/manufacturing-operations')
   operations.value = operationData?.rows || []
-  workstations.value = workstationData?.rows || []
-  workstationCapacities.value = capacityData?.rows || []
 }
 
 async function loadRoutes() {
@@ -415,75 +299,6 @@ function applyOperation(index, option) {
   if (!op || !option) return
   op.operation_id = Number(option.id || 0)
   op.operation = option.name || op.operation
-}
-
-function applyWorkstation(index, option) {
-  const op = form.operations[index]
-  if (!op || !option) return
-  op.workstation_id = Number(option.id || 0)
-  op.workstation = option.name || op.workstation
-  if (!Number(op.hourly_rate || 0) && Number(option.hourly_rate || 0) > 0) {
-    op.hourly_rate = Number(option.hourly_rate || 0)
-  }
-  const selectedCapacity = activeWorkstationCapacities.value.find((row) => Number(row.id) === Number(op.workstation_capacity_id || 0))
-  if (selectedCapacity && Number(selectedCapacity.workstation_id || 0) !== Number(op.workstation_id || 0)) {
-    clearWorkstationCapacity(op)
-  }
-}
-
-function capacityOptionsForOperation(op) {
-  const workstationID = Number(op?.workstation_id || 0)
-  if (!workstationID) return activeWorkstationCapacities.value
-  return activeWorkstationCapacities.value.filter((row) => Number(row.workstation_id || 0) === workstationID)
-}
-
-function applyWorkstationCapacity(index, option) {
-  const op = form.operations[index]
-  if (!op || !option) return
-  op.workstation_capacity_id = Number(option.id || 0)
-  op.workstation_capacity_name = option.name || op.workstation_capacity_name
-  if (Number(option.workstation_id || 0) > 0) {
-    op.workstation_id = Number(option.workstation_id || 0)
-    const workstation = workstations.value.find((row) => Number(row.id) === op.workstation_id)
-    if (workstation) op.workstation = workstation.name || op.workstation
-  }
-  op.batch_size_qty = Number(option.batch_size_qty || 0)
-  op.batch_size_unit = option.batch_size_unit || ''
-  op.standard_minutes = Number(option.standard_minutes || 0)
-  op.default_minutes = op.standard_minutes
-  op.hourly_rate = Number(option.hourly_rate || 0)
-  refreshOperationCost(op)
-}
-
-function clearWorkstationCapacity(op) {
-  op.workstation_capacity_id = 0
-  op.workstation_capacity_name = ''
-  op.batch_size_qty = 0
-  op.batch_size_unit = ''
-}
-
-function refreshOperationCost(op) {
-  if (!Number(op.planned_minutes || 0) && Number(op.planned_batch_count || 0) > 0 && Number(op.standard_minutes || 0) > 0) {
-    op.planned_minutes = Number(op.planned_batch_count || 0) * Number(op.standard_minutes || 0)
-  }
-  if (Number(op.planned_minutes || 0) > 0 && Number(op.hourly_rate || 0) > 0) {
-    op.planned_operation_cost = Number(((Number(op.planned_minutes || 0) / 60) * Number(op.hourly_rate || 0)).toFixed(2))
-  }
-}
-
-function operationCostPreview(op) {
-  const cost = computedOperationCost(op)
-  if (!cost) return '-'
-  return cost.toFixed(2)
-}
-
-function computedOperationCost(op) {
-  const plannedMinutes = Number(op?.planned_minutes || 0)
-  const hourlyRate = Number(op?.hourly_rate || 0)
-  if (plannedMinutes > 0 && hourlyRate > 0) {
-    return Number(((plannedMinutes / 60) * hourlyRate).toFixed(2))
-  }
-  return Number(op?.planned_operation_cost || 0)
 }
 
 async function mutate(action) {

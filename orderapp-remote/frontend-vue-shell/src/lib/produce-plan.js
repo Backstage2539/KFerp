@@ -104,6 +104,47 @@ export function productionPlanDetailEndpoint(plan) {
   return `/api/production-plans/${id}`
 }
 
+export function productionPlanOperationSplitsEndpoint(plan) {
+  const id = Number(plan?.id || 0)
+  if (id <= 0) return ''
+  return `/api/production-plans/${id}/operation-splits`
+}
+
+export function plannedCapacitySplitMetrics(split = {}) {
+  const plannedBatchCount = Math.max(0, Math.round(Number(split.planned_batch_count || 0)))
+  const batchSizeQty = Math.max(0, Number(split.batch_size_qty || 0))
+  const standardMinutes = Math.max(0, Math.round(Number(split.standard_minutes || 0)))
+  const hourlyRate = Math.max(0, Number(split.hourly_rate || 0))
+  const plannedQty = Number((plannedBatchCount * batchSizeQty).toFixed(3))
+  const unit = String(split.batch_size_unit || '').trim().toLowerCase()
+  let plannedQtyG = 0
+  if (unit === 'kg' || unit === '千克' || unit === '公斤') plannedQtyG = Math.round(plannedQty * 1000)
+  else if (unit === 'g' || unit === '克') plannedQtyG = Math.round(plannedQty)
+  const plannedMinutes = plannedBatchCount * standardMinutes
+  const plannedOperationCost = Number(((plannedMinutes / 60) * hourlyRate).toFixed(2))
+  return {
+    planned_qty: plannedQty,
+    planned_qty_g: plannedQtyG,
+    planned_minutes: plannedMinutes,
+    planned_operation_cost: plannedOperationCost,
+  }
+}
+
+export function buildProductionPlanOperationSplitPayload(rows = []) {
+  const items = (rows || [])
+    .map((row) => {
+      return {
+        production_plan_item_id: Number(row.production_plan_item_id || 0),
+        operation_seq: Math.max(0, Math.round(Number(row.operation_seq || 0))),
+        operation: String(row.operation || '').trim(),
+        workstation_capacity_id: Number(row.workstation_capacity_id || 0),
+        planned_batch_count: Math.max(0, Math.round(Number(row.planned_batch_count || 0))),
+      }
+    })
+    .filter((row) => row.production_plan_item_id > 0 && row.workstation_capacity_id > 0 && row.planned_batch_count > 0)
+  return { items }
+}
+
 export function buildProductionPlanListQuery(filters = {}) {
   const params = new URLSearchParams()
   const status = String(filters.status || '').trim()

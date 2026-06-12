@@ -6,30 +6,33 @@ import (
 	"testing"
 )
 
-func TestDev486WorkstationCapacityRouteCostContracts(t *testing.T) {
+func TestDev487ProductionPlanCapacitySplitContracts(t *testing.T) {
 	for rel, wants := range map[string][]string{
 		filepath.Join("internal", "interfaces", "http", "support", "req_store.go"): {
-			"PR-486-WORKSTATION-CAPACITY-ROUTE-COST",
-			"DEV-486-WORKSTATION-CAPACITY-MASTER",
-			"DEV-486-ROUTE-OPERATION-COST-SNAPSHOT",
-			"DEV-486-JOB-CARD-TIME-COST-FREEZE",
+			"PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS",
+			"DEV-487-ROUTE-SEQUENCE-ONLY",
+			"DEV-487-PRODUCTION-PLAN-SPLITS",
+			"DEV-487-JOBCARD-FREEZE",
 		},
 		filepath.Join("internal", "infrastructure", "postgres", "manufacturing", "schema.go"): {
 			"manufacturing_workstation_capacities",
-			"workstation_capacity_id",
-			"planned_operation_cost",
 		},
 		filepath.Join("internal", "interfaces", "http", "manufacturing", "api.go"): {
 			"/api/manufacturing-workstation-capacities",
 		},
-		filepath.Join("internal", "infrastructure", "postgres", "production", "work_order.go"): {
-			"plannedJobCardOperationCost",
-			"actual_operation_cost",
+		filepath.Join("internal", "infrastructure", "postgres", "production", "schema.go"): {
+			"production_plan_operation_splits",
+			"planned_qty_g",
+			"planned_operation_cost",
+		},
+		filepath.Join("internal", "infrastructure", "postgres", "production", "production_plan.go"): {
+			"SaveProductionPlanOperationSplits",
+			"plannedCapacitySplitMetrics",
+			"validateProductionPlanOperationSplitCoverage",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProcessTemplatesView.vue"): {
-			"工位产能",
-			"标准分钟/批",
-			"计划工序成本",
+			"路线工序",
+			"工序名称快照",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ManufacturingOperationsView.vue"): {
 			"工序不决定工时",
@@ -38,18 +41,23 @@ func TestDev486WorkstationCapacityRouteCostContracts(t *testing.T) {
 			"工位产能",
 			"默认小时费率",
 		},
+		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
+			"工序产能拆分",
+			"添加拆分",
+			"saveCurrentPlanOperationSplits",
+		},
 		filepath.Join("docs", "REQUIREMENTS.md"): {
-			"PR-486-WORKSTATION-CAPACITY-ROUTE-COST",
-			"工艺路线工序行",
+			"PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS",
+			"工艺路线只定义工序顺序",
 			"工位产能",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
-			"PR-486-WORKSTATION-CAPACITY-ROUTE-COST",
+			"PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS",
 			"布勒 18kg",
 			"计划工序成本",
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
-			"PR-486-WORKSTATION-CAPACITY-ROUTE-COST",
+			"PR-487-PRODUCTION-PLAN-CAPACITY-SPLITS",
 			"工位产能",
 			"标准分钟/批",
 		},
@@ -57,8 +65,14 @@ func TestDev486WorkstationCapacityRouteCostContracts(t *testing.T) {
 		src := string(readOrderAppFileForTest(t, rel))
 		for _, want := range wants {
 			if !strings.Contains(src, want) {
-				t.Fatalf("%s missing PR-486 marker %q", rel, want)
+				t.Fatalf("%s missing PR-487 marker %q", rel, want)
 			}
+		}
+	}
+	routeSource := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProcessTemplatesView.vue")))
+	for _, forbidden := range []string{"工位产能", "standard_minutes", "hourly_rate", "planned_operation_cost"} {
+		if strings.Contains(routeSource, forbidden) {
+			t.Fatalf("process route page must not own production plan capacity split field %q", forbidden)
 		}
 	}
 }

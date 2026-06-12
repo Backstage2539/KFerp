@@ -366,6 +366,8 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 	snapshot.RouteID = snapshot.ID
 	snapshot.RouteName = snapshot.Name
 	snapshot.ProductID = productID
+	snapshot.DefaultEquipment = ""
+	snapshot.DefaultMinutes = 0
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT seq,operation_id,workstation_id,COALESCE(workstation_capacity_id,0),
 		       operation,workstation,COALESCE(workstation_capacity_name,''),
@@ -397,6 +399,7 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 		); err != nil {
 			return nil, nil, err
 		}
+		op = routeSequenceOnlyOperation(op)
 		op.ParameterSchemaJSON = "{}"
 		snapshot.Operations = append(snapshot.Operations, op)
 	}
@@ -408,6 +411,23 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 		return nil, nil, err
 	}
 	return &snapshot, b, nil
+}
+
+func routeSequenceOnlyOperation(op processSnapshotOperation) processSnapshotOperation {
+	op.WorkstationID = 0
+	op.WorkstationCapacityID = 0
+	op.Workstation = ""
+	op.WorkstationCapacityName = ""
+	op.DefaultEquipment = ""
+	op.DefaultMinutes = 0
+	op.BatchSizeQty = 0
+	op.BatchSizeUnit = ""
+	op.StandardMinutes = 0
+	op.HourlyRate = 0
+	op.PlannedBatchCount = 0
+	op.PlannedMinutes = 0
+	op.PlannedOperationCost = 0
+	return op
 }
 
 func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operationTemplateID int64, operator string) (int64, error) {
@@ -723,6 +743,8 @@ func loadProcessRouteSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, sche
 	snapshot.RouteID = snapshot.ID
 	snapshot.RouteName = snapshot.Name
 	snapshot.ProductID = productID
+	snapshot.DefaultEquipment = ""
+	snapshot.DefaultMinutes = 0
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT seq,operation_id,workstation_id,COALESCE(workstation_capacity_id,0),
 		       operation,workstation,COALESCE(workstation_capacity_name,''),
@@ -757,6 +779,7 @@ func loadProcessRouteSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, sche
 		); err != nil {
 			return nil, nil, err
 		}
+		op = routeSequenceOnlyOperation(op)
 		op.ParameterSchemaJSON = "{}"
 		snapshot.Operations = append(snapshot.Operations, op)
 	}

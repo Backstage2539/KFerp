@@ -74,6 +74,9 @@ func (r *fakeManufacturingGapRepo) ListProductionPlans(ctx context.Context, quer
 func (r *fakeManufacturingGapRepo) GetProductionPlan(ctx context.Context, id int64) (productionapp.ProductionPlanDetail, error) {
 	return productionapp.ProductionPlanDetail{}, nil
 }
+func (r *fakeManufacturingGapRepo) SaveProductionPlanOperationSplits(ctx context.Context, cmd productionapp.SaveProductionPlanOperationSplitsCommand) ([]productionapp.ProductionPlanOperationSplit, error) {
+	return cmd.Items, nil
+}
 func (r *fakeManufacturingGapRepo) SubmitProductionPlan(ctx context.Context, cmd productionapp.SubmitProductionPlanCommand) (productionapp.ProductionPlanSubmitResult, error) {
 	return productionapp.ProductionPlanSubmitResult{}, nil
 }

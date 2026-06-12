@@ -619,10 +619,6 @@ func (s *Service) SaveProcessRoute(ctx context.Context, cmd SaveProcessRouteComm
 		if err != nil {
 			return ProcessRoute{}, err
 		}
-		op, err = s.applyWorkstationCapacitySnapshot(ctx, op)
-		if err != nil {
-			return ProcessRoute{}, err
-		}
 		cmd.Operations[i] = op
 	}
 	return s.repo.SaveProcessRoute(ctx, cmd)
@@ -747,38 +743,29 @@ func normalizeProcessOperation(op ProcessTemplateOperation, fallbackSeq int) (Pr
 
 func normalizeProcessRouteOperation(op ProcessRouteOperation, fallbackSeq int) (ProcessRouteOperation, error) {
 	op.Operation = strings.TrimSpace(op.Operation)
-	op.Workstation = strings.TrimSpace(op.Workstation)
-	op.WorkstationCapacityName = strings.TrimSpace(op.WorkstationCapacityName)
-	op.BatchSizeUnit = strings.TrimSpace(op.BatchSizeUnit)
-	op.DefaultEquipment = strings.TrimSpace(op.DefaultEquipment)
 	if op.Seq <= 0 {
 		op.Seq = fallbackSeq
 	}
-	if op.DefaultMinutes < 0 {
-		return op, fmt.Errorf("operation default_minutes must be >= 0")
-	}
 	if op.Operation == "" {
 		return op, fmt.Errorf("operation required")
-	}
-	if err := validateOperationCostSnapshot(op.BatchSizeQty, op.StandardMinutes, op.HourlyRate, op.PlannedBatchCount, op.PlannedMinutes, op.PlannedOperationCost); err != nil {
-		return op, err
-	}
-	if op.StandardMinutes == 0 && op.DefaultMinutes > 0 {
-		op.StandardMinutes = op.DefaultMinutes
-	}
-	if op.DefaultMinutes == 0 && op.StandardMinutes > 0 {
-		op.DefaultMinutes = op.StandardMinutes
-	}
-	if op.PlannedMinutes == 0 && op.PlannedBatchCount > 0 && op.StandardMinutes > 0 {
-		op.PlannedMinutes = op.PlannedBatchCount * op.StandardMinutes
-	}
-	if op.PlannedOperationCost == 0 && op.PlannedMinutes > 0 && op.HourlyRate > 0 {
-		op.PlannedOperationCost = roundMoney(float64(op.PlannedMinutes) / 60 * op.HourlyRate)
 	}
 	qualityChecklistJSON, err := normalizeJSONArray(op.QualityChecklistJSON)
 	if err != nil {
 		return op, fmt.Errorf("quality_checklist_json must be a JSON array")
 	}
+	op.WorkstationID = 0
+	op.WorkstationCapacityID = 0
+	op.Workstation = ""
+	op.WorkstationCapacityName = ""
+	op.DefaultEquipment = ""
+	op.DefaultMinutes = 0
+	op.BatchSizeQty = 0
+	op.BatchSizeUnit = ""
+	op.StandardMinutes = 0
+	op.HourlyRate = 0
+	op.PlannedBatchCount = 0
+	op.PlannedMinutes = 0
+	op.PlannedOperationCost = 0
 	op.QualityChecklistJSON = qualityChecklistJSON
 	return op, nil
 }

@@ -70,6 +70,9 @@ func (r *fakeRepo) ListProductionPlans(ctx context.Context, query ProductionPlan
 func (r *fakeRepo) GetProductionPlan(ctx context.Context, id int64) (ProductionPlanDetail, error) {
 	return ProductionPlanDetail{}, nil
 }
+func (r *fakeRepo) SaveProductionPlanOperationSplits(ctx context.Context, cmd SaveProductionPlanOperationSplitsCommand) ([]ProductionPlanOperationSplit, error) {
+	return cmd.Items, nil
+}
 func (r *fakeRepo) SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error) {
 	return ProductionPlanSubmitResult{}, nil
 }

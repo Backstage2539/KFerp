@@ -364,6 +364,35 @@ type ProductionPlanItem struct {
 	CustomerProductSnapshotJSON  string `json:"customer_product_snapshot_json"`
 }
 
+type ProductionPlanOperationSplit struct {
+	ID                      int64   `json:"id"`
+	ProductionPlanID        int64   `json:"production_plan_id"`
+	ProductionPlanItemID    int64   `json:"production_plan_item_id"`
+	OperationSeq            int     `json:"operation_seq"`
+	OperationID             int64   `json:"operation_id"`
+	Operation               string  `json:"operation"`
+	WorkstationID           int64   `json:"workstation_id"`
+	Workstation             string  `json:"workstation"`
+	WorkstationCapacityID   int64   `json:"workstation_capacity_id"`
+	WorkstationCapacityName string  `json:"workstation_capacity_name"`
+	BatchSizeQty            float64 `json:"batch_size_qty"`
+	BatchSizeUnit           string  `json:"batch_size_unit"`
+	StandardMinutes         int     `json:"standard_minutes"`
+	HourlyRate              float64 `json:"hourly_rate"`
+	PlannedBatchCount       int     `json:"planned_batch_count"`
+	PlannedQty              float64 `json:"planned_qty"`
+	PlannedQtyG             int64   `json:"planned_qty_g"`
+	PlannedMinutes          int     `json:"planned_minutes"`
+	PlannedOperationCost    float64 `json:"planned_operation_cost"`
+	Note                    string  `json:"note"`
+}
+
+type SaveProductionPlanOperationSplitsCommand struct {
+	ID       int64
+	Items    []ProductionPlanOperationSplit
+	Operator string
+}
+
 type ProductionPlanDetail struct {
 	ID                int64                            `json:"id"`
 	PlanNo            string                           `json:"plan_no"`
@@ -375,6 +404,7 @@ type ProductionPlanDetail struct {
 	SubmittedAt       string                           `json:"submitted_at"`
 	CompletedAt       string                           `json:"completed_at"`
 	Items             []ProductionPlanItem             `json:"items"`
+	OperationSplits   []ProductionPlanOperationSplit   `json:"operation_splits"`
 	MaterialSummary   []MaterialNeed                   `json:"material_summary"`
 	RelatedWorkOrders []ProductionPlanRelatedWorkOrder `json:"related_work_orders"`
 	JobCardCount      int64                            `json:"job_card_count"`
@@ -1042,6 +1072,7 @@ type Repository interface {
 	CreateProductionPlan(ctx context.Context, cmd CreateProductionPlanCommand) (ProductionPlanDetail, error)
 	ListProductionPlans(ctx context.Context, query ProductionPlanQuery) ([]ProductionPlanRow, error)
 	GetProductionPlan(ctx context.Context, id int64) (ProductionPlanDetail, error)
+	SaveProductionPlanOperationSplits(ctx context.Context, cmd SaveProductionPlanOperationSplitsCommand) ([]ProductionPlanOperationSplit, error)
 	SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error)
 	StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand) (WorkOrderStartResult, error)
 	CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompleteCommand) (WorkOrderCompleteResult, error)
@@ -1218,6 +1249,44 @@ func (s *Service) GetProductionPlan(ctx context.Context, id int64) (ProductionPl
 		return ProductionPlanDetail{}, fmt.Errorf("production_plan_id required")
 	}
 	return s.repo.GetProductionPlan(ctx, id)
+}
+
+func (s *Service) SaveProductionPlanOperationSplits(ctx context.Context, cmd SaveProductionPlanOperationSplitsCommand) ([]ProductionPlanOperationSplit, error) {
+	if cmd.ID <= 0 {
+		return nil, fmt.Errorf("production_plan_id required")
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	for i := range cmd.Items {
+		item := &cmd.Items[i]
+		item.ProductionPlanID = cmd.ID
+		item.Operation = strings.TrimSpace(item.Operation)
+		item.Workstation = strings.TrimSpace(item.Workstation)
+		item.WorkstationCapacityName = strings.TrimSpace(item.WorkstationCapacityName)
+		item.BatchSizeUnit = strings.TrimSpace(item.BatchSizeUnit)
+		item.Note = strings.TrimSpace(item.Note)
+		if item.ProductionPlanItemID <= 0 {
+			return nil, fmt.Errorf("production_plan_item_id required")
+		}
+		if item.WorkstationCapacityID <= 0 {
+			return nil, fmt.Errorf("workstation_capacity_id required")
+		}
+		if item.PlannedBatchCount <= 0 {
+			return nil, fmt.Errorf("planned_batch_count required")
+		}
+		if item.OperationSeq < 0 {
+			return nil, fmt.Errorf("operation_seq must be >= 0")
+		}
+		if item.BatchSizeQty < 0 {
+			return nil, fmt.Errorf("batch_size_qty must be >= 0")
+		}
+		if item.StandardMinutes < 0 {
+			return nil, fmt.Errorf("standard_minutes must be >= 0")
+		}
+		if item.HourlyRate < 0 {
+			return nil, fmt.Errorf("hourly_rate must be >= 0")
+		}
+	}
+	return s.repo.SaveProductionPlanOperationSplits(ctx, cmd)
 }
 
 func (s *Service) SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error) {

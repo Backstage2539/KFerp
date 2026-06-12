@@ -8,7 +8,6 @@ test('process route page is route-only and does not select SKU or BOM versions',
   assert.match(source, /<h2>工艺路线<\/h2>/)
   assert.match(source, /\/api\/process-routes/)
   assert.match(source, /路线工序/)
-  assert.match(source, /工位\/设备/)
   assert.match(source, /quality_checklist_json/)
   assert.doesNotMatch(source, /绑定 SKU/)
   assert.doesNotMatch(source, /BOM版本/)
@@ -40,12 +39,13 @@ test('process route operation editor aligns fields and hides raw quality checkli
   assert.match(source, /每行一个质检项/)
   assert.doesNotMatch(source, /质检项 JSON/)
   assert.doesNotMatch(source, /v-model\.trim="op\.quality_checklist_json"/)
+  assert.doesNotMatch(source, /工位\/设备/)
 })
 
-test('process route operation row owns workstation capacity time rate and cost snapshot', () => {
+test('process route operation row does not own workstation capacity batch time rate or plan cost', () => {
   const source = fs.readFileSync(new URL('../views/ProcessTemplatesView.vue', import.meta.url), 'utf8')
 
-  for (const marker of [
+  for (const forbidden of [
     '/api/manufacturing-workstation-capacities',
     '工位产能',
     'workstation_capacity_id',
@@ -59,11 +59,11 @@ test('process route operation row owns workstation capacity time rate and cost s
     'planned_operation_cost',
     'applyWorkstationCapacity',
   ]) {
-    assert.match(source, new RegExp(marker))
+    assert.doesNotMatch(source, new RegExp(forbidden))
   }
-  assert.match(source, /标准分钟\/批/)
-  assert.match(source, /小时费率/)
-  assert.match(source, /计划工序成本/)
+  assert.doesNotMatch(source, /标准分钟\/批/)
+  assert.doesNotMatch(source, /小时费率/)
+  assert.doesNotMatch(source, /计划工序成本/)
   assert.doesNotMatch(source, /工位能力模式/)
   assert.doesNotMatch(source, /默认工时\(分钟\)/)
 })
