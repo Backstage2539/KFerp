@@ -12,29 +12,31 @@
       <div v-if="ok" class="ok">{{ ok }}</div>
     </section>
 
-    <div class="grid">
-      <section class="panel table-wrap">
+    <div class="grid master-data-layout">
+      <section class="panel master-list-panel workstation-list-panel">
         <div class="section-title">工位/设备列表</div>
         <table>
           <thead>
-            <tr><th>工位/设备</th><th>编码</th><th>默认工时</th><th>小时费率</th><th>状态</th><th>更新时间</th><th>操作</th></tr>
+            <tr><th>工位/设备</th><th>状态</th></tr>
           </thead>
           <tbody>
             <tr v-for="row in workstations" :key="row.id" :class="{ active: row.id === form.id }" @click="editWorkstation(row)">
-              <td><strong>{{ row.name }}</strong><small>#{{ row.id }}</small></td>
-              <td>{{ row.code || '-' }}</td>
-              <td>{{ row.default_minutes || 0 }} 分钟</td>
-              <td>{{ Number(row.hourly_rate || 0).toFixed(2) }}</td>
-              <td><span :class="['pill', row.status]">{{ statusLabel(row.status) }}</span></td>
-              <td>{{ row.updated_at }}</td>
-              <td><button class="text danger" type="button" :disabled="row.status === 'inactive'" @click.stop="deactivateWorkstation(row)">停用</button></td>
+              <td>
+                <strong>{{ row.name }}</strong>
+                <small>#{{ row.id }} · {{ row.code || '无编码' }}</small>
+                <small>{{ row.default_minutes || 0 }} 分钟 · {{ Number(row.hourly_rate || 0).toFixed(2) }}/小时 · {{ row.updated_at || '-' }}</small>
+              </td>
+              <td class="master-status">
+                <span :class="['pill', row.status]">{{ statusLabel(row.status) }}</span>
+                <button class="text danger" type="button" :disabled="row.status === 'inactive'" @click.stop="deactivateWorkstation(row)">停用</button>
+              </td>
             </tr>
-            <tr v-if="!workstations.length"><td colspan="7" class="muted">暂无工位/设备</td></tr>
+            <tr v-if="!workstations.length"><td colspan="2" class="muted">暂无工位/设备</td></tr>
           </tbody>
         </table>
       </section>
 
-      <section class="panel editor">
+      <section class="panel editor master-editor-panel workstation-editor-panel">
         <div class="section-title">{{ form.id ? '编辑工位/设备' : '新建工位/设备' }}</div>
         <div class="form-grid">
           <label><span>工位/设备名称</span><input v-model.trim="form.name" placeholder="烘焙机 / 包装台 / 质检台" /></label>
@@ -166,7 +168,10 @@ onMounted(loadWorkstations)
 .panel-head, .actions, .footer-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .panel-head { justify-content: space-between; margin-bottom: 12px; }
 h2 { margin: 0; font-size: 20px; }
-.grid { display: grid; grid-template-columns: minmax(480px, 1fr) minmax(420px, .8fr); gap: 14px; align-items: start; }
+.master-data-layout { display: grid; grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.master-list-panel, .master-editor-panel { min-width: 0; }
+.master-list-panel { overflow: auto; }
+.master-editor-panel { min-width: 0; overflow: hidden; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, select, textarea { width: 100%; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
 input, select { height: 38px; }
@@ -177,23 +182,26 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .secondary { background: #fff; color: #1f1f1f; border-color: #999; }
 .text { border: 0; background: transparent; color: #1f4f82; padding: 0; }
 .text.danger { color: #9d2626; }
-.table-wrap { overflow: auto; }
-table { width: 100%; min-width: 760px; border-collapse: collapse; }
+table { width: 100%; min-width: 0; border-collapse: collapse; table-layout: fixed; }
+th:last-child, td:last-child { width: 86px; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 th { background: #fbfaf8; position: sticky; top: 0; }
 td small { display: block; color: #777; margin-top: 3px; }
 tbody tr.active { background: #f3f7fb; }
 .section-title { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 10px; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.form-grid label, .wide { min-width: 0; }
 .wide { display: block; margin-top: 10px; }
 .footer-actions { justify-content: flex-end; margin-top: 14px; }
 .pill { display: inline-flex; border: 1px solid #d1d5db; border-radius: 999px; padding: 2px 8px; background: #f9fafb; white-space: nowrap; }
 .pill.inactive { border-color: #e1b6b6; color: #8a1f1f; background: #fff0f0; }
+.master-status { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.master-status .text { min-height: auto; }
 .muted { color: #666; text-align: center; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
-@media (max-width: 980px) {
-  .grid, .form-grid { grid-template-columns: 1fr; }
+@media (max-width: 760px) {
+  .master-data-layout, .form-grid { grid-template-columns: 1fr; }
 }
 </style>

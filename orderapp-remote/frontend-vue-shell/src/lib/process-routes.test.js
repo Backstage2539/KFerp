@@ -56,3 +56,23 @@ test('operation and workstation master data are maintained on separate pages', (
   assert.match(appSource, /manufacturingOperations:\s*ManufacturingOperationsView/)
   assert.match(appSource, /manufacturingWorkstations:\s*ManufacturingWorkstationsView/)
 })
+
+test('operation and workstation pages use left list and right detail layout', () => {
+  const operationSource = fs.readFileSync(new URL('../views/ManufacturingOperationsView.vue', import.meta.url), 'utf8')
+  const workstationSource = fs.readFileSync(new URL('../views/ManufacturingWorkstationsView.vue', import.meta.url), 'utf8')
+
+  for (const source of [operationSource, workstationSource]) {
+    assert.match(source, /class="grid master-data-layout"/)
+    assert.match(source, /class="panel master-list-panel/)
+    assert.match(source, /class="panel editor master-editor-panel/)
+    assert.match(source, /\.master-data-layout\s*\{[^}]*grid-template-columns:\s*minmax\(300px,\s*360px\)\s*minmax\(0,\s*1fr\)/s)
+    assert.match(source, /\.master-editor-panel\s*\{[^}]*min-width:\s*0;[^}]*overflow:\s*hidden;/s)
+    assert.match(source, /\.form-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s)
+    assert.doesNotMatch(source, /class="panel table-wrap"/)
+    assert.doesNotMatch(source, /table\s*\{[^}]*min-width:\s*(680|760)px/s)
+    assert.doesNotMatch(source, /@media \(max-width:\s*980px\)[\s\S]*\.grid/)
+  }
+
+  assert.match(operationSource, /@click="editOperation\(row\)"/)
+  assert.match(workstationSource, /@click="editWorkstation\(row\)"/)
+})
