@@ -6,23 +6,6 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
-### PR-476-P1-ARCHITECTURE-REMEDIATION
-- Branch: codex/p1-architecture-remediation-20260612
-- Owner/session: Codex goal / 2026-06-12
-- Status: implemented locally; architecture/touched package tests, full Go tests, Vite build, changed verifier and diff check passed. Not merged or deployed.
-- Scope: 处理代码架构审查 P1 三项问题，保持业务行为、API 路径、数据库 schema 和用户流程不变：审计/操作日志写入收敛到单一实现；`interfaces/http/support` 的注册与建表编排拆成 focused submodules；catalog 商品/价格/分组/分类边界先拆 repository port 和 route registration 文件，后续再继续拆 service/repository 内部方法。
-- DEV:
-  - DEV-476-AUDIT-LOG-SINGLE-SOURCE：`support.AuditInsert` / `AuditInsertTx` / `AuditService` 保留兼容门面，实际委托 `internal/infrastructure/postgres/audit.go`，防止操作日志写入逻辑双源漂移。
-  - DEV-476-SUPPORT-FOCUSED-SUBMODULES：新增 auth、REQ、view-context support module 文件，`support/module.go` 只做顶层编排，不再直接串起所有 focused concern 的内部 register/ensure 调用。
-  - DEV-476-CATALOG-BOUNDARY-GUARDS：`catalog.Repository` port 移到 `repository_ports.go`；business group、pricing、classification route registration 拆出独立文件；新增 architecture tests 防止回流。
-- Verifier:
-  - RED architecture: `go test ./internal/architecture -run 'TestAuditLogImplementationHasSingleSource|TestSupportModuleUsesFocusedSubmodules|TestCatalogBoundaryHasFocusedPortsAndRouteFiles' -count=1` failed before implementation on duplicate support audit implementation and missing focused files.
-  - GREEN architecture/touched packages: same architecture test passed; `go test ./internal/interfaces/http/support ./internal/interfaces/http/catalog ./internal/application/catalog -count=1` passed.
-  - GREEN full/build/check: `go test ./internal/architecture -count=1`; `go test ./...`; `npm run build --prefix frontend-vue-shell` passed with existing large chunk warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
-- Manual/docs: no user workflow, button, field, permission, import/export or operation-log behavior changed; no operation manual update needed. Implementation plan recorded in `docs/superpowers/plans/2026-06-12-p1-architecture-remediation.md`.
-- Deployment: not requested and not performed.
-- Last update: 2026-06-12 Asia/Shanghai
-
 ### PR-477-P2-ARCHITECTURE-REMEDIATION
 - Branch: codex/p1-architecture-remediation-20260612
 - Owner/session: Codex goal / 2026-06-12
@@ -41,6 +24,44 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN full/build/check: `go test ./internal/architecture -count=1`; `go test ./...`; `npm run build --prefix frontend-vue-shell`; `npm test`, `npm run typecheck` and `npm run build:mp-weixin` in `miniapp`; `scripts/verify_kferp.sh changed`; `git diff --check` passed. Vue build kept the existing large chunk warning.
 - Manual/docs: no user workflow, button, field, permission, import/export or operation-log behavior changed; no operation manual update needed. Implementation plan recorded in `docs/superpowers/plans/2026-06-12-p2-architecture-remediation.md`.
 - Deployment: not requested and not performed.
+- Last update: 2026-06-12 Asia/Shanghai
+
+### PR-476-P1-ARCHITECTURE-REMEDIATION
+- Branch: codex/p1-architecture-remediation-20260612
+- Owner/session: Codex goal / 2026-06-12
+- Status: implemented locally; architecture/touched package tests, full Go tests, Vite build, changed verifier and diff check passed. Not merged or deployed.
+- Scope: 处理代码架构审查 P1 三项问题，保持业务行为、API 路径、数据库 schema 和用户流程不变：审计/操作日志写入收敛到单一实现；`interfaces/http/support` 的注册与建表编排拆成 focused submodules；catalog 商品/价格/分组/分类边界先拆 repository port 和 route registration 文件，后续再继续拆 service/repository 内部方法。
+- DEV:
+  - DEV-476-AUDIT-LOG-SINGLE-SOURCE：`support.AuditInsert` / `AuditInsertTx` / `AuditService` 保留兼容门面，实际委托 `internal/infrastructure/postgres/audit.go`，防止操作日志写入逻辑双源漂移。
+  - DEV-476-SUPPORT-FOCUSED-SUBMODULES：新增 auth、REQ、view-context support module 文件，`support/module.go` 只做顶层编排，不再直接串起所有 focused concern 的内部 register/ensure 调用。
+  - DEV-476-CATALOG-BOUNDARY-GUARDS：`catalog.Repository` port 移到 `repository_ports.go`；business group、pricing、classification route registration 拆出独立文件；新增 architecture tests 防止回流。
+- Verifier:
+  - RED architecture: `go test ./internal/architecture -run 'TestAuditLogImplementationHasSingleSource|TestSupportModuleUsesFocusedSubmodules|TestCatalogBoundaryHasFocusedPortsAndRouteFiles' -count=1` failed before implementation on duplicate support audit implementation and missing focused files.
+  - GREEN architecture/touched packages: same architecture test passed; `go test ./internal/interfaces/http/support ./internal/interfaces/http/catalog ./internal/application/catalog -count=1` passed.
+  - GREEN full/build/check: `go test ./internal/architecture -count=1`; `go test ./...`; `npm run build --prefix frontend-vue-shell` passed with existing large chunk warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+- Manual/docs: no user workflow, button, field, permission, import/export or operation-log behavior changed; no operation manual update needed. Implementation plan recorded in `docs/superpowers/plans/2026-06-12-p1-architecture-remediation.md`.
+- Deployment: not requested and not performed.
+- Last update: 2026-06-12 Asia/Shanghai
+
+### PR-475-PRODUCTION-PLAN-ERPNEXT-WORKBENCH
+- Branch: codex/production-plan-erpnext-workbench-20260612
+- Owner/session: Codex / 2026-06-12
+- Status: merged to `develop` and deployed to development.
+- Scope: 按 ERPNext 风格优化生产计划页主交互。顶部只保留筛选和刷新；主区左侧为 `待生产需求`，右侧为 `当前生产计划`，选中库存不足商品后自动生成计划预览、BOM/工艺路线摘要和物料需求汇总；`创建生产计划` 和 `提交当前计划生成工单` 都在当前计划区完成。历史 `生产计划单据` 列表继续保留 PR-474 的状态/时间过滤、草稿复选框和批量提交能力。
+- DEV:
+  - DEV-475-PRODUCTION-PLAN-WORKBENCH-UI：重排 `ProducePlanView.vue` 为当前生产计划工作台；选择库存不足商品后自动调用 `/api/produce/unproduced?plan=1&selected=...` 刷新预览。
+  - DEV-475-CURRENT-PLAN-SUBMIT：当前草稿计划提供 `提交当前计划生成工单`，复用 `POST /api/production-plans/submit`，payload 为 `{ ids: [currentPlan.id] }`；非草稿状态按钮置灰。
+  - DEV-475-DOCS-ACCEPTANCE：同步需求、验收清单、生产手册、PR/DEV/UT/API/REV 种子和 PR-475 验收记录。
+- Verifier:
+  - RED frontend: `node --test src/lib/produce-plan.test.js` failed before implementation because `buildCurrentProductionPlanSubmitPayload`、`planning-workbench`、`当前生产计划`、自动预览函数和 `提交当前计划生成工单` were missing.
+  - GREEN frontend targeted: `node --test src/lib/produce-plan.test.js` passed 15/15 after implementing the current plan workspace, automatic preview and current-plan submit payload.
+  - RED support/docs: `go test ./internal/interfaces/http/support -run TestDev475ProductionPlanERPNextWorkbenchContracts -count=1 -v` failed before docs/seed implementation because PR-475 markers were missing.
+  - GREEN support/docs: `go test ./internal/interfaces/http/support -run TestDev475ProductionPlanERPNextWorkbenchContracts -count=1 -v` passed after PR/DEV/UT/API/REV seed and docs/manual updates.
+  - GREEN targeted packages: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js` passed 20/20; `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1` passed.
+  - GREEN full/build/check: `go test ./...` passed; `npm run build` passed with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed` passed; `git diff --check` passed.
+  - GREEN browser/local: local production Vue build + mock API at `http://127.0.0.1:5191/vue-shell/?view=producePlan` rendered the ERPNext-style workbench. Initial page showed top filters/refresh only, left `待生产需求`, right `当前生产计划`, lower `库存充足（只提示）` and lower `生产计划单据`; no `创建生产计划` before the workbench and no `生产建议/推荐机器/每锅数量/锅数/预计成品`. Selecting `539-454` automatically requested `/api/produce/unproduced?plan=1&selected=539-454` and displayed plan preview plus material summary. Creating draft showed `PP-PR475-001` / `草稿`; clicking `提交当前计划生成工单` called `POST /api/production-plans/submit`, changed state to `已提交工单`, and disabled the current submit button. History status/time filters and batch `提交生成工单` remained visible. Mobile viewport 390x844 stacked demand and current-plan panels without page-level horizontal overflow.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-12-production-plan-erpnext-workbench.md`.
+- Deployment: deployed 2026-06-12 Asia/Shanghai at `origin/develop=93c67fcf0625072385bd7417db32df5cf37ab6af`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260612114628`. Smoke: `erp_orderapp` rebuilt and restarted, container logs show startup only, unauthenticated `/app/api/req/product?limit=1` returned 401, authenticated `/app/vue-shell/?view=producePlan` returned 200, authenticated `/app/api/production-plans?status=draft&time_field=created_at&limit=1` returned 200 with plan rows, authenticated `/app/api/produce/unproduced?plan=1&selected=539-454` returned 200 with 1 `plan_rows` and no error, PR/DEV/UT/API/REV-475 markers are visible through req APIs, deployed Vue assets contain `当前生产计划` / `待生产需求` / `提交当前计划生成工单`. Live Browser: `https://erp.qacoohee.com/app/vue-shell/?view=producePlan` rendered the workbench; selecting `PR439-20260606182321 工厂量单商品` showed plan preview and material summary in `当前生产计划`, no `input_g required` error, and no `生产建议/推荐机器/每锅数量/锅数/预计成品` in page text.
 - Last update: 2026-06-12 Asia/Shanghai
 
 ### PR-474-PRODUCTION-PLAN-BULK-SUBMIT-FILTER
