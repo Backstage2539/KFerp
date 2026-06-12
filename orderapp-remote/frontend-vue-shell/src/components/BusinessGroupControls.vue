@@ -16,7 +16,7 @@
       </button>
       <label>
         <span>目标分类</span>
-        <select :value="Number(moveModelValue || 0)" :disabled="!canMove || loading" @change="$emit('update:moveModelValue', Number($event.target.value || 0))">
+        <select :value="Number(moveModelValue || 0)" :disabled="!canSelectTargetEffective || loading" @change="$emit('update:moveModelValue', Number($event.target.value || 0))">
           <option :value="0">未分类</option>
           <option v-for="option in moveOptions" :key="option.key || option.id" :value="Number(option.group_item_id || 0)">
             {{ option.label }}
@@ -29,7 +29,9 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue'
+
+const props = defineProps({
   modelValue: { type: Number, default: 0 },
   moveModelValue: { type: Number, default: 0 },
   templateOptions: { type: Array, default: () => [] },
@@ -37,11 +39,14 @@ defineProps({
   selectedTemplate: { type: Object, default: null },
   selectedCount: { type: Number, default: 0 },
   canMove: { type: Boolean, default: false },
+  canSelectTarget: { type: Boolean, default: null },
   loading: { type: Boolean, default: false },
   templateLabel: { type: String, default: '选择分组模板' },
   manageLabel: { type: String, default: '前往分组模板' },
   moveLabel: { type: String, default: '移动到分类' },
 })
+
+const canSelectTargetEffective = computed(() => props.canSelectTarget === null ? props.canMove : props.canSelectTarget)
 
 defineEmits(['update:modelValue', 'update:moveModelValue', 'manage', 'move'])
 </script>

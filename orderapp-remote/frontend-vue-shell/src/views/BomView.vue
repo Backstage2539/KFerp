@@ -36,6 +36,7 @@
           :selected-template="selectedProductionBomTemplate"
           :selected-count="selectedBomRecordsForMove.length"
           :can-move="canMoveSelectedBoms"
+          :can-select-target="canSelectBomMoveTarget"
           :loading="loading"
           @manage="openBusinessGroupManagement"
           @move="moveSelectedProductBomsToGroup" />
@@ -587,6 +588,7 @@ const selectedBomRecordsForMove = computed(() => {
   }
   return [...byBomID.values()]
 })
+const canSelectBomMoveTarget = computed(() => selectedBomRecordsForMove.value.length > 0)
 const selectedActiveBomRecordsForDeactivate = computed(() => {
   const byBomID = new Map()
   for (const row of selectedBomRows.value) {
