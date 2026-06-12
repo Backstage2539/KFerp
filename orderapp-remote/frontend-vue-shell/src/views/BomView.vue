@@ -133,16 +133,10 @@
           <div v-if="currentProductionBomWarning"><span>版本提示</span><strong class="warn">{{ currentProductionBomWarning }}</strong></div>
           <div><span>工艺参数</span><strong>{{ detail.roast_level || '-' }}</strong></div>
           <div><span>状态</span><strong :class="{ warn: detail.status === 'inactive' }">{{ bomStatusLabel(detail.status) }}</strong></div>
-          <div><span>关联工艺</span><strong>{{ linkedProcessTemplates.length ? `${linkedProcessTemplates.length} 个模板` : '-' }}</strong></div>
         </div>
         <div v-if="detail" class="linked-processes bom-default-actions">
           <button class="secondary compact-action" type="button" :disabled="!canSetCurrentBomAsDefault || loading" @click="setCurrentProductionBomAsDefault">设为产出商品默认 BOM</button>
           <span class="status-pill readonly">使用版本 {{ currentProductionBomDefaultVersion?.version_no || '-' }}</span>
-        </div>
-        <div v-if="detail && linkedProcessTemplates.length" class="linked-processes">
-          <span v-for="template in linkedProcessTemplates" :key="template.id" :class="['status-pill', template.status === 'inactive' ? 'inactive' : '']">
-            {{ template.name }} · {{ processStatusLabel(template.status) }}
-          </span>
         </div>
         <div v-if="detail && referencedProducts.length" class="linked-processes referenced-products">
           <button
@@ -203,6 +197,8 @@
                   <th>状态</th>
                   <th>组件数</th>
                   <th>产出基准</th>
+                  <th>工艺路线</th>
+                  <th>最新可用</th>
                   <th>备注</th>
                   <th>创建时间</th>
                   <th>操作</th>
@@ -218,6 +214,8 @@
                   <td>{{ productionBomVersionStatusLabel(version.status) }}</td>
                   <td>{{ version.item_count }}</td>
                   <td>{{ qty(version.output_qty || 1) }} {{ version.output_unit || 'unit' }}</td>
+                  <td>{{ version.process_route_name || '未配置' }}</td>
+                  <td>{{ version.is_latest_usable ? '是' : '-' }}</td>
                   <td>{{ version.note }}</td>
                   <td>{{ version.published_at || version.created_at }}</td>
                   <td>
@@ -241,7 +239,7 @@
                   </td>
                 </tr>
                 <tr v-if="!versions.length">
-                  <td colspan="7" class="muted">暂无版本</td>
+                  <td colspan="9" class="muted">暂无版本</td>
                 </tr>
               </tbody>
             </table>
@@ -256,6 +254,20 @@
                 <span>合计比例</span>
                 <strong :class="{ warn: detail.total_ratio > 100 }">{{ ratio(detail.total_ratio) }}</strong>
               </div>
+            </div>
+            <div class="inline-form version-route-form">
+              <label class="wide-field">
+                <span>工艺路线</span>
+                <select
+                  :value="selectedProductionBomVersion ? Number(selectedProductionBomVersion.process_route_id || 0) : 0"
+                  :disabled="!canEditCurrentBomItems"
+                  @change="setSelectedProductionBomRouteID($event.target.value)">
+                  <option value="0">未配置</option>
+                  <option v-for="route in processRoutes" :key="route.id" :value="route.id">{{ route.name }}</option>
+                </select>
+                <small>{{ selectedProductionBomVersion?.process_route_name || '未配置路线' }}<template v-if="selectedProductionBomVersion?.is_latest_usable"> · 最新可用</template></small>
+              </label>
+              <button class="secondary compact-action" type="button" :disabled="!canEditCurrentBomItems || loading" @click="saveProductionBomVersionMeta">保存版本设置</button>
             </div>
             <form class="inline-form" @submit.prevent="saveItem">
               <label>
@@ -412,7 +424,7 @@ const products = ref([])
 const materials = ref([])
 const productUnitDefinitions = ref([])
 const versions = ref([])
-const processTemplates = ref([])
+const processRoutes = ref([])
 const productionBomBusinessGroups = ref([])
 const productionBomDetail = ref(null)
 const selectedProductionBomRecord = ref(null)
@@ -467,7 +479,6 @@ const productionBomDisplayGroups = computed(() => groupRowsByBusinessGroupTempla
   objectIDForRow: (row) => Number(row.production_bom_id || row.id || 0),
   rowAssignment: productionBomBusinessGroupAssignment,
 }))
-const linkedProcessTemplates = computed(() => processTemplates.value.filter((template) => Number(template.product_id || 0) === Number(selectedProductId.value || 0)))
 const selectedProduct = computed(() => productByID(selectedProductId.value))
 const rawReferencedProducts = computed(() => detail.value?.referenced_products || productionBomDetail.value?.referenced_products || [])
 const referencedProducts = computed(() => {
@@ -830,9 +841,19 @@ async function saveProductionBomDraftItems(items, basis = {}) {
     body: {
       output_qty: Number(basis.output_qty || selectedProductionBomVersion.value?.output_qty || 1),
       output_unit: String(basis.output_unit || selectedProductionBomVersion.value?.output_unit || 'unit').trim() || 'unit',
+      process_route_id: Number(selectedProductionBomVersion.value?.process_route_id || 0),
       items,
     },
   })
+}
+
+function setSelectedProductionBomRouteID(routeID) {
+  const version = selectedProductionBomVersion.value
+  if (!version || !canEditCurrentBomItems.value) return
+  const nextRouteID = Number(routeID || 0)
+  version.process_route_id = nextRouteID
+  const route = processRoutes.value.find((row) => Number(row.id || 0) === nextRouteID)
+  version.process_route_name = route?.name || ''
 }
 
 function productionBomVersionStatusLabel(status) {
@@ -1027,11 +1048,11 @@ async function loadAll() {
   error.value = ''
   ok.value = ''
   try {
-    const [productData, materialData, unitData, processData, productionGroupData, productionBomData] = await Promise.all([
+    const [productData, materialData, unitData, processRouteData, productionGroupData, productionBomData] = await Promise.all([
       apiGet('/api/bom/products'),
       apiGet('/api/bom/materials'),
       loadProductUnitDefinitions(),
-      apiGet('/api/process-templates'),
+      apiGet('/api/process-routes?status=active'),
       apiGet('/api/business-groups'),
       apiGet('/api/production-boms?status=all'),
     ])
@@ -1039,7 +1060,7 @@ async function loadAll() {
     products.value = (productData || []).map(normalizeBomProduct)
     materials.value = materialData || []
     productUnitDefinitions.value = unitData || []
-    processTemplates.value = processData.rows || []
+    processRoutes.value = processRouteData?.rows || processRouteData || []
     productionBomBusinessGroups.value = Array.isArray(productionGroupData?.rows) ? productionGroupData.rows : (Array.isArray(productionGroupData) ? productionGroupData : [])
     if (!selectedProductionBomTemplateID.value && productionBomTemplateOptions.value.length) {
       selectedProductionBomTemplateID.value = Number(productionBomTemplateOptions.value[0].id || 0)
@@ -1158,11 +1179,14 @@ function productionBomRecordStatusLabel(status) {
   return status === 'inactive' ? '已失效' : '启用'
 }
 
-function processStatusLabel(status) {
-  if (status === 'draft') return '草稿'
-  if (status === 'active') return '已发布'
-  if (status === 'inactive') return '已停用'
-  return status || '-'
+async function saveProductionBomVersionMeta() {
+  if (!canEditCurrentBomItems.value) return
+  await mutate(async () => {
+    const versionID = Number(selectedProductionBomVersionID.value || 0)
+    await saveProductionBomDraftItems(detailItems.value.map(productionBomDraftItemFromItem))
+    ok.value = '已保存版本设置'
+    await loadProductionBomDetailForVersion(currentProductionBomID.value, versionID)
+  })
 }
 
 async function saveItem() {
@@ -1362,8 +1386,7 @@ async function setCurrentProductionBomAsDefault() {
     await apiSend(`/api/products/${productID}/default-production-bom`, {
       method: 'PUT',
       body: {
-        production_bom_id: bomID,
-        production_bom_version_id: versionID,
+        default_production_bom_id: bomID,
       },
     })
     ok.value = `已设为产出商品默认 BOM：${version?.version_no || versionID}`

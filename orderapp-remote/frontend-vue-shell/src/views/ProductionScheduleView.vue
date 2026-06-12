@@ -11,7 +11,7 @@
       <div class="filters">
         <label><span>开始日期</span><input v-model="filters.from" type="date" /></label>
         <label><span>结束日期</span><input v-model="filters.to" type="date" /></label>
-        <label><span>工位/工作中心</span><input v-model.trim="filters.work_center" placeholder="印刷线 / 烘焙机 / 缝制组" /></label>
+        <label><span>工位/设备</span><input v-model.trim="filters.work_center" placeholder="印刷线 / 烘焙机 / 缝制组" /></label>
         <label>
           <span>状态</span>
           <select v-model="filters.status">
@@ -121,7 +121,7 @@
         <div class="form-grid one">
           <label><span>工单 ID</span><input v-model.number="assignment.work_order_id" type="number" min="1" /></label>
           <label><span>工序卡 ID</span><input v-model.number="assignment.job_card_id" type="number" min="0" /></label>
-          <label><span>工位/工作中心</span><input v-model.trim="assignment.work_center" /></label>
+          <label><span>工位/设备</span><input v-model.trim="assignment.work_center" /></label>
           <label><span>计划开始</span><input v-model="assignment.planned_start_at" placeholder="2026-06-13 09:00" /></label>
           <label><span>计划结束</span><input v-model="assignment.planned_end_at" placeholder="2026-06-13 11:30" /></label>
           <label><span>班次</span><input v-model.trim="assignment.shift_code" placeholder="早班" /></label>
@@ -133,7 +133,7 @@
 
         <div class="section-title capacity-title">保存产能</div>
         <div class="form-grid one">
-          <label><span>工位/工作中心</span><input v-model.trim="capacityDraft.work_center" /></label>
+          <label><span>工位/设备</span><input v-model.trim="capacityDraft.work_center" /></label>
           <label><span>日期</span><input v-model="capacityDraft.work_date" type="date" /></label>
           <label><span>班次</span><input v-model.trim="capacityDraft.shift_code" placeholder="早班" /></label>
           <label><span>可用分钟</span><input v-model.number="capacityDraft.available_minutes" type="number" min="0" /></label>

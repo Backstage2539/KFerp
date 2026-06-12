@@ -174,8 +174,24 @@ test('BOM view can set the output product default BOM with the current published
   assert.match(source, /currentProductionBomDefaultVersion/)
   assert.match(source, /setCurrentProductionBomAsDefault/)
   assert.match(source, /\/api\/products\/\$\{productID\}\/default-production-bom/)
-  assert.match(source, /production_bom_version_id:\s*versionID/)
+  assert.match(source, /default_production_bom_id:\s*bomID/)
+  assert.doesNotMatch(source, /production_bom_version_id:\s*versionID/)
   assert.doesNotMatch(source, /production_bom_version_id:\s*selectedProductionBomVersionID/)
+})
+
+test('BOM version editor exposes process route selector and route labels', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /工艺路线/)
+  assert.match(source, /processRoutes/)
+  assert.match(source, /selectedProductionBomVersion\.process_route_id/)
+  assert.match(source, /process_route_id:\s*Number\(selectedProductionBomVersion\.value\?\.process_route_id/)
+  assert.match(source, /process_route_name/)
+  assert.match(source, /is_latest_usable/)
+  assert.match(source, /\/api\/process-routes\?status=active/)
+  assert.doesNotMatch(source, /\/api\/process-templates/)
+  assert.doesNotMatch(source, /linkedProcessTemplates/)
 })
 
 test('BOM view exposes grouped manufacturing BOM library and no longer edits product-bound production config fields', async () => {

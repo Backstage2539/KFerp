@@ -105,6 +105,7 @@ type updateProductionBomVersionDraftRequest struct {
 	ExpectedLossRate       *float64                        `json:"expected_loss_rate"`
 	OutputQty              float64                         `json:"output_qty"`
 	OutputUnit             string                          `json:"output_unit"`
+	ProcessRouteID         int64                           `json:"process_route_id"`
 	Items                  []bomapp.ProductionBomDraftItem `json:"items"`
 	SpecialAttrsSchemaJSON string                          `json:"special_attrs_schema_json"`
 	SpecialAttrsJSON       string                          `json:"special_attrs_json"`
@@ -115,12 +116,16 @@ type bindProductProductionBomRequest struct {
 	BomVersionID           int64 `json:"bom_version_id"`
 	ProductionBomID        int64 `json:"production_bom_id"`
 	ProductionBomVersionID int64 `json:"production_bom_version_id"`
+	DefaultProductionBomID int64 `json:"default_production_bom_id"`
 }
 
 func (r bindProductProductionBomRequest) normalized() (int64, int64) {
 	bomID := r.ProductionBomID
 	if bomID <= 0 {
 		bomID = r.BomID
+	}
+	if bomID <= 0 {
+		bomID = r.DefaultProductionBomID
 	}
 	versionID := r.ProductionBomVersionID
 	if versionID <= 0 {
@@ -149,7 +154,7 @@ func setDefaultProductionBomAPI(c echo.Context, bomSvc *bomapp.Service) error {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 	}
 	bomID, versionID := req.normalized()
-	row, err := bomSvc.BindProductProductionBom(c.Request().Context(), bomapp.BindProductProductionBomCommand{ProductID: productID, BomID: bomID, BomVersionID: versionID, Actor: support.ActorOf(c)})
+	row, err := bomSvc.BindProductProductionBom(c.Request().Context(), bomapp.BindProductProductionBomCommand{ProductID: productID, BomID: bomID, BomVersionID: versionID, DefaultProductionBomID: req.DefaultProductionBomID, Actor: support.ActorOf(c)})
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 	}
@@ -383,7 +388,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		row, err := bomSvc.UpdateProductionBomVersionDraft(c.Request().Context(), bomapp.UpdateProductionBomVersionDraftCommand{VersionID: id, ExpectedLossRate: req.ExpectedLossRate, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, Items: req.Items, SpecialAttrsSchemaJSON: req.SpecialAttrsSchemaJSON, SpecialAttrsJSON: req.SpecialAttrsJSON, Actor: support.ActorOf(c)})
+		row, err := bomSvc.UpdateProductionBomVersionDraft(c.Request().Context(), bomapp.UpdateProductionBomVersionDraftCommand{VersionID: id, ExpectedLossRate: req.ExpectedLossRate, OutputQty: req.OutputQty, OutputUnit: req.OutputUnit, ProcessRouteID: req.ProcessRouteID, Items: req.Items, SpecialAttrsSchemaJSON: req.SpecialAttrsSchemaJSON, SpecialAttrsJSON: req.SpecialAttrsJSON, Actor: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}

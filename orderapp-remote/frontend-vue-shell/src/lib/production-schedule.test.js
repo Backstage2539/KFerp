@@ -21,6 +21,9 @@ test('production schedule helper builds phase3 endpoints and normalized payloads
   assert.deepEqual(buildScheduleAssignmentPayload({
     work_order_id: '88',
     job_card_id: '91',
+    bom_id: '11',
+    bom_version_id: '101',
+    process_route_id: '77',
     work_center: ' 印刷线 ',
     planned_start_at: ' 2026-06-13 09:00 ',
     planned_end_at: '2026-06-13 11:30',
@@ -39,6 +42,9 @@ test('production schedule helper builds phase3 endpoints and normalized payloads
     priority: 2,
     note: '插单优先',
   })
+  assert.equal(Object.hasOwn(buildScheduleAssignmentPayload({ bom_id: 11, bom_version_id: 101, process_route_id: 77 }), 'bom_id'), false)
+  assert.equal(Object.hasOwn(buildScheduleAssignmentPayload({ bom_id: 11, bom_version_id: 101, process_route_id: 77 }), 'bom_version_id'), false)
+  assert.equal(Object.hasOwn(buildScheduleAssignmentPayload({ bom_id: 11, bom_version_id: 101, process_route_id: 77 }), 'process_route_id'), false)
 
   assert.deepEqual(buildCapacityCalendarPayload({
     work_center: ' 印刷线 ',
@@ -75,7 +81,9 @@ test('ProductionScheduleView exposes list calendar gantt capacity and conflict w
     '冲突',
     '保存排程',
     '保存产能',
+    '工位/设备',
   ]) {
     assert.ok(source.includes(marker), `ProductionScheduleView.vue should include ${marker}`)
   }
+  assert.doesNotMatch(source, /工位\/工作中心/)
 })

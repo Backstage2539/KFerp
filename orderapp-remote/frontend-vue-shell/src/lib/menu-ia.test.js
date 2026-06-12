@@ -75,14 +75,21 @@ test('production menu exposes the production flow manual as a primary page', () 
   assert.equal(groupForView(menuGroups, 'productionManual')?.id, 'production')
 })
 
-test('process templates live in the production menu for discoverability', () => {
+test('manufacturing route operation and workstation pages live in the production menu', () => {
   const keys = primaryMenuKeys(menuGroups)
   assert.ok(keys.includes('processTemplates'))
+  assert.ok(keys.includes('manufacturingOperations'))
+  assert.ok(keys.includes('manufacturingWorkstations'))
   assert.ok(keys.includes('bom'))
   assert.ok(keys.includes('productionSchedule'))
   assert.equal(groupForView(menuGroups, 'processTemplates')?.id, 'production')
+  assert.equal(groupForView(menuGroups, 'manufacturingOperations')?.id, 'production')
+  assert.equal(groupForView(menuGroups, 'manufacturingWorkstations')?.id, 'production')
   assert.equal(groupForView(menuGroups, 'bom')?.id, 'production')
   assert.equal(groupForView(menuGroups, 'productionSchedule')?.id, 'production')
+  assert.equal(menuGroups.find((group) => group.id === 'production')?.items.find((item) => item.key === 'processTemplates')?.label, '工艺路线')
+  assert.equal(menuGroups.find((group) => group.id === 'production')?.items.find((item) => item.key === 'manufacturingOperations')?.label, '工序')
+  assert.equal(menuGroups.find((group) => group.id === 'production')?.items.find((item) => item.key === 'manufacturingWorkstations')?.label, '工位/设备')
   assert.equal(menuGroups.find((group) => group.id === 'production')?.items.find((item) => item.key === 'productionSchedule')?.label, '生产排程')
 })
 

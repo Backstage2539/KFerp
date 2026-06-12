@@ -186,12 +186,43 @@ func TestProductionBomVersionSpecialAttrsSchemaBackfillAndAuditMarkers(t *testin
 		"source_bom_version_id",
 		"special_attrs_schema_json",
 		"special_attrs_json",
-		"CASE WHEN $5<>'' THEN $5::jsonb ELSE special_attrs_schema_json END",
-		"CASE WHEN $6<>'' THEN $6::jsonb ELSE special_attrs_json END",
+		"CASE WHEN $6<>'' THEN $6::jsonb ELSE special_attrs_schema_json END",
+		"CASE WHEN $7<>'' THEN $7::jsonb ELSE special_attrs_json END",
 		`"update_special_attrs"`,
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("production BOM version special attrs implementation missing marker %q", want)
+		}
+	}
+}
+
+func TestProductionBomVersionsOwnRouteAndSinglePublishedVersion(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := readRepositorySource(t)
+	service, err := os.ReadFile("../../../application/bom/service.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := string(schema) + "\n" + repository + "\n" + string(service)
+	for _, want := range []string{
+		"ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS process_route_id BIGINT NOT NULL DEFAULT 0",
+		"CREATE UNIQUE INDEX IF NOT EXISTS production_bom_versions_one_published_uq",
+		"archiveNonLatestPublishedProductionBomVersions",
+		"ProcessRouteID",
+		"`json:\"process_route_id\"`",
+		"process_route_name",
+		"IsLatestUsable",
+		"is_latest_usable",
+		"SET status='archived'",
+		"UPDATE %s.production_bom_versions SET status='archived'",
+		"process_route_id=$",
+		"sourceProcessRouteID",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("production BOM version route/single-active implementation missing marker %q", want)
 		}
 	}
 }

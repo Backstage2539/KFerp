@@ -154,6 +154,9 @@ type ProductionBomSummary struct {
 	LatestVersionID       int64   `json:"latest_version_id"`
 	LatestVersionNo       string  `json:"latest_version_no"`
 	LatestVersionStatus   string  `json:"latest_version_status"`
+	ProcessRouteID        int64   `json:"process_route_id"`
+	ProcessRouteName      string  `json:"process_route_name"`
+	IsLatestUsable        bool    `json:"is_latest_usable"`
 	ExpectedYieldRate     float64 `json:"expected_yield_rate"`
 	ExpectedLossRate      float64 `json:"expected_loss_rate"`
 	ReferenceProductCount int     `json:"reference_product_count"`
@@ -209,9 +212,12 @@ type ProductionBomVersion struct {
 	Note                   string  `json:"note"`
 	SpecialAttrsSchemaJSON string  `json:"special_attrs_schema_json"`
 	SpecialAttrsJSON       string  `json:"special_attrs_json"`
+	ProcessRouteID         int64   `json:"process_route_id"`
+	ProcessRouteName       string  `json:"process_route_name"`
 	CreatedAt              string  `json:"created_at"`
 	PublishedAt            string  `json:"published_at"`
 	IsLatest               bool    `json:"is_latest"`
+	IsLatestUsable         bool    `json:"is_latest_usable"`
 }
 
 type ProductProductionBomBinding struct {
@@ -324,6 +330,7 @@ type UpdateProductionBomVersionDraftCommand struct {
 	ExpectedLossRate       *float64                 `json:"expected_loss_rate,omitempty"`
 	OutputQty              float64                  `json:"output_qty"`
 	OutputUnit             string                   `json:"output_unit"`
+	ProcessRouteID         int64                    `json:"process_route_id"`
 	Items                  []ProductionBomDraftItem `json:"items"`
 	SpecialAttrsSchemaJSON string                   `json:"special_attrs_schema_json"`
 	SpecialAttrsJSON       string                   `json:"special_attrs_json"`
@@ -336,10 +343,11 @@ type PublishProductionBomVersionCommand struct {
 }
 
 type BindProductProductionBomCommand struct {
-	ProductID    int64  `json:"product_id"`
-	BomID        int64  `json:"bom_id"`
-	BomVersionID int64  `json:"bom_version_id"`
-	Actor        string `json:"actor"`
+	ProductID              int64  `json:"product_id"`
+	BomID                  int64  `json:"bom_id"`
+	BomVersionID           int64  `json:"bom_version_id"`
+	DefaultProductionBomID int64  `json:"default_production_bom_id"`
+	Actor                  string `json:"actor"`
 }
 
 type CreateVersionCommand struct {
@@ -1038,8 +1046,11 @@ func (s *Service) BindProductProductionBom(ctx context.Context, cmd BindProductP
 	if cmd.ProductID <= 0 {
 		return ProductProductionBomBinding{}, fmt.Errorf("product_id required")
 	}
-	if cmd.BomID <= 0 || cmd.BomVersionID <= 0 {
-		return ProductProductionBomBinding{}, fmt.Errorf("bom_id and bom_version_id required")
+	if cmd.BomID <= 0 && cmd.DefaultProductionBomID > 0 {
+		cmd.BomID = cmd.DefaultProductionBomID
+	}
+	if cmd.BomID <= 0 {
+		return ProductProductionBomBinding{}, fmt.Errorf("bom_id required")
 	}
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	return s.repo.BindProductProductionBom(ctx, cmd)

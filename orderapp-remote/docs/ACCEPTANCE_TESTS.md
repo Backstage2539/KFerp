@@ -34,7 +34,11 @@
 - [ ] PR-469-PRICE-LIST-PUBLISH-NO-RESPONSE：BOM已失效时页面顶部不显示汇总 banner，具体商品行下显示 `BOM已失效`、提示到商品档案重新选择可用 BOM，并提供 `商品档案` 跳转；点击 `发布价格表` 会定位到商品行提示。空预览、缺版本号、缺客户或价格行不完整仍在按钮附近和页面错误提示中显示阻断原因；满足发布条件后按钮仍能调用原发布接口生成价格表快照。
 - [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：商品档案配置抽屉必须拆分 `可生产该商品的 BOM` 和 `作为组件被哪些 BOM 使用`；只有产出该商品、active 且有 published 版本的 BOM 行能点击 `设为默认`，刷新后仍显示为该商品默认 BOM，组件反查列表不得出现设默认按钮。
 - [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：商品价格管理试算同一商品时，`试算BOM版本` 默认使用商品显式默认生产 BOM；无显式默认时可 fallback 最新 published 产出 BOM，但不得把 fallback 标记为默认。
-- [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：工艺模板页面可维护工序和工作中心主数据；工艺路线/模板操作行从主数据选择工序和工作中心，同时保留名称快照。开始生产后，新工单展示冻结 BOM 版本、冻结工艺路线/模板、工序和工作中心；之后修改商品默认 BOM 或路线不回改历史工单。
+- [ ] PR-471-MANUFACTURING-PHASE1-COMPLETION：工艺路线页面可维护路线工序；工序、工位/设备主数据在独立页面维护。开始生产后，新工单展示冻结 BOM 版本、冻结工艺路线、工序和工位/设备；之后修改商品默认 BOM 或路线不回改历史工单。
+- [ ] PR-485-BOM-VERSION-ROUTE-DEFAULT：生产 BOM 选择产出商品后，商品档案 `可生产该商品的 BOM` 列表只由 `production_boms.output_product_id=当前商品` 计算；商品档案只提供 `设为默认`，保存 payload 只包含 `default_production_bom_id`，不得出现绑定/解绑 BOM 或默认 BOM 版本保存。
+- [ ] PR-485-BOM-VERSION-ROUTE-DEFAULT：同一 BOM 发布新版时旧 published 版本自动归档，BOM 版本区显示版本号、路线、状态和是否最新可用；BOM 草稿版本保存 `process_route_id`，生产 BOM 接口返回 `process_route_id/process_route_name/is_latest_usable`。
+- [ ] PR-485-BOM-VERSION-ROUTE-DEFAULT：创建生产计划时，多个 active 产出 BOM 且未设置默认会阻断并提示设置默认；默认 BOM 已不再产出该商品会报错；最新可用 BOM 版本无路线会报错 `最新可用 BOM 版本未配置工艺路线`，不得 fallback 到旧版本或商品配置路线。
+- [ ] PR-485-BOM-VERSION-ROUTE-DEFAULT：工艺路线页不出现 SKU、BOM 或 BOM 版本字段；生产菜单拆为 `工艺路线`、`工序`、`工位/设备`。生产排程 payload 不包含 `bom_id/bom_version_id/process_route_id` 覆盖字段。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产计划页选择咖啡豆订单缺口后点击 `创建生产计划`，系统只生成 `draft` 生产计划和计划行，不生成生产中记录、生产日志或 WIP 占用。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：提交生产计划后，系统生成 `released` 生产工单和 `pending` 工序卡；咖啡豆工艺路线应生成烘焙/包装步骤，包装盒示例应生成印刷/模切/糊盒步骤，童装示例应生成裁剪/缝制/质检步骤。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产工单页筛选 `released` 后点击 `开始生产`，工单进入 `running`，产生 running item、WIP 占用并进入现有生产中/完工链路；重复开始生产必须返回错误，不重复开始生产、不重复写 WIP 或 running item。

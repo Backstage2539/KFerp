@@ -89,6 +89,112 @@ func defaultOperationTemplateSteps() []operationTemplateStepRow {
 	return []operationTemplateStepRow{{Position: 1, Operation: "production", Workstation: "workstation"}}
 }
 
+type latestUsableBomRoute struct {
+	ProductID        int64
+	ProductName      string
+	BomID            int64
+	BomCode          string
+	BomName          string
+	BomVersionID     int64
+	BomVersionNo     string
+	ProcessRouteID   int64
+	ProcessRouteName string
+	YieldRate        float64
+}
+
+func resolveLatestUsableBomRouteForProductTx(ctx context.Context, tx pgx.Tx, schema string, productID int64, productName string) (latestUsableBomRoute, error) {
+	out := latestUsableBomRoute{ProductID: productID, ProductName: strings.TrimSpace(productName)}
+	if out.ProductName == "" {
+		out.ProductName = fmt.Sprintf("product#%d", productID)
+	}
+	var defaultBomID int64
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(NULLIF(ppc.production_bom_id,0), pbb.bom_id, 0)
+		FROM %s.products p
+		LEFT JOIN %s.product_production_configs ppc ON ppc.product_id=p.id
+		LEFT JOIN %s.product_production_bom_bindings pbb ON pbb.product_id=p.id
+		WHERE p.id=$1
+	`, schema, schema, schema), productID).Scan(&defaultBomID)
+	if err != nil && err != pgx.ErrNoRows {
+		return out, err
+	}
+	if defaultBomID > 0 {
+		err = tx.QueryRow(ctx, fmt.Sprintf(`
+			SELECT pb.id, COALESCE(pb.code,''), COALESCE(pb.name,''), COALESCE(p.name,'')
+			FROM %s.production_boms pb
+			LEFT JOIN %s.products p ON p.id=pb.output_product_id
+			WHERE pb.id=$1
+			  AND pb.output_product_id=$2
+			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+			LIMIT 1
+		`, schema, schema), defaultBomID, productID).Scan(&out.BomID, &out.BomCode, &out.BomName, &out.ProductName)
+		if err == pgx.ErrNoRows {
+			return out, fmt.Errorf("default production BOM is no longer an output BOM: %s", out.ProductName)
+		}
+		if err != nil {
+			return out, err
+		}
+	} else {
+		rows, err := tx.Query(ctx, fmt.Sprintf(`
+			SELECT pb.id, COALESCE(pb.code,''), COALESCE(pb.name,''), COALESCE(p.name,'')
+			FROM %s.production_boms pb
+			LEFT JOIN %s.products p ON p.id=pb.output_product_id
+			WHERE pb.output_product_id=$1
+			  AND COALESCE(NULLIF(pb.status,''),'active')='active'
+			ORDER BY pb.updated_at DESC, pb.id DESC
+		`, schema, schema), productID)
+		if err != nil {
+			return out, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var candidate latestUsableBomRoute
+			if err := rows.Scan(&candidate.BomID, &candidate.BomCode, &candidate.BomName, &candidate.ProductName); err != nil {
+				return out, err
+			}
+			if out.BomID == 0 {
+				out.BomID = candidate.BomID
+				out.BomCode = candidate.BomCode
+				out.BomName = candidate.BomName
+				out.ProductName = candidate.ProductName
+			} else {
+				return out, fmt.Errorf("multiple active production BOMs found: %s, please set default production BOM", out.ProductName)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return out, err
+		}
+		if out.BomID <= 0 {
+			return out, fmt.Errorf("latest usable production BOM version not found: %s", out.ProductName)
+		}
+	}
+	if strings.TrimSpace(out.ProductName) == "" {
+		out.ProductName = fmt.Sprintf("product#%d", productID)
+	}
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT v.id,
+		       COALESCE(v.version_no,''),
+		       COALESCE(v.process_route_id,0),
+		       COALESCE(pr.name,''),
+		       COALESCE(v.yield_rate,0.8)::float8
+		FROM %s.production_bom_versions v
+		LEFT JOIN %s.process_routes pr ON pr.id=v.process_route_id AND pr.status='active'
+		WHERE v.bom_id=$1 AND v.status='published'
+		ORDER BY v.published_at DESC NULLS LAST, v.created_at DESC, v.id DESC
+		LIMIT 1
+	`, schema, schema), out.BomID).Scan(&out.BomVersionID, &out.BomVersionNo, &out.ProcessRouteID, &out.ProcessRouteName, &out.YieldRate)
+	if err == pgx.ErrNoRows {
+		return out, fmt.Errorf("latest usable production BOM version not found: %s/%s", firstNonEmpty(out.BomName, out.BomCode), out.ProductName)
+	}
+	if err != nil {
+		return out, err
+	}
+	if out.ProcessRouteID <= 0 || strings.TrimSpace(out.ProcessRouteName) == "" {
+		return out, fmt.Errorf("最新可用 BOM 版本未配置工艺路线: %s/%s/%s", firstNonEmpty(out.BomName, out.BomCode), out.BomVersionNo, out.ProductName)
+	}
+	return out, nil
+}
+
 func loadBoundBomVersionIDForProductTx(ctx context.Context, tx pgx.Tx, schema string, productID int64) (int64, error) {
 	var versionID int64
 	err := tx.QueryRow(ctx, fmt.Sprintf(`
@@ -179,6 +285,56 @@ func loadProductProductionConfigSnapshotForWorkOrderTx(ctx context.Context, tx p
 		return nil, err
 	}
 	return []byte(raw), nil
+}
+
+func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema string, routeID int64, productID int64) (*processTemplateSnapshot, []byte, error) {
+	if routeID <= 0 {
+		return nil, nil, nil
+	}
+	var snapshot processTemplateSnapshot
+	err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT pr.id, pr.name, pr.default_equipment, pr.default_minutes
+		FROM %[1]s.process_routes pr
+		WHERE pr.id=$1 AND pr.status='active'
+		LIMIT 1
+	`, schema), routeID).Scan(&snapshot.ID, &snapshot.Name, &snapshot.DefaultEquipment, &snapshot.DefaultMinutes)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	snapshot.Source = "process_route"
+	snapshot.RouteID = snapshot.ID
+	snapshot.RouteName = snapshot.Name
+	snapshot.ProductID = productID
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT seq,operation_id,workstation_id,operation,workstation,default_equipment,default_minutes,records_loss,
+		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
+		FROM %s.process_route_operations
+		WHERE route_id=$1
+		ORDER BY seq, id
+	`, schema), snapshot.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var op processSnapshotOperation
+		if err := rows.Scan(&op.Seq, &op.OperationID, &op.WorkstationID, &op.Operation, &op.Workstation, &op.DefaultEquipment, &op.DefaultMinutes, &op.RecordsLoss, &op.QualityChecklistJSON); err != nil {
+			return nil, nil, err
+		}
+		op.ParameterSchemaJSON = "{}"
+		snapshot.Operations = append(snapshot.Operations, op)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	b, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &snapshot, b, nil
 }
 
 func createWorkOrderForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, runningItemID int64, batchID string, productID int64, productName string, specG int64, plannedG int64, materialSnapshot []byte, operationTemplateID int64, operator string) (int64, error) {

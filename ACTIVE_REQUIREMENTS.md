@@ -6,6 +6,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-485-BOM-VERSION-ROUTE-DEFAULT
+- Branch: codex/bom-version-route-20260612
+- Owner/session: Codex / 2026-06-12
+- Status: GREEN local verification passed; pending integration/deploy decision.
+- Scope: BOM 选择产出商品，商品档案只设置默认 BOM；BOM 版本绑定工艺路线；生产计划/工单只使用默认 BOM 的最新可用版本并冻结路线快照，旧版本只作为历史快照，不做商品配置路线或旧模板 fallback。
+- DEV:
+  - DEV-485-BOM-VERSION-ROUTE-SCHEMA：`production_bom_versions` 增加路线绑定，发布新版本时旧 published 版本归档，同一 BOM 只保留一个最新可用版本。
+  - DEV-485-DEFAULT-BOM-API：商品档案默认 BOM 只保存 BOM 主记录语义，旧 `product_production_bom_bindings` 仅作兼容存储，不再定义“可生产该商品的 BOM”关系。
+  - DEV-485-PRODUCTION-PLAN-RESOLUTION：创建生产计划按 商品 -> 默认/唯一 active 产出 BOM -> 最新 published BOM 版本 -> 版本路线 解析，缺失路线直接报错且不 fallback。
+  - DEV-485-VUE-BOM-PRODUCT-ROUTE：生产 BOM 版本区选择路线并显示版本/路线；商品档案只展示产出该商品的 BOM 并允许设默认；工艺路线页面移除 SKU/BOM 绑定；排程 payload 不含 BOM/路线覆盖。
+  - DEV-485-DOCS-ACCEPTANCE：同步需求、验收清单、生产/物料手册和 PR/DEV 证据。
+- Verifier:
+  - RED backend: added targeted failing coverage for BOM version route ownership, single published version, default BOM output validation, production plan latest-version route resolution, and no route fallback.
+  - RED frontend: added targeted failing coverage for BOM route selector/default BOM payload, route-only 工艺路线 page, 工序/工位设备 pages, and schedule payload without BOM/route override.
+  - Unit/API: `go test ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/production ./internal/interfaces/http/bom ./internal/interfaces/http/manufacturing -count=1` passed on 2026-06-12 16:09 CST.
+  - Frontend/build: `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/production-schedule.test.js src/lib/process-routes.test.js src/lib/menu-ia.test.js` passed 165/165 on 2026-06-12 16:09 CST; `npm run build` passed.
+  - Manual: updated `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, `orderapp-remote/docs/REQUIREMENTS.md`, `orderapp-remote/docs/ACCEPTANCE_TESTS.md`.
+  - Review/acceptance: added `orderapp-remote/docs/acceptance/2026-06-12-bom-version-route-default.md`.
+- Deployment: not requested yet.
+- Last update: 2026-06-12 16:09 CST; local implementation and targeted verification passed.
+- Notes: `scripts/reserve_req_id.sh` returned PR-485 but `--claim` hit the known awk multiline bug, so this entry was seeded manually.
+
 ### PR-480-MANUFACTURING-PHASE3-SCHEDULE-CAPACITY
 - Branch: codex/manufacturing-phase3-20260612
 - Owner/session: Codex goal / 2026-06-12

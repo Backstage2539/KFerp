@@ -45,3 +45,39 @@ func TestProductionPlanListSupportsStatusAndTimeFilters(t *testing.T) {
 		}
 	}
 }
+
+func TestProductionPlanItemsResolveLatestUsableBomVersionRouteWithoutFallback(t *testing.T) {
+	planSrc, err := os.ReadFile("production_plan.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workOrderSrc, err := os.ReadFile("work_order.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := string(planSrc) + "\n" + string(workOrderSrc)
+	for _, want := range []string{
+		"resolveLatestUsableBomRouteForProductTx",
+		"latest usable production BOM version not found",
+		"multiple active production BOMs found",
+		"default production BOM is no longer an output BOM",
+		"最新可用 BOM 版本未配置工艺路线",
+		"production_bom_versions",
+		"pb.output_product_id=$1",
+		"ORDER BY v.published_at DESC NULLS LAST, v.created_at DESC, v.id DESC",
+		"loadProcessRouteSnapshotByIDTx",
+		"process_route_snapshot_json",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("production plan must resolve latest usable BOM version route; missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"loadProcessRouteSnapshotForWorkOrderTx(ctx, tx, schema, group.ProductID)",
+		"loadActiveProcessTemplateSnapshotTx(ctx, tx, schema, group.ProductID)",
+	} {
+		if strings.Contains(string(planSrc), forbidden) {
+			t.Fatalf("production plan item creation must not fallback via product config or legacy process template; found %q", forbidden)
+		}
+	}
+}

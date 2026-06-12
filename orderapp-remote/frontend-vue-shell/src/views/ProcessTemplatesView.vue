@@ -2,26 +2,15 @@
   <div class="page">
     <section class="panel">
       <div class="panel-head">
-        <h2>工艺模板</h2>
+        <h2>工艺路线</h2>
         <div class="actions">
-          <button class="secondary" type="button" @click="newTemplate">新建</button>
+          <button class="secondary" type="button" @click="newRoute">新建路线</button>
           <button class="secondary" type="button" @click="loadAll" :disabled="loading">刷新</button>
         </div>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">{{ ok }}</div>
       <div class="filters">
-        <label>
-          <span>SKU</span>
-          <SearchableSelect
-            v-model="filters.product_id"
-            :options="products"
-            :option-label="optionLabel"
-            :option-meta="productMeta"
-            :option-value="optionNumericValue"
-            placeholder="全部 SKU"
-            empty-text="暂无 SKU" />
-        </label>
         <label>
           <span>状态</span>
           <select v-model="filters.status">
@@ -31,110 +20,58 @@
             <option value="inactive">停用</option>
           </select>
         </label>
-        <button class="primary" type="button" @click="loadTemplates">筛选</button>
-      </div>
-    </section>
-
-    <section class="panel master-data-panel">
-      <div class="section-title">工序 / 工作中心主数据</div>
-      <div class="master-data-grid">
-        <label>
-          <span>新增工序</span>
-          <input v-model.trim="operationForm.name" placeholder="烘焙 / 研磨 / 包装" />
-        </label>
-        <label>
-          <span>默认分钟</span>
-          <input v-model.number="operationForm.default_minutes" type="number" min="0" step="1" />
-        </label>
-        <button class="secondary" type="button" @click="saveOperationMaster" :disabled="loading">保存工序</button>
-        <label>
-          <span>新增工作中心</span>
-          <input v-model.trim="workstationForm.name" placeholder="烘焙机 / 包装台 / 质检台" />
-        </label>
-        <label>
-          <span>默认分钟</span>
-          <input v-model.number="workstationForm.default_minutes" type="number" min="0" step="1" />
-        </label>
-        <button class="secondary" type="button" @click="saveWorkstationMaster" :disabled="loading">保存工作中心</button>
-      </div>
-      <div class="master-data-summary">
-        <span>工序 {{ activeOperations.length }} 项</span>
-        <span>工作中心 {{ activeWorkstations.length }} 项</span>
+        <button class="primary" type="button" @click="loadRoutes">筛选</button>
       </div>
     </section>
 
     <div class="grid">
       <section class="panel table-wrap">
-        <div class="section-title">模板列表</div>
+        <div class="section-title">路线列表</div>
         <table>
           <thead>
             <tr>
-              <th>模板</th>
-              <th>SKU</th>
-              <th>BOM版本</th>
-              <th>行业模板</th>
+              <th>路线</th>
               <th>状态</th>
-              <th>工序</th>
+              <th>工序数</th>
+              <th>默认设备</th>
+              <th>默认工时</th>
               <th>更新时间</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in templates" :key="row.id" :class="{ active: row.id === form.id }" @click="editTemplate(row)">
+            <tr v-for="row in routes" :key="row.id" :class="{ active: row.id === form.id }" @click="editRoute(row)">
               <td><strong>{{ row.name }}</strong><small>#{{ row.id }}</small></td>
-              <td>{{ row.product_name || '-' }}</td>
-              <td>{{ row.bom_version_no || '-' }}</td>
-              <td>{{ row.industry_template_name || '-' }}</td>
               <td><span :class="['pill', row.status]">{{ statusLabel(row.status) }}</span></td>
               <td>{{ row.operations?.length || 0 }}</td>
+              <td>{{ row.default_equipment || '-' }}</td>
+              <td>{{ row.default_minutes || 0 }} 分钟</td>
               <td>{{ row.updated_at }}</td>
             </tr>
-            <tr v-if="!templates.length">
-              <td colspan="7" class="muted">暂无工艺模板</td>
+            <tr v-if="!routes.length">
+              <td colspan="6" class="muted">暂无工艺路线</td>
             </tr>
           </tbody>
         </table>
       </section>
 
       <section class="panel editor">
-        <div class="section-title">{{ form.id ? '编辑模板' : '新建模板' }}</div>
+        <div class="section-title">{{ form.id ? '编辑路线' : '新建路线' }}</div>
         <div class="form-grid">
           <label>
-            <span>模板名称</span>
-            <input v-model.trim="form.name" placeholder="例如 标准烘焙/裁剪缝制/鲜果去皮包装" />
+            <span>路线名称</span>
+            <input v-model.trim="form.name" placeholder="例如 标准烘焙 / 包装 / 缝制" />
           </label>
           <label>
-            <span>绑定 SKU</span>
-            <SearchableSelect
-              v-model="form.product_id"
-              :options="products"
-              :option-label="optionLabel"
-              :option-meta="productMeta"
-              :option-value="optionNumericValue"
-              placeholder="选择 SKU"
-              empty-text="暂无 SKU"
-              @select="loadBomVersions(optionNumericValue($event))" />
-          </label>
-          <label>
-            <span>BOM版本</span>
-            <select v-model.number="form.bom_version_id" :disabled="!form.product_id">
-              <option :value="0">当前 BOM</option>
-              <option v-for="version in bomVersions" :key="version.id" :value="version.id">
-                {{ version.version_no }} · {{ version.status }}
-              </option>
-            </select>
-          </label>
-          <label>
-            <span>行业字段模板</span>
-            <select v-model.number="form.industry_template_id">
-              <option :value="0">不绑定</option>
-              <option v-for="item in activeIndustryTemplates" :key="item.id" :value="item.id">
-                {{ item.name }}
-              </option>
+            <span>状态</span>
+            <select v-model="form.status">
+              <option value="draft">草稿</option>
+              <option value="active">已发布</option>
+              <option value="inactive">停用</option>
             </select>
           </label>
           <label>
             <span>默认设备</span>
-            <input v-model.trim="form.default_equipment" placeholder="例如 Probat / 裁床 / 去皮机" />
+            <input v-model.trim="form.default_equipment" placeholder="例如 烘焙机 / 包装台 / 缝制组" />
           </label>
           <label>
             <span>默认工时(分钟)</span>
@@ -142,16 +79,12 @@
           </label>
         </div>
         <label class="wide">
-          <span>关键参数 JSON</span>
-          <textarea v-model.trim="form.key_params_json" rows="3" placeholder='{"roast_level":"medium","cutting_method":"laser"}'></textarea>
-        </label>
-        <label class="wide">
           <span>备注</span>
           <textarea v-model.trim="form.note" rows="2"></textarea>
         </label>
 
         <div class="operations-head">
-          <div class="section-title">工艺路线</div>
+          <div class="section-title">路线工序</div>
           <button class="secondary compact" type="button" @click="addOperation">新增工序</button>
         </div>
         <div class="operation-list">
@@ -174,23 +107,23 @@
             </label>
             <label>
               <span>工序名称快照</span>
-              <input v-model.trim="op.operation" placeholder="烘焙/裁剪/去皮/包装" />
+              <input v-model.trim="op.operation" placeholder="烘焙 / 裁剪 / 包装" />
             </label>
             <label>
-              <span>工作中心</span>
+              <span>工位/设备</span>
               <SearchableSelect
                 v-model="op.workstation_id"
                 :options="activeWorkstations"
                 :option-label="optionLabel"
                 :option-meta="workstationMeta"
                 :option-value="optionNumericValue"
-                placeholder="选择工作中心"
-                empty-text="暂无工作中心"
+                placeholder="选择工位/设备"
+                empty-text="暂无工位/设备"
                 @select="applyWorkstation(index, $event)" />
             </label>
             <label>
-              <span>工作中心快照</span>
-              <input v-model.trim="op.workstation" placeholder="roaster/cutting/packing" />
+              <span>工位快照</span>
+              <input v-model.trim="op.workstation" placeholder="烘焙机 / 包装台 / 质检台" />
             </label>
             <label>
               <span>设备</span>
@@ -205,10 +138,6 @@
               <span>记录损耗</span>
             </label>
             <label class="json-field">
-              <span>参数字段 JSON</span>
-              <textarea v-model.trim="op.parameter_schema_json" rows="2" placeholder='{"temperature":{"type":"number","unit":"C"}}'></textarea>
-            </label>
-            <label class="json-field">
               <span>质检项 JSON</span>
               <textarea v-model.trim="op.quality_checklist_json" rows="2" placeholder='["外观","重量"]'></textarea>
             </label>
@@ -217,9 +146,9 @@
         </div>
 
         <div class="footer-actions">
-          <button class="primary" type="button" @click="saveTemplate" :disabled="loading">保存草稿</button>
-          <button class="secondary" type="button" @click="publishTemplate" :disabled="!form.id || loading">发布</button>
-          <button class="secondary danger-outline" type="button" @click="deactivateTemplate" :disabled="!form.id || loading">停用</button>
+          <button class="primary" type="button" @click="saveRoute" :disabled="loading">保存草稿</button>
+          <button class="secondary" type="button" @click="publishRoute" :disabled="!form.id || loading">发布</button>
+          <button class="secondary danger-outline" type="button" @click="deactivateRoute" :disabled="!form.id || loading">停用</button>
         </div>
       </section>
     </div>
@@ -234,32 +163,22 @@ import SearchableSelect from '../components/SearchableSelect.vue'
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
-const templates = ref([])
-const products = ref([])
-const industryTemplates = ref([])
-const bomVersions = ref([])
+const routes = ref([])
 const operations = ref([])
 const workstations = ref([])
-const filters = reactive({ product_id: 0, status: '' })
-const operationForm = reactive({ name: '', code: '', default_minutes: 0 })
-const workstationForm = reactive({ name: '', code: '', default_minutes: 0, hourly_rate: 0 })
-const form = reactive(blankForm())
+const filters = reactive({ status: '' })
+const form = reactive(blankRoute())
 
-const activeIndustryTemplates = computed(() => industryTemplates.value.filter((row) => row.status === 'active'))
 const activeOperations = computed(() => operations.value.filter((row) => row.status === 'active'))
 const activeWorkstations = computed(() => workstations.value.filter((row) => row.status === 'active'))
 
-function blankForm() {
+function blankRoute() {
   return {
     id: 0,
     name: '',
-    product_id: 0,
-    bom_version_id: 0,
-    industry_template_id: 0,
     status: 'draft',
     default_equipment: '',
     default_minutes: 0,
-    key_params_json: '{}',
     note: '',
     operations: [blankOperation(1)],
   }
@@ -275,7 +194,6 @@ function blankOperation(seq) {
     default_equipment: '',
     default_minutes: 0,
     records_loss: false,
-    parameter_schema_json: '{}',
     quality_checklist_json: '[]',
   }
 }
@@ -286,13 +204,6 @@ function optionLabel(option) {
 
 function optionNumericValue(option) {
   return Number(option?.id || 0)
-}
-
-function productMeta(option) {
-  const parts = []
-  parts.push(Number(option?.customer_id || 0) ? `客户 #${option.customer_id}` : '公共SKU')
-  if (option?.product_kind) parts.push(option.product_kind)
-  return parts.join(' / ')
 }
 
 function operationMeta(option) {
@@ -316,20 +227,16 @@ function statusLabel(status) {
   return '草稿'
 }
 
-function resetForm(next = blankForm()) {
+function resetForm(next = blankRoute()) {
   Object.assign(form, next)
 }
 
-function normalizeTemplate(row) {
+function normalizeRoute(row) {
   return {
-    ...blankForm(),
+    ...blankRoute(),
     ...row,
     id: Number(row.id || 0),
-    product_id: Number(row.product_id || 0),
-    bom_version_id: Number(row.bom_version_id || 0),
-    industry_template_id: Number(row.industry_template_id || 0),
     default_minutes: Number(row.default_minutes || 0),
-    key_params_json: row.key_params_json || '{}',
     operations: (row.operations || []).length ? row.operations.map((op, index) => ({
       ...blankOperation(index + 1),
       ...op,
@@ -338,7 +245,6 @@ function normalizeTemplate(row) {
       workstation_id: Number(op.workstation_id || 0),
       default_minutes: Number(op.default_minutes || 0),
       records_loss: !!op.records_loss,
-      parameter_schema_json: op.parameter_schema_json || '{}',
       quality_checklist_json: op.quality_checklist_json || '[]',
     })) : [blankOperation(1)],
   }
@@ -348,14 +254,7 @@ async function loadAll() {
   loading.value = true
   error.value = ''
   try {
-    const [productData, industryData] = await Promise.all([
-      apiGet('/api/bom/products'),
-      apiGet('/api/industry-field-templates'),
-      loadManufacturingMasterData(),
-    ])
-    products.value = productData || []
-    industryTemplates.value = industryData.rows || []
-    await loadTemplates()
+    await Promise.all([loadManufacturingMasterData(), loadRoutes()])
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -372,36 +271,21 @@ async function loadManufacturingMasterData() {
   workstations.value = workstationData?.rows || []
 }
 
-async function loadTemplates() {
-  const url = new URL('/api/process-templates', window.location.origin)
-  if (filters.product_id) url.searchParams.set('product_id', String(filters.product_id))
+async function loadRoutes() {
+  const url = new URL('/api/process-routes', window.location.origin)
   if (filters.status) url.searchParams.set('status', filters.status)
   const data = await apiGet(url)
-  templates.value = data.rows || []
+  routes.value = data.rows || []
 }
 
-async function loadBomVersions(productID) {
-  const id = Number(productID || form.product_id || 0)
-  bomVersions.value = []
-  if (!id) return
-  try {
-    const data = await apiGet(`/api/bom/versions?product_id=${id}`)
-    bomVersions.value = data.rows || []
-  } catch {
-    bomVersions.value = []
-  }
-}
-
-function newTemplate() {
+function newRoute() {
   resetForm()
-  bomVersions.value = []
   error.value = ''
   ok.value = ''
 }
 
-async function editTemplate(row) {
-  resetForm(normalizeTemplate(row))
-  await loadBomVersions(form.product_id)
+function editRoute(row) {
+  resetForm(normalizeRoute(row))
   error.value = ''
   ok.value = ''
 }
@@ -448,80 +332,34 @@ async function mutate(action) {
   }
 }
 
-async function saveOperationMaster() {
-  if (!operationForm.name.trim()) {
-    error.value = '请填写工序名称'
-    return
-  }
+async function saveRoute() {
   await mutate(async () => {
-    await apiSend('/api/manufacturing-operations', {
-      body: {
-        name: operationForm.name,
-        code: operationForm.code,
-        default_minutes: Number(operationForm.default_minutes || 0),
-        status: 'active',
-      },
-    })
-    operationForm.name = ''
-    operationForm.code = ''
-    operationForm.default_minutes = 0
-    await loadManufacturingMasterData()
-    ok.value = '已保存工序'
+    const row = await apiSend('/api/process-routes', { body: { ...form, status: form.status || 'draft' } })
+    resetForm(normalizeRoute(row))
+    await loadRoutes()
+    ok.value = '已保存工艺路线'
   })
 }
 
-async function saveWorkstationMaster() {
-  if (!workstationForm.name.trim()) {
-    error.value = '请填写工作中心名称'
-    return
-  }
-  await mutate(async () => {
-    await apiSend('/api/manufacturing-workstations', {
-      body: {
-        name: workstationForm.name,
-        code: workstationForm.code,
-        default_minutes: Number(workstationForm.default_minutes || 0),
-        hourly_rate: Number(workstationForm.hourly_rate || 0),
-        status: 'active',
-      },
-    })
-    workstationForm.name = ''
-    workstationForm.code = ''
-    workstationForm.default_minutes = 0
-    workstationForm.hourly_rate = 0
-    await loadManufacturingMasterData()
-    ok.value = '已保存工作中心'
-  })
-}
-
-async function saveTemplate() {
-  await mutate(async () => {
-    const row = await apiSend('/api/process-templates', { body: { ...form, status: form.status || 'draft' } })
-    resetForm(normalizeTemplate(row))
-    await loadTemplates()
-    ok.value = '已保存工艺模板'
-  })
-}
-
-async function publishTemplate() {
+async function publishRoute() {
   if (!form.id) return
   await mutate(async () => {
-    await apiSend(`/api/process-templates/${form.id}/publish`, { body: {} })
-    await loadTemplates()
-    const current = templates.value.find((row) => Number(row.id) === Number(form.id))
-    if (current) resetForm(normalizeTemplate(current))
-    ok.value = '已发布工艺模板'
+    await apiSend(`/api/process-routes/${form.id}/publish`, { body: {} })
+    await loadRoutes()
+    const current = routes.value.find((row) => Number(row.id) === Number(form.id))
+    if (current) resetForm(normalizeRoute(current))
+    ok.value = '已发布工艺路线'
   })
 }
 
-async function deactivateTemplate() {
+async function deactivateRoute() {
   if (!form.id) return
   await mutate(async () => {
-    await apiSend(`/api/process-templates/${form.id}/deactivate`, { body: {} })
-    await loadTemplates()
-    const current = templates.value.find((row) => Number(row.id) === Number(form.id))
-    if (current) resetForm(normalizeTemplate(current))
-    ok.value = '已停用工艺模板'
+    await apiSend(`/api/process-routes/${form.id}/deactivate`, { body: {} })
+    await loadRoutes()
+    const current = routes.value.find((row) => Number(row.id) === Number(form.id))
+    if (current) resetForm(normalizeRoute(current))
+    ok.value = '已停用工艺路线'
   })
 }
 
@@ -537,8 +375,6 @@ onMounted(loadAll)
 h2 { margin: 0; font-size: 20px; }
 .grid { display: grid; grid-template-columns: minmax(420px, .9fr) minmax(560px, 1.1fr); gap: 14px; align-items: start; }
 .filters { align-items: end; }
-.master-data-grid { display: grid; grid-template-columns: minmax(180px, 1fr) 120px auto minmax(180px, 1fr) 120px auto; gap: 10px; align-items: end; }
-.master-data-summary { display: flex; gap: 14px; color: #666; font-size: 13px; margin-top: 10px; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, select, textarea { width: 100%; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
 input, select { height: 38px; }
@@ -552,7 +388,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .text { border: 0; background: transparent; color: #1f4f82; padding: 0; }
 .text.danger { color: #9d2626; }
 .table-wrap { overflow: auto; }
-table { width: 100%; min-width: 820px; border-collapse: collapse; }
+table { width: 100%; min-width: 760px; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 th { background: #fbfaf8; position: sticky; top: 0; }
 td small { display: block; color: #777; margin-top: 3px; }
@@ -576,7 +412,7 @@ tbody tr.active { background: #f3f7fb; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
 @media (max-width: 1180px) {
-  .grid, .form-grid, .master-data-grid { grid-template-columns: 1fr; }
+  .grid, .form-grid { grid-template-columns: 1fr; }
   .operation-row { grid-template-columns: 1fr 1fr; }
   .operation-row .json-field { grid-column: span 2; }
 }

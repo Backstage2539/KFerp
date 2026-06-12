@@ -188,6 +188,8 @@ import JobCardsView from './views/JobCardsView.vue'
 import LogisticsSettingsView from './views/LogisticsSettingsView.vue'
 import MachinesView from './views/MachinesView.vue'
 import MallSettingsView from './views/MallSettingsView.vue'
+import ManufacturingOperationsView from './views/ManufacturingOperationsView.vue'
+import ManufacturingWorkstationsView from './views/ManufacturingWorkstationsView.vue'
 import MaterialBatchesView from './views/MaterialBatchesView.vue'
 import MaterialReceiptsView from './views/MaterialReceiptsView.vue'
 import MaterialsView from './views/MaterialsView.vue'
@@ -357,6 +359,8 @@ const internalViews = {
   inventoryMaterialsManual: OperationManualView,
   bom: BomView,
   processTemplates: ProcessTemplatesView,
+  manufacturingOperations: ManufacturingOperationsView,
+  manufacturingWorkstations: ManufacturingWorkstationsView,
   industryFieldTemplates: IndustryFieldTemplatesView,
   productMaster: ProductSettingsView,
   groupManagement: UISettingsView,

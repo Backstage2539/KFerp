@@ -4980,8 +4980,8 @@ async function setDefaultProductionBom(row = {}) {
   const productID = Number(productProductionConfigProduct.value?.id || productProductionConfigForm.value.product_id || 0)
   const bomID = bomUsageBomID(row)
   const versionID = Number(row.current_published_version_id || row.production_bom_version_id || row.bom_version_id || 0)
-  if (!productID || !bomID || !versionID) {
-    error.value = '请选择已发布的生产 BOM 版本'
+  if (!productID || !bomID) {
+    error.value = '请选择可生产该商品的生产 BOM'
     return
   }
   productProductionConfigSaving.value = true
@@ -4991,8 +4991,7 @@ async function setDefaultProductionBom(row = {}) {
     const saved = await apiSend(`/api/products/${productID}/default-production-bom`, {
       method: 'PUT',
       body: {
-        production_bom_id: bomID,
-        production_bom_version_id: versionID,
+        default_production_bom_id: Number(row.bom_id || row.production_bom_id || row.id || 0),
       },
     })
     productProductionConfigForm.value.production_bom_id = Number(saved?.production_bom_id || bomID)

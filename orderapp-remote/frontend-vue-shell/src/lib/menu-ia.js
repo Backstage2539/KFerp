@@ -27,7 +27,9 @@ export const menuGroups = [
     items: [
       { key: 'productionManual', label: '生产手册', title: '生产手册' },
       { key: 'productionAcceptance', label: '生产验收', title: '生产验收' },
-      { key: 'processTemplates', label: '工艺模板', title: '工艺模板' },
+      { key: 'processTemplates', label: '工艺路线', title: '工艺路线' },
+      { key: 'manufacturingOperations', label: '工序', title: '工序' },
+      { key: 'manufacturingWorkstations', label: '工位/设备', title: '工位/设备' },
       { key: 'bom', label: '生产 BOM', title: '生产 BOM' },
       { key: 'producePlan', label: '生产计划/开始生产', title: '生产计划/开始生产' },
       { key: 'produceRunning', label: '生产中', title: '生产中' },

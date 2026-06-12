@@ -195,7 +195,7 @@ func (r *apiFakeRepo) UpdateProductionBomVersionDraft(_ context.Context, cmd bom
 	if r.updatedProductionDraft.ID > 0 {
 		return r.updatedProductionDraft, nil
 	}
-	return bomapp.ProductionBomVersion{ID: cmd.VersionID, Status: "draft", OutputQty: cmd.OutputQty, OutputUnit: cmd.OutputUnit, SpecialAttrsSchemaJSON: cmd.SpecialAttrsSchemaJSON, SpecialAttrsJSON: cmd.SpecialAttrsJSON}, nil
+	return bomapp.ProductionBomVersion{ID: cmd.VersionID, Status: "draft", OutputQty: cmd.OutputQty, OutputUnit: cmd.OutputUnit, ProcessRouteID: cmd.ProcessRouteID, SpecialAttrsSchemaJSON: cmd.SpecialAttrsSchemaJSON, SpecialAttrsJSON: cmd.SpecialAttrsJSON}, nil
 }
 
 func (r *apiFakeRepo) ValidateProductionBomVersionForPublish(context.Context, bomapp.PublishProductionBomVersionCommand) error {

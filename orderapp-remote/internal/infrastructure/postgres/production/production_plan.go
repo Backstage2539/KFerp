@@ -127,26 +127,31 @@ func createProductionPlanItemForGroupTx(ctx context.Context, tx pgx.Tx, schema s
 			return productionapp.ProductionPlanItem{}, err
 		}
 	}
-	processSnapshot, processSnapshotJSON, err := loadProcessRouteSnapshotForWorkOrderTx(ctx, tx, schema, group.ProductID)
+	bomRoute, err := resolveLatestUsableBomRouteForProductTx(ctx, tx, schema, group.ProductID, group.ProductName)
+	if err != nil {
+		return productionapp.ProductionPlanItem{}, err
+	}
+	processSnapshot, processSnapshotJSON, err := loadProcessRouteSnapshotByIDTx(ctx, tx, schema, bomRoute.ProcessRouteID, group.ProductID)
 	if err != nil {
 		return productionapp.ProductionPlanItem{}, err
 	}
 	if processSnapshot == nil {
-		processSnapshot, processSnapshotJSON, err = loadActiveProcessTemplateSnapshotTx(ctx, tx, schema, group.ProductID)
-		if err != nil {
-			return productionapp.ProductionPlanItem{}, err
-		}
+		return productionapp.ProductionPlanItem{}, fmt.Errorf("最新可用 BOM 版本未配置工艺路线: %s/%s/%s", bomRoute.BomName, bomRoute.BomVersionNo, bomRoute.ProductName)
 	}
 	if len(processSnapshotJSON) == 0 {
 		processSnapshotJSON = []byte("{}")
 	}
-	processRouteID := int64(0)
-	if processSnapshot != nil {
-		processRouteID = processSnapshot.RouteID
-		if processRouteID == 0 && processSnapshot.Source == "process_route" {
-			processRouteID = processSnapshot.ID
-		}
+	processSnapshot.ProductID = group.ProductID
+	processSnapshot.ProductName = group.ProductName
+	processSnapshot.BomVersionID = bomRoute.BomVersionID
+	processSnapshot.BomVersionNo = bomRoute.BomVersionNo
+	processSnapshot.RouteID = bomRoute.ProcessRouteID
+	processSnapshot.RouteName = bomRoute.ProcessRouteName
+	processSnapshotJSON, err = json.Marshal(processSnapshot)
+	if err != nil {
+		return productionapp.ProductionPlanItem{}, err
 	}
+	processRouteID := bomRoute.ProcessRouteID
 	productionConfigSnapshot, err := loadProductProductionConfigSnapshotForWorkOrderTx(ctx, tx, schema, group.ProductID)
 	if err != nil {
 		return productionapp.ProductionPlanItem{}, err
@@ -155,10 +160,7 @@ func createProductionPlanItemForGroupTx(ctx context.Context, tx pgx.Tx, schema s
 	if err != nil {
 		return productionapp.ProductionPlanItem{}, err
 	}
-	bomVersionID, err := loadBoundBomVersionIDForProductTx(ctx, tx, schema, group.ProductID)
-	if err != nil {
-		return productionapp.ProductionPlanItem{}, err
-	}
+	bomVersionID := bomRoute.BomVersionID
 
 	var item productionapp.ProductionPlanItem
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`

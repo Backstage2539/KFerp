@@ -286,10 +286,12 @@ ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS output_qty NU
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS output_unit TEXT NOT NULL DEFAULT 'unit';
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs_schema_json JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS special_attrs_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE %[1]s.production_bom_versions ADD COLUMN IF NOT EXISTS process_route_id BIGINT NOT NULL DEFAULT 0;
 UPDATE %[1]s.production_bom_versions SET output_qty=1 WHERE output_qty IS NULL OR output_qty <= 0;
 UPDATE %[1]s.production_bom_versions SET output_unit='unit' WHERE COALESCE(output_unit,'')='';
 UPDATE %[1]s.production_bom_versions SET special_attrs_schema_json='[]'::jsonb WHERE special_attrs_schema_json IS NULL;
 UPDATE %[1]s.production_bom_versions SET special_attrs_json='{}'::jsonb WHERE special_attrs_json IS NULL;
+UPDATE %[1]s.production_bom_versions SET process_route_id=0 WHERE process_route_id IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS production_bom_versions_bom_version_uq
 	ON %[1]s.production_bom_versions(bom_id, version_no);
 CREATE UNIQUE INDEX IF NOT EXISTS production_bom_versions_legacy_version_uq
@@ -336,7 +338,33 @@ CREATE INDEX IF NOT EXISTS product_production_bom_bindings_bom_idx
 	if err := repairEmptyInitialPublishedProductionBomVersions(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := archiveNonLatestPublishedProductionBomVersions(ctx, pool, schema); err != nil {
+		return err
+	}
 	return backfillProductionBomVersionSpecialAttrs(ctx, pool, schema)
+}
+
+func archiveNonLatestPublishedProductionBomVersions(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+WITH ranked AS (
+	SELECT id,
+	       row_number() OVER (
+	         PARTITION BY bom_id
+	         ORDER BY published_at DESC NULLS LAST, created_at DESC, id DESC
+	       ) AS rn
+	FROM %[1]s.production_bom_versions
+	WHERE status='published'
+)
+UPDATE %[1]s.production_bom_versions v
+SET status='archived'
+FROM ranked
+WHERE ranked.id=v.id AND ranked.rn > 1;
+CREATE UNIQUE INDEX IF NOT EXISTS production_bom_versions_one_published_uq
+	ON %[1]s.production_bom_versions(bom_id)
+	WHERE status='published';
+`, schema)
+	_, err := pool.Exec(ctx, q)
+	return err
 }
 
 func resetInvalidProductionBomGroupCategories(ctx context.Context, pool *pgxpool.Pool, schema string) error {
