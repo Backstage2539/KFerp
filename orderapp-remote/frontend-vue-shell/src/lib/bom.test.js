@@ -496,6 +496,23 @@ test('production BOM uses generic business group assignment instead of its own g
   assert.match(source, /loadProductionBomDetailForVersion\(currentProductionBomID\.value,\s*versionID\)/)
 })
 
+test('production BOM move target stays selectable after selecting a BOM row', async () => {
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
+  const componentSource = fs.readFileSync(new URL('../components/BusinessGroupControls.vue', import.meta.url), 'utf8')
+  const template = source.split('<script setup>')[0] || source
+  const toolbarStart = template.indexOf('<BusinessGroupControls')
+  const filtersStart = template.indexOf('<div class="bom-list-filters"')
+  const toolbar = template.slice(toolbarStart, filtersStart)
+
+  assert.match(toolbar, /:can-move="canMoveSelectedBoms"/)
+  assert.match(toolbar, /:can-select-target="canSelectBomMoveTarget"/)
+  assert.match(source, /const canSelectBomMoveTarget = computed\(\(\) => selectedBomRecordsForMove\.value\.length > 0\)/)
+  assert.match(componentSource, /canSelectTargetEffective/)
+  assert.match(componentSource, /:disabled="!canSelectTargetEffective \|\| loading"/)
+  assert.match(componentSource, /:disabled="!canMove \|\| loading"/)
+})
+
 test('production BOM list is grouped by template tree without category filter tabs', async () => {
   const fs = await import('node:fs')
   const source = fs.readFileSync(new URL('../views/BomView.vue', import.meta.url), 'utf8')
