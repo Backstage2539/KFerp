@@ -237,7 +237,7 @@ Use this path when Van puts a bug in a "简单BUG" thread/workflow, or when the 
 - Treat local fixes as simple bugs by default: one component, one API/handler, one calculation, one PDF/export path, one test file area, or one clearly bounded regression.
 - Run only the TDD loop: reproduce the failure, add or adjust the smallest targeted test, capture RED, implement the minimal fix, then capture GREEN on that targeted verifier.
 - Skip PR/DEV UI table work, full acceptance docs, browser/system acceptance, broad smoke checks, and deployment unless Van explicitly asks or the change stops being local.
-- After GREEN, merge the verified fix into `develop` directly. Do not deploy.
+- After GREEN, merge the verified fix into `develop` directly and deploy the development environment by default. Only skip deployment when Van explicitly says not to deploy.
 - Use the normal delivery workflow instead when the fix touches schema/migrations, permissions/security, cross-module business flows, deployment config, data repair, user workflow/manual changes, or new user-triggered business writes that need 操作日志 coverage.
 
 ## Frontend Architecture Rule
