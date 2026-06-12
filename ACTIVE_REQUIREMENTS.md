@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-485-BOM-VERSION-ROUTE-DEFAULT
 - Branch: codex/bom-version-route-20260612
 - Owner/session: Codex / 2026-06-12
-- Status: GREEN local verification passed; pending integration/deploy decision.
+- Status: merged to develop and deployed to development.
 - Scope: BOM 选择产出商品，商品档案只设置默认 BOM；BOM 版本绑定工艺路线；生产计划/工单只使用默认 BOM 的最新可用版本并冻结路线快照，旧版本只作为历史快照，不做商品配置路线或旧模板 fallback。
 - DEV:
   - DEV-485-BOM-VERSION-ROUTE-SCHEMA：`production_bom_versions` 增加路线绑定，发布新版本时旧 published 版本归档，同一 BOM 只保留一个最新可用版本。
@@ -22,10 +22,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED frontend: added targeted failing coverage for BOM route selector/default BOM payload, route-only 工艺路线 page, 工序/工位设备 pages, and schedule payload without BOM/route override.
   - Unit/API: `go test ./internal/infrastructure/postgres/bom ./internal/infrastructure/postgres/production ./internal/interfaces/http/bom ./internal/interfaces/http/manufacturing -count=1` passed on 2026-06-12 16:09 CST.
   - Frontend/build: `node --test src/lib/bom.test.js src/lib/product-settings.test.js src/lib/production-schedule.test.js src/lib/process-routes.test.js src/lib/menu-ia.test.js` passed 165/165 on 2026-06-12 16:09 CST; `npm run build` passed.
+  - Deploy build: `./deploy_orderapp.sh` on temporary clean `develop` clone built Vue shell, miniapp mp-weixin, and Docker image; Docker build ran `go test ./...` successfully on 2026-06-12 16:27 CST.
   - Manual: updated `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, `orderapp-remote/docs/REQUIREMENTS.md`, `orderapp-remote/docs/ACCEPTANCE_TESTS.md`.
   - Review/acceptance: added `orderapp-remote/docs/acceptance/2026-06-12-bom-version-route-default.md`.
-- Deployment: not requested yet.
-- Last update: 2026-06-12 16:09 CST; local implementation and targeted verification passed.
+- Deployment: deployed development stack at `origin/develop=d661072a667717e452399379bea30e9b84f056eb`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260612162535`.
+- Last update: 2026-06-12 16:28 CST; smoke passed: `erp_orderapp` running, unauth API 401, authenticated `/vue-shell?view=bom` 200, authenticated req API 200, deployed docs/source contain PR-485 and `process_route_id` markers.
 - Notes: `scripts/reserve_req_id.sh` returned PR-485 but `--claim` hit the known awk multiline bug, so this entry was seeded manually.
 
 ### PR-480-MANUFACTURING-PHASE3-SCHEDULE-CAPACITY
