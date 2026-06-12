@@ -86,13 +86,13 @@
             <th>规格</th>
             <th>计划数量</th>
             <th>BOM/工艺路线</th>
-            <th>工序摘要</th>
+            <th>工序进度</th>
             <th>工艺参数</th>
             <th>原料参考</th>
             <th>损耗汇总</th>
-            <th>WIP占用</th>
+            <th>领退料/WIP占用</th>
             <th>状态</th>
-            <th>成本</th>
+            <th>成本汇总</th>
             <th>时间</th>
             <th>操作</th>
           </tr>
@@ -113,7 +113,8 @@
               <small v-if="processSnapshotSourceText(row)">{{ processSnapshotSourceText(row) }}</small>
             </td>
             <td class="summary">
-              <small>{{ operationSummaryText(row) }}</small>
+              <strong>{{ operationProgressText(row) }}</strong>
+              <small>工序摘要 {{ operationSummaryText(row) }}</small>
             </td>
             <td class="summary">
               <strong>{{ productionParamsText(row) }}</strong>
@@ -128,19 +129,23 @@
               <small>实际产出 {{ formatQty(operationActualSummary(row).actual_output_qty) }}</small>
             </td>
             <td>
-              <strong>{{ formatG(row.remaining_reserved_g) }}</strong>
-              <small>已占 {{ formatG(row.wip_reserved_g) }}</small>
-              <small>已耗 {{ formatG(row.wip_consumed_g) }}</small>
+              <strong>可退料 {{ formatG(returnableWipG(row)) }}</strong>
+              <small>已领料 {{ formatG(row.wip_reserved_g) }}</small>
+              <small>已消耗 {{ formatG(row.wip_consumed_g) }}</small>
             </td>
-            <td><span class="status">{{ row.status }}</span></td>
-            <td>{{ money(row.actual_cost) }}</td>
+            <td><span class="status" :class="statusBadgeClass(row.status)">{{ workOrderStatusLabel(row.status) }}</span></td>
+            <td>
+              <strong>{{ money(row.actual_cost) }}</strong>
+              <small>物料 + 工序实际成本</small>
+            </td>
             <td><small>建 {{ row.created_at }}</small><small>完 {{ row.completed_at || '-' }}</small></td>
             <td class="row-actions">
               <button class="primary compact" v-if="canStartWorkOrder(row)" @click="startWorkOrder(row)" :disabled="startingId === row.id">开始生产</button>
+              <button class="primary compact" v-if="canCompleteWorkOrder(row)" @click="completeWorkOrder(row)" :disabled="completingId === row.id">完工入库</button>
               <button class="secondary compact" @click="printWorkOrder(row)">打印</button>
             </td>
           </tr>
-          <tr v-if="!rows.length"><td colspan="14" class="muted">暂无工单</td></tr>
+          <tr v-if="!rows.length"><td colspan="15" class="muted">暂无工单</td></tr>
         </tbody>
       </table>
     </section>
@@ -189,6 +194,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { expectedLossRate, formatPercent } from '../lib/manufacturing-loss'
+import { canCompleteWorkOrder, workOrderCompleteEndpoint, workOrderStatusLabel } from '../lib/manufacturing-execution'
 import { canStartWorkOrder, workOrderStartEndpoint, workOrderStatusOptions } from '../lib/work-orders'
 
 const rows = ref([])
@@ -200,6 +206,7 @@ const explodeStrategy = ref('shortage')
 const status = ref('')
 const loading = ref(false)
 const startingId = ref(0)
+const completingId = ref(0)
 const error = ref('')
 const printRow = ref(null)
 const statusOptions = workOrderStatusOptions()
@@ -316,6 +323,13 @@ function operationActualSummary(row) {
   return summary
 }
 
+function operationProgressText(row) {
+  const items = operationSummaryRows(row)
+  if (!items.length) return '0/0'
+  const completed = items.filter((item) => String(item.status || '').trim() === 'completed').length
+  return `${completed}/${items.length}`
+}
+
 function operationSummaryText(row) {
   const items = operationSummaryRows(row)
   if (!items.length) return '-'
@@ -327,6 +341,23 @@ function operationSummaryText(row) {
     ].filter(Boolean)
     return parts.join(' ')
   }).join(' / ')
+}
+
+function returnableWipG(row) {
+  const remaining = Number(row?.remaining_reserved_g || 0)
+  if (remaining > 0) return remaining
+  return Math.max(0, Number(row?.wip_reserved_g || 0) - Number(row?.wip_consumed_g || 0))
+}
+
+function statusBadgeClass(statusValue) {
+  return {
+    draft: 'neutral',
+    released: 'info',
+    running: 'warning',
+    partially_completed: 'warning',
+    completed: 'success',
+    cancelled: 'danger',
+  }[String(statusValue || '').trim()] || 'neutral'
 }
 
 async function load() {
@@ -363,6 +394,30 @@ async function startWorkOrder(row) {
     error.value = err.message || '开始生产失败'
   } finally {
     startingId.value = 0
+  }
+}
+
+async function completeWorkOrder(row) {
+  const endpoint = workOrderCompleteEndpoint(row)
+  if (!endpoint) return
+  completingId.value = Number(row.id || 0)
+  error.value = ''
+  try {
+    await apiSend(endpoint, {
+      body: {
+        finished_units: Number(row.planned_units || 0),
+        finished_loose_g: Number(row.planned_loose_g || 0),
+        consumed_input_g: Number(row.wip_consumed_g || row.planned_g || 0),
+        warehouse: 'finished_goods',
+        note: '生产工单页完工入库',
+      },
+    })
+    status.value = 'completed'
+    await load()
+  } catch (err) {
+    error.value = err.message || '完工入库失败'
+  } finally {
+    completingId.value = 0
   }
 }
 
@@ -436,7 +491,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}h3{margin:0;font-size:16px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.row-actions{display:flex;gap:6px;flex-wrap:wrap}.table-wrap{overflow:auto}table{width:100%;min-width:1260px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:220px;line-height:1.45}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.print-sheet{display:none}.bom-workbench{margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb;display:grid;gap:10px}.workbench-head p{margin:4px 0 0;color:#666;font-size:12px}.workbench-filters{grid-template-columns:minmax(260px,1.2fr) minmax(120px,.4fr) minmax(180px,.7fr)}.bom-freeze-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.bom-freeze-summary div{border:1px solid #e5e7eb;border-radius:6px;padding:8px;background:#fbfbfb}.bom-freeze-summary span{display:block;color:#666;font-size:12px;margin-bottom:3px}.compact-demand table{min-width:760px}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}h3{margin:0;font-size:16px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.row-actions{display:flex;gap:6px;flex-wrap:wrap}.table-wrap{overflow:auto}table{width:100%;min-width:1260px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:220px;line-height:1.45}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.print-sheet{display:none}.bom-workbench{margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb;display:grid;gap:10px}.workbench-head p{margin:4px 0 0;color:#666;font-size:12px}.workbench-filters{grid-template-columns:minmax(260px,1.2fr) minmax(120px,.4fr) minmax(180px,.7fr)}.bom-freeze-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.bom-freeze-summary div{border:1px solid #e5e7eb;border-radius:6px;padding:8px;background:#fbfbfb}.bom-freeze-summary span{display:block;color:#666;font-size:12px;margin-bottom:3px}.compact-demand table{min-width:760px}
 
 @media print{
   :global(body.work-order-printing .sidebar),:global(body.work-order-printing .top){display:none!important}

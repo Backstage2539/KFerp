@@ -27,6 +27,28 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN deploy smoke: `erp_orderapp`、`erp_postgres`、`erp_caddy`、`erp_docconvert` running; `docker logs --tail=120 erp_orderapp` showed startup only; unauthenticated `/app/api/req/product?limit=1` returned 401; authenticated `/app/vue-shell/?view=producePlan` returned 200; authenticated `/app/api/production-plans?status=draft&time_field=created_at&limit=1` returned 200; REQ API exposed `PR-478-PRODUCTION-PLAN-DOCUMENT-DETAIL`; remote source/assets contain `production-plan-detail-drawer`、`material_summary` and `单据头`.
   - GREEN live browser: `https://erp.qacoohee.com/app/vue-shell/?view=producePlan` rendered production plan data; clicking `PP-0000000013` opened the detail drawer with `单据头`、`计划行`、`物料需求汇总`、`工艺路线摘要`、`工艺参数 / 商品生产配置快照`、`生成结果`、`WO-PP-0000000013-0000000005` and `工序卡 1 张`. Page text did not contain `生产建议/推荐机器/每锅数量/锅数/预计成品`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-12-production-plan-document-detail.md`.
+
+### PR-479-MANUFACTURING-PHASE2-EXECUTION-COST-CLOSED-LOOP
+- Branch: codex/manufacturing-phase2-execution-20260612
+- Owner/session: Codex / 2026-06-12
+- Status: implemented and locally verified on latest `origin/develop=91e5570daa4562f8292ccf1e661a969b4470b22d`; PR id renumbered from PR-478 to PR-479 after latest develop landed and deployed `PR-478-PRODUCTION-PLAN-DOCUMENT-DETAIL`; pending commit, merge to develop and development deploy.
+- Scope: 制造二期生产执行与库存成本闭环，不包含甘特图、自动产能排程、MRP 自动采购建议或行业计算器插件化。把一期 `生产计划 -> 工单 -> 工序卡 -> 开始生产` 升级为 `Stock Entry 单据 -> 工序执行 -> 工单完工入库 -> 成本/追溯` 的执行链。
+- DEV:
+  - DEV-479-STOCK-ENTRY-DOCUMENTS：新增 Stock Entry 业务层、schema、仓储和 API，覆盖 `领料到WIP`、`WIP退料`、`工单消耗`、`完工入库`、`报废/损耗`。
+  - DEV-479-JOB-CARD-EXECUTION：工序卡扩展 `pending/ready/running/paused/completed/cancelled`，提供开始、暂停、继续、完成和保存实际动作，记录实际投入、产出、损耗和损耗原因。
+  - DEV-479-WORK-ORDER-COMPLETION：新增 `POST /api/work-orders/:id/complete`，工单完工校验工序状态，生成成品/半成品入库、生产日志、成本记录和 finished_receipt Stock Entry。
+  - DEV-479-PRODUCTION-EXECUTION-UI：生产工单页展示已领料、已消耗、可退料、工序进度和成本汇总；工序卡页提供执行按钮；库存作业新增 `Stock Entry单据`。
+  - DEV-479-COST-TRACEABILITY：按工单维度串联 Stock Entry、工序卡、生产日志、生产成本和批次追溯入口。
+  - DEV-479-DOCS-ACCEPTANCE：同步需求、验收清单、生产手册、库存手册、PR/DEV/UT/API/REV 种子和 PR-479 验收记录。
+- Verifier:
+  - RED service/API/schema/frontend/support tests were added before implementation for Stock Entry DTO/API/schema, job-card actions, work-order completion, Vue helper/page contracts and docs/seed markers.
+  - GREEN targeted: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -run 'TestServiceOwnsManufacturingPhase2StockEntriesAndExecutionActions|TestServiceRejectsInvalidManufacturingPhase2ExecutionCommands|TestManufacturingPhase2StockEntryAndExecutionAPIs|TestManufacturingPhase2SchemaCreatesStockEntriesAndExecutionColumns|TestDev479ManufacturingPhase2ExecutionContracts' -count=1 -v`.
+  - GREEN touched packages: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1`.
+  - GREEN frontend targeted: `node --test src/lib/manufacturing-execution.test.js src/lib/work-orders.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js`.
+  - GREEN full/build/check: `go test ./...`; `npm run build` in `frontend-vue-shell` after `npm ci`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN browser/local: built Vue assets served by a local Mock API at `http://127.0.0.1:5194/vue-shell/`. Browser verified `生产工单` contains `已领料`、`已消耗`、`可退料`、`工序进度`、`成本汇总`、`完工入库` and `WO-PR479-001` with no request failure; `工序卡` contains `开始`、`暂停`、`继续`、`完成`、`保存实际`、`损耗原因` and `loss_reason=边角料损耗` with no request failure; `库存作业 / Stock Entry单据` contains `领料到WIP`、`WIP退料`、`工单消耗`、`完工入库`、`报废/损耗` and row `SE-0000009301`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_STOCK.md`; `orderapp-remote/docs/acceptance/2026-06-12-manufacturing-phase2-execution-cost-closed-loop.md`.
+- Deployment: pending.
 - Last update: 2026-06-12 Asia/Shanghai
 
 ### PR-477-P2-ARCHITECTURE-REMEDIATION

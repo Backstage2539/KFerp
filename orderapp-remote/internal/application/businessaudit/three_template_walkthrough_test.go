@@ -989,6 +989,10 @@ func (s *threeTemplateWalkthroughStore) StartWorkOrder(context.Context, producti
 	return productionapp.WorkOrderStartResult{}, nil
 }
 
+func (s *threeTemplateWalkthroughStore) CompleteWorkOrder(context.Context, productionapp.WorkOrderCompleteCommand) (productionapp.WorkOrderCompleteResult, error) {
+	return productionapp.WorkOrderCompleteResult{}, nil
+}
+
 func (s *threeTemplateWalkthroughStore) productionNeeds(customerID int64) []productionapp.UnprodNeedRow {
 	rows := []productionapp.UnprodNeedRow{}
 	for _, demand := range s.demands {
@@ -1020,6 +1024,22 @@ func (s *threeTemplateWalkthroughStore) ListJobCards(context.Context, production
 
 func (s *threeTemplateWalkthroughStore) UpdateJobCardActuals(context.Context, productionapp.JobCardActualsCommand) error {
 	return nil
+}
+
+func (s *threeTemplateWalkthroughStore) CreateStockEntry(context.Context, productionapp.StockEntryCommand) (productionapp.StockEntryDetail, error) {
+	return productionapp.StockEntryDetail{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) ListStockEntries(context.Context, productionapp.StockEntryQuery) ([]productionapp.StockEntryRow, error) {
+	return nil, nil
+}
+
+func (s *threeTemplateWalkthroughStore) GetStockEntry(context.Context, int64) (productionapp.StockEntryDetail, error) {
+	return productionapp.StockEntryDetail{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) TransitionJobCard(context.Context, productionapp.JobCardActionCommand) (productionapp.JobCardActionResult, error) {
+	return productionapp.JobCardActionResult{}, nil
 }
 
 func (s *threeTemplateWalkthroughStore) ListBatchCosts(context.Context, productionapp.BatchCostQuery) ([]productionapp.BatchCostRow, error) {

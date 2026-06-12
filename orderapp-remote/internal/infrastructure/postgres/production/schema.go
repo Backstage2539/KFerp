@@ -14,6 +14,9 @@ func EnsureSchema(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 	if err := ensureStockLedgerTables(ctx, pool, schema); err != nil {
 		return err
 	}
+	if err := ensureStockEntryTables(ctx, pool, schema); err != nil {
+		return err
+	}
 	if err := ensureProduceBatchTables(ctx, pool, schema); err != nil {
 		return err
 	}
@@ -169,8 +172,10 @@ CREATE TABLE IF NOT EXISTS %s.job_cards (
 	sequence_no INT NOT NULL DEFAULT 1,
 	operation TEXT NOT NULL DEFAULT '',
 	workstation TEXT NOT NULL DEFAULT '',
-	status TEXT NOT NULL DEFAULT 'running',
+	status TEXT NOT NULL DEFAULT 'pending',
 	started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	paused_at TIMESTAMPTZ,
+	resumed_at TIMESTAMPTZ,
 	completed_at TIMESTAMPTZ,
 	operator TEXT NOT NULL DEFAULT '',
 	planned_input_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
@@ -179,6 +184,7 @@ CREATE TABLE IF NOT EXISTS %s.job_cards (
 	actual_loss_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
 	actual_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
 	records_loss BOOLEAN NOT NULL DEFAULT false,
+	loss_reason TEXT NOT NULL DEFAULT '',
 	exception_reason TEXT NOT NULL DEFAULT '',
 	metrics_json JSONB NOT NULL DEFAULT '{}'::jsonb,
 	parameter_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -246,12 +252,16 @@ CREATE INDEX IF NOT EXISTS work_order_material_reservations_material_idx ON %s.w
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS production_config_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.work_orders ADD COLUMN IF NOT EXISTS customer_product_snapshot_json JSONB NOT NULL DEFAULT '[]'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS sequence_no INT NOT NULL DEFAULT 1`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ALTER COLUMN status SET DEFAULT 'pending'`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS resumed_at TIMESTAMPTZ`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS planned_input_qty NUMERIC(14,4) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS actual_input_qty NUMERIC(14,4) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS actual_output_qty NUMERIC(14,4) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS actual_loss_qty NUMERIC(14,4) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS actual_loss_rate NUMERIC(10,4) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS records_loss BOOLEAN NOT NULL DEFAULT false`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS loss_reason TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS exception_reason TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS metrics_json JSONB NOT NULL DEFAULT '{}'::jsonb`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS parameter_schema_json JSONB NOT NULL DEFAULT '{}'::jsonb`, schema),
@@ -259,6 +269,64 @@ CREATE INDEX IF NOT EXISTS work_order_material_reservations_material_idx ON %s.w
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS cost_type TEXT NOT NULL DEFAULT ''`, schema),
 		fmt.Sprintf(`ALTER TABLE %s.job_cards ADD COLUMN IF NOT EXISTS cost_rate NUMERIC(12,4) NOT NULL DEFAULT 0`, schema),
 		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS work_orders_running_item_started_uq ON %s.work_orders(running_item_id) WHERE running_item_id > 0`, schema),
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureStockEntryTables(ctx context.Context, pool *pgxpool.Pool, schema string) error {
+	q := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s.stock_entries (
+	id BIGSERIAL PRIMARY KEY,
+	entry_no TEXT NOT NULL UNIQUE,
+	entry_type TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'submitted',
+	work_order_id BIGINT NOT NULL DEFAULT 0,
+	job_card_id BIGINT NOT NULL DEFAULT 0,
+	running_item_id BIGINT NOT NULL DEFAULT 0,
+	source_type TEXT NOT NULL DEFAULT '',
+	source_id BIGINT NOT NULL DEFAULT 0,
+	operator TEXT NOT NULL DEFAULT '',
+	note TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS stock_entries_work_order_idx ON %s.stock_entries(work_order_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS stock_entries_type_idx ON %s.stock_entries(entry_type, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS %s.stock_entry_items (
+	id BIGSERIAL PRIMARY KEY,
+	stock_entry_id BIGINT NOT NULL,
+	material_id BIGINT NOT NULL DEFAULT 0,
+	product_id BIGINT NOT NULL DEFAULT 0,
+	item_type TEXT NOT NULL DEFAULT '',
+	item_name TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	from_warehouse TEXT NOT NULL DEFAULT '',
+	to_warehouse TEXT NOT NULL DEFAULT '',
+	qty_g BIGINT NOT NULL DEFAULT 0,
+	qty_units BIGINT NOT NULL DEFAULT 0,
+	batch_code TEXT NOT NULL DEFAULT '',
+	unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
+	total_cost NUMERIC(12,4) NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS stock_entry_items_entry_idx ON %s.stock_entry_items(stock_entry_id, id);
+`, schema, schema, schema, schema, schema)
+	if _, err := pool.Exec(ctx, q); err != nil {
+		return err
+	}
+	for _, stmt := range []string{
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS work_order_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS job_card_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS running_item_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entries ADD COLUMN IF NOT EXISTS source_id BIGINT NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS from_warehouse TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS to_warehouse TEXT NOT NULL DEFAULT ''`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0`, schema),
+		fmt.Sprintf(`ALTER TABLE %s.stock_entry_items ADD COLUMN IF NOT EXISTS total_cost NUMERIC(12,4) NOT NULL DEFAULT 0`, schema),
 	} {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			return err

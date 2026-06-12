@@ -162,6 +162,45 @@ func TestOperationTemplateSchemaSupportsWorkOrdersAndCosts(t *testing.T) {
 	}
 }
 
+func TestManufacturingPhase2SchemaCreatesStockEntriesAndExecutionColumns(t *testing.T) {
+	src, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	for _, want := range []string{
+		"ensureStockEntryTables(ctx, pool, schema)",
+		"CREATE TABLE IF NOT EXISTS %s.stock_entries",
+		"entry_no TEXT NOT NULL UNIQUE",
+		"entry_type TEXT NOT NULL DEFAULT ''",
+		"work_order_id BIGINT NOT NULL DEFAULT 0",
+		"job_card_id BIGINT NOT NULL DEFAULT 0",
+		"running_item_id BIGINT NOT NULL DEFAULT 0",
+		"CREATE TABLE IF NOT EXISTS %s.stock_entry_items",
+		"stock_entry_id BIGINT NOT NULL",
+		"from_warehouse TEXT NOT NULL DEFAULT ''",
+		"to_warehouse TEXT NOT NULL DEFAULT ''",
+		"qty_g BIGINT NOT NULL DEFAULT 0",
+		"unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0",
+		"stock_entries_work_order_idx",
+		"stock_entries_type_idx",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("phase2 stock entry schema missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"status TEXT NOT NULL DEFAULT 'pending'",
+		"paused_at TIMESTAMPTZ",
+		"resumed_at TIMESTAMPTZ",
+		"loss_reason TEXT NOT NULL DEFAULT ''",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("phase2 job card execution schema missing %q", want)
+		}
+	}
+}
+
 func TestWorkOrderSchemaSupportsProcessTemplateSnapshots(t *testing.T) {
 	src, err := os.ReadFile("schema.go")
 	if err != nil {

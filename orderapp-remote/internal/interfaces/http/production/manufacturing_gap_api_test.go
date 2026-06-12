@@ -80,6 +80,21 @@ func (r *fakeManufacturingGapRepo) SubmitProductionPlan(ctx context.Context, cmd
 func (r *fakeManufacturingGapRepo) StartWorkOrder(ctx context.Context, cmd productionapp.WorkOrderStartCommand) (productionapp.WorkOrderStartResult, error) {
 	return productionapp.WorkOrderStartResult{}, nil
 }
+func (r *fakeManufacturingGapRepo) CompleteWorkOrder(ctx context.Context, cmd productionapp.WorkOrderCompleteCommand) (productionapp.WorkOrderCompleteResult, error) {
+	return productionapp.WorkOrderCompleteResult{}, nil
+}
+func (r *fakeManufacturingGapRepo) CreateStockEntry(ctx context.Context, cmd productionapp.StockEntryCommand) (productionapp.StockEntryDetail, error) {
+	return productionapp.StockEntryDetail{}, nil
+}
+func (r *fakeManufacturingGapRepo) ListStockEntries(ctx context.Context, query productionapp.StockEntryQuery) ([]productionapp.StockEntryRow, error) {
+	return nil, nil
+}
+func (r *fakeManufacturingGapRepo) GetStockEntry(ctx context.Context, id int64) (productionapp.StockEntryDetail, error) {
+	return productionapp.StockEntryDetail{}, nil
+}
+func (r *fakeManufacturingGapRepo) TransitionJobCard(ctx context.Context, cmd productionapp.JobCardActionCommand) (productionapp.JobCardActionResult, error) {
+	return productionapp.JobCardActionResult{}, nil
+}
 func (r *fakeManufacturingGapRepo) ListProductionLogs(ctx context.Context, query productionapp.ProductionLogsQuery) (productionapp.ProductionLogsResult, error) {
 	return productionapp.ProductionLogsResult{}, nil
 }

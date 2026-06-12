@@ -18,12 +18,19 @@ type fakeFlowRepo struct {
 	submitPlan          SubmitProductionPlanCommand
 	submitPlans         []SubmitProductionPlanCommand
 	startWorkOrder      WorkOrderStartCommand
+	completeWorkOrder   WorkOrderCompleteCommand
 	productionPlanQuery ProductionPlanQuery
 	productionPlan      ProductionPlanDetail
 	submittedPlan       ProductionPlanSubmitResult
 	submitPlanByID      map[int64]ProductionPlanSubmitResult
 	submitPlanErrByID   map[int64]error
 	workOrderStarted    WorkOrderStartResult
+	workOrderCompleted  WorkOrderCompleteResult
+	stockEntry          StockEntryCommand
+	stockEntryQuery     StockEntryQuery
+	stockEntryID        int64
+	jobCardAction       JobCardActionCommand
+	jobCardActionResult JobCardActionResult
 
 	materialPlanQuery  MaterialPlanQuery
 	materialPlanResult MaterialPlanResult
@@ -138,6 +145,58 @@ func (r *fakeFlowRepo) StartWorkOrder(ctx context.Context, cmd WorkOrderStartCom
 		}
 	}
 	return r.workOrderStarted, nil
+}
+
+func (r *fakeFlowRepo) CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompleteCommand) (WorkOrderCompleteResult, error) {
+	r.completeWorkOrder = cmd
+	if r.workOrderCompleted.WorkOrder.ID == 0 {
+		r.workOrderCompleted = WorkOrderCompleteResult{
+			WorkOrder:    WorkOrderRow{ID: cmd.ID, WorkOrderNo: "WO-PP-0000000041-0000000051", Status: "completed", RunningItemID: 99, ActualCost: 48.75},
+			StockEntries: []StockEntryRow{{ID: 7, EntryNo: "SE-0000000007", EntryType: "finished_receipt", WorkOrderID: cmd.ID, RunningItemID: 99, Status: "submitted"}},
+			Cost:         BatchCostRow{RunningItemID: 99, MaterialCost: 36.25, OperationCost: 12.5, TotalCost: 48.75},
+		}
+	}
+	return r.workOrderCompleted, nil
+}
+
+func (r *fakeFlowRepo) CreateStockEntry(ctx context.Context, cmd StockEntryCommand) (StockEntryDetail, error) {
+	r.stockEntry = cmd
+	items := make([]StockEntryItemRow, 0, len(cmd.Items))
+	for i, item := range cmd.Items {
+		items = append(items, StockEntryItemRow{
+			ID:            int64(i + 1),
+			MaterialID:    item.MaterialID,
+			ProductID:     item.ProductID,
+			ItemType:      item.ItemType,
+			ItemName:      item.ItemName,
+			FromWarehouse: item.FromWarehouse,
+			ToWarehouse:   item.ToWarehouse,
+			QtyG:          item.QtyG,
+			QtyUnits:      item.QtyUnits,
+		})
+	}
+	return StockEntryDetail{ID: 7, EntryNo: "SE-0000000007", EntryType: cmd.EntryType, Status: "submitted", WorkOrderID: cmd.WorkOrderID, JobCardID: cmd.JobCardID, RunningItemID: cmd.RunningItemID, Operator: cmd.Operator, Note: cmd.Note, Items: items}, nil
+}
+
+func (r *fakeFlowRepo) ListStockEntries(ctx context.Context, query StockEntryQuery) ([]StockEntryRow, error) {
+	r.stockEntryQuery = query
+	return []StockEntryRow{{ID: 7, EntryNo: "SE-0000000007", EntryType: query.EntryType, WorkOrderID: query.WorkOrderID, Status: "submitted"}}, nil
+}
+
+func (r *fakeFlowRepo) GetStockEntry(ctx context.Context, id int64) (StockEntryDetail, error) {
+	r.stockEntryID = id
+	return StockEntryDetail{ID: id, EntryNo: "SE-0000000007", EntryType: "material_issue_to_wip", Status: "submitted", Items: []StockEntryItemRow{{ID: 1, MaterialID: 10, ItemType: "material", QtyG: 60000}}}, nil
+}
+
+func (r *fakeFlowRepo) TransitionJobCard(ctx context.Context, cmd JobCardActionCommand) (JobCardActionResult, error) {
+	r.jobCardAction = cmd
+	if r.jobCardActionResult.JobCard.ID != 0 && r.jobCardActionResult.JobCard.ID != cmd.ID {
+		return r.jobCardActionResult, nil
+	}
+	return JobCardActionResult{
+		JobCard:   JobCardRow{ID: cmd.ID, WorkOrderID: 88, Status: actionResultStatus(cmd.Action), ActualInputQty: cmd.ActualInputQty, ActualOutputQty: cmd.ActualOutputQty, ActualLossQty: cmd.ActualLossQty, ActualLossRate: cmd.ActualLossRate, ExceptionReason: cmd.ExceptionReason, Operator: cmd.Operator},
+		WorkOrder: WorkOrderRow{ID: 88, Status: "running"},
+	}, nil
 }
 
 func (r *fakeFlowRepo) ListMachines(ctx context.Context, activeOnly bool) ([]RoastMachine, error) {
@@ -621,5 +680,101 @@ func TestServiceOwnsWIPReservationAndAcceptanceUseCases(t *testing.T) {
 	}
 	if len(smoke.Rows) != 1 || smoke.Rows[0].Code != "work_orders" {
 		t.Fatalf("AcceptanceSmoke() = %+v", smoke)
+	}
+}
+
+func TestServiceOwnsManufacturingPhase2StockEntriesAndExecutionActions(t *testing.T) {
+	repo := &fakeFlowRepo{}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	entry, err := svc.CreateStockEntry(ctx, StockEntryCommand{
+		EntryType:   "  material_issue_to_wip ",
+		WorkOrderID: 88,
+		Operator:    " 仓管 ",
+		Note:        " 二期领料 ",
+		Items: []StockEntryItemCommand{{
+			MaterialID:    10,
+			ItemType:      "material",
+			ItemName:      "卡蒂姆水洗",
+			FromWarehouse: "raw_materials",
+			ToWarehouse:   "wip",
+			QtyG:          60000,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.EntryNo == "" || repo.stockEntry.EntryType != "material_issue_to_wip" || repo.stockEntry.Operator != "仓管" || len(repo.stockEntry.Items) != 1 {
+		t.Fatalf("CreateStockEntry() entry=%+v command=%+v", entry, repo.stockEntry)
+	}
+	if repo.stockEntry.Items[0].FromWarehouse != "raw_materials" || repo.stockEntry.Items[0].ToWarehouse != "wip" {
+		t.Fatalf("stock entry warehouses = %+v", repo.stockEntry.Items[0])
+	}
+
+	rows, err := svc.ListStockEntries(ctx, StockEntryQuery{EntryType: " material_issue_to_wip ", WorkOrderID: 88, Limit: 999})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || repo.stockEntryQuery.Limit != 200 || repo.stockEntryQuery.EntryType != "material_issue_to_wip" || repo.stockEntryQuery.WorkOrderID != 88 {
+		t.Fatalf("ListStockEntries rows=%+v query=%+v", rows, repo.stockEntryQuery)
+	}
+	if _, err := svc.GetStockEntry(ctx, 7); err != nil || repo.stockEntryID != 7 {
+		t.Fatalf("GetStockEntry err=%v id=%d", err, repo.stockEntryID)
+	}
+
+	started, err := svc.StartJobCard(ctx, JobCardActionCommand{ID: 91, Operator: " 操作员 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.JobCard.Status != "running" || repo.jobCardAction.Action != "start" || repo.jobCardAction.Operator != "操作员" {
+		t.Fatalf("StartJobCard result=%+v command=%+v", started, repo.jobCardAction)
+	}
+
+	completed, err := svc.CompleteJobCard(ctx, JobCardActionCommand{ID: 91, Operator: " 操作员 ", ActualInputQty: 600, ActualOutputQty: 540, ExceptionReason: " 正常损耗 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.JobCard.Status != "completed" || repo.jobCardAction.Action != "complete" || repo.jobCardAction.ActualLossQty != 60 || repo.jobCardAction.ActualLossRate != 0.1 || repo.jobCardAction.ExceptionReason != "正常损耗" {
+		t.Fatalf("CompleteJobCard result=%+v command=%+v", completed, repo.jobCardAction)
+	}
+
+	closed, err := svc.CompleteWorkOrder(ctx, WorkOrderCompleteCommand{ID: 88, FinishedUnits: 2, FinishedLooseG: 10, ConsumedInputG: 600, Warehouse: " finished_goods ", Operator: " 主管 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closed.WorkOrder.Status != "completed" || repo.completeWorkOrder.Warehouse != "finished_goods" || repo.completeWorkOrder.Operator != "主管" || len(closed.StockEntries) == 0 || closed.Cost.TotalCost <= 0 {
+		t.Fatalf("CompleteWorkOrder result=%+v command=%+v", closed, repo.completeWorkOrder)
+	}
+}
+
+func TestServiceRejectsInvalidManufacturingPhase2ExecutionCommands(t *testing.T) {
+	svc := NewService(&fakeFlowRepo{})
+	ctx := context.Background()
+	if _, err := svc.CreateStockEntry(ctx, StockEntryCommand{EntryType: "unknown", Operator: "测试", Items: []StockEntryItemCommand{{MaterialID: 1, QtyG: 1}}}); err == nil {
+		t.Fatal("CreateStockEntry should reject unknown entry type")
+	}
+	if _, err := svc.CreateStockEntry(ctx, StockEntryCommand{EntryType: "material_issue_to_wip", Operator: "测试"}); err == nil {
+		t.Fatal("CreateStockEntry should reject empty items")
+	}
+	if _, err := svc.StartJobCard(ctx, JobCardActionCommand{}); err == nil {
+		t.Fatal("StartJobCard should reject empty id")
+	}
+	if _, err := svc.PauseJobCard(ctx, JobCardActionCommand{ID: 91}); err == nil {
+		t.Fatal("PauseJobCard should require operator")
+	}
+	if _, err := svc.CompleteWorkOrder(ctx, WorkOrderCompleteCommand{ID: 88, Operator: "主管"}); err == nil {
+		t.Fatal("CompleteWorkOrder should require finished output")
+	}
+}
+
+func actionResultStatus(action string) string {
+	switch action {
+	case "complete":
+		return "completed"
+	case "pause":
+		return "paused"
+	default:
+		return "running"
 	}
 }

@@ -620,6 +620,7 @@ func operationSummaryJSONForWorkOrderTx(ctx context.Context, tx pgx.Tx, schema s
 			'actual_output_qty', actual_output_qty,
 			'actual_loss_qty', actual_loss_qty,
 			'actual_loss_rate', actual_loss_rate,
+			'loss_reason', loss_reason,
 			'exception_reason', exception_reason
 		) ORDER BY sequence_no, id), '[]'::jsonb)::text
 		FROM %s.job_cards
@@ -756,6 +757,7 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		               'actual_output_qty', jc.actual_output_qty,
 		               'actual_loss_qty', jc.actual_loss_qty,
 		               'actual_loss_rate', jc.actual_loss_rate,
+		               'loss_reason', jc.loss_reason,
 		               'exception_reason', jc.exception_reason
 		           ) ORDER BY jc.sequence_no, jc.id)
 		           FROM %s.job_cards jc
@@ -896,13 +898,14 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 	limitArg := len(args)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id,work_order_id,sequence_no,operation,workstation,status,
-		       to_char(started_at,'YYYY-MM-DD HH24:MI'),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),operator,
+		       COALESCE(to_char(started_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(paused_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(resumed_at,'YYYY-MM-DD HH24:MI'),''),COALESCE(to_char(completed_at,'YYYY-MM-DD HH24:MI'),''),operator,
 		       COALESCE(planned_input_qty,0)::float8,
 		       COALESCE(actual_input_qty,0)::float8,
 		       COALESCE(actual_output_qty,0)::float8,
 		       COALESCE(actual_loss_qty,0)::float8,
 		       COALESCE(actual_loss_rate,0)::float8,
 		       COALESCE(records_loss,false),
+		       COALESCE(loss_reason,''),
 		       COALESCE(exception_reason,''),
 		       COALESCE(metrics_json,'{}'::jsonb)::text,
 		       COALESCE(parameter_schema_json,'{}'::jsonb)::text
@@ -918,7 +921,7 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 	out := make([]productionapp.JobCardRow, 0)
 	for rows.Next() {
 		var row productionapp.JobCardRow
-		if err := rows.Scan(&row.ID, &row.WorkOrderID, &row.SequenceNo, &row.Operation, &row.Workstation, &row.Status, &row.StartedAt, &row.CompletedAt, &row.Operator, &row.PlannedInputQty, &row.ActualInputQty, &row.ActualOutputQty, &row.ActualLossQty, &row.ActualLossRate, &row.RecordsLoss, &row.ExceptionReason, &row.MetricsJSON, &row.ParameterSchemaJSON); err != nil {
+		if err := rows.Scan(&row.ID, &row.WorkOrderID, &row.SequenceNo, &row.Operation, &row.Workstation, &row.Status, &row.StartedAt, &row.PausedAt, &row.ResumedAt, &row.CompletedAt, &row.Operator, &row.PlannedInputQty, &row.ActualInputQty, &row.ActualOutputQty, &row.ActualLossQty, &row.ActualLossRate, &row.RecordsLoss, &row.LossReason, &row.ExceptionReason, &row.MetricsJSON, &row.ParameterSchemaJSON); err != nil {
 			return nil, err
 		}
 		out = append(out, row)

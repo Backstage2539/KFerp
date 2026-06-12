@@ -10,11 +10,7 @@
         <label>
           <span>状态</span>
           <select v-model="status">
-            <option value="">全部</option>
-            <option value="pending">pending</option>
-            <option value="running">running</option>
-            <option value="completed">completed</option>
-            <option value="cancelled">cancelled</option>
+            <option v-for="option in statusOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </label>
         <button class="primary" @click="load">查询</button>
@@ -35,8 +31,10 @@
             <th>实际投入</th>
             <th>实际产出</th>
             <th>实际损耗</th>
+            <th>损耗原因</th>
             <th>异常原因</th>
             <th>开始</th>
+            <th>暂停/继续</th>
             <th>完成</th>
             <th>操作人</th>
             <th>操作</th>
@@ -49,7 +47,7 @@
             <td>{{ row.sequence_no || 1 }}</td>
             <td>{{ operationLabel(row.operation) }}<small v-if="row.records_loss">记录损耗</small></td>
             <td>{{ row.workstation }}</td>
-            <td>{{ row.status }}</td>
+            <td><span class="status" :class="statusBadgeClass(row.status)">{{ jobCardStatusLabel(row.status) }}</span></td>
             <td><input v-model.number="draftFor(row).planned_input_qty" type="number" min="0" step="0.001" /></td>
             <td><input v-model.number="draftFor(row).actual_input_qty" type="number" min="0" step="0.001" /></td>
             <td><input v-model.number="draftFor(row).actual_output_qty" type="number" min="0" step="0.001" /></td>
@@ -57,13 +55,24 @@
               <strong>{{ qty(actualLossQty(row)) }}</strong>
               <small>{{ formatPercent(actualLossRate(row)) }}</small>
             </td>
+            <td><input v-model.trim="draftFor(row).loss_reason" placeholder="损耗原因" /></td>
             <td><input v-model.trim="draftFor(row).exception_reason" placeholder="可选" /></td>
             <td>{{ row.started_at }}</td>
+            <td>
+              <small>暂停 {{ row.paused_at || '-' }}</small>
+              <small>继续 {{ row.resumed_at || '-' }}</small>
+            </td>
             <td>{{ row.completed_at || '-' }}</td>
             <td>{{ row.operator }}</td>
-            <td><button class="secondary compact" @click="saveActuals(row)" :disabled="loading">保存实际</button></td>
+            <td class="row-actions">
+              <button class="primary compact" @click="runJobCardAction(row, 'start')" :disabled="!canRunJobCardAction(row, 'start') || loading">开始</button>
+              <button class="secondary compact" @click="runJobCardAction(row, 'pause')" :disabled="!canRunJobCardAction(row, 'pause') || loading">暂停</button>
+              <button class="secondary compact" @click="runJobCardAction(row, 'resume')" :disabled="!canRunJobCardAction(row, 'resume') || loading">继续</button>
+              <button class="primary compact" @click="runJobCardAction(row, 'complete')" :disabled="!canRunJobCardAction(row, 'complete') || loading">完成</button>
+              <button class="secondary compact" @click="saveActuals(row)" :disabled="loading">保存实际</button>
+            </td>
           </tr>
-          <tr v-if="!rows.length"><td colspan="15" class="muted">暂无工序卡</td></tr>
+          <tr v-if="!rows.length"><td colspan="17" class="muted">暂无工序卡</td></tr>
         </tbody>
       </table>
     </section>
@@ -73,6 +82,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { buildJobCardActionPayload, canRunJobCardAction, jobCardActionEndpoint, jobCardStatusLabel, jobCardStatusOptions } from '../lib/manufacturing-execution'
 import { formatPercent } from '../lib/manufacturing-loss'
 
 const rows = ref([])
@@ -80,13 +90,16 @@ const status = ref('')
 const loading = ref(false)
 const error = ref('')
 const drafts = ref({})
+const statusOptions = jobCardStatusOptions()
 
 function buildDraft(row) {
   return {
     planned_input_qty: Number(row.planned_input_qty || 0),
     actual_input_qty: Number(row.actual_input_qty || 0),
     actual_output_qty: Number(row.actual_output_qty || 0),
+    loss_reason: row.loss_reason || '',
     exception_reason: row.exception_reason || '',
+    metrics_json: row.metrics_json || '{}',
   }
 }
 
@@ -114,6 +127,17 @@ function actualLossRate(row) {
 function operationLabel(operation) {
   if (operation === 'roast') return '生产'
   return operation || '-'
+}
+
+function statusBadgeClass(statusValue) {
+  return {
+    pending: 'neutral',
+    ready: 'info',
+    running: 'warning',
+    paused: 'warning',
+    completed: 'success',
+    cancelled: 'danger',
+  }[String(statusValue || '').trim()] || 'neutral'
 }
 
 function metricsPayload(value) {
@@ -154,8 +178,9 @@ async function saveActuals(row) {
         planned_input_qty: Number(draft.planned_input_qty || 0),
         actual_input_qty: Number(draft.actual_input_qty || 0),
         actual_output_qty: Number(draft.actual_output_qty || 0),
+        loss_reason: draft.loss_reason || '',
         exception_reason: draft.exception_reason || '',
-        metrics_json: metricsPayload(row.metrics_json),
+        metrics_json: metricsPayload(draft.metrics_json),
       },
     })
     await load()
@@ -166,9 +191,24 @@ async function saveActuals(row) {
   }
 }
 
+async function runJobCardAction(row, action) {
+  const endpoint = jobCardActionEndpoint(row, action)
+  if (!endpoint) return
+  loading.value = true
+  error.value = ''
+  try {
+    await apiSend(endpoint, { body: buildJobCardActionPayload(draftFor(row)) })
+    await load()
+  } catch (err) {
+    error.value = err.message || '工序状态更新失败'
+  } finally {
+    loading.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #eee;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,button,input{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #999;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.table-wrap{overflow:auto}table{width:100%;min-width:1320px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #eee;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,button,input{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #999;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.row-actions{display:flex;gap:6px;flex-wrap:wrap;min-width:260px}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.table-wrap{overflow:auto}table{width:100%;min-width:1480px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.muted{color:#666;text-align:center}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}
 </style>

@@ -35,6 +35,7 @@ test('workOrderStatusOptions includes draft and released lifecycle states before
     'draft',
     'released',
     'running',
+    'partially_completed',
     'completed',
     'cancelled',
   ])

@@ -16,17 +16,23 @@ type workOrderAPIRepo struct {
 	rows          []productionapp.WorkOrderRow
 	jobCards      []productionapp.JobCardRow
 	jobCardActual productionapp.JobCardActualsCommand
+	jobCardAction productionapp.JobCardActionCommand
 
 	createPlan          productionapp.CreateProductionPlanCommand
 	submitPlan          productionapp.SubmitProductionPlanCommand
 	submitPlans         []productionapp.SubmitProductionPlanCommand
 	startWorkOrder      productionapp.WorkOrderStartCommand
+	completeWorkOrder   productionapp.WorkOrderCompleteCommand
 	productionPlanQuery productionapp.ProductionPlanQuery
 	productionPlan      productionapp.ProductionPlanDetail
 	submittedPlan       productionapp.ProductionPlanSubmitResult
 	submitPlanByID      map[int64]productionapp.ProductionPlanSubmitResult
 	submitPlanErrByID   map[int64]error
 	workOrderStarted    productionapp.WorkOrderStartResult
+	workOrderCompleted  productionapp.WorkOrderCompleteResult
+	stockEntry          productionapp.StockEntryCommand
+	stockEntryQuery     productionapp.StockEntryQuery
+	stockEntryID        int64
 }
 
 func (r *workOrderAPIRepo) CreateBatch(ctx context.Context, cmd productionapp.CreateBatchCommand) (productionapp.CreateBatchResult, error) {
@@ -109,6 +115,60 @@ func (r *workOrderAPIRepo) StartWorkOrder(ctx context.Context, cmd productionapp
 		}
 	}
 	return r.workOrderStarted, nil
+}
+func (r *workOrderAPIRepo) CompleteWorkOrder(ctx context.Context, cmd productionapp.WorkOrderCompleteCommand) (productionapp.WorkOrderCompleteResult, error) {
+	r.completeWorkOrder = cmd
+	if r.workOrderCompleted.WorkOrder.ID == 0 {
+		r.workOrderCompleted = productionapp.WorkOrderCompleteResult{
+			WorkOrder:    productionapp.WorkOrderRow{ID: cmd.ID, WorkOrderNo: "WO-PP-0000000041-0000000051", Status: "completed", RunningItemID: 99, ActualCost: 48.75},
+			StockEntries: []productionapp.StockEntryRow{{ID: 7, EntryNo: "SE-0000000007", EntryType: "finished_receipt", WorkOrderID: cmd.ID, RunningItemID: 99, Status: "submitted"}},
+			Cost:         productionapp.BatchCostRow{RunningItemID: 99, MaterialCost: 36.25, OperationCost: 12.5, TotalCost: 48.75},
+		}
+	}
+	return r.workOrderCompleted, nil
+}
+func (r *workOrderAPIRepo) CreateStockEntry(ctx context.Context, cmd productionapp.StockEntryCommand) (productionapp.StockEntryDetail, error) {
+	r.stockEntry = cmd
+	return productionapp.StockEntryDetail{
+		ID:            7,
+		EntryNo:       "SE-0000000007",
+		EntryType:     cmd.EntryType,
+		Status:        "submitted",
+		WorkOrderID:   cmd.WorkOrderID,
+		JobCardID:     cmd.JobCardID,
+		RunningItemID: cmd.RunningItemID,
+		Operator:      cmd.Operator,
+		Items: []productionapp.StockEntryItemRow{{
+			ID:            1,
+			MaterialID:    cmd.Items[0].MaterialID,
+			ItemType:      cmd.Items[0].ItemType,
+			FromWarehouse: cmd.Items[0].FromWarehouse,
+			ToWarehouse:   cmd.Items[0].ToWarehouse,
+			QtyG:          cmd.Items[0].QtyG,
+		}},
+	}, nil
+}
+func (r *workOrderAPIRepo) ListStockEntries(ctx context.Context, query productionapp.StockEntryQuery) ([]productionapp.StockEntryRow, error) {
+	r.stockEntryQuery = query
+	return []productionapp.StockEntryRow{{ID: 7, EntryNo: "SE-0000000007", EntryType: query.EntryType, WorkOrderID: query.WorkOrderID, Status: "submitted"}}, nil
+}
+func (r *workOrderAPIRepo) GetStockEntry(ctx context.Context, id int64) (productionapp.StockEntryDetail, error) {
+	r.stockEntryID = id
+	return productionapp.StockEntryDetail{ID: id, EntryNo: "SE-0000000007", EntryType: "material_issue_to_wip", Status: "submitted", Items: []productionapp.StockEntryItemRow{{ID: 1, MaterialID: 10, ItemType: "material", QtyG: 60000}}}, nil
+}
+func (r *workOrderAPIRepo) TransitionJobCard(ctx context.Context, cmd productionapp.JobCardActionCommand) (productionapp.JobCardActionResult, error) {
+	r.jobCardAction = cmd
+	status := "running"
+	if cmd.Action == "pause" {
+		status = "paused"
+	}
+	if cmd.Action == "complete" {
+		status = "completed"
+	}
+	return productionapp.JobCardActionResult{
+		JobCard:   productionapp.JobCardRow{ID: cmd.ID, WorkOrderID: 88, Status: status, ActualInputQty: cmd.ActualInputQty, ActualOutputQty: cmd.ActualOutputQty, ActualLossQty: cmd.ActualLossQty, ActualLossRate: cmd.ActualLossRate, Operator: cmd.Operator},
+		WorkOrder: productionapp.WorkOrderRow{ID: 88, Status: "running"},
+	}, nil
 }
 func (r *workOrderAPIRepo) ListMachines(ctx context.Context, activeOnly bool) ([]productionapp.RoastMachine, error) {
 	return nil, nil
@@ -197,6 +257,96 @@ func TestWorkOrderAPIIncludesRoastAdvice(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("response missing %s: %s", want, body)
 		}
+	}
+}
+
+func TestManufacturingPhase2StockEntryAndExecutionAPIs(t *testing.T) {
+	repo := &workOrderAPIRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "测试员")
+			c.Set("actor", "测试员")
+			return next(c)
+		}
+	})
+	svc := productionapp.NewService(repo)
+	registerStockEntryAPI(e, svc)
+	registerWorkOrderAPI(e, svc)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stock-entries", strings.NewReader(`{
+		"entry_type":"material_issue_to_wip",
+		"work_order_id":88,
+		"job_card_id":91,
+		"note":"二期领料",
+		"items":[{"material_id":10,"item_type":"material","item_name":"卡蒂姆水洗","from_warehouse":"raw_materials","to_warehouse":"wip","qty_g":60000}]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/stock-entries status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.stockEntry.EntryType != "material_issue_to_wip" || repo.stockEntry.WorkOrderID != 88 || repo.stockEntry.JobCardID != 91 || len(repo.stockEntry.Items) != 1 {
+		t.Fatalf("stock entry command = %+v", repo.stockEntry)
+	}
+	if !strings.Contains(rec.Body.String(), `"entry_no":"SE-0000000007"`) || !strings.Contains(rec.Body.String(), `"status":"submitted"`) {
+		t.Fatalf("stock entry response = %s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/stock-entries?entry_type=material_issue_to_wip&work_order_id=88", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.stockEntryQuery.EntryType != "material_issue_to_wip" || repo.stockEntryQuery.WorkOrderID != 88 || !strings.Contains(rec.Body.String(), `"rows"`) {
+		t.Fatalf("GET /api/stock-entries status=%d body=%s query=%+v", rec.Code, rec.Body.String(), repo.stockEntryQuery)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/stock-entries/7", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.stockEntryID != 7 || !strings.Contains(rec.Body.String(), `"items"`) {
+		t.Fatalf("GET /api/stock-entries/7 status=%d body=%s id=%d", rec.Code, rec.Body.String(), repo.stockEntryID)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/job-cards/91/start", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.jobCardAction.Action != "start" || repo.jobCardAction.ID != 91 {
+		t.Fatalf("POST job card start status=%d body=%s action=%+v", rec.Code, rec.Body.String(), repo.jobCardAction)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/job-cards/91/pause", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.jobCardAction.Action != "pause" {
+		t.Fatalf("POST job card pause status=%d body=%s action=%+v", rec.Code, rec.Body.String(), repo.jobCardAction)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/job-cards/91/resume", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.jobCardAction.Action != "resume" {
+		t.Fatalf("POST job card resume status=%d body=%s action=%+v", rec.Code, rec.Body.String(), repo.jobCardAction)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/job-cards/91/complete", strings.NewReader(`{"actual_input_qty":600,"actual_output_qty":540,"exception_reason":"正常损耗"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.jobCardAction.Action != "complete" || repo.jobCardAction.ActualLossQty != 60 {
+		t.Fatalf("POST job card complete status=%d body=%s action=%+v", rec.Code, rec.Body.String(), repo.jobCardAction)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/work-orders/88/complete", strings.NewReader(`{"finished_units":2,"finished_loose_g":10,"consumed_input_g":600,"warehouse":"finished_goods","note":"完工入库"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.completeWorkOrder.ID != 88 || repo.completeWorkOrder.FinishedUnits != 2 || repo.completeWorkOrder.Warehouse != "finished_goods" {
+		t.Fatalf("POST work order complete status=%d body=%s command=%+v", rec.Code, rec.Body.String(), repo.completeWorkOrder)
+	}
+	if !strings.Contains(rec.Body.String(), `"stock_entries"`) || !strings.Contains(rec.Body.String(), `"total_cost":48.75`) {
+		t.Fatalf("work order complete response missing stock/cost: %s", rec.Body.String())
 	}
 }
 
