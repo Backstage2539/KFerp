@@ -24,37 +24,33 @@
       </div>
     </section>
 
-    <div class="grid">
-      <section class="panel table-wrap">
+    <div class="grid process-route-layout">
+      <section class="panel route-list-panel">
         <div class="section-title">路线列表</div>
         <table>
           <thead>
             <tr>
               <th>路线</th>
               <th>状态</th>
-              <th>工序数</th>
-              <th>默认设备</th>
-              <th>默认工时</th>
-              <th>更新时间</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="row in routes" :key="row.id" :class="{ active: row.id === form.id }" @click="editRoute(row)">
-              <td><strong>{{ row.name }}</strong><small>#{{ row.id }}</small></td>
+              <td>
+                <strong>{{ row.name }}</strong>
+                <small>#{{ row.id }} · {{ row.operations?.length || 0 }} 道工序</small>
+                <small>{{ row.default_equipment || '无默认设备' }} · {{ row.default_minutes || 0 }} 分钟 · {{ row.updated_at || '-' }}</small>
+              </td>
               <td><span :class="['pill', row.status]">{{ statusLabel(row.status) }}</span></td>
-              <td>{{ row.operations?.length || 0 }}</td>
-              <td>{{ row.default_equipment || '-' }}</td>
-              <td>{{ row.default_minutes || 0 }} 分钟</td>
-              <td>{{ row.updated_at }}</td>
             </tr>
             <tr v-if="!routes.length">
-              <td colspan="6" class="muted">暂无工艺路线</td>
+              <td colspan="2" class="muted">暂无工艺路线</td>
             </tr>
           </tbody>
         </table>
       </section>
 
-      <section class="panel editor">
+      <section class="panel editor route-editor-panel">
         <div class="section-title">{{ form.id ? '编辑路线' : '新建路线' }}</div>
         <div class="form-grid">
           <label>
@@ -89,59 +85,63 @@
         </div>
         <div class="operation-list">
           <div v-for="(op, index) in form.operations" :key="index" class="operation-row">
-            <label>
-              <span>顺序</span>
-              <input v-model.number="op.seq" type="number" min="1" step="1" />
-            </label>
-            <label>
-              <span>工序</span>
-              <SearchableSelect
-                v-model="op.operation_id"
-                :options="activeOperations"
-                :option-label="optionLabel"
-                :option-meta="operationMeta"
-                :option-value="optionNumericValue"
-                placeholder="选择工序"
-                empty-text="暂无工序"
-                @select="applyOperation(index, $event)" />
-            </label>
-            <label>
-              <span>工序名称快照</span>
-              <input v-model.trim="op.operation" placeholder="烘焙 / 裁剪 / 包装" />
-            </label>
-            <label>
-              <span>工位/设备</span>
-              <SearchableSelect
-                v-model="op.workstation_id"
-                :options="activeWorkstations"
-                :option-label="optionLabel"
-                :option-meta="workstationMeta"
-                :option-value="optionNumericValue"
-                placeholder="选择工位/设备"
-                empty-text="暂无工位/设备"
-                @select="applyWorkstation(index, $event)" />
-            </label>
-            <label>
-              <span>工位快照</span>
-              <input v-model.trim="op.workstation" placeholder="烘焙机 / 包装台 / 质检台" />
-            </label>
-            <label>
-              <span>设备</span>
-              <input v-model.trim="op.default_equipment" />
-            </label>
-            <label>
-              <span>分钟</span>
-              <input v-model.number="op.default_minutes" type="number" min="0" step="1" />
-            </label>
-            <label class="checkbox">
-              <input v-model="op.records_loss" type="checkbox" />
-              <span>记录损耗</span>
-            </label>
-            <label class="json-field">
-              <span>质检项 JSON</span>
-              <textarea v-model.trim="op.quality_checklist_json" rows="2" placeholder='["外观","重量"]'></textarea>
-            </label>
-            <button class="text danger" type="button" @click="removeOperation(index)">删除</button>
+            <div class="operation-row-fields">
+              <label class="operation-seq">
+                <span>顺序</span>
+                <input v-model.number="op.seq" type="number" min="1" step="1" />
+              </label>
+              <label class="operation-select">
+                <span>工序</span>
+                <SearchableSelect
+                  v-model="op.operation_id"
+                  :options="activeOperations"
+                  :option-label="optionLabel"
+                  :option-meta="operationMeta"
+                  :option-value="optionNumericValue"
+                  placeholder="选择工序"
+                  empty-text="暂无工序"
+                  @select="applyOperation(index, $event)" />
+              </label>
+              <label class="operation-name">
+                <span>工序名称快照</span>
+                <input v-model.trim="op.operation" placeholder="烘焙 / 裁剪 / 包装" />
+              </label>
+              <label class="workstation-select">
+                <span>工位/设备</span>
+                <SearchableSelect
+                  v-model="op.workstation_id"
+                  :options="activeWorkstations"
+                  :option-label="optionLabel"
+                  :option-meta="workstationMeta"
+                  :option-value="optionNumericValue"
+                  placeholder="选择工位/设备"
+                  empty-text="暂无工位/设备"
+                  @select="applyWorkstation(index, $event)" />
+              </label>
+              <label class="workstation-name">
+                <span>工位快照</span>
+                <input v-model.trim="op.workstation" placeholder="烘焙机 / 包装台 / 质检台" />
+              </label>
+              <label class="operation-equipment">
+                <span>设备</span>
+                <input v-model.trim="op.default_equipment" />
+              </label>
+              <label class="operation-minutes">
+                <span>分钟</span>
+                <input v-model.number="op.default_minutes" type="number" min="0" step="1" />
+              </label>
+              <label class="checkbox operation-loss">
+                <input v-model="op.records_loss" type="checkbox" />
+                <span>记录损耗</span>
+              </label>
+            </div>
+            <div class="operation-quality">
+              <label>
+                <span>质检项</span>
+                <textarea v-model.trim="op.quality_checklist_text" rows="2" placeholder="每行一个质检项，例如：外观&#10;重量"></textarea>
+              </label>
+              <button class="text danger operation-delete" type="button" @click="removeOperation(index)">删除</button>
+            </div>
           </div>
         </div>
 
@@ -195,6 +195,7 @@ function blankOperation(seq) {
     default_minutes: 0,
     records_loss: false,
     quality_checklist_json: '[]',
+    quality_checklist_text: '',
   }
 }
 
@@ -227,6 +228,45 @@ function statusLabel(status) {
   return '草稿'
 }
 
+function qualityChecklistTextFromJSON(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean).join('\n')
+  }
+  const text = String(value || '').trim()
+  if (!text || text === '[]') return ''
+  try {
+    const parsed = JSON.parse(text)
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item || '').trim()).filter(Boolean).join('\n')
+    }
+  } catch (_) {
+    return text
+  }
+  return text
+}
+
+function qualityChecklistJSONFromText(value) {
+  const items = String(value || '')
+    .split(/\n|,|，|;|；/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return JSON.stringify(items)
+}
+
+function routePayload() {
+  return {
+    ...form,
+    status: form.status || 'draft',
+    operations: (form.operations || []).map((op) => {
+      const { quality_checklist_text: qualityChecklistText, ...rest } = op
+      return {
+        ...rest,
+        quality_checklist_json: qualityChecklistJSONFromText(qualityChecklistText),
+      }
+    }),
+  }
+}
+
 function resetForm(next = blankRoute()) {
   Object.assign(form, next)
 }
@@ -246,6 +286,7 @@ function normalizeRoute(row) {
       default_minutes: Number(op.default_minutes || 0),
       records_loss: !!op.records_loss,
       quality_checklist_json: op.quality_checklist_json || '[]',
+      quality_checklist_text: qualityChecklistTextFromJSON(op.quality_checklist_json || '[]'),
     })) : [blankOperation(1)],
   }
 }
@@ -334,7 +375,7 @@ async function mutate(action) {
 
 async function saveRoute() {
   await mutate(async () => {
-    const row = await apiSend('/api/process-routes', { body: { ...form, status: form.status || 'draft' } })
+    const row = await apiSend('/api/process-routes', { body: routePayload() })
     resetForm(normalizeRoute(row))
     await loadRoutes()
     ok.value = '已保存工艺路线'
@@ -373,7 +414,10 @@ onMounted(loadAll)
 .panel-head, .actions, .filters, .operations-head, .footer-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .panel-head { justify-content: space-between; margin-bottom: 12px; }
 h2 { margin: 0; font-size: 20px; }
-.grid { display: grid; grid-template-columns: minmax(420px, .9fr) minmax(560px, 1.1fr); gap: 14px; align-items: start; }
+.process-route-layout { display: grid; grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.route-list-panel, .route-editor-panel { min-width: 0; }
+.route-list-panel { overflow: auto; }
+.route-editor-panel { min-width: 0; overflow: hidden; }
 .filters { align-items: end; }
 label span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
 input, select, textarea { width: 100%; border: 1px solid #cfc8bf; border-radius: 6px; padding: 7px 9px; font: inherit; background: #fff; }
@@ -387,19 +431,22 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .danger-outline { border-color: #a33; color: #8a1f1f; }
 .text { border: 0; background: transparent; color: #1f4f82; padding: 0; }
 .text.danger { color: #9d2626; }
-.table-wrap { overflow: auto; }
-table { width: 100%; min-width: 760px; border-collapse: collapse; }
+table { width: 100%; min-width: 0; border-collapse: collapse; table-layout: fixed; }
+th:last-child, td:last-child { width: 86px; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 th { background: #fbfaf8; position: sticky; top: 0; }
 td small { display: block; color: #777; margin-top: 3px; }
 tbody tr.active { background: #f3f7fb; }
 .section-title { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 10px; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.form-grid label, .wide, .operation-row label, .operation-quality label { min-width: 0; }
 .wide { display: block; margin-top: 10px; }
 .operations-head { justify-content: space-between; margin-top: 14px; }
 .operation-list { display: grid; gap: 10px; }
-.operation-row { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; display: grid; grid-template-columns: 72px repeat(6, minmax(110px, 1fr)) 100px; gap: 8px; align-items: end; }
-.operation-row .json-field { grid-column: span 3; }
+.operation-row { border: 1px solid #eee8df; border-radius: 8px; padding: 10px; display: grid; gap: 10px; }
+.operation-row-fields { display: grid; grid-template-columns: 76px repeat(3, minmax(0, 1fr)); gap: 8px; align-items: end; }
+.operation-quality { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
+.operation-delete { justify-self: end; min-height: 38px; }
 .checkbox { display: flex; align-items: center; gap: 6px; min-height: 38px; }
 .checkbox input { width: auto; height: auto; }
 .checkbox span { margin: 0; }
@@ -411,14 +458,12 @@ tbody tr.active { background: #f3f7fb; }
 .error, .ok { border-radius: 6px; padding: 9px; margin-bottom: 12px; }
 .error { background: #fff0f0; border: 1px solid #e6b7b7; color: #8a1f1f; }
 .ok { background: #f0fff6; border: 1px solid #a9d8ba; color: #1f6a3f; }
-@media (max-width: 1180px) {
-  .grid, .form-grid { grid-template-columns: 1fr; }
-  .operation-row { grid-template-columns: 1fr 1fr; }
-  .operation-row .json-field { grid-column: span 2; }
+@media (max-width: 1100px) {
+  .operation-row-fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
   .page { padding: 12px; }
-  .operation-row { grid-template-columns: 1fr; }
-  .operation-row .json-field { grid-column: span 1; }
+  .process-route-layout, .form-grid, .operation-row-fields, .operation-quality { grid-template-columns: 1fr; }
+  .operation-delete { justify-self: start; }
 }
 </style>
