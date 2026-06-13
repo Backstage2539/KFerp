@@ -73,6 +73,10 @@ func TestDev495ProductionWorkstationOverviewContracts(t *testing.T) {
 		"ProductionTopNav",
 		"workstationTaskSections",
 		"partial_finish",
+		"今日生产总览",
+		"关键操作",
+		"当前任务",
+		"阻塞原因",
 		"不能做原因",
 		"今日整体进度",
 	} {

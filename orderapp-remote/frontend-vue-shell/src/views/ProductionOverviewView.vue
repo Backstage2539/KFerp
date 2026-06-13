@@ -13,6 +13,7 @@
     <div v-if="message" class="notice">{{ message }}</div>
     <div v-if="error" class="error">{{ error }}</div>
 
+    <div class="section-title overview-title">今日生产总览</div>
     <section class="summary-grid">
       <article v-for="row in statusSummary" :key="row.key" class="metric">
         <span>{{ row.label }}</span>
@@ -22,6 +23,19 @@
         <span>暂无任务</span>
         <strong>0</strong>
       </article>
+    </section>
+
+    <section class="panel quick-actions">
+      <div>
+        <div class="section-title">关键操作</div>
+        <p class="muted">从总览直接进入下一步处理页面。</p>
+      </div>
+      <div class="actions quick-action-buttons">
+        <button type="button" @click="openView('workOrders')">打开工单</button>
+        <button type="button" @click="openView('stockOperations')">打开库存作业</button>
+        <button type="button" @click="openView('qualityInspections')">打开质检</button>
+        <button type="button" @click="openFirstAssignment" :disabled="!tasks.length">分配工位 / 调整优先级</button>
+      </div>
     </section>
 
     <div class="overview-layout">
@@ -218,6 +232,11 @@ function openAssignment(task) {
   assignment.note = task.scheduling_note || ''
 }
 
+function openFirstAssignment() {
+  const task = tasks.value[0]
+  if (task) openAssignment(task)
+}
+
 async function saveAssignment() {
   saving.value = true
   error.value = ''
@@ -307,6 +326,15 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 }
 .metric span { display: block; color: #666; font-size: 13px; }
 .metric strong { display: block; margin-top: 6px; font-size: 28px; line-height: 1; }
+.overview-title { margin: 0 0 8px; }
+.quick-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.quick-action-buttons { justify-content: flex-end; }
 .overview-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 320px;
@@ -398,7 +426,8 @@ input {
 
 @media (max-width: 720px) {
   .page { padding: 14px; }
-  .toolbar { align-items: stretch; flex-direction: column; }
+  .toolbar, .quick-actions { align-items: stretch; flex-direction: column; }
+  .quick-action-buttons { justify-content: flex-start; }
   .summary-grid, .overview-layout, .form-grid { grid-template-columns: 1fr; }
 }
 </style>
