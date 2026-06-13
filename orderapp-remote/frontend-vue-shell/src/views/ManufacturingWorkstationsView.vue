@@ -63,7 +63,7 @@
           <div v-if="!form.id" class="muted inline-muted">先选择或保存工位/设备</div>
           <table v-else class="capacity-table">
             <thead>
-              <tr><th>工位产能</th><th>批量</th><th>标准分钟/批</th><th>小时费率</th><th>状态</th></tr>
+              <tr><th>工位产能</th><th>批量</th><th>适用工序</th><th>标准分钟/批</th><th>小时费率</th><th>状态</th></tr>
             </thead>
             <tbody>
               <tr v-for="row in capacitiesForSelectedWorkstation" :key="row.id" :class="{ active: row.id === capacityForm.id }" @click="editCapacity(row)">
@@ -72,6 +72,10 @@
                   <small>{{ row.code || '无编码' }}</small>
                 </td>
                 <td>{{ Number(row.batch_size_qty || 0) }} {{ row.batch_size_unit || '' }}</td>
+                <td>
+                  <span>{{ applicableOperationsLabel(row) }}</span>
+                  <small v-if="!hasApplicableOperations(row)">未配置适用工序</small>
+                </td>
                 <td>{{ row.standard_minutes || 0 }}</td>
                 <td>{{ Number(row.hourly_rate || 0).toFixed(2) }}</td>
                 <td>
@@ -79,7 +83,7 @@
                   <button class="text danger" type="button" :disabled="row.status === 'inactive'" @click.stop="deactivateCapacity(row)">停用</button>
                 </td>
               </tr>
-              <tr v-if="!capacitiesForSelectedWorkstation.length"><td colspan="5" class="muted">暂无工位产能</td></tr>
+              <tr v-if="!capacitiesForSelectedWorkstation.length"><td colspan="6" class="muted">暂无工位产能</td></tr>
             </tbody>
           </table>
 
@@ -90,6 +94,17 @@
             <label><span>单位</span><input v-model.trim="capacityForm.batch_size_unit" placeholder="kg / g / 件" /></label>
             <label><span>标准分钟/批</span><input v-model.number="capacityForm.standard_minutes" type="number" min="0" step="1" /></label>
             <label><span>小时费率</span><input v-model.number="capacityForm.hourly_rate" type="number" min="0" step="0.01" /></label>
+            <div class="wide operation-checks">
+              <span>适用工序</span>
+              <div v-if="activeOperations.length" class="operation-check-grid">
+                <label v-for="operation in activeOperations" :key="operation.id" class="operation-checkbox">
+                  <input v-model="capacityForm.applicable_operation_ids" type="checkbox" :value="Number(operation.id)" />
+                  <span>{{ operation.name }}</span>
+                </label>
+              </div>
+              <div v-else class="muted inline-muted">暂无启用工序</div>
+              <small>未配置适用工序的产能可手工选择，但不会参与自动拆分。</small>
+            </div>
             <label>
               <span>状态</span>
               <select v-model="capacityForm.status">
@@ -118,10 +133,12 @@ const error = ref('')
 const ok = ref('')
 const workstations = ref([])
 const workstationCapacities = ref([])
+const operations = ref([])
 const form = reactive(blankWorkstation())
 const capacityForm = reactive(blankCapacity())
 
 const capacitiesForSelectedWorkstation = computed(() => workstationCapacities.value.filter((row) => Number(row.workstation_id || 0) === Number(form.id || 0)))
+const activeOperations = computed(() => operations.value.filter((row) => String(row.status || 'active') === 'active'))
 
 function blankWorkstation() {
   return { id: 0, name: '', code: '', status: 'active', default_minutes: 0, hourly_rate: 0, note: '' }
@@ -140,6 +157,7 @@ function blankCapacity() {
     hourly_rate: 0,
     production_capacity: 1,
     sort_order: 0,
+    applicable_operation_ids: [],
     note: '',
   }
 }
@@ -149,23 +167,43 @@ function resetForm(next = blankWorkstation()) {
 }
 
 function resetCapacity(next = blankCapacity()) {
-  Object.assign(capacityForm, next)
+  Object.assign(capacityForm, {
+    ...next,
+    applicable_operation_ids: Array.isArray(next.applicable_operation_ids) ? next.applicable_operation_ids.map((id) => Number(id || 0)).filter((id) => id > 0) : [],
+  })
 }
 
 function statusLabel(status) {
   return status === 'inactive' ? '停用' : '启用'
 }
 
+function hasApplicableOperations(row) {
+  return Array.isArray(row?.applicable_operation_ids) && row.applicable_operation_ids.length > 0
+}
+
+function applicableOperationsLabel(row) {
+  if (Array.isArray(row?.applicable_operations) && row.applicable_operations.length) {
+    return row.applicable_operations.map((item) => item.name).filter(Boolean).join('、')
+  }
+  const ids = Array.isArray(row?.applicable_operation_ids) ? row.applicable_operation_ids.map((id) => Number(id || 0)) : []
+  const names = ids
+    .map((id) => operations.value.find((item) => Number(item.id || 0) === id)?.name || '')
+    .filter(Boolean)
+  return names.length ? names.join('、') : '未配置适用工序'
+}
+
 async function loadWorkstations() {
   loading.value = true
   error.value = ''
   try {
-    const [data, capacityData] = await Promise.all([
+    const [data, capacityData, operationData] = await Promise.all([
       apiGet('/api/manufacturing-workstations'),
       apiGet('/api/manufacturing-workstation-capacities'),
+      apiGet('/api/manufacturing-operations'),
     ])
     workstations.value = data?.rows || []
     workstationCapacities.value = capacityData?.rows || []
+    operations.value = operationData?.rows || []
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -210,6 +248,7 @@ function editCapacity(row) {
     hourly_rate: Number(row.hourly_rate || 0),
     production_capacity: Number(row.production_capacity || 1),
     sort_order: Number(row.sort_order || 0),
+    applicable_operation_ids: Array.isArray(row.applicable_operation_ids) ? row.applicable_operation_ids : [],
   })
 }
 
@@ -272,6 +311,7 @@ async function saveCapacity() {
         hourly_rate: Number(capacityForm.hourly_rate || 0),
         production_capacity: Number(capacityForm.production_capacity || 1),
         sort_order: Number(capacityForm.sort_order || 0),
+        applicable_operation_ids: capacityForm.applicable_operation_ids.map((id) => Number(id || 0)).filter((id) => id > 0),
       },
     })
     editCapacity(saved)
@@ -332,6 +372,12 @@ tbody tr.active { background: #f3f7fb; }
 .capacity-table th:last-child, .capacity-table td:last-child { width: 120px; }
 .capacity-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
 .capacity-form .wide { grid-column: 1 / -1; margin-top: 0; }
+.operation-checks > span { display: block; color: #666; font-size: 12px; margin-bottom: 5px; }
+.operation-checks small { display: block; color: #777; margin-top: 6px; }
+.operation-check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.operation-checkbox { display: flex; align-items: center; gap: 6px; border: 1px solid #ddd7ce; border-radius: 6px; padding: 7px 9px; margin: 0; }
+.operation-checkbox input { width: 16px; height: 16px; padding: 0; flex: 0 0 auto; }
+.operation-checkbox span { margin: 0; color: #171717; font-size: 14px; }
 .inline-muted { border: 1px dashed #ddd2c7; border-radius: 6px; padding: 10px; }
 .footer-actions { justify-content: flex-end; margin-top: 14px; }
 .pill { display: inline-flex; border: 1px solid #d1d5db; border-radius: 999px; padding: 2px 8px; background: #f9fafb; white-space: nowrap; }

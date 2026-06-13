@@ -55,20 +55,22 @@ type ManufacturingWorkstation struct {
 }
 
 type ManufacturingWorkstationCapacity struct {
-	ID                 int64   `json:"id"`
-	WorkstationID      int64   `json:"workstation_id"`
-	Code               string  `json:"code"`
-	Name               string  `json:"name"`
-	Status             string  `json:"status"`
-	BatchSizeQty       float64 `json:"batch_size_qty"`
-	BatchSizeUnit      string  `json:"batch_size_unit"`
-	StandardMinutes    int     `json:"standard_minutes"`
-	HourlyRate         float64 `json:"hourly_rate"`
-	ProductionCapacity int     `json:"production_capacity"`
-	SortOrder          int     `json:"sort_order"`
-	Note               string  `json:"note"`
-	CreatedAt          string  `json:"created_at"`
-	UpdatedAt          string  `json:"updated_at"`
+	ID                     int64                    `json:"id"`
+	WorkstationID          int64                    `json:"workstation_id"`
+	Code                   string                   `json:"code"`
+	Name                   string                   `json:"name"`
+	Status                 string                   `json:"status"`
+	BatchSizeQty           float64                  `json:"batch_size_qty"`
+	BatchSizeUnit          string                   `json:"batch_size_unit"`
+	StandardMinutes        int                      `json:"standard_minutes"`
+	HourlyRate             float64                  `json:"hourly_rate"`
+	ProductionCapacity     int                      `json:"production_capacity"`
+	SortOrder              int                      `json:"sort_order"`
+	Note                   string                   `json:"note"`
+	ApplicableOperationIDs []int64                  `json:"applicable_operation_ids"`
+	ApplicableOperations   []ManufacturingOperation `json:"applicable_operations"`
+	CreatedAt              string                   `json:"created_at"`
+	UpdatedAt              string                   `json:"updated_at"`
 }
 
 type ProcessTemplateOperation struct {
@@ -195,19 +197,20 @@ type SaveManufacturingWorkstationCommand struct {
 }
 
 type SaveWorkstationCapacityCommand struct {
-	ID                 int64
-	WorkstationID      int64
-	Code               string
-	Name               string
-	Status             string
-	BatchSizeQty       float64
-	BatchSizeUnit      string
-	StandardMinutes    int
-	HourlyRate         float64
-	ProductionCapacity int
-	SortOrder          int
-	Note               string
-	Actor              string
+	ID                     int64
+	WorkstationID          int64
+	Code                   string
+	Name                   string
+	Status                 string
+	BatchSizeQty           float64
+	BatchSizeUnit          string
+	StandardMinutes        int
+	HourlyRate             float64
+	ProductionCapacity     int
+	SortOrder              int
+	Note                   string
+	ApplicableOperationIDs []int64
+	Actor                  string
 }
 
 type SaveProcessTemplateCommand struct {
@@ -402,6 +405,7 @@ func (s *Service) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd 
 	if cmd.Code == "" {
 		cmd.Code = codeFromName(cmd.Name)
 	}
+	cmd.ApplicableOperationIDs = normalizePositiveInt64IDs(cmd.ApplicableOperationIDs)
 	return s.repo.SaveManufacturingWorkstationCapacity(ctx, cmd)
 }
 
@@ -824,6 +828,22 @@ func validateOperationCostSnapshot(batchSizeQty float64, standardMinutes int, ho
 		return fmt.Errorf("planned_operation_cost must be >= 0")
 	}
 	return nil
+}
+
+func normalizePositiveInt64IDs(ids []int64) []int64 {
+	if len(ids) == 0 {
+		return nil
+	}
+	seen := map[int64]bool{}
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
 }
 
 func normalizeJSONObject(raw string) (string, error) {

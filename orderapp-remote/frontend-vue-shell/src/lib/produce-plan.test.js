@@ -12,8 +12,11 @@ import {
   insufficientSelectionState,
   productionPlanOperationSplitsEndpoint,
   buildProductionPlanOperationSplitPayload,
+  buildOperationCapacityAutoSplits,
+  maxAssignableQtyForCapacitySplit,
   plannedCapacitySplitMetrics,
   productionPlanSplitBatchCards,
+  qtyFromGForCapacityUnit,
   productionDemandSelectable,
   productionDemandSelectionState,
   productionDemandStatusLabel,
@@ -268,6 +271,88 @@ test('production plan operation capacity split helper renders batch cards withou
   ])
 })
 
+test('operation capacity auto split only uses capacities applicable to the current operation', () => {
+  const operation = { seq: 1, operation_id: 7, operation: '烘焙' }
+  const item = { id: 51, planned_g: 23000, spec_g: 1000 }
+  const capacities = [
+    { id: 10, workstation_id: 1, name: '布勒10kg', status: 'active', batch_size_qty: 10, batch_size_unit: 'kg', standard_minutes: 10, hourly_rate: 300, applicable_operation_ids: [7] },
+    { id: 3, workstation_id: 2, name: '智烘3kg', status: 'active', batch_size_qty: 3, batch_size_unit: 'kg', standard_minutes: 15, hourly_rate: 180, applicable_operation_ids: [7] },
+    { id: 100, workstation_id: 3, name: '包装100袋', status: 'active', batch_size_qty: 100, batch_size_unit: '袋', standard_minutes: 20, hourly_rate: 90, applicable_operation_ids: [8] },
+    { id: 99, workstation_id: 4, name: '旧未配置产能', status: 'active', batch_size_qty: 23, batch_size_unit: 'kg', standard_minutes: 20, hourly_rate: 120 },
+    { id: 98, workstation_id: 4, name: '停用产能', status: 'inactive', batch_size_qty: 23, batch_size_unit: 'kg', standard_minutes: 20, hourly_rate: 120, applicable_operation_ids: [7] },
+  ]
+
+  assert.deepEqual(buildOperationCapacityAutoSplits(item, operation, capacities).map((row) => ({
+    capacity_id: row.workstation_capacity_id,
+    planned_qty: row.planned_qty,
+    planned_qty_g: plannedCapacitySplitMetrics(row).planned_qty_g,
+  })), [
+    { capacity_id: 10, planned_qty: 20, planned_qty_g: 20000 },
+    { capacity_id: 3, planned_qty: 3, planned_qty_g: 3000 },
+  ])
+})
+
+test('operation capacity auto split uses closest capacity for the last underfilled batch', () => {
+  const rows = buildOperationCapacityAutoSplits(
+    { id: 51, planned_g: 21000, spec_g: 1000 },
+    { seq: 1, operation_id: 7, operation: '烘焙' },
+    [
+      { id: 10, workstation_id: 1, name: '布勒10kg', status: 'active', batch_size_qty: 10, batch_size_unit: 'kg', applicable_operation_ids: [7] },
+      { id: 3, workstation_id: 2, name: '智烘3kg', status: 'active', batch_size_qty: 3, batch_size_unit: 'kg', applicable_operation_ids: [7] },
+    ],
+  )
+
+  assert.deepEqual(rows.map((row) => [row.workstation_capacity_id, row.planned_qty]), [[10, 20], [3, 1]])
+  assert.equal(productionPlanSplitBatchCards(rows[1])[0].underfilled, true)
+})
+
+test('operation capacity auto split supports count-based packaging capacity through spec grams', () => {
+  const rows = buildOperationCapacityAutoSplits(
+    { id: 52, planned_g: 10442, spec_g: 454 },
+    { seq: 2, operation_id: 8, operation: '包装' },
+    [
+      { id: 100, workstation_id: 3, name: '包装10袋', status: 'active', batch_size_qty: 10, batch_size_unit: '袋', applicable_operation_ids: [8] },
+      { id: 30, workstation_id: 4, name: '手工3袋', status: 'active', batch_size_qty: 3, batch_size_unit: '袋', applicable_operation_ids: [8] },
+      { id: 10, workstation_id: 1, name: '布勒10kg', status: 'active', batch_size_qty: 10, batch_size_unit: 'kg', applicable_operation_ids: [7] },
+    ],
+  )
+
+  assert.deepEqual(rows.map((row) => [row.workstation_capacity_id, row.planned_qty, plannedCapacitySplitMetrics(row).planned_qty_g]), [
+    [100, 20, 9080],
+    [30, 3, 1362],
+  ])
+  assert.equal(qtyFromGForCapacityUnit(10442, '袋', 454), 23)
+})
+
+test('single split capacity allocation fills the maximum full batches from remaining quantity', () => {
+  const target = { planned_g: 23000, spec_g: 1000 }
+  const existing = [{
+    production_plan_item_id: 51,
+    operation_seq: 1,
+    operation_id: 7,
+    operation: '烘焙',
+    workstation_capacity_id: 10,
+    batch_size_qty: 10,
+    batch_size_unit: 'kg',
+    planned_qty: 10,
+    spec_g: 1000,
+  }]
+  const split = {
+    production_plan_item_id: 51,
+    operation_seq: 1,
+    operation_id: 7,
+    operation: '烘焙',
+    workstation_capacity_id: 10,
+    batch_size_qty: 10,
+    batch_size_unit: 'kg',
+    spec_g: 1000,
+  }
+
+  assert.equal(maxAssignableQtyForCapacitySplit(split, existing, target), 10)
+  assert.equal(maxAssignableQtyForCapacitySplit({ ...split, batch_size_qty: 3, batch_size_unit: 'kg' }, existing, target), 12)
+  assert.equal(maxAssignableQtyForCapacitySplit({ ...split, batch_size_qty: 30, batch_size_unit: '袋' }, [], { planned_g: 10442, spec_g: 454 }), 23)
+})
+
 test('ProducePlanView creates draft plans and batch submits checked draft plans', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
@@ -347,6 +432,13 @@ test('ProducePlanView owns operation capacity splits after draft plan creation',
     'split-batch-cards',
     'split-batch-card',
     '不足标准批量',
+    'autoSplitCurrentPlanOperation',
+    'autoSplitProductionPlanDrawerOperation',
+    'assignRemainingCurrentPlanSplitQty',
+    'assignRemainingProductionPlanDrawerSplitQty',
+    'applicableOperationCapacities',
+    '分配剩余产量',
+    '自动拆分',
   ]) {
     assert.match(source, new RegExp(marker))
   }
@@ -367,7 +459,7 @@ test('ProducePlanView edits draft plan splits in a drawer instead of the current
     'detailOperationsFallback',
     '编辑拆分',
     'productionPlanSelectable(plan)',
-    'productionPlanSplitRows.value = (detail.operation_splits || []).map(normalizeOperationSplit)',
+    'productionPlanSplitRows.value = withAutoOperationSplits((detail.operation_splits || []).map(normalizeOperationSplit), detail)',
   ]) {
     assert.ok(source.includes(marker), `missing ${marker}`)
   }

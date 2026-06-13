@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-494-CAPACITY-OPERATION-AUTO-SPLIT
+- Branch: codex/capacity-operation-auto-split-20260613
+- Owner/session: Codex / 2026-06-13
+- Status: verifying; targeted backend/frontend/build checks passed, merge/deploy pending.
+- Scope: 工位产能新增适用工序配置；生产计划草稿当前拆分区、草稿计划编辑抽屉和 released 工单拆分抽屉支持按当前工序自动拆分，并支持每行一键分配剩余产量。旧未配置适用工序的产能仍可手工选择，但不参与自动拆分。
+- DEV:
+  - DEV-494-CAPACITY-APPLICABLE-OPERATIONS：工位产能保存 `applicable_operation_ids`，列表返回适用工序名称；保存/停用继续写操作日志。
+  - DEV-494-PLAN-WORKORDER-AUTO-SPLIT：生产计划和工单拆分按当前工序的 active 适用产能自动分配；例如 23kg 可自动拆成布勒 10kg 承担 20kg、智烘 3kg 承担 3kg。
+  - DEV-494-COUNT-UNIT-SPLIT：包装类产能按 `planned_g/spec_g` 将 `件/袋/盒/个` 换算为计划数量，保存后后端按规格换算回计划克数。
+- Verifier:
+  - RED frontend: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js src/lib/process-routes.test.js` failed because auto split helpers, applicable operation UI, and drawer markers were missing.
+  - RED backend: targeted Go tests failed because manufacturing capacity applicable operation fields/schema were missing and production split metrics did not accept `spec_g`.
+  - GREEN targeted: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js src/lib/process-routes.test.js`; `go test ./internal/infrastructure/postgres/manufacturing -run TestManufacturingSchemaAddsWorkstationCapacitiesAndRouteCostSnapshots -count=1`; `go test ./internal/interfaces/http/manufacturing -run TestWorkstationCapacityAPIListSaveAndDeactivate -count=1`; `go test ./internal/application/manufacturing -run TestSaveWorkstationCapacityNormalizesApplicableOperationIDs -count=1`; `go test ./internal/infrastructure/postgres/production -run TestPlannedCapacitySplitMetricsDerivesCountUnitQuantityFromSpec -count=1`.
+  - GREEN release: `go test ./internal/application/manufacturing ./internal/infrastructure/postgres/manufacturing ./internal/interfaces/http/manufacturing ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1`; `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js src/lib/process-routes.test.js`; `npm run build` after `npm ci` in frontend-vue-shell; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-13-capacity-operation-auto-split.md`.
+- Deployment: pending.
+- Last update: 2026-06-13 Asia/Shanghai.
+
 ### PR-493-PLAN-WORKORDER-SPLIT-EDIT
 - Branch: codex/plan-workorder-split-edit-20260613
 - Owner/session: Codex / 2026-06-13

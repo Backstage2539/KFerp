@@ -231,7 +231,53 @@ func (r Repository) ListManufacturingWorkstationCapacities(ctx context.Context, 
 		}
 		out = append(out, row)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := r.attachWorkstationCapacityOperations(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r Repository) attachWorkstationCapacityOperations(ctx context.Context, rows []manufacturingapp.ManufacturingWorkstationCapacity) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(rows))
+	index := map[int64]int{}
+	for i := range rows {
+		ids = append(ids, rows[i].ID)
+		index[rows[i].ID] = i
+	}
+	opRows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT co.capacity_id,
+		       o.id,o.code,o.name,o.status,o.default_minutes,o.note,
+		       to_char(o.created_at,'YYYY-MM-DD HH24:MI'),
+		       to_char(o.updated_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.manufacturing_workstation_capacity_operations co
+		JOIN %s.manufacturing_operations o ON o.id=co.operation_id
+		WHERE co.capacity_id = ANY($1)
+		ORDER BY co.capacity_id, o.name, o.id
+	`, r.schema, r.schema), ids)
+	if err != nil {
+		return err
+	}
+	defer opRows.Close()
+	for opRows.Next() {
+		var capacityID int64
+		var op manufacturingapp.ManufacturingOperation
+		if err := opRows.Scan(&capacityID, &op.ID, &op.Code, &op.Name, &op.Status, &op.DefaultMinutes, &op.Note, &op.CreatedAt, &op.UpdatedAt); err != nil {
+			return err
+		}
+		i, ok := index[capacityID]
+		if !ok {
+			continue
+		}
+		rows[i].ApplicableOperationIDs = append(rows[i].ApplicableOperationIDs, op.ID)
+		rows[i].ApplicableOperations = append(rows[i].ApplicableOperations, op)
+	}
+	return opRows.Err()
 }
 
 func (r Repository) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd manufacturingapp.SaveWorkstationCapacityCommand) (manufacturingapp.ManufacturingWorkstationCapacity, error) {
@@ -263,7 +309,19 @@ func (r Repository) SaveManufacturingWorkstationCapacity(ctx context.Context, cm
 	if err != nil {
 		return manufacturingapp.ManufacturingWorkstationCapacity{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_workstation_capacity", &id, action, postgresinfra.StrPtr("workstation_capacity"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"workstation_id": cmd.WorkstationID, "batch_size_qty": cmd.BatchSizeQty, "batch_size_unit": cmd.BatchSizeUnit, "standard_minutes": cmd.StandardMinutes, "hourly_rate": cmd.HourlyRate, "status": cmd.Status}); err != nil {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.manufacturing_workstation_capacity_operations WHERE capacity_id=$1`, r.schema), id); err != nil {
+		return manufacturingapp.ManufacturingWorkstationCapacity{}, err
+	}
+	for _, operationID := range cmd.ApplicableOperationIDs {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`
+			INSERT INTO %s.manufacturing_workstation_capacity_operations(capacity_id, operation_id, created_at)
+			VALUES($1,$2,now())
+			ON CONFLICT (capacity_id, operation_id) DO NOTHING
+		`, r.schema), id, operationID); err != nil {
+			return manufacturingapp.ManufacturingWorkstationCapacity{}, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "manufacturing_workstation_capacity", &id, action, postgresinfra.StrPtr("workstation_capacity"), nil, postgresinfra.StrPtr(cmd.Name), postgresinfra.AuditMeta{"workstation_id": cmd.WorkstationID, "batch_size_qty": cmd.BatchSizeQty, "batch_size_unit": cmd.BatchSizeUnit, "standard_minutes": cmd.StandardMinutes, "hourly_rate": cmd.HourlyRate, "status": cmd.Status, "applicable_operation_ids": cmd.ApplicableOperationIDs}); err != nil {
 		return manufacturingapp.ManufacturingWorkstationCapacity{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

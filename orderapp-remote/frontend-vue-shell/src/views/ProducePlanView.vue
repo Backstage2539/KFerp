@@ -219,6 +219,7 @@
                   <div class="split-operation-head">
                     <strong>{{ row.item.product_name || '-' }}</strong>
                     <span>{{ row.operation.seq || row.operation.sequence_no || '-' }}. {{ row.operation.operation || '工序' }}</span>
+                    <button class="secondary compact" type="button" @click="autoSplitCurrentPlanOperation(row.item, row.operation)" :disabled="!currentPlanDraft || !applicableOperationCapacities(row.operation, activeWorkstationCapacities).length">自动拆分</button>
                     <button class="secondary compact" type="button" @click="addOperationSplit(row.item, row.operation)" :disabled="!currentPlanDraft">添加拆分</button>
                   </div>
                   <div class="split-row" v-for="(split, splitIndex) in splitRowsForOperation(row.item, row.operation)" :key="split.local_key || split.id || `${row.item.id}-${splitIndex}`">
@@ -233,6 +234,7 @@
                       <span>承担产量{{ splitQuantityUnit(split) }}</span>
                       <input v-model.number="split.planned_qty" type="number" min="0" :step="splitQuantityStep(split)" :disabled="!currentPlanDraft" />
                     </label>
+                    <button class="secondary compact" type="button" @click="assignRemainingCurrentPlanSplitQty(split)" :disabled="!currentPlanDraft || !split.workstation_capacity_id">分配剩余产量</button>
                     <div class="split-metric">
                       <span>自动批次数</span>
                       <strong>{{ plannedCapacitySplitMetrics(split).planned_batch_count || 0 }}</strong>
@@ -595,6 +597,7 @@
             <div class="split-operation-head">
               <strong>{{ row.item.product_name || '-' }}</strong>
               <span>{{ row.operation.seq || row.operation.sequence_no || '-' }}. {{ row.operation.operation || '工序' }}</span>
+              <button class="secondary compact" type="button" @click="autoSplitProductionPlanDrawerOperation(row.item, row.operation)" :disabled="productionPlanSplitDrawerSaving || !productionPlanSplitDrawerDraft || !applicableOperationCapacities(row.operation, activeWorkstationCapacities).length">自动拆分</button>
               <button class="secondary compact" type="button" @click="addProductionPlanDrawerSplit(row.item, row.operation)" :disabled="productionPlanSplitDrawerSaving || !productionPlanSplitDrawerDraft">添加拆分</button>
             </div>
             <div
@@ -613,6 +616,7 @@
                 <span>承担产量{{ splitQuantityUnit(split) }}</span>
                 <input v-model.number="split.planned_qty" type="number" min="0" :step="splitQuantityStep(split)" :disabled="productionPlanSplitDrawerSaving || !productionPlanSplitDrawerDraft" />
               </label>
+              <button class="secondary compact" type="button" @click="assignRemainingProductionPlanDrawerSplitQty(split)" :disabled="productionPlanSplitDrawerSaving || !productionPlanSplitDrawerDraft || !split.workstation_capacity_id">分配剩余产量</button>
               <div class="split-metric">
                 <span>自动批次数</span>
                 <strong>{{ plannedCapacitySplitMetrics(split).planned_batch_count || 0 }}</strong>
@@ -663,6 +667,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import {
+  applicableOperationCapacities,
+  buildOperationCapacityAutoSplits,
   buildCurrentProductionPlanSubmitPayload,
   buildInsufficientSelection,
   buildProductionPlanBatchSubmitPayload,
@@ -672,7 +678,9 @@ import {
   buildProductionPlanSelection,
   buildProductionDemandSelection,
   buildProductionDemandSummaryQuery,
+  maxAssignableQtyForCapacitySplit,
   plannedCapacitySplitMetrics,
+  qtyFromGForCapacityUnit,
   productionDemandSelectable,
   productionDemandSelectionState,
   productionDemandStatusLabel,
@@ -1160,16 +1168,19 @@ function splitBatchCards(split) {
   return productionPlanSplitBatchCards(split)
 }
 
-function qtyFromGForSplitUnit(qtyG, unit) {
-  const value = Math.max(0, Number(qtyG || 0))
-  const normalized = String(unit || '').trim().toLowerCase()
-  if (normalized === 'kg' || normalized === '千克' || normalized === '公斤') return Number((value / 1000).toFixed(3))
-  if (normalized === 'g' || normalized === '克') return Math.round(value)
-  return 0
+function qtyFromGForSplitUnit(qtyG, unit, specG = 0) {
+  return qtyFromGForCapacityUnit(qtyG, unit, specG)
 }
 
 function productionPlanItemTargetG(item) {
   return Math.max(0, Number(item?.planned_g || item?.planned_output_g || item?.gap_g || 0))
+}
+
+function operationSplitTarget(item) {
+  return {
+    planned_g: productionPlanItemTargetG(item),
+    spec_g: Number(item?.spec_g || 0),
+  }
 }
 
 function currentPlanItemForSplit(split, plan = currentPlan.value) {
@@ -1190,13 +1201,7 @@ function splitSameOperation(left, right) {
 
 function defaultPlannedQtyForSplit(split, rows = operationSplits.value, plan = currentPlan.value) {
   const item = currentPlanItemForSplit(split, plan)
-  const targetG = productionPlanItemTargetG(item)
-  if (targetG <= 0) return 0
-  const usedG = (rows || []).reduce((sum, row) => {
-    if (row === split || !splitSameOperation(row, split)) return sum
-    return sum + (plannedCapacitySplitMetrics(row).planned_qty_g || 0)
-  }, 0)
-  return qtyFromGForSplitUnit(Math.max(0, targetG - usedG), split.batch_size_unit)
+  return maxAssignableQtyForCapacitySplit(split, rows, operationSplitTarget(item))
 }
 
 function capacityOptionLabel(capacity) {
@@ -1225,7 +1230,8 @@ function normalizeOperationSplit(row = {}) {
     standard_minutes: Number(row.standard_minutes || 0),
     hourly_rate: Number(row.hourly_rate || 0),
     planned_batch_count: Number(row.planned_batch_count || 0),
-    planned_qty: Number(row.planned_qty || qtyFromGForSplitUnit(Number(row.planned_qty_g || 0), row.batch_size_unit)),
+    spec_g: Number(row.spec_g || row.item_spec_g || currentPlanItemForSplit(row)?.spec_g || 0),
+    planned_qty: Number(row.planned_qty || qtyFromGForSplitUnit(Number(row.planned_qty_g || 0), row.batch_size_unit, row.spec_g || row.item_spec_g || currentPlanItemForSplit(row)?.spec_g || 0)),
     planned_qty_g: Number(row.planned_qty_g || 0),
     planned_minutes: Number(row.planned_minutes || 0),
     planned_operation_cost: Number(row.planned_operation_cost || 0),
@@ -1241,6 +1247,7 @@ function addOperationSplit(item, operation) {
     operation_seq: identity.seq,
     operation_id: identity.id,
     operation: identity.name,
+    spec_g: Number(item?.spec_g || 0),
     planned_qty: 0,
   }))
 }
@@ -1259,6 +1266,7 @@ function applySplitCapacity(split, rows = operationSplits.value, plan = currentP
   split.batch_size_unit = capacity.batch_size_unit || ''
   split.standard_minutes = Number(capacity.standard_minutes || 0)
   split.hourly_rate = Number(capacity.hourly_rate || 0)
+  split.spec_g = Number(split.spec_g || currentPlanItemForSplit(split, plan)?.spec_g || 0)
   if (Number(split.planned_qty || 0) <= 0) {
     split.planned_qty = defaultPlannedQtyForSplit(split, rows, plan)
   }
@@ -1266,6 +1274,47 @@ function applySplitCapacity(split, rows = operationSplits.value, plan = currentP
 
 function applyProductionPlanDrawerSplitCapacity(split) {
   applySplitCapacity(split, productionPlanSplitRows.value, productionPlanSplitDrawer.value)
+}
+
+function autoRowsForOperation(item, operation) {
+  return buildOperationCapacityAutoSplits(item, operation, activeWorkstationCapacities.value).map(normalizeOperationSplit)
+}
+
+function replaceOperationSplits(rows, item, operation, nextRows) {
+  const itemID = Number(item?.id || 0)
+  return [
+    ...(rows || []).filter((split) => Number(split.production_plan_item_id || 0) !== itemID || !splitMatchesOperation(split, operation)),
+    ...nextRows,
+  ]
+}
+
+function autoSplitCurrentPlanOperation(item, operation) {
+  operationSplits.value = replaceOperationSplits(operationSplits.value, item, operation, autoRowsForOperation(item, operation))
+}
+
+function autoSplitProductionPlanDrawerOperation(item, operation) {
+  productionPlanSplitRows.value = replaceOperationSplits(productionPlanSplitRows.value, item, operation, autoRowsForOperation(item, operation))
+}
+
+function assignRemainingCurrentPlanSplitQty(split) {
+  split.planned_qty = maxAssignableQtyForCapacitySplit(split, operationSplits.value, operationSplitTarget(currentPlanItemForSplit(split)))
+}
+
+function assignRemainingProductionPlanDrawerSplitQty(split) {
+  split.planned_qty = maxAssignableQtyForCapacitySplit(split, productionPlanSplitRows.value, operationSplitTarget(currentPlanItemForSplit(split, productionPlanSplitDrawer.value)))
+}
+
+function withAutoOperationSplits(rows, plan) {
+  if (!productionPlanSelectable(plan)) return rows || []
+  let nextRows = [...(rows || [])]
+  for (const item of plan?.items || []) {
+    for (const operation of processOperations(item)) {
+      if (splitRowsForOperationFrom(nextRows, item, operation).length) continue
+      const autoRows = autoRowsForOperation(item, operation)
+      if (autoRows.length) nextRows = [...nextRows, ...autoRows]
+    }
+  }
+  return nextRows
 }
 
 async function loadWorkstationCapacities() {
@@ -1279,7 +1328,7 @@ async function loadProductionPlanOperationSplits(plan = currentPlan.value) {
     return
   }
   const data = await apiGet(productionPlanOperationSplitsEndpoint(plan))
-  operationSplits.value = (data.rows || []).map(normalizeOperationSplit)
+  operationSplits.value = withAutoOperationSplits((data.rows || []).map(normalizeOperationSplit), plan)
 }
 
 async function saveCurrentPlanOperationSplits() {
@@ -1361,7 +1410,7 @@ async function openProductionPlanSplitDrawer(plan) {
   try {
     const detail = normalizeProductionPlanDetailForSplitEditor(await apiGet(productionPlanDetailEndpoint(plan)))
     productionPlanSplitDrawer.value = detail
-    productionPlanSplitRows.value = (detail.operation_splits || []).map(normalizeOperationSplit)
+    productionPlanSplitRows.value = withAutoOperationSplits((detail.operation_splits || []).map(normalizeOperationSplit), detail)
     productionPlanDetail.value = null
     productionPlanDetailError.value = ''
   } catch (err) {
@@ -1387,6 +1436,7 @@ function addProductionPlanDrawerSplit(item, operation) {
     operation_seq: identity.seq,
     operation_id: identity.id,
     operation: identity.name,
+    spec_g: Number(item?.spec_g || 0),
     planned_qty: 0,
   }))
 }
