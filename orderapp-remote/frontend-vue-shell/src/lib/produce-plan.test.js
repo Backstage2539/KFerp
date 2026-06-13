@@ -354,21 +354,26 @@ test('ProducePlanView owns operation capacity splits after draft plan creation',
   assert.doesNotMatch(source, /推荐机器/)
 })
 
-test('ProducePlanView can reopen draft plans from the list into the split editor', () => {
+test('ProducePlanView edits draft plan splits in a drawer instead of the current plan workspace', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 
   for (const marker of [
-    'loadProductionPlanIntoCurrentEditor',
+    'openProductionPlanSplitDrawer',
+    'closeProductionPlanSplitDrawer',
+    'saveProductionPlanSplitDrawer',
+    'productionPlanSplitDrawer',
+    'production-plan-split-drawer',
     'normalizeProductionPlanDetailForSplitEditor',
     'detailOperationsFallback',
     '编辑拆分',
     'productionPlanSelectable(plan)',
-    'currentPlan.value = detail',
-    'operationSplits.value = (detail.operation_splits || []).map(normalizeOperationSplit)',
-    'planRows.value.length > 0 || (currentPlan.value?.items || []).length > 0',
+    'productionPlanSplitRows.value = (detail.operation_splits || []).map(normalizeOperationSplit)',
   ]) {
     assert.ok(source.includes(marker), `missing ${marker}`)
   }
+
+  assert.doesNotMatch(source, /@click="loadProductionPlanIntoCurrentEditor\(plan\)"/)
+  assert.doesNotMatch(source, /currentPlan\.value = detail/)
 })
 
 test('ProducePlanView lets operators expand planning tables and drag horizontal overflow', () => {

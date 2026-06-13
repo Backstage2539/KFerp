@@ -403,7 +403,7 @@
               <td><small>建 {{ plan.created_at || '-' }}</small><small>交 {{ plan.submitted_at || '-' }}</small><small>完 {{ plan.completed_at || '-' }}</small></td>
               <td class="row-actions">
                 <button class="secondary compact" type="button" @click="openProductionPlanDetail(plan)">详情</button>
-                <button v-if="productionPlanSelectable(plan)" class="secondary compact" type="button" @click="loadProductionPlanIntoCurrentEditor(plan)">编辑拆分</button>
+                <button v-if="productionPlanSelectable(plan)" class="secondary compact" type="button" @click="openProductionPlanSplitDrawer(plan)">编辑拆分</button>
               </td>
             </tr>
             <tr v-if="!productionPlans.length">
@@ -423,7 +423,7 @@
           </div>
           <div class="drawer-head-actions">
             <span :class="['status', `status-${productionPlanStatusTone(productionPlanDetail.status)}`]">{{ productionPlanStatusLabel(productionPlanDetail.status) }}</span>
-            <button v-if="productionPlanSelectable(productionPlanDetail)" class="secondary compact" type="button" @click="loadProductionPlanIntoCurrentEditor(productionPlanDetail)">编辑拆分</button>
+            <button v-if="productionPlanSelectable(productionPlanDetail)" class="secondary compact" type="button" @click="openProductionPlanSplitDrawer(productionPlanDetail)">编辑拆分</button>
             <button class="secondary compact" type="button" @click="closeProductionPlanDetail">关闭</button>
           </div>
         </div>
@@ -569,6 +569,93 @@
         </template>
       </aside>
     </div>
+
+    <div v-if="productionPlanSplitDrawer" class="drawer-backdrop" @click.self="closeProductionPlanSplitDrawer">
+      <aside class="production-plan-split-drawer" aria-label="生产计划工序产能拆分编辑">
+        <div class="drawer-head">
+          <div>
+            <div class="muted text-left">生产计划工序产能拆分</div>
+            <h2>{{ productionPlanSplitDrawer.plan_no || '-' }}</h2>
+            <p>草稿计划在这里补充或调整工位产能拆分，不占用当前生产计划工作台。</p>
+          </div>
+          <div class="drawer-head-actions">
+            <span :class="['status', `status-${productionPlanStatusTone(productionPlanSplitDrawer.status)}`]">{{ productionPlanStatusLabel(productionPlanSplitDrawer.status) }}</span>
+            <button class="secondary compact" type="button" @click="closeProductionPlanSplitDrawer">关闭</button>
+          </div>
+        </div>
+        <div v-if="productionPlanSplitDrawerError" class="error">{{ productionPlanSplitDrawerError }}</div>
+        <div v-if="productionPlanSplitDrawerLoading" class="muted drawer-loading">正在加载拆分...</div>
+        <template v-else>
+          <div v-if="!productionPlanSplitDrawerDraft" class="muted section-hint">只有草稿生产计划允许编辑拆分。</div>
+          <div
+            v-for="row in productionPlanSplitDrawerOperationRows"
+            :key="`plan-split-${row.item.id}-${row.operation.seq || row.operation.sequence_no || row.operation.operation}`"
+            class="split-operation-block"
+          >
+            <div class="split-operation-head">
+              <strong>{{ row.item.product_name || '-' }}</strong>
+              <span>{{ row.operation.seq || row.operation.sequence_no || '-' }}. {{ row.operation.operation || '工序' }}</span>
+              <button class="secondary compact" type="button" @click="addProductionPlanDrawerSplit(row.item, row.operation)" :disabled="productionPlanSplitDrawerSaving || !productionPlanSplitDrawerDraft">添加拆分</button>
+            </div>
+            <div
+              class="split-row"
+              v-for="(split, splitIndex) in productionPlanSplitDrawerRowsForOperation(row.item, row.operation)"
+              :key="split.local_key || split.id || `drawer-${row.item.id}-${splitIndex}`"
+            >
+              <label>
+                <span>工位产能</span>
+                <select v-model.number="split.workstation_capacity_id" :disabled="productionPlanSplitDrawerSaving || !productionPlanSplitDrawerDraft" @change="applyProductionPlanDrawerSplitCapacity(split)">
+                  <option value="0">选择工位产能，例如 布勒 18kg / 智烘 4kg</option>
+                  <option v-for="capacity in activeWorkstationCapacities" :key="capacity.id" :value="capacity.id">{{ capacityOptionLabel(capacity) }}</option>
+                </select>
+              </label>
+              <label>
+                <span>承担产量{{ splitQuantityUnit(split) }}</span>
+                <input v-model.number="split.planned_qty" type="number" min="0" :step="splitQuantityStep(split)" :disabled="productionPlanSplitDrawerSaving || !productionPlanSplitDrawerDraft" />
+              </label>
+              <div class="split-metric">
+                <span>自动批次数</span>
+                <strong>{{ plannedCapacitySplitMetrics(split).planned_batch_count || 0 }}</strong>
+              </div>
+              <div class="split-metric">
+                <span>计划数量</span>
+                <strong>{{ plannedCapacitySplitMetrics(split).planned_qty_g || 0 }}g</strong>
+              </div>
+              <div class="split-metric">
+                <span>计划分钟</span>
+                <strong>{{ plannedCapacitySplitMetrics(split).planned_minutes || 0 }}</strong>
+              </div>
+              <div class="split-metric">
+                <span>计划工序成本</span>
+                <strong>{{ plannedCapacitySplitMetrics(split).planned_operation_cost || 0 }}</strong>
+              </div>
+              <button class="secondary compact danger-text" type="button" @click="removeProductionPlanDrawerSplit(split)" :disabled="productionPlanSplitDrawerSaving || !productionPlanSplitDrawerDraft">删除</button>
+              <div v-if="splitBatchCards(split).length" class="split-batch-cards" aria-label="自动批次卡片">
+                <div
+                  v-for="batch in splitBatchCards(split)"
+                  :key="`${split.local_key || split.id || splitIndex}-${batch.label}`"
+                  class="split-batch-card"
+                  :class="{ underfilled: batch.underfilled }"
+                >
+                  <strong>{{ batch.label }}</strong>
+                  <span>{{ batch.workstation_capacity_name || split.workstation_capacity_name || '工位产能' }}</span>
+                  <small>单批标准 {{ splitQtyText(batch.batch_size_qty, batch.batch_size_unit) }}</small>
+                  <small>本批计划 {{ splitQtyText(batch.planned_qty, batch.batch_size_unit) }}</small>
+                  <small>计划分钟 {{ batch.planned_minutes || 0 }}</small>
+                  <em v-if="batch.underfilled">不足标准批量</em>
+                </div>
+              </div>
+            </div>
+            <div v-if="!productionPlanSplitDrawerRowsForOperation(row.item, row.operation).length" class="muted section-hint">暂无拆分</div>
+          </div>
+          <div v-if="!productionPlanSplitDrawerOperationRows.length" class="muted section-hint">暂无工序快照</div>
+          <div class="drawer-actions">
+            <button class="secondary" type="button" @click="closeProductionPlanSplitDrawer">取消</button>
+            <button class="primary" type="button" @click="saveProductionPlanSplitDrawer" :disabled="productionPlanSplitDrawerSaving || !productionPlanSplitDrawerDraft">保存拆分</button>
+          </div>
+        </template>
+      </aside>
+    </div>
   </div>
 </template>
 
@@ -626,6 +713,11 @@ const operationSplits = ref([])
 const productionPlanDetail = ref(null)
 const productionPlanDetailLoading = ref(false)
 const productionPlanDetailError = ref('')
+const productionPlanSplitDrawer = ref(null)
+const productionPlanSplitDrawerLoading = ref(false)
+const productionPlanSplitDrawerSaving = ref(false)
+const productionPlanSplitDrawerError = ref('')
+const productionPlanSplitRows = ref([])
 const operationSplitError = ref('')
 const insufficientHeaderCheckbox = ref(null)
 const productionPlanHeaderCheckbox = ref(null)
@@ -700,11 +792,21 @@ const productionPlanSelection = computed(() => productionPlanSelectionState(prod
 const allProductionPlansSelected = computed(() => productionPlanSelection.value.checked)
 const hasSelectedProductionPlans = computed(() => productionPlanSelection.value.selectedCount > 0)
 const currentPlanDraft = computed(() => productionPlanSelectable(currentPlan.value))
+const productionPlanSplitDrawerDraft = computed(() => productionPlanSelectable(productionPlanSplitDrawer.value))
 const selectedSignature = computed(() => selectedKeys().join('|'))
 const activeWorkstationCapacities = computed(() => workstationCapacities.value.filter((row) => String(row.status || 'active') === 'active'))
 const currentPlanOperationRows = computed(() => {
   const rows = []
   for (const item of currentPlan.value?.items || []) {
+    for (const operation of processOperations(item)) {
+      rows.push({ item, operation })
+    }
+  }
+  return rows
+})
+const productionPlanSplitDrawerOperationRows = computed(() => {
+  const rows = []
+  for (const item of productionPlanSplitDrawer.value?.items || []) {
     for (const operation of processOperations(item)) {
       rows.push({ item, operation })
     }
@@ -1024,9 +1126,17 @@ function splitMatchesOperation(split, operation) {
   return !identity.seq && identity.name && String(split?.operation || '').trim() === identity.name
 }
 
-function splitRowsForOperation(item, operation) {
+function splitRowsForOperationFrom(rows, item, operation) {
   const itemID = Number(item?.id || 0)
-  return operationSplits.value.filter((split) => Number(split.production_plan_item_id || 0) === itemID && splitMatchesOperation(split, operation))
+  return (rows || []).filter((split) => Number(split.production_plan_item_id || 0) === itemID && splitMatchesOperation(split, operation))
+}
+
+function splitRowsForOperation(item, operation) {
+  return splitRowsForOperationFrom(operationSplits.value, item, operation)
+}
+
+function productionPlanSplitDrawerRowsForOperation(item, operation) {
+  return splitRowsForOperationFrom(productionPlanSplitRows.value, item, operation)
 }
 
 function splitQuantityUnit(split) {
@@ -1062,9 +1172,9 @@ function productionPlanItemTargetG(item) {
   return Math.max(0, Number(item?.planned_g || item?.planned_output_g || item?.gap_g || 0))
 }
 
-function currentPlanItemForSplit(split) {
+function currentPlanItemForSplit(split, plan = currentPlan.value) {
   const itemID = Number(split?.production_plan_item_id || 0)
-  return (currentPlan.value?.items || []).find((item) => Number(item?.id || 0) === itemID) || null
+  return (plan?.items || []).find((item) => Number(item?.id || 0) === itemID) || null
 }
 
 function splitSameOperation(left, right) {
@@ -1078,11 +1188,11 @@ function splitSameOperation(left, right) {
   return String(left?.operation || '').trim() === String(right?.operation || '').trim()
 }
 
-function defaultPlannedQtyForSplit(split) {
-  const item = currentPlanItemForSplit(split)
+function defaultPlannedQtyForSplit(split, rows = operationSplits.value, plan = currentPlan.value) {
+  const item = currentPlanItemForSplit(split, plan)
   const targetG = productionPlanItemTargetG(item)
   if (targetG <= 0) return 0
-  const usedG = operationSplits.value.reduce((sum, row) => {
+  const usedG = (rows || []).reduce((sum, row) => {
     if (row === split || !splitSameOperation(row, split)) return sum
     return sum + (plannedCapacitySplitMetrics(row).planned_qty_g || 0)
   }, 0)
@@ -1139,7 +1249,7 @@ function removeOperationSplit(split) {
   operationSplits.value = operationSplits.value.filter((row) => row !== split)
 }
 
-function applySplitCapacity(split) {
+function applySplitCapacity(split, rows = operationSplits.value, plan = currentPlan.value) {
   const capacity = workstationCapacities.value.find((row) => Number(row.id || 0) === Number(split.workstation_capacity_id || 0))
   if (!capacity) return
   split.workstation_id = Number(capacity.workstation_id || 0)
@@ -1150,8 +1260,12 @@ function applySplitCapacity(split) {
   split.standard_minutes = Number(capacity.standard_minutes || 0)
   split.hourly_rate = Number(capacity.hourly_rate || 0)
   if (Number(split.planned_qty || 0) <= 0) {
-    split.planned_qty = defaultPlannedQtyForSplit(split)
+    split.planned_qty = defaultPlannedQtyForSplit(split, rows, plan)
   }
+}
+
+function applyProductionPlanDrawerSplitCapacity(split) {
+  applySplitCapacity(split, productionPlanSplitRows.value, productionPlanSplitDrawer.value)
 }
 
 async function loadWorkstationCapacities() {
@@ -1226,24 +1340,74 @@ function closeProductionPlanDetail() {
   productionPlanDetailError.value = ''
 }
 
-async function loadProductionPlanIntoCurrentEditor(plan) {
+async function openProductionPlanSplitDrawer(plan) {
   if (!productionPlanDetailEndpoint(plan) || !productionPlanSelectable(plan)) return
-  saving.value = true
-  previewError.value = ''
-  operationSplitError.value = ''
+  productionPlanSplitDrawer.value = normalizeProductionPlanDetailForSplitEditor({
+    ...plan,
+    items: [],
+    material_summary: [],
+    operation_splits: [],
+  })
+  productionPlanSplitRows.value = []
+  productionPlanSplitDrawerLoading.value = true
+  productionPlanSplitDrawerError.value = ''
+  if (!workstationCapacities.value.length) {
+    try {
+      await loadWorkstationCapacities()
+    } catch (_) {
+      // The drawer can still load; capacity selection will show empty and save validation will catch it.
+    }
+  }
   try {
     const detail = normalizeProductionPlanDetailForSplitEditor(await apiGet(productionPlanDetailEndpoint(plan)))
-    currentPlan.value = detail
-    planRows.value = []
-    initialMaterials.value = detail.material_summary || []
-    operationSplits.value = (detail.operation_splits || []).map(normalizeOperationSplit)
+    productionPlanSplitDrawer.value = detail
+    productionPlanSplitRows.value = (detail.operation_splits || []).map(normalizeOperationSplit)
     productionPlanDetail.value = null
     productionPlanDetailError.value = ''
-    currentPlanPanelCollapsed.value = false
   } catch (err) {
-    previewError.value = err.message || '加载草稿生产计划拆分失败'
+    productionPlanSplitDrawerError.value = err.message || '加载草稿生产计划拆分失败'
   } finally {
-    saving.value = false
+    productionPlanSplitDrawerLoading.value = false
+  }
+}
+
+function closeProductionPlanSplitDrawer() {
+  productionPlanSplitDrawer.value = null
+  productionPlanSplitRows.value = []
+  productionPlanSplitDrawerError.value = ''
+  productionPlanSplitDrawerLoading.value = false
+  productionPlanSplitDrawerSaving.value = false
+}
+
+function addProductionPlanDrawerSplit(item, operation) {
+  const identity = operationIdentity(operation)
+  productionPlanSplitRows.value.push(normalizeOperationSplit({
+    production_plan_id: productionPlanSplitDrawer.value?.id || 0,
+    production_plan_item_id: item?.id || 0,
+    operation_seq: identity.seq,
+    operation_id: identity.id,
+    operation: identity.name,
+    planned_qty: 0,
+  }))
+}
+
+function removeProductionPlanDrawerSplit(split) {
+  productionPlanSplitRows.value = productionPlanSplitRows.value.filter((row) => row !== split)
+}
+
+async function saveProductionPlanSplitDrawer() {
+  if (!productionPlanOperationSplitsEndpoint(productionPlanSplitDrawer.value) || !productionPlanSplitDrawerDraft.value) return
+  productionPlanSplitDrawerSaving.value = true
+  productionPlanSplitDrawerError.value = ''
+  try {
+    const payload = buildProductionPlanOperationSplitPayload(productionPlanSplitRows.value)
+    const data = await apiSend(productionPlanOperationSplitsEndpoint(productionPlanSplitDrawer.value), { body: payload })
+    productionPlanSplitRows.value = (data.rows || []).map(normalizeOperationSplit)
+    await loadProductionPlans()
+  } catch (err) {
+    productionPlanSplitDrawerError.value = err.message || '保存生产计划拆分失败'
+  } finally {
+    productionPlanSplitDrawerSaving.value = false
   }
 }
 
@@ -1442,8 +1606,10 @@ td small { display: block; color: #666; line-height: 1.6; }
 .direct-ship-tip span { color: #28633b; font-size: 13px; }
 .drawer-backdrop { position: fixed; inset: 0; z-index: 40; background: rgba(17, 24, 39, 0.28); display: flex; justify-content: flex-end; }
 .production-plan-detail-drawer { width: min(980px, 100vw); height: 100vh; overflow: auto; background: #fff; box-shadow: -12px 0 28px rgba(15, 23, 42, 0.18); padding: 18px; display: grid; align-content: start; gap: 16px; }
+.production-plan-split-drawer { width: min(900px, 100vw); height: 100vh; overflow: auto; background: #fff; box-shadow: -12px 0 28px rgba(15, 23, 42, 0.18); padding: 18px; display: grid; align-content: start; gap: 14px; }
 .drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; border-bottom: 1px solid #eee; padding-bottom: 12px; }
 .drawer-head h2 { margin: 4px 0 0; font-size: 22px; }
+.drawer-head p { margin: 6px 0 0; color: #666; }
 .drawer-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .drawer-loading { padding: 12px 0; }
 .detail-section { display: grid; gap: 10px; }
@@ -1477,6 +1643,7 @@ td small { display: block; color: #666; line-height: 1.6; }
 .split-batch-card small { font-size: 12px; color: #6b7280; }
 .split-batch-card em { font-style: normal; font-size: 12px; color: #b45309; }
 .split-batch-card.underfilled { border-color: #f59e0b; background: #fffbeb; }
+.drawer-actions { display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid #eee; padding-top: 12px; }
 .danger-text { color: #a33; border-color: #d8b4b4; }
 
 @media (max-width: 900px) {
@@ -1487,6 +1654,7 @@ td small { display: block; color: #666; line-height: 1.6; }
   .filters, .production-plan-filters { grid-template-columns: 1fr; }
   .direct-ship-tip { align-items: stretch; flex-direction: column; }
   .production-plan-detail-drawer { width: 100vw; padding: 14px; }
+  .production-plan-split-drawer { width: 100vw; padding: 14px; }
   .drawer-head { flex-direction: column; }
   .detail-grid { grid-template-columns: 1fr; }
   .split-row { grid-template-columns: 1fr; }
