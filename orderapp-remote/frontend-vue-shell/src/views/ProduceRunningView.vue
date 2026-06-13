@@ -1,5 +1,7 @@
 <template>
   <div class="page">
+    <ProductionTopNav active-key="produceRunning" />
+
     <section class="toolbar">
       <div>
         <h2>生产中</h2>
@@ -147,6 +149,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet } from '../api/client'
 import { cancelRunningProduction, fetchRunningProduction, finishRunningProduction } from '../api/production.js'
+import ProductionTopNav from '../components/ProductionTopNav.vue'
 import { buildFinishInput, buildFinishPayload, formatActualYield, markYieldDirty } from '../lib/produce-running'
 import StockOperationsView from './StockOperationsView.vue'
 

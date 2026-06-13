@@ -6,6 +6,22 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-495-PRODUCTION-WORKSTATION-OVERVIEW
+- Branch: codex/production-workstation-overview-20260613
+- Owner/session: Codex goal / 2026-06-13
+- Status: implementing; targeted backend/frontend/build checks passed, docs updated, merge/deploy pending.
+- Scope: 生产管理新增模块内顶部切换条、生产视图和工位视图。生产视图回答今日整体进度如何、哪里卡住、下一步谁处理；工位视图回答当前工位现在要做什么、下一件做什么、为什么不能做。
+- DEV:
+  - DEV-495-PRODUCTION-TOP-NAV：生产计划、生产中、生产工单、工序卡、生产质检、生产日志和生产成本挂统一 ProductionTopNav，新增 productionOverview/workstationView Vue shell 入口。
+  - DEV-495-WORKSTATION-READMODEL-ACTIONS：新增 `/api/production/workstation-overview` 聚合工序卡和工单，按工位、状态、阻塞原因和优先级输出任务，并提供报异常和呼叫补料动作。
+- Verifier:
+  - RED service/API/frontend: targeted tests failed before implementation because overview service/read model, API route, frontend helper/menu/App routing were missing.
+  - GREEN targeted: `go test ./internal/application/production -run TestProductionWorkstationOverviewAnswersProductionAndStationQuestions -count=1`; `go test ./internal/interfaces/http/production -run TestProductionWorkstationOverviewAPIAndStationActions -count=1`; `node --test src/lib/production-workstation.test.js src/lib/menu-ia.test.js src/lib/view-routing.test.js`.
+  - GREEN build/backend: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production`; `npm ci`; `npm run build`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-13-production-workstation-overview.md`.
+- Deployment: pending.
+- Last update: 2026-06-13 Asia/Shanghai.
+
 ### PR-494-CAPACITY-OPERATION-AUTO-SPLIT
 - Branch: codex/capacity-operation-auto-split-20260613
 - Owner/session: Codex / 2026-06-13

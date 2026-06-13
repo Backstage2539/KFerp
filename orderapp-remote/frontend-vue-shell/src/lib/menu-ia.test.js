@@ -75,6 +75,19 @@ test('production menu exposes the production flow manual as a primary page', () 
   assert.equal(groupForView(menuGroups, 'productionManual')?.id, 'production')
 })
 
+test('production menu exposes high-frequency overview and workstation entries first', () => {
+  const keys = primaryMenuKeys(menuGroups)
+  assert.ok(keys.includes('productionOverview'))
+  assert.ok(keys.includes('workstationView'))
+  assert.equal(groupForView(menuGroups, 'productionOverview')?.id, 'production')
+  assert.equal(groupForView(menuGroups, 'workstationView')?.id, 'production')
+
+  const productionItems = menuGroups.find((group) => group.id === 'production')?.items || []
+  assert.deepEqual(productionItems.slice(0, 2).map((item) => item.key), ['productionOverview', 'workstationView'])
+  assert.equal(productionItems.find((item) => item.key === 'productionOverview')?.label, '生产视图')
+  assert.equal(productionItems.find((item) => item.key === 'workstationView')?.label, '工位视图')
+})
+
 test('manufacturing route operation and workstation pages live in the production menu', () => {
   const keys = primaryMenuKeys(menuGroups)
   assert.ok(keys.includes('processTemplates'))
@@ -178,6 +191,8 @@ test('finance menu exposes monthly finance workflows as primary pages', () => {
 
 test('remaining ERP click-matrix targets reference real Vue shell views', () => {
   const remainingTargets = [
+    'productionOverview',
+    'workstationView',
     'workOrders',
     'jobCards',
     'productionSchedule',

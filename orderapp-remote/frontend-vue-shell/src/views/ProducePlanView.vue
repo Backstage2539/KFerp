@@ -6,6 +6,8 @@
     @pointerup="stopTableScrollDrag"
     @pointercancel="stopTableScrollDrag"
   >
+    <ProductionTopNav active-key="producePlan" />
+
     <section class="panel">
       <div class="panel-head">
         <h2>生产计划</h2>
@@ -666,6 +668,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import ProductionTopNav from '../components/ProductionTopNav.vue'
 import {
   applicableOperationCapacities,
   buildOperationCapacityAutoSplits,

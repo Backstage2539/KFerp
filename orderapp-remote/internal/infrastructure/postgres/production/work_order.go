@@ -1080,6 +1080,13 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		           FROM %s.job_cards jc
 		           WHERE jc.work_order_id=wo.id
 		       ), '[]'::jsonb)::text,
+		       COALESCE(to_char(wo.planned_start_at,'YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(to_char(wo.planned_end_at,'YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(wo.shift_code,''),
+		       COALESCE(wo.assigned_to,''),
+		       COALESCE(wo.priority,0),
+		       COALESCE(wo.scheduling_note,''),
+		       COALESCE(wo.work_center,''),
 		       COALESCE((
 		           SELECT string_agg(COALESCE(m.name,'') || ' ' || COALESCE(NULLIF(trim(trailing '.' from trim(trailing '0' from COALESCE(bi.ratio_pct,0)::text)), ''), '0') || '%%', '、' ORDER BY bi.id)
 		           FROM (
@@ -1115,7 +1122,8 @@ func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.Work
 		var snapshotText, fallbackMaterialSummary string
 		if err := rows.Scan(
 			&row.ID, &row.WorkOrderNo, &row.RunningItemID, &row.ProductionPlanID, &row.ProductionPlanItemID, &row.BatchID, &row.ProductID, &row.ProductName, &row.SpecG, &row.PlannedG, &row.PlannedOutputG, &row.Status, &row.ActualCost, &row.CreatedAt, &row.CompletedAt,
-			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG, &row.BomVersionID, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON, &fallbackMaterialSummary,
+			&row.RoastLevel, &row.YieldRate, &row.SuggestedInputG, &row.PlannedUnits, &row.PlannedLooseG, &row.OrderNos, &snapshotText, &row.WIPReservedG, &row.WIPConsumedG, &row.WIPRemainingReservedG, &row.BomVersionID, &row.ProcessTemplateID, &row.ProcessTemplateName, &row.ProcessSnapshotJSON, &row.OperationSummaryJSON,
+			&row.PlannedStartAt, &row.PlannedEndAt, &row.ShiftCode, &row.AssignedTo, &row.Priority, &row.SchedulingNote, &row.WorkCenter, &fallbackMaterialSummary,
 		); err != nil {
 			return nil, err
 		}
@@ -1241,7 +1249,14 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 		       COALESCE(jc.loss_reason,''),
 		       COALESCE(jc.exception_reason,''),
 		       COALESCE(jc.metrics_json,'{}'::jsonb)::text,
-		       COALESCE(jc.parameter_schema_json,'{}'::jsonb)::text
+		       COALESCE(jc.parameter_schema_json,'{}'::jsonb)::text,
+		       COALESCE(to_char(jc.planned_start_at,'YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(to_char(jc.planned_end_at,'YYYY-MM-DD HH24:MI'),''),
+		       COALESCE(jc.shift_code,''),
+		       COALESCE(jc.assigned_to,''),
+		       COALESCE(jc.priority,0),
+		       COALESCE(jc.scheduling_note,''),
+		       COALESCE(jc.work_center,'')
 		FROM %s.job_cards jc
 		LEFT JOIN %s.work_orders wo ON wo.id=jc.work_order_id
 		WHERE %s
@@ -1266,6 +1281,7 @@ func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCar
 			&row.Status, &row.StartedAt, &row.PausedAt, &row.ResumedAt, &row.CompletedAt, &row.Operator,
 			&row.PlannedInputQty, &row.ActualInputQty, &row.ActualOutputQty, &row.ActualLossQty, &row.ActualLossRate,
 			&row.RecordsLoss, &row.LossReason, &row.ExceptionReason, &row.MetricsJSON, &row.ParameterSchemaJSON,
+			&row.PlannedStartAt, &row.PlannedEndAt, &row.ShiftCode, &row.AssignedTo, &row.Priority, &row.SchedulingNote, &row.WorkCenter,
 		); err != nil {
 			return nil, err
 		}

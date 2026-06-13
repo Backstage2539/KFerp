@@ -45,6 +45,10 @@ type fakeFlowRepo struct {
 	adjustReservation  WIPReservationAdjustCommand
 	releaseReservation WIPReservationReleaseCommand
 	acceptanceRows     []AcceptanceSmokeRow
+	workOrders         []WorkOrderRow
+	jobCards           []JobCardRow
+	workOrderQuery     WorkOrderQuery
+	jobCardQuery       JobCardQuery
 }
 
 func (r *fakeFlowRepo) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error) {
@@ -244,10 +248,12 @@ func (r *fakeFlowRepo) ListProductionLogs(ctx context.Context, query ProductionL
 	return ProductionLogsResult{}, nil
 }
 func (r *fakeFlowRepo) ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]WorkOrderRow, error) {
-	return nil, nil
+	r.workOrderQuery = query
+	return r.workOrders, nil
 }
 func (r *fakeFlowRepo) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCardRow, error) {
-	return nil, nil
+	r.jobCardQuery = query
+	return r.jobCards, nil
 }
 func (r *fakeFlowRepo) UpdateJobCardActuals(ctx context.Context, cmd JobCardActualsCommand) error {
 	return nil
@@ -794,6 +800,147 @@ func TestServiceOwnsManufacturingPhase2StockEntriesAndExecutionActions(t *testin
 	}
 }
 
+func TestProductionWorkstationOverviewAnswersProductionAndStationQuestions(t *testing.T) {
+	repo := &fakeFlowRepo{
+		workOrders: []WorkOrderRow{{
+			ID:              88,
+			WorkOrderNo:     "WO-OVERVIEW-001",
+			RunningItemID:   99,
+			ProductName:     "桂花乌龙",
+			SpecG:           227,
+			PlannedG:        45400,
+			PlannedUnits:    200,
+			PlannedLooseG:   0,
+			Status:          "running",
+			OrderNos:        "SO-20260613-001",
+			AssignedTo:      "生产主管",
+			Priority:        7,
+			WorkCenter:      "包装线",
+			PlannedStartAt:  "2026-06-13 09:00",
+			PlannedEndAt:    "2026-06-13 11:00",
+			SchedulingNote:  "优先发货",
+			MaterialSummary: "挂耳包材",
+		}, {
+			ID:             89,
+			WorkOrderNo:    "WO-OVERVIEW-002",
+			ProductName:    "日晒瑰夏",
+			SpecG:          454,
+			PlannedG:       90800,
+			PlannedUnits:   200,
+			Status:         "released",
+			OrderNos:       "SO-20260613-002",
+			Priority:       4,
+			WorkCenter:     "烘焙线",
+			PlannedStartAt: "2026-06-13 10:00",
+		}},
+		jobCards: []JobCardRow{{
+			ID:                91,
+			WorkOrderID:       88,
+			WorkOrderNo:       "WO-OVERVIEW-001",
+			ProductName:       "桂花乌龙",
+			SpecG:             227,
+			OrderNos:          "SO-20260613-001",
+			SequenceNo:        20,
+			Operation:         "包装",
+			Workstation:       "包装工位A",
+			WorkCenter:        "包装线",
+			Status:            "running",
+			AssignedTo:        "阿强",
+			Priority:          9,
+			PlannedMinutes:    40,
+			PlannedStartAt:    "2026-06-13 09:00",
+			PlannedEndAt:      "2026-06-13 09:40",
+			SchedulingNote:    "先做急单",
+			PlannedOutputG:    45400,
+			PlannedBatchCount: 2,
+		}, {
+			ID:             92,
+			WorkOrderID:    88,
+			WorkOrderNo:    "WO-OVERVIEW-001",
+			ProductName:    "桂花乌龙",
+			SpecG:          227,
+			OrderNos:       "SO-20260613-001",
+			SequenceNo:     30,
+			Operation:      "贴标",
+			Workstation:    "包装工位A",
+			WorkCenter:     "包装线",
+			Status:         "pending",
+			AssignedTo:     "阿强",
+			Priority:       6,
+			PlannedMinutes: 20,
+			PlannedStartAt: "2026-06-13 09:45",
+		}, {
+			ID:              93,
+			WorkOrderID:     89,
+			WorkOrderNo:     "WO-OVERVIEW-002",
+			ProductName:     "日晒瑰夏",
+			SpecG:           454,
+			OrderNos:        "SO-20260613-002",
+			SequenceNo:      10,
+			Operation:       "烘焙",
+			Workstation:     "布勒 18kg",
+			WorkCenter:      "烘焙线",
+			Status:          "paused",
+			AssignedTo:      "现场主管",
+			Priority:        8,
+			PlannedMinutes:  55,
+			ExceptionReason: "缺少生豆领料",
+		}},
+	}
+	svc := NewService(repo)
+
+	overview, err := svc.ProductionWorkstationOverview(context.Background(), ProductionWorkstationOverviewQuery{Limit: 999})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.workOrderQuery.Limit != 500 || repo.jobCardQuery.Limit != 500 {
+		t.Fatalf("overview should clamp source queries to 500, workOrder=%+v jobCard=%+v", repo.workOrderQuery, repo.jobCardQuery)
+	}
+	if overview.TotalTasks != 3 {
+		t.Fatalf("TotalTasks=%d tasks=%+v", overview.TotalTasks, overview.Tasks)
+	}
+	if !summaryHas(overview.StatusSummary, "执行中", 1) || !summaryHas(overview.StatusSummary, "待处理", 1) || !summaryHas(overview.StatusSummary, "异常", 1) {
+		t.Fatalf("status summary = %+v", overview.StatusSummary)
+	}
+	if !summaryHas(overview.BlockedSummary, "缺少生豆领料", 1) {
+		t.Fatalf("blocked summary = %+v", overview.BlockedSummary)
+	}
+	if !summaryHas(overview.PrioritySummary, "P9", 1) {
+		t.Fatalf("priority summary = %+v", overview.PrioritySummary)
+	}
+
+	packLoad := findWorkstationLoad(overview.WorkstationLoad, "包装线")
+	if packLoad.Workstation != "包装线" || packLoad.RunningTasks != 1 || packLoad.PendingTasks != 1 || packLoad.LoadMinutes != 60 {
+		t.Fatalf("包装线 load = %+v", packLoad)
+	}
+	if packLoad.CurrentTask != "包装 / 桂花乌龙" || packLoad.NextTask != "贴标 / 桂花乌龙" {
+		t.Fatalf("包装线 current/next = %+v", packLoad)
+	}
+	roastLoad := findWorkstationLoad(overview.WorkstationLoad, "烘焙线")
+	if roastLoad.BlockedTasks != 1 || roastLoad.BlockingReason != "缺少生豆领料" {
+		t.Fatalf("烘焙线 load = %+v", roastLoad)
+	}
+
+	running := findProductionTask(overview.Tasks, 91)
+	if running.RunningItemID != 99 || running.StatusLabel != "执行中" || running.NextHandler != "阿强" {
+		t.Fatalf("running task = %+v", running)
+	}
+	for _, action := range []string{"pause", "complete", "partial_finish", "report_exception", "material_call"} {
+		if !stringSliceContains(running.AvailableActions, action) {
+			t.Fatalf("running task actions missing %s: %+v", action, running.AvailableActions)
+		}
+	}
+	blocked := findProductionTask(overview.Tasks, 93)
+	if !blocked.IsBlocked || blocked.BlockingReason != "缺少生豆领料" || blocked.NextHandler != "现场主管" {
+		t.Fatalf("blocked task = %+v", blocked)
+	}
+	for _, action := range []string{"resume", "complete", "report_exception", "material_call"} {
+		if !stringSliceContains(blocked.AvailableActions, action) {
+			t.Fatalf("blocked task actions missing %s: %+v", action, blocked.AvailableActions)
+		}
+	}
+}
+
 func TestServiceRejectsInvalidManufacturingPhase2ExecutionCommands(t *testing.T) {
 	svc := NewService(&fakeFlowRepo{})
 	ctx := context.Background()
@@ -812,6 +959,42 @@ func TestServiceRejectsInvalidManufacturingPhase2ExecutionCommands(t *testing.T)
 	if _, err := svc.CompleteWorkOrder(ctx, WorkOrderCompleteCommand{ID: 88, Operator: "主管"}); err == nil {
 		t.Fatal("CompleteWorkOrder should require finished output")
 	}
+}
+
+func summaryHas(rows []ProductionSummaryCount, label string, count int) bool {
+	for _, row := range rows {
+		if row.Label == label && row.Count == count {
+			return true
+		}
+	}
+	return false
+}
+
+func findWorkstationLoad(rows []ProductionWorkstationLoad, workstation string) ProductionWorkstationLoad {
+	for _, row := range rows {
+		if row.Workstation == workstation {
+			return row
+		}
+	}
+	return ProductionWorkstationLoad{}
+}
+
+func findProductionTask(rows []ProductionTask, jobCardID int64) ProductionTask {
+	for _, row := range rows {
+		if row.JobCardID == jobCardID {
+			return row
+		}
+	}
+	return ProductionTask{}
+}
+
+func stringSliceContains(rows []string, want string) bool {
+	for _, row := range rows {
+		if row == want {
+			return true
+		}
+	}
+	return false
 }
 
 func actionResultStatus(action string) string {
