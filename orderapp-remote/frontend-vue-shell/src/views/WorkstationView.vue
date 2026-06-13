@@ -34,7 +34,7 @@
 
         <div class="answer-grid">
           <div class="answer-block current">
-            <span>现在做</span>
+            <span>当前任务 · 现在做</span>
             <strong>{{ taskTitle(section.currentTask) }}</strong>
             <small>{{ taskMeta(section.currentTask) }}</small>
           </div>
@@ -44,7 +44,7 @@
             <small>{{ taskMeta(section.nextTask) }}</small>
           </div>
           <div class="answer-block blocked" :class="{ empty: !section.blockingReason }">
-            <span>不能做原因</span>
+            <span>阻塞原因 / 不能做原因</span>
             <strong>{{ section.blockingReason || '无阻塞' }}</strong>
             <small>{{ section.blockingReason ? nextHandler(section) : '可继续执行' }}</small>
           </div>
