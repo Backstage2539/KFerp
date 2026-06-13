@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-492-PRODUCTION-DEMAND-ADDON-ORDER-SPLIT
+- Branch: codex/demand-addition-visible-20260613
+- Owner/session: Codex / 2026-06-13
+- Status: implementing; targeted backend/frontend tests passed, merge/deploy pending.
+- Scope: 修复同商品同规格已有订单进入生产计划后，后续加单订单被整行判为生产中而不可选的问题。待生产需求按订单是否已进入生产计划拆分状态；已计划订单继续显示生产中，未计划加单订单保持待计划、可勾选，并只按未计划订单数量计算加单缺口。
+- DEV:
+  - DEV-492-DEMAND-ORDER-SPLIT：待生产需求从订单级判断生产计划覆盖关系，同 SKU 混合已计划/未计划订单时拆成生产中行和待计划加单行。
+  - DEV-492-DEMAND-SELECTION-KEY：生产计划页行渲染 key 与提交选择 key 分离，允许同商品规格同时显示生产中行和待计划加单行。
+- Verifier:
+  - RED/API intent: `TestProducePlanSummaryAPILeavesAddOnOrdersSelectableWhenOlderOrdersPlanned` documents the failing scenario; local DB-backed production API tests skip without `ORDERAPP_TEST_DATABASE_URL`.
+  - GREEN unit/frontend: `go test ./internal/infrastructure/postgres/production -run TestSplitProductionDemandRowByPartsKeepsAddOnSelectable -count=1 -v`; `node --test src/lib/produce-plan.test.js`.
+  - GREEN targeted packages: `go test ./internal/infrastructure/postgres/production ./internal/interfaces/http/production -count=1`.
+  - SQL/live data check: development DB query shows `SO-20260612-0004/0005` match existing `PP-0000000040`, while `SO-20260613-0001/0003` for `榛巧拼配` have no plan and must remain add-on demand.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-13-production-demand-addon-order-split.md`.
+- Deployment: pending merge and development deployment.
+- Last update: 2026-06-13 Asia/Shanghai.
+
 ### PR-491-PRODUCTION-DEMAND-STATUS-JOBCARD-CONTEXT
 - Branch: codex/production-demand-status-jobcard-context-20260613
 - Owner/session: Codex goal / 2026-06-13

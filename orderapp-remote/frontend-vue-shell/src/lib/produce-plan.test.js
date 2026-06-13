@@ -391,11 +391,15 @@ test('ProducePlanView maintains production demand statuses and filters planned r
     'productionDemandSelectable',
     'productionDemandStatusLabel',
     'productionDemandStatusTone',
+    'productionDemandSelectionKey',
+    'isProductionDemandSelected',
     'status-demand-in-production',
     '已进入生产计划的需求不可重复生成计划',
   ]) {
     assert.match(source, new RegExp(marker))
   }
+  assert.match(source, /row\.demand_status \|\| 'unplanned'/)
+  assert.doesNotMatch(source, /selected\[rowKey\(row\)\]/)
 })
 
 test('ProducePlanView explains operation capacity splits before the draft plan exists', () => {

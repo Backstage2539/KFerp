@@ -19,6 +19,7 @@ type UnprodNeedRow struct {
 	InvLooseG                int64  `json:"inv_loose_g"`
 	InvG                     int64  `json:"inv_g"`
 	GapG                     int64  `json:"gap_g"`
+	AvailableG               int64  `json:"-"`
 	ProductionKind           string `json:"production_kind,omitempty"`
 	ProductTypeCategoryID    int64  `json:"product_type_category_id,omitempty"`
 	ProductSubtypeCategoryID int64  `json:"product_subtype_category_id,omitempty"`
@@ -193,6 +194,11 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 			COALESCE(fi.onhand_units,0) AS inv_units,
 			COALESCE(fi.onhand_loose_g,0) AS inv_loose_g,
 			(COALESCE(fi.onhand_units,0) * n.spec_g + COALESCE(fi.onhand_loose_g,0)) AS inv_g,
+			GREATEST(
+				0,
+				(COALESCE(fi.onhand_units,0) * n.spec_g + COALESCE(fi.onhand_loose_g,0))
+				- COALESCE(reserved.reserved_g,0)
+			)::bigint AS available_g,
 			(
 				(n.force_produce_units * n.spec_g)
 				+ GREATEST(
@@ -223,7 +229,7 @@ func fetchUnproducedNeeds(ctx context.Context, pool *pgxpool.Pool, schema, from,
 	out := make([]UnprodNeedRow, 0)
 	for rows.Next() {
 		var r UnprodNeedRow
-		if err := rows.Scan(&r.ProductID, &r.Product, &r.ProductionKind, &r.ProductTypeCategoryID, &r.ProductSubtypeCategoryID, &r.ProductTypeName, &r.ProductSubtypeName, &r.OperationTemplateID, &r.OrderNos, &r.SpecG, &r.NeedUnits, &r.NeedG, &r.InvUnits, &r.InvLooseG, &r.InvG, &r.GapG); err != nil {
+		if err := rows.Scan(&r.ProductID, &r.Product, &r.ProductionKind, &r.ProductTypeCategoryID, &r.ProductSubtypeCategoryID, &r.ProductTypeName, &r.ProductSubtypeName, &r.OperationTemplateID, &r.OrderNos, &r.SpecG, &r.NeedUnits, &r.NeedG, &r.InvUnits, &r.InvLooseG, &r.InvG, &r.AvailableG, &r.GapG); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

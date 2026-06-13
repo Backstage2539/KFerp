@@ -88,7 +88,7 @@
                   <input
                     class="bulk-checkbox"
                     type="checkbox"
-                    :checked="!!selected[rowKey(row)]"
+                    :checked="isProductionDemandSelected(row)"
                     :disabled="!productionDemandSelectable(row)"
                     :title="productionDemandSelectable(row) ? '选择生成生产计划' : '已进入生产计划的需求不可重复生成计划'"
                     @change="toggleInsufficientRow(row, $event.target.checked)"
@@ -663,7 +663,21 @@ const productionPlanFilters = reactive({
 })
 
 function rowKey(row) {
+  return [
+    producePlanKey(row.product_id, row.spec_g),
+    row.demand_status || 'unplanned',
+    row.production_plan_id || 0,
+    row.work_order_id || 0,
+    row.order_nos || '',
+  ].join('|')
+}
+
+function productionDemandSelectionKey(row) {
   return producePlanKey(row.product_id, row.spec_g)
+}
+
+function isProductionDemandSelected(row) {
+  return productionDemandSelectable(row) && !!selected[productionDemandSelectionKey(row)]
 }
 
 function percent(v) {
@@ -830,7 +844,7 @@ function toggleAllInsufficient(checked) {
 }
 
 function toggleInsufficientRow(row, checked) {
-  const key = rowKey(row)
+  const key = productionDemandSelectionKey(row)
   if (!productionDemandSelectable(row)) {
     delete selected[key]
     return
@@ -911,7 +925,7 @@ function toggleProductionPlan(plan, checked) {
 }
 
 function pruneSufficientSelections() {
-  const allowed = new Set(stockInsufficientRows.value.filter(productionDemandSelectable).map((row) => rowKey(row)))
+  const allowed = new Set(stockInsufficientRows.value.filter(productionDemandSelectable).map((row) => productionDemandSelectionKey(row)))
   for (const key of Object.keys(selected)) {
     if (!allowed.has(key)) delete selected[key]
   }

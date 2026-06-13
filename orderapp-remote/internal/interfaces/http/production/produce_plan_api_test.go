@@ -103,6 +103,69 @@ func TestProducePlanSummaryAPIMarksPlannedDemandAsInProductionAndFiltersIt(t *te
 	}
 }
 
+func TestProducePlanSummaryAPILeavesAddOnOrdersSelectableWhenOlderOrdersPlanned(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %s.products(id,name,default_price,active) VALUES (1,'PR492 加单商品',50,true);
+		INSERT INTO %s.order_process_statuses(name,sort,active) VALUES ('待处理',10,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %s.orders(id,order_no,order_date,is_void,process_status_id) VALUES
+			(1,'SO-ADD-OLD','2026-06-13',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1)),
+			(2,'SO-ADD-NEW','2026-06-13',false,(SELECT id FROM %s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES
+			(1,1,'PR492 加单商品',2,'袋','454g',1,50,100),
+			(2,1,'PR492 加单商品',3,'袋','454g',1,50,150);
+		INSERT INTO %s.production_plans(id,plan_no,source_type,status,created_by,created_at)
+		VALUES (4921,'PP-ADD-OLD','erp_order','draft','tester',now());
+		INSERT INTO %s.production_plan_items(id,production_plan_id,product_id,product_name,spec_g,planned_g,planned_output_g,gap_g,order_nos,component_snapshot_json,process_route_snapshot_json,production_config_snapshot_json,customer_product_snapshot_json,created_at)
+		VALUES (4922,4921,1,'PR492 加单商品',454,908,908,908,'SO-ADD-OLD','[]'::jsonb,'{}'::jsonb,'{}'::jsonb,'[]'::jsonb,now());
+	`, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	e := newProducePlanTestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?from=2026-06-13&to=2026-06-13&selected=1-454&plan=1", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/produce/unproduced status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Rows     []productionapp.UnprodNeedRow `json:"rows"`
+		PlanRows []struct {
+			productionapp.UnprodNeedRow
+			InputG int64 `json:"input_g"`
+		} `json:"plan_rows"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v body=%s", err, rec.Body.String())
+	}
+	var oldRow, addOnRow *productionapp.UnprodNeedRow
+	for i := range payload.Rows {
+		row := &payload.Rows[i]
+		switch row.OrderNos {
+		case "SO-ADD-OLD":
+			oldRow = row
+		case "SO-ADD-NEW":
+			addOnRow = row
+		}
+	}
+	if oldRow == nil || addOnRow == nil {
+		t.Fatalf("rows should split planned and add-on orders, got %+v", payload.Rows)
+	}
+	if oldRow.DemandStatus != "in_production" || oldRow.DemandSelectable {
+		t.Fatalf("old planned row status/selectable = %s/%v, want in_production/false", oldRow.DemandStatus, oldRow.DemandSelectable)
+	}
+	if addOnRow.DemandStatus != "unplanned" || !addOnRow.DemandSelectable || addOnRow.NeedUnits != 3 || addOnRow.GapG != 1362 {
+		t.Fatalf("add-on row = %+v, want unplanned selectable 3 units 1362g gap", addOnRow)
+	}
+	if len(payload.PlanRows) != 1 || payload.PlanRows[0].OrderNos != "SO-ADD-NEW" || payload.PlanRows[0].NeedG != 1362 {
+		t.Fatalf("plan rows should only include add-on demand, got %+v", payload.PlanRows)
+	}
+}
+
 func TestProducePlanSummaryAPIReturnsExactYieldRateForRoastPlans(t *testing.T) {
 	pool, schema := newProductionFlowTestDB(t)
 	ctx := context.Background()

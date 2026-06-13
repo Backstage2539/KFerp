@@ -51,6 +51,10 @@ func (r Repository) PlanSummary(ctx context.Context, query productionapp.PlanSum
 	if err != nil {
 		return data, err
 	}
+	rows, err = r.splitUnproducedNeedsByProductionPlan(ctx, rows)
+	if err != nil {
+		return data, err
+	}
 	appRows := unprodRowsToApp(rows)
 	dripRows, err := r.fetchDripPlanNeeds(ctx, query.From, query.To, query.CustomerID)
 	if err != nil {
@@ -158,6 +162,284 @@ type productionDemandPlanState struct {
 	WorkOrderNo      string
 }
 
+type productionDemandPart struct {
+	ProductID         int64
+	SpecG             int64
+	OrderNo           string
+	NeedUnits         int64
+	ForceProduceUnits int64
+	State             productionDemandPlanState
+}
+
+func (r Repository) splitUnproducedNeedsByProductionPlan(ctx context.Context, rows []UnprodNeedRow) ([]UnprodNeedRow, error) {
+	if len(rows) == 0 {
+		return rows, nil
+	}
+	parts, err := r.fetchProductionDemandParts(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(parts) == 0 {
+		for i := range rows {
+			rows[i].DemandStatus = "unplanned"
+			rows[i].DemandStatusLabel = productionDemandStatusLabel("unplanned")
+			rows[i].DemandSelectable = rows[i].GapG > 0
+		}
+		return rows, nil
+	}
+	partsByKey := map[string][]productionDemandPart{}
+	for _, part := range parts {
+		key := producePlanKey(part.ProductID, part.SpecG)
+		partsByKey[key] = append(partsByKey[key], part)
+	}
+	out := make([]UnprodNeedRow, 0, len(rows))
+	for _, row := range rows {
+		rowParts := filterProductionDemandPartsForRow(partsByKey[producePlanKey(row.ProductID, row.SpecG)], row.OrderNos)
+		if len(rowParts) == 0 {
+			row.DemandStatus = "unplanned"
+			row.DemandStatusLabel = productionDemandStatusLabel("unplanned")
+			row.DemandSelectable = row.GapG > 0
+			out = append(out, row)
+			continue
+		}
+		out = append(out, splitProductionDemandRowByParts(row, rowParts)...)
+	}
+	return out, nil
+}
+
+func filterProductionDemandPartsForRow(parts []productionDemandPart, orderNos string) []productionDemandPart {
+	if len(parts) == 0 {
+		return nil
+	}
+	allowed := splitProductionDemandOrderNos(orderNos)
+	out := make([]productionDemandPart, 0, len(parts))
+	for _, part := range parts {
+		if allowed[part.OrderNo] {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+type productionDemandPartGroup struct {
+	row               UnprodNeedRow
+	orderNos          map[string]bool
+	forceProduceUnits int64
+}
+
+func splitProductionDemandRowByParts(row UnprodNeedRow, parts []productionDemandPart) []UnprodNeedRow {
+	groups := map[string]*productionDemandPartGroup{}
+	order := make([]string, 0)
+	for _, part := range parts {
+		status := part.State.Status
+		if status == "" {
+			status = "unplanned"
+		}
+		groupKey := status
+		if status != "unplanned" {
+			groupKey = fmt.Sprintf("%s:%d:%d", status, part.State.ProductionPlanID, part.State.WorkOrderID)
+		}
+		group := groups[groupKey]
+		if group == nil {
+			next := row
+			next.OrderNos = ""
+			next.NeedUnits = 0
+			next.NeedG = 0
+			next.GapG = 0
+			next.DemandStatus = status
+			next.DemandStatusLabel = productionDemandStatusLabel(status)
+			next.DemandSelectable = false
+			next.ProductionPlanID = part.State.ProductionPlanID
+			next.ProductionPlanNo = part.State.ProductionPlanNo
+			next.WorkOrderID = part.State.WorkOrderID
+			next.WorkOrderNo = part.State.WorkOrderNo
+			group = &productionDemandPartGroup{row: next, orderNos: map[string]bool{}}
+			groups[groupKey] = group
+			order = append(order, groupKey)
+		}
+		group.row.NeedUnits += part.NeedUnits
+		group.forceProduceUnits += part.ForceProduceUnits
+		group.orderNos[part.OrderNo] = true
+	}
+	out := make([]UnprodNeedRow, 0, len(groups))
+	for _, groupKey := range order {
+		group := groups[groupKey]
+		group.row.OrderNos = joinProductionDemandOrderNos(group.orderNos)
+		group.row.NeedG = group.row.NeedUnits * group.row.SpecG
+		if group.row.DemandStatus == "unplanned" {
+			group.row.GapG = calcProductionDemandGap(group.row.SpecG, group.row.NeedUnits, group.forceProduceUnits, row.AvailableG)
+			group.row.DemandSelectable = group.row.GapG > 0
+		} else {
+			group.row.GapG = group.row.NeedG
+			group.row.DemandSelectable = false
+		}
+		out = append(out, group.row)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		left, right := productionDemandStatusPriority(out[i].DemandStatus), productionDemandStatusPriority(out[j].DemandStatus)
+		if left != right {
+			return left < right
+		}
+		return out[i].OrderNos < out[j].OrderNos
+	})
+	return out
+}
+
+func calcProductionDemandGap(specG, needUnits, forceProduceUnits, availableG int64) int64 {
+	if specG <= 0 || needUnits <= 0 {
+		return 0
+	}
+	if forceProduceUnits < 0 {
+		forceProduceUnits = 0
+	}
+	if forceProduceUnits > needUnits {
+		forceProduceUnits = needUnits
+	}
+	forceG := forceProduceUnits * specG
+	nonForceG := (needUnits - forceProduceUnits) * specG
+	if availableG < 0 {
+		availableG = 0
+	}
+	return forceG + maxInt64(0, nonForceG-availableG)
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func joinProductionDemandOrderNos(values map[string]bool) string {
+	if len(values) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return strings.Join(out, ",")
+}
+
+func (r Repository) fetchProductionDemandParts(ctx context.Context, rows []UnprodNeedRow) ([]productionDemandPart, error) {
+	productSeen := map[int64]bool{}
+	specSeen := map[int64]bool{}
+	orderSeen := map[string]bool{}
+	productIDs := make([]int64, 0)
+	specGs := make([]int64, 0)
+	orderNos := make([]string, 0)
+	for _, row := range rows {
+		if row.ProductID <= 0 || row.SpecG <= 0 {
+			continue
+		}
+		if !productSeen[row.ProductID] {
+			productSeen[row.ProductID] = true
+			productIDs = append(productIDs, row.ProductID)
+		}
+		if !specSeen[row.SpecG] {
+			specSeen[row.SpecG] = true
+			specGs = append(specGs, row.SpecG)
+		}
+		for orderNo := range splitProductionDemandOrderNos(row.OrderNos) {
+			if !orderSeen[orderNo] {
+				orderSeen[orderNo] = true
+				orderNos = append(orderNos, orderNo)
+			}
+		}
+	}
+	if len(productIDs) == 0 || len(specGs) == 0 || len(orderNos) == 0 {
+		return nil, nil
+	}
+	q := fmt.Sprintf(`
+		WITH source_need AS (
+			SELECT
+				oi.product_id,
+				COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint AS spec_g,
+				COALESCE(o.order_no,'') AS order_no,
+				SUM(COALESCE(oi.qty,0))::bigint AS need_units,
+				SUM(CASE WHEN COALESCE(osd.decision,'') = 'produce' THEN COALESCE(oi.qty,0) ELSE 0 END)::bigint AS force_produce_units
+			FROM %s.order_items oi
+			JOIN %s.orders o ON o.id=oi.order_id
+			LEFT JOIN %s.order_stock_decisions osd ON osd.order_id=o.id
+			WHERE oi.product_id = ANY($1::bigint[])
+			  AND COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint = ANY($2::bigint[])
+			  AND COALESCE(o.order_no,'') = ANY($3::text[])
+			GROUP BY oi.product_id, COALESCE(NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), ''), '0')::bigint, COALESCE(o.order_no,'')
+			UNION ALL
+			SELECT
+				d.product_id,
+				d.spec_g,
+				COALESCE(d.request_no,'') AS order_no,
+				SUM(COALESCE(d.target_qty,0))::bigint AS need_units,
+				SUM(COALESCE(d.target_qty,0))::bigint AS force_produce_units
+			FROM %s.customer_processing_production_demands d
+			WHERE d.product_id = ANY($1::bigint[])
+			  AND d.spec_g = ANY($2::bigint[])
+			  AND COALESCE(d.request_no,'') = ANY($3::text[])
+			  AND d.status='planned'
+			GROUP BY d.product_id,d.spec_g,COALESCE(d.request_no,'')
+		)
+		SELECT
+			sn.product_id,sn.spec_g,sn.order_no,sn.need_units,sn.force_produce_units,
+			COALESCE(pm.plan_id,0),COALESCE(pm.plan_no,''),COALESCE(pm.plan_status,''),
+			COALESCE(pm.work_order_id,0),COALESCE(pm.work_order_no,''),COALESCE(pm.work_order_status,'')
+		FROM source_need sn
+		LEFT JOIN LATERAL (
+			SELECT
+				pp.id AS plan_id,
+				pp.plan_no,
+				COALESCE(pp.status,'') AS plan_status,
+				COALESCE(wo.id,0) AS work_order_id,
+				COALESCE(wo.work_order_no,'') AS work_order_no,
+				COALESCE(wo.status,'') AS work_order_status,
+				CASE
+					WHEN COALESCE(wo.status,'')='completed' OR COALESCE(pp.status,'')='completed' THEN 3
+					WHEN COALESCE(wo.status,'') IN ('released','running','partially_completed','paused') OR COALESCE(pp.status,'') IN ('draft','submitted','in_progress') THEN 2
+					ELSE 1
+				END AS priority
+			FROM %s.production_plan_items pi
+			JOIN %s.production_plans pp ON pp.id=pi.production_plan_id
+			LEFT JOIN %s.work_orders wo ON wo.production_plan_item_id=pi.id
+			WHERE pi.product_id=sn.product_id
+			  AND pi.spec_g=sn.spec_g
+			  AND COALESCE(pp.status,'') <> 'cancelled'
+			  AND sn.order_no = ANY(string_to_array(replace(COALESCE(pi.order_nos,''),' ',''), ','))
+			ORDER BY priority DESC,pp.created_at DESC,pp.id DESC,wo.id DESC
+			LIMIT 1
+		) pm ON true
+		ORDER BY sn.product_id,sn.spec_g,sn.order_no
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
+	sqlRows, err := r.pool.Query(ctx, q, productIDs, specGs, orderNos)
+	if err != nil {
+		return nil, err
+	}
+	defer sqlRows.Close()
+	parts := make([]productionDemandPart, 0)
+	for sqlRows.Next() {
+		var part productionDemandPart
+		var planStatus, workOrderStatus string
+		if err := sqlRows.Scan(
+			&part.ProductID,
+			&part.SpecG,
+			&part.OrderNo,
+			&part.NeedUnits,
+			&part.ForceProduceUnits,
+			&part.State.ProductionPlanID,
+			&part.State.ProductionPlanNo,
+			&planStatus,
+			&part.State.WorkOrderID,
+			&part.State.WorkOrderNo,
+			&workOrderStatus,
+		); err != nil {
+			return nil, err
+		}
+		part.State.Status = productionDemandStatusFromPlan(planStatus, workOrderStatus)
+		parts = append(parts, part)
+	}
+	return parts, sqlRows.Err()
+}
+
 func filterProductionDemandRows(rows []productionapp.UnprodNeedRow, status string) []productionapp.UnprodNeedRow {
 	// demand_status is the API filter key for derived production demand state.
 	status = normalizeProductionDemandStatusFilter(status)
@@ -194,23 +476,39 @@ func productionDemandStatusLabel(status string) string {
 }
 
 func (r Repository) attachProductionDemandStatuses(ctx context.Context, rows []productionapp.UnprodNeedRow) error {
-	states, err := r.productionDemandStatusByKey(ctx, rows)
-	if err != nil {
-		return err
+	missing := make([]productionapp.UnprodNeedRow, 0)
+	for _, row := range rows {
+		if strings.TrimSpace(row.DemandStatus) == "" {
+			missing = append(missing, row)
+		}
+	}
+	states := map[string]productionDemandPlanState{}
+	if len(missing) > 0 {
+		var err error
+		states, err = r.productionDemandStatusByKey(ctx, missing)
+		if err != nil {
+			return err
+		}
 	}
 	for i := range rows {
-		key := producePlanKey(rows[i].ProductID, rows[i].SpecG)
-		state := states[key]
-		if state.Status == "" {
-			state.Status = "unplanned"
+		if strings.TrimSpace(rows[i].DemandStatus) == "" {
+			key := producePlanKey(rows[i].ProductID, rows[i].SpecG)
+			state := states[key]
+			if state.Status == "" {
+				state.Status = "unplanned"
+			}
+			rows[i].DemandStatus = state.Status
+			rows[i].ProductionPlanID = state.ProductionPlanID
+			rows[i].ProductionPlanNo = state.ProductionPlanNo
+			rows[i].WorkOrderID = state.WorkOrderID
+			rows[i].WorkOrderNo = state.WorkOrderNo
 		}
-		rows[i].DemandStatus = state.Status
-		rows[i].DemandStatusLabel = productionDemandStatusLabel(state.Status)
-		rows[i].DemandSelectable = rows[i].GapG > 0 && state.Status == "unplanned"
-		rows[i].ProductionPlanID = state.ProductionPlanID
-		rows[i].ProductionPlanNo = state.ProductionPlanNo
-		rows[i].WorkOrderID = state.WorkOrderID
-		rows[i].WorkOrderNo = state.WorkOrderNo
+		rows[i].DemandStatus = normalizeProductionDemandStatusFilter(rows[i].DemandStatus)
+		if rows[i].DemandStatus == "" {
+			rows[i].DemandStatus = "unplanned"
+		}
+		rows[i].DemandStatusLabel = productionDemandStatusLabel(rows[i].DemandStatus)
+		rows[i].DemandSelectable = rows[i].GapG > 0 && rows[i].DemandStatus == "unplanned"
 	}
 	return nil
 }
