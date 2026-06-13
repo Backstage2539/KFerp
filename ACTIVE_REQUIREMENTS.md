@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-493-PLAN-WORKORDER-SPLIT-EDIT
 - Branch: codex/plan-workorder-split-edit-20260613
 - Owner/session: Codex / 2026-06-13
-- Status: implementing; targeted backend/frontend tests passed, broader verification and deployment pending.
+- Status: merged to develop and deployed to development.
 - Scope: 修复工序主数据改名后新建生产计划/工单仍显示旧路线行工序名；草稿生产计划支持从单据列表/详情重新载入当前计划工作台编辑工序产能拆分；已生成但尚未开工的 released 工单支持编辑拆分并重建 pending 工序卡。
 - DEV:
   - DEV-493-ROUTE-OPERATION-MASTER-NAME：新建生产计划/工单加载工艺路线快照时，按 `operation_id` 回查最新 `manufacturing_operations.name`。
@@ -20,8 +20,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED API: `go test ./internal/interfaces/http/production -run TestWorkOrderOperationSplitAPISavesReleasedWorkOrderCapacitySplits` failed because work-order split command/API did not exist.
   - RED frontend: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js` failed because work-order split exports/UI markers did not exist.
   - GREEN targeted: `go test ./internal/infrastructure/postgres/production -run 'TestProcessRouteSnapshotUsesLatestOperationMasterNames|TestProductionPlanOperationSplitsOwnCapacityBatchPlanning'`; `go test ./internal/interfaces/http/production -run TestWorkOrderOperationSplitAPISavesReleasedWorkOrderCapacitySplits`; `go test ./internal/application/production -run 'TestServiceRejectsInvalidProductionPlanAndWorkOrderCommands|TestServiceOwnsFormalProductionPlanWorkOrderLifecycle'`; `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js`.
+  - GREEN release: `go test ./...`; `go test ./internal/application/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/production ./internal/interfaces/http/support -count=1`; `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js src/lib/operation-manuals.test.js`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Browser/local: mock API + headless Chrome verified draft production plan `编辑拆分` reloads the split editor with `色选` / `布勒 18kg` / `自动批次数 4` / 4 batch cards; released work order `编辑拆分` opens the drawer, selects `布勒 18kg`, and renders 4 batch cards.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-13-plan-workorder-split-edit.md`.
-- Deployment: pending merge and development deployment.
+- Deployment: deployed 2026-06-13 Asia/Shanghai with PR code commit `7fd311edc6e5b21eac9b5fab5a88cd6713748692`; backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260613130230`. Smoke: `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; `GET /app/` returned 303; unauthenticated `GET /app/api/auth/me` returned 401; authenticated `GET /app/api/req/product?limit=1` returned 200; req API and deployed docs expose `PR-493-PLAN-WORKORDER-SPLIT-EDIT`.
 - Last update: 2026-06-13 Asia/Shanghai.
 
 ### PR-492-PRODUCTION-DEMAND-ADDON-ORDER-SPLIT
