@@ -1,6 +1,9 @@
 package production
 
-import "testing"
+import (
+	productionapp "orderapp/internal/application/production"
+	"testing"
+)
 
 func TestSplitProductionDemandRowByPartsKeepsAddOnSelectable(t *testing.T) {
 	row := UnprodNeedRow{
@@ -60,5 +63,55 @@ func TestSplitProductionDemandRowByPartsKeepsAddOnSelectable(t *testing.T) {
 	}
 	if addOn.NeedUnits != 3 || addOn.NeedG != 1362 || addOn.GapG != 1362 {
 		t.Fatalf("add-on quantities = units %d need %d gap %d, want 3/1362/1362", addOn.NeedUnits, addOn.NeedG, addOn.GapG)
+	}
+}
+
+func TestSelectedProductionPlanStartNeedsKeepsAddOnOrdersWhenOlderOrdersArePlanned(t *testing.T) {
+	row := UnprodNeedRow{
+		ProductID:  554,
+		Product:    "榛巧拼配",
+		OrderNos:   "SO-OLD,SO-NEW",
+		SpecG:      454,
+		NeedUnits:  5,
+		NeedG:      2270,
+		AvailableG: 0,
+		GapG:       2270,
+	}
+	parts := []productionDemandPart{
+		{
+			ProductID: 554,
+			SpecG:     454,
+			OrderNo:   "SO-OLD",
+			NeedUnits: 2,
+			State: productionDemandPlanState{
+				Status:           "in_production",
+				ProductionPlanID: 4921,
+				ProductionPlanNo: "PP-OLD",
+			},
+		},
+		{
+			ProductID: 554,
+			SpecG:     454,
+			OrderNo:   "SO-NEW",
+			NeedUnits: 3,
+			State:     productionDemandPlanState{Status: "unplanned"},
+		},
+	}
+
+	rows := unprodRowsToApp(splitProductionDemandRowByParts(row, parts))
+	needs := selectedProductionPlanStartNeeds(rows, map[string]bool{"554-454": true})
+
+	if len(needs) != 1 {
+		t.Fatalf("selected start needs = %d, want 1: %+v", len(needs), needs)
+	}
+	want := productionapp.StartNeed{
+		ProductID:   554,
+		ProductName: "榛巧拼配",
+		SpecG:       454,
+		GapG:        1362,
+		OrderNos:    "SO-NEW",
+	}
+	if needs[0] != want {
+		t.Fatalf("selected start need = %+v, want %+v", needs[0], want)
 	}
 }

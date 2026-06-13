@@ -92,14 +92,22 @@ func (r Repository) productionPlanSelectedNeeds(ctx context.Context, tx pgx.Tx, 
 	if err != nil {
 		return nil, err
 	}
+	rows, err = r.splitUnproducedNeedsByProductionPlan(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
 	appRows := unprodRowsToApp(rows)
 	if err := r.attachProductionDemandStatuses(ctx, appRows); err != nil {
 		return nil, err
 	}
+	return selectedProductionPlanStartNeeds(appRows, cmd.Selected), nil
+}
+
+func selectedProductionPlanStartNeeds(rows []productionapp.UnprodNeedRow, selected map[string]bool) []productionapp.StartNeed {
 	out := make([]productionapp.StartNeed, 0)
-	for _, row := range appRows {
+	for _, row := range rows {
 		key := producePlanKey(row.ProductID, row.SpecG)
-		if !cmd.Selected[key] || row.GapG <= 0 || row.DemandStatus != "unplanned" {
+		if !selected[key] || row.GapG <= 0 || row.DemandStatus != "unplanned" {
 			continue
 		}
 		out = append(out, productionapp.StartNeed{
@@ -111,7 +119,7 @@ func (r Repository) productionPlanSelectedNeeds(ctx context.Context, tx pgx.Tx, 
 			OperationTemplateID: row.OperationTemplateID,
 		})
 	}
-	return out, nil
+	return out
 }
 
 func createProductionPlanItemForGroupTx(ctx context.Context, tx pgx.Tx, schema string, planID int64, group startRunGroup, yieldRate float64) (productionapp.ProductionPlanItem, error) {

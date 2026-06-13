@@ -26,6 +26,22 @@ func TestProductionPlanCreateAllowsDefaultInputForSelectedRows(t *testing.T) {
 	}
 }
 
+func TestProductionPlanCreateSplitsOrderLevelDemandBeforeFilteringSelectedRows(t *testing.T) {
+	src, err := os.ReadFile("production_plan.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	for _, want := range []string{
+		"splitUnproducedNeedsByProductionPlan(ctx, rows)",
+		"selectedProductionPlanStartNeeds(appRows, cmd.Selected)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("formal production plan create must reuse order-level demand split before selected filtering; missing %q", want)
+		}
+	}
+}
+
 func TestProductionPlanListSupportsStatusAndTimeFilters(t *testing.T) {
 	src, err := os.ReadFile("production_plan.go")
 	if err != nil {
