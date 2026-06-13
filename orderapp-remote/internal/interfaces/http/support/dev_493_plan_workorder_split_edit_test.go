@@ -55,7 +55,9 @@ func TestDev493PlanWorkOrderSplitEditContracts(t *testing.T) {
 		}
 	}
 	for _, marker := range []string{
-		"loadProductionPlanIntoCurrentEditor",
+		"openProductionPlanSplitDrawer",
+		"production-plan-split-drawer",
+		"productionPlanSplitRows",
 		"编辑拆分",
 		"work-order-split-drawer",
 		"buildWorkOrderOperationSplitPayload",
