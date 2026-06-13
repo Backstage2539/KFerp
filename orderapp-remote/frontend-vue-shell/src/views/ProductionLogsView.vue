@@ -1,5 +1,7 @@
 <template>
   <div class="page">
+    <ProductionTopNav active-key="produceLogs" />
+
     <section class="panel">
       <div class="panel-head">
         <h2>生产日志</h2>
@@ -94,6 +96,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet } from '../api/client'
+import ProductionTopNav from '../components/ProductionTopNav.vue'
 import { replaceHistoryURL } from '../lib/url-state'
 
 const loading = ref(false)

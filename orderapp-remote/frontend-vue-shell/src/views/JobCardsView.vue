@@ -1,5 +1,7 @@
 <template>
   <div class="page">
+    <ProductionTopNav active-key="jobCards" />
+
     <section class="panel">
       <div class="panel-head">
         <h2>工序卡</h2>
@@ -131,6 +133,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import ProductionTopNav from '../components/ProductionTopNav.vue'
 import { buildJobCardActionPayload, canRunJobCardAction, jobCardActionEndpoint, jobCardStatusLabel, jobCardStatusOptions } from '../lib/manufacturing-execution'
 import { formatPercent } from '../lib/manufacturing-loss'
 

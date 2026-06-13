@@ -8,6 +8,14 @@ test('costing view routes to the bean list and pricing workspace', () => {
   assert.match(source, /\bcosting:\s*CostingView\b/)
 })
 
+test('production high-frequency views route through the Vue shell', () => {
+  const source = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+  assert.match(source, /import\s+ProductionOverviewView\s+from\s+['"]\.\/views\/ProductionOverviewView\.vue['"]/)
+  assert.match(source, /import\s+WorkstationView\s+from\s+['"]\.\/views\/WorkstationView\.vue['"]/)
+  assert.match(source, /\bproductionOverview:\s*ProductionOverviewView\b/)
+  assert.match(source, /\bworkstationView:\s*WorkstationView\b/)
+})
+
 test('delivery note date field keeps ISO date text visible to Chinese operators', () => {
   const source = readFileSync(new URL('../views/DeliveryNoteView.vue', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /v-model\.trim="form\.posting_date"\s+type="date"/)

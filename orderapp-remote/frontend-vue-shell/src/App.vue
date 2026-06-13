@@ -204,6 +204,7 @@ import ProduceRunningView from './views/ProduceRunningView.vue'
 import ProductionAcceptanceView from './views/ProductionAcceptanceView.vue'
 import ProductionCostsView from './views/ProductionCostsView.vue'
 import ProductionLogsView from './views/ProductionLogsView.vue'
+import ProductionOverviewView from './views/ProductionOverviewView.vue'
 import ProductionScheduleView from './views/ProductionScheduleView.vue'
 import ProcessTemplatesView from './views/ProcessTemplatesView.vue'
 import ProductSettingsView from './views/ProductSettingsView.vue'
@@ -221,6 +222,7 @@ import StockOutboundLogsView from './views/StockOutboundLogsView.vue'
 import UISettingsView from './views/UISettingsView.vue'
 import WipMaterialsView from './views/WipMaterialsView.vue'
 import WarehouseInventoryView from './views/WarehouseInventoryView.vue'
+import WorkstationView from './views/WorkstationView.vue'
 import WorkOrdersView from './views/WorkOrdersView.vue'
 import { clearStoredAuthToken, fetchCurrentActor, hasStoredAuthToken, logoutCurrentSession } from './api/auth.js'
 import { appURL } from './api/client.js'
@@ -385,6 +387,8 @@ const internalViews = {
   financeSettings: FinanceSettingsView,
   financeManual: OperationManualView,
   producePlan: ProducePlanView,
+  productionOverview: ProductionOverviewView,
+  workstationView: WorkstationView,
   productionAcceptance: ProductionAcceptanceView,
   produceRunning: ProduceRunningView,
   produceLogs: ProductionLogsView,

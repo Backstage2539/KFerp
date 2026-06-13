@@ -1,5 +1,7 @@
 <template>
   <div class="page">
+    <ProductionTopNav active-key="workOrders" />
+
     <section class="panel no-print">
       <div class="panel-head">
         <h2>生产工单</h2>
@@ -266,6 +268,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import ProductionTopNav from '../components/ProductionTopNav.vue'
 import { expectedLossRate, formatPercent } from '../lib/manufacturing-loss'
 import { canCompleteWorkOrder, workOrderCompleteEndpoint, workOrderStatusLabel } from '../lib/manufacturing-execution'
 import {

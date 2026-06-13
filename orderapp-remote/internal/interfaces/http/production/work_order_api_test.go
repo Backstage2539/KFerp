@@ -13,10 +13,12 @@ import (
 )
 
 type workOrderAPIRepo struct {
-	rows          []productionapp.WorkOrderRow
-	jobCards      []productionapp.JobCardRow
-	jobCardActual productionapp.JobCardActualsCommand
-	jobCardAction productionapp.JobCardActionCommand
+	rows           []productionapp.WorkOrderRow
+	jobCards       []productionapp.JobCardRow
+	workOrderQuery productionapp.WorkOrderQuery
+	jobCardQuery   productionapp.JobCardQuery
+	jobCardActual  productionapp.JobCardActualsCommand
+	jobCardAction  productionapp.JobCardActionCommand
 
 	createPlan          productionapp.CreateProductionPlanCommand
 	savePlanSplits      productionapp.SaveProductionPlanOperationSplitsCommand
@@ -218,9 +220,11 @@ func (r *workOrderAPIRepo) ListProductionLogs(ctx context.Context, query product
 	return productionapp.ProductionLogsResult{}, nil
 }
 func (r *workOrderAPIRepo) ListWorkOrders(ctx context.Context, query productionapp.WorkOrderQuery) ([]productionapp.WorkOrderRow, error) {
+	r.workOrderQuery = query
 	return r.rows, nil
 }
 func (r *workOrderAPIRepo) ListJobCards(ctx context.Context, query productionapp.JobCardQuery) ([]productionapp.JobCardRow, error) {
+	r.jobCardQuery = query
 	return r.jobCards, nil
 }
 func (r *workOrderAPIRepo) UpdateJobCardActuals(ctx context.Context, cmd productionapp.JobCardActualsCommand) error {
@@ -354,6 +358,104 @@ func TestWorkOrderAPIIncludesRoastAdvice(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("response missing %s: %s", want, body)
 		}
+	}
+}
+
+func TestProductionWorkstationOverviewAPIAndStationActions(t *testing.T) {
+	repo := &workOrderAPIRepo{
+		rows: []productionapp.WorkOrderRow{{
+			ID:            88,
+			WorkOrderNo:   "WO-OVERVIEW-001",
+			RunningItemID: 99,
+			ProductName:   "桂花乌龙",
+			SpecG:         227,
+			PlannedG:      45400,
+			PlannedUnits:  200,
+			Status:        "running",
+			OrderNos:      "SO-20260613-001",
+			Priority:      8,
+			WorkCenter:    "包装线",
+			AssignedTo:    "生产主管",
+		}},
+		jobCards: []productionapp.JobCardRow{{
+			ID:             91,
+			WorkOrderID:    88,
+			WorkOrderNo:    "WO-OVERVIEW-001",
+			ProductName:    "桂花乌龙",
+			SpecG:          227,
+			OrderNos:       "SO-20260613-001",
+			Operation:      "包装",
+			Workstation:    "包装工位A",
+			WorkCenter:     "包装线",
+			Status:         "running",
+			AssignedTo:     "阿强",
+			Priority:       9,
+			PlannedMinutes: 40,
+			PlannedStartAt: "2026-06-13 09:00",
+			PlannedOutputG: 45400,
+		}, {
+			ID:              92,
+			WorkOrderID:     88,
+			WorkOrderNo:     "WO-OVERVIEW-001",
+			ProductName:     "桂花乌龙",
+			SpecG:           227,
+			Operation:       "贴标",
+			Workstation:     "包装工位A",
+			WorkCenter:      "包装线",
+			Status:          "paused",
+			AssignedTo:      "现场主管",
+			Priority:        7,
+			ExceptionReason: "包材未到位",
+		}},
+	}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "测试员")
+			c.Set("actor", "测试员")
+			return next(c)
+		}
+	})
+	RegisterRoutes(e, Dependencies{Production: productionapp.NewService(repo)})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/production/workstation-overview?limit=999", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET workstation overview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.workOrderQuery.Limit != 500 || repo.jobCardQuery.Limit != 500 {
+		t.Fatalf("overview source queries not clamped: workOrder=%+v jobCard=%+v", repo.workOrderQuery, repo.jobCardQuery)
+	}
+	for _, want := range []string{
+		`"total_tasks":2`,
+		`"status_summary"`,
+		`"workstation_load"`,
+		`"current_task":"包装 / 桂花乌龙"`,
+		`"next_handler":"现场主管"`,
+		`"blocking_reason":"包材未到位"`,
+		`"available_actions":["pause","complete","partial_finish","report_exception","material_call"]`,
+	} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("overview response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/production/workstation/tasks/92/exception", strings.NewReader(`{"exception_reason":"温度异常"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.jobCardAction.ID != 92 || repo.jobCardAction.Action != "pause" || repo.jobCardAction.ExceptionReason != "温度异常" {
+		t.Fatalf("POST exception status=%d body=%s action=%+v", rec.Code, rec.Body.String(), repo.jobCardAction)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/production/workstation/tasks/91/material-call", strings.NewReader(`{"note":"挂耳滤袋不足"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.jobCardAction.ID != 91 || repo.jobCardAction.Action != "pause" || repo.jobCardAction.ExceptionReason != "呼叫补料: 挂耳滤袋不足" {
+		t.Fatalf("POST material-call status=%d body=%s action=%+v", rec.Code, rec.Body.String(), repo.jobCardAction)
 	}
 }
 

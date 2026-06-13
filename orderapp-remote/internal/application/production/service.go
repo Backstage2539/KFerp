@@ -6,6 +6,7 @@ import (
 	"fmt"
 	productiondomain "orderapp/internal/domain/production"
 	stockdomain "orderapp/internal/domain/stock"
+	"sort"
 	"strings"
 	"time"
 )
@@ -653,6 +654,69 @@ type JobCardRow struct {
 	Priority                     int     `json:"priority"`
 	SchedulingNote               string  `json:"scheduling_note"`
 	WorkCenter                   string  `json:"work_center"`
+}
+
+type ProductionWorkstationOverviewQuery struct {
+	Limit int
+}
+
+type ProductionWorkstationOverview struct {
+	Date            string                      `json:"date"`
+	TotalTasks      int                         `json:"total_tasks"`
+	StatusSummary   []ProductionSummaryCount    `json:"status_summary"`
+	BlockedSummary  []ProductionSummaryCount    `json:"blocked_summary"`
+	PrioritySummary []ProductionSummaryCount    `json:"priority_summary"`
+	WorkstationLoad []ProductionWorkstationLoad `json:"workstation_load"`
+	Tasks           []ProductionTask            `json:"tasks"`
+}
+
+type ProductionSummaryCount struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Count int    `json:"count"`
+}
+
+type ProductionWorkstationLoad struct {
+	Workstation    string `json:"workstation"`
+	PendingTasks   int    `json:"pending_tasks"`
+	RunningTasks   int    `json:"running_tasks"`
+	BlockedTasks   int    `json:"blocked_tasks"`
+	TotalTasks     int    `json:"total_tasks"`
+	LoadMinutes    int    `json:"load_minutes"`
+	CurrentTask    string `json:"current_task"`
+	NextTask       string `json:"next_task"`
+	BlockingReason string `json:"blocking_reason"`
+}
+
+type ProductionTask struct {
+	JobCardID         int64    `json:"job_card_id"`
+	WorkOrderID       int64    `json:"work_order_id"`
+	RunningItemID     int64    `json:"running_item_id"`
+	WorkOrderNo       string   `json:"work_order_no"`
+	ProductName       string   `json:"product_name"`
+	SpecG             int64    `json:"spec_g"`
+	PlannedG          int64    `json:"planned_g"`
+	PlannedUnits      int64    `json:"planned_units"`
+	PlannedLooseG     int64    `json:"planned_loose_g"`
+	PlannedOutputG    int64    `json:"planned_output_g"`
+	Operation         string   `json:"operation"`
+	Workstation       string   `json:"workstation"`
+	WorkCenter        string   `json:"work_center"`
+	Status            string   `json:"status"`
+	StatusLabel       string   `json:"status_label"`
+	BlockingReason    string   `json:"blocking_reason"`
+	NextHandler       string   `json:"next_handler"`
+	AssignedTo        string   `json:"assigned_to"`
+	Operator          string   `json:"operator"`
+	PlannedStartAt    string   `json:"planned_start_at"`
+	PlannedEndAt      string   `json:"planned_end_at"`
+	OrderNos          string   `json:"order_nos"`
+	Priority          int      `json:"priority"`
+	PlannedMinutes    int      `json:"planned_minutes"`
+	PlannedBatchCount int      `json:"planned_batch_count"`
+	IsBlocked         bool     `json:"is_blocked"`
+	SchedulingNote    string   `json:"scheduling_note"`
+	AvailableActions  []string `json:"available_actions"`
 }
 
 type ScheduleBoardQuery struct {
@@ -1669,6 +1733,55 @@ func (s *Service) ListProductionLogs(ctx context.Context, query ProductionLogsQu
 	return s.repo.ListProductionLogs(ctx, query)
 }
 
+func (s *Service) ProductionWorkstationOverview(ctx context.Context, query ProductionWorkstationOverviewQuery) (ProductionWorkstationOverview, error) {
+	limit := query.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 500
+	}
+	workOrders, err := s.ListWorkOrders(ctx, WorkOrderQuery{Limit: limit})
+	if err != nil {
+		return ProductionWorkstationOverview{}, err
+	}
+	jobCards, err := s.ListJobCards(ctx, JobCardQuery{Limit: limit})
+	if err != nil {
+		return ProductionWorkstationOverview{}, err
+	}
+
+	workOrderByID := make(map[int64]WorkOrderRow, len(workOrders))
+	for _, row := range workOrders {
+		workOrderByID[row.ID] = row
+	}
+
+	activeWorkOrders := map[int64]bool{}
+	tasks := make([]ProductionTask, 0, len(jobCards)+len(workOrders))
+	for _, card := range jobCards {
+		if !isActiveProductionTaskStatus(card.Status) {
+			continue
+		}
+		activeWorkOrders[card.WorkOrderID] = true
+		tasks = append(tasks, productionTaskFromJobCard(card, workOrderByID[card.WorkOrderID]))
+	}
+	for _, workOrder := range workOrders {
+		if activeWorkOrders[workOrder.ID] || !isActiveProductionTaskStatus(workOrder.Status) {
+			continue
+		}
+		tasks = append(tasks, productionTaskFromWorkOrder(workOrder))
+	}
+
+	sortProductionTasks(tasks)
+	load := buildProductionWorkstationLoad(tasks)
+	statusSummary, blockedSummary, prioritySummary := buildProductionTaskSummaries(tasks)
+	return ProductionWorkstationOverview{
+		Date:            time.Now().Format("2006-01-02"),
+		TotalTasks:      len(tasks),
+		StatusSummary:   statusSummary,
+		BlockedSummary:  blockedSummary,
+		PrioritySummary: prioritySummary,
+		WorkstationLoad: load,
+		Tasks:           tasks,
+	}, nil
+}
+
 func (s *Service) ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]WorkOrderRow, error) {
 	query.Status = strings.TrimSpace(query.Status)
 	if query.Limit <= 0 || query.Limit > 500 {
@@ -1683,6 +1796,339 @@ func (s *Service) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCa
 		query.Limit = 200
 	}
 	return s.repo.ListJobCards(ctx, query)
+}
+
+func productionTaskFromJobCard(card JobCardRow, workOrder WorkOrderRow) ProductionTask {
+	assignedTo := firstNonEmpty(card.AssignedTo, workOrder.AssignedTo)
+	workCenter := firstNonEmpty(card.WorkCenter, card.Workstation, workOrder.WorkCenter)
+	workstation := firstNonEmpty(card.Workstation, card.WorkCenter, workOrder.WorkCenter)
+	status := normalizeProductionTaskStatus(card.Status)
+	blockingReason := productionBlockingReason(status, card.ExceptionReason, workCenter, assignedTo)
+	task := ProductionTask{
+		JobCardID:         card.ID,
+		WorkOrderID:       firstNonZeroInt64(card.WorkOrderID, workOrder.ID),
+		RunningItemID:     workOrder.RunningItemID,
+		WorkOrderNo:       firstNonEmpty(card.WorkOrderNo, workOrder.WorkOrderNo),
+		ProductName:       firstNonEmpty(card.ProductName, workOrder.ProductName),
+		SpecG:             firstNonZeroInt64(card.SpecG, workOrder.SpecG),
+		PlannedG:          firstNonZeroInt64(card.PlannedG, workOrder.PlannedG),
+		PlannedUnits:      workOrder.PlannedUnits,
+		PlannedLooseG:     workOrder.PlannedLooseG,
+		PlannedOutputG:    firstNonZeroInt64(card.PlannedOutputG, workOrder.PlannedOutputG),
+		Operation:         strings.TrimSpace(card.Operation),
+		Workstation:       workstation,
+		WorkCenter:        workCenter,
+		Status:            status,
+		StatusLabel:       productionTaskStatusLabel(status, blockingReason),
+		BlockingReason:    blockingReason,
+		AssignedTo:        assignedTo,
+		Operator:          strings.TrimSpace(card.Operator),
+		PlannedStartAt:    firstNonEmpty(card.PlannedStartAt, workOrder.PlannedStartAt),
+		PlannedEndAt:      firstNonEmpty(card.PlannedEndAt, workOrder.PlannedEndAt),
+		OrderNos:          firstNonEmpty(card.OrderNos, workOrder.OrderNos),
+		Priority:          firstNonZeroInt(card.Priority, workOrder.Priority),
+		PlannedMinutes:    card.PlannedMinutes,
+		PlannedBatchCount: card.PlannedBatchCount,
+		IsBlocked:         blockingReason != "",
+		SchedulingNote:    firstNonEmpty(card.SchedulingNote, workOrder.SchedulingNote),
+	}
+	task.NextHandler = productionNextHandler(task)
+	task.AvailableActions = productionAvailableActions(task)
+	return task
+}
+
+func productionTaskFromWorkOrder(workOrder WorkOrderRow) ProductionTask {
+	workCenter := strings.TrimSpace(workOrder.WorkCenter)
+	status := normalizeProductionTaskStatus(workOrder.Status)
+	blockingReason := productionBlockingReason(status, "", workCenter, workOrder.AssignedTo)
+	task := ProductionTask{
+		WorkOrderID:    workOrder.ID,
+		RunningItemID:  workOrder.RunningItemID,
+		WorkOrderNo:    strings.TrimSpace(workOrder.WorkOrderNo),
+		ProductName:    strings.TrimSpace(workOrder.ProductName),
+		SpecG:          workOrder.SpecG,
+		PlannedG:       workOrder.PlannedG,
+		PlannedUnits:   workOrder.PlannedUnits,
+		PlannedLooseG:  workOrder.PlannedLooseG,
+		PlannedOutputG: workOrder.PlannedOutputG,
+		Operation:      "工单准备",
+		Workstation:    workCenter,
+		WorkCenter:     workCenter,
+		Status:         status,
+		StatusLabel:    productionTaskStatusLabel(status, blockingReason),
+		BlockingReason: blockingReason,
+		AssignedTo:     strings.TrimSpace(workOrder.AssignedTo),
+		PlannedStartAt: strings.TrimSpace(workOrder.PlannedStartAt),
+		PlannedEndAt:   strings.TrimSpace(workOrder.PlannedEndAt),
+		OrderNos:       strings.TrimSpace(workOrder.OrderNos),
+		Priority:       workOrder.Priority,
+		IsBlocked:      blockingReason != "",
+		SchedulingNote: strings.TrimSpace(workOrder.SchedulingNote),
+	}
+	task.NextHandler = productionNextHandler(task)
+	task.AvailableActions = productionAvailableActions(task)
+	return task
+}
+
+func buildProductionTaskSummaries(tasks []ProductionTask) ([]ProductionSummaryCount, []ProductionSummaryCount, []ProductionSummaryCount) {
+	statusCounts := map[string]int{}
+	statusLabels := map[string]string{}
+	blockedCounts := map[string]int{}
+	priorityCounts := map[string]int{}
+	for _, task := range tasks {
+		statusKey := task.StatusLabel
+		if statusKey == "" {
+			statusKey = "待处理"
+		}
+		statusCounts[statusKey]++
+		statusLabels[statusKey] = statusKey
+		if task.BlockingReason != "" {
+			blockedCounts[task.BlockingReason]++
+		}
+		priorityLabel := fmt.Sprintf("P%d", task.Priority)
+		priorityCounts[priorityLabel]++
+	}
+	return summaryCounts(statusCounts, statusLabels), summaryCounts(blockedCounts, nil), summaryCounts(priorityCounts, nil)
+}
+
+func buildProductionWorkstationLoad(tasks []ProductionTask) []ProductionWorkstationLoad {
+	byWorkstation := map[string]*ProductionWorkstationLoad{}
+	order := make([]string, 0)
+	for _, task := range tasks {
+		key := productionTaskWorkstationKey(task)
+		row := byWorkstation[key]
+		if row == nil {
+			row = &ProductionWorkstationLoad{Workstation: key}
+			byWorkstation[key] = row
+			order = append(order, key)
+		}
+		row.TotalTasks++
+		row.LoadMinutes += task.PlannedMinutes
+		if task.IsBlocked {
+			row.BlockedTasks++
+			if row.BlockingReason == "" {
+				row.BlockingReason = task.BlockingReason
+			}
+		}
+		switch task.StatusLabel {
+		case "执行中":
+			row.RunningTasks++
+			if row.CurrentTask == "" {
+				row.CurrentTask = productionTaskTitle(task)
+			}
+		case "待处理":
+			row.PendingTasks++
+			if row.NextTask == "" {
+				row.NextTask = productionTaskTitle(task)
+			}
+		case "异常":
+			if row.CurrentTask == "" {
+				row.CurrentTask = productionTaskTitle(task)
+			}
+		}
+		if row.CurrentTask == "" {
+			row.CurrentTask = productionTaskTitle(task)
+		}
+	}
+	rows := make([]ProductionWorkstationLoad, 0, len(order))
+	for _, key := range order {
+		rows = append(rows, *byWorkstation[key])
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].BlockedTasks != rows[j].BlockedTasks {
+			return rows[i].BlockedTasks > rows[j].BlockedTasks
+		}
+		if rows[i].RunningTasks != rows[j].RunningTasks {
+			return rows[i].RunningTasks > rows[j].RunningTasks
+		}
+		if rows[i].PendingTasks != rows[j].PendingTasks {
+			return rows[i].PendingTasks > rows[j].PendingTasks
+		}
+		return rows[i].Workstation < rows[j].Workstation
+	})
+	return rows
+}
+
+func summaryCounts(counts map[string]int, labels map[string]string) []ProductionSummaryCount {
+	rows := make([]ProductionSummaryCount, 0, len(counts))
+	for key, count := range counts {
+		label := key
+		if labels != nil && labels[key] != "" {
+			label = labels[key]
+		}
+		rows = append(rows, ProductionSummaryCount{Key: key, Label: label, Count: count})
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].Count != rows[j].Count {
+			return rows[i].Count > rows[j].Count
+		}
+		return rows[i].Label < rows[j].Label
+	})
+	return rows
+}
+
+func sortProductionTasks(tasks []ProductionTask) {
+	sort.SliceStable(tasks, func(i, j int) bool {
+		if tasks[i].Priority != tasks[j].Priority {
+			return tasks[i].Priority > tasks[j].Priority
+		}
+		if tasks[i].PlannedStartAt != tasks[j].PlannedStartAt {
+			if tasks[i].PlannedStartAt == "" {
+				return false
+			}
+			if tasks[j].PlannedStartAt == "" {
+				return true
+			}
+			return tasks[i].PlannedStartAt < tasks[j].PlannedStartAt
+		}
+		if tasks[i].WorkOrderNo != tasks[j].WorkOrderNo {
+			return tasks[i].WorkOrderNo < tasks[j].WorkOrderNo
+		}
+		return tasks[i].JobCardID < tasks[j].JobCardID
+	})
+}
+
+func isActiveProductionTaskStatus(status string) bool {
+	switch normalizeProductionTaskStatus(status) {
+	case "pending", "ready", "released", "running", "paused":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeProductionTaskStatus(status string) string {
+	return strings.ToLower(strings.TrimSpace(status))
+}
+
+func productionTaskStatusLabel(status, blockingReason string) string {
+	if blockingReason != "" {
+		return "异常"
+	}
+	switch status {
+	case "running":
+		return "执行中"
+	case "pending", "ready", "released":
+		return "待处理"
+	case "paused":
+		return "异常"
+	case "completed":
+		return "已完成"
+	case "cancelled":
+		return "已取消"
+	default:
+		return "待处理"
+	}
+}
+
+func productionBlockingReason(status, exceptionReason, workCenter, assignedTo string) string {
+	if reason := strings.TrimSpace(exceptionReason); reason != "" {
+		return reason
+	}
+	if status == "paused" {
+		return "已暂停"
+	}
+	if strings.TrimSpace(workCenter) == "" {
+		return "未分配工位"
+	}
+	if (status == "pending" || status == "ready" || status == "released") && strings.TrimSpace(assignedTo) == "" {
+		return "未分配处理人"
+	}
+	return ""
+}
+
+func productionNextHandler(task ProductionTask) string {
+	if task.AssignedTo != "" {
+		return task.AssignedTo
+	}
+	if task.Operator != "" {
+		return task.Operator
+	}
+	if task.BlockingReason != "" {
+		if strings.Contains(task.BlockingReason, "补料") || strings.Contains(task.BlockingReason, "物料") || strings.Contains(task.BlockingReason, "领料") || strings.Contains(task.BlockingReason, "库存") {
+			return "仓库/物料"
+		}
+		if task.BlockingReason == "未分配工位" || task.BlockingReason == "未分配处理人" {
+			return "调度"
+		}
+		return "现场主管"
+	}
+	if task.StatusLabel == "待处理" {
+		return "工位操作员"
+	}
+	return "生产负责人"
+}
+
+func productionAvailableActions(task ProductionTask) []string {
+	if task.JobCardID <= 0 {
+		return nil
+	}
+	switch task.Status {
+	case "pending", "ready":
+		return []string{"start", "report_exception", "material_call"}
+	case "running":
+		actions := []string{"pause", "complete"}
+		if task.RunningItemID > 0 {
+			actions = append(actions, "partial_finish")
+		}
+		return append(actions, "report_exception", "material_call")
+	case "paused":
+		return []string{"resume", "complete", "report_exception", "material_call"}
+	default:
+		return nil
+	}
+}
+
+func productionTaskWorkstationKey(task ProductionTask) string {
+	if task.WorkCenter != "" {
+		return task.WorkCenter
+	}
+	if task.Workstation != "" {
+		return task.Workstation
+	}
+	return "未分配工位"
+}
+
+func productionTaskTitle(task ProductionTask) string {
+	operation := strings.TrimSpace(task.Operation)
+	product := strings.TrimSpace(task.ProductName)
+	if operation != "" && product != "" {
+		return operation + " / " + product
+	}
+	if product != "" {
+		return product
+	}
+	if operation != "" {
+		return operation
+	}
+	return task.WorkOrderNo
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func firstNonZeroInt64(values ...int64) int64 {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func firstNonZeroInt(values ...int) int {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func (s *Service) UpdateJobCardActuals(ctx context.Context, cmd JobCardActualsCommand) error {

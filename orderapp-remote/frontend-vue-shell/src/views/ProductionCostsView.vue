@@ -1,5 +1,7 @@
 <template>
   <div class="page">
+    <ProductionTopNav active-key="productionCosts" />
+
     <section class="panel">
       <div class="panel-head">
         <div>
@@ -70,6 +72,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet } from '../api/client'
+import ProductionTopNav from '../components/ProductionTopNav.vue'
 
 const phase3TraceAnalyticsMarkers = ['trace_links', 'cost_variance', 'abnormal_losses']
 const rows = ref([])

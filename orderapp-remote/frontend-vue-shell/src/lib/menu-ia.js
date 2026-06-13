@@ -25,6 +25,8 @@ export const menuGroups = [
     id: 'production',
     name: '生产管理',
     items: [
+      { key: 'productionOverview', label: '生产视图', title: '生产视图' },
+      { key: 'workstationView', label: '工位视图', title: '工位视图' },
       { key: 'productionManual', label: '生产手册', title: '生产手册' },
       { key: 'productionAcceptance', label: '生产验收', title: '生产验收' },
       { key: 'processTemplates', label: '工艺路线', title: '工艺路线' },
