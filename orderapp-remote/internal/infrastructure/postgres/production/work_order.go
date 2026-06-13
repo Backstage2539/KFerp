@@ -369,21 +369,23 @@ func loadProcessRouteSnapshotByIDTx(ctx context.Context, tx pgx.Tx, schema strin
 	snapshot.DefaultEquipment = ""
 	snapshot.DefaultMinutes = 0
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT seq,operation_id,workstation_id,COALESCE(workstation_capacity_id,0),
-		       operation,workstation,COALESCE(workstation_capacity_name,''),
-		       default_equipment,default_minutes,
-		       COALESCE(batch_size_qty,0)::float8,
-		       COALESCE(batch_size_unit,''),
-		       COALESCE(standard_minutes,0),
-		       COALESCE(hourly_rate,0)::float8,
-		       COALESCE(planned_batch_count,0),
-		       COALESCE(planned_minutes,0),
-		       COALESCE(planned_operation_cost,0)::float8,
-		       records_loss,
-		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
-		FROM %s.process_route_operations
-		WHERE route_id=$1
-		ORDER BY seq, id
+		SELECT pro.seq,pro.operation_id,pro.workstation_id,COALESCE(pro.workstation_capacity_id,0),
+		       COALESCE(NULLIF(mo.name,''), pro.operation),COALESCE(NULLIF(mw.name,''), pro.workstation),COALESCE(pro.workstation_capacity_name,''),
+		       pro.default_equipment,pro.default_minutes,
+		       COALESCE(pro.batch_size_qty,0)::float8,
+		       COALESCE(pro.batch_size_unit,''),
+		       COALESCE(pro.standard_minutes,0),
+		       COALESCE(pro.hourly_rate,0)::float8,
+		       COALESCE(pro.planned_batch_count,0),
+		       COALESCE(pro.planned_minutes,0),
+		       COALESCE(pro.planned_operation_cost,0)::float8,
+		       pro.records_loss,
+		       COALESCE(pro.quality_checklist_json,'[]'::jsonb)::text
+		FROM %[1]s.process_route_operations pro
+		LEFT JOIN %[1]s.manufacturing_operations mo ON mo.id=pro.operation_id
+		LEFT JOIN %[1]s.manufacturing_workstations mw ON mw.id=pro.workstation_id
+		WHERE pro.route_id=$1
+		ORDER BY pro.seq, pro.id
 	`, schema), snapshot.ID)
 	if err != nil {
 		return nil, nil, err
@@ -746,21 +748,23 @@ func loadProcessRouteSnapshotForWorkOrderTx(ctx context.Context, tx pgx.Tx, sche
 	snapshot.DefaultEquipment = ""
 	snapshot.DefaultMinutes = 0
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT seq,operation_id,workstation_id,COALESCE(workstation_capacity_id,0),
-		       operation,workstation,COALESCE(workstation_capacity_name,''),
-		       default_equipment,default_minutes,
-		       COALESCE(batch_size_qty,0)::float8,
-		       COALESCE(batch_size_unit,''),
-		       COALESCE(standard_minutes,0),
-		       COALESCE(hourly_rate,0)::float8,
-		       COALESCE(planned_batch_count,0),
-		       COALESCE(planned_minutes,0),
-		       COALESCE(planned_operation_cost,0)::float8,
-		       records_loss,
-		       COALESCE(quality_checklist_json,'[]'::jsonb)::text
-		FROM %s.process_route_operations
-		WHERE route_id=$1
-		ORDER BY seq, id
+		SELECT pro.seq,pro.operation_id,pro.workstation_id,COALESCE(pro.workstation_capacity_id,0),
+		       COALESCE(NULLIF(mo.name,''), pro.operation),COALESCE(NULLIF(mw.name,''), pro.workstation),COALESCE(pro.workstation_capacity_name,''),
+		       pro.default_equipment,pro.default_minutes,
+		       COALESCE(pro.batch_size_qty,0)::float8,
+		       COALESCE(pro.batch_size_unit,''),
+		       COALESCE(pro.standard_minutes,0),
+		       COALESCE(pro.hourly_rate,0)::float8,
+		       COALESCE(pro.planned_batch_count,0),
+		       COALESCE(pro.planned_minutes,0),
+		       COALESCE(pro.planned_operation_cost,0)::float8,
+		       pro.records_loss,
+		       COALESCE(pro.quality_checklist_json,'[]'::jsonb)::text
+		FROM %[1]s.process_route_operations pro
+		LEFT JOIN %[1]s.manufacturing_operations mo ON mo.id=pro.operation_id
+		LEFT JOIN %[1]s.manufacturing_workstations mw ON mw.id=pro.workstation_id
+		WHERE pro.route_id=$1
+		ORDER BY pro.seq, pro.id
 	`, schema), snapshot.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "process_route_operations") {

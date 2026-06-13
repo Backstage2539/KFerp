@@ -6,6 +6,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-493-PLAN-WORKORDER-SPLIT-EDIT
+- Branch: codex/plan-workorder-split-edit-20260613
+- Owner/session: Codex / 2026-06-13
+- Status: implementing; targeted backend/frontend tests passed, broader verification and deployment pending.
+- Scope: 修复工序主数据改名后新建生产计划/工单仍显示旧路线行工序名；草稿生产计划支持从单据列表/详情重新载入当前计划工作台编辑工序产能拆分；已生成但尚未开工的 released 工单支持编辑拆分并重建 pending 工序卡。
+- DEV:
+  - DEV-493-ROUTE-OPERATION-MASTER-NAME：新建生产计划/工单加载工艺路线快照时，按 `operation_id` 回查最新 `manufacturing_operations.name`。
+  - DEV-493-DRAFT-PLAN-SPLIT-EDITOR：生产计划单据列表和详情中的草稿计划提供 `编辑拆分`，可重新载入当前计划编辑区继续维护拆分。
+  - DEV-493-RELEASED-WORKORDER-SPLIT-EDITOR：新增 `POST /api/work-orders/:id/operation-splits`，仅允许 released 且工序卡全 pending 的工单保存拆分，保存后重建工序卡和操作日志；生产工单页提供对应抽屉。
+- Verifier:
+  - RED backend: `go test ./internal/infrastructure/postgres/production -run 'TestProcessRouteSnapshotUsesLatestOperationMasterNames|TestProductionPlanOperationSplitsOwnCapacityBatchPlanning'` failed because route snapshots did not join `manufacturing_operations`.
+  - RED API: `go test ./internal/interfaces/http/production -run TestWorkOrderOperationSplitAPISavesReleasedWorkOrderCapacitySplits` failed because work-order split command/API did not exist.
+  - RED frontend: `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js` failed because work-order split exports/UI markers did not exist.
+  - GREEN targeted: `go test ./internal/infrastructure/postgres/production -run 'TestProcessRouteSnapshotUsesLatestOperationMasterNames|TestProductionPlanOperationSplitsOwnCapacityBatchPlanning'`; `go test ./internal/interfaces/http/production -run TestWorkOrderOperationSplitAPISavesReleasedWorkOrderCapacitySplits`; `go test ./internal/application/production -run 'TestServiceRejectsInvalidProductionPlanAndWorkOrderCommands|TestServiceOwnsFormalProductionPlanWorkOrderLifecycle'`; `node --test src/lib/produce-plan.test.js src/lib/work-orders.test.js`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-13-plan-workorder-split-edit.md`.
+- Deployment: pending merge and development deployment.
+- Last update: 2026-06-13 Asia/Shanghai.
+
 ### PR-492-PRODUCTION-DEMAND-ADDON-ORDER-SPLIT
 - Branch: codex/demand-addition-visible-20260613
 - Owner/session: Codex / 2026-06-13

@@ -121,6 +121,13 @@ func (r *fakeFlowRepo) SaveProductionPlanOperationSplits(ctx context.Context, cm
 	return cmd.Items, nil
 }
 
+func (r *fakeFlowRepo) SaveWorkOrderOperationSplits(ctx context.Context, cmd SaveWorkOrderOperationSplitsCommand) (WorkOrderOperationSplitsResult, error) {
+	return WorkOrderOperationSplitsResult{
+		WorkOrder: WorkOrderRow{ID: cmd.ID, Status: "released"},
+		JobCards:  []JobCardRow{{ID: 91, WorkOrderID: cmd.ID, Status: "pending"}},
+	}, nil
+}
+
 func (r *fakeFlowRepo) SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error) {
 	r.submitPlan = cmd
 	r.submitPlans = append(r.submitPlans, cmd)
@@ -495,6 +502,15 @@ func TestServiceRejectsInvalidProductionPlanAndWorkOrderCommands(t *testing.T) {
 	}
 	if _, err := svc.StartWorkOrder(ctx, WorkOrderStartCommand{ID: 0, Operator: "开工员"}); err == nil {
 		t.Fatal("StartWorkOrder should reject empty id")
+	}
+	if _, err := svc.SaveWorkOrderOperationSplits(ctx, SaveWorkOrderOperationSplitsCommand{ID: 0, Items: []ProductionPlanOperationSplit{{WorkstationCapacityID: 8, PlannedQty: 90}}}); err == nil {
+		t.Fatal("SaveWorkOrderOperationSplits should reject empty id")
+	}
+	if _, err := svc.SaveWorkOrderOperationSplits(ctx, SaveWorkOrderOperationSplitsCommand{ID: 88, Items: []ProductionPlanOperationSplit{{PlannedQty: 90}}}); err == nil {
+		t.Fatal("SaveWorkOrderOperationSplits should require workstation capacity")
+	}
+	if _, err := svc.SaveWorkOrderOperationSplits(ctx, SaveWorkOrderOperationSplitsCommand{ID: 88, Items: []ProductionPlanOperationSplit{{WorkstationCapacityID: 8}}}); err == nil {
+		t.Fatal("SaveWorkOrderOperationSplits should require planned quantity")
 	}
 }
 

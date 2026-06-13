@@ -401,6 +401,17 @@ type SaveProductionPlanOperationSplitsCommand struct {
 	Operator string
 }
 
+type SaveWorkOrderOperationSplitsCommand struct {
+	ID       int64
+	Items    []ProductionPlanOperationSplit
+	Operator string
+}
+
+type WorkOrderOperationSplitsResult struct {
+	WorkOrder WorkOrderRow `json:"work_order"`
+	JobCards  []JobCardRow `json:"job_cards"`
+}
+
 type ProductionPlanDetail struct {
 	ID                int64                            `json:"id"`
 	PlanNo            string                           `json:"plan_no"`
@@ -1093,6 +1104,7 @@ type Repository interface {
 	ListProductionPlans(ctx context.Context, query ProductionPlanQuery) ([]ProductionPlanRow, error)
 	GetProductionPlan(ctx context.Context, id int64) (ProductionPlanDetail, error)
 	SaveProductionPlanOperationSplits(ctx context.Context, cmd SaveProductionPlanOperationSplitsCommand) ([]ProductionPlanOperationSplit, error)
+	SaveWorkOrderOperationSplits(ctx context.Context, cmd SaveWorkOrderOperationSplitsCommand) (WorkOrderOperationSplitsResult, error)
 	SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error)
 	StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand) (WorkOrderStartResult, error)
 	CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompleteCommand) (WorkOrderCompleteResult, error)
@@ -1307,6 +1319,42 @@ func (s *Service) SaveProductionPlanOperationSplits(ctx context.Context, cmd Sav
 		}
 	}
 	return s.repo.SaveProductionPlanOperationSplits(ctx, cmd)
+}
+
+func (s *Service) SaveWorkOrderOperationSplits(ctx context.Context, cmd SaveWorkOrderOperationSplitsCommand) (WorkOrderOperationSplitsResult, error) {
+	if cmd.ID <= 0 {
+		return WorkOrderOperationSplitsResult{}, fmt.Errorf("work_order_id required")
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	for i := range cmd.Items {
+		item := &cmd.Items[i]
+		item.ProductionPlanID = 0
+		item.ProductionPlanItemID = 0
+		item.Operation = strings.TrimSpace(item.Operation)
+		item.Workstation = strings.TrimSpace(item.Workstation)
+		item.WorkstationCapacityName = strings.TrimSpace(item.WorkstationCapacityName)
+		item.BatchSizeUnit = strings.TrimSpace(item.BatchSizeUnit)
+		item.Note = strings.TrimSpace(item.Note)
+		if item.WorkstationCapacityID <= 0 {
+			return WorkOrderOperationSplitsResult{}, fmt.Errorf("workstation_capacity_id required")
+		}
+		if item.PlannedQty <= 0 {
+			return WorkOrderOperationSplitsResult{}, fmt.Errorf("planned_qty required")
+		}
+		if item.OperationSeq < 0 {
+			return WorkOrderOperationSplitsResult{}, fmt.Errorf("operation_seq must be >= 0")
+		}
+		if item.BatchSizeQty < 0 {
+			return WorkOrderOperationSplitsResult{}, fmt.Errorf("batch_size_qty must be >= 0")
+		}
+		if item.StandardMinutes < 0 {
+			return WorkOrderOperationSplitsResult{}, fmt.Errorf("standard_minutes must be >= 0")
+		}
+		if item.HourlyRate < 0 {
+			return WorkOrderOperationSplitsResult{}, fmt.Errorf("hourly_rate must be >= 0")
+		}
+	}
+	return s.repo.SaveWorkOrderOperationSplits(ctx, cmd)
 }
 
 func (s *Service) SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error) {

@@ -2,7 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
-import { canStartWorkOrder, workOrderStartEndpoint, workOrderStatusOptions } from './work-orders.js'
+import {
+  buildWorkOrderOperationSplitPayload,
+  canEditWorkOrderSplits,
+  canStartWorkOrder,
+  workOrderOperationSplitsEndpoint,
+  workOrderStartEndpoint,
+  workOrderStatusOptions,
+} from './work-orders.js'
 
 test('work orders display frozen route operations from process snapshot when no job-card summary exists', () => {
   const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
@@ -129,7 +136,46 @@ test('canStartWorkOrder allows only released work orders', () => {
   assert.equal(canStartWorkOrder({ status: 'released', running_item_id: 0 }), false)
 })
 
+test('released work orders expose operation split editing before production starts', () => {
+  assert.equal(canEditWorkOrderSplits({ id: 88, status: 'released', running_item_id: 0 }), true)
+  assert.equal(canEditWorkOrderSplits({ id: 89, status: 'running', running_item_id: 99 }), false)
+  assert.equal(workOrderOperationSplitsEndpoint({ id: 88 }), '/api/work-orders/88/operation-splits')
+  assert.equal(workOrderOperationSplitsEndpoint({ id: 0 }), '')
+
+  assert.deepEqual(buildWorkOrderOperationSplitPayload([{
+    operation_seq: 1,
+    operation_id: 7,
+    operation: ' 烘焙 ',
+    workstation_capacity_id: 5,
+    planned_qty: 72,
+    production_plan_item_id: 51,
+  }]), {
+    items: [{
+      operation_seq: 1,
+      operation_id: 7,
+      operation: '烘焙',
+      workstation_capacity_id: 5,
+      planned_qty: 72,
+      note: '',
+    }],
+  })
+})
+
 test('workOrderStartEndpoint uses formal work order start API', () => {
   assert.equal(workOrderStartEndpoint({ id: 41 }), '/api/work-orders/41/start')
   assert.equal(workOrderStartEndpoint({ id: 0 }), '')
+})
+
+test('WorkOrdersView exposes capacity split editor drawer', () => {
+  const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
+  for (const marker of [
+    '编辑拆分',
+    'work-order-split-drawer',
+    'openWorkOrderSplitDrawer(row)',
+    'saveWorkOrderOperationSplits',
+    'plannedCapacitySplitMetrics',
+    'productionPlanSplitBatchCards',
+  ]) {
+    assert.ok(source.includes(marker), `missing ${marker}`)
+  }
 })

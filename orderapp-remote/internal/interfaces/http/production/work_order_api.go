@@ -93,6 +93,25 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "work_order": res.WorkOrder, "stock_entries": res.StockEntries, "cost": res.Cost})
 	})
+	e.POST("/api/work-orders/:id/operation-splits", func(c echo.Context) error {
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid work_order_id"})
+		}
+		var req productionPlanOperationSplitsRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		res, err := productionSvc.SaveWorkOrderOperationSplits(c.Request().Context(), productionapp.SaveWorkOrderOperationSplitsCommand{
+			ID:       id,
+			Items:    req.Items,
+			Operator: support.ActorOf(c),
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true, "work_order": res.WorkOrder, "job_cards": res.JobCards})
+	})
 	e.GET("/api/produce/job-cards", func(c echo.Context) error {
 		rows, err := productionSvc.ListJobCards(c.Request().Context(), productionapp.JobCardQuery{
 			Status: strings.TrimSpace(c.QueryParam("status")),

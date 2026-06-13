@@ -985,6 +985,10 @@ func (s *threeTemplateWalkthroughStore) SaveProductionPlanOperationSplits(contex
 	return nil, nil
 }
 
+func (s *threeTemplateWalkthroughStore) SaveWorkOrderOperationSplits(context.Context, productionapp.SaveWorkOrderOperationSplitsCommand) (productionapp.WorkOrderOperationSplitsResult, error) {
+	return productionapp.WorkOrderOperationSplitsResult{}, nil
+}
+
 func (s *threeTemplateWalkthroughStore) SubmitProductionPlan(context.Context, productionapp.SubmitProductionPlanCommand) (productionapp.ProductionPlanSubmitResult, error) {
 	return productionapp.ProductionPlanSubmitResult{}, nil
 }

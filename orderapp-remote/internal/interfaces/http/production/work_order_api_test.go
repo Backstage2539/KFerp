@@ -20,7 +20,9 @@ type workOrderAPIRepo struct {
 
 	createPlan          productionapp.CreateProductionPlanCommand
 	savePlanSplits      productionapp.SaveProductionPlanOperationSplitsCommand
+	saveWorkOrderSplits productionapp.SaveWorkOrderOperationSplitsCommand
 	planSplits          []productionapp.ProductionPlanOperationSplit
+	workOrderSplitRows  []productionapp.JobCardRow
 	submitPlan          productionapp.SubmitProductionPlanCommand
 	submitPlans         []productionapp.SubmitProductionPlanCommand
 	startWorkOrder      productionapp.WorkOrderStartCommand
@@ -100,6 +102,25 @@ func (r *workOrderAPIRepo) SaveProductionPlanOperationSplits(ctx context.Context
 		r.planSplits = cmd.Items
 	}
 	return r.planSplits, nil
+}
+func (r *workOrderAPIRepo) SaveWorkOrderOperationSplits(ctx context.Context, cmd productionapp.SaveWorkOrderOperationSplitsCommand) (productionapp.WorkOrderOperationSplitsResult, error) {
+	r.saveWorkOrderSplits = cmd
+	if len(r.workOrderSplitRows) == 0 && len(cmd.Items) > 0 {
+		r.workOrderSplitRows = []productionapp.JobCardRow{{
+			ID:                      91,
+			WorkOrderID:             cmd.ID,
+			SequenceNo:              1,
+			Operation:               "烘焙",
+			WorkstationCapacityID:   cmd.Items[0].WorkstationCapacityID,
+			WorkstationCapacityName: "布勒 18kg",
+			PlannedBatchCount:       4,
+			Status:                  "pending",
+		}}
+	}
+	return productionapp.WorkOrderOperationSplitsResult{
+		WorkOrder: productionapp.WorkOrderRow{ID: cmd.ID, WorkOrderNo: "WO-PR493-001", Status: "released"},
+		JobCards:  r.workOrderSplitRows,
+	}, nil
 }
 func (r *workOrderAPIRepo) SubmitProductionPlan(ctx context.Context, cmd productionapp.SubmitProductionPlanCommand) (productionapp.ProductionPlanSubmitResult, error) {
 	r.submitPlan = cmd
@@ -478,6 +499,33 @@ func TestProductionPlanOperationSplitAPIReadsAndSavesDraftCapacitySplits(t *test
 	}
 	if repo.savePlanSplits.Items[0].WorkstationCapacityID != 8 || repo.savePlanSplits.Items[1].PlannedQty != 8 {
 		t.Fatalf("saved split items = %+v", repo.savePlanSplits.Items)
+	}
+}
+
+func TestWorkOrderOperationSplitAPISavesReleasedWorkOrderCapacitySplits(t *testing.T) {
+	repo := &workOrderAPIRepo{}
+	e := echo.New()
+	registerWorkOrderAPI(e, productionapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/work-orders/88/operation-splits", strings.NewReader(`{"items":[{
+		"operation_seq":1,
+		"operation_id":7,
+		"operation":"烘焙",
+		"workstation_capacity_id":5,
+		"planned_qty":72
+	}]}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || repo.saveWorkOrderSplits.ID != 88 || len(repo.saveWorkOrderSplits.Items) != 1 {
+		t.Fatalf("POST work order operation splits status=%d body=%s command=%+v", rec.Code, rec.Body.String(), repo.saveWorkOrderSplits)
+	}
+	if got := repo.saveWorkOrderSplits.Items[0]; got.WorkstationCapacityID != 5 || got.PlannedQty != 72 || got.ProductionPlanItemID != 0 {
+		t.Fatalf("work order split item = %+v, want capacity 5 planned qty 72 without production plan item requirement", got)
+	}
+	if !strings.Contains(rec.Body.String(), `"job_cards"`) {
+		t.Fatalf("response body = %s, want rebuilt job cards", rec.Body.String())
 	}
 }
 

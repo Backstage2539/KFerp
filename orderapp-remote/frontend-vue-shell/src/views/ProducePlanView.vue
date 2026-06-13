@@ -401,7 +401,10 @@
               <td>{{ plan.created_by || '-' }}</td>
               <td>{{ plan.submitted_by || '-' }}</td>
               <td><small>建 {{ plan.created_at || '-' }}</small><small>交 {{ plan.submitted_at || '-' }}</small><small>完 {{ plan.completed_at || '-' }}</small></td>
-              <td><button class="secondary compact" type="button" @click="openProductionPlanDetail(plan)">详情</button></td>
+              <td class="row-actions">
+                <button class="secondary compact" type="button" @click="openProductionPlanDetail(plan)">详情</button>
+                <button v-if="productionPlanSelectable(plan)" class="secondary compact" type="button" @click="loadProductionPlanIntoCurrentEditor(plan)">编辑拆分</button>
+              </td>
             </tr>
             <tr v-if="!productionPlans.length">
               <td colspan="9" class="muted">暂无生产计划单据</td>
@@ -420,6 +423,7 @@
           </div>
           <div class="drawer-head-actions">
             <span :class="['status', `status-${productionPlanStatusTone(productionPlanDetail.status)}`]">{{ productionPlanStatusLabel(productionPlanDetail.status) }}</span>
+            <button v-if="productionPlanSelectable(productionPlanDetail)" class="secondary compact" type="button" @click="loadProductionPlanIntoCurrentEditor(productionPlanDetail)">编辑拆分</button>
             <button class="secondary compact" type="button" @click="closeProductionPlanDetail">关闭</button>
           </div>
         </div>
@@ -684,7 +688,7 @@ function percent(v) {
   return `${(Number(v || 0) * 100).toFixed(2)}%`
 }
 
-const planReady = computed(() => planRows.value.length > 0)
+const planReady = computed(() => planRows.value.length > 0 || (currentPlan.value?.items || []).length > 0)
 const computedPlanRows = computed(() => planRows.value || [])
 const computedMaterials = computed(() => initialMaterials.value || [])
 const hasSelectedRows = computed(() => selectedKeys().length > 0)
@@ -982,6 +986,29 @@ function processOperations(item) {
   return Array.isArray(snapshot.operations) ? snapshot.operations : []
 }
 
+function detailOperationsFallback(detail = {}) {
+  const snapshot = parseJSONSnapshot(detail?.process_snapshot_json, {})
+  if (Array.isArray(snapshot.operations) && snapshot.operations.length) return snapshot.operations
+  if (Array.isArray(detail?.operations) && detail.operations.length) return detail.operations
+  return []
+}
+
+function normalizeProductionPlanDetailForSplitEditor(detail = {}) {
+  const fallbackOperations = detailOperationsFallback(detail)
+  if (!fallbackOperations.length) return detail
+  return {
+    ...detail,
+    items: (detail.items || []).map((item) => {
+      const snapshot = parseJSONSnapshot(item?.process_snapshot_json, {})
+      if (Array.isArray(snapshot.operations) && snapshot.operations.length) return item
+      return {
+        ...item,
+        process_snapshot_json: JSON.stringify({ ...snapshot, operations: fallbackOperations }),
+      }
+    }),
+  }
+}
+
 function operationIdentity(operation) {
   return {
     seq: Number(operation?.seq || operation?.sequence_no || 0),
@@ -1186,7 +1213,7 @@ async function openProductionPlanDetail(plan) {
   productionPlanDetailLoading.value = true
   productionPlanDetailError.value = ''
   try {
-    productionPlanDetail.value = await apiGet(productionPlanDetailEndpoint(plan))
+    productionPlanDetail.value = normalizeProductionPlanDetailForSplitEditor(await apiGet(productionPlanDetailEndpoint(plan)))
   } catch (err) {
     productionPlanDetailError.value = err.message || '加载生产计划单据详情失败'
   } finally {
@@ -1197,6 +1224,27 @@ async function openProductionPlanDetail(plan) {
 function closeProductionPlanDetail() {
   productionPlanDetail.value = null
   productionPlanDetailError.value = ''
+}
+
+async function loadProductionPlanIntoCurrentEditor(plan) {
+  if (!productionPlanDetailEndpoint(plan) || !productionPlanSelectable(plan)) return
+  saving.value = true
+  previewError.value = ''
+  operationSplitError.value = ''
+  try {
+    const detail = normalizeProductionPlanDetailForSplitEditor(await apiGet(productionPlanDetailEndpoint(plan)))
+    currentPlan.value = detail
+    planRows.value = []
+    initialMaterials.value = detail.material_summary || []
+    operationSplits.value = (detail.operation_splits || []).map(normalizeOperationSplit)
+    productionPlanDetail.value = null
+    productionPlanDetailError.value = ''
+    currentPlanPanelCollapsed.value = false
+  } catch (err) {
+    previewError.value = err.message || '加载草稿生产计划拆分失败'
+  } finally {
+    saving.value = false
+  }
 }
 
 function navigateProductionView(key) {

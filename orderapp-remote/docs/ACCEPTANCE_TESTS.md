@@ -47,6 +47,9 @@
 - [ ] PR-491-PRODUCTION-DEMAND-STATUS-JOBCARD-CONTEXT：待生产需求筛选支持 `全部 / 待计划 / 生产中 / 生产完成`；某条需求创建生产计划后刷新为 `生产中`，复选框置灰并提示 `已进入生产计划的需求不可重复生成计划`，再次创建计划不会重复纳入。
 - [ ] PR-491-PRODUCTION-DEMAND-STATUS-JOBCARD-CONTEXT：在待生产需求、当前生产计划、库存充足和生产计划单据宽表内滚动到顶/底后继续滚动鼠标滚轮，页面整体仍能上下滚动，不出现内层列表卡住页面的感觉。
 - [ ] PR-491-PRODUCTION-DEMAND-STATUS-JOBCARD-CONTEXT：进入工序卡页，主表能看到商品和 `BOM/配方`；点击工单号链接打开右侧 `工单详情` 抽屉，能看到商品、规格、订单号、计划数量、BOM/配方和 `配方物料`。
+- [ ] PR-493-PLAN-WORKORDER-SPLIT-EDIT：在 `工序` 主数据把某个工序改名后，新建草稿生产计划的 `工序产能拆分` 显示修改后的工序名，不再显示旧路线行文字。
+- [ ] PR-493-PLAN-WORKORDER-SPLIT-EDIT：创建草稿生产计划时不拆分产能，回到生产计划单据列表或详情点击 `编辑拆分`，该草稿能重新进入当前计划工作台并补充分配工位产能、承担产量和批次卡片。
+- [ ] PR-493-PLAN-WORKORDER-SPLIT-EDIT：草稿计划提交生成 released 工单后，在生产工单页点击 `编辑拆分`，保存拆分后 pending 工序卡按新的工位产能拆分重建；工单开始生产后该入口不可用，不能覆盖已执行工序卡。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产计划页选择咖啡豆订单缺口后点击 `创建生产计划`，系统只生成 `draft` 生产计划和计划行，不生成生产中记录、生产日志或 WIP 占用。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：提交生产计划后，系统生成 `released` 生产工单和 `pending` 工序卡；咖啡豆工艺路线应生成烘焙/包装步骤，包装盒示例应生成印刷/模切/糊盒步骤，童装示例应生成裁剪/缝制/质检步骤。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产工单页筛选 `released` 后点击 `开始生产`，工单进入 `running`，产生 running item、WIP 占用并进入现有生产中/完工链路；重复开始生产必须返回错误，不重复开始生产、不重复写 WIP 或 running item。

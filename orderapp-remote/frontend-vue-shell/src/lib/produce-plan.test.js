@@ -354,6 +354,23 @@ test('ProducePlanView owns operation capacity splits after draft plan creation',
   assert.doesNotMatch(source, /推荐机器/)
 })
 
+test('ProducePlanView can reopen draft plans from the list into the split editor', () => {
+  const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
+
+  for (const marker of [
+    'loadProductionPlanIntoCurrentEditor',
+    'normalizeProductionPlanDetailForSplitEditor',
+    'detailOperationsFallback',
+    '编辑拆分',
+    'productionPlanSelectable(plan)',
+    'currentPlan.value = detail',
+    'operationSplits.value = (detail.operation_splits || []).map(normalizeOperationSplit)',
+    'planRows.value.length > 0 || (currentPlan.value?.items || []).length > 0',
+  ]) {
+    assert.ok(source.includes(marker), `missing ${marker}`)
+  }
+})
+
 test('ProducePlanView lets operators expand planning tables and drag horizontal overflow', () => {
   const source = fs.readFileSync(new URL('../views/ProducePlanView.vue', import.meta.url), 'utf8')
 

@@ -75,6 +75,9 @@ func (r *fakeRepo) SaveProductionPlanOperationSplits(ctx context.Context, cmd Sa
 	r.savePlanSplits = cmd
 	return cmd.Items, nil
 }
+func (r *fakeRepo) SaveWorkOrderOperationSplits(ctx context.Context, cmd SaveWorkOrderOperationSplitsCommand) (WorkOrderOperationSplitsResult, error) {
+	return WorkOrderOperationSplitsResult{WorkOrder: WorkOrderRow{ID: cmd.ID, Status: "released"}}, nil
+}
 func (r *fakeRepo) SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error) {
 	return ProductionPlanSubmitResult{}, nil
 }

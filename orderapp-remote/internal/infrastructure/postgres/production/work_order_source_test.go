@@ -113,6 +113,23 @@ func TestWorkOrderFreezesProcessRouteAndUsesUsableDefaultBomPriority(t *testing.
 	}
 }
 
+func TestProcessRouteSnapshotUsesLatestOperationMasterNames(t *testing.T) {
+	srcBytes, err := os.ReadFile("work_order.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(srcBytes)
+	for _, want := range []string{
+		"manufacturing_operations mo",
+		"mo.id=pro.operation_id",
+		"COALESCE(NULLIF(mo.name,''), pro.operation)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("process route snapshots must resolve latest operation master names for new plan/work order snapshots; missing %q", want)
+		}
+	}
+}
+
 func TestWorkOrderFreezesRouteCapacityTimeAndCostIntoJobCards(t *testing.T) {
 	srcBytes, err := os.ReadFile("work_order.go")
 	if err != nil {
