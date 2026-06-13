@@ -142,3 +142,22 @@ func TestPlannedCapacitySplitMetricsDerivesBatchCountFromPlannedQty(t *testing.T
 		t.Fatalf("planned cost metrics = %d / %.2f, want 30 / 150", got.PlannedMinutes, got.PlannedOperationCost)
 	}
 }
+
+func TestPlannedCapacitySplitMetricsDerivesCountUnitQuantityFromSpec(t *testing.T) {
+	got := plannedCapacitySplitMetrics(productionapp.ProductionPlanOperationSplit{
+		PlannedQty:      23,
+		BatchSizeQty:    10,
+		BatchSizeUnit:   "袋",
+		StandardMinutes: 5,
+		HourlyRate:      120,
+	}, 454)
+	if got.PlannedBatchCount != 3 {
+		t.Fatalf("PlannedBatchCount=%d, want 3", got.PlannedBatchCount)
+	}
+	if got.PlannedQtyG != 10442 {
+		t.Fatalf("PlannedQtyG=%d, want 10442", got.PlannedQtyG)
+	}
+	if got.PlannedMinutes != 15 || got.PlannedOperationCost != 30 {
+		t.Fatalf("planned cost metrics = %d / %.2f, want 15 / 30", got.PlannedMinutes, got.PlannedOperationCost)
+	}
+}

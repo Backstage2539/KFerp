@@ -36,18 +36,19 @@ type manufacturingWorkstationRequest struct {
 }
 
 type workstationCapacityRequest struct {
-	ID                 int64   `json:"id"`
-	WorkstationID      int64   `json:"workstation_id"`
-	Code               string  `json:"code"`
-	Name               string  `json:"name"`
-	Status             string  `json:"status"`
-	BatchSizeQty       float64 `json:"batch_size_qty"`
-	BatchSizeUnit      string  `json:"batch_size_unit"`
-	StandardMinutes    int     `json:"standard_minutes"`
-	HourlyRate         float64 `json:"hourly_rate"`
-	ProductionCapacity int     `json:"production_capacity"`
-	SortOrder          int     `json:"sort_order"`
-	Note               string  `json:"note"`
+	ID                     int64   `json:"id"`
+	WorkstationID          int64   `json:"workstation_id"`
+	Code                   string  `json:"code"`
+	Name                   string  `json:"name"`
+	Status                 string  `json:"status"`
+	BatchSizeQty           float64 `json:"batch_size_qty"`
+	BatchSizeUnit          string  `json:"batch_size_unit"`
+	StandardMinutes        int     `json:"standard_minutes"`
+	HourlyRate             float64 `json:"hourly_rate"`
+	ProductionCapacity     int     `json:"production_capacity"`
+	SortOrder              int     `json:"sort_order"`
+	Note                   string  `json:"note"`
+	ApplicableOperationIDs []int64 `json:"applicable_operation_ids"`
 }
 
 type industryTemplateRequest struct {
@@ -188,19 +189,20 @@ func registerAPI(e *echo.Echo, svc *manufacturingapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
 		row, err := svc.SaveManufacturingWorkstationCapacity(c.Request().Context(), manufacturingapp.SaveWorkstationCapacityCommand{
-			ID:                 req.ID,
-			WorkstationID:      req.WorkstationID,
-			Code:               req.Code,
-			Name:               req.Name,
-			Status:             req.Status,
-			BatchSizeQty:       req.BatchSizeQty,
-			BatchSizeUnit:      req.BatchSizeUnit,
-			StandardMinutes:    req.StandardMinutes,
-			HourlyRate:         req.HourlyRate,
-			ProductionCapacity: req.ProductionCapacity,
-			SortOrder:          req.SortOrder,
-			Note:               req.Note,
-			Actor:              support.ActorOf(c),
+			ID:                     req.ID,
+			WorkstationID:          req.WorkstationID,
+			Code:                   req.Code,
+			Name:                   req.Name,
+			Status:                 req.Status,
+			BatchSizeQty:           req.BatchSizeQty,
+			BatchSizeUnit:          req.BatchSizeUnit,
+			StandardMinutes:        req.StandardMinutes,
+			HourlyRate:             req.HourlyRate,
+			ProductionCapacity:     req.ProductionCapacity,
+			SortOrder:              req.SortOrder,
+			Note:                   req.Note,
+			ApplicableOperationIDs: req.ApplicableOperationIDs,
+			Actor:                  support.ActorOf(c),
 		})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})

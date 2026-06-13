@@ -94,6 +94,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS manufacturing_workstation_capacities_code_uq
 CREATE INDEX IF NOT EXISTS manufacturing_workstation_capacities_workstation_idx
 	ON %[1]s.manufacturing_workstation_capacities(workstation_id, status, sort_order, id);
 
+CREATE TABLE IF NOT EXISTS %[1]s.manufacturing_workstation_capacity_operations (
+	capacity_id BIGINT NOT NULL,
+	operation_id BIGINT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(capacity_id, operation_id)
+);
+CREATE INDEX IF NOT EXISTS manufacturing_workstation_capacity_operations_capacity_idx
+	ON %[1]s.manufacturing_workstation_capacity_operations(capacity_id);
+CREATE INDEX IF NOT EXISTS manufacturing_workstation_capacity_operations_operation_idx
+	ON %[1]s.manufacturing_workstation_capacity_operations(operation_id);
+
 CREATE TABLE IF NOT EXISTS %[1]s.process_templates (
 	id BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL DEFAULT '',

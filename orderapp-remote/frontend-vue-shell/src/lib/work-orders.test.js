@@ -175,6 +175,11 @@ test('WorkOrdersView exposes capacity split editor drawer', () => {
     'saveWorkOrderOperationSplits',
     'plannedCapacitySplitMetrics',
     'productionPlanSplitBatchCards',
+    'autoSplitWorkOrderOperation',
+    'assignRemainingWorkOrderSplitQty',
+    'applicableOperationCapacities',
+    '分配剩余产量',
+    '自动拆分',
   ]) {
     assert.ok(source.includes(marker), `missing ${marker}`)
   }

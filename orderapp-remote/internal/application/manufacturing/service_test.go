@@ -49,18 +49,19 @@ func (r *fakeRepo) ListManufacturingWorkstationCapacities(ctx context.Context, q
 func (r *fakeRepo) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd SaveWorkstationCapacityCommand) (ManufacturingWorkstationCapacity, error) {
 	r.savedWorkstationCapacity = cmd
 	return ManufacturingWorkstationCapacity{
-		ID:                 9,
-		WorkstationID:      cmd.WorkstationID,
-		Code:               cmd.Code,
-		Name:               cmd.Name,
-		Status:             cmd.Status,
-		BatchSizeQty:       cmd.BatchSizeQty,
-		BatchSizeUnit:      cmd.BatchSizeUnit,
-		StandardMinutes:    cmd.StandardMinutes,
-		HourlyRate:         cmd.HourlyRate,
-		ProductionCapacity: cmd.ProductionCapacity,
-		SortOrder:          cmd.SortOrder,
-		Note:               cmd.Note,
+		ID:                     9,
+		WorkstationID:          cmd.WorkstationID,
+		Code:                   cmd.Code,
+		Name:                   cmd.Name,
+		Status:                 cmd.Status,
+		BatchSizeQty:           cmd.BatchSizeQty,
+		BatchSizeUnit:          cmd.BatchSizeUnit,
+		StandardMinutes:        cmd.StandardMinutes,
+		HourlyRate:             cmd.HourlyRate,
+		ProductionCapacity:     cmd.ProductionCapacity,
+		SortOrder:              cmd.SortOrder,
+		Note:                   cmd.Note,
+		ApplicableOperationIDs: cmd.ApplicableOperationIDs,
 	}, nil
 }
 func (r *fakeRepo) DeactivateManufacturingWorkstationCapacity(ctx context.Context, cmd TemplateStatusCommand) error {
@@ -276,6 +277,36 @@ func TestSaveWorkstationCapacityNormalizesReusablePreset(t *testing.T) {
 	}
 	if repo.savedWorkstationCapacity.WorkstationID != 2 || repo.savedWorkstationCapacity.BatchSizeUnit != "kg" || repo.savedWorkstationCapacity.StandardMinutes != 15 {
 		t.Fatalf("saved capacity command = %+v", repo.savedWorkstationCapacity)
+	}
+}
+
+func TestSaveWorkstationCapacityNormalizesApplicableOperationIDs(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	got, err := svc.SaveManufacturingWorkstationCapacity(context.Background(), SaveWorkstationCapacityCommand{
+		WorkstationID:          2,
+		Name:                   "布勒 18kg",
+		BatchSizeQty:           18,
+		BatchSizeUnit:          "kg",
+		StandardMinutes:        15,
+		HourlyRate:             300,
+		ApplicableOperationIDs: []int64{2, 0, 2, -1, 1},
+		ProductionCapacity:     1,
+	})
+	if err != nil {
+		t.Fatalf("SaveManufacturingWorkstationCapacity: %v", err)
+	}
+	want := []int64{2, 1}
+	if len(repo.savedWorkstationCapacity.ApplicableOperationIDs) != len(want) {
+		t.Fatalf("saved applicable operation ids = %+v, want %+v", repo.savedWorkstationCapacity.ApplicableOperationIDs, want)
+	}
+	for i := range want {
+		if repo.savedWorkstationCapacity.ApplicableOperationIDs[i] != want[i] {
+			t.Fatalf("saved applicable operation ids = %+v, want %+v", repo.savedWorkstationCapacity.ApplicableOperationIDs, want)
+		}
+	}
+	if len(got.ApplicableOperationIDs) != len(want) || got.ApplicableOperationIDs[0] != 2 || got.ApplicableOperationIDs[1] != 1 {
+		t.Fatalf("returned applicable operation ids = %+v, want %+v", got.ApplicableOperationIDs, want)
 	}
 }
 

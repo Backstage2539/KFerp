@@ -42,6 +42,8 @@ func (r *apiRepo) ListManufacturingWorkstationCapacities(ctx context.Context, qu
 	return []manufacturingapp.ManufacturingWorkstationCapacity{{
 		ID: 9, WorkstationID: query.WorkstationID, Code: "BUHLER-18KG", Name: "布勒 18kg", Status: "active",
 		BatchSizeQty: 18, BatchSizeUnit: "kg", StandardMinutes: 15, HourlyRate: 300, ProductionCapacity: 1,
+		ApplicableOperationIDs: []int64{1},
+		ApplicableOperations:   []manufacturingapp.ManufacturingOperation{{ID: 1, Name: "烘焙", Status: "active"}},
 	}}, nil
 }
 func (r *apiRepo) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd manufacturingapp.SaveWorkstationCapacityCommand) (manufacturingapp.ManufacturingWorkstationCapacity, error) {
@@ -50,6 +52,7 @@ func (r *apiRepo) SaveManufacturingWorkstationCapacity(ctx context.Context, cmd 
 		ID: 9, WorkstationID: cmd.WorkstationID, Code: cmd.Code, Name: cmd.Name, Status: cmd.Status,
 		BatchSizeQty: cmd.BatchSizeQty, BatchSizeUnit: cmd.BatchSizeUnit, StandardMinutes: cmd.StandardMinutes,
 		HourlyRate: cmd.HourlyRate, ProductionCapacity: cmd.ProductionCapacity,
+		ApplicableOperationIDs: cmd.ApplicableOperationIDs,
 	}, nil
 }
 func (r *apiRepo) DeactivateManufacturingWorkstationCapacity(ctx context.Context, cmd manufacturingapp.TemplateStatusCommand) error {
@@ -249,8 +252,11 @@ func TestWorkstationCapacityAPIListSaveAndDeactivate(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"布勒 18kg"`) {
 		t.Fatalf("list capacity status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), `"applicable_operation_ids":[1]`) || !strings.Contains(rec.Body.String(), `"applicable_operations":[`) {
+		t.Fatalf("list capacity response missing applicable operations: %s", rec.Body.String())
+	}
 
-	body := `{"workstation_id":2,"name":"布勒 15kg","batch_size_qty":15,"batch_size_unit":"kg","standard_minutes":13,"hourly_rate":280}`
+	body := `{"workstation_id":2,"name":"布勒 15kg","batch_size_qty":15,"batch_size_unit":"kg","standard_minutes":13,"hourly_rate":280,"applicable_operation_ids":[1,2]}`
 	req = httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstation-capacities", strings.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
@@ -260,6 +266,9 @@ func TestWorkstationCapacityAPIListSaveAndDeactivate(t *testing.T) {
 	}
 	if repo.workstationCapacitySaved.WorkstationID != 2 || repo.workstationCapacitySaved.BatchSizeQty != 15 || repo.workstationCapacitySaved.StandardMinutes != 13 || repo.workstationCapacitySaved.HourlyRate != 280 {
 		t.Fatalf("saved workstation capacity command = %+v", repo.workstationCapacitySaved)
+	}
+	if len(repo.workstationCapacitySaved.ApplicableOperationIDs) != 2 || repo.workstationCapacitySaved.ApplicableOperationIDs[0] != 1 || repo.workstationCapacitySaved.ApplicableOperationIDs[1] != 2 {
+		t.Fatalf("saved applicable operations = %+v", repo.workstationCapacitySaved.ApplicableOperationIDs)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/manufacturing-workstation-capacities/9/deactivate", strings.NewReader(`{}`))

@@ -167,6 +167,7 @@
           <div class="split-operation-head">
             <strong>{{ operation.seq || operation.sequence_no || '-' }}. {{ operation.operation || '工序' }}</strong>
             <span>{{ operation.workstation || '工位待定' }}</span>
+            <button class="secondary compact" type="button" @click="autoSplitWorkOrderOperation(operation)" :disabled="!applicableOperationCapacities(operation, activeWorkstationCapacities).length">自动拆分</button>
             <button class="secondary compact" type="button" @click="addWorkOrderOperationSplit(operation)">添加拆分</button>
           </div>
           <div class="split-row" v-for="(split, splitIndex) in workOrderSplitRowsForOperation(operation)" :key="split.local_key || split.id || `${operation.seq}-${splitIndex}`">
@@ -181,6 +182,7 @@
               <span>承担产量{{ splitQuantityUnit(split) }}</span>
               <input v-model.number="split.planned_qty" type="number" min="0" :step="splitQuantityStep(split)" />
             </label>
+            <button class="secondary compact" type="button" @click="assignRemainingWorkOrderSplitQty(split)" :disabled="!split.workstation_capacity_id">分配剩余产量</button>
             <div class="split-metric">
               <span>自动批次数</span>
               <strong>{{ plannedCapacitySplitMetrics(split).planned_batch_count || 0 }}</strong>
@@ -266,7 +268,14 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import { expectedLossRate, formatPercent } from '../lib/manufacturing-loss'
 import { canCompleteWorkOrder, workOrderCompleteEndpoint, workOrderStatusLabel } from '../lib/manufacturing-execution'
-import { plannedCapacitySplitMetrics, productionPlanSplitBatchCards } from '../lib/produce-plan'
+import {
+  applicableOperationCapacities,
+  buildOperationCapacityAutoSplits,
+  maxAssignableQtyForCapacitySplit,
+  plannedCapacitySplitMetrics,
+  productionPlanSplitBatchCards,
+  qtyFromGForCapacityUnit,
+} from '../lib/produce-plan'
 import {
   buildWorkOrderOperationSplitPayload,
   canEditWorkOrderSplits,
@@ -542,11 +551,7 @@ function splitBatchCards(split) {
 }
 
 function qtyFromGForSplitUnit(qtyG, unit) {
-  const value = Math.max(0, Number(qtyG || 0))
-  const normalized = String(unit || '').trim().toLowerCase()
-  if (normalized === 'kg' || normalized === '千克' || normalized === '公斤') return Number((value / 1000).toFixed(3))
-  if (normalized === 'g' || normalized === '克') return Math.round(value)
-  return 0
+  return qtyFromGForCapacityUnit(qtyG, unit, workOrderSplitRow.value?.spec_g || 0)
 }
 
 function capacityOptionLabel(capacity) {
@@ -568,13 +573,10 @@ function splitSameOperation(left, right) {
 }
 
 function defaultPlannedQtyForWorkOrderSplit(split) {
-  const targetG = Math.max(0, Number(workOrderSplitRow.value?.planned_g || 0))
-  if (targetG <= 0) return 0
-  const usedG = workOrderSplitRows.value.reduce((sum, row) => {
-    if (row === split || !splitSameOperation(row, split)) return sum
-    return sum + (plannedCapacitySplitMetrics(row).planned_qty_g || 0)
-  }, 0)
-  return qtyFromGForSplitUnit(Math.max(0, targetG - usedG), split.batch_size_unit)
+  return maxAssignableQtyForCapacitySplit(split, workOrderSplitRows.value, {
+    planned_g: Math.max(0, Number(workOrderSplitRow.value?.planned_g || 0)),
+    spec_g: Number(workOrderSplitRow.value?.spec_g || 0),
+  })
 }
 
 function normalizeWorkOrderSplit(row = {}) {
@@ -593,6 +595,7 @@ function normalizeWorkOrderSplit(row = {}) {
     standard_minutes: Number(row.standard_minutes || 0),
     hourly_rate: Number(row.hourly_rate || 0),
     planned_batch_count: Number(row.planned_batch_count || 0),
+    spec_g: Number(row.spec_g || workOrderSplitRow.value?.spec_g || 0),
     planned_qty: Number(row.planned_qty || qtyFromGForSplitUnit(Number(row.planned_input_qty || row.planned_qty_g || 0), row.batch_size_unit)),
     planned_qty_g: Number(row.planned_qty_g || row.planned_input_qty || 0),
     planned_minutes: Number(row.planned_minutes || 0),
@@ -607,6 +610,7 @@ function addWorkOrderOperationSplit(operation) {
     operation_seq: identity.seq,
     operation_id: identity.id,
     operation: identity.name,
+    spec_g: Number(workOrderSplitRow.value?.spec_g || 0),
     planned_qty: 0,
   }))
 }
@@ -625,16 +629,48 @@ function applyWorkOrderSplitCapacity(split) {
   split.batch_size_unit = capacity.batch_size_unit || ''
   split.standard_minutes = Number(capacity.standard_minutes || 0)
   split.hourly_rate = Number(capacity.hourly_rate || 0)
+  split.spec_g = Number(split.spec_g || workOrderSplitRow.value?.spec_g || 0)
   if (Number(split.planned_qty || 0) <= 0) {
     split.planned_qty = defaultPlannedQtyForWorkOrderSplit(split)
   }
 }
 
+function autoSplitWorkOrderOperation(operation) {
+  if (!workOrderSplitRow.value) return
+  const autoRows = buildOperationCapacityAutoSplits({
+    id: Number(workOrderSplitRow.value.production_plan_item_id || 0),
+    planned_g: Number(workOrderSplitRow.value.planned_g || 0),
+    spec_g: Number(workOrderSplitRow.value.spec_g || 0),
+  }, operation, activeWorkstationCapacities.value).map(normalizeWorkOrderSplit)
+  workOrderSplitRows.value = [
+    ...workOrderSplitRows.value.filter((split) => !splitMatchesOperation(split, operation)),
+    ...autoRows,
+  ]
+}
+
+function assignRemainingWorkOrderSplitQty(split) {
+  split.planned_qty = defaultPlannedQtyForWorkOrderSplit(split)
+}
+
+function withAutoWorkOrderSplits(rows) {
+  let nextRows = [...(rows || [])]
+  for (const operation of workOrderSplitOperations.value) {
+    if (nextRows.some((split) => splitMatchesOperation(split, operation))) continue
+    const autoRows = buildOperationCapacityAutoSplits({
+      id: Number(workOrderSplitRow.value?.production_plan_item_id || 0),
+      planned_g: Number(workOrderSplitRow.value?.planned_g || 0),
+      spec_g: Number(workOrderSplitRow.value?.spec_g || 0),
+    }, operation, activeWorkstationCapacities.value).map(normalizeWorkOrderSplit)
+    if (autoRows.length) nextRows = [...nextRows, ...autoRows]
+  }
+  return nextRows
+}
+
 function openWorkOrderSplitDrawer(row) {
   workOrderSplitRow.value = { ...row }
-  workOrderSplitRows.value = operationSummaryRows(row)
+  workOrderSplitRows.value = withAutoWorkOrderSplits(operationSummaryRows(row)
     .filter((item) => Number(item.workstation_capacity_id || 0) > 0)
-    .map(normalizeWorkOrderSplit)
+    .map(normalizeWorkOrderSplit))
   workOrderSplitError.value = ''
 }
 

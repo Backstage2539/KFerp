@@ -421,8 +421,10 @@ func (r Repository) SaveProductionPlanOperationSplits(ctx context.Context, cmd p
 		return nil, err
 	}
 	itemIDs := map[int64]bool{}
+	itemSpecs := map[int64]int64{}
 	for _, item := range itemRows {
 		itemIDs[item.ID] = true
+		itemSpecs[item.ID] = item.SpecG
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s.production_plan_operation_splits WHERE production_plan_id=$1`, r.schema), cmd.ID); err != nil {
 		return nil, err
@@ -431,7 +433,7 @@ func (r Repository) SaveProductionPlanOperationSplits(ctx context.Context, cmd p
 		if !itemIDs[item.ProductionPlanItemID] {
 			return nil, fmt.Errorf("production_plan_item_id does not belong to production plan")
 		}
-		item, err = prepareOperationSplitForSaveTx(ctx, tx, r.schema, item, cmd.ID, item.ProductionPlanItemID)
+		item, err = prepareOperationSplitForSaveTx(ctx, tx, r.schema, item, cmd.ID, item.ProductionPlanItemID, itemSpecs[item.ProductionPlanItemID])
 		if err != nil {
 			return nil, err
 		}
@@ -476,7 +478,7 @@ func (r Repository) SaveWorkOrderOperationSplits(ctx context.Context, cmd produc
 
 	splits := make([]productionapp.ProductionPlanOperationSplit, 0, len(cmd.Items))
 	for _, item := range cmd.Items {
-		item, err = prepareOperationSplitForSaveTx(ctx, tx, r.schema, item, wo.ProductionPlanID, wo.ProductionPlanItemID)
+		item, err = prepareOperationSplitForSaveTx(ctx, tx, r.schema, item, wo.ProductionPlanID, wo.ProductionPlanItemID, wo.SpecG)
 		if err != nil {
 			return productionapp.WorkOrderOperationSplitsResult{}, err
 		}
@@ -532,7 +534,7 @@ func loadWorkOrderForOperationSplitTx(ctx context.Context, tx pgx.Tx, schema str
 	return row, err
 }
 
-func prepareOperationSplitForSaveTx(ctx context.Context, tx pgx.Tx, schema string, item productionapp.ProductionPlanOperationSplit, productionPlanID int64, productionPlanItemID int64) (productionapp.ProductionPlanOperationSplit, error) {
+func prepareOperationSplitForSaveTx(ctx context.Context, tx pgx.Tx, schema string, item productionapp.ProductionPlanOperationSplit, productionPlanID int64, productionPlanItemID int64, specG int64) (productionapp.ProductionPlanOperationSplit, error) {
 	snapshot, err := loadWorkstationCapacitySnapshotForSplitTx(ctx, tx, schema, item.WorkstationCapacityID)
 	if err != nil {
 		return productionapp.ProductionPlanOperationSplit{}, err
@@ -546,7 +548,7 @@ func prepareOperationSplitForSaveTx(ctx context.Context, tx pgx.Tx, schema strin
 	item.BatchSizeUnit = snapshot.BatchSizeUnit
 	item.StandardMinutes = snapshot.StandardMinutes
 	item.HourlyRate = snapshot.HourlyRate
-	return plannedCapacitySplitMetrics(item), nil
+	return plannedCapacitySplitMetrics(item, specG), nil
 }
 
 func insertProductionPlanOperationSplitTx(ctx context.Context, tx pgx.Tx, schema string, item productionapp.ProductionPlanOperationSplit) error {
@@ -591,13 +593,17 @@ func loadWorkstationCapacitySnapshotForSplitTx(ctx context.Context, tx pgx.Tx, s
 	return row, err
 }
 
-func plannedCapacitySplitMetrics(split productionapp.ProductionPlanOperationSplit) productionapp.ProductionPlanOperationSplit {
+func plannedCapacitySplitMetrics(split productionapp.ProductionPlanOperationSplit, specG ...int64) productionapp.ProductionPlanOperationSplit {
+	itemSpecG := int64(0)
+	if len(specG) > 0 {
+		itemSpecG = specG[0]
+	}
 	if split.PlannedQty <= 0 && split.PlannedBatchCount > 0 && split.BatchSizeQty > 0 {
 		split.PlannedQty = split.BatchSizeQty * float64(split.PlannedBatchCount)
 	}
 	if split.PlannedQty > 0 {
 		split.PlannedQty = roundProductionPlanQuantity(split.PlannedQty)
-		split.PlannedQtyG = plannedCapacitySplitQtyG(split.PlannedQty, split.BatchSizeUnit)
+		split.PlannedQtyG = plannedCapacitySplitQtyG(split.PlannedQty, split.BatchSizeUnit, itemSpecG)
 	}
 	if split.PlannedQty > 0 && split.BatchSizeQty > 0 {
 		split.PlannedBatchCount = int(math.Ceil(split.PlannedQty / split.BatchSizeQty))
@@ -611,12 +617,21 @@ func plannedCapacitySplitMetrics(split productionapp.ProductionPlanOperationSpli
 	return split
 }
 
-func plannedCapacitySplitQtyG(qty float64, unit string) int64 {
+func plannedCapacitySplitQtyG(qty float64, unit string, specG ...int64) int64 {
+	itemSpecG := int64(0)
+	if len(specG) > 0 {
+		itemSpecG = specG[0]
+	}
 	switch strings.ToLower(strings.TrimSpace(unit)) {
 	case "kg", "千克", "公斤":
 		return int64(math.Round(qty * 1000))
 	case "g", "克":
 		return int64(math.Round(qty))
+	case "件", "个", "袋", "盒", "unit", "units", "pc", "pcs":
+		if itemSpecG <= 0 {
+			return 0
+		}
+		return int64(math.Round(qty * float64(itemSpecG)))
 	default:
 		return 0
 	}

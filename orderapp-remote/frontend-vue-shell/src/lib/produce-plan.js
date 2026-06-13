@@ -183,10 +183,36 @@ export function productionPlanOperationSplitsEndpoint(plan) {
   return `/api/production-plans/${id}/operation-splits`
 }
 
-function plannedCapacitySplitQtyG(qty, unit) {
+const COUNT_CAPACITY_UNITS = new Set(['件', '个', '袋', '盒', 'unit', 'units', 'pc', 'pcs'])
+
+function normalizedCapacityUnit(unit) {
+  return String(unit || '').trim().toLowerCase()
+}
+
+function isWeightCapacityUnit(unit) {
+  const normalized = normalizedCapacityUnit(unit)
+  return normalized === 'kg' || normalized === '千克' || normalized === '公斤' || normalized === 'g' || normalized === '克'
+}
+
+function isCountCapacityUnit(unit) {
+  return COUNT_CAPACITY_UNITS.has(normalizedCapacityUnit(unit))
+}
+
+function plannedCapacitySplitQtyG(qty, unit, specG = 0) {
   const normalized = String(unit || '').trim().toLowerCase()
   if (normalized === 'kg' || normalized === '千克' || normalized === '公斤') return Math.round(qty * 1000)
   if (normalized === 'g' || normalized === '克') return Math.round(qty)
+  if (isCountCapacityUnit(unit) && Number(specG || 0) > 0) return Math.round(qty * Number(specG || 0))
+  return 0
+}
+
+export function qtyFromGForCapacityUnit(qtyG, unit, specG = 0) {
+  const normalized = normalizedCapacityUnit(unit)
+  const value = Number(qtyG || 0)
+  if (value <= 0) return 0
+  if (normalized === 'kg' || normalized === '千克' || normalized === '公斤') return roundedSplitQty(value / 1000)
+  if (normalized === 'g' || normalized === '克') return roundedSplitQty(value)
+  if (isCountCapacityUnit(unit) && Number(specG || 0) > 0) return roundedSplitQty(value / Number(specG || 0))
   return 0
 }
 
@@ -195,6 +221,7 @@ export function plannedCapacitySplitMetrics(split = {}) {
   const standardMinutes = Math.max(0, Math.round(Number(split.standard_minutes || 0)))
   const hourlyRate = Math.max(0, Number(split.hourly_rate || 0))
   const legacyBatchCount = Math.max(0, Math.round(Number(split.planned_batch_count || 0)))
+  const specG = Number(split.spec_g || split.item_spec_g || 0)
   let plannedQty = Math.max(0, Number(split.planned_qty || 0))
   if (plannedQty <= 0 && legacyBatchCount > 0 && batchSizeQty > 0) {
     plannedQty = legacyBatchCount * batchSizeQty
@@ -203,7 +230,10 @@ export function plannedCapacitySplitMetrics(split = {}) {
   const plannedBatchCount = plannedQty > 0 && batchSizeQty > 0
     ? Math.ceil(plannedQty / batchSizeQty)
     : legacyBatchCount
-  const plannedQtyG = plannedCapacitySplitQtyG(plannedQty, split.batch_size_unit)
+  let plannedQtyG = plannedCapacitySplitQtyG(plannedQty, split.batch_size_unit, specG)
+  if (plannedQtyG <= 0 && Number(split.planned_qty_g || 0) > 0) {
+    plannedQtyG = Math.round(Number(split.planned_qty_g || 0))
+  }
   const plannedMinutes = plannedBatchCount * standardMinutes
   const plannedOperationCost = Number(((plannedMinutes / 60) * hourlyRate).toFixed(2))
   return {
@@ -246,9 +276,148 @@ export function productionPlanSplitBatchCards(split = {}) {
       batch_size_qty: batchSizeQty,
       batch_size_unit: unit,
       planned_qty: plannedQtyForBatch,
-      planned_qty_g: plannedCapacitySplitQtyG(plannedQtyForBatch, unit),
+      planned_qty_g: plannedCapacitySplitQtyG(plannedQtyForBatch, unit, split.spec_g || split.item_spec_g || 0),
       planned_minutes: standardMinutes,
       underfilled: batchSizeQty > 0 && plannedQtyForBatch > 0 && plannedQtyForBatch < batchSizeQty,
+    }
+  })
+}
+
+function operationIDOf(operation = {}) {
+  return Number(operation.operation_id || operation.id || 0)
+}
+
+function operationSeqOf(operation = {}) {
+  return Math.max(0, Math.round(Number(operation.seq || operation.operation_seq || 0)))
+}
+
+function operationNameOf(operation = {}) {
+  return String(operation.operation || operation.name || '').trim()
+}
+
+export function capacityAppliesToOperation(capacity = {}, operation = {}) {
+  const opID = operationIDOf(operation)
+  const ids = Array.isArray(capacity.applicable_operation_ids)
+    ? capacity.applicable_operation_ids.map((id) => Number(id || 0)).filter((id) => id > 0)
+    : []
+  if (ids.length > 0 && opID > 0) return ids.includes(opID)
+  if (ids.length === 0 && Array.isArray(capacity.applicable_operations) && capacity.applicable_operations.length > 0) {
+    const opName = operationNameOf(operation)
+    return capacity.applicable_operations.some((item) => Number(item?.id || 0) === opID || (opName && String(item?.name || '').trim() === opName))
+  }
+  return false
+}
+
+export function applicableOperationCapacities(operation = {}, capacities = []) {
+  return (capacities || [])
+    .filter((capacity) => String(capacity?.status || 'active').trim() === 'active')
+    .filter((capacity) => Number(capacity?.batch_size_qty || 0) > 0)
+    .filter((capacity) => capacityAppliesToOperation(capacity, operation))
+}
+
+function capacityBaseQty(capacity = {}, item = {}) {
+  const batchSizeQty = Number(capacity.batch_size_qty || 0)
+  const unit = capacity.batch_size_unit
+  if (batchSizeQty <= 0) return { kind: '', batchBaseQty: 0, targetBaseQty: 0 }
+  if (isWeightCapacityUnit(unit)) {
+    const batchBaseQty = plannedCapacitySplitQtyG(batchSizeQty, unit, item.spec_g || item.item_spec_g || 0)
+    return { kind: 'weight', batchBaseQty, targetBaseQty: Number(item.planned_g || 0) }
+  }
+  if (isCountCapacityUnit(unit) && Number(item.spec_g || 0) > 0) {
+    return { kind: 'count', batchBaseQty: batchSizeQty, targetBaseQty: qtyFromGForCapacityUnit(item.planned_g || 0, unit, item.spec_g || 0) }
+  }
+  return { kind: '', batchBaseQty: 0, targetBaseQty: 0 }
+}
+
+function qtyFromBaseForCapacity(baseQty, unit, specG = 0) {
+  const normalized = normalizedCapacityUnit(unit)
+  if (normalized === 'kg' || normalized === '千克' || normalized === '公斤') return roundedSplitQty(baseQty / 1000)
+  if (normalized === 'g' || normalized === '克') return roundedSplitQty(baseQty)
+  if (isCountCapacityUnit(unit)) return roundedSplitQty(baseQty)
+  if (Number(specG || 0) > 0) return qtyFromGForCapacityUnit(baseQty, unit, specG)
+  return roundedSplitQty(baseQty)
+}
+
+function splitRowsSameOperation(row, split) {
+  if (Number(row?.production_plan_item_id || 0) !== Number(split?.production_plan_item_id || 0)) return false
+  const leftSeq = Math.max(0, Math.round(Number(row?.operation_seq || 0)))
+  const rightSeq = Math.max(0, Math.round(Number(split?.operation_seq || 0)))
+  if (leftSeq > 0 || rightSeq > 0) return leftSeq === rightSeq
+  const leftID = Number(row?.operation_id || 0)
+  const rightID = Number(split?.operation_id || 0)
+  if (leftID > 0 || rightID > 0) return leftID === rightID
+  return String(row?.operation || '').trim() === String(split?.operation || '').trim()
+}
+
+export function maxAssignableQtyForCapacitySplit(split = {}, rows = [], target = {}) {
+  const specG = Number(target.spec_g || split.spec_g || split.item_spec_g || 0)
+  const plannedG = Math.max(0, Number(target.planned_g || 0))
+  const usedG = (rows || [])
+    .filter((row) => row !== split && splitRowsSameOperation(row, split))
+    .reduce((sum, row) => sum + (plannedCapacitySplitMetrics({ ...row, spec_g: row.spec_g || specG }).planned_qty_g || 0), 0)
+  const remainingG = Math.max(0, plannedG - usedG)
+  const batchG = plannedCapacitySplitQtyG(Number(split.batch_size_qty || 0), split.batch_size_unit, specG)
+  if (remainingG <= 0) return 0
+  if (batchG > 0 && remainingG >= batchG) {
+    return qtyFromGForCapacityUnit(Math.floor(remainingG / batchG) * batchG, split.batch_size_unit, specG)
+  }
+  return qtyFromGForCapacityUnit(remainingG, split.batch_size_unit, specG)
+}
+
+export function buildOperationCapacityAutoSplits(item = {}, operation = {}, capacities = []) {
+  const targetG = Math.max(0, Number(item.planned_g || 0))
+  if (targetG <= 0) return []
+  const candidates = applicableOperationCapacities(operation, capacities)
+    .map((capacity) => {
+      const base = capacityBaseQty(capacity, item)
+      return { capacity, ...base }
+    })
+    .filter((row) => row.kind && row.batchBaseQty > 0 && row.targetBaseQty > 0)
+  if (!candidates.length) return []
+
+  const groups = new Map()
+  for (const row of candidates) {
+    if (!groups.has(row.kind)) groups.set(row.kind, [])
+    groups.get(row.kind).push(row)
+  }
+  let selected = []
+  for (const rows of groups.values()) {
+    if (rows.length > selected.length) selected = rows
+  }
+  selected.sort((a, b) => b.batchBaseQty - a.batchBaseQty || String(a.capacity.name || '').localeCompare(String(b.capacity.name || '')))
+
+  let remaining = selected[0]?.targetBaseQty || 0
+  const assigned = new Map()
+  while (remaining > 0.000001) {
+    const full = selected.find((row) => row.batchBaseQty <= remaining + 0.000001)
+    const row = full || [...selected].sort((a, b) => a.batchBaseQty - b.batchBaseQty)[0]
+    if (!row) break
+    const amount = full ? row.batchBaseQty : remaining
+    assigned.set(row.capacity.id, {
+      row,
+      amount: (assigned.get(row.capacity.id)?.amount || 0) + amount,
+    })
+    remaining = Number((remaining - amount).toFixed(6))
+  }
+
+  return Array.from(assigned.values()).map(({ row, amount }) => {
+    const capacity = row.capacity
+    return {
+      production_plan_item_id: Number(item.id || item.production_plan_item_id || 0),
+      operation_seq: operationSeqOf(operation),
+      operation_id: operationIDOf(operation),
+      operation: operationNameOf(operation),
+      workstation_id: Number(capacity.workstation_id || 0),
+      workstation: String(capacity.workstation || ''),
+      workstation_capacity_id: Number(capacity.id || 0),
+      workstation_capacity_name: String(capacity.name || ''),
+      batch_size_qty: Number(capacity.batch_size_qty || 0),
+      batch_size_unit: String(capacity.batch_size_unit || ''),
+      standard_minutes: Math.max(0, Math.round(Number(capacity.standard_minutes || 0))),
+      hourly_rate: Math.max(0, Number(capacity.hourly_rate || 0)),
+      spec_g: Number(item.spec_g || 0),
+      planned_qty: qtyFromBaseForCapacity(amount, capacity.batch_size_unit, item.spec_g || 0),
+      note: '',
     }
   })
 }
