@@ -43,6 +43,29 @@
       </div>
     </section>
 
+    <section class="panel production-step-panel">
+      <div class="production-steps" aria-label="生产计划步骤">
+        <div
+          v-for="(step, index) in planSteps"
+          :key="step.key"
+          class="production-step"
+          :class="{ active: step.key === currentPlanStepKey, done: index < currentPlanStepIndex }"
+        >
+          <span>{{ index + 1 }}</span>
+          <strong>{{ step.label }}</strong>
+        </div>
+      </div>
+      <div class="sticky-next-action">
+        <div>
+          <strong>下一步：{{ planNextButtonLabel }}</strong>
+          <span>{{ planNextHint }}</span>
+        </div>
+        <button class="primary" type="button" @click="runPlanNextStep" :disabled="saving || previewLoading">
+          {{ planNextButtonLabel }}
+        </button>
+      </div>
+    </section>
+
     <section :class="['planning-workbench', { 'demand-collapsed': demandPanelCollapsed, 'current-plan-collapsed': currentPlanPanelCollapsed }]">
       <section :class="['panel demand-panel', { 'is-collapsed': demandPanelCollapsed }]">
         <div class="panel-head">
@@ -280,6 +303,17 @@
               <button v-if="!currentPlan" class="primary" type="button" @click="createProductionPlan" :disabled="saving || previewLoading || !planReady">创建生产计划</button>
               <button v-else class="primary" type="button" @click="submitCurrentProductionPlan" :disabled="saving || !currentPlanDraft">提交当前计划生成工单</button>
               <span v-if="currentPlan && !currentPlanDraft" class="muted">当前计划状态为 {{ productionPlanStatusLabel(currentPlan.status) }}，无需重复提交。</span>
+            </div>
+            <div v-if="postSubmitActions.length" class="next-step-panel">
+              <div>
+                <div class="section-title">下一步处理</div>
+                <p class="muted">工单已生成，继续分配工位、查看工序卡或领料到 WIP。</p>
+              </div>
+              <div class="actions">
+                <button v-for="action in postSubmitActions" :key="action.key" class="secondary compact" type="button" @click="openPostSubmitAction(action)">
+                  {{ action.label }}
+                </button>
+              </div>
             </div>
           </template>
         </template>
@@ -671,6 +705,7 @@ import { apiGet, apiSend } from '../api/client'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import {
   applicableOperationCapacities,
+  buildProductionPlanNextActions,
   buildOperationCapacityAutoSplits,
   buildCurrentProductionPlanSubmitPayload,
   buildInsufficientSelection,
@@ -689,6 +724,8 @@ import {
   productionDemandStatusLabel,
   productionDemandStatusOptions,
   productionDemandStatusTone,
+  currentProductionPlanStep,
+  productionPlanSteps,
   productionPlanSplitBatchCards,
   productionPlanBatchSubmitEndpoint,
   productionPlanDetailEndpoint,
@@ -729,6 +766,7 @@ const productionPlanSplitDrawerLoading = ref(false)
 const productionPlanSplitDrawerSaving = ref(false)
 const productionPlanSplitDrawerError = ref('')
 const productionPlanSplitRows = ref([])
+const postSubmitActions = ref([])
 const operationSplitError = ref('')
 const insufficientHeaderCheckbox = ref(null)
 const productionPlanHeaderCheckbox = ref(null)
@@ -824,6 +862,27 @@ const productionPlanSplitDrawerOperationRows = computed(() => {
   }
   return rows
 })
+const planSteps = productionPlanSteps()
+const currentPlanStepKey = computed(() => currentProductionPlanStep({
+  selectedCount: insufficientSelection.value.selectedCount,
+  plan: currentPlan.value,
+  splitCount: operationSplits.value.length,
+}))
+const currentPlanStepIndex = computed(() => Math.max(0, planSteps.findIndex((step) => step.key === currentPlanStepKey.value)))
+const planNextButtonLabel = computed(() => ({
+  selectDemand: '选择需求',
+  createDraft: '生成草稿',
+  splitCapacity: operationSplits.value.length ? '保存拆分' : '拆分产能',
+  submitWorkOrders: '提交工单',
+  startProduction: '开始生产',
+}[currentPlanStepKey.value] || '下一步'))
+const planNextHint = computed(() => ({
+  selectDemand: '先勾选待计划的库存不足需求。',
+  createDraft: '根据当前勾选生成生产计划草稿。',
+  splitCapacity: '为计划行分配工位产能并保存。',
+  submitWorkOrders: '提交草稿后生成工单和工序卡。',
+  startProduction: '进入工单或工序卡开始执行。',
+}[currentPlanStepKey.value] || ''))
 
 watchEffect(() => {
   if (insufficientHeaderCheckbox.value) {
@@ -1464,8 +1523,35 @@ async function saveProductionPlanSplitDrawer() {
   }
 }
 
-function navigateProductionView(key) {
-  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key } }))
+function navigateProductionView(key, params = {}) {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', { detail: { key, params } }))
+}
+
+function openPostSubmitAction(action) {
+  navigateProductionView(action.view, action.params || {})
+}
+
+async function runPlanNextStep() {
+  switch (currentPlanStepKey.value) {
+    case 'selectDemand':
+      window.alert('请先在待生产需求中勾选要生成计划的商品')
+      return
+    case 'createDraft':
+      await createProductionPlan()
+      return
+    case 'splitCapacity':
+      if (currentPlanDraft.value) await saveCurrentPlanOperationSplits()
+      return
+    case 'submitWorkOrders':
+      await submitCurrentProductionPlan()
+      return
+    case 'startProduction':
+      if (postSubmitActions.value[0]) openPostSubmitAction(postSubmitActions.value[0])
+      else navigateProductionView('workOrders')
+      return
+    default:
+      return
+  }
 }
 
 async function createProductionPlan() {
@@ -1511,6 +1597,7 @@ async function submitCurrentProductionPlan() {
     const result = await apiSend(productionPlanBatchSubmitEndpoint(), { body: payload })
     const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
     if (firstSuccess?.plan) currentPlan.value = firstSuccess.plan
+    postSubmitActions.value = buildProductionPlanNextActions(result)
     await loadProductionPlans()
     if (Array.isArray(result.failed) && result.failed.length) {
       previewError.value = `当前生产计划提交失败：${result.failed.map((item) => `${item.id}: ${item.error}`).join('；')}`
@@ -1531,6 +1618,7 @@ async function submitSelectedProductionPlans() {
     const result = await apiSend(productionPlanBatchSubmitEndpoint(), { body: payload })
     const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
     currentPlan.value = firstSuccess?.plan || currentPlan.value
+    postSubmitActions.value = buildProductionPlanNextActions(result)
     replaceSelectedProductionPlans({})
     await loadProductionPlans()
     if (Array.isArray(result.failed) && result.failed.length) {
@@ -1616,6 +1704,19 @@ onBeforeUnmount(() => {
 .actions { margin-top: 12px; flex-wrap: wrap; }
 .plan-list-actions { margin: 12px 0; }
 .current-plan-actions { align-items: center; }
+.production-step-panel { position: sticky; top: 48px; z-index: 12; display: grid; gap: 10px; background: #fff; }
+.production-steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.production-step { min-width: 0; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; display: flex; align-items: center; gap: 8px; background: #f9fafb; color: #4b5563; }
+.production-step span { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: #e5e7eb; color: #374151; font-size: 12px; font-weight: 800; }
+.production-step strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.production-step.done { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+.production-step.done span { background: #22c55e; color: #fff; }
+.production-step.active { border-color: #111; background: #111; color: #fff; }
+.production-step.active span { background: #fff; color: #111; }
+.sticky-next-action { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #eee; padding-top: 10px; }
+.sticky-next-action div { display: grid; gap: 3px; min-width: 0; }
+.sticky-next-action span { color: #666; font-size: 13px; }
+.next-step-panel { margin-top: 12px; border: 1px solid #dbeafe; border-radius: 8px; padding: 12px; background: #eff6ff; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .filter-action { min-height: 42px; }
 .section-title-with-checkbox { display: inline-flex; align-items: center; gap: 8px; }
 .section-hint { margin: 6px 0 10px; }
@@ -1705,6 +1806,9 @@ td small { display: block; color: #666; line-height: 1.6; }
   .planning-workbench.demand-collapsed,
   .planning-workbench.current-plan-collapsed { grid-template-columns: 1fr; }
   .filters, .production-plan-filters { grid-template-columns: 1fr; }
+  .production-step-panel { position: static; }
+  .production-steps { grid-template-columns: 1fr; }
+  .sticky-next-action, .next-step-panel { align-items: stretch; flex-direction: column; }
   .direct-ship-tip { align-items: stretch; flex-direction: column; }
   .production-plan-detail-drawer { width: 100vw; padding: 14px; }
   .production-plan-split-drawer { width: 100vw; padding: 14px; }

@@ -56,6 +56,12 @@
 - [ ] PR-495-PRODUCTION-WORKSTATION-OVERVIEW：进入 `生产管理 -> 生产视图`，页面顶部有生产模块内切换条，生产视图能看到今日整体进度、待处理、执行中、异常、工位负载、阻塞原因和下一步处理人；点击工单、库存作业、质检、分配工位或调整优先级入口能跳转或保存。
 - [ ] PR-495-PRODUCTION-WORKSTATION-OVERVIEW：进入 `生产管理 -> 工位视图`，每个工位都明确显示 `现在做`、`下一件` 和 `不能做原因`；任务动作支持开始、暂停、继续、完成本工序、部分完成、报异常和呼叫补料，并通过 API 写入对应状态/异常。
 - [ ] PR-495-PRODUCTION-WORKSTATION-OVERVIEW：生产计划、生产中、生产工单、工序卡、生产质检、生产日志和生产成本页面顶部都显示同一条生产模块切换条；点击生产视图、工位视图、生产计划、生产中、工单、工序卡、质检、日志、成本能在 Vue/Vite 页面间切换，不改 `templates/*.html`。
+- [ ] PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION：生产模块顶部切换条在生产视图、工位视图、生产计划、生产中、工单、工序卡、质检、日志和成本页面 sticky 展示，入口顺序保持 `生产视图 / 工位视图 / 生产计划 / 生产中 / 工单 / 工序卡 / 质检 / 日志 / 成本`；生产视图、工位视图、生产中显示待处理/阻塞/执行中 badge，当前页面仍高亮，左侧菜单入口不回退。
+- [ ] PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION：`GET /api/production/workstation-overview` 返回 `today_summary`、`nav_badges`、`status_summary`、`blocked_summary`、`priority_summary`、`workstation_load`、任务 `readiness/readiness_label`、`blocking_reason` 和 `next_handler`；生产视图可回答今天整体进度如何、哪里卡住、下一步谁处理，异常任务展示阻塞原因、优先级、工位、下一处理人和打开工单/库存作业/质检/分配工位/调整优先级入口。
+- [ ] PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION：工位视图按工位展示任务卡，每个工位能看到当前任务现在做什么、下一件做什么、为什么不能做；任务卡展示工单、商品、规格、工序、优先级、状态、负责人/下一处理人，并支持开始、暂停、继续、完成本工序、部分完成、报异常和呼叫补料。
+- [ ] PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION：生产计划页面显示 `选需求 -> 生成草稿 -> 拆分产能 -> 提交工单 -> 开始生产` 步骤条和 sticky 下一步按钮；提交生成工单成功后显示下一步面板，可打开工单、打开工序卡、分配工位和领料到 WIP，且不改变创建、拆分、提交后端业务规则。
+- [ ] PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION：生产中列表只保留扫描字段和一个主动作；完成/部分完成打开统一完成面板，面板字段包含投料、成品件数、余料、入库仓、异常/备注；WIP 不足或质检冻结错误在行内/面板内展示原因、影响对象和动作按钮。
+- [ ] PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION：从生产视图或生产中打开库存作业时，库存作业默认进入 WIP 上下文，并预填 work_order_id、job_card_id、running_item_id、material_id、缺口数量等参数；旧生产计划、工单、工序卡、质检、日志、成本页面仍可通过顶部切换条进入。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产计划页选择咖啡豆订单缺口后点击 `创建生产计划`，系统只生成 `draft` 生产计划和计划行，不生成生产中记录、生产日志或 WIP 占用。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：提交生产计划后，系统生成 `released` 生产工单和 `pending` 工序卡；咖啡豆工艺路线应生成烘焙/包装步骤，包装盒示例应生成印刷/模切/糊盒步骤，童装示例应生成裁剪/缝制/质检步骤。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产工单页筛选 `released` 后点击 `开始生产`，工单进入 `running`，产生 running item、WIP 占用并进入现有生产中/完工链路；重复开始生产必须返回错误，不重复开始生产、不重复写 WIP 或 running item。
@@ -1224,5 +1230,6 @@
 - [ ] 创建草稿生产计划后，在 `工序产能拆分` 添加 `布勒 18kg` 承担 90kg 和 `智烘 4kg` 承担 8kg，页面自动显示 5 批和 2 批，并预览计划分钟和计划工序成本。
 - [ ] PR-490-JOB-CARD-BATCH-CARDS：`布勒 18kg` 承担 72kg 时，拆分行下展示 4 个批次卡片；承担 20kg 时展示 2 个批次卡片，最后一批显示 2kg 且标记不足标准批量。
 - [ ] PR-495-PRODUCTION-WORKSTATION-OVERVIEW：生产视图回答今天生产整体进度如何、哪里卡住、下一步谁处理；工位视图回答当前工位现在要做什么、下一件做什么、为什么不能做。
+- [ ] PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION：顶部 sticky badge、生产计划步骤条、统一完成面板和 WIP 上下文预填都可用，且旧生产计划、工单、工序卡、质检、日志、成本流程不回退。
 - [ ] 保存拆分并提交生成工单后，生产工单/工序卡显示冻结的工位产能、计划批次数、计划分钟和计划工序成本；修改 `布勒 18kg` 或 `智烘 4kg` 产能后，已生成工单不变化。
 - [ ] 工序卡录入实际分钟并保存实际或完成工序后，展示实际工序成本。

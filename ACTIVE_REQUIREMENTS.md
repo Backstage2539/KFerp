@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION
+- Branch: codex/production-flow-phase1-20260614
+- Owner/session: Codex goal / 2026-06-14
+- Status: verifying; targeted RED/GREEN, package tests, frontend build and changed verifier passed; feature branch push/merge/deploy pending.
+- Scope: 生产管理高频视图优化一期。保持现有生产计划、生产中、工单、工序卡、质检、日志和成本页面，同时通过 sticky 顶部生产切换条、生产视图、工位视图、生产计划步骤条、生产中统一完成面板和库存作业 WIP 上下文，把负责人调度和现场工位的高频判断串起来。
+- DEV:
+  - DEV-496-PRODUCTION-NAV-BADGES-READMODEL：扩展 `/api/production/workstation-overview`，返回 `today_summary`、`nav_badges`、任务 readiness/阻塞原因/下一处理人；顶部生产切换条 sticky 展示生产视图、工位视图和生产中 badge。
+  - DEV-496-PRODUCTION-PLAN-STEPPER-NEXT：生产计划页增加 `选需求 -> 生成草稿 -> 拆分产能 -> 提交工单 -> 开始生产` 步骤条、sticky 下一步按钮和提交成功后的下一步面板。
+  - DEV-496-RUNNING-COMPLETION-PANEL-WIP-CONTEXT：生产中列表收敛为扫描字段和主动作，完成/部分完成进入统一完成面板；WIP 不足和质检冻结在行内/面板内显示原因、影响对象和动作入口。
+  - DEV-496-STOCK-WIP-PREFILL：从生产视图或生产中打开库存作业时带入 WIP tab、work_order_id、job_card_id、running_item_id、material_id 和缺口数量上下文。
+- Verifier:
+  - RED frontend: `node --test src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js` failed before implementation because nav badge, production plan stepper, completion panel and WIP context helpers were missing.
+  - RED backend/API: targeted production service/API tests failed before implementation because overview read model did not expose `today_summary`、`nav_badges`、`readiness`。
+  - GREEN targeted frontend: `node --test src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js` passed 43/43.
+  - GREEN targeted backend/API: `go test ./internal/application/production -run TestProductionWorkstationOverviewAnswersProductionAndStationQuestions -count=1`; `go test ./internal/interfaces/http/production -run TestProductionWorkstationOverviewAPIAndStationActions -count=1`.
+  - GREEN release-local: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1`; `node --test src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js src/lib/menu-ia.test.js src/lib/view-routing.test.js`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-14-production-flow-phase1-optimization.md`.
+- Deployment: pending.
+- Last update: 2026-06-14 Asia/Shanghai.
+
 ### PR-495-PRODUCTION-WORKSTATION-OVERVIEW
 - Branch: codex/production-workstation-overview-20260613
 - Owner/session: Codex goal / 2026-06-13

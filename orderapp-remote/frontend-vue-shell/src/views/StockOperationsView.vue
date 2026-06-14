@@ -20,8 +20,11 @@
           {{ tab.label }}
         </button>
       </div>
+      <div v-if="contextBadges.length" class="context-badges" aria-label="生产上下文">
+        <span v-for="badge in contextBadges" :key="badge">{{ badge }}</span>
+      </div>
     </section>
-    <component :is="activeComponent" embedded />
+    <component :is="activeComponent" embedded :view-params="props.viewParams" />
   </div>
 </template>
 
@@ -36,6 +39,7 @@ import WipMaterialsView from './WipMaterialsView.vue'
 const props = defineProps({
   embedded: { type: Boolean, default: false },
   initialTab: { type: String, default: 'receipts' },
+  viewParams: { type: Object, default: () => ({}) },
 })
 
 const tabs = [
@@ -50,12 +54,27 @@ function normalizedTab(key) {
   return tabs.some((tab) => tab.key === key) ? key : 'receipts'
 }
 
-const activeTab = ref(normalizedTab(props.initialTab))
+const initialActiveTab = computed(() => normalizedTab(props.viewParams?.tab || props.initialTab))
+const activeTab = ref(initialActiveTab.value)
 const activeComponent = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.component || MaterialReceiptsView)
+const contextBadges = computed(() => {
+  const params = props.viewParams || {}
+  return [
+    params.work_order_id ? `工单 #${params.work_order_id}` : '',
+    params.job_card_id ? `工序卡 #${params.job_card_id}` : '',
+    params.running_item_id ? `生产中 #${params.running_item_id}` : '',
+    params.material_id ? `物料 #${params.material_id}` : '',
+    params.shortage_g ? `缺口 ${params.shortage_g}g` : '',
+  ].filter(Boolean)
+})
 
 watch(() => props.initialTab, (key) => {
-  activeTab.value = normalizedTab(key)
+  activeTab.value = normalizedTab(props.viewParams?.tab || key)
 })
+
+watch(() => props.viewParams, () => {
+  activeTab.value = initialActiveTab.value
+}, { deep: true })
 </script>
 
 <style scoped>
@@ -68,5 +87,7 @@ watch(() => props.initialTab, (key) => {
 .tabs { display:flex; flex-wrap:wrap; gap:8px; }
 .tab { font:inherit; min-height:36px; border:1px solid #d1d5db; background:#fff; border-radius:6px; padding:8px 12px; cursor:pointer; }
 .tab.active { border-color:#111; background:#111; color:#fff; }
+.context-badges { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+.context-badges span { border:1px solid #bfdbfe; background:#eff6ff; color:#1d4ed8; border-radius:999px; padding:3px 8px; font-size:12px; }
 @media (max-width:900px){ .stock-operations-page{padding:12px;} .tabs{display:grid;grid-template-columns:1fr;} }
 </style>

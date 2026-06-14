@@ -27,6 +27,13 @@ const viewScopedParams = [
   'ship_ready',
   'scope',
   'highlight_order_id',
+  'tab',
+  'work_order_id',
+  'job_card_id',
+  'running_item_id',
+  'material_id',
+  'shortage_g',
+  'gap_g',
 ]
 
 export function viewNavigationURL(currentURL, key, params = {}) {

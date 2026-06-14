@@ -661,13 +661,29 @@ type ProductionWorkstationOverviewQuery struct {
 }
 
 type ProductionWorkstationOverview struct {
-	Date            string                      `json:"date"`
-	TotalTasks      int                         `json:"total_tasks"`
-	StatusSummary   []ProductionSummaryCount    `json:"status_summary"`
-	BlockedSummary  []ProductionSummaryCount    `json:"blocked_summary"`
-	PrioritySummary []ProductionSummaryCount    `json:"priority_summary"`
-	WorkstationLoad []ProductionWorkstationLoad `json:"workstation_load"`
-	Tasks           []ProductionTask            `json:"tasks"`
+	Date            string                        `json:"date"`
+	TotalTasks      int                           `json:"total_tasks"`
+	TodaySummary    ProductionTodaySummary        `json:"today_summary"`
+	NavBadges       map[string]ProductionNavBadge `json:"nav_badges"`
+	StatusSummary   []ProductionSummaryCount      `json:"status_summary"`
+	BlockedSummary  []ProductionSummaryCount      `json:"blocked_summary"`
+	PrioritySummary []ProductionSummaryCount      `json:"priority_summary"`
+	WorkstationLoad []ProductionWorkstationLoad   `json:"workstation_load"`
+	Tasks           []ProductionTask              `json:"tasks"`
+}
+
+type ProductionTodaySummary struct {
+	PlannedTasks   int `json:"planned_tasks"`
+	PendingTasks   int `json:"pending_tasks"`
+	RunningTasks   int `json:"running_tasks"`
+	CompletedTasks int `json:"completed_tasks"`
+	BlockedTasks   int `json:"blocked_tasks"`
+}
+
+type ProductionNavBadge struct {
+	Pending int `json:"pending"`
+	Blocked int `json:"blocked"`
+	Running int `json:"running"`
 }
 
 type ProductionSummaryCount struct {
@@ -704,6 +720,8 @@ type ProductionTask struct {
 	WorkCenter        string   `json:"work_center"`
 	Status            string   `json:"status"`
 	StatusLabel       string   `json:"status_label"`
+	Readiness         string   `json:"readiness"`
+	ReadinessLabel    string   `json:"readiness_label"`
 	BlockingReason    string   `json:"blocking_reason"`
 	NextHandler       string   `json:"next_handler"`
 	AssignedTo        string   `json:"assigned_to"`
@@ -1771,9 +1789,12 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 	sortProductionTasks(tasks)
 	load := buildProductionWorkstationLoad(tasks)
 	statusSummary, blockedSummary, prioritySummary := buildProductionTaskSummaries(tasks)
+	todaySummary := buildProductionTodaySummary(tasks, workOrders, jobCards)
 	return ProductionWorkstationOverview{
 		Date:            time.Now().Format("2006-01-02"),
 		TotalTasks:      len(tasks),
+		TodaySummary:    todaySummary,
+		NavBadges:       buildProductionNavBadges(todaySummary),
 		StatusSummary:   statusSummary,
 		BlockedSummary:  blockedSummary,
 		PrioritySummary: prioritySummary,
@@ -1833,6 +1854,7 @@ func productionTaskFromJobCard(card JobCardRow, workOrder WorkOrderRow) Producti
 		SchedulingNote:    firstNonEmpty(card.SchedulingNote, workOrder.SchedulingNote),
 	}
 	task.NextHandler = productionNextHandler(task)
+	task.Readiness, task.ReadinessLabel = productionTaskReadiness(task)
 	task.AvailableActions = productionAvailableActions(task)
 	return task
 }
@@ -1866,8 +1888,59 @@ func productionTaskFromWorkOrder(workOrder WorkOrderRow) ProductionTask {
 		SchedulingNote: strings.TrimSpace(workOrder.SchedulingNote),
 	}
 	task.NextHandler = productionNextHandler(task)
+	task.Readiness, task.ReadinessLabel = productionTaskReadiness(task)
 	task.AvailableActions = productionAvailableActions(task)
 	return task
+}
+
+func buildProductionTodaySummary(tasks []ProductionTask, workOrders []WorkOrderRow, jobCards []JobCardRow) ProductionTodaySummary {
+	summary := ProductionTodaySummary{PlannedTasks: len(tasks)}
+	for _, task := range tasks {
+		switch task.StatusLabel {
+		case "执行中":
+			summary.RunningTasks++
+		case "待处理":
+			summary.PendingTasks++
+		case "异常":
+			// Blocked/paused tasks are counted below through IsBlocked so the
+			// summary remains aligned with the read model's blocking reason.
+		}
+		if task.IsBlocked {
+			summary.BlockedTasks++
+		}
+	}
+	completedCards := 0
+	for _, card := range jobCards {
+		if normalizeProductionTaskStatus(card.Status) == "completed" {
+			completedCards++
+		}
+	}
+	completedWorkOrders := 0
+	for _, workOrder := range workOrders {
+		if normalizeProductionTaskStatus(workOrder.Status) == "completed" {
+			completedWorkOrders++
+		}
+	}
+	if completedCards > 0 {
+		summary.CompletedTasks = completedCards
+	} else {
+		summary.CompletedTasks = completedWorkOrders
+	}
+	summary.PlannedTasks += summary.CompletedTasks
+	return summary
+}
+
+func buildProductionNavBadges(summary ProductionTodaySummary) map[string]ProductionNavBadge {
+	overviewBadge := ProductionNavBadge{
+		Pending: summary.PendingTasks,
+		Blocked: summary.BlockedTasks,
+		Running: summary.RunningTasks,
+	}
+	return map[string]ProductionNavBadge{
+		"productionOverview": overviewBadge,
+		"workstationView":    overviewBadge,
+		"produceRunning":     {Running: summary.RunningTasks},
+	}
 }
 
 func buildProductionTaskSummaries(tasks []ProductionTask) ([]ProductionSummaryCount, []ProductionSummaryCount, []ProductionSummaryCount) {
@@ -2057,6 +2130,24 @@ func productionNextHandler(task ProductionTask) string {
 		return "工位操作员"
 	}
 	return "生产负责人"
+}
+
+func productionTaskReadiness(task ProductionTask) (string, string) {
+	if task.BlockingReason != "" || task.IsBlocked {
+		return "blocked", "不能做"
+	}
+	switch task.Status {
+	case "running":
+		return "running", "执行中"
+	case "pending", "ready", "released":
+		return "ready", "可开始"
+	case "completed":
+		return "completed", "已完成"
+	case "cancelled":
+		return "cancelled", "已取消"
+	default:
+		return "pending", "待处理"
+	}
 }
 
 func productionAvailableActions(task ProductionTask) []string {

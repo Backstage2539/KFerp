@@ -49,7 +49,7 @@
             <div class="task-main">
               <strong>{{ taskTitle(task) }}</strong>
               <span>{{ task.work_order_no || '-' }} · {{ task.workstation || task.work_center || '未分配工位' }}</span>
-              <small>{{ task.planned_start_at || '未排时间' }} · P{{ task.priority || 0 }} · {{ task.next_handler || '-' }}</small>
+              <small>{{ task.readiness_label || '待处理' }} · {{ task.planned_start_at || '未排时间' }} · P{{ task.priority || 0 }} · {{ task.next_handler || '-' }}</small>
             </div>
             <div class="actions">
               <button type="button" @click="openWorkOrder(task)">工单</button>
@@ -71,7 +71,7 @@
             <div class="task-main">
               <strong>{{ taskTitle(task) }}</strong>
               <span>{{ task.work_order_no || '-' }} · {{ task.workstation || task.work_center || '未分配工位' }}</span>
-              <small>{{ task.planned_start_at || '未排时间' }} · {{ task.next_handler || '-' }}</small>
+              <small>{{ task.readiness_label || '执行中' }} · {{ task.planned_start_at || '未排时间' }} · {{ task.next_handler || '-' }}</small>
             </div>
             <div class="actions">
               <button type="button" @click="openWorkOrder(task)">工单</button>
@@ -162,7 +162,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { assignProductionSchedule, fetchProductionWorkstationOverview } from '../api/production.js'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
-import { taskTitle } from '../lib/production-workstation.js'
+import { stockOperationContextParams, taskTitle } from '../lib/production-workstation.js'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -214,7 +214,7 @@ function openWorkOrder(task) {
 }
 
 function openStockOperations(task) {
-  openView('stockOperations', { work_order_id: task.work_order_id, running_item_id: task.running_item_id })
+  openView('stockOperations', stockOperationContextParams(task))
 }
 
 function openQuality(task) {

@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  navItemsWithProductionBadges,
   productionTaskActionEndpoint,
   productionTopNavItems,
+  stockOperationContextParams,
   workstationTaskSections,
 } from './production-workstation.js'
 
@@ -79,4 +81,39 @@ test('production task action endpoints stay aligned with workstation action butt
   assert.equal(productionTaskActionEndpoint({ job_card_id: 91 }, 'material_call'), '/api/production/workstation/tasks/91/material-call')
   assert.equal(productionTaskActionEndpoint({ job_card_id: 0 }, 'start'), '')
   assert.equal(productionTaskActionEndpoint({ job_card_id: 91 }, 'unknown'), '')
+})
+
+test('production top nav renders count badges for high-frequency production views', () => {
+  const items = navItemsWithProductionBadges(productionTopNavItems, {
+    productionOverview: { pending: 2, blocked: 1, running: 3 },
+    workstationView: { pending: 2, blocked: 1, running: 3 },
+    produceRunning: { running: 3 },
+  })
+
+  assert.deepEqual(items.slice(0, 4).map((item) => ({
+    key: item.key,
+    badge: item.badge,
+  })), [
+    { key: 'productionOverview', badge: '待2 阻1 中3' },
+    { key: 'workstationView', badge: '待2 阻1 中3' },
+    { key: 'producePlan', badge: '' },
+    { key: 'produceRunning', badge: '中3' },
+  ])
+})
+
+test('stock operation context carries WIP prefill parameters from production tasks', () => {
+  assert.deepEqual(stockOperationContextParams({
+    work_order_id: 88,
+    job_card_id: 91,
+    running_item_id: 99,
+    material_id: 10,
+    shortage_g: 600,
+  }), {
+    tab: 'wip',
+    work_order_id: 88,
+    job_card_id: 91,
+    running_item_id: 99,
+    material_id: 10,
+    shortage_g: 600,
+  })
 })

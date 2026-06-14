@@ -10,6 +10,33 @@ export const productionTopNavItems = [
   { key: 'productionCosts', label: '成本' },
 ]
 
+export function navItemsWithProductionBadges(items = productionTopNavItems, badges = {}) {
+  return (items || []).map((item) => ({
+    ...item,
+    badge: productionNavBadgeText(badges[item.key]),
+  }))
+}
+
+function productionNavBadgeText(badge = {}) {
+  const parts = []
+  const pending = Number(badge.pending || 0)
+  const blocked = Number(badge.blocked || 0)
+  const running = Number(badge.running || 0)
+  if (pending > 0) parts.push(`待${pending}`)
+  if (blocked > 0) parts.push(`阻${blocked}`)
+  if (running > 0) parts.push(`中${running}`)
+  return parts.join(' ')
+}
+
+export function stockOperationContextParams(task = {}) {
+  const params = { tab: 'wip' }
+  for (const key of ['work_order_id', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g']) {
+    const value = Number(task?.[key] || 0)
+    if (value > 0) params[key] = value
+  }
+  return params
+}
+
 const runningStatuses = new Set(['running'])
 const pendingStatuses = new Set(['pending', 'ready', 'released'])
 

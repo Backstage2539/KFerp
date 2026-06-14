@@ -430,6 +430,11 @@ func TestProductionWorkstationOverviewAPIAndStationActions(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"total_tasks":2`,
+		`"today_summary"`,
+		`"nav_badges"`,
+		`"productionOverview":{"pending":0,"blocked":1,"running":1}`,
+		`"readiness":"running"`,
+		`"readiness_label":"执行中"`,
 		`"status_summary"`,
 		`"workstation_load"`,
 		`"current_task":"包装 / 桂花乌龙"`,

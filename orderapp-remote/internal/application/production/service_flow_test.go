@@ -899,6 +899,18 @@ func TestProductionWorkstationOverviewAnswersProductionAndStationQuestions(t *te
 	if overview.TotalTasks != 3 {
 		t.Fatalf("TotalTasks=%d tasks=%+v", overview.TotalTasks, overview.Tasks)
 	}
+	if overview.TodaySummary.PlannedTasks != 3 || overview.TodaySummary.PendingTasks != 1 || overview.TodaySummary.RunningTasks != 1 || overview.TodaySummary.BlockedTasks != 1 {
+		t.Fatalf("today summary = %+v", overview.TodaySummary)
+	}
+	if overview.NavBadges["productionOverview"].Pending != 1 || overview.NavBadges["productionOverview"].Blocked != 1 || overview.NavBadges["productionOverview"].Running != 1 {
+		t.Fatalf("production overview nav badge = %+v", overview.NavBadges["productionOverview"])
+	}
+	if overview.NavBadges["workstationView"].Pending != 1 || overview.NavBadges["workstationView"].Blocked != 1 || overview.NavBadges["workstationView"].Running != 1 {
+		t.Fatalf("workstation nav badge = %+v", overview.NavBadges["workstationView"])
+	}
+	if overview.NavBadges["produceRunning"].Running != 1 {
+		t.Fatalf("produce running nav badge = %+v", overview.NavBadges["produceRunning"])
+	}
 	if !summaryHas(overview.StatusSummary, "执行中", 1) || !summaryHas(overview.StatusSummary, "待处理", 1) || !summaryHas(overview.StatusSummary, "异常", 1) {
 		t.Fatalf("status summary = %+v", overview.StatusSummary)
 	}
@@ -922,7 +934,7 @@ func TestProductionWorkstationOverviewAnswersProductionAndStationQuestions(t *te
 	}
 
 	running := findProductionTask(overview.Tasks, 91)
-	if running.RunningItemID != 99 || running.StatusLabel != "执行中" || running.NextHandler != "阿强" {
+	if running.RunningItemID != 99 || running.StatusLabel != "执行中" || running.Readiness != "running" || running.ReadinessLabel != "执行中" || running.NextHandler != "阿强" {
 		t.Fatalf("running task = %+v", running)
 	}
 	for _, action := range []string{"pause", "complete", "partial_finish", "report_exception", "material_call"} {
@@ -931,7 +943,7 @@ func TestProductionWorkstationOverviewAnswersProductionAndStationQuestions(t *te
 		}
 	}
 	blocked := findProductionTask(overview.Tasks, 93)
-	if !blocked.IsBlocked || blocked.BlockingReason != "缺少生豆领料" || blocked.NextHandler != "现场主管" {
+	if !blocked.IsBlocked || blocked.Readiness != "blocked" || blocked.ReadinessLabel != "不能做" || blocked.BlockingReason != "缺少生豆领料" || blocked.NextHandler != "现场主管" {
 		t.Fatalf("blocked task = %+v", blocked)
 	}
 	for _, action := range []string{"resume", "complete", "report_exception", "material_call"} {
