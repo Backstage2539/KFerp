@@ -97,7 +97,7 @@ test('production top nav renders count badges for high-frequency production view
     { key: 'productionOverview', badge: '待2 阻1 中3' },
     { key: 'workstationView', badge: '待2 阻1 中3' },
     { key: 'producePlan', badge: '' },
-    { key: 'produceRunning', badge: '中3' },
+    { key: 'produceRunning', badge: '待0 阻0 中3' },
   ])
 })
 

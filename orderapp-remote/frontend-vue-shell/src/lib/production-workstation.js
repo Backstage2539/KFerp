@@ -17,15 +17,12 @@ export function navItemsWithProductionBadges(items = productionTopNavItems, badg
   }))
 }
 
-function productionNavBadgeText(badge = {}) {
-  const parts = []
+function productionNavBadgeText(badge) {
+  if (!badge) return ''
   const pending = Number(badge.pending || 0)
   const blocked = Number(badge.blocked || 0)
   const running = Number(badge.running || 0)
-  if (pending > 0) parts.push(`待${pending}`)
-  if (blocked > 0) parts.push(`阻${blocked}`)
-  if (running > 0) parts.push(`中${running}`)
-  return parts.join(' ')
+  return `待${pending} 阻${blocked} 中${running}`
 }
 
 export function stockOperationContextParams(task = {}) {
