@@ -117,6 +117,46 @@ test('work order main table uses generic manufacturing columns instead of roasti
   }
 })
 
+test('WorkOrdersView filters work orders only by status without BOM demand preview', () => {
+  const source = fs.readFileSync(new URL('../views/WorkOrdersView.vue', import.meta.url), 'utf8')
+  const template = source.slice(0, source.indexOf('<script setup>'))
+  const filterPanel = template.slice(
+    template.indexOf('<section class="panel no-print">'),
+    template.indexOf('<section class="panel table-wrap no-print">'),
+  )
+  const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+  assert.match(filterPanel, /<span>状态<\/span>/)
+  assert.match(filterPanel, /v-model="status"/)
+  assert.match(filterPanel, /@click="load"/)
+
+  for (const forbidden of [
+    '按 BOM 预览生产需求',
+    '生产 BOM',
+    '选择 BOM',
+    '生产数量',
+    '多层展开策略',
+    '冻结 BOM',
+    '产出商品',
+    '产出基准',
+    'bom-workbench',
+    'workbench-filters',
+    'bom-freeze-summary',
+    'compact-demand',
+    'selectedBomID',
+    'productionBoms',
+    'productionBomDetails',
+    'selectedBomDetail',
+    'selectedBomVersion',
+    'workOrderDemandRows',
+    'loadSelectedBomDetail',
+    'buildDemandRows',
+    "apiGet('/api/production-boms?status=all')",
+  ]) {
+    assert.doesNotMatch(source, new RegExp(escapeRegExp(forbidden)))
+  }
+})
+
 test('workOrderStatusOptions includes draft and released lifecycle states before running', () => {
   assert.deepEqual(workOrderStatusOptions().map((item) => item.value), [
     '',

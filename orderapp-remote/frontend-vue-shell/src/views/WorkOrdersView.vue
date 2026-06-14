@@ -17,65 +17,6 @@
         </label>
         <button class="primary" @click="load">查询</button>
       </div>
-      <div class="bom-workbench">
-        <div class="workbench-head">
-          <div>
-            <h3>按 BOM 预览生产需求</h3>
-            <p>工单以 BOM 为入口，商品档案只作为产出和库存对象。</p>
-          </div>
-        </div>
-        <div class="filters workbench-filters">
-          <label>
-            <span>生产 BOM</span>
-            <select v-model.number="selectedBomID" @change="loadSelectedBomDetail">
-              <option :value="0">选择 BOM</option>
-              <option v-for="bom in productionBoms" :key="bom.id" :value="Number(bom.id || 0)">
-                {{ bom.code }} {{ bom.name }} / {{ bom.output_product_name || '-' }}
-              </option>
-            </select>
-          </label>
-          <label>
-            <span>生产数量</span>
-            <input v-model.number="planQty" type="number" min="0.001" step="0.001" />
-          </label>
-          <label>
-            <span>多层展开策略</span>
-            <select v-model="explodeStrategy">
-              <option value="shortage">按库存缺口展开</option>
-              <option value="first_level">只看第一层</option>
-              <option value="full">全部展开</option>
-            </select>
-          </label>
-        </div>
-        <div v-if="selectedBomDetail" class="bom-freeze-summary">
-          <div><span>冻结 BOM</span><strong>{{ selectedBomDetail.code }} {{ selectedBomDetail.name }} / {{ selectedBomVersion?.version_no || '-' }}</strong></div>
-          <div><span>产出商品</span><strong>{{ selectedBomDetail.output_product_name || '-' }}</strong></div>
-          <div><span>产出基准</span><strong>{{ formatQty(selectedBomVersion?.output_qty || 1) }} {{ selectedBomVersion?.output_unit || 'unit' }}</strong></div>
-        </div>
-        <div v-if="selectedBomDetail" class="table-wrap compact-demand">
-          <table>
-            <thead>
-              <tr>
-                <th>层级</th>
-                <th>组件</th>
-                <th>来源</th>
-                <th>需求量</th>
-                <th>下层 BOM</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in workOrderDemandRows" :key="row.key">
-                <td>{{ row.level }}</td>
-                <td>{{ row.name }}</td>
-                <td>{{ row.component_type === 'product' || row.component_type === 'finished_product' ? '商品组件' : '物料' }}</td>
-                <td>{{ formatQty(row.required_qty) }} {{ consumeUnitLabel(row.consume_unit) }}</td>
-                <td>{{ row.child_bom_name || '-' }}</td>
-              </tr>
-              <tr v-if="!workOrderDemandRows.length"><td colspan="5" class="muted">当前 BOM 暂无组件</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
     </section>
 
     <section class="panel table-wrap no-print">
@@ -290,11 +231,6 @@ import {
 
 const rows = ref([])
 const workstationCapacities = ref([])
-const productionBoms = ref([])
-const productionBomDetails = ref({})
-const selectedBomID = ref(0)
-const planQty = ref(1)
-const explodeStrategy = ref('shortage')
 const status = ref('')
 const loading = ref(false)
 const startingId = ref(0)
@@ -319,21 +255,6 @@ const expectedLoss = (row) => {
   if (row && Object.prototype.hasOwnProperty.call(row, 'expected_loss_rate')) return Number(row.expected_loss_rate || 0)
   return expectedLossRate(expectedYield(row))
 }
-const selectedBomDetail = computed(() => productionBomDetails.value[String(selectedBomID.value)] || null)
-const selectedBomVersion = computed(() => {
-  const detail = selectedBomDetail.value
-  if (!detail) return null
-  return (detail.versions || []).find((version) => Number(version.id || 0) === Number(detail.latest_version_id || 0)) || (detail.versions || [])[0] || null
-})
-const bomByOutputProductID = computed(() => {
-  const map = new Map()
-  for (const row of productionBoms.value) {
-    const productID = Number(row.output_product_id || 0)
-    if (productID > 0 && !map.has(productID)) map.set(productID, row)
-  }
-  return map
-})
-const workOrderDemandRows = computed(() => buildDemandRows(selectedBomDetail.value, Number(planQty.value || 0), explodeStrategy.value))
 const activeWorkstationCapacities = computed(() => workstationCapacities.value.filter((row) => String(row.status || 'active') === 'active'))
 const workOrderSplitOperations = computed(() => {
   const row = workOrderSplitRow.value
@@ -515,16 +436,12 @@ async function load() {
   try {
     const url = new URL('/api/produce/work-orders', window.location.origin)
     if (status.value) url.searchParams.set('status', status.value)
-    const [data, bomData, capacityData] = await Promise.all([
+    const [data, capacityData] = await Promise.all([
       apiGet(url),
-      apiGet('/api/production-boms?status=all'),
       apiGet('/api/manufacturing-workstation-capacities'),
     ])
     rows.value = data.rows || []
-    productionBoms.value = bomData.rows || bomData || []
     workstationCapacities.value = capacityData.rows || []
-    if (!selectedBomID.value && productionBoms.value.length) selectedBomID.value = Number(productionBoms.value[0].id || 0)
-    if (selectedBomID.value) await loadSelectedBomDetail()
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -740,54 +657,6 @@ async function completeWorkOrder(row) {
   }
 }
 
-async function loadSelectedBomDetail() {
-  const id = Number(selectedBomID.value || 0)
-  if (!id || productionBomDetails.value[String(id)]) return
-  const detail = await apiGet(`/api/production-boms/${id}`)
-  productionBomDetails.value = { ...productionBomDetails.value, [String(id)]: detail }
-}
-
-function buildDemandRows(detail, qty, strategy, level = 1, seen = new Set()) {
-  if (!detail || qty <= 0) return []
-  const version = (detail.versions || []).find((row) => Number(row.id || 0) === Number(detail.latest_version_id || 0)) || (detail.versions || [])[0] || {}
-  const outputQty = Number(version.output_qty || 1) || 1
-  const multiplier = qty / outputQty
-  const rows = []
-  for (const [index, item] of (detail.items || []).entries()) {
-    const isProduct = item.component_type === 'product' || item.component_type === 'finished_product'
-    const requiredQty = item.consume_unit === 'ratio_pct' ? Number(item.ratio_pct || 0) * multiplier : Number(item.qty_per_unit || 0) * multiplier
-    const childBom = isProduct ? bomByOutputProductID.value.get(Number(item.component_product_id || 0)) : null
-    rows.push({
-      key: `${level}:${index}:${item.id || item.component_product_id || item.material_id}`,
-      level,
-      component_type: item.component_type,
-      name: isProduct ? (item.component_product_name || `商品 #${item.component_product_id}`) : (item.material_name || `物料 #${item.material_id}`),
-      consume_unit: item.consume_unit,
-      required_qty: requiredQty,
-      child_bom_name: childBom ? `${childBom.code || ''} ${childBom.name || ''}`.trim() : '',
-    })
-    if (strategy === 'full' && childBom && !seen.has(Number(childBom.id || 0)) && productionBomDetails.value[String(childBom.id || 0)]) {
-      const nextSeen = new Set(seen)
-      nextSeen.add(Number(childBom.id || 0))
-      rows.push(...buildDemandRows(productionBomDetails.value[String(childBom.id || 0)], requiredQty, strategy, level + 1, nextSeen))
-    }
-  }
-  return rows
-}
-
-function consumeUnitLabel(unit) {
-  return ({
-    ratio_pct: '%',
-    g_per_bag: '克/袋',
-    unit_per_bag: '个/袋',
-    unit_per_box: '个/盒',
-    fixed_qty: '固定数量',
-    unit: '个',
-    kg: 'kg',
-    g: 'g',
-  })[String(unit || '')] || unit || '-'
-}
-
 function clearPrintMode() {
   document.body.classList.remove('work-order-printing')
 }
@@ -810,7 +679,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}h3{margin:0;font-size:16px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.danger-text{color:#b91c1c}.row-actions{display:flex;gap:6px;flex-wrap:wrap}.table-wrap{overflow:auto}table{width:100%;min-width:1260px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:220px;line-height:1.45}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.muted{color:#666;text-align:center}.text-left{text-align:left}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.print-sheet{display:none}.bom-workbench{margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb;display:grid;gap:10px}.workbench-head p{margin:4px 0 0;color:#666;font-size:12px}.workbench-filters{grid-template-columns:minmax(260px,1.2fr) minmax(120px,.4fr) minmax(180px,.7fr)}.bom-freeze-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.bom-freeze-summary div{border:1px solid #e5e7eb;border-radius:6px;padding:8px;background:#fbfbfb}.bom-freeze-summary span{display:block;color:#666;font-size:12px;margin-bottom:3px}.compact-demand table{min-width:760px}.drawer-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.28);z-index:40;display:flex;justify-content:flex-end}.work-order-split-drawer{width:min(900px,92vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 28px rgba(15,23,42,.18);display:grid;align-content:start;gap:14px}.drawer-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;border-bottom:1px solid #e5e7eb;padding-bottom:12px}.drawer-head p{margin:6px 0 0;color:#666}.split-operation-block{border-top:1px solid #e5e7eb;padding-top:14px;display:grid;gap:10px}.split-operation-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.split-operation-head span{color:#666}.split-row{display:grid;grid-template-columns:minmax(220px,1.2fr) minmax(130px,.6fr) repeat(3,minmax(92px,.4fr)) auto;gap:10px;align-items:end;border:1px solid #eef2f7;border-radius:8px;padding:10px}.split-metric{border:1px solid #e5e7eb;border-radius:6px;padding:7px 9px;background:#fbfbfb}.split-metric span{display:block;font-size:12px;color:#666}.split-metric strong{font-size:14px}.split-batch-cards{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.split-batch-card{border:1px solid #dbeafe;border-radius:6px;background:#eff6ff;padding:8px;display:grid;gap:3px}.split-batch-card small,.split-batch-card span{color:#374151}.split-batch-card.underfilled{border-color:#fed7aa;background:#fff7ed}.split-batch-card em{color:#c2410c;font-style:normal;font-size:12px}.section-hint{padding:8px 0}.drawer-actions{display:flex;gap:10px;justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}h3{margin:0;font-size:16px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.danger-text{color:#b91c1c}.row-actions{display:flex;gap:6px;flex-wrap:wrap}.table-wrap{overflow:auto}table{width:100%;min-width:1260px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:220px;line-height:1.45}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.muted{color:#666;text-align:center}.text-left{text-align:left}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.print-sheet{display:none}.drawer-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.28);z-index:40;display:flex;justify-content:flex-end}.work-order-split-drawer{width:min(900px,92vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 28px rgba(15,23,42,.18);display:grid;align-content:start;gap:14px}.drawer-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;border-bottom:1px solid #e5e7eb;padding-bottom:12px}.drawer-head p{margin:6px 0 0;color:#666}.split-operation-block{border-top:1px solid #e5e7eb;padding-top:14px;display:grid;gap:10px}.split-operation-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.split-operation-head span{color:#666}.split-row{display:grid;grid-template-columns:minmax(220px,1.2fr) minmax(130px,.6fr) repeat(3,minmax(92px,.4fr)) auto;gap:10px;align-items:end;border:1px solid #eef2f7;border-radius:8px;padding:10px}.split-metric{border:1px solid #e5e7eb;border-radius:6px;padding:7px 9px;background:#fbfbfb}.split-metric span{display:block;font-size:12px;color:#666}.split-metric strong{font-size:14px}.split-batch-cards{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.split-batch-card{border:1px solid #dbeafe;border-radius:6px;background:#eff6ff;padding:8px;display:grid;gap:3px}.split-batch-card small,.split-batch-card span{color:#374151}.split-batch-card.underfilled{border-color:#fed7aa;background:#fff7ed}.split-batch-card em{color:#c2410c;font-style:normal;font-size:12px}.section-hint{padding:8px 0}.drawer-actions{display:flex;gap:10px;justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}
 
 @media print{
   :global(body.work-order-printing .sidebar),:global(body.work-order-printing .top){display:none!important}
