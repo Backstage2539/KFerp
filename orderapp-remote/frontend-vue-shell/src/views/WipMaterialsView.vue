@@ -10,6 +10,7 @@
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div v-if="ok" class="ok">已提交：{{ ok }}</div>
+      <div v-if="contextSummary" class="context-summary">{{ contextSummary }}</div>
       <div class="operation-grid">
         <label>
           <span>操作</span>
@@ -102,7 +103,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import PaginationControls from '../components/PaginationControls.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
@@ -110,6 +111,7 @@ import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false },
+  viewParams: { type: Object, default: () => ({}) },
 })
 
 const materials = ref([])
@@ -131,6 +133,16 @@ const filters = reactive({ q: '', warehouse: 'wip' })
 const locationPage = ref(1)
 const locationLimit = ref(50)
 const locationTotal = ref(0)
+const contextSummary = computed(() => {
+  const params = props.viewParams || {}
+  const parts = [
+    params.work_order_id ? `工单 #${params.work_order_id}` : '',
+    params.job_card_id ? `工序卡 #${params.job_card_id}` : '',
+    params.running_item_id ? `生产中 #${params.running_item_id}` : '',
+    params.shortage_g ? `缺口 ${params.shortage_g}g` : '',
+  ].filter(Boolean)
+  return parts.length ? `生产上下文：${parts.join(' / ')}` : ''
+})
 
 function materialLabel(row) {
   const name = String(row?.name || row?.Name || '').trim()
@@ -150,6 +162,25 @@ function applyModeWarehouses() {
   }
   form.from_warehouse = 'raw_materials'
   form.to_warehouse = 'wip'
+}
+
+function applyViewParams() {
+  const params = props.viewParams || {}
+  if (params.tab && params.tab !== 'wip') return
+  mode.value = 'issue'
+  form.from_warehouse = 'raw_materials'
+  form.to_warehouse = 'wip'
+  const materialID = Number(params.material_id || 0)
+  const shortageG = Number(params.shortage_g || params.gap_g || 0)
+  if (materialID > 0) form.material_id = materialID
+  if (shortageG > 0) form.qty_g = shortageG
+  const noteParts = [
+    params.work_order_id ? `work_order_id=${params.work_order_id}` : '',
+    params.job_card_id ? `job_card_id=${params.job_card_id}` : '',
+    params.running_item_id ? `running_item_id=${params.running_item_id}` : '',
+  ].filter(Boolean)
+  if (noteParts.length) form.note = `生产补料：${noteParts.join('，')}`
+  filters.warehouse = 'wip'
 }
 
 async function loadOptions() {
@@ -191,6 +222,7 @@ async function loadAll() {
   error.value = ''
   try {
     await loadOptions()
+    applyViewParams()
     await loadLocations()
   } catch (err) {
     error.value = err.message || '加载失败'
@@ -215,6 +247,8 @@ async function submit() {
     saving.value = false
   }
 }
+
+watch(() => props.viewParams, applyViewParams, { deep: true })
 
 onMounted(loadAll)
 </script>
@@ -245,5 +279,6 @@ th { background:#fbfbfb; }
 .error, .ok { border-radius:8px; padding:10px; margin-bottom:12px; }
 .error { background:#ffecec; border:1px solid #ffb9b9; }
 .ok { background:#e9ffe9; border:1px solid #b8f5b8; }
+.context-summary { border:1px solid #bfdbfe; border-radius:8px; background:#eff6ff; color:#1d4ed8; padding:8px 10px; margin-bottom:12px; font-size:13px; }
 @media (max-width:900px){ .stock-operation-page{padding:12px;} .operation-grid,.filters{grid-template-columns:1fr;} .span-2{grid-column:auto;} }
 </style>

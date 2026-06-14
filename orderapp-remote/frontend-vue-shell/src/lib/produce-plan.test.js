@@ -5,9 +5,12 @@ import * as producePlan from './produce-plan.js'
 
 import {
   buildProductionPlanCreatePayload,
+  buildProductionPlanNextActions,
   buildProductionDemandSelection,
   buildProductionDemandSummaryQuery,
+  currentProductionPlanStep,
   productionPlanSubmitEndpoint,
+  productionPlanSteps,
   buildInsufficientSelection,
   insufficientSelectionState,
   productionPlanOperationSplitsEndpoint,
@@ -197,6 +200,39 @@ test('current production plan submit payload reuses the batch submit contract wi
   assert.deepEqual(producePlan.buildCurrentProductionPlanSubmitPayload({ id: '42' }), { ids: [42] })
   assert.deepEqual(producePlan.buildCurrentProductionPlanSubmitPayload({ id: 0 }), { ids: [] })
   assert.deepEqual(producePlan.buildCurrentProductionPlanSubmitPayload(null), { ids: [] })
+})
+
+test('production plan stepper shows the current next operation without changing backend workflow', () => {
+  assert.deepEqual(productionPlanSteps().map((step) => step.label), [
+    '选需求',
+    '生成草稿',
+    '拆分产能',
+    '提交工单',
+    '开始生产',
+  ])
+
+  assert.equal(currentProductionPlanStep({ selectedCount: 0, plan: null, splitCount: 0 }), 'selectDemand')
+  assert.equal(currentProductionPlanStep({ selectedCount: 2, plan: null, splitCount: 0 }), 'createDraft')
+  assert.equal(currentProductionPlanStep({ selectedCount: 2, plan: { status: 'draft' }, splitCount: 0 }), 'splitCapacity')
+  assert.equal(currentProductionPlanStep({ selectedCount: 2, plan: { status: 'draft' }, splitCount: 2 }), 'submitWorkOrders')
+  assert.equal(currentProductionPlanStep({ plan: { status: 'submitted' }, splitCount: 2 }), 'startProduction')
+})
+
+test('submitted production plan exposes next-step actions to work orders, job cards, assignment, and WIP issue', () => {
+  const actions = buildProductionPlanNextActions({
+    success: [{
+      plan: { id: 41, plan_no: 'PP-0000000041', status: 'submitted' },
+      work_orders: [{ id: 88, work_order_no: 'WO-PP-41' }],
+      job_cards: [{ id: 91, work_order_id: 88 }],
+    }],
+  })
+
+  assert.deepEqual(actions.map((action) => [action.key, action.label, action.view, action.params]), [
+    ['workOrders', '打开工单', 'workOrders', { work_order_id: 88 }],
+    ['jobCards', '打开工序卡', 'jobCards', { job_card_id: 91, work_order_id: 88 }],
+    ['assignWorkstation', '分配工位', 'productionOverview', { work_order_id: 88, job_card_id: 91 }],
+    ['issueWip', '领料到 WIP', 'stockOperations', { tab: 'wip', work_order_id: 88, job_card_id: 91 }],
+  ])
 })
 
 test('production plan operation capacity split helpers derive batch count from assigned quantity', () => {

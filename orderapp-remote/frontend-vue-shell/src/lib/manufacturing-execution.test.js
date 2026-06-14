@@ -10,14 +10,22 @@ import {
   jobCardStatusOptions,
   stockEntryEndpoint,
   stockEntryTypeOptions,
+  workOrderCancelEndpoint,
   workOrderCompleteEndpoint,
+  workOrderIssueMaterialsEndpoint,
+  workOrderStartEndpoint,
   workOrderStatusLabel,
 } from './manufacturing-execution.js'
 
 test('manufacturing execution helpers expose phase2 endpoints and status labels', () => {
-  assert.equal(stockEntryEndpoint(), '/api/stock-entries')
-  assert.equal(workOrderCompleteEndpoint({ id: 88 }), '/api/work-orders/88/complete')
+  assert.equal(stockEntryEndpoint(), '/api/stock-documents')
+  assert.equal(workOrderStartEndpoint({ id: 88 }), '/api/produce/work-orders/88/start')
+  assert.equal(workOrderIssueMaterialsEndpoint({ id: 88 }), '/api/produce/work-orders/88/issue-materials')
+  assert.equal(workOrderCompleteEndpoint({ id: 88 }), '/api/produce/work-orders/88/complete')
+  assert.equal(workOrderCancelEndpoint({ id: 88 }), '/api/produce/work-orders/88/cancel')
+  assert.equal(workOrderStartEndpoint({ id: 0 }), '')
   assert.equal(workOrderCompleteEndpoint({ id: 0 }), '')
+  assert.equal(workOrderCancelEndpoint({ id: 0 }), '')
   assert.equal(jobCardActionEndpoint({ id: 91 }, 'start'), '/api/job-cards/91/start')
   assert.equal(jobCardActionEndpoint({ id: 91 }, 'pause'), '/api/job-cards/91/pause')
   assert.equal(jobCardActionEndpoint({ id: 91 }, 'resume'), '/api/job-cards/91/resume')
@@ -39,11 +47,11 @@ test('manufacturing execution helpers expose phase2 endpoints and status labels'
   assert.equal(workOrderStatusLabel('completed'), '已完成')
 
   assert.deepEqual(stockEntryTypeOptions().map((item) => item.value), [
-    'material_issue_to_wip',
-    'wip_return',
-    'material_consume',
-    'finished_receipt',
-    'scrap_loss',
+    'material_transfer_for_manufacture',
+    'material_return_from_manufacture',
+    'material_consumption_for_manufacture',
+    'manufacture',
+    'stock_adjustment',
   ])
 })
 
@@ -92,8 +100,8 @@ test('phase2 Vue pages expose work order execution, job-card actions, and stock 
   assert.match(stockOperations, /Stock Entry单据/)
 
   const stockEntries = fs.readFileSync(new URL('../views/StockEntriesView.vue', import.meta.url), 'utf8')
-  for (const want of ['/api/stock-entries', '领料到WIP', 'WIP退料', '工单消耗', '完工入库', '报废/损耗']) {
-    if (want === '/api/stock-entries') {
+  for (const want of ['/api/stock-documents', '生产领料', '生产退料', '生产消耗', '完工入库', '库存调整']) {
+    if (want === '/api/stock-documents') {
       assert.ok(stockEntries.includes(want) || stockEntries.includes('stockEntryEndpoint'), `StockEntriesView.vue missing ${want}`)
     } else {
       assert.ok(stockEntries.includes(want), `StockEntriesView.vue missing ${want}`)

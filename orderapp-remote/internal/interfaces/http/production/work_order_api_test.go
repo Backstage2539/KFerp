@@ -29,6 +29,7 @@ type workOrderAPIRepo struct {
 	submitPlans         []productionapp.SubmitProductionPlanCommand
 	startWorkOrder      productionapp.WorkOrderStartCommand
 	completeWorkOrder   productionapp.WorkOrderCompleteCommand
+	cancelWorkOrder     productionapp.WorkOrderCancelCommand
 	productionPlanQuery productionapp.ProductionPlanQuery
 	productionPlan      productionapp.ProductionPlanDetail
 	submittedPlan       productionapp.ProductionPlanSubmitResult
@@ -36,6 +37,7 @@ type workOrderAPIRepo struct {
 	submitPlanErrByID   map[int64]error
 	workOrderStarted    productionapp.WorkOrderStartResult
 	workOrderCompleted  productionapp.WorkOrderCompleteResult
+	workOrderCancelled  productionapp.WorkOrderRow
 	scheduleAssignment  productionapp.ScheduleAssignmentCommand
 	capacityCalendar    productionapp.CapacityCalendarCommand
 	scheduleQuery       productionapp.ScheduleBoardQuery
@@ -43,7 +45,16 @@ type workOrderAPIRepo struct {
 	traceQuery          productionapp.ProductionTraceAnalyticsQuery
 	stockEntry          productionapp.StockEntryCommand
 	stockEntryQuery     productionapp.StockEntryQuery
+	stockEntryRows      []productionapp.StockEntryRow
 	stockEntryID        int64
+	reservationQuery    productionapp.WIPReservationQuery
+	reservationRows     []productionapp.WIPReservationRow
+	productionLogsQuery productionapp.ProductionLogsQuery
+	productionLogs      productionapp.ProductionLogsResult
+	batchCostQuery      productionapp.BatchCostQuery
+	batchCosts          []productionapp.BatchCostRow
+	ledgerQuery         productionapp.WorkOrderLedgerQuery
+	ledgerRows          []productionapp.WorkOrderLedgerEntryRow
 }
 
 func (r *workOrderAPIRepo) CreateBatch(ctx context.Context, cmd productionapp.CreateBatchCommand) (productionapp.CreateBatchResult, error) {
@@ -164,12 +175,20 @@ func (r *workOrderAPIRepo) CompleteWorkOrder(ctx context.Context, cmd production
 	}
 	return r.workOrderCompleted, nil
 }
+func (r *workOrderAPIRepo) CancelWorkOrder(ctx context.Context, cmd productionapp.WorkOrderCancelCommand) (productionapp.WorkOrderRow, error) {
+	r.cancelWorkOrder = cmd
+	if r.workOrderCancelled.ID == 0 {
+		r.workOrderCancelled = productionapp.WorkOrderRow{ID: cmd.ID, WorkOrderNo: "WO-PR497-001", Status: "cancelled"}
+	}
+	return r.workOrderCancelled, nil
+}
 func (r *workOrderAPIRepo) CreateStockEntry(ctx context.Context, cmd productionapp.StockEntryCommand) (productionapp.StockEntryDetail, error) {
 	r.stockEntry = cmd
 	return productionapp.StockEntryDetail{
 		ID:            7,
 		EntryNo:       "SE-0000000007",
 		EntryType:     cmd.EntryType,
+		Purpose:       cmd.Purpose,
 		Status:        "submitted",
 		WorkOrderID:   cmd.WorkOrderID,
 		JobCardID:     cmd.JobCardID,
@@ -187,11 +206,14 @@ func (r *workOrderAPIRepo) CreateStockEntry(ctx context.Context, cmd productiona
 }
 func (r *workOrderAPIRepo) ListStockEntries(ctx context.Context, query productionapp.StockEntryQuery) ([]productionapp.StockEntryRow, error) {
 	r.stockEntryQuery = query
+	if len(r.stockEntryRows) > 0 {
+		return r.stockEntryRows, nil
+	}
 	return []productionapp.StockEntryRow{{ID: 7, EntryNo: "SE-0000000007", EntryType: query.EntryType, WorkOrderID: query.WorkOrderID, Status: "submitted"}}, nil
 }
 func (r *workOrderAPIRepo) GetStockEntry(ctx context.Context, id int64) (productionapp.StockEntryDetail, error) {
 	r.stockEntryID = id
-	return productionapp.StockEntryDetail{ID: id, EntryNo: "SE-0000000007", EntryType: "material_issue_to_wip", Status: "submitted", Items: []productionapp.StockEntryItemRow{{ID: 1, MaterialID: 10, ItemType: "material", QtyG: 60000}}}, nil
+	return productionapp.StockEntryDetail{ID: id, EntryNo: "SE-0000000007", EntryType: "material_issue_to_wip", Purpose: "material_transfer_for_manufacture", Status: "submitted", Items: []productionapp.StockEntryItemRow{{ID: 1, MaterialID: 10, ItemType: "material", QtyG: 60000}}}, nil
 }
 func (r *workOrderAPIRepo) TransitionJobCard(ctx context.Context, cmd productionapp.JobCardActionCommand) (productionapp.JobCardActionResult, error) {
 	r.jobCardAction = cmd
@@ -217,7 +239,8 @@ func (r *workOrderAPIRepo) PlanSummary(ctx context.Context, query productionapp.
 	return productionapp.PlanSummaryData{}, nil
 }
 func (r *workOrderAPIRepo) ListProductionLogs(ctx context.Context, query productionapp.ProductionLogsQuery) (productionapp.ProductionLogsResult, error) {
-	return productionapp.ProductionLogsResult{}, nil
+	r.productionLogsQuery = query
+	return r.productionLogs, nil
 }
 func (r *workOrderAPIRepo) ListWorkOrders(ctx context.Context, query productionapp.WorkOrderQuery) ([]productionapp.WorkOrderRow, error) {
 	r.workOrderQuery = query
@@ -232,7 +255,12 @@ func (r *workOrderAPIRepo) UpdateJobCardActuals(ctx context.Context, cmd product
 	return nil
 }
 func (r *workOrderAPIRepo) ListBatchCosts(ctx context.Context, query productionapp.BatchCostQuery) ([]productionapp.BatchCostRow, error) {
-	return nil, nil
+	r.batchCostQuery = query
+	return r.batchCosts, nil
+}
+func (r *workOrderAPIRepo) ListWorkOrderLedgerEntries(ctx context.Context, query productionapp.WorkOrderLedgerQuery) ([]productionapp.WorkOrderLedgerEntryRow, error) {
+	r.ledgerQuery = query
+	return r.ledgerRows, nil
 }
 func (r *workOrderAPIRepo) MaterialPlan(ctx context.Context, query productionapp.MaterialPlanQuery) (productionapp.MaterialPlanResult, error) {
 	return productionapp.MaterialPlanResult{}, nil
@@ -306,7 +334,8 @@ func (r *workOrderAPIRepo) ListQualityInspections(ctx context.Context, query pro
 	return nil, nil
 }
 func (r *workOrderAPIRepo) ListWIPReservations(ctx context.Context, query productionapp.WIPReservationQuery) (productionapp.WIPReservationResult, error) {
-	return productionapp.WIPReservationResult{}, nil
+	r.reservationQuery = query
+	return productionapp.WIPReservationResult{Rows: r.reservationRows}, nil
 }
 func (r *workOrderAPIRepo) AdjustWIPReservation(ctx context.Context, cmd productionapp.WIPReservationAdjustCommand) (productionapp.WIPReservationRow, error) {
 	return productionapp.WIPReservationRow{}, nil
@@ -430,6 +459,11 @@ func TestProductionWorkstationOverviewAPIAndStationActions(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"total_tasks":2`,
+		`"today_summary"`,
+		`"nav_badges"`,
+		`"productionOverview":{"pending":0,"blocked":1,"running":1}`,
+		`"readiness":"running"`,
+		`"readiness_label":"执行中"`,
 		`"status_summary"`,
 		`"workstation_load"`,
 		`"current_task":"包装 / 桂花乌龙"`,
@@ -546,6 +580,138 @@ func TestManufacturingPhase2StockEntryAndExecutionAPIs(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"stock_entries"`) || !strings.Contains(rec.Body.String(), `"total_cost":48.75`) {
 		t.Fatalf("work order complete response missing stock/cost: %s", rec.Body.String())
+	}
+}
+
+func TestStockDocumentPurposeAliasesUseERPNextFlowLanguage(t *testing.T) {
+	repo := &workOrderAPIRepo{}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "仓管")
+			c.Set("actor", "仓管")
+			return next(c)
+		}
+	})
+	registerStockEntryAPI(e, productionapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stock-documents", strings.NewReader(`{
+		"purpose":"material_transfer_for_manufacture",
+		"work_order_id":88,
+		"note":"按工单领料",
+		"items":[{"material_id":10,"item_name":"孟连水洗","qty_g":60000}]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/stock-documents status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.stockEntry.EntryType != "material_issue_to_wip" || repo.stockEntry.Purpose != "material_transfer_for_manufacture" || repo.stockEntry.SourceType != "work_order" || repo.stockEntry.SourceID != 88 {
+		t.Fatalf("stock document command = %+v", repo.stockEntry)
+	}
+	for _, want := range []string{`"purpose":"material_transfer_for_manufacture"`, `"entry_type":"material_issue_to_wip"`, `"from_warehouse":"raw_materials"`, `"to_warehouse":"wip"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("stock document response missing %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/stock-documents?purpose=material_transfer_for_manufacture&work_order_id=88", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.stockEntryQuery.Purpose != "material_transfer_for_manufacture" || repo.stockEntryQuery.EntryType != "material_issue_to_wip" || repo.stockEntryQuery.WorkOrderID != 88 {
+		t.Fatalf("GET /api/stock-documents status=%d body=%s query=%+v", rec.Code, rec.Body.String(), repo.stockEntryQuery)
+	}
+	if !strings.Contains(rec.Body.String(), `"purpose":"material_transfer_for_manufacture"`) {
+		t.Fatalf("stock documents list should expose purpose: %s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/stock-documents/7", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.stockEntryID != 7 || !strings.Contains(rec.Body.String(), `"purpose":"material_transfer_for_manufacture"`) {
+		t.Fatalf("GET /api/stock-documents/7 status=%d body=%s id=%d", rec.Code, rec.Body.String(), repo.stockEntryID)
+	}
+}
+
+func TestWorkOrderProducePathOwnsInventoryActionsAndDetail(t *testing.T) {
+	repo := &workOrderAPIRepo{
+		rows: []productionapp.WorkOrderRow{{
+			ID:            88,
+			WorkOrderNo:   "WO-PR497-001",
+			RunningItemID: 99,
+			ProductName:   "桂花乌龙",
+			Status:        "running",
+		}},
+		jobCards:        []productionapp.JobCardRow{{ID: 91, WorkOrderID: 88, WorkOrderNo: "WO-PR497-001", Operation: "烘焙", Status: "running"}},
+		reservationRows: []productionapp.WIPReservationRow{{ID: 11, WorkOrderID: 88, WorkOrderNo: "WO-PR497-001", RunningItemID: 99, MaterialID: 10, MaterialName: "孟连水洗", ReservedG: 60000, RemainingReservedG: 45000}},
+		stockEntryRows:  []productionapp.StockEntryRow{{ID: 7, EntryNo: "SE-0000000007", EntryType: "material_issue_to_wip", Purpose: "material_transfer_for_manufacture", WorkOrderID: 88, RunningItemID: 99, Status: "submitted"}},
+		ledgerRows:      []productionapp.WorkOrderLedgerEntryRow{{ID: 21, StockEntryID: 7, EntryNo: "SE-0000000007", Purpose: "material_transfer_for_manufacture", ItemType: "material", ItemID: 10, Warehouse: "wip", QtyChangeG: 60000}},
+		productionLogs:  productionapp.ProductionLogsResult{Rows: []productionapp.ProductionLogRow{{ID: 31, BatchID: "BATCH-WO-88", InputG: 60000, FinishedTotalG: 45400}}},
+		batchCosts:      []productionapp.BatchCostRow{{RunningItemID: 99, BatchID: "BATCH-WO-88", TotalCost: 48.75}},
+	}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("employee_id", int64(1))
+			c.Set("operator_employee", "主管")
+			c.Set("actor", "主管")
+			return next(c)
+		}
+	})
+	svc := productionapp.NewService(repo)
+	registerStockEntryAPI(e, svc)
+	registerWorkOrderAPI(e, svc)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/produce/work-orders/88/start", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.startWorkOrder.ID != 88 || !strings.Contains(rec.Body.String(), `"running_item_id":99`) {
+		t.Fatalf("POST /api/produce/work-orders/88/start status=%d body=%s command=%+v", rec.Code, rec.Body.String(), repo.startWorkOrder)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/produce/work-orders/88/issue-materials", strings.NewReader(`{
+		"note":"工单领料",
+		"items":[{"material_id":10,"item_name":"孟连水洗","qty_g":60000}]
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.stockEntry.EntryType != "material_issue_to_wip" || repo.stockEntry.Purpose != "material_transfer_for_manufacture" || repo.stockEntry.WorkOrderID != 88 {
+		t.Fatalf("POST issue-materials status=%d body=%s command=%+v", rec.Code, rec.Body.String(), repo.stockEntry)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/produce/work-orders/88/complete", strings.NewReader(`{"finished_units":2,"finished_loose_g":10,"consumed_input_g":600,"warehouse":"finished_goods","note":"完工入库"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.completeWorkOrder.ID != 88 || repo.completeWorkOrder.FinishedUnits != 2 {
+		t.Fatalf("POST /api/produce/work-orders/88/complete status=%d body=%s command=%+v", rec.Code, rec.Body.String(), repo.completeWorkOrder)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/produce/work-orders/88/cancel", strings.NewReader(`{"note":"计划取消"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || repo.cancelWorkOrder.ID != 88 || repo.cancelWorkOrder.Note != "计划取消" || !strings.Contains(rec.Body.String(), `"status":"cancelled"`) {
+		t.Fatalf("POST /api/produce/work-orders/88/cancel status=%d body=%s command=%+v", rec.Code, rec.Body.String(), repo.cancelWorkOrder)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/produce/work-orders/88", nil)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/produce/work-orders/88 status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"work_order"`, `"materials"`, `"job_cards"`, `"stock_documents"`, `"stock_entries"`, `"ledger_entries"`, `"production_logs"`, `"cost_summary"`, `"purpose":"material_transfer_for_manufacture"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("work order detail response missing %s: %s", want, body)
+		}
+	}
+	if repo.workOrderQuery.ID != 88 || repo.jobCardQuery.WorkOrderID != 88 || repo.reservationQuery.WorkOrderNo != "WO-PR497-001" || repo.stockEntryQuery.WorkOrderID != 88 || repo.ledgerQuery.WorkOrderID != 88 || repo.ledgerQuery.RunningItemID != 99 || repo.productionLogsQuery.RunningItemID != 99 || repo.batchCostQuery.RunningItemID != 99 {
+		t.Fatalf("detail queries workOrder=%+v jobCard=%+v reservations=%+v stock=%+v ledger=%+v logs=%+v costs=%+v", repo.workOrderQuery, repo.jobCardQuery, repo.reservationQuery, repo.stockEntryQuery, repo.ledgerQuery, repo.productionLogsQuery, repo.batchCostQuery)
 	}
 }
 

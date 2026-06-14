@@ -21,7 +21,7 @@ export function canEditWorkOrderSplits(row) {
 export function workOrderStartEndpoint(row) {
   const id = Number(row?.id || 0)
   if (id <= 0) return ''
-  return `/api/work-orders/${id}/start`
+  return `/api/produce/work-orders/${id}/start`
 }
 
 export function workOrderOperationSplitsEndpoint(row) {

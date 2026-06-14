@@ -90,6 +90,65 @@ func (r Repository) GetStockEntry(ctx context.Context, id int64) (productionapp.
 	return detail, nil
 }
 
+func (r Repository) ListWorkOrderLedgerEntries(ctx context.Context, query productionapp.WorkOrderLedgerQuery) ([]productionapp.WorkOrderLedgerEntryRow, error) {
+	where, args := workOrderLedgerWhere(query)
+	args = append(args, query.Limit)
+	limitArg := len(args)
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT l.id,
+		       COALESCE(se.id,0),
+		       COALESCE(se.entry_no,''),
+		       COALESCE(se.entry_type, CASE WHEN l.source_doc_type='production_run' THEN 'finished_receipt' ELSE '' END),
+		       l.item_type,l.item_id,l.item_name,l.spec_g,l.warehouse,
+		       l.qty_change_g,l.qty_after_g,l.qty_change_units,l.qty_after_units,
+		       l.source_doc_type,l.source_doc_id,l.source_batch_code,l.operator,
+		       to_char(l.created_at,'YYYY-MM-DD HH24:MI')
+		FROM %s.stock_ledger_entries l
+		LEFT JOIN %s.stock_entries se ON se.id=l.source_doc_id AND l.source_doc_type='stock_entry'
+		LEFT JOIN %s.work_orders wo ON wo.running_item_id=l.source_doc_id AND l.source_doc_type='production_run'
+		WHERE %s
+		ORDER BY l.created_at DESC,l.id DESC
+		LIMIT $%d
+	`, r.schema, r.schema, r.schema, strings.Join(where, " AND "), limitArg), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]productionapp.WorkOrderLedgerEntryRow, 0)
+	for rows.Next() {
+		var row productionapp.WorkOrderLedgerEntryRow
+		if err := rows.Scan(
+			&row.ID, &row.StockEntryID, &row.EntryNo, &row.EntryType,
+			&row.ItemType, &row.ItemID, &row.ItemName, &row.SpecG, &row.Warehouse,
+			&row.QtyChangeG, &row.QtyAfterG, &row.QtyChangeUnits, &row.QtyAfterUnits,
+			&row.SourceDocType, &row.SourceDocID, &row.SourceBatchCode, &row.Operator, &row.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		row.Purpose = productionapp.StockEntryPurposeForType(row.EntryType)
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func workOrderLedgerWhere(query productionapp.WorkOrderLedgerQuery) ([]string, []any) {
+	args := []any{}
+	where := []string{"1=1"}
+	evidencePredicates := []string{}
+	if query.WorkOrderID > 0 {
+		args = append(args, query.WorkOrderID)
+		evidencePredicates = append(evidencePredicates, fmt.Sprintf("(se.work_order_id=$%d OR wo.id=$%d)", len(args), len(args)))
+	}
+	if query.RunningItemID > 0 {
+		args = append(args, query.RunningItemID)
+		evidencePredicates = append(evidencePredicates, fmt.Sprintf("(se.running_item_id=$%d OR (l.source_doc_type='production_run' AND l.source_doc_id=$%d) OR wo.running_item_id=$%d)", len(args), len(args), len(args)))
+	}
+	if len(evidencePredicates) > 0 {
+		where = append(where, "("+strings.Join(evidencePredicates, " OR ")+")")
+	}
+	return where, args
+}
+
 func createStockEntryRecordTx(ctx context.Context, tx pgx.Tx, schema string, cmd productionapp.StockEntryCommand, writeLedger bool) (productionapp.StockEntryDetail, error) {
 	tempEntryNo := fmt.Sprintf("SE-TMP-%d", time.Now().UnixNano())
 	var entryID int64
@@ -489,6 +548,7 @@ func stockEntryRowFromDetail(detail productionapp.StockEntryDetail) productionap
 		ID:            detail.ID,
 		EntryNo:       detail.EntryNo,
 		EntryType:     detail.EntryType,
+		Purpose:       productionapp.StockEntryPurposeForType(detail.EntryType),
 		Status:        detail.Status,
 		WorkOrderID:   detail.WorkOrderID,
 		JobCardID:     detail.JobCardID,

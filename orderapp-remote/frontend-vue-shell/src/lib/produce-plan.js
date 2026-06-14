@@ -118,6 +118,54 @@ const PRODUCTION_PLAN_STATUS = {
 
 const PRODUCTION_PLAN_TIME_FIELDS = new Set(['created_at', 'submitted_at', 'completed_at'])
 
+const PRODUCTION_PLAN_STEPS = [
+  { key: 'selectDemand', label: '选需求' },
+  { key: 'createDraft', label: '生成草稿' },
+  { key: 'splitCapacity', label: '拆分产能' },
+  { key: 'submitWorkOrders', label: '提交工单' },
+  { key: 'startProduction', label: '开始生产' },
+]
+
+export function productionPlanSteps() {
+  return PRODUCTION_PLAN_STEPS.map((step) => ({ ...step }))
+}
+
+export function currentProductionPlanStep(state = {}) {
+  const status = String(state.plan?.status || '').trim()
+  if (['submitted', 'in_progress', 'completed'].includes(status)) return 'startProduction'
+  if (status === 'draft') {
+    return Number(state.splitCount || 0) > 0 ? 'submitWorkOrders' : 'splitCapacity'
+  }
+  return Number(state.selectedCount || 0) > 0 ? 'createDraft' : 'selectDemand'
+}
+
+export function buildProductionPlanNextActions(result = {}) {
+  const firstSuccess = Array.isArray(result.success) ? result.success[0] : null
+  const workOrder = Array.isArray(firstSuccess?.work_orders) ? firstSuccess.work_orders[0] : null
+  const jobCard = Array.isArray(firstSuccess?.job_cards) ? firstSuccess.job_cards[0] : null
+  const workOrderID = Number(workOrder?.id || jobCard?.work_order_id || 0)
+  const jobCardID = Number(jobCard?.id || 0)
+  return [
+    { key: 'workOrders', label: '打开工单', view: 'workOrders', params: compactPositiveParams({ work_order_id: workOrderID }) },
+    { key: 'jobCards', label: '打开工序卡', view: 'jobCards', params: compactPositiveParams({ job_card_id: jobCardID, work_order_id: workOrderID }) },
+    { key: 'assignWorkstation', label: '分配工位', view: 'productionOverview', params: compactPositiveParams({ work_order_id: workOrderID, job_card_id: jobCardID }) },
+    { key: 'issueWip', label: '领料到 WIP', view: 'stockOperations', params: compactPositiveParams({ tab: 'wip', work_order_id: workOrderID, job_card_id: jobCardID }) },
+  ]
+}
+
+function compactPositiveParams(params = {}) {
+  const out = {}
+  for (const [key, value] of Object.entries(params)) {
+    if (typeof value === 'string') {
+      if (value.trim()) out[key] = value
+      continue
+    }
+    const number = Number(value || 0)
+    if (number > 0) out[key] = number
+  }
+  return out
+}
+
 export function productionPlanStatusLabel(status) {
   const key = String(status || '').trim()
   return PRODUCTION_PLAN_STATUS[key]?.label || key || '-'

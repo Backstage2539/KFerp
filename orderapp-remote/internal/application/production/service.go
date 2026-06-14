@@ -500,13 +500,27 @@ type WorkOrderCompleteResult struct {
 	Cost         BatchCostRow    `json:"cost"`
 }
 
+type WorkOrderCancelCommand struct {
+	ID       int64
+	Operator string
+	Note     string
+}
+
+type WorkOrderIssueMaterialsCommand struct {
+	ID       int64
+	Operator string
+	Note     string
+	Items    []StockEntryItemCommand
+}
+
 type ProductionLogsQuery struct {
-	From      string
-	To        string
-	ProductID int64
-	BatchID   string
-	Operator  string
-	Limit     int
+	From          string
+	To            string
+	ProductID     int64
+	BatchID       string
+	Operator      string
+	RunningItemID int64
+	Limit         int
 }
 
 type ProductionLogProductOption struct {
@@ -545,6 +559,7 @@ type ProductionLogsResult struct {
 }
 
 type WorkOrderQuery struct {
+	ID     int64
 	Status string
 	Limit  int
 }
@@ -597,8 +612,9 @@ type WorkOrderRow struct {
 }
 
 type JobCardQuery struct {
-	Status string
-	Limit  int
+	WorkOrderID int64
+	Status      string
+	Limit       int
 }
 
 type JobCardRow struct {
@@ -661,13 +677,29 @@ type ProductionWorkstationOverviewQuery struct {
 }
 
 type ProductionWorkstationOverview struct {
-	Date            string                      `json:"date"`
-	TotalTasks      int                         `json:"total_tasks"`
-	StatusSummary   []ProductionSummaryCount    `json:"status_summary"`
-	BlockedSummary  []ProductionSummaryCount    `json:"blocked_summary"`
-	PrioritySummary []ProductionSummaryCount    `json:"priority_summary"`
-	WorkstationLoad []ProductionWorkstationLoad `json:"workstation_load"`
-	Tasks           []ProductionTask            `json:"tasks"`
+	Date            string                        `json:"date"`
+	TotalTasks      int                           `json:"total_tasks"`
+	TodaySummary    ProductionTodaySummary        `json:"today_summary"`
+	NavBadges       map[string]ProductionNavBadge `json:"nav_badges"`
+	StatusSummary   []ProductionSummaryCount      `json:"status_summary"`
+	BlockedSummary  []ProductionSummaryCount      `json:"blocked_summary"`
+	PrioritySummary []ProductionSummaryCount      `json:"priority_summary"`
+	WorkstationLoad []ProductionWorkstationLoad   `json:"workstation_load"`
+	Tasks           []ProductionTask              `json:"tasks"`
+}
+
+type ProductionTodaySummary struct {
+	PlannedTasks   int `json:"planned_tasks"`
+	PendingTasks   int `json:"pending_tasks"`
+	RunningTasks   int `json:"running_tasks"`
+	CompletedTasks int `json:"completed_tasks"`
+	BlockedTasks   int `json:"blocked_tasks"`
+}
+
+type ProductionNavBadge struct {
+	Pending int `json:"pending"`
+	Blocked int `json:"blocked"`
+	Running int `json:"running"`
 }
 
 type ProductionSummaryCount struct {
@@ -704,6 +736,8 @@ type ProductionTask struct {
 	WorkCenter        string   `json:"work_center"`
 	Status            string   `json:"status"`
 	StatusLabel       string   `json:"status_label"`
+	Readiness         string   `json:"readiness"`
+	ReadinessLabel    string   `json:"readiness_label"`
 	BlockingReason    string   `json:"blocking_reason"`
 	NextHandler       string   `json:"next_handler"`
 	AssignedTo        string   `json:"assigned_to"`
@@ -894,7 +928,8 @@ type JobCardActualsCommand struct {
 }
 
 type BatchCostQuery struct {
-	Limit int
+	RunningItemID int64
+	Limit         int
 }
 
 type BatchCostRow struct {
@@ -912,6 +947,7 @@ type BatchCostRow struct {
 
 type StockEntryCommand struct {
 	EntryType     string                  `json:"entry_type"`
+	Purpose       string                  `json:"purpose"`
 	WorkOrderID   int64                   `json:"work_order_id"`
 	JobCardID     int64                   `json:"job_card_id"`
 	RunningItemID int64                   `json:"running_item_id"`
@@ -938,6 +974,7 @@ type StockEntryItemCommand struct {
 
 type StockEntryQuery struct {
 	EntryType   string
+	Purpose     string
 	Status      string
 	WorkOrderID int64
 	JobCardID   int64
@@ -948,6 +985,7 @@ type StockEntryRow struct {
 	ID            int64   `json:"id"`
 	EntryNo       string  `json:"entry_no"`
 	EntryType     string  `json:"entry_type"`
+	Purpose       string  `json:"purpose"`
 	Status        string  `json:"status"`
 	WorkOrderID   int64   `json:"work_order_id"`
 	JobCardID     int64   `json:"job_card_id"`
@@ -983,6 +1021,7 @@ type StockEntryDetail struct {
 	ID            int64               `json:"id"`
 	EntryNo       string              `json:"entry_no"`
 	EntryType     string              `json:"entry_type"`
+	Purpose       string              `json:"purpose"`
 	Status        string              `json:"status"`
 	WorkOrderID   int64               `json:"work_order_id"`
 	JobCardID     int64               `json:"job_card_id"`
@@ -993,6 +1032,45 @@ type StockEntryDetail struct {
 	Note          string              `json:"note"`
 	CreatedAt     string              `json:"created_at"`
 	Items         []StockEntryItemRow `json:"items"`
+}
+
+type WorkOrderLedgerQuery struct {
+	WorkOrderID   int64
+	RunningItemID int64
+	Limit         int
+}
+
+type WorkOrderLedgerEntryRow struct {
+	ID              int64  `json:"id"`
+	StockEntryID    int64  `json:"stock_entry_id"`
+	EntryNo         string `json:"entry_no"`
+	EntryType       string `json:"entry_type"`
+	Purpose         string `json:"purpose"`
+	ItemType        string `json:"item_type"`
+	ItemID          int64  `json:"item_id"`
+	ItemName        string `json:"item_name"`
+	SpecG           int64  `json:"spec_g"`
+	Warehouse       string `json:"warehouse"`
+	QtyChangeG      int64  `json:"qty_change_g"`
+	QtyAfterG       int64  `json:"qty_after_g"`
+	QtyChangeUnits  int64  `json:"qty_change_units"`
+	QtyAfterUnits   int64  `json:"qty_after_units"`
+	SourceDocType   string `json:"source_doc_type"`
+	SourceDocID     int64  `json:"source_doc_id"`
+	SourceBatchCode string `json:"source_batch_code"`
+	Operator        string `json:"operator"`
+	CreatedAt       string `json:"created_at"`
+}
+
+type WorkOrderDetail struct {
+	WorkOrder      WorkOrderRow              `json:"work_order"`
+	Materials      []WIPReservationRow       `json:"materials"`
+	JobCards       []JobCardRow              `json:"job_cards"`
+	StockDocuments []StockEntryRow           `json:"stock_documents"`
+	StockEntries   []StockEntryRow           `json:"stock_entries"`
+	LedgerEntries  []WorkOrderLedgerEntryRow `json:"ledger_entries"`
+	ProductionLogs ProductionLogsResult      `json:"production_logs"`
+	CostSummary    BatchCostRow              `json:"cost_summary"`
 }
 
 type JobCardActionCommand struct {
@@ -1172,6 +1250,7 @@ type Repository interface {
 	SubmitProductionPlan(ctx context.Context, cmd SubmitProductionPlanCommand) (ProductionPlanSubmitResult, error)
 	StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand) (WorkOrderStartResult, error)
 	CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompleteCommand) (WorkOrderCompleteResult, error)
+	CancelWorkOrder(ctx context.Context, cmd WorkOrderCancelCommand) (WorkOrderRow, error)
 	SaveScheduleAssignment(ctx context.Context, cmd ScheduleAssignmentCommand) (ScheduleAssignmentResult, error)
 	SaveCapacityCalendar(ctx context.Context, cmd CapacityCalendarCommand) (CapacityCalendarRow, error)
 	ScheduleBoard(ctx context.Context, query ScheduleBoardQuery) (ScheduleBoardResult, error)
@@ -1180,6 +1259,7 @@ type Repository interface {
 	CreateStockEntry(ctx context.Context, cmd StockEntryCommand) (StockEntryDetail, error)
 	ListStockEntries(ctx context.Context, query StockEntryQuery) ([]StockEntryRow, error)
 	GetStockEntry(ctx context.Context, id int64) (StockEntryDetail, error)
+	ListWorkOrderLedgerEntries(ctx context.Context, query WorkOrderLedgerQuery) ([]WorkOrderLedgerEntryRow, error)
 	TransitionJobCard(ctx context.Context, cmd JobCardActionCommand) (JobCardActionResult, error)
 	ListProductionLogs(ctx context.Context, query ProductionLogsQuery) (ProductionLogsResult, error)
 	ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]WorkOrderRow, error)
@@ -1491,6 +1571,89 @@ func (s *Service) CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompleteCo
 	return s.repo.CompleteWorkOrder(ctx, cmd)
 }
 
+func (s *Service) CancelWorkOrder(ctx context.Context, cmd WorkOrderCancelCommand) (WorkOrderRow, error) {
+	if cmd.ID <= 0 {
+		return WorkOrderRow{}, fmt.Errorf("work_order_id required")
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	if cmd.Operator == "" {
+		return WorkOrderRow{}, fmt.Errorf("operator required")
+	}
+	cmd.Note = strings.TrimSpace(cmd.Note)
+	return s.repo.CancelWorkOrder(ctx, cmd)
+}
+
+func (s *Service) IssueWorkOrderMaterials(ctx context.Context, cmd WorkOrderIssueMaterialsCommand) (StockEntryDetail, error) {
+	if cmd.ID <= 0 {
+		return StockEntryDetail{}, fmt.Errorf("work_order_id required")
+	}
+	cmd.Operator = strings.TrimSpace(cmd.Operator)
+	if cmd.Operator == "" {
+		return StockEntryDetail{}, fmt.Errorf("operator required")
+	}
+	return s.CreateStockEntry(ctx, StockEntryCommand{
+		Purpose:     "material_transfer_for_manufacture",
+		WorkOrderID: cmd.ID,
+		SourceType:  "work_order",
+		SourceID:    cmd.ID,
+		Operator:    cmd.Operator,
+		Note:        cmd.Note,
+		Items:       cmd.Items,
+	})
+}
+
+func (s *Service) GetWorkOrderDetail(ctx context.Context, id int64) (WorkOrderDetail, error) {
+	if id <= 0 {
+		return WorkOrderDetail{}, fmt.Errorf("work_order_id required")
+	}
+	workOrders, err := s.ListWorkOrders(ctx, WorkOrderQuery{ID: id, Limit: 1})
+	if err != nil {
+		return WorkOrderDetail{}, err
+	}
+	if len(workOrders) == 0 {
+		return WorkOrderDetail{}, fmt.Errorf("work order not found")
+	}
+	wo := workOrders[0]
+	reservations, err := s.ListWIPReservations(ctx, WIPReservationQuery{WorkOrderNo: wo.WorkOrderNo, Limit: 200})
+	if err != nil {
+		return WorkOrderDetail{}, err
+	}
+	jobCards, err := s.ListJobCards(ctx, JobCardQuery{WorkOrderID: wo.ID, Limit: 200})
+	if err != nil {
+		return WorkOrderDetail{}, err
+	}
+	stockEntries, err := s.ListStockEntries(ctx, StockEntryQuery{WorkOrderID: wo.ID, Limit: 200})
+	if err != nil {
+		return WorkOrderDetail{}, err
+	}
+	ledgerEntries, err := s.ListWorkOrderLedgerEntries(ctx, WorkOrderLedgerQuery{WorkOrderID: wo.ID, RunningItemID: wo.RunningItemID, Limit: 200})
+	if err != nil {
+		return WorkOrderDetail{}, err
+	}
+	logs, err := s.ListProductionLogs(ctx, ProductionLogsQuery{RunningItemID: wo.RunningItemID, Limit: 50})
+	if err != nil {
+		return WorkOrderDetail{}, err
+	}
+	costs, err := s.ListBatchCosts(ctx, BatchCostQuery{RunningItemID: wo.RunningItemID, Limit: 1})
+	if err != nil {
+		return WorkOrderDetail{}, err
+	}
+	cost := BatchCostRow{RunningItemID: wo.RunningItemID, BatchID: wo.BatchID, ProductName: wo.ProductName, TotalCost: wo.ActualCost}
+	if len(costs) > 0 {
+		cost = costs[0]
+	}
+	return WorkOrderDetail{
+		WorkOrder:      wo,
+		Materials:      reservations.Rows,
+		JobCards:       jobCards,
+		StockDocuments: stockEntries,
+		StockEntries:   stockEntries,
+		LedgerEntries:  ledgerEntries,
+		ProductionLogs: logs,
+		CostSummary:    cost,
+	}, nil
+}
+
 func (s *Service) SaveScheduleAssignment(ctx context.Context, cmd ScheduleAssignmentCommand) (ScheduleAssignmentResult, error) {
 	if cmd.WorkOrderID <= 0 {
 		return ScheduleAssignmentResult{}, fmt.Errorf("work_order_id required")
@@ -1625,11 +1788,23 @@ func normalizeScheduleTimestamp(value string) (string, error) {
 }
 
 func (s *Service) CreateStockEntry(ctx context.Context, cmd StockEntryCommand) (StockEntryDetail, error) {
-	cmd.EntryType = normalizeStockEntryType(cmd.EntryType)
+	cmd.Purpose = normalizeStockEntryPurpose(cmd.Purpose)
+	if cmd.Purpose != "" {
+		cmd.EntryType = normalizeStockEntryType(cmd.Purpose)
+	} else {
+		cmd.EntryType = normalizeStockEntryType(cmd.EntryType)
+	}
 	if cmd.EntryType == "" {
 		return StockEntryDetail{}, fmt.Errorf("invalid stock entry type")
 	}
+	if cmd.Purpose == "" {
+		cmd.Purpose = stockEntryPurposeForType(cmd.EntryType)
+	}
 	cmd.SourceType = strings.TrimSpace(cmd.SourceType)
+	if cmd.SourceType == "" && cmd.WorkOrderID > 0 {
+		cmd.SourceType = "work_order"
+		cmd.SourceID = cmd.WorkOrderID
+	}
 	cmd.Operator = strings.TrimSpace(cmd.Operator)
 	if cmd.Operator == "" {
 		return StockEntryDetail{}, fmt.Errorf("operator required")
@@ -1645,23 +1820,63 @@ func (s *Service) CreateStockEntry(ctx context.Context, cmd StockEntryCommand) (
 		}
 		cmd.Items[i] = item
 	}
-	return s.repo.CreateStockEntry(ctx, cmd)
+	detail, err := s.repo.CreateStockEntry(ctx, cmd)
+	if err != nil {
+		return StockEntryDetail{}, err
+	}
+	return hydrateStockEntryDetailPurpose(detail), nil
 }
 
 func (s *Service) ListStockEntries(ctx context.Context, query StockEntryQuery) ([]StockEntryRow, error) {
-	query.EntryType = normalizeStockEntryType(query.EntryType)
+	query.Purpose = normalizeStockEntryPurpose(query.Purpose)
+	if query.Purpose != "" {
+		query.EntryType = normalizeStockEntryType(query.Purpose)
+	} else {
+		query.EntryType = normalizeStockEntryType(query.EntryType)
+	}
 	query.Status = strings.TrimSpace(query.Status)
 	if query.Limit <= 0 || query.Limit > 200 {
 		query.Limit = 200
 	}
-	return s.repo.ListStockEntries(ctx, query)
+	rows, err := s.repo.ListStockEntries(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		rows[i] = hydrateStockEntryRowPurpose(rows[i])
+	}
+	return rows, nil
 }
 
 func (s *Service) GetStockEntry(ctx context.Context, id int64) (StockEntryDetail, error) {
 	if id <= 0 {
 		return StockEntryDetail{}, fmt.Errorf("stock_entry_id required")
 	}
-	return s.repo.GetStockEntry(ctx, id)
+	detail, err := s.repo.GetStockEntry(ctx, id)
+	if err != nil {
+		return StockEntryDetail{}, err
+	}
+	return hydrateStockEntryDetailPurpose(detail), nil
+}
+
+func (s *Service) ListWorkOrderLedgerEntries(ctx context.Context, query WorkOrderLedgerQuery) ([]WorkOrderLedgerEntryRow, error) {
+	if query.WorkOrderID <= 0 && query.RunningItemID <= 0 {
+		return nil, fmt.Errorf("work_order_id or running_item_id required")
+	}
+	if query.Limit <= 0 || query.Limit > 500 {
+		query.Limit = 200
+	}
+	rows, err := s.repo.ListWorkOrderLedgerEntries(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		rows[i].EntryType = normalizeStockEntryType(rows[i].EntryType)
+		if rows[i].Purpose == "" {
+			rows[i].Purpose = stockEntryPurposeForType(rows[i].EntryType)
+		}
+	}
+	return rows, nil
 }
 
 func (s *Service) StartJobCard(ctx context.Context, cmd JobCardActionCommand) (JobCardActionResult, error) {
@@ -1727,6 +1942,9 @@ func (s *Service) ListProductionLogs(ctx context.Context, query ProductionLogsQu
 	query.To = strings.TrimSpace(query.To)
 	query.BatchID = strings.TrimSpace(query.BatchID)
 	query.Operator = strings.TrimSpace(query.Operator)
+	if query.RunningItemID < 0 {
+		return ProductionLogsResult{}, fmt.Errorf("running_item_id must be >= 0")
+	}
 	if query.Limit <= 0 || query.Limit > 500 {
 		query.Limit = 200
 	}
@@ -1771,9 +1989,12 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 	sortProductionTasks(tasks)
 	load := buildProductionWorkstationLoad(tasks)
 	statusSummary, blockedSummary, prioritySummary := buildProductionTaskSummaries(tasks)
+	todaySummary := buildProductionTodaySummary(tasks, workOrders, jobCards)
 	return ProductionWorkstationOverview{
 		Date:            time.Now().Format("2006-01-02"),
 		TotalTasks:      len(tasks),
+		TodaySummary:    todaySummary,
+		NavBadges:       buildProductionNavBadges(todaySummary),
 		StatusSummary:   statusSummary,
 		BlockedSummary:  blockedSummary,
 		PrioritySummary: prioritySummary,
@@ -1783,6 +2004,9 @@ func (s *Service) ProductionWorkstationOverview(ctx context.Context, query Produ
 }
 
 func (s *Service) ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]WorkOrderRow, error) {
+	if query.ID < 0 {
+		return nil, fmt.Errorf("work_order_id must be >= 0")
+	}
 	query.Status = strings.TrimSpace(query.Status)
 	if query.Limit <= 0 || query.Limit > 500 {
 		query.Limit = 200
@@ -1791,6 +2015,9 @@ func (s *Service) ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]W
 }
 
 func (s *Service) ListJobCards(ctx context.Context, query JobCardQuery) ([]JobCardRow, error) {
+	if query.WorkOrderID < 0 {
+		return nil, fmt.Errorf("work_order_id must be >= 0")
+	}
 	query.Status = strings.TrimSpace(query.Status)
 	if query.Limit <= 0 || query.Limit > 500 {
 		query.Limit = 200
@@ -1833,6 +2060,7 @@ func productionTaskFromJobCard(card JobCardRow, workOrder WorkOrderRow) Producti
 		SchedulingNote:    firstNonEmpty(card.SchedulingNote, workOrder.SchedulingNote),
 	}
 	task.NextHandler = productionNextHandler(task)
+	task.Readiness, task.ReadinessLabel = productionTaskReadiness(task)
 	task.AvailableActions = productionAvailableActions(task)
 	return task
 }
@@ -1866,8 +2094,59 @@ func productionTaskFromWorkOrder(workOrder WorkOrderRow) ProductionTask {
 		SchedulingNote: strings.TrimSpace(workOrder.SchedulingNote),
 	}
 	task.NextHandler = productionNextHandler(task)
+	task.Readiness, task.ReadinessLabel = productionTaskReadiness(task)
 	task.AvailableActions = productionAvailableActions(task)
 	return task
+}
+
+func buildProductionTodaySummary(tasks []ProductionTask, workOrders []WorkOrderRow, jobCards []JobCardRow) ProductionTodaySummary {
+	summary := ProductionTodaySummary{PlannedTasks: len(tasks)}
+	for _, task := range tasks {
+		switch task.StatusLabel {
+		case "执行中":
+			summary.RunningTasks++
+		case "待处理":
+			summary.PendingTasks++
+		case "异常":
+			// Blocked/paused tasks are counted below through IsBlocked so the
+			// summary remains aligned with the read model's blocking reason.
+		}
+		if task.IsBlocked {
+			summary.BlockedTasks++
+		}
+	}
+	completedCards := 0
+	for _, card := range jobCards {
+		if normalizeProductionTaskStatus(card.Status) == "completed" {
+			completedCards++
+		}
+	}
+	completedWorkOrders := 0
+	for _, workOrder := range workOrders {
+		if normalizeProductionTaskStatus(workOrder.Status) == "completed" {
+			completedWorkOrders++
+		}
+	}
+	if completedCards > 0 {
+		summary.CompletedTasks = completedCards
+	} else {
+		summary.CompletedTasks = completedWorkOrders
+	}
+	summary.PlannedTasks += summary.CompletedTasks
+	return summary
+}
+
+func buildProductionNavBadges(summary ProductionTodaySummary) map[string]ProductionNavBadge {
+	overviewBadge := ProductionNavBadge{
+		Pending: summary.PendingTasks,
+		Blocked: summary.BlockedTasks,
+		Running: summary.RunningTasks,
+	}
+	return map[string]ProductionNavBadge{
+		"productionOverview": overviewBadge,
+		"workstationView":    overviewBadge,
+		"produceRunning":     {Running: summary.RunningTasks},
+	}
 }
 
 func buildProductionTaskSummaries(tasks []ProductionTask) ([]ProductionSummaryCount, []ProductionSummaryCount, []ProductionSummaryCount) {
@@ -2059,6 +2338,24 @@ func productionNextHandler(task ProductionTask) string {
 	return "生产负责人"
 }
 
+func productionTaskReadiness(task ProductionTask) (string, string) {
+	if task.BlockingReason != "" || task.IsBlocked {
+		return "blocked", "不能做"
+	}
+	switch task.Status {
+	case "running":
+		return "running", "执行中"
+	case "pending", "ready", "released":
+		return "ready", "可开始"
+	case "completed":
+		return "completed", "已完成"
+	case "cancelled":
+		return "cancelled", "已取消"
+	default:
+		return "pending", "待处理"
+	}
+}
+
 func productionAvailableActions(task ProductionTask) []string {
 	if task.JobCardID <= 0 {
 		return nil
@@ -2158,6 +2455,9 @@ func (s *Service) UpdateJobCardActuals(ctx context.Context, cmd JobCardActualsCo
 }
 
 func (s *Service) ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error) {
+	if query.RunningItemID < 0 {
+		return nil, fmt.Errorf("running_item_id must be >= 0")
+	}
 	if query.Limit <= 0 || query.Limit > 500 {
 		query.Limit = 200
 	}
@@ -2307,19 +2607,79 @@ func normalizeQualityInspectionScope(scope string) string {
 
 func normalizeStockEntryType(entryType string) string {
 	switch strings.ToLower(strings.TrimSpace(entryType)) {
-	case "material_issue_to_wip", "issue_to_wip", "领料到wip", "领料到 wip":
+	case "material_issue_to_wip", "issue_to_wip", "material_transfer_for_manufacture", "领料到wip", "领料到 wip", "生产领料":
 		return "material_issue_to_wip"
-	case "wip_return", "return_from_wip", "wip退料":
+	case "wip_return", "return_from_wip", "material_return_from_manufacture", "wip退料", "生产退料":
 		return "wip_return"
-	case "material_consume", "work_order_consume", "工单消耗":
+	case "material_consume", "work_order_consume", "material_consumption_for_manufacture", "工单消耗", "生产消耗":
 		return "material_consume"
-	case "finished_receipt", "finish_receipt", "完工入库":
+	case "finished_receipt", "finish_receipt", "manufacture", "完工入库":
 		return "finished_receipt"
-	case "scrap_loss", "scrap", "报废", "损耗":
+	case "scrap_loss", "scrap", "stock_adjustment", "报废", "损耗", "库存调整":
 		return "scrap_loss"
+	case "finished_transfer", "成品转仓":
+		return "finished_transfer"
 	default:
 		return ""
 	}
+}
+
+func normalizeStockEntryPurpose(purpose string) string {
+	switch strings.ToLower(strings.TrimSpace(purpose)) {
+	case "material_transfer_for_manufacture", "material_issue_to_wip", "issue_to_wip", "领料到wip", "领料到 wip", "生产领料":
+		return "material_transfer_for_manufacture"
+	case "material_return_from_manufacture", "wip_return", "return_from_wip", "wip退料", "生产退料":
+		return "material_return_from_manufacture"
+	case "material_consumption_for_manufacture", "material_consume", "work_order_consume", "工单消耗", "生产消耗":
+		return "material_consumption_for_manufacture"
+	case "manufacture", "finished_receipt", "finish_receipt", "完工入库":
+		return "manufacture"
+	case "stock_adjustment", "scrap_loss", "scrap", "报废", "损耗", "库存调整":
+		return "stock_adjustment"
+	case "finished_transfer", "成品转仓":
+		return "finished_transfer"
+	default:
+		return ""
+	}
+}
+
+func stockEntryPurposeForType(entryType string) string {
+	switch normalizeStockEntryType(entryType) {
+	case "material_issue_to_wip":
+		return "material_transfer_for_manufacture"
+	case "wip_return":
+		return "material_return_from_manufacture"
+	case "material_consume":
+		return "material_consumption_for_manufacture"
+	case "finished_receipt":
+		return "manufacture"
+	case "scrap_loss":
+		return "stock_adjustment"
+	case "finished_transfer":
+		return "finished_transfer"
+	default:
+		return ""
+	}
+}
+
+func StockEntryPurposeForType(entryType string) string {
+	return stockEntryPurposeForType(entryType)
+}
+
+func hydrateStockEntryRowPurpose(row StockEntryRow) StockEntryRow {
+	row.EntryType = normalizeStockEntryType(row.EntryType)
+	if row.Purpose == "" {
+		row.Purpose = stockEntryPurposeForType(row.EntryType)
+	}
+	return row
+}
+
+func hydrateStockEntryDetailPurpose(detail StockEntryDetail) StockEntryDetail {
+	detail.EntryType = normalizeStockEntryType(detail.EntryType)
+	if detail.Purpose == "" {
+		detail.Purpose = stockEntryPurposeForType(detail.EntryType)
+	}
+	return detail
 }
 
 func normalizeStockEntryItem(entryType string, item StockEntryItemCommand) (StockEntryItemCommand, error) {
@@ -2366,6 +2726,10 @@ func normalizeStockEntryItem(entryType string, item StockEntryItemCommand) (Stoc
 	case "finished_receipt":
 		if item.ToWarehouse == "" {
 			item.ToWarehouse = stockdomain.WarehouseFinishedGoods
+		}
+	case "finished_transfer":
+		if item.FromWarehouse == "" {
+			item.FromWarehouse = stockdomain.WarehouseFinishedGoods
 		}
 	}
 	return item, nil

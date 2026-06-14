@@ -6,6 +6,46 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-497-WORKORDER-INVENTORY-CONTROL
+- Branch: codex/workorder-inventory-control-20260614
+- Owner/session: Codex goal / 2026-06-14
+- Status: verifying; targeted service/API/frontend tests, package tests, frontend build, changed verifier and diff check passed; feature branch push/merge/deploy pending.
+- Scope: 工单作为从生产计划到完工入库的生产库存主控；工单详情聚合物料、工序卡、库存单据、库存流水、生产日志和成本；库存单据对外使用单据目的 `purpose`；`生产中` 退出生产模块高频入口但保留兼容页面。
+- DEV:
+  - DEV-497-WORKORDER-DETAIL-ACTIONS：新增 `/api/produce/work-orders/:id` 详情聚合，并提供工单维度开始生产、生产领料、完工入库和取消入口。
+  - DEV-497-STOCK-DOCUMENT-PURPOSE：新增 `/api/stock-documents` 兼容库存单据入口；库存作业以 `purpose` 表达生产领料、生产退料、生产消耗、完工入库、库存调整，继续兼容旧 `entry_type`。
+  - DEV-497-PRODUCTION-NAV-RUNNING-COMPAT：生产顶部入口保留生产视图、工位视图、生产计划、工单、工序卡、质检、日志、成本；`生产中` 从高频主入口移除，仅作为兼容状态页可直接访问。
+- Verifier:
+  - RED service/API: targeted tests failed before implementation because work-order detail/actions, stock-document purpose aliases and repository contracts were missing.
+  - RED frontend: `node --test src/lib/manufacturing-execution.test.js src/lib/production-workstation.test.js src/lib/menu-ia.test.js src/lib/work-orders.test.js` failed before implementation because stock-document endpoint/purpose helpers, new work-order action endpoints and top-nav compatibility expectations were missing.
+  - GREEN targeted service: `go test ./internal/application/production -run 'TestServiceOwnsWorkOrderInventoryControlWithStockDocumentPurpose|TestServiceOwnsManufacturingPhase2StockEntriesAndExecutionActions' -count=1`.
+  - GREEN targeted API: `go test ./internal/interfaces/http/production -run 'TestStockDocumentPurposeAliasesUseERPNextFlowLanguage|TestWorkOrderProducePathOwnsInventoryActionsAndDetail|TestManufacturingPhase2StockEntryAndExecutionAPIs|TestWorkOrderStartAPIStartsReleasedWorkOrder' -count=1`.
+  - GREEN targeted frontend: `node --test src/lib/manufacturing-execution.test.js src/lib/production-workstation.test.js src/lib/menu-ia.test.js src/lib/work-orders.test.js` passed 34/34.
+  - GREEN release-local: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1`; `node --test src/lib/manufacturing-execution.test.js src/lib/production-workstation.test.js src/lib/menu-ia.test.js src/lib/work-orders.test.js src/lib/view-routing.test.js` passed 44/44; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/acceptance/2026-06-14-workorder-inventory-control.md`.
+- Deployment: pending.
+- Last update: 2026-06-14 Asia/Shanghai.
+
+### PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION
+- Branch: codex/production-flow-phase1-20260614
+- Owner/session: Codex goal / 2026-06-14
+- Status: verifying; targeted RED/GREEN, package tests, frontend build and changed verifier passed; feature branch push/merge/deploy pending.
+- Scope: 生产管理高频视图优化一期。保持现有生产计划、生产中、工单、工序卡、质检、日志和成本页面，同时通过 sticky 顶部生产切换条、生产视图、工位视图、生产计划步骤条、生产中统一完成面板和库存作业 WIP 上下文，把负责人调度和现场工位的高频判断串起来。
+- DEV:
+  - DEV-496-PRODUCTION-NAV-BADGES-READMODEL：扩展 `/api/production/workstation-overview`，返回 `today_summary`、`nav_badges`、任务 readiness/阻塞原因/下一处理人；顶部生产切换条 sticky 展示生产视图、工位视图和生产中 badge。
+  - DEV-496-PRODUCTION-PLAN-STEPPER-NEXT：生产计划页增加 `选需求 -> 生成草稿 -> 拆分产能 -> 提交工单 -> 开始生产` 步骤条、sticky 下一步按钮和提交成功后的下一步面板。
+  - DEV-496-RUNNING-COMPLETION-PANEL-WIP-CONTEXT：生产中列表收敛为扫描字段和主动作，完成/部分完成进入统一完成面板；WIP 不足和质检冻结在行内/面板内显示原因、影响对象和动作入口。
+  - DEV-496-STOCK-WIP-PREFILL：从生产视图或生产中打开库存作业时带入 WIP tab、work_order_id、job_card_id、running_item_id、material_id 和缺口数量上下文。
+- Verifier:
+  - RED frontend: `node --test src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js` failed before implementation because nav badge, production plan stepper, completion panel and WIP context helpers were missing.
+  - RED backend/API: targeted production service/API tests failed before implementation because overview read model did not expose `today_summary`、`nav_badges`、`readiness`。
+  - GREEN targeted frontend: `node --test src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js` passed 43/43.
+  - GREEN targeted backend/API: `go test ./internal/application/production -run TestProductionWorkstationOverviewAnswersProductionAndStationQuestions -count=1`; `go test ./internal/interfaces/http/production -run TestProductionWorkstationOverviewAPIAndStationActions -count=1`.
+  - GREEN release-local: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1`; `node --test src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js src/lib/menu-ia.test.js src/lib/view-routing.test.js`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-14-production-flow-phase1-optimization.md`.
+- Deployment: pending.
+- Last update: 2026-06-14 Asia/Shanghai.
+
 ### PR-495-PRODUCTION-WORKSTATION-OVERVIEW
 - Branch: codex/production-workstation-overview-20260613
 - Owner/session: Codex goal / 2026-06-13

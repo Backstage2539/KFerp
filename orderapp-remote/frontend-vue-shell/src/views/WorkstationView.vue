@@ -97,20 +97,23 @@
       <button class="primary" type="button" @click="submitIssue" :disabled="busyKey !== ''">提交</button>
     </section>
 
-    <section v-if="partial.open" class="panel action-panel">
+    <section v-if="finishPanel.open" class="panel action-panel">
       <div class="section-title-row">
         <div>
-          <div class="section-title">部分完成</div>
-          <p class="muted">{{ partial.title }}</p>
+          <div class="section-title">{{ finishPanel.mode === 'partial_finish' ? '部分完成' : '完成本工序' }}</div>
+          <p class="muted">{{ finishPanel.title }}</p>
         </div>
-        <button class="secondary" type="button" @click="partial.open = false">关闭</button>
+        <button class="secondary" type="button" @click="finishPanel.open = false">关闭</button>
       </div>
       <div class="form-grid">
-        <label><span>成品件数</span><input v-model.number="partial.finished_units" type="number" min="0" /></label>
-        <label><span>散装余量(g)</span><input v-model.number="partial.finished_loose_g" type="number" min="0" /></label>
-        <label><span>本次投料(g)</span><input v-model.number="partial.consumed_input_g" type="number" min="0" /></label>
-        <label><span>入库仓</span><input v-model.trim="partial.warehouse" /></label>
-        <button class="primary" type="button" @click="submitPartialFinish" :disabled="busyKey !== ''">记录部分完成</button>
+        <label><span>投料(g)</span><input v-model.number="finishPanel.consumed_input_g" type="number" min="0" /></label>
+        <label><span>成品件数</span><input v-model.number="finishPanel.finished_units" type="number" min="0" /></label>
+        <label><span>余料(g)</span><input v-model.number="finishPanel.finished_loose_g" type="number" min="0" /></label>
+        <label><span>入库仓</span><input v-model.trim="finishPanel.warehouse" /></label>
+        <label class="span-2"><span>异常/备注</span><input v-model.trim="finishPanel.note" /></label>
+        <button class="primary" type="button" @click="submitFinishPanel" :disabled="busyKey !== ''">
+          {{ finishPanel.mode === 'partial_finish' ? '记录部分完成' : '完成本工序' }}
+        </button>
       </div>
     </section>
   </div>
@@ -129,14 +132,16 @@ const message = ref('')
 const selectedWorkstation = ref('')
 const overview = ref({ tasks: [] })
 const issue = reactive({ open: false, mode: '', title: '', task: null, note: '' })
-const partial = reactive({
+const finishPanel = reactive({
   open: false,
+  mode: '',
   title: '',
   task: null,
   finished_units: 0,
   finished_loose_g: 0,
   consumed_input_g: 0,
   warehouse: 'finished_goods',
+  note: '',
 })
 
 const tasks = computed(() => overview.value.tasks || [])
@@ -182,14 +187,16 @@ function openIssue(task, mode) {
   issue.note = mode === 'material_call' ? '' : (task.blocking_reason || '')
 }
 
-function openPartial(task) {
-  partial.open = true
-  partial.task = task
-  partial.title = `${taskTitle(task)} · ${task.work_order_no || ''}`
-  partial.finished_units = 0
-  partial.finished_loose_g = 0
-  partial.consumed_input_g = Number(task.planned_g || task.planned_output_g || 0)
-  partial.warehouse = 'finished_goods'
+function openFinishPanel(task, mode) {
+  finishPanel.open = true
+  finishPanel.mode = mode
+  finishPanel.task = task
+  finishPanel.title = `${taskTitle(task)} · ${task.work_order_no || ''}`
+  finishPanel.finished_units = 0
+  finishPanel.finished_loose_g = 0
+  finishPanel.consumed_input_g = Number(task.planned_g || task.planned_output_g || 0)
+  finishPanel.warehouse = 'finished_goods'
+  finishPanel.note = task.blocking_reason || ''
 }
 
 async function handleTaskAction(task, action) {
@@ -197,8 +204,8 @@ async function handleTaskAction(task, action) {
     openIssue(task, action)
     return
   }
-  if (action === 'partial_finish') {
-    openPartial(task)
+  if (action === 'complete' || action === 'partial_finish') {
+    openFinishPanel(task, action)
     return
   }
   const endpoint = productionTaskActionEndpoint(task, action)
@@ -237,26 +244,38 @@ async function submitIssue() {
   }
 }
 
-async function submitPartialFinish() {
-  const task = partial.task
-  if (!task?.running_item_id) return
-  busyKey.value = `${task.job_card_id}:partial_finish`
+async function submitFinishPanel() {
+  const task = finishPanel.task
+  if (!task) return
+  busyKey.value = `${task.job_card_id}:${finishPanel.mode}`
   error.value = ''
   message.value = ''
   try {
-    await finishRunningProduction({
-      id: Number(task.running_item_id),
-      finished_units: Number(partial.finished_units || 0),
-      finished_loose_g: Number(partial.finished_loose_g || 0),
-      consumed_input_g: Number(partial.consumed_input_g || 0),
-      partial: true,
-      warehouse: partial.warehouse || 'finished_goods',
-    })
-    partial.open = false
-    message.value = '已记录部分完成'
+    if (finishPanel.mode === 'partial_finish') {
+      if (!task.running_item_id) throw new Error('缺少生产中项目，无法记录部分完成')
+      await finishRunningProduction({
+        id: Number(task.running_item_id),
+        finished_units: Number(finishPanel.finished_units || 0),
+        finished_loose_g: Number(finishPanel.finished_loose_g || 0),
+        consumed_input_g: Number(finishPanel.consumed_input_g || 0),
+        partial: true,
+        warehouse: finishPanel.warehouse || 'finished_goods',
+      })
+      message.value = '已记录部分完成'
+    } else {
+      const endpoint = productionTaskActionEndpoint(task, 'complete')
+      const actualOutputG = Number(task.spec_g || 0) * Number(finishPanel.finished_units || 0) + Number(finishPanel.finished_loose_g || 0)
+      await runProductionTaskAction(endpoint, {
+        actual_input_qty: Number(finishPanel.consumed_input_g || 0),
+        actual_output_qty: actualOutputG,
+        exception_reason: finishPanel.note,
+      })
+      message.value = '完成本工序已提交'
+    }
+    finishPanel.open = false
     await load()
   } catch (err) {
-    error.value = err.message || '部分完成失败'
+    error.value = err.message || '完成操作失败'
   } finally {
     busyKey.value = ''
   }

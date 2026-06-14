@@ -1,10 +1,26 @@
 export function stockEntryEndpoint() {
-  return '/api/stock-entries'
+  return '/api/stock-documents'
+}
+
+function workOrderActionEndpoint(row, action) {
+  const id = Number(row?.id || 0)
+  return id > 0 ? `/api/produce/work-orders/${id}/${action}` : ''
+}
+
+export function workOrderStartEndpoint(row) {
+  return workOrderActionEndpoint(row, 'start')
+}
+
+export function workOrderIssueMaterialsEndpoint(row) {
+  return workOrderActionEndpoint(row, 'issue-materials')
 }
 
 export function workOrderCompleteEndpoint(row) {
-  const id = Number(row?.id || 0)
-  return id > 0 ? `/api/work-orders/${id}/complete` : ''
+  return workOrderActionEndpoint(row, 'complete')
+}
+
+export function workOrderCancelEndpoint(row) {
+  return workOrderActionEndpoint(row, 'cancel')
 }
 
 export function jobCardActionEndpoint(row, action) {
@@ -43,16 +59,37 @@ export function workOrderStatusLabel(status) {
 
 export function stockEntryTypeOptions() {
   return [
-    { value: 'material_issue_to_wip', label: '领料到WIP' },
-    { value: 'wip_return', label: 'WIP退料' },
-    { value: 'material_consume', label: '工单消耗' },
-    { value: 'finished_receipt', label: '完工入库' },
-    { value: 'scrap_loss', label: '报废/损耗' },
+    { value: 'material_transfer_for_manufacture', label: '生产领料' },
+    { value: 'material_return_from_manufacture', label: '生产退料' },
+    { value: 'material_consumption_for_manufacture', label: '生产消耗' },
+    { value: 'manufacture', label: '完工入库' },
+    { value: 'stock_adjustment', label: '库存调整' },
   ]
 }
 
 export function stockEntryTypeLabel(type) {
-  return stockEntryTypeOptions().find((item) => item.value === String(type || '').trim())?.label || type || '-'
+  const value = normalizeStockEntryPurpose(type)
+  return stockEntryTypeOptions().find((item) => item.value === value)?.label || type || '-'
+}
+
+export function normalizeStockEntryPurpose(type) {
+  return ({
+    material_issue_to_wip: 'material_transfer_for_manufacture',
+    issue_to_wip: 'material_transfer_for_manufacture',
+    material_transfer_for_manufacture: 'material_transfer_for_manufacture',
+    wip_return: 'material_return_from_manufacture',
+    return_from_wip: 'material_return_from_manufacture',
+    material_return_from_manufacture: 'material_return_from_manufacture',
+    material_consume: 'material_consumption_for_manufacture',
+    work_order_consume: 'material_consumption_for_manufacture',
+    material_consumption_for_manufacture: 'material_consumption_for_manufacture',
+    finished_receipt: 'manufacture',
+    finish_receipt: 'manufacture',
+    manufacture: 'manufacture',
+    scrap_loss: 'stock_adjustment',
+    scrap: 'stock_adjustment',
+    stock_adjustment: 'stock_adjustment',
+  })[String(type || '').trim()] || String(type || '').trim()
 }
 
 export function canRunJobCardAction(row, action) {

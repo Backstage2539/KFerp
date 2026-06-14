@@ -79,8 +79,11 @@ test('production menu exposes high-frequency overview and workstation entries fi
   const keys = primaryMenuKeys(menuGroups)
   assert.ok(keys.includes('productionOverview'))
   assert.ok(keys.includes('workstationView'))
+  assert.equal(keys.includes('produceRunning'), false)
   assert.equal(groupForView(menuGroups, 'productionOverview')?.id, 'production')
   assert.equal(groupForView(menuGroups, 'workstationView')?.id, 'production')
+  assert.equal(groupForView(menuGroups, 'produceRunning'), null)
+  assert.equal(menuMap.produceRunning?.title, '生产中')
 
   const productionItems = menuGroups.find((group) => group.id === 'production')?.items || []
   assert.deepEqual(productionItems.slice(0, 2).map((item) => item.key), ['productionOverview', 'workstationView'])
