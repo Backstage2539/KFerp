@@ -62,8 +62,8 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 			"保存实际",
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue"): {
-			"按 BOM 预览生产需求",
-			"多层展开策略",
+			"v-model=\"status\"",
+			"workOrderStatusOptions",
 			"损耗汇总",
 			"预期损耗",
 			"operation_summary_json",
@@ -76,6 +76,18 @@ func TestDev375ProcessBomWorkorderSkuModelSourceMarkers(t *testing.T) {
 			if !strings.Contains(src, want) {
 				t.Fatalf("%s missing process model marker %q", rel, want)
 			}
+		}
+	}
+
+	workOrders := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "WorkOrdersView.vue")))
+	for _, unwanted := range []string{
+		"按 BOM 预览生产需求",
+		"多层展开策略",
+		"bom-workbench",
+		"apiGet('/api/production-boms?status=all')",
+	} {
+		if strings.Contains(workOrders, unwanted) {
+			t.Fatalf("WorkOrdersView.vue should not keep removed BOM demand preview marker %q", unwanted)
 		}
 	}
 }
