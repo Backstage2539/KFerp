@@ -12,6 +12,7 @@ import (
 
 type stockEntryRequest struct {
 	EntryType     string                                `json:"entry_type"`
+	Purpose       string                                `json:"purpose"`
 	WorkOrderID   int64                                 `json:"work_order_id"`
 	JobCardID     int64                                 `json:"job_card_id"`
 	RunningItemID int64                                 `json:"running_item_id"`
@@ -21,9 +22,11 @@ type stockEntryRequest struct {
 	Items         []productionapp.StockEntryItemCommand `json:"items"`
 }
 
-// Accepted entry_type values include material_issue_to_wip, wip_return, material_consume, finished_receipt, and scrap_loss.
+// Accepted purpose values include material_transfer_for_manufacture, material_return_from_manufacture,
+// material_consumption_for_manufacture, manufacture, stock_adjustment, and finished_transfer.
+// PR-479 compatibility markers: material_issue_to_wip, finished_receipt.
 func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service) {
-	e.POST("/api/stock-entries", func(c echo.Context) error {
+	createStockDocument := func(c echo.Context) error {
 		if err := support.RequireEmployeeBound(c); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
@@ -33,6 +36,7 @@ func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 		}
 		detail, err := productionSvc.CreateStockEntry(c.Request().Context(), productionapp.StockEntryCommand{
 			EntryType:     req.EntryType,
+			Purpose:       req.Purpose,
 			WorkOrderID:   req.WorkOrderID,
 			JobCardID:     req.JobCardID,
 			RunningItemID: req.RunningItemID,
@@ -46,10 +50,11 @@ func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, detail)
-	})
-	e.GET("/api/stock-entries", func(c echo.Context) error {
+	}
+	listStockDocuments := func(c echo.Context) error {
 		rows, err := productionSvc.ListStockEntries(c.Request().Context(), productionapp.StockEntryQuery{
 			EntryType:   strings.TrimSpace(c.QueryParam("entry_type")),
+			Purpose:     strings.TrimSpace(c.QueryParam("purpose")),
 			Status:      strings.TrimSpace(c.QueryParam("status")),
 			WorkOrderID: parseInt64(c.QueryParam("work_order_id")),
 			JobCardID:   parseInt64(c.QueryParam("job_card_id")),
@@ -59,8 +64,8 @@ func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
-	})
-	e.GET("/api/stock-entries/:id", func(c echo.Context) error {
+	}
+	getStockDocument := func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid stock_entry_id"})
@@ -70,5 +75,11 @@ func registerStockEntryAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 			return c.JSON(http.StatusNotFound, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, detail)
-	})
+	}
+	e.POST("/api/stock-entries", createStockDocument)
+	e.GET("/api/stock-entries", listStockDocuments)
+	e.GET("/api/stock-entries/:id", getStockDocument)
+	e.POST("/api/stock-documents", createStockDocument)
+	e.GET("/api/stock-documents", listStockDocuments)
+	e.GET("/api/stock-documents/:id", getStockDocument)
 }

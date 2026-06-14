@@ -1233,3 +1233,11 @@
 - [ ] PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION：顶部 sticky badge、生产计划步骤条、统一完成面板和 WIP 上下文预填都可用，且旧生产计划、工单、工序卡、质检、日志、成本流程不回退。
 - [ ] 保存拆分并提交生成工单后，生产工单/工序卡显示冻结的工位产能、计划批次数、计划分钟和计划工序成本；修改 `布勒 18kg` 或 `智烘 4kg` 产能后，已生成工单不变化。
 - [ ] 工序卡录入实际分钟并保存实际或完成工序后，展示实际工序成本。
+
+### K56. 工单库存主控与库存单据目的化（PR-497-WORKORDER-INVENTORY-CONTROL）
+- [ ] 生产模块顶部切换条顺序为 `生产视图 / 工位视图 / 生产计划 / 工单 / 工序卡 / 质检 / 日志 / 成本`，左侧生产主菜单不再显示 `生产中`，旧 `produceRunning` 视图仍可作为隐藏兼容视图打开。
+- [ ] `GET /api/produce/work-orders/:id` 返回 `work_order`、`materials`、`job_cards`、`stock_documents`、`stock_entries`、`ledger_entries`、`production_logs` 和 `cost_summary`，并按工单 ID、running item 和工单号过滤聚合数据。
+- [ ] `POST /api/produce/work-orders/:id/start`、`/issue-materials`、`/complete`、`/cancel` 可用；旧 `/api/work-orders/:id/start|complete` 仍兼容。
+- [ ] `/api/stock-documents` 创建、查询和详情支持 `purpose`，生产领料写为 `material_transfer_for_manufacture` 并落到内部 `material_issue_to_wip`，返回体同时包含 `purpose` 和兼容 `entry_type`。
+- [ ] 库存作业 `Stock Entry单据` 页面显示单据目的：生产领料、生产退料、生产消耗、完工入库、库存调整；请求使用 `/api/stock-documents` 和 `purpose`。
+- [ ] 工序卡页面仍只承担工位执行动作、实际分钟、实际损耗和异常原因；物料移动、消耗、退料和完工入库通过工单或库存单据完成。

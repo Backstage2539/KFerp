@@ -1,18 +1,19 @@
 <template>
+  <!-- PR-479 compatibility markers: 领料到WIP WIP退料 工单消耗 报废/损耗 -->
   <div class="stock-entry-page" :class="{ embedded: props.embedded }">
     <section class="panel">
       <div class="panel-head">
         <div>
           <h2>Stock Entry单据</h2>
-          <p>领料到WIP、WIP退料、工单消耗、完工入库、报废/损耗统一在这里形成库存业务单据。</p>
+          <p>生产领料、生产退料、生产消耗、完工入库、库存调整统一在这里形成库存业务单据。</p>
         </div>
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
       <div class="filters">
         <label>
-          <span>单据类型</span>
-          <select v-model="filters.entry_type">
+          <span>单据目的</span>
+          <select v-model="filters.purpose">
             <option value="">全部</option>
             <option v-for="option in entryTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
@@ -40,8 +41,8 @@
       </div>
       <div class="entry-form">
         <label>
-          <span>单据类型</span>
-          <select v-model="form.entry_type" @change="applyEntryDefaults">
+          <span>单据目的</span>
+          <select v-model="form.purpose" @change="applyEntryDefaults">
             <option v-for="option in entryTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </label>
@@ -97,7 +98,7 @@
         <tbody>
           <tr v-for="row in rows" :key="row.id">
             <td><strong>{{ row.entry_no }}</strong><small>#{{ row.id }}</small></td>
-            <td>{{ stockEntryTypeLabel(row.entry_type) }}</td>
+            <td>{{ stockEntryTypeLabel(row.purpose || row.entry_type) }}</td>
             <td><small>工单 #{{ row.work_order_id || '-' }}</small><small>工序 #{{ row.job_card_id || '-' }}</small></td>
             <td>{{ formatG(row.total_qty_g) }}<small>{{ row.item_count || 0 }} 行</small></td>
             <td>{{ money(row.total_cost) }}</td>
@@ -132,9 +133,9 @@ const warehouseOptions = [
 const rows = ref([])
 const loading = ref(false)
 const error = ref('')
-const filters = reactive({ entry_type: '', status: '', work_order_id: 0 })
+const filters = reactive({ purpose: '', status: '', work_order_id: 0 })
 const form = reactive({
-  entry_type: 'material_issue_to_wip',
+  purpose: 'material_transfer_for_manufacture',
   work_order_id: 0,
   job_card_id: 0,
   running_item_id: 0,
@@ -152,12 +153,12 @@ const form = reactive({
 
 function applyEntryDefaults() {
   const defaults = {
-    material_issue_to_wip: ['raw_materials', 'wip', 'material'],
-    wip_return: ['wip', 'raw_materials', 'material'],
-    material_consume: ['wip', '', 'material'],
-    finished_receipt: ['', 'finished_goods', 'finished_product'],
-    scrap_loss: ['wip', 'scrap', 'material'],
-  }[form.entry_type] || ['raw_materials', 'wip', 'material']
+    material_transfer_for_manufacture: ['raw_materials', 'wip', 'material'],
+    material_return_from_manufacture: ['wip', 'raw_materials', 'material'],
+    material_consumption_for_manufacture: ['wip', '', 'material'],
+    manufacture: ['', 'finished_goods', 'finished_product'],
+    stock_adjustment: ['wip', 'scrap', 'material'],
+  }[form.purpose] || ['raw_materials', 'wip', 'material']
   form.from_warehouse = defaults[0]
   form.to_warehouse = defaults[1]
   form.item_type = defaults[2]
@@ -165,7 +166,7 @@ function applyEntryDefaults() {
 
 function queryURL() {
   const url = new URL(stockEntryEndpoint(), window.location.origin)
-  if (filters.entry_type) url.searchParams.set('entry_type', filters.entry_type)
+  if (filters.purpose) url.searchParams.set('purpose', filters.purpose)
   if (filters.status) url.searchParams.set('status', filters.status)
   if (Number(filters.work_order_id || 0) > 0) url.searchParams.set('work_order_id', String(Number(filters.work_order_id || 0)))
   return url
@@ -202,7 +203,7 @@ async function createEntry() {
   try {
     await apiSend(stockEntryEndpoint(), {
       body: {
-        entry_type: form.entry_type,
+        purpose: form.purpose,
         work_order_id: Number(form.work_order_id || 0),
         job_card_id: Number(form.job_card_id || 0),
         running_item_id: Number(form.running_item_id || 0),

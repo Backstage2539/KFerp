@@ -87,6 +87,9 @@ func (r *fakeRepo) StartWorkOrder(ctx context.Context, cmd WorkOrderStartCommand
 func (r *fakeRepo) CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompleteCommand) (WorkOrderCompleteResult, error) {
 	return WorkOrderCompleteResult{}, nil
 }
+func (r *fakeRepo) CancelWorkOrder(ctx context.Context, cmd WorkOrderCancelCommand) (WorkOrderRow, error) {
+	return WorkOrderRow{ID: cmd.ID, Status: "cancelled"}, nil
+}
 func (r *fakeRepo) SaveScheduleAssignment(ctx context.Context, cmd ScheduleAssignmentCommand) (ScheduleAssignmentResult, error) {
 	return ScheduleAssignmentResult{}, nil
 }
@@ -104,6 +107,9 @@ func (r *fakeRepo) ListStockEntries(ctx context.Context, query StockEntryQuery) 
 }
 func (r *fakeRepo) GetStockEntry(ctx context.Context, id int64) (StockEntryDetail, error) {
 	return StockEntryDetail{}, nil
+}
+func (r *fakeRepo) ListWorkOrderLedgerEntries(ctx context.Context, query WorkOrderLedgerQuery) ([]WorkOrderLedgerEntryRow, error) {
+	return nil, nil
 }
 func (r *fakeRepo) TransitionJobCard(ctx context.Context, cmd JobCardActionCommand) (JobCardActionResult, error) {
 	return JobCardActionResult{}, nil

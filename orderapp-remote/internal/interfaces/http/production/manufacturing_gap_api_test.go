@@ -89,6 +89,9 @@ func (r *fakeManufacturingGapRepo) StartWorkOrder(ctx context.Context, cmd produ
 func (r *fakeManufacturingGapRepo) CompleteWorkOrder(ctx context.Context, cmd productionapp.WorkOrderCompleteCommand) (productionapp.WorkOrderCompleteResult, error) {
 	return productionapp.WorkOrderCompleteResult{}, nil
 }
+func (r *fakeManufacturingGapRepo) CancelWorkOrder(ctx context.Context, cmd productionapp.WorkOrderCancelCommand) (productionapp.WorkOrderRow, error) {
+	return productionapp.WorkOrderRow{ID: cmd.ID, Status: "cancelled"}, nil
+}
 func (r *fakeManufacturingGapRepo) SaveScheduleAssignment(ctx context.Context, cmd productionapp.ScheduleAssignmentCommand) (productionapp.ScheduleAssignmentResult, error) {
 	return productionapp.ScheduleAssignmentResult{}, nil
 }
@@ -106,6 +109,9 @@ func (r *fakeManufacturingGapRepo) ListStockEntries(ctx context.Context, query p
 }
 func (r *fakeManufacturingGapRepo) GetStockEntry(ctx context.Context, id int64) (productionapp.StockEntryDetail, error) {
 	return productionapp.StockEntryDetail{}, nil
+}
+func (r *fakeManufacturingGapRepo) ListWorkOrderLedgerEntries(ctx context.Context, query productionapp.WorkOrderLedgerQuery) ([]productionapp.WorkOrderLedgerEntryRow, error) {
+	return nil, nil
 }
 func (r *fakeManufacturingGapRepo) TransitionJobCard(ctx context.Context, cmd productionapp.JobCardActionCommand) (productionapp.JobCardActionResult, error) {
 	return productionapp.JobCardActionResult{}, nil

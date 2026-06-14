@@ -36,6 +36,10 @@ func (r Repository) listProductionLogs(ctx context.Context, query productionapp.
 		args = append(args, query.ProductID)
 		where += " AND product_id=$" + strconv.Itoa(len(args))
 	}
+	if query.RunningItemID > 0 {
+		args = append(args, query.RunningItemID)
+		where += " AND running_item_id=$" + strconv.Itoa(len(args))
+	}
 	if strings.TrimSpace(query.BatchID) != "" {
 		args = append(args, strings.TrimSpace(query.BatchID))
 		where += " AND batch_id=$" + strconv.Itoa(len(args))

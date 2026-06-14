@@ -1009,6 +1009,10 @@ func recordBatchCostForRunningItemTx(ctx context.Context, tx pgx.Tx, schema stri
 func (r Repository) ListWorkOrders(ctx context.Context, query productionapp.WorkOrderQuery) ([]productionapp.WorkOrderRow, error) {
 	args := []any{}
 	where := "1=1"
+	if query.ID > 0 {
+		args = append(args, query.ID)
+		where += fmt.Sprintf(" AND wo.id=$%d", len(args))
+	}
 	if query.Status != "" {
 		args = append(args, query.Status)
 		where += fmt.Sprintf(" AND wo.status=$%d", len(args))
@@ -1215,6 +1219,10 @@ func formatWorkOrderBatchPlan(batches []int64, fallbackG int64) string {
 func (r Repository) ListJobCards(ctx context.Context, query productionapp.JobCardQuery) ([]productionapp.JobCardRow, error) {
 	args := []any{}
 	where := "1=1"
+	if query.WorkOrderID > 0 {
+		args = append(args, query.WorkOrderID)
+		where += fmt.Sprintf(" AND jc.work_order_id=$%d", len(args))
+	}
 	if query.Status != "" {
 		args = append(args, query.Status)
 		where += fmt.Sprintf(" AND jc.status=$%d", len(args))
@@ -1336,13 +1344,22 @@ func (r Repository) UpdateJobCardActuals(ctx context.Context, cmd productionapp.
 }
 
 func (r Repository) ListBatchCosts(ctx context.Context, query productionapp.BatchCostQuery) ([]productionapp.BatchCostRow, error) {
+	args := []any{}
+	where := "1=1"
+	if query.RunningItemID > 0 {
+		args = append(args, query.RunningItemID)
+		where += fmt.Sprintf(" AND running_item_id=$%d", len(args))
+	}
+	args = append(args, query.Limit)
+	limitArg := len(args)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT id,running_item_id,batch_id,product_name,COALESCE(material_cost,0),COALESCE(operation_cost,0),
 		       COALESCE(total_cost,0),finished_g,COALESCE(unit_cost_per_kg,0),to_char(created_at,'YYYY-MM-DD HH24:MI')
 		FROM %s.production_batch_costs
+		WHERE %s
 		ORDER BY created_at DESC, id DESC
-		LIMIT $1
-	`, r.schema), query.Limit)
+		LIMIT $%d
+	`, r.schema, where, limitArg), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1356,4 +1373,80 @@ func (r Repository) ListBatchCosts(ctx context.Context, query productionapp.Batc
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func (r Repository) CancelWorkOrder(ctx context.Context, cmd productionapp.WorkOrderCancelCommand) (productionapp.WorkOrderRow, error) {
+	var runningItemID int64
+	var status string
+	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT running_item_id,status
+		FROM %s.work_orders
+		WHERE id=$1
+	`, r.schema), cmd.ID).Scan(&runningItemID, &status); err != nil {
+		if err == pgx.ErrNoRows {
+			return productionapp.WorkOrderRow{}, fmt.Errorf("work order not found")
+		}
+		return productionapp.WorkOrderRow{}, err
+	}
+	if status == "completed" {
+		return productionapp.WorkOrderRow{}, fmt.Errorf("work order already completed")
+	}
+	if status == "running" && runningItemID > 0 {
+		if err := r.Cancel(ctx, productionapp.CancelCommand{ID: runningItemID, Operator: cmd.Operator}); err != nil {
+			return productionapp.WorkOrderRow{}, err
+		}
+		tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+		if err != nil {
+			return productionapp.WorkOrderRow{}, err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		row, err := loadWorkOrderExecutionRowTx(ctx, tx, r.schema, cmd.ID)
+		if err != nil {
+			return productionapp.WorkOrderRow{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return productionapp.WorkOrderRow{}, err
+		}
+		return row, nil
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return productionapp.WorkOrderRow{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.work_orders
+		SET status='cancelled', completed_at=now()
+		WHERE id=$1 AND status <> 'cancelled'
+	`, r.schema), cmd.ID)
+	if err != nil {
+		return productionapp.WorkOrderRow{}, err
+	}
+	if tag.RowsAffected() == 0 && status != "cancelled" {
+		return productionapp.WorkOrderRow{}, fmt.Errorf("work order not found")
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s.job_cards
+		SET status='cancelled', completed_at=now(), operator=COALESCE(NULLIF(operator,''),$2)
+		WHERE work_order_id=$1 AND status NOT IN ('completed','cancelled')
+	`, r.schema), cmd.ID, cmd.Operator); err != nil {
+		return productionapp.WorkOrderRow{}, err
+	}
+	if runningItemID > 0 {
+		if err := releaseMaterialReservationsForRunningItemTx(ctx, tx, r.schema, runningItemID); err != nil {
+			return productionapp.WorkOrderRow{}, err
+		}
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "work_order", &cmd.ID, "cancel", postgresinfra.StrPtr("status"), postgresinfra.StrPtr(status), postgresinfra.StrPtr("cancelled"), postgresinfra.AuditMeta{"note": cmd.Note, "running_item_id": runningItemID}); err != nil {
+		return productionapp.WorkOrderRow{}, err
+	}
+	row, err := loadWorkOrderExecutionRowTx(ctx, tx, r.schema, cmd.ID)
+	if err != nil {
+		return productionapp.WorkOrderRow{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return productionapp.WorkOrderRow{}, err
+	}
+	return row, nil
 }

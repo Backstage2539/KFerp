@@ -13,7 +13,6 @@ test('production top nav lists high-frequency views before legacy production pag
     'productionOverview',
     'workstationView',
     'producePlan',
-    'produceRunning',
     'workOrders',
     'jobCards',
     'qualityInspections',
@@ -87,7 +86,7 @@ test('production top nav renders count badges for high-frequency production view
   const items = navItemsWithProductionBadges(productionTopNavItems, {
     productionOverview: { pending: 2, blocked: 1, running: 3 },
     workstationView: { pending: 2, blocked: 1, running: 3 },
-    produceRunning: { running: 3 },
+    workOrders: { running: 3 },
   })
 
   assert.deepEqual(items.slice(0, 4).map((item) => ({
@@ -97,7 +96,7 @@ test('production top nav renders count badges for high-frequency production view
     { key: 'productionOverview', badge: '待2 阻1 中3' },
     { key: 'workstationView', badge: '待2 阻1 中3' },
     { key: 'producePlan', badge: '' },
-    { key: 'produceRunning', badge: '待0 阻0 中3' },
+    { key: 'workOrders', badge: '待0 阻0 中3' },
   ])
 })
 

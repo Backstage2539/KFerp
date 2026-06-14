@@ -31,24 +31,33 @@ type fakeFlowRepo struct {
 	scheduleQuery       ScheduleBoardQuery
 	stockEntry          StockEntryCommand
 	stockEntryQuery     StockEntryQuery
+	stockEntryRows      []StockEntryRow
 	stockEntryID        int64
 	jobCardAction       JobCardActionCommand
 	jobCardActionResult JobCardActionResult
+	cancelWorkOrder     WorkOrderCancelCommand
+	cancelledWorkOrder  WorkOrderRow
+	ledgerQuery         WorkOrderLedgerQuery
+	ledgerRows          []WorkOrderLedgerEntryRow
 
-	materialPlanQuery  MaterialPlanQuery
-	materialPlanResult MaterialPlanResult
-	qualityCommand     QualityInspectionCommand
-	qualityQuery       QualityInspectionQuery
-	qualityRows        []QualityInspectionRow
-	reservationQuery   WIPReservationQuery
-	reservationRows    []WIPReservationRow
-	adjustReservation  WIPReservationAdjustCommand
-	releaseReservation WIPReservationReleaseCommand
-	acceptanceRows     []AcceptanceSmokeRow
-	workOrders         []WorkOrderRow
-	jobCards           []JobCardRow
-	workOrderQuery     WorkOrderQuery
-	jobCardQuery       JobCardQuery
+	materialPlanQuery   MaterialPlanQuery
+	materialPlanResult  MaterialPlanResult
+	qualityCommand      QualityInspectionCommand
+	qualityQuery        QualityInspectionQuery
+	qualityRows         []QualityInspectionRow
+	productionLogsQuery ProductionLogsQuery
+	productionLogs      ProductionLogsResult
+	reservationQuery    WIPReservationQuery
+	reservationRows     []WIPReservationRow
+	adjustReservation   WIPReservationAdjustCommand
+	releaseReservation  WIPReservationReleaseCommand
+	acceptanceRows      []AcceptanceSmokeRow
+	workOrders          []WorkOrderRow
+	jobCards            []JobCardRow
+	workOrderQuery      WorkOrderQuery
+	jobCardQuery        JobCardQuery
+	batchCostQuery      BatchCostQuery
+	batchCosts          []BatchCostRow
 }
 
 func (r *fakeFlowRepo) CreateBatch(ctx context.Context, cmd CreateBatchCommand) (CreateBatchResult, error) {
@@ -177,6 +186,14 @@ func (r *fakeFlowRepo) CompleteWorkOrder(ctx context.Context, cmd WorkOrderCompl
 	return r.workOrderCompleted, nil
 }
 
+func (r *fakeFlowRepo) CancelWorkOrder(ctx context.Context, cmd WorkOrderCancelCommand) (WorkOrderRow, error) {
+	r.cancelWorkOrder = cmd
+	if r.cancelledWorkOrder.ID == 0 {
+		r.cancelledWorkOrder = WorkOrderRow{ID: cmd.ID, WorkOrderNo: "WO-PP-0000000041-0000000051", Status: "cancelled"}
+	}
+	return r.cancelledWorkOrder, nil
+}
+
 func (r *fakeFlowRepo) SaveScheduleAssignment(ctx context.Context, cmd ScheduleAssignmentCommand) (ScheduleAssignmentResult, error) {
 	r.scheduleAssignment = cmd
 	return ScheduleAssignmentResult{WorkOrder: WorkOrderRow{ID: cmd.WorkOrderID, PlannedStartAt: cmd.PlannedStartAt, PlannedEndAt: cmd.PlannedEndAt}, JobCard: JobCardRow{ID: cmd.JobCardID, WorkOrderID: cmd.WorkOrderID}}, nil
@@ -213,6 +230,9 @@ func (r *fakeFlowRepo) CreateStockEntry(ctx context.Context, cmd StockEntryComma
 
 func (r *fakeFlowRepo) ListStockEntries(ctx context.Context, query StockEntryQuery) ([]StockEntryRow, error) {
 	r.stockEntryQuery = query
+	if len(r.stockEntryRows) > 0 {
+		return r.stockEntryRows, nil
+	}
 	return []StockEntryRow{{ID: 7, EntryNo: "SE-0000000007", EntryType: query.EntryType, WorkOrderID: query.WorkOrderID, Status: "submitted"}}, nil
 }
 
@@ -245,7 +265,8 @@ func (r *fakeFlowRepo) PlanSummary(ctx context.Context, query PlanSummaryQuery) 
 }
 
 func (r *fakeFlowRepo) ListProductionLogs(ctx context.Context, query ProductionLogsQuery) (ProductionLogsResult, error) {
-	return ProductionLogsResult{}, nil
+	r.productionLogsQuery = query
+	return r.productionLogs, nil
 }
 func (r *fakeFlowRepo) ListWorkOrders(ctx context.Context, query WorkOrderQuery) ([]WorkOrderRow, error) {
 	r.workOrderQuery = query
@@ -259,7 +280,13 @@ func (r *fakeFlowRepo) UpdateJobCardActuals(ctx context.Context, cmd JobCardActu
 	return nil
 }
 func (r *fakeFlowRepo) ListBatchCosts(ctx context.Context, query BatchCostQuery) ([]BatchCostRow, error) {
-	return nil, nil
+	r.batchCostQuery = query
+	return r.batchCosts, nil
+}
+
+func (r *fakeFlowRepo) ListWorkOrderLedgerEntries(ctx context.Context, query WorkOrderLedgerQuery) ([]WorkOrderLedgerEntryRow, error) {
+	r.ledgerQuery = query
+	return r.ledgerRows, nil
 }
 
 func (r *fakeFlowRepo) MaterialPlan(ctx context.Context, query MaterialPlanQuery) (MaterialPlanResult, error) {
@@ -797,6 +824,119 @@ func TestServiceOwnsManufacturingPhase2StockEntriesAndExecutionActions(t *testin
 	}
 	if closed.WorkOrder.Status != "completed" || repo.completeWorkOrder.Warehouse != "finished_goods" || repo.completeWorkOrder.Operator != "主管" || len(closed.StockEntries) == 0 || closed.Cost.TotalCost <= 0 {
 		t.Fatalf("CompleteWorkOrder result=%+v command=%+v", closed, repo.completeWorkOrder)
+	}
+}
+
+func TestServiceOwnsWorkOrderInventoryControlWithStockDocumentPurpose(t *testing.T) {
+	repo := &fakeFlowRepo{
+		workOrders: []WorkOrderRow{{
+			ID:            88,
+			WorkOrderNo:   "WO-PR497-001",
+			RunningItemID: 99,
+			ProductName:   "桂花乌龙",
+			SpecG:         227,
+			PlannedG:      45400,
+			Status:        "running",
+		}},
+		jobCards: []JobCardRow{{
+			ID:          91,
+			WorkOrderID: 88,
+			WorkOrderNo: "WO-PR497-001",
+			Operation:   "烘焙",
+			Workstation: "布勒 18kg",
+			Status:      "running",
+		}},
+		reservationRows: []WIPReservationRow{{
+			ID:                 11,
+			WorkOrderID:        88,
+			WorkOrderNo:        "WO-PR497-001",
+			RunningItemID:      99,
+			MaterialID:         10,
+			MaterialName:       "孟连水洗",
+			RequiredG:          60000,
+			ReservedG:          60000,
+			RemainingReservedG: 45000,
+			Status:             "reserved",
+		}},
+		stockEntryRows: []StockEntryRow{{
+			ID:            7,
+			EntryNo:       "SE-0000000007",
+			EntryType:     "material_issue_to_wip",
+			Purpose:       "material_transfer_for_manufacture",
+			WorkOrderID:   88,
+			RunningItemID: 99,
+			Status:        "submitted",
+		}},
+		ledgerRows: []WorkOrderLedgerEntryRow{{
+			ID:            21,
+			StockEntryID:  7,
+			EntryNo:       "SE-0000000007",
+			Purpose:       "material_transfer_for_manufacture",
+			ItemType:      "material",
+			ItemID:        10,
+			ItemName:      "孟连水洗",
+			Warehouse:     "wip",
+			QtyChangeG:    60000,
+			QtyAfterG:     60000,
+			SourceDocType: "stock_entry",
+			SourceDocID:   7,
+		}},
+		productionLogs: ProductionLogsResult{Rows: []ProductionLogRow{{
+			ID:             31,
+			BatchID:        "BATCH-WO-88",
+			InputG:         60000,
+			FinishedTotalG: 45400,
+		}}},
+		batchCosts: []BatchCostRow{{RunningItemID: 99, BatchID: "BATCH-WO-88", MaterialCost: 36.25, OperationCost: 12.5, TotalCost: 48.75}},
+	}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	entry, err := svc.CreateStockEntry(ctx, StockEntryCommand{
+		Purpose:     " material_transfer_for_manufacture ",
+		WorkOrderID: 88,
+		Operator:    " 仓管 ",
+		Items: []StockEntryItemCommand{{
+			MaterialID: 10,
+			ItemName:   "孟连水洗",
+			QtyG:       60000,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.Purpose != "material_transfer_for_manufacture" || repo.stockEntry.EntryType != "material_issue_to_wip" || repo.stockEntry.Purpose != "material_transfer_for_manufacture" {
+		t.Fatalf("CreateStockEntry purpose mapping entry=%+v command=%+v", entry, repo.stockEntry)
+	}
+	if repo.stockEntry.SourceType != "work_order" || repo.stockEntry.SourceID != 88 || repo.stockEntry.Items[0].FromWarehouse != "raw_materials" || repo.stockEntry.Items[0].ToWarehouse != "wip" {
+		t.Fatalf("CreateStockEntry work-order defaults = %+v", repo.stockEntry)
+	}
+
+	rows, err := svc.ListStockEntries(ctx, StockEntryQuery{Purpose: " material_transfer_for_manufacture ", WorkOrderID: 88})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Purpose != "material_transfer_for_manufacture" || repo.stockEntryQuery.EntryType != "material_issue_to_wip" || repo.stockEntryQuery.Purpose != "material_transfer_for_manufacture" {
+		t.Fatalf("ListStockEntries purpose rows=%+v query=%+v", rows, repo.stockEntryQuery)
+	}
+
+	detail, err := svc.GetWorkOrderDetail(ctx, 88)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.WorkOrder.ID != 88 || detail.WorkOrder.RunningItemID != 99 || len(detail.Materials) != 1 || len(detail.JobCards) != 1 || len(detail.StockDocuments) != 1 || len(detail.StockEntries) != 1 || len(detail.LedgerEntries) != 1 || len(detail.ProductionLogs.Rows) != 1 || detail.CostSummary.TotalCost != 48.75 {
+		t.Fatalf("GetWorkOrderDetail() = %+v", detail)
+	}
+	if repo.workOrderQuery.ID != 88 || repo.jobCardQuery.WorkOrderID != 88 || repo.reservationQuery.WorkOrderNo != "WO-PR497-001" || repo.stockEntryQuery.WorkOrderID != 88 || repo.ledgerQuery.WorkOrderID != 88 || repo.ledgerQuery.RunningItemID != 99 || repo.productionLogsQuery.RunningItemID != 99 || repo.batchCostQuery.RunningItemID != 99 {
+		t.Fatalf("detail queries workOrder=%+v jobCard=%+v reservations=%+v stock=%+v ledger=%+v logs=%+v costs=%+v", repo.workOrderQuery, repo.jobCardQuery, repo.reservationQuery, repo.stockEntryQuery, repo.ledgerQuery, repo.productionLogsQuery, repo.batchCostQuery)
+	}
+
+	cancelled, err := svc.CancelWorkOrder(ctx, WorkOrderCancelCommand{ID: 88, Operator: " 主管 ", Note: " 临时取消 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelled.Status != "cancelled" || repo.cancelWorkOrder.ID != 88 || repo.cancelWorkOrder.Operator != "主管" || repo.cancelWorkOrder.Note != "临时取消" {
+		t.Fatalf("CancelWorkOrder result=%+v command=%+v", cancelled, repo.cancelWorkOrder)
 	}
 }
 

@@ -31,6 +31,15 @@ type workOrderCompleteRequest struct {
 	Note           string `json:"note"`
 }
 
+type workOrderIssueMaterialsRequest struct {
+	Note  string                                `json:"note"`
+	Items []productionapp.StockEntryItemCommand `json:"items"`
+}
+
+type workOrderCancelRequest struct {
+	Note string `json:"note"`
+}
+
 func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 	e.GET("/produce/work-orders", func(c echo.Context) error {
 		target := "/vue-shell?view=workOrders"
@@ -59,21 +68,59 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 		}
 		return c.JSON(http.StatusOK, map[string]any{"rows": rows})
 	})
-	e.POST("/api/work-orders/:id/start", func(c echo.Context) error {
+	workOrderID := func(c echo.Context) (int64, error) {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid work_order_id"})
+			return 0, fmt.Errorf("invalid work_order_id")
+		}
+		return id, nil
+	}
+	getWorkOrderDetail := func(c echo.Context) error {
+		id, err := workOrderID(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		detail, err := productionSvc.GetWorkOrderDetail(c.Request().Context(), id)
+		if err != nil {
+			return c.JSON(http.StatusNotFound, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, detail)
+	}
+	startWorkOrder := func(c echo.Context) error {
+		id, err := workOrderID(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		res, err := productionSvc.StartWorkOrder(c.Request().Context(), productionapp.WorkOrderStartCommand{ID: id, Operator: support.ActorOf(c)})
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "batch_id": res.BatchID, "running_item_id": res.RunningItemID, "work_order": res.WorkOrder})
-	})
-	e.POST("/api/work-orders/:id/complete", func(c echo.Context) error {
-		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-		if err != nil || id <= 0 {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid work_order_id"})
+	}
+	issueMaterials := func(c echo.Context) error {
+		id, err := workOrderID(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		var req workOrderIssueMaterialsRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+		}
+		detail, err := productionSvc.IssueWorkOrderMaterials(c.Request().Context(), productionapp.WorkOrderIssueMaterialsCommand{
+			ID:       id,
+			Operator: support.ActorOf(c),
+			Note:     req.Note,
+			Items:    req.Items,
+		})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, detail)
+	}
+	completeWorkOrder := func(c echo.Context) error {
+		id, err := workOrderID(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		var req workOrderCompleteRequest
 		if err := c.Bind(&req); err != nil {
@@ -92,7 +139,31 @@ func registerWorkOrderAPI(e *echo.Echo, productionSvc *productionapp.Service) {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		}
 		return c.JSON(http.StatusOK, map[string]any{"ok": true, "work_order": res.WorkOrder, "stock_entries": res.StockEntries, "cost": res.Cost})
-	})
+	}
+	cancelWorkOrder := func(c echo.Context) error {
+		id, err := workOrderID(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		var req workOrderCancelRequest
+		if c.Request().Body != nil && c.Request().ContentLength != 0 {
+			if err := c.Bind(&req); err != nil {
+				return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
+			}
+		}
+		row, err := productionSvc.CancelWorkOrder(c.Request().Context(), productionapp.WorkOrderCancelCommand{ID: id, Operator: support.ActorOf(c), Note: req.Note})
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ok": true, "work_order": row})
+	}
+	e.GET("/api/produce/work-orders/:id", getWorkOrderDetail)
+	e.POST("/api/work-orders/:id/start", startWorkOrder)
+	e.POST("/api/produce/work-orders/:id/start", startWorkOrder)
+	e.POST("/api/produce/work-orders/:id/issue-materials", issueMaterials)
+	e.POST("/api/work-orders/:id/complete", completeWorkOrder)
+	e.POST("/api/produce/work-orders/:id/complete", completeWorkOrder)
+	e.POST("/api/produce/work-orders/:id/cancel", cancelWorkOrder)
 	e.POST("/api/work-orders/:id/operation-splits", func(c echo.Context) error {
 		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 		if err != nil || id <= 0 {

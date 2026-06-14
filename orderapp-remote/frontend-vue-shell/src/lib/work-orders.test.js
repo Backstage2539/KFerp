@@ -162,7 +162,7 @@ test('released work orders expose operation split editing before production star
 })
 
 test('workOrderStartEndpoint uses formal work order start API', () => {
-  assert.equal(workOrderStartEndpoint({ id: 41 }), '/api/work-orders/41/start')
+  assert.equal(workOrderStartEndpoint({ id: 41 }), '/api/produce/work-orders/41/start')
   assert.equal(workOrderStartEndpoint({ id: 0 }), '')
 })
 

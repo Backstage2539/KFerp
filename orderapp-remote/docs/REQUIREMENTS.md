@@ -921,3 +921,11 @@
 - PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION：生产负责人和现场工位继续使用 PR-495 两个高频视图，但顶部切换条要有 sticky badge，生产计划要有步骤条和下一步动作，生产中完工/部分完工必须进入统一完成面板，库存作业要能从任务上下文预填 WIP 处理参数。
 - 提交生产计划生成生产工单时，工序卡从生产计划拆分行冻结 `workstation_capacity_id/name`、标准批量、计划批次数、计划分钟、小时费率和计划工序成本。工序卡记录实际分钟并计算实际工序成本，不回改工艺路线或工位产能主数据；投入/产出不再作为工序卡主表通用字段。
 - 拆分计算规则：计划数量等于用户填写的 `承担产量`；计划批次数等于 `ceil(承担产量 / 标准批量)`；计划分钟等于 `计划批次数 * 标准分钟/批`；计划工序成本等于 `计划分钟 / 60 * 小时费率`。
+
+## 56. 工单库存主控与库存单据目的化（PR-497-WORKORDER-INVENTORY-CONTROL）
+- 工单必须成为从生产计划到完工入库的生产库存主控对象。工单负责开始生产、触发领料、完工入库、取消生产，以及聚合物料占用、工序卡、库存单据、库存流水、生产日志和成本汇总。
+- 生产顶部切换条和生产主菜单不再把 `生产中` 作为高频主入口；顶部顺序为 `生产视图 / 工位视图 / 生产计划 / 工单 / 工序卡 / 质检 / 日志 / 成本`。`生产中` 保留为兼容状态页和旧流程 fallback。
+- 库存业务单据保留现有 Stock Entry 表和库存流水模型，但公开交互使用 `purpose`：`material_transfer_for_manufacture`、`material_return_from_manufacture`、`material_consumption_for_manufacture`、`manufacture`、`stock_adjustment`。旧 `entry_type` 继续兼容。
+- 新增 `/api/stock-documents` 作为库存单据公开别名，保留 `/api/stock-entries`。创建、查询和详情返回都必须包含 `purpose`，并按工单、工序卡或 running item 关联。
+- 新增 `/api/produce/work-orders/:id` 工单详情聚合接口，以及 `/api/produce/work-orders/:id/start`、`/issue-materials`、`/complete`、`/cancel` 生产主路径。旧 `/api/work-orders/:id/start|complete` 保留兼容。
+- 工序卡只负责工位执行：开始、暂停、继续、完成、实际分钟、实际损耗和异常原因。物料移动、消耗和完工入库通过库存单据或工单完工动作表达，不把库存任务重复放到工序卡主流程。
