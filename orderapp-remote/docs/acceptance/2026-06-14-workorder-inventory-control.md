@@ -11,6 +11,7 @@
 - API 测试：`go test ./internal/interfaces/http/production -run 'TestStockDocumentPurposeAliasesUseERPNextFlowLanguage|TestWorkOrderProducePathOwnsInventoryActionsAndDetail|TestManufacturingPhase2StockEntryAndExecutionAPIs|TestWorkOrderStartAPIStartsReleasedWorkOrder' -count=1`
 - 前端单测：`node --test src/lib/manufacturing-execution.test.js src/lib/production-workstation.test.js src/lib/menu-ia.test.js src/lib/work-orders.test.js`
 - 包级验证：`go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1`
+- 全量后端验证：`go test ./...`
 - 前端扩展验证：`node --test src/lib/manufacturing-execution.test.js src/lib/production-workstation.test.js src/lib/menu-ia.test.js src/lib/work-orders.test.js src/lib/view-routing.test.js`
 - 前端构建：`npm run build`
 - 项目检查：`scripts/verify_kferp.sh changed`

@@ -1001,6 +1001,10 @@ func (s *threeTemplateWalkthroughStore) CompleteWorkOrder(context.Context, produ
 	return productionapp.WorkOrderCompleteResult{}, nil
 }
 
+func (s *threeTemplateWalkthroughStore) CancelWorkOrder(context.Context, productionapp.WorkOrderCancelCommand) (productionapp.WorkOrderRow, error) {
+	return productionapp.WorkOrderRow{}, nil
+}
+
 func (s *threeTemplateWalkthroughStore) SaveScheduleAssignment(context.Context, productionapp.ScheduleAssignmentCommand) (productionapp.ScheduleAssignmentResult, error) {
 	return productionapp.ScheduleAssignmentResult{}, nil
 }
@@ -1056,6 +1060,10 @@ func (s *threeTemplateWalkthroughStore) ListStockEntries(context.Context, produc
 
 func (s *threeTemplateWalkthroughStore) GetStockEntry(context.Context, int64) (productionapp.StockEntryDetail, error) {
 	return productionapp.StockEntryDetail{}, nil
+}
+
+func (s *threeTemplateWalkthroughStore) ListWorkOrderLedgerEntries(context.Context, productionapp.WorkOrderLedgerQuery) ([]productionapp.WorkOrderLedgerEntryRow, error) {
+	return nil, nil
 }
 
 func (s *threeTemplateWalkthroughStore) TransitionJobCard(context.Context, productionapp.JobCardActionCommand) (productionapp.JobCardActionResult, error) {
