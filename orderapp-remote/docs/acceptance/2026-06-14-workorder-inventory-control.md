@@ -23,3 +23,8 @@
 - 使用 `/api/stock-documents` 创建生产领料单据时，请求 `purpose=material_transfer_for_manufacture`，返回体同时包含 `purpose` 和兼容 `entry_type=material_issue_to_wip`。
 - 打开工单详情接口 `/api/produce/work-orders/:id`，应能看到工单、物料占用、工序卡、库存单据、库存流水、生产日志和成本汇总。
 - 完工、取消和生产领料优先走 `/api/produce/work-orders/:id/*` 生产路径；旧 `/api/work-orders/:id/start|complete` 只作为兼容入口。
+
+## 部署验证
+- 2026-06-15 Asia/Shanghai 已部署到 development，代码提交 `dfa575d2`。
+- Docker build 内置 `go test ./...` 通过；`erp_orderapp` 重启成功。
+- Smoke：`GET /app/` 返回 303；认证 `GET /app/vue-shell?view=workOrders` 返回 200；认证 `GET /app/api/stock-documents?limit=1` 返回 200；需求表 API 可见 `PR-497-WORKORDER-INVENTORY-CONTROL`。
