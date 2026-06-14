@@ -22,7 +22,7 @@
     <div v-if="message" class="notice">{{ message }}</div>
     <div v-if="error" class="error">{{ error }}</div>
 
-    <section class="station-grid">
+    <section class="station-grid" :class="{ 'single-station-grid': singleStationLayout }">
       <article v-for="section in visibleSections" :key="section.workstation" class="station-panel">
         <div class="station-head">
           <div>
@@ -147,6 +147,7 @@ const finishPanel = reactive({
 const tasks = computed(() => overview.value.tasks || [])
 const sections = computed(() => workstationTaskSections(tasks.value))
 const visibleSections = computed(() => selectedWorkstation.value ? sections.value.filter((section) => section.workstation === selectedWorkstation.value) : sections.value)
+const singleStationLayout = computed(() => visibleSections.value.length === 1)
 
 function taskKey(task) {
   return `${task.job_card_id || 0}:${task.work_order_id || 0}`
@@ -359,6 +360,7 @@ textarea { resize: vertical; }
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
+.station-grid.single-station-grid { grid-template-columns: minmax(0, 1fr); }
 .station-panel { padding: 14px; min-width: 0; }
 .station-head {
   display: flex;
@@ -401,11 +403,15 @@ textarea { resize: vertical; }
   display: grid;
   border: 1px solid #ebe7df;
   border-radius: 8px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-inline: contain;
 }
 .task-row {
   display: grid;
   grid-template-columns: minmax(180px, 1.4fr) 90px 110px minmax(180px, 1.2fr);
+  min-width: 610px;
   gap: 10px;
   align-items: center;
   padding: 10px;
@@ -474,7 +480,7 @@ textarea { resize: vertical; }
   .page { padding: 14px; }
   .toolbar, .station-head { align-items: stretch; flex-direction: column; }
   .answer-grid, .form-grid { grid-template-columns: 1fr; }
-  .task-row { grid-template-columns: 1fr; align-items: start; }
+  .task-row { grid-template-columns: 1fr; min-width: 0; align-items: start; }
   .task-row.header { display: none; }
 }
 </style>

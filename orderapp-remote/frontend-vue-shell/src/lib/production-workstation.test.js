@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import {
   navItemsWithProductionBadges,
@@ -115,4 +116,15 @@ test('stock operation context carries WIP prefill parameters from production tas
     material_id: 10,
     shortage_g: 600,
   })
+})
+
+test('workstation view lets wide task rows scroll and single-station filters fill the work area', () => {
+  const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /:class="\{\s*'single-station-grid': singleStationLayout\s*\}"/)
+  assert.match(source, /const singleStationLayout = computed\(\(\) => visibleSections\.value\.length === 1\)/)
+  assert.match(source, /\.station-grid\.single-station-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s)
+  assert.match(source, /\.task-table\s*\{[^}]*overflow-x:\s*auto;[^}]*overflow-y:\s*hidden;[^}]*-webkit-overflow-scrolling:\s*touch;[^}]*overscroll-behavior-inline:\s*contain;/s)
+  assert.match(source, /\.task-row\s*\{[^}]*min-width:\s*610px;/s)
+  assert.match(source, /@media \(max-width:\s*760px\)\s*\{[\s\S]*\.task-row\s*\{[^}]*grid-template-columns:\s*1fr;[^}]*min-width:\s*0;/)
 })
