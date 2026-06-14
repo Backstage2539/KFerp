@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-497-WORKORDER-INVENTORY-CONTROL
 - Branch: codex/workorder-inventory-control-20260614
 - Owner/session: Codex goal / 2026-06-14
-- Status: verifying; targeted service/API/frontend tests, package tests, frontend build, changed verifier and diff check passed; feature branch push/merge/deploy pending.
+- Status: merged to develop and deployed to development.
 - Scope: 工单作为从生产计划到完工入库的生产库存主控；工单详情聚合物料、工序卡、库存单据、库存流水、生产日志和成本；库存单据对外使用单据目的 `purpose`；`生产中` 退出生产模块高频入口但保留兼容页面。
 - DEV:
   - DEV-497-WORKORDER-DETAIL-ACTIONS：新增 `/api/produce/work-orders/:id` 详情聚合，并提供工单维度开始生产、生产领料、完工入库和取消入口。
@@ -23,8 +23,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN targeted frontend: `node --test src/lib/manufacturing-execution.test.js src/lib/production-workstation.test.js src/lib/menu-ia.test.js src/lib/work-orders.test.js` passed 34/34.
   - GREEN release-local: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1`; `go test ./...`; `node --test src/lib/manufacturing-execution.test.js src/lib/production-workstation.test.js src/lib/menu-ia.test.js src/lib/work-orders.test.js src/lib/view-routing.test.js` passed 44/44; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/OP_MANUAL_INVENTORY_MATERIALS.md`; `orderapp-remote/docs/acceptance/2026-06-14-workorder-inventory-control.md`.
-- Deployment: pending.
-- Last update: 2026-06-14 Asia/Shanghai.
+- Deployment: deployed to development on 2026-06-15 Asia/Shanghai with code commit `dfa575d2`; original app backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260615001312`; failed pre-fix source backup `root@1.12.242.58:/opt/stacks/erp/orderapp.failed.deploy-20260615001833`. Smoke: `erp_orderapp`, `erp_postgres`, `erp_caddy`, `erp_docconvert` running; unauthenticated `GET /app/` returned 303; authenticated `GET /app/vue-shell?view=workOrders` returned 200; authenticated `GET /app/api/stock-documents?limit=1` returned 200; req API exposed `PR-497-WORKORDER-INVENTORY-CONTROL`.
+- Last update: 2026-06-15 Asia/Shanghai.
 
 ### PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION
 - Branch: codex/production-flow-phase1-20260614
