@@ -56,11 +56,21 @@ func TestDev494CapacityOperationAutoSplitContracts(t *testing.T) {
 		"autoSplitCurrentPlanOperation",
 		"autoSplitProductionPlanDrawerOperation",
 		"autoSplitWorkOrderOperation",
-		"分配剩余产量",
 		"自动拆分",
 	} {
 		if !strings.Contains(contents["producePlanLib"]+contents["producePlanView"]+contents["workOrdersView"], marker) {
 			t.Fatalf("frontend auto split support missing %s", marker)
+		}
+	}
+	for _, marker := range []string{
+		"assignRemainingCurrentPlanSplitQty",
+		"assignRemainingProductionPlanDrawerSplitQty",
+		"assignRemainingWorkOrderSplitQty",
+		"分配剩余产量",
+		"分配剩余产能",
+	} {
+		if strings.Contains(contents["producePlanView"]+contents["workOrdersView"], marker) {
+			t.Fatalf("obsolete assign remaining split control still present: %s", marker)
 		}
 	}
 	for _, marker := range []string{
