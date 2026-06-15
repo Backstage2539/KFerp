@@ -216,11 +216,12 @@ test('WorkOrdersView exposes capacity split editor drawer', () => {
     'plannedCapacitySplitMetrics',
     'productionPlanSplitBatchCards',
     'autoSplitWorkOrderOperation',
-    'assignRemainingWorkOrderSplitQty',
     'applicableOperationCapacities',
-    '分配剩余产量',
     '自动拆分',
   ]) {
     assert.ok(source.includes(marker), `missing ${marker}`)
   }
+  assert.doesNotMatch(source, /assignRemainingWorkOrderSplitQty/)
+  assert.doesNotMatch(source, /分配剩余产量/)
+  assert.doesNotMatch(source, /分配剩余产能/)
 })

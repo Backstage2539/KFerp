@@ -342,6 +342,26 @@ test('operation capacity auto split uses closest capacity for the last underfill
   assert.equal(productionPlanSplitBatchCards(rows[1])[0].underfilled, true)
 })
 
+test('operation capacity auto split falls back to planned output or demand gap when planned grams are absent', () => {
+  const operation = { seq: 1, operation_id: 7, operation: '烘焙' }
+  const capacities = [
+    { id: 10, workstation_id: 1, name: '布勒10kg', status: 'active', batch_size_qty: 10, batch_size_unit: 'kg', applicable_operation_ids: [7] },
+    { id: 3, workstation_id: 2, name: '智烘3kg', status: 'active', batch_size_qty: 3, batch_size_unit: 'kg', applicable_operation_ids: [7] },
+  ]
+
+  assert.deepEqual(
+    buildOperationCapacityAutoSplits({ id: 51, planned_output_g: 23000, spec_g: 1000 }, operation, capacities)
+      .map((row) => [row.workstation_capacity_id, row.planned_qty]),
+    [[10, 20], [3, 3]],
+  )
+
+  assert.deepEqual(
+    buildOperationCapacityAutoSplits({ id: 51, gap_g: 21000, spec_g: 1000 }, operation, capacities)
+      .map((row) => [row.workstation_capacity_id, row.planned_qty]),
+    [[10, 20], [3, 1]],
+  )
+})
+
 test('operation capacity auto split supports count-based packaging capacity through spec grams', () => {
   const rows = buildOperationCapacityAutoSplits(
     { id: 52, planned_g: 10442, spec_g: 454 },
@@ -470,14 +490,16 @@ test('ProducePlanView owns operation capacity splits after draft plan creation',
     '不足标准批量',
     'autoSplitCurrentPlanOperation',
     'autoSplitProductionPlanDrawerOperation',
-    'assignRemainingCurrentPlanSplitQty',
-    'assignRemainingProductionPlanDrawerSplitQty',
+    'ensureWorkstationCapacities',
     'applicableOperationCapacities',
-    '分配剩余产量',
     '自动拆分',
   ]) {
     assert.match(source, new RegExp(marker))
   }
+  assert.doesNotMatch(source, /assignRemainingCurrentPlanSplitQty/)
+  assert.doesNotMatch(source, /assignRemainingProductionPlanDrawerSplitQty/)
+  assert.doesNotMatch(source, /分配剩余产量/)
+  assert.doesNotMatch(source, /分配剩余产能/)
   assert.doesNotMatch(source, /每锅数量/)
   assert.doesNotMatch(source, /推荐机器/)
 })
