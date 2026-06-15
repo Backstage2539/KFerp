@@ -10,11 +10,11 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Branch: codex/workorder-inventory-control-20260614
 - Owner/session: Codex goal / 2026-06-14
 - Status: merged to develop and deployed to development.
-- Scope: 工单作为从生产计划到完工入库的生产库存主控；工单详情聚合物料、工序卡、库存单据、库存流水、生产日志和成本；库存单据对外使用单据目的 `purpose`；`生产中` 退出生产模块高频入口但保留兼容页面。
+- Scope: 工单作为从生产计划到完工入库的生产库存主控；工单详情聚合物料、工序卡、库存单据、库存流水、生产日志和成本；库存单据对外使用单据目的 `purpose`；左侧生产主菜单可弱化 `生产中`，但 PR-496 要求顶部生产切换条继续保留 `生产中` 兼容入口。
 - DEV:
   - DEV-497-WORKORDER-DETAIL-ACTIONS：新增 `/api/produce/work-orders/:id` 详情聚合，并提供工单维度开始生产、生产领料、完工入库和取消入口。
   - DEV-497-STOCK-DOCUMENT-PURPOSE：新增 `/api/stock-documents` 兼容库存单据入口；库存作业以 `purpose` 表达生产领料、生产退料、生产消耗、完工入库、库存调整，继续兼容旧 `entry_type`。
-  - DEV-497-PRODUCTION-NAV-RUNNING-COMPAT：生产顶部入口保留生产视图、工位视图、生产计划、工单、工序卡、质检、日志、成本；`生产中` 从高频主入口移除，仅作为兼容状态页可直接访问。
+  - DEV-497-PRODUCTION-NAV-RUNNING-COMPAT：生产左侧主菜单弱化 `生产中`，工单成为库存主控；PR-496 顶部生产切换条仍保留 `生产中`，旧 `produceRunning` 视图继续可通过顶部切换条打开。
 - Verifier:
   - RED service/API: targeted tests failed before implementation because work-order detail/actions, stock-document purpose aliases and repository contracts were missing.
   - RED frontend: `node --test src/lib/manufacturing-execution.test.js src/lib/production-workstation.test.js src/lib/menu-ia.test.js src/lib/work-orders.test.js` failed before implementation because stock-document endpoint/purpose helpers, new work-order action endpoints and top-nav compatibility expectations were missing.
@@ -42,8 +42,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN targeted frontend: `node --test src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js` passed 43/43.
   - GREEN targeted backend/API: `go test ./internal/application/production -run TestProductionWorkstationOverviewAnswersProductionAndStationQuestions -count=1`; `go test ./internal/interfaces/http/production -run TestProductionWorkstationOverviewAPIAndStationActions -count=1`.
   - GREEN release-local: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1`; `node --test src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js src/lib/menu-ia.test.js src/lib/view-routing.test.js`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - GREEN post-PR497 regression: deployment browser check found `生产中` missing from top nav; `production-workstation.test.js` was tightened to fail on the missing item, then `produceRunning` was restored to `productionTopNavItems` and frontend tests passed 69/69.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-14-production-flow-phase1-optimization.md`.
-- Deployment: feature branch pushed; PR-496 application code initially deployed from `061af4b234f28c211ffaf61a80489b363ced8831` to `root@1.12.242.58:/opt/stacks/erp` with backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260614231948`. After concurrent develop updates, PR-496 verification reran on `origin/develop=a2f2d9b4c2213b2e73b6c4df2b895dd3b4b6cfdc`; final evidence commit must be pushed to develop and deployed from the latest `origin/develop`. Smoke so far: `erp_orderapp` listening on `:8080`; production overview, workstation view, production plan, production running, work orders and job cards returned 200; overview API returned `nav_badges`、`today_summary`、`readiness`、`workstation_load`; browser acceptance verified 6 ERP pages, sticky production nav order/badges/active state and 0 console/runtime errors.
+- Deployment: feature branch pushed; PR-496 application code initially deployed from `061af4b234f28c211ffaf61a80489b363ced8831` to `root@1.12.242.58:/opt/stacks/erp` with backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260614231948`. After concurrent develop updates, PR-496 verification reran on latest develop; final deployment uses no-cache Docker build and development backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260616001818`. Smoke so far: `erp_orderapp` listening on `:8080`; production overview, workstation view, production plan, production running, work orders and job cards returned 200; overview API returned `nav_badges`、`today_summary`、`readiness`、`workstation_load`; browser acceptance verified 6 ERP pages, sticky production nav order/badges/active state and 0 console/runtime errors.
 - Last update: 2026-06-15 Asia/Shanghai.
 
 ### PR-495-PRODUCTION-WORKSTATION-OVERVIEW

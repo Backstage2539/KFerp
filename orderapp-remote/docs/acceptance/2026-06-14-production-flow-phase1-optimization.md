@@ -11,6 +11,7 @@
 - `node --test src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js`：实现前失败，因为 `navItemsWithProductionBadges`、`stockOperationContextParams`、`productionPlanSteps`、`currentProductionPlanStep`、`buildProductionPlanNextActions`、`buildFinishPanelModel` 和 `productionFinishErrorDetail` 未导出或未实现。
 - `go test ./internal/application/production -run TestProductionWorkstationOverviewAnswersProductionAndStationQuestions -count=1`：实现前失败，因为 overview read model 未提供 `today_summary`、`nav_badges`、任务 readiness。
 - `go test ./internal/interfaces/http/production -run TestProductionWorkstationOverviewAPIAndStationActions -count=1`：实现前失败，因为 API 响应缺少 `today_summary`、`nav_badges`、`readiness`。
+- 2026-06-15 部署复核 RED：并发合入最新 `origin/develop` 后，ERP 浏览器验收发现顶部生产切换条只有 8 项，缺少硬约束要求的 `生产中`；收紧 `production-workstation.test.js` 后 `node --test src/lib/production-workstation.test.js` 失败，证明缺口。
 
 ## GREEN
 - `node --test src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js`：43/43 passed。
@@ -21,12 +22,13 @@
 - `npm run build`：passed，保留既有 chunk size warning。
 - `scripts/verify_kferp.sh changed`：passed。
 - `git diff --check`：passed。
+- 2026-06-15 最新 develop 复验：补回 `produceRunning` 后，`node --test src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js src/lib/menu-ia.test.js src/lib/view-routing.test.js`：69/69 passed；`go test ./internal/application/production ./internal/interfaces/http/production ./internal/interfaces/http/support -run 'TestProductionWorkstationOverviewAnswersProductionAndStationQuestions|TestProductionWorkstationOverviewAPIAndStationActions|TestDev496ProductionFlowPhase1OptimizationContracts' -count=1`：passed；`npm run build`：passed；`git diff --check`：passed。
 
 ## Development 部署
 - Feature branch：`codex/production-flow-phase1-20260614` 已推送。
-- develop 集成：PR-496 代码已进入 `origin/develop`；并发工作流推进 develop 后，已在 `origin/develop=a2f2d9b4c2213b2e73b6c4df2b895dd3b4b6cfdc` 基线上复验通过。
+- develop 集成：PR-496 代码已进入 `origin/develop`；并发工作流推进 develop 后，已在最新 develop 基线上复验通过，并补回顶部生产切换条 `生产中` 入口。
 - 初次 development 部署：`root@1.12.242.58:/opt/stacks/erp`，备份目录 `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260614231948`。
-- Docker build：镜像构建阶段执行 `go test ./...` passed，`erp_orderapp` 已重新创建并启动。最终 evidence 提交合入 develop 后，再按最新 `origin/develop` 执行 development 部署复核。
+- Docker build：镜像构建阶段执行 `go test ./...` passed，`erp_orderapp` 已重新创建并启动。2026-06-15 最终部署使用 no-cache build，容器内 `go test ./...` 重新执行并通过。
 - Server smoke：`erp_orderapp`、`erp_postgres`、`erp_caddy`、`erp_docconvert` 运行；`erp_orderapp` 日志包含 `orderapp listening on :8080`。
 - Authenticated smoke：生产视图、工位视图、生产计划、生产中、工单、工序卡页面均返回 200；`/app/api/production/workstation-overview?limit=5` 返回 `nav_badges`、`today_summary`、`readiness`、`workstation_load`；需求 API 可查到 `PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION`。
 

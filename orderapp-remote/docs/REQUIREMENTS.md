@@ -924,7 +924,7 @@
 
 ## 56. 工单库存主控与库存单据目的化（PR-497-WORKORDER-INVENTORY-CONTROL）
 - 工单必须成为从生产计划到完工入库的生产库存主控对象。工单负责开始生产、触发领料、完工入库、取消生产，以及聚合物料占用、工序卡、库存单据、库存流水、生产日志和成本汇总。
-- 生产顶部切换条和生产主菜单不再把 `生产中` 作为高频主入口；顶部顺序为 `生产视图 / 工位视图 / 生产计划 / 工单 / 工序卡 / 质检 / 日志 / 成本`。`生产中` 保留为兼容状态页和旧流程 fallback。
+- 生产左侧主菜单以工单库存主控为主，可弱化 `生产中`；但 PR-496 顶部生产切换条必须继续保留 `生产中` 入口，顺序为 `生产视图 / 工位视图 / 生产计划 / 生产中 / 工单 / 工序卡 / 质检 / 日志 / 成本`。`生产中` 保留为兼容状态页、统一完成面板和旧流程 fallback。
 - 库存业务单据保留现有 Stock Entry 表和库存流水模型，但公开交互使用 `purpose`：`material_transfer_for_manufacture`、`material_return_from_manufacture`、`material_consumption_for_manufacture`、`manufacture`、`stock_adjustment`。旧 `entry_type` 继续兼容。
 - 新增 `/api/stock-documents` 作为库存单据公开别名，保留 `/api/stock-entries`。创建、查询和详情返回都必须包含 `purpose`，并按工单、工序卡或 running item 关联。
 - 新增 `/api/produce/work-orders/:id` 工单详情聚合接口，以及 `/api/produce/work-orders/:id/start`、`/issue-materials`、`/complete`、`/cancel` 生产主路径。旧 `/api/work-orders/:id/start|complete` 保留兼容。

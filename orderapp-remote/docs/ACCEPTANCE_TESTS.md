@@ -1235,7 +1235,7 @@
 - [ ] 工序卡录入实际分钟并保存实际或完成工序后，展示实际工序成本。
 
 ### K56. 工单库存主控与库存单据目的化（PR-497-WORKORDER-INVENTORY-CONTROL）
-- [ ] 生产模块顶部切换条顺序为 `生产视图 / 工位视图 / 生产计划 / 工单 / 工序卡 / 质检 / 日志 / 成本`，左侧生产主菜单不再显示 `生产中`，旧 `produceRunning` 视图仍可作为隐藏兼容视图打开。
+- [ ] 生产模块顶部切换条顺序为 `生产视图 / 工位视图 / 生产计划 / 生产中 / 工单 / 工序卡 / 质检 / 日志 / 成本`；左侧生产主菜单可弱化 `生产中`，旧 `produceRunning` 视图仍可通过顶部切换条作为兼容状态页打开。
 - [ ] `GET /api/produce/work-orders/:id` 返回 `work_order`、`materials`、`job_cards`、`stock_documents`、`stock_entries`、`ledger_entries`、`production_logs` 和 `cost_summary`，并按工单 ID、running item 和工单号过滤聚合数据。
 - [ ] `POST /api/produce/work-orders/:id/start`、`/issue-materials`、`/complete`、`/cancel` 可用；旧 `/api/work-orders/:id/start|complete` 仍兼容。
 - [ ] `/api/stock-documents` 创建、查询和详情支持 `purpose`，生产领料写为 `material_transfer_for_manufacture` 并落到内部 `material_issue_to_wip`，返回体同时包含 `purpose` 和兼容 `entry_type`。
