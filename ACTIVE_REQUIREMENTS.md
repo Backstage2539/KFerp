@@ -6,6 +6,25 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-498-ERP-E2E-AUDIT-FIXES
+- Branch: codex/erp-e2e-audit-fixes-20260616
+- Owner/session: Codex goal / 2026-06-16
+- Status: implementing; targeted unit/API checks passing, browser re-verification pending.
+- Scope: 浏览器从录单、生产计划、工单、质检、库存/批次追溯、生产日志、生产成本到客户/发货链路发现的交互和业务逻辑修复。重点包括本地日期默认值、隐藏/未知路由、收款凭证校验、客户收件信息粘贴解析、可发货订单过滤、待计划生产状态展示、生产计划默认筛选、非重量物料建议数量、工序产能自动拆分空结果提示、工单预计产出、质检中文提示、追溯空行过滤和生产/库存批次证据展示。
+- DEV:
+  - DEV-498-ORDER-ENTRY-SHIPPING-ROUTING：录单日期使用本地日期；已付款/已支付只强制收款方式，已收款才强制金额/凭证；客户粘贴姓名/电话/地址优先识别手机号；订单可发货过滤排除已发货；商城设置隐藏路由可访问，未知视图不再回落录单。
+  - DEV-498-PRODUCTION-PLAN-WORKORDER-QA：订单列表为空生产状态且存在可生产明细时派生显示待计划；生产计划默认展示待计划需求，切换全部时标题不误导；非重量物料按件数显示可用/采购建议；自动拆分无可用产能时提示原因；工单预计产出从 planned_g/spec_g 派生兜底；质检状态和必填错误中文化。
+  - DEV-498-TRACE-COST-LOGS：生产成本追溯过滤空证据行；生产日志显示成品批次和消耗物料批次；成品批次追溯在消耗日志缺批次号时从同生产运行库存流水补原料批次。
+  - DEV-498-SCHEMA-BROWSER-SMOKE：修复空数据库启动时 BOM schema 先读取 `product_production_bom_bindings` 再建表导致 ERP 无法启动的问题，支持本地浏览器验收可从空库 bootstrap。
+- Verifier:
+  - GREEN frontend targeted: `node --test src/lib/order-entry.test.js src/lib/customer-recipient.test.js src/lib/order-shipping.test.js src/lib/local-date.test.js src/lib/view-routing.test.js`; `node --test src/lib/quality-inspections.test.js src/lib/work-orders.test.js src/lib/production-costs.test.js src/lib/produce-plan.test.js src/lib/production-logs.test.js`.
+  - GREEN backend targeted: `go test ./internal/interfaces/http/sales -run 'TestOrdersShippingExcelAPIAcceptsNoProductionShipReadyOrders|TestOrderAPIShipReadyExcludesAlreadyShippedOrders' -count=1`; `go test ./internal/infrastructure/postgres/production -run 'TestMergeMaterialAvailabilityFallsBackToNonWeightPurchaseQuantity|TestProductionTraceAnalyticsOmitsEmptyTraceRows|TestListProductionLogsIncludesFinishedBatchCode' -count=1`; `go test ./internal/infrastructure/postgres/sales -run TestOrderProcessStatusExprDerivesUnplannedProductionDemand -count=1`; `go test ./internal/infrastructure/postgres/stock -run TestGetStockTraceBackfillsBlankMaterialBatchFromLedger -count=1`.
+  - GREEN blank schema: `ORDERAPP_TEST_DATABASE_URL=<temp-postgres> go test ./internal/appmain -run TestEnsureAppSchemaBootstrapsEmptyDatabase -count=1`.
+  - Pending release-local: broader targeted package tests, `npm run build`, `scripts/verify_kferp.sh changed`, `git diff --check`, browser/API re-verification.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_ORDER_SALES.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-16-erp-e2e-audit-fixes.md`; root `REQUIREMENTS.md`; root `ACCEPTANCE_TESTS.md`.
+- Deployment: pending merge to develop and serialized deployment.
+- Last update: 2026-06-16 Asia/Shanghai.
+
 ### PR-497-WORKORDER-INVENTORY-CONTROL
 - Branch: codex/workorder-inventory-control-20260614
 - Owner/session: Codex goal / 2026-06-14

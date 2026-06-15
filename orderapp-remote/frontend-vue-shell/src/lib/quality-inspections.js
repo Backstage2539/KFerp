@@ -55,6 +55,27 @@ export function qualityTargetStatus(row = {}) {
   return row.quality_status || 'unchecked'
 }
 
+export function workOrderQualityStatusLabel(status) {
+  const key = String(status || '').trim()
+  return {
+    draft: '草稿',
+    released: '未开工',
+    running: '生产中',
+    partially_completed: '部分完成',
+    completed: '已完成',
+    cancelled: '已取消',
+  }[key] || key || '-'
+}
+
+export function qualityInspectionErrorMessage(message) {
+  const text = String(message || '').trim()
+  if (!text) return '保存失败'
+  if (text.includes('scope, reference_no and result required')) {
+    return '请先选择质检对象并填写检查结果'
+  }
+  return text
+}
+
 export function qualityTargetPrimary(scope, row = {}) {
   if (scope === 'work_order') return row.work_order_no || '-'
   return row.batch_code || '-'
@@ -83,7 +104,7 @@ export function qualityTargetMeta(scope, row = {}) {
   return [
     row.batch_id ? `批次 ${row.batch_id}` : '',
     row.spec_g ? `${row.spec_g}g` : '',
-    row.status ? `状态 ${row.status}` : '',
+    row.status ? `状态 ${workOrderQualityStatusLabel(row.status)}` : '',
   ].filter(Boolean).join(' · ')
 }
 

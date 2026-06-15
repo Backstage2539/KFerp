@@ -28,6 +28,25 @@ func TestOrderListWhereSearchMatchesResponsibleName(t *testing.T) {
 	}
 }
 
+func TestOrderProcessStatusExprDerivesUnplannedProductionDemand(t *testing.T) {
+	expr := orderProcessStatusExpr("test_schema")
+	for _, want := range []string{
+		"COALESCE(NULLIF(ops.name,''), CASE",
+		"test_schema.order_items oi_status",
+		"test_schema.products p_status",
+		"oi_status.order_id=o.id",
+		"product_kind",
+		"'roasted_bean','roasted','drip_bag','instant_coffee'",
+		"test_schema.ship_statuses ss_status",
+		"ss_status.name LIKE '%已发货%'",
+		"THEN '待计划'",
+	} {
+		if !strings.Contains(expr, want) {
+			t.Fatalf("derived order process status expression missing %q in %s", want, expr)
+		}
+	}
+}
+
 func TestOrderListWhereSupportsOrderIDForScopedDetailAccess(t *testing.T) {
 	where, args, nextArg := orderListWhere("test_schema", salesapp.OrderListQuery{OrderID: 88, Scope: "fulfillment", FulfillmentEmployeeID: 7, Void: "all"})
 	joined := strings.Join(where, " AND ")

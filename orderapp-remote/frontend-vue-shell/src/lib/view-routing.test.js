@@ -122,3 +122,15 @@ test('order entry supports copying an existing order without editing the source 
   assert.match(source, /copyMode/)
   assert.match(source, /edit_id:\s*copyID \? 0/)
 })
+
+test('hidden mall settings route resolves and unknown views render an explicit error', () => {
+  const app = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+  const menu = readFileSync(new URL('./menu-ia.js', import.meta.url), 'utf8')
+
+  assert.match(menu, /mallSettings:\s*'商城设置'/)
+  assert.match(app, /unknownRequestedView/)
+  assert.match(app, /UnknownView/)
+  assert.match(app, /requestedView && menuMap\[requestedView\] \? requestedView : \(unknownRequestedView \|\| 'order'\)/)
+  assert.match(app, /markRaw\(internalViews\[key\] \|\| UnknownView\)/)
+  assert.doesNotMatch(app, /markRaw\(internalViews\[key\] \|\| OrdersView\)/)
+})

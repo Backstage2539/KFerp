@@ -16,7 +16,8 @@ func TestDev489ProductionPlanPreviewLayoutContracts(t *testing.T) {
 		filepath.Join("frontend-vue-shell", "src", "views", "ProducePlanView.vue"): {
 			"drag-scroll-wrap",
 			"startTableScrollDrag",
-			"收起待生产需求",
+			"demandPanelTitle",
+			"收起${demandPanelTitle}",
 			"收起当前生产计划",
 			"创建草稿生产计划后可填写工序产能拆分",
 		},

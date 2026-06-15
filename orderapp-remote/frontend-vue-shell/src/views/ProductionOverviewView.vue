@@ -162,13 +162,14 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { assignProductionSchedule, fetchProductionWorkstationOverview } from '../api/production.js'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
+import { formatLocalDateInput } from '../lib/local-date.js'
 import { stockOperationContextParams, taskTitle } from '../lib/production-workstation.js'
 
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const message = ref('')
-const todayText = new Date().toISOString().slice(0, 10)
+const todayText = formatLocalDateInput()
 const overview = ref({
   total_tasks: 0,
   status_summary: [],

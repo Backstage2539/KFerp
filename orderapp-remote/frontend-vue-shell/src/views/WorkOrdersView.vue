@@ -48,7 +48,7 @@
             <td>{{ row.spec_g }}g</td>
             <td>
               <strong>{{ formatG(row.planned_g) }}</strong>
-              <small>预计 {{ row.planned_units || 0 }} 袋 + {{ row.planned_loose_g || 0 }}g</small>
+              <small>预计 {{ formatWorkOrderPlannedOutput(row) }}</small>
             </td>
             <td class="summary">
               <strong>{{ bomProcessSummary(row) }}</strong>
@@ -183,7 +183,7 @@
         <div><span>预期产出率</span><strong>{{ percent(expectedYield(printRow)) }}</strong></div>
         <div><span>BOM/工艺路线</span><strong>{{ bomProcessSummary(printRow) }}</strong></div>
         <div><span>WIP剩余占用</span><strong>{{ formatG(printRow.remaining_reserved_g) }}</strong></div>
-        <div><span>预计产出</span><strong>{{ printRow.planned_units || 0 }} 袋 + {{ printRow.planned_loose_g || 0 }}g</strong></div>
+        <div><span>预计产出</span><strong>{{ formatWorkOrderPlannedOutput(printRow) }}</strong></div>
         <div><span>实际损耗</span><strong>{{ formatQty(operationActualSummary(printRow).actual_loss_qty) }}</strong></div>
         <div><span>创建时间</span><strong>{{ printRow.created_at }}</strong></div>
         <div><span>完成时间</span><strong>{{ printRow.completed_at || '-' }}</strong></div>
@@ -223,6 +223,8 @@ import {
   buildWorkOrderOperationSplitPayload,
   canEditWorkOrderSplits,
   canStartWorkOrder,
+  formatWorkOrderPlannedOutput,
+  workOrderPlannedOutput,
   workOrderOperationSplitsEndpoint,
   workOrderStartEndpoint,
   workOrderStatusOptions,
@@ -631,13 +633,14 @@ async function startWorkOrder(row) {
 async function completeWorkOrder(row) {
   const endpoint = workOrderCompleteEndpoint(row)
   if (!endpoint) return
+  const plannedOutput = workOrderPlannedOutput(row)
   completingId.value = Number(row.id || 0)
   error.value = ''
   try {
     await apiSend(endpoint, {
       body: {
-        finished_units: Number(row.planned_units || 0),
-        finished_loose_g: Number(row.planned_loose_g || 0),
+        finished_units: plannedOutput.units,
+        finished_loose_g: plannedOutput.loose_g,
         consumed_input_g: Number(row.wip_consumed_g || row.planned_g || 0),
         warehouse: 'finished_goods',
         note: '生产工单页完工入库',

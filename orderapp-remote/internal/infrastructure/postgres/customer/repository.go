@@ -365,7 +365,7 @@ func fetchCustomers(ctx context.Context, pool *pgxpool.Pool, schema string, quer
 		SELECT c.id, c.name, COALESCE(NULLIF(c.customer_type,''),'retail'), COALESCE(c.company_name,''), COALESCE(c.company_address,''), COALESCE(c.company_phone,''), c.contact, c.phone, c.address, c.active, c.default_source_id, c.default_order_type_id,
 			NULLIF(COALESCE(c.responsible_employee_id,0),0)::int, COALESCE(e.name,''),
 			%s,
-			to_char(c.updated_at,'YYYY-MM-DD HH24:%%M') AS updated
+			to_char(c.updated_at,'YYYY-MM-DD HH24:MI') AS updated
 		FROM %s.customers c
 		LEFT JOIN %s.company_employees e ON e.id=c.responsible_employee_id
 		%s

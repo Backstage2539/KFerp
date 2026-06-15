@@ -242,6 +242,13 @@ CREATE TABLE IF NOT EXISTS %[1]s.production_boms (
 );
 ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS group_category_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.production_boms ADD COLUMN IF NOT EXISTS output_product_id BIGINT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS %[1]s.product_production_bom_bindings (
+	product_id BIGINT PRIMARY KEY,
+	bom_id BIGINT NOT NULL,
+	bom_version_id BIGINT NOT NULL,
+	bound_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	bound_by TEXT NOT NULL DEFAULT ''
+);
 UPDATE %[1]s.production_boms SET output_product_id=legacy_product_id WHERE output_product_id=0 AND legacy_product_id > 0;
 UPDATE %[1]s.production_boms pb
 SET output_product_id=b.product_id

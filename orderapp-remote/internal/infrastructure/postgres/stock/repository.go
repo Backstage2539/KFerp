@@ -669,12 +669,26 @@ func (r Repository) GetStockTrace(ctx context.Context, query stockapp.StockTrace
 		return result, nil
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
-		SELECT material_id,COALESCE(material_name,''),COALESCE(unit,''),deduct_g,deduct_units,
-		       COALESCE(material_batch_id,0),COALESCE(material_batch_code,'')
-		FROM %s.material_consumption_logs
-		WHERE running_item_id=$1
-		ORDER BY id
-	`, r.schema), runningItemID)
+		SELECT l.material_id,COALESCE(l.material_name,''),COALESCE(l.unit,''),l.deduct_g,l.deduct_units,
+		       COALESCE(NULLIF(l.material_batch_id,0), mb.id, 0),
+		       COALESCE(NULLIF(l.material_batch_code,''), NULLIF(ledger_material.source_batch_code,''), '')
+		FROM %s.material_consumption_logs l
+		LEFT JOIN LATERAL (
+			SELECT sle.source_batch_code
+			FROM %s.stock_ledger_entries sle
+			WHERE sle.source_doc_type='production_run'
+			  AND sle.source_doc_id=$1
+			  AND sle.item_type='material'
+			  AND sle.item_id=l.material_id
+			  AND sle.qty_change_g < 0
+			  AND COALESCE(sle.source_batch_code,'') <> ''
+			ORDER BY ABS(sle.qty_change_g) DESC, sle.id
+			LIMIT 1
+		) ledger_material ON true
+		LEFT JOIN %s.material_batches mb ON mb.batch_code=ledger_material.source_batch_code
+		WHERE l.running_item_id=$1
+		ORDER BY l.id
+	`, r.schema, r.schema, r.schema), runningItemID)
 	if err != nil {
 		return stockapp.StockTraceResult{}, err
 	}

@@ -80,16 +80,16 @@
               aria-label="全选库存不足商品"
               @change="toggleAllInsufficient($event.target.checked)"
             />
-            <span>待生产需求</span>
+            <span>{{ demandPanelTitle }}</span>
           </div>
           <div class="panel-head-actions">
             <span class="muted">已选 {{ insufficientSelection.selectedCount }} / {{ insufficientSelection.total }}</span>
             <button class="secondary compact collapse-button" type="button" @click="toggleDemandPanelCollapsed">
-              {{ demandPanelCollapsed ? '展开待生产需求' : '收起待生产需求' }}
+              {{ demandPanelCollapsed ? `展开${demandPanelTitle}` : `收起${demandPanelTitle}` }}
             </button>
           </div>
         </div>
-        <div v-if="demandPanelCollapsed" class="collapsed-panel-summary">待生产需求已收起，展开后可继续勾选商品。</div>
+        <div v-if="demandPanelCollapsed" class="collapsed-panel-summary">{{ demandPanelTitle }}已收起，展开后可继续勾选商品。</div>
         <div v-else class="table-wrap drag-scroll-wrap" aria-label="待生产需求横向滚动表格">
           <table class="demand-table">
             <thead>
@@ -131,7 +131,7 @@
                 <td class="muted">{{ row.production_plan_no || '-' }}</td>
               </tr>
               <tr v-if="!stockInsufficientRows.length">
-                <td colspan="11" class="muted">暂无待生产需求</td>
+                <td colspan="11" class="muted">{{ demandPanelEmptyText }}</td>
               </tr>
             </tbody>
           </table>
@@ -205,10 +205,10 @@
                         <th>物料</th>
                         <th>预计消耗数量</th>
                         <th>单位</th>
-                        <th>WIP可用(g)</th>
-                        <th>建议领到WIP(g)</th>
-                        <th>原料仓(g)</th>
-                        <th>采购建议(g)</th>
+                        <th>WIP可用</th>
+                        <th>建议领到WIP</th>
+                        <th>原料仓</th>
+                        <th>采购建议</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -216,10 +216,10 @@
                         <td>{{ item.name }}</td>
                         <td>{{ item.qty }}</td>
                         <td>{{ item.unit }}</td>
-                        <td>{{ item.available_g || 0 }}</td>
-                        <td><strong>{{ item.wip_transfer_suggestion_g || 0 }}</strong></td>
-                        <td>{{ item.raw_g || 0 }}</td>
-                        <td>{{ item.purchase_suggestion_g || 0 }}</td>
+                        <td>{{ productionMaterialQuantity(item, 'available_g') }}</td>
+                        <td><strong>{{ productionMaterialQuantity(item, 'wip_transfer_suggestion_g') }}</strong></td>
+                        <td>{{ productionMaterialQuantity(item, 'raw_g') }}</td>
+                        <td>{{ productionMaterialQuantity(item, 'purchase_suggestion_g') }}</td>
                       </tr>
                       <tr v-if="!computedMaterials.length">
                         <td colspan="7" class="muted">暂无物料汇总</td>
@@ -714,11 +714,17 @@ import {
   buildProductionPlanSelection,
   buildProductionDemandSelection,
   buildProductionDemandSummaryQuery,
+  defaultProductionDemandStatusFilter,
   maxAssignableQtyForCapacitySplit,
+  operationCapacityAutoSplitError,
   plannedCapacitySplitMetrics,
+  productionMaterialQuantity,
   qtyFromGForCapacityUnit,
   productionDemandSelectable,
   productionDemandSelectionState,
+  productionDemandPanelEmptyText,
+  productionDemandPanelTitle,
+  productionDemandStatusFilterValue,
   productionDemandStatusLabel,
   productionDemandStatusOptions,
   productionDemandStatusTone,
@@ -788,10 +794,12 @@ const filters = reactive({
   from: '',
   to: '',
   customer_id: '',
-  demand_status: '',
+  demand_status: defaultProductionDemandStatusFilter(),
 })
 
 const demandStatusOptions = productionDemandStatusOptions()
+const demandPanelTitle = computed(() => productionDemandPanelTitle(filters.demand_status))
+const demandPanelEmptyText = computed(() => productionDemandPanelEmptyText(filters.demand_status))
 const demandStatusFilter = computed({
   get: () => filters.demand_status,
   set: (value) => { filters.demand_status = value },
@@ -1356,7 +1364,12 @@ async function autoSplitCurrentPlanOperation(item, operation) {
     operationSplitError.value = err.message || '加载工位产能失败'
     return
   }
-  operationSplits.value = replaceOperationSplits(operationSplits.value, item, operation, autoRowsForOperation(item, operation))
+  const autoRows = autoRowsForOperation(item, operation)
+  if (!autoRows.length) {
+    operationSplitError.value = operationCapacityAutoSplitError(item, operation, activeWorkstationCapacities.value) || '自动拆分未生成拆分行'
+    return
+  }
+  operationSplits.value = replaceOperationSplits(operationSplits.value, item, operation, autoRows)
 }
 
 async function autoSplitProductionPlanDrawerOperation(item, operation) {
@@ -1367,7 +1380,12 @@ async function autoSplitProductionPlanDrawerOperation(item, operation) {
     productionPlanSplitDrawerError.value = err.message || '加载工位产能失败'
     return
   }
-  productionPlanSplitRows.value = replaceOperationSplits(productionPlanSplitRows.value, item, operation, autoRowsForOperation(item, operation))
+  const autoRows = autoRowsForOperation(item, operation)
+  if (!autoRows.length) {
+    productionPlanSplitDrawerError.value = operationCapacityAutoSplitError(item, operation, activeWorkstationCapacities.value) || '自动拆分未生成拆分行'
+    return
+  }
+  productionPlanSplitRows.value = replaceOperationSplits(productionPlanSplitRows.value, item, operation, autoRows)
 }
 
 function withAutoOperationSplits(rows, plan) {
@@ -1654,6 +1672,7 @@ onMounted(async () => {
   filters.from = url.searchParams.get('from') || ''
   filters.to = url.searchParams.get('to') || ''
   filters.customer_id = String(props.viewParams?.customer_id || props.customerContextId || url.searchParams.get('customer_id') || '')
+  filters.demand_status = productionDemandStatusFilterValue(url.searchParams.get('demand_status'), defaultProductionDemandStatusFilter())
   const selectedCsv = url.searchParams.get('selected') || ''
   if (selectedCsv) {
     for (const key of selectedCsv.split(',')) {

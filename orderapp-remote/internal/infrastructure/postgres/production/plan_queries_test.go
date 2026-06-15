@@ -125,6 +125,29 @@ func TestBuildRoastPlanMaterialRatiosUsesInstantCoffeeRawMaterial(t *testing.T) 
 	}
 }
 
+func TestMergeMaterialAvailabilityFallsBackToNonWeightPurchaseQuantity(t *testing.T) {
+	materials := []productionapp.MaterialNeed{{Name: "豆袋", Qty: 21, Unit: "个"}}
+
+	got := mergeMaterialAvailability(materials, []productionapp.MaterialPlanRow{{
+		MaterialName:        "豆袋",
+		Unit:                "个",
+		RequiredUnits:       21,
+		AvailableG:          0,
+		RawG:                0,
+		ShortageG:           0,
+		PurchaseSuggestionG: 0,
+	}})
+
+	if len(got) != 1 || got[0].PurchaseSuggestionG != 21 || got[0].ShortageG != 21 {
+		t.Fatalf("non-weight availability = %+v, want purchase and shortage 21个", got)
+	}
+
+	got = mergeMaterialAvailability([]productionapp.MaterialNeed{{Name: "豆袋", Qty: 21, Unit: "个"}}, nil)
+	if len(got) != 1 || got[0].PurchaseSuggestionG != 21 || got[0].ShortageG != 21 {
+		t.Fatalf("missing non-weight availability = %+v, want purchase and shortage 21个", got)
+	}
+}
+
 func assertMaterialNeed(t *testing.T, rows []productionapp.MaterialNeed, name string, qty int64, unit string) {
 	t.Helper()
 	for _, row := range rows {

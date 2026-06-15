@@ -31,6 +31,10 @@ const PRODUCTION_DEMAND_STATUS = {
 
 const PRODUCTION_DEMAND_STATUS_VALUES = new Set(Object.keys(PRODUCTION_DEMAND_STATUS))
 
+export function defaultProductionDemandStatusFilter() {
+  return 'unplanned'
+}
+
 export function productionDemandStatusOptions() {
   return [
     { value: '', label: '全部' },
@@ -38,9 +42,14 @@ export function productionDemandStatusOptions() {
   ]
 }
 
-function normalizedProductionDemandStatus(status) {
+export function productionDemandStatusFilterValue(status, fallback = '') {
   const value = String(status || '').trim()
-  return PRODUCTION_DEMAND_STATUS_VALUES.has(value) ? value : 'unplanned'
+  if (PRODUCTION_DEMAND_STATUS_VALUES.has(value)) return value
+  return fallback
+}
+
+function normalizedProductionDemandStatus(status) {
+  return productionDemandStatusFilterValue(status, 'unplanned')
 }
 
 export function productionDemandStatusLabel(status) {
@@ -51,6 +60,18 @@ export function productionDemandStatusLabel(status) {
 export function productionDemandStatusTone(status) {
   const key = normalizedProductionDemandStatus(status)
   return PRODUCTION_DEMAND_STATUS[key]?.tone || 'unplanned'
+}
+
+export function productionDemandPanelTitle(status) {
+  const value = String(status || '').trim()
+  if (!value) return '生产需求'
+  return `${productionDemandStatusLabel(value)}需求`
+}
+
+export function productionDemandPanelEmptyText(status) {
+  const value = String(status || '').trim()
+  if (!value) return '暂无生产需求'
+  return `暂无${productionDemandStatusLabel(value)}需求`
 }
 
 export function productionDemandSelectable(row) {
@@ -232,6 +253,7 @@ export function productionPlanOperationSplitsEndpoint(plan) {
 }
 
 const COUNT_CAPACITY_UNITS = new Set(['件', '个', '袋', '盒', 'unit', 'units', 'pc', 'pcs'])
+const MATERIAL_WEIGHT_UNITS = new Set(['g', 'kg', '克', '千克', '公斤'])
 
 function normalizedCapacityUnit(unit) {
   return String(unit || '').trim().toLowerCase()
@@ -256,6 +278,20 @@ function plannedCapacitySplitQtyG(qty, unit, specG = 0) {
 
 function productionPlanItemTargetG(item = {}) {
   return Math.max(0, Number(item.planned_g || item.planned_output_g || item.gap_g || 0))
+}
+
+function isProductionMaterialWeightUnit(unit) {
+  return MATERIAL_WEIGHT_UNITS.has(String(unit || '').trim().toLowerCase())
+}
+
+export function productionMaterialQuantity(item = {}, field) {
+  const value = Math.max(0, Number(item?.[field] || 0))
+  if (value > 0 || isProductionMaterialWeightUnit(item?.unit)) return value
+  if (field !== 'purchase_suggestion_g' && field !== 'shortage_g') return value
+  const qty = Math.max(0, Number(item?.qty || 0))
+  const available = Math.max(0, Number(item?.available_g || item?.wip_g || 0))
+  const raw = Math.max(0, Number(item?.raw_g || 0))
+  return Math.max(0, qty - available - raw)
 }
 
 export function qtyFromGForCapacityUnit(qtyG, unit, specG = 0) {
@@ -365,6 +401,14 @@ export function applicableOperationCapacities(operation = {}, capacities = []) {
     .filter((capacity) => String(capacity?.status || 'active').trim() === 'active')
     .filter((capacity) => Number(capacity?.batch_size_qty || 0) > 0)
     .filter((capacity) => capacityAppliesToOperation(capacity, operation))
+}
+
+export function operationCapacityAutoSplitError(item = {}, operation = {}, capacities = []) {
+  if (productionPlanItemTargetG(item) <= 0) return '当前计划行缺少计划产量，无法自动拆分'
+  if (!applicableOperationCapacities(operation, capacities).length) {
+    return '当前工序没有可用的工位产能，或工位产能未绑定该工序'
+  }
+  return ''
 }
 
 function capacityBaseQty(capacity = {}, item = {}) {

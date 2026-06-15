@@ -161,7 +161,7 @@
 </template>
 
 <script setup>
-import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, h, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AllocationLogsView from './views/AllocationLogsView.vue'
 import AuditView from './views/AuditView.vue'
 import BomView from './views/BomView.vue'
@@ -310,7 +310,8 @@ const workspaceCustomerOptions = ref([])
 const workspaceOrderOptions = ref([])
 const viewContextPresets = ref([])
 const selectedViewContextPresetId = ref(0)
-const currentKey = ref(requestedView && menuMap[requestedView] ? requestedView : 'order')
+const unknownRequestedView = requestedViewFromUrl && requestedView && !menuMap[requestedView] ? requestedView : ''
+const currentKey = ref(requestedView && menuMap[requestedView] ? requestedView : (unknownRequestedView || 'order'))
 const currentViewParams = ref(viewContextViewParams(readViewParams(), currentViewContext.value))
 const transientReturnNavigation = ref(null)
 const externalCustomerContextType = EXTERNAL_CUSTOMER_VIEW_CONTEXT // external_customer
@@ -338,6 +339,20 @@ const notificationStackSpace = ref(0)
 const workspaceCustomersRefreshEventName = WORKSPACE_CUSTOMERS_REFRESH_EVENT
 let notificationTimer = 0
 let stopTableAutoPagination = null
+
+const UnknownView = {
+  name: 'UnknownView',
+  props: {
+    title: { type: String, default: '' },
+    viewKey: { type: String, default: '' },
+  },
+  setup(props) {
+    return () => h('section', { class: 'unknown-view' }, [
+      h('h2', '未知页面'),
+      h('p', `当前链接中的 view=${props.viewKey || '-'} 没有匹配的 Vue 页面。`),
+    ])
+  },
+}
 
 const internalViews = {
   order: OrderEntryView,
@@ -431,7 +446,7 @@ const internalViews = {
 }
 
 function resolveInternalView(key) {
-  return markRaw(internalViews[key] || OrdersView)
+  return markRaw(internalViews[key] || UnknownView)
 }
 
 const customerAccountActorMenuGroups = [
@@ -1101,9 +1116,10 @@ const toggleLabel = computed(() => {
   if (isMobile.value) return '弹出菜单'
   return collapsed.value ? '弹出菜单' : '收起菜单'
 })
-const title = computed(() => menuMap[currentKey.value]?.title || '')
+const isUnknownRequestedView = computed(() => Boolean(unknownRequestedView && currentKey.value === unknownRequestedView))
+const title = computed(() => menuMap[currentKey.value]?.title || (isUnknownRequestedView.value ? '未知页面' : ''))
 const actorName = computed(() => currentActor.value?.name || '')
-const isCurrentAllowed = computed(() => menuMap[currentKey.value] && isViewAllowed(currentKey.value, allowedViewKeys.value))
+const isCurrentAllowed = computed(() => isUnknownRequestedView.value || (menuMap[currentKey.value] && isViewAllowed(currentKey.value, allowedViewKeys.value)))
 const isProductSettingsView = computed(() => isProductSettingsKey(currentKey.value))
 const productSettingsSectionMode = computed(() => {
   if (currentKey.value === 'productCategoryManagement') return 'productCategoryManagement'
@@ -1417,6 +1433,16 @@ watch([visibleNotifications, isMobile], syncNotificationStackSpace, { flush: 'po
   cursor: pointer;
 }
 :global(.list-pagination-controls button:disabled) { cursor: not-allowed; opacity: .55; }
+.unknown-view {
+  max-width: 680px;
+  margin: 56px auto;
+  padding: 24px;
+  border: 1px solid #ddd5ca;
+  border-radius: 8px;
+  background: #fff;
+}
+.unknown-view h2 { margin: 0 0 8px; font-size: 20px; }
+.unknown-view p { margin: 0; color: #5f5a52; line-height: 1.6; }
 
 @media (max-width: 900px) {
   .sidebar.mobile {

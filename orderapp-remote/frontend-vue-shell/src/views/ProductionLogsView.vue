@@ -44,6 +44,7 @@
             <tr>
               <th>完成时间</th>
               <th>批次</th>
+              <th>成品批次</th>
               <th>产品</th>
               <th>规格(g)</th>
               <th>订单号</th>
@@ -59,6 +60,7 @@
               <th>完成人</th>
               <th>库存前</th>
               <th>库存后</th>
+              <th>物料批次</th>
               <th>物料摘要</th>
             </tr>
           </thead>
@@ -66,6 +68,7 @@
             <tr v-for="row in rows" :key="row.id">
               <td>{{ row.finished_at }}</td>
               <td>{{ row.batch_id }}</td>
+              <td>{{ row.finished_batch_code || '-' }}</td>
               <td>{{ row.product_name }}</td>
               <td>{{ row.spec_g }}</td>
               <td class="muted">{{ row.order_nos }}</td>
@@ -81,10 +84,11 @@
               <td>{{ row.finished_by }}</td>
               <td>{{ row.inventory_units_before }} 件 / {{ row.inventory_loose_g_before }}g</td>
               <td>{{ row.inventory_units_after }} 件 / {{ row.inventory_loose_g_after }}g</td>
-              <td class="summary">{{ materialSummaryText(row.material_summary) }}</td>
+              <td class="summary">{{ materialBatchText(row.material_summary) || '-' }}</td>
+              <td class="summary">{{ productionLogMaterialSummaryText(row.material_summary) }}</td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="18" class="muted">暂无生产日志</td>
+              <td colspan="20" class="muted">暂无生产日志</td>
             </tr>
           </tbody>
         </table>
@@ -97,6 +101,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { apiGet } from '../api/client'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
+import { productionLogMaterialBatchCodes, productionLogMaterialSummaryText } from '../lib/production-logs'
 import { replaceHistoryURL } from '../lib/url-state'
 
 const loading = ref(false)
@@ -137,20 +142,8 @@ function applyUrlFilters() {
   filters.product_id = Number(params.get('product_id') || 0)
 }
 
-function materialSummaryText(raw) {
-  if (!raw) return ''
-  try {
-    const items = JSON.parse(raw)
-    if (!Array.isArray(items)) return String(raw)
-    return items.map((item) => {
-      const name = item.material_name || item.name || `物料${item.material_id || ''}`
-      const unit = item.unit || ''
-      const qty = Number(item.deduct_units || 0) > 0 ? item.deduct_units : item.deduct_g
-      return `${name}: ${qty}${unit}`
-    }).join('\n')
-  } catch {
-    return String(raw)
-  }
+function materialBatchText(raw) {
+  return productionLogMaterialBatchCodes(raw).join('\n')
 }
 
 async function load() {
@@ -196,7 +189,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .secondary { background: #fff; color: #1f1f1f; }
 .section-title { font-weight: 700; margin-bottom: 10px; }
 .table-wrap { overflow: auto; }
-table { width: 100%; min-width: 1500px; border-collapse: collapse; }
+table { width: 100%; min-width: 1680px; border-collapse: collapse; }
 th, td { border-bottom: 1px solid #eee8df; padding: 9px 8px; text-align: left; font-size: 14px; vertical-align: top; }
 th { background: #fbfaf8; position: sticky; top: 0; }
 .muted { color: #666; }
