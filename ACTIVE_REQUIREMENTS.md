@@ -29,7 +29,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION
 - Branch: codex/production-flow-phase1-20260614
 - Owner/session: Codex goal / 2026-06-14
-- Status: verifying; targeted RED/GREEN, package tests, frontend build and changed verifier passed; feature branch push/merge/deploy pending.
+- Status: merged to develop and deployed to development; targeted RED/GREEN, package tests, frontend build, changed verifier, server smoke and ERP browser acceptance passed.
 - Scope: 生产管理高频视图优化一期。保持现有生产计划、生产中、工单、工序卡、质检、日志和成本页面，同时通过 sticky 顶部生产切换条、生产视图、工位视图、生产计划步骤条、生产中统一完成面板和库存作业 WIP 上下文，把负责人调度和现场工位的高频判断串起来。
 - DEV:
   - DEV-496-PRODUCTION-NAV-BADGES-READMODEL：扩展 `/api/production/workstation-overview`，返回 `today_summary`、`nav_badges`、任务 readiness/阻塞原因/下一处理人；顶部生产切换条 sticky 展示生产视图、工位视图和生产中 badge。
@@ -43,8 +43,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN targeted backend/API: `go test ./internal/application/production -run TestProductionWorkstationOverviewAnswersProductionAndStationQuestions -count=1`; `go test ./internal/interfaces/http/production -run TestProductionWorkstationOverviewAPIAndStationActions -count=1`.
   - GREEN release-local: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1`; `node --test src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js src/lib/menu-ia.test.js src/lib/view-routing.test.js`; `npm run build`; `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-14-production-flow-phase1-optimization.md`.
-- Deployment: pending.
-- Last update: 2026-06-14 Asia/Shanghai.
+- Deployment: feature branch pushed; PR-496 application code initially deployed from `061af4b234f28c211ffaf61a80489b363ced8831` to `root@1.12.242.58:/opt/stacks/erp` with backup `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260614231948`. After concurrent develop updates, PR-496 verification reran on `origin/develop=a2f2d9b4c2213b2e73b6c4df2b895dd3b4b6cfdc`; final evidence commit must be pushed to develop and deployed from the latest `origin/develop`. Smoke so far: `erp_orderapp` listening on `:8080`; production overview, workstation view, production plan, production running, work orders and job cards returned 200; overview API returned `nav_badges`、`today_summary`、`readiness`、`workstation_load`; browser acceptance verified 6 ERP pages, sticky production nav order/badges/active state and 0 console/runtime errors.
+- Last update: 2026-06-15 Asia/Shanghai.
 
 ### PR-495-PRODUCTION-WORKSTATION-OVERVIEW
 - Branch: codex/production-workstation-overview-20260613
