@@ -125,7 +125,6 @@
               <span>承担产量{{ splitQuantityUnit(split) }}</span>
               <input v-model.number="split.planned_qty" type="number" min="0" :step="splitQuantityStep(split)" />
             </label>
-            <button class="secondary compact" type="button" @click="assignRemainingWorkOrderSplitQty(split)" :disabled="!split.workstation_capacity_id">分配剩余产量</button>
             <div class="split-metric">
               <span>自动批次数</span>
               <strong>{{ plannedCapacitySplitMetrics(split).planned_batch_count || 0 }}</strong>
@@ -566,10 +565,6 @@ function autoSplitWorkOrderOperation(operation) {
     ...workOrderSplitRows.value.filter((split) => !splitMatchesOperation(split, operation)),
     ...autoRows,
   ]
-}
-
-function assignRemainingWorkOrderSplitQty(split) {
-  split.planned_qty = defaultPlannedQtyForWorkOrderSplit(split)
 }
 
 function withAutoWorkOrderSplits(rows) {

@@ -254,6 +254,10 @@ function plannedCapacitySplitQtyG(qty, unit, specG = 0) {
   return 0
 }
 
+function productionPlanItemTargetG(item = {}) {
+  return Math.max(0, Number(item.planned_g || item.planned_output_g || item.gap_g || 0))
+}
+
 export function qtyFromGForCapacityUnit(qtyG, unit, specG = 0) {
   const normalized = normalizedCapacityUnit(unit)
   const value = Number(qtyG || 0)
@@ -366,13 +370,14 @@ export function applicableOperationCapacities(operation = {}, capacities = []) {
 function capacityBaseQty(capacity = {}, item = {}) {
   const batchSizeQty = Number(capacity.batch_size_qty || 0)
   const unit = capacity.batch_size_unit
+  const targetG = productionPlanItemTargetG(item)
   if (batchSizeQty <= 0) return { kind: '', batchBaseQty: 0, targetBaseQty: 0 }
   if (isWeightCapacityUnit(unit)) {
     const batchBaseQty = plannedCapacitySplitQtyG(batchSizeQty, unit, item.spec_g || item.item_spec_g || 0)
-    return { kind: 'weight', batchBaseQty, targetBaseQty: Number(item.planned_g || 0) }
+    return { kind: 'weight', batchBaseQty, targetBaseQty: targetG }
   }
   if (isCountCapacityUnit(unit) && Number(item.spec_g || 0) > 0) {
-    return { kind: 'count', batchBaseQty: batchSizeQty, targetBaseQty: qtyFromGForCapacityUnit(item.planned_g || 0, unit, item.spec_g || 0) }
+    return { kind: 'count', batchBaseQty: batchSizeQty, targetBaseQty: qtyFromGForCapacityUnit(targetG, unit, item.spec_g || 0) }
   }
   return { kind: '', batchBaseQty: 0, targetBaseQty: 0 }
 }
@@ -399,7 +404,7 @@ function splitRowsSameOperation(row, split) {
 
 export function maxAssignableQtyForCapacitySplit(split = {}, rows = [], target = {}) {
   const specG = Number(target.spec_g || split.spec_g || split.item_spec_g || 0)
-  const plannedG = Math.max(0, Number(target.planned_g || 0))
+  const plannedG = productionPlanItemTargetG(target)
   const usedG = (rows || [])
     .filter((row) => row !== split && splitRowsSameOperation(row, split))
     .reduce((sum, row) => sum + (plannedCapacitySplitMetrics({ ...row, spec_g: row.spec_g || specG }).planned_qty_g || 0), 0)
@@ -413,7 +418,7 @@ export function maxAssignableQtyForCapacitySplit(split = {}, rows = [], target =
 }
 
 export function buildOperationCapacityAutoSplits(item = {}, operation = {}, capacities = []) {
-  const targetG = Math.max(0, Number(item.planned_g || 0))
+  const targetG = productionPlanItemTargetG(item)
   if (targetG <= 0) return []
   const candidates = applicableOperationCapacities(operation, capacities)
     .map((capacity) => {

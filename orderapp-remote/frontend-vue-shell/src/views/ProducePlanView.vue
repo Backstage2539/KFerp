@@ -244,7 +244,7 @@
                   <div class="split-operation-head">
                     <strong>{{ row.item.product_name || '-' }}</strong>
                     <span>{{ row.operation.seq || row.operation.sequence_no || '-' }}. {{ row.operation.operation || '工序' }}</span>
-                    <button class="secondary compact" type="button" @click="autoSplitCurrentPlanOperation(row.item, row.operation)" :disabled="!currentPlanDraft || !applicableOperationCapacities(row.operation, activeWorkstationCapacities).length">自动拆分</button>
+                    <button class="secondary compact" type="button" @click="autoSplitCurrentPlanOperation(row.item, row.operation)" :disabled="!currentPlanDraft">自动拆分</button>
                     <button class="secondary compact" type="button" @click="addOperationSplit(row.item, row.operation)" :disabled="!currentPlanDraft">添加拆分</button>
                   </div>
                   <div class="split-row" v-for="(split, splitIndex) in splitRowsForOperation(row.item, row.operation)" :key="split.local_key || split.id || `${row.item.id}-${splitIndex}`">
@@ -259,7 +259,6 @@
                       <span>承担产量{{ splitQuantityUnit(split) }}</span>
                       <input v-model.number="split.planned_qty" type="number" min="0" :step="splitQuantityStep(split)" :disabled="!currentPlanDraft" />
                     </label>
-                    <button class="secondary compact" type="button" @click="assignRemainingCurrentPlanSplitQty(split)" :disabled="!currentPlanDraft || !split.workstation_capacity_id">分配剩余产量</button>
                     <div class="split-metric">
                       <span>自动批次数</span>
                       <strong>{{ plannedCapacitySplitMetrics(split).planned_batch_count || 0 }}</strong>
@@ -633,7 +632,7 @@
             <div class="split-operation-head">
               <strong>{{ row.item.product_name || '-' }}</strong>
               <span>{{ row.operation.seq || row.operation.sequence_no || '-' }}. {{ row.operation.operation || '工序' }}</span>
-              <button class="secondary compact" type="button" @click="autoSplitProductionPlanDrawerOperation(row.item, row.operation)" :disabled="productionPlanSplitDrawerSaving || !productionPlanSplitDrawerDraft || !applicableOperationCapacities(row.operation, activeWorkstationCapacities).length">自动拆分</button>
+              <button class="secondary compact" type="button" @click="autoSplitProductionPlanDrawerOperation(row.item, row.operation)" :disabled="productionPlanSplitDrawerSaving || !productionPlanSplitDrawerDraft">自动拆分</button>
               <button class="secondary compact" type="button" @click="addProductionPlanDrawerSplit(row.item, row.operation)" :disabled="productionPlanSplitDrawerSaving || !productionPlanSplitDrawerDraft">添加拆分</button>
             </div>
             <div
@@ -652,7 +651,6 @@
                 <span>承担产量{{ splitQuantityUnit(split) }}</span>
                 <input v-model.number="split.planned_qty" type="number" min="0" :step="splitQuantityStep(split)" :disabled="productionPlanSplitDrawerSaving || !productionPlanSplitDrawerDraft" />
               </label>
-              <button class="secondary compact" type="button" @click="assignRemainingProductionPlanDrawerSplitQty(split)" :disabled="productionPlanSplitDrawerSaving || !productionPlanSplitDrawerDraft || !split.workstation_capacity_id">分配剩余产量</button>
               <div class="split-metric">
                 <span>自动批次数</span>
                 <strong>{{ plannedCapacitySplitMetrics(split).planned_batch_count || 0 }}</strong>
@@ -1350,20 +1348,26 @@ function replaceOperationSplits(rows, item, operation, nextRows) {
   ]
 }
 
-function autoSplitCurrentPlanOperation(item, operation) {
+async function autoSplitCurrentPlanOperation(item, operation) {
+  operationSplitError.value = ''
+  try {
+    await ensureWorkstationCapacities()
+  } catch (err) {
+    operationSplitError.value = err.message || '加载工位产能失败'
+    return
+  }
   operationSplits.value = replaceOperationSplits(operationSplits.value, item, operation, autoRowsForOperation(item, operation))
 }
 
-function autoSplitProductionPlanDrawerOperation(item, operation) {
+async function autoSplitProductionPlanDrawerOperation(item, operation) {
+  productionPlanSplitDrawerError.value = ''
+  try {
+    await ensureWorkstationCapacities()
+  } catch (err) {
+    productionPlanSplitDrawerError.value = err.message || '加载工位产能失败'
+    return
+  }
   productionPlanSplitRows.value = replaceOperationSplits(productionPlanSplitRows.value, item, operation, autoRowsForOperation(item, operation))
-}
-
-function assignRemainingCurrentPlanSplitQty(split) {
-  split.planned_qty = maxAssignableQtyForCapacitySplit(split, operationSplits.value, operationSplitTarget(currentPlanItemForSplit(split)))
-}
-
-function assignRemainingProductionPlanDrawerSplitQty(split) {
-  split.planned_qty = maxAssignableQtyForCapacitySplit(split, productionPlanSplitRows.value, operationSplitTarget(currentPlanItemForSplit(split, productionPlanSplitDrawer.value)))
 }
 
 function withAutoOperationSplits(rows, plan) {
@@ -1384,10 +1388,20 @@ async function loadWorkstationCapacities() {
   workstationCapacities.value = data.rows || []
 }
 
+async function ensureWorkstationCapacities() {
+  if (workstationCapacities.value.length) return
+  await loadWorkstationCapacities()
+}
+
 async function loadProductionPlanOperationSplits(plan = currentPlan.value) {
   if (!productionPlanOperationSplitsEndpoint(plan)) {
     operationSplits.value = []
     return
+  }
+  try {
+    await ensureWorkstationCapacities()
+  } catch (_) {
+    // Auto split is optional; existing split rows can still load and save validation will catch empty capacity choices.
   }
   const data = await apiGet(productionPlanOperationSplitsEndpoint(plan))
   operationSplits.value = withAutoOperationSplits((data.rows || []).map(normalizeOperationSplit), plan)
@@ -1462,12 +1476,10 @@ async function openProductionPlanSplitDrawer(plan) {
   productionPlanSplitRows.value = []
   productionPlanSplitDrawerLoading.value = true
   productionPlanSplitDrawerError.value = ''
-  if (!workstationCapacities.value.length) {
-    try {
-      await loadWorkstationCapacities()
-    } catch (_) {
-      // The drawer can still load; capacity selection will show empty and save validation will catch it.
-    }
+  try {
+    await ensureWorkstationCapacities()
+  } catch (_) {
+    // The drawer can still load; capacity selection will show empty and save validation will catch it.
   }
   try {
     const detail = normalizeProductionPlanDetailForSplitEditor(await apiGet(productionPlanDetailEndpoint(plan)))
