@@ -399,7 +399,7 @@ import { customerFulfillmentOrderFees } from '../lib/customer-fulfillment'
 import { invoiceStatusLabel, invoiceStatusTone } from '../lib/order-invoice'
 import { productKindBadgeClass, productKindLabel } from '../lib/order-entry'
 import { orderListSelectionState, selectableOrderIDs, toggleOrderPageSelection } from '../lib/order-list-selection'
-import { formatTrackingSummary, trackingInputSummary } from '../lib/order-shipping'
+import { formatTrackingSummary, isOrderShipReady, trackingInputSummary } from '../lib/order-shipping'
 import { orderListScopeForRequest } from '../lib/order-scope'
 import { normalizePageSize, paginationFromApi } from '../lib/pagination'
 import { replaceHistoryURL } from '../lib/url-state'
@@ -744,9 +744,7 @@ async function handlePaginationChange({ page: nextPage, pageSize }) {
 }
 
 function isShipReady(row) {
-  if (row?.is_void) return false
-  const status = String(row?.process_status || '').trim()
-  return status.includes('生产完成') || status === '无需生产' || status === '库存待发货'
+  return isOrderShipReady(row)
 }
 
 function isShipped(row) {

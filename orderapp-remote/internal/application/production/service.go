@@ -551,6 +551,7 @@ type ProductionLogRow struct {
 	InventoryUnitsAfter   int64   `json:"inventory_units_after"`
 	InventoryLooseGAfter  int64   `json:"inventory_loose_g_after"`
 	MaterialSummary       string  `json:"material_summary"`
+	FinishedBatchCode     string  `json:"finished_batch_code"`
 }
 
 type ProductionLogsResult struct {

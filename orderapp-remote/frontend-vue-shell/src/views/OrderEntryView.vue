@@ -169,7 +169,7 @@
           </label>
         </div>
 
-        <div v-if="paymentReceiptRequired" class="conditional-panel full-span">
+        <div v-if="paymentReceiptVisible" class="conditional-panel full-span">
           <div class="condition-title">收款凭证</div>
           <label :class="{ 'field-invalid': hasFieldError('payment_goods_amount') }" data-error-field="payment_goods_amount">
             <span>货款金额</span>
@@ -602,6 +602,7 @@ import {
   productKindBadgeClass,
   productKindLabel,
   requiresOrderPaymentMethod,
+  requiresOrderPaymentReceipt,
   resolveWholesaleTierPrice,
   retailPackagePrice,
   retailSpecOptions,
@@ -835,14 +836,15 @@ const filteredCustomers = computed(() => filterOptions(customers.value, customer
 const paymentMethodRequired = computed(() => requiresOrderPaymentMethod(form, payStatuses.value))
 const selectedPayStatusName = computed(() => optionName(payStatuses.value, form.pay_status_id))
 const selectedShipStatusName = computed(() => optionName(shipStatuses.value, form.ship_status_id))
-const paymentReceiptRequired = computed(() => {
+const paymentReceiptVisible = computed(() => {
   const name = selectedPayStatusName.value
   return name.includes('已收款') || name.includes('已付款') || name.includes('已支付')
 })
+const paymentReceiptRequired = computed(() => requiresOrderPaymentReceipt(form, payStatuses.value))
 const paymentGoodsAmountSuggestion = computed(() => money(itemsTotal.value))
 const paymentShippingAmountSuggestion = computed(() => money(toNumber(form.shipping_amount)))
-const showPaymentGoodsAmountSuggestion = computed(() => paymentReceiptRequired.value && itemsTotal.value > 0)
-const showPaymentShippingAmountSuggestion = computed(() => paymentReceiptRequired.value)
+const showPaymentGoodsAmountSuggestion = computed(() => paymentReceiptVisible.value && itemsTotal.value > 0)
+const showPaymentShippingAmountSuggestion = computed(() => paymentReceiptVisible.value)
 const logisticsRequired = computed(() => selectedShipStatusName.value.includes('已发货'))
 const selectedLogisticsProducts = computed(() => {
   const company = logisticsCompanies.value.find((item) => Number(item.id || 0) === Number(form.logistics_company_id || 0))

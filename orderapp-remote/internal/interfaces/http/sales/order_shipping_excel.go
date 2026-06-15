@@ -535,6 +535,10 @@ func orderShippingRemark(data salesapp.OrderShippingExportData) string {
 }
 
 func orderShippingReady(data salesapp.OrderShippingExportData) bool {
+	shipStatus := strings.TrimSpace(data.ShipStatus)
+	if strings.Contains(shipStatus, "已发货") {
+		return false
+	}
 	status := strings.TrimSpace(data.ProcessStatus)
 	return strings.Contains(status, "生产完成") || status == "无需生产" || status == "库存待发货"
 }

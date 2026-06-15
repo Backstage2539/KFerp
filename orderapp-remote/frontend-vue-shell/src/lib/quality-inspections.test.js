@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  qualityInspectionErrorMessage,
   qualityTargetActionLabel,
   qualityTargetAPIPath,
   qualityTargetDrawerTitle,
   qualityTargetFromRow,
   qualityTargetStatus,
   qualityTargetTabs,
+  workOrderQualityStatusLabel,
 } from './quality-inspections.js'
 
 test('qualityTargetTabs exposes work order raw material and finished product drawers', () => {
@@ -65,4 +67,16 @@ test('qualityTargetFromRow fills the quality form from selected target rows', ()
 test('qualityTargetStatus keeps quality state visible in target lists', () => {
   assert.equal(qualityTargetStatus({ quality_status: 'reject' }), 'reject')
   assert.equal(qualityTargetStatus({}), 'unchecked')
+})
+
+test('work order target statuses and validation errors are localized for quality inspection', () => {
+  assert.equal(workOrderQualityStatusLabel('released'), '未开工')
+  assert.equal(workOrderQualityStatusLabel('partially_completed'), '部分完成')
+  assert.equal(workOrderQualityStatusLabel('completed'), '已完成')
+
+  assert.equal(
+    qualityInspectionErrorMessage('scope, reference_no and result required'),
+    '请先选择质检对象并填写检查结果',
+  )
+  assert.equal(qualityInspectionErrorMessage('network failed'), 'network failed')
 })

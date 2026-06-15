@@ -73,6 +73,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet } from '../api/client'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
+import { visibleProductionTraceLinks } from '../lib/production-costs'
 
 const phase3TraceAnalyticsMarkers = ['trace_links', 'cost_variance', 'abnormal_losses']
 const rows = ref([])
@@ -80,7 +81,7 @@ const traceAnalytics = ref({ trace_links: [], cost_variance: [], abnormal_losses
 const filters = reactive({ work_order_id: 0, batch_id: '' })
 const loading = ref(false)
 const error = ref('')
-const traceLinks = computed(() => traceAnalytics.value.trace_links || [])
+const traceLinks = computed(() => visibleProductionTraceLinks(traceAnalytics.value.trace_links || []))
 const costVarianceRows = computed(() => traceAnalytics.value.cost_variance || [])
 const abnormalLossRows = computed(() => traceAnalytics.value.abnormal_losses || [])
 const money = (v) => Number(v || 0).toFixed(2)

@@ -38,3 +38,11 @@ test('parseRecipientText handles address name 收 phone order', () => {
 		address: '四川省攀枝花市东区炳草岗湖滨路30号4栋',
 	})
 })
+
+test('parseRecipientText keeps numeric customer names before phone intact', () => {
+	assert.deepEqual(parseRecipientText('QA浏览器客户20260616 13900001616 上海市浦东新区测试路16号'), {
+		recipient_name: 'QA浏览器客户20260616',
+		phone: '13900001616',
+		address: '上海市浦东新区测试路16号',
+	})
+})

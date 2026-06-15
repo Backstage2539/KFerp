@@ -1253,7 +1253,13 @@ func componentDemandQty(item planBomItem, inputG, bagUnits, boxUnits int64, unit
 }
 
 func mergeMaterialAvailability(materials []productionapp.MaterialNeed, planRows []productionapp.MaterialPlanRow) []productionapp.MaterialNeed {
-	if len(materials) == 0 || len(planRows) == 0 {
+	if len(materials) == 0 {
+		return materials
+	}
+	if len(planRows) == 0 {
+		for i := range materials {
+			applyNonWeightMaterialAvailabilityFallback(&materials[i], productionapp.MaterialPlanRow{})
+		}
 		return materials
 	}
 	availabilityByKey := map[string]productionapp.MaterialPlanRow{}
@@ -1263,6 +1269,7 @@ func mergeMaterialAvailability(materials []productionapp.MaterialNeed, planRows 
 	for i := range materials {
 		row, ok := availabilityByKey[materialAvailabilityKey(materials[i].Name, materials[i].Unit)]
 		if !ok {
+			applyNonWeightMaterialAvailabilityFallback(&materials[i], productionapp.MaterialPlanRow{})
 			continue
 		}
 		materials[i].WIPG = row.WIPG
@@ -1272,8 +1279,28 @@ func mergeMaterialAvailability(materials []productionapp.MaterialNeed, planRows 
 		materials[i].WIPTransferSuggestionG = row.WIPTransferSuggestionG
 		materials[i].ShortageG = row.ShortageG
 		materials[i].PurchaseSuggestionG = row.PurchaseSuggestionG
+		applyNonWeightMaterialAvailabilityFallback(&materials[i], row)
 	}
 	return materials
+}
+
+func applyNonWeightMaterialAvailabilityFallback(item *productionapp.MaterialNeed, row productionapp.MaterialPlanRow) {
+	if item == nil || isWeightMaterialUnit(item.Unit) {
+		return
+	}
+	requiredUnits := row.RequiredUnits
+	if requiredUnits <= 0 {
+		requiredUnits = item.Qty
+	}
+	if requiredUnits <= 0 {
+		return
+	}
+	if item.ShortageG <= 0 {
+		item.ShortageG = requiredUnits
+	}
+	if item.PurchaseSuggestionG <= 0 {
+		item.PurchaseSuggestionG = item.ShortageG
+	}
 }
 
 func materialAvailabilityKey(name string, unit string) string {

@@ -3584,6 +3584,9 @@ func TestOrdersShippingExcelAPIAcceptsNoProductionShipReadyOrders(t *testing.T) 
 	if !orderShippingReady(salesapp.OrderShippingExportData{ProcessStatus: "库存待发货"}) {
 		t.Fatal("库存待发货 status should be treated as ready for shipping")
 	}
+	if orderShippingReady(salesapp.OrderShippingExportData{ProcessStatus: "生产完成", ShipStatus: "已发货"}) {
+		t.Fatal("already shipped orders should not be treated as ready for another shipping export")
+	}
 
 	pool, schema := newOrderAPITestDB(t)
 	ctx := context.Background()
@@ -3643,6 +3646,38 @@ func TestOrdersShippingExcelAPIAcceptsNoProductionShipReadyOrders(t *testing.T) 
 	}
 	if files, err := os.ReadDir(exportDir); err != nil || len(files) != 1 {
 		t.Fatalf("export files err=%v count=%d, want 1", err, len(files))
+	}
+}
+
+func TestOrderAPIShipReadyExcludesAlreadyShippedOrders(t *testing.T) {
+	pool, schema := newOrderAPITestDB(t)
+	ctx := context.Background()
+	seedOrderAPITestData(t, ctx, pool, schema)
+	if err := postgressales.EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+	mustExecOrderAPITestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.ship_statuses(name) VALUES ('已发货') ON CONFLICT(name) DO NOTHING;
+		INSERT INTO %[1]s.order_process_statuses(name,sort,active) VALUES ('生产完成',20,true)
+		ON CONFLICT(name) DO UPDATE SET sort=excluded.sort, active=excluded.active;
+		INSERT INTO %[1]s.orders(id, order_no, order_date, customer_id, order_type_id, pay_status_id, ship_status_id, process_status_id, grand_total, is_void)
+		VALUES
+			(70, 'SO-SHIP-READY-NOT-SHIPPED', '2026-06-16', 3, 1, 2, (SELECT id FROM %[1]s.ship_statuses WHERE name='未发货' LIMIT 1), (SELECT id FROM %[1]s.order_process_statuses WHERE name='生产完成' LIMIT 1), 88, false),
+			(71, 'SO-SHIP-READY-SHIPPED', '2026-06-16', 3, 1, 2, (SELECT id FROM %[1]s.ship_statuses WHERE name='已发货' LIMIT 1), (SELECT id FROM %[1]s.order_process_statuses WHERE name='生产完成' LIMIT 1), 88, false);
+	`, schema))
+
+	e := newOrderAPITestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?ship_ready=1&limit=50", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/orders ship_ready status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "SO-SHIP-READY-NOT-SHIPPED") {
+		t.Fatalf("ship_ready list should include ready unshipped order: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "SO-SHIP-READY-SHIPPED") {
+		t.Fatalf("ship_ready list should exclude already shipped order: %s", rec.Body.String())
 	}
 }
 

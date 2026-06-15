@@ -190,7 +190,7 @@
                 <td><strong>{{ targetPrimary(row) }}</strong><small>{{ row.order_nos || '' }}</small></td>
                 <td>{{ targetName(row) }}</td>
                 <td>
-                  <span v-if="activeTargetScope === 'work_order'" class="status-pill">{{ row.status || '-' }}</span>
+                  <span v-if="activeTargetScope === 'work_order'" class="status-pill">{{ workOrderQualityStatusLabel(row.status) }}</span>
                   <span v-else class="quality-pill" :class="qualityClass(qualityTargetStatus(row))">{{ qualityLabel(qualityTargetStatus(row)) }}</span>
                 </td>
                 <td>{{ targetMeta(row) || '-' }}</td>
@@ -213,6 +213,7 @@ import { apiGet, apiSend } from '../api/client'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import {
   filterQualityTargets,
+  qualityInspectionErrorMessage,
   qualityTargetActionLabel,
   qualityTargetAPIPath,
   qualityTargetDrawerTitle,
@@ -223,6 +224,7 @@ import {
   qualityTargetSearchPlaceholder,
   qualityTargetStatus,
   qualityTargetTabs,
+  workOrderQualityStatusLabel,
 } from '../lib/quality-inspections'
 
 const loading = ref(false)
@@ -381,6 +383,10 @@ async function save() {
   error.value = ''
   message.value = ''
   try {
+    if (!String(form.scope || '').trim() || !String(form.reference_no || '').trim() || !String(form.result || '').trim()) {
+      error.value = qualityInspectionErrorMessage('scope, reference_no and result required')
+      return
+    }
     await apiSend('/api/produce/quality-inspections', {
       body: {
         scope: form.scope,
@@ -406,7 +412,7 @@ async function save() {
     form.note = ''
     await load()
   } catch (err) {
-    error.value = err.message || '保存失败'
+    error.value = qualityInspectionErrorMessage(err.message || '保存失败')
   } finally {
     saving.value = false
   }

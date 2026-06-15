@@ -6,6 +6,8 @@ import {
   buildWorkOrderOperationSplitPayload,
   canEditWorkOrderSplits,
   canStartWorkOrder,
+  formatWorkOrderPlannedOutput,
+  workOrderPlannedOutput,
   workOrderOperationSplitsEndpoint,
   workOrderStartEndpoint,
   workOrderStatusOptions,
@@ -204,6 +206,18 @@ test('released work orders expose operation split editing before production star
 test('workOrderStartEndpoint uses formal work order start API', () => {
   assert.equal(workOrderStartEndpoint({ id: 41 }), '/api/produce/work-orders/41/start')
   assert.equal(workOrderStartEndpoint({ id: 0 }), '')
+})
+
+test('work order planned output falls back to planned grams and spec when packed counts are absent', () => {
+  assert.deepEqual(workOrderPlannedOutput({ planned_g: 55706, spec_g: 454 }), {
+    units: 122,
+    loose_g: 318,
+  })
+  assert.equal(formatWorkOrderPlannedOutput({ planned_g: 55706, spec_g: 454 }), '122 袋 + 318g')
+  assert.deepEqual(workOrderPlannedOutput({ planned_units: 3, planned_loose_g: 20, planned_g: 0, spec_g: 454 }), {
+    units: 3,
+    loose_g: 20,
+  })
 })
 
 test('WorkOrdersView exposes capacity split editor drawer', () => {

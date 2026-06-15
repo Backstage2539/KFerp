@@ -18,6 +18,26 @@ export function canEditWorkOrderSplits(row) {
   return Number(row?.id || 0) > 0 && String(row?.status || '').trim() === 'released' && Number(row?.running_item_id || 0) <= 0
 }
 
+export function workOrderPlannedOutput(row = {}) {
+  const explicitUnits = Math.max(0, Math.floor(Number(row.planned_units || 0)))
+  const explicitLooseG = Math.max(0, Math.round(Number(row.planned_loose_g || 0)))
+  if (explicitUnits > 0 || explicitLooseG > 0) {
+    return { units: explicitUnits, loose_g: explicitLooseG }
+  }
+  const plannedG = Math.max(0, Math.round(Number(row.planned_output_g || row.finished_g || row.planned_g || 0)))
+  const specG = Math.max(0, Math.round(Number(row.spec_g || 0)))
+  if (plannedG <= 0 || specG <= 0) return { units: 0, loose_g: 0 }
+  return {
+    units: Math.floor(plannedG / specG),
+    loose_g: plannedG % specG,
+  }
+}
+
+export function formatWorkOrderPlannedOutput(row = {}) {
+  const output = workOrderPlannedOutput(row)
+  return `${output.units} 袋 + ${output.loose_g}g`
+}
+
 export function workOrderStartEndpoint(row) {
   const id = Number(row?.id || 0)
   if (id <= 0) return ''

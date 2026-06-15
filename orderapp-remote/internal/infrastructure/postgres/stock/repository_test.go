@@ -967,6 +967,108 @@ INSERT INTO %s.materials(id,code,name,onhand_g,purchase_price) VALUES (1,'Mengli
 	}
 }
 
+func TestGetStockTraceBackfillsBlankMaterialBatchFromLedger(t *testing.T) {
+	pool, schema := newStockTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.stock_batches (
+	id BIGSERIAL PRIMARY KEY,
+	batch_code TEXT NOT NULL DEFAULT '',
+	item_type TEXT NOT NULL DEFAULT '',
+	item_id BIGINT NOT NULL DEFAULT 0,
+	item_name TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	source_doc_type TEXT NOT NULL DEFAULT '',
+	source_doc_id BIGINT NOT NULL DEFAULT 0,
+	source_batch_id TEXT NOT NULL DEFAULT '',
+	qty_g BIGINT NOT NULL DEFAULT 0,
+	qty_units BIGINT NOT NULL DEFAULT 0,
+	remaining_g BIGINT NOT NULL DEFAULT 0,
+	remaining_units BIGINT NOT NULL DEFAULT 0,
+	quality_status TEXT NOT NULL DEFAULT 'unchecked',
+	operator TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.stock_ledger_entries (
+	id BIGSERIAL PRIMARY KEY,
+	item_type TEXT NOT NULL DEFAULT '',
+	item_id BIGINT NOT NULL DEFAULT 0,
+	item_name TEXT NOT NULL DEFAULT '',
+	spec_g BIGINT NOT NULL DEFAULT 0,
+	warehouse TEXT NOT NULL DEFAULT '',
+	source_doc_type TEXT NOT NULL DEFAULT '',
+	source_doc_id BIGINT NOT NULL DEFAULT 0,
+	source_batch_code TEXT NOT NULL DEFAULT '',
+	source_batch_id TEXT NOT NULL DEFAULT '',
+	qty_before_g BIGINT NOT NULL DEFAULT 0,
+	qty_change_g BIGINT NOT NULL DEFAULT 0,
+	qty_after_g BIGINT NOT NULL DEFAULT 0,
+	qty_before_units BIGINT NOT NULL DEFAULT 0,
+	qty_change_units BIGINT NOT NULL DEFAULT 0,
+	qty_after_units BIGINT NOT NULL DEFAULT 0,
+	operator TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.production_logs (
+	running_item_id BIGINT NOT NULL DEFAULT 0,
+	batch_id TEXT NOT NULL DEFAULT '',
+	order_nos TEXT NOT NULL DEFAULT '',
+	input_g BIGINT NOT NULL DEFAULT 0,
+	finished_total_g BIGINT NOT NULL DEFAULT 0,
+	actual_yield_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
+	started_by TEXT NOT NULL DEFAULT '',
+	finished_by TEXT NOT NULL DEFAULT '',
+	finished_at TIMESTAMPTZ
+);
+CREATE TABLE %s.work_orders (
+	work_order_no TEXT NOT NULL DEFAULT '',
+	running_item_id BIGINT NOT NULL DEFAULT 0
+);
+CREATE TABLE %s.material_consumption_logs (
+	id BIGSERIAL PRIMARY KEY,
+	running_item_id BIGINT NOT NULL DEFAULT 0,
+	material_id BIGINT NOT NULL DEFAULT 0,
+	material_name TEXT NOT NULL DEFAULT '',
+	unit TEXT NOT NULL DEFAULT '',
+	deduct_g BIGINT NOT NULL DEFAULT 0,
+	deduct_units BIGINT NOT NULL DEFAULT 0,
+	material_batch_id BIGINT NOT NULL DEFAULT 0,
+	material_batch_code TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE %s.material_batches (
+	id BIGINT PRIMARY KEY,
+	batch_code TEXT NOT NULL DEFAULT ''
+);
+INSERT INTO %s.stock_batches(batch_code,item_type,item_id,item_name,spec_g,source_doc_type,source_doc_id,source_batch_id,qty_g,qty_units,remaining_g,remaining_units,quality_status,operator,created_at)
+VALUES ('FP-TRACE','finished_product',9,'红岩拼配',454,'production_run',99,'PB-99',908,2,908,2,'unchecked','qa',now());
+INSERT INTO %s.stock_ledger_entries(item_type,item_id,item_name,spec_g,warehouse,source_doc_type,source_doc_id,source_batch_code,source_batch_id,qty_before_g,qty_change_g,qty_after_g,operator,created_at)
+VALUES
+	('finished_product',9,'红岩拼配',454,'finished_goods','production_run',99,'FP-TRACE','PB-99',0,908,908,'qa',now()),
+	('material',1,'卡蒂姆水洗',0,'wip','production_run',99,'MB-TRACE','PB-99',2000,-1000,1000,'qa',now());
+INSERT INTO %s.production_logs(running_item_id,batch_id,order_nos,input_g,finished_total_g,actual_yield_rate,started_by,finished_by,finished_at)
+VALUES (99,'PB-99','SO-99',1000,908,0.908,'start','finish',now());
+INSERT INTO %s.work_orders(work_order_no,running_item_id) VALUES ('WO-99',99);
+INSERT INTO %s.material_consumption_logs(running_item_id,material_id,material_name,unit,deduct_g,deduct_units,material_batch_id,material_batch_code)
+VALUES (99,1,'卡蒂姆水洗','g',1000,0,0,'');
+INSERT INTO %s.material_batches(id,batch_code) VALUES (7,'MB-TRACE');
+`, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema))
+
+	trace, err := NewRepository(pool, schema).GetStockTrace(ctx, stockapp.StockTraceQuery{BatchCode: "FP-TRACE"})
+	if err != nil {
+		t.Fatalf("GetStockTrace: %v", err)
+	}
+	if len(trace.Materials) != 1 {
+		t.Fatalf("trace materials = %+v, want one material", trace.Materials)
+	}
+	if trace.Materials[0].MaterialBatchCode != "MB-TRACE" || trace.Materials[0].MaterialBatchID != 7 {
+		t.Fatalf("trace material batch = %+v, want MB-TRACE id 7", trace.Materials[0])
+	}
+}
+
 func TestListOutboundLogsReturnsDeliveryNoteDocumentsForInventory(t *testing.T) {
 	pool, schema := newStockTestDB(t)
 	ctx := context.Background()

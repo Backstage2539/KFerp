@@ -44,14 +44,14 @@ func (r Repository) productionTraceLinks(ctx context.Context, query productionap
 		       COALESCE(si.material_id,0),COALESCE(NULLIF(si.item_name,''), ''),
 		       COALESCE(si.batch_code,''),COALESCE(si.qty_g,0)::bigint,
 		       COALESCE(to_char(se.created_at,'YYYY-MM-DD HH24:MI'), to_char(wo.created_at,'YYYY-MM-DD HH24:MI'))
-		FROM %s.work_orders wo
-		LEFT JOIN %s.job_cards jc ON jc.work_order_id=wo.id
-		LEFT JOIN %s.stock_entries se ON se.work_order_id=wo.id OR (wo.running_item_id > 0 AND se.running_item_id=wo.running_item_id)
-		LEFT JOIN %s.stock_entry_items si ON si.stock_entry_id=se.id
-		WHERE %s
-		ORDER BY COALESCE(se.created_at, wo.created_at) DESC, wo.id DESC, jc.sequence_no, si.id
-		LIMIT $%d
-	`, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
+			FROM %s.work_orders wo
+			JOIN %s.stock_entries se ON se.work_order_id=wo.id OR (wo.running_item_id > 0 AND se.running_item_id=wo.running_item_id)
+			JOIN %s.stock_entry_items si ON si.stock_entry_id=se.id
+			LEFT JOIN %s.job_cards jc ON jc.id=se.job_card_id
+			WHERE %s
+			ORDER BY se.created_at DESC, wo.id DESC, jc.sequence_no, si.id
+			LIMIT $%d
+		`, r.schema, r.schema, r.schema, r.schema, where, limitArg), args...)
 	if err != nil {
 		return nil, err
 	}

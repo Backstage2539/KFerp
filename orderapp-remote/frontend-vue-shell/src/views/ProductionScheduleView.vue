@@ -149,6 +149,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import { formatLocalDateInput } from '../lib/local-date.js'
 import {
   buildCapacityCalendarPayload,
   buildScheduleAssignmentPayload,
@@ -160,7 +161,7 @@ import {
   scheduleViewModes,
 } from '../lib/production-schedule.js'
 
-const today = new Date().toISOString().slice(0, 10)
+const today = formatLocalDateInput()
 const filters = reactive({ from: today, to: today, work_center: '', status: '', limit: 200 })
 const assignment = reactive({ work_order_id: 0, job_card_id: 0, work_center: '', planned_start_at: '', planned_end_at: '', shift_code: '', assigned_to: '', priority: 0, note: '' })
 const capacityDraft = reactive({ work_center: '', work_date: today, shift_code: '', available_minutes: 480, downtime_minutes: 0, note: '' })

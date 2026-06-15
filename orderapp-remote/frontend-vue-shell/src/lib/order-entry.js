@@ -806,6 +806,14 @@ export function requiresOrderPaymentMethod(form, payStatuses) {
   return name.includes('已付款') || name.includes('已收款') || name.includes('已支付')
 }
 
+export function requiresOrderPaymentReceipt(form, payStatuses) {
+  const statusID = toInt(form?.pay_status_id)
+  if (statusID <= 0) return false
+  const status = (payStatuses || []).find((item) => toInt(item.id) === statusID)
+  const name = String(status?.name || '').trim()
+  return name.includes('已收款')
+}
+
 export function normalizeSpecG(row) {
   if (row?.spec_mode === CUSTOM_SPEC_VALUE) {
     return Math.max(0, toInt(row.custom_spec_g))

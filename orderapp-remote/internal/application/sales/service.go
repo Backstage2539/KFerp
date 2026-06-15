@@ -128,6 +128,7 @@ type OrderShippingExportData struct {
 	RecvAddr      string
 	RecvCompany   string
 	SenderID      int64
+	ShipStatus    string
 	ProcessStatus string
 	Items         []OrderShippingExportItem
 }

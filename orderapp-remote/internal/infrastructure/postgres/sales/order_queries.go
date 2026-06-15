@@ -138,7 +138,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 			COALESCE(NULLIF(ship_sender.sender_id,0), NULLIF(o.sender_id,0), 0) AS sender_id,
 			COALESCE(sender.sender_label, '') AS sender_label,
 			COALESCE(sender.sender_name, '') AS sender_name,
-			COALESCE(ops.name, '') AS process_status,
+			%s AS process_status,
 			COALESCE((
 				SELECT string_agg(DISTINCT COALESCE(NULLIF(oi_kind.product_kind,''), NULLIF(p_kind.product_kind,''), 'roasted'), ',' ORDER BY COALESCE(NULLIF(oi_kind.product_kind,''), NULLIF(p_kind.product_kind,''), 'roasted'))
 				FROM %s.order_items oi_kind
@@ -175,7 +175,7 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 		%s
 		ORDER BY o.order_date DESC, o.id DESC
 		LIMIT $%d OFFSET $%d
-	`, orderTrackingSummaryExpr(schema, "o"), schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
+	`, orderTrackingSummaryExpr(schema, "o"), orderProcessStatusExpr(schema), schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, schema, wsql, limitArg, offsetArg)
 
 	dbRows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
@@ -203,6 +203,26 @@ func fetchOrders(ctx context.Context, pool *pgxpool.Pool, schema string, query s
 		out = out[:query.Limit]
 	}
 	return out, hasNext, nil
+}
+
+func orderProcessStatusExpr(schema string) string {
+	return fmt.Sprintf(`COALESCE(NULLIF(ops.name,''), CASE
+		WHEN EXISTS (
+			SELECT 1
+			FROM %[1]s.order_items oi_status
+			LEFT JOIN %[1]s.products p_status ON p_status.id=oi_status.product_id
+			WHERE oi_status.order_id=o.id
+			  AND COALESCE(oi_status.product_id,0) > 0
+			  AND COALESCE(NULLIF(oi_status.product_kind,''), NULLIF(p_status.product_kind,''), 'roasted_bean') IN ('roasted_bean','roasted','drip_bag','instant_coffee')
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM %[1]s.ship_statuses ss_status
+			WHERE ss_status.id=o.ship_status_id
+			  AND ss_status.name LIKE '%%已发货%%'
+		)
+		THEN '待计划'
+		ELSE ''
+	END)`, schema)
 }
 
 func fetchOrderIDNameMap(ctx context.Context, pool *pgxpool.Pool, sqlstr string) (map[int64]string, error) {
@@ -353,6 +373,7 @@ func orderListWhere(schema string, query salesapp.OrderListQuery) ([]string, []a
 	}
 	if query.ShipReadyOnly {
 		where = append(where, fmt.Sprintf("EXISTS (SELECT 1 FROM %s.order_process_statuses ops WHERE ops.id=o.process_status_id AND ops.name IN ('生产完成','已生产完成','无需生产','库存待发货'))", schema))
+		where = append(where, fmt.Sprintf("NOT EXISTS (SELECT 1 FROM %s.ship_statuses ss WHERE ss.id=o.ship_status_id AND ss.name LIKE '%%已发货%%')", schema))
 	}
 	if from := strings.TrimSpace(query.From); from != "" {
 		where = append(where, fmt.Sprintf("o.order_date >= $%d", argn))

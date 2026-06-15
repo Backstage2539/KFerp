@@ -17,11 +17,17 @@ import {
   buildProductionPlanOperationSplitPayload,
   buildOperationCapacityAutoSplits,
   maxAssignableQtyForCapacitySplit,
+  operationCapacityAutoSplitError,
   plannedCapacitySplitMetrics,
+  productionMaterialQuantity,
   productionPlanSplitBatchCards,
   qtyFromGForCapacityUnit,
   productionDemandSelectable,
   productionDemandSelectionState,
+  defaultProductionDemandStatusFilter,
+  productionDemandPanelEmptyText,
+  productionDemandPanelTitle,
+  productionDemandStatusFilterValue,
   productionDemandStatusLabel,
   productionDemandStatusTone,
 } from './produce-plan.js'
@@ -75,6 +81,11 @@ test('production demand status helpers only allow unplanned shortage rows to be 
   assert.equal(productionDemandStatusLabel('in_production'), '生产中')
   assert.equal(productionDemandStatusLabel('completed'), '生产完成')
   assert.equal(productionDemandStatusTone('in_production'), 'in-production')
+  assert.equal(defaultProductionDemandStatusFilter(), 'unplanned')
+  assert.equal(productionDemandStatusFilterValue('bad', defaultProductionDemandStatusFilter()), 'unplanned')
+  assert.equal(productionDemandPanelTitle(''), '生产需求')
+  assert.equal(productionDemandPanelTitle('unplanned'), '待计划需求')
+  assert.equal(productionDemandPanelEmptyText('completed'), '暂无生产完成需求')
   assert.equal(productionDemandSelectable(demandRows[0]), true)
   assert.equal(productionDemandSelectable(demandRows[1]), false)
   assert.equal(productionDemandSelectable(demandRows[2]), false)
@@ -362,6 +373,22 @@ test('operation capacity auto split falls back to planned output or demand gap w
   )
 })
 
+test('operation capacity auto split reports why no rows were generated', () => {
+  const operation = { seq: 1, operation_id: 7, operation: '烘焙' }
+  const capacities = [
+    { id: 10, status: 'active', batch_size_qty: 10, batch_size_unit: 'kg', applicable_operation_ids: [7] },
+  ]
+
+  assert.equal(
+    operationCapacityAutoSplitError({ id: 51, planned_g: 0, spec_g: 454 }, operation, capacities),
+    '当前计划行缺少计划产量，无法自动拆分',
+  )
+  assert.equal(
+    operationCapacityAutoSplitError({ id: 51, planned_g: 1000, spec_g: 454 }, { seq: 2, operation_id: 8, operation: '包装' }, capacities),
+    '当前工序没有可用的工位产能，或工位产能未绑定该工序',
+  )
+})
+
 test('operation capacity auto split supports count-based packaging capacity through spec grams', () => {
   const rows = buildOperationCapacityAutoSplits(
     { id: 52, planned_g: 10442, spec_g: 454 },
@@ -378,6 +405,12 @@ test('operation capacity auto split supports count-based packaging capacity thro
     [30, 3, 1362],
   ])
   assert.equal(qtyFromGForCapacityUnit(10442, '袋', 454), 23)
+})
+
+test('production material quantities keep non-weight purchase suggestions in material units', () => {
+  assert.equal(productionMaterialQuantity({ unit: 'g', purchase_suggestion_g: 1500, qty: 21 }, 'purchase_suggestion_g'), 1500)
+  assert.equal(productionMaterialQuantity({ unit: '个', purchase_suggestion_g: 0, available_g: 0, raw_g: 0, qty: 21 }, 'purchase_suggestion_g'), 21)
+  assert.equal(productionMaterialQuantity({ unit: '个', purchase_suggestion_g: 5, qty: 21 }, 'purchase_suggestion_g'), 5)
 })
 
 test('single split capacity allocation fills the maximum full batches from remaining quantity', () => {
@@ -536,8 +569,9 @@ test('ProducePlanView lets operators expand planning tables and drag horizontal 
     'toggleCurrentPlanPanelCollapsed',
     'startTableScrollDrag',
     'drag-scroll-wrap',
-    '收起待生产需求',
-    '展开待生产需求',
+    'demandPanelTitle',
+    '收起\\$\\{demandPanelTitle\\}',
+    '展开\\$\\{demandPanelTitle\\}',
     '收起当前生产计划',
     '展开当前生产计划',
     'demand-collapsed',

@@ -27,6 +27,7 @@ import {
   productKindBadgeClass,
   productKindLabel,
   requiresOrderPaymentMethod,
+  requiresOrderPaymentReceipt,
   responsibleOptions,
   retailPackagePrice,
   retailSpecOptions,
@@ -325,6 +326,22 @@ test('buildOrderPayload includes selected bean list publications by product kind
   assert.equal(payload.commercial_bean_list_publication_id, 81)
   assert.equal(payload.green_bean_list_publication_id, 82)
   assert.equal(payload.drip_bean_list_publication_id, 83)
+})
+
+test('order payment receipt fields are required only after actual collection', () => {
+  const payStatuses = [
+    { id: 1, name: '未付款' },
+    { id: 2, name: '已付款' },
+    { id: 3, name: '已收款' },
+    { id: 4, name: '已支付' },
+  ]
+
+  assert.equal(requiresOrderPaymentMethod({ pay_status_id: 2 }, payStatuses), true)
+  assert.equal(requiresOrderPaymentMethod({ pay_status_id: 3 }, payStatuses), true)
+  assert.equal(requiresOrderPaymentReceipt({ pay_status_id: 2 }, payStatuses), false)
+  assert.equal(requiresOrderPaymentReceipt({ pay_status_id: 3 }, payStatuses), true)
+  assert.equal(requiresOrderPaymentReceipt({ pay_status_id: 4 }, payStatuses), false)
+  assert.equal(requiresOrderPaymentReceipt({ pay_status_id: 1 }, payStatuses), false)
 })
 
 test('buildOrderPayload preserves green bean product kind for order pricing', () => {
