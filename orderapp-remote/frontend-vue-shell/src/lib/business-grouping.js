@@ -78,18 +78,25 @@ export function findBusinessGroupAssignmentForRow(row = {}, {
   objectIDForRow = (item = {}) => toNumber(item.id ?? item.product_id ?? item.productID),
   objectRefForRow = null,
   rowAssignment = null,
+  preferredGroupID = 0,
 } = {}) {
   if (typeof rowAssignment === 'function') return rowAssignment(row) || null
   const normalizedUsage = normalizedText(usageKey)
   const normalizedObjectKey = normalizedText(objectKey)
   const objectID = toNumber(objectIDForRow(row))
   const objectRef = typeof objectRefForRow === 'function' ? normalizedText(objectRefForRow(row)) : ''
-  return (Array.isArray(assignments) ? assignments : []).find((assignment) => {
+  const matches = (Array.isArray(assignments) ? assignments : []).filter((assignment) => {
     if (normalizedUsage && assignmentUsage(assignment) !== normalizedUsage) return false
     if (normalizedObjectKey && assignmentObjectKey(assignment) !== normalizedObjectKey) return false
     if (objectRef) return assignmentObjectRef(assignment) === objectRef
     return objectID > 0 && assignmentObjectID(assignment) === objectID
-  }) || null
+  })
+  const preferredID = toNumber(preferredGroupID)
+  if (preferredID > 0) {
+    const preferred = matches.find((assignment) => toNumber(assignment.group_id ?? assignment.groupID) === preferredID)
+    if (preferred) return preferred
+  }
+  return matches[0] || null
 }
 
 export function groupRowsByBusinessGroupTemplate(rows = [], {
@@ -160,6 +167,7 @@ export function groupRowsByBusinessGroupTemplate(rows = [], {
       objectIDForRow,
       objectRefForRow,
       rowAssignment,
+      preferredGroupID: templateID,
     })
     const assignmentGroupID = toNumber(assignment?.group_id ?? assignment?.groupID)
     const assignmentItemID = toNumber(assignment?.group_item_id ?? assignment?.groupItemID)

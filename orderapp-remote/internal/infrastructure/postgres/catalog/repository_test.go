@@ -229,6 +229,31 @@ func TestBusinessGroupAssignmentsSupportStringObjectRefsAndAudit(t *testing.T) {
 	}
 }
 
+func TestBusinessGroupAssignmentsKeepOneCurrentAssignmentAcrossBootstrap(t *testing.T) {
+	schema, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(schema)
+	for _, want := range []string{
+		"ON %[1]s.business_group_assignments(lower(usage_key), lower(object_key), object_id, lower(object_ref));",
+		"ranked_business_group_assignments AS",
+		"PARTITION BY lower(bga.usage_key), lower(bga.object_key), bga.object_id, lower(bga.object_ref)",
+		"COALESCE(bg.code,'') LIKE 'default_%%'",
+		"NOT EXISTS (",
+		"lower(existing.usage_key)='product_catalog'",
+		"lower(existing.object_key)='product'",
+		"existing.object_id=p.id",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("business group assignments must stay single-current across schema bootstrap; missing %q", want)
+		}
+	}
+	if strings.Contains(src, "ON %[1]s.business_group_assignments(group_id, lower(usage_key), lower(object_key), object_id, lower(object_ref));") {
+		t.Fatalf("business group assignment unique key must not include group_id; deploy bootstrap can otherwise recreate legacy default assignments beside user moves")
+	}
+}
+
 func TestProductWritesUseBusinessGroupAssignmentsInsteadOfLegacyCategoryColumns(t *testing.T) {
 	repository, err := os.ReadFile("repository.go")
 	if err != nil {
