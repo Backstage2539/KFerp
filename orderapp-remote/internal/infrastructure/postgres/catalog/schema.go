@@ -179,9 +179,23 @@ CREATE TABLE IF NOT EXISTS %[1]s.business_group_assignments (
 	updated_by TEXT NOT NULL DEFAULT ''
 );
 ALTER TABLE %[1]s.business_group_assignments ADD COLUMN IF NOT EXISTS object_ref TEXT NOT NULL DEFAULT '';
+WITH ranked_business_group_assignments AS (
+	SELECT bga.id,
+	       ROW_NUMBER() OVER (
+		       PARTITION BY lower(bga.usage_key), lower(bga.object_key), bga.object_id, lower(bga.object_ref)
+		       ORDER BY CASE WHEN COALESCE(bg.code,'') LIKE 'default_%%' OR bga.created_by='system-pr442-migration' THEN 1 ELSE 0 END,
+		                bga.updated_at DESC,
+		                bga.id DESC
+	       ) AS rn
+	FROM %[1]s.business_group_assignments bga
+	LEFT JOIN %[1]s.business_groups bg ON bg.id=bga.group_id
+)
+DELETE FROM %[1]s.business_group_assignments bga
+USING ranked_business_group_assignments ranked
+WHERE bga.id=ranked.id AND ranked.rn>1;
 DROP INDEX IF EXISTS %[1]s.business_group_assignments_object_uq;
 CREATE UNIQUE INDEX IF NOT EXISTS business_group_assignments_object_uq
-ON %[1]s.business_group_assignments(group_id, lower(usage_key), lower(object_key), object_id, lower(object_ref));
+ON %[1]s.business_group_assignments(lower(usage_key), lower(object_key), object_id, lower(object_ref));
 CREATE INDEX IF NOT EXISTS business_group_assignments_object_ref_idx
 ON %[1]s.business_group_assignments(lower(usage_key), lower(object_key), object_id, lower(object_ref));
 CREATE TABLE IF NOT EXISTS %[1]s.product_customer_references (
@@ -905,6 +919,13 @@ CROSS JOIN target_group tg
 LEFT JOIN %[1]s.product_categories pc ON pc.id=COALESCE(p.product_category_id,0)
 LEFT JOIN %[1]s.business_group_items item ON item.group_id=tg.id AND item.code='legacy_product_category_' || COALESCE(pc.id,0)::text
 WHERE COALESCE(p.product_category_id,0)>0
+  AND NOT EXISTS (
+    SELECT 1 FROM %[1]s.business_group_assignments existing
+    WHERE lower(existing.usage_key)='product_catalog'
+      AND lower(existing.object_key)='product'
+      AND existing.object_id=p.id
+      AND lower(existing.object_ref)=''
+  )
 ON CONFLICT DO NOTHING;
 `, schema)
 	_, err := pool.Exec(ctx, q)

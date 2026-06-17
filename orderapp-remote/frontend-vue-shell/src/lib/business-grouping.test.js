@@ -50,6 +50,27 @@ test('business group template rows include empty large and small categories plus
   ])
 })
 
+test('business group template rows prefer current template assignment over legacy default residue', () => {
+  const groups = groupRowsByBusinessGroupTemplate([
+    { id: 1, name: '熟豆-红岩拼配' },
+  ], {
+    template: productGroup,
+    usageKey: 'product_catalog',
+    objectKey: 'product',
+    assignments: [
+      { usage_key: 'product_catalog', object_key: 'product', object_id: 1, group_id: 6, group_item_id: 61 },
+      { usage_key: 'product_catalog', object_key: 'product', object_id: 1, group_id: 9, group_item_id: 92 },
+    ],
+  })
+
+  assert.deepEqual(groups.map((group) => [group.label, group.rows.map((row) => row.name)]), [
+    ['咖啡熟豆', []],
+    ['精品意式', ['熟豆-红岩拼配']],
+    ['挂耳咖啡', []],
+    ['未分类', []],
+  ])
+})
+
 test('business group controls expose template and move options for any usage', () => {
   const options = businessGroupControlOptions([productGroup], {
     usageKey: 'production_bom',
