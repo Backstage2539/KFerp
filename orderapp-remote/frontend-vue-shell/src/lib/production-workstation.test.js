@@ -129,3 +129,16 @@ test('workstation view lets wide task rows scroll and single-station filters fil
   assert.match(source, /\.task-row\s*\{[^}]*min-width:\s*610px;/s)
   assert.match(source, /@media \(max-width:\s*760px\)\s*\{[\s\S]*\.task-row\s*\{[^}]*grid-template-columns:\s*1fr;[^}]*min-width:\s*0;/)
 })
+
+test('workstation action buttons reveal their forms inside the clicked task row', () => {
+  const source = readFileSync(new URL('../views/WorkstationView.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /<div v-for="task in section\.tasks"[\s\S]*v-if="isIssuePanelForTask\(task\)"[\s\S]*v-if="isFinishPanelForTask\(task\)"/)
+  assert.match(source, /class="task-action-panel"/)
+  assert.match(source, /function isIssuePanelForTask\(task\)/)
+  assert.match(source, /function isFinishPanelForTask\(task\)/)
+  assert.match(source, /function openIssue\(task, mode\) \{[\s\S]*finishPanel\.open = false/)
+  assert.match(source, /function openFinishPanel\(task, mode\) \{[\s\S]*issue\.open = false/)
+  assert.doesNotMatch(source, /<section v-if="issue\.open" class="panel action-panel">/)
+  assert.doesNotMatch(source, /<section v-if="finishPanel\.open" class="panel action-panel">/)
+})
