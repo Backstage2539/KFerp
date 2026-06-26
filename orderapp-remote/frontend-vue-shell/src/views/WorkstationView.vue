@@ -77,47 +77,45 @@
                 {{ actionLabel(action) }}
               </button>
             </div>
+            <div v-if="isIssuePanelForTask(task)" class="task-action-panel">
+              <div class="section-title-row">
+                <div>
+                  <div class="section-title">{{ issue.mode === 'material_call' ? '呼叫补料' : '报异常' }}</div>
+                  <p class="muted">{{ issue.title }}</p>
+                </div>
+                <button class="secondary" type="button" @click="closeIssue">关闭</button>
+              </div>
+              <label>
+                <span>{{ issue.mode === 'material_call' ? '补料说明' : '异常原因' }}</span>
+                <textarea v-model.trim="issue.note" rows="3"></textarea>
+              </label>
+              <button class="primary" type="button" @click="submitIssue" :disabled="busyKey !== ''">提交</button>
+            </div>
+
+            <div v-if="isFinishPanelForTask(task)" class="task-action-panel">
+              <div class="section-title-row">
+                <div>
+                  <div class="section-title">{{ finishPanel.mode === 'partial_finish' ? '部分完成' : '完成本工序' }}</div>
+                  <p class="muted">{{ finishPanel.title }}</p>
+                </div>
+                <button class="secondary" type="button" @click="closeFinishPanel">关闭</button>
+              </div>
+              <div class="form-grid">
+                <label><span>投料(g)</span><input v-model.number="finishPanel.consumed_input_g" type="number" min="0" /></label>
+                <label><span>成品件数</span><input v-model.number="finishPanel.finished_units" type="number" min="0" /></label>
+                <label><span>余料(g)</span><input v-model.number="finishPanel.finished_loose_g" type="number" min="0" /></label>
+                <label><span>入库仓</span><input v-model.trim="finishPanel.warehouse" /></label>
+                <label class="span-2"><span>异常/备注</span><input v-model.trim="finishPanel.note" /></label>
+                <button class="primary" type="button" @click="submitFinishPanel" :disabled="busyKey !== ''">
+                  {{ finishPanel.mode === 'partial_finish' ? '记录部分完成' : '完成本工序' }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </article>
       <p v-if="!visibleSections.length" class="empty-state">暂无工位任务</p>
     </section>
-
-    <section v-if="issue.open" class="panel action-panel">
-      <div class="section-title-row">
-        <div>
-          <div class="section-title">{{ issue.mode === 'material_call' ? '呼叫补料' : '报异常' }}</div>
-          <p class="muted">{{ issue.title }}</p>
-        </div>
-        <button class="secondary" type="button" @click="issue.open = false">关闭</button>
-      </div>
-      <label>
-        <span>{{ issue.mode === 'material_call' ? '补料说明' : '异常原因' }}</span>
-        <textarea v-model.trim="issue.note" rows="3"></textarea>
-      </label>
-      <button class="primary" type="button" @click="submitIssue" :disabled="busyKey !== ''">提交</button>
-    </section>
-
-    <section v-if="finishPanel.open" class="panel action-panel">
-      <div class="section-title-row">
-        <div>
-          <div class="section-title">{{ finishPanel.mode === 'partial_finish' ? '部分完成' : '完成本工序' }}</div>
-          <p class="muted">{{ finishPanel.title }}</p>
-        </div>
-        <button class="secondary" type="button" @click="finishPanel.open = false">关闭</button>
-      </div>
-      <div class="form-grid">
-        <label><span>投料(g)</span><input v-model.number="finishPanel.consumed_input_g" type="number" min="0" /></label>
-        <label><span>成品件数</span><input v-model.number="finishPanel.finished_units" type="number" min="0" /></label>
-        <label><span>余料(g)</span><input v-model.number="finishPanel.finished_loose_g" type="number" min="0" /></label>
-        <label><span>入库仓</span><input v-model.trim="finishPanel.warehouse" /></label>
-        <label class="span-2"><span>异常/备注</span><input v-model.trim="finishPanel.note" /></label>
-        <button class="primary" type="button" @click="submitFinishPanel" :disabled="busyKey !== ''">
-          {{ finishPanel.mode === 'partial_finish' ? '记录部分完成' : '完成本工序' }}
-        </button>
-      </div>
-    </section>
-
     <ProductionExecutionHubDrawer
       :open="executionHub.open"
       :work-order-id="executionHub.workOrderId"
@@ -199,7 +197,31 @@ function actionLabel(action) {
   }[action] || action
 }
 
+function sameTask(a, b) {
+  return Boolean(a && b) && taskKey(a) === taskKey(b)
+}
+
+function isIssuePanelForTask(task) {
+  return issue.open && sameTask(issue.task, task)
+}
+
+function isFinishPanelForTask(task) {
+  return finishPanel.open && sameTask(finishPanel.task, task)
+}
+
+function closeIssue() {
+  issue.open = false
+  issue.task = null
+}
+
+function closeFinishPanel() {
+  finishPanel.open = false
+  finishPanel.task = null
+}
+
 function openIssue(task, mode) {
+  finishPanel.open = false
+  finishPanel.task = null
   issue.open = true
   issue.mode = mode
   issue.task = task
@@ -208,6 +230,8 @@ function openIssue(task, mode) {
 }
 
 function openFinishPanel(task, mode) {
+  issue.open = false
+  issue.task = null
   finishPanel.open = true
   finishPanel.mode = mode
   finishPanel.task = task
@@ -255,16 +279,17 @@ async function handleTaskAction(task, action) {
 
 async function submitIssue() {
   const task = issue.task
-  const endpoint = productionTaskActionEndpoint(task, issue.mode)
+  const mode = issue.mode
+  const endpoint = productionTaskActionEndpoint(task, mode)
   if (!endpoint) return
-  busyKey.value = `${task.job_card_id}:${issue.mode}`
+  busyKey.value = `${task.job_card_id}:${mode}`
   error.value = ''
   message.value = ''
   try {
-    const payload = issue.mode === 'material_call' ? { note: issue.note } : { exception_reason: issue.note }
+    const payload = mode === 'material_call' ? { note: issue.note } : { exception_reason: issue.note }
     await runProductionTaskAction(endpoint, payload)
-    issue.open = false
-    message.value = issue.mode === 'material_call' ? '已呼叫补料' : '已上报异常'
+    closeIssue()
+    message.value = mode === 'material_call' ? '已呼叫补料' : '已上报异常'
     await load()
   } catch (err) {
     error.value = err.message || '提交失败'
@@ -276,11 +301,12 @@ async function submitIssue() {
 async function submitFinishPanel() {
   const task = finishPanel.task
   if (!task) return
-  busyKey.value = `${task.job_card_id}:${finishPanel.mode}`
+  const mode = finishPanel.mode
+  busyKey.value = `${task.job_card_id}:${mode}`
   error.value = ''
   message.value = ''
   try {
-    if (finishPanel.mode === 'partial_finish') {
+    if (mode === 'partial_finish') {
       if (!task.running_item_id) throw new Error('缺少生产中项目，无法记录部分完成')
       await finishRunningProduction({
         id: Number(task.running_item_id),
@@ -301,7 +327,7 @@ async function submitFinishPanel() {
       })
       message.value = '完成本工序已提交'
     }
-    finishPanel.open = false
+    closeFinishPanel()
     await load()
   } catch (err) {
     error.value = err.message || '完成操作失败'
@@ -488,11 +514,15 @@ textarea { resize: vertical; }
   color: #777;
   background: #fff;
 }
-.action-panel {
-  margin-top: 12px;
-  padding: 14px;
+.task-action-panel {
+  grid-column: 1 / -1;
   display: grid;
   gap: 10px;
+  margin-top: 4px;
+  padding: 12px;
+  border: 1px solid #ebe7df;
+  border-radius: 8px;
+  background: #fffdf8;
 }
 .section-title-row {
   display: flex;
@@ -504,10 +534,11 @@ textarea { resize: vertical; }
 .muted { color: #777; font-size: 13px; }
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   align-items: end;
 }
+.form-grid .span-2 { grid-column: span 2; }
 
 @media (max-width: 1100px) {
   .station-grid { grid-template-columns: 1fr; }
@@ -517,6 +548,7 @@ textarea { resize: vertical; }
   .page { padding: 14px; }
   .toolbar, .station-head { align-items: stretch; flex-direction: column; }
   .answer-grid, .form-grid { grid-template-columns: 1fr; }
+  .form-grid .span-2 { grid-column: auto; }
   .task-row { grid-template-columns: 1fr; min-width: 0; align-items: start; }
   .task-row.header { display: none; }
 }
