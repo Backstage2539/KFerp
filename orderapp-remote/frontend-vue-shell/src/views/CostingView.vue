@@ -1117,7 +1117,10 @@ import {
   priceTablePricingModeOptions,
   resolvePriceTableTemplateInheritance,
 } from '../lib/product-settings'
-import { priceListPricingRuleTrialRequestsForRows as buildPriceListPricingRuleTrialRequests } from '../lib/costing-price-list-workflow.js'
+import {
+  dedupePriceListFlatRows,
+  priceListPricingRuleTrialRequestsForRows as buildPriceListPricingRuleTrialRequests,
+} from '../lib/costing-price-list-workflow.js'
 import { FORM_DRAFT_SCOPES, readFormDraft } from '../lib/form-draft-cache'
 import { CUSTOMER_WORKSPACE_MODE, workspaceCustomerChangeEvent } from '../lib/workspace-mode'
 
@@ -1300,7 +1303,7 @@ const basePdfGroups = computed(() => {
   return buildBeanListPdfGroupsFromCategoryRows(categoryProductGroups.value, pdfTheme.value.listType, pdfGenerationOptions.value)
 })
 const priceListGroupTemplateRows = computed(() => priceListTemplateGroupRows(categoryProductGroups.value))
-const priceListFlatRows = computed(() => priceListFlatRowsFromGroups(basePdfGroups.value))
+const priceListFlatRows = computed(() => dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value)))
 const pdfGroups = computed(() => applyPriceListFlatRowsToBeanListPdfGroups(basePdfGroups.value, priceListFlatRows.value, pdfTheme.value.listType))
 const priceListFlatRowsReady = computed(() => priceListFlatRows.value.length > 0 && priceListFlatRows.value.every((row) => {
   const mode = String(row.pricing_mode || '').trim()
