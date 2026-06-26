@@ -49,7 +49,7 @@
         <tbody>
           <tr v-for="row in rows" :key="row.id">
             <td>#{{ row.id }}</td>
-            <td><button class="link-button work-order-link" type="button" @click="openJobCardWorkOrderDrawer(row)">{{ row.work_order_no || `#${row.work_order_id}` }}</button></td>
+            <td><button class="link-button work-order-link" type="button" @click="openExecutionHub(row, 'job_card')">{{ row.work_order_no || `#${row.work_order_id}` }}</button></td>
             <td>{{ row.product_name || '-' }}</td>
             <td>{{ bomRecipeLabel(row) }}</td>
             <td>{{ row.sequence_no || 1 }}</td>
@@ -127,15 +127,27 @@
         </section>
       </aside>
     </div>
+
+    <ProductionExecutionHubDrawer
+      :open="executionHub.open"
+      :work-order-id="executionHub.workOrderId"
+      :focus="executionHub.focus"
+      :view-params="{ ...(props.viewParams || {}), work_order_id: executionHub.workOrderId, job_card_id: executionHub.jobCardId, focus: executionHub.focus }"
+      @close="executionHub.open = false" />
   </div>
 </template>
 
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import { buildJobCardActionPayload, canRunJobCardAction, jobCardActionEndpoint, jobCardStatusLabel, jobCardStatusOptions } from '../lib/manufacturing-execution'
 import { formatPercent } from '../lib/manufacturing-loss'
+
+const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
+})
 
 const rows = ref([])
 const status = ref('')
@@ -143,6 +155,7 @@ const loading = ref(false)
 const error = ref('')
 const drafts = ref({})
 const workOrderDrawerRow = ref(null)
+const executionHub = ref({ open: false, workOrderId: 0, jobCardId: 0, focus: '' })
 const statusOptions = jobCardStatusOptions()
 
 function buildDraft(row) {
@@ -223,11 +236,22 @@ function materialQtyText(item) {
 }
 
 function openJobCardWorkOrderDrawer(row) {
-  workOrderDrawerRow.value = row
+  openExecutionHub(row, 'job_card')
 }
 
 function closeJobCardWorkOrderDrawer() {
   workOrderDrawerRow.value = null
+}
+
+function openExecutionHub(row, focus = 'job_card') {
+  const id = Number(row?.work_order_id || props.viewParams?.work_order_id || 0)
+  if (!id) return
+  executionHub.value = {
+    open: true,
+    workOrderId: id,
+    jobCardId: Number(row?.id || row?.job_card_id || props.viewParams?.job_card_id || 0),
+    focus,
+  }
 }
 
 function statusBadgeClass(statusValue) {
@@ -308,7 +332,12 @@ async function runJobCardAction(row, action) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  if (Number(props.viewParams?.work_order_id || 0) > 0) {
+    openExecutionHub({ work_order_id: Number(props.viewParams.work_order_id), job_card_id: Number(props.viewParams?.job_card_id || 0) }, props.viewParams?.focus || 'job_card')
+  }
+})
 </script>
 
 <style scoped>

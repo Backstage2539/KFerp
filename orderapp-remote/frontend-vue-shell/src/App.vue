@@ -469,7 +469,7 @@ const customerAccountActorMenuGroups = [
 function readViewParams() {
   const params = new URL(window.location.href).searchParams
   const out = {}
-  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id', 'customer_id', 'order_id', 'order_no']) {
+  for (const key of ['warehouse', 'item_type', 'batch', 'ship_ready', 'scope', 'highlight_order_id', 'customer_id', 'order_id', 'order_no', 'work_order_id', 'job_card_id', 'running_item_id', 'material_id', 'shortage_g', 'reference_no', 'focus', 'batch_id', 'tab']) {
     const value = params.get(key)
     if (value) out[key] = value
   }

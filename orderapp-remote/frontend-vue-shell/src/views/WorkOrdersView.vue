@@ -42,7 +42,7 @@
         </thead>
         <tbody>
           <tr v-for="row in rows" :key="row.id">
-            <td><strong>{{ row.work_order_no }}</strong><small>{{ row.order_nos || '-' }}</small></td>
+            <td><button class="link-button work-order-link" type="button" @click="openExecutionHub(row, 'summary')">{{ row.work_order_no }}</button><small>{{ row.order_nos || '-' }}</small></td>
             <td>{{ row.batch_id }}</td>
             <td>{{ row.product_name }}</td>
             <td>{{ row.spec_g }}g</td>
@@ -84,6 +84,7 @@
             </td>
             <td><small>建 {{ row.created_at }}</small><small>完 {{ row.completed_at || '-' }}</small></td>
             <td class="row-actions">
+              <button class="secondary compact" type="button" @click="openExecutionHub(row, 'summary')">执行枢纽</button>
               <button class="secondary compact" v-if="canEditWorkOrderSplits(row)" @click="openWorkOrderSplitDrawer(row)">编辑拆分</button>
               <button class="primary compact" v-if="canStartWorkOrder(row)" @click="startWorkOrder(row)" :disabled="startingId === row.id">开始生产</button>
               <button class="primary compact" v-if="canCompleteWorkOrder(row)" @click="completeWorkOrder(row)" :disabled="completingId === row.id">完工入库</button>
@@ -164,6 +165,13 @@
       </aside>
     </div>
 
+    <ProductionExecutionHubDrawer
+      :open="executionHub.open"
+      :work-order-id="executionHub.workOrderId"
+      :focus="executionHub.focus"
+      :view-params="{ ...(props.viewParams || {}), work_order_id: executionHub.workOrderId, focus: executionHub.focus }"
+      @close="executionHub.open = false" />
+
     <section v-if="printRow" class="print-sheet">
       <header class="print-head">
         <div>
@@ -208,6 +216,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { apiGet, apiSend } from '../api/client'
+import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import { expectedLossRate, formatPercent } from '../lib/manufacturing-loss'
 import { canCompleteWorkOrder, workOrderCompleteEndpoint, workOrderStatusLabel } from '../lib/manufacturing-execution'
@@ -230,6 +239,10 @@ import {
   workOrderStatusOptions,
 } from '../lib/work-orders'
 
+const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
+})
+
 const rows = ref([])
 const workstationCapacities = ref([])
 const status = ref('')
@@ -243,6 +256,7 @@ const workOrderSplitRows = ref([])
 const workOrderSplitSaving = ref(false)
 const workOrderSplitError = ref('')
 const statusOptions = workOrderStatusOptions()
+const executionHub = ref({ open: false, workOrderId: 0, focus: '' })
 
 const money = (v) => Number(v || 0).toFixed(2)
 const percent = (v) => formatPercent(v)
@@ -597,6 +611,12 @@ function closeWorkOrderSplitDrawer() {
   workOrderSplitError.value = ''
 }
 
+function openExecutionHub(row, focus = 'summary') {
+  const id = Number(row?.id || row?.work_order_id || props.viewParams?.work_order_id || 0)
+  if (!id) return
+  executionHub.value = { open: true, workOrderId: id, focus }
+}
+
 async function saveWorkOrderOperationSplits() {
   const endpoint = workOrderOperationSplitsEndpoint(workOrderSplitRow.value)
   if (!endpoint) return
@@ -667,6 +687,9 @@ function printWorkOrder(row) {
 
 onMounted(() => {
   load()
+  if (Number(props.viewParams?.work_order_id || 0) > 0) {
+    openExecutionHub({ id: Number(props.viewParams.work_order_id) }, props.viewParams?.focus || 'summary')
+  }
   window.addEventListener('afterprint', clearPrintMode)
 })
 
@@ -677,7 +700,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}h3{margin:0;font-size:16px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.danger-text{color:#b91c1c}.row-actions{display:flex;gap:6px;flex-wrap:wrap}.table-wrap{overflow:auto}table{width:100%;min-width:1260px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:220px;line-height:1.45}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.muted{color:#666;text-align:center}.text-left{text-align:left}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.print-sheet{display:none}.drawer-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.28);z-index:40;display:flex;justify-content:flex-end}.work-order-split-drawer{width:min(900px,92vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 28px rgba(15,23,42,.18);display:grid;align-content:start;gap:14px}.drawer-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;border-bottom:1px solid #e5e7eb;padding-bottom:12px}.drawer-head p{margin:6px 0 0;color:#666}.split-operation-block{border-top:1px solid #e5e7eb;padding-top:14px;display:grid;gap:10px}.split-operation-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.split-operation-head span{color:#666}.split-row{display:grid;grid-template-columns:minmax(220px,1.2fr) minmax(130px,.6fr) repeat(3,minmax(92px,.4fr)) auto;gap:10px;align-items:end;border:1px solid #eef2f7;border-radius:8px;padding:10px}.split-metric{border:1px solid #e5e7eb;border-radius:6px;padding:7px 9px;background:#fbfbfb}.split-metric span{display:block;font-size:12px;color:#666}.split-metric strong{font-size:14px}.split-batch-cards{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.split-batch-card{border:1px solid #dbeafe;border-radius:6px;background:#eff6ff;padding:8px;display:grid;gap:3px}.split-batch-card small,.split-batch-card span{color:#374151}.split-batch-card.underfilled{border-color:#fed7aa;background:#fff7ed}.split-batch-card em{color:#c2410c;font-style:normal;font-size:12px}.section-hint{padding:8px 0}.drawer-actions{display:flex;gap:10px;justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}
+.page{padding:16px;display:grid;gap:16px}.panel{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}h2{margin:0;font-size:18px}h3{margin:0;font-size:16px}.filters{display:grid;grid-template-columns:160px 90px;gap:10px;align-items:end}label span{display:block;color:#666;font-size:12px;margin-bottom:5px}select,input,button{font:inherit;min-height:36px;border-radius:6px}select,input{width:100%;border:1px solid #ddd;padding:7px 9px}button{padding:8px 12px;cursor:pointer}.primary{border:1px solid #111;background:#111;color:#fff}.secondary{border:1px solid #9ca3af;background:#fff;color:#111}.compact{min-height:30px;padding:5px 10px}.danger-text{color:#b91c1c}.link-button{border:0;background:transparent;color:#1d4ed8;padding:0;min-height:0;text-decoration:underline}.work-order-link{font-weight:700}.row-actions{display:flex;gap:6px;flex-wrap:wrap}.table-wrap{overflow:auto}table{width:100%;min-width:1260px;border-collapse:collapse}th,td{border-bottom:1px solid #f0f0f0;padding:8px;text-align:left;font-size:13px;vertical-align:top}th{background:#fbfbfb}td small{display:block;color:#6b7280;margin-top:3px}.advice strong{display:block}.summary{max-width:220px;line-height:1.45}.status{display:inline-flex;border:1px solid #d1d5db;border-radius:999px;padding:2px 8px;background:#f9fafb}.status.info{border-color:#93c5fd;background:#eff6ff;color:#1d4ed8}.status.warning{border-color:#fed7aa;background:#fff7ed;color:#c2410c}.status.success{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.status.danger{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.status.neutral{border-color:#d1d5db;background:#f9fafb;color:#374151}.muted{color:#666;text-align:center}.text-left{text-align:left}.error{background:#ffecec;border:1px solid #ffb9b9;border-radius:8px;padding:10px}.print-sheet{display:none}.drawer-backdrop{position:fixed;inset:0;background:rgba(17,24,39,.28);z-index:40;display:flex;justify-content:flex-end}.work-order-split-drawer{width:min(900px,92vw);height:100%;overflow:auto;background:#fff;padding:18px;box-shadow:-12px 0 28px rgba(15,23,42,.18);display:grid;align-content:start;gap:14px}.drawer-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;border-bottom:1px solid #e5e7eb;padding-bottom:12px}.drawer-head p{margin:6px 0 0;color:#666}.split-operation-block{border-top:1px solid #e5e7eb;padding-top:14px;display:grid;gap:10px}.split-operation-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.split-operation-head span{color:#666}.split-row{display:grid;grid-template-columns:minmax(220px,1.2fr) minmax(130px,.6fr) repeat(3,minmax(92px,.4fr)) auto;gap:10px;align-items:end;border:1px solid #eef2f7;border-radius:8px;padding:10px}.split-metric{border:1px solid #e5e7eb;border-radius:6px;padding:7px 9px;background:#fbfbfb}.split-metric span{display:block;font-size:12px;color:#666}.split-metric strong{font-size:14px}.split-batch-cards{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.split-batch-card{border:1px solid #dbeafe;border-radius:6px;background:#eff6ff;padding:8px;display:grid;gap:3px}.split-batch-card small,.split-batch-card span{color:#374151}.split-batch-card.underfilled{border-color:#fed7aa;background:#fff7ed}.split-batch-card em{color:#c2410c;font-style:normal;font-size:12px}.section-hint{padding:8px 0}.drawer-actions{display:flex;gap:10px;justify-content:flex-end;border-top:1px solid #e5e7eb;padding-top:12px}
 
 @media print{
   :global(body.work-order-printing .sidebar),:global(body.work-order-printing .top){display:none!important}

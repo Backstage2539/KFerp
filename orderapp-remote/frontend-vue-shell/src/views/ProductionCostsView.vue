@@ -75,6 +75,10 @@ import { apiGet } from '../api/client'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import { visibleProductionTraceLinks } from '../lib/production-costs'
 
+const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
+})
+
 const phase3TraceAnalyticsMarkers = ['trace_links', 'cost_variance', 'abnormal_losses']
 const rows = ref([])
 const traceAnalytics = ref({ trace_links: [], cost_variance: [], abnormal_losses: [], total_variance: 0, abnormal_loss_count: 0 })
@@ -86,6 +90,10 @@ const costVarianceRows = computed(() => traceAnalytics.value.cost_variance || []
 const abnormalLossRows = computed(() => traceAnalytics.value.abnormal_losses || [])
 const money = (v) => Number(v || 0).toFixed(2)
 const percent = (v) => `${(Number(v || 0) * 100).toFixed(1)}%`
+function applyProductionContextParams() {
+  if (Number(props.viewParams?.work_order_id || 0) > 0) filters.work_order_id = Number(props.viewParams.work_order_id)
+  if (String(props.viewParams?.batch_id || '').trim()) filters.batch_id = String(props.viewParams.batch_id).trim()
+}
 function severityLabel(v) {
   return ({ error: '严重', warning: '提醒', info: '记录' })[String(v || '').trim()] || '记录'
 }
@@ -112,7 +120,10 @@ async function load() {
     loading.value = false
   }
 }
-onMounted(load)
+onMounted(() => {
+  applyProductionContextParams()
+  load()
+})
 </script>
 
 <style scoped>

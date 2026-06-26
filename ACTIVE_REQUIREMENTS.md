@@ -6,6 +6,27 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-499-PRODUCTION-EXECUTION-HUB-PHASE2
+- Branch: codex/production-execution-hub-phase2-20260617
+- Owner/session: Codex goal / 2026-06-18
+- Status: implementing; RED/GREEN targeted service/API/frontend checks, broader tests, frontend build and changed verifier passing; push/merge/deploy/browser acceptance pending.
+- Scope: 生产管理高频视图优化二期。基于 PR-496/PR-497 已合入并部署的生产顶部切换条、生产视图、工位视图、生产计划步骤条、生产中完成面板和 WIP 上下文，新增统一工单执行枢纽和结构化 readiness，让生产负责人和工位操作员围绕同一工单查看 WIP、质检、工序卡、库存作业、完工入库、成本和追溯时间线。
+- DEV:
+  - DEV-499-WORKORDER-EXECUTION-HUB：扩展 `/api/produce/work-orders/:id`，返回 `execution_hub`，包含工单头、BOM/路线摘要、工序进度、工位分配、WIP 状态、质检状态、Stock Entry、完工入库状态、成本摘要、追溯 timeline 和上下文动作。
+  - DEV-499-TASK-READINESS-READMODEL：扩展 overview/read model 和工单详情 readiness，返回 `can_start`、`can_complete`、`blocking_reasons`、`next_handler`、`suggested_action`、`severity`、`related_links`，覆盖 WIP 不足、质检冻结、上道工序未完成、未分配工位、工单状态不允许、完成/取消、超时/排程风险。
+  - DEV-499-PRODUCTION-HUB-LINKS：生产视图、工位视图、生产工单和工序卡统一打开 `ProductionExecutionHubDrawer`；从枢纽打开库存作业、质检、成本和日志时携带 `work_order_id`、`job_card_id`、`running_item_id`、`material_id`、`shortage_g`、`batch_id` 等上下文。
+  - DEV-499-WORKSTATION-LOAD-TIMELINE：生产视图/工位视图展示队列数量、阻塞数量、预计分钟和负载状态；执行枢纽 timeline 支持全部、工序、库存、质检、成本、日志过滤，不替代原日志/成本/库存页面。
+- Verifier:
+  - RED frontend: `node --test src/lib/production-execution-hub.test.js` failed before implementation because `production-execution-hub.js` and shared drawer/page hooks were missing.
+  - RED backend/API: targeted production tests failed before implementation because `WorkOrderDetail.ExecutionHub`、`ProductionExecutionReadiness`、enhanced workstation load fields and API JSON contract were missing.
+  - GREEN targeted frontend: `node --test src/lib/production-execution-hub.test.js src/lib/production-workstation.test.js src/lib/view-routing.test.js` passed 21/21.
+  - GREEN targeted backend/API: `go test ./internal/application/production ./internal/interfaces/http/production -run 'TestWorkOrderExecutionHubReadModelAndTraceTimeline|TestProductionWorkstationOverviewAnswersProductionAndStationQuestions|TestWorkOrderProducePathOwnsInventoryActionsAndDetail' -count=1`.
+  - GREEN release-local: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1`; `go test ./...`; `node --test src/lib/production-execution-hub.test.js src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js src/lib/menu-ia.test.js src/lib/view-routing.test.js src/lib/work-orders.test.js src/lib/quality-inspections.test.js src/lib/production-costs.test.js src/lib/production-logs.test.js` passed 99/99; `npm run build` passed after `npm ci` with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Pending integration: feature branch push, develop merge, development deploy, ERP browser acceptance.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-21-production-execution-hub-phase2.md`; root `REQUIREMENTS.md`; root `ACCEPTANCE_TESTS.md`.
+- Deployment: pending merge to develop and serialized deployment.
+- Last update: 2026-06-21 Asia/Shanghai.
+
 ### PR-498-ERP-E2E-AUDIT-FIXES
 - Branch: codex/erp-e2e-audit-fixes-20260616
 - Owner/session: Codex goal / 2026-06-16

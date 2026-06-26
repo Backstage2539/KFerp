@@ -12,7 +12,7 @@ func TestProductionLogsVueContainsKeyColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(body)
-	for _, needle := range []string{"生产日志", "实际产出率", "BOM预期产出率", "投料数(g)", "完成时间", "/api/produce/logs"} {
+	for _, needle := range []string{"生产日志", "实际产出率", "BOM预期产出率", "投料数(g)", "完成时间", "/api/produce/logs", "running_item_id", "applyProductionContextParams"} {
 		if !strings.Contains(content, needle) {
 			t.Fatalf("ProductionLogsView.vue missing %q", needle)
 		}
@@ -25,7 +25,7 @@ func TestProductionLogPagesExposeJSONAPIAndVueRedirect(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(body)
-	for _, want := range []string{`e.GET("/api/produce/logs"`, `target := "/vue-shell?view=produceLogs"`} {
+	for _, want := range []string{`e.GET("/api/produce/logs"`, `target := "/vue-shell?view=produceLogs"`, "RunningItemID", `c.QueryParam("running_item_id")`} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("production_logs_page.go missing %q", want)
 		}

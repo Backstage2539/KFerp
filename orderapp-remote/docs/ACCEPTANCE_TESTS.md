@@ -62,6 +62,10 @@
 - [ ] PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION：生产计划页面显示 `选需求 -> 生成草稿 -> 拆分产能 -> 提交工单 -> 开始生产` 步骤条和 sticky 下一步按钮；提交生成工单成功后显示下一步面板，可打开工单、打开工序卡、分配工位和领料到 WIP，且不改变创建、拆分、提交后端业务规则。
 - [ ] PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION：生产中列表只保留扫描字段和一个主动作；完成/部分完成打开统一完成面板，面板字段包含投料、成品件数、余料、入库仓、异常/备注；WIP 不足或质检冻结错误在行内/面板内展示原因、影响对象和动作按钮。
 - [ ] PR-496-PRODUCTION-FLOW-PHASE1-OPTIMIZATION：从生产视图或生产中打开库存作业时，库存作业默认进入 WIP 上下文，并预填 work_order_id、job_card_id、running_item_id、material_id、缺口数量等参数；旧生产计划、工单、工序卡、质检、日志、成本页面仍可通过顶部切换条进入。
+- [ ] PR-499-PRODUCTION-EXECUTION-HUB-PHASE2：`GET /api/produce/work-orders/:id` 返回 `execution_hub`，包含工单头、BOM/路线摘要、工序进度、工位分配、WIP 状态、质检状态、Stock Entry、完工入库、成本摘要、`trace_timeline` 和上下文动作；readiness 结构化返回 `can_start`、`can_complete`、`blocking_reasons`、`next_handler`、`suggested_action`、`severity` 和 `related_links`。
+- [ ] PR-499-PRODUCTION-EXECUTION-HUB-PHASE2：从生产视图异常/执行中任务、工位视图任务卡、生产工单行和工序卡工单号打开同一个工单执行枢纽；枢纽能回答该工单能否开始/完成、哪里阻塞、下一步谁处理，并显示 WIP 不足、质检冻结、上道工序未完成、未分配工位、状态不允许和超时/排程风险。
+- [ ] PR-499-PRODUCTION-EXECUTION-HUB-PHASE2：工单执行枢纽的库存作业、质检、成本和日志动作跳转时保留 `work_order_id`、`job_card_id`、`running_item_id`、`material_id`、`shortage_g`、`batch_id` 等上下文；库存、WIP、质检冻结和完工入库核心业务规则不因枢纽入口改变。
+- [ ] PR-499-PRODUCTION-EXECUTION-HUB-PHASE2：生产视图/工位视图的工位负载展示队列数、阻塞数、预计分钟和负载状态；执行枢纽 timeline 可按全部、工序、库存、质检、成本、日志过滤，且旧生产计划、生产中、工单、工序卡、质检、日志、成本页面仍通过顶部切换条可达。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产计划页选择咖啡豆订单缺口后点击 `创建生产计划`，系统只生成 `draft` 生产计划和计划行，不生成生产中记录、生产日志或 WIP 占用。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：提交生产计划后，系统生成 `released` 生产工单和 `pending` 工序卡；咖啡豆工艺路线应生成烘焙/包装步骤，包装盒示例应生成印刷/模切/糊盒步骤，童装示例应生成裁剪/缝制/质检步骤。
 - [ ] PR-472-MANUFACTURING-PRODUCTION-PLAN-WORKORDER-LIFECYCLE：在生产工单页筛选 `released` 后点击 `开始生产`，工单进入 `running`，产生 running item、WIP 占用并进入现有生产中/完工链路；重复开始生产必须返回错误，不重复开始生产、不重复写 WIP 或 running item。

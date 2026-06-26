@@ -940,6 +940,150 @@ func TestServiceOwnsWorkOrderInventoryControlWithStockDocumentPurpose(t *testing
 	}
 }
 
+func TestWorkOrderExecutionHubReadModelAndTraceTimeline(t *testing.T) {
+	repo := &fakeFlowRepo{
+		workOrders: []WorkOrderRow{{
+			ID:                   88,
+			WorkOrderNo:          "WO-HUB-001",
+			RunningItemID:        99,
+			ProductionPlanID:     41,
+			ProductID:            5,
+			ProductName:          "桂花乌龙",
+			SpecG:                227,
+			PlannedG:             45400,
+			PlannedOutputG:       45400,
+			PlannedUnits:         200,
+			Status:               "running",
+			BatchID:              "BATCH-WO-88",
+			BomVersionID:         17,
+			ProcessSnapshotJSON:  `{"route_name":"标准包装路线","operations":[{"seq":1,"operation":"包装"},{"seq":2,"operation":"贴标"}]}`,
+			OperationSummaryJSON: `[{"sequence_no":1,"operation":"包装","workstation":"包装工位A","status":"completed","planned_minutes":40},{"sequence_no":2,"operation":"贴标","workstation":"包装工位B","status":"pending","planned_minutes":20}]`,
+			AssignedTo:           "生产主管",
+			WorkCenter:           "包装线",
+			Priority:             7,
+			CreatedAt:            "2026-06-17 09:00",
+		}},
+		jobCards: []JobCardRow{{
+			ID:             91,
+			WorkOrderID:    88,
+			WorkOrderNo:    "WO-HUB-001",
+			Operation:      "包装",
+			Workstation:    "包装工位A",
+			WorkCenter:     "包装线",
+			Status:         "completed",
+			AssignedTo:     "阿强",
+			CompletedAt:    "2026-06-17 10:00",
+			PlannedMinutes: 40,
+		}, {
+			ID:              92,
+			WorkOrderID:     88,
+			WorkOrderNo:     "WO-HUB-001",
+			Operation:       "贴标",
+			Workstation:     "",
+			WorkCenter:      "",
+			Status:          "pending",
+			AssignedTo:      "",
+			PlannedMinutes:  20,
+			ExceptionReason: "前序工序未确认",
+		}},
+		reservationRows: []WIPReservationRow{{
+			ID:                 11,
+			WorkOrderID:        88,
+			WorkOrderNo:        "WO-HUB-001",
+			RunningItemID:      99,
+			MaterialID:         10,
+			MaterialName:       "包装袋",
+			RequiredG:          5000,
+			ReservedG:          3200,
+			RemainingReservedG: 3200,
+			AvailableG:         1000,
+			Status:             "reserved",
+			UpdatedAt:          "2026-06-17 09:20",
+		}},
+		stockEntryRows: []StockEntryRow{{
+			ID:            7,
+			EntryNo:       "SE-0000000007",
+			EntryType:     "material_issue_to_wip",
+			Purpose:       "material_transfer_for_manufacture",
+			WorkOrderID:   88,
+			JobCardID:     91,
+			RunningItemID: 99,
+			Status:        "submitted",
+			CreatedAt:     "2026-06-17 09:15",
+		}},
+		ledgerRows: []WorkOrderLedgerEntryRow{{
+			ID:            21,
+			StockEntryID:  7,
+			EntryNo:       "SE-0000000007",
+			Purpose:       "material_transfer_for_manufacture",
+			ItemName:      "包装袋",
+			Warehouse:     "wip",
+			QtyChangeG:    3200,
+			QtyAfterG:     3200,
+			SourceDocType: "stock_entry",
+			SourceDocID:   7,
+			CreatedAt:     "2026-06-17 09:15",
+		}},
+		qualityRows: []QualityInspectionRow{{
+			ID:          3,
+			Scope:       "work_order",
+			ReferenceNo: "WO-HUB-001",
+			ItemName:    "桂花乌龙",
+			Result:      "hold",
+			Note:        "待复核",
+			CreatedAt:   "2026-06-17 09:45",
+		}},
+		productionLogs: ProductionLogsResult{Rows: []ProductionLogRow{{
+			ID:                31,
+			BatchID:           "BATCH-WO-88",
+			ProductName:       "桂花乌龙",
+			FinishedTotalG:    45400,
+			FinishedBatchCode: "FP-88",
+			FinishedAt:        "2026-06-17 11:00",
+		}}},
+		batchCosts: []BatchCostRow{{RunningItemID: 99, BatchID: "BATCH-WO-88", MaterialCost: 36.25, OperationCost: 12.5, TotalCost: 48.75, CreatedAt: "2026-06-17 11:05"}},
+	}
+	svc := NewService(repo)
+
+	detail, err := svc.GetWorkOrderDetail(context.Background(), 88)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := detail.ExecutionHub
+	if hub.Header.WorkOrderNo != "WO-HUB-001" || hub.Header.ProductName != "桂花乌龙" || hub.Header.BomVersionID != 17 {
+		t.Fatalf("execution hub header = %+v", hub.Header)
+	}
+	if hub.Readiness.CanStart || hub.Readiness.CanComplete || hub.Readiness.NextHandler != "仓库/物料" || hub.Readiness.Severity != "blocked" {
+		t.Fatalf("execution readiness = %+v", hub.Readiness)
+	}
+	if !blockingReasonCodesContain(hub.Readiness.BlockingReasons, "wip_shortage") || !blockingReasonCodesContain(hub.Readiness.BlockingReasons, "quality_freeze") || !blockingReasonCodesContain(hub.Readiness.BlockingReasons, "workstation_unassigned") || !blockingReasonCodesContain(hub.Readiness.BlockingReasons, "prior_operation_incomplete") {
+		t.Fatalf("blocking reasons = %+v", hub.Readiness.BlockingReasons)
+	}
+	if hub.Readiness.SuggestedAction != "open_wip_issue" || len(hub.Readiness.RelatedLinks) == 0 || hub.Readiness.RelatedLinks[0].View != "stockOperations" {
+		t.Fatalf("readiness links/action = %+v", hub.Readiness)
+	}
+	if hub.WIPStatus.RequiredG != 5000 || hub.WIPStatus.AvailableG != 1000 || hub.WIPStatus.ShortageG != 1800 {
+		t.Fatalf("WIP status = %+v", hub.WIPStatus)
+	}
+	if hub.QualityStatus.Status != "blocked" || hub.QualityStatus.Result != "hold" {
+		t.Fatalf("quality status = %+v", hub.QualityStatus)
+	}
+	if len(hub.OperationProgress) != 2 || hub.OperationProgress[1].Status != "pending" {
+		t.Fatalf("operation progress = %+v", hub.OperationProgress)
+	}
+	for _, typ := range []string{"operation", "inventory", "quality", "cost", "log"} {
+		if !timelineHasType(hub.TraceTimeline, typ) {
+			t.Fatalf("trace timeline missing %s: %+v", typ, hub.TraceTimeline)
+		}
+	}
+	if !contextActionKeysContain(hub.ContextActions, "openWipIssue") || !contextActionKeysContain(hub.ContextActions, "openJobCard") || !contextActionKeysContain(hub.ContextActions, "openQuality") {
+		t.Fatalf("context actions = %+v", hub.ContextActions)
+	}
+	if repo.qualityQuery.Scope != "work_order" {
+		t.Fatalf("quality query = %+v", repo.qualityQuery)
+	}
+}
+
 func TestProductionWorkstationOverviewAnswersProductionAndStationQuestions(t *testing.T) {
 	repo := &fakeFlowRepo{
 		workOrders: []WorkOrderRow{{
@@ -1065,6 +1209,9 @@ func TestProductionWorkstationOverviewAnswersProductionAndStationQuestions(t *te
 	if packLoad.Workstation != "包装线" || packLoad.RunningTasks != 1 || packLoad.PendingTasks != 1 || packLoad.LoadMinutes != 60 {
 		t.Fatalf("包装线 load = %+v", packLoad)
 	}
+	if packLoad.QueueCount != 2 || packLoad.BlockedCount != 0 || packLoad.EstimatedMinutes != 60 || packLoad.LoadStatus != "normal" {
+		t.Fatalf("包装线 enhanced load = %+v", packLoad)
+	}
 	if packLoad.CurrentTask != "包装 / 桂花乌龙" || packLoad.NextTask != "贴标 / 桂花乌龙" {
 		t.Fatalf("包装线 current/next = %+v", packLoad)
 	}
@@ -1072,10 +1219,16 @@ func TestProductionWorkstationOverviewAnswersProductionAndStationQuestions(t *te
 	if roastLoad.BlockedTasks != 1 || roastLoad.BlockingReason != "缺少生豆领料" {
 		t.Fatalf("烘焙线 load = %+v", roastLoad)
 	}
+	if roastLoad.BlockedCount != 1 || roastLoad.LoadStatus != "blocked" {
+		t.Fatalf("烘焙线 enhanced load = %+v", roastLoad)
+	}
 
 	running := findProductionTask(overview.Tasks, 91)
 	if running.RunningItemID != 99 || running.StatusLabel != "执行中" || running.Readiness != "running" || running.ReadinessLabel != "执行中" || running.NextHandler != "阿强" {
 		t.Fatalf("running task = %+v", running)
+	}
+	if running.ReadinessDetail.CanStart || !running.ReadinessDetail.CanComplete || running.ReadinessDetail.SuggestedAction != "complete_job_card" || running.ReadinessDetail.Severity != "info" {
+		t.Fatalf("running task readiness detail = %+v", running.ReadinessDetail)
 	}
 	for _, action := range []string{"pause", "complete", "partial_finish", "report_exception", "material_call"} {
 		if !stringSliceContains(running.AvailableActions, action) {
@@ -1085,6 +1238,12 @@ func TestProductionWorkstationOverviewAnswersProductionAndStationQuestions(t *te
 	blocked := findProductionTask(overview.Tasks, 93)
 	if !blocked.IsBlocked || blocked.Readiness != "blocked" || blocked.ReadinessLabel != "不能做" || blocked.BlockingReason != "缺少生豆领料" || blocked.NextHandler != "现场主管" {
 		t.Fatalf("blocked task = %+v", blocked)
+	}
+	if blocked.ReadinessDetail.CanStart || blocked.ReadinessDetail.CanComplete || blocked.ReadinessDetail.Severity != "blocked" || len(blocked.ReadinessDetail.BlockingReasons) == 0 || blocked.ReadinessDetail.SuggestedAction != "open_wip_issue" {
+		t.Fatalf("blocked task readiness detail = %+v", blocked.ReadinessDetail)
+	}
+	if !relatedLinksContainView(blocked.ReadinessDetail.RelatedLinks, "stockOperations") {
+		t.Fatalf("blocked task links = %+v", blocked.ReadinessDetail.RelatedLinks)
 	}
 	for _, action := range []string{"resume", "complete", "report_exception", "material_call"} {
 		if !stringSliceContains(blocked.AvailableActions, action) {
@@ -1143,6 +1302,42 @@ func findProductionTask(rows []ProductionTask, jobCardID int64) ProductionTask {
 func stringSliceContains(rows []string, want string) bool {
 	for _, row := range rows {
 		if row == want {
+			return true
+		}
+	}
+	return false
+}
+
+func blockingReasonCodesContain(rows []ProductionBlockingReason, want string) bool {
+	for _, row := range rows {
+		if row.Code == want {
+			return true
+		}
+	}
+	return false
+}
+
+func relatedLinksContainView(rows []ProductionRelatedLink, view string) bool {
+	for _, row := range rows {
+		if row.View == view {
+			return true
+		}
+	}
+	return false
+}
+
+func timelineHasType(rows []ProductionTraceTimelineEntry, typ string) bool {
+	for _, row := range rows {
+		if row.Type == typ {
+			return true
+		}
+	}
+	return false
+}
+
+func contextActionKeysContain(rows []ProductionContextAction, key string) bool {
+	for _, row := range rows {
+		if row.Key == key {
 			return true
 		}
 	}

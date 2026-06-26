@@ -55,6 +55,8 @@ type workOrderAPIRepo struct {
 	batchCosts          []productionapp.BatchCostRow
 	ledgerQuery         productionapp.WorkOrderLedgerQuery
 	ledgerRows          []productionapp.WorkOrderLedgerEntryRow
+	qualityQuery        productionapp.QualityInspectionQuery
+	qualityRows         []productionapp.QualityInspectionRow
 }
 
 func (r *workOrderAPIRepo) CreateBatch(ctx context.Context, cmd productionapp.CreateBatchCommand) (productionapp.CreateBatchResult, error) {
@@ -331,7 +333,8 @@ func (r *workOrderAPIRepo) CreateQualityInspection(ctx context.Context, cmd prod
 	return productionapp.QualityInspectionRow{}, nil
 }
 func (r *workOrderAPIRepo) ListQualityInspections(ctx context.Context, query productionapp.QualityInspectionQuery) ([]productionapp.QualityInspectionRow, error) {
-	return nil, nil
+	r.qualityQuery = query
+	return r.qualityRows, nil
 }
 func (r *workOrderAPIRepo) ListWIPReservations(ctx context.Context, query productionapp.WIPReservationQuery) (productionapp.WIPReservationResult, error) {
 	r.reservationQuery = query
@@ -648,6 +651,7 @@ func TestWorkOrderProducePathOwnsInventoryActionsAndDetail(t *testing.T) {
 		reservationRows: []productionapp.WIPReservationRow{{ID: 11, WorkOrderID: 88, WorkOrderNo: "WO-PR497-001", RunningItemID: 99, MaterialID: 10, MaterialName: "孟连水洗", ReservedG: 60000, RemainingReservedG: 45000}},
 		stockEntryRows:  []productionapp.StockEntryRow{{ID: 7, EntryNo: "SE-0000000007", EntryType: "material_issue_to_wip", Purpose: "material_transfer_for_manufacture", WorkOrderID: 88, RunningItemID: 99, Status: "submitted"}},
 		ledgerRows:      []productionapp.WorkOrderLedgerEntryRow{{ID: 21, StockEntryID: 7, EntryNo: "SE-0000000007", Purpose: "material_transfer_for_manufacture", ItemType: "material", ItemID: 10, Warehouse: "wip", QtyChangeG: 60000}},
+		qualityRows:     []productionapp.QualityInspectionRow{{ID: 3, Scope: "work_order", ReferenceNo: "WO-PR497-001", Result: "hold", Note: "待复核"}},
 		productionLogs:  productionapp.ProductionLogsResult{Rows: []productionapp.ProductionLogRow{{ID: 31, BatchID: "BATCH-WO-88", InputG: 60000, FinishedTotalG: 45400}}},
 		batchCosts:      []productionapp.BatchCostRow{{RunningItemID: 99, BatchID: "BATCH-WO-88", TotalCost: 48.75}},
 	}
@@ -705,7 +709,30 @@ func TestWorkOrderProducePathOwnsInventoryActionsAndDetail(t *testing.T) {
 		t.Fatalf("GET /api/produce/work-orders/88 status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{`"work_order"`, `"materials"`, `"job_cards"`, `"stock_documents"`, `"stock_entries"`, `"ledger_entries"`, `"production_logs"`, `"cost_summary"`, `"purpose":"material_transfer_for_manufacture"`} {
+	for _, want := range []string{
+		`"work_order"`,
+		`"materials"`,
+		`"job_cards"`,
+		`"stock_documents"`,
+		`"stock_entries"`,
+		`"ledger_entries"`,
+		`"production_logs"`,
+		`"cost_summary"`,
+		`"execution_hub"`,
+		`"readiness"`,
+		`"can_start"`,
+		`"can_complete"`,
+		`"blocking_reasons"`,
+		`"next_handler"`,
+		`"suggested_action"`,
+		`"related_links"`,
+		`"operation_progress"`,
+		`"wip_status"`,
+		`"quality_status"`,
+		`"trace_timeline"`,
+		`"context_actions"`,
+		`"purpose":"material_transfer_for_manufacture"`,
+	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("work order detail response missing %s: %s", want, body)
 		}

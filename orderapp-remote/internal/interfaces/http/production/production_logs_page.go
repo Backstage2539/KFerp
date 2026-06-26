@@ -14,14 +14,15 @@ type ProductionLogRow = productionapp.ProductionLogRow
 type productionProductOption = productionapp.ProductionLogProductOption
 
 type ProductionLogsPageData struct {
-	From      string
-	To        string
-	ProductID int64
-	BatchID   string
-	Operator  string
-	Products  []productionProductOption
-	Rows      []ProductionLogRow
-	Error     string
+	From          string
+	To            string
+	ProductID     int64
+	BatchID       string
+	Operator      string
+	RunningItemID int64
+	Products      []productionProductOption
+	Rows          []ProductionLogRow
+	Error         string
 }
 
 type ProductionLogsAPIResponse struct {
@@ -41,12 +42,13 @@ func registerProductionLogPages(e *echo.Echo, productionSvc *productionapp.Servi
 	e.GET("/api/produce/logs", func(c echo.Context) error {
 		query := parseProductionLogsQuery(c)
 		result, err := productionSvc.ListProductionLogs(c.Request().Context(), productionapp.ProductionLogsQuery{
-			From:      query.From,
-			To:        query.To,
-			ProductID: query.ProductID,
-			BatchID:   query.BatchID,
-			Operator:  query.Operator,
-			Limit:     200,
+			From:          query.From,
+			To:            query.To,
+			ProductID:     query.ProductID,
+			BatchID:       query.BatchID,
+			Operator:      query.Operator,
+			RunningItemID: query.RunningItemID,
+			Limit:         200,
 		})
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -65,6 +67,11 @@ func parseProductionLogsQuery(c echo.Context) ProductionLogsPageData {
 	if v := strings.TrimSpace(c.QueryParam("product_id")); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
 			data.ProductID = n
+		}
+	}
+	if v := strings.TrimSpace(c.QueryParam("running_item_id")); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			data.RunningItemID = n
 		}
 	}
 	return data

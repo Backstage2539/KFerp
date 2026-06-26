@@ -27,7 +27,7 @@
         <div class="station-head">
           <div>
             <h3>{{ section.workstation }}</h3>
-            <p>{{ section.tasks.length }} 个任务</p>
+            <p>{{ stationLoad(section).load_status || 'normal' }} · 队列 {{ stationLoad(section).queue_count || section.tasks.length }} · 阻塞 {{ stationLoad(section).blocked_count || 0 }} · 预计 {{ stationLoad(section).estimated_minutes || 0 }} 分钟</p>
           </div>
           <span v-if="section.blockingReason" class="blocker">{{ section.blockingReason }}</span>
         </div>
@@ -65,6 +65,7 @@
             <span class="pill" :class="statusClass(task)">{{ task.status_label || task.status || '-' }}</span>
             <span>{{ task.next_handler || task.assigned_to || '-' }}</span>
             <div class="actions">
+              <button type="button" class="secondary" @click="openExecutionHub(task, 'job_card')">详情</button>
               <button
                 v-for="action in task.available_actions || []"
                 :key="action"
@@ -116,14 +117,26 @@
         </button>
       </div>
     </section>
+
+    <ProductionExecutionHubDrawer
+      :open="executionHub.open"
+      :work-order-id="executionHub.workOrderId"
+      :focus="executionHub.focus"
+      :view-params="{ ...(props.viewParams || {}), work_order_id: executionHub.workOrderId, job_card_id: executionHub.jobCardId, focus: executionHub.focus }"
+      @close="executionHub.open = false" />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { fetchProductionWorkstationOverview, finishRunningProduction, runProductionTaskAction } from '../api/production.js'
+import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import { productionTaskActionEndpoint, taskTitle, workstationTaskSections } from '../lib/production-workstation.js'
+
+const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
+})
 
 const loading = ref(false)
 const busyKey = ref('')
@@ -132,6 +145,7 @@ const message = ref('')
 const selectedWorkstation = ref('')
 const overview = ref({ tasks: [] })
 const issue = reactive({ open: false, mode: '', title: '', task: null, note: '' })
+const executionHub = reactive({ open: false, workOrderId: 0, jobCardId: 0, focus: '' })
 const finishPanel = reactive({
   open: false,
   mode: '',
@@ -146,6 +160,7 @@ const finishPanel = reactive({
 
 const tasks = computed(() => overview.value.tasks || [])
 const sections = computed(() => workstationTaskSections(tasks.value))
+const workstationLoad = computed(() => overview.value.workstation_load || [])
 const visibleSections = computed(() => selectedWorkstation.value ? sections.value.filter((section) => section.workstation === selectedWorkstation.value) : sections.value)
 const singleStationLayout = computed(() => visibleSections.value.length === 1)
 
@@ -160,6 +175,10 @@ function taskMeta(task) {
 
 function nextHandler(section) {
   return section.tasks.find((task) => task.blocking_reason)?.next_handler || '现场主管'
+}
+
+function stationLoad(section) {
+  return workstationLoad.value.find((row) => row.workstation === section.workstation) || {}
 }
 
 function statusClass(task) {
@@ -198,6 +217,15 @@ function openFinishPanel(task, mode) {
   finishPanel.consumed_input_g = Number(task.planned_g || task.planned_output_g || 0)
   finishPanel.warehouse = 'finished_goods'
   finishPanel.note = task.blocking_reason || ''
+}
+
+function openExecutionHub(task, focus = 'job_card') {
+  const id = Number(task?.work_order_id || 0)
+  if (!id) return
+  executionHub.workOrderId = id
+  executionHub.jobCardId = Number(task?.job_card_id || 0)
+  executionHub.focus = focus
+  executionHub.open = true
 }
 
 async function handleTaskAction(task, action) {
@@ -297,7 +325,16 @@ async function load() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  const id = Number(props.viewParams?.work_order_id || 0)
+  if (id > 0) {
+    executionHub.workOrderId = id
+    executionHub.jobCardId = Number(props.viewParams?.job_card_id || 0)
+    executionHub.focus = props.viewParams?.focus || (executionHub.jobCardId ? 'job_card' : 'summary')
+    executionHub.open = true
+  }
+})
 </script>
 
 <style scoped>

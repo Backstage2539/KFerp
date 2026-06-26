@@ -7,6 +7,12 @@
 - [ ] 修改筛选条件或每页显示条数后，列表从第一页重新查询；翻页后仍保留当前筛选、客户范围或订单范围。
 - [ ] 其他一次性加载的 Vue/Vite 表格列表由统一自动分页增强补齐同样的分页控件，不再各页面重复实现自定义 pager。
 
+## 0.0 生产管理高频视图二期
+- [ ] PR-499-PRODUCTION-EXECUTION-HUB-PHASE2：`GET /api/produce/work-orders/:id` 返回 `execution_hub`，包含工单头、BOM/路线、工序进度、WIP、质检、Stock Entry、完工入库、成本和 `trace_timeline`；readiness 返回 `can_start`、`can_complete`、`blocking_reasons`、`next_handler`、`suggested_action`、`severity` 和 `related_links`。
+- [ ] PR-499-PRODUCTION-EXECUTION-HUB-PHASE2：生产视图、工位视图、生产工单和工序卡都能打开同一个工单执行枢纽，并能回答整体进度、卡点、下一处理人、当前工位做什么、下一件做什么和为什么不能做。
+- [ ] PR-499-PRODUCTION-EXECUTION-HUB-PHASE2：枢纽跳转库存作业、质检、成本和日志时保留 `work_order_id`、`job_card_id`、`running_item_id`、`material_id`、`shortage_g`、`batch_id` 等上下文，且不改变库存、WIP、质检冻结或完工入库核心规则。
+- [ ] PR-499-PRODUCTION-EXECUTION-HUB-PHASE2：工位负载展示队列数、阻塞数、预计分钟和负载状态；执行枢纽 timeline 支持全部、工序、库存、质检、成本、日志过滤；旧生产页面仍通过顶部生产切换条可达。
+
 ## 0.1 工作台模式
 - [ ] 内部账号顶部可在“工厂总览”和“客户账户”之间切换；工厂总览保留内部菜单但不再展示“履约运营台”，客户账户只展示客户账户、客户商品与配方、客户财务三组入口，不展示门户与能力、生产计划/开始生产和工作台模式手册。
 - [ ] 客户账户模式选择当前客户后，刷新页面仍保留 `workspace=customer&customer_id=...`。

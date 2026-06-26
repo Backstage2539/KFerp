@@ -111,7 +111,7 @@
           <article v-for="row in workstationLoad" :key="row.workstation" class="load-row">
             <div>
               <strong>{{ row.workstation }}</strong>
-              <span>{{ row.total_tasks }} 项 · {{ row.load_minutes || 0 }} 分钟</span>
+              <span>{{ row.load_status || 'normal' }} · 队列 {{ row.queue_count || row.total_tasks || 0 }} 项 · 预计 {{ row.estimated_minutes || row.load_minutes || 0 }} 分钟</span>
             </div>
             <div class="load-counts">
               <span>待 {{ row.pending_tasks || 0 }}</span>
@@ -155,15 +155,27 @@
         <button class="primary" type="button" @click="saveAssignment" :disabled="saving">保存</button>
       </div>
     </section>
+
+    <ProductionExecutionHubDrawer
+      :open="executionHub.open"
+      :work-order-id="executionHub.workOrderId"
+      :focus="executionHub.focus"
+      :view-params="{ ...(props.viewParams || {}), work_order_id: executionHub.workOrderId, focus: executionHub.focus }"
+      @close="executionHub.open = false" />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { assignProductionSchedule, fetchProductionWorkstationOverview } from '../api/production.js'
+import ProductionExecutionHubDrawer from '../components/ProductionExecutionHubDrawer.vue'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import { formatLocalDateInput } from '../lib/local-date.js'
 import { stockOperationContextParams, taskTitle } from '../lib/production-workstation.js'
+
+const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
+})
 
 const loading = ref(false)
 const saving = ref(false)
@@ -188,6 +200,7 @@ const assignment = reactive({
   priority: 0,
   note: '',
 })
+const executionHub = reactive({ open: false, workOrderId: 0, focus: '' })
 
 const tasks = computed(() => overview.value.tasks || [])
 const statusSummary = computed(() => overview.value.status_summary || [])
@@ -211,7 +224,7 @@ function openView(key, params = {}) {
 }
 
 function openWorkOrder(task) {
-  openView('workOrders', { work_order_id: task.work_order_id })
+  openExecutionHub(task, task.is_blocked || task.status_label === '异常' ? 'blocked' : 'summary')
 }
 
 function openStockOperations(task) {
@@ -236,6 +249,14 @@ function openAssignment(task) {
 function openFirstAssignment() {
   const task = tasks.value[0]
   if (task) openAssignment(task)
+}
+
+function openExecutionHub(task, focus = 'summary') {
+  const id = Number(task?.work_order_id || 0)
+  if (!id) return
+  executionHub.workOrderId = id
+  executionHub.focus = focus
+  executionHub.open = true
 }
 
 async function saveAssignment() {
@@ -273,7 +294,15 @@ async function load() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  const id = Number(props.viewParams?.work_order_id || 0)
+  if (id > 0) {
+    executionHub.workOrderId = id
+    executionHub.focus = props.viewParams?.focus || 'summary'
+    executionHub.open = true
+  }
+})
 </script>
 
 <style scoped>

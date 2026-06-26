@@ -8,6 +8,9 @@
         <button class="secondary" type="button" @click="load" :disabled="loading">刷新</button>
       </div>
       <div v-if="error" class="error">{{ error }}</div>
+      <div v-if="contextBadges.length" class="context-badges" aria-label="生产上下文">
+        <span v-for="badge in contextBadges" :key="badge">{{ badge }}</span>
+      </div>
       <div class="filters">
         <label>
           <span>开始日期</span>
@@ -98,11 +101,15 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { apiGet } from '../api/client'
 import ProductionTopNav from '../components/ProductionTopNav.vue'
 import { productionLogMaterialBatchCodes, productionLogMaterialSummaryText } from '../lib/production-logs'
 import { replaceHistoryURL } from '../lib/url-state'
+
+const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
+})
 
 const loading = ref(false)
 const error = ref('')
@@ -114,8 +121,15 @@ const filters = reactive({
   to: '',
   product_id: 0,
   batch_id: '',
+  running_item_id: 0,
   operator: '',
 })
+const contextBadges = computed(() => [
+  props.viewParams?.work_order_id ? `工单 #${props.viewParams.work_order_id}` : '',
+  props.viewParams?.job_card_id ? `工序卡 #${props.viewParams.job_card_id}` : '',
+  props.viewParams?.running_item_id ? `生产中 #${props.viewParams.running_item_id}` : '',
+  props.viewParams?.batch_id ? `批次 ${props.viewParams.batch_id}` : '',
+].filter(Boolean))
 
 function percent(v) {
   return `${(Number(v || 0) * 100).toFixed(2)}%`
@@ -130,6 +144,8 @@ function updateUrl() {
   }
   if (filters.product_id) url.searchParams.set('product_id', String(filters.product_id))
   else url.searchParams.delete('product_id')
+  if (filters.running_item_id) url.searchParams.set('running_item_id', String(filters.running_item_id))
+  else url.searchParams.delete('running_item_id')
   replaceHistoryURL(url)
 }
 
@@ -140,6 +156,12 @@ function applyUrlFilters() {
   filters.batch_id = params.get('batch_id') || ''
   filters.operator = params.get('operator') || ''
   filters.product_id = Number(params.get('product_id') || 0)
+  filters.running_item_id = Number(params.get('running_item_id') || 0)
+}
+
+function applyProductionContextParams() {
+  if (Number(props.viewParams?.running_item_id || 0) > 0) filters.running_item_id = Number(props.viewParams.running_item_id)
+  if (String(props.viewParams?.batch_id || '').trim()) filters.batch_id = String(props.viewParams.batch_id).trim()
 }
 
 function materialBatchText(raw) {
@@ -155,6 +177,7 @@ async function load() {
     if (filters.to) url.searchParams.set('to', filters.to)
     if (filters.product_id) url.searchParams.set('product_id', String(filters.product_id))
     if (filters.batch_id) url.searchParams.set('batch_id', filters.batch_id)
+    if (filters.running_item_id) url.searchParams.set('running_item_id', String(filters.running_item_id))
     if (filters.operator) url.searchParams.set('operator', filters.operator)
 
     const data = await apiGet(url)
@@ -170,6 +193,7 @@ async function load() {
 
 onMounted(() => {
   applyUrlFilters()
+  applyProductionContextParams()
   load()
 })
 </script>
@@ -178,6 +202,8 @@ onMounted(() => {
 * { box-sizing: border-box; }
 .page { padding: 18px; color: #151515; }
 .panel { border: 1px solid #e6e0d8; border-radius: 8px; background: #fff; padding: 14px; margin-bottom: 14px; }
+.context-badges { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0; }
+.context-badges span { border:1px solid #bfdbfe; background:#eff6ff; color:#1d4ed8; border-radius:999px; padding:3px 8px; font-size:12px; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 h2 { margin: 0; font-size: 20px; }
 .filters { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)) 96px; gap: 10px; align-items: end; }

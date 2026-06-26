@@ -227,6 +227,10 @@ import {
   workOrderQualityStatusLabel,
 } from '../lib/quality-inspections'
 
+const props = defineProps({
+  viewParams: { type: Object, default: () => ({}) },
+})
+
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
@@ -257,6 +261,22 @@ const form = reactive({
   density: '',
   note: '',
 })
+
+function applyProductionContextParams() {
+  const referenceNo = String(props.viewParams?.reference_no || '').trim()
+  const workOrderID = Number(props.viewParams?.work_order_id || 0)
+  if (!referenceNo && !workOrderID) return
+  form.scope = 'work_order'
+  form.reference_type = 'work_order'
+  form.reference_no = referenceNo || `#${workOrderID}`
+  filters.scope = 'work_order'
+  selectedTarget.value = {
+    scope: 'work_order',
+    reference_no: form.reference_no,
+    work_order_id: workOrderID,
+    job_card_id: Number(props.viewParams?.job_card_id || 0),
+  }
+}
 
 const filteredTargets = computed(() => filterQualityTargets(activeTargetScope.value, targetRows.value, targetQ.value))
 
@@ -418,7 +438,10 @@ async function save() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  applyProductionContextParams()
+  load()
+})
 </script>
 
 <style scoped>
