@@ -53,8 +53,8 @@
 - `scripts/verify_kferp.sh changed`
 - `git diff --check`
 
-### 待部署验收
-- 创建库存单位为 `盒` 且开启整数库存的商品档案，`/api/product-settings` 返回 `inventory_unit=盒`、`integer_inventory_unit=true`。
-- 用该商品新建生产 BOM，产出单位显示 `盒`，保存后详情和 `/api/production-boms?status=all` 仍为 `盒`。
-- 找一个未显式设置库存单位的商品，`/api/bom/products` 返回 `inventory_unit_explicit=false`，BOM 表单显示兜底单位并提示 `请先到商品档案设置库存单位`。
-- 修改已有商品库存单位时，操作日志记录旧库存单位、新库存单位、旧整数库存和新整数库存。
+### 部署后验收
+- Development deployed from `91658fca0e16d12d14ff7c3ba69ac4dc55ed9823`; Docker build ran `go test ./...` and passed. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260627010939`.
+- Authenticated smoke: `/app/api/product-settings?limit=1`、`/app/api/bom/products`、`/app/api/production-boms?status=all&limit=1` all returned 200. BOM detail includes version `output_unit`; BOM products include `inventory_unit` and `inventory_unit_explicit`.
+- Write smoke created product `558` with `inventory_unit=盒` and `integer_inventory_unit=true`; creating production BOM `5736` with request `output_unit=kg` still saved the draft version `output_unit=盒`.
+- Remaining manual UI click-through: browser plugin was not available in this session, so the final UI click path should be spot-checked from 商品档案 -> 生产 BOM if a visual browser sign-off is required.

@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-500-UNIT-MODEL-CONSOLIDATION
 - Branch: codex/product-inventory-unit-bom-20260627
 - Owner/session: Codex / 2026-06-27
-- Status: verifying follow-up; pending merge to develop, development deploy, and smoke.
+- Status: merged to develop and deployed to development; API/write smoke passed.
 - Scope: 在已部署单位模型基础上补齐商品档案库存单位入口：商品新增/编辑可维护库存单位和整数库存，写入 `products.unit_rule_override_json`；`/api/bom/products` 返回有效库存单位和显式设置标记；生产 BOM 新建/编辑的产出单位只读并由产出商品有效库存单位驱动，后端忽略前端传入的旧 `output_unit`。
 - DEV:
   - DEV-500-UNIT-LANGUAGE-CONTRACT：全局单位字典、单位模板、商品/物料/BOM/库存页面和手册统一使用库存单位、销售单位、单位转换口径，旧字段只作为兼容说明。
@@ -22,7 +22,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Frontend/build: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed; `npm ci` restored Vue dependencies; `npm run build` passed with existing large-chunk warning; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
 - Manual: updated `orderapp-remote/docs/REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, `OP_MANUAL_INVENTORY_MATERIALS.md`, `OP_MANUAL_PRODUCTION.md`, `OP_MANUAL_COSTING.md`, and `docs/acceptance/2026-06-26-unit-model-consolidation.md`.
 - Review/acceptance: RED evidence added for product inventory unit API/payload and BOM output unit derivation; GREEN targeted Go, node, frontend build, changed verifier, and diff check passed locally.
-- Deployment: pending.
+- Deployment: feature branch pushed and fast-forwarded into `develop` at `91658fca0e16d12d14ff7c3ba69ac4dc55ed9823`; development stack deployed with Docker build `go test ./...` passing. Backup from deploy: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260627010939`. Smoke: `erp_orderapp` running; unauth/auth `/app/` returned `303`; authenticated `/app/api/product-settings?limit=1`, `/app/api/bom/products`, `/app/api/production-boms?status=all&limit=1` returned `200`; BOM detail exposes version `output_unit`; write smoke created product `558` with `inventory_unit=盒`, `integer_inventory_unit=true`, and BOM `5736` saved version `output_unit=盒` even though create request sent `output_unit=kg`.
 - Last update: 2026-06-27 Asia/Shanghai.
 - Notes: Follow-up does not add a `products.inventory_unit` column and does not backfill historical BOM versions, work orders, inventory ledgers, or price snapshots.
 
