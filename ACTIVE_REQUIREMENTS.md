@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-500-UNIT-MODEL-CONSOLIDATION
 - Branch: codex/unit-model-consolidation-20260626
 - Owner/session: Codex / 2026-06-26
-- Status: implemented on feature branch; pending review/acceptance. Not merged or deployed.
+- Status: merged to develop and deployed to development.
 - Scope: 收敛系统单位模型为“库存单位 / 销售单位 / 单位转换”；物料、WIP、半成品和成品只维护库存单位，会销售的商品维护销售单位，BOM、入库、库存调整和价格表通过换算连接，不再把物料单位、报价单位、录单单位或 BOM 产出单位作为新业务概念。
 - DEV:
   - DEV-500-UNIT-LANGUAGE-CONTRACT：全局单位字典、单位模板、商品/物料/BOM/库存页面和手册统一使用库存单位、销售单位、单位转换口径，旧字段只作为兼容说明。
@@ -22,7 +22,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Frontend/build: `node --test src/lib/product-settings.test.js`; `npm run build`; `scripts/verify_kferp.sh changed`.
 - Manual: updated `orderapp-remote/docs/REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, `OP_MANUAL_INVENTORY_MATERIALS.md`, `OP_MANUAL_PRODUCTION.md`, `OP_MANUAL_COSTING.md`, and `docs/acceptance/2026-06-26-unit-model-consolidation.md`.
 - Review/acceptance: `git diff --check` passed. `scripts/verify_kferp.sh frontend-tests` still fails 8 existing workspace/customer-context assertions; targeted rerun isolates 3 failing subtests in `workspace-context-pages.test.js` and `workspace-mode.test.js`, and `origin/develop` lacks the same expected markers.
-- Deployment: pending; blocked on acceptance decision / existing frontend-tests failures.
+- Deployment: clean develop deploy via `deploy_orderapp.sh`; server smoke passed with `erp_orderapp` running, unauthenticated `/app/` returning 303, authenticated `/app/vue-shell/?view=productSettings` returning 200, and `/api/product-settings/units`, `/api/stock/warehouses`, `/api/stock/material-batches`, `/api/production-boms?status=all`, `/api/bom/products`, `/api/bom/materials` returning 200.
 - Last update: 2026-06-26 Asia/Shanghai.
 - Notes: `scripts/reserve_req_id.sh --claim` failed on local awk multiline string handling, so PR-500 was claimed manually.
 
