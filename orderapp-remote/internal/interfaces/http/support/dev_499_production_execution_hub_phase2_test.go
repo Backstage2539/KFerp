@@ -20,7 +20,7 @@ func TestDev499ProductionExecutionHubPhase2Contracts(t *testing.T) {
 		"requirements":    filepath.Join("docs", "REQUIREMENTS.md"),
 		"acceptance":      filepath.Join("docs", "ACCEPTANCE_TESTS.md"),
 		"manual":          filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"),
-		"evidence":        filepath.Join("docs", "acceptance", "2026-06-21-production-execution-hub-phase2.md"),
+		"evidence":        filepath.Join("docs", "acceptance", "2026-06-26-production-execution-hub-phase2.md"),
 	}
 	contents := map[string]string{}
 	for key, path := range files {

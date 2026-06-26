@@ -23,9 +23,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN targeted backend/API: `go test ./internal/application/production ./internal/interfaces/http/production -run 'TestWorkOrderExecutionHubReadModelAndTraceTimeline|TestProductionWorkstationOverviewAnswersProductionAndStationQuestions|TestWorkOrderProducePathOwnsInventoryActionsAndDetail' -count=1`.
   - GREEN release-local after merging `origin/develop=12e2fb70`: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1`; `go test ./...`; `node --test src/lib/production-execution-hub.test.js src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js src/lib/menu-ia.test.js src/lib/view-routing.test.js src/lib/work-orders.test.js src/lib/quality-inspections.test.js src/lib/production-costs.test.js src/lib/production-logs.test.js` passed 100/100; `npm run build` passed after `npm ci` with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
   - Pending integration: feature branch push, develop merge, development deploy, ERP browser acceptance.
-- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-21-production-execution-hub-phase2.md`; root `REQUIREMENTS.md`; root `ACCEPTANCE_TESTS.md`.
+- Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-26-production-execution-hub-phase2.md`; root `REQUIREMENTS.md`; root `ACCEPTANCE_TESTS.md`.
 - Deployment: pending merge to develop and serialized deployment.
-- Last update: 2026-06-21 Asia/Shanghai.
+- Last update: 2026-06-26 Asia/Shanghai.
 
 ### PR-498-ERP-E2E-AUDIT-FIXES
 - Branch: codex/erp-e2e-audit-fixes-20260616
