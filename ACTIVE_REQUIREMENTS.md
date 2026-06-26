@@ -7,24 +7,24 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ## Active
 
 ### PR-500-UNIT-MODEL-CONSOLIDATION
-- Branch: codex/unit-model-consolidation-20260626
-- Owner/session: Codex / 2026-06-26
-- Status: merged to develop and deployed to development.
-- Scope: 收敛系统单位模型为“库存单位 / 销售单位 / 单位转换”；物料、WIP、半成品和成品只维护库存单位，会销售的商品维护销售单位，BOM、入库、库存调整和价格表通过换算连接，不再把物料单位、报价单位、录单单位或 BOM 产出单位作为新业务概念。
+- Branch: codex/product-inventory-unit-bom-20260627
+- Owner/session: Codex / 2026-06-27
+- Status: verifying follow-up; pending merge to develop, development deploy, and smoke.
+- Scope: 在已部署单位模型基础上补齐商品档案库存单位入口：商品新增/编辑可维护库存单位和整数库存，写入 `products.unit_rule_override_json`；`/api/bom/products` 返回有效库存单位和显式设置标记；生产 BOM 新建/编辑的产出单位只读并由产出商品有效库存单位驱动，后端忽略前端传入的旧 `output_unit`。
 - DEV:
   - DEV-500-UNIT-LANGUAGE-CONTRACT：全局单位字典、单位模板、商品/物料/BOM/库存页面和手册统一使用库存单位、销售单位、单位转换口径，旧字段只作为兼容说明。
   - DEV-500-STOCK-UNIT-FLOWS：原料入库、库存补录和库存调整优先提交数量+单位，后端按库存单位归一化并保留旧 qty_g/target_g/target_units 兼容。
   - DEV-500-BOM-UNIT-DERIVATION：生产 BOM 产出单位取产出商品库存单位；组件消耗单位取组件库存单位，页面不再手填产出单位。
   - DEV-500-SALES-UNIT-COMPAT：单位模板新 UI 暴露销售单位语义，新保存继续双写旧 quote_unit/order_unit 兼容字段。
+  - DEV-500-PRODUCT-INVENTORY-UNIT-MASTER：创建商品档案和商品档案配置抽屉维护库存单位/整数库存；更新商品时保留 `unit_rule_override_json` 其他历史键并写操作日志。
 - Verifier:
-- Unit: `go test ./internal/application/stock ./internal/application/bom ./internal/application/catalog -count=1`; `go test ./...`.
-- API: `go test ./internal/interfaces/http/stock ./internal/interfaces/http/catalog ./internal/interfaces/http/support -count=1`.
-- Frontend/build: `node --test src/lib/product-settings.test.js`; `npm run build`; `scripts/verify_kferp.sh changed`.
+- Unit/API: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom -count=1` passed.
+- Frontend/build: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed; `npm ci` restored Vue dependencies; `npm run build` passed with existing large-chunk warning; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
 - Manual: updated `orderapp-remote/docs/REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, `OP_MANUAL_INVENTORY_MATERIALS.md`, `OP_MANUAL_PRODUCTION.md`, `OP_MANUAL_COSTING.md`, and `docs/acceptance/2026-06-26-unit-model-consolidation.md`.
-- Review/acceptance: `git diff --check` passed. `scripts/verify_kferp.sh frontend-tests` still fails 8 existing workspace/customer-context assertions; targeted rerun isolates 3 failing subtests in `workspace-context-pages.test.js` and `workspace-mode.test.js`, and `origin/develop` lacks the same expected markers.
-- Deployment: clean develop deploy via `deploy_orderapp.sh`; server smoke passed with `erp_orderapp` running, unauthenticated `/app/` returning 303, authenticated `/app/vue-shell/?view=productSettings` returning 200, and `/api/product-settings/units`, `/api/stock/warehouses`, `/api/stock/material-batches`, `/api/production-boms?status=all`, `/api/bom/products`, `/api/bom/materials` returning 200.
-- Last update: 2026-06-26 Asia/Shanghai.
-- Notes: `scripts/reserve_req_id.sh --claim` failed on local awk multiline string handling, so PR-500 was claimed manually.
+- Review/acceptance: RED evidence added for product inventory unit API/payload and BOM output unit derivation; GREEN targeted Go, node, frontend build, changed verifier, and diff check passed locally.
+- Deployment: pending.
+- Last update: 2026-06-27 Asia/Shanghai.
+- Notes: Follow-up does not add a `products.inventory_unit` column and does not backfill historical BOM versions, work orders, inventory ledgers, or price snapshots.
 
 ### PR-499-PRODUCTION-EXECUTION-HUB-PHASE2
 - Branch: codex/production-execution-hub-phase2-20260617

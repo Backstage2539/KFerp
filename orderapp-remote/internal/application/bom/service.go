@@ -90,16 +90,17 @@ type Detail struct {
 }
 
 type Option struct {
-	ID              int64   `json:"id"`
-	ProductCode     string  `json:"product_code,omitempty"`
-	Name            string  `json:"name"`
-	CustomerID      int64   `json:"customer_id"`
-	InventoryUnit   string  `json:"inventory_unit,omitempty"`
-	RoastLevel      string  `json:"roast_level,omitempty"`
-	ProductKind     string  `json:"product_kind,omitempty"`
-	DripBagGrams    float64 `json:"drip_bag_grams,omitempty"`
-	DripBoxBagCount int     `json:"drip_box_bag_count,omitempty"`
-	OrderUsageCount int     `json:"order_usage_count"`
+	ID                    int64   `json:"id"`
+	ProductCode           string  `json:"product_code,omitempty"`
+	Name                  string  `json:"name"`
+	CustomerID            int64   `json:"customer_id"`
+	InventoryUnit         string  `json:"inventory_unit,omitempty"`
+	InventoryUnitExplicit bool    `json:"inventory_unit_explicit"`
+	RoastLevel            string  `json:"roast_level,omitempty"`
+	ProductKind           string  `json:"product_kind,omitempty"`
+	DripBagGrams          float64 `json:"drip_bag_grams,omitempty"`
+	DripBoxBagCount       int     `json:"drip_box_bag_count,omitempty"`
+	OrderUsageCount       int     `json:"order_usage_count"`
 }
 
 type BagSpecMapping struct {
@@ -293,6 +294,7 @@ type UpdateProductionBomCommand struct {
 	ID                    int64  `json:"id"`
 	Name                  string `json:"name"`
 	OutputProductID       int64  `json:"output_product_id"`
+	OutputUnit            string `json:"output_unit"`
 	GroupID               int64  `json:"group_id"`
 	GroupCategoryID       int64  `json:"group_category_id"`
 	UpdateGroupAssignment bool   `json:"-"`
@@ -895,8 +897,12 @@ func (s *Service) UpdateProductionBom(ctx context.Context, cmd UpdateProductionB
 		return ProductionBomSummary{}, fmt.Errorf("bom_id required")
 	}
 	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.OutputUnit = strings.TrimSpace(cmd.OutputUnit)
 	cmd.Status = strings.TrimSpace(cmd.Status)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.OutputProductID > 0 {
+		cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputProductID, cmd.OutputUnit)
+	}
 	row, err := s.repo.UpdateProductionBom(ctx, cmd)
 	if err != nil {
 		return ProductionBomSummary{}, err

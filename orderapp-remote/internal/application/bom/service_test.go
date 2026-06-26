@@ -16,6 +16,7 @@ type fakeRepo struct {
 	listRows                      []ListItem
 	productRows                   []Option
 	createdProductionBomCommand   CreateProductionBomCommand
+	updatedProductionBomCommand   UpdateProductionBomCommand
 	updatedProductionDraftCommand UpdateProductionBomVersionDraftCommand
 	publishValidationErr          error
 	usageProductID                int64
@@ -107,8 +108,9 @@ func (r *fakeRepo) CreateProductionBom(_ context.Context, cmd CreateProductionBo
 	r.createdProductionBomCommand = cmd
 	return ProductionBomSummary{ID: 11, Name: cmd.Name, OutputProductID: cmd.OutputProductID}, nil
 }
-func (r *fakeRepo) UpdateProductionBom(context.Context, UpdateProductionBomCommand) (ProductionBomSummary, error) {
-	return ProductionBomSummary{}, nil
+func (r *fakeRepo) UpdateProductionBom(_ context.Context, cmd UpdateProductionBomCommand) (ProductionBomSummary, error) {
+	r.updatedProductionBomCommand = cmd
+	return ProductionBomSummary{ID: cmd.ID, Name: cmd.Name, OutputProductID: cmd.OutputProductID}, nil
 }
 func (r *fakeRepo) CopyProductionBom(context.Context, CopyProductionBomCommand) (ProductionBomSummary, error) {
 	return ProductionBomSummary{}, nil
@@ -313,6 +315,20 @@ func TestCreateProductionBomDerivesOutputUnitFromProductInventoryUnit(t *testing
 	}
 	if repo.createdProductionBomCommand.OutputUnit != "盒" {
 		t.Fatalf("OutputUnit = %q, want product inventory unit 盒", repo.createdProductionBomCommand.OutputUnit)
+	}
+}
+
+func TestUpdateProductionBomDerivesOutputUnitFromProductInventoryUnit(t *testing.T) {
+	repo := &fakeRepo{productRows: []Option{{ID: 88, Name: "10条速溶盒装", ProductKind: "instant_coffee", InventoryUnit: "盒"}}}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	_, err := svc.UpdateProductionBom(ctx, UpdateProductionBomCommand{ID: 11, Name: "盒装新版", OutputProductID: 88, OutputUnit: "kg"})
+	if err != nil {
+		t.Fatalf("UpdateProductionBom: %v", err)
+	}
+	if repo.updatedProductionBomCommand.OutputUnit != "盒" {
+		t.Fatalf("OutputUnit = %q, want product inventory unit 盒", repo.updatedProductionBomCommand.OutputUnit)
 	}
 }
 

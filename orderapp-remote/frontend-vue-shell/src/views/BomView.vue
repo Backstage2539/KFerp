@@ -130,6 +130,7 @@
           <div><span>生产 BOM</span><strong>{{ currentProductionBomLabel }}</strong></div>
           <div><span>产出商品</span><strong>{{ outputProductLabel(detail) }}</strong></div>
           <div><span>产出数量</span><strong>{{ currentOutputBasisLabel }}</strong></div>
+          <div v-if="outputUnitMismatchWarning"><span>单位提示</span><strong class="warn">{{ outputUnitMismatchWarning }}</strong></div>
           <div><span>多层展开</span><strong>{{ usedByBoms.length ? `${usedByBoms.length} 个上层 BOM` : '可作为库存件' }}</strong></div>
           <div v-if="currentProductionBomWarning"><span>版本提示</span><strong class="warn">{{ currentProductionBomWarning }}</strong></div>
           <div><span>工艺参数</span><strong>{{ detail.roast_level || '-' }}</strong></div>
@@ -379,6 +380,8 @@
           <label>
             <span>产出单位</span>
             <input :value="outputUnitDisplay" disabled />
+            <small data-source-text="来源：商品档案库存单位">{{ outputUnitSourceHint }}</small>
+            <small v-if="outputUnitMismatchWarning" class="warn">{{ outputUnitMismatchWarning }}</small>
           </label>
           <label v-if="bomForm.mode === 'edit'">
             <span>状态</span>
@@ -511,6 +514,18 @@ const currentProductionBomWarning = computed(() => productionBomVersionWarning(d
 const currentProductionBomID = computed(() => Number(detail.value?.production_bom_id || selectedProductionBomRecord.value?.production_bom_id || selectedProductionBomRecord.value?.id || 0))
 const currentOutputProductID = computed(() => Number(detail.value?.output_product_id || productionBomDetail.value?.output_product_id || selectedProductionBomRecord.value?.output_product_id || 0))
 const currentOutputBasisLabel = computed(() => `${qty(selectedProductionBomVersion.value?.output_qty || 1)} ${selectedProductionBomVersion.value?.output_unit || 'unit'}`)
+const currentOutputProduct = computed(() => productByID(bomDrawerOpen.value && Number(bomForm.output_product_id || 0) > 0 ? bomForm.output_product_id : currentOutputProductID.value))
+const outputUnitSourceHint = computed(() => {
+  const product = selectedBomOutputProduct.value || currentOutputProduct.value
+  const suffix = product && !productHasExplicitInventoryUnit(product) ? '；请先到商品档案设置库存单位' : ''
+  return `来源：商品档案库存单位${suffix}`
+})
+const outputUnitMismatchWarning = computed(() => {
+  const versionUnit = String(selectedProductionBomVersion.value?.output_unit || '').trim()
+  const productUnit = String(currentOutputProduct.value?.inventory_unit || selectedBomOutputProduct.value?.inventory_unit || '').trim()
+  if (!versionUnit || !productUnit || versionUnit === productUnit) return ''
+  return `当前版本产出单位为 ${unitLabel(versionUnit)}，商品档案库存单位为 ${unitLabel(productUnit)}；历史版本不会自动回改`
+})
 const bomFormTitle = computed(() => ({
   create: '新建生产 BOM',
   edit: '编辑 BOM',
@@ -756,6 +771,7 @@ function normalizeBomProduct(product) {
     id: Number(product.id || 0),
     customer_id: Number(product.customer_id || 0),
     inventory_unit: String(product.inventory_unit || product.inventoryUnit || '').trim(),
+    inventory_unit_explicit: Boolean(product.inventory_unit_explicit ?? product.inventoryUnitExplicit ?? false),
   }
 }
 
@@ -790,6 +806,20 @@ function normalizeProductionBomRecord(row = {}) {
 function productByID(productId) {
   const id = Number(productId || 0)
   return products.value.find((product) => Number(product.id || 0) === id) || null
+}
+
+function productHasExplicitInventoryUnit(product = {}) {
+  if (Object.prototype.hasOwnProperty.call(product, 'inventory_unit_explicit') || Object.prototype.hasOwnProperty.call(product, 'inventoryUnitExplicit')) {
+    return Boolean(product.inventory_unit_explicit ?? product.inventoryUnitExplicit)
+  }
+  const raw = product.unit_rule_override_json ?? product.unitRuleOverrideJSON
+  if (typeof raw !== 'string' || !raw.trim()) return true
+  try {
+    const parsed = JSON.parse(raw)
+    return Boolean(String(parsed?.inventory_unit || '').trim())
+  } catch {
+    return true
+  }
 }
 
 function defaultDictionaryConsumeUnit() {

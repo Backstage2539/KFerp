@@ -31,3 +31,30 @@
 - 库存作业 -> 原料入库：选择物料后入库数量和成本字段显示该物料库存单位，提交成功生成批次。
 - 库存作业 -> 库存调整：目标库存数量按库存单位录入。
 - 生产管理 -> 生产 BOM：新建 BOM 时产出单位随产出商品库存单位自动显示，不能手工填写；组件表单显示组件库存单位。
+
+## 2026-06-27 Follow-up：商品档案库存单位驱动 BOM 产出单位
+
+### 范围
+- 创建新商品档案和商品档案配置抽屉补齐 `库存单位` 与 `整数库存`。
+- 商品库存单位写入 `products.unit_rule_override_json.inventory_unit`，读取兼容历史商品配置/分类和 `integer_unit`。
+- 生产 BOM 新建/编辑只读展示产出单位，后端保存时按产出商品有效库存单位写入，不信任前端 `output_unit`。
+- `/api/bom/products` 返回 `inventory_unit_explicit`，商品缺少显式库存单位时 BOM 页面提示先到商品档案设置。
+- 历史已发布 BOM 版本不回改；详情中提示当前版本单位和商品档案库存单位差异。
+
+### RED
+- `go test ./internal/interfaces/http/catalog ./internal/application/bom -run 'TestProductInventoryUnitAPIContract|TestUpdateProductionBomDerivesOutputUnitFromProductInventoryUnit' -count=1`：`CreateProductCommand` 缺少 `UnitRuleOverrideJSON`，`UpdateProductionBomCommand` 缺少 `OutputUnit`。
+- `node --test src/lib/product-settings.test.js src/lib/bom.test.js`：商品新增/配置 payload 缺少 `inventory_unit`/`integer_inventory_unit`，BOM 表单缺少来源文案和历史单位差异提示。
+
+### GREEN
+- `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom -count=1`
+- `node --test src/lib/product-settings.test.js src/lib/bom.test.js`
+- `npm ci`
+- `npm run build`：通过，保留既有 large chunk 警告。
+- `scripts/verify_kferp.sh changed`
+- `git diff --check`
+
+### 待部署验收
+- 创建库存单位为 `盒` 且开启整数库存的商品档案，`/api/product-settings` 返回 `inventory_unit=盒`、`integer_inventory_unit=true`。
+- 用该商品新建生产 BOM，产出单位显示 `盒`，保存后详情和 `/api/production-boms?status=all` 仍为 `盒`。
+- 找一个未显式设置库存单位的商品，`/api/bom/products` 返回 `inventory_unit_explicit=false`，BOM 表单显示兜底单位并提示 `请先到商品档案设置库存单位`。
+- 修改已有商品库存单位时，操作日志记录旧库存单位、新库存单位、旧整数库存和新整数库存。

@@ -54,6 +54,8 @@ type Product struct {
 	GradientTemplateIDOverride  int64
 	OperationTemplateIDOverride int64
 	UnitRuleOverrideJSON        string
+	InventoryUnit               string
+	IntegerInventoryUnit        bool
 	ProductConfigTemplateID     int64
 	Active                      bool
 	BomItemCount                int
@@ -337,6 +339,8 @@ type ProductSettingsProduct struct {
 	GradientTemplateIDOverride  int64        `json:"gradient_template_id_override"`
 	OperationTemplateIDOverride int64        `json:"operation_template_id_override"`
 	UnitRuleOverrideJSON        string       `json:"unit_rule_override_json"`
+	InventoryUnit               string       `json:"inventory_unit"`
+	IntegerInventoryUnit        bool         `json:"integer_inventory_unit"`
 	ProductConfigTemplateID     int64        `json:"product_config_template_id"`
 	Active                      bool         `json:"active"`
 	BomItemCount                int          `json:"bom_item_count"`
@@ -682,6 +686,7 @@ type CreateProductCommand struct {
 	YieldRate                float64
 	ProductConfigTemplateID  int64
 	ClassificationTemplateID int64
+	UnitRuleOverrideJSON     string
 	Tiers                    []PriceTier
 }
 
@@ -705,6 +710,7 @@ type CreateSKUCommand struct {
 	SpecialAttrsJSON         string
 	ProductConfigTemplateID  int64
 	ClassificationTemplateID int64
+	UnitRuleOverrideJSON     string
 	Active                   bool
 }
 
@@ -1327,7 +1333,7 @@ func (s *Service) UpdateProductBasics(ctx context.Context, cmd UpdateProductBasi
 	cmd.OperationTemplateIDOverride = 0
 	cmd.ProductConfigTemplateID = 0
 	cmd.ClassificationTemplateID = 0
-	unitRuleOverrideJSON, err := normalizeJSONText("{}")
+	unitRuleOverrideJSON, err := normalizeJSONObjectText(cmd.UnitRuleOverrideJSON)
 	if err != nil {
 		return ValidationError{Message: "invalid unit_rule_override_json"}
 	}
@@ -1393,10 +1399,15 @@ func (s *Service) CreateProduct(ctx context.Context, cmd CreateProductCommand) (
 	if cmd.ProductConfigTemplateID < 0 {
 		return Product{}, ValidationError{Message: "invalid product_config_template_id"}
 	}
+	unitRuleOverrideJSON, err := normalizeJSONObjectText(cmd.UnitRuleOverrideJSON)
+	if err != nil {
+		return Product{}, ValidationError{Message: "invalid unit_rule_override_json"}
+	}
 	cmd.ProductConfigTemplateID = 0
 	cmd.ClassificationTemplateID = 0
 	cmd.Tiers = nil
 	cmd.SpecialAttrsJSON = specialAttrsJSON
+	cmd.UnitRuleOverrideJSON = unitRuleOverrideJSON
 	return s.repo.CreateProduct(ctx, cmd)
 }
 
@@ -1424,6 +1435,10 @@ func (s *Service) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product,
 	if cmd.ProductConfigTemplateID < 0 {
 		return Product{}, ValidationError{Message: "invalid product_config_template_id"}
 	}
+	unitRuleOverrideJSON, err := normalizeJSONObjectText(cmd.UnitRuleOverrideJSON)
+	if err != nil {
+		return Product{}, ValidationError{Message: "invalid unit_rule_override_json"}
+	}
 	cmd.ProductConfigTemplateID = 0
 	cmd.ClassificationTemplateID = 0
 	specialAttrsJSON, err := normalizeJSONObjectText(cmd.SpecialAttrsJSON)
@@ -1431,6 +1446,7 @@ func (s *Service) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product,
 		return Product{}, ValidationError{Message: "invalid special_attrs_json"}
 	}
 	cmd.SpecialAttrsJSON = specialAttrsJSON
+	cmd.UnitRuleOverrideJSON = unitRuleOverrideJSON
 	return s.repo.CreateSKU(ctx, cmd)
 }
 
@@ -3391,6 +3407,7 @@ func BuildProductSettings(categories []ProductCategory, products []Product) Prod
 
 func productSettingsProduct(p Product) ProductSettingsProduct {
 	productKind, dripBagGrams, dripBoxBagCount, salesUnits, _ := normalizeProductKindSettings(p.ProductKind, p.DripBagGrams, p.DripBoxBagCount)
+	inventoryUnit, integerInventoryUnit := productInventoryUnitFields(p)
 	if !catalogdomain.ProductKindSupportsBomParams(productKind) {
 		p.RoastLevel = ""
 		p.YieldRate = 0
@@ -3430,6 +3447,8 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		GradientTemplateIDOverride:  p.GradientTemplateIDOverride,
 		OperationTemplateIDOverride: p.OperationTemplateIDOverride,
 		UnitRuleOverrideJSON:        productJSONOrDefault(p.UnitRuleOverrideJSON),
+		InventoryUnit:               inventoryUnit,
+		IntegerInventoryUnit:        integerInventoryUnit,
 		ProductConfigTemplateID:     p.ProductConfigTemplateID,
 		Active:                      p.Active,
 		BomItemCount:                p.BomItemCount,
@@ -3464,6 +3483,46 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		OrderUsageCount:             p.OrderUsageCount,
 		PriceSummary:                p.PriceSummary,
 	}
+}
+
+func productInventoryUnitFields(p Product) (string, bool) {
+	inventoryUnit := strings.TrimSpace(p.InventoryUnit)
+	integerInventoryUnit := p.IntegerInventoryUnit
+	rule := map[string]any{}
+	if raw := strings.TrimSpace(p.UnitRuleOverrideJSON); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &rule)
+	}
+	if inventoryUnit == "" {
+		if value, ok := rule["inventory_unit"].(string); ok {
+			inventoryUnit = strings.TrimSpace(value)
+		}
+	}
+	if !integerInventoryUnit {
+		if value, ok := rule["integer_inventory_unit"]; ok {
+			integerInventoryUnit = boolFromJSONValue(value)
+		} else if value, ok := rule["integer_unit"]; ok {
+			integerInventoryUnit = boolFromJSONValue(value)
+		}
+	}
+	if inventoryUnit == "" {
+		inventoryUnit = "kg"
+	}
+	return inventoryUnit, integerInventoryUnit
+}
+
+func boolFromJSONValue(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "true", "1", "yes", "y":
+			return true
+		}
+	case float64:
+		return v != 0
+	}
+	return false
 }
 
 func productCodeForID(id int64) string {

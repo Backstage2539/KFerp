@@ -1388,6 +1388,42 @@ test('structured unit rule form builds customer rule override JSON while allowin
   assert.equal(unitRuleJSONFromForm({ integer_unit_mode: 'decimal' }), '{"integer_unit":false}')
 })
 
+test('product create and basics payload carry inventory unit master data', () => {
+  assert.deepEqual(buildProductCreatePayload({
+    name: ' 盒装速溶 ',
+    product_kind: 'instant_coffee',
+    remark: ' 新品 ',
+    yield_percent: 80,
+    inventory_unit: ' 盒 ',
+    integer_inventory_unit: true,
+  }), {
+    name: '盒装速溶',
+    product_kind: 'instant_coffee',
+    remark: '新品',
+    yield_rate: 0.8,
+    inventory_unit: '盒',
+    integer_inventory_unit: true,
+  })
+
+  assert.deepEqual(buildProductBasicsPayload({
+    name: ' 盒装速溶 ',
+    product_kind: 'instant_coffee',
+    remark: ' 库存按盒 ',
+    yield_percent: 80,
+    inventory_unit: ' 个 ',
+    integer_inventory_unit: false,
+    unit_rule_override_json: '{"order_unit":"箱","legacy_key":"keep"}',
+  }), {
+    name: '盒装速溶',
+    product_kind: 'instant_coffee',
+    remark: '库存按盒',
+    yield_rate: 0.8,
+    inventory_unit: '个',
+    integer_inventory_unit: false,
+    unit_rule_override_json: '{"order_unit":"箱","legacy_key":"keep"}',
+  })
+})
+
 test('SKU config override payload carries template and unit rule overrides', () => {
   assert.deepEqual(buildSkuConfigOverridePayload({
     gradient_template_id_override: 9,
@@ -1398,6 +1434,32 @@ test('SKU config override payload carries template and unit rule overrides', () 
     operation_template_id_override: 19,
     unit_rule_override_json: '{"order_unit":"盒","integer_unit":true}',
   })
+})
+
+test('product inventory unit controls are in create and product config drawers', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const createForm = source.match(/<form class="sku-create-form product-create-form product-drawer-form"[\s\S]*?<\/form>/)?.[0] || ''
+  const configDrawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
+  const baseSection = configDrawer.match(/<strong>基础信息<\/strong>[\s\S]*?<\/section>/)?.[0] || ''
+
+  for (const marker of [
+    '库存单位',
+    '整数库存',
+    'skuForm.inventory_unit',
+    'skuForm.integer_inventory_unit',
+    'activeProductUnitDefinitions',
+  ]) {
+    assert.match(createForm, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+  for (const marker of [
+    '库存单位',
+    '整数库存',
+    'productProductionConfigForm.inventory_unit',
+    'productProductionConfigForm.integer_inventory_unit',
+    'activeProductUnitDefinitions',
+  ]) {
+    assert.match(baseSection, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
 })
 
 test('customer product rule payloads carry template items, overrides, and bindings', () => {

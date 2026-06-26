@@ -1603,6 +1603,74 @@ func TestProductSettingsAPIExposesAndSavesSubtypeConfigAndUnitRules(t *testing.T
 	}
 }
 
+func TestProductInventoryUnitAPIContract(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{
+			ID:                   91,
+			Name:                 "盒装速溶",
+			ProductKind:          "instant_coffee",
+			UnitRuleOverrideJSON: `{"inventory_unit":"kg","integer_unit":false,"order_unit":"箱","legacy_key":"keep"}`,
+			Active:               true,
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET product settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"inventory_unit":"kg"`, `"integer_inventory_unit":false`, `"unit_rule_override_json":"{\"inventory_unit\":\"kg\",\"integer_unit\":false,\"order_unit\":\"箱\",\"legacy_key\":\"keep\"}"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("product settings response missing inventory unit field %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/products/91", bytes.NewBufferString(`{
+		"name":"盒装速溶",
+		"product_kind":"instant_coffee",
+		"yield_rate":0.8,
+		"inventory_unit":"盒",
+		"integer_inventory_unit":true
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT product inventory unit status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var updatedRule map[string]any
+	if err := json.Unmarshal([]byte(repo.updated.UnitRuleOverrideJSON), &updatedRule); err != nil {
+		t.Fatalf("updated unit rule json invalid: %v raw=%s", err, repo.updated.UnitRuleOverrideJSON)
+	}
+	if updatedRule["inventory_unit"] != "盒" || updatedRule["integer_inventory_unit"] != true || updatedRule["order_unit"] != "箱" || updatedRule["legacy_key"] != "keep" {
+		t.Fatalf("updated unit rule should preserve existing keys and write inventory fields: %#v", updatedRule)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(`{
+		"name":"新盒装",
+		"product_kind":"instant_coffee",
+		"yield_rate":0.8,
+		"inventory_unit":"盒",
+		"integer_inventory_unit":true
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST product inventory unit status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var createdRule map[string]any
+	if err := json.Unmarshal([]byte(repo.createdPublic.UnitRuleOverrideJSON), &createdRule); err != nil {
+		t.Fatalf("created unit rule json invalid: %v raw=%s", err, repo.createdPublic.UnitRuleOverrideJSON)
+	}
+	if createdRule["inventory_unit"] != "盒" || createdRule["integer_inventory_unit"] != true {
+		t.Fatalf("created product unit rule = %#v, want inventory_unit/integer_inventory_unit", createdRule)
+	}
+}
+
 func TestProductSettingsAPIExposesAndSavesCustomerProductRules(t *testing.T) {
 	repo := &productSettingsRepo{
 		ruleTemplates: []catalogapp.CustomerProductRuleTemplate{{

@@ -1166,6 +1166,16 @@
               <span>备注</span>
               <textarea v-model.trim="skuForm.remark" rows="2" placeholder="如 原料规格、包装说明或客户要求"></textarea>
             </label>
+            <label>
+              <span>库存单位</span>
+              <select v-model="skuForm.inventory_unit">
+                <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+              </select>
+            </label>
+            <label class="checkbox-row">
+              <input v-model="skuForm.integer_inventory_unit" type="checkbox" />
+              <span>整数库存</span>
+            </label>
             <div class="form-actions">
               <button class="primary" type="submit" :disabled="skuSaving">创建新商品档案</button>
             </div>
@@ -1323,6 +1333,16 @@
               <label class="wide-field">
                 <span>备注</span>
                 <textarea v-model.trim="productProductionConfigForm.remark" rows="2" placeholder="商品档案备注"></textarea>
+              </label>
+              <label>
+                <span>库存单位</span>
+                <select v-model="productProductionConfigForm.inventory_unit">
+                  <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                </select>
+              </label>
+              <label class="checkbox-row">
+                <input v-model="productProductionConfigForm.integer_inventory_unit" type="checkbox" />
+                <span>整数库存</span>
               </label>
             </div>
           </section>
@@ -2249,6 +2269,8 @@ function defaultSkuForm() {
   return {
     name: '',
     remark: '',
+    inventory_unit: 'kg',
+    integer_inventory_unit: false,
     product_config_template_id: 0,
     special_attr_values: {},
     active: true,
@@ -2361,6 +2383,8 @@ function defaultProductForm() {
     product_subtype_category_id: 0,
     product_kind: 'roasted',
     remark: '',
+    inventory_unit: 'kg',
+    integer_inventory_unit: false,
     special_attr_values: {},
     yield_percent: 80,
   }
@@ -5449,6 +5473,8 @@ async function saveProductProductionConfig() {
         ...originalProduct,
         name: productProductionConfigForm.value.name,
         remark: productProductionConfigForm.value.remark,
+        inventory_unit: productProductionConfigForm.value.inventory_unit,
+        integer_inventory_unit: Boolean(productProductionConfigForm.value.integer_inventory_unit),
       }),
     })
     const result = await apiSend(`/api/product-production-configs/${productID}`, {
