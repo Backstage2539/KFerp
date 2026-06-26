@@ -39,7 +39,28 @@ Branch: `codex/production-execution-hub-phase2-20260617`
 - GREEN: `git diff --check`.
 
 ## Development Deployment And Browser Acceptance
-- Pending: feature branch push.
-- Pending: merge to latest `develop`.
-- Pending: deployment to development.
-- Pending: ERP browser acceptance for 生产视图、工位视图、生产计划、生产中、工单、工序卡.
+- GREEN: feature branch pushed to `origin/codex/production-execution-hub-phase2-20260617`.
+- GREEN: merged/fast-forwarded into `origin/develop` at `96ac56800772651a30caeca8573f7eaad9bd648b`.
+- GREEN: development deployed from `96ac56800772651a30caeca8573f7eaad9bd648b`.
+  - Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260626214842`.
+  - Deployment used the documented manual deployment shape because the local clean `develop` worktree was occupied by another dirty workflow and `deploy_orderapp.sh` enforces branch guards.
+  - Docker build ran `go test ./...` inside the `orderapp` image build and completed.
+  - Containers: `erp_orderapp`, `erp_caddy`, `erp_postgres`, `erp_docconvert` running after deployment.
+- GREEN server smoke:
+  - Unauthenticated `GET https://erp.qacoohee.com/app/` returned `303`.
+  - Authenticated `GET /app/vue-shell?view=productionOverview` returned `200`.
+  - Authenticated `GET /app/vue-shell?view=workstationView` returned `200`.
+  - Authenticated `GET /app/vue-shell?view=producePlan` returned `200`.
+  - Authenticated `GET /app/vue-shell?view=produceRunning` returned `200`.
+  - Authenticated `GET /app/vue-shell?view=workOrders` returned `200`.
+  - Authenticated `GET /app/vue-shell?view=jobCards` returned `200`.
+  - Authenticated `GET /app/api/production/workstation-overview` returned `200`.
+  - Requirement API exposes `PR-499-PRODUCTION-EXECUTION-HUB-PHASE2`.
+- GREEN ERP browser acceptance, Chrome/browser runtime, 2026-06-26 22:18-22:19 Asia/Shanghai:
+  - Rendered pages: `productionOverview`、`workstationView`、`producePlan`、`produceRunning`、`workOrders`、`jobCards`、`stockOperations`、`qualityInspections`、`productionCosts`、`produceLogs`.
+  - For production Vue pages, `.production-top-nav` rendered in exact order: `生产视图 / 工位视图 / 生产计划 / 生产中 / 工单 / 工序卡 / 质检 / 日志 / 成本`; active state matched the current page. Current live nav badge data was `待0 阻0 中10` for 生产视图、工位视图、生产中.
+  - Browser page checks saw no Vite/framework error overlay and no application console errors after filtering local browser-extension warnings.
+  - From `生产视图` task-row `工单`, `工位视图` task-row `详情`, `生产工单` row `执行枢纽`, and `工序卡` work-order link, the same `生产执行枢纽` drawer opened.
+  - The drawer rendered `执行 readiness`, `WIP 状态`, `质检状态`, `工序进度`, context actions, cost and `追溯 timeline` with filters `全部 / 工序 / 库存 / 质检 / 成本 / 日志`.
+  - Browser data examples proved blocking/readiness text is API/read-model driven: workstation entry showed `前序工序未完成` with next handler `现场主管`; work-order entry showed abnormal operations with `未分配工位` and next handler `生产负责人`.
+  - Context action proof: in the execution hub action row the buttons were `开始生产` (disabled), `打开/创建 WIP 领料`, `打开工序卡`, `打开质检`, `完工入库`, `成本`, `日志`; clicking `打开/创建 WIP 领料` navigated to `view=stockOperations&tab=wip&work_order_id=34&job_card_id=51`, and the target page headings were `库存作业 / WIP在制仓 / WIP批次库存`.

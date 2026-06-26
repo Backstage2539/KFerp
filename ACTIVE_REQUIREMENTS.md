@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-499-PRODUCTION-EXECUTION-HUB-PHASE2
 - Branch: codex/production-execution-hub-phase2-20260617
 - Owner/session: Codex goal / 2026-06-18
-- Status: implementing; RED/GREEN targeted service/API/frontend checks, broader tests, frontend build and changed verifier passing; push/merge/deploy/browser acceptance pending.
+- Status: merged to develop and deployed to development; RED/GREEN targeted service/API/frontend checks, broader tests, frontend build, changed verifier, server smoke and ERP browser acceptance passed.
 - Scope: 生产管理高频视图优化二期。基于 PR-496/PR-497 已合入并部署的生产顶部切换条、生产视图、工位视图、生产计划步骤条、生产中完成面板和 WIP 上下文，新增统一工单执行枢纽和结构化 readiness，让生产负责人和工位操作员围绕同一工单查看 WIP、质检、工序卡、库存作业、完工入库、成本和追溯时间线。
 - DEV:
   - DEV-499-WORKORDER-EXECUTION-HUB：扩展 `/api/produce/work-orders/:id`，返回 `execution_hub`，包含工单头、BOM/路线摘要、工序进度、工位分配、WIP 状态、质检状态、Stock Entry、完工入库状态、成本摘要、追溯 timeline 和上下文动作。
@@ -22,9 +22,10 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN targeted frontend: `node --test src/lib/production-execution-hub.test.js src/lib/production-workstation.test.js src/lib/view-routing.test.js` passed 21/21.
   - GREEN targeted backend/API: `go test ./internal/application/production ./internal/interfaces/http/production -run 'TestWorkOrderExecutionHubReadModelAndTraceTimeline|TestProductionWorkstationOverviewAnswersProductionAndStationQuestions|TestWorkOrderProducePathOwnsInventoryActionsAndDetail' -count=1`.
   - GREEN release-local after merging `origin/develop=12e2fb70`: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1`; `go test ./...`; `node --test src/lib/production-execution-hub.test.js src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js src/lib/menu-ia.test.js src/lib/view-routing.test.js src/lib/work-orders.test.js src/lib/quality-inspections.test.js src/lib/production-costs.test.js src/lib/production-logs.test.js` passed 100/100; `npm run build` passed after `npm ci` with existing Vite chunk-size warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
-  - Pending integration: feature branch push, develop merge, development deploy, ERP browser acceptance.
+  - GREEN integration/deploy: feature branch pushed; `origin/develop` fast-forwarded to `96ac56800772651a30caeca8573f7eaad9bd648b`; development deployed from the same commit; Docker build ran `go test ./...`; server smoke passed for `/app/`, six production Vue routes and `/app/api/production/workstation-overview`.
+  - GREEN ERP browser acceptance: rendered 生产视图、工位视图、生产计划、生产中、生产工单、工序卡、库存作业、生产质检、生产成本、生产日志; production top nav order/active/badges passed; production overview, workstation view, work orders and job cards opened the same execution hub; hub showed readiness, WIP, quality, operation progress, cost, actions and trace timeline; WIP action navigated to `stockOperations&tab=wip&work_order_id=34&job_card_id=51`; app console errors after filtering browser-extension warnings: 0.
 - Manual/docs: `orderapp-remote/docs/REQUIREMENTS.md`; `orderapp-remote/docs/ACCEPTANCE_TESTS.md`; `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`; `orderapp-remote/docs/acceptance/2026-06-26-production-execution-hub-phase2.md`; root `REQUIREMENTS.md`; root `ACCEPTANCE_TESTS.md`.
-- Deployment: pending merge to develop and serialized deployment.
+- Deployment: feature branch pushed and merged to `develop` at `96ac56800772651a30caeca8573f7eaad9bd648b`; development stack deployed manually because the clean `develop` worktree was dirty from another workflow and `deploy_orderapp.sh` enforces branch guards. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260626214842`. Smoke: `erp_orderapp` listening on `:8080`; unauthenticated `/app/` returned `303`; authenticated `/app/vue-shell?view=productionOverview`, `workstationView`, `producePlan`, `produceRunning`, `workOrders`, `jobCards` and `/app/api/production/workstation-overview` returned `200`; requirement API exposes `PR-499-PRODUCTION-EXECUTION-HUB-PHASE2`.
 - Last update: 2026-06-26 Asia/Shanghai.
 
 ### PR-498-ERP-E2E-AUDIT-FIXES
