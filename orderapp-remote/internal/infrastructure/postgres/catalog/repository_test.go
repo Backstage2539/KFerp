@@ -97,6 +97,7 @@ func TestProductSubtypeConfigAndUnitRulesPersistOnCategories(t *testing.T) {
 		want string
 	}{
 		{name: "operation template column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS operation_template_id BIGINT NOT NULL DEFAULT 0"},
+		{name: "unit template column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS unit_template_id BIGINT NOT NULL DEFAULT 0"},
 		{name: "price list rule column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS price_list_rule_json JSONB NOT NULL DEFAULT '{}'::jsonb"},
 		{name: "inventory unit column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS inventory_unit TEXT NOT NULL DEFAULT 'kg'"},
 		{name: "quote unit column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS quote_unit TEXT NOT NULL DEFAULT 'kg'"},
