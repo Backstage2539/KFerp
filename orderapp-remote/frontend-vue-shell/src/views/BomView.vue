@@ -305,6 +305,7 @@
                 <select v-model="itemForm.consume_unit" :disabled="!detail || !canEditCurrentBomItems">
                   <option v-for="unit in currentConsumeUnitOptions" :key="unit.value" :value="unit.value">{{ unit.label }}</option>
                 </select>
+                <small>组件库存单位：{{ componentStockUnitLabel }}</small>
               </label>
               <label v-if="itemForm.consume_unit === 'ratio_pct'">
                 <span>比例 %</span>
@@ -377,7 +378,7 @@
           </label>
           <label>
             <span>产出单位</span>
-            <input v-model.trim="bomForm.output_unit" placeholder="例如 盒 / 条 / kg" :disabled="!canEditBomFormOutputBasis" />
+            <input :value="outputUnitDisplay" disabled />
           </label>
           <label v-if="bomForm.mode === 'edit'">
             <span>状态</span>
@@ -481,6 +482,9 @@ const productionBomDisplayGroups = computed(() => groupRowsByBusinessGroupTempla
   rowAssignment: productionBomBusinessGroupAssignment,
 }))
 const selectedProduct = computed(() => productByID(selectedProductId.value))
+const selectedBomOutputProduct = computed(() => productByID(bomForm.output_product_id))
+const outputUnitCode = computed(() => String(selectedBomOutputProduct.value?.inventory_unit || selectedProductionBomVersion.value?.output_unit || bomForm.output_unit || 'unit').trim() || 'unit')
+const outputUnitDisplay = computed(() => unitLabel(outputUnitCode.value))
 const rawReferencedProducts = computed(() => detail.value?.referenced_products || productionBomDetail.value?.referenced_products || [])
 const referencedProducts = computed(() => {
   const seen = new Set()
@@ -544,6 +548,11 @@ const canSetCurrentBomAsDefault = computed(() => currentProductionBomID.value > 
 const canEditBomFormOutputBasis = computed(() => bomForm.mode !== 'edit' || canEditCurrentBomItems.value)
 const outputProductOptions = computed(() => products.value.filter(isBomProductCandidate))
 const productComponentOptions = computed(() => products.value.filter(isBomProductCandidate).filter((product) => Number(product.id || 0) !== Number(detail.value?.output_product_id || productionBomDetail.value?.output_product_id || 0)))
+const selectedComponent = computed(() => itemForm.component_type === 'product'
+  ? productByID(itemForm.component_product_id)
+  : materials.value.find((material) => Number(material.id || 0) === Number(itemForm.material_id || 0)))
+const componentStockUnitCode = computed(() => String(selectedComponent.value?.inventory_unit || selectedComponent.value?.unit || '').trim())
+const componentStockUnitLabel = computed(() => unitLabel(componentStockUnitCode.value || (itemForm.component_type === 'product' ? 'unit' : 'kg')))
 const ratioConsumeUnitOption = { value: 'ratio_pct', label: '比例 %' }
 const legacyConsumeUnitLabels = {
   g_per_bag: '克/袋',
@@ -697,6 +706,7 @@ function optionMeta(option) {
   parts.push('商品档案')
   if (option?.number) parts.push(option.number)
   if (option?.roast_level) parts.push(option.roast_level)
+  if (option?.inventory_unit) parts.push(`库存 ${unitLabel(option.inventory_unit)}`)
   return parts.join(' / ')
 }
 
@@ -745,6 +755,7 @@ function normalizeBomProduct(product) {
     ...product,
     id: Number(product.id || 0),
     customer_id: Number(product.customer_id || 0),
+    inventory_unit: String(product.inventory_unit || product.inventoryUnit || '').trim(),
   }
 }
 
@@ -783,6 +794,13 @@ function productByID(productId) {
 
 function defaultDictionaryConsumeUnit() {
   return unitDictionaryConsumeUnitOptions.value[0]?.value || 'unit'
+}
+
+function unitLabel(unit) {
+  const code = String(unit || '').trim()
+  if (!code) return '-'
+  const row = productUnitDefinitions.value.find((candidate) => String(candidate.code || '').trim() === code)
+  return row?.name || code
 }
 
 function consumeUnitOptionsWithCurrent(includeRatio, currentUnit) {
@@ -1305,7 +1323,7 @@ async function saveProductionBomRecord() {
     name,
     output_product_id: outputProductID,
     output_qty: Number(bomForm.output_qty || 1),
-    output_unit: String(bomForm.output_unit || 'unit').trim() || 'unit',
+    output_unit: outputUnitCode.value,
     status: bomForm.status === 'inactive' ? 'inactive' : 'active',
   }
 	await mutate(async () => {

@@ -94,6 +94,7 @@ type Option struct {
 	ProductCode     string  `json:"product_code,omitempty"`
 	Name            string  `json:"name"`
 	CustomerID      int64   `json:"customer_id"`
+	InventoryUnit   string  `json:"inventory_unit,omitempty"`
 	RoastLevel      string  `json:"roast_level,omitempty"`
 	ProductKind     string  `json:"product_kind,omitempty"`
 	DripBagGrams    float64 `json:"drip_bag_grams,omitempty"`
@@ -843,9 +844,7 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	if cmd.OutputQty <= 0 {
 		cmd.OutputQty = 1
 	}
-	if cmd.OutputUnit == "" {
-		cmd.OutputUnit = "unit"
-	}
+	cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputProductID, cmd.OutputUnit)
 	row, err := s.repo.CreateProductionBom(ctx, cmd)
 	if err != nil {
 		return ProductionBomSummary{}, err
@@ -853,6 +852,42 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	normalizeProductionBomSummaryGroups(&row)
 	enrichProductionBomSummaryYield(&row)
 	return row, nil
+}
+
+func (s *Service) deriveProductionBomOutputUnit(ctx context.Context, outputProductID int64, fallback string) string {
+	fallback = strings.TrimSpace(fallback)
+	if outputProductID <= 0 {
+		if fallback != "" {
+			return fallback
+		}
+		return "unit"
+	}
+	rows, err := s.repo.Products(ctx)
+	if err != nil {
+		if fallback != "" {
+			return fallback
+		}
+		return "unit"
+	}
+	for _, row := range rows {
+		if row.ID == outputProductID {
+			return outputProductInventoryUnit(row, fallback)
+		}
+	}
+	if fallback != "" {
+		return fallback
+	}
+	return "unit"
+}
+
+func outputProductInventoryUnit(product Option, fallback string) string {
+	if unit := strings.TrimSpace(product.InventoryUnit); unit != "" {
+		return unit
+	}
+	if fallback = strings.TrimSpace(fallback); fallback != "" {
+		return fallback
+	}
+	return "unit"
 }
 
 func (s *Service) UpdateProductionBom(ctx context.Context, cmd UpdateProductionBomCommand) (ProductionBomSummary, error) {

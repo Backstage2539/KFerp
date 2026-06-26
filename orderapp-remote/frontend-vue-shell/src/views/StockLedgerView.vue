@@ -16,7 +16,7 @@
     <section class="panel">
       <div class="table-wrap">
         <table>
-          <thead><tr><th>时间</th><th>类型</th><th>名称</th><th>规格</th><th>仓库</th><th>来源</th><th>批次</th><th>变化(g)</th><th>结余(g)</th><th>变化(件)</th><th>结余(件)</th><th>操作人</th></tr></thead>
+          <thead><tr><th>时间</th><th>类型</th><th>名称</th><th>规格</th><th>仓库</th><th>来源</th><th>批次</th><th>变化重量(g)</th><th>结余重量(g)</th><th>变化库存单位</th><th>结余库存单位</th><th>操作人</th></tr></thead>
           <tbody>
             <tr v-for="row in rows" :key="row.id">
               <td>{{ row.created_at }}</td><td>{{ itemTypeText(row.item_type) }}</td><td>{{ row.item_name }}</td><td>{{ row.spec_g || '-' }}</td><td>{{ row.warehouse }}</td>

@@ -119,14 +119,21 @@ func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail,
 }
 
 func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT p.id, ('SKU-' || lpad(p.id::text,6,'0')), p.name, COALESCE(p.customer_id,0), COALESCE(p.roast_level,''), COALESCE(NULLIF(p.product_kind,''),'roasted_bean'), COALESCE(p.drip_bag_grams,10)::float8, COALESCE(p.drip_box_bag_count,10),
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT p.id, ('SKU-' || lpad(p.id::text,6,'0')), p.name, COALESCE(p.customer_id,0),
+		COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_config.inventory_unit,''), NULLIF(category_config.inventory_unit,''), NULLIF(product_unit_template.inventory_unit,''), NULLIF(category_unit_template.inventory_unit,''), 'kg') AS inventory_unit,
+		COALESCE(p.roast_level,''), COALESCE(NULLIF(p.product_kind,''),'roasted_bean'), COALESCE(p.drip_bag_grams,10)::float8, COALESCE(p.drip_box_bag_count,10),
 		COALESCE((
 			SELECT COUNT(*)
 			FROM %[1]s.order_items oi
 			JOIN %[1]s.orders o ON o.id=oi.order_id
 			WHERE oi.product_id=p.id AND COALESCE(o.is_void,false)=false
 		),0) AS order_usage_count
-		FROM %[1]s.products p WHERE p.active=true ORDER BY p.name`, r.schema))
+		FROM %[1]s.products p
+		LEFT JOIN %[1]s.product_config_templates product_config ON product_config.id=COALESCE(p.product_config_template_id,0) AND product_config.deleted_at IS NULL
+		LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id=COALESCE(product_config.unit_template_id,0) AND product_unit_template.deleted_at IS NULL
+		LEFT JOIN %[1]s.product_categories category_config ON category_config.id=COALESCE(p.product_category_id,0)
+		LEFT JOIN %[1]s.product_unit_templates category_unit_template ON category_unit_template.id=COALESCE(category_config.unit_template_id,0) AND category_unit_template.deleted_at IS NULL
+		WHERE p.active=true ORDER BY p.name`, r.schema))
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +142,7 @@ func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
 	out := make([]bomapp.Option, 0)
 	for rows.Next() {
 		var opt bomapp.Option
-		if err := rows.Scan(&opt.ID, &opt.ProductCode, &opt.Name, &opt.CustomerID, &opt.RoastLevel, &opt.ProductKind, &opt.DripBagGrams, &opt.DripBoxBagCount, &opt.OrderUsageCount); err != nil {
+		if err := rows.Scan(&opt.ID, &opt.ProductCode, &opt.Name, &opt.CustomerID, &opt.InventoryUnit, &opt.RoastLevel, &opt.ProductKind, &opt.DripBagGrams, &opt.DripBoxBagCount, &opt.OrderUsageCount); err != nil {
 			return nil, err
 		}
 		out = append(out, opt)
@@ -144,11 +151,20 @@ func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
 }
 
 func (r Repository) Materials(ctx context.Context) ([]bomapp.Option, error) {
-	opts, err := postgresinfra.FetchOptions(ctx, r.pool, "SELECT id, name FROM "+r.schema+".materials ORDER BY name")
+	rows, err := r.pool.Query(ctx, "SELECT id, name, COALESCE(NULLIF(unit,''),'kg') FROM "+r.schema+".materials ORDER BY name")
 	if err != nil {
 		return nil, err
 	}
-	return bomOptionsToApp(opts), nil
+	defer rows.Close()
+	out := make([]bomapp.Option, 0)
+	for rows.Next() {
+		var opt bomapp.Option
+		if err := rows.Scan(&opt.ID, &opt.Name, &opt.InventoryUnit); err != nil {
+			return nil, err
+		}
+		out = append(out, opt)
+	}
+	return out, rows.Err()
 }
 
 func (r Repository) BagSpecMappings(ctx context.Context) ([]bomapp.BagSpecMapping, error) {

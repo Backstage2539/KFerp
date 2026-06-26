@@ -85,7 +85,7 @@ const form = reactive({ adjustment_type: 'quantity', item_type: 'material', item
 const isMaterialCostAdjustment = computed(() => form.adjustment_type === 'material_cost')
 const currentOptions = computed(() => form.item_type === 'material' ? materials.value : products.value)
 const selectedMaterial = computed(() => materials.value.find((row) => Number(row.id || row.ID || 0) === Number(form.item_id || 0)) || null)
-const selectedMaterialUnitLabel = computed(() => selectedMaterial.value?.unit || selectedMaterial.value?.Unit || '物料单位')
+const selectedMaterialUnitLabel = computed(() => selectedMaterial.value?.unit || selectedMaterial.value?.Unit || '库存单位')
 const warehouseOptions = computed(() => {
   const kind = form.item_type === 'finished_product' ? 'finished' : ''
   const rows = warehouses.value.filter((row) => !kind || row.kind === kind)

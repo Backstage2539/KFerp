@@ -175,7 +175,7 @@ func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.Mate
 		where = append(where, fmt.Sprintf("b.material_id=$%d", len(args)))
 	}
 	if query.ActiveOnly {
-		where = append(where, "b.remaining_g > 0 AND b.status='active' AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')")
+		where = append(where, "(b.remaining_g > 0 OR b.remaining_units > 0) AND b.status='active' AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')")
 	}
 	var total int
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
@@ -190,7 +190,7 @@ func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.Mate
 	limitArg, offsetArg := len(args)-1, len(args)
 	sql := fmt.Sprintf(`
 		SELECT b.id,b.batch_code,b.material_id,COALESCE(m.name,''),b.supplier,b.receipt_id,
-		       b.qty_g,b.remaining_g,COALESCE(b.unit_cost,0),
+		       b.qty_g,b.qty_units,b.remaining_g,b.remaining_units,COALESCE(b.unit_cost,0),
 		       COALESCE(b.crop_season,''),COALESCE(b.origin,''),COALESCE(b.producer_flavor_description,''),
 		       to_char(b.received_at,'YYYY-MM-DD HH24:MI'),b.status,COALESCE(b.quality_status,'unchecked'),b.note
 		FROM %s.material_batches b
@@ -207,7 +207,7 @@ func (r Repository) ListMaterialBatches(ctx context.Context, query stockapp.Mate
 	out := make([]stockapp.MaterialBatchRow, 0)
 	for rows.Next() {
 		var row stockapp.MaterialBatchRow
-		if err := rows.Scan(&row.ID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Supplier, &row.ReceiptID, &row.QtyG, &row.RemainingG, &row.UnitCost, &row.CropSeason, &row.Origin, &row.ProducerFlavorDescription, &row.ReceivedAt, &row.Status, &row.QualityStatus, &row.Note); err != nil {
+		if err := rows.Scan(&row.ID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Supplier, &row.ReceiptID, &row.QtyG, &row.QtyUnits, &row.RemainingG, &row.RemainingUnits, &row.UnitCost, &row.CropSeason, &row.Origin, &row.ProducerFlavorDescription, &row.ReceivedAt, &row.Status, &row.QualityStatus, &row.Note); err != nil {
 			return stockapp.MaterialBatchResult{}, err
 		}
 		out = append(out, row)
@@ -323,7 +323,7 @@ func (r Repository) ListMaterialBatchLocations(ctx context.Context, query stocka
 		where = append(where, fmt.Sprintf("l.warehouse=$%d", len(args)))
 	}
 	if query.ActiveOnly {
-		where = append(where, "l.qty_g > 0 AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')")
+		where = append(where, "(l.qty_g > 0 OR l.qty_units > 0) AND COALESCE(b.quality_status,'unchecked') NOT IN ('hold','reject')")
 	}
 	var total int
 	if err := r.pool.QueryRow(ctx, fmt.Sprintf(`
@@ -339,7 +339,7 @@ func (r Repository) ListMaterialBatchLocations(ctx context.Context, query stocka
 	limitArg, offsetArg := len(args)-1, len(args)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT l.material_batch_id,l.batch_code,l.material_id,COALESCE(m.name,''),l.warehouse,
-		       COALESCE(w.name,l.warehouse),l.qty_g,
+		       COALESCE(w.name,l.warehouse),l.qty_g,l.qty_units,
 		       COALESCE(b.quality_status,'unchecked'),
 		       COALESCE(to_char(b.received_at,'YYYY-MM-DD HH24:MI'),''),
 		       to_char(l.updated_at,'YYYY-MM-DD HH24:MI')
@@ -358,7 +358,7 @@ func (r Repository) ListMaterialBatchLocations(ctx context.Context, query stocka
 	out := make([]stockapp.MaterialBatchLocationRow, 0)
 	for rows.Next() {
 		var row stockapp.MaterialBatchLocationRow
-		if err := rows.Scan(&row.MaterialBatchID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Warehouse, &row.WarehouseName, &row.QtyG, &row.QualityStatus, &row.ReceivedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.MaterialBatchID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Warehouse, &row.WarehouseName, &row.QtyG, &row.QtyUnits, &row.QualityStatus, &row.ReceivedAt, &row.UpdatedAt); err != nil {
 			return stockapp.MaterialBatchLocationResult{}, err
 		}
 		out = append(out, row)
@@ -389,7 +389,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			       l.material_batch_id AS batch_id,
 			       l.batch_code AS batch_code,
 			       l.qty_g AS qty_g,
-			       0::bigint AS qty_units,
+			       l.qty_units AS qty_units,
 			       COALESCE(b.unit_cost,0) AS unit_cost,
 			       COALESCE(b.quality_status,'unchecked') AS quality_status,
 			       l.updated_at AS updated_at
@@ -397,7 +397,7 @@ func (r Repository) ListWarehouseInventory(ctx context.Context, query stockapp.W
 			LEFT JOIN %s.material_batches b ON b.id=l.material_batch_id
 			LEFT JOIN %s.materials m ON m.id=l.material_id
 			LEFT JOIN %s.warehouses w ON w.code=l.warehouse
-			WHERE l.qty_g <> 0
+			WHERE (l.qty_g <> 0 OR l.qty_units <> 0)
 			  AND ($1 = '' OR l.batch_code ILIKE $2 OR m.name ILIKE $2)
 			  AND ($3 = '' OR l.warehouse = $3)
 			  AND ($4 = '' OR $4 = 'material')
@@ -712,7 +712,7 @@ func (r Repository) getMaterialStockTrace(ctx context.Context, batchCode string)
 	result.TraceType = "material_batch"
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
 		SELECT b.id,b.batch_code,b.material_id,COALESCE(m.name,''),b.supplier,b.receipt_id,
-		       b.qty_g,b.remaining_g,COALESCE(b.unit_cost,0),
+		       b.qty_g,b.qty_units,b.remaining_g,b.remaining_units,COALESCE(b.unit_cost,0),
 		       COALESCE(b.crop_season,''),COALESCE(b.origin,''),COALESCE(b.producer_flavor_description,''),
 		       to_char(b.received_at,'YYYY-MM-DD HH24:MI'),b.status,COALESCE(b.quality_status,'unchecked'),b.note
 		FROM %s.material_batches b
@@ -727,7 +727,9 @@ func (r Repository) getMaterialStockTrace(ctx context.Context, batchCode string)
 		&result.MaterialBatch.Supplier,
 		&result.MaterialBatch.ReceiptID,
 		&result.MaterialBatch.QtyG,
+		&result.MaterialBatch.QtyUnits,
 		&result.MaterialBatch.RemainingG,
+		&result.MaterialBatch.RemainingUnits,
 		&result.MaterialBatch.UnitCost,
 		&result.MaterialBatch.CropSeason,
 		&result.MaterialBatch.Origin,
@@ -745,7 +747,7 @@ func (r Repository) getMaterialStockTrace(ctx context.Context, batchCode string)
 	}
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT l.material_batch_id,l.batch_code,l.material_id,COALESCE(m.name,''),l.warehouse,
-		       COALESCE(w.name,l.warehouse),l.qty_g,
+		       COALESCE(w.name,l.warehouse),l.qty_g,l.qty_units,
 		       COALESCE(b.quality_status,'unchecked'),
 		       COALESCE(to_char(b.received_at,'YYYY-MM-DD HH24:MI'),''),
 		       to_char(l.updated_at,'YYYY-MM-DD HH24:MI')
@@ -754,7 +756,7 @@ func (r Repository) getMaterialStockTrace(ctx context.Context, batchCode string)
 		LEFT JOIN %s.materials m ON m.id=l.material_id
 		LEFT JOIN %s.warehouses w ON w.code=l.warehouse
 		WHERE l.batch_code=$1
-		  AND l.qty_g <> 0
+		  AND (l.qty_g <> 0 OR l.qty_units <> 0)
 		ORDER BY l.warehouse, l.material_batch_id
 	`, r.schema, r.schema, r.schema, r.schema), batchCode)
 	if err != nil {
@@ -764,7 +766,7 @@ func (r Repository) getMaterialStockTrace(ctx context.Context, batchCode string)
 	result.MaterialLocations = make([]stockapp.MaterialBatchLocationRow, 0)
 	for rows.Next() {
 		var row stockapp.MaterialBatchLocationRow
-		if err := rows.Scan(&row.MaterialBatchID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Warehouse, &row.WarehouseName, &row.QtyG, &row.QualityStatus, &row.ReceivedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.MaterialBatchID, &row.BatchCode, &row.MaterialID, &row.MaterialName, &row.Warehouse, &row.WarehouseName, &row.QtyG, &row.QtyUnits, &row.QualityStatus, &row.ReceivedAt, &row.UpdatedAt); err != nil {
 			return stockapp.StockTraceResult{}, err
 		}
 		result.MaterialLocations = append(result.MaterialLocations, row)
@@ -791,55 +793,63 @@ func (r Repository) ReceiveMaterial(ctx context.Context, cmd stockapp.MaterialRe
 		return stockapp.MaterialReceiptResult{}, err
 	}
 	afterG := beforeG + cmd.QtyG
-	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET onhand_g=$2,updated_at=now() WHERE id=$1`, r.schema), cmd.MaterialID, afterG); err != nil {
+	afterUnits := beforeUnits + cmd.QtyUnits
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.materials SET onhand_g=$2,onhand_units=$3,updated_at=now() WHERE id=$1`, r.schema), cmd.MaterialID, afterG, afterUnits); err != nil {
 		return stockapp.MaterialReceiptResult{}, err
 	}
 
 	var receiptID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.material_receipts(material_id,supplier,qty_g,unit_cost,crop_season,origin,producer_flavor_description,note,operator,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
+		INSERT INTO %s.material_receipts(material_id,supplier,qty_g,qty_units,unit_cost,crop_season,origin,producer_flavor_description,note,operator,created_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())
 		RETURNING id
-	`, r.schema), cmd.MaterialID, cmd.Supplier, cmd.QtyG, cmd.UnitCost, cmd.CropSeason, cmd.Origin, cmd.ProducerFlavorDescription, cmd.Note, cmd.Operator).Scan(&receiptID); err != nil {
+	`, r.schema), cmd.MaterialID, cmd.Supplier, cmd.QtyG, cmd.QtyUnits, cmd.UnitCost, cmd.CropSeason, cmd.Origin, cmd.ProducerFlavorDescription, cmd.Note, cmd.Operator).Scan(&receiptID); err != nil {
 		return stockapp.MaterialReceiptResult{}, err
 	}
 	batchCode := fmt.Sprintf("MB-%010d", receiptID)
 	var batchID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s.material_batches(batch_code,material_id,supplier,receipt_id,qty_g,remaining_g,unit_cost,crop_season,origin,producer_flavor_description,note,received_at,created_at)
-		VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,$10,now(),now())
+		INSERT INTO %s.material_batches(batch_code,material_id,supplier,receipt_id,qty_g,qty_units,remaining_g,remaining_units,unit_cost,crop_season,origin,producer_flavor_description,note,received_at,created_at)
+		VALUES($1,$2,$3,$4,$5,$6,$5,$6,$7,$8,$9,$10,$11,now(),now())
 		RETURNING id
-	`, r.schema), batchCode, cmd.MaterialID, cmd.Supplier, receiptID, cmd.QtyG, cmd.UnitCost, cmd.CropSeason, cmd.Origin, cmd.ProducerFlavorDescription, cmd.Note).Scan(&batchID); err != nil {
+	`, r.schema), batchCode, cmd.MaterialID, cmd.Supplier, receiptID, cmd.QtyG, cmd.QtyUnits, cmd.UnitCost, cmd.CropSeason, cmd.Origin, cmd.ProducerFlavorDescription, cmd.Note).Scan(&batchID); err != nil {
 		return stockapp.MaterialReceiptResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s.stock_batches(
 			batch_code,item_type,item_id,item_name,spec_g,source_doc_type,source_doc_id,source_batch_id,
 			qty_g,qty_units,remaining_g,remaining_units,unit_cost,operator,created_at
-		) VALUES($1,$2,$3,$4,0,$5,$6,$1,$7,0,$7,0,$8,$9,now())
-	`, r.schema), batchCode, itemTypeMaterial, cmd.MaterialID, materialName, sourceMaterialReceipt, receiptID, cmd.QtyG, cmd.UnitCost, cmd.Operator); err != nil {
+		) VALUES($1,$2,$3,$4,0,$5,$6,$1,$7,$8,$7,$8,$9,$10,now())
+	`, r.schema), batchCode, itemTypeMaterial, cmd.MaterialID, materialName, sourceMaterialReceipt, receiptID, cmd.QtyG, cmd.QtyUnits, cmd.UnitCost, cmd.Operator); err != nil {
 		return stockapp.MaterialReceiptResult{}, err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g,updated_at)
-		VALUES($1,$2,$3,$4,$5,now())
+		INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g,qty_units,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,now())
 		ON CONFLICT (material_batch_id, warehouse) DO UPDATE SET
 			batch_code=excluded.batch_code,
 			material_id=excluded.material_id,
 			qty_g=material_batch_locations.qty_g+excluded.qty_g,
+			qty_units=material_batch_locations.qty_units+excluded.qty_units,
 			updated_at=now()
-	`, r.schema), batchID, batchCode, cmd.MaterialID, stockdomain.WarehouseRawMaterials, cmd.QtyG); err != nil {
+	`, r.schema), batchID, batchCode, cmd.MaterialID, stockdomain.WarehouseRawMaterials, cmd.QtyG, cmd.QtyUnits); err != nil {
 		return stockapp.MaterialReceiptResult{}, err
 	}
 	if err := insertLedgerTx(ctx, tx, r.schema, ledgerEntry{
 		ItemType: itemTypeMaterial, ItemID: cmd.MaterialID, ItemName: materialName, Warehouse: stockdomain.WarehouseRawMaterials,
 		SourceDocType: sourceMaterialReceipt, SourceDocID: receiptID, SourceBatchCode: batchCode, SourceBatchID: batchCode,
-		BeforeG: beforeG, ChangeG: cmd.QtyG, AfterG: afterG, BeforeUnits: beforeUnits, ChangeUnits: 0, AfterUnits: beforeUnits,
+		BeforeG: beforeG, ChangeG: cmd.QtyG, AfterG: afterG, BeforeUnits: beforeUnits, ChangeUnits: cmd.QtyUnits, AfterUnits: afterUnits,
 		Operator: cmd.Operator,
 	}); err != nil {
 		return stockapp.MaterialReceiptResult{}, err
 	}
-	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "material_receipt", &receiptID, "submit", postgresinfra.StrPtr("qty_g"), nil, postgresinfra.StrPtr(fmt.Sprintf("%d", cmd.QtyG)), postgresinfra.AuditMeta{"material_id": cmd.MaterialID, "batch_code": batchCode}); err != nil {
+	auditField := "qty_g"
+	auditNewValue := fmt.Sprintf("%d", cmd.QtyG)
+	if cmd.QtyG == 0 && cmd.QtyUnits > 0 {
+		auditField = "qty_units"
+		auditNewValue = fmt.Sprintf("%d", cmd.QtyUnits)
+	}
+	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Operator, "material_receipt", &receiptID, "submit", postgresinfra.StrPtr(auditField), nil, postgresinfra.StrPtr(auditNewValue), postgresinfra.AuditMeta{"material_id": cmd.MaterialID, "batch_code": batchCode, "qty_g": cmd.QtyG, "qty_units": cmd.QtyUnits, "unit_code": cmd.UnitCode}); err != nil {
 		return stockapp.MaterialReceiptResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1193,6 +1203,9 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 	if cmd.ItemType == itemTypeMaterial && changeG > 0 {
 		stockRemainingG = changeG
 	}
+	if cmd.ItemType == itemTypeMaterial && changeUnits > 0 {
+		stockRemainingUnits = changeUnits
+	}
 	if cmd.ItemType == itemTypeFinishedProduct && changeG > 0 {
 		stockRemainingG = changeG
 		stockRemainingUnits = changeUnits
@@ -1201,7 +1214,7 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 		}
 	}
 	unitCost := 0.0
-	if cmd.ItemType == itemTypeMaterial && changeG > 0 {
+	if cmd.ItemType == itemTypeMaterial && (changeG > 0 || changeUnits > 0) {
 		unitCost, err = r.materialAdjustmentUnitCostTx(ctx, tx, cmd)
 		if err != nil {
 			return stockapp.StockAdjustmentResult{}, err
@@ -1213,29 +1226,33 @@ func (r Repository) CreateAdjustment(ctx context.Context, cmd stockapp.StockAdju
 	`, r.schema), batchCode, cmd.ItemType, cmd.ItemID, itemName, cmd.SpecG, sourceStockAdjustment, adjustmentID, changeG, changeUnits, stockRemainingG, stockRemainingUnits, unitCost, cmd.Operator); err != nil {
 		return stockapp.StockAdjustmentResult{}, err
 	}
-	if cmd.ItemType == itemTypeMaterial && changeG > 0 {
+	if cmd.ItemType == itemTypeMaterial && (changeG > 0 || changeUnits > 0) {
 		var materialBatchID int64
 		if err := tx.QueryRow(ctx, fmt.Sprintf(`
-			INSERT INTO %s.material_batches(batch_code,material_id,supplier,receipt_id,qty_g,remaining_g,unit_cost,note,received_at,created_at)
-			VALUES($1,$2,'stock_adjustment',$3,$4,$4,$5,$6,now(),now())
+			INSERT INTO %s.material_batches(batch_code,material_id,supplier,receipt_id,qty_g,qty_units,remaining_g,remaining_units,unit_cost,note,received_at,created_at)
+			VALUES($1,$2,'stock_adjustment',$3,$4,$5,$4,$5,$6,$7,now(),now())
 			ON CONFLICT (batch_code) DO UPDATE SET
+				qty_g=excluded.qty_g,
+				qty_units=excluded.qty_units,
 				remaining_g=excluded.remaining_g,
+				remaining_units=excluded.remaining_units,
 				unit_cost=excluded.unit_cost,
 				status='active',
 				note=excluded.note
 			RETURNING id
-		`, r.schema), batchCode, cmd.ItemID, adjustmentID, changeG, unitCost, cmd.Reason).Scan(&materialBatchID); err != nil {
+		`, r.schema), batchCode, cmd.ItemID, adjustmentID, changeG, changeUnits, unitCost, cmd.Reason).Scan(&materialBatchID); err != nil {
 			return stockapp.StockAdjustmentResult{}, err
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g,updated_at)
-			VALUES($1,$2,$3,$4,$5,now())
+			INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g,qty_units,updated_at)
+			VALUES($1,$2,$3,$4,$5,$6,now())
 			ON CONFLICT (material_batch_id, warehouse) DO UPDATE SET
 				batch_code=excluded.batch_code,
 				material_id=excluded.material_id,
 				qty_g=excluded.qty_g,
+				qty_units=excluded.qty_units,
 				updated_at=now()
-		`, r.schema), materialBatchID, batchCode, cmd.ItemID, cmd.Warehouse, changeG); err != nil {
+		`, r.schema), materialBatchID, batchCode, cmd.ItemID, cmd.Warehouse, changeG, changeUnits); err != nil {
 			return stockapp.StockAdjustmentResult{}, err
 		}
 	}

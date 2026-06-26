@@ -30,7 +30,7 @@
               </button>
             </div>
           </div>
-          <p class="muted">分组是泛化主数据能力，可被商品档案归类、商品价格表选品、物料档案归类、生产 BOM 分组和报表分组复用。分组项不参与 BOM、库存、录单单位；商品价格表引用分组时只用于选品、筛选、分组展示和模板继承。</p>
+          <p class="muted">分组是泛化主数据能力，可被商品档案归类、商品价格表选品、物料档案归类、生产 BOM 分组和报表分组复用。分组项不参与 BOM、库存、销售单位；商品价格表引用分组时只用于选品、筛选、分组展示和模板继承。</p>
           <label class="category-search">
             <span>搜索分类/商品</span>
             <input v-model.trim="categorySearchQuery" placeholder="搜索大类、小类或商品名称" />
@@ -517,7 +517,7 @@
           <span>单位模板</span>
           <button class="secondary compact-action" type="button" @click="openGlobalUnitDictionaryDrawer">全局单位字典</button>
         </div>
-        <p class="muted unit-template-note">基础单位在“系统设置”维护；这里配置成品库存单位、报价单位、录单单位之间的换算模板。</p>
+        <p class="muted unit-template-note">基础单位在“系统设置”维护；这里配置库存单位、销售单位和单位转换。</p>
         <div class="unit-template-layout">
           <section class="unit-template-card unit-template-list-panel">
             <div class="field-group-head">
@@ -553,26 +553,20 @@
               </label>
               <div class="template-editor-grid">
                 <label>
-                  <span>成品库存单位</span>
+                  <span>库存单位</span>
                   <select v-model="productUnitTemplateForm.inventory_unit">
                     <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
                   </select>
                 </label>
                 <label>
-                  <span>报价单位</span>
-                  <select v-model="productUnitTemplateForm.quote_unit">
-                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>录单单位</span>
-                  <select v-model="productUnitTemplateForm.order_unit">
+                  <span>销售单位</span>
+                  <select v-model="productUnitTemplateForm.sales_unit">
                     <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
                   </select>
                 </label>
                 <label class="checkline">
                   <input v-model="productUnitTemplateForm.integer_unit" type="checkbox" />
-                  <span>整数单位（录单）</span>
+                  <span>整数销售单位</span>
                 </label>
               </div>
               <div class="unit-conversion-editor">
@@ -861,7 +855,7 @@
               </label>
               <label class="wide-field">
                 <span>试算说明</span>
-                <textarea v-model.trim="pricingRuleForm.trial_note" rows="2" placeholder="例如：选择商品、报价单位后按生产 BOM 成本试算"></textarea>
+                <textarea v-model.trim="pricingRuleForm.trial_note" rows="2" placeholder="例如：选择商品、销售单位后按生产 BOM 成本试算"></textarea>
               </label>
               <div class="form-actions">
                 <button class="primary" type="submit" :disabled="productPriceSaving">保存价格计算模板</button>
@@ -949,9 +943,9 @@
                 </select>
               </label>
               <label>
-                <span>报价单位</span>
+                <span>销售单位</span>
                 <select v-model="pricingRuleTrialForm.quote_unit">
-                  <option value="">请选择报价单位</option>
+                  <option value="">请选择销售单位</option>
                   <option v-for="unit in pricingRuleTrialQuoteUnitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
                 </select>
               </label>
@@ -2482,13 +2476,14 @@ function unitTypeLabel(value) {
 
 function defaultProductUnitTemplateForm(template = {}) {
   const inventoryUnit = template.inventory_unit || 'kg'
-  const quoteUnit = template.quote_unit || inventoryUnit
+  const salesUnit = template.sales_unit || template.quote_unit || template.order_unit || inventoryUnit
   return {
     id: Number(template.id || 0),
     name: template.name || '',
     inventory_unit: inventoryUnit,
-    quote_unit: quoteUnit,
-    order_unit: template.order_unit || quoteUnit,
+    sales_unit: salesUnit,
+    quote_unit: salesUnit,
+    order_unit: salesUnit,
     unit_conversion_json: template.unit_conversion_json || '{}',
     unit_conversion_rows: unitConversionRowsFromJSON(template.unit_conversion_json || '{}'),
     integer_unit: Boolean(template.integer_unit),
@@ -3445,7 +3440,7 @@ async function runPricingRuleTrial() {
     return
   }
   if (!String(payload.quote_unit || '').trim()) {
-    pricingRuleTrialError.value = '请选择报价单位'
+    pricingRuleTrialError.value = '请选择销售单位'
     return
   }
   const runID = ++pricingRuleTrialRunID
@@ -3599,7 +3594,7 @@ function pricingRuleTrialConsumeUnitLabel(value = '') {
     per_finished_kg: '每 kg 成品',
     fixed: '固定',
     per_unit: '每单位',
-    per_quote_unit: '每报价单位',
+    per_quote_unit: '每销售单位',
   }[String(value || '').trim()] || String(value || '').trim()
 }
 
@@ -3991,9 +3986,8 @@ function resetProductUnitTemplateForm() {
 
 function validateProductUnitTemplatePayload(payload) {
   if (!String(payload.name || '').trim()) return '请填写单位模板名称'
-  if (!String(payload.inventory_unit || '').trim()) return '请选择成品库存单位'
-  if (!String(payload.quote_unit || '').trim()) return '请选择报价单位'
-  if (!String(payload.order_unit || '').trim()) return '请选择录单单位'
+  if (!String(payload.inventory_unit || '').trim()) return '请选择库存单位'
+  if (!String(payload.sales_unit || '').trim()) return '请选择销售单位'
   return ''
 }
 
@@ -4115,9 +4109,9 @@ function addUnitConversionRow(target) {
   if (!Array.isArray(target.unit_conversion_rows)) target.unit_conversion_rows = []
   target.unit_conversion_rows.push({
     from_qty: 1,
-    from_unit: target.order_unit || target.quote_unit || '',
+    from_unit: target.sales_unit || target.order_unit || target.quote_unit || '',
     to_qty: 1,
-    to_unit: target.inventory_unit || target.quote_unit || '',
+    to_unit: target.inventory_unit || target.sales_unit || target.quote_unit || '',
   })
 }
 
@@ -4544,7 +4538,8 @@ function productionBomOptionMeta(row = {}) {
 function productUnitTemplateSummary(idOrTemplate) {
   const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
   if (!template) return '未绑定单位模板'
-  return `${template.name || '单位模板'} · 成品库存 ${productUnitName(template.inventory_unit)} · 报价 ${productUnitName(template.quote_unit)} · 录单 ${productUnitName(template.order_unit)}${template.integer_unit ? ' · 整数' : ''}`
+  const salesUnit = template.sales_unit || template.quote_unit || template.order_unit || template.inventory_unit
+  return `${template.name || '单位模板'} · 库存 ${productUnitName(template.inventory_unit)} · 销售 ${productUnitName(salesUnit)}${template.integer_unit ? ' · 整数' : ''}`
 }
 
 function productConfigUnitTemplateName(idOrTemplate) {
@@ -4555,10 +4550,10 @@ function productConfigUnitTemplateName(idOrTemplate) {
 function productConfigUnitChips(idOrTemplate) {
   const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
   if (!template) return ['单位未绑定']
+  const salesUnit = template.sales_unit || template.quote_unit || template.order_unit || template.inventory_unit
   const chips = [
-    `成品库存 ${productUnitName(template.inventory_unit)}`,
-    `报价 ${productUnitName(template.quote_unit)}`,
-    `录单 ${productUnitName(template.order_unit)}`,
+    `库存 ${productUnitName(template.inventory_unit)}`,
+    `销售 ${productUnitName(salesUnit)}`,
   ]
   if (template.integer_unit) chips.push('整数单位')
   return chips

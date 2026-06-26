@@ -402,6 +402,7 @@ type productUnitDefinitionAPIRequest struct {
 type productUnitTemplateAPIRequest struct {
 	Name               string `json:"name"`
 	InventoryUnit      string `json:"inventory_unit"`
+	SalesUnit          string `json:"sales_unit"`
 	QuoteUnit          string `json:"quote_unit"`
 	OrderUnit          string `json:"order_unit"`
 	UnitConversionJSON string `json:"unit_conversion_json"`
@@ -1945,6 +1946,7 @@ func (h productHandler) saveProductUnitTemplateAPI(c echo.Context) error {
 		ID:                 id,
 		Name:               req.Name,
 		InventoryUnit:      req.InventoryUnit,
+		SalesUnit:          req.SalesUnit,
 		QuoteUnit:          req.QuoteUnit,
 		OrderUnit:          req.OrderUnit,
 		UnitConversionJSON: req.UnitConversionJSON,

@@ -28,7 +28,7 @@ func TestDev371SkuUnitTemplateCompactActionsUI(t *testing.T) {
 		"商品档案维护商品资料",
 		"kferp:notify",
 		"新增单位模板",
-		"成品库存单位",
+		"库存单位",
 		"globalUnitEditingCode",
 		"新增基础单位",
 	} {
@@ -49,7 +49,7 @@ func TestDev371SkuUnitTemplateCompactActionsDocs(t *testing.T) {
 		filepath.Join("docs", "REQUIREMENTS.md"): {
 			"PR-371-SKU-UNIT-TEMPLATE-COMPACT-ACTIONS",
 			"SKU归属区域必须压缩高度",
-			"成品库存单位",
+			"库存单位",
 		},
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-371-SKU-UNIT-TEMPLATE-COMPACT-ACTIONS",
@@ -59,7 +59,7 @@ func TestDev371SkuUnitTemplateCompactActionsDocs(t *testing.T) {
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-371-SKU-UNIT-TEMPLATE-COMPACT-ACTIONS",
 			"新增单位模板",
-			"成品库存单位",
+			"库存单位",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-25-sku-unit-template-compact-actions.md"): {
 			"PR-371",

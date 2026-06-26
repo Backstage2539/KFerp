@@ -1272,12 +1272,15 @@ export function buildProductUnitDefinitionPayload(form = {}) {
 }
 
 export function buildProductUnitTemplatePayload(form = {}) {
+  const inventoryUnit = normalizeUnitText(form.inventory_unit, 'kg')
+  const salesUnit = normalizeUnitText(form.sales_unit, normalizeUnitText(form.quote_unit, normalizeUnitText(form.order_unit, inventoryUnit)))
   return {
     id: Number(form.id || 0),
     name: String(form.name || '').trim(),
-    inventory_unit: normalizeUnitText(form.inventory_unit, 'kg'),
-    quote_unit: normalizeUnitText(form.quote_unit, normalizeUnitText(form.inventory_unit, 'kg')),
-    order_unit: normalizeUnitText(form.order_unit, normalizeUnitText(form.quote_unit, normalizeUnitText(form.inventory_unit, 'kg'))),
+    inventory_unit: inventoryUnit,
+    sales_unit: salesUnit,
+    quote_unit: salesUnit,
+    order_unit: salesUnit,
     unit_conversion_json: Array.isArray(form.unit_conversion_rows)
       ? unitConversionJSONFromRows(form.unit_conversion_rows)
       : normalizeJSONString(form.unit_conversion_json),

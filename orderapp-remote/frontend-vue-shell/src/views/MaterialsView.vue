@@ -132,7 +132,7 @@
               <label><span>编码</span><input v-model.trim="draft.code" /></label>
               <label><span>名称</span><input v-model.trim="draft.name" /></label>
               <label>
-                <span>单位（全局单位字典）</span>
+                <span>库存单位（全局单位字典）</span>
                 <select v-model="draft.unit">
                   <option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.label || unit.name || unit.code }}</option>
                 </select>
@@ -146,8 +146,8 @@
           <section class="form-section">
             <div class="section-title">库存</div>
             <div class="form-grid">
-              <label><span>库存数量（物料单位）</span><input type="number" :value="stockQty(draft)" disabled /></label>
-              <label><span>警戒线（物料单位）</span><input type="number" min="0" step="0.001" v-model.number="draft.min_level_qty" /></label>
+              <label><span>库存数量（库存单位）</span><input type="number" :value="stockQty(draft)" disabled /></label>
+              <label><span>警戒线（库存单位）</span><input type="number" min="0" step="0.001" v-model.number="draft.min_level_qty" /></label>
             </div>
           </section>
 

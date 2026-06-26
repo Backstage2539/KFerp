@@ -1365,6 +1365,7 @@ func (r Repository) ListProductUnitTemplates(ctx context.Context) ([]catalogapp.
 		if err := rows.Scan(&row.ID, &row.Name, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.Active); err != nil {
 			return nil, err
 		}
+		row.SalesUnit = row.QuoteUnit
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -3599,6 +3600,7 @@ func fetchProductUnitTemplateTx(ctx context.Context, q queryRower, schema string
 	`, schema), id).Scan(&row.ID, &row.Name, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.Active); err != nil {
 		return catalogapp.ProductUnitTemplate{}, err
 	}
+	row.SalesUnit = row.QuoteUnit
 	return row, nil
 }
 

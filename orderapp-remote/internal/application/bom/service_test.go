@@ -302,6 +302,20 @@ func TestCreateProductionBomRequiresOutputProduct(t *testing.T) {
 	}
 }
 
+func TestCreateProductionBomDerivesOutputUnitFromProductInventoryUnit(t *testing.T) {
+	repo := &fakeRepo{productRows: []Option{{ID: 88, Name: "10条速溶盒装", ProductKind: "instant_coffee", InventoryUnit: "盒"}}}
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	_, err := svc.CreateProductionBom(ctx, CreateProductionBomCommand{Name: "10条速溶盒装", OutputProductID: 88, OutputQty: 1, OutputUnit: "kg"})
+	if err != nil {
+		t.Fatalf("CreateProductionBom: %v", err)
+	}
+	if repo.createdProductionBomCommand.OutputUnit != "盒" {
+		t.Fatalf("OutputUnit = %q, want product inventory unit 盒", repo.createdProductionBomCommand.OutputUnit)
+	}
+}
+
 func TestUpdateProductionBomDraftAcceptsProductComponentsAndOutputBasis(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

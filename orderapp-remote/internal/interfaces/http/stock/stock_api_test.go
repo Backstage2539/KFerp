@@ -141,6 +141,28 @@ func TestStockAPIRoutes(t *testing.T) {
 		t.Fatalf("received metadata = %+v", repo.received)
 	}
 
+	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-receipts", bytes.NewBufferString(`{"material_id":1,"qty":60,"unit_code":"kg","unit_cost":42.5}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST receipt qty/unit_code status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.received.QtyG != 60000 {
+		t.Fatalf("received QtyG = %d, want 60000 from 60 kg", repo.received.QtyG)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/stock/material-receipts", bytes.NewBufferString(`{"material_id":1,"qty":12,"unit_code":"box","unit_cost":1.5}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST receipt non-weight qty/unit_code status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.received.QtyG != 0 || repo.received.QtyUnits != 12 {
+		t.Fatalf("received non-weight qty = %dg/%d units, want 0g/12 units", repo.received.QtyG, repo.received.QtyUnits)
+	}
+
 	req = httptest.NewRequest(http.MethodGet, "/api/stock/warehouses", nil)
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)

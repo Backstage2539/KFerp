@@ -3,6 +3,7 @@ package stock
 import (
 	"context"
 	"fmt"
+	"math"
 	stockdomain "orderapp/internal/domain/stock"
 	"strings"
 )
@@ -103,7 +104,9 @@ type MaterialBatchRow struct {
 	Supplier                  string  `json:"supplier"`
 	ReceiptID                 int64   `json:"receipt_id"`
 	QtyG                      int64   `json:"qty_g"`
+	QtyUnits                  int64   `json:"qty_units"`
 	RemainingG                int64   `json:"remaining_g"`
+	RemainingUnits            int64   `json:"remaining_units"`
 	UnitCost                  float64 `json:"unit_cost"`
 	CropSeason                string  `json:"crop_season"`
 	Origin                    string  `json:"origin"`
@@ -163,6 +166,7 @@ type MaterialBatchLocationRow struct {
 	Warehouse       string `json:"warehouse"`
 	WarehouseName   string `json:"warehouse_name"`
 	QtyG            int64  `json:"qty_g"`
+	QtyUnits        int64  `json:"qty_units"`
 	QualityStatus   string `json:"quality_status"`
 	ReceivedAt      string `json:"received_at"`
 	UpdatedAt       string `json:"updated_at"`
@@ -310,7 +314,9 @@ type TraceMaterialBatch struct {
 	Supplier                  string  `json:"supplier"`
 	ReceiptID                 int64   `json:"receipt_id"`
 	QtyG                      int64   `json:"qty_g"`
+	QtyUnits                  int64   `json:"qty_units"`
 	RemainingG                int64   `json:"remaining_g"`
+	RemainingUnits            int64   `json:"remaining_units"`
 	UnitCost                  float64 `json:"unit_cost"`
 	CropSeason                string  `json:"crop_season"`
 	Origin                    string  `json:"origin"`
@@ -372,7 +378,10 @@ type FinishedProductTransferResult struct {
 type MaterialReceiptCommand struct {
 	MaterialID                int64
 	Supplier                  string
+	Qty                       float64
+	UnitCode                  string
 	QtyG                      int64
+	QtyUnits                  int64
 	UnitCost                  float64
 	CropSeason                string
 	Origin                    string
@@ -529,8 +538,17 @@ func (s *Service) ReceiveMaterial(ctx context.Context, cmd MaterialReceiptComman
 	if cmd.MaterialID <= 0 {
 		return MaterialReceiptResult{}, fmt.Errorf("material required")
 	}
-	if cmd.QtyG <= 0 {
-		return MaterialReceiptResult{}, fmt.Errorf("qty_g required")
+	cmd.UnitCode = strings.TrimSpace(cmd.UnitCode)
+	if cmd.QtyG <= 0 && cmd.QtyUnits <= 0 && cmd.Qty > 0 {
+		qtyG, qtyUnits, ok := receiptQtyToLegacy(cmd.Qty, cmd.UnitCode)
+		if !ok {
+			return MaterialReceiptResult{}, fmt.Errorf("unit_code required for material receipt")
+		}
+		cmd.QtyG = qtyG
+		cmd.QtyUnits = qtyUnits
+	}
+	if cmd.QtyG <= 0 && cmd.QtyUnits <= 0 {
+		return MaterialReceiptResult{}, fmt.Errorf("qty required")
 	}
 	if cmd.UnitCost < 0 {
 		return MaterialReceiptResult{}, fmt.Errorf("unit_cost must be >= 0")
@@ -545,6 +563,39 @@ func (s *Service) ReceiveMaterial(ctx context.Context, cmd MaterialReceiptComman
 		cmd.Operator = "stock"
 	}
 	return s.repo.ReceiveMaterial(ctx, cmd)
+}
+
+func receiptQtyToLegacy(qty float64, unitCode string) (int64, int64, bool) {
+	unitCode = strings.TrimSpace(unitCode)
+	if unitCode == "" {
+		return 0, 0, false
+	}
+	if isReceiptWeightUnit(unitCode) {
+		return int64(math.Round(receiptWeightQtyToGrams(qty, unitCode))), 0, true
+	}
+	return 0, int64(math.Round(qty)), true
+}
+
+func isReceiptWeightUnit(unitCode string) bool {
+	switch strings.ToLower(strings.TrimSpace(unitCode)) {
+	case "g", "kg", "lb", "oz", "克", "千克":
+		return true
+	default:
+		return false
+	}
+}
+
+func receiptWeightQtyToGrams(qty float64, unitCode string) float64 {
+	switch strings.ToLower(strings.TrimSpace(unitCode)) {
+	case "kg", "千克":
+		return qty * 1000
+	case "lb":
+		return qty * 453.59237
+	case "oz":
+		return qty * 28.349523125
+	default:
+		return qty
+	}
 }
 
 func (s *Service) TransferMaterial(ctx context.Context, cmd MaterialTransferCommand) (MaterialTransferResult, error) {

@@ -681,6 +681,7 @@ func (r *productSettingsRepo) SaveProductUnitTemplate(ctx context.Context, cmd c
 		ID:                 912,
 		Name:               cmd.Name,
 		InventoryUnit:      cmd.InventoryUnit,
+		SalesUnit:          cmd.SalesUnit,
 		QuoteUnit:          cmd.QuoteUnit,
 		OrderUnit:          cmd.OrderUnit,
 		UnitConversionJSON: cmd.UnitConversionJSON,
@@ -2023,6 +2024,7 @@ func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.
 			ID:                 12,
 			Name:               "盒装200g",
 			InventoryUnit:      "kg",
+			SalesUnit:          "盒",
 			QuoteUnit:          "盒",
 			OrderUnit:          "盒",
 			UnitConversionJSON: `{"盒":{"kg":0.2}}`,
@@ -2075,8 +2077,7 @@ func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.
 	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/unit-templates", bytes.NewBufferString(`{
 		"name":"盒装200g",
 		"inventory_unit":"kg",
-		"quote_unit":"盒",
-		"order_unit":"盒",
+		"sales_unit":"盒",
 		"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}",
 		"integer_unit":true,
 		"active":true
@@ -2087,7 +2088,7 @@ func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST unit template status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.unitTemplateSaved || repo.savedUnitTemplate.Name != "盒装200g" || repo.savedUnitTemplate.QuoteUnit != "盒" || repo.savedUnitTemplate.UnitConversionJSON != `{"盒":{"kg":0.2}}` || !repo.savedUnitTemplate.IntegerUnit {
+	if !repo.unitTemplateSaved || repo.savedUnitTemplate.Name != "盒装200g" || repo.savedUnitTemplate.SalesUnit != "盒" || repo.savedUnitTemplate.QuoteUnit != "盒" || repo.savedUnitTemplate.OrderUnit != "盒" || repo.savedUnitTemplate.UnitConversionJSON != `{"盒":{"kg":0.2}}` || !repo.savedUnitTemplate.IntegerUnit {
 		t.Fatalf("saved unit template = %+v saved=%v", repo.savedUnitTemplate, repo.unitTemplateSaved)
 	}
 }

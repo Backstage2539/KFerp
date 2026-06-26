@@ -867,7 +867,7 @@ test('product price management exposes pricing rule trial drawer and API wiring'
     '请选择启用的价格计算模板',
     'BOM版本',
     '工序',
-    '报价单位',
+    '销售单位',
     '临时损耗率',
     '临时利润/加价',
     '临时税率',
@@ -1333,9 +1333,31 @@ test('global unit definitions and unit templates build reusable unit payloads', 
     id: 12,
     name: '盒装200g',
     inventory_unit: 'kg',
+    sales_unit: '盒',
     quote_unit: '盒',
     order_unit: '盒',
     unit_conversion_json: '{"盒":{"kg":0.2}}',
+    integer_unit: true,
+    active: true,
+  })
+})
+
+test('unit template payload exposes sales unit while dual-writing legacy quote and order units', () => {
+  assert.deepEqual(buildProductUnitTemplatePayload({
+    id: 18,
+    name: ' 盒装10个 ',
+    inventory_unit: ' 个 ',
+    sales_unit: ' 盒 ',
+    unit_conversion_rows: [{ from_qty: 1, from_unit: '盒', to_qty: 10, to_unit: '个' }],
+    integer_unit: true,
+  }), {
+    id: 18,
+    name: '盒装10个',
+    inventory_unit: '个',
+    sales_unit: '盒',
+    quote_unit: '盒',
+    order_unit: '盒',
+    unit_conversion_json: '{"盒":{"个":10}}',
     integer_unit: true,
     active: true,
   })
@@ -2331,8 +2353,8 @@ test('SKU settings exposes product subtype default unit configuration controls',
     'deriveProductConfigTemplateForCustomer',
     '/api/product-settings/product-config-templates',
     '库存单位',
-    '报价单位',
-    '录单单位',
+    '销售单位',
+    '单位转换',
     '新增换算',
     '整数单位',
     'buildProductConfigTemplatePayload',
@@ -3042,8 +3064,9 @@ test('SKU settings compacts context area and uses create edit labels for unit di
 
   assert.match(unitTemplatePane, /@click="resetProductUnitTemplateForm"[\s\S]*新增单位模板/)
   assert.match(unitTemplatePane, /productUnitTemplateForm\.id\s*\?\s*'保存'\s*:\s*'新增'/)
-  assert.match(unitTemplatePane, /成品库存单位/)
-  assert.doesNotMatch(unitTemplatePane, />库存单位</)
+  assert.match(unitTemplatePane, />库存单位</)
+  assert.match(unitTemplatePane, />销售单位</)
+  assert.doesNotMatch(unitTemplatePane, /成品库存单位/)
 
   assert.match(script, /const globalUnitEditingCode = ref\(''\)/)
   assert.match(globalUnitDrawer, /@click="resetGlobalUnitDefinitionForm"[\s\S]*新增基础单位/)

@@ -519,6 +519,7 @@ type ProductUnitTemplate struct {
 	ID                 int64  `json:"id"`
 	Name               string `json:"name"`
 	InventoryUnit      string `json:"inventory_unit"`
+	SalesUnit          string `json:"sales_unit"`
 	QuoteUnit          string `json:"quote_unit"`
 	OrderUnit          string `json:"order_unit"`
 	UnitConversionJSON string `json:"unit_conversion_json"`
@@ -1063,6 +1064,7 @@ type SaveProductUnitTemplateCommand struct {
 	ID                 int64
 	Name               string
 	InventoryUnit      string
+	SalesUnit          string
 	QuoteUnit          string
 	OrderUnit          string
 	UnitConversionJSON string
@@ -2982,6 +2984,17 @@ func normalizeProductUnitTemplateCommand(cmd SaveProductUnitTemplateCommand) (Sa
 	if cmd.Name == "" {
 		return SaveProductUnitTemplateCommand{}, ValidationError{Message: "name required"}
 	}
+	salesUnit := strings.TrimSpace(cmd.SalesUnit)
+	if salesUnit == "" {
+		salesUnit = strings.TrimSpace(cmd.QuoteUnit)
+	}
+	if salesUnit == "" {
+		salesUnit = strings.TrimSpace(cmd.OrderUnit)
+	}
+	if salesUnit != "" {
+		cmd.QuoteUnit = salesUnit
+		cmd.OrderUnit = salesUnit
+	}
 	unitRule := catalogdomain.NormalizeProductUnitRule(catalogdomain.ProductUnitRule{
 		InventoryUnit:  cmd.InventoryUnit,
 		QuoteUnit:      cmd.QuoteUnit,
@@ -2994,8 +3007,15 @@ func normalizeProductUnitTemplateCommand(cmd SaveProductUnitTemplateCommand) (Sa
 		return SaveProductUnitTemplateCommand{}, ValidationError{Message: "invalid unit_conversion_json"}
 	}
 	cmd.InventoryUnit = unitRule.InventoryUnit
-	cmd.QuoteUnit = unitRule.QuoteUnit
-	cmd.OrderUnit = unitRule.OrderUnit
+	cmd.SalesUnit = strings.TrimSpace(unitRule.QuoteUnit)
+	if cmd.SalesUnit == "" {
+		cmd.SalesUnit = strings.TrimSpace(unitRule.OrderUnit)
+	}
+	if cmd.SalesUnit == "" {
+		cmd.SalesUnit = strings.TrimSpace(unitRule.InventoryUnit)
+	}
+	cmd.QuoteUnit = cmd.SalesUnit
+	cmd.OrderUnit = cmd.SalesUnit
 	cmd.UnitConversionJSON = unitConversionJSON
 	cmd.IntegerUnit = unitRule.IntegerUnit
 	return cmd, nil
