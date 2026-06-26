@@ -55,6 +55,71 @@ func TestProducePlanSummaryAPIIncludesRoastRowsAndMaterials(t *testing.T) {
 	}
 }
 
+func TestProducePlanSummaryAPIUsesLatestDefaultProductionBomMaterials(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedThreeBeanProductionBomDemand(t, ctx, pool, schema)
+
+	e := newProducePlanTestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?selected=556-454&plan=1", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/produce/unproduced status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Materials  []productionapp.MaterialNeed `json:"materials"`
+		RoastPlans []struct {
+			YieldRate   float64 `json:"yield_rate"`
+			FinalInputG int64   `json:"final_input_g"`
+		} `json:"roast_plans"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v\n%s", err, rec.Body.String())
+	}
+	assertAPIPlanMaterial(t, payload.Materials, "哥伦比亚EP", 228, "g")
+	assertAPIPlanMaterial(t, payload.Materials, "孟连水洗A", 568, "g")
+	assertAPIPlanMaterial(t, payload.Materials, "生豆-巴布亚之光-石光", 342, "g")
+	if len(payload.RoastPlans) == 0 {
+		t.Fatalf("roast_plans empty: %s", rec.Body.String())
+	}
+	if payload.RoastPlans[0].YieldRate != 0.8 || payload.RoastPlans[0].FinalInputG != 1135 {
+		t.Fatalf("roast plan = %+v, want yield 0.8 final_input_g 1135", payload.RoastPlans[0])
+	}
+}
+
+func TestProductionPlanAPIDetailKeepsLatestDefaultProductionBomMaterialSnapshot(t *testing.T) {
+	pool, schema := newProductionFlowTestDB(t)
+	ctx := context.Background()
+	seedThreeBeanProductionBomDemand(t, ctx, pool, schema)
+
+	e := newProducePlanTestEcho(pool, schema)
+	req := httptest.NewRequest(http.MethodPost, "/api/production-plans", strings.NewReader(`{"selected":["556-454"],"source_type":"erp_order"}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/production-plans status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+	}
+	var detail productionapp.ProductionPlanDetail
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("unmarshal plan detail: %v\n%s", err, rec.Body.String())
+	}
+	if len(detail.Items) != 1 {
+		t.Fatalf("plan items = %+v, want one item", detail.Items)
+	}
+	if !strings.Contains(detail.Items[0].MaterialSnapshot, `"material_name":"哥伦比亚EP"`) ||
+		!strings.Contains(detail.Items[0].MaterialSnapshot, `"material_name":"孟连水洗A"`) ||
+		!strings.Contains(detail.Items[0].MaterialSnapshot, `"material_name":"生豆-巴布亚之光-石光"`) {
+		t.Fatalf("material snapshot missing latest BOM materials: %s", detail.Items[0].MaterialSnapshot)
+	}
+	assertAPIPlanMaterial(t, detail.MaterialSummary, "哥伦比亚EP", 228, "g")
+	assertAPIPlanMaterial(t, detail.MaterialSummary, "孟连水洗A", 568, "g")
+	assertAPIPlanMaterial(t, detail.MaterialSummary, "生豆-巴布亚之光-石光", 342, "g")
+}
+
 func TestParseUnprodSummaryQueryIncludesDemandStatusFilter(t *testing.T) {
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/api/produce/unproduced?demand_status=in_production&selected=1-454&plan=1", nil)
@@ -68,6 +133,64 @@ func TestParseUnprodSummaryQueryIncludesDemandStatusFilter(t *testing.T) {
 	if !query.Plan || !query.Selected["1-454"] {
 		t.Fatalf("query did not preserve plan preview selection: %+v", query)
 	}
+}
+
+func seedThreeBeanProductionBomDemand(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema string) {
+	t.Helper()
+	mustExecProductionFlowTestSQL(t, ctx, pool, fmt.Sprintf(`
+		INSERT INTO %[1]s.products(id,name,default_price,active) VALUES (556,'熟豆-白巧坚果拼配',50,true);
+		INSERT INTO %[1]s.order_process_statuses(name,sort,active) VALUES ('待处理',10,true)
+		ON CONFLICT (name) DO NOTHING;
+		INSERT INTO %[1]s.orders(id,order_no,order_date,is_void,process_status_id)
+		VALUES (556,'SO-WHITE-NUT-001','2026-06-26',false,(SELECT id FROM %[1]s.order_process_statuses WHERE name='待处理' LIMIT 1));
+		INSERT INTO %[1]s.order_items(order_id,line_no,item_name,qty,unit,spec,product_id,unit_price,line_total)
+		VALUES (556,1,'熟豆-白巧坚果拼配',2,'袋','454g',556,50,100);
+		INSERT INTO %[1]s.roast_machines(name,capacity_g,allowed_specs,min_roast_g,active)
+		VALUES ('测试烘焙机',2000,'2000',1000,true);
+		INSERT INTO %[1]s.process_routes(id,name,status,default_equipment,default_minutes)
+		VALUES (556,'白巧坚果生产路线','active','测试烘焙机',20);
+		INSERT INTO %[1]s.process_route_operations(route_id,seq,operation,workstation,default_equipment,default_minutes,records_loss)
+		VALUES (556,1,'烘焙','烘焙工位','测试烘焙机',20,true);
+		INSERT INTO %[1]s.materials(id,code,name,kind,unit,onhand_g,onhand_units,purchase_price,sale_price)
+		VALUES
+			(5561,'RAW-COLOMBIA','哥伦比亚EP','bean','g',0,0,10,0),
+			(5562,'RAW-MENGLIAN','孟连水洗A','bean','g',0,0,10,0),
+			(5563,'RAW-PAPUA','生豆-巴布亚之光-石光','bean','g',0,0,10,0);
+		INSERT INTO %[1]s.production_boms(id,code,name,output_product_id,status,updated_at)
+		VALUES (556,'BOM-000556','熟豆-白巧坚果拼配 BOM',556,'active','2026-06-01 00:00:00+00');
+		INSERT INTO %[1]s.production_bom_versions(id,bom_id,version_no,status,yield_rate,output_qty,output_unit,process_route_id,created_at,published_at)
+		VALUES
+			(959,556,'V001','published',0.9000,454,'g',556,'2026-06-01 00:00:00+00','2026-06-01 00:00:00+00'),
+			(961,556,'V002','published',0.8000,454,'g',556,'2026-06-02 00:00:00+00','2026-06-02 00:00:00+00');
+		INSERT INTO %[1]s.production_bom_version_items(version_id,material_id,component_type,consume_unit,qty_per_unit,ratio_pct)
+		VALUES
+			(959,5563,'material','ratio_pct',0,100),
+			(961,5561,'material','g',114,0),
+			(961,5562,'material','g',284,0),
+			(961,5563,'material','g',171,0);
+		INSERT INTO %[1]s.product_production_bom_bindings(product_id,bom_id,bom_version_id,bound_by)
+		VALUES (556,556,959,'test');
+		INSERT INTO %[1]s.product_production_configs(product_id,production_bom_id,production_bom_version_id,process_route_id,expected_loss_rate,created_by,updated_by)
+		VALUES (556,556,959,556,0,'test','test')
+		ON CONFLICT (product_id) DO UPDATE SET
+			production_bom_id=excluded.production_bom_id,
+			production_bom_version_id=excluded.production_bom_version_id,
+			process_route_id=excluded.process_route_id,
+			expected_loss_rate=excluded.expected_loss_rate;
+	`, schema))
+}
+
+func assertAPIPlanMaterial(t *testing.T, rows []productionapp.MaterialNeed, name string, qty int64, unit string) {
+	t.Helper()
+	for _, row := range rows {
+		if row.Name == name {
+			if row.Qty != qty || row.Unit != unit {
+				t.Fatalf("material %s = %+v, want qty=%d unit=%s", name, row, qty, unit)
+			}
+			return
+		}
+	}
+	t.Fatalf("material summary missing %s in %+v", name, rows)
 }
 
 func TestProducePlanSummaryAPIMarksPlannedDemandAsInProductionAndFiltersIt(t *testing.T) {

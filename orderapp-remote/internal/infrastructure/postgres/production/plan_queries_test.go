@@ -125,6 +125,47 @@ func TestBuildRoastPlanMaterialRatiosUsesInstantCoffeeRawMaterial(t *testing.T) 
 	}
 }
 
+func TestCalcProducePlanMaterialsUsesDictionaryGramQuantities(t *testing.T) {
+	rows := []productionapp.UnprodNeedRow{{
+		ProductID: 556,
+		Product:   "熟豆-白巧坚果拼配",
+		SpecG:     454,
+		GapG:      908,
+	}}
+	bomMap := map[int64][]planBomItem{
+		556: {
+			{MaterialName: "哥伦比亚EP", MaterialUnit: "g", ConsumeUnit: "g", QtyPerUnit: 114},
+			{MaterialName: "孟连水洗A", MaterialUnit: "g", ConsumeUnit: "g", QtyPerUnit: 284},
+			{MaterialName: "生豆-巴布亚之光-石光", MaterialUnit: "g", ConsumeUnit: "g", QtyPerUnit: 171},
+		},
+	}
+
+	got := calcProducePlanMaterialsFromFinalInputs(rows, map[string]int64{producePlanKey(556, 454): 1135}, bomMap, defaultPlanParams())
+
+	assertMaterialNeed(t, got, "哥伦比亚EP", 228, "g")
+	assertMaterialNeed(t, got, "孟连水洗A", 568, "g")
+	assertMaterialNeed(t, got, "生豆-巴布亚之光-石光", 342, "g")
+}
+
+func TestPlanSummaryBomItemsUseDefaultBomLatestUsableVersion(t *testing.T) {
+	srcBytes, err := os.ReadFile("plan_queries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(srcBytes)
+	for _, want := range []string{
+		"EXISTS (SELECT 1 FROM %s.production_bom_version_items item WHERE item.version_id=v.id)",
+		"CASE WHEN pbom.id=COALESCE(NULLIF(ppc.production_bom_id,0), pbb.bom_id, 0)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("plan summary BOM item query must use current usable default BOM priority; missing %q", want)
+		}
+	}
+	if strings.Contains(src, "CASE WHEN COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)>0") {
+		t.Fatalf("plan summary BOM item query must not prioritize stale production_bom_version_id")
+	}
+}
+
 func TestMergeMaterialAvailabilityFallsBackToNonWeightPurchaseQuantity(t *testing.T) {
 	materials := []productionapp.MaterialNeed{{Name: "豆袋", Qty: 21, Unit: "个"}}
 
