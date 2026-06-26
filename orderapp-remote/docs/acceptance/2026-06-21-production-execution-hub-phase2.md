@@ -33,7 +33,7 @@ Branch: `codex/production-execution-hub-phase2-20260617`
 ## Release Verification
 - GREEN: `go test ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/interfaces/http/support -count=1`.
 - GREEN: `go test ./...`.
-- GREEN: `node --test src/lib/production-execution-hub.test.js src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js src/lib/menu-ia.test.js src/lib/view-routing.test.js src/lib/work-orders.test.js src/lib/quality-inspections.test.js src/lib/production-costs.test.js src/lib/production-logs.test.js` passed 99/99.
+- GREEN after merging `origin/develop=12e2fb70`: `node --test src/lib/production-execution-hub.test.js src/lib/production-workstation.test.js src/lib/produce-plan.test.js src/lib/produce-running.test.js src/lib/menu-ia.test.js src/lib/view-routing.test.js src/lib/work-orders.test.js src/lib/quality-inspections.test.js src/lib/production-costs.test.js src/lib/production-logs.test.js` passed 100/100.
 - GREEN: `npm run build` in `frontend-vue-shell` passed after `npm ci`; Vite reported the existing chunk-size warning.
 - GREEN: `scripts/verify_kferp.sh changed`.
 - GREEN: `git diff --check`.
