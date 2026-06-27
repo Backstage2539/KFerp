@@ -45,6 +45,16 @@ type Parameters struct {
 
 type ProductInput struct {
 	ProductID                  int64                     `json:"product_id"`
+	SKUID                      int64                     `json:"sku_id,omitempty"`
+	ParentProductID            int64                     `json:"parent_product_id,omitempty"`
+	EffectiveParentProductID   int64                     `json:"effective_parent_product_id,omitempty"`
+	SKUName                    string                    `json:"sku_name,omitempty"`
+	SKUCode                    string                    `json:"sku_code,omitempty"`
+	Barcode                    string                    `json:"barcode,omitempty"`
+	SpecLabel                  string                    `json:"spec_label,omitempty"`
+	NetContentQty              float64                   `json:"net_content_qty,omitempty"`
+	NetContentUnit             string                    `json:"net_content_unit,omitempty"`
+	IsDefaultSKU               bool                      `json:"is_default_sku,omitempty"`
 	ProductCode                string                    `json:"product_code,omitempty"`
 	ProductName                string                    `json:"product_name,omitempty"`
 	Name                       string                    `json:"name"`

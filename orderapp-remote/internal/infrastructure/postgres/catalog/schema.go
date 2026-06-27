@@ -34,9 +34,17 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS gradient_template_id_overrid
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS operation_template_id_override BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS unit_rule_override_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS unit_template_id BIGINT NOT NULL DEFAULT 0;
-ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS classification_template_id BIGINT NOT NULL DEFAULT 0;
-UPDATE %[1]s.products SET visibility='public' WHERE COALESCE(visibility,'')='';
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS unit_template_id BIGINT NOT NULL DEFAULT 0;
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS classification_template_id BIGINT NOT NULL DEFAULT 0;
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS parent_product_id BIGINT NOT NULL DEFAULT 0;
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS sku_name TEXT NOT NULL DEFAULT '';
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS sku_code TEXT NOT NULL DEFAULT '';
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS barcode TEXT NOT NULL DEFAULT '';
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS spec_label TEXT NOT NULL DEFAULT '';
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS net_content_qty NUMERIC(14,6) NOT NULL DEFAULT 0;
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS net_content_unit TEXT NOT NULL DEFAULT '';
+	ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS is_default_sku BOOLEAN NOT NULL DEFAULT false;
+	UPDATE %[1]s.products SET visibility='public' WHERE COALESCE(visibility,'')='';
 UPDATE %[1]s.products SET product_kind='roasted_bean' WHERE COALESCE(product_kind,'')='';
 UPDATE %[1]s.products SET drip_bag_grams = 10 WHERE drip_bag_grams IS NULL;
 UPDATE %[1]s.products SET drip_box_bag_count = 10 WHERE drip_box_bag_count IS NULL;
@@ -57,8 +65,9 @@ DROP INDEX IF EXISTS %[1]s.products_name_key;
 CREATE INDEX IF NOT EXISTS products_customer_visibility_idx ON %[1]s.products(customer_id, visibility, active);
 CREATE INDEX IF NOT EXISTS products_base_product_idx ON %[1]s.products(base_product_id);
 CREATE INDEX IF NOT EXISTS products_kind_active_idx ON %[1]s.products(product_kind, active);
-CREATE INDEX IF NOT EXISTS products_classification_template_idx ON %[1]s.products(classification_template_id, active);
-CREATE INDEX IF NOT EXISTS products_unit_template_idx ON %[1]s.products(unit_template_id, active);
+	CREATE INDEX IF NOT EXISTS products_classification_template_idx ON %[1]s.products(classification_template_id, active);
+	CREATE INDEX IF NOT EXISTS products_unit_template_idx ON %[1]s.products(unit_template_id, active);
+	CREATE INDEX IF NOT EXISTS products_parent_product_idx ON %[1]s.products(parent_product_id, active, id);
 CREATE TABLE IF NOT EXISTS %[1]s.product_categories (
 	id BIGSERIAL PRIMARY KEY,
 	parent_id BIGINT,

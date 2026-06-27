@@ -454,6 +454,15 @@ function normalizePriceListFlatRow(row = {}) {
   const manualAdjusted = row.manual_adjusted === true || row.manualAdjusted === true || !pricesClose(finalUnitPrice, originalFinalUnitPrice)
   return {
     product_id: firstNumber(row.product_id, row.productID, row.productId),
+    sku_id: firstNumber(row.sku_id, row.skuID, row.skuId),
+    parent_product_id: firstNumber(row.parent_product_id, row.parentProductID, row.parentProductId),
+    sku_snapshot: parseJSONObject(row.sku_snapshot ?? row.skuSnapshot),
+    sku_name: stringField(row.sku_name ?? row.skuName),
+    sku_code: stringField(row.sku_code ?? row.skuCode),
+    barcode: stringField(row.barcode),
+    spec_label: stringField(row.spec_label ?? row.specLabel),
+    net_content_qty: firstNumber(row.net_content_qty, row.netContentQty),
+    net_content_unit: stringField(row.net_content_unit ?? row.netContentUnit),
     product_key: stringField(row.product_key ?? row.productKey),
     product_name: stringField(row.product_name ?? row.productName ?? row.name),
     group_snapshot: parseJSONObject(row.group_snapshot ?? row.groupSnapshot),
@@ -517,10 +526,12 @@ function priceListTierKeyForType(listType = 'commercial') {
 }
 
 function flatRowsForPdfItem(item = {}, rows = []) {
+  const skuID = firstNumber(item.sku_id, item.skuID, item.skuId)
   const productID = firstNumber(item.product_id, item.productID, item.productId, item.id)
   const productKey = stringField(item.product_key ?? item.productKey)
   const productName = stringField(item.product_name_snapshot ?? item.productNameSnapshot ?? item.name)
   return rows.filter((row) => {
+    if (skuID > 0 && row.sku_id > 0) return row.sku_id === skuID
     if (productID > 0 && row.product_id > 0) return row.product_id === productID
     if (productKey && row.product_key) return row.product_key === productKey
     return productName && row.product_name === productName

@@ -186,6 +186,15 @@ test('price-list generation snapshot persists template inheritance, editable fla
     ],
     rows: [{
       product_id: 44,
+      sku_id: 414,
+      parent_product_id: 44,
+      sku_name: '227g袋装',
+      sku_code: 'ETH-227',
+      barcode: '690000000227',
+      spec_label: '227g',
+      net_content_qty: 227,
+      net_content_unit: 'g',
+      sku_snapshot: { sku_name: '227g袋装', spec_label: '227g', net_content_qty: 227, net_content_unit: 'g' },
       product_name: '快照测试商品',
       group_snapshot: { group_id: 3, group_name: '价格表分组', group_item_id: 101, group_item_name: '大客户', parent_group_item_id: 100, parent_group_item_name: '商用豆' },
       pricing_mode: 'tier_template',
@@ -218,6 +227,11 @@ test('price-list generation snapshot persists template inheritance, editable fla
   const row = snapshot.content.price_rows[0]
   assert.equal(row.manual_adjusted, true)
   assert.equal(row.manual_adjustment_label, '人工调整')
+  assert.equal(row.sku_id, 414)
+  assert.equal(row.parent_product_id, 44)
+  assert.equal(row.sku_name, '227g袋装')
+  assert.equal(row.sku_snapshot.spec_label, '227g')
+  assert.equal(row.net_content_qty, 227)
   assert.equal(row.group_snapshot.group_item_name, '大客户')
   assert.equal(row.pricing_mode, 'tier_template')
   assert.equal(row.pricing_mode_source, 'subgroup')

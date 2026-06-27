@@ -49,6 +49,7 @@ import {
   buildProductUnitTemplatePayload,
   buildProductBasicsPayload,
   buildProductBomURL,
+  buildChildSkuCreatePayload,
   buildProductCreatePayload,
   buildSkuCreatePayload,
   buildSkuConfigOverridePayload,
@@ -83,6 +84,7 @@ import {
   specialAttrValuesFromJSON,
   specialAttrValuesJSONFromForm,
   sortRowsForCustomerSkuPriority,
+  productSkuRowsForParent,
   skuListRowsFromProducts,
   skuTableState,
   skuTypeLabel,
@@ -199,6 +201,49 @@ test('unified SKU create payload is owned by current view and carries no legacy 
   assert.equal(Object.hasOwn(payload, 'base_product_id'), false)
   assert.equal(Object.hasOwn(payload, 'product_type_category_id'), false)
   assert.equal(Object.hasOwn(payload, 'product_subtype_category_id'), false)
+})
+
+test('child SKU create payload carries parent product and concrete spec fields', () => {
+  const payload = buildChildSkuCreatePayload(88, {
+    name: '埃塞俄比亚 水洗 227g袋装',
+    sku_name: ' 227g袋装 ',
+    sku_code: ' ETH-227 ',
+    barcode: ' 690000000227 ',
+    spec_label: ' 227g ',
+    net_content_qty: '227',
+    net_content_unit: 'g',
+    unit_template_id: '12',
+    active: true,
+    unit_conversion_rows: [{ from_unit: '箱', from_qty: 1, to_unit: '袋', to_qty: 12 }],
+  })
+
+  assert.deepEqual(payload, {
+    parent_product_id: 88,
+    name: '埃塞俄比亚 水洗 227g袋装',
+    sku_name: '227g袋装',
+    sku_code: 'ETH-227',
+    barcode: '690000000227',
+    spec_label: '227g',
+    net_content_qty: 227,
+    net_content_unit: 'g',
+    unit_template_id: 12,
+    active: true,
+  })
+})
+
+test('product SKU rows group child SKUs under the selected parent product', () => {
+  const products = [
+    { id: 88, sku_id: 88, name: '埃塞俄比亚 水洗', parent_product_id: 0, sku_name: '默认规格', is_default_sku: true },
+    { id: 101, sku_id: 101, name: '埃塞俄比亚 水洗 227g袋装', parent_product_id: 88, sku_name: '227g袋装', spec_label: '227g' },
+    { id: 102, sku_id: 102, name: '埃塞俄比亚 水洗 100g袋装', parent_product_id: 88, sku_name: '100g袋装', spec_label: '100g' },
+    { id: 201, sku_id: 201, name: '肯尼亚 水洗 227g袋装', parent_product_id: 200, sku_name: '227g袋装' },
+  ]
+
+  assert.deepEqual(productSkuRowsForParent(products, 88).map((row) => [row.sku_id, row.sku_name, row.spec_label]), [
+    [88, '默认规格', ''],
+    [101, '227g袋装', '227g'],
+    [102, '100g袋装', '100g'],
+  ])
 })
 
 test('customer product alias payload binds a customer-facing name to one product record', () => {
@@ -1662,6 +1707,16 @@ test('product drawers require unit templates and hide direct unit override contr
     assert.doesNotMatch(baseSection, new RegExp(removed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `config base section should not contain ${removed}`)
   }
   assert.match(script, /请选择单位模板/)
+})
+
+test('product archive config drawer exposes child SKU management instead of treating specs as sales units', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const configDrawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
+
+  assert.match(configDrawer, /销售规格 \/ SKU/)
+  assert.match(configDrawer, /childSkuForm\.sku_name/)
+  assert.match(configDrawer, /createChildSkuForProduct/)
+  assert.doesNotMatch(configDrawer, /袋\/227g/)
 })
 
 test('product unit template controls are required in product drawers', () => {

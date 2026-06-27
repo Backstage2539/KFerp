@@ -22,6 +22,16 @@ type PriceTier struct {
 
 type Product struct {
 	ID                          int64
+	SKUID                       int64
+	ParentProductID             int64
+	EffectiveParentProductID    int64
+	SKUName                     string
+	SKUCode                     string
+	Barcode                     string
+	SpecLabel                   string
+	NetContentQty               float64
+	NetContentUnit              string
+	IsDefaultSKU                bool
 	Name                        string
 	Remark                      string
 	ProductKind                 string
@@ -719,7 +729,15 @@ type DeactivateProductsCommand struct {
 type CreateSKUCommand struct {
 	Actor                    string
 	CustomerID               int64
+	ParentProductID          int64
 	Name                     string
+	SKUName                  string
+	SKUCode                  string
+	Barcode                  string
+	SpecLabel                string
+	NetContentQty            float64
+	NetContentUnit           string
+	IsDefaultSKU             bool
 	Remark                   string
 	ProductTypeCategoryID    int64
 	ProductSubtypeCategoryID int64
@@ -1447,12 +1465,23 @@ func (s *Service) CopyProduct(ctx context.Context, cmd CopyProductCommand) (Prod
 func (s *Service) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product, error) {
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
 	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.SKUName = strings.TrimSpace(cmd.SKUName)
+	cmd.SKUCode = strings.TrimSpace(cmd.SKUCode)
+	cmd.Barcode = strings.TrimSpace(cmd.Barcode)
+	cmd.SpecLabel = strings.TrimSpace(cmd.SpecLabel)
+	cmd.NetContentUnit = strings.TrimSpace(cmd.NetContentUnit)
 	cmd.Remark = strings.TrimSpace(cmd.Remark)
 	if cmd.Name == "" {
 		return Product{}, ValidationError{Message: "name required"}
 	}
+	if cmd.ParentProductID < 0 {
+		return Product{}, ValidationError{Message: "invalid parent_product_id"}
+	}
 	if cmd.CustomerID < 0 {
 		return Product{}, ValidationError{Message: "invalid customer_id"}
+	}
+	if cmd.NetContentQty < 0 || math.IsNaN(cmd.NetContentQty) || math.IsInf(cmd.NetContentQty, 0) {
+		return Product{}, ValidationError{Message: "invalid net_content_qty"}
 	}
 	if cmd.ProductTypeCategoryID < 0 || cmd.ProductSubtypeCategoryID < 0 {
 		return Product{}, ValidationError{Message: "invalid category"}

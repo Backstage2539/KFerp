@@ -112,7 +112,7 @@ func (r *fakeRepo) CreateSKU(ctx context.Context, cmd CreateSKUCommand) (Product
 	if cmd.CustomerID > 0 {
 		visibility = "customer_only"
 	}
-	return Product{ID: 12, Name: cmd.Name, Remark: cmd.Remark, CustomerID: cmd.CustomerID, ProductCategoryID: cmd.ProductSubtypeCategoryID, Visibility: visibility, SpecialAttrsJSON: cmd.SpecialAttrsJSON, ProductConfigTemplateID: cmd.ProductConfigTemplateID}, nil
+	return Product{ID: 12, SKUID: 12, ParentProductID: cmd.ParentProductID, EffectiveParentProductID: cmd.ParentProductID, SKUName: cmd.SKUName, SKUCode: cmd.SKUCode, Barcode: cmd.Barcode, SpecLabel: cmd.SpecLabel, NetContentQty: cmd.NetContentQty, NetContentUnit: cmd.NetContentUnit, IsDefaultSKU: cmd.IsDefaultSKU, Name: cmd.Name, Remark: cmd.Remark, CustomerID: cmd.CustomerID, ProductCategoryID: cmd.ProductSubtypeCategoryID, Visibility: visibility, SpecialAttrsJSON: cmd.SpecialAttrsJSON, ProductConfigTemplateID: cmd.ProductConfigTemplateID}, nil
 }
 
 func (r *fakeRepo) ListProductCategories(ctx context.Context) ([]ProductCategory, error) {
@@ -882,6 +882,36 @@ func TestCreateSKUUsesUnifiedPayloadWithoutLegacyProductKindFields(t *testing.T)
 	}
 	if got.CustomerID != 42 || got.ProductCategoryID != 17 || got.BaseProductID != 0 || got.CustomType != "" {
 		t.Fatalf("created SKU result = %+v", got)
+	}
+}
+
+func TestCreateSKUSupportsParentProductAndSpecFields(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	got, err := svc.CreateSKU(context.Background(), CreateSKUCommand{
+		Actor:                "tester",
+		ParentProductID:      88,
+		Name:                 "埃塞俄比亚 水洗 227g袋装",
+		SKUName:              "227g袋装",
+		SKUCode:              "ETH-227",
+		Barcode:              "690000000227",
+		SpecLabel:            "227g",
+		NetContentQty:        227,
+		NetContentUnit:       "g",
+		UnitTemplateID:       12,
+		SpecialAttrsJSON:     `{}`,
+		UnitRuleOverrideJSON: `{}`,
+		Active:               true,
+	})
+	if err != nil {
+		t.Fatalf("CreateSKU() err=%v", err)
+	}
+	if !repo.skuCreated || repo.skuCreate.ParentProductID != 88 || repo.skuCreate.SKUName != "227g袋装" || repo.skuCreate.SKUCode != "ETH-227" || repo.skuCreate.Barcode != "690000000227" {
+		t.Fatalf("CreateSKU command=%+v created=%v", repo.skuCreate, repo.skuCreated)
+	}
+	if got.SKUID != got.ID || got.ParentProductID != 88 || got.SKUName != "227g袋装" || got.SpecLabel != "227g" || got.NetContentQty != 227 || got.NetContentUnit != "g" {
+		t.Fatalf("created child SKU result = %+v", got)
 	}
 }
 

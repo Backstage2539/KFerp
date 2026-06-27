@@ -56,6 +56,8 @@ function duplicateTierTemplateFlatRowKey(row = {}) {
 }
 
 function flatRowProductKey(row = {}) {
+  const skuID = Number(row?.sku_id || row?.skuID || row?.skuId || 0)
+  if (skuID > 0) return `sku:${skuID}`
   const productID = Number(row?.product_id || row?.productID || row?.productId || 0)
   if (productID > 0) return `id:${productID}`
   const productKey = String(row?.product_key || row?.productKey || '').trim()

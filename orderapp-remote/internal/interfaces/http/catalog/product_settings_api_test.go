@@ -261,15 +261,25 @@ func (r *productSettingsRepo) CreateSKU(ctx context.Context, cmd catalogapp.Crea
 		visibility = "customer_only"
 	}
 	return catalogapp.Product{
-		ID:                   912,
-		Name:                 cmd.Name,
-		Remark:               cmd.Remark,
-		CustomerID:           cmd.CustomerID,
-		ProductCategoryID:    cmd.ProductSubtypeCategoryID,
-		SpecialAttrsJSON:     cmd.SpecialAttrsJSON,
-		UnitTemplateID:       cmd.UnitTemplateID,
-		UnitRuleOverrideJSON: cmd.UnitRuleOverrideJSON,
-		Visibility:           visibility,
+		ID:                       912,
+		SKUID:                    912,
+		ParentProductID:          cmd.ParentProductID,
+		EffectiveParentProductID: cmd.ParentProductID,
+		SKUName:                  cmd.SKUName,
+		SKUCode:                  cmd.SKUCode,
+		Barcode:                  cmd.Barcode,
+		SpecLabel:                cmd.SpecLabel,
+		NetContentQty:            cmd.NetContentQty,
+		NetContentUnit:           cmd.NetContentUnit,
+		IsDefaultSKU:             cmd.IsDefaultSKU,
+		Name:                     cmd.Name,
+		Remark:                   cmd.Remark,
+		CustomerID:               cmd.CustomerID,
+		ProductCategoryID:        cmd.ProductSubtypeCategoryID,
+		SpecialAttrsJSON:         cmd.SpecialAttrsJSON,
+		UnitTemplateID:           cmd.UnitTemplateID,
+		UnitRuleOverrideJSON:     cmd.UnitRuleOverrideJSON,
+		Visibility:               visibility,
 	}, nil
 }
 
@@ -2487,6 +2497,42 @@ func TestProductSettingsAPICreatesUnifiedSKUWithoutLegacyFields(t *testing.T) {
 	}
 	if repo.createdSKU.SpecialAttrsJSON != `{"roast_level":"中深烘"}` {
 		t.Fatalf("created SKU special attrs=%q", repo.createdSKU.SpecialAttrsJSON)
+	}
+}
+
+func TestProductSettingsAPICreatesChildSKUUnderParentProduct(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{ID: 88, Name: "埃塞俄比亚 水洗", UnitTemplateID: 12, Active: true}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/product-settings/skus", bytes.NewBufferString(`{
+		"parent_product_id":88,
+		"name":"埃塞俄比亚 水洗 227g袋装",
+		"sku_name":"227g袋装",
+		"sku_code":"ETH-227",
+		"barcode":"690000000227",
+		"spec_label":"227g",
+		"net_content_qty":227,
+		"net_content_unit":"g",
+		"unit_template_id":12,
+		"active":true
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST child sku status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.skuCreated || repo.createdSKU.ParentProductID != 88 || repo.createdSKU.SKUName != "227g袋装" || repo.createdSKU.SKUCode != "ETH-227" || repo.createdSKU.NetContentQty != 227 || repo.createdSKU.NetContentUnit != "g" {
+		t.Fatalf("created child SKU command=%+v created=%v", repo.createdSKU, repo.skuCreated)
+	}
+	for _, want := range []string{`"sku_id":912`, `"parent_product_id":88`, `"sku_name":"227g袋装"`, `"spec_label":"227g"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("child sku response missing %s: %s", want, rec.Body.String())
+		}
 	}
 }
 

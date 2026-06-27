@@ -1741,6 +1741,7 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 		if productID <= 0 || priceUnit == "" {
 			continue
 		}
+		applyFlatRowSKUSnapshot(row, productID)
 		customerAliasID := beanListFlatPriceRowCustomerAliasID(row)
 		rule, err := ProductSalesUnitRule{}, error(nil)
 		if customerAliasID > 0 {
@@ -1769,6 +1770,39 @@ func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *Publi
 		row["inventory_conversion_json"] = productSalesUnitConversionSnapshot(priceUnit, targets)
 	}
 	return nil
+}
+
+func applyFlatRowSKUSnapshot(row map[string]any, productID int64) {
+	if row == nil {
+		return
+	}
+	skuID := int64(numberValue(row["sku_id"]))
+	if skuID <= 0 {
+		skuID = productID
+	}
+	if skuID > 0 {
+		row["sku_id"] = float64(skuID)
+	}
+	if parentID := int64(numberValue(row["parent_product_id"])); parentID > 0 {
+		row["parent_product_id"] = float64(parentID)
+	}
+	snapshot := map[string]any{}
+	if existing, ok := row["sku_snapshot"].(map[string]any); ok {
+		for key, value := range existing {
+			snapshot[key] = value
+		}
+	}
+	for _, field := range []string{"sku_name", "sku_code", "barcode", "spec_label", "net_content_unit"} {
+		if value := strings.TrimSpace(stringValue(row[field])); value != "" {
+			snapshot[field] = value
+		}
+	}
+	if qty := numberValue(row["net_content_qty"]); qty > 0 {
+		snapshot["net_content_qty"] = qty
+	}
+	if len(snapshot) > 0 {
+		row["sku_snapshot"] = snapshot
+	}
 }
 
 func beanListFlatPriceRowCustomerAliasID(row map[string]any) int64 {

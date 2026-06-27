@@ -167,7 +167,15 @@ type productCreateAPIRequest struct {
 
 type skuCreateAPIRequest struct {
 	CustomerID               int64           `json:"customer_id"`
+	ParentProductID          int64           `json:"parent_product_id"`
 	Name                     string          `json:"name"`
+	SKUName                  string          `json:"sku_name"`
+	SKUCode                  string          `json:"sku_code"`
+	Barcode                  string          `json:"barcode"`
+	SpecLabel                string          `json:"spec_label"`
+	NetContentQty            float64         `json:"net_content_qty"`
+	NetContentUnit           string          `json:"net_content_unit"`
+	IsDefaultSKU             *bool           `json:"is_default_sku"`
 	Remark                   string          `json:"remark"`
 	ProductTypeCategoryID    int64           `json:"product_type_category_id"`
 	ProductSubtypeCategoryID int64           `json:"product_subtype_category_id"`
@@ -857,6 +865,10 @@ func (h productHandler) createSKUAPI(c echo.Context) error {
 	if req.Active != nil {
 		active = *req.Active
 	}
+	isDefaultSKU := false
+	if req.IsDefaultSKU != nil {
+		isDefaultSKU = *req.IsDefaultSKU
+	}
 	unitRuleOverrideJSON, err := productInventoryUnitRuleJSON("{}", req.InventoryUnit, req.IntegerInventoryUnit, req.DefaultSalesUnit, req.UnitConversionJSON, req.SalesUnitRulesJSON, "kg")
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid unit_rule_override_json"})
@@ -864,7 +876,15 @@ func (h productHandler) createSKUAPI(c echo.Context) error {
 	product, err := h.catalog.CreateSKU(c.Request().Context(), catalogapp.CreateSKUCommand{
 		Actor:                    support.ActorOf(c),
 		CustomerID:               req.CustomerID,
+		ParentProductID:          req.ParentProductID,
 		Name:                     req.Name,
+		SKUName:                  req.SKUName,
+		SKUCode:                  req.SKUCode,
+		Barcode:                  req.Barcode,
+		SpecLabel:                req.SpecLabel,
+		NetContentQty:            req.NetContentQty,
+		NetContentUnit:           req.NetContentUnit,
+		IsDefaultSKU:             isDefaultSKU,
 		Remark:                   req.Remark,
 		ProductTypeCategoryID:    req.ProductTypeCategoryID,
 		ProductSubtypeCategoryID: req.ProductSubtypeCategoryID,

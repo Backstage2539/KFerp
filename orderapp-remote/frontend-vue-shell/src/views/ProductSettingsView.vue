@@ -1357,6 +1357,74 @@
             </div>
           </section>
 
+          <section class="drawer-section child-sku-section">
+            <div class="field-group-head">
+              <div class="field-group-copy">
+                <strong>销售规格 / SKU</strong>
+                <small>父商品维护商品族；价格、BOM、库存和订单使用具体子 SKU。</small>
+              </div>
+            </div>
+            <div class="child-sku-list">
+              <article v-for="row in productProductionConfigSkuRows" :key="`child-sku-${row.sku_id || row.id}`" class="child-sku-row">
+                <div>
+                  <strong>{{ row.sku_name || row.name || '默认规格' }}</strong>
+                  <small>{{ row.spec_label || '未填写净含量' }} · {{ productConfigUnitTemplateName(row.unit_template_id) }}</small>
+                </div>
+                <span :class="['template-meta-chip', { inactive: row.active === false }]">
+                  {{ row.is_default_sku ? '默认 SKU' : (row.active === false ? '停用' : '启用') }}
+                </span>
+              </article>
+              <p v-if="!productProductionConfigSkuRows.length" class="muted">暂无子 SKU；当前商品会作为默认规格继续参与业务。</p>
+            </div>
+            <form class="child-sku-form" @submit.prevent="createChildSkuForProduct">
+              <label>
+                <span>SKU 名称</span>
+                <input v-model.trim="childSkuForm.sku_name" placeholder="227g袋装" />
+              </label>
+              <label>
+                <span>SKU 编码</span>
+                <input v-model.trim="childSkuForm.sku_code" placeholder="ETH-227" />
+              </label>
+              <label>
+                <span>条码</span>
+                <input v-model.trim="childSkuForm.barcode" placeholder="可选" />
+              </label>
+              <label>
+                <span>规格净含量</span>
+                <input v-model.trim="childSkuForm.spec_label" placeholder="227g" />
+              </label>
+              <label>
+                <span>净含量数量</span>
+                <input v-model.number="childSkuForm.net_content_qty" type="number" min="0" step="0.0001" />
+              </label>
+              <label>
+                <span>净含量单位</span>
+                <select v-model="childSkuForm.net_content_unit">
+                  <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                </select>
+              </label>
+              <label class="wide-field">
+                <span>单位模板</span>
+                <select v-model.number="childSkuForm.unit_template_id">
+                  <option :value="0" disabled>请选择单位模板</option>
+                  <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
+                    {{ productUnitTemplateSummary(unitTemplate) }}
+                  </option>
+                </select>
+                <small>新增子 SKU 默认继承父商品模板；如包装层级不同，可为该 SKU 选择其他模板。</small>
+              </label>
+              <label class="checkline">
+                <input v-model="childSkuForm.active" type="checkbox" />
+                <span>启用</span>
+              </label>
+              <div class="form-actions wide-field">
+                <button class="primary compact-action" type="submit" :disabled="childSkuSaving || loading">
+                  {{ childSkuSaving ? '保存中' : '新增子 SKU' }}
+                </button>
+              </div>
+            </form>
+          </section>
+
           <section class="drawer-section">
             <div class="field-group-head">
               <div class="field-group-copy">
@@ -1618,6 +1686,7 @@ import {
   buildProductBasicsPayload,
   buildProductCreatePayload,
   buildAssignCategoryPayload,
+  buildChildSkuCreatePayload,
   buildSkuCreatePayload,
   buildSkuContextCategoryTree,
   categoryBelongsToSkuContext as categoryBelongsToContext,
@@ -1645,6 +1714,7 @@ import {
   productPriceRecordLabel,
   productKindSupportsBomParams,
   productCodeLabel,
+  productSkuRowsForParent,
   productionBomOptionLabel,
   resolveCreatedProductForConfig,
   productSubtypeCategoryOptionsForType,
@@ -1823,6 +1893,8 @@ const classificationCategoryForm = ref(defaultClassificationCategoryForm())
 const productProductionConfigProduct = ref(null)
 const productProductionConfigForm = ref(defaultProductProductionConfigForm())
 const productProductionConfigSaving = ref(false)
+const childSkuForm = ref(defaultChildSkuForm())
+const childSkuSaving = ref(false)
 const aliasIndustryFieldDrawerOpen = ref(false)
 const aliasIndustryFieldSaving = ref(false)
 const aliasIndustryFieldAlias = ref(null)
@@ -1853,6 +1925,15 @@ const selectedCustomerPublicUsage = computed(() => {
   }
 })
 const selectedProductProductionConfigBomDetail = computed(() => productionBomDetails.value[String(productProductionConfigForm.value.production_bom_id || 0)] || null)
+const productProductionConfigParentProductID = computed(() => {
+  const current = productProductionConfigProduct.value || {}
+  return Number(current.parent_product_id || current.parentProductID || productProductionConfigForm.value.parent_product_id || productProductionConfigForm.value.product_id || current.id || 0)
+})
+const productProductionConfigParentProduct = computed(() => {
+  const parentID = productProductionConfigParentProductID.value
+  return products.value.find((product) => Number(product.id || 0) === parentID) || productProductionConfigProduct.value || {}
+})
+const productProductionConfigSkuRows = computed(() => productSkuRowsForParent(products.value, productProductionConfigParentProductID.value))
 const productProductionConfigVersionOptions = computed(() => (selectedProductProductionConfigBomDetail.value?.versions || [])
   .filter((version) => version.status === 'published')
   .sort((a, b) => String(b.version_no || '').localeCompare(String(a.version_no || ''))))
@@ -2336,6 +2417,19 @@ function defaultProductProductionConfigField(row = {}, index = 0) {
 
 function defaultProductProductionConfigForm(config = {}, product = {}) {
   return buildProductProductionConfigForm(config, product)
+}
+
+function defaultChildSkuForm(product = {}) {
+  return {
+    sku_name: '',
+    sku_code: '',
+    barcode: '',
+    spec_label: '',
+    net_content_qty: 0,
+    net_content_unit: 'g',
+    unit_template_id: Number(product?.unit_template_id || defaultProductUnitTemplateID() || 0),
+    active: true,
+  }
 }
 
 function isProductClassificationGroupCollapsed(key) {
@@ -5306,6 +5400,9 @@ async function selectProductProductionConfigBom(bom) {
 async function openProductProductionConfig(row) {
   productProductionConfigProduct.value = row || null
   productProductionConfigForm.value = defaultProductProductionConfigForm(productProductionConfigByProductID(row?.id), row)
+  const parentID = Number(row?.parent_product_id || row?.parentProductID || row?.id || 0)
+  const parentProduct = products.value.find((product) => Number(product.id || 0) === parentID) || row || {}
+  childSkuForm.value = defaultChildSkuForm(parentProduct)
   if (Number(productProductionConfigForm.value.unit_template_id || 0) > 0 && !productProductionConfigForm.value.unit_rule_override_enabled) {
     applyProductUnitTemplateToForm(productProductionConfigForm.value)
   }
@@ -5773,6 +5870,44 @@ async function createSku() {
     error.value = err.message || '创建商品档案失败'
   } finally {
     skuSaving.value = false
+  }
+}
+
+async function createChildSkuForProduct() {
+  const parentProductID = productProductionConfigParentProductID.value
+  if (!parentProductID) {
+    error.value = '请选择父商品'
+    return
+  }
+  const skuName = String(childSkuForm.value.sku_name || '').trim()
+  if (!skuName) {
+    error.value = '请填写 SKU 名称'
+    return
+  }
+  if (!Number(childSkuForm.value.unit_template_id || 0)) {
+    error.value = '请选择单位模板'
+    return
+  }
+  const parentProduct = productProductionConfigParentProduct.value || {}
+  const parentName = String(parentProduct.name || productProductionConfigForm.value.name || '').trim()
+  childSkuSaving.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    await apiSend('/api/product-settings/skus', {
+      body: buildChildSkuCreatePayload(parentProductID, {
+        ...childSkuForm.value,
+        customer_id: Number(parentProduct.customer_id || 0),
+        name: `${parentName} ${skuName}`.trim(),
+      }),
+    })
+    ok.value = '子 SKU 已创建'
+    childSkuForm.value = defaultChildSkuForm(parentProduct)
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '创建子 SKU 失败'
+  } finally {
+    childSkuSaving.value = false
   }
 }
 
@@ -7148,9 +7283,18 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .product-picker-row.inactive { opacity: .5; }
 .global-unit-drawer-body { grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); align-items: start; }
 .global-unit-chip-list { display: grid; gap: 8px; }
-.global-unit-chip { min-height: 50px; justify-content: flex-start; text-align: left; }
-.drawer-section { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; background: #fbfaf8; }
-.pricing-rule-trial-drawer { width: min(940px, 96vw); }
+	.global-unit-chip { min-height: 50px; justify-content: flex-start; text-align: left; }
+	.drawer-section { border: 1px solid #eee8df; border-radius: 8px; padding: 12px; background: #fbfaf8; }
+	.child-sku-section { display: grid; gap: 12px; }
+	.child-sku-list { display: grid; gap: 8px; }
+	.child-sku-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #eee8df; border-radius: 8px; background: #fff; padding: 8px 10px; min-width: 0; }
+	.child-sku-row div { min-width: 0; display: grid; gap: 2px; }
+	.child-sku-row strong, .child-sku-row small { overflow-wrap: anywhere; }
+	.child-sku-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: end; }
+	.child-sku-form label { display: grid; gap: 5px; min-width: 0; font-size: 13px; }
+	.child-sku-form label span { color: #5f5a52; font-weight: 600; }
+	.child-sku-form .wide-field { grid-column: 1 / -1; }
+	.pricing-rule-trial-drawer { width: min(940px, 96vw); }
 .pricing-rule-trial-summary { display: grid; gap: 10px; }
 .pricing-rule-trial-summary strong { display: block; margin-bottom: 3px; }
 .pricing-rule-trial-rule-grid, .pricing-rule-trial-metrics, .pricing-rule-trial-source { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
@@ -7239,7 +7383,7 @@ th { background: #fbfaf8; position: sticky; top: 0; }
 .sku-table .inactive-sku td input, .sku-table .inactive-sku td select, .sku-table .inactive-sku td textarea { pointer-events: none; }
 @media (max-width: 900px) {
   .page { padding: 12px; }
-  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .product-price-management-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .product-tier-price-row, .pricing-rule-other-cost-row, .pricing-rule-trial-rule-grid, .pricing-rule-trial-metrics, .pricing-rule-trial-source, .product-price-record-form .template-editor-grid, .product-tier-price-scheme-form .template-editor-grid, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .customer-alias-form, .production-config-grid, .production-config-field-row { grid-template-columns: 1fr; }
+	  .inline-form, .product-create-form, .custom-product-form, .gradient-template-layout, .product-config-layout, .product-price-management-layout, .unit-template-layout, .global-unit-drawer-body, .unit-definition-form, .template-editor-grid, .template-tier-row, .product-tier-price-row, .pricing-rule-other-cost-row, .pricing-rule-trial-rule-grid, .pricing-rule-trial-metrics, .pricing-rule-trial-source, .product-price-record-form .template-editor-grid, .product-tier-price-scheme-form .template-editor-grid, .sku-filters, .customer-rule-binding, .customer-rule-layout, .customer-rule-item, .subtype-config-form, .rule-config-block, .unit-conversion-row, .customer-alias-form, .production-config-grid, .production-config-field-row, .child-sku-form { grid-template-columns: 1fr; }
   .product-section-tabs-legacy { width: 100%; }
   .workspace-tab { flex: 1; }
   .panel-actions { justify-content: flex-start; }

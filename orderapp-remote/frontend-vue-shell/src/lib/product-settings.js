@@ -1868,6 +1868,56 @@ export function buildSkuCreatePayload(customerID, form = {}) {
 	return payload
 }
 
+export function buildChildSkuCreatePayload(parentProductID, form = {}) {
+  const payload = {
+    parent_product_id: Number(parentProductID || form.parent_product_id || form.parentProductID || 0),
+    name: String(form.name || '').trim(),
+    sku_name: String(form.sku_name || form.skuName || '').trim(),
+    sku_code: String(form.sku_code || form.skuCode || '').trim(),
+    barcode: String(form.barcode || '').trim(),
+    spec_label: String(form.spec_label || form.specLabel || '').trim(),
+    net_content_qty: Number(form.net_content_qty || form.netContentQty || 0),
+    net_content_unit: String(form.net_content_unit || form.netContentUnit || '').trim(),
+    unit_template_id: normalizedProductUnitTemplateID(form),
+    active: form.active === false ? false : true,
+  }
+  if (Number(form.customer_id || form.customerID || 0) > 0) payload.customer_id = Number(form.customer_id || form.customerID || 0)
+  if (String(form.remark || '').trim()) payload.remark = String(form.remark || '').trim()
+  return payload
+}
+
+export function productSkuRowsForParent(products = [], parentProductID = 0) {
+  const parentID = Number(parentProductID || 0)
+  if (!parentID) return []
+  return (Array.isArray(products) ? products : [])
+    .filter((row) => {
+      const id = Number(row?.id || row?.product_id || 0)
+      const skuID = Number(row?.sku_id || id || 0)
+      const directParentID = Number(row?.parent_product_id || row?.parentProductID || 0)
+      const effectiveParentID = Number(row?.effective_parent_product_id || row?.effectiveParentProductID || directParentID || id || 0)
+      return id === parentID || skuID === parentID || directParentID === parentID || effectiveParentID === parentID
+    })
+    .map((row) => {
+      const id = Number(row?.id || row?.product_id || 0)
+      const directParentID = Number(row?.parent_product_id || row?.parentProductID || 0)
+      const isDefault = row?.is_default_sku === true || row?.isDefaultSKU === true || id === parentID || directParentID === 0
+      const skuName = String(row?.sku_name || row?.skuName || (isDefault ? '默认规格' : row?.name || '')).trim() || '默认规格'
+      return {
+        ...row,
+        sku_id: Number(row?.sku_id || id || 0),
+        parent_product_id: directParentID,
+        effective_parent_product_id: Number(row?.effective_parent_product_id || row?.effectiveParentProductID || directParentID || id || 0),
+        sku_name: skuName,
+        spec_label: String(row?.spec_label || row?.specLabel || '').trim(),
+        is_default_sku: isDefault,
+      }
+    })
+    .sort((a, b) => {
+      if (a.is_default_sku !== b.is_default_sku) return a.is_default_sku ? -1 : 1
+      return Number(a.sku_id || a.id || 0) - Number(b.sku_id || b.id || 0)
+    })
+}
+
 export function resolveCreatedProductForConfig(result = {}, products = []) {
   const createdProduct = result?.product || result?.sku || result || {}
   const createdID = Number(createdProduct.id || createdProduct.product_id || 0)
@@ -1929,6 +1979,15 @@ export function buildProductProductionConfigForm(config = {}, product = {}) {
     }))
   return {
     product_id: Number(sourceConfig.product_id || sourceProduct.id || 0),
+    sku_id: Number(sourceProduct.sku_id || sourceProduct.id || 0),
+    parent_product_id: Number(sourceProduct.parent_product_id || sourceProduct.parentProductID || 0),
+    effective_parent_product_id: Number(sourceProduct.effective_parent_product_id || sourceProduct.effectiveParentProductID || sourceProduct.parent_product_id || sourceProduct.id || 0),
+    sku_name: String(sourceProduct.sku_name || sourceProduct.skuName || '').trim(),
+    sku_code: String(sourceProduct.sku_code || sourceProduct.skuCode || '').trim(),
+    barcode: String(sourceProduct.barcode || '').trim(),
+    spec_label: String(sourceProduct.spec_label || sourceProduct.specLabel || '').trim(),
+    net_content_qty: Number(sourceProduct.net_content_qty || sourceProduct.netContentQty || 0),
+    net_content_unit: String(sourceProduct.net_content_unit || sourceProduct.netContentUnit || '').trim(),
     name: String(sourceProduct.name || '').trim(),
     remark: String(sourceProduct.remark || '').trim(),
     product_kind: sourceProduct.product_kind || 'roasted',

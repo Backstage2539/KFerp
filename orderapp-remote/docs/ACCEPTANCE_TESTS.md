@@ -1288,3 +1288,15 @@
 - [ ] 默认销售单位必须来自可销售单位；缺少销售单位到库存单位换算时保存被拒绝。
 - [ ] 商品价格表价格单位只能来自商品有效单位模板的可销售单位；发布时非法价格单位被拒绝，合法价格单位按模板换算固化快照。
 - [ ] 商品档案仍强制选择单位模板且不显示商品级单位覆盖；BOM 候选商品和生产 BOM 仍读取库存单位，不受销售单位影响。
+
+### K61. 父商品 + 子 SKU + 单位模板（PR-504-PARENT-PRODUCT-CHILD-SKU-UOM）
+- [ ] 商品档案配置抽屉显示 `销售规格 / SKU` 区块；同一父商品下能看到默认 SKU 和多个子 SKU。
+- [ ] 在商品档案配置抽屉新增 `227g袋装` 子 SKU 时，请求写入 `parent_product_id/sku_name/sku_code/barcode/spec_label/net_content_qty/net_content_unit/unit_template_id`，并且子 SKU 必须选择单位模板。
+- [ ] `/api/product-settings` 对父商品和子 SKU 返回 `sku_id/parent_product_id/effective_parent_product_id/sku_name/sku_code/spec_label/net_content_qty/net_content_unit/is_default_sku`；历史商品没有子 SKU 元数据时返回自己作为默认 SKU。
+- [ ] 单位模板不允许把 `袋/227g` 或 `袋/100g` 当销售单位维护；克重属于子 SKU 规格或该 SKU 的 BOM。
+- [ ] 商品价格表以 `sku_id` 作为平铺价格行身份；同一父商品下 `227g袋装` 和 `100g袋装` 可以同时发布，不会被同一 `product_id` 去重覆盖。
+- [ ] 发布商品价格表时，后端补齐并冻结 `sku_id/parent_product_id/sku_snapshot`，并继续按该 SKU 的单位模板固化 `price_unit/inventory_unit/inventory_conversion_json`。
+- [ ] 同一价格表作用域内同一子 SKU 重复发布应失败或在预览阶段拦截；同一父商品下不同子 SKU 允许同时存在。
+- [ ] 价格计算模板按 `sku_id + price_unit` 试算；`227g袋装` 与 `100g袋装` 的成本差异来自各自 BOM，而不是销售单位换算。
+- [ ] 阶梯模板固定单位不被该子 SKU 单位模板支持时，预览标红且发布失败，不自动替换或新增单位。
+- [ ] 生产 BOM 选择产出子 SKU 后，产出单位读取该子 SKU 有效库存单位；订单、生产计划、库存流水保存或引用当时的 `sku_id` 和价格/单位快照。

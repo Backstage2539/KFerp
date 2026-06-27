@@ -1557,6 +1557,58 @@ func TestPublishBeanListRewritesFlatRowUnitSnapshotFromProductMaster(t *testing.
 	}
 }
 
+func TestPublishBeanListSnapshotsSkuIdentityForFlatRows(t *testing.T) {
+	repo := &fakeRepo{
+		productUnitRules: map[int64]ProductSalesUnitRule{
+			414: {
+				ProductID:     414,
+				InventoryUnit: "袋",
+				Conversion: map[string]map[string]float64{
+					"袋": {"袋": 1},
+				},
+			},
+		},
+	}
+	svc := NewService(repo)
+	row := map[string]any{
+		"product_id":                float64(414),
+		"parent_product_id":         float64(88),
+		"product_name":              "埃塞俄比亚 水洗 227g袋装",
+		"sku_name":                  "227g袋装",
+		"sku_code":                  "ETH-227",
+		"spec_label":                "227g",
+		"tier_label":                "基础价",
+		"final_unit_price":          float64(36),
+		"price_unit":                "袋",
+		"inventory_unit":            "袋",
+		"inventory_conversion_json": map[string]any{"袋": map[string]any{"袋": float64(1)}},
+		"group_snapshot":            map[string]any{"group_id": float64(3), "group_name": "商品价格表分组", "group_item_id": float64(101), "group_item_name": "袋装"},
+		"group_source":              "product_catalog",
+		"pricing_mode":              "pricing_rule",
+		"pricing_mode_source":       "product",
+		"pricing_rule_id":           float64(90),
+		"pricing_rule_source":       "product",
+		"pricing_rule_version":      "PR-COST/v3",
+		"cost_source_snapshot":      map[string]any{"bom_version_no": "BOM-SKU/V001"},
+		"customer_reference_snapshot": map[string]any{
+			"customer_id":           float64(5),
+			"customer_display_name": "Karen 227g袋装",
+		},
+		"manual_adjusted": false,
+	}
+	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.0.6", Content: map[string]any{"price_rows": []any{row}}}); err != nil {
+		t.Fatalf("PublishBeanList() error = %v", err)
+	}
+	got := repo.publishedBeanList.Content["price_rows"].([]any)[0].(map[string]any)
+	if got["sku_id"] != float64(414) || got["parent_product_id"] != float64(88) {
+		t.Fatalf("sku identity snapshot = %#v", got)
+	}
+	snapshot, ok := got["sku_snapshot"].(map[string]any)
+	if !ok || snapshot["sku_name"] != "227g袋装" || snapshot["sku_code"] != "ETH-227" || snapshot["spec_label"] != "227g" {
+		t.Fatalf("sku_snapshot = %#v", got["sku_snapshot"])
+	}
+}
+
 func TestPublishBeanListUsesCustomerAliasUnitRuleWhenPresent(t *testing.T) {
 	repo := &fakeRepo{
 		productUnitRules: map[int64]ProductSalesUnitRule{

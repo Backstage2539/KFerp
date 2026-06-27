@@ -111,11 +111,44 @@ describe('costing price-list workflow helpers', () => {
     ])
   })
 
+  it('treats child SKU id as the price-list row identity', () => {
+    const rows = [
+      {
+        row_key: 'parent88:sku101:tier31',
+        product_id: 88,
+        sku_id: 101,
+        pricing_mode: 'tier_template',
+        tier_template_id: 3,
+        template_tier_id: 31,
+        tier_pricing_rule_id: 41,
+        price_unit: '袋',
+      },
+      {
+        row_key: 'parent88:sku102:tier31',
+        product_id: 88,
+        sku_id: 102,
+        pricing_mode: 'tier_template',
+        tier_template_id: 3,
+        template_tier_id: 31,
+        tier_pricing_rule_id: 41,
+        price_unit: '袋',
+      },
+    ]
+
+    assert.deepEqual(dedupePriceListFlatRows(rows).map((row) => row.row_key), [
+      'parent88:sku101:tier31',
+      'parent88:sku102:tier31',
+    ])
+  })
+
   it('product price list flat rows read product master sales unit conversion', () => {
     const source = fs.readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
 
     assert.match(source, /default_sales_unit/)
     assert.match(source, /unit_conversion_json/)
+    assert.match(source, /itemSkuID/)
+    assert.match(source, /sku_snapshot/)
+    assert.match(source, /parent_product_id/)
     assert.match(source, /priceListFlatRowUnitSummary/)
     assert.match(source, /商品档案单位/)
   })

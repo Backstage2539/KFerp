@@ -3,8 +3,38 @@ package catalog
 import catalogapp "orderapp/internal/application/catalog"
 
 func productOptionFromCatalog(p catalogapp.Product) ProductOption {
+	skuID := p.SKUID
+	if skuID <= 0 {
+		skuID = p.ID
+	}
+	effectiveParentProductID := p.EffectiveParentProductID
+	if effectiveParentProductID <= 0 {
+		if p.ParentProductID > 0 {
+			effectiveParentProductID = p.ParentProductID
+		} else {
+			effectiveParentProductID = p.ID
+		}
+	}
+	skuName := p.SKUName
+	if skuName == "" {
+		if p.ParentProductID > 0 {
+			skuName = p.Name
+		} else {
+			skuName = "默认规格"
+		}
+	}
 	out := ProductOption{
 		ID:                          p.ID,
+		SKUID:                       skuID,
+		ParentProductID:             p.ParentProductID,
+		EffectiveParentProductID:    effectiveParentProductID,
+		SKUName:                     skuName,
+		SKUCode:                     p.SKUCode,
+		Barcode:                     p.Barcode,
+		SpecLabel:                   p.SpecLabel,
+		NetContentQty:               p.NetContentQty,
+		NetContentUnit:              p.NetContentUnit,
+		IsDefaultSKU:                p.IsDefaultSKU || p.ParentProductID == 0,
 		Name:                        p.Name,
 		Remark:                      p.Remark,
 		ProductKind:                 p.ProductKind,

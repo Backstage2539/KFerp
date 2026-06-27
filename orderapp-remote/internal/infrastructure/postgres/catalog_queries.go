@@ -25,6 +25,16 @@ type ProductTierOption struct {
 
 type ProductOption struct {
 	ID                          int64
+	SKUID                       int64
+	ParentProductID             int64
+	EffectiveParentProductID    int64
+	SKUName                     string
+	SKUCode                     string
+	Barcode                     string
+	SpecLabel                   string
+	NetContentQty               float64
+	NetContentUnit              string
+	IsDefaultSKU                bool
 	Name                        string
 	Remark                      string
 	ProductKind                 string
@@ -113,7 +123,18 @@ func FetchOptions(ctx context.Context, pool *pgxpool.Pool, sqlstr string) ([]Opt
 }
 
 func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]ProductOption, error) {
-	sqlstr := fmt.Sprintf(`SELECT p.id, p.name, COALESCE(p.remark,''), COALESCE(p.roast_level,''), COALESCE(p.special_attrs_json::text,'{}'), p.default_price,
+	sqlstr := fmt.Sprintf(`SELECT p.id,
+		p.id AS sku_id,
+		COALESCE(p.parent_product_id,0) AS parent_product_id,
+		CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN COALESCE(p.parent_product_id,0) ELSE p.id END AS effective_parent_product_id,
+		COALESCE(NULLIF(p.sku_name,''), CASE WHEN COALESCE(p.parent_product_id,0)>0 THEN p.name ELSE '默认规格' END) AS sku_name,
+		COALESCE(p.sku_code,'') AS sku_code,
+		COALESCE(p.barcode,'') AS barcode,
+		COALESCE(p.spec_label,'') AS spec_label,
+		COALESCE(p.net_content_qty,0)::float8 AS net_content_qty,
+		COALESCE(p.net_content_unit,'') AS net_content_unit,
+		(COALESCE(p.is_default_sku,false) OR COALESCE(p.parent_product_id,0)=0) AS is_default_sku,
+		p.name, COALESCE(p.remark,''), COALESCE(p.roast_level,''), COALESCE(p.special_attrs_json::text,'{}'), p.default_price,
 		COALESCE(NULLIF(p.product_kind,''), 'roasted_bean'),
 		COALESCE(p.green_bean_type, ''),
 		COALESCE(p.green_bean_bom_product_id, 0),
@@ -272,7 +293,7 @@ func FetchProducts(ctx context.Context, pool *pgxpool.Pool, schema string) ([]Pr
 	out := make([]ProductOption, 0)
 	for rows.Next() {
 		var p ProductOption
-		if err := rows.Scan(&p.ID, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ExpectedLossRate, &p.ProcessRouteID, &p.ProductionConfigNote, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.ClassificationTemplateID, &p.Active, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.InventoryUnit, &p.IntegerInventoryUnit, &p.DefaultSalesUnit, &p.UnitConversionJSON, &p.SalesUnitRulesJSON, &p.UnitTemplateID, &p.UnitTemplateName, &p.UnitRuleSource, &p.ProductConfigTemplateID, &p.BomItemCount, &p.BomStatus, &p.OrderUsageCount, &p.BomSourceType, &p.EffectiveProductID, &p.EffectiveBomVersionID, &p.SourceProductID, &p.SourceProductCode, &p.SourceProductName, &p.SourceBomVersionID, &p.SourceBomVersionNo, &p.DerivedFromLabel, &p.CanEditBOM, &p.ProductionBomID, &p.ProductionBomCode, &p.ProductionBomName, &p.ProductionBomVersionID, &p.ProductionBomVersionNo, &p.LatestBomVersionID, &p.LatestBomVersionNo, &p.IsLatestBomVersion, &p.ProductionBomGroupID, &p.ProductionBomGroupName); err != nil {
+		if err := rows.Scan(&p.ID, &p.SKUID, &p.ParentProductID, &p.EffectiveParentProductID, &p.SKUName, &p.SKUCode, &p.Barcode, &p.SpecLabel, &p.NetContentQty, &p.NetContentUnit, &p.IsDefaultSKU, &p.Name, &p.Remark, &p.RoastLevel, &p.SpecialAttrsJSON, &p.DefaultPrice, &p.ProductKind, &p.GreenBeanType, &p.GreenBeanBomProductID, &p.DripBagGrams, &p.DripBoxBagCount, &p.AllowFulfillmentOrder, &p.AllowMallOrder, &p.RetailPrice100G, &p.RetailPrice200G, &p.RetailPrice227G, &p.RetailPrice250G, &p.YieldRate, &p.ExpectedLossRate, &p.ProcessRouteID, &p.ProductionConfigNote, &p.ProductCategoryID, &p.ProductCategoryPosition, &p.ClassificationTemplateID, &p.Active, &p.CustomerID, &p.BaseProductID, &p.Visibility, &p.CustomType, &p.MarginRateOverride, &p.GradientTemplateIDOverride, &p.OperationTemplateIDOverride, &p.UnitRuleOverrideJSON, &p.InventoryUnit, &p.IntegerInventoryUnit, &p.DefaultSalesUnit, &p.UnitConversionJSON, &p.SalesUnitRulesJSON, &p.UnitTemplateID, &p.UnitTemplateName, &p.UnitRuleSource, &p.ProductConfigTemplateID, &p.BomItemCount, &p.BomStatus, &p.OrderUsageCount, &p.BomSourceType, &p.EffectiveProductID, &p.EffectiveBomVersionID, &p.SourceProductID, &p.SourceProductCode, &p.SourceProductName, &p.SourceBomVersionID, &p.SourceBomVersionNo, &p.DerivedFromLabel, &p.CanEditBOM, &p.ProductionBomID, &p.ProductionBomCode, &p.ProductionBomName, &p.ProductionBomVersionID, &p.ProductionBomVersionNo, &p.LatestBomVersionID, &p.LatestBomVersionNo, &p.IsLatestBomVersion, &p.ProductionBomGroupID, &p.ProductionBomGroupName); err != nil {
 			return nil, err
 		}
 		p.ProductKind = catalogdomain.NormalizeProductKind(p.ProductKind)

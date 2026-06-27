@@ -1858,7 +1858,35 @@ function itemProductAttributeLines(item) {
 }
 
 function itemProductID(item) {
-  return String(item?.product_id ?? item?.productID ?? item?.productId ?? item?.id ?? item?.name ?? '')
+  return String(item?.sku_id ?? item?.skuID ?? item?.skuId ?? item?.product_id ?? item?.productID ?? item?.productId ?? item?.id ?? item?.name ?? '')
+}
+
+function itemSkuID(item = {}, fallback = 0) {
+  return Number(item?.sku_id || item?.skuID || item?.skuId || fallback || item?.product_id || item?.productID || item?.productId || item?.id || 0)
+}
+
+function itemParentProductID(item = {}, skuID = 0) {
+  const explicit = Number(item?.parent_product_id || item?.parentProductID || item?.parentProductId || 0)
+  if (explicit > 0) return explicit
+  const effective = Number(item?.effective_parent_product_id || item?.effectiveParentProductID || item?.effectiveParentProductId || 0)
+  return effective > 0 && effective !== Number(skuID || 0) ? effective : 0
+}
+
+function itemSkuSnapshot(item = {}) {
+  const snapshot = {}
+  ;[
+    ['sku_name', item?.sku_name ?? item?.skuName],
+    ['sku_code', item?.sku_code ?? item?.skuCode],
+    ['barcode', item?.barcode],
+    ['spec_label', item?.spec_label ?? item?.specLabel],
+    ['net_content_unit', item?.net_content_unit ?? item?.netContentUnit],
+  ].forEach(([key, raw]) => {
+    const value = String(raw || '').trim()
+    if (value) snapshot[key] = value
+  })
+  const qty = Number(item?.net_content_qty || item?.netContentQty || 0)
+  if (Number.isFinite(qty) && qty > 0) snapshot.net_content_qty = qty
+  return snapshot
 }
 
 async function scrollFirstInactiveBomWarningIntoView() {
@@ -2446,7 +2474,9 @@ function priceListFlatRowsFromGroups(groups = []) {
   const rows = []
   ;(Array.isArray(groups) ? groups : []).forEach((group) => {
     ;(Array.isArray(group?.items) ? group.items : []).forEach((item) => {
-      const productID = Number(item?.product_id || item?.productId || item?.productID || item?.id || itemProductID(item) || 0)
+      const sourceProductID = Number(item?.product_id || item?.productId || item?.productID || item?.id || 0)
+      const skuID = itemSkuID(item, sourceProductID)
+      const productID = skuID || sourceProductID || Number(itemProductID(item) || 0)
       const groupRow = priceListGroupForItem(item)
       const product = {
         id: productID,
@@ -2472,7 +2502,7 @@ function priceListFlatRowsFromGroups(groups = []) {
             groupRow,
             productID,
             sourceTier,
-            rowKey: `${productID || itemProductID(item)}:tier-template:${resolved.tier_template_id}:${templateTier.id || templateTier.label || tierIndex}`,
+            rowKey: `${skuID || productID || itemProductID(item)}:tier-template:${resolved.tier_template_id}:${templateTier.id || templateTier.label || tierIndex}`,
             tierLabel: templateTier.label || sourceTier?.label || '',
             minQty: templateTier.min_qty ?? templateTier.minQty ?? sourceTier?.min_qty ?? sourceTier?.minQty ?? 0,
             maxQty: templateTier.max_qty ?? templateTier.maxQty ?? sourceTier?.max_qty ?? sourceTier?.maxQty ?? null,
@@ -2494,7 +2524,7 @@ function priceListFlatRowsFromGroups(groups = []) {
           groupRow,
           productID,
           sourceTier,
-          rowKey: `${productID || itemProductID(item)}:${mode}`,
+          rowKey: `${skuID || productID || itemProductID(item)}:${mode}`,
           tierLabel: mode === 'fixed_price' ? '固定价' : '基础价',
           minQty: 0,
           maxQty: null,
@@ -2540,9 +2570,21 @@ function priceListFlatRowFromSource({
   const priceUnit = flatRowPriceUnit(sourceTier, item)
   const inventoryUnit = String(item?.inventory_unit || item?.inventoryUnit || sourceTier?.inventory_unit || 'kg').trim() || 'kg'
   const ruleVersion = pricingRuleVersion(pricingRule)
+  const skuID = itemSkuID(item, productID)
+  const parentProductID = itemParentProductID(item, skuID)
+  const skuSnapshot = itemSkuSnapshot(item)
   const row = {
     row_key: rowKey,
     product_id: productID,
+    sku_id: skuID,
+    parent_product_id: parentProductID,
+    sku_snapshot: skuSnapshot,
+    sku_name: skuSnapshot.sku_name || '',
+    sku_code: skuSnapshot.sku_code || '',
+    barcode: skuSnapshot.barcode || '',
+    spec_label: skuSnapshot.spec_label || '',
+    net_content_qty: Number(skuSnapshot.net_content_qty || 0) || 0,
+    net_content_unit: skuSnapshot.net_content_unit || '',
     product_key: itemProductID(item),
     product_name: item.name || item.display_name_snapshot || item.product_name_snapshot || '',
     group_snapshot: priceListGroupSnapshot(groupRow),

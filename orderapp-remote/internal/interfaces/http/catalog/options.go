@@ -15,6 +15,16 @@ type ProductTierOption struct {
 
 type ProductOption struct {
 	ID                          int64               `json:"id"`
+	SKUID                       int64               `json:"sku_id"`
+	ParentProductID             int64               `json:"parent_product_id"`
+	EffectiveParentProductID    int64               `json:"effective_parent_product_id"`
+	SKUName                     string              `json:"sku_name"`
+	SKUCode                     string              `json:"sku_code"`
+	Barcode                     string              `json:"barcode"`
+	SpecLabel                   string              `json:"spec_label"`
+	NetContentQty               float64             `json:"net_content_qty"`
+	NetContentUnit              string              `json:"net_content_unit"`
+	IsDefaultSKU                bool                `json:"is_default_sku"`
 	Name                        string              `json:"name"`
 	Remark                      string              `json:"remark"`
 	ProductKind                 string              `json:"product_kind"`

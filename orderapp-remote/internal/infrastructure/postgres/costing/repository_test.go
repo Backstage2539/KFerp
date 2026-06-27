@@ -668,6 +668,31 @@ func TestLoadProductInputsReadsSkuCategoryPathForCustomerBeanLists(t *testing.T)
 	}
 }
 
+func TestLoadProductInputsReadsChildSKUMetadataForPriceListRows(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"p.id AS sku_id",
+		"COALESCE(p.parent_product_id,0) AS parent_product_id",
+		"effective_parent_product_id",
+		"COALESCE(p.sku_code,'') AS sku_code",
+		"COALESCE(p.spec_label,'') AS spec_label",
+		"COALESCE(p.net_content_qty,0)::float8 AS net_content_qty",
+		"&input.SKUID",
+		"&input.ParentProductID",
+		"&input.SKUName",
+		"&input.SpecLabel",
+		"&input.NetContentQty",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing repository must load child SKU metadata for price list rows; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsProductMarginOverrideForTemplatePricing(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

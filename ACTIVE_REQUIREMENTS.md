@@ -6,6 +6,23 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-504-PARENT-PRODUCT-CHILD-SKU-UOM
+- Branch: codex/parent-product-sku-uom-20260628
+- Owner/session: Codex / 2026-06-28
+- Status: locally verified; RED/GREEN targeted catalog/costing/BOM and frontend helper/UI tests, broader API packages, frontend build, changed verifier and diff check passed; pending merge/development deploy smoke.
+- Scope: 商品档案收敛为父商品入口，子 SKU 表达具体销售/库存规格；`袋/227g` 不再作为销售单位，而是子 SKU 规格。价格表、BOM、库存、订单和生产后续都以具体子 SKU 为业务对象，父商品用于商品族归类和默认单位模板；单位模板只表达库存单位、销售单位和包装层级换算，不表达克重规格。
+- DEV:
+  - DEV-504-CATALOG-SKU-CONTRACT：`products` 增加父商品/子 SKU 元数据，历史商品默认视为自己的默认 SKU；`/api/product-settings` 返回 `sku_id/parent_product_id/sku_name/sku_code/barcode/spec_label/net_content_qty/net_content_unit/is_default_sku`。
+  - DEV-504-PRODUCT-ARCHIVE-SKU-UI：商品档案配置抽屉新增 `销售规格 / SKU` 区块，可查看同一父商品下的默认 SKU 和子 SKU，并新增子 SKU；子 SKU 必须选择单位模板，不直接维护销售单位换算。
+  - DEV-504-PRICE-SKU-SNAPSHOT：商品价格表平铺价格行优先以 `sku_id` 作为唯一业务行身份；costing 商品输入返回子 SKU 元数据；发布快照补 `sku_id/parent_product_id/sku_snapshot`，同时继续按 `product_id + price_unit` 兼容解析单位模板换算。
+- Verifier:
+  - RED captured for catalog service/API child SKU command contract, costing flat row SKU snapshot, frontend child SKU payload/grouping, and price-list flat-row de-dupe by `sku_id`.
+  - GREEN targeted: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/application/costing ./internal/application/bom -count=1`; `node --test src/lib/product-settings.test.js src/lib/costing-price-list-workflow.test.js src/lib/bom.test.js`.
+  - GREEN broader: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/domain/costing ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/application/sales ./internal/interfaces/http/sales ./internal/infrastructure/postgres/sales ./internal/application/production ./internal/interfaces/http/production ./internal/application/bom -count=1`; `node --test src/lib/product-settings.test.js src/lib/costing-price-list-workflow.test.js src/lib/bean-list-pdf.test.js src/lib/order-entry.test.js src/lib/produce-plan.test.js src/lib/bom.test.js`.
+  - GREEN build/check: `npm ci`; `npm run build` passed with existing Vite large-chunk warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
+- Deployment: pending.
+- Last update: 2026-06-28 Asia/Shanghai.
+
 ### PR-503-PRODUCT-UNIT-TEMPLATE-MULTI-SALES-UOM
 - Branch: codex/unit-template-multi-sales-uom-20260627
 - Owner/session: Codex / 2026-06-27
