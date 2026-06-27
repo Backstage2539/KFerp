@@ -29,7 +29,7 @@
 
 ## 部署验证
 
-- 部署：feature branch fast-forward merged to `develop` at `965ed099591cb2da5a52fe15697b9288f5523e49`; development stack deployed by `./deploy_orderapp.sh`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260627172509`.
+- 部署：feature branch fast-forward merged to `develop`; development stack deployed by `./deploy_orderapp.sh`.
 - Docker build gate: container build ran `go test ./...` and passed.
 - API smoke: authenticated `/api/product-settings`、`/api/bom/products`、`/api/production-boms?status=all`、`/api/order/form`、`/api/costing/bean-list`、`/api/costing/bean-list/publications`、`/api/produce/unproduced` returned `200`.
 - Field smoke: deployed `/api/product-settings` exposes `inventory_unit`、`default_sales_unit`、`unit_conversion_json`、`sales_unit_rules`; deployed `/api/bom/products` exposes `inventory_unit`.
