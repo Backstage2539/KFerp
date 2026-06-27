@@ -28,7 +28,7 @@ func TestDev361SkuSubtypeParkingStructuredRulesUI(t *testing.T) {
 		"product_subtype_category_id",
 		"assignCreatedSkuToSelectedProductSubtype",
 		"停车场",
-		"新增换算",
+		"新增销售单位",
 		"价格表生成规则",
 	} {
 		if !strings.Contains(src, want) {
@@ -58,12 +58,12 @@ func TestDev361SkuSubtypeParkingStructuredRulesDocs(t *testing.T) {
 		filepath.Join("docs", "ACCEPTANCE_TESTS.md"): {
 			"PR-361-SKU-SUBTYPE-PARKING-STRUCTURED-RULES",
 			"不进入产品价格表生成",
-			"新增换算",
+			"新增销售单位",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"停车场",
 			"产品子类型",
-			"新增换算",
+			"新增销售单位",
 		},
 	} {
 		src := string(readOrderAppFileForTest(t, rel))

@@ -49,7 +49,7 @@ func TestDev355ProductSubtypeConfigUnitRulesWiring(t *testing.T) {
 			"库存单位",
 			"销售单位",
 			"单位转换",
-			"新增换算",
+			"新增销售单位",
 			"整数单位",
 			"saveProductUnitTemplate",
 		},
