@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-504-PARENT-PRODUCT-CHILD-SKU-UOM
 - Branch: codex/parent-product-sku-uom-20260628
 - Owner/session: Codex / 2026-06-28
-- Status: locally verified; RED/GREEN targeted catalog/costing/BOM and frontend helper/UI tests, broader API packages, frontend build, changed verifier and diff check passed; pending merge/development deploy smoke.
+- Status: merged to develop and deployed to development; RED/GREEN targeted catalog/costing/BOM and frontend helper/UI tests, broader API packages, frontend build, changed verifier, diff check, Docker build tests, API smoke and ERP browser acceptance passed.
 - Scope: 商品档案收敛为父商品入口，子 SKU 表达具体销售/库存规格；`袋/227g` 不再作为销售单位，而是子 SKU 规格。价格表、BOM、库存、订单和生产后续都以具体子 SKU 为业务对象，父商品用于商品族归类和默认单位模板；单位模板只表达库存单位、销售单位和包装层级换算，不表达克重规格。
 - DEV:
   - DEV-504-CATALOG-SKU-CONTRACT：`products` 增加父商品/子 SKU 元数据，历史商品默认视为自己的默认 SKU；`/api/product-settings` 返回 `sku_id/parent_product_id/sku_name/sku_code/barcode/spec_label/net_content_qty/net_content_unit/is_default_sku`。
@@ -19,8 +19,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - RED captured for catalog service/API child SKU command contract, costing flat row SKU snapshot, frontend child SKU payload/grouping, and price-list flat-row de-dupe by `sku_id`.
   - GREEN targeted: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/application/costing ./internal/application/bom -count=1`; `node --test src/lib/product-settings.test.js src/lib/costing-price-list-workflow.test.js src/lib/bom.test.js`.
   - GREEN broader: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/domain/costing ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/application/sales ./internal/interfaces/http/sales ./internal/infrastructure/postgres/sales ./internal/application/production ./internal/interfaces/http/production ./internal/application/bom -count=1`; `node --test src/lib/product-settings.test.js src/lib/costing-price-list-workflow.test.js src/lib/bean-list-pdf.test.js src/lib/order-entry.test.js src/lib/produce-plan.test.js src/lib/bom.test.js`.
-  - GREEN build/check: `npm ci`; `npm run build` passed with existing Vite large-chunk warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
-- Deployment: pending.
+  - GREEN build/check: `npm ci`; `npm run build` passed with existing Vite large-chunk warning; `scripts/verify_kferp.sh changed`; `git diff --check`; deploy marker fix `go test ./internal/interfaces/http/support -count=1` passed before final deploy.
+- Deployment: feature branch pushed and fast-forwarded into `develop` at `52abebf72e40b776e34407e453a113a5dfa8fbeb`; development stack deployed manually because the existing checked-out `develop` worktree was dirty and local disk had insufficient space for deploy-script `npm ci`. Final Docker build ran `go test ./...` successfully and restarted `erp_orderapp`. Backup from final deploy: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260628020931`. Smoke: `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; unauthenticated `GET /app/` returned `303`; authenticated `GET /app/vue-shell?view=productMaster` returned `200`; authenticated `/app/api/product-settings`, `/app/api/bom/products`, and `/app/api/production-boms?status=all` returned `200`. Browser acceptance opened 商品档案配置 and verified `销售规格 / SKU`、`SKU 名称`、`规格净含量`、`单位模板`、`新增子 SKU`; browser console had no errors.
 - Last update: 2026-06-28 Asia/Shanghai.
 
 ### PR-503-PRODUCT-UNIT-TEMPLATE-MULTI-SALES-UOM
