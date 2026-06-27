@@ -26,6 +26,11 @@
 - `git diff --check`
 - `codex review --uncommitted`：发现并修复两个 P2，分别是创建商品抽屉首次套默认单位模板时未关闭高级覆盖、costing product-input resolver 中商品直接单位模板优先级低于 legacy 配置；修复后重跑上述 Go/Node/build/verifier/diff check 均通过。
 
-## 待部署验证
+## 部署验证
 
-- development 部署后 smoke：`/api/product-settings`、`/api/bom/products`、商品价格表发布相关 API 返回单位模板来源和快照字段正确。
+- development 部署：feature branch pushed and fast-forwarded into `develop`，Docker build ran `go test ./...`，development stack rebuilt and restarted.
+- Deploy backup：`root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260627202730`。
+- Container smoke：`erp_orderapp`、`erp_postgres`、`erp_caddy`、`erp_docconvert` running；unauthenticated `/app/` returned `303`；protected unauthenticated `/app/api/product-settings?limit=1` and `/app/api/bom/products` returned `401`。
+- Authenticated API smoke：`/app/api/product-settings?limit=1`、`/app/api/bom/products`、`/app/api/production-boms?status=all&limit=1`、`/app/api/costing/bean-list` returned `200`。
+- Field smoke：deployed `/api/product-settings` exposes `unit_template_id`、`unit_rule_source`、`inventory_unit`、`default_sales_unit`、`unit_conversion_json`；deployed `/api/bom/products` exposes `inventory_unit` and `inventory_unit_explicit`。
+- Vue smoke：authenticated `/app/vue-shell/?view=productSettings` and `/app/vue-shell/?view=costing` returned `200`。

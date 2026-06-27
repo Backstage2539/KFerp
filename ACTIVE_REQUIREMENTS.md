@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-502-PRODUCT-UNIT-TEMPLATE-REFERENCE
 - Branch: codex/product-unit-template-reference-20260627
 - Owner/session: Codex / 2026-06-27
-- Status: release-local verified; targeted backend/API and frontend tests, frontend build, changed verifier and diff check passed; merge and development deployment pending.
+- Status: merged to develop and deployed to development; targeted backend/API and frontend tests, frontend build, changed verifier, diff check, Docker build tests and authenticated API smoke passed.
 - Scope: 单位模板成为普通商品 UOM 主数据模板；商品档案通过 `products.unit_template_id` 引用单位模板，商品级高级覆盖继续写入 `products.unit_rule_override_json`；价格层只选择和固化价格单位，不定义单位换算；BOM 和生产链路只读取商品有效库存单位。
 - DEV:
   - DEV-502-PRODUCT-UNIT-TEMPLATE-MASTER：商品新增/配置抽屉优先选择单位模板，显示有效库存单位/默认销售单位；商品列表支持批量 `设置单位模板`；高级单位覆盖可覆盖或清除并保留其他历史键。
@@ -21,9 +21,8 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN frontend: `node --test src/lib/product-settings.test.js src/lib/costing-price-list-workflow.test.js src/lib/order-entry.test.js src/lib/produce-plan.test.js`.
   - GREEN build/verifier: `npm ci`; `npm run build` passed with existing large-chunk warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
   - Review: `codex review --uncommitted` found two P2; fixed default-template create drawer override reset and costing product-input unit priority, then reran targeted Go/Node/build/verifier/diff check.
-  - Pending: merge/deploy smoke.
 - Manual/docs: updated `orderapp-remote/docs/REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, inventory/costing/order/production manuals, root requirement summaries, and `orderapp-remote/docs/acceptance/2026-06-27-product-unit-template-reference.md`.
-- Deployment: pending merge to develop and serialized development deployment.
+- Deployment: feature branch pushed and fast-forwarded into `develop`; development stack deployed with Docker build `go test ./...` passing. Backup from deploy: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260627202730`. Smoke: `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; unauthenticated `/app/` returned `303`; unauthenticated protected `/app/api/product-settings?limit=1` and `/app/api/bom/products` returned `401`; authenticated `/app/api/product-settings?limit=1`, `/app/api/bom/products`, `/app/api/production-boms?status=all&limit=1`, `/app/api/costing/bean-list`, `/app/vue-shell/?view=productSettings`, and `/app/vue-shell/?view=costing` returned `200`; deployed `/api/product-settings` exposes `unit_template_id`, `unit_rule_source`, `inventory_unit`, `default_sales_unit`, and `unit_conversion_json`; deployed `/api/bom/products` exposes `inventory_unit` and `inventory_unit_explicit`.
 - Last update: 2026-06-27 Asia/Shanghai.
 
 ### PR-501-PRODUCT-UOM-SALES-CONVERSION
