@@ -1500,7 +1500,8 @@ func (r Repository) ListProductUnitTemplates(ctx context.Context) ([]catalogapp.
 		if err := rows.Scan(&row.ID, &row.Name, &row.InventoryUnit, &row.QuoteUnit, &row.OrderUnit, &row.UnitConversionJSON, &row.IntegerUnit, &row.Active); err != nil {
 			return nil, err
 		}
-		row.SalesUnit = row.QuoteUnit
+		row.SalesUnit = firstNonEmptyString(row.OrderUnit, row.QuoteUnit, row.InventoryUnit)
+		row.DefaultSalesUnit = row.SalesUnit
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -1526,6 +1527,15 @@ func (r Repository) ListProductPriceGroups(ctx context.Context) ([]catalogapp.Pr
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func (r Repository) SaveProductPriceGroup(ctx context.Context, cmd catalogapp.SaveProductPriceGroupCommand) (catalogapp.ProductPriceGroup, error) {
@@ -2894,7 +2904,10 @@ func (r Repository) SaveProductUnitTemplate(ctx context.Context, cmd catalogapp.
 	if err != nil {
 		return catalogapp.ProductUnitTemplate{}, err
 	}
-	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_unit_template", &id, "update", postgresinfra.StrPtr("template"), nil, postgresinfra.StrPtr(row.Name), postgresinfra.AuditMeta{"inventory_unit": row.InventoryUnit, "quote_unit": row.QuoteUnit, "order_unit": row.OrderUnit, "integer_unit": row.IntegerUnit})
+	row.SalesUnit = firstNonEmptyString(row.OrderUnit, row.QuoteUnit, row.InventoryUnit)
+	row.DefaultSalesUnit = row.SalesUnit
+	row.SalesUnits = cmd.SalesUnits
+	postgresinfra.AuditInsert(ctx, r.pool, r.schema, cmd.Actor, "product_unit_template", &id, "update", postgresinfra.StrPtr("template"), nil, postgresinfra.StrPtr(row.Name), postgresinfra.AuditMeta{"inventory_unit": row.InventoryUnit, "default_sales_unit": row.DefaultSalesUnit, "sales_units": row.SalesUnits, "quote_unit": row.QuoteUnit, "order_unit": row.OrderUnit, "integer_unit": row.IntegerUnit})
 	return row, nil
 }
 

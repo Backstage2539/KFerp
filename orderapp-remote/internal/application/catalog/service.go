@@ -532,15 +532,17 @@ type ProductUnitDefinition struct {
 }
 
 type ProductUnitTemplate struct {
-	ID                 int64  `json:"id"`
-	Name               string `json:"name"`
-	InventoryUnit      string `json:"inventory_unit"`
-	SalesUnit          string `json:"sales_unit"`
-	QuoteUnit          string `json:"quote_unit"`
-	OrderUnit          string `json:"order_unit"`
-	UnitConversionJSON string `json:"unit_conversion_json"`
-	IntegerUnit        bool   `json:"integer_unit"`
-	Active             bool   `json:"active"`
+	ID                 int64    `json:"id"`
+	Name               string   `json:"name"`
+	InventoryUnit      string   `json:"inventory_unit"`
+	SalesUnit          string   `json:"sales_unit"`
+	DefaultSalesUnit   string   `json:"default_sales_unit"`
+	SalesUnits         []string `json:"sales_units"`
+	QuoteUnit          string   `json:"quote_unit"`
+	OrderUnit          string   `json:"order_unit"`
+	UnitConversionJSON string   `json:"unit_conversion_json"`
+	IntegerUnit        bool     `json:"integer_unit"`
+	Active             bool     `json:"active"`
 }
 
 type ProductPriceGroup struct {
@@ -1086,6 +1088,8 @@ type SaveProductUnitTemplateCommand struct {
 	Name               string
 	InventoryUnit      string
 	SalesUnit          string
+	DefaultSalesUnit   string
+	SalesUnits         []string
 	QuoteUnit          string
 	OrderUnit          string
 	UnitConversionJSON string
@@ -1586,6 +1590,7 @@ func (s *Service) ProductSettings(ctx context.Context) (ProductSettingsData, err
 	if err != nil {
 		return ProductSettingsData{}, err
 	}
+	unitTemplates = decorateProductUnitTemplates(unitTemplates)
 	priceGroups, err := s.repo.ListProductPriceGroups(ctx)
 	if err != nil {
 		return ProductSettingsData{}, err
@@ -2172,7 +2177,11 @@ func (s *Service) ListProductUnitDefinitions(ctx context.Context) ([]ProductUnit
 }
 
 func (s *Service) ListProductUnitTemplates(ctx context.Context) ([]ProductUnitTemplate, error) {
-	return s.repo.ListProductUnitTemplates(ctx)
+	rows, err := s.repo.ListProductUnitTemplates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return decorateProductUnitTemplates(rows), nil
 }
 
 func (s *Service) ListProductPriceGroups(ctx context.Context) ([]ProductPriceGroup, error) {
@@ -2298,7 +2307,11 @@ func (s *Service) SaveProductUnitTemplate(ctx context.Context, cmd SaveProductUn
 	if err != nil {
 		return ProductUnitTemplate{}, err
 	}
-	return s.repo.SaveProductUnitTemplate(ctx, normalized)
+	row, err := s.repo.SaveProductUnitTemplate(ctx, normalized)
+	if err != nil {
+		return ProductUnitTemplate{}, err
+	}
+	return decorateProductUnitTemplate(row), nil
 }
 
 func (s *Service) DeleteProductUnitDefinition(ctx context.Context, cmd DeleteProductUnitDefinitionCommand) error {
@@ -3024,41 +3037,240 @@ func normalizeProductUnitTemplateCommand(cmd SaveProductUnitTemplateCommand) (Sa
 	if cmd.Name == "" {
 		return SaveProductUnitTemplateCommand{}, ValidationError{Message: "name required"}
 	}
-	salesUnit := strings.TrimSpace(cmd.SalesUnit)
-	if salesUnit == "" {
-		salesUnit = strings.TrimSpace(cmd.QuoteUnit)
-	}
-	if salesUnit == "" {
-		salesUnit = strings.TrimSpace(cmd.OrderUnit)
-	}
-	if salesUnit != "" {
-		cmd.QuoteUnit = salesUnit
-		cmd.OrderUnit = salesUnit
-	}
-	unitRule := catalogdomain.NormalizeProductUnitRule(catalogdomain.ProductUnitRule{
-		InventoryUnit:  cmd.InventoryUnit,
-		QuoteUnit:      cmd.QuoteUnit,
-		OrderUnit:      cmd.OrderUnit,
-		ConversionJSON: cmd.UnitConversionJSON,
-		IntegerUnit:    cmd.IntegerUnit,
-	})
-	unitConversionJSON, err := normalizeJSONText(unitRule.ConversionJSON)
+	inventoryUnit := normalizeUnitTemplateUnit(cmd.InventoryUnit, "kg")
+	defaultSalesUnit := normalizeUnitTemplateUnit(firstNonEmptyUnitTemplateUnit(cmd.DefaultSalesUnit, cmd.SalesUnit, cmd.OrderUnit, cmd.QuoteUnit), inventoryUnit)
+	unitConversionJSON, salesUnits, err := normalizeUnitTemplateConversionJSON(cmd.UnitConversionJSON, inventoryUnit, defaultSalesUnit, cmd.SalesUnits, cmd.SalesUnit, cmd.OrderUnit, cmd.QuoteUnit)
 	if err != nil {
-		return SaveProductUnitTemplateCommand{}, ValidationError{Message: "invalid unit_conversion_json"}
+		return SaveProductUnitTemplateCommand{}, err
 	}
-	cmd.InventoryUnit = unitRule.InventoryUnit
-	cmd.SalesUnit = strings.TrimSpace(unitRule.QuoteUnit)
-	if cmd.SalesUnit == "" {
-		cmd.SalesUnit = strings.TrimSpace(unitRule.OrderUnit)
-	}
-	if cmd.SalesUnit == "" {
-		cmd.SalesUnit = strings.TrimSpace(unitRule.InventoryUnit)
-	}
-	cmd.QuoteUnit = cmd.SalesUnit
-	cmd.OrderUnit = cmd.SalesUnit
+	cmd.InventoryUnit = inventoryUnit
+	cmd.DefaultSalesUnit = defaultSalesUnit
+	cmd.SalesUnit = defaultSalesUnit
+	cmd.SalesUnits = salesUnits
+	cmd.QuoteUnit = defaultSalesUnit
+	cmd.OrderUnit = defaultSalesUnit
 	cmd.UnitConversionJSON = unitConversionJSON
-	cmd.IntegerUnit = unitRule.IntegerUnit
 	return cmd, nil
+}
+
+func decorateProductUnitTemplates(rows []ProductUnitTemplate) []ProductUnitTemplate {
+	if len(rows) == 0 {
+		return rows
+	}
+	out := make([]ProductUnitTemplate, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, decorateProductUnitTemplate(row))
+	}
+	return out
+}
+
+func decorateProductUnitTemplate(row ProductUnitTemplate) ProductUnitTemplate {
+	inventoryUnit := normalizeUnitTemplateUnit(row.InventoryUnit, "kg")
+	defaultSalesUnit := normalizeUnitTemplateUnit(firstNonEmptyUnitTemplateUnit(row.DefaultSalesUnit, row.OrderUnit, row.QuoteUnit, row.SalesUnit), inventoryUnit)
+	unitConversionJSON, salesUnits, err := normalizeUnitTemplateConversionJSON(row.UnitConversionJSON, inventoryUnit, defaultSalesUnit, row.SalesUnits, row.SalesUnit, row.OrderUnit, row.QuoteUnit)
+	if err == nil {
+		row.UnitConversionJSON = unitConversionJSON
+		row.SalesUnits = salesUnits
+	} else {
+		row.SalesUnits = uniqueUnitTemplateUnits(append([]string{inventoryUnit, defaultSalesUnit}, row.SalesUnits...))
+		if strings.TrimSpace(row.UnitConversionJSON) == "" {
+			row.UnitConversionJSON = "{}"
+		}
+	}
+	row.InventoryUnit = inventoryUnit
+	row.DefaultSalesUnit = defaultSalesUnit
+	row.SalesUnit = defaultSalesUnit
+	row.QuoteUnit = defaultSalesUnit
+	row.OrderUnit = defaultSalesUnit
+	return row
+}
+
+func normalizeUnitTemplateConversionJSON(raw string, inventoryUnit string, defaultSalesUnit string, explicitSalesUnits []string, legacyUnits ...any) (string, []string, error) {
+	inventoryUnit = normalizeUnitTemplateUnit(inventoryUnit, "kg")
+	defaultSalesUnit = normalizeUnitTemplateUnit(defaultSalesUnit, inventoryUnit)
+	graph, conversionKeys, err := parseUnitTemplateConversionGraph(raw, inventoryUnit)
+	if err != nil {
+		return "", nil, ValidationError{Message: "invalid unit_conversion_json"}
+	}
+	direct := map[string]map[string]float64{
+		inventoryUnit: {inventoryUnit: 1},
+	}
+	orderedUnits := []string{inventoryUnit, defaultSalesUnit}
+	orderedUnits = append(orderedUnits, explicitSalesUnits...)
+	for _, legacy := range legacyUnits {
+		switch value := legacy.(type) {
+		case string:
+			orderedUnits = append(orderedUnits, value)
+		case []string:
+			orderedUnits = append(orderedUnits, value...)
+		}
+	}
+	orderedUnits = append(orderedUnits, conversionKeys...)
+	orderedUnits = uniqueUnitTemplateUnits(orderedUnits)
+	for _, unit := range orderedUnits {
+		if unit == "" {
+			continue
+		}
+		if unit == inventoryUnit {
+			direct[unit] = map[string]float64{inventoryUnit: 1}
+			continue
+		}
+		factor, ok := resolveUnitTemplateConversionToInventory(unit, inventoryUnit, graph, map[string]bool{})
+		if !ok || factor <= 0 {
+			if unit == defaultSalesUnit {
+				return "", nil, ValidationError{Message: "default sales unit conversion required"}
+			}
+			return "", nil, ValidationError{Message: "sales unit conversion required"}
+		}
+		direct[unit] = map[string]float64{inventoryUnit: roundUnitTemplateFactor(factor)}
+	}
+	encoded, err := json.Marshal(direct)
+	if err != nil {
+		return "", nil, err
+	}
+	return string(encoded), orderedUnits, nil
+}
+
+func parseUnitTemplateConversionGraph(raw string, inventoryUnit string) (map[string]map[string]float64, []string, error) {
+	graph := map[string]map[string]float64{}
+	keys := []string{}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		raw = "{}"
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return nil, nil, err
+	}
+	for fromUnit, rawTargets := range parsed {
+		fromUnit = strings.TrimSpace(fromUnit)
+		if fromUnit == "" {
+			continue
+		}
+		keys = append(keys, fromUnit)
+		if graph[fromUnit] == nil {
+			graph[fromUnit] = map[string]float64{}
+		}
+		if factor := unitTemplatePositiveFloat(rawTargets); factor > 0 {
+			graph[fromUnit][inventoryUnit] = roundUnitTemplateFactor(factor)
+			continue
+		}
+		targets, ok := rawTargets.(map[string]any)
+		if !ok {
+			continue
+		}
+		for toUnit, rawFactor := range targets {
+			toUnit = strings.TrimSpace(toUnit)
+			factor := unitTemplatePositiveFloat(rawFactor)
+			if toUnit == "" || factor <= 0 {
+				continue
+			}
+			graph[fromUnit][toUnit] = roundUnitTemplateFactor(factor)
+		}
+	}
+	return graph, keys, nil
+}
+
+func resolveUnitTemplateConversionToInventory(unit string, inventoryUnit string, graph map[string]map[string]float64, seen map[string]bool) (float64, bool) {
+	unit = strings.TrimSpace(unit)
+	if unit == "" {
+		return 0, false
+	}
+	if unit == inventoryUnit {
+		return 1, true
+	}
+	if seen[unit] {
+		return 0, false
+	}
+	seen[unit] = true
+	targets := graph[unit]
+	if factor := targets[inventoryUnit]; factor > 0 {
+		return factor, true
+	}
+	for targetUnit, factor := range targets {
+		if factor <= 0 {
+			continue
+		}
+		targetFactor, ok := resolveUnitTemplateConversionToInventory(targetUnit, inventoryUnit, graph, seen)
+		if ok && targetFactor > 0 {
+			return roundUnitTemplateFactor(factor * targetFactor), true
+		}
+	}
+	return 0, false
+}
+
+func roundUnitTemplateFactor(value float64) float64 {
+	if value <= 0 {
+		return 0
+	}
+	return math.Round(value*1e12) / 1e12
+}
+
+func uniqueUnitTemplateUnits(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		unit := strings.TrimSpace(value)
+		if unit == "" || seen[unit] {
+			continue
+		}
+		seen[unit] = true
+		out = append(out, unit)
+	}
+	return out
+}
+
+func firstNonEmptyUnitTemplateUnit(values ...string) string {
+	for _, value := range values {
+		if unit := strings.TrimSpace(value); unit != "" {
+			return unit
+		}
+	}
+	return ""
+}
+
+func normalizeUnitTemplateUnit(value string, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		return value
+	}
+	fallback = strings.TrimSpace(fallback)
+	if fallback != "" {
+		return fallback
+	}
+	return "kg"
+}
+
+func unitTemplatePositiveFloat(value any) float64 {
+	switch v := value.(type) {
+	case float64:
+		if v > 0 {
+			return v
+		}
+	case float32:
+		if v > 0 {
+			return float64(v)
+		}
+	case int:
+		if v > 0 {
+			return float64(v)
+		}
+	case int64:
+		if v > 0 {
+			return float64(v)
+		}
+	case json.Number:
+		parsed, err := v.Float64()
+		if err == nil && parsed > 0 {
+			return parsed
+		}
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		if err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return 0
 }
 
 func normalizeDeleteProductUnitDefinitionCommand(cmd DeleteProductUnitDefinitionCommand) (DeleteProductUnitDefinitionCommand, error) {

@@ -1319,20 +1319,103 @@ export function buildProductUnitDefinitionPayload(form = {}) {
 
 export function buildProductUnitTemplatePayload(form = {}) {
   const inventoryUnit = normalizeUnitText(form.inventory_unit, 'kg')
-  const salesUnit = normalizeUnitText(form.sales_unit, normalizeUnitText(form.quote_unit, normalizeUnitText(form.order_unit, inventoryUnit)))
+  const defaultSalesUnit = normalizeUnitText(
+    form.default_sales_unit ?? form.defaultSalesUnit ?? form.sales_unit ?? form.order_unit ?? form.quote_unit,
+    inventoryUnit,
+  )
+  const conversion = unitTemplateConversionPayload(form, inventoryUnit, defaultSalesUnit)
   return {
     id: Number(form.id || 0),
     name: String(form.name || '').trim(),
     inventory_unit: inventoryUnit,
-    sales_unit: salesUnit,
-    quote_unit: salesUnit,
-    order_unit: salesUnit,
-    unit_conversion_json: Array.isArray(form.unit_conversion_rows)
-      ? unitConversionJSONFromRows(form.unit_conversion_rows)
-      : normalizeJSONString(form.unit_conversion_json),
+    sales_unit: defaultSalesUnit,
+    default_sales_unit: defaultSalesUnit,
+    sales_units: conversion.sales_units,
+    quote_unit: defaultSalesUnit,
+    order_unit: defaultSalesUnit,
+    unit_conversion_json: conversion.unit_conversion_json,
     integer_unit: Boolean(form.integer_unit),
     active: form.active === false ? false : true,
   }
+}
+
+function unitTemplateConversionPayload(form = {}, inventoryUnit = 'kg', defaultSalesUnit = '') {
+  const graph = {}
+  const conversionKeys = []
+  if (Array.isArray(form.unit_conversion_rows)) {
+    for (const row of form.unit_conversion_rows || []) {
+      const fromQty = normalizePositiveNumber(row?.from_qty || 1)
+      const toQty = normalizePositiveNumber(row?.to_qty)
+      const fromUnit = normalizeOptionalUnitText(row?.from_unit ?? row?.sales_unit ?? row?.unit)
+      const toUnit = normalizeOptionalUnitText(row?.to_unit) || inventoryUnit
+      if (fromQty <= 0 || toQty <= 0 || !fromUnit || !toUnit) continue
+      if (!graph[fromUnit]) graph[fromUnit] = {}
+      graph[fromUnit][toUnit] = trimDecimal(toQty / fromQty)
+      conversionKeys.push(fromUnit)
+    }
+  } else {
+    const conversion = parseJSONObject(form.unit_conversion_json ?? form.unitConversionJSON)
+    for (const [from, targets] of Object.entries(conversion)) {
+      const fromUnit = normalizeOptionalUnitText(from)
+      if (!fromUnit) continue
+      if (!graph[fromUnit]) graph[fromUnit] = {}
+      conversionKeys.push(fromUnit)
+      const directFactor = normalizePositiveNumber(targets)
+      if (directFactor > 0) {
+        graph[fromUnit][inventoryUnit] = trimDecimal(directFactor)
+        continue
+      }
+      const targetMap = parseJSONObject(targets)
+      for (const [to, factorValue] of Object.entries(targetMap)) {
+        const toUnit = normalizeOptionalUnitText(to)
+        const factor = normalizePositiveNumber(factorValue)
+        if (!toUnit || factor <= 0) continue
+        graph[fromUnit][toUnit] = trimDecimal(factor)
+      }
+    }
+  }
+
+  const orderedUnits = uniqueInOrder([
+    inventoryUnit,
+    defaultSalesUnit || inventoryUnit,
+    ...(Array.isArray(form.sales_units) ? form.sales_units : []),
+    ...conversionKeys,
+  ])
+  const direct = {}
+  for (const unit of orderedUnits) {
+    if (!unit) continue
+    if (unit === inventoryUnit) {
+      direct[unit] = { [inventoryUnit]: 1 }
+      continue
+    }
+    const factor = resolveUnitTemplateConversionFactor(unit, inventoryUnit, graph)
+    if (factor > 0) {
+      direct[unit] = { [inventoryUnit]: trimDecimal(factor) }
+    }
+  }
+  return {
+    sales_units: Object.keys(direct),
+    unit_conversion_json: JSON.stringify(direct),
+  }
+}
+
+function resolveUnitTemplateConversionFactor(unit = '', inventoryUnit = '', graph = {}, seen = new Set()) {
+  const sourceUnit = normalizeOptionalUnitText(unit)
+  const targetInventoryUnit = normalizeOptionalUnitText(inventoryUnit)
+  if (!sourceUnit || !targetInventoryUnit) return 0
+  if (sourceUnit === targetInventoryUnit) return 1
+  if (seen.has(sourceUnit)) return 0
+  seen.add(sourceUnit)
+  const targets = graph[sourceUnit] || {}
+  const direct = normalizePositiveNumber(targets[targetInventoryUnit])
+  if (direct > 0) return direct
+  for (const [targetUnit, factorValue] of Object.entries(targets)) {
+    const factor = normalizePositiveNumber(factorValue)
+    if (factor <= 0) continue
+    const targetFactor = resolveUnitTemplateConversionFactor(targetUnit, targetInventoryUnit, graph, seen)
+    if (targetFactor > 0) return trimDecimal(factor * targetFactor)
+  }
+  return 0
 }
 
 export function buildProductPriceRecordPayload(form = {}) {
@@ -2098,6 +2181,18 @@ export function buildProductBomURL(currentHref = '', row = {}) {
 function uniqueSorted(values = []) {
   return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)))
     .sort((a, b) => a.localeCompare(b))
+}
+
+function uniqueInOrder(values = []) {
+  const out = []
+  const seen = new Set()
+  for (const value of values || []) {
+    const normalized = String(value || '').trim()
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    out.push(normalized)
+  }
+  return out
 }
 
 export function priceListRuleFormFromJSON(value = {}) {

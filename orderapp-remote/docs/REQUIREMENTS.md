@@ -939,9 +939,12 @@
 - 更新商品档案时必须保留 `unit_rule_override_json` 中除库存单位相关键以外的历史键；库存单位或整数库存变化必须写 `product` 操作日志，并记录旧值和新值。
 - 原料入库按库存单位录入数量，前端提交 `qty/unit_code`，后端兼容旧 `qty_g`；重量库存单位归一到 `qty_g`，非重量库存单位归一到 `qty_units`，并写入原料批次、库存批次、原料仓库位和库存流水。库存调整继续按目标库存数量和库存单位表达。
 - BOM 产出单位自动取产出商品有效库存单位，用户新建或编辑 BOM 时不再手填产出单位；`/api/bom/products` 返回有效 `inventory_unit` 和是否来自商品档案显式设置的 `inventory_unit_explicit`，用于缺少显式库存单位时提示先到商品档案设置。`POST /api/production-boms` 和 `PUT /api/production-boms/:id` 必须重新读取产出商品库存单位后写入草稿版本，不能信任前端传入的 `output_unit`。历史已发布 BOM 版本、历史工单、历史库存流水和历史价格表快照不批量回改；若历史版本产出单位与当前商品库存单位不同，BOM 详情显示差异提示。
-- PR-501-PRODUCT-UOM-SALES-CONVERSION：销售单位到库存单位的换算属于商品档案主数据，不属于商品价格管理。创建商品档案和商品档案配置必须维护 `默认销售单位`、多行 `销售单位换算` 和按销售单位配置的整数销售规则，继续写入 `products.unit_rule_override_json.default_sales_unit/unit_conversion_json/sales_unit_rules`，并兼容旧 `quote_unit/order_unit/integer_unit/单位模板` 读取。
+- PR-501-PRODUCT-UOM-SALES-CONVERSION：销售单位到库存单位的换算属于商品 UOM 主数据，不属于商品价格管理。PR-503 后普通维护入口是单位模板，商品级 `products.unit_rule_override_json.default_sales_unit/unit_conversion_json/sales_unit_rules` 仅作为历史覆盖/API 兼容读取，仍兼容旧 `quote_unit/order_unit/integer_unit/单位模板`。
 - 商品价格管理只维护 Pricing Rule、成本、利润、税费和取整公式，不维护商品销售单位换算。商品价格表生成平铺价格行时，价格单位候选来自商品档案可销售单位，库存单位和换算只读展示；发布时后端必须按 `product_id + price_unit` 重新读取商品档案有效换算，固化 `price_unit/inventory_unit/inventory_conversion_json` 到价格表快照。价格单位不在商品可销售单位中或缺少到库存单位换算时，禁止发布。
 - 录单、客户下单和小程序履约订单只读取已发布价格表快照中的价格单位和库存换算，保存销售数量/销售单位/价格单位，同时冻结库存单位数量作为后续生产需求来源。商品档案后续修改销售单位换算不回改历史已发布价格表、历史订单、历史工单或历史库存流水。
 - PR-502-PRODUCT-UNIT-TEMPLATE-REFERENCE：单位模板恢复为普通商品 UOM 主数据模板，维护库存单位、默认销售单位、可销售单位换算和整数规则；商品档案新增和编辑必须引用 `products.unit_template_id`，避免咖啡豆、挂耳、盒装等同类商品重复维护单位。
 - 普通商品档案不展示商品级单位覆盖入口，不直接编辑库存单位、整数库存或销售单位换算；历史商品级覆盖继续兼容读取并写入 `products.unit_rule_override_json`，但只作为旧数据/API 兼容。有效单位解析优先级固定为历史商品覆盖、商品直接单位模板、历史商品配置/分类兼容链路、系统默认 `kg`。单位模板修改后，对引用该模板且没有历史商品覆盖的商品实时生效；已发布价格表、历史订单、历史 BOM、工单和库存流水不回改。
+- PR-503-PRODUCT-UNIT-TEMPLATE-MULTI-SALES-UOM：一个单位模板只维护一个库存单位，新增默认 `kg` 但允许改成 `袋`、`盒`、`个` 等；同一模板可维护多个销售单位，每个销售单位必须配置到库存单位的换算，例如 `1 盒 = 0.2 kg`、`1 磅 = 0.453592 kg`。库存单位自身自动成为可销售单位，换算固定 `1:1`。
+- 单位模板 API 对外返回 `default_sales_unit`、`sales_units` 和规范后的 `unit_conversion_json`；保存时把 `default_sales_unit` 双写到旧 `quote_unit/order_unit`，读取旧数据时按 `order_unit || quote_unit || inventory_unit` 解析默认销售单位，并把旧 `quote_unit/order_unit/unit_conversion_json` 的 key 纳入可销售单位候选。
+- 商品价格表价格单位只能来自商品有效单位模板的可销售单位；发布时后端按 `product_id + price_unit` 重读单位模板换算并固化 `price_unit/inventory_unit/inventory_conversion_json`，前端传错换算不被信任，非法价格单位或缺少换算禁止发布。
 - 生产计划、工单、BOM、WIP、成品入库和库存流水只使用商品库存单位数量。生产计划从订单行或价格表快照中的库存换算得到库存单位需求，例如 `100 盒 × 0.2 kg/盒 = 20 kg`；生产链路不得从商品价格管理或销售单位重新推导数量。商品价格管理、阶梯价模板和商品价格模板只能选择价格单位或展示单位，不定义单位换算。
