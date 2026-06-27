@@ -187,6 +187,9 @@
               <button class="secondary compact-action" type="button" :disabled="!selectedProductIds.length || !batchProductUnitTemplateID || loading" @click="saveSelectedProductUnitTemplate">
                 设置单位模板
               </button>
+              <button class="secondary compact-action" type="button" @click="openProductUnitTemplateManagement">
+                维护单位模板
+              </button>
               <button class="secondary compact-action danger-outline" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
                 失效商品
               </button>
@@ -5626,6 +5629,18 @@ function openProductBusinessGroupManagement() {
   window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
     detail: {
       key: 'groupTemplates',
+      returnNavigation: {
+        key: 'productMaster',
+        label: '返回商品档案',
+      },
+    },
+  }))
+}
+
+function openProductUnitTemplateManagement() {
+  window.dispatchEvent(new CustomEvent('kferp:navigate-view', {
+    detail: {
+      key: 'productUnitTemplates',
       returnNavigation: {
         key: 'productMaster',
         label: '返回商品档案',

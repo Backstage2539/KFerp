@@ -34,3 +34,8 @@
 - Authenticated API smoke：`/app/api/product-settings?limit=1`、`/app/api/bom/products`、`/app/api/production-boms?status=all&limit=1`、`/app/api/costing/bean-list` returned `200`。
 - Field smoke：deployed `/api/product-settings` exposes `unit_template_id`、`unit_rule_source`、`inventory_unit`、`default_sales_unit`、`unit_conversion_json`；deployed `/api/bom/products` exposes `inventory_unit` and `inventory_unit_explicit`。
 - Vue smoke：authenticated `/app/vue-shell/?view=productSettings` and `/app/vue-shell/?view=costing` returned `200`。
+
+## Follow-up：商品档案单位模板入口
+
+- RED：`node --test src/lib/product-settings.test.js` failed because 商品档案列表工具栏只有 `设置单位模板`，没有 `维护单位模板` 入口，也没有到 `productUnitTemplates` 的返回式 SPA 跳转。
+- GREEN：商品档案列表工具栏新增 `维护单位模板`；点击后通过 `kferp:navigate-view` 进入 `productUnitTemplates`，并提供 `返回商品档案` 返回上下文。

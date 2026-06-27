@@ -1627,6 +1627,10 @@ test('product unit template controls are primary and product unit overrides are 
   }
 
   assert.match(productListToolbar, /设置单位模板/)
+  assert.match(productListToolbar, /维护单位模板/)
+  assert.match(productListToolbar, /openProductUnitTemplateManagement/)
+  assert.match(source, /key: 'productUnitTemplates'/)
+  assert.match(source, /label: '返回商品档案'/)
   assert.match(source, /skuForm\.value\.unit_rule_override_enabled = false/)
   assert.match(source, /function hasProductUnitRuleOverride/)
 })
