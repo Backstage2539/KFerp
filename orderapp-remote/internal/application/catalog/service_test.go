@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -449,6 +450,70 @@ func (r *fakeRepo) DeleteProductUnitDefinition(ctx context.Context, cmd DeletePr
 
 func (r *fakeRepo) DeleteProductUnitTemplate(ctx context.Context, cmd DeleteProductUnitTemplateCommand) error {
 	return nil
+}
+
+func TestServiceSavesProductUnitTemplateWithMultipleSalesUnits(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	got, err := svc.SaveProductUnitTemplate(context.Background(), SaveProductUnitTemplateCommand{
+		Actor:              "tester",
+		Name:               "咖啡豆单位",
+		InventoryUnit:      "kg",
+		DefaultSalesUnit:   "盒",
+		SalesUnits:         []string{"盒", "磅"},
+		UnitConversionJSON: `{"盒":{"kg":0.2},"磅":{"kg":0.453592}}`,
+		IntegerUnit:        true,
+	})
+	if err != nil {
+		t.Fatalf("SaveProductUnitTemplate() error = %v", err)
+	}
+	if repo.unitTemplate.SalesUnit != "盒" || repo.unitTemplate.QuoteUnit != "盒" || repo.unitTemplate.OrderUnit != "盒" {
+		t.Fatalf("legacy/default sales units not dual-written: %+v", repo.unitTemplate)
+	}
+	for _, want := range []string{`"kg":{"kg":1}`, `"盒":{"kg":0.2}`, `"磅":{"kg":0.453592}`} {
+		if !strings.Contains(repo.unitTemplate.UnitConversionJSON, want) {
+			t.Fatalf("normalized conversion %q missing %q", repo.unitTemplate.UnitConversionJSON, want)
+		}
+	}
+	if got.DefaultSalesUnit != "盒" || !reflect.DeepEqual(got.SalesUnits, []string{"kg", "盒", "磅"}) {
+		t.Fatalf("returned sales unit fields = default %q units %+v", got.DefaultSalesUnit, got.SalesUnits)
+	}
+}
+
+func TestServiceNormalizesLegacyUnitTemplateConversionToInventoryUnit(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.SaveProductUnitTemplate(context.Background(), SaveProductUnitTemplateCommand{
+		Name:               "箱装咖啡豆",
+		InventoryUnit:      "kg",
+		DefaultSalesUnit:   "箱",
+		UnitConversionJSON: `{"箱":{"盒":24},"盒":{"kg":0.2}}`,
+	})
+	if err != nil {
+		t.Fatalf("SaveProductUnitTemplate() error = %v", err)
+	}
+	for _, want := range []string{`"箱":{"kg":4.8}`, `"盒":{"kg":0.2}`} {
+		if !strings.Contains(repo.unitTemplate.UnitConversionJSON, want) {
+			t.Fatalf("legacy conversion should be normalized to inventory unit, got %q missing %q", repo.unitTemplate.UnitConversionJSON, want)
+		}
+	}
+}
+
+func TestServiceRejectsDefaultSalesUnitWithoutInventoryConversion(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.SaveProductUnitTemplate(context.Background(), SaveProductUnitTemplateCommand{
+		Name:               "错误模板",
+		InventoryUnit:      "kg",
+		DefaultSalesUnit:   "箱",
+		UnitConversionJSON: `{"盒":{"kg":0.2}}`,
+	})
+	if err == nil || !strings.Contains(err.Error(), "default sales unit conversion required") {
+		t.Fatalf("expected default sales unit conversion error, got %v", err)
+	}
 }
 
 func (r *fakeRepo) DeriveProductConfigTemplate(ctx context.Context, cmd DeriveProductConfigTemplateCommand) (ProductConfigTemplate, error) {

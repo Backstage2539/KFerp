@@ -687,6 +687,8 @@ func (r *productSettingsRepo) SaveProductUnitTemplate(ctx context.Context, cmd c
 		Name:               cmd.Name,
 		InventoryUnit:      cmd.InventoryUnit,
 		SalesUnit:          cmd.SalesUnit,
+		DefaultSalesUnit:   cmd.DefaultSalesUnit,
+		SalesUnits:         cmd.SalesUnits,
 		QuoteUnit:          cmd.QuoteUnit,
 		OrderUnit:          cmd.OrderUnit,
 		UnitConversionJSON: cmd.UnitConversionJSON,
@@ -2206,9 +2208,11 @@ func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.
 			Name:               "盒装200g",
 			InventoryUnit:      "kg",
 			SalesUnit:          "盒",
+			DefaultSalesUnit:   "盒",
+			SalesUnits:         []string{"kg", "盒", "磅"},
 			QuoteUnit:          "盒",
 			OrderUnit:          "盒",
-			UnitConversionJSON: `{"盒":{"kg":0.2}}`,
+			UnitConversionJSON: `{"kg":{"kg":1},"盒":{"kg":0.2},"磅":{"kg":0.453592}}`,
 			IntegerUnit:        true,
 			Active:             true,
 		}},
@@ -2227,7 +2231,9 @@ func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.
 		`"code":"盒"`,
 		`"product_unit_templates"`,
 		`"name":"盒装200g"`,
-		`"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}"`,
+		`"default_sales_unit":"盒"`,
+		`"sales_units":["kg","盒","磅"]`,
+		`"unit_conversion_json":"{\"kg\":{\"kg\":1},\"盒\":{\"kg\":0.2},\"磅\":{\"kg\":0.453592}}"`,
 	} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing %s: %s", want, rec.Body.String())
@@ -2258,8 +2264,9 @@ func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.
 	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/unit-templates", bytes.NewBufferString(`{
 		"name":"盒装200g",
 		"inventory_unit":"kg",
-		"sales_unit":"盒",
-		"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}",
+		"default_sales_unit":"盒",
+		"sales_units":["盒","磅"],
+		"unit_conversion_json":"{\"盒\":{\"kg\":0.2},\"磅\":{\"kg\":0.453592}}",
 		"integer_unit":true,
 		"active":true
 	}`))
@@ -2269,8 +2276,11 @@ func TestProductSettingsAPISupportsGlobalUnitDefinitionsAndTemplates(t *testing.
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST unit template status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if !repo.unitTemplateSaved || repo.savedUnitTemplate.Name != "盒装200g" || repo.savedUnitTemplate.SalesUnit != "盒" || repo.savedUnitTemplate.QuoteUnit != "盒" || repo.savedUnitTemplate.OrderUnit != "盒" || repo.savedUnitTemplate.UnitConversionJSON != `{"盒":{"kg":0.2}}` || !repo.savedUnitTemplate.IntegerUnit {
+	if !repo.unitTemplateSaved || repo.savedUnitTemplate.Name != "盒装200g" || repo.savedUnitTemplate.SalesUnit != "盒" || repo.savedUnitTemplate.DefaultSalesUnit != "盒" || !reflect.DeepEqual(repo.savedUnitTemplate.SalesUnits, []string{"kg", "盒", "磅"}) || repo.savedUnitTemplate.QuoteUnit != "盒" || repo.savedUnitTemplate.OrderUnit != "盒" || !strings.Contains(repo.savedUnitTemplate.UnitConversionJSON, `"磅":{"kg":0.453592}`) || !repo.savedUnitTemplate.IntegerUnit {
 		t.Fatalf("saved unit template = %+v saved=%v", repo.savedUnitTemplate, repo.unitTemplateSaved)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"sales_units":["kg","盒","磅"]`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"default_sales_unit":"盒"`)) {
+		t.Fatalf("unit template response missing semantic fields: %s", rec.Body.String())
 	}
 }
 

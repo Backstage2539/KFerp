@@ -566,14 +566,14 @@
               <div class="template-editor-grid">
                 <label>
                   <span>库存单位</span>
-                  <select v-model="productUnitTemplateForm.inventory_unit">
+                  <select v-model="productUnitTemplateForm.inventory_unit" @change="syncProductUnitTemplateInventoryUnit(productUnitTemplateForm)">
                     <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
                   </select>
                 </label>
                 <label>
-                  <span>销售单位</span>
-                  <select v-model="productUnitTemplateForm.sales_unit">
-                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                  <span>默认销售单位</span>
+                  <select v-model="productUnitTemplateForm.default_sales_unit">
+                    <option v-for="unit in productUnitTemplateSalesUnitOptions(productUnitTemplateForm)" :key="unit" :value="unit">{{ productUnitName(unit) }}</option>
                   </select>
                 </label>
                 <label class="checkline">
@@ -583,20 +583,18 @@
               </div>
               <div class="unit-conversion-editor">
                 <div class="field-group-head">
-                  <span>单位换算</span>
-                  <button class="secondary compact-action" type="button" @click="addUnitConversionRow(productUnitTemplateForm)">新增换算</button>
+                  <span>销售单位换算</span>
+                  <button class="secondary compact-action" type="button" @click="addUnitConversionRow(productUnitTemplateForm)">新增销售单位</button>
                 </div>
                 <div v-for="(row, rowIndex) in productUnitTemplateForm.unit_conversion_rows" :key="`unit-template-conversion-${rowIndex}`" class="unit-conversion-row">
-                  <input v-model.number="row.from_qty" type="number" min="0.0001" step="0.0001" />
-                  <select v-model="row.from_unit">
+                  <span>1</span>
+                  <select v-model="row.from_unit" :disabled="isInventoryUnitConversionRow(row, productUnitTemplateForm)">
                     <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
                   </select>
                   <span>=</span>
-                  <input v-model.number="row.to_qty" type="number" min="0.0001" step="0.0001" />
-                  <select v-model="row.to_unit">
-                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-                  </select>
-                  <button class="text-button danger-text" type="button" @click="removeUnitConversionRow(productUnitTemplateForm, rowIndex)">删除</button>
+                  <input v-model.number="row.to_qty" :disabled="isInventoryUnitConversionRow(row, productUnitTemplateForm)" type="number" min="0.0001" step="0.0001" />
+                  <span>{{ productUnitName(productUnitTemplateForm.inventory_unit) }}</span>
+                  <button class="text-button danger-text" type="button" :disabled="isInventoryUnitConversionRow(row, productUnitTemplateForm)" @click="removeUnitConversionRow(productUnitTemplateForm, rowIndex)">删除</button>
                 </div>
                 <small v-if="!productUnitTemplateForm.unit_conversion_rows.length">例如 1 盒 = 0.2 kg；模板保存后可被商品配置和阶梯价引用。</small>
               </div>
@@ -2522,16 +2520,19 @@ function unitTypeLabel(value) {
 
 function defaultProductUnitTemplateForm(template = {}) {
   const inventoryUnit = template.inventory_unit || 'kg'
-  const salesUnit = template.sales_unit || template.quote_unit || template.order_unit || inventoryUnit
+  const defaultSalesUnit = template.default_sales_unit || template.order_unit || template.quote_unit || template.sales_unit || inventoryUnit
+  const rows = unitConversionRowsFromJSON(template.unit_conversion_json || '{}', inventoryUnit)
   return {
     id: Number(template.id || 0),
     name: template.name || '',
     inventory_unit: inventoryUnit,
-    sales_unit: salesUnit,
-    quote_unit: salesUnit,
-    order_unit: salesUnit,
+    sales_unit: defaultSalesUnit,
+    default_sales_unit: defaultSalesUnit,
+    sales_units: Array.isArray(template.sales_units) ? template.sales_units : [],
+    quote_unit: defaultSalesUnit,
+    order_unit: defaultSalesUnit,
     unit_conversion_json: template.unit_conversion_json || '{}',
-    unit_conversion_rows: unitConversionRowsFromJSON(template.unit_conversion_json || '{}'),
+    unit_conversion_rows: ensureProductUnitTemplateInventoryConversionRow(rows, inventoryUnit),
     integer_unit: Boolean(template.integer_unit),
     active: template.active !== false,
   }
@@ -4033,7 +4034,11 @@ function resetProductUnitTemplateForm() {
 function validateProductUnitTemplatePayload(payload) {
   if (!String(payload.name || '').trim()) return '请填写单位模板名称'
   if (!String(payload.inventory_unit || '').trim()) return '请选择库存单位'
-  if (!String(payload.sales_unit || '').trim()) return '请选择销售单位'
+  if (!String(payload.default_sales_unit || payload.sales_unit || '').trim()) return '请选择默认销售单位'
+  const salesUnits = Array.isArray(payload.sales_units) ? payload.sales_units : []
+  if (!salesUnits.includes(payload.default_sales_unit || payload.sales_unit)) return '默认销售单位必须来自销售单位换算'
+  const conversion = JSON.parse(payload.unit_conversion_json || '{}')
+  if (!conversion[payload.default_sales_unit || payload.sales_unit]) return '默认销售单位必须配置到库存单位的换算'
   return ''
 }
 
@@ -4153,18 +4158,81 @@ function removeCustomerProductRuleTemplateItem(index) {
 function addUnitConversionRow(target) {
   if (!target) return
   if (!Array.isArray(target.unit_conversion_rows)) target.unit_conversion_rows = []
+  const inventoryUnit = target.inventory_unit || 'kg'
+  const existingUnits = new Set(target.unit_conversion_rows.map((row) => String(row?.from_unit || '').trim()).filter(Boolean))
+  const nextUnit = activeProductUnitDefinitions.value.find((unit) => unit.code && !existingUnits.has(unit.code))?.code || inventoryUnit
   target.unit_conversion_rows.push({
     from_qty: 1,
-    from_unit: target.default_sales_unit || target.sales_unit || target.order_unit || target.quote_unit || target.inventory_unit || '',
+    from_unit: nextUnit,
     to_qty: 1,
-    to_unit: target.inventory_unit || target.sales_unit || target.quote_unit || '',
+    to_unit: inventoryUnit,
     integer_sales_unit: false,
   })
+  syncProductUnitTemplateInventoryUnit(target)
 }
 
 function removeUnitConversionRow(target, index) {
   if (!target || !Array.isArray(target.unit_conversion_rows)) return
+  if (isInventoryUnitConversionRow(target.unit_conversion_rows[index], target)) return
   target.unit_conversion_rows.splice(index, 1)
+  const options = productUnitTemplateSalesUnitOptions(target)
+  if (!options.includes(target.default_sales_unit)) {
+    target.default_sales_unit = options[0] || target.inventory_unit || 'kg'
+  }
+}
+
+function ensureProductUnitTemplateInventoryConversionRow(rows = [], inventoryUnit = 'kg') {
+  const normalizedInventoryUnit = String(inventoryUnit || 'kg').trim() || 'kg'
+  const nextRows = (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      from_qty: Number(row?.from_qty || 1) || 1,
+      from_unit: String(row?.from_unit || '').trim(),
+      to_qty: Number(row?.to_qty || 0) || 0,
+      to_unit: String(row?.to_unit || normalizedInventoryUnit).trim() || normalizedInventoryUnit,
+      integer_sales_unit: Boolean(row?.integer_sales_unit || row?.integer_unit),
+    }))
+    .filter((row) => row.from_unit)
+  const hasInventoryRow = nextRows.some((row) => row.from_unit === normalizedInventoryUnit)
+  if (!hasInventoryRow) {
+    nextRows.unshift({ from_qty: 1, from_unit: normalizedInventoryUnit, to_qty: 1, to_unit: normalizedInventoryUnit, integer_sales_unit: false })
+  }
+  return nextRows.map((row) => row.from_unit === normalizedInventoryUnit
+    ? { ...row, from_qty: 1, to_qty: 1, to_unit: normalizedInventoryUnit }
+    : { ...row, from_qty: row.from_qty || 1, to_unit: normalizedInventoryUnit })
+}
+
+function syncProductUnitTemplateInventoryUnit(target) {
+  if (!target) return
+  const inventoryUnit = String(target.inventory_unit || 'kg').trim() || 'kg'
+  target.inventory_unit = inventoryUnit
+  target.unit_conversion_rows = ensureProductUnitTemplateInventoryConversionRow(target.unit_conversion_rows, inventoryUnit)
+  const options = productUnitTemplateSalesUnitOptions(target)
+  if (!options.includes(target.default_sales_unit)) {
+    target.default_sales_unit = options.includes(inventoryUnit) ? inventoryUnit : options[0] || inventoryUnit
+  }
+  target.sales_unit = target.default_sales_unit
+  target.quote_unit = target.default_sales_unit
+  target.order_unit = target.default_sales_unit
+}
+
+function isInventoryUnitConversionRow(row, form) {
+  const inventoryUnit = String(form?.inventory_unit || 'kg').trim() || 'kg'
+  return String(row?.from_unit || '').trim() === inventoryUnit
+}
+
+function productUnitTemplateSalesUnitOptions(form = {}) {
+  const units = []
+  const push = (value) => {
+    const unit = String(value || '').trim()
+    if (unit && !units.includes(unit)) units.push(unit)
+  }
+  push(form.inventory_unit || 'kg')
+  push(form.default_sales_unit || form.sales_unit || form.order_unit || form.quote_unit)
+  if (Array.isArray(form.sales_units)) form.sales_units.forEach(push)
+  if (Array.isArray(form.unit_conversion_rows)) {
+    form.unit_conversion_rows.forEach((row) => push(row?.from_unit))
+  }
+  return units
 }
 
 function startCustomerProductRuleOverrideEdit(row) {
@@ -4620,8 +4688,9 @@ function productionBomOptionMeta(row = {}) {
 function productUnitTemplateSummary(idOrTemplate) {
   const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
   if (!template) return '未绑定单位模板'
-  const salesUnit = template.sales_unit || template.quote_unit || template.order_unit || template.inventory_unit
-  return `${template.name || '单位模板'} · 库存 ${productUnitName(template.inventory_unit)} · 销售 ${productUnitName(salesUnit)}${template.integer_unit ? ' · 整数' : ''}`
+  const salesUnit = template.default_sales_unit || template.order_unit || template.quote_unit || template.sales_unit || template.inventory_unit
+  const salesUnitCount = productUnitTemplateSalesUnitOptions(defaultProductUnitTemplateForm(template)).length
+  return `${template.name || '单位模板'} · 库存 ${productUnitName(template.inventory_unit)} · 默认销售 ${productUnitName(salesUnit)} · 可销售 ${salesUnitCount}${template.integer_unit ? ' · 整数' : ''}`
 }
 
 function productUnitTemplateInventoryLabel(idOrTemplate, fallback = 'kg') {
@@ -4631,15 +4700,15 @@ function productUnitTemplateInventoryLabel(idOrTemplate, fallback = 'kg') {
 
 function productUnitTemplateSalesLabel(idOrTemplate, fallback = 'kg') {
   const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
-  const salesUnit = template?.sales_unit || template?.quote_unit || template?.order_unit || template?.inventory_unit || fallback || 'kg'
+  const salesUnit = template?.default_sales_unit || template?.order_unit || template?.quote_unit || template?.sales_unit || template?.inventory_unit || fallback || 'kg'
   return productUnitName(salesUnit)
 }
 
 function productUnitTemplateConversionRows(template) {
   if (!template) return []
   const inventoryUnit = template.inventory_unit || 'kg'
-  const salesUnit = template.sales_unit || template.quote_unit || template.order_unit || inventoryUnit
-  const rows = unitConversionRowsFromJSON(template.unit_conversion_json || '{}', inventoryUnit)
+  const salesUnit = template.default_sales_unit || template.order_unit || template.quote_unit || template.sales_unit || inventoryUnit
+  const rows = ensureProductUnitTemplateInventoryConversionRow(unitConversionRowsFromJSON(template.unit_conversion_json || '{}', inventoryUnit), inventoryUnit)
   if (rows.length) {
     return rows.map((row) => ({
       ...row,
@@ -4655,7 +4724,7 @@ function applyProductUnitTemplateToForm(form) {
   if (!template) return
   form.inventory_unit = template.inventory_unit || 'kg'
   form.integer_inventory_unit = Boolean(template.integer_unit)
-  form.default_sales_unit = template.sales_unit || template.quote_unit || template.order_unit || template.inventory_unit || 'kg'
+  form.default_sales_unit = template.default_sales_unit || template.order_unit || template.quote_unit || template.sales_unit || template.inventory_unit || 'kg'
   form.unit_conversion_rows = productUnitTemplateConversionRows(template)
 }
 
@@ -4692,10 +4761,10 @@ function productConfigUnitTemplateName(idOrTemplate) {
 function productConfigUnitChips(idOrTemplate) {
   const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
   if (!template) return ['单位未绑定']
-  const salesUnit = template.sales_unit || template.quote_unit || template.order_unit || template.inventory_unit
+  const salesUnit = template.default_sales_unit || template.order_unit || template.quote_unit || template.sales_unit || template.inventory_unit
   const chips = [
     `库存 ${productUnitName(template.inventory_unit)}`,
-    `销售 ${productUnitName(salesUnit)}`,
+    `默认销售 ${productUnitName(salesUnit)}`,
   ]
   if (template.integer_unit) chips.push('整数单位')
   return chips

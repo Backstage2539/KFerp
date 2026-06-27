@@ -6,6 +6,19 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-503-PRODUCT-UNIT-TEMPLATE-MULTI-SALES-UOM
+- Branch: codex/unit-template-multi-sales-uom-20260627
+- Owner/session: Codex / 2026-06-27
+- Status: locally verified; pending merge/development deploy smoke.
+- Scope: 商品单位模板改成一个库存单位、一个默认销售单位、多个可销售单位到库存单位换算；商品档案继续强制引用单位模板，价格表发布按商品单位模板重读换算并固化快照，BOM/生产/库存继续只使用库存单位。
+- Verifier:
+  - Unit/API: `TMPDIR=$PWD/.tmp-go go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/application/sales ./internal/interfaces/http/sales ./internal/infrastructure/postgres/sales ./internal/application/production ./internal/interfaces/http/production -count=1` passed.
+  - Frontend/build: `node --test src/lib/product-settings.test.js src/lib/order-entry.test.js src/lib/produce-plan.test.js` and `npm run build` passed.
+  - Manual: updated `orderapp-remote/docs/OP_MANUAL_COSTING.md`, `orderapp-remote/docs/OP_MANUAL_PRODUCTION.md`, `orderapp-remote/docs/OP_MANUAL_STOCK.md`.
+  - Review/acceptance: updated requirements/acceptance docs and `orderapp-remote/docs/acceptance/2026-06-27-product-unit-template-multi-sales-uom.md`; `scripts/verify_kferp.sh changed`, `scripts/verify_kferp.sh backend`, and `git diff --check` passed.
+- Deployment: pending.
+- Last update: 2026-06-27 Asia/Shanghai
+
 ### PR-502-PRODUCT-UNIT-TEMPLATE-REFERENCE
 - Branch: codex/product-unit-template-reference-20260627
 - Owner/session: Codex / 2026-06-27

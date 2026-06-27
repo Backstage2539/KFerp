@@ -1326,29 +1326,33 @@ test('global unit definitions and unit templates build reusable unit payloads', 
     id: 12,
     name: ' 盒装200g ',
     inventory_unit: ' kg ',
-    quote_unit: '盒',
-    order_unit: '盒',
-    unit_conversion_rows: [{ from_qty: 1, from_unit: '盒', to_qty: 0.2, to_unit: 'kg' }],
+    default_sales_unit: '盒',
+    unit_conversion_rows: [
+      { from_qty: 1, from_unit: '盒', to_qty: 0.2, to_unit: 'kg' },
+      { from_qty: 1, from_unit: '磅', to_qty: 0.453592, to_unit: 'kg' },
+    ],
     integer_unit: true,
   }), {
     id: 12,
     name: '盒装200g',
     inventory_unit: 'kg',
     sales_unit: '盒',
+    default_sales_unit: '盒',
+    sales_units: ['kg', '盒', '磅'],
     quote_unit: '盒',
     order_unit: '盒',
-    unit_conversion_json: '{"盒":{"kg":0.2}}',
+    unit_conversion_json: '{"kg":{"kg":1},"盒":{"kg":0.2},"磅":{"kg":0.453592}}',
     integer_unit: true,
     active: true,
   })
 })
 
-test('unit template payload exposes sales unit while dual-writing legacy quote and order units', () => {
+test('unit template payload exposes default sales unit while dual-writing legacy quote and order units', () => {
   assert.deepEqual(buildProductUnitTemplatePayload({
     id: 18,
     name: ' 盒装10个 ',
     inventory_unit: ' 个 ',
-    sales_unit: ' 盒 ',
+    default_sales_unit: ' 盒 ',
     unit_conversion_rows: [{ from_qty: 1, from_unit: '盒', to_qty: 10, to_unit: '个' }],
     integer_unit: true,
   }), {
@@ -1356,10 +1360,37 @@ test('unit template payload exposes sales unit while dual-writing legacy quote a
     name: '盒装10个',
     inventory_unit: '个',
     sales_unit: '盒',
+    default_sales_unit: '盒',
+    sales_units: ['个', '盒'],
     quote_unit: '盒',
     order_unit: '盒',
-    unit_conversion_json: '{"盒":{"个":10}}',
+    unit_conversion_json: '{"个":{"个":1},"盒":{"个":10}}',
     integer_unit: true,
+    active: true,
+  })
+})
+
+test('unit template payload normalizes legacy sales-unit-to-sales-unit conversions to inventory unit', () => {
+  assert.deepEqual(buildProductUnitTemplatePayload({
+    id: 21,
+    name: '箱装咖啡豆',
+    inventory_unit: 'kg',
+    default_sales_unit: '箱',
+    unit_conversion_rows: [
+      { from_qty: 1, from_unit: '箱', to_qty: 24, to_unit: '盒' },
+      { from_qty: 1, from_unit: '盒', to_qty: 0.2, to_unit: 'kg' },
+    ],
+  }), {
+    id: 21,
+    name: '箱装咖啡豆',
+    inventory_unit: 'kg',
+    sales_unit: '箱',
+    default_sales_unit: '箱',
+    sales_units: ['kg', '箱', '盒'],
+    quote_unit: '箱',
+    order_unit: '箱',
+    unit_conversion_json: '{"kg":{"kg":1},"箱":{"kg":4.8},"盒":{"kg":0.2}}',
+    integer_unit: false,
     active: true,
   })
 })
@@ -2616,11 +2647,9 @@ test('SKU settings exposes product subtype default unit configuration controls',
     'saveProductConfigTemplate',
     'deriveProductConfigTemplateForCustomer',
     '/api/product-settings/product-config-templates',
-    '库存单位',
-    '销售单位',
-    '单位转换',
-    '新增换算',
-    '整数单位',
+    '单位模板',
+    'productConfigTemplateForm.unit_template_id',
+    'productUnitTemplateSummary',
     'buildProductConfigTemplatePayload',
   ]) {
     assert.ok(source.includes(expected), `missing product config UI marker: ${expected}`)
@@ -2632,6 +2661,8 @@ test('SKU settings exposes product subtype default unit configuration controls',
   assert.doesNotMatch(source, /startProductSubtypeConfigEdit/)
   assert.doesNotMatch(source, /saveProductSubtypeConfig/)
   assert.doesNotMatch(source, /价格表规则 JSON/)
+  assert.doesNotMatch(source, />报价单位</)
+  assert.doesNotMatch(source, />录单单位</)
   assert.doesNotMatch(source, /单位换算 JSON/)
   assert.doesNotMatch(source, /单位规则 JSON/)
   assert.doesNotMatch(source, /客户产品规则/)
@@ -3329,7 +3360,12 @@ test('SKU settings compacts context area and uses create edit labels for unit di
   assert.match(unitTemplatePane, /@click="resetProductUnitTemplateForm"[\s\S]*新增单位模板/)
   assert.match(unitTemplatePane, /productUnitTemplateForm\.id\s*\?\s*'保存'\s*:\s*'新增'/)
   assert.match(unitTemplatePane, />库存单位</)
-  assert.match(unitTemplatePane, />销售单位</)
+  assert.match(unitTemplatePane, />默认销售单位</)
+  assert.match(unitTemplatePane, />销售单位换算</)
+  assert.match(unitTemplatePane, /productUnitTemplateSalesUnitOptions/)
+  assert.match(unitTemplatePane, /productUnitTemplateForm\.inventory_unit/)
+  assert.doesNotMatch(unitTemplatePane, />报价单位</)
+  assert.doesNotMatch(unitTemplatePane, />录单单位</)
   assert.doesNotMatch(unitTemplatePane, /成品库存单位/)
 
   assert.match(script, /const globalUnitEditingCode = ref\(''\)/)

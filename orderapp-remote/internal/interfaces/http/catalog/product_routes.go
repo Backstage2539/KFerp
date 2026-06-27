@@ -418,14 +418,16 @@ type productUnitDefinitionAPIRequest struct {
 }
 
 type productUnitTemplateAPIRequest struct {
-	Name               string `json:"name"`
-	InventoryUnit      string `json:"inventory_unit"`
-	SalesUnit          string `json:"sales_unit"`
-	QuoteUnit          string `json:"quote_unit"`
-	OrderUnit          string `json:"order_unit"`
-	UnitConversionJSON string `json:"unit_conversion_json"`
-	IntegerUnit        bool   `json:"integer_unit"`
-	Active             *bool  `json:"active"`
+	Name               string   `json:"name"`
+	InventoryUnit      string   `json:"inventory_unit"`
+	SalesUnit          string   `json:"sales_unit"`
+	DefaultSalesUnit   string   `json:"default_sales_unit"`
+	SalesUnits         []string `json:"sales_units"`
+	QuoteUnit          string   `json:"quote_unit"`
+	OrderUnit          string   `json:"order_unit"`
+	UnitConversionJSON string   `json:"unit_conversion_json"`
+	IntegerUnit        bool     `json:"integer_unit"`
+	Active             *bool    `json:"active"`
 }
 
 type productPriceGroupAPIRequest struct {
@@ -2098,6 +2100,8 @@ func (h productHandler) saveProductUnitTemplateAPI(c echo.Context) error {
 		Name:               req.Name,
 		InventoryUnit:      req.InventoryUnit,
 		SalesUnit:          req.SalesUnit,
+		DefaultSalesUnit:   req.DefaultSalesUnit,
+		SalesUnits:         req.SalesUnits,
 		QuoteUnit:          req.QuoteUnit,
 		OrderUnit:          req.OrderUnit,
 		UnitConversionJSON: req.UnitConversionJSON,
