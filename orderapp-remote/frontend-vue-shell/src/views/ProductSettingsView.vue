@@ -1181,61 +1181,13 @@
             <label class="wide-field">
               <span>单位模板</span>
               <select v-model.number="skuForm.unit_template_id" @change="applySkuUnitTemplateDefaults(skuForm)">
-                <option :value="0">不引用单位模板</option>
+                <option :value="0" disabled>请选择单位模板</option>
                 <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
                   {{ productUnitTemplateSummary(unitTemplate) }}
                 </option>
               </select>
-              <small>有效库存单位：{{ productUnitTemplateInventoryLabel(skuForm.unit_template_id, skuForm.inventory_unit) }}；有效默认销售单位：{{ productUnitTemplateSalesLabel(skuForm.unit_template_id, skuForm.default_sales_unit) }}</small>
+              <small>有效库存单位：{{ productUnitTemplateInventoryLabel(skuForm.unit_template_id, '') }}；有效默认销售单位：{{ productUnitTemplateSalesLabel(skuForm.unit_template_id, '') }}</small>
             </label>
-            <label class="checkbox-row wide-field">
-              <input v-model="skuForm.unit_rule_override_enabled" type="checkbox" />
-              <span>高级单位覆盖</span>
-            </label>
-            <template v-if="skuForm.unit_rule_override_enabled || !skuForm.unit_template_id">
-            <label>
-              <span>库存单位</span>
-              <select v-model="skuForm.inventory_unit">
-                <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-              </select>
-            </label>
-            <label class="checkbox-row">
-              <input v-model="skuForm.integer_inventory_unit" type="checkbox" />
-              <span>整数库存</span>
-            </label>
-            <div class="unit-conversion-editor wide-field">
-              <div class="field-group-head compact-head">
-                <div class="field-group-copy">
-                  <strong>销售单位换算</strong>
-                  <small>价格表只引用这里的销售单位和库存单位换算。</small>
-                </div>
-                <button class="secondary compact-action" type="button" @click="addUnitConversionRow(skuForm)">新增换算</button>
-              </div>
-              <label>
-                <span>默认销售单位</span>
-                <select v-model="skuForm.default_sales_unit">
-                  <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-                </select>
-              </label>
-              <div v-for="(row, rowIndex) in skuForm.unit_conversion_rows" :key="`sku-sales-unit-${rowIndex}`" class="unit-conversion-row">
-                <input v-model.number="row.from_qty" type="number" min="0" step="0.0001" />
-                <select v-model="row.from_unit">
-                  <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-                </select>
-                <span>=</span>
-                <input v-model.number="row.to_qty" type="number" min="0" step="0.0001" />
-                <select v-model="row.to_unit">
-                  <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-                </select>
-                <label class="checkbox-row inline-checkbox">
-                  <input v-model="row.integer_sales_unit" type="checkbox" />
-                  <span>整数销售单位</span>
-                </label>
-                <button class="text-button danger-text" type="button" @click="removeUnitConversionRow(skuForm, rowIndex)">删除</button>
-              </div>
-              <small v-if="!skuForm.unit_conversion_rows.length">例如 1 盒 = 0.2 kg；不需要换算时默认销售单位可与库存单位一致。</small>
-            </div>
-            </template>
             <div class="form-actions">
               <button class="primary" type="submit" :disabled="skuSaving">创建新商品档案</button>
             </div>
@@ -1397,67 +1349,13 @@
               <label class="wide-field">
                 <span>单位模板</span>
                 <select v-model.number="productProductionConfigForm.unit_template_id" @change="applyProductConfigUnitTemplateDefaults(productProductionConfigForm)">
-                  <option :value="0">不引用单位模板</option>
+                  <option :value="0" disabled>请选择单位模板</option>
                   <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
                     {{ productUnitTemplateSummary(unitTemplate) }}
                   </option>
                 </select>
-                <small>有效库存单位：{{ productUnitTemplateInventoryLabel(productProductionConfigForm.unit_template_id, productProductionConfigForm.inventory_unit) }}；有效默认销售单位：{{ productUnitTemplateSalesLabel(productProductionConfigForm.unit_template_id, productProductionConfigForm.default_sales_unit) }}</small>
+                <small>有效库存单位：{{ productUnitTemplateInventoryLabel(productProductionConfigForm.unit_template_id, '') }}；有效默认销售单位：{{ productUnitTemplateSalesLabel(productProductionConfigForm.unit_template_id, '') }}</small>
               </label>
-              <div class="wide-field unit-override-toolbar">
-                <label class="checkbox-row">
-                  <input v-model="productProductionConfigForm.unit_rule_override_enabled" type="checkbox" />
-                  <span>高级单位覆盖</span>
-                </label>
-                <span v-if="productProductionConfigForm.unit_rule_override_enabled" class="status-pill warning">已覆盖模板单位</span>
-                <button class="secondary compact-action" type="button" :disabled="!productProductionConfigForm.unit_rule_override_enabled" @click="clearProductConfigUnitOverride">
-                  清除覆盖
-                </button>
-              </div>
-              <template v-if="productProductionConfigForm.unit_rule_override_enabled || !productProductionConfigForm.unit_template_id">
-              <label>
-                <span>库存单位</span>
-                <select v-model="productProductionConfigForm.inventory_unit">
-                  <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-                </select>
-              </label>
-              <label class="checkbox-row">
-                <input v-model="productProductionConfigForm.integer_inventory_unit" type="checkbox" />
-                <span>整数库存</span>
-              </label>
-              <div class="unit-conversion-editor wide-field">
-                <div class="field-group-head compact-head">
-                  <div class="field-group-copy">
-                    <strong>销售单位换算</strong>
-                    <small>新价格表和后续订单会按这里冻结销售单位到库存单位换算。</small>
-                  </div>
-                  <button class="secondary compact-action" type="button" @click="addUnitConversionRow(productProductionConfigForm)">新增换算</button>
-                </div>
-                <label>
-                  <span>默认销售单位</span>
-                  <select v-model="productProductionConfigForm.default_sales_unit">
-                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-                  </select>
-                </label>
-                <div v-for="(row, rowIndex) in productProductionConfigForm.unit_conversion_rows" :key="`product-sales-unit-${rowIndex}`" class="unit-conversion-row">
-                  <input v-model.number="row.from_qty" type="number" min="0" step="0.0001" />
-                  <select v-model="row.from_unit">
-                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-                  </select>
-                  <span>=</span>
-                  <input v-model.number="row.to_qty" type="number" min="0" step="0.0001" />
-                  <select v-model="row.to_unit">
-                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
-                  </select>
-                  <label class="checkbox-row inline-checkbox">
-                    <input v-model="row.integer_sales_unit" type="checkbox" />
-                    <span>整数销售单位</span>
-                  </label>
-                  <button class="text-button danger-text" type="button" @click="removeUnitConversionRow(productProductionConfigForm, rowIndex)">移除</button>
-                </div>
-                <small v-if="!productProductionConfigForm.unit_conversion_rows.length">例如 1 盒 = 0.2 kg；生产 BOM 和库存仍只使用库存单位。</small>
-              </div>
-              </template>
             </div>
           </section>
 
@@ -2387,7 +2285,7 @@ function defaultSkuForm() {
     name: '',
     remark: '',
     unit_template_id: unitTemplateID,
-    unit_rule_override_enabled: unitTemplateID <= 0,
+    unit_rule_override_enabled: false,
     inventory_unit: 'kg',
     integer_inventory_unit: false,
     default_sales_unit: 'kg',
@@ -2506,7 +2404,7 @@ function defaultProductForm() {
     product_kind: 'roasted',
     remark: '',
     unit_template_id: unitTemplateID,
-    unit_rule_override_enabled: unitTemplateID <= 0,
+    unit_rule_override_enabled: false,
     inventory_unit: 'kg',
     integer_inventory_unit: false,
     special_attr_values: {},
@@ -4764,7 +4662,7 @@ function applyProductUnitTemplateToForm(form) {
 function applySkuUnitTemplateDefaults(form) {
   if (!form) return
   if (!Number(form.unit_template_id || 0)) {
-    form.unit_rule_override_enabled = true
+    form.unit_rule_override_enabled = false
     return
   }
   form.unit_rule_override_enabled = false
@@ -4774,10 +4672,11 @@ function applySkuUnitTemplateDefaults(form) {
 function applyProductConfigUnitTemplateDefaults(form) {
   if (!form) return
   if (!Number(form.unit_template_id || 0)) {
-    form.unit_rule_override_enabled = true
+    form.unit_rule_override_enabled = false
     return
   }
-  if (!form.unit_rule_override_enabled) applyProductUnitTemplateToForm(form)
+  form.unit_rule_override_enabled = false
+  applyProductUnitTemplateToForm(form)
 }
 
 function clearProductConfigUnitOverride() {
@@ -5727,6 +5626,10 @@ async function saveProductProductionConfig() {
     error.value = '请选择商品档案'
     return
   }
+  if (!Number(productProductionConfigForm.value.unit_template_id || 0)) {
+    error.value = '请选择单位模板'
+    return
+  }
   const lossRate = Number(productProductionConfigForm.value.expected_loss_percent || 0) / 100
   if (!Number.isFinite(lossRate) || lossRate < 0 || lossRate >= 1) {
     error.value = '预期损耗率必须在 0% 到 99.999% 之间'
@@ -5776,6 +5679,10 @@ async function saveProductProductionConfig() {
 async function createSku() {
   if (!skuForm.value.name) {
     error.value = '请填写商品名称'
+    return
+  }
+  if (!Number(skuForm.value.unit_template_id || 0)) {
+    error.value = '请选择单位模板'
     return
   }
   skuSaving.value = true

@@ -3,7 +3,7 @@
 ## 范围
 
 - 单位模板恢复为商品 UOM 主数据模板，维护库存单位、默认销售单位、可销售单位换算和整数规则。
-- 商品档案通过 `products.unit_template_id` 引用单位模板；商品级高级覆盖继续写入 `products.unit_rule_override_json`，仅用于例外 SKU。
+- 商品档案通过 `products.unit_template_id` 引用单位模板；商品新增和编辑必须选择单位模板，普通 UI 不再展示商品级高级覆盖、库存单位、整数库存或销售单位换算直填入口。历史商品级覆盖继续兼容读取 `products.unit_rule_override_json`。
 - 商品价格管理、阶梯价模板和价格模板不定义单位换算；商品价格表发布时按商品有效单位规则固化快照。
 - BOM、生产计划、工单、WIP、成品入库和库存流水只读取商品有效库存单位，不读取销售单位或价格单位。
 
@@ -14,7 +14,7 @@
 - `go test ./internal/infrastructure/postgres/costing -run TestProductSalesUnitResolversPreferProductDirectUnitTemplateBeforeLegacyTemplateChain -count=1`：商品价格表发布的单位解析缺少商品直接单位模板优先级。
 - `go test ./internal/infrastructure/postgres/sales -run TestOrderFormProductsExposeProductTypeAndUnitRuleFields -count=1`：录单候选商品缺少商品直接单位模板的有效单位换算。
 - `go test ./internal/infrastructure/postgres/bom -run TestBomRepositoryProductsUseDirectProductUnitTemplateBeforeLegacyFallbacks -count=1`：`/api/bom/products` 未按商品直接单位模板解析库存单位，也未把模板库存单位视为已配置来源。
-- `node --test src/lib/product-settings.test.js`：商品新增/配置抽屉缺少单位模板主入口、批量设置单位模板和高级单位覆盖/清除覆盖。
+- `node --test src/lib/product-settings.test.js`：商品新增/配置抽屉缺少单位模板主入口、批量设置单位模板；后续浏览器反馈要求移除 `不引用单位模板`、高级单位覆盖和商品级单位直填控件。
 
 ## GREEN
 
@@ -39,3 +39,8 @@
 
 - RED：`node --test src/lib/product-settings.test.js` failed because 商品档案列表工具栏只有 `设置单位模板`，没有 `维护单位模板` 入口，也没有到 `productUnitTemplates` 的返回式 SPA 跳转。
 - GREEN：商品档案列表工具栏新增 `维护单位模板`；点击后通过 `kferp:navigate-view` 进入 `productUnitTemplates`，并提供 `返回商品档案` 返回上下文。
+
+## Follow-up：商品必须引用单位模板
+
+- RED：`node --test src/lib/product-settings.test.js` failed because 商品新增/配置抽屉仍允许 `不引用单位模板`，并展示 `高级单位覆盖`、`库存单位`、`整数库存` 和 `销售单位换算` 直填控件；无模板保存还会把隐藏表单字段写入商品级 `unit_rule_override_json`。
+- GREEN：商品新增/配置抽屉的单位模板下拉改为必选 `请选择单位模板`；删除普通 UI 中的高级单位覆盖、库存单位、整数库存和销售单位换算区块；保存时未选模板提示 `请选择单位模板`；payload 只在历史显式覆盖标记为 true 时写商品级单位覆盖，普通 UI 不再写入模板派生单位。

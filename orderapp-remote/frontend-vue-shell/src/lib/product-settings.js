@@ -1972,12 +1972,10 @@ function normalizedProductUnitTemplateID(form = {}) {
 }
 
 function productUnitOverrideShouldSave(form = {}) {
-  const unitTemplateID = normalizedProductUnitTemplateID(form)
-  if (unitTemplateID <= 0) return true
   if (Object.prototype.hasOwnProperty.call(form, 'unit_rule_override_enabled')) {
     return Boolean(form.unit_rule_override_enabled)
   }
-  return false
+  return hasExplicitProductUnitRuleOverride(form) || String(form.unit_rule_source || form.unitRuleSource || '') === 'product_override'
 }
 
 function stripProductUnitRuleOverrideJSON(raw = '{}') {

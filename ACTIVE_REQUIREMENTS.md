@@ -10,9 +10,9 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 - Branch: codex/product-unit-template-reference-20260627
 - Owner/session: Codex / 2026-06-27
 - Status: merged to develop and deployed to development; targeted backend/API and frontend tests, frontend build, changed verifier, diff check, Docker build tests and authenticated API smoke passed.
-- Scope: 单位模板成为普通商品 UOM 主数据模板；商品档案通过 `products.unit_template_id` 引用单位模板，商品级高级覆盖继续写入 `products.unit_rule_override_json`；价格层只选择和固化价格单位，不定义单位换算；BOM 和生产链路只读取商品有效库存单位。
+- Scope: 单位模板成为普通商品 UOM 主数据模板；商品档案必须通过 `products.unit_template_id` 引用单位模板，普通 UI 不再展示商品级高级覆盖、库存单位、整数库存或销售单位换算直填入口；历史商品级覆盖继续兼容读取 `products.unit_rule_override_json`；价格层只选择和固化价格单位，不定义单位换算；BOM 和生产链路只读取商品有效库存单位。
 - DEV:
-  - DEV-502-PRODUCT-UNIT-TEMPLATE-MASTER：商品新增/配置抽屉优先选择单位模板，显示有效库存单位/默认销售单位；商品列表支持批量 `设置单位模板`；高级单位覆盖可覆盖或清除并保留其他历史键。
+  - DEV-502-PRODUCT-UNIT-TEMPLATE-MASTER：商品新增/配置抽屉必须选择单位模板，显示有效库存单位/默认销售单位；商品列表支持批量 `设置单位模板`；普通 UI 删除 `不引用单位模板`、高级单位覆盖、库存单位、整数库存和销售单位换算直填入口。
   - DEV-502-EFFECTIVE-UOM-RESOLUTION：`/api/product-settings` 返回 `unit_template_id/unit_template_name/unit_rule_source` 和有效单位字段；catalog/costing/sales/BOM 查询优先按商品覆盖、商品直接单位模板、历史兼容链路、默认 `kg` 解析。
   - DEV-502-PRICE-BOM-BOUNDARY：价格模板/阶梯价模板不定义单位换算；商品价格表发布按 `product_id + price_unit` 重新读取商品有效单位规则并固化快照；BOM 产出单位读取商品有效库存单位。
 - Verifier:

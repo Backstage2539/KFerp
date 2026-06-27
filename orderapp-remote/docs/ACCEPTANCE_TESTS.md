@@ -1274,8 +1274,8 @@
 ### K59. 商品引用单位模板（PR-502-PRODUCT-UNIT-TEMPLATE-REFERENCE）
 - [ ] 商品档案页面可以维护单位模板，模板包含 `库存单位`、`默认销售单位`、可销售单位到库存单位换算和整数规则；保存模板后可被商品直接引用。
 - [ ] 创建商品档案和商品档案配置抽屉优先选择 `单位模板`，并显示 `有效库存单位`、`有效默认销售单位`；商品列表显示引用模板和有效单位。
-- [ ] 商品未开启 `高级单位覆盖` 时，新建/编辑 payload 只写 `unit_template_id`，不把模板的库存单位、默认销售单位或换算写入商品级 `unit_rule_override_json`。
-- [ ] 商品开启 `高级单位覆盖` 后，库存单位、默认销售单位、销售单位换算和整数规则优先于模板；点击 `清除覆盖` 后保留 `unit_rule_override_json` 其他历史键并恢复读取模板。
+- [ ] 商品新增/编辑必须选择单位模板；普通 UI 不展示 `不引用单位模板`、`高级单位覆盖`、`清除覆盖`、`库存单位`、`整数库存` 或 `销售单位换算` 直填入口。
+- [ ] 新建/编辑 payload 只写 `unit_template_id`，不把模板的库存单位、默认销售单位或换算写入商品级 `unit_rule_override_json`；历史商品级覆盖只做兼容读取，并保留 `unit_rule_override_json` 其他历史键。
 - [ ] `/api/product-settings` 返回 `unit_template_id/unit_template_name/unit_rule_source/inventory_unit/default_sales_unit/unit_conversion_json/sales_unit_rules`；`unit_rule_source` 能区分 `product_override`、`product_unit_template`、legacy/category/default。
 - [ ] `/api/bom/products` 和生产 BOM 产出单位读取商品有效库存单位，优先级为商品覆盖、商品直接单位模板、历史商品配置/分类兼容、默认 `kg`。
 - [ ] 商品价格表发布时，非法 `price_unit` 不在商品有效可销售单位中必须拒绝；即使前端传错换算，后端仍按 `product_id + price_unit` 重新读取商品有效单位规则并固化快照。
