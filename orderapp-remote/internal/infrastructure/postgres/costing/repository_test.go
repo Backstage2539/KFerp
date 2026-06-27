@@ -139,6 +139,44 @@ func TestLoadProductInputsUsesCustomerAliasRenameAsCustomerDisplayName(t *testin
 	}
 }
 
+func TestProductSalesUnitResolversPreferProductDirectUnitTemplateBeforeLegacyTemplateChain(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id = p.unit_template_id AND product_unit_template.active = true",
+		"NULLIF(product_unit_template.inventory_unit,'')",
+		"NULLIF(product_unit_template.quote_unit,'')",
+		"NULLIF(product_unit_template.unit_conversion_json::text,'{}')",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("costing sales-unit resolver must read product direct unit template; missing %q", want)
+		}
+	}
+	overrideIdx := strings.Index(src, "NULLIF(p.unit_rule_override_json->>'inventory_unit','')")
+	templateIdx := strings.Index(src, "NULLIF(product_unit_template.inventory_unit,'')")
+	legacyConfigIdx := strings.Index(src, "NULLIF(pct.inventory_unit,'')")
+	if overrideIdx < 0 || templateIdx < 0 || legacyConfigIdx < 0 || !(overrideIdx < templateIdx && templateIdx < legacyConfigIdx) {
+		t.Fatalf("product unit resolution priority must be product override -> direct unit template -> legacy config/template; indexes override=%d template=%d legacy=%d", overrideIdx, templateIdx, legacyConfigIdx)
+	}
+	loadProductInputsIdx := strings.Index(src, "func (r Repository) loadProductInputs")
+	if loadProductInputsIdx < 0 {
+		t.Fatalf("missing loadProductInputs")
+	}
+	loadProductInputsSrc := src[loadProductInputsIdx:]
+	for _, want := range []string{
+		"NULLIF(p.unit_rule_override_json->>'inventory_unit',''),\n\t\t\t           NULLIF(product_unit_template.inventory_unit,''),\n\t\t\t           NULLIF(p_config.inventory_unit,'')",
+		"NULLIF(p.unit_rule_override_json->>'quote_unit',''),\n\t\t\t           NULLIF(product_unit_template.quote_unit,''),",
+		"NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),\n\t\t\t           NULLIF(p.unit_rule_override_json->>'conversion_json',''),\n\t\t\t           NULLIF(product_unit_template.unit_conversion_json::text,'{}'),\n\t\t           NULLIF(p_config.unit_conversion_json::text,'{}')",
+	} {
+		if !strings.Contains(loadProductInputsSrc, want) {
+			t.Fatalf("loadProductInputs must prefer product override and direct unit template before legacy config; missing %q", want)
+		}
+	}
+}
+
 func TestLoadProductInputsPricesDripFromFinishedProductComponentCost(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

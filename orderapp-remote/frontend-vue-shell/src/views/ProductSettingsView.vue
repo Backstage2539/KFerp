@@ -176,8 +176,17 @@
                 <option value="inactive">已失效</option>
               </select>
             </label>
-            <div class="filter-actions">
+            <div class="filter-actions sku-list-actions">
               <button class="primary compact-action" type="button" @click="openProductDrawer">创建新商品档案</button>
+              <select v-model.number="batchProductUnitTemplateID" class="compact-select" :disabled="!selectedProductIds.length || loading">
+                <option :value="0">选择单位模板</option>
+                <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
+                  {{ productUnitTemplateSummary(unitTemplate) }}
+                </option>
+              </select>
+              <button class="secondary compact-action" type="button" :disabled="!selectedProductIds.length || !batchProductUnitTemplateID || loading" @click="saveSelectedProductUnitTemplate">
+                设置单位模板
+              </button>
               <button class="secondary compact-action danger-outline" type="button" @click="deactivateProducts(selectedProductIds)" :disabled="!selectedProductIds.length || loading">
                 失效商品
               </button>
@@ -1166,6 +1175,21 @@
               <span>备注</span>
               <textarea v-model.trim="skuForm.remark" rows="2" placeholder="如 原料规格、包装说明或客户要求"></textarea>
             </label>
+            <label class="wide-field">
+              <span>单位模板</span>
+              <select v-model.number="skuForm.unit_template_id" @change="applySkuUnitTemplateDefaults(skuForm)">
+                <option :value="0">不引用单位模板</option>
+                <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
+                  {{ productUnitTemplateSummary(unitTemplate) }}
+                </option>
+              </select>
+              <small>有效库存单位：{{ productUnitTemplateInventoryLabel(skuForm.unit_template_id, skuForm.inventory_unit) }}；有效默认销售单位：{{ productUnitTemplateSalesLabel(skuForm.unit_template_id, skuForm.default_sales_unit) }}</small>
+            </label>
+            <label class="checkbox-row wide-field">
+              <input v-model="skuForm.unit_rule_override_enabled" type="checkbox" />
+              <span>高级单位覆盖</span>
+            </label>
+            <template v-if="skuForm.unit_rule_override_enabled || !skuForm.unit_template_id">
             <label>
               <span>库存单位</span>
               <select v-model="skuForm.inventory_unit">
@@ -1208,6 +1232,7 @@
               </div>
               <small v-if="!skuForm.unit_conversion_rows.length">例如 1 盒 = 0.2 kg；不需要换算时默认销售单位可与库存单位一致。</small>
             </div>
+            </template>
             <div class="form-actions">
               <button class="primary" type="submit" :disabled="skuSaving">创建新商品档案</button>
             </div>
@@ -1366,6 +1391,27 @@
                 <span>备注</span>
                 <textarea v-model.trim="productProductionConfigForm.remark" rows="2" placeholder="商品档案备注"></textarea>
               </label>
+              <label class="wide-field">
+                <span>单位模板</span>
+                <select v-model.number="productProductionConfigForm.unit_template_id" @change="applyProductConfigUnitTemplateDefaults(productProductionConfigForm)">
+                  <option :value="0">不引用单位模板</option>
+                  <option v-for="unitTemplate in activeProductUnitTemplates" :key="unitTemplate.id" :value="Number(unitTemplate.id || 0)">
+                    {{ productUnitTemplateSummary(unitTemplate) }}
+                  </option>
+                </select>
+                <small>有效库存单位：{{ productUnitTemplateInventoryLabel(productProductionConfigForm.unit_template_id, productProductionConfigForm.inventory_unit) }}；有效默认销售单位：{{ productUnitTemplateSalesLabel(productProductionConfigForm.unit_template_id, productProductionConfigForm.default_sales_unit) }}</small>
+              </label>
+              <div class="wide-field unit-override-toolbar">
+                <label class="checkbox-row">
+                  <input v-model="productProductionConfigForm.unit_rule_override_enabled" type="checkbox" />
+                  <span>高级单位覆盖</span>
+                </label>
+                <span v-if="productProductionConfigForm.unit_rule_override_enabled" class="status-pill warning">已覆盖模板单位</span>
+                <button class="secondary compact-action" type="button" :disabled="!productProductionConfigForm.unit_rule_override_enabled" @click="clearProductConfigUnitOverride">
+                  清除覆盖
+                </button>
+              </div>
+              <template v-if="productProductionConfigForm.unit_rule_override_enabled || !productProductionConfigForm.unit_template_id">
               <label>
                 <span>库存单位</span>
                 <select v-model="productProductionConfigForm.inventory_unit">
@@ -1408,6 +1454,7 @@
                 </div>
                 <small v-if="!productProductionConfigForm.unit_conversion_rows.length">例如 1 盒 = 0.2 kg；生产 BOM 和库存仍只使用库存单位。</small>
               </div>
+              </template>
             </div>
           </section>
 
@@ -1835,6 +1882,7 @@ const secondaryDeleteModeFor = ref(0)
 const selectedCustomerSkuCustomerID = ref(0)
 const selectedAliasCustomerID = ref(0)
 const selectedProductIds = ref([])
+const batchProductUnitTemplateID = ref(0)
 const selectedAliasIds = ref([])
 const selectedAliasBatchProductIds = ref([])
 const activeProductClassificationTab = ref('all')
@@ -2331,9 +2379,12 @@ function syncVisibleSkuTableState() {
 }
 
 function defaultSkuForm() {
+  const unitTemplateID = defaultProductUnitTemplateID()
   return {
     name: '',
     remark: '',
+    unit_template_id: unitTemplateID,
+    unit_rule_override_enabled: unitTemplateID <= 0,
     inventory_unit: 'kg',
     integer_inventory_unit: false,
     default_sales_unit: 'kg',
@@ -2444,12 +2495,15 @@ function toggleAllAliasRows(checked) {
 }
 
 function defaultProductForm() {
+  const unitTemplateID = defaultProductUnitTemplateID()
   return {
     name: '',
     product_type_category_id: 0,
     product_subtype_category_id: 0,
     product_kind: 'roasted',
     remark: '',
+    unit_template_id: unitTemplateID,
+    unit_rule_override_enabled: unitTemplateID <= 0,
     inventory_unit: 'kg',
     integer_inventory_unit: false,
     special_attr_values: {},
@@ -4390,6 +4444,15 @@ function canEditSkuRow(row) {
 
 function openProductDrawer() {
   ensureProductTypeCategorySelected(skuForm.value)
+  if (!Number(skuForm.value.unit_template_id || 0)) {
+    skuForm.value.unit_template_id = defaultProductUnitTemplateID()
+  }
+  if (Number(skuForm.value.unit_template_id || 0) > 0 && !skuForm.value.unit_rule_override_enabled) {
+    applyProductUnitTemplateToForm(skuForm.value)
+  } else if (Number(skuForm.value.unit_template_id || 0) > 0 && skuForm.value.unit_rule_override_enabled && !hasProductUnitRuleOverride(skuForm.value)) {
+    skuForm.value.unit_rule_override_enabled = false
+    applyProductUnitTemplateToForm(skuForm.value)
+  }
   productDrawerOpen.value = true
   productsCollapsed.value = false
 }
@@ -4592,6 +4655,32 @@ function findProductUnitTemplate(id) {
   return visibleProductUnitTemplates.value.find((template) => Number(template.id || 0) === templateID) || null
 }
 
+function hasProductUnitRuleOverride(form = {}) {
+  try {
+    const raw = form.unit_rule_override_json || form.unitRuleOverrideJSON || '{}'
+    const rule = typeof raw === 'object' && !Array.isArray(raw) ? raw : JSON.parse(String(raw || '{}'))
+    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) return false
+    return [
+      'inventory_unit',
+      'integer_inventory_unit',
+      'integer_unit',
+      'default_sales_unit',
+      'quote_unit',
+      'order_unit',
+      'unit_conversion_json',
+      'conversion_json',
+      'sales_unit_rules',
+    ].some((key) => Object.prototype.hasOwnProperty.call(rule, key))
+  } catch (_) {
+    return false
+  }
+}
+
+function defaultProductUnitTemplateID() {
+  const row = (productUnitTemplates.value || []).find((template) => template && template.active !== false && !template.deleted_at && !template.deleted)
+  return Number(row?.id || 0)
+}
+
 function findGradientTemplate(id) {
   const templateID = Number(id || 0)
   if (!templateID) return null
@@ -4632,6 +4721,65 @@ function productUnitTemplateSummary(idOrTemplate) {
   if (!template) return '未绑定单位模板'
   const salesUnit = template.sales_unit || template.quote_unit || template.order_unit || template.inventory_unit
   return `${template.name || '单位模板'} · 库存 ${productUnitName(template.inventory_unit)} · 销售 ${productUnitName(salesUnit)}${template.integer_unit ? ' · 整数' : ''}`
+}
+
+function productUnitTemplateInventoryLabel(idOrTemplate, fallback = 'kg') {
+  const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
+  return productUnitName(template?.inventory_unit || fallback || 'kg')
+}
+
+function productUnitTemplateSalesLabel(idOrTemplate, fallback = 'kg') {
+  const template = typeof idOrTemplate === 'object' ? idOrTemplate : findProductUnitTemplate(idOrTemplate)
+  const salesUnit = template?.sales_unit || template?.quote_unit || template?.order_unit || template?.inventory_unit || fallback || 'kg'
+  return productUnitName(salesUnit)
+}
+
+function productUnitTemplateConversionRows(template) {
+  if (!template) return []
+  const inventoryUnit = template.inventory_unit || 'kg'
+  const salesUnit = template.sales_unit || template.quote_unit || template.order_unit || inventoryUnit
+  const rows = unitConversionRowsFromJSON(template.unit_conversion_json || '{}', inventoryUnit)
+  if (rows.length) {
+    return rows.map((row) => ({
+      ...row,
+      integer_sales_unit: Boolean(template.integer_unit),
+    }))
+  }
+  return [{ from_qty: 1, from_unit: salesUnit, to_qty: 1, to_unit: inventoryUnit, integer_sales_unit: Boolean(template.integer_unit) }]
+}
+
+function applyProductUnitTemplateToForm(form) {
+  if (!form) return
+  const template = findProductUnitTemplate(form.unit_template_id)
+  if (!template) return
+  form.inventory_unit = template.inventory_unit || 'kg'
+  form.integer_inventory_unit = Boolean(template.integer_unit)
+  form.default_sales_unit = template.sales_unit || template.quote_unit || template.order_unit || template.inventory_unit || 'kg'
+  form.unit_conversion_rows = productUnitTemplateConversionRows(template)
+}
+
+function applySkuUnitTemplateDefaults(form) {
+  if (!form) return
+  if (!Number(form.unit_template_id || 0)) {
+    form.unit_rule_override_enabled = true
+    return
+  }
+  form.unit_rule_override_enabled = false
+  applyProductUnitTemplateToForm(form)
+}
+
+function applyProductConfigUnitTemplateDefaults(form) {
+  if (!form) return
+  if (!Number(form.unit_template_id || 0)) {
+    form.unit_rule_override_enabled = true
+    return
+  }
+  if (!form.unit_rule_override_enabled) applyProductUnitTemplateToForm(form)
+}
+
+function clearProductConfigUnitOverride() {
+  productProductionConfigForm.value.unit_rule_override_enabled = false
+  applyProductUnitTemplateToForm(productProductionConfigForm.value)
 }
 
 function productConfigUnitTemplateName(idOrTemplate) {
@@ -5187,6 +5335,9 @@ async function selectProductProductionConfigBom(bom) {
 async function openProductProductionConfig(row) {
   productProductionConfigProduct.value = row || null
   productProductionConfigForm.value = defaultProductProductionConfigForm(productProductionConfigByProductID(row?.id), row)
+  if (Number(productProductionConfigForm.value.unit_template_id || 0) > 0 && !productProductionConfigForm.value.unit_rule_override_enabled) {
+    applyProductUnitTemplateToForm(productProductionConfigForm.value)
+  }
   productProductionConfigDrawerOpen.value = true
   error.value = ''
 	try {
@@ -5415,6 +5566,45 @@ async function saveSelectedProductBusinessGroupAssignment() {
     await loadAll()
   } catch (err) {
     error.value = err.message || '移动商品分类失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function saveSelectedProductUnitTemplate() {
+  const unitTemplateID = Number(batchProductUnitTemplateID.value || 0)
+  if (!selectedProductIds.value.length) {
+    error.value = '请先勾选商品档案'
+    return
+  }
+  if (!unitTemplateID || !findProductUnitTemplate(unitTemplateID)) {
+    error.value = '请选择单位模板'
+    return
+  }
+  const selectedIDs = Array.from(new Set(selectedProductIds.value.map((id) => Number(id || 0)).filter(Boolean)))
+  loading.value = true
+  error.value = ''
+  ok.value = ''
+  try {
+    for (const productID of selectedIDs) {
+      const product = products.value.find((row) => Number(row.id || 0) === productID)
+      if (!product || !canEditSkuRow(product)) continue
+      await apiSend(`/api/products/${productID}`, {
+        method: 'PUT',
+        body: buildProductBasicsPayload({
+          ...product,
+          unit_template_id: unitTemplateID,
+          unit_rule_override_enabled: false,
+          unit_rule_override_json: product.unit_rule_override_json || '{}',
+        }),
+      })
+    }
+    ok.value = `已为 ${selectedIDs.length} 个商品设置单位模板`
+    selectedProductIds.value = []
+    batchProductUnitTemplateID.value = 0
+    await loadAll()
+  } catch (err) {
+    error.value = err.message || '设置单位模板失败'
   } finally {
     loading.value = false
   }

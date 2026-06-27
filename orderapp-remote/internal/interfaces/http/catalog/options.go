@@ -46,6 +46,12 @@ type ProductOption struct {
 	UnitRuleOverrideJSON        string              `json:"unit_rule_override_json"`
 	InventoryUnit               string              `json:"inventory_unit"`
 	IntegerInventoryUnit        bool                `json:"integer_inventory_unit"`
+	DefaultSalesUnit            string              `json:"default_sales_unit"`
+	UnitConversionJSON          string              `json:"unit_conversion_json"`
+	SalesUnitRulesJSON          string              `json:"sales_unit_rules"`
+	UnitTemplateID              int64               `json:"unit_template_id"`
+	UnitTemplateName            string              `json:"unit_template_name"`
+	UnitRuleSource              string              `json:"unit_rule_source"`
 	ProductConfigTemplateID     int64               `json:"product_config_template_id"`
 	BomItemCount                int                 `json:"bom_item_count"`
 	BomStatus                   string              `json:"bom_status"`

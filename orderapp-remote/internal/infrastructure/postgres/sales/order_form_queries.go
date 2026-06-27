@@ -331,12 +331,13 @@ func (r Repository) fetchOrderProducts(ctx context.Context) ([]salesapp.ProductO
 		COALESCE(subtype_cat.id, 0) AS product_subtype_category_id,
 		COALESCE(type_cat.name, '') AS product_type_name,
 		COALESCE(subtype_cat.name, '') AS product_subtype_name,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(subtype_cat.inventory_unit,''), NULLIF(type_cat.inventory_unit,''), 'kg') AS inventory_unit,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'quote_unit',''), NULLIF(subtype_cat.quote_unit,''), NULLIF(type_cat.quote_unit,''), 'kg') AS quote_unit,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'order_unit',''), NULLIF(subtype_cat.order_unit,''), NULLIF(type_cat.order_unit,''), 'kg') AS order_unit,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''), NULLIF(p.unit_rule_override_json->>'conversion_json',''), NULLIF(subtype_cat.unit_conversion_json::text,'{}'), NULLIF(type_cat.unit_conversion_json::text,'{}'), '{}') AS unit_conversion_json,
-		COALESCE(subtype_cat.integer_unit, type_cat.integer_unit, false) AS integer_unit
+		COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.inventory_unit,''), NULLIF(type_cat.inventory_unit,''), 'kg') AS inventory_unit,
+		COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'quote_unit',''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.quote_unit,''), NULLIF(type_cat.quote_unit,''), 'kg') AS quote_unit,
+		COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'order_unit',''), NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.order_unit,''), NULLIF(type_cat.order_unit,''), 'kg') AS order_unit,
+		COALESCE(NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''), NULLIF(p.unit_rule_override_json->>'conversion_json',''), NULLIF(product_direct_unit_template.unit_conversion_json::text,'{}'), NULLIF(subtype_cat.unit_conversion_json::text,'{}'), NULLIF(type_cat.unit_conversion_json::text,'{}'), '{}') AS unit_conversion_json,
+		COALESCE(product_direct_unit_template.integer_unit, subtype_cat.integer_unit, type_cat.integer_unit, false) AS integer_unit
 		FROM %[1]s.products p
+		LEFT JOIN %[1]s.product_unit_templates product_direct_unit_template ON product_direct_unit_template.id=COALESCE(p.unit_template_id,0) AND product_direct_unit_template.active=true AND product_direct_unit_template.deleted_at IS NULL
 		LEFT JOIN %[1]s.product_categories subtype_cat ON subtype_cat.id=p.product_category_id AND subtype_cat.active=true
 		LEFT JOIN %[1]s.product_categories type_cat ON type_cat.id=subtype_cat.parent_id AND type_cat.active=true
 		WHERE p.active=true ORDER BY p.name`, r.schema)
@@ -411,11 +412,11 @@ func (r Repository) fetchOrderCustomerAliasProducts(ctx context.Context) ([]sale
 		COALESCE(subtype_cat.id, 0) AS product_subtype_category_id,
 		COALESCE(type_cat.name, '') AS product_type_name,
 		COALESCE(subtype_cat.name, '') AS product_subtype_name,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(subtype_cat.inventory_unit,''), NULLIF(type_cat.inventory_unit,''), 'kg') AS inventory_unit,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'quote_unit',''), NULLIF(subtype_cat.quote_unit,''), NULLIF(type_cat.quote_unit,''), 'kg') AS quote_unit,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'order_unit',''), NULLIF(subtype_cat.order_unit,''), NULLIF(type_cat.order_unit,''), 'kg') AS order_unit,
-		COALESCE(NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''), NULLIF(p.unit_rule_override_json->>'conversion_json',''), NULLIF(subtype_cat.unit_conversion_json::text,'{}'), NULLIF(type_cat.unit_conversion_json::text,'{}'), '{}') AS unit_conversion_json,
-		COALESCE(subtype_cat.integer_unit, type_cat.integer_unit, false) AS integer_unit,
+		COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.inventory_unit,''), NULLIF(type_cat.inventory_unit,''), 'kg') AS inventory_unit,
+		COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'quote_unit',''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.quote_unit,''), NULLIF(type_cat.quote_unit,''), 'kg') AS quote_unit,
+		COALESCE(NULLIF(p.unit_rule_override_json->>'default_sales_unit',''), NULLIF(p.unit_rule_override_json->>'order_unit',''), NULLIF(product_direct_unit_template.order_unit,''), NULLIF(product_direct_unit_template.quote_unit,''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(subtype_cat.order_unit,''), NULLIF(type_cat.order_unit,''), 'kg') AS order_unit,
+		COALESCE(NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''), NULLIF(p.unit_rule_override_json->>'conversion_json',''), NULLIF(product_direct_unit_template.unit_conversion_json::text,'{}'), NULLIF(subtype_cat.unit_conversion_json::text,'{}'), NULLIF(type_cat.unit_conversion_json::text,'{}'), '{}') AS unit_conversion_json,
+		COALESCE(product_direct_unit_template.integer_unit, subtype_cat.integer_unit, type_cat.integer_unit, false) AS integer_unit,
 		a.id,
 		COALESCE(NULLIF(a.display_name,''), p.name, ''),
 		COALESCE(a.customer_item_code,''),
@@ -424,6 +425,7 @@ func (r Repository) fetchOrderCustomerAliasProducts(ctx context.Context) ([]sale
 		COALESCE(a.display_category_id,0)
 		FROM %[1]s.customer_product_aliases a
 		JOIN %[1]s.products p ON p.id=a.product_id AND p.active=true
+		LEFT JOIN %[1]s.product_unit_templates product_direct_unit_template ON product_direct_unit_template.id=COALESCE(p.unit_template_id,0) AND product_direct_unit_template.active=true AND product_direct_unit_template.deleted_at IS NULL
 		LEFT JOIN %[1]s.product_categories subtype_cat ON subtype_cat.id=p.product_category_id AND subtype_cat.active=true
 		LEFT JOIN %[1]s.product_categories type_cat ON type_cat.id=subtype_cat.parent_id AND type_cat.active=true
 		WHERE a.active=true

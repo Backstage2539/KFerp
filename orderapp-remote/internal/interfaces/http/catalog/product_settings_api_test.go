@@ -193,6 +193,7 @@ func (r *productSettingsRepo) UpdateProductBasics(ctx context.Context, cmd catal
 			r.products[i].MarginRateOverride = cmd.MarginRateOverride
 			r.products[i].GradientTemplateIDOverride = cmd.GradientTemplateIDOverride
 			r.products[i].OperationTemplateIDOverride = cmd.OperationTemplateIDOverride
+			r.products[i].UnitTemplateID = cmd.UnitTemplateID
 			r.products[i].UnitRuleOverrideJSON = cmd.UnitRuleOverrideJSON
 		}
 	}
@@ -226,6 +227,8 @@ func (r *productSettingsRepo) CreateProduct(ctx context.Context, cmd catalogapp.
 		SalesUnits:            cmd.SalesUnits,
 		DefaultPrice:          cmd.DefaultPrice,
 		YieldRate:             cmd.YieldRate,
+		UnitTemplateID:        cmd.UnitTemplateID,
+		UnitRuleOverrideJSON:  cmd.UnitRuleOverrideJSON,
 		Visibility:            "public",
 		BomItemCount:          0,
 		CustomerID:            0,
@@ -258,13 +261,15 @@ func (r *productSettingsRepo) CreateSKU(ctx context.Context, cmd catalogapp.Crea
 		visibility = "customer_only"
 	}
 	return catalogapp.Product{
-		ID:                912,
-		Name:              cmd.Name,
-		Remark:            cmd.Remark,
-		CustomerID:        cmd.CustomerID,
-		ProductCategoryID: cmd.ProductSubtypeCategoryID,
-		SpecialAttrsJSON:  cmd.SpecialAttrsJSON,
-		Visibility:        visibility,
+		ID:                   912,
+		Name:                 cmd.Name,
+		Remark:               cmd.Remark,
+		CustomerID:           cmd.CustomerID,
+		ProductCategoryID:    cmd.ProductSubtypeCategoryID,
+		SpecialAttrsJSON:     cmd.SpecialAttrsJSON,
+		UnitTemplateID:       cmd.UnitTemplateID,
+		UnitRuleOverrideJSON: cmd.UnitRuleOverrideJSON,
+		Visibility:           visibility,
 	}, nil
 }
 
@@ -1686,6 +1691,96 @@ func TestProductInventoryUnitAPIContract(t *testing.T) {
 	}
 	if salesRules, ok := createdRule["sales_unit_rules"].(map[string]any); !ok || salesRules["袋"].(map[string]any)["integer"] != true {
 		t.Fatalf("created sales unit rules = %#v", createdRule["sales_unit_rules"])
+	}
+}
+
+func TestProductUnitTemplateReferenceAPIContract(t *testing.T) {
+	repo := &productSettingsRepo{
+		products: []catalogapp.Product{{
+			ID:                   101,
+			Name:                 "模板咖啡豆",
+			ProductKind:          "roasted",
+			UnitTemplateID:       7,
+			UnitTemplateName:     "咖啡豆单位",
+			InventoryUnit:        "kg",
+			IntegerInventoryUnit: false,
+			DefaultSalesUnit:     "袋",
+			UnitConversionJSON:   `{"袋":{"kg":0.25}}`,
+			SalesUnitRulesJSON:   `{"袋":{"integer":true}}`,
+			UnitRuleOverrideJSON: `{"legacy_key":"keep"}`,
+			UnitRuleSource:       "product_unit_template",
+			Active:               true,
+		}},
+		productUnitTemplates: []catalogapp.ProductUnitTemplate{{
+			ID:                 7,
+			Name:               "咖啡豆单位",
+			InventoryUnit:      "kg",
+			SalesUnit:          "袋",
+			QuoteUnit:          "袋",
+			OrderUnit:          "袋",
+			UnitConversionJSON: `{"袋":{"kg":0.25}}`,
+			IntegerUnit:        true,
+			Active:             true,
+		}},
+	}
+	e := echo.New()
+	registerProductRoutes(e, catalogapp.NewService(repo))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/product-settings", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET product settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{
+		`"unit_template_id":7`,
+		`"unit_template_name":"咖啡豆单位"`,
+		`"unit_rule_source":"product_unit_template"`,
+		`"inventory_unit":"kg"`,
+		`"default_sales_unit":"袋"`,
+		`"unit_conversion_json":"{\"袋\":{\"kg\":0.25}}"`,
+	} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("product settings response missing unit-template field %s: %s", want, rec.Body.String())
+		}
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/products/101", bytes.NewBufferString(`{
+		"name":"模板咖啡豆",
+		"product_kind":"roasted",
+		"yield_rate":0.8,
+		"unit_template_id":7
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT product unit template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.updated.UnitTemplateID != 7 {
+		t.Fatalf("PUT product should pass unit_template_id to service command, got %d", repo.updated.UnitTemplateID)
+	}
+	if repo.updated.UnitRuleOverrideJSON != `{"legacy_key":"keep"}` {
+		t.Fatalf("PUT product should keep existing product override json when only template changes, got %s", repo.updated.UnitRuleOverrideJSON)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(`{
+		"name":"新模板商品",
+		"product_kind":"roasted",
+		"yield_rate":0.8,
+		"unit_template_id":7
+	}`))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST product unit template status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.createdPublic.UnitTemplateID != 7 {
+		t.Fatalf("POST product should pass unit_template_id to service command, got %d", repo.createdPublic.UnitTemplateID)
+	}
+	if repo.createdPublic.UnitRuleOverrideJSON != "{}" {
+		t.Fatalf("POST product with template but no advanced override should not write effective units as product override, got %s", repo.createdPublic.UnitRuleOverrideJSON)
 	}
 }
 

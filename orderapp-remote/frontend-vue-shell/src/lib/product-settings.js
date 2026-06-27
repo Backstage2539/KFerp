@@ -1713,13 +1713,18 @@ export function buildProductCreatePayload(form = {}) {
 		product_kind: kind,
 		remark: String(form.remark || '').trim(),
 	}
-	if (Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
+	const unitTemplateID = normalizedProductUnitTemplateID(form)
+	const shouldSaveUnitOverride = productUnitOverrideShouldSave(form)
+	if (Object.prototype.hasOwnProperty.call(form, 'unit_template_id')) {
+		payload.unit_template_id = unitTemplateID
+	}
+	if (shouldSaveUnitOverride && Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
 		payload.inventory_unit = String(form.inventory_unit || 'kg').trim() || 'kg'
 	}
-	if (Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
+	if (shouldSaveUnitOverride && Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
 		payload.integer_inventory_unit = Boolean(form.integer_inventory_unit)
 	}
-  appendProductSalesUnitPayload(payload, form)
+  if (shouldSaveUnitOverride) appendProductSalesUnitPayload(payload, form)
 	if (kind === 'green_bean') return payload
 	const yieldRate = normalizedYieldRateFromPercent(form)
 	if (yieldRate !== null) payload.yield_rate = yieldRate
@@ -1765,13 +1770,18 @@ export function buildSkuCreatePayload(customerID, form = {}) {
 		remark: String(form.remark || '').trim(),
 		active: form.active === false ? false : true,
 	}
-	if (Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
+	const unitTemplateID = normalizedProductUnitTemplateID(form)
+	const shouldSaveUnitOverride = productUnitOverrideShouldSave(form)
+	if (Object.prototype.hasOwnProperty.call(form, 'unit_template_id')) {
+		payload.unit_template_id = unitTemplateID
+	}
+	if (shouldSaveUnitOverride && Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
 		payload.inventory_unit = String(form.inventory_unit || 'kg').trim() || 'kg'
 	}
-	if (Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
+	if (shouldSaveUnitOverride && Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
 		payload.integer_inventory_unit = Boolean(form.integer_inventory_unit)
 	}
-  appendProductSalesUnitPayload(payload, form)
+  if (shouldSaveUnitOverride) appendProductSalesUnitPayload(payload, form)
 	return payload
 }
 
@@ -1828,6 +1838,7 @@ export function buildProductProductionConfigForm(config = {}, product = {}) {
   const ruleOverride = parseJSONObject(sourceProduct.unit_rule_override_json || sourceProduct.unitRuleOverrideJSON)
   const salesUnitRules = parseJSONObject(sourceProduct.sales_unit_rules || sourceProduct.salesUnitRules || ruleOverride.sales_unit_rules || {})
   const inventoryUnit = String(sourceProduct.inventory_unit || 'kg').trim() || 'kg'
+  const unitTemplateID = Number(sourceProduct.unit_template_id || sourceProduct.unitTemplateID || 0)
   const unitConversionRows = unitConversionRowsFromJSON(sourceProduct.unit_conversion_json || sourceProduct.unitConversionJSON || ruleOverride.unit_conversion_json || ruleOverride.conversion_json || '{}', inventoryUnit)
     .map((row) => ({
       ...row,
@@ -1838,6 +1849,10 @@ export function buildProductProductionConfigForm(config = {}, product = {}) {
     name: String(sourceProduct.name || '').trim(),
     remark: String(sourceProduct.remark || '').trim(),
     product_kind: sourceProduct.product_kind || 'roasted',
+    unit_template_id: unitTemplateID,
+    unit_template_name: String(sourceProduct.unit_template_name || sourceProduct.unitTemplateName || '').trim(),
+    unit_rule_source: String(sourceProduct.unit_rule_source || sourceProduct.unitRuleSource || '').trim(),
+    unit_rule_override_enabled: hasExplicitProductUnitRuleOverride(sourceProduct) || String(sourceProduct.unit_rule_source || sourceProduct.unitRuleSource || '') === 'product_override',
     inventory_unit: inventoryUnit,
     integer_inventory_unit: Boolean(sourceProduct.integer_inventory_unit || sourceProduct.integer_unit || sourceProduct.stock_integer_unit),
     default_sales_unit: String(sourceProduct.default_sales_unit || sourceProduct.defaultSalesUnit || sourceProduct.quote_unit || sourceProduct.order_unit || sourceProduct.inventory_unit || 'kg').trim() || 'kg',
@@ -1863,17 +1878,24 @@ export function buildProductBasicsPayload(row = {}) {
     product_kind: kind,
     remark: String(row.remark || '').trim(),
   }
+  const unitTemplateID = normalizedProductUnitTemplateID(row)
+  const shouldSaveUnitOverride = productUnitOverrideShouldSave(row)
 	const name = String(row.name || '').trim()
 	if (name) payload.name = name
-	if (Object.prototype.hasOwnProperty.call(row, 'inventory_unit')) {
+	if (Object.prototype.hasOwnProperty.call(row, 'unit_template_id')) {
+		payload.unit_template_id = unitTemplateID
+	}
+	if (shouldSaveUnitOverride && Object.prototype.hasOwnProperty.call(row, 'inventory_unit')) {
 		payload.inventory_unit = String(row.inventory_unit || 'kg').trim() || 'kg'
 	}
-	if (Object.prototype.hasOwnProperty.call(row, 'integer_inventory_unit')) {
+	if (shouldSaveUnitOverride && Object.prototype.hasOwnProperty.call(row, 'integer_inventory_unit')) {
 		payload.integer_inventory_unit = Boolean(row.integer_inventory_unit)
 	}
-  appendProductSalesUnitPayload(payload, row)
+  if (shouldSaveUnitOverride) appendProductSalesUnitPayload(payload, row)
 	if (Object.prototype.hasOwnProperty.call(row, 'unit_rule_override_json')) {
-		payload.unit_rule_override_json = String(row.unit_rule_override_json || '{}').trim() || '{}'
+		payload.unit_rule_override_json = shouldSaveUnitOverride
+      ? String(row.unit_rule_override_json || '{}').trim() || '{}'
+      : stripProductUnitRuleOverrideJSON(row.unit_rule_override_json)
 	}
 	if (kind !== 'green_bean') {
 		const yieldRate = normalizedYieldRateFromPercent(row)
@@ -1889,10 +1911,13 @@ export function buildProductProductionConfigBasicsPayload(originalProduct = {}, 
     product_kind: sourceProduct.product_kind || sourceForm.product_kind || 'roasted',
     name: sourceForm.name,
     remark: sourceForm.remark,
+    unit_template_id: Number(sourceForm.unit_template_id || 0),
+    unit_rule_override_enabled: Boolean(sourceForm.unit_rule_override_enabled),
+    unit_rule_override_json: sourceProduct.unit_rule_override_json || sourceProduct.unitRuleOverrideJSON || '{}',
     inventory_unit: sourceForm.inventory_unit,
     integer_inventory_unit: Boolean(sourceForm.integer_inventory_unit),
   }
-  if (productProductionConfigSalesUnitOverrideShouldSave(sourceProduct, sourceForm)) {
+  if (productUnitOverrideShouldSave(payloadSource) && productProductionConfigSalesUnitOverrideShouldSave(sourceProduct, sourceForm)) {
     payloadSource.default_sales_unit = sourceForm.default_sales_unit
     payloadSource.unit_conversion_rows = sourceForm.unit_conversion_rows
     payloadSource.sales_unit_rules = sourceForm.sales_unit_rules
@@ -1901,7 +1926,9 @@ export function buildProductProductionConfigBasicsPayload(originalProduct = {}, 
 }
 
 function productProductionConfigSalesUnitOverrideShouldSave(product = {}, form = {}) {
+  if (Number(form.unit_template_id || 0) > 0 && form.unit_rule_override_enabled === false) return false
   if (hasExplicitProductSalesUnitOverride(product)) return true
+  if (form.unit_rule_override_enabled === true) return true
   const initial = buildProductProductionConfigForm({}, product)
   return normalizeUnitText(form.default_sales_unit, initial.default_sales_unit || initial.inventory_unit)
     !== normalizeUnitText(initial.default_sales_unit, initial.inventory_unit)
@@ -1921,6 +1948,42 @@ function hasExplicitProductSalesUnitOverride(product = {}) {
     'conversion_json',
     'sales_unit_rules',
   ].some((key) => Object.prototype.hasOwnProperty.call(rule, key))
+}
+
+function hasExplicitProductUnitRuleOverride(product = {}) {
+  const rule = parseJSONObject(product.unit_rule_override_json ?? product.unitRuleOverrideJSON)
+  return productUnitRuleOverrideKeys.some((key) => Object.prototype.hasOwnProperty.call(rule, key))
+}
+
+const productUnitRuleOverrideKeys = [
+  'inventory_unit',
+  'integer_inventory_unit',
+  'integer_unit',
+  'default_sales_unit',
+  'quote_unit',
+  'order_unit',
+  'unit_conversion_json',
+  'conversion_json',
+  'sales_unit_rules',
+]
+
+function normalizedProductUnitTemplateID(form = {}) {
+  return Number(form.unit_template_id || form.unitTemplateID || 0)
+}
+
+function productUnitOverrideShouldSave(form = {}) {
+  const unitTemplateID = normalizedProductUnitTemplateID(form)
+  if (unitTemplateID <= 0) return true
+  if (Object.prototype.hasOwnProperty.call(form, 'unit_rule_override_enabled')) {
+    return Boolean(form.unit_rule_override_enabled)
+  }
+  return false
+}
+
+function stripProductUnitRuleOverrideJSON(raw = '{}') {
+  const rule = { ...parseJSONObject(raw) }
+  for (const key of productUnitRuleOverrideKeys) delete rule[key]
+  return stableJSONObjectText(rule)
 }
 
 function appendProductSalesUnitPayload(payload, form = {}) {

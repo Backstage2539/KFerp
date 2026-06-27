@@ -114,6 +114,52 @@ func TestProductSubtypeConfigAndUnitRulesPersistOnCategories(t *testing.T) {
 	}
 }
 
+func TestProductsReferenceUnitTemplatesAsPrimaryUOMMasterData(t *testing.T) {
+	schemaBytes, err := os.ReadFile("schema.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repositoryBytes, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queryBytes, err := os.ReadFile("../catalog_queries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := string(schemaBytes)
+	repository := string(repositoryBytes)
+	queries := string(queryBytes)
+	for _, want := range []string{
+		"ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS unit_template_id BIGINT NOT NULL DEFAULT 0",
+	} {
+		if !strings.Contains(schema, want) {
+			t.Fatalf("products must directly reference product_unit_templates; schema missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"product_direct_unit_template",
+		"COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''",
+		"COALESCE(p.unit_template_id,0)",
+		"AS unit_rule_source",
+	} {
+		if !strings.Contains(queries, want) {
+			t.Fatalf("catalog product query must expose direct unit-template effective UOM; missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"unit_template_id=$18",
+		`"old_unit_template_id"`,
+		`"new_unit_template_id"`,
+		`"unit_template_id":`,
+		`cmd.UnitTemplateID`,
+	} {
+		if !strings.Contains(repository, want) {
+			t.Fatalf("product create/update must persist and audit direct unit template references; missing %q", want)
+		}
+	}
+}
+
 func TestProductCategoriesSchemaBackfillsActiveForLegacyTables(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {
@@ -777,6 +823,8 @@ func TestCopyProductArchiveCopiesOnlyMasterDataNotPriceOrBomTemplates(t *testing
 		"nextProductArchiveCopyNameTx",
 		"product_production_config_fields",
 		"copy_product_archive",
+		"unit_template_id",
+		"unit_rule_override_json",
 	} {
 		if !strings.Contains(fn, want) {
 			t.Fatalf("CopyProduct must copy master data and industry fields; missing %q", want)
@@ -791,7 +839,6 @@ func TestCopyProductArchiveCopiesOnlyMasterDataNotPriceOrBomTemplates(t *testing
 		"margin_rate_override",
 		"gradient_template_id_override",
 		"operation_template_id_override",
-		"unit_rule_override_json",
 	} {
 		if strings.Contains(fn, forbidden) {
 			t.Fatalf("CopyProduct must not copy legacy template, price, or BOM state; found %q", forbidden)

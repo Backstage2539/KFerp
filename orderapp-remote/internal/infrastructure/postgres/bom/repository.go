@@ -120,8 +120,8 @@ func (r Repository) Detail(ctx context.Context, productID int64) (bomapp.Detail,
 
 func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT p.id, ('SKU-' || lpad(p.id::text,6,'0')), p.name, COALESCE(p.customer_id,0),
-		COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_config.inventory_unit,''), NULLIF(category_config.inventory_unit,''), NULLIF(product_unit_template.inventory_unit,''), NULLIF(category_unit_template.inventory_unit,''), 'kg') AS inventory_unit,
-		NULLIF(p.unit_rule_override_json->>'inventory_unit','') IS NOT NULL AS inventory_unit_explicit,
+		COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,''), NULLIF(product_config.inventory_unit,''), NULLIF(category_config.inventory_unit,''), NULLIF(product_unit_template.inventory_unit,''), NULLIF(category_unit_template.inventory_unit,''), 'kg') AS inventory_unit,
+		COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,'')) IS NOT NULL AS inventory_unit_explicit,
 		COALESCE(p.roast_level,''), COALESCE(NULLIF(p.product_kind,''),'roasted_bean'), COALESCE(p.drip_bag_grams,10)::float8, COALESCE(p.drip_box_bag_count,10),
 		COALESCE((
 			SELECT COUNT(*)
@@ -130,6 +130,7 @@ func (r Repository) Products(ctx context.Context) ([]bomapp.Option, error) {
 			WHERE oi.product_id=p.id AND COALESCE(o.is_void,false)=false
 		),0) AS order_usage_count
 		FROM %[1]s.products p
+		LEFT JOIN %[1]s.product_unit_templates product_direct_unit_template ON product_direct_unit_template.id=COALESCE(p.unit_template_id,0) AND product_direct_unit_template.active=true AND product_direct_unit_template.deleted_at IS NULL
 		LEFT JOIN %[1]s.product_config_templates product_config ON product_config.id=COALESCE(p.product_config_template_id,0) AND product_config.deleted_at IS NULL
 		LEFT JOIN %[1]s.product_unit_templates product_unit_template ON product_unit_template.id=COALESCE(product_config.unit_template_id,0) AND product_unit_template.deleted_at IS NULL
 		LEFT JOIN %[1]s.product_categories category_config ON category_config.id=COALESCE(p.product_category_id,0)

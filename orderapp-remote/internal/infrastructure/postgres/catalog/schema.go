@@ -34,6 +34,7 @@ ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS gradient_template_id_overrid
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS operation_template_id_override BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS unit_rule_override_json JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS product_config_template_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS unit_template_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE %[1]s.products ADD COLUMN IF NOT EXISTS classification_template_id BIGINT NOT NULL DEFAULT 0;
 UPDATE %[1]s.products SET visibility='public' WHERE COALESCE(visibility,'')='';
 UPDATE %[1]s.products SET product_kind='roasted_bean' WHERE COALESCE(product_kind,'')='';
@@ -57,6 +58,7 @@ CREATE INDEX IF NOT EXISTS products_customer_visibility_idx ON %[1]s.products(cu
 CREATE INDEX IF NOT EXISTS products_base_product_idx ON %[1]s.products(base_product_id);
 CREATE INDEX IF NOT EXISTS products_kind_active_idx ON %[1]s.products(product_kind, active);
 CREATE INDEX IF NOT EXISTS products_classification_template_idx ON %[1]s.products(classification_template_id, active);
+CREATE INDEX IF NOT EXISTS products_unit_template_idx ON %[1]s.products(unit_template_id, active);
 CREATE TABLE IF NOT EXISTS %[1]s.product_categories (
 	id BIGSERIAL PRIMARY KEY,
 	parent_id BIGINT,

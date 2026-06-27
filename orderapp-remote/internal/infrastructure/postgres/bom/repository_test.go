@@ -64,6 +64,27 @@ func TestBomRepositoryExposesOrderUsageForCustomerSkuSorting(t *testing.T) {
 	}
 }
 
+func TestBomRepositoryProductsUseDirectProductUnitTemplateBeforeLegacyFallbacks(t *testing.T) {
+	src := readRepositorySource(t)
+	for _, want := range []string{
+		"product_direct_unit_template",
+		"product_direct_unit_template.id=COALESCE(p.unit_template_id,0)",
+		"NULLIF(product_direct_unit_template.inventory_unit,'')",
+		"COALESCE(NULLIF(p.unit_rule_override_json->>'inventory_unit',''), NULLIF(product_direct_unit_template.inventory_unit,'')) IS NOT NULL AS inventory_unit_explicit",
+		"NULLIF(product_config.inventory_unit,'')",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("BOM products must resolve inventory unit from direct product unit template before legacy fallbacks; missing %q", want)
+		}
+	}
+	overrideIdx := strings.Index(src, "NULLIF(p.unit_rule_override_json->>'inventory_unit','')")
+	directTemplateIdx := strings.Index(src, "NULLIF(product_direct_unit_template.inventory_unit,'')")
+	legacyConfigIdx := strings.Index(src, "NULLIF(product_config.inventory_unit,'')")
+	if overrideIdx < 0 || directTemplateIdx < 0 || legacyConfigIdx < 0 || !(overrideIdx < directTemplateIdx && directTemplateIdx < legacyConfigIdx) {
+		t.Fatalf("BOM product inventory unit priority must be product override -> direct unit template -> legacy config")
+	}
+}
+
 func TestBomRepositoryPersistsSourceMetadataAndDeriveAudit(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {

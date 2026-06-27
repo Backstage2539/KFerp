@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-502-PRODUCT-UNIT-TEMPLATE-REFERENCE
+- Branch: codex/product-unit-template-reference-20260627
+- Owner/session: Codex / 2026-06-27
+- Status: release-local verified; targeted backend/API and frontend tests, frontend build, changed verifier and diff check passed; merge and development deployment pending.
+- Scope: 单位模板成为普通商品 UOM 主数据模板；商品档案通过 `products.unit_template_id` 引用单位模板，商品级高级覆盖继续写入 `products.unit_rule_override_json`；价格层只选择和固化价格单位，不定义单位换算；BOM 和生产链路只读取商品有效库存单位。
+- DEV:
+  - DEV-502-PRODUCT-UNIT-TEMPLATE-MASTER：商品新增/配置抽屉优先选择单位模板，显示有效库存单位/默认销售单位；商品列表支持批量 `设置单位模板`；高级单位覆盖可覆盖或清除并保留其他历史键。
+  - DEV-502-EFFECTIVE-UOM-RESOLUTION：`/api/product-settings` 返回 `unit_template_id/unit_template_name/unit_rule_source` 和有效单位字段；catalog/costing/sales/BOM 查询优先按商品覆盖、商品直接单位模板、历史兼容链路、默认 `kg` 解析。
+  - DEV-502-PRICE-BOM-BOUNDARY：价格模板/阶梯价模板不定义单位换算；商品价格表发布按 `product_id + price_unit` 重新读取商品有效单位规则并固化快照；BOM 产出单位读取商品有效库存单位。
+- Verifier:
+  - RED evidence captured for catalog read/API contract, costing UOM resolver, sales order form UOM fields, BOM product candidate UOM source, and product-settings UI/payload.
+  - GREEN backend/API: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/application/sales ./internal/interfaces/http/sales ./internal/infrastructure/postgres/sales ./internal/application/production ./internal/interfaces/http/production -count=1`.
+  - GREEN frontend: `node --test src/lib/product-settings.test.js src/lib/costing-price-list-workflow.test.js src/lib/order-entry.test.js src/lib/produce-plan.test.js`.
+  - GREEN build/verifier: `npm ci`; `npm run build` passed with existing large-chunk warning; `scripts/verify_kferp.sh changed`; `git diff --check`.
+  - Review: `codex review --uncommitted` found two P2; fixed default-template create drawer override reset and costing product-input unit priority, then reran targeted Go/Node/build/verifier/diff check.
+  - Pending: merge/deploy smoke.
+- Manual/docs: updated `orderapp-remote/docs/REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, inventory/costing/order/production manuals, root requirement summaries, and `orderapp-remote/docs/acceptance/2026-06-27-product-unit-template-reference.md`.
+- Deployment: pending merge to develop and serialized development deployment.
+- Last update: 2026-06-27 Asia/Shanghai.
+
 ### PR-501-PRODUCT-UOM-SALES-CONVERSION
 - Branch: codex/product-uom-sales-conversion-20260627
 - Owner/session: Codex / 2026-06-27

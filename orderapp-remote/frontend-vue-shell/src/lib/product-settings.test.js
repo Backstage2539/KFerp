@@ -1435,6 +1435,92 @@ test('product create and basics payload carry inventory unit master data', () =>
   })
 })
 
+test('product create and basics payload use unit template as primary UOM unless advanced override is enabled', () => {
+  assert.deepEqual(buildProductCreatePayload({
+    name: ' 模板咖啡豆 ',
+    product_kind: 'roasted',
+    remark: ' 引用咖啡豆单位模板 ',
+    yield_percent: 80,
+    unit_template_id: '7',
+    inventory_unit: 'kg',
+    integer_inventory_unit: false,
+    default_sales_unit: '袋',
+    unit_conversion_rows: [{ from_qty: 1, from_unit: '袋', to_qty: 0.25, to_unit: 'kg', integer_sales_unit: true }],
+    unit_rule_override_enabled: false,
+  }), {
+    name: '模板咖啡豆',
+    product_kind: 'roasted',
+    remark: '引用咖啡豆单位模板',
+    unit_template_id: 7,
+    yield_rate: 0.8,
+  })
+
+  assert.deepEqual(buildProductCreatePayload({
+    name: ' 例外盒装 ',
+    product_kind: 'roasted',
+    remark: ' 覆盖模板 ',
+    yield_percent: 80,
+    unit_template_id: '7',
+    inventory_unit: ' 盒 ',
+    integer_inventory_unit: true,
+    default_sales_unit: ' 箱 ',
+    unit_conversion_rows: [{ from_qty: 1, from_unit: '箱', to_qty: 12, to_unit: '盒', integer_sales_unit: true }],
+    unit_rule_override_enabled: true,
+  }), {
+    name: '例外盒装',
+    product_kind: 'roasted',
+    remark: '覆盖模板',
+    unit_template_id: 7,
+    inventory_unit: '盒',
+    integer_inventory_unit: true,
+    default_sales_unit: '箱',
+    unit_conversion_json: { 箱: { 盒: 12 } },
+    sales_unit_rules: { 箱: { integer_unit: true } },
+    yield_rate: 0.8,
+  })
+
+  const inheritedPayload = buildProductBasicsPayload({
+    name: ' 模板咖啡豆 ',
+    product_kind: 'roasted',
+    remark: ' 引用模板 ',
+    yield_percent: 80,
+    unit_template_id: '7',
+    inventory_unit: 'kg',
+    integer_inventory_unit: false,
+    default_sales_unit: '袋',
+    unit_conversion_rows: [{ from_qty: 1, from_unit: '袋', to_qty: 0.25, to_unit: 'kg', integer_sales_unit: true }],
+    unit_rule_override_enabled: false,
+    unit_rule_override_json: '{"legacy_key":"keep"}',
+  })
+  assert.equal(inheritedPayload.unit_template_id, 7)
+  assert.equal(inheritedPayload.unit_rule_override_json, '{"legacy_key":"keep"}')
+  assert.equal(Object.hasOwn(inheritedPayload, 'inventory_unit'), false)
+  assert.equal(Object.hasOwn(inheritedPayload, 'default_sales_unit'), false)
+  assert.equal(Object.hasOwn(inheritedPayload, 'unit_conversion_json'), false)
+  assert.equal(Object.hasOwn(inheritedPayload, 'sales_unit_rules'), false)
+
+  const overridePayload = buildProductBasicsPayload({
+    name: ' 例外盒装 ',
+    product_kind: 'roasted',
+    remark: ' 覆盖模板 ',
+    yield_percent: 80,
+    unit_template_id: '7',
+    inventory_unit: ' 盒 ',
+    integer_inventory_unit: true,
+    default_sales_unit: ' 箱 ',
+    unit_conversion_rows: [{ from_qty: 1, from_unit: '箱', to_qty: 12, to_unit: '盒', integer_sales_unit: true }],
+    unit_rule_override_enabled: true,
+    unit_rule_override_json: '{"legacy_key":"keep"}',
+  })
+  assert.equal(overridePayload.unit_template_id, 7)
+  assert.equal(overridePayload.inventory_unit, '盒')
+  assert.equal(overridePayload.integer_inventory_unit, true)
+  assert.equal(overridePayload.default_sales_unit, '箱')
+  assert.deepEqual(overridePayload.unit_conversion_json, { 箱: { 盒: 12 } })
+  assert.deepEqual(overridePayload.sales_unit_rules, { 箱: { integer_unit: true } })
+  assert.equal(overridePayload.unit_rule_override_json, '{"legacy_key":"keep"}')
+})
+
 test('product production config save does not turn inherited sales units into product overrides', () => {
   const inheritedProduct = {
     id: 88,
@@ -1508,6 +1594,41 @@ test('product inventory and sales unit controls are in create and product config
   ]) {
     assert.match(baseSection, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+})
+
+test('product unit template controls are primary and product unit overrides are advanced in product drawers', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const createForm = source.match(/<form class="sku-create-form product-create-form product-drawer-form"[\s\S]*?<\/form>/)?.[0] || ''
+  const configDrawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
+  const productListToolbar = source.match(/<div class="sku-list-actions"[\s\S]*?<\/div>/)?.[0] || source
+
+  for (const marker of [
+    '单位模板',
+    'skuForm.unit_template_id',
+    '有效库存单位',
+    '有效默认销售单位',
+    '高级单位覆盖',
+    'skuForm.unit_rule_override_enabled',
+  ]) {
+    assert.match(createForm, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+
+  for (const marker of [
+    '单位模板',
+    'productProductionConfigForm.unit_template_id',
+    '有效库存单位',
+    '有效默认销售单位',
+    '已覆盖模板单位',
+    '高级单位覆盖',
+    '清除覆盖',
+    'productProductionConfigForm.unit_rule_override_enabled',
+  ]) {
+    assert.match(configDrawer, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+
+  assert.match(productListToolbar, /设置单位模板/)
+  assert.match(source, /skuForm\.value\.unit_rule_override_enabled = false/)
+  assert.match(source, /function hasProductUnitRuleOverride/)
 })
 
 test('customer product rule payloads carry template items, overrides, and bindings', () => {

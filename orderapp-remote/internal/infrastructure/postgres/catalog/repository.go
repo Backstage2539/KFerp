@@ -289,20 +289,21 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var oldUnitRuleOverrideJSON string
+	var oldUnitTemplateID int64
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT COALESCE(unit_rule_override_json::text,'{}')
+		SELECT COALESCE(unit_rule_override_json::text,'{}'), COALESCE(unit_template_id,0)
 		FROM %s.products
 		WHERE id=$1
 		FOR UPDATE
-	`, r.schema), cmd.ProductID).Scan(&oldUnitRuleOverrideJSON); err != nil {
+	`, r.schema), cmd.ProductID).Scan(&oldUnitRuleOverrideJSON, &oldUnitTemplateID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s.products
 		SET roast_level=$2, retail_price_100g=$3, retail_price_200g=$4, retail_price_227g=$5, retail_price_250g=$6,
 		    product_kind=$7, drip_bag_grams=$8, drip_box_bag_count=$9, allow_fulfillment_order=$10, allow_mall_order=$11,
 		    green_bean_type=$12, green_bean_bom_product_id=$13, remark=$14, name=COALESCE(NULLIF($15,''), name),
-		    special_attrs_json=$16::jsonb, unit_rule_override_json=$17::jsonb
-		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.Remark, cmd.Name, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON); err != nil {
+		    special_attrs_json=$16::jsonb, unit_rule_override_json=$17::jsonb, unit_template_id=$18
+		WHERE id=$1`, r.schema), cmd.ProductID, roastLevel, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, productKind, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.Remark, cmd.Name, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID); err != nil {
 		return err
 	}
 	if catalogdomain.ProductKindSupportsBomParams(productKind) && yieldRate > 0 {
@@ -339,6 +340,8 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	meta["new_unit_conversion_json"] = newUnitAudit.UnitConversionJSON
 	meta["old_sales_unit_rules"] = oldUnitAudit.SalesUnitRulesJSON
 	meta["new_sales_unit_rules"] = newUnitAudit.SalesUnitRulesJSON
+	meta["old_unit_template_id"] = oldUnitTemplateID
+	meta["new_unit_template_id"] = cmd.UnitTemplateID
 	meta["product_kind"] = cmd.ProductKind
 	meta["drip_bag_grams"] = cmd.DripBagGrams
 	meta["drip_box_bag_count"] = cmd.DripBoxBagCount
@@ -427,11 +430,11 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
 			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
-			special_attrs_json, unit_rule_override_json, created_at
+			special_attrs_json, unit_rule_override_json, unit_template_id, created_at
 		)
-		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,0,0,'public','',$14,$15,$16::jsonb,$17::jsonb,now())
+		VALUES($1,$2,$3,$4,$5,true,$6,$7,$8,$9,$10,$11,$12,$13,0,0,'public','',$14,$15,$16::jsonb,$17::jsonb,$18,now())
 		RETURNING id
-	`, r.schema), name, cmd.Remark, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON).Scan(&productID); err != nil {
+	`, r.schema), name, cmd.Remark, productKind, roastLevel, cmd.DefaultPrice, cmd.RetailPrice100G, cmd.RetailPrice200G, cmd.RetailPrice227G, cmd.RetailPrice250G, cmd.DripBagGrams, cmd.DripBoxBagCount, cmd.AllowFulfillmentOrder, cmd.AllowMallOrder, greenBeanType, greenBeanBomProductID, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 
@@ -468,6 +471,7 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		"default_sales_unit":      unitAudit.DefaultSalesUnit,
 		"unit_conversion_json":    unitAudit.UnitConversionJSON,
 		"sales_unit_rules":        unitAudit.SalesUnitRulesJSON,
+		"unit_template_id":        cmd.UnitTemplateID,
 	}); err != nil {
 		return catalogapp.Product{}, err
 	}
@@ -514,14 +518,14 @@ func (r Repository) CopyProduct(ctx context.Context, cmd catalogapp.CopyProductC
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
 			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
-			special_attrs_json, created_at
+			special_attrs_json, unit_rule_override_json, unit_template_id, created_at
 		)
 		SELECT
 			$2, remark, product_kind, roast_level, default_price, active,
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
 			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
-			special_attrs_json, now()
+			special_attrs_json, unit_rule_override_json, unit_template_id, now()
 		FROM %s.products
 		WHERE id=$1
 		RETURNING id
@@ -643,11 +647,11 @@ func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUComma
 			retail_price_100g, retail_price_200g, retail_price_227g, retail_price_250g,
 			drip_bag_grams, drip_box_bag_count, allow_fulfillment_order, allow_mall_order,
 			customer_id, base_product_id, visibility, custom_type, green_bean_type, green_bean_bom_product_id,
-			special_attrs_json, unit_rule_override_json, created_at
+			special_attrs_json, unit_rule_override_json, unit_template_id, created_at
 		)
-		VALUES($1,$2,$3,'',0,$4,0,0,0,0,10,10,true,false,$5,0,$6,'','',0,$7::jsonb,$8::jsonb,now())
+		VALUES($1,$2,$3,'',0,$4,0,0,0,0,10,10,true,false,$5,0,$6,'','',0,$7::jsonb,$8::jsonb,$9,now())
 		RETURNING id
-	`, r.schema), strings.TrimSpace(cmd.Name), strings.TrimSpace(cmd.Remark), productKind, cmd.Active, cmd.CustomerID, visibility, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON).Scan(&productID); err != nil {
+	`, r.schema), strings.TrimSpace(cmd.Name), strings.TrimSpace(cmd.Remark), productKind, cmd.Active, cmd.CustomerID, visibility, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON, cmd.UnitTemplateID).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
 	unitAudit := productUnitAuditValues(cmd.UnitRuleOverrideJSON)
@@ -661,6 +665,7 @@ func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUComma
 		"default_sales_unit":           unitAudit.DefaultSalesUnit,
 		"unit_conversion_json":         unitAudit.UnitConversionJSON,
 		"sales_unit_rules":             unitAudit.SalesUnitRulesJSON,
+		"unit_template_id":             cmd.UnitTemplateID,
 	}); err != nil {
 		return catalogapp.Product{}, err
 	}
@@ -6393,7 +6398,7 @@ func fetchProductByID(ctx context.Context, pool *pgxpool.Pool, schema string, id
 }
 
 func catalogProductFromOption(p postgresinfra.ProductOption) catalogapp.Product {
-	out := catalogapp.Product{ID: p.ID, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, SpecialAttrsJSON: p.SpecialAttrsJSON, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ExpectedLossRate: p.ExpectedLossRate, ProcessRouteID: p.ProcessRouteID, ProductionConfigNote: p.ProductionConfigNote, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, ClassificationTemplateID: p.ClassificationTemplateID, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, GradientTemplateIDOverride: p.GradientTemplateIDOverride, OperationTemplateIDOverride: p.OperationTemplateIDOverride, UnitRuleOverrideJSON: p.UnitRuleOverrideJSON, InventoryUnit: p.InventoryUnit, IntegerInventoryUnit: p.IntegerInventoryUnit, ProductConfigTemplateID: p.ProductConfigTemplateID, Active: p.Active, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, BomSourceType: p.BomSourceType, EffectiveProductID: p.EffectiveProductID, EffectiveBomVersionID: p.EffectiveBomVersionID, SourceProductID: p.SourceProductID, SourceProductCode: p.SourceProductCode, SourceProductName: p.SourceProductName, SourceBomVersionID: p.SourceBomVersionID, SourceBomVersionNo: p.SourceBomVersionNo, DerivedFromLabel: p.DerivedFromLabel, CanEditBOM: p.CanEditBOM, ProductionBomID: p.ProductionBomID, ProductionBomCode: p.ProductionBomCode, ProductionBomName: p.ProductionBomName, ProductionBomVersionID: p.ProductionBomVersionID, ProductionBomVersionNo: p.ProductionBomVersionNo, LatestBomVersionID: p.LatestBomVersionID, LatestBomVersionNo: p.LatestBomVersionNo, IsLatestBomVersion: p.IsLatestBomVersion, ProductionBomGroupID: p.ProductionBomGroupID, ProductionBomGroupName: p.ProductionBomGroupName, OrderUsageCount: p.OrderUsageCount}
+	out := catalogapp.Product{ID: p.ID, Name: p.Name, Remark: p.Remark, RoastLevel: p.RoastLevel, SpecialAttrsJSON: p.SpecialAttrsJSON, ProductKind: p.ProductKind, GreenBeanType: p.GreenBeanType, GreenBeanBomProductID: p.GreenBeanBomProductID, DripBagGrams: p.DripBagGrams, DripBoxBagCount: p.DripBoxBagCount, AllowFulfillmentOrder: p.AllowFulfillmentOrder, AllowMallOrder: p.AllowMallOrder, SalesUnits: p.SalesUnits, DefaultPrice: p.DefaultPrice, RetailPrice100G: p.RetailPrice100G, RetailPrice200G: p.RetailPrice200G, RetailPrice227G: p.RetailPrice227G, RetailPrice250G: p.RetailPrice250G, YieldRate: p.YieldRate, ExpectedLossRate: p.ExpectedLossRate, ProcessRouteID: p.ProcessRouteID, ProductionConfigNote: p.ProductionConfigNote, ProductCategoryID: p.ProductCategoryID, ProductCategoryPosition: p.ProductCategoryPosition, ClassificationTemplateID: p.ClassificationTemplateID, CustomerID: p.CustomerID, BaseProductID: p.BaseProductID, Visibility: p.Visibility, CustomType: p.CustomType, MarginRateOverride: p.MarginRateOverride, GradientTemplateIDOverride: p.GradientTemplateIDOverride, OperationTemplateIDOverride: p.OperationTemplateIDOverride, UnitRuleOverrideJSON: p.UnitRuleOverrideJSON, InventoryUnit: p.InventoryUnit, IntegerInventoryUnit: p.IntegerInventoryUnit, DefaultSalesUnit: p.DefaultSalesUnit, UnitConversionJSON: p.UnitConversionJSON, SalesUnitRulesJSON: p.SalesUnitRulesJSON, UnitTemplateID: p.UnitTemplateID, UnitTemplateName: p.UnitTemplateName, UnitRuleSource: p.UnitRuleSource, ProductConfigTemplateID: p.ProductConfigTemplateID, Active: p.Active, BomItemCount: p.BomItemCount, BomStatus: p.BomStatus, BomSourceType: p.BomSourceType, EffectiveProductID: p.EffectiveProductID, EffectiveBomVersionID: p.EffectiveBomVersionID, SourceProductID: p.SourceProductID, SourceProductCode: p.SourceProductCode, SourceProductName: p.SourceProductName, SourceBomVersionID: p.SourceBomVersionID, SourceBomVersionNo: p.SourceBomVersionNo, DerivedFromLabel: p.DerivedFromLabel, CanEditBOM: p.CanEditBOM, ProductionBomID: p.ProductionBomID, ProductionBomCode: p.ProductionBomCode, ProductionBomName: p.ProductionBomName, ProductionBomVersionID: p.ProductionBomVersionID, ProductionBomVersionNo: p.ProductionBomVersionNo, LatestBomVersionID: p.LatestBomVersionID, LatestBomVersionNo: p.LatestBomVersionNo, IsLatestBomVersion: p.IsLatestBomVersion, ProductionBomGroupID: p.ProductionBomGroupID, ProductionBomGroupName: p.ProductionBomGroupName, OrderUsageCount: p.OrderUsageCount}
 	out.Tiers = make([]catalogapp.PriceTier, 0, len(p.Tiers))
 	for _, t := range p.Tiers {
 		out.Tiers = append(out.Tiers, catalogapp.PriceTier{ID: t.ID, SpecG: t.SpecG, MinQty: t.MinQty, MaxQty: t.MaxQty, UnitPrice: t.UnitPrice})

@@ -130,6 +130,7 @@ type productUpdateAPIRequest struct {
 	DefaultSalesUnit            *string                   `json:"default_sales_unit"`
 	UnitConversionJSON          json.RawMessage           `json:"unit_conversion_json"`
 	SalesUnitRulesJSON          json.RawMessage           `json:"sales_unit_rules"`
+	UnitTemplateID              *int64                    `json:"unit_template_id"`
 	ProductConfigTemplateID     *int64                    `json:"product_config_template_id"`
 	ClassificationTemplateID    *int64                    `json:"classification_template_id"`
 	Tiers                       []productTierAPIUpsertRow `json:"tiers"`
@@ -155,11 +156,12 @@ type productCreateAPIRequest struct {
 	YieldRate                float64                   `json:"yield_rate"`
 	ProductConfigTemplateID  int64                     `json:"product_config_template_id"`
 	ClassificationTemplateID int64                     `json:"classification_template_id"`
-	InventoryUnit            string                    `json:"inventory_unit"`
-	IntegerInventoryUnit     bool                      `json:"integer_inventory_unit"`
-	DefaultSalesUnit         string                    `json:"default_sales_unit"`
+	InventoryUnit            *string                   `json:"inventory_unit"`
+	IntegerInventoryUnit     *bool                     `json:"integer_inventory_unit"`
+	DefaultSalesUnit         *string                   `json:"default_sales_unit"`
 	UnitConversionJSON       json.RawMessage           `json:"unit_conversion_json"`
 	SalesUnitRulesJSON       json.RawMessage           `json:"sales_unit_rules"`
+	UnitTemplateID           int64                     `json:"unit_template_id"`
 	Tiers                    []productTierAPIUpsertRow `json:"tiers"`
 }
 
@@ -172,11 +174,12 @@ type skuCreateAPIRequest struct {
 	SpecialAttrsJSON         string          `json:"special_attrs_json"`
 	ProductConfigTemplateID  int64           `json:"product_config_template_id"`
 	ClassificationTemplateID int64           `json:"classification_template_id"`
-	InventoryUnit            string          `json:"inventory_unit"`
-	IntegerInventoryUnit     bool            `json:"integer_inventory_unit"`
-	DefaultSalesUnit         string          `json:"default_sales_unit"`
+	InventoryUnit            *string         `json:"inventory_unit"`
+	IntegerInventoryUnit     *bool           `json:"integer_inventory_unit"`
+	DefaultSalesUnit         *string         `json:"default_sales_unit"`
 	UnitConversionJSON       json.RawMessage `json:"unit_conversion_json"`
 	SalesUnitRulesJSON       json.RawMessage `json:"sales_unit_rules"`
+	UnitTemplateID           int64           `json:"unit_template_id"`
 	Active                   *bool           `json:"active"`
 }
 
@@ -560,7 +563,10 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	if err := validateExplicitDripConfig(productKind, req.DripBagGrams, req.DripBoxBagCount); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 	}
-	yieldRate := normalizeProductYieldRate(req.YieldRate)
+	yieldRate := existing.YieldRate
+	if req.YieldRate > 0 {
+		yieldRate = normalizeProductYieldRate(req.YieldRate)
+	}
 	if catalogdomain.ProductKindSupportsBomParams(productKind) && req.YieldRate > 0 && yieldRate <= 0 {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid yield_rate"})
 	}
@@ -578,7 +584,21 @@ func (h productHandler) updateAPI(c echo.Context) error {
 	}
 	gradientTemplateIDOverride := int64(0)
 	operationTemplateIDOverride := int64(0)
-	unitRuleOverrideJSON, err := productInventoryUnitRuleJSON(existing.UnitRuleOverrideJSON, req.InventoryUnit, req.IntegerInventoryUnit, req.DefaultSalesUnit, req.UnitConversionJSON, req.SalesUnitRulesJSON, "kg")
+	unitTemplateID := existing.UnitTemplateID
+	if req.UnitTemplateID != nil {
+		unitTemplateID = *req.UnitTemplateID
+	}
+	unitRuleOverrideSource := existing.UnitRuleOverrideJSON
+	unitRuleOverrideWriteRequested := req.UnitTemplateID != nil ||
+		req.InventoryUnit != nil ||
+		req.IntegerInventoryUnit != nil ||
+		req.DefaultSalesUnit != nil ||
+		len(req.UnitConversionJSON) > 0 ||
+		len(req.SalesUnitRulesJSON) > 0
+	if req.UnitRuleOverrideJSON != nil && unitRuleOverrideWriteRequested {
+		unitRuleOverrideSource = *req.UnitRuleOverrideJSON
+	}
+	unitRuleOverrideJSON, err := productInventoryUnitRuleJSON(unitRuleOverrideSource, req.InventoryUnit, req.IntegerInventoryUnit, req.DefaultSalesUnit, req.UnitConversionJSON, req.SalesUnitRulesJSON, "kg")
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid unit_rule_override_json"})
 	}
@@ -610,6 +630,7 @@ func (h productHandler) updateAPI(c echo.Context) error {
 		MarginRateOverride:          marginRateOverride,
 		GradientTemplateIDOverride:  gradientTemplateIDOverride,
 		OperationTemplateIDOverride: operationTemplateIDOverride,
+		UnitTemplateID:              unitTemplateID,
 		UnitRuleOverrideJSON:        unitRuleOverrideJSON,
 		ProductConfigTemplateID:     productConfigTemplateID,
 		ClassificationTemplateID:    classificationTemplateID,
@@ -633,6 +654,13 @@ func (h productHandler) updateAPI(c echo.Context) error {
 func optionalFloat64(value *float64, fallback float64) float64 {
 	if value == nil {
 		return fallback
+	}
+	return *value
+}
+
+func int64Value(value *int64) int64 {
+	if value == nil {
+		return 0
 	}
 	return *value
 }
@@ -779,8 +807,7 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 	if req.AllowMallOrder != nil {
 		allowMallOrder = *req.AllowMallOrder
 	}
-	integerInventoryUnit := req.IntegerInventoryUnit
-	unitRuleOverrideJSON, err := productInventoryUnitRuleJSON("{}", &req.InventoryUnit, &integerInventoryUnit, stringPtrOrNil(req.DefaultSalesUnit), req.UnitConversionJSON, req.SalesUnitRulesJSON, "kg")
+	unitRuleOverrideJSON, err := productInventoryUnitRuleJSON("{}", req.InventoryUnit, req.IntegerInventoryUnit, req.DefaultSalesUnit, req.UnitConversionJSON, req.SalesUnitRulesJSON, "kg")
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid unit_rule_override_json"})
 	}
@@ -805,6 +832,7 @@ func (h productHandler) createProductAPI(c echo.Context) error {
 		YieldRate:                yieldRate,
 		ProductConfigTemplateID:  0,
 		ClassificationTemplateID: 0,
+		UnitTemplateID:           req.UnitTemplateID,
 		Tiers:                    nil,
 		SpecialAttrsJSON:         req.SpecialAttrsJSON,
 		UnitRuleOverrideJSON:     unitRuleOverrideJSON,
@@ -827,8 +855,7 @@ func (h productHandler) createSKUAPI(c echo.Context) error {
 	if req.Active != nil {
 		active = *req.Active
 	}
-	integerInventoryUnit := req.IntegerInventoryUnit
-	unitRuleOverrideJSON, err := productInventoryUnitRuleJSON("{}", &req.InventoryUnit, &integerInventoryUnit, stringPtrOrNil(req.DefaultSalesUnit), req.UnitConversionJSON, req.SalesUnitRulesJSON, "kg")
+	unitRuleOverrideJSON, err := productInventoryUnitRuleJSON("{}", req.InventoryUnit, req.IntegerInventoryUnit, req.DefaultSalesUnit, req.UnitConversionJSON, req.SalesUnitRulesJSON, "kg")
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "invalid unit_rule_override_json"})
 	}
@@ -842,6 +869,7 @@ func (h productHandler) createSKUAPI(c echo.Context) error {
 		SpecialAttrsJSON:         req.SpecialAttrsJSON,
 		ProductConfigTemplateID:  0,
 		ClassificationTemplateID: 0,
+		UnitTemplateID:           req.UnitTemplateID,
 		UnitRuleOverrideJSON:     unitRuleOverrideJSON,
 		Active:                   active,
 	})
