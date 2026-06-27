@@ -42,7 +42,7 @@ Branch: `codex/production-execution-hub-phase2-20260617`
 - GREEN: feature branch pushed to `origin/codex/production-execution-hub-phase2-20260617`.
 - GREEN: application code merged/fast-forwarded into `origin/develop` at `96ac56800772651a30caeca8573f7eaad9bd648b`.
 - GREEN: development deployed from application commit `96ac56800772651a30caeca8573f7eaad9bd648b`.
-- GREEN: final evidence docs commit `95d466a34ed73b886ffe986c95b2ac4d0f6ebe60` fast-forwarded `origin/develop` and was synced to the development docs directory; no container restart was required for this docs-only commit.
+- GREEN: PR-499 final evidence docs were fast-forwarded to `origin/develop` after browser acceptance and synced to the development docs directory; no container restart was required for this docs-only sync. Later `origin/develop` updates from other workflows were merged back into the PR-499 branch before final integration.
   - Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260626214842`.
   - Deployment used the documented manual deployment shape because the local clean `develop` worktree was occupied by another dirty workflow and `deploy_orderapp.sh` enforces branch guards.
   - Docker build ran `go test ./...` inside the `orderapp` image build and completed.
