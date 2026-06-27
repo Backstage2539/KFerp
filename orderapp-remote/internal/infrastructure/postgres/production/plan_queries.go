@@ -699,38 +699,57 @@ func (r Repository) fetchDripPlanNeeds(ctx context.Context, from, to string, cus
 	}
 
 	q := fmt.Sprintf(`
-		WITH need AS (
+		WITH line_need AS (
 			SELECT
 				oi.product_id,
 				COALESCE(p.name,'') AS product,
-				STRING_AGG(DISTINCT COALESCE(o.order_no,''), ',' ORDER BY COALESCE(o.order_no,'')) AS order_nos,
-				COALESCE(NULLIF(oi.unit_bean_g,0), NULLIF(p.drip_bag_grams,0), NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), '')::numeric, 0)::bigint AS spec_g,
-				SUM(
-					CASE WHEN COALESCE(NULLIF(oi.sales_unit,''), lower(oi.unit), '') = 'box'
-						THEN COALESCE(oi.qty,0) * GREATEST(COALESCE(NULLIF(oi.unit_bag_count,0), NULLIF(p.drip_box_bag_count,0), 1), 1)
-						ELSE COALESCE(oi.qty,0)
-					END
-				)::bigint AS need_bags,
-				SUM(
-					CASE WHEN COALESCE(NULLIF(oi.sales_unit,''), lower(oi.unit), '') = 'box'
-						THEN COALESCE(oi.qty,0)
-						ELSE 0
-					END
-				)::bigint AS need_boxes,
-				SUM(
-					CASE WHEN COALESCE(osd.decision,'') = 'produce' THEN
-						CASE WHEN COALESCE(NULLIF(oi.sales_unit,''), lower(oi.unit), '') = 'box'
-							THEN COALESCE(oi.qty,0) * GREATEST(COALESCE(NULLIF(oi.unit_bag_count,0), NULLIF(p.drip_box_bag_count,0), 1), 1)
-							ELSE COALESCE(oi.qty,0)
-						END
-					ELSE 0 END
-				)::bigint AS force_produce_bags
+				COALESCE(o.order_no,'') AS order_no,
+				COALESCE(NULLIF(oi.unit_bean_g,0), NULLIF(p.drip_bag_grams,0), NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), '')::numeric, 0)::numeric AS spec_g,
+				COALESCE(oi.qty,0)::numeric AS qty,
+				COALESCE(NULLIF(oi.sales_unit,''), NULLIF(oi.unit,''), oi.price_source_json->>'price_unit') AS sales_unit,
+				COALESCE(NULLIF(oi.price_source_json->>'inventory_unit',''), 'kg') AS inventory_unit,
+				COALESCE(NULLIF(
+					oi.price_source_json->'inventory_conversion_json'
+						->COALESCE(NULLIF(oi.sales_unit,''), NULLIF(oi.unit,''), oi.price_source_json->>'price_unit')
+						->>COALESCE(NULLIF(oi.price_source_json->>'inventory_unit',''), 'kg'),
+					'')::numeric, 0) AS conversion_to_inventory,
+				GREATEST(COALESCE(NULLIF(oi.unit_bag_count,0), NULLIF(p.drip_box_bag_count,0), 1), 1)::numeric AS saved_bag_count,
+				COALESCE(osd.decision,'') AS stock_decision
 			FROM %s.order_items oi
 			JOIN %s.orders o ON o.id = oi.order_id
 			LEFT JOIN %s.products p ON p.id = oi.product_id
 			LEFT JOIN %s.order_stock_decisions osd ON osd.order_id = o.id
 			%s
-			GROUP BY oi.product_id, p.name, COALESCE(NULLIF(oi.unit_bean_g,0), NULLIF(p.drip_bag_grams,0), NULLIF(regexp_replace(COALESCE(oi.spec,''), '[^0-9]', '', 'g'), '')::numeric, 0)
+		)
+		, normalized_need AS (
+			SELECT
+				product_id,
+				product,
+				order_no,
+				spec_g::bigint AS spec_g,
+				qty,
+				stock_decision,
+				CASE
+					WHEN conversion_to_inventory > 0 AND spec_g > 0 AND lower(inventory_unit) IN ('kg','kilogram','公斤','千克')
+						THEN conversion_to_inventory * 1000 / spec_g
+					WHEN conversion_to_inventory > 0 AND spec_g > 0 AND lower(inventory_unit) IN ('g','gram','克')
+						THEN conversion_to_inventory / spec_g
+					WHEN saved_bag_count > 1 THEN saved_bag_count
+					ELSE 1
+				END AS bag_count_per_sales_unit
+			FROM line_need
+		)
+		, need AS (
+			SELECT
+				product_id,
+				product,
+				STRING_AGG(DISTINCT order_no, ',' ORDER BY order_no) AS order_nos,
+				spec_g,
+				CEIL(SUM(qty * bag_count_per_sales_unit))::bigint AS need_bags,
+				SUM(CASE WHEN bag_count_per_sales_unit > 1 THEN qty ELSE 0 END)::bigint AS need_boxes,
+				CEIL(SUM(CASE WHEN stock_decision = 'produce' THEN qty * bag_count_per_sales_unit ELSE 0 END))::bigint AS force_produce_bags
+			FROM normalized_need
+			GROUP BY product_id, product, spec_g
 		)
 		, reserved AS (
 			SELECT product_id, spec_g, SUM(allocated_g)::bigint AS reserved_g

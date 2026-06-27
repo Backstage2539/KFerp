@@ -1609,7 +1609,7 @@ func TestProductInventoryUnitAPIContract(t *testing.T) {
 			ID:                   91,
 			Name:                 "盒装速溶",
 			ProductKind:          "instant_coffee",
-			UnitRuleOverrideJSON: `{"inventory_unit":"kg","integer_unit":false,"order_unit":"箱","legacy_key":"keep"}`,
+			UnitRuleOverrideJSON: `{"inventory_unit":"kg","integer_unit":false,"default_sales_unit":"盒","unit_conversion_json":{"盒":{"kg":0.2}},"sales_unit_rules":{"盒":{"integer":true}},"order_unit":"箱","legacy_key":"keep"}`,
 			Active:               true,
 		}},
 	}
@@ -1622,7 +1622,7 @@ func TestProductInventoryUnitAPIContract(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET product settings status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{`"inventory_unit":"kg"`, `"integer_inventory_unit":false`, `"unit_rule_override_json":"{\"inventory_unit\":\"kg\",\"integer_unit\":false,\"order_unit\":\"箱\",\"legacy_key\":\"keep\"}"`} {
+	for _, want := range []string{`"inventory_unit":"kg"`, `"integer_inventory_unit":false`, `"default_sales_unit":"盒"`, `"unit_conversion_json":"{\"盒\":{\"kg\":0.2}}"`, `"sales_unit_rules":"{\"盒\":{\"integer\":true}}"`} {
 		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
 			t.Fatalf("product settings response missing inventory unit field %s: %s", want, rec.Body.String())
 		}
@@ -1633,7 +1633,10 @@ func TestProductInventoryUnitAPIContract(t *testing.T) {
 		"product_kind":"instant_coffee",
 		"yield_rate":0.8,
 		"inventory_unit":"盒",
-		"integer_inventory_unit":true
+		"integer_inventory_unit":true,
+		"default_sales_unit":"袋",
+		"unit_conversion_json":{"袋":{"盒":6}},
+		"sales_unit_rules":{"袋":{"integer":true}}
 	}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
@@ -1645,8 +1648,14 @@ func TestProductInventoryUnitAPIContract(t *testing.T) {
 	if err := json.Unmarshal([]byte(repo.updated.UnitRuleOverrideJSON), &updatedRule); err != nil {
 		t.Fatalf("updated unit rule json invalid: %v raw=%s", err, repo.updated.UnitRuleOverrideJSON)
 	}
-	if updatedRule["inventory_unit"] != "盒" || updatedRule["integer_inventory_unit"] != true || updatedRule["order_unit"] != "箱" || updatedRule["legacy_key"] != "keep" {
-		t.Fatalf("updated unit rule should preserve existing keys and write inventory fields: %#v", updatedRule)
+	if updatedRule["inventory_unit"] != "盒" || updatedRule["integer_inventory_unit"] != true || updatedRule["default_sales_unit"] != "袋" || updatedRule["order_unit"] != "箱" || updatedRule["legacy_key"] != "keep" {
+		t.Fatalf("updated unit rule should preserve existing keys and write inventory/sales fields: %#v", updatedRule)
+	}
+	if conversion, ok := updatedRule["unit_conversion_json"].(map[string]any); !ok || conversion["袋"].(map[string]any)["盒"] != float64(6) {
+		t.Fatalf("updated unit conversion = %#v", updatedRule["unit_conversion_json"])
+	}
+	if salesRules, ok := updatedRule["sales_unit_rules"].(map[string]any); !ok || salesRules["袋"].(map[string]any)["integer"] != true {
+		t.Fatalf("updated sales unit rules = %#v", updatedRule["sales_unit_rules"])
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/product-settings/products", bytes.NewBufferString(`{
@@ -1654,7 +1663,10 @@ func TestProductInventoryUnitAPIContract(t *testing.T) {
 		"product_kind":"instant_coffee",
 		"yield_rate":0.8,
 		"inventory_unit":"盒",
-		"integer_inventory_unit":true
+		"integer_inventory_unit":true,
+		"default_sales_unit":"袋",
+		"unit_conversion_json":{"袋":{"盒":6}},
+		"sales_unit_rules":{"袋":{"integer":true}}
 	}`))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec = httptest.NewRecorder()
@@ -1666,8 +1678,14 @@ func TestProductInventoryUnitAPIContract(t *testing.T) {
 	if err := json.Unmarshal([]byte(repo.createdPublic.UnitRuleOverrideJSON), &createdRule); err != nil {
 		t.Fatalf("created unit rule json invalid: %v raw=%s", err, repo.createdPublic.UnitRuleOverrideJSON)
 	}
-	if createdRule["inventory_unit"] != "盒" || createdRule["integer_inventory_unit"] != true {
-		t.Fatalf("created product unit rule = %#v, want inventory_unit/integer_inventory_unit", createdRule)
+	if createdRule["inventory_unit"] != "盒" || createdRule["integer_inventory_unit"] != true || createdRule["default_sales_unit"] != "袋" {
+		t.Fatalf("created product unit rule = %#v, want inventory and sales unit fields", createdRule)
+	}
+	if conversion, ok := createdRule["unit_conversion_json"].(map[string]any); !ok || conversion["袋"].(map[string]any)["盒"] != float64(6) {
+		t.Fatalf("created unit conversion = %#v", createdRule["unit_conversion_json"])
+	}
+	if salesRules, ok := createdRule["sales_unit_rules"].(map[string]any); !ok || salesRules["袋"].(map[string]any)["integer"] != true {
+		t.Fatalf("created sales unit rules = %#v", createdRule["sales_unit_rules"])
 	}
 }
 

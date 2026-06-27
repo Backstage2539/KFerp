@@ -1176,6 +1176,38 @@
               <input v-model="skuForm.integer_inventory_unit" type="checkbox" />
               <span>整数库存</span>
             </label>
+            <div class="unit-conversion-editor wide-field">
+              <div class="field-group-head compact-head">
+                <div class="field-group-copy">
+                  <strong>销售单位换算</strong>
+                  <small>价格表只引用这里的销售单位和库存单位换算。</small>
+                </div>
+                <button class="secondary compact-action" type="button" @click="addUnitConversionRow(skuForm)">新增换算</button>
+              </div>
+              <label>
+                <span>默认销售单位</span>
+                <select v-model="skuForm.default_sales_unit">
+                  <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                </select>
+              </label>
+              <div v-for="(row, rowIndex) in skuForm.unit_conversion_rows" :key="`sku-sales-unit-${rowIndex}`" class="unit-conversion-row">
+                <input v-model.number="row.from_qty" type="number" min="0" step="0.0001" />
+                <select v-model="row.from_unit">
+                  <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                </select>
+                <span>=</span>
+                <input v-model.number="row.to_qty" type="number" min="0" step="0.0001" />
+                <select v-model="row.to_unit">
+                  <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                </select>
+                <label class="checkbox-row inline-checkbox">
+                  <input v-model="row.integer_sales_unit" type="checkbox" />
+                  <span>整数销售单位</span>
+                </label>
+                <button class="text-button danger-text" type="button" @click="removeUnitConversionRow(skuForm, rowIndex)">删除</button>
+              </div>
+              <small v-if="!skuForm.unit_conversion_rows.length">例如 1 盒 = 0.2 kg；不需要换算时默认销售单位可与库存单位一致。</small>
+            </div>
             <div class="form-actions">
               <button class="primary" type="submit" :disabled="skuSaving">创建新商品档案</button>
             </div>
@@ -1344,6 +1376,38 @@
                 <input v-model="productProductionConfigForm.integer_inventory_unit" type="checkbox" />
                 <span>整数库存</span>
               </label>
+              <div class="unit-conversion-editor wide-field">
+                <div class="field-group-head compact-head">
+                  <div class="field-group-copy">
+                    <strong>销售单位换算</strong>
+                    <small>新价格表和后续订单会按这里冻结销售单位到库存单位换算。</small>
+                  </div>
+                  <button class="secondary compact-action" type="button" @click="addUnitConversionRow(productProductionConfigForm)">新增换算</button>
+                </div>
+                <label>
+                  <span>默认销售单位</span>
+                  <select v-model="productProductionConfigForm.default_sales_unit">
+                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                  </select>
+                </label>
+                <div v-for="(row, rowIndex) in productProductionConfigForm.unit_conversion_rows" :key="`product-sales-unit-${rowIndex}`" class="unit-conversion-row">
+                  <input v-model.number="row.from_qty" type="number" min="0" step="0.0001" />
+                  <select v-model="row.from_unit">
+                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                  </select>
+                  <span>=</span>
+                  <input v-model.number="row.to_qty" type="number" min="0" step="0.0001" />
+                  <select v-model="row.to_unit">
+                    <option v-for="unit in activeProductUnitDefinitions" :key="unit.code" :value="unit.code">{{ unit.name || unit.code }}</option>
+                  </select>
+                  <label class="checkbox-row inline-checkbox">
+                    <input v-model="row.integer_sales_unit" type="checkbox" />
+                    <span>整数销售单位</span>
+                  </label>
+                  <button class="text-button danger-text" type="button" @click="removeUnitConversionRow(productProductionConfigForm, rowIndex)">移除</button>
+                </div>
+                <small v-if="!productProductionConfigForm.unit_conversion_rows.length">例如 1 盒 = 0.2 kg；生产 BOM 和库存仍只使用库存单位。</small>
+              </div>
             </div>
           </section>
 
@@ -1602,6 +1666,7 @@ import {
   buildPricingRuleTrialPayload,
   buildProductProductionConfigField,
   buildProductProductionConfigForm,
+  buildProductProductionConfigBasicsPayload,
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
   buildProductBasicsPayload,
@@ -2271,6 +2336,8 @@ function defaultSkuForm() {
     remark: '',
     inventory_unit: 'kg',
     integer_inventory_unit: false,
+    default_sales_unit: 'kg',
+    unit_conversion_rows: [{ from_qty: 1, from_unit: 'kg', to_qty: 1, to_unit: 'kg', integer_sales_unit: false }],
     product_config_template_id: 0,
     special_attr_values: {},
     active: true,
@@ -4133,9 +4200,10 @@ function addUnitConversionRow(target) {
   if (!Array.isArray(target.unit_conversion_rows)) target.unit_conversion_rows = []
   target.unit_conversion_rows.push({
     from_qty: 1,
-    from_unit: target.sales_unit || target.order_unit || target.quote_unit || '',
+    from_unit: target.default_sales_unit || target.sales_unit || target.order_unit || target.quote_unit || target.inventory_unit || '',
     to_qty: 1,
     to_unit: target.inventory_unit || target.sales_unit || target.quote_unit || '',
+    integer_sales_unit: false,
   })
 }
 
@@ -5466,17 +5534,11 @@ async function saveProductProductionConfig() {
   error.value = ''
   ok.value = ''
   try {
-    const originalProduct = productProductionConfigProduct.value || {}
-    await apiSend(`/api/products/${productID}`, {
-      method: 'PUT',
-      body: buildProductBasicsPayload({
-        ...originalProduct,
-        name: productProductionConfigForm.value.name,
-        remark: productProductionConfigForm.value.remark,
-        inventory_unit: productProductionConfigForm.value.inventory_unit,
-        integer_inventory_unit: Boolean(productProductionConfigForm.value.integer_inventory_unit),
-      }),
-    })
+	    const originalProduct = productProductionConfigProduct.value || {}
+	    await apiSend(`/api/products/${productID}`, {
+	      method: 'PUT',
+	      body: buildProductProductionConfigBasicsPayload(originalProduct, productProductionConfigForm.value),
+	    })
     const result = await apiSend(`/api/product-production-configs/${productID}`, {
       method: 'PUT',
       body: {
@@ -6672,7 +6734,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .field-group-copy small { color: #7b746c; font-weight: 400; }
 .unit-conversion-editor { grid-column: 1 / -1; display: grid; gap: 8px; min-width: 0; }
 .unit-impact-help { grid-column: 1 / -1; color: #7b746c; line-height: 1.45; }
-.unit-conversion-row { display: grid; grid-template-columns: minmax(72px, .45fr) minmax(82px, .7fr) auto minmax(72px, .45fr) minmax(82px, .7fr) auto; gap: 6px; align-items: center; min-width: 0; }
+.unit-conversion-row { display: grid; grid-template-columns: minmax(72px, .45fr) minmax(82px, .7fr) auto minmax(72px, .45fr) minmax(82px, .7fr) minmax(118px, .7fr) auto; gap: 6px; align-items: center; min-width: 0; }
 .unit-conversion-row span { color: #666; text-align: center; }
 .price-rule-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; column-gap: 10px; row-gap: 10px; }
 .price-rule-grid .rule-config-field { min-width: 0; align-self: start; display: grid; grid-template-rows: 22px auto; gap: 4px; }

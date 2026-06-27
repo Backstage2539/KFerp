@@ -32,6 +32,9 @@ type fakeRepo struct {
 	costDetailsByBom    map[int64][]PricingRuleTrialBaseCostDetail
 	productionOptions   PricingRuleTrialProductionOptions
 	lastDetailInput     domain.ProductInput
+	productUnitRules    map[int64]ProductSalesUnitRule
+	customerUnitRules   map[int64]ProductSalesUnitRule
+	lastCustomerAliasID int64
 }
 
 func sliceContains(values []string, want string) bool {
@@ -151,6 +154,35 @@ func (r *fakeRepo) SaveBeanListPublicationAsset(_ context.Context, asset BeanLis
 	r.savedBeanListAsset = asset
 	r.beanListAsset = asset
 	return asset, nil
+}
+
+func (r *fakeRepo) ResolveProductSalesUnitRule(_ context.Context, productID int64, priceUnit string) (ProductSalesUnitRule, error) {
+	if r.productUnitRules == nil {
+		return ProductSalesUnitRule{}, nil
+	}
+	rule, ok := r.productUnitRules[productID]
+	if !ok {
+		return ProductSalesUnitRule{}, ErrProductSalesUnitRuleNotFound
+	}
+	if _, ok := rule.Conversion[priceUnit]; !ok {
+		return ProductSalesUnitRule{}, ErrProductSalesUnitRuleNotFound
+	}
+	return rule, nil
+}
+
+func (r *fakeRepo) ResolveCustomerProductSalesUnitRule(_ context.Context, productID int64, customerProductAliasID int64, priceUnit string) (ProductSalesUnitRule, error) {
+	r.lastCustomerAliasID = customerProductAliasID
+	if r.customerUnitRules == nil {
+		return r.ResolveProductSalesUnitRule(context.Background(), productID, priceUnit)
+	}
+	rule, ok := r.customerUnitRules[customerProductAliasID]
+	if !ok {
+		return ProductSalesUnitRule{}, ErrProductSalesUnitRuleNotFound
+	}
+	if _, ok := rule.Conversion[priceUnit]; !ok {
+		return ProductSalesUnitRule{}, ErrProductSalesUnitRuleNotFound
+	}
+	return rule, nil
 }
 
 func (r *fakeRepo) PublishBeanList(_ context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {
@@ -1467,6 +1499,124 @@ func TestPublishBeanListUsesFlatPriceRowsInsteadOfLegacySourceRecordForPR440Snap
 
 	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.0.2", Content: content}); err != nil {
 		t.Fatalf("PublishBeanList() with PR-440 flat price row snapshot error = %v", err)
+	}
+}
+
+func TestPublishBeanListRewritesFlatRowUnitSnapshotFromProductMaster(t *testing.T) {
+	repo := &fakeRepo{
+		productUnitRules: map[int64]ProductSalesUnitRule{
+			414: {
+				ProductID:     414,
+				InventoryUnit: "kg",
+				Conversion: map[string]map[string]float64{
+					"盒": {"kg": 0.2},
+				},
+			},
+		},
+	}
+	svc := NewService(repo)
+	row := map[string]any{
+		"product_id":                float64(414),
+		"product_name":              "盒装速溶",
+		"tier_label":                "基础价",
+		"min_qty":                   float64(0),
+		"final_unit_price":          float64(18),
+		"price_unit":                "盒",
+		"currency":                  "CNY",
+		"inventory_unit":            "g",
+		"inventory_conversion_json": map[string]any{"盒": map[string]any{"g": float64(999)}},
+		"group_snapshot":            map[string]any{"group_id": float64(3), "group_name": "商品价格表分组", "group_item_id": float64(101), "group_item_name": "盒装"},
+		"group_source":              "product_catalog",
+		"pricing_mode":              "pricing_rule",
+		"pricing_mode_source":       "product",
+		"pricing_rule_id":           float64(90),
+		"pricing_rule_source":       "product",
+		"pricing_rule_version":      "PR-COST/v3",
+		"cost_source_snapshot":      map[string]any{"bom_version_no": "BOM-A1/V002"},
+		"customer_reference_snapshot": map[string]any{
+			"customer_id":           float64(5),
+			"customer_display_name": "Karen 盒装",
+		},
+		"manual_adjusted": false,
+	}
+	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.0.3", Content: map[string]any{"price_rows": []any{row}}}); err != nil {
+		t.Fatalf("PublishBeanList() error = %v", err)
+	}
+	got := repo.publishedBeanList.Content["price_rows"].([]any)[0].(map[string]any)
+	if got["inventory_unit"] != "kg" {
+		t.Fatalf("inventory_unit = %#v, want kg", got["inventory_unit"])
+	}
+	conversion := got["inventory_conversion_json"].(map[string]any)
+	if conversion["盒"].(map[string]any)["kg"] != float64(0.2) {
+		t.Fatalf("inventory_conversion_json = %#v, want product master conversion", conversion)
+	}
+
+	row["price_unit"] = "袋"
+	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.0.4", Content: map[string]any{"price_rows": []any{row}}}); err == nil || !strings.Contains(err.Error(), "商品档案缺少价格单位到库存单位换算") {
+		t.Fatalf("expected missing product UOM conversion error, got %v", err)
+	}
+}
+
+func TestPublishBeanListUsesCustomerAliasUnitRuleWhenPresent(t *testing.T) {
+	repo := &fakeRepo{
+		productUnitRules: map[int64]ProductSalesUnitRule{
+			414: {
+				ProductID:     414,
+				InventoryUnit: "kg",
+				Conversion: map[string]map[string]float64{
+					"盒": {"kg": 0.2},
+				},
+			},
+		},
+		customerUnitRules: map[int64]ProductSalesUnitRule{
+			701: {
+				ProductID:     414,
+				InventoryUnit: "条",
+				Conversion: map[string]map[string]float64{
+					"盒": {"条": 10},
+				},
+			},
+		},
+	}
+	svc := NewService(repo)
+	row := map[string]any{
+		"product_id":                float64(414),
+		"customer_product_alias_id": float64(701),
+		"product_name":              "客户盒装速溶",
+		"tier_label":                "基础价",
+		"final_unit_price":          float64(18),
+		"price_unit":                "盒",
+		"currency":                  "CNY",
+		"inventory_unit":            "kg",
+		"inventory_conversion_json": map[string]any{"盒": map[string]any{"kg": float64(0.2)}},
+		"group_snapshot":            map[string]any{"group_id": float64(3), "group_name": "客户商品价格表分组", "group_item_id": float64(101), "group_item_name": "盒装"},
+		"group_source":              "customer_product_alias",
+		"pricing_mode":              "pricing_rule",
+		"pricing_mode_source":       "product",
+		"pricing_rule_id":           float64(90),
+		"pricing_rule_source":       "product",
+		"pricing_rule_version":      "PR-COST/v3",
+		"cost_source_snapshot":      map[string]any{"bom_version_no": "BOM-A1/V002"},
+		"manual_adjusted":           false,
+		"customer_reference_snapshot": map[string]any{
+			"customer_product_alias_id": float64(701),
+			"customer_id":               float64(5),
+			"customer_display_name":     "Karen 盒装",
+		},
+	}
+	if _, err := svc.PublishBeanList(context.Background(), PublishBeanListCommand{ListType: "commercial", Version: "V4.0.5", Content: map[string]any{"price_rows": []any{row}}}); err != nil {
+		t.Fatalf("PublishBeanList() error = %v", err)
+	}
+	if repo.lastCustomerAliasID != 701 {
+		t.Fatalf("customer alias resolver id = %d, want 701", repo.lastCustomerAliasID)
+	}
+	got := repo.publishedBeanList.Content["price_rows"].([]any)[0].(map[string]any)
+	if got["inventory_unit"] != "条" {
+		t.Fatalf("inventory_unit = %#v, want customer alias inventory unit 条", got["inventory_unit"])
+	}
+	conversion := got["inventory_conversion_json"].(map[string]any)
+	if conversion["盒"].(map[string]any)["条"] != float64(10) {
+		t.Fatalf("inventory_conversion_json = %#v, want customer alias conversion", conversion)
 	}
 }
 

@@ -15,8 +15,9 @@ import (
 )
 
 var (
-	ErrBeanListPublicationNotFound = errors.New("bean list publication not found")
-	ErrProductPricingRuleNotFound  = errors.New("product pricing rule not found")
+	ErrBeanListPublicationNotFound  = errors.New("bean list publication not found")
+	ErrProductPricingRuleNotFound   = errors.New("product pricing rule not found")
+	ErrProductSalesUnitRuleNotFound = errors.New("product sales unit rule not found")
 )
 
 const (
@@ -46,6 +47,12 @@ type ProductPricingRule struct {
 	FormulaVersion  string         `json:"formula_version"`
 	Active          bool           `json:"active"`
 	Remark          string         `json:"remark,omitempty"`
+}
+
+type ProductSalesUnitRule struct {
+	ProductID     int64                         `json:"product_id"`
+	InventoryUnit string                        `json:"inventory_unit"`
+	Conversion    map[string]map[string]float64 `json:"unit_conversion_json"`
 }
 
 type PricingRuleTrialCommand struct {
@@ -335,6 +342,14 @@ type Repository interface {
 	WithdrawBeanList(ctx context.Context, cmd WithdrawBeanListCommand) error
 	ArchiveBeanListPublications(ctx context.Context, cmd ArchiveBeanListPublicationsCommand) error
 	UnarchiveBeanListPublications(ctx context.Context, cmd ArchiveBeanListPublicationsCommand) error
+}
+
+type productSalesUnitRuleRepository interface {
+	ResolveProductSalesUnitRule(ctx context.Context, productID int64, priceUnit string) (ProductSalesUnitRule, error)
+}
+
+type customerProductSalesUnitRuleRepository interface {
+	ResolveCustomerProductSalesUnitRule(ctx context.Context, productID int64, customerProductAliasID int64, priceUnit string) (ProductSalesUnitRule, error)
 }
 
 type customerScopedProductInputRepository interface {
@@ -1693,6 +1708,11 @@ func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListComman
 	if err != nil {
 		return nil, err
 	}
+	if s.repo != nil {
+		if err := s.applyProductSalesUnitSnapshots(ctx, &normalized); err != nil {
+			return nil, err
+		}
+	}
 	if err := validateBeanListFinalPriceSnapshots(normalized); err != nil {
 		return nil, err
 	}
@@ -1700,6 +1720,86 @@ func (s *Service) PublishBeanList(ctx context.Context, cmd PublishBeanListComman
 		return nil, fmt.Errorf("repository required")
 	}
 	return s.repo.PublishBeanList(ctx, normalized)
+}
+
+func (s *Service) applyProductSalesUnitSnapshots(ctx context.Context, cmd *PublishBeanListCommand) error {
+	resolver, ok := s.repo.(productSalesUnitRuleRepository)
+	if !ok || cmd == nil || cmd.Content == nil {
+		return nil
+	}
+	rows, ok := cmd.Content["price_rows"].([]any)
+	if !ok {
+		return nil
+	}
+	for idx, rawRow := range rows {
+		row, ok := rawRow.(map[string]any)
+		if !ok || !beanListFlatPriceRowHasPrice(row) {
+			continue
+		}
+		productID := int64(numberValue(row["product_id"]))
+		priceUnit := strings.TrimSpace(stringValue(row["price_unit"]))
+		if productID <= 0 || priceUnit == "" {
+			continue
+		}
+		customerAliasID := beanListFlatPriceRowCustomerAliasID(row)
+		rule, err := ProductSalesUnitRule{}, error(nil)
+		if customerAliasID > 0 {
+			if customerResolver, ok := s.repo.(customerProductSalesUnitRuleRepository); ok {
+				rule, err = customerResolver.ResolveCustomerProductSalesUnitRule(ctx, productID, customerAliasID, priceUnit)
+			} else {
+				rule, err = resolver.ResolveProductSalesUnitRule(ctx, productID, priceUnit)
+			}
+		} else {
+			rule, err = resolver.ResolveProductSalesUnitRule(ctx, productID, priceUnit)
+		}
+		if err != nil {
+			if errors.Is(err, ErrProductSalesUnitRuleNotFound) {
+				return fmt.Errorf("商品档案缺少价格单位到库存单位换算：第%d行", idx+1)
+			}
+			return err
+		}
+		if strings.TrimSpace(rule.InventoryUnit) == "" || len(rule.Conversion) == 0 {
+			continue
+		}
+		targets, ok := rule.Conversion[priceUnit]
+		if !ok || len(targets) == 0 {
+			return fmt.Errorf("商品档案缺少价格单位到库存单位换算：第%d行", idx+1)
+		}
+		row["inventory_unit"] = strings.TrimSpace(rule.InventoryUnit)
+		row["inventory_conversion_json"] = productSalesUnitConversionSnapshot(priceUnit, targets)
+	}
+	return nil
+}
+
+func beanListFlatPriceRowCustomerAliasID(row map[string]any) int64 {
+	if row == nil {
+		return 0
+	}
+	if id := int64(numberValue(row["customer_product_alias_id"])); id > 0 {
+		return id
+	}
+	snapshot, _ := row["customer_reference_snapshot"].(map[string]any)
+	if id := int64(numberValue(snapshot["customer_product_alias_id"])); id > 0 {
+		return id
+	}
+	if id := int64(numberValue(snapshot["customerProductAliasID"])); id > 0 {
+		return id
+	}
+	return 0
+}
+
+func productSalesUnitConversionSnapshot(priceUnit string, targets map[string]float64) map[string]any {
+	outTargets := map[string]any{}
+	for unit, factor := range targets {
+		if strings.TrimSpace(unit) == "" || factor <= 0 {
+			continue
+		}
+		outTargets[strings.TrimSpace(unit)] = factor
+	}
+	if len(outTargets) == 0 {
+		return map[string]any{}
+	}
+	return map[string]any{strings.TrimSpace(priceUnit): outTargets}
 }
 
 func (s *Service) SaveBeanListDraft(ctx context.Context, cmd PublishBeanListCommand) (*BeanListPublication, error) {

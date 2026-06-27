@@ -341,6 +341,9 @@ type ProductSettingsProduct struct {
 	UnitRuleOverrideJSON        string       `json:"unit_rule_override_json"`
 	InventoryUnit               string       `json:"inventory_unit"`
 	IntegerInventoryUnit        bool         `json:"integer_inventory_unit"`
+	DefaultSalesUnit            string       `json:"default_sales_unit"`
+	UnitConversionJSON          string       `json:"unit_conversion_json"`
+	SalesUnitRulesJSON          string       `json:"sales_unit_rules"`
 	ProductConfigTemplateID     int64        `json:"product_config_template_id"`
 	Active                      bool         `json:"active"`
 	BomItemCount                int          `json:"bom_item_count"`
@@ -3408,6 +3411,7 @@ func BuildProductSettings(categories []ProductCategory, products []Product) Prod
 func productSettingsProduct(p Product) ProductSettingsProduct {
 	productKind, dripBagGrams, dripBoxBagCount, salesUnits, _ := normalizeProductKindSettings(p.ProductKind, p.DripBagGrams, p.DripBoxBagCount)
 	inventoryUnit, integerInventoryUnit := productInventoryUnitFields(p)
+	defaultSalesUnit, unitConversionJSON, salesUnitRulesJSON := productSalesUnitRuleFields(p, inventoryUnit)
 	if !catalogdomain.ProductKindSupportsBomParams(productKind) {
 		p.RoastLevel = ""
 		p.YieldRate = 0
@@ -3449,6 +3453,9 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		UnitRuleOverrideJSON:        productJSONOrDefault(p.UnitRuleOverrideJSON),
 		InventoryUnit:               inventoryUnit,
 		IntegerInventoryUnit:        integerInventoryUnit,
+		DefaultSalesUnit:            defaultSalesUnit,
+		UnitConversionJSON:          unitConversionJSON,
+		SalesUnitRulesJSON:          salesUnitRulesJSON,
 		ProductConfigTemplateID:     p.ProductConfigTemplateID,
 		Active:                      p.Active,
 		BomItemCount:                p.BomItemCount,
@@ -3483,6 +3490,68 @@ func productSettingsProduct(p Product) ProductSettingsProduct {
 		OrderUsageCount:             p.OrderUsageCount,
 		PriceSummary:                p.PriceSummary,
 	}
+}
+
+func productSalesUnitRuleFields(p Product, inventoryUnit string) (string, string, string) {
+	rule := map[string]any{}
+	if raw := strings.TrimSpace(p.UnitRuleOverrideJSON); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &rule)
+	}
+	defaultSalesUnit := ""
+	for _, key := range []string{"default_sales_unit", "quote_unit", "order_unit"} {
+		if value, ok := rule[key].(string); ok {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				defaultSalesUnit = trimmed
+				break
+			}
+		}
+	}
+	if defaultSalesUnit == "" {
+		defaultSalesUnit = strings.TrimSpace(inventoryUnit)
+	}
+	if defaultSalesUnit == "" {
+		defaultSalesUnit = "kg"
+	}
+	conversion := map[string]any{}
+	if value, ok := rule["unit_conversion_json"]; ok {
+		conversion = jsonObjectFromAny(value)
+	} else if value, ok := rule["conversion_json"]; ok {
+		conversion = jsonObjectFromAny(value)
+	}
+	if len(conversion) == 0 && defaultSalesUnit == inventoryUnit {
+		conversion = map[string]any{defaultSalesUnit: map[string]any{inventoryUnit: float64(1)}}
+	}
+	salesRules := map[string]any{}
+	if value, ok := rule["sales_unit_rules"]; ok {
+		salesRules = jsonObjectFromAny(value)
+	}
+	return defaultSalesUnit, productJSONFromMap(conversion), productJSONFromMap(salesRules)
+}
+
+func jsonObjectFromAny(value any) map[string]any {
+	switch v := value.(type) {
+	case map[string]any:
+		if v != nil {
+			return v
+		}
+	case string:
+		var out map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimSpace(v)), &out); err == nil && out != nil {
+			return out
+		}
+	}
+	return map[string]any{}
+}
+
+func productJSONFromMap(value map[string]any) string {
+	if len(value) == 0 {
+		return "{}"
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return "{}"
+	}
+	return string(encoded)
 }
 
 func productInventoryUnitFields(p Product) (string, bool) {

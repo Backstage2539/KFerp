@@ -89,6 +89,9 @@ func TestOrderFormProductsExposeProductTypeAndUnitRuleFields(t *testing.T) {
 		"LEFT JOIN %[1]s.product_categories subtype_cat",
 		"product_type_category_id",
 		"product_subtype_category_id",
+		"NULLIF(p.unit_rule_override_json->>'inventory_unit','')",
+		"NULLIF(p.unit_rule_override_json->>'default_sales_unit','')",
+		"NULLIF(p.unit_rule_override_json->>'unit_conversion_json','')",
 		"unit_conversion_json",
 		"&p.ProductTypeCategoryID",
 		"&p.ProductSubtypeCategoryID",
@@ -98,6 +101,9 @@ func TestOrderFormProductsExposeProductTypeAndUnitRuleFields(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("order form products must expose product type/subtype and unit rule fields; missing %q", want)
 		}
+	}
+	if strings.Contains(text, "NULLIF(p.unit_rule_override_json, '{}'::jsonb)") {
+		t.Fatalf("order form products must expose unit_conversion_json, not the whole unit_rule_override_json object")
 	}
 }
 

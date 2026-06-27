@@ -187,9 +187,30 @@ func TestProductConfigOverridesRemainReadableButProductUpdateOnlyWritesUnitRule(
 		"new_inventory_unit",
 		"old_integer_inventory_unit",
 		"new_integer_inventory_unit",
+		"old_default_sales_unit",
+		"new_default_sales_unit",
+		"old_unit_conversion_json",
+		"new_unit_conversion_json",
+		"old_sales_unit_rules",
+		"new_sales_unit_rules",
 	} {
 		if !strings.Contains(updateFn, want) {
 			t.Fatalf("product basics update must persist and audit product inventory unit; missing %q", want)
+		}
+	}
+	for _, createMarker := range []string{
+		"func (r Repository) CreateProduct",
+		"func (r Repository) CreateSKU",
+	} {
+		createFn := catalogRepositoryFunctionForTest(t, string(repository), createMarker, "if err := tx.Commit")
+		for _, want := range []string{
+			`"default_sales_unit"`,
+			`"unit_conversion_json"`,
+			`"sales_unit_rules"`,
+		} {
+			if !strings.Contains(createFn, want) {
+				t.Fatalf("%s audit must include product sales unit master data; missing %q", createMarker, want)
+			}
 		}
 	}
 }

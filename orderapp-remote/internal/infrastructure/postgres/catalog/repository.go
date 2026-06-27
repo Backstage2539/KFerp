@@ -39,24 +39,84 @@ func jsonMapOrEmpty(raw []byte) map[string]any {
 	return out
 }
 
-func inventoryUnitAuditValues(raw string) (string, bool) {
-	unit := "kg"
-	integerUnit := false
+type productUnitAuditSnapshot struct {
+	InventoryUnit        string
+	IntegerInventoryUnit bool
+	DefaultSalesUnit     string
+	UnitConversionJSON   string
+	SalesUnitRulesJSON   string
+}
+
+func productUnitAuditValues(raw string) productUnitAuditSnapshot {
+	snapshot := productUnitAuditSnapshot{
+		InventoryUnit:      "kg",
+		UnitConversionJSON: "{}",
+		SalesUnitRulesJSON: "{}",
+	}
 	rule := map[string]any{}
 	if strings.TrimSpace(raw) != "" {
 		_ = json.Unmarshal([]byte(raw), &rule)
 	}
 	if value, ok := rule["inventory_unit"].(string); ok {
 		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			unit = trimmed
+			snapshot.InventoryUnit = trimmed
 		}
 	}
 	if value, ok := rule["integer_inventory_unit"]; ok {
-		integerUnit = boolFromRuleValue(value)
+		snapshot.IntegerInventoryUnit = boolFromRuleValue(value)
 	} else if value, ok := rule["integer_unit"]; ok {
-		integerUnit = boolFromRuleValue(value)
+		snapshot.IntegerInventoryUnit = boolFromRuleValue(value)
 	}
-	return unit, integerUnit
+	for _, key := range []string{"default_sales_unit", "quote_unit", "order_unit"} {
+		if value, ok := rule[key].(string); ok {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				snapshot.DefaultSalesUnit = trimmed
+				break
+			}
+		}
+	}
+	if strings.TrimSpace(snapshot.DefaultSalesUnit) == "" {
+		snapshot.DefaultSalesUnit = snapshot.InventoryUnit
+	}
+	if value, ok := rule["unit_conversion_json"]; ok {
+		snapshot.UnitConversionJSON = jsonAuditTextOrDefault(value, "{}")
+	} else if value, ok := rule["conversion_json"]; ok {
+		snapshot.UnitConversionJSON = jsonAuditTextOrDefault(value, "{}")
+	}
+	if value, ok := rule["sales_unit_rules"]; ok {
+		snapshot.SalesUnitRulesJSON = jsonAuditTextOrDefault(value, "{}")
+	}
+	return snapshot
+}
+
+func inventoryUnitAuditValues(raw string) (string, bool) {
+	snapshot := productUnitAuditValues(raw)
+	return snapshot.InventoryUnit, snapshot.IntegerInventoryUnit
+}
+
+func jsonAuditTextOrDefault(value any, fallback string) string {
+	switch v := value.(type) {
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return fallback
+		}
+		var decoded any
+		if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil && decoded != nil {
+			if encoded, err := json.Marshal(decoded); err == nil {
+				return string(encoded)
+			}
+		}
+		return trimmed
+	default:
+		if value == nil {
+			return fallback
+		}
+		if encoded, err := json.Marshal(value); err == nil && string(encoded) != "null" {
+			return string(encoded)
+		}
+	}
+	return fallback
 }
 
 func boolFromRuleValue(value any) bool {
@@ -255,8 +315,8 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	oldInventoryUnit, oldIntegerInventoryUnit := inventoryUnitAuditValues(oldUnitRuleOverrideJSON)
-	newInventoryUnit, newIntegerInventoryUnit := inventoryUnitAuditValues(cmd.UnitRuleOverrideJSON)
+	oldUnitAudit := productUnitAuditValues(oldUnitRuleOverrideJSON)
+	newUnitAudit := productUnitAuditValues(cmd.UnitRuleOverrideJSON)
 	meta := postgresinfra.AuditMeta{
 		"product_id":        cmd.ProductID,
 		"product_kind":      productKind,
@@ -269,10 +329,16 @@ func (r Repository) UpdateProductBasics(ctx context.Context, cmd catalogapp.Upda
 		"remark":            cmd.Remark,
 		"name":              cmd.Name,
 	}
-	meta["old_inventory_unit"] = oldInventoryUnit
-	meta["new_inventory_unit"] = newInventoryUnit
-	meta["old_integer_inventory_unit"] = oldIntegerInventoryUnit
-	meta["new_integer_inventory_unit"] = newIntegerInventoryUnit
+	meta["old_inventory_unit"] = oldUnitAudit.InventoryUnit
+	meta["new_inventory_unit"] = newUnitAudit.InventoryUnit
+	meta["old_integer_inventory_unit"] = oldUnitAudit.IntegerInventoryUnit
+	meta["new_integer_inventory_unit"] = newUnitAudit.IntegerInventoryUnit
+	meta["old_default_sales_unit"] = oldUnitAudit.DefaultSalesUnit
+	meta["new_default_sales_unit"] = newUnitAudit.DefaultSalesUnit
+	meta["old_unit_conversion_json"] = oldUnitAudit.UnitConversionJSON
+	meta["new_unit_conversion_json"] = newUnitAudit.UnitConversionJSON
+	meta["old_sales_unit_rules"] = oldUnitAudit.SalesUnitRulesJSON
+	meta["new_sales_unit_rules"] = newUnitAudit.SalesUnitRulesJSON
 	meta["product_kind"] = cmd.ProductKind
 	meta["drip_bag_grams"] = cmd.DripBagGrams
 	meta["drip_box_bag_count"] = cmd.DripBoxBagCount
@@ -378,7 +444,7 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 			return catalogapp.Product{}, err
 		}
 	}
-	inventoryUnit, integerInventoryUnit := inventoryUnitAuditValues(cmd.UnitRuleOverrideJSON)
+	unitAudit := productUnitAuditValues(cmd.UnitRuleOverrideJSON)
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "create", postgresinfra.StrPtr("public_product"), nil, postgresinfra.StrPtr(name), postgresinfra.AuditMeta{
 		"product_id":              productID,
 		"roast_level":             roastLevel,
@@ -397,8 +463,11 @@ func (r Repository) CreateProduct(ctx context.Context, cmd catalogapp.CreateProd
 		"sales_units":             cmd.SalesUnits,
 		"green_bean_type":         greenBeanType,
 		"green_bean_bom":          greenBeanBomProductID,
-		"inventory_unit":          inventoryUnit,
-		"integer_inventory_unit":  integerInventoryUnit,
+		"inventory_unit":          unitAudit.InventoryUnit,
+		"integer_inventory_unit":  unitAudit.IntegerInventoryUnit,
+		"default_sales_unit":      unitAudit.DefaultSalesUnit,
+		"unit_conversion_json":    unitAudit.UnitConversionJSON,
+		"sales_unit_rules":        unitAudit.SalesUnitRulesJSON,
 	}); err != nil {
 		return catalogapp.Product{}, err
 	}
@@ -581,14 +650,17 @@ func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUComma
 	`, r.schema), strings.TrimSpace(cmd.Name), strings.TrimSpace(cmd.Remark), productKind, cmd.Active, cmd.CustomerID, visibility, cmd.SpecialAttrsJSON, cmd.UnitRuleOverrideJSON).Scan(&productID); err != nil {
 		return catalogapp.Product{}, err
 	}
-	inventoryUnit, integerInventoryUnit := inventoryUnitAuditValues(cmd.UnitRuleOverrideJSON)
+	unitAudit := productUnitAuditValues(cmd.UnitRuleOverrideJSON)
 	if err := postgresinfra.AuditInsertTx(ctx, tx, r.schema, cmd.Actor, "product", &productID, "create_sku", postgresinfra.StrPtr("sku"), nil, postgresinfra.StrPtr(strings.TrimSpace(cmd.Name)), postgresinfra.AuditMeta{
 		"customer_id":                  cmd.CustomerID,
 		"product_type_category_id":     cmd.ProductTypeCategoryID,
 		"product_subtype_category_id":  categoryID,
 		"legacy_product_kind_snapshot": productKind,
-		"inventory_unit":               inventoryUnit,
-		"integer_inventory_unit":       integerInventoryUnit,
+		"inventory_unit":               unitAudit.InventoryUnit,
+		"integer_inventory_unit":       unitAudit.IntegerInventoryUnit,
+		"default_sales_unit":           unitAudit.DefaultSalesUnit,
+		"unit_conversion_json":         unitAudit.UnitConversionJSON,
+		"sales_unit_rules":             unitAudit.SalesUnitRulesJSON,
 	}); err != nil {
 		return catalogapp.Product{}, err
 	}

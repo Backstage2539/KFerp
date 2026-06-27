@@ -496,6 +496,7 @@
             <div>
               <span>{{ row.pricing_rule_version || (row.pricing_mode === 'fixed_price' ? '固定价' : '未选择 Pricing Rule') }}</span>
               <span :class="{ adjusted: row.manual_adjusted }">{{ row.manual_adjusted ? '人工调整' : '自动计算' }}</span>
+              <span>{{ priceListFlatRowUnitSummary(row) }}</span>
             </div>
           </div>
         </div>
@@ -2556,19 +2557,20 @@ function priceListFlatRowFromSource({
     original_final_unit_price: originalPrice,
     currency: sourceTier?.currency || 'CNY',
     inventory_unit: inventoryUnit,
-    inventory_conversion_json: flatRowInventoryConversion(sourceTier, priceUnit, inventoryUnit),
+    inventory_conversion_json: flatRowInventoryConversion(sourceTier, priceUnit, inventoryUnit, item),
     source_price_record_id: Number(sourceTier?.source_price_record_id || sourceTier?.sourcePriceRecordID || 0),
     tier_template_id: Number(tierTemplateID || 0),
     tier_template_source: tierTemplateSource,
     template_tier_id: Number(templateTierID || 0),
     pricing_rule_id: Number(pricingRuleID || 0),
     pricing_rule_source: pricingRuleSource,
-    pricing_rule_version: ruleVersion,
-    tier_pricing_rule_id: Number(tierPricingRuleID || 0),
-    tier_pricing_rule_version: tierPricingRuleID ? ruleVersion : '',
-    fixed_unit_price: Number(fixedUnitPrice || 0) || 0,
-    cost_source_snapshot: costSourceSnapshotForPriceRow(item, sourceTier, pricingRule, mode),
-    customer_reference_snapshot: customerReferenceSnapshotForPriceRow(item),
+	    pricing_rule_version: ruleVersion,
+	    tier_pricing_rule_id: Number(tierPricingRuleID || 0),
+	    tier_pricing_rule_version: tierPricingRuleID ? ruleVersion : '',
+	    customer_product_alias_id: Number(item.customer_product_alias_id || item.customerProductAliasID || 0),
+	    fixed_unit_price: Number(fixedUnitPrice || 0) || 0,
+	    cost_source_snapshot: costSourceSnapshotForPriceRow(item, sourceTier, pricingRule, mode),
+	    customer_reference_snapshot: customerReferenceSnapshotForPriceRow(item),
     manual_adjusted: Number.isFinite(override) && override > 0 && Math.abs(override - originalPrice) > 0.005,
   }
   const trial = mode === 'pricing_rule' || mode === 'tier_template' ? priceListPricingRuleTrialResultForRow(row) : null
@@ -2656,31 +2658,66 @@ function tierForTemplateTier(templateTier = {}, sourceTiers = [], index = 0) {
 }
 
 function flatRowPriceUnit(tier = {}, item = {}) {
-  const raw = String(tier.price_unit || tier.priceUnit || tier.display_unit || tier.displayUnit || item.price_unit_snapshot || item.price_unit || item.priceUnit || item.quote_unit || item.quoteUnit || item.inventory_unit || item.inventoryUnit || '').trim()
+  const raw = String(item.default_sales_unit || item.defaultSalesUnit || item.price_unit_snapshot || item.price_unit || item.priceUnit || item.quote_unit || item.quoteUnit || tier.price_unit || tier.priceUnit || tier.display_unit || tier.displayUnit || item.inventory_unit || item.inventoryUnit || '').trim()
   if (raw === '磅') return 'lb'
   if (raw === '公斤' || raw === '千克') return 'kg'
   if (raw) return raw
   return Number(tier.spec_g || tier.specG || 0) === 1000 ? 'kg' : 'lb'
 }
 
-function flatRowInventoryConversion(tier = {}, priceUnit = '', inventoryUnit = '') {
-  const raw = tier.inventory_conversion_json ?? tier.inventoryConversionJSON
+function flatRowInventoryConversion(tier = {}, priceUnit = '', inventoryUnit = '', item = {}) {
+  const source = String(priceUnit || '').trim()
+  const target = String(inventoryUnit || '').trim()
+  const itemConversion = normalizeFlatRowConversion(item.unit_conversion_json ?? item.unitConversionJSON)
+  const itemSnapshot = flatRowConversionForUnits(itemConversion, source, target)
+  if (Object.keys(itemSnapshot).length) return itemSnapshot
+  const tierConversion = normalizeFlatRowConversion(tier.inventory_conversion_json ?? tier.inventoryConversionJSON)
+  const tierSnapshot = flatRowConversionForUnits(tierConversion, source, target)
+  if (Object.keys(tierSnapshot).length) return tierSnapshot
+  if (Object.keys(tierConversion).length) return tierConversion
+  if (!source || !target) return {}
+  if (source === target) return { [source]: { [target]: 1 } }
+  if ((source === 'lb' || source === '磅') && target === 'kg') return { lb: { kg: 0.454 } }
+  if (source === 'kg' && (target === 'lb' || target === '磅')) return { kg: { lb: 2.20462 } }
+  return {}
+}
+
+function normalizeFlatRowConversion(raw = {}) {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw
   if (typeof raw === 'string' && raw.trim()) {
     try {
       const parsed = JSON.parse(raw)
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
     } catch {
-      // fall through to known unit conversions
+      return {}
     }
   }
+  return {}
+}
+
+function flatRowConversionForUnits(conversion = {}, priceUnit = '', inventoryUnit = '') {
   const source = String(priceUnit || '').trim()
   const target = String(inventoryUnit || '').trim()
   if (!source || !target) return {}
-  if (source === target) return { [source]: { [target]: 1 } }
-  if ((source === 'lb' || source === '磅') && target === 'kg') return { lb: { kg: 0.454 } }
-  if (source === 'kg' && (target === 'lb' || target === '磅')) return { kg: { lb: 2.20462 } }
-  return {}
+  const targets = conversion?.[source]
+  if (!targets || typeof targets !== 'object' || Array.isArray(targets)) return {}
+  const factor = Number(targets[target] || 0)
+  if (!Number.isFinite(factor) || factor <= 0) return {}
+  return { [source]: { [target]: Number(factor.toFixed(8)) } }
+}
+
+function priceListFlatRowUnitSummary(row = {}) {
+  const priceUnit = String(row.price_unit || '').trim() || '-'
+  const inventoryUnit = String(row.inventory_unit || '').trim() || '-'
+  const conversion = normalizeFlatRowConversion(row.inventory_conversion_json)
+  const factor = Number(conversion?.[priceUnit]?.[inventoryUnit] || 0)
+  if (Number.isFinite(factor) && factor > 0) {
+    return `商品档案单位：1 ${priceUnit} = ${Number(factor.toFixed(8))} ${inventoryUnit}`
+  }
+  if (priceUnit && inventoryUnit && priceUnit === inventoryUnit) {
+    return `商品档案单位：${priceUnit} = ${inventoryUnit}`
+  }
+  return `商品档案单位：${priceUnit} -> ${inventoryUnit}`
 }
 
 function pricingRuleByID(id) {
@@ -2737,6 +2774,7 @@ function stripPricingRuleQuantityFields(value) {
 
 function customerReferenceSnapshotForPriceRow(item = {}) {
   return {
+    customer_product_alias_id: Number(item.customer_product_alias_id || item.customerProductAliasID || 0),
     customer_id: Number(item.customer_id || item.customerID || 0),
     customer_display_name: item.display_name_snapshot || item.customer_product_display_name || item.customerProductDisplayName || '',
     customer_item_code: item.customer_item_code_snapshot || item.customer_item_code || item.customerItemCode || '',

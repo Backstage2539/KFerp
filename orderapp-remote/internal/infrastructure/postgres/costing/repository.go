@@ -58,6 +58,267 @@ func (r Repository) LoadProductInputsForCustomer(ctx context.Context, params dom
 	return r.loadProductInputs(ctx, params, customerID)
 }
 
+func (r Repository) ResolveProductSalesUnitRule(ctx context.Context, productID int64, priceUnit string) (appcosting.ProductSalesUnitRule, error) {
+	priceUnit = strings.TrimSpace(priceUnit)
+	if productID <= 0 {
+		return appcosting.ProductSalesUnitRule{}, appcosting.ErrProductSalesUnitRuleNotFound
+	}
+	var inventoryUnit string
+	var defaultSalesUnit string
+	var conversionJSON string
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(
+		           NULLIF(p.unit_rule_override_json->>'inventory_unit',''),
+		           NULLIF(pct.inventory_unit,''),
+		           NULLIF(put.inventory_unit,''),
+		           NULLIF(pc.inventory_unit,''),
+		           NULLIF(pc_unit.inventory_unit,''),
+		           NULLIF(parent_pc.inventory_unit,''),
+		           NULLIF(parent_pc_unit.inventory_unit,''),
+		           'kg'
+		       ) AS inventory_unit,
+		       COALESCE(
+		           NULLIF(p.unit_rule_override_json->>'default_sales_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'quote_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'order_unit',''),
+		           NULLIF(pct.quote_unit,''),
+		           NULLIF(put.quote_unit,''),
+		           NULLIF(pc.quote_unit,''),
+		           NULLIF(pc_unit.quote_unit,''),
+		           NULLIF(parent_pc.quote_unit,''),
+		           NULLIF(parent_pc_unit.quote_unit,''),
+		           NULLIF(p.unit_rule_override_json->>'inventory_unit',''),
+		           NULLIF(pct.inventory_unit,''),
+		           NULLIF(put.inventory_unit,''),
+		           NULLIF(pc.inventory_unit,''),
+		           NULLIF(pc_unit.inventory_unit,''),
+		           NULLIF(parent_pc.inventory_unit,''),
+		           NULLIF(parent_pc_unit.inventory_unit,''),
+		           'kg'
+		       ) AS default_sales_unit,
+		       COALESCE(
+		           NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),
+		           NULLIF(p.unit_rule_override_json->>'conversion_json',''),
+		           NULLIF(pct.unit_conversion_json::text,'{}'),
+		           NULLIF(put.unit_conversion_json::text,'{}'),
+		           NULLIF(pc.unit_conversion_json::text,'{}'),
+		           NULLIF(pc_unit.unit_conversion_json::text,'{}'),
+		           NULLIF(parent_pc.unit_conversion_json::text,'{}'),
+		           NULLIF(parent_pc_unit.unit_conversion_json::text,'{}'),
+		           '{}'
+		       ) AS unit_conversion_json
+		FROM %[1]s.products p
+		LEFT JOIN %[1]s.product_config_templates pct ON pct.id = p.product_config_template_id AND pct.active = true
+		LEFT JOIN %[1]s.product_unit_templates put ON put.id = pct.unit_template_id AND put.active = true
+		LEFT JOIN %[1]s.product_categories pc ON pc.id = p.product_category_id AND pc.active = true
+		LEFT JOIN %[1]s.product_unit_templates pc_unit ON pc_unit.id = pc.unit_template_id AND pc_unit.active = true
+		LEFT JOIN %[1]s.product_categories parent_pc ON parent_pc.id = pc.parent_id AND parent_pc.active = true
+		LEFT JOIN %[1]s.product_unit_templates parent_pc_unit ON parent_pc_unit.id = parent_pc.unit_template_id AND parent_pc_unit.active = true
+		WHERE p.id=$1 AND p.active = true
+	`, r.schema), productID).Scan(&inventoryUnit, &defaultSalesUnit, &conversionJSON)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return appcosting.ProductSalesUnitRule{}, appcosting.ErrProductSalesUnitRuleNotFound
+		}
+		return appcosting.ProductSalesUnitRule{}, err
+	}
+	inventoryUnit = strings.TrimSpace(inventoryUnit)
+	if inventoryUnit == "" {
+		inventoryUnit = "kg"
+	}
+	defaultSalesUnit = strings.TrimSpace(defaultSalesUnit)
+	if priceUnit == "" {
+		priceUnit = defaultSalesUnit
+	}
+	if priceUnit == "" {
+		priceUnit = inventoryUnit
+	}
+	conversion := productSalesUnitConversionMap(conversionJSON, inventoryUnit)
+	if _, ok := conversion[priceUnit]; !ok && priceUnit == inventoryUnit {
+		conversion[priceUnit] = map[string]float64{inventoryUnit: 1}
+	}
+	targets := conversion[priceUnit]
+	if len(targets) == 0 {
+		return appcosting.ProductSalesUnitRule{}, appcosting.ErrProductSalesUnitRuleNotFound
+	}
+	return appcosting.ProductSalesUnitRule{ProductID: productID, InventoryUnit: inventoryUnit, Conversion: conversion}, nil
+}
+
+func (r Repository) ResolveCustomerProductSalesUnitRule(ctx context.Context, productID int64, customerProductAliasID int64, priceUnit string) (appcosting.ProductSalesUnitRule, error) {
+	priceUnit = strings.TrimSpace(priceUnit)
+	if productID <= 0 || customerProductAliasID <= 0 {
+		return appcosting.ProductSalesUnitRule{}, appcosting.ErrProductSalesUnitRuleNotFound
+	}
+	var inventoryUnit string
+	var defaultSalesUnit string
+	var conversionJSON string
+	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COALESCE(
+		           NULLIF(alias_config.inventory_unit,''),
+		           NULLIF(pct.inventory_unit,''),
+		           NULLIF(alias_legacy_unit.inventory_unit,''),
+		           NULLIF(cpro.unit_rule_json->>'inventory_unit',''),
+		           NULLIF(cpti.unit_rule_json->>'inventory_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'inventory_unit',''),
+		           NULLIF(put.inventory_unit,''),
+		           NULLIF(pc.inventory_unit,''),
+		           NULLIF(pc_unit.inventory_unit,''),
+		           NULLIF(parent_pc.inventory_unit,''),
+		           NULLIF(parent_pc_unit.inventory_unit,''),
+		           'kg'
+		       ) AS inventory_unit,
+		       COALESCE(
+		           NULLIF(alias_config.quote_unit,''),
+		           NULLIF(alias_config.order_unit,''),
+		           NULLIF(pct.quote_unit,''),
+		           NULLIF(pct.order_unit,''),
+		           NULLIF(alias_legacy_unit.quote_unit,''),
+		           NULLIF(alias_legacy_unit.order_unit,''),
+		           NULLIF(cpro.unit_rule_json->>'default_sales_unit',''),
+		           NULLIF(cpro.unit_rule_json->>'quote_unit',''),
+		           NULLIF(cpro.unit_rule_json->>'order_unit',''),
+		           NULLIF(cpti.unit_rule_json->>'default_sales_unit',''),
+		           NULLIF(cpti.unit_rule_json->>'quote_unit',''),
+		           NULLIF(cpti.unit_rule_json->>'order_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'default_sales_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'quote_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'order_unit',''),
+		           NULLIF(put.quote_unit,''),
+		           NULLIF(put.order_unit,''),
+		           NULLIF(pc.quote_unit,''),
+		           NULLIF(pc.order_unit,''),
+		           NULLIF(pc_unit.quote_unit,''),
+		           NULLIF(pc_unit.order_unit,''),
+		           NULLIF(parent_pc.quote_unit,''),
+		           NULLIF(parent_pc.order_unit,''),
+		           NULLIF(parent_pc_unit.quote_unit,''),
+		           NULLIF(parent_pc_unit.order_unit,''),
+		           NULLIF(alias_config.inventory_unit,''),
+		           NULLIF(pct.inventory_unit,''),
+		           NULLIF(alias_legacy_unit.inventory_unit,''),
+		           NULLIF(cpro.unit_rule_json->>'inventory_unit',''),
+		           NULLIF(cpti.unit_rule_json->>'inventory_unit',''),
+		           NULLIF(p.unit_rule_override_json->>'inventory_unit',''),
+		           NULLIF(put.inventory_unit,''),
+		           NULLIF(pc.inventory_unit,''),
+		           NULLIF(pc_unit.inventory_unit,''),
+		           NULLIF(parent_pc.inventory_unit,''),
+		           NULLIF(parent_pc_unit.inventory_unit,''),
+		           'kg'
+		       ) AS default_sales_unit,
+		       COALESCE(
+		           NULLIF(alias_config.unit_conversion_json::text,'{}'),
+		           NULLIF(pct.unit_conversion_json::text,'{}'),
+		           NULLIF(alias_legacy_unit.unit_conversion_json::text,'{}'),
+		           NULLIF(cpro.unit_rule_json->>'unit_conversion_json',''),
+		           NULLIF(cpro.unit_rule_json->>'conversion_json',''),
+		           NULLIF(cpti.unit_rule_json->>'unit_conversion_json',''),
+		           NULLIF(cpti.unit_rule_json->>'conversion_json',''),
+		           NULLIF(p.unit_rule_override_json->>'unit_conversion_json',''),
+		           NULLIF(p.unit_rule_override_json->>'conversion_json',''),
+		           NULLIF(put.unit_conversion_json::text,'{}'),
+		           NULLIF(pc.unit_conversion_json::text,'{}'),
+		           NULLIF(pc_unit.unit_conversion_json::text,'{}'),
+		           NULLIF(parent_pc.unit_conversion_json::text,'{}'),
+		           NULLIF(parent_pc_unit.unit_conversion_json::text,'{}'),
+		           '{}'
+		       ) AS unit_conversion_json
+		FROM %[1]s.products p
+		JOIN %[1]s.customer_product_aliases cpa ON cpa.id=$2 AND cpa.product_id=p.id AND cpa.active=true
+		LEFT JOIN %[1]s.product_config_templates alias_config ON alias_config.id=cpa.product_config_template_id AND alias_config.active=true
+		LEFT JOIN %[1]s.product_config_templates pct ON pct.id = p.product_config_template_id AND pct.active = true
+		LEFT JOIN %[1]s.product_unit_templates alias_legacy_unit ON alias_legacy_unit.id=cpa.unit_template_id AND alias_legacy_unit.active=true
+		LEFT JOIN %[1]s.product_unit_templates put ON put.id = pct.unit_template_id AND put.active = true
+		LEFT JOIN %[1]s.product_categories pc ON pc.id = p.product_category_id AND pc.active = true
+		LEFT JOIN %[1]s.product_unit_templates pc_unit ON pc_unit.id = pc.unit_template_id AND pc_unit.active = true
+		LEFT JOIN %[1]s.product_categories parent_pc ON parent_pc.id = pc.parent_id AND parent_pc.active = true
+		LEFT JOIN %[1]s.product_unit_templates parent_pc_unit ON parent_pc_unit.id = parent_pc.unit_template_id AND parent_pc_unit.active = true
+		LEFT JOIN %[1]s.customers rule_customer ON rule_customer.id=cpa.customer_id AND rule_customer.active=true
+		LEFT JOIN %[1]s.customer_product_rule_template_items cpti
+		  ON cpti.active=true
+		 AND cpti.template_id=COALESCE(rule_customer.customer_product_rule_template_id,0)
+		 AND cpti.product_subtype_category_id=CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.id,0) ELSE 0 END
+		LEFT JOIN %[1]s.customer_product_rule_overrides cpro
+		  ON cpro.active=true
+		 AND cpro.customer_id=cpa.customer_id
+		 AND cpro.product_subtype_category_id=CASE WHEN COALESCE(pc.level,0)=2 THEN COALESCE(pc.id,0) ELSE 0 END
+		WHERE p.id=$1 AND p.active = true
+	`, r.schema), productID, customerProductAliasID).Scan(&inventoryUnit, &defaultSalesUnit, &conversionJSON)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return appcosting.ProductSalesUnitRule{}, appcosting.ErrProductSalesUnitRuleNotFound
+		}
+		return appcosting.ProductSalesUnitRule{}, err
+	}
+	inventoryUnit = strings.TrimSpace(inventoryUnit)
+	if inventoryUnit == "" {
+		inventoryUnit = "kg"
+	}
+	defaultSalesUnit = strings.TrimSpace(defaultSalesUnit)
+	if priceUnit == "" {
+		priceUnit = defaultSalesUnit
+	}
+	if priceUnit == "" {
+		priceUnit = inventoryUnit
+	}
+	conversion := productSalesUnitConversionMap(conversionJSON, inventoryUnit)
+	if _, ok := conversion[priceUnit]; !ok && priceUnit == inventoryUnit {
+		conversion[priceUnit] = map[string]float64{inventoryUnit: 1}
+	}
+	targets := conversion[priceUnit]
+	if len(targets) == 0 {
+		return appcosting.ProductSalesUnitRule{}, appcosting.ErrProductSalesUnitRuleNotFound
+	}
+	return appcosting.ProductSalesUnitRule{ProductID: productID, InventoryUnit: inventoryUnit, Conversion: conversion}, nil
+}
+
+func productSalesUnitConversionMap(raw string, inventoryUnit ...string) map[string]map[string]float64 {
+	out := map[string]map[string]float64{}
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "{}" || raw == "null" {
+		return out
+	}
+	targetInventoryUnit := "kg"
+	if len(inventoryUnit) > 0 {
+		if unit := strings.TrimSpace(inventoryUnit[0]); unit != "" {
+			targetInventoryUnit = unit
+		}
+	}
+	var generic map[string]any
+	if err := json.Unmarshal([]byte(raw), &generic); err != nil || generic == nil {
+		return out
+	}
+	for fromUnit, rawTargets := range generic {
+		fromUnit = strings.TrimSpace(fromUnit)
+		if fromUnit == "" {
+			continue
+		}
+		targets, ok := rawTargets.(map[string]any)
+		if !ok {
+			factor := anyFloat64(rawTargets)
+			if factor > 0 && targetInventoryUnit != "" {
+				if out[fromUnit] == nil {
+					out[fromUnit] = map[string]float64{}
+				}
+				out[fromUnit][targetInventoryUnit] = factor
+			}
+			continue
+		}
+		for toUnit, rawFactor := range targets {
+			toUnit = strings.TrimSpace(toUnit)
+			factor := anyFloat64(rawFactor)
+			if toUnit == "" || factor <= 0 {
+				continue
+			}
+			if out[fromUnit] == nil {
+				out[fromUnit] = map[string]float64{}
+			}
+			out[fromUnit][toUnit] = factor
+		}
+	}
+	return out
+}
+
 func (r Repository) LoadProductPricingRule(ctx context.Context, id int64) (appcosting.ProductPricingRule, error) {
 	if id <= 0 {
 		return appcosting.ProductPricingRule{}, appcosting.ErrProductPricingRuleNotFound
@@ -2427,6 +2688,27 @@ func anyInt64(value any) int64 {
 	case string:
 		i, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
 		return i
+	default:
+		return 0
+	}
+}
+
+func anyFloat64(value any) float64 {
+	switch v := value.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case json.Number:
+		f, _ := v.Float64()
+		return f
+	case string:
+		f, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		return f
 	default:
 		return 0
 	}

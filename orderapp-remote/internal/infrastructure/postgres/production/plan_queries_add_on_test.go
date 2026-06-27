@@ -2,6 +2,8 @@ package production
 
 import (
 	productionapp "orderapp/internal/application/production"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -113,5 +115,41 @@ func TestSelectedProductionPlanStartNeedsKeepsAddOnOrdersWhenOlderOrdersArePlann
 	}
 	if needs[0] != want {
 		t.Fatalf("selected start need = %+v, want %+v", needs[0], want)
+	}
+}
+
+func TestDripProductionPlanNeedsUseOrderPriceSnapshotUnitConversion(t *testing.T) {
+	b, err := os.ReadFile("plan_queries.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) fetchDripPlanNeeds")
+	if start < 0 {
+		t.Fatalf("missing fetchDripPlanNeeds")
+	}
+	end := strings.Index(src[start:], "func defaultPlanParams")
+	if end < 0 {
+		t.Fatalf("missing fetchDripPlanNeeds end marker")
+	}
+	fn := src[start : start+end]
+	for _, want := range []string{
+		"price_source_json",
+		"inventory_conversion_json",
+		"inventory_unit",
+		"sales_unit",
+		"COALESCE(NULLIF(oi.sales_unit,''), NULLIF(oi.unit,''), oi.price_source_json->>'price_unit')",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("drip production demand must use order price snapshot unit conversion; missing %q", want)
+		}
+	}
+	for _, banned := range []string{
+		"= 'box'",
+		`= "box"`,
+	} {
+		if strings.Contains(fn, banned) {
+			t.Fatalf("drip production demand must not hard-code box conversion; found %q", banned)
+		}
 	}
 }

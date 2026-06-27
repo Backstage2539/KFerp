@@ -44,6 +44,7 @@ import {
   applyPricingRuleTrialToPriceTableRow,
   priceTablePricingRuleTrialPayload,
   buildProductProductionConfigForm,
+  buildProductProductionConfigBasicsPayload,
   buildProductUnitDefinitionPayload,
   buildProductUnitTemplatePayload,
   buildProductBasicsPayload,
@@ -635,7 +636,7 @@ test('price table resolves pricing mode by product, subgroup, parent group, pric
   })
 
   assert.deepEqual(buildPriceTableRowsFromTemplateResolution({
-    product: { id: 88, name: '初晓拼配', inventory_unit: 'kg' },
+    product: { id: 88, name: '初晓拼配', inventory_unit: 'kg', default_sales_unit: '盒', unit_conversion_json: '{"盒":{"kg":0.2}}' },
     resolution: resolved,
     tierTemplate: {
       id: 3,
@@ -652,14 +653,14 @@ test('price table resolves pricing mode by product, subgroup, parent group, pric
     },
     unitPriceByTier: { '1kg+': 88, '10kg+': 78 },
   }), [
-    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', tier_label: '1kg+', min_qty: 1, max_qty: 9, final_unit_price: 88, pricing_mode: 'tier_template', pricing_mode_source: 'subgroup', tier_template_id: 3, tier_template_source: 'subgroup', template_tier_id: 31, pricing_rule_id: 41, pricing_rule_source: 'subgroup', pricing_rule_version: 'PR-1KG', tier_pricing_rule_id: 41, tier_pricing_rule_version: 'PR-1KG' },
-    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', tier_label: '10kg+', min_qty: 10, max_qty: null, final_unit_price: 78, pricing_mode: 'tier_template', pricing_mode_source: 'subgroup', tier_template_id: 3, tier_template_source: 'subgroup', template_tier_id: 32, pricing_rule_id: 42, pricing_rule_source: 'subgroup', pricing_rule_version: 'PR-10KG', tier_pricing_rule_id: 42, tier_pricing_rule_version: 'PR-10KG' },
+    { product_id: 88, product_name: '初晓拼配', price_unit: '盒', inventory_unit: 'kg', inventory_conversion_json: { 盒: { kg: 0.2 } }, tier_label: '1kg+', min_qty: 1, max_qty: 9, final_unit_price: 88, pricing_mode: 'tier_template', pricing_mode_source: 'subgroup', tier_template_id: 3, tier_template_source: 'subgroup', template_tier_id: 31, pricing_rule_id: 41, pricing_rule_source: 'subgroup', pricing_rule_version: 'PR-1KG', tier_pricing_rule_id: 41, tier_pricing_rule_version: 'PR-1KG' },
+    { product_id: 88, product_name: '初晓拼配', price_unit: '盒', inventory_unit: 'kg', inventory_conversion_json: { 盒: { kg: 0.2 } }, tier_label: '10kg+', min_qty: 10, max_qty: null, final_unit_price: 78, pricing_mode: 'tier_template', pricing_mode_source: 'subgroup', tier_template_id: 3, tier_template_source: 'subgroup', template_tier_id: 32, pricing_rule_id: 42, pricing_rule_source: 'subgroup', pricing_rule_version: 'PR-10KG', tier_pricing_rule_id: 42, tier_pricing_rule_version: 'PR-10KG' },
   ])
 })
 
 test('price table can generate a single row from pricing rule mode or fixed price mode', () => {
   assert.deepEqual(buildPriceTableRowsFromTemplateResolution({
-    product: { id: 88, name: '初晓拼配', inventory_unit: 'kg' },
+    product: { id: 88, name: '初晓拼配', inventory_unit: 'kg', default_sales_unit: 'kg' },
     resolution: {
       pricing_mode: 'pricing_rule',
       pricing_mode_source: 'parent_group',
@@ -669,11 +670,11 @@ test('price table can generate a single row from pricing rule mode or fixed pric
     pricingRule: { id: 40, code: 'PR-BASE' },
     unitPriceByTier: { default: 86 },
   }), [
-    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', tier_label: '基础价', min_qty: 0, max_qty: null, final_unit_price: 86, pricing_mode: 'pricing_rule', pricing_mode_source: 'parent_group', tier_template_id: 0, tier_template_source: '', template_tier_id: 0, pricing_rule_id: 40, pricing_rule_source: 'parent_group', pricing_rule_version: 'PR-BASE', tier_pricing_rule_id: 0, tier_pricing_rule_version: '' },
+    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', inventory_unit: 'kg', inventory_conversion_json: { kg: { kg: 1 } }, tier_label: '基础价', min_qty: 0, max_qty: null, final_unit_price: 86, pricing_mode: 'pricing_rule', pricing_mode_source: 'parent_group', tier_template_id: 0, tier_template_source: '', template_tier_id: 0, pricing_rule_id: 40, pricing_rule_source: 'parent_group', pricing_rule_version: 'PR-BASE', tier_pricing_rule_id: 0, tier_pricing_rule_version: '' },
   ])
 
   assert.deepEqual(buildPriceTableRowsFromTemplateResolution({
-    product: { id: 88, name: '初晓拼配', inventory_unit: 'kg' },
+    product: { id: 88, name: '初晓拼配', inventory_unit: 'kg', default_sales_unit: 'kg' },
     resolution: {
       pricing_mode: 'fixed_price',
       pricing_mode_source: 'product',
@@ -681,7 +682,7 @@ test('price table can generate a single row from pricing rule mode or fixed pric
       fixed_unit_price_source: 'product',
     },
   }), [
-    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', tier_label: '固定价', min_qty: 0, max_qty: null, final_unit_price: 73.5, pricing_mode: 'fixed_price', pricing_mode_source: 'product', tier_template_id: 0, tier_template_source: '', template_tier_id: 0, pricing_rule_id: 0, pricing_rule_source: '', pricing_rule_version: '', tier_pricing_rule_id: 0, tier_pricing_rule_version: '', fixed_unit_price: 73.5 },
+    { product_id: 88, product_name: '初晓拼配', price_unit: 'kg', inventory_unit: 'kg', inventory_conversion_json: { kg: { kg: 1 } }, tier_label: '固定价', min_qty: 0, max_qty: null, final_unit_price: 73.5, pricing_mode: 'fixed_price', pricing_mode_source: 'product', tier_template_id: 0, tier_template_source: '', template_tier_id: 0, pricing_rule_id: 0, pricing_rule_source: '', pricing_rule_version: '', tier_pricing_rule_id: 0, tier_pricing_rule_version: '', fixed_unit_price: 73.5 },
   ])
 })
 
@@ -1396,6 +1397,8 @@ test('product create and basics payload carry inventory unit master data', () =>
     yield_percent: 80,
     inventory_unit: ' 盒 ',
     integer_inventory_unit: true,
+    default_sales_unit: ' 箱 ',
+    unit_conversion_rows: [{ from_qty: 1, from_unit: '箱', to_qty: 12, to_unit: '盒', integer_sales_unit: true }],
   }), {
     name: '盒装速溶',
     product_kind: 'instant_coffee',
@@ -1403,6 +1406,9 @@ test('product create and basics payload carry inventory unit master data', () =>
     yield_rate: 0.8,
     inventory_unit: '盒',
     integer_inventory_unit: true,
+    default_sales_unit: '箱',
+    unit_conversion_json: { 箱: { 盒: 12 } },
+    sales_unit_rules: { 箱: { integer_unit: true } },
   })
 
   assert.deepEqual(buildProductBasicsPayload({
@@ -1412,6 +1418,8 @@ test('product create and basics payload carry inventory unit master data', () =>
     yield_percent: 80,
     inventory_unit: ' 个 ',
     integer_inventory_unit: false,
+    default_sales_unit: ' 盒 ',
+    unit_conversion_rows: [{ from_qty: 1, from_unit: '盒', to_qty: 10, to_unit: '个', integer_sales_unit: true }],
     unit_rule_override_json: '{"order_unit":"箱","legacy_key":"keep"}',
   }), {
     name: '盒装速溶',
@@ -1420,8 +1428,40 @@ test('product create and basics payload carry inventory unit master data', () =>
     yield_rate: 0.8,
     inventory_unit: '个',
     integer_inventory_unit: false,
+    default_sales_unit: '盒',
+    unit_conversion_json: { 盒: { 个: 10 } },
+    sales_unit_rules: { 盒: { integer_unit: true } },
     unit_rule_override_json: '{"order_unit":"箱","legacy_key":"keep"}',
   })
+})
+
+test('product production config save does not turn inherited sales units into product overrides', () => {
+  const inheritedProduct = {
+    id: 88,
+    name: '初晓拼配',
+    product_kind: 'roasted',
+    inventory_unit: 'kg',
+    default_sales_unit: 'kg',
+    unit_conversion_json: '{"kg":{"kg":1}}',
+    sales_unit_rules: '{}',
+    unit_rule_override_json: '{"legacy_key":"keep"}',
+  }
+  const inheritedForm = buildProductProductionConfigForm(null, inheritedProduct)
+  const inheritedPayload = buildProductProductionConfigBasicsPayload(inheritedProduct, inheritedForm)
+  assert.equal(Object.hasOwn(inheritedPayload, 'default_sales_unit'), false)
+  assert.equal(Object.hasOwn(inheritedPayload, 'unit_conversion_json'), false)
+  assert.equal(Object.hasOwn(inheritedPayload, 'sales_unit_rules'), false)
+  assert.equal(inheritedPayload.inventory_unit, 'kg')
+
+  const editedForm = {
+    ...inheritedForm,
+    default_sales_unit: '盒',
+    unit_conversion_rows: [{ from_qty: 1, from_unit: '盒', to_qty: 0.2, to_unit: 'kg', integer_sales_unit: true }],
+  }
+  const editedPayload = buildProductProductionConfigBasicsPayload(inheritedProduct, editedForm)
+  assert.equal(editedPayload.default_sales_unit, '盒')
+  assert.deepEqual(editedPayload.unit_conversion_json, { 盒: { kg: 0.2 } })
+  assert.deepEqual(editedPayload.sales_unit_rules, { 盒: { integer_unit: true } })
 })
 
 test('SKU config override payload carries template and unit rule overrides', () => {
@@ -1436,7 +1476,7 @@ test('SKU config override payload carries template and unit rule overrides', () 
   })
 })
 
-test('product inventory unit controls are in create and product config drawers', () => {
+test('product inventory and sales unit controls are in create and product config drawers', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const createForm = source.match(/<form class="sku-create-form product-create-form product-drawer-form"[\s\S]*?<\/form>/)?.[0] || ''
   const configDrawer = source.match(/<aside class="settings-drawer product-production-config-drawer"[\s\S]*?<\/aside>/)?.[0] || ''
@@ -1445,8 +1485,12 @@ test('product inventory unit controls are in create and product config drawers',
   for (const marker of [
     '库存单位',
     '整数库存',
+    '销售单位换算',
+    '默认销售单位',
     'skuForm.inventory_unit',
     'skuForm.integer_inventory_unit',
+    'skuForm.default_sales_unit',
+    'skuForm.unit_conversion_rows',
     'activeProductUnitDefinitions',
   ]) {
     assert.match(createForm, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
@@ -1454,8 +1498,12 @@ test('product inventory unit controls are in create and product config drawers',
   for (const marker of [
     '库存单位',
     '整数库存',
+    '销售单位换算',
+    '默认销售单位',
     'productProductionConfigForm.inventory_unit',
     'productProductionConfigForm.integer_inventory_unit',
+    'productProductionConfigForm.default_sales_unit',
+    'productProductionConfigForm.unit_conversion_rows',
     'activeProductUnitDefinitions',
   ]) {
     assert.match(baseSection, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))

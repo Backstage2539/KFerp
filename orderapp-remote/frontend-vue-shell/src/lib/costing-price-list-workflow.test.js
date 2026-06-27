@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import fs from 'node:fs'
 import {
   dedupePriceListFlatRows,
   priceListPricingRuleTrialRequestsForRows,
@@ -108,5 +109,14 @@ describe('costing price-list workflow helpers', () => {
       '88:tier-template:3:31',
       '88:tier-template:3:32',
     ])
+  })
+
+  it('product price list flat rows read product master sales unit conversion', () => {
+    const source = fs.readFileSync(new URL('../views/CostingView.vue', import.meta.url), 'utf8')
+
+    assert.match(source, /default_sales_unit/)
+    assert.match(source, /unit_conversion_json/)
+    assert.match(source, /priceListFlatRowUnitSummary/)
+    assert.match(source, /商品档案单位/)
   })
 })

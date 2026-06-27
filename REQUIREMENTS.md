@@ -504,3 +504,9 @@
 - Vue/Vite 手册页必须通过通用手册视图读取对应 `OP_MANUAL_*.md?raw=1`，保证 `orderapp-remote/docs` 源文件、部署 docs 和界面内容一致。
 - 所有大功能 `orderapp-remote/docs/OP_MANUAL_*.md` 必须包含 `## 流程图` 和 Mermaid `flowchart` 图示，不能只写文字步骤。
 - Vue/Vite 手册页必须把 Mermaid 流程图渲染成节点和箭头图示；无法识别的图示代码必须保留为代码块，不能让手册空白。
+
+## 10. 商品 UOM 与销售换算（PR-501-PRODUCT-UOM-SALES-CONVERSION）
+- 商品档案是 UOM 主数据入口，维护库存单位、默认销售单位、销售单位到库存单位换算和整数销售单位规则；v1 继续写入 `products.unit_rule_override_json`，不新增独立 UOM 表。
+- 商品价格管理只维护 Pricing Rule / 价格计算模板，不维护单位换算；商品价格表只选择价格单位并在发布快照中固化当时的商品档案库存单位和换算。
+- 录单和客户下单使用已发布价格表快照保存销售数量、销售单位、价格单位和库存单位数量；生产计划、工单、BOM、WIP、成品入库和库存流水只使用库存单位数量。
+- BOM 产出单位继续只取商品库存单位，不允许在 BOM 中手填销售单位或价格单位；历史价格表、订单、BOM、工单和库存流水不回改。

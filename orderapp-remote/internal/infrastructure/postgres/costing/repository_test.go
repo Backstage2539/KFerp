@@ -366,6 +366,62 @@ func TestLoadProductInputsForCustomerAliasConfigTemplateOverridesProductTemplate
 	}
 }
 
+func TestResolveProductSalesUnitRuleUsesProductMasterAndLegacyFallbacks(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	start := strings.Index(src, "func (r Repository) ResolveProductSalesUnitRule")
+	if start < 0 {
+		t.Fatalf("missing ResolveProductSalesUnitRule")
+	}
+	end := strings.Index(src[start:], "func productSalesUnitConversionMap")
+	if end < 0 {
+		t.Fatalf("missing ResolveProductSalesUnitRule end marker")
+	}
+	fn := src[start : start+end]
+	for _, want := range []string{
+		"NULLIF(p.unit_rule_override_json->>'inventory_unit','')",
+		"NULLIF(p.unit_rule_override_json->>'default_sales_unit','')",
+		"NULLIF(p.unit_rule_override_json->>'unit_conversion_json','')",
+		"LEFT JOIN %[1]s.product_config_templates pct",
+		"LEFT JOIN %[1]s.product_unit_templates put",
+		"LEFT JOIN %[1]s.product_categories pc",
+		"LEFT JOIN %[1]s.product_categories parent_pc",
+		"NULLIF(pct.inventory_unit,'')",
+		"NULLIF(put.inventory_unit,'')",
+		"NULLIF(pc.inventory_unit,'')",
+		"NULLIF(parent_pc.inventory_unit,'')",
+		"NULLIF(pct.unit_conversion_json::text,'{}')",
+		"NULLIF(put.unit_conversion_json::text,'{}')",
+		"NULLIF(pc.unit_conversion_json::text,'{}')",
+		"NULLIF(parent_pc.unit_conversion_json::text,'{}')",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("ResolveProductSalesUnitRule must use product unit master data and legacy fallbacks; missing %q", want)
+		}
+	}
+	if !strings.Contains(fn, "productSalesUnitConversionMap(conversionJSON, inventoryUnit)") {
+		t.Fatalf("ResolveProductSalesUnitRule must parse legacy flat conversion JSON against the resolved inventory unit")
+	}
+}
+
+func TestProductSalesUnitConversionMapAcceptsLegacyFlatConversions(t *testing.T) {
+	got := productSalesUnitConversionMap(`{"盒":0.2,"袋":"0.25"}`, "kg")
+	if got["盒"]["kg"] != 0.2 {
+		t.Fatalf("盒 conversion = %#v, want 0.2 kg", got["盒"])
+	}
+	if got["袋"]["kg"] != 0.25 {
+		t.Fatalf("袋 conversion = %#v, want 0.25 kg", got["袋"])
+	}
+
+	nested := productSalesUnitConversionMap(`{"箱":{"盒":24}}`, "kg")
+	if nested["箱"]["盒"] != 24 {
+		t.Fatalf("nested conversion = %#v, want existing nested conversion preserved", nested["箱"])
+	}
+}
+
 func TestLoadProductInputsUsesClassificationConfigTemplatesBeforeLegacyFallback(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {
