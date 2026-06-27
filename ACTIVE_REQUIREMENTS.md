@@ -9,7 +9,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 ### PR-501-PRODUCT-UOM-SALES-CONVERSION
 - Branch: codex/product-uom-sales-conversion-20260627
 - Owner/session: Codex / 2026-06-27
-- Status: implemented locally; targeted backend/frontend checks, frontend build, changed verifier and diff check passing; merge/development deploy pending.
+- Status: merged to develop and deployed to development; targeted backend/frontend checks, frontend build, changed verifier, Docker build tests, API smoke and read-only browser smoke passed.
 - Scope: 商品档案成为 UOM 主数据入口，维护库存单位、默认销售单位、销售单位到库存单位换算和整数销售规则；商品价格管理只维护 Pricing Rule / 价格计算模板，不维护单位换算；商品价格表按商品档案可销售单位生成价格单位候选，发布时后端重新读取商品单位换算并固化到价格表快照；录单和生产计划使用已发布价格表/订单快照中的价格单位和库存换算，BOM 产出单位继续只取商品库存单位。
 - DEV:
   - DEV-501-PRODUCT-UOM-MASTER：创建商品档案和商品档案配置抽屉新增默认销售单位、销售单位换算和整数销售单位，继续写入 `products.unit_rule_override_json` 并保留历史键。
@@ -21,7 +21,7 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
   - GREEN frontend/build: `node --test src/lib/product-settings.test.js src/lib/costing-price-list-workflow.test.js src/lib/bom.test.js src/lib/order-entry.test.js src/lib/produce-plan.test.js`; `npm ci`; `npm run build` passed with existing large-chunk warning.
   - GREEN verifier: `scripts/verify_kferp.sh changed`; `git diff --check`.
 - Manual/docs: updated `orderapp-remote/docs/REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, costing/order/production/inventory manuals, root requirement summaries, and `orderapp-remote/docs/acceptance/2026-06-27-product-uom-sales-conversion.md`.
-- Deployment: pending merge and development deployment.
+- Deployment: feature branch pushed and fast-forwarded into `develop` at `965ed099591cb2da5a52fe15697b9288f5523e49`; development stack deployed with Docker build `go test ./...` passing. Backup from deploy: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260627172509`. Smoke: `erp_orderapp`, `erp_postgres`, `erp_caddy`, and `erp_docconvert` running; unauth/auth `/app/` returned `303`; authenticated `/app/vue-shell/?view=productSettings` and `/app/vue-shell/?view=productPriceLists` returned `200`; authenticated `/api/product-settings`, `/api/bom/products`, `/api/production-boms?status=all`, `/api/order/form`, `/api/costing/bean-list`, `/api/costing/bean-list/publications`, and `/api/produce/unproduced` returned `200`; deployed `/api/product-settings` exposes `inventory_unit`, `default_sales_unit`, `unit_conversion_json`, and `sales_unit_rules`; deployed `/api/bom/products` exposes `inventory_unit`; browser smoke opened the 商品档案新增抽屉 and verified `库存单位`、`整数库存`、`默认销售单位`、`销售单位换算`、`整数销售单位`.
 - Last update: 2026-06-27 Asia/Shanghai.
 
 ### PR-500-UNIT-MODEL-CONSOLIDATION

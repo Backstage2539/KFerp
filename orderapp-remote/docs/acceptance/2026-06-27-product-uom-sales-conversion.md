@@ -27,7 +27,10 @@
 - `scripts/verify_kferp.sh changed`
 - `git diff --check`
 
-## 待最终发布验证
+## 部署验证
 
-- 浏览器验收：商品档案配置 `库存单位=kg`、`默认销售单位=盒`、`1 盒 = 0.2 kg`，商品价格表按 `盒` 发布，录单 `100 盒` 后生产计划显示或计算为 `20 kg` 库存单位需求。
-- 部署后 smoke：`/api/product-settings`、`/api/order/form`、`/api/costing/bean-lists`、`/api/produce/unproduced` 返回 200 且单位字段正确。
+- 部署：feature branch fast-forward merged to `develop` at `965ed099591cb2da5a52fe15697b9288f5523e49`; development stack deployed by `./deploy_orderapp.sh`. Backup: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260627172509`.
+- Docker build gate: container build ran `go test ./...` and passed.
+- API smoke: authenticated `/api/product-settings`、`/api/bom/products`、`/api/production-boms?status=all`、`/api/order/form`、`/api/costing/bean-list`、`/api/costing/bean-list/publications`、`/api/produce/unproduced` returned `200`.
+- Field smoke: deployed `/api/product-settings` exposes `inventory_unit`、`default_sales_unit`、`unit_conversion_json`、`sales_unit_rules`; deployed `/api/bom/products` exposes `inventory_unit`.
+- Browser smoke: deployed 商品档案页面 opened; 创建新商品档案抽屉 shows `库存单位`、`整数库存`、`默认销售单位`、`销售单位换算`、`整数销售单位`.
