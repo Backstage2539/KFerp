@@ -520,6 +520,40 @@ func TestPricingRuleTrialDetailsUseProductionBomOutputProductFallback(t *testing
 	}
 }
 
+func TestPricingRuleTrialDetailsConvertGramBomItemsToKgCost(t *testing.T) {
+	b, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	fnStart := strings.Index(src, "func (r Repository) LoadPricingRuleTrialBaseCostDetails")
+	if fnStart < 0 {
+		t.Fatal("LoadPricingRuleTrialBaseCostDetails not found")
+	}
+	fnEnd := strings.Index(src[fnStart:], "func (r Repository) loadProductInputs")
+	if fnEnd < 0 {
+		t.Fatal("loadProductInputs not found after LoadPricingRuleTrialBaseCostDetails")
+	}
+	fn := src[fnStart : fnStart+fnEnd]
+	for _, want := range []string{
+		"WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct')='g'",
+		"THEN COALESCE(bi.qty_per_unit,0) / 1000.0 * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)",
+		"WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct')='kg'",
+		"THEN COALESCE(bi.qty_per_unit,0) * COALESCE(NULLIF(mv.weighted_unit_cost,0), NULLIF(m.purchase_price,0), NULLIF(bi.unit_cost_snapshot,0), 0)",
+	} {
+		if !strings.Contains(fn, want) {
+			t.Fatalf("pricing rule trial BOM detail cost must convert generic g/kg quantities with kg material cost; missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"WHEN COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct') IN ('unit_per_bag','unit_per_box','fixed_qty','unit','g','kg','length','area')",
+	} {
+		if strings.Contains(fn, forbidden) {
+			t.Fatalf("generic g/kg BOM detail costs must not be priced as raw quantity without kg conversion; found %q", forbidden)
+		}
+	}
+}
+
 func TestLoadProductInputsReadsSkuCategoryPathForCustomerBeanLists(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

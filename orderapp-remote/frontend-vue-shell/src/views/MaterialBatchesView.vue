@@ -12,11 +12,11 @@
     <section class="panel">
       <div class="table-wrap">
         <table>
-          <thead><tr><th>批次号</th><th>物料</th><th>供应商</th><th>产季</th><th>产地</th><th>产家风味描述</th><th>入库单</th><th>入库(g)</th><th>剩余(g)</th><th>成本</th><th>库存状态</th><th>质检</th><th>时间</th><th>备注</th></tr></thead>
+          <thead><tr><th>批次号</th><th>物料</th><th>供应商</th><th>产季</th><th>产地</th><th>产家风味描述</th><th>入库单</th><th>入库库存数量</th><th>剩余库存数量</th><th>成本</th><th>库存状态</th><th>质检</th><th>时间</th><th>备注</th></tr></thead>
           <tbody>
             <tr v-for="row in rows" :key="row.id">
               <td>{{ row.batch_code }}</td><td>{{ row.material_name }}</td><td>{{ row.supplier || '-' }}</td><td>{{ row.crop_season || '-' }}</td><td>{{ row.origin || '-' }}</td><td>{{ row.producer_flavor_description || '-' }}</td><td>#{{ row.receipt_id }}</td>
-              <td>{{ row.qty_g }}</td><td>{{ row.remaining_g }}</td><td>{{ money(row.unit_cost) }}</td><td>{{ row.status }}</td><td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td><td>{{ row.received_at }}</td><td>{{ row.note }}</td>
+              <td>{{ quantityLabel(row, 'qty') }}</td><td>{{ quantityLabel(row, 'remaining') }}</td><td>{{ money(row.unit_cost) }}</td><td>{{ row.status }}</td><td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td><td>{{ row.received_at }}</td><td>{{ row.note }}</td>
             </tr>
             <tr v-if="!rows.length"><td colspan="14" class="muted">暂无原料批次</td></tr>
           </tbody>
@@ -49,6 +49,13 @@ const total = ref(0)
 const money = (v) => Number(v || 0).toFixed(2)
 const qualityLabel = (status) => ({ pass: '通过', hold: '待处理', reject: '不通过', unchecked: '未检' }[status || 'unchecked'] || '未检')
 const qualityClass = (status) => `quality-${status || 'unchecked'}`
+function quantityLabel(row, prefix) {
+  const qtyUnits = Number(row?.[`${prefix}_units`] || 0)
+  const qtyG = Number(row?.[`${prefix}_g`] || 0)
+  if (qtyUnits) return `${qtyUnits.toLocaleString('zh-CN')} 库存单位`
+  if (qtyG) return `${qtyG.toLocaleString('zh-CN')}g`
+  return '-'
+}
 async function loadPage(nextPage) {
   page.value = Math.max(1, Number(nextPage || 1))
   await load()

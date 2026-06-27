@@ -130,6 +130,7 @@
           <div><span>生产 BOM</span><strong>{{ currentProductionBomLabel }}</strong></div>
           <div><span>产出商品</span><strong>{{ outputProductLabel(detail) }}</strong></div>
           <div><span>产出数量</span><strong>{{ currentOutputBasisLabel }}</strong></div>
+          <div v-if="outputUnitMismatchWarning"><span>单位提示</span><strong class="warn">{{ outputUnitMismatchWarning }}</strong></div>
           <div><span>多层展开</span><strong>{{ usedByBoms.length ? `${usedByBoms.length} 个上层 BOM` : '可作为库存件' }}</strong></div>
           <div v-if="currentProductionBomWarning"><span>版本提示</span><strong class="warn">{{ currentProductionBomWarning }}</strong></div>
           <div><span>工艺参数</span><strong>{{ detail.roast_level || '-' }}</strong></div>
@@ -305,6 +306,7 @@
                 <select v-model="itemForm.consume_unit" :disabled="!detail || !canEditCurrentBomItems">
                   <option v-for="unit in currentConsumeUnitOptions" :key="unit.value" :value="unit.value">{{ unit.label }}</option>
                 </select>
+                <small>组件库存单位：{{ componentStockUnitLabel }}</small>
               </label>
               <label v-if="itemForm.consume_unit === 'ratio_pct'">
                 <span>比例 %</span>
@@ -377,7 +379,9 @@
           </label>
           <label>
             <span>产出单位</span>
-            <input v-model.trim="bomForm.output_unit" placeholder="例如 盒 / 条 / kg" :disabled="!canEditBomFormOutputBasis" />
+            <input :value="outputUnitDisplay" disabled />
+            <small data-source-text="来源：商品档案库存单位">{{ outputUnitSourceHint }}</small>
+            <small v-if="outputUnitMismatchWarning" class="warn">{{ outputUnitMismatchWarning }}</small>
           </label>
           <label v-if="bomForm.mode === 'edit'">
             <span>状态</span>
@@ -481,6 +485,9 @@ const productionBomDisplayGroups = computed(() => groupRowsByBusinessGroupTempla
   rowAssignment: productionBomBusinessGroupAssignment,
 }))
 const selectedProduct = computed(() => productByID(selectedProductId.value))
+const selectedBomOutputProduct = computed(() => productByID(bomForm.output_product_id))
+const outputUnitCode = computed(() => String(selectedBomOutputProduct.value?.inventory_unit || selectedProductionBomVersion.value?.output_unit || bomForm.output_unit || 'unit').trim() || 'unit')
+const outputUnitDisplay = computed(() => unitLabel(outputUnitCode.value))
 const rawReferencedProducts = computed(() => detail.value?.referenced_products || productionBomDetail.value?.referenced_products || [])
 const referencedProducts = computed(() => {
   const seen = new Set()
@@ -507,6 +514,18 @@ const currentProductionBomWarning = computed(() => productionBomVersionWarning(d
 const currentProductionBomID = computed(() => Number(detail.value?.production_bom_id || selectedProductionBomRecord.value?.production_bom_id || selectedProductionBomRecord.value?.id || 0))
 const currentOutputProductID = computed(() => Number(detail.value?.output_product_id || productionBomDetail.value?.output_product_id || selectedProductionBomRecord.value?.output_product_id || 0))
 const currentOutputBasisLabel = computed(() => `${qty(selectedProductionBomVersion.value?.output_qty || 1)} ${selectedProductionBomVersion.value?.output_unit || 'unit'}`)
+const currentOutputProduct = computed(() => productByID(bomDrawerOpen.value && Number(bomForm.output_product_id || 0) > 0 ? bomForm.output_product_id : currentOutputProductID.value))
+const outputUnitSourceHint = computed(() => {
+  const product = selectedBomOutputProduct.value || currentOutputProduct.value
+  const suffix = product && !productHasExplicitInventoryUnit(product) ? '；请先到商品档案设置库存单位' : ''
+  return `来源：商品档案库存单位${suffix}`
+})
+const outputUnitMismatchWarning = computed(() => {
+  const versionUnit = String(selectedProductionBomVersion.value?.output_unit || '').trim()
+  const productUnit = String(currentOutputProduct.value?.inventory_unit || selectedBomOutputProduct.value?.inventory_unit || '').trim()
+  if (!versionUnit || !productUnit || versionUnit === productUnit) return ''
+  return `当前版本产出单位为 ${unitLabel(versionUnit)}，商品档案库存单位为 ${unitLabel(productUnit)}；历史版本不会自动回改`
+})
 const bomFormTitle = computed(() => ({
   create: '新建生产 BOM',
   edit: '编辑 BOM',
@@ -544,6 +563,11 @@ const canSetCurrentBomAsDefault = computed(() => currentProductionBomID.value > 
 const canEditBomFormOutputBasis = computed(() => bomForm.mode !== 'edit' || canEditCurrentBomItems.value)
 const outputProductOptions = computed(() => products.value.filter(isBomProductCandidate))
 const productComponentOptions = computed(() => products.value.filter(isBomProductCandidate).filter((product) => Number(product.id || 0) !== Number(detail.value?.output_product_id || productionBomDetail.value?.output_product_id || 0)))
+const selectedComponent = computed(() => itemForm.component_type === 'product'
+  ? productByID(itemForm.component_product_id)
+  : materials.value.find((material) => Number(material.id || 0) === Number(itemForm.material_id || 0)))
+const componentStockUnitCode = computed(() => String(selectedComponent.value?.inventory_unit || selectedComponent.value?.unit || '').trim())
+const componentStockUnitLabel = computed(() => unitLabel(componentStockUnitCode.value || (itemForm.component_type === 'product' ? 'unit' : 'kg')))
 const ratioConsumeUnitOption = { value: 'ratio_pct', label: '比例 %' }
 const legacyConsumeUnitLabels = {
   g_per_bag: '克/袋',
@@ -697,6 +721,7 @@ function optionMeta(option) {
   parts.push('商品档案')
   if (option?.number) parts.push(option.number)
   if (option?.roast_level) parts.push(option.roast_level)
+  if (option?.inventory_unit) parts.push(`库存 ${unitLabel(option.inventory_unit)}`)
   return parts.join(' / ')
 }
 
@@ -745,6 +770,8 @@ function normalizeBomProduct(product) {
     ...product,
     id: Number(product.id || 0),
     customer_id: Number(product.customer_id || 0),
+    inventory_unit: String(product.inventory_unit || product.inventoryUnit || '').trim(),
+    inventory_unit_explicit: Boolean(product.inventory_unit_explicit ?? product.inventoryUnitExplicit ?? false),
   }
 }
 
@@ -781,8 +808,29 @@ function productByID(productId) {
   return products.value.find((product) => Number(product.id || 0) === id) || null
 }
 
+function productHasExplicitInventoryUnit(product = {}) {
+  if (Object.prototype.hasOwnProperty.call(product, 'inventory_unit_explicit') || Object.prototype.hasOwnProperty.call(product, 'inventoryUnitExplicit')) {
+    return Boolean(product.inventory_unit_explicit ?? product.inventoryUnitExplicit)
+  }
+  const raw = product.unit_rule_override_json ?? product.unitRuleOverrideJSON
+  if (typeof raw !== 'string' || !raw.trim()) return true
+  try {
+    const parsed = JSON.parse(raw)
+    return Boolean(String(parsed?.inventory_unit || '').trim())
+  } catch {
+    return true
+  }
+}
+
 function defaultDictionaryConsumeUnit() {
   return unitDictionaryConsumeUnitOptions.value[0]?.value || 'unit'
+}
+
+function unitLabel(unit) {
+  const code = String(unit || '').trim()
+  if (!code) return '-'
+  const row = productUnitDefinitions.value.find((candidate) => String(candidate.code || '').trim() === code)
+  return row?.name || code
 }
 
 function consumeUnitOptionsWithCurrent(includeRatio, currentUnit) {
@@ -1305,7 +1353,7 @@ async function saveProductionBomRecord() {
     name,
     output_product_id: outputProductID,
     output_qty: Number(bomForm.output_qty || 1),
-    output_unit: String(bomForm.output_unit || 'unit').trim() || 'unit',
+    output_unit: outputUnitCode.value,
     status: bomForm.status === 'inactive' ? 'inactive' : 'active',
   }
 	await mutate(async () => {

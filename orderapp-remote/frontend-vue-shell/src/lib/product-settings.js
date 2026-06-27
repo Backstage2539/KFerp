@@ -1272,12 +1272,15 @@ export function buildProductUnitDefinitionPayload(form = {}) {
 }
 
 export function buildProductUnitTemplatePayload(form = {}) {
+  const inventoryUnit = normalizeUnitText(form.inventory_unit, 'kg')
+  const salesUnit = normalizeUnitText(form.sales_unit, normalizeUnitText(form.quote_unit, normalizeUnitText(form.order_unit, inventoryUnit)))
   return {
     id: Number(form.id || 0),
     name: String(form.name || '').trim(),
-    inventory_unit: normalizeUnitText(form.inventory_unit, 'kg'),
-    quote_unit: normalizeUnitText(form.quote_unit, normalizeUnitText(form.inventory_unit, 'kg')),
-    order_unit: normalizeUnitText(form.order_unit, normalizeUnitText(form.quote_unit, normalizeUnitText(form.inventory_unit, 'kg'))),
+    inventory_unit: inventoryUnit,
+    sales_unit: salesUnit,
+    quote_unit: salesUnit,
+    order_unit: salesUnit,
     unit_conversion_json: Array.isArray(form.unit_conversion_rows)
       ? unitConversionJSONFromRows(form.unit_conversion_rows)
       : normalizeJSONString(form.unit_conversion_json),
@@ -1658,16 +1661,22 @@ export function productSubtypeCategoryOptionsForType(categoryTree = [], productT
 }
 
 export function buildProductCreatePayload(form = {}) {
-  const kind = normalizedProductKind(form)
-  const payload = {
-    name: String(form.name || '').trim(),
-    product_kind: kind,
-    remark: String(form.remark || '').trim(),
-  }
-  if (kind === 'green_bean') return payload
-  const yieldRate = normalizedYieldRateFromPercent(form)
-  if (yieldRate !== null) payload.yield_rate = yieldRate
-  return payload
+	const kind = normalizedProductKind(form)
+	const payload = {
+		name: String(form.name || '').trim(),
+		product_kind: kind,
+		remark: String(form.remark || '').trim(),
+	}
+	if (Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
+		payload.inventory_unit = String(form.inventory_unit || 'kg').trim() || 'kg'
+	}
+	if (Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
+		payload.integer_inventory_unit = Boolean(form.integer_inventory_unit)
+	}
+	if (kind === 'green_bean') return payload
+	const yieldRate = normalizedYieldRateFromPercent(form)
+	if (yieldRate !== null) payload.yield_rate = yieldRate
+	return payload
 }
 
 export function buildCustomProductCreatePayload(customerID, form = {}) {
@@ -1703,13 +1712,19 @@ export function buildCustomProductCreatePayload(customerID, form = {}) {
 }
 
 export function buildSkuCreatePayload(customerID, form = {}) {
-  const payload = {
-    customer_id: Number(customerID || form.customer_id || 0),
-    name: String(form.name || '').trim(),
-    remark: String(form.remark || '').trim(),
-    active: form.active === false ? false : true,
-  }
-  return payload
+	const payload = {
+		customer_id: Number(customerID || form.customer_id || 0),
+		name: String(form.name || '').trim(),
+		remark: String(form.remark || '').trim(),
+		active: form.active === false ? false : true,
+	}
+	if (Object.prototype.hasOwnProperty.call(form, 'inventory_unit')) {
+		payload.inventory_unit = String(form.inventory_unit || 'kg').trim() || 'kg'
+	}
+	if (Object.prototype.hasOwnProperty.call(form, 'integer_inventory_unit')) {
+		payload.integer_inventory_unit = Boolean(form.integer_inventory_unit)
+	}
+	return payload
 }
 
 export function resolveCreatedProductForConfig(result = {}, products = []) {
@@ -1762,13 +1777,15 @@ export function buildProductProductionConfigForm(config = {}, product = {}) {
   const sourceProduct = product && typeof product === 'object' ? product : {}
   const lossRate = Number(sourceConfig.expected_loss_rate ?? sourceProduct.expected_loss_rate ?? 0)
   const fields = Array.isArray(sourceConfig.fields) ? sourceConfig.fields : []
-  return {
-    product_id: Number(sourceConfig.product_id || sourceProduct.id || 0),
-    name: String(sourceProduct.name || '').trim(),
-    remark: String(sourceProduct.remark || '').trim(),
-    product_kind: sourceProduct.product_kind || 'roasted',
-    production_bom_id: Number(sourceConfig.production_bom_id || sourceProduct.production_bom_id || 0),
-    production_bom_version_id: Number(sourceConfig.production_bom_version_id || sourceProduct.production_bom_version_id || 0),
+	return {
+		product_id: Number(sourceConfig.product_id || sourceProduct.id || 0),
+		name: String(sourceProduct.name || '').trim(),
+		remark: String(sourceProduct.remark || '').trim(),
+		product_kind: sourceProduct.product_kind || 'roasted',
+		inventory_unit: String(sourceProduct.inventory_unit || 'kg').trim() || 'kg',
+		integer_inventory_unit: Boolean(sourceProduct.integer_inventory_unit || sourceProduct.integer_unit || sourceProduct.stock_integer_unit),
+		production_bom_id: Number(sourceConfig.production_bom_id || sourceProduct.production_bom_id || 0),
+		production_bom_version_id: Number(sourceConfig.production_bom_version_id || sourceProduct.production_bom_version_id || 0),
     process_route_id: Number(sourceConfig.process_route_id || 0),
     industry_field_template_id: Number(sourceConfig.industry_field_template_id || 0),
     expected_loss_percent: Number.isFinite(lossRate) && lossRate > 0 ? Number((lossRate * 100).toFixed(2)) : 0,
@@ -1786,10 +1803,19 @@ export function buildProductBasicsPayload(row = {}) {
     product_kind: kind,
     remark: String(row.remark || '').trim(),
   }
-  const name = String(row.name || '').trim()
-  if (name) payload.name = name
-  if (kind !== 'green_bean') {
-    const yieldRate = normalizedYieldRateFromPercent(row)
+	const name = String(row.name || '').trim()
+	if (name) payload.name = name
+	if (Object.prototype.hasOwnProperty.call(row, 'inventory_unit')) {
+		payload.inventory_unit = String(row.inventory_unit || 'kg').trim() || 'kg'
+	}
+	if (Object.prototype.hasOwnProperty.call(row, 'integer_inventory_unit')) {
+		payload.integer_inventory_unit = Boolean(row.integer_inventory_unit)
+	}
+	if (Object.prototype.hasOwnProperty.call(row, 'unit_rule_override_json')) {
+		payload.unit_rule_override_json = String(row.unit_rule_override_json || '{}').trim() || '{}'
+	}
+	if (kind !== 'green_bean') {
+		const yieldRate = normalizedYieldRateFromPercent(row)
     if (yieldRate !== null) payload.yield_rate = yieldRate
   }
   return payload

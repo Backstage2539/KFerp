@@ -6,6 +6,7 @@ import { test } from 'node:test'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const viewSource = readFileSync(resolve(here, '../views/CostingView.vue'), 'utf8')
+const priceListWorkflowSource = readFileSync(resolve(here, './costing-price-list-workflow.js'), 'utf8')
 
 test('product bean-list view exposes publication versions without pricing trial workspace', () => {
   const versionListIndex = viewSource.indexOf('已发布价格表')
@@ -597,13 +598,24 @@ test('price list pricing-rule preview retries current rows after user pricing ch
     'scheduled pricing changes should clear current-row errors before collecting retry requests',
   )
 
-  const requestStart = viewSource.indexOf('function priceListPricingRuleTrialRequestsForRows')
-  const requestEnd = viewSource.indexOf('function schedulePriceListPricingRuleTrialRefresh', requestStart)
+  const requestStart = priceListWorkflowSource.indexOf('function priceListPricingRuleTrialRequestsForRows')
+  const requestEnd = priceListWorkflowSource.indexOf('export function dedupePriceListFlatRows', requestStart)
   assert.ok(requestStart > -1 && requestEnd > requestStart, 'priceListPricingRuleTrialRequestsForRows block not found')
-  const requestSource = viewSource.slice(requestStart, requestEnd)
+  const requestSource = priceListWorkflowSource.slice(requestStart, requestEnd)
   assert.ok(
     requestSource.includes("cached?.status === 'error'"),
     'passive watchers should still avoid immediate retry loops after a failed trial',
+  )
+})
+
+test('price list flat rows collapse duplicate tier-template rows before preview and publish', () => {
+  assert.ok(
+    viewSource.includes('dedupePriceListFlatRows'),
+    'price-list flat rows should import the duplicate tier-template row guard',
+  )
+  assert.ok(
+    viewSource.includes('dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value))'),
+    'price-list flat rows should collapse same-product same-rule tier-template rows before preview and publish',
   )
 })
 
@@ -725,11 +737,11 @@ test('price list preview builds from current selected products instead of empty 
   assert.ok(groupsSource.includes('downloadSourcePublication.value?.content?.groups'), 'download action should still render stored publication content')
   assert.ok(groupsSource.includes('buildBeanListPdfGroupsFromCategoryRows(categoryProductGroups.value'), 'generate drawer should render from the same category rows as product picker')
   assert.equal(groupsSource.includes('currentPriceSourcePublication.value?.content?.groups'), false, 'current price source must not replace current selected products')
-  assert.equal(viewSource.includes('const priceListFlatRows = computed(() => priceListFlatRowsFromGroups(basePdfGroups.value))'), true, 'flat rows should be generated from base preview groups')
+  assert.equal(viewSource.includes('const priceListFlatRows = computed(() => dedupePriceListFlatRows(priceListFlatRowsFromGroups(basePdfGroups.value)))'), true, 'flat rows should be generated from base preview groups and duplicate tier rows should collapse')
   assert.equal(viewSource.includes('applyPriceListFlatRowsToBeanListPdfGroups(basePdfGroups.value, priceListFlatRows.value'), true, 'preview should render flat price rows back into PDF groups')
   assert.equal(viewSource.includes("apiSend('/api/costing/pricing-rule-trial'"), true, 'pricing-rule rows should load live trial prices')
   assert.equal(viewSource.includes('priceTablePricingRuleTrialPayload(row, { customerID: activeBeanListCustomerID.value })'), true, 'pricing-rule trial payload should be scoped to the current customer')
-  assert.equal(viewSource.includes("cached?.status === 'error'"), true, 'failed pricing-rule trial requests should not spin in a retry loop')
+  assert.equal(priceListWorkflowSource.includes("cached?.status === 'error'"), true, 'failed pricing-rule trial requests should not spin in a retry loop')
   assert.equal(viewSource.includes('visibleCategoryCodes: pdfVisibleCategoryCodes.value'), true, 'preview should keep the product picker category codes')
   assert.equal(viewSource.includes('const pdfVisiblePreviewCategoryCodes = computed(() => pdfCategoryCodesForVisibleSelection'), false, 'preview should not translate picker category codes into legacy PDF category codes')
   assert.equal(viewSource.includes('function pdfCategoryCodesForVisibleSelection'), false, 'legacy preview category code mapper should be removed')

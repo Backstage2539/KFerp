@@ -59,6 +59,24 @@ func TestAggregateProductionPlanMaterialSummaryRoundsOutputUnitsUp(t *testing.T)
 	assertProductionPlanMaterial(t, got, "包装盒", 2, "个")
 }
 
+func TestAggregateProductionPlanMaterialSummaryUsesDictionaryGramQuantities(t *testing.T) {
+	got := aggregateProductionPlanMaterialSummary([]productionapp.ProductionPlanItem{{
+		ID:             54,
+		SpecG:          454,
+		PlannedG:       1135,
+		PlannedOutputG: 908,
+		MaterialSnapshot: `[
+			{"material_name":"哥伦比亚EP","unit":"g","source":"bom","consume_unit":"g","qty_per_unit":114},
+			{"material_name":"孟连水洗A","unit":"g","source":"bom","consume_unit":"g","qty_per_unit":284},
+			{"material_name":"生豆-巴布亚之光-石光","unit":"g","source":"bom","consume_unit":"g","qty_per_unit":171}
+		]`,
+	}})
+
+	assertProductionPlanMaterial(t, got, "哥伦比亚EP", 228, "g")
+	assertProductionPlanMaterial(t, got, "孟连水洗A", 568, "g")
+	assertProductionPlanMaterial(t, got, "生豆-巴布亚之光-石光", 342, "g")
+}
+
 func assertProductionPlanMaterial(t *testing.T, rows []productionapp.MaterialNeed, name string, qty int64, unit string) {
 	t.Helper()
 	for _, row := range rows {

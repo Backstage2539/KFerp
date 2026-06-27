@@ -165,6 +165,23 @@ func TestReceiveMaterialDefaultsOperator(t *testing.T) {
 	}
 }
 
+func TestReceiveMaterialUsesInventoryUnitsForNonWeightQuantity(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo)
+	_, err := svc.ReceiveMaterial(context.Background(), MaterialReceiptCommand{
+		MaterialID: 1,
+		Qty:        12,
+		UnitCode:   "box",
+		UnitCost:   8.5,
+	})
+	if err != nil {
+		t.Fatalf("ReceiveMaterial non-weight inventory unit: %v", err)
+	}
+	if repo.receipt.QtyG != 0 || repo.receipt.QtyUnits != 12 {
+		t.Fatalf("receipt qty = %dg/%d units, want 0g/12 units", repo.receipt.QtyG, repo.receipt.QtyUnits)
+	}
+}
+
 func TestTransferMaterialNormalizesWarehouseAndDefaultsOperator(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

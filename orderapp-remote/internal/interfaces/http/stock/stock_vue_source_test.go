@@ -165,6 +165,35 @@ func TestVueMaterialReceiptsAndQualityExposeGreenBeanInboundFields(t *testing.T)
 	}
 }
 
+func TestVueMaterialReceiptUsesInventoryUnitQuantity(t *testing.T) {
+	receipts, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "MaterialReceiptsView.vue"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(receipts)
+	for _, want := range []string{
+		"库存单位",
+		"入库数量",
+		"unit_code",
+		"qty",
+		"selectedMaterialUnitLabel",
+		"/api/product-settings",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("MaterialReceiptsView.vue missing inventory unit receipt marker %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"数量(g)",
+		"form.qty_g",
+		"qty_g",
+	} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("MaterialReceiptsView.vue still exposes legacy gram-only receipt marker %q", forbidden)
+		}
+	}
+}
+
 func TestVueStockAdjustmentsExposeMaterialCostAdjustment(t *testing.T) {
 	view, err := readStockWorkspaceFile(filepath.Join("frontend-vue-shell", "src", "views", "StockAdjustmentsView.vue"))
 	if err != nil {

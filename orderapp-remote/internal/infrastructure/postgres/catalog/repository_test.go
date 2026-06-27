@@ -97,6 +97,7 @@ func TestProductSubtypeConfigAndUnitRulesPersistOnCategories(t *testing.T) {
 		want string
 	}{
 		{name: "operation template column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS operation_template_id BIGINT NOT NULL DEFAULT 0"},
+		{name: "unit template column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS unit_template_id BIGINT NOT NULL DEFAULT 0"},
 		{name: "price list rule column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS price_list_rule_json JSONB NOT NULL DEFAULT '{}'::jsonb"},
 		{name: "inventory unit column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS inventory_unit TEXT NOT NULL DEFAULT 'kg'"},
 		{name: "quote unit column", src: string(schema), want: "ALTER TABLE %[1]s.product_categories ADD COLUMN IF NOT EXISTS quote_unit TEXT NOT NULL DEFAULT 'kg'"},
@@ -148,7 +149,7 @@ func TestWarehouseBusinessGroupMigrationUsesStaticItemRows(t *testing.T) {
 	}
 }
 
-func TestProductConfigOverridesRemainReadableButProductUpdateDoesNotWrite(t *testing.T) {
+func TestProductConfigOverridesRemainReadableButProductUpdateOnlyWritesUnitRule(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {
 		t.Fatal(err)
@@ -174,10 +175,21 @@ func TestProductConfigOverridesRemainReadableButProductUpdateDoesNotWrite(t *tes
 	for _, banned := range []string{
 		"gradient_template_id_override=$",
 		"operation_template_id_override=$",
-		"unit_rule_override_json=$",
 	} {
 		if strings.Contains(string(repository), banned) {
 			t.Fatalf("product basics update should not write legacy config override marker %q", banned)
+		}
+	}
+	updateFn := catalogRepositoryFunctionForTest(t, string(repository), "func (r Repository) UpdateProductBasics", "func (r Repository) DeactivateProducts")
+	for _, want := range []string{
+		"unit_rule_override_json=$",
+		"old_inventory_unit",
+		"new_inventory_unit",
+		"old_integer_inventory_unit",
+		"new_integer_inventory_unit",
+	} {
+		if !strings.Contains(updateFn, want) {
+			t.Fatalf("product basics update must persist and audit product inventory unit; missing %q", want)
 		}
 	}
 }

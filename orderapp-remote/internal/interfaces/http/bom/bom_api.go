@@ -84,6 +84,7 @@ type createProductionBomRequest struct {
 type updateProductionBomRequest struct {
 	Name            string `json:"name"`
 	OutputProductID int64  `json:"output_product_id"`
+	OutputUnit      string `json:"output_unit"`
 	GroupID         *int64 `json:"group_id"`
 	GroupCategoryID *int64 `json:"group_category_id"`
 	Status          string `json:"status"`
@@ -331,7 +332,7 @@ func registerBomAPI(e *echo.Echo, bomSvc *bomapp.Service) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid request"})
 		}
-		cmd := bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, OutputProductID: req.OutputProductID, Status: req.Status, Actor: support.ActorOf(c)}
+		cmd := bomapp.UpdateProductionBomCommand{ID: id, Name: req.Name, OutputProductID: req.OutputProductID, OutputUnit: req.OutputUnit, Status: req.Status, Actor: support.ActorOf(c)}
 		if req.GroupID != nil {
 			cmd.GroupID = *req.GroupID
 			cmd.UpdateGroupAssignment = true

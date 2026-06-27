@@ -90,15 +90,17 @@ type Detail struct {
 }
 
 type Option struct {
-	ID              int64   `json:"id"`
-	ProductCode     string  `json:"product_code,omitempty"`
-	Name            string  `json:"name"`
-	CustomerID      int64   `json:"customer_id"`
-	RoastLevel      string  `json:"roast_level,omitempty"`
-	ProductKind     string  `json:"product_kind,omitempty"`
-	DripBagGrams    float64 `json:"drip_bag_grams,omitempty"`
-	DripBoxBagCount int     `json:"drip_box_bag_count,omitempty"`
-	OrderUsageCount int     `json:"order_usage_count"`
+	ID                    int64   `json:"id"`
+	ProductCode           string  `json:"product_code,omitempty"`
+	Name                  string  `json:"name"`
+	CustomerID            int64   `json:"customer_id"`
+	InventoryUnit         string  `json:"inventory_unit,omitempty"`
+	InventoryUnitExplicit bool    `json:"inventory_unit_explicit"`
+	RoastLevel            string  `json:"roast_level,omitempty"`
+	ProductKind           string  `json:"product_kind,omitempty"`
+	DripBagGrams          float64 `json:"drip_bag_grams,omitempty"`
+	DripBoxBagCount       int     `json:"drip_box_bag_count,omitempty"`
+	OrderUsageCount       int     `json:"order_usage_count"`
 }
 
 type BagSpecMapping struct {
@@ -292,6 +294,7 @@ type UpdateProductionBomCommand struct {
 	ID                    int64  `json:"id"`
 	Name                  string `json:"name"`
 	OutputProductID       int64  `json:"output_product_id"`
+	OutputUnit            string `json:"output_unit"`
 	GroupID               int64  `json:"group_id"`
 	GroupCategoryID       int64  `json:"group_category_id"`
 	UpdateGroupAssignment bool   `json:"-"`
@@ -843,9 +846,7 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	if cmd.OutputQty <= 0 {
 		cmd.OutputQty = 1
 	}
-	if cmd.OutputUnit == "" {
-		cmd.OutputUnit = "unit"
-	}
+	cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputProductID, cmd.OutputUnit)
 	row, err := s.repo.CreateProductionBom(ctx, cmd)
 	if err != nil {
 		return ProductionBomSummary{}, err
@@ -855,13 +856,53 @@ func (s *Service) CreateProductionBom(ctx context.Context, cmd CreateProductionB
 	return row, nil
 }
 
+func (s *Service) deriveProductionBomOutputUnit(ctx context.Context, outputProductID int64, fallback string) string {
+	fallback = strings.TrimSpace(fallback)
+	if outputProductID <= 0 {
+		if fallback != "" {
+			return fallback
+		}
+		return "unit"
+	}
+	rows, err := s.repo.Products(ctx)
+	if err != nil {
+		if fallback != "" {
+			return fallback
+		}
+		return "unit"
+	}
+	for _, row := range rows {
+		if row.ID == outputProductID {
+			return outputProductInventoryUnit(row, fallback)
+		}
+	}
+	if fallback != "" {
+		return fallback
+	}
+	return "unit"
+}
+
+func outputProductInventoryUnit(product Option, fallback string) string {
+	if unit := strings.TrimSpace(product.InventoryUnit); unit != "" {
+		return unit
+	}
+	if fallback = strings.TrimSpace(fallback); fallback != "" {
+		return fallback
+	}
+	return "unit"
+}
+
 func (s *Service) UpdateProductionBom(ctx context.Context, cmd UpdateProductionBomCommand) (ProductionBomSummary, error) {
 	if cmd.ID <= 0 {
 		return ProductionBomSummary{}, fmt.Errorf("bom_id required")
 	}
 	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.OutputUnit = strings.TrimSpace(cmd.OutputUnit)
 	cmd.Status = strings.TrimSpace(cmd.Status)
 	cmd.Actor = strings.TrimSpace(cmd.Actor)
+	if cmd.OutputProductID > 0 {
+		cmd.OutputUnit = s.deriveProductionBomOutputUnit(ctx, cmd.OutputProductID, cmd.OutputUnit)
+	}
 	row, err := s.repo.UpdateProductionBom(ctx, cmd)
 	if err != nil {
 		return ProductionBomSummary{}, err

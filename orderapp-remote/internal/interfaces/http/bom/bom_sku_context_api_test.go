@@ -20,8 +20,8 @@ func TestBomListAndProductsExposeCustomerID(t *testing.T) {
 			{ProductID: 3, Product: "客户生豆SKU", CustomerID: 9, Status: "active", ProductKind: "green_bean"},
 		},
 		productRows: []bomapp.Option{
-			{ID: 1, ProductCode: "SKU-000001", Name: "公共SKU", CustomerID: 0, ProductKind: "roasted_bean"},
-			{ID: 2, ProductCode: "SKU-000002", Name: "客户SKU", CustomerID: 9, ProductKind: "roasted_bean"},
+			{ID: 1, ProductCode: "SKU-000001", Name: "公共SKU", CustomerID: 0, ProductKind: "roasted_bean", InventoryUnit: "kg", InventoryUnitExplicit: false},
+			{ID: 2, ProductCode: "SKU-000002", Name: "客户SKU", CustomerID: 9, ProductKind: "roasted_bean", InventoryUnit: "盒", InventoryUnitExplicit: true},
 			{ID: 3, ProductCode: "SKU-000003", Name: "客户生豆SKU", CustomerID: 9, ProductKind: "green_bean"},
 		},
 	}
@@ -33,7 +33,7 @@ func TestBomListAndProductsExposeCustomerID(t *testing.T) {
 		wantJSON string
 	}{
 		{path: "/api/bom/list", wantJSON: `"customer_id":9`},
-		{path: "/api/bom/products", wantJSON: `"product_code":"SKU-000002"`},
+		{path: "/api/bom/products", wantJSON: `"inventory_unit_explicit":true`},
 	} {
 		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 		rec := httptest.NewRecorder()

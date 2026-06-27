@@ -205,6 +205,8 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		var req struct {
 			MaterialID                int64   `json:"material_id"`
 			Supplier                  string  `json:"supplier"`
+			Qty                       float64 `json:"qty"`
+			UnitCode                  string  `json:"unit_code"`
 			QtyG                      int64   `json:"qty_g"`
 			UnitCost                  float64 `json:"unit_cost"`
 			CropSeason                string  `json:"crop_season"`
@@ -218,6 +220,8 @@ func registerStockAPI(e *echo.Echo, stockSvc *stockapp.Service) {
 		result, err := stockSvc.ReceiveMaterial(c.Request().Context(), stockapp.MaterialReceiptCommand{
 			MaterialID:                req.MaterialID,
 			Supplier:                  req.Supplier,
+			Qty:                       req.Qty,
+			UnitCode:                  req.UnitCode,
 			QtyG:                      req.QtyG,
 			UnitCost:                  req.UnitCost,
 			CropSeason:                req.CropSeason,

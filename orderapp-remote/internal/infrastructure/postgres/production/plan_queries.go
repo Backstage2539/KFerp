@@ -28,6 +28,8 @@ type planBomItem struct {
 	ComponentSpecG       int64
 	ConsumeUnit          string
 	QtyPerUnit           float64
+	OutputQty            float64
+	OutputUnit           string
 	DripBoxBagCount      int64
 }
 
@@ -810,8 +812,8 @@ func (r Repository) loadProductYieldRateMap(ctx context.Context) (map[int64]floa
 	rows, err := r.pool.Query(ctx, `
 		SELECT p.id, COALESCE(p.roast_level,''),
 		       COALESCE(
+		           NULLIF(output_bv.yield_rate,0),
 		           CASE WHEN ppc.product_id IS NOT NULL THEN 1 - COALESCE(NULLIF(ppc.expected_loss_rate,0), 0) ELSE NULL END,
-		           NULLIF(pbv.yield_rate,0),
 		           NULLIF(b.yield_rate,0),
 		           CASE WHEN COALESCE(NULLIF(p.product_kind,''),'roasted_bean')='instant_coffee' THEN 1 ELSE 0.8 END
 		       ),
@@ -819,7 +821,25 @@ func (r Repository) loadProductYieldRateMap(ctx context.Context) (map[int64]floa
 		FROM `+r.schema+`.products p
 		LEFT JOIN `+r.schema+`.product_production_configs ppc ON ppc.product_id=p.id
 		LEFT JOIN `+r.schema+`.product_production_bom_bindings pbb ON pbb.product_id=p.id
-		LEFT JOIN `+r.schema+`.production_bom_versions pbv ON pbv.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id)
+		LEFT JOIN LATERAL (
+			SELECT latest.id AS bom_version_id
+			FROM `+r.schema+`.production_boms pbom
+			JOIN LATERAL (
+				SELECT v.id, v.published_at, v.created_at
+				FROM `+r.schema+`.production_bom_versions v
+				WHERE v.bom_id=pbom.id
+				  AND v.status='published'
+				  AND EXISTS (SELECT 1 FROM `+r.schema+`.production_bom_version_items item WHERE item.version_id=v.id)
+				ORDER BY v.published_at DESC NULLS LAST, v.created_at DESC, v.id DESC
+				LIMIT 1
+			) latest ON true
+			WHERE pbom.output_product_id=p.id
+			  AND COALESCE(NULLIF(pbom.status,''),'active')='active'
+			ORDER BY CASE WHEN pbom.id=COALESCE(NULLIF(ppc.production_bom_id,0), pbb.bom_id, 0) THEN 0 ELSE 1 END,
+			         latest.published_at DESC NULLS LAST, latest.created_at DESC, latest.id DESC, pbom.id DESC
+			LIMIT 1
+		) output_bom ON true
+		LEFT JOIN `+r.schema+`.production_bom_versions output_bv ON output_bv.id=output_bom.bom_version_id
 		LEFT JOIN `+r.schema+`.product_bom_sources bs ON bs.product_id=p.id
 		LEFT JOIN `+r.schema+`.product_bom b ON b.product_id=CASE
 			WHEN COALESCE(NULLIF(bs.source_type,''),'') IN ('inherit_current','inherit_version') AND COALESCE(bs.source_product_id,0)>0 THEN bs.source_product_id
@@ -932,6 +952,8 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 		       COALESCE(bi.component_spec_g,0),
 		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
 		       COALESCE(bi.qty_per_unit,0),
+		       COALESCE(pbv.output_qty,1)::float8,
+		       COALESCE(NULLIF(pbv.output_unit,''),'unit'),
 		       COALESCE(NULLIF(p.drip_box_bag_count,0),10)
 		FROM unnest($1::bigint[]) AS requested(product_id)
 		JOIN %s.products p ON p.id=requested.product_id AND p.active=true
@@ -944,15 +966,15 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 			JOIN LATERAL (
 				SELECT v.id, v.published_at, v.created_at
 				FROM %s.production_bom_versions v
-				WHERE v.bom_id=pbom.id AND v.status='published'
+				WHERE v.bom_id=pbom.id
+				  AND v.status='published'
+				  AND EXISTS (SELECT 1 FROM %s.production_bom_version_items item WHERE item.version_id=v.id)
 				ORDER BY v.published_at DESC NULLS LAST, v.created_at DESC, v.id DESC
 				LIMIT 1
 			) latest ON true
 			WHERE pbom.output_product_id=p.id
 			  AND COALESCE(NULLIF(pbom.status,''),'active')='active'
-			ORDER BY CASE WHEN COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)>0
-			                    AND latest.id=COALESCE(NULLIF(ppc.production_bom_version_id,0), pbb.bom_version_id, 0)
-			              THEN 0 ELSE 1 END,
+			ORDER BY CASE WHEN pbom.id=COALESCE(NULLIF(ppc.production_bom_id,0), pbb.bom_id, 0) THEN 0 ELSE 1 END,
 			         latest.published_at DESC NULLS LAST, latest.created_at DESC, latest.id DESC, pbom.id DESC
 			LIMIT 1
 		) output_bom ON true
@@ -976,7 +998,7 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 		LEFT JOIN %s.materials m ON m.id=bi.material_id
 		LEFT JOIN %s.products cp ON cp.id=bi.component_product_id
 		ORDER BY requested.product_id, bi.id
-	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
+	`, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema, r.schema)
 	rows, err := r.pool.Query(ctx, q, productIDs)
 	if err != nil {
 		return out, err
@@ -988,7 +1010,7 @@ func (r Repository) loadPlanBomItems(ctx context.Context, productIDs []int64) (m
 			&item.ProductID, &item.RoastLevel, &item.YieldRate,
 			&item.MaterialID, &item.MaterialName, &item.MaterialUnit, &item.RatioPct,
 			&item.ComponentType, &item.ComponentProductID, &item.ComponentProductName, &item.ComponentSpecG,
-			&item.ConsumeUnit, &item.QtyPerUnit, &item.DripBoxBagCount,
+			&item.ConsumeUnit, &item.QtyPerUnit, &item.OutputQty, &item.OutputUnit, &item.DripBoxBagCount,
 		); err != nil {
 			return out, err
 		}
@@ -1114,22 +1136,18 @@ func calcProducePlanMaterialsFromFinalInputs(rows []productionapp.UnprodNeedRow,
 			if unit == "" {
 				unit = "g"
 			}
-			ratioPct := bomdomain.NormalizeRatioPct(bom.RatioPct)
-			qty := int64(0)
-			switch {
-			case bom.ConsumeUnit == "g_per_bag":
-				qty = int64(math.Ceil(float64(unitsMissing) * bom.QtyPerUnit))
-			case bom.ConsumeUnit == "unit_per_bag":
-				qty = int64(math.Ceil(float64(unitsMissing) * bom.QtyPerUnit))
-			case bom.ConsumeUnit == "unit_per_box":
-				qty = int64(math.Ceil(float64(dripBoxesMissing(row, bom.DripBoxBagCount)) * bom.QtyPerUnit))
-			case strings.EqualFold(unit, "g"):
-				qty = int64(math.Ceil(float64(finalInputG) * ratioPct / 100.0))
-			case strings.EqualFold(unit, "kg"):
-				qty = int64(math.Ceil((float64(finalInputG) * ratioPct / 100.0) / 1000.0))
-			default:
-				qty = int64(math.Ceil(float64(unitsMissing) * ratioPct / 100.0))
-			}
+			qty := componentConsumptionQtyWithOutputBasis(
+				bom.ConsumeUnit,
+				bom.QtyPerUnit,
+				bom.RatioPct,
+				unit,
+				finalInputG,
+				row.GapG,
+				unitsMissing,
+				dripBoxesMissing(row, bom.DripBoxBagCount),
+				bom.OutputQty,
+				bom.OutputUnit,
+			)
 			if bom.ComponentType == "finished_product" {
 				add(productionapp.MaterialNeed{
 					Name:              bom.MaterialName,
@@ -1318,7 +1336,7 @@ func normalizeBomComponentType(value string) string {
 
 func normalizeBomConsumeUnit(value string) string {
 	switch strings.TrimSpace(value) {
-	case "g_per_bag", "unit_per_bag", "unit_per_box":
+	case "ratio_pct", "g_per_bag", "unit_per_bag", "unit_per_box", "fixed_qty", "unit", "g", "kg", "length", "area":
 		return strings.TrimSpace(value)
 	default:
 		return "ratio_pct"

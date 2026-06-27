@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS %s.material_receipts (
 	material_id BIGINT NOT NULL,
 	supplier TEXT NOT NULL DEFAULT '',
 	qty_g BIGINT NOT NULL DEFAULT 0,
+	qty_units BIGINT NOT NULL DEFAULT 0,
 	unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
 	crop_season TEXT NOT NULL DEFAULT '',
 	origin TEXT NOT NULL DEFAULT '',
@@ -159,7 +160,9 @@ CREATE TABLE IF NOT EXISTS %s.material_batches (
 	supplier TEXT NOT NULL DEFAULT '',
 	receipt_id BIGINT NOT NULL DEFAULT 0,
 	qty_g BIGINT NOT NULL DEFAULT 0,
+	qty_units BIGINT NOT NULL DEFAULT 0,
 	remaining_g BIGINT NOT NULL DEFAULT 0,
+	remaining_units BIGINT NOT NULL DEFAULT 0,
 	unit_cost NUMERIC(12,4) NOT NULL DEFAULT 0,
 	crop_season TEXT NOT NULL DEFAULT '',
 	origin TEXT NOT NULL DEFAULT '',
@@ -178,6 +181,9 @@ CREATE INDEX IF NOT EXISTS material_batches_material_fifo_idx
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS quality_status TEXT NOT NULL DEFAULT 'unchecked'`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS material_name TEXT NOT NULL DEFAULT ''`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS received_g BIGINT NOT NULL DEFAULT 0`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_receipts ADD COLUMN IF NOT EXISTS qty_units BIGINT NOT NULL DEFAULT 0`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS qty_units BIGINT NOT NULL DEFAULT 0`, schema))
+	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_batches ADD COLUMN IF NOT EXISTS remaining_units BIGINT NOT NULL DEFAULT 0`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_receipts ADD COLUMN IF NOT EXISTS crop_season TEXT NOT NULL DEFAULT ''`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_receipts ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT ''`, schema))
 	_, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE %s.material_receipts ADD COLUMN IF NOT EXISTS producer_flavor_description TEXT NOT NULL DEFAULT ''`, schema))
@@ -217,17 +223,19 @@ CREATE TABLE IF NOT EXISTS %s.material_batch_locations (
 	material_id BIGINT NOT NULL DEFAULT 0,
 	warehouse TEXT NOT NULL DEFAULT '',
 	qty_g BIGINT NOT NULL DEFAULT 0,
+	qty_units BIGINT NOT NULL DEFAULT 0,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	PRIMARY KEY(material_batch_id, warehouse)
 );
+ALTER TABLE %s.material_batch_locations ADD COLUMN IF NOT EXISTS qty_units BIGINT NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS material_batch_locations_lookup_idx
-	ON %s.material_batch_locations(material_id, warehouse, qty_g);
-INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g,updated_at)
-SELECT id,batch_code,material_id,'raw_materials',remaining_g,now()
+	ON %s.material_batch_locations(material_id, warehouse, qty_g, qty_units);
+INSERT INTO %s.material_batch_locations(material_batch_id,batch_code,material_id,warehouse,qty_g,qty_units,updated_at)
+SELECT id,batch_code,material_id,'raw_materials',remaining_g,remaining_units,now()
 FROM %s.material_batches
-WHERE remaining_g > 0
+WHERE remaining_g > 0 OR remaining_units > 0
 ON CONFLICT (material_batch_id, warehouse) DO NOTHING
-`, schema, schema, schema, schema)); err != nil {
+`, schema, schema, schema, schema, schema)); err != nil {
 		return err
 	}
 	return nil

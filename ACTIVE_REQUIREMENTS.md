@@ -6,6 +6,26 @@ This is not long-term memory. Move durable product/deployment decisions to `MEMO
 
 ## Active
 
+### PR-500-UNIT-MODEL-CONSOLIDATION
+- Branch: codex/product-inventory-unit-bom-20260627
+- Owner/session: Codex / 2026-06-27
+- Status: merged to develop and deployed to development; API/write smoke passed.
+- Scope: 在已部署单位模型基础上补齐商品档案库存单位入口：商品新增/编辑可维护库存单位和整数库存，写入 `products.unit_rule_override_json`；`/api/bom/products` 返回有效库存单位和显式设置标记；生产 BOM 新建/编辑的产出单位只读并由产出商品有效库存单位驱动，后端忽略前端传入的旧 `output_unit`。
+- DEV:
+  - DEV-500-UNIT-LANGUAGE-CONTRACT：全局单位字典、单位模板、商品/物料/BOM/库存页面和手册统一使用库存单位、销售单位、单位转换口径，旧字段只作为兼容说明。
+  - DEV-500-STOCK-UNIT-FLOWS：原料入库、库存补录和库存调整优先提交数量+单位，后端按库存单位归一化并保留旧 qty_g/target_g/target_units 兼容。
+  - DEV-500-BOM-UNIT-DERIVATION：生产 BOM 产出单位取产出商品库存单位；组件消耗单位取组件库存单位，页面不再手填产出单位。
+  - DEV-500-SALES-UNIT-COMPAT：单位模板新 UI 暴露销售单位语义，新保存继续双写旧 quote_unit/order_unit 兼容字段。
+  - DEV-500-PRODUCT-INVENTORY-UNIT-MASTER：创建商品档案和商品档案配置抽屉维护库存单位/整数库存；更新商品时保留 `unit_rule_override_json` 其他历史键并写操作日志。
+- Verifier:
+- Unit/API: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom -count=1` passed.
+- Frontend/build: `node --test src/lib/product-settings.test.js src/lib/bom.test.js` passed; `npm ci` restored Vue dependencies; `npm run build` passed with existing large-chunk warning; `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+- Manual: updated `orderapp-remote/docs/REQUIREMENTS.md`, `ACCEPTANCE_TESTS.md`, `OP_MANUAL_INVENTORY_MATERIALS.md`, `OP_MANUAL_PRODUCTION.md`, `OP_MANUAL_COSTING.md`, and `docs/acceptance/2026-06-26-unit-model-consolidation.md`.
+- Review/acceptance: RED evidence added for product inventory unit API/payload and BOM output unit derivation; GREEN targeted Go, node, frontend build, changed verifier, and diff check passed locally.
+- Deployment: feature branch pushed and fast-forwarded into `develop` at `91658fca0e16d12d14ff7c3ba69ac4dc55ed9823`; development stack deployed with Docker build `go test ./...` passing. Backup from deploy: `root@1.12.242.58:/opt/stacks/erp/orderapp.backup.deploy-20260627010939`. Smoke: `erp_orderapp` running; unauth/auth `/app/` returned `303`; authenticated `/app/api/product-settings?limit=1`, `/app/api/bom/products`, `/app/api/production-boms?status=all&limit=1` returned `200`; BOM detail exposes version `output_unit`; write smoke created product `558` with `inventory_unit=盒`, `integer_inventory_unit=true`, and BOM `5736` saved version `output_unit=盒` even though create request sent `output_unit=kg`.
+- Last update: 2026-06-27 Asia/Shanghai.
+- Notes: Follow-up does not add a `products.inventory_unit` column and does not backfill historical BOM versions, work orders, inventory ledgers, or price snapshots.
+
 ### PR-499-PRODUCTION-EXECUTION-HUB-PHASE2
 - Branch: codex/production-execution-hub-phase2-20260617
 - Owner/session: Codex goal / 2026-06-18

@@ -22,8 +22,14 @@
           />
         </label>
         <label><span>供应商</span><input v-model.trim="form.supplier" /></label>
-        <label><span>数量(g)</span><input type="number" min="1" step="1" v-model.number="form.qty_g" /></label>
-        <label><span>成本/千克</span><input type="number" min="0" step="0.01" v-model.number="form.unit_cost" /></label>
+        <label><span>入库数量（{{ selectedMaterialUnitLabel }}）</span><input type="number" min="0.0001" step="0.0001" v-model.number="form.qty" /></label>
+        <label>
+          <span>库存单位</span>
+          <select v-model="form.unit_code">
+            <option v-for="unit in unitOptions" :key="unit.code" :value="unit.code">{{ unit.name || unit.label || unit.code }}</option>
+          </select>
+        </label>
+        <label><span>成本/{{ selectedMaterialUnitLabel }}</span><input type="number" min="0" step="0.01" v-model.number="form.unit_cost" /></label>
         <label><span>产季</span><input v-model.trim="form.crop_season" placeholder="2025/26" /></label>
         <label><span>产地</span><input v-model.trim="form.origin" placeholder="云南保山" /></label>
         <label class="span-2"><span>产家风味描述</span><input v-model.trim="form.producer_flavor_description" placeholder="供应商/产家描述的风味" /></label>
@@ -35,7 +41,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiGet, apiSend } from '../api/client'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import { receiptMaterialLabel, selectableReceiptMaterials } from '../lib/material-receipts'
@@ -45,19 +51,35 @@ const props = defineProps({
 })
 
 const materials = ref([])
+const productUnitDefinitions = ref([])
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const ok = ref('')
-const form = reactive({ material_id: 0, supplier: '', qty_g: 0, unit_cost: 0, crop_season: '', origin: '', producer_flavor_description: '', note: '' })
+const form = reactive({ material_id: 0, supplier: '', qty: 0, unit_code: '', unit_cost: 0, crop_season: '', origin: '', producer_flavor_description: '', note: '' })
 const materialOptions = computed(() => selectableReceiptMaterials(materials.value))
+const selectedMaterial = computed(() => materialOptions.value.find((row) => Number(row.id || 0) === Number(form.material_id || 0)) || null)
+const unitOptions = computed(() => {
+  const rows = productUnitDefinitions.value.filter((row) => row.active !== false)
+  if (rows.length) return rows
+  return [
+    { code: 'kg', name: 'kg', label: 'kg' },
+    { code: 'g', name: 'g', label: 'g' },
+    { code: 'unit', name: '个', label: '个' },
+  ]
+})
+const selectedMaterialUnitLabel = computed(() => unitDisplay(form.unit_code || selectedMaterial.value?.unit || 'kg'))
 
 async function loadMaterials() {
   loading.value = true
   error.value = ''
   try {
-    const data = await apiGet('/api/materials?limit=500')
+    const [data, settings] = await Promise.all([
+      apiGet('/api/materials?limit=500'),
+      apiGet('/api/product-settings'),
+    ])
     materials.value = selectableReceiptMaterials(data.rows || [])
+    productUnitDefinitions.value = (settings.product_unit_definitions || []).map(normalizeUnit).filter((row) => row.code)
   } catch (err) { error.value = err.message || '加载失败' } finally { loading.value = false }
 }
 
@@ -66,12 +88,37 @@ async function submit() {
   error.value = ''
   ok.value = ''
   try {
-    const data = await apiSend('/api/stock/material-receipts', { body: form })
+    const data = await apiSend('/api/stock/material-receipts', {
+      body: {
+        ...form,
+        qty: Number(form.qty || 0),
+        unit_code: form.unit_code || selectedMaterial.value?.unit || '',
+      },
+    })
     ok.value = data.batch_code
-    form.qty_g = 0
+    form.qty = 0
     form.note = ''
   } catch (err) { error.value = err.message || '提交失败' } finally { saving.value = false }
 }
+
+function normalizeUnit(row) {
+  return {
+    code: row.code ?? row.Code ?? '',
+    name: row.name ?? row.Name ?? row.code ?? row.Code ?? '',
+    label: row.name ?? row.Name ?? row.code ?? row.Code ?? '',
+    active: row.active ?? row.Active ?? true,
+  }
+}
+
+function unitDisplay(unitCode) {
+  const row = unitOptions.value.find((unit) => unit.code === unitCode)
+  return row?.name || row?.label || unitCode || '-'
+}
+
+watch(() => form.material_id, () => {
+  const materialUnit = selectedMaterial.value?.unit || ''
+  if (materialUnit) form.unit_code = materialUnit
+})
 
 onMounted(loadMaterials)
 </script>

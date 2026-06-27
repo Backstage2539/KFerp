@@ -84,7 +84,7 @@
         <div class="summary">
           <div><span>当前仓库</span><strong>{{ currentWarehouseName }}</strong></div>
           <div><span>库存行</span><strong>{{ rows.length }}</strong></div>
-          <div><span>合计(g)</span><strong>{{ totalG.toLocaleString('zh-CN') }}</strong></div>
+          <div><span>合计重量(g)</span><strong>{{ totalG.toLocaleString('zh-CN') }}</strong></div>
           <div v-if="!isCustomerInventoryContext" class="summary-action">
             <span>仓库设置</span>
             <button class="secondary" type="button" :disabled="!selectedWarehouse" @click="openWarehouseSettingsDrawer">
@@ -102,8 +102,7 @@
                 <th>规格</th>
                 <th>批次</th>
                 <th>质检</th>
-                <th>数量(g)</th>
-                <th>件数</th>
+                <th>库存数量</th>
                 <th>单位成本</th>
                 <th>更新</th>
                 <th v-if="!isCustomerInventoryContext">操作</th>
@@ -117,13 +116,12 @@
                 <td>{{ row.spec_g ? `${row.spec_g}g` : '-' }}</td>
                 <td>{{ row.batch_code || '-' }}</td>
                 <td><span class="quality-pill" :class="qualityClass(row.quality_status)">{{ qualityLabel(row.quality_status) }}</span></td>
-                <td>{{ Number(row.qty_g || 0).toLocaleString('zh-CN') }}</td>
-                <td>{{ row.qty_units || '-' }}</td>
+                <td>{{ inventoryQtyLabel(row) }}</td>
                 <td>{{ money(row.unit_cost) }}</td>
                 <td>{{ row.updated_at || '-' }}</td>
                 <td v-if="!isCustomerInventoryContext"><button class="link" type="button" @click="openTraceDrawer(row.batch_code || '')">追溯</button></td>
               </tr>
-              <tr v-if="!rows.length"><td :colspan="isCustomerInventoryContext ? 10 : 11" class="muted">暂无库存</td></tr>
+              <tr v-if="!rows.length"><td :colspan="isCustomerInventoryContext ? 9 : 10" class="muted">暂无库存</td></tr>
             </tbody>
           </table>
         </div>
@@ -207,7 +205,7 @@
               <div><dt>质检状态</dt><dd><span class="quality-pill" :class="qualityClass(traceResult.material_batch?.quality_status)">{{ qualityLabel(traceResult.material_batch?.quality_status) }}</span></dd></div>
               <div><dt>供应商</dt><dd>{{ traceResult.material_batch?.supplier || '-' }}</dd></div>
               <div><dt>入库单</dt><dd>{{ traceResult.material_batch?.receipt_id || '-' }}</dd></div>
-              <div><dt>数量</dt><dd>{{ traceResult.material_batch?.qty_g || 0 }}g / 剩余 {{ traceResult.material_batch?.remaining_g || 0 }}g</dd></div>
+              <div><dt>数量</dt><dd>{{ traceMaterialBatchQtyLabel(traceResult.material_batch) }}</dd></div>
               <div><dt>备注</dt><dd>{{ traceResult.material_batch?.note || '-' }}</dd></div>
             </dl>
             <h4>当前仓库位置</h4>
@@ -218,7 +216,7 @@
                   <td>{{ item.warehouse_name || warehouseName(item.warehouse) }}</td>
                   <td>{{ item.batch_code }}</td>
                   <td><span class="quality-pill" :class="qualityClass(item.quality_status)">{{ qualityLabel(item.quality_status) }}</span></td>
-                  <td>{{ Number(item.qty_g || 0).toLocaleString('zh-CN') }}g</td>
+                  <td>{{ inventoryQtyLabel({ ...item, item_type: 'material' }) }}</td>
                 </tr>
                 <tr v-if="!(traceResult.material_locations || []).length"><td colspan="4" class="muted">暂无仓库库存</td></tr>
               </tbody>
@@ -362,6 +360,18 @@ const selectedBindCustomerName = computed(() => {
   return customer ? customerOptionLabel(customer) : ''
 })
 const totalG = computed(() => rows.value.reduce((sum, row) => sum + Number(row.qty_g || 0), 0))
+function inventoryQtyLabel(row) {
+  const qtyG = Number(row?.qty_g || 0)
+  const qtyUnits = Number(row?.qty_units || 0)
+  if (qtyUnits && qtyG) return `${qtyUnits.toLocaleString('zh-CN')} 件 / ${qtyG.toLocaleString('zh-CN')}g`
+  if (qtyUnits) return `${qtyUnits.toLocaleString('zh-CN')} ${row?.item_type === 'finished_product' ? '件' : '库存单位'}`
+  if (qtyG) return `${qtyG.toLocaleString('zh-CN')}g`
+  return '-'
+}
+function traceMaterialBatchQtyLabel(row) {
+  if (!row) return '-'
+  return `${inventoryQtyLabel({ qty_g: row.qty_g, qty_units: row.qty_units, item_type: 'material' })} / 剩余 ${inventoryQtyLabel({ qty_g: row.remaining_g, qty_units: row.remaining_units, item_type: 'material' })}`
+}
 const warehouseBusinessGroupControls = computed(() => businessGroupControlOptions(warehouseBusinessGroups.value, {
   selectedTemplateID: selectedWarehouseGroupTemplateID.value,
   usageKey: 'warehouse_inventory',

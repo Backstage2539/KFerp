@@ -28,6 +28,8 @@ type materialConsumptionNeed struct {
 	ComponentSpecG     int64
 	ConsumeUnit        string
 	QtyPerUnit         float64
+	OutputQty          float64
+	OutputUnit         string
 }
 
 type materialConsumptionSummaryItem struct {
@@ -50,6 +52,8 @@ type materialSnapshotRow struct {
 	ComponentSpecG     int64   `json:"component_spec_g,omitempty"`
 	ConsumeUnit        string  `json:"consume_unit,omitempty"`
 	QtyPerUnit         float64 `json:"qty_per_unit,omitempty"`
+	OutputQty          float64 `json:"output_qty,omitempty"`
+	OutputUnit         string  `json:"output_unit,omitempty"`
 }
 
 func isWeightMaterialUnit(unit string) bool {
@@ -73,11 +77,17 @@ func materialNeedToDeduct(unit string, qty int64) (deductG int64, deductUnits in
 }
 
 func componentConsumptionQty(consumeUnit string, qtyPerUnit float64, ratioPct float64, unit string, rawG int64, packedUnits int64, boxUnits int64) int64 {
+	return componentConsumptionQtyWithOutputBasis(consumeUnit, qtyPerUnit, ratioPct, unit, rawG, 0, packedUnits, boxUnits, 0, "")
+}
+
+func componentConsumptionQtyWithOutputBasis(consumeUnit string, qtyPerUnit float64, ratioPct float64, unit string, rawG int64, outputG int64, packedUnits int64, boxUnits int64, outputQty float64, outputUnit string) int64 {
 	switch normalizeBomConsumeUnit(consumeUnit) {
 	case "g_per_bag", "unit_per_bag":
 		return int64(math.Ceil(float64(packedUnits) * qtyPerUnit))
 	case "unit_per_box":
 		return int64(math.Ceil(float64(boxUnits) * qtyPerUnit))
+	case "g", "kg", "fixed_qty", "unit", "length", "area":
+		return fixedOutputBasisConsumptionQty(consumeUnit, qtyPerUnit, unit, outputG, packedUnits, outputQty, outputUnit)
 	default:
 		ratio := bomdomain.NormalizeRatioPct(ratioPct)
 		if ratio <= 0 {
@@ -91,6 +101,46 @@ func componentConsumptionQty(consumeUnit string, qtyPerUnit float64, ratioPct fl
 		}
 		return int64(math.Ceil(float64(packedUnits) * ratio / 100.0))
 	}
+}
+
+func fixedOutputBasisConsumptionQty(consumeUnit string, qtyPerUnit float64, unit string, outputG int64, packedUnits int64, outputQty float64, outputUnit string) int64 {
+	if qtyPerUnit <= 0 {
+		return 0
+	}
+	factor := bomOutputBasisFactor(outputG, packedUnits, outputQty, outputUnit)
+	qty := qtyPerUnit * factor
+	switch normalizeBomConsumeUnit(consumeUnit) {
+	case "g":
+		if strings.EqualFold(unit, "kg") || unit == "千克" {
+			qty = qty / 1000.0
+		}
+	case "kg":
+		if strings.EqualFold(unit, "g") || unit == "克" {
+			qty = qty * 1000.0
+		}
+	}
+	return int64(math.Ceil(qty))
+}
+
+func bomOutputBasisFactor(outputG int64, packedUnits int64, outputQty float64, outputUnit string) float64 {
+	if outputQty <= 0 {
+		outputQty = 1
+	}
+	outputUnit = strings.ToLower(strings.TrimSpace(outputUnit))
+	switch outputUnit {
+	case "g", "克":
+		if outputG > 0 {
+			return float64(outputG) / outputQty
+		}
+	case "kg", "千克":
+		if outputG > 0 {
+			return float64(outputG) / (outputQty * 1000.0)
+		}
+	}
+	if packedUnits > 0 {
+		return float64(packedUnits) / outputQty
+	}
+	return 1
 }
 
 func calcRunningItemMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow, finished InvQty) ([]materialConsumptionNeed, error) {
@@ -117,6 +167,8 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		       COALESCE(bi.component_spec_g,0),
 		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
 		       COALESCE(bi.qty_per_unit,0),
+		       COALESCE(pbv.output_qty,1)::float8,
+		       COALESCE(NULLIF(pbv.output_unit,''),'unit'),
 		       COALESCE(NULLIF(p.drip_box_bag_count,0),10)
 		FROM %s.products p
 		LEFT JOIN %s.product_bom_sources bs ON bs.product_id=p.id
@@ -182,6 +234,8 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		componentSpecG       int64
 		consumeUnit          string
 		qtyPerUnit           float64
+		outputQty            float64
+		outputUnit           string
 		dripBoxBagCount      int64
 	}
 	bomRows := make([]bomRow, 0)
@@ -190,7 +244,7 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		if err := rows.Scan(
 			&x.materialID, &x.name, &x.unit, &x.ratio, &x.roastLevel, &x.yieldRate,
 			&x.componentType, &x.componentProductID, &x.componentProductName, &x.componentSpecG,
-			&x.consumeUnit, &x.qtyPerUnit, &x.dripBoxBagCount,
+			&x.consumeUnit, &x.qtyPerUnit, &x.outputQty, &x.outputUnit, &x.dripBoxBagCount,
 		); err != nil {
 			return nil, err
 		}
@@ -239,7 +293,11 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 		if bi.consumeUnit == "unit_per_box" && boxUnits <= 0 {
 			boxUnits = ceilDiv64(packedUnits, bi.dripBoxBagCount)
 		}
-		qty := componentConsumptionQty(bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, packedUnits, boxUnits)
+		outputG := finishedTotalG(r.SpecG, packedUnits, finished.LooseG)
+		if outputG <= 0 {
+			outputG = r.NeedG
+		}
+		qty := componentConsumptionQtyWithOutputBasis(bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, outputG, packedUnits, boxUnits, bi.outputQty, bi.outputUnit)
 		deductG, deductUnits := materialNeedToDeduct(unit, qty)
 		source := "bom"
 		componentType := bi.componentType
@@ -262,6 +320,8 @@ func currentMaterialNeedsTx(ctx context.Context, tx pgx.Tx, schema string, r Pro
 			ComponentSpecG:     bi.componentSpecG,
 			ConsumeUnit:        bi.consumeUnit,
 			QtyPerUnit:         bi.qtyPerUnit,
+			OutputQty:          bi.outputQty,
+			OutputUnit:         bi.outputUnit,
 		})
 	}
 
@@ -308,6 +368,8 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		       COALESCE(bi.component_spec_g,0),
 		       COALESCE(NULLIF(bi.consume_unit,''),'ratio_pct'),
 		       COALESCE(bi.qty_per_unit,0),
+		       COALESCE(pbv.output_qty,1)::float8,
+		       COALESCE(NULLIF(pbv.output_unit,''),'unit'),
 		       COALESCE(NULLIF(p.drip_box_bag_count,0),10)
 		FROM %s.products p
 		LEFT JOIN %s.product_bom_sources bs ON bs.product_id=p.id
@@ -373,6 +435,8 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		componentSpecG       int64
 		consumeUnit          string
 		qtyPerUnit           float64
+		outputQty            float64
+		outputUnit           string
 		dripBoxBagCount      int64
 	}
 	bomRows := make([]bomRow, 0)
@@ -381,7 +445,7 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		if err := rows.Scan(
 			&x.materialID, &x.name, &x.unit, &x.ratio, &x.roastLevel, &x.yieldRate,
 			&x.componentType, &x.componentProductID, &x.componentProductName, &x.componentSpecG,
-			&x.consumeUnit, &x.qtyPerUnit, &x.dripBoxBagCount,
+			&x.consumeUnit, &x.qtyPerUnit, &x.outputQty, &x.outputUnit, &x.dripBoxBagCount,
 		); err != nil {
 			return nil, err
 		}
@@ -416,8 +480,13 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		rawG = int64(math.Ceil(float64(r.NeedG) / yield))
 	}
 	totalPackedUnits := int64(0)
+	totalOutputG := int64(0)
 	for _, output := range outputs {
 		totalPackedUnits += outputPackedUnits(output)
+		totalOutputG += outputTotalG(output)
+	}
+	if totalOutputG <= 0 {
+		totalOutputG = r.NeedG
 	}
 
 	needs := make([]materialConsumptionNeed, 0, len(bomRows)+len(outputs))
@@ -430,7 +499,7 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 		if bi.consumeUnit == "unit_per_box" {
 			boxUnits = ceilDiv64(totalPackedUnits, bi.dripBoxBagCount)
 		}
-		qty := componentConsumptionQty(bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, totalPackedUnits, boxUnits)
+		qty := componentConsumptionQtyWithOutputBasis(bi.consumeUnit, bi.qtyPerUnit, bi.ratio, unit, rawG, totalOutputG, totalPackedUnits, boxUnits, bi.outputQty, bi.outputUnit)
 		deductG, deductUnits := materialNeedToDeduct(unit, qty)
 		source := "bom"
 		componentType := bi.componentType
@@ -453,6 +522,8 @@ func materialNeedsForRunOutputsTx(ctx context.Context, tx pgx.Tx, schema string,
 			ComponentSpecG:     bi.componentSpecG,
 			ConsumeUnit:        bi.consumeUnit,
 			QtyPerUnit:         bi.qtyPerUnit,
+			OutputQty:          bi.outputQty,
+			OutputUnit:         bi.outputUnit,
 		})
 	}
 
@@ -497,6 +568,16 @@ func outputPackedUnits(output ProduceRunOutputRow) int64 {
 	return 0
 }
 
+func outputTotalG(output ProduceRunOutputRow) int64 {
+	if got := finishedTotalG(output.SpecG, output.FinishedUnits, output.FinishedLooseG); got > 0 {
+		return got
+	}
+	if got := finishedTotalG(output.SpecG, output.PlanUnits, output.PlanLooseG); got > 0 {
+		return got
+	}
+	return output.NeedG
+}
+
 func buildMaterialSnapshotForRunningItemTx(ctx context.Context, tx pgx.Tx, schema string, r ProduceRunRow) ([]byte, error) {
 	needs, err := currentMaterialNeedsTx(ctx, tx, schema, r, InvQty{Units: r.PlanUnits, LooseG: r.PlanLooseG})
 	if err != nil {
@@ -519,6 +600,8 @@ func buildMaterialSnapshotForRunningItemTx(ctx context.Context, tx pgx.Tx, schem
 			ComponentSpecG:     need.ComponentSpecG,
 			ConsumeUnit:        need.ConsumeUnit,
 			QtyPerUnit:         need.QtyPerUnit,
+			OutputQty:          need.OutputQty,
+			OutputUnit:         need.OutputUnit,
 		})
 	}
 	if len(rows) == 0 {
@@ -547,6 +630,10 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 	if packedUnits < 0 {
 		packedUnits = 0
 	}
+	outputG := finishedTotalG(r.SpecG, packedUnits, finished.LooseG)
+	if outputG <= 0 {
+		outputG = r.NeedG
+	}
 	needs := make([]materialConsumptionNeed, 0, len(rows))
 	for _, row := range rows {
 		if row.MaterialID <= 0 || strings.TrimSpace(row.MaterialName) == "" {
@@ -561,26 +648,19 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			source = "bom"
 		}
 		qty := int64(0)
+		ratioPct := row.RatioPct
+		if normalizeBomConsumeUnit(row.ConsumeUnit) == "ratio_pct" && !isWeightMaterialUnit(unit) && ratioPct <= 0 {
+			ratioPct = 100
+		}
 		if source == "packaging" {
 			qty = packedUnits
 		} else if source == "finished_product" {
-			qty = componentConsumptionQty(row.ConsumeUnit, row.QtyPerUnit, row.RatioPct, unit, rawG, packedUnits, 0)
-		} else if isWeightMaterialUnit(unit) {
-			ratio := bomdomain.NormalizeRatioPct(row.RatioPct)
-			if ratio <= 0 {
-				continue
-			}
-			if strings.EqualFold(unit, "kg") || unit == "千克" {
-				qty = int64(math.Ceil((float64(rawG) * ratio / 100.0) / 1000.0))
-			} else {
-				qty = int64(math.Ceil(float64(rawG) * ratio / 100.0))
-			}
+			qty = componentConsumptionQtyWithOutputBasis(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit)
 		} else {
-			ratio := bomdomain.NormalizeRatioPct(row.RatioPct)
-			if ratio <= 0 {
-				ratio = 100
-			}
-			qty = int64(math.Ceil(float64(packedUnits) * ratio / 100.0))
+			qty = componentConsumptionQtyWithOutputBasis(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit)
+		}
+		if qty <= 0 {
+			continue
 		}
 		deductG, deductUnits := materialNeedToDeduct(unit, qty)
 		if source == "finished_product" {
@@ -601,6 +681,8 @@ func materialSnapshotNeedsTx(r ProduceRunRow, finished InvQty) ([]materialConsum
 			ComponentSpecG:     row.ComponentSpecG,
 			ConsumeUnit:        row.ConsumeUnit,
 			QtyPerUnit:         row.QtyPerUnit,
+			OutputQty:          row.OutputQty,
+			OutputUnit:         row.OutputUnit,
 		})
 	}
 	return needs, true, nil

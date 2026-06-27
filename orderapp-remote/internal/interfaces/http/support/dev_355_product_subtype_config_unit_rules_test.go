@@ -47,8 +47,8 @@ func TestDev355ProductSubtypeConfigUnitRulesWiring(t *testing.T) {
 			"商品档案配置",
 			"单位模板",
 			"库存单位",
-			"报价单位",
-			"录单单位",
+			"销售单位",
+			"单位转换",
 			"新增换算",
 			"整数单位",
 			"saveProductUnitTemplate",
@@ -78,8 +78,8 @@ func TestDev355ProductSubtypeConfigUnitRulesDocs(t *testing.T) {
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"商品配置模板由商品档案或客户商品选择引用",
 			"库存单位",
-			"报价单位",
-			"录单单位",
+			"销售单位",
+			"单位转换",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-24-product-subtype-config-unit-rules.md"): {
 			"PR-355-PRODUCT-SUBTYPE-CONFIG-UNIT-RULES",

@@ -119,6 +119,96 @@ INSERT INTO %s.materials(id,code,name,onhand_g) VALUES (1,'BEAN-1','水洗豆',3
 	}
 }
 
+func TestReceiveMaterialStoresNonWeightInventoryUnits(t *testing.T) {
+	pool, schema := newStockTestDB(t)
+	ctx := context.Background()
+	defer func() {
+		_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS "+schema+" CASCADE")
+		pool.Close()
+	}()
+	mustExecStockSQL(t, ctx, pool, fmt.Sprintf(`
+CREATE TABLE %s.materials (
+	id BIGINT PRIMARY KEY,
+	code TEXT NOT NULL,
+	name TEXT NOT NULL,
+	kind TEXT NOT NULL DEFAULT 'packaging',
+	unit TEXT NOT NULL DEFAULT 'box',
+	purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+	sale_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+	onhand_g BIGINT NOT NULL DEFAULT 0,
+	onhand_units BIGINT NOT NULL DEFAULT 0,
+	min_level_g BIGINT NOT NULL DEFAULT 0,
+	min_level_units BIGINT NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE %s.products (
+	id BIGINT PRIMARY KEY,
+	name TEXT NOT NULL
+);
+CREATE TABLE %s.finished_inventory (
+	product_id BIGINT NOT NULL,
+	spec_g BIGINT NOT NULL,
+	onhand_units BIGINT NOT NULL DEFAULT 0,
+	onhand_loose_g BIGINT NOT NULL DEFAULT 0,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY(product_id, spec_g)
+);
+CREATE TABLE %s.audit_logs (
+	id BIGSERIAL PRIMARY KEY,
+	actor TEXT NOT NULL DEFAULT '',
+	entity_type TEXT NOT NULL DEFAULT '',
+	entity_id BIGINT,
+	action TEXT NOT NULL DEFAULT '',
+	field TEXT,
+	old_value TEXT,
+	new_value TEXT,
+	meta JSONB,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO %s.materials(id,code,name,onhand_units) VALUES (2,'BOX-1','挂耳盒',5);
+`, schema, schema, schema, schema, schema))
+	if err := EnsureSchema(ctx, pool, schema); err != nil {
+		t.Fatalf("EnsureSchema: %v", err)
+	}
+
+	repo := NewRepository(pool, schema)
+	res, err := repo.ReceiveMaterial(ctx, stockapp.MaterialReceiptCommand{
+		MaterialID: 2,
+		Supplier:   "包材供应商",
+		QtyUnits:   12,
+		UnitCost:   1.5,
+		Operator:   "jj",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveMaterial non-weight units: %v", err)
+	}
+
+	var onhandG, onhandUnits, batchRemainingG, batchRemainingUnits, locationG, locationUnits, ledgerUnits int64
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT onhand_g,onhand_units FROM %s.materials WHERE id=2`, schema)).Scan(&onhandG, &onhandUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT remaining_g,remaining_units FROM %s.material_batches WHERE id=$1`, schema), res.BatchID).Scan(&batchRemainingG, &batchRemainingUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT qty_g,qty_units FROM %s.material_batch_locations WHERE material_batch_id=$1 AND warehouse='raw_materials'`, schema), res.BatchID).Scan(&locationG, &locationUnits); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT qty_change_units FROM %s.stock_ledger_entries WHERE source_doc_type='material_receipt' AND source_doc_id=$1`, schema), res.ReceiptID).Scan(&ledgerUnits); err != nil {
+		t.Fatal(err)
+	}
+	if onhandG != 0 || onhandUnits != 17 || batchRemainingG != 0 || batchRemainingUnits != 12 || locationG != 0 || locationUnits != 12 || ledgerUnits != 12 {
+		t.Fatalf("unit receipt state = onhand %dg/%d units batch %dg/%d units location %dg/%d units ledger %d units, want 0g/17 units and 12-unit batch/location/ledger", onhandG, onhandUnits, batchRemainingG, batchRemainingUnits, locationG, locationUnits, ledgerUnits)
+	}
+
+	inventory, err := repo.ListWarehouseInventory(ctx, stockapp.WarehouseInventoryQuery{Warehouse: "raw_materials", ItemType: "material", Limit: 20})
+	if err != nil {
+		t.Fatalf("ListWarehouseInventory: %v", err)
+	}
+	if len(inventory.Rows) != 1 || inventory.Rows[0].QtyG != 0 || inventory.Rows[0].QtyUnits != 12 {
+		t.Fatalf("warehouse inventory rows = %+v, want one 12-unit material row", inventory.Rows)
+	}
+}
+
 func TestMaterialCostAdjustmentRequiresAvailableBatchSourceGuard(t *testing.T) {
 	b, err := os.ReadFile("repository.go")
 	if err != nil {

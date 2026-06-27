@@ -729,6 +729,10 @@ func productionPlanMaterialSnapshotQty(item productionapp.ProductionPlanItem, ro
 	if rawG <= 0 {
 		rawG = item.GapG
 	}
+	outputG := item.PlannedOutputG
+	if outputG <= 0 {
+		outputG = item.GapG
+	}
 	packedUnits := productionPlanOutputUnits(item)
 	if source == "packaging" {
 		if row.QtyPerUnit > 0 && packedUnits > 0 {
@@ -736,7 +740,11 @@ func productionPlanMaterialSnapshotQty(item productionapp.ProductionPlanItem, ro
 		}
 		return packedUnits
 	}
-	return componentConsumptionQty(row.ConsumeUnit, row.QtyPerUnit, row.RatioPct, unit, rawG, packedUnits, 0)
+	ratioPct := row.RatioPct
+	if normalizeBomConsumeUnit(row.ConsumeUnit) == "ratio_pct" && !isWeightMaterialUnit(unit) && ratioPct <= 0 {
+		ratioPct = 100
+	}
+	return componentConsumptionQtyWithOutputBasis(row.ConsumeUnit, row.QtyPerUnit, ratioPct, unit, rawG, outputG, packedUnits, 0, row.OutputQty, row.OutputUnit)
 }
 
 func productionPlanOutputUnits(item productionapp.ProductionPlanItem) int64 {
