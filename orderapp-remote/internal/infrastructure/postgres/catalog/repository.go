@@ -731,6 +731,11 @@ func (r Repository) CreateSKU(ctx context.Context, cmd catalogapp.CreateSKUComma
 	}); err != nil {
 		return catalogapp.Product{}, err
 	}
+	if cmd.ParentProductID == 0 {
+		if err := syncDerivedSKUsForParentTx(ctx, tx, r.schema, cmd.Actor, productID); err != nil {
+			return catalogapp.Product{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return catalogapp.Product{}, err
 	}

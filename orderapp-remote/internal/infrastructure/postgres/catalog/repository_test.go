@@ -214,6 +214,22 @@ func TestSalesSpecTemplatesDriveDerivedSKUsAndParentInventoryUnit(t *testing.T) 
 	}
 }
 
+func TestCreateSKUSyncsDerivedSpecsForTopLevelProduct(t *testing.T) {
+	repositoryBytes, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	createSKUFn := catalogRepositoryFunctionForTest(t, string(repositoryBytes), "func (r Repository) CreateSKU", "type derivedSKUParent")
+	for _, want := range []string{
+		"if cmd.ParentProductID == 0",
+		"syncDerivedSKUsForParentTx(ctx, tx, r.schema, cmd.Actor, productID)",
+	} {
+		if !strings.Contains(createSKUFn, want) {
+			t.Fatalf("CreateSKU must derive child SKUs for top-level product archives; missing %q", want)
+		}
+	}
+}
+
 func TestProductCategoriesSchemaBackfillsActiveForLegacyTables(t *testing.T) {
 	schema, err := os.ReadFile("schema.go")
 	if err != nil {
