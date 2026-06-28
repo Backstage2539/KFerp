@@ -1798,6 +1798,16 @@ test('product archive config drawer shows derived child SKUs from sales spec tem
   assert.doesNotMatch(configDrawer, /class="child-sku-form"/)
 })
 
+test('product archive derived SKU rows reuse template net content for conversion labels', () => {
+  const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
+  const derivedRowsBlock = source.match(/const productProductionDerivedSkuRows = computed\([\s\S]*?const skuFormSalesSpecRows/)?.[0] || ''
+
+  assert.match(derivedRowsBlock, /productUnitTemplateSalesSpecRows\(productProductionConfigForm\.value\.unit_template_id\)/)
+  assert.match(derivedRowsBlock, /net_content_qty:\s*row\.net_content_qty \|\| spec\.net_content_qty/)
+  assert.match(derivedRowsBlock, /net_content_unit:\s*row\.net_content_unit \|\| spec\.net_content_unit/)
+  assert.match(derivedRowsBlock, /sales_unit:\s*row\.derived_sales_unit \|\| spec\.sales_unit/)
+})
+
 test('sales spec template controls are required in product drawers', () => {
   const source = fs.readFileSync(new URL('../views/ProductSettingsView.vue', import.meta.url), 'utf8')
   const createForm = source.match(/<form class="sku-create-form product-create-form product-drawer-form"[\s\S]*?<\/form>/)?.[0] || ''

@@ -1925,13 +1925,31 @@ const productProductionConfigParentProduct = computed(() => {
   return products.value.find((product) => Number(product.id || 0) === parentID) || productProductionConfigProduct.value || {}
 })
 const productProductionConfigSkuRows = computed(() => productSkuRowsForParent(products.value, productProductionConfigParentProductID.value))
-const productProductionDerivedSkuRows = computed(() => productProductionConfigSkuRows.value.filter((row) => {
-  if (!row) return false
-  if (row.auto_derived_sku === true || row.autoDerivedSKU === true) return true
-  if (String(row.derived_spec_key || row.derivedSpecKey || '').trim()) return true
-  if (Number(row.derived_unit_template_id || row.derivedUnitTemplateID || 0) > 0) return true
-  return false
-}))
+const productProductionDerivedSkuRows = computed(() => {
+  const specs = productUnitTemplateSalesSpecRows(productProductionConfigForm.value.unit_template_id)
+  const specsByKey = new Map(specs.map((spec) => [String(spec.spec_key || '').trim(), spec]))
+  return productProductionConfigSkuRows.value
+    .filter((row) => {
+      if (!row) return false
+      if (row.auto_derived_sku === true || row.autoDerivedSKU === true) return true
+      if (String(row.derived_spec_key || row.derivedSpecKey || '').trim()) return true
+      if (Number(row.derived_unit_template_id || row.derivedUnitTemplateID || 0) > 0) return true
+      return false
+    })
+    .map((row) => {
+      const specKey = String(row.derived_spec_key || row.derivedSpecKey || '').trim()
+      const spec = specsByKey.get(specKey) || {}
+      if (!spec.spec_key) return row
+      return {
+        ...spec,
+        ...row,
+        spec_key: specKey || spec.spec_key,
+        sales_unit: row.derived_sales_unit || spec.sales_unit,
+        net_content_qty: row.net_content_qty || spec.net_content_qty,
+        net_content_unit: row.net_content_unit || spec.net_content_unit,
+      }
+    })
+})
 const skuFormSalesSpecRows = computed(() => productUnitTemplateSalesSpecRows(skuForm.value.unit_template_id))
 const productProductionSalesSpecRows = computed(() => productUnitTemplateSalesSpecRows(productProductionConfigForm.value.unit_template_id)
   .map((row) => {
