@@ -33,7 +33,7 @@ func TestDev170ProductSettingsLayoutUsesTopLevelCustomerContext(t *testing.T) {
 	view := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	for _, want := range []string{
 		"sku-page-summary",
-		"商品档案维护商品资料",
+		"商品档案维护父 SKU 信息",
 		"selectedSkuContextLabel",
 		"productClassificationTabs",
 		"aliasClassificationTabs",

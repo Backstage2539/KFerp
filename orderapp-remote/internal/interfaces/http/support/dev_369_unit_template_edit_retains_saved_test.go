@@ -69,8 +69,8 @@ func TestDev369UnitTemplateSaveCreateUpdateDocs(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-369-UNIT-TEMPLATE-SAVE-CREATE-UPDATE",
-			"单位模板页不再提供“新建模板”按钮",
-			"保存后会刷新列表并回到空白编辑状态",
+			"销售规格模板页直接在空白表单填写后保存",
+			"保存后刷新列表并回到空白编辑状态",
 		},
 		filepath.Join("docs", "acceptance", "2026-05-25-unit-template-edit-retains-saved.md"): {
 			"PR-369",

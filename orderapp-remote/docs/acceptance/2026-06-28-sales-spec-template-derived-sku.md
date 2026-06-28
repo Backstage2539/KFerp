@@ -22,6 +22,7 @@
 - Post-review patch: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog -count=1` passed after adding derived SKU API mapping, inactive default sales spec validation, and template delete status handling.
 - Post-review patch: `go test ./internal/application/catalog ./internal/interfaces/http/catalog ./internal/infrastructure/postgres/catalog ./internal/application/costing ./internal/interfaces/http/costing ./internal/infrastructure/postgres/costing ./internal/application/sales ./internal/interfaces/http/sales ./internal/infrastructure/postgres/sales ./internal/application/production ./internal/interfaces/http/production ./internal/infrastructure/postgres/production ./internal/application/bom ./internal/interfaces/http/bom ./internal/infrastructure/postgres/bom -count=1` passed.
 - Post-review patch: `scripts/verify_kferp.sh changed` and `git diff --check` passed.
+- Deployment gate fix: first Docker build reached image `go test ./...` and failed only on historical support static markers after the UI wording changed from unit template to sales spec template. Updated those support markers to PR-505 wording; `go test ./internal/interfaces/http/support -count=1`, `go test ./...`, `scripts/verify_kferp.sh changed`, and `git diff --check` passed.
 
 ## Acceptance Notes
 - `/api/product-settings` 的销售规格模板返回 `sales_specs`，并继续兼容旧 `quote_unit/order_unit/unit_conversion_json` 字段。

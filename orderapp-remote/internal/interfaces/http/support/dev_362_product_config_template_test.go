@@ -66,7 +66,7 @@ func TestDev362ProductConfigTemplateDocs(t *testing.T) {
 		filepath.Join("docs", "OP_MANUAL_INVENTORY_MATERIALS.md"): {
 			"PR-392",
 			"复制为客户配置",
-			"1 盒 = 0.2 kg",
+			"227g袋装 / 袋 / 227 g",
 		},
 		filepath.Join("docs", "OP_MANUAL_COSTING.md"): {
 			"PR-392",

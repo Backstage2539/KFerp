@@ -28,7 +28,7 @@ func TestDev361SkuSubtypeParkingStructuredRulesUI(t *testing.T) {
 		"product_subtype_category_id",
 		"assignCreatedSkuToSelectedProductSubtype",
 		"停车场",
-		"新增销售单位",
+		"新增规格",
 		"价格表生成规则",
 	} {
 		if !strings.Contains(src, want) {

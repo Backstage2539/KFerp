@@ -66,7 +66,7 @@ func TestDev393ProductClassificationTemplateVue(t *testing.T) {
 	src := string(readOrderAppFileForTest(t, filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue")))
 	template := strings.Split(src, "<script setup>")[0]
 	for _, want := range []string{
-		"分组模板分类结果",
+		"销售规格模板",
 		"sku-category-management-workspace",
 		"data-pr442-product-group-assignments",
 		"saveProductCatalogBusinessGroupItem",

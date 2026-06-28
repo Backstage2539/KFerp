@@ -42,7 +42,7 @@ func TestDev473GenericManufacturingAbstractionContracts(t *testing.T) {
 		},
 		filepath.Join("docs", "OP_MANUAL_PRODUCTION.md"): {
 			"PR-473-GENERIC-MANUFACTURING-ABSTRACTION",
-			"商品 / BOM / 工艺路线 / 工序 / 工位 / 生产计划 / 工单 / 工序卡",
+			"父商品 / 子 SKU / BOM / 工艺路线 / 工序 / 工位 / 生产计划 / 工单 / 工序卡",
 		},
 		filepath.Join("docs", "acceptance", "2026-06-12-generic-manufacturing-abstraction.md"): {
 			"PR-473-GENERIC-MANUFACTURING-ABSTRACTION",

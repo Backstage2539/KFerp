@@ -59,8 +59,8 @@ func TestDev366GlobalUnitTemplatesUI(t *testing.T) {
 		"productUnitTemplates",
 		"saveProductUnitTemplate",
 		"productConfigTemplateForm.unit_template_id",
-		"基础单位在“系统设置”维护",
-		"单位模板",
+		"销售规格模板",
+		"销售规格明细",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("ProductSettingsView.vue missing global unit template marker %q", want)

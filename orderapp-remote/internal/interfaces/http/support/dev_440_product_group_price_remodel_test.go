@@ -86,7 +86,7 @@ func TestDev440ProductGroupPriceRemodelFrontendAndDocs(t *testing.T) {
 		},
 		filepath.Join("frontend-vue-shell", "src", "views", "ProductSettingsView.vue"): {
 			"客户引用",
-			"分组模板分类结果",
+			"销售规格模板",
 			"价格计算模板 / Pricing Rule",
 			"商品 > 子类 > 父类 > 价格表",
 			"平铺价格行",

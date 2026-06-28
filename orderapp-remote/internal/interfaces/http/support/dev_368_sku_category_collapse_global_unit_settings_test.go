@@ -31,7 +31,7 @@ func TestDev368SkuCategoryCollapseAndFocusUI(t *testing.T) {
 		"focusCategoryAfterCreate",
 		"scrollIntoView",
 		"category-collapse-button",
-		"基础单位在“系统设置”维护",
+		"销售规格模板",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("ProductSettingsView.vue missing collapse/focus marker %q", want)

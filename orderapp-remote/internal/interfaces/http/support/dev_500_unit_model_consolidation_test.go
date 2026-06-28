@@ -48,7 +48,7 @@ func TestDev500UnitModelConsolidationContracts(t *testing.T) {
 	for _, marker := range []string{
 		"销售单位",
 		"库存单位",
-		"单位转换",
+		"销售规格模板",
 		"sales_unit",
 		"qty",
 		"unit_code",
